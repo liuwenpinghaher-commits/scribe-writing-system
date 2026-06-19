@@ -1,0 +1,33 @@
+# 依赖与构建产物
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/dist/
+**/build/
+**/*.egg-info/
+*.pyc
+
+# 数据库与本地数据(绝不提交)
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# 密钥与本地配置(绝不提交)
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+secrets/
+config.local.*
+
+# 第三方 vendored 源码(本地从 GitHub 安装,自带 .git)
+scribe/vendor/
+
+# CodeGraph 索引(可重建)
+**/.codegraph/
+
+# 个性化训练产物(二进制,可重建)
+scribe/out/
+
+# 系统
+.DS_Store

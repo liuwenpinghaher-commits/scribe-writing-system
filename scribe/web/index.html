@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scribe · 写作工作台</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--line:#272b35;--fg:#e6e8ee;--muted:#8b93a7;--accent:#6aa3ff;--warn:#e8b04b}
+  *{box-sizing:border-box} body{margin:0;font:14px/1.6 -apple-system,"PingFang SC",system-ui,sans-serif;background:var(--bg);color:var(--fg);height:100vh;overflow:hidden}
+  .app{display:grid;grid-template-columns:240px 1fr 360px;height:100vh}
+  .col{height:100vh;overflow:auto;border-right:1px solid var(--line);padding:14px}
+  .col:last-child{border-right:none}
+  h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+  h3{font-size:13px;margin:18px 0 8px;color:var(--muted)}
+  .work,.chap{padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer;background:var(--panel)}
+  .work:hover,.chap:hover{border-color:var(--accent)}
+  .work.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .work .t{font-weight:600} .work .m,.chap .m{color:var(--muted);font-size:12px}
+  button{background:var(--accent);color:#06101f;border:0;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  input,textarea{width:100%;background:#0c0e13;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;margin:4px 0}
+  .northstar{background:linear-gradient(180deg,#1b2536,#171a21);border:1px solid #2a3346;border-radius:10px;padding:12px;margin-bottom:14px}
+  .northstar .lbl{color:var(--accent);font-size:12px}
+  .tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .tabs button{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:500;padding:5px 10px}
+  .tabs button.on{color:var(--fg);border-color:var(--accent)}
+  .item{border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;background:var(--panel)}
+  .badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:20px;background:#243049;color:var(--accent)}
+  .chat{display:flex;flex-direction:column;height:100%}
+  .msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:8px}
+  .bub{padding:9px 11px;border-radius:10px;max-width:92%;white-space:pre-wrap}
+  .bub.me{align-self:flex-end;background:#243049} .bub.ai{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+  .row{display:flex;gap:8px} .muted{color:var(--muted)} .empty{color:var(--muted);padding:20px 0;text-align:center}
+  .dot{display:inline-block;min-width:16px;height:16px;line-height:16px;text-align:center;font-size:11px;border-radius:9px;padding:0 4px;margin-left:4px}
+  .dot.note{background:#3a2f16;color:var(--warn)} .dot.opt{background:#16306a;color:#9cc0ff}
+  .sxs{display:grid;grid-template-columns:1fr 1fr;gap:8px} .sxs .item{font-size:13px}
+  .seg{white-space:pre-wrap;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 左:作品库(多本书) -->
+  <div class="col" id="library">
+    <h2>作品库</h2>
+    <div class="row"><input id="newTitle" placeholder="新书名…" /><button onclick="createWork()">建</button></div>
+    <div id="works"></div>
+  </div>
+
+  <!-- 中:北极星 + 章节(大纲树) -->
+  <div class="col" id="center">
+    <div id="centerEmpty" class="empty">← 选择或新建一本书</div>
+    <div id="centerBody" style="display:none">
+      <div class="northstar">
+        <div class="lbl">北极星 · 这本书要让读者感受什么</div>
+        <textarea id="readerFeeling" rows="2" placeholder="reader_feeling…"></textarea>
+        <textarea id="doNotBetray" rows="1" placeholder="绝不背叛的红线(逗号分隔)…"></textarea>
+        <button class="ghost" onclick="saveIntent()">保存北极星</button>
+      </div>
+      <div class="row">
+        <input id="imagIn" placeholder="💡 随手抛个想象(// 聚焦,Enter 捕获)…" onkeydown="if(event.key==='Enter')captureImag()"/>
+        <button class="ghost" onclick="captureImag()">存想象</button>
+      </div>
+      <div id="imagList" class="muted" style="font-size:12px;margin-bottom:6px"></div>
+      <h3>章节</h3>
+      <div class="row"><input id="chapTitle" placeholder="新章标题…"/><button onclick="addChapter()">加章</button></div>
+      <div id="chapters"></div>
+      <div id="chapDetail" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- 右:门槛侧栏(设定/角色/伏笔/一致性)+ 主编对话 -->
+  <div class="col" id="right">
+    <div class="row"><h2 style="flex:1">主编札记</h2><button class="ghost" onclick="runReview()">全文体检</button></div>
+    <div id="insights" style="margin-bottom:12px"></div>
+    <div class="tabs" id="tabs">
+      <button class="on" data-t="bible" onclick="setTab('bible')">设定圣经</button>
+      <button data-t="foreshadow" onclick="setTab('foreshadow')">伏笔<span id="tb-foreshadow"></span></button>
+      <button data-t="flags" onclick="setTab('flags')">一致性<span id="tb-flags"></span></button>
+    </div>
+    <div id="sidebar" style="max-height:34vh;overflow:auto"></div>
+    <div id="options"></div>
+    <h3>主编对话</h3>
+    <div class="chat">
+      <div class="msgs" id="msgs"><div class="empty">和主编(火山 doubao)聊聊这本书</div></div>
+      <div class="row"><input id="chatIn" placeholder="说点什么…" onkeydown="if(event.key==='Enter')send()"/><button onclick="send()">发</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = location.origin.includes("file") ? "http://127.0.0.1:8801" : "http://127.0.0.1:8801";
+const OWNER = "u1"; // 本地开发用固定 owner;鉴权由你自建(工程9)
+let curWork = null, tab = "bible";
+const H = {"X-Owner-Id":OWNER,"Content-Type":"application/json"};
+const j = (r)=>r.json();
+
+async function loadWorks(){
+  const ws = await fetch(`${API}/works`,{headers:H}).then(j).catch(()=>[]);
+  const box = document.getElementById("works"); box.innerHTML="";
+  if(!ws.length) box.innerHTML='<div class="empty">还没有书</div>';
+  ws.forEach(w=>{
+    const d=document.createElement("div"); d.className="work"+(curWork&&curWork.id===w.id?" active":"");
+    d.innerHTML=`<div class="t">${esc(w.title)}</div><div class="m">${esc(w.genre||"未定题材")}
+      <span id="badge-${w.id}"></span></div>`;
+    d.onclick=()=>selectWork(w); box.appendChild(d);
+    // 跨书汇总角标(工程2b):待你看的札记数 / 待决方案数
+    Promise.all([
+      fetch(`${API}/works/${w.id}/insights?status=new`,{headers:H}).then(j).catch(()=>[]),
+      fetch(`${API}/works/${w.id}/option-sets`,{headers:H}).then(j).catch(()=>[]),
+    ]).then(([ins,opt])=>{const b=document.getElementById("badge-"+w.id);if(!b)return;
+      b.innerHTML=(ins.length?`<span class="dot note" title="主编札记">📝${ins.length}</span>`:"")
+                 +(opt.length?`<span class="dot opt" title="待决方案">◆${opt.length}</span>`:"");});
+  });
+}
+async function createWork(){
+  const title=document.getElementById("newTitle").value.trim(); if(!title)return;
+  await fetch(`${API}/works`,{method:"POST",headers:H,body:JSON.stringify({title})});
+  document.getElementById("newTitle").value=""; loadWorks();
+}
+async function selectWork(w){
+  curWork=w; loadWorks();
+  document.getElementById("centerEmpty").style.display="none";
+  document.getElementById("centerBody").style.display="block";
+  const intent=await fetch(`${API}/works/${w.id}/author-intent`,{headers:H}).then(j).catch(()=>({}));
+  document.getElementById("readerFeeling").value=intent.reader_feeling||"";
+  document.getElementById("doNotBetray").value=(()=>{try{return JSON.parse(intent.do_not_betray||"[]").join("，")}catch{return ""}})();
+  loadChapters(); loadSidebar(); loadOptions(); loadImag(); loadInsights(); refreshTabBadges();
+  document.getElementById("msgs").innerHTML='<div class="empty">和主编聊《'+esc(w.title)+'》</div>';
+}
+async function saveIntent(){
+  if(!curWork)return;
+  const dnb=document.getElementById("doNotBetray").value.split(/[，,]/).map(s=>s.trim()).filter(Boolean);
+  await fetch(`${API}/works/${curWork.id}/author-intent`,{method:"PUT",headers:H,
+    body:JSON.stringify({reader_feeling:document.getElementById("readerFeeling").value,do_not_betray:dnb})});
+  flash("北极星已存");
+}
+let chapMax=0;
+async function loadChapters(){
+  const box=document.getElementById("chapters"); box.innerHTML="";
+  const cs=await fetch(`${API}/works/${curWork.id}/chapters`,{headers:H}).then(j).catch(()=>[]);
+  chapMax=cs.reduce((m,c)=>Math.max(m,c.seq),0);
+  if(!cs.length){box.innerHTML='<div class="empty">还没有章节</div>';return;}
+  cs.forEach(c=>{const d=document.createElement("div");d.className="chap";
+    d.innerHTML=`<div>第 ${c.seq} 章 · ${esc(c.title||"")} <span class="badge">${c.status}</span></div>`;
+    d.onclick=()=>openChapter(c.seq); box.appendChild(d);});
+}
+async function addChapter(){
+  if(!curWork)return; const title=document.getElementById("chapTitle").value.trim();
+  await fetch(`${API}/works/${curWork.id}/chapters`,{method:"PUT",headers:H,
+    body:JSON.stringify({seq:chapMax+1,title})});
+  document.getElementById("chapTitle").value=""; loadChapters();
+}
+let curSeq=null, diffMode="inline"; // inline | sxs | focus
+function setDiffMode(m){diffMode=m;openChapter(curSeq);}
+async function openChapter(seq){
+  curSeq=seq;
+  const ch=await fetch(`${API}/works/${curWork.id}/chapters/${seq}`,{headers:H}).then(j);
+  const box=document.getElementById("chapDetail"); box.style.display="block";
+  const snaps=ch.snapshots||[];
+  let view='<div class="empty">还没有正文。点「让主编写这章」。</div>';
+  if(snaps.length===1){view=`<div class="item seg">${esc(snaps[snaps.length-1].content)}</div>`;}
+  else if(snaps.length>=2){
+    const a=snaps[snaps.length-2], b=snaps[snaps.length-1];
+    if(diffMode==="focus"){view=`<div class="item seg">${esc(b.content)}</div>`;}
+    else if(diffMode==="sxs"){view=`<div class="muted">${a.branch_label} ↔ ${b.branch_label}</div>
+      <div class="sxs"><div class="item seg">${esc(a.content)}</div><div class="item seg">${esc(b.content)}</div></div>`;}
+    else{view=`<div class="muted">版本 diff(${a.branch_label} → ${b.branch_label}):</div>
+      <div class="item seg">${diff(a.content,b.content)}</div>`;}
+  }
+  const mbtn=(m,t)=>`<button class="${diffMode===m?'':'ghost'}" style="padding:3px 9px;font-size:12px" onclick="setDiffMode('${m}')">${t}</button>`;
+  box.innerHTML=`<h3>第 ${seq} 章 · ${esc(ch.title||"")} <span class="badge">${ch.status}</span>
+      <span class="muted" style="font-weight:400"> · ${snaps.length} 个版本</span></h3>
+    ${snaps.length>=2?`<div class="row" style="margin-bottom:6px">${mbtn("inline","行内diff")}${mbtn("sxs","双栏对照")}${mbtn("focus","只看终稿")}</div>`:""}
+    ${view}
+    <div class="row" style="margin-top:10px">
+      <button onclick="writeChapter(${seq})">让主编写这章</button>
+    </div>
+    <textarea id="fbIn" rows="2" placeholder="对这章提意见(如:更紧张、句子更短)…"></textarea>
+    <button class="ghost" onclick="feedbackRewrite(${seq})">提意见并让主编重写</button>
+    <div id="chapBusy" class="muted"></div>`;
+}
+async function writeChapter(seq){
+  const busy=document.getElementById("chapBusy"); busy.textContent="主编写作中(火山 doubao)…";
+  await chat(`请用 write-chapter 技能为《${curWork.title}》写第 ${seq} 章:save_chapter 后写约150字正文并 save_snapshot(ai-draft);写完用一句话报告。work_id=${curWork.id}`);
+  await autoCheck(seq);
+  busy.textContent=""; openChapter(seq); loadChapters();
+}
+async function autoCheck(seq){
+  // 门槛后台自动校验(符号状态矛盾 + AI 腔)
+  await fetch(`${API}/works/${curWork.id}/chapters/${seq}/check`,{method:"POST",headers:H}).catch(()=>{});
+  setTab("flags"); refreshTabBadges(); loadInsights(); // 切到一致性侧栏 + 刷角标/札记(安静呈现)
+}
+async function feedbackRewrite(seq){
+  const t=document.getElementById("fbIn").value.trim(); if(!t)return;
+  const busy=document.getElementById("chapBusy"); busy.textContent="记录意见 + 主编定向重写中…";
+  await fetch(`${API}/works/${curWork.id}/chapters/${seq}/feedback`,{method:"POST",headers:H,body:JSON.stringify({nl_critique:t})});
+  await chat(`作者对《${curWork.title}》第 ${seq} 章的意见:"${t}"。请取该章最新 snapshot,据意见做定向重写(只改问题处),save_snapshot 时 parent_id 设为上一版。work_id=${curWork.id}`);
+  await autoCheck(seq);
+  busy.textContent=""; openChapter(seq);
+}
+// 极简字符级 diff(LCS):删除标红、新增标绿
+function diff(a,b){
+  a=a||"";b=b||"";const n=a.length,m=b.length;
+  const dp=Array.from({length:n+1},()=>new Int32Array(m+1));
+  for(let i=n-1;i>=0;i--)for(let k=m-1;k>=0;k--)dp[i][k]=a[i]===b[k]?dp[i+1][k+1]+1:Math.max(dp[i+1][k],dp[i][k+1]);
+  let i=0,k=0,out="";
+  const ins=s=>`<span style="background:#16361f;color:#7fdca0">${esc(s)}</span>`;
+  const del=s=>`<span style="background:#3a1d22;color:#e08b95;text-decoration:line-through">${esc(s)}</span>`;
+  let bufA="",bufB="";
+  const flush=()=>{out+=(bufA?del(bufA):"")+(bufB?ins(bufB):"");bufA="";bufB="";};
+  while(i<n&&k<m){
+    if(a[i]===b[k]){flush();out+=esc(a[i]);i++;k++;}
+    else if(dp[i+1][k]>=dp[i][k+1]){bufA+=a[i++];}
+    else{bufB+=b[k++];}
+  }
+  while(i<n)bufA+=a[i++]; while(k<m)bufB+=b[k++]; flush();
+  return out;
+}
+function setTab(t){tab=t;[...document.querySelectorAll("#tabs button")].forEach(b=>b.classList.toggle("on",b.dataset.t===t));loadSidebar();}
+async function refreshTabBadges(){
+  if(!curWork)return;
+  const [fo,fl]=await Promise.all([
+    fetch(`${API}/works/${curWork.id}/foreshadows`,{headers:H}).then(j).catch(()=>[]),
+    fetch(`${API}/works/${curWork.id}/consistency-flags`,{headers:H}).then(j).catch(()=>[]),
+  ]);
+  const set=(id,n,cls)=>{const e=document.getElementById(id);if(e)e.innerHTML=n?`<span class="dot ${cls}">${n}</span>`:"";};
+  set("tb-foreshadow",fo.length,"opt"); set("tb-flags",fl.length,"note");
+}
+async function loadSidebar(){
+  if(!curWork)return; const box=document.getElementById("sidebar"); box.innerHTML='<div class="muted">加载…</div>';
+  const ep={bible:"settings",foreshadow:"foreshadows",flags:"consistency-flags"}[tab];
+  let data=await fetch(`${API}/works/${curWork.id}/${ep}`,{headers:H}).then(j).catch(()=>[]);
+  if(tab==="bible"){const ch=await fetch(`${API}/works/${curWork.id}/characters`,{headers:H}).then(j).catch(()=>[]);data=[...ch.map(c=>({_k:"角色",name:c.name})),...data.map(s=>({_k:s.type,name:s.name}))];}
+  box.innerHTML=""; if(!data.length){box.innerHTML='<div class="empty">空</div>';return;}
+  data.forEach(x=>{const d=document.createElement("div");d.className="item";
+    d.innerHTML = tab==="foreshadow" ? `<span class="badge">${x.state}</span> ${esc(x.summary||"")}`
+      : tab==="flags" ? `<span class="badge" style="background:#3a2330;color:#e8b04b">${esc(x.error_class)}</span> ${esc(x.detail||"")}`
+      : `<span class="badge">${esc(x._k||"")}</span> ${esc(x.name||"")}`;
+    box.appendChild(d);});
+}
+async function captureImag(){
+  if(!curWork)return; const el=document.getElementById("imagIn"); const t=el.value.trim(); if(!t)return;
+  await fetch(`${API}/works/${curWork.id}/imaginations`,{method:"POST",headers:H,body:JSON.stringify({raw_text:t})});
+  el.value=""; loadImag(); flash("想象已存(AI 一切文字的源头)");
+}
+async function loadImag(){
+  if(!curWork)return; const box=document.getElementById("imagList");
+  const xs=await fetch(`${API}/works/${curWork.id}/imaginations`,{headers:H}).then(j).catch(()=>[]);
+  box.innerHTML = xs.length? ("想象 "+xs.length+" 条:"+xs.slice(-3).map(x=>"「"+esc(x.raw_text.slice(0,16))+"」").join(" ")) : "";
+}
+async function runReview(){
+  if(!curWork)return; const box=document.getElementById("insights"); box.innerHTML='<div class="muted">体检中…</div>';
+  await fetch(`${API}/works/${curWork.id}/proactive-review`,{method:"POST",headers:H});
+  loadInsights();
+}
+async function loadInsights(){
+  if(!curWork)return; const box=document.getElementById("insights");
+  const xs=await fetch(`${API}/works/${curWork.id}/insights?status=new`,{headers:H}).then(j).catch(()=>[]);
+  if(!xs.length){box.innerHTML='<div class="muted" style="font-size:12px">暂无札记。点「全文体检」让主编主动揪问题。</div>';return;}
+  box.innerHTML="";
+  xs.forEach(x=>{const sevc={major:"#e8b04b",critical:"#e08b95"}[x.severity]||"#6aa3ff";
+    const d=document.createElement("div"); d.className="item"; d.style.borderLeft="3px solid "+sevc;
+    d.innerHTML=`<div>${esc(x.summary)}</div>${x.suggested_action?`<div class="muted" style="font-size:12px">建议:${esc(x.suggested_action)}</div>`:""}
+      <div class="row" style="margin-top:4px"><button class="ghost" onclick="actInsight('${x.id}','ack')">知道了</button>
+      <button class="ghost" onclick="actInsight('${x.id}','dismiss')">忽略</button></div>`;
+    box.appendChild(d);});
+}
+async function actInsight(iid,act){
+  await fetch(`${API}/works/${curWork.id}/insights/${iid}/${act}`,{method:"POST",headers:H});
+  loadInsights();
+}
+async function loadOptions(){
+  if(!curWork)return; const box=document.getElementById("options");
+  const sets=await fetch(`${API}/works/${curWork.id}/option-sets`,{headers:H}).then(j).catch(()=>[]);
+  if(!sets.length){box.innerHTML="";return;}
+  box.innerHTML='<h3 style="color:var(--accent)">待你定夺的方案</h3>';
+  sets.forEach(s=>{
+    let dp=""; try{dp=JSON.parse(s.decision_point).text||""}catch{}
+    let opts=[]; try{opts=JSON.parse(s.options)}catch{}
+    const card=document.createElement("div"); card.className="item";
+    card.innerHTML=`<div class="muted">${esc(dp)}</div>`+opts.map((o,i)=>{
+      const oid=o.id!=null?o.id:i;
+      return `<div style="border-top:1px solid var(--line);padding:6px 0">
+        <div><b>${esc(o.approach||o.label||("方案"+oid))}</b></div>
+        ${o.tradeoff?`<div class="muted">代价:${esc(o.tradeoff)}</div>`:""}
+        <button class="ghost" style="margin-top:4px" onclick="chooseOption('${s.id}','${oid}')">选这个</button>
+      </div>`;}).join("");
+    box.appendChild(card);
+  });
+}
+async function chooseOption(setId,optId){
+  await fetch(`${API}/works/${curWork.id}/option-sets/${setId}/choose`,{method:"POST",headers:H,
+    body:JSON.stringify({chosen_option_id:String(optId)})});
+  flash("已选方案 "+optId+"(已记入你的品味)"); loadOptions();
+}
+async function chat(message){
+  // 统一的主编调用:POST /chat → 转发 Hermes(火山 doubao)。返回文本。
+  try{
+    const r=await fetch(`${API}/chat`,{method:"POST",headers:H,body:JSON.stringify({message})}).then(j);
+    return r.content||r.detail||"(无响应)";
+  }catch(e){return "出错:"+e;}
+}
+async function send(){
+  if(!curWork)return; const inp=document.getElementById("chatIn"); const msg=inp.value.trim(); if(!msg)return;
+  inp.value=""; addMsg(msg,"me"); const wait=addMsg("主编思考中…","ai");
+  wait.textContent=await chat(`(当前书:${curWork.title})`+msg);
+  document.getElementById("msgs").scrollTop=1e9;
+  loadOptions(); loadSidebar();  // 主编可能新出方案/改了设定
+}
+function addMsg(t,who){const m=document.getElementById("msgs");if(m.querySelector(".empty"))m.innerHTML="";
+  const d=document.createElement("div");d.className="bub "+who;d.textContent=t;m.appendChild(d);m.scrollTop=1e9;return d;}
+function esc(s){return (s==null?"":""+s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function flash(t){const d=addMsg(t,"ai");setTimeout(()=>d.remove(),1500);}
+// 「//」全局快捷:连按两个 / 聚焦想象捕获框(零摩擦记灵感)
+let _lastSlash=0;
+document.addEventListener("keydown",e=>{
+  const tag=document.activeElement.tagName;
+  if(e.key==="/" && tag!=="INPUT" && tag!=="TEXTAREA"){
+    const now=Date.now();
+    if(now-_lastSlash<400){const el=document.getElementById("imagIn");if(el){el.focus();e.preventDefault();}}
+    _lastSlash=now;
+  }
+});
+loadWorks();
+</script>
+</body>
+</html>
