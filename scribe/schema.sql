@@ -318,3 +318,15 @@ CREATE TABLE IF NOT EXISTS agent_skills (
     approved_by_human INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
+
+-- B3 写工具审批:主编写类工具挂起,作者批准才真写
+CREATE TABLE IF NOT EXISTS pending_writes (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  args_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  result_json TEXT,
+  created_at TEXT,
+  decided_at TEXT
+);

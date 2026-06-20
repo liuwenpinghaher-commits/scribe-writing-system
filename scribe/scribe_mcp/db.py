@@ -49,6 +49,11 @@ class Database:
             "CREATE TABLE IF NOT EXISTS chapter_tasks ("
             "id TEXT PRIMARY KEY, work_id TEXT NOT NULL, seq INTEGER NOT NULL, "
             "status TEXT NOT NULL, detail TEXT, updated_at TEXT, UNIQUE(work_id, seq))",
+            # B3 写工具审批队列
+            "CREATE TABLE IF NOT EXISTS pending_writes ("
+            "id TEXT PRIMARY KEY, work_id TEXT NOT NULL, tool_name TEXT NOT NULL, "
+            "args_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', "
+            "result_json TEXT, created_at TEXT, decided_at TEXT)",
         ]:
             try:
                 self.conn.execute(sql); self.conn.commit()
@@ -784,6 +789,39 @@ class Database:
             except Exception:
                 pass
         return False
+
+    # ---- B3 写工具审批队列(pending_writes:主编写类工具挂起,作者批准才真写)----
+    def enqueue_pending_write(self, work_id: str, tool_name: str, args: dict) -> str:
+        pid = _id()
+        self.conn.execute(
+            "INSERT INTO pending_writes(id,work_id,tool_name,args_json,status,created_at) "
+            "VALUES(?,?,?,?, 'pending', ?)",
+            (pid, work_id, tool_name, json.dumps(args, ensure_ascii=False), _now()))
+        self.conn.commit()
+        return pid
+
+    def _row_to_pending(self, r) -> dict:
+        return {"id": r["id"], "work_id": r["work_id"], "tool_name": r["tool_name"],
+                "args": json.loads(r["args_json"]), "status": r["status"],
+                "result": json.loads(r["result_json"]) if r["result_json"] else None,
+                "created_at": r["created_at"], "decided_at": r["decided_at"]}
+
+    def list_pending_writes(self, work_id: str, status: str = "pending") -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM pending_writes WHERE work_id=? AND status=? ORDER BY created_at",
+            (work_id, status)).fetchall()
+        return [self._row_to_pending(r) for r in rows]
+
+    def get_pending_write(self, pid: str) -> dict | None:
+        r = self.conn.execute("SELECT * FROM pending_writes WHERE id=?", (pid,)).fetchone()
+        return self._row_to_pending(r) if r else None
+
+    def mark_pending_decided(self, pid: str, status: str, result: dict | None) -> None:
+        self.conn.execute(
+            "UPDATE pending_writes SET status=?, result_json=?, decided_at=? WHERE id=?",
+            (status, json.dumps(result, ensure_ascii=False) if result is not None else None,
+             _now(), pid))
+        self.conn.commit()
 
     # ---- 一致性标记(门槛1,后台校验产出)----
     def raise_consistency_flag(self, work_id: str, error_class: str, chapter_seq: int | None,

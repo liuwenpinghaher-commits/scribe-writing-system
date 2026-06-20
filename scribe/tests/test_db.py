@@ -82,6 +82,28 @@ def test_human_lock_protects_manuscript():
     assert branches == {"human-final", "ai-draft"}
 
 
+def test_pending_writes_queue_roundtrip(tmp_path):
+    from scribe_mcp.db import Database
+    db = Database(str(tmp_path / "t.db"))
+    wid = db.create_work("u1", "书")
+    pid = db.enqueue_pending_write(wid, "upsert_setting",
+                                   {"work_id": wid, "type": "character", "name": "沈舟", "content": {"k": "v"}})
+    assert pid
+    pend = db.list_pending_writes(wid, "pending")
+    assert len(pend) == 1
+    row = pend[0]
+    assert row["tool_name"] == "upsert_setting"
+    assert row["args"] == {"work_id": wid, "type": "character", "name": "沈舟", "content": {"k": "v"}}
+    assert row["status"] == "pending"
+    one = db.get_pending_write(pid)
+    assert one["id"] == pid and one["args"]["name"] == "沈舟"
+    db.mark_pending_decided(pid, "approved", {"setting_id": "s1"})
+    assert db.list_pending_writes(wid, "pending") == []
+    done = db.get_pending_write(pid)
+    assert done["status"] == "approved" and done["result"] == {"setting_id": "s1"}
+    assert done["decided_at"]
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
