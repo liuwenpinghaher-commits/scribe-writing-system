@@ -61,7 +61,8 @@ export interface Quality {
   weakest_chapters: { seq: number; words: number; slop_density: number; open_flags: number }[];
   cost: { calls: number; tokens: number; cost_usd: number };
 }
-export interface Relation { id: string; src_entity: string; dst_entity: string; relation: string; valid_from_chapter?: number | null; valid_to_chapter?: number | null; }
+export interface Relation { id: string; src_entity: string; dst_entity: string; relation: string; valid_from_chapter?: number | null; valid_to_chapter?: number | null; src_type?: string; dst_type?: string; relation_category?: string; weight?: number; directed?: number; }
+export interface QualitySnapshot { words?: number; slop_density?: number; consistency_score?: number; foreshadow_payoff?: number; vocab_richness?: number; repetition_rate?: number; cost_usd?: number; created_at?: string; scope?: string; chapter_seq?: number; }
 export interface CharState { id: string; chapter_seq: number; state_desc?: string; change_type?: string; }
 export interface ChapterTask { id: string; work_id: string; seq: number; status: string; detail?: string; updated_at: string; next: string[]; }
 export interface Thread { id: string; trigger: string; topic: string; messages: string; status: string; resolution?: string; created_at: string; }
@@ -197,4 +198,7 @@ export const api = {
     post<{ skill_id: string }>(`/works/${w}/agent-skills`, { name, spec }),
   actSkill: (w: string, sid: string, action: "approve" | "activate" | "retire") =>
     post<{ status: string }>(`/works/${w}/agent-skills/${sid}/${action}`),
+  // ── P2 新增:质量历史 / 全书分析 ──
+  analyzeWork: (w: string) => post<{ analyzed: number; relations: number; events: number; states: number }>(`/works/${w}/analyze`),
+  qualityHistory: (w: string, scope = "global") => req<QualitySnapshot[]>(`/works/${w}/quality/history?scope=${scope}`),
 };
