@@ -19,7 +19,9 @@
 - `weight REAL DEFAULT 1.0` —— 强度(出现次数或 LLM 估)
 - `directed INTEGER DEFAULT 1` —— 是否有向
 
-**抽取(`memory.py` ingest 提示扩展)**:JSON schema 增 `src_type/dst_type/category/strength/directed`;鲁棒解析补默认值(缺失则 type=未知、category=其它、weight=1、directed=1),不因字段缺失丢整条。
+**抽取路线(已定:轻量,复用模式不拉重库)**:保留现有"直连 Hermes + 解析 JSON"的 `ingest`,**升级为 typed schema 结构化抽取**(借鉴 LangChain LLMGraphTransformer / LlamaIndex PropertyGraph 的做法:限定实体/关系类型 + 校验)。**不引入** langchain/llamaindex/GraphRAG(对单本书过重)、**不引入** Graphiti(需图数据库)、**不套** MCP(MCP 是 agent 工具层,非 UI 数据后端;详见三线决策)。
+
+**抽取(`memory.py` ingest 提示扩展)**:JSON schema 增 `src_type/dst_type/category/strength/directed`;鲁棒解析补默认值(缺失则 type=未知、category=其它、weight=1、directed=1),不因字段缺失丢整条。实体/关系类型用轻枚举(角色/地点/阵营/物品/组织/概念 × 亲属/敌对/盟友/师徒/爱慕/从属/因果/其它),LLM 归类,不建本体库。
 
 **DB / API**:`add_relation()` 增可选参数;`list_relations()` 返回新字段(additive,前端按需用)。`GET /relations` 契约不变,仅多字段。
 
@@ -42,6 +44,8 @@ cost_usd REAL, created_at TEXT
 **API(新增,additive)**:`GET /works/{id}/quality/history?scope=global|chapter` → 时序数组,供前端趋势图。
 
 > 现 `GET /quality`(横截面)保留不变;history 是新增。
+
+**中文质量指标(增强,复用 `jieba`)**:`metrics.py` 增中文友好指标 —— 词汇丰富度(type-token ratio)、重复率(n-gram/句式重复)。`textstat` 偏英文不用;`jieba` 分词 + 简单公式即可,既充实仪表盘又是 AI 腔强信号。新指标并入 `chapter_quality` / `work_quality_report` 与 `quality_snapshots`。依赖加 `jieba`。
 
 ## 4. 增强三 · 批量分析全书
 
@@ -68,3 +72,5 @@ cost_usd REAL, created_at TEXT
 - 不改既有端点契约 / 不删字段。
 - 不做向量化关系推理、不做跨书图谱(单书范围)。
 - 关系类型/类别用**轻枚举 + LLM 归类**,不建本体库(YAGNI)。
+- 不引入重型 KG 框架(GraphRAG/LangChain/LlamaIndex)、不引入图数据库(Graphiti/Neo4j)、不套 MCP 做 UI 数据层。
+- **主编 agent + MCP 工具升级(web 搜索/KG 记忆/推理)是独立第三条线**,另立 spec,不在本次范围。本次仍把 Hermes 当 LLM 补全端点用。
