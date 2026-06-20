@@ -1,102 +1,42 @@
-import { Sun, Moon, BookOpen, ChevronDown, Plus } from "lucide-react";
+import { Sun, Moon, BookOpen, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VIEWS, type ViewKey } from "./views";
 import type { Work } from "./api";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 interface AppRailProps {
-  works: Work[] | null;
   current: Work | null;
   view: ViewKey;
   onView: (v: ViewKey) => void;
-  onSelectWork: (w: Work) => void;
-  onCreate: () => void;
+  onOpenLibrary: () => void;   // 点书名 → 回选书页(可靠切书)
   theme: string;
   onTheme: (t: string) => void;
 }
 
-export function AppRail({
-  works,
-  current,
-  view,
-  onView,
-  onSelectWork,
-  onCreate,
-  theme,
-  onTheme,
-}: AppRailProps) {
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }: AppRailProps) {
   return (
     <header className="h-12 shrink-0 flex items-center border-b border-border bg-background px-3 gap-3">
-      {/* 左:字标 + 书切换 */}
+      {/* 左:字标 + 书切换(普通按钮,点了回选书页) */}
       <div className="flex items-center gap-2 shrink-0">
-        <span className="font-semibold tracking-wide text-primary text-sm select-none">
-          SCRIBE
-        </span>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-md text-sm",
-              "text-muted-foreground hover:text-foreground hover:bg-accent",
-              "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "max-w-[140px]"
-            )}
-            aria-label={current ? current.title : "选择作品"}
-          >
-            <BookOpen size={14} className="shrink-0" />
-            <span className="truncate text-xs">
-              {current ? current.title : "选择作品"}
-            </span>
-            <ChevronDown size={10} className="shrink-0 opacity-50" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="bottom" align="start" className="w-52">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
-              作品库
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {works && works.length > 0 ? (
-              works.map((w) => (
-                <DropdownMenuItem
-                  key={w.id}
-                  onClick={() => onSelectWork(w)}
-                  className={cn(
-                    "cursor-pointer",
-                    current?.id === w.id && "bg-accent text-accent-foreground"
-                  )}
-                >
-                  <span className="truncate">{w.title}</span>
-                  {w.genre && (
-                    <span className="ml-auto text-xs text-muted-foreground shrink-0">
-                      {w.genre}
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))
-            ) : (
-              <DropdownMenuItem disabled className="text-muted-foreground text-xs">
-                暂无作品
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onCreate} className="cursor-pointer text-primary">
-              <Plus size={14} /> 新建作品
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <span className="font-semibold tracking-wide text-primary text-sm select-none">SCRIBE</span>
+        <button
+          onClick={onOpenLibrary}
+          title="切换 / 选择作品"
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 rounded-md text-sm max-w-[160px]",
+            "text-muted-foreground hover:text-foreground hover:bg-accent",
+            "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          )}
+        >
+          <BookOpen size={14} className="shrink-0" />
+          <span className="truncate text-xs">{current ? current.title : "选择作品"}</span>
+          <ChevronDown size={10} className="shrink-0 opacity-50" />
+        </button>
       </div>
 
-      {/* 分隔线 */}
       <div className="w-px h-5 bg-border shrink-0" />
 
       {/* 中:5 视图水平 tab */}
-      <nav className="flex items-center gap-1 flex-1 min-w-0" aria-label="主导航">
+      <nav className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto" aria-label="主导航">
         {VIEWS.map(({ key, label, icon: Icon }) => {
           const isActive = view === key;
           return (
@@ -129,11 +69,7 @@ export function AppRail({
           "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring"
         )}
       >
-        {theme === "dark" ? (
-          <Sun size={15} />
-        ) : (
-          <Moon size={15} />
-        )}
+        {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
       </button>
     </header>
   );

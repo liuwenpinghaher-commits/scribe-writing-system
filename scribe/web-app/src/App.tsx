@@ -254,12 +254,10 @@ function Workspace() {
     <div className="flex h-screen flex-col overflow-hidden">
       {/* TopBar:顶部横排导航(切视图/切书/切主题) */}
       <AppRail
-        works={works.data}
         current={cur}
         view={view}
         onView={setView}
-        onSelectWork={(w) => { select(w); }}
-        onCreate={createWork}
+        onOpenLibrary={() => setCur(null)}
         theme={theme}
         onTheme={setTheme}
       />
