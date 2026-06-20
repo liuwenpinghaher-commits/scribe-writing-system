@@ -1286,15 +1286,18 @@ def characters(work_id: str, x_owner_id: str | None = Header(default=None)):
 class CharacterIn(BaseModel):
     name: str
     motivation: str = ""
+    traits: dict | None = None
+    voice_profile: dict | None = None   # {tone:...} 供 _writing_context 注入角色声音
 
 
 @app.post("/works/{work_id}/characters")
 def add_character(work_id: str, body: CharacterIn, x_owner_id: str | None = Header(default=None)):
-    """P3-4:从设定圣经面板新增/更新角色。"""
+    """P3-4:从设定圣经面板新增/更新角色(含声音指纹 voice_profile,写作时保持台词一致)。"""
     _own_work(work_id, _owner(x_owner_id))
     if not body.name.strip():
         raise HTTPException(400, "name 不能为空")
-    cid = db.upsert_character(work_id, body.name.strip(), motivation=body.motivation)
+    cid = db.upsert_character(work_id, body.name.strip(), traits=body.traits,
+                              motivation=body.motivation, voice_profile=body.voice_profile)
     return {"character_id": cid}
 
 
@@ -1302,6 +1305,23 @@ def add_character(work_id: str, body: CharacterIn, x_owner_id: str | None = Head
 def open_foreshadows(work_id: str, x_owner_id: str | None = Header(default=None)):
     _own_work(work_id, _owner(x_owner_id))
     return fs.list_open(work_id)
+
+
+class ForeshadowIn(BaseModel):
+    summary: str
+    foreshadow_chapter: int
+    importance: str = "normal"
+
+
+@app.post("/works/{work_id}/foreshadows")
+def plant_foreshadow_ep(work_id: str, body: ForeshadowIn,
+                        x_owner_id: str | None = Header(default=None)):
+    """埋一个伏笔(写作圣经/设定面板用;REST 原只有 list/advance,缺 plant)。"""
+    _own_work(work_id, _owner(x_owner_id))
+    if not body.summary.strip():
+        raise HTTPException(400, "summary 不能为空")
+    fid = fs.plant(work_id, body.summary.strip(), body.foreshadow_chapter, body.importance)
+    return {"foreshadow_id": fid}
 
 
 @app.get("/works/{work_id}/consistency-flags")

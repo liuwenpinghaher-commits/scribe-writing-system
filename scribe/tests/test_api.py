@@ -167,6 +167,32 @@ def test_sse_snapshot_includes_pending_count():
     assert len(db.list_pending_writes(wid)) == 1
 
 
+def test_character_rest_accepts_traits_and_voice():
+    # _writing_context 注入角色 voice_profile.tone,故 REST 建角色必须能设声音/traits
+    wid = client.post("/works", json={"title": "角色书"}, headers=U1).json()["work_id"]
+    r = client.post(f"/works/{wid}/characters", json={
+        "name": "渡叔", "motivation": "守渡四十年",
+        "traits": {"残疾": "瞎左眼"}, "voice_profile": {"tone": "极静带谶语"}}, headers=U1)
+    assert r.status_code == 200 and r.json().get("character_id")
+    chars = client.get(f"/works/{wid}/characters", headers=U1).json()
+    c = next(x for x in chars if x["name"] == "渡叔")
+    vp = c.get("voice_profile")
+    if isinstance(vp, str):
+        import json as _j
+        vp = _j.loads(vp or "{}")
+    assert vp and vp.get("tone") == "极静带谶语"
+
+
+def test_foreshadow_plant_via_rest():
+    # REST 原只有 list/advance,缺 plant;写作圣经需经 REST 埋伏笔
+    wid = client.post("/works", json={"title": "伏笔书"}, headers=U1).json()["work_id"]
+    r = client.post(f"/works/{wid}/foreshadows", json={
+        "summary": "断剑重铸", "foreshadow_chapter": 3, "importance": "high"}, headers=U1)
+    assert r.status_code == 200 and r.json().get("foreshadow_id")
+    opens = client.get(f"/works/{wid}/foreshadows", headers=U1).json()
+    assert any(f.get("summary") == "断剑重铸" for f in opens)
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
