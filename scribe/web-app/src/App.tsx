@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Lightbulb, Search, Plus, BookText } from "lucide-react";
+import { BookOpen, Lightbulb, Search, Plus, BookText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
@@ -308,16 +308,24 @@ function WorkPicker({ works, loading, error, reload, onSelect, onCreate }: {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {works.map((w) => (
-              <button key={w.id} onClick={() => onSelect(w)}
-                className="text-left rounded-lg border border-border bg-card p-4 hover:border-primary hover:shadow-sm transition-colors">
-                <div className="flex items-center gap-2">
-                  <BookText size={16} className="text-muted-foreground shrink-0" />
-                  <span className="font-medium truncate text-foreground">{w.title}</span>
-                </div>
-                <div className="text-xs text-muted-foreground mt-2 tabular-nums">
-                  {w.genre || "未定题材"} · {w.chapter_count ?? 0} 章 · {(w.word_count ?? 0).toLocaleString()} 字
-                </div>
-              </button>
+              <div key={w.id} className="relative group">
+                <button onClick={() => onSelect(w)}
+                  className="w-full text-left rounded-lg border border-border bg-card p-4 hover:border-primary hover:shadow-sm transition-colors">
+                  <div className="flex items-center gap-2">
+                    <BookText size={16} className="text-muted-foreground shrink-0" />
+                    <span className="font-medium truncate text-foreground pr-6">{w.title}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-2 tabular-nums">
+                    {w.genre || "未定题材"} · {w.chapter_count ?? 0} 章 · {(w.word_count ?? 0).toLocaleString()} 字
+                  </div>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (confirm(`删除《${w.title}》?(软删,可恢复)`)) api.deleteWork(w.id).then(reload).catch(() => {}); }}
+                  title="删除作品" aria-label={`删除作品 ${w.title}`}
+                  className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-accent transition-opacity">
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))}
           </div>
         )}

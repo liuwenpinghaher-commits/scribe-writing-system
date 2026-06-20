@@ -73,6 +73,7 @@ export type ImagStatus = "captured" | "structured" | "scheduled" | "used" | "obs
 export const api = {
   works: () => req<Work[]>("/works"),
   createWork: (title: string) => post<{ work_id: string }>("/works", { title }),
+  deleteWork: (w: string) => req<{ ok: boolean }>(`/works/${w}`, { method: "DELETE" }),
   intent: (w: string) => req<Intent>(`/works/${w}/author-intent`),
   saveIntent: (w: string, reader_feeling: string, do_not_betray: string[], core_emotional_arc = "") =>
     put<{ ok: boolean }>(`/works/${w}/author-intent`, { reader_feeling, do_not_betray, core_emotional_arc }),
