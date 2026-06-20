@@ -1,155 +1,236 @@
+/**
+ * Center.tsx — 中栏双模主舞台(Task 1.3b)
+ * 北极星黛绿条 → Segmented(正文|对话) → ChapterEditor 或 Conversation
+ */
 import { lazy, Suspense, useEffect, useState } from "react";
-import { BookText } from "lucide-react";
+import { FileText, MessagesSquare, Star } from "lucide-react";
 import { api } from "./api";
-import { Btn, useData, useToast } from "./common";
-// P4-6:懒加载编辑器(Tiptap 是最大块),缩小首屏 bundle
-const ChapterEditor = lazy(() => import("./Editor").then((m) => ({ default: m.ChapterEditor })));
+import { useData, useToast } from "./common";
+import { Segmented } from "./components/Segmented";
+import { Empty } from "./components/Empty";
+import { Card, CardContent } from "./components/ui/card";
+import { Button } from "./components/ui/button";
+import { Textarea } from "./components/ui/textarea";
+import { Input } from "./components/ui/input";
+import { Skeleton } from "./components/ui/skeleton";
+import { Conversation } from "./Conversation";
 
-// 中栏 = 专注圣地。P0 重构后只保留:决策卡(按需浮现)→ 北极星条 → 编辑器。
-// 大纲树/想象已迁至左栏 Navigator,中栏不再纵向堆叠导航。
-export function Center({ work, title, rev, bump, currentSeq }: {
-  work: string; title: string; rev: number; bump: () => void;
-  currentSeq: number | null;
-}) {
-  return (
-    <>
-      <OptionSetPanel work={work} rev={rev} bump={bump} />
-      <NorthStar work={work} rev={rev} />
-      {currentSeq != null ? (
-        <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-          <Suspense fallback={<div className="empty">加载编辑器…</div>}>
-            <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} />
-          </Suspense>
-        </div>
-      ) : (
-        <div className="empty" style={{ paddingTop: 48 }}>
-          <BookText size={26} />
-          <div style={{ marginTop: 8 }}>从左侧大纲树选择章节开始写作</div>
-          <div className="muted small" style={{ marginTop: 4 }}>没有章节?在左栏「加章」,或按 ⌘K 打开命令面板</div>
-        </div>
-      )}
-      <span className="muted small" hidden>{title}</span>
-    </>
-  );
-}
+// 懒加载编辑器(Tiptap 是最大块),缩小首屏 bundle
+const ChapterEditor = lazy(() =>
+  import("./Editor").then((m) => ({ default: m.ChapterEditor }))
+);
 
-// P1-2:OptionSet 中央区决策 + 差异矩阵(决策是当前主工作,而非右栏小列表)
-function OptionGen({ work, onDone }: { work: string; onDone: () => void }) {
-  const [dp, setDp] = useState("");
-  const toast = useToast();
-  const gen = async () => {
-    if (!dp.trim()) return;
-    await api.generateOptions(work, dp.trim()); setDp(""); toast("主编已出方案"); onDone();
-  };
-  return (
-    <div className="row" style={{ marginBottom: 10 }}>
-      <input aria-label="让主编出方案的决策点" value={dp} placeholder="遇到岔路?写下决策点,让主编出几个差异方案…"
-        onChange={(e) => setDp(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") gen(); }} />
-      <Btn onClick={gen} variant="ghost">出方案</Btn>
-    </div>
-  );
-}
+type CenterMode = "prose" | "chat";
 
-function OptionSetPanel({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
-  const { data, loading, error, reload } = useData(() => api.optionSets(work), [work, rev]);
-  const toast = useToast();
-  if (loading || error) return null;
-  if (!data?.length) return <OptionGen work={work} onDone={() => { reload(); bump(); }} />; // 无待决时给生成入口
-  const MATRIX: [string, string][] = [
-    ["emotional_direction", "情感走向"], ["character_cost", "人物代价"], ["plot_consequence", "情节后果"],
-  ];
-  const choose = async (oid: string, opt: string) => {
-    await api.choose(work, oid, opt); toast("已选方案(已记入你的品味)"); reload(); bump();
-  };
-  return (
-    <div className="card" style={{ borderColor: "var(--accent)", marginBottom: 14 }}>
-      <h3 style={{ color: "var(--accent)", marginTop: 0 }}>⌖ 待你定夺的方案(决策不由 AI 拍板)</h3>
-      {data.map((s) => {
-        let dp = ""; let opts: Record<string, unknown>[] = [];
-        try { dp = JSON.parse(s.decision_point).text || ""; } catch { /* */ }
-        try { opts = JSON.parse(s.options); } catch { /* */ }
-        return (
-          <div key={s.id} style={{ marginBottom: 8 }}>
-            <div className="muted small">{dp}</div>
-            <div className="sxs" style={{ gridTemplateColumns: `repeat(${Math.min(opts.length, 3)}, 1fr)` }}>
-              {opts.map((o, i) => {
-                const oid = o.id != null ? String(o.id) : String(i);
-                return (
-                  <div key={oid} className="card" style={{ margin: 0 }}>
-                    <div className="t">{String(o.approach || o.label || "方案 " + oid)}</div>
-                    {typeof o.tradeoff === "string" && <div className="muted small">代价:{o.tradeoff}</div>}
-                    {MATRIX.filter(([k]) => o[k]).map(([k, label]) => (
-                      <div key={k} className="small"><span className="muted">{label}:</span> {String(o[k])}</div>
-                    ))}
-                    <Btn onClick={() => choose(s.id, oid)} className="sm" >选这个</Btn>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// P2-3:北极星 sticky 常驻条(任意滚动可见)+ 折叠编辑;未设定=橙色提示
-function NorthStar({ work, rev }: { work: string; rev: number }) {
+// ─── 北极星 sticky 条(黛绿左边框)───────────────────────────
+function NorthStarBar({ work, rev }: { work: string; rev: number }) {
   const { data, reload } = useData(() => api.intent(work), [work, rev]);
   const [editing, setEditing] = useState(false);
-  const [rf, setRf] = useState(""); const [arc, setArc] = useState("");
-  const [dnb, setDnb] = useState(""); const [dirty, setDirty] = useState(false);
+  const [rf, setRf] = useState("");
+  const [arc, setArc] = useState("");
+  const [dnb, setDnb] = useState("");
+  const [dirty, setDirty] = useState(false);
   const toast = useToast();
-  let redCount = 0; try { redCount = JSON.parse(data?.do_not_betray || "[]").length; } catch { /* */ }
+
+  let redCount = 0;
+  try { redCount = JSON.parse(data?.do_not_betray || "[]").length; } catch { /* */ }
+
   useEffect(() => {
     if (!data) return;
-    setRf(data.reader_feeling || ""); setArc(data.core_emotional_arc || "");
-    let list: string[] = []; try { list = JSON.parse(data.do_not_betray || "[]"); } catch { /* */ }
-    setDnb(list.join("，")); setDirty(false);
+    setRf(data.reader_feeling || "");
+    setArc(data.core_emotional_arc || "");
+    let list: string[] = [];
+    try { list = JSON.parse(data.do_not_betray || "[]"); } catch { /* */ }
+    setDnb(list.join("，"));
+    setDirty(false);
   }, [data]);
+
   const save = async () => {
-    await api.saveIntent(work, rf, dnb.split(/[，,]/).map((s) => s.trim()).filter(Boolean), arc);
-    setDirty(false); setEditing(false); toast("北极星已保存"); reload();
+    await api.saveIntent(
+      work,
+      rf,
+      dnb.split(/[，,]/).map((s) => s.trim()).filter(Boolean),
+      arc
+    );
+    setDirty(false);
+    setEditing(false);
+    toast("北极星已保存");
+    reload();
   };
+
   const unset = !data?.reader_feeling;
   const feeling = data?.reader_feeling || "";
+
   return (
-    <div className={"ns-bar " + (unset ? "unset" : "aligned")}>
-      <div className="row end" style={{ justifyContent: "space-between" }}>
-        <div style={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-          <span className="ns-star" style={{ marginRight: 6 }}>★ 北极星</span>
-          {unset ? (
-            <span className="small" style={{ color: "var(--warn)" }}>尚未设定 —— 没有北极星,AI 会走向均值</span>
-          ) : (
-            <span className="small" title={feeling}>「{feeling.length > 40 ? feeling.slice(0, 40) + "…" : feeling}」</span>
-          )}
-          {data?.core_emotional_arc && <span className="muted small" style={{ marginLeft: 8 }}>弧:{data.core_emotional_arc.slice(0, 24)}</span>}
-          {redCount > 0 && <span className="badge" style={{ marginLeft: 6 }}>红线 ×{redCount}</span>}
-          {!unset && <span className="small" style={{ color: "var(--ok)", marginLeft: 6 }}>· ✓ 对齐</span>}
-          {dirty && <span className="muted small">（未保存）</span>}
+    <Card className="border-l-4 border-l-primary rounded-none border-x-0 border-t-0 border-b border-border shadow-sm">
+      <CardContent className="py-2.5 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            <Star size={13} className="text-primary shrink-0" />
+            <span className="text-xs font-semibold text-primary shrink-0">北极星</span>
+            {unset ? (
+              <span className="text-xs text-amber-600 dark:text-amber-400 truncate">
+                尚未设定 —— 没有北极星，AI 会走向均值
+              </span>
+            ) : (
+              <span
+                className="text-xs text-foreground font-prose truncate"
+                title={feeling}
+              >
+                「{feeling.length > 50 ? feeling.slice(0, 50) + "…" : feeling}」
+              </span>
+            )}
+            {data?.core_emotional_arc && (
+              <span className="text-xs text-muted-foreground hidden sm:inline truncate">
+                弧：{data.core_emotional_arc.slice(0, 20)}
+              </span>
+            )}
+            {redCount > 0 && (
+              <span className="shrink-0 inline-flex items-center rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                红线 ×{redCount}
+              </span>
+            )}
+            {!unset && (
+              <span className="shrink-0 text-xs text-emerald-600 dark:text-emerald-400">·&nbsp;已对齐</span>
+            )}
+            {dirty && <span className="shrink-0 text-xs text-muted-foreground">（未保存）</span>}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs shrink-0"
+            onClick={() => setEditing((v) => !v)}
+          >
+            {editing ? "收起" : unset ? "立即设定 →" : "编辑"}
+          </Button>
         </div>
-        <Btn onClick={() => setEditing((v) => !v)} variant="ghost" className="sm">{editing ? "收起" : unset ? "立即设定 →" : "编辑北极星"}</Btn>
+
+        {editing && (
+          <div className="mt-3 flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="ns-rf">
+                这本书要让读者合上书时感受到什么？
+              </label>
+              <Textarea
+                id="ns-rf"
+                rows={2}
+                value={rf}
+                placeholder="例：温热的孤独感——被爱过，但爱本身短暂"
+                onChange={(e) => { setRf(e.target.value); setDirty(true); }}
+                className="text-sm font-prose resize-none"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="ns-arc">
+                主角情感弧线（从…到…）
+              </label>
+              <Input
+                id="ns-arc"
+                value={arc}
+                placeholder="例：从麻木到在意到失去到接受"
+                onChange={(e) => { setArc(e.target.value); setDirty(true); }}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="ns-dnb">
+                绝不背叛的红线（逗号分隔）
+              </label>
+              <Input
+                id="ns-dnb"
+                value={dnb}
+                placeholder="例：主角不能在未付出代价下成功"
+                onChange={(e) => { setDnb(e.target.value); setDirty(true); }}
+                className="h-8 text-sm"
+              />
+            </div>
+            <Button
+              size="sm"
+              className="self-start"
+              onClick={save}
+              disabled={!dirty}
+            >
+              保存北极星
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── 主导出 ──────────────────────────────────────────────────
+export function Center({
+  work,
+  title,
+  rev,
+  bump,
+  currentSeq,
+}: {
+  work: string;
+  title: string;
+  rev: number;
+  bump: () => void;
+  currentSeq: number | null;
+}) {
+  // 有章节默认正文，无章节默认对话
+  const [mode, setMode] = useState<CenterMode>(currentSeq != null ? "prose" : "chat");
+
+  // 当章节切换时：选中章→正文，取消选中→对话
+  useEffect(() => {
+    if (currentSeq != null) setMode("prose");
+    else setMode("chat");
+  }, [currentSeq]);
+
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      {/* 北极星条 sticky */}
+      <div className="sticky top-0 z-10 bg-background">
+        <NorthStarBar work={work} rev={rev} />
       </div>
-      {editing && (
-        <div style={{ marginTop: 8 }}>
-          <div className="field">
-            <label htmlFor="rf">这本书要让读者合上书时感受到什么?</label>
-            <textarea id="rf" rows={2} value={rf} placeholder="例:温热的孤独感——被爱过,但爱本身短暂"
-              onChange={(e) => { setRf(e.target.value); setDirty(true); }} />
-          </div>
-          <div className="field">
-            <label htmlFor="arc">主角情感弧线(从…到…)</label>
-            <input id="arc" value={arc} placeholder="例:从麻木到在意到失去到接受"
-              onChange={(e) => { setArc(e.target.value); setDirty(true); }} />
-          </div>
-          <div className="field">
-            <label htmlFor="dnb">绝不背叛的红线(逗号分隔)</label>
-            <input id="dnb" value={dnb} placeholder="例:主角不能在未付出代价下成功"
-              onChange={(e) => { setDnb(e.target.value); setDirty(true); }} />
-          </div>
-          <Btn onClick={save} disabled={!dirty}>保存北极星</Btn>
-        </div>
-      )}
+
+      {/* 模式切换条 */}
+      <div className="px-4 py-2 border-b border-border bg-background">
+        <Segmented
+          value={mode}
+          onChange={(k) => setMode(k as CenterMode)}
+          options={[
+            { key: "prose", label: "正文", icon: <FileText size={14} /> },
+            { key: "chat", label: "与主编对话", icon: <MessagesSquare size={14} /> },
+          ]}
+        />
+      </div>
+
+      {/* 内容区 */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {mode === "prose" ? (
+          currentSeq != null ? (
+            <Suspense
+              fallback={
+                <div className="flex flex-col gap-2 py-2">
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-5 w-1/2" />
+                  <Skeleton className="h-32 w-full mt-2" />
+                </div>
+              }
+            >
+              <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} />
+            </Suspense>
+          ) : (
+            <Empty
+              icon={<FileText />}
+              title="从左侧大纲树选择章节开始写作"
+              hint="没有章节？在左栏「加章」，或切到「与主编对话」出谋划策"
+              action={{ label: "去与主编对话", onClick: () => setMode("chat") }}
+            />
+          )
+        ) : (
+          <Conversation work={work} rev={rev} bump={bump} />
+        )}
+      </div>
+
+      {/* 隐藏 title 供外部引用(原逻辑保留) */}
+      <span className="sr-only">{title}</span>
     </div>
   );
 }
