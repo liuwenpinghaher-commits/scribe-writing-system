@@ -63,7 +63,7 @@ function NorthStarBar({ work, rev }: { work: string; rev: number }) {
 
   return (
     <Card className="border-l-4 border-l-primary rounded-none border-x-0 border-t-0 border-b border-border shadow-sm">
-      <CardContent className="py-2.5 px-4">
+      <CardContent className="py-2 px-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <Star size={13} className="text-primary shrink-0" />
@@ -96,7 +96,7 @@ function NorthStarBar({ work, rev }: { work: string; rev: number }) {
             {dirty && <span className="shrink-0 text-xs text-muted-foreground">（未保存）</span>}
           </div>
           <Button
-            variant="ghost"
+            variant={!editing && unset ? "default" : "ghost"}
             size="sm"
             className="h-6 text-xs shrink-0"
             onClick={() => setEditing((v) => !v)}
@@ -190,7 +190,7 @@ export function Center({
       </div>
 
       {/* 模式切换条 */}
-      <div className="px-4 py-2 border-b border-border bg-background">
+      <div className="px-3 py-1.5 border-b border-border bg-background">
         <Segmented
           value={mode}
           onChange={(k) => setMode(k as CenterMode)}
@@ -202,7 +202,7 @@ export function Center({
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-3 py-2">
         {mode === "prose" ? (
           currentSeq != null ? (
             <Suspense

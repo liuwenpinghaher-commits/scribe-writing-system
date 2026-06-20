@@ -513,7 +513,7 @@ function ForeshadowsTab({ work }: { work: string }) {
           <div className="flex gap-1">
             {state === "planted" && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 className="h-6 text-[11px] px-2"
                 disabled={!!advancing}
@@ -524,7 +524,7 @@ function ForeshadowsTab({ work }: { work: string }) {
             )}
             {(state === "planted" || state === "triggered") && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 className="h-6 text-[11px] px-2"
                 disabled={!!advancing}
@@ -681,7 +681,7 @@ function MaterialsTab({ work }: { work: string }) {
         return (
           <div className="flex gap-1">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               className="h-6 text-[11px] px-2"
               disabled={!!processing}

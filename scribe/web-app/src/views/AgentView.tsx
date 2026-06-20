@@ -209,7 +209,7 @@ function SkillsPanel({ work }: { work: string }) {
           />
           <Button
             size="sm"
-            variant="secondary"
+            variant="ghost"
             onClick={propose}
             disabled={proposing || !skillName.trim()}
             className="shrink-0"
@@ -296,7 +296,7 @@ function SkillsPanel({ work }: { work: string }) {
                       {(s.status === "proposed" || s.status === "approved") && (
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="ghost"
                           className="h-7 text-xs"
                           onClick={() => act(s, "activate")}
                         >

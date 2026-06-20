@@ -219,17 +219,17 @@ export function ChapterEditor({
 
       {/* 工具条 */}
       <div className="flex flex-wrap gap-1.5 mb-3">
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={toggleDone}>
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={toggleDone}>
           <Check size={12} /> {ch?.status === "done" ? "标记草稿" : "标记完成"}
         </Button>
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={runCritique} disabled={critBusy}>
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={runCritique} disabled={critBusy}>
           {critBusy ? <Loader2 size={12} className="animate-spin" /> : <MessageSquareQuote size={12} />}
           文学评改
         </Button>
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={runIntent}>
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={runIntent}>
           <ShieldCheck size={12} /> 查北极星
         </Button>
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={runDeep} disabled={deepBusy}>
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={runDeep} disabled={deepBusy}>
           {deepBusy ? <Loader2 size={12} className="animate-spin" /> : null}
           深度体检
         </Button>
@@ -281,7 +281,7 @@ export function ChapterEditor({
 
       {/* 流式预览(逐字) */}
       {streaming !== null && !draft && (
-        <Card className="mb-3 border-primary/30 bg-primary/5" aria-live="polite">
+        <Card className="mb-3 border-border bg-muted/40" aria-live="polite">
           <CardContent className="py-2.5 px-4">
             <p className="text-xs text-muted-foreground mb-2">主编书写中…（⌘. 取消）</p>
             <p className="text-sm font-prose leading-relaxed whitespace-pre-wrap">
@@ -294,7 +294,7 @@ export function ChapterEditor({
 
       {/* Diff 裁决区 */}
       {draft ? (
-        <Card className="mb-3 border-primary/30">
+        <Card className="mb-3 border-border">
           <CardContent className="py-2.5 px-4">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-muted-foreground">AI 草稿 vs 当前（绿=新增 / 红=删除）</span>
@@ -347,7 +347,7 @@ export function ChapterEditor({
               <Button size="sm" className="gap-1" onClick={accept}>
                 <Check size={13} /> 接受并定稿
               </Button>
-              <Button variant="outline" size="sm" className="gap-1" onClick={reject}>
+              <Button variant="ghost" size="sm" className="gap-1 text-destructive" onClick={reject}>
                 <X size={13} /> 放弃
               </Button>
               <Button variant="ghost" size="sm" className="gap-1" onClick={() => setDraft(null)}>
@@ -413,11 +413,11 @@ export function ChapterEditor({
                   <CardContent className="py-2.5 px-4">
                     <p className="text-sm mb-2">发现上次未保存的草稿。</p>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={restore}>恢复</Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={restore}>恢复</Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs"
+                        className="h-7 text-xs text-destructive"
                         onClick={() => { localStorage.removeItem(dkey); setRecovered(null); }}
                       >
                         丢弃
@@ -433,7 +433,7 @@ export function ChapterEditor({
                   </div>
                 </CardContent>
               </Card>
-              <Button variant="outline" size="sm" className="gap-1 h-7 text-xs" onClick={saveMine}>
+              <Button variant="ghost" size="sm" className="gap-1 h-7 text-xs" onClick={saveMine}>
                 <Save size={12} /> 存为我的定稿
               </Button>
             </>
@@ -469,7 +469,7 @@ export function ChapterEditor({
             placeholder="如：开头更紧张、句子更短、删掉说教"
             className="text-sm resize-none"
           />
-          <Button variant="outline" className="gap-1.5 self-start" onClick={() => gen("rewrite", fb)}>
+          <Button variant="ghost" className="gap-1.5 self-start" onClick={() => gen("rewrite", fb)}>
             <MessageSquareQuote size={14} /> 提意见并重写
           </Button>
         </div>
@@ -522,7 +522,7 @@ function Branches({
             onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") create(); }}
           />
-          <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={create}>建分支</Button>
+          <Button variant="ghost" size="sm" className="h-7 text-xs shrink-0" onClick={create}>建分支</Button>
         </div>
         {branches.map((b) => (
           <div key={b.label} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
@@ -573,7 +573,7 @@ function HistoryView({
             className={cn(
               "flex items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
               i === sel
-                ? "border-primary bg-primary/5"
+                ? "border-primary border-l-2 bg-card shadow-sm"
                 : "border-border hover:border-primary/40 hover:bg-muted/50"
             )}
             onClick={() => setSel(i)}
@@ -606,7 +606,7 @@ function HistoryView({
               )}
             </p>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               className="gap-1 h-7 text-xs mt-3"
               onClick={() => onRestore(chosen.content)}
@@ -660,7 +660,7 @@ function TaskStepper({ work, seq, rev }: { work: string; seq: number; rev: numbe
         {open && data.next.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {data.next.map((s) => (
-              <Button key={s} variant="outline" size="sm" className="h-6 text-xs" onClick={() => go(s)}>
+              <Button key={s} variant="ghost" size="sm" className="h-6 text-xs" onClick={() => go(s)}>
                 → {STATE_LABEL[s] || s}
               </Button>
             ))}

@@ -179,7 +179,7 @@ function InsightSection({ work, rev }: { work: string; rev: number }) {
                     </div>
                   </div>
                   <div className="flex gap-1.5 mt-2">
-                    <Button size="sm" variant="secondary" className="h-6 text-xs" onClick={() => act(ins.id, "ack")}>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => act(ins.id, "ack")}>
                       <ThumbsUp size={11} className="mr-1" /> 知道了
                     </Button>
                     <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => act(ins.id, "dismiss")}>
@@ -251,7 +251,7 @@ function OptionSetSection({ work, rev, bump }: { work: string; rev: number; bump
                 onKeyDown={(e) => { if (e.key === "Enter") gen(); }}
                 className="h-8 text-sm"
               />
-              <Button size="sm" variant="secondary" className="h-8 shrink-0" onClick={gen} disabled={generating}>
+              <Button size="sm" variant="ghost" className="h-8 shrink-0" onClick={gen} disabled={generating}>
                 {generating ? <Loader2 size={12} className="animate-spin" /> : "出方案"}
               </Button>
             </div>
@@ -290,6 +290,7 @@ function OptionSetSection({ work, rev, bump }: { work: string; rev: number; bump
                                 ))}
                                 <Button
                                   size="sm"
+                                  variant="outline"
                                   className="h-6 text-xs mt-2 w-full"
                                   onClick={() => choose(s.id, oid)}
                                 >
@@ -518,7 +519,7 @@ export function Conversation({
   bump: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-5 py-2">
+    <div className="flex flex-col gap-3 py-1">
       <InsightSection work={work} rev={rev} />
       <div className="h-px bg-border" />
       <OptionSetSection work={work} rev={rev} bump={bump} />
