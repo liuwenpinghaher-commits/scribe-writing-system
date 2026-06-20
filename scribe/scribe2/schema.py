@@ -1,4 +1,4 @@
-EMBED_DIM = 384  # fastembed multilingual-e5-small 维度(Task 3 probe 实测;不符改这里)
+EMBED_DIM = 512  # BAAI/bge-small-zh-v1.5 维度(中文优化)
 
 # 需"可被语义检索"的内容实体:都带 text(FTS)+ embedding(向量)
 CONTENT_TABLES = ["chapter", "setting", "character", "foreshadow",

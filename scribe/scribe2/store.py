@@ -48,6 +48,16 @@ class Store:
     def update(self, table: str, rid: str, patch: dict) -> None:
         self.db.merge(RecordID(table, rid), patch)
 
+
+    def put_content(self, table: str, work: str, text: str, **fields) -> str:
+        """写内容实体:record + embedding 同写,供向量/全文检索。"""
+        from .embed import embed
+        vec = embed([text])[0] if text else None
+        rid = uuid.uuid4().hex
+        self.db.create(RecordID(table, rid),
+                       {"work": work, "text": text, "embedding": vec, **fields})
+        return rid
+
     def init_schema(self) -> None:
         from .schema import ddl
         for stmt in ddl():
