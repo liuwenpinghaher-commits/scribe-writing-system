@@ -92,12 +92,16 @@ def rollup_global(db, complete_fn, work_id: str) -> str:
     if not mems:
         return ""
     joined = "\n".join(f"第{m['seq']}章:{m['summary_text']}" for m in mems)
-    if len(mems) <= 6:
-        glob = joined  # 章少直接用,省一次 LLM
+    if len(mems) <= 8:
+        glob = joined[:1600]  # 章少直接用,省一次 LLM,且不丢细节
     else:
-        prompt = ("把下面的分章梗概压缩成一段不超过 200 字的全书主线记忆"
-                  "(保留人物关系、关键转折、未决悬念):\n\n" + joined)
-        glob = complete_fn(prompt).strip()[:600]
+        # 压到 200 字会丢/串人物身份血缘(实测:把"孙辈"压成"独子"、凭空造人名),
+        # 故加大预算并硬性禁止改动人名与亲缘——长篇主线记忆的保真是连贯命门。
+        prompt = ("把下面的分章梗概压缩成一段 350-500 字的全书主线记忆。"
+                  "务必精确保留:每个主要人物的身份与血缘关系(谁是谁的师父/祖孙/父子/母女)、"
+                  "关键物件的归属、核心伏笔与因果链、尚未了结的悬念。"
+                  "绝对不许新增、删改或张冠李戴任何人名与亲属关系。\n\n" + joined)
+        glob = complete_fn(prompt).strip()[:1000]
     db.upsert_memory(work_id, "global", glob,
                      source_chapter_range=f"1-{mems[-1]['seq']}")
     return glob

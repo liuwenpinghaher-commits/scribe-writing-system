@@ -15,7 +15,9 @@ from scribe_mcp.critique import build_critique_prompt, parse_critique
 HERE = Path(__file__).resolve().parent
 OUT_DIR = HERE.parent / "out" / "九原渡"
 BENCH = HERE.parent.parent / "乱世铜炉.md"
-READER_FEELING = "苍凉、克制,乱世里被小人物不肯泯灭的良心刺痛,读罢久久不能言语"
+# 中性文学标尺:不偏向任一本书的北极星,只看普适的古典白话小说功力,做公平对比
+READER_FEELING = "一部出色的古典白话小说该有的:文字考究有韵、人物鲜活声口分明、有戏剧张力与意外、细节具体不落俗套、悲喜有度"
+N_SAMPLES = 2  # 每段评 N 次取均值,抵消 critique 单次 ±0.4 噪声
 
 
 def _load_volc():
@@ -39,8 +41,16 @@ def _cjk(s):
 
 
 def score_text(text: str) -> dict:
-    reply = _llm.complete(_BASE, _KEY, _MODEL, build_critique_prompt(text, READER_FEELING))["content"]
-    return parse_critique(reply)
+    """评 N_SAMPLES 次取 overall 均值,抵消单次噪声;worst_dims 取最后一次。"""
+    overalls, last = [], {}
+    for _ in range(N_SAMPLES):
+        reply = _llm.complete(_BASE, _KEY, _MODEL, build_critique_prompt(text, READER_FEELING))["content"]
+        last = parse_critique(reply)
+        if last.get("overall"):
+            overalls.append(last["overall"])
+    avg = round(sum(overalls) / len(overalls), 2) if overalls else 0.0
+    return {"overall": avg, "pass": avg >= 3.5, "worst_dims": last.get("worst_dims"),
+            "samples": overalls}
 
 
 def bench_excerpts(n_each=3200, count=3):
@@ -61,8 +71,11 @@ def main():
     if not (_BASE and _KEY):
         print("无火山参数,评估中止"); return
     rows = []
-    # 九原渡 已写章
-    for f in sorted(OUT_DIR.glob("第*.md")):
+    # 九原渡 代表性取样(开篇/卷一climax/渡叔过去/身世/全书高潮/尾声),省评分调用
+    SAMPLE = [1, 10, 15, 25, 28, 32]
+    files = [f for f in sorted(OUT_DIR.glob("第*.md"))
+             if int(f.stem[1:3]) in SAMPLE]
+    for f in files:
         text = f.read_text(encoding="utf-8")
         text = re.sub(r"^#.*\n", "", text).strip()
         c = score_text(text)

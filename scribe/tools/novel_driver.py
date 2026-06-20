@@ -138,8 +138,10 @@ class Driver:
             "outline": {"beats": ch["beats"]}}).raise_for_status()
 
         acc = ""
+        # 全章脉络:每节生成都带上,模型据整章弧光写,接缝更连贯(治 coherence 弱项)
+        arc = "；".join(f"{j}.{b[:34]}" for j, b in enumerate(ch["beats"], 1))
         for i, beat in enumerate(ch["beats"], 1):
-            instr = ""
+            instr = f"【本章整体脉络(仅供保持前后连贯,本节只写第{i}节,勿提前写后文)】\n{arc}\n\n"
             if acc:
                 instr += f"【本章前文(承接它继续,语气连贯,绝不重写或复述)】\n{acc[-1600:]}\n\n"
             instr += f"【本节要写(第{i}/{len(ch['beats'])}节,照此推进,不要另起炉灶)】\n{beat}"
@@ -231,8 +233,12 @@ def main():
     log(f"待写 {len(todo)} 章: {[c['seq'] for c in todo]}")
 
     total_chars = 0
-    for ch in todo:
+    for ch_stub in todo:
         t0 = time.time()
+        # 每章前重读圣经:运行中对未写章的 QC 微调(如 ch25 身世和谐)即时生效,免反复重启
+        seq = ch_stub["seq"]
+        fresh = json.loads(Path(args.bible).read_text(encoding="utf-8"))
+        ch = next((c for c in fresh["chapters"] if c["seq"] == seq), ch_stub)
         res = d.write_chapter(wid, ch, args.target_chars)
         total_chars += res["chars"]
         log(f"✓ 第{res['seq']}章《{ch['title']}》完成 {res['chars']}字 "
