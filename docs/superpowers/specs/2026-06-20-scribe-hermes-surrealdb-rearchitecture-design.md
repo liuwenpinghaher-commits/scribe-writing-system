@@ -104,15 +104,15 @@
 
 ### 9.1 新建(clean)
 - **新后端包** `scribe/`(新 `app/` 或新包名),从零基于 **SurrealDB + Hermes** 写:领域模型(SurrealQL schema)、领域服务、一套干净 MCP 工具、Hermes run 集成、领域 REST(供前端)。
-- 老 Python 包 `scribe_mcp/`(SQLite/vec/orchestrator/proactive/llm/server 旧版)与 `schema.sql`、旧 `tests/` **整体退役**(归档到 `legacy/` 或直接删,见 9.3)。
-- **数据**:开发期无需保数据;若要保留现有作品,写一次性 `migrate_sqlite_to_surreal.py`(SQLite→SurrealDB),迁完即弃。否则**全新干净库**。
+- 老 Python 包 `scribe_mcp/`(SQLite/vec/orchestrator/proactive/llm/server 旧版)与 `schema.sql`、旧 `tests/` **整体删除**(原仓内重建,旧代码靠 git 历史可查,不留 `legacy/`、不留双轨)。
+- **数据(已定)**:**全新干净 SurrealDB 库,不迁**。现有 SQLite 作品与那堆测试/重复书一并弃用,不写迁移脚本。
 
 ### 9.2 保留(已是干净产物)
 - **前端**(刚重建的 shadcn 五视图/编辑器):保留,但**清掉自身遗留**——删 `index.css` 残留旧类、未用的 `Library.tsx`、半迁移的 `Panels.tsx` 等,统一到 shadcn。
 - 领域**概念/提示词/业务价值**(每个功能要做什么)沿用,代码重写。
 
 ### 9.3 退役清单(改造后不得残留)
-`scribe_mcp/db.py`(SQLite)、`vec.py`(sqlite-vec)、`retrieval.py`(手搓 RRF)、`orchestrator.py`、`metrics.py` 旧版、`llm.py`(直连火山 + ledger)、`agent_memory`/`agent_skills` 表与相关端点、`proactive_review` 后台 ticker、`server.py` 旧 MCP(由新 MCP 工具取代)、`schema.sql`、旧 `tests/`。**一律删除/归档,不留 dead code、不留双轨。**
+`scribe_mcp/db.py`(SQLite)、`vec.py`(sqlite-vec)、`retrieval.py`(手搓 RRF)、`orchestrator.py`、`metrics.py` 旧版、`llm.py`(直连火山 + ledger)、`agent_memory`/`agent_skills` 表与相关端点、`proactive_review` 后台 ticker、`server.py` 旧 MCP(由新 MCP 工具取代)、`schema.sql`、`scribe.db`、旧 `tests/`。**一律删除(git 历史可查),不留 dead code、不留双轨、不留 `legacy/`。**
 
 ### 9.4 构建顺序(降风险靠"先建地基",非靠 spike 门)
 1. SurrealDB 数据层 + 领域模型 + `search_knowledge`(最不确定,先建)
