@@ -8,6 +8,8 @@
 
 > 让 Hermes 当真正的 agent 大脑(运行/记忆/技能/调度/模型),让 SurrealDB 当真正联动的数据底座(关系+向量+图+全文一句话查),Scribe 退成"小说领域逻辑 + 一套干净的 MCP 工具 + 编辑器/视图",二者经 MCP 连接。
 
+**核心原则 · Clean Slate**:在新底座上**干净重写**,旧实现整体退役删除——**改造后不得残留任何 SQLite/sqlite-vec/orchestrator/proactive/直连火山/双轨逻辑**,杜绝遗留代码造成干扰。不做渐进绞杀、不先做 spike。
+
 ## 1. 现状根因(已查证)
 
 1. **Hermes 几乎没用上**:网页主路径 `_volc_complete` **直连火山 doubao,绕过 Hermes**;`/chat` 走 Hermes 也只是裸补全。Hermes 的 runs/sessions/memory/skills/cron 全没用。
@@ -96,15 +98,29 @@
 
 **写第 N 章**:用户「让主编写这章」→ run → 主编调 `search_knowledge`(SurrealQL 混合检索 + 图扩展,汇聚相关设定/旧正文/伏笔/记忆)→ 生成草稿(经 Hermes 模型路由)→ 调 `save_prose`(写工具)→ 弹审批 diff → 批准 → 落 SurrealDB(新 snapshot + 重嵌入)→ 触发一致性检查工具。
 
-## 9. 迁移策略:绞杀式分阶段(strangler)
+## 9. 策略:Clean Rebuild(干净重写,零遗留)
 
-- **P0 Spike(必做先)**:① 跑通 Hermes `/v1/runs` 挂 scribe MCP + 审批事件,前端能消费;② 跑通 SurrealDB 嵌入/本地进程 + Python SDK + SurrealMCP + 一条混合检索 SurrealQL。两个最小验证过,才进 P1。
-- **P1 数据层迁 SurrealDB**:schema + db 层重写为 SurrealQL;一次性把 SQLite 数据迁入;全部内容实体嵌入 + FTS + 图边;`search_knowledge` 工具上线。领域 REST 不变(对前端透明)。
-- **P2 主编 run 驱动 + 审批**:`/chat` 改 `/v1/runs`;前端对话改 SSE + 审批卡。
-- **P3 记忆/技能迁 Hermes**:退役 `agent_memory`/`agent_skills` 本地表。
-- **P4 主动引擎迁 Hermes cron**:退役 `orchestrator`/`proactive` 本地代码。
-- **P5 生成全经 Hermes**:退役直连火山 + 本地 ledger。
-每阶段独立可运行、可回退;前端因领域 REST 稳定而基本无感(除主编对话升级)。
+**不做绞杀式渐进、不先做 spike**。在新底座上**重写后端**,旧实现**整体退役删除**,不与新系统并存,避免遗留代码/逻辑造成干扰。
+
+### 9.1 新建(clean)
+- **新后端包** `scribe/`(新 `app/` 或新包名),从零基于 **SurrealDB + Hermes** 写:领域模型(SurrealQL schema)、领域服务、一套干净 MCP 工具、Hermes run 集成、领域 REST(供前端)。
+- 老 Python 包 `scribe_mcp/`(SQLite/vec/orchestrator/proactive/llm/server 旧版)与 `schema.sql`、旧 `tests/` **整体退役**(归档到 `legacy/` 或直接删,见 9.3)。
+- **数据**:开发期无需保数据;若要保留现有作品,写一次性 `migrate_sqlite_to_surreal.py`(SQLite→SurrealDB),迁完即弃。否则**全新干净库**。
+
+### 9.2 保留(已是干净产物)
+- **前端**(刚重建的 shadcn 五视图/编辑器):保留,但**清掉自身遗留**——删 `index.css` 残留旧类、未用的 `Library.tsx`、半迁移的 `Panels.tsx` 等,统一到 shadcn。
+- 领域**概念/提示词/业务价值**(每个功能要做什么)沿用,代码重写。
+
+### 9.3 退役清单(改造后不得残留)
+`scribe_mcp/db.py`(SQLite)、`vec.py`(sqlite-vec)、`retrieval.py`(手搓 RRF)、`orchestrator.py`、`metrics.py` 旧版、`llm.py`(直连火山 + ledger)、`agent_memory`/`agent_skills` 表与相关端点、`proactive_review` 后台 ticker、`server.py` 旧 MCP(由新 MCP 工具取代)、`schema.sql`、旧 `tests/`。**一律删除/归档,不留 dead code、不留双轨。**
+
+### 9.4 构建顺序(降风险靠"先建地基",非靠 spike 门)
+1. SurrealDB 数据层 + 领域模型 + `search_knowledge`(最不确定,先建)
+2. 一套干净 MCP 工具(读/写/检索,写=需审批)
+3. Hermes run 集成 + 主编对话 run 驱动 + 审批 UI
+4. 记忆/技能/cron 全部走 Hermes
+5. 生成全经 Hermes;前端清遗留 + 接新 REST
+> 不确定点(Hermes runs schema、SurrealDB 嵌入)在第 1/3 步**边建边证**,不单设 spike 阶段。出问题就地解决,不回退到旧底座。
 
 ## 10. 最佳实践对照(全网)
 - MCP 作 AI 原生适配层包装领域能力([MCP vs API](https://atlan.com/know/when-to-use-mcp-vs-api/));一个干净 MCP server。
@@ -113,11 +129,12 @@
 - 多模一体库做 AI context layer([SurrealDB AI agents](https://surrealdb.com/use-cases/ai-agents))。
 
 ## 11. 风险与缓解
-- **迁移量极大**(数据层 + 大脑层双换):靠 strangler 分阶段 + 每阶段可回退;P0 spike 先证可行。
-- **Hermes `/v1/runs` 工具/审批 schema 不确定**:P0 spike 实测对齐。
-- **SurrealDB 嵌入/Python/SurrealMCP 成熟度**:P0 spike 验证;不行则退化为"SurrealDB 本地进程 + HTTP"。
-- **SurrealQL 学习成本**:领域逻辑集中在 db 层,封装后上层无感。
+- **工作量极大且无回退底座**(clean rebuild,双底座一次性替换):用户明确接受"不先验证、彻底重构"。缓解 = **构建顺序先建最不确定的地基**(SurrealDB 数据层、Hermes run 集成)边建边证;新系统跑通前不删可参考的旧代码(归档到 `legacy/`,跑通后清除)。
+- **Hermes `/v1/runs` 工具/审批 schema 不确定**:第 3 步集成时就地实测对齐(已知它暴露 runs/events/approval)。
+- **SurrealDB 嵌入/Python/SurrealMCP 成熟度**:第 1 步建数据层时验证;若嵌入 Python 不顺,退化为"SurrealDB 本地进程(`surreal start`)+ HTTP/SDK",仍属 clean(无旧底座残留)。
+- **SurrealQL 学习成本**:领域逻辑集中在新 db/服务层,封装后上层无感。
 - **外部依赖(Hermes/SurrealDB)**:领域数据在自有 SurrealDB 实例;Hermes 只做大脑,数据可移植。
+- **开发期数据**:默认全新干净库;需保留现有作品则一次性迁移脚本,迁完即弃。
 
 ## 12. 非目标(YAGNI)
 - 不引第二个图/向量库(SurrealDB 一把全要)。
