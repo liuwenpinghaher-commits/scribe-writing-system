@@ -17,7 +17,8 @@ def build_ingest_prompt(seq: int, prose: str, char_names: list[str]) -> str:
         '只输出一行 JSON:{"summary":"2-3句话本章梗概",'
         '"char_states":[{"name":"角色名","state":"该角色本章后的新状态/变化","change_type":"ability|relation|personality|status"}],'
         '"timeline":[{"description":"本章发生的关键事件","order":整数(本章内先后)}],'
-        '"relations":[{"src":"实体A","dst":"实体B","relation":"关系(如 师徒/敌对/结盟)"}]}。\n'
+        '"relations":[{"src":"实体A","dst":"实体B","relation":"关系(如 师徒/敌对/结盟)",'
+        '"src_type":"角色/地点/阵营/物品/组织/概念","dst_type":"同前","category":"亲属/敌对/盟友/师徒/爱慕/从属/因果/其它","directed":1}]}。\n'
         "只记真正发生的、对后续有影响的事;没有就给空数组。\n\n正文:\n" + prose
     )
 
@@ -44,8 +45,13 @@ def parse_ingest(reply: str) -> dict:
                                     "order": int(order) if isinstance(order, (int, float)) else None})
     for r in d.get("relations") or []:
         if isinstance(r, dict) and r.get("src") and r.get("dst") and r.get("relation"):
-            out["relations"].append({"src": str(r["src"]), "dst": str(r["dst"]),
-                                     "relation": str(r["relation"])[:40]})
+            out["relations"].append({
+                "src": str(r["src"]), "dst": str(r["dst"]), "relation": str(r["relation"])[:40],
+                "src_type": str(r.get("src_type") or "未知")[:10],
+                "dst_type": str(r.get("dst_type") or "未知")[:10],
+                "category": str(r.get("category") or "其它")[:10],
+                "directed": 1 if r.get("directed", 1) else 0,
+            })
     return out
 
 
@@ -72,7 +78,9 @@ def ingest_chapter(db, complete_fn, work_id: str, seq: int) -> dict:
         db.add_timeline_event(work_id, seq, t["description"], t["order"])
         cnt["timeline"] += 1
     for r in data["relations"]:
-        db.add_relation(work_id, r["src"], r["dst"], r["relation"], valid_from=seq)
+        db.add_relation(work_id, r["src"], r["dst"], r["relation"], valid_from=seq,
+                        src_type=r["src_type"], dst_type=r["dst_type"], category=r["category"],
+                        directed=r["directed"])
         cnt["relations"] += 1
     rollup_global(db, complete_fn, work_id)
     return {"ok": True, "summary": data["summary"], **cnt}
