@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown } from "lucide-react";
+import { Sun, Moon, BookOpen, ChevronDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VIEWS, type ViewKey } from "./views";
 import type { Work } from "./api";
@@ -17,6 +17,7 @@ interface AppRailProps {
   view: ViewKey;
   onView: (v: ViewKey) => void;
   onSelectWork: (w: Work) => void;
+  onCreate: () => void;
   theme: string;
   onTheme: (t: string) => void;
 }
@@ -27,6 +28,7 @@ export function AppRail({
   view,
   onView,
   onSelectWork,
+  onCreate,
   theme,
   onTheme,
 }: AppRailProps) {
@@ -82,6 +84,10 @@ export function AppRail({
                 暂无作品
               </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onCreate} className="cursor-pointer text-primary">
+              <Plus size={14} /> 新建作品
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

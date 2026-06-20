@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ApiError } from "./api";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 /* ---------- Toast(独立层,aria-live;审查 #10/#13) ---------- */
 type Toast = { id: number; msg: string; kind: "ok" | "err" };
@@ -38,10 +40,12 @@ export function Btn({
 }) {
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const cls = `${variant === "ghost" ? "ghost" : ""} ${variant === "danger" ? "ghost danger" : ""} ${className}`.trim();
+  // 统一走 shadcn Button:primary→default · ghost→ghost · danger→ghost+红字(克制,不用实心红块)
+  const v = variant === "primary" ? "default" : "ghost";
   return (
-    <button
-      className={cls} title={title} disabled={busy || disabled}
+    <Button
+      variant={v} size="sm" title={title} disabled={busy || disabled}
+      className={cn(variant === "danger" && "text-destructive", className)}
       onClick={async () => {
         if (busy) return; // 防重复提交
         try { setBusy(true); await onClick(); }
@@ -50,7 +54,7 @@ export function Btn({
       }}
     >
       {busy ? <span className="spinner" aria-hidden /> : null} {children}
-    </button>
+    </Button>
   );
 }
 
@@ -63,7 +67,11 @@ export function useData<T>(fn: () => Promise<T>, deps: unknown[]) {
   const reload = useCallbackSafe(async () => {
     setLoading(true); setError(null);
     try { setData(await fnRef.current()); }
-    catch (e) { setError(errMsg(e)); }
+    catch {
+      // 瞬时 404/网络抖动(如后端重启)→ 自动重试一次再报错
+      try { await new Promise((r) => setTimeout(r, 400)); setData(await fnRef.current()); }
+      catch (e2) { setError(errMsg(e2)); }
+    }
     finally { setLoading(false); }
   });
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, deps);

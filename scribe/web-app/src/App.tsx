@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { PanelRight, PanelLeft, BookOpen, Lightbulb, Search } from "lucide-react";
+import { BookOpen, Lightbulb, Search } from "lucide-react";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
 import { Btn, ToastProvider, useData, useToast } from "./common";
-import { Library } from "./Library";
 import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Right } from "./Right";
@@ -37,6 +36,14 @@ function Workspace() {
   const [showRight, setShowRight] = useState(false);
 
   const select = (w: Work) => { setCur(w); setSeq(null); setShowLeft(false); };
+  const createWork = async () => {
+    const title = window.prompt("新书名?");
+    if (!title?.trim()) return;
+    const r = await api.createWork(title.trim());
+    await works.reload();
+    setCur({ id: r.work_id, title: title.trim() } as Work);
+    setView("write");
+  };
 
   // 全局快捷键:⌘I 想象捕获 · ⌘K 命令面板 · ⌘⇧F 专注 · ? 快捷键帮助
   const [imagOpen, setImagOpen] = useState(false);
@@ -147,29 +154,13 @@ function Workspace() {
       return (
         <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
           <aside className="col left">
-            <Library works={works.data} loading={works.loading} error={works.error}
-              reload={works.reload} current={cur} onSelect={select} />
-            {cur && (
-              <Navigator work={cur.id} rev={rev} bump={bump}
-                currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
-            )}
+            {cur
+              ? <Navigator work={cur.id} rev={rev} bump={bump}
+                  currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
+              : <div className="empty">从顶部下拉选择一本书</div>}
           </aside>
 
           <main className="col center">
-            <div className="row end" style={{ justifyContent: "space-between", marginBottom: 10 }}>
-              <h1>
-                <button className="ghost sm left-toggle" aria-label="打开作品库"
-                  onClick={() => setShowLeft((v) => !v)}><PanelLeft size={16} /></button>{" "}
-                {cur ? cur.title : "Scribe 写作工作台"}
-              </h1>
-              <div className="row">
-                <button className="ghost sm" aria-label="命令面板 ⌘K" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}><Search size={16} /></button>
-                <button className="ghost sm" aria-label="快捷键帮助" title="快捷键帮助 ?" onClick={() => setHelpOpen(true)}>?</button>
-                <button className="ghost sm" aria-label="专注模式 ⌘⇧F" title="专注模式 ⌘⇧F" onClick={() => setFocus((v) => !v)}>{focus ? "⤢" : "⤡"}</button>
-                <button className="ghost sm right-toggle" aria-label="打开主编与设定"
-                  onClick={() => setShowRight((v) => !v)}><PanelRight size={16} /></button>
-              </div>
-            </div>
             {cur
               ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
                   currentSeq={seq} />
@@ -263,6 +254,7 @@ function Workspace() {
         view={view}
         onView={setView}
         onSelectWork={(w) => { select(w); }}
+        onCreate={createWork}
         theme={theme}
         onTheme={setTheme}
       />

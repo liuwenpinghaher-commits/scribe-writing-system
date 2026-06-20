@@ -124,7 +124,7 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
 
   return (
     <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="w-full flex-wrap h-auto gap-px p-1">
+      <TabsList className="w-full justify-start gap-px p-1 overflow-x-auto">
         {tabs.map((t) => (
           <TabsTrigger key={t.value} value={t.value} className="text-xs px-2 py-0.5 flex-none">
             {t.label}

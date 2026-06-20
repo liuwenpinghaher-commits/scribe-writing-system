@@ -84,19 +84,10 @@ h3 { font-size: 13px; font-weight: 600; margin: 14px 0 8px; color: var(--text-se
 .error { color: var(--danger); padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: color-mix(in srgb, var(--danger) 8%, transparent); font-size: 14px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-button {
-  background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--r-sm);
-  padding: 8px 14px; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
-  transition: filter var(--t), background var(--t), transform var(--t), box-shadow var(--t);
-  min-height: 36px;
-}
-button:hover:not(:disabled) { filter: brightness(1.06); }
-button:active:not(:disabled) { transform: scale(.97); }
-button:disabled { opacity: .45; cursor: not-allowed; }
-button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
-button.ghost:hover:not(:disabled) { border-color: var(--accent); filter: none; background: color-mix(in srgb, var(--accent) 7%, transparent); }
-button.sm { padding: 4px 10px; min-height: 28px; font-size: 13px; }
-button.danger { color: var(--danger); }
+/* 注意:不在全局 button{} 上设背景色——否则会把 shadcn/原生按钮(AppRail 导航、Segmented 等)
+   统统刷成强调色色块(这是之前"满屏深绿"的根因)。按钮样式一律由 shadcn Button / Tailwind 类提供。 */
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
 
 input, textarea, select {
   width: 100%; background: var(--input-bg); color: var(--text-primary); border: 1px solid var(--border);

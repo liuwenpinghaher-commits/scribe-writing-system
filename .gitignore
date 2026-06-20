@@ -32,3 +32,4 @@ scribe/out/
 # 系统
 .DS_Store
 .superpowers/
+.claude/worktrees/
