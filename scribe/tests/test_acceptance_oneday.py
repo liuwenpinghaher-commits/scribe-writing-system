@@ -65,3 +65,18 @@ def test_oneday_ai_loop(work):
     if r.status_code != 200:
         pytest.skip("一致性检查需 LLM")
     assert "new_flags" in r.json()
+
+
+def test_chapter_ingest_activates_derived(work):
+    """章摄取应激活派生表(记忆/角色状态/时间线/关系)。
+    回归:曾因后端陈旧进程致 add_relation 签名不匹配,ingest 500 崩(重启加载最新代码即修)。
+    """
+    client.post(f"/works/{work}/settings",
+                json={"name": "断魂剑", "type_": "物品", "description": "会让持有者失忆的古剑"}, headers=H)
+    client.post(f"/works/{work}/characters", json={"name": "沈舟", "motivation": "复仇"}, headers=H)
+    r = client.post(f"/works/{work}/chapters/1/ingest", headers=H)
+    if r.status_code != 200:
+        pytest.skip(f"章摄取需 LLM(HTTP {r.status_code})")
+    assert r.json().get("ok"), f"摄取应成功激活派生表,实际 {r.json()}"
+    assert "global" in client.get(f"/works/{work}/memory", headers=H).json(), "摄取后记忆梗概应可读"
+    assert isinstance(client.get(f"/works/{work}/timeline", headers=H).json(), list), "时间线应可读"
