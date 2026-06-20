@@ -808,5 +808,28 @@ class Database:
         self.conn.execute("UPDATE consistency_flags SET status=? WHERE id=?", (status, flag_id))
         self.conn.commit()
 
+    # ---- 质量快照(C6-2 质量时序)----
+    def add_quality_snapshot(self, work_id: str, scope: str, chapter_seq: int | None,
+                             metrics: dict) -> str:
+        sid = _id()
+        self.conn.execute(
+            "INSERT INTO quality_snapshots(id,work_id,scope,chapter_seq,words,slop_density,"
+            "consistency_score,foreshadow_payoff,vocab_richness,repetition_rate,cost_usd,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (sid, work_id, scope, chapter_seq, metrics.get("words"), metrics.get("slop_density"),
+             metrics.get("consistency_score"), metrics.get("foreshadow_payoff"),
+             metrics.get("vocab_richness"), metrics.get("repetition_rate"),
+             metrics.get("cost_usd"), _now()))
+        self.conn.commit()
+        return sid
+
+    def list_quality_snapshots(self, work_id: str, scope: str | None = None) -> list[dict]:
+        q = "SELECT * FROM quality_snapshots WHERE work_id=?"
+        p: list = [work_id]
+        if scope:
+            q += " AND scope=?"; p.append(scope)
+        q += " ORDER BY created_at ASC"
+        return [dict(r) for r in self.conn.execute(q, p).fetchall()]
+
     def close(self) -> None:
         self.conn.close()
