@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Lightbulb, Search } from "lucide-react";
+import { BookOpen, Lightbulb, Search, Plus, BookText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
 import { Btn, ToastProvider, useData, useToast } from "./common";
@@ -148,8 +149,12 @@ function Workspace() {
     ] : []),
   ];
 
-  // 非写作台视图:渲染占位
   const renderViewContent = () => {
+    // 没选书:所有视图都先给一个可靠的选书页(不依赖顶栏下拉)
+    if (!cur) {
+      return <WorkPicker works={works.data} loading={works.loading} error={works.error}
+        reload={works.reload} onSelect={select} onCreate={createWork} />;
+    }
     if (view === "write") {
       return (
         <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
@@ -273,6 +278,50 @@ function Workspace() {
           onJump={(s) => { setSeq(s); setCmdOpen(false); }} />
       )}
       {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
+    </div>
+  );
+}
+
+// 可靠的选书页(不依赖顶栏下拉):没选书时主区显示
+function WorkPicker({ works, loading, error, reload, onSelect, onCreate }: {
+  works: Work[] | null; loading: boolean; error: string | null; reload: () => void;
+  onSelect: (w: Work) => void; onCreate: () => void;
+}) {
+  return (
+    <div className="flex-1 overflow-auto p-8">
+      <div className="mx-auto max-w-3xl">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">作品库</h1>
+            <p className="text-sm text-muted-foreground mt-1">选择一本书开始,或新建一本</p>
+          </div>
+          <Button onClick={onCreate}><Plus size={16} /> 新建作品</Button>
+        </div>
+        {loading ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">加载中…</div>
+        ) : error ? (
+          <div className="py-16 text-center text-sm text-destructive">
+            {error} · <button className="underline" onClick={reload}>重试</button>
+          </div>
+        ) : !works?.length ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">还没有作品。点「新建作品」开始。</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {works.map((w) => (
+              <button key={w.id} onClick={() => onSelect(w)}
+                className="text-left rounded-lg border border-border bg-card p-4 hover:border-primary hover:shadow-sm transition-colors">
+                <div className="flex items-center gap-2">
+                  <BookText size={16} className="text-muted-foreground shrink-0" />
+                  <span className="font-medium truncate text-foreground">{w.title}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-2 tabular-nums">
+                  {w.genre || "未定题材"} · {w.chapter_count ?? 0} 章 · {(w.word_count ?? 0).toLocaleString()} 字
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
