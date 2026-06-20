@@ -33,3 +33,34 @@
 - 主编对话**流式**显示思考+工具调用;回复基于真实查到的书(不瞎编)
 - 写操作弹审批卡,批准后才执行;只读自动放行
 - 端到端实测:问"沈舟的动机" → 看到主编 search/list_characters → 给出基于设定的回答
+
+
+---
+
+## ✅ 实测结果(2026-06-20,已验证,B1/B2 照此编码)
+
+**端点**:`POST http://127.0.0.1:8642/v1/responses`,头 `Authorization: Bearer $API_SERVER_KEY`。
+
+**请求体(挂 scribe 工具 + 流式)**:
+```json
+{
+  "input": "用户消息",
+  "instructions": "主编人格 + 当前在写《X》",
+  "stream": true,
+  "tools": [{"type": "mcp", "server_label": "scribe"}]
+}
+```
+→ `server_label:"scribe"` 直接引用 config.yaml 里挂的 scribe MCP,主编自动发现全部 28 工具。
+
+**SSE 事件流(OpenAI Responses 标准)**:
+| event | 含义 | 前端渲染(B2) |
+|---|---|---|
+| `response.created` | run 开始 | — |
+| `response.output_item.added` (item.type=`function_call`) | 工具调用(name=`mcp_scribe_<tool>`, arguments) | "🔍 正在调用 list_works…" |
+| `response.output_item.added` (item.type=`function_call_output`) | 工具结果(output) | 内部/可折叠 |
+| `response.output_text.delta` (delta) | 回复流式片段 | 流式打字 |
+| `response.output_item.done` / `response.completed` | 完成 | 收尾 |
+
+**实测验证**:主编自动调 `mcp_scribe_list_works`(args `{"owner_id":"u1"}`)→ 拿到真实作品(雾港迷案等)→ 流式回复列表。**端到端通,无需再实测基础路径。**
+
+**B3 审批(待 B3 时实测)**:`tools` 项可加 `"require_approval":"always"` 触发 elicitation;具体审批 SSE 事件 B3 阶段实测。
