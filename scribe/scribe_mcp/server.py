@@ -12,6 +12,7 @@ from pathlib import Path
 from .db import Database
 from .foreshadow import ForeshadowStore
 from .taste import TasteStore
+from .pending import WRITE_GATED  # noqa: F401  (门控集合,文档/契约用)
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -24,6 +25,13 @@ db = Database(_DB_PATH)
 foreshadows = ForeshadowStore(db.conn)
 taste = TasteStore(db.conn)
 mcp = FastMCP("scribe")
+
+
+def _gate(tool_name: str, args: dict) -> dict:
+    """写类工具统一入口:入队待批,不直接落库。"""
+    pid = db.enqueue_pending_write(args["work_id"], tool_name, args)
+    return {"status": "awaiting_approval", "pending_id": pid,
+            "note": "已提交,待作者在 scribe 里确认后写入"}
 
 
 @mcp.tool()
@@ -42,10 +50,9 @@ def list_works(owner_id: str) -> list[dict]:
 @mcp.tool()
 def set_author_intent(work_id: str, reader_feeling: str, why_write: str = "",
                       central_promise: str = "", do_not_betray: list | None = None) -> dict:
-    """设置/更新北极星(这本书要让读者感受什么 + 绝不背叛的红线)。"""
-    return {"intent_id": db.set_author_intent(
-        work_id, reader_feeling=reader_feeling, why_write=why_write,
-        central_promise=central_promise, do_not_betray=do_not_betray)}
+    """设置/更新北极星(这本书要让读者感受什么 + 绝不背叛的红线)。(写操作,需作者审批)"""
+    return _gate("set_author_intent", {"work_id": work_id, "reader_feeling": reader_feeling,
+                 "why_write": why_write, "central_promise": central_promise, "do_not_betray": do_not_betray})
 
 
 @mcp.tool()
@@ -57,8 +64,9 @@ def capture_imagination(work_id: str, raw_text: str, type: str = "") -> dict:
 @mcp.tool()
 def save_chapter(work_id: str, seq: int, title: str = "", outline: dict | None = None,
                  status: str = "draft") -> dict:
-    """保存/更新一章的元信息与大纲(按 work+seq upsert)。"""
-    return {"chapter_id": db.save_chapter(work_id, seq, title, outline, status)}
+    """保存/更新一章的元信息与大纲(按 work+seq upsert)。(写操作,需作者审批)"""
+    return _gate("save_chapter", {"work_id": work_id, "seq": seq, "title": title,
+                 "outline": outline, "status": status})
 
 
 @mcp.tool()
@@ -69,8 +77,8 @@ def get_chapter(work_id: str, seq: int) -> dict | None:
 
 @mcp.tool()
 def upsert_setting(work_id: str, type: str, name: str, content: dict | None = None) -> dict:
-    """写入/更新一条设定(设定圣经的真理源,供自动注入/校验)。"""
-    return {"setting_id": db.upsert_setting(work_id, type, name, content)}
+    """写入/更新一条设定(设定圣经的真理源,供自动注入/校验)。(写操作,需作者审批)"""
+    return _gate("upsert_setting", {"work_id": work_id, "type": type, "name": name, "content": content})
 
 
 @mcp.tool()
@@ -88,9 +96,9 @@ def save_feedback(work_id: str, target_type: str, target_id: str, nl_critique: s
 @mcp.tool()
 def save_snapshot(work_id: str, chapter_id: str, content: str, created_by: str = "ai",
                   parent_id: str | None = None, branch_label: str = "ai-draft") -> dict:
-    """保存一个正文版本快照(AI 不能覆盖 human-locked,见 工程9)。"""
-    return {"snapshot_id": db.save_snapshot(
-        work_id, chapter_id, content, created_by, parent_id, branch_label)}
+    """保存一个正文版本快照(AI 不能覆盖 human-locked,见 工程9)。(写操作,需作者审批)"""
+    return _gate("save_snapshot", {"work_id": work_id, "chapter_id": chapter_id, "content": content,
+                 "created_by": created_by, "parent_id": parent_id, "branch_label": branch_label})
 
 
 @mcp.tool()
@@ -103,8 +111,9 @@ def list_snapshots(chapter_id: str) -> list[dict]:
 @mcp.tool()
 def upsert_character(work_id: str, name: str, traits: dict | None = None,
                      motivation: str = "", voice_profile: dict | None = None) -> dict:
-    """写入/更新角色档案(含声音指纹 voice_profile,供写作保持/OOC 检测)。"""
-    return {"character_id": db.upsert_character(work_id, name, traits, motivation, voice_profile)}
+    """写入/更新角色档案(含声音指纹 voice_profile,供写作保持/OOC 检测)。(写操作,需作者审批)"""
+    return _gate("upsert_character", {"work_id": work_id, "name": name, "traits": traits,
+                 "motivation": motivation, "voice_profile": voice_profile})
 
 
 @mcp.tool()
@@ -117,15 +126,17 @@ def list_characters(work_id: str) -> list[dict]:
 @mcp.tool()
 def plant_foreshadow(work_id: str, summary: str, foreshadow_chapter: int,
                      importance: str = "normal") -> dict:
-    """埋一个伏笔(state=planted)。importance: normal/critical。"""
-    return {"foreshadow_id": foreshadows.plant(work_id, summary, foreshadow_chapter, importance)}
+    """埋一个伏笔(state=planted)。importance: normal/critical。(写操作,需作者审批)"""
+    return _gate("plant_foreshadow", {"work_id": work_id, "summary": summary,
+                 "foreshadow_chapter": foreshadow_chapter, "importance": importance})
 
 
 @mcp.tool()
 def advance_foreshadow(foreshadow_id: str, to_state: str, chapter: int | None = None) -> dict:
-    """推进伏笔状态:triggered/paid/abandoned(非法转移会报错)。"""
-    foreshadows.transition(foreshadow_id, to_state, chapter)
-    return {"ok": True, "state": to_state}
+    """推进伏笔状态:triggered/paid/abandoned(非法转移会报错)。(写操作,需作者审批)"""
+    work_id = db.work_id_of_foreshadow(foreshadow_id)
+    return _gate("advance_foreshadow", {"work_id": work_id, "foreshadow_id": foreshadow_id,
+                 "to_state": to_state, "chapter": chapter})
 
 
 @mcp.tool()

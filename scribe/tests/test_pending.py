@@ -7,6 +7,14 @@ from scribe_mcp.foreshadow import ForeshadowStore
 from scribe_mcp.pending import WRITE_GATED, execute_write
 
 
+def _call(tool, **kwargs):
+    """调用一个 FastMCP 工具,兼容 .fn / 直接可调 两种形态。"""
+    fn = getattr(tool, "fn", None) or (tool if callable(tool) else None)
+    if fn is None:
+        raise AssertionError(f"无法调用工具 {tool!r}")
+    return fn(**kwargs)
+
+
 def _db(tmp_path):
     db = Database(str(tmp_path / "t.db"))
     return db, ForeshadowStore(db.conn)
@@ -67,3 +75,18 @@ def test_every_gated_tool_has_dispatch_branch(tmp_path):
         assert tool in minimal, f"测试缺 {tool} 的最小参数(WRITE_GATED 新增了工具?)"
         res = execute_write(db, fs, tool, minimal[tool])  # 不应抛“未注册”
         assert isinstance(res, dict)
+
+
+def test_mcp_write_tool_enqueues_not_writes(tmp_path, monkeypatch):
+    import importlib
+    monkeypatch.setenv("SCRIBE_DB", str(tmp_path / "srv.db"))
+    import scribe_mcp.server as srv
+    importlib.reload(srv)  # 用新 SCRIBE_DB 重连
+    wid = srv.db.create_work("u1", "书")
+
+    out = _call(srv.upsert_setting, work_id=wid, type="character", name="沈舟", content={"k": "v"})
+    assert out["status"] == "awaiting_approval" and out["pending_id"]
+    assert srv.db.list_settings(wid) == []            # 未落库
+    assert len(srv.db.list_pending_writes(wid)) == 1  # 已入队
+
+    assert isinstance(_call(srv.list_settings, work_id=wid), list)  # 只读照常

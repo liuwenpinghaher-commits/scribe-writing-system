@@ -791,6 +791,10 @@ class Database:
         return False
 
     # ---- B3 写工具审批队列(pending_writes:主编写类工具挂起,作者批准才真写)----
+    def work_id_of_foreshadow(self, fid: str) -> str | None:
+        r = self.conn.execute("SELECT work_id FROM foreshadows WHERE id=?", (fid,)).fetchone()
+        return r["work_id"] if r else None
+
     def enqueue_pending_write(self, work_id: str, tool_name: str, args: dict) -> str:
         pid = _id()
         self.conn.execute(
