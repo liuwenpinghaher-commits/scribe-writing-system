@@ -23,6 +23,11 @@ def _id() -> str:
     return str(uuid.uuid4())
 
 
+def _count_words(text: str) -> int:
+    """中文字数:数汉字(CJK 统一表意文字),不含标点/空白/拉丁。"""
+    return sum(1 for ch in (text or "") if "一" <= ch <= "鿿")
+
+
 class Database:
     def __init__(self, path: str = "scribe.db"):
         # check_same_thread=False: MCP server 可能跨线程调用;写操作仍串行通过同一连接
@@ -345,6 +350,9 @@ class Database:
             "branch_label,created_at) VALUES(?,?,?,?,?,?,?,?)",
             (sid, chapter_id, work_id, content, created_by, parent_id, branch_label, _now()),
         )
+        # 字数随最新正文走(旧 bug:word_count 只读不写,库里恒为 0)
+        self.conn.execute("UPDATE chapters SET word_count=? WHERE id=?",
+                          (_count_words(content), chapter_id))
         self.conn.commit()
         return sid
 

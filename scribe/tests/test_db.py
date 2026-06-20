@@ -107,6 +107,20 @@ def test_pending_writes_queue_roundtrip(tmp_path):
         db.mark_pending_decided(pid, "garbage", None)
 
 
+def test_save_snapshot_updates_chapter_word_count():
+    # 旧 bug:chapters.word_count 只读不写,work_summaries 恒返回 0 字
+    db = _fresh_db()
+    wid = db.create_work("u1", "书")
+    cid = db.save_chapter(wid, 1, "一章")
+    db.save_snapshot(wid, cid, "浊浪拍岸，渡船横江。", created_by="human", branch_label="human-final")
+    summ = db.work_summaries("u1")
+    assert summ and summ[0]["word_count"] == 8   # 8 个汉字(标点不计)
+    # 再存更长的版本,字数应跟最新正文走
+    db.save_snapshot(wid, cid, "浊浪拍岸，渡船横江，独眼老人立船头，撑篙入水。",
+                     created_by="human", branch_label="human-final")
+    assert db.work_summaries("u1")[0]["word_count"] == 19
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
