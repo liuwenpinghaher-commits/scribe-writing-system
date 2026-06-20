@@ -173,7 +173,7 @@ function Workspace() {
             {cur
               ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
                   currentSeq={seq} />
-              : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从左侧选择或新建一本书</div></div>}
+              : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从顶部下拉选择或新建一本书</div></div>}
           </main>
 
           <aside className="col right">
@@ -192,7 +192,7 @@ function Workspace() {
             <AtlasView work={cur.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              请先从左侧导航选择一本书
+              请先从顶部下拉选择一本书
             </div>
           )}
         </div>
@@ -207,7 +207,7 @@ function Workspace() {
             <InsightView work={cur.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              请先从左侧导航选择一本书
+              请先从顶部下拉选择一本书
             </div>
           )}
         </div>
@@ -222,7 +222,7 @@ function Workspace() {
             <CodexView work={cur.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              请先从左侧导航选择一本书
+              请先从顶部下拉选择一本书
             </div>
           )}
         </div>
@@ -237,7 +237,7 @@ function Workspace() {
             <AgentView work={cur.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
-              请先从左侧导航选择一本书
+              请先从顶部下拉选择一本书
             </div>
           )}
         </div>
@@ -255,8 +255,8 @@ function Workspace() {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      {/* AppRail:竖向导航条(切视图/切书/切主题) */}
+    <div className="flex h-screen flex-col overflow-hidden">
+      {/* TopBar:顶部横排导航(切视图/切书/切主题) */}
       <AppRail
         works={works.data}
         current={cur}
@@ -268,7 +268,7 @@ function Workspace() {
       />
 
       {/* 主内容区 */}
-      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+      <div className="flex-1 overflow-hidden flex">
         {renderViewContent()}
       </div>
 
