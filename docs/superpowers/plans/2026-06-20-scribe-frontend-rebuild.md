@@ -264,6 +264,38 @@ git commit -m "feat(web): 写作台三栏 shadcn 换皮(Navigator/Center/Inspect
 
 ---
 
+## Phase 2 · 四视图(细化)
+
+> 前置:`npm run dev` 起 3310;后端 3320 已含新数据端点。每视图独立文件,装配进 App 的 view 分支。每 Task 后 `npm run build` 绿 + 目测。
+
+### Task 2.0:api.ts 补后端新能力
+- `Relation` 类型增 `src_type?/dst_type?/relation_category?/weight?/directed?`。
+- 增 `QualitySnapshot` 类型(words/slop_density/consistency_score/foreshadow_payoff/vocab_richness/repetition_rate/cost_usd/created_at/scope/chapter_seq)。
+- 增方法:`qualityHistory(w, scope="global") → GET /works/{w}/quality/history?scope=`;`analyzeWork(w) → POST /works/{w}/analyze`。
+- commit:`feat(web): api 补 quality/history + analyze + 关系 typed 字段`
+
+### Task 2.1:关系图谱视图(`src/views/AtlasView.tsx`)
+- 装 `@xyflow/react elkjs`。
+- 用 React Flow:`api.relations(w)` → 节点=实体(按 `src_type/dst_type` 上色:角色/地点/阵营/物品…)、边=关系(label=relation,粗细∝`weight`,有向看 `directed`)。
+- elkjs 自动布局(force/layered),社区 `useAutoLayout` 模式。
+- 顶部:按章过滤(slider/Select,`upto`)。空数据→`<Empty>` + "分析全书"按钮(`api.analyzeWork`,带 loading)。
+- 装进 App 的 `atlas` 视图分支(整屏)。commit。
+
+### Task 2.2:质量仪表盘视图(`src/views/InsightView.tsx`)
+- `npx shadcn@latest add chart`(装 recharts)。
+- 卡片网格:① 质量趋势(`api.qualityHistory`,area/line:slop/一致性/字数/成本随时间)② 每章 AI腔分布(bar,`api.quality().weakest_chapters` 或逐章)③ 最弱章排行(横向 bar,点击跳章)④ 一致性/伏笔回收 径向。
+- 全部用 shadcn `ChartContainer` + recharts,主题走 CSS 变量;图例/tooltip/`<Empty>`/skeleton。空→"分析全书"。
+- 装进 `insight` 视图。commit。
+
+### Task 2.3:设定库视图(`src/views/CodexView.tsx`)
+- `npx shadcn@latest add table` + `npm i @tanstack/react-table`。
+- shadcn Data Table:Tab(角色/设定/伏笔/素材),可排序/筛选/分页;行点开详情编辑(复用现有 api.characters/settings/foreshadows/materials 的增改)。
+- 装进 `codex` 视图。commit。
+
+### Task 2.4:记忆与技能视图(`src/views/AgentView.tsx`)
+- 复用现有 `Panels.tsx` 的 `AgentPanel` 逻辑(跨会话记忆按命名空间 + 技能审批门),整屏布局换 shadcn 皮(左右分栏:记忆列表 / 技能审批)。
+- 装进 `agent` 视图。commit。
+
 ## Self-Review(规划者自检)
 
 - **Spec 覆盖(Phase 0–1)**:Tailwind+shadcn 接入(spec §4)✓、暖灰/黛绿浅深主题(§5)✓、核心原语 + sidebar/command(§6)✓、5 视图 IA(§3)✓、写作台换皮 + Empty/Segmented/StateBoundary(§6/§9)✓。Phase 2–3 覆盖 §6 数据可视化/§7 动效/§8 规模/§11-16 横切——列为路线图,显式标注"地基后细化"。
