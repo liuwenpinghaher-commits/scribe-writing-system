@@ -258,6 +258,8 @@ function Workspace() {
         view={view}
         onView={setView}
         onOpenLibrary={() => setCur(null)}
+        onCapture={() => cur && setImagOpen(true)}
+        onCommand={() => setCmdOpen(true)}
         theme={theme}
         onTheme={setTheme}
       />

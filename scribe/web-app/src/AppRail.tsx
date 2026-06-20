@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown } from "lucide-react";
+import { Sun, Moon, BookOpen, ChevronDown, Lightbulb, Command } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VIEWS, type ViewKey } from "./views";
 import type { Work } from "./api";
@@ -8,11 +8,18 @@ interface AppRailProps {
   view: ViewKey;
   onView: (v: ViewKey) => void;
   onOpenLibrary: () => void;   // 点书名 → 回选书页(可靠切书)
+  onCapture: () => void;       // 捕获想象(常用,显眼留一个)
+  onCommand: () => void;       // 命令面板 ⌘K
   theme: string;
   onTheme: (t: string) => void;
 }
 
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }: AppRailProps) {
+const iconBtn =
+  "flex items-center justify-center w-8 h-8 rounded-md shrink-0 text-muted-foreground " +
+  "hover:text-foreground hover:bg-accent transition-colors duration-150 outline-none " +
+  "focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:pointer-events-none";
+
+export function AppRail({ current, view, onView, onOpenLibrary, onCapture, onCommand, theme, onTheme }: AppRailProps) {
   return (
     <header className="h-12 shrink-0 flex items-center border-b border-border bg-background px-3 gap-3">
       {/* 左:字标 + 书切换(普通按钮,点了回选书页) */}
@@ -58,19 +65,21 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }
         })}
       </nav>
 
-      {/* 右:主题切换 */}
-      <button
-        onClick={() => onTheme(theme === "dark" ? "light" : "dark")}
-        title={theme === "dark" ? "切换浅色" : "切换深色"}
-        aria-label={theme === "dark" ? "切换浅色" : "切换深色"}
-        className={cn(
-          "flex items-center justify-center w-8 h-8 rounded-md shrink-0",
-          "text-muted-foreground hover:text-foreground hover:bg-accent",
-          "transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        )}
-      >
-        {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-      </button>
+      {/* 右:常用动作(显眼) + 主题 */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button onClick={onCapture} disabled={!current} title="捕获想象 ⌘I" aria-label="捕获想象"
+          className={cn(iconBtn, "text-primary hover:text-primary")}>
+          <Lightbulb size={16} />
+        </button>
+        <button onClick={onCommand} title="命令面板 ⌘K" aria-label="命令面板" className={iconBtn}>
+          <Command size={15} />
+        </button>
+        <button onClick={() => onTheme(theme === "dark" ? "light" : "dark")}
+          title={theme === "dark" ? "切换浅色" : "切换深色"} aria-label={theme === "dark" ? "切换浅色" : "切换深色"}
+          className={iconBtn}>
+          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
+      </div>
     </header>
   );
 }
