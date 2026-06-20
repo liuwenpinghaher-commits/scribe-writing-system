@@ -29,3 +29,30 @@ class Domain:
 
     def list_chapters(self, work: str) -> list[dict]:
         return self.s.list("chapter", "work = $w ORDER BY seq ASC", {"w": f"work:{work}"})
+
+    # ---- snapshot 版本树 ----
+    def save_prose(self, work: str, chapter: str, content: str, locked: bool = False) -> str:
+        existing = self.s.list("snapshot", "chapter = $c", {"c": f"chapter:{chapter}"})
+        ver = len(existing) + 1
+        return self.s.create("snapshot", {
+            "work": f"work:{work}", "chapter": f"chapter:{chapter}",
+            "version": ver, "content": content, "locked": bool(locked)})
+
+    def list_snapshots(self, chapter: str) -> list[dict]:
+        return self.s.list("snapshot", "chapter = $c ORDER BY version ASC",
+                           {"c": f"chapter:{chapter}"})
+
+    def latest_prose(self, chapter: str) -> str:
+        snaps = self.list_snapshots(chapter)
+        return snaps[-1]["content"] if snaps else ""
+
+    # ---- 内容实体:设定 ----
+    def add_setting(self, work: str, name: str, desc: str = "", type_: str = "设定") -> str:
+        text = f"{name}:{desc}" if desc else name
+        return self.s.put_content("setting", work=f"work:{work}", text=text, name=name, stype=type_)
+
+    def list_settings(self, work: str) -> list[dict]:
+        return self.s.list("setting", "work = $w", {"w": f"work:{work}"})
+
+    def search(self, work: str, query: str, k: int = 6) -> list[dict]:
+        return self.s.search_knowledge(f"work:{work}", query, k=k)
