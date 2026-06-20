@@ -10,6 +10,7 @@ import { Right } from "./Right";
 import { VIEWS, type ViewKey } from "./views";
 import { AppRail } from "./AppRail";
 import { AtlasView } from "./views/AtlasView";
+import { InsightView } from "./views/InsightView";
 
 // 视图名映射(占位提示)
 const VIEW_LABELS: Record<ViewKey, string> = {
@@ -187,6 +188,21 @@ function Workspace() {
         <div className="flex-1 flex flex-col overflow-hidden h-full">
           {cur ? (
             <AtlasView work={cur.id} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+              请先从左侧导航选择一本书
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // insight 视图:质量仪表盘
+    if (view === "insight") {
+      return (
+        <div className="flex-1 flex flex-col overflow-hidden h-full">
+          {cur ? (
+            <InsightView work={cur.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
               请先从左侧导航选择一本书
