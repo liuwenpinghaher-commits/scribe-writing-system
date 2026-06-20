@@ -214,13 +214,26 @@ class ChatIn(BaseModel):
     thread_id: str | None = None   # 续话(为空则新建线程)
 
 
+def _hermes_api_key() -> str:
+    """新版 hermes api_server 要 API_SERVER_KEY:优先环境变量,回退 ~/.hermes/.env。"""
+    k = os.environ.get("API_SERVER_KEY")
+    if not k:
+        try:
+            for ln in open(os.path.expanduser("~/.hermes/.env"), encoding="utf-8"):
+                if ln.startswith("API_SERVER_KEY="):
+                    k = ln.split("=", 1)[1].strip(); break
+        except Exception:
+            pass
+    return k or "local"
+
+
 def _hermes_complete(message: str, model: str = "doubao-seed-2.0-pro", system: str | None = None) -> str:
     """调用 Hermes(主编/火山doubao)取一段补全文本。错误抛出不静默。"""
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": message}]
     try:
         r = httpx.post(f"{_HERMES}/chat/completions", timeout=180,
-                       headers={"Authorization": "Bearer local", "Content-Type": "application/json"},
+                       headers={"Authorization": f"Bearer {_hermes_api_key()}", "Content-Type": "application/json"},
                        json={"model": model, "messages": msgs, "stream": False})
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
