@@ -589,14 +589,40 @@ async def chat_stream(work_id: str, body: ChatIn,
 
 # ---- P0-3 结构化 AI 动作:出草稿(ai-draft),不覆盖定稿;返回 diff 所需 prev ----
 class ActionIn(BaseModel):
-    instruction: str = ""   # rewrite=作者意见;continue/expand 可选补充
+    instruction: str = ""   # rewrite=作者意见;continue=本节要写的大纲/节拍(steer 生成)
+    target_chars: int = 0   # continue 目标字数(0=默认 150,UI 续写按钮behavior不变;驱动可调大)
 
 
-_ACTION_PROMPT = {
-    "continue": "请为这本书第 {seq} 章续写约 150 字正文。只输出正文本身,不要任何解释或前后缀。",
-    "rewrite": "下面是第 {seq} 章当前正文。请据作者意见「{instruction}」做定向重写(只改问题处,保留其余)。只输出重写后的完整正文,不要解释。\n\n当前正文:\n{prev}",
-    "expand": "请把第 {seq} 章正文在不改情节的前提下扩写得更具体(感官细节、动作),约增加一半篇幅。只输出扩写后的完整正文,不要解释。\n\n当前正文:\n{prev}",
-}
+_ACTIONS = {"continue", "rewrite", "expand"}
+
+
+def _action_prompt(action: str, seq: int, instruction: str = "", prev: str = "",
+                   target_chars: int = 0) -> str:
+    """构建 AI 动作 prompt(纯函数,可单测)。
+    continue:依【本节要写】instruction 续写、衔接【已写正文】prev、长度约 target 字。
+      instruction/prev 为空也合法 —— UI「续写」按钮即纯接上文续写。
+    旧实现 bug:continue 模板只引用 {seq},把 API 已接收的 instruction 与 prev 丢弃,
+      且硬编码 150 字 —— 无法按大纲 steer、无法连贯成章、无法写长。此处修复。
+    """
+    if action == "continue":
+        target = target_chars if target_chars and target_chars > 0 else 150
+        parts = [f"这是这本书第 {seq} 章。请往下写约 {target} 字正文,与上下文自然衔接,"
+                 "保持同一叙事声音、文白相间的笔法与各人物既定声音;"
+                 "只输出新写的正文本身,不要重复已写内容,不要任何解释或前后缀。"]
+        if (instruction or "").strip():
+            parts.append("\n【本节要写(务必照此推进情节,不要另起炉灶)】\n" + instruction.strip())
+        if (prev or "").strip():
+            parts.append("\n【本章已写正文(承接它继续,语气连贯,不要重写)】\n" + prev)
+        return "\n".join(parts)
+    if action == "rewrite":
+        return ("下面是第 {seq} 章当前正文。请据作者意见「{instruction}」做定向重写"
+                "(只改问题处,保留其余)。只输出重写后的完整正文,不要解释。\n\n当前正文:\n{prev}"
+                ).format(seq=seq, instruction=instruction, prev=prev)
+    if action == "expand":
+        return ("请把第 {seq} 章正文在不改情节的前提下扩写得更具体(感官细节、动作),"
+                "约增加一半篇幅。只输出扩写后的完整正文,不要解释。\n\n当前正文:\n{prev}"
+                ).format(seq=seq, prev=prev)
+    raise ValueError(f"未知 action: {action}")
 
 
 @app.post("/works/{work_id}/chapters/{seq}/actions/{action}")
@@ -606,7 +632,7 @@ def chapter_action(work_id: str, seq: int, action: str, body: ActionIn,
     返回 {content, prev_content},供前端 diff + 接受/拒绝。不落库,接受才定稿。"""
     owner = _owner(x_owner_id)
     _own_work(work_id, owner)
-    if action not in _ACTION_PROMPT:
+    if action not in _ACTIONS:
         raise HTTPException(400, "action 必须是 continue/rewrite/expand")
     ch = db.get_chapter(work_id, seq)
     if not ch:
@@ -616,8 +642,8 @@ def chapter_action(work_id: str, seq: int, action: str, body: ActionIn,
     if action != "continue" and not prev:
         raise HTTPException(400, "本章还没有正文,先 continue")
     ctx = _writing_context(work_id, owner, seq)
-    prompt = (ctx + "\n\n" if ctx else "") + _ACTION_PROMPT[action].format(
-        seq=seq, instruction=body.instruction, prev=prev)
+    prompt = (ctx + "\n\n" if ctx else "") + _action_prompt(
+        action, seq, body.instruction, prev, body.target_chars)
     text = _volc_complete(prompt, role="draft", work_id=work_id)
     # 只生成草稿、不落库:接受时前端再调 /prose 存为定稿(放弃则什么都不留,语义干净)
     return {"content": text, "prev_content": prev}
@@ -629,7 +655,7 @@ async def chapter_action_stream(work_id: str, seq: int, action: str, body: Actio
     """F 流式生成:逐字 SSE 输出草稿(注入同 chapter_action)。前端边写边显。"""
     owner = _owner(x_owner_id)
     _own_work(work_id, owner)
-    if action not in _ACTION_PROMPT:
+    if action not in _ACTIONS:
         raise HTTPException(400, "action 必须是 continue/rewrite/expand")
     ch = db.get_chapter(work_id, seq)
     if not ch:
@@ -639,8 +665,8 @@ async def chapter_action_stream(work_id: str, seq: int, action: str, body: Actio
     if action != "continue" and not prev:
         raise HTTPException(400, "本章还没有正文,先 continue")
     ctx = _writing_context(work_id, owner, seq)
-    prompt = (ctx + "\n\n" if ctx else "") + _ACTION_PROMPT[action].format(
-        seq=seq, instruction=body.instruction, prev=prev)
+    prompt = (ctx + "\n\n" if ctx else "") + _action_prompt(
+        action, seq, body.instruction, prev, body.target_chars)
     from starlette.responses import StreamingResponse
 
     def gen():
