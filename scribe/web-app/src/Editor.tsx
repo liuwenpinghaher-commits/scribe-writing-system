@@ -6,7 +6,7 @@ import { Save, Sparkles, MessageSquareQuote, Check, X, RotateCcw, ShieldCheck, B
 import { api } from "./api";
 import type { Draft, Verdict, Snapshot } from "./api";
 import { diffChars } from "./diff";
-import { Btn, State, useData, useToast } from "./common";
+import { Btn, State, errMsg, useData, useToast } from "./common";
 
 type Mode = "draft" | "edit" | "history";
 const FB_TEMPLATES = ["太长", "节奏慢", "太直白", "不像角色", "更狠", "去掉AI腔"];
@@ -91,6 +91,7 @@ export function ChapterEditor({ work, seq, rev, bump }: {
     await api.pref(work, "feedback_accept", "+", fb ? { text: fb } : undefined).catch(() => {}); // 回流品味(带意见文本供学习)
     await api.rebuildSegments(work, seq).catch(() => {});
     await api.check(work, seq).catch(() => {});                   // 门槛自动校验
+    await api.ingest(work, seq).catch(() => {});                  // C2-1 摄入:抽取记忆/状态/时间线/关系
     setDraft(null); setFb(""); toast("已接受并定稿"); bump(); reload();
   };
   const reject = () => { setDraft(null); toast("已放弃该草稿(未改动原文)"); };
@@ -109,6 +110,13 @@ export function ChapterEditor({ work, seq, rev, bump }: {
     setCritBusy(true);
     try { setCrit(await api.critique(work, seq, "", true)); }
     finally { setCritBusy(false); }
+  };
+  const [deepBusy, setDeepBusy] = useState(false);
+  const runDeep = async () => {
+    setDeepBusy(true);
+    try { const r = await api.deepCheck(work, seq); toast(`深度体检:新增 ${r.new_flags} 个一致性问题`); bump(); }
+    catch (e) { toast(errMsg(e), "err"); }
+    finally { setDeepBusy(false); }
   };
   const acceptCritique = async () => {
     if (!crit?.improved) return;
@@ -137,7 +145,7 @@ export function ChapterEditor({ work, seq, rev, bump }: {
           <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 16 }}>第 {seq} 章 · {ch?.title || "无题"}</h3>
           <span className="badge">{ch?.status}</span>
         </div>
-        <div className="muted small" style={{ marginTop: 4 }}>
+        <div className="muted small tnum" style={{ marginTop: 4 }}>
           字数 {latest.length.toLocaleString()} · {snaps.length} 个版本
         </div>
       </div>
@@ -148,8 +156,10 @@ export function ChapterEditor({ work, seq, rev, bump }: {
           </Btn>
           <Btn onClick={runCritique} variant="ghost" className="sm">{critBusy ? "评改中…" : "✎ 文学评改"}</Btn>
           <Btn onClick={runIntent} variant="ghost" className="sm"><ShieldCheck size={14} /> 查北极星</Btn>
+          <Btn onClick={runDeep} variant="ghost" className="sm">{deepBusy ? "体检中…" : "🔬 深度体检"}</Btn>
         </div>
       </div>
+      <TaskStepper work={work} seq={seq} rev={rev} />
       {crit && (
         <div className="card" style={{ borderLeft: `3px solid ${crit.last_overall >= 3.5 ? "var(--ok)" : "var(--warn)"}` }}>
           <b>文学评改</b> <span className="muted small">
@@ -325,6 +335,40 @@ function HistoryView({ snaps, onRestore, work, seq, onMerged }: {
       )}
       <Branches work={work} seq={seq} latest={latest} onMerged={onMerged} />
     </>
+  );
+}
+
+// C3-3 章编排状态机:显示当前流程态 + 合法下一步(手动推进,后端拒非法转移)。
+const STATE_LABEL: Record<string, string> = {
+  PLANNING: "规划中", AWAITING_OUTLINE_CHOICE: "待选大纲", OUTLINED: "已定纲", DRAFTING: "起草中",
+  DRAFTED: "初稿成", REFLECTING: "自检中", REVISING: "修订中", AWAITING_DRAFT_CHOICE: "待选稿",
+  REVIEWING: "评审中", REVIEW_FAILED: "评审未过", AWAITING_HUMAN: "待你裁决", CONSISTENCY_CHECK: "一致性核",
+  MEMORY_UPDATE: "记忆更新", DONE: "完成", FAILED: "失败",
+};
+
+function TaskStepper({ work, seq, rev }: { work: string; seq: number; rev: number }) {
+  const { data, reload } = useData(() => api.task(work, seq), [work, seq, rev]);
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const go = async (to: string) => {
+    try { await api.advanceTask(work, seq, to); toast(`流程 → ${STATE_LABEL[to] || to}`); reload(); }
+    catch (e) { toast(errMsg(e), "err"); }
+  };
+  if (!data) return null;
+  return (
+    <div className="card" style={{ padding: "7px 10px", marginBottom: 10 }}>
+      <button className="ghost sm" style={{ border: 0, padding: 0, width: "100%", textAlign: "left" }}
+        onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="muted small">写作流程</span> <b>{STATE_LABEL[data.status] || data.status}</b>
+        <span className="muted small"> {open ? "▾" : "▸"}</span>
+      </button>
+      {open && data.next.length > 0 && (
+        <div className="row" style={{ marginTop: 6, flexWrap: "wrap" }}>
+          {data.next.map((s) => <Btn key={s} onClick={() => go(s)} variant="ghost" className="sm">→ {STATE_LABEL[s] || s}</Btn>)}
+        </div>
+      )}
+      {open && data.next.length === 0 && <div className="muted small" style={{ marginTop: 4 }}>终态,无后续</div>}
+    </div>
   );
 }
 

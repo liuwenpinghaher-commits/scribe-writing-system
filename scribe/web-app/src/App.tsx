@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { PanelRight, PanelLeft, BookOpen, Lightbulb, Search } from "lucide-react";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
 import { Btn, ToastProvider, useData, useToast } from "./common";
 import { Library } from "./Library";
+import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Right } from "./Right";
 
@@ -18,13 +19,18 @@ function Workspace() {
 
   const select = (w: Work) => { setCur(w); setSeq(null); setShowLeft(false); };
 
-  // 全局快捷键:⌘I 想象捕获 · ⌘K 命令面板 · ⌘⇧F 专注模式
+  // 全局快捷键:⌘I 想象捕获 · ⌘K 命令面板 · ⌘⇧F 专注 · ? 快捷键帮助
   const [imagOpen, setImagOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [focus, setFocus] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const toast = useToast();
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA";
       const meta = e.metaKey || e.ctrlKey;
+      if (!typing && !meta && e.key === "?") { e.preventDefault(); setHelpOpen((v) => !v); return; }
       if (meta && e.shiftKey && e.key.toLowerCase() === "f") { e.preventDefault(); setFocus((v) => !v); return; }
       if (meta && e.key.toLowerCase() === "i" && cur) { e.preventDefault(); setImagOpen(true); }
       if (meta && e.key.toLowerCase() === "k") { e.preventDefault(); setCmdOpen((v) => !v); }
@@ -40,7 +46,7 @@ function Workspace() {
   // C5/C3-2 SSE:订阅后端事件(待决方案/札记/一致性变化)→ 主动刷新,替代盲目轮询
   useEffect(() => {
     if (!cur) return;
-    const base = import.meta.env.VITE_API ?? "http://127.0.0.1:8801";
+    const base = import.meta.env.VITE_API ?? "http://127.0.0.1:3320";
     const es = new EventSource(`${base}/works/${cur.id}/events?owner=u1`);
     es.onmessage = () => bump();
     es.onerror = () => es.close();
@@ -65,11 +71,28 @@ function Workspace() {
     if (cur && location.hash !== want) history.replaceState(null, "", want || location.pathname);
   }, [cur, seq]);
 
+  // 命令面板全动作(Linear 式:键盘可达一切,而非只跳转)
+  const globalActions: Action[] = [
+    { label: focus ? "退出专注模式" : "进入专注模式", hint: "⌘⇧F", run: () => setFocus((v) => !v) },
+    { label: theme === "dark" ? "切到浅色" : "切到深色", hint: "☀/☾", run: () => setTheme((t) => (t === "dark" ? "light" : "dark")) },
+    { label: "快捷键帮助", hint: "?", run: () => setHelpOpen(true) },
+    { label: "打开作品库(左栏)", hint: "", run: () => setShowLeft(true) },
+    ...(cur ? [
+      { label: "捕获想象", hint: "⌘I", run: () => setImagOpen(true) },
+      { label: "打开主编与设定(右栏)", hint: "", run: () => setShowRight(true) },
+      { label: "全文体检 · 让主编主动揪问题", hint: "", run: async () => { const r = await api.review(cur.id); toast(`体检完成,新增 ${r.new_insights} 条札记`); bump(); } },
+    ] : []),
+  ];
+
   return (
     <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
       <aside className="col left">
         <Library works={works.data} loading={works.loading} error={works.error}
           reload={works.reload} current={cur} onSelect={select} />
+        {cur && (
+          <Navigator work={cur.id} rev={rev} bump={bump}
+            currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
+        )}
       </aside>
 
       <main className="col center">
@@ -81,6 +104,7 @@ function Workspace() {
           </h1>
           <div className="row">
             <button className="ghost sm" aria-label="命令面板 ⌘K" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}><Search size={16} /></button>
+            <button className="ghost sm" aria-label="快捷键帮助" title="快捷键帮助 ?" onClick={() => setHelpOpen(true)}>?</button>
             <button className="ghost sm" aria-label="深浅色" title="深浅色" onClick={() => setTheme((t) => t === "dark" ? "light" : "dark")}>{theme === "dark" ? "☾" : "☀"}</button>
             <button className="ghost sm" aria-label="专注模式 ⌘⇧F" title="专注模式 ⌘⇧F" onClick={() => setFocus((v) => !v)}>{focus ? "⤢" : "⤡"}</button>
             <button className="ghost sm right-toggle" aria-label="打开主编与设定"
@@ -89,7 +113,7 @@ function Workspace() {
         </div>
         {cur
           ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
-              currentSeq={seq} setSeq={setSeq} />
+              currentSeq={seq} />
           : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从左侧选择或新建一本书</div></div>}
       </main>
 
@@ -102,18 +126,47 @@ function Workspace() {
         <ImagModal work={cur.id} onClose={() => setImagOpen(false)} onSaved={bump} />
       )}
       {cmdOpen && (
-        <CommandPalette works={works.data} cur={cur} onClose={() => setCmdOpen(false)}
+        <CommandPalette works={works.data} cur={cur} actions={globalActions} onClose={() => setCmdOpen(false)}
           onSelectWork={(w) => { select(w); setCmdOpen(false); }}
-          onJump={(s) => { setSeq(s); setCmdOpen(false); }}
-          onImagine={() => { setCmdOpen(false); if (cur) setImagOpen(true); }} />
+          onJump={(s) => { setSeq(s); setCmdOpen(false); }} />
       )}
+      {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }
 
-function CommandPalette({ works, cur, onClose, onSelectWork, onJump, onImagine }: {
-  works: Work[] | null; cur: Work | null; onClose: () => void;
-  onSelectWork: (w: Work) => void; onJump: (seq: number) => void; onImagine: () => void;
+interface Action { label: string; hint: string; run: () => void | Promise<unknown> }
+
+function ShortcutsHelp({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+  const rows: [string, string][] = [
+    ["⌘K", "命令面板(全动作)"], ["⌘I", "捕获想象"], ["⌘⇧F", "专注模式"],
+    ["⌘.", "取消 AI 生成(编辑器内)"], ["?", "本帮助"], ["Esc", "关闭弹层"],
+    ["Enter", "提交输入框 / 捕获"], ["↑ ↓", "命令面板选择"],
+  ];
+  return (
+    <div className="scrim" onClick={onClose} role="dialog" aria-modal="true" aria-label="快捷键帮助">
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>快捷键</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 14px", marginTop: 8 }}>
+          {rows.map(([k, v]) => (
+            <Fragment key={k}>
+              <kbd className="kbd">{k}</kbd><span className="small">{v}</span>
+            </Fragment>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommandPalette({ works, cur, actions, onClose, onSelectWork, onJump }: {
+  works: Work[] | null; cur: Work | null; actions: Action[]; onClose: () => void;
+  onSelectWork: (w: Work) => void; onJump: (seq: number) => void;
 }) {
   const [q, setQ] = useState("");
   const [chs, setChs] = useState<Chapter[]>([]);
@@ -122,12 +175,12 @@ function CommandPalette({ works, cur, onClose, onSelectWork, onJump, onImagine }
   useEffect(() => { ref.current?.focus(); if (cur) api.chapters(cur.id).then(setChs).catch(() => {}); }, [cur]);
   const items = useMemo(() => {
     const list: { label: string; hint: string; run: () => void }[] = [];
-    if (cur) list.push({ label: "捕获想象", hint: "⌘I", run: onImagine });
+    actions.forEach((a) => list.push({ label: a.label, hint: a.hint, run: () => { a.run(); onClose(); } }));
     works?.forEach((w) => list.push({ label: `书 · ${w.title}`, hint: w.genre || "", run: () => onSelectWork(w) }));
     chs.forEach((c) => list.push({ label: `第 ${c.seq} 章 · ${c.title || "无题"}`, hint: "跳转", run: () => onJump(c.seq) }));
     const qq = q.trim().toLowerCase();
     return qq ? list.filter((i) => i.label.toLowerCase().includes(qq)) : list;
-  }, [q, works, chs, cur]);
+  }, [q, works, chs, cur, actions]);
   const sel = Math.min(active, Math.max(0, items.length - 1));
   return (
     <div className="scrim" onClick={onClose} role="dialog" aria-modal="true" aria-label="命令面板">

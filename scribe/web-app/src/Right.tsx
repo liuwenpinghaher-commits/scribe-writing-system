@@ -2,8 +2,9 @@ import { useRef, useState } from "react";
 import { Stethoscope, Send } from "lucide-react";
 import { api } from "./api";
 import { Btn, State, errMsg, useData, useToast } from "./common";
+import { QualityCard, Relations, CharStates, Threads, AgentPanel } from "./Panels";
 
-type Tab = "bible" | "foreshadow" | "flags" | "material" | "pulse";
+type Tab = "bible" | "foreshadow" | "flags" | "material" | "pulse" | "agent";
 
 export function Right({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
   return (
@@ -11,6 +12,7 @@ export function Right({ work, rev, bump }: { work: string; rev: number; bump: ()
       <Insights work={work} rev={rev} />
       <Sidebar work={work} rev={rev} />
       <Chat work={work} bump={bump} />
+      <Threads work={work} rev={rev} />
     </>
   );
 }
@@ -75,7 +77,8 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
   }, [work, rev]);
   const tabs: [Tab, string, number][] = [
     ["bible", "设定圣经", 0], ["foreshadow", "伏笔", fo.data?.length ?? 0],
-    ["flags", "一致性", fl.data?.length ?? 0], ["material", "素材", 0], ["pulse", "脉络", 0],
+    ["flags", "一致性", fl.data?.length ?? 0], ["material", "素材", 0],
+    ["pulse", "脉络/质量", 0], ["agent", "记忆技能", 0],
   ];
   return (
     <>
@@ -117,6 +120,7 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
         )}
         {tab === "material" && <Materials work={work} />}
         {tab === "pulse" && <Pulse work={work} rev={rev} />}
+        {tab === "agent" && <AgentPanel work={work} rev={rev} />}
         {tab === "bible" && (
           <>
             <BibleAdd work={work} onAdded={bible.reload} />
@@ -125,6 +129,7 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
                 <BibleItem key={i} work={work} item={x} onSaved={bible.reload} />
               ))}
             </State>
+            <RelationsSection work={work} rev={rev} />
           </>
         )}
       </div>
@@ -132,6 +137,19 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
   );
 }
 
+
+// 设定圣经底部:实体关系图(可折叠)
+function RelationsSection({ work, rev }: { work: string; rev: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+      <button className="ghost sm" onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ width: "100%", textAlign: "left" }}>
+        实体关系图 {open ? "▾" : "▸"}
+      </button>
+      {open && <div style={{ marginTop: 6 }}><Relations work={work} rev={rev} /></div>}
+    </div>
+  );
+}
 
 function BibleItem({ work, item, onSaved }: {
   work: string; item: { kind: "char" | "set"; k: string; name: string; body: string; type: string };
@@ -141,6 +159,7 @@ function BibleItem({ work, item, onSaved }: {
   const [body, setBody] = useState(item.body);
   const [impact, setImpact] = useState<{ seq: number; title?: string; snippet: string }[] | null>(null);
   const [loadingImpact, setLoadingImpact] = useState(false);
+  const [showStates, setShowStates] = useState(false);
   const toast = useToast();
   const save = async () => {
     if (item.kind === "char") await api.addCharacter(work, item.name, body.trim());
@@ -169,7 +188,11 @@ function BibleItem({ work, item, onSaved }: {
             <Btn onClick={loadImpact} variant="ghost" className="sm">
               {item.kind === "char" ? "出场时间线" : "影响章节"}{impact ? " ▾" : " ▸"}
             </Btn>
+            {item.kind === "char" && (
+              <Btn onClick={() => setShowStates((v) => !v)} variant="ghost" className="sm">状态轨迹{showStates ? " ▾" : " ▸"}</Btn>
+            )}
           </div>
+          {showStates && item.kind === "char" && <CharStates work={work} name={item.name} />}
           {loadingImpact && <div className="muted small" style={{ marginTop: 4 }}>查找中…</div>}
           {impact && (
             <div style={{ marginTop: 4 }}>
@@ -192,12 +215,9 @@ function BibleItem({ work, item, onSaved }: {
 function Pulse({ work, rev }: { work: string; rev: number }) {
   const mem = useData(() => api.memory(work), [work, rev]);
   const tl = useData(() => api.timeline(work), [work, rev]);
-  const cost = useData(() => api.cost(work), [work, rev]);
   return (
     <>
-      {cost.data && (
-        <div className="card"><span className="muted small">AI 用量:{cost.data.calls} 次 · {cost.data.tokens.toLocaleString()} token · ${cost.data.cost_usd}</span></div>
-      )}
+      <QualityCard work={work} rev={rev} />
       <h3>全书主线记忆</h3>
       <State loading={mem.loading} error={mem.error} empty={!mem.data?.global && !mem.data?.chapters?.length} emptyText="写几章后自动沉淀" onRetry={mem.reload}>
         {mem.data?.global && <div className="card"><div className="seg">{mem.data.global}</div></div>}

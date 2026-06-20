@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Plus, Search, BookText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Search, BookText, ChevronDown } from "lucide-react";
 import { api } from "./api";
 import type { Work } from "./api";
 import { Btn, State } from "./common";
@@ -10,14 +10,33 @@ export function Library({ works, loading, error, reload, current, onSelect }: {
 }) {
   const [title, setTitle] = useState("");
   const [q, setQ] = useState("");
+  // binder:选中一本书后折叠作品库为切换器,垂直空间让给左栏大纲树。
+  const [expanded, setExpanded] = useState(!current);
+  useEffect(() => { setExpanded(!current); }, [current]);
   const create = async () => {
     if (!title.trim()) return;
     await api.createWork(title.trim()); setTitle(""); reload();
   };
+  const select = (w: Work) => { onSelect(w); setExpanded(false); };
   const list = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return (works ?? []).filter((w) => !qq || (w.title + (w.genre || "")).toLowerCase().includes(qq));
   }, [works, q]);
+
+  // 折叠态:仅显示当前书 + 展开按钮
+  if (current && !expanded) {
+    return (
+      <div className="topbar">
+        <span className="brand">SCRIBE</span>
+        <button className="ghost sm work-switch" onClick={() => setExpanded(true)}
+          aria-label="切换作品" title="切换作品" aria-expanded={false}>
+          <BookText size={14} aria-hidden />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current.title}</span>
+          <ChevronDown size={14} aria-hidden />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -37,7 +56,7 @@ export function Library({ works, loading, error, reload, current, onSelect }: {
             const pct = Math.min(100, Math.round((words / 100000) * 100)); // 进度参考(对 10 万字)
             return (
               <button key={w.id} className={"card clickable work-card" + (current?.id === w.id ? " active" : "")}
-                aria-current={current?.id === w.id} onClick={() => onSelect(w)}>
+                aria-current={current?.id === w.id} onClick={() => select(w)}>
                 <div className="row end" style={{ gap: 6 }}>
                   <BookText size={15} className="muted" aria-hidden />
                   <span className="t" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.title}</span>

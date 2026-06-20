@@ -1,5 +1,5 @@
 // 类型化领域 API 客户端。错误不静默:非 2xx 抛出,由调用方处理(修复审查 #3)。
-const BASE = import.meta.env.VITE_API ?? "http://127.0.0.1:8801";
+const BASE = import.meta.env.VITE_API ?? "http://127.0.0.1:3320";
 const OWNER = "u1"; // 本地开发固定 owner;鉴权由上层自建(工程9)
 const H = { "X-Owner-Id": OWNER, "Content-Type": "application/json" };
 
@@ -16,7 +16,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     r = await fetch(BASE + path, { headers: H, ...init });
   } catch {
-    throw new ApiError(0, "无法连接领域 API(:8801 未启动?)");
+    throw new ApiError(0, "无法连接领域 API(:3320 未启动?)");
   }
   if (!r.ok) {
     let detail = `${r.status}`;
@@ -53,6 +53,21 @@ export interface Segment { id: string; seq: number; text: string; created_by: st
 export interface Draft { content: string; prev_content: string; }
 export interface Verdict { status: "aligned" | "soft_deviation" | "hard_violation"; reason: string; red_lines: { text: string; level: string }[]; }
 export type ChapterAction = "continue" | "rewrite" | "expand";
+// P1 暴露:质量/关系/状态/编排/线程/记忆/技能
+export interface Quality {
+  chapters: number; words: number; avg_slop_density: number;
+  foreshadow: { planted: number; paid: number; abandoned: number; payoff_rate: number };
+  consistency: { open_flags: number; weighted: number; by_class: Record<string, number>; score: number };
+  weakest_chapters: { seq: number; words: number; slop_density: number; open_flags: number }[];
+  cost: { calls: number; tokens: number; cost_usd: number };
+}
+export interface Relation { id: string; src_entity: string; dst_entity: string; relation: string; valid_from_chapter?: number | null; valid_to_chapter?: number | null; }
+export interface CharState { id: string; chapter_seq: number; state_desc?: string; change_type?: string; }
+export interface ChapterTask { id: string; work_id: string; seq: number; status: string; detail?: string; updated_at: string; next: string[]; }
+export interface Thread { id: string; trigger: string; topic: string; messages: string; status: string; resolution?: string; created_at: string; }
+export interface AgentMemory { id: string; namespace: string; key: string; value: string; confidence: number; work_id?: string | null; updated_at: string; }
+export interface AgentSkill { id: string; name: string; spec: string; status: string; created_by: string; approved_by_human: number; created_at: string; }
+export type ImagStatus = "captured" | "structured" | "scheduled" | "used" | "obsolete";
 
 export const api = {
   works: () => req<Work[]>("/works"),
@@ -157,4 +172,29 @@ export const api = {
     post<{ status: string }>(`/works/${w}/consistency-flags/${fid}/${action}`),
   advanceForeshadow: (w: string, fid: string, action: "trigger" | "pay" | "abandon") =>
     post<{ state: string }>(`/works/${w}/foreshadows/${fid}/${action}`),
+  // ── P1 暴露:质量 / 关系 / 角色状态 / 编排 / 深检 / 摄入 ──
+  quality: (w: string) => req<Quality>(`/works/${w}/quality`),
+  relations: (w: string) => req<Relation[]>(`/works/${w}/relations`),
+  charStates: (w: string, name: string) => req<CharState[]>(`/works/${w}/characters/${encodeURIComponent(name)}/states`),
+  task: (w: string, seq: number) => req<ChapterTask>(`/works/${w}/chapters/${seq}/task`),
+  advanceTask: (w: string, seq: number, to: string, detail = "") =>
+    post<ChapterTask>(`/works/${w}/chapters/${seq}/task/advance`, { to, detail }),
+  deepCheck: (w: string, seq: number) => post<{ new_flags: number }>(`/works/${w}/chapters/${seq}/deep-check`),
+  ingest: (w: string, seq: number) => post<Record<string, unknown>>(`/works/${w}/chapters/${seq}/ingest`),
+  // ── P1 暴露:讨论线程 / 想象状态 ──
+  threads: (w: string, status?: string) => req<Thread[]>(`/works/${w}/threads${status ? `?status=${status}` : ""}`),
+  resolveThread: (w: string, tid: string) => post<{ ok: boolean }>(`/works/${w}/threads/${tid}/resolve`),
+  setImagStatus: (w: string, iid: string, status: ImagStatus) =>
+    post<{ status: string }>(`/works/${w}/imaginations/${iid}/status/${status}`),
+  // ── P1 暴露:跨会话记忆 / 自我优化技能(须人审批)──
+  agentMemory: (w: string, namespace?: string) =>
+    req<AgentMemory[]>(`/works/${w}/agent-memory${namespace ? `?namespace=${namespace}` : ""}`),
+  writeAgentMemory: (w: string, namespace: string, key: string, value: Record<string, unknown>, confidence = 1, scope: "owner" | "work" = "owner") =>
+    post<{ memory_id: string | null; stored: boolean }>(`/works/${w}/agent-memory`, { namespace, key, value, confidence, scope }),
+  agentSkills: (w: string, status?: string) =>
+    req<AgentSkill[]>(`/works/${w}/agent-skills${status ? `?status=${status}` : ""}`),
+  proposeSkill: (w: string, name: string, spec: Record<string, unknown> = {}) =>
+    post<{ skill_id: string }>(`/works/${w}/agent-skills`, { name, spec }),
+  actSkill: (w: string, sid: string, action: "approve" | "activate" | "retire") =>
+    post<{ status: string }>(`/works/${w}/agent-skills/${sid}/${action}`),
 };

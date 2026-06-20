@@ -2,7 +2,7 @@
 
 对齐 工程5/5b:聊天走 Hermes :8642/v1;本 API 服务小说专用面板(作品库/大纲/设定/伏笔/一致性…)。
 复用 db.py(同一 SQLite);鉴权由你自建(此处用 owner_id 头占位,工程9 要求最小权限)。
-跑:`uvicorn scribe_mcp.api:app --port 8801`。可用 TestClient 单测。
+跑:`uvicorn scribe_mcp.api:app --port 3320`(端口固定:前端 3310 / 后端 3320)。可用 TestClient 单测。
 """
 from __future__ import annotations
 

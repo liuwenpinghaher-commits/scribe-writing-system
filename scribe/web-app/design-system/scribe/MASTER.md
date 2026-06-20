@@ -6,9 +6,10 @@
 
 ---
 
-**Project:** Scribe
-**Generated:** 2026-06-19 19:25:54
-**Category:** Productivity Tool
+**Project:** Scribe — 人机协同长篇小说写作工作台
+**Generated:** 2026-06-20 07:39:09
+**Category:** Long-form Writing Workspace / Pro Editor Tool（非 Newsletter；工具自动分类有误，已人工纠正）
+**Reference class:** Scrivener（binder/inspector）· Ulysses/iA Writer（专注阅读排版）· Sudowrite / NovelCrafter（AI 故事工具 + codex）· Linear（键盘优先、命令面板）· Google Docs（版本/建议）
 
 ---
 
@@ -31,16 +32,18 @@
 
 **Color Notes:** Editor violet + filter cyan on dark
 
-### Typography
+### Typography（已纠正：工具误配希伯来字体；长篇写作工具应「UI 无衬线 + 正文衬线阅读」双轨）
 
-- **Heading Font:** Inter
-- **Body Font:** Inter
-- **Mood:** dark, cinematic, technical, precision, clean, premium, developer, professional, high-end utility
-- **Google Fonts:** [Inter + Inter](https://fonts.google.com/share?selection.family=Inter:wght@300;400;500;600;700)
+- **UI / 标题字体:** Inter + Noto Sans SC（界面、菜单、按钮、侧栏）
+- **正文 / 阅读字体:** Source Serif 4 + Noto Serif SC（章节正文、diff、阅读视图 —— 长文阅读衬线更省力，对标 iA Writer / Medium）
+- **数字（用量/字数/版本号）:** tabular-nums，避免跳动
+- **Mood:** editorial, calm, high-readability, 中英混排, professional
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&display=swap');
+/* --font-ui: 'Inter','Noto Sans SC',system-ui,sans-serif;
+   --font-prose: 'Source Serif 4','Noto Serif SC',Georgia,serif; */
 ```
 
 ### Spacing Variables
@@ -158,28 +161,29 @@
 
 ## Style Guidelines
 
-**Style:** Flat Design Mobile (Touch-First)
+**Style:** Minimalism & Swiss Style
 
-**Keywords:** flat, 2D, no shadow, color blocking, geometric, bold, poster, icon, touch-first, minimal, clean, tailored, cross-platform
+**Keywords:** Clean, simple, spacious, functional, white space, high contrast, geometric, sans-serif, grid-based, essential
 
-**Best For:** Cross-platform apps (iOS+Android parity), information-dense dashboards, system UI, brand illustration, onboarding flows, marketing pages, icon design
+**Best For:** Enterprise apps, dashboards, documentation sites, SaaS platforms, professional tools
 
-**Key Effects:** Immediate press feedback (scale 0.97, no delay), color section blocking (full-width contrasting View), zero elevation/shadow, solid icon containers (colored squares/circles), geometric low-opacity shape overlays, bottom tabs solid fill (no floating)
+**Key Effects:** Subtle hover (200-250ms), smooth transitions, sharp shadows if any, clear type hierarchy, fast loading
 
-### Page Pattern
+### Page Pattern（已纠正：这是应用工作台，不是落地页）
 
-**Pattern Name:** Newsletter / Content First
+**Pattern Name:** 三栏工作台 Binder · Editor · Inspector（Scrivener 范式）
 
-- **Conversion Strategy:** Single field form (Email only). Show 'Join X, 000 readers'. Read sample link.
-- **CTA Placement:** Hero inline form + Sticky header form
-- **Section Order:** 1. Hero (Value Prop + Form), 2. Recent Issues/Archives, 3. Social Proof (Subscriber count), 4. About Author
+- **左栏 Navigator:** 作品切换器（折叠）+ 卷/章大纲树（状态点、⚠ 角标、拖拽排序）
+- **中栏 Editor（专注圣地）:** 北极星常驻条 → 草稿/diff 裁决 → 段落阅读视图；一次只暴露「当前写作动作」，不堆叠导航
+- **右栏 Inspector（上下文 Tab）:** 主编札记(置顶) · 设定圣经 · 伏笔 · 一致性 · 素材 · 脉络/质量 · 主编对话/讨论线程 · 记忆与技能
+- **全局:** ⌘K 命令面板（暴露所有动作，不止跳转）· ⌘I 捕获想象 · ⌘⇧F 专注 · ? 快捷键帮助 · SSE 主动刷新
 
 ---
 
 ## Anti-Patterns (Do NOT Use)
 
-- ❌ Complex onboarding
-- ❌ Slow performance
+- ❌ Complex signup
+- ❌ No preview
 
 ### Additional Forbidden Patterns
 
