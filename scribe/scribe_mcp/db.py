@@ -53,7 +53,7 @@ class Database:
             "CREATE TABLE IF NOT EXISTS pending_writes ("
             "id TEXT PRIMARY KEY, work_id TEXT NOT NULL, tool_name TEXT NOT NULL, "
             "args_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', "
-            "result_json TEXT, created_at TEXT, decided_at TEXT)",
+            "result_json TEXT, created_at TEXT NOT NULL, decided_at TEXT)",
         ]:
             try:
                 self.conn.execute(sql); self.conn.commit()
@@ -817,6 +817,8 @@ class Database:
         return self._row_to_pending(r) if r else None
 
     def mark_pending_decided(self, pid: str, status: str, result: dict | None) -> None:
+        if status not in ("approved", "rejected"):
+            raise ValueError(f"非法决断状态: {status}(只能 approved/rejected)")
         self.conn.execute(
             "UPDATE pending_writes SET status=?, result_json=?, decided_at=? WHERE id=?",
             (status, json.dumps(result, ensure_ascii=False) if result is not None else None,

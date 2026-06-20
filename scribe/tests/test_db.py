@@ -102,6 +102,9 @@ def test_pending_writes_queue_roundtrip(tmp_path):
     done = db.get_pending_write(pid)
     assert done["status"] == "approved" and done["result"] == {"setting_id": "s1"}
     assert done["decided_at"]
+    import pytest
+    with pytest.raises(ValueError):
+        db.mark_pending_decided(pid, "garbage", None)
 
 
 def _run_all():

@@ -327,6 +327,6 @@ CREATE TABLE IF NOT EXISTS pending_writes (
   args_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   result_json TEXT,
-  created_at TEXT,
+  created_at TEXT NOT NULL,
   decided_at TEXT
 );
