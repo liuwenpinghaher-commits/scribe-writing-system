@@ -56,11 +56,31 @@ shadcn 变量约定承载暖灰 + 黛绿。**两套都精修并各自验对比�
 
 补充:`--font-ui`(Inter+思源黑)、`--font-prose`(Source Serif 4+思源宋)、`--warn`/`--ok`、图表色板(黛绿主 + 暖中性多色,浅深各一套)。
 
-## 6. 组件清单
+## 6. 组件清单(复用最大化)
 
-**shadcn 现成**:`button card tabs dialog sheet input textarea select badge tooltip scroll-area separator sonner dropdown-menu chart skeleton`。ToastProvider→sonner。
+**原则:能复用就不自造。** 先穷尽 shadcn 现成与生态组件,定制压到"业务特有"。
 
-**定制**:`AppRail`(视图切换)、`Segmented`(正文｜对话)、`Empty`、`StateBoundary`(§7)、`NorthStarBar`、各视图容器。
+**shadcn 现成原语**:`button card tabs dialog sheet input textarea select badge tooltip scroll-area separator sonner dropdown-menu chart skeleton`。ToastProvider→sonner。
+
+**shadcn 复合组件(直接复用,省去自造)**:
+- **`sidebar`** → App Rail / 视图切换(不手搓)
+- **`command`(cmdk)** → ⌘K 命令面板(替换现手写版)
+- **Data Table(TanStack Table 配方)** → 设定库可排序/筛选/分页大表
+- **Blocks 模板**(dashboard-* / sidebar-*)→ 质量仪表盘、外壳的起手模板(改造而非从零)
+
+**生态库(已选)**:`recharts`(经 shadcn chart)、`@xyflow/react`(关系图)、`@tiptap/*`(编辑器,已用)、`@tanstack/react-virtual`(虚拟化,已用)、`framer-motion`(动效)。
+
+**社区扩展复用(普查结论,先用再造)**:
+- **编辑器**:借 **`novel`(steven-tey,MIT,Tiptap 系)** 的扩展配置 + Tiptap 免费扩展 `character-count`/`focus`/`placeholder`/`bubble-menu`/`floating-menu`(专注/字数/浮动工具栏);AI 自动补全自接 Hermes,复用其 UX 脚手架。保留现有 `SegmentNode`(AI/人工着色,业务特有)。
+- **对话**:**shadcn-chat / AI Elements** 块做主编对话的气泡/输入/流式骨架。
+- **设定库 / 仪表盘**:**shadcn-admin / shadcnblocks** 的 admin 页与 Data Table 块改造。
+- **关系图自动布局**:`@xyflow/react` + **`elkjs`**(力导向/分层)+ 社区 `useAutoLayout` 钩子,不手搓坐标。
+- **社区注册表**:经 shadcn CLI 原生 registry(`registry.directory` / shadcn.io)按需拉块;拉前核 license/质量。
+- 新增依赖(在 §4 基础上):`elkjs`、`@tiptap/extension-character-count`/`-placeholder`/`-focus`/`-bubble-menu`(及所需扩展)。
+
+**仅这些必须定制(业务特有,无现成)**:`Segmented`(正文｜对话)、`Empty`/`StateBoundary`(§7 统一状态)、`NorthStarBar`、`Conversation` 流、关系图节点/边的样式映射、各视图装配。
+
+**后端复用说明**:Hermes 仅作 LLM 网关(`/v1/chat/completions`);关系/质量是小说域逻辑,无合适 OSS 组件(GraphRAG 等对单本书过重),沿用现有 `ingest` LLM 抽取并小量扩字段(见后端 spec)。
 
 **交互状态矩阵(硬要求)**:每个交互元件覆盖 default / hover / active / focus-visible / disabled / loading / selected / error(适用者),由 shadcn + token 统一,人工逐一核。
 
