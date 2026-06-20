@@ -1,3 +1,4 @@
+from __future__ import annotations
 import uuid
 
 from surrealdb import RecordID
@@ -66,6 +67,31 @@ class Store:
     def neighbors(self, node: str, edge: str) -> list:
         rows = _rows(self.db.query(f"SELECT ->{edge}->?.* AS n FROM {node};"))
         return rows[0]["n"] if rows and rows[0].get("n") else []
+
+
+    def search_knowledge(self, work: str, query: str, k: int = 6,
+                         types: list | None = None) -> list:
+        """统一知识检索:逐内容表算 cosine 相似(向量),按书过滤,合并去重排序。
+        work 为存储时的归属串(如 'work:1')。几百实体用暴力 cosine 足够;规模化可换 HNSW <|k,EF|>。"""
+        from .embed import embed
+        from .schema import CONTENT_TABLES
+        qv = embed([query])[0]
+        tables = types or CONTENT_TABLES
+        seen, out = set(), []
+        for tb in tables:
+            rows = _rows(self.db.query(
+                f"SELECT id, text, name, vector::similarity::cosine(embedding, $qv) AS score "
+                f"FROM {tb} WHERE work = $w AND embedding != NONE "
+                f"ORDER BY score DESC LIMIT $k;",
+                {"qv": qv, "w": work, "k": k}))
+            for r in rows:
+                rid = str(r.get("id"))
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                rec = _d(r); rec["entity_type"] = tb; out.append(rec)
+        out.sort(key=lambda r: r.get("score") or 0, reverse=True)
+        return out[:k]
 
     def init_schema(self) -> None:
         from .schema import ddl
