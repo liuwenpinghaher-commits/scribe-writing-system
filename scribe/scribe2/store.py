@@ -58,6 +58,15 @@ class Store:
                        {"work": work, "text": text, "embedding": vec, **fields})
         return rid
 
+
+    def relate(self, frm: str, edge: str, to: str, props: dict | None = None) -> None:
+        """建图边。frm/to 是完整 record id 字符串(如 'character:⟨uuid⟩'),id 用反引号包防数字解析。"""
+        self.db.query(f"RELATE {frm}->{edge}->{to} CONTENT $p;", {"p": props or {}})
+
+    def neighbors(self, node: str, edge: str) -> list:
+        rows = _rows(self.db.query(f"SELECT ->{edge}->?.* AS n FROM {node};"))
+        return rows[0]["n"] if rows and rows[0].get("n") else []
+
     def init_schema(self) -> None:
         from .schema import ddl
         for stmt in ddl():
