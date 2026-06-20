@@ -17,3 +17,12 @@ def test_search_filters_by_work(db):
     hits = s.search_knowledge("work:1", "剑", k=5)
     assert all(h["entity_type"] for h in hits)
     assert not any("另一本书" in (h.get("text") or "") for h in hits)
+
+def test_search_expands_graph(db):
+    s = Store(db); s.init_schema()
+    a = s.put_content("character", work="work:1", text="沈舟", name="沈舟")
+    b = s.put_content("setting", work="work:1", text="断魂剑,会让持有者失忆的古剑", name="断魂剑")
+    s.relate(f"character:`{a}`", "holds", f"setting:`{b}`", {"category": "从属"})
+    res = s.search_knowledge("work:1", "失忆古剑", k=1, expand=True)
+    names = " ".join(str(h) for h in res["related"])
+    assert "沈舟" in names

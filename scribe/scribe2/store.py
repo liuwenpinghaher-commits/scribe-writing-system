@@ -70,9 +70,10 @@ class Store:
 
 
     def search_knowledge(self, work: str, query: str, k: int = 6,
-                         types: list | None = None) -> list:
+                         types: list | None = None, expand: bool = False):
         """统一知识检索:逐内容表算 cosine 相似(向量),按书过滤,合并去重排序。
-        work 为存储时的归属串(如 'work:1')。几百实体用暴力 cosine 足够;规模化可换 HNSW <|k,EF|>。"""
+        expand=True 时,对命中实体顺图(任意边,双向)带回关联实体。
+        work 为存储归属串(如 'work:1');几百实体暴力 cosine 足够。"""
         from .embed import embed
         from .schema import CONTENT_TABLES
         qv = embed([query])[0]
@@ -91,7 +92,21 @@ class Store:
                 seen.add(rid)
                 rec = _d(r); rec["entity_type"] = tb; out.append(rec)
         out.sort(key=lambda r: r.get("score") or 0, reverse=True)
-        return out[:k]
+        hits = out[:k]
+        if not expand:
+            return hits
+        hit_ids = {str(h.get("id")) for h in hits}
+        related = []
+        for h in hits:
+            rows = _rows(self.db.query(
+                "SELECT ->?->?.* AS o, <-?<-?.* AS i FROM $rid;", {"rid": h["id"]}))
+            for r in rows:
+                for side in ("o", "i"):
+                    for x in (r.get(side) or []):
+                        xd = _d(x)
+                        if str(xd.get("id")) not in hit_ids:
+                            hit_ids.add(str(xd.get("id"))); related.append(xd)
+        return {"hits": hits, "related": related}
 
     def init_schema(self) -> None:
         from .schema import ddl
