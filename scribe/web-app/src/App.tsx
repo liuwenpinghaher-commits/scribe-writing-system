@@ -9,6 +9,7 @@ import { Center } from "./Center";
 import { Right } from "./Right";
 import { VIEWS, type ViewKey } from "./views";
 import { AppRail } from "./AppRail";
+import { AtlasView } from "./views/AtlasView";
 
 // 视图名映射(占位提示)
 const VIEW_LABELS: Record<ViewKey, string> = {
@@ -180,7 +181,22 @@ function Workspace() {
       );
     }
 
-    // 非写作台视图占位(全宽)
+    // atlas 视图:关系图谱
+    if (view === "atlas") {
+      return (
+        <div className="flex-1 flex flex-col overflow-hidden h-full">
+          {cur ? (
+            <AtlasView work={cur.id} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+              请先从左侧导航选择一本书
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // 其他非写作台视图占位(全宽)
     return (
       <div className="flex-1 flex items-start overflow-auto" style={{ minHeight: "100vh" }}>
         <div className="p-8 text-muted-foreground">
