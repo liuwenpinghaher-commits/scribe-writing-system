@@ -153,6 +153,14 @@ def quality_report(work_id: str, x_owner_id: str | None = Header(default=None)):
     return rep
 
 
+@app.get("/works/{work_id}/quality/history")
+def quality_history(work_id: str, scope: str = "global",
+                    x_owner_id: str | None = Header(default=None)):
+    """C6-2 质量时序:随修订/时间累积的快照,供前端趋势图。"""
+    _own_work(work_id, _owner(x_owner_id))
+    return db.list_quality_snapshots(work_id, scope)
+
+
 @app.get("/works/{work_id}/events")
 async def sse_events(work_id: str, owner: str | None = None,
                      x_owner_id: str | None = Header(default=None)):
@@ -828,8 +836,16 @@ def deep_check_chapter(work_id: str, seq: int, x_owner_id: str | None = Header(d
 def ingest_chapter_ep(work_id: str, seq: int, x_owner_id: str | None = Header(default=None)):
     """C2-1/C2-4 手动触发章记忆抽取(摘要+角色状态+时间线+关系)。"""
     from .memory import ingest_chapter
+    from .metrics import work_quality_report
     _own_work(work_id, _owner(x_owner_id))
-    return ingest_chapter(db, _volc_complete, work_id, seq)
+    res = ingest_chapter(db, _volc_complete, work_id, seq)
+    rep = work_quality_report(db, work_id)
+    db.add_quality_snapshot(work_id, "global", None, {
+        "words": rep["words"], "slop_density": rep["avg_slop_density"],
+        "consistency_score": rep["consistency"]["score"],
+        "foreshadow_payoff": rep["foreshadow"]["payoff_rate"],
+        "cost_usd": _LEDGER.total_cost(work_id)["cost_usd"]})
+    return res
 
 
 # ---- C4 素材库 ----

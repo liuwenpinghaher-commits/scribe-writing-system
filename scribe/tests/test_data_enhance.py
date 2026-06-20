@@ -71,6 +71,40 @@ def test_quality_snapshot_add_list():
     assert len(c) == 1 and c[0]["chapter_seq"] == 1
 
 
+# ---- Task 6: GET /quality/history + ingest 落快照 ----
+
+def test_quality_history_endpoint(monkeypatch):
+    import scribe_mcp.api as api
+    from fastapi.testclient import TestClient
+    client = TestClient(api.app); U = {"X-Owner-Id": "u1"}
+    w = client.post("/works", json={"title": "趋势书"}, headers=U).json()["work_id"]
+    # 直接落两笔 global 快照(模拟多次修订)
+    api.db.add_quality_snapshot(w, "global", None, {"words": 500, "slop_density": 1.5})
+    api.db.add_quality_snapshot(w, "global", None, {"words": 1200, "slop_density": 0.9})
+    hist = client.get(f"/works/{w}/quality/history?scope=global", headers=U).json()
+    assert len(hist) == 2 and hist[0]["words"] == 500 and hist[1]["words"] == 1200
+
+
+# ---- Task 7: POST /analyze 批量分析(幂等) ----
+
+def test_analyze_idempotent(monkeypatch):
+    import scribe_mcp.api as api
+    from fastapi.testclient import TestClient
+    client = TestClient(api.app); U = {"X-Owner-Id": "u1"}
+    w = client.post("/works", json={"title": "分析书"}, headers=U).json()["work_id"]
+    client.put(f"/works/{w}/chapters", json={"seq": 1, "title": "一"}, headers=U)
+    client.post(f"/works/{w}/chapters/1/prose", json={"content": "沈舟握紧断魂剑。", "lock": True}, headers=U)
+    fake = '{"summary":"沈舟登场","relations":[{"src":"沈舟","dst":"断魂剑","relation":"持有",' \
+           '"src_type":"角色","dst_type":"物品","category":"从属"}],"timeline":[],"char_states":[]}'
+    monkeypatch.setattr(api, "_volc_complete", lambda *a, **k: fake)
+    r1 = client.post(f"/works/{w}/analyze", headers=U).json()
+    assert r1["analyzed"] >= 1
+    r2 = client.post(f"/works/{w}/analyze", headers=U).json()  # 重跑
+    # 幂等:关系不翻倍(去重累加 weight,行数仍 1)
+    rels = client.get(f"/works/{w}/relations", headers=U).json()
+    assert len(rels) == 1
+
+
 if __name__ == "__main__":
     test_schema_relation_columns_and_quality_table()
     test_add_relation_typed_and_dedup()
