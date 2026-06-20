@@ -177,7 +177,8 @@ async def sse_events(work_id: str, owner: str | None = None,
             try:
                 snap = {"optionsets": len(db.list_open_option_sets(work_id)),
                         "insights": len(db.list_proactive_insights(work_id, "new")),
-                        "flags": len(db.list_consistency_flags(work_id))}
+                        "flags": len(db.list_consistency_flags(work_id)),
+                        "pending_writes": len(db.list_pending_writes(work_id))}
             except Exception:
                 snap = {}
             if snap != last:
@@ -1102,6 +1103,45 @@ def put_chapter(work_id: str, body: ChapterIn, x_owner_id: str | None = Header(d
 def settings(work_id: str, x_owner_id: str | None = Header(default=None)):
     _own_work(work_id, _owner(x_owner_id))
     return db.list_settings(work_id)
+
+
+# ---- B3 写工具审批:待批写列表 / 批准 / 拒绝 ----
+@app.get("/works/{work_id}/pending-writes")
+def list_pending_writes_ep(work_id: str, status: str = "pending",
+                           x_owner_id: str | None = Header(default=None)):
+    _own_work(work_id, _owner(x_owner_id))
+    return db.list_pending_writes(work_id, status)
+
+
+@app.post("/works/{work_id}/pending-writes/{pid}/approve")
+def approve_pending_write(work_id: str, pid: str,
+                          x_owner_id: str | None = Header(default=None)):
+    _own_work(work_id, _owner(x_owner_id))
+    pw = db.get_pending_write(pid)
+    if not pw or pw["work_id"] != work_id:
+        raise HTTPException(404, "待批写不存在")
+    if pw["status"] != "pending":           # 幂等:已决断的直接回既有结果
+        return {"status": pw["status"], "result": pw["result"]}
+    from .pending import execute_write
+    try:
+        result = execute_write(db, fs, pw["tool_name"], pw["args"])
+    except Exception as e:
+        raise HTTPException(400, f"执行写操作失败: {e}")
+    db.mark_pending_decided(pid, "approved", result)
+    return {"status": "approved", "result": result}
+
+
+@app.post("/works/{work_id}/pending-writes/{pid}/reject")
+def reject_pending_write(work_id: str, pid: str,
+                         x_owner_id: str | None = Header(default=None)):
+    _own_work(work_id, _owner(x_owner_id))
+    pw = db.get_pending_write(pid)
+    if not pw or pw["work_id"] != work_id:
+        raise HTTPException(404, "待批写不存在")
+    if pw["status"] != "pending":
+        return {"status": pw["status"], "result": pw["result"]}
+    db.mark_pending_decided(pid, "rejected", None)
+    return {"status": "rejected"}
 
 
 @app.get("/works/{work_id}/impact")

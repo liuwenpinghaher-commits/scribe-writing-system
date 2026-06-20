@@ -81,6 +81,48 @@ def test_delete_work_soft():
     assert client.delete(f"/works/{wid2}", headers=U2).status_code == 403
 
 
+def test_pending_write_approve_executes_and_idempotent():
+    wid = client.post("/works", json={"title": "审批书"}, headers=U1).json()["work_id"]
+    from scribe_mcp.api import db
+    pid = db.enqueue_pending_write(
+        wid, "upsert_setting", {"work_id": wid, "type": "character", "name": "沈舟", "content": {"k": "v"}})
+
+    pend = client.get(f"/works/{wid}/pending-writes", headers=U1).json()
+    assert any(p["id"] == pid for p in pend)
+    assert all(s["name"] != "沈舟" for s in client.get(f"/works/{wid}/settings", headers=U1).json())
+
+    r = client.post(f"/works/{wid}/pending-writes/{pid}/approve", headers=U1)
+    assert r.status_code == 200 and r.json()["status"] == "approved"
+    assert any(s["name"] == "沈舟" for s in client.get(f"/works/{wid}/settings", headers=U1).json())
+
+    r2 = client.post(f"/works/{wid}/pending-writes/{pid}/approve", headers=U1)
+    assert r2.status_code == 200 and r2.json()["status"] == "approved"
+    settings_now = [s for s in client.get(f"/works/{wid}/settings", headers=U1).json() if s["name"] == "沈舟"]
+    assert len(settings_now) == 1  # 未重复写
+
+    pid2 = db.enqueue_pending_write(wid, "upsert_setting",
+                                    {"work_id": wid, "type": "x", "name": "y", "content": {}})
+    assert client.post(f"/works/{wid}/pending-writes/{pid2}/approve", headers=U2).status_code == 403
+
+
+def test_pending_write_reject_does_not_write():
+    wid = client.post("/works", json={"title": "拒书"}, headers=U1).json()["work_id"]
+    from scribe_mcp.api import db
+    pid = db.enqueue_pending_write(
+        wid, "upsert_setting", {"work_id": wid, "type": "character", "name": "废稿", "content": {}})
+    r = client.post(f"/works/{wid}/pending-writes/{pid}/reject", headers=U1)
+    assert r.status_code == 200 and r.json()["status"] == "rejected"
+    assert all(s["name"] != "废稿" for s in client.get(f"/works/{wid}/settings", headers=U1).json())
+    assert all(p["id"] != pid for p in client.get(f"/works/{wid}/pending-writes", headers=U1).json())
+
+
+def test_sse_snapshot_includes_pending_count():
+    wid = client.post("/works", json={"title": "计数书"}, headers=U1).json()["work_id"]
+    from scribe_mcp.api import db
+    db.enqueue_pending_write(wid, "upsert_setting", {"work_id": wid, "type": "x", "name": "n", "content": {}})
+    assert len(db.list_pending_writes(wid)) == 1
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
