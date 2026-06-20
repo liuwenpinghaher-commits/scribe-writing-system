@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Plus, Lightbulb } from "lucide-react";
+import { Plus } from "lucide-react";
 import { api } from "./api";
-import { useData, useToast } from "./common";
+import { useData } from "./common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,8 +10,7 @@ import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
 import { cn } from "@/lib/utils";
 
-// 左栏 Navigator(Scrivener binder):卷/章大纲树 + 想象捕获页脚。
-// Task 1.3a: shadcn 换皮,保留全部 api 调用与 hooks 逻辑。
+// 左栏 Navigator:卷/章大纲树。想象捕获已移到 ⌘I 模态 / 命令面板(不再常驻左栏)。
 export function Navigator({ work, rev, bump, currentSeq, setSeq }: {
   work: string; rev: number; bump: () => void;
   currentSeq: number | null; setSeq: (s: number | null) => void;
@@ -19,7 +18,6 @@ export function Navigator({ work, rev, bump, currentSeq, setSeq }: {
   return (
     <div className="mt-3 border-t border-border pt-3">
       <Chapters work={work} rev={rev} bump={bump} currentSeq={currentSeq} setSeq={setSeq} />
-      <ImaginationFooter work={work} rev={rev} bump={bump} />
     </div>
   );
 }
@@ -252,68 +250,3 @@ function VirtualChapters({ chapters, currentSeq, setSeq }: {
   );
 }
 
-// 想象捕获:每本书的灵感源头。
-function ImaginationFooter({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
-  const { data, reload } = useData(() => api.imaginations(work), [work, rev]);
-  const [t, setT] = useState("");
-  const toast = useToast();
-  const capture = async () => {
-    if (!t.trim()) return;
-    await api.capture(work, t.trim()); setT(""); toast("想象已存"); bump(); reload();
-  };
-  const mark = async (iid: string, status: "used" | "obsolete") => {
-    await api.setImagStatus(work, iid, status);
-    toast(status === "used" ? "已标记用过(不再注入)" : "已弃用"); reload();
-  };
-  const recent = (data ?? []).slice(-4).reverse();
-  return (
-    <div className="mt-3 border-t border-border pt-3">
-      <label htmlFor="imag" className="flex items-center gap-1 text-xs font-medium text-muted-foreground mb-1.5">
-        <Lightbulb size={12} className="shrink-0" />
-        随手抛个想象
-        <span className="opacity-50 text-[10px]">(Enter · ⌘I)</span>
-      </label>
-      <div className="flex items-center gap-1">
-        <Input
-          id="imag"
-          value={t}
-          placeholder="例:一场雨夜的背叛"
-          className="h-7 text-xs"
-          onChange={(e) => setT(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") capture(); }}
-        />
-        <Button variant="ghost" size="sm" onClick={capture}>存</Button>
-      </div>
-      {recent.length > 0 && (
-        <div className="mt-2">
-          <div className="text-[10px] text-muted-foreground mb-1">想象 {data?.length} 条</div>
-          {recent.map((x) => (
-            <div
-              key={x.id}
-              className="flex items-center justify-between gap-1 py-0.5"
-            >
-              <span
-                className={cn(
-                  "flex-1 min-w-0 truncate text-xs",
-                  (x.status === "used" || x.status === "obsolete") && "opacity-40"
-                )}
-              >
-                「{x.raw_text.slice(0, 18)}」{x.status === "used" ? " ✓" : ""}
-              </span>
-              {x.status !== "used" && x.status !== "obsolete" && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => mark(x.id, "used")}
-                  title="标记用过"
-                >
-                  用了
-                </Button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

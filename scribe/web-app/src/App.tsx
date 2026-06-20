@@ -403,16 +403,19 @@ function ImagModal({ work, onClose, onSaved }: { work: string; onClose: () => vo
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
   const toast = useToast();
+  const { data, reload } = useData(() => api.imaginations(work), [work]);
   useEffect(() => { ref.current?.focus(); }, []);
   const save = async () => {
     if (!text.trim()) return;
-    await api.capture(work, text.trim()); toast("想象已存(AI 一切文字的源头)"); onSaved(); onClose();
+    await api.capture(work, text.trim()); setText(""); toast("想象已存(AI 一切文字的源头)"); onSaved(); reload();
   };
+  const mark = async (iid: string) => { await api.setImagStatus(work, iid, "used"); toast("已标记用过(不再注入)"); reload(); };
+  const recent = (data ?? []).slice(-6).reverse();
   return (
     <div className="scrim" onClick={onClose} role="dialog" aria-modal="true" aria-label="捕获想象">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3><Lightbulb size={16} style={{ verticalAlign: -2 }} /> 捕获想象</h3>
-        <div className="muted small" style={{ marginBottom: 6 }}>随手抛创意/方向 —— ⌘↵ 保存,Esc 关闭</div>
+        <div className="muted small" style={{ marginBottom: 6 }}>随手抛创意/方向(AI 写作的素材源头)—— ⌘↵ 保存,Esc 关闭</div>
         <textarea ref={ref} rows={3} value={text} placeholder="例:我想要一场雨夜的背叛"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -420,9 +423,25 @@ function ImagModal({ work, onClose, onSaved }: { work: string; onClose: () => vo
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") save();
           }} />
         <div className="row" style={{ marginTop: 8, justifyContent: "flex-end" }}>
-          <Btn onClick={onClose} variant="ghost">取消</Btn>
+          <Btn onClick={onClose} variant="ghost">关闭</Btn>
           <Btn onClick={save}>捕获</Btn>
         </div>
+        {recent.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <div className="muted small" style={{ marginBottom: 4 }}>最近想象 · 共 {data?.length} 条</div>
+            {recent.map((x) => {
+              const done = x.status === "used" || x.status === "obsolete";
+              return (
+                <div key={x.id} className="row end" style={{ justifyContent: "space-between", gap: 8, padding: "2px 0" }}>
+                  <span className="small" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: done ? 0.45 : 1 }}>
+                    「{x.raw_text.slice(0, 30)}」{x.status === "used" ? " ✓" : ""}
+                  </span>
+                  {!done && <Btn onClick={() => mark(x.id)} variant="ghost" title="标记用过,不再注入">用了</Btn>}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
