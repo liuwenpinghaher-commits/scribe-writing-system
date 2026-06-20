@@ -629,6 +629,11 @@ class Database:
         self.conn.execute("DELETE FROM materials WHERE id=?", (material_id,))
         self.conn.commit()
 
+    def delete_work(self, work_id: str) -> None:
+        """软删作品:置 deleted_at(所有 work 查询已过滤 deleted_at IS NULL,可恢复)。"""
+        self.conn.execute("UPDATE works SET deleted_at=? WHERE id=?", (_now(), work_id))
+        self.conn.commit()
+
     def add_material_ref(self, material_id: str, used_in: str, target_id: str = "",
                          ref_type: str = "ai_inject") -> str:
         rid = _id()

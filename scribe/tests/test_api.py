@@ -69,6 +69,18 @@ def test_chapter_list_and_feedback():
                        json={"nl_critique": "x"}, headers=U2).status_code == 403
 
 
+
+def test_delete_work_soft():
+    """软删作品:删后列表/详情不可见,越权删被挡(deleted_at 机制)。"""
+    wid = client.post("/works", json={"title": "待删书"}, headers=U1).json()["work_id"]
+    assert any(w["id"] == wid for w in client.get("/works", headers=U1).json())
+    assert client.delete(f"/works/{wid}", headers=U1).status_code == 200
+    assert all(w["id"] != wid for w in client.get("/works", headers=U1).json()), "软删后应从列表消失"
+    assert client.get(f"/works/{wid}", headers=U1).status_code in (403, 404), "软删后详情应不可达"
+    wid2 = client.post("/works", json={"title": "私密"}, headers=U1).json()["work_id"]
+    assert client.delete(f"/works/{wid2}", headers=U2).status_code == 403
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

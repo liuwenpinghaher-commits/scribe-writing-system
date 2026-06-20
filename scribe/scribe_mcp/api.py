@@ -887,6 +887,13 @@ def delete_material_ep(work_id: str, mid: str, x_owner_id: str | None = Header(d
     return {"ok": True}
 
 
+@app.delete("/works/{work_id}")
+def delete_work_ep(work_id: str, x_owner_id: str | None = Header(default=None)):
+    _own_work(work_id, _owner(x_owner_id))
+    db.delete_work(work_id)
+    return {"ok": True}
+
+
 @app.post("/works/{work_id}/materials/{mid}/process")
 def process_material_ep(work_id: str, mid: str, x_owner_id: str | None = Header(default=None)):
     """C4-2 处理:LLM 产出摘要 + 标签,状态 raw→processed。"""
