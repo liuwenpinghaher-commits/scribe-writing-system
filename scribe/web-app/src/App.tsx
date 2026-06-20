@@ -7,11 +7,25 @@ import { Library } from "./Library";
 import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Right } from "./Right";
+import { VIEWS, type ViewKey } from "./views";
+
+// 视图名映射(占位提示)
+const VIEW_LABELS: Record<ViewKey, string> = {
+  write: "写作台",
+  atlas: "关系图谱",
+  insight: "质量仪表盘",
+  codex: "设定库",
+  agent: "记忆与技能",
+};
+
+// 有效 view key 集合
+const VALID_VIEWS = new Set<string>(VIEWS.map((v) => v.key));
 
 function Workspace() {
   const works = useData(() => api.works(), []);
   const [cur, setCur] = useState<Work | null>(null);
   const [seq, setSeq] = useState<number | null>(null);
+  const [view, setView] = useState<ViewKey>("write");
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
   const [showLeft, setShowLeft] = useState(false);
@@ -39,9 +53,12 @@ function Workspace() {
     return () => window.removeEventListener("keydown", h);
   }, [cur]);
 
-  // P4-4 深浅色:记忆到 localStorage,落到 documentElement[data-theme]
+  // 深浅色主题:记忆到 localStorage,切换 <html> 的 .dark class(shadcn 约定)
   const [theme, setTheme] = useState<string>(() => localStorage.getItem("scribe-theme") || "light");
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem("scribe-theme", theme); }, [theme]);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("scribe-theme", theme);
+  }, [theme]);
 
   // C5/C3-2 SSE:订阅后端事件(待决方案/札记/一致性变化)→ 主动刷新,替代盲目轮询
   useEffect(() => {
@@ -53,23 +70,53 @@ function Workspace() {
     return () => es.close();
   }, [cur]);
 
-  // URL 深链:#/work/<id>/ch/<seq> —— 可分享/收藏/前进后退(审查 #21)
+  // URL 深链:#/work/<id>/<view>[/ch/<seq>] —— 向后兼容旧格式 #/work/<id>/ch/<seq>
+  // 新格式:  #/work/<id>/<view>[/ch/<seq>]
+  // 旧格式:  #/work/<id>[/ch/<seq>]  → view 默认 write
   useEffect(() => {
     const apply = () => {
-      const m = location.hash.match(/^#\/work\/([^/]+)(?:\/ch\/(\d+))?/);
-      if (!m || !works.data) return;
-      const w = works.data.find((x) => x.id === m[1]);
-      if (w) { setCur(w); setSeq(m[2] ? Number(m[2]) : null); }
+      const hash = location.hash;
+      if (!works.data) return;
+
+      // 新格式:work/<id>/<view>[/ch/<seq>]
+      const mNew = hash.match(/^#\/work\/([^/]+)\/([^/]+)(?:\/ch\/(\d+))?$/);
+      if (mNew) {
+        const w = works.data.find((x) => x.id === mNew[1]);
+        const viewCandidate = mNew[2];
+        // viewCandidate 可能是 "ch"(旧格式兼容)
+        if (viewCandidate === "ch") {
+          // 旧格式:#/work/<id>/ch/<seq>  → mNew[3] 是 seq
+          if (w) { setCur(w); setView("write"); setSeq(mNew[3] ? Number(mNew[3]) : null); }
+          return;
+        }
+        if (VALID_VIEWS.has(viewCandidate)) {
+          if (w) { setCur(w); setView(viewCandidate as ViewKey); setSeq(mNew[3] ? Number(mNew[3]) : null); }
+          return;
+        }
+        // 未知 view 段,忽略 view 部分,仍选中作品
+        if (w) { setCur(w); setView("write"); }
+        return;
+      }
+
+      // 最简格式:#/work/<id>
+      const mSimple = hash.match(/^#\/work\/([^/]+)$/);
+      if (mSimple && works.data) {
+        const w = works.data.find((x) => x.id === mSimple[1]);
+        if (w) { setCur(w); setView("write"); setSeq(null); }
+      }
     };
     apply();
     window.addEventListener("hashchange", apply);
     return () => window.removeEventListener("hashchange", apply);
   }, [works.data]);
 
+  // 写回 URL
   useEffect(() => {
-    const want = cur ? `#/work/${cur.id}${seq != null ? `/ch/${seq}` : ""}` : "";
-    if (cur && location.hash !== want) history.replaceState(null, "", want || location.pathname);
-  }, [cur, seq]);
+    if (!cur) return;
+    const seqPart = seq != null ? `/ch/${seq}` : "";
+    const want = `#/work/${cur.id}/${view}${seqPart}`;
+    if (location.hash !== want) history.replaceState(null, "", want);
+  }, [cur, seq, view]);
 
   // 命令面板全动作(Linear 式:键盘可达一切,而非只跳转)
   const globalActions: Action[] = [
@@ -77,6 +124,11 @@ function Workspace() {
     { label: theme === "dark" ? "切到浅色" : "切到深色", hint: "☀/☾", run: () => setTheme((t) => (t === "dark" ? "light" : "dark")) },
     { label: "快捷键帮助", hint: "?", run: () => setHelpOpen(true) },
     { label: "打开作品库(左栏)", hint: "", run: () => setShowLeft(true) },
+    ...VIEWS.map((v) => ({
+      label: `切换视图 · ${v.label}`,
+      hint: "",
+      run: () => setView(v.key),
+    })),
     ...(cur ? [
       { label: "捕获想象", hint: "⌘I", run: () => setImagOpen(true) },
       { label: "打开主编与设定(右栏)", hint: "", run: () => setShowRight(true) },
@@ -84,43 +136,63 @@ function Workspace() {
     ] : []),
   ];
 
+  // 非写作台视图:渲染占位
+  const renderView = () => {
+    if (view === "write") {
+      return (
+        <>
+          <aside className="col left">
+            <Library works={works.data} loading={works.loading} error={works.error}
+              reload={works.reload} current={cur} onSelect={select} />
+            {cur && (
+              <Navigator work={cur.id} rev={rev} bump={bump}
+                currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
+            )}
+          </aside>
+
+          <main className="col center">
+            <div className="row end" style={{ justifyContent: "space-between", marginBottom: 10 }}>
+              <h1>
+                <button className="ghost sm left-toggle" aria-label="打开作品库"
+                  onClick={() => setShowLeft((v) => !v)}><PanelLeft size={16} /></button>{" "}
+                {cur ? cur.title : "Scribe 写作工作台"}
+              </h1>
+              <div className="row">
+                <button className="ghost sm" aria-label="命令面板 ⌘K" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}><Search size={16} /></button>
+                <button className="ghost sm" aria-label="快捷键帮助" title="快捷键帮助 ?" onClick={() => setHelpOpen(true)}>?</button>
+                <button className="ghost sm" aria-label="深浅色" title="深浅色" onClick={() => setTheme((t) => t === "dark" ? "light" : "dark")}>{theme === "dark" ? "☾" : "☀"}</button>
+                <button className="ghost sm" aria-label="专注模式 ⌘⇧F" title="专注模式 ⌘⇧F" onClick={() => setFocus((v) => !v)}>{focus ? "⤢" : "⤡"}</button>
+                <button className="ghost sm right-toggle" aria-label="打开主编与设定"
+                  onClick={() => setShowRight((v) => !v)}><PanelRight size={16} /></button>
+              </div>
+            </div>
+            {cur
+              ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
+                  currentSeq={seq} />
+              : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从左侧选择或新建一本书</div></div>}
+          </main>
+
+          <aside className="col right">
+            {cur ? <Right key={cur.id} work={cur.id} rev={rev} bump={bump} />
+              : <div className="empty">选择一本书后,这里是主编、设定与对话</div>}
+          </aside>
+        </>
+      );
+    }
+
+    // 非写作台视图占位(全宽)
+    return (
+      <main className="col center" style={{ gridColumn: "1 / -1" }}>
+        <div className="p-8 text-muted-foreground">
+          「{VIEW_LABELS[view]}」视图建设中
+        </div>
+      </main>
+    );
+  };
+
   return (
     <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
-      <aside className="col left">
-        <Library works={works.data} loading={works.loading} error={works.error}
-          reload={works.reload} current={cur} onSelect={select} />
-        {cur && (
-          <Navigator work={cur.id} rev={rev} bump={bump}
-            currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
-        )}
-      </aside>
-
-      <main className="col center">
-        <div className="row end" style={{ justifyContent: "space-between", marginBottom: 10 }}>
-          <h1>
-            <button className="ghost sm left-toggle" aria-label="打开作品库"
-              onClick={() => setShowLeft((v) => !v)}><PanelLeft size={16} /></button>{" "}
-            {cur ? cur.title : "Scribe 写作工作台"}
-          </h1>
-          <div className="row">
-            <button className="ghost sm" aria-label="命令面板 ⌘K" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}><Search size={16} /></button>
-            <button className="ghost sm" aria-label="快捷键帮助" title="快捷键帮助 ?" onClick={() => setHelpOpen(true)}>?</button>
-            <button className="ghost sm" aria-label="深浅色" title="深浅色" onClick={() => setTheme((t) => t === "dark" ? "light" : "dark")}>{theme === "dark" ? "☾" : "☀"}</button>
-            <button className="ghost sm" aria-label="专注模式 ⌘⇧F" title="专注模式 ⌘⇧F" onClick={() => setFocus((v) => !v)}>{focus ? "⤢" : "⤡"}</button>
-            <button className="ghost sm right-toggle" aria-label="打开主编与设定"
-              onClick={() => setShowRight((v) => !v)}><PanelRight size={16} /></button>
-          </div>
-        </div>
-        {cur
-          ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
-              currentSeq={seq} />
-          : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从左侧选择或新建一本书</div></div>}
-      </main>
-
-      <aside className="col right">
-        {cur ? <Right key={cur.id} work={cur.id} rev={rev} bump={bump} />
-          : <div className="empty">选择一本书后,这里是主编、设定与对话</div>}
-      </aside>
+      {renderView()}
 
       {imagOpen && cur && (
         <ImagModal work={cur.id} onClose={() => setImagOpen(false)} onSaved={bump} />
