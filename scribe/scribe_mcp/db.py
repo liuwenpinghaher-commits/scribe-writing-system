@@ -529,11 +529,24 @@ class Database:
         return [dict(r) for r in rows]
 
     def add_relation(self, work_id: str, src: str, dst: str, relation: str,
-                     valid_from: int | None = None) -> str:
+                     valid_from: int | None = None, src_type: str | None = None,
+                     dst_type: str | None = None, category: str | None = None,
+                     weight: float = 1.0, directed: int = 1) -> str:
+        existing = self.conn.execute(
+            "SELECT id, weight FROM entity_relations WHERE work_id=? AND src_entity=? "
+            "AND dst_entity=? AND relation=?", (work_id, src, dst, relation)).fetchone()
+        if existing:
+            self.conn.execute(
+                "UPDATE entity_relations SET weight=?, valid_from_chapter=COALESCE(valid_from_chapter, ?) "
+                "WHERE id=?", ((existing["weight"] or 1.0) + 1.0, valid_from, existing["id"]))
+            self.conn.commit()
+            return existing["id"]
         rid = _id()
-        self.conn.execute("INSERT INTO entity_relations(id,work_id,src_entity,dst_entity,"
-                          "relation,valid_from_chapter) VALUES(?,?,?,?,?,?)",
-                          (rid, work_id, src, dst, relation, valid_from))
+        self.conn.execute(
+            "INSERT INTO entity_relations(id,work_id,src_entity,dst_entity,relation,"
+            "valid_from_chapter,src_type,dst_type,relation_category,weight,directed) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (rid, work_id, src, dst, relation, valid_from, src_type, dst_type, category, weight, directed))
         self.conn.commit()
         return rid
 
