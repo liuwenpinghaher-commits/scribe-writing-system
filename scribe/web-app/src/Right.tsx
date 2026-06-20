@@ -1,61 +1,97 @@
 import { useRef, useState } from "react";
 import { Stethoscope, Send } from "lucide-react";
 import { api } from "./api";
-import { Btn, State, errMsg, useData, useToast } from "./common";
+import { errMsg, useData, useToast } from "./common";
 import { QualityCard, Relations, CharStates, Threads, AgentPanel } from "./Panels";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { StateBoundary } from "@/components/StateBoundary";
+import { Empty } from "@/components/Empty";
+import { cn } from "@/lib/utils";
 
-type Tab = "bible" | "foreshadow" | "flags" | "material" | "pulse" | "agent";
-
+// Right — 右栏 Inspector
+// Task 1.3a: shadcn 换皮,保留全部数据逻辑。
 export function Right({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
   return (
-    <>
+    <div className="flex flex-col gap-3">
       <Insights work={work} rev={rev} />
       <Sidebar work={work} rev={rev} />
       <Chat work={work} bump={bump} />
       <Threads work={work} rev={rev} />
-    </>
+    </div>
   );
 }
 
 function Insights({ work, rev }: { work: string; rev: number }) {
   const { data, loading, error, reload } = useData(() => api.insights(work), [work, rev]);
   const toast = useToast();
-  const act = async (id: string, a: "ack" | "dismiss") => { await api.actInsight(work, id, a); reload(); };
+  const act = async (id: string, a: "ack" | "dismiss") => {
+    await api.actInsight(work, id, a); reload();
+  };
   const intentional = async (id: string) => {
     await api.actInsight(work, id, "dismiss");
-    await api.pref(work, "intentional", "+").catch(() => {}); // "这是故意的"→品味回流
+    await api.pref(work, "intentional", "+").catch(() => {});
     toast("已记:这是故意的"); reload();
   };
-  const review = async () => { const r = await api.review(work); toast(`体检完成,新增 ${r.new_insights} 条札记`); reload(); };
+  const review = async () => {
+    const r = await api.review(work);
+    toast(`体检完成,新增 ${r.new_insights} 条札记`); reload();
+  };
   return (
-    <>
-      <div className="row end" style={{ justifyContent: "space-between" }}>
-        <h2 style={{ margin: 0 }}>主编札记</h2>
-        <Btn onClick={review} variant="ghost" className="sm"><Stethoscope size={14} /> 全文体检</Btn>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground m-0">
+          主编札记
+        </h2>
+        <Button variant="ghost" size="sm" onClick={review}>
+          <Stethoscope size={13} /> 全文体检
+        </Button>
       </div>
-      <State loading={loading} error={error} empty={!data?.length} emptyText="暂无札记。点「全文体检」让主编主动揪问题。" onRetry={reload}>
-        {data?.map((x) => {
-          const c = x.severity === "critical" ? "var(--danger)" : x.severity === "major" ? "var(--warn)" : "var(--accent)";
-          return (
-            <div key={x.id} className="card" style={{ borderLeft: `3px solid ${c}` }}>
-              <div>{x.summary}</div>
-              {x.suggested_action && <div className="muted small">建议:{x.suggested_action}</div>}
-              <div className="row" style={{ marginTop: 6, flexWrap: "wrap" }}>
-                <Btn onClick={() => act(x.id, "ack")} variant="ghost" className="sm">知道了</Btn>
-                <Btn onClick={() => intentional(x.id)} variant="ghost" className="sm">这是故意的</Btn>
-                <Btn onClick={() => act(x.id, "dismiss")} variant="ghost" className="sm">忽略</Btn>
-              </div>
-            </div>
-          );
-        })}
-      </State>
-    </>
+      <StateBoundary
+        loading={loading}
+        error={error}
+        empty={!data?.length}
+        emptyNode={<Empty title="暂无札记" hint="点「全文体检」让主编主动揪问题。" />}
+        onRetry={reload}
+      >
+        <div className="flex flex-col gap-2">
+          {data?.map((x) => {
+            const borderColor =
+              x.severity === "critical"
+                ? "border-l-destructive"
+                : x.severity === "major"
+                ? "border-l-[#f59e0b]"
+                : "border-l-primary";
+            return (
+              <Card key={x.id} size="sm" className={cn("border-l-[3px]", borderColor)}>
+                <CardContent className="pt-3">
+                  <p className="text-sm">{x.summary}</p>
+                  {x.suggested_action && (
+                    <p className="text-xs text-muted-foreground mt-1">建议:{x.suggested_action}</p>
+                  )}
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    <Button variant="ghost" size="xs" onClick={() => act(x.id, "ack")}>知道了</Button>
+                    <Button variant="ghost" size="xs" onClick={() => intentional(x.id)}>这是故意的</Button>
+                    <Button variant="ghost" size="xs" onClick={() => act(x.id, "dismiss")}>忽略</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </StateBoundary>
+    </div>
   );
 }
 
 function Sidebar({ work, rev }: { work: string; rev: number }) {
-  const [tab, setTab] = useState<Tab>("bible");
-  const [local, setLocal] = useState(0); // 裁决后本地刷新
+  const [tab, setTab] = useState("bible");
+  const [local, setLocal] = useState(0);
   const fo = useData(() => api.foreshadows(work), [work, rev, local]);
   const fl = useData(() => api.flags(work), [work, rev, local]);
   const toast = useToast();
@@ -65,7 +101,8 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
     catch (e) { toast(errMsg(e), "err"); }
   };
   const onFlag = async (fid: string, a: "confirm" | "dismiss" | "fix") => {
-    await api.resolveFlag(work, fid, a); toast(a === "dismiss" ? "已标记误报" : "已确认"); bump();
+    await api.resolveFlag(work, fid, a);
+    toast(a === "dismiss" ? "已标记误报" : "已确认"); bump();
   };
   const bible = useData(async () => {
     const [chs, st] = await Promise.all([api.characters(work), api.settings(work)]);
@@ -75,84 +112,150 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
       ...st.map((s) => ({ kind: "set" as const, k: s.type ?? "设定", name: s.name, body: desc(s.content), type: s.type ?? "设定" })),
     ];
   }, [work, rev]);
-  const tabs: [Tab, string, number][] = [
-    ["bible", "设定圣经", 0], ["foreshadow", "伏笔", fo.data?.length ?? 0],
-    ["flags", "一致性", fl.data?.length ?? 0], ["material", "素材", 0],
-    ["pulse", "脉络/质量", 0], ["agent", "记忆技能", 0],
+
+  const tabs: { value: string; label: string; count?: number }[] = [
+    { value: "bible", label: "设定圣经" },
+    { value: "foreshadow", label: "伏笔", count: fo.data?.length },
+    { value: "flags", label: "一致性", count: fl.data?.length },
+    { value: "material", label: "素材" },
+    { value: "pulse", label: "脉络/质量" },
+    { value: "agent", label: "记忆技能" },
   ];
+
   return (
-    <>
-      <div className="tabs" role="tablist" aria-label="设定与门槛">
-        {tabs.map(([t, label, n]) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-            {label}{n > 0 && <span className={"dot " + (t === "flags" ? "note" : "opt")}>{n}</span>}
-          </button>
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList className="w-full flex-wrap h-auto gap-px p-1">
+        {tabs.map((t) => (
+          <TabsTrigger key={t.value} value={t.value} className="text-xs px-2 py-0.5 flex-none">
+            {t.label}
+            {t.count != null && t.count > 0 && (
+              <Badge
+                variant={t.value === "flags" ? "destructive" : "secondary"}
+                className="ml-1 text-[9px] h-3.5 px-1"
+              >
+                {t.count}
+              </Badge>
+            )}
+          </TabsTrigger>
         ))}
-      </div>
-      <div style={{ maxHeight: "32vh", overflow: "auto" }}>
-        {tab === "foreshadow" && (
-          <State loading={fo.loading} error={fo.error} empty={!fo.data?.length} emptyText="暂无未了结伏笔" onRetry={fo.reload}>
-            {fo.data?.map((x) => (
-              <div key={x.id} className="card">
-                <div><span className="badge">{x.state}</span> {x.summary}</div>
-                <div className="row" style={{ marginTop: 6, flexWrap: "wrap" }}>
-                  {x.state === "planted" && <Btn onClick={() => onFore(x.id, "trigger")} variant="ghost" className="sm">触发</Btn>}
-                  {x.state === "triggered" && <Btn onClick={() => onFore(x.id, "pay")} variant="ghost" className="sm">回收</Btn>}
-                  <Btn onClick={() => onFore(x.id, "abandon")} variant="ghost" className="sm">放弃</Btn>
-                </div>
-              </div>
-            ))}
-          </State>
-        )}
-        {tab === "flags" && (
-          <State loading={fl.loading} error={fl.error} empty={!fl.data?.length} emptyText="无一致性问题 ✓" onRetry={fl.reload}>
-            {fl.data?.map((x) => (
-              <div key={x.id} className="card">
-                <div><span className="badge" style={{ background: "#3a2330", color: "var(--warn)" }}>{x.error_class}</span> {x.detail}</div>
-                <div className="row" style={{ marginTop: 6, flexWrap: "wrap" }}>
-                  <Btn onClick={() => onFlag(x.id, "confirm")} variant="ghost" className="sm">确认真错</Btn>
-                  <Btn onClick={() => onFlag(x.id, "fix")} variant="ghost" className="sm">已修</Btn>
-                  <Btn onClick={() => onFlag(x.id, "dismiss")} variant="ghost" className="sm">误报</Btn>
-                </div>
-              </div>
-            ))}
-          </State>
-        )}
-        {tab === "material" && <Materials work={work} />}
-        {tab === "pulse" && <Pulse work={work} rev={rev} />}
-        {tab === "agent" && <AgentPanel work={work} rev={rev} />}
-        {tab === "bible" && (
-          <>
-            <BibleAdd work={work} onAdded={bible.reload} />
-            <State loading={bible.loading} error={bible.error} empty={!bible.data?.length} emptyText="还没有设定/角色,在上方添加" onRetry={bible.reload}>
+      </TabsList>
+
+      <ScrollArea className="max-h-[32vh]">
+        <TabsContent value="foreshadow" className="mt-2 px-0.5">
+          <StateBoundary
+            loading={fo.loading}
+            error={fo.error}
+            empty={!fo.data?.length}
+            emptyNode={<Empty title="暂无未了结伏笔" />}
+            onRetry={fo.reload}
+          >
+            <div className="flex flex-col gap-2">
+              {fo.data?.map((x) => (
+                <Card key={x.id} size="sm">
+                  <CardContent className="pt-3">
+                    <div className="flex items-start gap-1.5">
+                      <Badge variant="outline" className="shrink-0 text-[10px] mt-0.5">{x.state}</Badge>
+                      <span className="text-xs">{x.summary}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {x.state === "planted" && (
+                        <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "trigger")}>触发</Button>
+                      )}
+                      {x.state === "triggered" && (
+                        <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "pay")}>回收</Button>
+                      )}
+                      <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "abandon")}>放弃</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </StateBoundary>
+        </TabsContent>
+
+        <TabsContent value="flags" className="mt-2 px-0.5">
+          <StateBoundary
+            loading={fl.loading}
+            error={fl.error}
+            empty={!fl.data?.length}
+            emptyNode={<Empty title="无一致性问题 ✓" hint="太棒了,目前没有发现冲突。" />}
+            onRetry={fl.reload}
+          >
+            <div className="flex flex-col gap-2">
+              {fl.data?.map((x) => (
+                <Card key={x.id} size="sm" className="border-l-[3px] border-l-[#f59e0b]">
+                  <CardContent className="pt-3">
+                    <div className="flex items-start gap-1.5">
+                      <Badge variant="destructive" className="shrink-0 text-[10px] mt-0.5">{x.error_class}</Badge>
+                      <span className="text-xs">{x.detail}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "confirm")}>确认真错</Button>
+                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "fix")}>已修</Button>
+                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "dismiss")}>误报</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </StateBoundary>
+        </TabsContent>
+
+        <TabsContent value="material" className="mt-2 px-0.5">
+          <Materials work={work} />
+        </TabsContent>
+
+        <TabsContent value="pulse" className="mt-2 px-0.5">
+          <Pulse work={work} rev={rev} />
+        </TabsContent>
+
+        <TabsContent value="agent" className="mt-2 px-0.5">
+          <AgentPanel work={work} rev={rev} />
+        </TabsContent>
+
+        <TabsContent value="bible" className="mt-2 px-0.5">
+          <BibleAdd work={work} onAdded={bible.reload} />
+          <StateBoundary
+            loading={bible.loading}
+            error={bible.error}
+            empty={!bible.data?.length}
+            emptyNode={<Empty title="还没有设定/角色" hint="在上方添加" />}
+            onRetry={bible.reload}
+          >
+            <div className="flex flex-col gap-1.5">
               {bible.data?.map((x, i) => (
                 <BibleItem key={i} work={work} item={x} onSaved={bible.reload} />
               ))}
-            </State>
-            <RelationsSection work={work} rev={rev} />
-          </>
-        )}
-      </div>
-    </>
+            </div>
+          </StateBoundary>
+          <RelationsSection work={work} rev={rev} />
+        </TabsContent>
+      </ScrollArea>
+    </Tabs>
   );
 }
 
-
-// 设定圣经底部:实体关系图(可折叠)
 function RelationsSection({ work, rev }: { work: string; rev: number }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-      <button className="ghost sm" onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ width: "100%", textAlign: "left" }}>
+    <div className="mt-3 border-t border-border pt-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full justify-start text-xs"
+      >
         实体关系图 {open ? "▾" : "▸"}
-      </button>
-      {open && <div style={{ marginTop: 6 }}><Relations work={work} rev={rev} /></div>}
+      </Button>
+      {open && <div className="mt-2"><Relations work={work} rev={rev} /></div>}
     </div>
   );
 }
 
 function BibleItem({ work, item, onSaved }: {
-  work: string; item: { kind: "char" | "set"; k: string; name: string; body: string; type: string };
+  work: string;
+  item: { kind: "char" | "set"; k: string; name: string; body: string; type: string };
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -173,42 +276,70 @@ function BibleItem({ work, item, onSaved }: {
   };
   const jump = (seq: number) => { location.hash = `#/work/${work}/ch/${seq}`; };
   return (
-    <div className="card">
-      <button className="ghost sm" style={{ border: 0, padding: 0, width: "100%", textAlign: "left" }}
-        onClick={() => { setBody(item.body); setOpen((o) => !o); }} aria-expanded={open}>
-        <span className="badge">{item.k}</span> {item.name}
-        {item.body && !open && <span className="muted small"> · {item.body.slice(0, 18)}{item.body.length > 18 ? "…" : ""}</span>}
-      </button>
-      {open && (
-        <div style={{ marginTop: 6 }}>
-          <textarea rows={2} value={body} onChange={(e) => setBody(e.target.value)}
-            placeholder={item.kind === "char" ? "动机/性格…" : "设定描述…"} />
-          <div className="row" style={{ marginTop: 4, flexWrap: "wrap" }}>
-            <Btn onClick={save} variant="ghost" className="sm">保存</Btn>
-            <Btn onClick={loadImpact} variant="ghost" className="sm">
-              {item.kind === "char" ? "出场时间线" : "影响章节"}{impact ? " ▾" : " ▸"}
-            </Btn>
-            {item.kind === "char" && (
-              <Btn onClick={() => setShowStates((v) => !v)} variant="ghost" className="sm">状态轨迹{showStates ? " ▾" : " ▸"}</Btn>
+    <Card size="sm">
+      <CardContent className="pt-3">
+        <button
+          className="w-full text-left"
+          onClick={() => { setBody(item.body); setOpen((o) => !o); }}
+          aria-expanded={open}
+        >
+          <span className="flex items-center gap-1.5">
+            <Badge variant="secondary" className="text-[10px] shrink-0">{item.k}</Badge>
+            <span className="font-prose text-sm font-medium">{item.name}</span>
+            {item.body && !open && (
+              <span className="text-xs text-muted-foreground truncate">
+                · {item.body.slice(0, 18)}{item.body.length > 18 ? "…" : ""}
+              </span>
+            )}
+          </span>
+        </button>
+        {open && (
+          <div className="mt-2 flex flex-col gap-2">
+            <Textarea
+              rows={2}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder={item.kind === "char" ? "动机/性格…" : "设定描述…"}
+              className="text-xs resize-none"
+            />
+            <div className="flex flex-wrap gap-1">
+              <Button variant="ghost" size="xs" onClick={save}>保存</Button>
+              <Button variant="ghost" size="xs" onClick={loadImpact}>
+                {item.kind === "char" ? "出场时间线" : "影响章节"}{impact ? " ▾" : " ▸"}
+              </Button>
+              {item.kind === "char" && (
+                <Button variant="ghost" size="xs" onClick={() => setShowStates((v) => !v)}>
+                  状态轨迹{showStates ? " ▾" : " ▸"}
+                </Button>
+              )}
+            </div>
+            {showStates && item.kind === "char" && <CharStates work={work} name={item.name} />}
+            {loadingImpact && <p className="text-xs text-muted-foreground">查找中…</p>}
+            {impact && (
+              <div className="flex flex-col gap-1">
+                {impact.length === 0 && (
+                  <p className="text-xs text-muted-foreground">暂无章节引用「{item.name}」</p>
+                )}
+                {impact.map((c) => (
+                  <button
+                    key={c.seq}
+                    className="flex flex-col items-start rounded-md border border-border px-2 py-1.5 text-left hover:bg-muted transition-colors"
+                    onClick={() => jump(c.seq)}
+                    title="跳到该章"
+                  >
+                    <span className="flex items-center gap-1">
+                      <Badge variant="secondary" className="text-[10px]">第 {c.seq} 章</Badge>
+                      <span className="text-xs">{c.title || "无题"}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground mt-0.5">{c.snippet}…</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-          {showStates && item.kind === "char" && <CharStates work={work} name={item.name} />}
-          {loadingImpact && <div className="muted small" style={{ marginTop: 4 }}>查找中…</div>}
-          {impact && (
-            <div style={{ marginTop: 4 }}>
-              {impact.length === 0 && <div className="muted small">暂无章节引用「{item.name}」</div>}
-              {impact.map((c) => (
-                <button key={c.seq} className="card clickable" style={{ padding: "6px 8px" }}
-                  onClick={() => jump(c.seq)} title="跳到该章">
-                  <span className="badge">第 {c.seq} 章</span> {c.title || "无题"}
-                  <div className="muted small">{c.snippet}…</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -216,24 +347,55 @@ function Pulse({ work, rev }: { work: string; rev: number }) {
   const mem = useData(() => api.memory(work), [work, rev]);
   const tl = useData(() => api.timeline(work), [work, rev]);
   return (
-    <>
+    <div className="flex flex-col gap-3">
       <QualityCard work={work} rev={rev} />
-      <h3>全书主线记忆</h3>
-      <State loading={mem.loading} error={mem.error} empty={!mem.data?.global && !mem.data?.chapters?.length} emptyText="写几章后自动沉淀" onRetry={mem.reload}>
-        {mem.data?.global && <div className="card"><div className="seg">{mem.data.global}</div></div>}
-        {mem.data?.chapters?.slice(-6).map((c) => (
-          <div key={c.seq} className="card" style={{ padding: "6px 8px" }}>
-            <span className="badge">第{c.seq}章</span> <span className="small">{c.summary_text}</span>
+      <div>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">全书主线记忆</h3>
+        <StateBoundary
+          loading={mem.loading}
+          error={mem.error}
+          empty={!mem.data?.global && !mem.data?.chapters?.length}
+          emptyNode={<Empty title="写几章后自动沉淀" />}
+          onRetry={mem.reload}
+        >
+          <div className="flex flex-col gap-1.5">
+            {mem.data?.global && (
+              <Card size="sm">
+                <CardContent className="pt-3">
+                  <p className="font-prose text-sm">{mem.data.global}</p>
+                </CardContent>
+              </Card>
+            )}
+            {mem.data?.chapters?.slice(-6).map((c) => (
+              <Card key={c.seq} size="sm">
+                <CardContent className="pt-3 flex items-start gap-1.5">
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">第{c.seq}章</Badge>
+                  <span className="text-xs">{c.summary_text}</span>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        ))}
-      </State>
-      <h3>时间线</h3>
-      <State loading={tl.loading} error={tl.error} empty={!tl.data?.length} emptyText="暂无事件" onRetry={tl.reload}>
-        {tl.data?.slice(-12).map((t, i) => (
-          <div key={i} className="muted small" style={{ padding: "2px 0" }}>第{t.chapter_seq}章 · {t.description}</div>
-        ))}
-      </State>
-    </>
+        </StateBoundary>
+      </div>
+      <div>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">时间线</h3>
+        <StateBoundary
+          loading={tl.loading}
+          error={tl.error}
+          empty={!tl.data?.length}
+          emptyNode={<Empty title="暂无事件" />}
+          onRetry={tl.reload}
+        >
+          <div className="flex flex-col gap-0.5">
+            {tl.data?.slice(-12).map((t, i) => (
+              <p key={i} className="text-xs text-muted-foreground py-0.5">
+                第{t.chapter_seq}章 · {t.description}
+              </p>
+            ))}
+          </div>
+        </StateBoundary>
+      </div>
+    </div>
   );
 }
 
@@ -241,35 +403,68 @@ function Materials({ work }: { work: string }) {
   const { data, loading, error, reload } = useData(() => api.materials(work), [work]);
   const [text, setText] = useState("");
   const toast = useToast();
-  const add = async () => { if (!text.trim()) return; await api.addMaterial(work, text.trim()); setText(""); toast("素材已存"); reload(); };
-  const proc = async (mid: string) => { await api.processMaterial(work, mid); toast("已提炼摘要+标签"); reload(); };
-  const distill = async (mid: string) => { await api.distillMaterial(work, mid, "setting"); toast("已提炼为设定"); reload(); };
-  const del = async (mid: string) => { await api.deleteMaterial(work, mid); reload(); };
+  const add = async () => {
+    if (!text.trim()) return;
+    await api.addMaterial(work, text.trim()); setText(""); toast("素材已存"); reload();
+  };
+  const proc = async (mid: string) => {
+    await api.processMaterial(work, mid); toast("已提炼摘要+标签"); reload();
+  };
+  const distill = async (mid: string) => {
+    await api.distillMaterial(work, mid, "setting"); toast("已提炼为设定"); reload();
+  };
+  const del = async (mid: string) => {
+    await api.deleteMaterial(work, mid); reload();
+  };
   return (
-    <>
-      <div className="row" style={{ marginBottom: 8 }}>
-        <textarea rows={2} aria-label="新素材" value={text} placeholder="粘贴/记下素材(灵感、设定、句子)…"
-          onChange={(e) => setText(e.target.value)} />
-        <Btn onClick={add} variant="ghost" className="sm">存</Btn>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-1">
+        <Textarea
+          rows={2}
+          aria-label="新素材"
+          value={text}
+          placeholder="粘贴/记下素材(灵感、设定、句子)…"
+          className="text-xs resize-none"
+          onChange={(e) => setText(e.target.value)}
+        />
+        <Button variant="ghost" size="sm" onClick={add}>存</Button>
       </div>
-      <State loading={loading} error={error} empty={!data?.length} emptyText="还没有素材" onRetry={reload}>
-        {data?.map((m) => {
-          let txt = ""; try { txt = JSON.parse(m.content || "{}").text || ""; } catch { /* */ }
-          let tags: string[] = []; try { tags = JSON.parse(m.tags || "[]"); } catch { /* */ }
-          return (
-            <div key={m.id} className="card">
-              <div className="small">{txt.slice(0, 70)}{txt.length > 70 ? "…" : ""}</div>
-              {tags.length > 0 && <div className="muted small">{tags.map((t, i) => <span key={i} className="badge" style={{ marginRight: 4 }}>{t}</span>)}</div>}
-              <div className="row" style={{ marginTop: 4, flexWrap: "wrap" }}>
-                {m.status !== "processed" && <Btn onClick={() => proc(m.id)} variant="ghost" className="sm">提炼摘要</Btn>}
-                <Btn onClick={() => distill(m.id)} variant="ghost" className="sm">→设定</Btn>
-                <Btn onClick={() => del(m.id)} variant="ghost" className="sm">删</Btn>
-              </div>
-            </div>
-          );
-        })}
-      </State>
-    </>
+      <StateBoundary
+        loading={loading}
+        error={error}
+        empty={!data?.length}
+        emptyNode={<Empty title="还没有素材" />}
+        onRetry={reload}
+      >
+        <div className="flex flex-col gap-1.5">
+          {data?.map((m) => {
+            let txt = ""; try { txt = JSON.parse(m.content || "{}").text || ""; } catch { /* */ }
+            let tags: string[] = []; try { tags = JSON.parse(m.tags || "[]"); } catch { /* */ }
+            return (
+              <Card key={m.id} size="sm">
+                <CardContent className="pt-3">
+                  <p className="text-xs">{txt.slice(0, 70)}{txt.length > 70 ? "…" : ""}</p>
+                  {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {tags.map((t, i) => (
+                        <Badge key={i} variant="secondary" className="text-[10px]">{t}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {m.status !== "processed" && (
+                      <Button variant="ghost" size="xs" onClick={() => proc(m.id)}>提炼摘要</Button>
+                    )}
+                    <Button variant="ghost" size="xs" onClick={() => distill(m.id)}>→设定</Button>
+                    <Button variant="ghost" size="xs" onClick={() => del(m.id)}>删</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </StateBoundary>
+    </div>
   );
 }
 
@@ -279,24 +474,36 @@ function BibleAdd({ work, onAdded }: { work: string; onAdded: () => void }) {
   const toast = useToast();
   const add = async () => {
     const n = name.trim(); if (!n) return;
-    if (kind === "char") await api.addCharacter(work, n); else await api.addSetting(work, n);
+    if (kind === "char") await api.addCharacter(work, n);
+    else await api.addSetting(work, n);
     setName(""); toast(kind === "char" ? "已加角色" : "已加设定"); onAdded();
   };
   return (
-    <div className="row" style={{ marginBottom: 8 }}>
-      <select value={kind} onChange={(e) => setKind(e.target.value as "char" | "set")}
-        aria-label="类型" style={{ width: 76, flex: "0 0 auto" }}>
-        <option value="char">角色</option><option value="set">设定</option>
+    <div className="flex items-center gap-1 mb-3">
+      <select
+        value={kind}
+        onChange={(e) => setKind(e.target.value as "char" | "set")}
+        aria-label="类型"
+        className="h-7 w-16 shrink-0 rounded-lg border border-input bg-transparent px-1.5 text-xs outline-none"
+      >
+        <option value="char">角色</option>
+        <option value="set">设定</option>
       </select>
-      <input aria-label="名称" value={name} placeholder={kind === "char" ? "角色名…" : "设定名…"}
-        onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
-      <Btn onClick={add} variant="ghost" className="sm">加</Btn>
+      <Input
+        aria-label="名称"
+        value={name}
+        placeholder={kind === "char" ? "角色名…" : "设定名…"}
+        className="h-7 text-xs"
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+      />
+      <Button variant="ghost" size="sm" onClick={add}>加</Button>
     </div>
   );
 }
 
 interface Card { type: string; title: string; options?: string[] }
-// 从主编回复抽取 ```scribe-card JSON 块 → {正文文本, 卡片[]}
+
 function parseCards(text: string): { text: string; cards: Card[] } {
   const cards: Card[] = [];
   const clean = text.replace(/```scribe-card\s*([\s\S]*?)```/g, (_m, body) => {
@@ -307,23 +514,30 @@ function parseCards(text: string): { text: string; cards: Card[] } {
 }
 
 function ChiefCard({ card, onPick }: { card: Card; onPick: (opt: string) => void }) {
-  const color = card.type === "hard_conflict" ? "var(--danger)" : card.type === "suggestion" ? "var(--warn)" : "var(--accent)";
-  const icon = card.type === "hard_conflict" ? "⚠ 硬冲突" : card.type === "suggestion" ? "💡 建议" : "⌖ 待定夺";
+  const isHard = card.type === "hard_conflict";
+  const isSuggestion = card.type === "suggestion";
+  const borderColor = isHard ? "border-l-destructive" : isSuggestion ? "border-l-[#f59e0b]" : "border-l-primary";
+  const icon = isHard ? "⚠ 硬冲突" : isSuggestion ? "💡 建议" : "⌖ 待定夺";
   return (
-    <div className="card" style={{ borderLeft: `3px solid ${color}` }}>
-      <b style={{ color }}>{icon}</b> <span>{card.title}</span>
-      {card.options && card.options.length > 0 && (
-        <div className="row" style={{ marginTop: 6, flexWrap: "wrap" }}>
-          {card.options.map((o, i) => <Btn key={i} variant="ghost" className="sm" onClick={() => onPick(o)}>{o}</Btn>)}
-        </div>
-      )}
-    </div>
+    <Card size="sm" className={cn("border-l-[3px]", borderColor)}>
+      <CardContent className="pt-3">
+        <p className="text-xs font-medium">{icon} {card.title}</p>
+        {card.options && card.options.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {card.options.map((o, i) => (
+              <Button key={i} variant="ghost" size="xs" onClick={() => onPick(o)}>{o}</Button>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 function Chat({ work, bump }: { work: string; bump: () => void }) {
   const [msgs, setMsgs] = useState<{ who: "me" | "ai"; text: string; cards?: Card[] }[]>([]);
-  const [input, setInput] = useState(""); const [busy, setBusy] = useState(false);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const send = async (raw?: string) => {
     const m = (raw ?? input).trim(); if (!m || busy) return;
@@ -340,25 +554,59 @@ function Chat({ work, bump }: { work: string; bump: () => void }) {
     }
   };
   return (
-    <>
-      <h3>主编对话</h3>
-      <div className="chat">
-        <div className="msgs" ref={boxRef} aria-live="polite">
-          {msgs.length === 0 && <div className="empty">和主编(火山 doubao)聊聊这本书。遇决策/冲突会给可操作卡片。</div>}
-          {msgs.map((m, i) => (
-            <div key={i}>
-              <div className={"bub " + m.who}>{m.text}</div>
-              {m.cards?.map((c, j) => <ChiefCard key={j} card={c} onPick={(o) => send(`我选:${o}`)} />)}
-            </div>
-          ))}
-          {busy && <div className="bub ai thinking">主编思考中…</div>}
-        </div>
-        <div className="row" style={{ marginTop: 6 }}>
-          <input aria-label="对主编说" value={input} placeholder="说点什么…" disabled={busy}
-            onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-          <Btn onClick={() => send()}><Send size={15} /> 发</Btn>
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">主编对话</h3>
+      <div className="flex flex-col gap-2">
+        {/* 消息区 */}
+        <ScrollArea className="h-36">
+          <div ref={boxRef} aria-live="polite" className="flex flex-col gap-1.5 pr-2">
+            {msgs.length === 0 && (
+              <Empty
+                title="和主编聊聊这本书"
+                hint="遇决策/冲突会给可操作卡片"
+                className="py-4"
+              />
+            )}
+            {msgs.map((m, i) => (
+              <div key={i} className="flex flex-col gap-1">
+                <div
+                  className={cn(
+                    "max-w-[85%] rounded-xl px-3 py-2 text-xs font-prose",
+                    m.who === "me"
+                      ? "self-end bg-primary text-primary-foreground"
+                      : "self-start bg-muted text-foreground"
+                  )}
+                >
+                  {m.text}
+                </div>
+                {m.cards?.map((c, j) => (
+                  <ChiefCard key={j} card={c} onPick={(o) => send(`我选:${o}`)} />
+                ))}
+              </div>
+            ))}
+            {busy && (
+              <div className="self-start rounded-xl px-3 py-2 text-xs bg-muted text-muted-foreground animate-pulse">
+                主编思考中…
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+        {/* 输入行 */}
+        <div className="flex items-center gap-1">
+          <Input
+            aria-label="对主编说"
+            value={input}
+            placeholder="说点什么…"
+            disabled={busy}
+            className="h-7 text-xs"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") send(); }}
+          />
+          <Button size="sm" onClick={() => send()} disabled={busy}>
+            <Send size={13} /> 发
+          </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 }
