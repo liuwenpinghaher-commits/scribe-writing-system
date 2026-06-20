@@ -831,5 +831,14 @@ class Database:
         q += " ORDER BY created_at ASC"
         return [dict(r) for r in self.conn.execute(q, p).fetchall()]
 
+    def clear_chapter_extractions(self, work_id: str, seq: int) -> None:
+        """重跑前清理该章既有时间线/角色状态/关系,避免重复堆积(关系按 valid_from 清)。"""
+        self.conn.execute("DELETE FROM timeline_events WHERE work_id=? AND chapter_seq=?", (work_id, seq))
+        self.conn.execute(
+            "DELETE FROM char_states WHERE chapter_seq=? AND character_id IN "
+            "(SELECT id FROM characters WHERE work_id=?)", (seq, work_id))
+        self.conn.execute("DELETE FROM entity_relations WHERE work_id=? AND valid_from_chapter=?", (work_id, seq))
+        self.conn.commit()
+
     def close(self) -> None:
         self.conn.close()

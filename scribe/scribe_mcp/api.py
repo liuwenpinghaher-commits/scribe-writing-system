@@ -1409,3 +1409,28 @@ def choose_option(work_id: str, oid: str, body: ChooseIn,
     TasteStore(db.conn).record_signal(owner, source="option_choice", polarity="+", weight=1.0,
                                       signal={"option_set": oid, "text": chosen_text}, work_id=None)
     return res
+
+
+@app.post("/works/{work_id}/analyze")
+def analyze_work(work_id: str, x_owner_id: str | None = Header(default=None)):
+    """批量分析全书:逐章清理→ingest(摘要/关系/时间线/状态)→落质量快照。幂等。"""
+    from .memory import ingest_chapter
+    from .metrics import work_quality_report
+    _own_work(work_id, _owner(x_owner_id))
+    chs = db.list_chapters(work_id)
+    cnt = {"analyzed": 0, "relations": 0, "events": 0, "states": 0}
+    for c in chs:
+        db.clear_chapter_extractions(work_id, c["seq"])
+        res = ingest_chapter(db, _volc_complete, work_id, c["seq"])
+        if res.get("ok"):
+            cnt["analyzed"] += 1
+            cnt["relations"] += res.get("relations", 0)
+            cnt["events"] += res.get("timeline", 0)
+            cnt["states"] += res.get("char_states", 0)
+    rep = work_quality_report(db, work_id)
+    db.add_quality_snapshot(work_id, "global", None, {
+        "words": rep["words"], "slop_density": rep["avg_slop_density"],
+        "consistency_score": rep["consistency"]["score"],
+        "foreshadow_payoff": rep["foreshadow"]["payoff_rate"],
+        "cost_usd": _LEDGER.total_cost(work_id)["cost_usd"]})
+    return cnt
