@@ -140,7 +140,12 @@ CREATE TABLE IF NOT EXISTS entity_relations (
     dst_entity  TEXT NOT NULL,
     relation    TEXT NOT NULL,
     valid_from_chapter INTEGER,
-    valid_to_chapter   INTEGER       -- NULL=仍有效
+    valid_to_chapter   INTEGER,      -- NULL=仍有效
+    src_type    TEXT,                -- 角色/地点/阵营/物品/组织/概念
+    dst_type    TEXT,
+    relation_category TEXT,          -- 亲属/敌对/盟友/师徒/爱慕/从属/因果/其它
+    weight      REAL DEFAULT 1.0,    -- 关系强度(出现次数/LLM 估)
+    directed    INTEGER DEFAULT 1    -- 是否有向
 );
 CREATE TABLE IF NOT EXISTS timeline_events (
     id          TEXT PRIMARY KEY,
@@ -150,6 +155,20 @@ CREATE TABLE IF NOT EXISTS timeline_events (
     rel_order   INTEGER,
     description TEXT,
     entity_refs TEXT                 -- jsonb
+);
+CREATE TABLE IF NOT EXISTS quality_snapshots (
+    id          TEXT PRIMARY KEY,
+    work_id     TEXT NOT NULL REFERENCES works(id),
+    scope       TEXT NOT NULL,        -- 'global' | 'chapter'
+    chapter_seq INTEGER,              -- scope=chapter 时
+    words       INTEGER,
+    slop_density REAL,
+    consistency_score REAL,
+    foreshadow_payoff REAL,
+    vocab_richness REAL,
+    repetition_rate REAL,
+    cost_usd    REAL,
+    created_at  TEXT NOT NULL
 );
 
 -- 伏笔 F-T-P 状态机(门槛1 / CFPG)

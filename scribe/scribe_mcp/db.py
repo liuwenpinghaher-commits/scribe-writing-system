@@ -54,6 +54,19 @@ class Database:
                 self.conn.execute(sql); self.conn.commit()
             except sqlite3.OperationalError:
                 pass  # 列已存在
+        # 关系丰富化增列(新库 schema.sql 已含,旧库靠 ALTER 补;已存在则忽略)
+        for col, ddl in [
+            ("src_type", "ALTER TABLE entity_relations ADD COLUMN src_type TEXT"),
+            ("dst_type", "ALTER TABLE entity_relations ADD COLUMN dst_type TEXT"),
+            ("relation_category", "ALTER TABLE entity_relations ADD COLUMN relation_category TEXT"),
+            ("weight", "ALTER TABLE entity_relations ADD COLUMN weight REAL DEFAULT 1.0"),
+            ("directed", "ALTER TABLE entity_relations ADD COLUMN directed INTEGER DEFAULT 1"),
+        ]:
+            try:
+                self.conn.execute(ddl)
+            except Exception:
+                pass  # 列已存在
+        self.conn.commit()
 
     # ---- 作品 / 多本书(00 §2.7:owner 边界)----
     def create_work(self, owner_id: str, title: str, premise: str = "",
