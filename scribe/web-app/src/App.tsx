@@ -8,6 +8,7 @@ import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Right } from "./Right";
 import { VIEWS, type ViewKey } from "./views";
+import { AppRail } from "./AppRail";
 
 // 视图名映射(占位提示)
 const VIEW_LABELS: Record<ViewKey, string> = {
@@ -137,10 +138,10 @@ function Workspace() {
   ];
 
   // 非写作台视图:渲染占位
-  const renderView = () => {
+  const renderViewContent = () => {
     if (view === "write") {
       return (
-        <>
+        <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
           <aside className="col left">
             <Library works={works.data} loading={works.loading} error={works.error}
               reload={works.reload} current={cur} onSelect={select} />
@@ -160,7 +161,6 @@ function Workspace() {
               <div className="row">
                 <button className="ghost sm" aria-label="命令面板 ⌘K" title="命令面板 ⌘K" onClick={() => setCmdOpen(true)}><Search size={16} /></button>
                 <button className="ghost sm" aria-label="快捷键帮助" title="快捷键帮助 ?" onClick={() => setHelpOpen(true)}>?</button>
-                <button className="ghost sm" aria-label="深浅色" title="深浅色" onClick={() => setTheme((t) => t === "dark" ? "light" : "dark")}>{theme === "dark" ? "☾" : "☀"}</button>
                 <button className="ghost sm" aria-label="专注模式 ⌘⇧F" title="专注模式 ⌘⇧F" onClick={() => setFocus((v) => !v)}>{focus ? "⤢" : "⤡"}</button>
                 <button className="ghost sm right-toggle" aria-label="打开主编与设定"
                   onClick={() => setShowRight((v) => !v)}><PanelRight size={16} /></button>
@@ -176,23 +176,37 @@ function Workspace() {
             {cur ? <Right key={cur.id} work={cur.id} rev={rev} bump={bump} />
               : <div className="empty">选择一本书后,这里是主编、设定与对话</div>}
           </aside>
-        </>
+        </div>
       );
     }
 
     // 非写作台视图占位(全宽)
     return (
-      <main className="col center" style={{ gridColumn: "1 / -1" }}>
+      <div className="flex-1 flex items-start overflow-auto" style={{ minHeight: "100vh" }}>
         <div className="p-8 text-muted-foreground">
           「{VIEW_LABELS[view]}」视图建设中
         </div>
-      </main>
+      </div>
     );
   };
 
   return (
-    <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
-      {renderView()}
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      {/* AppRail:竖向导航条(切视图/切书/切主题) */}
+      <AppRail
+        works={works.data}
+        current={cur}
+        view={view}
+        onView={setView}
+        onSelectWork={(w) => { select(w); }}
+        theme={theme}
+        onTheme={setTheme}
+      />
+
+      {/* 主内容区 */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {renderViewContent()}
+      </div>
 
       {imagOpen && cur && (
         <ImagModal work={cur.id} onClose={() => setImagOpen(false)} onSaved={bump} />
