@@ -1,33 +1,36 @@
-# Scribe 底座重构 · 接力说明(新会话从这里续)
+# Scribe 接力说明(新会话从这里续)
 
-> 新会话第一步:读本文件 + 下面两份 spec/plan,然后从「下一步」继续。
+> 新会话第一步:读本文件 + 总纲 spec,然后从「下一步」续。
 
-## 正在做什么
-把 Scribe **彻底重构**成:**Hermes(agent 大脑)+ SurrealDB(关系+向量+图 一体数据层)+ 一套干净 MCP 工具 + 保留的前端**。Clean rebuild,旧码最后统一删,零遗留。
+## 当前工程:scribe 深度集成新版 hermes(三任务整合)
+把 scribe 的 AI 生成从"直连 doubao"迁移到"hermes 主编主笔"(设计文档核心愿景),并融合新版 hermes 能力。三个任务(①系统设置界面 ②scribe全走hermes ③新版优化)已整合为 4 阶段。
 
-## 真相源文档(必读)
-- 设计 spec:`docs/superpowers/specs/2026-06-20-scribe-hermes-surrealdb-rearchitecture-design.md`
-- 第1段计划(已执行):`docs/superpowers/plans/2026-06-20-scribe-surrealdb-knowledge-layer.md`
-- 第2段计划(已执行):`docs/superpowers/plans/2026-06-20-scribe-surrealdb-domain-rest.md`
+## 真相源 spec(必读)
+- **总纲**:`docs/superpowers/specs/2026-06-20-scribe-hermes-integration-overview.md`(三任务整合+4阶段最优步骤)
+- **阶段1-4**:`docs/superpowers/specs/2026-06-20-scribe-hermes-阶段{1,2,3,4}-*.md`
+- 阶段1 spec 末尾有**实测蓝图**(responses body + SSE schema,B1/B2 照着写)
 
-## 当前状态(2026-06-20)
-- **分支**:`feat/surrealdb-knowledge-layer`(已 commit,工作树干净)
-- **新包**:`scribe2/`(基于 SurrealDB,**不碰旧 `scribe_mcp/`**)
-- **已完成 段1+段2,15 测试全绿**:
-  - 段1 知识层 `scribe2/store.py`:连接 + 数据驱动 schema(HNSW 向量 + BM25 全文)+ bge-small-zh 嵌入(512维)+ 图 RELATE/遍历 + `search_knowledge`(向量 cosine + 按书过滤 + 图扩展)
-  - 段2 领域/REST:`domain.py`(work/卷/章 + 版本 snapshot + 设定 + search)、`conn.py`(env 连接)、`app.py`(FastAPI 核心端点跑在 SurrealDB)
-- 跑测试:`cd scribe && .venv/bin/python -m pytest scribe2/tests/ -q`
+## 已完成(全部实测验证)
+- **地基**:hermes 重置到 **v0.17.0** 干净实例(不串历史项目)+ `API_SERVER_KEY` 认证打通(commit `3be261e`)+ scribe MCP(28工具)已挂 hermes、主编 agentic 能流式用工具(实测 list_works 读真实数据)
+- **spec 体系**:总纲+阶段1-4(`116fc7e`/`33ae3c6`/`a95b00a`)
+- **阶段1 技术验证**:`/v1/responses` 用 `tools:[{"type":"mcp","server_label":"scribe"}]` 挂 scribe 工具,SSE 为 OpenAI Responses 标准(`response.created`/`output_item.added(function_call)`/`output_text.delta`)
 
-## 已解决的真坑(别再踩)
-1. **项目路径含中文「写作 3.0」→ surreal v3.1.5 子进程 SIGABRT**:起 surreal 必须用 ASCII cwd(`/tmp`)+ 净化 env(见 `scribe2/tests/conftest.py`)。生产 DB 也要 ASCII 路径。
-2. surreal 二进制在 `~/.surrealdb/surreal`(不在 PATH);SDK `from surrealdb import Surreal, RecordID`,query 返回干净 `list[dict]`。
-3. SurrealQL:用 SDK 原生 `create/select/merge`(`type::thing` 解析坑);FTS 用 `FULLTEXT ANALYZER … BM25`(非 SEARCH);KNN `<|k|>` 已废弃,用 `vector::similarity::cosine` 排序;`->edge->?.*` 物化字段;类方法名 `list` 遮蔽内置 → `from __future__ import annotations`。
+## 下一步:执行阶段1 B1(后端 /chat → run 驱动)
+- **B1**:scribe `/chat`(现 `_hermes_complete` 裸补全)改成调 hermes `/v1/responses`(`tools:[{type:mcp,server_label:scribe}]` + `instructions`=主编人格+当前书 + `stream:true`)→ SSE 转发前端(新端点如 `/works/{w}/chat/stream`,集中带 API_SERVER_KEY)
+- 蓝图全在阶段1 spec「实测结果」段,无需再实测基础路径
+- 之后:B2 前端流式渲染 → B3 写工具审批(MCP elicitation) → 阶段2(写作走hermes)→ 阶段3(设置界面)→ 阶段4(退役旧件)
 
-## 下一步(段3 → 段5)
-- **段3**:一套干净 MCP 工具 `scribe2/mcp.py`(FastMCP)——读/检索/写,**写工具标 `requires_approval`**;暴露 `search_knowledge`、`create_chapter`、`save_prose`、`add_setting` 等领域动作给 Hermes。
-- **段4**:Hermes run 集成 —— 主编对话经 `POST Hermes /v1/runs`(挂 scribe MCP、session-key=书、主编人格)+ SSE 事件 + `/approval` 审批门;前端对话改 run 驱动 + 审批卡。**先实测 Hermes `/v1/runs` + 审批事件 schema**(Hermes 源码在 `scribe/vendor/hermes-agent`,API 在 `gateway/platforms/api_server.py`)。
-- **段5**:记忆→Hermes memory(session-key 作用域)、技能→Hermes skills、主动引擎→Hermes cron;生成全经 Hermes(退役直连火山);前端 `api.ts` BASE 切到新 scribe2 app;**删旧 `scribe_mcp/` + `scribe.db` + 旧测试 + agent_memory/agent_skills 表**(clean rebuild 收尾)。
+## 运行状态(当前)
+- hermes gateway **:8642**(v0.17.0),家目录 `~/.hermes`,key 在 `~/.hermes/.env` 的 `API_SERVER_KEY`
+- scribe 后端 **:3320**(scribe_mcp,直连 doubao 做写作 + 转发对话给 hermes;已带 key 自动读 .env)
+- 前端 web-app **:3310**(vite)
+- **你日常 hermes 完整备份**:`~/.hermes.backup-20260620-220301`(128会话/记忆星球/人格全在;恢复:停 gateway 后 `mv` 回)
 
-## 在新会话怎么续
-直接说:**「读 docs/superpowers/HANDOFF.md,从段3继续(出计划+执行)」**。
-端口约定不变:前端 3310 / 旧后端 3320(新 scribe2 app 上线后再切)。
+## 关键事实/坑
+- scribe MCP = `scribe_mcp/server.py`(28工具),hermes `config.yaml` 的 `mcp_servers.scribe` 已挂、enabled
+- scribe **写作核心仍直连 doubao**(阶段2 才迁移);主编**对话**已连干净 hermes,但当前是**裸补全**(B1 才让它主动用工具)
+- 新版 hermes 有 `hermes dashboard`(web 配置界面)——阶段3 设置界面对接它,不用手搓
+- 路径含中文「写作 3.0」:macOS NFC/NFD + zsh 对中文绝对路径不稳,操作 frontend/web-app 用 python listdir 定位真实字节,或从已知 cwd 相对 ASCII 导航
+
+## 新会话怎么续
+直接说:**「读 docs/superpowers/HANDOFF.md,从阶段1 B1 继续」**
