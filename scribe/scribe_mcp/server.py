@@ -135,6 +135,8 @@ def plant_foreshadow(work_id: str, summary: str, foreshadow_chapter: int,
 def advance_foreshadow(foreshadow_id: str, to_state: str, chapter: int | None = None) -> dict:
     """推进伏笔状态:triggered/paid/abandoned(非法转移会报错)。(写操作,需作者审批)"""
     work_id = db.work_id_of_foreshadow(foreshadow_id)
+    if work_id is None:
+        raise ValueError(f"伏笔不存在: {foreshadow_id}")
     return _gate("advance_foreshadow", {"work_id": work_id, "foreshadow_id": foreshadow_id,
                  "to_state": to_state, "chapter": chapter})
 

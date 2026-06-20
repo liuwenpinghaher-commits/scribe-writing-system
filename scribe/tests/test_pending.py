@@ -90,3 +90,14 @@ def test_mcp_write_tool_enqueues_not_writes(tmp_path, monkeypatch):
     assert len(srv.db.list_pending_writes(wid)) == 1  # 已入队
 
     assert isinstance(_call(srv.list_settings, work_id=wid), list)  # 只读照常
+
+
+def test_advance_foreshadow_bad_id_rejected(tmp_path, monkeypatch):
+    import importlib, pytest
+    monkeypatch.setenv("SCRIBE_DB", str(tmp_path / "srv2.db"))
+    import scribe_mcp.server as srv
+    importlib.reload(srv)
+    wid = srv.db.create_work("u1", "书")
+    with pytest.raises(ValueError):
+        _call(srv.advance_foreshadow, foreshadow_id="nope", to_state="triggered")
+    assert srv.db.list_pending_writes(wid) == []  # 没有孤儿待批行
