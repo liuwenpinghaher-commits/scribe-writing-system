@@ -45,3 +45,25 @@ def test_execute_write_unknown_tool_raises(tmp_path):
         assert False, "未注册工具应抛错"
     except ValueError:
         pass
+
+
+def test_every_gated_tool_has_dispatch_branch(tmp_path):
+    """守护:WRITE_GATED 每个工具都能被 execute_write 派发(不漂移)。
+    若新增门控工具但忘了 dispatch 分支,会落到 raise ValueError("未注册...") —— 此处提前抓住。"""
+    db, fs = _db(tmp_path)
+    wid = db.create_work("u1", "书")
+    ch = db.save_chapter(wid, 1, "一")           # returns chapter_id (str)
+    fid = fs.plant(wid, "伏笔", 1)                 # foreshadow_id for advance
+    minimal = {
+        "upsert_setting": {"work_id": wid, "type": "x", "name": "n", "content": {}},
+        "save_chapter": {"work_id": wid, "seq": 2, "title": "二"},
+        "save_snapshot": {"work_id": wid, "chapter_id": ch, "content": "正文"},
+        "upsert_character": {"work_id": wid, "name": "角色"},
+        "plant_foreshadow": {"work_id": wid, "summary": "s", "foreshadow_chapter": 1},
+        "advance_foreshadow": {"foreshadow_id": fid, "to_state": "triggered"},
+        "set_author_intent": {"work_id": wid, "reader_feeling": "紧张"},
+    }
+    for tool in WRITE_GATED:
+        assert tool in minimal, f"测试缺 {tool} 的最小参数(WRITE_GATED 新增了工具?)"
+        res = execute_write(db, fs, tool, minimal[tool])  # 不应抛“未注册”
+        assert isinstance(res, dict)

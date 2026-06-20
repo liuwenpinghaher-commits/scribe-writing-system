@@ -14,7 +14,11 @@ WRITE_GATED = {
 
 
 def execute_write(db, fs, tool_name: str, args: dict) -> dict:
-    """按 tool_name 派发到真实写函数;返回与对应 MCP 工具相同的结果 dict。"""
+    """按 tool_name 派发到真实写函数;返回与对应 MCP 工具相同的结果 dict。
+
+    假设必填参数已在入队时校验/补齐:必填字段用直接 a["..."] 下标取值,
+    缺失会抛 KeyError(本函数不再二次校验)。
+    """
     a = args
     if tool_name == "upsert_setting":
         return {"setting_id": db.upsert_setting(a["work_id"], a["type"], a["name"], a.get("content"))}
