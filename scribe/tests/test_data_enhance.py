@@ -47,8 +47,34 @@ def test_parse_ingest_typed_relations_with_defaults():
     assert r2["src_type"] == "未知" and r2["category"] == "其它" and r2["directed"] == 1
 
 
+def test_chinese_quality_metrics():
+    from scribe_mcp.metrics import vocab_richness, repetition_rate
+    # 全不同词 → 丰富度高、重复低
+    rich = "晨光 落在 窗台 猫咪 伸懒腰 茶香 漫开"
+    assert vocab_richness(rich) > 0.8
+    # 大量重复 → 丰富度低、重复率高
+    rep = "走 走 走 走 走 走 走 走"
+    assert vocab_richness(rep) < 0.3
+    assert repetition_rate(rep) > 0.5
+
+
+def test_quality_snapshot_add_list():
+    db = Database(":memory:")
+    w = db.create_work("u", "书")
+    db.add_quality_snapshot(w, "global", None, {"words": 1200, "slop_density": 0.8,
+        "consistency_score": 0.9, "foreshadow_payoff": 0.5, "vocab_richness": 0.7,
+        "repetition_rate": 0.1, "cost_usd": 0.02})
+    db.add_quality_snapshot(w, "chapter", 1, {"words": 600, "slop_density": 1.2})
+    g = db.list_quality_snapshots(w, "global")
+    assert len(g) == 1 and g[0]["words"] == 1200
+    c = db.list_quality_snapshots(w, "chapter")
+    assert len(c) == 1 and c[0]["chapter_seq"] == 1
+
+
 if __name__ == "__main__":
     test_schema_relation_columns_and_quality_table()
     test_add_relation_typed_and_dedup()
     test_parse_ingest_typed_relations_with_defaults()
+    test_chinese_quality_metrics()
+    test_quality_snapshot_add_list()
     print("  ✓ data-enhance(纯 db/解析)通过")

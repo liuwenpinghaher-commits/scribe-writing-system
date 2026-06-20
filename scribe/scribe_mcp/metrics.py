@@ -9,7 +9,31 @@ LLM 主观维(Q2 意外性/Q3 北极星共鸣/Q4 质感)由 critique 评改环�
 """
 from __future__ import annotations
 
+import jieba
+
 from .antislop import slop_density
+
+
+def _tokens(text: str) -> list[str]:
+    return [t for t in jieba.lcut(text or "") if t.strip()]
+
+
+def vocab_richness(text: str) -> float:
+    """词汇丰富度(type-token ratio):去重词数 / 总词数。越高越不啰嗦。"""
+    toks = _tokens(text)
+    return round(len(set(toks)) / len(toks), 3) if toks else 0.0
+
+
+def repetition_rate(text: str) -> float:
+    """重复率:重复 bigram 占比(AI 腔强信号)。"""
+    from collections import Counter
+    toks = _tokens(text)
+    if len(toks) < 2:
+        return 0.0
+    bigrams = list(zip(toks, toks[1:]))
+    c = Counter(bigrams)
+    repeated = sum(n for n in c.values() if n > 1)
+    return round(repeated / len(bigrams), 3)
 
 _SEV_WEIGHT = {"critical": 3.0, "major": 2.0, "minor": 1.0}
 
@@ -54,7 +78,8 @@ def chapter_quality(db, work_id: str, seq: int) -> dict:
     flags = [f for f in db.list_consistency_flags(work_id, "open")
              if f.get("chapter_seq") == seq]
     return {"seq": seq, "words": len(text), "slop_density": round(slop_density(text), 2),
-            "open_flags": len(flags)}
+            "open_flags": len(flags),
+            "vocab_richness": vocab_richness(text), "repetition_rate": repetition_rate(text)}
 
 
 def work_quality_report(db, work_id: str) -> dict:

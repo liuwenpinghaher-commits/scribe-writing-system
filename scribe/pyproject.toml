@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2",          # Hermes 通过 MCP 调用本服务(stdio)
     "sqlite-vec>=0.1.6", # 本地向量检索(替代 pgvector,见 工程8 核实更新)
+    "jieba",             # 中文分词(词汇丰富度/重复率指标)
 ]
 
 [project.optional-dependencies]
