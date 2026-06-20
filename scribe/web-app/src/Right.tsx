@@ -19,10 +19,59 @@ import { cn } from "@/lib/utils";
 export function Right({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
   return (
     <div className="flex flex-col gap-3">
+      <PendingWrites work={work} rev={rev} bump={bump} />
       <Insights work={work} rev={rev} />
       <Sidebar work={work} rev={rev} />
       <Chat work={work} bump={bump} />
       <Threads work={work} rev={rev} />
+    </div>
+  );
+}
+
+const PENDING_LABEL: Record<string, string> = {
+  upsert_setting: "新增/更新设定",
+  save_chapter: "保存章节",
+  save_snapshot: "保存正文快照",
+  upsert_character: "新增/更新角色",
+  plant_foreshadow: "埋伏笔",
+  advance_foreshadow: "推进伏笔",
+  set_author_intent: "改北极星",
+};
+
+function PendingWrites({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
+  const { data, loading, error, reload } = useData(() => api.pendingWrites(work), [work, rev]);
+  const toast = useToast();
+  if (loading || error || !data || data.length === 0) return null;
+  const decide = async (id: string, approve: boolean) => {
+    try {
+      if (approve) await api.approvePending(work, id);
+      else await api.rejectPending(work, id);
+      toast(approve ? "已写入" : "已拒绝");
+      reload(); bump();
+    } catch (e) {
+      toast(errMsg(e));
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <h4 className="text-sm font-semibold text-foreground">待你确认的写操作（{data.length}）</h4>
+      {data.map((p) => {
+        const name = (p.args.name as string) || (p.args.summary as string) || "";
+        return (
+          <Card key={p.id} className="border-amber-300/60">
+            <CardContent className="p-3 flex items-center justify-between gap-2">
+              <div className="text-sm">
+                <span className="font-medium">{PENDING_LABEL[p.tool_name] ?? p.tool_name}</span>
+                {name && <span className="text-muted-foreground">：{name}</span>}
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <Button size="sm" className="h-7" onClick={() => decide(p.id, true)}>批准</Button>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => decide(p.id, false)}>拒绝</Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

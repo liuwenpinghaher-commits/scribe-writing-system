@@ -19,6 +19,7 @@ import {
   Lightbulb,
   Loader2,
   MessagesSquare,
+  Search,
   Send,
   Sparkles,
   ThumbsUp,
@@ -37,10 +38,62 @@ import { ScrollArea } from "./components/ui/scroll-area";
 import { cn } from "./lib/utils";
 
 // ─── 类型 ───────────────────────────────────────────────────
+interface ToolCall {
+  name: string;
+  args?: string;
+}
 interface ChatMsg {
   role: "user" | "editor";
   content: string;
   thread_id?: string;
+  tools?: ToolCall[]; // 该条回复期间主编调用的工具序列(B2 折叠时间线)
+}
+
+// 工具名 → 人话(主编可能用 scribe 工具或 hermes 自带记忆工具)
+function toolLabel(name: string, args?: string): string {
+  const bare = name.replace(/^mcp_scribe_/, "");
+  const map: Record<string, string> = {
+    list_works: "查作品库",
+    list_characters: "查人物",
+    list_settings: "查设定",
+    search_book: "检索原文",
+    get_chapter: "读章节",
+    list_open_foreshadows: "查伏笔",
+    list_relations: "查人物关系",
+    session_search: "检索记忆",
+  };
+  let label = map[bare] ?? bare;
+  // 从 args 里抠出 query 作为副标题,帮作者看主编在找什么
+  try {
+    const q = args ? (JSON.parse(args).query as string | undefined) : undefined;
+    if (q) label += `「${q}」`;
+  } catch { /* ignore */ }
+  return label;
+}
+
+// B2:回复气泡上方的「主编查阅了什么」折叠时间线
+function ToolTimeline({ tools }: { tools: ToolCall[] }) {
+  const [open, setOpen] = useState(false);
+  if (!tools.length) return null;
+  return (
+    <div className="mb-1 max-w-[80%] self-start">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Search size={11} />
+        主编查阅了 {tools.length} 项资料
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+      </button>
+      {open && (
+        <ul className="mt-1 ml-1 flex flex-col gap-0.5 border-l border-border pl-2">
+          {tools.map((t, i) => (
+            <li key={i} className="text-[11px] text-muted-foreground">· {toolLabel(t.name, t.args)}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 interface ScribeCard {
@@ -318,6 +371,7 @@ function ChatSection({ work }: { work: string }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [toolHint, setToolHint] = useState("");
   const toast = useToast();
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<string | undefined>(undefined);
@@ -330,27 +384,43 @@ function ChatSection({ work }: { work: string }) {
     const text = input.trim();
     if (!text || thinking) return;
     setInput("");
-    setMsgs((m) => [...m, { role: "user", content: text }]);
+    setMsgs((m) => [...m, { role: "user", content: text }, { role: "editor", content: "" }]);
     setThinking(true);
+    setToolHint("");
     try {
-      // 后端 ChatIn 支持 work_id + thread_id，但 api.chat 只封装了 message
-      // 直接 fetch 以传递会话上下文，使对话持久化到 discussion_threads
-      const CHAT_BASE = import.meta.env.VITE_API ?? "http://127.0.0.1:3320";
-      const OWNER = "u1";
-      const resp = await fetch(`${CHAT_BASE}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Owner-Id": OWNER },
-        body: JSON.stringify({ message: text, work_id: work, thread_id: threadRef.current }),
-      });
-      if (!resp.ok) throw new Error(`chat 失败: ${resp.status}`);
-      const r = await resp.json() as { content: string; thread_id?: string };
+      // B1/B2：主编对话走 hermes Responses（带 scribe 工具 + 流式）
+      const r = await api.streamChat(work, text, (ev) => {
+        if (ev.tool) {
+          setToolHint(toolLabel(ev.tool, ev.tool_args));
+          setMsgs((m) => {
+            const last = m[m.length - 1];
+            if (!last || last.role !== "editor") return m;
+            const tools = [...(last.tools ?? []), { name: ev.tool!, args: ev.tool_args }];
+            return [...m.slice(0, -1), { ...last, tools }];
+          });
+        }
+        if (ev.delta) {
+          setToolHint("");
+          setMsgs((m) => {
+            const last = m[m.length - 1];
+            if (!last || last.role !== "editor") return m;
+            return [...m.slice(0, -1), { ...last, content: last.content + ev.delta }];
+          });
+        }
+      }, threadRef.current);
       threadRef.current = r.thread_id ?? threadRef.current;
-      setMsgs((m) => [...m, { role: "editor", content: r.content }]);
+      // 用最终完整文本兜底（覆盖流式拼接，防丢片）
+      setMsgs((m) => {
+        const last = m[m.length - 1];
+        if (!last || last.role !== "editor") return m;
+        return [...m.slice(0, -1), { ...last, content: r.content || last.content }];
+      });
     } catch (e) {
       toast(errMsg(e), "err");
-      setMsgs((m) => m.slice(0, -1)); // 撤回用户消息
+      setMsgs((m) => m.slice(0, -2)); // 撤回用户消息 + 空回复占位
     } finally {
       setThinking(false);
+      setToolHint("");
     }
   };
 
@@ -371,10 +441,13 @@ function ChatSection({ work }: { work: string }) {
         <div className="flex flex-col gap-3">
           {msgs.map((msg, i) => {
             const isUser = msg.role === "user";
+            // 流式中的空回复占位气泡先不渲染（由下方“思考中/工具提示”指示）
+            if (!isUser && !msg.content) return null;
             const card = isUser ? null : parseScribeCard(msg.content);
             const text = isUser ? msg.content : stripScribeCard(msg.content);
             return (
               <div key={i} className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
+                {!isUser && msg.tools && <ToolTimeline tools={msg.tools} />}
                 <div
                   className={cn(
                     "max-w-[80%] rounded-2xl px-3 py-2 text-sm font-prose leading-relaxed",
@@ -389,11 +462,13 @@ function ChatSection({ work }: { work: string }) {
               </div>
             );
           })}
-          {thinking && (
+          {thinking && (msgs[msgs.length - 1]?.role !== "editor" || !msgs[msgs.length - 1]?.content) && (
             <div className="flex items-start">
               <div className="bg-muted rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-1.5">
                 <Loader2 size={13} className="animate-spin text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">主编思考中…</span>
+                <span className="text-xs text-muted-foreground">
+                  {toolHint ? `🔍 正在${toolHint}…` : "主编思考中…"}
+                </span>
               </div>
             </div>
           )}

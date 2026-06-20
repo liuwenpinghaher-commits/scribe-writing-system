@@ -81,6 +81,50 @@ def test_delete_work_soft():
     assert client.delete(f"/works/{wid2}", headers=U2).status_code == 403
 
 
+def test_chat_stream_forwards_and_persists(monkeypatch):
+    """B1:/works/{w}/chat/stream 把 hermes Responses SSE 翻成 scribe 协议
+    (function_call→tool / output_text.delta→delta / done 带完整回复),并落库 thread。"""
+    import scribe_mcp.api as api
+
+    # 伪造一段 hermes Responses 事件流(OpenAI Responses 标准 type 字段)
+    canned = [
+        {"type": "response.created"},
+        {"type": "response.output_item.added",
+         "item": {"type": "function_call", "name": "mcp_scribe_list_characters",
+                  "arguments": '{"work_id":"w"}'}},
+        {"type": "response.output_text.delta", "delta": "沈舟"},
+        {"type": "response.output_text.delta", "delta": "的动机是复仇。"},
+        {"type": "response.completed"},
+    ]
+
+    def fake_events(message, instructions, model=None):
+        for ev in canned:
+            yield ev
+
+    monkeypatch.setattr(api, "_hermes_responses_events", fake_events)
+
+    wid = client.post("/works", json={"title": "雾港迷案"}, headers=U1).json()["work_id"]
+    with client.stream("POST", f"/works/{wid}/chat/stream",
+                       json={"message": "沈舟的动机是什么?"}, headers=U1) as r:
+        assert r.status_code == 200
+        body = "".join(r.iter_text())
+
+    # 解析 SSE
+    import json as _j
+    evs = [_j.loads(ln[5:].strip()) for ln in body.split("\n\n")
+           if ln.strip().startswith("data:")]
+    assert any(e.get("tool") == "mcp_scribe_list_characters" for e in evs), "工具调用应转发"
+    assert "".join(e.get("delta", "") for e in evs) == "沈舟的动机是复仇。", "回复片段应流式转发"
+    done = [e for e in evs if e.get("done")]
+    assert done and done[0]["content"] == "沈舟的动机是复仇。", "done 应带完整回复"
+    tid = done[0].get("thread_id")
+    assert tid, "应返回 thread_id(对话已持久化)"
+
+    # 落库校验:user + editor 两条
+    threads = client.get(f"/works/{wid}/threads", headers=U1).json()
+    assert any(t["id"] == tid for t in threads), "thread 应已写入"
+
+
 def test_pending_write_approve_executes_and_idempotent():
     wid = client.post("/works", json={"title": "审批书"}, headers=U1).json()["work_id"]
     from scribe_mcp.api import db

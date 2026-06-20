@@ -32,6 +32,11 @@ const post = <T>(p: string, body?: unknown) =>
 const put = <T>(p: string, body: unknown) =>
   req<T>(p, { method: "PUT", body: JSON.stringify(body) });
 
+export interface PendingWrite {
+  id: string; work_id: string; tool_name: string;
+  args: Record<string, unknown>; status: string; created_at?: string;
+}
+
 export interface Work {
   id: string; title: string; genre?: string;
   chapter_count?: number; word_count?: number;
@@ -94,6 +99,11 @@ export const api = {
   actInsight: (w: string, id: string, act: "ack" | "dismiss") =>
     post<{ ok: boolean }>(`/works/${w}/insights/${id}/${act}`),
   review: (w: string) => post<{ new_insights: number }>(`/works/${w}/proactive-review`),
+  pendingWrites: (w: string) => req<PendingWrite[]>(`/works/${w}/pending-writes`),
+  approvePending: (w: string, id: string) =>
+    post<{ status: string }>(`/works/${w}/pending-writes/${id}/approve`),
+  rejectPending: (w: string, id: string) =>
+    post<{ status: string }>(`/works/${w}/pending-writes/${id}/reject`),
   imaginations: (w: string) => req<Imagination[]>(`/works/${w}/imaginations`),
   capture: (w: string, raw_text: string) =>
     post<{ imagination_id: string }>(`/works/${w}/imaginations`, { raw_text }),
@@ -105,6 +115,34 @@ export const api = {
   critique: (w: string, seq: number, content = "", revise = true) =>
     post<{ rounds: { critique: { overall: number; pass: boolean; worst_dims: string[]; issues: string[] } }[]; improved: boolean; final: string; first_overall: number; last_overall: number }>(`/works/${w}/chapters/${seq}/critique`, { content, revise }),
   chat: (message: string) => post<{ content: string }>("/chat", { message }),
+  // B1 主编对话走 hermes：流式回复（tool=工具调用提示 / delta=回复片段 / done=完整回复+thread_id）
+  streamChat: async (
+    w: string, message: string,
+    onEvent: (ev: { delta?: string; tool?: string; tool_args?: string }) => void,
+    thread_id?: string, model?: string, signal?: AbortSignal,
+  ): Promise<{ content: string; thread_id?: string }> => {
+    const r = await fetch(`${BASE}/works/${w}/chat/stream`,
+      { method: "POST", headers: H, body: JSON.stringify({ message, thread_id, model }), signal });
+    if (!r.ok || !r.body) throw new ApiError(r.status, "对话流式连接失败");
+    const reader = r.body.getReader(); const dec = new TextDecoder();
+    let buf = ""; let result: { content: string; thread_id?: string } = { content: "" };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\n\n"); buf = parts.pop() ?? "";
+      for (const p of parts) {
+        const line = p.trim(); if (!line.startsWith("data:")) continue;
+        try {
+          const ev = JSON.parse(line.slice(5).trim());
+          if (ev.error) throw new ApiError(502, ev.error);
+          if (ev.done) result = { content: ev.content, thread_id: ev.thread_id };
+          else onEvent(ev);
+        } catch (e) { if (e instanceof ApiError) throw e; /* ignore parse */ }
+      }
+    }
+    return result;
+  },
   // P1 新增
   volumes: (w: string) => req<Volume[]>(`/works/${w}/volumes`),
   createVolume: (w: string, seq: number, title: string) =>

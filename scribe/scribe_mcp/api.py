@@ -504,6 +504,89 @@ def chat(body: ChatIn, x_owner_id: str | None = Header(default=None)):
     return {"content": content, "thread_id": tid}
 
 
+# ---- 阶段1·B1:主编对话走 hermes Responses(挂 scribe 工具 + 流式) ----
+def _hermes_responses_events(message: str, instructions: str, model: str | None = None):
+    """POST hermes /v1/responses(tools=scribe MCP + stream),逐事件 yield 解析后的 dict。
+
+    挂 server_label:"scribe" 即引用 config.yaml 里已挂的 scribe MCP,主编自动发现 28 工具。
+    SSE 为 OpenAI Responses 标准:每条 data: 的 JSON 带 type 字段(实测见阶段1 spec)。"""
+    import json as _j
+    body: dict = {"input": message, "instructions": instructions, "stream": True,
+                  "tools": [{"type": "mcp", "server_label": "scribe"}]}
+    if model:
+        body["model"] = model
+    with httpx.stream("POST", f"{_HERMES}/responses", timeout=300,
+                      headers={"Authorization": f"Bearer {_hermes_api_key()}",
+                               "Content-Type": "application/json"},
+                      json=body) as r:
+        r.raise_for_status()
+        for raw in r.iter_lines():
+            if not raw or not raw.startswith("data:"):
+                continue
+            payload = raw[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                yield _j.loads(payload)
+            except Exception:
+                continue
+
+
+@app.post("/works/{work_id}/chat/stream")
+async def chat_stream(work_id: str, body: ChatIn,
+                      x_owner_id: str | None = Header(default=None)):
+    """B1:主编对话经 hermes Responses 流式回复(带 scribe 只读工具),SSE 转发前端。
+
+    集中带 API_SERVER_KEY、避开浏览器→:8642 CORS。事件:tool(工具调用)/delta(回复
+    片段)/done(完整回复+thread_id)/error。传 work_id 则持久化为 discussion_thread。"""
+    owner = _owner(x_owner_id)
+    w = _own_work(work_id, owner)
+    instructions = (
+        _CHIEF_SYSTEM
+        + f"\n\n作者当前在写《{w.get('title') or '未命名'}》(work_id={work_id})。"
+        + "需要了解书里的设定/人物/章节/伏笔时,主动调用 scribe 工具查真实数据,不要凭空编。"
+    )
+    from starlette.responses import StreamingResponse
+
+    def gen():
+        import json as _j
+        full: list[str] = []
+        try:
+            for ev in _hermes_responses_events(body.message, instructions, body.model):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    d = ev.get("delta", "")
+                    if d:
+                        full.append(d)
+                        yield f"data: {_j.dumps({'delta': d})}\n\n"
+                elif t == "response.output_item.added":
+                    item = ev.get("item", {}) or {}
+                    if item.get("type") == "function_call":
+                        yield f"data: {_j.dumps({'tool': item.get('name', ''), 'tool_args': item.get('arguments', '')})}\n\n"
+        except Exception as e:
+            yield f"data: {_j.dumps({'error': str(e)[:160]})}\n\n"
+        content = "".join(full)
+        tid = body.thread_id
+        # 路径已带 work_id 并校验归属,对话一律持久化为 discussion_thread
+        try:
+            if not tid:
+                tid = db.create_thread(work_id, body.message[:40], trigger="chat")
+            db.add_thread_message(tid, "user", body.message)
+            cm = _re.search(r"```scribe-card\s*(\{.*?\})\s*```", content, _re.S)
+            ctype = ""
+            if cm:
+                try:
+                    ctype = _j.loads(cm.group(1)).get("type", "")
+                except Exception:
+                    pass
+            db.add_thread_message(tid, "editor", content, concern_type=ctype)
+        except Exception:
+            pass
+        yield f"data: {_j.dumps({'done': True, 'content': content, 'thread_id': tid})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 # ---- P0-3 结构化 AI 动作:出草稿(ai-draft),不覆盖定稿;返回 diff 所需 prev ----
 class ActionIn(BaseModel):
     instruction: str = ""   # rewrite=作者意见;continue/expand 可选补充
