@@ -10,11 +10,11 @@ INSTR0 = sys.argv[3] if len(sys.argv) > 3 else "开篇本章,古典志怪·乱�
 cli = httpx.Client(base_url=BASE, headers=H, timeout=1800)
 
 CONT = "接上文自然续写,推进本章既定节奏(见上下文各线指令/伏笔节点);保持视角与声音一致,克制收尾、不点题升华。"
-CAP = 5500   # 控总长匹配乱世铜炉(~5800),防暴写注水
+CAP = 4200   # 控总长~5800(节约2800字,累计≥4200即停→2节;cap在生成前检查会按整节溢出,故定低)
 secs = []
 prev = ""
 i = 0
-while sum(len(s) for s in secs) < CAP and i < 4:
+while sum(len(s) for s in secs) < CAP and i < 3:
     instr = INSTR0 if i == 0 else CONT
     r = cli.post(f"/works/{WID}/chapters/{SEQ}/actions/continue",
                  json={"instruction": instr, "target_chars": 1400, "prev": prev})
