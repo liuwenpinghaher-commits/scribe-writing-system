@@ -174,12 +174,16 @@ export function Center({
 }) {
   // 有章节默认正文，无章节默认对话
   const [mode, setMode] = useState<CenterMode>(currentSeq != null ? "prose" : "chat");
+  const [quote, setQuote] = useState("");  // 划词「讨论这段」带入主编对话的引文
 
   // 当章节切换时：选中章→正文，取消选中→对话
   useEffect(() => {
     if (currentSeq != null) setMode("prose");
     else setMode("chat");
   }, [currentSeq]);
+
+  // 划词讨论：带上引文 → 切到对话
+  const discuss = (text: string) => { setQuote(text); setMode("chat"); };
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -213,7 +217,7 @@ export function Center({
                 </div>
               }
             >
-              <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} />
+              <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} onDiscuss={discuss} />
             </Suspense>
           ) : (
             <Empty
@@ -224,7 +228,7 @@ export function Center({
             />
           )
         ) : (
-          <Conversation work={work} rev={rev} bump={bump} />
+          <Conversation work={work} rev={rev} bump={bump} quote={quote} onQuoteUsed={() => setQuote("")} />
         )}
       </div>
 

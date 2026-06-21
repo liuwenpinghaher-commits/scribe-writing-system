@@ -55,6 +55,8 @@ export interface Imagination { id: string; raw_text: string; status?: string; }
 export interface OptionSet { id: string; decision_point: string; options: string; }
 export interface Volume { id: string; seq: number; title?: string; arc_goal?: string; }
 export interface Segment { id: string; seq: number; text: string; created_by: string; citation_refs?: string; }
+export interface Annotation { id: string; seq: number; quote: string; note: string; target: string; created_at?: string; }
+export interface Highlight { id: string; seq: number; quote: string; color: string; created_at?: string; }
 export interface Draft { content: string; prev_content: string; }
 export interface Verdict { status: "aligned" | "soft_deviation" | "hard_violation"; reason: string; red_lines: { text: string; level: string }[]; }
 export type ChapterAction = "continue" | "rewrite" | "expand";
@@ -150,6 +152,20 @@ export const api = {
   segments: (w: string, seq: number) => req<Segment[]>(`/works/${w}/chapters/${seq}/segments`),
   rebuildSegments: (w: string, seq: number) =>
     post<{ segments: number }>(`/works/${w}/chapters/${seq}/segments/rebuild`),
+  // 划词交互:批注 / 高亮 / 段级改写
+  annotations: (w: string, seq: number) => req<Annotation[]>(`/works/${w}/chapters/${seq}/annotations`),
+  allAnnotations: (w: string) => req<Annotation[]>(`/works/${w}/annotations`),
+  addAnnotation: (w: string, seq: number, quote: string, note: string, target: string) =>
+    post<{ annotation_id: string }>(`/works/${w}/chapters/${seq}/annotations`, { quote, note, target }),
+  delAnnotation: (w: string, id: string) =>
+    req<{ ok: boolean }>(`/works/${w}/annotations/${id}`, { method: "DELETE" }),
+  highlights: (w: string, seq: number) => req<Highlight[]>(`/works/${w}/chapters/${seq}/highlights`),
+  addHighlight: (w: string, seq: number, quote: string, color: string) =>
+    post<{ highlight_id: string }>(`/works/${w}/chapters/${seq}/highlights`, { quote, color }),
+  delHighlight: (w: string, id: string) =>
+    req<{ ok: boolean }>(`/works/${w}/highlights/${id}`, { method: "DELETE" }),
+  rewritePassage: (w: string, seq: number, passage: string, instruction: string) =>
+    post<{ rewritten: string }>(`/works/${w}/chapters/${seq}/rewrite-passage`, { passage, instruction }),
   action: (w: string, seq: number, action: ChapterAction, instruction = "") =>
     post<Draft>(`/works/${w}/chapters/${seq}/actions/${action}`, { instruction }),
   // F 流式生成:逐字回调,返回完整草稿;可用 AbortSignal 取消

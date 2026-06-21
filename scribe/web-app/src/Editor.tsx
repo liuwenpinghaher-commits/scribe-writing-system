@@ -22,7 +22,8 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
-import type { Draft, Verdict, Snapshot } from "./api";
+import type { Draft, Verdict, Snapshot, Highlight } from "./api";
+import { useTextSelection, SelectionToolbar, applyHighlights } from "./Annotate";
 import { diffChars } from "./diff";
 import { errMsg, useData, useToast } from "./common";
 import { StateBoundary } from "./components/StateBoundary";
@@ -56,14 +57,27 @@ export function ChapterEditor({
   seq,
   rev,
   bump,
+  onDiscuss,
 }: {
   work: string;
   seq: number;
   rev: number;
   bump: () => void;
+  onDiscuss?: (text: string) => void;
 }) {
   const { data: ch, loading, error, reload } = useData(() => api.chapter(work, seq), [work, seq, rev]);
   const segs = useData(() => api.segments(work, seq), [work, seq, rev]);
+  const highlights = useData(() => api.highlights(work, seq), [work, seq, rev]);
+  const annotations = useData(() => api.annotations(work, seq), [work, seq, rev]);
+  const proseRef = useRef<HTMLDivElement>(null);
+  const [sel, captureSel, clearSel] = useTextSelection(proseRef);
+  // 改写"替换这段":在最新正文里把原段换成新段 → 存稿(自动重分段)→ 刷新
+  const replacePassage = async (original: string, rewritten: string) => {
+    const base = ch?.snapshots?.[ch.snapshots.length - 1]?.content ?? "";
+    if (!base.includes(original)) { toast("原文已变,无法定位该段"); return; }
+    await api.saveProse(work, seq, base.replace(original, rewritten), true);
+    toast("已替换并存稿"); clearSel(); bump();
+  };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [fb, setFb] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -386,16 +400,48 @@ export function ChapterEditor({
               emptyNode={<Empty icon={<BookText />} title="还没有正文" hint="点「让主编写这章」生成，或切手动编辑" />}
               onRetry={segs.reload}
             >
-              <div className="flex flex-col gap-2">
+              <div ref={proseRef} className="relative flex flex-col gap-2" onMouseUp={captureSel}>
                 {segs.data?.length
                   ? segs.data.map((s) => (
-                      <SegmentView key={s.id} text={s.text} cites={s.citation_refs} by={s.created_by} />
+                      <SegmentView key={s.id} text={s.text} cites={s.citation_refs} by={s.created_by} hls={highlights.data ?? []} />
                     ))
                   : /* 无分段但有快照正文(兜底):按段落直接展示,不致隐藏已有正文 */
                     latest.split(/\n\s*\n/).filter(Boolean).map((p, i) => (
-                      <SegmentView key={i} text={p} cites="[]" by="" />
+                      <SegmentView key={i} text={p} cites="[]" by="" hls={highlights.data ?? []} />
                     ))}
+                {sel && (
+                  <SelectionToolbar
+                    sel={sel} work={work} seq={seq}
+                    onDiscuss={(t) => onDiscuss?.(t)}
+                    onReplace={replacePassage}
+                    onChanged={bump}
+                    onClose={clearSel}
+                  />
+                )}
               </div>
+              {!!annotations.data?.length && (
+                <div className="mt-3 border-t border-border pt-2">
+                  <div className="text-xs text-muted-foreground mb-1.5">批注 {annotations.data.length}</div>
+                  <div className="flex flex-col gap-1.5">
+                    {annotations.data.map((a) => (
+                      <div key={a.id} className="group flex items-start gap-2 text-xs rounded-md bg-muted/40 px-2 py-1.5">
+                        <span className={cn("shrink-0 px-1 rounded", a.target === "chief" ? "text-sky-600" : "text-muted-foreground")}>
+                          {a.target === "chief" ? "给主编" : "自留"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-muted-foreground line-clamp-1">「{a.quote}」</div>
+                          <div className="text-foreground whitespace-pre-wrap">{a.note}</div>
+                        </div>
+                        <button
+                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
+                          onClick={async () => { await api.delAnnotation(work, a.id); bump(); }}
+                          aria-label="删除批注"
+                        ><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </StateBoundary>
           )}
 
@@ -680,7 +726,7 @@ function TaskStepper({ work, seq, rev }: { work: string; seq: number; rev: numbe
 }
 
 // ─── 段落阅读视图 ────────────────────────────────────────────
-function SegmentView({ text, cites, by }: { text: string; cites?: string; by: string }) {
+function SegmentView({ text, cites, by, hls = [] }: { text: string; cites?: string; by: string; hls?: Highlight[] }) {
   const [open, setOpen] = useState(false);
   let list: { name: string; kind: string }[] = [];
   try { list = JSON.parse(cites || "[]"); } catch { /* */ }
@@ -702,7 +748,7 @@ function SegmentView({ text, cites, by }: { text: string; cites?: string; by: st
             <span className="text-xs text-muted-foreground">· 引用 {list.length} 项</span>
           )}
         </div>
-        <p className="text-sm font-prose leading-relaxed whitespace-pre-wrap">{text}</p>
+        <p className="text-sm font-prose leading-relaxed whitespace-pre-wrap">{applyHighlights(text, hls)}</p>
         {list.length > 0 && (
           <div className="mt-2">
             <button

@@ -367,7 +367,7 @@ function OptionSetSection({ work, rev, bump }: { work: string; rev: number; bump
 }
 
 // ─── 3. 实时对话 ─────────────────────────────────────────────
-function ChatSection({ work }: { work: string }) {
+function ChatSection({ work, quote = "", onQuoteUsed }: { work: string; quote?: string; onQuoteUsed?: () => void }) {
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -375,10 +375,19 @@ function ChatSection({ work }: { work: string }) {
   const toast = useToast();
   const bottomRef = useRef<HTMLDivElement>(null);
   const threadRef = useRef<string | undefined>(undefined);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, thinking]);
+
+  // 划词「讨论这段」:把引文带入输入框,光标待命续写问题
+  useEffect(() => {
+    if (!quote) return;
+    setInput((cur) => `就这一段：\n「${quote}」\n\n` + cur);
+    inputRef.current?.focus();
+    onQuoteUsed?.();
+  }, [quote]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async () => {
     const text = input.trim();
@@ -478,6 +487,7 @@ function ChatSection({ work }: { work: string }) {
 
       <div className="flex gap-2 mt-2">
         <Input
+          ref={inputRef}
           value={input}
           placeholder="和主编说…（Enter 发送）"
           className="h-8 text-sm"
@@ -588,10 +598,14 @@ export function Conversation({
   work,
   rev,
   bump,
+  quote = "",
+  onQuoteUsed,
 }: {
   work: string;
   rev: number;
   bump: () => void;
+  quote?: string;
+  onQuoteUsed?: () => void;
 }) {
   return (
     <div className="flex flex-col gap-3 py-1">
@@ -599,7 +613,7 @@ export function Conversation({
       <div className="h-px bg-border" />
       <OptionSetSection work={work} rev={rev} bump={bump} />
       <div className="h-px bg-border" />
-      <ChatSection work={work} />
+      <ChatSection work={work} quote={quote} onQuoteUsed={onQuoteUsed} />
       <div className="h-px bg-border" />
       <ThreadsSection work={work} rev={rev} />
     </div>
