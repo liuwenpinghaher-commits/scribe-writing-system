@@ -20,6 +20,7 @@ import {
   FileText,
   Plus,
   ChevronRight,
+  ChevronLeft,
   ChevronDown,
   Loader2,
   Sparkles,
@@ -910,16 +911,19 @@ function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEd
   );
 }
 
+type LeftView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown } | { mode: "extract" };
+
 export function CodexView({ work }: { work: string }) {
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
-  const [panel, setPanel] = useState<{ mode: "edit" | "chat" | "extract"; kind?: EntityKind; entity?: unknown; seed?: string } | null>(null);
-  const edit = (kind: EntityKind) => (entity?: unknown) => setPanel({ mode: "edit", kind, entity: entity ?? null });
+  const [left, setLeft] = useState<LeftView>({ mode: "list" });
+  const [chatOpen, setChatOpen] = useState(true);   // 右栏主编聊天默认打开
+  const [seed, setSeed] = useState<string | undefined>(undefined);
   const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "设定", motif: "母题" };
-  const discuss = (kind: EntityKind, name: string) =>
-    setPanel({ mode: "chat", seed: `聊聊「${name}」这个${KIND_LABEL[kind]}：` });
+  const edit = (kind: EntityKind) => (entity?: unknown) => setLeft({ mode: "edit", kind, entity: entity ?? null });
+  const discuss = (kind: EntityKind, name: string) => { setChatOpen(true); setSeed(`聊聊「${name}」这个${KIND_LABEL[kind]}：`); };
 
-  // 右面板可拖拽改宽(持久化),与写作台一致
+  // 右侧聊天面板可拖拽改宽(持久化)
   const [pw, setPw] = useState<number>(() => {
     try { return Number(localStorage.getItem("scribe.codexPW")) || 420; } catch { return 420; }
   });
@@ -927,7 +931,7 @@ export function CodexView({ work }: { work: string }) {
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX, startW = pw;
-    const onMove = (ev: MouseEvent) => setPw(Math.max(300, Math.min(720, startW - (ev.clientX - startX))));
+    const onMove = (ev: MouseEvent) => setPw(Math.max(300, Math.min(760, startW - (ev.clientX - startX))));
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -937,53 +941,63 @@ export function CodexView({ work }: { work: string }) {
     document.addEventListener("mouseup", onUp);
     document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
   };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 顶部标题条 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 py-2">
         <Library size={15} className="text-primary" />
         <span className="text-sm font-medium text-foreground">设定库</span>
+        {left.mode !== "list" && (
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setLeft({ mode: "list" })}>
+            <ChevronLeft size={13} /> 返回列表
+          </Button>
+        )}
         <div className="flex-1" />
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5"
-          onClick={() => setPanel(panel?.mode === "extract" ? null : { mode: "extract" })}>
+        <Button variant={left.mode === "extract" ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
+          onClick={() => setLeft(left.mode === "extract" ? { mode: "list" } : { mode: "extract" })}>
           <Sparkles size={13} /> 从正文抽取
         </Button>
-        <Button variant={panel?.mode === "chat" ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
-          onClick={() => setPanel(panel?.mode === "chat" ? null : { mode: "chat" })}>
+        <Button variant={chatOpen ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
+          onClick={() => setChatOpen((o) => !o)}>
           <MessageSquareQuote size={13} /> 与主编聊设定
         </Button>
       </div>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* 主区:Tabs + 列表 */}
-        <div className="flex-1 overflow-auto px-4 py-3 min-w-0">
-          <Tabs defaultValue="characters" className="flex flex-col gap-3">
-            <TabsList className="shrink-0 w-auto">
-              <TabsTrigger value="characters" className="text-xs gap-1.5"><User size={13} />角色</TabsTrigger>
-              <TabsTrigger value="settings" className="text-xs gap-1.5"><MapPin size={13} />设定</TabsTrigger>
-              <TabsTrigger value="motifs" className="text-xs gap-1.5"><Flame size={13} />母题</TabsTrigger>
-              <TabsTrigger value="foreshadows" className="text-xs gap-1.5"><Bookmark size={13} />伏笔</TabsTrigger>
-              <TabsTrigger value="materials" className="text-xs gap-1.5"><FileText size={13} />素材</TabsTrigger>
-            </TabsList>
-            <TabsContent value="characters" className="mt-0"><CharactersTab work={work} rev={rev} onEdit={edit("character")} /></TabsContent>
-            <TabsContent value="settings" className="mt-0"><SettingsTab work={work} rev={rev} onEdit={edit("setting")} /></TabsContent>
-            <TabsContent value="motifs" className="mt-0"><MotifsTab work={work} rev={rev} onEdit={edit("motif")} /></TabsContent>
-            <TabsContent value="foreshadows" className="mt-0"><ForeshadowsTab work={work} /></TabsContent>
-            <TabsContent value="materials" className="mt-0"><MaterialsTab work={work} /></TabsContent>
-          </Tabs>
+        {/* 左主区:列表 / 实体详情全字段 / 抽取(详情在宽的左区展开)*/}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          {left.mode === "list" ? (
+            <div className="h-full overflow-auto px-4 py-3">
+              <Tabs defaultValue="characters" className="flex flex-col gap-3">
+                <TabsList className="shrink-0 w-auto">
+                  <TabsTrigger value="characters" className="text-xs gap-1.5"><User size={13} />角色</TabsTrigger>
+                  <TabsTrigger value="settings" className="text-xs gap-1.5"><MapPin size={13} />设定</TabsTrigger>
+                  <TabsTrigger value="motifs" className="text-xs gap-1.5"><Flame size={13} />母题</TabsTrigger>
+                  <TabsTrigger value="foreshadows" className="text-xs gap-1.5"><Bookmark size={13} />伏笔</TabsTrigger>
+                  <TabsTrigger value="materials" className="text-xs gap-1.5"><FileText size={13} />素材</TabsTrigger>
+                </TabsList>
+                <TabsContent value="characters" className="mt-0"><CharactersTab work={work} rev={rev} onEdit={edit("character")} /></TabsContent>
+                <TabsContent value="settings" className="mt-0"><SettingsTab work={work} rev={rev} onEdit={edit("setting")} /></TabsContent>
+                <TabsContent value="motifs" className="mt-0"><MotifsTab work={work} rev={rev} onEdit={edit("motif")} /></TabsContent>
+                <TabsContent value="foreshadows" className="mt-0"><ForeshadowsTab work={work} /></TabsContent>
+                <TabsContent value="materials" className="mt-0"><MaterialsTab work={work} /></TabsContent>
+              </Tabs>
+            </div>
+          ) : left.mode === "extract" ? (
+            <div className="h-full max-w-3xl border-r border-border"><ExtractPanel work={work} onSaved={bump} onClose={() => setLeft({ mode: "list" })} /></div>
+          ) : (
+            <div className="h-full max-w-3xl border-r border-border"><EntityEditor work={work} kind={left.kind} entity={left.entity as never}
+              onSaved={bump} onClose={() => setLeft({ mode: "list" })} onDiscuss={discuss} /></div>
+          )}
         </div>
 
-        {/* 右面板:编辑全字段表单 / 与主编聊设定 / 抽取(可拖拽改宽) */}
-        {panel && (
+        {/* 右栏:与主编聊设定(默认打开,可拖拽改宽)*/}
+        {chatOpen && (
           <div className="shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0 relative" style={{ width: pw }}>
             <div className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-20 hover:bg-accent/60 transition-colors"
               onMouseDown={startResize} title="拖拽改宽" />
-            {panel.mode === "chat"
-              ? <CodexChat work={work} onChanged={bump} seed={panel.seed} />
-              : panel.mode === "extract"
-              ? <ExtractPanel work={work} onSaved={bump} onClose={() => setPanel(null)} />
-              : <EntityEditor work={work} kind={panel.kind!} entity={panel.entity as never}
-                  onSaved={bump} onClose={() => setPanel(null)} onDiscuss={discuss} />}
+            <CodexChat work={work} onChanged={bump} seed={seed} />
           </div>
         )}
       </div>
