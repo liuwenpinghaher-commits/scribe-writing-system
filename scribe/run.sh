@@ -4,7 +4,6 @@
 # 用法: ./run.sh        # 起 SurrealDB+前后端(前台,Ctrl-C 停前后端)
 #       ./run.sh api    # 只起 SurrealDB+后端
 #       ./run.sh web    # 只起前端
-# 旧 scribe_mcp(SQLite)回退见 ./run_legacy.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 

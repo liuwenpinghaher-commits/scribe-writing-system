@@ -37,10 +37,12 @@ env `SURREAL_URL`)。改动后需 `hermes gateway restart`。验证:`hermes mcp 
 ## 数据迁移
 
 109k《九原渡》已由 `tools/migrate_jiuyuandu.py` 从旧 `scribe.db` 迁入 SurrealDB
-(32 章 / 109,691 字 / 5 角色 / 7 设定 / 6 伏笔 / 32 章记忆)。迁移**非破坏**,`scribe.db` 保留。
+(32 章 / 109,691 字 / 5 角色 / 7 设定 / 6 伏笔 / 32 章记忆)。当前由 SurrealDB:8001 持有,
+正文同时存于 `out/九原渡/*.md`、圣经存于 `tools/bible_jiuyuandu.json`。
 
-## 旧 scribe_mcp(已退役,可回退)
+## 旧 scribe_mcp(已彻底移除)
 
-- 不再是 3320 活跃后端;数据(`scribe.db`)与代码均**保留未删**。
-- 需访问旧 SQLite 数据时:`./run_legacy.sh`(临时占用 3320,先停 scribe2)。
-- Hermes 仍保留旧 `scribe` MCP 挂载作为只读回退,主编对话只用 `scribe2`。
+旧底座 `scribe_mcp`(SQLite + doubao 直连)及其代码/测试/驱动脚本、`scribe.db`、Hermes
+的 `scribe` MCP 挂载,均已删除,避免与新底座混淆。`scribe.db` 删除前已备份到仓库外
+`~/scribe-archive/scribe.db.20260621.bak`(如需彻底清理可自行删该备份);代码删除走 git,
+可经历史恢复。新底座是唯一系统。
