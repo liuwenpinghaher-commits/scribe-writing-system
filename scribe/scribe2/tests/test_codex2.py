@@ -570,3 +570,16 @@ def test_entity_lines_health(db):
     tl = next(x for x in h if x["entity"] == "铜炉")
     assert du["overdue"] is True and du["last_chapter"] == 2      # 埋ch2,max20,gap18>10,未兑现
     assert tl["overdue"] is False                                  # ch18 近期,不超期
+
+
+def test_writing_injects_character_kernel(db):
+    """角色内核 wound/lie/want/need 须注入写作上下文,否则主编写不出有弧光的人物(达不到乱世铜炉)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.add_chapter(w, 1, "一")
+    d.add_character(w, "渡叔", motivation="守渡口", wound="独子溺亡于河", lie="渡人即赎罪", want="守住三不渡", need="放下亡子")
+    ctx = build_writing_context(d, w, 1)
+    assert "独子溺亡于河" in ctx   # wound
+    assert "渡人即赎罪" in ctx     # lie
+    assert "守住三不渡" in ctx     # want
+    assert "放下亡子" in ctx       # need

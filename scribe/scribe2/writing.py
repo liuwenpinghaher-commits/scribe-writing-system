@@ -45,6 +45,12 @@ def build_writing_context(d, work: str, seq: int) -> str:
                 base += "〔样本:" + "/".join(s[:22] for s in samples) + "〕"
             if (c.get("core_contradiction") or "").strip():
                 base += f"〔矛盾:{c['core_contradiction'][:28]}〕"
+            # 内核 Truth-Chart:伤/谎/欲/需/惧 —— 驱动弧光,主编据此写人物的自欺与挣扎(乱世铜炉式人物深度)
+            kern = [f"{lbl}:{(c.get(k) or '').strip()[:24]}" for k, lbl in
+                    (("wound", "伤"), ("lie", "谎"), ("want", "欲"), ("need", "需"), ("fear", "惧"))
+                    if (c.get(k) or "").strip()]
+            if kern:
+                base += "〔内核 " + " ".join(kern) + "〕"
             return base
         parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c) for c in chars[:15]))
 
