@@ -541,6 +541,17 @@ class Domain:
                 latest[r.get("character", "")] = r  # 后者覆盖前者=取最新生效
         return list(latest.values())
 
+    # ---- 场景出场追踪(复用段落 citation_refs 自动检测,一份数据双用)----
+    def entity_appearances(self, work: str, name: str) -> list[int]:
+        """某实体(角色/设定名)出现在哪些章(从各章段落的引用聚合)。"""
+        seqs: set[int] = set()
+        for ch in self.list_chapters(work):
+            cid = self._idpart(ch["id"])
+            if any(name in (s.get("citation_refs") or "") for s in self.list_segments(cid)):
+                if ch.get("seq") is not None:
+                    seqs.add(ch["seq"])
+        return sorted(seqs)
+
     # ---- 时间线 timeline_event ----
     def add_timeline_event(self, work: str, chapter_seq: int, description: str) -> str:
         return self.s.create("timeline_event", {"work": self._wref(work),

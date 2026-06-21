@@ -180,3 +180,18 @@ def test_progressions_time_gated_injection(db):
     assert "左眼又瞎" not in ctx3, "seq5>3 未来,防剧透"
     ctx6 = build_writing_context(d, w, 6)
     assert "左眼又瞎" in ctx6, "seq5<=6 已生效应注入"
+
+
+def test_scene_appearances_from_segments(db):
+    """W8 出场追踪:复用段落引用(已自动检测的 citation_refs)聚合实体出场章节(一份数据双用)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.add_character(w, "渡叔")
+    d.add_character(w, "小满")
+    c1 = d.add_chapter(w, 1, "一")
+    c2 = d.add_chapter(w, 2, "二")
+    d.save_segments(w, c1, "渡叔立于船头。\n\n小满在岸边看着。")  # 两人都在第1章
+    d.save_segments(w, c2, "渡叔独自摇橹过河。")               # 只渡叔在第2章
+    assert d.entity_appearances(w, "渡叔") == [1, 2]
+    assert d.entity_appearances(w, "小满") == [1]
+    assert d.entity_appearances(w, "阿砚") == []

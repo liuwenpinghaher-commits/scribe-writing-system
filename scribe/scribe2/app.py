@@ -263,6 +263,10 @@ def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = D
 def list_motifs(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_motifs(w)
 
+@app.get("/works/{w}/entities/{name}/appearances")
+def entity_appearances(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"name": name, "chapters": d.entity_appearances(w, name)}
+
 @app.post("/works/{w}/motifs")
 def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)

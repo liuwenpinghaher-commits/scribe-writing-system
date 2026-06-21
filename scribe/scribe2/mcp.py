@@ -108,6 +108,12 @@ def list_motifs(work_id: str) -> list[dict]:
     return _domain().list_motifs(work_id)
 
 
+@_read_tool()
+def entity_appearances(work_id: str, name: str) -> list[int]:
+    """某角色/设定名出现在哪些章(从段落引用聚合的出场追踪)。只读。"""
+    return _domain().entity_appearances(work_id, name)
+
+
 @_write_tool
 def create_work(title: str, genre: str = "", owner: str = "u1") -> dict:
     """新建作品。写操作,需审批。"""
