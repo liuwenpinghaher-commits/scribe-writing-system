@@ -18,11 +18,23 @@ def check_chapter(d, work: str, seq: int, complete_fn) -> list[str]:
     chars = "；".join(f"{c.get('name')}({(c.get('motivation') or '')[:24]})"
                       for c in d.list_characters(work))
     sets = "；".join((s.get("text") or "")[:30] for s in d.list_settings(work))
+    # 力量体系规则:用了力量必须付代价/守限制,违背即穿帮(乱世铜炉判据2)
+    powers = []
+    for s in d.list_settings(work):
+        if s.get("type") == "力量体系" and s.get("fields"):
+            ff = s["fields"]
+            bits = [s.get("name", "")]
+            for k, lbl in (("cost", "代价"), ("limitations", "限制"), ("trouble_it_causes", "会出什么乱子")):
+                if ff.get(k):
+                    bits.append(f"{lbl}:{ff[k]}")
+            powers.append("｜".join(bits))
+    power_block = ("\n力量体系规则(用了必须付代价/守限制):\n" + "\n".join("· " + p for p in powers)) if powers else ""
     glob = d.get_global_memory(work)
     prompt = (
         "对照下列已知设定与前文,挑出这章正文里与之矛盾之处"
-        "(人物身份/血缘/姓名、关键设定、已发生情节的冲突)。\n"
-        f"角色:{chars}\n设定:{sets}\n全书主线:{glob[:400]}\n\n"
+        "(人物身份/血缘/姓名、关键设定、已发生情节的冲突;"
+        "**尤其:若正文用了某力量体系,检查是否付了代价、守了限制——没付代价/越过限制即为矛盾**)。\n"
+        f"角色:{chars}\n设定:{sets}{power_block}\n全书主线:{glob[:400]}\n\n"
         '只输出一行 JSON:{"flags":["具体矛盾1",...]}(无矛盾则 flags 为空数组)。'
         "\n\n本章正文:\n" + content[:3000])
     reply = complete_fn(prompt)

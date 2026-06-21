@@ -448,3 +448,22 @@ def test_pinned_always_relevant(db):
     names = [c["name"] for c in d.relevant_characters(w, 11)]
     assert "主角" in names              # 钉住的必在场
     assert len(names) < 11              # 触发聚焦,非全塞
+
+
+def test_check_chapter_power_rules(db):
+    """一致性检查纳入力量体系规则:代价/限制进 prompt + 专项指令,违背可被挑出。"""
+    from scribe2.consistency import check_chapter
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    c = d.add_chapter(w, 1, "一")
+    d.save_prose(w, c, "他破了规矩,却毫发无伤,左眼依旧明亮。")
+    d.add_setting(w, "三不渡", "渡口规矩", type_="力量体系",
+                  fields={"cost": "破规一次左眼瞎一分", "limitations": "不渡自寻死者", "trouble_it_causes": "招报应"})
+    captured = {}
+    def fake(prompt):
+        captured["p"] = prompt
+        return '{"flags":["破规却没付代价"]}'
+    flags = check_chapter(d, w, 1, fake)
+    assert "破规一次左眼瞎一分" in captured["p"]    # 力量体系代价进检查 prompt
+    assert "代价" in captured["p"]                   # 专项指令存在
+    assert "破规却没付代价" in flags
