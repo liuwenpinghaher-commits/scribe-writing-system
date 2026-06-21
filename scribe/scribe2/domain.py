@@ -310,6 +310,34 @@ class Domain:
     def act_insight(self, iid: str, act: str) -> None:
         self.s.update("insight", iid, {"status": "acked" if act == "ack" else "dismissed"})
 
+    # ---- 划词交互:批注 annotation / 高亮 highlight(锚在选中文字 quote)----
+    def add_annotation(self, work: str, seq: int, quote: str, note: str = "",
+                       target: str = "self") -> str:
+        return self.s.create("annotation", {"work": self._wref(work), "seq": seq,
+                             "quote": quote, "note": note, "target": target,
+                             "created_at": _now()})
+
+    def list_annotations(self, work: str, seq: int | None = None) -> list[dict]:
+        if seq is None:
+            return self.s.list("annotation", "work = $w ORDER BY created_at ASC",
+                               {"w": self._wref(work)})
+        return self.s.list("annotation", "work = $w AND seq = $s ORDER BY created_at ASC",
+                           {"w": self._wref(work), "s": seq})
+
+    def delete_annotation(self, aid: str) -> None:
+        self.s.delete("annotation", aid)
+
+    def add_highlight(self, work: str, seq: int, quote: str, color: str = "amber") -> str:
+        return self.s.create("highlight", {"work": self._wref(work), "seq": seq,
+                             "quote": quote, "color": color, "created_at": _now()})
+
+    def list_highlights(self, work: str, seq: int) -> list[dict]:
+        return self.s.list("highlight", "work = $w AND seq = $s ORDER BY created_at ASC",
+                           {"w": self._wref(work), "s": seq})
+
+    def delete_highlight(self, hid: str) -> None:
+        self.s.delete("highlight", hid)
+
     # ---- 方案 option_set ----
     def add_option_set(self, work: str, decision_point, options) -> str:
         return self.s.create("option_set", {"work": self._wref(work),

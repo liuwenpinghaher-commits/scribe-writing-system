@@ -138,6 +138,60 @@ def rebuild_segments(w: str, seq: int, x_owner_id: str | None = Header(None), d:
     cid = _cid(d, w, seq)
     return {"segments": d.save_segments(w, cid, d.latest_prose(cid))}
 
+# ==== 划词交互:批注 / 高亮 / 段级改写(锚在选中文字 quote)====
+class AnnotationIn(BaseModel):
+    quote: str
+    note: str = ""
+    target: str = "self"  # self(自留) / chief(提示主编)
+
+class HighlightIn(BaseModel):
+    quote: str
+    color: str = "amber"  # amber重点 / rose待改 / sky疑问
+
+class RewritePassageIn(BaseModel):
+    passage: str
+    instruction: str = ""
+
+@app.post("/works/{w}/chapters/{seq}/annotations")
+def add_annotation(w: str, seq: int, b: AnnotationIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    return {"annotation_id": d.add_annotation(w, seq, b.quote, b.note, b.target)}
+
+@app.get("/works/{w}/chapters/{seq}/annotations")
+def list_chapter_annotations(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_annotations(w, seq)
+
+@app.get("/works/{w}/annotations")
+def list_all_annotations(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_annotations(w)
+
+@app.delete("/works/{w}/annotations/{aid}")
+def delete_annotation(w: str, aid: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.delete_annotation(aid); return {"ok": True}
+
+@app.post("/works/{w}/chapters/{seq}/highlights")
+def add_highlight(w: str, seq: int, b: HighlightIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    return {"highlight_id": d.add_highlight(w, seq, b.quote, b.color)}
+
+@app.get("/works/{w}/chapters/{seq}/highlights")
+def list_highlights(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_highlights(w, seq)
+
+@app.delete("/works/{w}/highlights/{hid}")
+def delete_highlight(w: str, hid: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.delete_highlight(hid); return {"ok": True}
+
+@app.post("/works/{w}/chapters/{seq}/rewrite-passage")
+def rewrite_passage(w: str, seq: int, b: RewritePassageIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """主编只重写选中的这一段(注入北极星/角色声音/记忆),按指令调整,不落库。"""
+    owner(x_owner_id)
+    ctx = build_writing_context(d, w, seq)
+    prompt = (f"{ctx}\n\n【任务】只重写下面这一段落,保持与全书风格、人物声音、上下文的衔接,"
+              f"按要求调整;只输出重写后的这一段,不要任何解释或引号。\n"
+              f"调整要求:{b.instruction or '更凝练、去AI腔、更贴人物'}\n\n原段落:\n{b.passage}")
+    return {"rewritten": _complete(prompt).strip()}
+
 @app.get("/works/{w}/chapters/{seq}/branches")
 def list_branches(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_branches(_cid(d, w, seq))

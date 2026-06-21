@@ -10,7 +10,9 @@ STRUCT_TABLES = ["work", "volume", "snapshot", "segment", "author_intent",
                  # 写作面完整化新增
                  "insight", "thread", "entity_relation", "char_state",
                  "agent_memory", "agent_skill", "timeline_event", "pending_write",
-                 "chapter_task"]
+                 "chapter_task",
+                 # 划词交互:批注/旁注 + 高亮标记(锚在选中文字 quote 上)
+                 "annotation", "highlight"]
 
 
 def ddl() -> list[str]:
