@@ -1,4 +1,4 @@
-"""Build4 前端兼容层:外围桩端点 200+空(前端切 scribe2 不 404);volumes 真实。"""
+"""前端兼容桩(尚未真实化的端点):quality/cost/task/pending-writes + Wave C LLM 桩。"""
 from fastapi.testclient import TestClient
 
 from scribe2.app import app, get_domain
@@ -11,23 +11,16 @@ def _setup(db):
     return d, TestClient(app), {"X-Owner-Id": "u1"}
 
 
-def test_compat_stubs_and_volumes(db):
+def test_remaining_stubs(db):
     d, c, H = _setup(db)
     try:
         w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
-        # 外围列表桩 → 200 + 空
-        for ep in ["insights", "option-sets", "threads", "materials",
-                   "imaginations", "relations", "timeline", "agent-memory"]:
-            r = c.get(f"/works/{w}/{ep}", headers=H)
-            assert r.status_code == 200 and r.json() == [], ep
-        # 对象桩
         assert c.get(f"/works/{w}/cost", headers=H).json()["cost_usd"] == 0
+        assert c.get(f"/works/{w}/quality", headers=H).json() == {}
+        assert c.get(f"/works/{w}/quality/history", headers=H).json() == []
+        assert c.get(f"/works/{w}/pending-writes", headers=H).json() == []
         assert c.post(f"/works/{w}/proactive-review", headers=H).json()["new_insights"] == 0
-        # volumes 真实
-        c.post(f"/works/{w}/volumes", json={"seq": 1, "title": "上卷"}, headers=H)
-        vols = c.get(f"/works/{w}/volumes", headers=H).json()
-        assert any(v.get("title") == "上卷" for v in vols)
-        # 鉴权仍生效
-        assert c.get(f"/works/{w}/insights").status_code == 401
+        assert c.post(f"/works/{w}/chapters/1/intent-check", headers=H).json()["status"] == "aligned"
+        assert c.get(f"/works/{w}/pending-writes").status_code == 401  # 鉴权
     finally:
         app.dependency_overrides.clear()

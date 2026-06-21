@@ -227,6 +227,127 @@ def flags_ep(w: str, status: str = "open", x_owner_id: str | None = Header(None)
     owner(x_owner_id); return d.list_consistency_flags(w, status)
 
 
+# ==== WaveB:编辑功能 CRUD ====
+class MaterialIn(BaseModel):
+    content: str; type: str = "snippet"; scope: str = "work"
+class ImaginationIn(BaseModel):
+    raw_text: str
+class PrefIn(BaseModel):
+    source: str; polarity: str = "+"; signal: dict | None = None
+class AgentMemIn(BaseModel):
+    namespace: str; key: str; value: object = ""; confidence: float = 1.0; scope: str = "owner"
+class SkillIn(BaseModel):
+    name: str; spec: dict | None = None
+
+@app.get("/works/{w}/insights")
+def list_insights(w: str, status: str = "new", x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_insights(w, status)
+
+@app.post("/works/{w}/insights/{iid}/{act}")
+def act_insight(w: str, iid: str, act: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.act_insight(iid, act); return {"ok": True}
+
+@app.get("/works/{w}/option-sets")
+def list_option_sets(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_option_sets(w)
+
+@app.post("/works/{w}/option-sets/{oid}/choose")
+def choose_option(w: str, oid: str, body: dict, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    chosen = body.get("chosen_option_id") or body.get("chosen", "")
+    d.choose_option(oid, chosen)
+    d.add_preference(w, source="option_choice", polarity="+", signal={"chosen": chosen})
+    return {"chosen": chosen}
+
+@app.get("/works/{w}/threads")
+def list_threads(w: str, status: str | None = None, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_threads(w, status)
+
+@app.post("/works/{w}/threads/{tid}/resolve")
+def resolve_thread(w: str, tid: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.resolve_thread(tid); return {"ok": True}
+
+@app.get("/works/{w}/materials")
+def list_materials(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_materials(w)
+
+@app.post("/works/{w}/materials")
+def add_material(w: str, b: MaterialIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"material_id": d.add_material(w, b.content, b.type, b.scope)}
+
+@app.delete("/works/{w}/materials/{mid}")
+def delete_material(w: str, mid: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.delete_material(mid); return {"ok": True}
+
+@app.get("/works/{w}/imaginations")
+def list_imaginations(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_imaginations(w)
+
+@app.post("/works/{w}/imaginations")
+def capture_imagination(w: str, b: ImaginationIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"imagination_id": d.add_imagination(w, b.raw_text)}
+
+@app.post("/works/{w}/imaginations/{iid}/status/{status}")
+def set_imagination_status(w: str, iid: str, status: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.set_imagination_status(iid, status); return {"status": status}
+
+@app.post("/works/{w}/preference")
+def add_preference(w: str, b: PrefIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"signal_id": d.add_preference(w, b.source, b.polarity, b.signal)}
+
+@app.get("/works/{w}/agent-memory")
+def list_agent_memory(w: str, namespace: str | None = None, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    o = owner(x_owner_id); return d.list_agent_memory(o, w, namespace)
+
+@app.post("/works/{w}/agent-memory")
+def write_agent_memory(w: str, b: AgentMemIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    o = owner(x_owner_id)
+    wk = w if b.scope == "work" else None
+    return {"memory_id": d.write_agent_memory(o, wk, b.namespace, b.key, b.value, b.confidence), "stored": True}
+
+@app.get("/works/{w}/agent-skills")
+def list_agent_skills(w: str, status: str | None = None, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_agent_skills(w, status)
+
+@app.post("/works/{w}/agent-skills")
+def propose_skill(w: str, b: SkillIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"skill_id": d.propose_skill(w, b.name, b.spec)}
+
+@app.post("/works/{w}/agent-skills/{sid}/{action}")
+def act_skill(w: str, sid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"status": d.act_skill(sid, action)}
+
+@app.get("/works/{w}/relations")
+def list_relations(w: str, upto: int | None = None, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_relations(w, upto)
+
+@app.get("/works/{w}/characters/{name}/states")
+def char_states(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_char_states(w, name)
+
+@app.get("/works/{w}/timeline")
+def timeline(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_timeline(w)
+
+@app.post("/works/{w}/consistency-flags/{fid}/{action}")
+def resolve_flag(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    mp = {"confirm": "confirmed", "dismiss": "dismissed", "fix": "fixed"}
+    d.resolve_consistency_flag(fid, mp.get(action, action))
+    return {"status": mp.get(action, action)}
+
+class VolumeIn(BaseModel):
+    seq: int; title: str = ""; arc_goal: str = ""
+
+@app.get("/works/{w}/volumes")
+def list_volumes(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.s.list("volume", "work = $w", {"w": f"work:{w}"})
+
+@app.post("/works/{w}/volumes")
+def create_volume(w: str, b: VolumeIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"volume_id": d.create_volume(w, b.seq, b.title)}
+
+
 @app.get("/health")
 def health():
     return {"ok": True}

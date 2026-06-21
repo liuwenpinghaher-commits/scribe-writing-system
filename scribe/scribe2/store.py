@@ -15,11 +15,19 @@ def _rows(res):
     return res
 
 
+def _norm(v):
+    """RecordID → 干净的 'table:hex' 字符串(供 JSON 序列化 + 前端/_idpart round-trip)。"""
+    if isinstance(v, RecordID):
+        return f"{v.table_name}:{v.id}"
+    return v
+
+
 def _d(rec):
-    """RecordID/对象 → 普通 dict(便于断言/序列化)。"""
+    """RecordID/对象 → 普通 dict;把内含的 RecordID 字段归一成字符串。"""
     if rec is None:
         return None
-    return dict(rec) if not isinstance(rec, dict) else rec
+    d = dict(rec) if not isinstance(rec, dict) else rec
+    return {k: _norm(v) for k, v in d.items()}
 
 
 class Store:
@@ -34,8 +42,14 @@ class Store:
         self.db.create(RecordID(table, rid), data)
         return rid
 
+    @staticmethod
+    def _hex(rid: str) -> str:
+        """归一:'table:hex' 或 'hex' → 'hex'(前端可能回传带表名的 id)。"""
+        s = str(rid)
+        return s.split(":", 1)[1].strip("⟨⟩`") if ":" in s else s
+
     def get(self, table: str, rid: str) -> dict | None:
-        r = self.db.select(RecordID(table, rid))
+        r = self.db.select(RecordID(table, self._hex(rid)))
         rows = r if isinstance(r, list) else ([r] if r else [])
         return _d(rows[0]) if rows else None
 
@@ -47,10 +61,10 @@ class Store:
         return [_d(r) for r in (self.db.select(table) or [])]
 
     def update(self, table: str, rid: str, patch: dict) -> None:
-        self.db.merge(RecordID(table, rid), patch)
+        self.db.merge(RecordID(table, self._hex(rid)), patch)
 
     def delete(self, table: str, rid: str) -> None:
-        self.db.delete(RecordID(table, rid))
+        self.db.delete(RecordID(table, self._hex(rid)))
 
     def delete_where(self, table: str, where: str, vars: dict) -> None:
         self.db.query(f"DELETE FROM {table} WHERE {where};", vars)
@@ -104,8 +118,11 @@ class Store:
         hit_ids = {str(h.get("id")) for h in hits}
         related = []
         for h in hits:
+            # h["id"] 已被 _d 归一成 'table:hex' 字符串,图遍历需还原成 RecordID
+            tb_, hx_ = str(h["id"]).split(":", 1)
             rows = _rows(self.db.query(
-                "SELECT ->?->?.* AS o, <-?<-?.* AS i FROM $rid;", {"rid": h["id"]}))
+                "SELECT ->?->?.* AS o, <-?<-?.* AS i FROM $rid;",
+                {"rid": RecordID(tb_, hx_)}))
             for r in rows:
                 for side in ("o", "i"):
                     for x in (r.get(side) or []):

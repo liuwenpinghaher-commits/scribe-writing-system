@@ -1,11 +1,16 @@
 from __future__ import annotations
 import json
 import re
+from datetime import datetime, timezone
 from .store import Store
 
 
 def _cjk(s: str) -> int:
     return sum(1 for ch in (s or "") if "一" <= ch <= "鿿")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class Domain:
@@ -249,5 +254,162 @@ class Domain:
         return self.s.list("consistency_flag", "work = $w AND status = $s",
                            {"w": f"work:{work}", "s": status})
 
+    def add_consistency_flag(self, work: str, seq: int, detail: str,
+                             error_class: str = "", severity: str = "warning") -> str:
+        return self.s.create("consistency_flag", {
+            "work": f"work:{work}", "seq": seq, "detail": detail,
+            "error_class": error_class, "severity": severity, "status": "open"})
+
     def resolve_consistency_flag(self, fid: str, status: str = "fixed") -> None:
         self.s.update("consistency_flag", fid, {"status": status})
+
+    # ==== WaveB:编辑功能 CRUD ====
+    # ---- 札记 insight ----
+    def add_insight(self, work: str, summary: str, suggested_action: str = "",
+                    severity: str = "info") -> str:
+        return self.s.create("insight", {"work": f"work:{work}", "summary": summary,
+                             "suggested_action": suggested_action, "severity": severity,
+                             "status": "new", "created_at": _now()})
+
+    def list_insights(self, work: str, status: str = "new") -> list[dict]:
+        return self.s.list("insight", "work = $w AND status = $s",
+                           {"w": f"work:{work}", "s": status})
+
+    def act_insight(self, iid: str, act: str) -> None:
+        self.s.update("insight", iid, {"status": "acked" if act == "ack" else "dismissed"})
+
+    # ---- 方案 option_set ----
+    def add_option_set(self, work: str, decision_point, options) -> str:
+        return self.s.create("option_set", {"work": f"work:{work}",
+                             "decision_point": json.dumps(decision_point, ensure_ascii=False)
+                             if not isinstance(decision_point, str) else decision_point,
+                             "options": json.dumps(options, ensure_ascii=False)
+                             if not isinstance(options, str) else options,
+                             "chosen": None, "created_at": _now()})
+
+    def list_option_sets(self, work: str) -> list[dict]:
+        return self.s.list("option_set", "work = $w AND chosen = NONE", {"w": f"work:{work}"})
+
+    def choose_option(self, oid: str, chosen: str) -> None:
+        self.s.update("option_set", oid, {"chosen": chosen})
+
+    # ---- 议题 thread ----
+    def add_thread(self, work: str, trigger: str, topic: str = "", messages=None) -> str:
+        return self.s.create("thread", {"work": f"work:{work}", "trigger": trigger,
+                             "topic": topic, "messages": json.dumps(messages or [], ensure_ascii=False),
+                             "status": "open", "created_at": _now()})
+
+    def list_threads(self, work: str, status: str | None = None) -> list[dict]:
+        if status:
+            return self.s.list("thread", "work = $w AND status = $s",
+                               {"w": f"work:{work}", "s": status})
+        return self.s.list("thread", "work = $w", {"w": f"work:{work}"})
+
+    def resolve_thread(self, tid: str, resolution: str = "") -> None:
+        self.s.update("thread", tid, {"status": "resolved", "resolution": resolution})
+
+    # ---- 素材 material(内容实体,可检索)----
+    def add_material(self, work: str, content: str, type_: str = "snippet",
+                     scope: str = "work", title: str = "") -> str:
+        return self.s.put_content("material", work=f"work:{work}", text=content,
+                                  mtype=type_, title=title, content=content,
+                                  tags="", status="pending", scope=scope)
+
+    def list_materials(self, work: str) -> list[dict]:
+        return self.s.list("material", "work = $w", {"w": f"work:{work}"})
+
+    def update_material(self, mid: str, patch: dict) -> None:
+        self.s.update("material", mid, patch)
+
+    def delete_material(self, mid: str) -> None:
+        self.s.delete("material", mid)
+
+    # ---- 想象 imagination(内容实体)----
+    def add_imagination(self, work: str, raw_text: str) -> str:
+        return self.s.put_content("imagination", work=f"work:{work}", text=raw_text,
+                                  raw_text=raw_text, status="captured", created_at=_now())
+
+    def list_imaginations(self, work: str) -> list[dict]:
+        return self.s.list("imagination", "work = $w", {"w": f"work:{work}"})
+
+    def set_imagination_status(self, iid: str, status: str) -> None:
+        self.s.update("imagination", iid, {"status": status})
+
+    # ---- 偏好信号 preference ----
+    def add_preference(self, work: str, source: str, polarity: str = "+", signal=None) -> str:
+        return self.s.create("preference_signal", {"work": f"work:{work}", "source": source,
+                             "polarity": polarity, "signal": json.dumps(signal or {}, ensure_ascii=False),
+                             "created_at": _now()})
+
+    # ---- 跨会话记忆 agent_memory ----
+    def write_agent_memory(self, owner: str, work: str | None, namespace: str, key: str,
+                           value, confidence: float = 1.0) -> str:
+        rid = self.s.create("agent_memory", {"owner": owner,
+                            "work": f"work:{work}" if work else None, "namespace": namespace,
+                            "key": key, "value": json.dumps(value, ensure_ascii=False)
+                            if not isinstance(value, str) else value,
+                            "confidence": confidence, "updated_at": _now()})
+        return rid
+
+    def list_agent_memory(self, owner: str, work: str | None = None,
+                          namespace: str | None = None) -> list[dict]:
+        rows = self.s.list("agent_memory", "owner = $o", {"o": owner})
+        if namespace:
+            rows = [r for r in rows if r.get("namespace") == namespace]
+        return rows
+
+    # ---- 技能 agent_skill ----
+    def propose_skill(self, work: str, name: str, spec=None) -> str:
+        return self.s.create("agent_skill", {"work": f"work:{work}", "name": name,
+                             "spec": json.dumps(spec or {}, ensure_ascii=False)
+                             if not isinstance(spec, str) else spec,
+                             "status": "proposed", "created_by": "agent",
+                             "approved_by_human": False, "created_at": _now()})
+
+    def list_agent_skills(self, work: str, status: str | None = None) -> list[dict]:
+        rows = self.s.list("agent_skill", "work = $w", {"w": f"work:{work}"})
+        if status:
+            rows = [r for r in rows if r.get("status") == status]
+        return rows
+
+    def act_skill(self, sid: str, action: str) -> str:
+        mp = {"approve": "approved", "activate": "active", "retire": "retired"}
+        st = mp.get(action, action)
+        patch = {"status": st}
+        if action == "approve":
+            patch["approved_by_human"] = True
+        self.s.update("agent_skill", sid, patch)
+        return st
+
+    # ---- 实体关系 entity_relation ----
+    def add_relation(self, work: str, src: str, dst: str, relation: str,
+                     **kw) -> str:
+        return self.s.create("entity_relation", {"work": f"work:{work}", "src_entity": src,
+                             "dst_entity": dst, "relation": relation, **kw})
+
+    def list_relations(self, work: str, upto: int | None = None) -> list[dict]:
+        rows = self.s.list("entity_relation", "work = $w", {"w": f"work:{work}"})
+        if upto is not None:
+            rows = [r for r in rows if (r.get("valid_from_chapter") or 0) <= upto]
+        return rows
+
+    # ---- 角色状态轨迹 char_state ----
+    def add_char_state(self, work: str, character: str, chapter_seq: int,
+                       state_desc: str = "", change_type: str = "") -> str:
+        return self.s.create("char_state", {"work": f"work:{work}", "character": character,
+                             "chapter_seq": chapter_seq, "state_desc": state_desc,
+                             "change_type": change_type})
+
+    def list_char_states(self, work: str, character: str) -> list[dict]:
+        rows = self.s.list("char_state", "work = $w AND character = $c",
+                           {"w": f"work:{work}", "c": character})
+        return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
+
+    # ---- 时间线 timeline_event ----
+    def add_timeline_event(self, work: str, chapter_seq: int, description: str) -> str:
+        return self.s.create("timeline_event", {"work": f"work:{work}",
+                             "chapter_seq": chapter_seq, "description": description})
+
+    def list_timeline(self, work: str) -> list[dict]:
+        rows = self.s.list("timeline_event", "work = $w", {"w": f"work:{work}"})
+        return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
