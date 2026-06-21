@@ -105,9 +105,13 @@ label { font-size: 12px; color: var(--text-secondary); display: block; margin-bo
    列序:[左轨][左面板][中栏 自适应][右面板][右轨] —— 面板关时该列 0,开则推开中栏。 */
 .app { position: relative; display: grid; height: 100%; flex: 1; min-width: 0;
   grid-template-columns: 44px 0 minmax(0, 1fr) 0 44px; }
-.app.lopen { grid-template-columns: 44px 232px minmax(0, 1fr) 0 44px; }
-.app.ropen { grid-template-columns: 44px 0 minmax(0, 1fr) 304px 44px; }
-.app.lopen.ropen { grid-template-columns: 44px 232px minmax(0, 1fr) 304px 44px; }
+.app.lopen { grid-template-columns: 44px var(--lw, 232px) minmax(0, 1fr) 0 44px; }
+.app.ropen { grid-template-columns: 44px 0 minmax(0, 1fr) var(--rw, 320px) 44px; }
+.app.lopen.ropen { grid-template-columns: 44px var(--lw, 232px) minmax(0, 1fr) var(--rw, 320px) 44px; }
+/* 拖拽改宽手柄(置于面板/中栏边界) */
+.app-resizer { position: absolute; top: 0; bottom: 0; width: 6px; z-index: 30; cursor: col-resize; }
+.app-resizer::after { content: ""; position: absolute; inset: 0 2px; border-radius: 2px; transition: background var(--t); }
+.app-resizer:hover::after { background: var(--accent); }
 .rail-col { height: 100%; overflow: hidden; background: var(--bg-secondary); }
 .rail-col.l { border-right: 1px solid var(--border); }
 .rail-col.r { border-left: 1px solid var(--border); }

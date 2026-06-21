@@ -4,8 +4,6 @@ import { Button } from "@/components/ui/button";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
 import { Btn, ToastProvider, useData, useToast } from "./common";
-import { Navigator } from "./Navigator";
-import { Center } from "./Center";
 import { WriteLayout } from "./WriteLayout";
 import { VIEWS, type ViewKey } from "./views";
 import { AppRail } from "./AppRail";
@@ -157,13 +155,8 @@ function Workspace() {
     }
     if (view === "write") {
       return (
-        <WriteLayout
-          work={cur.id} rev={rev} bump={bump}
-          left={<Navigator work={cur.id} rev={rev} bump={bump}
-                  currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />}
-          center={<Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
-                  currentSeq={seq} />}
-        />
+        <WriteLayout work={cur.id} rev={rev} bump={bump} title={cur.title}
+          seq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
       );
     }
 

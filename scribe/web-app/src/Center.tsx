@@ -165,26 +165,17 @@ export function Center({
   rev,
   bump,
   currentSeq,
+  onDiscuss,
+  onGoChat,
 }: {
   work: string;
   title: string;
   rev: number;
   bump: () => void;
   currentSeq: number | null;
+  onDiscuss?: (text: string) => void;
+  onGoChat?: () => void;
 }) {
-  // 有章节默认正文，无章节默认对话
-  const [mode, setMode] = useState<CenterMode>(currentSeq != null ? "prose" : "chat");
-  const [quote, setQuote] = useState("");  // 划词「讨论这段」带入主编对话的引文
-
-  // 当章节切换时：选中章→正文，取消选中→对话
-  useEffect(() => {
-    if (currentSeq != null) setMode("prose");
-    else setMode("chat");
-  }, [currentSeq]);
-
-  // 划词讨论：带上引文 → 切到对话
-  const discuss = (text: string) => { setQuote(text); setMode("chat"); };
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 北极星条 sticky */}
@@ -192,43 +183,27 @@ export function Center({
         <NorthStarBar work={work} rev={rev} />
       </div>
 
-      {/* 模式切换条 */}
-      <div className="px-3 py-1.5 border-b border-border bg-background">
-        <Segmented
-          value={mode}
-          onChange={(k) => setMode(k as CenterMode)}
-          options={[
-            { key: "prose", label: "正文", icon: <FileText size={14} /> },
-            { key: "chat", label: "与主编对话", icon: <MessagesSquare size={14} /> },
-          ]}
-        />
-      </div>
-
-      {/* 内容区 */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
-        {mode === "prose" ? (
-          currentSeq != null ? (
-            <Suspense
-              fallback={
-                <div className="flex flex-col gap-2 py-2">
-                  <Skeleton className="h-5 w-3/4" />
-                  <Skeleton className="h-5 w-1/2" />
-                  <Skeleton className="h-32 w-full mt-2" />
-                </div>
-              }
-            >
-              <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} onDiscuss={discuss} />
-            </Suspense>
-          ) : (
-            <Empty
-              icon={<FileText />}
-              title="从左侧大纲树选择章节开始写作"
-              hint="没有章节？在左栏「加章」，或切到「与主编对话」出谋划策"
-              action={{ label: "去与主编对话", onClick: () => setMode("chat") }}
-            />
-          )
+      {/* 内容区:永远是正文(主编对话已移到右轨) */}
+      <div className="flex-1 overflow-y-auto py-2">
+        {currentSeq != null ? (
+          <Suspense
+            fallback={
+              <div className="flex flex-col gap-2 py-2">
+                <Skeleton className="h-5 w-3/4" />
+                <Skeleton className="h-5 w-1/2" />
+                <Skeleton className="h-32 w-full mt-2" />
+              </div>
+            }
+          >
+            <ChapterEditor work={work} seq={currentSeq} rev={rev} bump={bump} onDiscuss={onDiscuss} />
+          </Suspense>
         ) : (
-          <Conversation work={work} rev={rev} bump={bump} quote={quote} onQuoteUsed={() => setQuote("")} />
+          <Empty
+            icon={<FileText />}
+            title="从左侧大纲树选择章节开始写作"
+            hint="没有章节？点左轨「大纲」加章，或打开右轨「主编对话」出谋划策"
+            action={onGoChat ? { label: "去主编对话", onClick: onGoChat } : undefined}
+          />
         )}
       </div>
 
