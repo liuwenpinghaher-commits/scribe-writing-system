@@ -72,4 +72,5 @@ def test_tools_discoverable_and_annotated(db):
         "create_work", "create_volume", "create_chapter", "save_prose", "add_setting",
         "set_author_intent", "upsert_character", "plant_foreshadow",
         "advance_foreshadow", "ingest_chapter", "check_chapter",
+        "add_motif",
     }

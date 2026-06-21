@@ -88,3 +88,28 @@ def test_injection_includes_rich_settings(db):
     assert "【核心意象" in ctx and "铜炉" in ctx and "弱肉强食" in ctx
     # 力量体系代价/限制专属块
     assert "【规则" in ctx and "火性反噬吐血" in ctx and "四百年丹方能聚魂" in ctx
+
+
+def test_mcp_codex_write_tools(db):
+    """W3:MCP 写工具覆盖 Codex 2.0 富 schema,且都登记进 WRITE_TOOLS(B3 待批)。"""
+    import scribe2.mcp as M
+    M.set_domain(domain_from(db)); M._domain().s.init_schema()
+    w = M._domain().create_work("书")
+    # upsert_character 富字段
+    r = M.upsert_character(w, "渡叔", motivation="守渡", voice="极静",
+                           voice_samples=["三不渡，是规矩。"], core_contradiction="守↔破", wound="赎罪")
+    assert r["character_id"]
+    c = M._domain().list_characters(w)[0]
+    assert c["voice_samples"] == ["三不渡，是规矩。"] and c["wound"] == "赎罪"
+    # add_motif
+    rm = M.add_motif(w, "铜炉", metaphor_unfolding="万物为铜", bound_theme="弱肉强食",
+                     material_echoes=["长明灯"])
+    assert rm["motif_id"] and M._domain().list_motifs(w)[0]["name"] == "铜炉"
+    assert M.list_motifs(w)[0]["name"] == "铜炉"   # 读工具
+    # add_setting 结构化字段
+    rs = M.add_setting(w, "三不渡", "三条铁律", "力量体系", fields={"cost": "破规左眼瞎"})
+    assert rs["setting_id"]
+    assert M._domain().list_settings(w)[0]["fields"]["cost"] == "破规左眼瞎"
+    # 写工具登记进 WRITE_TOOLS(经 B3 待批)
+    for t in ("add_motif", "upsert_character", "add_setting"):
+        assert t in M.WRITE_TOOLS

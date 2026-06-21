@@ -98,8 +98,14 @@ def latest_prose(chapter_id: str) -> str:
 
 @_read_tool()
 def list_settings(work_id: str) -> list[dict]:
-    """列出作品的设定条目。"""
+    """列出作品的设定条目(含结构化 fields,如力量体系的 cost/limitations)。"""
     return _domain().list_settings(work_id)
+
+
+@_read_tool()
+def list_motifs(work_id: str) -> list[dict]:
+    """列出核心意象/母题(隐喻展开/绑定主题/物质回声)。只读。"""
+    return _domain().list_motifs(work_id)
 
 
 @_write_tool
@@ -127,9 +133,20 @@ def save_prose(work_id: str, chapter_id: str, content: str, lock: bool = False) 
 
 
 @_write_tool
-def add_setting(work_id: str, name: str, desc: str = "") -> dict:
-    """新增设定条目(自动嵌入,立即可被 search_knowledge 召回)。写操作,需审批。"""
-    return {"setting_id": _domain().add_setting(work_id, name, desc)}
+def add_setting(work_id: str, name: str, desc: str = "", type_: str = "设定",
+                fields: dict | None = None) -> dict:
+    """新增设定条目(自动嵌入,立即可被 search_knowledge 召回)。fields=按类型的结构化字段
+    (力量体系:cost/limitations/trouble_it_causes)。写操作,需审批。"""
+    return {"setting_id": _domain().add_setting(work_id, name, desc, type_, fields)}
+
+
+@_write_tool
+def add_motif(work_id: str, name: str, metaphor_unfolding: str = "", bound_theme: str = "",
+              material_echoes: list | None = None, naming_logic: str = "") -> dict:
+    """新增核心意象/母题(隐喻展开 + 绑定主题句 + 物质回声清单 + 命名逻辑)。
+    这是"乱世铜炉级"设定的精华——一个意象四位一体贯穿全书。写操作,需审批。"""
+    return {"motif_id": _domain().add_motif(work_id, name, metaphor_unfolding,
+            bound_theme, material_echoes, naming_logic)}
 
 
 # ==== 写作面工具(段3):圣经读写 + 生成 + 章记忆 ====
@@ -183,9 +200,17 @@ def set_author_intent(work_id: str, reader_feeling: str = "", core_emotional_arc
 
 
 @_write_tool
-def upsert_character(work_id: str, name: str, motivation: str = "", voice: str = "") -> dict:
-    """新增/更新角色(含声音指纹)。写操作,需审批。"""
-    return {"character_id": _domain().add_character(work_id, name, motivation, voice)}
+def upsert_character(work_id: str, name: str, motivation: str = "", voice: str = "",
+                    voice_samples: list | None = None, core_contradiction: str = "",
+                    wound: str = "", lie: str = "", want: str = "", need: str = "",
+                    arc: str = "", fear: str = "") -> dict:
+    """新增/更新角色。Codex 2.0 富字段:voice_samples(声音样本,防 OOC 命门)、
+    core_contradiction(核心矛盾=立体之本)、内核 wound/lie/fear/want/need、arc(弧光)。
+    写操作,需审批。"""
+    return {"character_id": _domain().add_character(
+        work_id, name, motivation, voice, voice_samples=voice_samples,
+        core_contradiction=core_contradiction, wound=wound, lie=lie,
+        want=want, need=need, arc=arc, fear=fear)}
 
 
 @_write_tool
