@@ -433,3 +433,18 @@ def test_aliases_and_relations(db):
     d.add_relation(w, "渡叔", "阿砚", "师徒")
     rs = d.relations_of(w, "渡叔")
     assert any(r.get("dst_entity") == "阿砚" and r.get("relation") == "师徒" for r in rs)
+
+
+def test_pinned_always_relevant(db):
+    """钉住(pin)的角色总在场:即便没近章点名/伏笔关联,也注入(写作台手动控制相关性)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 12):
+        d.add_chapter(w, s, f"第{s}章")
+    for i in range(10):
+        d.add_character(w, f"路人{i}")
+    d.add_character(w, "主角")          # 最后建,fallback 截断会漏掉
+    d.set_character_pin(w, "主角", True)
+    names = [c["name"] for c in d.relevant_characters(w, 11)]
+    assert "主角" in names              # 钉住的必在场
+    assert len(names) < 11              # 触发聚焦,非全塞

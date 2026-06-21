@@ -4,13 +4,14 @@
  * 「与主编对话」即右轨一个能力(渲染 Conversation);划词「讨论这段」自动开对话并带入引文。
  */
 import { useState } from "react";
-import { ListTree, MessagesSquare, BookMarked, Sparkles, ShieldAlert, Package, Activity, Brain } from "lucide-react";
+import { ListTree, MessagesSquare, BookMarked, Sparkles, ShieldAlert, Package, Activity, Brain, Users } from "lucide-react";
 import { api } from "./api";
 import { useData } from "./common";
 import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Conversation } from "./Conversation";
 import { Right } from "./Right";
+import { InScenePanel } from "./InScenePanel";
 import { WorkspaceShell, useStrPref, type RailCap } from "./WorkspaceShell";
 
 export function WriteLayout({ work, rev, bump, title, seq, setSeq }: {
@@ -42,6 +43,8 @@ export function WriteLayout({ work, rev, bump, title, seq, setSeq }: {
   const rightCaps: RailCap[] = [
     { key: "chat", label: "主编对话", icon: MessagesSquare, badge: chatBadge,
       render: () => pad(<Conversation work={work} rev={rev} bump={bump} quote={quote} onQuoteUsed={() => setQuote("")} />) },
+    { key: "inscene", label: "本章在场", icon: Users,
+      render: () => pad(<InScenePanel work={work} seq={seq} rev={rev} />) },
     { key: "bible", label: "设定圣经", icon: BookMarked, render: inspector("bible") },
     { key: "foreshadow", label: "伏笔", icon: Sparkles, badge: foreBadge, render: inspector("foreshadow") },
     { key: "flags", label: "一致性", icon: ShieldAlert, badge: flagBadge, render: inspector("flags") },

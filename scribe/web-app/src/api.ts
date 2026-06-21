@@ -65,7 +65,7 @@ export interface CharacterT {
   id?: string; name: string; motivation?: string; voice?: string;
   voice_samples?: string[]; core_contradiction?: string; wound?: string;
   lie?: string; want?: string; need?: string; arc?: string; fear?: string;
-  aliases?: string[];
+  aliases?: string[]; pinned?: boolean;
 }
 export interface Insight { id: string; summary: string; suggested_action?: string; severity?: string; }
 export interface Imagination { id: string; raw_text: string; status?: string; }
@@ -277,6 +277,9 @@ export const api = {
   // ── P1 暴露:质量 / 关系 / 角色状态 / 编排 / 深检 / 摄入 ──
   quality: (w: string) => req<Quality>(`/works/${w}/quality`),
   relations: (w: string) => req<Relation[]>(`/works/${w}/relations`),
+  relevant: (w: string, seq: number) => req<{ characters: CharacterT[] }>(`/works/${w}/relevant?seq=${seq}`),
+  pinCharacter: (w: string, name: string, pinned: boolean) =>
+    post<{ ok: boolean }>(`/works/${w}/characters/${encodeURIComponent(name)}/pin`, { pinned }),
   entityRelations: (w: string, name: string) => req<Relation[]>(`/works/${w}/entities/${encodeURIComponent(name)}/relations`),
   addRelation: (w: string, src: string, dst: string, relation: string) =>
     post<{ relation_id: string }>(`/works/${w}/relations`, { src, dst, relation }),

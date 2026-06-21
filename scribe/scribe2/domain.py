@@ -237,7 +237,8 @@ class Domain:
 
     # ---- 角色(Codex 2.0:内核 wound/lie/want/need + 核心矛盾 + 声音样本 + 弧光)----
     _CHAR_DEFAULTS = {"voice_samples": list, "core_contradiction": str, "wound": str,
-                      "lie": str, "want": str, "need": str, "arc": str, "fear": str, "aliases": list}
+                      "lie": str, "want": str, "need": str, "arc": str, "fear": str,
+                      "aliases": list, "pinned": bool}
 
     def add_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                       voice_samples: list | None = None, core_contradiction: str = "",
@@ -281,9 +282,18 @@ class Domain:
             hits = [nm] + list(c.get("aliases") or [])
             if any(h and h in blob for h in hits):
                 picked[nm] = c
+        for nm, c in names.items():        # 钉住(pin)的总在场
+            if c.get("pinned"):
+                picked[nm] = c
         if not picked:
             return chars[:limit]
         return list(picked.values())[:limit]
+
+    def set_character_pin(self, work: str, name: str, pinned: bool) -> None:
+        """钉住/取消钉住角色(钉住=写作时总注入,手动控制相关性)。"""
+        c = next((c for c in self.list_characters(work) if c.get("name") == name), None)
+        if c:
+            self.s.update("character", self._idpart(c["id"]), {"pinned": bool(pinned)})
 
     def upsert_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                          voice_samples: list | None = None, core_contradiction: str = "",

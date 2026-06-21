@@ -272,6 +272,18 @@ def add_character(w: str, b: CharacterIn, x_owner_id: str | None = Header(None),
 def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_characters(w)
 
+@app.get("/works/{w}/relevant")
+def relevant_entities(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """本章相关实体(写作台「本章在场」面板用):开着伏笔关联/近章点名/钉住 的角色。"""
+    owner(x_owner_id); return {"characters": d.relevant_characters(w, seq)}
+
+class PinIn(BaseModel):
+    pinned: bool = True
+
+@app.post("/works/{w}/characters/{name}/pin")
+def pin_character(w: str, name: str, b: PinIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); d.set_character_pin(w, name, b.pinned); return {"ok": True}
+
 @app.get("/works/{w}/motifs")
 def list_motifs(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_motifs(w)
