@@ -87,6 +87,51 @@ function EntityRelations({ work, name }: { work: string; name: string }) {
   );
 }
 
+/** 实体线·节点编辑(统一线模型):给角色/母题/设定排 引入/发展/复现/兑现 节点,喂泳道+逐章注入主编 */
+const _BEAT_KINDS = [{ k: "intro", l: "引入" }, { k: "develop", l: "发展" }, { k: "reinforce", l: "复现" }, { k: "payoff", l: "兑现" }];
+const _beatLabel = (k: string) => _BEAT_KINDS.find((x) => x.k === k)?.l || k;
+function EntityBeats({ work, etype, name }: { work: string; etype: string; name: string }) {
+  const beats = useData(() => api.entityBeats(work, etype, name), [work, etype, name]);
+  const [ch, setCh] = useState("");
+  const [kind, setKind] = useState("develop");
+  const [guide, setGuide] = useState("");
+  const [eff, setEff] = useState("");
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
+  const add = async () => {
+    const n = Number(ch);
+    if (!n || !guide.trim()) { toast("填生效章 + 本章怎么处理"); return; }
+    setAdding(true);
+    try { await api.addEntityBeat(work, { etype, entity: name, chapter: n, kind, guidance: guide.trim(), effect: eff.trim() }); setCh(""); setGuide(""); setEff(""); beats.reload(); toast("已加节点"); }
+    catch (e) { toast(String(e)); } finally { setAdding(false); }
+  };
+  return (
+    <Section title="线·节点(逐章发展,写到该章会注入主编)">
+      {(beats.data ?? []).map((b, i) => (
+        <div key={b.id ?? i} className="grid items-start gap-2 py-0.5 px-2" style={{ gridTemplateColumns: "72px 1fr" }}>
+          <span className="text-xs text-foreground pt-0.5"><span className="font-semibold">{_beatLabel(b.kind)}</span> 第{b.chapter}章</span>
+          <span className="text-sm">{b.guidance || <span className="text-muted-foreground/50">（无引导）</span>}{b.effect ? <span className="text-[11px] text-muted-foreground"> · 效果:{b.effect}</span> : null}</span>
+        </div>
+      ))}
+      {(beats.data ?? []).length === 0 && <div className="text-xs text-muted-foreground/50 px-2 py-1">还没有节点。排上引入/发展/兑现,主编写到该章就照做。</div>}
+      <div className="flex items-center gap-1.5 px-1 pt-1.5 flex-wrap">
+        {_BEAT_KINDS.map((x) => (
+          <button key={x.k} onClick={() => setKind(x.k)}
+            className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${kind === x.k ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground border-border hover:border-foreground"}`}>{x.l}</button>
+        ))}
+        <span className="text-xs text-muted-foreground ml-1">第</span>
+        <Input value={ch} onChange={(e) => setCh(e.target.value)} className="h-7 w-12 text-xs" />
+        <span className="text-xs text-muted-foreground">章</span>
+      </div>
+      <div className="flex items-center gap-1.5 px-1 pt-1">
+        <Input value={guide} onChange={(e) => setGuide(e.target.value)} placeholder="本章具体怎么处理(如:第三次质疑执念)" className="h-7 text-xs flex-1" />
+        <Input value={eff} onChange={(e) => setEff(e.target.value)} placeholder="想要效果" className="h-7 text-xs w-24" onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={add} disabled={adding}>{adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}</Button>
+      </div>
+    </Section>
+  );
+}
+
 export type EntityKind = "character" | "setting" | "motif";
 
 export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss, defaultType }: {
@@ -203,6 +248,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss, 
             <Row label="命名逻辑"><InlineText v={f.naming_logic} on={set("naming_logic")} ph="如:主角给儿子取名'炭'" /></Row>
           </div>}
 
+          {editing && <EntityBeats work={work} etype={kind} name={f.name} />}
           {editing && <EntityRelations work={work} name={f.name} />}
         </div>
       </div>
