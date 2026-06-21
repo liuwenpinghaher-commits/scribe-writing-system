@@ -47,9 +47,14 @@ export interface Snapshot { id: string; content: string; created_by: string; bra
 export interface Intent { reader_feeling?: string; core_emotional_arc?: string; do_not_betray?: string[]; central_promise?: string; }
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
-export interface Setting { id?: string; name: string; type?: string; content?: string; }
+export interface Setting { id?: string; name: string; type?: string; content?: string; fields?: Record<string, string>; }
+export interface Motif { id?: string; name: string; metaphor_unfolding?: string; bound_theme?: string; material_echoes?: string[]; naming_logic?: string; }
 export interface Material { id: string; type: string; title?: string; content?: string; tags?: string; status?: string; }
-export interface CharacterT { id?: string; name: string; motivation?: string; }
+export interface CharacterT {
+  id?: string; name: string; motivation?: string; voice?: string;
+  voice_samples?: string[]; core_contradiction?: string; wound?: string;
+  lie?: string; want?: string; need?: string; arc?: string; fear?: string;
+}
 export interface Insight { id: string; summary: string; suggested_action?: string; severity?: string; }
 export interface Imagination { id: string; raw_text: string; status?: string; }
 export interface OptionSet { id: string; decision_point: string; options: string; }
@@ -208,10 +213,12 @@ export const api = {
     post<{ status: string }>(`/works/${w}/chapters/${seq}/status`, { status }),
   moveChapter: (w: string, seq: number, direction: "up" | "down") =>
     post<{ moved: boolean }>(`/works/${w}/chapters/${seq}/move/${direction}`),
-  addSetting: (w: string, name: string, type_ = "设定", description = "") =>
-    post<{ setting_id: string }>(`/works/${w}/settings`, { name, type_, description }),
-  addCharacter: (w: string, name: string, motivation = "") =>
-    post<{ character_id: string }>(`/works/${w}/characters`, { name, motivation }),
+  addSetting: (w: string, name: string, type_ = "设定", description = "", fields: Record<string, string> = {}) =>
+    post<{ setting_id: string }>(`/works/${w}/settings`, { name, type_, description, fields }),
+  addCharacter: (w: string, name: string, motivation = "", extra: Partial<CharacterT> = {}) =>
+    post<{ character_id: string }>(`/works/${w}/characters`, { name, motivation, ...extra }),
+  motifs: (w: string) => req<Motif[]>(`/works/${w}/motifs`),
+  addMotif: (w: string, m: Motif) => post<{ motif_id: string }>(`/works/${w}/motifs`, m),
   memory: (w: string) => req<{ global: string; chapters: { seq: number; summary_text: string }[] }>(`/works/${w}/memory`),
   timeline: (w: string) => req<{ chapter_seq: number; description: string }[]>(`/works/${w}/timeline`),
   cost: (w: string) => req<{ calls: number; tokens: number; cost_usd: number }>(`/works/${w}/cost`),

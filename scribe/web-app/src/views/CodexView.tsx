@@ -16,6 +16,7 @@ import {
   User,
   MapPin,
   Bookmark,
+  Flame,
   FileText,
   Plus,
   ChevronRight,
@@ -762,6 +763,60 @@ function MaterialsTab({ work }: { work: string }) {
 }
 
 // ── 主视图 ──
+function MotifsTab({ work }: { work: string }) {
+  const { data, loading, error, reload } = useData(() => api.motifs(work), [work]);
+  const [name, setName] = useState("");
+  const [meta, setMeta] = useState("");
+  const [theme, setTheme] = useState("");
+  const [echoes, setEchoes] = useState("");
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
+  const add = async () => {
+    if (!name.trim()) return;
+    setAdding(true);
+    try {
+      await api.addMotif(work, {
+        name, metaphor_unfolding: meta, bound_theme: theme,
+        material_echoes: echoes.split(/[，,、]/).map((s) => s.trim()).filter(Boolean),
+      });
+      setName(""); setMeta(""); setTheme(""); setEchoes(""); reload(); toast("已加母题");
+    } catch (e) { toast(String(e)); } finally { setAdding(false); }
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="rounded-lg border border-border p-2.5 flex flex-col gap-2">
+        <div className="text-xs text-muted-foreground">新增母题(核心意象:世界观+主题+命名+物质回声 四位一体,贯穿全书)</div>
+        <Input placeholder="母题名(如:铜炉)" value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-sm" />
+        <Input placeholder="隐喻展开(天地为炉,万物为铜…)" value={meta} onChange={(e) => setMeta(e.target.value)} className="h-8 text-sm" />
+        <Input placeholder="绑定主题句(这本书在说什么)" value={theme} onChange={(e) => setTheme(e.target.value)} className="h-8 text-sm" />
+        <Input placeholder="物质回声(逗号分隔:长明灯,河面浮炭…)" value={echoes} onChange={(e) => setEchoes(e.target.value)} className="h-8 text-sm" />
+        <Button size="sm" className="h-8 gap-1 self-start" onClick={add} disabled={adding || !name.trim()}>
+          {adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}新增母题
+        </Button>
+      </div>
+      <StateBoundary loading={loading} error={error} empty={!data?.length} onRetry={reload}
+        emptyNode={<Empty icon={<Flame />} title="还没有母题" hint="母题=贯穿全书的核心意象(乱世铜炉级设定的精华)" />}>
+        <div className="flex flex-col gap-2">
+          {data?.map((m, i) => (
+            <Card key={m.id ?? i} size="sm">
+              <CardContent className="py-2.5 px-3">
+                <div className="flex items-center gap-1.5"><Flame size={13} className="text-amber-500" /><span className="text-sm font-medium">{m.name}</span></div>
+                {m.bound_theme && <div className="text-xs text-muted-foreground mt-1">主题:{m.bound_theme}</div>}
+                {m.metaphor_unfolding && <div className="text-xs mt-1">隐喻:{m.metaphor_unfolding}</div>}
+                {!!m.material_echoes?.length && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {m.material_echoes.map((e, j) => <Badge key={j} variant="secondary" className="text-xs">{e}</Badge>)}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </StateBoundary>
+    </div>
+  );
+}
+
 export function CodexView({ work }: { work: string }) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -781,6 +836,9 @@ export function CodexView({ work }: { work: string }) {
             <TabsTrigger value="settings" className="text-xs gap-1.5">
               <MapPin size={13} />设定
             </TabsTrigger>
+            <TabsTrigger value="motifs" className="text-xs gap-1.5">
+              <Flame size={13} />母题
+            </TabsTrigger>
             <TabsTrigger value="foreshadows" className="text-xs gap-1.5">
               <Bookmark size={13} />伏笔
             </TabsTrigger>
@@ -794,6 +852,9 @@ export function CodexView({ work }: { work: string }) {
           </TabsContent>
           <TabsContent value="settings" className="mt-0">
             <SettingsTab work={work} />
+          </TabsContent>
+          <TabsContent value="motifs" className="mt-0">
+            <MotifsTab work={work} />
           </TabsContent>
           <TabsContent value="foreshadows" className="mt-0">
             <ForeshadowsTab work={work} />
