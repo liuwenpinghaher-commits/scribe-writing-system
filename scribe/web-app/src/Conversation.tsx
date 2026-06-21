@@ -381,10 +381,15 @@ function ChatSection({ work, quote = "", onQuoteUsed }: { work: string; quote?: 
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs, thinking]);
 
-  // 划词「讨论这段」:把引文带入输入框,光标待命续写问题
+  // 划词「讨论这段」:把引文带入输入框,光标待命续写问题。
+  // ref 守卫:StrictMode 会双调 mount effect,累加式 setInput 会前缀两遍 → 每个 quote 只应用一次;
+  // quote 清空时复位,以便重复讨论同一段。
+  const appliedQuote = useRef("");
   useEffect(() => {
-    if (!quote) return;
-    setInput((cur) => `就这一段：\n「${quote}」\n\n` + cur);
+    if (!quote) { appliedQuote.current = ""; return; }
+    if (quote === appliedQuote.current) return;
+    appliedQuote.current = quote;
+    setInput((cur) => `就这一段：\n「${quote}」\n\n` + (cur || ""));
     inputRef.current?.focus();
     onQuoteUsed?.();
   }, [quote]);  // eslint-disable-line react-hooks/exhaustive-deps
