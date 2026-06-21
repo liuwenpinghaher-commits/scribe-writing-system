@@ -490,22 +490,46 @@ def test_revise_prompt_targets_worst_dims():
     assert "原样照抄" in p or "放手改写" in p     # 逼真改,别返回原文
 
 
-def test_critique_revise_keeps_best(monkeypatch):
-    """critique-revise 取优:重写更好才采纳;重写更差则保留原稿(不退步)。"""
+def _scores(sc):
+    return '{"scores":{"texture":%d,"surprise":%d,"emotion_truth":%d,"pace":%d,"voice":%d,"anti_slop":%d,"intent_resonance":%d,"coherence":%d},"issues":["太顺、不够具体"]}' % ((sc,) * 8)
+
+
+def test_compare_parse():
+    """成对比较 prompt/parse:返回 B_better/same/A_better。"""
+    from scribe2.critique import build_compare_prompt, parse_compare
+    p = build_compare_prompt("A正文", "B正文", ["surprise"])
+    assert "verdict" in p and ("更好" in p or "哪个" in p)
+    assert parse_compare('{"verdict":"B_better","why":"更具体"}') == "B_better"
+    assert parse_compare('乱七八糟') == "same"      # 解析失败=保守判持平
+
+
+def test_critique_revise_pairwise_keep(monkeypatch):
+    """取优改成对比较:B 更好才采纳,否则退回原稿(不靠噪声绝对分)。"""
     from scribe2.critique import critique_revise
-    # 重写变好场景:原稿各维3,改稿含'改好了'各维4
     def fake_up(prompt):
-        if "重写" in prompt or "顶尖文学编辑" in prompt:   # revise prompt
-            return "改好了的正文"
-        sc = 4 if "改好了" in prompt else 3                # critique prompt
-        return '{"scores":{"texture":%d,"surprise":%d,"emotion_truth":%d,"pace":%d,"voice":%d,"anti_slop":%d,"intent_resonance":%d,"coherence":%d}}' % ((sc,) * 8)
+        if "verdict" in prompt:                       # compare prompt
+            return '{"verdict":"B_better","why":"更具体有意外"}'
+        if "顶尖文学编辑" in prompt:                   # revise prompt
+            return "改好的正文"
+        return _scores(4 if "改好的正文" in prompt else 3)   # critique
     r = critique_revise("原稿", "", fake_up, max_rounds=1)
-    assert r["final"] == "改好了的正文" and r["last_overall"] > r["first_overall"]
-    # 重写变差场景:改稿各维2 → 退回原稿
+    assert r["final"] == "改好的正文"                 # 成对判更好 → 采纳
     def fake_down(prompt):
-        if "重写" in prompt or "顶尖文学编辑" in prompt:
-            return "改差了的正文"
-        sc = 2 if "改差了" in prompt else 3
-        return '{"scores":{"texture":%d,"surprise":%d,"emotion_truth":%d,"pace":%d,"voice":%d,"anti_slop":%d,"intent_resonance":%d,"coherence":%d}}' % ((sc,) * 8)
+        if "verdict" in prompt:
+            return '{"verdict":"A_better","why":"丢了原优点"}'
+        if "顶尖文学编辑" in prompt:
+            return "改差的正文"
+        return _scores(3)
     r2 = critique_revise("原稿", "", fake_down, max_rounds=1)
-    assert r2["final"] == "原稿"                  # 没赢就退回,不退步
+    assert r2["final"] == "原稿"                      # 成对判没更好 → 退回
+
+
+def test_critique_revise_gate_on_issues(monkeypatch):
+    """闸门看问题不看分:无具体问题就不重写(不被噪声分数逼着改)。"""
+    from scribe2.critique import critique_revise
+    def fake(prompt):
+        if "顶尖文学编辑" in prompt:
+            raise AssertionError("无问题不该触发重写")
+        return '{"scores":{"texture":3,"surprise":3,"emotion_truth":3,"pace":3,"voice":3,"anti_slop":3,"intent_resonance":3,"coherence":3},"issues":[]}'
+    r = critique_revise("原稿", "", fake, max_rounds=1)
+    assert r["final"] == "原稿" and r["improved"] is False

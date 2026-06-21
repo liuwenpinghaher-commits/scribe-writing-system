@@ -76,31 +76,58 @@ def build_revise_prompt(text: str, critique: dict) -> str:
         "你是顶尖文学编辑,重写下面这段正文,把它从草稿改到能发表的水准。\n"
         f"**针对性大改这几处薄弱点(不是只换词,是放手改写对应段落):**\n{fixes}\n"
         f"**具体问题:**{issues}\n"
-        "保留情节主线、人物、关键信息不变;但放手改写薄弱段落——加反转/代价、把情绪落到动作、"
-        "换掉俗套与书面腔,show 不 tell、克制、有意外。\n"
+        "保留情节主线、人物、关键信息不变。**外科式行改**:只动问题指向的那几句/段,其余原句尽量原样保留,"
+        "别整段重写丢掉原有好句子。在这几处:加反转/代价、把情绪落到动作、换掉俗套与书面腔,show 不 tell、克制、有意外。\n"
         "只输出重写后的完整正文,不要解释,不要原样照抄原文。\n\n原文:\n" + text
     )
 
 
+def build_compare_prompt(a: str, b: str, worst_dims: list | None = None) -> str:
+    """成对比较 A/B(LLM 绝对打分噪声大,成对判断更可靠)。"""
+    zh = {k: z for k, z, _ in RUBRIC}
+    focus = "、".join(zh.get(k, k) for k in (worst_dims or [])) or "整体"
+    return (
+        f"下面是同一段小说正文的两个版本,B 是 A 的修订版。重点比较【{focus}】:"
+        "B 是否真的比 A 更好(更具体、有意外、情绪落到动作、无俗套,且没丢掉 A 原有的优点)?\n"
+        '只输出一行 JSON:{"verdict":"B_better|same|A_better","why":"一句话"}。\n\n'
+        "A:\n" + a + "\n\nB:\n" + b
+    )
+
+
+def parse_compare(reply: str) -> str:
+    m = re.search(r"\{.*\}", reply or "", re.S)
+    if m:
+        try:
+            v = json.loads(m.group(0)).get("verdict", "")
+            if v in ("B_better", "same", "A_better"):
+                return v
+        except Exception:
+            pass
+    return "same"   # 解析失败=保守判持平(不采纳)
+
+
 def critique_revise(text: str, reader_feeling: str, complete_fn,
                     max_rounds: int = 1, threshold: float = 3.5) -> dict:
-    """评改环:critique → 定向重写 → **重新打分,只在真变好时采纳(取优,绝不退步)**,可多轮。"""
+    """评改环(优化版):① 闸门看 critique 的**具体问题**(噪声小),不看噪声大的绝对分;
+    ② 外科行改;③ 取优用**成对比较**(B 更好才采纳),绝不退步。可多轮。"""
     def crit_of(t):
         return parse_critique(complete_fn(build_critique_prompt(t, reader_feeling)), threshold)
-    best, best_crit = text, crit_of(text)
-    first_overall = best_crit["overall"]
-    rounds: list[dict] = [{"critique": best_crit, "revised_applied": False}]
+    best, crit = text, crit_of(text)
+    first_overall = crit["overall"]
+    rounds: list[dict] = [{"critique": crit, "revised_applied": False}]
     left = max(1, max_rounds)
-    while not best_crit["pass"] and left > 0:
+    while crit.get("issues") and left > 0:           # ① 有具体问题才改(不被噪声分逼着改)
         left -= 1
-        cand = complete_fn(build_revise_prompt(best, best_crit)).strip()
+        cand = complete_fn(build_revise_prompt(best, crit)).strip()
         if not cand or cand == best:
             break
-        cand_crit = crit_of(cand)
-        applied = cand_crit["overall"] > best_crit["overall"]   # 取优:重写真打赢才采纳
-        rounds.append({"critique": cand_crit, "revised_applied": applied})
+        verdict = parse_compare(complete_fn(build_compare_prompt(best, cand, crit.get("worst_dims"))))  # ③ 成对取优
+        applied = verdict == "B_better"
+        if applied:
+            best = cand
+            crit = crit_of(best)
+        rounds.append({"critique": crit, "revised_applied": applied, "verdict": verdict})
         if not applied:
-            break                                               # 没赢即停,保留 best(原稿/上轮)
-        best, best_crit = cand, cand_crit
+            break
     return {"final": best, "improved": best != text, "rounds": rounds,
-            "first_overall": first_overall, "last_overall": best_crit["overall"]}
+            "first_overall": first_overall, "last_overall": crit["overall"]}
