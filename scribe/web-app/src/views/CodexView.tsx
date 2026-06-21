@@ -29,6 +29,7 @@ import type { CharacterT, Setting, Material, CharState, Motif, ForeshadowStatus 
 import { EntityEditor, type EntityKind } from "./EntityEditor";
 import { CodexChat } from "./CodexChat";
 import { ExtractPanel } from "./ExtractPanel";
+import { ForeshadowTimeline } from "./ForeshadowTimeline";
 import { WorkspaceShell, useStrPref } from "@/WorkspaceShell";
 import { useData, useToast } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
@@ -911,6 +912,24 @@ function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEd
   );
 }
 
+/** 伏笔类型:承诺线时间线(默认)/ 列表 切换 */
+function ForeshadowsPane({ work, rev }: { work: string; rev: number }) {
+  const [view, setView] = useStrPref("scribe.foreshadowView", "timeline");
+  return (
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-1 px-4 pt-2 shrink-0">
+        <Button size="sm" variant={view === "timeline" ? "default" : "outline"} className="h-6 text-[11px]" onClick={() => setView("timeline")}>时间线</Button>
+        <Button size="sm" variant={view === "list" ? "default" : "outline"} className="h-6 text-[11px]" onClick={() => setView("list")}>列表</Button>
+      </div>
+      <div className="flex-1 min-h-0">
+        {view === "timeline"
+          ? <ForeshadowTimeline work={work} rev={rev} />
+          : <div className="px-4 py-3 overflow-auto h-full"><ForeshadowsTab work={work} /></div>}
+      </div>
+    </div>
+  );
+}
+
 type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown } | { mode: "extract" };
 const TYPES = [
   { key: "characters", label: "角色", icon: User, kind: "character" as EntityKind },
@@ -937,7 +956,7 @@ export function CodexView({ work }: { work: string }) {
     switch (type) {
       case "settings": return <SettingsTab work={work} rev={rev} onEdit={openEdit("setting")} />;
       case "motifs": return <MotifsTab work={work} rev={rev} onEdit={openEdit("motif")} />;
-      case "foreshadows": return <ForeshadowsTab work={work} />;
+      case "foreshadows": return <ForeshadowsPane work={work} rev={rev} />;
       case "materials": return <MaterialsTab work={work} />;
       default: return <CharactersTab work={work} rev={rev} onEdit={openEdit("character")} />;
     }
@@ -960,7 +979,7 @@ export function CodexView({ work }: { work: string }) {
             <Sparkles size={13} /> 从正文抽取
           </Button>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto px-4 py-3">{listForType()}</div>
+        <div className={`flex-1 min-h-0 ${type === "foreshadows" ? "" : "overflow-auto px-4 py-3"}`}>{listForType()}</div>
       </div>
     );
 

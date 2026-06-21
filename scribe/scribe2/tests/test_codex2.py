@@ -257,3 +257,46 @@ def test_extract_entities(db, monkeypatch):
         assert len(d.list_characters(w)) == 0
     finally:
         app.dependency_overrides.clear()
+
+
+def test_promise_thread_fields(db):
+    """承诺线(Promise→Progress→Payoff):plant 带 promise/type,set_payoff 记回收章,status 全暴露。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    fid = d.plant_foreshadow(w, "渡叔的左眼", 1, "high",
+                             promise="左眼藏着四十年前的命案", ftype="伏笔")
+    d.add_foreshadow_echo(w, fid, 6)        # progress 进展
+    d.set_foreshadow_payoff(w, fid, 18)     # payoff 回收于第18章
+    f = next(x for x in d.list_foreshadows_status(w) if "左眼" in x["summary"])
+    assert f["promise"] == "左眼藏着四十年前的命案"
+    assert f["ftype"] == "伏笔"
+    assert f["echoes"] == [6]
+    assert f["payoff_chapter"] == 18
+    assert f["state"] == "paid"
+    assert f["overdue"] is False            # 已回收 → 不超期
+
+
+def test_rest_promise_thread(db):
+    """REST:plant 带 promise/ftype + payoff 端点 → status 暴露(前端时间线所依赖)。"""
+    from fastapi.testclient import TestClient
+    from scribe2.app import app, get_domain
+    d = domain_from(db); d.s.init_schema()
+    app.dependency_overrides[get_domain] = lambda: d
+    c = TestClient(app); H = {"X-Owner-Id": "u1"}
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        for s in range(1, 21):
+            c.put(f"/works/{w}/chapters", json={"seq": s, "title": f"第{s}章"}, headers=H)
+        fid = c.post(f"/works/{w}/foreshadows",
+                     json={"summary": "左眼", "chapter": 1, "promise": "藏着命案", "ftype": "悬念"},
+                     headers=H).json()["foreshadow_id"]
+        c.post(f"/works/{w}/foreshadows-status/{fid}/echo", json={"chapter": 6}, headers=H)
+        r = c.post(f"/works/{w}/foreshadows-status/{fid}/payoff", json={"chapter": 18}, headers=H)
+        assert r.status_code == 200 and r.json()["payoff_chapter"] == 18
+        st = next(x for x in c.get(f"/works/{w}/foreshadows-status", headers=H).json() if "左眼" in x["summary"])
+        assert st["promise"] == "藏着命案" and st["ftype"] == "悬念"
+        assert st["payoff_chapter"] == 18 and st["state"] == "paid"
+    finally:
+        app.dependency_overrides.clear()

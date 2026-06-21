@@ -303,10 +303,12 @@ class Domain:
 
     # ---- 伏笔 ----
     def plant_foreshadow(self, work: str, summary: str, chapter: int,
-                         importance: str = "normal") -> str:
+                         importance: str = "normal", *, promise: str = "", ftype: str = "伏笔") -> str:
+        """埋设承诺线。promise=对读者的承诺(灵魂),ftype=类型(伏笔/悬念/契诃夫之枪/红鲱鱼/人物承诺)。"""
         return self.s.put_content("foreshadow", work=self._wref(work), text=summary,
                                   summary=summary, chapter=chapter,
-                                  importance=importance, state="planted")
+                                  importance=importance, state="planted",
+                                  promise=promise, ftype=ftype)
 
     def list_open_foreshadows(self, work: str) -> list[dict]:
         return self.s.list("foreshadow",
@@ -315,6 +317,10 @@ class Domain:
 
     def advance_foreshadow(self, fid: str, to_state: str) -> None:
         self.s.update("foreshadow", fid, {"state": to_state})
+
+    def set_foreshadow_payoff(self, work: str, fid: str, chapter: int) -> None:
+        """回收承诺:标记 paid + 记录回收章(承诺线 payoff 节点,供时间线渲染跨度)。"""
+        self.s.update("foreshadow", fid, {"state": "paid", "payoff_chapter": chapter})
 
     def add_foreshadow_echo(self, work: str, fid: str, chapter: int) -> list[int]:
         """伏笔中途强化(echo):深伏笔不能只埋一次,记下偶尔提一嘴的章。"""
@@ -329,6 +335,9 @@ class Domain:
         maxc = max((c.get("seq") or 0 for c in self.list_chapters(work)), default=0)
         for f in rows:
             f["echoes"] = list(f.get("echoes") or [])
+            f["promise"] = f.get("promise") or ""
+            f["ftype"] = f.get("ftype") or "伏笔"
+            f["payoff_chapter"] = f.get("payoff_chapter")
             planted = f.get("chapter") or 0
             f["overdue"] = bool(f.get("state") in ("planted", "triggered")
                                 and maxc - planted > overdue_span)

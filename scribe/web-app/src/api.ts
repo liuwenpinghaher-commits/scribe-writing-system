@@ -47,7 +47,7 @@ export interface Snapshot { id: string; content: string; created_by: string; bra
 export interface Intent { reader_feeling?: string; core_emotional_arc?: string; do_not_betray?: string[]; central_promise?: string; }
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
-export interface ForeshadowStatus { id: string; summary: string; state: string; chapter?: number; importance?: string; echoes?: number[]; overdue?: boolean; }
+export interface ForeshadowStatus { id: string; summary: string; state: string; chapter?: number; importance?: string; echoes?: number[]; overdue?: boolean; promise?: string; ftype?: string; payoff_chapter?: number | null; }
 export interface ExtractResult {
   characters: { name: string; motivation?: string }[];
   settings: { name: string; type?: string }[];
@@ -107,8 +107,14 @@ export const api = {
   settings: (w: string) => req<Setting[]>(`/works/${w}/settings`),
   characters: (w: string) => req<CharacterT[]>(`/works/${w}/characters`),
   foreshadows: (w: string) => req<Foreshadow[]>(`/works/${w}/foreshadows`),
-  plantForeshadow: (w: string, summary: string, chapter: number, importance = "normal") =>
-    post<{ foreshadow_id: string }>(`/works/${w}/foreshadows`, { summary, chapter, importance }),
+  plantForeshadow: (w: string, summary: string, chapter: number,
+    opts: { importance?: string; promise?: string; ftype?: string } = {}) =>
+    post<{ foreshadow_id: string }>(`/works/${w}/foreshadows`, {
+      summary, chapter, importance: opts.importance ?? "normal",
+      promise: opts.promise ?? "", ftype: opts.ftype ?? "伏笔",
+    }),
+  payoffForeshadow: (w: string, fid: string, chapter: number) =>
+    post<{ state: string; payoff_chapter: number }>(`/works/${w}/foreshadows-status/${fid}/payoff`, { chapter }),
   flags: (w: string) => req<Flag[]>(`/works/${w}/consistency-flags`),
   insights: (w: string) => req<Insight[]>(`/works/${w}/insights?status=new`),
   actInsight: (w: string, id: string, act: "ack" | "dismiss") =>

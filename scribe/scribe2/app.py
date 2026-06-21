@@ -240,6 +240,7 @@ class CharacterIn(BaseModel):
     lie: str = ""; want: str = ""; need: str = ""; arc: str = ""; fear: str = ""
 class ForeshadowIn(BaseModel):
     summary: str; chapter: int; importance: str = "normal"
+    promise: str = ""; ftype: str = "伏笔"
 class ActionIn(BaseModel):
     instruction: str = ""; target_chars: int = 850; prev: str = ""
 
@@ -297,7 +298,7 @@ def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Doma
 
 @app.post("/works/{w}/foreshadows")
 def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance)}
+    owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance, promise=b.promise, ftype=b.ftype)}
 
 @app.get("/works/{w}/foreshadows")
 def list_foreshadows(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
@@ -314,6 +315,11 @@ class EchoIn(BaseModel):
 @app.post("/works/{w}/foreshadows-status/{fid}/echo")
 def add_foreshadow_echo(w: str, fid: str, b: EchoIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return {"echoes": d.add_foreshadow_echo(w, fid, b.chapter)}
+
+@app.post("/works/{w}/foreshadows-status/{fid}/payoff")
+def payoff_foreshadow(w: str, fid: str, b: EchoIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """回收承诺于某章(承诺线 payoff)。"""
+    owner(x_owner_id); d.set_foreshadow_payoff(w, fid, b.chapter); return {"state": "paid", "payoff_chapter": b.chapter}
 
 @app.post("/works/{w}/foreshadows/{fid}/{action}")
 def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
