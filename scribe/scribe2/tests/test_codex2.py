@@ -300,3 +300,33 @@ def test_rest_promise_thread(db):
         assert st["payoff_chapter"] == 18 and st["state"] == "paid"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_writing_context_injects_open_promises(db):
+    """开着的承诺线注入写作上下文,引导主编照顾走向/节奏;已回收的不再注入。"""
+    from scribe2.writing import build_writing_context
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    d.plant_foreshadow(w, "渡叔的左眼", 1, promise="左眼藏着四十年前的命案", ftype="伏笔")
+    paid = d.plant_foreshadow(w, "已回收的", 2, promise="不该出现", ftype="悬念")
+    d.set_foreshadow_payoff(w, paid, 5)
+    ctx = build_writing_context(d, w, 15)
+    assert "承诺线" in ctx                       # 有承诺线块
+    assert "左眼藏着四十年前的命案" in ctx        # 开着的承诺被注入
+    assert "不该出现" not in ctx                 # 已回收的不再注入
+
+
+def test_update_foreshadow_fields(db):
+    """编辑承诺线明细:改 summary/promise/type(空值不覆盖)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    fid = d.plant_foreshadow(w, "旧名", 1, promise="旧承诺", ftype="伏笔")
+    d.update_foreshadow(w, fid, summary="新名", promise="新承诺", ftype="悬念")
+    f = next(x for x in d.list_foreshadows_status(w) if x["summary"] == "新名")
+    assert f["promise"] == "新承诺" and f["ftype"] == "悬念"
+    # 空值不覆盖
+    d.update_foreshadow(w, fid, promise="")
+    f = next(x for x in d.list_foreshadows_status(w) if x["summary"] == "新名")
+    assert f["promise"] == "新承诺"

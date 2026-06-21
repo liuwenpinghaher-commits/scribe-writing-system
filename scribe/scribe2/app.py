@@ -321,6 +321,15 @@ def payoff_foreshadow(w: str, fid: str, b: EchoIn, x_owner_id: str | None = Head
     """回收承诺于某章(承诺线 payoff)。"""
     owner(x_owner_id); d.set_foreshadow_payoff(w, fid, b.chapter); return {"state": "paid", "payoff_chapter": b.chapter}
 
+class ForeshadowEditIn(BaseModel):
+    summary: str | None = None; promise: str | None = None; ftype: str | None = None; importance: str | None = None
+
+@app.post("/works/{w}/foreshadows-status/{fid}/edit")
+def edit_foreshadow(w: str, fid: str, b: ForeshadowEditIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """编辑承诺线明细(summary/promise/type)。"""
+    owner(x_owner_id); d.update_foreshadow(w, fid, summary=b.summary, promise=b.promise, ftype=b.ftype, importance=b.importance)
+    return {"ok": True}
+
 @app.post("/works/{w}/foreshadows/{fid}/{action}")
 def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)

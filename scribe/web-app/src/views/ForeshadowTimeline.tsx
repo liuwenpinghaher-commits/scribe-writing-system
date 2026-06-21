@@ -11,7 +11,7 @@ import { ReactFlow, Background, Controls, MiniMap, type Node, type NodeProps } f
 import { Plus, X } from "lucide-react";
 import { api, type ForeshadowStatus } from "@/api";
 import { useData, useToast } from "@/common";
-import { Section } from "@/components/detail";
+import { Section, Row, Block, InlineText, Val } from "@/components/detail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -98,15 +98,11 @@ export function ForeshadowTimeline({ work, rev }: { work: string; rev: number })
   const fs = useData(() => api.foreshadowsStatus(work), [work, rev]);
   const chs = useData(() => api.chapters(work), [work, rev]);
   const [sel, setSel] = useState<string | null>(null);
-  const [opCh, setOpCh] = useState("");
-  const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const toast = useToast();
 
   const rows = useMemo(() => fs.data ?? [], [fs.data]);
   const nowCh = Math.max(1, ...(chs.data ?? []).map((c) => c.seq || 0));
   const maxC = Math.max(nowCh, ...rows.flatMap((r) => [r.chapter ?? 0, r.payoff_chapter ?? 0, ...(r.echoes ?? [])]), 2);
-  const opChN = Number(opCh) || nowCh;
   const w = GUT + maxC * CHW + 12;
   const density = useMemo(() => Array.from({ length: maxC }, (_, i) => {
     const ch = i + 1;
@@ -124,12 +120,7 @@ export function ForeshadowTimeline({ work, rev }: { work: string; rev: number })
     return ns;
   }, [rows, maxC, nowCh, w, density, sel]);
 
-  const act = async (fn: () => Promise<unknown>, msg: string) => {
-    setBusy(true);
-    try { await fn(); toast(msg); fs.reload(); } catch (e) { toast(String(e)); } finally { setBusy(false); }
-  };
   const selected = rows.find((r) => r.id === sel);
-  const jump = (ch?: number | null) => { if (ch) location.hash = `#/work/${work}/ch/${ch}`; };
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -146,11 +137,14 @@ export function ForeshadowTimeline({ work, rev }: { work: string; rev: number })
       {/* 画布(复用 ReactFlow) */}
       <div className="flex-1 min-h-0 relative">
         {rows.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-10 text-center">还没有承诺线。给读者埋下第一个钩子吧。</div>
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <p className="text-sm text-muted-foreground">还没有承诺线。承诺线会引导主编写作的走向与节奏——先埋下第一个钩子。</p>
+            <Button size="sm" className="gap-1" onClick={() => setCreating(true)}><Plus size={13} />新建承诺线</Button>
+          </div>
         ) : (
           <ReactFlow nodes={nodes} edges={[]} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.1 }}
             minZoom={0.3} maxZoom={2.5} nodesDraggable={false} nodesConnectable={false} proOptions={{ hideAttribution: true }}
-            onNodeClick={(_, n) => { if (n.type === "lane") { setSel((s) => (s === n.id ? null : n.id)); setOpCh(String(nowCh)); } }}>
+            onNodeClick={(_, n) => { if (n.type === "lane") setSel((s) => (s === n.id ? null : n.id)); }}>
             <Background gap={CHW} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable />
@@ -158,34 +152,70 @@ export function ForeshadowTimeline({ work, rev }: { work: string; rev: number })
         )}
       </div>
 
-      {/* 选中:承诺详情 + 操作 */}
+      {/* 选中:承诺明细(可看可编辑)+ 操作 */}
       {selected && (
-        <div className="px-4 pb-3 border-t border-border shrink-0 max-h-[40%] overflow-y-auto">
-          <Section title={`${selected.ftype || "伏笔"} · ${selected.summary}`}>
-            {selected.promise && <p className="text-sm text-foreground px-2 py-1">{selected.promise}</p>}
-            <p className="text-[11px] text-muted-foreground px-2">
-              埋第{selected.chapter}章{selected.echoes?.length ? ` · 强化 ${selected.echoes.join("/")}` : ""}
-              {selected.payoff_chapter ? ` · 回收第${selected.payoff_chapter}章` : ` · ${selected.state}`}
-              {selected.overdue ? " · ⚠ 超期未回收" : ""}
-            </p>
-            <div className="flex items-center gap-1.5 px-2 pt-1.5 flex-wrap">
-              <span className="text-xs text-muted-foreground">操作章</span>
-              <Input value={opCh} onChange={(e) => setOpCh(e.target.value)} className="h-7 w-14 text-xs" placeholder={String(nowCh)} />
-              {selected.state !== "paid" && selected.state !== "abandoned" && <>
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy}
-                  onClick={() => act(() => api.addForeshadowEcho(work, selected.id, opChN), "已记进展")}>在此推进</Button>
-                <Button size="sm" className="h-7 text-xs" disabled={busy}
-                  onClick={() => act(() => api.payoffForeshadow(work, selected.id, opChN), "已回收 ★")}>在此回收 ★</Button>
-                <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" disabled={busy}
-                  onClick={() => act(() => api.advanceForeshadow(work, selected.id, "abandon"), "已放弃")}>放弃</Button>
-              </>}
-              <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={() => jump(selected.chapter)}>跳到埋设章</Button>
-              {selected.payoff_chapter && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => jump(selected.payoff_chapter)}>跳到回收章</Button>}
-            </div>
-          </Section>
+        <div className="px-4 pb-3 border-t border-border shrink-0 max-h-[46%] overflow-y-auto">
+          <ForeshadowDetail key={selected.id} work={work} row={selected} nowCh={nowCh}
+            onChanged={() => fs.reload()} onClose={() => setSel(null)} />
         </div>
       )}
     </div>
+  );
+}
+
+/** 承诺线明细:可看可编辑(简称/承诺/类型)+ 在指定章 推进/回收/放弃 + 跳转 */
+function ForeshadowDetail({ work, row, nowCh, onChanged, onClose }: {
+  work: string; row: ForeshadowStatus; nowCh: number; onChanged: () => void; onClose: () => void;
+}) {
+  const [summary, setSummary] = useState(row.summary || "");
+  const [promise, setPromise] = useState(row.promise || "");
+  const [ftype, setFtype] = useState(row.ftype || "伏笔");
+  const [opCh, setOpCh] = useState(String(nowCh));
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const opChN = Number(opCh) || nowCh;
+  const dirty = summary !== (row.summary || "") || promise !== (row.promise || "") || ftype !== (row.ftype || "伏笔");
+  const act = async (fn: () => Promise<unknown>, msg: string) => {
+    setBusy(true);
+    try { await fn(); toast(msg); onChanged(); } catch (e) { toast(String(e)); } finally { setBusy(false); }
+  };
+  const jump = (ch?: number | null) => { if (ch) location.hash = `#/work/${work}/ch/${ch}`; };
+  const open = row.state !== "paid" && row.state !== "abandoned";
+  return (
+    <Section title="承诺线明细" action={<button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X size={13} /></button>}>
+      <Row label="简称"><InlineText v={summary} on={(e) => setSummary(e.target.value)} ph="泳道名(如:渡叔的左眼)" /></Row>
+      <Block label="对读者的承诺"><InlineText multiline v={promise} on={(e) => setPromise(e.target.value)} ph="读者被引导期待什么(如:左眼藏着四十年前的命案)" /></Block>
+      <Row label="类型">
+        <div className="flex gap-1 flex-wrap py-1">
+          {TYPES.map((t) => (
+            <button key={t} onClick={() => setFtype(t)}
+              className={`text-[11px] px-2 py-0.5 rounded-md border transition-colors ${ftype === t ? "text-white" : "text-muted-foreground border-border hover:border-foreground"}`}
+              style={ftype === t ? { background: colorOf(t), borderColor: colorOf(t) } : undefined}>{t}</button>
+          ))}
+        </div>
+      </Row>
+      <Row label="进度"><Val muted>
+        埋第{row.chapter}章{row.echoes?.length ? ` · 强化${row.echoes.join("/")}` : ""}
+        {row.payoff_chapter ? ` · 回收第${row.payoff_chapter}章` : ` · ${row.state}`}
+        {row.overdue ? " · ⚠超期" : ""}
+      </Val></Row>
+      <div className="flex items-center gap-1.5 px-2 pt-2 flex-wrap">
+        {dirty && <Button size="sm" className="h-7 text-xs" disabled={busy}
+          onClick={() => act(() => api.editForeshadow(work, row.id, { summary, promise, ftype }), "明细已更新")}>保存明细</Button>}
+        <span className="text-xs text-muted-foreground">操作章</span>
+        <Input value={opCh} onChange={(e) => setOpCh(e.target.value)} className="h-7 w-14 text-xs" />
+        {open && <>
+          <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy}
+            onClick={() => act(() => api.addForeshadowEcho(work, row.id, opChN), "已记进展")}>在此推进</Button>
+          <Button size="sm" className="h-7 text-xs" disabled={busy}
+            onClick={() => act(() => api.payoffForeshadow(work, row.id, opChN), "已回收 ★")}>在此回收 ★</Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" disabled={busy}
+            onClick={() => act(() => api.advanceForeshadow(work, row.id, "abandon"), "已放弃")}>放弃</Button>
+        </>}
+        <Button size="sm" variant="ghost" className="h-7 text-xs ml-auto" onClick={() => jump(row.chapter)}>跳到埋设章</Button>
+        {row.payoff_chapter && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => jump(row.payoff_chapter)}>跳到回收章</Button>}
+      </div>
+    </Section>
   );
 }
 

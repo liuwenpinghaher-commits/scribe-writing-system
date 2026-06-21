@@ -115,6 +115,8 @@ export const api = {
     }),
   payoffForeshadow: (w: string, fid: string, chapter: number) =>
     post<{ state: string; payoff_chapter: number }>(`/works/${w}/foreshadows-status/${fid}/payoff`, { chapter }),
+  editForeshadow: (w: string, fid: string, fields: { summary?: string; promise?: string; ftype?: string }) =>
+    post<{ ok: boolean }>(`/works/${w}/foreshadows-status/${fid}/edit`, fields),
   flags: (w: string) => req<Flag[]>(`/works/${w}/consistency-flags`),
   insights: (w: string) => req<Insight[]>(`/works/${w}/insights?status=new`),
   actInsight: (w: string, id: string, act: "ack" | "dismiss") =>

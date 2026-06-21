@@ -86,6 +86,29 @@ def build_writing_context(d, work: str, seq: int) -> str:
                 return "｜".join(bits)
             parts.append("【规则·代价与限制(写到该力量时严格遵守)】\n" + "\n".join("· " + _p(s) for s in powers[:6]))
 
+    # 伏笔·承诺线:对读者已许下、尚未回收的承诺 → 喂给主编引导走向与节奏(不是被动台账)
+    open_f = [f for f in d.list_foreshadows_status(work)
+              if f.get("state") in ("planted", "triggered")]
+    if open_f:
+        def _f(f):
+            plant = f.get("chapter") or 0
+            echoes = f.get("echoes") or []
+            last = max(echoes) if echoes else plant
+            span, quiet = max(0, seq - plant), max(0, seq - last)
+            if span >= 12 and quiet >= 8:
+                tag = "(已开太久且久未提及 → 本章宜回收或强化)"
+            elif span >= 6:
+                tag = "(可考虑推进/回收)"
+            else:
+                tag = ""
+            desc = f.get("promise") or f.get("summary") or ""
+            ech = f",已强化{'/'.join(map(str, echoes))}章" if echoes else ""
+            return f"· [{f.get('ftype') or '伏笔'}] {desc}(埋第{plant}章{ech}){tag}"
+        open_f.sort(key=lambda f: f.get("chapter") or 0)   # 最久未动的最该照顾,排前
+        parts.append(
+            "【伏笔·承诺线(对读者已许、尚未回收的承诺;照顾节奏:适时埋新钩子/推进/回收,"
+            "勿一次性堆砌回收,勿让其凭空消失)】\n" + "\n".join(_f(f) for f in open_f[:8]))
+
     glob = d.get_global_memory(work)
     if glob:
         parts.append("【全书主线记忆(至此为止)】" + glob[:400])

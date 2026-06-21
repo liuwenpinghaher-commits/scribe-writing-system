@@ -322,6 +322,18 @@ class Domain:
         """回收承诺:标记 paid + 记录回收章(承诺线 payoff 节点,供时间线渲染跨度)。"""
         self.s.update("foreshadow", fid, {"state": "paid", "payoff_chapter": chapter})
 
+    def update_foreshadow(self, work: str, fid: str, *, summary: str | None = None,
+                          promise: str | None = None, ftype: str | None = None,
+                          importance: str | None = None) -> None:
+        """编辑承诺线明细。空串/None 不覆盖(保留原值)。"""
+        patch: dict = {}
+        if summary: patch["summary"] = summary; patch["text"] = summary
+        if promise: patch["promise"] = promise
+        if ftype: patch["ftype"] = ftype
+        if importance: patch["importance"] = importance
+        if patch:
+            self.s.update("foreshadow", fid, patch)
+
     def add_foreshadow_echo(self, work: str, fid: str, chapter: int) -> list[int]:
         """伏笔中途强化(echo):深伏笔不能只埋一次,记下偶尔提一嘴的章。"""
         cur = self.s.get("foreshadow", fid)
