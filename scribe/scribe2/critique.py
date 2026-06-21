@@ -237,3 +237,42 @@ def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3, max_pas
             break
         cur, changed = out, True
     return {"text": cur, "reps": reps0, "changed": changed}
+
+
+# ==== LLM 纪律闸(确定性检测对语义违规是瞎的:双高潮/terse声音崩/解说倾泻需 LLM 判定)====
+def build_discipline_prompt(text: str, brief: str = "") -> str:
+    return (
+        "你是叙事结构【纪律判官】。下面是一章志怪小说。本章的命题/纪律要求:\n" +
+        (brief or "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)") +
+        "\n\n判定是否违反以下纪律(任一即违规):\n"
+        "① double_climax:出现第二场打斗/救援/开挂,或偷跑了本不属于本章的后续剧情、凭空发明新登场角色;\n"
+        "② voice_collapse:声细如蚊/半截就断的 terse 角色崩成大段流畅独白、系统结算音、或与主角同温;\n"
+        "③ exposition_dump:大段身世/前史/规则的集中倾泻(本该零星渗出)。\n"
+        "若违规,找出正文里【复发开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
+        '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。\n\n'
+        "【正文】\n" + text)
+
+
+def parse_discipline(reply: str) -> dict:
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        d = json.loads(m.group(0)) if m else {}
+        return {"ok": bool(d.get("ok", True)), "violations": list(d.get("violations") or []),
+                "cut_after": (d.get("cut_after") or "").strip()}
+    except Exception:
+        return {"ok": True, "violations": [], "cut_after": ""}   # 解析失败不阻断生成
+
+
+def discipline_truncate(text: str, brief: str, complete_fn) -> dict:
+    """LLM 纪律闸:判定本章是否违反命题→违规且复发点靠后(留≥40%)则截到复发点;
+    复发太早(截后<40%)只标记不砍(交回重生)。这是 prompt 给不了的"执行纪律"。"""
+    v = parse_discipline(complete_fn(build_discipline_prompt(text, brief)))
+    if v["ok"] or not v["cut_after"]:
+        return {"text": text, "violations": v["violations"], "changed": False}
+    idx = text.find(v["cut_after"])
+    if idx < 0:
+        return {"text": text, "violations": v["violations"], "changed": False}
+    cut = text[:idx + len(v["cut_after"])]
+    if len(cut) < len(text) * 0.4:   # 守护:复发太早,砍了剩太少→只标记,交回重生
+        return {"text": text, "violations": v["violations"], "changed": False, "cut_after": v["cut_after"]}
+    return {"text": cut, "violations": v["violations"], "changed": True}

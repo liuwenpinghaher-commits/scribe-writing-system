@@ -679,3 +679,26 @@ def test_find_purple_prose():
     assert len(pp) >= 3
     # 普通句不误伤
     assert all("糠饼很硬" not in p["phrase"] and "天阴沉沉" not in p["phrase"] for p in pp)
+
+
+def test_discipline_gate_core():
+    """缺口gap12:确定性检测对语义违规(双高潮/声音崩/解说倾泻)是瞎的;LLM纪律闸判定+复发点截断。"""
+    from scribe2.critique import build_discipline_prompt, parse_discipline, discipline_truncate
+    # prompt 含命题+判据+JSON 要求
+    p = build_discipline_prompt("正文……", brief="安静的喘息章,无打斗、无新角色")
+    assert "安静的喘息章" in p and ("纪律" in p or "双高潮" in p) and "JSON" in p
+    # 解析:守纪
+    assert parse_discipline('{"ok": true, "violations": [], "cut_after": ""}')["ok"] is True
+    # 解析:违规+复发点(前后可有杂文本)
+    v = parse_discipline('判定如下\n{"ok": false, "violations": ["double_climax"], "cut_after": "他转身走了。"}\n完')
+    assert v["ok"] is False and "double_climax" in v["violations"] and v["cut_after"] == "他转身走了。"
+    # 解析失败 → 不阻断(ok=True)
+    assert parse_discipline("一团乱码")["ok"] is True
+    # 截断:违规且复发点命中 → 截到复发点(含)为止
+    text = "安静开头一。安静开头二。他转身走了。然后开始一场不该有的大战。大战继续。"
+    fake = lambda pr: '{"ok": false, "violations": ["double_climax"], "cut_after": "他转身走了。"}'
+    out = discipline_truncate(text, "安静章", fake)
+    assert out["changed"] and out["text"].endswith("他转身走了。") and "大战" not in out["text"]
+    # 守纪 → 不动
+    fake_ok = lambda pr: '{"ok": true, "violations": [], "cut_after": ""}'
+    assert discipline_truncate(text, "安静章", fake_ok)["changed"] is False
