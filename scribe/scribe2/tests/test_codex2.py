@@ -164,3 +164,19 @@ def test_rest_codex2(db):
         assert mo[0]["name"] == "铜炉" and mo[0]["material_echoes"] == ["长明灯"]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_progressions_time_gated_injection(db):
+    """W7 Progressions:人物状态只在生效章<=当前写作位置时注入(防剧透),乱世铜炉"信息延迟揭晓"。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.add_character(w, "渡叔", motivation="守渡")
+    d.add_char_state(w, "渡叔", 1, "初到九原渡，守渡四十年")
+    d.add_char_state(w, "渡叔", 5, "为护小满破规，左眼又瞎一分")
+    for s in (1, 2, 3, 4, 5, 6):
+        d.add_chapter(w, s, f"第{s}章")
+    ctx3 = build_writing_context(d, w, 3)
+    assert "守渡四十年" in ctx3, "seq1<=3 已生效应注入"
+    assert "左眼又瞎" not in ctx3, "seq5>3 未来,防剧透"
+    ctx6 = build_writing_context(d, w, 6)
+    assert "左眼又瞎" in ctx6, "seq5<=6 已生效应注入"

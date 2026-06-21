@@ -532,6 +532,15 @@ class Domain:
                            {"w": self._wref(work), "c": character})
         return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
 
+    def latest_char_states_upto(self, work: str, seq: int) -> list[dict]:
+        """Progressions 时间门:取各角色在 chapter_seq<=seq 时的最新状态(防剧透注入)。"""
+        rows = self.s.list("char_state", "work = $w", {"w": self._wref(work)})
+        latest: dict[str, dict] = {}
+        for r in sorted(rows, key=lambda x: x.get("chapter_seq") or 0):
+            if (r.get("chapter_seq") or 0) <= seq:
+                latest[r.get("character", "")] = r  # 后者覆盖前者=取最新生效
+        return list(latest.values())
+
     # ---- 时间线 timeline_event ----
     def add_timeline_event(self, work: str, chapter_seq: int, description: str) -> str:
         return self.s.create("timeline_event", {"work": self._wref(work),

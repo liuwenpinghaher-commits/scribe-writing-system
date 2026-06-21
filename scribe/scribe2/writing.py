@@ -47,6 +47,14 @@ def build_writing_context(d, work: str, seq: int) -> str:
             return base
         parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c) for c in chars[:15]))
 
+    # Progressions 时间门:只注入 chapter_seq<=当前位置的最新角色状态(防剧透,乱世铜炉"信息延迟揭晓")
+    if hasattr(d, "latest_char_states_upto"):
+        states = d.latest_char_states_upto(work, seq)
+        states = [s for s in states if (s.get("state_desc") or "").strip()]
+        if states:
+            parts.append("【人物当前状态·至本章为止(勿写出尚未发生的未来状态)】" + "；".join(
+                f"{s.get('character','')}:{s['state_desc'][:40]}" for s in states[:15]))
+
     # 母题:核心意象的隐喻网,务必自然织入(乱世铜炉判据1)
     motifs = d.list_motifs(work) if hasattr(d, "list_motifs") else []
     if motifs:
