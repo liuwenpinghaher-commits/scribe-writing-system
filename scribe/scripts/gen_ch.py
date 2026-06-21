@@ -38,29 +38,23 @@ def _dedup(c):  # 存稿后跑确定性去重(字面+结构+升华),回传去重
 full = _dedup(full)
 print(f"去重→{len(full)}字")
 
-# 纪律门控:LLM 判官检语义违规(双高潮/声音崩/解说倾泻)→截到复发点+续写,循环至守纪
+# 纪律门控:判官检语义违规→截到【首个】复发点+只补冷笔短收尾(续写整节必再复发,故只收尾)
 BRIEF = INSTR0[:380]
-for it in range(2):
-    dc = cli.post(f"/works/{WID}/chapters/{SEQ}/discipline-check", json={"brief": BRIEF})
-    if dc.status_code >= 300:
-        print("纪律端点", dc.status_code); break
-    v = dc.json()
-    if v.get("ok") or not v.get("cut_after"):
-        print("纪律✓ 守纪"); break
+dc = cli.post(f"/works/{WID}/chapters/{SEQ}/discipline-check", json={"brief": BRIEF})
+v = dc.json() if dc.status_code < 300 else {"ok": True}
+if not v.get("ok") and v.get("cut_after"):
     idx = full.find(v["cut_after"])
-    if idx < 0:
-        print(f"纪律✗ {v.get('violations')} 但复发点未定位,跳过"); break
-    cut = full[:idx + len(v["cut_after"])]
-    print(f"纪律✗ {v.get('violations')} 复发@{idx}({idx*100//max(len(full),1)}%)→截断+续写")
-    secs2, prev2 = [cut], cut[-1800:]
-    while sum(len(s) for s in secs2) < CAP and len(secs2) < 3:
+    if idx > 0:
+        cut = full[:idx + len(v["cut_after"])]
+        print(f"纪律✗ {v.get('violations')} 复发@{idx}({idx*100//max(len(full),1)}%)→截断+冷收尾")
         rr = cli.post(f"/works/{WID}/chapters/{SEQ}/actions/continue",
-                      json={"instruction": "严守本章命题、把这一章在既定克制范围内自然写完并冷笔收尾:绝不另起第二场打斗/高潮、绝不偷跑后续章剧情、绝不发明新登场角色;terse 角色(如阿萤)只零星碎语≤10字半截就断、不大段独白、不与主角同温。", "target_chars": 1300, "prev": prev2})
-        if rr.status_code >= 300:
-            break
-        secs2.append(rr.json()["content"].strip())
-        prev2 = ("\n".join(secs2))[-1800:]
-    full = _dedup("\n\n".join(secs2))
+                      json={"instruction": "用 2-4 句冷笔白描给这一章自然收束当前场景即可:绝不展开任何新情节/打斗/新角色/身世解说,只以一个不安的冷物象定格收尾。", "target_chars": 120, "prev": cut[-1000:]})
+        ending = rr.json()["content"].strip() if rr.status_code < 300 else ""
+        full = _dedup(cut + ("\n\n" + ending if ending else ""))
+    else:
+        print(f"纪律✗ {v.get('violations')} 复发点未定位,保留原文")
+else:
+    print("纪律✓ 守纪")
 
 _save(full)
 path = f"/tmp/newbook_ch{SEQ}.txt"
