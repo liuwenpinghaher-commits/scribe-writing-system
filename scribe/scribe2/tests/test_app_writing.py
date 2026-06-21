@@ -68,3 +68,28 @@ def test_ingest_builds_memory(db, monkeypatch):
         assert "渡叔夜渡" in mem["global"]    # 确定性 rollup 把章梗概拼进全局
     finally:
         app.dependency_overrides.clear()
+
+
+def test_critique_and_consistency(db, monkeypatch):
+    d, c, H = _setup(db)
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        c.put(f"/works/{w}/author-intent", json={"reader_feeling": "苍凉克制"}, headers=H)
+        ch = c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "夜渡"}, headers=H).json()["chapter_id"]
+        c.post(f"/works/{w}/chapters/{ch}/prose",
+               json={"content": "渡叔立于船头,独眼望浊浪。"}, headers=H)
+        # critique:mock 返回 8 维评分 JSON
+        monkeypatch.setattr(appmod, "_complete", lambda p, **k: (
+            '{"scores":{"texture":4,"surprise":3,"emotion_truth":4,"pace":4,'
+            '"voice":5,"anti_slop":4,"intent_resonance":3,"coherence":4},'
+            '"issues":["意外性不足"],"worst_dims":["surprise"]}'))
+        r = c.post(f"/works/{w}/chapters/1/critique", json={"revise": False}, headers=H).json()
+        assert r["critique"]["overall"] > 0 and len(r["critique"]["scores"]) == 8
+        # consistency:mock 返回矛盾 flags
+        monkeypatch.setattr(appmod, "_complete", lambda p, **k: '{"flags":["渡叔年龄前后矛盾"]}')
+        chk = c.post(f"/works/{w}/chapters/1/check", headers=H).json()
+        assert "渡叔年龄前后矛盾" in chk["flags"]
+        flags = c.get(f"/works/{w}/consistency-flags", headers=H).json()
+        assert any(f["detail"] == "渡叔年龄前后矛盾" for f in flags)
+    finally:
+        app.dependency_overrides.clear()

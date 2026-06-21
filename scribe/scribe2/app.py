@@ -5,6 +5,8 @@ from .conn import connect, domain_from
 from .domain import Domain
 from .generate import generate_continue, ingest_chapter
 from .llm import hermes_complete
+from .critique import build_critique_prompt, parse_critique, critique_revise
+from .consistency import check_chapter
 
 app = FastAPI(title="Scribe (SurrealDB)")
 _complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
@@ -121,6 +123,37 @@ def ingest(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = 
 def memory(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
     return {"global": d.get_global_memory(w), "chapters": d.list_chapter_memories(w)}
+
+
+# ==== 评改 + 一致性 ====
+class CritiqueIn(BaseModel):
+    content: str = ""; revise: bool = False
+
+def _chapter_prose(d: Domain, w: str, seq: int) -> str:
+    ch = next((c for c in d.list_chapters(w) if c.get("seq") == seq), None)
+    return d.latest_prose(d._idpart(ch["id"])) if ch else ""
+
+@app.post("/works/{w}/chapters/{seq}/critique")
+def critique_ep(w: str, seq: int, b: CritiqueIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """8 维评改:revise=False 仅评分;True 则不达标定向重写。"""
+    owner(x_owner_id)
+    text = b.content.strip() or _chapter_prose(d, w, seq)
+    if not text:
+        raise HTTPException(400, "无正文可评改")
+    rf = (d.get_intent(w) or {}).get("reader_feeling", "")
+    if not b.revise:
+        return {"critique": parse_critique(_complete(build_critique_prompt(text, rf))),
+                "improved": False, "final": text}
+    return critique_revise(text, rf, _complete, max_rounds=1)
+
+@app.post("/works/{w}/chapters/{seq}/check")
+def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """对照角色/设定/主线找本章矛盾,落 consistency_flag。"""
+    owner(x_owner_id); return {"flags": check_chapter(d, w, seq, _complete)}
+
+@app.get("/works/{w}/consistency-flags")
+def flags_ep(w: str, status: str = "open", x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_consistency_flags(w, status)
 
 
 @app.get("/health")

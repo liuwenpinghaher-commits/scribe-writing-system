@@ -135,6 +135,8 @@ def add_setting(work_id: str, name: str, desc: str = "") -> dict:
 # ==== 写作面工具(段3):圣经读写 + 生成 + 章记忆 ====
 from .generate import generate_continue as _gen, ingest_chapter as _ingest  # noqa: E402
 from .llm import hermes_complete as _complete  # 生成走 Hermes
+from .critique import build_critique_prompt as _critq, parse_critique as _parsec  # noqa: E402
+from .consistency import check_chapter as _check  # noqa: E402
 
 
 @_read_tool()
@@ -203,6 +205,30 @@ def advance_foreshadow(foreshadow_id: str, to_state: str) -> dict:
 def ingest_chapter(work_id: str, seq: int) -> dict:
     """定稿后建章记忆 + 确定性 rollup(跨章连贯)。写操作,需审批。"""
     return {"summary": _ingest(_domain(), work_id, seq, _complete)}
+
+
+@_read_tool()
+def critique_chapter(work_id: str, seq: int) -> dict:
+    """8 维评改打分(只评不改、不落库)。只读。"""
+    d = _domain()
+    ch = next((c for c in d.list_chapters(work_id) if c.get("seq") == seq), None)
+    text = d.latest_prose(d._idpart(ch["id"])) if ch else ""
+    if not text:
+        return {}
+    rf = (d.get_intent(work_id) or {}).get("reader_feeling", "")
+    return _parsec(_complete(_critq(text, rf)))
+
+
+@_write_tool
+def check_chapter(work_id: str, seq: int) -> dict:
+    """一致性检查:对照角色/设定/主线找本章矛盾,落 consistency_flag。写操作,需审批。"""
+    return {"flags": _check(_domain(), work_id, seq, _complete)}
+
+
+@_read_tool()
+def list_consistency_flags(work_id: str, status: str = "open") -> list[dict]:
+    """列一致性矛盾 flag。只读。"""
+    return _domain().list_consistency_flags(work_id, status)
 
 
 def main() -> None:

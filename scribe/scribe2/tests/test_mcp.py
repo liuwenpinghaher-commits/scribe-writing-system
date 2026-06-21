@@ -58,6 +58,7 @@ def test_tools_discoverable_and_annotated(db):
         "get_author_intent", "list_characters", "list_open_foreshadows", "get_memory",
         "write_continue", "set_author_intent", "upsert_character",
         "plant_foreshadow", "advance_foreshadow", "ingest_chapter",
+        "critique_chapter", "check_chapter", "list_consistency_flags",
     }
     assert expected <= set(tools), f"缺工具: {expected - set(tools)}"
     for name in expected:
@@ -70,5 +71,5 @@ def test_tools_discoverable_and_annotated(db):
     assert M.WRITE_TOOLS == {
         "create_work", "create_volume", "create_chapter", "save_prose", "add_setting",
         "set_author_intent", "upsert_character", "plant_foreshadow",
-        "advance_foreshadow", "ingest_chapter",
+        "advance_foreshadow", "ingest_chapter", "check_chapter",
     }

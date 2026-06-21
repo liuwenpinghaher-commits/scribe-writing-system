@@ -138,3 +138,11 @@ class Domain:
         rows = self.s.list("memory_entry", "work = $w AND scope = 'global'",
                            {"w": f"work:{work}"})
         return rows[0]["text"] if rows else ""
+
+    # ---- 一致性 flag ----
+    def list_consistency_flags(self, work: str, status: str = "open") -> list[dict]:
+        return self.s.list("consistency_flag", "work = $w AND status = $s",
+                           {"w": f"work:{work}", "s": status})
+
+    def resolve_consistency_flag(self, fid: str, status: str = "fixed") -> None:
+        self.s.update("consistency_flag", fid, {"status": status})
