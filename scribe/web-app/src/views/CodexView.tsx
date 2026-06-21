@@ -20,10 +20,14 @@ import {
   FileText,
   Plus,
   ChevronRight,
+  ChevronDown,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { api } from "@/api";
-import type { CharacterT, Setting, Foreshadow, Material, CharState } from "@/api";
+import type { CharacterT, Setting, Foreshadow, Material, CharState, Motif } from "@/api";
+import { EntityEditor, type EntityKind } from "./EntityEditor";
+import { CodexChat } from "./CodexChat";
 import { useData } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
@@ -239,8 +243,8 @@ function CharStatesDialog({
 }
 
 // ── 角色 Tab ──
-function CharactersTab({ work }: { work: string }) {
-  const { data, loading, error, reload } = useData(() => api.characters(work), [work]);
+function CharactersTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEdit?: (e?: CharacterT) => void }) {
+  const { data, loading, error, reload } = useData(() => api.characters(work), [work, rev]);
   const [filter, setFilter] = useState("");
   const [addName, setAddName] = useState("");
   const [addMotivation, setAddMotivation] = useState("");
@@ -275,7 +279,8 @@ function CharactersTab({ work }: { work: string }) {
       accessorKey: "name",
       header: "名称",
       cell: ({ row }) => (
-        <span className="font-medium text-foreground">{row.original.name}</span>
+        <button className="font-medium text-foreground hover:text-primary hover:underline text-left"
+          onClick={() => onEdit?.(row.original)}>{row.original.name}</button>
       ),
     },
     {
@@ -403,8 +408,8 @@ function CharactersTab({ work }: { work: string }) {
 }
 
 // ── 设定 Tab ──
-function SettingsTab({ work }: { work: string }) {
-  const { data, loading, error, reload } = useData(() => api.settings(work), [work]);
+function SettingsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEdit?: (e?: Setting) => void }) {
+  const { data, loading, error, reload } = useData(() => api.settings(work), [work, rev]);
   const [filter, setFilter] = useState("");
   const [addName, setAddName] = useState("");
   const [addType, setAddType] = useState("");
@@ -436,7 +441,8 @@ function SettingsTab({ work }: { work: string }) {
       accessorKey: "name",
       header: "名称",
       cell: ({ row }) => (
-        <span className="font-medium text-foreground">{row.original.name}</span>
+        <button className="font-medium text-foreground hover:text-primary hover:underline text-left"
+          onClick={() => onEdit?.(row.original)}>{row.original.name}</button>
       ),
     },
     {
@@ -837,8 +843,8 @@ function MaterialsTab({ work }: { work: string }) {
 }
 
 // ── 主视图 ──
-function MotifsTab({ work }: { work: string }) {
-  const { data, loading, error, reload } = useData(() => api.motifs(work), [work]);
+function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEdit?: (e?: Motif) => void }) {
+  const { data, loading, error, reload } = useData(() => api.motifs(work), [work, rev]);
   const [name, setName] = useState("");
   const [meta, setMeta] = useState("");
   const [theme, setTheme] = useState("");
@@ -874,7 +880,7 @@ function MotifsTab({ work }: { work: string }) {
           {data?.map((m, i) => (
             <Card key={m.id ?? i} size="sm">
               <CardContent className="py-2.5 px-3">
-                <div className="flex items-center gap-1.5"><Flame size={13} className="text-amber-500" /><span className="text-sm font-medium">{m.name}</span></div>
+                <button className="flex items-center gap-1.5 hover:text-primary" onClick={() => onEdit?.(m)}><Flame size={13} className="text-amber-500" /><span className="text-sm font-medium">{m.name}</span></button>
                 {m.bound_theme && <div className="text-xs text-muted-foreground mt-1">主题:{m.bound_theme}</div>}
                 {m.metaphor_unfolding && <div className="text-xs mt-1">隐喻:{m.metaphor_unfolding}</div>}
                 {!!m.material_echoes?.length && (
@@ -892,51 +898,51 @@ function MotifsTab({ work }: { work: string }) {
 }
 
 export function CodexView({ work }: { work: string }) {
+  const [rev, setRev] = useState(0);
+  const bump = () => setRev((r) => r + 1);
+  const [panel, setPanel] = useState<{ mode: "edit" | "chat"; kind?: EntityKind; entity?: unknown } | null>(null);
+  const edit = (kind: EntityKind) => (entity?: unknown) => setPanel({ mode: "edit", kind, entity: entity ?? null });
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 顶部标题条 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 py-2">
         <Library size={15} className="text-primary" />
         <span className="text-sm font-medium text-foreground">设定库</span>
+        <div className="flex-1" />
+        <Button variant={panel?.mode === "chat" ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
+          onClick={() => setPanel(panel?.mode === "chat" ? null : { mode: "chat" })}>
+          <Sparkles size={13} /> 与主编聊设定
+        </Button>
       </div>
 
-      {/* 内容区:带 Tabs */}
-      <div className="flex-1 overflow-auto px-4 py-3">
-        <Tabs defaultValue="characters" className="flex flex-col gap-3">
-          <TabsList className="shrink-0 w-auto">
-            <TabsTrigger value="characters" className="text-xs gap-1.5">
-              <User size={13} />角色
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="text-xs gap-1.5">
-              <MapPin size={13} />设定
-            </TabsTrigger>
-            <TabsTrigger value="motifs" className="text-xs gap-1.5">
-              <Flame size={13} />母题
-            </TabsTrigger>
-            <TabsTrigger value="foreshadows" className="text-xs gap-1.5">
-              <Bookmark size={13} />伏笔
-            </TabsTrigger>
-            <TabsTrigger value="materials" className="text-xs gap-1.5">
-              <FileText size={13} />素材
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* 主区:Tabs + 列表 */}
+        <div className="flex-1 overflow-auto px-4 py-3 min-w-0">
+          <Tabs defaultValue="characters" className="flex flex-col gap-3">
+            <TabsList className="shrink-0 w-auto">
+              <TabsTrigger value="characters" className="text-xs gap-1.5"><User size={13} />角色</TabsTrigger>
+              <TabsTrigger value="settings" className="text-xs gap-1.5"><MapPin size={13} />设定</TabsTrigger>
+              <TabsTrigger value="motifs" className="text-xs gap-1.5"><Flame size={13} />母题</TabsTrigger>
+              <TabsTrigger value="foreshadows" className="text-xs gap-1.5"><Bookmark size={13} />伏笔</TabsTrigger>
+              <TabsTrigger value="materials" className="text-xs gap-1.5"><FileText size={13} />素材</TabsTrigger>
+            </TabsList>
+            <TabsContent value="characters" className="mt-0"><CharactersTab work={work} rev={rev} onEdit={edit("character")} /></TabsContent>
+            <TabsContent value="settings" className="mt-0"><SettingsTab work={work} rev={rev} onEdit={edit("setting")} /></TabsContent>
+            <TabsContent value="motifs" className="mt-0"><MotifsTab work={work} rev={rev} onEdit={edit("motif")} /></TabsContent>
+            <TabsContent value="foreshadows" className="mt-0"><ForeshadowsTab work={work} /></TabsContent>
+            <TabsContent value="materials" className="mt-0"><MaterialsTab work={work} /></TabsContent>
+          </Tabs>
+        </div>
 
-          <TabsContent value="characters" className="mt-0">
-            <CharactersTab work={work} />
-          </TabsContent>
-          <TabsContent value="settings" className="mt-0">
-            <SettingsTab work={work} />
-          </TabsContent>
-          <TabsContent value="motifs" className="mt-0">
-            <MotifsTab work={work} />
-          </TabsContent>
-          <TabsContent value="foreshadows" className="mt-0">
-            <ForeshadowsTab work={work} />
-          </TabsContent>
-          <TabsContent value="materials" className="mt-0">
-            <MaterialsTab work={work} />
-          </TabsContent>
-        </Tabs>
+        {/* 右面板:编辑全字段表单 / 与主编聊设定 */}
+        {panel && (
+          <div className="w-[400px] shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0">
+            {panel.mode === "chat"
+              ? <CodexChat work={work} onChanged={bump} />
+              : <EntityEditor work={work} kind={panel.kind!} entity={panel.entity as never}
+                  onSaved={bump} onClose={() => setPanel(null)} />}
+          </div>
+        )}
       </div>
     </div>
   );
