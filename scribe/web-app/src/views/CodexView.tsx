@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -918,6 +918,25 @@ export function CodexView({ work }: { work: string }) {
   const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "设定", motif: "母题" };
   const discuss = (kind: EntityKind, name: string) =>
     setPanel({ mode: "chat", seed: `聊聊「${name}」这个${KIND_LABEL[kind]}：` });
+
+  // 右面板可拖拽改宽(持久化),与写作台一致
+  const [pw, setPw] = useState<number>(() => {
+    try { return Number(localStorage.getItem("scribe.codexPW")) || 420; } catch { return 420; }
+  });
+  useEffect(() => { try { localStorage.setItem("scribe.codexPW", String(pw)); } catch { /* */ } }, [pw]);
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = pw;
+    const onMove = (ev: MouseEvent) => setPw(Math.max(300, Math.min(720, startW - (ev.clientX - startX))));
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = ""; document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
+  };
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 顶部标题条 */}
@@ -954,9 +973,11 @@ export function CodexView({ work }: { work: string }) {
           </Tabs>
         </div>
 
-        {/* 右面板:编辑全字段表单 / 与主编聊设定 */}
+        {/* 右面板:编辑全字段表单 / 与主编聊设定 / 抽取(可拖拽改宽) */}
         {panel && (
-          <div className="w-[400px] shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0">
+          <div className="shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0 relative" style={{ width: pw }}>
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-20 hover:bg-accent/60 transition-colors"
+              onMouseDown={startResize} title="拖拽改宽" />
             {panel.mode === "chat"
               ? <CodexChat work={work} onChanged={bump} seed={panel.seed} />
               : panel.mode === "extract"
