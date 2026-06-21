@@ -44,15 +44,15 @@ class Domain:
 
     # ---- volume / chapter ----
     def create_volume(self, work: str, seq: int, title: str = "") -> str:
-        return self.s.create("volume", {"work": f"work:{work}", "seq": seq, "title": title})
+        return self.s.create("volume", {"work": self._wref(work), "seq": seq, "title": title})
 
     def add_chapter(self, work: str, seq: int, title: str = "", volume: str | None = None) -> str:
         return self.s.create("chapter", {
-            "work": f"work:{work}", "seq": seq, "title": title,
+            "work": self._wref(work), "seq": seq, "title": title,
             "volume": (f"volume:{volume}" if volume else None), "status": "draft"})
 
     def list_chapters(self, work: str) -> list[dict]:
-        rows = self.s.list("chapter", "work = $w ORDER BY seq ASC", {"w": f"work:{work}"})
+        rows = self.s.list("chapter", "work = $w ORDER BY seq ASC", {"w": self._wref(work)})
         for c in rows:
             c["volume_id"] = c.get("volume")  # 前端契约别名
         return rows
@@ -63,7 +63,7 @@ class Domain:
         existing = self.s.list("snapshot", "chapter = $c", {"c": f"chapter:{chapter}"})
         ver = len(existing) + 1
         sid = self.s.create("snapshot", {
-            "work": f"work:{work}", "chapter": f"chapter:{chapter}",
+            "work": self._wref(work), "chapter": f"chapter:{chapter}",
             "version": ver, "content": content, "locked": bool(locked),
             "is_human_locked": 1 if locked else 0,
             "created_by": created_by, "branch_label": branch_label})
@@ -125,7 +125,7 @@ class Domain:
             refs = [{"name": n, "kind": ("character" if n in char_names else "setting")}
                     for n in names if n and n in p]
             self.s.create("segment", {
-                "work": f"work:{work}", "chapter": f"chapter:{chapter}", "seq": i,
+                "work": self._wref(work), "chapter": f"chapter:{chapter}", "seq": i,
                 "text": p, "created_by": created_by,
                 "citation_refs": json.dumps(refs, ensure_ascii=False)})
         return len(paras)
@@ -155,7 +155,7 @@ class Domain:
 
     # ---- 反馈(作者意见,LoRA 训练信号)----
     def save_feedback(self, work: str, seq: int, nl_critique: str) -> str:
-        return self.s.create("feedback", {"work": f"work:{work}", "seq": seq,
+        return self.s.create("feedback", {"work": self._wref(work), "seq": seq,
                                           "nl_critique": nl_critique})
 
     # ---- 作品库汇总(章数/字数/待看札记/待决方案)----
@@ -176,17 +176,17 @@ class Domain:
     # ---- 内容实体:设定(契约:name/type/content;存 stype 避开 SurrealDB 关键字 type)----
     def add_setting(self, work: str, name: str, desc: str = "", type_: str = "设定") -> str:
         text = f"{name}:{desc}" if desc else name
-        return self.s.put_content("setting", work=f"work:{work}", text=text,
+        return self.s.put_content("setting", work=self._wref(work), text=text,
                                   name=name, stype=type_, content=desc)
 
     def list_settings(self, work: str) -> list[dict]:
-        rows = self.s.list("setting", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("setting", "work = $w", {"w": self._wref(work)})
         for s in rows:
             s["type"] = s.get("stype", "设定")  # 前端契约别名
         return rows
 
     def search(self, work: str, query: str, k: int = 6) -> list[dict]:
-        return self.s.search_knowledge(f"work:{work}", query, k=k)
+        return self.s.search_knowledge(self._wref(work), query, k=k)
 
     # ==== 写作层移植:生成上下文实体 ====
     @staticmethod
@@ -197,21 +197,28 @@ class Domain:
         s = str(rid)
         return s.split(":", 1)[1].strip("⟨⟩`") if ":" in s else s
 
+    @staticmethod
+    def _wref(work) -> str:
+        """裸 hex / 'work:hex' / RecordID → 统一 'work:hex'(写引用与 WHERE 查询用)。
+        让所有方法同时接受 create_work 返回的裸 hex 与 list_works/get_work 返回的 'work:hex',
+        避免双前缀('work:work:hex')导致主编 agentic 工具链查空。"""
+        return f"work:{Domain._idpart(work)}"
+
     # ---- 北极星(每书一条,upsert) ----
     def set_intent(self, work: str, reader_feeling: str = "", core_emotional_arc: str = "",
                    why_write: str = "", central_promise: str = "",
                    red_lines: list | None = None) -> None:
-        data = {"work": f"work:{work}", "reader_feeling": reader_feeling,
+        data = {"work": self._wref(work), "reader_feeling": reader_feeling,
                 "core_emotional_arc": core_emotional_arc, "why_write": why_write,
                 "central_promise": central_promise, "red_lines": red_lines or []}
-        existing = self.s.list("author_intent", "work = $w", {"w": f"work:{work}"})
+        existing = self.s.list("author_intent", "work = $w", {"w": self._wref(work)})
         if existing:
             self.s.update("author_intent", self._idpart(existing[0]["id"]), data)
         else:
             self.s.create("author_intent", data)
 
     def get_intent(self, work: str) -> dict | None:
-        rows = self.s.list("author_intent", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("author_intent", "work = $w", {"w": self._wref(work)})
         if not rows:
             return None
         it = rows[0]
@@ -221,23 +228,23 @@ class Domain:
     # ---- 角色(含声音指纹;内容实体,可语义检索) ----
     def add_character(self, work: str, name: str, motivation: str = "", voice: str = "") -> str:
         text = "；".join(x for x in [name, motivation, voice] if x)
-        return self.s.put_content("character", work=f"work:{work}", text=text,
+        return self.s.put_content("character", work=self._wref(work), text=text,
                                   name=name, motivation=motivation, voice=voice)
 
     def list_characters(self, work: str) -> list[dict]:
-        return self.s.list("character", "work = $w", {"w": f"work:{work}"})
+        return self.s.list("character", "work = $w", {"w": self._wref(work)})
 
     # ---- 伏笔 ----
     def plant_foreshadow(self, work: str, summary: str, chapter: int,
                          importance: str = "normal") -> str:
-        return self.s.put_content("foreshadow", work=f"work:{work}", text=summary,
+        return self.s.put_content("foreshadow", work=self._wref(work), text=summary,
                                   summary=summary, chapter=chapter,
                                   importance=importance, state="planted")
 
     def list_open_foreshadows(self, work: str) -> list[dict]:
         return self.s.list("foreshadow",
                            "work = $w AND state IN ['planted', 'triggered']",
-                           {"w": f"work:{work}"})
+                           {"w": self._wref(work)})
 
     def advance_foreshadow(self, fid: str, to_state: str) -> None:
         self.s.update("foreshadow", fid, {"state": to_state})
@@ -246,16 +253,16 @@ class Domain:
     def save_chapter_memory(self, work: str, seq: int, summary: str) -> str:
         scope = f"chapter:{seq}"
         existing = self.s.list("memory_entry", "work = $w AND scope = $s",
-                               {"w": f"work:{work}", "s": scope})
+                               {"w": self._wref(work), "s": scope})
         if existing:
             rid = self._idpart(existing[0]["id"])
             self.s.update("memory_entry", rid, {"text": summary, "seq": seq})
             return rid
-        return self.s.put_content("memory_entry", work=f"work:{work}", text=summary,
+        return self.s.put_content("memory_entry", work=self._wref(work), text=summary,
                                   scope=scope, seq=seq)
 
     def list_chapter_memories(self, work: str, upto: int | None = None) -> list[dict]:
-        rows = [r for r in self.s.list("memory_entry", "work = $w", {"w": f"work:{work}"})
+        rows = [r for r in self.s.list("memory_entry", "work = $w", {"w": self._wref(work)})
                 if r.get("seq") is not None]
         if upto is not None:
             rows = [r for r in rows if r["seq"] <= upto]
@@ -263,26 +270,26 @@ class Domain:
 
     def set_global_memory(self, work: str, text: str) -> None:
         existing = self.s.list("memory_entry", "work = $w AND scope = 'global'",
-                               {"w": f"work:{work}"})
+                               {"w": self._wref(work)})
         if existing:
             self.s.update("memory_entry", self._idpart(existing[0]["id"]), {"text": text})
         else:
-            self.s.put_content("memory_entry", work=f"work:{work}", text=text, scope="global")
+            self.s.put_content("memory_entry", work=self._wref(work), text=text, scope="global")
 
     def get_global_memory(self, work: str) -> str:
         rows = self.s.list("memory_entry", "work = $w AND scope = 'global'",
-                           {"w": f"work:{work}"})
+                           {"w": self._wref(work)})
         return rows[0]["text"] if rows else ""
 
     # ---- 一致性 flag ----
     def list_consistency_flags(self, work: str, status: str = "open") -> list[dict]:
         return self.s.list("consistency_flag", "work = $w AND status = $s",
-                           {"w": f"work:{work}", "s": status})
+                           {"w": self._wref(work), "s": status})
 
     def add_consistency_flag(self, work: str, seq: int, detail: str,
                              error_class: str = "", severity: str = "warning") -> str:
         return self.s.create("consistency_flag", {
-            "work": f"work:{work}", "seq": seq, "detail": detail,
+            "work": self._wref(work), "seq": seq, "detail": detail,
             "error_class": error_class, "severity": severity, "status": "open"})
 
     def resolve_consistency_flag(self, fid: str, status: str = "fixed") -> None:
@@ -292,20 +299,20 @@ class Domain:
     # ---- 札记 insight ----
     def add_insight(self, work: str, summary: str, suggested_action: str = "",
                     severity: str = "info") -> str:
-        return self.s.create("insight", {"work": f"work:{work}", "summary": summary,
+        return self.s.create("insight", {"work": self._wref(work), "summary": summary,
                              "suggested_action": suggested_action, "severity": severity,
                              "status": "new", "created_at": _now()})
 
     def list_insights(self, work: str, status: str = "new") -> list[dict]:
         return self.s.list("insight", "work = $w AND status = $s",
-                           {"w": f"work:{work}", "s": status})
+                           {"w": self._wref(work), "s": status})
 
     def act_insight(self, iid: str, act: str) -> None:
         self.s.update("insight", iid, {"status": "acked" if act == "ack" else "dismissed"})
 
     # ---- 方案 option_set ----
     def add_option_set(self, work: str, decision_point, options) -> str:
-        return self.s.create("option_set", {"work": f"work:{work}",
+        return self.s.create("option_set", {"work": self._wref(work),
                              "decision_point": json.dumps(decision_point, ensure_ascii=False)
                              if not isinstance(decision_point, str) else decision_point,
                              "options": json.dumps(options, ensure_ascii=False)
@@ -313,22 +320,22 @@ class Domain:
                              "chosen": None, "created_at": _now()})
 
     def list_option_sets(self, work: str) -> list[dict]:
-        return self.s.list("option_set", "work = $w AND chosen = NONE", {"w": f"work:{work}"})
+        return self.s.list("option_set", "work = $w AND chosen = NONE", {"w": self._wref(work)})
 
     def choose_option(self, oid: str, chosen: str) -> None:
         self.s.update("option_set", oid, {"chosen": chosen})
 
     # ---- 议题 thread ----
     def add_thread(self, work: str, trigger: str, topic: str = "", messages=None) -> str:
-        return self.s.create("thread", {"work": f"work:{work}", "trigger": trigger,
+        return self.s.create("thread", {"work": self._wref(work), "trigger": trigger,
                              "topic": topic, "messages": json.dumps(messages or [], ensure_ascii=False),
                              "status": "open", "created_at": _now()})
 
     def list_threads(self, work: str, status: str | None = None) -> list[dict]:
         if status:
             return self.s.list("thread", "work = $w AND status = $s",
-                               {"w": f"work:{work}", "s": status})
-        return self.s.list("thread", "work = $w", {"w": f"work:{work}"})
+                               {"w": self._wref(work), "s": status})
+        return self.s.list("thread", "work = $w", {"w": self._wref(work)})
 
     def resolve_thread(self, tid: str, resolution: str = "") -> None:
         self.s.update("thread", tid, {"status": "resolved", "resolution": resolution})
@@ -336,12 +343,12 @@ class Domain:
     # ---- 素材 material(内容实体,可检索)----
     def add_material(self, work: str, content: str, type_: str = "snippet",
                      scope: str = "work", title: str = "") -> str:
-        return self.s.put_content("material", work=f"work:{work}", text=content,
+        return self.s.put_content("material", work=self._wref(work), text=content,
                                   type=type_, title=title, content=content,
                                   tags="", status="pending", scope=scope)
 
     def list_materials(self, work: str) -> list[dict]:
-        return self.s.list("material", "work = $w", {"w": f"work:{work}"})
+        return self.s.list("material", "work = $w", {"w": self._wref(work)})
 
     def update_material(self, mid: str, patch: dict) -> None:
         self.s.update("material", mid, patch)
@@ -351,18 +358,18 @@ class Domain:
 
     # ---- 想象 imagination(内容实体)----
     def add_imagination(self, work: str, raw_text: str) -> str:
-        return self.s.put_content("imagination", work=f"work:{work}", text=raw_text,
+        return self.s.put_content("imagination", work=self._wref(work), text=raw_text,
                                   raw_text=raw_text, status="captured", created_at=_now())
 
     def list_imaginations(self, work: str) -> list[dict]:
-        return self.s.list("imagination", "work = $w", {"w": f"work:{work}"})
+        return self.s.list("imagination", "work = $w", {"w": self._wref(work)})
 
     def set_imagination_status(self, iid: str, status: str) -> None:
         self.s.update("imagination", iid, {"status": status})
 
     # ---- 偏好信号 preference ----
     def add_preference(self, work: str, source: str, polarity: str = "+", signal=None) -> str:
-        return self.s.create("preference_signal", {"work": f"work:{work}", "source": source,
+        return self.s.create("preference_signal", {"work": self._wref(work), "source": source,
                              "polarity": polarity, "signal": json.dumps(signal or {}, ensure_ascii=False),
                              "created_at": _now()})
 
@@ -370,7 +377,7 @@ class Domain:
     def write_agent_memory(self, owner: str, work: str | None, namespace: str, key: str,
                            value, confidence: float = 1.0) -> str:
         rid = self.s.create("agent_memory", {"owner": owner,
-                            "work": f"work:{work}" if work else None, "namespace": namespace,
+                            "work": self._wref(work) if work else None, "namespace": namespace,
                             "key": key, "value": json.dumps(value, ensure_ascii=False)
                             if not isinstance(value, str) else value,
                             "confidence": confidence, "updated_at": _now()})
@@ -385,14 +392,14 @@ class Domain:
 
     # ---- 技能 agent_skill ----
     def propose_skill(self, work: str, name: str, spec=None) -> str:
-        return self.s.create("agent_skill", {"work": f"work:{work}", "name": name,
+        return self.s.create("agent_skill", {"work": self._wref(work), "name": name,
                              "spec": json.dumps(spec or {}, ensure_ascii=False)
                              if not isinstance(spec, str) else spec,
                              "status": "proposed", "created_by": "agent",
                              "approved_by_human": False, "created_at": _now()})
 
     def list_agent_skills(self, work: str, status: str | None = None) -> list[dict]:
-        rows = self.s.list("agent_skill", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("agent_skill", "work = $w", {"w": self._wref(work)})
         if status:
             rows = [r for r in rows if r.get("status") == status]
         return rows
@@ -409,11 +416,11 @@ class Domain:
     # ---- 实体关系 entity_relation ----
     def add_relation(self, work: str, src: str, dst: str, relation: str,
                      **kw) -> str:
-        return self.s.create("entity_relation", {"work": f"work:{work}", "src_entity": src,
+        return self.s.create("entity_relation", {"work": self._wref(work), "src_entity": src,
                              "dst_entity": dst, "relation": relation, **kw})
 
     def list_relations(self, work: str, upto: int | None = None) -> list[dict]:
-        rows = self.s.list("entity_relation", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("entity_relation", "work = $w", {"w": self._wref(work)})
         if upto is not None:
             rows = [r for r in rows if (r.get("valid_from_chapter") or 0) <= upto]
         return rows
@@ -421,31 +428,31 @@ class Domain:
     # ---- 角色状态轨迹 char_state ----
     def add_char_state(self, work: str, character: str, chapter_seq: int,
                        state_desc: str = "", change_type: str = "") -> str:
-        return self.s.create("char_state", {"work": f"work:{work}", "character": character,
+        return self.s.create("char_state", {"work": self._wref(work), "character": character,
                              "chapter_seq": chapter_seq, "state_desc": state_desc,
                              "change_type": change_type})
 
     def list_char_states(self, work: str, character: str) -> list[dict]:
         rows = self.s.list("char_state", "work = $w AND character = $c",
-                           {"w": f"work:{work}", "c": character})
+                           {"w": self._wref(work), "c": character})
         return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
 
     # ---- 时间线 timeline_event ----
     def add_timeline_event(self, work: str, chapter_seq: int, description: str) -> str:
-        return self.s.create("timeline_event", {"work": f"work:{work}",
+        return self.s.create("timeline_event", {"work": self._wref(work),
                              "chapter_seq": chapter_seq, "description": description})
 
     def list_timeline(self, work: str) -> list[dict]:
-        rows = self.s.list("timeline_event", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("timeline_event", "work = $w", {"w": self._wref(work)})
         return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
 
     # ==== WaveC:质量/成本/impact/任务态 ====
     def record_cost(self, work: str, tokens: int, cost_usd: float = 0.0) -> None:
-        self.s.create("quality_snapshot", {"work": f"work:{work}", "scope": "cost",
+        self.s.create("quality_snapshot", {"work": self._wref(work), "scope": "cost",
                       "tokens": tokens, "cost_usd": cost_usd, "calls": 1, "created_at": _now()})
 
     def get_cost(self, work: str) -> dict:
-        rows = self.s.list("quality_snapshot", "work = $w AND scope = 'cost'", {"w": f"work:{work}"})
+        rows = self.s.list("quality_snapshot", "work = $w AND scope = 'cost'", {"w": self._wref(work)})
         return {"calls": len(rows), "tokens": sum(r.get("tokens") or 0 for r in rows),
                 "cost_usd": round(sum(r.get("cost_usd") or 0 for r in rows), 6)}
 
@@ -463,7 +470,7 @@ class Domain:
         chs = self.list_chapters(work)
         proses = [self.latest_prose(self._idpart(c["id"])) for c in chs]
         words = sum(_cjk(p) for p in proses)
-        fores = self.s.list("foreshadow", "work = $w", {"w": f"work:{work}"})
+        fores = self.s.list("foreshadow", "work = $w", {"w": self._wref(work)})
         planted = len(fores)
         paid = len([f for f in fores if f.get("state") == "paid"])
         flags_open = self.list_consistency_flags(work, "open")
@@ -488,7 +495,7 @@ class Domain:
 
     def snapshot_quality(self, work: str) -> None:
         q = self.compute_quality(work)
-        self.s.create("quality_snapshot", {"work": f"work:{work}", "scope": "work",
+        self.s.create("quality_snapshot", {"work": self._wref(work), "scope": "work",
                       "words": q["words"], "slop_density": q["avg_slop_density"],
                       "consistency_score": q["consistency"]["score"],
                       "foreshadow_payoff": q["foreshadow"]["payoff_rate"],
@@ -496,7 +503,7 @@ class Domain:
 
     def list_quality_history(self, work: str, scope: str = "work") -> list[dict]:
         rows = self.s.list("quality_snapshot", "work = $w AND scope = $s",
-                           {"w": f"work:{work}", "s": scope})
+                           {"w": self._wref(work), "s": scope})
         return sorted(rows, key=lambda r: r.get("created_at") or "")
 
     # ---- 章编排任务态 ----
@@ -511,7 +518,7 @@ class Domain:
 
     def get_task(self, work: str, seq: int) -> dict:
         rows = self.s.list("chapter_task", "work = $w AND seq = $q",
-                           {"w": f"work:{work}", "q": seq})
+                           {"w": self._wref(work), "q": seq})
         if rows:
             t = rows[0]
             return {**t, "next": self._TASK_NEXT.get(t.get("status", "PLANNING"), [])}
@@ -520,13 +527,13 @@ class Domain:
 
     def advance_task(self, work: str, seq: int, to: str, detail: str = "") -> dict:
         rows = self.s.list("chapter_task", "work = $w AND seq = $q",
-                           {"w": f"work:{work}", "q": seq})
+                           {"w": self._wref(work), "q": seq})
         cur = rows[0].get("status", "PLANNING") if rows else "PLANNING"
         if to not in self._TASK_NEXT.get(cur, []):
             raise ValueError(f"非法状态转移 {cur}→{to}")
         if rows:
             self.s.update("chapter_task", self._idpart(rows[0]["id"]), {"status": to, "detail": detail})
         else:
-            self.s.create("chapter_task", {"work": f"work:{work}", "seq": seq,
+            self.s.create("chapter_task", {"work": self._wref(work), "seq": seq,
                           "status": to, "detail": detail})
         return self.get_task(work, seq)
