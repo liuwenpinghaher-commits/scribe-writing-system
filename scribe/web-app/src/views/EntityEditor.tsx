@@ -89,9 +89,9 @@ function EntityRelations({ work, name }: { work: string; name: string }) {
 
 export type EntityKind = "character" | "setting" | "motif";
 
-export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }: {
+export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss, defaultType }: {
   work: string; kind: EntityKind; entity?: CharacterT | Setting | Motif | null;
-  onSaved: () => void; onClose: () => void; onDiscuss?: (kind: EntityKind, name: string) => void;
+  onSaved: () => void; onClose: () => void; onDiscuss?: (kind: EntityKind, name: string) => void; defaultType?: string;
 }) {
   const e = (entity ?? {}) as Record<string, unknown>;
   const initStr = (k: string) => (typeof e[k] === "string" ? (e[k] as string) : "");
@@ -102,7 +102,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
       o.voice_samples = Array.isArray(e.voice_samples) ? (e.voice_samples as string[]).join("\n") : "";
       o.aliases = Array.isArray(e.aliases) ? (e.aliases as string[]).join("、") : "";
     } else if (kind === "setting") {
-      o.type = initStr("type") || "设定"; o.description = initStr("content") || initStr("description");
+      o.type = initStr("type") || defaultType || "设定"; o.description = initStr("content") || initStr("description");
       const ff = (e.fields as Record<string, string>) ?? {};
       o.cost = ff.cost ?? ""; o.limitations = ff.limitations ?? ""; o.trouble_it_causes = ff.trouble_it_causes ?? "";
     } else {

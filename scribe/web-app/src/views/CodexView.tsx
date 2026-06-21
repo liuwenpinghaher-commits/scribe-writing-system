@@ -17,6 +17,9 @@ import {
   Bookmark,
   Flame,
   FileText,
+  Layers,
+  Flag,
+  Package,
   Plus,
   ChevronRight,
   ChevronDown,
@@ -413,11 +416,12 @@ function CharactersTab({ work, rev = 0, onEdit }: { work: string; rev?: number; 
 }
 
 // ── 设定 Tab ──
-function SettingsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEdit?: (e?: Setting) => void }) {
-  const { data, loading, error, reload } = useData(() => api.settings(work), [work, rev]);
+function SettingsTab({ work, rev = 0, onEdit, typeFilter }: { work: string; rev?: number; onEdit?: (e?: Setting) => void; typeFilter?: string }) {
+  const { data: rawData, loading, error, reload } = useData(() => api.settings(work), [work, rev]);
+  const data = typeFilter ? (rawData ?? []).filter((s) => (s.type || "") === typeFilter) : rawData;
   const [filter, setFilter] = useState("");
   const [addName, setAddName] = useState("");
-  const [addType, setAddType] = useState("");
+  const [addType, setAddType] = useState(typeFilter ?? "");
   const [addDesc, setAddDesc] = useState("");
   const [addCost, setAddCost] = useState("");
   const [addLimit, setAddLimit] = useState("");
@@ -945,10 +949,13 @@ function ForeshadowsPane({ work, rev }: { work: string; rev: number }) {
   );
 }
 
-type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown } | { mode: "extract" };
+type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown; dtype?: string } | { mode: "extract" };
 const TYPES = [
   { key: "characters", label: "角色", icon: User, kind: "character" as EntityKind },
-  { key: "settings", label: "设定", icon: MapPin, kind: "setting" as EntityKind },
+  { key: "settings", label: "设定", icon: Layers, kind: "setting" as EntityKind },
+  { key: "places", label: "地点", icon: MapPin, kind: "setting" as EntityKind, stype: "地点" },
+  { key: "factions", label: "阵营", icon: Flag, kind: "setting" as EntityKind, stype: "阵营" },
+  { key: "items", label: "物品", icon: Package, kind: "setting" as EntityKind, stype: "物品" },
   { key: "motifs", label: "母题", icon: Flame, kind: "motif" as EntityKind },
   { key: "foreshadows", label: "伏笔", icon: Bookmark },
   { key: "materials", label: "素材", icon: FileText },
@@ -963,13 +970,16 @@ export function CodexView({ work }: { work: string }) {
   const [view, setView] = useState<CenterView>({ mode: "list" });
   const [seed, setSeed] = useState<string | undefined>(undefined);
 
-  const openEdit = (kind: EntityKind) => (entity?: unknown) => setView({ mode: "edit", kind, entity: entity ?? null });
+  const openEdit = (kind: EntityKind, dtype?: string) => (entity?: unknown) => setView({ mode: "edit", kind, entity: entity ?? null, dtype });
   const discuss = (kind: EntityKind, name: string) => { setRightActive("chat"); setSeed(`聊聊「${name}」这个${KIND_LABEL[kind]}：`); };
   const t = TYPES.find((x) => x.key === type) ?? TYPES[0];
 
   const listForType = () => {
     switch (type) {
       case "settings": return <SettingsTab work={work} rev={rev} onEdit={openEdit("setting")} />;
+      case "places": return <SettingsTab work={work} rev={rev} typeFilter="地点" onEdit={openEdit("setting", "地点")} />;
+      case "factions": return <SettingsTab work={work} rev={rev} typeFilter="阵营" onEdit={openEdit("setting", "阵营")} />;
+      case "items": return <SettingsTab work={work} rev={rev} typeFilter="物品" onEdit={openEdit("setting", "物品")} />;
       case "motifs": return <MotifsTab work={work} rev={rev} onEdit={openEdit("motif")} />;
       case "foreshadows": return <ForeshadowsPane work={work} rev={rev} />;
       case "materials": return <MaterialsTab work={work} />;
@@ -980,7 +990,7 @@ export function CodexView({ work }: { work: string }) {
   // 中区:主工作面 —— 列表 / 实体详情(全字段)/ 从正文抽取
   const center =
     view.mode === "edit" ? (
-      <EntityEditor work={work} kind={view.kind} entity={view.entity as never}
+      <EntityEditor work={work} kind={view.kind} entity={view.entity as never} defaultType={view.dtype}
         onSaved={bump} onClose={() => setView({ mode: "list" })} onDiscuss={discuss} />
     ) : view.mode === "extract" ? (
       <ExtractPanel work={work} onSaved={bump} onClose={() => setView({ mode: "list" })} />
