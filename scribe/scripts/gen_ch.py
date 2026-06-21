@@ -10,18 +10,21 @@ INSTR0 = sys.argv[3] if len(sys.argv) > 3 else "开篇本章,古典志怪·乱�
 cli = httpx.Client(base_url=BASE, headers=H, timeout=1800)
 
 CONT = "接上文自然续写,推进本章既定节奏(见上下文各线指令/伏笔节点);保持视角与声音一致,克制收尾、不点题升华。"
+CAP = 5500   # 控总长匹配乱世铜炉(~5800),防暴写注水
 secs = []
 prev = ""
-for i in range(3):
+i = 0
+while sum(len(s) for s in secs) < CAP and i < 4:
     instr = INSTR0 if i == 0 else CONT
     r = cli.post(f"/works/{WID}/chapters/{SEQ}/actions/continue",
-                 json={"instruction": instr, "target_chars": 1150, "prev": prev})
+                 json={"instruction": instr, "target_chars": 1400, "prev": prev})
     if r.status_code >= 300:
         print("✗ gen", i, r.status_code, r.text[:200]); sys.exit(1)
     sec = r.json()["content"].strip()
     secs.append(sec)
     prev = ("\n".join(secs))[-1800:]
-    print(f"  节{i+1}: +{len(sec)}字  累计{sum(len(s) for s in secs)}")
+    i += 1
+    print(f"  节{i}: +{len(sec)}字  累计{sum(len(s) for s in secs)}")
 
 full = "\n\n".join(secs)
 r = cli.post(f"/works/{WID}/chapters/{SEQ}/prose", json={"content": full, "lock": False})

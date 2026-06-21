@@ -25,14 +25,18 @@ def _api_key() -> str:
 
 
 def hermes_complete(prompt: str, system: str | None = None,
-                    model: str = "doubao-seed-2.0-pro", timeout: float = 600.0) -> str:
-    """经 Hermes 网关取一段补全(主笔)。错误抛出不静默。"""
+                    model: str = "doubao-seed-2.0-pro", timeout: float = 600.0,
+                    max_tokens: int | None = None) -> str:
+    """经 Hermes 网关取一段补全(主笔)。max_tokens 硬上限控长(防暴写注水)。错误抛出不静默。"""
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
+    body: dict = {"model": model, "messages": msgs, "stream": False}
+    if max_tokens:
+        body["max_tokens"] = max_tokens
     r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout,
                    headers={"Authorization": f"Bearer {_api_key()}",
                             "Content-Type": "application/json"},
-                   json={"model": model, "messages": msgs, "stream": False})
+                   json=body)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 

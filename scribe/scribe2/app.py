@@ -385,7 +385,9 @@ def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = H
 def gen_continue(w: str, seq: int, b: ActionIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     """生成第 seq 章一节正文(_writing_context 注入 + 走 Hermes)。不落库,接受才存稿。"""
     owner(x_owner_id)
-    content = generate_continue(d, w, seq, b.instruction, _complete, b.target_chars, b.prev)
+    mt = int((b.target_chars or 1150) * 1.7) + 200   # 中文 char≈token,硬上限防暴写注水(gap10)
+    capped = lambda p: _complete(p, max_tokens=mt)
+    content = generate_continue(d, w, seq, b.instruction, capped, b.target_chars, b.prev)
     return {"content": content}
 
 @app.post("/works/{w}/chapters/{seq}/ingest")
