@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
+import { InlineText } from "@/components/detail";
 import { cn } from "@/lib/utils";
 
 // Right — 右栏 Inspector。活动栏拆解:每个能力一个图标,点开渲染单一能力面板。
@@ -266,16 +267,16 @@ function BibleItem({ work, item, onSaved }: {
   item: { kind: "char" | "set"; k: string; name: string; body: string; type: string };
   onSaved: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [body, setBody] = useState(item.body);
   const [impact, setImpact] = useState<{ seq: number; title?: string; snippet: string }[] | null>(null);
   const [loadingImpact, setLoadingImpact] = useState(false);
   const [showStates, setShowStates] = useState(false);
   const toast = useToast();
+  const dirty = body.trim() !== item.body.trim();
   const save = async () => {
     if (item.kind === "char") await api.addCharacter(work, item.name, body.trim());
     else await api.addSetting(work, item.name, item.type || "设定", body.trim());
-    setOpen(false); toast("已保存"); onSaved();
+    toast("已保存"); onSaved();
   };
   const loadImpact = async () => {
     if (impact) { setImpact(null); return; }
@@ -285,65 +286,46 @@ function BibleItem({ work, item, onSaved }: {
   const jump = (seq: number) => { location.hash = `#/work/${work}/ch/${seq}`; };
   return (
     <Card size="sm">
-      <CardContent className="pt-3">
-        <button
-          className="w-full text-left"
-          onClick={() => { setBody(item.body); setOpen((o) => !o); }}
-          aria-expanded={open}
-        >
-          <span className="flex items-center gap-1.5">
-            <Badge variant="secondary" className="text-[10px] shrink-0">{item.k}</Badge>
-            <span className="font-prose text-sm font-medium">{item.name}</span>
-            {item.body && !open && (
-              <span className="text-xs text-muted-foreground truncate">
-                · {item.body.slice(0, 18)}{item.body.length > 18 ? "…" : ""}
-              </span>
+      <CardContent className="pt-2.5 pb-2 flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5 px-1">
+          <Badge variant="secondary" className="text-[10px] shrink-0">{item.k}</Badge>
+          <span className="font-prose text-sm font-medium">{item.name}</span>
+          {dirty && <Button variant="ghost" size="xs" className="ml-auto h-6" onClick={save}>保存</Button>}
+        </div>
+        {/* body:点击即编辑(统一详情风格) */}
+        <InlineText multiline rows={2} v={body} on={(e) => setBody(e.target.value)}
+          ph={item.kind === "char" ? "动机/性格…" : "设定描述…"} />
+        <div className="flex flex-wrap gap-2 px-2 pt-0.5">
+          <button className="text-xs text-muted-foreground hover:text-foreground transition-colors" onClick={loadImpact}>
+            {item.kind === "char" ? "出场时间线" : "影响章节"}{impact ? " ▾" : " ▸"}
+          </button>
+          {item.kind === "char" && (
+            <button className="text-xs text-muted-foreground hover:text-foreground transition-colors" onClick={() => setShowStates((v) => !v)}>
+              状态轨迹{showStates ? " ▾" : " ▸"}
+            </button>
+          )}
+        </div>
+        {showStates && item.kind === "char" && <CharStates work={work} name={item.name} />}
+        {loadingImpact && <p className="text-xs text-muted-foreground px-2">查找中…</p>}
+        {impact && (
+          <div className="flex flex-col gap-1 px-1 pt-1">
+            {impact.length === 0 && (
+              <p className="text-xs text-muted-foreground">暂无章节引用「{item.name}」</p>
             )}
-          </span>
-        </button>
-        {open && (
-          <div className="mt-2 flex flex-col gap-2">
-            <Textarea
-              rows={2}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder={item.kind === "char" ? "动机/性格…" : "设定描述…"}
-              className="text-xs resize-none"
-            />
-            <div className="flex flex-wrap gap-1">
-              <Button variant="ghost" size="xs" onClick={save}>保存</Button>
-              <Button variant="ghost" size="xs" onClick={loadImpact}>
-                {item.kind === "char" ? "出场时间线" : "影响章节"}{impact ? " ▾" : " ▸"}
-              </Button>
-              {item.kind === "char" && (
-                <Button variant="ghost" size="xs" onClick={() => setShowStates((v) => !v)}>
-                  状态轨迹{showStates ? " ▾" : " ▸"}
-                </Button>
-              )}
-            </div>
-            {showStates && item.kind === "char" && <CharStates work={work} name={item.name} />}
-            {loadingImpact && <p className="text-xs text-muted-foreground">查找中…</p>}
-            {impact && (
-              <div className="flex flex-col gap-1">
-                {impact.length === 0 && (
-                  <p className="text-xs text-muted-foreground">暂无章节引用「{item.name}」</p>
-                )}
-                {impact.map((c) => (
-                  <button
-                    key={c.seq}
-                    className="flex flex-col items-start rounded-md border border-border px-2 py-1.5 text-left hover:bg-muted transition-colors"
-                    onClick={() => jump(c.seq)}
-                    title="跳到该章"
-                  >
-                    <span className="flex items-center gap-1">
-                      <Badge variant="secondary" className="text-[10px]">第 {c.seq} 章</Badge>
-                      <span className="text-xs">{c.title || "无题"}</span>
-                    </span>
-                    <span className="text-xs text-muted-foreground mt-0.5">{c.snippet}…</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            {impact.map((c) => (
+              <button
+                key={c.seq}
+                className="flex flex-col items-start rounded-md border border-border px-2 py-1.5 text-left hover:bg-muted transition-colors"
+                onClick={() => jump(c.seq)}
+                title="跳到该章"
+              >
+                <span className="flex items-center gap-1">
+                  <Badge variant="secondary" className="text-[10px]">第 {c.seq} 章</Badge>
+                  <span className="text-xs">{c.title || "无题"}</span>
+                </span>
+                <span className="text-xs text-muted-foreground mt-0.5">{c.snippet}…</span>
+              </button>
+            ))}
           </div>
         )}
       </CardContent>

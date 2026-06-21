@@ -10,6 +10,7 @@ import { api, type CharacterT, type Setting, type Motif } from "@/api";
 import { useData, useToast } from "@/common";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { InlineText, Row, Block, Section, DetailHeader } from "@/components/detail";
 
 /** 人物附加:出场章节(出场追踪)+ 状态轨迹 Progressions(逐章变化,绑定生效章) */
 function CharExtras({ work, name }: { work: string; name: string }) {
@@ -27,12 +28,11 @@ function CharExtras({ work, name }: { work: string; name: string }) {
     catch (e) { toast(String(e)); } finally { setAdding(false); }
   };
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border pb-1">出场 / 状态轨迹</div>
-      <div className="text-xs text-muted-foreground">
+    <Section title="出场 / 状态轨迹">
+      <div className="text-xs text-muted-foreground px-2 py-1">
         出场:{app.data?.chapters?.length ? app.data.chapters.map((c) => `第${c}章`).join("、") : "—"}
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-0.5 px-2">
         {(states.data ?? []).map((s) => (
           <div key={s.id ?? s.chapter_seq} className="text-xs flex gap-1.5">
             <span className="shrink-0 text-muted-foreground">第{s.chapter_seq}章:</span>
@@ -40,7 +40,7 @@ function CharExtras({ work, name }: { work: string; name: string }) {
           </div>
         ))}
       </div>
-      <div className="flex gap-1.5 items-center">
+      <div className="flex gap-1.5 items-center px-1 pt-1.5">
         <Input value={seq} onChange={(e) => setSeq(e.target.value)} placeholder="章" className="h-7 text-xs w-12" />
         <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="该章起的新状态(如:左眼又瞎一分)" className="h-7 text-xs flex-1"
           onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
@@ -48,74 +48,11 @@ function CharExtras({ work, name }: { work: string; name: string }) {
           {adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
         </Button>
       </div>
-    </div>
+    </Section>
   );
 }
 
 export type EntityKind = "character" | "setting" | "motif";
-
-// 点击进入编辑、平时纯展示(Notion 式)。失焦/Esc 回展示,Enter 提交单行。
-type ChangeFn = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-const focusEnd = (el: HTMLInputElement | HTMLTextAreaElement | null) => {
-  if (!el) return; el.focus();
-  const n = el.value.length; try { el.setSelectionRange(n, n); } catch { /* */ }
-};
-function InlineText({ v, on, ph, multiline, rows, big }: {
-  v: string; on: ChangeFn; ph?: string; multiline?: boolean; rows?: number; big?: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const sz = big ? "text-2xl font-bold text-foreground" : "text-sm";
-  if (editing) {
-    const cls = `w-full bg-transparent rounded-md px-2 py-1.5 outline-none transition-colors focus:bg-muted focus:ring-1 focus:ring-ring/30 placeholder:text-muted-foreground/40 ${sz}`;
-    return multiline
-      ? <textarea ref={focusEnd} value={v} onChange={on} placeholder={ph} rows={rows ?? 3} onBlur={() => setEditing(false)}
-          onKeyDown={(ev) => { if (ev.key === "Escape") (ev.target as HTMLTextAreaElement).blur(); }}
-          className={cls + " resize-none leading-relaxed"} />
-      : <input ref={focusEnd} value={v} onChange={on} placeholder={ph} onBlur={() => setEditing(false)}
-          onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === "Escape") (ev.target as HTMLInputElement).blur(); }}
-          className={cls} />;
-  }
-  return (
-    <div onClick={() => setEditing(true)} title="点击编辑" style={{ minHeight: 34 }}
-      className={`px-2 py-1.5 rounded-md cursor-text hover:bg-muted/40 transition-colors flex items-center ${sz}`}>
-      {v
-        ? <span className={multiline ? "whitespace-pre-wrap" : "truncate"}>{v}</span>
-        : <span className={`text-muted-foreground/35 font-normal truncate ${big ? "text-2xl" : "text-sm"}`}>{ph || "添加…"}</span>}
-    </div>
-  );
-}
-
-const HAIR = "color-mix(in srgb, var(--border) 55%, transparent)";  // 极细分隔线
-/** 标签左/值右一行(短字段)。内联 grid 保证两列,不依赖任意值类。 */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="grid items-center gap-3" style={{ gridTemplateColumns: "100px minmax(0,1fr)", borderBottom: `1px solid ${HAIR}` }}>
-      <span className="text-xs text-muted-foreground select-none">{label}</span>
-      <div className="min-w-0">{children}</div>
-    </label>
-  );
-}
-/** 标签上/值下整行(多行/长字段) */
-function Block({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col pb-1" style={{ borderBottom: `1px solid ${HAIR}` }}>
-      <span className="text-xs text-muted-foreground select-none pt-0.5">{label}</span>
-      {children}
-    </label>
-  );
-}
-/** 分区标题:绿色竖条 + 粗黑大字,一眼区分(tier 1) */
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 mt-6 mb-2">
-        <span style={{ width: 3, height: 15, background: "var(--accent)", borderRadius: 2, flexShrink: 0 }} />
-        <span className="text-sm font-bold text-foreground">{title}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
 
 export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }: {
   work: string; kind: EntityKind; entity?: CharacterT | Setting | Motif | null;
@@ -183,31 +120,29 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
       </div>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl px-5 py-4 flex flex-col gap-0.5">
-          {/* 文档头:类型小标 + 大标题(点击编辑) */}
-          <div className="pb-3 mb-1" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="text-xs uppercase tracking-wider px-2 mb-0.5" style={{ color: "var(--accent)" }}>{title}</div>
+          <DetailHeader kicker={title}>
             <InlineText v={f.name} on={set("name")} ph={`${title}名`} big />
-          </div>
+          </DetailHeader>
 
           {kind === "character" && <>
-            <Group title="身份">
+            <Section title="身份">
               <Row label="动机"><InlineText v={f.motivation} on={set("motivation")} ph="他想要什么" /></Row>
-            </Group>
-            <Group title="声音(防 OOC 命门)">
+            </Section>
+            <Section title="声音(防 OOC 命门)">
               <Row label="声音指纹"><InlineText v={f.voice} on={set("voice")} ph="用词/句式/口头禅,如:极静、短句、不解释" /></Row>
               <Block label="声音样本"><InlineText multiline v={f.voice_samples} on={set("voice_samples")} rows={3} ph={"每行一句代表性台词(写到该角色时原样供 AI 参考):\n三不渡，是规矩。\n上船，别回头。"} /></Block>
-            </Group>
-            <Group title="内核(立体之本)">
+            </Section>
+            <Section title="内核(立体之本)">
               <Row label="核心矛盾"><InlineText v={f.core_contradiction} on={set("core_contradiction")} ph="一组内在对冲,如:守规矩的执念↔为孩子愿破规矩" /></Row>
               <Row label="创伤 wound"><InlineText v={f.wound} on={set("wound")} ph="造成错误信念的过去" /></Row>
               <Row label="错误信念 lie"><InlineText v={f.lie} on={set("lie")} ph="因创伤而信的谎" /></Row>
               <Row label="恐惧 fear"><InlineText v={f.fear} on={set("fear")} ph="最怕发生的事" /></Row>
               <Row label="外在目标 want"><InlineText v={f.want} on={set("want")} ph="角色以为自己要的" /></Row>
               <Row label="内在需求 need"><InlineText v={f.need} on={set("need")} ph="其实真正需要的" /></Row>
-            </Group>
-            <Group title="弧光">
+            </Section>
+            <Section title="弧光">
               <Block label="弧线"><InlineText multiline v={f.arc} on={set("arc")} ph="从起点态→终点态如何改变" /></Block>
-            </Group>
+            </Section>
             {editing && <div className="pt-2"><CharExtras work={work} name={(entity as CharacterT).name} /></div>}
           </>}
 
@@ -216,11 +151,11 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
               <Row label="类型"><InlineText v={f.type} on={set("type")} ph="力量体系 / place / faction / item / lore…" /></Row>
               <Block label="描述"><InlineText multiline v={f.description} on={set("description")} rows={3} ph="这个设定是什么" /></Block>
             </div>
-            <Group title="规则·代价与限制(力量体系)">
+            <Section title="规则·代价与限制(力量体系)">
               <Row label="代价 cost"><InlineText v={f.cost} on={set("cost")} ph="用了要付什么,如:破规一次左眼瞎一分" /></Row>
               <Row label="限制"><InlineText v={f.limitations} on={set("limitations")} ph="不能做什么" /></Row>
               <Row label="会出什么乱子"><InlineText v={f.trouble_it_causes} on={set("trouble_it_causes")} ph="推不出乱子的规则就不够好" /></Row>
-            </Group>
+            </Section>
           </>}
 
           {kind === "motif" && <div className="pt-1.5">
