@@ -37,6 +37,33 @@ def hermes_complete(prompt: str, system: str | None = None,
     return r.json()["choices"][0]["message"]["content"]
 
 
+def hermes_responses_events(message: str, instructions: str, model: str | None = None,
+                            timeout: float = 300.0):
+    """主编 agentic:POST hermes /v1/responses(tools=scribe2 MCP + stream),逐事件 yield。
+    挂 server_label:'scribe2' 引用 config.yaml 里挂的 scribe2 MCP,主编自动发现并调用其工具。
+    SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。"""
+    import json as _j
+    body: dict = {"input": message, "instructions": instructions, "stream": True,
+                  "tools": [{"type": "mcp", "server_label": "scribe2"}]}
+    if model:
+        body["model"] = model
+    with httpx.stream("POST", f"{HERMES}/responses", timeout=timeout,
+                      headers={"Authorization": f"Bearer {_api_key()}",
+                               "Content-Type": "application/json"},
+                      json=body) as r:
+        r.raise_for_status()
+        for raw in r.iter_lines():
+            if not raw or not raw.startswith("data:"):
+                continue
+            payload = raw[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                yield _j.loads(payload)
+            except Exception:
+                continue
+
+
 def hermes_complete_stream(prompt: str, system: str | None = None,
                            model: str = "doubao-seed-2.0-pro", timeout: float = 300.0):
     """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。"""

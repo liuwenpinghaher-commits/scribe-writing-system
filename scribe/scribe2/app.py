@@ -8,7 +8,7 @@ from .conn import connect, domain_from
 from .domain import Domain, _cjk
 from .generate import generate_continue, ingest_chapter, build_chapter_prompt
 from .writing import build_writing_context
-from .llm import hermes_complete, hermes_complete_stream
+from .llm import hermes_complete, hermes_complete_stream, hermes_responses_events
 from .critique import build_critique_prompt, parse_critique, critique_revise
 from .consistency import check_chapter
 from . import editorial as _ed
@@ -16,6 +16,13 @@ from . import editorial as _ed
 app = FastAPI(title="Scribe (SurrealDB)")
 _complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
 _complete_stream = hermes_complete_stream  # 流式;测试可 monkeypatch
+_responses_events = hermes_responses_events  # 主编 agentic(调 scribe2 MCP 工具);测试可 monkeypatch
+
+_CHIEF_SYSTEM = (
+    "你是这本小说的主编,熟悉全书设定、人物、章节与伏笔。回答作者时,"
+    "凡涉及书里的具体设定/人物/章节/伏笔/记忆,务必先调用 scribe2 工具查真实数据,不要凭空编造;"
+    "回答简洁中肯,带文学判断。"
+)
 _singleton: dict = {"d": None}
 
 def get_domain() -> Domain:
@@ -461,23 +468,35 @@ def gen_stream(w: str, seq: int, action: str, b: ActionIn, x_owner_id: str | Non
 
 @app.post("/works/{w}/chat/stream")
 def chat_stream(w: str, body: dict, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    """主编对话(SSE):注入全书背景,流式回复并落讨论线程。"""
+    """主编 agentic 对话(SSE):经 Hermes /v1/responses,主编自己调 scribe2 MCP 工具查真实数据。
+    事件:tool(工具调用提示)/delta(回复片段)/done(完整回复+thread_id)。"""
     owner(x_owner_id)
     message = body.get("message", "")
     thread_id = body.get("thread_id")
-    ctx = build_writing_context(d, w, 10 ** 9)  # 全量记忆/设定/角色
-    system = "你是这本书的主编,熟悉全书设定、人物与进展。基于以下背景,简洁中肯地回应作者。\n\n" + ctx[:2500]
+    model = body.get("model")
+    wk = d.get_work(w) or {}
+    instructions = (_CHIEF_SYSTEM +
+                    f"\n\n作者当前在写《{wk.get('title') or '未命名'}》(work_id={w})。"
+                    "查书里数据时把这个 work_id 传给 scribe2 工具。")
 
     def gen():
-        full = []
+        full: list[str] = []
         try:
-            for delta in _complete_stream(message, system=system):
-                full.append(delta)
-                yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            for ev in _responses_events(message, instructions, model):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    dlt = ev.get("delta", "")
+                    if dlt:
+                        full.append(dlt)
+                        yield f"data: {_json.dumps({'delta': dlt}, ensure_ascii=False)}\n\n"
+                elif t == "response.output_item.added":
+                    item = ev.get("item", {}) or {}
+                    if item.get("type") == "function_call":
+                        yield f"data: {_json.dumps({'tool': item.get('name', ''), 'tool_args': item.get('arguments', '')}, ensure_ascii=False)}\n\n"
         except Exception as e:
-            yield f"data: {_json.dumps({'error': str(e)[:120]}, ensure_ascii=False)}\n\n"
+            yield f"data: {_json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         content = "".join(full)
-        tid = thread_id or d.add_thread(w, trigger="对话", topic=message[:30],
+        tid = thread_id or d.add_thread(w, trigger="chat", topic=message[:30],
                                         messages=[{"role": "user", "content": message},
                                                   {"role": "assistant", "content": content}])
         yield f"data: {_json.dumps({'done': True, 'content': content, 'thread_id': tid}, ensure_ascii=False)}\n\n"

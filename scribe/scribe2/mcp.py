@@ -232,7 +232,15 @@ def list_consistency_flags(work_id: str, status: str = "open") -> list[dict]:
 
 
 def main() -> None:
-    """以 stdio 传输启动 MCP server,供 Hermes run / MCP 客户端挂载(段4)。"""
+    """以 stdio 传输启动 MCP server,供 Hermes 挂载(主编 agentic 调工具)。
+    启动时连 SurrealDB(SURREAL_URL 环境)+ set_domain,使工具有活 domain。"""
+    from .conn import connect, domain_from
+    d = domain_from(connect())
+    try:
+        d.s.init_schema()  # 幂等
+    except Exception:
+        pass
+    set_domain(d)
     mcp.run()
 
 

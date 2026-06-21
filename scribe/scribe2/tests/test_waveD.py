@@ -35,7 +35,10 @@ def test_stream_chat_sse_persists_thread(db, monkeypatch):
     try:
         w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
         c.post(f"/works/{w}/characters", json={"name": "沈舟", "motivation": "查父亲沉船真相"}, headers=H)
-        monkeypatch.setattr(appmod, "_complete_stream", lambda msg, **k: iter(["沈舟", "动机是查真相。"]))
+        # 主编 agentic:mock responses 事件流(无需真连 Hermes)
+        monkeypatch.setattr(appmod, "_responses_events", lambda message, instructions, model=None: iter([
+            {"type": "response.output_text.delta", "delta": "沈舟"},
+            {"type": "response.output_text.delta", "delta": "动机是查真相。"}]))
         r = c.post(f"/works/{w}/chat/stream", json={"message": "沈舟动机?"}, headers=H)
         assert r.status_code == 200
         assert "沈舟" in r.text and "thread_id" in r.text
