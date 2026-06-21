@@ -13,6 +13,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_SLOP = ["嘴角勾起", "一抹弧度", "眼底闪过", "一丝", "暖流涌上心头", "命运的齿轮",
+         "空气仿佛凝固", "千言万语", "般的存在", "值得一提的是", "不禁", "缓缓地",
+         "微微一笑", "深邃的眼眸", "嘴角扬起"]
+
+
+def _slop_density(text: str) -> float:
+    """简易 AI 腔密度:禁用套话命中次数 / 每千字。"""
+    if not text:
+        return 0.0
+    hits = sum(text.count(p) for p in _SLOP)
+    return round(hits / max(1, _cjk(text)) * 1000, 3)
+
+
 class Domain:
     """领域 repo:Store 之上的小说语义。结构实体走 store.create;内容实体走 put_content(自动嵌入)。"""
 
@@ -413,3 +426,95 @@ class Domain:
     def list_timeline(self, work: str) -> list[dict]:
         rows = self.s.list("timeline_event", "work = $w", {"w": f"work:{work}"})
         return sorted(rows, key=lambda r: r.get("chapter_seq") or 0)
+
+    # ==== WaveC:质量/成本/impact/任务态 ====
+    def record_cost(self, work: str, tokens: int, cost_usd: float = 0.0) -> None:
+        self.s.create("quality_snapshot", {"work": f"work:{work}", "scope": "cost",
+                      "tokens": tokens, "cost_usd": cost_usd, "calls": 1, "created_at": _now()})
+
+    def get_cost(self, work: str) -> dict:
+        rows = self.s.list("quality_snapshot", "work = $w AND scope = 'cost'", {"w": f"work:{work}"})
+        return {"calls": len(rows), "tokens": sum(r.get("tokens") or 0 for r in rows),
+                "cost_usd": round(sum(r.get("cost_usd") or 0 for r in rows), 6)}
+
+    def impact(self, work: str, name: str) -> list[dict]:
+        out = []
+        for ch in self.list_chapters(work):
+            content = self.latest_prose(self._idpart(ch["id"]))
+            if name and name in content:
+                idx = content.find(name)
+                out.append({"seq": ch.get("seq"), "title": ch.get("title", ""),
+                            "snippet": content[max(0, idx - 10):idx + 30]})
+        return out
+
+    def compute_quality(self, work: str) -> dict:
+        chs = self.list_chapters(work)
+        proses = [self.latest_prose(self._idpart(c["id"])) for c in chs]
+        words = sum(_cjk(p) for p in proses)
+        fores = self.s.list("foreshadow", "work = $w", {"w": f"work:{work}"})
+        planted = len(fores)
+        paid = len([f for f in fores if f.get("state") == "paid"])
+        flags_open = self.list_consistency_flags(work, "open")
+        by_class: dict[str, int] = {}
+        for f in flags_open:
+            by_class[f.get("error_class", "other")] = by_class.get(f.get("error_class", "other"), 0) + 1
+        slops = [_slop_density(p) for p in proses if p]
+        avg_slop = round(sum(slops) / len(slops), 4) if slops else 0.0
+        weakest = sorted(
+            [{"seq": c.get("seq"), "words": _cjk(p),
+              "slop_density": _slop_density(p),
+              "open_flags": len([f for f in flags_open if f.get("seq") == c.get("seq")])}
+             for c, p in zip(chs, proses)],
+            key=lambda x: (-x["open_flags"], -x["slop_density"]))[:3]
+        return {"chapters": len(chs), "words": words, "avg_slop_density": avg_slop,
+                "foreshadow": {"planted": planted, "paid": paid,
+                               "payoff_rate": round(paid / planted, 2) if planted else 0.0},
+                "consistency": {"open_flags": len(flags_open), "by_class": by_class,
+                                "score": round(1 - min(1, len(flags_open) / max(1, len(chs))), 2),
+                                "weighted": len(flags_open)},
+                "weakest_chapters": weakest, "cost": self.get_cost(work)}
+
+    def snapshot_quality(self, work: str) -> None:
+        q = self.compute_quality(work)
+        self.s.create("quality_snapshot", {"work": f"work:{work}", "scope": "work",
+                      "words": q["words"], "slop_density": q["avg_slop_density"],
+                      "consistency_score": q["consistency"]["score"],
+                      "foreshadow_payoff": q["foreshadow"]["payoff_rate"],
+                      "created_at": _now()})
+
+    def list_quality_history(self, work: str, scope: str = "work") -> list[dict]:
+        rows = self.s.list("quality_snapshot", "work = $w AND scope = $s",
+                           {"w": f"work:{work}", "s": scope})
+        return sorted(rows, key=lambda r: r.get("created_at") or "")
+
+    # ---- 章编排任务态 ----
+    _TASK_NEXT = {
+        "PLANNING": ["AWAITING_OUTLINE_CHOICE"],
+        "AWAITING_OUTLINE_CHOICE": ["DRAFTING"],
+        "DRAFTING": ["AWAITING_REVIEW"],
+        "AWAITING_REVIEW": ["REVISING", "DONE"],
+        "REVISING": ["AWAITING_REVIEW"],
+        "DONE": [],
+    }
+
+    def get_task(self, work: str, seq: int) -> dict:
+        rows = self.s.list("chapter_task", "work = $w AND seq = $q",
+                           {"w": f"work:{work}", "q": seq})
+        if rows:
+            t = rows[0]
+            return {**t, "next": self._TASK_NEXT.get(t.get("status", "PLANNING"), [])}
+        return {"seq": seq, "status": "PLANNING", "detail": "",
+                "next": self._TASK_NEXT["PLANNING"]}
+
+    def advance_task(self, work: str, seq: int, to: str, detail: str = "") -> dict:
+        rows = self.s.list("chapter_task", "work = $w AND seq = $q",
+                           {"w": f"work:{work}", "q": seq})
+        cur = rows[0].get("status", "PLANNING") if rows else "PLANNING"
+        if to not in self._TASK_NEXT.get(cur, []):
+            raise ValueError(f"非法状态转移 {cur}→{to}")
+        if rows:
+            self.s.update("chapter_task", self._idpart(rows[0]["id"]), {"status": to, "detail": detail})
+        else:
+            self.s.create("chapter_task", {"work": f"work:{work}", "seq": seq,
+                          "status": to, "detail": detail})
+        return self.get_task(work, seq)

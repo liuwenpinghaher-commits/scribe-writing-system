@@ -7,6 +7,7 @@ from .generate import generate_continue, ingest_chapter
 from .llm import hermes_complete
 from .critique import build_critique_prompt, parse_critique, critique_revise
 from .consistency import check_chapter
+from . import editorial as _ed
 
 app = FastAPI(title="Scribe (SurrealDB)")
 _complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
@@ -348,11 +349,75 @@ def create_volume(w: str, b: VolumeIn, x_owner_id: str | None = Header(None), d:
     owner(x_owner_id); return {"volume_id": d.create_volume(w, b.seq, b.title)}
 
 
+# ==== WaveC:质量/成本/impact/任务态 + LLM 编辑功能 ====
+class OptionGenIn(BaseModel):
+    decision_point: str; n: int = 3
+class DistillIn(BaseModel):
+    target: str = "setting"
+class TaskAdvIn(BaseModel):
+    to: str; detail: str = ""
+
+@app.get("/works/{w}/quality")
+def quality(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.compute_quality(w)
+
+@app.get("/works/{w}/quality/history")
+def quality_history(w: str, scope: str = "work", x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_quality_history(w, scope)
+
+@app.get("/works/{w}/cost")
+def cost(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.get_cost(w)
+
+@app.get("/works/{w}/impact")
+def impact(w: str, name: str = "", x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.impact(w, name)
+
+@app.get("/works/{w}/chapters/{seq}/task")
+def get_task(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.get_task(w, seq)
+
+@app.post("/works/{w}/chapters/{seq}/task/advance")
+def advance_task(w: str, seq: int, b: TaskAdvIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    try:
+        return d.advance_task(w, seq, b.to, b.detail)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.post("/works/{w}/chapters/{seq}/intent-check")
+def intent_check(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return _ed.intent_check(d, w, seq, _complete)
+
+@app.post("/works/{w}/chapters/{seq}/deep-check")
+def deep_check(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"new_flags": len(check_chapter(d, w, seq, _complete))}
+
+@app.post("/works/{w}/proactive-review")
+def proactive_review(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"new_insights": _ed.proactive_review(d, w, _complete)}
+
+@app.post("/works/{w}/option-sets/generate")
+def generate_options(w: str, b: OptionGenIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"option_set_id": _ed.generate_options(d, w, b.decision_point, b.n, _complete)}
+
+@app.post("/works/{w}/materials/{mid}/process")
+def process_material(w: str, mid: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return _ed.process_material(d, mid, _complete)
+
+@app.post("/works/{w}/materials/{mid}/distill")
+def distill_material(w: str, mid: str, b: DistillIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return _ed.distill_material(d, w, mid, b.target, _complete)
+
+@app.post("/works/{w}/analyze")
+def analyze_work(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return _ed.analyze(d, w, _complete)
+
+@app.get("/works/{w}/pending-writes")
+def pending_writes(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return []  # 确定性写流不入审批队列(MCP写工具走审批注册,无挂起队列)
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
-
-
-# 前端兼容桩:外围面板端点(insights/option-sets/threads/materials… + volumes 真实)
-from .compat import register as _register_compat  # noqa: E402
-_register_compat(app, get_domain, owner, Depends, Domain)
