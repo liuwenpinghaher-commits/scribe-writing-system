@@ -14,6 +14,12 @@ from .consistency import check_chapter
 from . import editorial as _ed
 
 app = FastAPI(title="Scribe (SurrealDB)")
+# CORS:前端(:3310)跨域调本后端(:3320),放行浏览器预检。本地工具用 X-Owner-Id 头、无 cookie,
+# 故 allow_origins=* + allow_credentials=False(二者不可同真)。
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False,
+                   allow_methods=["*"], allow_headers=["*"])
 _complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
 _complete_stream = hermes_complete_stream  # 流式;测试可 monkeypatch
 _responses_events = hermes_responses_events  # 主编 agentic(调 scribe2 MCP 工具);测试可 monkeypatch
