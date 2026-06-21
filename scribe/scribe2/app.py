@@ -159,3 +159,8 @@ def flags_ep(w: str, status: str = "open", x_owner_id: str | None = Header(None)
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+# 前端兼容桩:外围面板端点(insights/option-sets/threads/materials… + volumes 真实)
+from .compat import register as _register_compat  # noqa: E402
+_register_compat(app, get_domain, owner, Depends, Domain)
