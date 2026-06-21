@@ -101,30 +101,27 @@ label { font-size: 12px; color: var(--text-secondary); display: block; margin-bo
 .row { display: flex; gap: var(--sp); align-items: flex-start; }
 .row.end { align-items: center; }
 
-/* 写作台:默认正文为王(侧栏收成 48px 图标轨),钉住则展开为密集栏,点轨图标滑出抽屉 */
-.app { position: relative; display: grid; grid-template-columns: 48px 1fr 48px; height: 100%; flex: 1; min-width: 0; }
-.app.lpin { grid-template-columns: 212px 1fr 48px; }
-.app.rpin { grid-template-columns: 48px 1fr 300px; }
-.app.lpin.rpin { grid-template-columns: 212px 1fr 300px; }
-.col { height: 100%; overflow: auto; background: var(--bg-secondary); }
-.col.left { border-right: 1px solid var(--border); }
-.col.right { border-left: 1px solid var(--border); }
-.col.center { background: var(--bg-primary); }
-/* 正文为王:中栏内容舒适阅读宽度居中,两侧留白 */
-.col.center > .center-inner { max-width: 820px; margin: 0 auto; }
-/* 收起态/钉住态内边距由组件控制 */
+/* 写作台:VS Code 式活动栏。两侧图标轨(44px)常驻,点能力图标内联推开对应面板,中栏 1fr 自适应。
+   列序:[左轨][左面板][中栏 自适应][右面板][右轨] —— 面板关时该列 0,开则推开中栏。 */
+.app { position: relative; display: grid; height: 100%; flex: 1; min-width: 0;
+  grid-template-columns: 44px 0 minmax(0, 1fr) 0 44px; }
+.app.lopen { grid-template-columns: 44px 232px minmax(0, 1fr) 0 44px; }
+.app.ropen { grid-template-columns: 44px 0 minmax(0, 1fr) 304px 44px; }
+.app.lopen.ropen { grid-template-columns: 44px 232px minmax(0, 1fr) 304px 44px; }
+.rail-col { height: 100%; overflow: hidden; background: var(--bg-secondary); }
+.rail-col.l { border-right: 1px solid var(--border); }
+.rail-col.r { border-left: 1px solid var(--border); }
+.panel-col { height: 100%; overflow: auto; background: var(--bg-secondary); }
+.panel-col.l { border-right: 1px solid var(--border); }
+.panel-col.r { border-left: 1px solid var(--border); }
+.center-col { height: 100%; overflow: auto; background: var(--bg-primary); }
+/* 中栏自适应填充:无面板时用满宽度,开面板时让位;给舒适内边距,不浪费成大留白 */
+.center-inner { max-width: 100%; padding: 16px clamp(16px, 4vw, 56px); }
 @media (max-width: 1023px) {
-  .app, .app.lpin, .app.rpin, .app.lpin.rpin { grid-template-columns: 44px 1fr 44px; }
+  .app, .app.lopen, .app.ropen, .app.lopen.ropen { grid-template-columns: 40px 0 minmax(0,1fr) 0 40px; }
+  .app.lopen { grid-template-columns: 40px 200px minmax(0,1fr) 0 40px; }
+  .app.ropen { grid-template-columns: 40px 0 minmax(0,1fr) 260px 40px; }
 }
-/* 侧栏抽屉(轨上点图标滑出),绝对定位于 .app 内,盖在中栏上 */
-.side-drawer { position: absolute; top: 0; bottom: 0; width: 320px; max-width: 86vw; z-index: 45;
-  background: var(--bg-secondary); overflow: auto; box-shadow: var(--shadow-lg); animation: drawerIn var(--t) ease-out; }
-.side-drawer.left { left: 48px; border-right: 1px solid var(--border); }
-.side-drawer.right { right: 48px; border-left: 1px solid var(--border); }
-.side-scrim { position: absolute; inset: 0; z-index: 44; background: rgba(0,0,0,.04); }
-@keyframes drawerIn { from { opacity: .4; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
-.side-drawer.right { animation-name: drawerInR; }
-@keyframes drawerInR { from { opacity: .4; transform: translateX(6px); } to { opacity: 1; transform: none; } }
 .right-toggle, .left-toggle { display: none; }
 
 .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; background: var(--bg-primary); box-shadow: var(--shadow); }

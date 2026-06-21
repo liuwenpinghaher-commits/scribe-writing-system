@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Stethoscope, Send } from "lucide-react";
+import { Stethoscope, Send, NotebookPen, BookMarked, Sparkles, ShieldAlert, Package, Activity, Brain, MessagesSquare } from "lucide-react";
 import { api } from "./api";
 import { errMsg, useData, useToast } from "./common";
 import { QualityCard, Relations, CharStates, Threads, AgentPanel } from "./Panels";
@@ -14,18 +14,38 @@ import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
 import { cn } from "@/lib/utils";
 
-// Right — 右栏 Inspector
-// Task 1.3a: shadcn 换皮,保留全部数据逻辑。
-export function Right({ work, rev, bump }: { work: string; rev: number; bump: () => void }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <PendingWrites work={work} rev={rev} bump={bump} />
-      <Insights work={work} rev={rev} />
-      <Sidebar work={work} rev={rev} />
-      <Chat work={work} bump={bump} />
-      <Threads work={work} rev={rev} />
-    </div>
-  );
+// Right — 右栏 Inspector。活动栏拆解:每个能力一个图标,点开渲染单一能力面板。
+export const RIGHT_CAPS = [
+  { key: "notes", label: "主编札记", icon: NotebookPen, badge: "insights" },
+  { key: "bible", label: "设定圣经", icon: BookMarked },
+  { key: "foreshadow", label: "伏笔", icon: Sparkles, badge: "foreshadow" },
+  { key: "flags", label: "一致性", icon: ShieldAlert, badge: "flags" },
+  { key: "material", label: "素材", icon: Package },
+  { key: "pulse", label: "脉络·质量", icon: Activity },
+  { key: "agent", label: "记忆·技能", icon: Brain },
+  { key: "threads", label: "讨论线程", icon: MessagesSquare },
+] as const;
+
+export function Right({ work, rev, bump, active = "notes" }: {
+  work: string; rev: number; bump: () => void; active?: string;
+}) {
+  switch (active) {
+    case "notes":
+      return (
+        <div className="flex flex-col gap-3">
+          <PendingWrites work={work} rev={rev} bump={bump} />
+          <Insights work={work} rev={rev} />
+        </div>
+      );
+    case "bible": return <BibleSection work={work} rev={rev} />;
+    case "foreshadow": return <ForeshadowSection work={work} rev={rev} />;
+    case "flags": return <FlagsSection work={work} rev={rev} />;
+    case "material": return <Materials work={work} />;
+    case "pulse": return <Pulse work={work} rev={rev} />;
+    case "agent": return <AgentPanel work={work} rev={rev} />;
+    case "threads": return <Threads work={work} rev={rev} />;
+    default: return null;
+  }
 }
 
 const PENDING_LABEL: Record<string, string> = {
@@ -138,149 +158,90 @@ function Insights({ work, rev }: { work: string; rev: number }) {
   );
 }
 
-function Sidebar({ work, rev }: { work: string; rev: number }) {
-  const [tab, setTab] = useState("bible");
+function ForeshadowSection({ work, rev }: { work: string; rev: number }) {
   const [local, setLocal] = useState(0);
   const fo = useData(() => api.foreshadows(work), [work, rev, local]);
-  const fl = useData(() => api.flags(work), [work, rev, local]);
   const toast = useToast();
-  const bump = () => setLocal((n) => n + 1);
   const onFore = async (fid: string, a: "trigger" | "pay" | "abandon") => {
-    try { await api.advanceForeshadow(work, fid, a); toast("伏笔已推进"); bump(); }
+    try { await api.advanceForeshadow(work, fid, a); toast("伏笔已推进"); setLocal((n) => n + 1); }
     catch (e) { toast(errMsg(e), "err"); }
   };
+  return (
+    <StateBoundary loading={fo.loading} error={fo.error} empty={!fo.data?.length}
+      emptyNode={<Empty title="暂无未了结伏笔" />} onRetry={fo.reload}>
+      <div className="flex flex-col gap-2">
+        {fo.data?.map((x) => (
+          <Card key={x.id} size="sm">
+            <CardContent className="pt-3">
+              <div className="flex items-start gap-1.5">
+                <Badge variant="outline" className="shrink-0 text-[10px] mt-0.5">{x.state}</Badge>
+                <span className="text-xs">{x.summary}</span>
+              </div>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {x.state === "planted" && <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "trigger")}>触发</Button>}
+                {x.state === "triggered" && <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "pay")}>回收</Button>}
+                <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "abandon")}>放弃</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </StateBoundary>
+  );
+}
+
+function FlagsSection({ work, rev }: { work: string; rev: number }) {
+  const [local, setLocal] = useState(0);
+  const fl = useData(() => api.flags(work), [work, rev, local]);
+  const toast = useToast();
   const onFlag = async (fid: string, a: "confirm" | "dismiss" | "fix") => {
     await api.resolveFlag(work, fid, a);
-    toast(a === "dismiss" ? "已标记误报" : "已确认"); bump();
+    toast(a === "dismiss" ? "已标记误报" : "已确认"); setLocal((n) => n + 1);
   };
+  return (
+    <StateBoundary loading={fl.loading} error={fl.error} empty={!fl.data?.length}
+      emptyNode={<Empty title="无一致性问题 ✓" hint="太棒了,目前没有发现冲突。" />} onRetry={fl.reload}>
+      <div className="flex flex-col gap-2">
+        {fl.data?.map((x) => (
+          <Card key={x.id} size="sm" className="border-l-[3px] border-l-[#f59e0b]">
+            <CardContent className="pt-3">
+              <div className="flex items-start gap-1.5">
+                <Badge variant="destructive" className="shrink-0 text-[10px] mt-0.5">{x.error_class}</Badge>
+                <span className="text-xs">{x.detail}</span>
+              </div>
+              <div className="flex flex-wrap gap-1 mt-2">
+                <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "confirm")}>确认真错</Button>
+                <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "fix")}>已修</Button>
+                <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "dismiss")}>误报</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </StateBoundary>
+  );
+}
+
+function BibleSection({ work, rev }: { work: string; rev: number }) {
   const bible = useData(async () => {
     const [chs, st] = await Promise.all([api.characters(work), api.settings(work)]);
-    const desc = (c?: string) => c || "";  // 重构:setting.content 即纯文本描述(新底座契约)
+    const desc = (c?: string) => c || "";
     return [
       ...chs.map((c) => ({ kind: "char" as const, k: "角色", name: c.name, body: c.motivation || "", type: "" })),
       ...st.map((s) => ({ kind: "set" as const, k: s.type ?? "设定", name: s.name, body: desc(s.content), type: s.type ?? "设定" })),
     ];
   }, [work, rev]);
-
-  const tabs: { value: string; label: string; count?: number }[] = [
-    { value: "bible", label: "设定圣经" },
-    { value: "foreshadow", label: "伏笔", count: fo.data?.length },
-    { value: "flags", label: "一致性", count: fl.data?.length },
-    { value: "material", label: "素材" },
-    { value: "pulse", label: "脉络/质量" },
-    { value: "agent", label: "记忆技能" },
-  ];
-
   return (
-    <Tabs value={tab} onValueChange={setTab}>
-      <TabsList className="w-full justify-start gap-px p-1 overflow-x-auto">
-        {tabs.map((t) => (
-          <TabsTrigger key={t.value} value={t.value} className="text-xs px-2 py-0.5 flex-none">
-            {t.label}
-            {t.count != null && t.count > 0 && (
-              <Badge
-                variant={t.value === "flags" ? "destructive" : "secondary"}
-                className="ml-1 text-[9px] h-3.5 px-1"
-              >
-                {t.count}
-              </Badge>
-            )}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-
-      <ScrollArea className="max-h-[32vh]">
-        <TabsContent value="foreshadow" className="mt-2 px-0.5">
-          <StateBoundary
-            loading={fo.loading}
-            error={fo.error}
-            empty={!fo.data?.length}
-            emptyNode={<Empty title="暂无未了结伏笔" />}
-            onRetry={fo.reload}
-          >
-            <div className="flex flex-col gap-2">
-              {fo.data?.map((x) => (
-                <Card key={x.id} size="sm">
-                  <CardContent className="pt-3">
-                    <div className="flex items-start gap-1.5">
-                      <Badge variant="outline" className="shrink-0 text-[10px] mt-0.5">{x.state}</Badge>
-                      <span className="text-xs">{x.summary}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {x.state === "planted" && (
-                        <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "trigger")}>触发</Button>
-                      )}
-                      {x.state === "triggered" && (
-                        <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "pay")}>回收</Button>
-                      )}
-                      <Button variant="ghost" size="xs" onClick={() => onFore(x.id, "abandon")}>放弃</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </StateBoundary>
-        </TabsContent>
-
-        <TabsContent value="flags" className="mt-2 px-0.5">
-          <StateBoundary
-            loading={fl.loading}
-            error={fl.error}
-            empty={!fl.data?.length}
-            emptyNode={<Empty title="无一致性问题 ✓" hint="太棒了,目前没有发现冲突。" />}
-            onRetry={fl.reload}
-          >
-            <div className="flex flex-col gap-2">
-              {fl.data?.map((x) => (
-                <Card key={x.id} size="sm" className="border-l-[3px] border-l-[#f59e0b]">
-                  <CardContent className="pt-3">
-                    <div className="flex items-start gap-1.5">
-                      <Badge variant="destructive" className="shrink-0 text-[10px] mt-0.5">{x.error_class}</Badge>
-                      <span className="text-xs">{x.detail}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "confirm")}>确认真错</Button>
-                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "fix")}>已修</Button>
-                      <Button variant="ghost" size="xs" onClick={() => onFlag(x.id, "dismiss")}>误报</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </StateBoundary>
-        </TabsContent>
-
-        <TabsContent value="material" className="mt-2 px-0.5">
-          <Materials work={work} />
-        </TabsContent>
-
-        <TabsContent value="pulse" className="mt-2 px-0.5">
-          <Pulse work={work} rev={rev} />
-        </TabsContent>
-
-        <TabsContent value="agent" className="mt-2 px-0.5">
-          <AgentPanel work={work} rev={rev} />
-        </TabsContent>
-
-        <TabsContent value="bible" className="mt-2 px-0.5">
-          <BibleAdd work={work} onAdded={bible.reload} />
-          <StateBoundary
-            loading={bible.loading}
-            error={bible.error}
-            empty={!bible.data?.length}
-            emptyNode={<Empty title="还没有设定/角色" hint="在上方添加" />}
-            onRetry={bible.reload}
-          >
-            <div className="flex flex-col gap-1.5">
-              {bible.data?.map((x, i) => (
-                <BibleItem key={i} work={work} item={x} onSaved={bible.reload} />
-              ))}
-            </div>
-          </StateBoundary>
-          <RelationsSection work={work} rev={rev} />
-        </TabsContent>
-      </ScrollArea>
-    </Tabs>
+    <div>
+      <BibleAdd work={work} onAdded={bible.reload} />
+      <StateBoundary loading={bible.loading} error={bible.error} empty={!bible.data?.length}
+        emptyNode={<Empty title="还没有设定/角色" hint="在上方添加" />} onRetry={bible.reload}>
+        <div className="flex flex-col gap-1.5">
+          {bible.data?.map((x, i) => (<BibleItem key={i} work={work} item={x} onSaved={bible.reload} />))}
+        </div>
+      </StateBoundary>
+      <RelationsSection work={work} rev={rev} />
+    </div>
   );
 }
 
