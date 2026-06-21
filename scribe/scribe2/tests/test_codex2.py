@@ -130,3 +130,37 @@ def test_upsert_character_merges(db):
     # 不存在则新建
     d.upsert_character(w, "阿砚", motivation="活命")
     assert any(c["name"] == "阿砚" for c in d.list_characters(w))
+
+
+def test_rest_codex2(db):
+    """W5:REST 暴露 Codex 2.0 —— 人物富字段+upsert、设定 fields、母题 CRUD。"""
+    from fastapi.testclient import TestClient
+    from scribe2.app import app, get_domain
+    d = domain_from(db); d.s.init_schema()
+    app.dependency_overrides[get_domain] = lambda: d
+    c = TestClient(app); H = {"X-Owner-Id": "u1"}
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        c.post(f"/works/{w}/characters", json={
+            "name": "渡叔", "motivation": "守渡", "voice": "极静",
+            "voice_samples": ["三不渡，是规矩。"], "core_contradiction": "守↔破", "wound": "赎罪"}, headers=H)
+        ch = c.get(f"/works/{w}/characters", headers=H).json()
+        assert len(ch) == 1 and ch[0]["voice_samples"] == ["三不渡，是规矩。"] and ch[0]["wound"] == "赎罪"
+        # 同名再 POST = upsert 合并不重复
+        c.post(f"/works/{w}/characters", json={"name": "渡叔", "want": "守好九原渡"}, headers=H)
+        ch2 = c.get(f"/works/{w}/characters", headers=H).json()
+        assert len(ch2) == 1 and ch2[0]["want"] == "守好九原渡" and ch2[0]["wound"] == "赎罪"
+        # 设定结构化 fields
+        c.post(f"/works/{w}/settings", json={
+            "name": "三不渡", "description": "三铁律", "type_": "力量体系",
+            "fields": {"cost": "破规左眼瞎"}}, headers=H)
+        st = c.get(f"/works/{w}/settings", headers=H).json()
+        assert next(s for s in st if s["name"] == "三不渡")["fields"]["cost"] == "破规左眼瞎"
+        # 母题 CRUD
+        c.post(f"/works/{w}/motifs", json={
+            "name": "铜炉", "metaphor_unfolding": "万物为铜", "bound_theme": "弱肉强食",
+            "material_echoes": ["长明灯"]}, headers=H)
+        mo = c.get(f"/works/{w}/motifs", headers=H).json()
+        assert mo[0]["name"] == "铜炉" and mo[0]["material_echoes"] == ["长明灯"]
+    finally:
+        app.dependency_overrides.clear()

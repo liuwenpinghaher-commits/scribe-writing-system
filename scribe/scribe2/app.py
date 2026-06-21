@@ -54,6 +54,10 @@ class ProseIn(BaseModel):
     content: str; lock: bool = False
 class SettingIn(BaseModel):
     name: str; type_: str = "设定"; description: str = ""; desc: str = ""
+    fields: dict = {}  # Codex 2.0:力量体系 cost/limitations/trouble 等结构化字段
+class MotifIn(BaseModel):
+    name: str; metaphor_unfolding: str = ""; bound_theme: str = ""
+    material_echoes: list = []; naming_logic: str = ""
 class SearchIn(BaseModel):
     query: str; k: int = 6
 
@@ -211,7 +215,7 @@ def list_settings(w: str, x_owner_id: str | None = Header(None), d: Domain = Dep
 @app.post("/works/{w}/settings")
 def add_setting(w: str, b: SettingIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
-    return {"setting_id": d.add_setting(w, b.name, b.description or b.desc, b.type_)}
+    return {"setting_id": d.add_setting(w, b.name, b.description or b.desc, b.type_, b.fields)}
 
 @app.post("/works/{w}/search")
 def search(w: str, b: SearchIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
@@ -223,6 +227,8 @@ class IntentIn(BaseModel):
     central_promise: str = ""; red_lines: list[str] = []; do_not_betray: list[str] = []
 class CharacterIn(BaseModel):
     name: str; motivation: str = ""; voice: str = ""
+    voice_samples: list = []; core_contradiction: str = ""; wound: str = ""
+    lie: str = ""; want: str = ""; need: str = ""; arc: str = ""; fear: str = ""
 class ForeshadowIn(BaseModel):
     summary: str; chapter: int; importance: str = "normal"
 class ActionIn(BaseModel):
@@ -242,11 +248,26 @@ def get_intent(w: str, x_owner_id: str | None = Header(None), d: Domain = Depend
 
 @app.post("/works/{w}/characters")
 def add_character(w: str, b: CharacterIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    owner(x_owner_id); return {"character_id": d.add_character(w, b.name, b.motivation, b.voice)}
+    owner(x_owner_id)
+    # upsert:同名更新合并(支持前端编辑富字段),否则新建
+    return {"character_id": d.upsert_character(
+        w, b.name, b.motivation, b.voice, voice_samples=b.voice_samples or None,
+        core_contradiction=b.core_contradiction, wound=b.wound, lie=b.lie,
+        want=b.want, need=b.need, arc=b.arc, fear=b.fear)}
 
 @app.get("/works/{w}/characters")
 def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_characters(w)
+
+@app.get("/works/{w}/motifs")
+def list_motifs(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_motifs(w)
+
+@app.post("/works/{w}/motifs")
+def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    return {"motif_id": d.add_motif(w, b.name, b.metaphor_unfolding, b.bound_theme,
+                                    b.material_echoes, b.naming_logic)}
 
 @app.post("/works/{w}/foreshadows")
 def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
