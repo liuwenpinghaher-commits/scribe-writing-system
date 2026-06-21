@@ -1,16 +1,21 @@
 from __future__ import annotations
-from fastapi import FastAPI, Header, HTTPException, Depends
+import asyncio
+import json as _json
+from fastapi import FastAPI, Header, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from .conn import connect, domain_from
-from .domain import Domain
-from .generate import generate_continue, ingest_chapter
-from .llm import hermes_complete
+from .domain import Domain, _cjk
+from .generate import generate_continue, ingest_chapter, build_chapter_prompt
+from .writing import build_writing_context
+from .llm import hermes_complete, hermes_complete_stream
 from .critique import build_critique_prompt, parse_critique, critique_revise
 from .consistency import check_chapter
 from . import editorial as _ed
 
 app = FastAPI(title="Scribe (SurrealDB)")
 _complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
+_complete_stream = hermes_complete_stream  # 流式;测试可 monkeypatch
 _singleton: dict = {"d": None}
 
 def get_domain() -> Domain:
@@ -416,6 +421,74 @@ def analyze_work(w: str, x_owner_id: str | None = Header(None), d: Domain = Depe
 @app.get("/works/{w}/pending-writes")
 def pending_writes(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return []  # 确定性写流不入审批队列(MCP写工具走审批注册,无挂起队列)
+
+
+# ==== WaveD:流式 SSE ====
+@app.post("/works/{w}/chapters/{seq}/actions/{action}/stream")
+def gen_stream(w: str, seq: int, action: str, b: ActionIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """流式逐字生成(SSE):data:{delta} … data:{done,content,prev_content}。"""
+    owner(x_owner_id)
+    prev = b.prev or d.latest_prose(_cid(d, w, seq)) if action != "continue" else b.prev
+    ctx = build_writing_context(d, w, seq)
+    prompt = build_chapter_prompt(ctx, seq, b.instruction, prev, b.target_chars)
+
+    def gen():
+        full = []
+        try:
+            for delta in _complete_stream(prompt):
+                full.append(delta)
+                yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'error': str(e)[:120]}, ensure_ascii=False)}\n\n"
+        content = "".join(full)
+        d.record_cost(w, int(_cjk(content) * 1.6))
+        yield f"data: {_json.dumps({'done': True, 'content': content, 'prev_content': prev}, ensure_ascii=False)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/works/{w}/chat/stream")
+def chat_stream(w: str, body: dict, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """主编对话(SSE):注入全书背景,流式回复并落讨论线程。"""
+    owner(x_owner_id)
+    message = body.get("message", "")
+    thread_id = body.get("thread_id")
+    ctx = build_writing_context(d, w, 10 ** 9)  # 全量记忆/设定/角色
+    system = "你是这本书的主编,熟悉全书设定、人物与进展。基于以下背景,简洁中肯地回应作者。\n\n" + ctx[:2500]
+
+    def gen():
+        full = []
+        try:
+            for delta in _complete_stream(message, system=system):
+                full.append(delta)
+                yield f"data: {_json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'error': str(e)[:120]}, ensure_ascii=False)}\n\n"
+        content = "".join(full)
+        tid = thread_id or d.add_thread(w, trigger="对话", topic=message[:30],
+                                        messages=[{"role": "user", "content": message},
+                                                  {"role": "assistant", "content": content}])
+        yield f"data: {_json.dumps({'done': True, 'content': content, 'thread_id': tid}, ensure_ascii=False)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/chat")
+def chat(body: dict, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """简单对话(非流式)。"""
+    msg = body.get("message", "")
+    return {"content": _complete(msg)}
+
+
+@app.get("/works/{w}/events")
+async def events(w: str, owner_q: str | None = Query(None, alias="owner"), d: Domain = Depends(get_domain)):
+    """被动刷新 SSE:周期性吐 work 的待办计数快照(前端 onmessage→bump 刷新)。"""
+    async def gen():
+        for _ in range(100000):  # 长连接;客户端断开即止
+            snap = {"insights": len(d.list_insights(w)),
+                    "option_sets": len(d.list_option_sets(w)),
+                    "flags": len(d.list_consistency_flags(w))}
+            yield f"data: {_json.dumps(snap)}\n\n"
+            await asyncio.sleep(3)
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/health")

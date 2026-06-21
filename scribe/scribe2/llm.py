@@ -35,3 +35,28 @@ def hermes_complete(prompt: str, system: str | None = None,
                    json={"model": model, "messages": msgs, "stream": False})
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
+
+
+def hermes_complete_stream(prompt: str, system: str | None = None,
+                           model: str = "doubao-seed-2.0-pro", timeout: float = 300.0):
+    """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。"""
+    import json as _j
+    msgs = ([{"role": "system", "content": system}] if system else []) + \
+        [{"role": "user", "content": prompt}]
+    with httpx.stream("POST", f"{HERMES}/chat/completions", timeout=timeout,
+                      headers={"Authorization": f"Bearer {_api_key()}",
+                               "Content-Type": "application/json"},
+                      json={"model": model, "messages": msgs, "stream": True}) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                delta = _j.loads(payload)["choices"][0]["delta"].get("content")
+                if delta:
+                    yield delta
+            except Exception:
+                continue
