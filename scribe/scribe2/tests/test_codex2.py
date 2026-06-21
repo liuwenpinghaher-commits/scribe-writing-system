@@ -533,3 +533,23 @@ def test_critique_revise_gate_on_issues(monkeypatch):
         return '{"scores":{"texture":3,"surprise":3,"emotion_truth":3,"pace":3,"voice":3,"anti_slop":3,"intent_resonance":3,"coherence":3},"issues":[]}'
     r = critique_revise("原稿", "", fake, max_rounds=1)
     assert r["final"] == "原稿" and r["improved"] is False
+
+
+def test_entity_beats_unified(db):
+    """统一实体节点:角色/母题也有 beats(发展/复现),逐章注入「各线指令」给主编。"""
+    from scribe2.writing import build_writing_context
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    d.add_character(w, "渡叔")
+    d.add_entity_beat(w, "character", "渡叔", 15, kind="develop",
+                      guidance="第三次质疑三不渡的执念", effect="弧光推进")
+    d.add_motif(w, "铜炉")
+    d.add_entity_beat(w, "motif", "铜炉", 15, kind="reinforce", guidance="织入一处人如炉中铜")
+    beats = d.list_entity_beats(w, etype="character", entity="渡叔")
+    assert any(b["chapter"] == 15 and "质疑三不渡" in b["guidance"] for b in beats)
+    ctx = build_writing_context(d, w, 15)
+    assert "各线指令" in ctx                          # 有统一的实体线指令块
+    assert "第三次质疑三不渡的执念" in ctx              # 角色 beat guidance 注入
+    assert "织入一处人如炉中铜" in ctx                  # 母题 beat 也注入

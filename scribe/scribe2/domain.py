@@ -638,6 +638,23 @@ class Domain:
         return [r for r in self.list_relations(work)
                 if r.get("src_entity") == entity or r.get("dst_entity") == entity]
 
+    # ---- 统一线模型:通用实体节点 entity_beat(角色弧光/母题复现/设定逐章发展,与伏笔 beats 同构)----
+    def add_entity_beat(self, work: str, etype: str, entity: str, chapter: int,
+                        kind: str = "develop", *, guidance: str = "", effect: str = "") -> str:
+        """给任一实体(character/motif/setting/place…)加一个逐章节点:kind=引入/develop/复现/use/兑现;
+        guidance=本章具体怎么处理;effect=想要效果。写作时按章注入,把"伏笔节点指令"泛化到所有线。"""
+        return self.s.create("entity_beat", {"work": self._wref(work), "etype": etype,
+                             "entity": entity, "chapter": chapter, "kind": kind,
+                             "guidance": guidance, "effect": effect, "done": False})
+
+    def list_entity_beats(self, work: str, etype: str | None = None, entity: str | None = None) -> list[dict]:
+        rows = self.s.list("entity_beat", "work = $w", {"w": self._wref(work)})
+        if etype:
+            rows = [r for r in rows if r.get("etype") == etype]
+        if entity:
+            rows = [r for r in rows if r.get("entity") == entity]
+        return sorted(rows, key=lambda r: r.get("chapter") or 0)
+
     # ---- 角色状态轨迹 char_state ----
     def add_char_state(self, work: str, character: str, chapter_seq: int,
                        state_desc: str = "", change_type: str = "") -> str:

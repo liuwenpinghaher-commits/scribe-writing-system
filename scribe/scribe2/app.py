@@ -530,6 +530,20 @@ def add_relation(w: str, b: RelationIn, x_owner_id: str | None = Header(None), d
 def entity_relations(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.relations_of(w, name)
 
+class EntityBeatIn(BaseModel):
+    etype: str; entity: str; chapter: int; kind: str = "develop"; guidance: str = ""; effect: str = ""
+
+@app.post("/works/{w}/entity-beats")
+def add_entity_beat(w: str, b: EntityBeatIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """给任一实体加逐章发展节点(统一线模型:角色弧光/母题复现/设定逐章发展)。"""
+    owner(x_owner_id)
+    return {"beat_id": d.add_entity_beat(w, b.etype, b.entity, b.chapter, b.kind, guidance=b.guidance, effect=b.effect)}
+
+@app.get("/works/{w}/entity-beats")
+def list_entity_beats(w: str, etype: str | None = None, entity: str | None = None,
+                      x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_entity_beats(w, etype, entity)
+
 @app.get("/works/{w}/characters/{name}/states")
 def char_states(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_char_states(w, name)

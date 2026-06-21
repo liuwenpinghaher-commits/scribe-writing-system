@@ -281,6 +281,21 @@ def advance_foreshadow(foreshadow_id: str, to_state: str) -> dict:
     return {"state": to_state}
 
 
+@_read_tool()
+def list_entity_beats(work_id: str, etype: str = "", entity: str = "") -> list:
+    """读实体的逐章发展节点(角色弧光/母题复现/设定逐章发展;统一线模型)。只读。"""
+    return _domain().list_entity_beats(work_id, etype or None, entity or None)
+
+
+@_write_tool
+def add_entity_beat(work_id: str, etype: str, entity: str, chapter: int,
+                    kind: str = "develop", guidance: str = "", effect: str = "") -> dict:
+    """给任一实体加逐章节点(把伏笔节点指令泛化到角色/母题/设定):etype=character/motif/setting…;
+    kind=引入/develop/复现/use/兑现;guidance=本章具体怎么处理;effect=想要效果。写操作,需审批。"""
+    return {"beat_id": _domain().add_entity_beat(work_id, etype, entity, chapter, kind,
+                                                 guidance=guidance, effect=effect)}
+
+
 @_write_tool
 def ingest_chapter(work_id: str, seq: int) -> dict:
     """定稿后建章记忆 + 确定性 rollup(跨章连贯)。写操作,需审批。"""

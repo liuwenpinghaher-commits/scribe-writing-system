@@ -128,6 +128,21 @@ def build_writing_context(d, work: str, seq: int) -> str:
             "【伏笔·承诺线·待回收(照顾节奏:适时埋钩子/推进/回收,勿一次性堆砌,勿让其凭空消失)】\n"
             + "\n".join(_f(f) for f in open_f[:8]))
 
+    # 统一线模型:各实体本章节点指令(角色弧光/母题复现/设定逐章发展,把"伏笔节点指令"泛化到所有线)
+    if hasattr(d, "list_entity_beats"):
+        _ET = {"character": "角色", "motif": "母题", "setting": "设定", "place": "地点",
+               "faction": "阵营", "item": "物品", "location": "地点"}
+        eb = [b for b in d.list_entity_beats(work)
+              if not b.get("done") and abs((b.get("chapter") or 0) - seq) <= 1]
+        if eb:
+            lines = []
+            for b in eb:
+                et = _ET.get(b.get("etype"), b.get("etype") or "线")
+                g = b.get("guidance") or "按计划处理"
+                eff = f"｜效果:{b['effect']}" if b.get("effect") else ""
+                lines.append(f"· [{et}·{b.get('entity')}] 本章:{g}{eff}")
+            parts.append("【本章·各线指令(角色弧光/母题复现/设定逐章发展,照此处理)】\n" + "\n".join(lines[:10]))
+
     glob = d.get_global_memory(work)
     if glob:
         parts.append("【全书主线记忆(至此为止)】" + glob[:400])

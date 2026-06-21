@@ -61,6 +61,7 @@ def test_tools_discoverable_and_annotated(db):
         "critique_chapter", "check_chapter", "list_consistency_flags",
         "list_foreshadows_status", "add_foreshadow_beat",
         "recall_memory", "remember",
+        "list_entity_beats", "add_entity_beat",
     }
     assert expected <= set(tools), f"缺工具: {expected - set(tools)}"
     for name in expected:
@@ -74,5 +75,5 @@ def test_tools_discoverable_and_annotated(db):
         "create_work", "create_volume", "create_chapter", "save_prose", "add_setting",
         "set_author_intent", "upsert_character", "plant_foreshadow",
         "advance_foreshadow", "ingest_chapter", "check_chapter",
-        "add_motif", "add_char_state", "add_foreshadow_beat", "remember",
+        "add_motif", "add_char_state", "add_foreshadow_beat", "remember", "add_entity_beat",
     }
