@@ -14,6 +14,7 @@ import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Conversation } from "./Conversation";
 import { Right } from "./Right";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./components/ui/tooltip";
 
 function useStrPref(key: string, def: string): [string, (v: string) => void] {
   const [v, setV] = useState<string>(() => {
@@ -39,18 +40,25 @@ const CAPS = [
   { key: "agent", label: "记忆·技能", icon: Brain },
 ] as const;
 
-function RailBtn({ icon, label, badge, on, onClick }: {
-  icon: React.ReactNode; label: string; badge?: number; on?: boolean; onClick: () => void;
+function RailBtn({ icon, label, badge, on, onClick, side = "right" }: {
+  icon: React.ReactNode; label: string; badge?: number; on?: boolean; onClick: () => void; side?: "left" | "right";
 }) {
   return (
-    <button onClick={onClick} title={label} aria-label={label} aria-pressed={on}
-      className={cn("relative w-9 h-9 rounded-lg inline-flex items-center justify-center transition-colors",
-        on ? "bg-accent text-foreground ring-1 ring-border" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-      {icon}
-      {!!badge && badge > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-medium leading-[15px] text-center">{badge > 99 ? "99" : badge}</span>
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button onClick={onClick} aria-label={label} aria-pressed={on}
+            className={cn("relative w-9 h-9 rounded-lg inline-flex items-center justify-center transition-colors",
+              on ? "bg-accent text-foreground ring-1 ring-border" : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
+            {icon}
+            {!!badge && badge > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-medium leading-[15px] text-center">{badge > 99 ? "99" : badge}</span>
+            )}
+          </button>
+        }
+      />
+      <TooltipContent side={side} sideOffset={8}>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -103,10 +111,11 @@ export function WriteLayout({ work, rev, bump, title, seq, setSeq }: {
 
   const cls = "app" + (lOpen ? " lopen" : "") + (rightCap ? " ropen" : "");
   return (
+    <TooltipProvider delay={0}>
     <div className={cls} style={{ ["--lw" as string]: `${lw}px`, ["--rw" as string]: `${rw}px` }}>
       {/* 左轨 */}
       <div className="rail-col l flex flex-col items-center py-2 gap-1">
-        <RailBtn icon={<ListTree size={18} />} label="大纲树" on={lOpen} onClick={() => setLeftOpen(lOpen ? "0" : "1")} />
+        <RailBtn icon={<ListTree size={18} />} label="大纲树" side="right" on={lOpen} onClick={() => setLeftOpen(lOpen ? "0" : "1")} />
       </div>
 
       {/* 左面板:大纲 */}
@@ -143,7 +152,7 @@ export function WriteLayout({ work, rev, bump, title, seq, setSeq }: {
         {CAPS.map((c) => {
           const Icon = c.icon;
           return (
-            <RailBtn key={c.key} icon={<Icon size={17} />} label={c.label}
+            <RailBtn key={c.key} icon={<Icon size={17} />} label={c.label} side="left"
               badge={badgeFor((c as { badge?: string }).badge)}
               on={rightCap === c.key} onClick={() => setRightCap(rightCap === c.key ? "" : c.key)} />
           );
@@ -154,5 +163,6 @@ export function WriteLayout({ work, rev, bump, title, seq, setSeq }: {
       {lOpen && <div className="app-resizer" style={{ left: `calc(44px + ${lw}px - 3px)` }} onMouseDown={startResize("l")} />}
       {!!rightCap && <div className="app-resizer" style={{ right: `calc(44px + ${rw}px - 3px)` }} onMouseDown={startResize("r")} />}
     </div>
+    </TooltipProvider>
   );
 }
