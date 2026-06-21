@@ -9,7 +9,7 @@ from .domain import Domain, _cjk
 from .generate import generate_continue, ingest_chapter, build_chapter_prompt
 from .writing import build_writing_context
 from .llm import hermes_complete, hermes_complete_stream, hermes_responses_events
-from .critique import build_critique_prompt, parse_critique, critique_revise
+from .critique import build_critique_prompt, parse_critique, critique_revise, revise_dedup
 from .consistency import check_chapter
 from . import editorial as _ed
 
@@ -421,6 +421,18 @@ def critique_ep(w: str, seq: int, b: CritiqueIn, x_owner_id: str | None = Header
         return {"critique": parse_critique(_complete(build_critique_prompt(text, rf))),
                 "improved": False, "final": text}
     return critique_revise(text, rf, _complete, max_rounds=1)
+
+@app.post("/works/{w}/chapters/{seq}/dedup")
+def dedup_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """生成后去重通道:确定性扫描跨段复读→定向改写→存稿(规则治不了已生成文本的复读)。"""
+    owner(x_owner_id)
+    text = _chapter_prose(d, w, seq)
+    if not text.strip():
+        raise HTTPException(400, "无正文可去重")
+    res = revise_dedup(text, _complete)
+    if res["changed"]:
+        d.save_prose(w, _cid(d, w, seq), res["text"], False)
+    return {"changed": res["changed"], "reps": res["reps"], "saved_len": len(res["text"]), "text": res["text"]}
 
 @app.post("/works/{w}/chapters/{seq}/check")
 def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

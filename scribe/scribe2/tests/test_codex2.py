@@ -612,3 +612,34 @@ def test_exemplar_injected(db):
     d.add_exemplar(w, "胡先生眼珠四转,却不知在想些甚么。", technique="冷笔收尾、不点题")
     ctx = build_writing_context(d, w, 1)
     assert "范文" in ctx and "眼珠四转" in ctx and "冷笔收尾" in ctx
+
+
+def test_find_repetitions():
+    """缺口:生成后无跨段去重通道,模型长程复读无人拦(v3 同句重复5次)。确定性扫描。"""
+    from scribe2.critique import find_repetitions
+    t = ("怀里的铜丸烫得他心口发疼,他想扔回去。走了几步。"
+         "怀里的铜丸烫得他心口发疼,他攥得更紧。又一段过场。"
+         "怀里的铜丸烫得他心口发疼,终究没松手。")
+    reps = find_repetitions(t, n=8, min_count=3)
+    assert reps, "应检出重复"
+    assert any("烫得他心口发疼" in r["phrase"] for r in reps)
+    assert reps[0]["count"] >= 3
+
+
+def test_dedup_prompt_lists_repeats():
+    from scribe2.critique import build_dedup_prompt
+    p = build_dedup_prompt("正文……", [{"phrase": "烫得他心口发疼", "count": 5}])
+    assert "烫得他心口发疼" in p and ("重复" in p or "去重" in p)
+
+
+def test_revise_dedup_guards_and_rewrites():
+    from scribe2.critique import revise_dedup
+    rep_text = "铜丸烫得他心口发疼。过场甲。铜丸烫得他心口发疼。过场乙。铜丸烫得他心口发疼。"
+    # 正常改写
+    out = revise_dedup(rep_text, lambda p: "改写后的不重复正文，足够长足够长足够长足够长足够长。", n=8, min_count=3)
+    assert out["changed"] and out["reps"]
+    # 守护:改写过短→弃用,返回原文
+    out2 = revise_dedup(rep_text, lambda p: "太短", n=8, min_count=3)
+    assert not out2["changed"] and out2["text"] == rep_text
+    # 无重复→不动
+    assert revise_dedup("一句正常的话。另一句不同的话。", lambda p: "", n=8, min_count=3)["changed"] is False

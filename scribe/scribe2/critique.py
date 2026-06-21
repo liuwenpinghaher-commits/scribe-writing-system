@@ -131,3 +131,45 @@ def critique_revise(text: str, reader_feeling: str, complete_fn,
             break
     return {"final": best, "improved": best != text, "rounds": rounds,
             "first_overall": first_overall, "last_overall": crit["overall"]}
+
+
+# ==== 生成后去重(规则治不了已生成文本的复读,确定性扫描+定向改写能拦)====
+_PUNCT_ONLY = re.compile(r"^[，。！？、；：「」『』""''…—\-\d\s]+$")
+
+
+def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -> list[dict]:
+    """确定性重复检测:找长度≥n、出现≥min_count 次的子串(去重叠,保留最长代表)。
+    跨段复读是单遍长程生成的典型病——prompt 规则治不了已生成文本,确定性扫描才拦得住。"""
+    from collections import Counter
+    s = re.sub(r"\s+", "", text or "")
+    if len(s) < n:
+        return []
+    grams = Counter(s[i:i + n] for i in range(len(s) - n + 1))
+    cand = [(g, c) for g, c in grams.items() if c >= min_count and not _PUNCT_ONLY.match(g)]
+    cand.sort(key=lambda x: (-x[1], -len(x[0])))
+    chosen: list[tuple[str, int]] = []
+    for g, c in cand:
+        if any(g in cg for cg, _ in chosen):   # 已被更长代表覆盖,跳过
+            continue
+        chosen.append((g, c))
+    return [{"phrase": g, "count": c} for g, c in chosen[:top]]
+
+
+def build_dedup_prompt(text: str, reps: list[dict]) -> str:
+    lst = "\n".join(f"· 「{r['phrase']}」(全篇约重复 {r['count']} 次)" for r in reps)
+    return (
+        "下面这段正文里,以下词句/句式在全篇机械【重复】,严重拉低文学质感:\n" + lst +
+        "\n\n做一次外科式【去重】改写:每个重复意象/句式全篇最多留 2 次(最有力那处保留),"
+        "其余改写成不同说法或删除;若两个场景结构雷同(如两次对峙),把后一次改出差异或合并。"
+        "保持情节连贯、人物声音一致、字数基本不变。只输出改写后的完整正文,不要解释。\n\n【正文】\n" + text)
+
+
+def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3) -> dict:
+    """生成后去重通道:扫描复读→定向改写→守护(改写过短则弃用)。接进生成主路径。"""
+    reps = find_repetitions(text, n=n, min_count=min_count)
+    if not reps:
+        return {"text": text, "reps": [], "changed": False}
+    out = (complete_fn(build_dedup_prompt(text, reps)) or "").strip()
+    if len(out) < len(text) * 0.6:   # 守护:别把正文改没了
+        return {"text": text, "reps": reps, "changed": False}
+    return {"text": out, "reps": reps, "changed": out != text}
