@@ -416,7 +416,7 @@ export function InsightView({ work }: { work: string }) {
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-auto px-4 py-4">
+      <div className="flex-1 overflow-auto px-4 py-3">
         <StateBoundary
           loading={loading}
           error={error}
@@ -437,12 +437,12 @@ export function InsightView({ work }: { work: string }) {
           }
         >
           {quality.data && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* 顶部统计条 */}
               <StatsStrip quality={quality.data} />
 
               {/* 图表网格 */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {/* 质量趋势:占满两列 */}
                 {history.data && history.data.length > 0 ? (
                   <TrendCard snapshots={history.data} />

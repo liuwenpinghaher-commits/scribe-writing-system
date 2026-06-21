@@ -74,7 +74,7 @@ function MemoryPanel({ work }: { work: string }) {
       </CardHeader>
 
       {/* 命名空间筛选 */}
-      <div className="px-6 pb-3 shrink-0">
+      <div className="px-4 pb-3 shrink-0">
         <Tabs value={ns} onValueChange={setNs}>
           <TabsList className="h-8 flex-wrap gap-1">
             {NS_TABS.map((t) => (
@@ -87,7 +87,7 @@ function MemoryPanel({ work }: { work: string }) {
       </div>
 
       {/* 记忆列表 */}
-      <ScrollArea className="flex-1 px-6 pb-6">
+      <ScrollArea className="flex-1 px-4 pb-4">
         <StateBoundary
           loading={loading}
           error={error}
@@ -197,7 +197,7 @@ function SkillsPanel({ work }: { work: string }) {
       </CardHeader>
 
       {/* 提议输入区 */}
-      <div className="px-6 pb-4 shrink-0">
+      <div className="px-4 pb-4 shrink-0">
         <div className="flex gap-2">
           <Input
             value={skillName}
@@ -220,7 +220,7 @@ function SkillsPanel({ work }: { work: string }) {
       </div>
 
       {/* 技能列表 */}
-      <ScrollArea className="flex-1 px-6 pb-6">
+      <ScrollArea className="flex-1 px-4 pb-4">
         <StateBoundary
           loading={loading}
           error={error}

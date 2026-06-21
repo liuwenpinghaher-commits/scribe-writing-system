@@ -772,8 +772,8 @@ export function CodexView({ work }: { work: string }) {
       </div>
 
       {/* 内容区:带 Tabs */}
-      <div className="flex-1 overflow-auto px-4 py-4">
-        <Tabs defaultValue="characters" className="flex flex-col gap-4">
+      <div className="flex-1 overflow-auto px-4 py-3">
+        <Tabs defaultValue="characters" className="flex flex-col gap-3">
           <TabsList className="shrink-0 w-auto">
             <TabsTrigger value="characters" className="text-xs gap-1.5">
               <User size={13} />角色
