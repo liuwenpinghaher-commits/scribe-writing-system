@@ -155,7 +155,7 @@ function Sidebar({ work, rev }: { work: string; rev: number }) {
   };
   const bible = useData(async () => {
     const [chs, st] = await Promise.all([api.characters(work), api.settings(work)]);
-    const desc = (c?: string) => { try { return JSON.parse(c || "{}").description || ""; } catch { return ""; } };
+    const desc = (c?: string) => c || "";  // 重构:setting.content 即纯文本描述(新底座契约)
     return [
       ...chs.map((c) => ({ kind: "char" as const, k: "角色", name: c.name, body: c.motivation || "", type: "" })),
       ...st.map((s) => ({ kind: "set" as const, k: s.type ?? "设定", name: s.name, body: desc(s.content), type: s.type ?? "设定" })),
@@ -487,8 +487,9 @@ function Materials({ work }: { work: string }) {
       >
         <div className="flex flex-col gap-1.5">
           {data?.map((m) => {
-            let txt = ""; try { txt = JSON.parse(m.content || "{}").text || ""; } catch { /* */ }
-            let tags: string[] = []; try { tags = JSON.parse(m.tags || "[]"); } catch { /* */ }
+            // 重构:material.content 是纯文本、tags 是逗号串(新底座契约,不再 JSON-in-field)
+            const txt = m.content || "";
+            const tags = (m.tags || "").split(/[，,]/).map((s) => s.trim()).filter(Boolean);
             return (
               <Card key={m.id} size="sm">
                 <CardContent className="pt-3">
