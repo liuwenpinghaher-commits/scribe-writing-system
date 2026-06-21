@@ -90,8 +90,8 @@ def build_writing_context(d, work: str, seq: int) -> str:
 
     sets = d.list_settings(work)
     if sets:
-        parts.append("【关键设定(不可矛盾)】" + ";".join(
-            (s.get("text") or s.get("name") or "")[:30] for s in sets[:15]))
+        parts.append("【关键设定(既定事实·名称/工艺/数字/来历严禁前后不一,续写不得新增与之矛盾的属性)】" + ";".join(
+            (s.get("text") or s.get("name") or "")[:60] for s in sets[:15]))
         # 力量体系:代价/限制/会出什么乱子,违背即穿帮(乱世铜炉判据2)
         powers = [s for s in sets if (s.get("type") == "力量体系") and (s.get("fields"))]
         if powers:

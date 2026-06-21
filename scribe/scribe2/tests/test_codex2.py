@@ -643,3 +643,16 @@ def test_revise_dedup_guards_and_rewrites():
     assert not out2["changed"] and out2["text"] == rep_text
     # 无重复→不动
     assert revise_dedup("一句正常的话。另一句不同的话。", lambda p: "", n=8, min_count=3)["changed"] is False
+
+
+def test_settings_locked_and_fuller(db):
+    """缺口gap7:关键设定截30字看不全既定里子→模型自行新编致属性漂移(ch2 尸丹配方前后打架)。
+    锁定指令 + 放宽截断。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一")
+    d.add_setting(w, "井龙镇尸丹",
+                  "极北玄铁混三百年尸气、七七四十九天炼成,刻井为狱专镇厉鬼魂魄;取丹者须继路否则反噬",
+                  "物品")
+    ctx = build_writing_context(d, w, 1)
+    assert "既定" in ctx or "不得前后" in ctx          # 锁定指令
+    assert "取丹者须继路" in ctx                        # 后半(30字会被截掉)须可见
