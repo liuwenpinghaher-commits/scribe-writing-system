@@ -655,6 +655,13 @@ class Domain:
             rows = [r for r in rows if r.get("entity") == entity]
         return sorted(rows, key=lambda r: r.get("chapter") or 0)
 
+    def add_exemplar(self, work: str, text: str, technique: str = "") -> str:
+        """存一段范文(style_exemplar):带技法标注的标杆片段,注入生成上下文作正面锚(few-shot)。"""
+        return self.s.create("style_exemplar", {"work": self._wref(work), "text": text, "technique": technique})
+
+    def list_exemplars(self, work: str) -> list[dict]:
+        return self.s.list("style_exemplar", "work = $w", {"w": self._wref(work)})
+
     _RESOLVE_KINDS = {"兑现", "payoff", "use", "resolve", "回收"}
 
     def entity_lines_health(self, work: str, span: int = 15) -> list[dict]:

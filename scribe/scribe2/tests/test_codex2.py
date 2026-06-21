@@ -583,3 +583,32 @@ def test_writing_injects_character_kernel(db):
     assert "渡人即赎罪" in ctx     # lie
     assert "守住三不渡" in ctx     # want
     assert "放下亡子" in ctx       # need
+
+
+def test_constraint_artifact_and_antisublime():
+    """缺口:CONSTRAINT_BLOCK 无'法器三件套'硬规则、升华点题句未禁用(Phase4 critic 定位)。"""
+    from scribe2.writing import constraint_block
+    cb = constraint_block()
+    assert "三件套" in cb and "专名" in cb          # 法器/道具三件套硬规则
+    assert "再也" in cb or "升华尾句" in cb          # 升华点题句式禁用
+
+
+def test_voice_samples_richer(db):
+    """缺口:声音样本截到 2×22 字,腔调传不动;放宽到 ≥3 条、更长。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一")
+    d.add_character(w, "甲", voice_samples=[
+        "死者为大,小的这是替您积德——顺手也给自己积点阴德,您多担待",
+        "这位大爷您都凉透了,就别跟小的客气这二两碎银了",
+        "娘,儿今儿又接了桩好买卖,您把心搁肚里安生睡"])
+    ctx = build_writing_context(d, w, 1)
+    assert "安生睡" in ctx   # 第3条样本须出现(旧版只取前2条→漏)
+
+
+def test_exemplar_injected(db):
+    """缺口:style_exemplar 表存在却从未注入;范文是学技法的唯一正面锚。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一")
+    d.add_exemplar(w, "胡先生眼珠四转,却不知在想些甚么。", technique="冷笔收尾、不点题")
+    ctx = build_writing_context(d, w, 1)
+    assert "范文" in ctx and "眼珠四转" in ctx and "冷笔收尾" in ctx

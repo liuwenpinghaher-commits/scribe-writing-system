@@ -12,8 +12,16 @@ CONSTRAINT_BLOCK = (
     "3. 意外性:每段至少一处不落俗套——期望反转、代价放大、或信息不对称;拒绝可预测的顺滑。\n"
     "4. 具体优先:用专有的物、动作、数字,替代「一抹弧度/一丝寒意/五味杂陈」这类通用模板。\n"
     "5. 禁用清单(出现即视为失败):嘴角勾起一抹弧度、眼底闪过一丝、一股暖流涌上心头、"
-    "命运的齿轮、空气仿佛凝固、千言万语化作、…般的存在、值得一提的是。\n"
-    "6. 节奏:长短句交错,避免连续同构句;副词(缓缓/轻轻/微微)整段不超过 1 次。"
+    "命运的齿轮、空气仿佛凝固、千言万语化作、…般的存在、值得一提的是;"
+    "尤其禁止升华点题尾句——「有些…就再也…」「…推开了就再也关不上」「他好像已经…了」"
+    "「有些东西…放不回去」「…再也回不去了」这类替读者下结论的句子,一律删,改为冷笔动作定格收束。\n"
+    "6. 节奏:长短句交错,避免连续同构句;副词(缓缓/轻轻/微微)整段不超过 1 次;"
+    "静态铺陈可用长句叠四字短语,惊变/反转切短句、断句、省略号,靠'断'制造紧张,不用形容词硬砸。\n"
+    "7. 法器/道具/法术三件套:关键道具或法术首次出场,必须满足「专名 + (工艺或术数) + 来历/术理」"
+    "至少 2 项(范例:名『灵龙镇煞钉』+ 阳铜黑狗血七七四十九天炼成 + 画井为狱镇魂锁煞);"
+    "只写外观体感(赤黑、发烫)而无专名/工艺/术数=失败。把它换成『一件法器』若不丢信息,即为失败。\n"
+    "8. 双声部:同场尽量让不同人物的台词腔调互相照亮、博弈(装与露、狂热与卑微);"
+    "最紧张处可插一笔反差(滑稽/琐碎),给读者张弛对冲,勿单一情绪坡道到底。"
 )
 
 
@@ -40,9 +48,9 @@ def build_writing_context(d, work: str, seq: int) -> str:
             base = f"{c['name']}({mot[:20]})" if mot else c.get("name", "")
             if (c.get("voice") or "").strip():
                 base += f"〔声音:{c['voice'][:16]}〕"
-            samples = [s for s in (c.get("voice_samples") or []) if s][:2]
-            if samples:  # 声音样本=防 OOC 命门,每次写到该角色都给范本
-                base += "〔样本:" + "/".join(s[:22] for s in samples) + "〕"
+            samples = [s for s in (c.get("voice_samples") or []) if s][:3]
+            if samples:  # 声音样本=防 OOC 命门 + 双声部命门,每次写到该角色都给足范本
+                base += "〔样本:" + "/".join(s[:40] for s in samples) + "〕"
             if (c.get("core_contradiction") or "").strip():
                 base += f"〔矛盾:{c['core_contradiction'][:28]}〕"
             # 内核 Truth-Chart:伤/谎/欲/需/惧 —— 驱动弧光,主编据此写人物的自欺与挣扎(乱世铜炉式人物深度)
@@ -186,6 +194,16 @@ def build_writing_context(d, work: str, seq: int) -> str:
                              + "\n".join("· " + r[:120] for r in recalled[:3]))
         except Exception:
             pass
+
+    # 范文·技法标杆(few-shot 正面锚:6 条抽象规则讲不清的双声部/冷收尾/法器三件套,必须靠范例示范)
+    if hasattr(d, "list_exemplars"):
+        exs = [e for e in d.list_exemplars(work) if (e.get("text") or "").strip()]
+        if exs:
+            blocks = []
+            for e in exs[:2]:
+                t = (e.get("technique") or "").strip()
+                blocks.append((f"〔技法:{t}〕\n" if t else "") + (e.get("text") or "").strip()[:420])
+            parts.append("【范文·技法标杆(仿其笔法/语域/克制收尾/法器写法,勿照抄情节与字句)】\n" + "\n———\n".join(blocks))
 
     parts.append(CONSTRAINT_BLOCK)
     return "\n".join(parts)

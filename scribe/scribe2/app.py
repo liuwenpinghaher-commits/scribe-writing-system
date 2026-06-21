@@ -311,6 +311,18 @@ def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Doma
     return {"motif_id": d.add_motif(w, b.name, b.metaphor_unfolding, b.bound_theme,
                                     b.material_echoes, b.naming_logic)}
 
+class ExemplarIn(BaseModel):
+    text: str; technique: str = ""
+
+@app.get("/works/{w}/exemplars")
+def list_exemplars(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_exemplars(w)
+
+@app.post("/works/{w}/exemplars")
+def add_exemplar(w: str, b: ExemplarIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """存带技法标注的范文片段(few-shot 正面锚,注入生成上下文)。"""
+    owner(x_owner_id); return {"exemplar_id": d.add_exemplar(w, b.text, b.technique)}
+
 @app.post("/works/{w}/foreshadows")
 def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance,
