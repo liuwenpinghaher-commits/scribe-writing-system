@@ -467,3 +467,15 @@ def test_check_chapter_power_rules(db):
     assert "破规一次左眼瞎一分" in captured["p"]    # 力量体系代价进检查 prompt
     assert "代价" in captured["p"]                   # 专项指令存在
     assert "破规却没付代价" in flags
+
+
+def test_agent_memory_by_work(db):
+    """跨会话记忆按书隔离(主编记得'这本书'的偏好):list_agent_memory 按 work 过滤。"""
+    d = domain_from(db); d.s.init_schema()
+    w1 = d.create_work("书1"); w2 = d.create_work("书2")
+    d.write_agent_memory("u1", w1, "pref", "tone", "冷峻克制")
+    d.write_agent_memory("u1", w2, "pref", "tone", "热烈")
+    mem = d.list_agent_memory("u1", work=w1)
+    pairs = [(m.get("key"), m.get("value")) for m in mem]
+    assert ("tone", "冷峻克制") in pairs
+    assert ("tone", "热烈") not in pairs   # 别串到另一本书

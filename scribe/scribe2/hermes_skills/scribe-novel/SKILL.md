@@ -19,10 +19,12 @@ metadata:
 ## 工具清单(scribe2 MCP)
 - **读**:`list_works` `get_work` `list_chapters` `latest_prose` `list_characters` `list_settings` `list_motifs`
   `list_open_foreshadows` `list_foreshadows_status`(承诺线:状态/强化/超期/想要效果/关联实体/节点 beats)
-  `entity_appearances` `search_knowledge` `get_memory` `get_author_intent` `list_consistency_flags`
+  `entity_appearances` `search_knowledge` `get_memory`(故事记忆) `recall_memory`(跨会话:这本书的作者偏好/约定,会话开始时调) `get_author_intent` `list_consistency_flags`
 - **写(需审批)**:`upsert_character`(富字段+别名) `add_setting` `add_motif` `add_char_state`
   `plant_foreshadow`(promise/类型/intended_effect/audience_knows/links) `add_foreshadow_beat`(节点+guidance/隐蔽度/效果)
-  `advance_foreshadow` `set_author_intent` `write_continue` `check_chapter` `ingest_chapter`
+  `advance_foreshadow` `set_author_intent` `remember`(记下作者对这本书的偏好/约定,跨会话) `write_continue` `check_chapter` `ingest_chapter`
+
+记忆全在 SurrealDB(底座):`get_memory`/`recall_memory` 读、`remember` 写;主编不另存记忆,经这些工具读写底座。
 
 ## 写一章
 1. 先查:`get_author_intent`(北极星/红线)、`list_foreshadows_status`(本章该埋/强化/回收哪些节点)、相关 `list_characters`/`list_settings`(尤其力量体系代价/限制)。

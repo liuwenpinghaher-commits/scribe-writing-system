@@ -171,6 +171,8 @@ def add_motif(work_id: str, name: str, metaphor_unfolding: str = "", bound_theme
 # ==== 写作面工具(段3):圣经读写 + 生成 + 章记忆 ====
 from .generate import generate_continue as _gen, ingest_chapter as _ingest  # noqa: E402
 from .llm import hermes_complete as _complete  # 生成走 Hermes
+
+_MEM_OWNER = "u1"  # 单用户本地:跨会话记忆固定 owner(与 REST 默认 X-Owner-Id 一致)
 from .critique import build_critique_prompt as _critq, parse_critique as _parsec  # noqa: E402
 from .consistency import check_chapter as _check  # noqa: E402
 
@@ -198,6 +200,19 @@ def get_memory(work_id: str) -> dict:
     """读全书主线记忆 + 各章梗概。只读。"""
     d = _domain()
     return {"global": d.get_global_memory(work_id), "chapters": d.list_chapter_memories(work_id)}
+
+
+@_read_tool()
+def recall_memory(work_id: str, namespace: str = "") -> list:
+    """读这本书的跨会话记忆(作者偏好/约定等,存在 SurrealDB)。会话开始时调,记得'这本书'。只读。"""
+    return _domain().list_agent_memory(_MEM_OWNER, work=work_id, namespace=namespace or None)
+
+
+@_write_tool
+def remember(work_id: str, key: str, value: str, namespace: str = "pref") -> dict:
+    """把作者对这本书的偏好/约定记下(存 SurrealDB 跨会话记忆,下次会话还记得)。写操作,需审批。"""
+    rid = _domain().write_agent_memory(_MEM_OWNER, work_id, namespace, key, value)
+    return {"memory_id": rid}
 
 
 @_read_tool()

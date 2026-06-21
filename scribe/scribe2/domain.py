@@ -591,6 +591,9 @@ class Domain:
     def list_agent_memory(self, owner: str, work: str | None = None,
                           namespace: str | None = None) -> list[dict]:
         rows = self.s.list("agent_memory", "owner = $o", {"o": owner})
+        if work:
+            wref = self._wref(work)
+            rows = [r for r in rows if r.get("work") == wref]   # 按书隔离
         if namespace:
             rows = [r for r in rows if r.get("namespace") == namespace]
         return rows
