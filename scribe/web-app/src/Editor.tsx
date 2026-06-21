@@ -382,14 +382,19 @@ export function ChapterEditor({
             <StateBoundary
               loading={segs.loading}
               error={segs.error}
-              empty={!segs.data?.length}
+              empty={!segs.data?.length && !latest}
               emptyNode={<Empty icon={<BookText />} title="还没有正文" hint="点「让主编写这章」生成，或切手动编辑" />}
               onRetry={segs.reload}
             >
               <div className="flex flex-col gap-2">
-                {segs.data?.map((s) => (
-                  <SegmentView key={s.id} text={s.text} cites={s.citation_refs} by={s.created_by} />
-                ))}
+                {segs.data?.length
+                  ? segs.data.map((s) => (
+                      <SegmentView key={s.id} text={s.text} cites={s.citation_refs} by={s.created_by} />
+                    ))
+                  : /* 无分段但有快照正文(兜底):按段落直接展示,不致隐藏已有正文 */
+                    latest.split(/\n\s*\n/).filter(Boolean).map((p, i) => (
+                      <SegmentView key={i} text={p} cites="[]" by="" />
+                    ))}
               </div>
             </StateBoundary>
           )}

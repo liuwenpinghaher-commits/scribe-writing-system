@@ -104,7 +104,9 @@ def _cid(d: Domain, w: str, seq: int) -> str:
 @app.post("/works/{w}/chapters/{seq}/prose")
 def save_prose(w: str, seq: int, b: ProseIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
-    sid = d.save_prose(w, _cid(d, w, seq), b.content, b.lock)
+    cid = _cid(d, w, seq)
+    sid = d.save_prose(w, cid, b.content, b.lock)
+    d.save_segments(w, cid, b.content)  # 存即分段,供「阅读/引用」视图直接展示+回填引用
     return {"snapshot_id": sid}
 
 class StatusIn(BaseModel):

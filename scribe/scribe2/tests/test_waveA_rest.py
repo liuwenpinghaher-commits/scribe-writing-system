@@ -47,3 +47,16 @@ def test_waveA_rest_flow(db):
         assert all(x["id"] != w for x in c.get("/works", headers=H).json())
     finally:
         app.dependency_overrides.clear()
+
+
+def test_save_prose_autosegments(db):
+    """存正文即自动分段(否则切「阅读/引用」视图会空,显示'还没有正文')。"""
+    d, c, H = _setup(db)
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "一"}, headers=H)
+        c.post(f"/works/{w}/chapters/1/prose", json={"content": "第一段。\n\n第二段。"}, headers=H)
+        segs = c.get(f"/works/{w}/chapters/1/segments", headers=H).json()  # 未显式 rebuild
+        assert len(segs) == 2, "存正文应自动分段,无需显式 rebuild"
+    finally:
+        app.dependency_overrides.clear()
