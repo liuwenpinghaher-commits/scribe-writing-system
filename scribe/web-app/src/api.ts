@@ -48,7 +48,6 @@ export interface Intent { reader_feeling?: string; core_emotional_arc?: string; 
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
 export interface ForeshadowStatus { id: string; summary: string; state: string; chapter?: number; importance?: string; echoes?: number[]; overdue?: boolean; }
-export interface CharStateT { id?: string; character: string; chapter_seq: number; state_desc: string; change_type?: string; }
 export interface ExtractResult {
   characters: { name: string; motivation?: string }[];
   settings: { name: string; type?: string }[];
@@ -228,9 +227,7 @@ export const api = {
     post<{ character_id: string }>(`/works/${w}/characters`, { name, motivation, ...extra }),
   motifs: (w: string) => req<Motif[]>(`/works/${w}/motifs`),
   addMotif: (w: string, m: Motif) => post<{ motif_id: string }>(`/works/${w}/motifs`, m),
-  // Progressions:人物状态轨迹
-  charStates: (w: string, character: string) =>
-    req<CharStateT[]>(`/works/${w}/char-states?character=${encodeURIComponent(character)}`),
+  // Progressions:人物状态轨迹(charStates 见上方 P1 既有方法)
   addCharState: (w: string, character: string, chapter_seq: number, state_desc: string, change_type = "add") =>
     post<{ state_id: string }>(`/works/${w}/char-states`, { character, chapter_seq, state_desc, change_type }),
   // PlotThread:伏笔全状态(echoes/超期)

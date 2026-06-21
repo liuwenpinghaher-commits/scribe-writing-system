@@ -3,24 +3,20 @@
  * 北极星黛绿条 → Segmented(正文|对话) → ChapterEditor 或 Conversation
  */
 import { lazy, Suspense, useEffect, useState } from "react";
-import { FileText, MessagesSquare, Star } from "lucide-react";
+import { FileText, Star } from "lucide-react";
 import { api } from "./api";
 import { useData, useToast } from "./common";
-import { Segmented } from "./components/Segmented";
 import { Empty } from "./components/Empty";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Textarea } from "./components/ui/textarea";
 import { Input } from "./components/ui/input";
 import { Skeleton } from "./components/ui/skeleton";
-import { Conversation } from "./Conversation";
 
 // 懒加载编辑器(Tiptap 是最大块),缩小首屏 bundle
 const ChapterEditor = lazy(() =>
   import("./Editor").then((m) => ({ default: m.ChapterEditor }))
 );
-
-type CenterMode = "prose" | "chat";
 
 // ─── 北极星 sticky 条(黛绿左边框)───────────────────────────
 function NorthStarBar({ work, rev }: { work: string; rev: number }) {

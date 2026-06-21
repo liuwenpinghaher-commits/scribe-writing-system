@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Lightbulb, Search, Plus, BookText, Trash2 } from "lucide-react";
+import { Lightbulb, Search, Plus, BookText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "./api";
 import type { Work, Chapter } from "./api";
@@ -31,8 +31,8 @@ function Workspace() {
   const [view, setView] = useState<ViewKey>("write");
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
-  const [showLeft, setShowLeft] = useState(false);
-  const [showRight, setShowRight] = useState(false);
+  const [, setShowLeft] = useState(false);
+  const [, setShowRight] = useState(false);
 
   const select = (w: Work) => { setCur(w); setSeq(null); setShowLeft(false); };
   const createWork = async () => {

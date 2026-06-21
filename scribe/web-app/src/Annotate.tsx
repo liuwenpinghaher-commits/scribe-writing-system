@@ -16,7 +16,7 @@ import { cn } from "./lib/utils";
 export interface SelInfo { text: string; top: number; left: number }
 
 /** 检测 ref 容器内的文字选区,返回 {text, 相对容器的 top/left} 与清除函数。 */
-export function useTextSelection(ref: RefObject<HTMLElement>): [SelInfo | null, () => void, () => void] {
+export function useTextSelection(ref: RefObject<HTMLElement | null>): [SelInfo | null, () => void, () => void] {
   const [sel, setSel] = useState<SelInfo | null>(null);
   const capture = useCallback(() => {
     const s = window.getSelection();

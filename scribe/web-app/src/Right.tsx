@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Stethoscope, Send, NotebookPen, BookMarked, Sparkles, ShieldAlert, Package, Activity, Brain, MessagesSquare } from "lucide-react";
+import { useState } from "react";
+import { Stethoscope, NotebookPen, BookMarked, Sparkles, ShieldAlert, Package, Activity, Brain, MessagesSquare } from "lucide-react";
 import { api } from "./api";
 import { errMsg, useData, useToast } from "./common";
 import { QualityCard, Relations, CharStates, Threads, AgentPanel } from "./Panels";
@@ -8,8 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
 import { cn } from "@/lib/utils";
@@ -509,115 +507,6 @@ function BibleAdd({ work, onAdded }: { work: string; onAdded: () => void }) {
         onKeyDown={(e) => { if (e.key === "Enter") add(); }}
       />
       <Button variant="ghost" size="sm" onClick={add}>加</Button>
-    </div>
-  );
-}
-
-interface Card { type: string; title: string; options?: string[] }
-
-function parseCards(text: string): { text: string; cards: Card[] } {
-  const cards: Card[] = [];
-  const clean = text.replace(/```scribe-card\s*([\s\S]*?)```/g, (_m, body) => {
-    try { const c = JSON.parse(body.trim()); if (c && c.title) cards.push(c); } catch { /* */ }
-    return "";
-  }).trim();
-  return { text: clean, cards };
-}
-
-function ChiefCard({ card, onPick }: { card: Card; onPick: (opt: string) => void }) {
-  const isHard = card.type === "hard_conflict";
-  const isSuggestion = card.type === "suggestion";
-  const borderColor = isHard ? "border-l-destructive" : isSuggestion ? "border-l-[#f59e0b]" : "border-l-primary";
-  const icon = isHard ? "⚠ 硬冲突" : isSuggestion ? "💡 建议" : "⌖ 待定夺";
-  return (
-    <Card size="sm" className={cn("border-l-[3px]", borderColor)}>
-      <CardContent className="pt-3">
-        <p className="text-xs font-medium">{icon} {card.title}</p>
-        {card.options && card.options.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {card.options.map((o, i) => (
-              <Button key={i} variant="ghost" size="xs" onClick={() => onPick(o)}>{o}</Button>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Chat({ work, bump }: { work: string; bump: () => void }) {
-  const [msgs, setMsgs] = useState<{ who: "me" | "ai"; text: string; cards?: Card[] }[]>([]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null);
-  const send = async (raw?: string) => {
-    const m = (raw ?? input).trim(); if (!m || busy) return;
-    setInput(""); setMsgs((x) => [...x, { who: "me", text: m }]); setBusy(true);
-    try {
-      const r = await api.chat(`(当前书 work_id=${work})${m}`);
-      const { text, cards } = parseCards(r.content);
-      setMsgs((x) => [...x, { who: "ai", text: text || "(见下方卡片)", cards }]);
-    } catch (e) {
-      setMsgs((x) => [...x, { who: "ai", text: "出错:" + errMsg(e) }]);
-    } finally {
-      setBusy(false); bump();
-      setTimeout(() => boxRef.current?.scrollTo(0, 1e9), 0);
-    }
-  };
-  return (
-    <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">主编对话</h3>
-      <div className="flex flex-col gap-2">
-        {/* 消息区 */}
-        <ScrollArea className="h-36">
-          <div ref={boxRef} aria-live="polite" className="flex flex-col gap-1.5 pr-2">
-            {msgs.length === 0 && (
-              <Empty
-                title="和主编聊聊这本书"
-                hint="遇决策/冲突会给可操作卡片"
-                className="py-4"
-              />
-            )}
-            {msgs.map((m, i) => (
-              <div key={i} className="flex flex-col gap-1">
-                <div
-                  className={cn(
-                    "max-w-[85%] rounded-xl px-3 py-2 text-xs font-prose",
-                    m.who === "me"
-                      ? "self-end bg-primary text-primary-foreground"
-                      : "self-start bg-muted text-foreground"
-                  )}
-                >
-                  {m.text}
-                </div>
-                {m.cards?.map((c, j) => (
-                  <ChiefCard key={j} card={c} onPick={(o) => send(`我选:${o}`)} />
-                ))}
-              </div>
-            ))}
-            {busy && (
-              <div className="self-start rounded-xl px-3 py-2 text-xs bg-muted text-muted-foreground animate-pulse">
-                主编思考中…
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-        {/* 输入行 */}
-        <div className="flex items-center gap-1">
-          <Input
-            aria-label="对主编说"
-            value={input}
-            placeholder="说点什么…"
-            disabled={busy}
-            className="h-7 text-xs"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-          />
-          <Button size="sm" onClick={() => send()} disabled={busy}>
-            <Send size={13} /> 发
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

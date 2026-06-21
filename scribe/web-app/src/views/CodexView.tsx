@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -12,7 +12,6 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Library,
   User,
   MapPin,
   Bookmark,
@@ -20,21 +19,22 @@ import {
   FileText,
   Plus,
   ChevronRight,
-  ChevronLeft,
   ChevronDown,
   Loader2,
   Sparkles,
-  MessageSquareQuote,
+  MessagesSquare,
 } from "lucide-react";
 import { api } from "@/api";
-import type { CharacterT, Setting, Foreshadow, Material, CharState, Motif, ForeshadowStatus } from "@/api";
+import type { CharacterT, Setting, Material, CharState, Motif, ForeshadowStatus } from "@/api";
 import { EntityEditor, type EntityKind } from "./EntityEditor";
 import { CodexChat } from "./CodexChat";
 import { ExtractPanel } from "./ExtractPanel";
-import { useData } from "@/common";
+import { WorkspaceShell, useStrPref } from "@/WorkspaceShell";
+import { useData, useToast } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -911,96 +911,70 @@ function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEd
   );
 }
 
-type LeftView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown } | { mode: "extract" };
+type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown } | { mode: "extract" };
+const TYPES = [
+  { key: "characters", label: "角色", icon: User, kind: "character" as EntityKind },
+  { key: "settings", label: "设定", icon: MapPin, kind: "setting" as EntityKind },
+  { key: "motifs", label: "母题", icon: Flame, kind: "motif" as EntityKind },
+  { key: "foreshadows", label: "伏笔", icon: Bookmark },
+  { key: "materials", label: "素材", icon: FileText },
+] as const;
+const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "设定", motif: "母题" };
 
 export function CodexView({ work }: { work: string }) {
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
-  const [left, setLeft] = useState<LeftView>({ mode: "list" });
-  const [chatOpen, setChatOpen] = useState(true);   // 右栏主编聊天默认打开
+  const [type, setType] = useStrPref("scribe.codex.type", "characters");   // 左轨:实体类型
+  const [rightActive, setRightActive] = useStrPref("scribe.codex.right", "chat"); // 右轨:主编对话默认开
+  const [view, setView] = useState<CenterView>({ mode: "list" });
   const [seed, setSeed] = useState<string | undefined>(undefined);
-  const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "设定", motif: "母题" };
-  const edit = (kind: EntityKind) => (entity?: unknown) => setLeft({ mode: "edit", kind, entity: entity ?? null });
-  const discuss = (kind: EntityKind, name: string) => { setChatOpen(true); setSeed(`聊聊「${name}」这个${KIND_LABEL[kind]}：`); };
 
-  // 右侧聊天面板可拖拽改宽(持久化)
-  const [pw, setPw] = useState<number>(() => {
-    try { return Number(localStorage.getItem("scribe.codexPW")) || 420; } catch { return 420; }
-  });
-  useEffect(() => { try { localStorage.setItem("scribe.codexPW", String(pw)); } catch { /* */ } }, [pw]);
-  const startResize = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX, startW = pw;
-    const onMove = (ev: MouseEvent) => setPw(Math.max(300, Math.min(760, startW - (ev.clientX - startX))));
-    const onUp = () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = ""; document.body.style.userSelect = "";
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
+  const openEdit = (kind: EntityKind) => (entity?: unknown) => setView({ mode: "edit", kind, entity: entity ?? null });
+  const discuss = (kind: EntityKind, name: string) => { setRightActive("chat"); setSeed(`聊聊「${name}」这个${KIND_LABEL[kind]}：`); };
+  const t = TYPES.find((x) => x.key === type) ?? TYPES[0];
+
+  const listForType = () => {
+    switch (type) {
+      case "settings": return <SettingsTab work={work} rev={rev} onEdit={openEdit("setting")} />;
+      case "motifs": return <MotifsTab work={work} rev={rev} onEdit={openEdit("motif")} />;
+      case "foreshadows": return <ForeshadowsTab work={work} />;
+      case "materials": return <MaterialsTab work={work} />;
+      default: return <CharactersTab work={work} rev={rev} onEdit={openEdit("character")} />;
+    }
   };
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* 顶部标题条 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 py-2">
-        <Library size={15} className="text-primary" />
-        <span className="text-sm font-medium text-foreground">设定库</span>
-        {left.mode !== "list" && (
-          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setLeft({ mode: "list" })}>
-            <ChevronLeft size={13} /> 返回列表
+  // 中区:主工作面 —— 列表 / 实体详情(全字段)/ 从正文抽取
+  const center =
+    view.mode === "edit" ? (
+      <EntityEditor work={work} kind={view.kind} entity={view.entity as never}
+        onSaved={bump} onClose={() => setView({ mode: "list" })} onDiscuss={discuss} />
+    ) : view.mode === "extract" ? (
+      <ExtractPanel work={work} onSaved={bump} onClose={() => setView({ mode: "list" })} />
+    ) : (
+      <div className="flex flex-col h-full min-h-0">
+        <div className="flex items-center gap-2 h-11 shrink-0 px-4 border-b border-border">
+          <t.icon size={15} className="text-primary" />
+          <span className="text-sm font-medium text-foreground">{t.label}</span>
+          <div className="flex-1" />
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={() => setView({ mode: "extract" })}>
+            <Sparkles size={13} /> 从正文抽取
           </Button>
-        )}
-        <div className="flex-1" />
-        <Button variant={left.mode === "extract" ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
-          onClick={() => setLeft(left.mode === "extract" ? { mode: "list" } : { mode: "extract" })}>
-          <Sparkles size={13} /> 从正文抽取
-        </Button>
-        <Button variant={chatOpen ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
-          onClick={() => setChatOpen((o) => !o)}>
-          <MessageSquareQuote size={13} /> 与主编聊设定
-        </Button>
-      </div>
-
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* 左主区:列表 / 实体详情全字段 / 抽取(详情在宽的左区展开)*/}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          {left.mode === "list" ? (
-            <div className="h-full overflow-auto px-4 py-3">
-              <Tabs defaultValue="characters" className="flex flex-col gap-3">
-                <TabsList className="shrink-0 w-auto">
-                  <TabsTrigger value="characters" className="text-xs gap-1.5"><User size={13} />角色</TabsTrigger>
-                  <TabsTrigger value="settings" className="text-xs gap-1.5"><MapPin size={13} />设定</TabsTrigger>
-                  <TabsTrigger value="motifs" className="text-xs gap-1.5"><Flame size={13} />母题</TabsTrigger>
-                  <TabsTrigger value="foreshadows" className="text-xs gap-1.5"><Bookmark size={13} />伏笔</TabsTrigger>
-                  <TabsTrigger value="materials" className="text-xs gap-1.5"><FileText size={13} />素材</TabsTrigger>
-                </TabsList>
-                <TabsContent value="characters" className="mt-0"><CharactersTab work={work} rev={rev} onEdit={edit("character")} /></TabsContent>
-                <TabsContent value="settings" className="mt-0"><SettingsTab work={work} rev={rev} onEdit={edit("setting")} /></TabsContent>
-                <TabsContent value="motifs" className="mt-0"><MotifsTab work={work} rev={rev} onEdit={edit("motif")} /></TabsContent>
-                <TabsContent value="foreshadows" className="mt-0"><ForeshadowsTab work={work} /></TabsContent>
-                <TabsContent value="materials" className="mt-0"><MaterialsTab work={work} /></TabsContent>
-              </Tabs>
-            </div>
-          ) : left.mode === "extract" ? (
-            <div className="h-full max-w-3xl border-r border-border"><ExtractPanel work={work} onSaved={bump} onClose={() => setLeft({ mode: "list" })} /></div>
-          ) : (
-            <div className="h-full max-w-3xl border-r border-border"><EntityEditor work={work} kind={left.kind} entity={left.entity as never}
-              onSaved={bump} onClose={() => setLeft({ mode: "list" })} onDiscuss={discuss} /></div>
-          )}
         </div>
-
-        {/* 右栏:与主编聊设定(默认打开,可拖拽改宽)*/}
-        {chatOpen && (
-          <div className="shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0 relative" style={{ width: pw }}>
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-20 hover:bg-accent/60 transition-colors"
-              onMouseDown={startResize} title="拖拽改宽" />
-            <CodexChat work={work} onChanged={bump} seed={seed} />
-          </div>
-        )}
+        <div className="flex-1 min-h-0 overflow-auto px-4 py-3">{listForType()}</div>
       </div>
-    </div>
-  );
+    );
+
+  // 左轨切类型时回到列表;右轨主编对话默认常驻
+  const left = {
+    variant: "switch" as const, active: type,
+    onActive: (k: string) => { setType(k); setView({ mode: "list" }); },
+    caps: TYPES.map((x) => ({ key: x.key, label: x.label, icon: x.icon, render: () => null })),
+  };
+  const right = {
+    active: rightActive, onActive: setRightActive,
+    caps: [{ key: "chat", label: "主编对话", icon: MessagesSquare,
+      render: () => <CodexChat work={work} onChanged={bump} seed={seed} /> }],
+  };
+
+  return <WorkspaceShell ns="codex" center={center} left={left} right={right} />;
 }
