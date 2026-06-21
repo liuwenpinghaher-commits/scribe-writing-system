@@ -27,20 +27,43 @@ while sum(len(s) for s in secs) < CAP and i < 3:
     print(f"  节{i}: +{len(sec)}字  累计{sum(len(s) for s in secs)}")
 
 full = "\n\n".join(secs)
-r = cli.post(f"/works/{WID}/chapters/{SEQ}/prose", json={"content": full, "lock": False})
-print("存稿", r.status_code)
+def _save(c):
+    cli.post(f"/works/{WID}/chapters/{SEQ}/prose", json={"content": c, "lock": False})
 
-# 生成后去重通道(跨段复读 prompt 治不了,确定性扫描+定向改写)
-rd = cli.post(f"/works/{WID}/chapters/{SEQ}/dedup", json={})
-if rd.status_code < 300:
-    j = rd.json()
-    print(f"去重: changed={j['changed']} 复读{len(j['reps'])}处 → {j.get('saved_len')}字")
-    if j["changed"]:
-        full = j.get("text") or full   # 端点回传去重后正文
-else:
-    print("去重端点", rd.status_code, rd.text[:120])
+def _dedup(c):  # 存稿后跑确定性去重(字面+结构+升华),回传去重后正文
+    _save(c)
+    rd = cli.post(f"/works/{WID}/chapters/{SEQ}/dedup", json={})
+    return (rd.json().get("text") or c) if rd.status_code < 300 and rd.json().get("changed") else c
 
+full = _dedup(full)
+print(f"去重→{len(full)}字")
+
+# 纪律门控:LLM 判官检语义违规(双高潮/声音崩/解说倾泻)→截到复发点+续写,循环至守纪
+BRIEF = INSTR0[:380]
+for it in range(2):
+    dc = cli.post(f"/works/{WID}/chapters/{SEQ}/discipline-check", json={"brief": BRIEF})
+    if dc.status_code >= 300:
+        print("纪律端点", dc.status_code); break
+    v = dc.json()
+    if v.get("ok") or not v.get("cut_after"):
+        print("纪律✓ 守纪"); break
+    idx = full.find(v["cut_after"])
+    if idx < 0:
+        print(f"纪律✗ {v.get('violations')} 但复发点未定位,跳过"); break
+    cut = full[:idx + len(v["cut_after"])]
+    print(f"纪律✗ {v.get('violations')} 复发@{idx}({idx*100//max(len(full),1)}%)→截断+续写")
+    secs2, prev2 = [cut], cut[-1800:]
+    while sum(len(s) for s in secs2) < CAP and len(secs2) < 3:
+        rr = cli.post(f"/works/{WID}/chapters/{SEQ}/actions/continue",
+                      json={"instruction": "严守本章命题、把这一章在既定克制范围内自然写完并冷笔收尾:绝不另起第二场打斗/高潮、绝不偷跑后续章剧情、绝不发明新登场角色;terse 角色(如阿萤)只零星碎语≤10字半截就断、不大段独白、不与主角同温。", "target_chars": 1300, "prev": prev2})
+        if rr.status_code >= 300:
+            break
+        secs2.append(rr.json()["content"].strip())
+        prev2 = ("\n".join(secs2))[-1800:]
+    full = _dedup("\n\n".join(secs2))
+
+_save(full)
 path = f"/tmp/newbook_ch{SEQ}.txt"
 open(path, "w").write(full)
 print(f"=== 第{SEQ}章 {len(full)}字 → {path} ===")
-print(full[:300])
+print(full[:200])

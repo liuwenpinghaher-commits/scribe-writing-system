@@ -9,7 +9,8 @@ from .domain import Domain, _cjk
 from .generate import generate_continue, ingest_chapter, build_chapter_prompt
 from .writing import build_writing_context
 from .llm import hermes_complete, hermes_complete_stream, hermes_responses_events
-from .critique import build_critique_prompt, parse_critique, critique_revise, revise_dedup
+from .critique import (build_critique_prompt, parse_critique, critique_revise, revise_dedup,
+                       build_discipline_prompt, parse_discipline)
 from .consistency import check_chapter
 from . import editorial as _ed
 
@@ -435,6 +436,19 @@ def dedup_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain 
     if res["changed"]:
         d.save_prose(w, _cid(d, w, seq), res["text"], False)
     return {"changed": res["changed"], "reps": res["reps"], "saved_len": len(res["text"]), "text": res["text"]}
+
+class DisciplineIn(BaseModel):
+    brief: str = ""
+
+@app.post("/works/{w}/chapters/{seq}/discipline-check")
+def discipline_check_ep(w: str, seq: int, b: DisciplineIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """LLM 纪律闸:判本章是否违反命题(双高潮/terse声音崩/解说倾泻)+ 定位复发前一句。
+    确定性检测对这些语义违规是瞎的,只有判官抓得到。返回 {ok,violations,cut_after}。"""
+    owner(x_owner_id)
+    text = _chapter_prose(d, w, seq)
+    if not text.strip():
+        raise HTTPException(400, "无正文可判")
+    return parse_discipline(_complete(build_discipline_prompt(text, b.brief)))
 
 @app.post("/works/{w}/chapters/{seq}/check")
 def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
