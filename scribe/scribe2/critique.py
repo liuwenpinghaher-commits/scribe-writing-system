@@ -155,23 +155,46 @@ def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -
     return [{"phrase": g, "count": c} for g, c in chosen[:top]]
 
 
+_EDGE = re.compile(r'^[\s"\'""‘’「」『』,，、:：;；…—]+|[\s"\'""‘’「」『』,，、:：;；…—]+$')
+_HAS_CJK = re.compile(r'[一-鿿]')
+
+
+def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4) -> list[dict]:
+    """结构性复读检测:排比开头(同3字开头≥min_anaphora句)+ 单字/极短断句滥用。
+    字面 n-gram 查不到这些(各句内容不同),但同样机械拉低质感(ch3 '他想起…×4'、'火。井。')。
+    先剥引号/标点碎片,避免把对白引号误判为短句。"""
+    from collections import Counter
+    raw = re.split(r"[。！？\n]+", text or "")
+    sents = [t for t in (_EDGE.sub("", s) for s in raw) if t]
+    out: list[dict] = []
+    openers = Counter(s[:3] for s in sents if len(s) >= 4 and not _PUNCT_ONLY.match(s[:3]))
+    for op, c in openers.items():
+        if c >= min_anaphora:
+            out.append({"phrase": f"{op}…(排比开头)", "count": c, "kind": "anaphora"})
+    short = [s for s in sents if 1 <= len(s) <= 2 and _HAS_CJK.search(s)]
+    if len(short) > max_short:
+        out.append({"phrase": "单字/极短断句(如 " + "/".join(short[:5]) + ")", "count": len(short), "kind": "short"})
+    return sorted(out, key=lambda x: -x["count"])[:8]
+
+
 def build_dedup_prompt(text: str, reps: list[dict]) -> str:
-    lst = "\n".join(f"· 「{r['phrase']}」(全篇约重复 {r['count']} 次)" for r in reps)
+    lst = "\n".join(f"· 「{r['phrase']}」(全篇约 {r['count']} 次)" for r in reps)
     return (
         "下面这段正文里,以下词句/句式在全篇机械【重复】,严重拉低文学质感:\n" + lst +
-        "\n\n做一次外科式【去重】改写:每个重复意象/句式全篇最多留 2 次(最有力那处保留),"
-        "其余改写成不同说法或删除;若两个场景结构雷同(如两次对峙),把后一次改出差异或合并。"
+        "\n\n做一次外科式【去重】改写:每个重复意象/句式全篇最多留 2 次(最有力那处保留),其余改写成不同说法或删除;"
+        "若标注『排比开头』,把那些相同开头的句子改成不同句式;若标注『单字/极短断句』,把过多的单字短句并入正常长句、只留最有力的一两处;"
+        "若两个场景结构雷同(如两次对峙),把后一次改出差异或合并。"
         "保持情节连贯、人物声音一致、字数基本不变。只输出改写后的完整正文,不要解释。\n\n【正文】\n" + text)
 
 
 def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3, max_passes: int = 2) -> dict:
     """生成后去重通道:扫描复读→定向改写,循环至干净或到 max_passes(长章单遍不够)。守护改写过短则弃用。"""
-    reps0 = find_repetitions(text, n=n, min_count=min_count)
+    reps0 = find_repetitions(text, n=n, min_count=min_count) + find_structural_repeats(text)
     if not reps0:
         return {"text": text, "reps": [], "changed": False}
     cur, changed = text, False
     for _ in range(max_passes):
-        reps = find_repetitions(cur, n=n, min_count=min_count)
+        reps = find_repetitions(cur, n=n, min_count=min_count) + find_structural_repeats(cur)
         if not reps:
             break
         out = (complete_fn(build_dedup_prompt(cur, reps)) or "").strip()

@@ -656,3 +656,12 @@ def test_settings_locked_and_fuller(db):
     ctx = build_writing_context(d, w, 1)
     assert "既定" in ctx or "不得前后" in ctx          # 锁定指令
     assert "取丹者须继路" in ctx                        # 后半(30字会被截掉)须可见
+
+
+def test_find_structural_repeats():
+    """缺口gap9:去重只查字面n-gram,不查句式/节拍复读(ch3 排比泛滥+单字断行滥用)。"""
+    from scribe2.critique import find_structural_repeats
+    t = "他想起娘的眼。他想起爹的死。他想起那场瘟疫。他想起乱岗的尸。火。井。血。是她。又是火。"
+    sr = find_structural_repeats(t, min_anaphora=3, max_short=3)
+    assert any(x.get("kind") == "anaphora" and "他想起" in x["phrase"] for x in sr)  # 排比开头≥3
+    assert any(x.get("kind") == "short" for x in sr)                                # 单字断句过多
