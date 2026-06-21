@@ -479,3 +479,33 @@ def test_agent_memory_by_work(db):
     pairs = [(m.get("key"), m.get("value")) for m in mem]
     assert ("tone", "冷峻克制") in pairs
     assert ("tone", "热烈") not in pairs   # 别串到另一本书
+
+
+def test_revise_prompt_targets_worst_dims():
+    """重写 prompt:针对最差维给具体改写指令,且逼模型真改(不原样照抄)。"""
+    from scribe2.critique import build_revise_prompt
+    p = build_revise_prompt("原文…", {"worst_dims": ["surprise", "voice"], "issues": ["太顺", "书面腔"]})
+    assert "反转" in p or "信息差" in p          # surprise 专项指令
+    assert "口语" in p or "书面语" in p          # voice 专项指令
+    assert "原样照抄" in p or "放手改写" in p     # 逼真改,别返回原文
+
+
+def test_critique_revise_keeps_best(monkeypatch):
+    """critique-revise 取优:重写更好才采纳;重写更差则保留原稿(不退步)。"""
+    from scribe2.critique import critique_revise
+    # 重写变好场景:原稿各维3,改稿含'改好了'各维4
+    def fake_up(prompt):
+        if "重写" in prompt or "顶尖文学编辑" in prompt:   # revise prompt
+            return "改好了的正文"
+        sc = 4 if "改好了" in prompt else 3                # critique prompt
+        return '{"scores":{"texture":%d,"surprise":%d,"emotion_truth":%d,"pace":%d,"voice":%d,"anti_slop":%d,"intent_resonance":%d,"coherence":%d}}' % ((sc,) * 8)
+    r = critique_revise("原稿", "", fake_up, max_rounds=1)
+    assert r["final"] == "改好了的正文" and r["last_overall"] > r["first_overall"]
+    # 重写变差场景:改稿各维2 → 退回原稿
+    def fake_down(prompt):
+        if "重写" in prompt or "顶尖文学编辑" in prompt:
+            return "改差了的正文"
+        sc = 2 if "改差了" in prompt else 3
+        return '{"scores":{"texture":%d,"surprise":%d,"emotion_truth":%d,"pace":%d,"voice":%d,"anti_slop":%d,"intent_resonance":%d,"coherence":%d}}' % ((sc,) * 8)
+    r2 = critique_revise("原稿", "", fake_down, max_rounds=1)
+    assert r2["final"] == "原稿"                  # 没赢就退回,不退步

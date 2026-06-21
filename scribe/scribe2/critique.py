@@ -54,40 +54,53 @@ def parse_critique(reply: str, threshold: float = 3.5) -> dict:
             "overall": overall, "pass": bool(scores) and overall >= threshold}
 
 
+# 每个薄弱维度的具体改写指令(逼模型真改,而非"尽量保留"导致原样返回)
+_DIM_FIX = {
+    "surprise": "加入一处不落俗套的反转/代价/信息差,打破顺滑预期",
+    "emotion_truth": "把直说的情绪改成身体本能反应(指节发力/呼吸一滞/手停在半空),show 不 tell",
+    "voice": "改掉不符人物身份/认知的书面语,换成该人物会用的口语",
+    "anti_slop": "删掉套路微表情、空洞大词、万能比喻、重复句式(就是问题里点到的那些)",
+    "texture": "换更新鲜具体的动词与意象,去掉平庸用词",
+    "pace": "长短句交错,删去拖沓与赘述",
+    "intent_resonance": "朝北极星的核心感受用力,别用治愈/圆满消解它",
+    "coherence": "修正与设定/上文的矛盾,使信息自洽",
+}
+
+
 def build_revise_prompt(text: str, critique: dict) -> str:
     zh = {k: z for k, z, _ in RUBRIC}
-    weak = "、".join(zh.get(k, k) for k in critique.get("worst_dims", [])) or "薄弱处"
+    worst = critique.get("worst_dims") or _KEYS[:2]
+    fixes = "\n".join(f"- {zh.get(k, k)}:{_DIM_FIX.get(k, '加强')}" for k in worst)
     issues = "；".join(critique.get("issues", [])[:5]) or "套路化、不够具体"
     return (
-        f"下面这段正文在【{weak}】上较弱,具体问题:{issues}。\n"
-        "请在保留情节、人物、信息不变的前提下定向重写,只改这些薄弱处,其余尽量保留。"
-        "要求 show 不 tell、克制、具体、有意外性。只输出重写后的完整正文,不要解释。\n\n正文:\n" + text
+        "你是顶尖文学编辑,重写下面这段正文,把它从草稿改到能发表的水准。\n"
+        f"**针对性大改这几处薄弱点(不是只换词,是放手改写对应段落):**\n{fixes}\n"
+        f"**具体问题:**{issues}\n"
+        "保留情节主线、人物、关键信息不变;但放手改写薄弱段落——加反转/代价、把情绪落到动作、"
+        "换掉俗套与书面腔,show 不 tell、克制、有意外。\n"
+        "只输出重写后的完整正文,不要解释,不要原样照抄原文。\n\n原文:\n" + text
     )
 
 
 def critique_revise(text: str, reader_feeling: str, complete_fn,
                     max_rounds: int = 1, threshold: float = 3.5) -> dict:
-    rounds: list[dict] = []
-    cur = text
-    first_overall = None
-    improved = False
-    revises_left = max(1, max_rounds)
-    while True:
-        crit = parse_critique(complete_fn(build_critique_prompt(cur, reader_feeling)), threshold)
-        if first_overall is None:
-            first_overall = crit["overall"]
-        entry = {"critique": crit, "revised_applied": False}
-        rounds.append(entry)
-        if crit["pass"] or revises_left <= 0:
+    """评改环:critique → 定向重写 → **重新打分,只在真变好时采纳(取优,绝不退步)**,可多轮。"""
+    def crit_of(t):
+        return parse_critique(complete_fn(build_critique_prompt(t, reader_feeling)), threshold)
+    best, best_crit = text, crit_of(text)
+    first_overall = best_crit["overall"]
+    rounds: list[dict] = [{"critique": best_crit, "revised_applied": False}]
+    left = max(1, max_rounds)
+    while not best_crit["pass"] and left > 0:
+        left -= 1
+        cand = complete_fn(build_revise_prompt(best, best_crit)).strip()
+        if not cand or cand == best:
             break
-        revised = complete_fn(build_revise_prompt(cur, crit)).strip()
-        if revised and revised != cur:
-            cur = revised
-            improved = True
-            entry["revised_applied"] = True
-            revises_left -= 1
-            continue
-        break
-    return {"final": cur, "improved": improved, "rounds": rounds,
-            "first_overall": first_overall,
-            "last_overall": rounds[-1]["critique"]["overall"] if rounds else 0.0}
+        cand_crit = crit_of(cand)
+        applied = cand_crit["overall"] > best_crit["overall"]   # 取优:重写真打赢才采纳
+        rounds.append({"critique": cand_crit, "revised_applied": applied})
+        if not applied:
+            break                                               # 没赢即停,保留 best(原稿/上轮)
+        best, best_crit = cand, cand_crit
+    return {"final": best, "improved": best != text, "rounds": rounds,
+            "first_overall": first_overall, "last_overall": best_crit["overall"]}
