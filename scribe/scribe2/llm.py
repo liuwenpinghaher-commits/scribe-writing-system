@@ -33,12 +33,20 @@ def hermes_complete(prompt: str, system: str | None = None,
     body: dict = {"model": model, "messages": msgs, "stream": False}
     if max_tokens:
         body["max_tokens"] = max_tokens
-    r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout,
-                   headers={"Authorization": f"Bearer {_api_key()}",
-                            "Content-Type": "application/json"},
-                   json=body)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    hdr = {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
+    last: Exception | None = None
+    for attempt in range(3):   # 瞬时超时/5xx/连接错重试(doubao 网关偶发慢/过载)
+        try:
+            r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout, headers=hdr, json=body)
+            if r.status_code >= 500:
+                last = httpx.HTTPStatusError(f"{r.status_code}", request=r.request, response=r)
+                continue
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
+            last = e
+            continue
+    raise last if last else RuntimeError("hermes_complete failed")
 
 
 def hermes_responses_events(message: str, instructions: str, model: str | None = None,
