@@ -241,6 +241,8 @@ class CharacterIn(BaseModel):
 class ForeshadowIn(BaseModel):
     summary: str; chapter: int; importance: str = "normal"
     promise: str = ""; ftype: str = "伏笔"
+    intended_effect: str = ""; audience_knows: bool = False
+    payoff_effect: str = ""; links: list[str] = []
 class ActionIn(BaseModel):
     instruction: str = ""; target_chars: int = 850; prev: str = ""
 
@@ -298,7 +300,9 @@ def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Doma
 
 @app.post("/works/{w}/foreshadows")
 def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance, promise=b.promise, ftype=b.ftype)}
+    owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance,
+        promise=b.promise, ftype=b.ftype, intended_effect=b.intended_effect,
+        audience_knows=b.audience_knows, payoff_effect=b.payoff_effect, links=b.links)}
 
 @app.get("/works/{w}/foreshadows")
 def list_foreshadows(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
@@ -323,12 +327,26 @@ def payoff_foreshadow(w: str, fid: str, b: EchoIn, x_owner_id: str | None = Head
 
 class ForeshadowEditIn(BaseModel):
     summary: str | None = None; promise: str | None = None; ftype: str | None = None; importance: str | None = None
+    intended_effect: str | None = None; audience_knows: bool | None = None
+    payoff_effect: str | None = None; links: list[str] | None = None
 
 @app.post("/works/{w}/foreshadows-status/{fid}/edit")
 def edit_foreshadow(w: str, fid: str, b: ForeshadowEditIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    """编辑承诺线明细(summary/promise/type)。"""
-    owner(x_owner_id); d.update_foreshadow(w, fid, summary=b.summary, promise=b.promise, ftype=b.ftype, importance=b.importance)
+    """编辑承诺线明细(summary/promise/type/想要效果/读者预知/回收效果/关联实体)。"""
+    owner(x_owner_id); d.update_foreshadow(w, fid, summary=b.summary, promise=b.promise, ftype=b.ftype,
+        importance=b.importance, intended_effect=b.intended_effect, audience_knows=b.audience_knows,
+        payoff_effect=b.payoff_effect, links=b.links)
     return {"ok": True}
+
+class BeatIn(BaseModel):
+    chapter: int; kind: str = "reinforce"; guidance: str = ""; subtlety: int = 0; effect: str = ""; anchor: str = ""
+
+@app.post("/works/{w}/foreshadows-status/{fid}/beat")
+def add_foreshadow_beat(w: str, fid: str, b: BeatIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """加一个承诺线节点(plant/reinforce/misdirect/twist/payoff)+ 具体引导/隐蔽度/效果。"""
+    owner(x_owner_id)
+    return {"beats": d.add_foreshadow_beat(w, fid, b.chapter, b.kind, guidance=b.guidance,
+                                           subtlety=b.subtlety, effect=b.effect, anchor=b.anchor)}
 
 @app.post("/works/{w}/foreshadows/{fid}/{action}")
 def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

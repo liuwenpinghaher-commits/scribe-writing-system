@@ -303,12 +303,18 @@ class Domain:
 
     # ---- 伏笔 ----
     def plant_foreshadow(self, work: str, summary: str, chapter: int,
-                         importance: str = "normal", *, promise: str = "", ftype: str = "伏笔") -> str:
-        """埋设承诺线。promise=对读者的承诺(灵魂),ftype=类型(伏笔/悬念/契诃夫之枪/红鲱鱼/人物承诺)。"""
+                         importance: str = "normal", *, promise: str = "", ftype: str = "伏笔",
+                         intended_effect: str = "", audience_knows: bool = False,
+                         payoff_effect: str = "", links: list | None = None) -> str:
+        """埋设承诺线。promise=对读者的承诺(灵魂);ftype=类型;intended_effect=想要的读者效果
+        (惊讶/悬念/戏剧反讽/不祥/好奇);audience_knows=读者是否提前知道(真=戏剧反讽式悬念);
+        payoff_effect=回收要达到的效果;links=关联实体(角色/设定,把伏笔焊到人/物上)。"""
         return self.s.put_content("foreshadow", work=self._wref(work), text=summary,
                                   summary=summary, chapter=chapter,
                                   importance=importance, state="planted",
-                                  promise=promise, ftype=ftype)
+                                  promise=promise, ftype=ftype,
+                                  intended_effect=intended_effect, audience_knows=bool(audience_knows),
+                                  payoff_effect=payoff_effect, links=list(links or []))
 
     def list_open_foreshadows(self, work: str) -> list[dict]:
         return self.s.list("foreshadow",
@@ -324,13 +330,19 @@ class Domain:
 
     def update_foreshadow(self, work: str, fid: str, *, summary: str | None = None,
                           promise: str | None = None, ftype: str | None = None,
-                          importance: str | None = None) -> None:
-        """编辑承诺线明细。空串/None 不覆盖(保留原值)。"""
+                          importance: str | None = None, intended_effect: str | None = None,
+                          audience_knows: bool | None = None, payoff_effect: str | None = None,
+                          links: list | None = None) -> None:
+        """编辑承诺线明细。空串/None 不覆盖(保留原值);links 非 None 才覆盖。"""
         patch: dict = {}
         if summary: patch["summary"] = summary; patch["text"] = summary
         if promise: patch["promise"] = promise
         if ftype: patch["ftype"] = ftype
         if importance: patch["importance"] = importance
+        if intended_effect: patch["intended_effect"] = intended_effect
+        if audience_knows is not None: patch["audience_knows"] = bool(audience_knows)
+        if payoff_effect: patch["payoff_effect"] = payoff_effect
+        if links is not None: patch["links"] = list(links)
         if patch:
             self.s.update("foreshadow", fid, patch)
 
@@ -341,6 +353,24 @@ class Domain:
         self.s.update("foreshadow", fid, {"echoes": echoes})
         return echoes
 
+    def add_foreshadow_beat(self, work: str, fid: str, chapter: int, kind: str = "reinforce", *,
+                            guidance: str = "", subtlety: int = 0, effect: str = "", anchor: str = "") -> list[dict]:
+        """加一个承诺线节点(plant/reinforce/misdirect/twist/payoff)。
+        每节点带 guidance(此处具体怎么写)+ subtlety(隐蔽度1-5)+ effect(想要的局部效果)+ anchor(正文锚点)。
+        同步骨架:reinforce→echoes,payoff→payoff_chapter+state=paid(时间线/状态沿用骨架)。"""
+        cur = self.s.get("foreshadow", fid) or {}
+        beats = list(cur.get("beats") or [])
+        beats.append({"chapter": chapter, "kind": kind, "guidance": guidance,
+                      "subtlety": subtlety, "effect": effect, "anchor": anchor, "done": False})
+        patch: dict = {"beats": beats}
+        if kind == "reinforce":
+            patch["echoes"] = sorted(set(list(cur.get("echoes") or []) + [chapter]))
+        elif kind == "payoff":
+            patch["payoff_chapter"] = chapter
+            patch["state"] = "paid"
+        self.s.update("foreshadow", fid, patch)
+        return beats
+
     def list_foreshadows_status(self, work: str, overdue_span: int = 15) -> list[dict]:
         """全部伏笔 + echoes + 超期告警(planted/triggered 且跨度>阈值未回收=overdue)。"""
         rows = self.s.list("foreshadow", "work = $w", {"w": self._wref(work)})
@@ -350,6 +380,11 @@ class Domain:
             f["promise"] = f.get("promise") or ""
             f["ftype"] = f.get("ftype") or "伏笔"
             f["payoff_chapter"] = f.get("payoff_chapter")
+            f["intended_effect"] = f.get("intended_effect") or ""
+            f["audience_knows"] = bool(f.get("audience_knows"))
+            f["payoff_effect"] = f.get("payoff_effect") or ""
+            f["links"] = list(f.get("links") or [])
+            f["beats"] = list(f.get("beats") or [])
             planted = f.get("chapter") or 0
             f["overdue"] = bool(f.get("state") in ("planted", "triggered")
                                 and maxc - planted > overdue_span)

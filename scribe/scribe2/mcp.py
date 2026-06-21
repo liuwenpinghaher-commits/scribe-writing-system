@@ -232,10 +232,31 @@ def upsert_character(work_id: str, name: str, motivation: str = "", voice: str =
         want=want, need=need, arc=arc, fear=fear)}
 
 
+@_read_tool()
+def list_foreshadows_status(work_id: str) -> list:
+    """列全部承诺线/伏笔 + 状态(开/回收/弃)、埋章、强化章、超期、想要效果、关联实体、节点 beats。只读。"""
+    return _domain().list_foreshadows_status(work_id)
+
+
 @_write_tool
-def plant_foreshadow(work_id: str, summary: str, chapter: int, importance: str = "normal") -> dict:
-    """埋伏笔。写操作,需审批。"""
-    return {"foreshadow_id": _domain().plant_foreshadow(work_id, summary, chapter, importance)}
+def plant_foreshadow(work_id: str, summary: str, chapter: int, importance: str = "normal",
+                     promise: str = "", ftype: str = "伏笔", intended_effect: str = "",
+                     audience_knows: bool = False, payoff_effect: str = "", links: list | None = None) -> dict:
+    """埋承诺线/伏笔。promise=对读者的承诺(灵魂);ftype=伏笔/悬念/契诃夫之枪/红鲱鱼/人物承诺;
+    intended_effect=想要的读者效果(惊讶/悬念/戏剧反讽/不祥/好奇);audience_knows=读者是否提前知道
+    (真=戏剧反讽);links=关联角色/设定名(把伏笔焊到人/物上)。写操作,需审批。"""
+    return {"foreshadow_id": _domain().plant_foreshadow(work_id, summary, chapter, importance,
+        promise=promise, ftype=ftype, intended_effect=intended_effect,
+        audience_knows=audience_knows, payoff_effect=payoff_effect, links=links or [])}
+
+
+@_write_tool
+def add_foreshadow_beat(work_id: str, foreshadow_id: str, chapter: int, kind: str = "reinforce",
+                        guidance: str = "", subtlety: int = 0, effect: str = "") -> dict:
+    """给承诺线加节点:kind=plant/reinforce/misdirect/twist/payoff;guidance=此处具体怎么写;
+    subtlety=隐蔽度1-5;effect=想要的局部效果。写操作,需审批。"""
+    return {"beats": _domain().add_foreshadow_beat(work_id, foreshadow_id, chapter, kind,
+                                                   guidance=guidance, subtlety=subtlety, effect=effect)}
 
 
 @_write_tool

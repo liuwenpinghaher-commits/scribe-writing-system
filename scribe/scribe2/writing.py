@@ -86,9 +86,26 @@ def build_writing_context(d, work: str, seq: int) -> str:
                 return "｜".join(bits)
             parts.append("【规则·代价与限制(写到该力量时严格遵守)】\n" + "\n".join("· " + _p(s) for s in powers[:6]))
 
-    # 伏笔·承诺线:对读者已许下、尚未回收的承诺 → 喂给主编引导走向与节奏(不是被动台账)
-    open_f = [f for f in d.list_foreshadows_status(work)
-              if f.get("state") in ("planted", "triggered")]
+    # 伏笔·承诺线:① 本章该做的节点(带具体引导/效果)② 开着的承诺节奏总览 —— 引导主编"这章具体怎么写"
+    all_f = d.list_foreshadows_status(work)
+    open_f = [f for f in all_f if f.get("state") in ("planted", "triggered")]
+    # ① 本章节点指令:落在本章±1、未完成的 beat,带 guidance + 局部效果 + 戏剧反讽框架
+    _KIND = {"plant": "埋", "reinforce": "强化", "misdirect": "误导", "twist": "转折", "payoff": "回收"}
+    todo = []
+    for f in all_f:
+        desc = f.get("promise") or f.get("summary") or ""
+        for b in (f.get("beats") or []):
+            if b.get("done") or abs((b.get("chapter") or 0) - seq) > 1:
+                continue
+            g = b.get("guidance") or "按计划处理"
+            eff = b.get("effect") or (f.get("payoff_effect") if b.get("kind") == "payoff" else "")
+            sub = f"·隐蔽度{b['subtlety']}" if b.get("subtlety") else ""
+            irony = "｜读者已知、角色不知,写出戏剧反讽的煎熬" if f.get("audience_knows") and b.get("kind") == "payoff" else ""
+            lk = f"〔涉及{'/'.join(f.get('links') or [])}〕" if f.get("links") else ""
+            todo.append(f"· [{_KIND.get(b.get('kind'), '节点')}{sub}] {desc}{lk} → 本章:{g}{('｜效果:' + eff) if eff else ''}{irony}")
+    if todo:
+        parts.append("【本章承诺·节点指令(这是本章该埋/强化/回收的具体动作,照此处理)】\n" + "\n".join(todo[:8]))
+    # ② 开着的承诺·节奏总览(适时推进/回收,勿堆砌勿遗忘)
     if open_f:
         def _f(f):
             plant = f.get("chapter") or 0
@@ -96,18 +113,19 @@ def build_writing_context(d, work: str, seq: int) -> str:
             last = max(echoes) if echoes else plant
             span, quiet = max(0, seq - plant), max(0, seq - last)
             if span >= 12 and quiet >= 8:
-                tag = "(已开太久且久未提及 → 本章宜回收或强化)"
+                tag = "(已开太久且久未提及 → 宜回收或强化)"
             elif span >= 6:
                 tag = "(可考虑推进/回收)"
             else:
                 tag = ""
             desc = f.get("promise") or f.get("summary") or ""
-            ech = f",已强化{'/'.join(map(str, echoes))}章" if echoes else ""
-            return f"· [{f.get('ftype') or '伏笔'}] {desc}(埋第{plant}章{ech}){tag}"
+            eff = f"·求{f['intended_effect']}" if f.get("intended_effect") else ""
+            lk = f"·涉及{'/'.join(f.get('links') or [])}" if f.get("links") else ""
+            return f"· [{f.get('ftype') or '伏笔'}{eff}] {desc}(埋第{plant}章{lk}){tag}"
         open_f.sort(key=lambda f: f.get("chapter") or 0)   # 最久未动的最该照顾,排前
         parts.append(
-            "【伏笔·承诺线(对读者已许、尚未回收的承诺;照顾节奏:适时埋新钩子/推进/回收,"
-            "勿一次性堆砌回收,勿让其凭空消失)】\n" + "\n".join(_f(f) for f in open_f[:8]))
+            "【伏笔·承诺线·待回收(照顾节奏:适时埋钩子/推进/回收,勿一次性堆砌,勿让其凭空消失)】\n"
+            + "\n".join(_f(f) for f in open_f[:8]))
 
     glob = d.get_global_memory(work)
     if glob:

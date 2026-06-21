@@ -30,6 +30,7 @@ import { EntityEditor, type EntityKind } from "./EntityEditor";
 import { CodexChat } from "./CodexChat";
 import { ExtractPanel } from "./ExtractPanel";
 import { ForeshadowTimeline } from "./ForeshadowTimeline";
+import { ForeshadowDetailPage, ForeshadowCreatePage } from "./ForeshadowDetailPage";
 import { WorkspaceShell, useStrPref } from "@/WorkspaceShell";
 import { useData, useToast } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
@@ -552,8 +553,8 @@ function SettingsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; on
 }
 
 // ── 伏笔 Tab ──
-function ForeshadowsTab({ work }: { work: string }) {
-  const { data, loading, error, reload } = useData(() => api.foreshadowsStatus(work), [work]);
+function ForeshadowsTab({ work, rev, onOpen }: { work: string; rev?: number; onOpen?: (id: string) => void }) {
+  const { data, loading, error, reload } = useData(() => api.foreshadowsStatus(work), [work, rev]);
   const [filter, setFilter] = useState("");
   const [advancing, setAdvancing] = useState<string | null>(null);
 
@@ -576,7 +577,8 @@ function ForeshadowsTab({ work }: { work: string }) {
         return (
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-foreground">{truncate(r.summary, 70)}</span>
+              <button className="text-foreground hover:text-primary text-left" onClick={() => onOpen?.(r.id)} title="看详情">{truncate(r.summary, 70)}</button>
+              {r.ftype && <Badge variant="outline" className="text-[10px]">{r.ftype}</Badge>}
               {r.overdue && <Badge variant="destructive" className="text-[10px]">超期未回收</Badge>}
             </div>
             <span className="text-[11px] text-muted-foreground">
@@ -912,19 +914,32 @@ function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEd
   );
 }
 
-/** 伏笔类型:承诺线时间线(默认)/ 列表 切换 */
+/** 伏笔类型:时间线/列表 + 全页详情/新建(承诺线引擎) */
 function ForeshadowsPane({ work, rev }: { work: string; rev: number }) {
   const [view, setView] = useStrPref("scribe.foreshadowView", "timeline");
+  const [detail, setDetail] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [bump, setBump] = useState(0);
+  const chs = useData(() => api.chapters(work), [work, rev]);
+  const nowCh = Math.max(1, ...(chs.data ?? []).map((c) => c.seq || 0));
+
+  if (creating)
+    return <ForeshadowCreatePage work={work} nowCh={nowCh} onBack={() => setCreating(false)}
+      onCreated={(id) => { setCreating(false); setDetail(id); setBump((b) => b + 1); }} />;
+  if (detail)
+    return <ForeshadowDetailPage work={work} fid={detail} nowCh={nowCh}
+      onBack={() => { setDetail(null); setBump((b) => b + 1); }} />;
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-1 px-4 pt-2 shrink-0">
         <Button size="sm" variant={view === "timeline" ? "default" : "outline"} className="h-6 text-[11px]" onClick={() => setView("timeline")}>时间线</Button>
         <Button size="sm" variant={view === "list" ? "default" : "outline"} className="h-6 text-[11px]" onClick={() => setView("list")}>列表</Button>
+        <Button size="sm" variant="outline" className="h-6 text-[11px] gap-1 ml-auto" onClick={() => setCreating(true)}><Plus size={12} />新建承诺线</Button>
       </div>
       <div className="flex-1 min-h-0">
         {view === "timeline"
-          ? <ForeshadowTimeline work={work} rev={rev} />
-          : <div className="px-4 py-3 overflow-auto h-full"><ForeshadowsTab work={work} /></div>}
+          ? <ForeshadowTimeline work={work} rev={rev + bump} onOpen={setDetail} />
+          : <div className="px-4 py-3 overflow-auto h-full"><ForeshadowsTab work={work} rev={rev + bump} onOpen={setDetail} /></div>}
       </div>
     </div>
   );

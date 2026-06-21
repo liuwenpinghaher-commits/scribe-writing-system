@@ -330,3 +330,57 @@ def test_update_foreshadow_fields(db):
     d.update_foreshadow(w, fid, promise="")
     f = next(x for x in d.list_foreshadows_status(w) if x["summary"] == "新名")
     assert f["promise"] == "新承诺"
+
+
+def test_promise_rich_fields(db):
+    """承诺线富字段:想要效果/读者是否预知/回收效果/关联实体。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    fid = d.plant_foreshadow(w, "左眼", 1, promise="藏命案", ftype="伏笔",
+                             intended_effect="戏剧反讽", audience_knows=True,
+                             payoff_effect="读者重读前文恍然", links=["渡叔"])
+    f = next(x for x in d.list_foreshadows_status(w) if "左眼" in x["summary"])
+    assert f["intended_effect"] == "戏剧反讽"
+    assert f["audience_knows"] is True
+    assert f["payoff_effect"] == "读者重读前文恍然"
+    assert "渡叔" in f["links"]
+    # update 也能改富字段
+    d.update_foreshadow(w, fid, intended_effect="惊讶", links=["渡叔", "阿砚"])
+    f = next(x for x in d.list_foreshadows_status(w) if "左眼" in x["summary"])
+    assert f["intended_effect"] == "惊讶" and "阿砚" in f["links"]
+
+
+def test_foreshadow_beats(db):
+    """承诺线节点 beats:加 plant/reinforce/payoff 节点(带 guidance/subtlety/effect)+ 同步骨架。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    fid = d.plant_foreshadow(w, "左眼", 1)
+    d.add_foreshadow_beat(w, fid, 6, "reinforce", guidance="第三次提及,渡叔回避", subtlety=2, effect="读者起疑")
+    d.add_foreshadow_beat(w, fid, 18, "payoff", guidance="揭示四十年前命案", effect="读者恍然")
+    f = next(x for x in d.list_foreshadows_status(w) if "左眼" in x["summary"])
+    beats = f["beats"]
+    assert any(b["kind"] == "reinforce" and b["chapter"] == 6
+               and b["guidance"] == "第三次提及,渡叔回避" and b["subtlety"] == 2 for b in beats)
+    assert any(b["kind"] == "payoff" and b["chapter"] == 18 for b in beats)
+    # 骨架同步:reinforce→echoes,payoff→payoff_chapter+state
+    assert 6 in f["echoes"]
+    assert f["payoff_chapter"] == 18 and f["state"] == "paid"
+
+
+def test_writing_context_node_instructions(db):
+    """本章节点指令注入:落在本章的 beat 的 guidance + 效果/读者预知框架,引导主编具体怎么写。"""
+    from scribe2.writing import build_writing_context
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    fid = d.plant_foreshadow(w, "左眼", 1, promise="藏命案", ftype="伏笔",
+                             intended_effect="戏剧反讽", audience_knows=True, links=["渡叔"])
+    d.add_foreshadow_beat(w, fid, 15, "reinforce", guidance="第三次提及,渡叔回避目光", effect="读者起疑")
+    ctx = build_writing_context(d, w, 15)
+    assert "第三次提及,渡叔回避目光" in ctx     # 本章节点 guidance 注入
+    assert "本章承诺·节点指令" in ctx            # 有节点指令块
+    assert "戏剧反讽" in ctx                       # 想要效果框架进了上下文
+    assert "渡叔" in ctx                           # 关联实体
