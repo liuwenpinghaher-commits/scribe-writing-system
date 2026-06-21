@@ -18,6 +18,7 @@ import {
   Flame,
   FileText,
   Layers,
+  Rows3,
   Flag,
   Package,
   Plus,
@@ -34,6 +35,7 @@ import { CodexChat } from "./CodexChat";
 import { ExtractPanel } from "./ExtractPanel";
 import { ForeshadowTimeline } from "./ForeshadowTimeline";
 import { ForeshadowDetailPage, ForeshadowCreatePage } from "./ForeshadowDetailPage";
+import { EntitySwimlane } from "./EntitySwimlane";
 import { WorkspaceShell, useStrPref } from "@/WorkspaceShell";
 import { useData, useToast } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
@@ -949,8 +951,9 @@ function ForeshadowsPane({ work, rev }: { work: string; rev: number }) {
   );
 }
 
-type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown; dtype?: string } | { mode: "extract" };
+type CenterView = { mode: "list" } | { mode: "edit"; kind: EntityKind; entity: unknown; dtype?: string } | { mode: "extract" } | { mode: "fdetail"; fid: string };
 const TYPES = [
+  { key: "overview", label: "总览", icon: Rows3 },
   { key: "characters", label: "角色", icon: User, kind: "character" as EntityKind },
   { key: "settings", label: "设定", icon: Layers, kind: "setting" as EntityKind },
   { key: "places", label: "地点", icon: MapPin, kind: "setting" as EntityKind, stype: "地点" },
@@ -965,10 +968,12 @@ const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "
 export function CodexView({ work }: { work: string }) {
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
-  const [type, setType] = useStrPref("scribe.codex.type", "characters");   // 左轨:实体类型
+  const [type, setType] = useStrPref("scribe.codex.type", "overview");   // 左轨:默认总览泳道
   const [rightActive, setRightActive] = useStrPref("scribe.codex.right", "chat"); // 右轨:主编对话默认开
   const [view, setView] = useState<CenterView>({ mode: "list" });
   const [seed, setSeed] = useState<string | undefined>(undefined);
+  const chs = useData(() => api.chapters(work), [work, rev]);
+  const nowCh = Math.max(1, ...(chs.data ?? []).map((c) => c.seq || 0));
 
   const openEdit = (kind: EntityKind, dtype?: string) => (entity?: unknown) => setView({ mode: "edit", kind, entity: entity ?? null, dtype });
   const discuss = (kind: EntityKind, name: string) => { setRightActive("chat"); setSeed(`聊聊「${name}」这个${KIND_LABEL[kind]}：`); };
@@ -994,6 +999,12 @@ export function CodexView({ work }: { work: string }) {
         onSaved={bump} onClose={() => setView({ mode: "list" })} onDiscuss={discuss} />
     ) : view.mode === "extract" ? (
       <ExtractPanel work={work} onSaved={bump} onClose={() => setView({ mode: "list" })} />
+    ) : view.mode === "fdetail" ? (
+      <ForeshadowDetailPage work={work} fid={view.fid} nowCh={nowCh} onBack={() => setView({ mode: "list" })} />
+    ) : type === "overview" ? (
+      <EntitySwimlane work={work} rev={rev}
+        onOpenEntity={(kind, entity) => setView({ mode: "edit", kind, entity })}
+        onOpenForeshadow={(id) => setView({ mode: "fdetail", fid: id })} />
     ) : (
       <div className="flex flex-col h-full min-h-0">
         <div className="flex items-center gap-2 h-11 shrink-0 px-4 border-b border-border">

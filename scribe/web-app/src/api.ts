@@ -48,6 +48,8 @@ export interface Intent { reader_feeling?: string; core_emotional_arc?: string; 
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
 export interface Beat { chapter: number; kind: string; guidance?: string; subtlety?: number; effect?: string; anchor?: string; done?: boolean; }
+export interface EntityBeat { id?: string; etype: string; entity: string; chapter: number; kind: string; guidance?: string; effect?: string; done?: boolean; }
+export interface EntityLineHealth { etype: string; entity: string; beats: EntityBeat[]; last_chapter: number; resolved: boolean; stale: boolean; overdue: boolean; }
 export interface ForeshadowStatus {
   id: string; summary: string; state: string; chapter?: number; importance?: string;
   echoes?: number[]; overdue?: boolean; promise?: string; ftype?: string; payoff_chapter?: number | null;
@@ -127,6 +129,12 @@ export const api = {
     post<{ ok: boolean }>(`/works/${w}/foreshadows-status/${fid}/edit`, fields),
   addForeshadowBeat: (w: string, fid: string, beat: { chapter: number; kind: string; guidance?: string; subtlety?: number; effect?: string }) =>
     post<{ beats: Beat[] }>(`/works/${w}/foreshadows-status/${fid}/beat`, beat),
+  // 统一线模型:通用实体节点 + 各线健康
+  entityBeats: (w: string, etype?: string, entity?: string) =>
+    req<EntityBeat[]>(`/works/${w}/entity-beats${etype ? `?etype=${encodeURIComponent(etype)}${entity ? `&entity=${encodeURIComponent(entity)}` : ""}` : ""}`),
+  addEntityBeat: (w: string, beat: { etype: string; entity: string; chapter: number; kind?: string; guidance?: string; effect?: string }) =>
+    post<{ beat_id: string }>(`/works/${w}/entity-beats`, beat),
+  entityLinesHealth: (w: string) => req<EntityLineHealth[]>(`/works/${w}/entity-lines-health`),
   flags: (w: string) => req<Flag[]>(`/works/${w}/consistency-flags`),
   insights: (w: string) => req<Insight[]>(`/works/${w}/insights?status=new`),
   actInsight: (w: string, id: string, act: "ack" | "dismiss") =>
