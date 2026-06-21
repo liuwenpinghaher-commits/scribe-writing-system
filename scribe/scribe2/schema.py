@@ -2,7 +2,8 @@ EMBED_DIM = 512  # BAAI/bge-small-zh-v1.5 维度(中文优化)
 
 # 需"可被语义检索"的内容实体:都带 text(FTS)+ embedding(向量)
 CONTENT_TABLES = ["chapter", "setting", "character", "foreshadow",
-                  "material", "memory_entry", "style_exemplar", "imagination"]
+                  "material", "memory_entry", "style_exemplar", "imagination",
+                  "motif"]  # Codex 2.0:核心意象/母题(隐喻网,可语义检索)
 # 纯结构表(无需向量)
 STRUCT_TABLES = ["work", "volume", "snapshot", "segment", "author_intent",
                  "option_set", "consistency_flag", "quality_snapshot",

@@ -173,16 +173,26 @@ class Domain:
                         "pending_optionset_count": len(opts)})
         return out
 
-    # ---- 内容实体:设定(契约:name/type/content;存 stype 避开 SurrealDB 关键字 type)----
-    def add_setting(self, work: str, name: str, desc: str = "", type_: str = "设定") -> str:
-        text = f"{name}:{desc}" if desc else name
+    # ---- 内容实体:设定(契约:name/type/content;存 stype 避开 SurrealDB 关键字 type)
+    # Codex 2.0:fields 为按类型的结构化自定义字段(力量体系 cost/limitations/会出什么乱子 等)----
+    def add_setting(self, work: str, name: str, desc: str = "", type_: str = "设定",
+                    fields: dict | None = None) -> str:
+        fields = dict(fields or {})
+        # 结构化字段值并进 text,供检索召回(尤其力量体系的 cost/limitations)
+        extra = "；".join(str(v) for v in fields.values() if v)
+        text = "；".join(x for x in [f"{name}:{desc}" if desc else name, extra] if x)
         return self.s.put_content("setting", work=self._wref(work), text=text,
-                                  name=name, stype=type_, content=desc)
+                                  name=name, stype=type_, content=desc,
+                                  fields=json.dumps(fields, ensure_ascii=False))
 
     def list_settings(self, work: str) -> list[dict]:
         rows = self.s.list("setting", "work = $w", {"w": self._wref(work)})
         for s in rows:
             s["type"] = s.get("stype", "设定")  # 前端契约别名
+            try:
+                s["fields"] = json.loads(s.get("fields") or "{}")
+            except Exception:
+                s["fields"] = {}
         return rows
 
     def search(self, work: str, query: str, k: int = 6) -> list[dict]:
@@ -225,14 +235,50 @@ class Domain:
         it["do_not_betray"] = it.get("red_lines") or []  # 前端契约别名
         return it
 
-    # ---- 角色(含声音指纹;内容实体,可语义检索) ----
-    def add_character(self, work: str, name: str, motivation: str = "", voice: str = "") -> str:
-        text = "；".join(x for x in [name, motivation, voice] if x)
-        return self.s.put_content("character", work=self._wref(work), text=text,
-                                  name=name, motivation=motivation, voice=voice)
+    # ---- 角色(Codex 2.0:内核 wound/lie/want/need + 核心矛盾 + 声音样本 + 弧光)----
+    _CHAR_DEFAULTS = {"voice_samples": list, "core_contradiction": str, "wound": str,
+                      "lie": str, "want": str, "need": str, "arc": str, "fear": str}
+
+    def add_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
+                      voice_samples: list | None = None, core_contradiction: str = "",
+                      wound: str = "", lie: str = "", want: str = "", need: str = "",
+                      arc: str = "", fear: str = "") -> str:
+        vs = list(voice_samples or [])
+        # 声音样本/核心矛盾/创伤一并进 text,供 FTS+向量检索召回
+        text = "；".join(x for x in [name, motivation, voice, core_contradiction, wound, *vs] if x)
+        return self.s.put_content(
+            "character", work=self._wref(work), text=text,
+            name=name, motivation=motivation, voice=voice,
+            voice_samples=vs, core_contradiction=core_contradiction, wound=wound,
+            lie=lie, want=want, need=need, arc=arc, fear=fear)
 
     def list_characters(self, work: str) -> list[dict]:
-        return self.s.list("character", "work = $w", {"w": self._wref(work)})
+        rows = self.s.list("character", "work = $w", {"w": self._wref(work)})
+        for c in rows:  # 旧记录缺字段时补默认,保证前端/注入契约稳定
+            for k, typ in self._CHAR_DEFAULTS.items():
+                if k not in c or c[k] is None:
+                    c[k] = typ()
+        return rows
+
+    # ---- 母题 Motif(核心意象的隐喻网:世界观+主题+命名+物质回声 四位一体)----
+    def add_motif(self, work: str, name: str, metaphor_unfolding: str = "",
+                  bound_theme: str = "", material_echoes: list | None = None,
+                  naming_logic: str = "") -> str:
+        echoes = list(material_echoes or [])
+        text = "；".join(x for x in [name, metaphor_unfolding, bound_theme, *echoes] if x)
+        return self.s.put_content(
+            "motif", work=self._wref(work), text=text, name=name,
+            metaphor_unfolding=metaphor_unfolding, bound_theme=bound_theme,
+            material_echoes=echoes, naming_logic=naming_logic)
+
+    def list_motifs(self, work: str) -> list[dict]:
+        rows = self.s.list("motif", "work = $w", {"w": self._wref(work)})
+        for m in rows:
+            if not isinstance(m.get("material_echoes"), list):
+                m["material_echoes"] = []
+            for k in ("metaphor_unfolding", "bound_theme", "naming_logic"):
+                m.setdefault(k, "")
+        return rows
 
     # ---- 伏笔 ----
     def plant_foreshadow(self, work: str, summary: str, chapter: int,
