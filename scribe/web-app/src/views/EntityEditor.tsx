@@ -52,6 +52,41 @@ function CharExtras({ work, name }: { work: string; name: string }) {
   );
 }
 
+/** 实体关系:列出与本实体相关的关系 + 手动加(直接进关系图谱,两模块打通) */
+function EntityRelations({ work, name }: { work: string; name: string }) {
+  const rels = useData(() => api.entityRelations(work, name), [work, name]);
+  const [dst, setDst] = useState("");
+  const [rel, setRel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
+  const add = async () => {
+    if (!dst.trim() || !rel.trim()) { toast("填对象 + 关系"); return; }
+    setAdding(true);
+    try { await api.addRelation(work, name, dst.trim(), rel.trim()); setDst(""); setRel(""); rels.reload(); toast("已加关系(已进关系图谱)"); }
+    catch (e) { toast(String(e)); } finally { setAdding(false); }
+  };
+  return (
+    <Section title="关系(进关系图谱)">
+      <div className="flex flex-col gap-1 px-2 py-1">
+        {(rels.data ?? []).map((r, i) => (
+          <div key={r.id ?? i} className="text-xs flex gap-1.5">
+            <span className="text-muted-foreground">{r.src_entity === name ? "→" : "←"}</span>
+            <span className="font-medium text-foreground">{r.src_entity === name ? r.dst_entity : r.src_entity}</span>
+            <span className="text-muted-foreground">· {r.relation}</span>
+          </div>
+        ))}
+        {(rels.data ?? []).length === 0 && <span className="text-xs text-muted-foreground/50">还没有关系</span>}
+      </div>
+      <div className="flex gap-1.5 items-center px-1 pt-1">
+        <Input value={dst} onChange={(e) => setDst(e.target.value)} placeholder="对象(另一实体名)" className="h-7 text-xs flex-1" />
+        <Input value={rel} onChange={(e) => setRel(e.target.value)} placeholder="关系(师徒/宿敌…)" className="h-7 text-xs w-28"
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={add} disabled={adding}>{adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}</Button>
+      </div>
+    </Section>
+  );
+}
+
 export type EntityKind = "character" | "setting" | "motif";
 
 export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }: {
@@ -65,6 +100,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
     if (kind === "character") {
       for (const k of ["motivation", "voice", "core_contradiction", "wound", "lie", "fear", "want", "need", "arc"]) o[k] = initStr(k);
       o.voice_samples = Array.isArray(e.voice_samples) ? (e.voice_samples as string[]).join("\n") : "";
+      o.aliases = Array.isArray(e.aliases) ? (e.aliases as string[]).join("、") : "";
     } else if (kind === "setting") {
       o.type = initStr("type") || "设定"; o.description = initStr("content") || initStr("description");
       const ff = (e.fields as Record<string, string>) ?? {};
@@ -92,6 +128,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
           voice_samples: f.voice_samples.split("\n").map((s) => s.trim()).filter(Boolean),
           core_contradiction: f.core_contradiction.trim(), wound: f.wound.trim(),
           lie: f.lie.trim(), fear: f.fear.trim(), want: f.want.trim(), need: f.need.trim(), arc: f.arc.trim(),
+          aliases: f.aliases.split(/[，,、\s]+/).map((s) => s.trim()).filter(Boolean),
         });
       } else if (kind === "setting") {
         const fields: Record<string, string> = {};
@@ -127,6 +164,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
           {kind === "character" && <>
             <Section title="身份">
               <Row label="动机"><InlineText v={f.motivation} on={set("motivation")} ph="他想要什么" /></Row>
+              <Row label="别名"><InlineText v={f.aliases} on={set("aliases")} ph="老渡、摆渡的(逗号分隔;注入/相关性会识别)" /></Row>
             </Section>
             <Section title="声音(防 OOC 命门)">
               <Row label="声音指纹"><InlineText v={f.voice} on={set("voice")} ph="用词/句式/口头禅,如:极静、短句、不解释" /></Row>
@@ -164,6 +202,8 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
             <Row label="物质回声"><InlineText v={f.material_echoes} on={set("material_echoes")} ph="反复画面,逗号分隔:长明灯、河面浮炭…" /></Row>
             <Row label="命名逻辑"><InlineText v={f.naming_logic} on={set("naming_logic")} ph="如:主角给儿子取名'炭'" /></Row>
           </div>}
+
+          {editing && <EntityRelations work={work} name={f.name} />}
         </div>
       </div>
       <div className="flex items-center gap-2 p-2.5 border-t border-border">

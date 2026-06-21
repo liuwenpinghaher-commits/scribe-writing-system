@@ -415,3 +415,21 @@ def test_writing_context_relevant_chars_only(db):
     ctx = build_writing_context(d, w, 11)
     assert "渡叔" in ctx          # 相关角色注入
     assert "路人5" not in ctx     # 无关角色不注入(相关性生效)
+
+
+def test_aliases_and_relations(db):
+    """别名:近章用别名点名也算相关;关系打通:relations_of 取某实体的关系(喂图谱/详情)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 12):
+        d.add_chapter(w, s, f"第{s}章")
+    d.add_character(w, "渡叔", aliases=["老渡", "摆渡的"])
+    for i in range(8):
+        d.add_character(w, f"路人{i}")
+    d.save_chapter_memory(w, 10, "老渡又在渡口点灯")     # 用别名点名
+    rel = [c["name"] for c in d.relevant_characters(w, 11)]
+    assert "渡叔" in rel                                  # 别名"老渡"被识别→渡叔相关
+    # 关系打通
+    d.add_relation(w, "渡叔", "阿砚", "师徒")
+    rs = d.relations_of(w, "渡叔")
+    assert any(r.get("dst_entity") == "阿砚" and r.get("relation") == "师徒" for r in rs)

@@ -65,6 +65,7 @@ export interface CharacterT {
   id?: string; name: string; motivation?: string; voice?: string;
   voice_samples?: string[]; core_contradiction?: string; wound?: string;
   lie?: string; want?: string; need?: string; arc?: string; fear?: string;
+  aliases?: string[];
 }
 export interface Insight { id: string; summary: string; suggested_action?: string; severity?: string; }
 export interface Imagination { id: string; raw_text: string; status?: string; }
@@ -276,6 +277,9 @@ export const api = {
   // ── P1 暴露:质量 / 关系 / 角色状态 / 编排 / 深检 / 摄入 ──
   quality: (w: string) => req<Quality>(`/works/${w}/quality`),
   relations: (w: string) => req<Relation[]>(`/works/${w}/relations`),
+  entityRelations: (w: string, name: string) => req<Relation[]>(`/works/${w}/entities/${encodeURIComponent(name)}/relations`),
+  addRelation: (w: string, src: string, dst: string, relation: string) =>
+    post<{ relation_id: string }>(`/works/${w}/relations`, { src, dst, relation }),
   charStates: (w: string, name: string) => req<CharState[]>(`/works/${w}/characters/${encodeURIComponent(name)}/states`),
   task: (w: string, seq: number) => req<ChapterTask>(`/works/${w}/chapters/${seq}/task`),
   advanceTask: (w: string, seq: number, to: string, detail = "") =>

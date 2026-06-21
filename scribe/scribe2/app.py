@@ -238,6 +238,7 @@ class CharacterIn(BaseModel):
     name: str; motivation: str = ""; voice: str = ""
     voice_samples: list = []; core_contradiction: str = ""; wound: str = ""
     lie: str = ""; want: str = ""; need: str = ""; arc: str = ""; fear: str = ""
+    aliases: list[str] = []
 class ForeshadowIn(BaseModel):
     summary: str; chapter: int; importance: str = "normal"
     promise: str = ""; ftype: str = "伏笔"
@@ -265,7 +266,7 @@ def add_character(w: str, b: CharacterIn, x_owner_id: str | None = Header(None),
     return {"character_id": d.upsert_character(
         w, b.name, b.motivation, b.voice, voice_samples=b.voice_samples or None,
         core_contradiction=b.core_contradiction, wound=b.wound, lie=b.lie,
-        want=b.want, need=b.need, arc=b.arc, fear=b.fear)}
+        want=b.want, need=b.need, arc=b.arc, fear=b.fear, aliases=b.aliases or None)}
 
 @app.get("/works/{w}/characters")
 def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
@@ -500,6 +501,22 @@ def act_skill(w: str, sid: str, action: str, x_owner_id: str | None = Header(Non
 @app.get("/works/{w}/relations")
 def list_relations(w: str, upto: int | None = None, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_relations(w, upto)
+
+class RelationIn(BaseModel):
+    src: str; dst: str; relation: str; directed: int = 1; valid_from_chapter: int | None = None
+
+@app.post("/works/{w}/relations")
+def add_relation(w: str, b: RelationIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """手动加实体关系(设定库里建,直接进关系图谱——两模块打通)。"""
+    owner(x_owner_id)
+    kw = {"directed": b.directed}
+    if b.valid_from_chapter is not None:
+        kw["valid_from_chapter"] = b.valid_from_chapter
+    return {"relation_id": d.add_relation(w, b.src, b.dst, b.relation, **kw)}
+
+@app.get("/works/{w}/entities/{name}/relations")
+def entity_relations(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.relations_of(w, name)
 
 @app.get("/works/{w}/characters/{name}/states")
 def char_states(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

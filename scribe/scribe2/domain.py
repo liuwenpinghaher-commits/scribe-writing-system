@@ -237,20 +237,21 @@ class Domain:
 
     # ---- 角色(Codex 2.0:内核 wound/lie/want/need + 核心矛盾 + 声音样本 + 弧光)----
     _CHAR_DEFAULTS = {"voice_samples": list, "core_contradiction": str, "wound": str,
-                      "lie": str, "want": str, "need": str, "arc": str, "fear": str}
+                      "lie": str, "want": str, "need": str, "arc": str, "fear": str, "aliases": list}
 
     def add_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                       voice_samples: list | None = None, core_contradiction: str = "",
                       wound: str = "", lie: str = "", want: str = "", need: str = "",
-                      arc: str = "", fear: str = "") -> str:
+                      arc: str = "", fear: str = "", aliases: list | None = None) -> str:
         vs = list(voice_samples or [])
-        # 声音样本/核心矛盾/创伤一并进 text,供 FTS+向量检索召回
-        text = "；".join(x for x in [name, motivation, voice, core_contradiction, wound, *vs] if x)
+        al = list(aliases or [])
+        # 声音样本/核心矛盾/创伤/别名一并进 text,供 FTS+向量检索召回(别名也能搜到)
+        text = "；".join(x for x in [name, *al, motivation, voice, core_contradiction, wound, *vs] if x)
         return self.s.put_content(
             "character", work=self._wref(work), text=text,
             name=name, motivation=motivation, voice=voice,
             voice_samples=vs, core_contradiction=core_contradiction, wound=wound,
-            lie=lie, want=want, need=need, arc=arc, fear=fear)
+            lie=lie, want=want, need=need, arc=arc, fear=fear, aliases=al)
 
     def list_characters(self, work: str) -> list[dict]:
         rows = self.s.list("character", "work = $w", {"w": self._wref(work)})
@@ -274,10 +275,11 @@ class Domain:
                 for nm in (f.get("links") or []):
                     if nm in names:
                         picked[nm] = names[nm]
-        mems = self.list_chapter_memories(work, upto=seq - 1)[-recent:]   # 近章梗概点名
+        mems = self.list_chapter_memories(work, upto=seq - 1)[-recent:]   # 近章梗概点名(含别名)
         blob = " ".join((m.get("text") or "") for m in mems)
         for nm, c in names.items():
-            if nm and nm in blob:
+            hits = [nm] + list(c.get("aliases") or [])
+            if any(h and h in blob for h in hits):
                 picked[nm] = c
         if not picked:
             return chars[:limit]
@@ -286,7 +288,7 @@ class Domain:
     def upsert_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                          voice_samples: list | None = None, core_contradiction: str = "",
                          wound: str = "", lie: str = "", want: str = "", need: str = "",
-                         arc: str = "", fear: str = "") -> str:
+                         arc: str = "", fear: str = "", aliases: list | None = None) -> str:
         """按名 upsert(对话式'改'的基础):同名则合并更新(空串不覆盖、voice_samples 非 None 才覆盖),
         否则新建。实现=删旧+并入新字段重建(自动重嵌入)。"""
         existing = next((c for c in self.list_characters(work) if c.get("name") == name), None)
@@ -297,9 +299,10 @@ class Domain:
             if v:  # 非空才覆盖,保留既有
                 base[k] = v
         vs = list(voice_samples) if voice_samples is not None else ((existing or {}).get("voice_samples") or [])
+        al = list(aliases) if aliases is not None else ((existing or {}).get("aliases") or [])
         if existing:
             self.s.delete("character", self._idpart(existing["id"]))
-        return self.add_character(work, name, base["motivation"], base["voice"], voice_samples=vs,
+        return self.add_character(work, name, base["motivation"], base["voice"], voice_samples=vs, aliases=al,
                                   core_contradiction=base["core_contradiction"], wound=base["wound"],
                                   lie=base["lie"], want=base["want"], need=base["need"],
                                   arc=base["arc"], fear=base["fear"])
@@ -616,6 +619,11 @@ class Domain:
         if upto is not None:
             rows = [r for r in rows if (r.get("valid_from_chapter") or 0) <= upto]
         return rows
+
+    def relations_of(self, work: str, entity: str) -> list[dict]:
+        """某实体的所有关系(作为 src 或 dst),供设定详情显示;手动加的关系也会进关系图谱(打通)。"""
+        return [r for r in self.list_relations(work)
+                if r.get("src_entity") == entity or r.get("dst_entity") == entity]
 
     # ---- 角色状态轨迹 char_state ----
     def add_char_state(self, work: str, character: str, chapter_seq: int,
