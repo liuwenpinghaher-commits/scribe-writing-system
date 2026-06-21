@@ -384,3 +384,34 @@ def test_writing_context_node_instructions(db):
     assert "本章承诺·节点指令" in ctx            # 有节点指令块
     assert "戏剧反讽" in ctx                       # 想要效果框架进了上下文
     assert "渡叔" in ctx                           # 关联实体
+
+
+def test_relevant_characters(db):
+    """角色相关性:开着的伏笔关联 + 近章梗概点名 的角色优先;无关角色不全塞;无信号回退全给。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 12):
+        d.add_chapter(w, s, f"第{s}章")
+    for nm in ["渡叔", "阿砚", "小满"] + [f"路人{i}" for i in range(10)]:  # 13 个,超阈值
+        d.add_character(w, nm)
+    d.save_chapter_memory(w, 10, "渡叔在渡口等一个人,夜色沉")     # 渡叔 近章点名
+    d.plant_foreshadow(w, "阿砚身世", 1, links=["阿砚"])           # 阿砚 被开着的伏笔关联
+    rel = [c["name"] for c in d.relevant_characters(w, 11)]
+    assert "渡叔" in rel and "阿砚" in rel                          # 相关的进
+    assert "路人5" not in rel                                        # 无关路人不塞
+    assert len(rel) < 13                                             # 聚焦,非全塞
+
+
+def test_writing_context_relevant_chars_only(db):
+    """写作上下文只注入本章相关角色,不再全塞(无关路人不进上下文)。"""
+    from scribe2.writing import build_writing_context
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 12):
+        d.add_chapter(w, s, f"第{s}章")
+    for nm in ["渡叔"] + [f"路人{i}" for i in range(10)]:
+        d.add_character(w, nm)
+    d.save_chapter_memory(w, 10, "渡叔在渡口等人")
+    ctx = build_writing_context(d, w, 11)
+    assert "渡叔" in ctx          # 相关角色注入
+    assert "路人5" not in ctx     # 无关角色不注入(相关性生效)

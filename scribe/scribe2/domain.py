@@ -260,6 +260,29 @@ class Domain:
                     c[k] = typ()
         return rows
 
+    def relevant_characters(self, work: str, seq: int, *, recent: int = 3, limit: int = 12) -> list[dict]:
+        """本章相关角色(相关性注入,替掉"全塞前15个"):
+        信号 = 开着的伏笔所关联的角色 ∪ 近 recent 章梗概里点名的角色;
+        人少(≤6)或无任何信号(早期)→ 全给。聚焦在场人物,省上下文、提质量。"""
+        chars = self.list_characters(work)
+        if len(chars) <= 6:
+            return chars
+        names = {c.get("name"): c for c in chars if c.get("name")}
+        picked: dict = {}
+        for f in self.list_foreshadows_status(work):   # 开着的伏笔关联的角色,本章要照顾
+            if f.get("state") in ("planted", "triggered"):
+                for nm in (f.get("links") or []):
+                    if nm in names:
+                        picked[nm] = names[nm]
+        mems = self.list_chapter_memories(work, upto=seq - 1)[-recent:]   # 近章梗概点名
+        blob = " ".join((m.get("text") or "") for m in mems)
+        for nm, c in names.items():
+            if nm and nm in blob:
+                picked[nm] = c
+        if not picked:
+            return chars[:limit]
+        return list(picked.values())[:limit]
+
     def upsert_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                          voice_samples: list | None = None, core_contradiction: str = "",
                          wound: str = "", lie: str = "", want: str = "", need: str = "",

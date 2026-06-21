@@ -32,7 +32,8 @@ def build_writing_context(d, work: str, seq: int) -> str:
     if intent.get("red_lines"):
         parts.append("【红线·绝不可破】" + ";".join(intent["red_lines"]))
 
-    chars = d.list_characters(work)
+    # 相关性注入:只给本章相关角色(开着伏笔关联/近章点名),不再全塞,聚焦在场人物
+    chars = d.relevant_characters(work, seq) if hasattr(d, "relevant_characters") else d.list_characters(work)
     if chars:
         def _c(c):
             mot = (c.get("motivation") or "").strip()
