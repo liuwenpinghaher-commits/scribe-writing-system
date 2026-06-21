@@ -76,8 +76,8 @@ function InlineText({ v, on, ph, multiline, rows, big }: {
           className={cls} />;
   }
   return (
-    <div onClick={() => setEditing(true)} title="点击编辑"
-      className={`px-2 py-1.5 rounded-md cursor-text hover:bg-muted/40 transition-colors min-h-[34px] flex items-center ${sz}`}>
+    <div onClick={() => setEditing(true)} title="点击编辑" style={{ minHeight: 34 }}
+      className={`px-2 py-1.5 rounded-md cursor-text hover:bg-muted/40 transition-colors flex items-center ${sz}`}>
       {v
         ? <span className={multiline ? "whitespace-pre-wrap" : "truncate"}>{v}</span>
         : <span className={`text-muted-foreground/35 font-normal truncate ${big ? "text-2xl" : "text-sm"}`}>{ph || "添加…"}</span>}
@@ -85,30 +85,32 @@ function InlineText({ v, on, ph, multiline, rows, big }: {
   );
 }
 
-/** 标签左/值右一行(短字段),底部细分隔线 */
+const HAIR = "color-mix(in srgb, var(--border) 55%, transparent)";  // 极细分隔线
+/** 标签左/值右一行(短字段)。内联 grid 保证两列,不依赖任意值类。 */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="grid grid-cols-[88px_1fr] items-center gap-2 border-b border-border/30">
+    <label className="grid items-center gap-3" style={{ gridTemplateColumns: "100px minmax(0,1fr)", borderBottom: `1px solid ${HAIR}` }}>
       <span className="text-xs text-muted-foreground select-none">{label}</span>
-      {children}
+      <div className="min-w-0">{children}</div>
     </label>
   );
 }
 /** 标签上/值下整行(多行/长字段) */
 function Block({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col border-b border-border/30 pb-1">
+    <label className="flex flex-col pb-1" style={{ borderBottom: `1px solid ${HAIR}` }}>
       <span className="text-xs text-muted-foreground select-none pt-0.5">{label}</span>
       {children}
     </label>
   );
 }
+/** 分区标题:绿色竖条 + 粗黑大字,一眼区分(tier 1) */
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-2.5 mt-5 mb-1">
-        <span className="text-xs font-bold uppercase tracking-wider text-foreground/55 whitespace-nowrap">{title}</span>
-        <div className="flex-1 h-px bg-border/70" />
+      <div className="flex items-center gap-2 mt-6 mb-2">
+        <span style={{ width: 3, height: 15, background: "var(--accent)", borderRadius: 2, flexShrink: 0 }} />
+        <span className="text-sm font-bold text-foreground">{title}</span>
       </div>
       {children}
     </div>
@@ -182,8 +184,8 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl px-5 py-4 flex flex-col gap-0.5">
           {/* 文档头:类型小标 + 大标题(点击编辑) */}
-          <div className="pb-3 mb-1 border-b border-border">
-            <div className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground/50 px-2 mb-0.5">{title}</div>
+          <div className="pb-3 mb-1" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div className="text-xs uppercase tracking-wider px-2 mb-0.5" style={{ color: "var(--accent)" }}>{title}</div>
             <InlineText v={f.name} on={set("name")} ph={`${title}名`} big />
           </div>
 
