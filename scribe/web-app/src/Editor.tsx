@@ -80,6 +80,7 @@ export function ChapterEditor({
   };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [fb, setFb] = useState("");
+  const [fbOpen, setFbOpen] = useState(false);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [mode, setMode] = useState<Mode>("draft");
   const toast = useToast();
@@ -492,37 +493,47 @@ export function ChapterEditor({
         </>
       )}
 
-      {/* 操作区 */}
+      {/* 操作区:主 CTA 突出,提意见重写默认收起 */}
       {!draft && (
         <div className="mt-4 flex flex-col gap-2">
-          <Button className="gap-1.5 self-start" onClick={() => gen("continue")}>
-            <Sparkles size={14} /> 让主编写这章
-          </Button>
-
-          <label className="text-xs text-muted-foreground mt-1">
-            对这章提意见 → 主编定向重写（出草稿给你比对）
-          </label>
-          <div className="flex flex-wrap gap-1 mb-1">
-            {FB_TEMPLATES.map((t) => (
-              <button
-                key={t}
-                className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
-                onClick={() => setFb((v) => (v ? v + "、" : "") + t)}
-              >
-                {t}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <Button className="gap-1.5" onClick={() => gen("continue")}>
+              <Sparkles size={14} /> 让主编写这章
+            </Button>
+            <button
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setFbOpen((o) => !o)}
+              aria-expanded={fbOpen}
+            >
+              <MessageSquareQuote size={13} /> 提意见重写 {fbOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
           </div>
-          <Textarea
-            rows={2}
-            value={fb}
-            onChange={(e) => setFb(e.target.value)}
-            placeholder="如：开头更紧张、句子更短、删掉说教"
-            className="text-sm resize-none"
-          />
-          <Button variant="ghost" className="gap-1.5 self-start" onClick={() => gen("rewrite", fb)}>
-            <MessageSquareQuote size={14} /> 提意见并重写
-          </Button>
+
+          {fbOpen && (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-2.5 mt-0.5">
+              <div className="flex flex-wrap gap-1">
+                {FB_TEMPLATES.map((t) => (
+                  <button
+                    key={t}
+                    className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
+                    onClick={() => setFb((v) => (v ? v + "、" : "") + t)}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <Textarea
+                rows={2}
+                value={fb}
+                onChange={(e) => setFb(e.target.value)}
+                placeholder="如：开头更紧张、句子更短、删掉说教"
+                className="text-sm resize-none"
+              />
+              <Button variant="ghost" size="sm" className="gap-1.5 self-start" onClick={() => gen("rewrite", fb)}>
+                <MessageSquareQuote size={14} /> 主编定向重写（出草稿给你比对）
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </StateBoundary>

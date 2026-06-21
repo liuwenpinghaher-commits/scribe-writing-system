@@ -7,6 +7,7 @@ import { Btn, ToastProvider, useData, useToast } from "./common";
 import { Navigator } from "./Navigator";
 import { Center } from "./Center";
 import { Right } from "./Right";
+import { WriteLayout } from "./WriteLayout";
 import { VIEWS, type ViewKey } from "./views";
 import { AppRail } from "./AppRail";
 import { AtlasView } from "./views/AtlasView";
@@ -157,26 +158,14 @@ function Workspace() {
     }
     if (view === "write") {
       return (
-        <div className={"app" + (showLeft ? " show-left" : "") + (showRight ? " show-right" : "") + (focus ? " focus" : "")}>
-          <aside className="col left">
-            {cur
-              ? <Navigator work={cur.id} rev={rev} bump={bump}
-                  currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />
-              : <div className="empty">从顶部下拉选择一本书</div>}
-          </aside>
-
-          <main className="col center">
-            {cur
-              ? <Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
-                  currentSeq={seq} />
-              : <div className="empty"><BookOpen size={28} /><div style={{ marginTop: 8 }}>从顶部下拉选择或新建一本书</div></div>}
-          </main>
-
-          <aside className="col right">
-            {cur ? <Right key={cur.id} work={cur.id} rev={rev} bump={bump} />
-              : <div className="empty">选择一本书后,这里是主编、设定与对话</div>}
-          </aside>
-        </div>
+        <WriteLayout
+          work={cur.id} rev={rev}
+          left={<Navigator work={cur.id} rev={rev} bump={bump}
+                  currentSeq={seq} setSeq={(s) => { setSeq(s); setShowLeft(false); }} />}
+          center={<Center key={cur.id} work={cur.id} title={cur.title} rev={rev} bump={bump}
+                  currentSeq={seq} />}
+          right={<Right key={cur.id} work={cur.id} rev={rev} bump={bump} />}
+        />
       );
     }
 
