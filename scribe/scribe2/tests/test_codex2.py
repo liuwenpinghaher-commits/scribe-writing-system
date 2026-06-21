@@ -2,6 +2,7 @@
 依据 docs/superpowers/2026-06-21-设定库重构文档-codex-2.0.md。
 """
 from scribe2.conn import domain_from
+from scribe2.writing import build_writing_context
 
 
 def test_character_rich_fields(db):
@@ -63,3 +64,27 @@ def test_setting_structured_fields(db):
     d.add_setting(w, "九原渡", "浊河北岸古渡", "place")
     s2 = next(x for x in d.list_settings(w) if x["name"] == "九原渡")
     assert s2["fields"] == {}
+
+
+def test_injection_includes_rich_settings(db):
+    """W2:深化设定(声音样本/核心矛盾/母题/规则代价)必须真正进入写作上下文。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.set_intent(w, reader_feeling="苍凉")
+    d.add_character(w, "渡叔", motivation="守渡赎罪", voice="极静",
+                    voice_samples=["三不渡，是规矩。"],
+                    core_contradiction="守规矩↔为孩子破规矩")
+    d.add_motif(w, "铜炉", metaphor_unfolding="万物为铜",
+                bound_theme="弱肉强食", material_echoes=["香炉熄火"])
+    d.add_setting(w, "内丹还魂", "聚魂还阳", "力量体系",
+                  fields={"cost": "火性反噬吐血", "limitations": "四百年丹方能聚魂"})
+    d.add_chapter(w, 1, "夜渡")
+    ctx = build_writing_context(d, w, 1)
+    # 确定性注入(非语义召回兜底):声音样本+核心矛盾须在「角色」块那一行
+    char_line = next((l for l in ctx.split("\n") if "角色" in l and "渡叔" in l), "")
+    assert "三不渡，是规矩。" in char_line, "声音样本须确定性注入角色块"
+    assert "守规矩↔为孩子破规矩" in char_line, "核心矛盾须注入角色块"
+    # 母题专属块
+    assert "【核心意象" in ctx and "铜炉" in ctx and "弱肉强食" in ctx
+    # 力量体系代价/限制专属块
+    assert "【规则" in ctx and "火性反噬吐血" in ctx and "四百年丹方能聚魂" in ctx

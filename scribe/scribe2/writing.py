@@ -36,16 +36,47 @@ def build_writing_context(d, work: str, seq: int) -> str:
     if chars:
         def _c(c):
             mot = (c.get("motivation") or "").strip()
-            base = f"{c['name']}({mot[:24]})" if mot else c.get("name", "")
+            base = f"{c['name']}({mot[:20]})" if mot else c.get("name", "")
             if (c.get("voice") or "").strip():
-                base += f"〔声音:{c['voice'][:20]}〕"
+                base += f"〔声音:{c['voice'][:16]}〕"
+            samples = [s for s in (c.get("voice_samples") or []) if s][:2]
+            if samples:  # 声音样本=防 OOC 命门,每次写到该角色都给范本
+                base += "〔样本:" + "/".join(s[:22] for s in samples) + "〕"
+            if (c.get("core_contradiction") or "").strip():
+                base += f"〔矛盾:{c['core_contradiction'][:28]}〕"
             return base
-        parts.append("【须保持一致的角色(含声音)】" + "、".join(_c(c) for c in chars[:15]))
+        parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c) for c in chars[:15]))
+
+    # 母题:核心意象的隐喻网,务必自然织入(乱世铜炉判据1)
+    motifs = d.list_motifs(work) if hasattr(d, "list_motifs") else []
+    if motifs:
+        def _m(m):
+            seg = [m.get("name", "")]
+            if m.get("bound_theme"):
+                seg.append("主题:" + m["bound_theme"][:40])
+            if m.get("metaphor_unfolding"):
+                seg.append("隐喻:" + m["metaphor_unfolding"][:50])
+            echoes = [e for e in (m.get("material_echoes") or []) if e][:4]
+            if echoes:
+                seg.append("物质回声(可织入,勿生硬点题):" + "/".join(echoes))
+            return "｜".join(seg)
+        parts.append("【核心意象/母题(贯穿全书,自然织入)】\n" + "\n".join("· " + _m(m) for m in motifs[:4]))
 
     sets = d.list_settings(work)
     if sets:
         parts.append("【关键设定(不可矛盾)】" + ";".join(
             (s.get("text") or s.get("name") or "")[:30] for s in sets[:15]))
+        # 力量体系:代价/限制/会出什么乱子,违背即穿帮(乱世铜炉判据2)
+        powers = [s for s in sets if (s.get("type") == "力量体系") and (s.get("fields"))]
+        if powers:
+            def _p(s):
+                f = s.get("fields") or {}
+                bits = [s.get("name", "")]
+                for k, lbl in (("cost", "代价"), ("limitations", "限制"), ("trouble_it_causes", "会出什么乱子")):
+                    if f.get(k):
+                        bits.append(f"{lbl}:" + str(f[k])[:40])
+                return "｜".join(bits)
+            parts.append("【规则·代价与限制(写到该力量时严格遵守)】\n" + "\n".join("· " + _p(s) for s in powers[:6]))
 
     glob = d.get_global_memory(work)
     if glob:
