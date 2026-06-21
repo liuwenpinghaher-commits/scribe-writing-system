@@ -164,12 +164,18 @@ def build_dedup_prompt(text: str, reps: list[dict]) -> str:
         "保持情节连贯、人物声音一致、字数基本不变。只输出改写后的完整正文,不要解释。\n\n【正文】\n" + text)
 
 
-def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3) -> dict:
-    """生成后去重通道:扫描复读→定向改写→守护(改写过短则弃用)。接进生成主路径。"""
-    reps = find_repetitions(text, n=n, min_count=min_count)
-    if not reps:
+def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3, max_passes: int = 2) -> dict:
+    """生成后去重通道:扫描复读→定向改写,循环至干净或到 max_passes(长章单遍不够)。守护改写过短则弃用。"""
+    reps0 = find_repetitions(text, n=n, min_count=min_count)
+    if not reps0:
         return {"text": text, "reps": [], "changed": False}
-    out = (complete_fn(build_dedup_prompt(text, reps)) or "").strip()
-    if len(out) < len(text) * 0.6:   # 守护:别把正文改没了
-        return {"text": text, "reps": reps, "changed": False}
-    return {"text": out, "reps": reps, "changed": out != text}
+    cur, changed = text, False
+    for _ in range(max_passes):
+        reps = find_repetitions(cur, n=n, min_count=min_count)
+        if not reps:
+            break
+        out = (complete_fn(build_dedup_prompt(cur, reps)) or "").strip()
+        if len(out) < len(cur) * 0.6 or out == cur:   # 守护:改没了/没动→停
+            break
+        cur, changed = out, True
+    return {"text": cur, "reps": reps0, "changed": changed}
