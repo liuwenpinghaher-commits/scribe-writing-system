@@ -36,6 +36,7 @@ import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
 import { ScrollArea } from "./components/ui/scroll-area";
 import { cn } from "./lib/utils";
+import { Markdown } from "./Markdown";
 
 // ─── 类型 ───────────────────────────────────────────────────
 interface ToolCall {
@@ -470,7 +471,7 @@ function ChatSection({ work, quote = "", onQuoteUsed }: { work: string; quote?: 
                       : "bg-muted text-foreground rounded-bl-sm"
                   )}
                 >
-                  {text}
+                  {isUser ? <span className="whitespace-pre-wrap">{text}</span> : <Markdown>{text}</Markdown>}
                 </div>
                 {card && <ScribeCardView card={card} />}
               </div>
