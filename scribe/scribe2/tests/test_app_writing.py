@@ -56,8 +56,8 @@ def test_ingest_builds_memory(db, monkeypatch):
     d, c, H = _setup(db)
     try:
         w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
-        ch = c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "夜渡"}, headers=H).json()["chapter_id"]
-        c.post(f"/works/{w}/chapters/{ch}/prose",
+        c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "夜渡"}, headers=H)
+        c.post(f"/works/{w}/chapters/1/prose",
                json={"content": "渡叔立于船头,独眼望浊浪,阿砚蜷在供桌下。"}, headers=H)
         monkeypatch.setattr(appmod, "_complete",
                             lambda prompt, **k: "第一章:渡叔夜渡,阿砚躲庙中。")
@@ -75,8 +75,8 @@ def test_critique_and_consistency(db, monkeypatch):
     try:
         w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
         c.put(f"/works/{w}/author-intent", json={"reader_feeling": "苍凉克制"}, headers=H)
-        ch = c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "夜渡"}, headers=H).json()["chapter_id"]
-        c.post(f"/works/{w}/chapters/{ch}/prose",
+        c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "夜渡"}, headers=H)
+        c.post(f"/works/{w}/chapters/1/prose",
                json={"content": "渡叔立于船头,独眼望浊浪。"}, headers=H)
         # critique:mock 返回 8 维评分 JSON
         monkeypatch.setattr(appmod, "_complete", lambda p, **k: (

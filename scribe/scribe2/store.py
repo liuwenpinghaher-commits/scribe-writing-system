@@ -49,6 +49,12 @@ class Store:
     def update(self, table: str, rid: str, patch: dict) -> None:
         self.db.merge(RecordID(table, rid), patch)
 
+    def delete(self, table: str, rid: str) -> None:
+        self.db.delete(RecordID(table, rid))
+
+    def delete_where(self, table: str, where: str, vars: dict) -> None:
+        self.db.query(f"DELETE FROM {table} WHERE {where};", vars)
+
 
     def put_content(self, table: str, work: str, text: str, **fields) -> str:
         """写内容实体:record + embedding 同写,供向量/全文检索。"""

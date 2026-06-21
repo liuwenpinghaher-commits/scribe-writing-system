@@ -6,7 +6,11 @@ CONTENT_TABLES = ["chapter", "setting", "character", "foreshadow",
 # 纯结构表(无需向量)
 STRUCT_TABLES = ["work", "volume", "snapshot", "segment", "author_intent",
                  "option_set", "consistency_flag", "quality_snapshot",
-                 "preference_signal", "taste_model", "feedback"]
+                 "preference_signal", "taste_model", "feedback",
+                 # 写作面完整化新增
+                 "insight", "thread", "entity_relation", "char_state",
+                 "agent_memory", "agent_skill", "timeline_event", "pending_write",
+                 "chapter_task"]
 
 
 def ddl() -> list[str]:
