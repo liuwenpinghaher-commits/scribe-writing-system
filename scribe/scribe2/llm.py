@@ -25,7 +25,7 @@ def _api_key() -> str:
 
 
 def hermes_complete(prompt: str, system: str | None = None,
-                    model: str = "doubao-seed-2.0-pro", timeout: float = 300.0) -> str:
+                    model: str = "doubao-seed-2.0-pro", timeout: float = 600.0) -> str:
     """经 Hermes 网关取一段补全(主笔)。错误抛出不静默。"""
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
@@ -38,7 +38,7 @@ def hermes_complete(prompt: str, system: str | None = None,
 
 
 def hermes_responses_events(message: str, instructions: str, model: str | None = None,
-                            timeout: float = 300.0):
+                            timeout: float = 600.0):
     """主编 agentic:POST hermes /v1/responses(tools=scribe2 MCP + stream),逐事件 yield。
     挂 server_label:'scribe2' 引用 config.yaml 里挂的 scribe2 MCP,主编自动发现并调用其工具。
     SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。"""
@@ -65,7 +65,7 @@ def hermes_responses_events(message: str, instructions: str, model: str | None =
 
 
 def hermes_complete_stream(prompt: str, system: str | None = None,
-                           model: str = "doubao-seed-2.0-pro", timeout: float = 300.0):
+                           model: str = "doubao-seed-2.0-pro", timeout: float = 600.0):
     """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。"""
     import json as _j
     msgs = ([{"role": "system", "content": system}] if system else []) + \
