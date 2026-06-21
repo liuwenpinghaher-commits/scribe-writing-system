@@ -665,3 +665,17 @@ def test_find_structural_repeats():
     sr = find_structural_repeats(t, min_anaphora=3, max_short=3)
     assert any(x.get("kind") == "anaphora" and "他想起" in x["phrase"] for x in sr)  # 排比开头≥3
     assert any(x.get("kind") == "short" for x in sr)                                # 单字断句过多
+
+
+def test_find_purple_prose():
+    """缺口gap11:升华/抒情/主题直陈句,prompt黑名单在长章压不住(ch5又犯);生成后确定性检测+删。"""
+    from scribe2.critique import find_purple_prose
+    t = ("焦三走着。原来从一开始他就没的选。天阴沉沉的。"
+         "那四个字像四滴凝固的眼泪。天地为炉,万物为铜。"
+         "从他拿起铜丸那一刻起,从他走出门那一刻起,一切都变了。糠饼很硬。")
+    pp = find_purple_prose(t)
+    joined = " ".join(p["phrase"] for p in pp)
+    assert "原来" in joined and "眼泪" in joined and "炉" in joined
+    assert len(pp) >= 3
+    # 普通句不误伤
+    assert all("糠饼很硬" not in p["phrase"] and "天阴沉沉" not in p["phrase"] for p in pp)

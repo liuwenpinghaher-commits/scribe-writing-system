@@ -177,24 +177,59 @@ def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4
     return sorted(out, key=lambda x: -x["count"])[:8]
 
 
+_PURPLE_PATS = [
+    r"原来[^。！？\n]{0,30}(就|早就|从一开始|没的选|没得选)",
+    r"天地为炉|万物为铜|在炉[子火]?里",
+    r"从[^,，。\n]{1,18}那一刻起",
+    r"像[^。！？\n]{0,12}[滴颗][^。！？\n]{0,8}眼泪",
+    r"影子[被]?拉得很[长短]",
+    r"(有些|有的)[^。！？\n,，]{0,14}(就再也|再也)[^。！？\n]{0,14}",
+    r"他知道[，,][^。！？\n]{0,4}(回不去|没的选|不一样了)",
+    r"走下去|刀山火海",
+]
+_PURPLE_RE = [re.compile(p) for p in _PURPLE_PATS]
+
+
+def find_purple_prose(text: str) -> list[dict]:
+    """确定性升华/抒情/主题直陈句检测:prompt 黑名单在长章压不住(ch5又犯),生成后扫描+删。
+    替读者下结论、硬塞命运隐喻、主题直陈——志怪冷笔大忌。"""
+    out: list[dict] = []
+    for s in re.split(r"(?<=[。！？\n])", text or ""):
+        st = s.strip()
+        if st and any(rx.search(st) for rx in _PURPLE_RE):
+            out.append({"phrase": st[:30], "kind": "purple"})
+    return out
+
+
 def build_dedup_prompt(text: str, reps: list[dict]) -> str:
-    lst = "\n".join(f"· 「{r['phrase']}」(全篇约 {r['count']} 次)" for r in reps)
-    return (
-        "下面这段正文里,以下词句/句式在全篇机械【重复】,严重拉低文学质感:\n" + lst +
-        "\n\n做一次外科式【去重】改写:每个重复意象/句式全篇最多留 2 次(最有力那处保留),其余改写成不同说法或删除;"
-        "若标注『排比开头』,把那些相同开头的句子改成不同句式;若标注『单字/极短断句』,把过多的单字短句并入正常长句、只留最有力的一两处;"
-        "若两个场景结构雷同(如两次对峙),把后一次改出差异或合并。"
-        "保持情节连贯、人物声音一致、字数基本不变。只输出改写后的完整正文,不要解释。\n\n【正文】\n" + text)
+    rep_items = [r for r in reps if r.get("kind") != "purple"]
+    purple = [r for r in reps if r.get("kind") == "purple"]
+    parts = []
+    if rep_items:
+        lst = "\n".join(f"· 「{r['phrase']}」(全篇约 {r.get('count', '多')} 次)" for r in rep_items)
+        parts.append(
+            "以下词句/句式在全篇机械【重复】,严重拉低质感:\n" + lst +
+            "\n→ 每个重复意象/句式全篇最多留 2 次(最有力那处保留),其余改写成不同说法或删除;"
+            "标注『排比开头』的把相同开头句改成不同句式;标注『单字/极短断句』的把过多单字短句并入正常长句;"
+            "两个场景结构雷同的把后一次改出差异或合并。")
+    if purple:
+        plst = "\n".join(f"· 「{p['phrase']}…」" for p in purple)
+        parts.append(
+            "以下是【升华/抒情/主题直陈】句(替读者下结论、硬塞命运隐喻、喊主题),志怪冷笔大忌:\n" + plst +
+            "\n→ 全部删除,或改成不点破的冷笔白描(只给具体动作/物象,把判断留给读者)。")
+    return ("对下面正文做一次外科式精修(保持情节连贯、人物声音一致、字数基本不变):\n\n" +
+            "\n\n".join(parts) +
+            "\n\n只输出修改后的完整正文,不要解释。\n\n【正文】\n" + text)
 
 
 def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3, max_passes: int = 2) -> dict:
     """生成后去重通道:扫描复读→定向改写,循环至干净或到 max_passes(长章单遍不够)。守护改写过短则弃用。"""
-    reps0 = find_repetitions(text, n=n, min_count=min_count) + find_structural_repeats(text)
+    reps0 = find_repetitions(text, n=n, min_count=min_count) + find_structural_repeats(text) + find_purple_prose(text)
     if not reps0:
         return {"text": text, "reps": [], "changed": False}
     cur, changed = text, False
     for _ in range(max_passes):
-        reps = find_repetitions(cur, n=n, min_count=min_count) + find_structural_repeats(cur)
+        reps = find_repetitions(cur, n=n, min_count=min_count) + find_structural_repeats(cur) + find_purple_prose(cur)
         if not reps:
             break
         out = (complete_fn(build_dedup_prompt(cur, reps)) or "").strip()
