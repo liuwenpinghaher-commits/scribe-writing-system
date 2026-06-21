@@ -44,7 +44,7 @@ export interface Work {
 }
 export interface Chapter { id?: string; seq: number; title?: string; status: string; volume_id?: string | null; snapshots?: Snapshot[]; }
 export interface Snapshot { id: string; content: string; created_by: string; branch_label: string; is_human_locked?: number; }
-export interface Intent { reader_feeling?: string; core_emotional_arc?: string; do_not_betray?: string; central_promise?: string; }
+export interface Intent { reader_feeling?: string; core_emotional_arc?: string; do_not_betray?: string[]; central_promise?: string; }
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
 export interface Setting { id?: string; name: string; type?: string; content?: string; }

@@ -134,4 +134,7 @@ class Store:
     def init_schema(self) -> None:
         from .schema import ddl
         for stmt in ddl():
-            self.db.query(stmt)
+            try:
+                self.db.query(stmt)
+            except Exception:
+                pass  # 幂等:已定义的表/索引重复 DEFINE 忽略

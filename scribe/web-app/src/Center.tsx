@@ -32,15 +32,14 @@ function NorthStarBar({ work, rev }: { work: string; rev: number }) {
   const [dirty, setDirty] = useState(false);
   const toast = useToast();
 
-  let redCount = 0;
-  try { redCount = JSON.parse(data?.do_not_betray || "[]").length; } catch { /* */ }
+  // 重构:do_not_betray 是 string[](新底座契约),不再当 JSON 字符串解析
+  const redCount = Array.isArray(data?.do_not_betray) ? data!.do_not_betray.length : 0;
 
   useEffect(() => {
     if (!data) return;
     setRf(data.reader_feeling || "");
     setArc(data.core_emotional_arc || "");
-    let list: string[] = [];
-    try { list = JSON.parse(data.do_not_betray || "[]"); } catch { /* */ }
+    const list = Array.isArray(data.do_not_betray) ? data.do_not_betray : [];
     setDnb(list.join("，"));
     setDirty(false);
   }, [data]);

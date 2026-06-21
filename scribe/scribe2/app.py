@@ -20,7 +20,12 @@ _singleton: dict = {"d": None}
 
 def get_domain() -> Domain:
     if _singleton["d"] is None:
-        _singleton["d"] = domain_from(connect())
+        d = domain_from(connect())
+        try:
+            d.s.init_schema()  # 启动时确保 schema(幂等)
+        except Exception:
+            pass
+        _singleton["d"] = d
     return _singleton["d"]
 
 def owner(x: str | None) -> str:
@@ -35,7 +40,7 @@ class ChapterIn(BaseModel):
 class ProseIn(BaseModel):
     content: str; lock: bool = False
 class SettingIn(BaseModel):
-    name: str; desc: str = ""
+    name: str; type_: str = "设定"; description: str = ""; desc: str = ""
 class SearchIn(BaseModel):
     query: str; k: int = 6
 
@@ -130,9 +135,14 @@ def create_branch(w: str, seq: int, b: BranchIn, x_owner_id: str | None = Header
 def merge_branch(w: str, seq: int, label: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return {"merged": d.merge_branch(w, _cid(d, w, seq), label)}
 
+@app.get("/works/{w}/settings")
+def list_settings(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_settings(w)
+
 @app.post("/works/{w}/settings")
 def add_setting(w: str, b: SettingIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    owner(x_owner_id); return {"setting_id": d.add_setting(w, b.name, b.desc)}
+    owner(x_owner_id)
+    return {"setting_id": d.add_setting(w, b.name, b.description or b.desc, b.type_)}
 
 @app.post("/works/{w}/search")
 def search(w: str, b: SearchIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
@@ -141,7 +151,7 @@ def search(w: str, b: SearchIn, x_owner_id: str | None = Header(None), d: Domain
 # ==== 写作面:圣经 CRUD + 生成 + 自动章记忆 ====
 class IntentIn(BaseModel):
     reader_feeling: str = ""; core_emotional_arc: str = ""; why_write: str = ""
-    central_promise: str = ""; red_lines: list[str] = []
+    central_promise: str = ""; red_lines: list[str] = []; do_not_betray: list[str] = []
 class CharacterIn(BaseModel):
     name: str; motivation: str = ""; voice: str = ""
 class ForeshadowIn(BaseModel):
@@ -153,7 +163,8 @@ class ActionIn(BaseModel):
 @app.put("/works/{w}/author-intent")
 def set_intent(w: str, b: IntentIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
-    d.set_intent(w, b.reader_feeling, b.core_emotional_arc, b.why_write, b.central_promise, b.red_lines)
+    red = b.do_not_betray or b.red_lines  # 前端发 do_not_betray
+    d.set_intent(w, b.reader_feeling, b.core_emotional_arc, b.why_write, b.central_promise, red)
     return {"ok": True}
 
 @app.get("/works/{w}/author-intent")
@@ -199,7 +210,9 @@ def ingest(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = 
 @app.get("/works/{w}/memory")
 def memory(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
-    return {"global": d.get_global_memory(w), "chapters": d.list_chapter_memories(w)}
+    chs = [{"seq": m.get("seq"), "summary_text": m.get("text", "")}
+           for m in d.list_chapter_memories(w)]  # 前端契约 summary_text
+    return {"global": d.get_global_memory(w), "chapters": chs}
 
 
 # ==== 评改 + 一致性 ====

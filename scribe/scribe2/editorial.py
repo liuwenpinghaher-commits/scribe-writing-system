@@ -33,8 +33,10 @@ def intent_check(d, work, seq, complete_fn) -> dict:
               '只输出一行JSON:{"status":"aligned|soft_deviation|hard_violation",'
               '"reason":"简述","red_lines":["被触碰的红线",...]}\n\n正文:\n' + text[:3000])
     v = _pj(complete_fn(prompt), {"status": "aligned", "reason": "", "red_lines": []})
+    # 前端契约:red_lines 为 [{text, level}]
+    rls = [{"text": str(x), "level": "hard"} for x in (v.get("red_lines") or [])]
     return {"status": v.get("status", "aligned"), "reason": v.get("reason", ""),
-            "red_lines": v.get("red_lines", [])}
+            "red_lines": rls}
 
 
 def proactive_review(d, work, complete_fn) -> int:

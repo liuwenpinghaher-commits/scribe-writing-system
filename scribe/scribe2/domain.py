@@ -52,7 +52,10 @@ class Domain:
             "volume": (f"volume:{volume}" if volume else None), "status": "draft"})
 
     def list_chapters(self, work: str) -> list[dict]:
-        return self.s.list("chapter", "work = $w ORDER BY seq ASC", {"w": f"work:{work}"})
+        rows = self.s.list("chapter", "work = $w ORDER BY seq ASC", {"w": f"work:{work}"})
+        for c in rows:
+            c["volume_id"] = c.get("volume")  # 前端契约别名
+        return rows
 
     # ---- snapshot 版本树 ----
     def save_prose(self, work: str, chapter: str, content: str, locked: bool = False,
@@ -62,6 +65,7 @@ class Domain:
         sid = self.s.create("snapshot", {
             "work": f"work:{work}", "chapter": f"chapter:{chapter}",
             "version": ver, "content": content, "locked": bool(locked),
+            "is_human_locked": 1 if locked else 0,
             "created_by": created_by, "branch_label": branch_label})
         # 字数随定稿(human-final)走,落到章上供作品库汇总
         if branch_label == "human-final":
@@ -169,13 +173,17 @@ class Domain:
                         "pending_optionset_count": len(opts)})
         return out
 
-    # ---- 内容实体:设定 ----
+    # ---- 内容实体:设定(契约:name/type/content;存 stype 避开 SurrealDB 关键字 type)----
     def add_setting(self, work: str, name: str, desc: str = "", type_: str = "设定") -> str:
         text = f"{name}:{desc}" if desc else name
-        return self.s.put_content("setting", work=f"work:{work}", text=text, name=name, stype=type_)
+        return self.s.put_content("setting", work=f"work:{work}", text=text,
+                                  name=name, stype=type_, content=desc)
 
     def list_settings(self, work: str) -> list[dict]:
-        return self.s.list("setting", "work = $w", {"w": f"work:{work}"})
+        rows = self.s.list("setting", "work = $w", {"w": f"work:{work}"})
+        for s in rows:
+            s["type"] = s.get("stype", "设定")  # 前端契约别名
+        return rows
 
     def search(self, work: str, query: str, k: int = 6) -> list[dict]:
         return self.s.search_knowledge(f"work:{work}", query, k=k)
@@ -204,7 +212,11 @@ class Domain:
 
     def get_intent(self, work: str) -> dict | None:
         rows = self.s.list("author_intent", "work = $w", {"w": f"work:{work}"})
-        return rows[0] if rows else None
+        if not rows:
+            return None
+        it = rows[0]
+        it["do_not_betray"] = it.get("red_lines") or []  # 前端契约别名
+        return it
 
     # ---- 角色(含声音指纹;内容实体,可语义检索) ----
     def add_character(self, work: str, name: str, motivation: str = "", voice: str = "") -> str:
@@ -325,7 +337,7 @@ class Domain:
     def add_material(self, work: str, content: str, type_: str = "snippet",
                      scope: str = "work", title: str = "") -> str:
         return self.s.put_content("material", work=f"work:{work}", text=content,
-                                  mtype=type_, title=title, content=content,
+                                  type=type_, title=title, content=content,
                                   tags="", status="pending", scope=scope)
 
     def list_materials(self, work: str) -> list[dict]:
