@@ -207,7 +207,7 @@ def upsert_character(work_id: str, name: str, motivation: str = "", voice: str =
     """新增/更新角色。Codex 2.0 富字段:voice_samples(声音样本,防 OOC 命门)、
     core_contradiction(核心矛盾=立体之本)、内核 wound/lie/fear/want/need、arc(弧光)。
     写操作,需审批。"""
-    return {"character_id": _domain().add_character(
+    return {"character_id": _domain().upsert_character(
         work_id, name, motivation, voice, voice_samples=voice_samples,
         core_contradiction=core_contradiction, wound=wound, lie=lie,
         want=want, need=need, arc=arc, fear=fear)}

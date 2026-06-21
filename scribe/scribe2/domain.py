@@ -260,6 +260,27 @@ class Domain:
                     c[k] = typ()
         return rows
 
+    def upsert_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
+                         voice_samples: list | None = None, core_contradiction: str = "",
+                         wound: str = "", lie: str = "", want: str = "", need: str = "",
+                         arc: str = "", fear: str = "") -> str:
+        """按名 upsert(对话式'改'的基础):同名则合并更新(空串不覆盖、voice_samples 非 None 才覆盖),
+        否则新建。实现=删旧+并入新字段重建(自动重嵌入)。"""
+        existing = next((c for c in self.list_characters(work) if c.get("name") == name), None)
+        base = {k: (existing.get(k) if existing else "") for k in
+                ("motivation", "voice", "core_contradiction", "wound", "lie", "want", "need", "arc", "fear")}
+        for k, v in dict(motivation=motivation, voice=voice, core_contradiction=core_contradiction,
+                         wound=wound, lie=lie, want=want, need=need, arc=arc, fear=fear).items():
+            if v:  # 非空才覆盖,保留既有
+                base[k] = v
+        vs = list(voice_samples) if voice_samples is not None else ((existing or {}).get("voice_samples") or [])
+        if existing:
+            self.s.delete("character", self._idpart(existing["id"]))
+        return self.add_character(work, name, base["motivation"], base["voice"], voice_samples=vs,
+                                  core_contradiction=base["core_contradiction"], wound=base["wound"],
+                                  lie=base["lie"], want=base["want"], need=base["need"],
+                                  arc=base["arc"], fear=base["fear"])
+
     # ---- 母题 Motif(核心意象的隐喻网:世界观+主题+命名+物质回声 四位一体)----
     def add_motif(self, work: str, name: str, metaphor_unfolding: str = "",
                   bound_theme: str = "", material_echoes: list | None = None,

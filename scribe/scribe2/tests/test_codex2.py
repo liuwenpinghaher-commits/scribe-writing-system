@@ -113,3 +113,20 @@ def test_mcp_codex_write_tools(db):
     # 写工具登记进 WRITE_TOOLS(经 B3 待批)
     for t in ("add_motif", "upsert_character", "add_setting"):
         assert t in M.WRITE_TOOLS
+
+
+def test_upsert_character_merges(db):
+    """upsert_character 按名更新合并(对话式'改'的基础),不产生重复。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.add_character(w, "渡叔", motivation="守渡赎罪", voice="极静")
+    # 同名 upsert:补声音样本+创伤,保留原 motivation/voice
+    d.upsert_character(w, "渡叔", voice_samples=["三不渡，是规矩。"], wound="四十年前破规")
+    chars = [c for c in d.list_characters(w) if c["name"] == "渡叔"]
+    assert len(chars) == 1, "同名不应重复"
+    c = chars[0]
+    assert c["voice_samples"] == ["三不渡，是规矩。"] and c["wound"].startswith("四十年")
+    assert c["motivation"] == "守渡赎罪" and c["voice"] == "极静"  # 原字段保留
+    # 不存在则新建
+    d.upsert_character(w, "阿砚", motivation="活命")
+    assert any(c["name"] == "阿砚" for c in d.list_characters(w))
