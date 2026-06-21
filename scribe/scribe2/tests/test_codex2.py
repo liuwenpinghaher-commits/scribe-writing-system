@@ -553,3 +553,20 @@ def test_entity_beats_unified(db):
     assert "各线指令" in ctx                          # 有统一的实体线指令块
     assert "第三次质疑三不渡的执念" in ctx              # 角色 beat guidance 注入
     assert "织入一处人如炉中铜" in ctx                  # 母题 beat 也注入
+
+
+def test_entity_lines_health(db):
+    """统一健康检测:各实体线 久未推进/未兑现=overdue,泛化伏笔的"看断线"到所有线。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    for s in range(1, 21):
+        d.add_chapter(w, s, f"第{s}章")
+    d.add_character(w, "渡叔")
+    d.add_entity_beat(w, "character", "渡叔", 2, kind="develop", guidance="埋下执念")  # 久未推进、未兑现
+    d.add_motif(w, "铜炉")
+    d.add_entity_beat(w, "motif", "铜炉", 18, kind="reinforce", guidance="近期复现")    # 近期活跃
+    h = d.entity_lines_health(w, span=10)
+    du = next(x for x in h if x["entity"] == "渡叔")
+    tl = next(x for x in h if x["entity"] == "铜炉")
+    assert du["overdue"] is True and du["last_chapter"] == 2      # 埋ch2,max20,gap18>10,未兑现
+    assert tl["overdue"] is False                                  # ch18 近期,不超期

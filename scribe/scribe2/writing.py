@@ -142,6 +142,13 @@ def build_writing_context(d, work: str, seq: int) -> str:
                 eff = f"｜效果:{b['effect']}" if b.get("effect") else ""
                 lines.append(f"· [{et}·{b.get('entity')}] 本章:{g}{eff}")
             parts.append("【本章·各线指令(角色弧光/母题复现/设定逐章发展,照此处理)】\n" + "\n".join(lines[:10]))
+        # 各线健康:久未推进且未兑现的线 → 提醒适时复现/推进(别让角色弧光/母题凭空消失)
+        if hasattr(d, "entity_lines_health"):
+            stale = [h for h in d.entity_lines_health(work) if h.get("overdue")]
+            if stale:
+                ws = [f"· [{_ET.get(h.get('etype'), h.get('etype'))}·{h.get('entity')}] 自第{h.get('last_chapter')}章起久未推进且未兑现,适时复现/推进/收束"
+                      for h in stale[:6]]
+                parts.append("【线·久未推进告警】\n" + "\n".join(ws))
 
     glob = d.get_global_memory(work)
     if glob:

@@ -544,6 +544,11 @@ def list_entity_beats(w: str, etype: str | None = None, entity: str | None = Non
                       x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_entity_beats(w, etype, entity)
 
+@app.get("/works/{w}/entity-lines-health")
+def entity_lines_health(w: str, span: int = 15, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """统一健康检测:各实体线 久未推进/未兑现(悬空)— 泛化伏笔的"看断线"。"""
+    owner(x_owner_id); return d.entity_lines_health(w, span)
+
 @app.get("/works/{w}/characters/{name}/states")
 def char_states(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_char_states(w, name)

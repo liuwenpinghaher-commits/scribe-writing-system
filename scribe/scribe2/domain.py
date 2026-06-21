@@ -655,6 +655,26 @@ class Domain:
             rows = [r for r in rows if r.get("entity") == entity]
         return sorted(rows, key=lambda r: r.get("chapter") or 0)
 
+    _RESOLVE_KINDS = {"兑现", "payoff", "use", "resolve", "回收"}
+
+    def entity_lines_health(self, work: str, span: int = 15) -> list[dict]:
+        """统一健康检测(把伏笔的"看断线"泛化到所有线):各实体线 久未推进=stale、
+        久未推进且未兑现=overdue(悬空)。供泳道顶部健康条 + 注入告警。"""
+        maxc = max((c.get("seq") or 0 for c in self.list_chapters(work)), default=0)
+        by_line: dict = {}
+        for b in self.list_entity_beats(work):
+            by_line.setdefault((b.get("etype"), b.get("entity")), []).append(b)
+        out = []
+        for (et, ent), bs in by_line.items():
+            bs = sorted(bs, key=lambda b: b.get("chapter") or 0)
+            last = max((b.get("chapter") or 0) for b in bs)
+            resolved = any(b.get("kind") in self._RESOLVE_KINDS for b in bs)
+            gap = maxc - last
+            out.append({"etype": et, "entity": ent, "beats": bs, "last_chapter": last,
+                        "resolved": resolved, "stale": gap > span,
+                        "overdue": (not resolved) and gap > span})
+        return out
+
     # ---- 角色状态轨迹 char_state ----
     def add_char_state(self, work: str, character: str, chapter_seq: int,
                        state_desc: str = "", change_type: str = "") -> str:
