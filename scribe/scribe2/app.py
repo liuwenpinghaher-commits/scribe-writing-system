@@ -3,8 +3,11 @@ from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel
 from .conn import connect, domain_from
 from .domain import Domain
+from .generate import generate_continue, ingest_chapter
+from .llm import hermes_complete
 
 app = FastAPI(title="Scribe (SurrealDB)")
+_complete = hermes_complete  # 生成走 Hermes;测试可 monkeypatch scribe2.app._complete
 _singleton: dict = {"d": None}
 
 def get_domain() -> Domain:
@@ -55,6 +58,70 @@ def add_setting(w: str, b: SettingIn, x_owner_id: str | None = Header(None), d: 
 @app.post("/works/{w}/search")
 def search(w: str, b: SearchIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.search(w, b.query, b.k)
+
+# ==== 写作面:圣经 CRUD + 生成 + 自动章记忆 ====
+class IntentIn(BaseModel):
+    reader_feeling: str = ""; core_emotional_arc: str = ""; why_write: str = ""
+    central_promise: str = ""; red_lines: list[str] = []
+class CharacterIn(BaseModel):
+    name: str; motivation: str = ""; voice: str = ""
+class ForeshadowIn(BaseModel):
+    summary: str; chapter: int; importance: str = "normal"
+class ActionIn(BaseModel):
+    instruction: str = ""; target_chars: int = 850; prev: str = ""
+
+
+@app.put("/works/{w}/author-intent")
+def set_intent(w: str, b: IntentIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    d.set_intent(w, b.reader_feeling, b.core_emotional_arc, b.why_write, b.central_promise, b.red_lines)
+    return {"ok": True}
+
+@app.get("/works/{w}/author-intent")
+def get_intent(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.get_intent(w) or {}
+
+@app.post("/works/{w}/characters")
+def add_character(w: str, b: CharacterIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"character_id": d.add_character(w, b.name, b.motivation, b.voice)}
+
+@app.get("/works/{w}/characters")
+def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_characters(w)
+
+@app.post("/works/{w}/foreshadows")
+def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"foreshadow_id": d.plant_foreshadow(w, b.summary, b.chapter, b.importance)}
+
+@app.get("/works/{w}/foreshadows")
+def list_foreshadows(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_open_foreshadows(w)
+
+@app.post("/works/{w}/foreshadows/{fid}/{action}")
+def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    mp = {"trigger": "triggered", "pay": "paid", "abandon": "abandoned"}
+    if action not in mp:
+        raise HTTPException(400, "action 必须是 trigger/pay/abandon")
+    d.advance_foreshadow(fid, mp[action]); return {"state": mp[action]}
+
+@app.post("/works/{w}/chapters/{seq}/actions/continue")
+def gen_continue(w: str, seq: int, b: ActionIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """生成第 seq 章一节正文(_writing_context 注入 + 走 Hermes)。不落库,接受才存稿。"""
+    owner(x_owner_id)
+    content = generate_continue(d, w, seq, b.instruction, _complete, b.target_chars, b.prev)
+    return {"content": content}
+
+@app.post("/works/{w}/chapters/{seq}/ingest")
+def ingest(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """定稿后建章记忆 + 确定性 rollup(跨章连贯)。"""
+    owner(x_owner_id); return {"summary": ingest_chapter(d, w, seq, _complete)}
+
+@app.get("/works/{w}/memory")
+def memory(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id)
+    return {"global": d.get_global_memory(w), "chapters": d.list_chapter_memories(w)}
+
 
 @app.get("/health")
 def health():

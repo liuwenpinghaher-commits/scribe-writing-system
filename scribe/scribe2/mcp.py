@@ -132,6 +132,79 @@ def add_setting(work_id: str, name: str, desc: str = "") -> dict:
     return {"setting_id": _domain().add_setting(work_id, name, desc)}
 
 
+# ==== 写作面工具(段3):圣经读写 + 生成 + 章记忆 ====
+from .generate import generate_continue as _gen, ingest_chapter as _ingest  # noqa: E402
+from .llm import hermes_complete as _complete  # 生成走 Hermes
+
+
+@_read_tool()
+def get_author_intent(work_id: str) -> dict:
+    """读北极星(reader_feeling/情感弧/红线…)。只读。"""
+    return _domain().get_intent(work_id) or {}
+
+
+@_read_tool()
+def list_characters(work_id: str) -> list[dict]:
+    """列角色(含声音指纹 voice)。只读。"""
+    return _domain().list_characters(work_id)
+
+
+@_read_tool()
+def list_open_foreshadows(work_id: str) -> list[dict]:
+    """列未了结(planted/triggered)伏笔。只读。"""
+    return _domain().list_open_foreshadows(work_id)
+
+
+@_read_tool()
+def get_memory(work_id: str) -> dict:
+    """读全书主线记忆 + 各章梗概。只读。"""
+    d = _domain()
+    return {"global": d.get_global_memory(work_id), "chapters": d.list_chapter_memories(work_id)}
+
+
+@_read_tool()
+def write_continue(work_id: str, seq: int, instruction: str = "",
+                   target_chars: int = 850, prev: str = "") -> dict:
+    """生成第 seq 章一节正文(_writing_context 注入 + 走 Hermes)。
+    只产草稿、不落库(接受后用 save_prose 存稿),故无需审批。"""
+    return {"content": _gen(_domain(), work_id, seq, instruction, _complete, target_chars, prev)}
+
+
+@_write_tool
+def set_author_intent(work_id: str, reader_feeling: str = "", core_emotional_arc: str = "",
+                      why_write: str = "", central_promise: str = "",
+                      red_lines: list | None = None) -> dict:
+    """设/更新北极星。写操作,需审批。"""
+    _domain().set_intent(work_id, reader_feeling, core_emotional_arc, why_write,
+                         central_promise, red_lines or [])
+    return {"ok": True}
+
+
+@_write_tool
+def upsert_character(work_id: str, name: str, motivation: str = "", voice: str = "") -> dict:
+    """新增/更新角色(含声音指纹)。写操作,需审批。"""
+    return {"character_id": _domain().add_character(work_id, name, motivation, voice)}
+
+
+@_write_tool
+def plant_foreshadow(work_id: str, summary: str, chapter: int, importance: str = "normal") -> dict:
+    """埋伏笔。写操作,需审批。"""
+    return {"foreshadow_id": _domain().plant_foreshadow(work_id, summary, chapter, importance)}
+
+
+@_write_tool
+def advance_foreshadow(foreshadow_id: str, to_state: str) -> dict:
+    """推进伏笔状态(triggered/paid/abandoned)。写操作,需审批。"""
+    _domain().advance_foreshadow(foreshadow_id, to_state)
+    return {"state": to_state}
+
+
+@_write_tool
+def ingest_chapter(work_id: str, seq: int) -> dict:
+    """定稿后建章记忆 + 确定性 rollup(跨章连贯)。写操作,需审批。"""
+    return {"summary": _ingest(_domain(), work_id, seq, _complete)}
+
+
 def main() -> None:
     """以 stdio 传输启动 MCP server,供 Hermes run / MCP 客户端挂载(段4)。"""
     mcp.run()

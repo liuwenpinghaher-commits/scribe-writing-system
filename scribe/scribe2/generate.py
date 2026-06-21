@@ -33,6 +33,23 @@ def generate_continue(d, work: str, seq: int, instruction: str, complete_fn,
     return complete_fn(prompt)
 
 
+def ingest_chapter(d, work: str, seq: int, complete_fn) -> str:
+    """定稿后建章记忆:LLM 把本章正文压成一句梗概 → save_chapter_memory → 确定性 rollup_global。
+    跨章连贯靠它(供下一章 _writing_context)。"""
+    ch = next((c for c in d.list_chapters(work) if c.get("seq") == seq), None)
+    if not ch:
+        return ""
+    content = d.latest_prose(d._idpart(ch["id"]))
+    if not content.strip():
+        return ""
+    summary = complete_fn(
+        "把下面这章正文压缩成一句话梗概(80字内,保留人物与关键转折,精确不改人名亲缘,"
+        f"不加评论):\n\n{content[:3000]}").strip()
+    d.save_chapter_memory(work, seq, summary)
+    rollup_global(d, work)
+    return summary
+
+
 def rollup_global(d, work: str, cap: int = 1800) -> str:
     """把各章梗概**确定性拼接**成全书主线记忆并落库。超长则保首章(设定基底)+最近6章,
     全程 verbatim、不 LLM 压缩 —— 根治身份血缘漂移。身份铁律另靠角色档案 verbatim 注入。"""

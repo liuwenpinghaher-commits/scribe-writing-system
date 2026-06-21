@@ -54,6 +54,10 @@ def test_tools_discoverable_and_annotated(db):
         "list_snapshots", "latest_prose", "list_settings",
         "create_work", "create_volume", "create_chapter",
         "save_prose", "add_setting",
+        # 段3 写作工具
+        "get_author_intent", "list_characters", "list_open_foreshadows", "get_memory",
+        "write_continue", "set_author_intent", "upsert_character",
+        "plant_foreshadow", "advance_foreshadow", "ingest_chapter",
     }
     assert expected <= set(tools), f"缺工具: {expected - set(tools)}"
     for name in expected:
@@ -63,4 +67,8 @@ def test_tools_discoverable_and_annotated(db):
             assert ro is (name not in M.WRITE_TOOLS), f"{name} 注解/登记不一致"
     for name in expected:
         assert (tools[name].description or "").strip(), f"{name} 缺描述"
-    assert M.WRITE_TOOLS == {"create_work", "create_volume", "create_chapter", "save_prose", "add_setting"}
+    assert M.WRITE_TOOLS == {
+        "create_work", "create_volume", "create_chapter", "save_prose", "add_setting",
+        "set_author_intent", "upsert_character", "plant_foreshadow",
+        "advance_foreshadow", "ingest_chapter",
+    }
