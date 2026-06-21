@@ -244,6 +244,11 @@ function CharactersTab({ work }: { work: string }) {
   const [filter, setFilter] = useState("");
   const [addName, setAddName] = useState("");
   const [addMotivation, setAddMotivation] = useState("");
+  const [addVoice, setAddVoice] = useState("");
+  const [addSamples, setAddSamples] = useState("");
+  const [addContradiction, setAddContradiction] = useState("");
+  const [addWound, setAddWound] = useState("");
+  const [more, setMore] = useState(false);
   const [adding, setAdding] = useState(false);
   const [statesFor, setStatesFor] = useState<string | null>(null);
 
@@ -251,9 +256,14 @@ function CharactersTab({ work }: { work: string }) {
     if (!addName.trim()) return;
     setAdding(true);
     try {
-      await api.addCharacter(work, addName.trim(), addMotivation.trim());
-      setAddName("");
-      setAddMotivation("");
+      await api.addCharacter(work, addName.trim(), addMotivation.trim(), {
+        voice: addVoice.trim(),
+        voice_samples: addSamples.split("\n").map((s) => s.trim()).filter(Boolean),
+        core_contradiction: addContradiction.trim(),
+        wound: addWound.trim(),
+      });
+      setAddName(""); setAddMotivation(""); setAddVoice(""); setAddSamples("");
+      setAddContradiction(""); setAddWound("");
       reload();
     } finally {
       setAdding(false);
@@ -272,8 +282,27 @@ function CharactersTab({ work }: { work: string }) {
       accessorKey: "motivation",
       header: "动机",
       cell: ({ row }) => (
-        <span className="text-muted-foreground">{truncate(row.original.motivation, 80) || "—"}</span>
+        <span className="text-muted-foreground">{truncate(row.original.motivation, 60) || "—"}</span>
       ),
+    },
+    {
+      id: "core",
+      header: "声音 / 内核",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const c = row.original;
+        const samples = c.voice_samples ?? [];
+        const has = c.voice || samples.length || c.core_contradiction || c.wound;
+        return (
+          <div className="flex flex-col gap-0.5 max-w-[300px]">
+            {c.voice && <span className="text-xs text-muted-foreground">声音:{truncate(c.voice, 36)}</span>}
+            {samples.length > 0 && <span className="text-xs">样本:{samples.slice(0, 2).map((s) => `「${s}」`).join(" ")}</span>}
+            {c.core_contradiction && <span className="text-xs text-amber-600 dark:text-amber-400">矛盾:{truncate(c.core_contradiction, 36)}</span>}
+            {c.wound && <span className="text-xs text-rose-600/80 dark:text-rose-400/80">创伤:{truncate(c.wound, 36)}</span>}
+            {!has && <span className="text-xs text-muted-foreground">—</span>}
+          </div>
+        );
+      },
     },
     {
       id: "actions",
@@ -312,11 +341,29 @@ function CharactersTab({ work }: { work: string }) {
           className="h-8 text-sm flex-1"
           onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
         />
+        <button className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => setMore((m) => !m)}>
+          内核/声音 {more ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
         <Button size="sm" className="h-8 gap-1 shrink-0" onClick={handleAdd} disabled={adding || !addName.trim()}>
           {adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
           新增
         </Button>
       </div>
+
+      {/* 内核/声音(Codex 2.0:防 OOC + 立体之本) */}
+      {more && (
+        <div className="rounded-md border border-border p-2.5 flex flex-col gap-2">
+          <Input placeholder="声音(用词/句式/口头禅,如:极静、短句、不解释)" value={addVoice}
+            onChange={(e) => setAddVoice(e.target.value)} className="h-8 text-sm" />
+          <Textarea placeholder="声音样本(每行一句代表性台词,防 OOC 命门)" rows={2} value={addSamples}
+            onChange={(e) => setAddSamples(e.target.value)} className="text-sm resize-none" />
+          <Input placeholder="核心矛盾(立体之本,如:守规矩的执念↔为孩子愿破规矩)" value={addContradiction}
+            onChange={(e) => setAddContradiction(e.target.value)} className="h-8 text-sm" />
+          <Input placeholder="创伤(驱动行为的过去,如:四十年前破规害死师父)" value={addWound}
+            onChange={(e) => setAddWound(e.target.value)} className="h-8 text-sm" />
+        </div>
+      )}
 
       {/* 搜索框 */}
       <Input
@@ -362,16 +409,22 @@ function SettingsTab({ work }: { work: string }) {
   const [addName, setAddName] = useState("");
   const [addType, setAddType] = useState("");
   const [addDesc, setAddDesc] = useState("");
+  const [addCost, setAddCost] = useState("");
+  const [addLimit, setAddLimit] = useState("");
+  const [addTrouble, setAddTrouble] = useState("");
   const [adding, setAdding] = useState(false);
 
   const handleAdd = async () => {
     if (!addName.trim()) return;
     setAdding(true);
     try {
-      await api.addSetting(work, addName.trim(), addType.trim() || "设定", addDesc.trim());
-      setAddName("");
-      setAddType("");
-      setAddDesc("");
+      const fields: Record<string, string> = {};
+      if (addCost.trim()) fields.cost = addCost.trim();
+      if (addLimit.trim()) fields.limitations = addLimit.trim();
+      if (addTrouble.trim()) fields.trouble_it_causes = addTrouble.trim();
+      await api.addSetting(work, addName.trim(), addType.trim() || "设定", addDesc.trim(), fields);
+      setAddName(""); setAddType(""); setAddDesc("");
+      setAddCost(""); setAddLimit(""); setAddTrouble("");
       reload();
     } finally {
       setAdding(false);
@@ -397,15 +450,23 @@ function SettingsTab({ work }: { work: string }) {
     },
     {
       id: "description",
-      header: "描述",
+      header: "描述 / 规则",
       enableSorting: false,
-      accessorFn: (row) => extractDesc(row.content),
-      cell: ({ getValue }) => (
-        <span className="text-muted-foreground text-xs">{getValue() as string}</span>
-      ),
+      cell: ({ row }) => {
+        const f = row.original.fields ?? {};
+        return (
+          <div className="flex flex-col gap-0.5 max-w-[440px]">
+            <span className="text-muted-foreground text-xs">{extractDesc(row.original.content)}</span>
+            {f.cost && <span className="text-xs text-rose-600/80 dark:text-rose-400/80">代价:{truncate(f.cost, 44)}</span>}
+            {f.limitations && <span className="text-xs">限制:{truncate(f.limitations, 44)}</span>}
+            {f.trouble_it_causes && <span className="text-xs text-amber-600 dark:text-amber-400">会出什么乱子:{truncate(f.trouble_it_causes, 44)}</span>}
+          </div>
+        );
+      },
     },
   ], []);
 
+  const isPower = ["力量", "规则", "rule", "power", "magic", "体系"].some((k) => addType.includes(k));
   const isEmpty = !loading && !error && (!data || data.length === 0) && !filter;
 
   return (
@@ -438,6 +499,19 @@ function SettingsTab({ work }: { work: string }) {
           新增
         </Button>
       </div>
+
+      {/* 力量体系/规则:结构化字段(乱世铜炉判据2:带代价+会出什么乱子) */}
+      {isPower && (
+        <div className="rounded-md border border-border p-2.5 flex flex-col gap-2">
+          <div className="text-xs text-muted-foreground">力量体系/规则字段(写硬,否则 AI 会自信违背 canon)</div>
+          <Input placeholder="代价 cost(用了要付什么,如:破规一次左眼瞎一分)" value={addCost}
+            onChange={(e) => setAddCost(e.target.value)} className="h-8 text-sm" />
+          <Input placeholder="限制 limitations(不能做什么,如:四百年丹方能聚魂)" value={addLimit}
+            onChange={(e) => setAddLimit(e.target.value)} className="h-8 text-sm" />
+          <Input placeholder="会出什么乱子(推不出乱子的规则就不够好)" value={addTrouble}
+            onChange={(e) => setAddTrouble(e.target.value)} className="h-8 text-sm" />
+        </div>
+      )}
 
       {/* 搜索框 */}
       <Input
