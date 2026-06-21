@@ -516,16 +516,28 @@ def chat(body: dict, x_owner_id: str | None = Header(None), d: Domain = Depends(
     return {"content": _complete(msg)}
 
 
+def _events_frame(snap: dict, last: dict | None) -> tuple[str, dict]:
+    """计数变化才发 data(触发前端 bump 刷新);未变发 SSE 注释保活(不触发 onmessage)。
+    避免每 3 秒无条件 data 导致前端全量重刷闪屏。"""
+    if snap != last:
+        return f"data: {_json.dumps(snap)}\n\n", snap
+    return ": ping\n\n", last
+
+
 @app.get("/works/{w}/events")
 async def events(w: str, owner_q: str | None = Query(None, alias="owner"), d: Domain = Depends(get_domain)):
-    """被动刷新 SSE:周期性吐 work 的待办计数快照(前端 onmessage→bump 刷新)。"""
+    """被动刷新 SSE:仅当待办计数变化时通知前端刷新(首屏由各面板自身加载,不重复刷)。"""
+    def _snap():
+        return {"insights": len(d.list_insights(w)),
+                "option_sets": len(d.list_option_sets(w)),
+                "flags": len(d.list_consistency_flags(w))}
+
     async def gen():
+        last = _snap()  # 连接时基线,不发(避免连上即多刷一次)
         for _ in range(100000):  # 长连接;客户端断开即止
-            snap = {"insights": len(d.list_insights(w)),
-                    "option_sets": len(d.list_option_sets(w)),
-                    "flags": len(d.list_consistency_flags(w))}
-            yield f"data: {_json.dumps(snap)}\n\n"
             await asyncio.sleep(3)
+            frame, last = _events_frame(_snap(), last)
+            yield frame
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 

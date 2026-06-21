@@ -2,8 +2,21 @@
 from fastapi.testclient import TestClient
 
 import scribe2.app as appmod
-from scribe2.app import app, get_domain
+from scribe2.app import app, get_domain, _events_frame
 from scribe2.conn import domain_from
+
+
+def test_events_frame_emits_data_only_on_change():
+    """/events 只在计数变化时发 data(触发前端刷新);未变发注释保活,避免每3秒闪屏。"""
+    # 首次(last=None)→ 发 data 并记录
+    f, last = _events_frame({"insights": 0}, None)
+    assert f.startswith("data:") and last == {"insights": 0}
+    # 未变 → 发 SSE 注释(冒号开头),不含 data,不触发 onmessage
+    f, last = _events_frame({"insights": 0}, {"insights": 0})
+    assert f.lstrip().startswith(":") and "data:" not in f and last == {"insights": 0}
+    # 变了 → 发 data
+    f, last = _events_frame({"insights": 1}, {"insights": 0})
+    assert f.startswith("data:") and last == {"insights": 1}
 
 
 def _setup(db):
