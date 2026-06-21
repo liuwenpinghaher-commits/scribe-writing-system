@@ -316,6 +316,24 @@ class Domain:
     def advance_foreshadow(self, fid: str, to_state: str) -> None:
         self.s.update("foreshadow", fid, {"state": to_state})
 
+    def add_foreshadow_echo(self, work: str, fid: str, chapter: int) -> list[int]:
+        """伏笔中途强化(echo):深伏笔不能只埋一次,记下偶尔提一嘴的章。"""
+        cur = self.s.get("foreshadow", fid)
+        echoes = sorted(set(list((cur or {}).get("echoes") or []) + [chapter]))
+        self.s.update("foreshadow", fid, {"echoes": echoes})
+        return echoes
+
+    def list_foreshadows_status(self, work: str, overdue_span: int = 15) -> list[dict]:
+        """全部伏笔 + echoes + 超期告警(planted/triggered 且跨度>阈值未回收=overdue)。"""
+        rows = self.s.list("foreshadow", "work = $w", {"w": self._wref(work)})
+        maxc = max((c.get("seq") or 0 for c in self.list_chapters(work)), default=0)
+        for f in rows:
+            f["echoes"] = list(f.get("echoes") or [])
+            planted = f.get("chapter") or 0
+            f["overdue"] = bool(f.get("state") in ("planted", "triggered")
+                                and maxc - planted > overdue_span)
+        return rows
+
     # ---- 记忆:章梗概(可检索)+ 全局主线(scope 区分) ----
     def save_chapter_memory(self, work: str, seq: int, summary: str) -> str:
         scope = f"chapter:{seq}"

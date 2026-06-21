@@ -195,3 +195,65 @@ def test_scene_appearances_from_segments(db):
     assert d.entity_appearances(w, "渡叔") == [1, 2]
     assert d.entity_appearances(w, "小满") == [1]
     assert d.entity_appearances(w, "阿砚") == []
+
+
+def test_rest_progressions(db):
+    """Progressions:人物状态轨迹 REST(增/列),供前端编辑 + 防剧透注入。"""
+    from fastapi.testclient import TestClient
+    from scribe2.app import app, get_domain
+    d = domain_from(db); d.s.init_schema()
+    app.dependency_overrides[get_domain] = lambda: d
+    c = TestClient(app); H = {"X-Owner-Id": "u1"}
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        c.post(f"/works/{w}/characters", json={"name": "渡叔"}, headers=H)
+        r = c.post(f"/works/{w}/char-states", json={
+            "character": "渡叔", "chapter_seq": 5, "state_desc": "左眼又瞎一分", "change_type": "replace"}, headers=H)
+        assert r.json().get("state_id")
+        st = c.get(f"/works/{w}/char-states?character=渡叔", headers=H).json()
+        assert len(st) == 1 and st[0]["state_desc"] == "左眼又瞎一分" and st[0]["chapter_seq"] == 5
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_foreshadow_echoes_and_overdue(db):
+    """PlotThread:伏笔加中途强化 echoes + 超期告警(跨度太大未回收 → overdue)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    fid = d.plant_foreshadow(w, "渡叔左眼的来历", 1, "high")
+    d.add_foreshadow_echo(w, fid, 5)
+    d.add_foreshadow_echo(w, fid, 12)
+    for s in range(1, 30):
+        d.add_chapter(w, s, f"第{s}章")
+    fs = d.list_foreshadows_status(w)
+    f = next(x for x in fs if "左眼" in x["summary"])
+    assert f["echoes"] == [5, 12]
+    assert f["overdue"] is True            # planted@1, max=29, 跨度28>阈值,未回收
+    # 近埋的不超期
+    d.plant_foreshadow(w, "近的伏笔", 28, "normal")
+    f2 = next(x for x in d.list_foreshadows_status(w) if "近的" in x["summary"])
+    assert f2["overdue"] is False
+
+
+def test_extract_entities(db, monkeypatch):
+    """AI 抽取:从正文抽候选设定(不落库,供审批)。"""
+    from fastapi.testclient import TestClient
+    import scribe2.app as appmod
+    from scribe2.app import app, get_domain
+    d = domain_from(db); d.s.init_schema()
+    app.dependency_overrides[get_domain] = lambda: d
+    c = TestClient(app); H = {"X-Owner-Id": "u1"}
+    try:
+        w = c.post("/works", json={"title": "书"}, headers=H).json()["work_id"]
+        c.put(f"/works/{w}/chapters", json={"seq": 1, "title": "一"}, headers=H)
+        c.post(f"/works/{w}/chapters/1/prose", json={"content": "渡叔立于船头。"}, headers=H)
+        monkeypatch.setattr(appmod, "_complete", lambda *a, **k:
+            '{"characters":[{"name":"渡叔","motivation":"守渡"}],"settings":[{"name":"九原渡","type":"place"}],"foreshadows":[]}')
+        r = c.post(f"/works/{w}/chapters/1/extract-entities", headers=H)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["characters"][0]["name"] == "渡叔" and data["settings"][0]["name"] == "九原渡"
+        # 抽取不落库(仍只是候选)
+        assert len(d.list_characters(w)) == 0
+    finally:
+        app.dependency_overrides.clear()

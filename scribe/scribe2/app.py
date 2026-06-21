@@ -196,6 +196,15 @@ def rewrite_passage(w: str, seq: int, b: RewritePassageIn, x_owner_id: str | Non
               f"调整要求:{b.instruction or '更凝练、去AI腔、更贴人物'}\n\n原段落:\n{b.passage}")
     return {"rewritten": _complete(prompt).strip()}
 
+@app.post("/works/{w}/chapters/{seq}/extract-entities")
+def extract_entities(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """从本章正文抽取候选设定(人物/设定/伏笔),只产候选不落库——供作者勾选后入库。"""
+    owner(x_owner_id)
+    prose = d.latest_prose(_cid(d, w, seq))
+    if not prose.strip():
+        return {"characters": [], "settings": [], "foreshadows": []}
+    return _ed.extract_entities(prose, _complete)
+
 @app.get("/works/{w}/chapters/{seq}/branches")
 def list_branches(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_branches(_cid(d, w, seq))
@@ -267,6 +276,19 @@ def list_motifs(w: str, x_owner_id: str | None = Header(None), d: Domain = Depen
 def entity_appearances(w: str, name: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return {"name": name, "chapters": d.entity_appearances(w, name)}
 
+class CharStateIn(BaseModel):
+    character: str; chapter_seq: int; state_desc: str = ""; change_type: str = "add"
+
+@app.post("/works/{w}/char-states")
+def add_char_state(w: str, b: CharStateIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """Progressions:加一条人物状态变更(绑定生效章 chapter_seq;注入时按写作位置过滤,防剧透)。"""
+    owner(x_owner_id)
+    return {"state_id": d.add_char_state(w, b.character, b.chapter_seq, b.state_desc, b.change_type)}
+
+@app.get("/works/{w}/char-states")
+def list_char_states(w: str, character: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return d.list_char_states(w, character)
+
 @app.post("/works/{w}/motifs")
 def add_motif(w: str, b: MotifIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id)
@@ -280,6 +302,18 @@ def plant_foreshadow(w: str, b: ForeshadowIn, x_owner_id: str | None = Header(No
 @app.get("/works/{w}/foreshadows")
 def list_foreshadows(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     owner(x_owner_id); return d.list_open_foreshadows(w)
+
+@app.get("/works/{w}/foreshadows-status")
+def list_foreshadows_status(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """全部伏笔 + echoes(中途强化章)+ overdue(超期未回收告警)。"""
+    owner(x_owner_id); return d.list_foreshadows_status(w)
+
+class EchoIn(BaseModel):
+    chapter: int
+
+@app.post("/works/{w}/foreshadows-status/{fid}/echo")
+def add_foreshadow_echo(w: str, fid: str, b: EchoIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    owner(x_owner_id); return {"echoes": d.add_foreshadow_echo(w, fid, b.chapter)}
 
 @app.post("/works/{w}/foreshadows/{fid}/{action}")
 def advance_foreshadow(w: str, fid: str, action: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

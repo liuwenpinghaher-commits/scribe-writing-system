@@ -114,6 +114,19 @@ def entity_appearances(work_id: str, name: str) -> list[int]:
     return _domain().entity_appearances(work_id, name)
 
 
+@_read_tool()
+def list_char_states(work_id: str, character: str) -> list[dict]:
+    """某角色的状态轨迹(逐章变化,按 chapter_seq 升序)。只读。"""
+    return _domain().list_char_states(work_id, character)
+
+
+@_write_tool
+def add_char_state(work_id: str, character: str, chapter_seq: int,
+                   state_desc: str = "", change_type: str = "add") -> dict:
+    """加一条人物状态变更(Progressions:绑定生效章,注入时按写作位置过滤防剧透)。写操作,需审批。"""
+    return {"state_id": _domain().add_char_state(work_id, character, chapter_seq, state_desc, change_type)}
+
+
 @_write_tool
 def create_work(title: str, genre: str = "", owner: str = "u1") -> dict:
     """新建作品。写操作,需审批。"""

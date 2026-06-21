@@ -120,3 +120,23 @@ def analyze(d, work, complete_fn) -> dict:
                 d.add_char_state(work, s["character"], seq, s.get("state_desc", ""),
                                  s.get("change_type", "")); states += 1
     return {"analyzed": True, "relations": rels, "events": events, "states": states}
+
+
+def extract_entities(prose: str, complete_fn) -> dict:
+    """从正文抽取候选设定实体(人物/设定/伏笔),只产候选不落库(供 B3 审批)。"""
+    import json
+    import re
+    prompt = (
+        "你是设定抽取器。从下面这段小说正文里抽取明确出现的候选设定,**只输出 JSON**(不要任何解释/markdown):\n"
+        '{"characters":[{"name":"","motivation":""}],"settings":[{"name":"","type":"place/力量体系/faction…"}],'
+        '"foreshadows":[{"summary":"","chapter":1}]}\n'
+        "规则:只抽正文里确有的;名字用正文原称;没有就给空数组;不臆造。\n\n正文:\n" + (prose or "")[:3500]
+    )
+    raw = complete_fn(prompt)
+    m = re.search(r"\{.*\}", raw or "", re.S)
+    try:
+        d = json.loads(m.group(0) if m else (raw or "{}"))
+    except Exception:
+        d = {}
+    return {"characters": d.get("characters") or [], "settings": d.get("settings") or [],
+            "foreshadows": d.get("foreshadows") or []}
