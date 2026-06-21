@@ -23,11 +23,13 @@ import {
   ChevronDown,
   Loader2,
   Sparkles,
+  MessageSquareQuote,
 } from "lucide-react";
 import { api } from "@/api";
-import type { CharacterT, Setting, Foreshadow, Material, CharState, Motif } from "@/api";
+import type { CharacterT, Setting, Foreshadow, Material, CharState, Motif, ForeshadowStatus } from "@/api";
 import { EntityEditor, type EntityKind } from "./EntityEditor";
 import { CodexChat } from "./CodexChat";
+import { ExtractPanel } from "./ExtractPanel";
 import { useData } from "@/common";
 import { StateBoundary } from "@/components/StateBoundary";
 import { Empty } from "@/components/Empty";
@@ -549,7 +551,7 @@ function SettingsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; on
 
 // ── 伏笔 Tab ──
 function ForeshadowsTab({ work }: { work: string }) {
-  const { data, loading, error, reload } = useData(() => api.foreshadows(work), [work]);
+  const { data, loading, error, reload } = useData(() => api.foreshadowsStatus(work), [work]);
   const [filter, setFilter] = useState("");
   const [advancing, setAdvancing] = useState<string | null>(null);
 
@@ -563,13 +565,24 @@ function ForeshadowsTab({ work }: { work: string }) {
     }
   };
 
-  const columns = useMemo<ColumnDef<Foreshadow>[]>(() => [
+  const columns = useMemo<ColumnDef<ForeshadowStatus>[]>(() => [
     {
       accessorKey: "summary",
       header: "摘要",
-      cell: ({ row }) => (
-        <span className="text-foreground">{truncate(row.original.summary, 80)}</span>
-      ),
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-foreground">{truncate(r.summary, 70)}</span>
+              {r.overdue && <Badge variant="destructive" className="text-[10px]">超期未回收</Badge>}
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              埋第{r.chapter ?? "?"}章{r.echoes?.length ? ` · 强化第${r.echoes.join("/")}章` : ""}
+            </span>
+          </div>
+        );
+      },
     },
     {
       accessorKey: "state",
@@ -900,8 +913,11 @@ function MotifsTab({ work, rev = 0, onEdit }: { work: string; rev?: number; onEd
 export function CodexView({ work }: { work: string }) {
   const [rev, setRev] = useState(0);
   const bump = () => setRev((r) => r + 1);
-  const [panel, setPanel] = useState<{ mode: "edit" | "chat"; kind?: EntityKind; entity?: unknown } | null>(null);
+  const [panel, setPanel] = useState<{ mode: "edit" | "chat" | "extract"; kind?: EntityKind; entity?: unknown; seed?: string } | null>(null);
   const edit = (kind: EntityKind) => (entity?: unknown) => setPanel({ mode: "edit", kind, entity: entity ?? null });
+  const KIND_LABEL: Record<EntityKind, string> = { character: "角色", setting: "设定", motif: "母题" };
+  const discuss = (kind: EntityKind, name: string) =>
+    setPanel({ mode: "chat", seed: `聊聊「${name}」这个${KIND_LABEL[kind]}：` });
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 顶部标题条 */}
@@ -909,9 +925,13 @@ export function CodexView({ work }: { work: string }) {
         <Library size={15} className="text-primary" />
         <span className="text-sm font-medium text-foreground">设定库</span>
         <div className="flex-1" />
+        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5"
+          onClick={() => setPanel(panel?.mode === "extract" ? null : { mode: "extract" })}>
+          <Sparkles size={13} /> 从正文抽取
+        </Button>
         <Button variant={panel?.mode === "chat" ? "default" : "outline"} size="sm" className="h-7 text-xs gap-1.5"
           onClick={() => setPanel(panel?.mode === "chat" ? null : { mode: "chat" })}>
-          <Sparkles size={13} /> 与主编聊设定
+          <MessageSquareQuote size={13} /> 与主编聊设定
         </Button>
       </div>
 
@@ -938,9 +958,11 @@ export function CodexView({ work }: { work: string }) {
         {panel && (
           <div className="w-[400px] shrink-0 border-l border-border bg-background/60 flex flex-col min-h-0">
             {panel.mode === "chat"
-              ? <CodexChat work={work} onChanged={bump} />
+              ? <CodexChat work={work} onChanged={bump} seed={panel.seed} />
+              : panel.mode === "extract"
+              ? <ExtractPanel work={work} onSaved={bump} onClose={() => setPanel(null)} />
               : <EntityEditor work={work} kind={panel.kind!} entity={panel.entity as never}
-                  onSaved={bump} onClose={() => setPanel(null)} />}
+                  onSaved={bump} onClose={() => setPanel(null)} onDiscuss={discuss} />}
           </div>
         )}
       </div>

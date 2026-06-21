@@ -47,6 +47,13 @@ export interface Snapshot { id: string; content: string; created_by: string; bra
 export interface Intent { reader_feeling?: string; core_emotional_arc?: string; do_not_betray?: string[]; central_promise?: string; }
 export interface Flag { id: string; error_class: string; detail?: string; severity?: string; }
 export interface Foreshadow { id: string; summary: string; state: string; }
+export interface ForeshadowStatus { id: string; summary: string; state: string; chapter?: number; importance?: string; echoes?: number[]; overdue?: boolean; }
+export interface CharStateT { id?: string; character: string; chapter_seq: number; state_desc: string; change_type?: string; }
+export interface ExtractResult {
+  characters: { name: string; motivation?: string }[];
+  settings: { name: string; type?: string }[];
+  foreshadows: { summary: string; chapter?: number }[];
+}
 export interface Setting { id?: string; name: string; type?: string; content?: string; fields?: Record<string, string>; }
 export interface Motif { id?: string; name: string; metaphor_unfolding?: string; bound_theme?: string; material_echoes?: string[]; naming_logic?: string; }
 export interface Material { id: string; type: string; title?: string; content?: string; tags?: string; status?: string; }
@@ -101,6 +108,8 @@ export const api = {
   settings: (w: string) => req<Setting[]>(`/works/${w}/settings`),
   characters: (w: string) => req<CharacterT[]>(`/works/${w}/characters`),
   foreshadows: (w: string) => req<Foreshadow[]>(`/works/${w}/foreshadows`),
+  plantForeshadow: (w: string, summary: string, chapter: number, importance = "normal") =>
+    post<{ foreshadow_id: string }>(`/works/${w}/foreshadows`, { summary, chapter, importance }),
   flags: (w: string) => req<Flag[]>(`/works/${w}/consistency-flags`),
   insights: (w: string) => req<Insight[]>(`/works/${w}/insights?status=new`),
   actInsight: (w: string, id: string, act: "ack" | "dismiss") =>
@@ -219,6 +228,21 @@ export const api = {
     post<{ character_id: string }>(`/works/${w}/characters`, { name, motivation, ...extra }),
   motifs: (w: string) => req<Motif[]>(`/works/${w}/motifs`),
   addMotif: (w: string, m: Motif) => post<{ motif_id: string }>(`/works/${w}/motifs`, m),
+  // Progressions:人物状态轨迹
+  charStates: (w: string, character: string) =>
+    req<CharStateT[]>(`/works/${w}/char-states?character=${encodeURIComponent(character)}`),
+  addCharState: (w: string, character: string, chapter_seq: number, state_desc: string, change_type = "add") =>
+    post<{ state_id: string }>(`/works/${w}/char-states`, { character, chapter_seq, state_desc, change_type }),
+  // PlotThread:伏笔全状态(echoes/超期)
+  foreshadowsStatus: (w: string) => req<ForeshadowStatus[]>(`/works/${w}/foreshadows-status`),
+  addForeshadowEcho: (w: string, fid: string, chapter: number) =>
+    post<{ echoes: number[] }>(`/works/${w}/foreshadows-status/${fid}/echo`, { chapter }),
+  // 出场追踪
+  appearances: (w: string, name: string) =>
+    req<{ name: string; chapters: number[] }>(`/works/${w}/entities/${encodeURIComponent(name)}/appearances`),
+  // AI 抽取设定(候选,不落库)
+  extractEntities: (w: string, seq: number) =>
+    post<ExtractResult>(`/works/${w}/chapters/${seq}/extract-entities`),
   memory: (w: string) => req<{ global: string; chapters: { seq: number; summary_text: string }[] }>(`/works/${w}/memory`),
   timeline: (w: string) => req<{ chapter_seq: number; description: string }[]>(`/works/${w}/timeline`),
   cost: (w: string) => req<{ calls: number; tokens: number; cost_usd: number }>(`/works/${w}/cost`),

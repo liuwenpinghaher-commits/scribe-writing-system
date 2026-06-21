@@ -22,7 +22,7 @@ const SUGGESTIONS = [
   "渡叔的核心矛盾够尖锐吗?帮我深化",
 ];
 
-export function CodexChat({ work, onChanged }: { work: string; onChanged?: () => void }) {
+export function CodexChat({ work, onChanged, seed }: { work: string; onChanged?: () => void; seed?: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -33,6 +33,15 @@ export function CodexChat({ work, onChanged }: { work: string; onChanged?: () =>
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, thinking]);
+
+  // 逐条「与主编讨论这个」:带入实体上下文,预填输入框
+  const seededRef = useRef("");
+  useEffect(() => {
+    if (!seed || seed === seededRef.current) return;
+    seededRef.current = seed;
+    setInput(seed);
+    inputRef.current?.focus();
+  }, [seed]);
 
   const send = async (text0?: string) => {
     const text = (text0 ?? input).trim();

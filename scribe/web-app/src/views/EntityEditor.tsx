@@ -5,12 +5,53 @@
  * 设定:基本 + 力量体系结构化字段(cost/limitations/会出什么乱子);母题:隐喻网四件套。
  */
 import { useState } from "react";
-import { Loader2, Check, X } from "lucide-react";
+import { Loader2, Check, X, MessageSquareQuote, Plus } from "lucide-react";
 import { api, type CharacterT, type Setting, type Motif } from "@/api";
-import { useToast } from "@/common";
+import { useData, useToast } from "@/common";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+
+/** 人物附加:出场章节(出场追踪)+ 状态轨迹 Progressions(逐章变化,绑定生效章) */
+function CharExtras({ work, name }: { work: string; name: string }) {
+  const app = useData(() => api.appearances(work, name), [work, name]);
+  const states = useData(() => api.charStates(work, name), [work, name]);
+  const [seq, setSeq] = useState("");
+  const [desc, setDesc] = useState("");
+  const [adding, setAdding] = useState(false);
+  const toast = useToast();
+  const add = async () => {
+    const n = Number(seq);
+    if (!n || !desc.trim()) { toast("填生效章 + 状态描述"); return; }
+    setAdding(true);
+    try { await api.addCharState(work, name, n, desc.trim()); setSeq(""); setDesc(""); states.reload(); toast("已加状态"); }
+    catch (e) { toast(String(e)); } finally { setAdding(false); }
+  };
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border pb-1">出场 / 状态轨迹</div>
+      <div className="text-xs text-muted-foreground">
+        出场:{app.data?.chapters?.length ? app.data.chapters.map((c) => `第${c}章`).join("、") : "—"}
+      </div>
+      <div className="flex flex-col gap-1">
+        {(states.data ?? []).map((s) => (
+          <div key={s.id ?? s.chapter_seq} className="text-xs flex gap-1.5">
+            <span className="shrink-0 text-muted-foreground">第{s.chapter_seq}章:</span>
+            <span>{s.state_desc}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1.5 items-center">
+        <Input value={seq} onChange={(e) => setSeq(e.target.value)} placeholder="章" className="h-7 text-xs w-12" />
+        <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="该章起的新状态(如:左眼又瞎一分)" className="h-7 text-xs flex-1"
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={add} disabled={adding}>
+          {adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export type EntityKind = "character" | "setting" | "motif";
 
@@ -32,9 +73,9 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export function EntityEditor({ work, kind, entity, onSaved, onClose }: {
+export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }: {
   work: string; kind: EntityKind; entity?: CharacterT | Setting | Motif | null;
-  onSaved: () => void; onClose: () => void;
+  onSaved: () => void; onClose: () => void; onDiscuss?: (kind: EntityKind, name: string) => void;
 }) {
   const e = (entity ?? {}) as Record<string, unknown>;
   const initStr = (k: string) => (typeof e[k] === "string" ? (e[k] as string) : "");
@@ -120,6 +161,7 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose }: {
           <Group title="弧光">
             <Field label="弧线" hint="从起点态→终点态如何改变"><Textarea rows={2} value={f.arc} onChange={set("arc")} className="text-sm resize-none" /></Field>
           </Group>
+          {editing && <CharExtras work={work} name={(entity as CharacterT).name} />}
         </>}
 
         {kind === "setting" && <>
@@ -141,8 +183,13 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose }: {
           <Field label="命名逻辑" hint="如:主角给儿子取名'炭'"><Input value={f.naming_logic} onChange={set("naming_logic")} className="h-8 text-sm" /></Field>
         </>}
       </div>
-      <div className="flex justify-end gap-2 p-2.5 border-t border-border">
-        <Button variant="ghost" size="sm" onClick={onClose}>取消</Button>
+      <div className="flex items-center gap-2 p-2.5 border-t border-border">
+        {editing && onDiscuss && (
+          <Button variant="ghost" size="sm" className="gap-1 text-xs mr-auto" onClick={() => onDiscuss(kind, f.name)}>
+            <MessageSquareQuote size={13} /> 与主编讨论这个
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={onClose} className={editing && onDiscuss ? "" : "ml-auto"}>取消</Button>
         <Button size="sm" className="gap-1" onClick={save} disabled={saving || !f.name.trim()}>
           {saving ? <Loader2 size={13} className="animate-spin" /> : done ? <Check size={13} /> : null}
           {editing ? "保存" : "新增"}
