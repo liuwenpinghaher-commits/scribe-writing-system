@@ -9,7 +9,6 @@ import { Loader2, Check, X, MessageSquareQuote, Plus } from "lucide-react";
 import { api, type CharacterT, type Setting, type Motif } from "@/api";
 import { useData, useToast } from "@/common";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
 /** 人物附加:出场章节(出场追踪)+ 状态轨迹 Progressions(逐章变化,绑定生效章) */
@@ -55,19 +54,36 @@ function CharExtras({ work, name }: { work: string; name: string }) {
 
 export type EntityKind = "character" | "setting" | "motif";
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+// 无边框内联编辑单元:平时像文本,悬停/聚焦才显底色(Notion/Linear 属性表风,去框去噪)
+const CELL = "w-full bg-transparent rounded-md px-2 py-1.5 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 hover:bg-muted/60 focus:bg-muted focus:ring-1 focus:ring-ring/30";
+type ChangeFn = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+const TextCell = ({ v, on, ph }: { v: string; on: ChangeFn; ph?: string }) =>
+  <input value={v} onChange={on} placeholder={ph} className={CELL} />;
+const AreaCell = ({ v, on, ph, rows = 2 }: { v: string; on: ChangeFn; ph?: string; rows?: number }) =>
+  <textarea value={v} onChange={on} placeholder={ph} rows={rows} className={CELL + " resize-none leading-relaxed"} />;
+
+/** 标签左/值右一行(短字段),底部细分隔线 */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-foreground">{label}</span>
+    <label className="grid grid-cols-[88px_1fr] items-center gap-2 border-b border-border/30">
+      <span className="text-xs text-muted-foreground select-none">{label}</span>
       {children}
-      {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
+    </label>
+  );
+}
+/** 标签上/值下整行(多行/长字段) */
+function Block({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col border-b border-border/30 pb-1">
+      <span className="text-xs text-muted-foreground select-none pt-0.5">{label}</span>
+      {children}
     </label>
   );
 }
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border pb-1">{title}</div>
+    <div className="flex flex-col gap-0.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80 pt-2 pb-0.5">{title}</div>
       {children}
     </div>
   );
@@ -137,51 +153,53 @@ export function EntityEditor({ work, kind, entity, onSaved, onClose, onDiscuss }
         <span className="text-sm font-medium">{editing ? `编辑${title}` : `新增${title}`}{editing && `：${f.name}`}</span>
         <button onClick={onClose} className="w-6 h-6 rounded inline-flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent"><X size={14} /></button>
       </div>
-      <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-4">
-        <Field label="名称 *"><Input value={f.name} onChange={set("name")} className="h-8 text-sm" placeholder={`${title}名`} /></Field>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl px-5 py-4 flex flex-col gap-0.5">
+          {/* 名称 = 文档标题 */}
+          <input value={f.name} onChange={set("name")} placeholder={`${title}名`}
+            className="w-full bg-transparent text-xl font-semibold outline-none px-2 py-1.5 rounded-md transition-colors hover:bg-muted/50 focus:bg-muted placeholder:text-muted-foreground/40" />
 
-        {kind === "character" && <>
-          <Group title="身份">
-            <Field label="动机"><Input value={f.motivation} onChange={set("motivation")} className="h-8 text-sm" placeholder="他想要什么" /></Field>
-          </Group>
-          <Group title="声音(防 OOC 命门)">
-            <Field label="声音指纹" hint="用词/句式/口头禅,如:极静、短句、不解释"><Input value={f.voice} onChange={set("voice")} className="h-8 text-sm" /></Field>
-            <Field label="声音样本" hint="每行一句代表性台词,写到该角色时原样供 AI 参考"><Textarea rows={3} value={f.voice_samples} onChange={set("voice_samples")} className="text-sm resize-none" placeholder={"三不渡，是规矩。\n你欠的，水替你还。\n上船，别回头。"} /></Field>
-          </Group>
-          <Group title="内核(立体之本)">
-            <Field label="核心矛盾" hint="一组内在对冲,如:守规矩的执念↔为孩子愿破规矩"><Input value={f.core_contradiction} onChange={set("core_contradiction")} className="h-8 text-sm" /></Field>
-            <Field label="创伤 wound" hint="造成错误信念的过去"><Input value={f.wound} onChange={set("wound")} className="h-8 text-sm" /></Field>
-            <Field label="错误信念 lie"><Input value={f.lie} onChange={set("lie")} className="h-8 text-sm" /></Field>
-            <Field label="恐惧 fear"><Input value={f.fear} onChange={set("fear")} className="h-8 text-sm" /></Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="外在目标 want"><Input value={f.want} onChange={set("want")} className="h-8 text-sm" /></Field>
-              <Field label="内在需求 need"><Input value={f.need} onChange={set("need")} className="h-8 text-sm" /></Field>
+          {kind === "character" && <>
+            <Group title="身份">
+              <Row label="动机"><TextCell v={f.motivation} on={set("motivation")} ph="他想要什么" /></Row>
+            </Group>
+            <Group title="声音(防 OOC 命门)">
+              <Row label="声音指纹"><TextCell v={f.voice} on={set("voice")} ph="用词/句式/口头禅,如:极静、短句、不解释" /></Row>
+              <Block label="声音样本"><AreaCell v={f.voice_samples} on={set("voice_samples")} rows={3} ph={"每行一句代表性台词(写到该角色时原样供 AI 参考):\n三不渡，是规矩。\n上船，别回头。"} /></Block>
+            </Group>
+            <Group title="内核(立体之本)">
+              <Row label="核心矛盾"><TextCell v={f.core_contradiction} on={set("core_contradiction")} ph="一组内在对冲,如:守规矩的执念↔为孩子愿破规矩" /></Row>
+              <Row label="创伤 wound"><TextCell v={f.wound} on={set("wound")} ph="造成错误信念的过去" /></Row>
+              <Row label="错误信念 lie"><TextCell v={f.lie} on={set("lie")} ph="因创伤而信的谎" /></Row>
+              <Row label="恐惧 fear"><TextCell v={f.fear} on={set("fear")} ph="最怕发生的事" /></Row>
+              <Row label="外在目标 want"><TextCell v={f.want} on={set("want")} ph="角色以为自己要的" /></Row>
+              <Row label="内在需求 need"><TextCell v={f.need} on={set("need")} ph="其实真正需要的" /></Row>
+            </Group>
+            <Group title="弧光">
+              <Block label="弧线"><AreaCell v={f.arc} on={set("arc")} ph="从起点态→终点态如何改变" /></Block>
+            </Group>
+            {editing && <div className="pt-2"><CharExtras work={work} name={(entity as CharacterT).name} /></div>}
+          </>}
+
+          {kind === "setting" && <>
+            <div className="pt-1.5">
+              <Row label="类型"><TextCell v={f.type} on={set("type")} ph="力量体系 / place / faction / item / lore…" /></Row>
+              <Block label="描述"><AreaCell v={f.description} on={set("description")} rows={3} ph="这个设定是什么" /></Block>
             </div>
-          </Group>
-          <Group title="弧光">
-            <Field label="弧线" hint="从起点态→终点态如何改变"><Textarea rows={2} value={f.arc} onChange={set("arc")} className="text-sm resize-none" /></Field>
-          </Group>
-          {editing && <CharExtras work={work} name={(entity as CharacterT).name} />}
-        </>}
+            <Group title="规则·代价与限制(力量体系)">
+              <Row label="代价 cost"><TextCell v={f.cost} on={set("cost")} ph="用了要付什么,如:破规一次左眼瞎一分" /></Row>
+              <Row label="限制"><TextCell v={f.limitations} on={set("limitations")} ph="不能做什么" /></Row>
+              <Row label="会出什么乱子"><TextCell v={f.trouble_it_causes} on={set("trouble_it_causes")} ph="推不出乱子的规则就不够好" /></Row>
+            </Group>
+          </>}
 
-        {kind === "setting" && <>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="类型" hint="力量体系 / place / faction / item / lore…"><Input value={f.type} onChange={set("type")} className="h-8 text-sm" /></Field>
-          </div>
-          <Field label="描述"><Textarea rows={3} value={f.description} onChange={set("description")} className="text-sm resize-none" /></Field>
-          <Group title="规则·代价与限制(力量体系;判据2:带代价+会出什么乱子)">
-            <Field label="代价 cost" hint="用了要付什么,如:破规一次左眼瞎一分"><Input value={f.cost} onChange={set("cost")} className="h-8 text-sm" /></Field>
-            <Field label="限制 limitations" hint="不能做什么"><Input value={f.limitations} onChange={set("limitations")} className="h-8 text-sm" /></Field>
-            <Field label="会出什么乱子" hint="推不出乱子的规则就不够好"><Input value={f.trouble_it_causes} onChange={set("trouble_it_causes")} className="h-8 text-sm" /></Field>
-          </Group>
-        </>}
-
-        {kind === "motif" && <>
-          <Field label="隐喻展开" hint="天地为炉,万物为铜…"><Textarea rows={2} value={f.metaphor_unfolding} onChange={set("metaphor_unfolding")} className="text-sm resize-none" /></Field>
-          <Field label="绑定主题句" hint="这本书在说什么"><Textarea rows={2} value={f.bound_theme} onChange={set("bound_theme")} className="text-sm resize-none" /></Field>
-          <Field label="物质回声" hint="贯穿全书的反复画面,逗号分隔:长明灯、河面浮炭…"><Input value={f.material_echoes} onChange={set("material_echoes")} className="h-8 text-sm" /></Field>
-          <Field label="命名逻辑" hint="如:主角给儿子取名'炭'"><Input value={f.naming_logic} onChange={set("naming_logic")} className="h-8 text-sm" /></Field>
-        </>}
+          {kind === "motif" && <div className="pt-1.5">
+            <Block label="隐喻展开"><AreaCell v={f.metaphor_unfolding} on={set("metaphor_unfolding")} ph="天地为炉,万物为铜…" /></Block>
+            <Block label="绑定主题句"><AreaCell v={f.bound_theme} on={set("bound_theme")} ph="这本书在说什么" /></Block>
+            <Row label="物质回声"><TextCell v={f.material_echoes} on={set("material_echoes")} ph="反复画面,逗号分隔:长明灯、河面浮炭…" /></Row>
+            <Row label="命名逻辑"><TextCell v={f.naming_logic} on={set("naming_logic")} ph="如:主角给儿子取名'炭'" /></Row>
+          </div>}
+        </div>
       </div>
       <div className="flex items-center gap-2 p-2.5 border-t border-border">
         {editing && onDiscuss && (
