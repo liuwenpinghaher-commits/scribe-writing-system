@@ -3,10 +3,11 @@
 纵切片的 knowledge.project_frame / render.build_render_prompt 不改一行,直接跑在
 SurrealStore 上(鸭子兼容)。老道帧仍排除焦三私密 → 范式不依赖存储后端。
 """
-from scribe3.ontology import Entity, Fact, KnowledgeEdge
+from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.scenario import luanshi_leak_world
 from scribe3.knowledge import project_frame
 from scribe3.render import build_render_prompt
+from scribe3.verify import causal_complete
 
 
 def test_schema_and_entity_roundtrip(store):
@@ -41,3 +42,10 @@ def test_persisted_paradigm_holds(store):
     assert project_frame(store, "role:焦三", 1).knows("fact:治眼"), "焦三知道自己的动机"
     p = build_render_prompt(store, 1, "role:老道")
     assert "治眼" not in p, "老道视角 prompt 绝不含焦三私密(真库上仍成立)"
+
+
+def test_causal_complete_runs_against_store(store):
+    """回归:causal_complete 须能跑在 SurrealStore 上(agentic 冒烟揪出的 .events bug)。"""
+    assert causal_complete(store, 1) == [], "空库无事件→无违规"
+    store.add_event(Event("ev:逃", "逃", story_time=1))   # 无 motivated_by_goal
+    assert any(v.event_id == "ev:逃" for v in causal_complete(store, 1)), "应flag缺目标"

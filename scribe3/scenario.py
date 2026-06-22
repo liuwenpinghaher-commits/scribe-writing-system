@@ -37,4 +37,4 @@ def luanshi_leak_world(w=None) -> World:
 
 
 def chapter_events(world: World, chapter: int) -> list[Event]:
-    return [ev for ev in world.events.values() if ev.story_time == chapter]
+    return list(world.events_at(chapter))   # World 与 SurrealStore 都提供(鸭子兼容)
