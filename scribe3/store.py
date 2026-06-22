@@ -30,6 +30,49 @@ def _join(table: str, local: str) -> str:
     return f"{TBL2ONT[table]}:{local}"
 
 
+def _url() -> str:
+    return os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
+
+
+# ===== 多书注册表(一书一 DB:NS=scribe3 / db=<slug>;注册表在 db=_reg)=====
+def _reg_conn(url: str | None = None):
+    db = Surreal(url or _url())
+    db.signin({"username": "root", "password": "root"})
+    db.use("scribe3", "_reg")
+    db.query("DEFINE TABLE IF NOT EXISTS work SCHEMALESS")
+    return db
+
+
+def list_works(url: str | None = None) -> list[dict]:
+    """列所有书。空则自动登记 main=乱世铜炉(现有数据所在 DB)。"""
+    db = _reg_conn(url)
+    try:
+        rows = db.query("SELECT * FROM work")
+        if not rows:
+            db.query("CREATE work:main CONTENT { slug:'main', title:'乱世铜炉·设定参照', ord:0 }")
+            return [{"slug": "main", "title": "乱世铜炉·设定参照"}]
+        rows = sorted(rows, key=lambda r: r.get("ord") or 0)
+        return [{"slug": r.get("slug"), "title": r.get("title")} for r in rows]
+    finally:
+        db.close()
+
+
+def create_work(title: str, slug: str | None = None, url: str | None = None) -> dict:
+    """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。"""
+    import uuid
+    slug = slug or ("book_" + uuid.uuid4().hex[:8])
+    db = _reg_conn(url)
+    try:
+        db.query("CREATE type::record('work',$s) SET slug=$s, title=$t, created=time::now()",
+                 {"s": slug, "t": title})
+    finally:
+        db.close()
+    st = SurrealStore(url=url, ns="scribe3", db=slug)
+    st.apply_schema()
+    st.close()
+    return {"slug": slug, "title": title}
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 

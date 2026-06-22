@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import {
   BookText, LayoutList, Flame, Search, Eye, Drama, ShieldCheck, Bookmark,
   Feather, Save, Sparkles, Sun, Moon, Radio, ChevronLeft, ChevronRight,
-  CircleAlert, CircleCheck, Lock,
+  CircleAlert, CircleCheck, Lock, Library, Plus,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
 import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
 
 export default function App() {
+  const [works, setWorks] = useState([])
+  const [work, setWorkState] = useState('main')
   const [chapter, setChapter] = useState(1)
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
@@ -35,11 +37,22 @@ export default function App() {
 
   useEffect(() => { document.documentElement.classList.toggle('dark', dark) }, [dark])
 
+  useEffect(() => { api.works().then(setWorks) }, [])
+  const selectWork = (slug) => {
+    api.setWork(slug); setWorkState(slug); setChapter(1); setProse(''); setSaved(false); setTick((t) => t + 1)
+  }
+  const newWork = async () => {
+    const title = window.prompt('新书名称?')
+    if (!title) return
+    const r = await api.createWork(title)
+    setWorks(await api.works()); selectWork(r.slug)
+  }
+
   useEffect(() => {
     const es = api.live(() => setTick((t) => t + 1))
     es.onopen = () => setLive(true); es.onerror = () => setLive(false)
     return () => es.close()
-  }, [])
+  }, [work])
 
   useEffect(() => {
     api.entities().then((es) => {
@@ -59,7 +72,7 @@ export default function App() {
     api.qc(chapter).then(setQc)
   }, [chapter, tick])
 
-  useEffect(() => { setSaved(false); api.chapter(chapter).then((ch) => setProse(ch?.prose || '')) }, [chapter])
+  useEffect(() => { setSaved(false); api.chapter(chapter).then((ch) => setProse(ch?.prose || '')) }, [chapter, work])
 
   useEffect(() => {
     if (!focalizer) return
@@ -224,7 +237,13 @@ export default function App() {
       <div className="w-2 h-2 rounded-full bg-brand" />
       <span className="font-semibold text-ink tracking-tight">scribe3</span>
       <span className="text-faint text-[13px]">写作台</span>
-      <span className="text-[10px] text-faint border border-line rounded px-1.5 py-px tracking-wide">NS=scribe3</span>
+      <div className="w-px h-5 bg-line mx-1" />
+      <Library size={15} className="text-faint" />
+      <select value={work} onChange={(e) => selectWork(e.target.value)}
+        className="h-8 max-w-[180px] rounded-lg border border-line bg-canvas px-2.5 text-[13px] text-ink outline-none focus:border-brand cursor-pointer">
+        {works.map((w) => <option key={w.slug} value={w.slug}>{w.title}</option>)}
+      </select>
+      <button onClick={newWork} title="新建一本书" className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><Plus size={16} /></button>
       <div className="ml-auto flex items-center gap-1.5">
         <button onClick={() => setChapter((c) => Math.max(1, c - 1))} className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer" aria-label="上一章"><ChevronLeft size={16} /></button>
         <span className="text-[13px] text-ink tnum w-12 text-center">第 {chapter} 章</span>

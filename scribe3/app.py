@@ -1,7 +1,7 @@
-"""scribe3 后端 API(FastAPI,端口 3321)。
+"""scribe3 后端 API(FastAPI,端口 3321)· 多书(一书一 DB)。
 
-前端写作台 v2 读 NS=scribe3 + 驱动渲染的桥。读端点直查 store;/render 走知识帧投影
-(API 层也不泄露)。生成走 Hermes(complete_fn 可注入,测试用假)。
+每端点按 ?work=<slug> 路由到对应书的 DB(NS=scribe3 / db=slug),store 按书缓存。
+/works 列表/新建。读端点直查;/render 走知识帧投影(API 层也不泄露)。生成走 Hermes。
 与 scribe2 后端 3320 隔离(3321)。
 """
 from __future__ import annotations
@@ -16,18 +16,19 @@ from pydantic import BaseModel
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.render import render
+from scribe3.store import SurrealStore, create_work, list_works
 from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_store = None
+_stores: dict[str, SurrealStore] = {}
 _complete_fn = None
 
 
-def set_store(s) -> None:
-    global _store
-    _store = s
+def set_store(store, work: str = "main") -> None:
+    """测试注入某书的 store。"""
+    _stores[work] = store
 
 
 def set_complete_fn(fn) -> None:
@@ -35,103 +36,114 @@ def set_complete_fn(fn) -> None:
     _complete_fn = fn
 
 
+def _store_for(work: str) -> SurrealStore:
+    if work not in _stores:
+        st = SurrealStore(ns="scribe3", db=work)
+        st.apply_schema()
+        _stores[work] = st
+    return _stores[work]
+
+
 def _facts(fs):
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value,
              "secret": f.secret} for f in fs]
 
 
+# ===== 书 =====
 @app.get("/health")
 def health():
     return {"ok": True, "ns": "scribe3"}
 
 
+@app.get("/works")
+def works():
+    return list_works()
+
+
+class WorkIn(BaseModel):
+    title: str
+
+
+@app.post("/works")
+def make_work(w: WorkIn):
+    return create_work(w.title)
+
+
+# ===== 读(按书)=====
 @app.get("/entities")
-def entities():
-    return [{"id": e.id, "kind": e.kind, "name": e.name} for e in _store.all_entities()]
+def entities(work: str = "main"):
+    return [{"id": e.id, "kind": e.kind, "name": e.name} for e in _store_for(work).all_entities()]
 
 
 @app.get("/facts")
-def facts(chapter: int):
-    return _facts(_store.facts_at(chapter))
+def facts(chapter: int, work: str = "main"):
+    return _facts(_store_for(work).facts_at(chapter))
 
 
 @app.get("/events")
-def events(chapter: int):
-    return [{"id": ev.id, "type": ev.type, "chapter": ev.story_time,
-             "goal": ev.motivated_by_goal} for ev in _store.events_at(chapter)]
+def events(chapter: int, work: str = "main"):
+    return [{"id": ev.id, "type": ev.type, "chapter": ev.story_time, "goal": ev.motivated_by_goal}
+            for ev in _store_for(work).events_at(chapter)]
 
 
 @app.get("/frame")
-def frame(focalizer: str, chapter: int):
-    return _facts(project_frame(_store, focalizer, chapter).facts)
+def frame(focalizer: str, chapter: int, work: str = "main"):
+    return _facts(project_frame(_store_for(work), focalizer, chapter).facts)
 
 
 @app.get("/irony")
-def irony(focalizer: str, chapter: int):
-    return _facts(dramatic_irony(_store, focalizer, chapter))
+def irony(focalizer: str, chapter: int, work: str = "main"):
+    return _facts(dramatic_irony(_store_for(work), focalizer, chapter))
 
 
 @app.get("/causal")
-def causal(chapter: int):
-    return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store, chapter)]
+def causal(chapter: int, work: str = "main"):
+    return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store_for(work), chapter)]
 
 
 @app.get("/recall")
-def recall(q: str, k: int = 5):
-    return _facts(_store.semantic_recall(q, k))
+def recall(q: str, k: int = 5, work: str = "main"):
+    return _facts(_store_for(work).semantic_recall(q, k))
 
 
 @app.get("/promises")
-def promises():
-    return _store.list_promises()
+def promises(work: str = "main"):
+    return _store_for(work).list_promises()
 
 
 @app.get("/motifs")
-def motifs():
-    return _store.list_motifs()
-
-
-class PlantReq(BaseModel):
-    text: str
-    setup_chapter: int
-    kind: str = "promise"
-
-
-@app.post("/plant-promise")
-def plant_promise(req: PlantReq):
-    _store.plant_promise(req.text, req.setup_chapter, kind=req.kind)
-    return {"status": "planted"}
+def motifs(work: str = "main"):
+    return _store_for(work).list_motifs()
 
 
 @app.get("/chapters")
-def chapters():
-    return _store.list_chapters()
+def chapters(work: str = "main"):
+    return _store_for(work).list_chapters()
 
 
 @app.get("/chapter")
-def get_chapter(seq: int):
-    return _store.get_chapter(seq) or {}
+def get_chapter(seq: int, work: str = "main"):
+    return _store_for(work).get_chapter(seq) or {}
 
 
 @app.get("/qc")
-def qc(seq: int):
-    """对某章正文跑确定性 QC(复读/排比/升华)。"""
+def qc(seq: int, work: str = "main"):
     from scribe3.critique import quality_flags
-    ch = _store.get_chapter(seq)
+    ch = _store_for(work).get_chapter(seq)
     return quality_flags(ch["prose"]) if ch else {}
 
 
 @app.get("/discipline")
-def discipline(seq: int, brief: str = ""):
-    """LLM 纪律判官(走 Hermes):双高潮/声音崩/解说倾泻。"""
+def discipline(seq: int, brief: str = "", work: str = "main"):
     from scribe3.critique import discipline_truncate
     from scribe3.llm import hermes_complete
-    ch = _store.get_chapter(seq)
+    ch = _store_for(work).get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"ok": True, "violations": []}
     return discipline_truncate(ch["prose"], brief, hermes_complete)
 
 
+# ===== 写 =====
 class SaveChapterReq(BaseModel):
     seq: int
     prose: str
@@ -140,17 +152,16 @@ class SaveChapterReq(BaseModel):
 
 
 @app.post("/save-chapter")
-def save_chapter(req: SaveChapterReq):
-    _store.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+def save_chapter(req: SaveChapterReq, work: str = "main"):
+    _store_for(work).save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     return {"status": "saved", "seq": req.seq}
 
 
 @app.post("/ingest")
-def ingest(seq: int):
-    """章节回写:读定稿→Hermes 抽知识 delta→更新账本(闭合写循环)。"""
+def ingest(seq: int, work: str = "main"):
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
-    return ingest_chapter(_store, seq, hermes_complete)
+    return ingest_chapter(_store_for(work), seq, hermes_complete)
 
 
 class RenderReq(BaseModel):
@@ -159,29 +170,25 @@ class RenderReq(BaseModel):
 
 
 @app.post("/render")
-def do_render(req: RenderReq):
-    """以 focalizer 限知视角渲染本章 sjuzhet(走知识帧投影,帧外私密不进 prompt)。"""
-    return {"prose": render(_store, req.chapter, req.focalizer, complete_fn=_complete_fn)}
+def do_render(req: RenderReq, work: str = "main"):
+    return {"prose": render(_store_for(work), req.chapter, req.focalizer, complete_fn=_complete_fn)}
 
 
-_LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows"]
+_LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
+                "promise", "motif", "chapter"]
 
 
 @app.get("/live")
-async def live():
-    """SSE:NS=scribe3 任一表变更 → 推给前端(改一处处处同步)。"""
+async def live(work: str = "main"):
     url = os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
-    return StreamingResponse(live_stream(url, "scribe3", "main", _LIVE_TABLES),
+    return StreamingResponse(live_stream(url, "scribe3", work, _LIVE_TABLES),
                              media_type="text/event-stream")
 
 
 def main() -> None:
-    from scribe3.store import SurrealStore
-    store = SurrealStore(ns="scribe3", db="main")
-    store.apply_schema()
-    set_store(store)
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=3321)   # 与 scribe2 后端 3320 隔离
+    list_works()   # 确保 main 已登记
+    uvicorn.run(app, host="127.0.0.1", port=3321)
 
 
 if __name__ == "__main__":
