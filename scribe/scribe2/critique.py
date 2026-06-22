@@ -247,8 +247,10 @@ def build_discipline_prompt(text: str, brief: str = "") -> str:
         "\n\n判定是否违反以下纪律(任一即违规):\n"
         "① double_climax:出现第二场打斗/救援/开挂,或偷跑了本不属于本章的后续剧情、凭空发明新登场角色;\n"
         "② voice_collapse:声细如蚊/半截就断的 terse 角色崩成大段流畅独白、系统结算音、或与主角同温;\n"
-        "③ exposition_dump:大段身世/前史/规则的集中倾泻(本该零星渗出)。\n"
-        "若违规,找出正文里【复发开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
+        "③ exposition_dump:大段身世/前史/规则的集中倾泻(本该零星渗出);\n"
+        "④ knowledge_leak:某角色说出或表现出知晓【其视角不可能知道】的他人私密信息"
+        "(如刚追来的敌人报出主角私密动机/老娘治眼的花费、配角说破主角内心的伤/谎)。\n"
+        "若违规,找出正文里【复发/穿帮开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
         '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。\n\n'
         "【正文】\n" + text)
 

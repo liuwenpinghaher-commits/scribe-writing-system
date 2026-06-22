@@ -702,3 +702,19 @@ def test_discipline_gate_core():
     # 守纪 → 不动
     fake_ok = lambda pr: '{"ok": true, "violations": [], "cut_after": ""}'
     assert discipline_truncate(text, "安静章", fake_ok)["changed"] is False
+
+
+def test_knowledge_boundary_guard(db):
+    """缺口gap13:全知扁平上下文致角色知识泄露(敌人说出主角私密动机/老娘治眼花费)。
+    注入须含知识边界护栏,提醒模型角色内核是私密、他人无从得知。"""
+    from scribe2.writing import constraint_block
+    cb = constraint_block()
+    assert "知识边界" in cb
+    assert "私密" in cb and ("无从得知" in cb or "不可能知道" in cb)
+
+
+def test_discipline_checks_knowledge_leak():
+    """纪律闸须把 knowledge_leak(角色说出其视角不可能知道的他人私密信息)列为判项。"""
+    from scribe2.critique import build_discipline_prompt
+    p = build_discipline_prompt("正文……", brief="测试")
+    assert "knowledge_leak" in p and ("私密" in p or "视角" in p or "不可能知道" in p)
