@@ -55,3 +55,20 @@ def test_causal_clean(store):
     luanshi_leak_world(store)
     c = _client(store)
     assert c.get("/causal", params={"chapter": 1}).json() == []
+
+
+def test_graph_endpoint(store):
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:x", "role:甲", "属性", "某值", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:x", since_chapter=1))
+    g = _client(store).get("/graph").json()
+    assert any(n["type"] == "character" for n in g["nodes"])
+    assert any(n["type"] == "proposition" for n in g["nodes"])
+    assert any(e["rel"] == "knows" for e in g["edges"])
+
+
+def test_quality_endpoint(store):
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    q = _client(store).get("/quality").json()
+    assert q["chapters"][0]["seq"] == 1 and "foreshadow" in q and "total_words" in q

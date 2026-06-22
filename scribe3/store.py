@@ -291,6 +291,20 @@ class SurrealStore:
         wc = sum(len("".join((r.get("prose") or "").split())) for r in rows)
         return {"chapter_count": len(rows), "word_count": wc}
 
+    def graph(self, chapter: int | None = None) -> dict:
+        """知识图谱:角色/命题节点 + knows 边(谁知道什么)。chapter 给定则只到该章。
+        scribe3 是图库,这是 Atlas 视图的数据源。"""
+        ch = chapter if chapter is not None else 9999
+        chars = [{"id": e.id, "type": "character", "label": e.name} for e in self.characters()]
+        props = [{"id": f.id, "type": "proposition", "label": (f.value or "")[:18],
+                  "secret": f.secret} for f in self.facts_at(ch)]
+        edges = []
+        for k in self.knowledge:
+            if k.knower_id == "reader" or k.since_chapter > ch:
+                continue
+            edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
+        return {"nodes": chars + props, "edges": edges}
+
     def max_chapter(self) -> int:
         """有事件的最大章号(体检确定扫描范围);无事件→0。"""
         rows = self._query("SELECT valid_from FROM event ORDER BY valid_from DESC LIMIT 1")

@@ -29,6 +29,8 @@ export const api = {
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
   motifs: () => j('/motifs'),
+  graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
+  quality: () => j('/quality'),
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   chapter: (seq) => j(`/chapter?seq=${seq}`),

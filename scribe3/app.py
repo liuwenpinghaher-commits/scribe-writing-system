@@ -136,6 +136,38 @@ def motifs(work: str = "main"):
     return _store_for(work).list_motifs()
 
 
+@app.get("/graph")
+def graph(chapter: int | None = None, work: str = "main"):
+    """知识图谱:角色/命题节点 + knows 边(Atlas 视图)。"""
+    return _store_for(work).graph(chapter)
+
+
+@app.get("/quality")
+def quality(work: str = "main"):
+    """质量仪表盘聚合:每章 字数/双层QC问题/因果违规 + 伏笔状态。"""
+    from scribe3.critique import quality_flags
+    st = _store_for(work)
+    per = []
+    for c in st.list_chapters():
+        full = st.get_chapter(c["seq"]) or {}
+        prose = full.get("prose", "")
+        qf = quality_flags(prose)
+        per.append({
+            "seq": c["seq"], "title": c["title"],
+            "word_count": len("".join(prose.split())),
+            "qc_issues": len(qf["repetition"]) + len(qf["structural"]) + len(qf["purple"]),
+            "causal": len(causal_complete(st, c["seq"])),
+        })
+    proms = st.list_promises()
+    mc = st.max_chapter()
+    fore = {
+        "open": sum(1 for p in proms if p["status"] == "open"),
+        "closed": sum(1 for p in proms if p["status"] == "closed"),
+        "overdue": sum(1 for p in proms if p["status"] == "open" and p["setup_chapter"] + 3 < mc),
+    }
+    return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per)}
+
+
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()
