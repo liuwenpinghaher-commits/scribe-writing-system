@@ -66,12 +66,14 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
-  chatStream: (msg, { onDelta, onDone, onError }) => {
-    const es = new EventSource(BASE + ww('/chat/stream?msg=' + enc(msg)))
+  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic }) => {
+    const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
+    const es = new EventSource(BASE + ww(path))
     es.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data)
         if (d.delta) onDelta(d.delta)
+        else if (d.tool) { onTool && onTool(d.tool, d.tool_args) }
         else if (d.done) { es.close(); onDone() }
         else if (d.error) { es.close(); onError(d.error) }
       } catch (_) { /* */ }

@@ -327,6 +327,42 @@ def chat_stream(msg: str, work: str = "main"):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+_responses_events = None  # 测试可 monkeypatch
+
+
+@app.get("/chat/agentic-stream")
+def chat_agentic_stream(msg: str, work: str = "main"):
+    """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
+    事件:tool(工具调用提示)/delta(回复片段)/done。注:MCP 连 db=main,agentic 当前以主参照库为准。"""
+    from scribe3.llm import hermes_responses_events
+    fn = _responses_events or hermes_responses_events
+    instructions = _editor_system(_store_for(work)) + (
+        "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
+        "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
+        "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
+        "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
+        "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
+    )
+
+    def gen():
+        try:
+            for ev in fn(msg, instructions):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    d = ev.get("delta", "")
+                    if d:
+                        yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
+                elif t == "response.output_item.added":
+                    item = ev.get("item", {}) or {}
+                    if item.get("type") == "function_call":
+                        yield f"data: {json.dumps({'tool': item.get('name', ''), 'tool_args': item.get('arguments', '')}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()

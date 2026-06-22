@@ -10,6 +10,8 @@ import os
 import httpx
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
+# 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
+HERMES_RESPONSES = os.environ.get("HERMES_RESPONSES_API", "http://127.0.0.1:8643/v1")
 
 
 def _api_key() -> str:
@@ -72,5 +74,31 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
                 delta = _j.loads(payload)["choices"][0]["delta"].get("content")
                 if delta:
                     yield delta
+            except Exception:
+                continue
+
+
+def hermes_responses_events(message: str, instructions: str, model: str | None = None,
+                            timeout: float = 600.0):
+    """主编 agentic:POST scribe3 网关(:8643)/v1/responses(tools=scribe3 MCP + stream),逐事件 yield。
+    server_label='scribe3' 引用 profile config 里挂的 scribe3 MCP,主编自动发现并调用 s3_ 工具。
+    SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。"""
+    import json as _j
+    body: dict = {"input": message, "instructions": instructions, "stream": True,
+                  "tools": [{"type": "mcp", "server_label": "scribe3"}]}
+    if model:
+        body["model"] = model
+    with httpx.stream("POST", f"{HERMES_RESPONSES}/responses", timeout=timeout,
+                      headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
+                      json=body) as r:
+        r.raise_for_status()
+        for raw in r.iter_lines():
+            if not raw or not raw.startswith("data:"):
+                continue
+            payload = raw[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                yield _j.loads(payload)
             except Exception:
                 continue

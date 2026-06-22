@@ -121,3 +121,19 @@ def test_chat_stream_sse(store, monkeypatch):
     r = _client(store).get("/chat/stream", params={"msg": "这章怎么改"})
     assert r.status_code == 200
     assert "主编" in r.text and '"done": true' in r.text
+
+
+def test_chat_agentic_sse(store, monkeypatch):
+    import scribe3.app as appmod
+
+    def fake_events(msg, instructions, model=None):
+        yield {"type": "response.output_item.added",
+               "item": {"type": "function_call", "name": "s3_list_promises", "arguments": "{}"}}
+        yield {"type": "response.output_text.delta", "delta": "已查"}
+        yield {"type": "response.output_text.delta", "delta": "伏笔"}
+
+    monkeypatch.setattr(appmod, "_responses_events", fake_events)
+    r = _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔"})
+    assert r.status_code == 200
+    body = r.text
+    assert "s3_list_promises" in body and '"tool"' in body and "已查" in body and '"done": true' in body
