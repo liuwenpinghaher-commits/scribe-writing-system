@@ -174,7 +174,20 @@ from .llm import hermes_complete as _complete  # 生成走 Hermes
 
 _MEM_OWNER = "u1"  # 单用户本地:跨会话记忆固定 owner(与 REST 默认 X-Owner-Id 一致)
 from .critique import build_critique_prompt as _critq, parse_critique as _parsec  # noqa: E402
+from .critique import (revise_dedup as _revdedup, build_discipline_prompt as _discp,  # noqa: E402
+                       parse_discipline as _parsedisc, surgical_fix_leak as _fixleak)
 from .consistency import check_chapter as _check  # noqa: E402
+
+
+def _prose_cid(d, work_id: str, seq: int):
+    ch = next((c for c in d.list_chapters(work_id) if c.get("seq") == seq), None)
+    return (d.latest_prose(d._idpart(ch["id"])), d._idpart(ch["id"])) if ch else ("", None)
+
+
+def _known_map(d, work_id: str, seq: int):
+    chars = d.relevant_characters(work_id, seq)
+    return {c["name"]: d.character_known(work_id, c["name"], upto_chapter=seq)
+            for c in chars if c.get("name")} or None
 
 
 @_read_tool()
@@ -324,6 +337,56 @@ def check_chapter(work_id: str, seq: int) -> dict:
 def list_consistency_flags(work_id: str, status: str = "open") -> list[dict]:
     """列一致性矛盾 flag。只读。"""
     return _domain().list_consistency_flags(work_id, status)
+
+
+# ==== 生成后 QC 闸(语义+确定性;主编定稿后该逐个跑)====
+@_read_tool()
+def discipline_check(work_id: str, seq: int, brief: str = "") -> dict:
+    """纪律闸(语义 QC):判本章是否 双高潮/terse声音崩/解说倾泻/知识泄露(POV穿帮:角色说出他视角
+    不可能知道的他人私密)+ 定位复发前一句。brief=本章命题。返回 {ok,violations,cut_after}。只读。"""
+    d = _domain(); text, _ = _prose_cid(d, work_id, seq)
+    if not text:
+        return {}
+    return _parsedisc(_complete(_discp(text, brief, _known_map(d, work_id, seq))))
+
+
+@_write_tool
+def dedup_chapter(work_id: str, seq: int) -> dict:
+    """生成后去重:确定性扫描字面/结构(排比·单字断句)/升华句复读→定向改写→存稿。
+    规则治不了已生成文本的复读,这是必要的精修环。写操作,需审批。"""
+    d = _domain(); text, cid = _prose_cid(d, work_id, seq)
+    if not text:
+        return {"changed": False}
+    res = _revdedup(text, _complete)
+    if res["changed"]:
+        d.save_prose(work_id, cid, res["text"], False)
+    return {"changed": res["changed"], "reps": len(res["reps"])}
+
+
+@_write_tool
+def fix_leak(work_id: str, seq: int) -> dict:
+    """知识泄露外科式修(POV 穿帮专治):定位某角色说出他视角不可能知道的他人私密的那一句→
+    只改那一句(该角色只凭真实所见说话)→存稿,保全章不截断。写操作,需审批。"""
+    d = _domain(); text, cid = _prose_cid(d, work_id, seq)
+    if not text:
+        return {"changed": False}
+    res = _fixleak(text, _complete, _known_map(d, work_id, seq))
+    if res["changed"]:
+        d.save_prose(work_id, cid, res["text"], False)
+    return {"changed": res["changed"], "leaking": res["leaking"], "fixed": res["fixed"]}
+
+
+@_write_tool
+def record_knowledge(work_id: str, chapter: int, learned: list | None = None, did: list | None = None) -> dict:
+    """记本章各角色【新知道了什么(learned=[{who,fact}])/做了什么被谁看见(did)】。
+    知识账本='谁知道什么'的单一真相源,防后续章角色说出他不可能知道的信息。写操作,需审批。"""
+    return {"id": _domain().record_knowledge_delta(work_id, chapter, learned, did)}
+
+
+@_read_tool()
+def character_known(work_id: str, character: str, upto_chapter: int = 0) -> list:
+    """读某角色截至 upto_chapter 的已知事实集合(写到他时据此守知识边界)。只读。"""
+    return _domain().character_known(work_id, character, upto_chapter or None)
 
 
 def main() -> None:

@@ -62,6 +62,8 @@ def test_tools_discoverable_and_annotated(db):
         "list_foreshadows_status", "add_foreshadow_beat",
         "recall_memory", "remember",
         "list_entity_beats", "add_entity_beat",
+        # QC 闸:语义 QC + 知识边界
+        "discipline_check", "dedup_chapter", "fix_leak", "record_knowledge", "character_known",
     }
     assert expected <= set(tools), f"缺工具: {expected - set(tools)}"
     for name in expected:
@@ -76,4 +78,5 @@ def test_tools_discoverable_and_annotated(db):
         "set_author_intent", "upsert_character", "plant_foreshadow",
         "advance_foreshadow", "ingest_chapter", "check_chapter",
         "add_motif", "add_char_state", "add_foreshadow_beat", "remember", "add_entity_beat",
+        "dedup_chapter", "fix_leak", "record_knowledge",
     }
