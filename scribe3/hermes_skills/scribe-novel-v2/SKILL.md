@@ -19,7 +19,7 @@ metadata:
 2. **限知靠查询、不靠判官**:渲染某视角前,先投影出该角色的知识帧,只把帧内事实喂生成——他不知道的,物理上写不进去。判官只兜底。
 
 ## 工具(scribe3 MCP,均 s3_ 前缀)
-- **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询:每事件须因果入边+目标)
+- **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询)、`s3_dramatic_irony`(反讽点:读者知而视角不知)、`s3_semantic_recall`(语义召回相关设定,非字面)
 - **写(经 elicitation 待批)**:`s3_add_character` `s3_add_fact` `s3_add_event` `s3_record_knowledge`——执行前会弹批准给作者,accept 才落库(拒绝/超时=不写)
 
 ## 写一章(必走的环)

@@ -151,6 +151,25 @@ class SurrealStore:
         rows = self._query("SELECT meta::id(id) AS local, name FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"]) for r in rows]
 
+    # --- 语义 RAG ---
+    def semantic_index(self, oid: str, text: str) -> None:
+        """给某命题写入 embedding(语义召回用;经 execute_write 单点)。"""
+        from scribe3.embed import embed
+        _, local = _split(oid)
+        self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
+                            {"local": local, "v": embed([text])[0]})
+
+    def semantic_recall(self, query: str, k: int = 5) -> list[Fact]:
+        """语义召回最相关命题(HNSW <|K,COSINE|>,按距离升序)。"""
+        from scribe3.embed import embed
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS local, entity, attribute, value, valid_from, valid_to, "
+            f"secret, leak_markers, vector::distance::knn() AS dist "
+            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+        return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
+                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
+
     def events_at(self, chapter: int) -> list[Event]:
         rows = self._query(
             "SELECT meta::id(id) AS local, etype, valid_from, motivated_by_goal "

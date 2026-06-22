@@ -89,6 +89,13 @@ def s3_causal_complete(chapter: int) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_semantic_recall(query: str, k: int = 5) -> list[dict]:
+    """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。"""
+    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value}
+            for f in _store.semantic_recall(query, k)]
+
+
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
     渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""
@@ -109,9 +116,11 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
                       valid_from: int, secret: bool = False) -> dict:
     """新增事实/状态@章(写,待批)。secret=True 标私密(泄露=穿帮)。"""
     ok = await _ask(ctx, f"新增事实 {oid}:{entity}·{attribute}={value}")
-    return commit_if_approved("s3_add_fact", ok,
-                              lambda: _store.add_fact(Fact(oid, entity, attribute, value,
-                                                           valid_from, secret=secret)))
+
+    def _write():
+        _store.add_fact(Fact(oid, entity, attribute, value, valid_from, secret=secret))
+        _store.semantic_index(oid, value)   # 写时建语义索引(设定即写即可召回)
+    return commit_if_approved("s3_add_fact", ok, _write)
 
 
 @mcp.tool(annotations=_RW)
