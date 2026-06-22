@@ -22,3 +22,4 @@ export const getQc = (seq) => j(`/qc?seq=${seq}`)
 export const saveChapter = (seq, prose, title, focalizer) =>
   fetch(BASE + '/save-chapter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seq, prose, title, focalizer }) }).then((r) => r.json())
 export const getPromises = () => j('/promises')
+export const ingestChapter = (seq) => fetch(BASE + `/ingest?seq=${seq}`, { method: 'POST' }).then((r) => r.json())

@@ -56,10 +56,16 @@ export default function App() {
     api.getQc(chapter).then(setQc)
   }, [chapter])
 
+  const [ingesting, setIngesting] = useState(false)
   const save = async () => {
     await api.saveChapter(chapter, prose, '', focalizer)
     setSaved(true)
     api.getQc(chapter).then(setQc)
+  }
+  const ingest = async () => {
+    setIngesting(true)
+    try { await api.ingestChapter(chapter); setTick((t) => t + 1) }   // 回写后视图刷新
+    finally { setIngesting(false) }
   }
 
   useEffect(() => {
@@ -135,6 +141,10 @@ export default function App() {
             <button onClick={save} disabled={!prose || rendering}
               style={{ marginLeft: 8, background: saved ? '#6db07a' : C.panel, color: saved ? '#1a1a1e' : C.text, border: `1px solid ${C.line}`, borderRadius: 6, padding: '6px 14px', cursor: prose ? 'pointer' : 'default' }}>
               {saved ? '已存 ✓' : '保存本章'}
+            </button>
+            <button onClick={ingest} disabled={!saved || ingesting} title="读定稿抽'谁新知道什么'→更新知识账本"
+              style={{ marginLeft: 8, background: C.panel, color: C.text, border: `1px solid ${C.line}`, borderRadius: 6, padding: '6px 14px', cursor: saved ? 'pointer' : 'default' }}>
+              {ingesting ? '回写中…' : '回写知识'}
             </button>
           </div>
           <div style={{ color: C.dim, fontSize: 12, margin: '8px 0' }}>

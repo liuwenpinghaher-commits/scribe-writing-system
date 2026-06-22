@@ -145,6 +145,14 @@ def save_chapter(req: SaveChapterReq):
     return {"status": "saved", "seq": req.seq}
 
 
+@app.post("/ingest")
+def ingest(seq: int):
+    """章节回写:读定稿→Hermes 抽知识 delta→更新账本(闭合写循环)。"""
+    from scribe3.ingest import ingest_chapter
+    from scribe3.llm import hermes_complete
+    return ingest_chapter(_store, seq, hermes_complete)
+
+
 class RenderReq(BaseModel):
     focalizer: str
     chapter: int

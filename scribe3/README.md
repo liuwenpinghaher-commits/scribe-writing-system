@@ -53,9 +53,9 @@ cd scribe3/web && npm install && npm run dev     # 前端 :3311(与 scribe2 的 
 一次性迁移(只读 scribe2,不动原库):`scribe3/.venv/bin/python -m scribe3.migrate 93fbc560d36644319b42f5565ca00091`
 - **已迁**:乱世铜炉·设定参照 6 角色(name+backstory)、27 设定(→ proposition,公开世界知识 grant_public 给所有角色,渲染可用,语义索引建好可召回)。NS=scribe3 现装真设定库。
 - **已补(S7)**:✓ 章节正文持久化(chapter 表 + 散文面渲染→保存)✓ 确定性 QC(find_repetitions/structural/purple + /qc + 校验面)✓ **伏笔/promise + 超期告警**(plant/advance + 体检 flag 超期 + 校验面;无竞品做的护城河)。已迁入乱世铜炉 6角色+27设定+**17伏笔**。
-- **已补(S7③④)**:✓ LLM 语义判官 discipline(双高潮/声音崩/解说倾泻;**双层 QC 齐**)✓ 母题 motif(迁入乱世铜炉 5 母题:渡/妖/火/铜炉/供养)✓ char_state→Fact+知识边迁移能力(叙事作品的角色状态@章→限知帧;设定参照 0 条,对九原渡/拾骨记生效)。
-- **仍缺**(诚实 parity 缺口):生成章节回写成事件/知识(ingest:读定稿抽"谁新知道什么/做了什么"喂单一真相源)、事件/因果显式合成。
-- **切换建议:仍不切默认 profile**。scribe3 已可世界观探索 + 限知渲染 + 反讽/语义召回 + 章节存取 + 双层QC + 伏笔超期 + 母题(真数据),但完整替代 scribe2 还差最后一块:**生成章节回写**(写完一章自动更新"谁知道什么")。**保留 scribe2 为生产默认,直到回写补齐再切。**
+- **已补(S7③④⑤)**:✓ LLM 语义判官 discipline(**双层 QC 齐**)✓ 母题 motif(迁入 5 母题)✓ char_state→知识边迁移 ✓ **章节回写 ingest**(读定稿抽"谁新知道什么/做了什么且谁看见"→更新账本,看见即知道;s3_ingest_chapter / POST /ingest / 前端[回写知识]按钮;写循环闭合)。
+- **parity 达成**:写一本书的完整环已通——设计fabula → 限知渲染 → 双层QC → 存稿 → 落库世界 → **回写知识(下章限知反映新知)**;加 伏笔超期 + 反讽 + 语义召回 + 母题。
+- **切换建议:parity 达成,切换可行**——但建议先真机走通一整章(渲染→QC→存→回写→下章限知验证)再切默认 profile。**仍可逆 `hermes profile delete scribe3`。** 唯一未做:事件/因果的显式图合成(scribe2 本就无显式事件,非阻塞)。
 
 ## 下一步(未建)
 纵切片证明范式后,按规划文档扩建:双时态 SurrealDB 持久层 → 三帧并存 + 戏剧反讽查询 → 写作台 v2 双表面(W1 散文面+回链 → W6 掌控契约)。移植 scribe2 已验证资产(16 处 QC 纯函数 / craft 知识 / 乱世铜炉+拾骨记数据迁移 / B3 写审批)。
