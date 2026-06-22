@@ -729,3 +729,15 @@ def test_p1_backstory_injected_iceberg(db):
     ctx = build_writing_context(d, w, 1)
     assert "五岁瘟疫" in ctx                                   # 前史注入
     assert ("冰山" in ctx) or ("露" in ctx and "勿" in ctx)     # 冰山克制指令
+
+
+def test_p2_nonpov_private_kernel_tagged(db):
+    """P2知识标记:非POV角色的私密内核打'私密·他人不知'标签(POV角色不打),+ 本章知识边界块。
+    根治角色对白说出他人私密(老道说出焦三给老娘治眼的花费=POV泄露)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一")
+    d.add_character(w, "焦三", want="攒钱给瞎眼老娘治眼", wound="五岁瘟疫家破")   # 主角=POV(首个)
+    d.add_character(w, "老道", want="夺回尸丹复命")                              # 非POV
+    ctx = build_writing_context(d, w, 1)
+    assert "私密" in ctx and "他人不知" in ctx          # 非POV(老道)内核被打私密标签
+    assert "知识边界" in ctx                            # 本章知识边界块

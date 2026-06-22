@@ -54,7 +54,7 @@ def build_writing_context(d, work: str, seq: int) -> str:
     # 相关性注入:只给本章相关角色(开着伏笔关联/近章点名),不再全塞,聚焦在场人物
     chars = d.relevant_characters(work, seq) if hasattr(d, "relevant_characters") else d.list_characters(work)
     if chars:
-        def _c(c):
+        def _c(c, is_pov):
             mot = (c.get("motivation") or "").strip()
             base = f"{c['name']}({mot[:20]})" if mot else c.get("name", "")
             if (c.get("voice") or "").strip():
@@ -69,9 +69,16 @@ def build_writing_context(d, work: str, seq: int) -> str:
                     (("wound", "伤"), ("lie", "谎"), ("want", "欲"), ("need", "需"), ("fear", "惧"))
                     if (c.get(k) or "").strip()]
             if kern:
-                base += "〔内核 " + " ".join(kern) + "〕"
+                # P2 知识标记:非 POV 角色的内核是其【私密】心理,他人不可说破(防 POV 泄露)
+                base += ("〔内核 " if is_pov else "〔内核·私密·他人不知 ") + " ".join(kern) + "〕"
             return base
-        parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c) for c in chars[:15]))
+        pov = chars[0].get("name", "")   # POV=本章首个相关角色(主角约定);其内心读者可知,他人内核为私密
+        parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c, c.get("name") == pov) for c in chars[:15]))
+        others = [c.get("name") for c in chars[1:15] if c.get("name")]
+        if others:
+            parts.append(f"【本章知识边界】视角=「{pov}」(其内心/私密读者可知)。其余角色({'、'.join(others[:8])})的"
+                         "内核/动机/私密前史是各自私密——只驱动其本人言行;严禁让他们说出或表现出知晓「" + pov +
+                         "」或彼此的私密底细(如刚追来的敌人不可能报出主角给家人治病的花费)。角色只凭场内真实见闻说话。")
 
     # P1 前史·冰山:预设角色前史是 canonical(你知全貌),落笔只露 1/8——根治"现编前史前后不一"
     bs = [(c.get("name"), (c.get("backstory") or "").strip()) for c in chars]
