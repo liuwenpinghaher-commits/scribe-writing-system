@@ -49,5 +49,11 @@ cd scribe3/web && npm install && npm run dev     # 前端 :3311(与 scribe2 的 
   - 可扩展:`health.py` 现只聚合连贯性,后续加伏笔超期/跨章泄露/声音一致性。
 - **分章并行**:用 Hermes 原生 **kanban**(`auto_decompose`),别自建调度。scribe3 profile 已带 description 供 kanban decomposer 路由。模式:把"写第 N..M 章"丢给 kanban → 分解成多个章任务 → 各 dispatch 给 scribe3 主编(继承 s3_ 工具)并行写。(需 gateway 运行;交互流,未在此跑通。)
 
+## S6:scribe2 → scribe3 数据迁移 + parity(诚实)
+一次性迁移(只读 scribe2,不动原库):`scribe3/.venv/bin/python -m scribe3.migrate 93fbc560d36644319b42f5565ca00091`
+- **已迁**:乱世铜炉·设定参照 6 角色(name+backstory)、27 设定(→ proposition,公开世界知识 grant_public 给所有角色,渲染可用,语义索引建好可召回)。NS=scribe3 现装真设定库。
+- **未迁 / scribe3 尚无对应**(诚实 parity 缺口):章节正文(scribe3 不持久化生成的章节文本)、伏笔 27(无 promise 表)、母题 16(无 motif)、char_state 154(未映射成知识边)、事件/因果(scribe2 无显式事件,未合成)、scribe2 的 16 处 QC 纯函数(find_repetitions/discipline/dedup,scribe3 仅 find_leaks/causal)。
+- **切换建议:不切默认 profile**。scribe3 已可做世界观探索 + 限知渲染 + 反讽/语义召回(真数据),但要完整替代 scribe2 写整本书,还需:章节正文持久化、伏笔/promise 跟踪、母题、剩余 QC 移植、生成章节回写成事件/知识。**保留 scribe2 为生产默认,直到这些补齐再切。**
+
 ## 下一步(未建)
 纵切片证明范式后,按规划文档扩建:双时态 SurrealDB 持久层 → 三帧并存 + 戏剧反讽查询 → 写作台 v2 双表面(W1 散文面+回链 → W6 掌控契约)。移植 scribe2 已验证资产(16 处 QC 纯函数 / craft 知识 / 乱世铜炉+拾骨记数据迁移 / B3 写审批)。

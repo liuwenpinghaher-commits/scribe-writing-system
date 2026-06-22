@@ -120,7 +120,10 @@ class SurrealStore:
 
     # --- 读 ---
     def entity(self, oid: str) -> Entity | None:
-        table, local = _split(oid)
+        try:
+            table, local = _split(oid)        # 迁移数据的 entity 串可能无标准前缀→容忍
+        except (KeyError, ValueError):
+            return None
         rows = self._query("SELECT name FROM type::record($tbl,$local)",
                            {"tbl": table, "local": local})
         if not rows:
