@@ -81,6 +81,23 @@ def recall(q: str, k: int = 5):
     return _facts(_store.semantic_recall(q, k))
 
 
+@app.get("/promises")
+def promises():
+    return _store.list_promises()
+
+
+class PlantReq(BaseModel):
+    text: str
+    setup_chapter: int
+    kind: str = "promise"
+
+
+@app.post("/plant-promise")
+def plant_promise(req: PlantReq):
+    _store.plant_promise(req.text, req.setup_chapter, kind=req.kind)
+    return {"status": "planted"}
+
+
 @app.get("/chapters")
 def chapters():
     return _store.list_chapters()

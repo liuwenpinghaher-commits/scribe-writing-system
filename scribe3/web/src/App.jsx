@@ -24,6 +24,7 @@ export default function App() {
   const [live, setLive] = useState(false)
   const [qc, setQc] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [promises, setPromises] = useState([])
 
   // 订阅 NS=scribe3 变更(开一次;改一处处处同步)
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function App() {
     api.getFacts(chapter).then(setFacts)
     api.getEvents(chapter).then(setEvents)
     api.getCausal(chapter).then(setCausal)
+    api.getPromises().then(setPromises)
   }, [chapter, tick])
 
   // 载入已存章正文 + QC
@@ -153,6 +155,17 @@ export default function App() {
           <div style={{ color: C.dim, fontSize: 12, margin: '12px 0 6px' }}>戏剧反讽（读者知 · {focName}不知）</div>
           {irony.length === 0 ? <div style={{ color: C.dim }}>（无）</div>
             : irony.map((f) => <div key={f.id} style={{ color: C.irony, fontSize: 13, padding: '3px 0' }}>◆ {f.value}</div>)}
+          <div style={{ color: C.dim, fontSize: 12, margin: '12px 0 6px' }}>未回收伏笔(超期红)</div>
+          {(() => {
+            const open = promises.filter((p) => p.status === 'open')
+            if (open.length === 0) return <div style={{ color: C.dim }}>（无）</div>
+            return open.map((p) => {
+              const overdue = p.setup_chapter + 3 < chapter
+              return <div key={p.id} style={{ color: overdue ? C.danger : C.dim, fontSize: 13, padding: '3px 0' }}>
+                {overdue ? '⚠' : '○'} 「{p.text.slice(0, 22)}」<span style={{ color: C.dim }}> 第{p.setup_chapter}章埋</span>
+              </div>
+            })
+          })()}
           <div style={{ color: C.dim, fontSize: 12, margin: '12px 0 6px' }}>质检(确定性,本章已存正文)</div>
           {!qc ? <div style={{ color: C.dim }}>—</div>
             : (qc.repetition?.length || qc.structural?.length || qc.purple?.length)

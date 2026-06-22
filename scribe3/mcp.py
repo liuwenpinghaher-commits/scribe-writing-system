@@ -27,7 +27,8 @@ def set_store(s) -> None:
 
 
 # ===== 写门控 =====
-WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge"}
+WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
+               "s3_plant_promise", "s3_advance_promise"}
 
 
 def requires_approval(name: str) -> bool:
@@ -103,6 +104,12 @@ def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_list_promises() -> list[dict]:
+    """列伏笔(open/closed + 埋/收章)。"""
+    return _store.list_promises()
+
+
+@mcp.tool(annotations=_RO)
 def s3_get_chapter(seq: int) -> dict:
     """读某章正文(manuscript)。"""
     return _store.get_chapter(seq) or {}
@@ -153,6 +160,23 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
     return commit_if_approved("s3_add_event", ok,
                               lambda: _store.add_event(Event(oid, etype, story_time=valid_from,
                                                              motivated_by_goal=motivated_by_goal)))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
+                           kind: str = "promise") -> dict:
+    """埋伏笔(写,待批)。kind=promise/red_herring。"""
+    ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章):{text}")
+    return commit_if_approved("s3_plant_promise", ok,
+                              lambda: _store.plant_promise(text, setup_chapter, kind=kind))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int) -> dict:
+    """回收伏笔(写,待批)。"""
+    ok = await _ask(ctx, f"回收伏笔 {pid}(第{payoff_chapter}章)")
+    return commit_if_approved("s3_advance_promise", ok,
+                              lambda: _store.advance_promise(pid, payoff_chapter))
 
 
 @mcp.tool(annotations=_RW)

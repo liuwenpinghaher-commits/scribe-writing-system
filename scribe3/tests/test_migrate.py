@@ -26,3 +26,12 @@ def test_project_settings():
 def test_dedup_by_name():
     rows = [{"name": "焦三"}, {"name": "焦三"}]
     assert len(project_characters(rows)) == 1, "同名去重"
+
+
+def test_project_foreshadows():
+    from scribe3.migrate import project_foreshadows
+    rows = [{"promise": "铜炉反噬", "chapter": 2, "ftype": "promise"},
+            {"summary": "身世存疑", "chapter": None}]
+    ps = project_foreshadows(rows)
+    assert ps[0]["text"] == "铜炉反噬" and ps[0]["setup_chapter"] == 2
+    assert ps[1]["setup_chapter"] == 1   # None → 1

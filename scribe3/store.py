@@ -178,6 +178,23 @@ class SurrealStore:
         return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
+    # --- 伏笔/promise ---
+    def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
+        self._execute_write(
+            "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', kind=$k",
+            {"t": text, "s": setup_chapter, "k": kind})
+
+    def list_promises(self) -> list[dict]:
+        return self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
+                           "status, kind FROM promise ORDER BY setup_chapter")
+
+    def open_promises(self) -> list[dict]:
+        return [p for p in self.list_promises() if p["status"] == "open"]
+
+    def advance_promise(self, pid: str, payoff_chapter: int) -> None:
+        self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
+                            "payoff_chapter=$p", {"pid": pid, "p": payoff_chapter})
+
     # --- 章节正文(manuscript)---
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。manuscript 是作者草稿,不经 elicitation 待批。"""

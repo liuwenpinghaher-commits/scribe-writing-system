@@ -42,6 +42,21 @@ def project_settings(rows: list[dict]) -> list[Fact]:
     return out
 
 
+def project_foreshadows(rows: list[dict]) -> list[dict]:
+    seen: set = set()
+    out: list[dict] = []
+    for r in rows:
+        text = r.get("promise") or r.get("summary") or r.get("text")
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        ch = r.get("chapter")
+        out.append({"text": text,
+                    "setup_chapter": int(ch) if isinstance(ch, (int, float)) else 1,
+                    "kind": r.get("ftype") or "promise"})
+    return out
+
+
 def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
     """读 scribe2 某 work 的 character/setting → 投影 → 写 scribe3 dst_store。"""
     close = False
@@ -55,8 +70,10 @@ def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
         wstr = work_local if work_local.startswith("work:") else f"work:{work_local}"
         chars = src.query("SELECT name,motivation,voice,text FROM character WHERE work = $w", {"w": wstr})
         setts = src.query("SELECT name,stype,content,text FROM setting WHERE work = $w", {"w": wstr})
+        fores = src.query("SELECT promise,summary,text,chapter,ftype FROM foreshadow WHERE work = $w", {"w": wstr})
         ents = project_characters(chars or [])
         facts = project_settings(setts or [])
+        proms = project_foreshadows(fores or [])
         for e in ents:
             dst_store.add_entity(e)
         for f in facts:
@@ -64,7 +81,9 @@ def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
             dst_store.grant_public(f.id, chapter=1)   # 设定=公开世界知识,人人皆知(渲染可用)
             if f.value:
                 dst_store.semantic_index(f.id, f.value)
-        return {"characters": len(ents), "settings": len(facts)}
+        for p in proms:
+            dst_store.plant_promise(p["text"], p["setup_chapter"], kind=p["kind"])
+        return {"characters": len(ents), "settings": len(facts), "promises": len(proms)}
     finally:
         if close:
             src.close()
