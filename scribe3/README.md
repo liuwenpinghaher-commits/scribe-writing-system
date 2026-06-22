@@ -31,6 +31,18 @@ scribe/.venv/bin/python -m pytest scribe3/ -q          # 12 passed(结构证明�
 scribe/.venv/bin/python -u -m scribe3.demo             # 端到端 A/B(Hermes :8642 在线则真机渲染)
 ```
 
+## 写作台 v2(S5):跑起来看
+双表面三面板(结构面 fabula / 散文面 sjuzhet / 校验面),后端 API 桥到 NS=scribe3 + Hermes 渲染。
+```bash
+scribe3/.venv/bin/python -m scribe3.seed_demo   # 一次性填焦三/老道 demo(可跳过)
+scribe3/.venv/bin/python -m scribe3.app         # 后端 API :3321(与 scribe2 的 3320 隔离)
+cd scribe3/web && npm install && npm run dev     # 前端 :3311(与 scribe2 的 3310 隔离)
+# 开 http://127.0.0.1:3311 → 选视角 → 渲染本场
+```
+- **限知贯穿全栈**:选"流云观皂衣道士"视角,散文面"此刻所知"只列暴雨——焦三私密"治眼"进不去(真机验证 `/frame 老道` 无治眼)。
+- **校验面**:连贯性(causal)+ 戏剧反讽(读者知·视角不知)实时显示。
+- 现为 fetch 拉取;LIVE 多视图(表/图/时间线 SurrealDB 订阅)留后续增量。
+
 ## 运维(S4):体检 cron + 分章并行
 - **体检 cron**(已注册,隔离在 scribe3 profile):`hermes --profile scribe3 cron list` 见 `scribe3-体检`(每 6h,`--no-agent` watchdog)。脚本 `qc_scan.py`(经 `~/.hermes/scripts/scribe3_qc.sh`)连 NS=scribe3 跑 `health_report`(跨章 `causal_complete`),干净=空 stdout=静默,有问题才交付报告。纯机械检查不耗 LLM。
   - ⚠ **自动定时触发需起 scribe3 gateway**(default 的 gateway 在 :8642,scribe3 profile 的没跑);脚本本身已真库验证。手动触发:`hermes --profile scribe3 cron run scribe3-体检`。
