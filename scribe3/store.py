@@ -323,6 +323,20 @@ class SurrealStore:
         wc = sum(len("".join((r.get("prose") or "").split())) for r in rows)
         return {"chapter_count": len(rows), "word_count": wc}
 
+    # --- 北极星(作品意图,单例)---
+    def get_intent(self) -> dict:
+        rows = self._query("SELECT reader_feeling, emotional_arc, red_lines FROM intent:main")
+        r = rows[0] if rows else {}
+        return {"reader_feeling": r.get("reader_feeling", ""), "emotional_arc": r.get("emotional_arc", ""),
+                "red_lines": r.get("red_lines", "")}
+
+    def set_intent(self, fields: dict) -> None:
+        self._execute_write("UPSERT intent:main CONTENT $c", {"c": {
+            "reader_feeling": fields.get("reader_feeling", ""),
+            "emotional_arc": fields.get("emotional_arc", ""),
+            "red_lines": fields.get("red_lines", ""),
+        }})
+
     def graph(self, chapter: int | None = None) -> dict:
         """知识图谱:角色/命题节点 + knows 边(谁知道什么)。chapter 给定则只到该章。
         scribe3 是图库,这是 Atlas 视图的数据源。"""

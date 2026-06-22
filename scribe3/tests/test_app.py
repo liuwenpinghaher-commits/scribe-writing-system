@@ -95,3 +95,11 @@ def test_motif_crud(store):
     assert c.get("/motifs").json()[0]["theme"] == "纯白"
     c.delete(f"/motifs/{m['id']}")
     assert c.get("/motifs").json() == []
+
+
+def test_intent_crud(store):
+    c = _client(store)
+    assert c.get("/intent").json()["reader_feeling"] == ""
+    c.put("/intent", json={"reader_feeling": "压抑中见微光", "emotional_arc": "由怯到决", "red_lines": "不洗白反派"})
+    i = c.get("/intent").json()
+    assert i["reader_feeling"] == "压抑中见微光" and "不洗白" in i["red_lines"]

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   BookText, LayoutList, Flame, Search, Eye, Drama, ShieldCheck, Bookmark,
   Feather, Save, Sparkles, Radio, ChevronLeft, ChevronRight,
-  CircleAlert, CircleCheck, Lock,
+  CircleAlert, CircleCheck, Lock, Compass, Users,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
@@ -32,6 +32,8 @@ export function WriteLayout({ work }) {
   const [live, setLive] = useState(false)
   const [recallQ, setRecallQ] = useState('')
   const [recallHits, setRecallHits] = useState([])
+  const [intent, setIntent] = useState({ reader_feeling: '', emotional_arc: '', red_lines: '' })
+  const [intentSaved, setIntentSaved] = useState(false)
   const [leftActive, setLeftActive] = useState('outline')
   const [rightActive, setRightActive] = useState('frame')
 
@@ -50,6 +52,7 @@ export function WriteLayout({ work }) {
     api.chapters().then(setChapters)
     api.promises().then(setPromises)
     api.motifs().then(setMotifs)
+    api.intent().then(setIntent)
   }, [tick])
 
   useEffect(() => {
@@ -176,6 +179,32 @@ export function WriteLayout({ work }) {
         {openProm.length === 0 ? <Empty>无未回收伏笔</Empty> : openProm.map((p) => (
           <Row key={p.id} tone={overdue(p) ? 'danger' : 'fore'} icon={Bookmark}>{p.text.slice(0, 40)}<span className="text-faint"> · 第{p.setup_chapter}章埋{overdue(p) ? ' · 超期' : ''}</span></Row>
         ))}
+      </div>
+    ) },
+    { key: 'present', label: '本章在场', icon: Users, render: () => (
+      <div>
+        <SectionTitle icon={Users}>可在场角色 · 点击切为视角</SectionTitle>
+        {chars.length === 0 ? <Empty>无角色</Empty> : chars.map((c) => (
+          <button key={c.id} onClick={() => setFocalizer(c.id)}
+            className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
+            <span className="truncate">{c.name}</span>
+            {c.id === focalizer && <span className="ml-auto text-[11px] text-brand shrink-0">视角 · 知{frame.length}</span>}
+          </button>
+        ))}
+      </div>
+    ) },
+    { key: 'intent', label: '北极星 · 意图', icon: Compass, render: () => (
+      <div className="space-y-3">
+        <div className="text-[12px] text-faint leading-snug">作品意图——指引渲染朝向、喂纪律判官。</div>
+        {[['reader_feeling', '读者感受'], ['emotional_arc', '主角情感弧'], ['red_lines', '绝不背叛(红线)']].map(([k, label]) => (
+          <div key={k}>
+            <label className="block text-[11px] text-faint mb-1">{label}</label>
+            <textarea value={intent[k] || ''} onChange={(e) => { setIntent({ ...intent, [k]: e.target.value }); setIntentSaved(false) }} rows={2}
+              className="w-full rounded-lg border border-line bg-canvas px-2.5 py-2 text-[13px] text-ink outline-none focus:border-brand resize-y" />
+          </div>
+        ))}
+        <Btn variant="primary" size="sm" onClick={async () => { await api.putIntent(intent); setIntentSaved(true) }}>{intentSaved ? '已存 ✓' : '保存意图'}</Btn>
       </div>
     ) },
   ]

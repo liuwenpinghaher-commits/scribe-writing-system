@@ -273,6 +273,23 @@ def quality(work: str = "main"):
     return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per)}
 
 
+@app.get("/intent")
+def get_intent(work: str = "main"):
+    return _store_for(work).get_intent()
+
+
+class IntentIn(BaseModel):
+    reader_feeling: str = ""
+    emotional_arc: str = ""
+    red_lines: str = ""
+
+
+@app.put("/intent")
+def put_intent(i: IntentIn, work: str = "main"):
+    _store_for(work).set_intent(i.model_dump())
+    return {"ok": True}
+
+
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()

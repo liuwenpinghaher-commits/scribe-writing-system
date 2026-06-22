@@ -13,6 +13,9 @@ const patch = (p, body) => fetch(BASE + ww(p), {
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then((r) => r.json())
 const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then((r) => r.json())
+const put = (p, body) => fetch(BASE + ww(p), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}).then((r) => r.json())
 
 export const api = {
   setWork: (w) => { WORK = w },
@@ -35,6 +38,8 @@ export const api = {
   motifs: () => j('/motifs'),
   graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
   quality: () => j('/quality'),
+  intent: () => j('/intent'),
+  putIntent: (b) => put('/intent', b),
 
   // 设定库增删改
   addChar: (b) => post('/characters', b),
