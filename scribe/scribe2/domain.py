@@ -238,21 +238,27 @@ class Domain:
     # ---- 角色(Codex 2.0:内核 wound/lie/want/need + 核心矛盾 + 声音样本 + 弧光)----
     _CHAR_DEFAULTS = {"voice_samples": list, "core_contradiction": str, "wound": str,
                       "lie": str, "want": str, "need": str, "arc": str, "fear": str,
-                      "aliases": list, "pinned": bool}
+                      "aliases": list, "pinned": bool,
+                      # 知识边界改造:预设前史(冰山)+ 私密底细(他人不知)+ 公开可观察
+                      "backstory": str, "secrets": list, "known_public": list}
 
     def add_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                       voice_samples: list | None = None, core_contradiction: str = "",
                       wound: str = "", lie: str = "", want: str = "", need: str = "",
-                      arc: str = "", fear: str = "", aliases: list | None = None) -> str:
+                      arc: str = "", fear: str = "", aliases: list | None = None,
+                      backstory: str = "", secrets: list | None = None, known_public: list | None = None) -> str:
         vs = list(voice_samples or [])
         al = list(aliases or [])
-        # 声音样本/核心矛盾/创伤/别名一并进 text,供 FTS+向量检索召回(别名也能搜到)
-        text = "；".join(x for x in [name, *al, motivation, voice, core_contradiction, wound, *vs] if x)
+        sec = list(secrets or [])
+        pub = list(known_public or [])
+        # 声音样本/核心矛盾/创伤/别名/前史一并进 text,供 FTS+向量检索召回(别名也能搜到)
+        text = "；".join(x for x in [name, *al, motivation, voice, core_contradiction, wound, backstory, *vs] if x)
         return self.s.put_content(
             "character", work=self._wref(work), text=text,
             name=name, motivation=motivation, voice=voice,
             voice_samples=vs, core_contradiction=core_contradiction, wound=wound,
-            lie=lie, want=want, need=need, arc=arc, fear=fear, aliases=al)
+            lie=lie, want=want, need=need, arc=arc, fear=fear, aliases=al,
+            backstory=backstory, secrets=sec, known_public=pub)
 
     def list_characters(self, work: str) -> list[dict]:
         rows = self.s.list("character", "work = $w", {"w": self._wref(work)})
@@ -298,24 +304,28 @@ class Domain:
     def upsert_character(self, work: str, name: str, motivation: str = "", voice: str = "", *,
                          voice_samples: list | None = None, core_contradiction: str = "",
                          wound: str = "", lie: str = "", want: str = "", need: str = "",
-                         arc: str = "", fear: str = "", aliases: list | None = None) -> str:
+                         arc: str = "", fear: str = "", aliases: list | None = None,
+                         backstory: str = "", secrets: list | None = None, known_public: list | None = None) -> str:
         """按名 upsert(对话式'改'的基础):同名则合并更新(空串不覆盖、voice_samples 非 None 才覆盖),
         否则新建。实现=删旧+并入新字段重建(自动重嵌入)。"""
         existing = next((c for c in self.list_characters(work) if c.get("name") == name), None)
         base = {k: (existing.get(k) if existing else "") for k in
-                ("motivation", "voice", "core_contradiction", "wound", "lie", "want", "need", "arc", "fear")}
+                ("motivation", "voice", "core_contradiction", "wound", "lie", "want", "need", "arc", "fear", "backstory")}
         for k, v in dict(motivation=motivation, voice=voice, core_contradiction=core_contradiction,
-                         wound=wound, lie=lie, want=want, need=need, arc=arc, fear=fear).items():
+                         wound=wound, lie=lie, want=want, need=need, arc=arc, fear=fear, backstory=backstory).items():
             if v:  # 非空才覆盖,保留既有
                 base[k] = v
         vs = list(voice_samples) if voice_samples is not None else ((existing or {}).get("voice_samples") or [])
         al = list(aliases) if aliases is not None else ((existing or {}).get("aliases") or [])
+        sec = list(secrets) if secrets is not None else ((existing or {}).get("secrets") or [])
+        pub = list(known_public) if known_public is not None else ((existing or {}).get("known_public") or [])
         if existing:
             self.s.delete("character", self._idpart(existing["id"]))
         return self.add_character(work, name, base["motivation"], base["voice"], voice_samples=vs, aliases=al,
                                   core_contradiction=base["core_contradiction"], wound=base["wound"],
                                   lie=base["lie"], want=base["want"], need=base["need"],
-                                  arc=base["arc"], fear=base["fear"])
+                                  arc=base["arc"], fear=base["fear"],
+                                  backstory=base["backstory"], secrets=sec, known_public=pub)
 
     # ---- 母题 Motif(核心意象的隐喻网:世界观+主题+命名+物质回声 四位一体)----
     def add_motif(self, work: str, name: str, metaphor_unfolding: str = "",

@@ -718,3 +718,14 @@ def test_discipline_checks_knowledge_leak():
     from scribe2.critique import build_discipline_prompt
     p = build_discipline_prompt("正文……", brief="测试")
     assert "knowledge_leak" in p and ("私密" in p or "视角" in p or "不可能知道" in p)
+
+
+def test_p1_backstory_injected_iceberg(db):
+    """P1冰山:角色前史预定义(canonical)→注入,模型'知全貌、只露1/8、勿解说倾泻'。
+    根治'现编前史前后不一'(阿萤前史漂移)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一")
+    d.add_character(w, "焦三", backstory="五岁瘟疫,爹娘两个哥哥尽殁,抛尸乱岗,他靠替人收尸活下来")
+    ctx = build_writing_context(d, w, 1)
+    assert "五岁瘟疫" in ctx                                   # 前史注入
+    assert ("冰山" in ctx) or ("露" in ctx and "勿" in ctx)     # 冰山克制指令

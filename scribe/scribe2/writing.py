@@ -73,6 +73,13 @@ def build_writing_context(d, work: str, seq: int) -> str:
             return base
         parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c) for c in chars[:15]))
 
+    # P1 前史·冰山:预设角色前史是 canonical(你知全貌),落笔只露 1/8——根治"现编前史前后不一"
+    bs = [(c.get("name"), (c.get("backstory") or "").strip()) for c in chars]
+    bs = [(n, b) for n, b in bs if b]
+    if bs:
+        parts.append("【人物前史·冰山(你知其全貌,落笔只露 1/8、用动作与细节渗出,严禁整段身世解说/倾泻)】\n"
+                     + "\n".join(f"· {n}:{b[:120]}" for n, b in bs[:6]))
+
     # Progressions 时间门:只注入 chapter_seq<=当前位置的最新角色状态(防剧透,乱世铜炉"信息延迟揭晓")
     if hasattr(d, "latest_char_states_upto"):
         states = d.latest_char_states_upto(work, seq)

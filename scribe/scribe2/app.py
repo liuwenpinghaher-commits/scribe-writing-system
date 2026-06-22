@@ -240,6 +240,7 @@ class CharacterIn(BaseModel):
     voice_samples: list = []; core_contradiction: str = ""; wound: str = ""
     lie: str = ""; want: str = ""; need: str = ""; arc: str = ""; fear: str = ""
     aliases: list[str] = []
+    backstory: str = ""; secrets: list[str] = []; known_public: list[str] = []  # 知识边界改造
 class ForeshadowIn(BaseModel):
     summary: str; chapter: int; importance: str = "normal"
     promise: str = ""; ftype: str = "伏笔"
@@ -267,7 +268,8 @@ def add_character(w: str, b: CharacterIn, x_owner_id: str | None = Header(None),
     return {"character_id": d.upsert_character(
         w, b.name, b.motivation, b.voice, voice_samples=b.voice_samples or None,
         core_contradiction=b.core_contradiction, wound=b.wound, lie=b.lie,
-        want=b.want, need=b.need, arc=b.arc, fear=b.fear, aliases=b.aliases or None)}
+        want=b.want, need=b.need, arc=b.arc, fear=b.fear, aliases=b.aliases or None,
+        backstory=b.backstory, secrets=b.secrets or None, known_public=b.known_public or None)}
 
 @app.get("/works/{w}/characters")
 def list_characters(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
