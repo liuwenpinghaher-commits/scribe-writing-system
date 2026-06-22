@@ -151,6 +151,11 @@ class SurrealStore:
         rows = self._query("SELECT meta::id(id) AS local, name FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"]) for r in rows]
 
+    def all_entities(self) -> list[Entity]:
+        """角色 + 地点(前端结构面/实体清单用)。"""
+        prows = self._query("SELECT meta::id(id) AS local, name FROM place")
+        return self.characters() + [Entity(f"place:{r['local']}", "place", r["name"]) for r in prows]
+
     # --- 语义 RAG ---
     def semantic_index(self, oid: str, text: str) -> None:
         """给某命题写入 embedding(语义召回用;经 execute_write 单点)。"""
