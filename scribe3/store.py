@@ -91,6 +91,11 @@ class SurrealStore:
         return f
 
     def add_knowledge(self, k: KnowledgeEdge) -> KnowledgeEdge:
+        if k.knower_id == "reader":   # reader 帧:单独表,不走 character->knows 边
+            self._execute_write(
+                "CREATE reader_knows SET proposition=$p, since_chapter=$since",
+                {"p": k.proposition_id, "since": k.since_chapter})
+            return k
         ktbl, klocal = _split(k.knower_id)
         ptbl, plocal = _split(k.proposition_id)
         # RELATE 箭头位不接受内联函数,用 RecordID 绑参
@@ -158,6 +163,11 @@ class SurrealStore:
         rows = self._query(
             "SELECT meta::tb(in) AS itb, meta::id(in) AS iid, meta::tb(out) AS otb, "
             "meta::id(out) AS olocal, since_chapter, until_chapter, polarity, acquired_via FROM knows")
-        return [KnowledgeEdge(_join(r["itb"], r["iid"]), _join(r["otb"], r["olocal"]),
-                              r.get("polarity", True), 1.0, r.get("since_chapter", 0),
-                              r.get("until_chapter"), r.get("acquired_via", "given")) for r in rows]
+        edges = [KnowledgeEdge(_join(r["itb"], r["iid"]), _join(r["otb"], r["olocal"]),
+                               r.get("polarity", True), 1.0, r.get("since_chapter", 0),
+                               r.get("until_chapter"), r.get("acquired_via", "given")) for r in rows]
+        # 并入 reader 帧(knower=reader)
+        rr = self._query("SELECT proposition, since_chapter FROM reader_knows")
+        edges += [KnowledgeEdge("reader", r["proposition"], True, 1.0,
+                                r.get("since_chapter", 0), None, "given") for r in rr]
+        return edges

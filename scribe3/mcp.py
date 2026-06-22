@@ -12,7 +12,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
-from scribe3.knowledge import project_frame
+from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.render import render
 from scribe3.verify import causal_complete, find_leaks
@@ -86,6 +86,13 @@ def s3_find_leaks(prose: str, focalizer: str, chapter: int) -> list[dict]:
 def s3_causal_complete(chapter: int) -> list[dict]:
     """连贯性查询:每事件须因果入边+目标。返回违规列表(空=干净)。"""
     return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store, chapter)]
+
+
+@mcp.tool(annotations=_RO)
+def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
+    """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
+    渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""
+    return [{"id": f.id, "value": f.value} for f in dramatic_irony(_store, focalizer, chapter)]
 
 
 # ===== 写工具(elicitation 待批 → store 单点)=====

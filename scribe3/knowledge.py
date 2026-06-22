@@ -37,6 +37,14 @@ def project_frame(world: World, knower_id: str, chapter: int) -> KnowledgeFrame:
                           [f for f in facts_now if f.id in known_ids])
 
 
+def dramatic_irony(world, focalizer: str, chapter: int) -> list[Fact]:
+    """戏剧反讽点 = KNOWS(reader,F) ∧ ¬KNOWS(focalizer,F)。
+    返回读者已知、而视角角色尚不知的事实(可计算查询,非人脑事后判断)。"""
+    reader = project_frame(world, "reader", chapter)
+    foc_ids = {f.id for f in project_frame(world, focalizer, chapter).facts}
+    return [f for f in reader.facts if f.id not in foc_ids]
+
+
 def witnesses_of(event: Event) -> set[str]:
     """在场者 = 事件的全部参与者(切片:participants 的 entity 值;含 WITNESS 角色槽)。"""
     return {v for v in event.participants.values() if v}
