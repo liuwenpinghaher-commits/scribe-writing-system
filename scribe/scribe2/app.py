@@ -11,7 +11,8 @@ from .writing import build_writing_context
 from .llm import hermes_complete, hermes_complete_stream, hermes_responses_events
 from .critique import (build_critique_prompt, parse_critique, critique_revise, revise_dedup,
                        build_discipline_prompt, parse_discipline,
-                       build_knowledge_extract_prompt, parse_knowledge_delta)
+                       build_knowledge_extract_prompt, parse_knowledge_delta,
+                       build_intent_prompt, parse_intent)
 from .consistency import check_chapter
 from . import editorial as _ed
 
@@ -469,6 +470,21 @@ def discipline_check_ep(w: str, seq: int, b: DisciplineIn, x_owner_id: str | Non
 def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
     """对照角色/设定/主线找本章矛盾,落 consistency_flag。"""
     owner(x_owner_id); return {"flags": check_chapter(d, w, seq, _complete)}
+
+class IntentReqIn(BaseModel):
+    character: str; scene: str
+
+@app.post("/works/{w}/chapters/{seq}/character-intent")
+def character_intent_ep(w: str, seq: int, b: IntentReqIn, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """P5(niche·不入默认流程):角色意图 agent——只给该角色知识,产出'说什么/做什么'意图,
+    天然知识隔离(物理上无法泄露他人私密),供不对称信息 set-piece 由叙述者渲染。"""
+    owner(x_owner_id)
+    c = next((c for c in d.list_characters(w) if c.get("name") == b.character), None)
+    if not c:
+        raise HTTPException(404, "无此角色")
+    vk = "；".join(x for x in [c.get("voice", ""), c.get("core_contradiction", ""), c.get("wound", ""), c.get("want", "")] if x)
+    known = d.character_known(w, b.character, upto_chapter=seq)
+    return parse_intent(_complete(build_intent_prompt(b.character, vk, b.scene, known)))
 
 @app.get("/works/{w}/consistency-flags")
 def flags_ep(w: str, status: str = "open", x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

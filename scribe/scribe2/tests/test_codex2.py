@@ -785,3 +785,14 @@ def test_p4_discipline_takes_known():
     assert ("已知" in p or "只知道" in p)
     # 不传 known 仍正常(向后兼容)
     assert "knowledge_leak" in build_discipline_prompt("正文", brief="b")
+
+
+def test_p5_intent_primitive():
+    """P5原语(niche set-piece 工具):角色意图 agent——只给该角色的知识,产出'说什么/做什么'意图
+    (天然知识隔离,物理上无法泄露他人私密);叙述者再渲染。不入默认生成流程。"""
+    from scribe2.critique import build_intent_prompt, parse_intent
+    p = build_intent_prompt("老道", "高傲狠厉的道士", "破庙里,老道追到焦三", known=["尸丹在焦三身上"])
+    assert "老道" in p and "尸丹在焦三身上" in p and ("意图" in p or "你会说" in p)
+    i = parse_intent('意图:\n{"says":"交出来,饶你不死","does":"拔剑逼近"}')
+    assert i["says"] == "交出来,饶你不死" and i["does"] == "拔剑逼近"
+    assert parse_intent("乱码") == {"says": "", "does": ""}   # 解析失败不阻断

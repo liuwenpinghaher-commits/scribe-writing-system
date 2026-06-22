@@ -302,3 +302,23 @@ def parse_knowledge_delta(reply: str) -> dict:
         return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or [])}
     except Exception:
         return {"learned": [], "did": []}
+
+
+# ==== P5 意图 agent 原语(niche:不对称信息 set-piece;天然知识隔离,不入默认生成流程)====
+def build_intent_prompt(name: str, voice_kernel: str, scene: str, known: list | None = None) -> str:
+    kf = "；".join(known) if known else "(只有你自己的内核与本场亲眼所见)"
+    return (
+        f"你就是【{name}】。你的声音/内核:{voice_kernel}。\n"
+        f"你此刻【只知道】:{kf}——除此之外别人的私密心思、来历、动机你一概不知,不得提及。\n"
+        f"场景:{scene}\n"
+        "在这个场景里,以你的身份与你所知,你会【说什么、做什么】?不要写小说叙述,只给意图。\n"
+        '只输出 JSON:{"says":你要说的话,"does":你的动作}。')
+
+
+def parse_intent(reply: str) -> dict:
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        d = json.loads(m.group(0)) if m else {}
+        return {"says": (d.get("says") or "").strip(), "does": (d.get("does") or "").strip()}
+    except Exception:
+        return {"says": "", "does": ""}
