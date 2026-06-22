@@ -1,0 +1,54 @@
+"""scribe3 集成测试夹具:每个测试起一个临时内存 SurrealDB,返回已建 schema 的 SurrealStore。
+
+注意:项目路径含中文「写作 3.0」会让 surreal v3 子进程读环境时 panic(SIGABRT)。
+必须在纯 ASCII 的 cwd(/tmp)+ 净化环境下起服(沿用 scribe2 conftest 已验证的范式)。
+"""
+import os
+import shutil
+import socket
+import subprocess
+import time
+
+import pytest
+
+from scribe3.store import SurrealStore
+
+SURREAL_BIN = (os.environ.get("SURREAL_BIN") or shutil.which("surreal")
+               or os.path.expanduser("~/.surrealdb/surreal"))
+
+
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+@pytest.fixture()
+def store():
+    port = _free_port()
+    clean_env = {"PATH": "/usr/bin:/bin:/usr/local/bin",
+                 "HOME": os.path.expanduser("~"), "PWD": "/tmp"}
+    proc = subprocess.Popen(
+        [SURREAL_BIN, "start", "--no-banner", "--bind", f"127.0.0.1:{port}",
+         "--user", "root", "--pass", "root", "memory"],
+        cwd="/tmp", env=clean_env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    for _ in range(40):
+        if proc.poll() is not None:
+            raise RuntimeError(f"surreal 子进程启动失败,退出码 {proc.returncode}")
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.2)
+    st = SurrealStore(url=f"ws://127.0.0.1:{port}/rpc", ns="scribe3", db="test")
+    st.apply_schema()
+    try:
+        yield st
+    finally:
+        st.close()
+        proc.terminate()
+        proc.wait(timeout=5)

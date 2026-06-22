@@ -11,8 +11,11 @@ from __future__ import annotations
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge, World
 
 
-def luanshi_leak_world() -> World:
-    w = World()
+def luanshi_leak_world(w=None) -> World:
+    """填焦三/老道泄露场景。w 可传任意与 World 鸭子兼容的后端(如 SurrealStore),
+    不传则建内存 World。同一 canonical 场景可落内存或真库。"""
+    if w is None:
+        w = World()
     for eid, name in [("role:焦三", "焦三"), ("role:老道", "流云观皂衣道士"), ("role:阿萤", "阿萤")]:
         w.add_entity(Entity(eid, "character", name))
     w.add_entity(Entity("place:乱岗", "place", "乱葬岗"))

@@ -119,3 +119,6 @@ class World:
 
     def characters(self) -> list[Entity]:
         return [e for e in self.entities.values() if e.kind == "character"]
+
+    def events_at(self, chapter: int) -> list[Event]:
+        return [ev for ev in self.events.values() if ev.story_time == chapter]

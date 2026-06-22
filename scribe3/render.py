@@ -25,7 +25,7 @@ _CONSTRAINT = (
 
 
 def _events_at(world: World, chapter: int):
-    return [ev for ev in world.events.values() if ev.story_time == chapter]
+    return world.events_at(chapter)   # World 与 SurrealStore 都提供此方法(鸭子兼容)
 
 
 def build_render_prompt(world: World, chapter: int, focalizer: str) -> str:
