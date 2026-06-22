@@ -322,3 +322,35 @@ def parse_intent(reply: str) -> dict:
         return {"says": (d.get("says") or "").strip(), "does": (d.get("does") or "").strip()}
     except Exception:
         return {"says": "", "does": ""}
+
+
+# ==== 知识泄露外科式修(craft:专门 POV 修订 pass + 精修;纯 knowledge_leak 时改那一句、不截断)====
+def build_leak_fix_prompt(text: str, known: dict | None = None) -> str:
+    kb = ""
+    if known:
+        kb = "\n各角色截至本章已知:\n" + "\n".join(
+            f"  · {w}:{('、'.join(f[:8]) or '(仅其私密内核)')}" for w, f in known.items())
+    return (
+        "下面这段正文里,某个角色说出或表现出【他视角不可能知道的他人私密信息】(POV 穿帮),"
+        "例如刚追来的敌人报出主角给老娘治眼的花费。\n"
+        "找出那一句,改写成不泄露的版本(该角色只凭他真实所知与亲眼所见说话,删掉他不可能知道的私密),其余一字不动。" + kb +
+        '\n只输出 JSON:{"leaking":"原文里泄露的那一句(逐字)","fixed":"改写后的那一句"}。无泄露则两者都空。\n\n'
+        "【正文】\n" + text)
+
+
+def parse_leak_fix(reply: str) -> dict:
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        d = json.loads(m.group(0)) if m else {}
+        return {"leaking": (d.get("leaking") or "").strip(), "fixed": (d.get("fixed") or "").strip()}
+    except Exception:
+        return {"leaking": "", "fixed": ""}
+
+
+def surgical_fix_leak(text: str, complete_fn, known: dict | None = None) -> dict:
+    """纯 knowledge_leak 时的外科式修:定位泄露句→只改那一句→替换,保全章不截断
+    (这是把"专门 POV 修订 pass + 精修"这条职业方法自动化)。"""
+    r = parse_leak_fix(complete_fn(build_leak_fix_prompt(text, known)))
+    if r["leaking"] and r["fixed"] and r["leaking"] in text:
+        return {"text": text.replace(r["leaking"], r["fixed"]), "leaking": r["leaking"], "fixed": r["fixed"], "changed": True}
+    return {"text": text, "leaking": r["leaking"], "fixed": r["fixed"], "changed": False}

@@ -38,22 +38,30 @@ def _dedup(c):  # 存稿后跑确定性去重(字面+结构+升华),回传去重
 full = _dedup(full)
 print(f"去重→{len(full)}字")
 
-# 纪律门控:判官检语义违规→截到【首个】复发点+只补冷笔短收尾(续写整节必再复发,故只收尾)
+# 纪律门控:① 含 knowledge_leak → 外科式改那一句(不截断、保全章,craft 职业方法)
+#           ② 剩结构性违规(双高潮等)→ 截到首个复发点+冷笔短收尾(续写整节必再复发)
 BRIEF = INSTR0[:380]
 dc = cli.post(f"/works/{WID}/chapters/{SEQ}/discipline-check", json={"brief": BRIEF})
 v = dc.json() if dc.status_code < 300 else {"ok": True}
-if not v.get("ok") and v.get("cut_after"):
+viols = list(v.get("violations") or [])
+if "knowledge_leak" in viols:
+    lf = cli.post(f"/works/{WID}/chapters/{SEQ}/leak-fix", json={})
+    if lf.status_code < 300 and lf.json().get("changed"):
+        full = lf.json().get("text") or full
+        print(f"纪律:外科修泄露「{(lf.json().get('leaking') or '')[:24]}」→保全章")
+    viols = [x for x in viols if x != "knowledge_leak"]
+if viols and v.get("cut_after"):
     idx = full.find(v["cut_after"])
     if idx > 0:
         cut = full[:idx + len(v["cut_after"])]
-        print(f"纪律✗ {v.get('violations')} 复发@{idx}({idx*100//max(len(full),1)}%)→截断+冷收尾")
+        print(f"纪律✗ {viols} 复发@{idx}({idx*100//max(len(full),1)}%)→截断+冷收尾")
         rr = cli.post(f"/works/{WID}/chapters/{SEQ}/actions/continue",
                       json={"instruction": "用 2-4 句冷笔白描给这一章自然收束当前场景即可:绝不展开任何新情节/打斗/新角色/身世解说,只以一个不安的冷物象定格收尾。", "target_chars": 120, "prev": cut[-1000:]})
         ending = rr.json()["content"].strip() if rr.status_code < 300 else ""
         full = _dedup(cut + ("\n\n" + ending if ending else ""))
     else:
-        print(f"纪律✗ {v.get('violations')} 复发点未定位,保留原文")
-else:
+        print(f"纪律✗ {viols} 复发点未定位,保留原文")
+elif not viols:
     print("纪律✓ 守纪")
 
 _save(full)

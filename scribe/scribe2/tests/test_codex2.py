@@ -796,3 +796,22 @@ def test_p5_intent_primitive():
     i = parse_intent('意图:\n{"says":"交出来,饶你不死","does":"拔剑逼近"}')
     assert i["says"] == "交出来,饶你不死" and i["does"] == "拔剑逼近"
     assert parse_intent("乱码") == {"says": "", "does": ""}   # 解析失败不阻断
+
+
+def test_leak_surgical_fix():
+    """craft 验证的可靠层:纯 knowledge_leak 时外科式改那一句(不截断、保全章)。
+    build_leak_fix_prompt 定位+改写;parse 取{leaking,fixed};surgical_fix_leak 替换。"""
+    from scribe2.critique import build_leak_fix_prompt, parse_leak_fix, surgical_fix_leak
+    p = build_leak_fix_prompt("正文……", known={"老道": ["尸丹在焦三身上"]})
+    assert "私密" in p and "JSON" in p and "老道" in p
+    pr = parse_leak_fix('改:\n{"leaking":"够你老娘治三年眼","fixed":"够你下半辈子安生"}')
+    assert pr["leaking"] == "够你老娘治三年眼" and pr["fixed"] == "够你下半辈子安生"
+    assert parse_leak_fix("乱码") == {"leaking": "", "fixed": ""}
+    # surgical_fix_leak:命中则替换、保全章
+    text = "前文。老道说够你老娘治三年眼。后文。"
+    fake = lambda pr: '{"leaking":"够你老娘治三年眼","fixed":"够你下半辈子安生"}'
+    out = surgical_fix_leak(text, fake, {"老道": []})
+    assert out["changed"] and "治三年眼" not in out["text"] and "前文" in out["text"] and "后文" in out["text"]
+    # 未命中(改写句不在原文)→ 不动
+    fake2 = lambda pr: '{"leaking":"不存在的句","fixed":"x"}'
+    assert surgical_fix_leak(text, fake2, {})["changed"] is False

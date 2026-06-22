@@ -12,7 +12,7 @@ from .llm import hermes_complete, hermes_complete_stream, hermes_responses_event
 from .critique import (build_critique_prompt, parse_critique, critique_revise, revise_dedup,
                        build_discipline_prompt, parse_discipline,
                        build_knowledge_extract_prompt, parse_knowledge_delta,
-                       build_intent_prompt, parse_intent)
+                       build_intent_prompt, parse_intent, surgical_fix_leak)
 from .consistency import check_chapter
 from . import editorial as _ed
 
@@ -465,6 +465,20 @@ def discipline_check_ep(w: str, seq: int, b: DisciplineIn, x_owner_id: str | Non
     known = {c["name"]: d.character_known(w, c["name"], upto_chapter=seq)
              for c in chars if c.get("name")} or None
     return parse_discipline(_complete(build_discipline_prompt(text, b.brief, known)))
+
+@app.post("/works/{w}/chapters/{seq}/leak-fix")
+def leak_fix_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
+    """知识泄露外科式修(craft 职业方法:专门 POV pass+精修):定位泄露句→只改那一句→存稿,保全章不截断。"""
+    owner(x_owner_id)
+    text = _chapter_prose(d, w, seq)
+    if not text.strip():
+        raise HTTPException(400, "无正文")
+    chars = d.relevant_characters(w, seq) if hasattr(d, "relevant_characters") else d.list_characters(w)
+    known = {c["name"]: d.character_known(w, c["name"], upto_chapter=seq) for c in chars if c.get("name")} or None
+    res = surgical_fix_leak(text, _complete, known)
+    if res["changed"]:
+        d.save_prose(w, _cid(d, w, seq), res["text"], False)
+    return {"changed": res["changed"], "leaking": res["leaking"], "fixed": res["fixed"], "text": res["text"]}
 
 @app.post("/works/{w}/chapters/{seq}/check")
 def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
