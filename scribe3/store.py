@@ -216,8 +216,9 @@ class SurrealStore:
                      r.get("leak_markers", [])) for r in rows]
 
     def characters(self) -> list[Entity]:
-        rows = self._query("SELECT meta::id(id) AS local, name FROM character")
-        return [Entity(f"role:{r['local']}", "character", r["name"]) for r in rows]
+        rows = self._query("SELECT meta::id(id) AS local, name, backstory FROM character")
+        return [Entity(f"role:{r['local']}", "character", r["name"],
+                       traits={"backstory": r.get("backstory")}) for r in rows]
 
     def all_entities(self) -> list[Entity]:
         """角色 + 地点(前端结构面/实体清单用)。"""
@@ -251,6 +252,37 @@ class SurrealStore:
 
     def list_motifs(self) -> list[dict]:
         return self._query("SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM motif")
+
+    # --- 通用 增删改(设定库编辑用)---
+    def _update_by(self, table: str, local: str, fields: dict) -> None:
+        fields = {k: v for k, v in fields.items() if v is not None}
+        if not fields:
+            return
+        sets = ", ".join(f"{k}=${k}" for k in fields)
+        self._execute_write(f"UPDATE type::record('{table}',$_l) SET {sets}", {"_l": local, **fields})
+
+    def _delete_by(self, table: str, local: str) -> None:
+        self._execute_write(f"DELETE type::record('{table}',$_l)", {"_l": local})
+
+    def update_record(self, oid: str, fields: dict) -> None:
+        t, l = _split(oid)
+        self._update_by(t, l, fields)
+
+    def delete_record(self, oid: str) -> None:
+        t, l = _split(oid)
+        self._delete_by(t, l)
+
+    def update_promise(self, pid: str, fields: dict) -> None:
+        self._update_by("promise", pid, fields)
+
+    def delete_promise(self, pid: str) -> None:
+        self._delete_by("promise", pid)
+
+    def update_motif(self, mid: str, fields: dict) -> None:
+        self._update_by("motif", mid, fields)
+
+    def delete_motif(self, mid: str) -> None:
+        self._delete_by("motif", mid)
 
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:

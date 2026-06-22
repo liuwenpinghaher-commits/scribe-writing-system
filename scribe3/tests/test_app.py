@@ -72,3 +72,26 @@ def test_quality_endpoint(store):
     store.save_chapter(1, "一段正常的志怪内容。", title="一")
     q = _client(store).get("/quality").json()
     assert q["chapters"][0]["seq"] == 1 and "foreshadow" in q and "total_words" in q
+
+
+def test_character_crud(store):
+    c = _client(store)
+    c.post("/characters", json={"name": "测角", "backstory": "前史A"})
+    es = c.get("/entities").json()
+    me = next((e for e in es if e["name"] == "测角"), None)
+    assert me and me["backstory"] == "前史A"
+    c.patch("/characters/测角", json={"name": "测角", "backstory": "前史B"})
+    me2 = next(e for e in c.get("/entities").json() if e["name"] == "测角")
+    assert me2["backstory"] == "前史B"
+    c.delete("/characters/测角")
+    assert not any(e["name"] == "测角" for e in c.get("/entities").json())
+
+
+def test_motif_crud(store):
+    c = _client(store)
+    c.post("/motifs-new", json={"name": "雪", "theme": "肃杀"})
+    m = c.get("/motifs").json()[0]
+    c.patch(f"/motifs/{m['id']}", json={"name": "雪", "theme": "纯白", "echoes": "", "unfolding": ""})
+    assert c.get("/motifs").json()[0]["theme"] == "纯白"
+    c.delete(f"/motifs/{m['id']}")
+    assert c.get("/motifs").json() == []

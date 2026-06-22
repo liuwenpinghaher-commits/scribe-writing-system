@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
+from scribe3.ontology import Entity, Fact
 from scribe3.render import render
 from scribe3.store import SurrealStore, create_work, delete_work, list_works, rename_work
 from scribe3.verify import causal_complete
@@ -92,7 +93,8 @@ def remove_work(slug: str):
 # ===== 读(按书)=====
 @app.get("/entities")
 def entities(work: str = "main"):
-    return [{"id": e.id, "kind": e.kind, "name": e.name} for e in _store_for(work).all_entities()]
+    return [{"id": e.id, "kind": e.kind, "name": e.name, "backstory": e.traits.get("backstory")}
+            for e in _store_for(work).all_entities()]
 
 
 @app.get("/facts")
@@ -134,6 +136,109 @@ def promises(work: str = "main"):
 @app.get("/motifs")
 def motifs(work: str = "main"):
     return _store_for(work).list_motifs()
+
+
+# ===== 设定库 增删改(作者直编,不经 elicitation;非世界状态级别的 agent 写)=====
+class CharIn(BaseModel):
+    name: str
+    backstory: str | None = None
+
+
+@app.post("/characters")
+def add_char(c: CharIn, work: str = "main"):
+    _store_for(work).add_entity(Entity(f"role:{c.name}", "character", c.name, traits={"backstory": c.backstory}))
+    return {"ok": True, "oid": f"role:{c.name}"}
+
+
+@app.patch("/characters/{local}")
+def edit_char(local: str, c: CharIn, work: str = "main"):
+    _store_for(work).update_record(f"role:{local}", {"name": c.name, "backstory": c.backstory})
+    return {"ok": True}
+
+
+@app.delete("/characters/{local}")
+def del_char(local: str, work: str = "main"):
+    _store_for(work).delete_record(f"role:{local}")
+    return {"ok": True}
+
+
+class FactIn(BaseModel):
+    entity: str
+    attribute: str
+    value: str
+    valid_from: int = 1
+    secret: bool = False
+
+
+@app.post("/facts")
+def add_fact_ep(f: FactIn, work: str = "main"):
+    import uuid
+    oid = f"fact:{uuid.uuid4().hex[:8]}"
+    _store_for(work).add_fact(Fact(oid, f.entity, f.attribute, f.value, f.valid_from, secret=f.secret))
+    return {"ok": True, "oid": oid}
+
+
+@app.patch("/facts/{local}")
+def edit_fact(local: str, f: FactIn, work: str = "main"):
+    _store_for(work).update_record(f"fact:{local}", {"entity": f.entity, "attribute": f.attribute,
+                                                     "value": f.value, "secret": f.secret})
+    return {"ok": True}
+
+
+@app.delete("/facts/{local}")
+def del_fact(local: str, work: str = "main"):
+    _store_for(work).delete_record(f"fact:{local}")
+    return {"ok": True}
+
+
+class PromIn(BaseModel):
+    text: str
+    setup_chapter: int = 1
+    kind: str = "promise"
+
+
+@app.post("/promises-new")
+def add_prom(p: PromIn, work: str = "main"):
+    _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.kind)
+    return {"ok": True}
+
+
+@app.patch("/promises/{pid}")
+def edit_prom(pid: str, p: PromIn, work: str = "main"):
+    _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.kind})
+    return {"ok": True}
+
+
+@app.delete("/promises/{pid}")
+def del_prom(pid: str, work: str = "main"):
+    _store_for(work).delete_promise(pid)
+    return {"ok": True}
+
+
+class MotifIn(BaseModel):
+    name: str
+    theme: str = ""
+    echoes: str = ""
+    unfolding: str = ""
+
+
+@app.post("/motifs-new")
+def add_motif_ep(m: MotifIn, work: str = "main"):
+    _store_for(work).add_motif(m.name, m.theme, m.echoes, m.unfolding)
+    return {"ok": True}
+
+
+@app.patch("/motifs/{mid}")
+def edit_motif(mid: str, m: MotifIn, work: str = "main"):
+    _store_for(work).update_motif(mid, {"name": m.name, "theme": m.theme, "echoes": m.echoes,
+                                        "unfolding": m.unfolding})
+    return {"ok": True}
+
+
+@app.delete("/motifs/{mid}")
+def del_motif(mid: str, work: str = "main"):
+    _store_for(work).delete_motif(mid)
+    return {"ok": True}
 
 
 @app.get("/graph")

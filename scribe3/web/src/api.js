@@ -9,6 +9,10 @@ const post = (p, body) => fetch(BASE + ww(p), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
 }).then((r) => r.json())
+const patch = (p, body) => fetch(BASE + ww(p), {
+  method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}).then((r) => r.json())
+const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then((r) => r.json())
 
 export const api = {
   setWork: (w) => { WORK = w },
@@ -31,6 +35,20 @@ export const api = {
   motifs: () => j('/motifs'),
   graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
   quality: () => j('/quality'),
+
+  // 设定库增删改
+  addChar: (b) => post('/characters', b),
+  editChar: (local, b) => patch('/characters/' + enc(local), b),
+  delChar: (local) => del('/characters/' + enc(local)),
+  addFact: (b) => post('/facts', b),
+  editFact: (local, b) => patch('/facts/' + enc(local), b),
+  delFact: (local) => del('/facts/' + enc(local)),
+  addPromiseNew: (b) => post('/promises-new', b),
+  editPromise: (pid, b) => patch('/promises/' + enc(pid), b),
+  delPromise: (pid) => del('/promises/' + enc(pid)),
+  addMotifNew: (b) => post('/motifs-new', b),
+  editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
+  delMotif: (mid) => del('/motifs/' + enc(mid)),
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
