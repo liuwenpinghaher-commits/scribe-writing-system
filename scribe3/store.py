@@ -170,6 +170,11 @@ class SurrealStore:
         return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
+    def max_chapter(self) -> int:
+        """有事件的最大章号(体检确定扫描范围);无事件→0。"""
+        rows = self._query("SELECT valid_from FROM event ORDER BY valid_from DESC LIMIT 1")
+        return rows[0]["valid_from"] if rows else 0
+
     def events_at(self, chapter: int) -> list[Event]:
         rows = self._query(
             "SELECT meta::id(id) AS local, etype, valid_from, motivated_by_goal "

@@ -31,5 +31,11 @@ scribe/.venv/bin/python -m pytest scribe3/ -q          # 12 passed(结构证明�
 scribe/.venv/bin/python -u -m scribe3.demo             # 端到端 A/B(Hermes :8642 在线则真机渲染)
 ```
 
+## 运维(S4):体检 cron + 分章并行
+- **体检 cron**(已注册,隔离在 scribe3 profile):`hermes --profile scribe3 cron list` 见 `scribe3-体检`(每 6h,`--no-agent` watchdog)。脚本 `qc_scan.py`(经 `~/.hermes/scripts/scribe3_qc.sh`)连 NS=scribe3 跑 `health_report`(跨章 `causal_complete`),干净=空 stdout=静默,有问题才交付报告。纯机械检查不耗 LLM。
+  - ⚠ **自动定时触发需起 scribe3 gateway**(default 的 gateway 在 :8642,scribe3 profile 的没跑);脚本本身已真库验证。手动触发:`hermes --profile scribe3 cron run scribe3-体检`。
+  - 可扩展:`health.py` 现只聚合连贯性,后续加伏笔超期/跨章泄露/声音一致性。
+- **分章并行**:用 Hermes 原生 **kanban**(`auto_decompose`),别自建调度。scribe3 profile 已带 description 供 kanban decomposer 路由。模式:把"写第 N..M 章"丢给 kanban → 分解成多个章任务 → 各 dispatch 给 scribe3 主编(继承 s3_ 工具)并行写。(需 gateway 运行;交互流,未在此跑通。)
+
 ## 下一步(未建)
 纵切片证明范式后,按规划文档扩建:双时态 SurrealDB 持久层 → 三帧并存 + 戏剧反讽查询 → 写作台 v2 双表面(W1 散文面+回链 → W6 掌控契约)。移植 scribe2 已验证资产(16 处 QC 纯函数 / craft 知识 / 乱世铜炉+拾骨记数据迁移 / B3 写审批)。
