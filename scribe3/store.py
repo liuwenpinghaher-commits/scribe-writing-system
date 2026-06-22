@@ -178,6 +178,22 @@ class SurrealStore:
         return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
+    # --- 章节正文(manuscript)---
+    def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
+        """落/覆盖某章正文(UPSERT)。manuscript 是作者草稿,不经 elicitation 待批。"""
+        self._execute_write(
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
+            "focalizer=$foc, prose=$prose",
+            {"seq": seq, "title": title, "foc": focalizer, "prose": prose})
+
+    def get_chapter(self, seq: int) -> dict | None:
+        rows = self._query("SELECT seq,title,focalizer,prose FROM type::record('chapter',$seq)",
+                           {"seq": seq})
+        return rows[0] if rows else None
+
+    def list_chapters(self) -> list[dict]:
+        return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+
     def max_chapter(self) -> int:
         """有事件的最大章号(体检确定扫描范围);无事件→0。"""
         rows = self._query("SELECT valid_from FROM event ORDER BY valid_from DESC LIMIT 1")

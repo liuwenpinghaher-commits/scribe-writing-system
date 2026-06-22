@@ -81,6 +81,37 @@ def recall(q: str, k: int = 5):
     return _facts(_store.semantic_recall(q, k))
 
 
+@app.get("/chapters")
+def chapters():
+    return _store.list_chapters()
+
+
+@app.get("/chapter")
+def get_chapter(seq: int):
+    return _store.get_chapter(seq) or {}
+
+
+@app.get("/qc")
+def qc(seq: int):
+    """对某章正文跑确定性 QC(复读/排比/升华)。"""
+    from scribe3.critique import quality_flags
+    ch = _store.get_chapter(seq)
+    return quality_flags(ch["prose"]) if ch else {}
+
+
+class SaveChapterReq(BaseModel):
+    seq: int
+    prose: str
+    title: str = ""
+    focalizer: str | None = None
+
+
+@app.post("/save-chapter")
+def save_chapter(req: SaveChapterReq):
+    _store.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    return {"status": "saved", "seq": req.seq}
+
+
 class RenderReq(BaseModel):
     focalizer: str
     chapter: int

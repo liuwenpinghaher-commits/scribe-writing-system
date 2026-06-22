@@ -102,6 +102,28 @@ def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
     return [{"id": f.id, "value": f.value} for f in dramatic_irony(_store, focalizer, chapter)]
 
 
+@mcp.tool(annotations=_RO)
+def s3_get_chapter(seq: int) -> dict:
+    """读某章正文(manuscript)。"""
+    return _store.get_chapter(seq) or {}
+
+
+@mcp.tool(annotations=_RO)
+def s3_qc_chapter(seq: int) -> dict:
+    """对某章正文跑确定性 QC(跨段复读/排比开头/升华句)——渲染层兜底。"""
+    from scribe3.critique import quality_flags
+    ch = _store.get_chapter(seq)
+    return quality_flags(ch["prose"]) if ch else {}
+
+
+# ===== manuscript 写(草稿,直接写,不待批——非世界状态)=====
+@mcp.tool(annotations=_RW)
+def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None) -> dict:
+    """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。"""
+    _store.save_chapter(seq, prose, title=title, focalizer=focalizer)
+    return {"status": "saved", "seq": seq}
+
+
 # ===== 写工具(elicitation 待批 → store 单点)=====
 @mcp.tool(annotations=_RW)
 async def s3_add_character(ctx: Context, oid: str, name: str) -> dict:

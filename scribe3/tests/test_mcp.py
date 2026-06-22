@@ -10,8 +10,9 @@ import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge"}
+EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_READ = {"s3_project_frame", "s3_render_scene", "s3_find_leaks", "s3_causal_complete",
-                 "s3_dramatic_irony", "s3_semantic_recall"}
+                 "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter"}
 
 
 def test_write_gated_set_no_drift():
@@ -21,8 +22,8 @@ def test_write_gated_set_no_drift():
 def test_requires_approval():
     for w in EXPECTED_WRITE_GATED:
         assert M.requires_approval(w) is True, f"{w} 应需批准"
-    for r in EXPECTED_READ:
-        assert M.requires_approval(r) is False, f"{r} 应放行"
+    for r in EXPECTED_READ | EXPECTED_WRITE_UNGATED:
+        assert M.requires_approval(r) is False, f"{r} 应放行(读或草稿)"
 
 
 def test_commit_if_approved_accept_writes():
@@ -58,14 +59,14 @@ def test_read_tool_find_leaks(store):
 
 def test_tools_discoverable_and_annotated():
     tools = {t.name: t for t in asyncio.run(M.mcp.list_tools())}
-    assert EXPECTED_WRITE_GATED | EXPECTED_READ <= set(tools), \
-        f"缺工具: {(EXPECTED_WRITE_GATED | EXPECTED_READ) - set(tools)}"
+    want = EXPECTED_WRITE_GATED | EXPECTED_WRITE_UNGATED | EXPECTED_READ
+    assert want <= set(tools), f"缺工具: {want - set(tools)}"
     for name in EXPECTED_READ:
         ann = tools[name].annotations
         ro = getattr(ann, "readOnlyHint", None) if ann else None
         if ro is not None:
             assert ro is True, f"{name} 应注 readOnlyHint=True"
-    for name in EXPECTED_WRITE_GATED:
+    for name in EXPECTED_WRITE_GATED | EXPECTED_WRITE_UNGATED:
         ann = tools[name].annotations
         ro = getattr(ann, "readOnlyHint", None) if ann else None
         if ro is not None:

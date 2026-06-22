@@ -22,6 +22,8 @@ export default function App() {
   const [rendering, setRendering] = useState(false)
   const [tick, setTick] = useState(0)        // SSE 变更计数:任一表变 → +1 → 各视图重取
   const [live, setLive] = useState(false)
+  const [qc, setQc] = useState(null)
+  const [saved, setSaved] = useState(false)
 
   // 订阅 NS=scribe3 变更(开一次;改一处处处同步)
   useEffect(() => {
@@ -44,6 +46,19 @@ export default function App() {
     api.getEvents(chapter).then(setEvents)
     api.getCausal(chapter).then(setCausal)
   }, [chapter, tick])
+
+  // 载入已存章正文 + QC
+  useEffect(() => {
+    setSaved(false)
+    api.getChapter(chapter).then((ch) => { if (ch && ch.prose) setProse(ch.prose) })
+    api.getQc(chapter).then(setQc)
+  }, [chapter])
+
+  const save = async () => {
+    await api.saveChapter(chapter, prose, '', focalizer)
+    setSaved(true)
+    api.getQc(chapter).then(setQc)
+  }
 
   useEffect(() => {
     if (!focalizer) return
@@ -115,6 +130,10 @@ export default function App() {
               style={{ marginLeft: 'auto', background: rendering ? C.line : C.accent, color: '#1a1a1e', border: 'none', borderRadius: 6, padding: '6px 16px', fontWeight: 600, cursor: rendering ? 'wait' : 'pointer' }}>
               {rendering ? '渲染中…' : '渲染本场'}
             </button>
+            <button onClick={save} disabled={!prose || rendering}
+              style={{ marginLeft: 8, background: saved ? '#6db07a' : C.panel, color: saved ? '#1a1a1e' : C.text, border: `1px solid ${C.line}`, borderRadius: 6, padding: '6px 14px', cursor: prose ? 'pointer' : 'default' }}>
+              {saved ? '已存 ✓' : '保存本章'}
+            </button>
           </div>
           <div style={{ color: C.dim, fontSize: 12, margin: '8px 0' }}>
             {focName} 此刻所知（渲染只能用这些，帧外私密写不出）：{frame.map((f) => f.value).join(' · ') || '（空）'}
@@ -134,6 +153,15 @@ export default function App() {
           <div style={{ color: C.dim, fontSize: 12, margin: '12px 0 6px' }}>戏剧反讽（读者知 · {focName}不知）</div>
           {irony.length === 0 ? <div style={{ color: C.dim }}>（无）</div>
             : irony.map((f) => <div key={f.id} style={{ color: C.irony, fontSize: 13, padding: '3px 0' }}>◆ {f.value}</div>)}
+          <div style={{ color: C.dim, fontSize: 12, margin: '12px 0 6px' }}>质检(确定性,本章已存正文)</div>
+          {!qc ? <div style={{ color: C.dim }}>—</div>
+            : (qc.repetition?.length || qc.structural?.length || qc.purple?.length)
+              ? <div style={{ fontSize: 13 }}>
+                  {qc.repetition?.length > 0 && <div style={{ color: C.danger }}>⚠ 跨段复读 {qc.repetition.length} 处</div>}
+                  {qc.structural?.length > 0 && <div style={{ color: C.danger }}>⚠ 排比/短句 {qc.structural.length} 处</div>}
+                  {qc.purple?.length > 0 && <div style={{ color: C.danger }}>⚠ 升华句 {qc.purple.length} 处</div>}
+                </div>
+              : <div style={{ color: '#6db07a' }}>✓ 干净</div>}
         </section>
       </div>
     </div>
