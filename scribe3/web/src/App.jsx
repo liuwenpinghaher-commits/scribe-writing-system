@@ -20,6 +20,16 @@ export default function App() {
   const [irony, setIrony] = useState([])
   const [prose, setProse] = useState('')
   const [rendering, setRendering] = useState(false)
+  const [tick, setTick] = useState(0)        // SSE 变更计数:任一表变 → +1 → 各视图重取
+  const [live, setLive] = useState(false)
+
+  // 订阅 NS=scribe3 变更(开一次;改一处处处同步)
+  useEffect(() => {
+    const es = api.openLive(() => setTick((t) => t + 1))
+    es.onopen = () => setLive(true)
+    es.onerror = () => setLive(false)
+    return () => es.close()
+  }, [])
 
   useEffect(() => {
     api.getEntities().then((es) => {
@@ -27,19 +37,19 @@ export default function App() {
       const chars = es.filter((e) => e.kind === 'character')
       if (chars.length) setFocalizer((f) => f || chars[0].id)
     })
-  }, [])
+  }, [tick])
 
   useEffect(() => {
     api.getFacts(chapter).then(setFacts)
     api.getEvents(chapter).then(setEvents)
     api.getCausal(chapter).then(setCausal)
-  }, [chapter])
+  }, [chapter, tick])
 
   useEffect(() => {
     if (!focalizer) return
     api.getFrame(focalizer, chapter).then(setFrame)
     api.getIrony(focalizer, chapter).then(setIrony)
-  }, [focalizer, chapter])
+  }, [focalizer, chapter, tick])
 
   const render = async () => {
     setRendering(true)
@@ -63,6 +73,8 @@ export default function App() {
       <header style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 16px', borderBottom: `1px solid ${C.line}` }}>
         <strong style={{ color: C.accent }}>scribe3 · 写作台 v2</strong>
         <span style={{ color: C.dim, fontSize: 13 }}>NS=scribe3 · 限知靠知识帧投影</span>
+        <span title={live ? 'LIVE 已连(改一处处处同步)' : 'LIVE 未连'}
+          style={{ fontSize: 12, color: live ? '#6db07a' : C.dim }}>● {live ? 'LIVE' : '离线'}</span>
         <span style={{ marginLeft: 'auto' }}>章
           <input type="number" min={1} value={chapter} onChange={(e) => setChapter(+e.target.value || 1)}
             style={{ width: 56, marginLeft: 6, background: C.panel, color: C.text, border: `1px solid ${C.line}`, borderRadius: 4, padding: '2px 6px' }} />

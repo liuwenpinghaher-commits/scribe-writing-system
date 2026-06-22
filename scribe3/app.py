@@ -6,11 +6,15 @@
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from scribe3.knowledge import dramatic_irony, project_frame
+from scribe3.live import live_stream
 from scribe3.render import render
 from scribe3.verify import causal_complete
 
@@ -86,6 +90,17 @@ class RenderReq(BaseModel):
 def do_render(req: RenderReq):
     """以 focalizer 限知视角渲染本章 sjuzhet(走知识帧投影,帧外私密不进 prompt)。"""
     return {"prose": render(_store, req.chapter, req.focalizer, complete_fn=_complete_fn)}
+
+
+_LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows"]
+
+
+@app.get("/live")
+async def live():
+    """SSE:NS=scribe3 任一表变更 → 推给前端(改一处处处同步)。"""
+    url = os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
+    return StreamingResponse(live_stream(url, "scribe3", "main", _LIVE_TABLES),
+                             media_type="text/event-stream")
 
 
 def main() -> None:
