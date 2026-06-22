@@ -26,8 +26,9 @@ metadata:
 1. **设计 fabula**:把本章要发生的事建成 `s3_add_event`(挂 motivated_by_goal);相关状态建 `s3_add_fact`(私密底细置 `secret=true`)。
 2. **冻结知识帧**:选本场 **focalizer**(一场一 POV,不 head-hop)→ `s3_project_frame(focalizer, 章)` 看他此刻知道什么。这就是渲染能用的全部事实。
 3. **渲染 sjuzhet**:`s3_render_scene(focalizer, 章)`——只吃知识帧,帧外私密绝不出现。直接出正文,不要元叙述。
-4. **校验(查询非判官)**:`s3_find_leaks`(兜底扫泄露)+ `s3_causal_complete`(因果完整)。有泄露→定向改那一句,不整章重来。
-5. **落库(待批)**:章内新发生的事实/知识用 `s3_add_fact`/`s3_record_knowledge` 记(看见即知道:在场者才获知)——会弹批准。
+4. **存稿**:`s3_save_chapter`(草稿,直接存,不待批)。
+5. **QC 闸(按序)**:`s3_qc_chapter`(确定性:复读/排比/升华→定向删)→ `s3_discipline_check`(LLM 判官:双高潮/声音崩/解说倾泻,确定性盲区;违规且复发点靠后→截到 cut_after,太早则交回重写)→ `s3_find_leaks`(兜底扫 POV 泄露)。
+6. **落库世界(待批)**:章内新发生的事实/知识用 `s3_add_fact`/`s3_record_knowledge` 记(看见即知道:在场者才获知)；埋/收伏笔用 `s3_plant_promise`/`s3_advance_promise`——均弹批准。
 
 ## 写作纪律(craft)
 - show 不 tell;去 AI 腔(禁"嘴角勾起/眼底闪过/命运的齿轮");冷笔动作收尾,不喊升华口号。

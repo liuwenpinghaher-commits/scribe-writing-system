@@ -123,6 +123,18 @@ def s3_qc_chapter(seq: int) -> dict:
     return quality_flags(ch["prose"]) if ch else {}
 
 
+@mcp.tool(annotations=_RO)
+def s3_discipline_check(seq: int, brief: str = "") -> dict:
+    """LLM 纪律判官(走 Hermes):判本章 双高潮/声音崩/解说倾泻(确定性检测的盲区)。
+    返回 {ok, violations, cut_after, changed, text(若可截)};不自动写,作者/主编决定是否应用。"""
+    from scribe3.critique import discipline_truncate
+    from scribe3.llm import hermes_complete
+    ch = _store.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        return {"ok": True, "violations": []}
+    return discipline_truncate(ch["prose"], brief, hermes_complete)
+
+
 # ===== manuscript 写(草稿,直接写,不待批——非世界状态)=====
 @mcp.tool(annotations=_RW)
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None) -> dict:

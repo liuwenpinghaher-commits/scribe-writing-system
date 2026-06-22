@@ -14,7 +14,7 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_READ = {"s3_project_frame", "s3_render_scene", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
-                 "s3_list_promises"}
+                 "s3_list_promises", "s3_discipline_check"}
 
 
 def test_write_gated_set_no_drift():

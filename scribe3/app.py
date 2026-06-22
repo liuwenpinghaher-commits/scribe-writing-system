@@ -116,6 +116,17 @@ def qc(seq: int):
     return quality_flags(ch["prose"]) if ch else {}
 
 
+@app.get("/discipline")
+def discipline(seq: int, brief: str = ""):
+    """LLM 纪律判官(走 Hermes):双高潮/声音崩/解说倾泻。"""
+    from scribe3.critique import discipline_truncate
+    from scribe3.llm import hermes_complete
+    ch = _store.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        return {"ok": True, "violations": []}
+    return discipline_truncate(ch["prose"], brief, hermes_complete)
+
+
 class SaveChapterReq(BaseModel):
     seq: int
     prose: str

@@ -53,8 +53,9 @@ cd scribe3/web && npm install && npm run dev     # 前端 :3311(与 scribe2 的 
 一次性迁移(只读 scribe2,不动原库):`scribe3/.venv/bin/python -m scribe3.migrate 93fbc560d36644319b42f5565ca00091`
 - **已迁**:乱世铜炉·设定参照 6 角色(name+backstory)、27 设定(→ proposition,公开世界知识 grant_public 给所有角色,渲染可用,语义索引建好可召回)。NS=scribe3 现装真设定库。
 - **已补(S7)**:✓ 章节正文持久化(chapter 表 + 散文面渲染→保存)✓ 确定性 QC(find_repetitions/structural/purple + /qc + 校验面)✓ **伏笔/promise + 超期告警**(plant/advance + 体检 flag 超期 + 校验面;无竞品做的护城河)。已迁入乱世铜炉 6角色+27设定+**17伏笔**。
-- **仍缺**(诚实 parity 缺口):母题 16(无 motif)、char_state 154(未映射成知识边)、事件/因果合成、生成章节回写成事件/知识、LLM 语义判官(discipline:双高潮/声音崩,scribe3 仅确定性 QC + find_leaks/causal)。
-- **切换建议:仍不切默认 profile**。scribe3 已可世界观探索 + 限知渲染 + 反讽/语义召回 + 章节存取 + 确定性QC + 伏笔超期(真数据),但完整替代 scribe2 还需:母题、char_state 映射、章节回写、LLM 语义判官。**保留 scribe2 为生产默认,直到补齐再切。**
+- **已补(S7③)**:✓ LLM 语义判官 discipline(双高潮/声音崩/解说倾泻 + 复发点截断;确定性检测的盲区)→ s3_discipline_check / /discipline。**双层 QC(确定性 + 语义判官)齐了。**
+- **仍缺**(诚实 parity 缺口):母题 16(无 motif)、char_state 154(未映射成知识边)、事件/因果合成、生成章节回写成事件/知识。
+- **切换建议:仍不切默认 profile**。scribe3 已可世界观探索 + 限知渲染 + 反讽/语义召回 + 章节存取 + 双层QC + 伏笔超期(真数据),但完整替代 scribe2 还需:母题、char_state 映射、章节回写。**保留 scribe2 为生产默认,直到补齐再切。**
 
 ## 下一步(未建)
 纵切片证明范式后,按规划文档扩建:双时态 SurrealDB 持久层 → 三帧并存 + 戏剧反讽查询 → 写作台 v2 双表面(W1 散文面+回链 → W6 掌控契约)。移植 scribe2 已验证资产(16 处 QC 纯函数 / craft 知识 / 乱世铜炉+拾骨记数据迁移 / B3 写审批)。
