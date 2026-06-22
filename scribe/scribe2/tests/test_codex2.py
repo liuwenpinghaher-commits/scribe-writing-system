@@ -741,3 +741,37 @@ def test_p2_nonpov_private_kernel_tagged(db):
     ctx = build_writing_context(d, w, 1)
     assert "私密" in ctx and "他人不知" in ctx          # 非POV(老道)内核被打私密标签
     assert "知识边界" in ctx                            # 本章知识边界块
+
+
+def test_p3_knowledge_ledger(db):
+    """P3知识账本(单一真相源):记每章谁新知道什么→character_known 累加;upto 限制不剧透未来。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书")
+    d.record_knowledge_delta(w, 1, learned=[{"who": "焦三", "fact": "尸丹会反噬"}],
+                             did=[{"who": "焦三", "action": "取丹", "seen_by": ["阿萤"]}])
+    d.record_knowledge_delta(w, 2, learned=[{"who": "焦三", "fact": "阿萤被烧家"}], did=[])
+    known2 = d.character_known(w, "焦三", upto_chapter=2)
+    assert "尸丹会反噬" in known2 and "阿萤被烧家" in known2
+    known1 = d.character_known(w, "焦三", upto_chapter=1)            # 只到第1章
+    assert "尸丹会反噬" in known1 and "阿萤被烧家" not in known1     # 不含未来章
+
+
+def test_p3_known_facts_injected(db):
+    """P3注入:写作上下文按知识账本注入 POV 角色截至上一章的已知事实(单一真相源被真正用上)。"""
+    d = domain_from(db); d.s.init_schema()
+    w = d.create_work("书"); d.add_chapter(w, 1, "一"); d.add_chapter(w, 2, "二")
+    d.add_character(w, "焦三", want="攒钱治眼")
+    d.record_knowledge_delta(w, 1, learned=[{"who": "焦三", "fact": "尸丹取了会反噬"}])
+    ctx = build_writing_context(d, w, 2)        # 写第2章
+    assert "尸丹取了会反噬" in ctx               # 焦三截至第1章的已知被注入
+
+
+def test_p3_knowledge_extract_parse():
+    """P3 ingest 抽 delta 的确定性核心:从本章正文抽'谁新知道什么/做了什么'的 prompt+解析。"""
+    from scribe2.critique import build_knowledge_extract_prompt, parse_knowledge_delta
+    p = build_knowledge_extract_prompt("本章正文……")
+    assert "新知道" in p and "JSON" in p
+    d = parse_knowledge_delta('判定\n{"learned":[{"who":"焦三","fact":"尸丹会反噬"}],'
+                              '"did":[{"who":"焦三","action":"取丹","seen_by":["阿萤"]}]}\n完')
+    assert d["learned"][0]["fact"] == "尸丹会反噬" and d["did"][0]["who"] == "焦三"
+    assert parse_knowledge_delta("一团乱码") == {"learned": [], "did": []}   # 解析失败不阻断

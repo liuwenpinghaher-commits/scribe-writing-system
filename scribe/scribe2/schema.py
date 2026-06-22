@@ -12,6 +12,7 @@ STRUCT_TABLES = ["work", "volume", "snapshot", "segment", "author_intent",
                  "insight", "thread", "entity_relation", "char_state",
                  "agent_memory", "agent_skill", "timeline_event", "pending_write",
                  "chapter_task", "entity_beat",  # 统一线模型:通用实体逐章节点
+                 "knowledge_ledger",  # 知识边界:每章各角色新知/所为 delta(单一真相源)
                  # 划词交互:批注/旁注 + 高亮标记(锚在选中文字 quote 上)
                  "annotation", "highlight"]
 

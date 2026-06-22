@@ -75,10 +75,14 @@ def build_writing_context(d, work: str, seq: int) -> str:
         pov = chars[0].get("name", "")   # POV=本章首个相关角色(主角约定);其内心读者可知,他人内核为私密
         parts.append("【须保持一致的角色(声音/样本/矛盾不可漂移)】" + "；".join(_c(c, c.get("name") == pov) for c in chars[:15]))
         others = [c.get("name") for c in chars[1:15] if c.get("name")]
-        if others:
-            parts.append(f"【本章知识边界】视角=「{pov}」(其内心/私密读者可知)。其余角色({'、'.join(others[:8])})的"
-                         "内核/动机/私密前史是各自私密——只驱动其本人言行;严禁让他们说出或表现出知晓「" + pov +
-                         "」或彼此的私密底细(如刚追来的敌人不可能报出主角给家人治病的花费)。角色只凭场内真实见闻说话。")
+        # P3 单一真相源:POV 角色截至上一章的已知事实(知识账本累加)
+        known = d.character_known(work, pov, upto_chapter=seq - 1) if hasattr(d, "character_known") else []
+        if others or known:
+            kb = (f"｜「{pov}」截至上一章已知:" + "、".join(known[:8])) if known else ""
+            ob = (f"其余角色({'、'.join(others[:8])})的内核/动机/私密前史是各自私密——只驱动其本人言行;"
+                  "严禁让他们说出或表现出知晓「" + pov + "」或彼此的私密底细(如刚追来的敌人不可能报出主角给家人治病的花费);"
+                  ) if others else ""
+            parts.append(f"【本章知识边界】视角=「{pov}」(其内心/私密读者可知)。{ob}角色只凭场内真实见闻说话。{kb}")
 
     # P1 前史·冰山:预设角色前史是 canonical(你知全貌),落笔只露 1/8——根治"现编前史前后不一"
     bs = [(c.get("name"), (c.get("backstory") or "").strip()) for c in chars]

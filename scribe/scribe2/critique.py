@@ -278,3 +278,22 @@ def discipline_truncate(text: str, brief: str, complete_fn) -> dict:
     if len(cut) < len(text) * 0.4:   # 守护:复发太早,砍了剩太少→只标记,交回重生
         return {"text": text, "violations": v["violations"], "changed": False, "cut_after": v["cut_after"]}
     return {"text": cut, "violations": v["violations"], "changed": True}
+
+
+# ==== 知识账本抽取(定稿时抽"本章谁新知道什么/做了什么",喂单一真相源)====
+def build_knowledge_extract_prompt(prose: str) -> str:
+    return (
+        "读下面一章小说正文,抽取本章【各角色新知道了什么(learned)、做了什么且被谁看见(did)】——"
+        "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。\n"
+        '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
+        '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}]}。\n\n'
+        "【正文】\n" + prose)
+
+
+def parse_knowledge_delta(reply: str) -> dict:
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        d = json.loads(m.group(0)) if m else {}
+        return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or [])}
+    except Exception:
+        return {"learned": [], "did": []}

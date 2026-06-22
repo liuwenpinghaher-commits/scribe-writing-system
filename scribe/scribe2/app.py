@@ -10,7 +10,8 @@ from .generate import generate_continue, ingest_chapter, build_chapter_prompt
 from .writing import build_writing_context
 from .llm import hermes_complete, hermes_complete_stream, hermes_responses_events
 from .critique import (build_critique_prompt, parse_critique, critique_revise, revise_dedup,
-                       build_discipline_prompt, parse_discipline)
+                       build_discipline_prompt, parse_discipline,
+                       build_knowledge_extract_prompt, parse_knowledge_delta)
 from .consistency import check_chapter
 from . import editorial as _ed
 
@@ -395,8 +396,16 @@ def gen_continue(w: str, seq: int, b: ActionIn, x_owner_id: str | None = Header(
 
 @app.post("/works/{w}/chapters/{seq}/ingest")
 def ingest(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):
-    """定稿后建章记忆 + 确定性 rollup(跨章连贯)。"""
-    owner(x_owner_id); return {"summary": ingest_chapter(d, w, seq, _complete)}
+    """定稿后建章记忆 + 确定性 rollup(跨章连贯)+ P3 抽知识 delta 入账(单一真相源)。"""
+    owner(x_owner_id)
+    summary = ingest_chapter(d, w, seq, _complete)
+    kn = {"learned": [], "did": []}
+    prose = _chapter_prose(d, w, seq)
+    if prose.strip():
+        kn = parse_knowledge_delta(_complete(build_knowledge_extract_prompt(prose)))
+        if kn["learned"] or kn["did"]:
+            d.record_knowledge_delta(w, seq, kn["learned"], kn["did"])
+    return {"summary": summary, "knowledge": {"learned": len(kn["learned"]), "did": len(kn["did"])}}
 
 @app.get("/works/{w}/memory")
 def memory(w: str, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

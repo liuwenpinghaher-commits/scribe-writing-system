@@ -672,6 +672,24 @@ class Domain:
     def list_exemplars(self, work: str) -> list[dict]:
         return self.s.list("style_exemplar", "work = $w", {"w": self._wref(work)})
 
+    def record_knowledge_delta(self, work: str, chapter: int,
+                               learned: list | None = None, did: list | None = None) -> str:
+        """记本章各角色【新知道了什么(learned)/做了什么被谁看见(did)】。
+        知识边界的单一真相源——真相=已定稿章节,delta 由 ingest 确定性抽,不让模型自由编。"""
+        return self.s.create("knowledge_ledger", {"work": self._wref(work), "chapter": chapter,
+                             "learned": list(learned or []), "did": list(did or [])})
+
+    def character_known(self, work: str, name: str, upto_chapter: int | None = None) -> list[str]:
+        """截至 upto_chapter,角色 name 已知的事实集合(账本累加;不剧透未来章)。"""
+        out: list[str] = []
+        for r in self.s.list("knowledge_ledger", "work = $w", {"w": self._wref(work)}):
+            if upto_chapter is not None and (r.get("chapter") or 0) > upto_chapter:
+                continue
+            for it in (r.get("learned") or []):
+                if it.get("who") == name and it.get("fact") and it["fact"] not in out:
+                    out.append(it["fact"])
+        return out
+
     _RESOLVE_KINDS = {"兑现", "payoff", "use", "resolve", "回收"}
 
     def entity_lines_health(self, work: str, span: int = 15) -> list[dict]:
