@@ -25,6 +25,14 @@ def test_render_prompt_has_focalizer_and_event():
     assert "暴雨" in p, "公开事实在帧内,应注入"
 
 
+def test_render_prompt_forbids_meta_narration():
+    """真机暴露:模型会回'已完成…我写了…'元叙述而非正文。prompt 须明令直接吐正文。"""
+    w = luanshi_leak_world()
+    p = build_render_prompt(w, 1, "role:老道")
+    assert "直接输出" in p and "正文" in p, "须明令直接输出小说正文"
+    assert "元叙述" in p or "不要复述" in p or "不要说明" in p, "须禁止元叙述/复述指令"
+
+
 def test_render_feeds_clean_prompt_to_model():
     """render() 把(限知后的)prompt 喂给注入的 complete_fn;不连网即可验证。"""
     w = luanshi_leak_world()
