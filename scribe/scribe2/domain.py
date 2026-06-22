@@ -680,9 +680,14 @@ class Domain:
                              "learned": list(learned or []), "did": list(did or [])})
 
     def character_known(self, work: str, name: str, upto_chapter: int | None = None) -> list[str]:
-        """截至 upto_chapter,角色 name 已知的事实集合(账本累加;不剧透未来章)。"""
+        """截至 upto_chapter,角色 name 已知的事实集合(账本累加;不剧透未来章)。
+        只读容错:账本表不存在/空(老 work 未建表)时返回 [],不阻断生成。"""
         out: list[str] = []
-        for r in self.s.list("knowledge_ledger", "work = $w", {"w": self._wref(work)}):
+        try:
+            rows = self.s.list("knowledge_ledger", "work = $w", {"w": self._wref(work)})
+        except Exception:
+            return out
+        for r in rows:
             if upto_chapter is not None and (r.get("chapter") or 0) > upto_chapter:
                 continue
             for it in (r.get("learned") or []):
