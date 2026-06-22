@@ -12,8 +12,13 @@ export function Btn({ variant = 'ghost', size = 'md', className, ...p }) {
   return <button className={cn(base, sizes[size], variants[variant], className)} {...p} />
 }
 
-export function Card({ className, ...p }) {
-  return <div className={cn('rounded-xl border border-line bg-surface', className)} {...p} />
+export function Card({ className, clickable, ...p }) {
+  return <div className={cn('rounded-xl border border-line bg-surface',
+    clickable && 'cursor-pointer transition-all duration-150 ease-out hover:border-brand/50 hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]', className)} {...p} />
+}
+
+export function Skeleton({ className }) {
+  return <div className={cn('skel h-4', className)} />
 }
 
 export function SectionTitle({ icon: Icon, children, right }) {

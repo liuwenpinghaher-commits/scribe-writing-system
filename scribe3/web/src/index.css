@@ -8,6 +8,11 @@
 @theme {
   --font-ui: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'PingFang SC', sans-serif;
   --font-prose: 'Source Serif 4', 'Noto Serif SC', Georgia, 'Songti SC', serif;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  /* 层叠柔和阴影(取代生硬单层)*/
+  --shadow-card: 0 1px 2px rgba(40,38,32,.04), 0 2px 6px rgba(40,38,32,.05), 0 8px 18px rgba(40,38,32,.05);
+  --shadow-pop: 0 2px 6px rgba(40,38,32,.08), 0 8px 24px rgba(40,38,32,.10), 0 16px 40px rgba(40,38,32,.08);
   --color-canvas: #f6f5f2;     /* 页面底 */
   --color-surface: #fffefb;    /* 卡片/面板 */
   --color-soft: #f1efe9;       /* 次级底/hover */
@@ -71,3 +76,53 @@ body {
 .prose-chat strong { font-weight: 600; }
 .prose-chat code { background: var(--color-soft); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
 .prose-chat blockquote { border-left: 2px solid var(--color-line); padding-left: 0.8em; color: var(--color-faint); margin: 0.5em 0; }
+
+/* ============ 全局交互打磨 ============ */
+/* 键盘焦点环(仅键盘,不破鼠标点击)——补回老版缺失的 a11y 基线 */
+:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 5px; }
+:focus:not(:focus-visible) { outline: none; }
+/* 选区:黛绿淡色取代系统蓝 */
+::selection { background: color-mix(in srgb, var(--color-brand) 20%, transparent); color: inherit; }
+/* 输入聚焦:黛绿边 + 18% 光晕 */
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 16%, transparent); }
+/* 骨架屏 */
+.skel { background: linear-gradient(90deg, var(--color-soft) 25%, color-mix(in srgb, var(--color-line) 60%, var(--color-soft)) 37%, var(--color-soft) 63%); background-size: 400% 100%; animation: skel 1.4s ease infinite; border-radius: 6px; }
+@keyframes skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* ============ TipTap 编辑器 ============ */
+.tiptap-shell { display: flex; flex-direction: column; }
+.tiptap-prose {
+  font-family: var(--font-prose);
+  font-size: 17.5px;
+  line-height: 1.9;                 /* 中文需更高行距 */
+  color: var(--color-ink);
+  outline: none;
+  caret-color: var(--color-brand);  /* 光标黛绿 */
+  max-width: 42rem;                 /* ~舒适 measure(约 38 个中文字/行)*/
+  margin: 0 auto;
+  width: 100%;
+  min-height: 52vh;
+  word-break: normal;               /* 绝不 break-all(否则切断内嵌英文)*/
+  overflow-wrap: break-word;
+  line-break: strict;               /* 标点不顶行首(kinsoku)*/
+}
+.tiptap-prose p { margin: 0 0 .15em; text-indent: 2em; }   /* 中文首行缩进 2 字 */
+.tiptap-prose strong { font-weight: 600; }
+.tiptap-prose em { font-style: italic; }
+.tiptap-prose ::selection { background: color-mix(in srgb, var(--color-brand) 22%, transparent); }
+/* 占位符(::before 渲染,必须显式写)*/
+.tiptap-prose p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint); opacity: .55; float: left; height: 0; pointer-events: none; text-indent: 2em;
+}
+/* 场景分隔 * * * */
+.tiptap-prose hr[data-scene-break] { border: none; text-align: center; margin: 1.8em 0; height: 0; }
+.tiptap-prose hr[data-scene-break]::before { content: '＊ ＊ ＊'; letter-spacing: .35em; color: var(--color-faint); font-size: .9em; }
+.tiptap-prose hr[data-scene-break].has-focus { outline: 2px solid color-mix(in srgb, var(--color-brand) 40%, transparent); outline-offset: 4px; border-radius: 4px; }
+/* 专注模式:非当前段降透明(iA Writer 式)*/
+.tiptap-shell.focus-mode .tiptap-prose p { opacity: .3; transition: opacity 220ms var(--ease-standard); }
+.tiptap-shell.focus-mode .tiptap-prose p.has-focus { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

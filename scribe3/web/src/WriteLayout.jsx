@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import {
   BookText, LayoutList, Flame, Search, Eye, Drama, ShieldCheck, Bookmark,
   Feather, Save, Sparkles, Radio, ChevronLeft, ChevronRight,
-  CircleAlert, CircleCheck, Lock, Compass, Users,
+  CircleAlert, CircleCheck, Lock, Compass, Users, AlignCenter,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
 import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
+import { ProseEditor } from './editor/ProseEditor'
 
 // 写作台:Shell(左轨结构 / 中区限知散文 / 右轨知识帧·反讽·QC·伏笔)。work 由父级传,key 切书重挂。
 export function WriteLayout({ work }) {
@@ -25,6 +26,7 @@ export function WriteLayout({ work }) {
   const [chapters, setChapters] = useState([])
   const [qc, setQc] = useState(null)
   const [prose, setProse] = useState('')
+  const [focusMode, setFocusMode] = useState(false)
   const [rendering, setRendering] = useState(false)
   const [ingesting, setIngesting] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -232,6 +234,8 @@ export function WriteLayout({ work }) {
         <span className="text-[11px] text-faint">此刻知 <span className="text-brand font-medium tnum">{frame.length}</span> 条</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[11px] text-faint tnum">{wordCount} 字</span>
+          <button onClick={() => setFocusMode((v) => !v)} title="专注模式:仅当前段落清晰" aria-pressed={focusMode}
+            className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
           <Btn variant="primary" onClick={render} disabled={rendering || !focalizer}><Feather size={14} />{rendering ? '渲染中…' : '渲染本场'}</Btn>
           <Btn variant="soft" onClick={save} disabled={!prose || rendering} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
           <Btn variant="ghost" onClick={ingest} disabled={!saved || ingesting} title="读定稿抽『谁新知道什么』→更新账本"><Sparkles size={14} />{ingesting ? '回写中…' : '回写'}</Btn>
@@ -241,16 +245,16 @@ export function WriteLayout({ work }) {
         限知渲染:只喂 <span className="text-ink">{focName}</span> 的知识帧({frame.length} 条),帧外私密物理上写不进去。
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
-        <div className="max-w-[70ch] mx-auto px-6 py-8">
+        <div className="max-w-[48rem] mx-auto px-6 py-8">
           {rendering ? (
-            <div className="space-y-3 animate-pulse">
-              {[...Array(6)].map((_, i) => <div key={i} className="h-4 bg-soft rounded" style={{ width: `${70 + (i % 3) * 10}%` }} />)}
-              <div className="text-[12px] text-faint pt-2">渲染中(走 Hermes,doubao 可能较慢)…</div>
+            <div className="space-y-3.5 max-w-[42rem] mx-auto">
+              {[...Array(7)].map((_, i) => <div key={i} className="h-4 skel" style={{ width: `${68 + (i % 4) * 9}%` }} />)}
+              <div className="text-[12px] text-faint pt-3">渲染中(走 Hermes,doubao 可能较慢)…</div>
             </div>
           ) : (
-            <textarea value={prose} onChange={(e) => { setProse(e.target.value); setSaved(false) }}
-              placeholder={`选视角 → 渲染本场。散文只渲染 ${focName} 知道的事。`}
-              className="manuscript w-full min-h-[60vh] bg-transparent text-ink outline-none resize-none placeholder:text-faint/50 placeholder:italic placeholder:font-sans placeholder:text-[14px]" />
+            <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
+              chapterKey={`${work}-${chapter}`} focusMode={focusMode}
+              placeholder={`选视角 → 渲染本场,或直接在此写。散文只渲染 ${focName} 知道的事。`} />
           )}
         </div>
       </div>
