@@ -35,3 +35,17 @@ def test_project_foreshadows():
     ps = project_foreshadows(rows)
     assert ps[0]["text"] == "铜炉反噬" and ps[0]["setup_chapter"] == 2
     assert ps[1]["setup_chapter"] == 1   # None → 1
+
+
+def test_project_motifs():
+    from scribe3.migrate import project_motifs
+    rows = [{"name": "火", "bound_theme": "焚毁", "material_echoes": "['疤痕']", "metaphor_unfolding": "招魂之力"}]
+    ms = project_motifs(rows)
+    assert ms[0]["name"] == "火" and ms[0]["theme"] == "焚毁" and "招魂" in ms[0]["unfolding"]
+
+
+def test_project_char_states():
+    from scribe3.migrate import project_char_states
+    rows = [{"character": "渡叔", "chapter_seq": "16", "change_type": "从保守到决绝", "state_desc": "同意夜渡"}]
+    cs = project_char_states(rows)
+    assert cs[0]["character"] == "role:渡叔" and cs[0]["chapter"] == 16 and cs[0]["value"] == "同意夜渡"

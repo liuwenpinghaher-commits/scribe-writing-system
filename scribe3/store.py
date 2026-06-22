@@ -178,6 +178,15 @@ class SurrealStore:
         return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
+    # --- 母题 motif ---
+    def add_motif(self, name: str, theme: str = "", echoes: str = "", unfolding: str = "") -> None:
+        self._execute_write(
+            "CREATE motif SET name=$n, theme=$t, echoes=$e, unfolding=$u",
+            {"n": name, "t": theme, "e": echoes, "u": unfolding})
+
+    def list_motifs(self) -> list[dict]:
+        return self._query("SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM motif")
+
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
         self._execute_write(

@@ -10,7 +10,7 @@ import sys
 
 from surrealdb import Surreal
 
-from scribe3.ontology import Entity, Fact
+from scribe3.ontology import Entity, Fact, KnowledgeEdge
 
 
 def _bs(r: dict) -> str:
@@ -57,6 +57,35 @@ def project_foreshadows(rows: list[dict]) -> list[dict]:
     return out
 
 
+def project_motifs(rows: list[dict]) -> list[dict]:
+    seen: set = set()
+    out: list[dict] = []
+    for r in rows:
+        name = r.get("name")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append({"name": name, "theme": r.get("bound_theme") or "",
+                    "echoes": str(r.get("material_echoes") or ""),
+                    "unfolding": r.get("metaphor_unfolding") or ""})
+    return out
+
+
+def project_char_states(rows: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for r in rows:
+        char, desc = r.get("character"), r.get("state_desc")
+        if not char or not desc:
+            continue
+        try:
+            ch = int(r.get("chapter_seq"))
+        except (TypeError, ValueError):
+            ch = 1
+        out.append({"character": f"role:{char}", "attribute": r.get("change_type") or "状态变化",
+                    "value": desc, "chapter": ch})
+    return out
+
+
 def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
     """读 scribe2 某 work 的 character/setting → 投影 → 写 scribe3 dst_store。"""
     close = False
@@ -71,9 +100,13 @@ def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
         chars = src.query("SELECT name,motivation,voice,text FROM character WHERE work = $w", {"w": wstr})
         setts = src.query("SELECT name,stype,content,text FROM setting WHERE work = $w", {"w": wstr})
         fores = src.query("SELECT promise,summary,text,chapter,ftype FROM foreshadow WHERE work = $w", {"w": wstr})
+        motfs = src.query("SELECT name,bound_theme,material_echoes,metaphor_unfolding FROM motif WHERE work = $w", {"w": wstr})
+        cstas = src.query("SELECT character,chapter_seq,change_type,state_desc FROM char_state WHERE work = $w", {"w": wstr})
         ents = project_characters(chars or [])
         facts = project_settings(setts or [])
         proms = project_foreshadows(fores or [])
+        motifs = project_motifs(motfs or [])
+        states = project_char_states(cstas or [])
         for e in ents:
             dst_store.add_entity(e)
         for f in facts:
@@ -83,7 +116,18 @@ def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
                 dst_store.semantic_index(f.id, f.value)
         for p in proms:
             dst_store.plant_promise(p["text"], p["setup_chapter"], kind=p["kind"])
-        return {"characters": len(ents), "settings": len(facts), "promises": len(proms)}
+        for m in motifs:
+            dst_store.add_motif(m["name"], m["theme"], m["echoes"], m["unfolding"])
+        for i, cs in enumerate(states):   # char_state → 角色状态@章 + 该角色知道(限知帧)
+            fid = f"fact:cs{i}"
+            dst_store.add_fact(Fact(fid, cs["character"], cs["attribute"], cs["value"], cs["chapter"]))
+            try:
+                dst_store.add_knowledge(KnowledgeEdge(cs["character"], fid,
+                                                      since_chapter=cs["chapter"], acquired_via="given"))
+            except Exception:
+                pass   # 角色实体缺失则边悬空,事实仍留
+        return {"characters": len(ents), "settings": len(facts), "promises": len(proms),
+                "motifs": len(motifs), "char_states": len(states)}
     finally:
         if close:
             src.close()

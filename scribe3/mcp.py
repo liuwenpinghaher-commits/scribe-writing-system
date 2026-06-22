@@ -110,6 +110,12 @@ def s3_list_promises() -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_list_motifs() -> list[dict]:
+    """列母题(名/绑定主题/物质回声/隐喻展开)——参照不透支。"""
+    return _store.list_motifs()
+
+
+@mcp.tool(annotations=_RO)
 def s3_get_chapter(seq: int) -> dict:
     """读某章正文(manuscript)。"""
     return _store.get_chapter(seq) or {}

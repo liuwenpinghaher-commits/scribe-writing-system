@@ -86,6 +86,11 @@ def promises():
     return _store.list_promises()
 
 
+@app.get("/motifs")
+def motifs():
+    return _store.list_motifs()
+
+
 class PlantReq(BaseModel):
     text: str
     setup_chapter: int
