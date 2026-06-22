@@ -126,3 +126,22 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               lambda: _store.add_knowledge(KnowledgeEdge(knower, proposition,
                                                                          since_chapter=since_chapter,
                                                                          acquired_via=acquired_via)))
+
+
+# ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
+def setup_store(ns: str = "scribe3", db: str = "main"):
+    """连 NS=scribe3(与 scribe2 的 NS=scribe 隔离)+ 幂等建 schema,挂上。"""
+    from scribe3.store import SurrealStore
+    store = SurrealStore(ns=ns, db=db)
+    store.apply_schema()
+    set_store(store)
+    return store
+
+
+def main() -> None:
+    setup_store()
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
