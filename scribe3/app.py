@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.render import render
-from scribe3.store import SurrealStore, create_work, list_works
+from scribe3.store import SurrealStore, create_work, delete_work, list_works, rename_work
 from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
@@ -57,7 +57,14 @@ def health():
 
 @app.get("/works")
 def works():
-    return list_works()
+    out = []
+    for w in list_works():
+        try:
+            st = _store_for(w["slug"]).stats()
+        except Exception:
+            st = {"chapter_count": 0, "word_count": 0}
+        out.append({**w, **st})
+    return out
 
 
 class WorkIn(BaseModel):
@@ -67,6 +74,19 @@ class WorkIn(BaseModel):
 @app.post("/works")
 def make_work(w: WorkIn):
     return create_work(w.title)
+
+
+@app.patch("/works/{slug}")
+def rename(slug: str, w: WorkIn):
+    rename_work(slug, w.title)
+    return {"ok": True}
+
+
+@app.delete("/works/{slug}")
+def remove_work(slug: str):
+    delete_work(slug)
+    _stores.pop(slug, None)
+    return {"ok": True}
 
 
 # ===== 读(按书)=====

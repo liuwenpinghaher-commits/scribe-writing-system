@@ -16,6 +16,10 @@ export const api = {
   createWork: (title) => fetch(BASE + '/works', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
   }).then((r) => r.json()),
+  renameWork: (slug, title) => fetch(BASE + '/works/' + enc(slug), {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+  }).then((r) => r.json()),
+  deleteWork: (slug) => fetch(BASE + '/works/' + enc(slug), { method: 'DELETE' }).then((r) => r.json()),
 
   entities: () => j('/entities'),
   facts: (ch) => j(`/facts?chapter=${ch}`),

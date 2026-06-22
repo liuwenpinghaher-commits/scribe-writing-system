@@ -57,6 +57,28 @@ def list_works(url: str | None = None) -> list[dict]:
         db.close()
 
 
+def delete_work(slug: str, url: str | None = None) -> None:
+    """删一本书:注册表删除 + 丢弃其独立 DB。主书 main 不可删。"""
+    if slug == "main":
+        raise ValueError("不能删除主书 main")
+    if not all(c.isalnum() or c == "_" for c in slug):
+        raise ValueError("非法 slug")
+    db = _reg_conn(url)
+    try:
+        db.query("DELETE type::record('work',$s)", {"s": slug})
+        db.query(f"REMOVE DATABASE IF EXISTS {slug}")
+    finally:
+        db.close()
+
+
+def rename_work(slug: str, title: str, url: str | None = None) -> None:
+    db = _reg_conn(url)
+    try:
+        db.query("UPDATE type::record('work',$s) SET title=$t", {"s": slug, "t": title})
+    finally:
+        db.close()
+
+
 def create_work(title: str, slug: str | None = None, url: str | None = None) -> dict:
     """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。"""
     import uuid
@@ -262,6 +284,12 @@ class SurrealStore:
 
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+
+    def stats(self) -> dict:
+        """本书章数 + 字数(去空白)——作品库卡片用。"""
+        rows = self._query("SELECT prose FROM chapter")
+        wc = sum(len("".join((r.get("prose") or "").split())) for r in rows)
+        return {"chapter_count": len(rows), "word_count": wc}
 
     def max_chapter(self) -> int:
         """有事件的最大章号(体检确定扫描范围);无事件→0。"""
