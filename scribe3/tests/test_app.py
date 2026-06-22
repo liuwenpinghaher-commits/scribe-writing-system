@@ -103,3 +103,21 @@ def test_intent_crud(store):
     c.put("/intent", json={"reader_feeling": "压抑中见微光", "emotional_arc": "由怯到决", "red_lines": "不洗白反派"})
     i = c.get("/intent").json()
     assert i["reader_feeling"] == "压抑中见微光" and "不洗白" in i["red_lines"]
+
+
+def test_editor_system_injects_context(store):
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:焦三", "character", "焦三"))
+    store.add_fact(Fact("fact:s", "世界", "通货", "铜钱", valid_from=1, secret=False))
+    store.set_intent({"reader_feeling": "压抑见微光", "emotional_arc": "", "red_lines": ""})
+    from scribe3.app import _editor_system
+    sysmsg = _editor_system(store)
+    assert "焦三" in sysmsg and "铜钱" in sysmsg and "压抑见微光" in sysmsg
+
+
+def test_chat_stream_sse(store, monkeypatch):
+    import scribe3.llm as llm
+    monkeypatch.setattr(llm, "hermes_complete_stream", lambda *a, **k: iter(["主编", "建议"]))
+    r = _client(store).get("/chat/stream", params={"msg": "这章怎么改"})
+    assert r.status_code == 200
+    assert "主编" in r.text and '"done": true' in r.text

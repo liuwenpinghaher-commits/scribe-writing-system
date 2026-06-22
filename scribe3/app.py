@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 
 from fastapi import FastAPI
@@ -288,6 +289,42 @@ class IntentIn(BaseModel):
 def put_intent(i: IntentIn, work: str = "main"):
     _store_for(work).set_intent(i.model_dump())
     return {"ok": True}
+
+
+def _editor_system(st) -> str:
+    """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定(主编全知,含私密)。"""
+    intent = st.get_intent()
+    chars = st.characters()
+    facts = st.facts_at(99999)
+    ctx_chars = "、".join(c.name for c in chars[:14]) or "(尚无角色)"
+    lines = [f"- {f.entity_id} · {f.attribute}:{f.value}" + ("(私密/伏线)" if f.secret else "")
+             for f in facts[:28]]
+    ctx_set = "\n".join(lines) or "(尚无设定)"
+    return (
+        "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
+        f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
+        f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
+        f"【主要角色】{ctx_chars}\n【已确立设定(你全知,含私密伏线)】\n{ctx_set}\n\n"
+        "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
+        "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
+    )
+
+
+@app.get("/chat/stream")
+def chat_stream(msg: str, work: str = "main"):
+    """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。"""
+    from scribe3.llm import hermes_complete_stream
+    sysmsg = _editor_system(_store_for(work))
+
+    def gen():
+        try:
+            for delta in hermes_complete_stream(msg, system=sysmsg):
+                yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+        except Exception as e:  # 失败如实回流,不静默
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/chapters")

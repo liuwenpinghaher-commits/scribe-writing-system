@@ -58,3 +58,16 @@ body {
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-line) 80%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-faint); background-clip: content-box; }
 .tnum { font-variant-numeric: tabular-nums; }
+
+/* 主编对话 markdown 气泡 */
+.prose-chat > :first-child { margin-top: 0; }
+.prose-chat > :last-child { margin-bottom: 0; }
+.prose-chat p { margin: 0.5em 0; }
+.prose-chat ul, .prose-chat ol { margin: 0.5em 0; padding-left: 1.3em; }
+.prose-chat ul { list-style: disc; }
+.prose-chat ol { list-style: decimal; }
+.prose-chat li { margin: 0.2em 0; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-size: 15px; font-weight: 600; margin: 0.8em 0 0.3em; }
+.prose-chat strong { font-weight: 600; }
+.prose-chat code { background: var(--color-soft); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+.prose-chat blockquote { border-left: 2px solid var(--color-line); padding-left: 0.8em; color: var(--color-faint); margin: 0.5em 0; }

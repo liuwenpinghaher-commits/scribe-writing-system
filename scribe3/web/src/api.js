@@ -66,4 +66,17 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
+  chatStream: (msg, { onDelta, onDone, onError }) => {
+    const es = new EventSource(BASE + ww('/chat/stream?msg=' + enc(msg)))
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        if (d.delta) onDelta(d.delta)
+        else if (d.done) { es.close(); onDone() }
+        else if (d.error) { es.close(); onError(d.error) }
+      } catch (_) { /* */ }
+    }
+    es.onerror = () => { es.close(); onError('连接中断') }
+    return es
+  },
 }
