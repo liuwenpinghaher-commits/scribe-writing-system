@@ -459,7 +459,11 @@ def discipline_check_ep(w: str, seq: int, b: DisciplineIn, x_owner_id: str | Non
     text = _chapter_prose(d, w, seq)
     if not text.strip():
         raise HTTPException(400, "无正文可判")
-    return parse_discipline(_complete(build_discipline_prompt(text, b.brief)))
+    # P4:喂"各角色截至本章已知"给判官,knowledge_leak 判定从常识升级到账本事实
+    chars = d.relevant_characters(w, seq) if hasattr(d, "relevant_characters") else d.list_characters(w)
+    known = {c["name"]: d.character_known(w, c["name"], upto_chapter=seq)
+             for c in chars if c.get("name")} or None
+    return parse_discipline(_complete(build_discipline_prompt(text, b.brief, known)))
 
 @app.post("/works/{w}/chapters/{seq}/check")
 def check_ep(w: str, seq: int, x_owner_id: str | None = Header(None), d: Domain = Depends(get_domain)):

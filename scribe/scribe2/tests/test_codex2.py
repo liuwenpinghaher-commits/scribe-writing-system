@@ -775,3 +775,13 @@ def test_p3_knowledge_extract_parse():
                               '"did":[{"who":"焦三","action":"取丹","seen_by":["阿萤"]}]}\n完')
     assert d["learned"][0]["fact"] == "尸丹会反噬" and d["did"][0]["who"] == "焦三"
     assert parse_knowledge_delta("一团乱码") == {"learned": [], "did": []}   # 解析失败不阻断
+
+
+def test_p4_discipline_takes_known():
+    """P4:纪律闸判官收'各角色已知集合',knowledge_leak 判定从'常识'升级到'账本事实'。"""
+    from scribe2.critique import build_discipline_prompt
+    p = build_discipline_prompt("正文……", brief="测试", known={"老道": ["尸丹在焦三身上"], "焦三": ["老娘眼疾"]})
+    assert "老道" in p and "尸丹在焦三身上" in p
+    assert ("已知" in p or "只知道" in p)
+    # 不传 known 仍正常(向后兼容)
+    assert "knowledge_leak" in build_discipline_prompt("正文", brief="b")

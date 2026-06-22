@@ -240,7 +240,12 @@ def revise_dedup(text: str, complete_fn, n: int = 8, min_count: int = 3, max_pas
 
 
 # ==== LLM 纪律闸(确定性检测对语义违规是瞎的:双高潮/terse声音崩/解说倾泻需 LLM 判定)====
-def build_discipline_prompt(text: str, brief: str = "") -> str:
+def build_discipline_prompt(text: str, brief: str = "", known: dict | None = None) -> str:
+    kb = ""
+    if known:
+        lines = "\n".join(f"  · {who} 只知道:{('、'.join(facts[:8]) or '(仅其私密内核)')}" for who, facts in known.items())
+        kb = ("\n\n【各角色截至本章已知(判 knowledge_leak 的事实依据;角色说出此清单之外的他人私密=泄露)】\n"
+              + lines)
     return (
         "你是叙事结构【纪律判官】。下面是一章志怪小说。本章的命题/纪律要求:\n" +
         (brief or "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)") +
@@ -251,8 +256,8 @@ def build_discipline_prompt(text: str, brief: str = "") -> str:
         "④ knowledge_leak:某角色说出或表现出知晓【其视角不可能知道】的他人私密信息"
         "(如刚追来的敌人报出主角私密动机/老娘治眼的花费、配角说破主角内心的伤/谎)。\n"
         "若违规,找出正文里【复发/穿帮开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
-        '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。\n\n'
-        "【正文】\n" + text)
+        '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。'
+        + kb + "\n\n【正文】\n" + text)
 
 
 def parse_discipline(reply: str) -> dict:
