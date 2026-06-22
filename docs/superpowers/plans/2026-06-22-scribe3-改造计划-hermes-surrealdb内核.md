@@ -145,6 +145,8 @@ SELECT id, summary, ->causal->event.summary AS effects
 | 能力 | 怎么接(基于源码实测) |
 |---|---|
 | **主编 agentic** | `/v1/responses` + `stream` + `previous_response_id` 续接。**工具面来自 config 不是请求体**——scribe3 MCP 挂 config + 默认 `include_default_mcp_servers=True` → 工具自动可用 |
+| **主编鲁棒性(白拿,别重造)** | 主编走 `AIAgent`(`run_agent.py` 5538 行,Responses 经 `api_server.py:1045 from run_agent import AIAgent` 调它):**streaming / Provider 容错 / 上下文压缩 / 用户打断 / Grace Call / 子 agent 委派 / 插件钩子全自带**——scribe3 别重造这些轮子(源码实测) |
+| **技能自进化(主编越写越好)** | `skill_manage(patch)`(`skill_manager_tool.py:946` 六操作 create/patch/edit/write_file/remove_file/delete,patch 用 `fuzzy_match` 模糊匹配)让 `scribe-novel-v2` 成**活 playbook**:主编把 craft 发现自我沉淀(后台复盘 `run_agent.py:1445` 触发);**走审批 + `skills_guard` 扫描 + git 回滚;只沉淀流程、剧情事实进 SurrealDB;patch 小补丁非重写**。这把本会话手工挖的 gap1–13 等修法,变成主编可自维护的资产 |
 | **工具系统** | scribe3 = FastMCP server;读工具 `readOnlyHint=true` 放行,写工具登记 WRITE_GATED |
 | **写待批(核心)** | scribe3 写工具执行前发 MCP `elicitation/create`(form-mode)→ Hermes `ElicitationHandler` 弹批准(CLI/Telegram)→ accept 才落库,超时/decline=fail-closed。**取代自建 REST B3**(§7.1) |
 | **skill** | `scribe-novel-v2/SKILL.md`(渐进披露:Tier1 名+述,Tier2 `skill_view` 全文,大规则拆 `references/`,上限~36k token) |
