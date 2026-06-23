@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
+  BookText, LayoutList, Flame,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
@@ -25,18 +26,29 @@ export function WriteLayout({ work }) {
   const [leaks, setLeaks] = useState(0)
   const [causal, setCausal] = useState([])
   const [promises, setPromises] = useState([])
+  const [chapters, setChapters] = useState([])
+  const [facts, setFacts] = useState([])
+  const [events, setEvents] = useState([])
+  const [motifs, setMotifs] = useState([])
+  const [recallQ, setRecallQ] = useState('')
+  const [recallHits, setRecallHits] = useState([])
   const [focusMode, setFocusMode] = useState(false)
   const [saved, setSaved] = useState(true)
+  const [leftActive, setLeftActive] = useState('outline')
   const [rightActive, setRightActive] = useState('chat')
   const [tick, setTick] = useState(0)
 
-  useEffect(() => { api.entities().then(setEntities) }, [tick])
+  useEffect(() => { api.entities().then(setEntities); api.motifs().then(setMotifs) }, [tick])
   useEffect(() => {
     api.chapter(chapter).then((ch) => { setProse(ch?.prose || ''); setSaved(true) })
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
     api.qc(chapter).then(setQc)
+    api.chapters().then(setChapters)
+    api.facts(chapter).then(setFacts)
+    api.events(chapter).then(setEvents)
   }, [chapter, tick])
+  const runRecall = async (e) => { e.preventDefault(); if (!recallQ.trim()) return; setRecallHits(await api.recall(recallQ.trim(), 8)) }
 
   const chars = entities.filter((e) => e.kind === 'character')
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
@@ -98,6 +110,58 @@ export function WriteLayout({ work }) {
     </div>
   )
 
+  const leftCaps = [
+    { key: 'outline', label: '大纲 · 章节', icon: BookText, render: () => (
+      <div>
+        <SectionTitle icon={BookText} right={`${chapters.length} 章`}>章节</SectionTitle>
+        {chapters.length === 0 && <Empty>暂无章节,写完保存即生成</Empty>}
+        {chapters.map((c) => (
+          <button key={c.seq} onClick={() => setChapter(c.seq)}
+            className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.seq === chapter ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+            <span className="tnum text-faint mr-1.5">第{c.seq}章</span>{c.title || '无题'}
+          </button>
+        ))}
+      </div>
+    ) },
+    { key: 'structure', label: '本章结构 · fabula', icon: LayoutList, render: () => (
+      <div>
+        <SectionTitle icon={LayoutList} right={`${events.length}`}>本章事件</SectionTitle>
+        {events.length === 0 ? <Empty>本章未设计事件</Empty> : events.map((ev) => (
+          <Row key={ev.id}><Tag tone="brand">{ev.type}</Tag><span className="ml-1 text-faint">{ev.id}</span>{!ev.goal && <span className="ml-1 text-danger">· 缺目标</span>}</Row>
+        ))}
+        <div className="h-3" />
+        <SectionTitle right={`${facts.length}`}>本章事实</SectionTitle>
+        {facts.length === 0 ? <Empty>无</Empty> : facts.slice(0, 60).map((f) => (
+          <Row key={f.id} icon={f.secret ? Lock : undefined}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>
+        ))}
+      </div>
+    ) },
+    { key: 'motifs', label: '母题', icon: Flame, render: () => (
+      <div>
+        <SectionTitle icon={Flame} right={`${motifs.length}`}>母题 · 参照不透支</SectionTitle>
+        {motifs.length === 0 ? <Empty>无</Empty> : motifs.map((m) => (
+          <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
+            <div className="text-[13px] font-semibold text-ink">{m.name}</div>
+            {m.theme && <div className="text-[12px] text-fore mt-0.5">{m.theme}</div>}
+            {m.unfolding && <div className="text-[12px] text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
+          </div>
+        ))}
+      </div>
+    ) },
+    { key: 'recall', label: '设定检索 · 语义', icon: Search, render: () => (
+      <div>
+        <SectionTitle icon={Search}>语义召回设定</SectionTitle>
+        <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
+          <input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
+            className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand" />
+          <Btn variant="primary" size="sm" type="submit">搜</Btn>
+        </form>
+        {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
+          : recallHits.map((f) => <Row key={f.id}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>)}
+      </div>
+    ) },
+  ]
+
   const rightCaps = [
     { key: 'chat', label: '主编对话', icon: MessagesSquare, bare: true, render: () => (
       <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
@@ -134,5 +198,6 @@ export function WriteLayout({ work }) {
     ) },
   ]
 
-  return <Shell center={center} right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
+  return <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }}
+    right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
 }
