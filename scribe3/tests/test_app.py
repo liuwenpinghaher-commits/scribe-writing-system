@@ -137,3 +137,30 @@ def test_chat_agentic_sse(store, monkeypatch):
     assert r.status_code == 200
     body = r.text
     assert "s3_list_promises" in body and '"tool"' in body and "已查" in body and '"done": true' in body
+
+
+def test_chat_write_splits_proposal(store, monkeypatch):
+    import scribe3.app as appmod
+
+    def fake_events(msg, instructions, model=None):
+        for t in ["这样改：", "⟦PROPOSAL scope=selection⟧", "单嫣立于老槐之下。", "⟦/PROPOSAL⟧"]:
+            yield {"type": "response.output_text.delta", "delta": t}
+
+    monkeypatch.setattr(appmod, "_responses_events", fake_events)
+    r = _client(store).get("/chat/write", params={"msg": "把这段写冷点", "chapter": 1, "focalizer": "role:x"})
+    body = r.text
+    assert '"delta": "这样改："' in body
+    assert '"proposal"' in body and "单嫣立于老槐之下" in body
+    assert '"scope": "selection"' in body
+
+
+def test_chat_write_discuss_only(store, monkeypatch):
+    import scribe3.app as appmod
+
+    def fake_events(msg, instructions, model=None):
+        for t in ["这章节奏偏慢，", "建议提速。"]:
+            yield {"type": "response.output_text.delta", "delta": t}
+
+    monkeypatch.setattr(appmod, "_responses_events", fake_events)
+    body = _client(store).get("/chat/write", params={"msg": "这章节奏如何"}).text
+    assert "建议提速" in body and '"proposal"' not in body

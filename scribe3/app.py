@@ -363,6 +363,64 @@ def chat_agentic_stream(msg: str, work: str = "main"):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _editor_write_system(st) -> str:
+    return _editor_system(st) + (
+        "\n\n你能直接帮作者写/改这部书的手稿。规则:\n"
+        "- 若作者只是讨论/提问 → 正常回话,不要写手稿。\n"
+        "- 若作者要你写或改手稿(写本章/续写/把某段改成…)→ 先简短说一句你怎么处理,"
+        "然后把**要落到手稿的新散文**放进围栏,严格用此格式"
+        "(scope 取 chapter=整章 / selection=改选中段 / append=续写接在后面):\n"
+        "⟦PROPOSAL scope=chapter⟧\n（新散文，纯正文，不要解说）\n⟦/PROPOSAL⟧\n"
+        "围栏里只放正文散文本身。贴住焦点者知识帧(限知),别写帧外私密。"
+    )
+
+
+@app.get("/chat/write")
+def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
+    """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
+    事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
+    from scribe3.llm import hermes_responses_events
+    from scribe3.proposal import ProposalParser
+    fn = _responses_events or hermes_responses_events
+    st = _store_for(work)
+    instructions = _editor_write_system(st)
+    if focalizer:
+        instructions += f"\n本章焦点者:{focalizer};当前第 {chapter} 章。"
+
+    def gen():
+        parser = ProposalParser()
+        prop = {"scope": None, "prose": []}
+
+        def drain(events):
+            for kind, val in events:
+                if kind == "delta":
+                    yield f"data: {json.dumps({'delta': val}, ensure_ascii=False)}\n\n"
+                elif kind == "proposal_open":
+                    prop["scope"] = val
+                elif kind == "proposal_delta":
+                    prop["prose"].append(val)
+                elif kind == "proposal_close":
+                    yield f"data: {json.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
+                    prop["scope"] = None
+                    prop["prose"] = []
+
+        try:
+            for ev in fn(msg, instructions):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    yield from drain(parser.feed(ev.get("delta", "")))
+                elif t == "response.output_item.added":
+                    item = ev.get("item", {}) or {}
+                    if item.get("type") == "function_call":
+                        yield f"data: {json.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
+            yield from drain(parser.flush())
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()
