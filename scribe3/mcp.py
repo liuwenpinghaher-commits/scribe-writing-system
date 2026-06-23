@@ -28,7 +28,7 @@ def set_store(s) -> None:
 
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-               "s3_plant_promise", "s3_advance_promise", "s3_ingest_chapter",
+               "s3_plant_promise", "s3_advance_promise",
                "s3_craft_rule_add", "s3_craft_rule_remove"}
 
 
@@ -219,21 +219,13 @@ async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int) -> dic
 
 
 @mcp.tool(annotations=_RW)
-async def s3_ingest_chapter(ctx: Context, seq: int) -> dict:
-    """章节回写(写,待批):读定稿→Hermes 抽"谁新知道什么/做了什么"→更新知识账本。
-    闭合写循环:下章限知渲染将反映这些新知。"""
-    from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_delta
-    from scribe3.ingest import apply_delta
+def s3_ingest_chapter(seq: int) -> dict:
+    """章节回写(客观回写,不待批):读定稿抽"谁新知道什么/做了什么"→更新知识账本。
+    非创作虚构(add_fact/add_event 那些经 elicitation);ingest 反映已定稿正文,
+    后端 save-chapter 也会自动后台跑同一逻辑。"""
+    from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
-    ch = _store.get_chapter(seq)
-    if not ch or not ch.get("prose"):
-        return {"status": "skipped", "applied": 0}
-    delta = parse_knowledge_delta(hermes_complete(build_knowledge_extract_prompt(ch["prose"])))
-    ok = await _ask(ctx, f"回写第{seq}章:{len(delta['learned'])}条新知、{len(delta['did'])}个动作")
-    n = [0]
-    res = commit_if_approved("s3_ingest_chapter", ok, lambda: n.__setitem__(0, apply_delta(_store, delta, seq)))
-    res["applied"] = n[0]
-    return res
+    return ingest_chapter(_store, seq, hermes_complete)
 
 
 @mcp.tool(annotations=_RW)

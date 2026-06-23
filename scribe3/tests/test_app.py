@@ -179,3 +179,35 @@ def test_apply_delta_idempotent(store):
     apply_delta(store, delta, seq=1)   # 重复回写同章 → 不应抛 AlreadyExists
     facts = [f for f in store.facts_at(1) if f.value == "X 是真的"]
     assert len(facts) == 1   # 幂等:只一条
+
+
+def test_save_chapter_triggers_bg_ingest(store, monkeypatch):
+    """save-chapter 落库后注册后台 ingest 任务,响应含 ingesting=True,不阻塞。"""
+    A.set_store(store)   # 注入活 store 到 work=main(否则命中其它测试遗留的死连接)
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    r = client.post("/save-chapter?work=main",
+                    json={"seq": 7, "prose": "测试正文。", "title": "t", "focalizer": ""})
+    assert r.status_code == 200
+    assert r.json().get("ingesting") is True
+    # TestClient 同步执行 BackgroundTasks → _bg_ingest 应以 (main, 7) 被调过
+    assert called.get("args") == ("main", 7)
+
+
+def test_editor_reminds_open_promises(store):
+    """_editor_system 预注入"开着的伏笔"强提醒(防主编忘/漏接)。"""
+    import scribe3.app as A
+    store.plant_promise("井底那只青铜匣", setup_chapter=1)
+    sysmsg = A._editor_system(store)
+    assert "开着的承诺线" in sysmsg or "勿忘" in sysmsg
+    assert "青铜匣" in sysmsg
+
+
+def test_editor_no_full_motif_dump(store):
+    """agentic 主编详情按需查:_editor_system 不全量灌母题(只给提醒,不堆母题清单)。无数据也不崩。"""
+    import scribe3.app as A
+    store.add_motif("铜炉", theme="代价", echoes="炉火", unfolding="X")
+    sysmsg = A._editor_system(store)
+    assert "炉火" not in sysmsg   # 母题靠主编按需调 s3_list_motifs,不在系统提示里全量展开
+    assert isinstance(sysmsg, str) and len(sysmsg) > 0

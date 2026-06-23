@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -300,6 +300,13 @@ def _editor_system(st) -> str:
     lines = [f"- {f.entity_id} · {f.attribute}:{f.value}" + ("(私密/伏线)" if f.secret else "")
              for f in facts[:28]]
     ctx_set = "\n".join(lines) or "(尚无设定)"
+    # 开着的伏笔:预注入强提醒(易忘项;母题/事件等详情留主编按需调工具查)
+    promises = st.open_promises() if hasattr(st, "open_promises") else []
+    rem = ""
+    if promises:
+        items = "；".join(
+            f"第{p.get('setup_chapter')}章埋:{(p.get('text') or '')[:30]}" for p in promises[:6])
+        rem = f"\n【⚠ 开着的承诺线·勿忘(适时推进/回收,别让它凭空消失)】{items}"
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
@@ -307,7 +314,7 @@ def _editor_system(st) -> str:
         f"【主要角色】{ctx_chars}\n【已确立设定(你全知,含私密伏线)】\n{ctx_set}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
-    )
+    ) + rem
 
 
 @app.get("/chat/stream")
@@ -462,8 +469,20 @@ class SaveChapterReq(BaseModel):
     focalizer: str | None = None
 
 
+def _bg_ingest(work: str, seq: int) -> None:
+    """后台客观回写:开独立 store 连接跑 ingest_chapter。异常只记日志,不影响存稿。"""
+    import logging
+    from scribe3.ingest import ingest_chapter
+    from scribe3.llm import hermes_complete
+    try:
+        st = _store_for(work)
+        ingest_chapter(st, seq, hermes_complete)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
+
+
 @app.post("/save-chapter")
-def save_chapter(req: SaveChapterReq, work: str = "main"):
+def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
@@ -476,10 +495,11 @@ def save_chapter(req: SaveChapterReq, work: str = "main"):
             leaks = len(find_leaks(req.prose, st, req.focalizer, req.seq))
         except Exception:
             leaks = 0
+    background.add_task(_bg_ingest, work, req.seq)   # 客观回写,后台自动,不阻塞存稿
     return {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"])},
-            "leaks": leaks}
+            "leaks": leaks, "ingesting": True}
 
 
 @app.post("/ingest")
