@@ -30,18 +30,24 @@ def _events_at(world: World, chapter: int):
 
 def build_render_prompt(world: World, chapter: int, focalizer: str,
                         craft_block: str = "", soak_result: dict | None = None,
-                        voice: dict | None = None) -> str:
+                        voice: dict | None = None,
+                        story_at: int | None = None, frame_at: int | None = None) -> str:
     """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。
     craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。
-    声音样本(focalizer 自己的,不破限知)同样插在事件之后、渲染纪律之前。"""
-    frame = project_frame(world, focalizer, chapter)
+    声音样本(focalizer 自己的,不破限知)同样插在事件之后、渲染纪律之前。
+    story_at/frame_at 默认回退 chapter(线性);story_at 选事件故事时间、frame_at 选知识帧时间。
+    沉浸式闪回 frame_at 默认=story_at(角色只知那时);回忆式显式传 frame_at=chapter。"""
+    story_at = story_at if story_at is not None else chapter
+    frame_at = frame_at if frame_at is not None else story_at
+    frame = project_frame(world, focalizer, frame_at)
     foc = world.entity(focalizer)
     foc_name = foc.name if foc else focalizer
 
     lines = [f"# 把下面的事件写成小说正文(限知视角:{foc_name})",
-             f"以【{foc_name}】的限知视角,把下列既定事件写成一段小说散文。直接写正文,别解释。",
-             "",
-             f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):"]
+             f"以【{foc_name}】的限知视角,把下列既定事件写成一段小说散文。直接写正文,别解释。"]
+    if story_at != chapter:
+        lines.append(f"## ⚠ 这是插叙/闪回:渲染第{story_at}章发生的事(非当前叙事时间,别当线性推进)")
+    lines += ["", f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):"]
     if frame.facts:
         for f in frame.facts:
             subj = world.entity(f.entity_id)
@@ -51,7 +57,7 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
         lines.append("-(空:此视角暂无已知事实)")
 
     lines += ["", "## 本章要发生的事件(按此渲染):"]
-    for ev in _events_at(world, chapter):
+    for ev in _events_at(world, story_at):
         parts = "、".join(
             (world.entity(v).name if world.entity(v) else v)
             for v in ev.participants.values()
@@ -86,8 +92,12 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
 def render(world: World, chapter: int, focalizer: str,
            complete_fn: Callable[..., str] | None = None,
            max_tokens: int | None = None, timeout: float | None = None,
-           soak: bool = True) -> str:
-    """渲染一章一视角:浸泡→限知 prompt(含 craft)→complete_fn→sjuzhet。默认走 Hermes。"""
+           soak: bool = True,
+           story_at: int | None = None, frame_at: int | None = None) -> str:
+    """渲染一章一视角:浸泡→限知 prompt(含 craft)→complete_fn→sjuzhet。默认走 Hermes。
+    story_at/frame_at 默认回退 chapter(线性);非线性时 soak/voice/知识帧都跟 frame_at(那时状态)。"""
+    story_at = story_at if story_at is not None else chapter
+    frame_at = frame_at if frame_at is not None else story_at
     if complete_fn is None:
         from scribe3.llm import hermes_complete
         complete_fn = hermes_complete
@@ -97,10 +107,11 @@ def render(world: World, chapter: int, focalizer: str,
     soak_result = None
     if soak:
         from scribe3.soak import soak as run_soak
-        soak_result = run_soak(world, chapter, focalizer, complete_fn)
-    voice = world.latest_voice_samples(focalizer, chapter) if hasattr(world, "latest_voice_samples") else None
+        soak_result = run_soak(world, frame_at, focalizer, complete_fn)
+    voice = world.latest_voice_samples(focalizer, frame_at) if hasattr(world, "latest_voice_samples") else None
     prompt = build_render_prompt(world, chapter, focalizer,
-                                 craft_block=craft_block, soak_result=soak_result, voice=voice)
+                                 craft_block=craft_block, soak_result=soak_result, voice=voice,
+                                 story_at=story_at, frame_at=frame_at)
     kw: dict = {}
     if max_tokens:
         kw["max_tokens"] = max_tokens

@@ -99,3 +99,79 @@ def test_render_runs_soak_then_renders():
     out = render(w, 1, "role:老道", complete_fn=fake, soak=True)
     assert out == "雨砸在乱葬岗的烂泥上。"
     assert len(calls) == 2 and "铁" in calls[1], "soak 种子词进了渲染 prompt"
+
+
+# --- 非线性叙事:story_at(事件) / frame_at(知识帧) ---
+from scribe3.ontology import World, Entity, Fact, KnowledgeEdge, Event
+
+
+def test_linear_default_unchanged():
+    """默认 story_at=frame_at=chapter → 与显式传相等参数完全相同(线性零回归)。"""
+    w = luanshi_leak_world()
+    a = build_render_prompt(w, 1, "role:老道")
+    b = build_render_prompt(w, 1, "role:老道", story_at=1, frame_at=1)
+    assert a == b
+
+
+def test_flashback_renders_past_events():
+    """story_at 控制事件源:第10叙事章渲染 story_at=1 → 含第1章事件;默认(story_at=10)则无。"""
+    w = luanshi_leak_world()
+    p_flash = build_render_prompt(w, 10, "role:老道", story_at=1)
+    assert "对峙" in p_flash, "story_at=1 应渲染第1章事件"
+    p_linear10 = build_render_prompt(w, 10, "role:老道")
+    assert "对峙" not in p_linear10, "第10章无事件(events_at(10) 空)"
+
+
+def test_flashback_label():
+    """story_at≠chapter 时 prompt 含插叙标注;线性时不含。"""
+    w = luanshi_leak_world()
+    p_flash = build_render_prompt(w, 10, "role:老道", story_at=1)
+    assert "插叙" in p_flash or "闪回" in p_flash
+    p_linear = build_render_prompt(w, 1, "role:老道")
+    assert "插叙" not in p_linear and "闪回" not in p_linear
+
+
+def test_flashback_does_not_break_pov():
+    """load-bearing:插叙第1章,frame_at 默认=1,老道帧不含焦三私密(限知红利免费)。"""
+    w = luanshi_leak_world()
+    p = build_render_prompt(w, 10, "role:老道", story_at=1)
+    assert "治眼" not in p and "攒钱给老娘" not in p
+
+
+def _timevarying_world() -> World:
+    """甲在第5章才学到'晚知'真相 → frame(甲,1) 不含、frame(甲,10) 含。用于区分沉浸/回忆。"""
+    w = World()
+    w.add_entity(Entity("role:甲", "character", "甲"))
+    w.add_fact(Fact("fact:晚知", "role:甲", "认知", "后来才懂的真相", valid_from=1))
+    w.add_knowledge(KnowledgeEdge("role:甲", "fact:晚知", since_chapter=5, acquired_via="learned"))
+    w.add_event(Event("ev:早", "旧事", participants={"SUBJ": "role:甲"}, story_time=1))
+    return w
+
+
+def test_immersive_default_frame():
+    """沉浸式(frame_at 默认=story_at=1):甲第1章还不知'晚知'(since=5)。"""
+    w = _timevarying_world()
+    p = build_render_prompt(w, 10, "role:甲", story_at=1)
+    assert "后来才懂的真相" not in p, "沉浸式:frame_at=1,甲尚未知晓"
+
+
+def test_recall_mode_present_frame():
+    """回忆式(显式 frame_at=10):甲已知'晚知',带现在认知回忆过去。"""
+    w = _timevarying_world()
+    p = build_render_prompt(w, 10, "role:甲", story_at=1, frame_at=10)
+    assert "后来才懂的真相" in p, "回忆式:frame_at=10,甲已知晓"
+
+
+def test_render_flashback_passes_story_at():
+    """render 把 story_at/frame_at 透传给 build_render_prompt:第10叙事章渲染第1章事件。"""
+    w = luanshi_leak_world()
+    captured = {}
+
+    def fake(prompt, **kw):
+        captured["prompt"] = prompt
+        return "雨砸在乱葬岗的烂泥上。"
+
+    render(w, 10, "role:老道", complete_fn=fake, soak=False, story_at=1)
+    assert "对峙" in captured["prompt"], "render 应透传 story_at=1 → 渲染第1章事件"
+    assert "插叙" in captured["prompt"] or "闪回" in captured["prompt"], "应带插叙标注"
+    assert "治眼" not in captured["prompt"], "限知不破:frame_at=1 老道帧无焦三私密"
