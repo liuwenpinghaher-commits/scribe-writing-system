@@ -66,21 +66,47 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', onDelta, onTool, onProposal, onDone, onError }) => {
-    const q = `/chat/write?msg=${enc(msg)}&chapter=${chapter}&focalizer=${enc(focalizer)}`
-    const es = new EventSource(BASE + ww(q))
-    es.onmessage = (e) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], onDelta, onTool, onProposal, onDone, onError }) => {
+    const ctrl = new AbortController()
+    fetch(BASE + ww('/chat/write'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msg, chapter, focalizer, images }),
+      signal: ctrl.signal,
+    }).then(async (res) => {
+      if (!res.ok) { onError?.(`HTTP ${res.status}`); return }
+      const reader = res.body.getReader()
+      const dec = new TextDecoder()
+      let buf = ''
       try {
-        const d = JSON.parse(e.data)
-        if (d.delta) onDelta?.(d.delta)
-        else if (d.tool) onTool?.(d.tool)
-        else if (d.proposal) onProposal?.(d.proposal)
-        else if (d.done) { es.close(); onDone?.() }
-        else if (d.error) { es.close(); onError?.(d.error) }
-      } catch (_) { /* */ }
-    }
-    es.onerror = () => { es.close(); onError?.('连接中断') }
-    return es
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue
+            const payload = line.slice(5).trim()
+            if (!payload) continue
+            try {
+              const d = JSON.parse(payload)
+              if (d.delta) onDelta?.(d.delta)
+              else if (d.tool) onTool?.(d.tool)
+              else if (d.proposal) onProposal?.(d.proposal)
+              else if (d.done) { onDone?.(); return }
+              else if (d.error) { onError?.(d.error); return }
+            } catch (_) { /* */ }
+          }
+        }
+        onDone?.()
+      } catch (e) {
+        if (e.name !== 'AbortError') onError?.(e.message || '流中断')
+      }
+    }).catch((e) => {
+      if (e.name !== 'AbortError') onError?.(e.message || '网络错误')
+    })
+    return ctrl
   },
   chatStream: (msg, { onDelta, onTool, onDone, onError, agentic }) => {
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)

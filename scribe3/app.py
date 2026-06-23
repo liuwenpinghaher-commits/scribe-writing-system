@@ -373,12 +373,15 @@ def chat_agentic_stream(msg: str, work: str = "main"):
 def _editor_write_system(st) -> str:
     return _editor_system(st) + (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
-        "不是从某个角色的受限视角做渲染。规则:\n"
-        "- 若作者只是讨论/提问 → 正常回话,不要写手稿。\n"
-        "- 若作者要你写或改手稿(写本章/续写/把某段改成…)→ 先简短说一句你怎么处理,"
-        "然后把**书的本章正文**放进围栏,严格用此格式"
-        "(scope 取 chapter=整章 / selection=改选中段 / append=续写接在后面):\n"
-        "⟦PROPOSAL scope=chapter⟧\n（书的正文，作者笔调，纯散文，不要解说）\n⟦/PROPOSAL⟧\n"
+        "不是从某个角色的受限视角做渲染。\n\n"
+        "## 核心判断:讨论 vs 动稿\n"
+        "- 若作者只是讨论/提问/点评/分析/给意见 → **纯文字回复,绝对禁止输出 ⟦PROPOSAL⟧ 围栏**。\n"
+        "- **仅当**作者明确使用「写/改/续写/帮我写/重写/把这段…/本章这样展开」等写作动词,\n"
+        "  或作者提供了角色演绎草稿请求成文时 → 先简短说一句你的处理思路,"
+        "然后把**书的本章正文**放进围栏:\n"
+        "  (scope 取 chapter=整章 / selection=改选中段 / append=续写接在后面)\n"
+        "  ⟦PROPOSAL scope=chapter⟧\n  （书的正文，作者笔调，纯散文，不要解说）\n  ⟦/PROPOSAL⟧\n\n"
+        "## 写作规则\n"
         "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
         "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
         "限知走时,叙事才贴该视角、不写他不知道的私密。"
@@ -419,6 +422,69 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
 
         try:
             for ev in fn(msg, instructions):
+                t = ev.get("type", "")
+                if t == "response.output_text.delta":
+                    yield from drain(parser.feed(ev.get("delta", "")))
+                elif t == "response.output_item.added":
+                    item = ev.get("item", {}) or {}
+                    if item.get("type") == "function_call":
+                        yield f"data: {json.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
+            yield from drain(parser.flush())
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+class ChatWriteReq(BaseModel):
+    msg: str
+    chapter: int = 1
+    focalizer: str = ""
+    images: list = []  # [{data: base64str, type: mime_type}]
+
+
+@app.post("/chat/write")
+def chat_write_post(req: ChatWriteReq, work: str = "main"):
+    """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
+    from scribe3.llm import hermes_responses_events
+    from scribe3.proposal import ProposalParser
+    fn = _responses_events or hermes_responses_events
+    st = _store_for(work)
+    instructions = _editor_write_system(st)
+    instructions += f"\n当前第 {req.chapter} 章。"
+    if req.focalizer:
+        instructions += f"作者指定本章跟随焦点者 {req.focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+
+    if req.images:
+        content = [{"type": "input_text", "text": req.msg}]
+        for img in req.images:
+            content.append({"type": "input_image", "image_url": f"data:{img.get('type','image/jpeg')};base64,{img.get('data','')}"})
+        message = [{"role": "user", "content": content}]
+    else:
+        message = req.msg
+
+    def gen():
+        parser = ProposalParser()
+        prop = {"scope": None, "prose": []}
+
+        def drain(events):
+            for kind, val in events:
+                if kind == "delta":
+                    yield f"data: {json.dumps({'delta': val}, ensure_ascii=False)}\n\n"
+                elif kind == "proposal_open":
+                    prop["scope"] = val
+                elif kind == "proposal_delta":
+                    prop["prose"].append(val)
+                elif kind == "proposal_close":
+                    yield f"data: {json.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
+                    prop["scope"] = None
+                    prop["prose"] = []
+
+        try:
+            for ev in fn(message, instructions):
                 t = ev.get("type", "")
                 if t == "response.output_text.delta":
                     yield from drain(parser.feed(ev.get("delta", "")))
