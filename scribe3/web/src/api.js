@@ -66,6 +66,22 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
+  chatWrite: (msg, { chapter = 1, focalizer = '', onDelta, onTool, onProposal, onDone, onError }) => {
+    const q = `/chat/write?msg=${enc(msg)}&chapter=${chapter}&focalizer=${enc(focalizer)}`
+    const es = new EventSource(BASE + ww(q))
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        if (d.delta) onDelta?.(d.delta)
+        else if (d.tool) onTool?.(d.tool)
+        else if (d.proposal) onProposal?.(d.proposal)
+        else if (d.done) { es.close(); onDone?.() }
+        else if (d.error) { es.close(); onError?.(d.error) }
+      } catch (_) { /* */ }
+    }
+    es.onerror = () => { es.close(); onError?.('连接中断') }
+    return es
+  },
   chatStream: (msg, { onDelta, onTool, onDone, onError, agentic }) => {
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
     const es = new EventSource(BASE + ww(path))

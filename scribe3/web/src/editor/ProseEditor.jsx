@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
-import { Bold, Italic, Strikethrough, Copy, Target, RotateCcw } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Copy, Target, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -34,7 +34,7 @@ function toText(editor) {
   return parts.join('\n\n')
 }
 
-export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false }) {
+export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false, onDiscuss }) {
   const [chars, setChars] = useState(0)
   const [recovered, setRecovered] = useState(null)
   const lastEmit = useRef(value || '')
@@ -124,6 +124,14 @@ export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始
           <Bub on={sel.strike} onClick={() => editor.chain().focus().toggleStrike().run()} title="删除线"><Strikethrough size={14} /></Bub>
           <div className="w-px h-5 bg-line mx-0.5" />
           <Bub onClick={() => { const { from, to } = editor.state.selection; navigator.clipboard?.writeText(editor.state.doc.textBetween(from, to, '\n')) }} title="复制选区"><Copy size={14} /></Bub>
+          {onDiscuss && (
+            <>
+              <div className="w-px h-5 bg-line mx-0.5" />
+              <button onMouseDown={(e) => e.preventDefault()} title="让主编改这段"
+                onClick={() => { const { from, to } = editor.state.selection; onDiscuss(editor.state.doc.textBetween(from, to, '\n')) }}
+                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-[12px] text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
+            </>
+          )}
           <span className="px-1.5 text-[11px] text-faint tnum inline-flex items-center gap-1"><Target size={11} />{Math.abs(editor.state.selection.to - editor.state.selection.from)}</span>
         </div>
       </BubbleMenu>

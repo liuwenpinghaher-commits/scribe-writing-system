@@ -86,7 +86,7 @@ export function Shell({ topbar, left, center, right }) {
               <div className="flex items-center h-9 shrink-0 px-3 border-b border-line">
                 <span className="text-[11px] font-semibold uppercase tracking-[.08em] text-faint">{rCap.label}</span>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3">{rCap.render()}</div>
+              <div className={rCap.bare ? 'flex-1 min-h-0' : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3'}>{rCap.render()}</div>
             </div>
           </>
         )}
