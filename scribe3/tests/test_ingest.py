@@ -29,3 +29,12 @@ def test_ingest_chapter_end_to_end(store):
     r = ingest_chapter(store, 1, fake)
     assert r["applied"] == 1
     assert any("聚魂" in f.value for f in project_frame(store, "role:焦三", 1).facts)
+
+
+def test_apply_delta_writes_voice_flag(store):
+    from scribe3.ingest import apply_delta
+    delta = {"learned": [], "did": [],
+             "voice_shift": [{"who": "焦三", "reason": "被师父背叛"}]}
+    apply_delta(store, delta, 10)
+    flags = store.list_voice_flags("open")
+    assert any(f["character"] == "焦三" and f["seq"] == 10 for f in flags)

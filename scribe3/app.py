@@ -242,6 +242,29 @@ def del_motif(mid: str, work: str = "main"):
     return {"ok": True}
 
 
+class VoiceIn(BaseModel):
+    character: str
+    kind: str
+    text: str
+    since_chapter: int = 0
+
+
+@app.post("/voice")
+def add_voice(v: VoiceIn, work: str = "main"):
+    _store_for(work).add_voice_sample(v.character, v.kind, v.text, v.since_chapter)
+    return {"ok": True}
+
+
+@app.get("/voice")
+def get_voice(character: str, work: str = "main"):
+    return _store_for(work).list_voice_samples(character)
+
+
+@app.get("/voice-flags")
+def voice_flags(work: str = "main"):
+    return _store_for(work).list_voice_flags("open")
+
+
 @app.get("/graph")
 def graph(chapter: int | None = None, work: str = "main"):
     """知识图谱:角色/命题节点 + knows 边(Atlas 视图)。"""

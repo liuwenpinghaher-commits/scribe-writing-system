@@ -314,6 +314,39 @@ class SurrealStore:
             "法器/法术首次出场须四件套:专名+工艺工序+术数+义理(至少齐3项)",
             "范例:灵龙镇煞钉·阳铜黑狗血七七四十九天炼成·三百六十支围太极阵·画井为狱镇魂锁煞")
 
+    # --- 声音库(per-character 4类独白 + 版本)---
+    def add_voice_sample(self, character: str, kind: str, text: str, since_chapter: int = 0) -> None:
+        self._execute_write(
+            "CREATE voice_sample SET character=$c, kind=$k, text=$t, since_chapter=$s",
+            {"c": character, "k": kind, "t": text, "s": since_chapter})
+
+    def list_voice_samples(self, character: str) -> list[dict]:
+        return self._query(
+            "SELECT meta::id(id) AS id, character, kind, text, since_chapter "
+            "FROM voice_sample WHERE character=$c ORDER BY since_chapter", {"c": character})
+
+    def latest_voice_samples(self, character: str, upto_chapter: int) -> dict:
+        """时间门:每 kind 取 since_chapter≤upto 的最新版(不剧透未来版本)。返回 {kind: text}。"""
+        rows = self._query(
+            "SELECT kind, text, since_chapter FROM voice_sample "
+            "WHERE character=$c AND since_chapter <= $u ORDER BY since_chapter",
+            {"c": character, "u": upto_chapter})
+        out: dict = {}
+        for r in rows:                 # 升序遍历,后覆盖前 → 各 kind 最新版
+            out[r["kind"]] = r["text"]
+        return out
+
+    # --- 声音进化标记 ---
+    def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
+        self._execute_write(
+            "CREATE voice_evolution_flag SET character=$c, seq=$s, reason=$r, status='open'",
+            {"c": character, "s": seq, "r": reason})
+
+    def list_voice_flags(self, status: str = "open") -> list[dict]:
+        return self._query(
+            "SELECT meta::id(id) AS id, character, seq, reason, status "
+            "FROM voice_evolution_flag WHERE status=$st", {"st": status})
+
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
         self._execute_write(

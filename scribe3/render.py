@@ -29,9 +29,11 @@ def _events_at(world: World, chapter: int):
 
 
 def build_render_prompt(world: World, chapter: int, focalizer: str,
-                        craft_block: str = "", soak_result: dict | None = None) -> str:
+                        craft_block: str = "", soak_result: dict | None = None,
+                        voice: dict | None = None) -> str:
     """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。
-    craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。"""
+    craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。
+    声音样本(focalizer 自己的,不破限知)同样插在事件之后、渲染纪律之前。"""
     frame = project_frame(world, focalizer, chapter)
     foc = world.entity(focalizer)
     foc_name = foc.name if foc else focalizer
@@ -56,6 +58,12 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
         )
         where = world.entity(ev.location).name if ev.location and world.entity(ev.location) else (ev.location or "")
         lines.append(f"- [{ev.type}] {parts}" + (f" 于{where}" if where else ""))
+
+    if voice:
+        _VK = {"free": "自由独白", "pressure": "压力独白", "relation": "关系独白", "narration": "叙述语气"}
+        vlines = [f"- {_VK[k]}:{voice[k]}" for k in ("free", "pressure", "relation", "narration") if voice.get(k)]
+        if vlines:
+            lines += ["", f"## 你({foc_name})的声音(保持一致,别串味)"] + vlines
 
     if craft_block:
         lines += ["", craft_block]
@@ -90,8 +98,9 @@ def render(world: World, chapter: int, focalizer: str,
     if soak:
         from scribe3.soak import soak as run_soak
         soak_result = run_soak(world, chapter, focalizer, complete_fn)
+    voice = world.latest_voice_samples(focalizer, chapter) if hasattr(world, "latest_voice_samples") else None
     prompt = build_render_prompt(world, chapter, focalizer,
-                                 craft_block=craft_block, soak_result=soak_result)
+                                 craft_block=craft_block, soak_result=soak_result, voice=voice)
     kw: dict = {}
     if max_tokens:
         kw["max_tokens"] = max_tokens

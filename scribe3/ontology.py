@@ -126,3 +126,7 @@ class World:
     def list_craft_rules(self) -> list[dict]:
         """内存 World 无题材层(鸭子兼容 render);真库由 SurrealStore 覆盖。"""
         return []
+
+    def latest_voice_samples(self, character: str, upto_chapter: int) -> dict:
+        """内存 World 无声音库(鸭子兼容 render);真库由 SurrealStore 覆盖。"""
+        return {}

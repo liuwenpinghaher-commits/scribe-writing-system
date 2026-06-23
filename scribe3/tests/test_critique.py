@@ -98,3 +98,18 @@ def test_oversaturation_simile_no_false_positive_on_xiang():
 def test_quality_flags_has_oversaturation():
     flags = quality_flags("这意味着结束。也就是说没了。换句话说,其实是命。")
     assert "oversaturation" in flags
+
+
+from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_delta
+
+
+def test_extract_prompt_has_voice_shift():
+    p = build_knowledge_extract_prompt("正文")
+    assert "voice_shift" in p
+
+
+def test_parse_voice_shift():
+    reply = '{"learned":[],"did":[],"voice_shift":[{"who":"焦三","reason":"被背叛"}]}'
+    d = parse_knowledge_delta(reply)
+    assert d["voice_shift"] == [{"who": "焦三", "reason": "被背叛"}]
+    assert d["learned"] == [] and d["did"] == []

@@ -41,6 +41,10 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             store.add_knowledge(KnowledgeEdge(_ensure_char(store, w), fid,
                                               since_chapter=seq, acquired_via="saw"))
         n += 1
+    for it in delta.get("voice_shift") or []:
+        who, reason = it.get("who"), it.get("reason")
+        if who and reason and hasattr(store, "add_voice_flag"):
+            store.add_voice_flag(who, seq, reason)   # 只标记(角色名),不生成独白
     return n
 
 
@@ -48,6 +52,6 @@ def ingest_chapter(store, seq: int, complete_fn) -> dict:
     """读某章正文 → Hermes 抽知识 delta → 应用到 store。"""
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
-        return {"applied": 0, "delta": {"learned": [], "did": []}}
+        return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
     delta = parse_knowledge_delta(complete_fn(build_knowledge_extract_prompt(ch["prose"])))
     return {"applied": apply_delta(store, delta, seq), "delta": delta}

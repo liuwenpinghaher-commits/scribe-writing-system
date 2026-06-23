@@ -170,9 +170,12 @@ def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None =
 def build_knowledge_extract_prompt(prose: str) -> str:
     return (
         "读下面一章小说正文,抽取本章【各角色新知道了什么(learned)、做了什么且被谁看见(did)】——"
-        "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。\n"
+        "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。"
+        "再抽【voice_shift:哪些角色这章经历了可能改变其说话方式/声音的重大事件(创伤/背叛/重大转折/身份剧变)】——"
+        "只列谁+什么事,不要替他写新独白。\n"
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
-        '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}]}。\n\n'
+        '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}],'
+        '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}]}。\n\n'
         "【正文】\n" + prose)
 
 
@@ -180,6 +183,7 @@ def parse_knowledge_delta(reply: str) -> dict:
     try:
         m = re.search(r"\{.*\}", reply or "", re.S)
         d = json.loads(m.group(0)) if m else {}
-        return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or [])}
+        return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or []),
+                "voice_shift": list(d.get("voice_shift") or [])}
     except Exception:
-        return {"learned": [], "did": []}
+        return {"learned": [], "did": [], "voice_shift": []}

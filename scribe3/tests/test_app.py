@@ -211,3 +211,15 @@ def test_editor_no_full_motif_dump(store):
     sysmsg = A._editor_system(store)
     assert "炉火" not in sysmsg   # 母题靠主编按需调 s3_list_motifs,不在系统提示里全量展开
     assert isinstance(sysmsg, str) and len(sysmsg) > 0
+
+
+def test_voice_rest(store):
+    import scribe3.app as A
+    A.set_store(store)
+    from fastapi.testclient import TestClient
+    client = TestClient(A.app)
+    r = client.post("/voice?work=main",
+                    json={"character": "role:焦三", "kind": "pressure", "text": "声细如蚊", "since_chapter": 1})
+    assert r.status_code == 200
+    got = client.get("/voice?character=role:焦三&work=main").json()
+    assert any(v["kind"] == "pressure" and v["text"] == "声细如蚊" for v in got)

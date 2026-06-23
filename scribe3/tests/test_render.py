@@ -71,6 +71,22 @@ def test_craft_does_not_break_limited_pov():
     assert "治眼" not in p and "攒钱给老娘" not in p
 
 
+def test_prompt_injects_voice():
+    w = luanshi_leak_world()
+    voice = {"free": "胡话连篇", "pressure": "声细如蚊", "relation": "对娘软", "narration": "冷眼看世道"}
+    p = build_render_prompt(w, 1, "role:老道", voice=voice)
+    assert "你" in p and "声音" in p
+    assert "声细如蚊" in p and "冷眼看世道" in p
+
+
+def test_voice_does_not_break_pov():
+    """load-bearing:注入声音后,老道视角仍不含焦三私密。"""
+    w = luanshi_leak_world()
+    voice = {"narration": "皂衣道士的冷眼"}
+    p = build_render_prompt(w, 1, "role:老道", voice=voice)
+    assert "治眼" not in p and "攒钱给老娘" not in p
+
+
 def test_render_runs_soak_then_renders():
     """soak=True:complete_fn 先被 soak 调一次、再被渲染调一次;最终输出是渲染结果。"""
     w = luanshi_leak_world()
