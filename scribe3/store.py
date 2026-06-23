@@ -284,6 +284,36 @@ class SurrealStore:
     def delete_motif(self, mid: str) -> None:
         self._delete_by("motif", mid)
 
+    # --- 题材层 craft 规则(per-work)---
+    def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
+        self._execute_write(
+            "CREATE craft_rule SET kind=$k, pattern=$p, note=$n",
+            {"k": kind, "p": pattern, "n": note})
+
+    def list_craft_rules(self) -> list[dict]:
+        return self._query("SELECT meta::id(id) AS id, kind, pattern, note FROM craft_rule")
+
+    def delete_craft_rule(self, rid: str) -> None:
+        self._execute_write("DELETE type::record('craft_rule',$r)", {"r": rid})
+
+    def purple_patterns(self) -> list[str]:
+        """本书升华正则(喂 critique.find_purple_prose 的 extra_patterns)。"""
+        return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "purple_regex"]
+
+    def seed_craft_rules(self) -> None:
+        """首书(乱世铜炉系)种子:scribe2 实战的升华正则8条 + 法器四件套。幂等(已有则跳过)。"""
+        if self.list_craft_rules():
+            return
+        for p in ["天地为炉|万物为铜|在炉里", r"原来.{0,30}(就|早就|从一开始)",
+                  r"从.{1,18}那一刻起", r"像.{0,12}[滴颗].{0,8}眼泪", "影子被拉得很长",
+                  r"(有些|有的).{0,14}(就再也|再也)", r"他知道[，,].{0,4}(回不去|不一样了)",
+                  "走下去|刀山火海"]:
+            self.add_craft_rule("purple_regex", p, "乱世铜炉升华句(scribe2实证)")
+        self.add_craft_rule(
+            "artifact_craft",
+            "法器/法术首次出场须四件套:专名+工艺工序+术数+义理(至少齐3项)",
+            "范例:灵龙镇煞钉·阳铜黑狗血七七四十九天炼成·三百六十支围太极阵·画井为狱镇魂锁煞")
+
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
         self._execute_write(

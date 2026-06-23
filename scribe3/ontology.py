@@ -122,3 +122,7 @@ class World:
 
     def events_at(self, chapter: int) -> list[Event]:
         return [ev for ev in self.events.values() if ev.story_time == chapter]
+
+    def list_craft_rules(self) -> list[dict]:
+        """内存 World 无题材层(鸭子兼容 render);真库由 SurrealStore 覆盖。"""
+        return []

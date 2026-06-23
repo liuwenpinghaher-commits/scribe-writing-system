@@ -42,6 +42,44 @@ def test_render_feeds_clean_prompt_to_model():
         captured["prompt"] = prompt
         return "雨砸在乱葬岗的烂泥上。皂衣道士拦住去路,只问那颗丹。"
 
-    out = render(w, 1, "role:老道", complete_fn=fake_complete)
+    out = render(w, 1, "role:老道", complete_fn=fake_complete, soak=False)
     assert "皂衣道士" in out
     assert "治眼" not in captured["prompt"], "喂给模型的 prompt 不含泄露"
+
+
+from scribe3.craft import build_craft_block
+
+
+def test_prompt_injects_craft_block():
+    w = luanshi_leak_world()
+    p = build_render_prompt(w, 1, "role:老道", craft_block=build_craft_block())
+    assert "写作引擎" in p and "身体先行" in p, "渲染 prompt 含引擎层 craft"
+
+
+def test_prompt_injects_soak_seeds():
+    w = luanshi_leak_world()
+    sr = {"emotion_arc": "戒备→贪念", "turn": "看清那颗丹", "seed_words": ["潮", "锈", "贪"]}
+    p = build_render_prompt(w, 1, "role:老道", soak_result=sr)
+    assert "情感曲线" in p and "戒备→贪念" in p and "潮" in p
+
+
+def test_craft_does_not_break_limited_pov():
+    """load-bearing:craft/soak 注入后,老道视角仍不含焦三私密。"""
+    w = luanshi_leak_world()
+    sr = {"emotion_arc": "", "turn": "", "seed_words": ["雨", "刀"]}
+    p = build_render_prompt(w, 1, "role:老道", craft_block=build_craft_block(), soak_result=sr)
+    assert "治眼" not in p and "攒钱给老娘" not in p
+
+
+def test_render_runs_soak_then_renders():
+    """soak=True:complete_fn 先被 soak 调一次、再被渲染调一次;最终输出是渲染结果。"""
+    w = luanshi_leak_world()
+    calls = []
+    def fake(prompt, **kw):
+        calls.append(prompt)
+        if "写前浸泡一次" in prompt:   # soak prompt 独有串(渲染 prompt 的 craft 引擎也叫'浸泡',故不能用'浸泡'判别)
+            return '{"emotion_arc":"冷→锐","turn":"拔刀","seed_words":["铁"]}'
+        return "雨砸在乱葬岗的烂泥上。"
+    out = render(w, 1, "role:老道", complete_fn=fake, soak=True)
+    assert out == "雨砸在乱葬岗的烂泥上。"
+    assert len(calls) == 2 and "铁" in calls[1], "soak 种子词进了渲染 prompt"

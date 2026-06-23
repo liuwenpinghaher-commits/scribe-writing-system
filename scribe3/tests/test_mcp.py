@@ -10,11 +10,13 @@ import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-                        "s3_plant_promise", "s3_advance_promise", "s3_ingest_chapter"}
+                        "s3_plant_promise", "s3_advance_promise", "s3_ingest_chapter",
+                        "s3_craft_rule_add", "s3_craft_rule_remove"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_READ = {"s3_project_frame", "s3_render_scene", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
-                 "s3_list_promises", "s3_discipline_check", "s3_list_motifs"}
+                 "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
+                 "s3_emotion_palette", "s3_craft_rule_list"}
 
 
 def test_write_gated_set_no_drift():
@@ -57,6 +59,29 @@ def test_read_tool_find_leaks(store):
     M.set_store(store)
     leaks = M.s3_find_leaks("皂衣道士冷笑:够你给老娘治眼了。", "role:老道", 1)
     assert any(l["fact_id"] == "fact:治眼" for l in leaks)
+
+
+def test_emotion_palette_list_and_query():
+    names = M.s3_emotion_palette("")
+    assert isinstance(names, list) and "压抑的悲伤" in names
+    one = M.s3_emotion_palette("压抑的悲伤")
+    assert one["body"] and one["inner"]
+
+
+def test_craft_rule_gated_in_write_set():
+    assert "s3_craft_rule_add" in M.WRITE_GATED
+    assert "s3_craft_rule_remove" in M.WRITE_GATED
+    assert "s3_craft_rule_list" not in M.WRITE_GATED
+    assert "s3_emotion_palette" not in M.WRITE_GATED
+
+
+def test_qc_chapter_uses_themed_purple(store):
+    """s3_qc_chapter 把本书 craft_rule 的题材升华正则喂给 find_purple_prose。"""
+    store.seed_craft_rules()
+    store.save_chapter(1, "炉火映脸,天地为炉,万物为铜。")
+    M.set_store(store)
+    flags = M.s3_qc_chapter(1)
+    assert flags["purple"], "题材升华句(天地为炉)应被本书正则抓到"
 
 
 def test_tools_discoverable_and_annotated():

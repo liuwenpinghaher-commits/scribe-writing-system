@@ -28,8 +28,10 @@ def _events_at(world: World, chapter: int):
     return world.events_at(chapter)   # World 与 SurrealStore 都提供此方法(鸭子兼容)
 
 
-def build_render_prompt(world: World, chapter: int, focalizer: str) -> str:
-    """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。"""
+def build_render_prompt(world: World, chapter: int, focalizer: str,
+                        craft_block: str = "", soak_result: dict | None = None) -> str:
+    """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。
+    craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。"""
     frame = project_frame(world, focalizer, chapter)
     foc = world.entity(focalizer)
     foc_name = foc.name if foc else focalizer
@@ -55,18 +57,41 @@ def build_render_prompt(world: World, chapter: int, focalizer: str) -> str:
         where = world.entity(ev.location).name if ev.location and world.entity(ev.location) else (ev.location or "")
         lines.append(f"- [{ev.type}] {parts}" + (f" 于{where}" if where else ""))
 
+    if craft_block:
+        lines += ["", craft_block]
+    if soak_result and (soak_result.get("seed_words") or soak_result.get("emotion_arc")):
+        seeds = "、".join(soak_result.get("seed_words") or [])
+        arc = soak_result.get("emotion_arc") or ""
+        turn = soak_result.get("turn") or ""
+        lines += ["", "## 本场情感设计(浸泡产出,据此把握情绪曲线,不要写进正文)"]
+        if arc:
+            lines.append(f"- 情感曲线:{arc}")
+        if turn:
+            lines.append(f"- 转折时刻:{turn}")
+        if seeds:
+            lines.append(f"- 情绪种子词:{seeds}")
+
     lines += ["", _CONSTRAINT]
     return "\n".join(lines)
 
 
 def render(world: World, chapter: int, focalizer: str,
            complete_fn: Callable[..., str] | None = None,
-           max_tokens: int | None = None, timeout: float | None = None) -> str:
-    """渲染一章一视角:限知 prompt → complete_fn → sjuzhet。默认走 Hermes。"""
+           max_tokens: int | None = None, timeout: float | None = None,
+           soak: bool = True) -> str:
+    """渲染一章一视角:浸泡→限知 prompt(含 craft)→complete_fn→sjuzhet。默认走 Hermes。"""
     if complete_fn is None:
         from scribe3.llm import hermes_complete
         complete_fn = hermes_complete
-    prompt = build_render_prompt(world, chapter, focalizer)
+    from scribe3.craft import build_craft_block
+    rules = world.list_craft_rules() if hasattr(world, "list_craft_rules") else None
+    craft_block = build_craft_block(rules)
+    soak_result = None
+    if soak:
+        from scribe3.soak import soak as run_soak
+        soak_result = run_soak(world, chapter, focalizer, complete_fn)
+    prompt = build_render_prompt(world, chapter, focalizer,
+                                 craft_block=craft_block, soak_result=soak_result)
     kw: dict = {}
     if max_tokens:
         kw["max_tokens"] = max_tokens

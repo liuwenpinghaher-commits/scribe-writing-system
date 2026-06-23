@@ -48,7 +48,6 @@ def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4
 
 _PURPLE_PATS = [
     r"原来[^。！？\n]{0,30}(就|早就|从一开始|没的选|没得选)",
-    r"天地为炉|万物为铜|在炉[子火]?里",
     r"从[^,，。\n]{1,18}那一刻起",
     r"像[^。！？\n]{0,12}[滴颗][^。！？\n]{0,8}眼泪",
     r"影子[被]?拉得很[长短]",
@@ -59,22 +58,40 @@ _PURPLE_PATS = [
 _PURPLE_RE = [re.compile(p) for p in _PURPLE_PATS]
 
 
-def find_purple_prose(text: str) -> list[dict]:
-    """升华/抒情/主题直陈句:替读者下结论、硬塞命运隐喻——志怪冷笔大忌。生成后扫描+删。"""
+def find_purple_prose(text: str, extra_patterns: list[str] | None = None) -> list[dict]:
+    """升华/抒情/主题直陈句:替读者下结论、硬塞命运隐喻——冷笔大忌。生成后扫描+删。
+    通用正则跨题材;题材专属升华句经 extra_patterns 注入(来自 craft_rule purple_regex)。"""
+    pats = list(_PURPLE_RE) + [re.compile(p) for p in (extra_patterns or [])]
     out: list[dict] = []
     for s in re.split(r"(?<=[。！？\n])", text or ""):
         st = s.strip()
-        if st and any(rx.search(st) for rx in _PURPLE_RE):
+        if st and any(rx.search(st) for rx in pats):
             out.append({"phrase": st[:30], "kind": "purple"})
     return out
 
 
-def quality_flags(text: str) -> dict:
-    """聚合三类确定性质检(渲染层兜底)。"""
+# 通用 AI 腔硬检(E1/E2,题材无关,来自 hermes-novel hard-checks)
+_NOT_A_BUT_B = re.compile(r"不是.{1,15}——是")
+
+
+def find_ai_tics(text: str) -> list[dict]:
+    """E1 破折号全章>5;E2「不是A——是B」句式(LLM 最常见的伪深刻制造器)。"""
+    out: list[dict] = []
+    dash = (text or "").count("——")
+    if dash > 5:
+        out.append({"kind": "em_dash", "count": dash})
+    for m in _NOT_A_BUT_B.finditer(text or ""):
+        out.append({"kind": "not_a_but_b", "phrase": m.group(0)})
+    return out
+
+
+def quality_flags(text: str, extra_patterns: list[str] | None = None) -> dict:
+    """聚合四类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
-        "purple": find_purple_prose(text),
+        "purple": find_purple_prose(text, extra_patterns),
+        "ai_tics": find_ai_tics(text),
     }
 
 

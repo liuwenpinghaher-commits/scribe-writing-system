@@ -28,7 +28,8 @@ def set_store(s) -> None:
 
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-               "s3_plant_promise", "s3_advance_promise", "s3_ingest_chapter"}
+               "s3_plant_promise", "s3_advance_promise", "s3_ingest_chapter",
+               "s3_craft_rule_add", "s3_craft_rule_remove"}
 
 
 def requires_approval(name: str) -> bool:
@@ -123,10 +124,30 @@ def s3_get_chapter(seq: int) -> dict:
 
 @mcp.tool(annotations=_RO)
 def s3_qc_chapter(seq: int) -> dict:
-    """对某章正文跑确定性 QC(跨段复读/排比开头/升华句)——渲染层兜底。"""
+    """对某章正文跑确定性 QC(复读/排比/升华/AI腔)——渲染层兜底。
+    升华检测叠加本书题材正则(craft_rule purple_regex)。"""
     from scribe3.critique import quality_flags
     ch = _store.get_chapter(seq)
-    return quality_flags(ch["prose"]) if ch else {}
+    if not ch:
+        return {}
+    extra = _store.purple_patterns() if hasattr(_store, "purple_patterns") else None
+    return quality_flags(ch["prose"], extra_patterns=extra)
+
+
+@mcp.tool(annotations=_RO)
+def s3_emotion_palette(emotion: str = "") -> list | dict:
+    """情感词典(引擎层,题材无关):空参返回15种情感名;带参返回该情感的身体信号/内部感觉。
+    渲染某情感时查取 2-3 个身体信号编织进叙述(show 不 tell 的命门)。"""
+    from scribe3.craft import PALETTE
+    if not emotion:
+        return list(PALETTE)
+    return PALETTE.get(emotion, {})
+
+
+@mcp.tool(annotations=_RO)
+def s3_craft_rule_list() -> list[dict]:
+    """列本书题材层 craft 规则(升华正则/法器写法/角色覆盖动作)。"""
+    return _store.list_craft_rules()
 
 
 @mcp.tool(annotations=_RO)
@@ -224,6 +245,22 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               lambda: _store.add_knowledge(KnowledgeEdge(knower, proposition,
                                                                          since_chapter=since_chapter,
                                                                          acquired_via=acquired_via)))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "") -> dict:
+    """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|cover_action。"""
+    ok = await _ask(ctx, f"加题材规则 [{kind}] {pattern}")
+    return commit_if_approved("s3_craft_rule_add", ok,
+                              lambda: _store.add_craft_rule(kind, pattern, note))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_craft_rule_remove(ctx: Context, rule_id: str) -> dict:
+    """删一条本书题材 craft 规则(写,待批)。"""
+    ok = await _ask(ctx, f"删题材规则 {rule_id}")
+    return commit_if_approved("s3_craft_rule_remove", ok,
+                              lambda: _store.delete_craft_rule(rule_id))
 
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
