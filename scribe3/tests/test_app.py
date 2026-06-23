@@ -170,3 +170,12 @@ def test_save_chapter_runs_softcheck(store):
     r = _client(store).post("/save-chapter", json={"seq": 1, "prose": "一段正常的志怪。", "focalizer": "role:x"}).json()
     assert r["status"] == "saved" and "qc" in r and "leaks" in r
     assert set(r["qc"]) == {"repetition", "structural", "purple"}
+
+
+def test_apply_delta_idempotent(store):
+    from scribe3.ingest import apply_delta
+    delta = {"learned": [{"who": "甲", "fact": "X 是真的"}], "did": []}
+    apply_delta(store, delta, seq=1)
+    apply_delta(store, delta, seq=1)   # 重复回写同章 → 不应抛 AlreadyExists
+    facts = [f for f in store.facts_at(1) if f.value == "X 是真的"]
+    assert len(facts) == 1   # 幂等:只一条

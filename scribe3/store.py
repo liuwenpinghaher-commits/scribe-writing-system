@@ -149,7 +149,7 @@ class SurrealStore:
     def add_fact(self, f: Fact) -> Fact:
         _, local = _split(f.id)
         self._execute_write(
-            "CREATE type::record('proposition', $local) SET entity=$entity, attribute=$attr, "
+            "UPSERT type::record('proposition', $local) SET entity=$entity, attribute=$attr, "
             "value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, leak_markers=$lm",
             {"local": local, "entity": f.entity_id, "attr": f.attribute, "value": f.value,
              "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers})
