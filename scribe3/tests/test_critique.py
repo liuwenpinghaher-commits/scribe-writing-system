@@ -60,3 +60,41 @@ def test_find_ai_tics_not_a_but_b():
 def test_quality_flags_includes_ai_tics():
     flags = quality_flags("那不是恐惧——是渴望。")
     assert "ai_tics" in flags
+
+
+from scribe3.critique import find_oversaturation
+
+
+def test_oversaturation_explain():
+    """解释连接词密集 → explain 项。"""
+    text = "这意味着他输了。也就是说没救了。换句话说,正是因为他来晚了。其实是命。"
+    hits = find_oversaturation(text, per_k_explain=3.0)
+    assert any(h["kind"] == "explain" for h in hits)
+
+
+def test_oversaturation_emo_label():
+    """命名情绪词密集 → emo_label 项。"""
+    text = "他愤怒,她悲伤,他恐惧,她绝望,他痛苦,她焦虑。"
+    hits = find_oversaturation(text, per_k_emo=5.0)
+    assert any(h["kind"] == "emo_label" for h in hits)
+
+
+def test_oversaturation_clean_passes():
+    """正常克制文本(含'好像/画像'等非比喻)不误报。"""
+    text = ("胡不为把钉子收进怀里。雨砸在乱葬岗的烂泥上,溅起细点。"
+            "他想起那张旧画像,墙上的影子在动。") * 3
+    hits = find_oversaturation(text)
+    assert hits == [], f"正常文本不该报饱和:{hits}"
+
+
+def test_oversaturation_simile_no_false_positive_on_xiang():
+    """simile 用精确模式:'好像/图像/想象'不算比喻,'像刀一样'才算。"""
+    bad = "好像图像想象好像图像想象好像图像"
+    assert not any(h["kind"] == "simile" for h in find_oversaturation(bad))
+    good = "冷得像刀子一样。痛得像针扎似的。沉得像铅块般。亮得像白昼一样。" * 2
+    assert any(h["kind"] == "simile" for h in find_oversaturation(good, per_k_simile=6.0))
+
+
+def test_quality_flags_has_oversaturation():
+    flags = quality_flags("这意味着结束。也就是说没了。换句话说,其实是命。")
+    assert "oversaturation" in flags

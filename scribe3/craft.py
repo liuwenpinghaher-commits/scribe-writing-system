@@ -42,6 +42,14 @@ ENGINES: dict[str, str] = {
         "浸泡(贯穿全程):始终保持 POV 角色的声音——不是你在写,是角色在经历。"
         "环境、他人、情感都经该角色的感知/人格/防御机制过滤后呈现。"
     ),
+    "restraint": (
+        "留白/减法:写满是 AI 通病,该不写的不写比写满更有力。"
+        "①信息冰山:前史/设定落笔只露 1/8,读者能推的不写明。"
+        "②情绪不解释:给身体/场景,不给「这意味着/他明白了/正是因为」的解说;转折后留一句呼吸,不立即点透。"
+        "③删装饰:删了读者不少懂的形容词/比喻 → 删。"
+        "④克制收尾:章末冷笔定格,不升华不总结。"
+        "⑤一段一焦点:别在一段里塞满所有情绪/信息,留下未说的。"
+    ),
 }
 
 PALETTE: dict[str, dict] = {
@@ -140,7 +148,8 @@ def build_craft_block(rules: list[dict] | None = None) -> str:
     """组装引擎层引导块(注入渲染 prompt);题材层 rules 叠加其后。
     rules: [{kind, pattern, note}] 来自 craft_rule per-work 表。"""
     _ZH = {"body": "身体先行", "temperature": "温度曲线", "idle": "闲笔",
-           "metaphor": "认知比喻", "subtext": "潜台词", "sensory": "感官锚定", "soak": "浸泡"}
+           "metaphor": "认知比喻", "subtext": "潜台词", "sensory": "感官锚定",
+           "soak": "浸泡", "restraint": "留白"}
     lines = ["## 写作引擎(题材无关,渲染时遵守)"]
     for key in _ZH:
         lines.append(f"- 【{_ZH[key]}】{ENGINES[key]}")

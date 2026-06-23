@@ -85,13 +85,39 @@ def find_ai_tics(text: str) -> list[dict]:
     return out
 
 
+# 过度解释/过度饱和(留白引擎的确定性兜底;保守阈值,宁可漏不滥杀)
+_EXPLAIN = ["这意味着", "也就是说", "换句话说", "正是因为", "说明了", "其实是", "无非是", "不过是", "正因如此"]
+_EMO_LABEL = ["愤怒", "悲伤", "恐惧", "绝望", "痛苦", "欣喜", "喜悦", "忧伤", "焦虑", "孤独", "兴奋", "悲痛"]
+_SIMILE_WORDS = ["仿佛", "如同", "宛如", "好似", "犹如"]            # 明确比喻词
+_SIMILE_LIKE = re.compile(r"像[^,，。！？\n]{1,10}(一样|般|似的|似地)")  # "像…一样"精确模式,避开"好像/图像"
+
+
+def find_oversaturation(text: str, per_k_explain: float = 3.0,
+                        per_k_emo: float = 5.0, per_k_simile: float = 6.0) -> list[dict]:
+    """过度解释/过度饱和检测(每千字密度超保守阈值)。留白引擎的确定性兜底。"""
+    s = text or ""
+    n = len("".join(s.split())) or 1
+    k = n / 1000.0
+    explain = sum(s.count(w) for w in _EXPLAIN)
+    emo = sum(s.count(w) for w in _EMO_LABEL)
+    simile = sum(s.count(w) for w in _SIMILE_WORDS) + len(_SIMILE_LIKE.findall(s))
+    out: list[dict] = []
+    for label, cnt, thr in (("explain", explain, per_k_explain),
+                            ("emo_label", emo, per_k_emo),
+                            ("simile", simile, per_k_simile)):
+        if cnt / k > thr:
+            out.append({"kind": label, "count": cnt, "per_k": round(cnt / k, 1)})
+    return out
+
+
 def quality_flags(text: str, extra_patterns: list[str] | None = None) -> dict:
-    """聚合四类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex。"""
+    """聚合五类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
         "purple": find_purple_prose(text, extra_patterns),
         "ai_tics": find_ai_tics(text),
+        "oversaturation": find_oversaturation(text),
     }
 
 

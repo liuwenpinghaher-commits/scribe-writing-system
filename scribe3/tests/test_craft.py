@@ -4,8 +4,13 @@ from scribe3.craft import ENGINES, PALETTE, build_craft_block
 _SCIFI = ("沈默", "姜婉", "陆远舟", "校准", "波形图", "数据面板", "探针", "数据日志", "酸菜鱼")
 
 
-def test_engines_seven_present():
-    assert set(ENGINES) == {"body", "temperature", "idle", "metaphor", "subtext", "sensory", "soak"}
+def test_engines_eight_present():
+    assert set(ENGINES) == {"body", "temperature", "idle", "metaphor", "subtext", "sensory", "soak", "restraint"}
+
+
+def test_build_craft_block_has_restraint():
+    block = build_craft_block()
+    assert "留白" in block and "该不写的不写" in block
 
 
 def test_palette_fifteen_complete():
