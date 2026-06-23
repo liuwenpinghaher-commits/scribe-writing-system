@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
-  BookText, LayoutList, Flame,
+  BookText, LayoutList, Flame, Sparkles,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
@@ -10,6 +10,7 @@ import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
 import { ProseEditor } from './editor/ProseEditor'
 import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
+import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
@@ -72,18 +73,19 @@ export function WriteLayout({ work }) {
     await persist(next)
   }
   const save = () => persist(prose)
-  const discussSel = (text) => { if (!text?.trim()) return; setLastQuote(text); setSeedQuote(text); setRightActive('chat') }
+  const discussSel = (text) => { if (!text?.trim()) return; setLastQuote(text); setSeedQuote(`把这段改一下:「${text}」`); setRightActive('chat') }
+  const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
 
   const topbarMid = (
     <div className="shrink-0 border-b border-line bg-surface px-4 h-11 flex items-center gap-2">
       <button onClick={() => setChapter((c) => Math.max(1, c - 1))} className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer" aria-label="上一章"><ChevronLeft size={16} /></button>
       <span className="text-[13px] text-ink tnum w-14 text-center">第 {chapter} 章</span>
       <button onClick={() => setChapter((c) => c + 1)} className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer" aria-label="下一章"><ChevronRight size={16} /></button>
-      <span className="text-[12px] text-faint ml-2">视角</span>
-      <select value={focalizer} onChange={(e) => setFocalizer(e.target.value)}
+      <span className="text-[12px] text-faint ml-2">本章视角</span>
+      <select value={focalizer} onChange={(e) => setFocalizer(e.target.value)} title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
         className="h-7 rounded-lg border border-line bg-canvas px-2 text-[12.5px] text-ink outline-none focus:border-brand cursor-pointer">
-        <option value="">（未定)</option>
-        {chars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        <option value="">作者视角(全知)</option>
+        {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
       </select>
       <div className="ml-auto flex items-center gap-2">
         {leaks > 0 && <Tag tone="danger">穿帮 {leaks}</Tag>}
@@ -166,6 +168,9 @@ export function WriteLayout({ work }) {
     { key: 'chat', label: '主编对话', icon: MessagesSquare, bare: true, render: () => (
       <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
         onSeedUsed={() => setSeedQuote('')} onProposal={(p) => setProposal(p)} />
+    ) },
+    { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
+      <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
     ) },
     { key: 'verify', label: '校验 · 双层QC', icon: ShieldCheck, badge: qcN + leaks + causal.length, render: () => (
       <div>

@@ -365,13 +365,16 @@ def chat_agentic_stream(msg: str, work: str = "main"):
 
 def _editor_write_system(st) -> str:
     return _editor_system(st) + (
-        "\n\n你能直接帮作者写/改这部书的手稿。规则:\n"
+        "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
+        "不是从某个角色的受限视角做渲染。规则:\n"
         "- 若作者只是讨论/提问 → 正常回话,不要写手稿。\n"
         "- 若作者要你写或改手稿(写本章/续写/把某段改成…)→ 先简短说一句你怎么处理,"
-        "然后把**要落到手稿的新散文**放进围栏,严格用此格式"
+        "然后把**书的本章正文**放进围栏,严格用此格式"
         "(scope 取 chapter=整章 / selection=改选中段 / append=续写接在后面):\n"
-        "⟦PROPOSAL scope=chapter⟧\n（新散文，纯正文，不要解说）\n⟦/PROPOSAL⟧\n"
-        "围栏里只放正文散文本身。贴住焦点者知识帧(限知),别写帧外私密。"
+        "⟦PROPOSAL scope=chapter⟧\n（书的正文，作者笔调，纯散文，不要解说）\n⟦/PROPOSAL⟧\n"
+        "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
+        "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
+        "限知走时,叙事才贴该视角、不写他不知道的私密。"
     )
 
 
@@ -384,8 +387,11 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     fn = _responses_events or hermes_responses_events
     st = _store_for(work)
     instructions = _editor_write_system(st)
+    instructions += f"\n当前第 {chapter} 章。"
     if focalizer:
-        instructions += f"\n本章焦点者:{focalizer};当前第 {chapter} 章。"
+        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
 
     def gen():
         parser = ProposalParser()

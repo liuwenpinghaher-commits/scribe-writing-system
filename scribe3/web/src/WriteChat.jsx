@@ -34,7 +34,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
-  useEffect(() => { if (seedQuote) { setInput((v) => (v ? v + '\n' : '') + `「${seedQuote}」`); onSeedUsed?.() } }, [seedQuote])
+  useEffect(() => { if (seedQuote) { setInput((v) => (v ? v + '\n' : '') + seedQuote); onSeedUsed?.() } }, [seedQuote])
 
   const send = (text) => {
     const q = (text ?? input).trim()
