@@ -458,8 +458,22 @@ class SaveChapterReq(BaseModel):
 
 @app.post("/save-chapter")
 def save_chapter(req: SaveChapterReq, work: str = "main"):
-    _store_for(work).save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
-    return {"status": "saved", "seq": req.seq}
+    st = _store_for(work)
+    st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
+    from scribe3.critique import quality_flags
+    qf = quality_flags(req.prose)
+    leaks = 0
+    if req.focalizer:
+        try:
+            from scribe3.verify import find_leaks
+            leaks = len(find_leaks(req.prose, st, req.focalizer, req.seq))
+        except Exception:
+            leaks = 0
+    return {"status": "saved", "seq": req.seq,
+            "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
+                   "purple": len(qf["purple"])},
+            "leaks": leaks}
 
 
 @app.post("/ingest")

@@ -164,3 +164,9 @@ def test_chat_write_discuss_only(store, monkeypatch):
     monkeypatch.setattr(appmod, "_responses_events", fake_events)
     body = _client(store).get("/chat/write", params={"msg": "这章节奏如何"}).text
     assert "建议提速" in body and '"proposal"' not in body
+
+
+def test_save_chapter_runs_softcheck(store):
+    r = _client(store).post("/save-chapter", json={"seq": 1, "prose": "一段正常的志怪。", "focalizer": "role:x"}).json()
+    assert r["status"] == "saved" and "qc" in r and "leaks" in r
+    assert set(r["qc"]) == {"repetition", "structural", "purple"}
