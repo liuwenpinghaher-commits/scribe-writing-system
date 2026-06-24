@@ -2,6 +2,7 @@
 
 经 Hermes 网关 :8642 OpenAI 兼容端点取补全(由 Hermes 路由到 doubao),不直连火山。
 含已验证的 600s 超时 + 3 次重试(瞬时超时/5xx/连接错重试,4xx 不重试)。
+流式路径同:建链+首字节到达前的瞬时错重试,已开始 yield 后不重试(避免重发 delta)。
 """
 from __future__ import annotations
 
@@ -9,6 +10,11 @@ import logging
 import os
 
 import httpx
+
+_RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
+_MAX_RETRIES = 3
+
+_log = logging.getLogger("scribe3.llm")
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
@@ -28,6 +34,34 @@ def _api_key() -> str:
     return k or "local"
 
 
+def _stream_with_retry(make_stream, max_retries: int = _MAX_RETRIES):
+    """对'打开流 + 取到首个 yield 前'的瞬时错重试;已 yield 后不重试(避免重发 delta)。
+
+    make_stream: () -> generator(每次调用新建一条 httpx.stream 并 yield delta/event)。"""
+    last = None
+    for attempt in range(max_retries):
+        started = False
+        try:
+            for piece in make_stream():
+                started = True
+                yield piece
+            return
+        except _RETRYABLE as e:
+            last = e
+            if started:
+                _log.warning("流式中途断(已输出,不重试): %s", e)
+                raise
+            _log.warning("流式建链瞬时错,重试 %d/%d: %s", attempt + 1, max_retries, e)
+            continue
+        except httpx.HTTPStatusError as e:
+            last = e
+            if started or (e.response is not None and e.response.status_code < 500):
+                raise
+            _log.warning("流式 5xx,重试 %d/%d: %s", attempt + 1, max_retries, e)
+            continue
+    raise last if last else RuntimeError("stream failed after retries")
+
+
 def hermes_complete(prompt: str, system: str | None = None,
                     model: str = "doubao-seed-2.0-pro", timeout: float = 600.0,
                     max_tokens: int | None = None) -> str:
@@ -39,7 +73,7 @@ def hermes_complete(prompt: str, system: str | None = None,
         body["max_tokens"] = max_tokens
     hdr = {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
     last: Exception | None = None
-    for _ in range(3):
+    for _ in range(_MAX_RETRIES):
         try:
             r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout, headers=hdr, json=body)
             r.raise_for_status()
@@ -57,49 +91,59 @@ def hermes_complete(prompt: str, system: str | None = None,
 
 def hermes_complete_stream(prompt: str, system: str | None = None,
                            model: str = "doubao-seed-2.0-pro", timeout: float = 600.0):
-    """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。主编对话用。"""
+    """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。主编对话用。
+    建链瞬时错自动重试(与非流式重试语义一致),已 yield 后不重试。"""
     import json as _j
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
-    with httpx.stream("POST", f"{HERMES}/chat/completions", timeout=timeout,
-                      headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
-                      json={"model": model, "messages": msgs, "stream": True}) as r:
-        r.raise_for_status()
-        for line in r.iter_lines():
-            if not line or not line.startswith("data:"):
-                continue
-            payload = line[5:].strip()
-            if payload == "[DONE]":
-                break
-            try:
-                delta = _j.loads(payload)["choices"][0]["delta"].get("content")
-                if delta:
-                    yield delta
-            except Exception:
-                continue
+
+    def make_stream():
+        with httpx.stream("POST", f"{HERMES}/chat/completions", timeout=timeout,
+                          headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
+                          json={"model": model, "messages": msgs, "stream": True}) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    delta = _j.loads(payload)["choices"][0]["delta"].get("content")
+                    if delta:
+                        yield delta
+                except Exception:
+                    continue
+
+    yield from _stream_with_retry(make_stream)
 
 
 def hermes_responses_events(message: str, instructions: str, model: str | None = None,
                             timeout: float = 600.0):
     """主编 agentic:POST scribe3 网关(:8643)/v1/responses(tools=scribe3 MCP + stream),逐事件 yield。
     server_label='scribe3' 引用 profile config 里挂的 scribe3 MCP,主编自动发现并调用 s3_ 工具。
-    SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。"""
+    SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。
+    建链瞬时错自动重试,已 yield 后不重试。"""
     import json as _j
     body: dict = {"input": message, "instructions": instructions, "stream": True,
                   "tools": [{"type": "mcp", "server_label": "scribe3"}]}
     if model:
         body["model"] = model
-    with httpx.stream("POST", f"{HERMES_RESPONSES}/responses", timeout=timeout,
-                      headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
-                      json=body) as r:
-        r.raise_for_status()
-        for raw in r.iter_lines():
-            if not raw or not raw.startswith("data:"):
-                continue
-            payload = raw[5:].strip()
-            if not payload or payload == "[DONE]":
-                continue
-            try:
-                yield _j.loads(payload)
-            except Exception:
-                continue
+
+    def make_stream():
+        with httpx.stream("POST", f"{HERMES_RESPONSES}/responses", timeout=timeout,
+                          headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
+                          json=body) as r:
+            r.raise_for_status()
+            for raw in r.iter_lines():
+                if not raw or not raw.startswith("data:"):
+                    continue
+                payload = raw[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    yield _j.loads(payload)
+                except Exception:
+                    continue
+
+    yield from _stream_with_retry(make_stream)
