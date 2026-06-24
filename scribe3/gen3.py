@@ -68,11 +68,7 @@ def main():
         if not prose.strip():
             print(f"  ✗ 第{i}章无产出,跳过"); continue
         sc = post("/save-chapter", {"seq": i, "prose": prose, "title": f"第{i}章", "focalizer": FOC})
-        try:
-            post(f"/ingest?seq={i}&work={WORK}")
-            ingested = "✓"
-        except Exception as e:
-            ingested = f"✗({str(e)[:30]})"
+        ingested = "✓"  # /save-chapter 已后台触发 ingest;P07 去双触发
         qc = sc.get("qc", {})
         wc = len("".join(prose.split()))
         print(f"  字数 {wc} | 工具 {len(tools)} | QC 复读{qc.get('repetition',0)}/排比{qc.get('structural',0)}/升华{qc.get('purple',0)}"

@@ -147,16 +147,18 @@ class SurrealStore:
                                 {"local": local, "name": e.name})
         return e
 
-    def add_fact(self, f: Fact) -> Fact:
+    def add_fact(self, f: Fact, ingest_seq: int | None = None) -> Fact:
         _, local = _split(f.id)
         self._execute_write(
             "UPSERT type::record('proposition', $local) SET entity=$entity, attribute=$attr, "
-            "value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, leak_markers=$lm",
+            "value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, leak_markers=$lm"
+            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"local": local, "entity": f.entity_id, "attr": f.attribute, "value": f.value,
-             "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers})
+             "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers,
+             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         return f
 
-    def add_knowledge(self, k: KnowledgeEdge) -> KnowledgeEdge:
+    def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
         if k.knower_id == "reader":   # reader 帧:单独表,不走 character->knows 边
             self._execute_write(
                 "CREATE reader_knows SET proposition=$p, since_chapter=$since",
@@ -167,10 +169,12 @@ class SurrealStore:
         # RELATE 箭头位不接受内联函数,用 RecordID 绑参
         self._execute_write(
             "RELATE $k->knows->$p SET since_chapter=$since, until_chapter=$until, "
-            "polarity=$pol, acquired_via=$via",
+            "polarity=$pol, acquired_via=$via"
+            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"k": RecordID(ktbl, klocal), "p": RecordID(ptbl, plocal),
              "since": k.since_chapter, "until": k.until_chapter, "pol": k.polarity,
-             "via": k.acquired_via})
+             "via": k.acquired_via,
+             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         return k
 
     def add_event(self, ev: Event) -> Event:
@@ -183,6 +187,24 @@ class SurrealStore:
     def grant_public(self, fact_id: str, chapter: int) -> None:
         for c in self.characters():
             self.add_knowledge(KnowledgeEdge(c.id, fact_id, since_chapter=chapter, acquired_via="given"))
+
+    def purge_ingest(self, seq: int) -> None:
+        """删除某章 ingest 产出的命题 + knows 边(幂等再 ingest 的前置清理)。
+        只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。"""
+        self._execute_write("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
+        self._execute_write("DELETE proposition WHERE ingest_seq = $seq", {"seq": seq})
+
+    def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
+        """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
+        self._execute_write(
+            "CREATE ingest_unverified SET name=$n, seq=$s, role=$r, status='pending'",
+            {"n": name, "s": seq, "r": role})
+
+    def list_unverified(self, status: str = "pending") -> list[dict]:
+        """列待确认条目(pending/accepted/ignored)。"""
+        return self._query(
+            "SELECT meta::id(id) AS id, name, seq, role, status "
+            "FROM ingest_unverified WHERE status=$st", {"st": status})
 
     # --- 读 ---
     def entity(self, oid: str) -> Entity | None:

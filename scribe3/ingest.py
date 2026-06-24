@@ -19,7 +19,9 @@ def _ensure_char(store, name: str) -> str:
 
 
 def apply_delta(store, delta: dict, seq: int) -> int:
-    """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。"""
+    """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。
+    章级幂等:先清本章既有 ingest 产出,再重写——重复 ingest 不会残留悬挂边。"""
+    store.purge_ingest(seq)
     n = 0
     for i, it in enumerate(delta.get("learned") or []):
         who, fact = it.get("who"), it.get("fact")
@@ -27,8 +29,9 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             continue
         oid = _ensure_char(store, who)
         fid = f"fact:k{seq}-{i}"
-        store.add_fact(Fact(fid, oid, "新知", fact, valid_from=seq))
-        store.add_knowledge(KnowledgeEdge(oid, fid, since_chapter=seq, acquired_via="learned"))
+        store.add_fact(Fact(fid, oid, "获知", fact, valid_from=seq), ingest_seq=seq)
+        store.add_knowledge(KnowledgeEdge(oid, fid, since_chapter=seq, acquired_via="learned"),
+                           ingest_seq=seq)
         n += 1
     for j, it in enumerate(delta.get("did") or []):
         who, action = it.get("who"), it.get("action")
@@ -36,10 +39,11 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             continue
         actor = _ensure_char(store, who)
         fid = f"fact:d{seq}-{j}"
-        store.add_fact(Fact(fid, actor, "所为", action, valid_from=seq))
+        store.add_fact(Fact(fid, actor, "行动", action, valid_from=seq), ingest_seq=seq)
         for w in [who] + list(it.get("seen_by") or []):
             store.add_knowledge(KnowledgeEdge(_ensure_char(store, w), fid,
-                                              since_chapter=seq, acquired_via="saw"))
+                                              since_chapter=seq, acquired_via="saw"),
+                                ingest_seq=seq)
         n += 1
     for it in delta.get("voice_shift") or []:
         who, reason = it.get("who"), it.get("reason")
