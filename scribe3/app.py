@@ -421,13 +421,48 @@ def _editor_write_system(st) -> str:
     )
 
 
+def _stream_write(message, instructions: str):
+    """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
+    message: str(纯文本) 或 list(含图片附件)。"""
+    import json as _j
+    from scribe3.llm import hermes_responses_events
+    from scribe3.proposal import ProposalParser
+    fn = _responses_events or hermes_responses_events
+    parser = ProposalParser()
+    prop = {"scope": None, "prose": []}
+
+    def drain(events):
+        for kind, val in events:
+            if kind == "delta":
+                yield f"data: {_j.dumps({'delta': val}, ensure_ascii=False)}\n\n"
+            elif kind == "proposal_open":
+                prop["scope"] = val
+            elif kind == "proposal_delta":
+                prop["prose"].append(val)
+            elif kind == "proposal_close":
+                yield f"data: {_j.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
+                prop["scope"] = None
+                prop["prose"] = []
+
+    try:
+        for ev in fn(message, instructions):
+            t = ev.get("type", "")
+            if t == "response.output_text.delta":
+                yield from drain(parser.feed(ev.get("delta", "")))
+            elif t == "response.output_item.added":
+                item = ev.get("item", {}) or {}
+                if item.get("type") == "function_call":
+                    yield f"data: {_j.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
+        yield from drain(parser.flush())
+    except Exception as e:
+        yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+    yield 'data: {"done": true}\n\n'
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
-    from scribe3.llm import hermes_responses_events
-    from scribe3.proposal import ProposalParser
-    fn = _responses_events or hermes_responses_events
     st = _store_for(work)
     instructions = _editor_write_system(st)
     instructions += f"\n当前第 {chapter} 章。"
@@ -435,39 +470,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-
-    def gen():
-        parser = ProposalParser()
-        prop = {"scope": None, "prose": []}
-
-        def drain(events):
-            for kind, val in events:
-                if kind == "delta":
-                    yield f"data: {json.dumps({'delta': val}, ensure_ascii=False)}\n\n"
-                elif kind == "proposal_open":
-                    prop["scope"] = val
-                elif kind == "proposal_delta":
-                    prop["prose"].append(val)
-                elif kind == "proposal_close":
-                    yield f"data: {json.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
-                    prop["scope"] = None
-                    prop["prose"] = []
-
-        try:
-            for ev in fn(msg, instructions):
-                t = ev.get("type", "")
-                if t == "response.output_text.delta":
-                    yield from drain(parser.feed(ev.get("delta", "")))
-                elif t == "response.output_item.added":
-                    item = ev.get("item", {}) or {}
-                    if item.get("type") == "function_call":
-                        yield f"data: {json.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
-            yield from drain(parser.flush())
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
-        yield 'data: {"done": true}\n\n'
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
 
 
 class ChatWriteReq(BaseModel):
@@ -480,9 +483,6 @@ class ChatWriteReq(BaseModel):
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
-    from scribe3.llm import hermes_responses_events
-    from scribe3.proposal import ProposalParser
-    fn = _responses_events or hermes_responses_events
     st = _store_for(work)
     instructions = _editor_write_system(st)
     instructions += f"\n当前第 {req.chapter} 章。"
@@ -499,38 +499,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     else:
         message = req.msg
 
-    def gen():
-        parser = ProposalParser()
-        prop = {"scope": None, "prose": []}
-
-        def drain(events):
-            for kind, val in events:
-                if kind == "delta":
-                    yield f"data: {json.dumps({'delta': val}, ensure_ascii=False)}\n\n"
-                elif kind == "proposal_open":
-                    prop["scope"] = val
-                elif kind == "proposal_delta":
-                    prop["prose"].append(val)
-                elif kind == "proposal_close":
-                    yield f"data: {json.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
-                    prop["scope"] = None
-                    prop["prose"] = []
-
-        try:
-            for ev in fn(message, instructions):
-                t = ev.get("type", "")
-                if t == "response.output_text.delta":
-                    yield from drain(parser.feed(ev.get("delta", "")))
-                elif t == "response.output_item.added":
-                    item = ev.get("item", {}) or {}
-                    if item.get("type") == "function_call":
-                        yield f"data: {json.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
-            yield from drain(parser.flush())
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
-        yield 'data: {"done": true}\n\n'
-
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(_stream_write(message, instructions), media_type="text/event-stream")
 
 
 @app.get("/chapters")

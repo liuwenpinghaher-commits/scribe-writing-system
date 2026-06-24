@@ -174,6 +174,8 @@ def test_save_chapter_runs_softcheck(store):
 
 def test_apply_delta_idempotent(store):
     from scribe3.ingest import apply_delta
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲", "character", "甲"))
     delta = {"learned": [{"who": "甲", "fact": "X 是真的"}], "did": []}
     apply_delta(store, delta, seq=1)
     apply_delta(store, delta, seq=1)   # 重复回写同章 → 不应抛 AlreadyExists

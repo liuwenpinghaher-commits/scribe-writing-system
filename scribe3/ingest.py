@@ -10,12 +10,14 @@ from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_del
 from scribe3.ontology import Entity, Fact, KnowledgeEdge
 
 
-def _ensure_char(store, name: str) -> str:
-    """保证角色实体存在(知识边 RELATE 需端点存在);返回其 oid。"""
+def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
+    """解析角色:已存在返回 oid;不存在则登记待确认,返回 None(不建实体、不发边)。
+    替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。"""
     oid = f"role:{name}"
-    if store.entity(oid) is None:
-        store.add_entity(Entity(oid, "character", name))
-    return oid
+    if store.entity(oid) is not None:
+        return oid
+    store.add_unverified_ref(name, seq, role)
+    return None
 
 
 def apply_delta(store, delta: dict, seq: int) -> int:
@@ -27,7 +29,9 @@ def apply_delta(store, delta: dict, seq: int) -> int:
         who, fact = it.get("who"), it.get("fact")
         if not who or not fact:
             continue
-        oid = _ensure_char(store, who)
+        oid = _resolve_char(store, who, seq, "learned_who")
+        if oid is None:
+            continue
         fid = f"fact:k{seq}-{i}"
         store.add_fact(Fact(fid, oid, "获知", fact, valid_from=seq), ingest_seq=seq)
         store.add_knowledge(KnowledgeEdge(oid, fid, since_chapter=seq, acquired_via="learned"),
@@ -37,11 +41,16 @@ def apply_delta(store, delta: dict, seq: int) -> int:
         who, action = it.get("who"), it.get("action")
         if not who or not action:
             continue
-        actor = _ensure_char(store, who)
+        actor = _resolve_char(store, who, seq, "did_who")
+        if actor is None:
+            continue
         fid = f"fact:d{seq}-{j}"
         store.add_fact(Fact(fid, actor, "行动", action, valid_from=seq), ingest_seq=seq)
         for w in [who] + list(it.get("seen_by") or []):
-            store.add_knowledge(KnowledgeEdge(_ensure_char(store, w), fid,
+            woid = _resolve_char(store, w, seq, "seen_by")
+            if woid is None:
+                continue
+            store.add_knowledge(KnowledgeEdge(woid, fid,
                                               since_chapter=seq, acquired_via="saw"),
                                 ingest_seq=seq)
         n += 1

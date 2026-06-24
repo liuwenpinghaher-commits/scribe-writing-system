@@ -94,6 +94,8 @@ def test_ingest_not_gated():
 
 def test_ingest_chapter_sync_reuses_ingest_chapter(store, monkeypatch):
     """s3_ingest_chapter 改 sync,复用 ingest.ingest_chapter,直接落库(无 elicitation)。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:乙", "character", "乙"))
     store.save_chapter(1, "甲把刀给了乙,丙在旁看着。")
     M.set_store(store)
     import scribe3.ingest as ING
