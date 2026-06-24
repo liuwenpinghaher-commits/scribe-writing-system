@@ -57,3 +57,32 @@ class TestLoadKnowledgeCaching:
         monkeypatch.setattr(store, "load_knowledge", counting)
         dramatic_irony(store, "role:老道", 1)
         assert calls["n"] == 1, f"dramatic_irony 应只调 1 次 load_knowledge,实际 {calls['n']}"
+
+
+class TestWriteGate:
+    """P02: 所有写端点(含未来新增)必须显式登记授权语义"""
+
+    KNOWN_REST_WRITE_ROUTES = {
+        ("POST", "/characters"), ("PATCH", "/characters/{local}"), ("DELETE", "/characters/{local}"),
+        ("POST", "/facts"), ("PATCH", "/facts/{local}"), ("DELETE", "/facts/{local}"),
+        ("POST", "/promises-new"), ("PATCH", "/promises/{pid}"), ("DELETE", "/promises/{pid}"),
+        ("POST", "/motifs-new"), ("PATCH", "/motifs/{mid}"), ("DELETE", "/motifs/{mid}"),
+        ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
+        ("PATCH", "/works/{slug}"), ("POST", "/voice"), ("POST", "/save-chapter"), ("POST", "/ingest"),
+        ("POST", "/chat/write"), ("POST", "/render"),
+    }
+
+    def test_no_unaudited_write_route(self):
+        import scribe3.app as A
+        actual = set()
+        for route in A.app.routes:
+            methods = getattr(route, "methods", set())
+            if methods is None:
+                continue
+            for m in methods:
+                if m in {"POST", "PUT", "PATCH", "DELETE"}:
+                    actual.add((m, route.path))
+        # 健康检查除外;背景任务端点不在此列
+        exempt = {("GET", "/health")}
+        unknown = actual - self.KNOWN_REST_WRITE_ROUTES - exempt
+        assert not unknown, f"新写路径未登记授权语义: {unknown}"

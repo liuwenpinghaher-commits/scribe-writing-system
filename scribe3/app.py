@@ -3,6 +3,11 @@
 每端点按 ?work=<slug> 路由到对应书的 DB(NS=scribe3 / db=slug),store 按书缓存。
 /works 列表/新建。读端点直查;/render 走知识帧投影(API 层也不泄露)。生成走 Hermes。
 与 scribe2 后端 3320 隔离(3321)。
+
+写授权契约(P02):
+- REST 写端点 = 作者可信通道(全权,含 secret)。作者直编,不经待批。
+- MCP 写工具 = agent 受限通道(经 elicitation 待批,commit_if_approved)。
+- 新增写端点必须显式登记在 _check_write_paths 白名单,测试守护不漂移。
 """
 from __future__ import annotations
 

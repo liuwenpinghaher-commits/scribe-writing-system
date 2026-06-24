@@ -581,14 +581,15 @@ class SurrealStore:
 
     # --- 章节正文(manuscript)---
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
-        """落/覆盖某章正文(UPSERT)。manuscript 是作者草稿,不经 elicitation 待批。"""
+        """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。"""
         text_for_embed = f"{title} {prose[:200]}".strip()
         from scribe3.embed import embed
         vec = embed([text_for_embed])[0]
+        wc = len("".join(prose.split()))
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
-            "focalizer=$foc, prose=$prose, embedding=$v",
-            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec})
+            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, qc_at=time::now()",
+            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc})
 
     def get_chapter(self, seq: int) -> dict | None:
         rows = self._query("SELECT seq,title,focalizer,prose FROM type::record('chapter',$seq)",
@@ -599,9 +600,9 @@ class SurrealStore:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
 
     def stats(self) -> dict:
-        """本书章数 + 字数(DB侧聚合,避免回传全表正文)。"""
+        """本书章数 + 字数(读 QC 缓存,不回传全表正文)。"""
         rows = self._query(
-            "SELECT count() AS chapter_count, math::sum(string::len(prose)) AS word_count "
+            "SELECT count() AS chapter_count, math::sum(qc_word_count) AS word_count "
             "FROM chapter GROUP ALL")
         r = rows[0] if rows else {"chapter_count": 0, "word_count": 0}
         return {"chapter_count": r.get("chapter_count", 0), "word_count": r.get("word_count", 0)}
@@ -679,3 +680,19 @@ class SurrealStore:
     def knowledge(self) -> list[KnowledgeEdge]:
         """向后兼容薄封装(委托 load_knowledge)。新代码用 load_knowledge + 显式缓存。"""
         return self.load_knowledge()
+
+    # --- 角色关系图(B枢纽 character_relation)---
+    def add_character_relation(self, src_oid: str, dst_oid: str, relation: str,
+                               since_chapter: int, note: str | None = None) -> None:
+        _, sl = _split(src_oid)
+        _, dl = _split(dst_oid)
+        self._execute_write(
+            "RELATE $s->character_relation->$d SET relation=$r, since_chapter=$sc, note=$n",
+            {"s": RecordID("character", sl), "d": RecordID("character", dl),
+             "r": relation, "sc": since_chapter, "n": note})
+
+    def relations_at(self, chapter: int) -> list[dict]:
+        """某章已建立的角色关系(限知时间门:since_chapter <= chapter)"""
+        return self._query(
+            "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, since_chapter, note "
+            "FROM character_relation WHERE since_chapter <= $ch", {"ch": chapter})

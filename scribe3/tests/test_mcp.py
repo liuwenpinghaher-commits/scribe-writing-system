@@ -10,8 +10,8 @@ import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-                        "s3_plant_promise", "s3_advance_promise",
-                        "s3_craft_rule_add", "s3_craft_rule_remove"}
+                          "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
+                          "s3_craft_rule_remove", "s3_add_character_relation"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_render_scene", "s3_find_leaks", "s3_causal_complete",

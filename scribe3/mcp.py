@@ -28,8 +28,8 @@ def set_store(s) -> None:
 
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-               "s3_plant_promise", "s3_advance_promise",
-               "s3_craft_rule_add", "s3_craft_rule_remove"}
+                "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
+                "s3_craft_rule_remove", "s3_add_character_relation"}
 
 
 def requires_approval(name: str) -> bool:
@@ -214,6 +214,17 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
     return commit_if_approved("s3_add_event", ok,
                               lambda: _store.add_event(Event(oid, etype, story_time=valid_from,
                                                              motivated_by_goal=motivated_by_goal)))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
+                                     relation: str, since_chapter: int,
+                                     note: str | None = None) -> dict:
+    """添加角色关系(写,待批)。relation: ally/enemy/kin/master_disciple/lover"""
+    ok = await _ask(ctx, f"添加角色关系 {src_oid}→{dst_oid} [{relation}](章{since_chapter})")
+    return commit_if_approved("s3_add_character_relation", ok,
+                              lambda: _store.add_character_relation(
+                                  src_oid, dst_oid, relation, since_chapter, note))
 
 
 @mcp.tool(annotations=_RW)
