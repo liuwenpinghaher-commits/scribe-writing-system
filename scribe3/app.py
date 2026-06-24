@@ -205,18 +205,18 @@ def del_fact(local: str, work: str = "main"):
 class PromIn(BaseModel):
     text: str
     setup_chapter: int = 1
-    kind: str = "promise"
+    promise_kind: str = "promise"
 
 
 @app.post("/promises-new")
 def add_prom(p: PromIn, work: str = "main"):
-    _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.kind)
+    _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind)
     return {"ok": True}
 
 
 @app.patch("/promises/{pid}")
 def edit_prom(pid: str, p: PromIn, work: str = "main"):
-    _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.kind})
+    _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind})
     return {"ok": True}
 
 
@@ -254,14 +254,14 @@ def del_motif(mid: str, work: str = "main"):
 
 class VoiceIn(BaseModel):
     character: str
-    kind: str
+    voice_kind: str
     text: str
     since_chapter: int = 0
 
 
 @app.post("/voice")
 def add_voice(v: VoiceIn, work: str = "main"):
-    _store_for(work).add_voice_sample(v.character, v.kind, v.text, v.since_chapter)
+    _store_for(work).add_voice_sample(v.character, v.voice_kind, v.text, v.since_chapter)
     return {"ok": True}
 
 

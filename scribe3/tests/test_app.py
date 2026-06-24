@@ -219,7 +219,7 @@ def test_voice_rest(store):
     from fastapi.testclient import TestClient
     client = TestClient(A.app)
     r = client.post("/voice?work=main",
-                    json={"character": "role:焦三", "kind": "pressure", "text": "声细如蚊", "since_chapter": 1})
+                    json={"character": "role:焦三", "voice_kind": "pressure", "text": "声细如蚊", "since_chapter": 1})
     assert r.status_code == 200
     got = client.get("/voice?character=role:焦三&work=main").json()
     assert any(v["kind"] == "pressure" and v["text"] == "声细如蚊" for v in got)
