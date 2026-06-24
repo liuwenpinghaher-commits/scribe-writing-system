@@ -38,7 +38,9 @@ def _url() -> str:
 # ===== 多书注册表(一书一 DB:NS=scribe3 / db=<slug>;注册表在 db=_reg)=====
 def _reg_conn(url: str | None = None):
     db = Surreal(url or _url())
-    db.signin({"username": "root", "password": "root"})
+    _u = os.environ.get("SCRIBE3_SURREAL_USER", "root")
+    _p = os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+    db.signin({"username": _u, "password": _p})
     db.use("scribe3", "_reg")
     db.query("DEFINE TABLE IF NOT EXISTS work SCHEMALESS")
     return db
@@ -100,8 +102,10 @@ class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
     def __init__(self, url: str | None = None, ns: str = "scribe3", db: str = "main",
-                 user: str = "root", password: str = "root"):
+                 user: str | None = None, password: str | None = None):
         self.url = url or os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
+        user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
+        password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
         self._db = Surreal(self.url)
         self._db.signin({"username": user, "password": password})
         self._db.use(ns, db)

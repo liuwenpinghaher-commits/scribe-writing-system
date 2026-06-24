@@ -22,7 +22,10 @@ from scribe3.store import SurrealStore, create_work, delete_work, list_works, re
 from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+_CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
+app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _CORS.split(",") if o.strip()],
+                   allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE"],
+                   allow_headers=["Authorization", "Content-Type"])
 
 _stores: dict[str, SurrealStore] = {}
 _complete_fn = None
@@ -46,9 +49,16 @@ def _store_for(work: str) -> SurrealStore:
     return _stores[work]
 
 
-def _facts(fs):
-    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value,
-             "secret": f.secret} for f in fs]
+def _facts(fs, reveal_secret: bool = False):
+    def _item(f):
+        d = {"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
+             "is_secret": f.secret}
+        if f.secret and not reveal_secret:
+            d["value"] = None   # 私密 value 屏蔽,前端只知"此处有私密"
+        else:
+            d["value"] = f.value
+        return d
+    return [_item(f) for f in fs]
 
 
 # ===== 书 =====
