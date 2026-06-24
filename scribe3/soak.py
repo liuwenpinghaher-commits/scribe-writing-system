@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+
+_log = logging.getLogger("scribe3.soak")
 
 from scribe3.knowledge import project_frame
 
@@ -32,8 +35,8 @@ def parse_soak(reply: str) -> dict:
             return {"emotion_arc": (d.get("emotion_arc") or "").strip(),
                     "turn": (d.get("turn") or "").strip(),
                     "seed_words": [str(x) for x in (d.get("seed_words") or [])][:5]}
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning("parse_soak 失败,浸泡降级为空: %s | reply[:120]=%r", e, (reply or "")[:120])
     return {"emotion_arc": "", "turn": "", "seed_words": []}
 
 

@@ -8,6 +8,7 @@ oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:�
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -108,8 +109,8 @@ class SurrealStore:
     def close(self) -> None:
         try:
             self._db.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning("store.close 失败: %s", e)
 
     # --- schema ---
     def apply_schema(self, migrations_dir: str | None = None) -> None:

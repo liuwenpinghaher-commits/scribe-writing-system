@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import httpx
@@ -22,8 +23,8 @@ def _api_key() -> str:
                 if ln.startswith("API_SERVER_KEY="):
                     k = ln.split("=", 1)[1].strip()
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger("scribe3.llm").warning("读取 ~/.hermes/.env API_SERVER_KEY 失败: %s", e)
     return k or "local"
 
 

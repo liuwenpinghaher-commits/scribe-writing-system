@@ -4,7 +4,10 @@
 纯函数(无 DB/无网络),作渲染层质检兜底。语义级违规(双高潮/声音崩)是另一路(LLM 判官,后续)。
 """
 import json
+import logging
 import re
+
+_log = logging.getLogger("scribe3.critique")
 
 _PUNCT_ONLY = re.compile(r"^[，。！？、；：「」『』“”‘’…—\-\d\s]+$")
 
@@ -148,8 +151,9 @@ def parse_discipline(reply: str) -> dict:
         d = json.loads(m.group(0)) if m else {}
         return {"ok": bool(d.get("ok", True)), "violations": list(d.get("violations") or []),
                 "cut_after": (d.get("cut_after") or "").strip()}
-    except Exception:
-        return {"ok": True, "violations": [], "cut_after": ""}   # 解析失败不阻断
+    except Exception as e:
+        _log.warning("parse_discipline 失败,纪律默认放行: %s | reply[:120]=%r", e, (reply or "")[:120])
+        return {"ok": True, "violations": [], "cut_after": ""}   # 解析失败不阻断(fail-open)
 
 
 def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None = None) -> dict:
@@ -185,5 +189,6 @@ def parse_knowledge_delta(reply: str) -> dict:
         d = json.loads(m.group(0)) if m else {}
         return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or []),
                 "voice_shift": list(d.get("voice_shift") or [])}
-    except Exception:
+    except Exception as e:
+        _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return {"learned": [], "did": [], "voice_shift": []}
