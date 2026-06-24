@@ -102,7 +102,17 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
     return {"slug": slug, "title": title}
 
 
-_TABLES = frozenset(ONT2TBL.values())
+_TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif"])
+_FIELDS_BY_TABLE: dict[str, frozenset] = {
+    "character": frozenset({"name", "aliases", "backstory"}),
+    "place": frozenset({"name"}),
+    "proposition": frozenset({"entity", "entity_id", "attribute", "value", "valid_from",
+                              "valid_to", "secret", "leak_markers", "ingest_seq"}),
+    "event": frozenset({"etype", "event_type", "valid_from", "story_chapter",
+                        "motivated_by_goal", "location", "preconditions"}),
+    "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind"}),
+    "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
+}
 
 
 def _reciprocal_rank_fusion(*ranked_lists, k: int = 60):
@@ -435,9 +445,15 @@ class SurrealStore:
 
     # --- 通用 增删改(设定库编辑用)---
     def _update_by(self, table: str, local: str, fields: dict) -> None:
+        if table not in _TABLES:
+            raise ValueError(f"unknown table: {table}")
         fields = {k: v for k, v in fields.items() if v is not None}
         if not fields:
             return
+        allowed = _FIELDS_BY_TABLE.get(table, set())
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"disallowed fields for {table}: {bad}")
         sets = ", ".join(f"{k}=${k}" for k in fields)
         self._execute_write(f"UPDATE type::record('{table}',$_l) SET {sets}", {"_l": local, **fields})
 
@@ -447,6 +463,25 @@ class SurrealStore:
     def update_record(self, oid: str, fields: dict) -> None:
         t, l = _split(oid)
         self._update_by(t, l, fields)
+
+    def exists(self, oid: str) -> bool:
+        """只读:检查某 oid 是否存在(P25 存在性校验)。"""
+        try:
+            t, l = _split(oid)
+        except (KeyError, ValueError):
+            return False
+        rows = self._query("SELECT id FROM type::record($tbl,$local) LIMIT 1", {"tbl": t, "local": l})
+        return bool(rows)
+
+    def exists(self, oid: str) -> bool:
+        """只读存在性检查(写前 404 校验用)。"""
+        try:
+            t, l = _split(oid)
+        except (KeyError, ValueError):
+            return False
+        rows = self._query("SELECT id FROM type::record($tbl,$local) LIMIT 1",
+                           {"tbl": t, "local": l})
+        return bool(rows)
 
     def delete_record(self, oid: str) -> None:
         t, l = _split(oid)
@@ -627,16 +662,20 @@ class SurrealStore:
                              motivated_by_goal=r.get("motivated_by_goal")))
         return out
 
-    @property
-    def knowledge(self) -> list[KnowledgeEdge]:
+    def load_knowledge(self) -> list[KnowledgeEdge]:
+        """显式拉全部知识边(knows + reader_knows)。昂贵:2 条查询。调用方应缓存。"""
         rows = self._query(
             "SELECT meta::tb(in) AS itb, meta::id(in) AS iid, meta::tb(out) AS otb, "
             "meta::id(out) AS olocal, since_chapter, until_chapter, polarity, acquired_via FROM knows")
         edges = [KnowledgeEdge(_join(r["itb"], r["iid"]), _join(r["otb"], r["olocal"]),
                                r.get("polarity", True), 1.0, r.get("since_chapter", 0),
                                r.get("until_chapter"), r.get("acquired_via", "given")) for r in rows]
-        # 并入 reader 帧(knower=reader)
         rr = self._query("SELECT proposition, since_chapter FROM reader_knows")
         edges += [KnowledgeEdge("reader", r["proposition"], True, 1.0,
                                 r.get("since_chapter", 0), None, "given") for r in rr]
         return edges
+
+    @property
+    def knowledge(self) -> list[KnowledgeEdge]:
+        """向后兼容薄封装(委托 load_knowledge)。新代码用 load_knowledge + 显式缓存。"""
+        return self.load_knowledge()

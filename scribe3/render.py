@@ -26,14 +26,17 @@ _CONSTRAINT = (
 
 def _facts_block(world: World, frame, foc_name: str) -> list[str]:
     """事实块:仅 focalizer 知识帧内的事实进入(限知核心)。"""
-    lines = ["", f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):"]
+    lines = ["", f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):",
+             "<facts>"]
     if frame.facts:
         for f in frame.facts:
             subj = world.entity(f.entity_id)
             nm = subj.name if subj else f.entity_id
-            lines.append(f"- {nm}·{f.attribute}:{f.value}")
+            safe = f.value.replace("<", "‹").replace(">", "›")
+            lines.append(f"- {nm}·{f.attribute}:{safe}")
     else:
         lines.append("-(空:此视角暂无已知事实)")
+    lines.append("</facts>")
     return lines
 
 
@@ -125,7 +128,13 @@ def render(world: World, chapter: int, focalizer: str,
     soak_result = None
     if soak:
         from scribe3.soak import soak as run_soak
-        soak_result = run_soak(world, frame_at, focalizer, complete_fn)
+        try:
+            soak_result = run_soak(world, frame_at, focalizer, complete_fn)
+        except Exception as e:
+            import logging
+            logging.getLogger("scribe3.render").warning(
+                "soak 失败,降级为无浸泡渲染(focalizer=%s @%s): %s", focalizer, frame_at, e)
+            soak_result = None
     voice = world.latest_voice_samples(focalizer, frame_at) if hasattr(world, "latest_voice_samples") else None
     prompt = build_render_prompt(world, chapter, focalizer,
                                  craft_block=craft_block, soak_result=soak_result, voice=voice,

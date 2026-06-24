@@ -21,14 +21,17 @@ class KnowledgeFrame:
         return any(f.id == fact_id for f in self.facts)
 
 
-def project_frame(world: World, knower_id: str, chapter: int) -> KnowledgeFrame:
+def project_frame(world: World, knower_id: str, chapter: int, edges=None) -> KnowledgeFrame:
     """投影 knower 在 chapter 的知识帧。
-    knower='world' → 全知真相(一致性裁判);否则 = 有 KnowledgeEdge 的事实。"""
+    knower='world' → 全知真相(一致性裁判);否则 = 有 KnowledgeEdge 的事实。
+    edges: 可选预加载的知识边列表(避免 dramatic_irony 重复全扫,去 N+1)。"""
     facts_now = world.facts_at(chapter)
     if knower_id == "world":
         return KnowledgeFrame("world", chapter, list(facts_now))
+    if edges is None:
+        edges = world.load_knowledge() if hasattr(world, "load_knowledge") else world.knowledge
     known_ids = {
-        k.proposition_id for k in world.knowledge
+        k.proposition_id for k in edges
         if k.knower_id == knower_id and k.polarity
         and k.since_chapter <= chapter
         and (k.until_chapter is None or k.until_chapter > chapter)
@@ -40,8 +43,9 @@ def project_frame(world: World, knower_id: str, chapter: int) -> KnowledgeFrame:
 def dramatic_irony(world, focalizer: str, chapter: int) -> list[Fact]:
     """戏剧反讽点 = KNOWS(reader,F) ∧ ¬KNOWS(focalizer,F)。
     返回读者已知、而视角角色尚不知的事实(可计算查询,非人脑事后判断)。"""
-    reader = project_frame(world, "reader", chapter)
-    foc_ids = {f.id for f in project_frame(world, focalizer, chapter).facts}
+    edges = world.load_knowledge() if hasattr(world, "load_knowledge") else world.knowledge
+    reader = project_frame(world, "reader", chapter, edges=edges)
+    foc_ids = {f.id for f in project_frame(world, focalizer, chapter, edges=edges).facts}
     return [f for f in reader.facts if f.id not in foc_ids]
 
 

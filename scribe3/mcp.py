@@ -271,9 +271,11 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str) -> dict:
 
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
-def setup_store(ns: str = "scribe3", db: str = "main"):
-    """连 NS=scribe3(与 scribe2 的 NS=scribe 隔离)+ 幂等建 schema,挂上。"""
+def setup_store(ns: str = "scribe3", db: str | None = None):
+    """连 NS=scribe3 + 幂等建 schema,挂上。db 缺省读 SCRIBE3_WORK 再回退 main(P30)。"""
+    import os
     from scribe3.store import SurrealStore
+    db = db or os.environ.get("SCRIBE3_WORK", "main")
     store = SurrealStore(ns=ns, db=db)
     store.apply_schema()
     set_store(store)

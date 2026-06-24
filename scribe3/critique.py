@@ -49,7 +49,7 @@ def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4
     return sorted(out, key=lambda x: -x["count"])[:8]
 
 
-_PURPLE_PATS = [
+LUANSHI_PURPLE_SEEDS = [
     r"原来[^。！？\n]{0,30}(就|早就|从一开始|没的选|没得选)",
     r"从[^,，。\n]{1,18}那一刻起",
     r"像[^。！？\n]{0,12}[滴颗][^。！？\n]{0,8}眼泪",
@@ -58,6 +58,8 @@ _PURPLE_PATS = [
     r"他知道[，,][^。！？\n]{0,4}(回不去|没的选|不一样了)",
     r"走下去|刀山火海",
 ]
+
+_PURPLE_PATS = LUANSHI_PURPLE_SEEDS
 _PURPLE_RE = [re.compile(p) for p in _PURPLE_PATS]
 
 

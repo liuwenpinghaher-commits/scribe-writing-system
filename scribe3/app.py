@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections import OrderedDict
 
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
@@ -27,7 +28,22 @@ app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _CORS.split
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
 
-_stores: dict[str, SurrealStore] = {}
+# P01: 可选 bearer token 认证(本地不设 env=放行;暴露=设 SCRIBE3_API_TOKEN 强制)
+_API_TOKEN = os.environ.get("SCRIBE3_API_TOKEN")
+
+
+@app.middleware("http")
+async def _auth_middleware(request, call_next):
+    if _API_TOKEN and not request.url.path.startswith("/health"):
+        auth = request.headers.get("authorization", "")
+        import hmac
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].strip(), _API_TOKEN):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "invalid token"})
+    return await call_next(request)
+
+_STORE_CACHE_MAX = 8
+_stores: OrderedDict[str, SurrealStore] = OrderedDict()
 _complete_fn = None
 
 
@@ -46,6 +62,11 @@ def _store_for(work: str) -> SurrealStore:
         st = SurrealStore(ns="scribe3", db=work)
         st.apply_schema()
         _stores[work] = st
+        while len(_stores) > _STORE_CACHE_MAX:
+            _, old = _stores.popitem(last=False)
+            old.close()
+    else:
+        _stores.move_to_end(work)
     return _stores[work]
 
 
@@ -109,33 +130,33 @@ def entities(work: str = "main"):
 
 
 @app.get("/facts")
-def facts(chapter: int, work: str = "main"):
+def facts(chapter: int = Query(ge=1), work: str = "main"):
     return _facts(_store_for(work).facts_at(chapter))
 
 
 @app.get("/events")
-def events(chapter: int, work: str = "main"):
+def events(chapter: int = Query(ge=1), work: str = "main"):
     return [{"id": ev.id, "type": ev.type, "chapter": ev.story_time, "goal": ev.motivated_by_goal}
             for ev in _store_for(work).events_at(chapter)]
 
 
 @app.get("/frame")
-def frame(focalizer: str, chapter: int, work: str = "main"):
+def frame(focalizer: str, chapter: int = Query(ge=1), work: str = "main"):
     return _facts(project_frame(_store_for(work), focalizer, chapter).facts)
 
 
 @app.get("/irony")
-def irony(focalizer: str, chapter: int, work: str = "main"):
+def irony(focalizer: str, chapter: int = Query(ge=1), work: str = "main"):
     return _facts(dramatic_irony(_store_for(work), focalizer, chapter))
 
 
 @app.get("/causal")
-def causal(chapter: int, work: str = "main"):
+def causal(chapter: int = Query(ge=1), work: str = "main"):
     return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store_for(work), chapter)]
 
 
 @app.get("/recall")
-def recall(q: str, k: int = 5, work: str = "main"):
+def recall(q: str, k: int = Query(default=5, ge=1, le=50), work: str = "main"):
     return _facts(_store_for(work).semantic_recall(q, k))
 
 
@@ -473,11 +494,47 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
 
 
+_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_IMAGES = 6
+_MAX_IMG_BYTES = 5 * 1024 * 1024
+
+
+class ImageModel(BaseModel):
+    data: str
+    type: str
+
+    @field_validator("type")
+    @classmethod
+    def _mime_ok(cls, v: str) -> str:
+        if v not in _ALLOWED_MIME:
+            raise ValueError(f"unsupported mime: {v}")
+        return v
+
+    @field_validator("data")
+    @classmethod
+    def _size_ok(cls, v: str) -> str:
+        import base64
+        try:
+            raw = base64.b64decode(v, validate=True)
+        except Exception:
+            raise ValueError("invalid base64")
+        if len(raw) > _MAX_IMG_BYTES:
+            raise ValueError("image too large")
+        return v
+
+
 class ChatWriteReq(BaseModel):
     msg: str
     chapter: int = 1
     focalizer: str = ""
-    images: list = []  # [{data: base64str, type: mime_type}]
+    images: list[ImageModel] = []
+
+    @field_validator("images")
+    @classmethod
+    def _count_ok(cls, v: list) -> list:
+        if len(v) > _MAX_IMAGES:
+            raise ValueError(f"too many images (max {_MAX_IMAGES})")
+        return v
 
 
 @app.post("/chat/write")
