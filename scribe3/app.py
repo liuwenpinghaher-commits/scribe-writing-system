@@ -675,11 +675,21 @@ _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_k
                 "promise", "motif", "chapter"]
 
 
+_LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))
+_live_count: dict[str, int] = {}
+
+
 @app.get("/live")
 async def live(work: str = "main"):
+    if _live_count.get(work, 0) >= _LIVE_MAX:
+        raise HTTPException(status_code=429, detail=f"too many live connections for {work}")
+    _live_count[work] = _live_count.get(work, 0) + 1
     url = os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
-    return StreamingResponse(live_stream(url, "scribe3", work, _LIVE_TABLES),
-                             media_type="text/event-stream")
+    try:
+        return StreamingResponse(live_stream(url, "scribe3", work, _LIVE_TABLES),
+                                 media_type="text/event-stream")
+    finally:
+        _live_count[work] = max(0, _live_count.get(work, 0) - 1)
 
 
 def main() -> None:

@@ -113,6 +113,13 @@ def s3_chapter_recall(query: str, k: int = 5) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_graph_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
+    """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
+    叠加章时间门(限知)。供主编全知联查,不喂限知渲染。"""
+    return _store.graph_recall(query, chapter, k)
+
+
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
     渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""

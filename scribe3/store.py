@@ -425,6 +425,26 @@ class SurrealStore:
         all_facts = {f.id: f for f in vector_results + keyword_results}
         return [all_facts[fid] for fid in top_ids if fid in all_facts]
 
+    def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
+        """GraphRAG:向量召回种子命题 → 沿图边拼知识子图。
+        返回每条种子事实 + {主体, 知情角色, 来源事件, 同场角色}。
+        限知时间门:valid_from <= chapter。"""
+        from scribe3.embed import embed
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, "
+            f"valid_from, valid_to, secret, "
+            f"<-knows<-character.name AS knowers, "
+            f"<-causes<-event.etype AS source_events "
+            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
+            f"AND valid_from <= $ch ORDER BY vector::distance::knn()", {"qv": qv, "ch": chapter})
+        return [{"id": f"fact:{r['local']}",
+                 "entity": r.get("entity_id") or r.get("entity"),
+                 "attribute": r["attribute"], "value": r["value"],
+                 "knowers": r.get("knowers") or [],
+                 "source_events": r.get("source_events") or []}
+                for r in rows]
+
     def chapter_recall(self, query: str, k: int = 5) -> list[dict]:
         """章节语义召回:按标题+正文首段向量匹配相似章。"""
         from scribe3.embed import embed
@@ -433,6 +453,36 @@ class SurrealStore:
             f"SELECT seq, title, vector::distance::knn() AS dist "
             f"FROM chapter WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
         return [{"seq": r["seq"], "title": r.get("title", ""), "distance": r["dist"]} for r in rows]
+
+    def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
+        """Graph RAG:向量召回种子命题 + 沿图边拼知识子图(B枢纽)。
+        返回每条种子事实 + {主体, 知情角色, 来源事件, 同场角色}。
+        限知时间门(chapter)过滤未来事实。"""
+        from scribe3.embed import embed
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, "
+            f"  entity_link.name AS subject, "
+            f"  <-knows<-character.name AS knowers, "
+            f"  <-causes<-event.etype AS source_events, "
+            f"  <-causes<-event->involves->character.name AS co_present, "
+            f"  vector::distance::knn() AS dist "
+            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
+            f"  AND valid_from <= $ch ORDER BY dist", {"qv": qv, "ch": chapter})
+        out = []
+        for r in rows:
+            out.append({
+                "id": f"fact:{r['local']}",
+                "value": r["value"],
+                "attribute": r.get("attribute", ""),
+                "valid_from": r.get("valid_from", 0),
+                "subject": r.get("subject") or r.get("entity_id") or r.get("entity") or "",
+                "knowers": r.get("knowers") or [],
+                "source_events": r.get("source_events") or [],
+                "co_present": r.get("co_present") or [],
+                "distance": r.get("dist", 0),
+            })
+        return out
 
     # --- 母题 motif ---
     def add_motif(self, name: str, theme: str = "", echoes: str = "", unfolding: str = "") -> None:
@@ -490,14 +540,14 @@ class SurrealStore:
     def update_promise(self, pid: str, fields: dict) -> None:
         self._update_by("promise", pid, fields)
 
-    def delete_promise(self, pid: str) -> None:
-        self._delete_by("promise", pid)
+    def delete_promise(self, promise_id: str) -> None:
+        self._delete_by("promise", promise_id)
 
-    def update_motif(self, mid: str, fields: dict) -> None:
-        self._update_by("motif", mid, fields)
+    def update_motif(self, motif_id: str, fields: dict) -> None:
+        self._update_by("motif", motif_id, fields)
 
-    def delete_motif(self, mid: str) -> None:
-        self._delete_by("motif", mid)
+    def delete_motif(self, motif_id: str) -> None:
+        self._delete_by("motif", motif_id)
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
@@ -575,9 +625,9 @@ class SurrealStore:
     def open_promises(self) -> list[dict]:
         return [p for p in self.list_promises() if p["status"] == "open"]
 
-    def advance_promise(self, pid: str, payoff_chapter: int) -> None:
+    def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
         self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
-                            "payoff_chapter=$p", {"pid": pid, "p": payoff_chapter})
+                            "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
 
     # --- 章节正文(manuscript)---
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
