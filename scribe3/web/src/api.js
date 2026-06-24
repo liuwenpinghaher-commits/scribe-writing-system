@@ -1,21 +1,32 @@
-// scribe3 后端 API(:3321)· 多书:每次调用带当前 work(一书一 DB)。
-const BASE = 'http://127.0.0.1:3321'
+// scribe3 后端 API · 多书:每次调用带当前 work(一书一 DB)。
+// 生产经 VITE_API_BASE 注入;开发缺省回退本机 :3321。
+const BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3321'
 let WORK = 'main'
 const enc = encodeURIComponent
 const ww = (p) => p + (p.includes('?') ? '&' : '?') + 'work=' + enc(WORK)
-const j = (p) => fetch(BASE + ww(p)).then((r) => r.json())
-const jraw = (p) => fetch(BASE + p).then((r) => r.json())
+
+async function handle(res) {
+  if (!res.ok) {
+    let body = null
+    try { body = await res.json() } catch { /* non-JSON error */ }
+    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, body })
+  }
+  return res.json()
+}
+
+const j = (p) => fetch(BASE + ww(p)).then(handle)
+const jraw = (p) => fetch(BASE + p).then(handle)
 const post = (p, body) => fetch(BASE + ww(p), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
-}).then((r) => r.json())
+}).then(handle)
 const patch = (p, body) => fetch(BASE + ww(p), {
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-}).then((r) => r.json())
-const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then((r) => r.json())
+}).then(handle)
+const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then(handle)
 const put = (p, body) => fetch(BASE + ww(p), {
   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-}).then((r) => r.json())
+}).then(handle)
 
 export const api = {
   setWork: (w) => { WORK = w },

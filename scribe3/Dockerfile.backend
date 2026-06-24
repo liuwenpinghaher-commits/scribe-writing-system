@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY scribe3/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY scribe3/ scribe3/
+EXPOSE 3321
+CMD ["uvicorn", "scribe3.app:app", "--host", "0.0.0.0", "--port", "3321"]
