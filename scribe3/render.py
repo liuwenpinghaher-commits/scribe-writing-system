@@ -24,8 +24,41 @@ _CONSTRAINT = (
 )
 
 
-def _events_at(world: World, chapter: int):
-    return world.events_at(chapter)   # World 与 SurrealStore 都提供此方法(鸭子兼容)
+def _facts_block(world: World, frame, foc_name: str) -> list[str]:
+    """事实块:仅 focalizer 知识帧内的事实进入(限知核心)。"""
+    lines = ["", f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):"]
+    if frame.facts:
+        for f in frame.facts:
+            subj = world.entity(f.entity_id)
+            nm = subj.name if subj else f.entity_id
+            lines.append(f"- {nm}·{f.attribute}:{f.value}")
+    else:
+        lines.append("-(空:此视角暂无已知事实)")
+    return lines
+
+
+def _events_block(world: World, story_at: int) -> list[str]:
+    """事件块:列出本章要发生的事件及其参与者。"""
+    lines = ["", "## 本章要发生的事件(按此渲染):"]
+    for ev in world.events_at(story_at):
+        parts = "、".join(
+            (world.entity(v).name if world.entity(v) else v)
+            for v in ev.participants.values()
+        )
+        where = world.entity(ev.location).name if ev.location and world.entity(ev.location) else (ev.location or "")
+        lines.append(f"- [{ev.type}] {parts}" + (f" 于{where}" if where else ""))
+    return lines
+
+
+def _voice_block(foc_name: str, voice: dict | None) -> list[str]:
+    """声音块:focalizer 的独白/叙述语气(不破限知)。"""
+    if not voice:
+        return []
+    _VK = {"free": "自由独白", "pressure": "压力独白", "relation": "关系独白", "narration": "叙述语气"}
+    vlines = [f"- {_VK[k]}:{voice[k]}" for k in ("free", "pressure", "relation", "narration") if voice.get(k)]
+    if vlines:
+        return ["", f"## 你({foc_name})的声音(保持一致,别串味)"] + vlines
+    return []
 
 
 def build_render_prompt(world: World, chapter: int, focalizer: str,
@@ -47,29 +80,10 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
              f"以【{foc_name}】的限知视角,把下列既定事件写成一段小说散文。直接写正文,别解释。"]
     if story_at != chapter:
         lines.append(f"## ⚠ 这是插叙/闪回:渲染第{story_at}章发生的事(非当前叙事时间,别当线性推进)")
-    lines += ["", f"## {foc_name} 此刻所知(这是你能用的全部事实,帧外之事他不知道):"]
-    if frame.facts:
-        for f in frame.facts:
-            subj = world.entity(f.entity_id)
-            nm = subj.name if subj else f.entity_id
-            lines.append(f"- {nm}·{f.attribute}:{f.value}")
-    else:
-        lines.append("-(空:此视角暂无已知事实)")
 
-    lines += ["", "## 本章要发生的事件(按此渲染):"]
-    for ev in _events_at(world, story_at):
-        parts = "、".join(
-            (world.entity(v).name if world.entity(v) else v)
-            for v in ev.participants.values()
-        )
-        where = world.entity(ev.location).name if ev.location and world.entity(ev.location) else (ev.location or "")
-        lines.append(f"- [{ev.type}] {parts}" + (f" 于{where}" if where else ""))
-
-    if voice:
-        _VK = {"free": "自由独白", "pressure": "压力独白", "relation": "关系独白", "narration": "叙述语气"}
-        vlines = [f"- {_VK[k]}:{voice[k]}" for k in ("free", "pressure", "relation", "narration") if voice.get(k)]
-        if vlines:
-            lines += ["", f"## 你({foc_name})的声音(保持一致,别串味)"] + vlines
+    lines += _facts_block(world, frame, foc_name)
+    lines += _events_block(world, story_at)
+    lines += _voice_block(foc_name, voice)
 
     if craft_block:
         lines += ["", craft_block]
