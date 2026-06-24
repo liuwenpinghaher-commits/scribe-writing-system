@@ -275,7 +275,8 @@ class SurrealStore:
         ev_rid = RecordID("event", local)
         loc_local = _split(ev.location)[1] if ev.location else None
         self._execute_write(
-            "CREATE type::record('event', $local) SET etype=$t, event_type=$t, valid_from=$vf, "
+            "CREATE type::record('event', $local) SET etype=$t, event_type=$t, "
+            "valid_from=$vf, story_chapter=$vf, "
             "motivated_by_goal=$g, location=$loc, preconditions=$pre",
             {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
              "loc": RecordID("place", loc_local) if loc_local else None,
@@ -606,20 +607,21 @@ class SurrealStore:
     def events_at(self, chapter: int) -> list[Event]:
         """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。"""
         rows = self._query(
-            "SELECT meta::id(id) AS local, event_type, etype, valid_from, motivated_by_goal, "
+            "SELECT meta::id(id) AS local, event_type, etype, story_chapter, valid_from, motivated_by_goal, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
-            "FROM event WHERE valid_from = $ch", {"ch": chapter})
+            "FROM event WHERE story_chapter = $ch OR (story_chapter IS NONE AND valid_from = $ch)", {"ch": chapter})
         out = []
         for r in rows:
             participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
             effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
             causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
             etype = r.get("event_type") or r.get("etype") or ""
+            story_chapter = r.get("story_chapter") if r.get("story_chapter") is not None else r.get("valid_from", 0)
             out.append(Event(f"ev:{r['local']}", etype,
                              participants=participants,
-                             story_time=r["valid_from"],
+                             story_time=story_chapter,
                              effects=effects,
                              causal_in=causal_in,
                              motivated_by_goal=r.get("motivated_by_goal")))
