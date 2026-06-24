@@ -179,9 +179,36 @@ class SurrealStore:
 
     def add_event(self, ev: Event) -> Event:
         _, local = _split(ev.id)
+        ev_rid = RecordID("event", local)
+        loc_local = _split(ev.location)[1] if ev.location else None
         self._execute_write(
-            "CREATE type::record('event', $local) SET etype=$t, valid_from=$vf, motivated_by_goal=$g",
-            {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal})
+            "CREATE type::record('event', $local) SET etype=$t, valid_from=$vf, "
+            "motivated_by_goal=$g, location=$loc, preconditions=$pre",
+            {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
+             "loc": RecordID("place", loc_local) if loc_local else None,
+             "pre": ev.preconditions})
+        # participants → involves 图边
+        for slot, ent_oid in ev.participants.items():
+            if not ent_oid:
+                continue
+            ctbl, clocal = _split(ent_oid)
+            if ctbl != "character":
+                continue
+            self._execute_write(
+                "RELATE $e->involves->$c SET role=$role",
+                {"e": ev_rid, "c": RecordID("character", clocal), "role": slot})
+        # effects → causes 图边(供 see_event 给在场者发知识边)
+        for fid in ev.effects:
+            _, flocal = _split(fid)
+            self._execute_write(
+                "RELATE $e->causes->$p",
+                {"e": ev_rid, "p": RecordID("proposition", flocal)})
+        # causal_in → causal 图边
+        for src_oid, ctype in ev.causal_in:
+            _, slocal = _split(src_oid)
+            self._execute_write(
+                "RELATE $e->causal->$src SET ctype=$ct",
+                {"e": ev_rid, "src": RecordID("event", slocal), "ct": ctype})
         return ev
 
     def grant_public(self, fact_id: str, chapter: int) -> None:
@@ -443,11 +470,25 @@ class SurrealStore:
         return rows[0]["valid_from"] if rows else 0
 
     def events_at(self, chapter: int) -> list[Event]:
+        """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。"""
         rows = self._query(
-            "SELECT meta::id(id) AS local, etype, valid_from, motivated_by_goal "
+            "SELECT meta::id(id) AS local, etype, valid_from, motivated_by_goal, "
+            "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
+            "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
+            "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
             "FROM event WHERE valid_from = $ch", {"ch": chapter})
-        return [Event(f"ev:{r['local']}", r["etype"], story_time=r["valid_from"],
-                      motivated_by_goal=r.get("motivated_by_goal")) for r in rows]
+        out = []
+        for r in rows:
+            participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
+            effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
+            causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
+            out.append(Event(f"ev:{r['local']}", r["etype"],
+                             participants=participants,
+                             story_time=r["valid_from"],
+                             effects=effects,
+                             causal_in=causal_in,
+                             motivated_by_goal=r.get("motivated_by_goal")))
+        return out
 
     @property
     def knowledge(self) -> list[KnowledgeEdge]:
