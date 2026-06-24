@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import httpx
 
@@ -15,6 +16,40 @@ _RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
 _MAX_RETRIES = 3
 
 _log = logging.getLogger("scribe3.llm")
+
+
+class CircuitBreaker:
+    """LLM 调用熔断器:连续失败 threshold 次后熔断,冷却后试探(半开),成功则闭合。
+
+    与重试互补:重试处理瞬时抖动,熔断器处理持续故障(如 doubao 服务降级)。
+    熔断时 allow() 返回 False → 调用方应快速失败而非反复重试。
+    """
+
+    def __init__(self, threshold: int = 5, cooldown: float = 60.0):
+        self.threshold = threshold
+        self.cooldown = cooldown
+        self.failure_count = 0
+        self._opened_at: float | None = None
+
+    def allow(self) -> bool:
+        """当前是否允许 LLM 调用。熔断中返回 False。"""
+        if self._opened_at is not None:
+            if time.time() - self._opened_at < self.cooldown:
+                return False
+            # 冷却已过 → 半开(允许一次探针)
+        return True
+
+    def record_failure(self) -> None:
+        """记录一次失败。达到阈值则熔断。"""
+        self.failure_count += 1
+        if self.failure_count >= self.threshold:
+            self._opened_at = time.time()
+            _log.warning("LLM 熔断器触发(连续 %d 次失败),冷却 %ds", self.failure_count, self.cooldown)
+
+    def record_success(self) -> None:
+        """记录一次成功。重置计数并闭合。"""
+        self.failure_count = 0
+        self._opened_at = None
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
