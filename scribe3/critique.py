@@ -81,7 +81,8 @@ def find_ai_tics(text: str) -> list[dict]:
     """E1 破折号全章>5;E2「不是A——是B」句式(LLM 最常见的伪深刻制造器)。"""
     out: list[dict] = []
     dash = (text or "").count("——")
-    if dash > 5:
+    wc = len("".join((text or "").split()))
+    if wc > 0 and dash * 1000 / wc > 2:
         out.append({"kind": "em_dash", "count": dash})
     for m in _NOT_A_BUT_B.finditer(text or ""):
         out.append({"kind": "not_a_but_b", "phrase": m.group(0)})
