@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from surrealdb import RecordID, Surreal
@@ -20,6 +21,9 @@ from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 ONT2TBL = {"role": "character", "place": "place", "fact": "proposition", "ev": "event"}
 TBL2ONT = {"character": "role", "place": "place", "proposition": "fact", "event": "ev"}
 TBL2KIND = {"character": "character", "place": "place"}
+
+_OPEN_CHAPTER = 9999    # graph()/无界查询的"到当前为止"哨兵
+_ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
 
 
 def _split(oid: str) -> tuple[str, str]:
@@ -162,6 +166,43 @@ class SurrealStore:
         """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。"""
         self._db.query(surql, vars)
 
+    @contextmanager
+    def transaction(self):
+        """关键多步写的事务边界。收集块内写,退出时拼为单条多语句提交。
+        SurrealDB Python SDK 不支持跨 query() 调用事务,需拼成单条 surql。"""
+        old = self._execute_write
+        stmts: list[tuple[str, dict]] = []
+
+        def _collect(surql: str, vars: dict) -> None:
+            stmts.append((surql, vars))
+
+        self._execute_write = _collect
+        try:
+            yield
+            if stmts:
+                self._commit_transaction(stmts, old)
+        except Exception:
+            try:
+                old("CANCEL TRANSACTION", {})
+            except Exception:
+                pass
+            raise
+        finally:
+            self._execute_write = old
+
+    def _commit_transaction(self, stmts: list[tuple[str, dict]], old):
+        """将收集的语句拼成单条多语句 surql 并提交。"""
+        import re as _re
+        parts = []
+        all_vars: dict = {}
+        for i, (s, v) in enumerate(stmts):
+            s_num = _re.sub(r'\$([a-zA-Z_]\w*)', rf'$\1___{i}', s)
+            for key, val in v.items():
+                all_vars[f"{key}___{i}"] = val
+            parts.append(s_num)
+        surql = "BEGIN TRANSACTION; " + "; ".join(parts) + "; COMMIT TRANSACTION;"
+        old(surql, all_vars)
+
     def _query(self, surql: str, vars: dict | None = None) -> list[dict]:
         res = self._db.query(surql, vars or {})
         # surrealdb-py 2.0:SELECT 直接返回 rows 列表;兼容包一层 {"result":...} 的旧形态
@@ -251,8 +292,17 @@ class SurrealStore:
         return ev
 
     def grant_public(self, fact_id: str, chapter: int) -> None:
+        """给所有角色发一条 given 知识边(事务内执行)。"""
+        _, plocal = _split(fact_id)
+        stmts = []
         for c in self.characters():
-            self.add_knowledge(KnowledgeEdge(c.id, fact_id, since_chapter=chapter, acquired_via="given"))
+            ctbl, clocal = _split(c.id)
+            stmts.append(
+                f"RELATE {ctbl}:`{clocal}`->knows->proposition:`{plocal}` "
+                f"SET since_chapter={chapter}, acquired_via='given'")
+        if stmts:
+            surql = "BEGIN TRANSACTION; " + "; ".join(stmts) + "; COMMIT TRANSACTION;"
+            self._db.query(surql)
 
     def purge_ingest(self, seq: int) -> None:
         """删除某章 ingest 产出的命题 + knows 边(幂等再 ingest 的前置清理)。
