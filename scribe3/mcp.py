@@ -106,6 +106,13 @@ def s3_hybrid_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_chapter_recall(query: str, k: int = 5) -> list[dict]:
+    """章节语义召回:按标题+正文匹配语义最接近的章(向量 RAG)。
+    用来查'与哪章描写接近'、'某主题首次出现在哪章'等。"""
+    return _store.chapter_recall(query, k)
+
+
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
     渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""

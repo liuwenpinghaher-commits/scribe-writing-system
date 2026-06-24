@@ -402,6 +402,15 @@ class SurrealStore:
         all_facts = {f.id: f for f in vector_results + keyword_results}
         return [all_facts[fid] for fid in top_ids if fid in all_facts]
 
+    def chapter_recall(self, query: str, k: int = 5) -> list[dict]:
+        """章节语义召回:按标题+正文首段向量匹配相似章。"""
+        from scribe3.embed import embed
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT seq, title, vector::distance::knn() AS dist "
+            f"FROM chapter WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+        return [{"seq": r["seq"], "title": r.get("title", ""), "distance": r["dist"]} for r in rows]
+
     # --- 母题 motif ---
     def add_motif(self, name: str, theme: str = "", echoes: str = "", unfolding: str = "") -> None:
         self._execute_write(
@@ -525,10 +534,13 @@ class SurrealStore:
     # --- 章节正文(manuscript)---
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。manuscript 是作者草稿,不经 elicitation 待批。"""
+        text_for_embed = f"{title} {prose[:200]}".strip()
+        from scribe3.embed import embed
+        vec = embed([text_for_embed])[0]
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
-            "focalizer=$foc, prose=$prose",
-            {"seq": seq, "title": title, "foc": focalizer, "prose": prose})
+            "focalizer=$foc, prose=$prose, embedding=$v",
+            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec})
 
     def get_chapter(self, seq: int) -> dict | None:
         rows = self._query("SELECT seq,title,focalizer,prose FROM type::record('chapter',$seq)",
