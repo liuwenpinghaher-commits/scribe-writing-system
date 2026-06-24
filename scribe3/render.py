@@ -37,13 +37,17 @@ def _facts_block(world: World, frame, foc_name: str) -> list[str]:
     return lines
 
 
-def _events_block(world: World, story_at: int) -> list[str]:
-    """事件块:列出本章要发生的事件及其参与者。"""
+def _events_block(world: World, story_at: int, frame, focalizer: str) -> list[str]:
+    """事件块:列出本章事件及参与者,只展示 focalizer 可感知的参与者(限知门控 P33)。"""
+    frame_entities = {f.entity_id for f in frame.facts} | {focalizer}
     lines = ["", "## 本章要发生的事件(按此渲染):"]
     for ev in world.events_at(story_at):
+        visible = [v for v in ev.participants.values()
+                   if v in frame_entities]
+        if not visible:
+            continue  # 焦点者不可感知的事件跳过
         parts = "、".join(
-            (world.entity(v).name if world.entity(v) else v)
-            for v in ev.participants.values()
+            (world.entity(v).name if world.entity(v) else v) for v in visible
         )
         where = world.entity(ev.location).name if ev.location and world.entity(ev.location) else (ev.location or "")
         lines.append(f"- [{ev.type}] {parts}" + (f" 于{where}" if where else ""))
@@ -82,7 +86,7 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
         lines.append(f"## ⚠ 这是插叙/闪回:渲染第{story_at}章发生的事(非当前叙事时间,别当线性推进)")
 
     lines += _facts_block(world, frame, foc_name)
-    lines += _events_block(world, story_at)
+    lines += _events_block(world, story_at, frame, focalizer)
     lines += _voice_block(foc_name, voice)
 
     if craft_block:

@@ -158,8 +158,20 @@ class SurrealStore:
     # --- schema ---
     def apply_schema(self, migrations_dir: str | None = None) -> None:
         d = Path(migrations_dir or Path(__file__).parent / "migrations")
+        self._db.query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
+                       "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
+        try:
+            rows = self._query("SELECT meta::id(id) AS id FROM _migration")
+            applied = {r["id"] for r in (rows or []) if r and r.get("id")}
+        except Exception:
+            applied = set()
         for f in sorted(d.glob("*.surql")):
+            key = f"_migration:`{f.stem}`"
+            if key in applied:
+                continue
             self._db.query(f.read_text(encoding="utf-8"))
+            self._db.query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
+                           {"name": f.stem})
 
     # --- 唯一写入点 ---
     def _execute_write(self, surql: str, vars: dict) -> None:

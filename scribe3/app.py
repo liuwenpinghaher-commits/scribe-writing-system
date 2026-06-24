@@ -587,18 +587,20 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
     from scribe3.critique import quality_flags
     qf = quality_flags(req.prose)
-    leaks = 0
+    leaks, leak_error = None, None
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
             leaks = len(find_leaks(req.prose, st, req.focalizer, req.seq))
-        except Exception:
-            leaks = 0
-    background.add_task(_bg_ingest, work, req.seq)   # 客观回写,后台自动,不阻塞存稿
+        except Exception as e:
+            import logging
+            logging.getLogger("scribe3").warning("find_leaks 失败 work=%s seq=%s: %s", work, req.seq, e)
+            leak_error = str(e)[:160]
+    background.add_task(_bg_ingest, work, req.seq)
     return {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"])},
-            "leaks": leaks, "ingesting": True}
+            "leaks": leaks, "leak_error": leak_error, "ingesting": True}
 
 
 @app.post("/ingest")
