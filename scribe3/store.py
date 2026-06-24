@@ -98,6 +98,41 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
     return {"slug": slug, "title": title}
 
 
+_TABLES = frozenset(ONT2TBL.values())
+
+
+def _reciprocal_rank_fusion(*ranked_lists, k: int = 60):
+    """RRF 融合多路排序列表:得分 = Σ 1/(k + rank_in_path)。纯函数。"""
+    scores: dict[str, float] = {}
+    for lst in ranked_lists:
+        for rank, item_id in enumerate(lst, start=1):
+            scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k + rank)
+    return sorted(scores.items(), key=lambda x: -x[1])
+
+
+def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 10):
+    """中文分词 → 关键词匹配 proposition.value → 返回 Fact 列表(按命中数排序)"""
+    import jieba
+    keywords = [w for w in jieba.cut(query) if len(w.strip()) >= 2]
+    if not keywords:
+        return []
+    rows = store._query(
+        "SELECT meta::id(id) AS local, entity, attribute, value, valid_from, valid_to, "
+        "secret, leak_markers FROM proposition "
+        "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
+    scored = []
+    for r in rows:
+        val = r.get("value", "")
+        hits = sum(1 for kw in keywords if kw in val)
+        if hits:
+            scored.append((hits, r))
+    scored.sort(key=lambda x: -x[0])
+    top = scored[:top_k]
+    return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"],
+                 r["valid_from"], r.get("valid_to"), r.get("secret", False),
+                 r.get("leak_markers", [])) for _, r in top]
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -297,6 +332,21 @@ class SurrealStore:
             f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
         return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
+
+    def hybrid_recall(self, query: str, chapter: int, k: int = 5) -> list[Fact]:
+        """混合召回:向量路 + 关键词路 → RRF 融合排名(未来加图遍历路)。
+        限知时间门(chapter)过滤未来事实。"""
+        vector_results = self.semantic_recall(query, k=min(k * 3, 20))
+        keyword_results = _keyword_search_propositions(self, query, chapter, top_k=k * 2)
+
+        vec_ids = [f.id for f in vector_results]
+        kw_ids = [f.id for f in keyword_results]
+
+        fused = _reciprocal_rank_fusion(vec_ids, kw_ids, k=60)
+        top_ids = [item_id for item_id, _ in fused[:k]]
+
+        all_facts = {f.id: f for f in vector_results + keyword_results}
+        return [all_facts[fid] for fid in top_ids if fid in all_facts]
 
     # --- 母题 motif ---
     def add_motif(self, name: str, theme: str = "", echoes: str = "", unfolding: str = "") -> None:

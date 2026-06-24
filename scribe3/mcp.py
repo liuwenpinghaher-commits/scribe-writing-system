@@ -98,6 +98,14 @@ def s3_semantic_recall(query: str, k: int = 5) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
+def s3_hybrid_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
+    """混合召回:向量语义 + 中文关键词 → RRF 融合排名。
+    比纯向量召回多关键词路(专名/法器名精确匹配),叠加限知时间门。"""
+    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value}
+            for f in _store.hybrid_recall(query, chapter, k)]
+
+
+@mcp.tool(annotations=_RO)
 def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
     渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""
