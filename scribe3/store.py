@@ -535,10 +535,12 @@ class SurrealStore:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
 
     def stats(self) -> dict:
-        """本书章数 + 字数(去空白)——作品库卡片用。"""
-        rows = self._query("SELECT prose FROM chapter")
-        wc = sum(len("".join((r.get("prose") or "").split())) for r in rows)
-        return {"chapter_count": len(rows), "word_count": wc}
+        """本书章数 + 字数(DB侧聚合,避免回传全表正文)。"""
+        rows = self._query(
+            "SELECT count() AS chapter_count, math::sum(string::len(prose)) AS word_count "
+            "FROM chapter GROUP ALL")
+        r = rows[0] if rows else {"chapter_count": 0, "word_count": 0}
+        return {"chapter_count": r.get("chapter_count", 0), "word_count": r.get("word_count", 0)}
 
     # --- 北极星(作品意图,单例)---
     def get_intent(self) -> dict:
