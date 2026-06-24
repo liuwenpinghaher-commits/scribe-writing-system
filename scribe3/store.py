@@ -230,8 +230,9 @@ class SurrealStore:
     def add_fact(self, f: Fact, ingest_seq: int | None = None) -> Fact:
         _, local = _split(f.id)
         self._execute_write(
-            "UPSERT type::record('proposition', $local) SET entity=$entity, attribute=$attr, "
-            "value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, leak_markers=$lm"
+            "UPSERT type::record('proposition', $local) SET entity=$entity, entity_id=$entity, "
+            "attribute=$attr, value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, "
+            "leak_markers=$lm"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"local": local, "entity": f.entity_id, "attr": f.attribute, "value": f.value,
              "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers,
@@ -337,20 +338,22 @@ class SurrealStore:
     def fact(self, oid: str) -> Fact | None:
         _, local = _split(oid)
         rows = self._query(
-            "SELECT entity, attribute, value, valid_from, valid_to, secret, leak_markers "
+            "SELECT entity_id, entity, attribute, value, valid_from, valid_to, secret, leak_markers "
             "FROM type::record('proposition',$local)", {"local": local})
         if not rows:
             return None
         r = rows[0]
-        return Fact(oid, r["entity"], r["attribute"], r["value"], r["valid_from"],
+        eid = r.get("entity_id") or r.get("entity") or ""
+        return Fact(oid, eid, r["attribute"], r["value"], r["valid_from"],
                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
 
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
-            "SELECT meta::id(id) AS local, entity, attribute, value, valid_from, valid_to, "
-            "secret, leak_markers FROM proposition "
+            "SELECT meta::id(id) AS local, entity_id, entity, attribute, value, "
+            "valid_from, valid_to, secret, leak_markers FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
-        return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"],
+        return [Fact(f"fact:{r['local']}", r.get("entity_id") or r.get("entity") or "",
+                     r["attribute"], r["value"],
                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
                      r.get("leak_markers", [])) for r in rows]
 
@@ -377,10 +380,11 @@ class SurrealStore:
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
-            f"SELECT meta::id(id) AS local, entity, attribute, value, valid_from, valid_to, "
+            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
-        return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"], r["valid_from"],
+        return [Fact(f"fact:{r['local']}", r.get("entity_id") or r.get("entity") or "",
+                     r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
     def hybrid_recall(self, query: str, chapter: int, k: int = 5) -> list[Fact]:
