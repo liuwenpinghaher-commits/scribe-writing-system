@@ -6,8 +6,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
+import time
 from collections import OrderedDict
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
@@ -45,6 +48,23 @@ async def _auth_middleware(request, call_next):
 _STORE_CACHE_MAX = 8
 _stores: OrderedDict[str, SurrealStore] = OrderedDict()
 _complete_fn = None
+
+# P28: LLM调用限流(并发上限 + 日调用上限)
+_MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
+_DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
+_sema = asyncio.Semaphore(_MAX_CONCURRENT)
+_day = (time.strftime("%Y-%m-%d"), 0)
+
+def _check_daily():
+    global _day
+    today = time.strftime("%Y-%m-%d")
+    d, n = _day
+    if d != today:
+        _day = (today, 0)
+        d, n = today, 0
+    if n >= _DAILY_CALL_CAP:
+        raise HTTPException(status_code=429, detail="daily LLM budget exhausted")
+    _day = (today, n + 1)
 
 
 def set_store(store, work: str = "main") -> None:

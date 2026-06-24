@@ -75,7 +75,8 @@ def build_render_prompt(world: World, chapter: int, focalizer: str,
     """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。
     craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。
     声音样本(focalizer 自己的,不破限知)同样插在事件之后、渲染纪律之前。
-    story_at/frame_at 默认回退 chapter(线性);story_at 选事件故事时间、frame_at 选知识帧时间。
+    story_at/frame_at 默认回退 chapter(线性)。
+    story_at = 事件故事时间(story_chapter);frame_at = 知识帧投影时间(限知切断点)。
     沉浸式闪回 frame_at 默认=story_at(角色只知那时);回忆式显式传 frame_at=chapter。"""
     story_at = story_at if story_at is not None else chapter
     frame_at = frame_at if frame_at is not None else story_at
