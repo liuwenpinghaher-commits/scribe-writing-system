@@ -19,10 +19,11 @@ metadata:
 2. **限知靠查询、不靠判官**:渲染某视角前,先投影出该角色的知识帧,只把帧内事实喂生成——他不知道的,物理上写不进去。判官只兜底。
 
 ## 工具(scribe3 MCP,均 s3_ 前缀)
-- **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询)、`s3_dramatic_irony`(反讽点:读者知而视角不知)、`s3_semantic_recall`(语义召回相关设定,非字面)
-- **写(经 elicitation 待批)**:`s3_add_character` `s3_add_fact` `s3_add_event` `s3_record_knowledge`——执行前会弹批准给作者,accept 才落库(拒绝/超时=不写)
+- **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询)、`s3_dramatic_irony`(反讽点:读者知而视角不知)、`s3_semantic_recall`(语义召回相关设定,非字面)、`s3_hybrid_recall`(RRF 混合召回)、`s3_graph_recall`(GraphRAG 知识子图)、`s3_chapter_recall`(章节语义召回)、`s3_setting_completeness`(设定完整性检查)、`s3_list_world_rules`(世界规则)、`s3_list_factions`(势力)、`s3_character_state`(角色弧光状态快照)、`s3_character_timeline`(角色弧光时间线)、`s3_relations_at`(角色关系图)
+- **写(经 elicitation 待批)**:`s3_add_character` `s3_add_fact` `s3_add_event` `s3_record_knowledge` `s3_add_character_relation` `s3_add_world_rule` `s3_add_faction` `s3_add_char_state`——执行前会弹批准给作者,accept 才落库(拒绝/超时=不写)
 
 ## 写一章(必走的环)
+0. **设定完整性检查(开写前)**:调 `s3_setting_completeness` 看缺什么。若缺世界规则/势力/角色深描,主动提出 2-3 个选项让作者决策(不是让作者填表,而是主编引导:"你的魔法体系有什么代价?""这个势力的公开面目和私下运作是什么?")。作者确认后用 `s3_add_world_rule`/`s3_add_faction` 落库。
 1. **设计 fabula**:把本章要发生的事建成 `s3_add_event`(挂 motivated_by_goal);相关状态建 `s3_add_fact`(私密底细置 `secret=true`)。
 2. **冻结知识帧**:选本场 **focalizer**(一场一 POV,不 head-hop)→ `s3_project_frame(focalizer, 章)` 看他此刻知道什么。这就是渲染能用的全部事实。
 3. **渲染 sjuzhet**:`s3_render_scene(focalizer, 章)`——只吃知识帧,帧外私密绝不出现。直接出正文,不要元叙述。
@@ -42,7 +43,12 @@ metadata:
 - show 不 tell;冷笔动作收尾,不喊升华口号;单一戏剧主线,不双高潮、不偷跑后续章;用了力量必付代价。
 - 本书题材规则(升华句/法器写法)见 `s3_craft_rule_list`;负面禁令由 `s3_qc_chapter` 后置兜底,不必写时分心。
 
-## 技能自进化(主编越写越好)
+## 设定动静结合(世界观基石 vs 剧情演变)
+设定分两层:**静态基石**(世界规则/角色核心性格/势力意识形态——不变)和**动态演变**(角色能力成长/关系变化/势力兴衰——随剧情变)。
+- **静态基石**用 `s3_add_world_rule`(Sanderson 式:源头/能力/代价/限制/例外)和角色 `traits`/`motivation` 固化。
+- **动态演变**用 `s3_add_char_state` 记录弧光质变点(能力突破/关系升级/性格转折),带章锚点。查某章状态用 `s3_character_state`(合并所有 CharState 到该章的快照)。
+- **关系演变**:`s3_add_character_relation` 带 `since_chapter`;关系变化时旧的设 `until_chapter`,新建一条。查某章关系用 `s3_relations_at`。
+- **主编引导**:每写新章前,若发现角色经历了质变(绝境共战/重大背叛/能力突破),主动提示"这个角色这章发生了弧光变化,要不要记录?"——用 `s3_add_char_state` 落库。
 每当你摸索出一条**可复用的写作修法**(某类坑的解、某个腔调的立法、某道 QC 序列),用 `skill_manage(action="patch", ...)` **小补丁**把它追加进本 skill 对应位置——下次自动用上。规矩:
 - **只沉淀【流程/craft】,不沉淀【剧情事实】**(事实进 SurrealDB,不进 skill)。
 - **patch 往对应 anchor 段**:craft/腔调修法 → 「写作纪律」段;流程/QC 序列修法 → 「写一章的环」对应步。patch 小补丁、非重写;创建/删除前确认作者意图;受 skills_guard 安全扫描。

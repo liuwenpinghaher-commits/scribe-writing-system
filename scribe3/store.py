@@ -742,7 +742,146 @@ class SurrealStore:
              "r": relation, "sc": since_chapter, "n": note})
 
     def relations_at(self, chapter: int) -> list[dict]:
-        """某章已建立的角色关系(限知时间门:since_chapter <= chapter)"""
+        """某章已建立的角色关系(限知时间门:since_chapter <= chapter, until_chapter > chapter or NONE)"""
         return self._query(
-            "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, since_chapter, note "
-            "FROM character_relation WHERE since_chapter <= $ch", {"ch": chapter})
+            "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, since_chapter, "
+            "until_chapter, note FROM character_relation "
+            "WHERE since_chapter <= $ch AND (until_chapter IS NONE OR until_chapter > $ch)",
+            {"ch": chapter})
+
+    # --- 世界规则(层1 设定完整性)---
+    def add_world_rule(self, name: str, category: str, source: str | None = None,
+                       capabilities: list | None = None, cost: str | None = None,
+                       limitations: list | None = None, exceptions: list | None = None,
+                       scope: str = "global", established_chapter: int | None = None,
+                       note: str | None = None) -> str:
+        """添加世界规则(Sanderson 式:源头/能力/代价/限制/例外)。返回规则名。"""
+        self._execute_write(
+            "CREATE world_rule SET name=$n, category=$cat, source=$src, "
+            "capabilities=$caps, cost=$cost, limitations=$lims, exceptions=$excs, "
+            "scope=$scp, established_chapter=$ec, note=$note",
+            {"n": name, "cat": category, "src": source,
+             "caps": capabilities or [], "cost": cost, "lims": limitations or [],
+             "excs": exceptions or [], "scp": scope, "ec": established_chapter, "note": note})
+        return name
+
+    def list_world_rules(self, category: str | None = None) -> list[dict]:
+        """列世界规则(可按类别过滤)。"""
+        if category:
+            return self._query("SELECT * FROM world_rule WHERE category=$cat", {"cat": category})
+        return self._query("SELECT * FROM world_rule")
+
+    def delete_world_rule(self, name: str) -> None:
+        self._execute_write("DELETE world_rule WHERE name=$n", {"n": name})
+
+    # --- 势力/组织(层1)---
+    def add_faction(self, name: str, ideology: str | None = None,
+                    status: str = "active", leader: str | None = None,
+                    known_members: list | None = None,
+                    public_face: str | None = None,
+                    private_operation: str | None = None,
+                    first_mention_chapter: int | None = None) -> str:
+        self._execute_write(
+            "CREATE faction SET name=$n, ideology=$ideo, status=$st, leader=$ldr, "
+            "known_members=$km, public_face=$pf, private_operation=$po, "
+            "first_mention_chapter=$fmc",
+            {"n": name, "ideo": ideology, "st": status, "ldr": leader,
+             "km": known_members or [], "pf": public_face, "po": private_operation,
+             "fmc": first_mention_chapter})
+        return name
+
+    def list_factions(self) -> list[dict]:
+        return self._query("SELECT * FROM faction")
+
+    def delete_faction(self, name: str) -> None:
+        self._execute_write("DELETE faction WHERE name=$n", {"n": name})
+
+    # --- 角色弧光时间线(层3 动静结合)---
+    def add_char_state(self, character_id: str, chapter: int, change_type: str,
+                       summary: str, before_state: dict | None = None,
+                       after_state: dict | None = None, trigger_event: str | None = None,
+                       arc_phase: str | None = None, affects_voice: bool | None = None,
+                       confidence: str = "confirmed") -> None:
+        """记录角色弧光质变点(能力/关系/性格变化)。"""
+        _, local = _split(character_id)
+        self._execute_write(
+            "CREATE char_state SET character_id=$cid, chapter=$ch, change_type=$ct, "
+            "summary=$sum, before_state=$bs, after_state=$as, trigger_event=$te, "
+            "arc_phase=$ap, affects_voice=$av, confidence=$conf",
+            {"cid": character_id, "ch": chapter, "ct": change_type, "sum": summary,
+             "bs": before_state, "as": after_state, "te": trigger_event,
+             "ap": arc_phase, "av": affects_voice, "conf": confidence})
+
+    def char_state_at(self, character_id: str, chapter: int) -> dict:
+        """返回角色在某章时刻的完整状态快照(合并所有 CharState 到该章)。"""
+        rows = self._query(
+            "SELECT * FROM char_state WHERE character_id=$cid AND chapter <= $ch "
+            "ORDER BY chapter ASC", {"cid": character_id, "ch": chapter})
+        if not rows:
+            return {"character_id": character_id, "as_of_chapter": chapter,
+                    "abilities": {}, "relations": {}, "personality": "", "arc_phases": []}
+        abilities = {}
+        relations = {}
+        personality = ""
+        phases = []
+        for r in rows:
+            after = r.get("after_state") or {}
+            if r["change_type"] in ("ability", "composite"):
+                abilities.update(after.get("ability_snapshot") or {})
+            if r["change_type"] in ("relation", "composite"):
+                relations.update(after.get("relation_snapshot") or {})
+            if r["change_type"] in ("personality", "composite"):
+                personality = after.get("personality_snapshot") or personality
+            if r.get("arc_phase"):
+                phases.append({"chapter": r["chapter"], "phase": r["arc_phase"],
+                               "summary": r.get("summary", "")})
+        return {"character_id": character_id, "as_of_chapter": chapter,
+                "abilities": abilities, "relations": relations,
+                "personality": personality, "arc_phases": phases}
+
+    def list_char_states(self, character_id: str) -> list[dict]:
+        """列角色全部弧光记录(时间线可视化用)。"""
+        return self._query(
+            "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
+            "arc_phase, confidence FROM char_state WHERE character_id=$cid ORDER BY chapter ASC",
+            {"cid": character_id})
+
+    # --- 设定完整性检查(层2 主编引导)---
+    def setting_completeness(self) -> dict:
+        """检查当前书的设定完整度,返回各维度缺项。"""
+        chars = self.characters()
+        rules = self.list_world_rules()
+        factions = self.list_factions()
+        places = self._query("SELECT * FROM place")
+        facts = self.facts_at(99999)
+
+        char_issues = []
+        for c in chars:
+            issues = []
+            if not c.traits.get("backstory"):
+                issues.append("缺前史/背景")
+            if not c.traits.get("personality_tags"):
+                issues.append("缺性格标签")
+            if issues:
+                char_issues.append({"name": c.name, "issues": issues})
+
+        missing = []
+        if not rules:
+            missing.append("世界规则(魔法体系/物理法则/社会制度)")
+        if not factions:
+            missing.append("势力/组织")
+        if not places:
+            missing.append("地点/场景")
+        if not any(f.secret for f in facts):
+            missing.append("私密设定/伏线(角色隐藏底细)")
+
+        return {
+            "total_chars": len(chars),
+            "total_rules": len(rules),
+            "total_factions": len(factions),
+            "total_places": len(places),
+            "total_facts": len(facts),
+            "char_issues": char_issues,
+            "missing_dimensions": missing,
+            "completeness_score": max(0, 100 - len(missing) * 20 - len(char_issues) * 5),
+        }

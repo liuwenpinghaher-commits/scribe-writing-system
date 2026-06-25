@@ -29,7 +29,8 @@ def set_store(s) -> None:
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
-                "s3_craft_rule_remove", "s3_add_character_relation"}
+                "s3_craft_rule_remove", "s3_add_character_relation",
+                "s3_add_world_rule", "s3_add_faction", "s3_add_char_state"}
 
 
 def requires_approval(name: str) -> bool:
@@ -117,6 +118,46 @@ def s3_graph_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
     """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
     叠加章时间门(限知)。供主编全知联查,不喂限知渲染。"""
     return _store.graph_recall(query, chapter, k)
+
+
+@mcp.tool(annotations=_RO)
+def s3_setting_completeness() -> dict:
+    """设定完整性检查:返回当前书缺少哪些设定维度(世界规则/势力/地点/角色深描/私密伏线)。
+    主编据此引导作者补全设定。"""
+    return _store.setting_completeness()
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_world_rules(category: str | None = None) -> list[dict]:
+    """列世界规则(Sanderson 式:源头/能力/代价/限制/例外)。可按类别过滤。
+    类别:magic/technology/social/physical/economic/political"""
+    return _store.list_world_rules(category)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_factions() -> list[dict]:
+    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。"""
+    return _store.list_factions()
+
+
+@mcp.tool(annotations=_RO)
+def s3_character_state(character_id: str, chapter: int) -> dict:
+    """角色弧光状态查询:返回某角色在某章时刻的完整状态快照
+    (能力/关系/性格阶段/弧光时间线)。动静结合:静态基石+动态演变。"""
+    return _store.char_state_at(character_id, chapter)
+
+
+@mcp.tool(annotations=_RO)
+def s3_character_timeline(character_id: str) -> list[dict]:
+    """角色弧光时间线:列出该角色全部质变点(能力/关系/性格变化),按章排序。"""
+    return _store.list_char_states(character_id)
+
+
+@mcp.tool(annotations=_RO)
+def s3_relations_at(chapter: int) -> list[dict]:
+    """某章有效的角色关系图(限知时间门:since_chapter <= chapter, until_chapter > chapter or NONE)。
+    用于关系图可视化。"""
+    return _store.relations_at(chapter)
 
 
 @mcp.tool(annotations=_RO)
@@ -232,6 +273,57 @@ async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
     return commit_if_approved("s3_add_character_relation", ok,
                               lambda: _store.add_character_relation(
                                   src_oid, dst_oid, relation, since_chapter, note))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_world_rule(ctx: Context, name: str, category: str,
+                             source: str | None = None,
+                             capabilities: list | None = None,
+                             cost: str | None = None,
+                             limitations: list | None = None,
+                             exceptions: list | None = None,
+                             scope: str = "global",
+                             established_chapter: int | None = None,
+                             note: str | None = None) -> dict:
+    """添加世界规则(写,待批)。Sanderson 式:源头/能力/代价/限制/例外。
+    category: magic/technology/social/physical/economic/political"""
+    ok = await _ask(ctx, f"添加世界规则 [{category}] {name}")
+    return commit_if_approved("s3_add_world_rule", ok,
+                              lambda: _store.add_world_rule(
+                                  name, category, source, capabilities, cost,
+                                  limitations, exceptions, scope, established_chapter, note))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_faction(ctx: Context, name: str,
+                          ideology: str | None = None,
+                          leader: str | None = None,
+                          known_members: list | None = None,
+                          public_face: str | None = None,
+                          private_operation: str | None = None,
+                          first_mention_chapter: int | None = None) -> dict:
+    """添加势力/组织(写,待批)。含公开面目和私下运作。"""
+    ok = await _ask(ctx, f"添加势力 {name}")
+    return commit_if_approved("s3_add_faction", ok,
+                              lambda: _store.add_faction(
+                                  name, ideology, "active", leader, known_members,
+                                  public_face, private_operation, first_mention_chapter))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_char_state(ctx: Context, character_id: str, chapter: int,
+                             change_type: str, summary: str,
+                             trigger_event: str | None = None,
+                             arc_phase: str | None = None,
+                             affects_voice: bool | None = None) -> dict:
+    """记录角色弧光质变点(写,待批)。change_type: ability/relation/personality/composite。
+    动静结合:静态基石不变,动态演变记录在此。"""
+    ok = await _ask(ctx, f"记录弧光 {character_id} 第{chapter}章 [{change_type}]: {summary[:30]}")
+    return commit_if_approved("s3_add_char_state", ok,
+                              lambda: _store.add_char_state(
+                                  character_id, chapter, change_type, summary,
+                                  trigger_event=trigger_event, arc_phase=arc_phase,
+                                  affects_voice=affects_voice))
 
 
 @mcp.tool(annotations=_RW)
