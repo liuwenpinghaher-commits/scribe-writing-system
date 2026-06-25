@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, Check, Undo2 } from 'lucide-react'
+import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Trash2, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, Check, Undo2 } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Tag } from '../ui'
 
@@ -147,6 +147,10 @@ export function CodexView() {
     api.motifs().then((m) => setData((d) => ({ ...d, motifs: m })))
   }
   useEffect(() => { reload() }, [])
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') setEditing(null) }
+    window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const remove = async (type, row) => {
     if (!window.confirm('确认删除?不可撤销。')) return
@@ -169,10 +173,10 @@ export function CodexView() {
   const isNew = (type) => editing && editing.type === type && editing.row === null
 
   const Act = ({ type, row }) => (
-    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-      <button onClick={() => setEditing({ type, row })} className="w-6 h-6 rounded text-faint hover:text-brand hover:bg-brand/10 inline-flex items-center justify-center cursor-pointer"><Pencil size={12} /></button>
-      <button onClick={() => remove(type, row)} className="w-6 h-6 rounded text-faint hover:text-danger hover:bg-danger/10 inline-flex items-center justify-center cursor-pointer"><Trash2 size={12} /></button>
-    </div>
+    <button onClick={(e) => { e.stopPropagation(); remove(type, row) }}
+      className="w-6 h-6 rounded text-faint/50 hover:text-danger hover:bg-danger/10 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center cursor-pointer">
+      <Trash2 size={12} />
+    </button>
   )
 
   return (
@@ -242,7 +246,9 @@ export function CodexView() {
                 isEditing('chars', c) ? (
                   <InlineForm key={c.id} type="chars" row={c} onSave={onSaved} onCancel={() => setEditing(null)} />
                 ) : (
-                  <div key={c.id} className="rounded-2xl border border-line bg-surface p-4 group">
+                  <div key={c.id} className="rounded-2xl border border-line bg-surface p-4 group cursor-pointer hover:border-brand/30 transition-colors"
+                    onClick={() => setEditing({ type: 'chars', row: c })}
+                    title="点击编辑">
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <div className="flex items-center gap-2">
@@ -253,8 +259,7 @@ export function CodexView() {
                         {c.surface_goal && <div className="text-[13px] text-fore mt-1">{c.surface_goal}</div>}
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditing({ type: 'chars', row: c })} className="w-6 h-6 rounded text-faint hover:text-brand hover:bg-brand/10 inline-flex items-center justify-center cursor-pointer"><Pencil size={12} /></button>
-                        <button onClick={() => remove('chars', c)} className="w-6 h-6 rounded text-faint hover:text-danger hover:bg-danger/10 inline-flex items-center justify-center cursor-pointer"><Trash2 size={12} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); remove('chars', c) }} className="w-6 h-6 rounded text-faint/50 hover:text-danger hover:bg-danger/10 inline-flex items-center justify-center cursor-pointer"><Trash2 size={12} /></button>
                       </div>
                     </div>
                     {c.appearance && <div className="mb-2"><span className="text-[11px] text-faint uppercase tracking-wider">外貌</span><div className="text-[13px] text-ink leading-relaxed">{c.appearance}</div></div>}
@@ -296,7 +301,9 @@ export function CodexView() {
                 )}
                 {(data[tab] || []).filter((x) => f(x.value) || f(x.attribute) || f(x.text) || f(x.name) || f(x.category)).map((x) => (
                   isEditing(tab, x) ? <tr key={x.id || x.name}><td colSpan="9" className="p-0"><InlineForm type={tab} row={x} onSave={onSaved} onCancel={() => setEditing(null)} /></td></tr> :
-                    <tr key={x.id || x.name} className={rowCls}>
+                    <tr key={x.id || x.name} className={rowCls + ' cursor-pointer'}
+                      onClick={() => setEditing({ type: tab, row: x })}
+                      title="点击编辑">
                       {tab === 'facts' && <><td className="px-3 py-2.5 text-faint">{x.entity}</td><td className="px-3 py-2.5 text-ink">{x.attribute}</td><td className="px-3 py-2.5 text-ink">{x.value}</td><td className="px-3 py-2.5">{x.secret && <Lock size={13} className="text-secret" />}</td></>}
                       {tab === 'rules' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5"><Tag tone="fore">{x.category}</Tag></td><td className="px-3 py-2.5 text-faint">{x.cost || '—'}</td></>}
                       {tab === 'factions' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5 text-faint">{x.ideology || '—'}</td><td className="px-3 py-2.5 text-ink">{x.leader || '—'}</td></>}
