@@ -272,6 +272,174 @@ def del_prom(pid: str, work: str = "main"):
     return {"ok": True}
 
 
+# ===== 世界规则 + 势力(设定完整性)=====
+class RuleIn(BaseModel):
+    name: str
+    category: str = "magic"
+    source: str | None = None
+    cost: str | None = None
+    scope: str = "global"
+    note: str | None = None
+
+
+@app.get("/world-rules")
+def list_rules(category: str | None = None, work: str = "main"):
+    return _store_for(work).list_world_rules(category)
+
+
+@app.post("/world-rules")
+def add_rule(r: RuleIn, work: str = "main"):
+    _store_for(work).add_world_rule(r.name, r.category, r.source, cost=r.cost, scope=r.scope, note=r.note)
+    return {"ok": True}
+
+
+@app.delete("/world-rules")
+def del_rule(name: str, work: str = "main"):
+    _store_for(work).delete_world_rule(name)
+    return {"ok": True}
+
+
+class FactionIn(BaseModel):
+    name: str
+    ideology: str | None = None
+    leader: str | None = None
+    public_face: str | None = None
+    private_operation: str | None = None
+    status: str = "active"
+
+
+@app.get("/factions")
+def list_factions(work: str = "main"):
+    return _store_for(work).list_factions()
+
+
+@app.post("/factions")
+def add_faction(f: FactionIn, work: str = "main"):
+    _store_for(work).add_faction(f.name, f.ideology, f.status, f.leader,
+                                  public_face=f.public_face, private_operation=f.private_operation)
+    return {"ok": True}
+
+
+@app.delete("/factions")
+def del_faction(name: str, work: str = "main"):
+    _store_for(work).delete_faction(name)
+    return {"ok": True}
+
+
+@app.get("/setting-completeness")
+def setting_completeness(work: str = "main"):
+    return _store_for(work).setting_completeness()
+
+
+# ===== 世界规则 + 势力(设定完整性)=====
+class RuleIn(BaseModel):
+    name: str
+    category: str = "magic"
+    source: str | None = None
+    cost: str | None = None
+    limitations: list = []
+    exceptions: list = []
+    scope: str = "global"
+    established_chapter: int | None = None
+    note: str | None = None
+
+
+@app.get("/world-rules")
+def list_rules(category: str | None = None, work: str = "main"):
+    return _store_for(work).list_world_rules(category)
+
+
+@app.post("/world-rules")
+def add_rule(r: RuleIn, work: str = "main"):
+    _store_for(work).add_world_rule(r.name, r.category, r.source, None, r.cost,
+                                     r.limitations, r.exceptions, r.scope,
+                                     r.established_chapter, r.note)
+    return {"ok": True}
+
+
+@app.delete("/world-rules")
+def del_rule(name: str, work: str = "main"):
+    _store_for(work).delete_world_rule(name)
+    return {"ok": True}
+
+
+class FactionIn(BaseModel):
+    name: str
+    ideology: str | None = None
+    leader: str | None = None
+    known_members: list = []
+    public_face: str | None = None
+    private_operation: str | None = None
+    first_mention_chapter: int | None = None
+
+
+@app.get("/factions")
+def list_factions(work: str = "main"):
+    return _store_for(work).list_factions()
+
+
+@app.post("/factions")
+def add_faction_ep(fc: FactionIn, work: str = "main"):
+    _store_for(work).add_faction(fc.name, fc.ideology, "active", fc.leader,
+                                  fc.known_members, fc.public_face,
+                                  fc.private_operation, fc.first_mention_chapter)
+    return {"ok": True}
+
+
+@app.delete("/factions")
+def del_faction(name: str, work: str = "main"):
+    _store_for(work).delete_faction(name)
+    return {"ok": True}
+
+
+# ===== 世界规则 + 势力(层1 设定完整性)=====
+@app.get("/world-rules")
+def get_world_rules(category: str | None = None, work: str = "main"):
+    return _store_for(work).list_world_rules(category)
+
+
+@app.post("/world-rules")
+def add_world_rule(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_world_rule(req.get("name",""), req.get("category","social"),
+                      source=req.get("source"), cost=req.get("cost"),
+                      limitations=req.get("limitations"), exceptions=req.get("exceptions"),
+                      scope=req.get("scope","global"), note=req.get("note"))
+    return {"ok": True}
+
+
+@app.delete("/world-rules")
+def del_world_rule(name: str, work: str = "main"):
+    _store_for(work).delete_world_rule(name)
+    return {"ok": True}
+
+
+@app.get("/factions")
+def get_factions(work: str = "main"):
+    return _store_for(work).list_factions()
+
+
+@app.post("/factions")
+def add_faction(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_faction(req.get("name",""), ideology=req.get("ideology"),
+                   leader=req.get("leader"), known_members=req.get("known_members"),
+                   public_face=req.get("public_face"),
+                   private_operation=req.get("private_operation"))
+    return {"ok": True}
+
+
+@app.delete("/factions")
+def del_faction(name: str, work: str = "main"):
+    _store_for(work).delete_faction(name)
+    return {"ok": True}
+
+
+@app.get("/setting-completeness")
+def get_completeness(work: str = "main"):
+    return _store_for(work).setting_completeness()
+
+
 class MotifIn(BaseModel):
     name: str
     theme: str = ""

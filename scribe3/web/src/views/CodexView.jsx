@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X } from 'lucide-react'
+import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Tag } from '../ui'
 
 const TABS = [
   { key: 'chars', label: '角色', icon: Users },
   { key: 'facts', label: '设定 · 命题', icon: Boxes },
+  { key: 'rules', label: '世界规则', icon: Shield },
+  { key: 'factions', label: '势力', icon: Swords },
   { key: 'promises', label: '伏笔', icon: Bookmark },
   { key: 'motifs', label: '母题', icon: Flame },
 ]
 const FIELDS = {
   chars: [{ k: 'name', label: '名字' }, { k: 'backstory', label: '前史(冰山·私密)', area: true }],
   facts: [{ k: 'entity', label: '主体(如 role:焦三 / 世界设定)' }, { k: 'attribute', label: '属性' }, { k: 'value', label: '值', area: true }, { k: 'valid_from', label: '生效章', num: true }, { k: 'secret', label: '私密(泄露=穿帮)', bool: true }],
-  promises: [{ k: 'text', label: '伏笔内容', area: true }, { k: 'setup_chapter', label: '埋于第几章', num: true }, { k: 'kind', label: '类型(promise/red_herring)' }],
+  rules: [{ k: 'name', label: '规则名' }, { k: 'category', label: '类别(magic/technology/social/physical/economic/political)' }, { k: 'source', label: '源头' }, { k: 'cost', label: '代价', area: true }, { k: 'scope', label: '范围(global/regional/faction_specific)' }, { k: 'note', label: '备注', area: true }],
+  factions: [{ k: 'name', label: '势力名' }, { k: 'ideology', label: '意识形态', area: true }, { k: 'leader', label: '领袖' }, { k: 'public_face', label: '公开面目', area: true }, { k: 'private_operation', label: '私下运作', area: true }, { k: 'status', label: '状态(active/dissolved/dormant/reformed)' }],
+  promises: [{ k: 'text', label: '伏笔内容', area: true }, { k: 'setup_chapter', label: '埋于第几章', num: true }, { k: 'promise_kind', label: '类型(promise/red_herring)' }],
   motifs: [{ k: 'name', label: '母题名' }, { k: 'theme', label: '绑定主题' }, { k: 'unfolding', label: '隐喻展开', area: true }, { k: 'echoes', label: '物质回声', area: true }],
 }
 const localOf = (row) => (row.id || '').includes(':') ? row.id.split(':').slice(1).join(':') : row.id
@@ -68,13 +72,15 @@ function Editor({ type, row, onClose, onSaved }) {
 
 export function CodexView() {
   const [tab, setTab] = useState('chars')
-  const [data, setData] = useState({ chars: [], facts: [], promises: [], motifs: [] })
+  const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], promises: [], motifs: [] })
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)   // {type,row}
 
   const reload = () => {
     api.entities().then((es) => setData((d) => ({ ...d, chars: es.filter((e) => e.kind === 'character') })))
     api.facts(99999).then((f) => setData((d) => ({ ...d, facts: f })))
+    api.get('/world-rules').then((r) => r.json()).then((r) => setData((d) => ({ ...d, rules: r || [] }))).catch(() => {})
+    api.get('/factions').then((r) => r.json()).then((r) => setData((d) => ({ ...d, factions: r || [] }))).catch(() => {})
     api.promises().then((p) => setData((d) => ({ ...d, promises: p })))
     api.motifs().then((m) => setData((d) => ({ ...d, motifs: m })))
   }
@@ -84,6 +90,8 @@ export function CodexView() {
     if (!window.confirm('确认删除?不可撤销。')) return
     if (type === 'chars') await api.delChar(localOf(row))
     else if (type === 'facts') await api.delFact(localOf(row))
+    else if (type === 'rules') await api.del(`/world-rules?name=${encodeURIComponent(row.name)}`)
+    else if (type === 'factions') await api.del(`/factions?name=${encodeURIComponent(row.name)}`)
     else if (type === 'promises') await api.delPromise(row.id)
     else if (type === 'motifs') await api.delMotif(row.id)
     reload()
@@ -132,6 +140,18 @@ export function CodexView() {
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="20%">主体</Th><Th w="18%">属性</Th><Th>值</Th><Th w="8%">私密</Th><Th w="64" /></tr></thead>
               <tbody>{data.facts.filter((x) => f(x.value) || f(x.attribute)).map((x) => (
                 <tr key={x.id} className={rowCls}><td className="px-3 py-2.5 text-faint">{x.entity}</td><td className="px-3 py-2.5 text-ink">{x.attribute}</td><td className="px-3 py-2.5 text-ink">{x.value}</td><td className="px-3 py-2.5">{x.secret && <Lock size={13} className="text-secret" />}</td><Act type="facts" row={x} /></tr>
+              ))}</tbody></table>
+          )}
+          {tab === 'rules' && (
+            <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="22%">规则</Th><Th w="14%">类别</Th><Th>代价</Th><Th w="64" /></tr></thead>
+              <tbody>{(data.rules || []).filter((r) => f(r.name) || f(r.category)).map((r) => (
+                <tr key={r.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{r.name}</td><td className="px-3 py-2.5"><Tag tone="fore">{r.category}</Tag></td><td className="px-3 py-2.5 text-faint">{r.cost || '—'}</td><Act type="rules" row={r} /></tr>
+              ))}</tbody></table>
+          )}
+          {tab === 'factions' && (
+            <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="20%">势力</Th><Th w="24%">意识形态</Th><Th>领袖</Th><Th w="64" /></tr></thead>
+              <tbody>{(data.factions || []).filter((fc) => f(fc.name)).map((fc) => (
+                <tr key={fc.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{fc.name}</td><td className="px-3 py-2.5 text-faint">{fc.ideology || '—'}</td><td className="px-3 py-2.5 text-ink">{fc.leader || '—'}</td><Act type="factions" row={fc} /></tr>
               ))}</tbody></table>
           )}
           {tab === 'promises' && (

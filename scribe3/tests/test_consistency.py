@@ -70,6 +70,8 @@ class TestWriteGate:
         ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
         ("PATCH", "/works/{slug}"), ("POST", "/voice"), ("POST", "/save-chapter"), ("POST", "/ingest"),
         ("POST", "/chat/write"), ("POST", "/render"),
+        ("POST", "/world-rules"), ("DELETE", "/world-rules"),
+        ("POST", "/factions"), ("DELETE", "/factions"),
     }
 
     def test_no_unaudited_write_route(self):
