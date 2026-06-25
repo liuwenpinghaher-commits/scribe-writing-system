@@ -426,6 +426,13 @@ def add_char_state_endpoint(req: dict, work: str = "main"):
     return {"ok": True}
 
 
+@app.get("/char-state-at")
+def char_state_at(character_id: str, chapter: int, work: str = "main"):
+    """查询角色在某章时刻的完整状态快照(时点查询,设计文档 §3.6)。
+    返回该章时刻的能力/关系/性格/弧光阶段。"""
+    return _store_for(work).char_state_at(character_id, chapter)
+
+
 # ===== 世界规则 + 势力(设定完整性)=====
 class RuleIn(BaseModel):
     name: str

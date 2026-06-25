@@ -89,29 +89,82 @@ function EditableTags({ label, tags, onSave }) {
   )
 }
 
-// ─── DynamicTimeline: 角色弧光时间线(动态层) ───
+// ─── DynamicTimeline: 角色弧光演进史(动态层) ───
+// 展示: 每个质变点的 before→after 对比 + 触发事件 + 正文关联章
+// + 可查询任意章节时刻的快照(设计文档 §3.6 get_entity_baseline_at_chapter)
 function DynamicTimeline({ characterId }) {
   const [states, setStates] = useState(null)
   const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+  const [snapshotCh, setSnapshotCh] = useState('')
+  const [snapshot, setSnapshot] = useState(null)
+  const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', before: '', after: '', trigger: '' })
+
   useEffect(() => {
     api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates).catch(() => setStates([]))
   }, [characterId])
 
   const addState = async () => {
-    await api.post('/char-states', { ...form, character_id: characterId, chapter: Number(form.chapter) })
-    setAdding(false); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+    const payload = {
+      character_id: characterId, chapter: Number(form.chapter),
+      change_type: form.change_type, summary: form.summary, arc_phase: form.arc_phase,
+      before_state: form.before ? JSON.parse(form.before) : null,
+      after_state: form.after ? JSON.parse(form.after) : null,
+      trigger_event: form.trigger || null,
+    }
+    await api.post('/char-states', payload)
+    setAdding(false)
+    setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', before: '', after: '', trigger: '' })
     api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates)
+  }
+
+  const querySnapshot = async () => {
+    const ch = Number(snapshotCh)
+    if (!ch) return
+    api.get(`/char-state-at?character_id=${encodeURIComponent(characterId)}&chapter=${ch}`).then((r) => r.json()).then(setSnapshot)
+  }
+
+  // 渲染 before→after 对比
+  const renderDiff = (before, after, label) => {
+    if (!before && !after) return null
+    const b = (typeof before === 'string') ? before : JSON.stringify(before || {})
+    const a = (typeof after === 'string') ? after : JSON.stringify(after || {})
+    if (b === a) return null
+    return (
+      <div className="mt-1 ml-2 text-[11px]">
+        <span className="text-faint/60">变更前: </span>
+        <span className="text-faint line-through">{b}</span>
+        <span className="text-faint/60"> → 变更后: </span>
+        <span className="text-fore">{a}</span>
+      </div>
+    )
   }
 
   if (!states) return null
   return (
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[11px] text-faint uppercase tracking-wider">弧光时间线</span>
+        <span className="text-[11px] text-faint uppercase tracking-wider">弧光演进史</span>
         <span className="text-[11px] text-faint/50">{states.length}个质变点</span>
-        <button onClick={() => setAdding(!adding)} className="ml-auto text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 添加弧光</button>
+        <button onClick={() => setAdding(!adding)} className="ml-auto text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 记录质变</button>
       </div>
+
+      {/* 时点快照查询 */}
+      <div className="mb-3 flex items-center gap-2 p-2 rounded-lg bg-soft/30">
+        <span className="text-[11px] text-faint">查询某章状态:</span>
+        <input type="number" placeholder="章号" value={snapshotCh} onChange={(e) => setSnapshotCh(e.target.value)}
+          className="w-16 h-7 rounded border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+        <button onClick={querySnapshot} className="px-2 h-7 rounded text-[11px] bg-brand/10 text-brand cursor-pointer">查询</button>
+        {snapshot && (
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="text-faint">能力: {Object.keys(snapshot.abilities || {}).length > 0 ? JSON.stringify(snapshot.abilities) : '—'}</span>
+            <span className="text-faint">关系: {Object.keys(snapshot.relations || {}).length > 0 ? JSON.stringify(snapshot.relations) : '—'}</span>
+            <span className="text-faint">性格: {snapshot.personality || '—'}</span>
+            <span className="text-faint">阶段: {(snapshot.arc_phases || []).map((p) => p.phase).join('→') || '—'}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 添加质变 */}
       {adding && (
         <div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
           <div className="flex gap-2">
@@ -119,30 +172,60 @@ function DynamicTimeline({ characterId }) {
             <select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none">
               <option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option>
             </select>
-            <input placeholder="弧光阶段(如:转折点·信任初建)" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+            <input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
           </div>
           <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+          <div className="flex gap-2">
+            <input placeholder='变更前(JSON, 如 {"ability_snapshot":{"内功":"中期"}})' value={form.before} onChange={(e) => setForm({ ...form, before: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[11px] text-faint outline-none" />
+          </div>
+          <div className="flex gap-2">
+            <input placeholder='变更后(JSON, 如 {"ability_snapshot":{"内功":"后期"}})' value={form.after} onChange={(e) => setForm({ ...form, after: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[11px] text-faint outline-none" />
+          </div>
+          <input placeholder="触发事件(正文中的什么导致了变化)" value={form.trigger} onChange={(e) => setForm({ ...form, trigger: e.target.value })} className="w-full h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
           <div className="flex gap-2">
             <button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button>
             <button onClick={() => setAdding(false)} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button>
           </div>
         </div>
       )}
+
+      {/* 演进史时间线(含 before→after 对比 + 触发事件) */}
       {states.length === 0 ? (
         <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。角色经历重大事件后，在此记录能力/关系/性格的质变。</div>
       ) : (
-        <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
-          {states.map((s, i) => (
-            <div key={i} className="relative">
-              <div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" />
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-faint">第{s.chapter}章</span>
-                <Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : s.change_type === 'personality' ? 'faint' : 'faint'}>{s.change_type}</Tag>
-                {s.arc_phase && <span className="text-[11px] text-fore">{s.arc_phase}</span>}
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-4">
+          {states.map((s, i) => {
+            const before = s.before_state
+            const after = s.after_state
+            return (
+              <div key={i} className="relative">
+                <div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" />
+                {/* 章节标记 */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] text-faint font-medium">第{s.chapter}章</span>
+                  <Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : s.change_type === 'personality' ? 'faint' : 'faint'}>{s.change_type}</Tag>
+                  {s.arc_phase && <span className="text-[11px] text-fore">{s.arc_phase}</span>}
+                  {s.confidence === 'inferred' && <span className="text-[10px] text-faint/50">(推断)</span>}
+                </div>
+                {/* 变化摘要 */}
+                <div className="text-[13px] text-ink">{s.summary}</div>
+                {/* before→after 对比 */}
+                {before && after && (
+                  <div className="mt-1 ml-2 p-2 rounded-md bg-soft/30 text-[11px] space-y-0.5">
+                    {before.ability_snapshot && after.ability_snapshot && renderDiff(before.ability_snapshot, after.ability_snapshot, '能力')}
+                    {before.relation_snapshot && after.relation_snapshot && renderDiff(before.relation_snapshot, after.relation_snapshot, '关系')}
+                    {before.personality_snapshot && after.personality_snapshot && renderDiff(before.personality_snapshot, after.personality_snapshot, '性格')}
+                  </div>
+                )}
+                {/* 触发事件(正文追溯) */}
+                {s.trigger_event && (
+                  <div className="mt-1 ml-2 text-[11px] text-faint/70">
+                    <span className="text-faint/50">触发: </span>{s.trigger_event}
+                  </div>
+                )}
               </div>
-              <div className="text-[13px] text-ink mt-0.5">{s.summary}</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

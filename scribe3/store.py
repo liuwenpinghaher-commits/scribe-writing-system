@@ -863,10 +863,11 @@ class SurrealStore:
                 "personality": personality, "arc_phases": phases}
 
     def list_char_states(self, character_id: str) -> list[dict]:
-        """列角色全部弧光记录(时间线可视化用)。"""
+        """列角色全部弧光记录(含 before/after/trigger,演进史完整展示)。"""
         return self._query(
             "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
-            "arc_phase, confidence FROM char_state WHERE character_id=$cid ORDER BY chapter ASC",
+            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence "
+            "FROM char_state WHERE character_id=$cid ORDER BY chapter ASC",
             {"cid": character_id})
 
     # --- 设定完整性检查(层2 主编引导)---
