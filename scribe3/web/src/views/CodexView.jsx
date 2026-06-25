@@ -421,33 +421,24 @@ export function CodexView({ work }) {
   }
   const addNew = (type) => setSelected({ type, row: { name: '', text: '', entity: '', attribute: '', value: '' }, isNew: true })
 
-  // ─── 详情页模式(全屏,不使用 Shell) ───
-  if (selected) {
-    return (
-      <div className="h-full flex flex-col bg-canvas">
-        <div className="flex-1 min-h-0 overflow-y-auto"><div className="px-6 py-5">
-          <DetailView type={selected.type} row={selected.row} isNew={selected.isNew}
-            onBack={() => setSelected(null)} onUpdate={(updated) => updateRow(selected.type, updated)}
-            onDelete={() => deleteRow(selected.type, selected.row)} />
-        </div></div>
-      </div>
-    )
-  }
-
-  // ─── 中区内容 ───
+  // ─── 中区内容:选中条目→详情,未选→列表 ───
   const centerContent = (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-4xl mx-auto px-6 py-5">
+      <div className="max-w-2xl mx-auto px-6 py-5">
         {loading ? <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2"/>加载中...</div> : (
-          <>
-            {/* 搜索 + 新建 */}
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex items-center gap-1.5 h-8 rounded-lg border border-line bg-canvas px-2.5 flex-1">
-                <Search size={14} className="text-faint" />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索…" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint/60" />
+          selected ? (
+            <DetailView type={selected.type} row={selected.row} isNew={selected.isNew}
+              onBack={() => setSelected(null)} onUpdate={(updated) => updateRow(selected.type, updated)}
+              onDelete={() => deleteRow(selected.type, selected.row)} />
+          ) : (
+            <>
+              {/* 搜索 */}
+              <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-1.5 h-8 rounded-lg border border-line bg-canvas px-2.5 flex-1">
+                  <Search size={14} className="text-faint" />
+                  <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索…" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint/60" />
+                </div>
               </div>
-              {!['overview','timeline','relations'].includes(tab) && <Btn variant="primary" size="sm" onClick={() => addNew(tab)}><Plus size={14} />新建</Btn>}
-            </div>
 
             {/* 概览 */}
             {tab === 'overview' && data.completeness && (
@@ -526,46 +517,84 @@ export function CodexView({ work }) {
               </div>
             )}
           </>
+          )
         )}
       </div>
     </div>
   )
 
-  // ─── 左栏:设定导航 ───
+  // ─── 左栏:分类导航(每个 tab 一个 RailBtn,点击切换+展开条目列表) ───
   const leftCaps = TABS.map((t) => ({
     key: t.key, label: t.label, icon: t.icon,
     badge: ['overview','timeline','relations'].includes(t.key) ? undefined : (data[t.key]?.length || 0),
-    render: () => (
-      <div className="space-y-0.5">
-        {TABS.map((tt) => (
-          <button key={tt.key} onClick={() => { setTab(tt.key); setSelected(null) }}
-            className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] transition-colors cursor-pointer ${tab === tt.key ? 'bg-soft text-ink font-medium' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-            <tt.icon size={14} />{tt.label}
-            {!['overview','timeline','relations'].includes(tt.key) && <span className="ml-auto text-faint tnum text-[11px]">{data[tt.key]?.length || 0}</span>}
-          </button>
-        ))}
-      </div>
-    ),
+    render: () => {
+      // 概览/弧光/关系 没有条目列表,直接切换 tab
+      if (['overview','timeline','relations'].includes(t.key)) {
+        return <div className="text-[12px] text-faint/50 py-2">点击切换到{t.label}</div>
+      }
+      const items = data[t.key] || []
+      if (items.length === 0) return <div className="text-[12px] text-faint/50 py-2">暂无{t.label}</div>
+      return (
+        <div className="space-y-0.5">
+          {items.filter((x) => f(x.name) || f(x.text) || f(x.value)).slice(0, 50).map((x) => (
+            <button key={x.id || x.name}
+              onClick={() => setSelected({ type: t.key, row: x })}
+              className={`w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] transition-colors cursor-pointer ${selected?.row === x ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+              <span className="truncate block">{x.name || x.text?.slice(0,20) || x.value?.slice(0,20) || x.id}</span>
+            </button>
+          ))}
+          {items.length > 50 && <div className="text-[10px] text-faint/40 py-1">+{items.length - 50} 项…</div>}
+        </div>
+      )
+    },
   }))
 
-  // ─── 右栏:主编对话 ───
-  const rightCaps = [{
-    key: 'chat', label: '主编', icon: MessageSquare,
-    render: () => <EditorChat context={tab} />,
-  }]
+  // ─── 右栏:主编对话 + 设定检查 ───
+  const rightCaps = [
+    { key: 'chat', label: '主编', icon: MessageSquare,
+      render: () => <EditorChat context={selected?.type || tab} /> },
+    { key: 'check', label: '检查', icon: Shield, badge: data.completeness?.completeness_score != null && data.completeness.completeness_score < 80 ? data.completeness.missing_dimensions?.length || 0 : undefined,
+      render: () => (
+        <div className="space-y-3">
+          {data.completeness && (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-[20px] font-bold text-ink">{data.completeness.completeness_score}</span>
+                <span className="text-[11px] text-faint">/ 100</span>
+              </div>
+              {data.completeness.missing_dimensions?.length > 0 && (
+                <div>
+                  <div className="text-[11px] text-faint uppercase tracking-wider mb-1">缺失维度</div>
+                  {data.completeness.missing_dimensions.map((m, i) => <div key={i} className="text-[12px] text-danger">· {m}</div>)}
+                </div>
+              )}
+              {data.completeness.char_issues?.length > 0 && (
+                <div>
+                  <div className="text-[11px] text-faint uppercase tracking-wider mb-1">角色问题</div>
+                  {data.completeness.char_issues.map((c, i) => <div key={i} className="text-[12px] text-faint">{c.name}: {c.issues.join(', ')}</div>)}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
 
   // ─── 顶栏 ───
   const topbar = (
     <header className="h-11 shrink-0 border-b border-line bg-surface flex items-center px-4 gap-2">
       <span className="text-[14px] font-semibold text-ink">设定库</span>
       <span className="text-[11px] text-faint">· {TABS.find((t) => t.key === tab)?.label}</span>
-      {data.completeness && <span className="ml-auto text-[11px] text-faint">完整度 <span className="text-ink font-medium tnum">{data.completeness.completeness_score}</span>/100</span>}
+      {!['overview','timeline','relations'].includes(tab) && (
+        <Btn variant="primary" size="sm" className="ml-auto" onClick={() => addNew(tab)}><Plus size={14} />新建</Btn>
+      )}
     </header>
   )
 
   return (
     <Shell topbar={topbar} center={centerContent}
-      left={{ caps: leftCaps, active: 'overview', onActive: () => {} }}
+      left={{ caps: leftCaps, active: tab, onActive: (k) => { setTab(k); setSelected(null) } }}
       right={{ caps: rightCaps, active: 'chat', onActive: () => {} }} />
   )
 }
