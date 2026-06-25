@@ -241,9 +241,11 @@ class SurrealStore:
         _, local = _split(e.id)
         if e.kind == "character":
             self._execute_write(
-                "CREATE type::record('character', $local) SET name=$name, aliases=$al, backstory=$bs",
+                "CREATE type::record('character', $local) SET name=$name, aliases=$al, "
+                "backstory=$bs, personality_tags=$pt",
                 {"local": local, "name": e.name, "al": e.traits.get("aliases", []),
-                 "bs": e.traits.get("backstory")})
+                 "bs": e.traits.get("backstory"),
+                 "pt": e.traits.get("personality_tags", [])})
         elif e.kind == "place":
             self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})
@@ -381,12 +383,11 @@ class SurrealStore:
                      r.get("leak_markers", [])) for r in rows]
 
     def characters(self) -> list[Entity]:
-        rows = self._query("SELECT meta::id(id) AS local, name, backstory, aliases, traits, motivation, importance FROM character")
+        rows = self._query("SELECT meta::id(id) AS local, name, backstory, aliases, personality_tags, importance FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
                                "aliases": r.get("aliases") or [],
-                               "personality_tags": (r.get("traits") or {}).get("personality_tags"),
-                               "motivation": r.get("motivation"),
+                               "personality_tags": r.get("personality_tags") or [],
                                "importance": r.get("importance")}) for r in rows]
 
     def all_entities(self) -> list[Entity]:
