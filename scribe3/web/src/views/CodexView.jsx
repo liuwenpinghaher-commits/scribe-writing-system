@@ -89,7 +89,136 @@ function EditableTags({ label, tags, onSave }) {
   )
 }
 
-// ─── DetailView: Notion 式详情页(全字段始终可编辑) ───
+// ─── DynamicTimeline: 角色弧光时间线(动态层) ───
+function DynamicTimeline({ characterId }) {
+  const [states, setStates] = useState(null)
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+  useEffect(() => {
+    api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates).catch(() => setStates([]))
+  }, [characterId])
+
+  const addState = async () => {
+    await api.post('/char-states', { ...form, character_id: characterId, chapter: Number(form.chapter) })
+    setAdding(false); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+    api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates)
+  }
+
+  if (!states) return null
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11px] text-faint uppercase tracking-wider">弧光时间线</span>
+        <span className="text-[11px] text-faint/50">{states.length}个质变点</span>
+        <button onClick={() => setAdding(!adding)} className="ml-auto text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 添加弧光</button>
+      </div>
+      {adding && (
+        <div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
+          <div className="flex gap-2">
+            <input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+            <select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none">
+              <option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option>
+            </select>
+            <input placeholder="弧光阶段(如:转折点·信任初建)" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+          </div>
+          <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+          <div className="flex gap-2">
+            <button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button>
+            <button onClick={() => setAdding(false)} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button>
+          </div>
+        </div>
+      )}
+      {states.length === 0 ? (
+        <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。角色经历重大事件后，在此记录能力/关系/性格的质变。</div>
+      ) : (
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
+          {states.map((s, i) => (
+            <div key={i} className="relative">
+              <div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" />
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-faint">第{s.chapter}章</span>
+                <Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : s.change_type === 'personality' ? 'faint' : 'faint'}>{s.change_type}</Tag>
+                {s.arc_phase && <span className="text-[11px] text-fore">{s.arc_phase}</span>}
+              </div>
+              <div className="text-[13px] text-ink mt-0.5">{s.summary}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── DynamicRelations: 角色关系演变(动态层) ───
+function DynamicRelations({ characterId, chars }) {
+  const [relations, setRelations] = useState(null)
+  useEffect(() => {
+    api.get('/character-relations?chapter=9999').then((r) => r.json()).then((all) => {
+      setRelations((all || []).filter((r) => r.src === characterId || r.dst === characterId))
+    }).catch(() => setRelations([]))
+  }, [characterId])
+
+  if (!relations) return null
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11px] text-faint uppercase tracking-wider">角色关系</span>
+        <span className="text-[11px] text-faint/50">{relations.length}条</span>
+      </div>
+      {relations.length === 0 ? (
+        <div className="text-[12px] text-faint/50 py-2">尚无关系记录。</div>
+      ) : (
+        <div className="space-y-2">
+          {relations.map((r, i) => {
+            const isSrc = r.src === characterId
+            const otherId = isSrc ? r.dst : r.src
+            const otherName = (otherId || '').split(':').pop()
+            return (
+              <div key={i} className="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-soft/40 transition-colors">
+                <span className="text-[14px] font-medium text-ink prose-serif min-w-[60px]">{otherName}</span>
+                <span className="flex-1"><Tag tone={['盟友','同门','熟人','夫妻'].includes(r.relation) ? 'ok' : ['利益对立','仇敌'].includes(r.relation) ? 'fore' : 'faint'}>{r.relation}</Tag></span>
+                <span className="text-[11px] text-faint">第{r.since_chapter}章建立</span>
+                {r.until_chapter && <span className="text-[11px] text-danger">第{r.until_chapter}章结束</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ItemStateHistory: 物品状态流转(动态层) ───
+function ItemStateHistory({ item }) {
+  const history = item.state_history || []
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11px] text-faint uppercase tracking-wider">状态流转</span>
+        <span className="text-[11px] text-faint/50">当前: {item.symbolic_state}</span>
+      </div>
+      {history.length === 0 ? (
+        <div className="text-[12px] text-faint/50 py-2">尚无状态变更记录。</div>
+      ) : (
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">
+          {history.map((h, i) => (
+            <div key={i} className="relative">
+              <div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface"
+                style={{ background: h.state === 'active' ? '#10b981' : h.state === 'lost' ? '#f59e0b' : '#ef4444' }} />
+              <div className="flex items-center gap-2">
+                <Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>
+                {h.chapter && <span className="text-[11px] text-faint">第{h.chapter}章</span>}
+              </div>
+              {h.note && <div className="text-[12px] text-faint mt-0.5">{h.note}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── DetailView: Notion 式详情页(全字段始终可编辑 + 动态层) ───
 function DetailView({ type, row, onBack, onUpdate, onDelete }) {
   const save = (key, val) => { onUpdate({ ...row, [key]: val }) }
 
@@ -120,6 +249,12 @@ function DetailView({ type, row, onBack, onUpdate, onDelete }) {
             <EditableField label="恐惧" value={row.fear} onSave={(v) => save('fear', v)} />
             <EditableField label="首次出场" value={row.first_appearance} num onSave={(v) => save('first_appearance', v)} />
           </div>
+
+          {/* ── 动态层:弧光时间线 ── */}
+          <DynamicTimeline characterId={row.id} />
+
+          {/* ── 动态层:角色关系演变 ── */}
+          <DynamicRelations characterId={row.id} chars={[]} />
         </div>
         <div className="mt-4 pt-3 border-t border-line">
           <button onClick={onDelete} className="text-[12px] text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1"><Trash2 size={13}/>删除角色</button>
@@ -160,6 +295,8 @@ function DetailView({ type, row, onBack, onUpdate, onDelete }) {
           )
         )}
       </div>
+      {/* ── 动态层:物品状态流转(仅 items) ── */}
+      {type === 'items' && <ItemStateHistory item={row} />}
       <div className="mt-4 pt-3 border-t border-line">
         <button onClick={onDelete} className="text-[12px] text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1"><Trash2 size={13}/>删除</button>
       </div>

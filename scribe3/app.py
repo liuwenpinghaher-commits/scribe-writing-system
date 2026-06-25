@@ -418,6 +418,14 @@ def char_states(character_id: str, work: str = "main"):
     return _store_for(work).list_char_states(character_id)
 
 
+@app.post("/char-states")
+def add_char_state_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_char_state(req["character_id"], req["chapter"], req["change_type"],
+                      req["summary"], arc_phase=req.get("arc_phase"))
+    return {"ok": True}
+
+
 # ===== 世界规则 + 势力(设定完整性)=====
 class RuleIn(BaseModel):
     name: str
