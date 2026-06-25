@@ -104,7 +104,10 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif"])
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
-    "character": frozenset({"name", "aliases", "backstory"}),
+    "character": frozenset({"name", "aliases", "backstory", "importance",
+        "appearance", "personality_detail", "abilities", "weaknesses",
+        "surface_goal", "deep_need", "internal_conflict", "fear",
+        "first_appearance", "personality_tags"}),
     "place": frozenset({"name"}),
     "proposition": frozenset({"entity", "entity_id", "attribute", "value", "valid_from",
                               "valid_to", "secret", "leak_markers", "ingest_seq"}),

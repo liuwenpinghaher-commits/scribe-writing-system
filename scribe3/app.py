@@ -215,6 +215,16 @@ def motifs(work: str = "main"):
 class CharIn(BaseModel):
     name: str
     backstory: str | None = None
+    importance: str | None = None
+    appearance: str | None = None
+    personality_detail: str | None = None
+    abilities: str | None = None
+    weaknesses: list = []
+    surface_goal: str | None = None
+    deep_need: str | None = None
+    internal_conflict: str | None = None
+    fear: str | None = None
+    first_appearance: int | None = None
 
 
 @app.post("/characters")
@@ -225,7 +235,14 @@ def add_char(c: CharIn, work: str = "main"):
 
 @app.patch("/characters/{local}")
 def edit_char(local: str, c: CharIn, work: str = "main"):
-    _store_for(work).update_record(f"role:{local}", {"name": c.name, "backstory": c.backstory})
+    st = _store_for(work)
+    fields = {"name": c.name, "backstory": c.backstory, "importance": c.importance,
+              "appearance": c.appearance, "personality_detail": c.personality_detail,
+              "abilities": c.abilities, "weaknesses": c.weaknesses,
+              "surface_goal": c.surface_goal, "deep_need": c.deep_need,
+              "internal_conflict": c.internal_conflict, "fear": c.fear,
+              "first_appearance": c.first_appearance}
+    st.update_record(f"role:{local}", {k: v for k, v in fields.items() if v is not None})
     return {"ok": True}
 
 

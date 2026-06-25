@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords, MapPin, Tags, PieChart } from 'lucide-react'
+import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Tag } from '../ui'
 
@@ -13,9 +13,19 @@ const TABS = [
   { key: 'terms', label: '术语', icon: Tags },
   { key: 'promises', label: '伏笔', icon: Bookmark },
   { key: 'motifs', label: '母题', icon: Flame },
+  { key: 'timeline', label: '弧光', icon: GitBranch },
+  { key: 'relations', label: '关系', icon: Heart },
 ]
 const FIELDS = {
-  chars: [{ k: 'name', label: '名字' }, { k: 'backstory', label: '前史(冰山·私密)', area: true }],
+  chars: [
+    { k: 'name', label: '名字' }, { k: 'importance', label: '重要度(protagonist/major/minor/background)' },
+    { k: 'backstory', label: '前史(冰山·私密)', area: true },
+    { k: 'appearance', label: '外貌', area: true },
+    { k: 'personality_detail', label: '性格深描', area: true },
+    { k: 'abilities', label: '能力列表(JSON)', area: true },
+    { k: 'surface_goal', label: '表面目标' }, { k: 'deep_need', label: '深层需求' },
+    { k: 'internal_conflict', label: '内在冲突' }, { k: 'fear', label: '恐惧' },
+  ],
   facts: [{ k: 'entity', label: '主体' }, { k: 'attribute', label: '属性' }, { k: 'value', label: '值', area: true }, { k: 'valid_from', label: '生效章', num: true }, { k: 'secret', label: '私密', bool: true }],
   rules: [{ k: 'name', label: '规则名' }, { k: 'category', label: '类别(magic/technology/social/physical/economic/political)' }, { k: 'source', label: '源头' }, { k: 'cost', label: '代价', area: true }, { k: 'note', label: '备注', area: true }],
   factions: [{ k: 'name', label: '势力名' }, { k: 'ideology', label: '意识形态', area: true }, { k: 'leader', label: '领袖' }, { k: 'public_face', label: '公开面目', area: true }, { k: 'private_operation', label: '私下运作', area: true }],
@@ -79,9 +89,43 @@ function Editor({ type, row, onClose, onSaved }) {
   )
 }
 
+function TimelineCard({ char }) {
+  const [states, setStates] = useState(null)
+  useEffect(() => {
+    api.get(`/char-states?character_id=${encodeURIComponent(char.id)}`).then((r) => r.json()).then(setStates).catch(() => setStates([]))
+  }, [char.id])
+  if (!states || states.length === 0) return null
+  return (
+    <div className="rounded-xl border border-line bg-surface p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[14px] font-semibold text-ink prose-serif">{char.name}</span>
+        <span className="text-[11px] text-faint">{states.length}个弧光点</span>
+      </div>
+      <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
+        {states.map((s, i) => (
+          <div key={i} className="relative">
+            <div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" />
+            <div className="text-[11px] text-faint">第{s.chapter}章</div>
+            <div className="text-[13px] text-ink">{s.summary}</div>
+            {s.arc_phase && <div className="text-[12px] text-fore mt-0.5">{s.arc_phase}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TimelineView({ chars }) {
+  return (
+    <div className="space-y-4">
+      {chars.map((c) => <TimelineCard key={c.id} char={c} />)}
+    </div>
+  )
+}
+
 export function CodexView() {
   const [tab, setTab] = useState('overview')
-  const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], items: [], terms: [], places: [], promises: [], motifs: [], completeness: null })
+  const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], items: [], terms: [], places: [], promises: [], motifs: [], completeness: null, timeline: [], relations: [] })
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState(null)
 
@@ -95,6 +139,7 @@ export function CodexView() {
     api.get('/items').then((r) => r.json()).then((r) => setData((d) => ({ ...d, items: r || [] }))).catch(() => {})
     api.get('/terms').then((r) => r.json()).then((r) => setData((d) => ({ ...d, terms: r || [] }))).catch(() => {})
     api.get('/setting-completeness').then((r) => r.json()).then((r) => setData((d) => ({ ...d, completeness: r }))).catch(() => {})
+    api.get('/character-relations?chapter=9999').then((r) => r.json()).then((r) => setData((d) => ({ ...d, relations: r || [] }))).catch(() => {})
     api.promises().then((p) => setData((d) => ({ ...d, promises: p })))
     api.motifs().then((m) => setData((d) => ({ ...d, motifs: m })))
   }
@@ -329,6 +374,25 @@ export function CodexView() {
               <tbody>{data.motifs.filter((m) => f(m.name)).map((m) => (
                 <tr key={m.id} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink prose-serif text-[14px]">{m.name}</td><td className="px-3 py-2.5 text-fore">{m.theme}</td><td className="px-3 py-2.5 text-faint">{m.unfolding}</td><Act type="motifs" row={m} /></tr>
               ))}</tbody></table>
+          )}
+          {/* ===== 弧光时间线 ===== */}
+          {tab === 'timeline' && <TimelineView chars={data.chars.filter((c) => f(c.name))} />}
+
+          {/* ===== 角色关系 ===== */}
+          {tab === 'relations' && (
+            <div className="space-y-3">
+              {data.relations.length === 0 && <div className="text-[13px] text-faint p-4">无关系数据</div>}
+              {(data.relations || []).map((r, i) => (
+                <div key={i} className="rounded-xl border border-line bg-surface p-3 flex items-center gap-4">
+                  <span className="text-[14px] font-medium text-ink prose-serif min-w-[80px]">{r.src?.split(':').pop() || r.src}</span>
+                  <span className="flex-1 text-center">
+                    <Tag tone={r.relation === '盟友' || r.relation === '同门' || r.relation === '熟人' ? 'ok' : r.relation === '利益对立' || r.relation === '仇敌' ? 'fore' : 'faint'}>{r.relation}</Tag>
+                  </span>
+                  <span className="text-[14px] font-medium text-ink prose-serif min-w-[80px] text-right">{r.dst?.split(':').pop() || r.dst}</span>
+                  <span className="text-[11px] text-faint">第{r.since_chapter}章</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
