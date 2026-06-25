@@ -19,24 +19,28 @@ const TABS = [
 const localOf = (row) => (row.id || '').includes(':') ? row.id.split(':').slice(1).join(':') : (row.id || row.name || '')
 
 // ═══════════════════════════════════════════════════
-// LongTextField — 长文本段落字段(前史/外貌/性格深描)
-// 展示时多行段落,编辑时 textarea,空值折叠为"+ 添加"
+// Field — 统一字段组件(上下布局,label 在上,值/输入全宽)
+// type: text/textarea/number/select/tags/abilities
+// 空值折叠为 "+ 添加X" 链接
 // ═══════════════════════════════════════════════════
-function LongTextField({ label, value, onSave, placeholder, section }) {
+function Field({ label, value, onSave, type = 'text', options, placeholder, section, tags, abilities }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const ref = useRef(null)
+  const isEmpty = !value && !(tags && tags.length) && !(abilities && abilities.length)
 
   useEffect(() => { if (!editing) setVal(value ?? '') }, [value, editing])
   useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
 
   const commit = () => {
     setEditing(false)
-    if (val !== (value ?? '')) onSave(val)
+    const finalVal = type === 'number' ? (val === '' ? null : Number(val)) : val
+    if (finalVal !== (value ?? '')) onSave(finalVal)
   }
   const cancel = () => { setVal(value ?? ''); setEditing(false) }
-  const isEmpty = !value
+  const inputBase = 'w-full rounded-md border border-brand/40 bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand'
 
+  // 空值折叠
   if (isEmpty && !editing) {
     return (
       <div className={`py-1.5 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
@@ -48,83 +52,30 @@ function LongTextField({ label, value, onSave, placeholder, section }) {
     )
   }
 
+  // 标签类型委托给 TagsRow
+  if (type === 'tags') {
+    return <TagsRow label={label} tags={tags} onSave={onSave} section={section} />
+  }
+  // 能力类型委托给 AbilitiesRow
+  if (type === 'abilities') {
+    return <AbilitiesRow value={value} onSave={onSave} section={section} />
+  }
+
+  // 通用字段(上下布局)
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
       <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
       {editing ? (
         <div onClick={(e) => e.stopPropagation()}>
-          <textarea ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
-            onKeyDown={(e) => { if (e.key === 'Escape') cancel() }}
-            rows={4} placeholder={placeholder || `输入${label}...`}
-            className="w-full rounded-md border border-brand/40 bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand resize-y" />
-          <div className="text-[10px] text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
-        </div>
-      ) : (
-        <div className="text-[13px] text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded px-1 -mx-1 py-1 transition-colors duration-150"
-          onClick={() => setEditing(true)}>
-          {value}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════
-// ShortField — 短文本字段(单行,空值折叠)
-// ═══════════════════════════════════════════════════
-function ShortField({ label, value, onSave, type = 'text', options, placeholder, section }) {
-  const isEmpty = !value
-  if (isEmpty) {
-    return (
-      <div className={`flex items-center gap-3 py-1 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-        <span className="text-[11px] text-faint uppercase tracking-wider min-w-[72px] shrink-0">{label}</span>
-        <button onClick={() => { /* trigger edit via PropertyRow */ }}
-          className="text-[12px] text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150">
-          + 添加
-        </button>
-      </div>
-    )
-  }
-  return <PropertyRow label={label} value={value} onSave={onSave} type={type} options={options} placeholder={placeholder} section={section} />
-}
-
-// ═══════════════════════════════════════════════════
-// PropertyRow — Notion 式统一编辑单元(短文本/数字/下拉)
-// 点击值→编辑→失焦/Enter保存→ESC取消
-// ═══════════════════════════════════════════════════
-function PropertyRow({ label, value, onSave, type = 'text', options, placeholder, section }) {
-  const [editing, setEditing] = useState(false)
-  const [val, setVal] = useState(value ?? '')
-  const ref = useRef(null)
-
-  useEffect(() => { if (!editing) setVal(value ?? '') }, [value, editing])
-  useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
-
-  const commit = useCallback(() => {
-    setEditing(false)
-    const finalVal = type === 'number' ? (val === '' ? null : Number(val)) : val
-    if (finalVal !== (value ?? '')) onSave(finalVal)
-  }, [val, value, type, onSave])
-
-  const cancel = () => { setVal(value ?? ''); setEditing(false) }
-  const inputCls = 'flex-1 rounded border border-brand/40 bg-canvas px-2 text-[13px] text-ink outline-none focus:border-brand'
-  const display = value || placeholder || '—'
-  const isEmpty = !value
-
-  return (
-    <div className={`flex items-start gap-3 py-1.5 rounded px-1 -mx-1 transition-colors duration-150 ${editing ? 'bg-brand/[0.03]' : 'hover:bg-soft/30 cursor-text'} ${section ? 'mt-2 pt-2 border-t border-line/60' : ''}`}
-      onClick={() => !editing && setEditing(true)}>
-      <span className="text-[11px] text-faint uppercase tracking-wider min-w-[72px] pt-0.5 shrink-0">{label}</span>
-      {editing ? (
-        <div className="flex-1" onClick={(e) => e.stopPropagation()}>
           {type === 'textarea' ? (
             <textarea ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') cancel() }}
-              rows={3} className={inputCls + ' resize-y'} />
+              rows={4} placeholder={placeholder || `输入${label}...`}
+              className={inputBase + ' resize-y'} />
           ) : type === 'select' ? (
-            <select ref={ref} value={val ?? ''} onChange={(e) => { setVal(e.target.value) }} onBlur={commit}
+            <select ref={ref} value={val ?? ''} onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') cancel() }}
-              className={inputCls + ' h-8 cursor-pointer'}>
+              className={inputBase + ' h-9 cursor-pointer'}>
               <option value="">—</option>
               {options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
@@ -132,11 +83,16 @@ function PropertyRow({ label, value, onSave, type = 'text', options, placeholder
             <input ref={ref} type={type === 'number' ? 'number' : 'text'} value={val}
               onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
-              className={inputCls + ' h-8'} />
+              placeholder={placeholder || `输入${label}...`}
+              className={inputBase + ' h-9'} />
           )}
+          <div className="text-[10px] text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
         </div>
       ) : (
-        <span className={`flex-1 text-[13px] ${isEmpty ? 'text-faint/40' : 'text-ink'}`}>{display}</span>
+        <div className="text-[13px] text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap"
+          onClick={() => setEditing(true)}>
+          {value || placeholder || '—'}
+        </div>
       )}
     </div>
   )
@@ -467,26 +423,21 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
           <span className="text-[11px] text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
         </div>
         <div className="border-t border-line pt-3">
-          <PropertyRow label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} />
-          <PropertyRow label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} />
-          <LongTextField label="外貌" value={row.appearance} placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} />
-          <TagsRow label="性格标签" tags={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
-          <LongTextField label="性格深描" value={row.personality_detail} placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
-          <LongTextField label="前史" value={row.backstory} placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
-          <AbilitiesRow value={row.abilities} onSave={(v) => save('abilities', v)} />
-          <TagsRow label="弱点" tags={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
+          <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} />
+          <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} />
+          <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} />
+          <Field label="性格标签" type="tags" tags={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
+          <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
+          <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
+          <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} />
+          <Field label="弱点" type="tags" tags={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
 
-          {/* 动机与冲突(有值才显示标题) */}
-          {(row.surface_goal || row.deep_need || row.internal_conflict || row.fear) && (
-            <div className="mt-3 pt-3 border-t border-line/60">
-              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">动机与冲突</div>
-            </div>
-          )}
-          <ShortField label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} />
-          <ShortField label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} />
-          <ShortField label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} />
-          <ShortField label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} />
-          <ShortField label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} />
+          {/* 动机与冲突 */}
+          <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} section />
+          <Field label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} />
+          <Field label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} />
+          <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} />
+          <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} />
         </div>
         {!isNew && <DynamicTimeline characterId={row.id} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
@@ -519,14 +470,14 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
           ftype === 'bool' ? (
-            <div key={k} className="flex items-start gap-3 py-1.5">
-              <span className="text-[11px] text-faint uppercase tracking-wider min-w-[72px] pt-0.5">{label}</span>
-              <span className="flex-1 text-[13px] text-ink">{row[k] ? '是' : '否'}</span>
+            <div key={k} className="py-2">
+              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+              <div className="text-[13px] text-ink">{row[k] ? '是' : '否'}</div>
             </div>
           ) : ftype === 'select' ? (
-            <PropertyRow key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} />
+            <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} />
           ) : (
-            <PropertyRow key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} />
+            <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} />
           )
         )}
       </div>
