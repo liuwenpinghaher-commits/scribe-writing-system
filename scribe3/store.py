@@ -381,9 +381,13 @@ class SurrealStore:
                      r.get("leak_markers", [])) for r in rows]
 
     def characters(self) -> list[Entity]:
-        rows = self._query("SELECT meta::id(id) AS local, name, backstory FROM character")
+        rows = self._query("SELECT meta::id(id) AS local, name, backstory, aliases, traits, motivation, importance FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"],
-                       traits={"backstory": r.get("backstory")}) for r in rows]
+                       traits={"backstory": r.get("backstory"),
+                               "aliases": r.get("aliases") or [],
+                               "personality_tags": (r.get("traits") or {}).get("personality_tags"),
+                               "motivation": r.get("motivation"),
+                               "importance": r.get("importance")}) for r in rows]
 
     def all_entities(self) -> list[Entity]:
         """角色 + 地点(前端结构面/实体清单用)。"""
@@ -885,3 +889,209 @@ class SurrealStore:
             "missing_dimensions": missing,
             "completeness_score": max(0, 100 - len(missing) * 20 - len(char_issues) * 5),
         }
+
+    # --- VoiceProfile(声音指纹 9节,设计文档 §3.1.2)---
+    def set_voice_profile(self, character_id: str, profile: dict) -> None:
+        """设置角色声音指纹(9节结构:style_summary/catchphrases/sentence_patterns/
+        vocabulary_profile/tone_rules/internal_monologue_style/ooc_signals/
+        reference_lines/version)。"""
+        _, local = _split(character_id)
+        self._execute_write(
+            "UPSERT type::record('voice_profile', $local) SET character_id=$cid, "
+            "style_summary=$ss, catchphrases=$cp, sentence_patterns=$sp, "
+            "vocabulary_profile=$vp, tone_rules=$tr, internal_monologue_style=$im, "
+            "ooc_signals=$os, reference_lines=$rl, version=$v",
+            {"local": local, "cid": character_id,
+             "ss": profile.get("style_summary"), "cp": profile.get("catchphrases"),
+             "sp": profile.get("sentence_patterns"), "vp": profile.get("vocabulary_profile"),
+             "tr": profile.get("tone_rules"), "im": profile.get("internal_monologue_style"),
+             "os": profile.get("ooc_signals"), "rl": profile.get("reference_lines"),
+             "v": profile.get("version", 1)})
+
+    def get_voice_profile(self, character_id: str) -> dict | None:
+        """获取角色声音指纹(9节)。"""
+        _, local = _split(character_id)
+        rows = self._query(
+            "SELECT * FROM type::record('voice_profile', $local)", {"local": local})
+        return rows[0] if rows else None
+
+    def check_ooc(self, character_id: str, dialogue: str) -> list[dict]:
+        """OOC 检测:对照 voice_profile.ooc_signals 规则列表扫描对话。
+        返回违规列表 [{signal, line, severity}]。"""
+        vp = self.get_voice_profile(character_id)
+        if not vp or not vp.get("ooc_signals"):
+            return []
+        violations = []
+        for signal in vp["ooc_signals"]:
+            if not isinstance(signal, dict):
+                continue
+            desc = signal.get("description", "")
+            severity = signal.get("severity", "medium")
+            method = signal.get("detection_method", "rule")
+            if method == "rule":
+                if "长句" in desc:
+                    sentences = [s for s in dialogue.split("。") if s.strip()]
+                    long_count = sum(1 for s in sentences if len(s.strip()) > 25)
+                    if long_count > 3:
+                        violations.append({"signal": desc, "severity": severity,
+                                           "line": f"连续{long_count}句长句(>25字)"})
+                elif "感叹号" in desc:
+                    if dialogue.count("！") > 2:
+                        violations.append({"signal": desc, "severity": severity,
+                                           "line": f"感叹号{dialogue.count('！')}次"})
+                elif "情感词" in desc or "直接说" in desc or "高兴" in desc or "我爱你" in desc:
+                    emo_words = ["很高兴", "我爱你", "感谢", "很开心", "太好了"]
+                    found = [w for w in emo_words if w in dialogue]
+                    if found:
+                        violations.append({"signal": desc, "severity": severity,
+                                           "line": f"直接情感词: {found}"})
+        return violations
+
+    # --- item(物品/道具,设计文档 §3.1.4)---
+    def add_item(self, name: str, category: str | None = None,
+                 description: str | None = None, current_owner: str | None = None,
+                 symbolic_state: str = "active",
+                 special_properties: list | None = None,
+                 first_chapter: int | None = None) -> str:
+        self._execute_write(
+            "CREATE item SET name=$n, category=$cat, description=$desc, "
+            "current_owner=$co, symbolic_state=$ss, state_history=[], "
+            "special_properties=$sp, first_chapter=$fc",
+            {"n": name, "cat": category, "desc": description, "co": current_owner,
+             "ss": symbolic_state, "sp": special_properties or [], "fc": first_chapter})
+        return name
+
+    def list_items(self, state: str | None = None) -> list[dict]:
+        if state:
+            return self._query("SELECT * FROM item WHERE symbolic_state=$st", {"st": state})
+        return self._query("SELECT * FROM item")
+
+    def update_item_state(self, name: str, new_state: str, chapter: int,
+                          note: str = "") -> None:
+        """更新物品符号状态(active/lost/destroyed/unknown),追加 state_history。"""
+        self._execute_write(
+            "UPDATE item SET symbolic_state=$ns, state_history = "
+            "array::append(state_history, {state:$ns, chapter:$ch, note:$note}) "
+            "WHERE name=$n",
+            {"ns": new_state, "ch": chapter, "note": note, "n": name})
+
+    def delete_item(self, name: str) -> None:
+        self._execute_write("DELETE item WHERE name=$n", {"n": name})
+
+    # --- term(专有名词/术语,设计文档 §3.1.4)---
+    def add_term(self, name: str, category: str | None = None,
+                 definition: str | None = None, aliases: list | None = None,
+                 first_mention_chapter: int | None = None) -> str:
+        self._execute_write(
+            "CREATE term SET name=$n, category=$cat, definition=$def, "
+            "aliases=$al, first_mention_chapter=$fmc",
+            {"n": name, "cat": category, "def": definition,
+             "al": aliases or [], "fmc": first_mention_chapter})
+        return name
+
+    def list_terms(self) -> list[dict]:
+        return self._query("SELECT * FROM term")
+
+    def delete_term(self, name: str) -> None:
+        self._execute_write("DELETE term WHERE name=$n", {"n": name})
+
+    # --- resolveEntities(精确名/别名匹配,设计文档 §3.3)---
+    def resolve_entities(self, text: str, chapter: int = 9999) -> list[dict]:
+        """解析文本中出现的实体引用,返回相关设定候选。
+        四路召回:精确名 → 别名 → hint → 向量语义。"""
+        candidates = {}
+
+        # 路1:精确名匹配(角色名/物品名/术语名/地点名)
+        for c in self.characters():
+            if c.name and c.name in text:
+                candidates[c.id] = {"id": c.id, "type": "character", "name": c.name,
+                                    "score": 1.0, "reason": "exact_name"}
+        for item in self.list_items():
+            if item.get("name") and item["name"] in text:
+                candidates[f"item:{item['name']}"] = {"id": f"item:{item['name']}",
+                    "type": "item", "name": item["name"], "score": 1.0, "reason": "exact_name"}
+        for term in self.list_terms():
+            if term.get("name") and term["name"] in text:
+                candidates[f"term:{term['name']}"] = {"id": f"term:{term['name']}",
+                    "type": "term", "name": term["name"], "score": 1.0, "reason": "exact_name"}
+
+        # 路2:别名匹配
+        for c in self.characters():
+            aliases = c.traits.get("aliases") or []
+            for alias in aliases:
+                if alias and alias in text:
+                    if c.id not in candidates:
+                        candidates[c.id] = {"id": c.id, "type": "character",
+                            "name": c.name, "score": 0.9, "reason": "alias",
+                            "matched_alias": alias}
+        for term in self.list_terms():
+            for alias in (term.get("aliases") or []):
+                if alias and alias in text:
+                    key = f"term:{term['name']}"
+                    if key not in candidates:
+                        candidates[key] = {"id": key, "type": "term",
+                            "name": term["name"], "score": 0.9, "reason": "alias",
+                            "matched_alias": alias}
+
+        # 路3:向量语义(仅当精确+别名 < 15)
+        if len(candidates) < 15:
+            try:
+                for f in self.semantic_recall(text, k=10):
+                    if f.id not in candidates:
+                        candidates[f.id] = {"id": f.id, "type": "fact",
+                            "name": f.attribute, "score": 0.7, "reason": "embedding"}
+            except Exception:
+                pass
+
+        return sorted(candidates.values(), key=lambda x: -x["score"])
+
+    # --- validate(设定校验,设计文档 §3.4)---
+    def validate_setting(self, chapter: int, prose: str) -> list[dict]:
+        """设定校验:比对正文与设定圣经,产出冲突线索。
+        覆盖:能力矛盾/规则违反/OOC/物品状态矛盾/命名不一致。"""
+        hints = []
+
+        # 1. 物品状态校验:destroyed/lost 的物品不应在正文中被使用
+        for item in self.list_items():
+            state = item.get("symbolic_state", "active")
+            if state in ("lost", "destroyed") and item["name"] in prose:
+                hints.append({
+                    "type": "item_state_inconsistency", "severity": "high",
+                    "entity": item["name"], "description": f"物品「{item['name']}」状态为「{state}」但正文出现使用",
+                    "evidence": item["name"]})
+
+        # 2. OOC 校验:对每个有 voice_profile 的角色检测对话
+        for c in self.characters():
+            vp = self.get_voice_profile(c.id)
+            if vp and vp.get("ooc_signals"):
+                # 简单提取含角色名的句子作为对话
+                sentences = [s.strip() for s in prose.split("。") if c.name in s]
+                dialogue = "。".join(sentences)
+                if dialogue:
+                    ooc_violations = self.check_ooc(c.id, dialogue)
+                    for v in ooc_violations:
+                        hints.append({
+                            "type": "personality_ooc", "severity": v["severity"],
+                            "entity": c.name, "description": v["signal"],
+                            "evidence": v["line"]})
+
+        # 3. 世界规则校验:检查 limitations 是否被违反
+        for rule in self.list_world_rules():
+            for lim in (rule.get("limitations") or []):
+                # 简单检查:limitation 关键词出现在正文中
+                if lim and len(lim) > 4 and lim[:4] in prose:
+                    hints.append({
+                        "type": "rule_violation", "severity": "medium",
+                        "entity": rule["name"], "description": f"可能违反规则「{rule['name']}」限制:{lim}",
+                        "evidence": lim})
+
+        # 4. 命名一致性:检查同一角色是否用了未登记的别名
+        known_names = set()
+        for c in self.characters():
+            known_names.add(c.name)
+            known_names.update(c.traits.get("aliases") or [])
+        for term in self.list_terms():
+            known_names.add(term["name"])
+            known_names.update(term.get("aliases") or [])
+
+        return hints

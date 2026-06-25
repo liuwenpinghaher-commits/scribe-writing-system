@@ -30,7 +30,8 @@ def set_store(s) -> None:
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
-                "s3_add_world_rule", "s3_add_faction", "s3_add_char_state"}
+                "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
+                "s3_set_voice_profile", "s3_add_item", "s3_add_term"}
 
 
 def requires_approval(name: str) -> bool:
@@ -158,6 +159,46 @@ def s3_relations_at(chapter: int) -> list[dict]:
     """某章有效的角色关系图(限知时间门:since_chapter <= chapter, until_chapter > chapter or NONE)。
     用于关系图可视化。"""
     return _store.relations_at(chapter)
+
+
+@mcp.tool(annotations=_RO)
+def s3_get_voice_profile(character_id: str) -> dict:
+    """获取角色声音指纹(9节:风格/口头禅/句式/用词/语气规则/独白风格/OOC信号/参考例句)。"""
+    vp = _store.get_voice_profile(character_id)
+    return vp or {}
+
+
+@mcp.tool(annotations=_RO)
+def s3_check_ooc(character_id: str, dialogue: str) -> list[dict]:
+    """OOC 检测:对照角色声音指纹的 ooc_signals 规则,检测对话是否违反角色声音。
+    返回违规列表 [{signal, line, severity}]。"""
+    return _store.check_ooc(character_id, dialogue)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_items(state: str | None = None) -> list[dict]:
+    """列物品/道具(含符号状态 active/lost/destroyed/unknown)。可按状态过滤。"""
+    return _store.list_items(state)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_terms() -> list[dict]:
+    """列专有名词/术语(含别名)。"""
+    return _store.list_terms()
+
+
+@mcp.tool(annotations=_RO)
+def s3_resolve_entities(text: str, chapter: int = 9999) -> list[dict]:
+    """解析文本中出现的实体引用(四路召回:精确名→别名→hint→向量语义)。
+    返回相关设定候选 [{id, type, name, score, reason}]。"""
+    return _store.resolve_entities(text, chapter)
+
+
+@mcp.tool(annotations=_RO)
+def s3_validate_setting(chapter: int, prose: str) -> list[dict]:
+    """设定校验:比对正文与设定圣经,产出冲突线索。
+    覆盖:物品状态矛盾/OOC/规则违反。高精确率优先(宁漏不误)。"""
+    return _store.validate_setting(chapter, prose)
 
 
 @mcp.tool(annotations=_RO)
@@ -324,6 +365,46 @@ async def s3_add_char_state(ctx: Context, character_id: str, chapter: int,
                                   character_id, chapter, change_type, summary,
                                   trigger_event=trigger_event, arc_phase=arc_phase,
                                   affects_voice=affects_voice))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_set_voice_profile(ctx: Context, character_id: str,
+                                style_summary: str,
+                                catchphrases: list | None = None,
+                                tone_rules: list | None = None,
+                                ooc_signals: list | None = None) -> dict:
+    """设置角色声音指纹(写,待批)。9节结构,至少提供 style_summary。
+    ooc_signals: [{signal_id, description, detection_method, severity}] 可检测的 OOC 规则。"""
+    ok = await _ask(ctx, f"设置声音指纹 {character_id}")
+    profile = {"style_summary": style_summary, "catchphrases": catchphrases,
+               "tone_rules": tone_rules, "ooc_signals": ooc_signals, "version": 1}
+    return commit_if_approved("s3_set_voice_profile", ok,
+                              lambda: _store.set_voice_profile(character_id, profile))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_item(ctx: Context, name: str,
+                       category: str | None = None,
+                       description: str | None = None,
+                       current_owner: str | None = None,
+                       symbolic_state: str = "active",
+                       special_properties: list | None = None) -> dict:
+    """添加物品/道具(写,待批)。symbolic_state: active/lost/destroyed/unknown。"""
+    ok = await _ask(ctx, f"添加物品 {name} [{symbolic_state}]")
+    return commit_if_approved("s3_add_item", ok,
+                              lambda: _store.add_item(name, category, description,
+                                  current_owner, symbolic_state, special_properties))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_term(ctx: Context, name: str,
+                       category: str | None = None,
+                       definition: str | None = None,
+                       aliases: list | None = None) -> dict:
+    """添加专有名词/术语(写,待批)。含别名列表。"""
+    ok = await _ask(ctx, f"添加术语 {name}")
+    return commit_if_approved("s3_add_term", ok,
+                              lambda: _store.add_term(name, category, definition, aliases))
 
 
 @mcp.tool(annotations=_RW)
