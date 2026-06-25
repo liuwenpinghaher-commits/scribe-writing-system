@@ -10,9 +10,9 @@ function useNumPref(key, def) {
   return [v, setV]
 }
 
-function RailBtn({ icon: Icon, label, badge, on, onClick }) {
+function RailBtn({ icon: Icon, label, badge, on, onClick, side }) {
   return (
-    <button onClick={onClick} title={label} aria-label={label} aria-pressed={on}
+    <button onClick={onClick} aria-label={label} aria-pressed={on}
       className={cn('group relative w-9 h-9 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer',
         on ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink')}>
       <Icon size={18} />
@@ -21,6 +21,10 @@ function RailBtn({ icon: Icon, label, badge, on, onClick }) {
           {badge > 99 ? '99+' : badge}
         </span>
       )}
+      <span className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[11px] text-canvas opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50',
+        side === 'left' ? 'left-full ml-2' : 'right-full mr-2')}>
+        {label}
+      </span>
     </button>
   )
 }
@@ -36,7 +40,7 @@ function Rail({ side, caps, active, onActive }) {
     <div className={cn('w-12 shrink-0 bg-surface flex flex-col items-center py-2 gap-1',
       side === 'left' ? 'border-r' : 'border-l', 'border-line')}>
       {caps.map((c) => (
-        <RailBtn key={c.key} icon={c.icon} label={c.label} badge={c.badge}
+        <RailBtn key={c.key} icon={c.icon} label={c.label} badge={c.badge} side={side}
           on={active === c.key} onClick={() => onActive(active === c.key ? '' : c.key)} />
       ))}
     </div>
