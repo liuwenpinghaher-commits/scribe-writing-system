@@ -1,21 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords } from 'lucide-react'
+import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Pencil, Trash2, X, Shield, Swords, MapPin, Tags, PieChart } from 'lucide-react'
 import { api } from '../api'
 import { Btn, Tag } from '../ui'
 
 const TABS = [
+  { key: 'overview', label: '概览', icon: PieChart },
   { key: 'chars', label: '角色', icon: Users },
-  { key: 'facts', label: '设定 · 命题', icon: Boxes },
+  { key: 'facts', label: '设定·命题', icon: Boxes },
   { key: 'rules', label: '世界规则', icon: Shield },
   { key: 'factions', label: '势力', icon: Swords },
+  { key: 'items', label: '物品', icon: MapPin },
+  { key: 'terms', label: '术语', icon: Tags },
   { key: 'promises', label: '伏笔', icon: Bookmark },
   { key: 'motifs', label: '母题', icon: Flame },
 ]
 const FIELDS = {
   chars: [{ k: 'name', label: '名字' }, { k: 'backstory', label: '前史(冰山·私密)', area: true }],
-  facts: [{ k: 'entity', label: '主体(如 role:焦三 / 世界设定)' }, { k: 'attribute', label: '属性' }, { k: 'value', label: '值', area: true }, { k: 'valid_from', label: '生效章', num: true }, { k: 'secret', label: '私密(泄露=穿帮)', bool: true }],
-  rules: [{ k: 'name', label: '规则名' }, { k: 'category', label: '类别(magic/technology/social/physical/economic/political)' }, { k: 'source', label: '源头' }, { k: 'cost', label: '代价', area: true }, { k: 'scope', label: '范围(global/regional/faction_specific)' }, { k: 'note', label: '备注', area: true }],
-  factions: [{ k: 'name', label: '势力名' }, { k: 'ideology', label: '意识形态', area: true }, { k: 'leader', label: '领袖' }, { k: 'public_face', label: '公开面目', area: true }, { k: 'private_operation', label: '私下运作', area: true }, { k: 'status', label: '状态(active/dissolved/dormant/reformed)' }],
+  facts: [{ k: 'entity', label: '主体' }, { k: 'attribute', label: '属性' }, { k: 'value', label: '值', area: true }, { k: 'valid_from', label: '生效章', num: true }, { k: 'secret', label: '私密', bool: true }],
+  rules: [{ k: 'name', label: '规则名' }, { k: 'category', label: '类别(magic/technology/social/physical/economic/political)' }, { k: 'source', label: '源头' }, { k: 'cost', label: '代价', area: true }, { k: 'note', label: '备注', area: true }],
+  factions: [{ k: 'name', label: '势力名' }, { k: 'ideology', label: '意识形态', area: true }, { k: 'leader', label: '领袖' }, { k: 'public_face', label: '公开面目', area: true }, { k: 'private_operation', label: '私下运作', area: true }],
+  items: [{ k: 'name', label: '物品名' }, { k: 'category', label: '类别' }, { k: 'description', label: '描述', area: true }, { k: 'symbolic_state', label: '状态(active/lost/destroyed/unknown)' }, { k: 'current_owner', label: '持有者' }],
+  terms: [{ k: 'name', label: '术语名' }, { k: 'category', label: '类别' }, { k: 'definition', label: '定义', area: true }],
   promises: [{ k: 'text', label: '伏笔内容', area: true }, { k: 'setup_chapter', label: '埋于第几章', num: true }, { k: 'promise_kind', label: '类型(promise/red_herring)' }],
   motifs: [{ k: 'name', label: '母题名' }, { k: 'theme', label: '绑定主题' }, { k: 'unfolding', label: '隐喻展开', area: true }, { k: 'echoes', label: '物质回声', area: true }],
 }
@@ -25,13 +30,17 @@ function Editor({ type, row, onClose, onSaved }) {
   const fields = FIELDS[type]
   const [form, setForm] = useState(() => {
     const f = {}
-    fields.forEach((fl) => { f[fl.k] = row ? (row[fl.k] ?? (fl.bool ? false : fl.num ? 1 : '')) : (fl.bool ? false : fl.num ? 1 : (fl.k === 'kind' ? 'promise' : '')) })
+    fields.forEach((fl) => { f[fl.k] = row ? (row[fl.k] ?? (fl.bool ? false : fl.num ? 1 : '')) : (fl.bool ? false : fl.num ? 1 : '') })
     return f
   })
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
   const save = async () => {
     if (type === 'chars') row ? await api.editChar(localOf(row), form) : await api.addChar(form)
     else if (type === 'facts') row ? await api.editFact(localOf(row), form) : await api.addFact(form)
+    else if (type === 'rules') row ? await api.post('/world-rules', form) : await api.post('/world-rules', form)
+    else if (type === 'factions') row ? await api.post('/factions', form) : await api.post('/factions', form)
+    else if (type === 'items') row ? await api.post('/items', form) : await api.post('/items', form)
+    else if (type === 'terms') row ? await api.post('/terms', form) : await api.post('/terms', form)
     else if (type === 'promises') row ? await api.editPromise(row.id, form) : await api.addPromiseNew(form)
     else if (type === 'motifs') row ? await api.editMotif(row.id, form) : await api.addMotifNew(form)
     onSaved()
@@ -40,7 +49,7 @@ function Editor({ type, row, onClose, onSaved }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-2xl border border-line bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center h-12 px-4 border-b border-line">
-          <span className="text-[14px] font-semibold text-ink">{row ? '编辑' : '新建'} · {TABS.find((t) => t.key === type).label}</span>
+          <span className="text-[14px] font-semibold text-ink">{row ? '编辑' : '新建'} · {TABS.find((t) => t.key === type)?.label || type}</span>
           <button onClick={onClose} className="ml-auto w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><X size={16} /></button>
         </div>
         <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
@@ -71,16 +80,21 @@ function Editor({ type, row, onClose, onSaved }) {
 }
 
 export function CodexView() {
-  const [tab, setTab] = useState('chars')
-  const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], promises: [], motifs: [] })
+  const [tab, setTab] = useState('overview')
+  const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], items: [], terms: [], places: [], promises: [], motifs: [], completeness: null })
   const [q, setQ] = useState('')
-  const [editing, setEditing] = useState(null)   // {type,row}
+  const [editing, setEditing] = useState(null)
 
   const reload = () => {
-    api.entities().then((es) => setData((d) => ({ ...d, chars: es.filter((e) => e.kind === 'character') })))
+    api.entities().then((es) => {
+      setData((d) => ({ ...d, chars: es.filter((e) => e.kind === 'character'), places: es.filter((e) => e.kind === 'place') }))
+    })
     api.facts(99999).then((f) => setData((d) => ({ ...d, facts: f })))
     api.get('/world-rules').then((r) => r.json()).then((r) => setData((d) => ({ ...d, rules: r || [] }))).catch(() => {})
     api.get('/factions').then((r) => r.json()).then((r) => setData((d) => ({ ...d, factions: r || [] }))).catch(() => {})
+    api.get('/items').then((r) => r.json()).then((r) => setData((d) => ({ ...d, items: r || [] }))).catch(() => {})
+    api.get('/terms').then((r) => r.json()).then((r) => setData((d) => ({ ...d, terms: r || [] }))).catch(() => {})
+    api.get('/setting-completeness').then((r) => r.json()).then((r) => setData((d) => ({ ...d, completeness: r }))).catch(() => {})
     api.promises().then((p) => setData((d) => ({ ...d, promises: p })))
     api.motifs().then((m) => setData((d) => ({ ...d, motifs: m })))
   }
@@ -92,6 +106,8 @@ export function CodexView() {
     else if (type === 'facts') await api.delFact(localOf(row))
     else if (type === 'rules') await api.del(`/world-rules?name=${encodeURIComponent(row.name)}`)
     else if (type === 'factions') await api.del(`/factions?name=${encodeURIComponent(row.name)}`)
+    else if (type === 'items') await api.del(`/items?name=${encodeURIComponent(row.name)}`)
+    else if (type === 'terms') await api.del(`/terms?name=${encodeURIComponent(row.name)}`)
     else if (type === 'promises') await api.delPromise(row.id)
     else if (type === 'motifs') await api.delMotif(row.id)
     reload()
@@ -110,13 +126,16 @@ export function CodexView() {
     </td>
   )
 
+  // Counts for tabs (non-'overview')
+  const cnt = (k) => data[k]?.length || 0
+
   return (
     <div className="h-full flex flex-col bg-canvas">
       <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-1 px-3">
         {TABS.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={`inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-[13px] transition-colors cursor-pointer ${tab === t.key ? 'bg-soft text-ink font-medium' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-            <t.icon size={14} />{t.label}<span className="text-faint tnum">{data[t.key]?.length || 0}</span>
+            <t.icon size={14} />{t.label}<span className="text-faint tnum">{t.key === 'overview' ? '' : cnt(t.key)}</span>
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
@@ -124,42 +143,187 @@ export function CodexView() {
             <Search size={14} className="text-faint" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索…" className="flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint/60" />
           </div>
-          <Btn variant="primary" size="sm" onClick={() => setEditing({ type: tab, row: null })}><Plus size={14} />新建</Btn>
+          {tab !== 'overview' && (
+            <Btn variant="primary" size="sm" onClick={() => setEditing({ type: tab, row: null })}><Plus size={14} />新建</Btn>
+          )}
         </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-6 py-5">
-          {tab === 'chars' && (
-            <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="34%">角色</Th><Th>前史(冰山)</Th><Th w="64" /></tr></thead>
-              <tbody>{data.chars.filter((c) => f(c.name)).map((c) => (
-                <tr key={c.id} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink prose-serif text-[14px]">{c.name}</td><td className="px-3 py-2.5 text-faint align-top">{c.backstory || <span className="text-faint/50">—</span>}</td><Act type="chars" row={c} /></tr>
-              ))}</tbody></table>
+          {/* ===== 概览 ===== */}
+          {tab === 'overview' && data.completeness && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="text-[28px] font-bold text-ink">{data.completeness.completeness_score}</span>
+                <span className="text-[14px] text-faint">设定完整度 / 100</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  ['角色', data.completeness.total_chars, Users],
+                  ['世界规则', data.completeness.total_rules, Shield],
+                  ['势力', data.completeness.total_factions, Swords],
+                  ['地点', data.completeness.total_places, MapPin],
+                  ['事实/命题', data.completeness.total_facts, Boxes],
+                  ['物品', cnt('items'), MapPin],
+                  ['术语', cnt('terms'), Tags],
+                  ['伏笔', cnt('promises'), Bookmark],
+                  ['母题', cnt('motifs'), Flame],
+                ].map(([label, count, Icon]) => (
+                  <div key={label} className="rounded-xl border border-line bg-surface p-3">
+                    <div className="flex items-center gap-2 text-[12px] text-faint mb-1"><Icon size={14}/>{label}</div>
+                    <div className="text-[20px] font-semibold text-ink">{count}</div>
+                  </div>
+                ))}
+              </div>
+              {data.completeness.missing_dimensions?.length > 0 && (
+                <div className="rounded-xl border border-danger/30 bg-danger/5 p-3">
+                  <div className="text-[13px] text-danger font-medium mb-1">缺失维度</div>
+                  <ul className="text-[12px] text-faint space-y-0.5">
+                    {data.completeness.missing_dimensions.map((m, i) => <li key={i}>· {m}</li>)}
+                  </ul>
+                </div>
+              )}
+              {data.completeness.char_issues?.length > 0 && (
+                <div className="rounded-xl border border-line bg-surface p-3">
+                  <div className="text-[13px] text-ink font-medium mb-1">角色问题</div>
+                  <div className="text-[12px] text-faint space-y-0.5">
+                    {data.completeness.char_issues.map((c, i) => (
+                      <div key={i}>{c.name}: {c.issues.join(', ')}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
+
+          {/* ===== 角色 ===== */}
+          {tab === 'chars' && (
+            <div className="space-y-4">
+              {data.chars.filter((c) => f(c.name)).map((c) => (
+                <div key={c.id} className="rounded-2xl border border-line bg-surface p-4 group">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[16px] font-semibold text-ink prose-serif">{c.name}</span>
+                        {c.importance && (
+                          <Tag tone={c.importance === 'protagonist' ? 'fore' : c.importance === 'major' ? 'fore' : 'faint'}>{c.importance}</Tag>
+                        )}
+                        {c.first_appearance && <span className="text-[11px] text-faint">第{c.first_appearance}章出场</span>}
+                      </div>
+                      {c.surface_goal && <div className="text-[13px] text-fore mt-1">目标: {c.surface_goal}</div>}
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setEditing({ type: 'chars', row: c })} className="w-6 h-6 rounded text-faint hover:text-brand hover:bg-brand/10 inline-flex items-center justify-center cursor-pointer"><Pencil size={12} /></button>
+                      <button onClick={() => remove('chars', c)} className="w-6 h-6 rounded text-faint hover:text-danger hover:bg-danger/10 inline-flex items-center justify-center cursor-pointer"><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+
+                  {c.appearance && (
+                    <div className="mb-2">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">外貌</span>
+                      <div className="text-[13px] text-ink leading-relaxed">{c.appearance}</div>
+                    </div>
+                  )}
+
+                  {c.personality_tags?.length > 0 && (
+                    <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                      {c.personality_tags.map((t) => <Tag key={t} tone="fore">{t}</Tag>)}
+                    </div>
+                  )}
+
+                  {c.personality_detail && (
+                    <div className="mb-2">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">性格深描</span>
+                      <div className="text-[13px] text-ink leading-relaxed">{c.personality_detail}</div>
+                    </div>
+                  )}
+
+                  {c.backstory && (
+                    <div className="mb-2">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">前史</span>
+                      <div className="text-[13px] text-faint leading-relaxed">{c.backstory}</div>
+                    </div>
+                  )}
+
+                  {c.abilities && (
+                    <div className="mb-2">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">能力</span>
+                      <div className="text-[13px] text-faint leading-relaxed">{c.abilities}</div>
+                    </div>
+                  )}
+
+                  {c.weaknesses?.length > 0 && (
+                    <div className="mb-2">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">弱点</span>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {c.weaknesses.map((w, i) => <span key={i} className="text-[12px] text-secret bg-secret/10 px-2 py-0.5 rounded">{w}</span>)}
+                      </div>
+                    </div>
+                  )}
+
+                  {(c.deep_need || c.internal_conflict || c.fear) && (
+                    <div className="mt-2 pt-2 border-t border-line/60">
+                      <span className="text-[11px] text-faint uppercase tracking-wider">动机与冲突</span>
+                      {c.deep_need && <div className="text-[12px] text-faint">深层需求: {c.deep_need}</div>}
+                      {c.internal_conflict && <div className="text-[12px] text-faint">内在冲突: {c.internal_conflict}</div>}
+                      {c.fear && <div className="text-[12px] text-faint">恐惧: {c.fear}</div>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ===== 设定·命题 ===== */}
           {tab === 'facts' && (
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="20%">主体</Th><Th w="18%">属性</Th><Th>值</Th><Th w="8%">私密</Th><Th w="64" /></tr></thead>
               <tbody>{data.facts.filter((x) => f(x.value) || f(x.attribute)).map((x) => (
                 <tr key={x.id} className={rowCls}><td className="px-3 py-2.5 text-faint">{x.entity}</td><td className="px-3 py-2.5 text-ink">{x.attribute}</td><td className="px-3 py-2.5 text-ink">{x.value}</td><td className="px-3 py-2.5">{x.secret && <Lock size={13} className="text-secret" />}</td><Act type="facts" row={x} /></tr>
               ))}</tbody></table>
           )}
+
+          {/* ===== 世界规则 ===== */}
           {tab === 'rules' && (
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="22%">规则</Th><Th w="14%">类别</Th><Th>代价</Th><Th w="64" /></tr></thead>
               <tbody>{(data.rules || []).filter((r) => f(r.name) || f(r.category)).map((r) => (
                 <tr key={r.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{r.name}</td><td className="px-3 py-2.5"><Tag tone="fore">{r.category}</Tag></td><td className="px-3 py-2.5 text-faint">{r.cost || '—'}</td><Act type="rules" row={r} /></tr>
               ))}</tbody></table>
           )}
+
+          {/* ===== 势力 ===== */}
           {tab === 'factions' && (
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="20%">势力</Th><Th w="24%">意识形态</Th><Th>领袖</Th><Th w="64" /></tr></thead>
               <tbody>{(data.factions || []).filter((fc) => f(fc.name)).map((fc) => (
                 <tr key={fc.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{fc.name}</td><td className="px-3 py-2.5 text-faint">{fc.ideology || '—'}</td><td className="px-3 py-2.5 text-ink">{fc.leader || '—'}</td><Act type="factions" row={fc} /></tr>
               ))}</tbody></table>
           )}
+
+          {/* ===== 物品 ===== */}
+          {tab === 'items' && (
+            <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="18%">物品</Th><Th w="14%">类别</Th><Th w="16%">状态</Th><Th>描述</Th><Th w="64" /></tr></thead>
+              <tbody>{(data.items || []).filter((it) => f(it.name) || f(it.category)).map((it) => (
+                <tr key={it.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{it.name}</td><td className="px-3 py-2.5 text-faint">{it.category || '—'}</td><td className="px-3 py-2.5"><Tag tone={it.symbolic_state==='active'?'ok':it.symbolic_state==='lost'?'fore':'faint'}>{it.symbolic_state}</Tag></td><td className="px-3 py-2.5 text-faint">{it.description?.['symbolic_state'] ? '' : (it.description || '—').slice(0,40)}</td><Act type="items" row={it} /></tr>
+              ))}</tbody></table>
+          )}
+
+          {/* ===== 术语 ===== */}
+          {tab === 'terms' && (
+            <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="18%">术语</Th><Th w="14%">类别</Th><Th>定义</Th><Th w="64" /></tr></thead>
+              <tbody>{(data.terms || []).filter((t) => f(t.name) || f(t.category)).map((t) => (
+                <tr key={t.name} className={rowCls}><td className="px-3 py-2.5 font-medium text-ink">{t.name}</td><td className="px-3 py-2.5 text-faint">{t.category || '—'}</td><td className="px-3 py-2.5 text-faint">{t.definition || '—'}</td><Act type="terms" row={t} /></tr>
+              ))}</tbody></table>
+          )}
+
+          {/* ===== 伏笔 ===== */}
           {tab === 'promises' && (
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th>伏笔</Th><Th w="12%">埋于</Th><Th w="14%">状态</Th><Th w="64" /></tr></thead>
               <tbody>{data.promises.filter((p) => f(p.text)).map((p) => (
                 <tr key={p.id} className={rowCls}><td className="px-3 py-2.5 text-ink">{p.text}</td><td className="px-3 py-2.5 text-faint tnum">第{p.setup_chapter}章</td><td className="px-3 py-2.5">{p.status === 'open' ? <Tag tone="fore">未回收</Tag> : <Tag tone="ok">已回收</Tag>}</td><Act type="promises" row={p} /></tr>
               ))}</tbody></table>
           )}
+
+          {/* ===== 母题 ===== */}
           {tab === 'motifs' && (
             <table className="w-full text-[13px] border-collapse"><thead><tr><Th w="20%">母题</Th><Th w="28%">绑定主题</Th><Th>隐喻展开</Th><Th w="64" /></tr></thead>
               <tbody>{data.motifs.filter((m) => f(m.name)).map((m) => (

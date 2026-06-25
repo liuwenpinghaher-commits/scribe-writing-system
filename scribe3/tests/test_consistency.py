@@ -72,6 +72,8 @@ class TestWriteGate:
         ("POST", "/chat/write"), ("POST", "/render"),
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),
         ("POST", "/factions"), ("DELETE", "/factions"),
+        ("POST", "/items"), ("DELETE", "/items"),
+        ("POST", "/terms"), ("DELETE", "/terms"),
     }
 
     def test_no_unaudited_write_route(self):

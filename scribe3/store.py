@@ -172,14 +172,17 @@ class SurrealStore:
                        "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
         try:
             rows = self._query("SELECT meta::id(id) AS id FROM _migration")
-            applied = {r["id"] for r in (rows or []) if r and r.get("id")}
+            applied = {f"_migration:{r['id']}" for r in (rows or []) if r and r.get("id")}
         except Exception:
             applied = set()
         for f in sorted(d.glob("*.surql")):
-            key = f"_migration:`{f.stem}`"
+            key = f"_migration:{f.stem}"
             if key in applied:
                 continue
-            self._db.query(f.read_text(encoding="utf-8"))
+            try:
+                self._db.query(f.read_text(encoding="utf-8"))
+            except Exception as e:
+                logging.getLogger("scribe3").warning("迁移 %s 失败(可能已应用): %s", f.stem, str(e)[:80])
             self._db.query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
                            {"name": f.stem})
 
@@ -383,12 +386,24 @@ class SurrealStore:
                      r.get("leak_markers", [])) for r in rows]
 
     def characters(self) -> list[Entity]:
-        rows = self._query("SELECT meta::id(id) AS local, name, backstory, aliases, personality_tags, importance FROM character")
+        rows = self._query(
+            "SELECT meta::id(id) AS local, name, backstory, aliases, personality_tags, "
+            "importance, appearance, personality_detail, abilities, weaknesses, "
+            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
                                "aliases": r.get("aliases") or [],
                                "personality_tags": r.get("personality_tags") or [],
-                               "importance": r.get("importance")}) for r in rows]
+                               "importance": r.get("importance"),
+                               "appearance": r.get("appearance"),
+                               "personality_detail": r.get("personality_detail"),
+                               "abilities": r.get("abilities"),
+                               "weaknesses": r.get("weaknesses") or [],
+                               "first_appearance": r.get("first_appearance"),
+                               "surface_goal": r.get("surface_goal"),
+                               "deep_need": r.get("deep_need"),
+                               "internal_conflict": r.get("internal_conflict"),
+                               "fear": r.get("fear")}) for r in rows]
 
     def all_entities(self) -> list[Entity]:
         """角色 + 地点(前端结构面/实体清单用)。"""

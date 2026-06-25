@@ -150,8 +150,24 @@ def remove_work(slug: str):
 # ===== 读(按书)=====
 @app.get("/entities")
 def entities(work: str = "main"):
-    return [{"id": e.id, "kind": e.kind, "name": e.name, "backstory": e.traits.get("backstory")}
-            for e in _store_for(work).all_entities()]
+    def _entity_dict(e):
+        t = e.traits or {}
+        return {
+            "id": e.id, "kind": e.kind, "name": e.name,
+            "backstory": t.get("backstory"),
+            "importance": t.get("importance"),
+            "appearance": t.get("appearance"),
+            "personality_tags": t.get("personality_tags"),
+            "personality_detail": t.get("personality_detail"),
+            "abilities": t.get("abilities"),
+            "weaknesses": t.get("weaknesses"),
+            "first_appearance": t.get("first_appearance"),
+            "surface_goal": t.get("surface_goal"),
+            "deep_need": t.get("deep_need"),
+            "internal_conflict": t.get("internal_conflict"),
+            "fear": t.get("fear"),
+        }
+    return [_entity_dict(e) for e in _store_for(work).all_entities()]
 
 
 @app.get("/facts")
@@ -329,6 +345,60 @@ def del_faction(name: str, work: str = "main"):
 @app.get("/setting-completeness")
 def setting_completeness(work: str = "main"):
     return _store_for(work).setting_completeness()
+
+
+# ===== 物品/道具 + 术语(设置完整性)=====
+@app.get("/items")
+def list_items_endpoint(state: str | None = None, work: str = "main"):
+    return _store_for(work).list_items(state)
+
+
+@app.post("/items")
+def add_item_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_item(req.get("name",""), category=req.get("category"),
+                description=req.get("description"), current_owner=req.get("current_owner"),
+                symbolic_state=req.get("symbolic_state","active"),
+                special_properties=req.get("special_properties"))
+    return {"ok": True}
+
+
+@app.delete("/items")
+def delete_item_endpoint(name: str, work: str = "main"):
+    _store_for(work).delete_item(name)
+    return {"ok": True}
+
+
+@app.get("/terms")
+def list_terms_endpoint(work: str = "main"):
+    return _store_for(work).list_terms()
+
+
+@app.post("/terms")
+def add_term_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_term(req.get("name",""), category=req.get("category"),
+                definition=req.get("definition"), aliases=req.get("aliases"))
+    return {"ok": True}
+
+
+@app.delete("/terms")
+def delete_term_endpoint(name: str, work: str = "main"):
+    _store_for(work).delete_term(name)
+    return {"ok": True}
+
+
+@app.get("/character-relations")
+def character_relations(chapter: int | None = None, work: str = "main"):
+    st = _store_for(work)
+    if chapter:
+        return st.relations_at(chapter)
+    return st.relations_at(9999)
+
+
+@app.get("/char-states")
+def char_states(character_id: str, work: str = "main"):
+    return _store_for(work).list_char_states(character_id)
 
 
 # ===== 世界规则 + 势力(设定完整性)=====
