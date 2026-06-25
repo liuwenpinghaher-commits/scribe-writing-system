@@ -19,7 +19,77 @@ const TABS = [
 const localOf = (row) => (row.id || '').includes(':') ? row.id.split(':').slice(1).join(':') : (row.id || row.name || '')
 
 // ═══════════════════════════════════════════════════
-// PropertyRow — Notion 式统一编辑单元
+// LongTextField — 长文本段落字段(前史/外貌/性格深描)
+// 展示时多行段落,编辑时 textarea,空值折叠为"+ 添加"
+// ═══════════════════════════════════════════════════
+function LongTextField({ label, value, onSave, placeholder, section }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value ?? '')
+  const ref = useRef(null)
+
+  useEffect(() => { if (!editing) setVal(value ?? '') }, [value, editing])
+  useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
+
+  const commit = () => {
+    setEditing(false)
+    if (val !== (value ?? '')) onSave(val)
+  }
+  const cancel = () => { setVal(value ?? ''); setEditing(false) }
+  const isEmpty = !value
+
+  if (isEmpty && !editing) {
+    return (
+      <div className={`py-1.5 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
+        <button onClick={() => setEditing(true)}
+          className="text-[12px] text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150">
+          + 添加{label}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
+      <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+      {editing ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <textarea ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Escape') cancel() }}
+            rows={4} placeholder={placeholder || `输入${label}...`}
+            className="w-full rounded-md border border-brand/40 bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand resize-y" />
+          <div className="text-[10px] text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
+        </div>
+      ) : (
+        <div className="text-[13px] text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded px-1 -mx-1 py-1 transition-colors duration-150"
+          onClick={() => setEditing(true)}>
+          {value}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════
+// ShortField — 短文本字段(单行,空值折叠)
+// ═══════════════════════════════════════════════════
+function ShortField({ label, value, onSave, type = 'text', options, placeholder, section }) {
+  const isEmpty = !value
+  if (isEmpty) {
+    return (
+      <div className={`flex items-center gap-3 py-1 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
+        <span className="text-[11px] text-faint uppercase tracking-wider min-w-[72px] shrink-0">{label}</span>
+        <button onClick={() => { /* trigger edit via PropertyRow */ }}
+          className="text-[12px] text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150">
+          + 添加
+        </button>
+      </div>
+    )
+  }
+  return <PropertyRow label={label} value={value} onSave={onSave} type={type} options={options} placeholder={placeholder} section={section} />
+}
+
+// ═══════════════════════════════════════════════════
+// PropertyRow — Notion 式统一编辑单元(短文本/数字/下拉)
 // 点击值→编辑→失焦/Enter保存→ESC取消
 // ═══════════════════════════════════════════════════
 function PropertyRow({ label, value, onSave, type = 'text', options, placeholder, section }) {
@@ -399,17 +469,24 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
         <div className="border-t border-line pt-3">
           <PropertyRow label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} />
           <PropertyRow label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} />
-          <PropertyRow label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} />
+          <LongTextField label="外貌" value={row.appearance} placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} />
           <TagsRow label="性格标签" tags={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
-          <PropertyRow label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
-          <PropertyRow label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
+          <LongTextField label="性格深描" value={row.personality_detail} placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
+          <LongTextField label="前史" value={row.backstory} placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
           <AbilitiesRow value={row.abilities} onSave={(v) => save('abilities', v)} />
           <TagsRow label="弱点" tags={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
-          <PropertyRow label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} section />
-          <PropertyRow label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} />
-          <PropertyRow label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} />
-          <PropertyRow label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} />
-          <PropertyRow label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} />
+
+          {/* 动机与冲突(有值才显示标题) */}
+          {(row.surface_goal || row.deep_need || row.internal_conflict || row.fear) && (
+            <div className="mt-3 pt-3 border-t border-line/60">
+              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">动机与冲突</div>
+            </div>
+          )}
+          <ShortField label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} />
+          <ShortField label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} />
+          <ShortField label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} />
+          <ShortField label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} />
+          <ShortField label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} />
         </div>
         {!isNew && <DynamicTimeline characterId={row.id} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
@@ -607,13 +684,15 @@ export function CodexView() {
                   data.chars.filter((c) => f(c.name)).map((c) => (
                     <div key={c.id} className="rounded-2xl border border-line bg-surface p-4 group cursor-pointer hover:border-brand/30 transition-colors duration-150"
                       onClick={() => setSelected({ type: 'chars', row: c })}>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-[16px] font-semibold text-ink prose-serif">{c.name}</span>
                         {c.importance && <Tag tone={c.importance === 'protagonist' ? 'fore' : c.importance === 'major' ? 'fore' : 'faint'}>{c.importance}</Tag>}
+                        {c.first_appearance && <span className="text-[10px] text-faint">第{c.first_appearance}章</span>}
                       </div>
-                      {c.surface_goal && <div className="text-[13px] text-fore mb-1">{c.surface_goal}</div>}
-                      {c.appearance && <div className="text-[12px] text-faint line-clamp-1">{c.appearance}</div>}
-                      {c.personality_tags?.length > 0 && <div className="flex items-center gap-1 flex-wrap mt-1">{c.personality_tags.slice(0,4).map((t) => <Tag key={t} tone="fore">{t}</Tag>)}</div>}
+                      {c.surface_goal && <div className="text-[13px] text-fore mb-1.5">目标: {c.surface_goal}</div>}
+                      {c.backstory && <div className="text-[12px] text-faint leading-relaxed mb-2 line-clamp-2">{c.backstory}</div>}
+                      {c.personality_tags?.length > 0 && <div className="flex items-center gap-1 flex-wrap">{c.personality_tags.map((t) => <Tag key={t} tone="fore">{t}</Tag>)}</div>}
+                      {c.weaknesses?.length > 0 && <div className="flex items-center gap-1 flex-wrap mt-1">{c.weaknesses.map((w, i) => <span key={i} className="text-[11px] text-secret/70 bg-secret/5 px-1.5 py-0.5 rounded">{w}</span>)}</div>}
                     </div>
                   ))}
                 </div>
