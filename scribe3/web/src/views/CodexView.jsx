@@ -89,6 +89,91 @@ function EditableTags({ label, tags, onSave }) {
   )
 }
 
+// ─── AbilityList: 结构化能力列表(可增删改每项能力) ───
+function AbilityList({ value, onSave }) {
+  const parse = () => {
+    if (!value) return []
+    try { return typeof value === 'string' ? JSON.parse(value) : value } catch { return [] }
+  }
+  const [abilities, setAbilities] = useState(parse)
+  const [editing, setEditing] = useState(null) // index or 'new'
+  const [form, setForm] = useState({ name: '', level: '', description: '', acquired_chapter: '' })
+
+  useEffect(() => { setAbilities(parse()) }, [value])
+
+  const saveAll = (newList) => {
+    setAbilities(newList)
+    onSave(JSON.stringify(newList))
+  }
+  const saveOne = () => {
+    const newList = [...abilities]
+    if (editing === 'new') newList.push(form)
+    else newList[editing] = form
+    saveAll(newList)
+    setEditing(null); setForm({ name: '', level: '', description: '', acquired_chapter: '' })
+  }
+  const remove = (i) => { saveAll(abilities.filter((_, idx) => idx !== i)) }
+  const startEdit = (i) => { setEditing(i); setForm(abilities[i] || { name: '', level: '', description: '', acquired_chapter: '' }) }
+
+  return (
+    <div className="py-1.5">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[11px] text-faint uppercase tracking-wider min-w-[72px]">能力</span>
+        <button onClick={() => { setEditing('new'); setForm({ name: '', level: '', description: '', acquired_chapter: '' }) }}
+          className="ml-auto text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 添加能力</button>
+      </div>
+      <div className="space-y-2 ml-[84px]">
+        {abilities.map((ab, i) => (
+          editing === i ? (
+            <div key={i} className="p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
+              <div className="flex gap-2">
+                <input placeholder="能力名称" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+                <input placeholder="等级" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} className="w-24 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+              </div>
+              <textarea placeholder="描述" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+              <div className="flex items-center gap-2">
+                <input type="number" placeholder="第几章习得" value={form.acquired_chapter} onChange={(e) => setForm({ ...form, acquired_chapter: e.target.value })} className="w-28 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+                <button onClick={saveOne} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button>
+                <button onClick={() => setEditing(null)} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button>
+              </div>
+            </div>
+          ) : (
+            <div key={i} className="group p-2.5 rounded-lg border border-line bg-surface hover:border-brand/20 transition-colors">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium text-ink">{ab.name}</span>
+                <Tag tone={ab.level === '宗师级' || ab.level === '高' ? 'fore' : 'faint'}>{ab.level || '—'}</Tag>
+                {ab.acquired_chapter && <span className="text-[10px] text-faint">第{ab.acquired_chapter}章习得</span>}
+                <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => startEdit(i)} className="text-[11px] text-faint hover:text-brand cursor-pointer">编辑</button>
+                  <button onClick={() => remove(i)} className="text-[11px] text-faint hover:text-danger cursor-pointer">删除</button>
+                </div>
+              </div>
+              {ab.description && <div className="text-[12px] text-faint mt-1">{ab.description}</div>}
+            </div>
+          )
+        ))}
+        {editing === 'new' && (
+          <div className="p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
+            <div className="flex gap-2">
+              <input placeholder="能力名称" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+              <input placeholder="等级(如:入门/中期/宗师级)" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} className="w-32 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+            </div>
+            <textarea placeholder="能力描述" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+            <div className="flex items-center gap-2">
+              <input type="number" placeholder="第几章习得" value={form.acquired_chapter} onChange={(e) => setForm({ ...form, acquired_chapter: e.target.value })} className="w-28 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+              <button onClick={saveOne} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button>
+              <button onClick={() => setEditing(null)} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button>
+            </div>
+          </div>
+        )}
+        {abilities.length === 0 && editing !== 'new' && (
+          <div className="text-[12px] text-faint/50 py-1">尚无能力记录。点击"+ 添加能力"创建。</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── DynamicTimeline: 角色弧光演进史(动态层) ───
 // 展示: 每个质变点的 before→after 对比 + 触发事件 + 正文关联章
 // + 可查询任意章节时刻的快照(设计文档 §3.6 get_entity_baseline_at_chapter)
@@ -322,7 +407,7 @@ function DetailView({ type, row, onBack, onUpdate, onDelete }) {
           <EditableTags label="性格标签" tags={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
           <EditableField label="性格深描" value={row.personality_detail} area onSave={(v) => save('personality_detail', v)} />
           <EditableField label="前史" value={row.backstory} area onSave={(v) => save('backstory', v)} />
-          <EditableField label="能力" value={row.abilities} area onSave={(v) => save('abilities', v)} />
+          <AbilityList value={row.abilities} onSave={(v) => save('abilities', v)} />
           <EditableTags label="弱点" tags={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
           <div className="border-t border-line/60 mt-2 pt-2">
             <div className="text-[11px] text-faint uppercase tracking-wider mb-1">动机与冲突</div>
