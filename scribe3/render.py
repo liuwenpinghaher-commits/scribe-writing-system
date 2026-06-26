@@ -14,9 +14,12 @@ from scribe3.ontology import World
 _CONSTRAINT = (
     "## 渲染纪律\n"
     "- 限知第三人称:只写视角角色【此刻知道】的事;他不知道的,一个字都不能出现。\n"
-    "- show 不 tell;去 AI 腔(禁\"嘴角勾起/眼底闪过/命运的齿轮\");冷笔动作收尾,不喊升华口号。\n"
+    "- show 不 tell;去 AI 腔(禁\"嘴角勾起/眼底闪过/命运的齿轮/仿佛/似乎/宛如/不由得/不禁/心中一紧\");冷笔动作收尾,不喊升华口号。\n"
+    "- 叙述为主,对话为辅:对话不超过全文30%,大量用叙述推进情节、描写环境、刻画心理。\n"
+    "- 句式长短交替:短句(5-10字)制造紧张节奏,长句(20-35字)铺展环境与心理,避免全短句或全长句。\n"
     "- 按给定事件渲染,不得偷塞别的情节(不双高潮、不偷跑后续章)。\n"
     "- 用了力量必付代价。\n"
+    "- 每个场景至少1个非视觉感官(听/触/嗅/温度),环境承载情感。\n"
     "## 输出格式(硬要求)\n"
     "- 直接输出小说正文本身,从故事的第一句开始写,到最后一句结束。\n"
     "- 不要任何元叙述/说明/汇报:禁止出现\"已完成/我写了/以…视角/文字已保存/本章\"之类的话,"
@@ -163,28 +166,45 @@ def render(world: World, chapter: int, focalizer: str,
     _log.info("单次渲染 %d 字 < 目标 %d 字,启动分段续写", wc, target_words)
 
     segments = [first_pass]
-    max_segments = 5  # 最多续写5段
+    max_segments = 5
     for seg_idx in range(max_segments):
         current_total = sum(len("".join(s.split())) for s in segments)
         if current_total >= target_words:
             break
 
-        # 构建续写 prompt:已有内容摘要 + 继续写的要求
+        # 构建续写 prompt:提供更完整的上下文(前文摘要+最后500字原文)
         prev_text = "\n\n".join(segments)
-        prev_summary = prev_text[-800:] if len(prev_text) > 800 else prev_text  # 取最后800字作为上下文
+        # 取前文最后500字作为衔接上下文(非800字,减少token浪费)
+        prev_tail = prev_text[-500:] if len(prev_text) > 500 else prev_text
+        # 取前文前200字作为开头(让LLM知道整章基调)
+        prev_head = prev_text[:200] if len(prev_text) > 200 else prev_text
+        # 提取前文出现过的关键短语(避免重复)
+        import re as _re
+        # 找出前文中出现2次以上的4-8字短语
+        from collections import Counter as _Counter
+        _ngrams = _Counter(prev_text[i:i+6] for i in range(len(prev_text)-6))
+        _repeated = [g for g, c in _ngrams.most_common(15) if c >= 2 and not _re.match(r'^[\s，。！？；：、\n]+$', g)]
+
         continue_prompt = (
-            f"以下是第{chapter}章已写的内容的结尾部分:\n\n{prev_summary}\n\n"
-            f"请紧接上文继续写,不要重复已有内容。当前已写约{current_total}字,"
-            f"还需约{target_words - current_total}字达到目标。"
-            f"继续以{focalizer.split(':')[-1] if focalizer else '作者'}的视角写,"
-            f"保持文风一致,推进情节。直接输出正文,不要解释。"
+            f"你正在写一部志怪小说的第{chapter}章。以下是已写内容的开头和结尾:\n\n"
+            f"【开头】{prev_head}\n...\n【结尾】{prev_tail}\n\n"
+            f"请紧接上文继续写,要求:\n"
+            f"1. 引入新的场景元素或人物动作,不要停留在同一画面打转\n"
+            f"2. 绝对禁止重复这些已用表述: {_repeated[:5]}\n"
+            f"3. 适当加入1-2句角色对话(用引号),推进情节而非纯叙述\n"
+            f"4. 保持{focalizer.split(':')[-1] if focalizer else '作者'}的限知视角\n"
+            f"5. 句式长短交替:短句5-10字制造节奏+长句20-35字铺陈细节\n"
+            f"6. 禁用AI腔:嘴角勾起/眼底闪过/命运的齿轮/仿佛/似乎/宛如/不由得/不禁\n"
+            f"7. 直接输出正文,不要解释,不要写章节号\n"
+            f"当前已写约{current_total}字,还需约{target_words - current_total}字。"
         )
         next_seg = complete_fn(continue_prompt, **kw)
         if not next_seg or len(next_seg.strip()) < 50:
             _log.warning("续写第%d段返回过短(%d字),停止", seg_idx + 1, len(next_seg or ''))
             break
         segments.append(next_seg)
+        seg_wc = len("".join(next_seg.split()))
         _log.info("续写第%d段: +%d字 (累计 %d/%d)",
-                  seg_idx + 1, len("".join(next_seg.split())), current_total + len("".join(next_seg.split())), target_words)
+                  seg_idx + 1, seg_wc, current_total + seg_wc, target_words)
 
     return "\n\n".join(segments)
