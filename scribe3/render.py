@@ -115,9 +115,12 @@ def render(world: World, chapter: int, focalizer: str,
            complete_fn: Callable[..., str] | None = None,
            max_tokens: int | None = None, timeout: float | None = None,
            soak: bool = True,
-           story_at: int | None = None, frame_at: int | None = None) -> str:
-    """渲染一章一视角:浸泡→限知 prompt(含 craft)→complete_fn→sjuzhet。默认走 Hermes。
-    story_at/frame_at 默认回退 chapter(线性);非线性时 soak/voice/知识帧都跟 frame_at(那时状态)。"""
+           story_at: int | None = None, frame_at: int | None = None,
+           target_words: int = 0) -> str:
+    """渲染一章一视角:浸泡→限知 prompt(含 craft)→分段渲染→拼接。
+    分段策略:先渲染大纲,再逐段渲染拼接,达到 target_words 字数。
+    target_words=0 时单次渲染(向后兼容测试)。
+    默认走 Hermes。"""
     story_at = story_at if story_at is not None else chapter
     frame_at = frame_at if frame_at is not None else story_at
     if complete_fn is None:
@@ -145,4 +148,43 @@ def render(world: World, chapter: int, focalizer: str,
         kw["max_tokens"] = max_tokens
     if timeout is not None:
         kw["timeout"] = timeout
-    return complete_fn(prompt, **kw)
+
+    # 单次渲染
+    first_pass = complete_fn(prompt, **kw)
+    wc = len("".join(first_pass.split()))
+
+    # 如果单次已达目标字数或未设置目标,直接返回
+    if target_words <= 0 or wc >= target_words:
+        return first_pass
+
+    # 分段渲染:将第一次输出作为开头,继续续写直到达标
+    import logging
+    _log = logging.getLogger("scribe3.render")
+    _log.info("单次渲染 %d 字 < 目标 %d 字,启动分段续写", wc, target_words)
+
+    segments = [first_pass]
+    max_segments = 5  # 最多续写5段
+    for seg_idx in range(max_segments):
+        current_total = sum(len("".join(s.split())) for s in segments)
+        if current_total >= target_words:
+            break
+
+        # 构建续写 prompt:已有内容摘要 + 继续写的要求
+        prev_text = "\n\n".join(segments)
+        prev_summary = prev_text[-800:] if len(prev_text) > 800 else prev_text  # 取最后800字作为上下文
+        continue_prompt = (
+            f"以下是第{chapter}章已写的内容的结尾部分:\n\n{prev_summary}\n\n"
+            f"请紧接上文继续写,不要重复已有内容。当前已写约{current_total}字,"
+            f"还需约{target_words - current_total}字达到目标。"
+            f"继续以{focalizer.split(':')[-1] if focalizer else '作者'}的视角写,"
+            f"保持文风一致,推进情节。直接输出正文,不要解释。"
+        )
+        next_seg = complete_fn(continue_prompt, **kw)
+        if not next_seg or len(next_seg.strip()) < 50:
+            _log.warning("续写第%d段返回过短(%d字),停止", seg_idx + 1, len(next_seg or ''))
+            break
+        segments.append(next_seg)
+        _log.info("续写第%d段: +%d字 (累计 %d/%d)",
+                  seg_idx + 1, len("".join(next_seg.split())), current_total + len("".join(next_seg.split())), target_words)
+
+    return "\n\n".join(segments)

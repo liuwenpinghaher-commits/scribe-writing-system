@@ -934,11 +934,15 @@ def ingest(seq: int, work: str = "main"):
 class RenderReq(BaseModel):
     focalizer: str
     chapter: int
+    max_tokens: int | None = None
+    target_words: int = 6000
 
 
 @app.post("/render")
 def do_render(req: RenderReq, work: str = "main"):
-    return {"prose": render(_store_for(work), req.chapter, req.focalizer, complete_fn=_complete_fn)}
+    return {"prose": render(_store_for(work), req.chapter, req.focalizer,
+                           complete_fn=_complete_fn, max_tokens=req.max_tokens,
+                           target_words=req.target_words)}
 
 
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
