@@ -936,13 +936,27 @@ class RenderReq(BaseModel):
     chapter: int
     max_tokens: int | None = None
     target_words: int = 6000
+    style_anchor: str = ""
+    use_craft: bool = False
 
 
 @app.post("/render")
 def do_render(req: RenderReq, work: str = "main"):
+    # 自动提取风格锚:从乱世铜炉原文取一段作为文风参考
+    anchor = req.style_anchor
+    if not anchor:
+        import os as _os
+        orig_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "乱世铜炉.md")
+        try:
+            with open(orig_path, encoding="utf-8") as f:
+                f.seek(req.chapter * 800)  # 按章节位置取不同段落
+                anchor = f.read(400).strip()
+        except Exception:
+            anchor = ""
     return {"prose": render(_store_for(work), req.chapter, req.focalizer,
                            complete_fn=_complete_fn, max_tokens=req.max_tokens,
-                           target_words=req.target_words)}
+                           target_words=req.target_words,
+                           style_anchor=anchor, use_craft=req.use_craft)}
 
 
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",

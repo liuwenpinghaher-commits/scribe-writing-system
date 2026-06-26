@@ -1,8 +1,13 @@
 """叙述层 · fabula ∩ 知识帧 → sjuzhet。
 
-build_render_prompt 是范式的工程落点:它【只】用 focalizer 知识帧里的事实拼 prompt。
-focalizer 不知道的私密事实不在帧里 → 不进 prompt → 模型物理上写不出 → POV 泄露结构性消失。
-render() 把这个限知 prompt 喂给注入的 complete_fn(默认走 Hermes)。渲染层只读,不回写世界。
+范式核心:build_render_prompt 只用 focalizer 知识帧里的事实拼 prompt。
+帧外事实不进 prompt → POV 泄露结构性消失。
+
+设计哲学(v2):
+- 锚定+自由+后置校验,而非规则堆叠
+- prompt 只保留:限知帧(结构保证) + 事件(情节骨架) + 风格锚(1段原文)
+- 写作规则从 prompt 移除(soak 已处理角色声音,QC 后置处理质量问题)
+- 让 LLM 把注意力花在创作上,不是合规上
 """
 from __future__ import annotations
 
@@ -11,19 +16,11 @@ from typing import Callable
 from scribe3.knowledge import project_frame
 from scribe3.ontology import World
 
+# 精简到极致:只保留结构性的限知+输出格式,不塞写作技巧规则
 _CONSTRAINT = (
-    "## 渲染纪律\n"
-    "- 限知第三人称:只写视角角色【此刻知道】的事;他不知道的,一个字都不能出现。\n"
-    "- show 不 tell;去 AI 腔(禁\"嘴角勾起/眼底闪过/命运的齿轮/仿佛/似乎/宛如/不由得/不禁/心中一紧\");冷笔动作收尾,不喊升华口号。\n"
-    "- 叙述为主,对话为辅:对话不超过全文30%,大量用叙述推进情节、描写环境、刻画心理。\n"
-    "- 句式长短交替:短句(5-10字)制造紧张节奏,长句(20-35字)铺展环境与心理,避免全短句或全长句。\n"
-    "- 按给定事件渲染,不得偷塞别的情节(不双高潮、不偷跑后续章)。\n"
-    "- 用了力量必付代价。\n"
-    "- 每个场景至少1个非视觉感官(听/触/嗅/温度),环境承载情感。\n"
-    "## 输出格式(硬要求)\n"
-    "- 直接输出小说正文本身,从故事的第一句开始写,到最后一句结束。\n"
-    "- 不要任何元叙述/说明/汇报:禁止出现\"已完成/我写了/以…视角/文字已保存/本章\"之类的话,"
-    "不要复述或解释上面的指令,不要写章节号或标题。整段回复就是纯散文。"
+    "## 要求\n"
+    "- 限知:只写视角角色此刻知道的事。\n"
+    "- 直接输出正文,纯散文,不要解释或元叙述。"
 )
 
 
@@ -74,41 +71,52 @@ def _voice_block(foc_name: str, voice: dict | None) -> list[str]:
 def build_render_prompt(world: World, chapter: int, focalizer: str,
                         craft_block: str = "", soak_result: dict | None = None,
                         voice: dict | None = None,
-                        story_at: int | None = None, frame_at: int | None = None) -> str:
-    """按 focalizer 的知识帧拼限知渲染 prompt。帧外事实绝不出现。
-    craft_block(引擎层+题材层)与 soak 种子词插在事件之后、渲染纪律之前。
-    声音样本(focalizer 自己的,不破限知)同样插在事件之后、渲染纪律之前。
-    story_at/frame_at 默认回退 chapter(线性)。
-    story_at = 事件故事时间(story_chapter);frame_at = 知识帧投影时间(限知切断点)。
-    沉浸式闪回 frame_at 默认=story_at(角色只知那时);回忆式显式传 frame_at=chapter。"""
+                        story_at: int | None = None, frame_at: int | None = None,
+                        style_anchor: str = "") -> str:
+    """按 focalizer 的知识帧拼限知渲染 prompt。
+    
+    v2 设计:锚定+自由+后置校验
+    - 限知帧(结构保证):focalizer 不知道的不进 prompt
+    - 事件(情节骨架):本章要发生什么
+    - 风格锚(1段原文):让模型自然模仿文风,而非背50条规则
+    - soak(角色声音):浸泡产出的情感曲线/种子词
+    - craft_block:默认不注入(v2移除规则堆叠),保留参数向后兼容
+    """
     story_at = story_at if story_at is not None else chapter
     frame_at = frame_at if frame_at is not None else story_at
     frame = project_frame(world, focalizer, frame_at)
     foc = world.entity(focalizer)
     foc_name = foc.name if foc else focalizer
 
-    lines = [f"# 把下面的事件写成小说正文(限知视角:{foc_name})",
-             f"以【{foc_name}】的限知视角,把下列既定事件写成一段小说散文。直接写正文,别解释。"]
+    lines = [f"# 第{chapter}章 · 限知视角:{foc_name}",
+             f"以【{foc_name}】的视角写这一章。直接写正文。"]
     if story_at != chapter:
-        lines.append(f"## ⚠ 这是插叙/闪回:渲染第{story_at}章发生的事(非当前叙事时间,别当线性推进)")
+        lines.append(f"(这是闪回:渲染第{story_at}章发生的事)")
+
+    # 风格锚:1段原文让模型自然模仿,替代50条写作规则
+    if style_anchor:
+        lines += ["", "## 风格参考(模仿这个文风,不要抄内容):", style_anchor]
 
     lines += _facts_block(world, frame, foc_name)
     lines += _events_block(world, story_at, frame, focalizer)
     lines += _voice_block(foc_name, voice)
 
-    if craft_block:
-        lines += ["", craft_block]
+    # soak:角色声音+情感曲线(soak已处理"进入角色",不需要在主prompt重复)
     if soak_result and (soak_result.get("seed_words") or soak_result.get("emotion_arc")):
         seeds = "、".join(soak_result.get("seed_words") or [])
         arc = soak_result.get("emotion_arc") or ""
         turn = soak_result.get("turn") or ""
-        lines += ["", "## 本场情感设计(浸泡产出,据此把握情绪曲线,不要写进正文)"]
+        lines += ["", "## 本场情感(据此把握情绪,不要写进正文)"]
         if arc:
             lines.append(f"- 情感曲线:{arc}")
         if turn:
-            lines.append(f"- 转折时刻:{turn}")
+            lines.append(f"- 转折:{turn}")
         if seeds:
-            lines.append(f"- 情绪种子词:{seeds}")
+            lines.append(f"- 种子词:{seeds}")
+
+    # craft_block:v2默认不注入(规则堆叠降低创作质量),保留参数兼容
+    if craft_block:
+        lines += ["", craft_block]
 
     lines += ["", _CONSTRAINT]
     return "\n".join(lines)
@@ -119,19 +127,30 @@ def render(world: World, chapter: int, focalizer: str,
            max_tokens: int | None = None, timeout: float | None = None,
            soak: bool = True,
            story_at: int | None = None, frame_at: int | None = None,
-           target_words: int = 0) -> str:
-    """渲染一章一视角:浸泡→限知 prompt(含 craft)→分段渲染→拼接。
-    分段策略:先渲染大纲,再逐段渲染拼接,达到 target_words 字数。
-    target_words=0 时单次渲染(向后兼容测试)。
-    默认走 Hermes。"""
+           target_words: int = 0,
+           style_anchor: str = "",
+           use_craft: bool = False) -> str:
+    """渲染一章一视角:浸泡→限知 prompt(含风格锚)→分段渲染→拼接。
+    
+    v2: 锚定+自由+后置校验
+    - style_anchor: 1段原文做风格锚(替代50条写作规则)
+    - use_craft: 是否注入craft_block(默认False,规则堆叠降低创作质量)
+    - target_words=0: 单次渲染(向后兼容测试)
+    - target_words>0: 分段续写至目标字数
+    """
     story_at = story_at if story_at is not None else chapter
     frame_at = frame_at if frame_at is not None else story_at
     if complete_fn is None:
         from scribe3.llm import hermes_complete
         complete_fn = hermes_complete
-    from scribe3.craft import build_craft_block
-    rules = world.list_craft_rules() if hasattr(world, "list_craft_rules") else None
-    craft_block = build_craft_block(rules)
+
+    # craft_block: v2默认不注入
+    craft_block = ""
+    if use_craft:
+        from scribe3.craft import build_craft_block
+        rules = world.list_craft_rules() if hasattr(world, "list_craft_rules") else None
+        craft_block = build_craft_block(rules)
+
     soak_result = None
     if soak:
         from scribe3.soak import soak as run_soak
@@ -145,7 +164,8 @@ def render(world: World, chapter: int, focalizer: str,
     voice = world.latest_voice_samples(focalizer, frame_at) if hasattr(world, "latest_voice_samples") else None
     prompt = build_render_prompt(world, chapter, focalizer,
                                  craft_block=craft_block, soak_result=soak_result, voice=voice,
-                                 story_at=story_at, frame_at=frame_at)
+                                 story_at=story_at, frame_at=frame_at,
+                                 style_anchor=style_anchor)
     kw: dict = {}
     if max_tokens:
         kw["max_tokens"] = max_tokens
@@ -172,31 +192,13 @@ def render(world: World, chapter: int, focalizer: str,
         if current_total >= target_words:
             break
 
-        # 构建续写 prompt:提供更完整的上下文(前文摘要+最后500字原文)
         prev_text = "\n\n".join(segments)
-        # 取前文最后500字作为衔接上下文(非800字,减少token浪费)
         prev_tail = prev_text[-500:] if len(prev_text) > 500 else prev_text
-        # 取前文前200字作为开头(让LLM知道整章基调)
-        prev_head = prev_text[:200] if len(prev_text) > 200 else prev_text
-        # 提取前文出现过的关键短语(避免重复)
-        import re as _re
-        # 找出前文中出现2次以上的4-8字短语
-        from collections import Counter as _Counter
-        _ngrams = _Counter(prev_text[i:i+6] for i in range(len(prev_text)-6))
-        _repeated = [g for g, c in _ngrams.most_common(15) if c >= 2 and not _re.match(r'^[\s，。！？；：、\n]+$', g)]
 
+        # 续写:简洁上下文,不堆规则——让LLM自由创作
         continue_prompt = (
-            f"你正在写一部志怪小说的第{chapter}章。以下是已写内容的开头和结尾:\n\n"
-            f"【开头】{prev_head}\n...\n【结尾】{prev_tail}\n\n"
-            f"请紧接上文继续写,要求:\n"
-            f"1. 引入新的场景元素或人物动作,不要停留在同一画面打转\n"
-            f"2. 绝对禁止重复这些已用表述: {_repeated[:5]}\n"
-            f"3. 适当加入1-2句角色对话(用引号),推进情节而非纯叙述\n"
-            f"4. 保持{focalizer.split(':')[-1] if focalizer else '作者'}的限知视角\n"
-            f"5. 句式长短交替:短句5-10字制造节奏+长句20-35字铺陈细节\n"
-            f"6. 禁用AI腔:嘴角勾起/眼底闪过/命运的齿轮/仿佛/似乎/宛如/不由得/不禁\n"
-            f"7. 直接输出正文,不要解释,不要写章节号\n"
-            f"当前已写约{current_total}字,还需约{target_words - current_total}字。"
+            f"你正在写第{chapter}章。前文结尾:\n{prev_tail}\n\n"
+            f"继续写,推进情节。不要重复前文。直接输出正文。"
         )
         next_seg = complete_fn(continue_prompt, **kw)
         if not next_seg or len(next_seg.strip()) < 50:
