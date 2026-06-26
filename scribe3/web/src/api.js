@@ -30,6 +30,9 @@ const put = (p, body) => fetch(BASE + ww(p), {
 
 export const api = {
   setWork: (w) => { WORK = w },
+  get: (p) => fetch(BASE + ww(p)).then(handle),
+  del: (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then(handle),
+  post: (p, b) => post(p, b),
   works: () => jraw('/works'),
   createWork: (title) => fetch(BASE + '/works', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),

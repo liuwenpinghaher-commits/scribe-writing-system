@@ -64,3 +64,49 @@
 **实测验证**:主编自动调 `mcp_scribe_list_works`(args `{"owner_id":"u1"}`)→ 拿到真实作品(雾港迷案等)→ 流式回复列表。**端到端通,无需再实测基础路径。**
 
 **B3 审批(待 B3 时实测)**:`tools` 项可加 `"require_approval":"always"` 触发 elicitation;具体审批 SSE 事件 B3 阶段实测。
+
+---
+
+## ✅ B1 已实现 + 真机端到端实测(2026-06-20)
+
+**后端**(`scribe/scribe_mcp/api.py`):
+- `_hermes_responses_events(message, instructions, model)`:`httpx.stream` POST `{HERMES}/responses`,body=上面实测蓝图;逐条解析 SSE `data:` JSON 后 yield。
+- `POST /works/{work_id}/chat/stream`:校验 owner+归属 → `instructions`=`_CHIEF_SYSTEM`+当前书名+"调 scribe 工具查真实数据" → 翻成 scribe 自有 SSE:
+  - `response.output_text.delta` → `{"delta": "片段"}`(累计为完整回复)
+  - `response.output_item.added` 且 `item.type=="function_call"` → `{"tool": item.name, "tool_args": item.arguments}`
+  - 收尾 `{"done": true, "content": 完整回复, "thread_id": ...}`;异常 → `{"error": ...}`
+  - 复用 `/chat` 落库逻辑写 discussion_thread(user+editor)
+
+**前端**:`api.ts` 加 `streamChat()`(镜像 `streamAction` 的 fetch-stream 解析);`Conversation.tsx` `ChatSection.send()` 改流式(回复气泡逐片填充 + "🔍 正在调用 X…" 工具提示 + done 兜底防丢片)。
+
+**实测**(hermes:8642 + scribe:3320,问《雾港迷案》"有哪些人物"):
+1. `{"tool":"mcp_scribe_list_characters","tool_args":"{\"work_id\":\"...\"}"}` — 主编真调工具
+2. 一串 `{"delta":...}` — 流式回复
+3. `{"done":true,"content":...,"thread_id":...}` — 完整回复+落库
+
+回复基于真实设定(沈舟/陆沉,动机对得上),无瞎编。**校准结论**:`item.name`/`item.arguments` 字段名与代码假设一致;`model` 字段可传(hermes 接受 `doubao-seed-2.0-pro`)。**B1 端到端通。**
+
+---
+
+## ✅ B2 已实现 + hermes 原始 SSE 完整实测(2026-06-20)
+
+**原始 SSE 事件类型实测**(直打 :8642/v1/responses,问"沈舟的动机"):
+| event type | item.type | 说明 |
+|---|---|---|
+| `response.created` / `response.completed` | — | run 起止 |
+| `response.output_item.added`/`.done` | `message` | 文本消息容器 |
+| `response.output_item.added`/`.done` | `function_call` | **工具调用,`added` 时 `name`+`arguments` 已完整** |
+| `response.output_item.added`/`.done` | `function_call_output` | 工具结果占位,**name/arguments 空,结果内容不透传** |
+| `response.output_text.delta`/`.done` | — | 回复流式片段 / 整段 |
+
+**关键发现**:
+1. 主编是**多步 agent**——一次问答连调 4 个工具:`mcp_scribe_list_works → session_search → mcp_scribe_list_characters → mcp_scribe_search_book`,最后才流式回复。
+2. **无 `reasoning`/thinking 事件**(doubao-seed 不产出)→ 思考气泡当前无数据源。
+3. **`function_call_output` 不带结果内容** → 工具结果无法折叠展示。
+4. 主编也用 hermes 自带工具(`session_search` 记忆检索),工具名展示需兼容非 `mcp_scribe_` 前缀。
+
+**B2 实现**(据上述真实数据源,只做有数据的部分):`Conversation.tsx` —
+- `ChatMsg.tools[]` 收集本轮工具调用序列;`ToolTimeline` 折叠组件渲染在回复气泡上方(「🔍 主编查阅了 N 项资料 ▾」,展开列每步)。
+- `toolLabel()` 友好名映射(list_characters→查人物 / search_book→检索原文 / session_search→检索记忆…),并抠 `args.query` 当副标题(「沈舟」)。
+- 流式中 thinking 指示器实时显示「正在查人物「沈舟」…」。
+- **未做**(无数据源):reasoning 思考气泡、function_call_output 结果折叠。`tsc --noEmit` 绿;前端 dev server :3310 已起待作者亲验。

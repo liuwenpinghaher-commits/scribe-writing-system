@@ -20,7 +20,8 @@ metadata:
 
 ## 工具(scribe3 MCP,均 s3_ 前缀)
 - **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询)、`s3_dramatic_irony`(反讽点:读者知而视角不知)、`s3_semantic_recall`(语义召回相关设定,非字面)、`s3_hybrid_recall`(RRF 混合召回)、`s3_graph_recall`(GraphRAG 知识子图)、`s3_chapter_recall`(章节语义召回)、`s3_setting_completeness`(设定完整性检查)、`s3_list_world_rules`(世界规则)、`s3_list_factions`(势力)、`s3_character_state`(角色弧光状态快照)、`s3_character_timeline`(角色弧光时间线)、`s3_relations_at`(角色关系图)
-- **写(经 elicitation 待批)**:`s3_add_character` `s3_add_fact` `s3_add_event` `s3_record_knowledge` `s3_add_character_relation` `s3_add_world_rule` `s3_add_faction` `s3_add_char_state`——执行前会弹批准给作者,accept 才落库(拒绝/超时=不写)
+- **写(经 elicitation 待批)**: `s3_add_character` `s3_add_fact` `s3_add_event` `s3_record_knowledge` `s3_add_character_relation` `s3_add_world_rule` `s3_add_faction` `s3_add_char_state`——执行前会弹批准给作者,accept 才落库(拒绝/超时=不写)
+  - **Pitfall**: `s3_add_fact` REQUIRES the `oid` field, not just `entity`. Both are needed and must match. Omit `oid` and you'll get a validation error: "Field required".
 
 ## 写一章(必走的环)
 0. **设定完整性检查(开写前)**:调 `s3_setting_completeness` 看缺什么。若缺世界规则/势力/角色深描,主动提出 2-3 个选项让作者决策(不是让作者填表,而是主编引导:"你的魔法体系有什么代价?""这个势力的公开面目和私下运作是什么?")。作者确认后用 `s3_add_world_rule`/`s3_add_faction` 落库。
@@ -30,7 +31,8 @@ metadata:
 4. **存稿**:`s3_save_chapter`(草稿,直接存,不待批)。
 5. **QC 闸(按序)**:`s3_qc_chapter`(确定性:复读/排比/升华→定向删)→ `s3_discipline_check`(LLM 判官:双高潮/声音崩/解说倾泻,确定性盲区;违规且复发点靠后→截到 cut_after,太早则交回重写)→ `s3_find_leaks`(兜底扫 POV 泄露)。
 6. **落库世界(待批)**:章内新发生的事实/知识用 `s3_add_fact`/`s3_record_knowledge` 记(看见即知道:在场者才获知)；埋/收伏笔用 `s3_plant_promise`/`s3_advance_promise`——均弹批准。
-7. **回写闭环**:`s3_ingest_chapter`(客观回写,已**不待批**;后端存稿时也会自动后台跑同一逻辑)——读定稿抽"各角色新知道什么/做了什么且谁看见"→更新知识账本。**下一章限知渲染据此反映新知**(谁这章知道了什么,下章他就能用、别人仍不知)。
+7. **回写闭环**: `s3_ingest_chapter`(客观回写,已**不待批**;后端存稿时也会自动后台跑同一逻辑)——读定稿抽"各角色新知道什么/做了什么且谁看见"→更新知识账本。**下一章限知渲染据此反映新知**(谁这章知道了什么,下章他就能用、别人仍不知)。
+  - **Pitfall**: If `s3_ingest_chapter` fails with "Couldn't coerce value... Expected `int` but found `NONE`", this indicates a voice profile or character state record is missing a required chapter anchor. The save still succeeded; the background auto-ingest will typically retry successfully later.
 8. **后台综合体检(delegate,不阻塞)**:存稿后可 `delegate_task(background=true, prompt="对第N章做综合体检:依次 s3_qc_chapter / s3_discipline_check / s3_find_leaks / s3_causal_complete,综合判断哪些是真问题(别堆噪声),写一份精炼体检报告")`——后台 subagent 自主跑多步,你**立刻继续写,不等**。报告下次取。(确定性回写已由第7步/后端自动管;这里 delegate 的是需要多步判断的体检。)
 9. **章成自检(自进化)**:本章有没有摸出一条**可复用修法**(某类坑的解/某腔调的立法/某道 QC 序列)?有 → `skill_manage(action="patch")` 追加进本 skill 对应段(见下"技能自进化")。只沉淀**流程/craft**,不沉淀剧情事实(事实进 SurrealDB)。
 
