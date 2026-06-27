@@ -6,5 +6,6 @@ DEFINE FIELD IF NOT EXISTS prose      ON chapter_version TYPE string;
 DEFINE FIELD IF NOT EXISTS label      ON chapter_version TYPE string DEFAULT "";
 DEFINE FIELD IF NOT EXISTS kind       ON chapter_version TYPE string DEFAULT "checkpoint";  -- checkpoint | final
 DEFINE FIELD IF NOT EXISTS qc         ON chapter_version TYPE object DEFAULT {};
+DEFINE FIELD IF NOT EXISTS qc.*       ON chapter_version TYPE any;
 DEFINE FIELD IF NOT EXISTS created_at ON chapter_version TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS cv_seq ON chapter_version COLUMNS seq;

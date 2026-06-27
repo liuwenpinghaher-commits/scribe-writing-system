@@ -55,3 +55,24 @@ def test_chapter_version_table_exists(store):
         "kind='checkpoint', qc={}, created_at=time::now()", {})
     rows = store._query("SELECT seq, label, kind FROM chapter_version WHERE seq=1")
     assert rows and rows[0]["label"] == "测试" and rows[0]["kind"] == "checkpoint"
+
+
+def test_chapter_version_crud(store):
+    vid = store.add_chapter_version(2, "正文A", label="重写结尾前",
+                                    kind="checkpoint", qc={"repetition": 3})
+    assert isinstance(vid, str) and vid
+    store.add_chapter_version(2, "正文B", label="定稿", kind="final", qc={})
+    lst = store.list_chapter_versions(2)
+    assert len(lst) == 2
+    assert lst[0]["label"] == "定稿"          # created_at DESC,最新在前
+    assert "prose" not in lst[0]               # 列表不回传全文(省带宽)
+    one = store.get_chapter_version(vid)
+    assert one["prose"] == "正文A" and one["qc"]["repetition"] == 3
+
+
+def test_chapter_version_kind_default_applies(store):
+    # 迁移守卫:SCHEMAFULL 的 DEFAULT 只有在 032 迁移真正落库时才生效。
+    # 直接 CREATE 不带 kind → 应默认 'checkpoint'(若表是 schemaless 自动建的则不会有默认值)。
+    store._execute_write("CREATE chapter_version SET seq=9, prose='x', created_at=time::now()", {})
+    rows = store._query("SELECT kind FROM chapter_version WHERE seq=9")
+    assert rows and rows[0]["kind"] == "checkpoint"

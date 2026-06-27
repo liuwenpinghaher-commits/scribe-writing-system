@@ -664,6 +664,31 @@ class SurrealStore:
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, qc_at=time::now()",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc})
 
+    def add_chapter_version(self, seq: int, prose: str, label: str = "",
+                            kind: str = "checkpoint", qc: dict | None = None) -> str:
+        """记一个命名存档点。返回新版本的裸 id。"""
+        rows = self._query(
+            "CREATE chapter_version SET seq=$seq, prose=$prose, label=$label, "
+            "kind=$kind, qc=$qc, created_at=time::now()",
+            {"seq": seq, "prose": prose, "label": label, "kind": kind, "qc": qc or {}})
+        # CREATE 返回新记录(含 id,形如 'chapter_version:xxxx');取裸 id 部分。
+        rid = rows[0]["id"] if rows else None
+        return str(rid).split(":")[-1] if rid else ""
+
+    def list_chapter_versions(self, seq: int) -> list[dict]:
+        """某章存档点列表(不含 prose 全文),最新在前。"""
+        return self._query(
+            "SELECT meta::id(id) AS id, seq, label, kind, qc, created_at "
+            "FROM chapter_version WHERE seq=$seq ORDER BY created_at DESC",
+            {"seq": seq})
+
+    def get_chapter_version(self, vid: str) -> dict | None:
+        """单个存档点全文(回看用)。"""
+        rows = self._query(
+            "SELECT meta::id(id) AS id, seq, prose, label, kind, qc, created_at "
+            "FROM type::record('chapter_version', $vid)", {"vid": vid})
+        return rows[0] if rows else None
+
     def get_chapter(self, seq: int) -> dict | None:
         rows = self._query("SELECT seq,title,focalizer,prose FROM type::record('chapter',$seq)",
                            {"seq": seq})
