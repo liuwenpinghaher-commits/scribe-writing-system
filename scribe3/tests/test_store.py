@@ -179,3 +179,15 @@ def test_char_state_after_state_personality_snapshot(store):
                          after_state={"personality_snapshot": "冷峻内敛"})
     snap = store.char_state_at("role:丙", 3)
     assert snap.get("personality") == "冷峻内敛", f"personality 快照应为冷峻内敛: {snap}"
+
+
+def test_schema_cleanup_034_removes_dead_artifacts(store):
+    # word_stats 视图已删(023 遗留)
+    db_info = store._query("INFO FOR DB")  # 返回 dict
+    tables = (db_info.get("tables") if isinstance(db_info, dict) else {}) or {}
+    assert "word_stats" not in tables, f"word_stats 视图应已删除: {list(tables)[:20]}"
+    # character.traits / motivation 孤儿列已删(027,与 Entity.traits 撞车)
+    tbl = store._query("INFO FOR TABLE character")  # 返回 dict
+    fields = (tbl.get("fields") if isinstance(tbl, dict) else {}) or {}
+    assert "traits" not in fields, f"character.traits 应已删除: {list(fields)}"
+    assert "motivation" not in fields, f"character.motivation 应已删除: {list(fields)}"
