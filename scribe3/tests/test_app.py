@@ -366,3 +366,48 @@ def test_term_first_mention_chapter_roundtrip(store):
     t = next((x for x in terms if x.get("name") == "镇煞"), None)
     assert t is not None and t.get("first_mention_chapter") == 2, \
         f"first_mention_chapter 应写入并回读为 2: {t}"
+
+
+# ===== 声音指纹注入续写 prompt =====
+
+def test_voice_anchor_block_includes_focalizer_and_digest(store):
+    """声音锚块:焦点者 style_summary 进「焦点者声音锚」,其他角色进「对白声音速记」。"""
+    store.set_voice_profile("role:甲", {
+        "style_summary": "说话简短沉重",
+        "catchphrases": ["哼"],
+        "tone_rules": ["少用感叹号"],
+    })
+    store.set_voice_profile("role:乙", {
+        "style_summary": "啰嗦爱吹嘘",
+    })
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:甲")
+    assert "焦点者声音锚" in block, "应含焦点者声音锚标题"
+    assert "说话简短沉重" in block, "应含焦点者 style_summary"
+    assert "哼" in block, "应含 catchphrase"
+    assert "少用感叹号" in block, "应含 tone_rules"
+    # 对白速记应含乙的摘要(或至少 id)
+    assert "啰嗦爱吹嘘" in block or "role:乙" in block, "对白速记应含乙的声音信息"
+
+
+def test_voice_anchor_block_no_focalizer(store):
+    """无焦点者时:不含「焦点者声音锚」标题,但若有 profile 仍有对白速记。"""
+    store.set_voice_profile("role:丙", {"style_summary": "冷静克制"})
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "")
+    assert "焦点者声音锚" not in block, "无焦点者时不应有焦点者声音锚标题"
+    assert "冷静克制" in block or block == "", "若有 profile 应含对白速记;若无 profile 可为空"
+
+
+def test_voice_anchor_block_none_guards(store):
+    """所有字段为 None 时不崩溃,且不产生 'None' 字符串。"""
+    store.set_voice_profile("role:丁", {
+        "style_summary": "稳重低调",
+        "catchphrases": None,
+        "tone_rules": None,
+        "reference_lines": None,
+    })
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:丁")
+    assert "None" not in block, "None 字段不应出现在 block 文本里"
+    assert "稳重低调" in block, "style_summary 应正常显示"

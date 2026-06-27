@@ -728,6 +728,42 @@ def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 70) -> str:
         return ""
 
 
+def _voice_anchor_block(st, focalizer: str = "") -> str:
+    """构建声音锚注入块:焦点者完整 voice_profile + 所有角色对白声音速记。
+    用于 /chat/write 的 instructions 末尾,让生成时已在声而非事后 check_ooc。"""
+    parts = []
+
+    # 焦点者声音锚(叙述/内心独白贴这个声音)
+    if focalizer:
+        vp = st.get_voice_profile(focalizer)
+        if vp and vp.get("style_summary"):
+            line = (f"\n\n## 本章焦点者声音锚\n"
+                    f"叙述与内心独白贴「{focalizer}」的声音:{vp['style_summary']}")
+            cp = vp.get("catchphrases")
+            if cp and isinstance(cp, list):
+                line += f" 口头禅:{'、'.join(str(x) for x in cp if x)}。"
+            tr = vp.get("tone_rules")
+            if tr and isinstance(tr, list):
+                line += f" 语气规则:{'；'.join(str(x) for x in tr if x)}。"
+            rl = vp.get("reference_lines")
+            if rl and isinstance(rl, list):
+                line += f" 参考语感:{'｜'.join(str(x) for x in rl[:2] if x)}"
+            parts.append(line)
+
+    # 对白声音速记——所有有 profile 的角色,各自对白在声,别串味
+    profiles = st.list_voice_profiles() or []
+    digests = []
+    for p in profiles[:6]:
+        cid = p.get("character_id") or ""
+        ss = (p.get("style_summary") or "").strip()
+        if cid and ss:
+            digests.append(f"{cid}—{ss[:30]}")
+    if digests:
+        parts.append("\n\n## 登场角色对白声音(各自在声,别串味)\n" + "；".join(digests))
+
+    return "".join(parts)
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
@@ -740,6 +776,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
     instructions += _avoid_directive(st, chapter)
+    instructions += _voice_anchor_block(st, focalizer)
     return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
 
 
@@ -797,6 +834,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
     instructions += _avoid_directive(st, req.chapter)
+    instructions += _voice_anchor_block(st, req.focalizer)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]

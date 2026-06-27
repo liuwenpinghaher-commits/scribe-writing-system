@@ -978,6 +978,13 @@ class SurrealStore:
             "SELECT * FROM type::record('voice_profile', $local)", {"local": local})
         return rows[0] if rows else None
 
+    def list_voice_profiles(self) -> list[dict]:
+        """列出所有角色声音指纹的紧凑视图(用于 prompt 注入)。
+        返回 [{character_id, style_summary, catchphrases, tone_rules}]。"""
+        rows = self._query(
+            "SELECT character_id, style_summary, catchphrases, tone_rules FROM voice_profile")
+        return rows if rows else []
+
     def check_ooc(self, character_id: str, dialogue: str) -> list[dict]:
         """OOC 检测:对照 voice_profile.ooc_signals 规则列表扫描对话。
         返回违规列表 [{signal, line, severity}]。"""
