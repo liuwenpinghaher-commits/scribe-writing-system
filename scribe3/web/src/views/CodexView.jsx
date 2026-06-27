@@ -156,7 +156,7 @@ function AbilitiesRow({ value, onSave, section }) {
 // ═══ TimelineCard (独立组件) ═══
 function TimelineCard({ char }) {
   const [states, setStates] = useState(null)
-  useEffect(() => { api.get(`/char-states?character_id=${encodeURIComponent(char.id)}`).then((r) => r.json()).then(setStates).catch(() => setStates([])) }, [char.id])
+  useEffect(() => { api.get(`/char-states?character_id=${encodeURIComponent(char.id)}`).then(setStates).catch(() => setStates([])) }, [char.id])
   if (!states || states.length === 0) return null
   return (
     <div className="rounded-xl border border-line bg-surface p-3">
@@ -182,10 +182,10 @@ function DynamicTimeline({ characterId }) {
   const [snapCh, setSnapCh] = useState('')
   const [snapshot, setSnapshot] = useState(null)
   const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
-  useEffect(() => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates).catch(() => setStates([])) }, [characterId])
-  const reload = () => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then((r) => r.json()).then(setStates) }
+  useEffect(() => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then(setStates).catch(() => setStates([])) }, [characterId])
+  const reload = () => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then(setStates) }
   const addState = async () => { if (!form.chapter || !form.summary) return; await api.post('/char-states', { ...form, character_id: characterId, chapter: Number(form.chapter) }); setAdding(false); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' }); reload() }
-  const querySnapshot = async () => { if (!snapCh) return; const r = await api.get(`/char-state-at?character_id=${encodeURIComponent(characterId)}&chapter=${snapCh}`); setSnapshot(await r.json()) }
+  const querySnapshot = async () => { if (!snapCh) return; const data = await api.get(`/char-state-at?character_id=${encodeURIComponent(characterId)}&chapter=${snapCh}`); setSnapshot(data) }
   if (!states) return <div className="mt-4 text-[12px] text-faint/50">加载中...</div>
   return (
     <div className="mt-4">
@@ -212,7 +212,7 @@ function DynamicTimeline({ characterId }) {
 // ═══ DynamicRelations ═══
 function DynamicRelations({ characterId }) {
   const [relations, setRelations] = useState(null)
-  useEffect(() => { api.get('/character-relations?chapter=9999').then((r) => r.json()).then((all) => { setRelations((all || []).filter((r) => r.src === characterId || r.dst === characterId)) }).catch(() => setRelations([])) }, [characterId])
+  useEffect(() => { api.get('/character-relations?chapter=9999').then((all) => { setRelations((all || []).filter((r) => r.src === characterId || r.dst === characterId)) }).catch(() => setRelations([])) }, [characterId])
   if (!relations) return null
   return (
     <div className="mt-4">
@@ -383,12 +383,12 @@ export function CodexView({ work }) {
     Promise.all([
       api.entities().then((es) => ({ chars: es.filter((e) => e.kind === 'character'), places: es.filter((e) => e.kind === 'place') })),
       api.facts(99999).then((f) => ({ facts: f })),
-      api.get('/world-rules').then((r) => r.json()).catch(() => []),
-      api.get('/factions').then((r) => r.json()).catch(() => []),
-      api.get('/items').then((r) => r.json()).catch(() => []),
-      api.get('/terms').then((r) => r.json()).catch(() => []),
-      api.get('/setting-completeness').then((r) => r.json()).catch(() => null),
-      api.get('/character-relations?chapter=9999').then((r) => r.json()).catch(() => []),
+      api.get('/world-rules').catch(() => []),
+      api.get('/factions').catch(() => []),
+      api.get('/items').catch(() => []),
+      api.get('/terms').catch(() => []),
+      api.get('/setting-completeness').catch(() => null),
+      api.get('/character-relations?chapter=9999').catch(() => []),
       api.promises().catch(() => []), api.motifs().catch(() => []),
     ]).then(([ent, fac, rules, factions, items, terms, comp, rels, promises, motifs]) => {
       setData({ ...ent, ...fac, rules, factions, items, terms, completeness: comp, relations: rels, promises, motifs }); setLoading(false)
