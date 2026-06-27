@@ -677,28 +677,6 @@ class SurrealStore:
             "法器/法术首次出场须四件套:专名+工艺工序+术数+义理(至少齐3项)",
             "范例:灵龙镇煞钉·阳铜黑狗血七七四十九天炼成·三百六十支围太极阵·画井为狱镇魂锁煞")
 
-    # --- 声音库(per-character 4类独白 + 版本)---
-    def add_voice_sample(self, character: str, kind: str, text: str, since_chapter: int = 0) -> None:
-        self._execute_write(
-            "CREATE voice_sample SET character=$c, kind=$k, text=$t, since_chapter=$s",
-            {"c": character, "k": kind, "t": text, "s": since_chapter})
-
-    def list_voice_samples(self, character: str) -> list[dict]:
-        return self._query(
-            "SELECT meta::id(id) AS id, character, kind, text, since_chapter "
-            "FROM voice_sample WHERE character=$c ORDER BY since_chapter", {"c": character})
-
-    def latest_voice_samples(self, character: str, upto_chapter: int) -> dict:
-        """时间门:每 kind 取 since_chapter≤upto 的最新版(不剧透未来版本)。返回 {kind: text}。"""
-        rows = self._query(
-            "SELECT kind, text, since_chapter FROM voice_sample "
-            "WHERE character=$c AND since_chapter <= $u ORDER BY since_chapter",
-            {"c": character, "u": upto_chapter})
-        out: dict = {}
-        for r in rows:                 # 升序遍历,后覆盖前 → 各 kind 最新版
-            out[r["kind"]] = r["text"]
-        return out
-
     # --- 声音进化标记 ---
     def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
         # trigger_chapter 与 seq 同义(021 起的字段重命名遗留)。两者都写:
@@ -815,17 +793,25 @@ class SurrealStore:
 
     # --- 北极星(作品意图,单例)---
     def get_intent(self) -> dict:
-        rows = self._query("SELECT reader_feeling, emotional_arc, red_lines FROM intent:main")
+        rows = self._query(
+            "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold FROM intent:main")
         r = rows[0] if rows else {}
-        return {"reader_feeling": r.get("reader_feeling", ""), "emotional_arc": r.get("emotional_arc", ""),
-                "red_lines": r.get("red_lines", "")}
+        result = {"reader_feeling": r.get("reader_feeling", ""),
+                  "emotional_arc": r.get("emotional_arc", ""),
+                  "red_lines": r.get("red_lines", "")}
+        if r.get("overdue_threshold") is not None:
+            result["overdue_threshold"] = r["overdue_threshold"]
+        return result
 
     def set_intent(self, fields: dict) -> None:
-        self._execute_write("UPSERT intent:main CONTENT $c", {"c": {
+        content: dict = {
             "reader_feeling": fields.get("reader_feeling", ""),
             "emotional_arc": fields.get("emotional_arc", ""),
             "red_lines": fields.get("red_lines", ""),
-        }})
+        }
+        if fields.get("overdue_threshold") is not None:
+            content["overdue_threshold"] = fields["overdue_threshold"]
+        self._execute_write("UPSERT intent:main CONTENT $c", {"c": content})
 
     def graph(self, chapter: int | None = None) -> dict:
         """知识图谱:角色/命题节点 + knows 边(谁知道什么)。chapter 给定则只到该章。
@@ -856,9 +842,11 @@ class SurrealStore:
         return int(max(vals)) if vals else 0
 
     def events_at(self, chapter: int) -> list[Event]:
-        """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。"""
+        """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。
+        P3-e1 Fix 3: 读回 location / preconditions(之前写入后不回传,write-into-the-void)。"""
         rows = self._query(
             "SELECT meta::id(id) AS local, event_type, etype, story_chapter, valid_from, motivated_by_goal, "
+            "  location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
@@ -870,9 +858,17 @@ class SurrealStore:
             causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
             etype = r.get("event_type") or r.get("etype") or ""
             story_chapter = r.get("story_chapter") if r.get("story_chapter") is not None else r.get("valid_from", 0)
+            # location 存储为 RecordID(place,x) → 回传为 "place:x" 字符串
+            raw_loc = r.get("location")
+            if raw_loc is not None:
+                loc_str = str(raw_loc) if not isinstance(raw_loc, str) else raw_loc
+            else:
+                loc_str = None
             out.append(Event(f"ev:{r['local']}", etype,
                              participants=participants,
+                             location=loc_str,
                              story_time=story_chapter,
+                             preconditions=r.get("preconditions") or [],
                              effects=effects,
                              causal_in=causal_in,
                              motivated_by_goal=r.get("motivated_by_goal")))

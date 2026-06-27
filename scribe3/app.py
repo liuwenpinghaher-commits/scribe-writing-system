@@ -31,6 +31,9 @@ from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
 _CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
+
+# P3-e1 Fix 1: overdue 阈值单源——模块常量(前端从 /quality 消费,不重算)
+OVERDUE_SLACK = 3
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _CORS.split(",") if o.strip()],
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
@@ -213,7 +216,17 @@ def recall(q: str, k: int = Query(default=5, ge=1, le=50), work: str = "main"):
 
 @app.get("/promises")
 def promises(work: str = "main"):
-    return _store_for(work).list_promises()
+    """P3-e1 Fix 1: 每条 promise 携带 overdue 字段(backend 单源,前端直读)。"""
+    st = _store_for(work)
+    proms = st.list_promises()
+    mc = st.max_chapter()
+    intent = st.get_intent()
+    slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
+    for p in proms:
+        p["overdue"] = (p["status"] == "open"
+                        and p.get("kind") != "red_herring"
+                        and p["setup_chapter"] + slack < mc)
+    return proms
 
 
 @app.get("/motifs")
@@ -563,24 +576,6 @@ def del_motif(mid: str, work: str = "main"):
     return {"ok": True}
 
 
-class VoiceIn(BaseModel):
-    character: str
-    voice_kind: str
-    text: str
-    since_chapter: int = 0
-
-
-@app.post("/voice")
-def add_voice(v: VoiceIn, work: str = "main"):
-    _store_for(work).add_voice_sample(v.character, v.voice_kind, v.text, v.since_chapter)
-    return {"ok": True}
-
-
-@app.get("/voice")
-def get_voice(character: str, work: str = "main"):
-    return _store_for(work).list_voice_samples(character)
-
-
 @app.get("/voice-flags")
 def voice_flags(work: str = "main"):
     return _store_for(work).list_voice_flags("open")
@@ -601,7 +596,9 @@ def graph(chapter: int | None = None, work: str = "main"):
 
 @app.get("/quality")
 def quality(work: str = "main"):
-    """质量仪表盘聚合:每章 字数/双层QC问题/因果违规 + 伏笔状态。"""
+    """质量仪表盘聚合:每章 字数/双层QC问题/因果违规 + 伏笔状态。
+    P3-e1 Fix 1: 使用 OVERDUE_SLACK 模块常量(唯一真源),支持 intent.overdue_threshold 覆盖;
+    foreshadow.promises 含每条 promise 的 overdue 字段,前端直读,不重算。"""
     from scribe3.critique import quality_flags
     st = _store_for(work)
     per = []
@@ -617,10 +614,24 @@ def quality(work: str = "main"):
         })
     proms = st.list_promises()
     mc = st.max_chapter()
+    # 单源阈值:intent 可覆盖 OVERDUE_SLACK(per-work 配置)
+    intent = st.get_intent()
+    slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
+    prom_list = []
+    for p in proms:
+        is_overdue = (p["status"] == "open"
+                      and p.get("kind") != "red_herring"
+                      and p["setup_chapter"] + slack < mc)
+        prom_list.append({
+            "id": p.get("id"), "text": p.get("text", ""),
+            "setup_chapter": p.get("setup_chapter"), "status": p["status"],
+            "kind": p.get("kind"), "overdue": is_overdue,
+        })
     fore = {
         "open": sum(1 for p in proms if p["status"] == "open"),
         "closed": sum(1 for p in proms if p["status"] == "closed"),
-        "overdue": sum(1 for p in proms if p["status"] == "open" and p.get("kind") != "red_herring" and p["setup_chapter"] + 3 < mc),
+        "overdue": sum(1 for p in prom_list if p["overdue"]),
+        "promises": prom_list,
     }
     return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per)}
 
@@ -882,8 +893,16 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
                 if voc_str:
                     line += f" 词汇倾向:{voc_str}。"
             rl = vp.get("reference_lines")
-            if rl and isinstance(rl, list):
-                line += f" 参考语感:{'｜'.join(str(x) for x in rl[:2] if x)}"
+            # P3-e1 Fix 2: reference_lines schema 是 object 但消费时须兼容 dict/list 两种形状
+            if rl:
+                if isinstance(rl, dict):
+                    rl_items = list(rl.values())[:2]
+                elif isinstance(rl, list):
+                    rl_items = rl[:2]
+                else:
+                    rl_items = []
+                if rl_items:
+                    line += f" 参考语感:{'｜'.join(str(x) for x in rl_items if x)}"
             parts.append(line)
 
     # 对白声音速记——所有有 profile 的角色,各自对白在声,别串味

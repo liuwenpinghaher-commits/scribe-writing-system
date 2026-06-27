@@ -121,7 +121,9 @@ export function WriteLayout({ work }) {
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
   const openProm = promises.filter((p) => p.status === 'open')
-  const overdue = (p) => p.status === 'open' && p.kind !== 'red_herring' && p.setup_chapter + 3 < chapter
+  // P3-e1 Fix 1: 单源 overdue — 读 backend 预判断的 overdue 字段,不在前端重算阈值
+  // (backend 用 OVERDUE_SLACK 常量 + intent.overdue_threshold 覆盖,保证全局一致)
+  const overdue = (p) => Boolean(p.overdue)
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
 
   const persist = async (text) => {

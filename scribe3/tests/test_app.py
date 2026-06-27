@@ -204,17 +204,6 @@ def test_editor_no_full_motif_dump(store):
     assert isinstance(sysmsg, str) and len(sysmsg) > 0
 
 
-def test_voice_rest(store):
-    import scribe3.app as A
-    A.set_store(store)
-    from fastapi.testclient import TestClient
-    client = TestClient(A.app)
-    r = client.post("/voice?work=main",
-                    json={"character": "role:焦三", "voice_kind": "pressure", "text": "声细如蚊", "since_chapter": 1})
-    assert r.status_code == 200
-    got = client.get("/voice?character=role:焦三&work=main").json()
-    assert any(v["kind"] == "pressure" and v["text"] == "声细如蚊" for v in got)
-
 
 def test_checkpoint_and_versions(store):
     c = _client(store)
@@ -570,6 +559,96 @@ def test_faction_status_writable(store):
     assert r.status_code == 200, f"POST /factions 应返回 200: {r.text}"
     f = next(x for x in c.get("/factions").json() if x["name"] == "覆灭门")
     assert f["status"] == "dissolved", f"status 应写入 dissolved,实际: {f.get('status')}"
+
+
+# ===== P3-e1 Fix 1: overdue 阈值单源 + per-work 可配 =====
+
+def test_quality_overdue_uses_module_constant(store):
+    """Fix 1: /quality 使用模块常量 OVERDUE_SLACK 而非魔数 3。
+    验证:每条 promise 的 overdue 状态等于 backend 判断,不需前端重算。"""
+    import scribe3.app as A
+    # OVERDUE_SLACK 应是一个正整数常量
+    assert hasattr(A, "OVERDUE_SLACK"), "app.py 应定义 OVERDUE_SLACK 模块常量"
+    assert isinstance(A.OVERDUE_SLACK, int) and A.OVERDUE_SLACK > 0
+
+    # /quality foreshadow.promises 每项应含 overdue 字段(backend 预判断)
+    store.plant_promise("伏笔A", setup_chapter=1, kind="promise")
+    store.add_event(Event("ev:test_overdue", "action", story_time=1 + A.OVERDUE_SLACK + 1))
+    c = _client(store)
+    q = c.get("/quality").json()
+    proms = q["foreshadow"].get("promises", [])
+    assert proms, "foreshadow.promises 应包含伏笔列表"
+    p = proms[0]
+    assert "overdue" in p, f"每条 promise 应含 overdue 字段: {p}"
+    assert p["overdue"] is True, f"setup_chapter=1 且 max_ch>{1+A.OVERDUE_SLACK} 时应标 overdue=True: {p}"
+
+
+def test_quality_overdue_intent_override(store):
+    """Fix 1: intent 设置 overdue_threshold 时覆盖默认 OVERDUE_SLACK。"""
+    import scribe3.app as A
+    # 设置 intent.overdue_threshold = 10(宽松)
+    store.set_intent({"reader_feeling": "", "emotional_arc": "", "red_lines": "",
+                      "overdue_threshold": 10})
+    store.plant_promise("宽松伏笔", setup_chapter=1, kind="promise")
+    # max_chapter = 1+3+1 = 5,远小于 threshold=10 → 不应超期
+    store.add_event(Event("ev:ov2", "action", story_time=5))
+    c = _client(store)
+    q = c.get("/quality").json()
+    proms = q["foreshadow"].get("promises", [])
+    p = next((x for x in proms if "宽松" in x.get("text", "")), None)
+    assert p is not None
+    assert p["overdue"] is False, f"threshold=10 时 max_ch=5 不应超期: {p}"
+
+
+# ===== P3-e1 Fix 2: reference_lines 类型对齐 =====
+
+def test_voice_anchor_block_reference_lines_dict(store):
+    """Fix 2: reference_lines 为 dict 时 _voice_anchor_block 仍能提取并注入参考语感。
+    修复前: isinstance(rl, list) → dict 时永远跳过,参考语感不出现。
+    修复后: 同时处理 dict 和 list 形状。"""
+    store.set_voice_profile("role:戊", {
+        "style_summary": "字字珠玑",
+        "reference_lines": {"line1": "此去经年", "line2": "更难消几番风雨"},
+    })
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:戊")
+    assert "参考语感" in block, "reference_lines 为 dict 时应出现「参考语感」"
+    assert "此去经年" in block or "更难消" in block, f"dict 中的 reference_lines 应进入 block: {block!r}"
+
+
+# ===== P3-e1 Fix 3: event.location / preconditions 读回 =====
+
+def test_events_at_returns_location_and_preconditions(store):
+    """Fix 3: events_at 应返回 location 和 preconditions 字段(写入后可读回)。
+    修复前: SELECT 不含这两列 → write-into-the-void。
+    修复后: SELECT location, preconditions 均回传。"""
+    from scribe3.ontology import Event
+    ev = Event("ev:loctest", "移动", story_time=3,
+               location="place:铜炉山",
+               preconditions=["前置条件A", "前置条件B"])
+    store.add_event(ev)
+    evs = store.events_at(3)
+    target = next((e for e in evs if "loctest" in e.id), None)
+    assert target is not None, "events_at 应能读回刚写入的事件"
+    assert target.location == "place:铜炉山", f"location 应读回: {target.location!r}"
+    assert target.preconditions == ["前置条件A", "前置条件B"], f"preconditions 应读回: {target.preconditions!r}"
+
+
+# ===== P3-e1 Fix 4: voice_sample 删除验证 =====
+
+def test_voice_sample_table_removed(store):
+    """Fix 4: voice_sample 表应已不存在(039 迁移已 REMOVE)。"""
+    db_info = store._query("INFO FOR DB")
+    tables = (db_info.get("tables") if isinstance(db_info, dict) else {}) or {}
+    assert "voice_sample" not in tables, f"voice_sample 表应已被删除: {list(tables)}"
+
+
+def test_voice_post_endpoint_removed():
+    """Fix 4: /voice POST 端点已删除,路由不应存在。"""
+    import scribe3.app as A
+    routes = {(m, r.path) for r in A.app.routes for m in (getattr(r, "methods", None) or [])}
+    assert ("POST", "/voice") not in routes, "/voice POST 应已删除"
+    assert ("GET", "/voice") not in routes, "/voice GET 应已删除"
 
 
 def test_world_rule_capabilities_writable(store):

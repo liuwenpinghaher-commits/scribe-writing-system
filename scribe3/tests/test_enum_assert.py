@@ -69,24 +69,6 @@ class TestPromiseStatusAssert:
             )
 
 
-class TestVoiceKindAssert:
-    """voice_sample.kind ASSERT IN ['free','pressure','relation','narration']"""
-
-    def test_dirty_voice_kind_rejected(self, store):
-        store.add_entity(Entity("role:甲", "character", "甲"))
-        with pytest.raises(Exception):
-            store._db.query(
-                "CREATE voice_sample SET character='role:甲', "
-                "kind='monologue', text='x', since_chapter=1"
-            )
-
-    def test_free_accepted(self, store):
-        store.add_entity(Entity("role:甲", "character", "甲"))
-        store._db.query(
-            "CREATE voice_sample SET character='role:甲', "
-            "kind='free', text='x', since_chapter=1"
-        )
-
 
 class TestEnumParity:
     """Python Enum 成员集 == surql ASSERT 域(防两层漂移)"""
