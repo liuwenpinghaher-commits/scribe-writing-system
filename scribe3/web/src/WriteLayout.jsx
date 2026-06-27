@@ -5,6 +5,7 @@ import {
   BookText, LayoutList, Flame, Sparkles, Eye,
 } from 'lucide-react'
 import { api } from './api'
+import { verifyIssues } from './verifyIssues.js'
 import { Shell } from './shell'
 import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
 import { ProseEditor } from './editor/ProseEditor'
@@ -249,7 +250,7 @@ export function WriteLayout({ work }) {
     { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
       <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
     ) },
-    { key: 'verify', label: '校验 · 双层QC', icon: ShieldCheck, badge: qcN + leaks + causal.length, render: () => (
+    { key: 'verify', label: '校验 · 双层QC', icon: ShieldCheck, badge: verifyIssues({ leaks, qcN, causal: causal.length }), render: () => (
       <div>
         <SectionTitle icon={ShieldCheck}>软校验 · 不挡接受</SectionTitle>
         {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
