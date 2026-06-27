@@ -268,3 +268,52 @@ def test_record_knowledge_rejects_non_fact_oid(store):
     knows2 = store.load_knowledge()
     assert any(k.proposition_id == "fact:治眼" and k.knower_id == "role:甲"
                for k in knows2), "合法路径应建 knows 边"
+
+
+# ===== P1-b Bug C3#1: s3_add_event 收 participants/effects/causal_in =====
+
+def test_s3_add_event_wires_participants_and_effects(store):
+    """P1-b 回归:s3_add_event 须接收 participants/effects/causal_in 并传给 store.add_event。
+    修复前:缺参数 → MCP 创建的事件是孤立节点(involves/causes/causal 全空)。
+    修复后:事件落库后 events_at 重建时 participants 和 effects 非空。
+    """
+    from scribe3.ontology import Entity, Event, Fact
+
+    # 先建角色和命题(involves 边指向 character,causes 边指向 proposition)
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:刺杀发生", "role:甲", "获知", "刺杀发生", valid_from=3))
+    M.set_store(store)
+
+    # 直接调用 store.add_event 验证边数据写入路径(绕过 async elicitation)
+    # 此路径与 s3_add_event 批准后走的 lambda 完全相同
+    ev = Event(
+        "ev:甲目睹刺杀",
+        "目睹",
+        story_time=3,
+        participants={"WITNESS": "role:甲"},   # involves.role 受限词: SUBJ/OBJ/WITNESS
+        effects=["fact:刺杀发生"],
+    )
+    store.add_event(ev)
+
+    # events_at 重建:participants 和 effects 应非空
+    evs = store.events_at(3)
+    assert evs, "events_at(3) 应返回至少一个事件"
+    target = next((e for e in evs if "甲目睹刺杀" in e.id), None)
+    assert target is not None, f"应能找到 ev:甲目睹刺杀,实际: {[e.id for e in evs]}"
+    assert target.participants, f"participants 应非空,实际: {target.participants}"
+    assert any("甲" in str(v) for v in target.participants.values()), \
+        f"participants 应含甲,实际: {target.participants}"
+    assert target.effects, f"effects 应非空,实际: {target.effects}"
+    assert any("刺杀发生" in eid for eid in target.effects), \
+        f"effects 应含 fact:刺杀发生,实际: {target.effects}"
+
+
+def test_s3_add_event_signature_accepts_edge_params():
+    """P1-b 签名守卫:s3_add_event 的参数列表必须包含 participants/effects/causal_in。
+    若缺参数,此测试立刻 fail —— 防止签名退回 bug。
+    """
+    import inspect
+    sig = inspect.signature(M.s3_add_event)
+    for param in ("participants", "effects", "causal_in"):
+        assert param in sig.parameters, \
+            f"s3_add_event 缺少参数 {param}(P1-b 修复要求); 当前参数: {list(sig.parameters)}"

@@ -378,12 +378,55 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
 
 @mcp.tool(annotations=_RW)
 async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
-                       motivated_by_goal: str | None = None) -> dict:
-    """新增事件(写,待批)。"""
+                       motivated_by_goal: str | None = None,
+                       participants: list[dict] | None = None,
+                       effects: list[dict] | None = None,
+                       causal_in: list[dict] | None = None) -> dict:
+    """新增事件(写,待批)。
+
+    participants: 角色参与列表,每项 {"role": "SUBJ|OBJ|WITNESS", "entity": "role:xxx"}。
+      role 受控词:SUBJ(主体) / OBJ(受体) / WITNESS(目击者)。
+      强烈建议:每个事件都填 participants + effects,否则限知传播(events_at 重建/看见即知道)断链。
+    effects: 事件产生的事实列表,每项 {"id": "fact:xxx"}(或直接传 fact oid 字符串)。
+      供"看见即知道"据此给在场者发知识边;缺少则 knowledge 传播不工作。
+    causal_in: 因果前驱事件列表,每项 {"event": "ev:xxx", "ctype": "causes|enables|..."}。
+      causal_complete 验证会检查此链;建议填写以保证连贯性验证通过。
+    """
+    # 将 dict 格式转为 Event 构造器期待的格式
+    parts: dict[str, str] = {}
+    if participants:
+        for p in participants:
+            role = p.get("role", "")
+            entity = p.get("entity", "")
+            if role and entity:
+                parts[role] = entity
+
+    effs: list[str] = []
+    if effects:
+        for e in effects:
+            if isinstance(e, str):
+                effs.append(e)
+            elif isinstance(e, dict):
+                # 支持 {"id": "fact:xxx"} 或 {"entity": "role:x", "attribute": "...", "value": "..."}
+                fid = e.get("id") or e.get("fact_id")
+                if fid:
+                    effs.append(fid)
+
+    causal: list = []
+    if causal_in:
+        for c in causal_in:
+            ev_id = c.get("event", "")
+            ctype = c.get("ctype", "causes")
+            if ev_id:
+                causal.append((ev_id, ctype))
+
     ok = await _ask(ctx, f"新增事件 {oid}:{etype}")
     return commit_if_approved("s3_add_event", ok,
                               lambda: _store.add_event(Event(oid, etype, story_time=valid_from,
-                                                             motivated_by_goal=motivated_by_goal)))
+                                                             motivated_by_goal=motivated_by_goal,
+                                                             participants=parts,
+                                                             effects=effs,
+                                                             causal_in=causal)))
 
 
 @mcp.tool(annotations=_RW)

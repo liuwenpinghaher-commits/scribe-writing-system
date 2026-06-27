@@ -774,9 +774,15 @@ class SurrealStore:
         return {"nodes": chars + props, "edges": edges}
 
     def max_chapter(self) -> int:
-        """有事件的最大章号(体检确定扫描范围);无事件→0。"""
-        rows = self._query("SELECT valid_from FROM event ORDER BY valid_from DESC LIMIT 1")
-        return rows[0]["valid_from"] if rows else 0
+        """有事件的最大章号(体检确定扫描范围);无事件→0。
+        读 MAX(story_chapter, valid_from):事件有双写字段,外部/ingest 路径可能只写
+        story_chapter(valid_from=0),只查 valid_from 会遗漏此类事件。"""
+        rows = self._query(
+            "SELECT math::max([story_chapter ?? 0, valid_from ?? 0]) AS ch FROM event")
+        if not rows:
+            return 0
+        vals = [r["ch"] for r in rows if r.get("ch") is not None]
+        return int(max(vals)) if vals else 0
 
     def events_at(self, chapter: int) -> list[Event]:
         """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。"""

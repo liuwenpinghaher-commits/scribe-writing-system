@@ -178,6 +178,34 @@ def test_char_state_after_state_snapshot(store):
     assert "御剑" in str(snap["abilities"]), f"快照应含 after_state 中的御剑: {snap}"
 
 
+# --- P1-b Bug C3#3: max_chapter 读 story_chapter 真源 ---
+
+def test_max_chapter_reads_story_chapter(store):
+    """P1-b 回归:max_chapter 须读 story_chapter(双写真源),不能只查 valid_from。
+    修复前:只查 valid_from → 外部/ingest 路径只写 story_chapter 不写 valid_from 的事件被遗漏。
+    修复后:取 MAX(story_chapter, valid_from) → 正确返回最大章号。
+
+    直接用 _execute_write 绕过 add_event 插入「只有 story_chapter、valid_from=NONE」的事件
+    来模拟 ingest/外部写入路径,这正是只查 valid_from 时会遗漏的场景。
+    """
+    # 通过 add_event 正常路径写一个章号较小的事件(valid_from=story_chapter=5)
+    store.add_event(Event("ev:普通事件", "普通", story_time=5))
+    assert store.max_chapter() == 5
+
+    # 直接写入 story_chapter=17、valid_from=0 的事件(模拟 ingest/外部路径:真实章号在 story_chapter)
+    # valid_from=0 是"未设置"语义;只查 valid_from 时该事件最大章号仍为 5,不会是 17
+    store._execute_write(
+        "CREATE type::record('event', 'only_story_ch') SET etype='ingest写入', event_type='ingest写入', "
+        "story_chapter=17, valid_from=0, motivated_by_goal=NONE, location=NONE, preconditions=[]",
+        {})
+
+    result = store.max_chapter()
+    assert result >= 17, (
+        f"max_chapter 应 >= 17(story_chapter=17,valid_from=0 的事件),实际: {result}。"
+        f"Bug:只查 valid_from 时该事件被遗漏。"
+    )
+
+
 def test_char_state_after_state_relation_snapshot(store):
     """P2 F2 补充:relation 类型 after_state 应进入 relations 快照。"""
     store.add_char_state(character_id="role:乙", chapter=2, change_type="relation",
