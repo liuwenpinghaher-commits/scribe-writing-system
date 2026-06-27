@@ -74,6 +74,13 @@ export const api = {
   qc: (seq) => j(`/qc?seq=${seq}`),
   saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
+  // 命名存档点 + 护栏校验(改造③④)
+  checkpoint: (seq, prose, label = '', kind = 'checkpoint', qc = {}) =>
+    post(`/checkpoint?seq=${seq}`, { prose, label, kind, qc }),
+  chapterVersions: (seq) => j(`/chapter-versions?seq=${seq}`),
+  chapterVersion: (vid) => j('/chapter-version/' + enc(vid)),
+  checkProse: (seq, prose, focalizer = '') =>
+    post(`/check?seq=${seq}`, { prose, focalizer }),
   live: (onChange) => {
     const es = new EventSource(BASE + ww('/live'))
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
