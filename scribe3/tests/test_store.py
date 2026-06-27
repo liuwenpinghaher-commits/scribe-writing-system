@@ -46,3 +46,12 @@ def test_causal_complete_runs_against_store(store):
     assert causal_complete(store, 1) == [], "空库无事件→无违规"
     store.add_event(Event("ev:逃", "逃", story_time=1))   # 无 motivated_by_goal
     assert any(v.event_id == "ev:逃" for v in causal_complete(store, 1)), "应flag缺目标"
+
+
+def test_chapter_version_table_exists(store):
+    # 迁移已在 store 夹具的 apply_schema 中跑过;直接 CREATE 应成功
+    store._execute_write(
+        "CREATE chapter_version SET seq=1, prose='初稿', label='测试', "
+        "kind='checkpoint', qc={}, created_at=time::now()", {})
+    rows = store._query("SELECT seq, label, kind FROM chapter_version WHERE seq=1")
+    assert rows and rows[0]["label"] == "测试" and rows[0]["kind"] == "checkpoint"
