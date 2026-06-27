@@ -79,6 +79,83 @@ def test_oversaturation_emo_label():
     assert any(h["kind"] == "emo_label" for h in hits)
 
 
+from scribe3.critique import distinctive_phrases, find_cross_chapter_repetitions
+
+
+def test_cross_chapter_repetition_catches_verbatim_reuse():
+    """跨章逐字搬运:本章复用前文 ≥8 字独特短语 → 被抓(逐章 QC 的盲区)。"""
+    ch1 = "胡不为惨叫一声，那钉尾露在外面，像一截从肉里长出来的骨头，嗡鸣声越来越响。"
+    ch2 = "她站在门口。胡不为惨叫一声，钉尾露在外面，像一截白骨。夜色很沉。"
+    hits = find_cross_chapter_repetitions(ch2, [ch1], n=8)
+    phrases = [h["phrase"] for h in hits]
+    assert hits, "应抓到跨章逐字复读"
+    assert any("胡不为惨叫一声" in p for p in phrases)
+    assert all(h["prior_chapters"] == [0] for h in hits), "命中前文第0章"
+
+
+def test_cross_chapter_repetition_clean_when_no_reuse():
+    """无逐字搬运 → 空(不误报近义改写)。"""
+    ch1 = "老槐树下，单嫣望着那枚钉，心知封印将松。"
+    ch2 = "暴雨砸在奈何谷，胡不为提着灯笼，脚下泥泞难行。"
+    assert find_cross_chapter_repetitions(ch2, [ch1], n=8) == []
+
+
+def test_cross_chapter_repetition_empty_priors():
+    """首章无前文 → 空(不抛)。"""
+    assert find_cross_chapter_repetitions("任意正文一段话。", [], n=8) == []
+
+
+def test_distinctive_phrases_extracts_avoid_list():
+    """抽独特措辞供'避免清单':返回若干 ≥8 字、含中文短语,且都是原文的逐字片段。"""
+    text = "七月正午的阳光泼在地上，像熔化的铜汁，唯独这棵三百年的老槐撑开一团浓绿。"
+    cleaned = "".join(text.split())
+    phrases = distinctive_phrases(text, n=8, top=10)
+    assert phrases and all(len(p) == 8 for p in phrases)
+    assert all(p in cleaned for p in phrases), "每条都是原文逐字片段"
+    # 这些片段拼接能复原正文主体(非重叠窗口覆盖)
+    assert "".join(phrases) in cleaned
+
+
+def test_distinctive_phrases_allow_filters_motifs():
+    """母题/专名经 allow 白名单排除,不进避免清单(否则逼模型回避母题伤质感)。"""
+    text = "他攥着三百六十枚镇煞钉，走进了奈何谷深处的石室墓穴。"
+    phrases = distinctive_phrases(text, n=8, top=10, allow={"镇煞钉", "奈何谷"})
+    assert all("镇煞钉" not in p and "奈何谷" not in p for p in phrases)
+
+
+from scribe3.critique import cross_repetition_sentences, rewrite_cross_repetitions
+
+
+def test_cross_repetition_sentences_locates_offenders():
+    """落到句子粒度:含跨章复读短语的句子被定位为改写目标。"""
+    ch1 = "胡不为惨叫一声，钉尾露在外面，像一截白骨。"
+    ch2 = "夜色很沉。胡不为惨叫一声，钉尾露在外面，他踉跄后退。风穿过空院。"
+    tgts = cross_repetition_sentences(ch2, [ch1], n=8)
+    assert tgts, "应定位到犯规句"
+    assert any("胡不为惨叫一声" in t["sentence"] for t in tgts)
+    assert all("phrases" in t and t["phrases"] for t in tgts)
+
+
+def test_rewrite_cross_repetitions_with_fake_llm_reduces_reps():
+    """确定性事后改写:用假 LLM 把犯规句换成不雷同的句子 → 跨章复读降到 0。"""
+    ch1 = "胡不为惨叫一声，钉尾露在外面，像一截白骨。"
+    ch2 = "天黑了。胡不为惨叫一声，钉尾露在外面，他踉跄后退。"
+    def fake_complete(prompt, system=None):
+        return "他闷哼着缩起手，那截铁器从血肉里探出，森森发白。"
+    res = rewrite_cross_repetitions(ch2, [ch1], fake_complete, n=8)
+    assert res["before"] > 0 and res["rewritten"] >= 1
+    assert res["after"] < res["before"], "改写后跨章复读应下降"
+
+
+def test_rewrite_cross_repetitions_noop_when_clean():
+    """无跨章复读 → 不调 LLM、原样返回。"""
+    called = []
+    def fake(p, s=None):
+        called.append(1); return "x"
+    res = rewrite_cross_repetitions("全新的一段话，毫无雷同。", ["前文完全不同的内容。"], fake, n=8)
+    assert res["rewritten"] == 0 and not called
+
+
 def test_oversaturation_clean_passes():
     """正常克制文本(含'好像/画像'等非比喻)不误报。"""
     text = ("胡不为把钉子收进怀里。雨砸在乱葬岗的烂泥上,溅起细点。"

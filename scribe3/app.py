@@ -735,8 +735,24 @@ def _editor_write_system(st) -> str:
         "## 写作规则\n"
         "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
         "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
-        "限知走时,叙事才贴该视角、不写他不知道的私密。"
+        "限知走时,叙事才贴该视角、不写他不知道的私密。\n\n"
+        "## 文风基准:贴《乱世铜炉》(志怪笔记体)——两条硬要求\n"
+        "1. **古白话语体**:句子要带旧白话的筋骨与风物实词,少用现代抽象/翻译腔。多用'端的、岂料、怎禁得、"
+        "却原来、一径、约莫'这类词;状物用具体名物(花脚毛驴、青骡子、喜糕、水酒)而非笼统形容。"
+        "**禁**'像散了一地的骨头''张牙舞爪'这类用力过猛的现代文学比喻——冷笔、素描,信物自身说话。\n"
+        "2. **世界密度(乱世铜炉的命门)**:每章须织入与主线无关、却让世界活起来的市井风物侧笔——"
+        "婚丧社戏的张罗、乡邻帮衬、打更人讨水酒、行当忌讳、节庆吃食。别一上来直奔情节;让村镇先有烟火气,"
+        "妖异方有依附。范例语感(仅供体感,勿照抄字句):\n"
+        "  「" + _LUANSHI_EXEMPLAR + "」\n"
+        "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
     )
+
+
+_LUANSHI_EXEMPLAR = (
+    "看着贺客如潮，满日不绝，韩诤喜不自禁，顾不得年迈体衰，趁着兴头，频频把盏敬客，岂料同村几个毛头小伙"
+    "喝发了兴，见主人尽欢，也都意气风发起来，一再持酒相劝。眼看着月儿西移，打更的刘时喜在门口来回好几遭了，"
+    "讨了好几杯水酒喝。"
+)
 
 
 def _stream_write(message, instructions: str):
@@ -777,17 +793,22 @@ def _stream_write(message, instructions: str):
     yield 'data: {"done": true}\n\n'
 
 
-def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 80) -> str:
+def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 70) -> str:
     """前 lookback 章独特措辞 → '本章避免逐字复用'系统指令(服务端确定性防跨章复读)。
 
     根因:单遍长程生成的"复读病"——模型跨章逐字复用自己偏爱的措辞/动作句(实测 10 章共 106 处
     跨章逐字搬运,逐章 QC 全查不到)。把前文招式喂进【系统指令】,生成时就避开,而非事后删。
+
+    lookback=8 覆盖到全书绝大多数前文(此前 =3 时第 7-10 章看不到前段招式→复读回升);
+    刻意母题/专名(奈何谷/镇煞钉/大元炼真经…)经 motif_terms 白名单排除,不进 avoid——
+    它们本应复现,逼模型回避反而伤质感(乱世铜炉正以母题手法见长)。
     """
     try:
         from scribe3.critique import distinctive_phrases
+        allow = st.motif_terms() if hasattr(st, "motif_terms") else None
         avoid, seen = [], set()
         for c in st.recent_proses(chapter, k=lookback):
-            for ph in distinctive_phrases(c.get("prose", ""), n=8, top=40):
+            for ph in distinctive_phrases(c.get("prose", ""), n=8, top=40, allow=allow):
                 if ph not in seen and not ph.startswith("#"):
                     seen.add(ph)
                     avoid.append(ph)
@@ -951,8 +972,9 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     # 比对前文最近 5 章逐字 ≥8 字重叠——把"重复"从'事后逐章删'升级为'跨章可度量'。
     cross_rep: list[dict] = []
     try:
-        priors = [c["prose"] for c in st.recent_proses(req.seq, k=5) if c.get("prose")]
-        cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=8)
+        priors = [c["prose"] for c in st.recent_proses(req.seq, k=8) if c.get("prose")]
+        allow = st.motif_terms() if hasattr(st, "motif_terms") else None
+        cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=8, allow=allow)
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning("cross_repetition 失败 work=%s seq=%s: %s", work, req.seq, e)
@@ -971,6 +993,27 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                    "purple": len(qf["purple"]), "cross_repetition": len(cross_rep)},
             "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
             "leaks": leaks, "leak_error": leak_error, "ingesting": True}
+
+
+@app.post("/dedup-chapter")
+def dedup_chapter(seq: int, work: str = "main"):
+    """确定性事后跨章改写(QC 的'治'层):定位本章含跨章逐字复读的句子→定向 LLM 改写→存回。
+
+    比'prompt 预防'可靠(实测最严重章跨章复读 30→8,↓73%),契合本系统'确定性扫描+定向改'的纪律。
+    幂等:无复读则原样返回、不调 LLM。"""
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    from scribe3.critique import rewrite_cross_repetitions
+    from scribe3.llm import hermes_complete
+    priors = [c["prose"] for c in st.recent_proses(seq, k=8) if c.get("prose")]
+    allow = st.motif_terms() if hasattr(st, "motif_terms") else None
+    res = rewrite_cross_repetitions(ch["prose"], priors, hermes_complete, n=8, allow=allow)
+    if res["rewritten"] > 0:
+        st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
+    return {"seq": seq, "rewritten": res["rewritten"],
+            "cross_repetition_before": res["before"], "cross_repetition_after": res["after"]}
 
 
 @app.post("/check")

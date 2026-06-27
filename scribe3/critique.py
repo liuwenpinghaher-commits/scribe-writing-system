@@ -29,6 +29,129 @@ def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -
     return [{"phrase": g, "count": c} for g, c in chosen[:top]]
 
 
+def _cjk_ngrams(text: str, n: int) -> set[str]:
+    """正文去空白后所有含中文的 n-gram 集合(用于跨文本逐字比对)。"""
+    s = re.sub(r"\s+", "", text or "")
+    return {s[i:i + n] for i in range(len(s) - n + 1)
+            if re.search(r"[一-鿿]", s[i:i + n]) and not _PUNCT_ONLY.match(s[i:i + n])}
+
+
+def _is_allowed(phrase: str, allow: set[str] | None) -> bool:
+    """phrase 是否属于"刻意母题/专名"白名单(含任一 allow 词即放行)。
+    乱世铜炉式母题(奈何谷/镇煞钉/大元炼真经/三百六十…)本应跨章复现,不算懒惰复读。"""
+    if not allow:
+        return False
+    return any(a and a in phrase for a in allow)
+
+
+def find_cross_chapter_repetitions(
+    text: str, prior_texts: list[str], n: int = 8, top: int = 30,
+    allow: set[str] | None = None,
+) -> list[dict]:
+    """新章中【逐字出现过在任一前文章节】的 ≥n 字独特子串(跨章复读)。
+
+    单遍长程生成的典型病:模型在第 N 章自然复用自己偏爱的措辞/意象,而逐章 `find_repetitions`
+    只扫单章内部、完全查不到这种跨章逐字搬运。这里把"新章 ∩ 前文"的逐字重叠揪出来——
+    这是把"重复"从'事后逐章删'升级为'可跨章度量、可在生成时预防'的关键检测原语。
+
+    allow:刻意母题/专名白名单——含其中任一词的短语放行(它们本应复现,不算懒惰复读),
+    使指标只反映"动作/句式的偷懒重打",更贴近乱世铜炉对母题手法的纵容。
+
+    返回去重叠后的最长代表短语 + 命中的前文章节序号(prior_idx,0-based)。
+    """
+    if not text or not prior_texts:
+        return []
+    new_grams = _cjk_ngrams(text, n)
+    if not new_grams:
+        return []
+    prior_grams: dict[str, list[int]] = {}
+    for idx, pt in enumerate(prior_texts):
+        for g in _cjk_ngrams(pt, n):
+            prior_grams.setdefault(g, []).append(idx)
+    hits = [(g, prior_grams[g]) for g in new_grams
+            if g in prior_grams and not _is_allowed(g, allow)]
+    # 去重叠:长串优先,被它包含的短串丢弃,保留最长代表。
+    hits.sort(key=lambda gv: (-len(gv[0]), gv[0]))
+    chosen: list[tuple[str, list[int]]] = []
+    for g, idxs in hits:
+        if any(g in cg for cg, _ in chosen):
+            continue
+        chosen.append((g, idxs))
+    return [{"phrase": g, "prior_chapters": idxs} for g, idxs in chosen[:top]]
+
+
+def distinctive_phrases(text: str, n: int = 8, top: int = 40,
+                        allow: set[str] | None = None) -> list[str]:
+    """从一章正文里抽"独特措辞/意象"短语(≥n 字、含中文、剔标点),供下一章生成时作'避免逐字复用'清单。
+
+    取每个起点的 n-gram 后做去重叠(保留较前出现的代表),再截断 top。这是源头预防的物料:
+    把前文已用过的招式喂进写作 prompt,让模型在【生成时】就避开,而不是事后再删。
+    allow:刻意母题/专名白名单——这些本应复现,不进"避免"清单(否则会逼模型回避母题、伤害质感)。
+    """
+    s = re.sub(r"\s+", "", text or "")
+    seen: list[str] = []
+    i = 0
+    while i <= len(s) - n:
+        g = s[i:i + n]
+        if re.search(r"[一-鿿]", g) and not _PUNCT_ONLY.match(g) and not _is_allowed(g, allow):
+            seen.append(g)
+            i += n  # 跳过整段,避免相邻重叠 n-gram 刷屏
+        else:
+            i += 1
+        if len(seen) >= top:
+            break
+    return seen
+
+
+def cross_repetition_sentences(text: str, prior_texts: list[str], n: int = 8,
+                               allow: set[str] | None = None) -> list[dict]:
+    """定位本章中含【跨章逐字复读短语】的句子(定向改写目标)。
+    与 find_cross_chapter_repetitions 同源,落到句子粒度。返回 [{sentence, phrases}]。"""
+    hits = find_cross_chapter_repetitions(text, prior_texts, n=n, allow=allow)
+    if not hits:
+        return []
+    phrases = [h["phrase"] for h in hits]
+    sents = [s for s in re.split(r"(?<=[。！？\n])", text or "") if s.strip()]
+    out: list[dict] = []
+    for s in sents:
+        cleaned = re.sub(r"\s+", "", s)
+        hit = [p for p in phrases if p in cleaned]
+        if hit:
+            out.append({"sentence": s.strip(), "phrases": hit})
+    return out
+
+
+def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
+                              n: int = 8, allow: set[str] | None = None) -> dict:
+    """确定性事后跨章改写——系统哲学:'prompt 规则治不了已生成文本,确定性扫描+定向[改]才拦得住'。
+
+    1) 确定性定位含跨章复读的句子;2) 逐句调 complete_fn 定向改写(换措辞/感官/句式,保意保限知);
+    3) 字符串替换回原文。比'prompt 预防'可靠:不依赖模型记住上百条禁用词,只精准改犯规句。
+    返回 {prose, rewritten, before, after}。complete_fn(prompt, system)->str。
+    """
+    before = len(find_cross_chapter_repetitions(text, prior_texts, n=n, allow=allow))
+    targets = cross_repetition_sentences(text, prior_texts, n=n, allow=allow)
+    if not targets:
+        return {"prose": text, "rewritten": 0, "before": before, "after": before}
+    new = text
+    done = 0
+    sys = ("你是小说定向改写器。只改写给你的这一句:保持原意、情节、限知视角、语气与上下文衔接完全不变,"
+           "但**换一种措辞/感官/句式**,使其不再与前文逐字雷同。只输出改写后的这一句正文,不要引号、不要解释。")
+    for t in targets:
+        sent = t["sentence"]
+        prompt = (f"前文已用过这些措辞(本句须避开逐字复用):{'、'.join(t['phrases'])}\n\n"
+                  f"待改写的句子:{sent}")
+        try:
+            rw = (complete_fn(prompt, sys) or "").strip().strip('"“”')
+        except Exception:
+            rw = ""
+        if rw and rw != sent and len(rw) >= 4:
+            new = new.replace(sent, rw, 1)
+            done += 1
+    after = len(find_cross_chapter_repetitions(new, prior_texts, n=n, allow=allow))
+    return {"prose": new, "rewritten": done, "before": before, "after": after}
+
+
 _EDGE = re.compile(r'^[\s"\'“”‘’「」『』,，、:：;；…—]+|[\s"\'“”‘’「」『』,，、:：;；…—]+$')
 _HAS_CJK = re.compile(r'[一-鿿]')
 

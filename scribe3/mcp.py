@@ -232,6 +232,57 @@ def s3_qc_chapter(seq: int) -> dict:
 
 
 @mcp.tool(annotations=_RO)
+def s3_recent_phrases(chapter: int, lookback: int = 3, top: int = 40) -> dict:
+    """【写本章前必调】返回前 lookback 章已用过的独特措辞/意象短语清单——生成时**逐字避开**。
+
+    根因:单遍长程生成的"复读病"——模型跨章自然复用自己偏爱的句式/意象(实测第2章逐字搬运
+    第1章 14 个 ≥8 字短语,如「胡不为惨叫一声」「嗡鸣声越来越响」「要从嗓子眼里蹦出来」),
+    而逐章 QC 只扫单章查不到。把前文招式喂进 prompt,在【生成时】就换一种写法,而非事后再删。
+    返回 {avoid: [短语...]}。本章动笔前调用,把 avoid 当"已用过、本章另寻表达"的硬约束。"""
+    from scribe3.critique import distinctive_phrases
+    priors = _store.recent_proses(chapter, k=lookback)
+    avoid: list[str] = []
+    seen: set[str] = set()
+    for c in priors:
+        for p in distinctive_phrases(c.get("prose", ""), n=8, top=top):
+            if p not in seen:
+                seen.add(p)
+                avoid.append(p)
+    return {"avoid": avoid[: top * lookback], "from_chapters": [c["seq"] for c in priors]}
+
+
+@mcp.tool(annotations=_RO)
+def s3_cross_repetition(seq: int, lookback: int = 8) -> dict:
+    """某章 vs 前 lookback 章的【跨章逐字复读】(≥8字重叠,剔母题/专名)。逐章 QC 的盲区,长程一致性硬指标。
+    返回 {count, phrases:[{phrase, prior_chapters}]};count>0 即本章有跨章搬运,调 s3_dedup_cross 改写。"""
+    from scribe3.critique import find_cross_chapter_repetitions
+    ch = _store.get_chapter(seq)
+    if not ch:
+        return {"count": 0, "phrases": []}
+    allow = _store.motif_terms() if hasattr(_store, "motif_terms") else None
+    priors = [c["prose"] for c in _store.recent_proses(seq, k=lookback) if c.get("prose")]
+    hits = find_cross_chapter_repetitions(ch.get("prose", ""), priors, n=8, allow=allow)
+    return {"count": len(hits), "phrases": hits[:20]}
+
+
+@mcp.tool(annotations=_RO)
+def s3_dedup_cross(seq: int, lookback: int = 8) -> dict:
+    """【QC治层】确定性事后跨章改写:定位本章含跨章逐字复读的句子→定向 LLM 改写→返回新正文。
+
+    比'prompt 预防'可靠(实测最严重章跨章复读 30→8,↓73%),契合本系统'确定性扫描+定向改'纪律。
+    返回 {prose, rewritten, before, after};rewritten>0 时用 s3_save_chapter(seq, prose) 存回。
+    幂等:无复读则原样返回、不调 LLM。"""
+    from scribe3.critique import rewrite_cross_repetitions
+    from scribe3.llm import hermes_complete
+    ch = _store.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        return {"prose": "", "rewritten": 0, "before": 0, "after": 0}
+    allow = _store.motif_terms() if hasattr(_store, "motif_terms") else None
+    priors = [c["prose"] for c in _store.recent_proses(seq, k=lookback) if c.get("prose")]
+    return rewrite_cross_repetitions(ch["prose"], priors, hermes_complete, n=8, allow=allow)
+
+
+@mcp.tool(annotations=_RO)
 def s3_emotion_palette(emotion: str = "") -> list | dict:
     """情感词典(引擎层,题材无关):空参返回15种情感名;带参返回该情感的身体信号/内部感觉。
     渲染某情感时查取 2-3 个身体信号编织进叙述(show 不 tell 的命门)。"""

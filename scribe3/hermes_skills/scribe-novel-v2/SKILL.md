@@ -27,9 +27,10 @@ metadata:
 0. **设定完整性检查(开写前)**:调 `s3_setting_completeness` 看缺什么。若缺世界规则/势力/角色深描,主动提出 2-3 个选项让作者决策(不是让作者填表,而是主编引导:"你的魔法体系有什么代价?""这个势力的公开面目和私下运作是什么?")。作者确认后用 `s3_add_world_rule`/`s3_add_faction` 落库。
 1. **设计 fabula**:把本章要发生的事建成 `s3_add_event`(挂 motivated_by_goal);相关状态建 `s3_add_fact`(私密底细置 `secret=true`)。
 2. **冻结知识帧**:选本场 **focalizer**(一场一 POV,不 head-hop)→ `s3_project_frame(focalizer, 章)` 看他此刻知道什么。这就是渲染能用的全部事实。
-3. **渲染 sjuzhet**:`s3_render_scene(focalizer, 章)`——只吃知识帧,帧外私密绝不出现。直接出正文,不要元叙述。
+2.5. **取前文已用措辞(防跨章复读·开写前必调)**:调 `s3_recent_phrases(章)` 拿前 3 章的独特措辞/意象清单(`avoid`)。**本章生成时逐字避开**这些句式与意象——单遍长程生成的"复读病"是模型跨章复用自己偏爱的招式(实测第2章逐字搬运第1章「胡不为惨叫一声」「嗡鸣声越来越响」「要从嗓子眼里蹦出来」等 14 处),逐章 QC 查不到。同一个意思,本章另寻表达(换感官、换喻体、换节奏),别原样重打。
+3. **渲染 sjuzhet**:`s3_render_scene(focalizer, 章)`——只吃知识帧,帧外私密绝不出现;并避开 2.5 的 `avoid` 清单。直接出正文,不要元叙述。
 4. **存稿**:`s3_save_chapter`(草稿,直接存,不待批)。
-5. **QC 闸(按序)**:`s3_qc_chapter`(确定性:复读/排比/升华→定向删)→ `s3_discipline_check`(LLM 判官:双高潮/声音崩/解说倾泻,确定性盲区;违规且复发点靠后→截到 cut_after,太早则交回重写)→ `s3_find_leaks`(兜底扫 POV 泄露)。
+5. **QC 闸(按序)**:`s3_qc_chapter`(确定性:复读/排比/升华→定向删)→ `s3_cross_repetition(章)`(**跨章逐字复读**:逐章 QC 的盲区;count>0 即调 `s3_dedup_cross(章)` 确定性定向改写犯规句,拿回 prose 用 `s3_save_chapter` 存回——实测最严重章 30→8、↓73%,比 prompt 预防可靠)→ `s3_discipline_check`(LLM 判官:双高潮/声音崩/解说倾泻,确定性盲区;违规且复发点靠后→截到 cut_after,太早则交回重写)→ `s3_find_leaks`(兜底扫 POV 泄露)。
 6. **落库世界(待批)**:章内新发生的事实/知识用 `s3_add_fact`/`s3_record_knowledge` 记(看见即知道:在场者才获知)；埋/收伏笔用 `s3_plant_promise`/`s3_advance_promise`——均弹批准。
 7. **回写闭环**: `s3_ingest_chapter`(客观回写,已**不待批**;后端存稿时也会自动后台跑同一逻辑)——读定稿抽"各角色新知道什么/做了什么且谁看见"→更新知识账本。**下一章限知渲染据此反映新知**(谁这章知道了什么,下章他就能用、别人仍不知)。
   - **Pitfall**: If `s3_ingest_chapter` fails with "Couldn't coerce value... Expected `int` but found `NONE`", this indicates a voice profile or character state record is missing a required chapter anchor. The save still succeeded; the background auto-ingest will typically retry successfully later.
