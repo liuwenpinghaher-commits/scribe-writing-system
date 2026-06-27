@@ -70,6 +70,7 @@ class TestWriteGate:
         ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
         ("PATCH", "/works/{slug}"), ("POST", "/voice"), ("POST", "/save-chapter"), ("POST", "/ingest"),
         ("POST", "/checkpoint"),
+        ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST
         ("POST", "/chat/write"),
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),
         ("POST", "/factions"), ("DELETE", "/factions"),

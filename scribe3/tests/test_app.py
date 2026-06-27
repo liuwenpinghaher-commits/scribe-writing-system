@@ -229,3 +229,16 @@ def test_checkpoint_and_versions(store):
     assert len(lst) == 2 and lst[0]["label"] == "定稿"
     one = c.get(f"/chapter-version/{vid}").json()
     assert one["prose"] == "第一稿正文"
+
+
+def test_check_returns_qc_and_leaks_without_saving(store):
+    luanshi_leak_world(store)
+    c = _client(store)
+    # 老道视角写出焦三私密 → 泄露;不落库
+    r = c.post("/check", params={"seq": 1},
+               json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
+    assert "qc" in r and set(r["qc"]) >= {"repetition", "structural", "purple"}
+    assert isinstance(r["leaks"], list)
+    assert any(lk["marker"] for lk in r["leaks"])  # 至少一条泄露,marker 非空
+    # 没有落库:章正文仍为空
+    assert store.get_chapter(1) is None or not (store.get_chapter(1) or {}).get("prose")

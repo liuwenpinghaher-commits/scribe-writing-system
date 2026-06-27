@@ -895,6 +895,11 @@ class CheckpointReq(BaseModel):
     qc: dict = {}
 
 
+class CheckReq(BaseModel):
+    prose: str
+    focalizer: str = ""
+
+
 def _bg_ingest(work: str, seq: int) -> None:
     """后台客观回写:开独立 store 连接跑 ingest_chapter。异常只记日志,不影响存稿。"""
     import logging
@@ -928,6 +933,27 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"])},
             "leaks": leaks, "leak_error": leak_error, "ingesting": True}
+
+
+@app.post("/check")
+def check_prose(req: CheckReq, seq: int, work: str = "main"):
+    """护栏轻检查:QC + 限知泄露,不落库(改造③ 停笔静默刷新用)。"""
+    st = _store_for(work)
+    from scribe3.critique import quality_flags
+    qf = quality_flags(req.prose)
+    leaks = []
+    if req.focalizer:
+        try:
+            from scribe3.verify import find_leaks
+            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject}
+                     for lk in find_leaks(req.prose, st, req.focalizer, seq)]
+        except Exception as e:
+            import logging
+            logging.getLogger("scribe3").warning("check find_leaks 失败: %s", e)
+    return {"qc": {"repetition": len(qf["repetition"]),
+                   "structural": len(qf["structural"]),
+                   "purple": len(qf["purple"])},
+            "leaks": leaks}
 
 
 @app.post("/checkpoint")
