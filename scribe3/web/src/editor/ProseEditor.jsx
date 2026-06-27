@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
-import { Bold, Italic, Strikethrough, Copy, Target, RotateCcw, Sparkles } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -172,7 +172,7 @@ export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始
                 className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-[12px] text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
             </>
           )}
-          <span className="px-1.5 text-[11px] text-faint tnum inline-flex items-center gap-1"><Target size={11} />{Math.abs(editor.state.selection.to - editor.state.selection.from)}</span>
+          <span className="px-1.5 text-[11px] text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
         </div>
       </BubbleMenu>
       <EditorContent editor={editor} />
