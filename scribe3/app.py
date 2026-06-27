@@ -324,6 +324,7 @@ class RuleIn(BaseModel):
     name: str
     category: str = "magic"
     source: str | None = None
+    capabilities: list = []
     cost: str | None = None
     limitations: list = []
     exceptions: list = []
@@ -339,7 +340,7 @@ def list_rules(category: str | None = None, work: str = "main"):
 
 @app.post("/world-rules")
 def add_rule(r: RuleIn, work: str = "main"):
-    _store_for(work).add_world_rule(r.name, r.category, r.source, None, r.cost,
+    _store_for(work).add_world_rule(r.name, r.category, r.source, r.capabilities, r.cost,
                                      r.limitations, r.exceptions, r.scope,
                                      r.established_chapter, r.note)
     return {"ok": True}
@@ -353,6 +354,7 @@ def del_rule(name: str, work: str = "main"):
 
 class FactionIn(BaseModel):
     name: str
+    status: str = "active"
     ideology: str | None = None
     leader: str | None = None
     known_members: list = []
@@ -371,7 +373,7 @@ def list_factions(work: str = "main", reveal_secret: bool = False):
 
 @app.post("/factions")
 def add_faction_ep(fc: FactionIn, work: str = "main"):
-    _store_for(work).add_faction(fc.name, fc.ideology, "active", fc.leader,
+    _store_for(work).add_faction(fc.name, fc.ideology, fc.status, fc.leader,
                                   fc.known_members, fc.public_face,
                                   fc.private_operation, fc.first_mention_chapter,
                                   fc.private_operation_secret)

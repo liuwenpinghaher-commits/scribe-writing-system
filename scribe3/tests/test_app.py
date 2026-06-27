@@ -504,3 +504,26 @@ def test_factions_mask_secret_private_operation(store):
         for x in c.get("/factions?reveal_secret=true").json()
         if x["name"] == "暗会"
     ), "reveal_secret=true 应解锁 private_operation 明文"
+
+
+# ===== P1-a: 解开生产方硬编码 =====
+
+def test_faction_status_writable(store):
+    """faction.status 应可写入非 active 值(dissolved/dormant/reformed)。"""
+    c = _client(store)
+    r = c.post("/factions", json={"name": "覆灭门", "status": "dissolved"})
+    assert r.status_code == 200, f"POST /factions 应返回 200: {r.text}"
+    f = next(x for x in c.get("/factions").json() if x["name"] == "覆灭门")
+    assert f["status"] == "dissolved", f"status 应写入 dissolved,实际: {f.get('status')}"
+
+
+def test_world_rule_capabilities_writable(store):
+    """world_rule.capabilities 应可通过 REST 写入(Sanderson 维度)。"""
+    c = _client(store)
+    r = c.post("/world-rules", json={"name": "御剑术", "category": "magic",
+                                     "capabilities": ["飞行", "远程斩"]})
+    assert r.status_code == 200, f"POST /world-rules 应返回 200: {r.text}"
+    rules = c.get("/world-rules").json()
+    rule = next(x for x in rules if x["name"] == "御剑术")
+    assert rule["capabilities"] == ["飞行", "远程斩"], \
+        f"capabilities 应写入 ['飞行','远程斩'],实际: {rule.get('capabilities')}"
