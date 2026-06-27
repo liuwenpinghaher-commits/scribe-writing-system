@@ -449,6 +449,45 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
 }
 
 // ═══ 主组件 — 使用 Shell 框架(左栏导航 + 中区内容 + 右栏主编对话) ═══
+function UnverifiedPanel() {
+  const [items, setItems] = useState(null)
+  useEffect(() => { api.listUnverified().then(setItems).catch(() => setItems([])) }, [])
+  const remove = (id) => setItems((prev) => prev.filter((p) => p.id !== id))
+  const accept = async (id) => {
+    await api.acceptUnverified(id).catch(() => {})
+    remove(id)
+  }
+  const ignore = async (id) => {
+    await api.ignoreUnverified(id).catch(() => {})
+    remove(id)
+  }
+  if (!items || items.length === 0) return null
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-4 mb-4">
+      <div className="text-[13px] font-medium text-ink mb-3">待确认人物引用 ({items.length})</div>
+      <div className="space-y-2">
+        {items.map((p) => (
+          <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+            <span className="text-[13px] text-ink flex-1 min-w-0 truncate">
+              {p.name} <span className="text-faint">· 第{p.seq}章 · {p.role}</span>
+            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => accept(p.id)}
+                className="text-[12px] px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors duration-100"
+              >接受为角色</button>
+              <button
+                onClick={() => ignore(p.id)}
+                className="text-[12px] px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors duration-100"
+              >忽略</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function CodexView({ work }) {
   const [tab, setTab] = useState('overview')
   const [data, setData] = useState({ chars: [], facts: [], rules: [], factions: [], items: [], terms: [], places: [], promises: [], motifs: [], completeness: null, relations: [] })
@@ -515,6 +554,8 @@ export function CodexView({ work }) {
               onDelete={() => deleteRow(selected.type, selected.row)} />
           ) : (
             <>
+              {/* 待确认人物引用复核面板 */}
+              <UnverifiedPanel />
               {/* 搜索 */}
               <div className="flex items-center gap-2 mb-4">
                 <div className="flex items-center gap-1.5 h-8 rounded-lg border border-line bg-canvas px-2.5 flex-1">

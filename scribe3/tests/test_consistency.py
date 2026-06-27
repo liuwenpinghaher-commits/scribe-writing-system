@@ -79,6 +79,8 @@ class TestWriteGate:
         ("POST", "/items"), ("DELETE", "/items"),
         ("POST", "/terms"), ("DELETE", "/terms"),
         ("POST", "/char-states"),
+        ("POST", "/ingest-unverified/{uid}/accept"),
+        ("POST", "/ingest-unverified/{uid}/ignore"),
     }
 
     def test_no_unaudited_write_route(self):

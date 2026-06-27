@@ -411,3 +411,54 @@ def test_voice_anchor_block_none_guards(store):
     block = _voice_anchor_block(store, "role:丁")
     assert "None" not in block, "None 字段不应出现在 block 文本里"
     assert "稳重低调" in block, "style_summary 应正常显示"
+
+
+# ── ingest_unverified 复核闭环 ────────────────────────────────────────────────
+
+def test_ingest_unverified_list(store):
+    """GET /ingest-unverified 返回 pending 条目。"""
+    c = _client(store)
+    store.add_unverified_ref("路过人", 5, "witnessed")
+    pend = c.get("/ingest-unverified").json()
+    assert any(p["name"] == "路过人" for p in pend)
+
+
+def test_ingest_unverified_accept_creates_character(store):
+    """接受→建角色→行状态变 accepted→不再出现在 pending 列表。"""
+    c = _client(store)
+    store.add_unverified_ref("无名客", 3, "learned")
+    pend = c.get("/ingest-unverified").json()
+    assert any(p["name"] == "无名客" for p in pend)
+    uid = next(p["id"] for p in pend if p["name"] == "无名客")
+    r = c.post(f"/ingest-unverified/{uid}/accept").json()
+    assert r["created"] is True
+    assert r["oid"] == "role:无名客"
+    assert store.entity("role:无名客") is not None
+    # pending 列表中已消失
+    assert not any(p["name"] == "无名客" for p in c.get("/ingest-unverified").json())
+
+
+def test_ingest_unverified_accept_idempotent(store):
+    """同一行接受两次:第二次 created=False,角色只建一次。"""
+    c = _client(store)
+    store.add_unverified_ref("幂等君", 1, "saw")
+    uid = next(p["id"] for p in c.get("/ingest-unverified").json() if p["name"] == "幂等君")
+    c.post(f"/ingest-unverified/{uid}/accept")
+    # 再次接受时该行已是 accepted,list_unverified(pending) 中没有
+    # 直接对着 uid 调用 accept_unverified → created=False
+    r2 = c.post(f"/ingest-unverified/{uid}/accept").json()
+    assert r2["created"] is False
+
+
+def test_ingest_unverified_ignore(store):
+    """忽略→行状态变 ignored→不再出现在 pending;出现在 ignored 列表。"""
+    c = _client(store)
+    store.add_unverified_ref("路人甲", 2, "did")
+    uid = next(p["id"] for p in c.get("/ingest-unverified").json() if p["name"] == "路人甲")
+    resp = c.post(f"/ingest-unverified/{uid}/ignore")
+    assert resp.status_code == 200
+    # pending 中消失
+    assert not any(p["name"] == "路人甲" for p in c.get("/ingest-unverified").json())
+    # ignored 列表中出现
+    ignored = c.get("/ingest-unverified?status=ignored").json()
+    assert any(p["name"] == "路人甲" for p in ignored)

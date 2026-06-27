@@ -360,6 +360,27 @@ class SurrealStore:
             "SELECT meta::id(id) AS id, name, seq, role, status "
             "FROM ingest_unverified WHERE status=$st", {"st": status})
 
+    def accept_unverified(self, uid: str) -> dict:
+        """接受待确认引用:若 role:{name} 不存在则建角色,标记该行 accepted。返回 {created, oid}。"""
+        rows = self._query(
+            "SELECT name FROM type::record('ingest_unverified', $u)", {"u": uid})
+        if not rows:
+            return {"created": False, "oid": ""}
+        name = rows[0]["name"]
+        oid = f"role:{name}"
+        created = self.entity(oid) is None
+        if created:
+            from scribe3.ontology import Entity
+            self.add_entity(Entity(oid, "character", name))
+        self._execute_write(
+            "UPDATE type::record('ingest_unverified', $u) SET status='accepted'", {"u": uid})
+        return {"created": created, "oid": oid}
+
+    def ignore_unverified(self, uid: str) -> None:
+        """将待确认行标记为 ignored。"""
+        self._execute_write(
+            "UPDATE type::record('ingest_unverified', $u) SET status='ignored'", {"u": uid})
+
     # --- 读 ---
     def entity(self, oid: str) -> Entity | None:
         try:

@@ -1013,6 +1013,22 @@ def ingest(seq: int, work: str = "main"):
     return ingest_chapter(_store_for(work), seq, hermes_complete)
 
 
+@app.get("/ingest-unverified")
+def ingest_unverified(status: str = "pending", work: str = "main"):
+    return _store_for(work).list_unverified(status)
+
+
+@app.post("/ingest-unverified/{uid}/accept")
+def accept_unverified_ep(uid: str, work: str = "main"):
+    return _store_for(work).accept_unverified(uid)
+
+
+@app.post("/ingest-unverified/{uid}/ignore")
+def ignore_unverified_ep(uid: str, work: str = "main"):
+    _store_for(work).ignore_unverified(uid)
+    return {"ok": True}
+
+
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
                 "promise", "motif", "chapter"]
 
