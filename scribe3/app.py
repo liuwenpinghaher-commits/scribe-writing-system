@@ -382,7 +382,8 @@ def add_item_endpoint(req: dict, work: str = "main"):
     st.add_item(req.get("name",""), category=req.get("category"),
                 description=req.get("description"), current_owner=req.get("current_owner"),
                 symbolic_state=req.get("symbolic_state","active"),
-                special_properties=req.get("special_properties"))
+                special_properties=req.get("special_properties"),
+                first_chapter=req.get("first_chapter"))
     return {"ok": True}
 
 
@@ -401,7 +402,8 @@ def list_terms_endpoint(work: str = "main"):
 def add_term_endpoint(req: dict, work: str = "main"):
     st = _store_for(work)
     st.add_term(req.get("name",""), category=req.get("category"),
-                definition=req.get("definition"), aliases=req.get("aliases"))
+                definition=req.get("definition"), aliases=req.get("aliases"),
+                first_mention_chapter=req.get("first_mention_chapter"))
     return {"ok": True}
 
 

@@ -342,3 +342,27 @@ def test_post_char_states_accepts_before_state(store):
     snap = store.char_state_at("role:丙", 2)
     assert snap.get("personality") == "初历艰辛", \
         f"personality 快照应为 after_state 的值: {snap}"
+
+
+# ===== P2 F3: item.first_chapter / term.first_mention_chapter 写路径接通 =====
+
+def test_item_first_chapter_roundtrip(store):
+    """POST /items 携带 first_chapter 应写入并可从 GET /items 读回。"""
+    c = _client(store)
+    r = c.post("/items", json={"name": "镇煞钉", "category": "法器", "first_chapter": 3})
+    assert r.status_code == 200, f"POST /items 应返回 200: {r.text}"
+    items = c.get("/items").json()
+    it = next((x for x in items if x.get("name") == "镇煞钉"), None)
+    assert it is not None and it.get("first_chapter") == 3, \
+        f"first_chapter 应写入并回读为 3: {it}"
+
+
+def test_term_first_mention_chapter_roundtrip(store):
+    """POST /terms 携带 first_mention_chapter 应写入并可从 GET /terms 读回。"""
+    c = _client(store)
+    r = c.post("/terms", json={"name": "镇煞", "category": "术语", "first_mention_chapter": 2})
+    assert r.status_code == 200, f"POST /terms 应返回 200: {r.text}"
+    terms = c.get("/terms").json()
+    t = next((x for x in terms if x.get("name") == "镇煞"), None)
+    assert t is not None and t.get("first_mention_chapter") == 2, \
+        f"first_mention_chapter 应写入并回读为 2: {t}"

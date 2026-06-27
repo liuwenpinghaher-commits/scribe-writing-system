@@ -462,23 +462,27 @@ async def s3_add_item(ctx: Context, name: str,
                        description: str | None = None,
                        current_owner: str | None = None,
                        symbolic_state: str = "active",
-                       special_properties: list | None = None) -> dict:
-    """添加物品/道具(写,待批)。symbolic_state: active/lost/destroyed/unknown。"""
+                       special_properties: list | None = None,
+                       first_chapter: int | None = None) -> dict:
+    """添加物品/道具(写,待批)。symbolic_state: active/lost/destroyed/unknown。first_chapter: 首次出现章号。"""
     ok = await _ask(ctx, f"添加物品 {name} [{symbolic_state}]")
     return commit_if_approved("s3_add_item", ok,
                               lambda: _store.add_item(name, category, description,
-                                  current_owner, symbolic_state, special_properties))
+                                  current_owner, symbolic_state, special_properties,
+                                  first_chapter))
 
 
 @mcp.tool(annotations=_RW)
 async def s3_add_term(ctx: Context, name: str,
                        category: str | None = None,
                        definition: str | None = None,
-                       aliases: list | None = None) -> dict:
-    """添加专有名词/术语(写,待批)。含别名列表。"""
+                       aliases: list | None = None,
+                       first_mention_chapter: int | None = None) -> dict:
+    """添加专有名词/术语(写,待批)。含别名列表。first_mention_chapter: 首次出现章号。"""
     ok = await _ask(ctx, f"添加术语 {name}")
     return commit_if_approved("s3_add_term", ok,
-                              lambda: _store.add_term(name, category, definition, aliases))
+                              lambda: _store.add_term(name, category, definition, aliases,
+                                                      first_mention_chapter))
 
 
 @mcp.tool(annotations=_RW)
