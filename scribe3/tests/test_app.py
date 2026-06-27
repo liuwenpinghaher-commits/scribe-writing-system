@@ -277,3 +277,15 @@ def test_faction_full_fields_roundtrip(store):
     assert f is not None
     assert f.get("known_members") == ["甲", "乙"], f"known_members 应写入: {f}"
     assert f.get("first_mention_chapter") == 2
+
+
+def test_quality_word_count_matches_store_convention(store):
+    c = _client(store)
+    prose = "第一段。\n\n第二段,有标点和 空格。"
+    c.post("/save-chapter", json={"seq": 1, "prose": prose, "title": "x", "focalizer": None})
+    q = c.get("/quality").json()
+    # /quality 各章 word_count 应与 store 字符数口径一致(去空白后的字符数)
+    expected = len("".join(prose.split()))
+    ch1 = next((x for x in q.get("chapters", q) if x.get("seq") == 1), None)
+    assert ch1 is not None
+    assert ch1["word_count"] == expected, f"字数口径应统一为字符数: {ch1['word_count']} != {expected}"
