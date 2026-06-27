@@ -49,6 +49,7 @@ export function WriteLayout({ work }) {
   const [recallHits, setRecallHits] = useState([])
   const [presentQ, setPresentQ] = useState('')
   const [focusMode, setFocusMode] = useState(false)
+  const [chTitle, setChTitle] = useState('')
   const [saved, setSaved] = useState(true)
   const [btns, setBtns] = useState(() => loadButtons(work))
   const [leftActive, setLeftActive] = useState('material')
@@ -106,7 +107,7 @@ export function WriteLayout({ work }) {
 
   useEffect(() => { api.entities().then(setEntities); api.motifs().then(setMotifs) }, [tick])
   useEffect(() => {
-    api.chapter(chapter).then((ch) => { setProse(ch?.prose || ''); setSaved(true) })
+    api.chapter(chapter).then((ch) => { setProse(ch?.prose || ''); setFocalizer(ch?.focalizer || ''); setChTitle(ch?.title || ''); setSaved(true) })
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
     api.qc(chapter).then(setQc)
@@ -124,7 +125,7 @@ export function WriteLayout({ work }) {
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
 
   const persist = async (text) => {
-    const r = await api.saveChapter(chapter, text, '', focalizer)
+    const r = await api.saveChapter(chapter, text, chTitle, focalizer)
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
     api.ingest(chapter).catch(() => {}); setTick((t) => t + 1)
   }
