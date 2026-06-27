@@ -14,6 +14,7 @@ import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
+import { VersionPanel } from './VersionPanel.jsx'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 export function WriteLayout({ work }) {
@@ -45,6 +46,7 @@ export function WriteLayout({ work }) {
   const [leftActive, setLeftActive] = useState('outline')
   const [rightActive, setRightActive] = useState('chat')
   const [tick, setTick] = useState(0)
+  const [verTick, setVerTick] = useState(0)
 
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
@@ -136,6 +138,16 @@ export function WriteLayout({ work }) {
         <button onClick={() => setFocusMode((v) => !v)} title="专注模式" aria-pressed={focusMode}
           className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
         <Btn variant="soft" onClick={save} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
+        <Btn variant="soft" onClick={async () => {
+          const label = prompt('给这个存档点起个名(可留空):') ?? ''
+          await api.checkpoint(chapter, prose, label, 'checkpoint', qc || {})
+          setVerTick((t) => t + 1)
+        }}>存档点</Btn>
+        <Btn variant="primary" onClick={async () => {
+          await persist(prose)
+          await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
+          setVerTick((t) => t + 1)
+        }}>存为正文</Btn>
       </div>
     </div>
   )
@@ -218,6 +230,10 @@ export function WriteLayout({ work }) {
         {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
           : recallHits.map((f) => <Row key={f.id}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>)}
       </div>
+    ) },
+    { key: 'versions', label: '存档', icon: Bookmark, render: () => (
+      <VersionPanel seq={chapter} refreshKey={verTick}
+        onRestore={(text) => { setProse(text); persist(text) }} />
     ) },
   ]
 
