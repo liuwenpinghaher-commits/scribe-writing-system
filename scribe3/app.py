@@ -888,6 +888,13 @@ class SaveChapterReq(BaseModel):
     focalizer: str | None = None
 
 
+class CheckpointReq(BaseModel):
+    prose: str
+    label: str = ""
+    kind: str = "checkpoint"   # checkpoint | final
+    qc: dict = {}
+
+
 def _bg_ingest(work: str, seq: int) -> None:
     """后台客观回写:开独立 store 连接跑 ingest_chapter。异常只记日志,不影响存稿。"""
     import logging
@@ -921,6 +928,27 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"])},
             "leaks": leaks, "leak_error": leak_error, "ingesting": True}
+
+
+@app.post("/checkpoint")
+def checkpoint(req: CheckpointReq, seq: int, work: str = "main"):
+    st = _store_for(work)
+    vid = st.add_chapter_version(seq, req.prose, label=req.label,
+                                 kind=req.kind, qc=req.qc)
+    return {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
+
+
+@app.get("/chapter-versions")
+def chapter_versions(seq: int, work: str = "main"):
+    return _store_for(work).list_chapter_versions(seq)
+
+
+@app.get("/chapter-version/{vid}")
+def chapter_version(vid: str, work: str = "main"):
+    v = _store_for(work).get_chapter_version(vid)
+    if not v:
+        raise HTTPException(status_code=404, detail="version not found")
+    return v
 
 
 @app.post("/ingest")

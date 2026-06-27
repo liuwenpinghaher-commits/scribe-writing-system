@@ -213,3 +213,19 @@ def test_voice_rest(store):
     assert r.status_code == 200
     got = client.get("/voice?character=role:焦三&work=main").json()
     assert any(v["kind"] == "pressure" and v["text"] == "声细如蚊" for v in got)
+
+
+def test_checkpoint_and_versions(store):
+    c = _client(store)
+    r = c.post("/checkpoint", params={"seq": 1},
+               json={"prose": "第一稿正文", "label": "初稿", "kind": "checkpoint",
+                     "qc": {"repetition": 2}})
+    assert r.status_code == 200
+    vid = r.json()["id"]
+    assert vid
+    c.post("/checkpoint", params={"seq": 1},
+           json={"prose": "定稿正文", "label": "定稿", "kind": "final", "qc": {}})
+    lst = c.get("/chapter-versions", params={"seq": 1}).json()
+    assert len(lst) == 2 and lst[0]["label"] == "定稿"
+    one = c.get(f"/chapter-version/{vid}").json()
+    assert one["prose"] == "第一稿正文"

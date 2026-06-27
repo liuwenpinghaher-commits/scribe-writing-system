@@ -69,6 +69,7 @@ class TestWriteGate:
         ("POST", "/motifs-new"), ("PATCH", "/motifs/{mid}"), ("DELETE", "/motifs/{mid}"),
         ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
         ("PATCH", "/works/{slug}"), ("POST", "/voice"), ("POST", "/save-chapter"), ("POST", "/ingest"),
+        ("POST", "/checkpoint"),
         ("POST", "/chat/write"),
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),
         ("POST", "/factions"), ("DELETE", "/factions"),
