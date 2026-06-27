@@ -149,7 +149,6 @@ places = [
 ]
 for p in places:
     st._db.query("CREATE type::record('place', $n) SET name=$n", {'n': p['name']})
-    st._db.query("UPDATE type::record('place', $n) SET notable_events=$ne", {'n': p['name'], 'ne': [p['desc']]})
 print(f"地点: {len(places)}个", flush=True)
 
 # ═══ 世界规则(8条) ═══

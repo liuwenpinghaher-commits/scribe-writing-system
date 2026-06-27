@@ -745,7 +745,7 @@ class SurrealStore:
         wc = len("".join(prose.split()))
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
-            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, qc_at=time::now()",
+            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc})
 
     def add_chapter_version(self, seq: int, prose: str, label: str = "",

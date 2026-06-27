@@ -368,3 +368,38 @@ def test_add_knowledge_allows_existing_knower(store):
         e.knower_id == "role:存在者" and e.proposition_id == "fact:p3"
         for e in edges
     ), "存在的 knower 应正常写入 knows 边"
+
+
+def test_p3c_schema_cleanup(store):
+    """P3-c: schema 清债验证
+    - chapter 死列(qc_issues/qc_causal/qc_at) 已删除,qc_word_count 保留
+    - place 027 死字段(geography/first_visit_chapter/political_affiliation/notable_events) 已删除
+    - 设定表(faction/item/term/world_rule).name UNIQUE 索引已建(delete-before-create 幂等安全)
+    """
+    # --- chapter 字段检查 ---
+    chap_info = store._query("INFO FOR TABLE chapter")
+    # INFO FOR TABLE 返回一个 dict 或单元素 list 包含 dict
+    if isinstance(chap_info, list):
+        chap_info = chap_info[0] if chap_info else {}
+    chap_fields = chap_info.get("fields", {})
+    assert "qc_issues" not in chap_fields, "qc_issues 应已从 chapter 删除"
+    assert "qc_causal" not in chap_fields, "qc_causal 应已从 chapter 删除"
+    assert "qc_at" not in chap_fields, "qc_at 应已从 chapter 删除"
+    assert "qc_word_count" in chap_fields, "qc_word_count 是 LIVE 字段,应保留"
+
+    # --- place 字段检查 ---
+    place_info = store._query("INFO FOR TABLE place")
+    if isinstance(place_info, list):
+        place_info = place_info[0] if place_info else {}
+    place_fields = place_info.get("fields", {})
+    assert "geography" not in place_fields, "geography 应已从 place 删除"
+    assert "first_visit_chapter" not in place_fields, "first_visit_chapter 应已从 place 删除"
+    assert "political_affiliation" not in place_fields, "political_affiliation 应已从 place 删除"
+    assert "notable_events" not in place_fields, "notable_events 应已从 place 删除"
+
+    # --- faction UNIQUE:同名两次仅保留最后一条(delete-before-create)---
+    store.add_faction("唯一门", ideology="a")
+    store.add_faction("唯一门", ideology="b")
+    matches = [x for x in store.list_factions() if x["name"] == "唯一门"]
+    assert len(matches) == 1, f"同名势力应只有1条,实际{len(matches)}条"
+    assert matches[0]["ideology"] == "b", "第二次写入(ideology=b)应覆盖"
