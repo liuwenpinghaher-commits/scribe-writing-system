@@ -7,6 +7,7 @@ import { CommandPalette } from './CommandPalette'
 import { CodexView } from './views/CodexView'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
+import { ToastProvider } from './ui/Toast'
 
 // 顶层编排:AppRail(字标/书切换/视图tab/主题)+ (作品库 | 写作台/设定库/图谱/仪表盘)。
 export default function App() {
@@ -42,11 +43,13 @@ export default function App() {
   else body = <WriteLayout key={cur.slug} work={cur.slug} />
 
   return (
-    <div className="h-full flex flex-col bg-canvas">
-      <AppRail current={cur} view={view} onView={setView} onOpenLibrary={() => setCur(null)} theme={theme} onTheme={setTheme} />
-      <div className="flex-1 min-h-0">{body}</div>
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
-        onView={setView} onSelectWork={open} onLibrary={() => setCur(null)} />
-    </div>
+    <ToastProvider>
+      <div className="h-full flex flex-col bg-canvas">
+        <AppRail current={cur} view={view} onView={setView} onOpenLibrary={() => setCur(null)} theme={theme} onTheme={setTheme} />
+        <div className="flex-1 min-h-0">{body}</div>
+        <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
+          onView={setView} onSelectWork={open} onLibrary={() => setCur(null)} />
+      </div>
+    </ToastProvider>
   )
 }
