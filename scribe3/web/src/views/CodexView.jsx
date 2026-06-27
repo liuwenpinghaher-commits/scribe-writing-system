@@ -182,10 +182,34 @@ function DynamicTimeline({ characterId }) {
   const [snapCh, setSnapCh] = useState('')
   const [snapshot, setSnapshot] = useState(null)
   const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+  // after_state snapshot fields
+  const [abilityRows, setAbilityRows] = useState([{ k: '', v: '' }])
+  const [relationRows, setRelationRows] = useState([{ k: '', v: '' }])
+  const [personality, setPersonality] = useState('')
+  const resetSnapFields = () => { setAbilityRows([{ k: '', v: '' }]); setRelationRows([{ k: '', v: '' }]); setPersonality('') }
   useEffect(() => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then(setStates).catch(() => setStates([])) }, [characterId])
   const reload = () => { api.get(`/char-states?character_id=${encodeURIComponent(characterId)}`).then(setStates) }
-  const addState = async () => { if (!form.chapter || !form.summary) return; await api.post('/char-states', { ...form, character_id: characterId, chapter: Number(form.chapter) }); setAdding(false); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' }); reload() }
+  const addState = async () => {
+    if (!form.chapter || !form.summary) return
+    const kv = (rows) => Object.fromEntries(rows.filter((r) => r.k.trim()).map((r) => [r.k.trim(), r.v]))
+    const after = {}
+    if (['ability', 'composite'].includes(form.change_type)) { const a = kv(abilityRows); if (Object.keys(a).length) after.ability_snapshot = a }
+    if (['relation', 'composite'].includes(form.change_type)) { const r = kv(relationRows); if (Object.keys(r).length) after.relation_snapshot = r }
+    if (['personality', 'composite'].includes(form.change_type) && personality.trim()) after.personality_snapshot = personality.trim()
+    const body = { ...form, character_id: characterId, chapter: Number(form.chapter) }
+    if (Object.keys(after).length) body.after_state = after
+    await api.post('/char-states', body)
+    setAdding(false)
+    setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+    resetSnapFields()
+    reload()
+  }
   const querySnapshot = async () => { if (!snapCh) return; const data = await api.get(`/char-state-at?character_id=${encodeURIComponent(characterId)}&chapter=${snapCh}`); setSnapshot(data) }
+  // helper: update a row field in an array
+  const setRow = (setter, idx, field, val) => setter((rows) => rows.map((r, i) => i === idx ? { ...r, [field]: val } : r))
+  const addRow = (setter) => setter((rows) => [...rows, { k: '', v: '' }])
+  const removeRow = (setter, idx) => setter((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : [{ k: '', v: '' }])
+  const inputSm = 'h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none'
   if (!states) return <div className="mt-4 text-[12px] text-faint/50">加载中...</div>
   return (
     <div className="mt-4">
@@ -198,7 +222,42 @@ function DynamicTimeline({ characterId }) {
       {adding && (<div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
         <div className="flex gap-2"><input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /><select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none cursor-pointer"><option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option></select><input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /></div>
         <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
-        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button><button onClick={() => setAdding(false)} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
+        {/* 能力快照 */}
+        {['ability', 'composite'].includes(form.change_type) && (
+          <div className="space-y-1">
+            <div className="text-[11px] text-faint uppercase tracking-wider">能力快照</div>
+            {abilityRows.map((row, idx) => (
+              <div key={idx} className="flex gap-1.5 items-center">
+                <input value={row.k} onChange={(e) => setRow(setAbilityRows, idx, 'k', e.target.value)} placeholder="能力名" className={`w-24 ${inputSm}`} />
+                <input value={row.v} onChange={(e) => setRow(setAbilityRows, idx, 'v', e.target.value)} placeholder="描述" className={`flex-1 ${inputSm}`} />
+                <button onClick={() => removeRow(setAbilityRows, idx)} className="text-faint hover:text-danger text-[13px] cursor-pointer leading-none">✕</button>
+              </div>
+            ))}
+            <button onClick={() => addRow(setAbilityRows)} className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+          </div>
+        )}
+        {/* 关系快照 */}
+        {['relation', 'composite'].includes(form.change_type) && (
+          <div className="space-y-1">
+            <div className="text-[11px] text-faint uppercase tracking-wider">关系快照</div>
+            {relationRows.map((row, idx) => (
+              <div key={idx} className="flex gap-1.5 items-center">
+                <input value={row.k} onChange={(e) => setRow(setRelationRows, idx, 'k', e.target.value)} placeholder="对象" className={`w-24 ${inputSm}`} />
+                <input value={row.v} onChange={(e) => setRow(setRelationRows, idx, 'v', e.target.value)} placeholder="关系" className={`flex-1 ${inputSm}`} />
+                <button onClick={() => removeRow(setRelationRows, idx)} className="text-faint hover:text-danger text-[13px] cursor-pointer leading-none">✕</button>
+              </div>
+            ))}
+            <button onClick={() => addRow(setRelationRows)} className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+          </div>
+        )}
+        {/* 性格快照 */}
+        {['personality', 'composite'].includes(form.change_type) && (
+          <div className="space-y-1">
+            <div className="text-[11px] text-faint uppercase tracking-wider">性格快照</div>
+            <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="性格描述..." className={`w-full ${inputSm}`} />
+          </div>
+        )}
+        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields() }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
       </div>)}
       {states.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。</div> : (
         <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
