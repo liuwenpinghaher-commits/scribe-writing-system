@@ -128,6 +128,21 @@ def test_add_item_idempotent_by_name(store):
     assert len(its) == 1 and its[0].get("category") == "凶器"
 
 
+def test_graph_includes_relation_edges(store):
+    """graph() 应把 character_relation 边也纳入,端点带 role: 前缀对齐节点 id。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_character_relation("role:甲", "role:乙", "ally", since_chapter=1)
+    g = store.graph(5)
+    rel = [e for e in g["edges"] if e.get("rel") == "ally"]
+    assert rel, f"应含 ally 关系边: {g['edges']}"
+    assert rel[0]["src"] == "role:甲" and rel[0]["dst"] == "role:乙", \
+        f"端点应带 role: 前缀对齐节点 id: {rel[0]}"
+    # 每条边都有 rel 键(knows 边也应该有)
+    assert all("rel" in e for e in g["edges"])
+
+
 def test_add_term_idempotent_by_name(store):
     store.add_term("镇煞", category="术语")
     store.add_term("镇煞", category="法术")

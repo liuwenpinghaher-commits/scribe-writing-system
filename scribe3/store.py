@@ -767,6 +767,8 @@ class SurrealStore:
             if k.knower_id == "reader" or k.since_chapter > ch:
                 continue
             edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
+        for r in self.relations_at(ch):
+            edges.append({"src": f"role:{r['src']}", "dst": f"role:{r['dst']}", "rel": r["relation"]})
         return {"nodes": chars + props, "edges": edges}
 
     def max_chapter(self) -> int:

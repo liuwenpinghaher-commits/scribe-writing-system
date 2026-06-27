@@ -5,8 +5,26 @@ import ELK from 'elkjs/lib/elk.bundled.js'
 import { Eye } from 'lucide-react'
 import { api } from '../api'
 
-// 关系图谱 = scribe3 真知识图:角色 —knows→ 命题(谁知道什么)。ELK 布局 + 类型着色。
+// 关系图谱 = scribe3 真知识图:角色 —knows→ 命题(谁知道什么)+ 角色关系边。ELK 布局 + 类型着色。
 const elk = new ELK()
+
+const REL_COLOR = {
+  knows: 'var(--color-line)',
+  ally: '#16a34a',
+  enemy: '#dc2626',
+  kin: '#d97706',
+  master_disciple: '#7c3aed',
+  lover: '#db2777',
+}
+const relColor = (rel) => REL_COLOR[rel] || '#0ea5e9'
+
+const REL_LABEL = {
+  ally: '盟友',
+  enemy: '敌对',
+  kin: '血亲',
+  master_disciple: '师徒',
+  lover: '恋人',
+}
 
 function nodeStyle(n) {
   const isChar = n.type === 'character'
@@ -34,6 +52,22 @@ async function elkLayout(nodes, edges) {
   const pos = {}
   res.children.forEach((c) => { pos[c.id] = { x: c.x, y: c.y } })
   return nodes.map((n) => ({ ...n, position: pos[n.id] || { x: 0, y: 0 } }))
+}
+
+function RelLegend({ edges }) {
+  const present = [...new Set(edges.map((e) => e.rel).filter((r) => r && r !== 'knows'))]
+  if (present.length === 0) return null
+  return (
+    <div className="absolute bottom-10 right-3 z-10 rounded-lg border border-line bg-surface/90 backdrop-blur px-3 py-2 flex flex-col gap-1 shadow-sm">
+      <span className="text-[11px] font-medium text-faint mb-0.5">角色关系</span>
+      {present.map((rel) => (
+        <span key={rel} className="inline-flex items-center gap-1.5 text-[11px] text-ink">
+          <i className="w-3 h-[2px] rounded-full inline-block" style={{ background: relColor(rel) }} />
+          {REL_LABEL[rel] || rel}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 export function AtlasView() {
@@ -67,7 +101,13 @@ export function AtlasView() {
       srcEdges = focusEdges
     }
     const rfNodes = srcNodes.map((n) => ({ id: n.id, data: { label: n.label || n.id }, style: nodeStyle(n), position: { x: 0, y: 0 } }))
-    const rfEdges = srcEdges.map((e, i) => ({ id: 'e' + i, source: e.src, target: e.dst, style: { stroke: 'var(--color-line)', strokeWidth: 1.5 } }))
+    const rfEdges = srcEdges.map((e, i) => ({
+      id: 'e' + i,
+      source: e.src,
+      target: e.dst,
+      label: e.rel === 'knows' ? undefined : (REL_LABEL[e.rel] || e.rel),
+      style: { stroke: relColor(e.rel), strokeWidth: e.rel === 'knows' ? 1.5 : 2 },
+    }))
     elkLayout(rfNodes, rfEdges).then((laid) => {
       if (!alive) return
       setNodes(laid); setEdges(rfEdges)
@@ -97,12 +137,13 @@ export function AtlasView() {
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded" style={{ background: 'var(--color-secret)' }} />私密</span>
         </div>
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}
           nodesDraggable nodesConnectable={false} minZoom={0.2}>
           <Background color="var(--color-line)" gap={22} />
           <Controls showInteractive={false} />
         </ReactFlow>
+        <RelLegend edges={raw?.edges || []} />
       </div>
     </div>
   )
