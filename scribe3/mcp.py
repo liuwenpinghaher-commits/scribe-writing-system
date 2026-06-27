@@ -417,15 +417,26 @@ async def s3_add_faction(ctx: Context, name: str,
 @mcp.tool(annotations=_RW)
 async def s3_add_char_state(ctx: Context, character_id: str, chapter: int,
                              change_type: str, summary: str,
+                             before_state: dict | None = None,
+                             after_state: dict | None = None,
                              trigger_event: str | None = None,
                              arc_phase: str | None = None,
                              affects_voice: bool | None = None) -> dict:
     """记录角色弧光质变点(写,待批)。change_type: ability/relation/personality/composite。
-    动静结合:静态基石不变,动态演变记录在此。"""
+    动静结合:静态基石不变,动态演变记录在此。
+
+    after_state 按 change_type 填写对应快照键:
+      ability     → {"ability_snapshot": {"技能名": "描述", ...}}
+      relation    → {"relation_snapshot": {"角色/势力": "关系描述", ...}}
+      personality → {"personality_snapshot": "简短描述字符串"}
+      composite   → 可同时含 ability_snapshot / relation_snapshot / personality_snapshot
+    before_state 结构同 after_state,记录变化前状态(可选)。
+    char_state_at(character_id, chapter) 将按章序累积 after_state 合成时点快照。"""
     ok = await _ask(ctx, f"记录弧光 {character_id} 第{chapter}章 [{change_type}]: {summary[:30]}")
     return commit_if_approved("s3_add_char_state", ok,
                               lambda: _store.add_char_state(
                                   character_id, chapter, change_type, summary,
+                                  before_state=before_state, after_state=after_state,
                                   trigger_event=trigger_event, arc_phase=arc_phase,
                                   affects_voice=affects_voice))
 

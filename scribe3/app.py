@@ -428,7 +428,13 @@ def char_states(character_id: str, work: str = "main"):
 def add_char_state_endpoint(req: dict, work: str = "main"):
     st = _store_for(work)
     st.add_char_state(req["character_id"], req["chapter"], req["change_type"],
-                      req["summary"], arc_phase=req.get("arc_phase"))
+                      req["summary"],
+                      before_state=req.get("before_state"),
+                      after_state=req.get("after_state"),
+                      trigger_event=req.get("trigger_event"),
+                      arc_phase=req.get("arc_phase"),
+                      affects_voice=req.get("affects_voice"),
+                      confidence=req.get("confidence", "confirmed"))
     return {"ok": True}
 
 

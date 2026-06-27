@@ -304,3 +304,41 @@ def test_quality_overdue_excludes_red_herring(store):
     assert q["foreshadow"]["overdue"] == 1, (
         f"overdue 应为 1(仅 promise),实际为 {q['foreshadow']['overdue']}"
     )
+
+
+# --- P2 F2: POST /char-states 接通 after_state ---
+
+def test_post_char_states_accepts_after_state(store):
+    """P2 F2:POST /char-states 携带 after_state 后 char_state_at 快照应非空。
+    修复前:端点忽略 after_state → char_state_at abilities 恒为空 {}。
+    修复后:after_state 透传至 store.add_char_state → 快照正确聚合。
+    """
+    c = _client(store)
+    r = c.post("/char-states", json={
+        "character_id": "role:乙",
+        "chapter": 2,
+        "change_type": "ability",
+        "summary": "破境",
+        "after_state": {"ability_snapshot": {"内力": "化境"}},
+    })
+    assert r.status_code == 200, f"端点应返回 200: {r.text}"
+    snap = store.char_state_at("role:乙", 4)
+    assert "内力" in str(snap.get("abilities") or ""), \
+        f"POST after_state 应透传至 char_state_at: {snap}"
+
+
+def test_post_char_states_accepts_before_state(store):
+    """P2 F2 补充:POST /char-states 携带 before_state 应写入(不崩溃)。"""
+    c = _client(store)
+    r = c.post("/char-states", json={
+        "character_id": "role:丙",
+        "chapter": 1,
+        "change_type": "personality",
+        "summary": "初入江湖",
+        "before_state": {"personality_snapshot": "天真懵懂"},
+        "after_state": {"personality_snapshot": "初历艰辛"},
+    })
+    assert r.status_code == 200, f"端点应返回 200: {r.text}"
+    snap = store.char_state_at("role:丙", 2)
+    assert snap.get("personality") == "初历艰辛", \
+        f"personality 快照应为 after_state 的值: {snap}"

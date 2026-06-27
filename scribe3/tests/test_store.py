@@ -146,3 +146,36 @@ def test_add_fact_is_semantically_recallable(store):
     hits = store.semantic_recall("乱葬岗 酒", k=5)
     assert any(getattr(f, "id", None) == "fact:t1" for f in hits), \
         "新命题应可被语义召回(add_fact 须自动调 semantic_index)"
+
+
+# --- P2 F2: char_state after_state 接通 ---
+
+def test_char_state_after_state_snapshot(store):
+    """P2 F2:store 层 after_state 应进入 char_state_at 快照。
+    修复前:写路径不传 after_state → char_state_at abilities/relations/personality 恒空。
+    修复后:add_char_state 接收并持久化 after_state → char_state_at 正确聚合快照。
+    """
+    store.add_char_state(character_id="role:甲", chapter=3, change_type="ability",
+                         summary="习得御剑",
+                         after_state={"ability_snapshot": {"御剑": "初成"}})
+    snap = store.char_state_at("role:甲", 5)
+    assert snap and snap.get("abilities"), f"快照 abilities 应非空: {snap}"
+    assert "御剑" in str(snap["abilities"]), f"快照应含 after_state 中的御剑: {snap}"
+
+
+def test_char_state_after_state_relation_snapshot(store):
+    """P2 F2 补充:relation 类型 after_state 应进入 relations 快照。"""
+    store.add_char_state(character_id="role:乙", chapter=2, change_type="relation",
+                         summary="结盟白鹤堂",
+                         after_state={"relation_snapshot": {"白鹤堂": "盟友"}})
+    snap = store.char_state_at("role:乙", 4)
+    assert "白鹤堂" in str(snap.get("relations") or ""), f"relations 快照应含白鹤堂: {snap}"
+
+
+def test_char_state_after_state_personality_snapshot(store):
+    """P2 F2 补充:personality 类型 after_state 应进入 personality 快照。"""
+    store.add_char_state(character_id="role:丙", chapter=1, change_type="personality",
+                         summary="心境转变",
+                         after_state={"personality_snapshot": "冷峻内敛"})
+    snap = store.char_state_at("role:丙", 3)
+    assert snap.get("personality") == "冷峻内敛", f"personality 快照应为冷峻内敛: {snap}"
