@@ -181,7 +181,7 @@ function DynamicTimeline({ characterId }) {
   const [adding, setAdding] = useState(false)
   const [snapCh, setSnapCh] = useState('')
   const [snapshot, setSnapshot] = useState(null)
-  const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+  const [form, setForm] = useState({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false })
   // after_state snapshot fields
   const [abilityRows, setAbilityRows] = useState([{ k: '', v: '' }])
   const [relationRows, setRelationRows] = useState([{ k: '', v: '' }])
@@ -200,7 +200,7 @@ function DynamicTimeline({ characterId }) {
     if (Object.keys(after).length) body.after_state = after
     await api.post('/char-states', body)
     setAdding(false)
-    setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '' })
+    setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false })
     resetSnapFields()
     reload()
   }
@@ -222,6 +222,16 @@ function DynamicTimeline({ characterId }) {
       {adding && (<div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
         <div className="flex gap-2"><input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /><select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none cursor-pointer"><option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option></select><input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /></div>
         <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+        <div className="flex gap-2 flex-wrap">
+          <input placeholder="触发事件" value={form.trigger_event} onChange={(e) => setForm({ ...form, trigger_event: e.target.value })} className={`flex-1 min-w-[120px] ${inputSm}`} />
+          <select value={form.confidence} onChange={(e) => setForm({ ...form, confidence: e.target.value })} className={`w-28 ${inputSm} cursor-pointer`}>
+            <option value="confirmed">已确认</option>
+            <option value="inferred">推断</option>
+          </select>
+          <label className="flex items-center gap-1.5 text-[12px] text-faint cursor-pointer select-none">
+            <input type="checkbox" checked={form.affects_voice} onChange={(e) => setForm({ ...form, affects_voice: e.target.checked })} className="w-3.5 h-3.5 accent-brand cursor-pointer" />影响声音
+          </label>
+        </div>
         {/* 能力快照 */}
         {['ability', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
@@ -257,7 +267,7 @@ function DynamicTimeline({ characterId }) {
             <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="性格描述..." className={`w-full ${inputSm}`} />
           </div>
         )}
-        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields() }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
+        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields(); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false }) }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
       </div>)}
       {states.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。</div> : (
         <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
@@ -405,16 +415,17 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   }
   const fieldMap = {
     facts: [['entity','主体','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','私密','bool']],
-    rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['note','备注','textarea']],
-    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
-    items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text']],
-    terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea']],
+    rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['scope','作用域','scope'],['established_chapter','确立章节','number'],['limitations','限制条件(逗号分隔)','array_csv'],['exceptions','例外情形(逗号分隔)','array_csv'],['capabilities','赋予能力(逗号分隔)','array_csv'],['note','备注','textarea']],
+    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
+    items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],
+    terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea'],['first_mention_chapter','首次提及章','number']],
     promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['promise_kind','类型','text']],
     motifs: [['name','母题名','text'],['theme','绑定主题','text'],['unfolding','隐喻展开','textarea'],['echoes','物质回声','textarea']],
   }
   const fields = fieldMap[type] || []
   const tabLabel = TABS.find((t) => t.key === type)?.label || type
   const stateOptions = ['active','lost','destroyed','unknown']
+  const scopeOptions = ['global','local']
   const ruleCatOptions = [
     { value: 'magic',      label: '魔法' },
     { value: 'technology', label: '科技' },
@@ -423,6 +434,9 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     { value: 'economic',   label: '经济' },
     { value: 'political',  label: '政治' },
   ]
+  // Helper: array ↔ comma-separated string
+  const arrToCSV = (v) => Array.isArray(v) ? v.join(', ') : (v || '')
+  const csvToArr = (s) => s.split(',').map((x) => x.trim()).filter(Boolean)
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
@@ -451,6 +465,24 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
                 {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
               </select>
             </div>
+          ) :
+          ftype === 'scope' ? (
+            <div key={k} className="py-2">
+              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+              <select
+                value={row[k] || ''}
+                onChange={(e) => save(k, e.target.value || null)}
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+              >
+                <option value="">—</option>
+                {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          ) :
+          ftype === 'array_csv' ? (
+            <Field key={k} label={label} value={arrToCSV(row[k])} type="text"
+              placeholder="逗号分隔，留空即可"
+              onSave={(v) => save(k, v ? csvToArr(v) : [])} />
           ) :
           ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} /> :
           <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} />
@@ -631,11 +663,11 @@ export function CodexView({ work }) {
                   (data[tab] || []).filter((x) => f(x.value) || f(x.attribute) || f(x.text) || f(x.name) || f(x.category)).map((x) => (
                     <tr key={x.id || x.name} className="group border-b border-line/60 hover:bg-brand/[0.04] transition-colors duration-150 cursor-pointer" onClick={() => setSelected({ type: tab, row: x })}>
                       {tab === 'facts' && <><td className="px-3 py-2.5 text-faint">{x.entity}</td><td className="px-3 py-2.5 text-ink">{x.attribute}</td><td className="px-3 py-2.5 text-ink">{x.value}</td><td className="px-3 py-2.5">{x.is_secret && <Lock size={13} className="text-secret" />}</td></>}
-                      {tab === 'rules' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5"><Tag tone="fore">{x.category}</Tag></td><td className="px-3 py-2.5 text-faint">{x.cost || '—'}</td></>}
+                      {tab === 'rules' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}{x.established_chapter && <span className="ml-1.5 text-[10px] text-faint bg-soft/60 px-1 py-0.5 rounded">第{x.established_chapter}章</span>}</td><td className="px-3 py-2.5"><Tag tone="fore">{x.category}</Tag></td><td className="px-3 py-2.5 text-faint">{x.cost || '—'}</td></>}
                       {tab === 'factions' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5 text-faint">{x.ideology || '—'}</td><td className="px-3 py-2.5 text-ink">{x.leader || '—'}</td></>}
-                      {tab === 'items' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5 text-faint">{x.category || '—'}</td><td className="px-3 py-2.5"><Tag tone={x.symbolic_state==='active'?'ok':x.symbolic_state==='lost'?'fore':'faint'}>{x.symbolic_state}</Tag></td><td className="px-3 py-2.5 text-faint">{(x.description || '—').slice(0,40)}</td></>}
-                      {tab === 'terms' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}</td><td className="px-3 py-2.5 text-faint">{x.category || '—'}</td><td className="px-3 py-2.5 text-faint">{x.definition || '—'}</td></>}
-                      {tab === 'promises' && <><td className="px-3 py-2.5 text-ink">{x.text}</td><td className="px-3 py-2.5 text-faint tnum">第{x.setup_chapter}章</td><td className="px-3 py-2.5">{x.status === 'open' ? <Tag tone="fore">未回收</Tag> : <Tag tone="ok">已回收</Tag>}</td></>}
+                      {tab === 'items' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}{x.first_chapter && <span className="ml-1.5 text-[10px] text-faint bg-soft/60 px-1 py-0.5 rounded">第{x.first_chapter}章</span>}</td><td className="px-3 py-2.5 text-faint">{x.category || '—'}</td><td className="px-3 py-2.5"><Tag tone={x.symbolic_state==='active'?'ok':x.symbolic_state==='lost'?'fore':'faint'}>{x.symbolic_state}</Tag></td><td className="px-3 py-2.5 text-faint">{(x.description || '—').slice(0,40)}</td></>}
+                      {tab === 'terms' && <><td className="px-3 py-2.5 font-medium text-ink">{x.name}{x.first_mention_chapter && <span className="ml-1.5 text-[10px] text-faint bg-soft/60 px-1 py-0.5 rounded">第{x.first_mention_chapter}章</span>}</td><td className="px-3 py-2.5 text-faint">{x.category || '—'}</td><td className="px-3 py-2.5 text-faint">{x.definition || '—'}</td></>}
+                      {tab === 'promises' && <><td className="px-3 py-2.5 text-ink">{x.text}</td><td className="px-3 py-2.5 text-faint tnum">第{x.setup_chapter}章</td><td className="px-3 py-2.5">{x.status === 'open' ? <Tag tone="fore">未回收</Tag> : <span className="inline-flex items-center gap-1"><Tag tone="ok">已回收</Tag>{x.payoff_chapter && <span className="text-[10px] text-faint">第{x.payoff_chapter}章回收</span>}</span>}</td></>}
                       {tab === 'motifs' && <><td className="px-3 py-2.5 font-medium text-ink prose-serif text-[14px]">{x.name}</td><td className="px-3 py-2.5 text-fore">{x.theme}</td><td className="px-3 py-2.5 text-faint">{x.unfolding}</td></>}
                     </tr>
                   ))}
