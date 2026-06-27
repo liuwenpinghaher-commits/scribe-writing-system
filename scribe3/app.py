@@ -295,6 +295,33 @@ def del_fact(local: str, work: str = "main"):
     return {"ok": True}
 
 
+class SupersedeIn(BaseModel):
+    entity_id: str
+    attribute: str
+    value: str
+    since_chapter: int
+    secret: bool = False
+
+
+@app.post("/facts/supersede")
+def supersede_fact_ep(s: SupersedeIn, work: str = "main"):
+    new_oid = _store_for(work).supersede_fact(
+        s.entity_id, s.attribute, s.value, s.since_chapter, secret=s.secret)
+    return {"ok": True, "oid": new_oid}
+
+
+class ForgetIn(BaseModel):
+    knower_id: str
+    proposition_id: str
+    until_chapter: int
+
+
+@app.post("/knowledge/forget")
+def forget_knowledge_ep(f: ForgetIn, work: str = "main"):
+    _store_for(work).forget_knowledge(f.knower_id, f.proposition_id, f.until_chapter)
+    return {"ok": True}
+
+
 class PromIn(BaseModel):
     text: str
     setup_chapter: int = 1

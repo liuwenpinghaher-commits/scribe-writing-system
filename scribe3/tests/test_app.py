@@ -527,3 +527,38 @@ def test_world_rule_capabilities_writable(store):
     rule = next(x for x in rules if x["name"] == "御剑术")
     assert rule["capabilities"] == ["飞行", "远程斩"], \
         f"capabilities 应写入 ['飞行','远程斩'],实际: {rule.get('capabilities')}"
+
+
+# ===== P1-c: 双时态右端 REST 端点 =====
+
+def test_supersede_fact_endpoint(store):
+    """POST /facts/supersede 应关闭旧命题并返回新 oid。"""
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:orig", "role:甲", "状态", "重伤", valid_from=1))
+    c = _client(store)
+    r = c.post("/facts/supersede", json={
+        "entity_id": "role:甲", "attribute": "状态",
+        "value": "痊愈", "since_chapter": 5})
+    assert r.status_code == 200, f"POST /facts/supersede 应返回 200: {r.text}"
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("oid", "").startswith("fact:"), f"应返回新 fact oid: {body}"
+    # 验证旧值在第7章失效
+    facts7 = c.get("/facts", params={"chapter": 7}).json()
+    values7 = {f["value"] for f in facts7}
+    assert "痊愈" in values7, f"第7章应有痊愈: {values7}"
+    assert "重伤" not in values7, f"第7章重伤应失效: {values7}"
+
+
+def test_forget_knowledge_endpoint(store):
+    """POST /knowledge/forget 应设置 until_chapter 令知识失效。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_fact(Fact("fact:g1", "role:乙", "秘密", "知情", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:乙", "fact:g1", since_chapter=1, acquired_via="given"))
+    c = _client(store)
+    r = c.post("/knowledge/forget", json={
+        "knower_id": "role:乙", "proposition_id": "fact:g1", "until_chapter": 5})
+    assert r.status_code == 200, f"POST /knowledge/forget 应返回 200: {r.text}"
+    assert r.json().get("ok") is True

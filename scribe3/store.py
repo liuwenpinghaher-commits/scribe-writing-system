@@ -287,13 +287,43 @@ class SurrealStore:
         # RELATE 箭头位不接受内联函数,用 RecordID 绑参
         self._execute_write(
             "RELATE $k->knows->$p SET since_chapter=$since, until_chapter=$until, "
-            "polarity=$pol, acquired_via=$via"
+            "polarity=$pol, acquired_via=$via, certainty=$cert"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"k": RecordID(ktbl, klocal), "p": RecordID(ptbl, plocal),
              "since": k.since_chapter, "until": k.until_chapter, "pol": k.polarity,
-             "via": k.acquired_via,
+             "via": k.acquired_via, "cert": k.certainty,
              **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         return k
+
+    def supersede_fact(self, entity_id: str, attribute: str, new_value: str,
+                       since_chapter: int, secret: bool = False) -> str:
+        """显式超越:关闭同一 entity+attribute 的所有开区间先驱,写入新命题。
+        仅关闭 valid_to=NONE(还活着)且 valid_from < since_chapter 的行,
+        不动多值同属性(调用方显式控制,不自动破坏多值)。
+        返回新命题的 oid。"""
+        import uuid
+        # 1. 关闭所有该 entity+attribute 的开区间先驱
+        self._execute_write(
+            "UPDATE proposition SET valid_to=$since "
+            "WHERE entity_id=$e AND attribute=$a AND valid_to=NONE AND valid_from<$since",
+            {"e": entity_id, "a": attribute, "since": since_chapter})
+        # 2. 写入新命题
+        new_oid = f"fact:{uuid.uuid4().hex[:8]}"
+        new_fact = Fact(new_oid, entity_id, attribute, new_value, valid_from=since_chapter, secret=secret)
+        self.add_fact(new_fact)
+        return new_oid
+
+    def forget_knowledge(self, knower_id: str, proposition_id: str, until_chapter: int) -> None:
+        """设置知识边的 until_chapter(令知识在该章起失效)。
+        使用 UPDATE ... WHERE in=<rid> AND out=<rid> 模式定位 knows 关系行。"""
+        ktbl, klocal = _split(knower_id)
+        ptbl, plocal = _split(proposition_id)
+        self._execute_write(
+            "UPDATE knows SET until_chapter=$uc "
+            "WHERE in=$k AND out=$p",
+            {"uc": until_chapter,
+             "k": RecordID(ktbl, klocal),
+             "p": RecordID(ptbl, plocal)})
 
     def add_event(self, ev: Event) -> Event:
         _, local = _split(ev.id)
@@ -811,9 +841,9 @@ class SurrealStore:
         """显式拉全部知识边(knows + reader_knows)。昂贵:2 条查询。调用方应缓存。"""
         rows = self._query(
             "SELECT meta::tb(in) AS itb, meta::id(in) AS iid, meta::tb(out) AS otb, "
-            "meta::id(out) AS olocal, since_chapter, until_chapter, polarity, acquired_via FROM knows")
+            "meta::id(out) AS olocal, since_chapter, until_chapter, polarity, acquired_via, certainty FROM knows")
         edges = [KnowledgeEdge(_join(r["itb"], r["iid"]), _join(r["otb"], r["olocal"]),
-                               r.get("polarity", True), 1.0, r.get("since_chapter", 0),
+                               r.get("polarity", True), r.get("certainty", 1.0), r.get("since_chapter", 0),
                                r.get("until_chapter"), r.get("acquired_via", "given")) for r in rows]
         rr = self._query("SELECT proposition, since_chapter FROM reader_knows")
         edges += [KnowledgeEdge("reader", r["proposition"], True, 1.0,

@@ -30,7 +30,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
-                "s3_set_voice_profile", "s3_add_item", "s3_add_term"}
+                "s3_set_voice_profile", "s3_add_item", "s3_add_term",
+                "s3_supersede_fact", "s3_forget_knowledge"}
 
 
 def requires_approval(name: str) -> bool:
@@ -616,6 +617,31 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               lambda: _store.add_knowledge(KnowledgeEdge(knower, proposition,
                                                                          since_chapter=since_chapter,
                                                                          acquired_via=acquired_via)))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_supersede_fact(ctx: Context, entity_id: str, attribute: str, value: str,
+                             since_chapter: int, secret: bool = False) -> dict:
+    """超越事实:关闭该 entity+attribute 的所有开区间先驱并写入新值(写,待批)。
+    不自动破坏多值属性——调用方需显式控制。
+    entity_id: 实体 oid(如 role:焦三);attribute: 属性名;value: 新值;
+    since_chapter: 新值生效章号(同时是先驱的 valid_to)。"""
+    ok = await _ask(ctx, f"超越事实 {entity_id}·{attribute}={value}(章{since_chapter}起)")
+    return commit_if_approved("s3_supersede_fact", ok,
+                              lambda: _store.supersede_fact(entity_id, attribute, value,
+                                                            since_chapter, secret=secret))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_forget_knowledge(ctx: Context, knower_id: str, proposition_id: str,
+                               until_chapter: int) -> dict:
+    """令知识遗忘:设置知识边的 until_chapter,使其在该章起失效(写,待批)。
+    knower_id: 知者 oid(如 role:焦三);proposition_id: 命题 oid(如 fact:治眼);
+    until_chapter: 遗忘生效章号(该章及以后不再知道)。"""
+    ok = await _ask(ctx, f"令 {knower_id} 在章{until_chapter}起忘记 {proposition_id}")
+    return commit_if_approved("s3_forget_knowledge", ok,
+                              lambda: _store.forget_knowledge(knower_id, proposition_id,
+                                                              until_chapter))
 
 
 @mcp.tool(annotations=_RW)

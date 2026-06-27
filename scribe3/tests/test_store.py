@@ -234,3 +234,49 @@ def test_schema_cleanup_034_removes_dead_artifacts(store):
     fields = (tbl.get("fields") if isinstance(tbl, dict) else {}) or {}
     assert "traits" not in fields, f"character.traits 应已删除: {list(fields)}"
     assert "motivation" not in fields, f"character.motivation 应已删除: {list(fields)}"
+
+
+# --- P1-c: 双时态右端——supersede / forget / certainty ---
+
+def test_supersede_fact_closes_prior(store):
+    """supersede_fact 须关闭旧命题右端,旧值在关闭章前有效、关闭章后失效。"""
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:o", "role:甲", "状态", "重伤", valid_from=1))
+    store.supersede_fact("role:甲", "状态", "痊愈", since_chapter=5)
+    # 第3章仍在 valid_to(=5) 之前,应看到重伤
+    at3 = {f.value for f in store.facts_at(3)}
+    assert "重伤" in at3, f"第3章应仍有重伤(prior 尚未关闭): {at3}"
+    # 第7章超过 valid_to,旧值应消失、新值出现
+    at7 = {f.value for f in store.facts_at(7)}
+    assert "痊愈" in at7, f"第7章应有痊愈(新命题 valid_from=5): {at7}"
+    assert "重伤" not in at7, f"第7章重伤应已超越失效: {at7}"
+
+
+def test_forget_knowledge_closes_edge(store):
+    """forget_knowledge 须令 until_chapter 生效:该章前知道、该章及以后不知道。"""
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_fact(Fact("fact:f1", "role:乙", "秘密", "藏宝", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:乙", "fact:f1", since_chapter=1, acquired_via="given"))
+    # 尚未 forget:第3章应知道
+    from scribe3.knowledge import project_frame
+    assert project_frame(store, "role:乙", 3).knows("fact:f1"), "forget 前第3章应知道"
+    # 设置遗忘:第5章起忘记
+    store.forget_knowledge("role:乙", "fact:f1", until_chapter=5)
+    # 第3章仍在 until_chapter 之前,应还知道
+    assert project_frame(store, "role:乙", 3).knows("fact:f1"), "forget 后第3章(仍在有效期内)应知道"
+    # 第5章起不知道(until_chapter=5 → chapter >= 5 时 until_chapter > chapter 不满足)
+    assert not project_frame(store, "role:乙", 5).knows("fact:f1"), "第5章起应已忘记"
+    assert not project_frame(store, "role:乙", 7).knows("fact:f1"), "第7章应已忘记"
+
+
+def test_knows_certainty_roundtrips(store):
+    """add_knowledge 写入 certainty=0.5,load_knowledge 读回时 certainty 应与写入值一致。"""
+    store.add_entity(Entity("role:丙", "character", "丙"))
+    store.add_fact(Fact("fact:k", "role:丙", "x", "v", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:丙", "fact:k", since_chapter=1,
+                                      acquired_via="told", certainty=0.5))
+    edges = store.load_knowledge()
+    matched = [e for e in edges if e.knower_id == "role:丙" and e.proposition_id == "fact:k"]
+    assert matched, "应能找到新建的知识边"
+    assert abs(matched[0].certainty - 0.5) < 1e-6, \
+        f"certainty 应约等于 0.5,实际: {matched[0].certainty}"
