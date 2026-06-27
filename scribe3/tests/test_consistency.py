@@ -40,7 +40,8 @@ class TestSingleWritePoint:
         store.add_knowledge(KnowledgeEdge("role:s", "fact:s1", since_chapter=1, acquired_via="saw"))
         assert len(calls) >= 3, "add_entity/add_fact/add_knowledge 都应经 _execute_write"
         for s in calls:
-            assert any(kw in s for kw in ["CREATE", "UPSERT", "RELATE"]), f"写语句: {s}"
+            # UPDATE:add_fact 写入后经单点 _execute_write 补 embedding(P1),亦为合法写
+            assert any(kw in s for kw in ["CREATE", "UPSERT", "RELATE", "UPDATE"]), f"写语句: {s}"
 
 
 class TestLoadKnowledgeCaching:
