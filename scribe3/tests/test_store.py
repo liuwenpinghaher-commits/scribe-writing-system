@@ -101,3 +101,34 @@ def test_graph_recall_returns_secret_flag(store):
     # 召回中应包含 fact:治眼(secret=True)
     secret_items = [item for item in res if item.get("secret") is True]
     assert secret_items, "应有至少一条 secret=True 的召回命题(fact:治眼)"
+
+
+# --- P0 Task 7: 设定 CRUD 幂等(add_* 同名覆盖)---
+
+def test_add_faction_idempotent_by_name(store):
+    store.add_faction("青叶门", ideology="复辟", leader="甲")
+    store.add_faction("青叶门", ideology="改良", leader="乙")  # 同名再写=覆盖
+    facs = [f for f in store.list_factions() if f.get("name") == "青叶门"]
+    assert len(facs) == 1, f"同名应只剩一行,实际 {len(facs)}"
+    assert facs[0].get("ideology") == "改良"  # 取最新值
+
+
+def test_add_world_rule_idempotent_by_name(store):
+    store.add_world_rule("断契", category="magic", source="a")
+    store.add_world_rule("断契", category="social", source="b")
+    rs = [r for r in store.list_world_rules() if r.get("name") == "断契"]
+    assert len(rs) == 1 and rs[0].get("category") == "social"
+
+
+def test_add_item_idempotent_by_name(store):
+    store.add_item("镇煞钉", category="法器")
+    store.add_item("镇煞钉", category="凶器")
+    its = [i for i in store.list_items() if i.get("name") == "镇煞钉"]
+    assert len(its) == 1 and its[0].get("category") == "凶器"
+
+
+def test_add_term_idempotent_by_name(store):
+    store.add_term("镇煞", category="术语")
+    store.add_term("镇煞", category="法术")
+    ts = [t for t in store.list_terms() if t.get("name") == "镇煞"]
+    assert len(ts) == 1 and ts[0].get("category") == "法术"

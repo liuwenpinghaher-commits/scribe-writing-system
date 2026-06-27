@@ -812,7 +812,8 @@ class SurrealStore:
                        limitations: list | None = None, exceptions: list | None = None,
                        scope: str = "global", established_chapter: int | None = None,
                        note: str | None = None) -> str:
-        """添加世界规则(Sanderson 式:源头/能力/代价/限制/例外)。返回规则名。"""
+        """添加/覆盖世界规则(同名幂等:先删后建)。返回规则名。"""
+        self._execute_write("DELETE world_rule WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE world_rule SET name=$n, category=$cat, source=$src, "
             "capabilities=$caps, cost=$cost, limitations=$lims, exceptions=$excs, "
@@ -838,6 +839,8 @@ class SurrealStore:
                     public_face: str | None = None,
                     private_operation: str | None = None,
                     first_mention_chapter: int | None = None) -> str:
+        """添加/覆盖势力(同名幂等:先删后建)。返回势力名。"""
+        self._execute_write("DELETE faction WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE faction SET name=$n, ideology=$ideo, status=$st, leader=$ldr, "
             "known_members=$km, public_face=$pf, private_operation=$po, "
@@ -1007,6 +1010,8 @@ class SurrealStore:
                  symbolic_state: str = "active",
                  special_properties: list | None = None,
                  first_chapter: int | None = None) -> str:
+        """添加/覆盖物品(同名幂等:先删后建)。返回物品名。"""
+        self._execute_write("DELETE item WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE item SET name=$n, category=$cat, description=$desc, "
             "current_owner=$co, symbolic_state=$ss, state_history=[], "
@@ -1036,6 +1041,8 @@ class SurrealStore:
     def add_term(self, name: str, category: str | None = None,
                  definition: str | None = None, aliases: list | None = None,
                  first_mention_chapter: int | None = None) -> str:
+        """添加/覆盖术语(同名幂等:先删后建)。返回术语名。"""
+        self._execute_write("DELETE term WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE term SET name=$n, category=$cat, definition=$def, "
             "aliases=$al, first_mention_chapter=$fmc",
