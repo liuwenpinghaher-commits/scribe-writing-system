@@ -15,6 +15,7 @@ import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
+import { chapterLabel } from './chapterLabel.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
@@ -254,7 +255,7 @@ export function WriteLayout({ work }) {
         {chapters.map((c) => (
           <button key={c.seq} onClick={() => setChapter(c.seq)}
             className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.seq === chapter ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-            <span className="tnum text-faint mr-1.5">第{c.seq}章</span>{c.title || '无题'}
+            {chapterLabel(c.seq, c.title || '')}
           </button>
         ))}
       </div>
