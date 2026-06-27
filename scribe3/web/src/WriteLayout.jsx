@@ -47,6 +47,7 @@ export function WriteLayout({ work }) {
   const [motifs, setMotifs] = useState([])
   const [recallQ, setRecallQ] = useState('')
   const [recallHits, setRecallHits] = useState([])
+  const [presentQ, setPresentQ] = useState('')
   const [focusMode, setFocusMode] = useState(false)
   const [saved, setSaved] = useState(true)
   const [btns, setBtns] = useState(() => loadButtons(work))
@@ -355,18 +356,52 @@ export function WriteLayout({ work }) {
       ))}
     </div>
   )
-  const renderPresent = () => (
-    <div>
-      <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
-      {chars.length === 0 ? <Empty>无角色</Empty> : chars.map((c) => (
-        <button key={c.id} onClick={() => setFocalizer(c.id)}
-          className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-          <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
-          <span className="truncate">{c.name}</span>{c.id === focalizer && <span className="ml-auto text-[11px] text-brand">视角</span>}
-        </button>
-      ))}
-    </div>
-  )
+  const renderPresent = () => {
+    const impOrder = ['protagonist', 'major', 'minor']
+    const impLabel = { protagonist: '主角', major: '重要角色', minor: '次要角色' }
+    const q = presentQ.trim().toLowerCase()
+    const filtered = chars.filter((c) => !q || c.name.toLowerCase().includes(q))
+    // group by importance if any char has it; else single group
+    const hasImportance = chars.some((c) => c.importance)
+    const CharBtn = ({ c }) => (
+      <button key={c.id} onClick={() => setFocalizer(c.id)}
+        className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
+        <span className="truncate">{c.name}</span>
+        {c.id === focalizer && <span className="ml-auto text-[11px] text-brand">视角</span>}
+      </button>
+    )
+    let body
+    if (filtered.length === 0) {
+      body = <div className="text-[12px] text-faint py-2 text-center">无匹配角色</div>
+    } else if (hasImportance) {
+      const groups = {}
+      filtered.forEach((c) => {
+        const k = impOrder.includes(c.importance) ? c.importance : 'minor'
+        ;(groups[k] = groups[k] || []).push(c)
+      })
+      body = impOrder.filter((k) => groups[k]).map((k) => (
+        <div key={k} className="mb-2">
+          <div className="text-[11px] text-faint px-1 mb-0.5 mt-1">{impLabel[k]}</div>
+          {groups[k].map((c) => <CharBtn key={c.id} c={c} />)}
+        </div>
+      ))
+    } else {
+      body = filtered.map((c) => <CharBtn key={c.id} c={c} />)
+    }
+    return (
+      <div>
+        <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
+        {chars.length === 0 ? <Empty>无角色</Empty> : (
+          <>
+            <input value={presentQ} onChange={(e) => setPresentQ(e.target.value)}
+              placeholder="搜角色…" className="w-full h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand mb-2" />
+            {body}
+          </>
+        )}
+      </div>
+    )
+  }
 
   // 小分段控件:一排药丸按钮,active 高亮
   const Segmented = ({ value, onChange, options }) => (
