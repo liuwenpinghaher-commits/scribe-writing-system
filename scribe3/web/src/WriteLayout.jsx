@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
-  BookText, LayoutList, Flame, Sparkles,
+  BookText, LayoutList, Flame, Sparkles, Eye,
 } from 'lucide-react'
 import { api } from './api'
 import { Shell } from './shell'
@@ -15,6 +15,7 @@ import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
+import { FramePanel } from './FramePanel.jsx'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 export function WriteLayout({ work }) {
@@ -234,6 +235,9 @@ export function WriteLayout({ work }) {
     { key: 'versions', label: '存档', icon: Bookmark, render: () => (
       <VersionPanel seq={chapter} refreshKey={verTick}
         onRestore={(text) => { setProse(text); persist(text) }} />
+    ) },
+    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
+      <FramePanel focalizer={focalizer} chapter={chapter} />
     ) },
   ]
 

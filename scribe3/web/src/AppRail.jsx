@@ -1,8 +1,7 @@
-import { Sun, Moon, BookOpen, ChevronDown, Feather, BookText, Network, Activity, Eye } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Feather, BookText, Network, Activity } from 'lucide-react'
 
 export const VIEWS = [
   { key: 'write', label: '写作台', icon: Feather },
-  { key: 'deduce', label: '推演台', icon: Eye },
   { key: 'codex', label: '设定库', icon: BookText },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'insight', label: '仪表盘', icon: Activity },

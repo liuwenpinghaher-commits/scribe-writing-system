@@ -7,7 +7,6 @@ import { CommandPalette } from './CommandPalette'
 import { CodexView } from './views/CodexView'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
-import { DeduceLayout } from './DeduceLayout'
 
 // 顶层编排:AppRail(字标/书切换/视图tab/主题)+ (作品库 | 写作台/设定库/图谱/仪表盘)。
 export default function App() {
@@ -37,7 +36,6 @@ export default function App() {
 
   let body
   if (!cur) body = <Library works={works} reload={reload} onSelect={open} />
-  else if (view === 'deduce') body = <DeduceLayout key={cur.slug} work={cur.slug} />
   else if (view === 'codex') body = <CodexView key={cur.slug} />
   else if (view === 'atlas') body = <AtlasView key={cur.slug} />
   else if (view === 'insight') body = <InsightView key={cur.slug} />
