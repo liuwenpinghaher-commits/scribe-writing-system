@@ -13,6 +13,7 @@ import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
+import { loadButtons, addButton } from './lib/rewriteButtons.js'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 export function WriteLayout({ work }) {
@@ -38,6 +39,7 @@ export function WriteLayout({ work }) {
   const [recallHits, setRecallHits] = useState([])
   const [focusMode, setFocusMode] = useState(false)
   const [saved, setSaved] = useState(true)
+  const [btns, setBtns] = useState(() => loadButtons(work))
   const [leftActive, setLeftActive] = useState('outline')
   const [rightActive, setRightActive] = useState('chat')
   const [tick, setTick] = useState(0)
@@ -119,6 +121,20 @@ export function WriteLayout({ work }) {
     <div className="flex flex-col h-full">
       <NorthStarBar />
       {topbarMid}
+      {lastSel && (
+        <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line bg-surface">
+          {btns.map((b) => (
+            <button key={b} onClick={() => {
+              setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
+              setCandidates([]); setRightActive('chat')
+            }} className="h-6 px-2 rounded-lg border border-line text-[11px] text-ink hover:bg-soft cursor-pointer">{b}</button>
+          ))}
+          <button onClick={() => {
+            const t = prompt('存一个常用改写指令(如「压缩、去形容词」):')
+            if (t) setBtns(addButton(work, t))
+          }} className="h-6 px-2 rounded-lg border border-dashed border-line text-[11px] text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
           <DraftCard proposal={proposal} candidates={candidates} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
