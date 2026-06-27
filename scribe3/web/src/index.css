@@ -58,6 +58,11 @@ body {
 .manuscript { font-family: var(--font-prose); font-size: 16.5px; line-height: 1.95; }
 .manuscript p { margin: 0 0 1.1em; }
 
+/* 衬线阅读模式(可选):CJK宋体字族,默认关闭 */
+.manuscript.serif { font-family: "Songti SC", "STSong", "Source Han Serif SC", "Noto Serif CJK SC", Georgia, "Times New Roman", serif; letter-spacing: 0.01em; }
+/* 正文编辑器衬线模式:让 tiptap-prose 继承父层字体 */
+.manuscript.serif .tiptap-prose { font-family: inherit; letter-spacing: 0.01em; }
+
 /* 细滚动条 */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-line) 80%, transparent); border-radius: 9px; border: 2px solid transparent; background-clip: content-box; }

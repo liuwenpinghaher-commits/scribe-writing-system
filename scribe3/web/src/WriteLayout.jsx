@@ -58,6 +58,7 @@ export function WriteLayout({ work }) {
   const [tick, setTick] = useState(0)
   const [verTick, setVerTick] = useState(0)
   const [dlg, setDlg] = useState(null)
+  const [serif, setSerif] = useState(() => localStorage.getItem('scribe3:serif') === '1')
   const [saveMenu, setSaveMenu] = useState(false)
   const saveMenuRef = useRef(null)
   const [guardPop, setGuardPop] = useState(false)
@@ -250,6 +251,11 @@ export function WriteLayout({ work }) {
                 <AlignCenter size={13} className="text-faint shrink-0" />专注模式
                 {focusMode && <Check size={13} className="ml-auto text-brand shrink-0" />}
               </button>
+              <button onClick={() => { setSaveMenu(false); const v = !serif; setSerif(v); localStorage.setItem('scribe3:serif', v ? '1' : '0') }}
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                <BookText size={13} className="text-faint shrink-0" />阅读字体:{serif ? '衬线' : '黑体'}
+                {serif && <Check size={13} className="ml-auto text-brand shrink-0" />}
+              </button>
             </div>
           )}
         </div>
@@ -281,9 +287,11 @@ export function WriteLayout({ work }) {
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
           <DraftCard proposal={proposal} candidates={candidates} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
-          <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
-            chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
-            placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
+          <div className={`manuscript${serif ? ' serif' : ''}`}>
+            <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
+              chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
+              placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
+          </div>
         </div>
       </div>
     </div>
