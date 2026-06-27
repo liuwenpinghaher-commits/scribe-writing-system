@@ -89,7 +89,8 @@ def test_add_voice_flag_sets_trigger_chapter(store):
 
 def test_graph_recall_returns_secret_flag(store):
     luanshi_leak_world(store)
-    # graph_recall 依赖向量索引;add_fact 不自动建 embedding,需显式 semantic_index
+    # graph_recall 依赖向量索引;luanshi_leak_world 内 add_fact 现已自动建 embedding,
+    # 此处显式调用 semantic_index 保持幂等(覆盖写等价,不影响正确性)
     store.semantic_index("fact:治眼", "攒钱给老娘治眼")
     store.semantic_index("fact:雨", "暴雨")
     res = store.graph_recall("治眼", 9999, k=5)
@@ -132,3 +133,16 @@ def test_add_term_idempotent_by_name(store):
     store.add_term("镇煞", category="法术")
     ts = [t for t in store.list_terms() if t.get("name") == "镇煞"]
     assert len(ts) == 1 and ts[0].get("category") == "法术"
+
+
+# --- P1 Task 3: add_fact 写入后自动建 embedding ---
+
+def test_add_fact_is_semantically_recallable(store):
+    """P1 回归:store.add_fact 写入后命题应可被 semantic_recall 召回。
+    修复前:add_fact 不建 embedding → semantic_recall 永远找不到该命题。
+    修复后:add_fact 内部调用 semantic_index → REST/ingest 路径与 MCP s3_add_fact 对齐。
+    """
+    store.add_fact(Fact("fact:t1", "role:甲", "获知", "焦三在乱葬岗埋了一坛酒", valid_from=1))
+    hits = store.semantic_recall("乱葬岗 酒", k=5)
+    assert any(getattr(f, "id", None) == "fact:t1" for f in hits), \
+        "新命题应可被语义召回(add_fact 须自动调 semantic_index)"

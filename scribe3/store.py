@@ -267,6 +267,12 @@ class SurrealStore:
             {"local": local, "entity": f.entity_id, "attr": f.attribute, "value": f.value,
              "vf": f.valid_from, "vt": f.valid_to, "secret": f.secret, "lm": f.leak_markers,
              **({"iseq": ingest_seq} if ingest_seq is not None else {})})
+        # 写入后建语义索引(与 s3_add_fact 对齐;embed 失败不阻断主写)
+        try:
+            self.semantic_index(f.id, f.value)
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "add_fact: embedding 失败,命题 %s 将不可语义召回: %s", f.id, _e)
         return f
 
     def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
