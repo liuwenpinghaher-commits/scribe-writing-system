@@ -82,7 +82,7 @@ export function Shell({ topbar, left, center, right }) {
             <Resizer onDown={startResize('l')} />
           </>
         )}
-        <main className="flex-1 min-w-0 overflow-hidden flex flex-col">{center}</main>
+        <main className="flex-1 min-w-[480px] overflow-hidden flex flex-col">{center}</main>
         {rCap && (
           <>
             <Resizer onDown={startResize('r')} />

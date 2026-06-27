@@ -55,6 +55,20 @@ export function WriteLayout({ work }) {
   const [dlg, setDlg] = useState(null)
   const [saveMenu, setSaveMenu] = useState(false)
   const saveMenuRef = useRef(null)
+  const narrowRef = useRef(false)
+
+  // 窄屏(<1100px)自动折叠右栏:仅在「进入窄屏」的瞬间收起一次,不与用户重新打开较劲
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1099px)')
+    const apply = (matches) => {
+      if (matches && !narrowRef.current) { setRightActive(''); narrowRef.current = true }
+      else if (!matches) { narrowRef.current = false }
+    }
+    apply(mq.matches)
+    const onChange = (e) => apply(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   useEffect(() => {
     if (!saveMenu) return
