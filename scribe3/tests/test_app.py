@@ -254,3 +254,26 @@ def test_graph_does_not_leak_secret_value(store):
     for n in secret_nodes:
         assert "治眼" not in (n.get("label") or ""), f"secret 节点 label 泄露明文: {n}"
         assert "攒钱" not in (n.get("label") or ""), f"secret 节点 label 泄露明文: {n}"
+
+
+def test_world_rule_full_fields_roundtrip(store):
+    c = _client(store)
+    c.post("/world-rules", json={"name": "断契", "category": "magic", "source": "血契",
+                                 "capabilities": ["斩断因果"], "limitations": ["需断臂"],
+                                 "exceptions": ["满月无效"], "established_chapter": 3})
+    rules = c.get("/world-rules").json()
+    r = next((x for x in rules if x.get("name") == "断契"), None)
+    assert r is not None
+    assert r.get("limitations") == ["需断臂"], f"limitations 应写入: {r}"
+    assert r.get("established_chapter") == 3
+
+
+def test_faction_full_fields_roundtrip(store):
+    c = _client(store)
+    c.post("/factions", json={"name": "青叶门", "ideology": "复辟", "leader": "掌门",
+                              "known_members": ["甲", "乙"], "first_mention_chapter": 2})
+    facs = c.get("/factions").json()
+    f = next((x for x in facs if x.get("name") == "青叶门"), None)
+    assert f is not None
+    assert f.get("known_members") == ["甲", "乙"], f"known_members 应写入: {f}"
+    assert f.get("first_mention_chapter") == 2
