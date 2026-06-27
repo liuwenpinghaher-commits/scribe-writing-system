@@ -5,6 +5,7 @@
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
+from scribe3.ontology import Event
 from scribe3.scenario import luanshi_leak_world
 
 
@@ -289,3 +290,17 @@ def test_quality_word_count_matches_store_convention(store):
     ch1 = next((x for x in q.get("chapters", q) if x.get("seq") == 1), None)
     assert ch1 is not None
     assert ch1["word_count"] == expected, f"字数口径应统一为字符数: {ch1['word_count']} != {expected}"
+
+
+def test_quality_overdue_excludes_red_herring(store):
+    c = _client(store)
+    # 种两条都很早埋下、未回收;一条 promise、一条 red_herring
+    store.plant_promise("正经伏笔", setup_chapter=1, kind="promise")
+    store.plant_promise("红鲱鱼", setup_chapter=1, kind="red_herring")
+    # max_chapter() 读 event 表的 valid_from 最大值;种一个 chapter=10 的事件使 1+3=4 < 10
+    store.add_event(Event("ev:红鲱鱼测试", "action", story_time=10))
+    q = c.get("/quality").json()
+    # /quality 的 foreshadow.overdue 应只计 promise 类,不计 red_herring
+    assert q["foreshadow"]["overdue"] == 1, (
+        f"overdue 应为 1(仅 promise),实际为 {q['foreshadow']['overdue']}"
+    )

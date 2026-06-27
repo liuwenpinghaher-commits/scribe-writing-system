@@ -121,7 +121,7 @@ export function WriteLayout({ work }) {
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
   const openProm = promises.filter((p) => p.status === 'open')
-  const overdue = (p) => p.status === 'open' && p.setup_chapter + 3 < chapter
+  const overdue = (p) => p.status === 'open' && p.kind !== 'red_herring' && p.setup_chapter + 3 < chapter
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
 
   const persist = async (text) => {

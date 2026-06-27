@@ -516,7 +516,7 @@ def quality(work: str = "main"):
     fore = {
         "open": sum(1 for p in proms if p["status"] == "open"),
         "closed": sum(1 for p in proms if p["status"] == "closed"),
-        "overdue": sum(1 for p in proms if p["status"] == "open" and p["setup_chapter"] + 3 < mc),
+        "overdue": sum(1 for p in proms if p["status"] == "open" and p.get("kind") != "red_herring" and p["setup_chapter"] + 3 < mc),
     }
     return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per)}
 
