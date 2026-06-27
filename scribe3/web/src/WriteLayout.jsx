@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
-  Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock, AlertTriangle,
+  ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
+  Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
   BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
 } from 'lucide-react'
 import { api } from './api'
 import { verifyIssues } from './verifyIssues.js'
 import { Shell } from './shell'
 import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
+import { Chip } from './ui/Chip'
 import { ProseEditor } from './editor/ProseEditor'
 import { applyProposal } from './editor/applyProposal.js'
 import { DraftCard } from './editor/DraftCard'
@@ -58,6 +59,8 @@ export function WriteLayout({ work }) {
   const [dlg, setDlg] = useState(null)
   const [saveMenu, setSaveMenu] = useState(false)
   const saveMenuRef = useRef(null)
+  const [guardPop, setGuardPop] = useState(false)
+  const guardPopRef = useRef(null)
   const narrowRef = useRef(false)
 
   // 窄屏(<1100px)自动折叠右栏:仅在「进入窄屏」的瞬间收起一次,不与用户重新打开较劲
@@ -79,6 +82,13 @@ export function WriteLayout({ work }) {
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [saveMenu])
+
+  useEffect(() => {
+    if (!guardPop) return
+    const onDown = (e) => { if (guardPopRef.current && !guardPopRef.current.contains(e.target)) setGuardPop(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [guardPop])
 
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
@@ -168,23 +178,52 @@ export function WriteLayout({ work }) {
 
       {/* 右:状态 + 操作 — 全部 shrink-0,永不被裁 */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* 护栏徽章簇 */}
-        <div className="flex items-center gap-2 shrink-0">
-          {guardOn && focalizer && guard.leaks.length > 0 && (
-            <span title={guard.leaks.map((l) => l.marker).join('、')}
-                  className="inline-flex items-center gap-1 text-[11px] text-danger tnum cursor-default whitespace-nowrap shrink-0">
-              <Lock size={13} />{guard.leaks.length}
-            </span>
-          )}
-          {guardOn && (guard.qc.repetition + guard.qc.purple) > 0 && (
-            <span title="复读/升华(AI腔)" className="inline-flex items-center gap-1 text-[11px] text-faint tnum cursor-default whitespace-nowrap shrink-0">
-              <AlertTriangle size={13} />{guard.qc.repetition + guard.qc.purple}
-            </span>
-          )}
-          <button onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
-                  title={guardOn ? '护栏开(点击关闭,完全静默)' : '护栏关'}
-                  className={`text-[11px] px-1.5 h-6 rounded-lg cursor-pointer whitespace-nowrap shrink-0 ${guardOn ? 'text-brand' : 'text-faint'}`}>护栏</button>
-        </div>
+        {/* 护栏芯片 */}
+        {(() => {
+          const guardTone = !guardOn ? 'faint' : (focalizer && guard.leaks.length > 0 ? 'danger' : ((guard.qc.repetition + guard.qc.purple) > 0 ? 'warn' : 'ok'))
+          const issueCount = (focalizer ? guard.leaks.length : 0) + guard.qc.repetition + guard.qc.purple
+          return (
+            <div ref={guardPopRef} className="relative shrink-0">
+              <Chip
+                tone={guardTone}
+                icon={guardOn ? ShieldCheck : ShieldOff}
+                onClick={() => setGuardPop((v) => !v)}
+              >
+                护栏{guardOn && guardTone !== 'ok' ? ` ${issueCount}` : ''}
+              </Chip>
+              {guardPop && (
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
+                  {/* 限知泄露 */}
+                  <div className="mb-2">
+                    <div className="text-[11.5px] text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
+                    {focalizer && guard.leaks.length > 0
+                      ? <div className="text-[12px] text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
+                      : <div className="text-[12px] text-ok">无泄露</div>
+                    }
+                  </div>
+                  {/* 复读/升华 */}
+                  <div className="mb-3">
+                    <div className="text-[11.5px] text-faint mb-0.5">复读 / 升华</div>
+                    <div className={`text-[12px] ${(guard.qc.repetition + guard.qc.purple) > 0 ? 'text-warn' : 'text-ok'}`}>
+                      {(guard.qc.repetition + guard.qc.purple) > 0 ? `${guard.qc.repetition + guard.qc.purple} 处` : '干净'}
+                    </div>
+                  </div>
+                  {/* 开/关 toggle */}
+                  <button
+                    className="w-full flex items-center gap-2 rounded-lg px-2 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer border border-line"
+                    onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
+                  >
+                    {guardOn ? <ShieldCheck size={13} className="text-brand shrink-0" /> : <ShieldOff size={13} className="text-faint shrink-0" />}
+                    <span>{guardOn ? '护栏开' : '护栏关'}</span>
+                    <span className="ml-auto text-[11px] text-faint">{guardOn ? '点击关闭' : '点击开启'}</span>
+                  </button>
+                  <div className="text-[10.5px] text-faint mt-1.5 leading-snug">关=完全静默,不校验</div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
         <span className="text-[11px] text-faint tnum whitespace-nowrap shrink-0">{wordCount} 字</span>
 
         {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
