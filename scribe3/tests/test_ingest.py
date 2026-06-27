@@ -161,3 +161,84 @@ def test_dramatic_irony_uses_reader_knows(store):
     irony = dramatic_irony(store, "role:焦三", 8)
     assert any("奸细" in f.value for f in irony), \
         "reader 已知阿萤是奸细,焦三不知 → 应出现在戏剧反讽列表"
+
+
+# ── P2-E3 accept_unverified 回放 ingest 回填被阻塞的知识 ──────────────────────
+
+def test_accept_unverified_replays_chapter(store):
+    """P2-E3: accept_unverified 应重放该章 ingest,回填因角色不存在而被跳过的知识边。
+
+    流程:
+    1) 存一章正文,其中有"无名客"的 learned 和 did 项
+    2) ingest 时 role:无名客 不存在 → _resolve_char 返回 None,知识边被跳过,
+       同时 add_unverified_ref 登记一条 pending 行
+    3) accept_unverified(uid, complete_fn=fake) → 建角色 + 重放 ingest →
+       role:无名客 的 fact/knows 边现在存在
+    """
+    # 存章节(无名客 在场,另有已知角色焦三作对照)
+    store.save_chapter(9, "无名客在乱岗拾得尸丹。", focalizer=None)
+
+    # 首次 ingest: role:无名客 不存在 → 知识被跳过
+    fake_llm = lambda _p: ('{"learned":[{"who":"无名客","fact":"尸丹能聚魂"}],'
+                           '"did":[{"who":"无名客","action":"拾得尸丹","seen_by":[]}],'
+                           '"voice_shift":[]}')
+    r1 = ingest_chapter(store, 9, fake_llm)
+    # applied==0:两条都因角色不存在而跳过
+    assert r1["applied"] == 0, f"首次 ingest 应全部跳过,实际 applied={r1['applied']}"
+
+    # 此时应有一条 pending 记录
+    pending = store.list_unverified("pending")
+    wm_pending = [p for p in pending if p["name"] == "无名客" and p["seq"] == 9]
+    assert wm_pending, "ingest 应登记无名客的 pending 待确认行"
+    uid = wm_pending[0]["id"]
+
+    # accept_unverified 传入 fake_llm 触发重放
+    result = store.accept_unverified(uid, complete_fn=fake_llm)
+    assert result["created"] is True, "应建 role:无名客 实体"
+    assert result["replayed"] is True, "应回放 ingest"
+
+    # 验证知识边已回填
+    fr = project_frame(store, "role:无名客", 9)
+    values = [f.value for f in fr.facts]
+    assert any("聚魂" in v for v in values), \
+        f"learned 知识应回填到无名客,实际 facts={values}"
+    assert any("尸丹" in v for v in values), \
+        f"did 行动应回填到无名客,实际 facts={values}"
+
+
+def test_accept_unverified_no_complete_fn_skips_replay(store):
+    """没有 complete_fn 时,accept 仍建角色,replayed=False,不抛异常。"""
+    store.save_chapter(10, "神秘人出现。", focalizer=None)
+    fake_llm = lambda _p: '{"learned":[{"who":"神秘人","fact":"持有令牌"}],"did":[],"voice_shift":[]}'
+    ingest_chapter(store, 10, fake_llm)
+
+    pending = store.list_unverified("pending")
+    target = [p for p in pending if p["name"] == "神秘人" and p["seq"] == 10]
+    assert target, "应有 pending 行"
+    uid = target[0]["id"]
+
+    result = store.accept_unverified(uid)   # 不传 complete_fn
+    assert result["created"] is True
+    assert result["replayed"] is False, "无 complete_fn 应跳过 replay"
+    # 角色实体已建
+    assert store.entity("role:神秘人") is not None
+
+
+def test_accept_unverified_replay_error_is_soft(store):
+    """replay 抛异常时,角色建立 + status=accepted 仍保留,replayed=False。"""
+    store.save_chapter(11, "影者现身。", focalizer=None)
+    bad_llm = lambda _p: '{"learned":[{"who":"影者","fact":"来历不明"}],"did":[],"voice_shift":[]}'
+    ingest_chapter(store, 11, bad_llm)
+
+    pending = store.list_unverified("pending")
+    target = [p for p in pending if p["name"] == "影者" and p["seq"] == 11]
+    assert target
+    uid = target[0]["id"]
+
+    exploding_fn = lambda _p: (_ for _ in ()).throw(RuntimeError("模拟 LLM 崩溃"))
+    result = store.accept_unverified(uid, complete_fn=exploding_fn)
+    assert result["created"] is True, "角色应已建立"
+    assert result["replayed"] is False, "replay 崩溃应 soft-fail"
+    # status 已更新为 accepted
+    accepted = store.list_unverified("accepted")
+    assert any(r["id"] == uid for r in accepted), "status 应已置 accepted"

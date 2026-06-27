@@ -1126,7 +1126,8 @@ def ingest_unverified(status: str = "pending", work: str = "main"):
 
 @app.post("/ingest-unverified/{uid}/accept")
 def accept_unverified_ep(uid: str, work: str = "main"):
-    return _store_for(work).accept_unverified(uid)
+    from scribe3.llm import hermes_complete
+    return _store_for(work).accept_unverified(uid, complete_fn=hermes_complete)
 
 
 @app.post("/ingest-unverified/{uid}/ignore")

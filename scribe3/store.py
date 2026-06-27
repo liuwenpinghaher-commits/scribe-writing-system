@@ -395,13 +395,25 @@ class SurrealStore:
             "SELECT meta::id(id) AS id, name, seq, role, status "
             "FROM ingest_unverified WHERE status=$st", {"st": status})
 
-    def accept_unverified(self, uid: str) -> dict:
-        """接受待确认引用:若 role:{name} 不存在则建角色,标记该行 accepted。返回 {created, oid}。"""
+    def accept_unverified(self, uid: str, complete_fn=None) -> dict:
+        """接受待确认引用:若 role:{name} 不存在则建角色,标记该行 accepted,并重放该章 ingest 回填被阻塞的知识。
+
+        Args:
+            uid: ingest_unverified 行的 id。
+            complete_fn: LLM complete 函数(与 ingest_chapter 同签名 prompt→str)。
+                传入时重放该章 ingest——此前因角色不存在而跳过的 learned/did 边现在得以写入。
+                不传(None)时跳过 replay(角色仍建立,replayed=False)。
+
+        Returns:
+            {created: bool, oid: str, replayed: bool}
+            replay 失败时 fail-soft:角色建立 + status=accepted 保留,replayed=False。
+        """
         rows = self._query(
-            "SELECT name FROM type::record('ingest_unverified', $u)", {"u": uid})
+            "SELECT name, seq FROM type::record('ingest_unverified', $u)", {"u": uid})
         if not rows:
-            return {"created": False, "oid": ""}
+            return {"created": False, "oid": "", "replayed": False}
         name = rows[0]["name"]
+        seq = rows[0].get("seq")
         oid = f"role:{name}"
         created = self.entity(oid) is None
         if created:
@@ -409,7 +421,20 @@ class SurrealStore:
             self.add_entity(Entity(oid, "character", name))
         self._execute_write(
             "UPDATE type::record('ingest_unverified', $u) SET status='accepted'", {"u": uid})
-        return {"created": created, "oid": oid}
+
+        # 重放该章 ingest:现在角色已存在,_resolve_char 不再跳过,被阻塞的知识边得以回填
+        replayed = False
+        if complete_fn is not None and seq is not None:
+            import logging
+            try:
+                from scribe3.ingest import ingest_chapter
+                r = ingest_chapter(self, seq, complete_fn)
+                replayed = not r.get("parse_failed", False)
+            except Exception as e:
+                logging.getLogger("scribe3.store").warning(
+                    "accept_unverified uid=%s seq=%s replay 失败(soft): %s", uid, seq, e)
+
+        return {"created": created, "oid": oid, "replayed": replayed}
 
     def ignore_unverified(self, uid: str) -> None:
         """将待确认行标记为 ignored。"""
