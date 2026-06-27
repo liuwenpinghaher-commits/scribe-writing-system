@@ -32,7 +32,7 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
                 "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                 "s3_supersede_fact", "s3_forget_knowledge",
-                "s3_evolve_relation"}
+                "s3_evolve_relation", "s3_resolve_voice_flag"}
 
 
 def requires_approval(name: str) -> bool:
@@ -592,6 +592,15 @@ async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int) -> dic
     ok = await _ask(ctx, f"回收伏笔 {pid}(第{payoff_chapter}章)")
     return commit_if_approved("s3_advance_promise", ok,
                               lambda: _store.advance_promise(pid, payoff_chapter))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_resolve_voice_flag(ctx: Context, flag_id: str) -> dict:
+    """关闭声音演变 flag(status: open → done;写,待批)。
+    更新声音库后调用此工具标记已处理。flag_id 从 s3_list_voice_flags 获取。"""
+    ok = await _ask(ctx, f"关闭声音演变 flag {flag_id}")
+    return commit_if_approved("s3_resolve_voice_flag", ok,
+                              lambda: _store.resolve_voice_flag(flag_id))
 
 
 @mcp.tool(annotations=_RW)

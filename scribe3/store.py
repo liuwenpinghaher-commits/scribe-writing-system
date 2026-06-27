@@ -682,6 +682,12 @@ class SurrealStore:
             "SELECT meta::id(id) AS id, character, seq, reason, status "
             "FROM voice_evolution_flag WHERE status=$st", {"st": status})
 
+    def resolve_voice_flag(self, flag_id: str) -> None:
+        """关闭声音演变 flag:将 status 从 'open' 改为 'done'。"""
+        self._execute_write(
+            "UPDATE type::record('voice_evolution_flag',$fid) SET status='done'",
+            {"fid": flag_id})
+
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
         self._execute_write(
@@ -961,7 +967,8 @@ class SurrealStore:
                        after_state: dict | None = None, trigger_event: str | None = None,
                        arc_phase: str | None = None, affects_voice: bool | None = None,
                        confidence: str = "confirmed") -> None:
-        """记录角色弧光质变点(能力/关系/性格变化)。"""
+        """记录角色弧光质变点(能力/关系/性格变化)。
+        affects_voice=True 时自动创建 voice_evolution_flag(该更新声音了)。"""
         _, local = _split(character_id)
         self._execute_write(
             "CREATE char_state SET character_id=$cid, chapter=$ch, change_type=$ct, "
@@ -970,6 +977,8 @@ class SurrealStore:
             {"cid": character_id, "ch": chapter, "ct": change_type, "sum": summary,
              "bs": before_state, "as": after_state, "te": trigger_event,
              "ap": arc_phase, "av": affects_voice, "conf": confidence})
+        if affects_voice:
+            self.add_voice_flag(character_id, chapter, summary)
 
     def char_state_at(self, character_id: str, chapter: int) -> dict:
         """返回角色在某章时刻的完整状态快照(合并所有 CharState 到该章)。"""

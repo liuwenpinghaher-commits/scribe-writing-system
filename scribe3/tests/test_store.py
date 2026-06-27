@@ -280,3 +280,47 @@ def test_knows_certainty_roundtrips(store):
     assert matched, "应能找到新建的知识边"
     assert abs(matched[0].certainty - 0.5) < 1e-6, \
         f"certainty 应约等于 0.5,实际: {matched[0].certainty}"
+
+
+# --- P2-D1: affects_voice 自动触发声音演变 flag ---
+
+def test_affects_voice_triggers_flag(store):
+    """affects_voice=True 的 char_state 应自动创建 voice_evolution_flag。"""
+    store.add_char_state(character_id="role:甲", chapter=3, change_type="personality",
+                         summary="由怯转狠", affects_voice=True)
+    flags = store.list_voice_flags("open")
+    assert any(f.get("character") == "role:甲" for f in flags), \
+        f"affects_voice=True 应自动生成 flag: {flags}"
+
+
+def test_affects_voice_false_no_flag(store):
+    """affects_voice=False 不应创建 voice_evolution_flag。"""
+    store.add_char_state(character_id="role:乙", chapter=3, change_type="ability",
+                         summary="习剑", affects_voice=False)
+    flags = store.list_voice_flags("open")
+    assert not any(f.get("character") == "role:乙" for f in flags), \
+        f"affects_voice=False 不应生成 flag: {flags}"
+
+
+def test_affects_voice_none_no_flag(store):
+    """affects_voice=None(默认)不应创建 voice_evolution_flag(不破坏旧调用)。"""
+    store.add_char_state(character_id="role:丙", chapter=2, change_type="ability",
+                         summary="习武")
+    flags = store.list_voice_flags("open")
+    assert not any(f.get("character") == "role:丙" for f in flags), \
+        f"affects_voice=None 不应生成 flag: {flags}"
+
+
+def test_resolve_voice_flag(store):
+    """resolve_voice_flag 应将 flag 状态从 open 改为 done。"""
+    store.add_voice_flag("role:甲", 5, "声调突变")
+    flags_open = store.list_voice_flags("open")
+    assert flags_open, "前置条件:应有 open flag"
+    fid = flags_open[0]["id"]
+
+    store.resolve_voice_flag(fid)
+
+    open_after = store.list_voice_flags("open")
+    done_after = store.list_voice_flags("done")
+    assert not any(f["id"] == fid for f in open_after), "resolve 后 flag 不应在 open 列表"
+    assert any(f["id"] == fid for f in done_after), "resolve 后 flag 应在 done 列表"

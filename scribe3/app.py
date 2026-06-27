@@ -568,6 +568,13 @@ def voice_flags(work: str = "main"):
     return _store_for(work).list_voice_flags("open")
 
 
+@app.post("/voice-flags/{fid}/resolve")
+def resolve_voice_flag_endpoint(fid: str, work: str = "main"):
+    """关闭声音演变 flag(status: open → done)。"""
+    _store_for(work).resolve_voice_flag(fid)
+    return {"ok": True}
+
+
 @app.get("/graph")
 def graph(chapter: int | None = None, work: str = "main"):
     """知识图谱:角色/命题节点 + knows 边(Atlas 视图)。"""
