@@ -86,19 +86,38 @@ def s3_causal_complete(chapter: int) -> list[dict]:
     return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store, chapter)]
 
 
+_SECRET_MASK = "🔒 私密"
+
+
+def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
+    """统一掩码函数:is_secret=True 且 reveal_secret=False → 返回掩码占位符。
+    与 store.graph() 使用同一占位符 '🔒 私密'。"""
+    if is_secret and not reveal_secret:
+        return _SECRET_MASK
+    return value
+
+
 @mcp.tool(annotations=_RO)
-def s3_semantic_recall(query: str, k: int = 5) -> list[dict]:
-    """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。"""
-    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value,
+def s3_semantic_recall(query: str, k: int = 5, reveal_secret: bool = False) -> list[dict]:
+    """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
+
+    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
+             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
              "is_secret": bool(f.secret)}
             for f in _store.semantic_recall(query, k)]
 
 
 @mcp.tool(annotations=_RO)
-def s3_hybrid_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
+def s3_hybrid_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = False) -> list[dict]:
     """混合召回:向量语义 + 中文关键词 → RRF 融合排名。
-    比纯向量召回多关键词路(专名/法器名精确匹配),叠加限知时间门。"""
-    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value,
+    比纯向量召回多关键词路(专名/法器名精确匹配),叠加限知时间门。
+
+    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
+             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
              "is_secret": bool(f.secret)}
             for f in _store.hybrid_recall(query, chapter, k)]
 
@@ -111,13 +130,18 @@ def s3_chapter_recall(query: str, k: int = 5) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
-def s3_graph_recall(query: str, chapter: int, k: int = 5) -> list[dict]:
+def s3_graph_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = False) -> list[dict]:
     """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
-    叠加章时间门(限知)。供主编全知联查,不喂限知渲染。"""
+    叠加章时间门(限知)。供主编全知联查,不喂限知渲染。
+
+    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
     results = _store.graph_recall(query, chapter, k)
     for item in results:
+        is_secret = bool(item.get("secret", False))
         if "is_secret" not in item:
-            item["is_secret"] = bool(item.get("secret", False))
+            item["is_secret"] = is_secret
+        item["value"] = _mask_value(item.get("value", ""), is_secret, reveal_secret)
     return results
 
 
@@ -202,10 +226,15 @@ def s3_validate_setting(chapter: int, prose: str) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
-def s3_dramatic_irony(focalizer: str, chapter: int) -> list[dict]:
+def s3_dramatic_irony(focalizer: str, chapter: int, reveal_secret: bool = False) -> list[dict]:
     """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
-    渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。"""
-    return [{"id": f.id, "value": f.value, "is_secret": bool(f.secret)}
+    渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。
+
+    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    return [{"id": f.id,
+             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
+             "is_secret": bool(f.secret)}
             for f in dramatic_irony(_store, focalizer, chapter)]
 
 

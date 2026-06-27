@@ -127,7 +127,7 @@ def test_tools_discoverable_and_annotated():
 def test_mcp_recall_tools_expose_is_secret(store):
     """P0·限知边界:五路召回工具返回的每条命题项必须带 is_secret 标志。
     secret=True 的私密命题 is_secret 须为 True,供下游限知渲染层据此跳过私密。
-    value 保留不动(维持主编全知联查)。"""
+    默认(reveal_secret=False)打码 value;reveal_secret=True 保留明文(仅主编全知联查用)。"""
     from scribe3.ontology import KnowledgeEdge
     luanshi_leak_world(store)
     # 语义召回需要 embedding 索引;在 add_fact 后手动建立(生产侧由 s3_add_fact 调用)
@@ -137,37 +137,100 @@ def test_mcp_recall_tools_expose_is_secret(store):
     store.add_knowledge(KnowledgeEdge("reader", "fact:治眼", since_chapter=1))
     M.set_store(store)
 
-    # --- s3_project_frame: 焦三帧含 secret 命题,应带 is_secret=True ---
+    # --- s3_project_frame: 焦三帧含 secret 命题,应带 is_secret=True(此工具无 reveal_secret 参数,保持原行为) ---
     jiaosan_frame = M.s3_project_frame("role:焦三", 1)
     secret_items_frame = [x for x in jiaosan_frame if x.get("is_secret") is True]
     assert secret_items_frame, (
         "s3_project_frame: 焦三帧里 secret 命题应带 is_secret=True"
     )
-    # value 保留
+    # project_frame 供限知渲染,本身只投帧内可知命题,不改变其 value
     assert any("治眼" in x["value"] for x in secret_items_frame), (
-        "s3_project_frame: secret 命题的 value 应保留(主编全知)"
+        "s3_project_frame: secret 命题的 value 应保留(此工具不参与掩码)"
     )
 
-    # --- s3_semantic_recall: 语义召回「治眼」,secret 命题应带 is_secret=True ---
+    # --- s3_semantic_recall 默认打码 ---
     sem_results = M.s3_semantic_recall("治眼", k=5)
     assert sem_results, "s3_semantic_recall: 应能召回治眼相关命题"
     secret_sem = [x for x in sem_results if x.get("is_secret") is True]
-    assert secret_sem, (
-        "s3_semantic_recall: secret 命题应带 is_secret=True"
+    assert secret_sem, "s3_semantic_recall: secret 命题应带 is_secret=True"
+    assert all("🔒" in str(x.get("value", "")) for x in secret_sem), (
+        "s3_semantic_recall 默认应打码 secret value 为 🔒 私密"
     )
-    assert any("治眼" in x["value"] for x in secret_sem), (
-        "s3_semantic_recall: secret 命题 value 应保留"
+    assert all("治眼" not in str(x.get("value", "")) for x in secret_sem), (
+        "s3_semantic_recall 默认不应泄露 secret 明文"
     )
 
-    # --- s3_dramatic_irony: 戏剧反讽点含 secret 命题,应带 is_secret=True ---
+    # --- s3_semantic_recall reveal_secret=True 解锁 ---
+    sem_reveal = M.s3_semantic_recall("治眼", k=5, reveal_secret=True)
+    secret_sem_reveal = [x for x in sem_reveal if x.get("is_secret") is True]
+    assert any("治眼" in str(x.get("value", "")) for x in secret_sem_reveal), (
+        "s3_semantic_recall reveal_secret=True 应保留 secret 明文"
+    )
+
+    # --- s3_dramatic_irony 默认打码 ---
     irony = M.s3_dramatic_irony("role:老道", 1)
     # 老道不知焦三私密,焦三私密对老道构成戏剧反讽
     secret_irony = [x for x in irony if x.get("is_secret") is True]
-    assert secret_irony, (
-        "s3_dramatic_irony: 戏剧反讽点中 secret 命题应带 is_secret=True"
+    assert secret_irony, "s3_dramatic_irony: 戏剧反讽点中 secret 命题应带 is_secret=True"
+    assert all("🔒" in str(x.get("value", "")) for x in secret_irony), (
+        "s3_dramatic_irony 默认应打码 secret value"
     )
-    assert any("治眼" in x["value"] for x in secret_irony), (
-        "s3_dramatic_irony: secret 命题 value 应保留"
+    assert all("治眼" not in str(x.get("value", "")) for x in secret_irony), (
+        "s3_dramatic_irony 默认不应泄露 secret 明文"
+    )
+
+    # --- s3_dramatic_irony reveal_secret=True 解锁 ---
+    irony_reveal = M.s3_dramatic_irony("role:老道", 1, reveal_secret=True)
+    secret_irony_reveal = [x for x in irony_reveal if x.get("is_secret") is True]
+    assert any("治眼" in str(x.get("value", "")) for x in secret_irony_reveal), (
+        "s3_dramatic_irony reveal_secret=True 应保留 secret 明文"
+    )
+
+
+def test_mcp_hybrid_recall_masks_secret_by_default(store):
+    """P0·A2: s3_hybrid_recall 默认打码 secret value;reveal_secret=True 解锁。"""
+    from scribe3.ontology import Fact
+    luanshi_leak_world(store)
+    store.semantic_index("fact:治眼", "攒钱给老娘治眼")
+    M.set_store(store)
+
+    results = M.s3_hybrid_recall("治眼", chapter=5, k=5)
+    secret_items = [x for x in results if x.get("is_secret")]
+    assert secret_items, "s3_hybrid_recall 应召回到 secret 命题"
+    assert all("🔒" in str(x.get("value", "")) for x in secret_items), (
+        "s3_hybrid_recall 默认应打码 secret value"
+    )
+    assert all("治眼" not in str(x.get("value", "")) for x in secret_items), (
+        "s3_hybrid_recall 默认不应泄露 secret 明文"
+    )
+
+    results_reveal = M.s3_hybrid_recall("治眼", chapter=5, k=5, reveal_secret=True)
+    secret_reveal = [x for x in results_reveal if x.get("is_secret")]
+    assert any("治眼" in str(x.get("value", "")) for x in secret_reveal), (
+        "s3_hybrid_recall reveal_secret=True 应保留 secret 明文"
+    )
+
+
+def test_mcp_graph_recall_masks_secret_by_default(store):
+    """P0·A2: s3_graph_recall 默认打码 secret value;reveal_secret=True 解锁。"""
+    luanshi_leak_world(store)
+    store.semantic_index("fact:治眼", "攒钱给老娘治眼")
+    M.set_store(store)
+
+    results = M.s3_graph_recall("治眼", chapter=5, k=5)
+    secret_items = [x for x in results if x.get("is_secret")]
+    assert secret_items, "s3_graph_recall 应召回到 secret 命题"
+    assert all("🔒" in str(x.get("value", "")) for x in secret_items), (
+        "s3_graph_recall 默认应打码 secret value"
+    )
+    assert all("治眼" not in str(x.get("value", "")) for x in secret_items), (
+        "s3_graph_recall 默认不应泄露 secret 明文"
+    )
+
+    results_reveal = M.s3_graph_recall("治眼", chapter=5, k=5, reveal_secret=True)
+    secret_reveal = [x for x in results_reveal if x.get("is_secret")]
+    assert any("治眼" in str(x.get("value", "")) for x in secret_reveal), (
+        "s3_graph_recall reveal_secret=True 应保留 secret 明文"
     )
 
 
