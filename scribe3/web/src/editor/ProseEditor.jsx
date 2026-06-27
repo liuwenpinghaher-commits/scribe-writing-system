@@ -34,6 +34,39 @@ function toText(editor) {
   return parts.join('\n\n')
 }
 
+// PM 位置 → prose 字符串偏移。必须与 toText 同口径:
+// 顶层块以 \n\n 相连,sceneBreak 序列化为 '* * *',段落用 node.textContent。
+// 段落内文本始于 nodeStart+1(开标记占 1 位),据此把 PM 位置折算到块内文本偏移。
+function pmPosToProseOffset(doc, pmPos) {
+  let offset = 0
+  let result = null
+  let pos = 0   // 每个顶层节点前的 PM 位置
+  doc.forEach((node) => {
+    if (result !== null) { pos += node.nodeSize; return }
+    const serialized = node.type.name === 'sceneBreak' ? '* * *' : node.textContent
+    const nodeStart = pos
+    const nodeEnd = pos + node.nodeSize
+    if (pmPos <= nodeStart) {
+      // 位置落在本块之前的块边界:偏移即当前累积值
+      result = offset
+    } else if (pmPos < nodeEnd) {
+      if (node.type.name === 'sceneBreak') {
+        // atom 节点内部无文本;落在其上 → 取块起始偏移
+        result = offset
+      } else {
+        // 段落内:文本始于 nodeStart+1,折算块内偏移并夹取
+        const inBlock = Math.max(0, Math.min(serialized.length, pmPos - (nodeStart + 1)))
+        result = offset + inBlock
+      }
+    } else {
+      // 位置在本块之后:累加本块序列化长度 + 块间分隔符 \n\n
+      offset += serialized.length + 2
+    }
+    pos = nodeEnd
+  })
+  return result === null ? offset : result
+}
+
 export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false, onDiscuss }) {
   const [chars, setChars] = useState(0)
   const [recovered, setRecovered] = useState(null)
@@ -128,7 +161,14 @@ export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始
             <>
               <div className="w-px h-5 bg-line mx-0.5" />
               <button onMouseDown={(e) => e.preventDefault()} title="让主编改这段"
-                onClick={() => { const { from, to } = editor.state.selection; onDiscuss(editor.state.doc.textBetween(from, to, '\n')) }}
+                onClick={() => {
+                  const { from: pmFrom, to: pmTo } = editor.state.selection
+                  // prose 字符串与 toText 同口径;偏移由同口径转换器折算,text 直接从该串切片 → 三者必然自洽
+                  const proseStr = toText(editor)
+                  const from = pmPosToProseOffset(editor.state.doc, pmFrom)
+                  const to = pmPosToProseOffset(editor.state.doc, pmTo)
+                  onDiscuss({ text: proseStr.slice(from, to), from, to })
+                }}
                 className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-[12px] text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
             </>
           )}

@@ -8,6 +8,7 @@ import { api } from './api'
 import { Shell } from './shell'
 import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
 import { ProseEditor } from './editor/ProseEditor'
+import { applyProposal } from './editor/applyProposal.js'
 import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
@@ -23,6 +24,7 @@ export function WriteLayout({ work }) {
   const [proposal, setProposal] = useState(null)
   const [seedQuote, setSeedQuote] = useState('')
   const [lastQuote, setLastQuote] = useState('')
+  const [lastSel, setLastSel] = useState(null)
   const [qc, setQc] = useState(null)
   const [leaks, setLeaks] = useState(0)
   const [causal, setCausal] = useState([])
@@ -65,15 +67,23 @@ export function WriteLayout({ work }) {
   }
   const acceptProposal = async () => {
     const p = proposal; if (!p) return
-    let next = prose
-    if (p.scope === 'chapter') next = p.prose
-    else if (p.scope === 'append') next = (prose ? prose + '\n\n' : '') + p.prose
-    else next = (lastQuote && prose.includes(lastQuote)) ? prose.replace(lastQuote, p.prose) : (prose ? prose + '\n\n' + p.prose : p.prose)
-    setProse(next); setProposal(null); setLastQuote('')
-    await persist(next)
+    const r = applyProposal(prose, p, lastSel)
+    if (!r.ok && r.drifted) {
+      alert('原文在改写期间已变动,无法精确定位这段。请重新选中要替换的文字。')
+      setProposal(null); return
+    }
+    setProse(r.next); setProposal(null); setLastQuote(''); setLastSel(null)
+    await persist(r.next)
   }
   const save = () => persist(prose)
-  const discussSel = (text) => { if (!text?.trim()) return; setLastQuote(text); setSeedQuote(`把这段改一下:「${text}」`); setRightActive('chat') }
+  const discussSel = (sel) => {
+    const text = typeof sel === 'string' ? sel : sel?.text
+    if (!text?.trim()) return
+    setLastSel(typeof sel === 'string' ? null : sel)
+    setLastQuote(text)
+    setSeedQuote(`把这段改一下:「${text}」`)
+    setRightActive('chat')
+  }
   const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
 
   const topbarMid = (
@@ -103,7 +113,7 @@ export function WriteLayout({ work }) {
       {topbarMid}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
-          <DraftCard proposal={proposal} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setLastQuote('') }} />
+          <DraftCard proposal={proposal} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setLastQuote(''); setLastSel(null) }} />
           <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
             chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
             placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
