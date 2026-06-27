@@ -49,8 +49,10 @@ export function WriteLayout({ work }) {
   const [focusMode, setFocusMode] = useState(false)
   const [saved, setSaved] = useState(true)
   const [btns, setBtns] = useState(() => loadButtons(work))
-  const [leftActive, setLeftActive] = useState('outline')
+  const [leftActive, setLeftActive] = useState('material')
   const [rightActive, setRightActive] = useState('chat')
+  const [matSeg, setMatSeg] = useState('outline')
+  const [revSeg, setRevSeg] = useState('verify')
   const [tick, setTick] = useState(0)
   const [verTick, setVerTick] = useState(0)
   const [dlg, setDlg] = useState(null)
@@ -247,62 +249,119 @@ export function WriteLayout({ work }) {
     </div>
   )
 
+  // ——— 各子区渲染(从原 11 tab 抽出,内容/handler 不变,合并复用)———
+  const renderOutline = () => (
+    <div>
+      <SectionTitle icon={BookText} right={`${chapters.length} 章`}>章节</SectionTitle>
+      {chapters.length === 0 && <Empty>暂无章节,写完保存即生成</Empty>}
+      {chapters.map((c) => (
+        <button key={c.seq} onClick={() => setChapter(c.seq)}
+          className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.seq === chapter ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+          {chapterLabel(c.seq, c.title || '')}
+        </button>
+      ))}
+    </div>
+  )
+  const renderStructure = () => (
+    <div>
+      <SectionTitle icon={LayoutList} right={`${events.length}`}>本章事件</SectionTitle>
+      {events.length === 0 ? <Empty>本章未设计事件</Empty> : events.map((ev) => (
+        <Row key={ev.id}><Tag tone="brand">{ev.type}</Tag><span className="ml-1 text-faint">{ev.id}</span>{!ev.goal && <span className="ml-1 text-danger">· 缺目标</span>}</Row>
+      ))}
+      <div className="h-3" />
+      <SectionTitle right={`${facts.length}`}>本章事实</SectionTitle>
+      {facts.length === 0 ? <Empty>无</Empty> : facts.slice(0, 60).map((f) => (
+        <Row key={f.id} icon={f.secret ? Lock : undefined}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>
+      ))}
+    </div>
+  )
+  const renderMotifs = () => (
+    <div>
+      <SectionTitle icon={Flame} right={`${motifs.length}`}>母题 · 参照不透支</SectionTitle>
+      {motifs.length === 0 ? <Empty>无</Empty> : motifs.map((m) => (
+        <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
+          <div className="text-[13px] font-semibold text-ink">{m.name}</div>
+          {m.theme && <div className="text-[12px] text-fore mt-0.5">{m.theme}</div>}
+          {m.unfolding && <div className="text-[12px] text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
+        </div>
+      ))}
+    </div>
+  )
+  const renderRecall = () => (
+    <div>
+      <SectionTitle icon={Search}>语义召回设定</SectionTitle>
+      <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
+        <input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
+          className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand" />
+        <Btn variant="primary" size="sm" type="submit">搜</Btn>
+      </form>
+      {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
+        : recallHits.map((f) => <Row key={f.id}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>)}
+    </div>
+  )
+  const renderVerify = () => (
+    <div>
+      <SectionTitle icon={ShieldCheck}>软校验 · 不挡接受</SectionTitle>
+      {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
+      {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
+      {causal.length > 0 ? <Row tone="danger" icon={CircleAlert}>因果违规 {causal.length} 处</Row> : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
+      <div className="text-[11px] text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
+    </div>
+  )
+  const renderForeshadow = () => (
+    <div>
+      <SectionTitle icon={Bookmark} right={`${openProm.length} 未回收`}>伏笔 · 超期红</SectionTitle>
+      {openProm.length === 0 ? <Empty>无未回收伏笔</Empty> : openProm.map((p) => (
+        <Row key={p.id} tone={overdue(p) ? 'danger' : 'fore'} icon={Bookmark}>{p.text.slice(0, 40)}<span className="text-faint"> · 第{p.setup_chapter}章埋{overdue(p) ? ' · 超期' : ''}</span></Row>
+      ))}
+    </div>
+  )
+  const renderPresent = () => (
+    <div>
+      <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
+      {chars.length === 0 ? <Empty>无角色</Empty> : chars.map((c) => (
+        <button key={c.id} onClick={() => setFocalizer(c.id)}
+          className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+          <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
+          <span className="truncate">{c.name}</span>{c.id === focalizer && <span className="ml-auto text-[11px] text-brand">视角</span>}
+        </button>
+      ))}
+    </div>
+  )
+
+  // 小分段控件:一排药丸按钮,active 高亮
+  const Segmented = ({ value, onChange, options }) => (
+    <div className="flex items-center gap-1 mb-3 -mt-0.5">
+      {options.map((o) => (
+        <button key={o.key} onClick={() => onChange(o.key)}
+          className={`h-6 px-2 rounded-lg text-[11.5px] whitespace-nowrap transition-colors cursor-pointer ${value === o.key ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const reviewBadge = verifyIssues({ leaks, qcN, causal: causal.length }) + openProm.filter(overdue).length
+
   const leftCaps = [
-    { key: 'outline', label: '大纲 · 章节', icon: BookText, render: () => (
+    { key: 'material', label: '素材 · 大纲/结构/母题/检索', icon: LayoutList, render: () => (
       <div>
-        <SectionTitle icon={BookText} right={`${chapters.length} 章`}>章节</SectionTitle>
-        {chapters.length === 0 && <Empty>暂无章节,写完保存即生成</Empty>}
-        {chapters.map((c) => (
-          <button key={c.seq} onClick={() => setChapter(c.seq)}
-            className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.seq === chapter ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-            {chapterLabel(c.seq, c.title || '')}
-          </button>
-        ))}
+        <Segmented value={matSeg} onChange={setMatSeg} options={[
+          { key: 'outline', label: '大纲' }, { key: 'structure', label: '结构' },
+          { key: 'motifs', label: '母题' }, { key: 'recall', label: '检索' },
+        ]} />
+        {matSeg === 'outline' && renderOutline()}
+        {matSeg === 'structure' && renderStructure()}
+        {matSeg === 'motifs' && renderMotifs()}
+        {matSeg === 'recall' && renderRecall()}
       </div>
     ) },
-    { key: 'structure', label: '本章结构 · fabula', icon: LayoutList, render: () => (
-      <div>
-        <SectionTitle icon={LayoutList} right={`${events.length}`}>本章事件</SectionTitle>
-        {events.length === 0 ? <Empty>本章未设计事件</Empty> : events.map((ev) => (
-          <Row key={ev.id}><Tag tone="brand">{ev.type}</Tag><span className="ml-1 text-faint">{ev.id}</span>{!ev.goal && <span className="ml-1 text-danger">· 缺目标</span>}</Row>
-        ))}
-        <div className="h-3" />
-        <SectionTitle right={`${facts.length}`}>本章事实</SectionTitle>
-        {facts.length === 0 ? <Empty>无</Empty> : facts.slice(0, 60).map((f) => (
-          <Row key={f.id} icon={f.secret ? Lock : undefined}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>
-        ))}
-      </div>
-    ) },
-    { key: 'motifs', label: '母题', icon: Flame, render: () => (
-      <div>
-        <SectionTitle icon={Flame} right={`${motifs.length}`}>母题 · 参照不透支</SectionTitle>
-        {motifs.length === 0 ? <Empty>无</Empty> : motifs.map((m) => (
-          <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
-            <div className="text-[13px] font-semibold text-ink">{m.name}</div>
-            {m.theme && <div className="text-[12px] text-fore mt-0.5">{m.theme}</div>}
-            {m.unfolding && <div className="text-[12px] text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
-          </div>
-        ))}
-      </div>
-    ) },
-    { key: 'recall', label: '设定检索 · 语义', icon: Search, render: () => (
-      <div>
-        <SectionTitle icon={Search}>语义召回设定</SectionTitle>
-        <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
-          <input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
-            className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand" />
-          <Btn variant="primary" size="sm" type="submit">搜</Btn>
-        </form>
-        {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
-          : recallHits.map((f) => <Row key={f.id}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>)}
-      </div>
+    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
+      <FramePanel focalizer={focalizer} chapter={chapter} />
     ) },
     { key: 'versions', label: '存档', icon: Bookmark, render: () => (
       <VersionPanel seq={chapter} refreshKey={verTick}
         onRestore={(text) => { setProse(text); persist(text) }} />
-    ) },
-    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
-      <FramePanel focalizer={focalizer} chapter={chapter} />
     ) },
   ]
 
@@ -314,37 +373,18 @@ export function WriteLayout({ work }) {
           else setProposal(p)
         }} />
     ) },
+    { key: 'review', label: '校验 · 校验/伏笔/在场', icon: ShieldCheck, badge: reviewBadge, render: () => (
+      <div>
+        <Segmented value={revSeg} onChange={setRevSeg} options={[
+          { key: 'verify', label: '校验' }, { key: 'foreshadow', label: '伏笔' }, { key: 'present', label: '在场' },
+        ]} />
+        {revSeg === 'verify' && renderVerify()}
+        {revSeg === 'foreshadow' && renderForeshadow()}
+        {revSeg === 'present' && renderPresent()}
+      </div>
+    ) },
     { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
       <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
-    ) },
-    { key: 'verify', label: '校验 · 双层QC', icon: ShieldCheck, badge: verifyIssues({ leaks, qcN, causal: causal.length }), render: () => (
-      <div>
-        <SectionTitle icon={ShieldCheck}>软校验 · 不挡接受</SectionTitle>
-        {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
-        {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
-        {causal.length > 0 ? <Row tone="danger" icon={CircleAlert}>因果违规 {causal.length} 处</Row> : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
-        <div className="text-[11px] text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
-      </div>
-    ) },
-    { key: 'foreshadow', label: '伏笔', icon: Bookmark, badge: openProm.filter(overdue).length, render: () => (
-      <div>
-        <SectionTitle icon={Bookmark} right={`${openProm.length} 未回收`}>伏笔 · 超期红</SectionTitle>
-        {openProm.length === 0 ? <Empty>无未回收伏笔</Empty> : openProm.map((p) => (
-          <Row key={p.id} tone={overdue(p) ? 'danger' : 'fore'} icon={Bookmark}>{p.text.slice(0, 40)}<span className="text-faint"> · 第{p.setup_chapter}章埋{overdue(p) ? ' · 超期' : ''}</span></Row>
-        ))}
-      </div>
-    ) },
-    { key: 'present', label: '本章在场', icon: Users, render: () => (
-      <div>
-        <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
-        {chars.length === 0 ? <Empty>无角色</Empty> : chars.map((c) => (
-          <button key={c.id} onClick={() => setFocalizer(c.id)}
-            className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-            <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
-            <span className="truncate">{c.name}</span>{c.id === focalizer && <span className="ml-auto text-[11px] text-brand">视角</span>}
-          </button>
-        ))}
-      </div>
     ) },
   ]
 
