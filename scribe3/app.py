@@ -303,7 +303,7 @@ def add_fact_ep(f: FactIn, work: str = "main"):
 def edit_fact(local: str, f: FactIn, work: str = "main"):
     st = _store_for(work)
     st.update_record(f"fact:{local}", {
-        "entity": f.entity,
+        "entity_id": f.entity,
         "attribute": f.attribute,
         "value": f.value,
         "valid_from": f.valid_from,

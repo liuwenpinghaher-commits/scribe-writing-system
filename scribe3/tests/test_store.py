@@ -81,8 +81,8 @@ def test_chapter_version_kind_default_applies(store):
 def test_add_voice_flag_sets_trigger_chapter(store):
     # 回归:add_voice_flag 必须显式写入 trigger_chapter,否则旧库(必填 int)ingest 崩。
     store.add_voice_flag("role:甲", 7, "声音突变")
-    rows = store._query("SELECT character, seq, trigger_chapter, reason FROM voice_evolution_flag")
-    assert rows and rows[0]["trigger_chapter"] == 7 and rows[0]["seq"] == 7
+    rows = store._query("SELECT character, trigger_chapter, reason FROM voice_evolution_flag")
+    assert rows and rows[0]["trigger_chapter"] == 7
     flags = store.list_voice_flags("open")
     assert any(f["reason"] == "声音突变" for f in flags)
 
@@ -181,28 +181,22 @@ def test_char_state_after_state_snapshot(store):
 # --- P1-b Bug C3#3: max_chapter 读 story_chapter 真源 ---
 
 def test_max_chapter_reads_story_chapter(store):
-    """P1-b 回归:max_chapter 须读 story_chapter(双写真源),不能只查 valid_from。
-    修复前:只查 valid_from → 外部/ingest 路径只写 story_chapter 不写 valid_from 的事件被遗漏。
-    修复后:取 MAX(story_chapter, valid_from) → 正确返回最大章号。
-
-    直接用 _execute_write 绕过 add_event 插入「只有 story_chapter、valid_from=NONE」的事件
-    来模拟 ingest/外部写入路径,这正是只查 valid_from 时会遗漏的场景。
+    """P1-b + P3-e2 回归:max_chapter 读 story_chapter(唯一真源,valid_from 退场方已删)。
+    验证直接写入 story_chapter=17 的事件能被 max_chapter 正确识别。
     """
-    # 通过 add_event 正常路径写一个章号较小的事件(valid_from=story_chapter=5)
+    # 通过 add_event 正常路径写一个章号较小的事件
     store.add_event(Event("ev:普通事件", "普通", story_time=5))
     assert store.max_chapter() == 5
 
-    # 直接写入 story_chapter=17、valid_from=0 的事件(模拟 ingest/外部路径:真实章号在 story_chapter)
-    # valid_from=0 是"未设置"语义;只查 valid_from 时该事件最大章号仍为 5,不会是 17
+    # 直接写入 story_chapter=17 的事件(模拟外部/ingest 写入路径)
     store._execute_write(
-        "CREATE type::record('event', 'only_story_ch') SET etype='ingest写入', event_type='ingest写入', "
-        "story_chapter=17, valid_from=0, motivated_by_goal=NONE, location=NONE, preconditions=[]",
+        "CREATE type::record('event', 'only_story_ch') SET event_type='ingest写入', "
+        "story_chapter=17, motivated_by_goal=NONE, location=NONE, preconditions=[]",
         {})
 
     result = store.max_chapter()
     assert result >= 17, (
-        f"max_chapter 应 >= 17(story_chapter=17,valid_from=0 的事件),实际: {result}。"
-        f"Bug:只查 valid_from 时该事件被遗漏。"
+        f"max_chapter 应 >= 17(story_chapter=17 的事件),实际: {result}。"
     )
 
 

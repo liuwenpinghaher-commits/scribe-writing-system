@@ -109,9 +109,9 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
         "surface_goal", "deep_need", "internal_conflict", "fear",
         "first_appearance", "personality_tags"}),
     "place": frozenset({"name"}),
-    "proposition": frozenset({"entity", "entity_id", "attribute", "value", "valid_from",
+    "proposition": frozenset({"entity_id", "attribute", "value", "valid_from",
                               "valid_to", "secret", "leak_markers", "ingest_seq"}),
-    "event": frozenset({"etype", "event_type", "valid_from", "story_chapter",
+    "event": frozenset({"event_type", "story_chapter",
                         "motivated_by_goal", "location", "preconditions"}),
     "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
@@ -134,7 +134,7 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
     if not keywords:
         return []
     rows = store._query(
-        "SELECT meta::id(id) AS local, entity, attribute, value, valid_from, valid_to, "
+        "SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
         "secret, leak_markers FROM proposition "
         "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
     scored = []
@@ -145,7 +145,7 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
             scored.append((hits, r))
     scored.sort(key=lambda x: -x[0])
     top = scored[:top_k]
-    return [Fact(f"fact:{r['local']}", r["entity"], r["attribute"], r["value"],
+    return [Fact(f"fact:{r['local']}", r.get("entity_id") or "", r["attribute"], r["value"],
                  r["valid_from"], r.get("valid_to"), r.get("secret", False),
                  r.get("leak_markers", [])) for _, r in top]
 
@@ -261,7 +261,7 @@ class SurrealStore:
     def add_fact(self, f: Fact, ingest_seq: int | None = None) -> Fact:
         _, local = _split(f.id)
         self._execute_write(
-            "UPSERT type::record('proposition', $local) SET entity=$entity, entity_id=$entity, "
+            "UPSERT type::record('proposition', $local) SET entity_id=$entity, "
             "attribute=$attr, value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, "
             "leak_markers=$lm"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
@@ -339,8 +339,8 @@ class SurrealStore:
         ev_rid = RecordID("event", local)
         loc_local = _split(ev.location)[1] if ev.location else None
         self._execute_write(
-            "CREATE type::record('event', $local) SET etype=$t, event_type=$t, "
-            "valid_from=$vf, story_chapter=$vf, "
+            "CREATE type::record('event', $local) SET event_type=$t, "
+            "story_chapter=$vf, "
             "motivated_by_goal=$g, location=$loc, preconditions=$pre",
             {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
              "loc": RecordID("place", loc_local) if loc_local else None,
@@ -462,21 +462,21 @@ class SurrealStore:
     def fact(self, oid: str) -> Fact | None:
         _, local = _split(oid)
         rows = self._query(
-            "SELECT entity_id, entity, attribute, value, valid_from, valid_to, secret, leak_markers "
+            "SELECT entity_id, attribute, value, valid_from, valid_to, secret, leak_markers "
             "FROM type::record('proposition',$local)", {"local": local})
         if not rows:
             return None
         r = rows[0]
-        eid = r.get("entity_id") or r.get("entity") or ""
+        eid = r.get("entity_id") or ""
         return Fact(oid, eid, r["attribute"], r["value"], r["valid_from"],
                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
 
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
-            "SELECT meta::id(id) AS local, entity_id, entity, attribute, value, "
+            "SELECT meta::id(id) AS local, entity_id, attribute, value, "
             "valid_from, valid_to, secret, leak_markers FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
-        return [Fact(f"fact:{r['local']}", r.get("entity_id") or r.get("entity") or "",
+        return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"],
                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
                      r.get("leak_markers", [])) for r in rows]
@@ -520,10 +520,10 @@ class SurrealStore:
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
-            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, valid_to, "
+            f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
-        return [Fact(f"fact:{r['local']}", r.get("entity_id") or r.get("entity") or "",
+        return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
 
@@ -558,10 +558,10 @@ class SurrealStore:
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
-            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, secret, "
+            f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, secret, "
             f"  entity_link.name AS subject, "
             f"  <-knows<-character.name AS knowers, "
-            f"  <-causes<-event.etype AS source_events, "
+            f"  <-causes<-event.event_type AS source_events, "
             f"  <-causes<-event->involves->character.name AS co_present, "
             f"  vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
@@ -574,7 +574,7 @@ class SurrealStore:
                 "attribute": r.get("attribute", ""),
                 "valid_from": r.get("valid_from", 0),
                 "secret": bool(r.get("secret", False)),
-                "subject": r.get("subject") or r.get("entity_id") or r.get("entity") or "",
+                "subject": r.get("subject") or r.get("entity_id") or "",
                 "knowers": r.get("knowers") or [],
                 "source_events": r.get("source_events") or [],
                 "co_present": r.get("co_present") or [],
@@ -679,16 +679,15 @@ class SurrealStore:
 
     # --- 声音进化标记 ---
     def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
-        # trigger_chapter 与 seq 同义(021 起的字段重命名遗留)。两者都写:
-        # 既满足旧库 trigger_chapter 为必填 int 的 schema 漂移,也填上有意义的触发章。
+        # seq 是退场方(021 起改名为 trigger_chapter)。只写真源 trigger_chapter。
         self._execute_write(
-            "CREATE voice_evolution_flag SET character=$c, seq=$s, "
+            "CREATE voice_evolution_flag SET character=$c, "
             "trigger_chapter=$s, reason=$r, status='open'",
             {"c": character, "s": seq, "r": reason})
 
     def list_voice_flags(self, status: str = "open") -> list[dict]:
         return self._query(
-            "SELECT meta::id(id) AS id, character, seq, reason, status "
+            "SELECT meta::id(id) AS id, character, trigger_chapter, reason, status "
             "FROM voice_evolution_flag WHERE status=$st", {"st": status})
 
     def resolve_voice_flag(self, flag_id: str) -> None:
@@ -832,10 +831,9 @@ class SurrealStore:
 
     def max_chapter(self) -> int:
         """有事件的最大章号(体检确定扫描范围);无事件→0。
-        读 MAX(story_chapter, valid_from):事件有双写字段,外部/ingest 路径可能只写
-        story_chapter(valid_from=0),只查 valid_from 会遗漏此类事件。"""
+        读 story_chapter(命名漂移收口后唯一真源;valid_from 退场方已删)。"""
         rows = self._query(
-            "SELECT math::max([story_chapter ?? 0, valid_from ?? 0]) AS ch FROM event")
+            "SELECT story_chapter ?? 0 AS ch FROM event")
         if not rows:
             return 0
         vals = [r["ch"] for r in rows if r.get("ch") is not None]
@@ -845,19 +843,19 @@ class SurrealStore:
         """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。
         P3-e1 Fix 3: 读回 location / preconditions(之前写入后不回传,write-into-the-void)。"""
         rows = self._query(
-            "SELECT meta::id(id) AS local, event_type, etype, story_chapter, valid_from, motivated_by_goal, "
+            "SELECT meta::id(id) AS local, event_type, story_chapter, motivated_by_goal, "
             "  location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
-            "FROM event WHERE story_chapter = $ch OR (story_chapter IS NONE AND valid_from = $ch)", {"ch": chapter})
+            "FROM event WHERE story_chapter = $ch", {"ch": chapter})
         out = []
         for r in rows:
             participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
             effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
             causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
-            etype = r.get("event_type") or r.get("etype") or ""
-            story_chapter = r.get("story_chapter") if r.get("story_chapter") is not None else r.get("valid_from", 0)
+            etype = r.get("event_type") or ""
+            story_chapter = r.get("story_chapter") or 0
             # location 存储为 RecordID(place,x) → 回传为 "place:x" 字符串
             raw_loc = r.get("location")
             if raw_loc is not None:

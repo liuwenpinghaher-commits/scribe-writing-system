@@ -286,7 +286,7 @@ def test_quality_overdue_excludes_red_herring(store):
     # 种两条都很早埋下、未回收;一条 promise、一条 red_herring
     store.plant_promise("正经伏笔", setup_chapter=1, kind="promise")
     store.plant_promise("红鲱鱼", setup_chapter=1, kind="red_herring")
-    # max_chapter() 读 event 表的 valid_from 最大值;种一个 chapter=10 的事件使 1+3=4 < 10
+    # max_chapter() 读 event 表的 story_chapter 最大值;种一个 chapter=10 的事件使 1+3=4 < 10
     store.add_event(Event("ev:红鲱鱼测试", "action", story_time=10))
     q = c.get("/quality").json()
     # /quality 的 foreshadow.overdue 应只计 promise 类,不计 red_herring
