@@ -1,7 +1,7 @@
 """纵切片 · 本体层 + 知识帧投影的 TDD。
 
 核心要证的是范式级断言:**限知渲染靠知识帧投影,角色不知道的事【物理上进不了他的帧】。**
-这里证前半(帧投影);build_render_prompt 的"进不了 prompt"在 test_render.py。
+这里证前半(帧投影);"进不了 prompt"由 project_frame + 主编对话写作保证。
 全内存 dataclass,不碰 SurrealDB(故中文路径 panic 坑无关、可任意 cwd 跑)。
 
 模型取最忠实最简:知识【只】经 KnowledgeEdge(显式 belief base,无隐式闭包)。

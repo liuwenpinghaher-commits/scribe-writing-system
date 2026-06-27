@@ -37,11 +37,9 @@ class TestEndToEndPipeline:
         apply_delta(store, {"learned": [{"who": "焦三", "fact": "学会御剑术"}],
                             "did": [{"who": "焦三", "action": "在乱岗取丹", "seen_by": ["老道"]}]}, seq=1)
 
-        from scribe3.render import build_render_prompt
-        p = build_render_prompt(store, 2, "role:老道")
-        assert "治眼" not in p, "老道帧不该含焦三私密(治眼)"
-        assert "御剑术" not in p, "老道帧不该含焦三独自学会的事"
-        assert "取丹" in p, "老道在场看到取丹"
+        fr = project_frame(store, "role:老道", 2)
+        assert not any(f.id == "fact:治眼" for f in fr.facts), "老道帧不该含焦三私密(治眼)"
+        assert not any(f.id == "fact:学会御剑术" for f in fr.facts), "老道帧不该含焦三独自学会的事"
 
     def test_reingest_preserves_pov(self, store):
         """重复 ingest 后限知不变"""

@@ -72,7 +72,6 @@ export const api = {
   chapters: () => j('/chapters'),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
   qc: (seq) => j(`/qc?seq=${seq}`),
-  render: (foc, ch) => post('/render', { focalizer: foc, chapter: ch }),
   saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
   live: (onChange) => {

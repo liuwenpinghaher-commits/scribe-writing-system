@@ -1,7 +1,7 @@
 """认知层 · 知识帧投影 + 看见即知道。
 
 范式核心:**限知渲染 = 渲染前按 focalizer 投影出他的知识帧,只把帧喂生成。**
-帧里没有的事,物理上进不了 prompt(test_render 证)。判官只兜底,不是主防线。
+帧里没有的事,物理上进不了 prompt。判官只兜底,不是主防线。
 """
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   BookText, LayoutList, Flame, Search, Eye, Drama, ShieldCheck, Bookmark,
-  Feather, Save, Sparkles, Radio, ChevronLeft, ChevronRight,
+  Save, Sparkles, Radio, ChevronLeft, ChevronRight,
   CircleAlert, CircleCheck, Lock, Compass, Users, AlignCenter,
 } from 'lucide-react'
 import { api } from './api'
@@ -27,7 +27,6 @@ export function DeduceLayout({ work }) {
   const [qc, setQc] = useState(null)
   const [prose, setProse] = useState('')
   const [focusMode, setFocusMode] = useState(false)
-  const [rendering, setRendering] = useState(false)
   const [ingesting, setIngesting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [tick, setTick] = useState(0)
@@ -75,11 +74,6 @@ export function DeduceLayout({ work }) {
   const chars = entities.filter((e) => e.kind === 'character')
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
 
-  const render = async () => {
-    setRendering(true)
-    try { const r = await api.render(focalizer, chapter); setProse(r.prose || '(空)'); setSaved(false) }
-    catch (e) { setProse('渲染失败:' + e.message) } finally { setRendering(false) }
-  }
   const save = async () => { await api.saveChapter(chapter, prose, '', focalizer); setSaved(true); api.qc(chapter).then(setQc); setTick((t) => t + 1) }
   const ingest = async () => { setIngesting(true); try { await api.ingest(chapter); setTick((t) => t + 1) } finally { setIngesting(false) } }
   const runRecall = async (e) => { e.preventDefault(); if (!recallQ.trim()) return; setRecallHits(await api.recall(recallQ.trim(), 8)) }
@@ -236,26 +230,18 @@ export function DeduceLayout({ work }) {
           <span className="text-[11px] text-faint tnum">{wordCount} 字</span>
           <button onClick={() => setFocusMode((v) => !v)} title="专注模式:仅当前段落清晰" aria-pressed={focusMode}
             className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
-          <Btn variant="primary" onClick={render} disabled={rendering || !focalizer}><Feather size={14} />{rendering ? '渲染中…' : '渲染本场'}</Btn>
-          <Btn variant="soft" onClick={save} disabled={!prose || rendering} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
+          <Btn variant="soft" onClick={save} disabled={!prose} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
           <Btn variant="ghost" onClick={ingest} disabled={!saved || ingesting} title="读定稿抽『谁新知道什么』→更新账本"><Sparkles size={14} />{ingesting ? '回写中…' : '回写'}</Btn>
         </div>
       </div>
       <div className="px-4 py-1.5 shrink-0 text-[11.5px] text-faint border-b border-line/60">
-        限知渲染:只喂 <span className="text-ink">{focName}</span> 的知识帧({frame.length} 条),帧外私密物理上写不进去。
+        限知:主编只喂 <span className="text-ink">{focName}</span> 的知识帧({frame.length} 条),帧外私密物理上写不进去。
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
-          {rendering ? (
-            <div className="space-y-3.5 max-w-[42rem] mx-auto">
-              {[...Array(7)].map((_, i) => <div key={i} className="h-4 skel" style={{ width: `${68 + (i % 4) * 9}%` }} />)}
-              <div className="text-[12px] text-faint pt-3">渲染中(走 Hermes,doubao 可能较慢)…</div>
-            </div>
-          ) : (
-            <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
-              chapterKey={`${work}-${chapter}`} focusMode={focusMode}
-              placeholder={`选视角 → 渲染本场,或直接在此写。散文只渲染 ${focName} 知道的事。`} />
-          )}
+          <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
+            chapterKey={`${work}-${chapter}`} focusMode={focusMode}
+            placeholder={`主编对话写作。散文只含 ${focName} 知道的事。`} />
         </div>
       </div>
     </div>

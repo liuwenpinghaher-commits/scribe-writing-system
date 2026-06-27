@@ -1,7 +1,7 @@
 """scribe3 后端 API(FastAPI,端口 3321)· 多书(一书一 DB)。
 
 每端点按 ?work=<slug> 路由到对应书的 DB(NS=scribe3 / db=slug),store 按书缓存。
-/works 列表/新建。读端点直查;/render 走知识帧投影(API 层也不泄露)。生成走 Hermes。
+/works 列表/新建。读端点直查;写作走主编对话(/chat/write),不经 /render 直渲。生成走 Hermes。
 与 scribe2 后端 3320 隔离(3321)。
 
 写授权契约(P02):
@@ -26,7 +26,6 @@ from pydantic import BaseModel, field_validator
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
-from scribe3.render import render
 from scribe3.store import SurrealStore, create_work, delete_work, list_works, rename_work
 from scribe3.verify import causal_complete
 
@@ -929,34 +928,6 @@ def ingest(seq: int, work: str = "main"):
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
     return ingest_chapter(_store_for(work), seq, hermes_complete)
-
-
-class RenderReq(BaseModel):
-    focalizer: str
-    chapter: int
-    max_tokens: int | None = None
-    target_words: int = 6000
-    style_anchor: str = ""
-    use_craft: bool = False
-
-
-@app.post("/render")
-def do_render(req: RenderReq, work: str = "main"):
-    # 自动提取风格锚:从乱世铜炉原文取一段作为文风参考
-    anchor = req.style_anchor
-    if not anchor:
-        import os as _os
-        orig_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "乱世铜炉.md")
-        try:
-            with open(orig_path, encoding="utf-8") as f:
-                f.seek(req.chapter * 800)  # 按章节位置取不同段落
-                anchor = f.read(400).strip()
-        except Exception:
-            anchor = ""
-    return {"prose": render(_store_for(work), req.chapter, req.focalizer,
-                           complete_fn=_complete_fn, max_tokens=req.max_tokens,
-                           target_words=req.target_words,
-                           style_anchor=anchor, use_craft=req.use_craft)}
 
 
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",

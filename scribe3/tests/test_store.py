@@ -1,12 +1,11 @@
 """S0/S1 · SurrealStore TDD —— 证限知范式在【真库 NS=scribe3】上照样成立。
 
-纵切片的 knowledge.project_frame / render.build_render_prompt 不改一行,直接跑在
+纵切片的 knowledge.project_frame 不改一行,直接跑在
 SurrealStore 上(鸭子兼容)。老道帧仍排除焦三私密 → 范式不依赖存储后端。
 """
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.scenario import luanshi_leak_world
 from scribe3.knowledge import project_frame
-from scribe3.render import build_render_prompt
 from scribe3.verify import causal_complete
 
 
@@ -34,14 +33,12 @@ def test_knowledge_edge_roundtrip(store):
 
 
 def test_persisted_paradigm_holds(store):
-    """范式证明(真库):老道帧排除焦三私密;限知 prompt 不含「治眼」。"""
+    """范式证明(真库):老道帧排除焦三私密"""
     luanshi_leak_world(store)                      # canonical 场景落到 NS=scribe3
     laodao = project_frame(store, "role:老道", 1)
     assert not laodao.knows("fact:治眼"), "老道不该知道焦三私密动机"
     assert laodao.knows("fact:雨"), "公开事实老道应知道"
     assert project_frame(store, "role:焦三", 1).knows("fact:治眼"), "焦三知道自己的动机"
-    p = build_render_prompt(store, 1, "role:老道")
-    assert "治眼" not in p, "老道视角 prompt 绝不含焦三私密(真库上仍成立)"
 
 
 def test_causal_complete_runs_against_store(store):

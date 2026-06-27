@@ -54,6 +54,6 @@ class TestEventPersistedParadigm:
     def test_pov_holds_after_event_graph_edges(self, store):
         from scribe3.scenario import luanshi_leak_world
         luanshi_leak_world(store)
-        from scribe3.render import build_render_prompt
-        p = build_render_prompt(store, 1, "role:老道")
-        assert "治眼" not in p, "老道帧不该含焦三的私密设定"
+        from scribe3.knowledge import project_frame
+        fr = project_frame(store, "role:老道", 1)
+        assert not any(f.entity_id == "role:焦三" and f.attribute == "私密动机" for f in fr.facts), "老道帧不该含焦三私密设定"

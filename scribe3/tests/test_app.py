@@ -1,7 +1,6 @@
 """S5a · scribe3 后端 API(FastAPI,端口 3321)TDD。
 
-前端读 NS=scribe3 + 驱动渲染的桥。读端点不连网;render 注入假 complete_fn。
-关键:/render 仍走知识帧投影——API 层也不泄露(帧外私密进不了 prompt)。
+前端读 NS=scribe3。写作统一走主编对话(/chat/write),不经直接渲染。
 """
 from fastapi.testclient import TestClient
 
@@ -37,18 +36,7 @@ def test_frame_excludes_others_secret(store):
     assert any(f["id"] == "fact:治眼" for f in jiaosan)
 
 
-def test_render_feeds_frame_limited_prompt(store):
-    luanshi_leak_world(store)
-    cap = {}
-
-    def fake(prompt, **kw):
-        cap["p"] = prompt
-        return "雨砸在乱葬岗上。"
-
-    c = _client(store, fake)
-    r = c.post("/render", json={"focalizer": "role:老道", "chapter": 1}).json()
-    assert r["prose"] == "雨砸在乱葬岗上。"
-    assert "治眼" not in cap["p"], "API 渲染仍限知:帧外私密不进 prompt"
+# /render 端点已删除——写作统一走主编对话(/chat/write),不经直接渲染
 
 
 def test_causal_clean(store):

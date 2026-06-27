@@ -1,4 +1,4 @@
-"""S7⑤ · 章节回写 ingest —— 闭合写循环(render→存→回写→下章限知反映新知)。
+"""S7⑤ · 章节回写 ingest —— 闭合写循环(对话写作→存→回写→下章限知反映新知)。
 
 apply_delta 纯应用(不连网);ingest_chapter 走注入的 complete_fn。
 P18: apply_delta 要求角色已存在(不再自动建,防幻觉角色污染)。

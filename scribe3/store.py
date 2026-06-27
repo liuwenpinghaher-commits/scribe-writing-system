@@ -1,7 +1,7 @@
 """SurrealStore · 故事本体 v2 的 SurrealDB 持久层(NS=scribe3)。
 
 把纵切片的内存 World 迁到 SurrealDB,接口与 World 鸭子兼容——knowledge.project_frame /
-render.build_render_prompt 不改一行即可跑在真库上(证明限知范式在持久层照样成立)。
+knowledge.project_frame 不改一行即可跑在真库上(证限知范式在持久层照样成立)。
 
 不变量:**改世界状态只经 _execute_write 单一落库点**(开发标准 §0 不变量1)。
 oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:焦三 / proposition:治眼)。

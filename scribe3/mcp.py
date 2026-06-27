@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
-from scribe3.render import render
 from scribe3.verify import causal_complete, find_leaks
 
 mcp = FastMCP("scribe3")
@@ -71,12 +70,6 @@ def s3_project_frame(focalizer: str, chapter: int) -> list[dict]:
     fr = project_frame(_store, focalizer, chapter)
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute, "value": f.value}
             for f in fr.facts]
-
-
-@mcp.tool(annotations=_RO)
-def s3_render_scene(focalizer: str, chapter: int) -> str:
-    """以 focalizer 限知视角渲染本章 sjuzhet(只读:生成,不改世界)。"""
-    return render(_store, chapter, focalizer)
 
 
 @mcp.tool(annotations=_RO)
