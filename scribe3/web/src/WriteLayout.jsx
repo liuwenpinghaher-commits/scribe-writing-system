@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
-  BookText, LayoutList, Flame, Sparkles, Eye,
+  BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
 } from 'lucide-react'
 import { api } from './api'
 import { verifyIssues } from './verifyIssues.js'
@@ -53,6 +53,15 @@ export function WriteLayout({ work }) {
   const [tick, setTick] = useState(0)
   const [verTick, setVerTick] = useState(0)
   const [dlg, setDlg] = useState(null)
+  const [saveMenu, setSaveMenu] = useState(false)
+  const saveMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (!saveMenu) return
+    const onDown = (e) => { if (saveMenuRef.current && !saveMenuRef.current.contains(e.target)) setSaveMenu(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [saveMenu])
 
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
@@ -119,33 +128,72 @@ export function WriteLayout({ work }) {
   const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
 
   const topbarMid = (
-    <div className="shrink-0 border-b border-line bg-surface px-4 h-11 flex items-center gap-2">
-      <button onClick={() => setChapter((c) => Math.max(1, c - 1))} className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer" aria-label="上一章"><ChevronLeft size={16} /></button>
-      <span className="text-[13px] text-ink tnum w-14 text-center">第 {chapter} 章</span>
-      <button onClick={() => setChapter((c) => c + 1)} className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer" aria-label="下一章"><ChevronRight size={16} /></button>
-      <span className="text-[12px] text-faint ml-2">本章视角</span>
-      <select value={focalizer} onChange={(e) => setFocalizer(e.target.value)} title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
-        className="h-7 rounded-lg border border-line bg-canvas px-2 text-[12.5px] text-ink outline-none focus:border-brand cursor-pointer">
-        <option value="">作者视角(全知)</option>
-        {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
-      </select>
-      <div className="ml-auto flex items-center gap-2">
-        {guardOn && focalizer && guard.leaks.length > 0 && (
-          <span title={guard.leaks.map((l) => l.marker).join('、')}
-                className="text-[11px] text-danger tnum cursor-default">🔒 {guard.leaks.length}</span>
-        )}
-        {guardOn && (guard.qc.repetition + guard.qc.purple) > 0 && (
-          <span title="复读/升华(AI腔)" className="text-[11px] text-faint tnum cursor-default">⚠ {guard.qc.repetition + guard.qc.purple}</span>
-        )}
-        <button onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
-                title={guardOn ? '护栏开(点击关闭,完全静默)' : '护栏关'}
-                className={`text-[11px] px-1.5 h-6 rounded-lg cursor-pointer ${guardOn ? 'text-brand' : 'text-faint'}`}>护栏</button>
-        <span className="text-[11px] text-faint tnum">{wordCount} 字</span>
-        <button onClick={() => setFocusMode((v) => !v)} title="专注模式" aria-pressed={focusMode}
-          className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
-        <Btn variant="soft" onClick={save} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
-        <Btn variant="soft" onClick={() => setDlg({ kind: 'checkpoint' })}>存档点</Btn>
-        <Btn variant="primary" onClick={async () => {
+    <div className="shrink-0 border-b border-line bg-surface px-3 h-11 flex items-center gap-2 min-w-0">
+      {/* 左:章节导航 — 固定不缩 */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"
+          className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronLeft size={16} /></button>
+        <span className="text-[13px] text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
+        <button onClick={() => setChapter((c) => c + 1)} aria-label="下一章"
+          className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronRight size={16} /></button>
+      </div>
+
+      {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <span className="hidden xl:inline text-[12px] text-faint shrink-0">本章视角</span>
+        <select value={focalizer} onChange={(e) => setFocalizer(e.target.value)}
+          title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
+          className="h-7 min-w-0 max-w-[180px] rounded-lg border border-line bg-canvas px-2 text-[12.5px] text-ink outline-none focus:border-brand cursor-pointer truncate">
+          <option value="">作者视角(全知)</option>
+          {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
+        </select>
+      </div>
+
+      {/* 右:状态 + 操作 — 全部 shrink-0,永不被裁 */}
+      <div className="flex items-center gap-2 shrink-0">
+        {/* 护栏徽章簇 */}
+        <div className="flex items-center gap-2 shrink-0">
+          {guardOn && focalizer && guard.leaks.length > 0 && (
+            <span title={guard.leaks.map((l) => l.marker).join('、')}
+                  className="text-[11px] text-danger tnum cursor-default whitespace-nowrap shrink-0">🔒 {guard.leaks.length}</span>
+          )}
+          {guardOn && (guard.qc.repetition + guard.qc.purple) > 0 && (
+            <span title="复读/升华(AI腔)" className="text-[11px] text-faint tnum cursor-default whitespace-nowrap shrink-0">⚠ {guard.qc.repetition + guard.qc.purple}</span>
+          )}
+          <button onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
+                  title={guardOn ? '护栏开(点击关闭,完全静默)' : '护栏关'}
+                  className={`text-[11px] px-1.5 h-6 rounded-lg cursor-pointer whitespace-nowrap shrink-0 ${guardOn ? 'text-brand' : 'text-faint'}`}>护栏</button>
+        </div>
+        <span className="text-[11px] text-faint tnum whitespace-nowrap shrink-0">{wordCount} 字</span>
+
+        {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
+        <div ref={saveMenuRef} className="relative shrink-0">
+          <div className="inline-flex items-center rounded-lg overflow-hidden ring-1 ring-line">
+            <button onClick={save} title="保存本章"
+              className={`inline-flex items-center gap-1 h-7 px-2.5 text-[12px] cursor-pointer whitespace-nowrap hover:bg-soft ${saved ? 'text-ok' : 'text-ink'}`}>
+              <Save size={14} />{saved ? '已存' : '保存'}
+            </button>
+            <button onClick={() => setSaveMenu((v) => !v)} aria-label="更多保存选项" aria-expanded={saveMenu}
+              className="h-7 px-1 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer border-l border-line">
+              <ChevronDown size={13} />
+            </button>
+          </div>
+          {saveMenu && (
+            <div className="absolute right-0 top-full mt-1 z-20 min-w-[140px] rounded-lg border border-line bg-surface shadow-lg py-1">
+              <button onClick={() => { setSaveMenu(false); setDlg({ kind: 'checkpoint' }) }}
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                <Bookmark size={13} className="text-faint shrink-0" />存档点
+              </button>
+              <button onClick={() => { setSaveMenu(false); setFocusMode((v) => !v) }}
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                <AlignCenter size={13} className="text-faint shrink-0" />专注模式
+                {focusMode && <Check size={13} className="ml-auto text-brand shrink-0" />}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <Btn variant="primary" className="shrink-0 whitespace-nowrap" onClick={async () => {
           await persist(prose)
           await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
           setVerTick((t) => t + 1)
