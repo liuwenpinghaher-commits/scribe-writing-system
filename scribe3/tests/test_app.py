@@ -462,3 +462,45 @@ def test_ingest_unverified_ignore(store):
     # ignored 列表中出现
     ignored = c.get("/ingest-unverified?status=ignored").json()
     assert any(p["name"] == "路人甲" for p in ignored)
+
+
+# ===== P0-A1: 实体层私密模型 =====
+
+def test_entities_mask_secret_backstory(store):
+    """backstory_secret=True 时 /entities 默认屏蔽 backstory;reveal_secret=true 解锁。"""
+    c = _client(store)
+    r = c.post("/characters", json={
+        "name": "卧底",
+        "backstory": "其实是敌方卧底",
+        "backstory_secret": True,
+    })
+    assert r.status_code == 200, f"POST /characters 应返回 200: {r.text}"
+    masked = c.get("/entities").json()
+    e = next((x for x in masked if x["name"] == "卧底"), None)
+    assert e is not None, "应能找到卧底角色"
+    assert "敌方" not in str(e.get("backstory")), "默认应屏蔽 backstory 明文"
+    assert "🔒" in str(e.get("backstory")), "默认应显示锁占位符"
+    revealed = c.get("/entities?reveal_secret=true").json()
+    assert any("敌方" in str(x.get("backstory")) for x in revealed if x["name"] == "卧底"), \
+        "reveal_secret=true 应解锁 backstory 明文"
+
+
+def test_factions_mask_secret_private_operation(store):
+    """private_operation_secret=True 时 /factions 默认屏蔽 private_operation;reveal_secret=true 解锁。"""
+    c = _client(store)
+    r = c.post("/factions", json={
+        "name": "暗会",
+        "private_operation": "刺杀计划",
+        "private_operation_secret": True,
+    })
+    assert r.status_code == 200, f"POST /factions 应返回 200: {r.text}"
+    masked = c.get("/factions").json()
+    f = next((x for x in masked if x["name"] == "暗会"), None)
+    assert f is not None, "应能找到暗会势力"
+    assert "刺杀" not in str(f.get("private_operation")), "默认应屏蔽 private_operation 明文"
+    assert "🔒" in str(f.get("private_operation")), "默认应显示锁占位符"
+    assert any(
+        "刺杀" in str(x.get("private_operation"))
+        for x in c.get("/factions?reveal_secret=true").json()
+        if x["name"] == "暗会"
+    ), "reveal_secret=true 应解锁 private_operation 明文"

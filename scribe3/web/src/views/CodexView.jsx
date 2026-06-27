@@ -383,6 +383,12 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
           <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
           <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
           <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
+          <div className="py-1.5 flex items-center gap-2">
+            <input type="checkbox" id="backstory_secret_cb" checked={!!row.backstory_secret}
+              onChange={(e) => save('backstory_secret', e.target.checked)}
+              className="w-4 h-4 accent-brand cursor-pointer" />
+            <label htmlFor="backstory_secret_cb" className="text-[12px] text-faint cursor-pointer select-none">🔒 私密(默认屏蔽前史)</label>
+          </div>
           <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} />
           <Field label="弱点" type="tags" options={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
           <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} section />
@@ -400,7 +406,7 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   const fieldMap = {
     facts: [['entity','主体','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','私密','bool']],
     rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['note','备注','textarea']],
-    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea']],
+    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text']],
     terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea']],
     promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['promise_kind','类型','text']],
@@ -425,6 +431,14 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
       </div>
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
+          ftype === 'secret_flag' ? (
+            <div key={k} className="py-1.5 flex items-center gap-2">
+              <input type="checkbox" id={`sf_${k}`} checked={!!row[k]}
+                onChange={(e) => save(k, e.target.checked)}
+                className="w-4 h-4 accent-brand cursor-pointer" />
+              <label htmlFor={`sf_${k}`} className="text-[12px] text-faint cursor-pointer select-none">{label}</label>
+            </div>
+          ) :
           ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-[13px] text-ink">{row[k] ? '是' : '否'}</div></div>) :
           ftype === 'rule_cat' ? (
             <div key={k} className="py-2">

@@ -106,6 +106,13 @@ def _facts(fs, reveal_secret: bool = False):
     return [_item(f) for f in fs]
 
 
+def _mask_field(row: dict, field: str, secret_field: str, reveal: bool) -> dict:
+    """若 row[secret_field] 为 True 且未解锁,将 row[field] 替换为锁占位符。"""
+    if row.get(secret_field) and not reveal:
+        row = {**row, field: "🔒 私密"}
+    return row
+
+
 # ===== 书 =====
 @app.get("/health")
 def health():
@@ -148,12 +155,13 @@ def remove_work(slug: str):
 
 # ===== 读(按书)=====
 @app.get("/entities")
-def entities(work: str = "main"):
+def entities(work: str = "main", reveal_secret: bool = False):
     def _entity_dict(e):
         t = e.traits or {}
-        return {
+        row = {
             "id": e.id, "kind": e.kind, "name": e.name,
             "backstory": t.get("backstory"),
+            "backstory_secret": t.get("backstory_secret", False),
             "importance": t.get("importance"),
             "appearance": t.get("appearance"),
             "personality_tags": t.get("personality_tags"),
@@ -166,6 +174,9 @@ def entities(work: str = "main"):
             "internal_conflict": t.get("internal_conflict"),
             "fear": t.get("fear"),
         }
+        if e.kind == "character":
+            row = _mask_field(row, "backstory", "backstory_secret", reveal_secret)
+        return row
     return [_entity_dict(e) for e in _store_for(work).all_entities()]
 
 
@@ -214,6 +225,7 @@ def motifs(work: str = "main"):
 class CharIn(BaseModel):
     name: str
     backstory: str | None = None
+    backstory_secret: bool = False
     importance: str | None = None
     appearance: str | None = None
     personality_detail: str | None = None
@@ -228,14 +240,17 @@ class CharIn(BaseModel):
 
 @app.post("/characters")
 def add_char(c: CharIn, work: str = "main"):
-    _store_for(work).add_entity(Entity(f"role:{c.name}", "character", c.name, traits={"backstory": c.backstory}))
+    _store_for(work).add_entity(Entity(
+        f"role:{c.name}", "character", c.name,
+        traits={"backstory": c.backstory, "backstory_secret": c.backstory_secret}))
     return {"ok": True, "oid": f"role:{c.name}"}
 
 
 @app.patch("/characters/{local}")
 def edit_char(local: str, c: CharIn, work: str = "main"):
     st = _store_for(work)
-    fields = {"name": c.name, "backstory": c.backstory, "importance": c.importance,
+    fields = {"name": c.name, "backstory": c.backstory, "backstory_secret": c.backstory_secret,
+              "importance": c.importance,
               "appearance": c.appearance, "personality_detail": c.personality_detail,
               "abilities": c.abilities, "weaknesses": c.weaknesses,
               "surface_goal": c.surface_goal, "deep_need": c.deep_need,
@@ -343,19 +358,23 @@ class FactionIn(BaseModel):
     known_members: list = []
     public_face: str | None = None
     private_operation: str | None = None
+    private_operation_secret: bool = False
     first_mention_chapter: int | None = None
 
 
 @app.get("/factions")
-def list_factions(work: str = "main"):
-    return _store_for(work).list_factions()
+def list_factions(work: str = "main", reveal_secret: bool = False):
+    rows = _store_for(work).list_factions()
+    return [_mask_field(dict(r), "private_operation", "private_operation_secret", reveal_secret)
+            for r in rows]
 
 
 @app.post("/factions")
 def add_faction_ep(fc: FactionIn, work: str = "main"):
     _store_for(work).add_faction(fc.name, fc.ideology, "active", fc.leader,
                                   fc.known_members, fc.public_face,
-                                  fc.private_operation, fc.first_mention_chapter)
+                                  fc.private_operation, fc.first_mention_chapter,
+                                  fc.private_operation_secret)
     return {"ok": True}
 
 

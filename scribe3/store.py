@@ -104,7 +104,7 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif"])
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
-    "character": frozenset({"name", "aliases", "backstory", "importance",
+    "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
         "surface_goal", "deep_need", "internal_conflict", "fear",
         "first_appearance", "personality_tags"}),
@@ -248,10 +248,11 @@ class SurrealStore:
         if e.kind == "character":
             self._execute_write(
                 "CREATE type::record('character', $local) SET name=$name, aliases=$al, "
-                "backstory=$bs, personality_tags=$pt",
+                "backstory=$bs, personality_tags=$pt, backstory_secret=$bss",
                 {"local": local, "name": e.name, "al": e.traits.get("aliases", []),
                  "bs": e.traits.get("backstory"),
-                 "pt": e.traits.get("personality_tags", [])})
+                 "pt": e.traits.get("personality_tags", []),
+                 "bss": e.traits.get("backstory_secret", False)})
         elif e.kind == "place":
             self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})
@@ -417,11 +418,12 @@ class SurrealStore:
 
     def characters(self) -> list[Entity]:
         rows = self._query(
-            "SELECT meta::id(id) AS local, name, backstory, aliases, personality_tags, "
+            "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
             "importance, appearance, personality_detail, abilities, weaknesses, "
             "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
+                               "backstory_secret": r.get("backstory_secret", False),
                                "aliases": r.get("aliases") or [],
                                "personality_tags": r.get("personality_tags") or [],
                                "importance": r.get("importance"),
@@ -867,16 +869,17 @@ class SurrealStore:
                     known_members: list | None = None,
                     public_face: str | None = None,
                     private_operation: str | None = None,
-                    first_mention_chapter: int | None = None) -> str:
+                    first_mention_chapter: int | None = None,
+                    private_operation_secret: bool = False) -> str:
         """添加/覆盖势力(同名幂等:先删后建)。返回势力名。"""
         self._execute_write("DELETE faction WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE faction SET name=$n, ideology=$ideo, status=$st, leader=$ldr, "
             "known_members=$km, public_face=$pf, private_operation=$po, "
-            "first_mention_chapter=$fmc",
+            "first_mention_chapter=$fmc, private_operation_secret=$pos",
             {"n": name, "ideo": ideology, "st": status, "ldr": leader,
              "km": known_members or [], "pf": public_face, "po": private_operation,
-             "fmc": first_mention_chapter})
+             "fmc": first_mention_chapter, "pos": private_operation_secret})
         return name
 
     def list_factions(self) -> list[dict]:

@@ -432,15 +432,18 @@ async def s3_add_faction(ctx: Context, name: str,
                           known_members: list | None = None,
                           public_face: str | None = None,
                           private_operation: str | None = None,
+                          private_operation_secret: bool = False,
                           first_mention_chapter: int | None = None) -> dict:
     """添加势力/组织(写,待批)。含公开面目和私下运作。
     注:status 当前由 MCP 固定写入 "active",暂不支持通过本工具设置其它 status 值。
+    private_operation_secret=true 时私下运作默认屏蔽(🔒 私密),需 reveal_secret=true 解锁。
     """
     ok = await _ask(ctx, f"添加势力 {name}")
     return commit_if_approved("s3_add_faction", ok,
                               lambda: _store.add_faction(
                                   name, ideology, "active", leader, known_members,
-                                  public_face, private_operation, first_mention_chapter))
+                                  public_face, private_operation, first_mention_chapter,
+                                  private_operation_secret))
 
 
 @mcp.tool(annotations=_RW)
