@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ReactFlow, Background, Controls, MiniMap } from '@xyflow/react'
+import { ReactFlow, Background, Controls } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { Eye } from 'lucide-react'
@@ -102,7 +102,6 @@ export function AtlasView() {
           nodesDraggable nodesConnectable={false} minZoom={0.2}>
           <Background color="var(--color-line)" gap={22} />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable nodeColor={(n) => n.style?.background || '#888'} maskColor="rgba(0,0,0,.04)" />
         </ReactFlow>
       </div>
     </div>
