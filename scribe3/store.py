@@ -448,26 +448,6 @@ class SurrealStore:
         all_facts = {f.id: f for f in vector_results + keyword_results}
         return [all_facts[fid] for fid in top_ids if fid in all_facts]
 
-    def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
-        """GraphRAG:向量召回种子命题 → 沿图边拼知识子图。
-        返回每条种子事实 + {主体, 知情角色, 来源事件, 同场角色}。
-        限知时间门:valid_from <= chapter。"""
-        from scribe3.embed import embed
-        qv = embed([query])[0]
-        rows = self._query(
-            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, "
-            f"valid_from, valid_to, secret, "
-            f"<-knows<-character.name AS knowers, "
-            f"<-causes<-event.etype AS source_events "
-            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
-            f"AND valid_from <= $ch ORDER BY vector::distance::knn()", {"qv": qv, "ch": chapter})
-        return [{"id": f"fact:{r['local']}",
-                 "entity": r.get("entity_id") or r.get("entity"),
-                 "attribute": r["attribute"], "value": r["value"],
-                 "knowers": r.get("knowers") or [],
-                 "source_events": r.get("source_events") or []}
-                for r in rows]
-
     def chapter_recall(self, query: str, k: int = 5) -> list[dict]:
         """章节语义召回:按标题+正文首段向量匹配相似章。"""
         from scribe3.embed import embed
@@ -484,7 +464,7 @@ class SurrealStore:
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
-            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, "
+            f"SELECT meta::id(id) AS local, entity_id, entity, attribute, value, valid_from, secret, "
             f"  entity_link.name AS subject, "
             f"  <-knows<-character.name AS knowers, "
             f"  <-causes<-event.etype AS source_events, "
@@ -499,6 +479,7 @@ class SurrealStore:
                 "value": r["value"],
                 "attribute": r.get("attribute", ""),
                 "valid_from": r.get("valid_from", 0),
+                "secret": bool(r.get("secret", False)),
                 "subject": r.get("subject") or r.get("entity_id") or r.get("entity") or "",
                 "knowers": r.get("knowers") or [],
                 "source_events": r.get("source_events") or [],
@@ -751,7 +732,8 @@ class SurrealStore:
         scribe3 是图库,这是 Atlas 视图的数据源。"""
         ch = chapter if chapter is not None else 9999
         chars = [{"id": e.id, "type": "character", "label": e.name} for e in self.characters()]
-        props = [{"id": f.id, "type": "proposition", "label": (f.value or "")[:18],
+        props = [{"id": f.id, "type": "proposition",
+                  "label": ("🔒 私密" if f.secret else (f.value or "")[:18]),
                   "secret": f.secret} for f in self.facts_at(ch)]
         edges = []
         for k in self.knowledge:

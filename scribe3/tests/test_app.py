@@ -242,3 +242,15 @@ def test_check_returns_qc_and_leaks_without_saving(store):
     assert any(lk["marker"] for lk in r["leaks"])  # 至少一条泄露,marker 非空
     # 没有落库:章正文仍为空
     assert store.get_chapter(1) is None or not (store.get_chapter(1) or {}).get("prose")
+
+
+def test_graph_does_not_leak_secret_value(store):
+    luanshi_leak_world(store)
+    g = _client(store).get("/graph").json()
+    # 找出标记为 secret 的命题节点,断言其 label 不含私密原文
+    secret_nodes = [n for n in g["nodes"] if n.get("secret")]
+    assert secret_nodes, "应有 secret 命题节点"
+    # luanshi_leak_world 的 secret 命题 value = "攒钱给老娘治眼",含「治眼」
+    for n in secret_nodes:
+        assert "治眼" not in (n.get("label") or ""), f"secret 节点 label 泄露明文: {n}"
+        assert "攒钱" not in (n.get("label") or ""), f"secret 节点 label 泄露明文: {n}"

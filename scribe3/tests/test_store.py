@@ -85,3 +85,19 @@ def test_add_voice_flag_sets_trigger_chapter(store):
     assert rows and rows[0]["trigger_chapter"] == 7 and rows[0]["seq"] == 7
     flags = store.list_voice_flags("open")
     assert any(f["reason"] == "声音突变" for f in flags)
+
+
+def test_graph_recall_returns_secret_flag(store):
+    luanshi_leak_world(store)
+    # graph_recall 依赖向量索引;add_fact 不自动建 embedding,需显式 semantic_index
+    store.semantic_index("fact:治眼", "攒钱给老娘治眼")
+    store.semantic_index("fact:雨", "暴雨")
+    res = store.graph_recall("治眼", 9999, k=5)
+    assert res, "应召回到结果"
+    # graph_recall 返回的 dict 列表中每一项必须含 secret 字段
+    for item in res:
+        assert isinstance(item, dict), f"graph_recall 每项应为 dict,实为: {type(item)}"
+        assert "secret" in item, f"graph_recall 返回项缺少 secret 字段: {item}"
+    # 召回中应包含 fact:治眼(secret=True)
+    secret_items = [item for item in res if item.get("secret") is True]
+    assert secret_items, "应有至少一条 secret=True 的召回命题(fact:治眼)"
