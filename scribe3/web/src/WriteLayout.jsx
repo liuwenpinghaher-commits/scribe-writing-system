@@ -29,6 +29,8 @@ export function WriteLayout({ work }) {
   const [lastSel, setLastSel] = useState(null)
   const [qc, setQc] = useState(null)
   const [leaks, setLeaks] = useState(0)
+  const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } })
+  const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
   const [causal, setCausal] = useState([])
   const [promises, setPromises] = useState([])
   const [chapters, setChapters] = useState([])
@@ -43,6 +45,18 @@ export function WriteLayout({ work }) {
   const [leftActive, setLeftActive] = useState('outline')
   const [rightActive, setRightActive] = useState('chat')
   const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
+    if (!prose.trim()) return
+    let alive = true
+    const t = setTimeout(() => {
+      api.checkProse(chapter, prose, focalizer)
+        .then((r) => { if (alive) setGuard({ leaks: r.leaks || [], qc: r.qc || { repetition: 0, structural: 0, purple: 0 } }) })
+        .catch(() => {})
+    }, 3000)
+    return () => { alive = false; clearTimeout(t) }
+  }, [prose, chapter, focalizer, guardOn])
 
   useEffect(() => { api.entities().then(setEntities); api.motifs().then(setMotifs) }, [tick])
   useEffect(() => {
@@ -108,7 +122,16 @@ export function WriteLayout({ work }) {
         {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
       </select>
       <div className="ml-auto flex items-center gap-2">
-        {leaks > 0 && <Tag tone="danger">穿帮 {leaks}</Tag>}
+        {guardOn && focalizer && guard.leaks.length > 0 && (
+          <span title={guard.leaks.map((l) => l.marker).join('、')}
+                className="text-[11px] text-danger tnum cursor-default">🔒 {guard.leaks.length}</span>
+        )}
+        {guardOn && (guard.qc.repetition + guard.qc.purple) > 0 && (
+          <span title="复读/升华(AI腔)" className="text-[11px] text-faint tnum cursor-default">⚠ {guard.qc.repetition + guard.qc.purple}</span>
+        )}
+        <button onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
+                title={guardOn ? '护栏开(点击关闭,完全静默)' : '护栏关'}
+                className={`text-[11px] px-1.5 h-6 rounded-lg cursor-pointer ${guardOn ? 'text-brand' : 'text-faint'}`}>护栏</button>
         <span className="text-[11px] text-faint tnum">{wordCount} 字</span>
         <button onClick={() => setFocusMode((v) => !v)} title="专注模式" aria-pressed={focusMode}
           className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
