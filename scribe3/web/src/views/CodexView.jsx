@@ -340,7 +340,7 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   }
   const fieldMap = {
     facts: [['entity','主体','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','私密','bool']],
-    rules: [['name','规则名','text'],['category','类别','text'],['source','源头','text'],['cost','代价','textarea'],['note','备注','textarea']],
+    rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['note','备注','textarea']],
     factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text']],
     terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea']],
@@ -350,6 +350,14 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   const fields = fieldMap[type] || []
   const tabLabel = TABS.find((t) => t.key === type)?.label || type
   const stateOptions = ['active','lost','destroyed','unknown']
+  const ruleCatOptions = [
+    { value: 'magic',      label: '魔法' },
+    { value: 'technology', label: '科技' },
+    { value: 'social',     label: '社会' },
+    { value: 'physical',   label: '物理' },
+    { value: 'economic',   label: '经济' },
+    { value: 'political',  label: '政治' },
+  ]
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
@@ -359,6 +367,18 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
           ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-[13px] text-ink">{row[k] ? '是' : '否'}</div></div>) :
+          ftype === 'rule_cat' ? (
+            <div key={k} className="py-2">
+              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+              <select
+                value={row[k] || 'magic'}
+                onChange={(e) => save(k, e.target.value)}
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+              >
+                {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
+              </select>
+            </div>
+          ) :
           ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} /> :
           <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} />
         )}
@@ -423,7 +443,7 @@ export function CodexView({ work }) {
     else if (type === 'motifs') await api.delMotif(row.id)
     setSelected(null); reload()
   }
-  const addNew = (type) => setSelected({ type, row: { name: '', text: '', entity: '', attribute: '', value: '' }, isNew: true })
+  const addNew = (type) => setSelected({ type, row: { name: '', text: '', entity: '', attribute: '', value: '', ...(type === 'rules' ? { category: 'magic' } : {}) }, isNew: true })
 
   // ─── 中区内容:选中条目→详情,未选→列表 ───
   const centerContent = (
