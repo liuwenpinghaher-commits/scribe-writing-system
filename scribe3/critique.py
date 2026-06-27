@@ -309,12 +309,18 @@ def build_knowledge_extract_prompt(prose: str) -> str:
         "【正文】\n" + prose)
 
 
-def parse_knowledge_delta(reply: str) -> dict:
+def parse_knowledge_delta(reply: str) -> dict | None:
+    """解析 LLM 回复的知识 delta JSON。
+    成功:返回 {"learned":..., "did":..., "voice_shift":...}(三字段均为 list)。
+    失败(坏 JSON / 截断 / 无 {} 匹配):返回 None——调用方据此跳过 purge,防止数据丢失。"""
     try:
         m = re.search(r"\{.*\}", reply or "", re.S)
-        d = json.loads(m.group(0)) if m else {}
+        if not m:
+            _log.warning("parse_knowledge_delta 无 JSON 块,知识不回写: reply[:120]=%r", (reply or "")[:120])
+            return None
+        d = json.loads(m.group(0))
         return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or []),
                 "voice_shift": list(d.get("voice_shift") or [])}
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
-        return {"learned": [], "did": [], "voice_shift": []}
+        return None

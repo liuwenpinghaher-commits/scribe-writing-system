@@ -52,3 +52,47 @@ def test_apply_delta_writes_voice_flag(store):
     apply_delta(store, delta, 10)
     flags = store.list_voice_flags("open")
     assert any(f["character"] == "焦三" and f["seq"] == 10 for f in flags)
+
+
+# ── P0 数据丢失修复测试 ────────────────────────────────────────────────────────
+
+def test_parse_knowledge_delta_signals_failure_on_garbage():
+    from scribe3.critique import parse_knowledge_delta
+    # 坏 JSON / 截断 → 返回失败信号(None),而非静默空 delta
+    assert parse_knowledge_delta("这不是JSON{截断") is None
+
+
+def test_parse_knowledge_delta_ok_empty():
+    from scribe3.critique import parse_knowledge_delta
+    d = parse_knowledge_delta('{"learned":[],"did":[],"voice_shift":[]}')
+    assert d == {"learned": [], "did": [], "voice_shift": []}
+
+
+def test_ingest_chapter_parse_fail_does_not_purge(store):
+    from scribe3.ingest import ingest_chapter
+    from scribe3.ontology import Fact
+    # 先种一条本章既有 ingest 命题
+    _ensure_chars(store, "甲")
+    store.save_chapter(5, "正文内容五", focalizer=None)
+    store.add_fact(Fact("fact:k5-0", "role:甲", "获知", "旧知识", valid_from=5), ingest_seq=5)
+    # complete_fn 返回坏 JSON → 解析失败
+    r = ingest_chapter(store, 5, lambda *a, **k: "坏的不是JSON{")
+    assert r.get("parse_failed") is True
+    # 既有 ingest 命题未被删
+    facts = store.facts_at(5)
+    assert any(f.id == "fact:fact:k5-0" or "k5-0" in f.id for f in facts), \
+        "解析失败不应 purge 既有知识"
+
+
+def test_ingest_chapter_ok_empty_still_purges(store):
+    from scribe3.ingest import ingest_chapter
+    from scribe3.ontology import Fact
+    _ensure_chars(store, "乙")
+    store.save_chapter(6, "正文六", focalizer=None)
+    store.add_fact(Fact("fact:k6-0", "role:乙", "获知", "将被清", valid_from=6), ingest_seq=6)
+    r = ingest_chapter(store, 6, lambda *a, **k: '{"learned":[],"did":[],"voice_shift":[]}')
+    assert r.get("parse_failed") is not True
+    assert r["applied"] == 0
+    # 合法空 delta 仍幂等 purge+重写 → 旧的被清
+    facts = store.facts_at(6)
+    assert not any("k6-0" in f.id for f in facts), "合法空 delta 应 purge 旧 ingest 命题"

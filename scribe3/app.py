@@ -956,7 +956,10 @@ def _bg_ingest(work: str, seq: int) -> None:
     from scribe3.llm import hermes_complete
     try:
         st = _store_for(work)
-        ingest_chapter(st, seq, hermes_complete)
+        r = ingest_chapter(st, seq, hermes_complete)
+        if r.get("parse_failed"):
+            logging.getLogger("scribe3").warning(
+                "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
 

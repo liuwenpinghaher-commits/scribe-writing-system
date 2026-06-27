@@ -62,9 +62,13 @@ def apply_delta(store, delta: dict, seq: int) -> int:
 
 
 def ingest_chapter(store, seq: int, complete_fn) -> dict:
-    """读某章正文 → Hermes 抽知识 delta → 应用到 store。"""
+    """读某章正文 → Hermes 抽知识 delta → 应用到 store。
+    若 parse_knowledge_delta 返回 None(坏 JSON / 截断),不调用 apply_delta(不 purge),
+    返回 parse_failed=True——保留本章既有知识,避免静默数据丢失。"""
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
     delta = parse_knowledge_delta(complete_fn(build_knowledge_extract_prompt(ch["prose"])))
+    if delta is None:
+        return {"applied": -1, "parse_failed": True, "delta": None}
     return {"applied": apply_delta(store, delta, seq), "delta": delta}
