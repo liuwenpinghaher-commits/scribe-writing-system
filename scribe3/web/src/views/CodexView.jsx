@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Trash2, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, ArrowLeft, Loader2, MessageSquare, Send, BookText, Network, Activity, Feather, Eye } from 'lucide-react'
 import { api } from '../api'
-import { Btn, Tag } from '../ui'
+import { Btn, Tag, Empty } from '../ui'
 import { Shell } from '../shell'
 import { ConfirmDialog } from '../ui/Dialog.jsx'
 
@@ -445,7 +445,13 @@ export function CodexView({ work }) {
               </div>
 
             {/* 概览 */}
-            {tab === 'overview' && data.completeness && (
+            {tab === 'overview' && loading && (
+              <div className="grid place-items-center h-full py-16 text-[13px] text-faint">加载设定库…</div>
+            )}
+            {tab === 'overview' && !loading && !data.completeness && (
+              <Empty>这本书还没有设定。左侧选分类开始添加,或问右侧主编「帮我补全世界规则 / 角色」。</Empty>
+            )}
+            {tab === 'overview' && !loading && data.completeness && (
               <div className="space-y-4">
                 <div className="flex items-center gap-3"><span className="text-[28px] font-bold text-ink">{data.completeness.completeness_score}</span><span className="text-[14px] text-faint">设定完整度 / 100</span></div>
                 <div className="grid grid-cols-3 gap-3">
@@ -530,11 +536,10 @@ export function CodexView({ work }) {
   // ─── 左栏:分类导航(每个 tab 一个 RailBtn,点击切换+展开条目列表) ───
   const leftCaps = TABS.map((t) => ({
     key: t.key, label: t.label, icon: t.icon,
-    badge: ['overview','timeline','relations'].includes(t.key) ? undefined : (data[t.key]?.length || 0),
     render: () => {
       // 概览/弧光/关系 没有条目列表,直接切换 tab
       if (['overview','timeline','relations'].includes(t.key)) {
-        return <div className="text-[12px] text-faint/50 py-2">点击切换到{t.label}</div>
+        return <div className="text-[12px] text-faint/50 py-2">{t.label} · {t.key === 'overview' ? '全库统计' : t.key === 'timeline' ? `${data.chars.length} 条角色弧光` : `${data.relations.length} 条关系`}</div>
       }
       const items = data[t.key] || []
       if (items.length === 0) return <div className="text-[12px] text-faint/50 py-2">暂无{t.label}</div>
