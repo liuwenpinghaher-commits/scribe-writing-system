@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, Bookmark,
-  Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
+  Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock, AlertTriangle,
   BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
 } from 'lucide-react'
 import { api } from './api'
@@ -169,10 +169,14 @@ export function WriteLayout({ work }) {
         <div className="flex items-center gap-2 shrink-0">
           {guardOn && focalizer && guard.leaks.length > 0 && (
             <span title={guard.leaks.map((l) => l.marker).join('、')}
-                  className="text-[11px] text-danger tnum cursor-default whitespace-nowrap shrink-0">🔒 {guard.leaks.length}</span>
+                  className="inline-flex items-center gap-1 text-[11px] text-danger tnum cursor-default whitespace-nowrap shrink-0">
+              <Lock size={13} />{guard.leaks.length}
+            </span>
           )}
           {guardOn && (guard.qc.repetition + guard.qc.purple) > 0 && (
-            <span title="复读/升华(AI腔)" className="text-[11px] text-faint tnum cursor-default whitespace-nowrap shrink-0">⚠ {guard.qc.repetition + guard.qc.purple}</span>
+            <span title="复读/升华(AI腔)" className="inline-flex items-center gap-1 text-[11px] text-faint tnum cursor-default whitespace-nowrap shrink-0">
+              <AlertTriangle size={13} />{guard.qc.repetition + guard.qc.purple}
+            </span>
           )}
           <button onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
                   title={guardOn ? '护栏开(点击关闭,完全静默)' : '护栏关'}

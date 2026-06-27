@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Eye, Drama, Target } from 'lucide-react'
 import { api } from './api'
 import { Empty } from './ui'
 
@@ -18,7 +19,7 @@ export function FramePanel({ focalizer, chapter }) {
   return (
     <div className="space-y-4">
       <section>
-        <div className="text-[12px] font-medium text-ink mb-1.5">👁 知识帧</div>
+        <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink mb-1.5"><Eye size={14} strokeWidth={1.5} />知识帧</div>
         {!focalizer ? <Empty>作者全知视角——无限知约束</Empty>
           : frame.length === 0 ? <Empty>该角色此章暂无已知事实</Empty>
           : <ul className="space-y-1">{frame.map((f) => (
@@ -26,7 +27,7 @@ export function FramePanel({ focalizer, chapter }) {
           ))}</ul>}
       </section>
       <section>
-        <div className="text-[12px] font-medium text-ink mb-1.5">🎭 戏剧反讽(读者知道,他不知道)</div>
+        <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink mb-1.5"><Drama size={14} strokeWidth={1.5} />戏剧反讽(读者知道,他不知道)</div>
         {!focalizer ? <Empty>切某角色视角后显示</Empty>
           : irony.length === 0 ? <Empty>无</Empty>
           : <ul className="space-y-1">{irony.map((f) => (
@@ -34,7 +35,7 @@ export function FramePanel({ focalizer, chapter }) {
           ))}</ul>}
       </section>
       <section>
-        <div className="text-[12px] font-medium text-ink mb-1.5">🎯 北极星意图</div>
+        <div className="flex items-center gap-1.5 text-[12px] font-medium text-ink mb-1.5"><Target size={14} strokeWidth={1.5} />北极星意图</div>
         {[['reader_feeling', '读者感受'], ['emotional_arc', '主角情感弧'], ['red_lines', '绝不背叛(红线)']].map(([k, label]) => (
           <textarea key={k} value={intent[k] || ''} placeholder={label}
             onChange={(e) => { setIntent((s) => ({ ...s, [k]: e.target.value })); setIntentSaved(false) }}
