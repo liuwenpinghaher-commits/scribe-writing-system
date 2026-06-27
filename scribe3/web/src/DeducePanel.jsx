@@ -10,12 +10,18 @@ export function DeducePanel({ chars, chapter, onToChief }) {
   const [draft, setDraft] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const run = async () => {
+  const run = () => {
     if (!who) return
-    setBusy(true); setDraft(null)
-    try { const r = await api.render(who, chapter); setDraft({ who, prose: r.prose || '(空)' }) }
-    catch (e) { setDraft({ who, prose: '演绎失败:' + e.message }) }
-    finally { setBusy(false) }
+    setBusy(true); setDraft({ who, prose: '' })
+    let acc = ''
+    const instr = `以「${(chars.find((c) => c.id === who) || {}).name || who}」截至第${chapter}章的限知体验,写这一场的演绎草稿——只含该角色所知所感所见,不要全知旁白。`
+    api.chatWrite(instr, {
+      chapter, focalizer: who,
+      onDelta: (d) => { acc += d; setDraft({ who, prose: acc }) },
+      onProposal: (p) => { acc = p.prose || acc; setDraft({ who, prose: acc }) },
+      onDone: () => setBusy(false),
+      onError: (e) => { setDraft({ who, prose: '演绎失败:' + e }); setBusy(false) },
+    })
   }
   const name = (chars.find((c) => c.id === who) || {}).name || who
 
