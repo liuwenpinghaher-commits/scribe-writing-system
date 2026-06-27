@@ -626,8 +626,11 @@ class SurrealStore:
 
     # --- 声音进化标记 ---
     def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
+        # trigger_chapter 与 seq 同义(021 起的字段重命名遗留)。两者都写:
+        # 既满足旧库 trigger_chapter 为必填 int 的 schema 漂移,也填上有意义的触发章。
         self._execute_write(
-            "CREATE voice_evolution_flag SET character=$c, seq=$s, reason=$r, status='open'",
+            "CREATE voice_evolution_flag SET character=$c, seq=$s, "
+            "trigger_chapter=$s, reason=$r, status='open'",
             {"c": character, "s": seq, "r": reason})
 
     def list_voice_flags(self, status: str = "open") -> list[dict]:
@@ -696,6 +699,30 @@ class SurrealStore:
 
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+
+    def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:
+        """before_seq 之前最近 k 章的 {seq, prose}(按 seq 升序)。
+        供跨章复读检测与"前文已用措辞→生成时避免"清单复用。"""
+        rows = self._query(
+            "SELECT seq, prose FROM chapter WHERE seq < $s ORDER BY seq DESC LIMIT $k",
+            {"s": before_seq, "k": k})
+        return list(reversed(rows))
+
+    def motif_terms(self) -> set[str]:
+        """刻意母题/专名白名单(≥2字):母题名各部分 + 少量物名/地名/书名。
+        跨章复读判定时放行——乱世铜炉式母题本应复现,只揪'动作/句式偷懒重打'。"""
+        terms: set[str] = set()
+        for m in self.list_motifs():
+            name = (m.get("name") or "")
+            for ch in "()（）":
+                name = name.replace(ch, "|")
+            for part in name.split("|"):
+                p = part.strip()
+                if len(p) >= 2:
+                    terms.add(p)
+        terms.update({"镇煞钉", "灵龙镇煞钉", "奈何谷", "大元炼真经",
+                      "清潭派", "云阳真人", "三百六十", "老槐树"})
+        return terms
 
     def stats(self) -> dict:
         """本书章数 + 字数(读 QC 缓存,不回传全表正文)。"""

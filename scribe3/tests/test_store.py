@@ -76,3 +76,12 @@ def test_chapter_version_kind_default_applies(store):
     store._execute_write("CREATE chapter_version SET seq=9, prose='x', created_at=time::now()", {})
     rows = store._query("SELECT kind FROM chapter_version WHERE seq=9")
     assert rows and rows[0]["kind"] == "checkpoint"
+
+
+def test_add_voice_flag_sets_trigger_chapter(store):
+    # 回归:add_voice_flag 必须显式写入 trigger_chapter,否则旧库(必填 int)ingest 崩。
+    store.add_voice_flag("role:甲", 7, "声音突变")
+    rows = store._query("SELECT character, seq, trigger_chapter, reason FROM voice_evolution_flag")
+    assert rows and rows[0]["trigger_chapter"] == 7 and rows[0]["seq"] == 7
+    flags = store.list_voice_flags("open")
+    assert any(f["reason"] == "声音突变" for f in flags)
