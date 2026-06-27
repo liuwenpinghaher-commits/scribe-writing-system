@@ -5,5 +5,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: { host: '127.0.0.1', port: 3311, strictPort: true },
   preview: { host: '127.0.0.1', port: 3311, strictPort: true },
-  test: { environment: 'jsdom', globals: true },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    environmentOptions: { jsdom: { url: 'http://localhost' } },
+    setupFiles: ['./src/lib/vitest.setup.js'],
+  },
 })
