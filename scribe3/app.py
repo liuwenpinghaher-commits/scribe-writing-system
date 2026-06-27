@@ -728,7 +728,10 @@ def _editor_write_system(st) -> str:
         "  或作者提供了角色演绎草稿请求成文时 → 先简短说一句你的处理思路,"
         "然后把**书的本章正文**放进围栏:\n"
         "  (scope 取 chapter=整章 / selection=改选中段 / append=续写接在后面)\n"
-        "  ⟦PROPOSAL scope=chapter⟧\n  （书的正文，作者笔调，纯散文，不要解说）\n  ⟦/PROPOSAL⟧\n\n"
+        "  ⟦PROPOSAL scope=chapter⟧\n  （书的正文，作者笔调，纯散文，不要解说）\n  ⟦/PROPOSAL⟧\n"
+        "- **多候选**:当作者对某段改写要求「2-3 个候选/几个版本/不同侧重」时,**连续输出 2-3 个独立的**\n"
+        "  ⟦PROPOSAL scope=selection⟧…⟦/PROPOSAL⟧ 围栏,每个是对同一段的不同改法(如:一个收紧、"
+        "一个加潜台词、一个换感官切入),围栏之间可不写解说。其余情况只出一个围栏。\n\n"
         "## 写作规则\n"
         "- 若作者给了某角色的「演绎草稿」(那角色这一场的限知体验)作为素材,把它**织进**书的叙事。\n"
         "- 尊重已确立设定/伏笔/北极星意图。默认作者视角(可全知);仅当作者明确指定本章跟某焦点者的"
@@ -774,6 +777,29 @@ def _stream_write(message, instructions: str):
     yield 'data: {"done": true}\n\n'
 
 
+def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 80) -> str:
+    """前 lookback 章独特措辞 → '本章避免逐字复用'系统指令(服务端确定性防跨章复读)。
+
+    根因:单遍长程生成的"复读病"——模型跨章逐字复用自己偏爱的措辞/动作句(实测 10 章共 106 处
+    跨章逐字搬运,逐章 QC 全查不到)。把前文招式喂进【系统指令】,生成时就避开,而非事后删。
+    """
+    try:
+        from scribe3.critique import distinctive_phrases
+        avoid, seen = [], set()
+        for c in st.recent_proses(chapter, k=lookback):
+            for ph in distinctive_phrases(c.get("prose", ""), n=8, top=40):
+                if ph not in seen and not ph.startswith("#"):
+                    seen.add(ph)
+                    avoid.append(ph)
+        if not avoid:
+            return ""
+        return ("\n\n【防跨章复读·硬约束】前文已用过下列 ≥8 字措辞/动作句,本章**严禁逐字复用**——"
+                "同一个意思换感官/换喻体/换节奏另写(专有名词与刻意母题可保留,忌的是动作描写与句式的偷懒重打):\n"
+                + "、".join(f"「{a}」" for a in avoid[:top]))
+    except Exception:
+        return ""
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
@@ -785,6 +811,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    instructions += _avoid_directive(st, chapter)
     return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
 
 
@@ -841,6 +868,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
         instructions += f"作者指定本章跟随焦点者 {req.focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    instructions += _avoid_directive(st, req.chapter)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -917,8 +945,17 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
-    from scribe3.critique import quality_flags
+    from scribe3.critique import quality_flags, find_cross_chapter_repetitions
     qf = quality_flags(req.prose)
+    # 跨章复读:逐章 QC 查不到的"单遍长程生成典型病"(模型跨章复用偏爱措辞)。
+    # 比对前文最近 5 章逐字 ≥8 字重叠——把"重复"从'事后逐章删'升级为'跨章可度量'。
+    cross_rep: list[dict] = []
+    try:
+        priors = [c["prose"] for c in st.recent_proses(req.seq, k=5) if c.get("prose")]
+        cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=8)
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning("cross_repetition 失败 work=%s seq=%s: %s", work, req.seq, e)
     leaks, leak_error = None, None
     if req.focalizer:
         try:
@@ -931,7 +968,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     background.add_task(_bg_ingest, work, req.seq)
     return {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
-                   "purple": len(qf["purple"])},
+                   "purple": len(qf["purple"]), "cross_repetition": len(cross_rep)},
+            "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
             "leaks": leaks, "leak_error": leak_error, "ingesting": True}
 
 
