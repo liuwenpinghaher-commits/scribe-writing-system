@@ -13,7 +13,7 @@ from scribe3.ontology import Entity, Fact
 
 
 class TestAcquiredViaAssert:
-    """knows.acquired_via ASSERT IN ['saw','told','inferred','given','learned']"""
+    """knows.acquired_via ASSERT IN ['saw','told','inferred','given','learned','narrated']"""
 
     def test_dirty_acquired_via_rejected(self, store):
         store.add_entity(Entity("role:甲", "character", "甲"))
@@ -38,6 +38,16 @@ class TestAcquiredViaAssert:
         store._db.query(
             "RELATE $k->knows->$p SET since_chapter=1, acquired_via='saw'",
             {"k": RecordID("character", "甲"), "p": RecordID("proposition", "t3")},
+        )
+
+    def test_narrated_accepted(self, store):
+        """P3-f Fix3: acquired_via='narrated' 是 ingest reader_knows 写的值,须在 ASSERT 域内。"""
+        store.add_entity(Entity("role:甲", "character", "甲"))
+        store.add_fact(Fact("fact:t4", "role:甲", "attr", "val", valid_from=1))
+        # 如果枚举未扩展,这里会因 ASSERT 失败而抛异常
+        store._db.query(
+            "RELATE $k->knows->$p SET since_chapter=1, acquired_via='narrated'",
+            {"k": RecordID("character", "甲"), "p": RecordID("proposition", "t4")},
         )
 
 
@@ -75,10 +85,14 @@ class TestEnumParity:
 
     def test_acquired_via_members(self):
         vals = {e.value for e in AcquiredVia}
-        assert vals == {"saw", "told", "inferred", "given", "learned"}
+        assert vals == {"saw", "told", "inferred", "given", "learned", "narrated"}
 
     def test_acquired_via_has_learned(self):
         assert AcquiredVia.learned.value == "learned"
+
+    def test_acquired_via_has_narrated(self):
+        """P3-f Fix3: AcquiredVia 须含 narrated(ingest reader_knows 值)。"""
+        assert AcquiredVia.narrated.value == "narrated"
 
     def test_promise_kind_members(self):
         vals = {e.value for e in PromiseKind}

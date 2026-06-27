@@ -21,6 +21,7 @@ class AcquiredVia(str, Enum):
     inferred = "inferred"
     given = "given"
     learned = "learned"
+    narrated = "narrated"   # ingest reader_knows 写的值(叙述揭示即读者已知)
 
 
 class PromiseKind(str, Enum):

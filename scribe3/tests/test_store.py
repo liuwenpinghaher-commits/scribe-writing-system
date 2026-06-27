@@ -397,3 +397,17 @@ def test_p3c_schema_cleanup(store):
     matches = [x for x in store.list_factions() if x["name"] == "唯一门"]
     assert len(matches) == 1, f"同名势力应只有1条,实际{len(matches)}条"
     assert matches[0]["ideology"] == "b", "第二次写入(ideology=b)应覆盖"
+
+
+def test_event_table_lacks_dead_taxonomy_columns(store):
+    """P3-f Fix2: 041_tail_cleanup 应从 event 表移除死列 event_category/event_subtype。
+    这两列由 024_taxonomy.surql 引入,但无任何生产代码读写,属死 taxonomy。
+    """
+    # INFO FOR TABLE 直接返回 dict(不是 list)
+    info = store._query("INFO FOR TABLE event")
+    # SurrealDB 3.x: info 是 dict,fields 键的值是字段名→定义的 dict
+    fields = info.get("fields", {}) if isinstance(info, dict) else {}
+    assert "event_category" not in fields, \
+        "event.event_category 应已被 041_tail_cleanup 移除"
+    assert "event_subtype" not in fields, \
+        "event.event_subtype 应已被 041_tail_cleanup 移除"

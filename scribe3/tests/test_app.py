@@ -933,3 +933,28 @@ def test_craft_block_injected_into_instructions(store):
     b2 = build_craft_block(rules)
     assert "题材规则" in b2 or "本书题材规则" in b2, "有规则时应含题材层标题"
     assert "古白话" in b2, "craft_rule pattern 应出现在 block"
+
+
+# ===== P3-f: CharIn 补 personality_tags / aliases =====
+
+def test_post_characters_sets_personality_tags_and_aliases(store):
+    """P3-f Fix1: POST /characters 携带 personality_tags+aliases 应写入,
+    /entities 读回时含两字段。
+    修复前:CharIn 无这两个字段,创建后须 PATCH 补写。
+    修复后:CharIn 含 personality_tags/aliases,POST 一次成型。
+    """
+    c = _client(store)
+    r = c.post("/characters", json={
+        "name": "测角丙",
+        "backstory": "无名小卒",
+        "personality_tags": ["阴沉", "多疑"],
+        "aliases": ["三爷", "无脸人"],
+    })
+    assert r.status_code == 200, f"POST /characters 应返回 200: {r.text}"
+    entities = c.get("/entities").json()
+    e = next((x for x in entities if x["name"] == "测角丙"), None)
+    assert e is not None, "应能在 /entities 找到测角丙"
+    assert e.get("personality_tags") == ["阴沉", "多疑"], \
+        f"personality_tags 应写入并读回,实际: {e.get('personality_tags')}"
+    assert e.get("aliases") == ["三爷", "无脸人"], \
+        f"aliases 应写入并读回,实际: {e.get('aliases')}"

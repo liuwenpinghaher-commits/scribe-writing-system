@@ -168,6 +168,7 @@ def entities(work: str = "main", reveal_secret: bool = False):
             "importance": t.get("importance"),
             "appearance": t.get("appearance"),
             "personality_tags": t.get("personality_tags"),
+            "aliases": t.get("aliases") or [],
             "personality_detail": t.get("personality_detail"),
             "abilities": t.get("abilities"),
             "weaknesses": t.get("weaknesses"),
@@ -242,6 +243,8 @@ class CharIn(BaseModel):
     importance: str | None = None
     appearance: str | None = None
     personality_detail: str | None = None
+    personality_tags: list[str] = []
+    aliases: list[str] = []
     abilities: str | None = None
     weaknesses: list = []
     surface_goal: str | None = None
@@ -255,7 +258,8 @@ class CharIn(BaseModel):
 def add_char(c: CharIn, work: str = "main"):
     _store_for(work).add_entity(Entity(
         f"role:{c.name}", "character", c.name,
-        traits={"backstory": c.backstory, "backstory_secret": c.backstory_secret}))
+        traits={"backstory": c.backstory, "backstory_secret": c.backstory_secret,
+                "personality_tags": c.personality_tags, "aliases": c.aliases}))
     return {"ok": True, "oid": f"role:{c.name}"}
 
 
