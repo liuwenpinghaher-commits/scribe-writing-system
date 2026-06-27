@@ -122,3 +122,50 @@ def test_tools_discoverable_and_annotated():
         ro = getattr(ann, "readOnlyHint", None) if ann else None
         if ro is not None:
             assert ro is not True, f"{name} 不应注 readOnlyHint=True"
+
+
+def test_mcp_recall_tools_expose_is_secret(store):
+    """P0·限知边界:五路召回工具返回的每条命题项必须带 is_secret 标志。
+    secret=True 的私密命题 is_secret 须为 True,供下游限知渲染层据此跳过私密。
+    value 保留不动(维持主编全知联查)。"""
+    from scribe3.ontology import KnowledgeEdge
+    luanshi_leak_world(store)
+    # 语义召回需要 embedding 索引;在 add_fact 后手动建立(生产侧由 s3_add_fact 调用)
+    store.semantic_index("fact:治眼", "攒钱给老娘治眼")
+    store.semantic_index("fact:雨", "暴雨")
+    # dramatic_irony 需要 reader 持有对 secret fact 的知识边(叙述视角已揭示给读者)
+    store.add_knowledge(KnowledgeEdge("reader", "fact:治眼", since_chapter=1))
+    M.set_store(store)
+
+    # --- s3_project_frame: 焦三帧含 secret 命题,应带 is_secret=True ---
+    jiaosan_frame = M.s3_project_frame("role:焦三", 1)
+    secret_items_frame = [x for x in jiaosan_frame if x.get("is_secret") is True]
+    assert secret_items_frame, (
+        "s3_project_frame: 焦三帧里 secret 命题应带 is_secret=True"
+    )
+    # value 保留
+    assert any("治眼" in x["value"] for x in secret_items_frame), (
+        "s3_project_frame: secret 命题的 value 应保留(主编全知)"
+    )
+
+    # --- s3_semantic_recall: 语义召回「治眼」,secret 命题应带 is_secret=True ---
+    sem_results = M.s3_semantic_recall("治眼", k=5)
+    assert sem_results, "s3_semantic_recall: 应能召回治眼相关命题"
+    secret_sem = [x for x in sem_results if x.get("is_secret") is True]
+    assert secret_sem, (
+        "s3_semantic_recall: secret 命题应带 is_secret=True"
+    )
+    assert any("治眼" in x["value"] for x in secret_sem), (
+        "s3_semantic_recall: secret 命题 value 应保留"
+    )
+
+    # --- s3_dramatic_irony: 戏剧反讽点含 secret 命题,应带 is_secret=True ---
+    irony = M.s3_dramatic_irony("role:老道", 1)
+    # 老道不知焦三私密,焦三私密对老道构成戏剧反讽
+    secret_irony = [x for x in irony if x.get("is_secret") is True]
+    assert secret_irony, (
+        "s3_dramatic_irony: 戏剧反讽点中 secret 命题应带 is_secret=True"
+    )
+    assert any("治眼" in x["value"] for x in secret_irony), (
+        "s3_dramatic_irony: secret 命题 value 应保留"
+    )
