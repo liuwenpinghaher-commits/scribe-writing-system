@@ -22,6 +22,7 @@ export function WriteLayout({ work }) {
   const [focalizer, setFocalizer] = useState('')
   const [prose, setProse] = useState('')
   const [proposal, setProposal] = useState(null)
+  const [candidates, setCandidates] = useState([])
   const [seedQuote, setSeedQuote] = useState('')
   const [lastQuote, setLastQuote] = useState('')
   const [lastSel, setLastSel] = useState(null)
@@ -75,13 +76,20 @@ export function WriteLayout({ work }) {
     setProse(r.next); setProposal(null); setLastQuote(''); setLastSel(null)
     await persist(r.next)
   }
+  const acceptCandidate = async (text) => {
+    const r = applyProposal(prose, { scope: 'selection', prose: text }, lastSel)
+    if (!r.ok && r.drifted) { alert('原文已变动,请重新选中。'); setCandidates([]); return }
+    setProse(r.next); setCandidates([]); setLastQuote(''); setLastSel(null)
+    await persist(r.next)
+  }
   const save = () => persist(prose)
   const discussSel = (sel) => {
     const text = typeof sel === 'string' ? sel : sel?.text
     if (!text?.trim()) return
     setLastSel(typeof sel === 'string' ? null : sel)
     setLastQuote(text)
-    setSeedQuote(`把这段改一下:「${text}」`)
+    setSeedQuote(`把这段改一下,给我 2-3 个侧重不同的候选:「${text}」`)
+    setCandidates([])
     setRightActive('chat')
   }
   const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
@@ -113,7 +121,7 @@ export function WriteLayout({ work }) {
       {topbarMid}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
-          <DraftCard proposal={proposal} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setLastQuote(''); setLastSel(null) }} />
+          <DraftCard proposal={proposal} candidates={candidates} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
             chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
             placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
@@ -177,7 +185,10 @@ export function WriteLayout({ work }) {
   const rightCaps = [
     { key: 'chat', label: '主编对话', icon: MessagesSquare, bare: true, render: () => (
       <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
-        onSeedUsed={() => setSeedQuote('')} onProposal={(p) => setProposal(p)} />
+        onSeedUsed={() => setSeedQuote('')} onProposal={(p) => {
+          if (p.scope === 'selection') setCandidates((cs) => [...cs, p.prose])
+          else setProposal(p)
+        }} />
     ) },
     { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
       <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
