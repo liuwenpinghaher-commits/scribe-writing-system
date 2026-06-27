@@ -278,9 +278,12 @@ class SurrealStore:
 
     def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
         if k.knower_id == "reader":   # reader 帧:单独表,不走 character->knows 边
+            # 写 ingest_seq 供 purge_ingest 幂等清理;手动种的边 ingest_seq=NONE 不受 purge 影响
             self._execute_write(
-                "CREATE reader_knows SET proposition=$p, since_chapter=$since",
-                {"p": k.proposition_id, "since": k.since_chapter})
+                "CREATE reader_knows SET proposition=$p, since_chapter=$since"
+                + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
+                {"p": k.proposition_id, "since": k.since_chapter,
+                 **({"iseq": ingest_seq} if ingest_seq is not None else {})})
             return k
         ktbl, klocal = _split(k.knower_id)
         ptbl, plocal = _split(k.proposition_id)
@@ -374,9 +377,10 @@ class SurrealStore:
             self._db.query(surql)
 
     def purge_ingest(self, seq: int) -> None:
-        """删除某章 ingest 产出的命题 + knows 边(幂等再 ingest 的前置清理)。
+        """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边(幂等再 ingest 的前置清理)。
         只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。"""
         self._execute_write("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
+        self._execute_write("DELETE reader_knows WHERE ingest_seq = $seq", {"seq": seq})
         self._execute_write("DELETE proposition WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:

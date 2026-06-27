@@ -96,3 +96,68 @@ def test_ingest_chapter_ok_empty_still_purges(store):
     # 合法空 delta 仍幂等 purge+重写 → 旧的被清
     facts = store.facts_at(6)
     assert not any("k6-0" in f.id for f in facts), "合法空 delta 应 purge 旧 ingest 命题"
+
+
+# ── P2-E1 reader_knows 自动回写测试 ──────────────────────────────────────────
+
+def test_ingest_auto_records_reader_knows(store):
+    """ingest 一章后,该章的命题应出现在 reader 帧里(叙述揭示即读者已知)。"""
+    _ensure_chars(store, "焦三")
+    store.save_chapter(4, "焦三发现老道持有尸丹。", focalizer="role:焦三")
+    fake = lambda _p: '{"learned":[{"who":"焦三","fact":"老道持有尸丹"}],"did":[],"voice_shift":[]}'
+    r = ingest_chapter(store, 4, fake)
+    assert r["applied"] == 1, "ingest 应写入 1 条命题"
+
+    # reader 帧应包含该命题
+    from scribe3.knowledge import project_frame, dramatic_irony
+    reader_frame = project_frame(store, "reader", 4)
+    assert any("尸丹" in f.value for f in reader_frame.facts), \
+        "ingest 后 reader 帧应含被 ingest 的 fact"
+
+
+def test_ingest_reader_knows_did_facts(store):
+    """did 类事件(行动)同样应写入 reader_knows。"""
+    _ensure_chars(store, "焦三", "阿萤")
+    store.save_chapter(5, "焦三在阿萤面前取出尸丹。", focalizer="role:焦三")
+    fake = lambda _p: ('{"learned":[],'
+                       '"did":[{"who":"焦三","action":"取出尸丹","seen_by":["阿萤"]}],'
+                       '"voice_shift":[]}')
+    r = ingest_chapter(store, 5, fake)
+    assert r["applied"] == 1
+
+    from scribe3.knowledge import project_frame
+    reader_frame = project_frame(store, "reader", 5)
+    assert any("尸丹" in f.value for f in reader_frame.facts), \
+        "did 类 fact 也应出现在 reader 帧"
+
+
+def test_ingest_reader_knows_idempotent(store):
+    """同一章 ingest 两次,reader_knows 边不重复叠加。"""
+    _ensure_chars(store, "焦三")
+    store.save_chapter(7, "焦三知道了秘密。", focalizer="role:焦三")
+    fake = lambda _p: '{"learned":[{"who":"焦三","fact":"秘密内容"}],"did":[],"voice_shift":[]}'
+
+    ingest_chapter(store, 7, fake)
+    ingest_chapter(store, 7, fake)  # 第二次 ingest 同一章
+
+    # reader 帧里该命题只出现一次(不重复)
+    from scribe3.knowledge import project_frame
+    reader_frame = project_frame(store, "reader", 7)
+    matching = [f for f in reader_frame.facts if "秘密" in f.value]
+    assert len(matching) == 1, \
+        f"同章二次 ingest 后 reader_knows 应只有 1 条,实际 {len(matching)} 条"
+
+
+def test_dramatic_irony_uses_reader_knows(store):
+    """戏剧反讽:reader 知道、焦三不知道 → dramatic_irony 能检出。"""
+    _ensure_chars(store, "焦三", "阿萤")
+    store.save_chapter(8, "叙述者(全知)揭示阿萤是奸细。", focalizer="role:焦三")
+    # 只让 reader 知道"阿萤是奸细",焦三未获任何 learned 边
+    fake = lambda _p: ('{"learned":[{"who":"阿萤","fact":"阿萤是奸细"}],'
+                       '"did":[],"voice_shift":[]}')
+    ingest_chapter(store, 8, fake)
+
+    from scribe3.knowledge import dramatic_irony
+    irony = dramatic_irony(store, "role:焦三", 8)
+    assert any("奸细" in f.value for f in irony), \
+        "reader 已知阿萤是奸细,焦三不知 → 应出现在戏剧反讽列表"
