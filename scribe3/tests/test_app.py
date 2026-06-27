@@ -788,3 +788,69 @@ def test_patch_fact_preserves_and_reembeds(store):
     hits = store.semantic_recall("独特词BBB", k=10)
     assert any(h.id == oid for h in hits), \
         "PATCH value 后语义召回应能找到新值(embedding 须重建)"
+
+
+# ===== P3-d: 雄心死字段接活驱动生成 =====
+
+def test_voice_anchor_includes_monologue_style(store):
+    """_voice_anchor_block:internal_monologue_style 须出现在块里。"""
+    store.set_voice_profile("role:甲", {
+        "style_summary": "简短",
+        "internal_monologue_style": "意识流碎句",
+    })
+    from scribe3.app import _voice_anchor_block
+    b = _voice_anchor_block(store, "role:甲")
+    assert "意识流碎句" in b, "internal_monologue_style 应注入声音锚块"
+
+
+def test_voice_anchor_includes_sentence_patterns(store):
+    """_voice_anchor_block:sentence_patterns(dict)须紧凑出现在块里。"""
+    store.set_voice_profile("role:甲", {
+        "style_summary": "简短",
+        "sentence_patterns": {"default": "短句断语", "stress": "三字顿"},
+    })
+    from scribe3.app import _voice_anchor_block
+    b = _voice_anchor_block(store, "role:甲")
+    assert "短句断语" in b or "三字顿" in b, "sentence_patterns 值应注入声音锚块"
+
+
+def test_voice_anchor_includes_vocabulary_profile(store):
+    """_voice_anchor_block:vocabulary_profile(object)须出现在块里。"""
+    store.set_voice_profile("role:甲", {
+        "style_summary": "简短",
+        "vocabulary_profile": {"tendency": "多用文言虚词", "avoid": "现代网络词"},
+    })
+    from scribe3.app import _voice_anchor_block
+    b = _voice_anchor_block(store, "role:甲")
+    assert "多用文言虚词" in b or "文言虚词" in b, "vocabulary_profile 值应注入声音锚块"
+
+
+def test_motif_block_injects(store):
+    """_motif_block:母题 name/theme/echoes 须出现在块里,且含「母题」。"""
+    store.add_motif("铜炉", theme="文明余烬", echoes="炉火/锈迹")
+    from scribe3.app import _motif_block
+    b = _motif_block(store)
+    assert "铜炉" in b, "母题 name 应出现在 _motif_block"
+    assert "母题" in b, "块应含「母题」标题关键词"
+    assert "文明余烬" in b, "theme 应出现在 _motif_block"
+    assert "炉火/锈迹" in b, "echoes 应出现在 _motif_block"
+
+
+def test_motif_block_empty_when_no_motifs(store):
+    """无母题时 _motif_block 返回空串。"""
+    from scribe3.app import _motif_block
+    assert _motif_block(store) == ""
+
+
+def test_craft_block_injected_into_instructions(store):
+    """build_craft_block(rules) 输出须非空且含引擎层关键词;craft_rule 种子后含题材规则。"""
+    from scribe3.craft import build_craft_block
+    # 无题材规则时:引擎层仍应有内容
+    b = build_craft_block()
+    assert b and "写作引擎" in b, "build_craft_block 默认应含「写作引擎」"
+    # 种入题材规则后:应含题材层标题(使用 schema 允许的 kind)
+    store.add_craft_rule("artifact_craft", "古白话:多用端的/岂料/怎禁得", "乱世铜炉用词基准")
+    rules = store.list_craft_rules()
+    b2 = build_craft_block(rules)
+    assert "题材规则" in b2 or "本书题材规则" in b2, "有规则时应含题材层标题"
+    assert "古白话" in b2, "craft_rule pattern 应出现在 block"

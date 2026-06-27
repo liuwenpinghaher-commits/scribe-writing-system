@@ -851,7 +851,7 @@ def _arc_state_block(st, focalizer: str, chapter: int) -> str:
 
 
 def _voice_anchor_block(st, focalizer: str = "") -> str:
-    """构建声音锚注入块:焦点者完整 voice_profile + 所有角色对白声音速记。
+    """构建声音锚注入块:焦点者完整 voice_profile(含3节死字段) + 所有角色对白声音速记。
     用于 /chat/write 的 instructions 末尾,让生成时已在声而非事后 check_ooc。"""
     parts = []
 
@@ -867,6 +867,20 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
             tr = vp.get("tone_rules")
             if tr and isinstance(tr, list):
                 line += f" 语气规则:{'；'.join(str(x) for x in tr if x)}。"
+            # P3-d: 注入3个此前未用的声音节点
+            im = vp.get("internal_monologue_style")
+            if im:
+                line += f" 内心独白风格:{im}。"
+            sp = vp.get("sentence_patterns")
+            if sp and isinstance(sp, dict):
+                sp_str = "、".join(f"{k}={v}" for k, v in sp.items() if v)
+                if sp_str:
+                    line += f" 句式:{sp_str}。"
+            voc = vp.get("vocabulary_profile")
+            if voc and isinstance(voc, dict):
+                voc_str = "、".join(str(v) for v in voc.values() if v)
+                if voc_str:
+                    line += f" 词汇倾向:{voc_str}。"
             rl = vp.get("reference_lines")
             if rl and isinstance(rl, list):
                 line += f" 参考语感:{'｜'.join(str(x) for x in rl[:2] if x)}"
@@ -886,10 +900,35 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
     return "".join(parts)
 
 
+def _motif_block(st) -> str:
+    """构建母题注入块:列出贯穿母题(name/theme/echoes),供生成时主动编织。
+    空母题表 → 返回空串。上限 5 条,保持 prompt 紧凑。"""
+    motifs = st.list_motifs() or []
+    if not motifs:
+        return ""
+    lines = ["## 贯穿母题(可主动编织)"]
+    for m in motifs[:5]:
+        name = m.get("name") or ""
+        theme = m.get("theme") or ""
+        echoes = m.get("echoes") or ""
+        if not name:
+            continue
+        entry = name
+        if theme:
+            entry += f":{theme}"
+        if echoes:
+            entry += f"（回声:{echoes}）"
+        lines.append(entry)
+    if len(lines) <= 1:
+        return ""
+    return "\n\n" + "\n".join(lines)
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
+    from scribe3.craft import build_craft_block
     st = _store_for(work)
     instructions = _editor_write_system(st)
     instructions += f"\n当前第 {chapter} 章。"
@@ -900,6 +939,10 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     instructions += _avoid_directive(st, chapter)
     instructions += _voice_anchor_block(st, focalizer)
     instructions += _arc_state_block(st, focalizer, chapter)
+    instructions += _motif_block(st)
+    craft = build_craft_block(st.list_craft_rules() or None)
+    if craft:
+        instructions += "\n\n" + craft
     return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
 
 
@@ -949,6 +992,7 @@ class ChatWriteReq(BaseModel):
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
+    from scribe3.craft import build_craft_block
     st = _store_for(work)
     instructions = _editor_write_system(st)
     instructions += f"\n当前第 {req.chapter} 章。"
@@ -959,6 +1003,10 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _avoid_directive(st, req.chapter)
     instructions += _voice_anchor_block(st, req.focalizer)
     instructions += _arc_state_block(st, req.focalizer, req.chapter)
+    instructions += _motif_block(st)
+    craft = build_craft_block(st.list_craft_rules() or None)
+    if craft:
+        instructions += "\n\n" + craft
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
