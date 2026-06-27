@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, FileText, Bookmark, ShieldAlert } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { api } from '../api'
+import { chapterLabel } from '../chapterLabel.js'
 
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   const c = { brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
@@ -68,8 +69,7 @@ export function InsightView() {
           {weak.length === 0 ? <div className="text-[13px] text-ok">✓ 各章质检干净</div>
             : weak.slice(0, 8).map((c) => (
               <div key={c.seq} className="flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-[13px]">
-                <span className="tnum text-faint w-12">第{c.seq}章</span>
-                <span className="text-ink flex-1 truncate">{c.title || '无题'}</span>
+                <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
                 {c.qc_issues > 0 && <span className="text-danger text-[12px]">QC {c.qc_issues}</span>}
                 {c.causal > 0 && <span className="text-fore text-[12px]">因果 {c.causal}</span>}
               </div>
