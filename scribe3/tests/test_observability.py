@@ -25,12 +25,12 @@ class TestParseDisciplineLogging:
 
 
 class TestParseKnowledgeDeltaLogging:
-    def test_garbage_returns_default_with_warning(self, caplog):
+    def test_garbage_returns_none_with_warning(self, caplog):
+        # P0 修复后:解析失败返回 None(失败信号),而非静默空 delta——
+        # 让 ingest_chapter 能区分"解析失败"与"确无新知识",避免误 purge 清空本章知识。
         with caplog.at_level(logging.WARNING, logger="scribe3.critique"):
             result = parse_knowledge_delta("{无效内容,不是合法JSON}")
-        assert result["learned"] == []
-        assert result["did"] == []
-        assert result["voice_shift"] == []
+        assert result is None
         assert "parse_knowledge_delta" in caplog.text or "失败" in caplog.text
 
 
