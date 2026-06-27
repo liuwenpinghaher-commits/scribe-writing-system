@@ -413,6 +413,61 @@ def test_voice_anchor_block_none_guards(store):
     assert "稳重低调" in block, "style_summary 应正常显示"
 
 
+# ===== 弧光快照注入续写 prompt =====
+
+def test_arc_state_block_injects_snapshot(store):
+    """_arc_state_block:有能力快照时注入「弧光状态」标题及对应字段。"""
+    store.add_char_state(
+        character_id="role:甲",
+        chapter=2,
+        change_type="ability",
+        summary="习剑",
+        after_state={"ability_snapshot": {"御剑": "初成"}},
+    )
+    from scribe3.app import _arc_state_block
+    block = _arc_state_block(store, "role:甲", 5)
+    assert "御剑" in block, "应含能力条目"
+    assert "弧光" in block, "应含「弧光」标题关键词"
+    assert _arc_state_block(store, "", 5) == "", "无焦点者应返回空串"
+    assert _arc_state_block(store, "role:无此人", 5) == "", "空快照应返回空串"
+
+
+def test_arc_state_block_relations_personality_phase(store):
+    """_arc_state_block:关系/性格/弧光阶段均能正确出现在 block 里。"""
+    store.add_char_state(
+        character_id="role:乙",
+        chapter=3,
+        change_type="composite",
+        summary="蜕变",
+        after_state={
+            "ability_snapshot": {"剑法": "大成"},
+            "relation_snapshot": {"role:丙": "盟友"},
+            "personality_snapshot": "沉稳果决",
+        },
+        arc_phase="破茧",
+    )
+    from scribe3.app import _arc_state_block
+    block = _arc_state_block(store, "role:乙", 10)
+    assert "剑法" in block
+    assert "role:丙" in block
+    assert "沉稳果决" in block
+    assert "破茧" in block
+
+
+def test_arc_state_block_empty_when_no_meaningful_data(store):
+    """_arc_state_block:快照存在但所有字段均为空时返回空串。"""
+    store.add_char_state(
+        character_id="role:丙",
+        chapter=1,
+        change_type="ability",
+        summary="无变化",
+        after_state={},
+    )
+    from scribe3.app import _arc_state_block
+    block = _arc_state_block(store, "role:丙", 3)
+    assert block == "", "无有效内容时应返回空串"
+
+
 # ── ingest_unverified 复核闭环 ────────────────────────────────────────────────
 
 def test_ingest_unverified_list(store):
