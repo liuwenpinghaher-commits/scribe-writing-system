@@ -469,6 +469,29 @@ def character_relations(chapter: int | None = None, work: str = "main"):
     return st.relations_at(9999)
 
 
+@app.post("/character-relations")
+def add_character_relation_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.add_character_relation(req["src"], req["dst"], req["relation"],
+                              req["since_chapter"], req.get("note"))
+    return {"ok": True}
+
+
+@app.post("/character-relations/evolve")
+def evolve_relation_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.evolve_relation(req["src"], req["dst"], req["relation"],
+                       req["since_chapter"], req.get("note"))
+    return {"ok": True}
+
+
+@app.post("/character-relations/end")
+def end_relation_endpoint(req: dict, work: str = "main"):
+    st = _store_for(work)
+    st.end_relation(req["src"], req["dst"], req["until_chapter"])
+    return {"ok": True}
+
+
 @app.get("/char-states")
 def char_states(character_id: str, work: str = "main"):
     return _store_for(work).list_char_states(character_id)

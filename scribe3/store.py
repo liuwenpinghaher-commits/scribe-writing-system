@@ -873,6 +873,33 @@ class SurrealStore:
             "WHERE since_chapter <= $ch AND (until_chapter IS NONE OR until_chapter > $ch)",
             {"ch": chapter})
 
+    def evolve_relation(self, src_oid: str, dst_oid: str, new_relation: str,
+                        since_chapter: int, note: str | None = None) -> None:
+        """关系演变:关闭 src→dst 所有开区间关系,写入新关系。
+        敌变友/师徒决裂等弧线均通过此方法表达。"""
+        _, sl = _split(src_oid)
+        _, dl = _split(dst_oid)
+        # 1. 关闭所有仍开着的 src→dst 关系(until_chapter IS NONE)
+        self._execute_write(
+            "UPDATE character_relation SET until_chapter=$uc "
+            "WHERE in=$s AND out=$d AND until_chapter IS NONE",
+            {"uc": since_chapter,
+             "s": RecordID("character", sl),
+             "d": RecordID("character", dl)})
+        # 2. 写入新关系
+        self.add_character_relation(src_oid, dst_oid, new_relation, since_chapter, note)
+
+    def end_relation(self, src_oid: str, dst_oid: str, until_chapter: int) -> None:
+        """终止关系:设置 until_chapter,不新建替代关系。"""
+        _, sl = _split(src_oid)
+        _, dl = _split(dst_oid)
+        self._execute_write(
+            "UPDATE character_relation SET until_chapter=$uc "
+            "WHERE in=$s AND out=$d AND until_chapter IS NONE",
+            {"uc": until_chapter,
+             "s": RecordID("character", sl),
+             "d": RecordID("character", dl)})
+
     # --- 世界规则(层1 设定完整性)---
     def add_world_rule(self, name: str, category: str, source: str | None = None,
                        capabilities: list | None = None, cost: str | None = None,

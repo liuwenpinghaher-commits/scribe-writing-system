@@ -31,7 +31,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
                 "s3_set_voice_profile", "s3_add_item", "s3_add_term",
-                "s3_supersede_fact", "s3_forget_knowledge"}
+                "s3_supersede_fact", "s3_forget_knowledge",
+                "s3_evolve_relation"}
 
 
 def requires_approval(name: str) -> bool:
@@ -448,6 +449,20 @@ async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
     return commit_if_approved("s3_add_character_relation", ok,
                               lambda: _store.add_character_relation(
                                   src_oid, dst_oid, relation, since_chapter, note))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_evolve_relation(ctx: Context, src_oid: str, dst_oid: str,
+                              new_relation: str, since_chapter: int,
+                              note: str | None = None) -> dict:
+    """关系演变(写,待批):关闭 src→dst 所有开区间关系,写入新关系。
+    用于表达敌变友、师徒决裂、盟友反目等弧线。
+    new_relation 受控词表同 s3_add_character_relation。
+    """
+    ok = await _ask(ctx, f"关系演变 {src_oid}→{dst_oid} 变为 [{new_relation}](章{since_chapter})")
+    return commit_if_approved("s3_evolve_relation", ok,
+                              lambda: _store.evolve_relation(
+                                  src_oid, dst_oid, new_relation, since_chapter, note))
 
 
 @mcp.tool(annotations=_RW)

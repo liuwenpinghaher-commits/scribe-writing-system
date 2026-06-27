@@ -83,6 +83,9 @@ class TestWriteGate:
         ("POST", "/ingest-unverified/{uid}/ignore"),
         ("POST", "/facts/supersede"),
         ("POST", "/knowledge/forget"),
+        ("POST", "/character-relations"),
+        ("POST", "/character-relations/evolve"),
+        ("POST", "/character-relations/end"),
     }
 
     def test_no_unaudited_write_route(self):

@@ -562,3 +562,76 @@ def test_forget_knowledge_endpoint(store):
         "knower_id": "role:乙", "proposition_id": "fact:g1", "until_chapter": 5})
     assert r.status_code == 200, f"POST /knowledge/forget 应返回 200: {r.text}"
     assert r.json().get("ok") is True
+
+
+# ===== P1-d: 角色关系演变(evolve/end + POST 端点) =====
+
+def test_relation_evolve_sets_until(store):
+    """evolve_relation 应关闭旧关系并新建替代关系,时间门隔离章节可见性。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_character_relation("role:甲", "role:乙", "ally", since_chapter=1)
+    store.evolve_relation("role:甲", "role:乙", "enemy", since_chapter=5)
+    r3 = store.relations_at(3)
+    r7 = store.relations_at(7)
+    # 第3章:ally 仍有效,enemy 尚未生效
+    assert any(x["relation"] == "ally" for x in r3), f"第3章应有 ally: {r3}"
+    assert not any(x["relation"] == "enemy" for x in r3), f"第3章不应有 enemy: {r3}"
+    # 第7章:ally 已失效(until_chapter=5),enemy 生效
+    assert not any(x["relation"] == "ally" for x in r7), f"第7章 ally 应已失效: {r7}"
+    assert any(x["relation"] == "enemy" for x in r7), f"第7章应有 enemy: {r7}"
+
+
+def test_end_relation_sets_until(store):
+    """end_relation 应在指定章设 until_chapter,令关系到期失效。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:丙", "character", "丙"))
+    store.add_entity(Entity("role:丁", "character", "丁"))
+    store.add_character_relation("role:丙", "role:丁", "ally", since_chapter=1)
+    store.end_relation("role:丙", "role:丁", until_chapter=4)
+    assert any(x["relation"] == "ally" for x in store.relations_at(3)), "第3章应仍有效"
+    assert not any(x["relation"] == "ally" for x in store.relations_at(4)), "第4章应已失效"
+
+
+def test_post_character_relations_endpoint(store):
+    """POST /character-relations 应调 add_character_relation 落库。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:戊", "character", "戊"))
+    store.add_entity(Entity("role:己", "character", "己"))
+    c = _client(store)
+    r = c.post("/character-relations",
+               json={"src": "role:戊", "dst": "role:己", "relation": "ally", "since_chapter": 1})
+    assert r.status_code == 200, f"POST /character-relations 应返回 200: {r.text}"
+    assert r.json().get("ok") is True
+    rels = store.relations_at(3)
+    assert any(x["relation"] == "ally" for x in rels), f"关系应写入: {rels}"
+
+
+def test_post_character_relations_evolve_endpoint(store):
+    """POST /character-relations/evolve 应调 evolve_relation,旧关系自动关闭。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:庚", "character", "庚"))
+    store.add_entity(Entity("role:辛", "character", "辛"))
+    store.add_character_relation("role:庚", "role:辛", "ally", since_chapter=1)
+    c = _client(store)
+    r = c.post("/character-relations/evolve",
+               json={"src": "role:庚", "dst": "role:辛", "relation": "enemy", "since_chapter": 6})
+    assert r.status_code == 200, f"POST /character-relations/evolve 应返回 200: {r.text}"
+    assert r.json().get("ok") is True
+    assert not any(x["relation"] == "ally" for x in store.relations_at(8)), "ally 应已关闭"
+    assert any(x["relation"] == "enemy" for x in store.relations_at(8)), "enemy 应生效"
+
+
+def test_post_character_relations_end_endpoint(store):
+    """POST /character-relations/end 应调 end_relation,令关系在指定章失效。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:壬", "character", "壬"))
+    store.add_entity(Entity("role:癸", "character", "癸"))
+    store.add_character_relation("role:壬", "role:癸", "ally", since_chapter=1)
+    c = _client(store)
+    r = c.post("/character-relations/end",
+               json={"src": "role:壬", "dst": "role:癸", "until_chapter": 5})
+    assert r.status_code == 200, f"POST /character-relations/end 应返回 200: {r.text}"
+    assert r.json().get("ok") is True
+    assert not any(x["relation"] == "ally" for x in store.relations_at(5)), "第5章应失效"
