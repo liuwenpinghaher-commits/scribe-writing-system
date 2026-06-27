@@ -285,6 +285,12 @@ class SurrealStore:
                 {"p": k.proposition_id, "since": k.since_chapter,
                  **({"iseq": ingest_seq} if ingest_seq is not None else {})})
             return k
+        # P3-b: 验证 knower 端实体存在,防悬挂边(reader 已在上方提前返回)
+        if self.entity(k.knower_id) is None:
+            raise ValueError(
+                f"add_knowledge: knower '{k.knower_id}' 不存在,拒绝写入悬挂边。"
+                f"请先建立角色实体,或使用 'reader' 作为虚拟 knower。"
+            )
         ktbl, klocal = _split(k.knower_id)
         ptbl, plocal = _split(k.proposition_id)
         # RELATE 箭头位不接受内联函数,用 RecordID 绑参

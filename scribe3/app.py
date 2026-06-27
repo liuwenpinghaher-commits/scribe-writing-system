@@ -271,21 +271,39 @@ class FactIn(BaseModel):
     attribute: str
     value: str
     valid_from: int = 1
+    valid_to: int | None = None
     secret: bool = False
+    leak_markers: list[str] = []
 
 
 @app.post("/facts")
 def add_fact_ep(f: FactIn, work: str = "main"):
     import uuid
     oid = f"fact:{uuid.uuid4().hex[:8]}"
-    _store_for(work).add_fact(Fact(oid, f.entity, f.attribute, f.value, f.valid_from, secret=f.secret))
+    _store_for(work).add_fact(Fact(oid, f.entity, f.attribute, f.value, f.valid_from,
+                                   valid_to=f.valid_to, secret=f.secret,
+                                   leak_markers=f.leak_markers))
     return {"ok": True, "oid": oid}
 
 
 @app.patch("/facts/{local}")
 def edit_fact(local: str, f: FactIn, work: str = "main"):
-    _store_for(work).update_record(f"fact:{local}", {"entity": f.entity, "attribute": f.attribute,
-                                                     "value": f.value, "secret": f.secret})
+    st = _store_for(work)
+    st.update_record(f"fact:{local}", {
+        "entity": f.entity,
+        "attribute": f.attribute,
+        "value": f.value,
+        "valid_from": f.valid_from,
+        "valid_to": f.valid_to,
+        "secret": f.secret,
+        "leak_markers": f.leak_markers,
+    })
+    # value 变更后重建 embedding,保持语义召回向量与当前值对齐
+    try:
+        st.semantic_index(f"fact:{local}", f.value)
+    except Exception as _e:
+        logging.getLogger("scribe3.app").warning(
+            "edit_fact: 重建 embedding 失败,命题 fact:%s 将指向旧向量: %s", local, _e)
     return {"ok": True}
 
 

@@ -690,3 +690,101 @@ def test_post_character_relations_end_endpoint(store):
     assert r.status_code == 200, f"POST /character-relations/end 应返回 200: {r.text}"
     assert r.json().get("ok") is True
     assert not any(x["relation"] == "ally" for x in store.relations_at(5)), "第5章应失效"
+
+
+# ===== P3-b: 命题写完整性 =====
+
+def test_factin_writes_leak_markers(store):
+    """P3-b: POST /facts 携带 leak_markers 应写入并可从 store.fact() 读回。
+    修复前:FactIn 无 leak_markers 字段 → 无法传递破绽词。
+    修复后:FactIn 含 leak_markers → POST /facts 把它传入 Fact/add_fact。
+    """
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:甲",
+        "attribute": "状态",
+        "value": "隐秘行动",
+        "secret": True,
+        "valid_from": 2,
+        "leak_markers": ["破绽A", "暗号B"],
+    })
+    assert r.status_code == 200, f"POST /facts 应返回 200: {r.text}"
+    body = r.json()
+    assert body.get("ok") is True and body.get("oid", "").startswith("fact:")
+    # 从 store 直接读回并验证
+    oid = body["oid"]
+    local = oid.split(":", 1)[1]
+    f = store.fact(oid)
+    assert f is not None, f"应能从 store 读回命题 {oid}"
+    assert f.leak_markers == ["破绽A", "暗号B"], \
+        f"leak_markers 应写入 ['破绽A','暗号B'],实际: {f.leak_markers}"
+
+
+def test_factin_writes_valid_to(store):
+    """P3-b: POST /facts 携带 valid_to 应写入并可从 store.fact() 读回。
+    修复前:FactIn 无 valid_to 字段 → 无法指定到期章号。
+    修复后:FactIn 含 valid_to → POST /facts 把它传入 Fact/add_fact。
+    """
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:乙",
+        "attribute": "职位",
+        "value": "临时主事",
+        "valid_from": 3,
+        "valid_to": 8,
+    })
+    assert r.status_code == 200, f"POST /facts 应返回 200: {r.text}"
+    oid = r.json()["oid"]
+    f = store.fact(oid)
+    assert f is not None
+    assert f.valid_to == 8, f"valid_to 应写入 8,实际: {f.valid_to}"
+    # 时间门验证:第 10 章时应不可见
+    at10 = {fct.id for fct in store.facts_at(10)}
+    assert oid not in at10, f"valid_to=8 的命题在第10章应已失效: {oid}"
+
+
+def test_patch_fact_preserves_and_reembeds(store):
+    """P3-b: PATCH /facts/{local} 应保留 valid_from/valid_to/leak_markers,并在 value 变更后重建 embedding。
+    修复前:PATCH 只 SET entity/attribute/value/secret → valid_from/valid_to/leak_markers 被丢失,
+           且 value 改变后旧 embedding 未刷新,语义召回指向陈旧向量。
+    修复后:PATCH 传入所有字段;value 变更后调用 semantic_index 重建 embedding。
+    """
+    c = _client(store)
+    # 1. 创建一条带 leak_markers 和 valid_from=2、valid_to=10 的命题
+    r = c.post("/facts", json={
+        "entity": "role:甲",
+        "attribute": "获知",
+        "value": "独特词AAA",
+        "valid_from": 2,
+        "valid_to": 10,
+        "leak_markers": ["破绽X"],
+    })
+    assert r.status_code == 200
+    oid = r.json()["oid"]
+    local = oid.split(":", 1)[1]
+
+    # 2. PATCH 只改 value
+    pr = c.patch(f"/facts/{local}", json={
+        "entity": "role:甲",
+        "attribute": "获知",
+        "value": "独特词BBB",
+        "valid_from": 2,
+        "valid_to": 10,
+        "leak_markers": ["破绽X"],
+        "secret": False,
+    })
+    assert pr.status_code == 200, f"PATCH /facts 应返回 200: {pr.text}"
+
+    # 3. 验证 leak_markers 和 valid_from/valid_to 仍存在
+    f = store.fact(oid)
+    assert f is not None
+    assert f.leak_markers == ["破绽X"], \
+        f"PATCH 后 leak_markers 应保留 ['破绽X'],实际: {f.leak_markers}"
+    assert f.valid_from == 2, f"PATCH 后 valid_from 应保留 2,实际: {f.valid_from}"
+    assert f.valid_to == 10, f"PATCH 后 valid_to 应保留 10,实际: {f.valid_to}"
+    assert f.value == "独特词BBB", f"PATCH 后 value 应更新为 独特词BBB,实际: {f.value}"
+
+    # 4. 验证 embedding 已重建:语义召回能找到新 value(独特词BBB)
+    hits = store.semantic_recall("独特词BBB", k=10)
+    assert any(h.id == oid for h in hits), \
+        "PATCH value 后语义召回应能找到新值(embedding 须重建)"

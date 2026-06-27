@@ -324,3 +324,47 @@ def test_resolve_voice_flag(store):
     done_after = store.list_voice_flags("done")
     assert not any(f["id"] == fid for f in open_after), "resolve 后 flag 不应在 open 列表"
     assert any(f["id"] == fid for f in done_after), "resolve 后 flag 应在 done 列表"
+
+
+# ===== P3-b: knower 防悬挂边 =====
+
+def test_add_knowledge_rejects_unknown_knower(store):
+    """P3-b: add_knowledge 若 knower 不存在(非 reader)应拒绝,不创建悬挂边。
+    修复前:只验证 proposition 端 → knower 不存在时静默写入,留下悬挂边。
+    修复后:knower != 'reader' 时先用 entity() 检查,不存在则抛 ValueError。
+    """
+    import pytest
+    store.add_fact(Fact("fact:p1", "role:甲", "属性", "值", valid_from=1))
+    with pytest.raises((ValueError, Exception)):
+        store.add_knowledge(KnowledgeEdge("role:不存在的人", "fact:p1", since_chapter=1))
+    # 确认没有边被写入
+    edges = store.load_knowledge()
+    assert not any(
+        e.knower_id == "role:不存在的人" and e.proposition_id == "fact:p1"
+        for e in edges
+    ), "拒绝后不应有悬挂边写入"
+
+
+def test_add_knowledge_allows_reader_knower(store):
+    """P3-b: knower='reader' 是虚拟 knower(无实体行),应被放行,不抛错。"""
+    store.add_fact(Fact("fact:p2", "role:甲", "属性", "值", valid_from=1))
+    # 不应抛错
+    store.add_knowledge(KnowledgeEdge("reader", "fact:p2", since_chapter=1))
+    edges = store.load_knowledge()
+    assert any(
+        e.knower_id == "reader" and e.proposition_id == "fact:p2"
+        for e in edges
+    ), "reader knower 应被写入 reader_knows"
+
+
+def test_add_knowledge_allows_existing_knower(store):
+    """P3-b: knower 实体存在时应正常写入 knows 边。"""
+    store.add_entity(Entity("role:存在者", "character", "存在者"))
+    store.add_fact(Fact("fact:p3", "role:存在者", "属性", "值", valid_from=1))
+    # 不应抛错
+    store.add_knowledge(KnowledgeEdge("role:存在者", "fact:p3", since_chapter=1))
+    edges = store.load_knowledge()
+    assert any(
+        e.knower_id == "role:存在者" and e.proposition_id == "fact:p3"
+        for e in edges
+    ), "存在的 knower 应正常写入 knows 边"
