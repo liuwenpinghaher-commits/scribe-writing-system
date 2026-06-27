@@ -169,3 +169,39 @@ def test_mcp_recall_tools_expose_is_secret(store):
     assert any("治眼" in x["value"] for x in secret_irony), (
         "s3_dramatic_irony: secret 命题 value 应保留"
     )
+
+
+# ===== T2: s3_record_knowledge proposition oid 校验 =====
+
+def test_record_knowledge_rejects_non_fact_oid(store):
+    """传裸自然语言(非 fact: oid)→ _check_proposition 返回 error dict,不建悬挂 knows 边。
+    传合法 fact: oid 且存在 → 返回 None(校验通过),写入后 knows 边可查。
+    """
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    M.set_store(store)
+
+    # 1) 裸自然语言(非 fact: 前缀)→ 校验返回 error
+    err1 = M._check_proposition("焦三攒钱治眼")
+    assert err1 is not None and "error" in err1, \
+        f"非 fact: oid 应返回 error dict,实际: {err1}"
+    # 确认没有悬挂 knows 边(未调用 add_knowledge)
+    knows = store.load_knowledge()
+    assert not any(k.proposition_id == "焦三攒钱治眼" for k in knows), \
+        "不应建出悬挂 knows 边"
+
+    # 2) fact: 前缀但 store 中不存在 → 校验返回 error
+    err2 = M._check_proposition("fact:不存在的命题")
+    assert err2 is not None and "error" in err2, \
+        f"不存在的 fact: oid 应返回 error dict,实际: {err2}"
+
+    # 3) 先建 fact,再校验该 oid → 返回 None(通过),写入后 knows 边存在
+    store.add_fact(Fact("fact:治眼", "role:焦三", "动机", "攒钱治眼", 1))
+    ok = M._check_proposition("fact:治眼")
+    assert ok is None, f"已存在的 fact: oid 应校验通过(返回 None),实际: {ok}"
+    # 通过后手动写入(模拟 commit_if_approved 批准路径)
+    from scribe3.ontology import KnowledgeEdge
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:治眼", since_chapter=1))
+    knows2 = store.load_knowledge()
+    assert any(k.proposition_id == "fact:治眼" and k.knower_id == "role:甲"
+               for k in knows2), "合法路径应建 knows 边"

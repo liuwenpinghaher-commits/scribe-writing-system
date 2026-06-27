@@ -361,7 +361,16 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
 async def s3_add_character_relation(ctx: Context, src_oid: str, dst_oid: str,
                                      relation: str, since_chapter: int,
                                      note: str | None = None) -> dict:
-    """添加角色关系(写,待批)。relation: ally/enemy/kin/master_disciple/lover"""
+    """添加角色关系(写,待批)。
+    relation 受控词表(029迁移后扩展为26词):
+      亲属: 父子/母子/兄弟/姐妹/夫妻/师徒/养父子
+      正面: 知己/战友/盟友/同门/恩人
+      中性: 同行/熟人/上下级/雇主雇员
+      对立: 仇敌/宿敌/竞争者/利益对立
+      复杂: 爱恨交织/前恋人/背叛者
+      兼容旧英文: ally/enemy/kin/master_disciple/lover
+      自定义: custom
+    """
     ok = await _ask(ctx, f"添加角色关系 {src_oid}→{dst_oid} [{relation}](章{since_chapter})")
     return commit_if_approved("s3_add_character_relation", ok,
                               lambda: _store.add_character_relation(
@@ -395,7 +404,9 @@ async def s3_add_faction(ctx: Context, name: str,
                           public_face: str | None = None,
                           private_operation: str | None = None,
                           first_mention_chapter: int | None = None) -> dict:
-    """添加势力/组织(写,待批)。含公开面目和私下运作。"""
+    """添加势力/组织(写,待批)。含公开面目和私下运作。
+    注:status 当前由 MCP 固定写入 "active",暂不支持通过本工具设置其它 status 值。
+    """
     ok = await _ask(ctx, f"添加势力 {name}")
     return commit_if_approved("s3_add_faction", ok,
                               lambda: _store.add_faction(
@@ -486,10 +497,29 @@ def s3_ingest_chapter(seq: int) -> dict:
     return ingest_chapter(_store, seq, hermes_complete)
 
 
+def _check_proposition(proposition: str) -> dict | None:
+    """校验 proposition 为已存在的 fact: oid。
+    合法返回 None;不合法返回 error dict(调用方应立即 return 该 dict)。
+    """
+    if not proposition.startswith("fact:"):
+        return {"error": f"proposition 必须是已存在的 fact: oid,收到: {proposition!r}"}
+    if _store.fact(proposition) is None:
+        return {"error": f"proposition {proposition!r} 在 store 中不存在,请先用 s3_add_fact 创建"}
+    return None
+
+
 @mcp.tool(annotations=_RW)
 async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               since_chapter: int, acquired_via: str = "saw") -> dict:
-    """记知识边:某角色某章获知某命题(写,待批)。"""
+    """记知识边:某角色某章获知某命题(写,待批)。
+    proposition 必须是已存在的 fact: oid(如 fact:治眼),不接受自然语言文本;
+    请先用 s3_add_fact 创建命题,再用本工具建知识边。
+    knower 为 character oid(如 role:焦三)或特殊值 "reader"。
+    acquired_via: saw/heard/inferred/told,默认 saw。
+    """
+    err = _check_proposition(proposition)
+    if err:
+        return err
     ok = await _ask(ctx, f"记知识 {knower} 知道 {proposition}(章{since_chapter})")
     return commit_if_approved("s3_record_knowledge", ok,
                               lambda: _store.add_knowledge(KnowledgeEdge(knower, proposition,
