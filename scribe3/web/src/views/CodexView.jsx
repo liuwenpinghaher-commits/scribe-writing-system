@@ -3,6 +3,7 @@ import { Users, Boxes, Bookmark, Flame, Search, Lock, Plus, Trash2, Shield, Swor
 import { api } from '../api'
 import { Btn, Tag } from '../ui'
 import { Shell } from '../shell'
+import { ConfirmDialog } from '../ui/Dialog.jsx'
 
 const TABS = [
   { key: 'overview', label: '概览', icon: PieChart },
@@ -375,6 +376,7 @@ export function CodexView({ work }) {
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [delConfirm, setDelConfirm] = useState(null) // { type, row }
 
   const reload = () => {
     setLoading(true)
@@ -407,8 +409,10 @@ export function CodexView({ work }) {
     else if (type === 'motifs') await api.editMotif(updated.id, updated)
     reload()
   }
-  const deleteRow = async (type, row) => {
-    if (!window.confirm('确认删除?不可撤销。')) return
+  const deleteRow = (type, row) => {
+    setDelConfirm({ type, row })
+  }
+  const doDelete = async (type, row) => {
     if (type === 'chars') await api.delChar(localOf(row))
     else if (type === 'facts') await api.delFact(localOf(row))
     else if (type === 'rules') await api.del(`/world-rules?name=${encodeURIComponent(row.name)}`)
@@ -593,8 +597,19 @@ export function CodexView({ work }) {
   )
 
   return (
-    <Shell topbar={topbar} center={centerContent}
-      left={{ caps: leftCaps, active: tab, onActive: (k) => { setTab(k); setSelected(null) } }}
-      right={{ caps: rightCaps, active: 'chat', onActive: () => {} }} />
+    <>
+      <Shell topbar={topbar} center={centerContent}
+        left={{ caps: leftCaps, active: tab, onActive: (k) => { setTab(k); setSelected(null) } }}
+        right={{ caps: rightCaps, active: 'chat', onActive: () => {} }} />
+      <ConfirmDialog
+        open={!!delConfirm}
+        title="确认删除?"
+        body="此操作不可撤销。"
+        danger
+        confirmText="删除"
+        onConfirm={() => doDelete(delConfirm.type, delConfirm.row)}
+        onClose={() => setDelConfirm(null)}
+      />
+    </>
   )
 }

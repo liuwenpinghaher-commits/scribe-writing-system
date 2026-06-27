@@ -2,27 +2,39 @@ import { useMemo, useState } from 'react'
 import { Plus, Search, BookText, Trash2 } from 'lucide-react'
 import { api } from './api'
 import { Btn } from './ui'
+import { ConfirmDialog } from './ui/Dialog.jsx'
+import { useToast } from './ui/Toast.jsx'
 
 // 作品库:书卡网格(章数/字数/进度)+ 搜索 + 建 + 删。借鉴 scribe2 Library。
 export function Library({ works, reload, onSelect }) {
   const [title, setTitle] = useState('')
   const [q, setQ] = useState('')
+  const [delTarget, setDelTarget] = useState(null)
+  const toast = useToast()
 
   const create = async () => {
     if (!title.trim()) return
     const r = await api.createWork(title.trim())
     setTitle(''); await reload(); onSelect({ slug: r.slug, title: r.title })
   }
-  const del = async (e, w) => {
+  const del = (e, w) => {
     e.stopPropagation()
-    if (w.slug === 'main') { window.alert('主书不可删除'); return }
-    if (window.confirm(`删除《${w.title}》?该书所有内容(角色/设定/章节)将永久丢失。`)) {
-      await api.deleteWork(w.slug); reload()
-    }
+    if (w.slug === 'main') { toast('主书不可删除', { tone: 'danger' }); return }
+    setDelTarget(w)
   }
   const list = useMemo(() => (works || []).filter((w) => !q.trim() || w.title.includes(q.trim())), [works, q])
 
   return (
+    <>
+    <ConfirmDialog
+      open={!!delTarget}
+      title={`删除《${delTarget?.title ?? ''}》?`}
+      body="该书所有内容(角色/设定/章节)将永久丢失。"
+      danger
+      confirmText="删除"
+      onConfirm={async () => { await api.deleteWork(delTarget.slug); reload() }}
+      onClose={() => setDelTarget(null)}
+    />
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-4xl mx-auto px-8 py-10">
         <h1 className="prose-serif text-[26px] font-semibold text-ink mb-1">作品库</h1>
@@ -74,5 +86,6 @@ export function Library({ works, reload, onSelect }) {
         </div>
       </div>
     </div>
+    </>
   )
 }

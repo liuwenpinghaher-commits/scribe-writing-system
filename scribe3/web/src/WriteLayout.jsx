@@ -16,10 +16,13 @@ import { NorthStarBar } from './NorthStarBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
+import { InputDialog } from './ui/Dialog.jsx'
+import { useToast } from './ui/Toast.jsx'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 export function WriteLayout({ work }) {
   api.setWork(work)
+  const toast = useToast()
   const [chapter, setChapter] = useState(1)
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
@@ -48,6 +51,7 @@ export function WriteLayout({ work }) {
   const [rightActive, setRightActive] = useState('chat')
   const [tick, setTick] = useState(0)
   const [verTick, setVerTick] = useState(0)
+  const [dlg, setDlg] = useState(null)
 
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
@@ -89,7 +93,7 @@ export function WriteLayout({ work }) {
     const p = proposal; if (!p) return
     const r = applyProposal(prose, p, lastSel)
     if (!r.ok && r.drifted) {
-      alert('原文在改写期间已变动,无法精确定位这段。请重新选中要替换的文字。')
+      toast('原文已变动,请重新选中要替换的文字', { tone: 'danger' })
       setProposal(null); return
     }
     setProse(r.next); setProposal(null); setLastQuote(''); setLastSel(null)
@@ -97,7 +101,7 @@ export function WriteLayout({ work }) {
   }
   const acceptCandidate = async (text) => {
     const r = applyProposal(prose, { scope: 'selection', prose: text }, lastSel)
-    if (!r.ok && r.drifted) { alert('原文已变动,请重新选中。'); setCandidates([]); return }
+    if (!r.ok && r.drifted) { toast('原文已变动,请重新选中要替换的文字', { tone: 'danger' }); setCandidates([]); return }
     setProse(r.next); setCandidates([]); setLastQuote(''); setLastSel(null)
     await persist(r.next)
   }
@@ -139,11 +143,7 @@ export function WriteLayout({ work }) {
         <button onClick={() => setFocusMode((v) => !v)} title="专注模式" aria-pressed={focusMode}
           className={`w-8 h-8 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${focusMode ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}><AlignCenter size={15} /></button>
         <Btn variant="soft" onClick={save} className={saved ? 'text-ok' : ''}><Save size={14} />{saved ? '已存' : '保存'}</Btn>
-        <Btn variant="soft" onClick={async () => {
-          const label = prompt('给这个存档点起个名(可留空):') ?? ''
-          await api.checkpoint(chapter, prose, label, 'checkpoint', qc || {})
-          setVerTick((t) => t + 1)
-        }}>存档点</Btn>
+        <Btn variant="soft" onClick={() => setDlg({ kind: 'checkpoint' })}>存档点</Btn>
         <Btn variant="primary" onClick={async () => {
           await persist(prose)
           await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
@@ -165,10 +165,7 @@ export function WriteLayout({ work }) {
               setCandidates([]); setRightActive('chat')
             }} className="h-6 px-2 rounded-lg border border-line text-[11px] text-ink hover:bg-soft cursor-pointer">{b}</button>
           ))}
-          <button onClick={() => {
-            const t = prompt('存一个常用改写指令(如「压缩、去形容词」):')
-            if (t) setBtns(addButton(work, t))
-          }} className="h-6 px-2 rounded-lg border border-dashed border-line text-[11px] text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
+          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-[11px] text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
@@ -283,6 +280,25 @@ export function WriteLayout({ work }) {
     ) },
   ]
 
-  return <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }}
-    right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
+  return (
+    <>
+      <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }}
+        right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
+      <InputDialog
+        open={!!dlg}
+        title={dlg?.kind === 'checkpoint' ? '给这个存档点起个名(可留空)' : '存一个常用改写指令(如「压缩、去形容词」)'}
+        placeholder={dlg?.kind === 'checkpoint' ? '例:重写结尾前' : '例:压缩、去形容词'}
+        confirmText={dlg?.kind === 'checkpoint' ? '存档' : '保存按钮'}
+        onConfirm={async (val) => {
+          if (dlg?.kind === 'checkpoint') {
+            await api.checkpoint(chapter, prose, val || '', 'checkpoint', qc || {})
+            setVerTick((t) => t + 1)
+          } else if (dlg?.kind === 'rewrite') {
+            if (val) setBtns(addButton(work, val))
+          }
+        }}
+        onClose={() => setDlg(null)}
+      />
+    </>
+  )
 }
