@@ -5,7 +5,7 @@ const LABEL = { chapter: '整章改写', selection: '改这段', append: '续写
 // 主编改写提议草稿卡:显示在中区,接受→应用进手稿,弃用→原文不动。
 export function DraftCard({ proposal, candidates, streaming, onAccept, onReject, onAcceptCandidate }) {
   if (!proposal && !(candidates && candidates.length)) return null
-  if (candidates && candidates.length > 1) {
+  if (candidates && candidates.length >= 1) {
     return (
       <div className="my-3 rounded-xl border border-brand/40 bg-brand/[.04] overflow-hidden shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-2 px-3 h-9 border-b border-brand/20 bg-brand/[.06]">
