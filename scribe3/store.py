@@ -1182,14 +1182,26 @@ class SurrealStore:
                              motivated_by_goal=r.get("motivated_by_goal")))
         return out
 
+    def _all_relations(self) -> list[dict]:
+        """全量读角色关系(不带限知时间门):含已失效(until_chapter 非 NONE)的历史关系。
+        供时间线工艺视图使用——需要画 since→until 全史甘特条,不能用 relations_at 的快照门控。
+        与 relations_at 的关键区别:relations_at 只返回"某章仍开着"的关系,会漏失效历史;
+        本方法 SELECT 全表,无 WHERE 时间过滤。"""
+        return self._query(
+            "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, "
+            "since_chapter, until_chapter, note FROM character_relation")
+
     def timeline(self, ch_from: int = 1, ch_to: int | None = None) -> list[dict]:
-        """聚合 [ch_from, ch_to] 区间内事件,归并成时间线条目。
-        MVP:仅 events 泳道(kind=event)。
-        无写、无限知门控(作者全知工艺视图)。复用 events_at,不新增 SQL 真源。"""
+        """聚合 [ch_from, ch_to] 区间内所有"章号锚状态",归并成时间线条目。
+        进阶:四类泳道—— events / promise(伏笔) / arc(弧光质变) / relation(关系全史)。
+        无写、无限知门控(作者全知工艺视图)。复用既有读方法,不新增 SQL 真源。
+        向后兼容:items 中 kind=event 的条目结构与 MVP 一致。"""
         hi = ch_to if ch_to is not None else self.max_chapter()
         if hi == 0:
             return []
         items: list[dict] = []
+
+        # ── 1. 事件泳道(复用 events_at,逐章查) ──
         for ch in range(ch_from, hi + 1):
             for ev in self.events_at(ch):
                 subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
@@ -1212,6 +1224,99 @@ class SurrealStore:
                         "causal_in": [c[0] for c in ev.causal_in],
                     },
                 })
+
+        # ── 2. 伏笔泳道(setup 埋点 + payoff 收点) ──
+        for p in self.list_promises():
+            s = p.get("setup_chapter")
+            if s is None:
+                continue
+            if ch_from <= s <= hi:
+                items.append({
+                    "chapter": s,
+                    "kind": "promise_setup",
+                    "id": p["id"],
+                    "label": p["text"],
+                    "lane_keys": ["__promise__"],
+                    "refs": {
+                        "status": p.get("status"),
+                        "promise_kind": p.get("kind"),
+                        "payoff_chapter": p.get("payoff_chapter"),
+                        "overdue": p.get("overdue", False),
+                    },
+                })
+            pf = p.get("payoff_chapter")
+            if pf and ch_from <= pf <= hi:
+                items.append({
+                    "chapter": pf,
+                    "kind": "promise_payoff",
+                    "id": p["id"],
+                    "label": p["text"],
+                    "lane_keys": ["__promise__"],
+                    "refs": {
+                        "setup_chapter": s,
+                        "promise_kind": p.get("kind"),
+                        "status": p.get("status"),
+                    },
+                })
+
+        # ── 3. 弧光质变泳道(char_state 每条一个◆点) ──
+        for c in self.characters():
+            for cs in self.list_char_states(c.id):
+                ch = cs.get("chapter")
+                if ch is None:
+                    continue
+                if ch_from <= ch <= hi:
+                    items.append({
+                        "chapter": ch,
+                        "kind": "arc",
+                        "id": cs["id"],
+                        "label": cs.get("summary", ""),
+                        "lane_keys": [c.id],
+                        "refs": {
+                            "character": c.id,
+                            "change_type": cs.get("change_type"),
+                            "arc_phase": cs.get("arc_phase"),
+                            "affects_voice": cs.get("affects_voice"),
+                        },
+                    })
+
+        # ── 4. 关系泳道(全量读,含已失效历史;不用 relations_at 带时间门) ──
+        for r in self._all_relations():
+            sc = r.get("since_chapter")
+            uc = r.get("until_chapter")
+            src_key = f"role:{r['src']}"
+            dst_key = f"role:{r['dst']}"
+            if sc is not None and ch_from <= sc <= hi:
+                items.append({
+                    "chapter": sc,
+                    "kind": "relation_start",
+                    "id": f"{r['src']}->{r['dst']}@{sc}",
+                    "label": r.get("relation", ""),
+                    "lane_keys": [src_key, dst_key],
+                    "refs": {
+                        "src": src_key,
+                        "dst": dst_key,
+                        "relation": r.get("relation"),
+                        "until_chapter": uc,
+                        "note": r.get("note"),
+                    },
+                })
+            if uc is not None and ch_from <= uc <= hi:
+                items.append({
+                    "chapter": uc,
+                    "kind": "relation_end",
+                    "id": f"{r['src']}->{r['dst']}@end{uc}",
+                    "label": r.get("relation", ""),
+                    "lane_keys": [src_key, dst_key],
+                    "refs": {
+                        "src": src_key,
+                        "dst": dst_key,
+                        "relation": r.get("relation"),
+                        "since_chapter": sc,
+                        "note": r.get("note"),
+                    },
+                })
+
         items.sort(key=lambda x: (x["chapter"], x["kind"]))
         return items
 

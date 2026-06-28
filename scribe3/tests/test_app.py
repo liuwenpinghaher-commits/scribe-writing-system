@@ -1923,3 +1923,131 @@ def test_project_tree_unassigned_fallback(store):
     unassigned = next((v for v in vols if v["id"] == "vol:null"), None)
     assert unassigned is not None, f"应有未分卷兜底组: {[v['id'] for v in vols]}"
     assert any(ch["ref"] == 5 for ch in unassigned["children"])
+
+
+# ===== 作者工具 F-02 进阶: 时间线多泳道 + _all_relations 全史 =====
+
+def test_timeline_all_kinds(store):
+    """进阶 E: /timeline 应返回四类条目(event/promise/arc/relation),关系用全量读。
+    核心验证:种一条 since=4/until=7 的关系,relation_start@4 与 relation_end@7 都应出现。
+    对比守护:relations_at(6) 返回该条(仍开着),relations_at(8) 返回空(已失效)——证明带门的漏失效。
+    """
+    from scribe3.ontology import Entity, Event as OntEvent
+
+    # 种角色
+    store.add_entity(Entity("role:焦三", "character", "焦三"))
+    store.add_entity(Entity("role:云阳真人", "character", "云阳真人"))
+
+    # 种事件(ch3)
+    store.add_event(OntEvent("ev:炼钉", "炼器",
+                             participants={"SUBJ": "role:焦三"},
+                             story_time=3, effects=[], causal_in=[]))
+
+    # 种伏笔(setup@1)
+    store.plant_promise("焦三立誓攒钱给老娘治眼", setup_chapter=1)
+
+    # 种弧光质变(ch3)
+    store.add_char_state("role:焦三", 3, "ability", "习得御铜之力",
+                         arc_phase="觉醒", affects_voice=False)
+
+    # 种关系(since=4, until=7)
+    store.add_character_relation("role:焦三", "role:云阳真人", "师徒", 4)
+    store.end_relation("role:焦三", "role:云阳真人", 7)
+
+    c = _client(store)
+    r = c.get("/timeline", params={"ch_from": 1, "ch_to": 10})
+    assert r.status_code == 200
+    data = r.json()
+    items = data["items"]
+    kinds = {i["kind"] for i in items}
+
+    # 四类都在
+    assert "event" in kinds, f"应有 event 条目, 实际 kinds={kinds}"
+    assert "promise_setup" in kinds, f"应有 promise_setup 条目"
+    assert "arc" in kinds, f"应有 arc(弧光) 条目"
+    assert "relation_start" in kinds, f"应有 relation_start 条目"
+    assert "relation_end" in kinds, f"应有 relation_end 条目(关系全史含失效)"
+
+    # 关系起点在 ch4,终点在 ch7 ——全量读不漏
+    rel_starts = [i for i in items if i["kind"] == "relation_start"]
+    rel_ends   = [i for i in items if i["kind"] == "relation_end"]
+    assert any(i["chapter"] == 4 for i in rel_starts), "relation_start 应在 ch4"
+    assert any(i["chapter"] == 7 for i in rel_ends), "relation_end 应在 ch7(全量读不丢失效)"
+
+    # 对比守护:relations_at(8) 应为空(已失效 until=7),证明带门的会漏
+    at8 = store.relations_at(8)
+    assert at8 == [], f"relations_at(8) 应返回空(since=4,until=7 的关系在 ch8 已失效),实际={at8}"
+
+    # items 按 chapter 升序
+    chaps = [i["chapter"] for i in items]
+    assert chaps == sorted(chaps), "items 应按 chapter 升序"
+
+    # 向后兼容:max_chapter 字段在
+    assert "max_chapter" in data
+
+
+def test_timeline_promise_span(store):
+    """伏笔 setup/payoff 双端点都出现,refs 互指。"""
+    store.plant_promise("古器现世之谜", setup_chapter=1)
+    proms = store.list_promises()
+    assert proms, "种伏笔失败"
+    pid = proms[0]["id"]
+    store.advance_promise(pid, 5)
+
+    c = _client(store)
+    r = c.get("/timeline", params={"ch_from": 1, "ch_to": 10})
+    assert r.status_code == 200
+    items = r.json()["items"]
+
+    setups  = [i for i in items if i["kind"] == "promise_setup"]
+    payoffs = [i for i in items if i["kind"] == "promise_payoff"]
+    assert any(i["chapter"] == 1 for i in setups), "setup 应在 ch1"
+    assert any(i["chapter"] == 5 for i in payoffs), "payoff 应在 ch5"
+    # setup 的 refs 指向 payoff_chapter
+    s = next(i for i in setups if i["chapter"] == 1)
+    assert s["refs"].get("payoff_chapter") == 5
+    # payoff 的 refs 指向 setup_chapter
+    p = next(i for i in payoffs if i["chapter"] == 5)
+    assert p["refs"].get("setup_chapter") == 1
+
+
+def test_timeline_all_relations_vs_relations_at(store):
+    """_all_relations 全量读 vs relations_at 带时间门对比测试(spec 关键陷阱守护)。
+    since=2/until=4 的失效关系:
+    - _all_relations() 必须包含(全史)
+    - relations_at(5) 必须不含(已失效,时间门过滤)
+    - timeline(1,10) 的 relation_start@2 + relation_end@4 都必须出现
+    """
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_character_relation("role:甲", "role:乙", "仇敌", 2)
+    store.end_relation("role:甲", "role:乙", 4)
+
+    # _all_relations 返回全量
+    all_rels = store._all_relations()
+    assert any(r["src"] == "甲" and r["dst"] == "乙" for r in all_rels), \
+        f"_all_relations 应含 甲→乙 关系, 实际={all_rels}"
+
+    # relations_at(5) 不含(时间门)
+    at5 = store.relations_at(5)
+    assert not any(r["src"] == "甲" and r["dst"] == "乙" for r in at5), \
+        f"relations_at(5) 不应含 until=4 的关系, 实际={at5}"
+
+    # timeline 多泳道含关系全史
+    c = _client(store)
+    items = c.get("/timeline", params={"ch_from": 1, "ch_to": 10}).json()["items"]
+    starts = [i for i in items if i["kind"] == "relation_start"]
+    ends   = [i for i in items if i["kind"] == "relation_end"]
+    assert any(i["chapter"] == 2 for i in starts), "relation_start@2 应在时间线"
+    assert any(i["chapter"] == 4 for i in ends),   "relation_end@4 应在时间线(全史不漏)"
+
+
+def test_timeline_empty_db(store):
+    """空库返回 items:[], 不报错;向后兼容字段在。"""
+    c = _client(store)
+    r = c.get("/timeline")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["items"] == []
+    assert "from" in data and "to" in data and "max_chapter" in data

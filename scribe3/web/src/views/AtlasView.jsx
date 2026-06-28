@@ -4,50 +4,10 @@ import '@xyflow/react/dist/style.css'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { Eye } from 'lucide-react'
 import { api } from '../api'
+import { REL_COLOR, REL_LABEL, relColor } from '../lib/relColors'
 
 // 关系图谱 = scribe3 真知识图:角色 —knows→ 命题(谁知道什么)+ 角色关系边。ELK 布局 + 类型着色。
 const elk = new ELK()
-
-const REL_COLOR = {
-  // 亲缘类 — amber
-  '父子': '#d97706', '母子': '#d97706', '兄弟': '#b45309', '姐妹': '#b45309',
-  '夫妻': '#c2410c', '养父子': '#92400e',
-  // 友善类 — green
-  '知己': '#16a34a', '战友': '#15803d', '盟友': '#166534',
-  '同门': '#4ade80', '恩人': '#22c55e',
-  // 普通类 — sky
-  '同行': '#0ea5e9', '熟人': '#38bdf8', '上下级': '#0284c7', '雇主雇员': '#0369a1',
-  // 敌对类 — red
-  '仇敌': '#dc2626', '宿敌': '#b91c1c', '竞争者': '#f87171', '利益对立': '#ef4444',
-  // 情感类 — pink/rose
-  '爱恨交织': '#db2777', '前恋人': '#ec4899', '背叛者': '#be185d',
-  // 师徒类 — purple
-  '师徒': '#7c3aed',
-  // 英文兼容(保持原色)
-  ally: '#16a34a', enemy: '#dc2626', kin: '#d97706',
-  master_disciple: '#7c3aed', lover: '#db2777',
-  // knows edge
-  knows: 'var(--color-line)',
-}
-const relColor = (rel) => REL_COLOR[rel] || '#0ea5e9'
-
-const REL_LABEL = {
-  // 亲缘类
-  '父子': '父子', '母子': '母子', '兄弟': '兄弟', '姐妹': '姐妹',
-  '夫妻': '夫妻', '养父子': '养父子',
-  // 友善类
-  '知己': '知己', '战友': '战友', '盟友': '盟友', '同门': '同门', '恩人': '恩人',
-  // 普通类
-  '同行': '同行', '熟人': '熟人', '上下级': '上下级', '雇主雇员': '雇主雇员',
-  // 敌对类
-  '仇敌': '仇敌', '宿敌': '宿敌', '竞争者': '竞争者', '利益对立': '利益对立',
-  // 情感类
-  '爱恨交织': '爱恨交织', '前恋人': '前恋人', '背叛者': '背叛者',
-  // 师徒
-  '师徒': '师徒',
-  // 英文兼容
-  ally: '盟友', enemy: '敌对', kin: '血亲', master_disciple: '师徒', lover: '恋人',
-}
 
 function nodeStyle(n) {
   const isChar = n.type === 'character'
