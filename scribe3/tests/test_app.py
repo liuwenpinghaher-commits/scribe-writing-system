@@ -1360,3 +1360,91 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
     tail = instr[-200:]
     assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 POST instructions 末尾 200 字内"
     assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 POST instructions 末尾 200 字内"
+
+
+# ===== 作者工具 F-03: 伏笔台账 GET /promises/ledger =====
+
+def test_promise_ledger_three_columns(store):
+    """ledger 三栏分类:open(已埋未收) / closed(已回收) / red_herring。"""
+    # open 早埋(将超期):setup=1,max_chapter 后续推到 10 → 1+slack<10 超期
+    store.plant_promise("铜炉会反噬埋它的人", setup_chapter=1, kind="promise")
+    # closed 带 payoff:advance 后 status=closed
+    store.plant_promise("赵芙南知祭炉秘法", setup_chapter=2, kind="promise")
+    # red_herring 早埋未收(不应超期)
+    store.plant_promise("管家形迹可疑(障眼)", setup_chapter=3, kind="red_herring")
+    # 推 max_chapter 到 10
+    store.add_event(Event("ev:ledger_mc", "action", story_time=10))
+    # 回收第二条于第 7 章
+    closed_pid = next(p["id"] for p in store.list_promises() if "赵芙南" in p["text"])
+    store.advance_promise(closed_pid, 7)
+
+    c = _client(store)
+    r = c.get("/promises/ledger")
+    assert r.status_code == 200, r.text
+    led = r.json()
+    assert {"open", "closed", "red_herring", "audit", "threshold", "max_chapter"} <= set(led)
+
+    open_texts = {p["text"] for p in led["open"]}
+    closed_texts = {p["text"] for p in led["closed"]}
+    rh_texts = {p["text"] for p in led["red_herring"]}
+    assert "铜炉会反噬埋它的人" in open_texts
+    assert "赵芙南知祭炉秘法" in closed_texts
+    assert "管家形迹可疑(障眼)" in rh_texts
+    # red_herring 不混入 open(即便 status=open)
+    assert "管家形迹可疑(障眼)" not in open_texts
+
+    # 每条携带 setup/payoff/overdue/status/kind
+    o = next(p for p in led["open"] if "铜炉" in p["text"])
+    assert o["setup_chapter"] == 1 and o["payoff_chapter"] is None
+    assert o["overdue"] is True, f"setup=1 max=10 slack=3 应超期: {o}"
+    assert o["chapters_open"] == 10 - 1
+    cl = next(p for p in led["closed"] if "赵芙南" in p["text"])
+    assert cl["payoff_chapter"] == 7 and cl["span"] == 7 - 2
+
+
+def test_promise_ledger_red_herring_never_overdue(store):
+    """red_herring 即便 open 且早埋,overdue 永为 False,且不计 never_paid。"""
+    store.plant_promise("障眼法", setup_chapter=1, kind="red_herring")
+    store.add_event(Event("ev:rh_mc", "action", story_time=20))
+    led = _client(store).get("/promises/ledger").json()
+    rh = led["red_herring"][0]
+    assert rh["overdue"] is False
+    assert led["audit"]["overdue_count"] == 0
+    assert led["audit"]["never_paid"] == 0, "red_herring 不计契诃夫枪 never_paid"
+
+
+def test_promise_ledger_audit_payoff_without_setup(store):
+    """audit:payoff<setup(闭无开 deus ex machina)应被抓出,balanced=False。"""
+    store.plant_promise("异常伏笔", setup_chapter=9, kind="promise")
+    bad_pid = next(p["id"] for p in store.list_promises() if "异常" in p["text"])
+    # 回收于第 3 章(< setup 9)——逻辑上凭空 payoff
+    store.advance_promise(bad_pid, 3)
+    led = _client(store).get("/promises/ledger").json()
+    pws = led["audit"]["payoff_without_setup"]
+    assert any("异常" in x["text"] for x in pws), f"应抓出 payoff<setup: {pws}"
+    assert led["audit"]["balanced"] is False
+
+
+def test_promise_ledger_balanced_clean(store):
+    """干净数据(无超期/无闭无开):balanced=True。"""
+    store.plant_promise("正常收口", setup_chapter=1, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "正常" in p["text"])
+    store.advance_promise(pid, 2)
+    store.add_event(Event("ev:clean_mc", "action", story_time=3))
+    led = _client(store).get("/promises/ledger").json()
+    assert led["audit"]["balanced"] is True, led["audit"]
+    assert led["audit"]["overdue_count"] == 0
+    assert led["audit"]["payoff_without_setup"] == []
+
+
+def test_promise_ledger_overdue_single_source(store):
+    """单源回归:/promises、/quality、/promises/ledger 对同一 promise 给出同一 overdue。"""
+    store.plant_promise("单源校验伏笔", setup_chapter=1, kind="promise")
+    store.add_event(Event("ev:ss_mc", "action", story_time=1 + A.OVERDUE_SLACK + 1))
+    c = _client(store)
+    p_promises = next(x for x in c.get("/promises").json() if "单源校验" in x["text"])
+    p_quality = next(x for x in c.get("/quality").json()["foreshadow"]["promises"]
+                     if "单源校验" in x["text"])
+    p_ledger = next(x for x in c.get("/promises/ledger").json()["open"]
+                    if "单源校验" in x["text"])
+    assert p_promises["overdue"] == p_quality["overdue"] == p_ledger["overdue"] is True

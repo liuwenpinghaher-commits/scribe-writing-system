@@ -49,6 +49,7 @@ export const api = {
   irony: (foc, ch) => j(`/irony?focalizer=${enc(foc)}&chapter=${ch}`),
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
+  promisesLedger: () => j('/promises/ledger'),
   motifs: () => j('/motifs'),
   graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
   quality: () => j('/quality'),

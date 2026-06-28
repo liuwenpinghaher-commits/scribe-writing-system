@@ -27,7 +27,9 @@ from pydantic import BaseModel, field_validator
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
-from scribe3.store import SurrealStore, create_work, delete_work, list_works, rename_work
+from scribe3.store import (
+    SurrealStore, _overdue_flag, create_work, delete_work, list_works, rename_work,
+)
 from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
@@ -225,10 +227,19 @@ def promises(work: str = "main"):
     intent = st.get_intent()
     slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
     for p in proms:
-        p["overdue"] = (p["status"] == "open"
-                        and p.get("kind") != "red_herring"
-                        and p["setup_chapter"] + slack < mc)
+        p["overdue"] = _overdue_flag(p, mc, slack)
     return proms
+
+
+@app.get("/promises/ledger")
+def promises_ledger(work: str = "main"):
+    """作者工具 F-03 伏笔台账(单源):三栏(open/closed/red_herring)+ 每条
+    setup/payoff/overdue/跨度 + open/close bracket 完整性审计。
+    overdue 阈值同 /promises、/quality(_overdue_flag 单源)。"""
+    st = _store_for(work)
+    intent = st.get_intent()
+    slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
+    return st.promise_ledger(slack)
 
 
 @app.get("/motifs")
@@ -646,9 +657,7 @@ def quality(work: str = "main"):
     slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
     prom_list = []
     for p in proms:
-        is_overdue = (p["status"] == "open"
-                      and p.get("kind") != "red_herring"
-                      and p["setup_chapter"] + slack < mc)
+        is_overdue = _overdue_flag(p, mc, slack)
         prom_list.append({
             "id": p.get("id"), "text": p.get("text", ""),
             "setup_chapter": p.get("setup_chapter"), "status": p["status"],

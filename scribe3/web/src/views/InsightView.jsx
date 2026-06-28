@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, FileText, Bookmark, ShieldAlert } from 'lucide-react'
+import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
@@ -11,6 +11,73 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
       <div className="flex items-center gap-1.5 text-faint text-[11px] uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
       <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
       {sub && <div className="text-[11px] text-faint mt-0.5">{sub}</div>}
+    </div>
+  )
+}
+
+// 单条伏笔卡片。overdue 红边高亮;payoff 章显示;裸 int 章号经 chapterLabel 友好化。
+function PromiseCard({ p }) {
+  const overdue = p.overdue
+  return (
+    <div className={`rounded-lg border p-2.5 text-[12px] ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
+      <div className="flex items-start gap-1.5">
+        <span className={`mt-[3px] w-1.5 h-1.5 rounded-full shrink-0 ${overdue ? 'bg-danger' : p.status === 'closed' ? 'bg-ok' : 'bg-faint'}`} />
+        <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
+        {overdue && <span className="text-danger text-[10px] font-medium shrink-0">超期</span>}
+      </div>
+      <div className="text-faint text-[11px] mt-1 pl-3 flex flex-wrap gap-x-2">
+        <span>埋:{chapterLabel(p.setup_chapter)}</span>
+        {p.payoff_chapter != null && <span className="text-ok">收:{chapterLabel(p.payoff_chapter)}{p.span != null ? ` · 跨度${p.span}章` : ''}</span>}
+        {p.payoff_chapter == null && p.chapters_open != null && <span>开口{p.chapters_open}章</span>}
+      </div>
+    </div>
+  )
+}
+
+function LedgerColumn({ icon: Icon, label, tone, rows }) {
+  const c = { fore: 'text-fore', ok: 'text-ok', faint: 'text-faint' }[tone]
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <div className={`flex items-center gap-1.5 text-[12px] font-semibold mb-3 ${c}`}>
+        <Icon size={14} />{label} <span className="text-faint font-normal">({rows.length})</span>
+      </div>
+      <div className="space-y-2">
+        {rows.length === 0 ? <div className="text-faint text-[12px]">—</div>
+          : rows.map((p) => <PromiseCard key={p.id} p={p} />)}
+      </div>
+    </div>
+  )
+}
+
+function PromiseLedger() {
+  const [led, setLed] = useState(null)
+  useEffect(() => { api.promisesLedger().then(setLed).catch(() => setLed(null)) }, [])
+  if (!led) return null
+  const a = led.audit || {}
+  const pws = (a.payoff_without_setup || []).length + (a.closed_without_setup || []).length
+  const balanced = a.balanced
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+      <div className="flex items-center flex-wrap gap-2 mb-3">
+        <div className="flex items-center gap-2"><Bookmark size={16} className="text-fore" /><h2 className="text-[15px] font-semibold text-ink">伏笔台账</h2></div>
+        <span className="text-[11px] text-faint">阈值 {led.threshold} 章 · 现在第 {led.max_chapter} 章</span>
+        <div className="ml-auto flex items-center gap-2 text-[11px]">
+          <span className={balanced ? 'text-ok' : 'text-danger'}>{balanced ? '✓ 已平衡' : '⚠ 未平衡'}</span>
+          <span className="text-faint">超期 {a.overdue_count ?? 0} · 闭无开 {pws} · 契诃夫 {a.never_paid ?? 0} 把枪没响</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <LedgerColumn icon={Target} label="已埋未收" tone="fore" rows={led.open || []} />
+        <LedgerColumn icon={CheckCircle2} label="已回收" tone="ok" rows={led.closed || []} />
+        <LedgerColumn icon={EyeOff} label="障眼法" tone="faint" rows={led.red_herring || []} />
+      </div>
+      {pws > 0 && (
+        <div className="mt-3 text-[11px] text-danger">
+          ⚠ 闭无开(回收早于埋设,疑似凭空 payoff):
+          {[...(a.payoff_without_setup || []), ...(a.closed_without_setup || [])]
+            .map((x) => `「${x.text}」(埋${x.setup_chapter ?? '?'}→收${x.payoff_chapter})`).join('、')}
+        </div>
+      )}
     </div>
   )
 }
@@ -35,6 +102,8 @@ export function InsightView() {
           <Metric icon={ShieldAlert} label="伏笔超期" value={q.foreshadow?.overdue ?? 0} sub="埋下 >3 章未回收" tone={q.foreshadow?.overdue ? 'danger' : 'ok'} />
           <Metric icon={Activity} label="质检问题" value={chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub="确定性 QC + 因果" tone="danger" />
         </div>
+
+        <PromiseLedger />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
           <div className="rounded-xl border border-line bg-surface p-4">

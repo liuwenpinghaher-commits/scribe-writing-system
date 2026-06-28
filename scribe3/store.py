@@ -150,6 +150,19 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
                  r.get("leak_markers", [])) for _, r in top]
 
 
+def _overdue_flag(p: dict, max_chapter: int, slack: int) -> bool:
+    """伏笔超期单源判定。open 且非 red_herring 且 setup+slack < max_chapter → 超期。
+
+    /promises、/quality、/promises/ledger 三处共用此函数,杜绝阈值口径漂移。
+    setup_chapter 缺失时不判超期(交由 audit 的 closed_without_setup 报数据异常)。
+    """
+    setup = p.get("setup_chapter")
+    return bool(p.get("status") == "open"
+                and p.get("kind") != "red_herring"
+                and setup is not None
+                and setup + slack < max_chapter)
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -772,6 +785,84 @@ class SurrealStore:
     def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
         self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
                             "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
+
+    def promise_ledger(self, slack: int) -> dict:
+        """伏笔台账(单源)。三栏分类 + 每条 setup/payoff/overdue/跨度 + open/close bracket 审计。
+
+        纯聚合,不改库。overdue 复用 _overdue_flag(与 /promises、/quality 同一份判定),
+        阈值 slack 由调用方传入(intent.overdue_threshold ?? OVERDUE_SLACK,单源在端点解析)。
+
+        返回:
+          {threshold, max_chapter, open[], closed[], red_herring[],
+           audit:{balanced, overdue_count, payoff_without_setup[], closed_without_setup[], never_paid}}
+        每条 promise 携带 text/setup_chapter/payoff_chapter/status/kind/overdue;
+        open/red_herring 额外带 chapters_open(=max-setup),closed 额外带 span(=payoff-setup)。
+        """
+        mc = self.max_chapter()
+        proms = self.list_promises()
+        open_col: list[dict] = []
+        closed_col: list[dict] = []
+        herring_col: list[dict] = []
+        payoff_without_setup: list[dict] = []
+        closed_without_setup: list[dict] = []
+
+        for p in proms:
+            setup = p.get("setup_chapter")
+            payoff = p.get("payoff_chapter")
+            row = {
+                "id": p.get("id"),
+                "text": p.get("text", ""),
+                "kind": p.get("kind"),
+                "status": p.get("status"),
+                "setup_chapter": setup,
+                "payoff_chapter": payoff,
+                "overdue": _overdue_flag(p, mc, slack),
+            }
+            # audit: 闭无开(deus ex machina 的可检形态)
+            if payoff is not None:
+                if setup is None or setup <= 0:
+                    closed_without_setup.append(
+                        {"id": p.get("id"), "text": p.get("text", ""),
+                         "setup_chapter": setup, "payoff_chapter": payoff})
+                elif payoff < setup:
+                    payoff_without_setup.append(
+                        {"id": p.get("id"), "text": p.get("text", ""),
+                         "setup_chapter": setup, "payoff_chapter": payoff})
+
+            # 三栏分类:red_herring 单列(优先;即便 status=open 也不混入 open 栏)
+            if p.get("kind") == "red_herring":
+                row["chapters_open"] = (mc - setup) if setup is not None else None
+                herring_col.append(row)
+            elif p.get("status") == "closed":
+                row["span"] = (payoff - setup) if (payoff is not None and setup is not None) else None
+                closed_col.append(row)
+            else:
+                row["chapters_open"] = (mc - setup) if setup is not None else None
+                open_col.append(row)
+
+        # open 按紧迫度(chapters_open)降序;closed 按 payoff 升序
+        open_col.sort(key=lambda r: -(r.get("chapters_open") or 0))
+        closed_col.sort(key=lambda r: (r.get("payoff_chapter") or 0))
+
+        overdue_count = sum(1 for r in open_col if r["overdue"])
+        never_paid = len(open_col)  # 契诃夫枪"埋了未响":open 非 red_herring 计数
+        balanced = (overdue_count == 0
+                    and not payoff_without_setup
+                    and not closed_without_setup)
+        return {
+            "threshold": slack,
+            "max_chapter": mc,
+            "open": open_col,
+            "closed": closed_col,
+            "red_herring": herring_col,
+            "audit": {
+                "balanced": balanced,
+                "overdue_count": overdue_count,
+                "payoff_without_setup": payoff_without_setup,
+                "closed_without_setup": closed_without_setup,
+                "never_paid": never_paid,
+            },
+        }
 
     # --- 章节正文(manuscript)---
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
