@@ -947,6 +947,59 @@ def _motif_block(st) -> str:
     return "\n\n" + "\n".join(lines)
 
 
+def _frame_block(st, focalizer: str, chapter: int) -> str:
+    """限知帧注入块:将 focalizer 截至本章确知的事实喂进 prompt(私密 value 屏蔽)。
+    物理隔断:帧外的事情物理上进不了这段 prompt,生成时无从写他不知道的内容。"""
+    if not focalizer:
+        return ""
+    try:
+        from scribe3.knowledge import project_frame
+        frame = project_frame(st, focalizer, chapter)
+        masked = _facts(frame.facts, reveal_secret=False)   # secret value → None
+        # 仅保留 value 不为 None 的条目(secret=True 且未解锁的被屏蔽掉)
+        visible = [f for f in masked if f.get("value") is not None]
+        if not visible:
+            return ""
+        lines = [
+            f"- {f.get('entity') or ''}|{f.get('attribute', '')}|{f.get('value', '')}"
+            for f in visible[:40]
+        ]
+        return (
+            f"\n\n## 本章焦点者【此刻确知】的事实(限知硬边界)\n"
+            f"以下是 {focalizer} 截至第 {chapter} 章所知的全部。"
+            "**只能据这些写他的所见所想,严禁写他不知道的事**:\n"
+            + "\n".join(lines)
+        )
+    except Exception:
+        return ""
+
+
+def _recap_block(st, chapter: int) -> str:
+    """前情注入块:上一章结尾文字 + 关键事件摘要,让主编接着写时不失忆。"""
+    if chapter <= 1:
+        return ""
+    try:
+        parts = []
+        prev = st.recent_proses(chapter, k=1)   # seq < chapter 最近1章
+        if prev:
+            tail = (prev[0].get("prose") or "")[-300:]
+            if tail:
+                parts.append("上一章结尾:\n" + tail)
+        evs = st.events_at(chapter - 1) or []
+        if evs:
+            ev_summ = "；".join(
+                str(e.type or e.motivated_by_goal or "")
+                for e in evs[:6] if e
+            )
+            if ev_summ:
+                parts.append("上一章关键事件:" + ev_summ)
+        if not parts:
+            return ""
+        return "\n\n## 前情(接着往下写,别重复已发生的)\n" + "\n\n".join(parts)
+    except Exception:
+        return ""
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
@@ -963,6 +1016,8 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     instructions += _voice_anchor_block(st, focalizer)
     instructions += _arc_state_block(st, focalizer, chapter)
     instructions += _motif_block(st)
+    instructions += _frame_block(st, focalizer, chapter)
+    instructions += _recap_block(st, chapter)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
@@ -1027,6 +1082,8 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _voice_anchor_block(st, req.focalizer)
     instructions += _arc_state_block(st, req.focalizer, req.chapter)
     instructions += _motif_block(st)
+    instructions += _frame_block(st, req.focalizer, req.chapter)
+    instructions += _recap_block(st, req.chapter)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft

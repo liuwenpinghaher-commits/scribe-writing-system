@@ -958,3 +958,32 @@ def test_post_characters_sets_personality_tags_and_aliases(store):
         f"personality_tags 应写入并读回,实际: {e.get('personality_tags')}"
     assert e.get("aliases") == ["三爷", "无脸人"], \
         f"aliases 应写入并读回,实际: {e.get('aliases')}"
+
+
+# ===== G1: 限知帧(_frame_block) + 前情(_recap_block) 注入续写 prompt =====
+
+def test_frame_block_injects_known_facts_and_masks_secret(store):
+    """_frame_block:焦点者已知事实进帧(value 可见);非帧内 / secret 不进。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    from scribe3.app import _frame_block
+    # 甲确知:乙是卧底
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:k", "role:乙", "身份", "乙是卧底", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:k", since_chapter=1, acquired_via="saw"))
+    # 秘密:乙的真名(甲未知——无 KnowledgeEdge 指向甲)
+    store.add_fact(Fact("fact:s", "role:乙", "秘密", "乙的真名", valid_from=1, secret=True))
+    block = _frame_block(store, "role:甲", 3)
+    assert "乙是卧底" in block, "甲确知的事实应进帧"
+    assert "真名" not in block, "甲不知道的 secret 不应进帧"
+    assert "限知硬边界" in block, "应含限知说明标题"
+    assert _frame_block(store, "", 3) == "", "无焦点者应返回空串"
+
+
+def test_recap_block_injects_prev_chapter(store):
+    """_recap_block:上一章结尾文字注入前情块;第 1 章无前情(空串)。"""
+    from scribe3.app import _recap_block
+    store.save_chapter(1, "第一章正文:老乌头守炉,怪客来访。", title="第一章", focalizer=None)
+    block = _recap_block(store, 2)
+    assert "老乌头" in block, "应含上一章结尾文字"
+    assert "前情" in block, "应含前情说明标题"
+    assert _recap_block(store, 1) == "", "第 1 章无前情,应返回空串"
