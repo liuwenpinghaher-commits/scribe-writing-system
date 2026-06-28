@@ -65,7 +65,12 @@ def test_parse_knowledge_delta_signals_failure_on_garbage():
 def test_parse_knowledge_delta_ok_empty():
     from scribe3.critique import parse_knowledge_delta
     d = parse_knowledge_delta('{"learned":[],"did":[],"voice_shift":[]}')
-    assert d == {"learned": [], "did": [], "voice_shift": []}
+    # arc 是可选新字段(旧 JSON 不含时默认空列表);核心三字段必须存在
+    assert d is not None
+    assert d["learned"] == []
+    assert d["did"] == []
+    assert d["voice_shift"] == []
+    assert d.get("arc", []) == []  # 向后兼容:旧响应无 arc 时也返回空列表
 
 
 def test_ingest_chapter_parse_fail_does_not_purge(store):
@@ -242,3 +247,86 @@ def test_accept_unverified_replay_error_is_soft(store):
     # status 已更新为 accepted
     accepted = store.list_unverified("accepted")
     assert any(r["id"] == uid for r in accepted), "status 应已置 accepted"
+
+
+# ── G4: 自动弧光抽取(char_state ingest)───────────────────────────────────────
+
+def test_ingest_auto_records_char_state(store):
+    """apply_delta 带 arc 条目时,char_state 应自动写入,char_state_at 能读出能力快照。"""
+    _ensure_chars(store, "甲")
+    delta = {
+        "learned": [],
+        "did": [],
+        "voice_shift": [],
+        "arc": [{"who": "甲", "change_type": "ability",
+                 "summary": "习得御剑", "snapshot": {"御剑": "初成"}}],
+    }
+    apply_delta(store, delta, seq=3)
+    snap = store.char_state_at("role:甲", 5)
+    assert "御剑" in str(snap.get("abilities")), \
+        f"char_state_at 应含御剑能力,实际 abilities={snap.get('abilities')}"
+
+
+def test_ingest_char_state_idempotent(store):
+    """同一章 apply_delta(含 arc)连续两次,char_state 不应重复叠加。"""
+    _ensure_chars(store, "甲")
+    delta = {
+        "learned": [],
+        "did": [],
+        "voice_shift": [],
+        "arc": [{"who": "甲", "change_type": "ability",
+                 "summary": "习得御剑", "snapshot": {"御剑": "初成"}}],
+    }
+    apply_delta(store, delta, seq=3)
+    apply_delta(store, delta, seq=3)  # 第二次 — purge_ingest 应先清再重写
+
+    # char_state_at 合并后御剑只应出现一次
+    from scribe3.store import SurrealStore
+    rows = store._query(
+        "SELECT * FROM char_state WHERE character_id=$cid AND chapter=$ch AND ingest_seq=$iseq",
+        {"cid": "role:甲", "ch": 3, "iseq": 3})
+    assert len(rows) == 1, \
+        f"同章二次 apply_delta 后 char_state 应只有 1 条,实际 {len(rows)} 条"
+
+
+def test_ingest_char_state_relation(store):
+    """relation 类弧光快照应写入 relation_snapshot 并能在 char_state_at 的 relations 读到。"""
+    _ensure_chars(store, "焦三")
+    delta = {
+        "learned": [], "did": [], "voice_shift": [],
+        "arc": [{"who": "焦三", "change_type": "relation",
+                 "summary": "与阿萤建立信任", "snapshot": {"阿萤": "信任同行"}}],
+    }
+    apply_delta(store, delta, seq=4)
+    snap = store.char_state_at("role:焦三", 4)
+    assert "阿萤" in str(snap.get("relations")), \
+        f"relation 弧光应写入 relations,实际={snap.get('relations')}"
+
+
+def test_ingest_char_state_no_arc_still_works(store):
+    """delta 不含 arc 字段(旧格式)时,apply_delta 仍正常运行不报错。"""
+    _ensure_chars(store, "焦三")
+    delta = {"learned": [{"who": "焦三", "fact": "老道是追索者"}], "did": [], "voice_shift": []}
+    n = apply_delta(store, delta, seq=5)
+    assert n == 1, "旧格式 delta(无 arc)仍应正常写知识边"
+
+
+def test_ingest_char_state_unknown_char_skipped(store):
+    """arc 里引用了库外角色(未建实体)时,该条目被跳过,已知角色不受影响。"""
+    _ensure_chars(store, "焦三")
+    delta = {
+        "learned": [], "did": [], "voice_shift": [],
+        "arc": [
+            {"who": "幻觉角色", "change_type": "ability",
+             "summary": "莫须有能力", "snapshot": {"???": "???"}},
+            {"who": "焦三", "change_type": "personality",
+             "summary": "性格内敛", "snapshot": "变得沉默"},
+        ],
+    }
+    apply_delta(store, delta, seq=6)
+    snap = store.char_state_at("role:焦三", 6)
+    assert snap.get("personality"), "焦三的 personality 弧光应写入"
+    # 幻觉角色的 char_state 不应存在
+    rows = store._query("SELECT * FROM char_state WHERE character_id=$cid",
+                        {"cid": "role:幻觉角色"})
+    assert not rows, "未登记角色的 char_state 不应写入"

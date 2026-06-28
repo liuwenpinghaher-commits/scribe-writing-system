@@ -303,15 +303,23 @@ def build_knowledge_extract_prompt(prose: str) -> str:
         "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。"
         "再抽【voice_shift:哪些角色这章经历了可能改变其说话方式/声音的重大事件(创伤/背叛/重大转折/身份剧变)】——"
         "只列谁+什么事,不要替他写新独白。\n"
+        "再抽【arc:哪些角色在本章经历了可量化的弧光质变——能力获得/丧失、重要关系建立/破裂、性格明显转折】——"
+        "每条列:角色名(who)、变化类型(change_type:ability/relation/personality)、"
+        "一句话摘要(summary)、快照(snapshot:对 ability 填{技能:状态}、"
+        "对 relation 填{对象角色:关系描述}、对 personality 填字符串描述)。"
+        "没有明确弧光质变时 arc 输出空列表。\n"
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
         '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}],'
-        '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}]}。\n\n'
+        '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}],'
+        '"arc":[{"who":角色名,"change_type":"ability|relation|personality",'
+        '"summary":一句话摘要,"snapshot":{...}}]}。\n\n'
         "【正文】\n" + prose)
 
 
 def parse_knowledge_delta(reply: str) -> dict | None:
     """解析 LLM 回复的知识 delta JSON。
-    成功:返回 {"learned":..., "did":..., "voice_shift":...}(三字段均为 list)。
+    成功:返回 {"learned":..., "did":..., "voice_shift":..., "arc":...}(四字段均为 list)。
+    arc 字段为可选——旧模型/旧响应不含该字段时默认空列表(向后兼容,不破坏现有调用)。
     失败(坏 JSON / 截断 / 无 {} 匹配):返回 None——调用方据此跳过 purge,防止数据丢失。"""
     try:
         m = re.search(r"\{.*\}", reply or "", re.S)
@@ -320,7 +328,8 @@ def parse_knowledge_delta(reply: str) -> dict | None:
             return None
         d = json.loads(m.group(0))
         return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or []),
-                "voice_shift": list(d.get("voice_shift") or [])}
+                "voice_shift": list(d.get("voice_shift") or []),
+                "arc": list(d.get("arc") or [])}
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return None

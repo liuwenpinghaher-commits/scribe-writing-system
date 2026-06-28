@@ -77,6 +77,45 @@ def apply_delta(store, delta: dict, seq: int) -> int:
         who, reason = it.get("who"), it.get("reason")
         if who and reason and hasattr(store, "add_voice_flag"):
             store.add_voice_flag(who, seq, reason)   # 只标记(角色名),不生成独白
+    # G4: 自动从正文抽取角色弧光(char_state)——边写边长出弧光,反哺下一章约束
+    for it in delta.get("arc") or []:
+        who = it.get("who")
+        change_type = it.get("change_type")
+        summary = it.get("summary")
+        snapshot = it.get("snapshot")
+        if not (who and change_type and summary):
+            continue
+        if change_type not in ("ability", "relation", "personality", "composite"):
+            continue
+        oid = _resolve_char(store, who, seq, "arc_who")
+        if oid is None:
+            continue
+        # snapshot → after_state 按 change_type 归入对应键
+        after_state: dict = {}
+        if snapshot:
+            if change_type == "ability":
+                after_state = {"ability_snapshot": snapshot}
+            elif change_type == "relation":
+                after_state = {"relation_snapshot": snapshot}
+            elif change_type == "personality":
+                after_state = {"personality_snapshot": snapshot if isinstance(snapshot, str)
+                               else str(snapshot)}
+            else:  # composite
+                after_state = snapshot if isinstance(snapshot, dict) else {}
+        try:
+            store.add_char_state(
+                character_id=oid,
+                chapter=seq,
+                change_type=change_type,
+                summary=summary,
+                after_state=after_state or None,
+                confidence="inferred",
+                ingest_seq=seq,
+            )
+        except Exception as _arc_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "char_state 写入失败(non-fatal),角色 %s 章 %s: %s", who, seq, _arc_e)
     return n
 
 

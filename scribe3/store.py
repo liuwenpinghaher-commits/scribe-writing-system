@@ -383,11 +383,12 @@ class SurrealStore:
             self._db.query(surql)
 
     def purge_ingest(self, seq: int) -> None:
-        """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边(幂等再 ingest 的前置清理)。
+        """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边 + char_state(幂等再 ingest 的前置清理)。
         只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。"""
         self._execute_write("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
         self._execute_write("DELETE reader_knows WHERE ingest_seq = $seq", {"seq": seq})
         self._execute_write("DELETE proposition WHERE ingest_seq = $seq", {"seq": seq})
+        self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
@@ -991,17 +992,21 @@ class SurrealStore:
                        summary: str, before_state: dict | None = None,
                        after_state: dict | None = None, trigger_event: str | None = None,
                        arc_phase: str | None = None, affects_voice: bool | None = None,
-                       confidence: str = "confirmed") -> None:
+                       confidence: str = "confirmed",
+                       ingest_seq: int | None = None) -> None:
         """记录角色弧光质变点(能力/关系/性格变化)。
-        affects_voice=True 时自动创建 voice_evolution_flag(该更新声音了)。"""
+        affects_voice=True 时自动创建 voice_evolution_flag(该更新声音了)。
+        ingest_seq:由 ingest 自动回写时传入,供 purge_ingest 幂等清理;手动种的不传。"""
         _, local = _split(character_id)
         self._execute_write(
             "CREATE char_state SET character_id=$cid, chapter=$ch, change_type=$ct, "
             "summary=$sum, before_state=$bs, after_state=$as, trigger_event=$te, "
-            "arc_phase=$ap, affects_voice=$av, confidence=$conf",
+            "arc_phase=$ap, affects_voice=$av, confidence=$conf"
+            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"cid": character_id, "ch": chapter, "ct": change_type, "sum": summary,
              "bs": before_state, "as": after_state, "te": trigger_event,
-             "ap": arc_phase, "av": affects_voice, "conf": confidence})
+             "ap": arc_phase, "av": affects_voice, "conf": confidence,
+             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         if affects_voice:
             self.add_voice_flag(character_id, chapter, summary)
 
