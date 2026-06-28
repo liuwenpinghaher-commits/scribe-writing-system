@@ -28,6 +28,7 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
     if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} />
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} />
     if (k === 'overview') return <InsightView key={work} onJumpChapter={onJumpChapter} />   // MVP:概览暂复用仪表盘
+    if (k === 'progress') return <InsightView key={work} onJumpChapter={onJumpChapter} />   // 进度视图:复用仪表盘(含 ProgressPanel)
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 

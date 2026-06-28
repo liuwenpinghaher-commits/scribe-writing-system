@@ -5,6 +5,7 @@ import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
 import { wcLabel } from './outlineColors'
+import { useToast } from './ui/Toast'
 
 function useStrPref(key, def) {
   const [v, setV] = useState(() => {
@@ -102,6 +103,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const [newTitle, setNewTitle] = useState('')
   const addRef = useRef(null)
 
+  const toast = useToast()
   const isManuscript = node?.type === 'volume' || node?.type === 'manuscript_root'
   const reload = () => api.outline().then((o) => { setOutline(o); setErr(false) }).catch(() => setErr(true))
   useEffect(() => { if (isManuscript) reload() }, [isManuscript])
@@ -115,7 +117,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, synopsis } : c),
     }))
-    api.patchChapter(seq, { synopsis }).catch(() => reload())
+    api.patchChapter(seq, { synopsis }).catch((e) => { reload(); toast?.(e?.body?.detail || '梗概保存失败', { tone: 'danger' }) })
   }
 
   // 卷内拖拽重排:乐观重排该卷章序 + 失败回滚
@@ -130,21 +132,31 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       const next = prev.chapters.map((c) => inLane.has(c.seq) ? laneChs[li++] : c)
       return { ...prev, chapters: next }
     })
-    api.reorderChapters(volumeId, newSeqs).catch(() => reload())
+    api.reorderChapters(volumeId, newSeqs).catch((e) => { reload(); toast?.(e?.body?.detail || '排序保存失败', { tone: 'danger' }) })
   }
 
   // 跨卷拖拽:把章从一个卷移到另一个卷(落到 overSeq 的位置前)
   const crossVolumeMove = (activeSeq, toVolumeId, overSeq) => {
-    // 乐观更新
+    // 基于当前 outline(不是 lanes useMemo 快照)计算目标卷新顺序,
+    // 这样即使 lanes 因为前一次 setOutline 还没 re-render 而过期也不会出错。
+    const currentOutline = outline  // 读当前帧的 outline state
+    const targetSeqs = (currentOutline?.chapters || [])
+      .filter((c) => String(c.volume) === String(toVolumeId) && c.seq !== activeSeq)
+      .map((c) => c.seq)
+    const overIdxInTarget = targetSeqs.indexOf(overSeq)
+    const newOrder = overIdxInTarget >= 0
+      ? [...targetSeqs.slice(0, overIdxInTarget), activeSeq, ...targetSeqs.slice(overIdxInTarget)]
+      : [...targetSeqs, activeSeq]
+
+    // 乐观更新 UI
     setOutline((prev) => {
       if (!prev) return prev
-      // 将 activeSeq 从原泳道移除,插入目标泳道 overSeq 前
       const ch = prev.chapters.find((c) => c.seq === activeSeq)
       if (!ch) return prev
       const withoutActive = prev.chapters.filter((c) => c.seq !== activeSeq)
       const overIdx = withoutActive.findIndex((c) => c.seq === overSeq)
       const insertAt = overIdx >= 0 ? overIdx : withoutActive.length
-      const updated = ch ? { ...ch, volume: toVolumeId } : ch
+      const updated = { ...ch, volume: toVolumeId }
       const next = [
         ...withoutActive.slice(0, insertAt),
         updated,
@@ -153,16 +165,9 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       return { ...prev, chapters: next }
     })
 
-    // 构造目标卷新的顺序:把 activeSeq 插入 overSeq 前
-    const targetLane = lanes.find((l) => l.volumeId === toVolumeId)
-    const targetSeqs = (targetLane?.chapters || []).map((c) => c.seq).filter((s) => s !== activeSeq)
-    const overIdx = targetSeqs.indexOf(overSeq)
-    const newOrder = overIdx >= 0
-      ? [...targetSeqs.slice(0, overIdx), activeSeq, ...targetSeqs.slice(overIdx)]
-      : [...targetSeqs, activeSeq]
-
     // 后端:更新 volume + sort_order
-    api.reorderChapters(toVolumeId, newOrder).catch(() => reload())
+    api.reorderChapters(toVolumeId, newOrder)
+      .catch((e) => { reload(); toast?.(e?.body?.detail || '跨卷移动失败', { tone: 'danger' }) })
   }
 
   // 新建卷

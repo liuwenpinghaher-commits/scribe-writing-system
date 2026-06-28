@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
-  useSensor, useSensors,
+  useSensor, useSensors, useDroppable,
 } from '@dnd-kit/core'
 import {
   SortableContext, arrayMove, verticalListSortingStrategy,
@@ -79,6 +79,21 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
   )
 }
 
+// 空卷占位投放区(大纲表模式)
+function EmptyLaneDropZone({ volumeId }) {
+  const droppableId = `empty-lane-outliner-${volumeId ?? '__null__'}`
+  const { setNodeRef, isOver } = useDroppable({
+    id: droppableId,
+    data: { isEmptyLane: true, volumeId },
+  })
+  return (
+    <div ref={setNodeRef}
+      className={`text-[12px] py-3 border border-dashed rounded-lg text-center transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
+      拖到此处移入本卷
+    </div>
+  )
+}
+
 // 卷泳道表格(只负责渲染,不持有 DndContext)
 function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
   const seqs = lane.chapters.map((c) => c.seq)
@@ -88,9 +103,7 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
         <span className="ml-2 text-[11px] font-normal text-faint">{lane.chapters.length} 章</span>
       </h3>
       {lane.chapters.length === 0 ? (
-        <div className="text-[12px] text-faint/50 py-3 border border-dashed border-line/40 rounded-lg text-center">
-          拖到此处移入本卷
-        </div>
+        <EmptyLaneDropZone volumeId={lane.volumeId} />
       ) : (
         <table className="w-full border-collapse">
           <thead>
@@ -148,8 +161,22 @@ export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder,
   const onDragEnd = (e) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
-    const a = active.data.current?.seq, o = over.data.current?.seq
-    if (a == null || o == null) return
+    const a = active.data.current?.seq
+    if (a == null) return
+
+    // 识别落在空卷投放区的情况
+    if (over.data.current?.isEmptyLane) {
+      const toVolumeId = over.data.current.volumeId
+      const fromVid = seqToVolume.get(a)
+      if (fromVid !== toVolumeId) {
+        guardOnce()
+        onCrossVolumeMove?.(a, toVolumeId, null)
+      }
+      return
+    }
+
+    const o = over.data.current?.seq
+    if (o == null) return
     const fromVid = seqToVolume.get(a)
     const toVid = seqToVolume.get(o)
     guardOnce()
