@@ -16,7 +16,7 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                           "s3_supersede_fact", "s3_forget_knowledge",
                           "s3_evolve_relation", "s3_resolve_voice_flag",
-                          "s3_fold_voice_flags"}
+                          "s3_fold_voice_flags", "s3_add_clue"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
@@ -320,3 +320,50 @@ def test_s3_add_event_signature_accepts_edge_params():
     for param in ("participants", "effects", "causal_in"):
         assert param in sig.parameters, \
             f"s3_add_event 缺少参数 {param}(P1-b 修复要求); 当前参数: {list(sig.parameters)}"
+
+
+# ===== 尾2: s3_add_clue MCP 工具门控测试 =====
+
+def test_s3_add_clue_in_write_gated():
+    """s3_add_clue 须在 WRITE_GATED 集合内(门控,待批)。"""
+    assert "s3_add_clue" in M.WRITE_GATED, "s3_add_clue 应在 WRITE_GATED,需要 elicitation 批准"
+
+
+def test_s3_add_clue_commit_if_approved_accept(store):
+    """批准后 s3_add_clue 调用 add_promise_clue。"""
+    store.plant_promise("测试伏笔-add-clue", setup_chapter=1)
+    proms = store.list_promises()
+    pid = proms[0]["id"]
+    M.set_store(store)
+
+    # 模拟批准路径:commit_if_approved(True)
+    result = M.commit_if_approved("s3_add_clue", True,
+                                   lambda: store.add_promise_clue(pid, "第3章草蛇灰线", 3))
+    assert result["status"] == "written"
+    updated = store.list_promises()
+    clues = next((p["clues"] for p in updated if p["id"] == pid), [])
+    assert any(c.get("note") == "第3章草蛇灰线" and c.get("chapter") == 3 for c in clues), \
+        f"批准后 clue 应追加到 promise,实际 clues: {clues}"
+
+
+def test_s3_add_clue_commit_if_approved_decline(store):
+    """拒绝后 s3_add_clue 不写(fail-closed)。"""
+    store.plant_promise("测试伏笔-decline", setup_chapter=1)
+    proms = store.list_promises()
+    pid = proms[0]["id"]
+    M.set_store(store)
+
+    calls = []
+    result = M.commit_if_approved("s3_add_clue", False,
+                                   lambda: calls.append("written"))
+    assert result["status"] == "declined"
+    assert calls == [], "拒绝路径不应执行写操作"
+
+
+def test_s3_add_clue_signature():
+    """s3_add_clue 签名须含 pid/note/chapter 三个参数。"""
+    import inspect
+    sig = inspect.signature(M.s3_add_clue)
+    for param in ("pid", "note", "chapter"):
+        assert param in sig.parameters, \
+            f"s3_add_clue 缺少参数 {param},当前参数: {list(sig.parameters)}"

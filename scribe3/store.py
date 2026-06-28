@@ -717,6 +717,16 @@ class SurrealStore:
                            {"tbl": t, "local": l})
         return bool(rows)
 
+    def update_event_narrative(self, event_oid: str, narrative_position: int | None) -> None:
+        """更新已有事件的叙事位(narrative_position)。
+        narrative_position=None → 清除叙事位,回退到 story_chapter(向后兼容线性叙事)。
+        event_oid 须为 'ev:xxx' 格式。
+        """
+        _, local = _split(event_oid)
+        self._execute_write(
+            "UPDATE type::record('event',$local) SET narrative_position=$np",
+            {"local": local, "np": narrative_position})
+
     def delete_record(self, oid: str) -> None:
         t, l = _split(oid)
         self._delete_by(t, l)

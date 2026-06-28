@@ -203,6 +203,25 @@ def events(chapter: int = Query(ge=1), work: str = "main"):
             for ev in _store_for(work).events_at(chapter)]
 
 
+class NarrativeIn(BaseModel):
+    narrative_position: int | None = None
+
+
+@app.patch("/events/{eid}/narrative")
+def patch_event_narrative(eid: str, body: NarrativeIn, work: str = "main"):
+    """更新已有事件的叙事位(narrative_position)。
+    body.narrative_position=null → 清除,回退 story_chapter(线性叙事默认)。
+    body.narrative_position=N  → 设为叙事位 N(倒叙/闪回)。
+    eid 为事件的本体 oid(如 'ev:xxx')或裸 local id(如 'xxx',自动补前缀)。"""
+    st = _store_for(work)
+    # 容忍裸 local id 或带前缀的 oid
+    event_oid = eid if eid.startswith("ev:") else f"ev:{eid}"
+    if not st.exists(event_oid):
+        raise HTTPException(status_code=404, detail=f"事件 {event_oid} 不存在")
+    st.update_event_narrative(event_oid, body.narrative_position)
+    return {"ok": True, "event": event_oid, "narrative_position": body.narrative_position}
+
+
 @app.get("/timeline")
 def timeline(ch_from: int = Query(default=1, ge=1),
              ch_to: int | None = Query(default=None, ge=1),

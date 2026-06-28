@@ -2262,3 +2262,69 @@ def test_timeline_existing_seed_unaffected_by_axis(store):
     s_map = {i["id"]: i["chapter"] for i in story if i["kind"] == "event"}
     n_map = {i["id"]: i["chapter"] for i in narr  if i["kind"] == "event"}
     assert s_map == n_map, f"无 narrative_position 时两轴应一致: story={s_map} narrative={n_map}"
+
+
+# ===== 尾1: PATCH /events/{eid}/narrative TDD =====
+
+def test_patch_event_narrative_set(store):
+    """PATCH /events/{eid}/narrative 设叙事位 → events_at/timeline 反映新值。"""
+    from scribe3.ontology import Event
+    ev = Event("ev:叙事测试", "测试事件", story_time=3)
+    store.add_event(ev)
+    c = _client(store)
+
+    # 设 narrative_position=7
+    r = c.patch("/events/ev:叙事测试/narrative",
+                json={"narrative_position": 7}, params={"work": "main"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+    # events_at(3) 里该事件 narrative_position 应更新为 7
+    evs = store.events_at(3)
+    target = next((e for e in evs if e.id == "ev:叙事测试"), None)
+    assert target is not None, "events_at(3) 应能找到该事件"
+    assert target.narrative_position == 7, f"narrative_position 应为 7,实际: {target.narrative_position}"
+
+    # timeline narrative 轴:该事件应出现在第 7 章位
+    items = store.timeline(1, 10, axis="narrative")
+    ev_item = next((i for i in items if i["id"] == "ev:叙事测试"), None)
+    assert ev_item is not None
+    assert ev_item["chapter"] == 7, f"叙事轴坐标应为 7,实际: {ev_item['chapter']}"
+
+
+def test_patch_event_narrative_clear(store):
+    """PATCH /events/{eid}/narrative None(清除)→ 回退 story_chapter。"""
+    from scribe3.ontology import Event
+    ev = Event("ev:清除测试", "测试事件", story_time=5, narrative_position=9)
+    store.add_event(ev)
+    c = _client(store)
+
+    # 先确认 narrative_position=9
+    evs = store.events_at(5)
+    t = next((e for e in evs if e.id == "ev:清除测试"), None)
+    assert t and t.narrative_position == 9
+
+    # 清除:narrative_position=null
+    r = c.patch("/events/ev:清除测试/narrative",
+                json={"narrative_position": None}, params={"work": "main"})
+    assert r.status_code == 200
+
+    # 现在 narrative_position 应为 None
+    evs2 = store.events_at(5)
+    t2 = next((e for e in evs2 if e.id == "ev:清除测试"), None)
+    assert t2 is not None
+    assert t2.narrative_position is None, f"清除后应为 None,实际: {t2.narrative_position}"
+
+    # timeline story 轴:该事件 chapter 应仍为 story_chapter=5
+    items = store.timeline(1, 10, axis="story")
+    ev_item = next((i for i in items if i["id"] == "ev:清除测试"), None)
+    assert ev_item is not None
+    assert ev_item["chapter"] == 5, f"故事轴坐标应为 5,实际: {ev_item['chapter']}"
+
+
+def test_patch_event_narrative_404(store):
+    """PATCH /events/不存在事件/narrative → 404。"""
+    c = _client(store)
+    r = c.patch("/events/ev:不存在事件/narrative",
+                json={"narrative_position": 1}, params={"work": "main"})
+    assert r.status_code == 404

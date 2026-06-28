@@ -10,7 +10,7 @@
  * spec: docs/系统文档/作者工具/02-时间线视图.md §完整
  * 关键:关系全史用 _all_relations()(后端无时间门),不漏已失效历史关系。
  */
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { Clock, RefreshCw, GitFork } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
@@ -247,7 +247,63 @@ function CausalArrowLayer({ items, allLaneKeys, chFrom, totalCols, hiddenLanes, 
   )
 }
 
-function EventCard({ item, onJumpChapter, stacked }) {
+/**
+ * NarrativeEditor · 叙事位内联编辑小控件(尾1)
+ * 点击闪回角标或"叙@N"字样弹出数字框;支持清除(空值→ null,回退 story_chapter)。
+ */
+function NarrativeEditor({ eventId, storyChapter, currentNp, onDone }) {
+  const [val, setVal] = useState(currentNp != null ? String(currentNp) : '')
+  const [saving, setSaving] = useState(false)
+
+  const commit = useCallback((e) => {
+    e && e.stopPropagation()
+    const parsed = val.trim() === '' ? null : parseInt(val, 10)
+    if (val.trim() !== '' && isNaN(parsed)) return   // 非法数字,忽略
+    setSaving(true)
+    api.patchEventNarrative(eventId, parsed)
+      .then(() => onDone(parsed))
+      .catch(() => { setSaving(false) })
+  }, [val, eventId, onDone])
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit() }
+    if (e.key === 'Escape') { e.preventDefault(); onDone(currentNp) }
+  }
+
+  return (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="absolute inset-0 z-30 flex items-center justify-center bg-surface/90 rounded-lg"
+    >
+      <div className="flex flex-col gap-1 px-2 w-full">
+        <span className="text-[9px] text-faint">叙事位(空=清除,回退故事章{storyChapter})</span>
+        <div className="flex items-center gap-1">
+          <input
+            autoFocus
+            type="number"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={String(storyChapter)}
+            className="w-14 h-5 rounded border border-brand bg-canvas text-center text-[11px] text-ink outline-none"
+            disabled={saving}
+          />
+          <button
+            onClick={commit}
+            disabled={saving}
+            className="h-5 px-1.5 rounded bg-brand text-brandfg text-[10px] font-medium cursor-pointer disabled:opacity-50"
+          >{saving ? '…' : '确认'}</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDone(currentNp) }}
+            className="h-5 px-1 rounded text-faint text-[10px] hover:text-ink cursor-pointer"
+          >✕</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EventCard({ item, onJumpChapter, stacked, onTimelineRefresh }) {
   const color = evColor(item.event_type)
   const subj  = (item.refs?.subj || []).map(stripRole).join('、') || '—'
   const wit   = (item.refs?.witness || []).map(stripRole).join('、')
@@ -257,9 +313,21 @@ function EventCard({ item, onJumpChapter, stacked }) {
   const isFlashback = np != null && np !== sc
   // 点事件卡始终跳故事章正文(chapter.seq = story_chapter)
   const jumpCh = sc
+
+  // 叙事位内联编辑状态
+  const [editingNp, setEditingNp] = useState(false)
+
+  const handleNpDone = useCallback((newNp) => {
+    setEditingNp(false)
+    // 批了写后刷新时间线(newNp 变化才重拉)
+    if (newNp !== np) {
+      onTimelineRefresh?.()
+    }
+  }, [np, onTimelineRefresh])
+
   return (
     <div
-      onClick={() => onJumpChapter?.(jumpCh)}
+      onClick={() => !editingNp && onJumpChapter?.(jumpCh)}
       title={isFlashback
         ? `闪回 · 故事@${sc}章 / 叙事@${np} · ${item.label}${item.goal ? ' · ' + item.goal : ''}`
         : `第${sc}章 · ${item.label}${item.goal ? ' · ' + item.goal : ''}`}
@@ -274,14 +342,31 @@ function EventCard({ item, onJumpChapter, stacked }) {
       }}
       className="rounded-lg bg-surface border border-line shadow-sm px-2 py-1 flex flex-col gap-0.5 hover:shadow-md hover:border-brand/60 transition-shadow cursor-pointer select-none"
     >
+      {/* 叙事位内联编辑浮层 */}
+      {editingNp && (
+        <NarrativeEditor
+          eventId={item.id}
+          storyChapter={sc}
+          currentNp={np}
+          onDone={handleNpDone}
+        />
+      )}
+
       <div className="flex items-center gap-1 min-w-0">
         <span className="shrink-0 w-2 h-2 rounded-full inline-block" style={{ background: color }} />
         <span className="text-[11px] font-semibold text-ink truncate">{item.label || item.event_type}</span>
         {isFlashback && (
-          <span className="shrink-0 text-[8px] font-medium px-1 rounded bg-indigo-100 text-indigo-600 leading-tight"
-            title={`故事@${sc} / 叙事@${np}`}>闪回</span>
+          <span
+            className="shrink-0 text-[8px] font-medium px-1 rounded bg-indigo-100 text-indigo-600 leading-tight cursor-pointer hover:bg-indigo-200"
+            title={`故事@${sc} / 叙事@${np} · 点击编辑叙事位`}
+            onClick={(e) => { e.stopPropagation(); setEditingNp(true) }}
+          >闪回</span>
         )}
-        <span className="ml-auto text-[10px] text-faint shrink-0">
+        <span
+          className="ml-auto text-[10px] text-faint shrink-0 cursor-pointer hover:text-brand"
+          title="点击编辑叙事位(narrative_position)"
+          onClick={(e) => { e.stopPropagation(); setEditingNp(true) }}
+        >
           {isFlashback ? `故@${sc}/叙@${np}` : `ch${sc}`}
         </span>
       </div>
@@ -392,7 +477,7 @@ function RelationBar({ startItem, endItem, chFrom, totalCols, onJumpChapter }) {
 }
 
 /** 单条泳道内容 */
-function LaneRow({ laneKey, items, chFrom, chRange, onJumpChapter, laneMode }) {
+function LaneRow({ laneKey, items, chFrom, chRange, onJumpChapter, laneMode, onTimelineRefresh }) {
   const totalCols = chRange.length
   const svgW = totalCols * COL_W
 
@@ -473,7 +558,8 @@ function LaneRow({ laneKey, items, chFrom, chRange, onJumpChapter, laneMode }) {
               top: 0,
             }}
           >
-            <EventCard item={ev} onJumpChapter={onJumpChapter} stacked={idx} />
+            <EventCard item={ev} onJumpChapter={onJumpChapter} stacked={idx}
+              onTimelineRefresh={onTimelineRefresh} />
           </div>
         ))
       )}
@@ -736,6 +822,7 @@ export function TimelineView({ onJumpChapter }) {
                         chRange={chRange}
                         onJumpChapter={onJumpChapter}
                         laneMode={laneMode}
+                        onTimelineRefresh={() => load(chFrom, chTo)}
                       />
                     </div>
                   )

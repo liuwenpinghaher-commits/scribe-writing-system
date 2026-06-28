@@ -98,6 +98,8 @@ class TestWriteGate:
         ("POST", "/volumes"),
         ("PATCH", "/volumes/{vid}"),
         ("DELETE", "/volumes/{vid}"),
+        # 作者工具尾项:事件叙事位编辑(尾1)
+        ("PATCH", "/events/{eid}/narrative"),
     }
 
     def test_no_unaudited_write_route(self):

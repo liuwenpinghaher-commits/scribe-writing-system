@@ -33,7 +33,7 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                 "s3_supersede_fact", "s3_forget_knowledge",
                 "s3_evolve_relation", "s3_resolve_voice_flag",
-                "s3_fold_voice_flags"}
+                "s3_fold_voice_flags", "s3_add_clue"}
 
 
 def requires_approval(name: str) -> bool:
@@ -599,6 +599,18 @@ async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int) -> dic
     ok = await _ask(ctx, f"回收伏笔 {pid}(第{payoff_chapter}章)")
     return commit_if_approved("s3_advance_promise", ok,
                               lambda: _store.advance_promise(pid, payoff_chapter))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int) -> dict:
+    """追加草蛇灰线中途线索到某条伏笔(写,待批)。
+    pid: 伏笔 id(从 s3_list_promises 获取)。
+    note: 线索描述(该章埋的草蛇灰线,伏笔的中间节点)。
+    chapter: 线索所在章号。
+    与 s3_advance_promise(回收伏笔)不同:此工具记录"过程中"的暗示,不改变伏笔 status。"""
+    ok = await _ask(ctx, f"追加线索到伏笔 {pid}(第{chapter}章): {note[:30]}")
+    return commit_if_approved("s3_add_clue", ok,
+                              lambda: _store.add_promise_clue(pid, note, chapter))
 
 
 @mcp.tool(annotations=_RW)

@@ -68,6 +68,9 @@ export const api = {
   addFact: (b) => post('/facts', b),
   editFact: (local, b) => patch('/facts/' + enc(local), b),
   delFact: (local) => del('/facts/' + enc(local)),
+  // 事件叙事位编辑(尾1):narrative_position=null 清除回退 story_chapter
+  patchEventNarrative: (eid, narrative_position) =>
+    patch('/events/' + enc(eid) + '/narrative', { narrative_position }),
   addPromiseNew: (b) => post('/promises-new', b),
   editPromise: (pid, b) => patch('/promises/' + enc(pid), b),
   delPromise: (pid) => del('/promises/' + enc(pid)),
