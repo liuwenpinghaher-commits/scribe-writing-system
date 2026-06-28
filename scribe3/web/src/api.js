@@ -77,6 +77,11 @@ export const api = {
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   projectTree: () => j('/project-tree'),
+  outline: () => j('/outline'),
+  // 拖拽重排:只改 sort_order(及 volume),不动 seq
+  reorderChapters: (volume, order) => post('/chapters/reorder', { volume, order }),
+  // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
+  patchChapter: (seq, b) => patch('/chapters/' + seq, b),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
   qc: (seq) => j(`/qc?seq=${seq}`),
   saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),

@@ -3,34 +3,15 @@ import { CodexDetail } from './CodexDetail'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { TimelineView } from './views/TimelineView'
+import { ContainerOutline } from './ContainerOutline'
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
 const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
+// 手稿容器(卷/手稿根)→ 章卡片墙/大纲表多模式;其余容器(素材分类)→ 子项列表
+const MANUSCRIPT_CONTAINER = new Set(['manuscript_root', 'volume'])
 
-// 容器节点(卷/分类)的 MVP 渲染:子项列表(卡片墙留进阶)。点子项 → 选中该叶。
-function ContainerView({ node, onSelect }) {
-  const kids = node.children || []
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-6 py-6">
-        <h2 className="text-[18px] font-semibold text-ink mb-1">{node.label}</h2>
-        <div className="text-[12px] text-faint mb-4">{kids.length} 项</div>
-        {kids.length === 0 ? (
-          <div className="text-[13px] text-faint/60 py-8 text-center">暂无子项。</div>
-        ) : (
-          <div className="space-y-1.5">
-            {kids.map((c) => (
-              <button key={c.id} onClick={() => onSelect(c)}
-                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
-                <span className="text-[14px] text-ink">{c.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
+// 把卡片/行点击的章 → 章 TreeNode(与 WriteLayout.onSeqChange 同形),选中后中间栏切写作台
+const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim() })
 
 /**
  * 中间栏:按 sel 路由。
@@ -71,9 +52,17 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
     return <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />
   }
 
-  // —— 容器 → 子项列表(MVP)——
+  // —— 手稿容器(卷/手稿根)→ 卡片墙/大纲表多模式 ——
+  if (MANUSCRIPT_CONTAINER.has(node.type)) {
+    return <ContainerOutline key={node.id} node={node}
+      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))}
+      onSelect={onSelectNode} />
+  }
+
+  // —— 其余容器(素材分类)→ 子项列表 ——
   if (CONTAINER.has(node.type)) {
-    return <ContainerView node={node} onSelect={onSelectNode} />
+    return <ContainerOutline key={node.id} node={node} onSelect={onSelectNode}
+      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))} />
   }
 
   return <div className="p-8 text-faint">未知节点类型:{node.type}</div>
