@@ -2083,6 +2083,156 @@ class SurrealStore:
 
         return hints
 
+    def validate_cross_chapter_consistency(self) -> list[dict]:
+        """跨章一致性检测(全书扫描)。
+
+        返回 hint 列表(与 validate_setting 同结构),包含:
+          (a) numeric_inconsistency —— 同一专名实体在不同章绑定不同数字(如「潭家二十七口」vs「潭家三百一十七口」)
+          (b) unregistered_name     —— 高频疑似专名(≥3次)但未在 characters/terms/factions/items 中登记
+
+        不修改任何状态,可安全重复调用。向后兼容:不影响原 validate_setting 签名。
+        """
+        import re
+
+        hints: list[dict] = []
+
+        # ── 收集全书章正文 ──────────────────────────────────────────────────
+        chapters = self._query("SELECT seq, prose FROM chapter ORDER BY seq")
+        chapters = [c for c in chapters if c.get("prose")]
+        if not chapters:
+            return hints
+
+        # ── 构建已登记专名集合(同 validate_setting §4 段) ─────────────────
+        known_names: set[str] = set()
+        for c in self.characters():
+            known_names.add(c.name)
+            known_names.update(c.traits.get("aliases") or [])
+        for term in self.list_terms():
+            known_names.add(term["name"])
+            known_names.update(term.get("aliases") or [])
+        for it in self.list_items():
+            known_names.add(it["name"])
+        for pl in self._query("SELECT name FROM place"):
+            known_names.add(pl.get("name", ""))
+        for fc in self.list_factions():
+            known_names.add(fc["name"])
+            known_names.update(fc.get("aliases") or [] if isinstance(fc.get("aliases"), list) else [])
+        known_names.discard("")
+
+        # ── (a) 数字声明矛盾检测 ────────────────────────────────────────────
+        # 正则:「<专名>(的)?<连词?><数字汉字/阿拉伯>(口|枚|颗|人|名|位|座|条|件|个|匹|张|把|支|根|块|面)?」
+        # 数字模式:汉字数字串 | 阿拉伯数字串
+        _HANZI_DIGITS = "零一二三四五六七八九十百千万亿两"
+        _NUM_PAT = rf"[{_HANZI_DIGITS}]+|\d+"
+        # 量词(可选但有助于精确锚定)
+        _UNIT_PAT = r"(?:口|枚|颗|人|名|位|座|条|件|个|匹|张|把|支|根|块|面|载|年|日|月|天)?"
+
+        # entity_nums: {entity_name: [(chapter_seq, number_str, snippet), ...]}
+        entity_nums: dict[str, list[tuple[int, str, str]]] = {}
+
+        for ch in chapters:
+            seq = ch["seq"]
+            prose = ch["prose"]
+            for name in known_names:
+                if not name or name not in prose:
+                    continue
+                # 在专名周围50字内搜索数字
+                for m in re.finditer(re.escape(name), prose):
+                    # 取专名右侧30字内的数字
+                    window = prose[m.end(): m.end() + 30]
+                    num_m = re.search(_NUM_PAT, window)
+                    if num_m:
+                        num_str = num_m.group()
+                        # 过滤纯单字数字「一」「二」避免过多噪声(需≥2字或为阿拉伯数字)
+                        if len(num_str) < 2 and not num_str.isdigit():
+                            continue
+                        snippet = prose[max(0, m.start()-2): m.end()+len(window[:num_m.end()])+2]
+                        entity_nums.setdefault(name, []).append((seq, num_str, snippet))
+
+        for name, occurrences in entity_nums.items():
+            if len(occurrences) < 2:
+                continue
+            # 按数字值聚合:若同一名称出现了2种以上不同数字串
+            seen: dict[str, list[tuple[int, str]]] = {}
+            for seq, num_str, snippet in occurrences:
+                seen.setdefault(num_str, []).append((seq, snippet))
+            if len(seen) >= 2:
+                # 挑出出现次数最多的两个数字(最典型的矛盾对)
+                sorted_nums = sorted(seen.items(), key=lambda x: -len(x[1]))
+                num_a, locs_a = sorted_nums[0]
+                num_b, locs_b = sorted_nums[1]
+                ch_a = locs_a[0][0]
+                ch_b = locs_b[0][0]
+                snip_a = locs_a[0][1]
+                snip_b = locs_b[0][1]
+                hints.append({
+                    "type": "numeric_inconsistency",
+                    "severity": "high",
+                    "entity": name,
+                    "description": (
+                        f"「{name}」数字前后矛盾:第{ch_a}章「{num_a}」vs 第{ch_b}章「{num_b}」"
+                    ),
+                    "evidence": {
+                        f"第{ch_a}章": snip_a,
+                        f"第{ch_b}章": snip_b,
+                    },
+                })
+
+        # ── (b) 未登记高频疑似专名检测 ──────────────────────────────────────
+        # 策略:连续2-4个汉字、全书合并正文出现≥3次、不在 known_names 中、
+        # 且与 known_names 中某项有首/尾字共享(疑似命名漂移),报 unregistered_name。
+        # 保守:只报≥3次+首尾字匹配,避免大量噪声。
+        all_prose = "".join(c["prose"] for c in chapters)
+
+        # 提取所有2-4字汉字词组(滑动窗口)
+        hanzi_only = re.sub(r"[^一-鿿]", " ", all_prose)
+        candidate_counts: dict[str, int] = {}
+        for length in (2, 3, 4):
+            tokens = re.findall(rf"[一-鿿]{{{length}}}", hanzi_only)
+            for tok in tokens:
+                candidate_counts[tok] = candidate_counts.get(tok, 0) + 1
+
+        # 常见虚词/停用词排除(简单列表,避免报"他们/我们/什么"等)
+        _STOPWORDS = {
+            "这个", "那个", "什么", "如何", "为何", "因为", "所以", "虽然", "但是",
+            "他们", "我们", "你们", "她们", "已经", "可以", "没有", "一个", "一些",
+            "这样", "那样", "只是", "还是", "就是", "于是", "不是", "都是", "的是",
+            "时候", "地方", "事情", "东西", "问题", "方面", "情况", "之后", "之前",
+            "之中", "之间", "之上", "之下", "以上", "以下", "以前", "以后", "一直",
+            "一边", "一起", "一般", "一样", "一切", "一定", "一旦", "如此", "这里",
+            "那里", "这时", "那时", "其中", "其他", "其实", "不过", "不知", "不得",
+            "只有", "只能", "只好", "不禁", "不由", "不觉", "不得不", "不由得",
+        }
+
+        reported: set[str] = set()
+        for tok, cnt in candidate_counts.items():
+            if cnt < 3:
+                continue
+            if tok in known_names or tok in _STOPWORDS:
+                continue
+            if tok in reported:
+                continue
+            # 首/尾字与已知专名共享 → 疑似命名漂移/别名
+            is_derived = any(
+                len(kn) >= 2 and (kn[0] == tok[0] or kn[-1] == tok[-1])
+                for kn in known_names
+            )
+            # 若 known_names 为空(无任何登记),仍报告高频词(避免空设定时漏检)
+            if is_derived or not known_names:
+                hints.append({
+                    "type": "unregistered_name",
+                    "severity": "low",
+                    "entity": tok,
+                    "description": (
+                        f"「{tok}」全书出现 {cnt} 次但未登记为角色/术语/地点/阵营/物品"
+                        f"{'(疑似已登记专名的别名/命名漂移)' if is_derived else ''}"
+                    ),
+                    "evidence": tok,
+                })
+                reported.add(tok)
+
+        return hints
+
     # --- 大纲/卷章树(手稿支数据层,作者工具 F-01 后端)---
 
     # == 卷 CRUD ==

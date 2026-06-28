@@ -987,3 +987,36 @@ class TestUpdateChapterMeta:
         store.update_chapter_meta(4, {"prose": "篡改正文", "synopsis": "合法梗概"})
         ch = store.get_chapter(4)
         assert ch["prose"] == "四章正文", "非白名单字段 prose 不应被改写"
+
+
+# ===== M3 validate_cross_chapter_consistency 单元测试 =====
+class TestValidateCrossChapter:
+    """M3: 跨章一致性检测。"""
+
+    def test_numeric_inconsistency_via_term(self, store):
+        """术语专名绑定不同数字 → numeric_inconsistency。"""
+        from scribe3.store import SurrealStore
+        store.add_term("灵龙镇", category="地名")
+        store.save_chapter(3, "灵龙镇煞钉三百六十枚,镇住了万年阴气。", title="第三章")
+        store.save_chapter(5, "灵龙镇煞钉七十二枚,哪里够用。", title="第五章")
+        hints = store.validate_cross_chapter_consistency()
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"]
+        assert ni, f"灵龙镇数字矛盾(360 vs 72)应报 numeric_inconsistency,实际 hints: {hints}"
+        assert any("灵龙镇" in h.get("entity", "") or "灵龙镇" in h.get("description", "")
+                   for h in ni), f"应指向「灵龙镇」,实际: {ni}"
+        # evidence 应含两处冲突章号
+        assert all("evidence" in h for h in ni), "numeric_inconsistency 应含 evidence"
+
+    def test_numeric_same_no_hint(self, store):
+        """同一专名同一数字多次出现 → 不报矛盾。"""
+        store.add_term("灵龙镇", category="地名")
+        store.save_chapter(3, "灵龙镇煞钉三百六十枚。", title="第三章")
+        store.save_chapter(5, "灵龙镇煞钉三百六十枚依旧。", title="第五章")
+        hints = store.validate_cross_chapter_consistency()
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"]
+        assert not ni, f"数字一致不应报矛盾,实际: {ni}"
+
+    def test_no_chapters_no_crash(self, store):
+        """无章时返回空列表,不崩溃。"""
+        hints = store.validate_cross_chapter_consistency()
+        assert isinstance(hints, list)

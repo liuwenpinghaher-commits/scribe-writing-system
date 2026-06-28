@@ -183,3 +183,56 @@ class TestOrphanKnowledgeEdges:
             f"reader_knows 孤儿边应被 orphan_knowledge_edges 检出,实际: {orphans}"
         assert any("rk_test" in str(o) for o in orphans), \
             f"孤儿边记录应含 rk_test 引用,实际: {orphans}"
+
+
+class TestCrossChapterConsistency:
+    """M3 跨章一致性检测: validate_cross_chapter_consistency()。
+
+    (a) 数字声明矛盾: 同一专名实体在不同章绑定不同数字 → numeric_inconsistency
+    (b) 命名一致性(死代码实装): 高频未登记疑似专名 → unregistered_name
+    """
+
+    def test_numeric_inconsistency_detected(self, store):
+        """章1「潭家二十七口」,章2「潭家三百一十七口」→ 报 numeric_inconsistency。"""
+        # 登记专名"潭家"为阵营(faction)
+        store.add_faction("潭家", ideology="", status="active", leader="",
+                          known_members=[], public_face="")
+        store.save_chapter(1, "潭家满门二十七口尽死于乱世。", title="第一章")
+        store.save_chapter(2, "听闻潭家三百一十七口皆遭屠戮。", title="第二章")
+        hints = store.validate_cross_chapter_consistency()
+        types = [h["type"] for h in hints]
+        assert "numeric_inconsistency" in types, (
+            f"潭家数字矛盾(二十七口 vs 三百一十七口)应报 numeric_inconsistency,实际 hints: {hints}")
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"]
+        # 应包含实体名和两处证据
+        assert any("潭家" in h.get("entity", "") or "潭家" in h.get("description", "")
+                   for h in ni), f"numeric_inconsistency 应指向「潭家」,实际: {ni}"
+
+    def test_numeric_consistent_no_hint(self, store):
+        """同一数字无矛盾 → 不报 numeric_inconsistency。"""
+        store.add_faction("潭家", ideology="", status="active", leader="",
+                          known_members=[], public_face="")
+        store.save_chapter(1, "潭家满门二十七口尽死于乱世。", title="第一章")
+        store.save_chapter(2, "潭家二十七口皆亡,无一生还。", title="第二章")
+        hints = store.validate_cross_chapter_consistency()
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"]
+        assert not ni, f"数字一致时不应报矛盾,实际: {ni}"
+
+    def test_unregistered_high_freq_name_reported(self, store):
+        """正文中高频出现(≥3次)但未登记的疑似专名 → 报 unregistered_name。"""
+        # 不登记任何专名;正文中"灵虚子"出现3次
+        store.save_chapter(1, "灵虚子施法,灵虚子退步,灵虚子最终败走。", title="第一章")
+        hints = store.validate_cross_chapter_consistency()
+        types = [h["type"] for h in hints]
+        assert "unregistered_name" in types, (
+            f"高频未登记专名「灵虚子」应报 unregistered_name,实际 hints: {hints}")
+
+    def test_registered_name_not_reported(self, store):
+        """已登记的专名高频出现 → 不报 unregistered_name。"""
+        store.add_entity(__import__('scribe3.ontology', fromlist=['Entity']).Entity(
+            "role:灵虚子", "character", "灵虚子"))
+        store.save_chapter(1, "灵虚子施法,灵虚子退步,灵虚子最终败走。", title="第一章")
+        hints = store.validate_cross_chapter_consistency()
+        ur = [h for h in hints if h["type"] == "unregistered_name"
+              and h.get("entity") == "灵虚子"]
+        assert not ur, f"已登记专名「灵虚子」不应报 unregistered_name,实际: {ur}"
