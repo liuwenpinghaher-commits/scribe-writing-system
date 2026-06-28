@@ -19,7 +19,8 @@ except Exception as e:
 
 # 清旧(幂等重跑)
 for t in ["character", "faction", "item", "term", "world_rule", "promise",
-          "motif", "fact", "event", "knows", "char_state", "chapter"]:
+          "motif", "proposition", "event", "knows", "reader_knows", "char_state",
+          "ingest_unverified", "chapter", "character_relation"]:
     try:
         st._db.query(f"DELETE {t}")
     except Exception:
@@ -206,6 +207,7 @@ FACTS = [
     ("fact:f10", "role:焦判官", "旧案", "二十年前满门借寿暴毙案,凶器指向回煞炉", 2, True),
     ("fact:f11", "role:白姑", "动机", "欲借引魂铃认主之力毁回煞炉,赎当年之过", 2, True),
     ("fact:f12", "item:活炉", "踪迹", "活炉藏于临江戏班的戏箱,随班游走", 3, True),
+    ("fact:f13", "item:回煞炉", "本炉与活炉关系", "焚骨庵的回煞炉是本炉(丈许高、不可移),香堂另铸的活炉是它的分炉,游走城中代收阳寿", 1, True),
 ]
 for fid, eid, attr, val, ch, secret in FACTS:
     st.add_fact(Fact(fid, eid, attr, val, valid_from=ch, secret=secret))
@@ -252,7 +254,7 @@ DESIGN = [
          events=[("ev:c3e1", "追炉", 3, {"SUBJ": "role:白姑"}, "place:临江戏班", "白姑追查活炉至戏班"),
                  ("ev:c3e2", "察寿", 3, {"SUBJ": "role:白姑", "WITNESS": "role:阿枝"}, "place:临江戏班", "阿枝看出柳寿灯转暗,白姑心生不忍")],
          know=[("role:白姑", "fact:f12", "saw", 3), ("role:白姑", "fact:f09", "told", 3),
-               ("role:白姑", "fact:f11", "told", 3)],
+               ("role:白姑", "fact:f11", "told", 3), ("role:白姑", "fact:f13", "told", 3)],
          arcs=[("role:白姑", 3, "personality", "由用到悔", "察觉柳被借寿", "转折·不忍")]),
     dict(seq=4, title="第四章·焚骨庵", foc="role:柳三更", syn="柳三更被白姑半哄半逼同往焚骨庵,见聋祖与蒙尘本炉,铃在炉前剧鸣认主。柳惊知自己卷入大局,与白姑就'毁炉'起冲突。",
          events=[("ev:c4e1", "入庵", 4, {"SUBJ": "role:柳三更", "WITNESS": "role:聋祖"}, "place:焚骨庵", "柳白同入焚骨庵见守庵聋祖"),

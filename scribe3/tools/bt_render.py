@@ -44,6 +44,7 @@ def build_instructions(focalizer, chapter):
     instr += A._arc_state_block(st, focalizer, chapter)
     instr += A._motif_block(st)
     instr += A._frame_block(st, focalizer, chapter)
+    instr += A._revelation_discipline_block(focalizer)   # 机制M1:限知揭示纪律(配角不批发真相)
     instr += A._recap_block(st, chapter)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
