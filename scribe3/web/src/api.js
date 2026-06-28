@@ -76,6 +76,7 @@ export const api = {
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
+  projectTree: () => j('/project-tree'),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
   qc: (seq) => j(`/qc?seq=${seq}`),
   saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),

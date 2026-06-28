@@ -1750,6 +1750,147 @@ class SurrealStore:
         unassigned = [c["seq"] for c in chapters if not c.get("volume")]
         return {"volumes": vols, "chapters": chapters, "unassigned_chapters": unassigned}
 
+    # == 混合 Binder 项目树(只读统一投影,作者工具 F-06)==
+
+    def project_tree(self) -> dict:
+        """聚合左侧项目树:手稿支(卷→章→场景)+ 素材支(分类→条目)+ 横切视图清单。
+
+        只读统一投影:复用 outline()/characters()/list_*() ,不新造存储。
+        每个节点是 TreeNode {id, type, label, ref?, children?, badges?, meta?}。
+        只搬「身份 + 角标」,不回正文/详情全字段(详情按 ref 懒加载)。
+        """
+        # —— 手稿支:复用 outline() ——
+        out = self.outline()
+        vols = out["volumes"]
+        chapters = out["chapters"]
+        # 卷 id → 该卷 TreeNode(保持 outline 的章顺序)
+        vol_nodes: dict[str | None, dict] = {}
+
+        def _wc_badge(n) -> dict:
+            v = n or 0
+            label = f"{v/1000:.1f}k" if v >= 1000 else str(v)
+            return {"kind": "wc", "value": label}
+
+        def _chapter_node(c: dict) -> dict:
+            badges = [_wc_badge(c.get("word_count"))]
+            if c.get("focalizer"):
+                badges.append({"kind": "pov", "value": c["focalizer"]})
+            qc_n = c.get("qc_issues") or 0
+            if qc_n:
+                badges.append({"kind": "qc", "value": qc_n, "tone": "warn"})
+            scenes = c.get("scenes") or []
+            node = {
+                "id": f"ch:{c['seq']}", "type": "chapter",
+                "label": f"{c['seq']} {c.get('title') or ''}".strip(),
+                "ref": c["seq"],
+                "meta": {"focalizer": c.get("focalizer"), "label": c.get("label")},
+                "badges": badges,
+            }
+            if len(scenes) > 1:
+                node["children"] = [
+                    {"id": f"ch:{c['seq']}#scene:{s['idx']}", "type": "scene",
+                     "label": s.get("title") or f"场景 {s['idx']}",
+                     "ref": {"seq": c["seq"], "idx": s["idx"]},
+                     "badges": [_wc_badge(s.get("char_count"))]}
+                    for s in scenes
+                ]
+            return node
+
+        # 预建卷节点(按 outline 卷顺序),外加未分卷兜底组
+        for v in vols:
+            vol_nodes[v["id"]] = {
+                "id": f"vol:{v['id']}", "type": "volume",
+                "label": v.get("title") or "未命名卷", "ref": v["id"],
+                "children": [], "badges": [],
+            }
+        for c in chapters:
+            vid = c.get("volume")
+            if vid not in vol_nodes:
+                # 未分卷兜底组(vid=None)
+                vol_nodes.setdefault(None, {
+                    "id": "vol:null", "type": "volume", "label": "未分卷",
+                    "ref": None, "children": [], "badges": [],
+                })
+            vol_nodes[vid if vid in vol_nodes else None]["children"].append(_chapter_node(c))
+        # 卷角标:章数 + 卷总字数
+        vol_order = [v["id"] for v in vols] + ([None] if None in vol_nodes else [])
+        manuscript_children = []
+        for vid in vol_order:
+            node = vol_nodes.get(vid)
+            if node is None:
+                continue
+            ch_count = len(node["children"])
+            node["badges"] = [{"kind": "count", "value": ch_count}]
+            manuscript_children.append(node)
+
+        manuscript = {
+            "id": "manuscript_root", "type": "manuscript_root", "label": "手稿",
+            "children": manuscript_children,
+        }
+
+        # —— 素材支:各分类 → 条目 ——
+        def _cat(cat_type: str, label: str, items: list[dict],
+                 leaf_type: str, name_key: str = "name",
+                 ref_key: str = "name", meta_fn=None, badge_fn=None) -> dict:
+            children = []
+            for it in items:
+                leaf = {
+                    "id": f"{leaf_type}:{it.get(ref_key)}", "type": leaf_type,
+                    "label": str(it.get(name_key) or it.get(ref_key) or "—"),
+                    "ref": it.get(ref_key),
+                }
+                if meta_fn:
+                    leaf["meta"] = meta_fn(it)
+                if badge_fn:
+                    b = badge_fn(it)
+                    if b:
+                        leaf["badges"] = b
+                children.append(leaf)
+            return {
+                "id": f"cat:{cat_type}", "type": "codex_category", "label": label,
+                "ref": cat_type, "badges": [{"kind": "count", "value": len(children)}],
+                "children": children,
+            }
+
+        chars = self.characters()
+        char_items = [{"name": c.name, "id": c.id, "local": c.id.split(":", 1)[-1],
+                       "importance": c.traits.get("importance"),
+                       "secret": bool(c.traits.get("backstory_secret"))}
+                      for c in chars]
+
+        def _char_meta(c):
+            return {"importance": c.get("importance"), "id": c.get("id")}
+
+        def _char_badge(c):
+            return [{"kind": "secret", "tone": "faint"}] if c.get("secret") else None
+
+        codex_children = [
+            _cat("character", "角色", char_items, "character", ref_key="local",
+                 meta_fn=_char_meta, badge_fn=_char_badge),
+            _cat("faction", "势力", self.list_factions(), "faction"),
+            _cat("item", "物件", self.list_items(), "item"),
+            _cat("term", "术语", self.list_terms(), "term"),
+            _cat("world_rule", "世界规则", self.list_world_rules(), "world_rule"),
+            _cat("promise", "伏笔", self.list_promises(), "promise",
+                 name_key="text", ref_key="id"),
+            _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
+        ]
+        codex = {
+            "id": "codex_root", "type": "codex_root", "label": "素材",
+            "children": codex_children,
+        }
+
+        # —— 横切视图(静态清单)——
+        views = [
+            {"id": "view:overview", "type": "view", "label": "概览"},
+            {"id": "view:atlas", "type": "view", "label": "图谱"},
+            {"id": "view:timeline", "type": "view", "label": "时间线"},
+            {"id": "view:insight", "type": "view", "label": "仪表盘"},
+            {"id": "view:progress", "type": "view", "label": "进度"},
+        ]
+
+        return {"manuscript": manuscript, "codex": codex, "views": views}
+
     # == 章重排(只改 sort_order,绝不动 seq)==
 
     def reorder_chapters(self, volume_id: str | None, order: list[int]) -> int:

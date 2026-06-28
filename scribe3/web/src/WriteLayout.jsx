@@ -16,18 +16,29 @@ import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
-import { chapterLabel } from './chapterLabel.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast.jsx'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
-export function WriteLayout({ work }) {
+// seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态;
+// onSeqChange: 内部步进器换章时回调,让项目树选中态跟随。
+export function WriteLayout({ work, seq, onSeqChange }) {
   api.setWork(work)
   const toast = useToast()
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
-  const [chapter, setChapter] = useState(1)
+  const [chapter, _setChapter] = useState(seq || 1)
+  // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
+  const setChapter = (next) => {
+    _setChapter((prev) => {
+      const v = typeof next === 'function' ? next(prev) : next
+      if (v !== prev) onSeqChange?.(v)
+      return v
+    })
+  }
+  // 外部 seq 变化(树点章)→ 同步内部章号
+  useEffect(() => { if (seq != null && seq !== chapter) _setChapter(seq) }, [seq])
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
   const [prose, setProse] = useState('')
@@ -45,7 +56,6 @@ export function WriteLayout({ work }) {
   const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
   const [causal, setCausal] = useState([])
   const [promises, setPromises] = useState([])
-  const [chapters, setChapters] = useState([])
   const [facts, setFacts] = useState([])
   const [events, setEvents] = useState([])
   const [motifs, setMotifs] = useState([])
@@ -58,7 +68,7 @@ export function WriteLayout({ work }) {
   const [btns, setBtns] = useState(() => loadButtons(work))
   const [leftActive, setLeftActive] = useState('material')
   const [rightActive, setRightActive] = useState('chat')
-  const [matSeg, setMatSeg] = useState('outline')
+  const [matSeg, setMatSeg] = useState('structure')
   const [revSeg, setRevSeg] = useState('verify')
   const [tick, setTick] = useState(0)
   const [verTick, setVerTick] = useState(0)
@@ -121,7 +131,6 @@ export function WriteLayout({ work }) {
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
     api.qc(chapter).then(setQc)
-    api.chapters().then(setChapters)
     api.facts(chapter).then(setFacts)
     api.events(chapter).then(setEvents)
   }, [chapter, tick])
@@ -384,18 +393,7 @@ export function WriteLayout({ work }) {
   )
 
   // ——— 各子区渲染(从原 11 tab 抽出,内容/handler 不变,合并复用)———
-  const renderOutline = () => (
-    <div>
-      <SectionTitle icon={BookText} right={`${chapters.length} 章`}>章节</SectionTitle>
-      {chapters.length === 0 && <Empty>暂无章节,写完保存即生成</Empty>}
-      {chapters.map((c) => (
-        <button key={c.seq} onClick={() => setChapter(c.seq)}
-          className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.seq === chapter ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-          {chapterLabel(c.seq, c.title || '')}
-        </button>
-      ))}
-    </div>
-  )
+  // F-06: renderOutline(扁平章按钮列)已下线——章导航由左侧项目树承载。
   const renderStructure = () => (
     <div>
       <SectionTitle icon={LayoutList} right={`${events.length}`}>本章事件</SectionTitle>
@@ -592,13 +590,14 @@ export function WriteLayout({ work }) {
   const reviewBadge = verifyIssues({ leaks, qcN, causal: causal.length }) + openProm.filter(overdue).length
 
   const leftCaps = [
-    { key: 'material', label: '素材 · 大纲/结构/母题/检索', icon: LayoutList, render: () => (
+    // F-06: 「大纲」段下线——章导航职能交给左侧项目树(树取代扁平章列)。
+    // 结构/母题/检索暂留(分期摊风险)。
+    { key: 'material', label: '素材 · 结构/母题/检索', icon: LayoutList, render: () => (
       <div>
         <Segmented value={matSeg} onChange={setMatSeg} options={[
-          { key: 'outline', label: '大纲' }, { key: 'structure', label: '结构' },
+          { key: 'structure', label: '结构' },
           { key: 'motifs', label: '母题' }, { key: 'recall', label: '检索' },
         ]} />
-        {matSeg === 'outline' && renderOutline()}
         {matSeg === 'structure' && renderStructure()}
         {matSeg === 'motifs' && renderMotifs()}
         {matSeg === 'recall' && renderRecall()}

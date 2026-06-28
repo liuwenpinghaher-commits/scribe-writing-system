@@ -1276,6 +1276,13 @@ def get_outline(work: str = "main"):
     return _store_for(work).outline()
 
 
+@app.get("/project-tree")
+def get_project_tree(work: str = "main"):
+    """混合 Binder 项目树(作者工具 F-06):手稿支(卷→章→场景)+ 素材支(分类→条目)
+    + 横切视图清单。只读统一投影,只回身份+角标,详情按 ref 懒加载。"""
+    return _store_for(work).project_tree()
+
+
 class ReorderReq(BaseModel):
     volume: str | None = None   # 目标卷裸 id;None = 未分卷区
     order: list[int]            # 该卷内章 seq 的新顺序(全量)

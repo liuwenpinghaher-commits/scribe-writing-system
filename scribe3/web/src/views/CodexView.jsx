@@ -377,13 +377,13 @@ function EditorChat({ context }) {
 }
 
 // ═══ DetailView ═══
-function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
+export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   const save = (key, val) => onUpdate({ ...row, [key]: val })
   if (type === 'chars') {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-4">
-          <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>
+          {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
           <span className="text-[11px] text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
         </div>
         <div className="border-t border-line pt-3">
@@ -440,7 +440,7 @@ function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
-        <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>
+        {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
         <span className="text-[11px] text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
       </div>
       <div className="border-t border-line pt-3">

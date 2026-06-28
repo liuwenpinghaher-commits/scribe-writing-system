@@ -1765,3 +1765,76 @@ def test_write_gate_includes_outline_routes(store):
     assert ("POST", "/volumes") in known
     assert ("PATCH", "/volumes/{vid}") in known
     assert ("DELETE", "/volumes/{vid}") in known
+
+
+# ===== 作者工具 F-06: 混合 Binder 项目树 GET /project-tree =====
+
+def test_project_tree_two_branches(store):
+    """GET /project-tree 应返回手稿支(卷→章→场景)+ 素材支(分类→条目)+ 横切视图清单。
+    手稿支:卷/章嵌套正确,章节点带 wc/pov badge;素材支:分类计数对;views 静态项齐。
+    """
+    from scribe3.ontology import Entity
+    # 种 1 卷 2 章
+    vid = store.add_volume("第一卷·镇煞", sort_order=1)
+    store.save_chapter(1, "焦三夜行。", title="楔子", focalizer="role:焦三")
+    store.save_chapter(2, "拜师清潭。\n\n* * *\n\n第二场。", title="入派", focalizer="role:焦三")
+    store.reorder_chapters(vid, [1, 2])
+    # 种 2 角色 + 1 势力
+    store.add_entity(Entity("role:焦三", "character", "焦三"))
+    store.add_entity(Entity("role:沈青梧", "character", "沈青梧"))
+    store.add_faction("清潭派", ideology="正道")
+
+    c = _client(store)
+    r = c.get("/project-tree")
+    assert r.status_code == 200, r.text
+    tree = r.json()
+
+    # —— 手稿支 ——
+    ms = tree["manuscript"]
+    assert ms["type"] == "manuscript_root"
+    vols = ms["children"]
+    vol = next((v for v in vols if v["ref"] == vid), None)
+    assert vol is not None, f"应有种下的卷: {vols}"
+    assert vol["type"] == "volume"
+    assert len(vol["children"]) == 2, "卷下应有 2 章"
+    # 卷角标:章数
+    assert any(b["kind"] == "count" and b["value"] == 2 for b in vol["badges"])
+    ch1 = next(x for x in vol["children"] if x["ref"] == 1)
+    assert ch1["type"] == "chapter"
+    assert ch1["id"] == "ch:1"
+    assert any(b["kind"] == "wc" for b in ch1["badges"]), "章应带字数角标"
+    assert any(b["kind"] == "pov" and b["value"] == "role:焦三" for b in ch1["badges"])
+    # 第 2 章有 2 个场景 → 应有 scene children
+    ch2 = next(x for x in vol["children"] if x["ref"] == 2)
+    assert ch2.get("children") and len(ch2["children"]) == 2, "多场景章应展开场景节点"
+    assert ch2["children"][0]["type"] == "scene"
+    assert ch2["children"][0]["ref"] == {"seq": 2, "idx": 0}
+
+    # —— 素材支 ——
+    codex = tree["codex"]
+    assert codex["type"] == "codex_root"
+    cats = {cat["ref"]: cat for cat in codex["children"]}
+    assert "character" in cats and "faction" in cats
+    char_cat = cats["character"]
+    assert any(b["kind"] == "count" and b["value"] == 2 for b in char_cat["badges"]), \
+        f"角色分类计数应为 2: {char_cat['badges']}"
+    char_names = [leaf["label"] for leaf in char_cat["children"]]
+    assert "焦三" in char_names and "沈青梧" in char_names
+    assert char_cat["children"][0]["type"] == "character"
+    # 势力分类计数
+    assert any(b["kind"] == "count" and b["value"] == 1 for b in cats["faction"]["badges"])
+
+    # —— 横切视图 ——
+    view_ids = {v["id"] for v in tree["views"]}
+    assert "view:atlas" in view_ids and "view:insight" in view_ids and "view:timeline" in view_ids
+
+
+def test_project_tree_unassigned_fallback(store):
+    """无卷归属的章应落入「未分卷」兜底组,且不丢章。"""
+    store.save_chapter(5, "游离章。", title="孤章")
+    c = _client(store)
+    tree = c.get("/project-tree").json()
+    vols = tree["manuscript"]["children"]
+    unassigned = next((v for v in vols if v["id"] == "vol:null"), None)
+    assert unassigned is not None, f"应有未分卷兜底组: {[v['id'] for v in vols]}"
+    assert any(ch["ref"] == 5 for ch in unassigned["children"])

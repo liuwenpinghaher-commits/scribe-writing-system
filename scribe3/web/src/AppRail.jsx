@@ -1,14 +1,15 @@
-import { Sun, Moon, BookOpen, ChevronDown, Feather, BookText, Network, Activity, Clock } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock } from 'lucide-react'
 
+// F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
+// 顶栏只留「横切视图」入口:概览/图谱/时间线/仪表盘 → 点击切中间栏 view mode。
 export const VIEWS = [
-  { key: 'write', label: '写作台', icon: Feather },
-  { key: 'codex', label: '设定库', icon: BookText },
   { key: 'atlas', label: '图谱', icon: Network },
-  { key: 'insight', label: '仪表盘', icon: Activity },
   { key: 'timeline', label: '时间线', icon: Clock },
+  { key: 'insight', label: '仪表盘', icon: Activity },
 ]
 
-// 应用级顶栏:字标 + 作品切换(回作品库)+ 视图 tab + 主题。借鉴 scribe2 AppRail。
+// 应用级顶栏:字标 + 作品切换(回作品库)+ 横切视图 tab + 主题。
+// view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
 export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }) {
   return (
     <header className="h-12 shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
