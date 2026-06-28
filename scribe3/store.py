@@ -1099,7 +1099,7 @@ class SurrealStore:
             "SELECT date AS dp_date, words_total FROM daily_progress ORDER BY dp_date DESC LIMIT 1")
         # 用最近一行(任意日)的 words_total 作 prev,delta = 全书净增
         prev_total = rows[0]["words_total"] if rows else 0
-        delta = new_total - prev_total
+        delta = max(0, new_total - prev_total)  # 缩写日记 0,不倒扣;words_total 快照仍如实更新
         self._execute_write(
             "UPSERT type::record('daily_progress', $d) SET "
             "date=$d, "

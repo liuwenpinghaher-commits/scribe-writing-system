@@ -509,15 +509,32 @@ def test_save_chapter_records_daily_delta(store):
     assert 1 in r2["chapters_touched"] and 2 in r2["chapters_touched"]
 
 
-def test_daily_progress_negative_delta(store):
-    """把某章改短 → 当日 words_written 反映净减。"""
+def test_daily_progress_no_negative_delta(store):
+    """把某章改短 → 当日 words_written 不应被倒扣(max(0,delta))。
+    第一次 save:+1000(全书从 0 增至 1000) → words_written=1000
+    第二次 save(改短至 600):delta=600-1000=-400 → max(0,-400)=0,不倒扣
+    words_written 应仍为 1000,不为负,不为 600。
+    words_total 快照如实更新为 600(不受影响)。
+    """
     today = "2099-01-02"
     store.save_chapter(1, "甲" * 1000, title="一", _today=today)
-    # 改短为 600 字
+    rows_after_first = store._query(
+        "SELECT words_written, words_total FROM daily_progress WHERE date=$d", {"d": today})
+    assert rows_after_first[0]["words_written"] > 0, "第一次 save 后 words_written 应 > 0"
+
+    # 改短为 600 字(全书总字数缩水)
     store.save_chapter(1, "甲" * 600, title="一", _today=today)
-    rows = store._query("SELECT words_written FROM daily_progress WHERE date=$d", {"d": today})
-    # delta 第一次 +1000, 第二次 -400(600-1000) → 累计 600
-    assert rows[0]["words_written"] == 600
+    rows = store._query(
+        "SELECT words_written, words_total FROM daily_progress WHERE date=$d", {"d": today})
+    ww = rows[0]["words_written"]
+    wt = rows[0]["words_total"]
+    # 核心断言:缩写不倒扣,当日累计写入量不降、不为负
+    assert ww >= 0, f"words_written 不应为负,实际={ww}"
+    assert ww >= rows_after_first[0]["words_written"], (
+        f"缩写后 words_written 不应减少:before={rows_after_first[0]['words_written']}, after={ww}")
+    # words_total 快照应如实反映当前全书总字数(可缩)
+    assert wt < rows_after_first[0]["words_total"], (
+        f"改短后 words_total 快照应减少,实际 before={rows_after_first[0]['words_total']}, after={wt}")
 
 
 def test_record_daily_progress_failsoft(store, monkeypatch):
