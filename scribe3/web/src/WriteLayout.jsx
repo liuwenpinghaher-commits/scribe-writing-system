@@ -170,7 +170,7 @@ export function WriteLayout({ work }) {
   const persist = async (text) => {
     const r = await api.saveChapter(chapter, text, chTitle, focalizer)
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
-    api.ingest(chapter).catch(() => {}); setTick((t) => t + 1)
+    setTick((t) => t + 1)
   }
   const acceptProposal = async () => {
     const p = proposal; if (!p) return
