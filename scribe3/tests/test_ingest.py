@@ -311,6 +311,103 @@ def test_ingest_char_state_no_arc_still_works(store):
     assert n == 1, "旧格式 delta(无 arc)仍应正常写知识边"
 
 
+# ── S3: learned 语义去重测试(W3#6) ────────────────────────────────────────────
+
+def test_learned_dedup_same_text_two_chars_one_proposition(store):
+    """同一 learned 文本被两个角色在不同章学到 → 只建 1 条命题,两人各有 knows 边。"""
+    _ensure_chars(store, "焦三", "阿萤")
+    # 第1章: 焦三学到"尸丹能聚魂"
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "尸丹能聚魂"}],
+        "did": [],
+    }, seq=1)
+    # 第2章: 阿萤学到完全相同的文本"尸丹能聚魂"
+    apply_delta(store, {
+        "learned": [{"who": "阿萤", "fact": "尸丹能聚魂"}],
+        "did": [],
+    }, seq=2)
+
+    # 命题层:只应有 1 条"尸丹能聚魂"命题
+    all_props = store.facts_at(99)
+    judan_props = [f for f in all_props if "聚魂" in f.value]
+    assert len(judan_props) == 1, \
+        f"相同 learned 文本应只建 1 条命题,实际 {len(judan_props)} 条: {[f.id for f in judan_props]}"
+
+    # 知识边层:焦三和阿萤都应知道这条命题
+    fr_jiao = project_frame(store, "role:焦三", 1)
+    fr_ying = project_frame(store, "role:阿萤", 2)
+    assert any("聚魂" in f.value for f in fr_jiao.facts), "焦三应知道该命题"
+    assert any("聚魂" in f.value for f in fr_ying.facts), "阿萤应知道该命题"
+
+
+def test_learned_dedup_same_char_two_chapters_idempotent(store):
+    """同一角色在两章学到相同文本 → 命题只有 1 条,第2章不重建。"""
+    _ensure_chars(store, "焦三")
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "老道是流云观追索者"}],
+        "did": [],
+    }, seq=3)
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "老道是流云观追索者"}],
+        "did": [],
+    }, seq=4)
+
+    all_props = store.facts_at(99)
+    matching = [f for f in all_props if "追索者" in f.value]
+    assert len(matching) == 1, \
+        f"相同 learned 文本不同章应只建 1 条命题,实际 {len(matching)} 条"
+
+
+def test_learned_dedup_different_text_creates_new_proposition(store):
+    """文本实质不同 → 必须各自建独立命题,不能误合并。"""
+    _ensure_chars(store, "焦三")
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "尸丹能聚魂"}],
+        "did": [],
+    }, seq=1)
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "灵龙镇煞钉封印三百年"}],
+        "did": [],
+    }, seq=2)
+
+    all_props = store.facts_at(99)
+    assert any("聚魂" in f.value for f in all_props), "第一条命题应存在"
+    assert any("镇煞钉" in f.value for f in all_props), "第二条命题应存在"
+    # 且是 2 条独立命题
+    unique = [f for f in all_props if "聚魂" in f.value or "镇煞钉" in f.value]
+    assert len(unique) == 2, f"不同文本应建 2 条独立命题,实际 {len(unique)} 条"
+
+
+def test_learned_dedup_fail_safe_creates_proposition(store):
+    """去重查找失败(store 方法异常)时,fall-back 到新建命题,不丢失知识。"""
+    _ensure_chars(store, "焦三")
+    # 先建一条可能被搜索到的命题
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": "尸丹能聚魂"}],
+        "did": [],
+    }, seq=1)
+
+    # 模拟 facts_at 异常(去重查找路径内部可能用到)
+    import unittest.mock as mock
+    original_facts_at = store.facts_at
+
+    call_count = {"n": 0}
+    def patched_facts_at(ch):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("模拟查找异常")
+        return original_facts_at(ch)
+
+    # 注入异常路径,验证 apply_delta 仍能成功(fall-back 建新命题)
+    with mock.patch.object(store, "facts_at", patched_facts_at):
+        # 不应抛异常
+        n = apply_delta(store, {
+            "learned": [{"who": "焦三", "fact": "尸丹能聚魂"}],
+            "did": [],
+        }, seq=5)
+    assert n == 1, f"fall-safe 路径应成功写入 1 条,实际 n={n}"
+
+
 def test_ingest_char_state_unknown_char_skipped(store):
     """arc 里引用了库外角色(未建实体)时,该条目被跳过,已知角色不受影响。"""
     _ensure_chars(store, "焦三")

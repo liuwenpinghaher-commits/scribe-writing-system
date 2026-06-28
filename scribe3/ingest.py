@@ -20,10 +20,44 @@ def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     return None
 
 
+def _find_existing_learned_prop(store, fact_text: str) -> str | None:
+    """在已有命题中查找与 fact_text 近精确匹配的"获知"类命题,返回其 oid 或 None。
+    S3 去重策略:保守近精确匹配(归一化后完全相等,或长文本的包含关系),
+    不使用语义相似度以防误合并——正确性优先于激进去重。
+    fail-safe:任何异常返回 None(调用方继续创建新命题)。"""
+    import logging
+    _log = logging.getLogger("scribe3.ingest")
+    try:
+        # 归一化:去首尾空白
+        needle = fact_text.strip()
+        if not needle:
+            return None
+        # 全量扫描"获知"命题(数量通常较少)
+        rows = store._query(
+            "SELECT meta::id(id) AS local, value FROM proposition "
+            "WHERE attribute = '获知'")
+        for r in rows:
+            existing = (r.get("value") or "").strip()
+            if not existing:
+                continue
+            # 近精确:完全相等,或长文本互相包含(≥15字时才启用包含检查)
+            if existing == needle:
+                return f"fact:{r['local']}"
+            if len(needle) >= 15 and len(existing) >= 15:
+                if needle in existing or existing in needle:
+                    return f"fact:{r['local']}"
+    except Exception as e:
+        _log.warning("learned 去重查找失败(fail-safe,将新建命题): %s", e)
+    return None
+
+
 def apply_delta(store, delta: dict, seq: int) -> int:
     """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。
     章级幂等:先清本章既有 ingest 产出,再重写——重复 ingest 不会残留悬挂边。
-    P2-E1: 每条命题同时写 reader_knows(叙述揭示即读者已知,戏剧反讽闭环)。"""
+    P2-E1: 每条命题同时写 reader_knows(叙述揭示即读者已知,戏剧反讽闭环)。
+    S3: learned 类命题去重——近精确匹配到已有客观命题时复用,只新发 knows 边。"""
+    import logging
+    _log = logging.getLogger("scribe3.ingest")
     store.purge_ingest(seq)
     n = 0
     for i, it in enumerate(delta.get("learned") or []):
@@ -33,19 +67,25 @@ def apply_delta(store, delta: dict, seq: int) -> int:
         oid = _resolve_char(store, who, seq, "learned_who")
         if oid is None:
             continue
-        fid = f"fact:k{seq}-{i}"
-        store.add_fact(Fact(fid, oid, "获知", fact, valid_from=seq), ingest_seq=seq)
+        # S3: 尝试复用已有近精确命题(消重复真相)
+        existing_fid = _find_existing_learned_prop(store, fact)
+        if existing_fid is not None:
+            # 复用:只发 knows 边,不创建新命题
+            fid = existing_fid
+            _log.debug("learned 去重:复用命题 %s (文本近似 %r)", fid, fact[:30])
+        else:
+            # 新建客观命题
+            fid = f"fact:k{seq}-{i}"
+            store.add_fact(Fact(fid, oid, "获知", fact, valid_from=seq), ingest_seq=seq)
+            # reader_knows:新建命题才需要写 reader 边;复用已有命题的 reader 边已存在
+            try:
+                store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,
+                                                  acquired_via="narrated"),
+                                    ingest_seq=seq)
+            except Exception as _e:
+                _log.warning("reader_knows 写入失败(non-fatal),命题 %s: %s", fid, _e)
         store.add_knowledge(KnowledgeEdge(oid, fid, since_chapter=seq, acquired_via="learned"),
                            ingest_seq=seq)
-        # 叙述揭示即读者已知:reader_knows 随 ingest_seq 参与幂等 purge
-        try:
-            store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,
-                                              acquired_via="narrated"),
-                                ingest_seq=seq)
-        except Exception as _e:
-            import logging
-            logging.getLogger("scribe3.ingest").warning(
-                "reader_knows 写入失败(non-fatal),命题 %s: %s", fid, _e)
         n += 1
     for j, it in enumerate(delta.get("did") or []):
         who, action = it.get("who"), it.get("action")

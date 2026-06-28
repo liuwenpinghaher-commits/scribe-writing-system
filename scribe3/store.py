@@ -873,6 +873,50 @@ class SurrealStore:
                              motivated_by_goal=r.get("motivated_by_goal")))
         return out
 
+    def orphan_knowledge_edges(self) -> list[dict]:
+        """扫描孤儿知识边:knows/reader_knows 中指向不存在命题的悬挂边。
+        返回列表 [{type, knower, proposition_ref}];正常情况应为空列表。
+        S4 (W3#8): 写作链路完整性校验——ingest purge 后不应留悬挂边。"""
+        orphans: list[dict] = []
+        # 1. knows 边:按 out 找不存在的命题
+        knows_rows = self._query(
+            "SELECT meta::id(in) AS knower_local, meta::tb(in) AS knower_tb, "
+            "meta::id(out) AS prop_local FROM knows")
+        for r in knows_rows:
+            prop_local = r.get("prop_local")
+            if prop_local is None:
+                continue
+            exists = self._query(
+                "SELECT id FROM type::record('proposition',$p) LIMIT 1", {"p": prop_local})
+            if not exists:
+                orphans.append({
+                    "type": "knows",
+                    "knower": f"{r.get('knower_tb', 'character')}:{r.get('knower_local', '')}",
+                    "proposition_ref": f"fact:{prop_local}",
+                })
+        # 2. reader_knows 边:proposition 字段存的是本体 oid 字符串(如 "fact:k3-0")
+        rk_rows = self._query("SELECT proposition FROM reader_knows")
+        for r in rk_rows:
+            prop_ref = r.get("proposition")
+            if prop_ref is None:
+                continue
+            # prop_ref 可能是 "fact:xxx" 字符串或 RecordID 对象
+            prop_str = str(prop_ref)
+            # 提取 proposition 表的 local id
+            if ":" in prop_str:
+                _, prop_local = prop_str.split(":", 1)
+            else:
+                prop_local = prop_str
+            exists = self._query(
+                "SELECT id FROM type::record('proposition',$p) LIMIT 1", {"p": prop_local})
+            if not exists:
+                orphans.append({
+                    "type": "reader_knows",
+                    "knower": "reader",
+                    "proposition_ref": prop_str,
+                })
+        return orphans
+
     def load_knowledge(self) -> list[KnowledgeEdge]:
         """显式拉全部知识边(knows + reader_knows)。昂贵:2 条查询。调用方应缓存。"""
         rows = self._query(

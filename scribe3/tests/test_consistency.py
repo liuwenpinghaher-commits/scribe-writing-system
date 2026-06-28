@@ -1,5 +1,6 @@
-"""P21 facts_at 内存/真库对拍 + P23 单写点 spy + P04 load_knowledge 缓存。"""
-from scribe3.ontology import Entity, Fact, World
+"""P21 facts_at 内存/真库对拍 + P23 单写点 spy + P04 load_knowledge 缓存
++ S4 知识边孤儿对拍(W3#8)。"""
+from scribe3.ontology import Entity, Fact, KnowledgeEdge, World
 from scribe3.knowledge import project_frame, dramatic_irony
 
 
@@ -104,3 +105,70 @@ class TestWriteGate:
         exempt = {("GET", "/health")}
         unknown = actual - self.KNOWN_REST_WRITE_ROUTES - exempt
         assert not unknown, f"新写路径未登记授权语义: {unknown}"
+
+
+class TestOrphanKnowledgeEdges:
+    """S4 (W3#8): knows/reader_knows 孤儿边扫描 — 指向已删命题的悬挂边不应存在。"""
+
+    def test_normal_ingest_no_orphans(self, store):
+        """正常 ingest + purge 后不留孤儿边。"""
+        from scribe3.ingest import apply_delta
+        store.add_entity(Entity("role:甲", "character", "甲"))
+        apply_delta(store, {
+            "learned": [{"who": "甲", "fact": "天道不可违"}],
+            "did": [],
+        }, seq=1)
+        orphans = store.orphan_knowledge_edges()
+        assert orphans == [], f"正常 ingest 后不应有孤儿边,实际: {orphans}"
+
+    def test_purge_leaves_no_orphans(self, store):
+        """purge_ingest 清掉命题时,同批次 knows/reader_knows 边也被清。"""
+        from scribe3.ingest import apply_delta
+        store.add_entity(Entity("role:乙", "character", "乙"))
+        apply_delta(store, {
+            "learned": [{"who": "乙", "fact": "玄妙之道难测"}],
+            "did": [],
+        }, seq=2)
+        # 重新 ingest(purge + 重写)
+        apply_delta(store, {
+            "learned": [{"who": "乙", "fact": "玄妙之道难测"}],
+            "did": [],
+        }, seq=2)
+        orphans = store.orphan_knowledge_edges()
+        assert orphans == [], f"purge 后不应有孤儿边,实际: {orphans}"
+
+    def test_delete_proposition_cascades_knows_edge(self, store):
+        """SurrealDB 图语义保障:删命题时 knows 边级联消失 → orphan_knowledge_edges 不会有遗留。
+        这是对 SurrealDB 不变量的回归测试——确保级联删除正常工作。"""
+        store.add_entity(Entity("role:丙", "character", "丙"))
+        store.add_fact(Fact("fact:cascade_test", "role:丙", "获知", "级联删除验证值", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("role:丙", "fact:cascade_test", since_chapter=1,
+                                          acquired_via="learned"))
+        # 确认目前无孤儿、knows 边存在
+        assert store.orphan_knowledge_edges() == []
+        # 删掉命题:SurrealDB 会级联清理 knows 边
+        store.delete_record("fact:cascade_test")
+        # 级联后:knows 边消失,孤儿扫描仍返回空(因为边本身被级联删了)
+        orphans = store.orphan_knowledge_edges()
+        assert orphans == [], \
+            f"SurrealDB 级联删除后不应有孤儿边(边已随节点消失),实际: {orphans}"
+        # 额外验证:knows 边确实已消失
+        knows_rows = store._query("SELECT id FROM knows")
+        assert not knows_rows, "删命题后 knows 边应已级联消失"
+
+    def test_reader_knows_delete_proposition_cascades(self, store):
+        """reader_knows 表(非图边,是独立表)在命题删除后依赖 orphan_knowledge_edges 检出悬挂。
+        注意:reader_knows 用的是 CREATE(非 RELATE),SurrealDB 不级联——这是需要 orphan 扫描保护的场景。"""
+        store.add_entity(Entity("role:丁", "character", "丁"))
+        store.add_fact(Fact("fact:rk_test", "role:丁", "获知", "读者知识测试", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("reader", "fact:rk_test", since_chapter=1,
+                                          acquired_via="narrated"))
+        assert store.orphan_knowledge_edges() == []
+        # 删掉命题
+        store.delete_record("fact:rk_test")
+        # reader_knows 行本身不级联删除(独立表),orphan 扫描应能检出
+        orphans = store.orphan_knowledge_edges()
+        assert len(orphans) >= 1, \
+            f"reader_knows 孤儿边应被 orphan_knowledge_edges 检出,实际: {orphans}"
+        assert any("rk_test" in str(o) for o in orphans), \
+            f"孤儿边记录应含 rk_test 引用,实际: {orphans}"
