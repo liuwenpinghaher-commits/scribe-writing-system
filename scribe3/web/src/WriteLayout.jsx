@@ -30,16 +30,34 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const toast = useToast()
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
+  // persistDirtyOldChapter:切章前若有未保存内容,静默保存旧章(fire-and-forget,不阻断切章)
+  // 全部从 dirtyRef 读取,完全脱离 state 闭包,任何调用时机都拿到最新值。
+  const persistDirtyOldChapter = (targetSeq) => {
+    const { seq: oldSeq, prose: oldProse, chTitle: oldChTitle, focalizer: oldFocalizer, dirty } = dirtyRef.current
+    if (!dirty || oldProse === undefined || oldSeq == null || oldSeq === targetSeq) return
+    api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
+      .then(() => { dirtyRef.current.dirty = false; setSaved(true) })
+      .catch(() => { /* 静默保存失败不阻断切章,用户下次手动保存可补救 */ })
+  }
+
   // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
+  // 内部步进器(上/下一章按钮)走此路径:切章前先 persist 旧章
   const setChapter = (next) => {
     _setChapter((prev) => {
       const v = typeof next === 'function' ? next(prev) : next
-      if (v !== prev) onSeqChange?.(v)
+      if (v !== prev) {
+        persistDirtyOldChapter(v)
+        onSeqChange?.(v)
+      }
       return v
     })
   }
-  // 外部 seq 变化(树点章)→ 同步内部章号
-  useEffect(() => { if (seq != null && seq !== chapter) _setChapter(seq) }, [seq])
+  // 外部 seq 变化(树点章)→ 切章前若有未保存内容先 persist 旧章,再同步内部章号
+  useEffect(() => {
+    if (seq == null || seq === chapter) return
+    persistDirtyOldChapter(seq)
+    _setChapter(seq)
+  }, [seq])
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
   const [prose, setProse] = useState('')
@@ -69,6 +87,9 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const [focusMode, setFocusMode] = useState(false)
   const [chTitle, setChTitle] = useState('')
   const [saved, setSaved] = useState(true)
+  // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
+  // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
+  const dirtyRef = useRef({ seq: chapter, prose: '', chTitle: '', focalizer: '', dirty: false })
   const [btns, setBtns] = useState(() => loadButtons(work))
   const [leftActive, setLeftActive] = useState('material')
   const [rightActive, setRightActive] = useState('chat')
@@ -113,6 +134,14 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     return () => document.removeEventListener('mousedown', onDown)
   }, [guardPop])
 
+  // beforeunload 兜底:有未保存修改时,关/刷新页面弹浏览器原生提示
+  useEffect(() => {
+    if (saved) return
+    const handler = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [saved])
+
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 }, issues: [] }); return }
     if (!prose.trim()) return
@@ -133,7 +162,13 @@ export function WriteLayout({ work, seq, onSeqChange }) {
 
   useEffect(() => { api.entities().then(setEntities); api.motifs().then(setMotifs) }, [tick])
   useEffect(() => {
-    api.chapter(chapter).then((ch) => { setProse(ch?.prose || ''); setFocalizer(ch?.focalizer || ''); setChTitle(ch?.title || ''); setSaved(true) })
+    api.chapter(chapter).then((ch) => {
+      const p = ch?.prose || ''
+      const f = ch?.focalizer || ''; const t = ch?.title || ''
+      setProse(p); setFocalizer(f); setChTitle(t); setSaved(true)
+      // 新章加载完成后重置 dirtyRef,以新章 seq + 新章正文 + focalizer + chTitle 为基准
+      dirtyRef.current = { seq: chapter, prose: p, chTitle: t, focalizer: f, dirty: false }
+    })
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
     api.qc(chapter).then(setQc)
@@ -203,6 +238,9 @@ export function WriteLayout({ work, seq, onSeqChange }) {
 
     const r = await api.saveChapter(chapter, text, chTitle, focalizer)
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
+    // 手动保存成功:重置 dirtyRef
+    dirtyRef.current.dirty = false
+    dirtyRef.current.prose = text
     setTick((t) => t + 1)
 
     // 达标 toast:save 后拉 progress,比较是否刚跨过 daily_word_goal
@@ -302,7 +340,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <span className="hidden xl:inline text-[12px] text-faint shrink-0">本章视角</span>
-        <select value={focalizer} onChange={(e) => setFocalizer(e.target.value)}
+        <select value={focalizer} onChange={(e) => { setFocalizer(e.target.value); dirtyRef.current.focalizer = e.target.value }}
           title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
           className="h-7 min-w-0 max-w-[180px] rounded-lg border border-line bg-canvas px-2 text-[12.5px] text-ink outline-none focus:border-brand cursor-pointer truncate">
           <option value="">作者视角(全知)</option>
@@ -449,7 +487,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
         <div className="max-w-[48rem] mx-auto px-6 py-8">
           <DraftCard proposal={proposal} candidates={candidates} streaming={proposalStreaming} onAccept={acceptProposal} onReject={() => { setProposal(null); setProposalStreaming(false); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <div className={`manuscript${serif ? ' serif' : ''}`}>
-            <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
+            <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false); dirtyRef.current.prose = t; dirtyRef.current.dirty = true }}
               chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
               issues={editorIssues} onIssueClick={onUnderlineClick}
               placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
@@ -605,7 +643,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     // group by importance if any char has it; else single group
     const hasImportance = chars.some((c) => c.importance)
     const CharBtn = ({ c }) => (
-      <button key={c.id} onClick={() => setFocalizer(c.id)}
+      <button key={c.id} onClick={() => { setFocalizer(c.id); dirtyRef.current.focalizer = c.id }}
         className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
         <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
         <span className="truncate">{c.name}</span>
