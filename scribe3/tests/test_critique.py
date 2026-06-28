@@ -341,3 +341,131 @@ def test_quality_issues_structural_range_invariant():
             s, e = iss["range"]
             assert 0 <= s < e <= len(prose), f"range 越界: {iss}"
             assert "".join(prose[s:e].split()) == "".join(iss["text"].split())
+
+
+# ==== M2: find_duplicate_lines + find_emotion_telling ====
+
+from scribe3.critique import find_duplicate_lines, find_emotion_telling
+
+
+class TestFindDuplicateLines:
+    """find_duplicate_lines(text, min_chars=8) -> list[{"line": str, "count": int}]"""
+
+    def test_exact_duplicate_line_caught(self):
+        """整行精确复读2次 -> 命中 count=2。"""
+        text = "天,终于亮了。\n\n天,终于亮了。"
+        hits = find_duplicate_lines(text)
+        assert hits, "应检出精确复读"
+        assert any(h["line"] == "天,终于亮了。" and h["count"] == 2 for h in hits)
+
+    def test_no_duplicate_returns_empty(self):
+        """无重复行 -> 空列表。"""
+        text = "天渐渐亮了。\n\n雨终于停了。"
+        assert find_duplicate_lines(text) == []
+
+    def test_short_line_not_reported(self):
+        """短于 min_chars 的行不误报(即使重复)。"""
+        text = "走。\n走。\n走。"
+        hits = find_duplicate_lines(text, min_chars=8)
+        assert hits == [], f"短行不应报告:{hits}"
+
+    def test_pure_punctuation_not_reported(self):
+        """纯标点/空串不误报。"""
+        text = "。\n。\n。\n——\n——\n——"
+        hits = find_duplicate_lines(text, min_chars=8)
+        assert hits == [], f"纯标点不应报告:{hits}"
+
+    def test_triplicate_reports_correct_count(self):
+        """同行出现3次 -> count=3。"""
+        line = "他端着药碗,站在廊下不动。"
+        text = "\n".join([line] * 3)
+        hits = find_duplicate_lines(text)
+        assert hits
+        match = [h for h in hits if h["line"] == line]
+        assert match and match[0]["count"] == 3
+
+    def test_results_sorted_by_count_desc(self):
+        """返回结果按 count 降序。"""
+        line_a = "她在乱葬岗等他,直到天光大亮。"
+        line_b = "风从门缝里挤进来,带着腥气。"
+        text = "\n".join([line_a] * 3 + [line_b] * 2)
+        hits = find_duplicate_lines(text)
+        assert len(hits) >= 2
+        assert hits[0]["count"] >= hits[1]["count"]
+
+    def test_sentence_split_within_line(self):
+        """同一段落内句末切分:句子重复也能检出。"""
+        text = "他抬头看了看天。他抬头看了看天。"
+        hits = find_duplicate_lines(text)
+        assert hits, "句内重复句应检出"
+
+    def test_whitespace_normalized(self):
+        """首尾空白归一化后比较:带多余空格的同行应合并计数。"""
+        text = "  天,终于亮了。  \n天,终于亮了。\n  天,终于亮了。  "
+        # min_chars 用默认值(6),允许 7 字符句通过
+        hits = find_duplicate_lines(text)
+        assert hits
+        assert any(h["count"] == 3 for h in hits)
+
+
+class TestFindEmotionTelling:
+    """find_emotion_telling(text) -> list[{"span": str, "kind": str}]"""
+
+    def test_emotion_word_caught(self):
+        """情绪直说:他感到一阵恐惧 -> 命中 emotion_word。"""
+        hits = find_emotion_telling("他感到一阵恐惧,转身就跑。")
+        assert hits, "应检出情绪直说"
+        assert any(h["kind"] == "emotion_word" for h in hits)
+
+    def test_verdict_caught(self):
+        """直接评语:他不是个坏人 -> 命中 verdict。"""
+        hits = find_emotion_telling("他不是个坏人,只是走错了路。")
+        assert hits, "应检出直接评语"
+        assert any(h["kind"] == "verdict" for h in hits)
+
+    def test_pure_action_no_hit(self):
+        """纯动作物象:他攥紧了拳头,后背沁出冷汗 -> 不命中。"""
+        hits = find_emotion_telling("他攥紧了拳头,后背沁出冷汗。")
+        assert hits == [], f"纯动作不应触发:{hits}"
+
+    def test_dialogue_emotion_not_telling(self):
+        """对话内情感词:角色说的话里有情感词 -> 不算叙述层 telling。"""
+        # 用原始字符串避免 Python 引号冲突；“” 是中文双引号
+        text = "她颤声说：“我感到害怕。”"
+        hits = find_emotion_telling(text)
+        assert hits == [], f"对话内情感词不应误报:{hits}"
+
+    def test_juede_variant(self):
+        """觉得变体:她觉得难过。"""
+        hits = find_emotion_telling("她觉得难过,眼眶发红。")
+        assert hits
+
+    def test_xinli_variant(self):
+        """心里变体:他心里一阵愧疚。"""
+        hits = find_emotion_telling("他心里一阵愧疚,迈不开步。")
+        assert hits
+
+    def test_she_verdict(self):
+        """评语用她:她是个好人。"""
+        hits = find_emotion_telling("她是个好人,从来不计较。")
+        assert hits
+        assert any(h["kind"] == "verdict" for h in hits)
+
+    def test_cliche_optional(self):
+        """标签化生理-情感套语(cliche):心里像被什么揪住 -> 返回(kind='cliche'或emotion_word均可)。"""
+        hits = find_emotion_telling("他心里像被什么揪住,说不出话。")
+        # cliche 是 weak 命中,实现可选;若返回则 kind 须合规
+        if hits:
+            assert hits[0]["kind"] in ("emotion_word", "cliche")
+
+    def test_multiple_variants_in_text(self):
+        """多处 telling -> 每处都检出。"""
+        text = "他感到恐惧。她觉得悲伤。他不是个坏人。"
+        hits = find_emotion_telling(text)
+        assert len(hits) >= 2, f"应检出>=2处telling:{hits}"
+
+    def test_span_field_present(self):
+        """返回值有 span 字段且非空。"""
+        hits = find_emotion_telling("他感到绝望,瘫坐在地。")
+        assert hits
+        assert all("span" in h and h["span"] for h in hits)

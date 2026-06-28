@@ -592,3 +592,118 @@ def parse_knowledge_delta(reply: str) -> dict | None:
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return None
+
+
+# ==== M2: 确定性文本质检——整行精确复读 + 叙述层情感直说 ====
+
+# 句子切分:按换行符 + 中文句末标点(。！？…)拆句(带 capture group 保留分隔符)
+_SENT_DELIM_CAP = re.compile(r"([。！？…]+)")
+
+# 对话包裹检测:中文弯引号 “”("") 和直角引号 「」(「」)
+# 用 Unicode 码点写死避免编辑器保存时字符变形
+_DIALOGUE_RE = re.compile(
+    r"[“「][^”」]{0,200}[”」]", re.S
+)
+
+# 情绪直说正则:叙述层主语 + 情绪动词/词语 + 具体情绪词
+_EMOTION_WORD_RE = re.compile(
+    r"(?:他|她|它)?(?:感到|觉得|心里|心中|心头)(?:一阵|一)?"
+    r"(?:害怕|恐惧|惧|难过|悲伤|愧疚|不忍|心疼|疼痛|高兴|欢喜|愤怒|绝望|紧张|安心|悲痛|痛苦|焦虑|孤独|兴奋|恐慌)"
+)
+
+# 直接评语正则:对人物下定性评语
+_VERDICT_RE = re.compile(
+    r"(?:他|她)(?:其实)?(?:不是|是)(?:个)?(?:坏人|好人|善人|恶人|好角色|坏角色)"
+)
+
+# 标签化生理-情感套语(weak 命中,kind=cliche)
+_CLICHE_RE = re.compile(
+    r"心里像被(?:什么)?(?:揪|攥|堵|压|刺|扎|灼|撕)(?:住|着|了|痛)?"
+)
+
+
+def _strip_dialogue(text: str) -> str:
+    """去除文本中被中文弯引号/直角引号包裹的对话片段,返回剩余叙述层文本。
+    这是粗略过滤:减少对话内情感词误报(宁可漏检不误报)。"""
+    return _DIALOGUE_RE.sub("", text or "")
+
+
+def find_duplicate_lines(text: str, min_chars: int = 6) -> list[dict]:
+    """检测精确重复的整行或整句(>=2次,字符总长>=min_chars)。
+
+    切分策略:先按换行拆行,再对每行按中文句末标点(。！？…)拆句
+    (分隔符附在前一句末,保留句末标点使句子有自然长度);
+    归一化首尾空白后做完全相同比对。
+    排除:纯标点/空串、字符总长不足 min_chars 的短句。
+    返回 [{"line": <重复的句/行>, "count": <次数>}],按 count 降序。
+    """
+    from collections import Counter
+
+    raw = text or ""
+    segments: list[str] = []
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 用带 capture group 的 split 保留分隔符,再把分隔符拼回前一句
+        parts = _SENT_DELIM_CAP.split(line)
+        buf = ""
+        for part in parts:
+            if _SENT_DELIM_CAP.fullmatch(part):
+                # 这是标点分隔符:追加到当前缓冲区,然后 flush
+                buf += part
+                normed = buf.strip()
+                if normed:
+                    segments.append(normed)
+                buf = ""
+            else:
+                buf += part
+        # 行末无句末标点时 flush 余量
+        normed = buf.strip()
+        if normed:
+            segments.append(normed)
+
+    counts: Counter[str] = Counter(segments)
+    out: list[dict] = []
+    for seg, cnt in counts.items():
+        if cnt < 2:
+            continue
+        # 排除字符总长不足 min_chars 的短句(含标点一起算)
+        if len(seg) < min_chars:
+            continue
+        # 排除纯标点/空串
+        if _PUNCT_ONLY.match(seg):
+            continue
+        out.append({"line": seg, "count": cnt})
+
+    out.sort(key=lambda x: -x["count"])
+    return out
+
+
+def find_emotion_telling(text: str) -> list[dict]:
+    """检测叙述层直陈情绪/直接评语的句子(确定性正则,宁缺勿滥)。
+
+    规则:
+    - emotion_word: (他|她|它)?(感到|觉得|心里|心中|心头)(一阵|一)?(情绪词)
+    - verdict:      (他|她)(其实)?(不是|是)(个)?(坏人|好人|善人|恶人)
+    - cliche(weak): 心里像被什么(揪|攥|堵)住 等标签化套语
+
+    对话内情感词处理:粗略去除中文弯引号包裹片段后再扫描(减少误报)。
+    返回 [{"span": <命中片段>, "kind": "emotion_word"|"verdict"|"cliche"}]。
+    """
+    s = _strip_dialogue(text or "")
+    out: list[dict] = []
+
+    for m in _EMOTION_WORD_RE.finditer(s):
+        out.append({"span": m.group(0), "kind": "emotion_word"})
+
+    for m in _VERDICT_RE.finditer(s):
+        out.append({"span": m.group(0), "kind": "verdict"})
+
+    for m in _CLICHE_RE.finditer(s):
+        # 避免与 emotion_word 重叠上报
+        span = m.group(0)
+        if not any(r["span"] in span or span in r["span"] for r in out):
+            out.append({"span": span, "kind": "cliche"})
+
+    return out
