@@ -13,7 +13,11 @@
 
 scribe3 现在是 **5 个互不相干的全屏视图**,顶栏 tab 一次只能看一个:写作台、设定库、图谱、仪表盘(+ 作品库)。手稿(章)和素材(角色/势力/物件…)分属两个视图,作者**没有一个「全书一览」的入口**;而 Scrivener 用一棵 Binder 树把草稿和研究素材统一在左侧,点任一节点就在中间栏加载对应内容。
 
-本文交付:**混合 Binder**——左侧一棵 `ProjectTree`(📖 手稿支:卷→章→场景;📚 素材支:分类→具体项)常驻,中间 `DetailPane` 按选中节点类型**路由渲染**(章→完整写作台 / 设定项→详情卡 / 容器→卡片墙或大纲表);而图谱/时间线/台账/仪表盘这类**跨节点聚合视图**不挂在树上,作为 DetailPane 的特殊 mode(顶栏切换)并存。「混合」即指此:**树管「有详情的实体」,横切视图另存**。
+本文交付:**混合 Binder**——左侧一棵 `ProjectTree`(📖 手稿支:卷→章→场景;📚 素材支:分类→具体项)常驻,中间 `DetailPane` 按选中节点类型**路由渲染**(章→写作台中间栏 / 设定项→详情卡 / 容器→卡片墙或大纲表);而图谱/时间线/台账/仪表盘这类**跨节点聚合视图**不挂在树上,走**顶栏一排 tab**(AppRail 保留为横切入口)并存。「混合」即指此:**树管「有详情的实体」,横切视图走顶栏 tab**。
+
+> **两个已拍板决策(本文据此定稿)**:
+> 1. **写作台嵌入 = 方案 B**:把写作台**左栏(大纲/结构/母题/联查)完全并入左侧项目树**,中间栏只留【对话 + 正文 + 护栏(含本章结构面板)】。这是更干净统一的方案——左侧不再出现「项目树 + 写作台自带左栏」双栏并列;代价是要迁移/下线 `WriteLayout` 自带的左栏渲染器(`renderOutline/renderStructure/renderMotifs/renderRecall`)。详见 §4.1、§4.5。
+> 2. **横切视图入口 = 顶栏 tab 保留**:图谱/时间线/伏笔台账/仪表盘走**顶栏一排 tab**(`AppRail` 不彻底清空,渐进式收编)。**不设树底「视图」区**;窄屏同样靠顶栏。
 
 ---
 
@@ -83,7 +87,7 @@ else body = <WriteLayout .../>                         // App.jsx:43(write 默�
 1. **有「单一详情」的实体**:一个章有它的正文/对话/护栏;一个角色有它的档案。这类**天然是树节点**——点它,中间栏出它的详情,一对一。
 2. **跨多个实体的聚合视图**:图谱是「所有角色 × 所有命题」的关系网;时间线是「所有事件沿章号横铺」;仪表盘是「所有章的质量曲线」;伏笔台账是「所有伏笔的 setup→payoff 审计」。这类**没有「一个节点」能代表它**——硬塞进树只能塞成一个孤立的叶子(「图谱」节点),点了它中间栏出全图,这和「节点=它的详情」的语义自相矛盾,且树里会冒出一堆没有子节点、只是「入口」的伪节点。
 
-所以采用**混合**:树只装第 1 类;第 2 类作为 DetailPane 的特殊 mode,从顶栏(或树底「视图」区)进入。这正是 Scrivener 的做法——Binder 装草稿+研究(都是有详情的文档),而「全书统计 / 编译 / 项目搜索」这类聚合操作在菜单/工具栏,不在 Binder 里当节点。World Anvil 也类似:Content Tree 装文章(有详情),而 Maps / Timelines 是侧栏里独立的入口而非树节点([World Anvil — Content Trees](https://blog.worldanvil.com/worldanvil/tutorials/content-trees-to-organize-your-worldbuilding/))。
+所以采用**混合**:树只装第 1 类;第 2 类作为 DetailPane 的特殊 mode,从**顶栏一排 tab**进入(决策②:横切入口锁定顶栏,不设树底「视图」区)。这正是 Scrivener 的做法——Binder 装草稿+研究(都是有详情的文档),而「全书统计 / 编译 / 项目搜索」这类聚合操作在菜单/工具栏,不在 Binder 里当节点。World Anvil 也类似:Content Tree 装文章(有详情),而 Maps / Timelines 是侧栏里独立的入口而非树节点([World Anvil — Content Trees](https://blog.worldanvil.com/worldanvil/tutorials/content-trees-to-organize-your-worldbuilding/))。
 
 ### 2.2 「进树 vs 横切视图」归类表(本文核心结论)
 
@@ -138,14 +142,13 @@ ProjectTree(左侧常驻)
 │   ├─ ▸ 术语            (codex_category: term)
 │   ├─ ▸ 世界规则        (codex_category: world_rule)
 │   ├─ ▸ 伏笔            (codex_category: promise)  ← §2.3 二象性
-│   └─ ▸ 母题            (codex_category: motif)
-│
-└─ 🔭 视图(VIEWS,横切入口区,非真节点)   ← 点 = 切 DetailPane mode
-    ├─ 概览   ├─ 图谱   ├─ 时间线
-    ├─ 伏笔台账  ├─ 仪表盘  └─ 进度
+│   └─ ▸ 母题            (codex_category: motif,迁自写作台左栏「母题」cap,见 §4.5)
+
+横切视图(概览/图谱/时间线/伏笔台账/仪表盘/进度)**不在树里**——
+走顶栏一排 tab(AppRail),点 = 切 DetailPane 的 view mode。(决策②,见 §4.4)
 ```
 
-> 「视图」区放在树底,视觉上与上面两支用分隔线隔开,**点它们不改变树选中态、只切 DetailPane 的 mode**(见 §4.3 状态)。也可整组移到顶栏(见 §4.4 AppRail 去向)——两个落点皆可,文档推荐「树底 + 顶栏 mode 切换」并存,窄屏只留顶栏。
+> **横切入口锁定为顶栏 tab**(决策②):图谱/时间线/伏笔台账/仪表盘这类聚合视图从顶栏 `AppRail` 进入,**不在项目树里当节点、也不设树底「视图」区**。理由:它们没有「单一详情」可挂(§2.1),做成树底入口会与「树节点=它的详情」语义打架;顶栏一排 tab 是现状已有的形态,渐进收编代价最小。窄屏同样靠顶栏。
 
 ### 3.2 树节点的统一抽象
 
@@ -246,7 +249,7 @@ type TreeBadge = { kind: 'wc'|'qc'|'promise'|'pov'|'secret'|'overdue'|'count', v
 
 | 选中节点 type | 中间栏渲染 | 复用/新建 | 右栏(辅助) |
 |---|---|---|---|
-| `chapter` | **完整写作台**:主编对话 + 草稿卡 + ProseEditor 正文 + 护栏芯片 | `WriteLayout`(几乎原样,接 `seq` prop) | 写作台自带的左/右 cap(校验/伏笔/在场/演绎)继续在 DetailPane 内部 |
+| `chapter` | **写作台中间栏**:主编对话 + 草稿卡 + ProseEditor 正文 + 护栏芯片 + 本章结构面板 | `WriteLayout` 瘦身版(接 `seq` prop;左栏 cap 已并入项目树,见 §4.5) | 写作台自带的**右** cap(主编对话/校验/伏笔/在场/演绎)+ 留下的左 cap(帧/意图、存档)继续在 DetailPane 内部 |
 | `scene` | 写作台 + 进入后滚动/定位正文到该场景段落(`* * *` 第 idx 段) | `WriteLayout` + 新增 `scrollToScene(idx)` | 同上 |
 | `volume` / `manuscript_root` | **卡片墙(Corkboard)** 或 **大纲表(Outliner)**,容器多模式(§3.5) | 01 的 `Corkboard`/`Outliner` | 无 / 卷简介编辑 |
 | `codex_category` | 该分类**卡片墙/表格**(角色出卡,其余出表) | `CodexView` 的列表/表格区(`CodexView.jsx:633–694`) | 主编对话(设定向) |
@@ -277,9 +280,13 @@ App(顶层)
        └─ mode==='view'                                   → <AtlasView/> | <InsightView/> | <Timeline/> | <PromiseDashboard/> | …
 ```
 
-注意:**WriteLayout 内部已经是一套完整 Shell(左 cap + 中正文 + 右 cap)**(`WriteLayout.jsx:595–598`)。所以章节点的 DetailPane = 把这套 Shell 嵌进 BinderLayout 的中间栏。两种实现选择:
-- **(A 推荐 MVP)** WriteLayout 整体作为 DetailPane 内容,它**自带的左右 cap 仍在**(校验/伏笔/演绎/主编对话)。BinderLayout 只在它**左边再加一根 ProjectTree**。即「最外层项目树 + 内层写作台 Shell」两层。视觉上 ProjectTree 取代了写作台原左栏「素材→大纲」cap 的职能(那个 cap 可下线或保留为「本章局部」)。
-- **(B 进阶)** 把 WriteLayout 的左 cap 完全并入 ProjectTree,写作台只剩「中正文 + 右 cap」,减少左侧双栏。需要把 `renderOutline/renderStructure/renderMotifs/renderRecall`(`WriteLayout.jsx:355–403`)迁移或下线。改动更大,放进阶。
+注意:**WriteLayout 内部已经是一套完整 Shell(左 cap + 中正文 + 右 cap)**(`WriteLayout.jsx:595–598`)。所以章节点的 DetailPane = 把这套 Shell 嵌进 BinderLayout 的中间栏。
+
+**已拍板:采用方案 B(写作台左栏完全并入项目树)。**
+
+- **方案 B(锁定)**:把 `WriteLayout` **自带的左栏 cap「素材 · 大纲/结构/母题/检索」**(`WriteLayout.jsx:542–562` 的 `leftCaps`,内部四个分段 `renderOutline/renderStructure/renderMotifs/renderRecall`)**拆解并入左侧项目树**——大纲并进手稿支、母题进素材支、检索(联查 Recall)归横切工具、结构留中间栏(逐项去向见 §4.5)。写作台瘦身为**「章节点的中间栏渲染器」**:只剩【主编对话 + 草稿卡 + 正文(ProseEditor)+ 护栏(NorthStarBar/护栏芯片)+ 本章结构面板】,左侧不再有第二根栏。这样整屏只有**一根**导航栏(项目树),视觉统一、心智一致。
+- **代价**:要动 `WriteLayout` 的左栏渲染器——四个 `render*` 函数各有去向(下线/搬家),`leftCaps` 数组里的「素材」cap 移除,`Shell` 的 `left` 入参随之删掉。其余两个左 cap(帧/意图 `FramePanel`、存档 `VersionPanel`)和全部右 cap(主编对话/校验/演绎)**保持不动**,仍在写作台内。这比「A:整体嵌入、左栏留着」多了一道「拆左栏」的活,故迁移按 §5 分期摊开风险。
+- **(被否的方案 A,仅存档)** 曾考虑「WriteLayout 整体嵌入、自带左右 cap 全留,只在最外层再加一根项目树」。否决理由:左侧会出现「项目树 + 写作台『素材』cap」**两根导航栏并列**(大纲在两处重复),违背 Binder「单一左侧导航」的初衷。故选 B。
 
 ### 4.2 ASCII 布局草图(章节点选中态)
 
@@ -354,10 +361,28 @@ const onSelectNode = (node) => {
 
 ### 4.4 AppRail 的去向
 
-降级为「**书切换 + 横切视图 mode 入口 + 主题**」:
+**决策②:AppRail 保留为横切入口(顶栏一排 tab),不彻底清空。** 降级为「**书切换 + 横切视图 tab + 主题**」:
 - **保留**:字标、`当前书 ▾`(回作品库)、主题切换(`AppRail.jsx:39–45` 原样)。
-- **改造**:原 `VIEWS = [write, codex, atlas, insight]`(`AppRail.jsx:3–8`)的 `write/codex` **删掉**(它们变成左树两支,不再是顶栏 tab);保留并扩充**横切视图入口**(概览/图谱/时间线/伏笔台账/仪表盘/进度),作为顶栏 mode 切换——点了 = `setSel({mode:'view', viewKey})`。
-- 横切入口**树底「视图」区与顶栏二选一或并存**:推荐宽屏顶栏 + 树底都给(双入口降低发现成本),窄屏只留顶栏。
+- **改造**:原 `VIEWS = [write, codex, atlas, insight]`(`AppRail.jsx:3–8`)的 `write/codex` **删掉**(它们变成左树两支,不再是顶栏 tab);保留并扩充**横切视图 tab**(概览/图谱/时间线/伏笔台账/仪表盘/进度),作为顶栏一排 tab——点了 = `setSel({mode:'view', viewKey})`。
+- **横切入口只在顶栏**:不设树底「视图」区(决策②)。一排顶栏 tab 是现状已有形态,渐进收编、风险最小;窄屏同样靠顶栏。这与树「只装有详情的实体」的语义一致——聚合视图不混进树。
+
+### 4.5 写作台左栏功能 → 新家(方案 B 的核心细节)
+
+方案 B 要拆 `WriteLayout` 自带的左栏 cap「素材 · 大纲/结构/母题/检索」(`WriteLayout.jsx:542–562`,内部四段 `renderOutline/renderStructure/renderMotifs/renderRecall`)。逐项去向、理由、迁移动作如下(代码锚点均为实读):
+
+| 原左栏功能(实读) | 渲染什么 / 数据源 | 新家 | 为什么 | 迁移动作 |
+|---|---|---|---|---|
+| **大纲**(`renderOutline` `:355–366`) | `chapters.map` 出纯文本章按钮,点 `setChapter(c.seq)`;数据 `api.chapters()`(只回 `seq,title`) | 项目树 **手稿支**(卷→章→场景) | 章是「可导航实体」,正是树的本职;且 01 的卷章树本就该当手稿支,扁平按钮列被树取代 | **下线** `renderOutline`;选章逻辑从 `setChapter` 改为项目树 `onSelectNode(chapter)` 驱动(写作台接 `seq` prop) |
+| **母题**(`renderMotifs` `:380–391`) | 母题列表(name/theme/unfolding),数据 `api.motifs()` | 项目树 **素材支** 的「母题」分类(`codex_category: motif`),与角色/势力等并列 | 母题是「带字段的库记录」,与素材支其它分类同构,点单条出详情卡;§2.3 已为它在素材支留了分类容器 | **下线** `renderMotifs`;母题数据进 `GET /project-tree` 的 `codex.children`(已在 §3.3 列出);单条详情走 `CodexDetail` |
+| **结构 · 本章事件/事实**(`renderStructure` `:367–379`) | 本章 `events`(类型/目标缺失)+ `facts`(属性:值,私密锁),数据 `api.events(chapter)` / `api.facts(chapter)` | **留中间栏写作台内**(瘦身后 WriteLayout 的一个面板,跟随选中章) | 它是**「当前章的」伴随上下文**——随章切换而变,不是可独立导航的实体,进树会变成「跟着选中章漂移的伪节点」,与「树节点=稳定身份」冲突。**推荐留中间栏**(护栏区旁的「本章结构」面板) | **保留** `renderStructure` 函数,但从 `leftCaps` 移到 WriteLayout 中间栏(并入护栏/校验区,或作中间栏底部一格);不进树、不进 `GET /project-tree` |
+| **检索 · 联查 Recall**(`renderRecall` `:392–403`) | 语义召回设定的搜索框 + 命中(`runRecall` → `api.recall(q,8)`) | **横切工具 / 命令面板**(顶栏或命令面板入口) | Recall 是「跨设定查证」的**搜索/工具**,不是某个节点的详情,也不是某个章的伴随上下文——它对全书设定做向量召回。归横切工具最合身:不进树、不算节点详情 | **搬家**:`renderRecall` 抽成独立「联查」工具组件,挂顶栏「联查」入口或命令面板;`api.recall` 不变。MVP 期可先暂留写作台内(见 §8) |
+| **帧/意图**(`FramePanel`,`leftCaps` `:555–557`) | `FramePanel focalizer chapter`(当前章的帧/意图) | **留中间栏写作台内**(不动) | 当前章的伴随上下文,非可导航实体;且非「素材」cap 的一部分,本就独立 | **不动**(仍是写作台左/右 cap,或并入中间栏伴随区) |
+| **存档**(`VersionPanel`,`leftCaps` `:558–561`) | 当前章存档点列表 + 恢复 | **留中间栏写作台内**(不动) | 当前章的版本历史,伴随选中章 | **不动** |
+| **北极星条**(`NorthStarBar`,`center` 内 `:328`) | 全书意图条,喂主编当写作纲领 | **留中间栏写作台内**(不动) | 已在中间栏 `center` 顶部,伴随当前写作 | **不动** |
+| **护栏芯片 + 体检**(`topbarMid` 护栏 Chip `:229–282` / `renderVerify` 等) | 限知泄露 / 五类 QC / 因果 / 生成后体检 | **留中间栏写作台内**(不动) | 当前章的质量护栏,伴随正文 | **不动**(护栏芯片在中间栏顶栏,校验在右 cap) |
+
+> **一句话**:大纲、母题是「可导航实体」→ 进树;结构、帧、存档、北极星、护栏是「**当前章的伴随上下文**」→ 留中间栏写作台内;联查 Recall 是「**跨设定查证工具**」→ 归横切工具/命令面板。三类判据清晰,无歧义。
+> **结构面板与联查的拍板**:结构面板**留中间栏**(它是当前章的上下文,不是可导航实体,进树会漂移);联查 Recall **归横切工具/命令面板**(它是搜索工具,不是节点详情)。
 
 ---
 
@@ -367,17 +392,17 @@ const onSelectNode = (node) => {
 
 | 现视图 | 落到新架构 | 阶段 |
 |---|---|---|
-| `write`(WriteLayout) | 章/场景节点的 DetailPane 渲染器。WriteLayout **几乎不改**,只把「当前章」来源从内部 `useState(1)` 改成接 `seq` prop(`App.jsx` 已有把 `view` 提升的先例;01 §3.3 已设计 `initialSeq`)。左栏「素材→大纲」cap 的职能被 ProjectTree 手稿支取代(可保留为「本章局部」或下线)。 | MVP |
+| `write`(WriteLayout) | **拆分**(方案 B):① 把「当前章」来源从 `useState(1)` 改成接 `seq` prop(01 §3.3 已设计 `initialSeq`);② **拆左栏**——`leftCaps` 里的「素材 · 大纲/结构/母题/检索」cap 按 §4.5 解体:`renderOutline` 下线(职能归手稿支)、`renderMotifs` 下线(母题进素材支)、`renderRecall` 搬去横切工具、`renderStructure` 移进中间栏面板。WriteLayout 瘦身为「章节点的中间栏渲染器」(对话+正文+护栏+本章结构面板),左侧不再有第二根栏;帧/意图、存档两个左 cap 保留。 | MVP(接 seq + 大纲下线)→ 进阶(母题/联查/结构拆净) |
 | `codex`(CodexView) | 拆成两半:① **分类列表**(`TABS` + 条目)→ 上移成 ProjectTree 素材支;② **DetailView**(`CodexView.jsx:380` 详情卡)→ 素材叶节点的 DetailPane 渲染器。`reload()` 的多端点拼装(`CodexView.jsx:545`)下沉进 `GET /project-tree`。概览/弧光/关系这类非「单条详情」的子 tab 归横切区或容器卡片墙。 | MVP(列表上树)→ 进阶(详情拆出) |
 | `atlas`(AtlasView) | 原样变 `view:atlas` 横切 mode。**零改**,只换挂载点(从 `App.jsx:41` 的全屏 if 分支 → DetailPane 的 view 分支)。 | MVP(暂留 Rail)→ 收编 |
 | `insight`(InsightView) | 同上,变 `view:insight`。**零改**。 | MVP→收编 |
 | (01 OutlineView) | **不单独存在**——它的卷章树就是手稿支,卡片墙/大纲表就是容器节点的 DetailPane。01 与本文**合并落地**:01 出后端(`/outline`/`reorder`/卷 CRUD)+ Corkboard/Outliner 组件,本文出树容器 + 路由。 | MVP/进阶 |
 | (02 时间线 / 03 台账 / 04 进度) | 新增 `view:timeline`/`view:promises`/`view:progress` 横切 mode,各自按 02/03/04 实现。 | 进阶/完整 |
 
-**渐进顺序(关键)**:
-1. **先树 + 手稿**:ProjectTree 只渲手稿支(复用 `list_chapters` 或 01 的 `/outline`),点章 → WriteLayout。横切视图**暂时仍在旧 AppRail tab**。此步已能「一屏看骨架 + 点章即写」。
-2. **再并素材支**:ProjectTree 加 codex 支,点设定项 → CodexDetail。设定库旧全屏视图可下线。
-3. **再收横切视图**:把 atlas/insight/timeline/promises/progress 从旧 tab 收编为 DetailPane 的 view mode + 树底「视图」区。AppRail 完成降级。
+**渐进顺序(关键,方案 B + 顶栏 tab)**:
+1. **先树 + 手稿 + 拆大纲**:ProjectTree 渲手稿支(复用 `list_chapters` 或 01 的 `/outline`),点章 → WriteLayout(接 `seq`);同步**下线 WriteLayout 的 `renderOutline`**(大纲职能交给手稿支),其余左栏块(结构/母题/检索)**暂留写作台内**不动。横切视图仍走 AppRail 顶栏 tab。此步已能「一屏看骨架 + 点章即写」,且左侧大纲不再两处重复。
+2. **再并素材支 + 搬母题**:ProjectTree 加 codex 支(含母题分类),点设定项/母题 → CodexDetail;**下线 `renderMotifs`**。设定库旧全屏视图可下线。
+3. **拆净写作台左栏**:`renderRecall` 搬成横切「联查」工具(顶栏/命令面板)、`renderStructure` 移进中间栏面板;`leftCaps` 的「素材」cap 整体移除,WriteLayout 完成瘦身。横切视图(atlas/insight/timeline/promises/progress)从旧 tab 收编为 DetailPane 的 view mode,仍由**顶栏 tab** 触发,AppRail 完成降级(保留为横切入口,不清空)。
 
 ---
 
@@ -393,9 +418,13 @@ const onSelectNode = (node) => {
 - **文件**:`api.js` 加 `projectTree: () => j('/project-tree')`;新建 `ProjectTree.jsx`(递归 TreeNode + 展开/选中 + badge 渲染,复用 `shell.jsx` 的宽度持久化 `useNumPref` + `Resizer`);新建 `BinderLayout.jsx`(左树 + DetailPane 容器)。
 - **TDD**:mock `projectTree()` → 断言渲两支 + 分类计数文本 + 章 badge;点节点 → `onSelectNode(node)` 以正确 node 调用;展开/收起切 `children` 可见性。
 
-### T3 · DetailPane 路由 + 章节点接写作台
-- **文件**:新建 `DetailPane.jsx`(按 `sel.mode`/`node.type` 路由,§4.1);`WriteLayout.jsx` 把 `chapter` 来源从 `useState(1)` 改为接 `seq` prop(`useEffect` 同步,复用 01 `initialSeq` 设计,保留 focalizer/title 恢复 `WriteLayout.jsx:112–113`);`App.jsx` 用 `BinderLayout` 替换 `:39–43` 的 if/else,提 `sel`/`tree` 状态。
-- **验证**:点章节点 → 中间栏出**完整 WriteLayout**(对话+草稿卡+正文+护栏齐全,**未退化为纯文本编辑器**——硬约束①);切到别的节点再回来,章不丢。
+### T3 · DetailPane 路由 + 章节点接写作台 + 拆大纲 cap
+- **文件**:新建 `DetailPane.jsx`(按 `sel.mode`/`node.type` 路由,§4.1);`WriteLayout.jsx` 把 `chapter` 来源从 `useState(1)` 改为接 `seq` prop(`useEffect` 同步,复用 01 `initialSeq` 设计,保留 focalizer/title 恢复 `WriteLayout.jsx:112–113`);**(方案 B)下线 `renderOutline`(`:355–366`)**——`matSeg` 去掉「大纲」段,选章改由项目树 `onSelectNode` 驱动;`App.jsx` 用 `BinderLayout` 替换 `:39–43` 的 if/else,提 `sel`/`tree` 状态。
+- **验证**:点章节点 → 中间栏出**写作台**(对话+草稿卡+正文+护栏齐全,**未退化为纯文本编辑器**——硬约束①);左侧只有项目树一根栏(大纲不再在写作台内重复);切到别的节点再回来,章不丢。
+
+### T3b · 拆 WriteLayout 左栏剩余块(方案 B,进阶)
+- **文件**:`WriteLayout.jsx`——`renderMotifs`(`:380–391`)**下线**(母题改由素材支节点 → CodexDetail 承载);`renderRecall`(`:392–403`)**抽成独立「联查」工具组件**,挂顶栏/命令面板入口(`api.recall` 不变);`renderStructure`(`:367–379`)**从 `leftCaps` 移进中间栏**(并入护栏/校验区或作中间栏「本章结构」面板,跟随 `chapter`);最终从 `leftCaps`(`:542–562`)移除「素材」cap,`Shell` 的 `left` 入参随之精简(只剩帧/意图、存档两个 cap,或全收进中间栏)。
+- **TDD**:断言写作台不再渲染「素材→大纲/母题/检索」cap;母题点击走 CodexDetail;联查入口可独立打开并召回;本章结构面板随选中章刷新(`events`/`facts`)。**约束①不回归**(对话+正文+护栏仍全)。
 
 ### T4 · 素材叶 → CodexDetail(详情卡拆出)
 - **文件**:把 `CodexView.jsx` 的 `DetailView`(`:380`)抽成独立 `CodexDetail.jsx`(接 `{type, ref}`,内部懒加载该条全字段 + 弧光/关系子组件);DetailPane 素材叶分支渲染它。
@@ -405,9 +434,9 @@ const onSelectNode = (node) => {
 - **文件**:新建 `ContainerView.jsx`(顶部 segmented 切 卡片墙/大纲表;卷→复用 01 的 `Corkboard`/`Outliner`;分类→复用 CodexView 列表/表格区);点卡片/行 → `onSelectNode` 选中对应叶节点。
 - **TDD**:卷容器渲卡片墙、各卡 synopsis/字数/QC;切大纲表同源;点卡 → 选中该 chapter 节点(中间栏切到写作台)。
 
-### T6 · 横切视图收编 + AppRail 降级
-- **文件**:DetailPane 加 `mode==='view'` 分支挂 `AtlasView`/`InsightView`(零改)+ 02/03/04 视图;`AppRail.jsx` 删 write/codex tab、改横切入口为 `setSel({mode:'view',…})`;ProjectTree 加树底「视图」区。
-- **验证**:顶栏/树底点图谱 → 中间栏出全图,树选中态不变;窄屏只留顶栏入口。
+### T6 · 横切视图收编 + AppRail 降级(顶栏 tab,决策②)
+- **文件**:DetailPane 加 `mode==='view'` 分支挂 `AtlasView`/`InsightView`(零改)+ 02/03/04 视图;`AppRail.jsx` 删 write/codex tab、把横切入口(概览/图谱/时间线/伏笔台账/仪表盘/进度)保留为**顶栏一排 tab**,点击 = `setSel({mode:'view',…})`。**不设树底「视图」区**(决策②)。
+- **验证**:顶栏点图谱 → 中间栏出全图,树选中态不变;窄屏靠顶栏入口;AppRail 仍在(降级为横切入口,未清空)。
 
 ### T7 · 场景级(完整)
 - **文件**:后端 `project_tree()` 手稿支带 `scene` children(01 的 `* * *` 切分);`WriteLayout` 加 `scrollToScene(idx)`;点 scene 节点 → 写作台 + 定位正文段落。
@@ -431,7 +460,8 @@ const onSelectNode = (node) => {
 
 **前端 · 硬约束**
 - [ ] **(约束①)** 点【章】节点 → 中间栏出**完整写作台**(主编对话 + 草稿卡 + 正文编辑 + 护栏),**未退化为纯文本编辑器**。
-- [ ] **(约束②)** 图谱/时间线/伏笔台账/仪表盘**不在树里当节点**,而是横切 mode(顶栏/树底「视图」区进入)。
+- [ ] **(约束②)** 图谱/时间线/伏笔台账/仪表盘**不在树里当节点**,而是横切 mode,走**顶栏 tab**进入(决策②;不设树底「视图」区)。
+- [ ] **(约束⑥,方案 B)** 点【章】后**左侧只有项目树一根导航栏**,写作台不再渲染自带的「素材 · 大纲/结构/母题/检索」左 cap;大纲在手稿支、母题在素材支、联查在横切工具、结构在中间栏面板(各居其位、无重复)。
 - [ ] **(约束③)** 拖拽重排只改 `sort_order`,`chapter.seq` 始终不变;首次重排有守卫提示。
 - [ ] **(约束④)** 手稿支复用 01 的 `volume` + `chapter.synopsis/volume/sort_order/label`;素材支复用现有设定表;无新造存储。
 - [ ] **(约束⑤)** 素材叶点击出**结构化详情卡**(非文档编辑器);文档已说明 scribe3「素材=带字段的库记录」与 Scrivener「自由文档/PDF」的差异。
@@ -440,24 +470,27 @@ const onSelectNode = (node) => {
 - [ ] ProjectTree 常驻左侧,可拖宽/折叠/展开收起;选中态/展开态按 work 持久化,刷新恢复。
 - [ ] DetailPane 由单一 `sel` 路由:章→写作台 / 场景→定位段落 / 设定项→详情卡 / 容器→卡片墙(可切大纲表)/ view→横切视图。
 - [ ] 跨视图上下文保持(从图谱回来仍在原章)。
-- [ ] AppRail 降级为书切换 + 横切入口 + 主题;原 write/codex tab 移除。
+- [ ] AppRail 降级为书切换 + 横切入口(顶栏一排 tab)+ 主题;原 write/codex tab 移除,AppRail 不彻底清空(决策②)。
 - [ ] 前端测试全绿;`npm run build` 通过。
 
 ---
 
 ## 8 · 分期
 
-### MVP — 看见全书 + 点章即写
-- **范围**:T1(手稿支可退化版)+ T2 + T3 + T4。左树渲**手稿卷章**(01 落地则带卷/场景,否则扁平章套伪卷)+ **素材分类→条目**;点章 → 完整写作台;点设定项 → 详情卡。**横切视图(图谱/仪表盘)暂留旧 AppRail tab,不收编**。
-- **价值**:作者第一次有「全书一览 + 一键点到任意章/任意设定」的统一入口,手稿/素材不再割裂。是 01–05 所有工具的落脚壳。
+> **「拆左栏」按分期摊风险(方案 B 的关键策略)**:方案 B 要解体 WriteLayout 的「素材」左 cap,但**不必一次拆完**。MVP 只拆**大纲**一段(下线 `renderOutline`,职能交手稿支),**其余三块(结构/母题/检索)暂留写作台内**——此时左侧已是「项目树 + 写作台残留『素材』cap(只剩结构/母题/检索三段)」,可接受的过渡态;到完整期再把母题搬素材支、联查归命令面板、结构移中间栏,最终移除整个左 cap。这样把「拆左栏」的回归风险分摊到三期,每期都能独立上线、可回退。
 
-### 进阶 — 容器多模式 + 详情拆净
-- **范围**:T5(卷/分类卡片墙 ↔ 大纲表)+ CodexView 详情完全拆成 DetailPane 渲染器,旧设定库全屏视图下线。
-- **价值**:容器节点像 Scrivener 一样可在「树/卡片/表」间切;养书工作流(先搭骨架卡片墙、再点进单章写)成立。
+### MVP — 看见全书 + 点章即写(大纲先并树)
+- **范围**:T1(手稿支可退化版)+ T2 + T3 + T4。左树渲**手稿卷章**(01 落地则带卷/场景,否则扁平章套伪卷)+ **素材分类→条目**;点章 → 写作台(对话+正文+护栏)+ 进入接 `seq`;点设定项 → 详情卡。**横切视图(图谱/仪表盘)暂留 AppRail 顶栏 tab,不收编**(决策②)。
+- **写作台左栏处置(本期)**:只**下线 `renderOutline`**(大纲并入手稿支,避免两处重复);**结构(`renderStructure`)、母题(`renderMotifs`)、检索(`renderRecall`)三块暂留写作台「素材」cap 内不动**——本期不强拆,把拆左栏的风险后置到进阶/完整期。帧/意图、存档、护栏、北极星全留中间栏写作台内。
+- **价值**:作者第一次有「全书一览 + 一键点到任意章/任意设定」的统一入口,手稿/素材不再割裂,且大纲不再两处重复。是 01–05 所有工具的落脚壳。
 
-### 完整 — 横切收编 + 场景级 + 拖拽
-- **范围**:T6(atlas/insight/timeline/promises/progress 全部收编为 view mode + 树底视图区,AppRail 完成降级)+ T7(场景节点 + 正文定位)+ T8(`@dnd-kit` 拖拽重排,接 01,守卫提示)。
-- **价值**:单一外壳容纳全部工具,5 个平行视图彻底统一为「一棵树 + 一个按节点路由的中间栏 + 横切 mode」。
+### 进阶 — 容器多模式 + 详情拆净 + 母题搬素材支
+- **范围**:T5(卷/分类卡片墙 ↔ 大纲表)+ CodexView 详情完全拆成 DetailPane 渲染器,旧设定库全屏视图下线;**T3b 起步:`renderMotifs` 下线**,母题归素材支「母题」分类(点单条 → CodexDetail)。
+- **价值**:容器节点像 Scrivener 一样可在「树/卡片/表」间切;母题从写作台左栏移出,左栏只剩结构/检索两段。
+
+### 完整 — 横切收编 + 拆净左栏 + 场景级 + 拖拽
+- **范围**:T6(atlas/insight/timeline/promises/progress 全部收编为 view mode,由**顶栏 tab** 触发,AppRail 完成降级、不清空)+ **T3b 收尾:`renderRecall` 搬成横切「联查」工具(顶栏/命令面板)、`renderStructure` 移进中间栏「本章结构」面板,`leftCaps` 的「素材」cap 整体移除** + T7(场景节点 + 正文定位)+ T8(`@dnd-kit` 拖拽重排,接 01,守卫提示)。
+- **价值**:单一外壳容纳全部工具,5 个平行视图彻底统一为「一棵树 + 一个按节点路由的中间栏(写作台只剩对话+正文+护栏+本章结构)+ 顶栏横切 tab」;写作台左侧不再有第二根栏(方案 B 落地完成)。
 
 ---
 
