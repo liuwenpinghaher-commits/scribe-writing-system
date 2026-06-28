@@ -158,7 +158,9 @@ def test_chat_write_discuss_only(store, monkeypatch):
 def test_save_chapter_runs_softcheck(store):
     r = _client(store).post("/save-chapter", json={"seq": 1, "prose": "一段正常的志怪。", "focalizer": "role:x"}).json()
     assert r["status"] == "saved" and "qc" in r and "leaks" in r
-    assert set(r["qc"]) == {"repetition", "structural", "purple", "cross_repetition"}
+    # M2-①: qc 已扩展含 duplicate_lines + emotion_telling(向后兼容,用 >= 子集断言)
+    assert set(r["qc"]) >= {"repetition", "structural", "purple", "cross_repetition",
+                             "duplicate_lines", "emotion_telling"}
 
 
 def test_apply_delta_idempotent(store):
@@ -2801,3 +2803,196 @@ def test_purge_ingest_clears_unverified_via_api(store):
     count_second = sum(1 for r in rows_second if r["seq"] == 1)
     assert count_second == 2, \
         f"重 ingest 后 seq=1 unverified 应仍为 2(不累积为 4),实际: {count_second}"
+
+
+# ===== M1+M2: 限知揭示纪律 + 情感不直说 + 接线检测器(机制A) =====
+
+# --- M1-① _revelation_discipline_block 单元测试 ---
+
+def test_revelation_discipline_block_with_focalizer():
+    """_revelation_discipline_block(非空焦点者):返回含「限知揭示纪律」和「读设定卡」的文本块。"""
+    from scribe3.app import _revelation_discipline_block
+    block = _revelation_discipline_block("role:甲")
+    assert "限知揭示纪律" in block, f"应含「限知揭示纪律」标题,实际: {block[:200]}"
+    assert "读设定卡" in block, f"应含「读设定卡」关键词(配角批发真相对应),实际: {block[:200]}"
+
+
+def test_revelation_discipline_block_empty_focalizer():
+    """_revelation_discipline_block(''):作者全知章返回空串。"""
+    from scribe3.app import _revelation_discipline_block
+    assert _revelation_discipline_block("") == "", "空焦点者应返回空串"
+
+
+def test_revelation_discipline_block_none_focalizer():
+    """_revelation_discipline_block(None):等同空焦点者,返回空串。"""
+    from scribe3.app import _revelation_discipline_block
+    assert _revelation_discipline_block(None) == "", "None 焦点者应返回空串"
+
+
+# --- M1-② _final_reminder 包含「情感不可直说」 ---
+
+def test_final_reminder_includes_emotion_no_tell():
+    """_final_reminder():应含「情感不可直说」和「show」关键词。"""
+    from scribe3.app import _final_reminder
+    reminder = _final_reminder()
+    assert "情感不可直说" in reminder, f"_final_reminder 应含「情感不可直说」,实际: {reminder}"
+    assert "show" in reminder.lower() or "Show" in reminder, \
+        f"_final_reminder 应含 show(don't tell),实际: {reminder}"
+
+
+# --- M1-③ _revelation_discipline_block 注入 POST /chat/write ---
+
+def test_chat_write_post_focalizer_instructions_contain_revelation_discipline(store, monkeypatch):
+    """POST /chat/write 限知章 instructions 应含揭示纪律块关键词(「限知揭示纪律」)。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).post("/chat/write",
+                        json={"msg": "续写", "chapter": 3, "focalizer": "role:甲"})
+    instr = captured.get("instructions", "")
+    assert "限知揭示纪律" in instr, \
+        f"focalizer 章 POST /chat/write instructions 应含「限知揭示纪律」,前300字: {instr[:300]}"
+
+
+def test_chat_write_post_no_focalizer_no_revelation_discipline(store, monkeypatch):
+    """POST /chat/write 作者全知章(无 focalizer):instructions 不含揭示纪律块。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).post("/chat/write",
+                        json={"msg": "续写", "chapter": 1, "focalizer": ""})
+    instr = captured.get("instructions", "")
+    assert "限知揭示纪律" not in instr, \
+        "无 focalizer 的全知章 instructions 不应注入限知揭示纪律块"
+
+
+# --- M2: /save-chapter QC dict 新增 duplicate_lines / emotion_telling ---
+
+def test_save_chapter_qc_includes_duplicate_lines_and_emotion_telling(store):
+    """/save-chapter 返回 qc 字典应含 duplicate_lines + emotion_telling 两键。"""
+    c = _client(store)
+    # 构造含整行复读 + 情感直说的散文
+    prose = (
+        "他感到恐惧,心中一阵战栗。\n"
+        "他感到恐惧,心中一阵战栗。\n"  # 整行复读
+        "他其实不是个坏人。\n"         # verdict(情感直说)
+        "老道抬头望月。\n"
+    )
+    r = c.post("/save-chapter", json={"seq": 1, "prose": prose, "title": "测试", "focalizer": None})
+    assert r.status_code == 200, f"/save-chapter 应 200: {r.text}"
+    body = r.json()
+    qc = body.get("qc", {})
+    assert "duplicate_lines" in qc, f"qc 应含 duplicate_lines 键,实际 qc: {qc}"
+    assert "emotion_telling" in qc, f"qc 应含 emotion_telling 键,实际 qc: {qc}"
+    # 验证计数非负
+    assert isinstance(qc["duplicate_lines"], int) and qc["duplicate_lines"] >= 0
+    assert isinstance(qc["emotion_telling"], int) and qc["emotion_telling"] >= 0
+
+
+def test_save_chapter_qc_duplicate_lines_detected(store):
+    """/save-chapter:含整行复读的散文 qc.duplicate_lines > 0。"""
+    c = _client(store)
+    dup_line = "这是完全重复的整行内容,字数足够长超过六字。"
+    prose = f"{dup_line}\n{dup_line}\n正常内容行。"
+    r = c.post("/save-chapter", json={"seq": 2, "prose": prose, "title": "复读", "focalizer": None})
+    body = r.json()
+    assert body["qc"]["duplicate_lines"] > 0, \
+        f"含整行复读应检出 duplicate_lines>0,实际: {body['qc']['duplicate_lines']}"
+
+
+def test_save_chapter_qc_emotion_telling_detected(store):
+    """/save-chapter:含叙述层情感直说的散文 qc.emotion_telling > 0。"""
+    c = _client(store)
+    prose = "他感到恐惧,双腿颤抖。老道抬头望月。她感到害怕,不敢出声。"
+    r = c.post("/save-chapter", json={"seq": 3, "prose": prose, "title": "情感直说", "focalizer": None})
+    body = r.json()
+    assert body["qc"]["emotion_telling"] > 0, \
+        f"含情感直说应检出 emotion_telling>0,实际: {body['qc']['emotion_telling']}"
+
+
+# --- M3: /post-check 新增 duplicate_lines / emotion_telling / cross_consistency ---
+
+def test_post_check_includes_new_detector_keys(store):
+    """/post-check 响应应含 duplicate_lines / emotion_telling / cross_consistency 三键。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常的志怪内容。", "focalizer": "", "brief": ""}).json()
+    assert "duplicate_lines" in r, f"/post-check 应含 duplicate_lines 键,实际键: {list(r)}"
+    assert "emotion_telling" in r, f"/post-check 应含 emotion_telling 键,实际键: {list(r)}"
+    assert "cross_consistency" in r, f"/post-check 应含 cross_consistency 键,实际键: {list(r)}"
+
+
+def test_post_check_duplicate_lines_count_positive(store):
+    """/post-check:含整行复读的散文,duplicate_lines 为列表且长度>0。"""
+    dup = "这是整行完全重复的内容足够长超过六字。"
+    prose = f"{dup}\n{dup}\n正常内容。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    dup_lines = r.get("duplicate_lines", [])
+    assert isinstance(dup_lines, list), f"duplicate_lines 应为列表,实际: {type(dup_lines)}"
+    assert len(dup_lines) > 0, f"含整行复读应检出 duplicate_lines>0 条,实际: {dup_lines}"
+
+
+def test_post_check_emotion_telling_count_positive(store):
+    """/post-check:含情感直说的散文,emotion_telling 为列表且长度>0。"""
+    prose = "他感到恐惧,双腿颤抖。她感到害怕,不敢出声。他其实不是个坏人。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    et = r.get("emotion_telling", [])
+    assert isinstance(et, list), f"emotion_telling 应为列表,实际: {type(et)}"
+    assert len(et) > 0, f"含情感直说应检出 emotion_telling>0 条,实际: {et}"
+
+
+def test_post_check_cross_consistency_is_list(store):
+    """/post-check cross_consistency 应为列表(空库或有章时均不崩)。"""
+    store.save_chapter(1, "一段正常内容。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常内容。", "focalizer": "", "brief": ""}).json()
+    cc = r.get("cross_consistency")
+    assert isinstance(cc, list), f"cross_consistency 应为列表,实际: {type(cc)}"
+
+
+def test_post_check_new_detectors_fail_soft(store, monkeypatch):
+    """/post-check:find_duplicate_lines 或 find_emotion_telling 抛异常时 fail-soft,不崩溃,200 返回。"""
+    import scribe3.critique as CQ
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    monkeypatch.setattr(CQ, "find_duplicate_lines",
+                        lambda text, **kw: (_ for _ in ()).throw(RuntimeError("模拟 find_duplicate_lines 崩溃")))
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "测试正文。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"/post-check 新检测器崩溃时应 200,实际: {r.status_code}"

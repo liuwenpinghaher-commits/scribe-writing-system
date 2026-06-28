@@ -1407,12 +1407,30 @@ def _soak_block(seed_words: list[str]) -> str:
     return "\n\n## 情绪种子词(浸泡得出,贴此情绪写)\n" + "、".join(str(w) for w in seed_words)
 
 
+def _revelation_discipline_block(focalizer: str | None) -> str:
+    """限知揭示纪律注入块(M1-①):
+    focalizer 为空/None → 返回空串(作者全知章不加);
+    focalizer 非空 → 返回信息揭示节制纪律块,对抗配角批发真相病。"""
+    if not focalizer:
+        return ""
+    return (
+        f"\n\n## 限知揭示纪律(本章 {focalizer} 限知视角,务必遵守)\n"
+        "- 焦点者的「未知」靠现象、误判、半懂、留白逐步透出:让他看见反常的「果」却猜不到「因」,先存疑,真相延后。\n"
+        "- 在场的知情者**不得**整段向焦点者陈述背景、来历、数字、门派渊源、因果真相——那是「读设定卡」,不是叙事。"
+        "配角要藏话、要欲言又止、要话只说三分。\n"
+        "- 凡涉及焦点者本不知的隐情,宁露冰山一角(一个眼神/一件反常的物/一句没说完的话),不可借旁人之口一次说穿。\n"
+        "- 数字、年份、人数等设定细节除非剧情必须且自然,否则不写进对话。"
+    )
+
+
 def _final_reminder() -> str:
-    """末尾强化提醒(recency 效应):把两条非谈判性约束放在 instructions 最后,
+    """末尾强化提醒(recency 效应):把三条非谈判性约束放在 instructions 最后,
     对抗多块拼接后关键规则被稀释的注意力漂移。不含新信息,仅复述最高优先级约束。"""
     return (
         "\n\n（再次强调:① 动稿必须用 ⟦PROPOSAL scope=...⟧ 围栏包正文;"
-        "② 文风贴乱世铜炉志怪笔记体——古白话、冷笔、世界密度,忌现代翻译腔与用力比喻。）"
+        "② 文风贴乱世铜炉志怪笔记体——古白话、冷笔、世界密度,忌现代翻译腔与用力比喻;"
+        "③ 情感不可直说——禁止用概念词直陈情绪(他感到害怕/她心里很疼/他不是个坏人);"
+        "只写动作、生理反应、物象细节,让情绪自现(show, don't tell)。）"
     )
 
 
@@ -1432,6 +1450,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _arc_state_block(st, req.focalizer, req.chapter)
     instructions += _motif_block(st)
     instructions += _frame_block(st, req.focalizer, req.chapter)
+    instructions += _revelation_discipline_block(req.focalizer)
     instructions += _recap_block(st, req.chapter)
     instructions += _current_tail_block(st, req.chapter)
     instructions += _soak_block(req.seed_words)
@@ -1624,7 +1643,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
-    from scribe3.critique import quality_flags, find_cross_chapter_repetitions
+    from scribe3.critique import quality_flags, find_cross_chapter_repetitions, find_duplicate_lines, find_emotion_telling
     qf = quality_flags(req.prose)
     # 跨章复读:逐章 QC 查不到的"单遍长程生成典型病"(模型跨章复用偏爱措辞)。
     # 比对前文最近 5 章逐字 ≥8 字重叠——把"重复"从'事后逐章删'升级为'跨章可度量'。
@@ -1636,6 +1655,19 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning("cross_repetition 失败 work=%s seq=%s: %s", work, req.seq, e)
+    # M2-①: 整行复读 + 情感直说计数(fail-soft)
+    dup_lines_count = 0
+    try:
+        dup_lines_count = len(find_duplicate_lines(req.prose))
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning("find_duplicate_lines 失败 work=%s seq=%s: %s", work, req.seq, e)
+    emotion_telling_count = 0
+    try:
+        emotion_telling_count = len(find_emotion_telling(req.prose))
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning("find_emotion_telling 失败 work=%s seq=%s: %s", work, req.seq, e)
     leaks, leak_error = None, None
     if req.focalizer:
         try:
@@ -1648,7 +1680,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     background.add_task(_bg_ingest, work, req.seq)
     return {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
-                   "purple": len(qf["purple"]), "cross_repetition": len(cross_rep)},
+                   "purple": len(qf["purple"]), "cross_repetition": len(cross_rep),
+                   "duplicate_lines": dup_lines_count, "emotion_telling": emotion_telling_count},
             "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
             "leaks": leaks, "leak_error": leak_error, "ingesting": True}
 
@@ -1729,9 +1762,10 @@ class PostCheckReq(BaseModel):
 def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
     不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。
-    F-05: 新增顶层 issues 列表(带 range),兼容旧 quality/leaks 字段。"""
+    F-05: 新增顶层 issues 列表(带 range),兼容旧 quality/leaks 字段。
+    M2-②: 新增 duplicate_lines/emotion_telling(B/C 检测器)+ cross_consistency(跨章矛盾)。"""
     import logging
-    from scribe3.critique import quality_flags, quality_issues, discipline_truncate
+    from scribe3.critique import quality_flags, quality_issues, discipline_truncate, find_duplicate_lines, find_emotion_telling
     st = _store_for(work)
 
     # 1. 确定性五类 QC
@@ -1827,6 +1861,31 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "meta": {"entity": hint.get("entity"), "severity": hint.get("severity")},
         })
 
+    # M2-②: 接线 B/C 检测器 + 跨章矛盾(fail-soft;异常不阻断,记 degraded_stages)
+    dup_lines: list[dict] = []
+    try:
+        dup_lines = find_duplicate_lines(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_duplicate_lines 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_duplicate_lines")
+
+    emotion_telling: list[dict] = []
+    try:
+        emotion_telling = find_emotion_telling(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_emotion_telling 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_emotion_telling")
+
+    cross_consistency: list[dict] = []
+    try:
+        cross_consistency = st.validate_cross_chapter_consistency()
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check validate_cross_chapter_consistency 失败: %s", e)
+        degraded = True
+        degraded_stages.append("validate_cross_chapter_consistency")
+
     return {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
@@ -1836,6 +1895,9 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "degraded_stages": degraded_stages,
         "setting": setting,
         "issues": issues,
+        "duplicate_lines": dup_lines,
+        "emotion_telling": emotion_telling,
+        "cross_consistency": cross_consistency,
     }
 
 
