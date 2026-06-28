@@ -56,6 +56,7 @@ export const api = {
   quality: () => j('/quality'),
   intent: () => j('/intent'),
   putIntent: (b) => put('/intent', b),
+  progress: () => j('/progress'),
 
   // 设定库增删改
   addChar: (b) => post('/characters', b),

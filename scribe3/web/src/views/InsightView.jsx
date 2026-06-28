@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff } from 'lucide-react'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
+import { useEffect, useRef, useState } from 'react'
+import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff, Pencil, Flame, Trophy, TrendingUp } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
 
+// ── 通用 Metric 卡 ──────────────────────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   const c = { brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
   return (
@@ -15,7 +16,7 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   )
 }
 
-// 单条伏笔卡片。overdue 红边高亮;payoff 章显示;裸 int 章号经 chapterLabel 友好化。
+// ── 伏笔相关 ────────────────────────────────────────────────────────────────
 function PromiseCard({ p }) {
   const overdue = p.overdue
   return (
@@ -82,22 +83,239 @@ function PromiseLedger() {
   )
 }
 
+// ── 编辑目标 Modal ───────────────────────────────────────────────────────────
+function GoalDialog({ open, intent, onClose, onSaved }) {
+  const [totalGoal, setTotalGoal] = useState('')
+  const [dailyGoal, setDailyGoal] = useState('')
+  const [saving, setSaving] = useState(false)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (open) {
+      setTotalGoal(intent?.total_word_goal ?? '')
+      setDailyGoal(intent?.daily_word_goal ?? '')
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+  }, [open, intent])
+
+  if (!open) return null
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const body = { ...(intent || {}) }
+      if (totalGoal !== '' && totalGoal !== null) body.total_word_goal = Number(totalGoal)
+      if (dailyGoal !== '' && dailyGoal !== null) body.daily_word_goal = Number(dailyGoal)
+      await api.putIntent(body)
+      onSaved()
+      onClose()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-surface border border-line rounded-2xl p-6 w-80 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="text-[15px] font-semibold text-ink mb-4">编辑写作目标</div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] text-faint uppercase tracking-wider block mb-1">整稿目标(字)</label>
+            <input ref={inputRef} type="number" min={0} value={totalGoal} onChange={(e) => setTotalGoal(e.target.value)}
+              placeholder="例: 100000"
+              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-[14px] text-ink outline-none focus:border-brand" />
+          </div>
+          <div>
+            <label className="text-[11px] text-faint uppercase tracking-wider block mb-1">每日目标(字,可空)</label>
+            <input type="number" min={0} value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value)}
+              placeholder="例: 2000(可不填)"
+              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-[14px] text-ink outline-none focus:border-brand" />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5 justify-end">
+          <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-[13px] text-faint hover:bg-soft transition-colors">取消</button>
+          <button onClick={save} disabled={saving}
+            className="px-4 py-1.5 rounded-lg text-[13px] bg-brand text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+            {saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 码字进度面板 ─────────────────────────────────────────────────────────────
+function ProgressPanel({ onGoalEdit }) {
+  const [prog, setProg] = useState(null)
+  useEffect(() => { api.progress().then(setProg).catch(() => setProg(null)) }, [])
+
+  const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
+
+  if (!prog) return (
+    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+      <div className="text-[12px] text-faint">进度数据加载中…</div>
+    </div>
+  )
+
+  const totalGoal = prog.total_word_goal ?? 100000
+  const dailyGoal = prog.daily_word_goal ?? null
+  const totalWords = prog.total_words ?? 0
+  const todayWords = prog.today_words ?? 0
+  const totalPct = Math.min(100, Math.round((totalWords / totalGoal) * 100))
+  const dailyPct = dailyGoal ? Math.min(120, Math.round((todayWords / dailyGoal) * 100)) : null
+  const dailyMet = dailyGoal ? todayWords >= dailyGoal : null
+
+  // 整稿进度条颜色:< 50% 品牌蓝,< 100% 黛绿,>= 100% 金
+  const totalBarColor = totalPct >= 100 ? '#f59e0b' : totalPct >= 50 ? '#16a34a' : 'var(--color-brand)'
+  const dailyBarColor = dailyMet ? '#16a34a' : 'var(--color-brand)'
+
+  const daily = prog.daily || []
+
+  return (
+    <div className="rounded-xl border border-line bg-surface p-5 mb-6">
+      {/* 标题行 */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <TrendingUp size={15} className="text-brand" />
+          <span className="text-[14px] font-semibold text-ink">码字进度</span>
+        </div>
+        <button onClick={onGoalEdit}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer">
+          <Pencil size={11} />编辑目标
+        </button>
+      </div>
+
+      {/* 荣誉位:今日 + streak */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+          <div className="text-[11px] text-faint mb-0.5">今日码字</div>
+          <div className={`text-[22px] font-semibold tnum ${dailyMet ? 'text-ok' : 'text-ink'}`}>
+            +{todayWords.toLocaleString()}
+          </div>
+          {dailyGoal && (
+            <div className={`text-[10px] mt-0.5 ${dailyMet ? 'text-ok' : 'text-faint'}`}>
+              {dailyMet ? '✓ 今日达标' : `目标 ${dailyGoal.toLocaleString()}`}
+            </div>
+          )}
+        </div>
+        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+          <div className="flex items-center justify-center gap-1 text-[11px] text-faint mb-0.5">
+            <Flame size={11} />当前连胜
+          </div>
+          <div className="text-[22px] font-semibold tnum text-fore">{prog.current_streak}</div>
+          <div className="text-[10px] text-faint mt-0.5">天</div>
+        </div>
+        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+          <div className="flex items-center justify-center gap-1 text-[11px] text-faint mb-0.5">
+            <Trophy size={11} />最长连胜
+          </div>
+          <div className="text-[22px] font-semibold tnum text-fore">{prog.longest_streak}</div>
+          <div className="text-[10px] text-faint mt-0.5">天</div>
+        </div>
+      </div>
+
+      {/* 整稿进度条 */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-1.5 text-[12px]">
+          <span className="text-faint">整稿进度</span>
+          <span className="tnum text-ink font-medium">{totalWords.toLocaleString()} / {totalGoal.toLocaleString()} 字 · {totalPct}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-soft overflow-hidden">
+          <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, totalPct) + '%', background: totalBarColor }} />
+        </div>
+        {totalPct >= 100 && <div className="text-[10px] text-[#f59e0b] mt-1">整稿目标达成！</div>}
+      </div>
+
+      {/* 每日目标进度条(设了才显示) */}
+      {dailyGoal && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1.5 text-[12px]">
+            <span className="text-faint">今日进度</span>
+            <span className={`tnum font-medium ${dailyMet ? 'text-ok' : 'text-ink'}`}>
+              {todayWords.toLocaleString()} / {dailyGoal.toLocaleString()} 字 · {dailyPct}%
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-soft overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, dailyPct) + '%', background: dailyBarColor }} />
+          </div>
+        </div>
+      )}
+
+      {/* 图表:每日字数 + 累计曲线 */}
+      {daily.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-2">
+          <div>
+            <div className="text-[11px] text-faint mb-2">每日字数</div>
+            <ResponsiveContainer width="100%" height={140}>
+              <BarChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--color-faint)' }}
+                  tickFormatter={(d) => d.slice(5)} />
+                <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} allowDecimals={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString() + ' 字', '当日']} />
+                {dailyGoal && <ReferenceLine y={dailyGoal} stroke="#16a34a" strokeDasharray="3 3" strokeWidth={1} />}
+                <Bar dataKey="words" name="字数" radius={[3, 3, 0, 0]} fill="var(--color-brand)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div>
+            <div className="text-[11px] text-faint mb-2">累计推进</div>
+            <ResponsiveContainer width="100%" height={140}>
+              <AreaChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--color-faint)' }}
+                  tickFormatter={(d) => d.slice(5)} />
+                <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString() + ' 字', '累计']} />
+                {totalGoal && <ReferenceLine y={totalGoal} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1} />}
+                <Area type="monotone" dataKey="cumulative" name="累计" stroke="var(--color-brand)"
+                  fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 主视图 ───────────────────────────────────────────────────────────────────
 export function InsightView() {
   const [q, setQ] = useState(null)
+  const [intent, setIntent] = useState(null)
+  const [goalOpen, setGoalOpen] = useState(false)
+  const [progressKey, setProgressKey] = useState(0)
+
   useEffect(() => { api.quality().then(setQ) }, [])
+  useEffect(() => { api.intent().then(setIntent).catch(() => setIntent({})) }, [])
+
   if (!q) return <div className="p-8 text-faint">加载中…</div>
 
   const chs = q.chapters || []
   const weak = [...chs].filter((c) => c.qc_issues > 0 || c.causal > 0).sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal))
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
+  const totalGoal = intent?.total_word_goal ?? 100000
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-5xl mx-auto px-8 py-8">
         <div className="flex items-center gap-2 mb-6"><Activity size={18} className="text-brand" /><h1 className="text-[22px] font-semibold prose-serif text-ink">质量仪表盘</h1></div>
 
+        <GoalDialog
+          open={goalOpen}
+          intent={intent}
+          onClose={() => setGoalOpen(false)}
+          onSaved={() => {
+            api.intent().then(setIntent)
+            setProgressKey((k) => k + 1)
+          }}
+        />
+
+        <ProgressPanel key={progressKey} onGoalEdit={() => setGoalOpen(true)} />
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          <Metric icon={FileText} label="规模" value={q.total_words?.toLocaleString() || 0} sub={`${chs.length} 章 · 目标 10 万字`} />
+          <Metric icon={FileText} label="规模" value={q.total_words?.toLocaleString() || 0}
+            sub={`${chs.length} 章 · 目标 ${totalGoal.toLocaleString()} 字`} />
           <Metric icon={Bookmark} label="伏笔" value={q.foreshadow?.open ?? 0} sub={`未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
           <Metric icon={ShieldAlert} label="伏笔超期" value={q.foreshadow?.overdue ?? 0} sub="埋下 >3 章未回收" tone={q.foreshadow?.overdue ? 'danger' : 'ok'} />
           <Metric icon={Activity} label="质检问题" value={chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub="确定性 QC + 因果" tone="danger" />

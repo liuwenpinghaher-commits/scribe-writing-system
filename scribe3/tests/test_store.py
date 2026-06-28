@@ -468,3 +468,114 @@ def test_fold_voice_flags_degraded_on_bad_json(store):
     assert profile is not None, "profile 应仍然存在"
     assert profile["style_summary"] == "原样", \
         f"坏 JSON 时 profile 不应被修改,实际: {profile['style_summary']}"
+
+
+# ── F-04 · 进度统计与码字激励 ────────────────────────────────────────────────
+
+def test_daily_progress_table_exists(store):
+    """迁移后 daily_progress 表存在且 SCHEMAFULL 字段正常写入。"""
+    store._execute_write(
+        "UPSERT type::record('daily_progress', '2026-01-01') SET "
+        "date='2026-01-01', words_written=100, words_total=100, "
+        "chapters_touched=[1], save_count=1, updated_at=time::now()", {})
+    rows = store._query("SELECT date, words_written FROM daily_progress WHERE date='2026-01-01'")
+    assert rows and rows[0]["words_written"] == 100
+
+
+def test_save_chapter_records_daily_delta(store):
+    """save_chapter 后 daily_progress 当日行正确累加。"""
+    today = "2099-01-01"   # 固定日期避免与真实日混淆
+    # 第一章 ~1000 字(用较长字符串,口径: len("".join(prose.split())))
+    prose1 = "甲" * 1000
+    store.save_chapter(1, prose1, title="一", _today=today)
+    rows = store._query("SELECT words_written, words_total, save_count, chapters_touched "
+                        "FROM daily_progress WHERE date=$d", {"d": today})
+    assert rows, "save_chapter 后应有当日 daily_progress 行"
+    r = rows[0]
+    assert r["words_written"] == 1000, f"words_written={r['words_written']} 期望 1000"
+    assert r["words_total"] == 1000
+    assert r["save_count"] == 1
+    assert 1 in r["chapters_touched"]
+
+    # 同日再存第 2 章 800 字 → 累加
+    prose2 = "乙" * 800
+    store.save_chapter(2, prose2, title="二", _today=today)
+    rows2 = store._query("SELECT words_written, words_total, save_count, chapters_touched "
+                         "FROM daily_progress WHERE date=$d", {"d": today})
+    r2 = rows2[0]
+    assert r2["words_written"] == 1800, f"两章后 words_written={r2['words_written']} 期望 1800"
+    assert r2["words_total"] == 1800
+    assert r2["save_count"] == 2
+    assert 1 in r2["chapters_touched"] and 2 in r2["chapters_touched"]
+
+
+def test_daily_progress_negative_delta(store):
+    """把某章改短 → 当日 words_written 反映净减。"""
+    today = "2099-01-02"
+    store.save_chapter(1, "甲" * 1000, title="一", _today=today)
+    # 改短为 600 字
+    store.save_chapter(1, "甲" * 600, title="一", _today=today)
+    rows = store._query("SELECT words_written FROM daily_progress WHERE date=$d", {"d": today})
+    # delta 第一次 +1000, 第二次 -400(600-1000) → 累计 600
+    assert rows[0]["words_written"] == 600
+
+
+def test_record_daily_progress_failsoft(store, monkeypatch):
+    """记账内部异常时 save_chapter 主写仍成功落库(fail-soft)。"""
+    original = store._record_daily_progress
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("模拟记账炸了")
+
+    monkeypatch.setattr(store, "_record_daily_progress", boom)
+    # 即使记账方法炸了,章节仍应成功落库
+    store.save_chapter(1, "正文内容", title="测")
+    ch = store.get_chapter(1)
+    assert ch is not None and ch.get("prose") == "正文内容", \
+        "记账异常不应阻断 save_chapter"
+
+
+def test_intent_word_goals_roundtrip(store):
+    """set_intent 写入 total_word_goal/daily_word_goal 后 get_intent 回读一致。"""
+    store.set_intent({"reader_feeling": "沉浸", "total_word_goal": 100000, "daily_word_goal": 2000})
+    got = store.get_intent()
+    assert got["total_word_goal"] == 100000
+    assert got["daily_word_goal"] == 2000
+
+    # 不设时键不存在不报错
+    store.set_intent({"reader_feeling": "平静"})
+    got2 = store.get_intent()
+    assert "total_word_goal" not in got2 or got2.get("total_word_goal") is None
+
+
+def test_progress_returns_correct_structure(store):
+    """progress() 返回结构含必要键,且 total_words 与 stats 一致。"""
+    today = "2099-01-03"
+    store.save_chapter(1, "甲" * 500, title="一", _today=today)
+    p = store.progress(today=today)
+    assert "today" in p and "total_words" in p and "daily" in p
+    assert p["total_words"] == store.stats()["word_count"], "total_words 口径须与 stats 一致"
+    assert len(p["daily"]) >= 1
+    assert p["daily"][0]["words"] == 500
+
+
+def test_progress_streak(store):
+    """两天连续达标 → current_streak=2;断一天后 → current=0 from today。"""
+    from scribe3.store import _compute_streaks
+    rows = [
+        {"date": "2099-02-01", "words_written": 1000},
+        {"date": "2099-02-02", "words_written": 1000},
+        # 2099-02-03 缺失(断)
+        {"date": "2099-02-04", "words_written": 1000},
+    ]
+    cur, longest = _compute_streaks(rows, "2099-02-04", daily_goal=None)
+    assert cur == 1, f"断后 current_streak 应=1,实际={cur}"
+    assert longest == 2, f"最长连续段应=2,实际={longest}"
+
+    # 今天还没写(today=2099-02-05),从昨天算
+    cur2, _ = _compute_streaks(rows, "2099-02-05", daily_goal=None)
+    assert cur2 == 1, "today 无写入时从前一天起算"
+
+    # daily_goal=2000,某天 1000 不达标 → 不计入 streak
+    cur3, long3 = _compute_streaks(rows, "2099-02-04", daily_goal=2000)
+    assert cur3 == 0 and long3 == 0, "低于 daily_goal 不达标"

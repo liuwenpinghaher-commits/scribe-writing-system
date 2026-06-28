@@ -1604,3 +1604,40 @@ def test_timeline_endpoint_sorted_by_chapter(store):
     items = c.get("/timeline").json()["items"]
     chapters = [i["chapter"] for i in items]
     assert chapters == sorted(chapters), f"items 未按章排序: {chapters}"
+
+
+# ── F-04 · 进度统计与码字激励 ────────────────────────────────────────────────
+
+def test_progress_endpoint_basic(store):
+    """/progress 端点:存一章后 today_words 有值、结构完整。"""
+    today = "2099-03-01"
+    store.save_chapter(1, "甲" * 600, title="一", _today=today)
+    c = _client(store)
+    r = c.get("/progress")
+    assert r.status_code == 200
+    body = r.json()
+    for key in ("today", "total_words", "daily", "current_streak", "longest_streak", "heatmap"):
+        assert key in body, f"响应缺少键 {key}"
+    # total_words 口径须与 /quality.total_words 一致
+    q = c.get("/quality").json()
+    assert body["total_words"] == q["total_words"], "progress.total_words 与 quality.total_words 不一致"
+
+
+def test_progress_with_goal(store):
+    """/progress:设了 intent goal 后响应回传目标字段。"""
+    store.set_intent({"total_word_goal": 50000, "daily_word_goal": 1000})
+    today = "2099-03-02"
+    store.save_chapter(1, "乙" * 500, title="一", _today=today)
+    c = _client(store)
+    body = c.get("/progress").json()
+    assert body["total_word_goal"] == 50000
+    assert body["daily_word_goal"] == 1000
+
+
+def test_intent_goal_roundtrip_via_api(store):
+    """PUT /intent 写入 goal → GET /intent 回读一致。"""
+    c = _client(store)
+    c.put("/intent", json={"reader_feeling": "沉浸", "total_word_goal": 80000, "daily_word_goal": 2000})
+    got = c.get("/intent").json()
+    assert got["total_word_goal"] == 80000
+    assert got["daily_word_goal"] == 2000

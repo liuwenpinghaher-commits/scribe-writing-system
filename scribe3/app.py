@@ -130,7 +130,12 @@ def works():
     out = []
     for w in list_works():
         try:
-            st = _store_for(w["slug"]).stats()
+            store = _store_for(w["slug"])
+            st = store.stats()
+            intent = store.get_intent()
+            # 携带 total_word_goal 供书卡进度条使用;None 时前端回退 100000
+            if intent.get("total_word_goal") is not None:
+                st["total_word_goal"] = intent["total_word_goal"]
         except Exception:
             st = {"chapter_count": 0, "word_count": 0}
         out.append({**w, **st})
@@ -698,12 +703,21 @@ class IntentIn(BaseModel):
     reader_feeling: str = ""
     emotional_arc: str = ""
     red_lines: str = ""
+    overdue_threshold: int | None = None
+    total_word_goal: int | None = None   # 整稿目标字数;None → 前端回退默认 100000
+    daily_word_goal: int | None = None   # 每日目标字数;None → 不显示每日进度
 
 
 @app.put("/intent")
 def put_intent(i: IntentIn, work: str = "main"):
     _store_for(work).set_intent(i.model_dump())
     return {"ok": True}
+
+
+@app.get("/progress")
+def get_progress(work: str = "main"):
+    """日字数序列 + 累计曲线 + streak + 目标完成度(只读,数据源 daily_progress 表)。"""
+    return _store_for(work).progress()
 
 
 def _editor_system(st) -> str:

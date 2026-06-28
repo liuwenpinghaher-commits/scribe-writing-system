@@ -163,6 +163,52 @@ def _overdue_flag(p: dict, max_chapter: int, slack: int) -> bool:
                 and setup + slack < max_chapter)
 
 
+def _compute_streaks(rows: list[dict], today: str, daily_goal: int | None) -> tuple[int, int]:
+    """纯函数:从 daily_progress 行列表计算 (current_streak, longest_streak)。
+    rows 须按 date 升序排列(store.progress 已保证)。
+    达标判定:设了 daily_goal 则 words_written >= daily_goal;否则 words_written > 0。
+    current_streak:从 today 往回数连续达标天数;today 未写入时从前一天起算(容忍今天才开始写)。
+    longest_streak:扫全部记录的最长连续达标自然日段。
+    """
+    from datetime import date as _date, timedelta as _td
+    threshold = daily_goal if daily_goal is not None else 1
+    met: set[_date] = {
+        _date.fromisoformat(r["date"])
+        for r in rows
+        if (r.get("words_written") or 0) >= threshold
+    }
+    if not met:
+        return 0, 0
+
+    # current_streak:从 today(或 today-1)往回连续计数
+    try:
+        pivot = _date.fromisoformat(today)
+    except ValueError:
+        pivot = _date.today()
+    # 若 today 未达标/未写,从 yesterday 起算(容忍当日还没写)
+    if pivot not in met:
+        pivot = pivot - _td(days=1)
+    cur = 0
+    d = pivot
+    while d in met:
+        cur += 1
+        d -= _td(days=1)
+
+    # longest_streak:扫全部 met 集合
+    longest = 0
+    streak = 0
+    sorted_met = sorted(met)
+    for i, d in enumerate(sorted_met):
+        if i == 0 or d - sorted_met[i - 1] != _td(days=1):
+            streak = 1
+        else:
+            streak += 1
+        if streak > longest:
+            longest = streak
+
+    return cur, longest
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -865,8 +911,10 @@ class SurrealStore:
         }
 
     # --- 章节正文(manuscript)---
-    def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None) -> None:
-        """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。"""
+    def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None,
+                     _today: str | None = None) -> None:
+        """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
+        _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。"""
         text_for_embed = f"{title} {prose[:200]}".strip()
         from scribe3.embed import embed
         vec = embed([text_for_embed])[0]
@@ -875,6 +923,12 @@ class SurrealStore:
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc})
+        # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
+        try:
+            self._record_daily_progress(seq, today=_today)
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "_record_daily_progress 失败(记账跳过,存稿不受影响): %s", _e)
 
     def add_chapter_version(self, seq: int, prose: str, label: str = "",
                             kind: str = "checkpoint", qc: dict | None = None) -> str:
@@ -941,16 +995,77 @@ class SurrealStore:
         r = rows[0] if rows else {"chapter_count": 0, "word_count": 0}
         return {"chapter_count": r.get("chapter_count", 0), "word_count": r.get("word_count", 0)}
 
+    # --- 每日码字账 ---
+    def _record_daily_progress(self, seq: int, today: str | None = None) -> None:
+        """把本次 save_chapter 的净增字数累加进今日 daily_progress 行。
+        注意:此方法本身不做 fail-soft 包裹(调用者 save_chapter 负责捕获)。
+        delta = 落库后全书总字数 - 上次记账的 words_total(最近一行)。
+        record id 格式 daily_progress:<YYYY-MM-DD>,字典序即日期序;
+        `date` 是 SurrealDB 保留字,ORDER BY 用 id 替代。
+        """
+        import time as _time
+        today = today or _time.strftime("%Y-%m-%d")
+        new_total = self.stats().get("word_count", 0)
+        # `date` 是 SurrealDB 保留字,ORDER BY 须用别名;字典序即日期降序
+        rows = self._query(
+            "SELECT date AS dp_date, words_total FROM daily_progress ORDER BY dp_date DESC LIMIT 1")
+        # 用最近一行(任意日)的 words_total 作 prev,delta = 全书净增
+        prev_total = rows[0]["words_total"] if rows else 0
+        delta = new_total - prev_total
+        self._execute_write(
+            "UPSERT type::record('daily_progress', $d) SET "
+            "date=$d, "
+            "words_written = (IF words_written THEN words_written + $delta ELSE $delta END), "
+            "words_total=$total, "
+            "save_count = (IF save_count THEN save_count + 1 ELSE 1 END), "
+            "chapters_touched = array::distinct((IF chapters_touched THEN chapters_touched ELSE [] END) + [$seq]), "
+            "updated_at=time::now()",
+            {"d": today, "delta": delta, "total": new_total, "seq": seq})
+
+    def progress(self, today: str | None = None) -> dict:
+        """日字数序列 + 累计曲线 + 目标完成度。读 daily_progress + intent,纯聚合。"""
+        import time as _time
+        today = today or _time.strftime("%Y-%m-%d")
+        # `date` 是 SurrealDB 保留字,ORDER BY 须用别名;字典序即日期升序
+        rows = self._query(
+            "SELECT date AS dp_date, words_written, words_total FROM daily_progress ORDER BY dp_date")
+        intent = self.get_intent()
+        total_goal = intent.get("total_word_goal")       # None → 前端回退 100000
+        daily_goal = intent.get("daily_word_goal")       # None → 不显每日目标
+        total_words = self.stats().get("word_count", 0)
+        # 把 dp_date 别名统一为 date 键(供 _compute_streaks 纯函数和输出共用)
+        normalized = [{"date": r["dp_date"], "words_written": r["words_written"],
+                       "words_total": r["words_total"]} for r in rows]
+        cur_streak, longest_streak = _compute_streaks(normalized, today, daily_goal)
+        today_words = next((r["words_written"] for r in normalized if r["date"] == today), 0)
+        return {
+            "today": today,
+            "total_words": total_words,
+            "total_word_goal": total_goal,
+            "daily_word_goal": daily_goal,
+            "today_words": today_words,
+            "daily": [{"date": r["date"], "words": r["words_written"],
+                       "cumulative": r["words_total"]} for r in normalized],
+            "current_streak": cur_streak,
+            "longest_streak": longest_streak,
+            "heatmap": [{"date": r["date"], "words": r["words_written"]} for r in normalized],
+        }
+
     # --- 北极星(作品意图,单例)---
     def get_intent(self) -> dict:
         rows = self._query(
-            "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold FROM intent:main")
+            "SELECT reader_feeling, emotional_arc, red_lines, overdue_threshold, "
+            "total_word_goal, daily_word_goal FROM intent:main")
         r = rows[0] if rows else {}
         result = {"reader_feeling": r.get("reader_feeling", ""),
                   "emotional_arc": r.get("emotional_arc", ""),
                   "red_lines": r.get("red_lines", "")}
         if r.get("overdue_threshold") is not None:
             result["overdue_threshold"] = r["overdue_threshold"]
+        if r.get("total_word_goal") is not None:
+            result["total_word_goal"] = r["total_word_goal"]
+        if r.get("daily_word_goal") is not None:
+            result["daily_word_goal"] = r["daily_word_goal"]
         return result
 
     def set_intent(self, fields: dict) -> None:
@@ -961,6 +1076,10 @@ class SurrealStore:
         }
         if fields.get("overdue_threshold") is not None:
             content["overdue_threshold"] = fields["overdue_threshold"]
+        if fields.get("total_word_goal") is not None:
+            content["total_word_goal"] = int(fields["total_word_goal"])
+        if fields.get("daily_word_goal") is not None:
+            content["daily_word_goal"] = int(fields["daily_word_goal"])
         self._execute_write("UPSERT intent:main CONTENT $c", {"c": content})
 
     def graph(self, chapter: int | None = None) -> dict:

@@ -49,7 +49,8 @@ export function Library({ works, reload, onSelect }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {list.map((w) => {
             const words = w.word_count ?? 0
-            const pct = Math.min(100, Math.round((words / 100000) * 100))
+            const goal = w.total_word_goal ?? 100000  // /works 携带真目标;无则回退默认值
+            const pct = Math.min(100, Math.round((words / goal) * 100))
             return (
               <button key={w.slug} onClick={() => onSelect(w)}
                 className="group relative text-left rounded-xl border border-line bg-surface p-4 hover:border-brand/50 hover:shadow-sm transition-all cursor-pointer flex flex-col gap-2.5 min-h-[124px]">
@@ -68,7 +69,7 @@ export function Library({ works, reload, onSelect }) {
                   <div className="h-1.5 rounded-full bg-soft overflow-hidden">
                     <div className="h-full bg-brand rounded-full transition-all" style={{ width: pct + '%' }} />
                   </div>
-                  <div className="text-[10px] text-faint mt-1 tnum">约 {pct}% · 目标 10 万字</div>
+                  <div className="text-[10px] text-faint mt-1 tnum">约 {pct}% · 目标 {(goal / 10000).toLocaleString()} 万字</div>
                 </div>
               </button>
             )
