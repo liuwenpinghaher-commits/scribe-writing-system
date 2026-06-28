@@ -41,7 +41,6 @@ function pickRow(nodeType, rows, ref) {
 
 async function persist(detailType, updated) {
   if (detailType === 'chars') await api.editChar(localOf(updated), updated)
-  else if (detailType === 'facts') await api.editFact(localOf(updated), updated)
   else if (detailType === 'rules') await api.post('/world-rules', updated)
   else if (detailType === 'factions') await api.post('/factions', updated)
   else if (detailType === 'items') await api.post('/items', updated)
@@ -52,7 +51,6 @@ async function persist(detailType, updated) {
 
 async function remove(detailType, row) {
   if (detailType === 'chars') await api.delChar(localOf(row))
-  else if (detailType === 'facts') await api.delFact(localOf(row))
   else if (detailType === 'rules') await api.del(`/world-rules?name=${encodeURIComponent(row.name)}`)
   else if (detailType === 'factions') await api.del(`/factions?name=${encodeURIComponent(row.name)}`)
   else if (detailType === 'items') await api.del(`/items?name=${encodeURIComponent(row.name)}`)

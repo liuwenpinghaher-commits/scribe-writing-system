@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
 import { DetailPane } from './DetailPane'
@@ -30,12 +30,25 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [lw, setLw] = useNumPref('s3.binder.lw', 264)
   const initedRef = useRef(false)
 
-  const reload = () => api.projectTree().then((t) => {
+  const reload = useCallback(() => api.projectTree().then((t) => {
     setTree(t)
     if (!initedRef.current) { setExpanded(defaultExpanded(t)); initedRef.current = true }
-  }).catch(() => {})
+  }).catch(() => {}), [])
 
   useEffect(() => { initedRef.current = false; reload() }, [work])
+
+  // live SSE:别处改数据后服务端推事件 → 防抖 600ms 重拉项目树,保持树/大纲不 stale。
+  useEffect(() => {
+    let timer = null
+    const es = api.live(() => {
+      clearTimeout(timer)
+      timer = setTimeout(reload, 600)
+    })
+    return () => {
+      clearTimeout(timer)
+      es.close()
+    }
+  }, [reload])
 
   const toggle = (id) => setExpanded((prev) => {
     const n = new Set(prev)
