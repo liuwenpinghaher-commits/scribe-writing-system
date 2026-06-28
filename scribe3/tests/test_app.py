@@ -1518,6 +1518,84 @@ def test_advance_then_ledger_reflects_closed(store):
     assert cl["span"] == 3  # payoff(4) - setup(1)
 
 
+# ==== 完整期 B: clues 中途线索端点 ====
+
+def test_add_clue_and_ledger_contains_it(store):
+    """POST /promises/{pid}/clues 加线索后 ledger 每条含 clues 列表。"""
+    store.plant_promise("铜炉会反噬", setup_chapter=1, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "铜炉" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "炉壁渗出血色铜锈", "chapter": 4})
+    assert r.status_code == 200, f"加线索失败: {r.text}"
+    led = c.get("/promises/ledger").json()
+    p_led = next(x for x in led["open"] if "铜炉" in x["text"])
+    assert p_led["clues"], "ledger 中 promise 应含 clues"
+    assert p_led["clues"][0]["note"] == "炉壁渗出血色铜锈"
+    assert p_led["clues"][0]["chapter"] == 4
+
+
+def test_clues_sorted_by_chapter(store):
+    """多条线索按 chapter 升序排列(草蛇灰线时序)。"""
+    store.plant_promise("祭炉秘法", setup_chapter=1, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "祭炉" in p["text"])
+    c = _client(store)
+    # 故意乱序写入
+    c.post(f"/promises/{pid}/clues", json={"note": "第7章线索", "chapter": 7})
+    c.post(f"/promises/{pid}/clues", json={"note": "第3章线索", "chapter": 3})
+    c.post(f"/promises/{pid}/clues", json={"note": "第5章线索", "chapter": 5})
+    led = c.get("/promises/ledger").json()
+    p_led = next(x for x in led["open"] if "祭炉" in x["text"])
+    chapters = [cl["chapter"] for cl in p_led["clues"]]
+    assert chapters == sorted(chapters), f"clues 应按 chapter 升序,实际: {chapters}"
+
+
+def test_remove_clue_endpoint(store):
+    """DELETE /promises/{pid}/clues/{idx} 删除指定下标线索。"""
+    store.plant_promise("镇煞钉秘密", setup_chapter=2, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "镇煞钉" in p["text"])
+    c = _client(store)
+    c.post(f"/promises/{pid}/clues", json={"note": "线索甲", "chapter": 3})
+    c.post(f"/promises/{pid}/clues", json={"note": "线索乙", "chapter": 5})
+    # 删 idx=0(线索甲)
+    r = c.delete(f"/promises/{pid}/clues/0")
+    assert r.status_code == 200, f"删线索失败: {r.text}"
+    proms = store.list_promises()
+    p = next(x for x in proms if "镇煞钉" in x["text"])
+    assert len(p["clues"]) == 1
+    assert p["clues"][0]["note"] == "线索乙"
+
+
+def test_remove_clue_out_of_range_422(store):
+    """DELETE /promises/{pid}/clues/{idx} 下标越界返回 422。"""
+    store.plant_promise("越界测试伏笔", setup_chapter=1, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "越界" in p["text"])
+    c = _client(store)
+    r = c.delete(f"/promises/{pid}/clues/99")
+    assert r.status_code == 422, f"越界应 422,实际 {r.status_code}"
+
+
+def test_ledger_clues_empty_list_no_crash(store):
+    """未加任何线索时 ledger 中 clues 为空列表而非 None(兼容旧库)。"""
+    store.plant_promise("无线索伏笔", setup_chapter=1, kind="promise")
+    led = _client(store).get("/promises/ledger").json()
+    p_led = next(x for x in led["open"] if "无线索" in x["text"])
+    assert p_led["clues"] == [], f"clues 应为 []: {p_led['clues']}"
+
+
+def test_clue_in_closed_promise_ledger(store):
+    """已回收 promise 的 clues 也能在 ledger closed 栏中看到。"""
+    from scribe3.ontology import Event
+    store.plant_promise("草蛇灰线已收伏笔", setup_chapter=1, kind="promise")
+    store.add_event(Event("ev:clue_closed", "action", story_time=8))
+    pid = next(p["id"] for p in store.list_promises() if "草蛇灰线" in p["text"])
+    c = _client(store)
+    c.post(f"/promises/{pid}/clues", json={"note": "中途提醒", "chapter": 4})
+    c.post(f"/promises/{pid}/advance", json={"payoff_chapter": 7})
+    led = c.get("/promises/ledger").json()
+    cl = next(x for x in led["closed"] if "草蛇灰线" in x["text"])
+    assert cl["clues"] == [{"chapter": 4, "note": "中途提醒"}]
+
+
 # ==== F-05: /check 和 /post-check 返回带 range 的 issues ====
 
 def test_check_returns_issues_with_range(store):

@@ -439,6 +439,31 @@ def mark_herring(pid: str, work: str = "main"):
     return {"ok": True}
 
 
+class ClueIn(BaseModel):
+    note: str
+    chapter: int
+
+
+@app.post("/promises/{pid}/clues")
+def add_promise_clue(pid: str, body: ClueIn, work: str = "main"):
+    """追加草蛇灰线中途线索到某条伏笔。body:{note, chapter}。"""
+    try:
+        _store_for(work).add_promise_clue(pid, body.note, body.chapter)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
+@app.delete("/promises/{pid}/clues/{idx}")
+def remove_promise_clue(pid: str, idx: int, work: str = "main"):
+    """按下标(0-based)删除某条伏笔的线索。"""
+    try:
+        _store_for(work).remove_promise_clue(pid, idx)
+    except (ValueError, IndexError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
 # ===== 世界规则 + 势力(设定完整性)=====
 class RuleIn(BaseModel):
     name: str

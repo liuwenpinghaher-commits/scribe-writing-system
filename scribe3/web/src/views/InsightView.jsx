@@ -18,8 +18,8 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
 
 // ── 伏笔相关 ────────────────────────────────────────────────────────────────
 
-// setup→payoff 连线(已回收专用)
-function PromiseSpanBar({ setupChapter, payoffChapter, maxChapter }) {
+// setup→payoff 连线(已回收专用) + clue 中途标记点
+function PromiseSpanBar({ setupChapter, payoffChapter, maxChapter, clues = [] }) {
   if (setupChapter == null || payoffChapter == null || maxChapter == null || maxChapter <= 0) return null
   const total = Math.max(maxChapter, payoffChapter)
   const setupPct = Math.max(0, Math.min(100, (setupChapter / total) * 100))
@@ -33,16 +33,59 @@ function PromiseSpanBar({ setupChapter, payoffChapter, maxChapter }) {
       />
       <div className="absolute top-0 h-full w-[3px] rounded-full bg-faint" style={{ left: `${setupPct}%` }} />
       <div className="absolute top-0 h-full w-[3px] rounded-full bg-ok" style={{ left: `calc(${payoffPct}% - 3px)` }} />
+      {/* 草蛇灰线:中途线索小标记 */}
+      {clues.map((cl, i) => {
+        const clPct = Math.max(0, Math.min(100, (cl.chapter / total) * 100))
+        return (
+          <div
+            key={i}
+            title={`第${cl.chapter}章: ${cl.note}`}
+            className="absolute top-0 h-full w-[3px] rounded-full bg-fore/70 cursor-help"
+            style={{ left: `calc(${clPct}% - 1px)` }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+// 未回收伏笔的 open 跨度条(带 clue 标记)
+function PromiseOpenBar({ setupChapter, maxChapter, clues = [] }) {
+  if (setupChapter == null || maxChapter == null || maxChapter <= 0) return null
+  const total = maxChapter
+  const setupPct = Math.max(0, Math.min(100, (setupChapter / total) * 100))
+  const widthPct = Math.max(1, 100 - setupPct)
+  return (
+    <div className="relative h-1.5 mt-1.5 mb-0.5 rounded-full bg-soft overflow-hidden">
+      <div
+        className="absolute top-0 h-full rounded-full bg-fore/30"
+        style={{ left: `${setupPct}%`, width: `${widthPct}%` }}
+      />
+      <div className="absolute top-0 h-full w-[3px] rounded-full bg-fore" style={{ left: `${setupPct}%` }} />
+      {clues.map((cl, i) => {
+        const clPct = Math.max(0, Math.min(100, (cl.chapter / total) * 100))
+        return (
+          <div
+            key={i}
+            title={`第${cl.chapter}章: ${cl.note}`}
+            className="absolute top-0 h-full w-[3px] rounded-full bg-fore/80 cursor-help"
+            style={{ left: `calc(${clPct}% - 1px)` }}
+          />
+        )
+      })}
     </div>
   )
 }
 
 function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
   const overdue = p.overdue
-  const [advancing, setAdvancing] = useState(false)
   const [payoffInput, setPayoffInput] = useState('')
   const [showAdvance, setShowAdvance] = useState(false)
   const [busy, setBusy] = useState(false)
+  // clue 相关状态
+  const [showAddClue, setShowAddClue] = useState(false)
+  const [clueNote, setClueNote] = useState('')
+  const [clueChapter, setClueChapter] = useState('')
 
   const doAdvance = async () => {
     const ch = parseInt(payoffInput, 10)
@@ -72,6 +115,37 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
     }
   }
 
+  const doAddClue = async () => {
+    const ch = parseInt(clueChapter, 10)
+    if (!clueNote.trim() || !ch || ch < 1) return
+    setBusy(true)
+    try {
+      await api.addPromiseClue(p.id, clueNote.trim(), ch)
+      setShowAddClue(false)
+      setClueNote('')
+      setClueChapter('')
+      onRefresh?.()
+    } catch (e) {
+      alert(e?.body?.detail || e?.message || '添加线索失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doRemoveClue = async (idx) => {
+    setBusy(true)
+    try {
+      await api.removePromiseClue(p.id, idx)
+      onRefresh?.()
+    } catch (e) {
+      alert(e?.body?.detail || e?.message || '删除线索失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const clues = p.clues || []
+
   return (
     <div className={`rounded-lg border p-2.5 text-[12px] ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
       <div className="flex items-start gap-1.5">
@@ -79,9 +153,13 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
         <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
         {overdue && <span className="text-danger text-[10px] font-medium shrink-0">超期</span>}
       </div>
-      {/* setup→payoff 连线(已回收) */}
+      {/* setup→payoff 连线(已回收) + clue 中途标记 */}
       {p.status === 'closed' && p.payoff_chapter != null && (
-        <PromiseSpanBar setupChapter={p.setup_chapter} payoffChapter={p.payoff_chapter} maxChapter={maxChapter} />
+        <PromiseSpanBar setupChapter={p.setup_chapter} payoffChapter={p.payoff_chapter} maxChapter={maxChapter} clues={clues} />
+      )}
+      {/* 未回收 open 跨度条 + clue 标记 */}
+      {p.status !== 'closed' && p.setup_chapter != null && (
+        <PromiseOpenBar setupChapter={p.setup_chapter} maxChapter={maxChapter} clues={clues} />
       )}
       <div className="text-faint text-[11px] mt-1 pl-3 flex flex-wrap gap-x-2">
         {/* 点章号跳写作台 */}
@@ -106,6 +184,67 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
         )}
         {p.payoff_chapter == null && p.chapters_open != null && <span>开口{p.chapters_open}章</span>}
       </div>
+      {/* 草蛇灰线:线索列表 */}
+      {clues.length > 0 && (
+        <div className="pl-3 mt-1.5 space-y-0.5">
+          {clues.map((cl, i) => (
+            <div key={i} className="flex items-start gap-1 text-[10px] text-faint group">
+              <button
+                className="hover:text-brand underline-offset-2 hover:underline shrink-0 cursor-pointer"
+                onClick={() => onJumpChapter?.(cl.chapter)}
+                title={`跳到第${cl.chapter}章`}
+              >
+                ▲第{cl.chapter}章
+              </button>
+              <span className="flex-1 leading-snug">{cl.note}</span>
+              <button
+                onClick={() => doRemoveClue(i)}
+                disabled={busy}
+                className="opacity-0 group-hover:opacity-100 text-danger/60 hover:text-danger transition-opacity disabled:opacity-30"
+                title="删除线索"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* 加线索入口 */}
+      {showAddClue ? (
+        <div className="pl-3 mt-1.5 flex flex-wrap items-center gap-1">
+          <input
+            type="number" min={1} value={clueChapter}
+            onChange={(e) => setClueChapter(e.target.value)}
+            className="w-10 h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-fore"
+            placeholder="章"
+            autoFocus
+          />
+          <span className="text-[10px] text-faint">章·</span>
+          <input
+            type="text" value={clueNote}
+            onChange={(e) => setClueNote(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && doAddClue()}
+            className="flex-1 min-w-[80px] h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-fore"
+            placeholder="线索描述"
+          />
+          <button onClick={doAddClue} disabled={busy}
+            className="text-[10px] px-2 py-0.5 rounded bg-fore/80 text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
+            {busy ? '…' : '加'}
+          </button>
+          <button onClick={() => { setShowAddClue(false); setClueNote(''); setClueChapter('') }}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
+            取消
+          </button>
+        </div>
+      ) : (
+        <div className="pl-3 mt-1">
+          <button
+            onClick={() => setShowAddClue(true)}
+            className="text-[10px] text-faint/60 hover:text-fore transition-colors"
+            title="加草蛇灰线线索"
+          >
+            + 加线索
+          </button>
+        </div>
+      )}
       {/* 操作按钮(open/red_herring 显示) */}
       {p.status !== 'closed' && p.kind !== 'red_herring' && (
         <div className="pl-3 mt-1.5 flex flex-wrap items-center gap-1.5">

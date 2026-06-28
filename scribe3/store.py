@@ -114,7 +114,7 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
                               "valid_to", "secret", "leak_markers", "ingest_seq"}),
     "event": frozenset({"event_type", "story_chapter",
                         "motivated_by_goal", "location", "preconditions"}),
-    "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind"}),
+    "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
 }
 
@@ -847,8 +847,13 @@ class SurrealStore:
             {"t": text, "s": setup_chapter, "k": kind})
 
     def list_promises(self) -> list[dict]:
-        return self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
-                           "status, kind FROM promise ORDER BY setup_chapter")
+        rows = self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
+                           "status, kind, clues FROM promise ORDER BY setup_chapter")
+        # 兼容旧库(未跑 045 迁移时 clues 字段为 None):安全回退为 []
+        for r in rows:
+            if r.get("clues") is None:
+                r["clues"] = []
+        return rows
 
     def open_promises(self) -> list[dict]:
         return [p for p in self.list_promises() if p["status"] == "open"]
@@ -871,6 +876,35 @@ class SurrealStore:
         """将伏笔标记为 red_herring(障眼法)。"""
         self._execute_write(
             "UPDATE type::record('promise',$pid) SET kind='red_herring'", {"pid": promise_id})
+
+    def add_promise_clue(self, promise_id: str, note: str, chapter: int) -> None:
+        """追加一条草蛇灰线线索到 promise.clues[]{chapter, note}。
+        幂等追加——不校验章号范围(由端点层可选校验);按 chapter 排序在 ledger 侧做。
+        """
+        rows = self._query(
+            "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
+        if not rows:
+            raise ValueError(f"promise '{promise_id}' 不存在")
+        existing = rows[0].get("clues") or []
+        new_clue = {"chapter": chapter, "note": note}
+        updated = existing + [new_clue]
+        self._execute_write(
+            "UPDATE type::record('promise',$pid) SET clues=$clues",
+            {"pid": promise_id, "clues": updated})
+
+    def remove_promise_clue(self, promise_id: str, idx: int) -> None:
+        """按下标删除 promise.clues 中的一条线索(0-based)。"""
+        rows = self._query(
+            "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
+        if not rows:
+            raise ValueError(f"promise '{promise_id}' 不存在")
+        existing = rows[0].get("clues") or []
+        if idx < 0 or idx >= len(existing):
+            raise IndexError(f"clue 下标 {idx} 超出范围(共 {len(existing)} 条)")
+        updated = [c for i, c in enumerate(existing) if i != idx]
+        self._execute_write(
+            "UPDATE type::record('promise',$pid) SET clues=$clues",
+            {"pid": promise_id, "clues": updated})
 
     def promise_ledger(self, slack: int) -> dict:
         """伏笔台账(单源)。三栏分类 + 每条 setup/payoff/overdue/跨度 + open/close bracket 审计。
@@ -895,6 +929,8 @@ class SurrealStore:
         for p in proms:
             setup = p.get("setup_chapter")
             payoff = p.get("payoff_chapter")
+            # clues 按 chapter 排序(草蛇灰线中途线索)
+            clues_sorted = sorted(p.get("clues") or [], key=lambda c: c.get("chapter", 0))
             row = {
                 "id": p.get("id"),
                 "text": p.get("text", ""),
@@ -903,6 +939,7 @@ class SurrealStore:
                 "setup_chapter": setup,
                 "payoff_chapter": payoff,
                 "overdue": _overdue_flag(p, mc, slack),
+                "clues": clues_sorted,
             }
             # audit: 闭无开(deus ex machina 的可检形态)
             if payoff is not None:

@@ -69,6 +69,7 @@ class TestWriteGate:
         ("POST", "/facts"), ("PATCH", "/facts/{local}"), ("DELETE", "/facts/{local}"),
         ("POST", "/promises-new"), ("PATCH", "/promises/{pid}"), ("DELETE", "/promises/{pid}"),
         ("POST", "/promises/{pid}/advance"), ("POST", "/promises/{pid}/mark-herring"),
+        ("POST", "/promises/{pid}/clues"), ("DELETE", "/promises/{pid}/clues/{idx}"),
         ("POST", "/motifs-new"), ("PATCH", "/motifs/{mid}"), ("DELETE", "/motifs/{mid}"),
         ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
         ("PATCH", "/works/{slug}"), ("POST", "/save-chapter"), ("POST", "/ingest"),
