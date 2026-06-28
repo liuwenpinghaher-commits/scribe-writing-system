@@ -1641,3 +1641,127 @@ def test_intent_goal_roundtrip_via_api(store):
     got = c.get("/intent").json()
     assert got["total_word_goal"] == 80000
     assert got["daily_word_goal"] == 2000
+
+
+# ===== F-01 大纲/卷章树端点(手稿支数据层) =====
+
+def test_get_outline_empty(store):
+    """GET /outline 空库 → 返回三键结构。"""
+    c = _client(store)
+    body = c.get("/outline").json()
+    assert "volumes" in body
+    assert "chapters" in body
+    assert "unassigned_chapters" in body
+    assert body["volumes"] == []
+    assert body["chapters"] == []
+
+
+def test_get_outline_with_data(store):
+    """GET /outline 有章有卷 → 正确聚合。"""
+    store.save_chapter(1, "第一章正文。\n* * *\n第二场景。", title="楔子")
+    store.save_chapter(2, "第二章正文。", title="入派")
+    vid = store.add_volume("第一卷", sort_order=1)
+    store.update_chapter_meta(1, {"volume": vid, "synopsis": "楔子梗概"})
+
+    c = _client(store)
+    body = c.get("/outline").json()
+
+    assert any(v["id"] == vid for v in body["volumes"])
+    ch1 = next(ch for ch in body["chapters"] if ch["seq"] == 1)
+    assert ch1["synopsis"] == "楔子梗概"
+    assert ch1["scene_count"] == 2
+    assert ch1["volume"] == vid
+    assert 2 in body["unassigned_chapters"]
+
+
+def test_chapters_reorder_changes_sort_order_not_seq(store):
+    """POST /chapters/reorder → sort_order 改变,seq 不变。"""
+    store.save_chapter(1, "一", title="一")
+    store.save_chapter(2, "二", title="二")
+    store.save_chapter(3, "三", title="三")
+
+    c = _client(store)
+    r = c.post("/chapters/reorder", json={"volume": None, "order": [3, 1, 2]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "reordered"
+    assert body["count"] == 3
+
+    # outline 按 sort_order 排,seq=3 应排最前
+    outline = c.get("/outline").json()
+    seqs = [ch["seq"] for ch in outline["chapters"]]
+    assert seqs[0] == 3
+
+    # seq 本身不变(get_chapter 仍可按原 seq 访问)
+    for s in [1, 2, 3]:
+        ch = c.get("/chapter", params={"seq": s}).json()
+        assert ch.get("seq") == s, f"chapter seq={s} 应仍存在"
+
+
+def test_patch_chapter_synopsis(store):
+    """PATCH /chapters/{seq} 改梗概,不碰正文。"""
+    store.save_chapter(5, "原始正文", title="五")
+    c = _client(store)
+    r = c.patch("/chapters/5", json={"synopsis": "五章梗概"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "updated"
+
+    # 正文不变
+    ch = c.get("/chapter", params={"seq": 5}).json()
+    assert ch["prose"] == "原始正文"
+
+    # outline 已含梗概
+    outline = c.get("/outline").json()
+    ch5 = next(ch for ch in outline["chapters"] if ch["seq"] == 5)
+    assert ch5["synopsis"] == "五章梗概"
+
+
+def test_patch_chapter_not_found(store):
+    """PATCH /chapters/{seq} 章不存在 → 404。"""
+    c = _client(store)
+    r = c.patch("/chapters/9999", json={"synopsis": "不存在"})
+    assert r.status_code == 404
+
+
+def test_volume_crud(store):
+    """POST/GET/PATCH/DELETE /volumes 端到端。"""
+    c = _client(store)
+
+    # 建卷
+    r = c.post("/volumes", json={"title": "第一卷", "sort_order": 1, "color": "#abc"})
+    assert r.status_code == 200
+    vid = r.json()["id"]
+    assert vid
+
+    # 列卷
+    vols = c.get("/volumes").json()
+    assert any(v["id"] == vid for v in vols)
+
+    # 改卷
+    r2 = c.patch(f"/volumes/{vid}", json={"title": "第一卷(修订)"})
+    assert r2.status_code == 200
+    vols2 = c.get("/volumes").json()
+    target = next(v for v in vols2 if v["id"] == vid)
+    assert target["title"] == "第一卷(修订)"
+
+    # 删卷(章不删,volume 置 NONE)
+    store.save_chapter(20, "二十章", title="二十")
+    store.update_chapter_meta(20, {"volume": vid})
+    r3 = c.delete(f"/volumes/{vid}")
+    assert r3.status_code == 200
+    vols3 = c.get("/volumes").json()
+    assert not any(v["id"] == vid for v in vols3)
+    # 章仍存在
+    ch20 = c.get("/chapter", params={"seq": 20}).json()
+    assert ch20.get("seq") == 20
+
+
+def test_write_gate_includes_outline_routes(store):
+    """test_consistency 守卫的镜像:确认新路由已在 KNOWN_REST_WRITE_ROUTES 中。"""
+    from scribe3.tests.test_consistency import TestWriteGate
+    known = TestWriteGate.KNOWN_REST_WRITE_ROUTES
+    assert ("POST", "/chapters/reorder") in known
+    assert ("PATCH", "/chapters/{seq}") in known
+    assert ("POST", "/volumes") in known
+    assert ("PATCH", "/volumes/{vid}") in known
+    assert ("DELETE", "/volumes/{vid}") in known

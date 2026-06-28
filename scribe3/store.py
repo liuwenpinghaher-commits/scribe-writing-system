@@ -24,6 +24,7 @@ TBL2KIND = {"character": "character", "place": "place"}
 
 _OPEN_CHAPTER = 9999    # graph()/无界查询的"到当前为止"哨兵
 _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
+_UNSET = object()       # update_chapter_meta 的哨兵:区分"未传 volume"与"传了 None"
 
 
 def _split(oid: str) -> tuple[str, str]:
@@ -207,6 +208,30 @@ def _compute_streaks(rows: list[dict], today: str, daily_goal: int | None) -> tu
             longest = streak
 
     return cur, longest
+
+
+def _split_scenes(prose: str) -> list[dict]:
+    """纯函数:按 SceneBreak 约定(* * * / --- 独行)把章正文切成场景段列表。
+    返回 [{"title": 前24字首句, "chars": 去空白字数}, ...]。
+    无分隔符 → 单段(整章视为一个场景)。
+    与前端 SceneBreak.js 的 inputRule 正则保持一致。
+    """
+    import re
+    # 匹配独占一行的 * * * / --- 形式(兼容半角空格变体)
+    _SCENE_SEP = re.compile(r'(?m)^\s*(?:\*\s?\*\s?\*|---)\s*$')
+    segments = _SCENE_SEP.split(prose)
+    result = []
+    for seg in segments:
+        text = seg.strip()
+        if not text:
+            continue
+        # 首句:取第一个句号/换行前最多 24 字
+        first_line = text.split('\n')[0].strip()
+        title = first_line[:24]
+        chars = len(''.join(text.split()))
+        result.append({"title": title, "chars": chars})
+    # 若全为空(prose 为空字符串),返回空列表
+    return result
 
 
 class SurrealStore:
@@ -1647,3 +1672,145 @@ class SurrealStore:
             known_names.update(term.get("aliases") or [])
 
         return hints
+
+    # --- 大纲/卷章树(手稿支数据层,作者工具 F-01 后端)---
+
+    # == 卷 CRUD ==
+
+    def add_volume(self, title: str, sort_order: int = 0,
+                   intro: str | None = None, color: str | None = None) -> str:
+        """新建卷,返回裸 id(SurrealDB 自动生成)。"""
+        vid = self._query(
+            "CREATE volume CONTENT $c",
+            {"c": {"title": title, "sort_order": sort_order,
+                   "intro": intro, "color": color}}
+        )
+        # CREATE 返回 [{"id": RecordID(...), ...}]
+        row = vid[0] if vid else {}
+        rid = row.get("id")
+        if rid is None:
+            raise RuntimeError("add_volume: CREATE 未返回 id")
+        # RecordID → 裸 id 字符串
+        return str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
+
+    def list_volumes(self) -> list[dict]:
+        """按 sort_order 升序列所有卷。"""
+        rows = self._query(
+            "SELECT meta::id(id) AS id, title, sort_order, intro, color "
+            "FROM volume ORDER BY sort_order")
+        return rows
+
+    def update_volume(self, vid: str, fields: dict) -> None:
+        """更新卷字段(title/sort_order/intro/color 白名单)。"""
+        allowed = {"title", "sort_order", "intro", "color"}
+        payload = {k: v for k, v in fields.items() if k in allowed}
+        if not payload:
+            return
+        sets = ", ".join(f"{k}=$p_{k}" for k in payload)
+        params = {f"p_{k}": v for k, v in payload.items()}
+        self._execute_write(
+            f"UPDATE type::record('volume', $vid) SET {sets}",
+            {"vid": vid, **params})
+
+    def delete_volume(self, vid: str) -> None:
+        """删卷:先把该卷下所有章的 volume 置 NONE(不删章),再删卷记录。"""
+        self._execute_write(
+            "UPDATE chapter SET volume = NONE WHERE volume = type::record('volume', $vid)",
+            {"vid": vid})
+        self._execute_write(
+            "DELETE type::record('volume', $vid)",
+            {"vid": vid})
+
+    # == 大纲聚合 ==
+
+    def outline(self) -> dict:
+        """聚合大纲:卷 + 章(梗概/字数/QC/视角/卷/标签 + 场景切分)。
+        不回正文全文(只用 prose 切场景,切完丢弃)。
+        章按 sort_order 升序排列(sort_order 为 NONE 时回退 seq)。
+        SurrealDB 不支持 ORDER BY (expr ?? expr) 括号形式,改在 Python 侧排序。
+        """
+        vols = self.list_volumes()
+        rows = self._query(
+            "SELECT seq, sort_order, title, synopsis, focalizer, "
+            "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
+            "qc_word_count AS word_count, qc_issues, qc_causal, prose "
+            "FROM chapter")
+        # Python 侧排序:sort_order 为 None 时回退 seq
+        rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
+        chapters = []
+        for r in rows:
+            prose = r.pop("prose", "") or ""
+            scenes = _split_scenes(prose)
+            chapters.append({
+                **r,
+                "scene_count": len(scenes),
+                "scenes": [{"idx": i, "title": s["title"], "char_count": s["chars"]}
+                           for i, s in enumerate(scenes)],
+            })
+        unassigned = [c["seq"] for c in chapters if not c.get("volume")]
+        return {"volumes": vols, "chapters": chapters, "unassigned_chapters": unassigned}
+
+    # == 章重排(只改 sort_order,绝不动 seq)==
+
+    def reorder_chapters(self, volume_id: str | None, order: list[int]) -> int:
+        """把 order 列表中各章的 sort_order 设为卷基址+i,并更新 volume 字段。
+        seq 永远不动(故事时间轴主键)。
+        卷基址 = volume.sort_order * 1000(保持跨卷有序);未分卷基址 = 0。
+        """
+        base = 0
+        if volume_id:
+            vrows = self._query(
+                "SELECT sort_order FROM type::record('volume', $vid)",
+                {"vid": volume_id})
+            base = (vrows[0]["sort_order"] if vrows else 0) * 1000
+        for i, seq in enumerate(order):
+            if volume_id:
+                # record<volume> 须用 type::record() 在 SurrealQL 里构造,不能传字符串
+                self._execute_write(
+                    "UPDATE type::record('chapter', $seq) SET sort_order=$o, "
+                    "volume=type::record('volume', $vid)",
+                    {"seq": seq, "o": base + i, "vid": volume_id})
+            else:
+                self._execute_write(
+                    "UPDATE type::record('chapter', $seq) SET sort_order=$o, volume=NONE",
+                    {"seq": seq, "o": base + i})
+        return len(order)
+
+    # == 章元数据 PATCH(不碰正文/embedding/qc)==
+
+    def update_chapter_meta(self, seq: int, fields: dict) -> bool:
+        """只改梗概/卷/标签/标题(白名单),不碰 prose/embedding/qc_*。
+        返回 True 若章存在,False 若章不存在(404 判定由调用方处理)。
+        """
+        # 先确认章存在
+        exists = self._query(
+            "SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not exists:
+            return False
+        allowed = {"synopsis", "volume", "label", "title"}
+        # volume 需单独处理(record link 不能传字符串参数)
+        volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
+        plain: dict = {}
+        for k, v in fields.items():
+            if k not in allowed:
+                continue
+            if k == "volume":
+                volume_id = v   # None = 清空, str = 新卷裸 id
+            else:
+                plain[k] = v
+        # 构建 SET 子句:先处理普通字段,再追加 volume(若有)
+        set_parts: list[str] = [f"{k}=$p_{k}" for k in plain]
+        params: dict = {f"p_{k}": v for k, v in plain.items()}
+        params["seq"] = seq
+        if volume_id is not _UNSET:
+            if volume_id is None:
+                set_parts.append("volume=NONE")
+            else:
+                set_parts.append("volume=type::record('volume', $p_volume)")
+                params["p_volume"] = volume_id
+        if not set_parts:
+            return True
+        self._execute_write(
+            f"UPDATE type::record('chapter', $seq) SET {', '.join(set_parts)}",
+            params)
+        return True

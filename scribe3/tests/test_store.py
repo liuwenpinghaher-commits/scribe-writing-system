@@ -579,3 +579,230 @@ def test_progress_streak(store):
     # daily_goal=2000,某天 1000 不达标 → 不计入 streak
     cur3, long3 = _compute_streaks(rows, "2099-02-04", daily_goal=2000)
     assert cur3 == 0 and long3 == 0, "低于 daily_goal 不达标"
+
+
+# ===== F-01 大纲/卷章树手稿支(后端数据层) =====
+
+from scribe3.store import _split_scenes
+
+
+class TestSplitScenes:
+    """_split_scenes 纯函数:按 SceneBreak 约定切段。"""
+
+    def test_no_separator_single_scene(self):
+        prose = "焦三扛着镇煞钉走进奈何谷。"
+        scenes = _split_scenes(prose)
+        assert len(scenes) == 1
+        assert scenes[0]["chars"] == len("焦三扛着镇煞钉走进奈何谷。")
+
+    def test_two_separators_three_scenes(self):
+        prose = "第一段文字。\n* * *\n第二段文字。\n* * *\n第三段文字。"
+        scenes = _split_scenes(prose)
+        assert len(scenes) == 3
+
+    def test_dash_separator(self):
+        prose = "段落A。\n---\n段落B。"
+        scenes = _split_scenes(prose)
+        assert len(scenes) == 2
+
+    def test_title_truncated_to_24(self):
+        long_line = "A" * 30
+        scenes = _split_scenes(long_line)
+        assert len(scenes[0]["title"]) <= 24
+
+    def test_chars_excludes_whitespace(self):
+        prose = "文 字 计 数"   # 去空白后 4 字
+        scenes = _split_scenes(prose)
+        assert scenes[0]["chars"] == 4
+
+    def test_empty_prose_returns_empty(self):
+        assert _split_scenes("") == []
+
+    def test_only_separator_returns_empty(self):
+        # 仅有分隔行,无实质内容
+        assert _split_scenes("* * *") == []
+
+
+class TestVolumeCRUD:
+    """volume 表增删改查。"""
+
+    def test_add_and_list_volumes(self, store):
+        vid = store.add_volume("第一卷·镇煞", sort_order=1, color="#5b8c6e")
+        vols = store.list_volumes()
+        assert any(v["id"] == vid for v in vols)
+        target = next(v for v in vols if v["id"] == vid)
+        assert target["title"] == "第一卷·镇煞"
+        assert target["color"] == "#5b8c6e"
+
+    def test_update_volume(self, store):
+        vid = store.add_volume("临时标题", sort_order=0)
+        store.update_volume(vid, {"title": "新标题", "sort_order": 5})
+        vols = store.list_volumes()
+        target = next(v for v in vols if v["id"] == vid)
+        assert target["title"] == "新标题"
+        assert target["sort_order"] == 5
+
+    def test_delete_volume_unlinks_chapters(self, store):
+        """删卷:该卷下的章 volume 置 NONE,章本身不删。"""
+        vid = store.add_volume("待删之卷", sort_order=0)
+        # 建章并归入该卷
+        store.save_chapter(10, "第十章正文", title="测试章")
+        store.update_chapter_meta(10, {"volume": vid})
+        # 确认章已关联到卷
+        ch_before = store._query(
+            "SELECT meta::id(volume) AS vol FROM type::record('chapter', 10)")
+        assert ch_before and ch_before[0]["vol"] is not None
+        # 删卷
+        store.delete_volume(vid)
+        # 章仍存在,volume 变 NONE
+        ch_after = store.get_chapter(10)
+        assert ch_after is not None, "章不应被删除"
+        # 用 outline 验证:删卷后章应在 unassigned_chapters
+        outline = store.outline()
+        assert 10 in outline["unassigned_chapters"], "删卷后章应出现在 unassigned_chapters"
+        # 卷本身已不存在
+        vols = store.list_volumes()
+        assert not any(v["id"] == vid for v in vols)
+
+
+class TestOutline:
+    """outline() 聚合 + sort_order≠seq 纪律。"""
+
+    def test_outline_returns_structure(self, store):
+        """outline() 返回 volumes/chapters/unassigned_chapters 三键。"""
+        result = store.outline()
+        assert "volumes" in result
+        assert "chapters" in result
+        assert "unassigned_chapters" in result
+
+    def test_outline_with_volume_and_synopsis(self, store):
+        """建卷+章,关联,设 synopsis → outline 正确聚合。"""
+        vid = store.add_volume("第一卷", sort_order=1)
+        store.save_chapter(1, "焦三走进奈何谷。\n* * *\n他看见了镇煞钉。", title="楔子")
+        store.save_chapter(2, "第二章正文。", title="入派")
+        # 关联章到卷
+        store.update_chapter_meta(1, {"volume": vid, "synopsis": "楔子梗概"})
+        store.update_chapter_meta(2, {"synopsis": "入派梗概"})
+
+        result = store.outline()
+        # 卷存在
+        assert any(v["id"] == vid for v in result["volumes"])
+        # 第1章属于卷
+        ch1 = next(c for c in result["chapters"] if c["seq"] == 1)
+        assert ch1["volume"] == vid
+        assert ch1["synopsis"] == "楔子梗概"
+        # scene_count: 正文有 * * * 分两段 → 2
+        assert ch1["scene_count"] == 2
+        # 第2章无卷 → 在 unassigned_chapters
+        assert 2 in result["unassigned_chapters"]
+
+    def test_outline_chapters_sorted_by_sort_order(self, store):
+        """章按 sort_order 排序,而非 seq。"""
+        store.save_chapter(1, "第一章", title="一")
+        store.save_chapter(2, "第二章", title="二")
+        store.save_chapter(3, "第三章", title="三")
+        # 把 seq=3 的章 sort_order 设为 0(排最前)
+        store.reorder_chapters(None, [3, 1, 2])
+        result = store.outline()
+        seqs = [c["seq"] for c in result["chapters"]]
+        assert seqs[0] == 3, f"sort_order 最小的章应排第一,实际顺序: {seqs}"
+
+    def test_outline_word_count_from_qc_cache(self, store):
+        """outline 返回 word_count 来自 qc_word_count 缓存。"""
+        store.save_chapter(5, "五字五字五字五字五字", title="五")
+        result = store.outline()
+        ch5 = next((c for c in result["chapters"] if c["seq"] == 5), None)
+        assert ch5 is not None
+        # save_chapter 会写 qc_word_count
+        assert ch5.get("word_count") is not None
+
+
+class TestReorderChapters:
+    """sort_order≠seq 守卫:reorder 只改 sort_order,seq 永不变。"""
+
+    def test_reorder_changes_sort_order_not_seq(self, store):
+        """核心守卫:reorder 后 seq 完全不变。"""
+        store.save_chapter(1, "一", title="一")
+        store.save_chapter(2, "二", title="二")
+        store.save_chapter(3, "三", title="三")
+
+        store.reorder_chapters(None, [3, 1, 2])
+
+        # seq 不变:三章仍存在于各自 seq 位置
+        for s in [1, 2, 3]:
+            ch = store.get_chapter(s)
+            assert ch is not None, f"chapter:{s} 应仍存在"
+            assert ch["seq"] == s, f"seq 不应被改动,chapter:{s} seq={ch['seq']}"
+
+        # sort_order 已按 reorder 顺序改变
+        rows = store._query("SELECT seq, sort_order FROM chapter ORDER BY sort_order")
+        seq_order = [r["seq"] for r in rows]
+        assert seq_order[0] == 3, f"reorder 后 sort_order 最小的应是 seq=3,实际: {seq_order}"
+
+    def test_reorder_does_not_affect_facts_at(self, store):
+        """reorder 后,facts_at(以 seq 为参数的读路径)不受影响。"""
+        from scribe3.ontology import Entity, Fact
+        store.add_entity(Entity("role:甲", "character", "甲"))
+        store.add_fact(Fact("fact:test_reorder", "role:甲", "属性", "测试值", valid_from=2))
+        store.save_chapter(1, "一", title="一")
+        store.save_chapter(2, "二", title="二")
+
+        before = {f.id for f in store.facts_at(2)}
+        store.reorder_chapters(None, [2, 1])
+        after = {f.id for f in store.facts_at(2)}
+
+        assert before == after, (
+            f"reorder 后 facts_at(2) 结果不应变化\n"
+            f"before={before}\nafter={after}")
+
+    def test_reorder_with_volume(self, store):
+        """带卷重排:volume 字段同步更新。"""
+        vid = store.add_volume("卷A", sort_order=1)
+        store.save_chapter(10, "十", title="十")
+        store.save_chapter(11, "十一", title="十一")
+
+        store.reorder_chapters(vid, [11, 10])
+
+        rows = store._query(
+            "SELECT seq, meta::id(volume) AS vol, sort_order "
+            "FROM chapter WHERE seq IN [10, 11] ORDER BY sort_order")
+        assert rows[0]["seq"] == 11, "sort_order 更小的应是 seq=11"
+        for r in rows:
+            assert r["vol"] == vid, f"chapter:{r['seq']} volume 应更新为 {vid}"
+
+
+class TestUpdateChapterMeta:
+    """update_chapter_meta:白名单字段更新,不碰 prose。"""
+
+    def test_patch_synopsis_does_not_touch_prose(self, store):
+        store.save_chapter(7, "七章正文内容", title="七")
+        store.update_chapter_meta(7, {"synopsis": "七章梗概"})
+        ch = store.get_chapter(7)
+        assert ch["prose"] == "七章正文内容", "patch synopsis 不应改动 prose"
+        rows = store._query("SELECT synopsis FROM type::record('chapter', 7)")
+        assert rows[0]["synopsis"] == "七章梗概"
+
+    def test_patch_nonexistent_chapter_returns_false(self, store):
+        result = store.update_chapter_meta(9999, {"synopsis": "不存在的章"})
+        assert result is False
+
+    def test_patch_volume_assignment(self, store):
+        vid = store.add_volume("归属卷", sort_order=0)
+        store.save_chapter(8, "八章", title="八")
+        store.update_chapter_meta(8, {"volume": vid})
+        rows = store._query(
+            "SELECT meta::id(volume) AS vol FROM type::record('chapter', 8)")
+        assert rows[0]["vol"] == vid
+
+    def test_patch_label_valid(self, store):
+        store.save_chapter(6, "六章", title="六")
+        store.update_chapter_meta(6, {"label": "done"})
+        rows = store._query("SELECT label FROM type::record('chapter', 6)")
+        assert rows[0]["label"] == "done"
+
+    def test_patch_ignores_non_whitelist_fields(self, store):
+        store.save_chapter(4, "四章正文", title="四")
+        # 尝试写 prose(非白名单)→ 应被忽略
+        store.update_chapter_meta(4, {"prose": "篡改正文", "synopsis": "合法梗概"})
+        ch = store.get_chapter(4)
+        assert ch["prose"] == "四章正文", "非白名单字段 prose 不应被改写"

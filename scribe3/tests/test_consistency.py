@@ -90,6 +90,12 @@ class TestWriteGate:
         ("POST", "/character-relations/end"),
         ("POST", "/voice-flags/{fid}/resolve"),
         ("POST", "/voice-flags/fold"),
+        # F-01 大纲/卷章树手稿支
+        ("POST", "/chapters/reorder"),
+        ("PATCH", "/chapters/{seq}"),
+        ("POST", "/volumes"),
+        ("PATCH", "/volumes/{vid}"),
+        ("DELETE", "/volumes/{vid}"),
     }
 
     def test_no_unaudited_write_route(self):

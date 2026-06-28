@@ -1267,6 +1267,87 @@ def chapters(work: str = "main"):
     return _store_for(work).list_chapters()
 
 
+# ===== 大纲/卷章树(手稿支数据层,作者工具 F-01 后端)=====
+
+@app.get("/outline")
+def get_outline(work: str = "main"):
+    """聚合大纲:卷 + 章(梗概/字数/QC/视角/sort_order/label + 场景数)。
+    章按 sort_order 升序;sort_order=NONE 时回退 seq。不回正文全文。"""
+    return _store_for(work).outline()
+
+
+class ReorderReq(BaseModel):
+    volume: str | None = None   # 目标卷裸 id;None = 未分卷区
+    order: list[int]            # 该卷内章 seq 的新顺序(全量)
+
+
+@app.post("/chapters/reorder")
+def reorder_chapters(req: ReorderReq, work: str = "main"):
+    """拖拽重排:改 sort_order(及 volume),绝不动 seq(故事时间轴主键)。"""
+    count = _store_for(work).reorder_chapters(req.volume, req.order)
+    return {"status": "reordered", "volume": req.volume, "count": count}
+
+
+class ChapterMetaReq(BaseModel):
+    synopsis: str | None = None
+    volume: str | None = None   # 卷裸 id 或 None(置未分卷)
+    label: str | None = None
+    title: str | None = None
+
+
+@app.patch("/chapters/{seq}")
+def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
+    """改章梗概/卷归属/标签/标题,不碰正文/embedding/qc。"""
+    fields = req.model_dump(exclude_none=True)
+    ok = _store_for(work).update_chapter_meta(seq, fields)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "updated", "seq": seq}
+
+
+# == 卷 CRUD ==
+
+class VolumeReq(BaseModel):
+    title: str = ""
+    sort_order: int = 0
+    intro: str | None = None
+    color: str | None = None
+
+
+@app.get("/volumes")
+def list_volumes(work: str = "main"):
+    return _store_for(work).list_volumes()
+
+
+@app.post("/volumes")
+def add_volume(req: VolumeReq, work: str = "main"):
+    vid = _store_for(work).add_volume(
+        title=req.title, sort_order=req.sort_order,
+        intro=req.intro, color=req.color)
+    return {"status": "created", "id": vid}
+
+
+class VolumePatchReq(BaseModel):
+    title: str | None = None
+    sort_order: int | None = None
+    intro: str | None = None
+    color: str | None = None
+
+
+@app.patch("/volumes/{vid}")
+def update_volume(vid: str, req: VolumePatchReq, work: str = "main"):
+    fields = req.model_dump(exclude_none=True)
+    _store_for(work).update_volume(vid, fields)
+    return {"status": "updated", "id": vid}
+
+
+@app.delete("/volumes/{vid}")
+def delete_volume(vid: str, work: str = "main"):
+    """删卷:该卷下的章 volume 置 NONE(章不删),再删卷记录。"""
+    _store_for(work).delete_volume(vid)
+    return {"status": "deleted", "id": vid}
+
+
 @app.get("/chapter")
 def get_chapter(seq: int, work: str = "main"):
     return _store_for(work).get_chapter(seq) or {}
