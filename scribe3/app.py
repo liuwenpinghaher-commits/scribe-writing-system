@@ -796,15 +796,40 @@ def get_progress(work: str = "main", window: str = "all"):
     return _store_for(work).progress(window=window)
 
 
-def _editor_system(st) -> str:
-    """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定(主编全知,含私密)。"""
+def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
+    """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定。
+
+    focalizer 非空(限知章):设定块只注入焦点者帧内可见事实,secret 明文屏蔽;
+    focalizer 空(作者全知视角):保留原有 facts_at(99999) 全知注入(含私密标记,供主编全知)。
+    """
     intent = st.get_intent()
     chars = st.characters()
-    facts = st.facts_at(99999)
     ctx_chars = "、".join(c.name for c in chars[:14]) or "(尚无角色)"
-    lines = [f"- {f.entity_id} · {f.attribute}:{f.value}" + ("(私密/伏线)" if f.secret else "")
-             for f in facts[:28]]
-    ctx_set = "\n".join(lines) or "(尚无设定)"
+
+    if focalizer:
+        # 限知模式:只注入焦点者帧内可见事实,secret value 物理屏蔽
+        try:
+            from scribe3.knowledge import project_frame
+            ch = chapter if chapter is not None else 1
+            frame = project_frame(st, focalizer, ch)
+            masked = _facts(frame.facts, reveal_secret=False)
+            visible = [d for d in masked if d.get("value") is not None]
+            lines = [
+                f"- {d.get('entity', '')} · {d.get('attribute', '')}:{d.get('value', '')}"
+                for d in visible[:28]
+            ]
+        except Exception:
+            lines = []
+        ctx_set = "\n".join(lines) or "(焦点者帧内暂无可见设定)"
+        set_label = f"【焦点者({focalizer})帧内可见设定(限知基座,帧外私密已屏蔽)】"
+    else:
+        # 作者全知视角:保留原有全量注入(含私密标记供主编参考)
+        facts = st.facts_at(99999)
+        lines = [f"- {f.entity_id} · {f.attribute}:{f.value}" + ("(私密/伏线)" if f.secret else "")
+                 for f in facts[:28]]
+        ctx_set = "\n".join(lines) or "(尚无设定)"
+        set_label = "【已确立设定(你全知,含私密伏线)】"
+
     # 开着的伏笔:预注入强提醒(易忘项;母题/事件等详情留主编按需调工具查)
     promises = st.open_promises() if hasattr(st, "open_promises") else []
     rem = ""
@@ -816,7 +841,7 @@ def _editor_system(st) -> str:
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
-        f"【主要角色】{ctx_chars}\n【已确立设定(你全知,含私密伏线)】\n{ctx_set}\n\n"
+        f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem
@@ -875,8 +900,8 @@ def chat_agentic_stream(msg: str, work: str = "main"):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-def _editor_write_system(st) -> str:
-    return _editor_system(st) + (
+def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
+    return _editor_system(st, focalizer=focalizer, chapter=chapter) + (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
         "## 核心判断:讨论 vs 动稿\n"
@@ -1216,7 +1241,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
     from scribe3.craft import build_craft_block
     st = _store_for(work)
-    instructions = _editor_write_system(st)
+    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
     instructions += f"\n当前第 {chapter} 章。"
     if focalizer:
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
@@ -1305,7 +1330,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     from scribe3.craft import build_craft_block
     st = _store_for(work)
-    instructions = _editor_write_system(st)
+    instructions = _editor_write_system(st, focalizer=req.focalizer, chapter=req.chapter)
     instructions += f"\n当前第 {req.chapter} 章。"
     if req.focalizer:
         instructions += f"作者指定本章跟随焦点者 {req.focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"

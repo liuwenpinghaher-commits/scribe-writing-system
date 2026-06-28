@@ -457,6 +457,62 @@ def test_arc_state_block_empty_when_no_meaningful_data(store):
     assert block == "", "无有效内容时应返回空串"
 
 
+# ===== R3#1 限知物理隔离:_editor_system focalizer 模式不泄露帧外 secret =====
+
+def test_editor_system_focalizer_masks_out_of_frame_secret(store):
+    """R3#1 核心守卫:focalizer 模式下,基座 prompt 不含帧外 secret 明文。
+    修复前:_editor_system 无条件 dump facts_at(99999) 含 secret value → 会含「卧底」。
+    修复后:focalizer 非空时改用 project_frame 投影 + _facts(reveal_secret=False) 屏蔽。
+    """
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    from scribe3.app import _editor_system
+
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+
+    # 甲知道的公开事实
+    store.add_fact(Fact("fact:k", "role:甲", "知道", "乙在城里", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:k", since_chapter=1, acquired_via="saw"))
+
+    # 帧外私密:乙的真名是卧底,甲不知道(无 KnowledgeEdge)
+    store.add_fact(Fact("fact:s", "role:乙", "真名", "乙是卧底", valid_from=1, secret=True))
+    # 故意不给甲关于 fact:s 的 KnowledgeEdge
+
+    # focalizer 模式:基座不应含帧外 secret 明文
+    sys_foc = _editor_system(store, focalizer="role:甲", chapter=3)
+    assert "卧底" not in sys_foc, (
+        f"focalizer 模式:帧外 secret 明文「卧底」不应出现在基座 prompt 中\n"
+        f"(前 500 字): {sys_foc[:500]}"
+    )
+
+    # 作者全知视角:_editor_system() 不传 focalizer → 保留全知行为(不强断言含密文,只断言不崩)
+    sys_omni = _editor_system(store)
+    assert isinstance(sys_omni, str) and len(sys_omni) > 0, "作者全知视角应返回非空字符串"
+
+
+def test_editor_write_system_focalizer_masks_out_of_frame_secret(store):
+    """R3#1 连锁守卫:_editor_write_system(focalizer) 透传屏蔽,/chat/write 基座不含帧外 secret。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    from scribe3.app import _editor_write_system
+
+    store.add_entity(Entity("role:主角", "character", "主角"))
+    store.add_entity(Entity("role:反派", "character", "反派"))
+
+    # 主角知道的公开事实
+    store.add_fact(Fact("fact:pub", "role:反派", "位置", "城南茶馆", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:主角", "fact:pub", since_chapter=1, acquired_via="saw"))
+
+    # 帧外私密:反派身份,主角不知道
+    store.add_fact(Fact("fact:sec", "role:反派", "真实身份", "皇族密探", valid_from=1, secret=True))
+    # 不给主角关于 fact:sec 的 KnowledgeEdge
+
+    sys_write_foc = _editor_write_system(store, focalizer="role:主角", chapter=2)
+    assert "皇族密探" not in sys_write_foc, (
+        f"_editor_write_system focalizer 模式:帧外 secret 不应出现\n"
+        f"(前 500 字): {sys_write_foc[:500]}"
+    )
+
+
 # ── ingest_unverified 复核闭环 ────────────────────────────────────────────────
 
 def test_ingest_unverified_list(store):
