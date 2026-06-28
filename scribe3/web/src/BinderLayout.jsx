@@ -60,12 +60,43 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
   }
 
+  // 卷 CRUD 回调(ProjectTree 发起 → BinderLayout 执行 → 树重载)
+  const handleVolumeRename = async (vid, newTitle) => {
+    try { await api.patchVolume(vid, { title: newTitle }); reload() } catch (e) { console.error(e) }
+  }
+
+  const handleVolumeDelete = async (vid, label) => {
+    // 找该卷下章数
+    const vols = tree?.manuscript?.children || []
+    const volNode = vols.find((v) => v.ref === vid)
+    const chCount = volNode?.children?.length ?? 0
+    const msg = chCount > 0
+      ? `删除卷「${label}」?\n该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
+      : `删除卷「${label}」?`
+    if (!window.confirm(msg)) return
+    try { await api.deleteVolume(vid); reload() } catch (e) { console.error(e) }
+  }
+
+  const handleAddVolume = async () => {
+    const title = window.prompt('新建卷标题:')
+    if (!title?.trim()) return
+    try {
+      const vols = tree?.manuscript?.children || []
+      const maxOrder = vols.reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
+      await api.addVolume(title.trim(), maxOrder + 1)
+      reload()
+    } catch (e) { console.error(e) }
+  }
+
   const selId = sel?.mode === 'node' ? sel.node?.id : null
 
   return (
     <div className="h-full flex bg-canvas min-h-0">
       <div className="shrink-0 bg-surface border-r border-line overflow-y-auto overflow-x-hidden" style={{ width: lw }}>
-        <ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode} />
+        <ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
+          onVolumeRename={handleVolumeRename}
+          onVolumeDelete={handleVolumeDelete}
+          onAddVolume={handleAddVolume} />
       </div>
       <div onMouseDown={startResize}
         className="w-px shrink-0 bg-line hover:bg-brand/50 cursor-col-resize transition-colors"

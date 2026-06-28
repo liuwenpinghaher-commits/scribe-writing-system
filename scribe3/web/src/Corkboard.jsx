@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
-  useSensor, useSensors,
+  useSensor, useSensors, DragOverlay,
 } from '@dnd-kit/core'
 import {
   SortableContext, arrayMove, rectSortingStrategy,
@@ -18,71 +18,116 @@ export function computeReorder(seqs, activeSeq, overSeq) {
   return arrayMove(seqs, from, to)
 }
 
-// 一卷一泳道:卡片网格 + 卷内拖拽重排。
-function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, onReorder, guardOnce }) {
+// 卷泳道(只负责渲染,不持有 DndContext)
+function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, activeSeq }) {
   const seqs = lane.chapters.map((c) => c.seq)
+  const totalWc = lane.chapters.reduce((s, c) => s + (c.word_count || 0), 0)
+
+  return (
+    <div className="mb-6" data-volume-id={lane.volumeId ?? '__null__'}>
+      <div className="flex items-baseline gap-2 mb-2 px-0.5">
+        <h3 className="text-[14px] font-semibold text-ink">{lane.title}</h3>
+        <span className="text-[11px] text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
+      </div>
+      <SortableContext items={seqs.map((s) => `card-${s}`)} strategy={rectSortingStrategy}>
+        <div className="grid gap-3 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+          {lane.chapters.map((c) => (
+            <ChapterCard key={c.seq} chapter={c} colorMode={colorMode}
+              onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
+          ))}
+          {lane.chapters.length === 0 && (
+            <div className="col-span-full text-[12px] text-faint/50 py-4 flex items-center justify-center border border-dashed border-line/40 rounded-xl">
+              拖到此处移入本卷
+            </div>
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  )
+}
+
+/**
+ * 卡片墙:单 DndContext 包住所有泳道,支持卷内重排 + 跨卷拖拽。
+ * lanes = [{ volumeId, title, chapters:[...] }]
+ * onReorder(volumeId, newSeqs, prevSeqs, fromVolumeId?) → 父层乐观+回滚
+ */
+export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder, onCrossVolumeMove }) {
+  const [guarded, setGuarded] = useState(() => {
+    try { return localStorage.getItem('s3.reorder.guarded') === '1' } catch { return false }
+  })
+  const [activeSeq, setActiveSeq] = useState(null)
+
+  const guardOnce = () => {
+    if (guarded) return
+    setGuarded(true)
+    try { localStorage.setItem('s3.reorder.guarded', '1') } catch { /* */ }
+    setTimeout(() => window.alert('重排只改阅读顺序,章号(故事时间轴)不变。'), 0)
+  }
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
+  // 建 seq → volumeId 的快速查找表
+  const seqToVolume = new Map()
+  for (const lane of lanes) {
+    for (const c of lane.chapters) {
+      seqToVolume.set(c.seq, lane.volumeId)
+    }
+  }
+
+  const onDragStart = (e) => {
+    const seq = e.active.data.current?.seq
+    if (seq != null) setActiveSeq(seq)
+  }
+
   const onDragEnd = (e) => {
+    setActiveSeq(null)
     const { active, over } = e
     if (!over || active.id === over.id) return
     const activeSeq = active.data.current?.seq
     const overSeq = over.data.current?.seq
     if (activeSeq == null || overSeq == null) return
-    const next = computeReorder(seqs, activeSeq, overSeq)
-    guardOnce?.()
-    onReorder?.(lane.volumeId, next, seqs)   // 乐观 + 回滚由父层据 prevSeqs 处理
+
+    const fromVid = seqToVolume.get(activeSeq)
+    const toVid = seqToVolume.get(overSeq)
+
+    guardOnce()
+
+    if (fromVid === toVid) {
+      // 卷内重排
+      const lane = lanes.find((l) => l.volumeId === fromVid)
+      if (!lane) return
+      const seqs = lane.chapters.map((c) => c.seq)
+      const next = computeReorder(seqs, activeSeq, overSeq)
+      if (next === seqs) return
+      onReorder?.(fromVid, next, seqs)
+    } else {
+      // 跨卷移动
+      onCrossVolumeMove?.(activeSeq, toVid, overSeq)
+    }
   }
 
-  const totalWc = lane.chapters.reduce((s, c) => s + (c.word_count || 0), 0)
+  const activeChapter = activeSeq != null
+    ? lanes.flatMap((l) => l.chapters).find((c) => c.seq === activeSeq)
+    : null
 
   return (
-    <div className="mb-6">
-      <div className="flex items-baseline gap-2 mb-2 px-0.5">
-        <h3 className="text-[14px] font-semibold text-ink">{lane.title}</h3>
-        <span className="text-[11px] text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
-      </div>
-      {lane.chapters.length === 0 ? (
-        <div className="text-[12px] text-faint/50 py-4">本卷暂无章。</div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={seqs.map((s) => `card-${s}`)} strategy={rectSortingStrategy}>
-            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-              {lane.chapters.map((c) => (
-                <ChapterCard key={c.seq} chapter={c} colorMode={colorMode}
-                  onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-      )}
-    </div>
-  )
-}
-
-// 卡片墙:按卷分泳道。lanes = [{ volumeId, title, chapters:[...] }]
-export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder }) {
-  const [guarded, setGuarded] = useState(() => {
-    try { return localStorage.getItem('s3.reorder.guarded') === '1' } catch { return false }
-  })
-  const guardOnce = () => {
-    if (guarded) return
-    setGuarded(true)
-    try { localStorage.setItem('s3.reorder.guarded', '1') } catch { /* */ }
-    // 一次性守卫提示:重排只改阅读顺序,不动章号(故事时间轴)
-    setTimeout(() => window.alert('重排只改阅读顺序,章号(故事时间轴)不变。'), 0)
-  }
-
-  return (
-    <div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter}
+      onDragStart={onDragStart} onDragEnd={onDragEnd}>
       {lanes.map((lane) => (
         <VolumeLane key={lane.volumeId ?? 'null'} lane={lane} colorMode={colorMode}
-          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis}
-          onReorder={onReorder} guardOnce={guardOnce} />
+          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} activeSeq={activeSeq} />
       ))}
-    </div>
+      <DragOverlay>
+        {activeChapter && (
+          <div style={{ opacity: 0.9, pointerEvents: 'none' }}>
+            <ChapterCard chapter={activeChapter} colorMode={colorMode}
+              onOpen={undefined} onPatchSynopsis={undefined} dragHandle={false} />
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
   )
 }

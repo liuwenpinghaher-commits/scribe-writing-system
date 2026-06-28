@@ -2051,3 +2051,34 @@ def test_timeline_empty_db(store):
     data = r.json()
     assert data["items"] == []
     assert "from" in data and "to" in data and "max_chapter" in data
+
+
+def test_timeline_causal_in_with_chapter(store):
+    """完整期·causal_in 数据补全:refs.causal_in 应为 [{id, chapter}] 形式,
+    前驱事件章号供前端 SVG 弧线计算两端 x 坐标。
+    验证:有因果边(ev:逃 causal_in ev:追)时,timeline 的 ev:逃 refs.causal_in
+    包含 {id: 'ev:追', chapter: <前驱章号>},而非裸字符串。"""
+    from scribe3.ontology import Entity, Event as OntEv
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    # 前驱事件 ev:追 在 ch2
+    store.add_event(OntEv("ev:追", "追击", participants={"SUBJ": "role:甲"}, story_time=2))
+    # ev:逃 在 ch3,因果指向 ev:追
+    store.add_event(OntEv("ev:逃", "逃跑", participants={"SUBJ": "role:甲"}, story_time=3,
+                          causal_in=[("ev:追", "enables")]))
+
+    c = _client(store)
+    r = c.get("/timeline", params={"ch_from": 1, "ch_to": 5})
+    assert r.status_code == 200
+    items = r.json()["items"]
+
+    ev_escape = next((i for i in items if i["id"] == "ev:逃"), None)
+    assert ev_escape is not None, "ev:逃 应在 timeline items 中"
+
+    causal_in = ev_escape["refs"].get("causal_in", [])
+    assert len(causal_in) > 0, "ev:逃 应有 causal_in 记录"
+
+    ci = causal_in[0]
+    # 应是 dict,而非裸字符串
+    assert isinstance(ci, dict), f"causal_in 条目应为 dict,实际为 {type(ci)}: {ci}"
+    assert ci.get("id") == "ev:追", f"causal_in[0].id 应为 ev:追,实际={ci}"
+    assert ci.get("chapter") == 2, f"causal_in[0].chapter 应为 2(前驱事件章号),实际={ci}"

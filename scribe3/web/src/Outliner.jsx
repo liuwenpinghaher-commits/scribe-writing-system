@@ -79,60 +79,51 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
   )
 }
 
-function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis, onReorder, guardOnce }) {
+// 卷泳道表格(只负责渲染,不持有 DndContext)
+function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
   const seqs = lane.chapters.map((c) => c.seq)
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-  const onDragEnd = (e) => {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const a = active.data.current?.seq, o = over.data.current?.seq
-    if (a == null || o == null) return
-    const from = seqs.indexOf(a), to = seqs.indexOf(o)
-    if (from < 0 || to < 0 || from === to) return
-    guardOnce?.()
-    onReorder?.(lane.volumeId, arrayMove(seqs, from, to), seqs)
-  }
   return (
     <div className="mb-6">
       <h3 className="text-[14px] font-semibold text-ink mb-2 px-0.5">{lane.title}
         <span className="ml-2 text-[11px] font-normal text-faint">{lane.chapters.length} 章</span>
       </h3>
       {lane.chapters.length === 0 ? (
-        <div className="text-[12px] text-faint/50 py-3">本卷暂无章。</div>
+        <div className="text-[12px] text-faint/50 py-3 border border-dashed border-line/40 rounded-lg text-center">
+          拖到此处移入本卷
+        </div>
       ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="text-[10px] text-faint uppercase tracking-wider">
-                <th className="w-6" />
-                <th className="text-left font-medium px-2 py-1.5">章</th>
-                <th className="text-left font-medium px-2 py-1.5">梗概</th>
-                <th className="text-left font-medium px-2 py-1.5">字数</th>
-                <th className="text-left font-medium px-2 py-1.5">视角</th>
-                <th className="text-left font-medium px-2 py-1.5">状态</th>
-                <th className="text-left font-medium px-2 py-1.5">QC</th>
-              </tr>
-            </thead>
-            <SortableContext items={seqs.map((s) => `row-${s}`)} strategy={verticalListSortingStrategy}>
-              <tbody>
-                {lane.chapters.map((c, i) => (
-                  <Row key={c.seq} chapter={c} idx={i} colorMode={colorMode}
-                    onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
-                ))}
-              </tbody>
-            </SortableContext>
-          </table>
-        </DndContext>
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="text-[10px] text-faint uppercase tracking-wider">
+              <th className="w-6" />
+              <th className="text-left font-medium px-2 py-1.5">章</th>
+              <th className="text-left font-medium px-2 py-1.5">梗概</th>
+              <th className="text-left font-medium px-2 py-1.5">字数</th>
+              <th className="text-left font-medium px-2 py-1.5">视角</th>
+              <th className="text-left font-medium px-2 py-1.5">状态</th>
+              <th className="text-left font-medium px-2 py-1.5">QC</th>
+            </tr>
+          </thead>
+          <SortableContext items={seqs.map((s) => `row-${s}`)} strategy={verticalListSortingStrategy}>
+            <tbody>
+              {lane.chapters.map((c, i) => (
+                <Row key={c.seq} chapter={c} idx={i} colorMode={colorMode}
+                  onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
+              ))}
+            </tbody>
+          </SortableContext>
+        </table>
       )}
     </div>
   )
 }
 
-// 大纲表:按卷分组的电子表格,行可拖拽重排、梗概格 inline 编辑。
-export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder }) {
+/**
+ * 大纲表:单 DndContext 包住所有泳道,支持卷内重排 + 跨卷拖拽。
+ * onReorder(volumeId, newSeqs, prevSeqs) → 卷内重排
+ * onCrossVolumeMove(activeSeq, toVolumeId, overSeq) → 跨卷
+ */
+export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder, onCrossVolumeMove }) {
   const [guarded, setGuarded] = useState(() => {
     try { return localStorage.getItem('s3.reorder.guarded') === '1' } catch { return false }
   })
@@ -142,12 +133,44 @@ export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder 
     try { localStorage.setItem('s3.reorder.guarded', '1') } catch { /* */ }
     setTimeout(() => window.alert('重排只改阅读顺序,章号(故事时间轴)不变。'), 0)
   }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  // seq → volumeId 快速查找
+  const seqToVolume = new Map()
+  for (const lane of lanes) {
+    for (const c of lane.chapters) seqToVolume.set(c.seq, lane.volumeId)
+  }
+
+  const onDragEnd = (e) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const a = active.data.current?.seq, o = over.data.current?.seq
+    if (a == null || o == null) return
+    const fromVid = seqToVolume.get(a)
+    const toVid = seqToVolume.get(o)
+    guardOnce()
+    if (fromVid === toVid) {
+      const lane = lanes.find((l) => l.volumeId === fromVid)
+      if (!lane) return
+      const seqs = lane.chapters.map((c) => c.seq)
+      const from = seqs.indexOf(a), to = seqs.indexOf(o)
+      if (from < 0 || to < 0 || from === to) return
+      onReorder?.(fromVid, arrayMove(seqs, from, to), seqs)
+    } else {
+      onCrossVolumeMove?.(a, toVid, o)
+    }
+  }
+
   return (
-    <div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       {lanes.map((lane) => (
         <LaneTable key={lane.volumeId ?? 'null'} lane={lane} colorMode={colorMode}
-          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onReorder={onReorder} guardOnce={guardOnce} />
+          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
       ))}
-    </div>
+    </DndContext>
   )
 }

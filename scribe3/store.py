@@ -1191,15 +1191,26 @@ class SurrealStore:
             "SELECT meta::id(in) AS src, meta::id(out) AS dst, relation, "
             "since_chapter, until_chapter, note FROM character_relation")
 
+    def _ev_chapter_map(self) -> dict[str, int]:
+        """批量查所有事件的 id→story_chapter 映射,供 timeline() 用于 causal_in 章号补全。
+        一次 SQL 全表扫,O(N) 内存,避免逐 causal_in 单独查库。"""
+        rows = self._query("SELECT meta::id(id) AS local, story_chapter FROM event")
+        return {f"ev:{r['local']}": r["story_chapter"] for r in rows if r.get("story_chapter") is not None}
+
     def timeline(self, ch_from: int = 1, ch_to: int | None = None) -> list[dict]:
         """聚合 [ch_from, ch_to] 区间内所有"章号锚状态",归并成时间线条目。
         进阶:四类泳道—— events / promise(伏笔) / arc(弧光质变) / relation(关系全史)。
         无写、无限知门控(作者全知工艺视图)。复用既有读方法,不新增 SQL 真源。
-        向后兼容:items 中 kind=event 的条目结构与 MVP 一致。"""
+        向后兼容:items 中 kind=event 的条目结构与 MVP 一致。
+        完整期新增:refs.causal_in 从 [ev_id_str] 升级为 [{id, chapter}],
+        供前端 SVG 因果弧线计算两端 x 坐标。"""
         hi = ch_to if ch_to is not None else self.max_chapter()
         if hi == 0:
             return []
         items: list[dict] = []
+
+        # 预建 ev_id→chapter 映射,供 causal_in 章号补全(一次全表查,不逐条单查)
+        ev_ch_map = self._ev_chapter_map()
 
         # ── 1. 事件泳道(复用 events_at,逐章查) ──
         for ch in range(ch_from, hi + 1):
@@ -1207,6 +1218,11 @@ class SurrealStore:
                 subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
                 obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
                 wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
+                # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号
+                causal_in_rich = [
+                    {"id": c[0], "chapter": ev_ch_map.get(c[0])}
+                    for c in ev.causal_in
+                ]
                 items.append({
                     "chapter": ev.story_time,
                     "kind": "event",
@@ -1221,7 +1237,7 @@ class SurrealStore:
                         "witness": wit,
                         "effects": ev.effects,
                         "location": ev.location,
-                        "causal_in": [c[0] for c in ev.causal_in],
+                        "causal_in": causal_in_rich,
                     },
                 })
 

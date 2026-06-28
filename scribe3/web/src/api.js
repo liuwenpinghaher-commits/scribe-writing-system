@@ -82,6 +82,11 @@ export const api = {
   outline: () => j('/outline'),
   // 拖拽重排:只改 sort_order(及 volume),不动 seq
   reorderChapters: (volume, order) => post('/chapters/reorder', { volume, order }),
+  // 卷 CRUD
+  listVolumes: () => j('/volumes'),
+  addVolume: (title, sort_order = 0, color = null) => post('/volumes', { title, sort_order, color }),
+  patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
+  deleteVolume: (vid) => del('/volumes/' + enc(vid)),
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
   patchChapter: (seq, b) => patch('/chapters/' + seq, b),
   chapter: (seq) => j(`/chapter?seq=${seq}`),

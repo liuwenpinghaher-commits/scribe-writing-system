@@ -1,15 +1,17 @@
 /**
- * TimelineView · 作者工具 F-02 进阶 · 多泳道时间线
+ * TimelineView · 作者工具 F-02 完整期 · 多泳道时间线 + SVG 因果弧线
  *
  * 横轴=章号,纵向多泳道:事件 / 伏笔(setup→payoff 横条) / 弧光(◆点) / 关系(since→until 甘特条)
  * 泳道切换:按角色 / 按情节线(promise) / 按事件类型
- * SVG 叠层画伏笔条/关系甘特/弧光◆,纯 CSS 绝对定位,不引入新依赖。
+ * 完整期新增:SVG 因果弧线叠层——事件卡间的 causal_in 弧线(event→event, 跨泳道/跨章)
+ *   - 坐标用确定值:x = (chapter - chFrom) * COL_W + COL_W/2, y = laneIndex * LANE_H + LANE_H/2
+ *   - 贝塞尔弧线 + 箭头 marker,可开关(默认关,密集时避免乱)
  *
- * spec: docs/系统文档/作者工具/02-时间线视图.md §进阶
+ * spec: docs/系统文档/作者工具/02-时间线视图.md §完整
  * 关键:关系全史用 _all_relations()(后端无时间门),不漏已失效历史关系。
  */
 import { useEffect, useRef, useState, useMemo } from 'react'
-import { Clock, RefreshCw } from 'lucide-react'
+import { Clock, RefreshCw, GitFork } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
 
@@ -36,6 +38,7 @@ const arcColor = (ct) => ARC_COLORS[ct] || '#64748b'
 
 const PROMISE_COLOR   = '#f59e0b'
 const PROMISE_HERRING = '#94a3b8'
+const CAUSAL_COLOR    = '#6366f1'  // 因果弧线:靛紫色,与事件卡不冲突
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
 const stripRole = (id) => (id || '').replace(/^role:/, '')
@@ -79,6 +82,170 @@ function buildLanes(items, laneMode, allLaneKeys) {
 }
 
 // ── 子组件 ────────────────────────────────────────────────────────────────────
+
+/**
+ * CausalArrowLayer · 跨泳道 SVG 因果弧线叠层(完整期)
+ *
+ * 绝对定位在整个网格内容区(HEADER_H 以下),覆盖 allLaneKeys.length * LANE_H 高度。
+ * 坐标计算(确定值,不依赖 DOM):
+ *   x = (event.chapter - chFrom) * COL_W + COL_W/2  → 列中心
+ *   y = laneIndex * LANE_H + LANE_H/2                → 泳道中心
+ * 弧线方向:因(cause)→果(effect),箭头指向果事件。
+ * 悬浮高亮:hover 某条弧线时高亮该弧线及两端事件 id。
+ *
+ * props:
+ *   items         - timeline items 完整列表(仅用 kind=event)
+ *   allLaneKeys   - 当前模式的泳道 key 顺序
+ *   chFrom        - 显示区间起章
+ *   totalCols     - 列数(chRange.length)
+ *   hiddenLanes   - Set<laneKey> 隐藏的泳道(隐藏泳道里的弧线也不画)
+ *   laneMode      - 'char'|'promise'|'type'(非 char 模式下泳道切换会变,y 随之变)
+ */
+function CausalArrowLayer({ items, allLaneKeys, chFrom, totalCols, hiddenLanes, laneMode }) {
+  const [hoveredId, setHoveredId] = useState(null)
+
+  // 建立 event id → (chapter, laneIndex) 的查找表
+  // 一个事件可在多条泳道,取第一个可见泳道的 index 作为 y 基准
+  const evPos = useMemo(() => {
+    const map = {}
+    for (const item of items) {
+      if (item.kind !== 'event') continue
+      const ch = item.chapter
+      const x = (ch - chFrom) * COL_W + COL_W / 2
+      // 找第一个可见 lane
+      let laneIdx = -1
+      for (const lk of (item.lane_keys || [])) {
+        const idx = allLaneKeys.indexOf(lk)
+        if (idx !== -1 && !hiddenLanes.has(lk)) { laneIdx = idx; break }
+      }
+      if (laneIdx === -1) continue  // 无可见泳道,跳过
+      const y = laneIdx * LANE_H + LANE_H / 2
+      map[item.id] = { x, y, chapter: ch }
+    }
+    return map
+  }, [items, allLaneKeys, chFrom, hiddenLanes])
+
+  // 收集所有因果弧线:果事件 → 因事件
+  const arcs = useMemo(() => {
+    const result = []
+    for (const item of items) {
+      if (item.kind !== 'event') continue
+      const causalIn = item.refs?.causal_in || []
+      if (!causalIn.length) continue
+      const effectPos = evPos[item.id]
+      if (!effectPos) continue
+
+      for (const ci of causalIn) {
+        // ci 格式:{id, chapter} (完整期后端补全)
+        // 兼容旧格式(字符串):若 ci 是字符串,转为 {id: ci, chapter: null}
+        const causeId = typeof ci === 'string' ? ci : ci.id
+        const causeChapter = typeof ci === 'string' ? null : ci.chapter
+        if (!causeId) continue
+
+        // 如果前驱事件在 evPos 里(在当前显示区间内),直接用其坐标
+        // 否则用 causeChapter(可能在区间外,仍可算 x,但无 y → 画到边界)
+        const causePos = evPos[causeId]
+        if (!causePos && causeChapter == null) continue  // 完全无坐标信息
+
+        const cx = causePos ? causePos.x : (causeChapter - chFrom) * COL_W + COL_W / 2
+        const cy = causePos ? causePos.y : effectPos.y  // 无泳道信息时与果事件同行
+        const ex = effectPos.x
+        const ey = effectPos.y
+
+        result.push({
+          id: `${causeId}→${item.id}`,
+          cx, cy, ex, ey,
+          causeId, effectId: item.id,
+          label: item.label || item.event_type || '',
+        })
+      }
+    }
+    return result
+  }, [items, evPos, chFrom])
+
+  if (!arcs.length) return null
+
+  const svgW = totalCols * COL_W
+  const svgH = allLaneKeys.length * LANE_H
+  const markerId = 'causal-arrow-head'
+  const markerIdHover = 'causal-arrow-head-hover'
+
+  return (
+    <svg
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: svgW,
+        height: svgH,
+        pointerEvents: 'all',  // 覆盖父 div 的 none,让 hover 事件能传到 <g>
+        zIndex: 20,
+        overflow: 'visible',
+      }}
+    >
+      <defs>
+        {/* 普通箭头 marker */}
+        <marker id={markerId} markerWidth={8} markerHeight={8}
+          refX={7} refY={3} orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L8,3 z" fill={CAUSAL_COLOR} opacity={0.65} />
+        </marker>
+        {/* 高亮箭头 marker */}
+        <marker id={markerIdHover} markerWidth={8} markerHeight={8}
+          refX={7} refY={3} orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L8,3 z" fill={CAUSAL_COLOR} opacity={1} />
+        </marker>
+      </defs>
+
+      {arcs.map((arc) => {
+        const isHovered = hoveredId === arc.id
+        // 贝塞尔控制点:在两点中间,垂直偏上(避免遮挡卡片)
+        // 若同一泳道(cy≈ey):弧线向上凸;跨泳道:用 S 曲线
+        const midX = (arc.cx + arc.ex) / 2
+        const dy = arc.ey - arc.cy
+        // 弓高:同行至少 30px,跨行等比例增加,但不超过 LANE_H/2
+        const bow = Math.min(Math.abs(dy) / 2 + 30, LANE_H * 0.6)
+        // 控制点在上方(y 减小=向上)
+        const cpY = Math.min(arc.cy, arc.ey) - bow
+        // 路径:从 cause(cx,cy) 经控制点 到 effect(ex,ey)
+        const d = `M ${arc.cx} ${arc.cy} Q ${midX} ${cpY} ${arc.ex} ${arc.ey}`
+
+        return (
+          <g key={arc.id}
+            onMouseEnter={() => setHoveredId(arc.id)}
+            onMouseLeave={() => setHoveredId(null)}
+            style={{ pointerEvents: 'stroke', cursor: 'default' }}
+          >
+            {/* 透明宽带方便 hover */}
+            <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
+            {/* 实际弧线 */}
+            <path
+              d={d}
+              fill="none"
+              stroke={CAUSAL_COLOR}
+              strokeWidth={isHovered ? 2 : 1.2}
+              strokeDasharray={isHovered ? undefined : '6 3'}
+              opacity={isHovered ? 1 : 0.55}
+              markerEnd={`url(#${isHovered ? markerIdHover : markerId})`}
+            />
+            {/* hover 时显示标签 */}
+            {isHovered && (
+              <text
+                x={midX}
+                y={cpY - 4}
+                textAnchor="middle"
+                fontSize={9}
+                fill={CAUSAL_COLOR}
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {arc.label}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
 
 function EventCard({ item, onJumpChapter, stacked }) {
   const color = evColor(item.event_type)
@@ -309,6 +476,7 @@ export function TimelineView({ onJumpChapter }) {
   const [chTo, setChTo]       = useState(null)
   const [laneMode, setLaneMode] = useState('char')  // 'char' | 'promise' | 'type'
   const [hiddenLanes, setHiddenLanes] = useState(new Set())
+  const [showCausal, setShowCausal] = useState(false)  // 因果弧线开关(默认关,密集时避免乱)
   const containerRef = useRef(null)
 
   const load = (from, to) => {
@@ -406,6 +574,17 @@ export function TimelineView({ onJumpChapter }) {
           >应用</button>
         </div>
 
+        {/* 因果弧线开关 */}
+        <button
+          onClick={() => setShowCausal((v) => !v)}
+          title={showCausal ? '关闭因果弧线' : '显示事件因果弧线(causal_in)'}
+          className={`ml-2 h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer shrink-0 flex items-center gap-1
+            ${showCausal ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
+        >
+          <GitFork size={11} />
+          因果线
+        </button>
+
         <div className="ml-auto shrink-0">
           <button onClick={() => load(chFrom, chTo)} disabled={loading}
             className="w-7 h-7 grid place-items-center rounded-lg text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
@@ -472,7 +651,7 @@ export function TimelineView({ onJumpChapter }) {
               </div>
 
               {/* 右侧:表头 + 泳道内容 */}
-              <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div style={{ position: 'relative', flexShrink: 0, isolation: 'isolate' }}>
                 {/* 章号表头 */}
                 <div style={{
                   display: 'flex', height: HEADER_H,
@@ -528,6 +707,28 @@ export function TimelineView({ onJumpChapter }) {
                     </div>
                   )
                 })}
+
+                {/* 因果弧线叠层(完整期):覆盖全部泳道区域,绝对定位在 HEADER_H 以下 */}
+                {showCausal && (
+                  <div style={{
+                    position: 'absolute',
+                    top: HEADER_H,
+                    left: 0,
+                    width: chRange.length * COL_W,
+                    height: allLaneKeys.length * LANE_H,
+                    pointerEvents: 'none',
+                    zIndex: 25,
+                  }}>
+                    <CausalArrowLayer
+                      items={data.items || []}
+                      allLaneKeys={allLaneKeys}
+                      chFrom={data.from || chFrom}
+                      totalCols={chRange.length}
+                      hiddenLanes={hiddenLanes}
+                      laneMode={laneMode}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -553,6 +754,18 @@ export function TimelineView({ onJumpChapter }) {
             <span className="shrink-0">✗ 失效</span>
             <span className="shrink-0 inline-flex items-center gap-1">
               <i className="inline-block w-3 h-2 rounded border border-dashed border-slate-400 bg-slate-100/30 shrink-0" />障眼法
+            </span>
+            <span className="shrink-0 inline-flex items-center gap-1" style={{ color: CAUSAL_COLOR }}>
+              <svg width={20} height={10} viewBox="0 0 20 10" style={{ display: 'inline' }}>
+                <defs>
+                  <marker id="leg-causal" markerWidth={5} markerHeight={5} refX={4} refY={2.5} orient="auto">
+                    <path d="M0,0 L0,5 L5,2.5 z" fill={CAUSAL_COLOR} opacity={0.7} />
+                  </marker>
+                </defs>
+                <path d="M 1 8 Q 10 2 19 8" fill="none" stroke={CAUSAL_COLOR} strokeWidth={1.5}
+                  strokeDasharray="4 2" opacity={0.65} markerEnd="url(#leg-causal)" />
+              </svg>
+              因果弧线(开关见顶栏)
             </span>
           </div>
         )}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { LayoutGrid, Table2, List } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { LayoutGrid, Table2, List, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { api } from './api'
 import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
@@ -52,16 +52,60 @@ function buildLanes(outline, node) {
   return lanes
 }
 
+// 卷标题 inline 重命名小组件
+function VolumeTitle({ vid, title, onRename, onDelete }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(title)
+  const ref = useRef(null)
+  useEffect(() => { if (editing && ref.current) { ref.current.focus(); ref.current.select() } }, [editing])
+  useEffect(() => { if (!editing) setVal(title) }, [title, editing])
+  const commit = () => {
+    setEditing(false)
+    const next = val.trim()
+    if (next && next !== title) onRename(vid, next)
+  }
+  const cancel = () => { setVal(title); setEditing(false) }
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
+          className="rounded border border-brand/40 bg-canvas px-1.5 py-0.5 text-[13px] text-ink outline-none focus:border-brand w-32" />
+        <button onClick={commit} title="确认" className="text-ok hover:text-ok/80 cursor-pointer"><Check size={13} /></button>
+        <button onClick={cancel} title="取消" className="text-faint hover:text-ink cursor-pointer"><X size={13} /></button>
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 group/vol">
+      <span className="text-[15px] font-semibold text-ink">{title}</span>
+      <button onClick={() => setEditing(true)} title="重命名卷"
+        className="opacity-0 group-hover/vol:opacity-100 ml-1 text-faint hover:text-ink cursor-pointer transition-opacity">
+        <Pencil size={12} />
+      </button>
+      <button onClick={() => onDelete(vid, title)} title="删除卷"
+        className="opacity-0 group-hover/vol:opacity-100 text-faint hover:text-danger cursor-pointer transition-opacity">
+        <Trash2 size={12} />
+      </button>
+    </span>
+  )
+}
+
 // 容器节点(卷/手稿根)的多模式视图:卡片墙 / 大纲表 / 列表。
 export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const [outline, setOutline] = useState(null)
   const [err, setErr] = useState(false)
   const [mode, setMode] = useStrPref('s3.container.mode', 'corkboard')
   const [colorMode, setColorMode] = useStrPref('s3.container.color', 'status')
+  const [adding, setAdding] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const addRef = useRef(null)
 
   const isManuscript = node?.type === 'volume' || node?.type === 'manuscript_root'
   const reload = () => api.outline().then((o) => { setOutline(o); setErr(false) }).catch(() => setErr(true))
   useEffect(() => { if (isManuscript) reload() }, [isManuscript])
+  useEffect(() => { if (adding && addRef.current) addRef.current.focus() }, [adding])
 
   const lanes = useMemo(() => buildLanes(outline, node), [outline, node])
 
@@ -74,13 +118,12 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     api.patchChapter(seq, { synopsis }).catch(() => reload())
   }
 
-  // 拖拽重排:乐观重排该卷章序 + 失败回滚
+  // 卷内拖拽重排:乐观重排该卷章序 + 失败回滚
   const reorder = (volumeId, newSeqs, prevSeqs) => {
     setOutline((prev) => {
       if (!prev) return prev
       const inLane = new Set(newSeqs)
       const pos = new Map(newSeqs.map((s, i) => [s, i]))
-      // 仅对该泳道内的章重排,其余保持
       const laneChs = prev.chapters.filter((c) => inLane.has(c.seq))
         .sort((a, b) => pos.get(a.seq) - pos.get(b.seq))
       let li = 0
@@ -88,6 +131,79 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       return { ...prev, chapters: next }
     })
     api.reorderChapters(volumeId, newSeqs).catch(() => reload())
+  }
+
+  // 跨卷拖拽:把章从一个卷移到另一个卷(落到 overSeq 的位置前)
+  const crossVolumeMove = (activeSeq, toVolumeId, overSeq) => {
+    // 乐观更新
+    setOutline((prev) => {
+      if (!prev) return prev
+      // 将 activeSeq 从原泳道移除,插入目标泳道 overSeq 前
+      const ch = prev.chapters.find((c) => c.seq === activeSeq)
+      if (!ch) return prev
+      const withoutActive = prev.chapters.filter((c) => c.seq !== activeSeq)
+      const overIdx = withoutActive.findIndex((c) => c.seq === overSeq)
+      const insertAt = overIdx >= 0 ? overIdx : withoutActive.length
+      const updated = ch ? { ...ch, volume: toVolumeId } : ch
+      const next = [
+        ...withoutActive.slice(0, insertAt),
+        updated,
+        ...withoutActive.slice(insertAt),
+      ]
+      return { ...prev, chapters: next }
+    })
+
+    // 构造目标卷新的顺序:把 activeSeq 插入 overSeq 前
+    const targetLane = lanes.find((l) => l.volumeId === toVolumeId)
+    const targetSeqs = (targetLane?.chapters || []).map((c) => c.seq).filter((s) => s !== activeSeq)
+    const overIdx = targetSeqs.indexOf(overSeq)
+    const newOrder = overIdx >= 0
+      ? [...targetSeqs.slice(0, overIdx), activeSeq, ...targetSeqs.slice(overIdx)]
+      : [...targetSeqs, activeSeq]
+
+    // 后端:更新 volume + sort_order
+    api.reorderChapters(toVolumeId, newOrder).catch(() => reload())
+  }
+
+  // 新建卷
+  const commitAddVolume = async () => {
+    const t = newTitle.trim()
+    if (!t) { setAdding(false); setNewTitle(''); return }
+    const maxOrder = (outline?.volumes || []).reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
+    try {
+      await api.addVolume(t, maxOrder + 1)
+      setNewTitle('')
+      setAdding(false)
+      await reload()
+    } catch (err) {
+      console.error('addVolume failed', err)
+    }
+  }
+
+  // 重命名卷
+  const renameVolume = async (vid, title) => {
+    try {
+      await api.patchVolume(vid, { title })
+      await reload()
+    } catch (err) {
+      console.error('patchVolume failed', err)
+    }
+  }
+
+  // 删除卷(确认 → 章不删,volume 置空)
+  const deleteVolume = async (vid, title) => {
+    const vol = outline?.volumes?.find((v) => String(v.id) === String(vid))
+    const chCount = lanes.find((l) => String(l.volumeId) === String(vid))?.chapters?.length ?? 0
+    const msg = chCount > 0
+      ? `删除卷「${title}」?\n该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
+      : `删除卷「${title}」?`
+    if (!window.confirm(msg)) return
+    try {
+      await api.deleteVolume(vid)
+      await reload()
+    } catch (err) {
+      console.error('deleteVolume failed', err)
+    }
   }
 
   // 非手稿容器(素材分类等)→ 立即退化为子项列表(不拉 /outline)
@@ -99,13 +215,43 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const totalCh = lanes.reduce((s, l) => s + l.chapters.length, 0)
   const totalWc = lanes.reduce((s, l) => s + l.chapters.reduce((a, c) => a + (c.word_count || 0), 0), 0)
 
+  // 当前容器是单卷节点时,显示重命名/删除操作
+  const isVolumeNode = node?.type === 'volume' && node.ref != null
+  const currentVol = isVolumeNode ? (outline?.volumes || []).find((v) => String(v.id) === String(node.ref)) : null
+
   return (
     <div className="h-full flex flex-col min-h-0">
-      {/* 工具条:模式 segmented + 色彩编码 */}
+      {/* 工具条:模式 segmented + 色彩编码 + 卷操作 */}
       <div className="shrink-0 border-b border-line bg-surface px-5 py-2.5 flex items-center gap-3 flex-wrap">
-        <h2 className="text-[15px] font-semibold text-ink">{node.label}</h2>
+        {/* 标题:手稿根 or 单卷 */}
+        {isVolumeNode && currentVol ? (
+          <VolumeTitle vid={currentVol.id} title={currentVol.title || '未命名卷'}
+            onRename={renameVolume} onDelete={deleteVolume} />
+        ) : (
+          <h2 className="text-[15px] font-semibold text-ink">{node.label}</h2>
+        )}
         <span className="text-[11px] text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
-        <div className="ml-auto flex items-center gap-3">
+
+        <div className="ml-auto flex items-center gap-3 flex-wrap">
+          {/* 手稿根时显示「新建卷」 */}
+          {node?.type === 'manuscript_root' && (
+            adding ? (
+              <span className="inline-flex items-center gap-1">
+                <input ref={addRef} value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="卷标题"
+                  onKeyDown={(e) => { if (e.key === 'Enter') commitAddVolume(); if (e.key === 'Escape') { setAdding(false); setNewTitle('') } }}
+                  onBlur={commitAddVolume}
+                  className="rounded border border-brand/40 bg-canvas px-2 py-1 text-[12px] text-ink outline-none focus:border-brand w-28" />
+              </span>
+            ) : (
+              <button onClick={() => setAdding(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-line text-faint hover:text-ink hover:border-brand/40 transition-colors cursor-pointer">
+                <Plus size={12} /> 新建卷
+              </button>
+            )
+          )}
+
+          {/* 模式切换 segmented */}
           <div className="inline-flex rounded-lg border border-line p-0.5 bg-canvas">
             {SEG.map((s) => {
               const Icon = s.icon
@@ -132,14 +278,14 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
-        {totalCh === 0 ? (
+        {totalCh === 0 && lanes.length === 0 ? (
           <div className="text-[13px] text-faint/60 py-10 text-center">暂无章节。</div>
         ) : mode === 'corkboard' ? (
           <Corkboard lanes={lanes} colorMode={colorMode} onOpen={onOpenChapter}
-            onPatchSynopsis={patchSynopsis} onReorder={reorder} />
+            onPatchSynopsis={patchSynopsis} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
         ) : mode === 'outliner' ? (
           <Outliner lanes={lanes} colorMode={colorMode} onOpen={onOpenChapter}
-            onPatchSynopsis={patchSynopsis} onReorder={reorder} />
+            onPatchSynopsis={patchSynopsis} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
         ) : (
           <PlainChapterList lanes={lanes} onOpen={onOpenChapter} />
         )}
