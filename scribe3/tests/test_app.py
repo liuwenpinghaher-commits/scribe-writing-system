@@ -1299,3 +1299,64 @@ def test_post_check_setting_fail_soft(store, monkeypatch):
     data = r.json()
     assert "setting" in data
     assert data["setting"] == []
+
+
+# ===== S7 TDD: 保守裁剪 — avoid cap 70→40 + _final_reminder 末尾强化 =====
+
+def test_avoid_directive_cap_at_40(store):
+    """S7 Trim 1: 当前文有 >40 条独特措辞时,_avoid_directive 输出至多 40 条(top cap)。"""
+    from scribe3.app import _avoid_directive
+
+    # 构造超过 40 个 ≥8 字的独特短语:写 50 段各含唯一长措辞的章节正文
+    # 每段正文只含一个独特的长措辞,保证 distinctive_phrases 能抽到
+    for i in range(50):
+        phrase = f"独特措辞第{i:03d}号这句话足够长超过八字"
+        store.save_chapter(i + 1, phrase * 3, title=f"第{i+1}章", focalizer=None)
+
+    # 第 51 章起用 _avoid_directive,lookback=50 看尽所有前章
+    result = _avoid_directive(store, chapter=51, lookback=50)
+    if not result:
+        # 若 critique 未抽到短语(依赖实现),至少不应超过 40 条
+        return
+    # 数 「…」 围栏对数 = 措辞条数
+    count = result.count("「")
+    assert count <= 40, f"_avoid_directive 输出了 {count} 条,应 ≤ 40"
+
+
+def test_final_reminder_in_get_chat_write(store, monkeypatch):
+    """S7 Trim 2: GET /chat/write 组装的 instructions 末尾应含 ⟦PROPOSAL⟧ + 乱世铜炉 提醒。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).get("/chat/write", params={"msg": "续写第一章", "chapter": 1})
+    instr = captured.get("instructions", "")
+    assert "PROPOSAL" in instr, "instructions 应含 PROPOSAL 围栏提醒"
+    assert "乱世铜炉" in instr, "instructions 应含乱世铜炉文风提醒"
+    # 强化:提醒须在末尾(最后 200 字内)
+    tail = instr[-200:]
+    assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 instructions 末尾 200 字内"
+    assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 instructions 末尾 200 字内"
+
+
+def test_final_reminder_in_post_chat_write(store, monkeypatch):
+    """S7 Trim 2: POST /chat/write 组装的 instructions 末尾同样含 ⟦PROPOSAL⟧ + 乱世铜炉 提醒。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).post("/chat/write", json={"msg": "帮我续写第一章", "chapter": 1})
+    instr = captured.get("instructions", "")
+    assert "PROPOSAL" in instr, "POST instructions 应含 PROPOSAL 围栏提醒"
+    assert "乱世铜炉" in instr, "POST instructions 应含乱世铜炉文风提醒"
+    tail = instr[-200:]
+    assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 POST instructions 末尾 200 字内"
+    assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 POST instructions 末尾 200 字内"

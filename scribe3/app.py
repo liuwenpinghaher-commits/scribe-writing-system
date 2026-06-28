@@ -859,7 +859,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False):
     yield 'data: {"done": true}\n\n'
 
 
-def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 70) -> str:
+def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 40) -> str:
     """前 lookback 章独特措辞 → '本章避免逐字复用'系统指令(服务端确定性防跨章复读)。
 
     根因:单遍长程生成的"复读病"——模型跨章逐字复用自己偏爱的措辞/动作句(实测 10 章共 106 处
@@ -1102,6 +1102,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
+    instructions += _final_reminder()
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg)),
         media_type="text/event-stream",
@@ -1160,6 +1161,15 @@ def _soak_block(seed_words: list[str]) -> str:
     return "\n\n## 情绪种子词(浸泡得出,贴此情绪写)\n" + "、".join(str(w) for w in seed_words)
 
 
+def _final_reminder() -> str:
+    """末尾强化提醒(recency 效应):把两条非谈判性约束放在 instructions 最后,
+    对抗多块拼接后关键规则被稀释的注意力漂移。不含新信息,仅复述最高优先级约束。"""
+    return (
+        "\n\n（再次强调:① 动稿必须用 ⟦PROPOSAL scope=...⟧ 围栏包正文;"
+        "② 文风贴乱世铜炉志怪笔记体——古白话、冷笔、世界密度,忌现代翻译腔与用力比喻。）"
+    )
+
+
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
@@ -1182,6 +1192,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
+    instructions += _final_reminder()
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
