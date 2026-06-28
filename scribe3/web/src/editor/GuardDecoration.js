@@ -1,13 +1,23 @@
 /**
- * F-05: 护栏可操作性 — GuardDecoration
+ * F-05: 护栏可操作性 — GuardDecoration(进阶 + 完整)
  *
- * 提供两个核心能力:
- * 1. proseOffsetToPm(doc, target) — prose 字符 offset → ProseMirror 位置
- *    口径必须与 ProseEditor.jsx 的 toText/pmPosToProseOffset 完全一致:
- *    顶层块以 \n\n 相连,sceneBreak 序列化为 '* * *',段落内文本始于 nodeStart+1。
- * 2. focusIssue(editor, issue) — 把编辑器滚动到 issue.range 对应的句,并闪烁高亮 1.2s。
- *    MVP 只做点击定位 + flash,不做常驻波浪线 decoration(进阶再做)。
+ * 进阶:把 MVP 的"点击才 flash"升级为 TipTap/ProseMirror Decoration 插件——
+ *   所有当前 issue 在正文上【常驻波浪下划线】,六类分色(set.map 防漂移)。
+ * 完整:点波浪线 → 派发 'guard:issue-click' 事件(WriteLayout 接住弹悬浮卡)。
+ *
+ * 核心能力:
+ * 1. proseOffsetToPm / proseRangeToPm — prose 字符 offset → ProseMirror 位置(逆 pmPosToProseOffset)。
+ * 2. GuardDecoration Extension — addProseMirrorPlugins 返回 plugin,DecorationSet 常驻波浪线,
+ *    apply 里先 set.map(防漂移)再吸收 meta 注入的新 issues。
+ * 3. pushIssues(editor, issues) — 外部把 issues 注入 decoration 层。
+ * 4. focusIssue(editor, issue) — 滚动定位 + 叠一层 flash decoration(1.2s 后撤)。
+ * 5. 失配兜底:it.text 校验 → toText.indexOf 回退 → 仍失败丢弃(宁可不标不标错)。
  */
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
+
+export const guardKey = new PluginKey('guard')
 
 /**
  * prose 字符串 offset → ProseMirror 文档位置。
@@ -15,10 +25,6 @@
  * - 顶层块间 +2 (对应 '\n\n')
  * - sceneBreak: 序列化为 '* * *' (5字符),内部位置落到块起
  * - 段落: 文本始于 nodeStart+1
- *
- * @param {import('prosemirror-model').Node} doc
- * @param {number} target  prose 字符串中的字符偏移
- * @returns {number} ProseMirror 位置
  */
 export function proseOffsetToPm(doc, target) {
   let acc = 0    // 已走过的 prose 字符数(含块间 \n\n)
@@ -62,36 +68,8 @@ export function proseRangeToPm(doc, from, to) {
   return { pmFrom, pmTo }
 }
 
-/**
- * 点护栏面板一条 issue → 编辑器滚动定位 + 临时 flash 高亮(1.2s 消失)。
- * MVP:不做常驻波浪线 decoration,只做点击滚动 + flash。
- *
- * @param {import('@tiptap/react').Editor} editor  TipTap editor 实例
- * @param {{ range: [number, number] | null, text?: string }} issue
- * @returns {boolean} 是否成功定位
- */
-export function focusIssue(editor, issue) {
-  if (!editor || !issue) return false
-  const range = issue.range
-  if (!Array.isArray(range) || range.length < 2) return false
-
-  const doc = editor.state.doc
-  const pm = proseRangeToPm(doc, range[0], range[1])
-  if (!pm) {
-    // 失配兜底:用 issue.text 在 toText 里 indexOf 重算
-    if (!issue.text) return false
-    const prose = _docToText(doc)
-    const idx = prose.indexOf(issue.text)
-    if (idx < 0) return false
-    const pmFb = proseRangeToPm(doc, idx, idx + issue.text.length)
-    if (!pmFb) return false
-    return _scrollAndFlash(editor, pmFb)
-  }
-  return _scrollAndFlash(editor, pm)
-}
-
 /** 与 ProseEditor.jsx toText 同口径:段落 \n\n 隔,sceneBreak → '* * *' */
-function _docToText(doc) {
+export function docToText(doc) {
   const parts = []
   doc.forEach((node) => {
     parts.push(node.type.name === 'sceneBreak' ? '* * *' : node.textContent)
@@ -99,59 +77,153 @@ function _docToText(doc) {
   return parts.join('\n\n')
 }
 
+const _strip = (s) => (s || '').replace(/\s+/g, '')
+
 /**
- * 滚动到 pmFrom..pmTo 并插入 guard-flash 的 DOM span,1200ms 后清除。
- * MVP 不用 ProseMirror decoration plugin,直接操作 DOM(简单可靠)。
+ * 把一条 issue 解析成 PM 位置(带失配兜底)。
+ * 1) range → proseRangeToPm;
+ * 2) 用 it.text 校验:doc.textBetween 去空白 ≠ text 去空白 → 回退;
+ * 3) 回退:在 toText 上 indexOf(text) 重算 offset 再转 PM;
+ * 4) 仍失败 → 返回 null(不画错位置的线)。
  */
-function _scrollAndFlash(editor, { pmFrom, pmTo }) {
-  try {
-    // 设置选区到目标范围起点,再滚动进视野
-    editor.chain()
-      .setTextSelection({ from: pmFrom, to: pmTo })
-      .scrollIntoView()
-      .run()
-
-    // 用 coordsAtPos 拿到 DOM 坐标,插入临时 flash span
-    const view = editor.view
-    if (!view) return true
-
-    const coords = view.coordsAtPos(pmFrom)
-    if (!coords) return true
-
-    // 找到 PM 对应的 DOM 节点,给范围内 DOM 加 class
-    // 简化:直接在编辑器根节点上创建一个绝对定位的 flash overlay
-    const dom = view.dom
-    const editorRect = dom.getBoundingClientRect()
-    const toCoords = view.coordsAtPos(Math.min(pmTo, editor.state.doc.content.size - 1))
-
-    const flashEl = document.createElement('div')
-    flashEl.className = 'guard-flash-overlay'
-    flashEl.style.cssText = [
-      'position:absolute',
-      `top:${coords.top - editorRect.top + dom.scrollTop}px`,
-      `left:${Math.min(coords.left, toCoords.left) - editorRect.left}px`,
-      `width:${Math.max(Math.abs(toCoords.left - coords.left), 60)}px`,
-      `height:${(toCoords.bottom - coords.top) || 20}px`,
-      'background:color-mix(in srgb, #f59e0b 25%, transparent)',
-      'border-radius:3px',
-      'pointer-events:none',
-      'transition:opacity 0.4s',
-      'z-index:10',
-    ].join(';')
-
-    // 挂到编辑器容器上(需要 position:relative)
-    const shell = dom.closest('.tiptap-shell') || dom.parentElement
-    if (shell) {
-      shell.style.position = 'relative'
-      shell.appendChild(flashEl)
-      setTimeout(() => {
-        flashEl.style.opacity = '0'
-        setTimeout(() => flashEl.remove(), 400)
-      }, 800)
+export function resolveIssuePm(doc, issue) {
+  const text = issue?.text || ''
+  const range = issue?.range
+  // 路径 A:用 range 直接转,再 text 校验
+  if (Array.isArray(range) && range.length >= 2) {
+    const pm = proseRangeToPm(doc, range[0], range[1])
+    if (pm) {
+      if (!text) return pm
+      const got = doc.textBetween(pm.pmFrom, pm.pmTo, '\n')
+      if (_strip(got) === _strip(text)) return pm
+      // 校验失败 → 落到路径 B
     }
-
-    return true
-  } catch (_) {
-    return false
   }
+  // 路径 B:text indexOf 回退
+  if (text) {
+    const prose = docToText(doc)
+    const idx = prose.indexOf(text)
+    if (idx >= 0) {
+      const pmFb = proseRangeToPm(doc, idx, idx + text.length)
+      if (pmFb) return pmFb
+    }
+  }
+  return null
+}
+
+/**
+ * 把 issues 列表编译成 Decoration[]。每条带 range 的 issue → 一段波浪线 inline decoration,
+ * class = `guard-uline guard-<type>`,data-issue-id 用于点击反查。
+ */
+function buildDecorations(doc, issues) {
+  const decos = []
+  for (const it of issues || []) {
+    const pm = resolveIssuePm(doc, it)
+    if (!pm) continue
+    decos.push(Decoration.inline(pm.pmFrom, pm.pmTo, {
+      class: `guard-uline guard-${it.type || 'misc'}`,
+      'data-issue-id': String(it.id),
+    }))
+  }
+  return decos
+}
+
+/**
+ * GuardDecoration Extension：常驻波浪线 decoration 层。
+ * - state.init: 空集合 + active=null + issues=[]
+ * - state.apply: 先 set.map(防漂移),再吸收 meta(issues 重建 / active 叠 flash)
+ * - props.decorations: 返回常驻集合;active 时叠一层 guard-flash
+ * - props.handleClick: 命中 data-issue-id → 派发 'guard:issue-click' 事件
+ */
+export const GuardDecoration = Extension.create({
+  name: 'guardDecoration',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: guardKey,
+        state: {
+          init: () => ({ set: DecorationSet.empty, active: null, issues: [] }),
+          apply(tr, value) {
+            // 1) 先把已有 decoration 随文档变化映射(作者打字时不漂、不闪)
+            let set = value.set.map(tr.mapping, tr.doc)
+            let active = value.active
+            let issues = value.issues
+            // 若有结构性文档改动且 active 仍在,映射其 pm(避免 flash 位错)
+            if (active && tr.docChanged) {
+              const pmFrom = tr.mapping.map(active.pm.pmFrom)
+              const pmTo = tr.mapping.map(active.pm.pmTo)
+              active = pmTo > pmFrom ? { ...active, pm: { pmFrom, pmTo } } : null
+            }
+            // 2) 外部注入(/check 回来 / 面板点选)
+            const meta = tr.getMeta(guardKey)
+            if (meta) {
+              if (meta.issues !== undefined) {
+                issues = meta.issues || []
+                set = DecorationSet.create(tr.doc, buildDecorations(tr.doc, issues))
+              }
+              if (meta.active !== undefined) active = meta.active
+            }
+            return { set, active, issues }
+          },
+        },
+        props: {
+          decorations(state) {
+            const st = guardKey.getState(state)
+            if (!st) return null
+            if (!st.active || !st.active.pm) return st.set
+            const { pmFrom, pmTo } = st.active.pm
+            return st.set.add(state.doc, [
+              Decoration.inline(pmFrom, pmTo, { class: 'guard-flash' }),
+            ])
+          },
+          handleClick(view, pos, event) {
+            const el = event.target
+            const id = el && el.getAttribute && el.getAttribute('data-issue-id')
+            if (id != null && id !== '') {
+              view.dom.dispatchEvent(new CustomEvent('guard:issue-click', {
+                detail: { id }, bubbles: true,
+              }))
+              return true
+            }
+            return false
+          },
+        },
+      }),
+    ]
+  },
+})
+
+/**
+ * 命令式 API:把 issues 注入 decoration 层。给每条 issue 派 id(若后端没给)。
+ * 返回带 id 的 issues(供面板与正文共享同一份 id)。
+ */
+export function pushIssues(editor, issues) {
+  if (!editor || !editor.view) return []
+  const withId = (issues || []).map((it, i) => ({ ...it, id: it.id ?? `iss-${i}` }))
+  editor.view.dispatch(editor.state.tr.setMeta(guardKey, { issues: withId }))
+  return withId
+}
+
+/**
+ * 点护栏面板一条 issue → 滚动定位 + 叠 flash decoration(1.2s 后撤)。
+ * 复用 resolveIssuePm 的失配兜底(range → text 校验 → indexOf 回退 → 丢弃)。
+ *
+ * @returns {boolean} 是否成功定位
+ */
+export function focusIssue(editor, issue) {
+  if (!editor || !editor.view || !issue) return false
+  const doc = editor.state.doc
+  const pm = resolveIssuePm(doc, issue)
+  if (!pm) return false
+  editor.chain()
+    .setTextSelection({ from: pm.pmFrom, to: pm.pmTo })
+    .scrollIntoView()
+    .run()
+  editor.view.dispatch(editor.state.tr.setMeta(guardKey, { active: { id: issue.id, pm } }))
+  setTimeout(() => {
+    if (editor.view && !editor.view.isDestroyed) {
+      editor.view.dispatch(editor.state.tr.setMeta(guardKey, { active: null }))
+    }
+  }, 1200)
+  return true
 }

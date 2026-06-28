@@ -7,7 +7,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
 import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
-import { focusIssue as _focusIssue } from './GuardDecoration'
+import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues } from './GuardDecoration'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -70,7 +70,8 @@ function pmPosToProseOffset(doc, pmPos) {
 
 // F-05: forwardRef 暴露 focusIssue 命令式 API 给 WriteLayout 调用
 export const ProseEditor = forwardRef(function ProseEditor(
-  { value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false, onDiscuss },
+  { value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false,
+    onDiscuss, issues, onIssueClick },
   ref
 ) {
   const [chars, setChars] = useState(0)
@@ -86,6 +87,7 @@ export const ProseEditor = forwardRef(function ProseEditor(
       CharacterCount,
       Focus.configure({ className: 'has-focus', mode: 'deepest' }),
       SceneBreak,
+      GuardDecoration,
     ],
     content: toHTML(value),
     immediatelyRender: false,
@@ -108,12 +110,16 @@ export const ProseEditor = forwardRef(function ProseEditor(
   }, [chapterKey])
 
   // 外部 value 变化(载章 / render 灌入)→ 仅当与当前不同才 setContent,避免回灌循环
+  // contentEpoch:只在真正发生 setContent(整篇替换)时 +1,供 decoration 重推依赖,
+  // 避免随自打字的 value 变化每键重建波浪线。
+  const [contentEpoch, setContentEpoch] = useState(0)
   useEffect(() => {
     if (!editor) return
     if ((value || '') !== lastEmit.current) {
       editor.commands.setContent(toHTML(value), { emitUpdate: false })
       lastEmit.current = value || ''
       setChars(editor.storage.characterCount.characters())
+      setContentEpoch((n) => n + 1)
     }
     // 防丢草稿:本地草稿比落库内容更新且非空 → 提示恢复
     const d = localStorage.getItem(dkey)
@@ -131,6 +137,30 @@ export const ProseEditor = forwardRef(function ProseEditor(
   useImperativeHandle(ref, () => ({
     focusIssue: (issue) => _focusIssue(editor, issue),
   }), [editor])
+
+  // F-05 进阶:把 issues 注入常驻波浪线 decoration 层。
+  // 依赖 issues + value:载章/render 灌入会重建文档(DecorationSet 清空),须重推。
+  // 用 issuesWithId 把后端派的 id 回流给父组件(面板与正文共享同一份 id)。
+  const issuesRef = useRef([])
+  useEffect(() => {
+    if (!editor) return
+    const withId = _pushIssues(editor, issues || [])
+    issuesRef.current = withId
+  }, [editor, issues, contentEpoch])
+
+  // F-05 完整:点正文波浪线 → GuardDecoration 派 'guard:issue-click' → 回调父组件弹悬浮卡。
+  useEffect(() => {
+    if (!editor || !editor.view) return
+    const dom = editor.view.dom
+    const handler = (e) => {
+      const id = e.detail?.id
+      if (id == null) return
+      const iss = issuesRef.current.find((it) => String(it.id) === String(id))
+      if (iss && onIssueClick) onIssueClick(iss)
+    }
+    dom.addEventListener('guard:issue-click', handler)
+    return () => dom.removeEventListener('guard:issue-click', handler)
+  }, [editor, onIssueClick])
 
   const restore = () => {
     if (!editor || !recovered) return

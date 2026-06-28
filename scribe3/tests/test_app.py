@@ -1510,6 +1510,23 @@ def test_post_check_returns_issues_with_range(store):
         assert prose[s:e] == iss["text"]
 
 
+def test_check_structural_oversaturation_issues_have_range(store):
+    """/check:结构重复 + 过饱和 issue 带正确 range(进阶 C)。"""
+    prose = ("他想起娘亲。他想起爹爹。他想起家门。他想起旧路。"
+             "这意味着没用。这意味着完了。这意味着结束。这意味着重来。普通收尾。")
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
+    issues = r.get("issues", [])
+    structs = [i for i in issues if i.get("type") == "structural"]
+    overs = [i for i in issues if i.get("type") == "oversaturation"]
+    assert structs, "排比开头应产出 structural issue"
+    assert overs, "解释词过密应产出 oversaturation issue"
+    for iss in structs + overs:
+        assert iss["range"] is not None
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"], f"{iss['type']} range 不匹配: {prose[s:e]!r} != {iss['text']!r}"
+
+
 def test_post_check_issues_schema(store):
     """/post-check issues 每条含 type/message/text/range/meta 字段。"""
     prose = "那不是恐惧——是渴望。他知道,回不去了。"

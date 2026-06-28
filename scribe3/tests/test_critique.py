@@ -287,3 +287,57 @@ def test_quality_issues_range_invariant():
             assert "".join(prose[s:e].split()) == "".join(iss["text"].split()), (
                 f"range 不一致 type={iss['type']}: prose[{s}:{e}]={prose[s:e]!r} text={iss['text']!r}"
             )
+
+
+# ==== F-05 进阶: structural / oversaturation 带 offset ====
+
+def test_quality_issues_structural_anaphora_range():
+    """结构·排比开头:每个命中句逐句给 range,且 range 指向原文该句、含同 3 字开头。"""
+    prose = "他想起娘亲。他想起爹爹。他想起家门。他想起旧路。后续别的内容。"
+    issues = quality_issues(prose)
+    structs = [i for i in issues if i["type"] == "structural" and i["meta"].get("kind") == "anaphora"]
+    assert structs, "应检出排比开头并逐句定位"
+    # 至少 4 句(min_anaphora=4),每句 range 命中原文且以「他想起」开头
+    for iss in structs:
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"]
+        assert iss["text"].startswith("他想起")
+    assert len(structs) >= 4
+
+
+def test_quality_issues_structural_short_range():
+    """结构·单字/极短断句:逐个短句给 range,prose[s:e] == text。"""
+    # 5 个极短句(>max_short=4)触发 short 类
+    prose = "走。停。退。冲。逃。后面写一段正常长度的描述凑字数避免误判。"
+    issues = quality_issues(prose)
+    shorts = [i for i in issues if i["type"] == "structural" and i["meta"].get("kind") == "short"]
+    assert shorts, "应检出极短断句滥用并逐处定位"
+    for iss in shorts:
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"]
+        assert 1 <= len("".join(iss["text"].split())) <= 2
+
+
+def test_quality_issues_oversaturation_range():
+    """过饱和·解释词:超阈值后逐处命中给 range,prose[s:e] == text。"""
+    prose = "这意味着没用。这意味着完了。这意味着结束。这意味着重来。这意味着如此。"
+    issues = quality_issues(prose, None)
+    over = [i for i in issues if i["type"] == "oversaturation"]
+    assert over, "解释词密度超阈值应逐处定位"
+    for iss in over:
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"]
+
+
+def test_quality_issues_structural_range_invariant():
+    """structural / oversaturation 也满足全局 range 不变量。"""
+    prose = ("他想起娘亲。他想起爹爹。他想起家门。他想起旧路。"
+             "这意味着没用。这意味着完了。这意味着结束。这意味着重来。")
+    issues = quality_issues(prose, None)
+    types_seen = {i["type"] for i in issues if i.get("range") is not None}
+    assert "structural" in types_seen
+    for iss in issues:
+        if iss.get("range") is not None:
+            s, e = iss["range"]
+            assert 0 <= s < e <= len(prose), f"range 越界: {iss}"
+            assert "".join(prose[s:e].split()) == "".join(iss["text"].split())

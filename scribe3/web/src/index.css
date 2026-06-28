@@ -141,3 +141,29 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
   transition: opacity 0.4s var(--ease-out);
   z-index: 10;
 }
+
+/* F-05 进阶:常驻波浪线 decoration + 六类语义着色(本仓自定,非抄具体产品) */
+.tiptap-prose .guard-uline {
+  text-decoration: underline wavy;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+  text-decoration-skip-ink: none;
+  cursor: pointer;
+}
+.tiptap-prose .guard-repetition    { text-decoration-color: #d97706; }  /* 琥珀·复读 */
+.tiptap-prose .guard-cross_rep     { text-decoration-color: #d97706; }  /* 琥珀·跨章复读 */
+.tiptap-prose .guard-leak          { text-decoration-color: #dc2626; }  /* 红·穿帮 */
+.tiptap-prose .guard-discipline    { text-decoration-color: #dc2626; }  /* 红·纪律 */
+.tiptap-prose .guard-ai_tics       { text-decoration-color: #6b7280; }  /* 灰·AI腔 */
+.tiptap-prose .guard-purple        { text-decoration-color: #7c3aed; }  /* 紫·升华 */
+.tiptap-prose .guard-oversaturation{ text-decoration-color: #ea580c; }  /* 橙·过饱和 */
+.tiptap-prose .guard-structural    { text-decoration-color: #0284c7; }  /* 蓝·结构重复 */
+.tiptap-prose .guard-setting       { text-decoration-color: #ca8a04; }  /* 黄·设定校验 */
+.tiptap-prose .guard-misc          { text-decoration-color: var(--color-warn); }
+
+/* F-05 进阶:面板点 issue → 正文滚动定位后短暂强调(1.2s 后撤,纯渲染不进文档) */
+.tiptap-prose .guard-flash {
+  background: color-mix(in srgb, var(--color-brand) 22%, transparent);
+  border-radius: 2px;
+  transition: background 0.4s var(--ease-out);
+}

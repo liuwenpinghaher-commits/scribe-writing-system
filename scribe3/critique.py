@@ -347,6 +347,106 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None) -> list[d
             "meta": {"count": r["count"]},
         })
 
+    # ⑤ 结构重复 — phrase 是描述文本而非原文,须找回命中句原文 + offset(spec 最重那条)
+    issues.extend(_structural_issues(s))
+
+    # ⑥ 过饱和 — 密度超阈值的类别,用 finditer 逐处命中收 offset
+    issues.extend(_oversaturation_issues(s))
+
+    return issues
+
+
+# 结构重复的句切分:与 find_structural_repeats 同口径([。！？\n]+ 分句 + 去标点边缘),
+# 但额外记录每句在原文里的 [start,end)(用 finditer 在原文上扫,边缘去空白后再夹回)。
+_SENT_SPLIT = re.compile(r"[。！？\n]+")
+
+
+def _sentence_spans(text: str) -> list[tuple[str, int, int]]:
+    """把 text 按句切,返回 [(去边缘后的句, start, end)]。
+    start/end 指向原文里【去边缘后核心子串】的 [start,end),保证 text[start:end] == 句。"""
+    out: list[tuple[str, int, int]] = []
+    pos = 0
+    for piece in re.split(r"([。！？\n]+)", text or ""):
+        if not piece:
+            continue
+        if _SENT_SPLIT.fullmatch(piece):
+            pos += len(piece)
+            continue
+        core = _EDGE.sub("", piece)
+        if core:
+            # core 是 piece 去掉首尾标点/空白后的子串;在 piece 内 find 得相对偏移
+            rel = piece.find(core)
+            if rel >= 0:
+                out.append((core, pos + rel, pos + rel + len(core)))
+        pos += len(piece)
+    return out
+
+
+def _structural_issues(text: str) -> list[dict]:
+    """find_structural_repeats 的带 offset 展开:anaphora 逐句给 range,short 逐处给 range。"""
+    flags = find_structural_repeats(text)
+    if not flags:
+        return []
+    spans = _sentence_spans(text)
+    issues: list[dict] = []
+    for f in flags:
+        kind = f.get("kind")
+        if kind == "anaphora":
+            opener = (f["phrase"].split("…")[0])[:3]
+            for core, s, e in spans:
+                if len(core) >= 4 and core[:3] == opener:
+                    issues.append({
+                        "type": "structural",
+                        "message": f"结构重复:排比开头「{opener}…」出现 {f['count']} 次",
+                        "text": core,
+                        "range": [s, e],
+                        "meta": {"count": f["count"], "kind": "anaphora"},
+                    })
+        elif kind == "short":
+            for core, s, e in spans:
+                if 1 <= len(core) <= 2 and _HAS_CJK.search(core):
+                    issues.append({
+                        "type": "structural",
+                        "message": f"结构重复:单字/极短断句滥用(共 {f['count']} 处)",
+                        "text": core,
+                        "range": [s, e],
+                        "meta": {"count": f["count"], "kind": "short"},
+                    })
+    return issues
+
+
+def _oversaturation_issues(text: str) -> list[dict]:
+    """find_oversaturation 的带 offset 展开:仅对超阈值的类别,用 finditer 逐处命中收 offset。"""
+    flags = find_oversaturation(text)
+    if not flags:
+        return []
+    over_kinds = {f["kind"] for f in flags}
+    msg = {"explain": "过饱和:过度解释词密度过高",
+           "emo_label": "过饱和:情绪标签词密度过高",
+           "simile": "过饱和:比喻词密度过高"}
+    issues: list[dict] = []
+    if "explain" in over_kinds:
+        for w in _EXPLAIN:
+            for m in re.finditer(re.escape(w), text):
+                issues.append({"type": "oversaturation", "message": msg["explain"],
+                               "text": w, "range": [m.start(), m.end()],
+                               "meta": {"kind": "explain"}})
+    if "emo_label" in over_kinds:
+        for w in _EMO_LABEL:
+            for m in re.finditer(re.escape(w), text):
+                issues.append({"type": "oversaturation", "message": msg["emo_label"],
+                               "text": w, "range": [m.start(), m.end()],
+                               "meta": {"kind": "emo_label"}})
+    if "simile" in over_kinds:
+        for w in _SIMILE_WORDS:
+            for m in re.finditer(re.escape(w), text):
+                issues.append({"type": "oversaturation", "message": msg["simile"],
+                               "text": w, "range": [m.start(), m.end()],
+                               "meta": {"kind": "simile"}})
+        for m in _SIMILE_LIKE.finditer(text):
+            issues.append({"type": "oversaturation", "message": msg["simile"],
+                           "text": m.group(0), "range": [m.start(), m.end()],
+                           "meta": {"kind": "simile"}})
     return issues
 
 

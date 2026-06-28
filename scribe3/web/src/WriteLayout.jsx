@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
@@ -11,6 +11,7 @@ import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
 import { Chip } from './ui/Chip'
 import { ProseEditor } from './editor/ProseEditor'
 import { applyProposal } from './editor/applyProposal.js'
+import { issueLabel, issueDot, ignoreIssue, filterIgnored, expandToSentence } from './editor/guardIssues.js'
 import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
 import { DeducePanel } from './DeducePanel'
@@ -53,6 +54,9 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0, ai_tics: 0, oversaturation: 0 }, issues: [] })
   const [postCheckResult, setPostCheckResult] = useState(null)
   const [postChecking, setPostChecking] = useState(false)
+  // F-05 完整:点正文波浪线弹的悬浮卡 { issue, x, y };忽略后 bump 触发 decoration 重推
+  const [issueCard, setIssueCard] = useState(null)
+  const [ignoreTick, setIgnoreTick] = useState(0)
   const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
   const [causal, setCausal] = useState([])
   const [promises, setPromises] = useState([])
@@ -241,6 +245,49 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   }
   const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
 
+  // F-05 完整:正文常驻波浪线的 issue 列表(过滤掉已忽略的)。
+  // 只依赖 guard.issues / ignoreTick:guard.issues 由 3s 防抖按当前 prose 重算,
+  // 期间打字靠 decoration set.map 平滑跟随(不重建)。prose 在此非响应式读取,稳定引用。
+  const proseRef = useRef(prose)
+  proseRef.current = prose
+  const editorIssues = useMemo(
+    () => filterIgnored(proseRef.current, guard.issues || []),
+    [guard.issues, ignoreTick],
+  )
+
+  // 点正文波浪线 → 弹悬浮卡(GuardDecoration 经 ProseEditor onIssueClick 回调)
+  const onUnderlineClick = (iss) => {
+    // 用当前光标/选区附近坐标定位卡片;失败兜底到屏幕中部
+    let x = window.innerWidth / 2, y = window.innerHeight / 2
+    try {
+      const r = window.getSelection()?.getRangeAt(0)?.getBoundingClientRect()
+      if (r && (r.left || r.top)) { x = r.left; y = r.bottom + 6 }
+    } catch { /* 无选区 */ }
+    setIssueCard({ issue: iss, x, y })
+  }
+
+  // 悬浮卡 / 面板「让主编改这处」→ 复用 discussSel→applyProposal 句级链路
+  const sendIssueToChief = (iss) => {
+    setIssueCard(null)
+    // 把短语 range 扩到整句给主编完整上下文
+    const range = iss.range && Array.isArray(iss.range) ? expandToSentence(prose, iss.range) : null
+    const text = range ? prose.slice(range[0], range[1]) : (iss.text || '')
+    if (!text.trim()) return
+    // 复用现有选区改写链路:lastSel 携 {from,to,text} → 候选 → applyProposal 精准替换
+    setLastSel(range ? { text, from: range[0], to: range[1] } : null)
+    setLastQuote(text)
+    setSeedQuote(`这处有「${issueLabel(iss.type)}」问题(${iss.message}),把这一句改一下,给我 2-3 个候选:「${text}」`)
+    setCandidates([])
+    setRightActive('chat')
+  }
+
+  // 「忽略」→ 持久化到 localStorage(prose 指纹 + issue key),并撤掉波浪线
+  const ignoreIssueHandler = (iss) => {
+    ignoreIssue(prose, iss)
+    setIssueCard(null)
+    setIgnoreTick((t) => t + 1)
+  }
+
   const topbarMid = (
     <div className="shrink-0 border-b border-line bg-surface px-3 h-11 flex items-center gap-2 min-w-0">
       {/* 左:章节导航 — 固定不缩 */}
@@ -282,21 +329,16 @@ export function WriteLayout({ work, seq, onSeqChange }) {
               {guardPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
-                  {/* F-05: 带 range 的 issues — 可点跳转到正文 */}
-                  {guard.issues && guard.issues.length > 0 ? (
+                  {/* F-05: 带 range 的 issues — 可点跳转到正文(过滤已忽略) */}
+                  {editorIssues && editorIssues.length > 0 ? (
                     <div className="mb-2">
-                      <div className="text-[11.5px] text-faint mb-1">问题({guard.issues.length}条 · 点击定位)</div>
+                      <div className="text-[11.5px] text-faint mb-1">问题({editorIssues.length}条 · 点击定位)</div>
                       <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                        {guard.issues.map((iss, idx) => (
+                        {editorIssues.map((iss, idx) => (
                           <button key={idx}
                             onClick={() => { proseEditorRef.current?.focusIssue(iss); setGuardPop(false) }}
                             className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-soft cursor-pointer text-[11.5px] leading-snug">
-                            <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${
-                              iss.type === 'leak' ? 'bg-danger' :
-                              iss.type === 'ai_tics' ? 'bg-gray-400' :
-                              iss.type === 'purple' ? 'bg-purple-500' :
-                              iss.type === 'repetition' ? 'bg-amber-500' : 'bg-warn'
-                            }`} />
+                            <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
                             <span className="text-ink truncate flex-1">{iss.message}</span>
                             {iss.range && <span className="shrink-0 text-brand text-[10px]">跳→</span>}
                           </button>
@@ -409,6 +451,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
           <div className={`manuscript${serif ? ' serif' : ''}`}>
             <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
               chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
+              issues={editorIssues} onIssueClick={onUnderlineClick}
               placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
           </div>
         </div>
@@ -481,19 +524,21 @@ export function WriteLayout({ work, seq, onSeqChange }) {
             {postCheckResult.issues && postCheckResult.issues.length > 0 && (
               <div className="rounded-lg border border-line divide-y divide-line/50">
                 {postCheckResult.issues.map((iss, idx) => (
-                  <button key={idx}
-                    onClick={() => proseEditorRef.current?.focusIssue(iss)}
-                    className="w-full text-left flex items-start gap-2 px-2 py-1.5 hover:bg-soft cursor-pointer text-[11.5px] leading-snug first:rounded-t-lg last:rounded-b-lg">
-                    <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${
-                      iss.type === 'leak' ? 'bg-danger' :
-                      iss.type === 'ai_tics' ? 'bg-gray-400' :
-                      iss.type === 'purple' ? 'bg-purple-500' :
-                      iss.type === 'repetition' ? 'bg-amber-500' :
-                      iss.type === 'discipline' ? 'bg-danger' : 'bg-warn'
-                    }`} />
-                    <span className="text-ink flex-1 truncate">{iss.message}</span>
+                  <div key={idx}
+                    className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-soft text-[11.5px] leading-snug first:rounded-t-lg last:rounded-b-lg group">
+                    <button onClick={() => proseEditorRef.current?.focusIssue(iss)}
+                      className="flex items-start gap-2 flex-1 min-w-0 text-left cursor-pointer">
+                      <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
+                      <span className="text-ink flex-1 truncate">{iss.message}</span>
+                    </button>
+                    {iss.range && (
+                      <button onClick={() => sendIssueToChief(iss)} title="让主编改这处"
+                        className="shrink-0 text-[10px] text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
+                        改这处
+                      </button>
+                    )}
                     {iss.range && <span className="shrink-0 text-[10px] text-brand">跳→</span>}
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -671,6 +716,38 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     <>
       <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }}
         right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
+      {/* F-05 完整:点正文波浪线弹出的悬浮卡 — 类别 + message + 让主编改这处 + 忽略 */}
+      {issueCard && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIssueCard(null)} />
+          <div className="fixed z-50 w-[260px] rounded-xl border border-line bg-surface shadow-xl p-3"
+            style={{
+              left: Math.min(Math.max(8, issueCard.x), window.innerWidth - 272),
+              top: Math.min(issueCard.y, window.innerHeight - 140),
+            }}>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${issueDot(issueCard.issue.type)}`} />
+              <span className="text-[12px] font-semibold text-ink">{issueLabel(issueCard.issue.type)}</span>
+            </div>
+            <div className="text-[12px] text-fore leading-snug mb-2">{issueCard.issue.message}</div>
+            {issueCard.issue.text && (
+              <div className="text-[11.5px] text-faint leading-snug mb-2.5 line-clamp-2 border-l-2 border-line pl-2">
+                「{issueCard.issue.text}」
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => sendIssueToChief(issueCard.issue)}
+                className="flex-1 h-7 inline-flex items-center justify-center gap-1 rounded-lg border border-brand/40 bg-brand/5 text-brand text-[12px] hover:bg-brand/15 cursor-pointer transition-colors">
+                <Sparkles size={12} />让主编改这处
+              </button>
+              <button onClick={() => ignoreIssueHandler(issueCard.issue)}
+                className="h-7 px-2.5 rounded-lg border border-line text-faint text-[12px] hover:bg-soft cursor-pointer transition-colors">
+                忽略
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       <InputDialog
         open={!!dlg}
         title={dlg?.kind === 'checkpoint' ? '给这个存档点起个名(可留空)' : '存一个常用改写指令(如「压缩、去形容词」)'}
