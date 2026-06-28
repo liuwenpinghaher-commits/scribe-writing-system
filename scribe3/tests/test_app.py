@@ -2384,3 +2384,187 @@ def test_patch_event_narrative_404(store):
     r = c.patch("/events/ev:不存在事件/narrative",
                 json={"narrative_position": 1}, params={"work": "main"})
     assert r.status_code == 404
+
+
+# ===== R2: 写路径校验补全 =====
+
+# --- R2.1: 角色关系端点实体存在校验 ---
+
+def test_add_character_relation_missing_fields_422(store):
+    """POST /character-relations 缺字段→422 而非 500。"""
+    c = _client(store)
+    r = c.post("/character-relations", json={"src": "role:甲"})  # 缺 dst/relation/since_chapter
+    assert r.status_code == 422, f"缺字段应返回 422: {r.text}"
+
+
+def test_add_character_relation_nonexistent_src_422(store):
+    """POST /character-relations src 不存在→422,不建悬挂边。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:乙R2", "character", "乙"))
+    c = _client(store)
+    r = c.post("/character-relations", json={
+        "src": "role:不存在角色", "dst": "role:乙R2",
+        "relation": "ally", "since_chapter": 1
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+    # 确认悬挂边未写入
+    rels = store.relations_at(9999)
+    assert not any(x.get("src") == "不存在角色" for x in rels), "不应建立悬挂边"
+
+
+def test_add_character_relation_nonexistent_dst_422(store):
+    """POST /character-relations dst 不存在→422,不建悬挂边。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲R2", "character", "甲"))
+    c = _client(store)
+    r = c.post("/character-relations", json={
+        "src": "role:甲R2", "dst": "role:不存在乙",
+        "relation": "ally", "since_chapter": 1
+    })
+    assert r.status_code == 422, f"dst 不存在应返回 422: {r.text}"
+
+
+def test_evolve_relation_nonexistent_src_422(store):
+    """POST /character-relations/evolve src 不存在→422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:辛R2", "character", "辛"))
+    c = _client(store)
+    r = c.post("/character-relations/evolve", json={
+        "src": "role:不存在庚", "dst": "role:辛R2",
+        "relation": "enemy", "since_chapter": 5
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+
+
+def test_end_relation_nonexistent_src_422(store):
+    """POST /character-relations/end src 不存在→422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:癸R2", "character", "癸"))
+    c = _client(store)
+    r = c.post("/character-relations/end", json={
+        "src": "role:不存在壬", "dst": "role:癸R2",
+        "until_chapter": 5
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+
+
+def test_end_relation_missing_fields_422(store):
+    """POST /character-relations/end 缺字段→422。"""
+    c = _client(store)
+    r = c.post("/character-relations/end", json={"src": "role:甲"})  # 缺 dst/until_chapter
+    assert r.status_code == 422, f"缺字段应返回 422: {r.text}"
+
+
+# --- R2.2: 标记端点不存在返回 404 ---
+
+def test_mark_herring_nonexistent_404(store):
+    """POST /promises/不存在pid/mark-herring → 404。"""
+    c = _client(store)
+    r = c.post("/promises/不存在pid/mark-herring")
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_edit_promise_nonexistent_404(store):
+    """PATCH /promises/不存在pid → 404。"""
+    c = _client(store)
+    r = c.patch("/promises/不存在pid",
+                json={"text": "x", "setup_chapter": 1, "promise_kind": "promise"})
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_delete_promise_nonexistent_404(store):
+    """DELETE /promises/不存在pid → 404。"""
+    c = _client(store)
+    r = c.delete("/promises/不存在pid")
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_update_volume_nonexistent_404(store):
+    """PATCH /volumes/不存在vid → 404。"""
+    c = _client(store)
+    r = c.patch("/volumes/不存在vid", json={"title": "新标题"})
+    assert r.status_code == 404, f"不存在 volume 应返回 404: {r.text}"
+
+
+def test_delete_volume_nonexistent_404(store):
+    """DELETE /volumes/不存在vid → 404。"""
+    c = _client(store)
+    r = c.delete("/volumes/不存在vid")
+    assert r.status_code == 404, f"不存在 volume 应返回 404: {r.text}"
+
+
+def test_resolve_voice_flag_nonexistent_404(store):
+    """POST /voice-flags/不存在fid/resolve → 404。"""
+    c = _client(store)
+    r = c.post("/voice-flags/不存在fid/resolve")
+    assert r.status_code == 404, f"不存在 voice flag 应返回 404: {r.text}"
+
+
+# --- R2.3: PATCH /chapters/{seq} volume=null 清空生效 ---
+
+def test_patch_chapter_clear_volume(store):
+    """PATCH /chapters/{seq} 传 volume=null 应清空卷归属(exclude_unset 语义)。"""
+    # 建一章
+    store.save_chapter(1, "正文甲", "标题甲")
+    # 建一个卷并绑定
+    vid = store.add_volume(title="第一卷", sort_order=1)
+    store.update_chapter_meta(1, {"volume": vid})
+    ch_before = store.get_chapter(1)
+    assert ch_before is not None
+    # 通过端点传 volume=null 清空
+    c = _client(store)
+    r = c.patch("/chapters/1", json={"volume": None})
+    assert r.status_code == 200, f"清空卷归属应返回 200: {r.text}"
+    ch_after = store.get_chapter(1)
+    # volume 应清空(None 或不含 volume 键)
+    vol_val = ch_after.get("volume") if ch_after else "NOKEY"
+    assert vol_val is None, f"volume 应已清空,实际: {vol_val}"
+
+
+# --- R2.4: add_promise_clue 章号范围校验 ---
+
+def test_add_promise_clue_before_setup_422(store):
+    """POST /promises/{pid}/clues chapter < setup_chapter → 422。"""
+    store.plant_promise("范围测试伏笔", setup_chapter=5, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "范围测试" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "太早的线索", "chapter": 2})
+    assert r.status_code == 422, f"chapter < setup 应返回 422: {r.text}"
+
+
+def test_add_promise_clue_after_payoff_422(store):
+    """POST /promises/{pid}/clues chapter > payoff_chapter → 422。"""
+    store.plant_promise("有回收的伏笔", setup_chapter=2, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "有回收" in p["text"])
+    store.advance_promise(pid, payoff_chapter=8)
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "太晚的线索", "chapter": 10})
+    assert r.status_code == 422, f"chapter > payoff 应返回 422: {r.text}"
+
+
+def test_add_promise_clue_in_range_ok(store):
+    """POST /promises/{pid}/clues chapter 在合法范围内 → 200。"""
+    store.plant_promise("合法范围伏笔", setup_chapter=3, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "合法范围" in p["text"])
+    store.advance_promise(pid, payoff_chapter=9)
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "合法线索", "chapter": 6})
+    assert r.status_code == 200, f"合法章号应返回 200: {r.text}"
+
+
+# --- R2.5: reorder_chapters 不存在 volume → 422 ---
+
+def test_reorder_chapters_nonexistent_volume_422(store):
+    """POST /chapters/reorder 指定不存在 volume → 422。"""
+    store.save_chapter(1, "章甲", "标题")
+    c = _client(store)
+    r = c.post("/chapters/reorder", json={"volume": "不存在卷id", "order": [1]})
+    assert r.status_code == 422, f"不存在 volume 应返回 422: {r.text}"
+
+
+def test_patch_chapter_nonexistent_volume_422(store):
+    """PATCH /chapters/{seq} 指定不存在 volume → 422。"""
+    store.save_chapter(2, "章乙", "标题乙")
+    c = _client(store)
+    r = c.patch("/chapters/2", json={"volume": "幽灵卷id"})
+    assert r.status_code == 422, f"不存在 volume 应返回 422: {r.text}"

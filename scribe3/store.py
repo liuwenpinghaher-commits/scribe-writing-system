@@ -699,15 +699,6 @@ class SurrealStore:
         self._update_by(t, l, fields)
 
     def exists(self, oid: str) -> bool:
-        """只读:检查某 oid 是否存在(P25 存在性校验)。"""
-        try:
-            t, l = _split(oid)
-        except (KeyError, ValueError):
-            return False
-        rows = self._query("SELECT id FROM type::record($tbl,$local) LIMIT 1", {"tbl": t, "local": l})
-        return bool(rows)
-
-    def exists(self, oid: str) -> bool:
         """只读存在性检查(写前 404 校验用)。"""
         try:
             t, l = _split(oid)
@@ -731,11 +722,21 @@ class SurrealStore:
         t, l = _split(oid)
         self._delete_by(t, l)
 
-    def update_promise(self, pid: str, fields: dict) -> None:
+    def update_promise(self, pid: str, fields: dict) -> bool:
+        """更新伏笔字段;返回 True 若存在,False 若不存在。"""
+        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": pid})
+        if not rows:
+            return False
         self._update_by("promise", pid, fields)
+        return True
 
-    def delete_promise(self, promise_id: str) -> None:
+    def delete_promise(self, promise_id: str) -> bool:
+        """删除伏笔;返回 True 若存在并删除,False 若不存在。"""
+        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": promise_id})
+        if not rows:
+            return False
         self._delete_by("promise", promise_id)
+        return True
 
     def update_motif(self, motif_id: str, fields: dict) -> None:
         self._update_by("motif", motif_id, fields)
@@ -786,11 +787,16 @@ class SurrealStore:
             "SELECT meta::id(id) AS id, character, trigger_chapter, reason, status "
             "FROM voice_evolution_flag WHERE status=$st", {"st": status})
 
-    def resolve_voice_flag(self, flag_id: str) -> None:
-        """关闭声音演变 flag:将 status 从 'open' 改为 'done'。"""
+    def resolve_voice_flag(self, flag_id: str) -> bool:
+        """关闭声音演变 flag:将 status 从 'open' 改为 'done'。返回 True 若存在,False 若不存在。"""
+        rows = self._query(
+            "SELECT id FROM type::record('voice_evolution_flag',$fid) LIMIT 1", {"fid": flag_id})
+        if not rows:
+            return False
         self._execute_write(
             "UPDATE type::record('voice_evolution_flag',$fid) SET status='done'",
             {"fid": flag_id})
+        return True
 
     def fold_voice_flags(self, character_id: str, complete_fn) -> dict:
         """半自动声音演变消化:将该角色的开放 voice_evolution_flag 折叠进 voice_profile。
@@ -883,10 +889,14 @@ class SurrealStore:
         self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
                             "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
 
-    def mark_promise_herring(self, promise_id: str) -> None:
-        """将伏笔标记为 red_herring(障眼法)。"""
+    def mark_promise_herring(self, promise_id: str) -> bool:
+        """将伏笔标记为 red_herring(障眼法)。返回 True 若存在,False 若不存在。"""
+        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": promise_id})
+        if not rows:
+            return False
         self._execute_write(
             "UPDATE type::record('promise',$pid) SET kind='red_herring'", {"pid": promise_id})
+        return True
 
     def add_promise_clue(self, promise_id: str, note: str, chapter: int) -> None:
         """追加一条草蛇灰线线索到 promise.clues[]{chapter, note}。
@@ -1541,6 +1551,15 @@ class SurrealStore:
     # --- 角色关系图(B枢纽 character_relation)---
     def add_character_relation(self, src_oid: str, dst_oid: str, relation: str,
                                since_chapter: int, note: str | None = None) -> None:
+        # R2.1: 验证 src/dst 实体存在,防悬挂边
+        if self.entity(src_oid) is None:
+            raise ValueError(
+                f"add_character_relation: src '{src_oid}' 不存在,拒绝写入悬挂边。请先建立角色实体。"
+            )
+        if self.entity(dst_oid) is None:
+            raise ValueError(
+                f"add_character_relation: dst '{dst_oid}' 不存在,拒绝写入悬挂边。请先建立角色实体。"
+            )
         _, sl = _split(src_oid)
         _, dl = _split(dst_oid)
         self._execute_write(
@@ -1574,6 +1593,15 @@ class SurrealStore:
 
     def end_relation(self, src_oid: str, dst_oid: str, until_chapter: int) -> None:
         """终止关系:设置 until_chapter,不新建替代关系。"""
+        # R2.1: 验证 src/dst 实体存在
+        if self.entity(src_oid) is None:
+            raise ValueError(
+                f"end_relation: src '{src_oid}' 不存在,无法终止不存在角色的关系。"
+            )
+        if self.entity(dst_oid) is None:
+            raise ValueError(
+                f"end_relation: dst '{dst_oid}' 不存在,无法终止不存在角色的关系。"
+            )
         _, sl = _split(src_oid)
         _, dl = _split(dst_oid)
         self._execute_write(
@@ -1976,26 +2004,34 @@ class SurrealStore:
             "FROM volume ORDER BY sort_order")
         return rows
 
-    def update_volume(self, vid: str, fields: dict) -> None:
-        """更新卷字段(title/sort_order/intro/color 白名单)。"""
+    def update_volume(self, vid: str, fields: dict) -> bool:
+        """更新卷字段(title/sort_order/intro/color 白名单)。返回 True 若存在,False 若不存在。"""
+        rows = self._query("SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": vid})
+        if not rows:
+            return False
         allowed = {"title", "sort_order", "intro", "color"}
         payload = {k: v for k, v in fields.items() if k in allowed}
         if not payload:
-            return
+            return True
         sets = ", ".join(f"{k}=$p_{k}" for k in payload)
         params = {f"p_{k}": v for k, v in payload.items()}
         self._execute_write(
             f"UPDATE type::record('volume', $vid) SET {sets}",
             {"vid": vid, **params})
+        return True
 
-    def delete_volume(self, vid: str) -> None:
-        """删卷:先把该卷下所有章的 volume 置 NONE(不删章),再删卷记录。"""
+    def delete_volume(self, vid: str) -> bool:
+        """删卷:先把该卷下所有章的 volume 置 NONE(不删章),再删卷记录。返回 True 若存在并删除,False 若不存在。"""
+        rows = self._query("SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": vid})
+        if not rows:
+            return False
         self._execute_write(
             "UPDATE chapter SET volume = NONE WHERE volume = type::record('volume', $vid)",
             {"vid": vid})
         self._execute_write(
             "DELETE type::record('volume', $vid)",
             {"vid": vid})
+        return True
 
     # == 大纲聚合 ==
 
@@ -2173,13 +2209,18 @@ class SurrealStore:
         """把 order 列表中各章的 sort_order 设为卷基址+i,并更新 volume 字段。
         seq 永远不动(故事时间轴主键)。
         卷基址 = volume.sort_order * 1000(保持跨卷有序);未分卷基址 = 0。
+        R2.5: 若 volume_id 指定的卷不存在,抛 ValueError(防幽灵卷)。
         """
         base = 0
         if volume_id:
             vrows = self._query(
                 "SELECT sort_order FROM type::record('volume', $vid)",
                 {"vid": volume_id})
-            base = (vrows[0]["sort_order"] if vrows else 0) * 1000
+            if not vrows:
+                raise ValueError(
+                    f"reorder_chapters: volume '{volume_id}' 不存在,拒绝写入幽灵卷归属。"
+                )
+            base = vrows[0]["sort_order"] * 1000
         for i, seq in enumerate(order):
             if volume_id:
                 # record<volume> 须用 type::record() 在 SurrealQL 里构造,不能传字符串
@@ -2223,6 +2264,13 @@ class SurrealStore:
             if volume_id is None:
                 set_parts.append("volume=NONE")
             else:
+                # R2.5: 校验目标卷存在,防幽灵卷
+                vcheck = self._query(
+                    "SELECT id FROM type::record('volume',$vid) LIMIT 1", {"vid": volume_id})
+                if not vcheck:
+                    raise ValueError(
+                        f"update_chapter_meta: volume '{volume_id}' 不存在,拒绝写入幽灵卷归属。"
+                    )
                 set_parts.append("volume=type::record('volume', $p_volume)")
                 params["p_volume"] = volume_id
         if not set_parts:

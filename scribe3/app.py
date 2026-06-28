@@ -431,13 +431,17 @@ def add_prom(p: PromIn, work: str = "main"):
 
 @app.patch("/promises/{pid}")
 def edit_prom(pid: str, p: PromIn, work: str = "main"):
-    _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind})
+    found = _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind})
+    if not found:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
     return {"ok": True}
 
 
 @app.delete("/promises/{pid}")
 def del_prom(pid: str, work: str = "main"):
-    _store_for(work).delete_promise(pid)
+    found = _store_for(work).delete_promise(pid)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
     return {"ok": True}
 
 
@@ -457,11 +461,13 @@ def advance_prom(pid: str, body: AdvanceIn, work: str = "main"):
 
 @app.post("/promises/{pid}/mark-herring")
 def mark_herring(pid: str, work: str = "main"):
-    """将伏笔标记为障眼法(red_herring)。"""
+    """将伏笔标记为障眼法(red_herring)。伏笔不存在→404。"""
     try:
-        _store_for(work).mark_promise_herring(pid)
+        found = _store_for(work).mark_promise_herring(pid)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if not found:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
     return {"ok": True}
 
 
@@ -472,9 +478,29 @@ class ClueIn(BaseModel):
 
 @app.post("/promises/{pid}/clues")
 def add_promise_clue(pid: str, body: ClueIn, work: str = "main"):
-    """追加草蛇灰线中途线索到某条伏笔。body:{note, chapter}。"""
+    """追加草蛇灰线中途线索到某条伏笔。body:{note, chapter}。
+    R2.4: chapter 必须 >= setup_chapter;若 payoff 已设则也须 <= payoff_chapter。
+    """
+    st = _store_for(work)
+    # R2.4: 先取 promise 的 setup/payoff 章号做范围校验
+    proms = st.list_promises()
+    prom = next((p for p in proms if p["id"] == pid), None)
+    if prom is None:
+        raise HTTPException(status_code=422, detail=f"promise '{pid}' 不存在")
+    setup = prom.get("setup_chapter", 1)
+    payoff = prom.get("payoff_chapter")
+    if body.chapter < setup:
+        raise HTTPException(
+            status_code=422,
+            detail=f"clue.chapter({body.chapter}) < setup_chapter({setup}):线索不能早于埋设章"
+        )
+    if payoff is not None and body.chapter > payoff:
+        raise HTTPException(
+            status_code=422,
+            detail=f"clue.chapter({body.chapter}) > payoff_chapter({payoff}):线索不能晚于回收章"
+        )
     try:
-        _store_for(work).add_promise_clue(pid, body.note, body.chapter)
+        st.add_promise_clue(pid, body.note, body.chapter)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
@@ -615,24 +641,51 @@ def character_relations(chapter: int | None = None, work: str = "main"):
 
 @app.post("/character-relations")
 def add_character_relation_endpoint(req: dict, work: str = "main"):
+    # R2.1: 缺字段返回 422;ValueError(实体不存在)→422
+    src = req.get("src")
+    dst = req.get("dst")
+    relation = req.get("relation")
+    since_chapter = req.get("since_chapter")
+    if not src or not dst or not relation or since_chapter is None:
+        raise HTTPException(status_code=422, detail="缺少必填字段: src/dst/relation/since_chapter")
     st = _store_for(work)
-    st.add_character_relation(req["src"], req["dst"], req["relation"],
-                              req["since_chapter"], req.get("note"))
+    try:
+        st.add_character_relation(src, dst, relation, since_chapter, req.get("note"))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
 
 
 @app.post("/character-relations/evolve")
 def evolve_relation_endpoint(req: dict, work: str = "main"):
+    # R2.1: 缺字段返回 422;ValueError(实体不存在)→422
+    src = req.get("src")
+    dst = req.get("dst")
+    relation = req.get("relation")
+    since_chapter = req.get("since_chapter")
+    if not src or not dst or not relation or since_chapter is None:
+        raise HTTPException(status_code=422, detail="缺少必填字段: src/dst/relation/since_chapter")
     st = _store_for(work)
-    st.evolve_relation(req["src"], req["dst"], req["relation"],
-                       req["since_chapter"], req.get("note"))
+    try:
+        st.evolve_relation(src, dst, relation, since_chapter, req.get("note"))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
 
 
 @app.post("/character-relations/end")
 def end_relation_endpoint(req: dict, work: str = "main"):
+    # R2.1: 缺字段返回 422;ValueError(实体不存在)→422
+    src = req.get("src")
+    dst = req.get("dst")
+    until_chapter = req.get("until_chapter")
+    if not src or not dst or until_chapter is None:
+        raise HTTPException(status_code=422, detail="缺少必填字段: src/dst/until_chapter")
     st = _store_for(work)
-    st.end_relation(req["src"], req["dst"], req["until_chapter"])
+    try:
+        st.end_relation(src, dst, until_chapter)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
 
 
@@ -696,8 +749,10 @@ def voice_flags(work: str = "main"):
 
 @app.post("/voice-flags/{fid}/resolve")
 def resolve_voice_flag_endpoint(fid: str, work: str = "main"):
-    """关闭声音演变 flag(status: open → done)。"""
-    _store_for(work).resolve_voice_flag(fid)
+    """关闭声音演变 flag(status: open → done)。flag 不存在→404。"""
+    found = _store_for(work).resolve_voice_flag(fid)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"voice_evolution_flag '{fid}' 不存在")
     return {"ok": True}
 
 
@@ -1391,8 +1446,13 @@ class ReorderReq(BaseModel):
 
 @app.post("/chapters/reorder")
 def reorder_chapters(req: ReorderReq, work: str = "main"):
-    """拖拽重排:改 sort_order(及 volume),绝不动 seq(故事时间轴主键)。"""
-    count = _store_for(work).reorder_chapters(req.volume, req.order)
+    """拖拽重排:改 sort_order(及 volume),绝不动 seq(故事时间轴主键)。
+    R2.5: 目标 volume 不存在→422。
+    """
+    try:
+        count = _store_for(work).reorder_chapters(req.volume, req.order)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return {"status": "reordered", "volume": req.volume, "count": count}
 
 
@@ -1405,9 +1465,15 @@ class ChapterMetaReq(BaseModel):
 
 @app.patch("/chapters/{seq}")
 def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
-    """改章梗概/卷归属/标签/标题,不碰正文/embedding/qc。"""
-    fields = req.model_dump(exclude_none=True)
-    ok = _store_for(work).update_chapter_meta(seq, fields)
+    """改章梗概/卷归属/标签/标题,不碰正文/embedding/qc。
+    R2.3: 用 exclude_unset=True(区分"没传"与"传了 null"),让 volume=None 能清空卷归属。
+    R2.5: 目标 volume 不存在→422。
+    """
+    fields = req.model_dump(exclude_unset=True)
+    try:
+        ok = _store_for(work).update_chapter_meta(seq, fields)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
     return {"status": "updated", "seq": seq}
@@ -1445,14 +1511,18 @@ class VolumePatchReq(BaseModel):
 @app.patch("/volumes/{vid}")
 def update_volume(vid: str, req: VolumePatchReq, work: str = "main"):
     fields = req.model_dump(exclude_none=True)
-    _store_for(work).update_volume(vid, fields)
+    found = _store_for(work).update_volume(vid, fields)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"volume '{vid}' 不存在")
     return {"status": "updated", "id": vid}
 
 
 @app.delete("/volumes/{vid}")
 def delete_volume(vid: str, work: str = "main"):
-    """删卷:该卷下的章 volume 置 NONE(章不删),再删卷记录。"""
-    _store_for(work).delete_volume(vid)
+    """删卷:该卷下的章 volume 置 NONE(章不删),再删卷记录。卷不存在→404。"""
+    found = _store_for(work).delete_volume(vid)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"volume '{vid}' 不存在")
     return {"status": "deleted", "id": vid}
 
 
