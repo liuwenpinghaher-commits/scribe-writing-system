@@ -84,6 +84,8 @@ export const api = {
   chapterVersion: (vid) => j('/chapter-version/' + enc(vid)),
   checkProse: (seq, prose, focalizer = '') =>
     post(`/check?seq=${seq}`, { prose, focalizer }),
+  postCheck: (seq, prose, focalizer = '', brief = '') =>
+    post(`/post-check?seq=${seq}`, { prose, focalizer, brief }),
   live: (onChange) => {
     const es = new EventSource(BASE + ww('/live'))
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }

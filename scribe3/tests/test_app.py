@@ -987,3 +987,88 @@ def test_recap_block_injects_prev_chapter(store):
     assert "老乌头" in block, "应含上一章结尾文字"
     assert "前情" in block, "应含前情说明标题"
     assert _recap_block(store, 1) == "", "第 1 章无前情,应返回空串"
+
+
+# ===== Fix 1 TDD: /quality 全量计数(五类) =====
+
+def test_quality_full_qc_count_includes_ai_tics(store):
+    """/quality qc_issues 应涵盖全部五类:repetition/structural/purple/ai_tics/oversaturation。
+    构造含大量 AI 腔破折号的散文,ai_tics 应被计入 qc_issues。"""
+    # 构造 AI 腔散文:大量"不是……而是……""——"等 AI 腔标记
+    ai_tic_prose = "不是因为害怕——而是因为他明白这一切的意义。" * 20
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 1, "prose": ai_tic_prose, "title": "ai_tics测试章", "focalizer": None})
+    q = c.get("/quality").json()
+    ch1 = next(x for x in q["chapters"] if x["seq"] == 1)
+    # qc_breakdown 应存在且含 ai_tics
+    assert "qc_breakdown" in ch1, "应含 qc_breakdown 字段"
+    assert set(ch1["qc_breakdown"]) == {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
+    # ai_tics 非零 → qc_issues 应大于不含 ai_tics 时的计数
+    assert ch1["qc_breakdown"]["ai_tics"] > 0, "AI腔散文应检出 ai_tics > 0"
+    assert ch1["qc_issues"] >= ch1["qc_breakdown"]["ai_tics"], "qc_issues 应包含 ai_tics"
+
+
+def test_check_returns_all_five_qc_classes(store):
+    """/check 返回的 qc 字典应含 ai_tics + oversaturation(Fix 1)。"""
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1},
+               json={"prose": "随便写点什么。", "focalizer": ""}).json()
+    assert set(r["qc"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
+
+
+# ===== Fix 2 TDD: /post-check 生成后全量体检 =====
+
+def test_post_check_returns_assembled_structure(store):
+    """/post-check 应返回 quality(五类+total)/leaks/discipline/degraded 四个顶层字段。"""
+    import scribe3.llm as llm
+    store.save_chapter(1, "一段志怪正文,无异常。", title="测试")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段志怪正文,无异常。", "focalizer": "", "brief": ""}).json()
+    assert set(r) >= {"quality", "leaks", "discipline", "degraded"}
+    assert set(r["quality"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation", "total"}
+    assert isinstance(r["leaks"], list)
+    assert isinstance(r["degraded"], bool)
+
+
+def test_post_check_discipline_mocked(store):
+    """/post-check:LLM 回调返回违规时,discipline 字段含 violations 列表。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": false, "violations": ["double_climax"], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "这章违规。", "focalizer": "", "brief": ""}).json()
+    assert r["degraded"] is False
+    assert "double_climax" in r["discipline"].get("violations", [])
+
+
+def test_post_check_degraded_on_llm_failure(store):
+    """/post-check:LLM 调用抛异常 → degraded=True,不崩溃,仍返回确定性 QC。"""
+    def exploding_complete(prompt, **kw):
+        raise RuntimeError("LLM 宕机")
+
+    c = _client(store, complete_fn=exploding_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "测试正文", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["degraded"] is True
+    assert "quality" in data and "total" in data["quality"]
+
+
+def test_post_check_leaks_detected(store):
+    """/post-check:有 focalizer 且散文含泄露时,leaks 非空。"""
+    luanshi_leak_world(store)
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
+    assert len(r["leaks"]) > 0, "老道写出治眼应被检出泄露"

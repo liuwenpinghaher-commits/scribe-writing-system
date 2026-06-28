@@ -614,7 +614,15 @@ def quality(work: str = "main"):
         per.append({
             "seq": c["seq"], "title": c["title"],
             "word_count": len("".join(prose.split())),
-            "qc_issues": len(qf["repetition"]) + len(qf["structural"]) + len(qf["purple"]),
+            "qc_issues": (len(qf["repetition"]) + len(qf["structural"]) + len(qf["purple"])
+                          + len(qf["ai_tics"]) + len(qf["oversaturation"])),
+            "qc_breakdown": {
+                "repetition": len(qf["repetition"]),
+                "structural": len(qf["structural"]),
+                "purple": len(qf["purple"]),
+                "ai_tics": len(qf["ai_tics"]),
+                "oversaturation": len(qf["oversaturation"]),
+            },
             "causal": len(causal_complete(st, c["seq"])),
         })
     proms = st.list_promises()
@@ -1277,8 +1285,67 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
             logging.getLogger("scribe3").warning("check find_leaks 失败: %s", e)
     return {"qc": {"repetition": len(qf["repetition"]),
                    "structural": len(qf["structural"]),
-                   "purple": len(qf["purple"])},
+                   "purple": len(qf["purple"]),
+                   "ai_tics": len(qf["ai_tics"]),
+                   "oversaturation": len(qf["oversaturation"])},
             "leaks": leaks}
+
+
+class PostCheckReq(BaseModel):
+    prose: str
+    focalizer: str = ""
+    brief: str = ""
+
+
+@app.post("/post-check")
+def post_check(req: PostCheckReq, seq: int, work: str = "main"):
+    """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
+    不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。"""
+    import logging
+    from scribe3.critique import quality_flags, discipline_truncate
+    st = _store_for(work)
+
+    # 1. 确定性五类 QC
+    qf = quality_flags(req.prose)
+    qc_breakdown = {
+        "repetition": len(qf["repetition"]),
+        "structural": len(qf["structural"]),
+        "purple": len(qf["purple"]),
+        "ai_tics": len(qf["ai_tics"]),
+        "oversaturation": len(qf["oversaturation"]),
+    }
+    qc_total = sum(qc_breakdown.values())
+
+    # 2. 限知泄露(有 focalizer 才跑)
+    leaks: list[dict] = []
+    if req.focalizer:
+        try:
+            from scribe3.verify import find_leaks
+            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject}
+                     for lk in find_leaks(req.prose, st, req.focalizer, seq)]
+        except Exception as e:
+            logging.getLogger("scribe3").warning("post_check find_leaks 失败: %s", e)
+
+    # 3. LLM 语义纪律判(fail-open)
+    discipline: dict = {}
+    degraded = False
+    try:
+        # 优先用测试注入的 _complete_fn,否则走真实 hermes_complete
+        complete_fn = _complete_fn
+        if complete_fn is None:
+            from scribe3.llm import hermes_complete
+            complete_fn = hermes_complete
+        discipline = discipline_truncate(req.prose, req.brief, complete_fn)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
+        degraded = True
+
+    return {
+        "quality": {**qc_breakdown, "total": qc_total},
+        "leaks": leaks,
+        "discipline": discipline,
+        "degraded": degraded,
+    }
 
 
 @app.post("/checkpoint")

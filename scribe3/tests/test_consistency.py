@@ -72,6 +72,7 @@ class TestWriteGate:
         ("PATCH", "/works/{slug}"), ("POST", "/save-chapter"), ("POST", "/ingest"),
         ("POST", "/checkpoint"),
         ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST
+        ("POST", "/post-check"),   # 生成后全量体检:QC+泄露+纪律LLM,不落库,read-only POST
         ("POST", "/dedup-chapter"),   # QC治层:确定性事后跨章改写并存回(作者可信通道)
         ("POST", "/chat/write"),
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),

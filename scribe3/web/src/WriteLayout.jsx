@@ -37,7 +37,9 @@ export function WriteLayout({ work }) {
   const [lastSel, setLastSel] = useState(null)
   const [qc, setQc] = useState(null)
   const [leaks, setLeaks] = useState(0)
-  const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } })
+  const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0, ai_tics: 0, oversaturation: 0 } })
+  const [postCheckResult, setPostCheckResult] = useState(null)
+  const [postChecking, setPostChecking] = useState(false)
   const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
   const [causal, setCausal] = useState([])
   const [promises, setPromises] = useState([])
@@ -117,6 +119,45 @@ export function WriteLayout({ work }) {
   }, [chapter, tick])
   const runRecall = async (e) => { e.preventDefault(); if (!recallQ.trim()) return; setRecallHits(await api.recall(recallQ.trim(), 8)) }
 
+  const runPostCheck = async () => {
+    if (!prose.trim() || postChecking) return
+    setPostChecking(true)
+    setPostCheckResult(null)
+    try {
+      const r = await api.postCheck(chapter, prose, focalizer)
+      setPostCheckResult(r)
+    } catch (e) {
+      setPostCheckResult({ error: e.message || '请求失败' })
+    } finally {
+      setPostChecking(false)
+    }
+  }
+
+  const sendPostCheckToChief = () => {
+    if (!postCheckResult) return
+    const r = postCheckResult
+    const lines = []
+    if (r.quality?.total > 0) {
+      const bd = r.quality
+      const parts = []
+      if (bd.repetition > 0) parts.push(`复读 ${bd.repetition} 处`)
+      if (bd.structural > 0) parts.push(`排比 ${bd.structural} 处`)
+      if (bd.purple > 0) parts.push(`升华 ${bd.purple} 处`)
+      if (bd.ai_tics > 0) parts.push(`AI腔 ${bd.ai_tics} 处`)
+      if (bd.oversaturation > 0) parts.push(`过饱和 ${bd.oversaturation} 处`)
+      lines.push(`QC 问题：${parts.join('、')}`)
+    }
+    if (r.leaks?.length > 0) {
+      lines.push(`限知泄露 ${r.leaks.length} 处：${r.leaks.map((l) => l.marker).join('、')}`)
+    }
+    if (r.discipline?.violations?.length > 0) {
+      lines.push(`纪律违规：${r.discipline.violations.join('、')}`)
+    }
+    if (lines.length === 0) lines.push('体检通过,无问题')
+    setSeedQuote(`本章体检发现:\n${lines.join('\n')}\n\n请据此修订本章。`)
+    setRightActive('chat')
+  }
+
   const chars = entities.filter((e) => e.kind === 'character')
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
@@ -185,8 +226,9 @@ export function WriteLayout({ work }) {
       <div className="flex items-center gap-2 shrink-0">
         {/* 护栏芯片 */}
         {(() => {
-          const guardTone = !guardOn ? 'faint' : (focalizer && guard.leaks.length > 0 ? 'danger' : ((guard.qc.repetition + guard.qc.purple) > 0 ? 'warn' : 'ok'))
-          const issueCount = (focalizer ? guard.leaks.length : 0) + guard.qc.repetition + guard.qc.purple
+          const qcTotal = (guard.qc.repetition || 0) + (guard.qc.structural || 0) + (guard.qc.purple || 0) + (guard.qc.ai_tics || 0) + (guard.qc.oversaturation || 0)
+          const guardTone = !guardOn ? 'faint' : (focalizer && guard.leaks.length > 0 ? 'danger' : (qcTotal > 0 ? 'warn' : 'ok'))
+          const issueCount = (focalizer ? guard.leaks.length : 0) + qcTotal
           return (
             <div ref={guardPopRef} className="relative shrink-0">
               <Chip
@@ -207,11 +249,19 @@ export function WriteLayout({ work }) {
                       : <div className="text-[12px] text-ok">无泄露</div>
                     }
                   </div>
-                  {/* 复读/升华 */}
+                  {/* 五类 QC */}
                   <div className="mb-3">
-                    <div className="text-[11.5px] text-faint mb-0.5">复读 / 升华</div>
-                    <div className={`text-[12px] ${(guard.qc.repetition + guard.qc.purple) > 0 ? 'text-warn' : 'text-ok'}`}>
-                      {(guard.qc.repetition + guard.qc.purple) > 0 ? `${guard.qc.repetition + guard.qc.purple} 处` : '干净'}
+                    <div className="text-[11.5px] text-faint mb-0.5">确定性 QC(五类)</div>
+                    <div className={`text-[12px] ${qcTotal > 0 ? 'text-warn' : 'text-ok'}`}>
+                      {qcTotal > 0 ? (
+                        <span>
+                          {(guard.qc.repetition || 0) > 0 && <span>复读 {guard.qc.repetition} </span>}
+                          {(guard.qc.structural || 0) > 0 && <span>排比 {guard.qc.structural} </span>}
+                          {(guard.qc.purple || 0) > 0 && <span>升华 {guard.qc.purple} </span>}
+                          {(guard.qc.ai_tics || 0) > 0 && <span>AI腔 {guard.qc.ai_tics} </span>}
+                          {(guard.qc.oversaturation || 0) > 0 && <span>过饱和 {guard.qc.oversaturation} </span>}
+                        </span>
+                      ) : '干净'}
                     </div>
                   </div>
                   {/* 开/关 toggle */}
@@ -357,6 +407,66 @@ export function WriteLayout({ work }) {
       {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
       {causal.length > 0 ? <Row tone="danger" icon={CircleAlert}>因果违规 {causal.length} 处</Row> : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
       <div className="text-[11px] text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
+
+      {/* 生成后全量体检 */}
+      <div className="mt-4 border-t border-line pt-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11.5px] font-semibold text-ink">生成后体检(全量)</div>
+          <button
+            onClick={runPostCheck}
+            disabled={postChecking || !prose.trim()}
+            className="h-6 px-2.5 rounded-lg text-[11px] bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors"
+          >
+            {postChecking ? '检查中…' : '立即体检'}
+          </button>
+        </div>
+        {postCheckResult && !postCheckResult.error && (
+          <div className="space-y-1.5">
+            {/* QC 五类 */}
+            <div className={`text-[12px] rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
+              <span className="font-medium">QC</span>
+              {(postCheckResult.quality?.total || 0) > 0 ? (
+                <span className="ml-1">
+                  {postCheckResult.quality.repetition > 0 && <span>复读 {postCheckResult.quality.repetition} </span>}
+                  {postCheckResult.quality.structural > 0 && <span>排比 {postCheckResult.quality.structural} </span>}
+                  {postCheckResult.quality.purple > 0 && <span>升华 {postCheckResult.quality.purple} </span>}
+                  {postCheckResult.quality.ai_tics > 0 && <span>AI腔 {postCheckResult.quality.ai_tics} </span>}
+                  {postCheckResult.quality.oversaturation > 0 && <span>过饱和 {postCheckResult.quality.oversaturation} </span>}
+                </span>
+              ) : ' 干净'}
+            </div>
+            {/* 泄露 */}
+            <div className={`text-[12px] rounded-lg px-2 py-1.5 ${postCheckResult.leaks?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+              <span className="font-medium">泄露</span>
+              {postCheckResult.leaks?.length > 0
+                ? <span className="ml-1">{postCheckResult.leaks.length} 处:{postCheckResult.leaks.map((l) => l.marker).join('、')}</span>
+                : ' 无'}
+            </div>
+            {/* 纪律 */}
+            {postCheckResult.discipline && (
+              <div className={`text-[12px] rounded-lg px-2 py-1.5 ${postCheckResult.discipline.violations?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+                <span className="font-medium">纪律</span>
+                {postCheckResult.discipline.violations?.length > 0
+                  ? <span className="ml-1">{postCheckResult.discipline.violations.join('、')}</span>
+                  : ' 守纪'}
+              </div>
+            )}
+            {postCheckResult.degraded && (
+              <div className="text-[11px] text-faint">⚠ 纪律判 LLM 调用失败,仅含确定性结果</div>
+            )}
+            {/* 一键修 */}
+            <button
+              onClick={sendPostCheckToChief}
+              className="w-full mt-1 h-7 rounded-lg border border-brand/40 bg-brand/5 text-brand text-[12px] hover:bg-brand/15 cursor-pointer transition-colors"
+            >
+              让主编修这章
+            </button>
+          </div>
+        )}
+        {postCheckResult?.error && (
+          <div className="text-[11.5px] text-danger">体检失败:{postCheckResult.error}</div>
+        )}
+      </div>
     </div>
   )
   const renderForeshadow = () => (
