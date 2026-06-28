@@ -2120,15 +2120,37 @@ class SurrealStore:
         known_names.discard("")
 
         # ── (a) 数字声明矛盾检测 ────────────────────────────────────────────
-        # 正则:「<专名>(的)?<连词?><数字汉字/阿拉伯>(口|枚|颗|人|名|位|座|条|件|个|匹|张|把|支|根|块|面)?」
-        # 数字模式:汉字数字串 | 阿拉伯数字串
+        # 策略:抽取「<专名>…<数字><量词单位>」三元组,
+        #       只有【同一专名 + 同一量词单位 + 不同数字】才报 numeric_inconsistency。
+        # 量词单位取数字紧跟的1-2字(须在已定义单位集内);否则单位为空串""。
+        # 这样 "三十出头"(单位"") 与 "二十年前"(单位"年") 单位不同,不报矛盾。
         _HANZI_DIGITS = "零一二三四五六七八九十百千万亿两"
         _NUM_PAT = rf"[{_HANZI_DIGITS}]+|\d+"
-        # 量词(可选但有助于精确锚定)
-        _UNIT_PAT = r"(?:口|枚|颗|人|名|位|座|条|件|个|匹|张|把|支|根|块|面|载|年|日|月|天)?"
+        # 标准量词集合:实物计量单位
+        _UNITS: set[str] = {
+            "口", "枚", "颗", "人", "名", "位", "座", "条", "件", "个",
+            "匹", "张", "把", "支", "根", "块", "面", "载", "年", "日",
+            "月", "天", "两", "石", "斤", "尺", "丈", "里", "里",
+        }
+        # 2字复合量词(精确匹配优先于1字)
+        _UNITS2: set[str] = {"年前", "年后", "天前", "天后", "日前", "日后"}
 
-        # entity_nums: {entity_name: [(chapter_seq, number_str, snippet), ...]}
-        entity_nums: dict[str, list[tuple[int, str, str]]] = {}
+        def _extract_unit(text_after_num: str) -> str:
+            """从数字后面的文本提取量词单位(1-2字);不在单位集内则返回空串。"""
+            if not text_after_num:
+                return ""
+            # 优先尝试2字复合量词
+            two = text_after_num[:2] if len(text_after_num) >= 2 else ""
+            if two in _UNITS2:
+                return two
+            # 再尝试1字
+            one = text_after_num[0] if text_after_num else ""
+            if one in _UNITS:
+                return one
+            return ""
+
+        # entity_nums: {entity_name: [(chapter_seq, number_str, unit_str, snippet), ...]}
+        entity_nums: dict[str, list[tuple[int, str, str, str]]] = {}
 
         for ch in chapters:
             seq = ch["seq"]
@@ -2136,41 +2158,49 @@ class SurrealStore:
             for name in known_names:
                 if not name or name not in prose:
                     continue
-                # 在专名周围50字内搜索数字
                 for m in re.finditer(re.escape(name), prose):
                     # 取专名右侧30字内的数字
                     window = prose[m.end(): m.end() + 30]
                     num_m = re.search(_NUM_PAT, window)
                     if num_m:
                         num_str = num_m.group()
-                        # 过滤纯单字数字「一」「二」避免过多噪声(需≥2字或为阿拉伯数字)
+                        # 过滤纯单字汉字数字「一」「二」等噪声(需≥2字或为阿拉伯数字)
                         if len(num_str) < 2 and not num_str.isdigit():
                             continue
-                        snippet = prose[max(0, m.start()-2): m.end()+len(window[:num_m.end()])+2]
-                        entity_nums.setdefault(name, []).append((seq, num_str, snippet))
+                        # 提取数字后面的量词单位
+                        after_num = window[num_m.end():]
+                        unit = _extract_unit(after_num)
+                        snippet = prose[max(0, m.start() - 2): m.end() + num_m.end() + 4]
+                        entity_nums.setdefault(name, []).append((seq, num_str, unit, snippet))
 
         for name, occurrences in entity_nums.items():
             if len(occurrences) < 2:
                 continue
-            # 按数字值聚合:若同一名称出现了2种以上不同数字串
-            seen: dict[str, list[tuple[int, str]]] = {}
-            for seq, num_str, snippet in occurrences:
-                seen.setdefault(num_str, []).append((seq, snippet))
-            if len(seen) >= 2:
-                # 挑出出现次数最多的两个数字(最典型的矛盾对)
-                sorted_nums = sorted(seen.items(), key=lambda x: -len(x[1]))
+            # 按(量词单位, 数字)聚合:只对同一单位下的不同数字报矛盾
+            # unit_seen: {unit_str: {num_str: [(seq, snippet), ...]}}
+            unit_seen: dict[str, dict[str, list[tuple[int, str]]]] = {}
+            for seq, num_str, unit, snippet in occurrences:
+                unit_seen.setdefault(unit, {}).setdefault(num_str, []).append((seq, snippet))
+
+            for unit, num_map in unit_seen.items():
+                if len(num_map) < 2:
+                    continue  # 同单位下数字都一样,无矛盾
+                # 找出现次数最多的两个数字(最典型矛盾对)
+                sorted_nums = sorted(num_map.items(), key=lambda x: -len(x[1]))
                 num_a, locs_a = sorted_nums[0]
                 num_b, locs_b = sorted_nums[1]
                 ch_a = locs_a[0][0]
                 ch_b = locs_b[0][0]
                 snip_a = locs_a[0][1]
                 snip_b = locs_b[0][1]
+                unit_label = f"(量词:{unit})" if unit else ""
                 hints.append({
                     "type": "numeric_inconsistency",
                     "severity": "high",
                     "entity": name,
                     "description": (
-                        f"「{name}」数字前后矛盾:第{ch_a}章「{num_a}」vs 第{ch_b}章「{num_b}」"
+                        f"「{name}」数字前后矛盾{unit_label}:"
+                        f"第{ch_a}章「{num_a}」vs 第{ch_b}章「{num_b}」"
                     ),
                     "evidence": {
                         f"第{ch_a}章": snip_a,
@@ -2178,13 +2208,14 @@ class SurrealStore:
                     },
                 })
 
-        # ── (b) 未登记高频疑似专名检测 ──────────────────────────────────────
-        # 策略:连续2-4个汉字、全书合并正文出现≥3次、不在 known_names 中、
-        # 且与 known_names 中某项有首/尾字共享(疑似命名漂移),报 unregistered_name。
-        # 保守:只报≥3次+首尾字匹配,避免大量噪声。
+        # ── (b) 未登记高频疑似专名检测(收紧版) ─────────────────────────────
+        # 只报【出现≥5次】且【与已知专名共享≥2个连续汉字(含子串)】的词——
+        # 疑似命名漂移/别名(如"潭家"已登记但出现"潭家府")。
+        # 纯独立新词、常用词、已知专名的纯前/后缀词一律不报。
+        # 选择选项A:精准收紧,宁可漏报也不滥报。
         all_prose = "".join(c["prose"] for c in chapters)
 
-        # 提取所有2-4字汉字词组(滑动窗口)
+        # 提取所有2-4字汉字词组(滑动窗口,排除标点/空格)
         hanzi_only = re.sub(r"[^一-鿿]", " ", all_prose)
         candidate_counts: dict[str, int] = {}
         for length in (2, 3, 4):
@@ -2192,7 +2223,7 @@ class SurrealStore:
             for tok in tokens:
                 candidate_counts[tok] = candidate_counts.get(tok, 0) + 1
 
-        # 常见虚词/停用词排除(简单列表,避免报"他们/我们/什么"等)
+        # 常见虚词/停用词/助词排除
         _STOPWORDS = {
             "这个", "那个", "什么", "如何", "为何", "因为", "所以", "虽然", "但是",
             "他们", "我们", "你们", "她们", "已经", "可以", "没有", "一个", "一些",
@@ -2202,30 +2233,59 @@ class SurrealStore:
             "一边", "一起", "一般", "一样", "一切", "一定", "一旦", "如此", "这里",
             "那里", "这时", "那时", "其中", "其他", "其实", "不过", "不知", "不得",
             "只有", "只能", "只好", "不禁", "不由", "不觉", "不得不", "不由得",
+            "看见", "走过", "想起", "回头", "逃散", "走来", "说道", "点头", "摇头",
+            "百姓", "街道", "门楼", "石板", "月光", "夜色", "空院", "往日", "五味",
         }
 
         reported: set[str] = set()
         for tok, cnt in candidate_counts.items():
-            if cnt < 3:
-                continue
             if tok in known_names or tok in _STOPWORDS:
                 continue
             if tok in reported:
                 continue
-            # 首/尾字与已知专名共享 → 疑似命名漂移/别名
+
+            if not known_names:
+                # 无已登记专名时:退回原始行为,高频(≥3次)词即报
+                if cnt >= 3:
+                    hints.append({
+                        "type": "unregistered_name",
+                        "severity": "low",
+                        "entity": tok,
+                        "description": (
+                            f"「{tok}」全书出现 {cnt} 次但未登记为角色/术语/地点/阵营/物品"
+                        ),
+                        "evidence": tok,
+                    })
+                    reported.add(tok)
+                continue
+
+            # ── 有已登记专名时:大幅收紧,只报疑似命名漂移 ──────────────────
+            # 门槛提高到≥5次
+            if cnt < 5:
+                continue
+            # 排除:tok 是已知专名的直接超集(专名+助词/动词,如"潭家的"、"柳三更走")
+            if any(kn in tok for kn in known_names if len(kn) >= 2):
+                continue
+            # 排除:tok 是已知专名的严格子串(截断词,如"柳三"是"柳三更"的前缀)
+            if any(tok in kn for kn in known_names if len(kn) > len(tok)):
+                continue
+            # 疑似命名漂移:tok 与某已知专名共享≥2个连续汉字但互不包含
+            # (如"潭家"已登记,"潭府"出现 → 疑似别名)
             is_derived = any(
-                len(kn) >= 2 and (kn[0] == tok[0] or kn[-1] == tok[-1])
+                len(kn) >= 2 and any(
+                    kn[i:i+2] in tok
+                    for i in range(len(kn) - 1)
+                )
                 for kn in known_names
             )
-            # 若 known_names 为空(无任何登记),仍报告高频词(避免空设定时漏检)
-            if is_derived or not known_names:
+            if is_derived:
                 hints.append({
                     "type": "unregistered_name",
                     "severity": "low",
                     "entity": tok,
                     "description": (
                         f"「{tok}」全书出现 {cnt} 次但未登记为角色/术语/地点/阵营/物品"
-                        f"{'(疑似已登记专名的别名/命名漂移)' if is_derived else ''}"
+                        "(疑似已登记专名的别名/命名漂移)"
                     ),
                     "evidence": tok,
                 })

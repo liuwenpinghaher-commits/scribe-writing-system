@@ -1020,3 +1020,62 @@ class TestValidateCrossChapter:
         """无章时返回空列表,不崩溃。"""
         hints = store.validate_cross_chapter_consistency()
         assert isinstance(hints, list)
+
+    def test_numeric_different_unit_no_false_positive(self, store):
+        """数字单位不同时不报矛盾——修复滥报。
+
+        章1「柳三更三十出头的年纪」→ 数字"三十",单位"出头"(无标准量词)
+        章2「柳三更二十年前离家」  → 数字"二十",单位"年"
+        量词单位不同("出头" vs "年"),不应触发 numeric_inconsistency。
+        """
+        store.add_term("柳三更", category="人名")
+        store.save_chapter(1, "柳三更三十出头的年纪,面容清癯。", title="第一章")
+        store.save_chapter(2, "柳三更二十年前离家,如今重返。", title="第二章")
+        hints = store.validate_cross_chapter_consistency()
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"
+              and "柳三更" in h.get("entity", "")]
+        assert not ni, (
+            f"年龄(三十出头)vs时间(二十年前)不同单位,不应报矛盾,实际: {ni}"
+        )
+
+    def test_numeric_same_unit_inconsistency_reported(self, store):
+        """同单位不同数字 → 应报 numeric_inconsistency。
+
+        章1「潭家二十七口尽死」(单位:口)
+        章2「潭家三百一十七口皆是百姓」(单位:口)
+        同一量词单位"口"但数字不同 → 应报。
+        """
+        store.add_faction("潭家")
+        store.save_chapter(1, "潭家二十七口尽死,无一生还。", title="第一章")
+        store.save_chapter(2, "潭家三百一十七口皆是百姓,岂能枉死。", title="第二章")
+        hints = store.validate_cross_chapter_consistency()
+        ni = [h for h in hints if h["type"] == "numeric_inconsistency"
+              and "潭家" in h.get("entity", "")]
+        assert ni, (
+            f"潭家「二十七口」vs「三百一十七口」同单位口,应报 numeric_inconsistency,实际: {hints}"
+        )
+
+    def test_unregistered_name_not_flooding(self, store):
+        """正常正文不应产生大量 unregistered_name 假阳性(≤5条)。
+
+        收紧后:只报 ≥5次 且 与已知专名共享≥2个连续字(别名漂移)的词,
+        普通词汇和独立新词不报。
+        """
+        store.add_term("柳三更", category="人名")
+        store.add_faction("潭家")
+        # 普通正文:有常用词,有专名,有新词但频次低
+        normal_prose = (
+            "柳三更走过街道,看见潭家的门楼紧闭。"
+            "他回头望了望,这里的百姓已经不多。"
+            "夜色渐深,月光照在石板路上。"
+            "柳三更想起往日的事情,心中五味杂陈。"
+            "潭家的人早已逃散,只留下一座空院。"
+        )
+        store.save_chapter(1, normal_prose * 3, title="第一章")
+        store.save_chapter(2, normal_prose * 3, title="第二章")
+        hints = store.validate_cross_chapter_consistency()
+        un = [h for h in hints if h["type"] == "unregistered_name"]
+        assert len(un) <= 5, (
+            f"正常正文 unregistered_name 应≤5条(收紧后),实际 {len(un)} 条: "
+            + str([h['entity'] for h in un])
+        )
