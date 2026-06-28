@@ -1072,3 +1072,109 @@ def test_post_check_leaks_detected(store):
     r = c.post("/post-check", params={"seq": 1},
                json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
     assert len(r["leaks"]) > 0, "老道写出治眼应被检出泄露"
+
+
+# ===== Fix 1: _current_tail_block 续写衔接注入 =====
+
+def test_current_tail_block_with_prose(store):
+    """_current_tail_block:章节有 prose 时,块含末段内容且含衔接说明。"""
+    from scribe3.app import _current_tail_block
+    store.save_chapter(3, "前半段正文。" * 50 + "这是结尾段落,老道抬头望月。", title="第三章", focalizer=None)
+    block = _current_tail_block(store, 3)
+    assert block != "", "有 prose 时应返回非空块"
+    assert "老道抬头望月" in block, "末段内容应出现在块中"
+    assert "续写" in block or "接上" in block, "块应含续写衔接提示"
+
+
+def test_current_tail_block_no_prose(store):
+    """_current_tail_block:章节不存在或 prose 为空时返回空串。"""
+    from scribe3.app import _current_tail_block
+    # 不存在的章节
+    assert _current_tail_block(store, 99) == "", "不存在的章节应返回空串"
+
+
+def test_current_tail_block_fresh_chapter(store):
+    """_current_tail_block:刚创建、prose 为空字符串的章节返回空串。"""
+    from scribe3.app import _current_tail_block
+    # save_chapter 写空串
+    store.save_chapter(5, "", title="空章", focalizer=None)
+    assert _current_tail_block(store, 5) == "", "空 prose 章节应返回空串"
+
+
+def test_current_tail_block_wired_into_chat_write(store, monkeypatch):
+    """_current_tail_block 已注入 GET /chat/write instructions:章有 prose 时 instructions 含末段。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    store.save_chapter(2, "章节已有内容末段测试句。", title="二", focalizer=None)
+    _client(store).get("/chat/write", params={"msg": "续写", "chapter": 2})
+    assert "章节已有内容末段测试句" in captured.get("instructions", ""), \
+        "GET /chat/write instructions 应含当前章末段"
+
+
+def test_current_tail_block_wired_into_chat_write_post(store, monkeypatch):
+    """_current_tail_block 已注入 POST /chat/write instructions:章有 prose 时 instructions 含末段。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    store.save_chapter(4, "POST章已有末段内容测试句。", title="四", focalizer=None)
+    _client(store).post("/chat/write", json={"msg": "续写", "chapter": 4, "focalizer": ""})
+    assert "POST章已有末段内容测试句" in captured.get("instructions", ""), \
+        "POST /chat/write instructions 应含当前章末段"
+
+
+# ===== Fix 2: _voice_anchor_block 注入 open voice flags =====
+
+def test_voice_anchor_block_injects_open_voice_flags(store):
+    """_voice_anchor_block:角色有 open voice_evolution_flag 时,块含「声音待演变」提示及 reason。"""
+    store.set_voice_profile("role:甲", {"style_summary": "沉稳内敛"})
+    store.add_voice_flag("role:甲", seq=3, reason="经历大悲之后声音开始颤抖")
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:甲")
+    assert "声音待演变" in block, "应含「声音待演变」提示标题"
+    assert "大悲" in block, "flag reason 应出现在块中"
+
+
+def test_voice_anchor_block_no_flags_when_none(store):
+    """_voice_anchor_block:无 open flag 时不含「声音待演变」。"""
+    store.set_voice_profile("role:乙", {"style_summary": "轻快随和"})
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:乙")
+    assert "声音待演变" not in block, "无 open flag 时不应含待演变提示"
+
+
+def test_voice_anchor_block_flags_only_for_focalizer(store):
+    """_voice_anchor_block:只注入焦点者自己的 flag,不混入其他角色的 flag。"""
+    store.set_voice_profile("role:甲", {"style_summary": "沉稳"})
+    store.set_voice_profile("role:乙", {"style_summary": "轻快"})
+    store.add_voice_flag("role:乙", seq=2, reason="乙的声音转变原因")
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:甲")
+    assert "乙的声音转变原因" not in block, "甲的 block 不应含乙的 flag reason"
+
+
+def test_voice_anchor_block_via_char_state_affects_voice(store):
+    """affects_voice=True 的 add_char_state 自动创建 voice_evolution_flag,
+    _voice_anchor_block 应能读到并注入待演变提示。"""
+    store.set_voice_profile("role:丙", {"style_summary": "质朴直白"})
+    store.add_char_state(
+        character_id="role:丙",
+        chapter=4,
+        change_type="personality",
+        summary="历经磨难,声音转变",
+        affects_voice=True,
+        after_state={},
+    )
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "role:丙")
+    assert "声音待演变" in block, "affects_voice=True 的 char_state 应触发 flag,进而注入待演变提示"

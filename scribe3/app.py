@@ -953,6 +953,20 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
                     rl_items = []
                 if rl_items:
                     line += f" 参考语感:{'｜'.join(str(x) for x in rl_items if x)}"
+            # 声音待演变提示:该角色有 open voice_evolution_flag 时附加
+            try:
+                flags = st.list_voice_flags("open") or []
+                focal_flags = [f for f in flags if f.get("character") == focalizer]
+                if focal_flags:
+                    reasons = "、".join(
+                        str(f.get("reason") or f.get("trigger_chapter") or "")
+                        for f in focal_flags if f.get("reason") or f.get("trigger_chapter")
+                    )
+                    if reasons:
+                        line += (f"\n\n## 声音待演变提示\n"
+                                 f"{focalizer} 因下列情节声音正在转变,行文可体现这种变化:{reasons}")
+            except Exception:
+                pass
             parts.append(line)
 
     # 对白声音速记——所有有 profile 的角色,各自对白在声,别串味
@@ -1046,6 +1060,24 @@ def _recap_block(st, chapter: int) -> str:
         return ""
 
 
+def _current_tail_block(st, chapter: int) -> str:
+    """续写衔接块:当前章已写部分的末段(~400字),让 append 续写自然接上,不另起炉灶。
+    若当前章无 prose(全新章)则返回空串,不干扰全新章的生成。"""
+    try:
+        ch = st.get_chapter(chapter)
+        if not ch:
+            return ""
+        prose = ch.get("prose") or ""
+        tail = prose[-400:].strip()
+        if not tail:
+            return ""
+        return (
+            "\n\n## 本章已写到这里(若续写,从此处自然接上,别另起炉灶/别重复)\n" + tail
+        )
+    except Exception:
+        return ""
+
+
 @app.get("/chat/write")
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
@@ -1064,6 +1096,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     instructions += _motif_block(st)
     instructions += _frame_block(st, focalizer, chapter)
     instructions += _recap_block(st, chapter)
+    instructions += _current_tail_block(st, chapter)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
@@ -1133,6 +1166,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _motif_block(st)
     instructions += _frame_block(st, req.focalizer, req.chapter)
     instructions += _recap_block(st, req.chapter)
+    instructions += _current_tail_block(st, req.chapter)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
