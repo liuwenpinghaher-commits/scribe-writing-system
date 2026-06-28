@@ -25,9 +25,9 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
   if (sel?.mode === 'view') {
     const k = sel.viewKey
     if (k === 'atlas') return <AtlasView key={work} />
-    if (k === 'insight') return <InsightView key={work} />
+    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} />
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} />
-    if (k === 'overview') return <InsightView key={work} />   // MVP:概览暂复用仪表盘
+    if (k === 'overview') return <InsightView key={work} onJumpChapter={onJumpChapter} />   // MVP:概览暂复用仪表盘
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff, Pencil, Flame, Trophy, TrendingUp } from 'lucide-react'
+import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff, Pencil, Flame, Trophy, TrendingUp, ArrowRight } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
@@ -17,8 +17,61 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
 }
 
 // ── 伏笔相关 ────────────────────────────────────────────────────────────────
-function PromiseCard({ p }) {
+
+// setup→payoff 连线(已回收专用)
+function PromiseSpanBar({ setupChapter, payoffChapter, maxChapter }) {
+  if (setupChapter == null || payoffChapter == null || maxChapter == null || maxChapter <= 0) return null
+  const total = Math.max(maxChapter, payoffChapter)
+  const setupPct = Math.max(0, Math.min(100, (setupChapter / total) * 100))
+  const payoffPct = Math.max(0, Math.min(100, (payoffChapter / total) * 100))
+  const widthPct = Math.max(1, payoffPct - setupPct)
+  return (
+    <div className="relative h-2 mt-1.5 mb-0.5 rounded-full bg-soft overflow-hidden">
+      <div
+        className="absolute top-0 h-full rounded-full bg-ok/60"
+        style={{ left: `${setupPct}%`, width: `${widthPct}%` }}
+      />
+      <div className="absolute top-0 h-full w-[3px] rounded-full bg-faint" style={{ left: `${setupPct}%` }} />
+      <div className="absolute top-0 h-full w-[3px] rounded-full bg-ok" style={{ left: `calc(${payoffPct}% - 3px)` }} />
+    </div>
+  )
+}
+
+function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
   const overdue = p.overdue
+  const [advancing, setAdvancing] = useState(false)
+  const [payoffInput, setPayoffInput] = useState('')
+  const [showAdvance, setShowAdvance] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const doAdvance = async () => {
+    const ch = parseInt(payoffInput, 10)
+    if (!ch || ch < 1) return
+    setBusy(true)
+    try {
+      await api.advancePromise(p.id, ch)
+      setShowAdvance(false)
+      setPayoffInput('')
+      onRefresh?.()
+    } catch (e) {
+      alert(e?.body?.detail || e?.message || '回收失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const doMarkHerring = async () => {
+    setBusy(true)
+    try {
+      await api.markHerring(p.id)
+      onRefresh?.()
+    } catch (e) {
+      alert(e?.body?.detail || e?.message || '标记失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className={`rounded-lg border p-2.5 text-[12px] ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
       <div className="flex items-start gap-1.5">
@@ -26,16 +79,78 @@ function PromiseCard({ p }) {
         <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
         {overdue && <span className="text-danger text-[10px] font-medium shrink-0">超期</span>}
       </div>
+      {/* setup→payoff 连线(已回收) */}
+      {p.status === 'closed' && p.payoff_chapter != null && (
+        <PromiseSpanBar setupChapter={p.setup_chapter} payoffChapter={p.payoff_chapter} maxChapter={maxChapter} />
+      )}
       <div className="text-faint text-[11px] mt-1 pl-3 flex flex-wrap gap-x-2">
-        <span>埋:{chapterLabel(p.setup_chapter)}</span>
-        {p.payoff_chapter != null && <span className="text-ok">收:{chapterLabel(p.payoff_chapter)}{p.span != null ? ` · 跨度${p.span}章` : ''}</span>}
+        {/* 点章号跳写作台 */}
+        {p.setup_chapter != null && (
+          <button
+            className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
+            onClick={() => onJumpChapter?.(p.setup_chapter)}
+          >
+            埋:第{p.setup_chapter}章
+          </button>
+        )}
+        {p.payoff_chapter != null && (
+          <>
+            <ArrowRight size={10} className="self-center text-faint" />
+            <button
+              className="text-ok hover:text-ok/70 cursor-pointer underline-offset-2 hover:underline transition-colors"
+              onClick={() => onJumpChapter?.(p.payoff_chapter)}
+            >
+              收:第{p.payoff_chapter}章{p.span != null ? ` · 跨${p.span}章` : ''}
+            </button>
+          </>
+        )}
         {p.payoff_chapter == null && p.chapters_open != null && <span>开口{p.chapters_open}章</span>}
       </div>
+      {/* 操作按钮(open/red_herring 显示) */}
+      {p.status !== 'closed' && p.kind !== 'red_herring' && (
+        <div className="pl-3 mt-1.5 flex flex-wrap items-center gap-1.5">
+          {!showAdvance ? (
+            <button
+              onClick={() => setShowAdvance(true)}
+              className="text-[10px] px-2 py-0.5 rounded border border-ok/40 text-ok hover:bg-ok/10 transition-colors"
+            >
+              标记回收
+            </button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-faint">收于第</span>
+              <input
+                type="number" min={1} value={payoffInput}
+                onChange={(e) => setPayoffInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && doAdvance()}
+                className="w-12 h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-ok"
+                placeholder="章"
+                autoFocus
+              />
+              <span className="text-[10px] text-faint">章</span>
+              <button onClick={doAdvance} disabled={busy}
+                className="text-[10px] px-2 py-0.5 rounded bg-ok text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
+                {busy ? '…' : '确认'}
+              </button>
+              <button onClick={() => { setShowAdvance(false); setPayoffInput('') }}
+                className="text-[10px] px-2 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
+                取消
+              </button>
+            </div>
+          )}
+          <button
+            onClick={doMarkHerring} disabled={busy}
+            className="text-[10px] px-2 py-0.5 rounded border border-line text-faint hover:bg-soft hover:text-ink transition-colors disabled:opacity-50"
+          >
+            标为障眼法
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-function LedgerColumn({ icon: Icon, label, tone, rows }) {
+function LedgerColumn({ icon: Icon, label, tone, rows, maxChapter, onJumpChapter, onRefresh }) {
   const c = { fore: 'text-fore', ok: 'text-ok', faint: 'text-faint' }[tone]
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
@@ -44,15 +159,24 @@ function LedgerColumn({ icon: Icon, label, tone, rows }) {
       </div>
       <div className="space-y-2">
         {rows.length === 0 ? <div className="text-faint text-[12px]">—</div>
-          : rows.map((p) => <PromiseCard key={p.id} p={p} />)}
+          : rows.map((p) => (
+            <PromiseCard
+              key={p.id} p={p}
+              maxChapter={maxChapter}
+              onJumpChapter={onJumpChapter}
+              onRefresh={onRefresh}
+            />
+          ))}
       </div>
     </div>
   )
 }
 
-function PromiseLedger() {
+function PromiseLedger({ onJumpChapter }) {
   const [led, setLed] = useState(null)
-  useEffect(() => { api.promisesLedger().then(setLed).catch(() => setLed(null)) }, [])
+  const [ledKey, setLedKey] = useState(0)
+  const refresh = () => setLedKey((k) => k + 1)
+  useEffect(() => { api.promisesLedger().then(setLed).catch(() => setLed(null)) }, [ledKey])
   if (!led) return null
   const a = led.audit || {}
   const pws = (a.payoff_without_setup || []).length + (a.closed_without_setup || []).length
@@ -68,9 +192,12 @@ function PromiseLedger() {
         </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <LedgerColumn icon={Target} label="已埋未收" tone="fore" rows={led.open || []} />
-        <LedgerColumn icon={CheckCircle2} label="已回收" tone="ok" rows={led.closed || []} />
-        <LedgerColumn icon={EyeOff} label="障眼法" tone="faint" rows={led.red_herring || []} />
+        <LedgerColumn icon={Target} label="已埋未收" tone="fore" rows={led.open || []}
+          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
+        <LedgerColumn icon={CheckCircle2} label="已回收" tone="ok" rows={led.closed || []}
+          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
+        <LedgerColumn icon={EyeOff} label="障眼法" tone="faint" rows={led.red_herring || []}
+          maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
       </div>
       {pws > 0 && (
         <div className="mt-3 text-[11px] text-danger">
@@ -395,7 +522,7 @@ function WordHeatmap({ heatmap, dailyGoal }) {
 }
 
 // ── 主视图 ───────────────────────────────────────────────────────────────────
-export function InsightView() {
+export function InsightView({ onJumpChapter }) {
   const [q, setQ] = useState(null)
   const [intent, setIntent] = useState(null)
   const [goalOpen, setGoalOpen] = useState(false)
@@ -436,7 +563,7 @@ export function InsightView() {
           <Metric icon={Activity} label="质检问题" value={chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub="确定性 QC + 因果" tone="danger" />
         </div>
 
-        <PromiseLedger />
+        <PromiseLedger onJumpChapter={onJumpChapter} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
           <div className="rounded-xl border border-line bg-surface p-4">

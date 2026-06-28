@@ -854,8 +854,23 @@ class SurrealStore:
         return [p for p in self.list_promises() if p["status"] == "open"]
 
     def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
+        """回收伏笔:标 closed + payoff_chapter。payoff≥setup 校验(Python 侧先行,拒绝脏数据)。"""
+        rows = self._query(
+            "SELECT setup_chapter FROM type::record('promise',$pid)", {"pid": promise_id})
+        if not rows:
+            raise ValueError(f"promise '{promise_id}' 不存在")
+        setup = rows[0].get("setup_chapter")
+        if setup is not None and payoff_chapter < setup:
+            raise ValueError(
+                f"payoff_chapter({payoff_chapter}) < setup_chapter({setup}):回收不能早于埋设,拒绝写入。"
+            )
         self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
                             "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
+
+    def mark_promise_herring(self, promise_id: str) -> None:
+        """将伏笔标记为 red_herring(障眼法)。"""
+        self._execute_write(
+            "UPDATE type::record('promise',$pid) SET kind='red_herring'", {"pid": promise_id})
 
     def promise_ledger(self, slack: int) -> dict:
         """伏笔台账(单源)。三栏分类 + 每条 setup/payoff/overdue/跨度 + open/close bracket 审计。

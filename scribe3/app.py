@@ -415,6 +415,30 @@ def del_prom(pid: str, work: str = "main"):
     return {"ok": True}
 
 
+class AdvanceIn(BaseModel):
+    payoff_chapter: int
+
+
+@app.post("/promises/{pid}/advance")
+def advance_prom(pid: str, body: AdvanceIn, work: str = "main"):
+    """回收伏笔(作者直编):标 closed + payoff_chapter。payoff≥setup 校验。"""
+    try:
+        _store_for(work).advance_promise(pid, body.payoff_chapter)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
+@app.post("/promises/{pid}/mark-herring")
+def mark_herring(pid: str, work: str = "main"):
+    """将伏笔标记为障眼法(red_herring)。"""
+    try:
+        _store_for(work).mark_promise_herring(pid)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
 # ===== 世界规则 + 势力(设定完整性)=====
 class RuleIn(BaseModel):
     name: str

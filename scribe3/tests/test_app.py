@@ -1414,11 +1414,13 @@ def test_promise_ledger_red_herring_never_overdue(store):
 
 
 def test_promise_ledger_audit_payoff_without_setup(store):
-    """audit:payoff<setup(闭无开 deus ex machina)应被抓出,balanced=False。"""
+    """audit:payoff<setup(闭无开 deus ex machina)应被抓出,balanced=False。
+    用 update_promise 直接写脏数据(跳过 advance_promise 的 payoff≥setup 校验),
+    模拟历史库里已有的异常数据,验证 audit 能检出。"""
     store.plant_promise("异常伏笔", setup_chapter=9, kind="promise")
     bad_pid = next(p["id"] for p in store.list_promises() if "异常" in p["text"])
-    # 回收于第 3 章(< setup 9)——逻辑上凭空 payoff
-    store.advance_promise(bad_pid, 3)
+    # 直接写脏数据:payoff_chapter=3 < setup=9,绕过 advance_promise 校验
+    store.update_promise(bad_pid, {"payoff_chapter": 3, "status": "closed"})
     led = _client(store).get("/promises/ledger").json()
     pws = led["audit"]["payoff_without_setup"]
     assert any("异常" in x["text"] for x in pws), f"应抓出 payoff<setup: {pws}"
@@ -1448,6 +1450,72 @@ def test_promise_ledger_overdue_single_source(store):
     p_ledger = next(x for x in c.get("/promises/ledger").json()["open"]
                     if "单源校验" in x["text"])
     assert p_promises["overdue"] == p_quality["overdue"] == p_ledger["overdue"] is True
+
+
+# ===== 作者工具 F-03 进阶: advance 端点 + payoff≥setup 校验 + mark-herring =====
+
+def test_advance_promise_endpoint_success(store):
+    """POST /promises/{pid}/advance 正常路径:闭合伏笔,status=closed,payoff_chapter 写入。"""
+    store.plant_promise("测试收口", setup_chapter=2, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "测试收口" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/advance", json={"payoff_chapter": 5})
+    assert r.status_code == 200, r.text
+    proms = store.list_promises()
+    p = next(x for x in proms if "测试收口" in x["text"])
+    assert p["status"] == "closed"
+    assert p["payoff_chapter"] == 5
+
+
+def test_advance_promise_payoff_before_setup_rejected(store):
+    """payoff_chapter < setup_chapter 时返回 422,promise 状态保持 open。"""
+    store.plant_promise("不能早收口", setup_chapter=8, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "不能早收口" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/advance", json={"payoff_chapter": 3})
+    assert r.status_code == 422, f"payoff<setup 应返回 422,实际 {r.status_code}: {r.text}"
+    proms = store.list_promises()
+    p = next(x for x in proms if "不能早收口" in x["text"])
+    assert p["status"] == "open", "被拒后 promise 应仍为 open"
+    assert p["payoff_chapter"] is None
+
+
+def test_advance_promise_payoff_equal_setup_ok(store):
+    """payoff_chapter == setup_chapter 应允许(≥ 满足)。"""
+    store.plant_promise("同章收口", setup_chapter=5, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "同章收口" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/advance", json={"payoff_chapter": 5})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if "同章收口" in x["text"])
+    assert p["status"] == "closed"
+
+
+def test_mark_herring_endpoint(store):
+    """POST /promises/{pid}/mark-herring → kind 变为 red_herring。"""
+    store.plant_promise("伪装成伏笔的障眼法", setup_chapter=3, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "伪装" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/mark-herring")
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if "伪装" in x["text"])
+    assert p["kind"] == "red_herring", f"kind 应为 red_herring,实际 {p['kind']}"
+
+
+def test_advance_then_ledger_reflects_closed(store):
+    """advance 后 ledger 的 closed 栏能看到已收伏笔(端到端)。"""
+    from scribe3.ontology import Event
+    store.plant_promise("端到端收口", setup_chapter=1, kind="promise")
+    store.add_event(Event("ev:e2e_adv", "action", story_time=5))
+    pid = next(p["id"] for p in store.list_promises() if "端到端" in p["text"])
+    c = _client(store)
+    c.post(f"/promises/{pid}/advance", json={"payoff_chapter": 4})
+    led = c.get("/promises/ledger").json()
+    closed_texts = {p["text"] for p in led["closed"]}
+    assert "端到端收口" in closed_texts, f"closed 栏应含端到端收口: {closed_texts}"
+    cl = next(p for p in led["closed"] if "端到端" in p["text"])
+    assert cl["payoff_chapter"] == 4
+    assert cl["span"] == 3  # payoff(4) - setup(1)
 
 
 # ==== F-05: /check 和 /post-check 返回带 range 的 issues ====
