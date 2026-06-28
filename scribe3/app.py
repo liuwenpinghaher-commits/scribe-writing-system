@@ -764,9 +764,10 @@ def put_intent(i: IntentIn, work: str = "main"):
 
 
 @app.get("/progress")
-def get_progress(work: str = "main"):
-    """日字数序列 + 累计曲线 + streak + 目标完成度(只读,数据源 daily_progress 表)。"""
-    return _store_for(work).progress()
+def get_progress(work: str = "main", window: str = "all"):
+    """日字数序列 + 累计曲线 + streak + 目标完成度(只读,数据源 daily_progress 表)。
+    window: '30' | '90' | 'all'(默认 all)——仅影响图表区间,streak/heatmap 始终全量。"""
+    return _store_for(work).progress(window=window)
 
 
 def _editor_system(st) -> str:

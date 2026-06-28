@@ -581,6 +581,89 @@ def test_progress_streak(store):
     assert cur3 == 0 and long3 == 0, "低于 daily_goal 不达标"
 
 
+# ── 完整期:window + weekday_histogram + 理想线 ──────────────────────────────
+
+def test_progress_window_filters_daily(store):
+    """progress(window='30') 仅返回近30天的 daily 序列;heatmap 不受影响。"""
+    # 写两天数据:一条远在100天前,一条3天前
+    far_day = "2099-03-01"
+    near_day = "2099-07-10"
+    today = "2099-07-12"
+    store.save_chapter(1, "甲" * 500, title="一", _today=far_day)
+    store.save_chapter(2, "乙" * 300, title="二", _today=near_day)
+    # window=30:只返回 near_day(3天前),不含 far_day(超出30天)
+    p30 = store.progress(today=today, window="30")
+    assert p30["window"] == "30"
+    dates_30 = [r["date"] for r in p30["daily"]]
+    assert far_day not in dates_30, f"window=30 不应含 {far_day}"
+    assert near_day in dates_30, f"window=30 应含 {near_day}"
+    # heatmap 须含两条(全量)
+    heatmap_dates = [r["date"] for r in p30["heatmap"]]
+    assert far_day in heatmap_dates, "heatmap 应含全量数据(不受 window 影响)"
+
+
+def test_progress_window_all(store):
+    """progress(window='all') 与不传 window 等价,返回全量 daily。"""
+    today = "2099-04-05"
+    store.save_chapter(1, "甲" * 400, title="一", _today="2099-01-01")
+    store.save_chapter(2, "乙" * 400, title="二", _today=today)
+    p_all = store.progress(today=today, window="all")
+    p_none = store.progress(today=today)
+    assert len(p_all["daily"]) == len(p_none["daily"]), "window=all 与默认等价"
+    assert p_all["window"] == "all"
+
+
+def test_progress_weekday_histogram(store):
+    """progress() 返回 weekday_histogram 含7个槽 + best_weekday。
+    2099-05-04=周一(weekday=0), 2099-05-05=周二(weekday=1)。"""
+    today = "2099-05-07"
+    # 写周一(5-04)和周二(5-05)
+    store.save_chapter(1, "甲" * 1000, title="一", _today="2099-05-04")  # 周一(weekday=0)
+    store.save_chapter(2, "乙" * 600,  title="二", _today="2099-05-05")  # 周二(weekday=1)
+    p = store.progress(today=today)
+    hist = p.get("weekday_histogram")
+    assert hist is not None and len(hist) == 7, f"应有7个星期槽,实际={len(hist) if hist else None}"
+    # 周一(weekday=0)总字数=1000,周二(weekday=1)=600
+    mon = next(h for h in hist if h["weekday"] == 0)
+    tue = next(h for h in hist if h["weekday"] == 1)
+    assert mon["total_words"] == 1000, f"周一总字={mon['total_words']}"
+    assert mon["avg_words"] == 1000, f"周一均字={mon['avg_words']}"
+    assert tue["total_words"] == 600, f"周二总字={tue['total_words']}"
+    # best_weekday 应是周一(1000>600)
+    assert p.get("best_weekday") == "周一", f"最高产星期几={p.get('best_weekday')}"
+
+
+def test_progress_ideal_line(store):
+    """设了 total_word_goal 后,daily 每条有 ideal_cumulative 字段且单调递增。"""
+    today = "2099-06-10"
+    store.set_intent({"total_word_goal": 10000, "reader_feeling": "沉浸"})
+    store.save_chapter(1, "甲" * 500, title="一", _today="2099-06-08")
+    store.save_chapter(2, "乙" * 300, title="二", _today="2099-06-09")
+    p = store.progress(today=today)
+    daily = p.get("daily", [])
+    assert daily, "daily 不应为空"
+    # 每条都有 ideal_cumulative
+    for row in daily:
+        assert "ideal_cumulative" in row, f"日期 {row['date']} 缺 ideal_cumulative"
+    # ideal_cumulative 单调递增
+    ideals = [r["ideal_cumulative"] for r in daily]
+    assert ideals == sorted(ideals), f"ideal_cumulative 应单调递增: {ideals}"
+    # 最终值不超过 total_word_goal
+    assert ideals[-1] <= 10000, f"理想线末值不应超目标: {ideals[-1]}"
+    # ideal_daily_rate 字段存在
+    assert p.get("ideal_daily_rate") is not None
+
+
+def test_progress_no_goal_no_ideal_line(store):
+    """未设 total_word_goal 时,daily 行不含 ideal_cumulative。"""
+    today = "2099-07-01"
+    store.save_chapter(1, "甲" * 200, title="一", _today=today)
+    p = store.progress(today=today)
+    for row in p.get("daily", []):
+        assert "ideal_cumulative" not in row, "无目标时不应有 ideal_cumulative"
+    assert p.get("ideal_daily_rate") is None
+
+
 # ===== F-01 大纲/卷章树手稿支(后端数据层) =====
 
 from scribe3.store import _split_scenes

@@ -413,7 +413,12 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
 // ── 码字进度面板 ─────────────────────────────────────────────────────────────
 function ProgressPanel({ onGoalEdit }) {
   const [prog, setProg] = useState(null)
-  useEffect(() => { api.progress().then(setProg).catch(() => setProg(null)) }, [])
+  const [win, setWin] = useState('all')  // 趋势窗口: '30' | '90' | 'all'
+
+  useEffect(() => {
+    setProg(null)
+    api.progress(win).then(setProg).catch(() => setProg(null))
+  }, [win])
 
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
 
@@ -436,14 +441,28 @@ function ProgressPanel({ onGoalEdit }) {
   const dailyBarColor = dailyMet ? '#16a34a' : 'var(--color-brand)'
 
   const daily = prog.daily || []
+  const weekdayHist = prog.weekday_histogram || []
+  const bestWeekday = prog.best_weekday || null
+
+  // 窗口标签
+  const WIN_OPTS = [{ v: '30', label: '近30天' }, { v: '90', label: '近90天' }, { v: 'all', label: '全程' }]
 
   return (
     <div className="rounded-xl border border-line bg-surface p-5 mb-6">
-      {/* 标题行 */}
+      {/* 标题行 + 趋势窗口切换 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <TrendingUp size={15} className="text-brand" />
           <span className="text-[14px] font-semibold text-ink">码字进度</span>
+          {/* 窗口切换按钮组 */}
+          <div className="flex gap-0.5 ml-2 bg-soft rounded-lg p-0.5">
+            {WIN_OPTS.map(({ v, label }) => (
+              <button key={v} onClick={() => setWin(v)}
+                className={`px-2 py-0.5 rounded text-[10px] transition-colors ${win === v ? 'bg-surface text-ink font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <button onClick={onGoalEdit}
           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer">
@@ -507,7 +526,7 @@ function ProgressPanel({ onGoalEdit }) {
         </div>
       )}
 
-      {/* 图表:每日字数 + 累计曲线 */}
+      {/* 图表:每日字数 + 累计曲线(带理想线) */}
       {daily.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-2">
           <div>
@@ -525,20 +544,62 @@ function ProgressPanel({ onGoalEdit }) {
             </ResponsiveContainer>
           </div>
           <div>
-            <div className="text-[11px] text-faint mb-2">累计推进</div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[11px] text-faint">累计推进</span>
+              {/* 图例说明 */}
+              <span className="flex items-center gap-1 text-[10px] text-faint">
+                <span style={{ display:'inline-block', width:16, height:2, background:'var(--color-brand)', verticalAlign:'middle' }} />实际
+              </span>
+              {daily.some(d => d.ideal_cumulative != null) && (
+                <span className="flex items-center gap-1 text-[10px] text-faint">
+                  <span style={{ display:'inline-block', width:16, height:2, background:'#f59e0b', borderTop:'2px dashed #f59e0b', verticalAlign:'middle' }} />理想
+                </span>
+              )}
+            </div>
             <ResponsiveContainer width="100%" height={140}>
               <AreaChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
                 <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--color-faint)' }}
                   tickFormatter={(d) => d.slice(5)} />
                 <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString() + ' 字', '累计']} />
+                <Tooltip contentStyle={tooltipStyle}
+                  formatter={(v, name) => [v != null ? v.toLocaleString() + ' 字' : '-', name === 'ideal_cumulative' ? '理想' : '累计']} />
                 {totalGoal && <ReferenceLine y={totalGoal} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1} />}
                 <Area type="monotone" dataKey="cumulative" name="累计" stroke="var(--color-brand)"
                   fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
+                {/* 理想匀速线:虚线,叠加实际曲线上 */}
+                {daily.some(d => d.ideal_cumulative != null) && (
+                  <Area type="monotone" dataKey="ideal_cumulative" name="理想"
+                    stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="5 4"
+                    fill="none" dot={false} activeDot={false} />
+                )}
               </AreaChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      )}
+
+      {/* 最高产星期几 + weekday 柱状图 */}
+      {weekdayHist.length > 0 && weekdayHist.some(d => d.avg_words > 0) && (
+        <div className="mt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] text-faint">最高产星期几</span>
+            {bestWeekday && (
+              <span className="text-[11px] text-brand font-medium">{bestWeekday}最高产</span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={90}>
+            <BarChart data={weekdayHist} margin={{ left: -20, right: 4, top: 2, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
+              <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} allowDecimals={false} />
+              <Tooltip contentStyle={tooltipStyle}
+                formatter={(v, _name, props) => [v.toLocaleString() + ' 字', `平均 (${props.payload.count}天)`]} />
+              <Bar dataKey="avg_words" name="平均字数" radius={[3, 3, 0, 0]}
+                fill="var(--color-brand)"
+                label={false} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
