@@ -1142,6 +1142,7 @@ class ChatWriteReq(BaseModel):
     chapter: int = 1
     focalizer: str = ""
     images: list[ImageModel] = []
+    seed_words: list[str] = []   # 浸泡产出的情绪种子词(由前端可选传入),注入写作 prompt
 
     @field_validator("images")
     @classmethod
@@ -1149,6 +1150,14 @@ class ChatWriteReq(BaseModel):
         if len(v) > _MAX_IMAGES:
             raise ValueError(f"too many images (max {_MAX_IMAGES})")
         return v
+
+
+def _soak_block(seed_words: list[str]) -> str:
+    """浸泡种子词注入块:仅当 seed_words 非空时注入,否则返回空串(不发 LLM,pure-cheap)。
+    soak() 需要 LLM 调用,不在写作热路径中自动触发;前端可预先调用 soak 后把 seed_words 传进来。"""
+    if not seed_words:
+        return ""
+    return "\n\n## 情绪种子词(浸泡得出,贴此情绪写)\n" + "、".join(str(w) for w in seed_words)
 
 
 @app.post("/chat/write")
@@ -1169,6 +1178,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _frame_block(st, req.focalizer, req.chapter)
     instructions += _recap_block(st, req.chapter)
     instructions += _current_tail_block(st, req.chapter)
+    instructions += _soak_block(req.seed_words)
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
@@ -1376,19 +1386,30 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
         degraded = True
 
+    # 4. 设定校验:物品状态/OOC/世界规则/命名一致性(fail-soft)
+    setting: list[dict] = []
+    try:
+        setting = st.validate_setting(seq, req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check validate_setting 失败: %s", e)
+
     return {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "discipline": discipline,
         "degraded": degraded,
+        "setting": setting,
     }
 
 
 @app.post("/checkpoint")
-def checkpoint(req: CheckpointReq, seq: int, work: str = "main"):
+def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)
     vid = st.add_chapter_version(seq, req.prose, label=req.label,
                                  kind=req.kind, qc=req.qc)
+    # kind=final → 这是正式定稿,知识图谱应同步更新(非 final 的草稿快照不 ingest)
+    if req.kind == "final":
+        background.add_task(_bg_ingest, work, seq)
     return {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
 
 

@@ -1178,3 +1178,124 @@ def test_voice_anchor_block_via_char_state_affects_voice(store):
     from scribe3.app import _voice_anchor_block
     block = _voice_anchor_block(store, "role:丙")
     assert "声音待演变" in block, "affects_voice=True 的 char_state 应触发 flag,进而注入待演变提示"
+
+
+# ===== S2 TDD: /checkpoint kind=final 触发后台 ingest =====
+
+def test_checkpoint_final_triggers_bg_ingest(store, monkeypatch):
+    """kind=final 的 checkpoint 应注册后台 _bg_ingest 任务。"""
+    import scribe3.app as A
+    A.set_store(store)
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    store.save_chapter(3, "已有章节正文。", title="三")
+    r = client.post("/checkpoint", params={"seq": 3, "work": "main"},
+                    json={"prose": "定稿正文", "label": "定稿", "kind": "final", "qc": {}})
+    assert r.status_code == 200
+    # TestClient 同步执行 BackgroundTasks → _bg_ingest 应被调过
+    assert called.get("args") == ("main", 3), "kind=final 应触发 _bg_ingest(main, 3)"
+
+
+def test_checkpoint_non_final_no_bg_ingest(store, monkeypatch):
+    """kind=checkpoint(非 final)不应注册后台 _bg_ingest 任务。"""
+    import scribe3.app as A
+    A.set_store(store)
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    r = client.post("/checkpoint", params={"seq": 4, "work": "main"},
+                    json={"prose": "中间稿", "label": "草稿", "kind": "checkpoint", "qc": {}})
+    assert r.status_code == 200
+    assert "args" not in called, "非 final checkpoint 不应触发 _bg_ingest"
+
+
+# ===== S5 TDD: soak seed_words 进写作 prompt(无 LLM,传入才注入) =====
+
+def test_soak_block_injects_seed_words_when_provided(store, monkeypatch):
+    """_soak_block:request 传入 seed_words 时,instructions 应含种子词。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store)
+    client = TestClient(appmod.app)
+    client.post("/chat/write",
+                json={"msg": "续写", "chapter": 1, "focalizer": "role:甲",
+                      "seed_words": ["惶恐", "压抑", "隐忍"]})
+    instr = captured.get("instructions", "")
+    assert "惶恐" in instr and "压抑" in instr and "隐忍" in instr, \
+        "POST /chat/write seed_words 应注入 instructions"
+
+
+def test_soak_block_absent_when_no_seed_words(store, monkeypatch):
+    """_soak_block:request 未传 seed_words 时,instructions 不含情绪种子词标记。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store)
+    client = TestClient(appmod.app)
+    client.post("/chat/write",
+                json={"msg": "续写", "chapter": 1, "focalizer": "", "seed_words": []})
+    instr = captured.get("instructions", "")
+    assert "情绪种子词" not in instr, "无 seed_words 时不应注入种子词块"
+
+
+def test_soak_get_route_ignores_seed_words(store, monkeypatch):
+    """GET /chat/write 无 seed_words 参数 → instructions 不含情绪种子词标记。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).get("/chat/write", params={"msg": "续写", "chapter": 1})
+    instr = captured.get("instructions", "")
+    assert "情绪种子词" not in instr
+
+
+# ===== S6 TDD: /post-check 包含 validate_setting 结果 =====
+
+def test_post_check_includes_setting_key(store):
+    """/post-check 响应应含 setting 顶层字段。"""
+    store.save_chapter(1, "一段志怪正文。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段志怪正文。", "focalizer": "", "brief": ""}).json()
+    assert "setting" in r, "/post-check 响应应含 setting 字段"
+    assert isinstance(r["setting"], list), "setting 应为列表(validate_setting 返回 list[dict])"
+
+
+def test_post_check_setting_fail_soft(store, monkeypatch):
+    """/post-check:validate_setting 抛异常时 fail-soft → setting=[], 不崩溃。"""
+    import scribe3.store as storemod
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    # 让 validate_setting 爆
+    monkeypatch.setattr(storemod.SurrealStore, "validate_setting",
+                        lambda self, chapter, prose: (_ for _ in ()).throw(RuntimeError("db 炸了")))
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "正文", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    data = r.json()
+    assert "setting" in data
+    assert data["setting"] == []
