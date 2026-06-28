@@ -427,3 +427,65 @@ def test_ingest_char_state_unknown_char_skipped(store):
     rows = store._query("SELECT * FROM char_state WHERE character_id=$cid",
                         {"cid": "role:幻觉角色"})
     assert not rows, "未登记角色的 char_state 不应写入"
+
+
+# ── R3: learned 去重 × purge 防悬挂边(第三轮 P1-b)──────────────────────────────
+
+def test_learned_dedup_reingest_source_chapter_no_dangling_knows(store):
+    """核心守卫:B 章复用 A 章命题,重 ingest A 章不得让 B 的 knows 边悬空。
+
+    复现路径:
+    1. A 章(seq=20) ingest → 建命题 + 焦三 knows 边
+    2. B 章(seq=21) ingest 相同文本 → _find_existing_learned_prop 复用同一命题,
+       只发 阿萤 knows 边(ingest_seq=21),命题 ingest_seq 仍=20
+    3. 重 ingest A 章(seq=20) → purge_ingest(20) 原来会 DELETE proposition WHERE ingest_seq=20
+       修复后:检测到命题被 seq=21 的 knows 边引用,保留命题,只删 seq=20 的 knows 边
+    4. B 章的阿萤 knows 边应仍指向存在的命题(不悬空)
+    """
+    _ensure_chars(store, "焦三", "阿萤")
+    fact_text = "尸丹能让亡魂附体"
+
+    # A 章:焦三学到命题
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": fact_text}],
+        "did": [],
+    }, seq=20)
+
+    # 确认 A 章建了命题
+    all_props = store.facts_at(99)
+    matching = [f for f in all_props if fact_text in f.value]
+    assert len(matching) == 1, f"A 章应建 1 条命题,实际 {len(matching)}"
+    prop_id = matching[0].id
+
+    # B 章:阿萤学到相同文本 → 复用 A 章命题
+    apply_delta(store, {
+        "learned": [{"who": "阿萤", "fact": fact_text}],
+        "did": [],
+    }, seq=21)
+
+    # 确认 B 章没有新建命题(仍只有 1 条)
+    all_props2 = store.facts_at(99)
+    matching2 = [f for f in all_props2 if fact_text in f.value]
+    assert len(matching2) == 1, f"B 章复用后应仍只有 1 条命题,实际 {len(matching2)}"
+
+    # 确认 B 章的阿萤 knows 该命题
+    fr_ying_before = project_frame(store, "role:阿萤", 21)
+    assert any(fact_text in f.value for f in fr_ying_before.facts), \
+        "B 章 ingest 后阿萤应知道该命题"
+
+    # 重 ingest A 章 ——这是触发悬挂边的操作
+    apply_delta(store, {
+        "learned": [{"who": "焦三", "fact": fact_text}],
+        "did": [],
+    }, seq=20)
+
+    # 命题应仍存在(未被 purge_ingest(20) 删除)
+    all_props3 = store.facts_at(99)
+    matching3 = [f for f in all_props3 if fact_text in f.value]
+    assert len(matching3) >= 1, \
+        f"重 ingest A 章后命题应仍存在(B 章还在引用),实际 {len(matching3)} 条"
+
+    # B 章的阿萤 knows 边不得悬空——阿萤帧里仍能看到该命题
+    fr_ying_after = project_frame(store, "role:阿萤", 21)
+    assert any(fact_text in f.value for f in fr_ying_after.facts), \
+        "重 ingest A 章后 B 章阿萤的 knows 边不应悬空,阿萤帧仍应含该命题"

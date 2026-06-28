@@ -2568,3 +2568,75 @@ def test_patch_chapter_nonexistent_volume_422(store):
     c = _client(store)
     r = c.patch("/chapters/2", json={"volume": "幽灵卷id"})
     assert r.status_code == 422, f"不存在 volume 应返回 422: {r.text}"
+
+
+# ===== R6: /post-check degraded 覆盖 find_leaks/validate_setting 失败(第三轮 P1-b) =====
+
+def test_post_check_degraded_when_find_leaks_raises(store, monkeypatch):
+    """find_leaks 抛异常时:/post-check 应返回 degraded=True、leaks_degraded=True、
+    degraded_stages 含 'find_leaks'——让限知兜底闸崩溃可观测,不静默返回 leaks:[] + degraded:false。
+    修复前:find_leaks 异常只记日志,degraded 保持 False,调用方无感知。"""
+    store.save_chapter(1, "测试散文内容。", title="一")
+    store.add_entity(__import__("scribe3.ontology", fromlist=["Entity"]).Entity("role:甲", "character", "甲"))
+
+    import scribe3.app as A
+    import scribe3.verify as V
+    monkeypatch.setattr(V, "find_leaks", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("模拟 find_leaks 崩溃")))
+
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "测试散文内容。", "focalizer": "role:甲", "brief": ""})
+    assert r.status_code == 200, f"/post-check 应 200: {r.text}"
+    body = r.json()
+    assert body.get("degraded") is True, \
+        f"find_leaks 崩溃时 degraded 应为 True,实际: {body.get('degraded')}"
+    assert body.get("leaks_degraded") is True, \
+        f"find_leaks 崩溃时 leaks_degraded 应为 True,实际: {body.get('leaks_degraded')}"
+    assert "find_leaks" in body.get("degraded_stages", []), \
+        f"degraded_stages 应含 'find_leaks',实际: {body.get('degraded_stages')}"
+
+
+def test_post_check_degraded_when_validate_setting_raises(store, monkeypatch):
+    """validate_setting 抛异常时:/post-check 应返回 degraded=True、
+    degraded_stages 含 'validate_setting'。"""
+    store.save_chapter(1, "测试散文内容。", title="一")
+
+    import scribe3.store as ST
+    monkeypatch.setattr(ST.SurrealStore, "validate_setting",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("模拟 validate_setting 崩溃")))
+
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "测试散文内容。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"/post-check 应 200: {r.text}"
+    body = r.json()
+    assert body.get("degraded") is True, \
+        f"validate_setting 崩溃时 degraded 应为 True,实际: {body.get('degraded')}"
+    assert "validate_setting" in body.get("degraded_stages", []), \
+        f"degraded_stages 应含 'validate_setting',实际: {body.get('degraded_stages')}"
+
+
+def test_post_check_not_degraded_when_all_ok(store):
+    """所有子步骤成功时,degraded=False、leaks_degraded=False、degraded_stages=[]。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "一段正常的志怪内容。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("degraded") is False, f"全部成功时 degraded 应 False: {body}"
+    assert body.get("leaks_degraded") is False, f"leaks_degraded 应 False: {body}"
+    assert body.get("degraded_stages") == [], f"degraded_stages 应空列表: {body}"
+
+
+# ===== R3: _avoid_directive lookback 默认值 3→8(第三轮 P1-b) =====
+
+def test_avoid_directive_default_lookback_is_8(store):
+    """_avoid_directive 默认 lookback 应为 8(覆盖足够前文,防跨章复读)。
+    修复前:lookback=3,第 7-10 章看不到前段措辞,跨章复读回升。"""
+    import inspect
+    from scribe3.app import _avoid_directive
+    sig = inspect.signature(_avoid_directive)
+    default_lookback = sig.parameters["lookback"].default
+    assert default_lookback == 8, \
+        f"_avoid_directive 默认 lookback 应为 8,实际: {default_lookback}"

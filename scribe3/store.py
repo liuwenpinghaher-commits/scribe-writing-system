@@ -469,10 +469,43 @@ class SurrealStore:
 
     def purge_ingest(self, seq: int) -> None:
         """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边 + char_state(幂等再 ingest 的前置清理)。
-        只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。"""
+        只清 ingest_seq=seq,作者直编/种子(ingest_seq=NONE)不动。
+
+        learned 跨章复用保护:删命题前检查是否有【他章】的 knows/reader_knows 边仍引用该命题
+        (ingest_seq != seq)。有则保留命题本身,只删本章的边——防止 B 章复用 A 章命题,
+        重 ingest A 时把命题删掉导致 B 的 knows 边悬空。"""
+        # 1. 先删本章的 knows / reader_knows 边(无论命题是否保留)
         self._execute_write("DELETE knows WHERE ingest_seq = $seq", {"seq": seq})
         self._execute_write("DELETE reader_knows WHERE ingest_seq = $seq", {"seq": seq})
-        self._execute_write("DELETE proposition WHERE ingest_seq = $seq", {"seq": seq})
+        # 2. 查本章命题中哪些在他章仍有 knows 边引用(跨章复用命题)
+        #    先取本章全部命题 id
+        own_props = self._query(
+            "SELECT meta::id(id) AS local FROM proposition WHERE ingest_seq = $seq",
+            {"seq": seq})
+        for row in own_props:
+            local = row.get("local")
+            if not local:
+                continue
+            # 检查 knows 边:除本章外是否还有其它章的边指向该命题
+            other_knows = self._query(
+                "SELECT count() AS n FROM knows "
+                "WHERE out = type::record('proposition', $local) AND ingest_seq != $seq",
+                {"local": local, "seq": seq})
+            other_rk = self._query(
+                "SELECT count() AS n FROM reader_knows "
+                "WHERE proposition = type::record('proposition', $local) AND ingest_seq != $seq",
+                {"local": local, "seq": seq})
+            has_other = (
+                (other_knows and (other_knows[0].get("n") or 0) > 0) or
+                (other_rk and (other_rk[0].get("n") or 0) > 0)
+            )
+            if not has_other:
+                # 无他章引用:安全删除
+                self._execute_write(
+                    "DELETE type::record('proposition', $local)",
+                    {"local": local})
+            # 有他章引用:保留命题,仅边已在步骤1删除
+        # 3. char_state 无跨章复用问题,直接清
         self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:

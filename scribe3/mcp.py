@@ -163,9 +163,21 @@ def s3_list_world_rules(category: str | None = None) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
-def s3_list_factions() -> list[dict]:
-    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。"""
-    return _store.list_factions()
+def s3_list_factions(reveal_secret: bool = False) -> list[dict]:
+    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。
+
+    默认掩码私密私下运作(显示 '🔒 私密'),private_operation_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    rows = _store.list_factions()
+    result = []
+    for row in rows:
+        row = dict(row)
+        is_secret = bool(row.get("private_operation_secret", False))
+        row["private_operation"] = _mask_value(
+            row.get("private_operation") or "", is_secret, reveal_secret
+        )
+        result.append(row)
+    return result
 
 
 @mcp.tool(annotations=_RO)

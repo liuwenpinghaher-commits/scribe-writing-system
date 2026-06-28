@@ -1069,7 +1069,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False):
     yield 'data: {"done": true}\n\n'
 
 
-def _avoid_directive(st, chapter: int, lookback: int = 3, top: int = 40) -> str:
+def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
     """前 lookback 章独特措辞 → '本章避免逐字复用'系统指令(服务端确定性防跨章复读)。
 
     根因:单遍长程生成的"复读病"——模型跨章逐字复用自己偏爱的措辞/动作句(实测 10 章共 106 处
@@ -1711,6 +1711,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
 
     # 2. 限知泄露(有 focalizer 才跑)
     leaks: list[dict] = []
+    leaks_degraded = False
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
@@ -1719,10 +1720,12 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
         except Exception as e:
             logging.getLogger("scribe3").warning("post_check find_leaks 失败: %s", e)
+            leaks_degraded = True
 
     # 3. LLM 语义纪律判(fail-open)
     discipline: dict = {}
     degraded = False
+    degraded_stages: list[str] = []
     try:
         # 优先用测试注入的 _complete_fn,否则走真实 hermes_complete
         complete_fn = _complete_fn
@@ -1733,6 +1736,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
         degraded = True
+        degraded_stages.append("discipline")
+    if leaks_degraded:
+        degraded = True
+        degraded_stages.append("find_leaks")
 
     # 4. 设定校验:物品状态/OOC/世界规则/命名一致性(fail-soft)
     setting: list[dict] = []
@@ -1740,6 +1747,8 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         setting = st.validate_setting(seq, req.prose)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check validate_setting 失败: %s", e)
+        degraded = True
+        degraded_stages.append("validate_setting")
 
     # F-05: 组装带 range 的顶层 issues(白送类 QC + leaks + discipline.cut_after)
     issues: list[dict] = []
@@ -1785,8 +1794,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     return {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
+        "leaks_degraded": leaks_degraded,
         "discipline": discipline,
         "degraded": degraded,
+        "degraded_stages": degraded_stages,
         "setting": setting,
         "issues": issues,
     }

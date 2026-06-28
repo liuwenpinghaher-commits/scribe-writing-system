@@ -367,3 +367,57 @@ def test_s3_add_clue_signature():
     for param in ("pid", "note", "chapter"):
         assert param in sig.parameters, \
             f"s3_add_clue 缺少参数 {param},当前参数: {list(sig.parameters)}"
+
+
+# ===== R4: s3_list_factions private_operation 屏蔽(第三轮 P1-b) =====
+
+def test_s3_list_factions_masks_private_operation_by_default(store):
+    """s3_list_factions 默认应掩码 private_operation_secret=True 的势力私下运作。
+    修复前:直接 return _store.list_factions()——SELECT * 泄露明文 private_operation。
+    修复后:对每条 faction 套 _mask_value,默认显示 '🔒 私密',reveal_secret=True 解锁。
+    """
+    M.set_store(store)
+    # 添加一个 private_operation_secret=True 的势力
+    store.add_faction(
+        "测试邪教",
+        ideology="颠覆正道",
+        status="active",
+        leader="堂主",
+        known_members=["甲", "乙"],
+        public_face="慈善堂",
+        private_operation="幕后控制命脉,任务失败杀人灭口",
+        first_mention_chapter=1,
+        private_operation_secret=True,
+    )
+    # 添加一个普通公开势力(private_operation_secret=False)
+    store.add_faction(
+        "公开门派",
+        ideology="行侠仗义",
+        status="active",
+        public_face="正道盟",
+        private_operation="开门收徒",
+        private_operation_secret=False,
+    )
+
+    factions = M.s3_list_factions()  # 默认 reveal_secret=False
+
+    # 找到秘密势力
+    secret_fac = next((f for f in factions if f.get("name") == "测试邪教"), None)
+    assert secret_fac is not None, "应能列出秘密势力"
+    assert secret_fac["private_operation"] == "🔒 私密", \
+        f"默认应掩码 private_operation,实际: {secret_fac['private_operation']}"
+    assert "杀人灭口" not in str(secret_fac.get("private_operation", "")), \
+        "默认不应泄露 private_operation 明文"
+
+    # 公开势力的 private_operation 不受影响
+    public_fac = next((f for f in factions if f.get("name") == "公开门派"), None)
+    assert public_fac is not None
+    assert public_fac["private_operation"] == "开门收徒", \
+        "非秘密势力的 private_operation 应保持明文"
+
+    # reveal_secret=True 解锁
+    factions_reveal = M.s3_list_factions(reveal_secret=True)
+    secret_fac_reveal = next((f for f in factions_reveal if f.get("name") == "测试邪教"), None)
+    assert secret_fac_reveal is not None
+    assert "杀人灭口" in str(secret_fac_reveal.get("private_operation", "")), \
+        "reveal_secret=True 应返回 private_operation 明文"
