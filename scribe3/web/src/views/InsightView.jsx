@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff, Pencil, Flame, Trophy, TrendingUp } from 'lucide-react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import { api } from '../api'
@@ -275,6 +275,121 @@ function ProgressPanel({ onGoalEdit }) {
           </div>
         </div>
       )}
+
+      {/* GitHub 风码字热力图 */}
+      <WordHeatmap heatmap={prog.heatmap || []} dailyGoal={dailyGoal} />
+    </div>
+  )
+}
+
+// ── GitHub 风码字热力图 ──────────────────────────────────────────────────────
+// 近 ~91 天(13 周),每格一天,按列(周)× 行(星期几)排列
+// 5 档色阶:0 / <0.5× / <1× / ≥1× / >1.2× 每日目标(无目标按 >0 / >500 / >1000 分档)
+function WordHeatmap({ heatmap, dailyGoal }) {
+  // 把 heatmap 数组转 Map<date, words>
+  const wordMap = {}
+  for (const { date, words } of heatmap) {
+    wordMap[date] = words ?? 0
+  }
+
+  // 生成近 91 天(13 周 × 7 天)的日历格
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const WEEKS = 13
+  const DAYS = WEEKS * 7
+  // 从最早那个周日开始(让今天落在最后一列最后一格)
+  const todayDow = today.getDay() // 0=周日
+  // 往回数到最近的周日(或今天本身)
+  const startDay = new Date(today)
+  startDay.setDate(today.getDate() - (DAYS - 1))
+
+  // 生成 [cols][rows] 结构:col=周索引(0..12),row=星期几(0=周日..6=周六)
+  const cols = Array.from({ length: WEEKS }, (_, wi) =>
+    Array.from({ length: 7 }, (_, di) => {
+      const d = new Date(startDay)
+      d.setDate(startDay.getDate() + wi * 7 + di)
+      const dateStr = d.toISOString().slice(0, 10)
+      const words = wordMap[dateStr] ?? null // null=未来/无数据
+      const isFuture = d > today
+      return { dateStr, words, isFuture, dow: di }
+    })
+  )
+
+  // 色阶计算
+  const cellColor = (words, isFuture) => {
+    if (isFuture || words === null) return 'var(--color-soft)'
+    if (words <= 0) return 'var(--color-soft)'
+    if (dailyGoal) {
+      if (words >= dailyGoal * 1.2) return '#15803d'   // 超额:深绿
+      if (words >= dailyGoal) return '#22c55e'          // 达标:绿
+      if (words >= dailyGoal * 0.5) return '#86efac'   // 过半:浅绿
+      return '#bbf7d0'                                   // 有写但不足一半:很浅绿
+    } else {
+      // 无目标:按字数绝对值分档
+      if (words >= 2000) return '#15803d'
+      if (words >= 1000) return '#22c55e'
+      if (words >= 300) return '#86efac'
+      return '#bbf7d0'
+    }
+  }
+
+  const DOW_LABELS = ['日', '', '二', '', '四', '', '六']
+  // 月份标签:每列取该列第一天(周日)的月,遇到月首才显示
+  const monthLabels = cols.map((col) => {
+    const d = new Date(col[0].dateStr)
+    // 若该周内有月份切换,显示月名
+    const firstDate = d.getDate()
+    if (firstDate <= 7) return d.toLocaleDateString('zh-CN', { month: 'short' })
+    return ''
+  })
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] text-faint">码字热力图 · 近 {WEEKS} 周</div>
+        <div className="flex items-center gap-1.5 text-[10px] text-faint">
+          <span>少</span>
+          {['var(--color-soft)', '#bbf7d0', '#86efac', '#22c55e', '#15803d'].map((c, i) => (
+            <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c }} />
+          ))}
+          <span>多</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div style={{ display: 'grid', gridTemplateColumns: `16px repeat(${WEEKS}, 12px)`, gap: '2px', alignItems: 'start' }}>
+          {/* 月份标签行 */}
+          <div />
+          {monthLabels.map((label, wi) => (
+            <div key={wi} style={{ fontSize: 9, color: 'var(--color-faint)', lineHeight: '12px', textAlign: 'center' }}>
+              {label}
+            </div>
+          ))}
+          {/* 7 行(星期几) */}
+          {[0, 1, 2, 3, 4, 5, 6].map((dow) => (
+            <Fragment key={dow}>
+              <div style={{ fontSize: 9, color: 'var(--color-faint)', lineHeight: '12px', textAlign: 'right', paddingRight: 2 }}>
+                {DOW_LABELS[dow]}
+              </div>
+              {cols.map((col, wi) => {
+                const cell = col[dow]
+                const bg = cellColor(cell.words, cell.isFuture)
+                const tip = cell.isFuture ? '' : `${cell.dateStr}: ${(cell.words ?? 0).toLocaleString()} 字`
+                return (
+                  <div
+                    key={`${wi}-${dow}`}
+                    title={tip}
+                    style={{
+                      width: 12, height: 12,
+                      borderRadius: 2,
+                      background: bg,
+                    }}
+                  />
+                )
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

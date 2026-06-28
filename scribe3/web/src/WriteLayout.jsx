@@ -74,6 +74,8 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const [verTick, setVerTick] = useState(0)
   const [dlg, setDlg] = useState(null)
   const [serif, setSerif] = useState(() => localStorage.getItem('scribe3:serif') === '1')
+  // 达标 toast:记录上次 persist 前的 today_words,save 后比较是否跨过 daily_word_goal
+  const prevTodayWordsRef = useRef(null)
   const [saveMenu, setSaveMenu] = useState(false)
   const saveMenuRef = useRef(null)
   const [guardPop, setGuardPop] = useState(false)
@@ -185,9 +187,31 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
 
   const persist = async (text) => {
+    // 记住 save 前当日字数,用于达标判定(fail-soft:拉不到就跳过)
+    let prevToday = prevTodayWordsRef.current
+    if (prevToday === null) {
+      try {
+        const pp = await api.progress()
+        prevToday = pp.today_words ?? 0
+        prevTodayWordsRef.current = prevToday
+      } catch { prevToday = 0 }
+    }
+
     const r = await api.saveChapter(chapter, text, chTitle, focalizer)
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
     setTick((t) => t + 1)
+
+    // 达标 toast:save 后拉 progress,比较是否刚跨过 daily_word_goal
+    try {
+      const np = await api.progress()
+      const dailyGoal = np.daily_word_goal
+      const newToday = np.today_words ?? 0
+      prevTodayWordsRef.current = newToday  // 更新缓存
+      if (dailyGoal && prevToday < dailyGoal && newToday >= dailyGoal) {
+        const streakMsg = np.current_streak > 1 ? ` · 连胜 ${np.current_streak} 天` : ''
+        toast(`🎉 今日目标达成 ${dailyGoal.toLocaleString()} 字！${streakMsg}`)
+      }
+    } catch { /* 达标判定失败不影响存稿 */ }
   }
   const acceptProposal = async () => {
     const p = proposal; if (!p) return
