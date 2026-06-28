@@ -52,6 +52,7 @@ export const api = {
   promisesLedger: () => j('/promises/ledger'),
   motifs: () => j('/motifs'),
   graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
+  timeline: (from = 1, to) => j('/timeline?ch_from=' + from + (to != null ? '&ch_to=' + to : '')),
   quality: () => j('/quality'),
   intent: () => j('/intent'),
   putIntent: (b) => put('/intent', b),

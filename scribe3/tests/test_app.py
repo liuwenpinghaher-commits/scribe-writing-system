@@ -1522,3 +1522,85 @@ def test_post_check_issues_schema(store):
         assert "text" in iss
         assert "range" in iss   # 可为 None(无法定位)
         assert "meta" in iss
+
+
+# ── F-02 时间线视图测试 ──────────────────────────────────────────────────────
+
+def _seed_events(store):
+    """种 3 个不同章号的事件:ch1/ch3/ch3 + ch10 一个在区间外。
+    id 必须带 ev: 前缀(store._split 按冒号切)。"""
+    from scribe3.ontology import Entity, Event as OntEv
+    store.add_entity(Entity("role:焦三", "character", "焦三"))
+    store.add_entity(Entity("role:老道", "character", "老道"))
+    # ch1 事件
+    store.add_event(OntEv("ev:炼钉", "炼器", participants={"SUBJ": "role:焦三"},
+                          story_time=1, motivated_by_goal="治眼"))
+    # ch3 事件 x2
+    store.add_event(OntEv("ev:拜师", "拜师", participants={"SUBJ": "role:焦三", "OBJ": "role:老道"},
+                          story_time=3, motivated_by_goal="学艺"))
+    store.add_event(OntEv("ev:试炉", "炼器", participants={"SUBJ": "role:焦三"},
+                          story_time=3, motivated_by_goal="治眼"))
+    # ch10 事件(超出 ch_to=5 的区间,不应出现)
+    store.add_event(OntEv("ev:大战", "战斗", participants={"SUBJ": "role:焦三"},
+                          story_time=10, motivated_by_goal="复仇"))
+
+
+def test_timeline_store_events_in_range(store):
+    """store.timeline(1,5) 返回 ch1+ch3 三条事件,ch10 不在,按章升序,字段齐。"""
+    _seed_events(store)
+    items = store.timeline(ch_from=1, ch_to=5)
+    event_items = [i for i in items if i["kind"] == "event"]
+    chapters = [i["chapter"] for i in event_items]
+    # ch10 事件不在范围内
+    assert all(ch <= 5 for ch in chapters), f"含超出范围的章号: {chapters}"
+    # 3 条事件(ch1/ch3/ch3)
+    assert len(event_items) == 3, f"期望3条事件,实得{len(event_items)}"
+    # 按章升序
+    assert chapters == sorted(chapters), f"未按章排序: {chapters}"
+    # 字段齐全
+    for it in event_items:
+        assert "chapter" in it and "kind" in it and "label" in it
+        assert "lane_keys" in it and "refs" in it
+        assert isinstance(it["refs"].get("subj"), list)
+
+
+def test_timeline_store_empty(store):
+    """空库 store.timeline() 返回 [],不抛错。"""
+    result = store.timeline()
+    assert result == []
+
+
+def test_timeline_endpoint_basic(store):
+    """GET /timeline?ch_from=1&ch_to=5 返回正确结构。"""
+    _seed_events(store)
+    c = _client(store)
+    r = c.get("/timeline", params={"ch_from": 1, "ch_to": 5})
+    assert r.status_code == 200
+    body = r.json()
+    assert "from" in body and "to" in body and "max_chapter" in body and "items" in body
+    event_items = [i for i in body["items"] if i["kind"] == "event"]
+    assert len(event_items) == 3
+    assert body["max_chapter"] >= 10   # ch10 事件入库,max_chapter≥10
+    assert body["from"] == 1 and body["to"] == 5
+
+
+def test_timeline_endpoint_defaults(store):
+    """GET /timeline 不传参:ch_from=1,ch_to=max_chapter,全量返回。"""
+    _seed_events(store)
+    c = _client(store)
+    r = c.get("/timeline")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["from"] == 1
+    # 默认 to = max_chapter,ch10 事件应包含
+    event_items = [i for i in body["items"] if i["kind"] == "event"]
+    assert len(event_items) == 4   # ch1/ch3/ch3/ch10 全部
+
+
+def test_timeline_endpoint_sorted_by_chapter(store):
+    """/timeline 返回的 items 按 chapter 升序排列。"""
+    _seed_events(store)
+    c = _client(store)
+    items = c.get("/timeline").json()["items"]
+    chapters = [i["chapter"] for i in items]
+    assert chapters == sorted(chapters), f"items 未按章排序: {chapters}"

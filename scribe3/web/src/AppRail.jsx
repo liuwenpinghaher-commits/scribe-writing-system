@@ -1,10 +1,11 @@
-import { Sun, Moon, BookOpen, ChevronDown, Feather, BookText, Network, Activity } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Feather, BookText, Network, Activity, Clock } from 'lucide-react'
 
 export const VIEWS = [
   { key: 'write', label: '写作台', icon: Feather },
   { key: 'codex', label: '设定库', icon: BookText },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'insight', label: '仪表盘', icon: Activity },
+  { key: 'timeline', label: '时间线', icon: Clock },
 ]
 
 // 应用级顶栏:字标 + 作品切换(回作品库)+ 视图 tab + 主题。借鉴 scribe2 AppRail。

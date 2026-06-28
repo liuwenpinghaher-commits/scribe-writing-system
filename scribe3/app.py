@@ -198,6 +198,23 @@ def events(chapter: int = Query(ge=1), work: str = "main"):
             for ev in _store_for(work).events_at(chapter)]
 
 
+@app.get("/timeline")
+def timeline(ch_from: int = Query(default=1, ge=1),
+             ch_to: int | None = Query(default=None, ge=1),
+             work: str = "main"):
+    """时间线工艺视图(F-02):返回 [ch_from, ch_to] 区间内按章排序的事件条目。
+    作者全知视图,无限知门控。MVP 仅含 events 泳道。"""
+    st = _store_for(work)
+    items = st.timeline(ch_from, ch_to)
+    max_ch = st.max_chapter()
+    return {
+        "from": ch_from,
+        "to": ch_to if ch_to is not None else max_ch,
+        "max_chapter": max_ch,
+        "items": items,
+    }
+
+
 @app.get("/frame")
 def frame(focalizer: str, chapter: int = Query(ge=1), work: str = "main"):
     return _facts(project_frame(_store_for(work), focalizer, chapter).facts)

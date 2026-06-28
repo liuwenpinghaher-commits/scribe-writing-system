@@ -1023,6 +1023,39 @@ class SurrealStore:
                              motivated_by_goal=r.get("motivated_by_goal")))
         return out
 
+    def timeline(self, ch_from: int = 1, ch_to: int | None = None) -> list[dict]:
+        """聚合 [ch_from, ch_to] 区间内事件,归并成时间线条目。
+        MVP:仅 events 泳道(kind=event)。
+        无写、无限知门控(作者全知工艺视图)。复用 events_at,不新增 SQL 真源。"""
+        hi = ch_to if ch_to is not None else self.max_chapter()
+        if hi == 0:
+            return []
+        items: list[dict] = []
+        for ch in range(ch_from, hi + 1):
+            for ev in self.events_at(ch):
+                subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
+                obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
+                wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
+                items.append({
+                    "chapter": ev.story_time,
+                    "kind": "event",
+                    "id": ev.id,
+                    "label": ev.type,
+                    "goal": ev.motivated_by_goal,
+                    "lane_keys": subj + obj_,
+                    "event_type": ev.type,
+                    "refs": {
+                        "subj": subj,
+                        "obj": obj_,
+                        "witness": wit,
+                        "effects": ev.effects,
+                        "location": ev.location,
+                        "causal_in": [c[0] for c in ev.causal_in],
+                    },
+                })
+        items.sort(key=lambda x: (x["chapter"], x["kind"]))
+        return items
+
     def orphan_knowledge_edges(self) -> list[dict]:
         """扫描孤儿知识边:knows/reader_knows 中指向不存在命题的悬挂边。
         返回列表 [{type, knower, proposition_ref}];正常情况应为空列表。
