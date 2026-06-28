@@ -296,6 +296,65 @@ def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None =
     return {"text": cut, "violations": v["violations"], "changed": True}
 
 
+# ==== 声音演变折叠(fold_voice_flags:LLM 把开放 flag 折进 voice_profile)====
+
+def build_voice_fold_prompt(current_profile: dict | None, flags: list[dict]) -> str:
+    """构建声音演变折叠 prompt。
+    current_profile: 当前 voice_profile dict(可为 None/空)。
+    flags: list[{character, trigger_chapter, reason, id}]。
+    要求 LLM 输出一行 JSON,至少含 style_summary;可含 tone_rules/catchphrases。
+    """
+    profile_str = "（尚无声音指纹,请从零建立）"
+    if current_profile:
+        parts = []
+        if current_profile.get("style_summary"):
+            parts.append(f"style_summary: {current_profile['style_summary']}")
+        if current_profile.get("tone_rules"):
+            parts.append(f"tone_rules: {current_profile['tone_rules']}")
+        if current_profile.get("catchphrases"):
+            parts.append(f"catchphrases: {current_profile['catchphrases']}")
+        if parts:
+            profile_str = "\n".join(parts)
+
+    flag_lines = "\n".join(
+        f"  · 第{f.get('trigger_chapter', '?')}章:{f.get('reason', '')}"
+        for f in flags
+    )
+
+    return (
+        "你是专业小说声音编辑。下面是某角色的当前声音指纹,以及情节驱动的声音演变信号。\n\n"
+        "【当前声音指纹】\n" + profile_str + "\n\n"
+        "【情节声音演变信号(需要折叠进声音指纹)】\n" + flag_lines + "\n\n"
+        "请根据上述演变信号,输出一个**更新后**的声音指纹 JSON,反映角色经历这些情节后声音的演变。\n"
+        "字段要求:style_summary(必填,一句话描述), tone_rules(选填,list), catchphrases(选填,list)。\n"
+        "保持风格克制,不要为角色代写台词,只描述声音特征的变化。\n"
+        '只输出一行 JSON,例如:{"style_summary":"...", "tone_rules":["..."], "catchphrases":["..."]}\n'
+        "不要任何解释或额外文字。"
+    )
+
+
+def parse_voice_profile_from_fold(reply: str) -> dict | None:
+    """解析 LLM 声音折叠回复。
+    成功:返回含 style_summary 的 dict。
+    失败(坏 JSON / 无 style_summary):返回 None(调用方据此 fail-soft,不改现有 profile)。
+    """
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        if not m:
+            _log.warning("parse_voice_profile_from_fold 无 JSON 块: reply[:120]=%r",
+                         (reply or "")[:120])
+            return None
+        d = json.loads(m.group(0))
+        if not d.get("style_summary"):
+            _log.warning("parse_voice_profile_from_fold: 缺 style_summary,拒绝: %r", d)
+            return None
+        return d
+    except Exception as e:
+        _log.warning("parse_voice_profile_from_fold 失败: %s | reply[:120]=%r",
+                     e, (reply or "")[:120])
+        return None
+
+
 # ==== 知识账本抽取(定稿时抽"本章谁新知道什么/做了什么",喂单一真相源)====
 def build_knowledge_extract_prompt(prose: str) -> str:
     return (

@@ -697,6 +697,65 @@ class SurrealStore:
             "UPDATE type::record('voice_evolution_flag',$fid) SET status='done'",
             {"fid": flag_id})
 
+    def fold_voice_flags(self, character_id: str, complete_fn) -> dict:
+        """半自动声音演变消化:将该角色的开放 voice_evolution_flag 折叠进 voice_profile。
+
+        1. 取该角色 open flags;若无则直接返回 {"folded": 0}。
+        2. 取当前 voice_profile(可为 None)。
+        3. 构建 prompt → 调 complete_fn → 解析 JSON。
+           解析失败(坏 JSON / 缺 style_summary) → fail-soft:不改 profile,返回 {"folded": 0, "degraded": True}。
+        4. 成功:set_voice_profile + resolve_voice_flag(每条 flag)。
+        5. 返回 {"folded": n, "profile": updated_profile}。
+
+        complete_fn 签名: (prompt: str) -> str(与 ingest_chapter 同签名)。
+        """
+        from scribe3.critique import build_voice_fold_prompt, parse_voice_profile_from_fold
+
+        # 1. 取该角色 open flags
+        all_open = self.list_voice_flags("open")
+        char_flags = [f for f in all_open if f.get("character") == character_id]
+        if not char_flags:
+            return {"folded": 0}
+
+        # 2. 取当前 voice_profile(保留原样用于 fail-soft 回退)
+        current_profile = self.get_voice_profile(character_id)
+
+        # 3. 构建 prompt + 调用 LLM + 解析
+        try:
+            prompt = build_voice_fold_prompt(current_profile, char_flags)
+            reply = complete_fn(prompt)
+            updated = parse_voice_profile_from_fold(reply)
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning(
+                "fold_voice_flags: complete_fn 或 prompt 失败(soft) character=%s: %s",
+                character_id, e)
+            return {"folded": 0, "degraded": True}
+
+        if updated is None:
+            # 解析失败:fail-soft,不改现有 profile
+            return {"folded": 0, "degraded": True}
+
+        # 4. 成功:先更新 profile,再 resolve 每条 flag
+        # 若当前 profile 存在,合并现有字段(新值覆盖旧值)
+        if current_profile:
+            merged = dict(current_profile)
+            merged.update(updated)
+        else:
+            merged = updated
+
+        self.set_voice_profile(character_id, merged)
+
+        for f in char_flags:
+            flag_id = f.get("id")
+            if flag_id:
+                try:
+                    self.resolve_voice_flag(flag_id)
+                except Exception as e:
+                    logging.getLogger("scribe3.store").warning(
+                        "fold_voice_flags: resolve_voice_flag(%s) 失败(soft): %s", flag_id, e)
+
+        return {"folded": len(char_flags), "profile": merged}
+
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
         self._execute_write(

@@ -411,3 +411,60 @@ def test_event_table_lacks_dead_taxonomy_columns(store):
         "event.event_category 应已被 041_tail_cleanup 移除"
     assert "event_subtype" not in fields, \
         "event.event_subtype 应已被 041_tail_cleanup 移除"
+
+
+# --- S8: fold_voice_flags 半自动声音演变消化 ---
+
+def test_fold_voice_flags_updates_profile_and_resolves(store):
+    """S8 主流程:fold 把 open flag 折叠进 profile,并 resolve 所有已处理 flag。"""
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.set_voice_profile("role:甲", {"style_summary": "怯懦结巴"})
+    # add_char_state with affects_voice=True 自动创建 open flag
+    store.add_char_state(character_id="role:甲", chapter=5, change_type="personality",
+                         summary="由怯转狠", affects_voice=True)
+    # 确认 flag 已创建
+    assert store.list_voice_flags("open"), "add_char_state(affects_voice=True) 应自动创建 open flag"
+
+    def fake_complete(prompt):
+        return '{"style_summary":"由怯转狠后,语气转冷硬决绝"}'
+
+    res = store.fold_voice_flags("role:甲", fake_complete)
+    assert res["folded"] >= 1, f"应有至少 1 条 flag 被折叠,实际: {res}"
+    updated_profile = store.get_voice_profile("role:甲")
+    assert updated_profile is not None, "fold 后 voice_profile 应存在"
+    assert "冷硬" in updated_profile["style_summary"], \
+        f"profile 应反映演变后声音,实际: {updated_profile['style_summary']}"
+    # 所有 role:甲 的 flag 应已 resolve(不再出现在 open 列表)
+    remaining = [f for f in store.list_voice_flags("open") if f.get("character") == "role:甲"]
+    assert not remaining, f"fold 后 role:甲 的 open flag 应全部 resolve,仍有: {remaining}"
+
+
+def test_fold_voice_flags_none_open(store):
+    """S8 空路:无 open flag 时直接返回 {folded:0},不调 LLM。"""
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.set_voice_profile("role:乙", {"style_summary": "x"})
+    called = {"n": 0}
+
+    def fake_complete(prompt):
+        called["n"] += 1
+        return "{}"
+
+    res = store.fold_voice_flags("role:乙", fake_complete)
+    assert res["folded"] == 0, f"无 flag 应返回 folded=0,实际: {res}"
+    assert called["n"] == 0, "无 flag 时不应调用 complete_fn"
+
+
+def test_fold_voice_flags_degraded_on_bad_json(store):
+    """S8 fail-soft:LLM 返回非法 JSON → degraded=True,profile 不被污染。"""
+    store.add_entity(Entity("role:丙", "character", "丙"))
+    store.set_voice_profile("role:丙", {"style_summary": "原样"})
+    store.add_char_state(character_id="role:丙", chapter=2, change_type="personality",
+                         summary="x", affects_voice=True)
+
+    res = store.fold_voice_flags("role:丙", lambda p: "非法JSON")
+    assert res.get("degraded") is True, f"坏 JSON 应返回 degraded=True,实际: {res}"
+    # 现有 profile 不应被修改
+    profile = store.get_voice_profile("role:丙")
+    assert profile is not None, "profile 应仍然存在"
+    assert profile["style_summary"] == "原样", \
+        f"坏 JSON 时 profile 不应被修改,实际: {profile['style_summary']}"

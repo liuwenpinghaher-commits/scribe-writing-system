@@ -32,7 +32,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
                 "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                 "s3_supersede_fact", "s3_forget_knowledge",
-                "s3_evolve_relation", "s3_resolve_voice_flag"}
+                "s3_evolve_relation", "s3_resolve_voice_flag",
+                "s3_fold_voice_flags"}
 
 
 def requires_approval(name: str) -> bool:
@@ -601,6 +602,20 @@ async def s3_resolve_voice_flag(ctx: Context, flag_id: str) -> dict:
     ok = await _ask(ctx, f"关闭声音演变 flag {flag_id}")
     return commit_if_approved("s3_resolve_voice_flag", ok,
                               lambda: _store.resolve_voice_flag(flag_id))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_fold_voice_flags(ctx: Context, character_id: str) -> dict:
+    """半自动声音演变折叠(写,待批):把角色的 open voice_evolution_flag 用 LLM 折叠进 voice_profile。
+    声音随情节演变的真闭环——flag 由 ingest/add_char_state 自动创建(affects_voice=True),
+    此工具消化 flag→更新声音指纹→resolve flag,完成"声音随情节演变"链路。
+    返回 {"folded": n, "profile": {...}} 或 {"folded": 0, "degraded": true}(LLM/解析失败时 fail-soft)。
+    无开放 flag 时直接返回 {"folded": 0}(不调 LLM)。"""
+    ok = await _ask(ctx, f"折叠声音演变 flag → profile [{character_id}]")
+    if not ok:
+        return {"status": "declined", "tool": "s3_fold_voice_flags"}
+    from scribe3.llm import hermes_complete
+    return _store.fold_voice_flags(character_id, hermes_complete)
 
 
 @mcp.tool(annotations=_RW)

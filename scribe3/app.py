@@ -593,6 +593,20 @@ def resolve_voice_flag_endpoint(fid: str, work: str = "main"):
     return {"ok": True}
 
 
+@app.post("/voice-flags/fold")
+def fold_voice_flags_endpoint(body: dict, work: str = "main"):
+    """半自动声音演变折叠:把角色的 open voice_evolution_flag 折叠进 voice_profile(LLM 演变)。
+    body: {"character_id": "role:xxx"}
+    返回: {"folded": n, "profile": {...}} 或 {"folded": 0, "degraded": true}
+    """
+    character_id = body.get("character_id", "")
+    if not character_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="character_id 必填")
+    from scribe3.llm import hermes_complete
+    return _store_for(work).fold_voice_flags(character_id, hermes_complete)
+
+
 @app.get("/graph")
 def graph(chapter: int | None = None, work: str = "main"):
     """知识图谱:角色/命题节点 + knows 边(Atlas 视图)。"""

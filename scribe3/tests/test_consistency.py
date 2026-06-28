@@ -89,6 +89,7 @@ class TestWriteGate:
         ("POST", "/character-relations/evolve"),
         ("POST", "/character-relations/end"),
         ("POST", "/voice-flags/{fid}/resolve"),
+        ("POST", "/voice-flags/fold"),
     }
 
     def test_no_unaudited_write_route(self):
