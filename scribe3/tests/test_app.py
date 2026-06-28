@@ -2320,6 +2320,84 @@ def test_timeline_existing_seed_unaffected_by_axis(store):
     assert s_map == n_map, f"无 narrative_position 时两轴应一致: story={s_map} narrative={n_map}"
 
 
+# ===== 批量等价测试(P1-d 性能修复回归) =====
+
+def test_timeline_bulk_equivalence(store):
+    """P1-d 性能修复:批量查聚合结果与逐条预期完全一致。
+    种 3 章事件(含 participants/causal_in)+ 2 角色弧光 → timeline 批量结果与
+    逐字段预期对齐,验证批量聚合没漏没错。
+    """
+    from scribe3.ontology import Entity, Event as OntEvent, Fact
+
+    # 种角色
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+
+    # 种事件 ch1(因)
+    store.add_event(OntEvent("ev:起", "起因",
+                             participants={"SUBJ": "role:甲"},
+                             story_time=1))
+    # 种事件 ch3(果,有因果边)
+    store.add_event(OntEvent("ev:果", "结果",
+                             participants={"SUBJ": "role:乙", "OBJ": "role:甲"},
+                             story_time=3,
+                             causal_in=[("ev:起", "enables")]))
+    # 种事件 ch5(另一章,无 participants)
+    store.add_event(OntEvent("ev:尾", "收尾",
+                             participants={},
+                             story_time=5))
+
+    # 种弧光质变(change_type 须在 schema 枚举内: ability/relation/personality/composite)
+    store.add_char_state("role:甲", 2, "ability", "甲觉醒",
+                         arc_phase="觉醒", affects_voice=True)
+    store.add_char_state("role:乙", 4, "personality", "乙转变",
+                         arc_phase="转折", affects_voice=False)
+
+    items = store.timeline(ch_from=1, ch_to=6)
+
+    # ── 事件条目验证 ──
+    ev_items = {i["id"]: i for i in items if i["kind"] == "event"}
+    assert set(ev_items.keys()) == {"ev:起", "ev:果", "ev:尾"}, \
+        f"事件泳道应含 3 条,实际 ids={set(ev_items.keys())}"
+
+    # ev:起 章号/lane_keys
+    assert ev_items["ev:起"]["chapter"] == 1
+    assert ev_items["ev:起"]["story_chapter"] == 1
+    assert "role:甲" in ev_items["ev:起"]["lane_keys"]
+
+    # ev:果 章号/lane_keys/causal_in 带章号
+    assert ev_items["ev:果"]["chapter"] == 3
+    ci = ev_items["ev:果"]["refs"]["causal_in"]
+    assert len(ci) == 1, f"causal_in 应有 1 条,实际={ci}"
+    assert ci[0]["id"] == "ev:起"
+    assert ci[0]["chapter"] == 1, f"causal_in 章号应为 1,实际={ci[0]['chapter']}"
+    assert "role:乙" in ev_items["ev:果"]["lane_keys"]
+    assert "role:甲" in ev_items["ev:果"]["lane_keys"]
+
+    # ev:尾 无 participants → lane_keys=[]
+    assert ev_items["ev:尾"]["chapter"] == 5
+    assert ev_items["ev:尾"]["lane_keys"] == []
+
+    # ── 弧光条目验证 ──
+    arc_items = [i for i in items if i["kind"] == "arc"]
+    assert len(arc_items) == 2, f"弧光泳道应含 2 条,实际={len(arc_items)}"
+    arc_by_cid = {i["refs"]["character"]: i for i in arc_items}
+    assert "role:甲" in arc_by_cid and "role:乙" in arc_by_cid
+
+    arc_jia = arc_by_cid["role:甲"]
+    assert arc_jia["chapter"] == 2
+    assert arc_jia["refs"]["arc_phase"] == "觉醒"
+    assert arc_jia["lane_keys"] == ["role:甲"]
+
+    arc_yi = arc_by_cid["role:乙"]
+    assert arc_yi["chapter"] == 4
+    assert arc_yi["refs"]["arc_phase"] == "转折"
+
+    # ── items 按 chapter 升序 ──
+    chaps = [i["chapter"] for i in items]
+    assert chaps == sorted(chaps), f"items 应按 chapter 升序,实际={chaps}"
+
+
 # ===== 尾1: PATCH /events/{eid}/narrative TDD =====
 
 def test_patch_event_narrative_set(store):

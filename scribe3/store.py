@@ -1359,6 +1359,46 @@ class SurrealStore:
         rows = self._query("SELECT meta::id(id) AS local, story_chapter FROM event")
         return {f"ev:{r['local']}": r["story_chapter"] for r in rows if r.get("story_chapter") is not None}
 
+    def _all_events_bulk(self) -> list["Event"]:
+        """批量查全表所有事件(含图边 involves/causes/causal),一次往返。
+        供 timeline() 事件泳道使用——替代逐章 events_at 循环(N 章→N 次多子查询往返)。
+        返回结构与 events_at 完全一致(Event dataclass),调用方按章过滤/分组。"""
+        rows = self._query(
+            "SELECT meta::id(id) AS local, event_type, story_chapter, narrative_position, "
+            "  motivated_by_goal, location, preconditions, "
+            "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
+            "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
+            "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
+            "FROM event")
+        out = []
+        for r in rows:
+            participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
+            effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
+            causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
+            etype = r.get("event_type") or ""
+            story_chapter = r.get("story_chapter") or 0
+            raw_loc = r.get("location")
+            loc_str = (str(raw_loc) if not isinstance(raw_loc, str) else raw_loc) if raw_loc is not None else None
+            out.append(Event(f"ev:{r['local']}", etype,
+                             participants=participants,
+                             location=loc_str,
+                             story_time=story_chapter,
+                             preconditions=r.get("preconditions") or [],
+                             effects=effects,
+                             causal_in=causal_in,
+                             motivated_by_goal=r.get("motivated_by_goal"),
+                             narrative_position=r.get("narrative_position")))
+        return out
+
+    def _all_char_states_bulk(self) -> list[dict]:
+        """批量查全表所有角色弧光记录,一次往返。
+        供 timeline() 弧光泳道使用——替代逐角色 list_char_states 循环(N 角色→N 次单查)。
+        返回与 list_char_states 字段完全一致,额外保留 character_id 供 Python 侧分组。"""
+        return self._query(
+            "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
+            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence "
+            "FROM char_state ORDER BY chapter ASC")
+
     def timeline(self, ch_from: int = 1, ch_to: int | None = None,
                  axis: str = "story") -> list[dict]:
         """聚合 [ch_from, ch_to] 区间内所有"章号锚状态",归并成时间线条目。
@@ -1382,47 +1422,46 @@ class SurrealStore:
         items: list[dict] = []
 
         # 预建 ev_id→chapter 映射,供 causal_in 章号补全(一次全表查,不逐条单查)
+        # 同时用 _all_events_bulk() 一次性拉取全表事件(含图边),消除逐章 events_at N+1。
         ev_ch_map = self._ev_chapter_map()
 
         # ── 1. 事件泳道 ──
-        # 全量扫故事章 [1, max_chapter] 再按当前轴的投影坐标过滤到 [ch_from, hi]。
-        # 不能只扫 [ch_from, hi] 的 story 章:叙事轴下,某 story_chapter 在区间外
-        # 但 narrative_position 落在区间内的闪回事件会被漏掉。
-        scan_hi = self.max_chapter()
-        for ch in range(1, scan_hi + 1):
-            for ev in self.events_at(ch):
-                # 投影坐标:叙事轴用 narrative_position ?? story_time;故事轴用 story_time
-                np = ev.narrative_position
-                plot_ch = (np if np is not None else ev.story_time) if narrative else ev.story_time
-                if not (ch_from <= plot_ch <= hi):
-                    continue
-                subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
-                obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
-                wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
-                # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号(用 story_chapter,稳定真源)
-                causal_in_rich = [
-                    {"id": c[0], "chapter": ev_ch_map.get(c[0])}
-                    for c in ev.causal_in
-                ]
-                items.append({
-                    "chapter": plot_ch,                    # 当前轴的横铺坐标
-                    "kind": "event",
-                    "id": ev.id,
-                    "label": ev.type,
-                    "goal": ev.motivated_by_goal,
-                    "lane_keys": subj + obj_,
-                    "event_type": ev.type,
-                    "story_chapter": ev.story_time,        # 故事编年(恒在,前端"故事@N")
-                    "narrative_position": np,              # 叙事位(可空,前端"叙事@M")
-                    "refs": {
-                        "subj": subj,
-                        "obj": obj_,
-                        "witness": wit,
-                        "effects": ev.effects,
-                        "location": ev.location,
-                        "causal_in": causal_in_rich,
-                    },
-                })
+        # 一次全表查(含 involves/causes/causal 图边),Python 侧按投影坐标过滤到 [ch_from, hi]。
+        # 不能只查 [ch_from, hi] 的 story 章:叙事轴下 story_chapter 在区间外
+        # 但 narrative_position 落在区间内的闪回事件会被漏掉——全表查再按轴坐标过滤是正确做法。
+        for ev in self._all_events_bulk():
+            # 投影坐标:叙事轴用 narrative_position ?? story_time;故事轴用 story_time
+            np = ev.narrative_position
+            plot_ch = (np if np is not None else ev.story_time) if narrative else ev.story_time
+            if not (ch_from <= plot_ch <= hi):
+                continue
+            subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
+            obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
+            wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
+            # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号(用 story_chapter,稳定真源)
+            causal_in_rich = [
+                {"id": c[0], "chapter": ev_ch_map.get(c[0])}
+                for c in ev.causal_in
+            ]
+            items.append({
+                "chapter": plot_ch,                    # 当前轴的横铺坐标
+                "kind": "event",
+                "id": ev.id,
+                "label": ev.type,
+                "goal": ev.motivated_by_goal,
+                "lane_keys": subj + obj_,
+                "event_type": ev.type,
+                "story_chapter": ev.story_time,        # 故事编年(恒在,前端"故事@N")
+                "narrative_position": np,              # 叙事位(可空,前端"叙事@M")
+                "refs": {
+                    "subj": subj,
+                    "obj": obj_,
+                    "witness": wit,
+                    "effects": ev.effects,
+                    "location": ev.location,
+                    "causal_in": causal_in_rich,
+                },
+            })
 
         # ── 2. 伏笔泳道(setup 埋点 + payoff 收点) ──
         for p in self.list_promises():
@@ -1459,25 +1498,29 @@ class SurrealStore:
                 })
 
         # ── 3. 弧光质变泳道(char_state 每条一个◆点) ──
-        for c in self.characters():
-            for cs in self.list_char_states(c.id):
-                ch = cs.get("chapter")
-                if ch is None:
-                    continue
-                if ch_from <= ch <= hi:
-                    items.append({
-                        "chapter": ch,
-                        "kind": "arc",
-                        "id": cs["id"],
-                        "label": cs.get("summary", ""),
-                        "lane_keys": [c.id],
-                        "refs": {
-                            "character": c.id,
-                            "change_type": cs.get("change_type"),
-                            "arc_phase": cs.get("arc_phase"),
-                            "affects_voice": cs.get("affects_voice"),
-                        },
-                    })
+        # 一次全表查所有 char_state,Python 按 character_id 分组——消除逐角色 list_char_states N+1。
+        for cs in self._all_char_states_bulk():
+            ch = cs.get("chapter")
+            if ch is None:
+                continue
+            if not (ch_from <= ch <= hi):
+                continue
+            cid = cs.get("character_id")
+            if not cid:
+                continue
+            items.append({
+                "chapter": ch,
+                "kind": "arc",
+                "id": cs["id"],
+                "label": cs.get("summary", ""),
+                "lane_keys": [cid],
+                "refs": {
+                    "character": cid,
+                    "change_type": cs.get("change_type"),
+                    "arc_phase": cs.get("arc_phase"),
+                    "affects_voice": cs.get("affects_voice"),
+                },
+            })
 
         # ── 4. 关系泳道(全量读,含已失效历史;不用 relations_at 带时间门) ──
         for r in self._all_relations():
