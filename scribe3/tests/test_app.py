@@ -2160,3 +2160,105 @@ def test_timeline_causal_in_with_chapter(store):
     assert isinstance(ci, dict), f"causal_in 条目应为 dict,实际为 {type(ci)}: {ci}"
     assert ci.get("id") == "ev:追", f"causal_in[0].id 应为 ev:追,实际={ci}"
     assert ci.get("chapter") == 2, f"causal_in[0].chapter 应为 2(前驱事件章号),实际={ci}"
+
+
+# ── 作者工具完整 D · 时间线双轴(故事编年 vs 叙事顺序) ──────────────────────────
+
+def _seed_flashback(store):
+    """种一个闪回场景:
+      ev:童年 —— story_chapter=2(故事第2章发生),narrative_position=9(叙事第9章才闪回揭示)。
+      ev:线性 —— story_chapter=5,不带 narrative_position(线性事件,两轴一致)。
+    """
+    from scribe3.ontology import Entity, Event as OntEv
+    store.add_entity(Entity("role:焦三", "character", "焦三"))
+    store.add_event(OntEv("ev:童年", "回忆", participants={"SUBJ": "role:焦三"},
+                          story_time=2, narrative_position=9))
+    store.add_event(OntEv("ev:线性", "对话", participants={"SUBJ": "role:焦三"},
+                          story_time=5))
+
+
+def test_narrative_position_persisted(store):
+    """完整 D:add_event 写入 narrative_position,events_at 读回(往返不丢)。"""
+    _seed_flashback(store)
+    ev = next((e for e in store.events_at(2) if e.id == "ev:童年"), None)
+    assert ev is not None, "ev:童年 应在 story_chapter=2 查到"
+    assert ev.narrative_position == 9, f"narrative_position 应回读为 9,实际={ev.narrative_position}"
+    # 线性事件 narrative_position 为 None(回退 story_chapter)
+    ev2 = next((e for e in store.events_at(5) if e.id == "ev:线性"), None)
+    assert ev2 is not None and ev2.narrative_position is None
+
+
+def test_timeline_axis_story_vs_narrative(store):
+    """完整 D 核心:闪回事件 story=2 / narrative=9。
+      axis='story'   → ev:童年 落在 chapter=2
+      axis='narrative' → ev:童年 落在 chapter=9
+    线性事件 ev:线性(story=5,无 narrative)两轴都落在 5(回退)。"""
+    _seed_flashback(store)
+
+    story = store.timeline(1, 10, axis="story")
+    narr  = store.timeline(1, 10, axis="narrative")
+
+    s_flash = next(i for i in story if i["id"] == "ev:童年")
+    n_flash = next(i for i in narr  if i["id"] == "ev:童年")
+    assert s_flash["chapter"] == 2, f"故事轴 ev:童年 应 chapter=2,实际={s_flash['chapter']}"
+    assert n_flash["chapter"] == 9, f"叙事轴 ev:童年 应 chapter=9,实际={n_flash['chapter']}"
+    # 两轴都恒带 story_chapter / narrative_position 供前端标"闪回"
+    assert s_flash["story_chapter"] == 2 and s_flash["narrative_position"] == 9
+    assert n_flash["story_chapter"] == 2 and n_flash["narrative_position"] == 9
+
+    # 线性事件:两轴一致(回退 story_chapter)
+    s_lin = next(i for i in story if i["id"] == "ev:线性")
+    n_lin = next(i for i in narr  if i["id"] == "ev:线性")
+    assert s_lin["chapter"] == 5 and n_lin["chapter"] == 5
+    assert s_lin["narrative_position"] is None
+
+
+def test_timeline_default_axis_is_story(store):
+    """向后兼容:不传 axis 默认 'story',闪回事件落 story_chapter=2。"""
+    _seed_flashback(store)
+    items = store.timeline(1, 10)  # 不传 axis
+    flash = next(i for i in items if i["id"] == "ev:童年")
+    assert flash["chapter"] == 2, "默认 axis 应为 story(闪回落 story_chapter)"
+
+
+def test_timeline_narrative_range_includes_out_of_story_range(store):
+    """完整 D 边界:闪回事件 story=2 但 narrative=9。
+    叙事轴查 [6,10] 区间:story_chapter=2 在区间外,但 narrative_position=9 在区间内 → 必须出现。
+    (验证全量扫故事章再按叙事坐标过滤,不漏闪回。)"""
+    _seed_flashback(store)
+    narr = store.timeline(6, 10, axis="narrative")
+    ids = {i["id"] for i in narr if i["kind"] == "event"}
+    assert "ev:童年" in ids, "叙事轴 [6,10] 应含 narrative=9 的闪回事件(即便 story=2 在区间外)"
+    # 故事轴查 [6,10]:ev:童年(story=2)不应出现
+    story = store.timeline(6, 10, axis="story")
+    sids = {i["id"] for i in story if i["kind"] == "event"}
+    assert "ev:童年" not in sids, "故事轴 [6,10] 不应含 story=2 的事件"
+
+
+def test_timeline_endpoint_axis_param(store):
+    """GET /timeline?axis=narrative 返回 axis 字段,事件按叙事位排;非法 axis 回退 story。"""
+    _seed_flashback(store)
+    c = _client(store)
+
+    rs = c.get("/timeline", params={"ch_from": 1, "ch_to": 10, "axis": "story"}).json()
+    rn = c.get("/timeline", params={"ch_from": 1, "ch_to": 10, "axis": "narrative"}).json()
+    assert rs["axis"] == "story" and rn["axis"] == "narrative"
+    s_flash = next(i for i in rs["items"] if i["id"] == "ev:童年")
+    n_flash = next(i for i in rn["items"] if i["id"] == "ev:童年")
+    assert s_flash["chapter"] == 2 and n_flash["chapter"] == 9
+
+    # 非法 axis 回退 story(向后兼容,不报错)
+    rb = c.get("/timeline", params={"ch_from": 1, "ch_to": 10, "axis": "garbage"}).json()
+    assert rb["axis"] == "story"
+    b_flash = next(i for i in rb["items"] if i["id"] == "ev:童年")
+    assert b_flash["chapter"] == 2
+
+
+def test_timeline_existing_seed_unaffected_by_axis(store):
+    """向后兼容回归:无 narrative_position 的现有事件,两轴排序完全一致。"""
+    _seed_events(store)  # 现有种子,全部无 narrative_position
+    story = store.timeline(1, 12, axis="story")
+    narr  = store.timeline(1, 12, axis="narrative")
+    s_map = {i["id"]: i["chapter"] for i in story if i["kind"] == "event"}
+    n_map = {i["id"]: i["chapter"] for i in narr  if i["kind"] == "event"}
+    assert s_map == n_map, f"无 narrative_position 时两轴应一致: story={s_map} narrative={n_map}"

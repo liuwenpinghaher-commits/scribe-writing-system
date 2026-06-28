@@ -384,9 +384,14 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        motivated_by_goal: str | None = None,
                        participants: list[dict] | None = None,
                        effects: list[dict] | None = None,
-                       causal_in: list[dict] | None = None) -> dict:
+                       causal_in: list[dict] | None = None,
+                       narrative_position: int | None = None) -> dict:
     """新增事件(写,待批)。
 
+    valid_from: 事件发生在故事第几章(story_chapter,故事编年)。
+    narrative_position: 可选叙事位——事件在"叙事顺序"里被讲述的位置(spec §3.1)。
+      留空(None)= 与 valid_from 同序(线性叙事,默认,向后兼容)。
+      非空 = 倒叙/闪回/插叙的独立叙事坐标(故事时间早、叙事位置晚,如第2章发生的事第9章才揭示)。
     participants: 角色参与列表,每项 {"role": "SUBJ|OBJ|WITNESS", "entity": "role:xxx"}。
       role 受控词:SUBJ(主体) / OBJ(受体) / WITNESS(目击者)。
       强烈建议:每个事件都填 participants + effects,否则限知传播(events_at 重建/看见即知道)断链。
@@ -429,7 +434,8 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                                                              motivated_by_goal=motivated_by_goal,
                                                              participants=parts,
                                                              effects=effs,
-                                                             causal_in=causal)))
+                                                             causal_in=causal,
+                                                             narrative_position=narrative_position)))
 
 
 @mcp.tool(annotations=_RW)

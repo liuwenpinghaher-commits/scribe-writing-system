@@ -251,10 +251,18 @@ function EventCard({ item, onJumpChapter, stacked }) {
   const color = evColor(item.event_type)
   const subj  = (item.refs?.subj || []).map(stripRole).join('、') || '—'
   const wit   = (item.refs?.witness || []).map(stripRole).join('、')
+  // 双轴(完整期):story_chapter / narrative_position 不同 → 闪回/倒叙事件
+  const sc = item.story_chapter ?? item.chapter
+  const np = item.narrative_position
+  const isFlashback = np != null && np !== sc
+  // 点事件卡始终跳故事章正文(chapter.seq = story_chapter)
+  const jumpCh = sc
   return (
     <div
-      onClick={() => onJumpChapter?.(item.chapter)}
-      title={`第${item.chapter}章 · ${item.label}${item.goal ? ' · ' + item.goal : ''}`}
+      onClick={() => onJumpChapter?.(jumpCh)}
+      title={isFlashback
+        ? `闪回 · 故事@${sc}章 / 叙事@${np} · ${item.label}${item.goal ? ' · ' + item.goal : ''}`
+        : `第${sc}章 · ${item.label}${item.goal ? ' · ' + item.goal : ''}`}
       style={{
         position: 'absolute',
         left: stacked * 5,
@@ -269,7 +277,13 @@ function EventCard({ item, onJumpChapter, stacked }) {
       <div className="flex items-center gap-1 min-w-0">
         <span className="shrink-0 w-2 h-2 rounded-full inline-block" style={{ background: color }} />
         <span className="text-[11px] font-semibold text-ink truncate">{item.label || item.event_type}</span>
-        <span className="ml-auto text-[10px] text-faint shrink-0">ch{item.chapter}</span>
+        {isFlashback && (
+          <span className="shrink-0 text-[8px] font-medium px-1 rounded bg-indigo-100 text-indigo-600 leading-tight"
+            title={`故事@${sc} / 叙事@${np}`}>闪回</span>
+        )}
+        <span className="ml-auto text-[10px] text-faint shrink-0">
+          {isFlashback ? `故@${sc}/叙@${np}` : `ch${sc}`}
+        </span>
       </div>
       {item.goal && <div className="text-[10px] text-faint truncate">{item.goal}</div>}
       <div className="text-[10px] text-faint/80 truncate">
@@ -475,13 +489,14 @@ export function TimelineView({ onJumpChapter }) {
   const [chFrom, setChFrom]   = useState(1)
   const [chTo, setChTo]       = useState(null)
   const [laneMode, setLaneMode] = useState('char')  // 'char' | 'promise' | 'type'
+  const [axis, setAxis] = useState('story')          // 'story'(故事编年) | 'narrative'(叙事顺序)
   const [hiddenLanes, setHiddenLanes] = useState(new Set())
   const [showCausal, setShowCausal] = useState(false)  // 因果弧线开关(默认关,密集时避免乱)
   const containerRef = useRef(null)
 
-  const load = (from, to) => {
+  const load = (from, to, ax = axis) => {
     setLoading(true); setError(null)
-    api.timeline(from, to)
+    api.timeline(from, to, ax)
       .then((d) => { setData(d); setLoading(false) })
       .catch((e) => { setError(e.message || '加载失败'); setLoading(false) })
   }
@@ -489,6 +504,9 @@ export function TimelineView({ onJumpChapter }) {
   useEffect(() => { load(chFrom, chTo) }, [])
 
   const apply = () => load(chFrom, chTo)
+
+  // 切换故事/叙事轴:立即重拉(事件 x 坐标随轴重排)
+  const switchAxis = (ax) => { setAxis(ax); load(chFrom, chTo, ax) }
 
   const maxCh = data?.max_chapter || 0
 
@@ -551,6 +569,21 @@ export function TimelineView({ onJumpChapter }) {
               onClick={() => { setLaneMode(v); setHiddenLanes(new Set()) }}
               className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
                 ${laneMode === v ? 'bg-brand text-brandfg' : 'bg-soft text-faint hover:text-ink'}`}
+            >{l}</button>
+          ))}
+        </div>
+
+        {/* 故事/叙事双轴切换(完整期 spec §3.1):narrative 时事件按 narrative_position 重排 */}
+        <div className="flex items-center gap-1 ml-2 shrink-0">
+          <span className="text-[11px] text-faint">轴:</span>
+          {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => (
+            <button key={v}
+              onClick={() => switchAxis(v)}
+              title={v === 'narrative'
+                ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位'
+                : '故事编年:事件按实际发生章号横铺'}
+              className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
+                ${axis === v ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
         </div>

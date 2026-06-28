@@ -424,9 +424,10 @@ class SurrealStore:
         loc_local = _split(ev.location)[1] if ev.location else None
         self._execute_write(
             "CREATE type::record('event', $local) SET event_type=$t, "
-            "story_chapter=$vf, "
+            "story_chapter=$vf, narrative_position=$np, "
             "motivated_by_goal=$g, location=$loc, preconditions=$pre",
             {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
+             "np": ev.narrative_position,  # 完整期:可空叙事位;null 回退 story_chapter(向后兼容)
              "loc": RecordID("place", loc_local) if loc_local else None,
              "pre": ev.preconditions})
         # participants → involves 图边
@@ -1260,8 +1261,8 @@ class SurrealStore:
         """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。
         P3-e1 Fix 3: 读回 location / preconditions(之前写入后不回传,write-into-the-void)。"""
         rows = self._query(
-            "SELECT meta::id(id) AS local, event_type, story_chapter, motivated_by_goal, "
-            "  location, preconditions, "
+            "SELECT meta::id(id) AS local, event_type, story_chapter, narrative_position, "
+            "  motivated_by_goal, location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
@@ -1286,7 +1287,8 @@ class SurrealStore:
                              preconditions=r.get("preconditions") or [],
                              effects=effects,
                              causal_in=causal_in,
-                             motivated_by_goal=r.get("motivated_by_goal")))
+                             motivated_by_goal=r.get("motivated_by_goal"),
+                             narrative_position=r.get("narrative_position")))
         return out
 
     def _all_relations(self) -> list[dict]:
@@ -1304,13 +1306,23 @@ class SurrealStore:
         rows = self._query("SELECT meta::id(id) AS local, story_chapter FROM event")
         return {f"ev:{r['local']}": r["story_chapter"] for r in rows if r.get("story_chapter") is not None}
 
-    def timeline(self, ch_from: int = 1, ch_to: int | None = None) -> list[dict]:
+    def timeline(self, ch_from: int = 1, ch_to: int | None = None,
+                 axis: str = "story") -> list[dict]:
         """聚合 [ch_from, ch_to] 区间内所有"章号锚状态",归并成时间线条目。
         进阶:四类泳道—— events / promise(伏笔) / arc(弧光质变) / relation(关系全史)。
         无写、无限知门控(作者全知工艺视图)。复用既有读方法,不新增 SQL 真源。
         向后兼容:items 中 kind=event 的条目结构与 MVP 一致。
         完整期新增:refs.causal_in 从 [ev_id_str] 升级为 [{id, chapter}],
-        供前端 SVG 因果弧线计算两端 x 坐标。"""
+        供前端 SVG 因果弧线计算两端 x 坐标。
+
+        完整期双轴(spec §3.1 / §3.5):
+          axis='story'(默认,向后兼容)—— 事件按 story_chapter(故事编年)横铺。
+          axis='narrative'           —— 事件按 narrative_position ?? story_chapter(叙事顺序)横铺;
+                                         倒叙/闪回事件(story 早、narrative 晚)落到叙事位。
+          排序键用 `narrative_position ?? story_chapter`(Python 侧回退,SurrealDB ORDER BY 不支持 ?? — F-01)。
+          每个事件条目恒带 story_chapter / narrative_position,前端可在两者不同时标"闪回"。
+          axis 只影响事件泳道的 chapter 投影;伏笔/弧光/关系仅有故事章,两轴一致。"""
+        narrative = (axis == "narrative")
         hi = ch_to if ch_to is not None else self.max_chapter()
         if hi == 0:
             return []
@@ -1319,25 +1331,36 @@ class SurrealStore:
         # 预建 ev_id→chapter 映射,供 causal_in 章号补全(一次全表查,不逐条单查)
         ev_ch_map = self._ev_chapter_map()
 
-        # ── 1. 事件泳道(复用 events_at,逐章查) ──
-        for ch in range(ch_from, hi + 1):
+        # ── 1. 事件泳道 ──
+        # 全量扫故事章 [1, max_chapter] 再按当前轴的投影坐标过滤到 [ch_from, hi]。
+        # 不能只扫 [ch_from, hi] 的 story 章:叙事轴下,某 story_chapter 在区间外
+        # 但 narrative_position 落在区间内的闪回事件会被漏掉。
+        scan_hi = self.max_chapter()
+        for ch in range(1, scan_hi + 1):
             for ev in self.events_at(ch):
+                # 投影坐标:叙事轴用 narrative_position ?? story_time;故事轴用 story_time
+                np = ev.narrative_position
+                plot_ch = (np if np is not None else ev.story_time) if narrative else ev.story_time
+                if not (ch_from <= plot_ch <= hi):
+                    continue
                 subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
                 obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
                 wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
-                # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号
+                # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号(用 story_chapter,稳定真源)
                 causal_in_rich = [
                     {"id": c[0], "chapter": ev_ch_map.get(c[0])}
                     for c in ev.causal_in
                 ]
                 items.append({
-                    "chapter": ev.story_time,
+                    "chapter": plot_ch,                    # 当前轴的横铺坐标
                     "kind": "event",
                     "id": ev.id,
                     "label": ev.type,
                     "goal": ev.motivated_by_goal,
                     "lane_keys": subj + obj_,
                     "event_type": ev.type,
+                    "story_chapter": ev.story_time,        # 故事编年(恒在,前端"故事@N")
+                    "narrative_position": np,              # 叙事位(可空,前端"叙事@M")
                     "refs": {
                         "subj": subj,
                         "obj": obj_,

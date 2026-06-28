@@ -52,7 +52,10 @@ export const api = {
   promisesLedger: () => j('/promises/ledger'),
   motifs: () => j('/motifs'),
   graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
-  timeline: (from = 1, to) => j('/timeline?ch_from=' + from + (to != null ? '&ch_to=' + to : '')),
+  // axis: 'story'(故事编年,默认)| 'narrative'(叙事顺序);完整期双轴(spec §3.1)
+  timeline: (from = 1, to, axis) => j('/timeline?ch_from=' + from
+    + (to != null ? '&ch_to=' + to : '')
+    + (axis ? '&axis=' + enc(axis) : '')),
   quality: () => j('/quality'),
   intent: () => j('/intent'),
   putIntent: (b) => put('/intent', b),

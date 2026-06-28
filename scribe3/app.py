@@ -206,16 +206,23 @@ def events(chapter: int = Query(ge=1), work: str = "main"):
 @app.get("/timeline")
 def timeline(ch_from: int = Query(default=1, ge=1),
              ch_to: int | None = Query(default=None, ge=1),
+             axis: str = Query(default="story"),
              work: str = "main"):
     """时间线工艺视图(F-02):返回 [ch_from, ch_to] 区间内按章排序的事件条目。
-    作者全知视图,无限知门控。MVP 仅含 events 泳道。"""
+    作者全知视图,无限知门控。四类泳道:events / promise / arc / relation。
+    完整期双轴(spec §3.1):axis='story'(默认,故事编年)| 'narrative'(叙事顺序,
+    事件按 narrative_position ?? story_chapter 横铺,倒叙/闪回落叙事位)。
+    axis 非法值回退 'story'(向后兼容)。"""
+    if axis not in ("story", "narrative"):
+        axis = "story"
     st = _store_for(work)
-    items = st.timeline(ch_from, ch_to)
+    items = st.timeline(ch_from, ch_to, axis=axis)
     max_ch = st.max_chapter()
     return {
         "from": ch_from,
         "to": ch_to if ch_to is not None else max_ch,
         "max_chapter": max_ch,
+        "axis": axis,
         "items": items,
     }
 

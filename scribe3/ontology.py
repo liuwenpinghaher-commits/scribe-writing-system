@@ -66,6 +66,8 @@ class Event:
     causal_in: list = field(default_factory=list)      # [(event_id, type)]
     motivated_by_goal: str | None = None
     is_executed: bool = True
+    narrative_position: int | None = None              # 叙事位(可空):事件在叙事顺序里的位置;
+    #   null = 回退 story_time(线性叙事);非 null = 倒叙/闪回独立坐标(spec §3.1)。
 
 
 class World:
