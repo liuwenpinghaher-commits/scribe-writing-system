@@ -2815,6 +2815,10 @@ def test_revelation_discipline_block_with_focalizer():
     block = _revelation_discipline_block("role:甲")
     assert "限知揭示纪律" in block, f"应含「限知揭示纪律」标题,实际: {block[:200]}"
     assert "读设定卡" in block, f"应含「读设定卡」关键词(配角批发真相对应),实际: {block[:200]}"
+    # 强化版:逼问→不倒豆子 + 禁长篇身世独白 + 禁排比抒情(复判定位的残留靶标)
+    assert "倒豆子" in block and "2-3句" in block, "应含「被逼问不倒豆子/连续设定陈述≤2-3句」约束"
+    assert "身世独白" in block, "应含「禁止临死/摊牌长篇身世独白」约束"
+    assert "排比抒情" in block, "应含「禁止排比抒情回环」约束"
 
 
 def test_revelation_discipline_block_empty_focalizer():
