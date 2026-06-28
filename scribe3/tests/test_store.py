@@ -509,6 +509,87 @@ def test_save_chapter_records_daily_delta(store):
     assert 1 in r2["chapters_touched"] and 2 in r2["chapters_touched"]
 
 
+# ── P2-a TDD: 6 项后端清债 ────────────────────────────────────────────────────
+
+def test_forget_knowledge_does_not_overwrite_closed_edge(store):
+    """P2-a Fix2: forget_knowledge 仅更新开区间边——已闭合边(until_chapter 已设)不被覆写。"""
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:秘1", "role:甲", "秘密", "旧秘密", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:秘1", since_chapter=1, until_chapter=5))
+    # 原始已闭合 until_chapter=5,再次 forget 设 10 不应生效
+    store.forget_knowledge("role:甲", "fact:秘1", 10)
+    rows = store._query(
+        "SELECT until_chapter FROM knows WHERE in=type::record('character','甲') "
+        "AND out=type::record('proposition','秘1')")
+    assert rows, "knows 边应存在"
+    assert rows[0]["until_chapter"] == 5, \
+        f"已闭合边(until_chapter=5)不应被 forget 覆写为 10,实际: {rows[0]['until_chapter']}"
+
+
+def test_forget_knowledge_updates_open_edge(store):
+    """P2-a Fix2(正向):开区间边 forget 后 until_chapter 正确写入。"""
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_fact(Fact("fact:秘2", "role:乙", "秘密", "新秘密", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:乙", "fact:秘2", since_chapter=1))  # until_chapter=None
+    store.forget_knowledge("role:乙", "fact:秘2", 7)
+    rows = store._query(
+        "SELECT until_chapter FROM knows WHERE in=type::record('character','乙') "
+        "AND out=type::record('proposition','秘2')")
+    assert rows and rows[0]["until_chapter"] == 7, \
+        f"开区间边 forget 后 until_chapter 应为 7,实际: {rows}"
+
+
+def test_purge_ingest_clears_unverified(store):
+    """P2-a Fix5: 重 ingest 后 purge_ingest 清除本章 ingest_unverified,不累积 pending。"""
+    store.add_unverified_ref("路过甲", 3, "saw")
+    store.add_unverified_ref("路过乙", 3, "heard")
+    # 确认已登记
+    rows_before = store._query("SELECT * FROM ingest_unverified WHERE seq=3")
+    assert len(rows_before) == 2, f"purge 前应有 2 条,实际: {len(rows_before)}"
+    # 再次 ingest 前先 purge
+    store.purge_ingest(3)
+    rows_after = store._query("SELECT * FROM ingest_unverified WHERE seq=3")
+    assert len(rows_after) == 0, \
+        f"purge_ingest 后本章 ingest_unverified 应清零,实际: {len(rows_after)}"
+
+
+def test_purge_ingest_unverified_no_cross_chapter_leak(store):
+    """P2-a Fix5(隔离):purge_ingest(seq=3) 不删除其他章的 ingest_unverified。"""
+    store.add_unverified_ref("路过丙", 3, "saw")
+    store.add_unverified_ref("路过丁", 5, "told")
+    store.purge_ingest(3)
+    rows_ch5 = store._query("SELECT * FROM ingest_unverified WHERE seq=5")
+    assert len(rows_ch5) == 1, \
+        f"purge_ingest(seq=3) 不应删除 seq=5 的 unverified,实际: {len(rows_ch5)}"
+
+
+def test_reorder_chapters_large_volume_no_collision(store):
+    """P2-a Fix4: 卷基址 *100000(原 *1000)→ 相邻卷的 sort_order 区间不相交,
+    单卷支持至多 10万章而不跨卷撞号。
+
+    旧 *1000 下:卷一(sort_order=1)基址 1000,满 1001 章占 1000..2000,正好撞上
+    卷二(sort_order=2)基址 2000 → 撞号。新 *100000 把每卷可容纳量抬到 10万,
+    realistic 章数下相邻卷区间恒不相交。此处用 2 卷各 2 章验区间与基址即可证明机制。
+    """
+    v1 = store.add_volume("卷一", sort_order=1)
+    v2 = store.add_volume("卷二", sort_order=2)
+    store.save_chapter(1, "甲", title="一·1")
+    store.save_chapter(2, "乙", title="一·2")
+    store.save_chapter(3, "丙", title="二·1")
+    store.save_chapter(4, "丁", title="二·2")
+    store.reorder_chapters(v1, [1, 2])
+    store.reorder_chapters(v2, [3, 4])
+    rows = store._query("SELECT seq, sort_order FROM chapter ORDER BY sort_order")
+    by_seq = {r["seq"]: r["sort_order"] for r in rows}
+    # 卷一基址 1*100000=100000;卷二基址 2*100000=200000
+    assert by_seq[1] == 100000 and by_seq[2] == 100001, f"卷一 sort_order 应为 100000/100001: {by_seq}"
+    assert by_seq[3] == 200000 and by_seq[4] == 200001, f"卷二 sort_order 应为 200000/200001: {by_seq}"
+    # 全局唯一 + 卷一最大 < 卷二基址(区间不相交,即便卷一有近 10万章也不撞卷二)
+    orders = list(by_seq.values())
+    assert len(orders) == len(set(orders)), f"sort_order 应全局唯一: {orders}"
+    assert max(by_seq[1], by_seq[2]) < 200000, "卷一区间须落在卷二基址之下(不撞号)"
+
+
 def test_daily_progress_no_negative_delta(store):
     """把某章改短 → 当日 words_written 不应被倒扣(max(0,delta))。
     第一次 save:+1000(全书从 0 增至 1000) → words_written=1000

@@ -408,12 +408,13 @@ class SurrealStore:
 
     def forget_knowledge(self, knower_id: str, proposition_id: str, until_chapter: int) -> None:
         """设置知识边的 until_chapter(令知识在该章起失效)。
-        使用 UPDATE ... WHERE in=<rid> AND out=<rid> 模式定位 knows 关系行。"""
+        P2-a Fix2: 仅更新开区间边(until_chapter IS NONE),与 supersede_fact 对齐——
+        已闭合的边(until_chapter 已设置)不被覆写,防止重复 forget 破坏历史记录。"""
         ktbl, klocal = _split(knower_id)
         ptbl, plocal = _split(proposition_id)
         self._execute_write(
             "UPDATE knows SET until_chapter=$uc "
-            "WHERE in=$k AND out=$p",
+            "WHERE in=$k AND out=$p AND until_chapter IS NONE",
             {"uc": until_chapter,
              "k": RecordID(ktbl, klocal),
              "p": RecordID(ptbl, plocal)})
@@ -507,6 +508,8 @@ class SurrealStore:
             # 有他章引用:保留命题,仅边已在步骤1删除
         # 3. char_state 无跨章复用问题,直接清
         self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
+        # 4. P2-a Fix5: 清本章 ingest_unverified 记录——重 ingest 时防止累积重复 pending
+        self._execute_write("DELETE ingest_unverified WHERE seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
@@ -2042,7 +2045,8 @@ class SurrealStore:
                         "entity": rule["name"], "description": f"可能违反规则「{rule['name']}」限制:{lim}",
                         "evidence": lim})
 
-        # 4. 命名一致性:检查同一角色是否用了未登记的别名
+        # 4. 命名一致性:扫正文中疑似专名(人/地/物),未登记的报 hint
+        # P2-a Fix3(选①):原 known_names 构建完未用就 return,属死代码——实装扫描逻辑。
         known_names = set()
         for c in self.characters():
             known_names.add(c.name)
@@ -2050,6 +2054,32 @@ class SurrealStore:
         for term in self.list_terms():
             known_names.add(term["name"])
             known_names.update(term.get("aliases") or [])
+        for it in self.list_items():
+            known_names.add(it["name"])
+        for pl in self._query("SELECT name FROM place"):
+            known_names.add(pl.get("name", ""))
+        known_names.discard("")
+        try:
+            import jieba
+            # 切词后取长度>=2 的汉字 token,若与 known_names 的某项高度相似但不完全匹配则报 hint
+            # 简单策略:正文中出现的已知名称的前缀/后缀变体(疑似别名)被捕获
+            tokens = [w for w in jieba.cut(prose) if len(w) >= 2 and all("一" <= c <= "鿿" for c in w)]
+            for tok in set(tokens):
+                # 若该 token 不在 known_names,且正文含量>1(排除偶发音),则报 unknown_name hint
+                if tok not in known_names and prose.count(tok) >= 2:
+                    # 避免过度噪声:只在与任一已知名同首字或同尾字时才报(疑似衍生别名)
+                    is_derived = any(
+                        (kn[0] == tok[0] or kn[-1] == tok[-1])
+                        for kn in known_names if len(kn) >= 2
+                    )
+                    if is_derived:
+                        hints.append({
+                            "type": "unknown_name", "severity": "low",
+                            "entity": tok,
+                            "description": f"「{tok}」出现 {prose.count(tok)} 次但未登记为角色/术语/地点/物品",
+                            "evidence": tok})
+        except Exception:
+            pass  # jieba 不可用时静默跳过,不阻塞校验
 
         return hints
 
@@ -2284,7 +2314,8 @@ class SurrealStore:
     def reorder_chapters(self, volume_id: str | None, order: list[int]) -> int:
         """把 order 列表中各章的 sort_order 设为卷基址+i,并更新 volume 字段。
         seq 永远不动(故事时间轴主键)。
-        卷基址 = volume.sort_order * 1000(保持跨卷有序);未分卷基址 = 0。
+        P2-a Fix4: 卷基址由 *1000 改为 *100000——相当于二级排序键 (volume.sort_order, chapter_index),
+        单卷支持至多 100000 章而不发生跨卷撞号;未分卷基址 = 0。
         R2.5: 若 volume_id 指定的卷不存在,抛 ValueError(防幽灵卷)。
         """
         base = 0
@@ -2296,7 +2327,7 @@ class SurrealStore:
                 raise ValueError(
                     f"reorder_chapters: volume '{volume_id}' 不存在,拒绝写入幽灵卷归属。"
                 )
-            base = vrows[0]["sort_order"] * 1000
+            base = vrows[0]["sort_order"] * 100000
         for i, seq in enumerate(order):
             if volume_id:
                 # record<volume> 须用 type::record() 在 SurrealQL 里构造,不能传字符串

@@ -998,6 +998,36 @@ _WRITE_VERB_RE = re.compile(
 
 _FALLBACK_MIN_CHARS = 120  # 兜底散文最短字数阈值(更短的视为讨论)
 
+# P2-a Fix6: 兜底剥离——主编开场白标志词(出现即截断,保留后续散文主体)
+_PREAMBLE_SIGNALS = re.compile(
+    r"(?:^|\n)(?:好的[,,,。]?\s*|我的处理思路\s*[:：]|处理思路\s*[:：]|思路\s*[:：]|建议\s*[:：]|我来|我将|我会)[^\n]*\n",
+    re.MULTILINE,
+)
+_PREAMBLE_SPLIT = re.compile(
+    r"(?:我的处理思路|处理思路|思路\s*[:：]|建议\s*[:：])[^\n]*\n"
+)
+
+
+def _strip_preamble(text: str) -> str:
+    """剥离兜底 proposal 中模型的开场解说段(对话话术),只保留散文主体。
+    策略:找首个双换行分隔符(\n\n)或⟦标志前的解说段,若首段含"思路/建议/处理"等关键词则丢弃首段。
+    保守:若判断不确定则保留全文(宁多勿少)。"""
+    stripped = text.strip()
+    # 首选:按 \n\n 段落切分,若第一段含开场标志词则丢弃
+    paras = stripped.split("\n\n", 1)
+    if len(paras) == 2:
+        first, rest = paras
+        SIGNALS = ("我的处理思路", "处理思路", "思路：", "思路:", "建议：", "建议:", "我来", "我将", "我会")
+        if any(sig in first for sig in SIGNALS) and len(rest.strip()) >= _FALLBACK_MIN_CHARS:
+            return rest.strip()
+    # 退路:若首行含明确标志词,尝试从第二行起
+    lines = stripped.splitlines()
+    if lines:
+        SIGNALS = ("我的处理思路", "处理思路", "思路：", "思路:", "建议：", "建议:")
+        if any(sig in lines[0] for sig in SIGNALS) and len(lines) > 1:
+            return "\n".join(lines[1:]).strip()
+    return stripped
+
 
 def _is_write_intent(msg) -> bool:
     """检测用户消息是否含写作动词(镜像 _editor_write_system 的围栏触发规则)。
@@ -1058,11 +1088,14 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False):
                     yield f"data: {_j.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
         yield from drain(parser.flush())
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
+        # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
+        # 只把散文主体包进 proposal,避免对话话术混入手稿。
         if expect_proposal and not saw_proposal:
             accumulated = "".join(delta_acc)
-            if len(accumulated.strip()) >= _FALLBACK_MIN_CHARS:
+            prose_body = _strip_preamble(accumulated)
+            if len(prose_body.strip()) >= _FALLBACK_MIN_CHARS:
                 yield (
-                    f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': accumulated, 'fallback': True}}, ensure_ascii=False)}\n\n"
+                    f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
     except Exception as e:
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
@@ -1309,6 +1342,9 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     instructions += _frame_block(st, focalizer, chapter)
     instructions += _recap_block(st, chapter)
     instructions += _current_tail_block(st, chapter)
+    # P2-a Fix1: GET/POST 块序列对称——soak 当前休眠(GET 无 seed_words 参数,前端未接入),
+    # 传空列表使 _soak_block 返回 "" 无副作用,消除"GET 少一块"的维护陷阱。
+    instructions += _soak_block([])
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft

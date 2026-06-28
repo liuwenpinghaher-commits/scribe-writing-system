@@ -2718,3 +2718,86 @@ def test_avoid_directive_default_lookback_is_8(store):
     default_lookback = sig.parameters["lookback"].default
     assert default_lookback == 8, \
         f"_avoid_directive 默认 lookback 应为 8,实际: {default_lookback}"
+
+
+# ===== P2-a TDD: soak 块 GET/POST 对称 + proposal 兜底剥离 =====
+
+def test_soak_block_empty_returns_empty_string():
+    """P2-a Fix1: _soak_block([]) 返回空串,无副作用。"""
+    from scribe3.app import _soak_block
+    assert _soak_block([]) == "", "_soak_block([]) 应返回空串"
+
+
+def test_soak_block_nonempty_returns_block():
+    """_soak_block 非空时注入情绪种子词块。"""
+    from scribe3.app import _soak_block
+    block = _soak_block(["哀", "沉"])
+    assert "哀" in block and "沉" in block, f"_soak_block 应含种子词,实际: {block}"
+
+
+def test_get_chat_write_instructions_include_soak_position(store):
+    """P2-a Fix1: GET /chat/write 的 instructions 块序列中 soak_block 已对称注入(空则静默)。
+    通过检查 _soak_block 在 GET 流程中被调用(利用 monkeypatch 捕获调用)来验证。"""
+    from scribe3.app import _soak_block
+    called = {"n": 0}
+    original = _soak_block
+
+    import scribe3.app as A
+    original_fn = A._soak_block
+
+    def patched(seed_words):
+        called["n"] += 1
+        return original_fn(seed_words)
+
+    A._soak_block = patched
+    try:
+        c = _client(store)
+        # GET /chat/write 触发流式响应,TestClient 会收完整响应
+        resp = c.get("/chat/write", params={"msg": "续写一段", "chapter": 1})
+        assert resp.status_code == 200
+        assert called["n"] >= 1, \
+            f"GET /chat/write 应调用 _soak_block 至少 1 次以保持 GET/POST 对称,实际: {called['n']}"
+    finally:
+        A._soak_block = original_fn
+
+
+def test_strip_preamble_removes_preamble():
+    """P2-a Fix6: _strip_preamble 剥离含'处理思路'的首段,保留散文主体。"""
+    from scribe3.app import _strip_preamble
+    text = "我的处理思路：先写打斗再收尾。\n\n焦三举刀砍去，寒光一闪。" + "甲" * 200
+    result = _strip_preamble(text)
+    assert "我的处理思路" not in result, \
+        f"_strip_preamble 应剥离开场思路段,实际首 50 字: {result[:50]}"
+    assert "焦三" in result, "散文主体应保留"
+
+
+def test_strip_preamble_preserves_plain_prose():
+    """P2-a Fix6: 无开场白的纯散文不被截断。"""
+    from scribe3.app import _strip_preamble
+    prose = "焦三举刀砍去，寒光一闪。" + "乙" * 300
+    result = _strip_preamble(prose)
+    assert result.startswith("焦三") or "焦三" in result[:20], \
+        f"纯散文不应被截断,首 20 字: {result[:20]}"
+
+
+def test_purge_ingest_clears_unverified_via_api(store):
+    """P2-a Fix5: 同章重 ingest 后 pending unverified 不累积——通过 API ingest 两次验证。"""
+    c = _client(store)
+    # 先建章正文
+    store.save_chapter(1, "路人甲出现，路人乙消失。", title="一")
+
+    # 直接向 store 注入两个 unverified 模拟首次 ingest 结果
+    store.add_unverified_ref("路人甲", 1, "saw")
+    store.add_unverified_ref("路人乙", 1, "saw")
+    rows_first = c.get("/ingest-unverified").json()
+    count_first = sum(1 for r in rows_first if r["seq"] == 1)
+    assert count_first == 2, f"首次 ingest 后应有 2 条 seq=1 unverified,实际: {count_first}"
+
+    # purge_ingest 清理 + 再注入同一批(模拟重 ingest)
+    store.purge_ingest(1)
+    store.add_unverified_ref("路人甲", 1, "saw")
+    store.add_unverified_ref("路人乙", 1, "saw")
+    rows_second = c.get("/ingest-unverified").json()
+    count_second = sum(1 for r in rows_second if r["seq"] == 1)
+    assert count_second == 2, \
+        f"重 ingest 后 seq=1 unverified 应仍为 2(不累积为 4),实际: {count_second}"
