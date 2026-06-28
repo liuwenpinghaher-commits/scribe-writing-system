@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from collections import OrderedDict
 
@@ -773,9 +774,32 @@ _LUANSHI_EXEMPLAR = (
 )
 
 
-def _stream_write(message, instructions: str):
+_WRITE_VERB_RE = re.compile(
+    r"写|改|续写|帮我写|重写|把这段|本章|展开|写出来|写一段|续到"
+)
+
+_FALLBACK_MIN_CHARS = 120  # 兜底散文最短字数阈值(更短的视为讨论)
+
+
+def _is_write_intent(msg) -> bool:
+    """检测用户消息是否含写作动词(镜像 _editor_write_system 的围栏触发规则)。
+    msg 可以是 str 或 list(含图片的 content 块)。"""
+    if isinstance(msg, str):
+        text = msg
+    elif isinstance(msg, list):
+        text = " ".join(
+            block.get("text", "") if isinstance(block, dict) else ""
+            for block in msg
+        )
+    else:
+        text = str(msg)
+    return bool(_WRITE_VERB_RE.search(text))
+
+
+def _stream_write(message, instructions: str, expect_proposal: bool = False):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
-    message: str(纯文本) 或 list(含图片附件)。"""
+    message: str(纯文本) 或 list(含图片附件)。
+    expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。"""
     import json as _j
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
@@ -783,11 +807,18 @@ def _stream_write(message, instructions: str):
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
 
+    # 兜底追踪状态
+    saw_proposal = False
+    delta_acc: list[str] = []   # 累积全部 delta 文本,用于兜底长散文
+
     def drain(events):
+        nonlocal saw_proposal
         for kind, val in events:
             if kind == "delta":
+                delta_acc.append(val)
                 yield f"data: {_j.dumps({'delta': val}, ensure_ascii=False)}\n\n"
             elif kind == "proposal_open":
+                saw_proposal = True
                 prop["scope"] = val
             elif kind == "proposal_delta":
                 prop["prose"].append(val)
@@ -806,6 +837,13 @@ def _stream_write(message, instructions: str):
                 if item.get("type") == "function_call":
                     yield f"data: {_j.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
         yield from drain(parser.flush())
+        # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
+        if expect_proposal and not saw_proposal:
+            accumulated = "".join(delta_acc)
+            if len(accumulated.strip()) >= _FALLBACK_MIN_CHARS:
+                yield (
+                    f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': accumulated, 'fallback': True}}, ensure_ascii=False)}\n\n"
+                )
     except Exception as e:
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
     yield 'data: {"done": true}\n\n'
@@ -1021,7 +1059,10 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
-    return StreamingResponse(_stream_write(msg, instructions), media_type="text/event-stream")
+    return StreamingResponse(
+        _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg)),
+        media_type="text/event-stream",
+    )
 
 
 _ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -1096,7 +1137,10 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     else:
         message = req.msg
 
-    return StreamingResponse(_stream_write(message, instructions), media_type="text/event-stream")
+    return StreamingResponse(
+        _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg)),
+        media_type="text/event-stream",
+    )
 
 
 @app.get("/chapters")
