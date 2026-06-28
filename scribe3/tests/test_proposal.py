@@ -103,3 +103,35 @@ def test_is_write_intent_detection():
     assert A._is_write_intent("重写这里") is True
     assert A._is_write_intent("你觉得节奏怎么样") is False
     assert A._is_write_intent("这章结构好吗") is False
+
+
+def test_stream_write_streams_proposal_progressively(monkeypatch):
+    """proposal 围栏应流式推送:proposal_start → proposal_chunk(s) → proposal(final)。"""
+    def fake_events(msg, instructions, model=None):
+        yield {"type": "response.output_text.delta", "delta": "思路。⟦PROPOSAL scope=chapter⟧前半"}
+        yield {"type": "response.output_text.delta", "delta": "后半⟦/PROPOSAL⟧"}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    blob = "".join(A._stream_write("写", "i", expect_proposal=True))
+
+    # 三类事件均须存在
+    assert '"proposal_start"' in blob, f"缺 proposal_start。blob={blob}"
+    assert '"proposal_chunk"' in blob, f"缺 proposal_chunk。blob={blob}"
+    assert '"proposal"' in blob, f"缺最终 proposal。blob={blob}"
+
+    # proposal_start 出现在 proposal_chunk 之前
+    assert blob.index('"proposal_start"') < blob.index('"proposal_chunk"')
+    # proposal_chunk 出现在最终 proposal 之前
+    assert blob.index('"proposal_chunk"') < blob.index('"proposal"')
+
+    # 最终 proposal 携带完整 prose
+    import json as _j
+    lines = [l for l in blob.split('\n') if l.startswith('data:')]
+    final_proposals = [
+        _j.loads(l[5:].strip())["proposal"]
+        for l in lines
+        if '"proposal"' in l and '"proposal_start"' not in l and '"proposal_chunk"' not in l
+    ]
+    assert len(final_proposals) == 1, f"应恰好 1 个最终 proposal,实际 {len(final_proposals)}"
+    assert final_proposals[0]["prose"] == "前半后半", f"最终 prose 应为完整文本,实际={final_proposals[0]['prose']}"
+    assert final_proposals[0]["scope"] == "chapter"

@@ -31,6 +31,7 @@ export function WriteLayout({ work }) {
   const [focalizer, setFocalizer] = useState('')
   const [prose, setProse] = useState('')
   const [proposal, setProposal] = useState(null)
+  const [proposalStreaming, setProposalStreaming] = useState(false)
   const [candidates, setCandidates] = useState([])
   const [seedQuote, setSeedQuote] = useState('')
   const [lastQuote, setLastQuote] = useState('')
@@ -339,7 +340,7 @@ export function WriteLayout({ work }) {
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
-          <DraftCard proposal={proposal} candidates={candidates} streaming={false} onAccept={acceptProposal} onReject={() => { setProposal(null); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
+          <DraftCard proposal={proposal} candidates={candidates} streaming={proposalStreaming} onAccept={acceptProposal} onReject={() => { setProposal(null); setProposalStreaming(false); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <div className={`manuscript${serif ? ' serif' : ''}`}>
             <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
               chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
@@ -563,9 +564,17 @@ export function WriteLayout({ work }) {
   const rightCaps = [
     { key: 'chat', label: '主编对话', icon: MessagesSquare, bare: true, render: () => (
       <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
-        onSeedUsed={() => setSeedQuote('')} onProposal={(p) => {
-          if (p.scope === 'selection') setCandidates((cs) => [...cs, p.prose])
-          else setProposal(p)
+        onSeedUsed={() => setSeedQuote('')}
+        onProposalStart={(s) => {
+          setProposal({ scope: s.scope, prose: '' })
+          setProposalStreaming(true)
+        }}
+        onProposalChunk={(c) => {
+          setProposal((prev) => prev ? { ...prev, prose: prev.prose + c.text } : { scope: 'chapter', prose: c.text })
+        }}
+        onProposal={(p) => {
+          if (p.scope === 'selection') { setCandidates((cs) => [...cs, p.prose]); setProposal(null); setProposalStreaming(false) }
+          else { setProposal(p); setProposalStreaming(false) }
         }} />
     ) },
     { key: 'review', label: '校验 · 校验/伏笔/在场', icon: ShieldCheck, badge: reviewBadge, render: () => (

@@ -828,8 +828,10 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False):
             elif kind == "proposal_open":
                 saw_proposal = True
                 prop["scope"] = val
+                yield f"data: {_j.dumps({'proposal_start': {'scope': val}}, ensure_ascii=False)}\n\n"
             elif kind == "proposal_delta":
                 prop["prose"].append(val)
+                yield f"data: {_j.dumps({'proposal_chunk': {'text': val}}, ensure_ascii=False)}\n\n"
             elif kind == "proposal_close":
                 yield f"data: {_j.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
                 prop["scope"] = None

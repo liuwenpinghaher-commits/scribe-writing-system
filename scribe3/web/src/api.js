@@ -91,7 +91,7 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], onDelta, onTool, onProposal, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
     const ctrl = new AbortController()
     fetch(BASE + ww('/chat/write'), {
       method: 'POST',
@@ -118,6 +118,8 @@ export const api = {
               const d = JSON.parse(payload)
               if (d.delta) onDelta?.(d.delta)
               else if (d.tool) onTool?.(d.tool)
+              else if (d.proposal_start) onProposalStart?.(d.proposal_start)
+              else if (d.proposal_chunk) onProposalChunk?.(d.proposal_chunk)
               else if (d.proposal) onProposal?.(d.proposal)
               else if (d.done) { onDone?.(); return }
               else if (d.error) { onError?.(d.error); return }

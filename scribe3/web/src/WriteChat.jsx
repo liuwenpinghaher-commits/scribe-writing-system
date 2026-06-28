@@ -49,7 +49,7 @@ function Bubble({ role, content, tools, note, streaming }) {
 }
 
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
-export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposal }) {
+export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposalStart, onProposalChunk, onProposal }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -107,6 +107,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
       chapter, focalizer, images,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+      onProposalStart: (s) => onProposalStart?.(s),
+      onProposalChunk: (c) => onProposalChunk?.(c),
       onProposal: (p) => { onProposal?.(p); mut((l) => ({ ...l, note: '已在手稿处生成改写,请接受/弃用' })) },
       onDone: () => setBusy(false),
       onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
