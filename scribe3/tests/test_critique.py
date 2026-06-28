@@ -190,3 +190,100 @@ def test_parse_voice_shift():
     d = parse_knowledge_delta(reply)
     assert d["voice_shift"] == [{"who": "焦三", "reason": "被背叛"}]
     assert d["learned"] == [] and d["did"] == []
+
+
+# ==== F-05: locate_phrase + quality_issues 单测 ====
+
+from scribe3.critique import locate_phrase, quality_issues
+
+
+def test_locate_phrase_basic():
+    """去空白 phrase 能在含空白原文中准确定位。"""
+    text = "他端着药碗,知道回不去了。"
+    phrase = "他端着药碗"
+    hits = locate_phrase(text, phrase)
+    assert len(hits) == 1
+    s, e = hits[0]
+    assert text[s:e] == phrase
+
+
+def test_locate_phrase_with_whitespace_in_text():
+    """text 含换行/空白时,去空白 phrase 仍能正确映射回原始偏移。"""
+    text = "他端着\n药碗,知道\n回不去了。"
+    phrase = "他端着药碗"
+    hits = locate_phrase(text, phrase)
+    assert len(hits) == 1
+    s, e = hits[0]
+    assert "".join(text[s:e].split()) == phrase
+
+
+def test_locate_phrase_multiple_occurrences():
+    """phrase 多处出现各给 range。"""
+    text = "镇煞钉在这,镇煞钉在那。"
+    phrase = "镇煞钉"
+    hits = locate_phrase(text, phrase)
+    assert len(hits) == 2
+    for s, e in hits:
+        assert text[s:e] == phrase
+
+
+def test_locate_phrase_not_found():
+    """找不到返回空列表。"""
+    assert locate_phrase("一段正文", "不存在的词语") == []
+
+
+def test_locate_phrase_range_invariant():
+    """返回的每个 [s,e) 满足 0<=s<e<=len(text)。"""
+    text = "她在乱葬岗等他" * 4
+    phrase = "她在乱葬"
+    for s, e in locate_phrase(text, phrase):
+        assert 0 <= s < e <= len(text)
+
+
+def test_quality_issues_not_a_but_b_range():
+    """AI腔 not_a_but_b:range 命中原文,prose[s:e] == text。"""
+    prose = "那不是恐惧——是渴望。别的不管。"
+    issues = quality_issues(prose)
+    nab = [i for i in issues if i["type"] == "ai_tics" and i["meta"]["kind"] == "not_a_but_b"]
+    assert nab, "应检出 not_a_but_b"
+    for iss in nab:
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"], f"range 不匹配: {prose[s:e]!r} != {iss['text']!r}"
+
+
+def test_quality_issues_purple_range():
+    """升华句:range 指向原文对应位置(去空白后一致)。"""
+    prose = "他知道,回不去了。其他内容。"
+    issues = quality_issues(prose)
+    purples = [i for i in issues if i["type"] == "purple"]
+    assert purples, "应检出升华句"
+    for iss in purples:
+        if iss["range"] is not None:
+            s, e = iss["range"]
+            assert "".join(prose[s:e].split()) == "".join(iss["text"].split())
+
+
+def test_quality_issues_repetition_range():
+    """复读:range 指向原文第一处出现,切片非空。"""
+    prose = "她在乱葬岗等他" * 4
+    issues = quality_issues(prose)
+    reps = [i for i in issues if i["type"] == "repetition"]
+    assert reps, "应检出复读"
+    for iss in reps:
+        if iss["range"] is not None:
+            s, e = iss["range"]
+            assert 0 <= s < e <= len(prose)
+            assert len(prose[s:e]) > 0
+
+
+def test_quality_issues_range_invariant():
+    """凡有 range 的 issue,prose[s:e] 去空白 == text 去空白。"""
+    prose = ("那不是恐惧——是渴望。他知道,回不去了。" + "她在乱葬岗等他" * 4)
+    issues = quality_issues(prose)
+    for iss in issues:
+        if iss.get("range") is not None:
+            s, e = iss["range"]
+            assert 0 <= s < e <= len(prose), f"range 越界: {iss}"
+            assert "".join(prose[s:e].split()) == "".join(iss["text"].split()), (
+                f"range 不一致 type={iss['type']}: prose[{s}:{e}]={prose[s:e]!r} text={iss['text']!r}"
+            )

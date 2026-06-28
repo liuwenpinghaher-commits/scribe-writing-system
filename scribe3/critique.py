@@ -250,6 +250,106 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None) -> dict:
     }
 
 
+# ==== 护栏可操作性:问题定位到句(F-05) ====
+
+def locate_phrase(text: str, phrase: str, max_hits: int = 20) -> list[tuple[int, int]]:
+    """在原始 text 里定位"去空白后等于 phrase"的所有片段,返回含空白原文的 [start,end)。
+
+    phrase 来自 find_repetitions 等(已去空白);text 含空白/换行。
+    做法:把 text 折成"去空白字符序列 + 各字符的原始下标映射",在去空白序列上 str.find,
+    再用映射把命中区间还原回原始 text 的 [start, end)。
+    """
+    if not phrase or not text:
+        return []
+    stripped_chars: list[str] = []
+    orig_idx: list[int] = []  # stripped_chars[i] 在原始 text 的下标
+    for i, ch in enumerate(text):
+        if not ch.isspace():
+            stripped_chars.append(ch)
+            orig_idx.append(i)
+    stripped = "".join(stripped_chars)
+    plen = len(phrase)
+    if plen == 0 or len(stripped) < plen:
+        return []
+    out: list[tuple[int, int]] = []
+    start = 0
+    while len(out) < max_hits:
+        j = stripped.find(phrase, start)
+        if j < 0:
+            break
+        s = orig_idx[j]
+        e = orig_idx[j + plen - 1] + 1  # 闭区间末字符 +1 → 半开
+        out.append((s, e))
+        start = j + 1
+    return out
+
+
+def quality_issues(text: str, extra_patterns: list[str] | None = None) -> list[dict]:
+    """五类 QC 的"带 offset"展开形式(与 quality_flags 并存)。
+    仅对"白送类"(finditer 直接给 offset)和"去空白 n-gram 可 locate_phrase"的类别补 range。
+    返回结构: {type, message, text, range:[start,end], meta}。
+    range 为 None 表示无法定位(前端兜底用 text.indexOf 回退)。
+    """
+    issues: list[dict] = []
+    s = text or ""
+
+    # ① AI 腔 · not_a_but_b — 白送:finditer 直接给 offset
+    for m in _NOT_A_BUT_B.finditer(s):
+        issues.append({
+            "type": "ai_tics",
+            "message": "AI腔:「不是A——是B」伪深刻句式",
+            "text": m.group(0),
+            "range": [m.start(), m.end()],
+            "meta": {"kind": "not_a_but_b"},
+        })
+
+    # ② AI 腔 · em_dash — 密度超阈值才报,逐个给 offset
+    dash = s.count("——")
+    wc = len("".join(s.split()))
+    if wc > 0 and dash * 1000 / wc > 2:
+        for m in re.finditer("——", s):
+            issues.append({
+                "type": "ai_tics",
+                "message": "AI腔:破折号过密",
+                "text": "——",
+                "range": [m.start(), m.end()],
+                "meta": {"kind": "em_dash"},
+            })
+
+    # ③ 升华 · purple — 整句 locate,逐句给 offset
+    pats = list(_PURPLE_RE) + [re.compile(p) for p in (extra_patterns or [])]
+    for sent in re.split(r"(?<=[。！？\n])", s):
+        st = sent.strip()
+        if not st:
+            continue
+        if any(rx.search(st) for rx in pats):
+            # 用 locate_phrase 在原文找整句起止(去空白后匹配)
+            phrase_key = re.sub(r"\s+", "", st)
+            hits = locate_phrase(s, phrase_key, max_hits=1)
+            rng = list(hits[0]) if hits else None
+            issues.append({
+                "type": "purple",
+                "message": "升华/抒情:替读者下结论",
+                "text": st,
+                "range": rng,
+                "meta": {"kind": "purple"},
+            })
+
+    # ④ 复读(章内)— 去空白 n-gram,用 locate_phrase 找第一处出现(MVP 只标第一处)
+    for r in find_repetitions(s):
+        hits = locate_phrase(s, r["phrase"], max_hits=1)
+        rng = list(hits[0]) if hits else None
+        issues.append({
+            "type": "repetition",
+            "message": f"复读:此措辞出现 {r['count']} 次",
+            "text": s[rng[0]:rng[1]] if rng else r["phrase"],
+            "range": rng,
+            "meta": {"count": r["count"]},
+        })
+
+    return issues
+
+
 # ==== LLM 语义判官(纪律闸)——确定性检测的盲区:双高潮/声音崩/解说倾泻/知识泄露 ====
 def build_discipline_prompt(text: str, brief: str = "", known: dict | None = None) -> str:
     kb = ""

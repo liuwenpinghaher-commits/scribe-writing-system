@@ -1448,3 +1448,77 @@ def test_promise_ledger_overdue_single_source(store):
     p_ledger = next(x for x in c.get("/promises/ledger").json()["open"]
                     if "单源校验" in x["text"])
     assert p_promises["overdue"] == p_quality["overdue"] == p_ledger["overdue"] is True
+
+
+# ==== F-05: /check 和 /post-check 返回带 range 的 issues ====
+
+def test_check_returns_issues_with_range(store):
+    """/check 返回顶层 issues 字段;AI腔 not_a_but_b issue 含正确 range。"""
+    prose = "那不是恐惧——是渴望。普通正文。"
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
+    assert "issues" in r, "/check 应返回 issues 字段"
+    # 向后兼容:qc 计数字段仍在
+    assert "qc" in r and "ai_tics" in r["qc"]
+    # 白送类:not_a_but_b 的 issue 含 range
+    nab = [i for i in r["issues"] if i.get("type") == "ai_tics" and i.get("meta", {}).get("kind") == "not_a_but_b"]
+    assert nab, "应检出 not_a_but_b issue"
+    for iss in nab:
+        assert iss["range"] is not None, "not_a_but_b 应有 range"
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"], f"range 切片不等于 text: {prose[s:e]!r} != {iss['text']!r}"
+
+
+def test_check_leak_issue_has_range(store):
+    """/check:leak issue 含 range,指向 marker 在 prose 的位置。"""
+    from scribe3.scenario import luanshi_leak_world
+    luanshi_leak_world(store)
+    prose = "皂衣道士冷笑:够你给老娘治眼了。"
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "role:老道"}).json()
+    leak_issues = [i for i in r.get("issues", []) if i.get("type") == "leak"]
+    assert leak_issues, "老道视角散文含治眼应检出 leak issue"
+    for iss in leak_issues:
+        assert iss["range"] is not None, "leak issue 应有 range"
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"], f"leak range 切片不等于 text: {prose[s:e]!r} != {iss['text']!r}"
+
+
+def test_check_backward_compat_qc_counts_unchanged(store):
+    """/check:旧 qc 计数字段向后兼容,不受 issues 新增影响。"""
+    prose = "那不是恐惧——是渴望。"
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
+    assert set(r["qc"].keys()) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
+    assert isinstance(r["qc"]["ai_tics"], int)
+
+
+def test_post_check_returns_issues_with_range(store):
+    """/post-check 返回顶层 issues 字段;AI腔 issue 含正确 range。"""
+    prose = "那不是恐惧——是渴望。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert "issues" in r, "/post-check 应返回 issues 字段"
+    # 向后兼容:quality 字段仍在
+    assert "quality" in r and "total" in r["quality"]
+    nab = [i for i in r["issues"] if i.get("type") == "ai_tics" and i.get("meta", {}).get("kind") == "not_a_but_b"]
+    assert nab, "应检出 not_a_but_b issue"
+    for iss in nab:
+        s, e = iss["range"]
+        assert prose[s:e] == iss["text"]
+
+
+def test_post_check_issues_schema(store):
+    """/post-check issues 每条含 type/message/text/range/meta 字段。"""
+    prose = "那不是恐惧——是渴望。他知道,回不去了。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    for iss in r.get("issues", []):
+        assert "type" in iss
+        assert "message" in iss
+        assert "text" in iss
+        assert "range" in iss   # 可为 None(无法定位)
+        assert "meta" in iss

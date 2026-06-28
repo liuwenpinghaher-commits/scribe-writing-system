@@ -26,6 +26,7 @@ import { useToast } from './ui/Toast.jsx'
 export function WriteLayout({ work }) {
   api.setWork(work)
   const toast = useToast()
+  const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, setChapter] = useState(1)
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
@@ -38,7 +39,7 @@ export function WriteLayout({ work }) {
   const [lastSel, setLastSel] = useState(null)
   const [qc, setQc] = useState(null)
   const [leaks, setLeaks] = useState(0)
-  const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0, ai_tics: 0, oversaturation: 0 } })
+  const [guard, setGuard] = useState({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0, ai_tics: 0, oversaturation: 0 }, issues: [] })
   const [postCheckResult, setPostCheckResult] = useState(null)
   const [postChecking, setPostChecking] = useState(false)
   const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
@@ -97,12 +98,18 @@ export function WriteLayout({ work }) {
   }, [guardPop])
 
   useEffect(() => {
-    if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 } }); return }
+    if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 }, issues: [] }); return }
     if (!prose.trim()) return
     let alive = true
     const t = setTimeout(() => {
       api.checkProse(chapter, prose, focalizer)
-        .then((r) => { if (alive) setGuard({ leaks: r.leaks || [], qc: r.qc || { repetition: 0, structural: 0, purple: 0 } }) })
+        .then((r) => {
+          if (alive) setGuard({
+            leaks: r.leaks || [],
+            qc: r.qc || { repetition: 0, structural: 0, purple: 0 },
+            issues: r.issues || [],  // F-05: 带 range 的 issues 列表
+          })
+        })
         .catch(() => {})
     }, 3000)
     return () => { alive = false; clearTimeout(t) }
@@ -242,6 +249,29 @@ export function WriteLayout({ work }) {
               {guardPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
+                  {/* F-05: 带 range 的 issues — 可点跳转到正文 */}
+                  {guard.issues && guard.issues.length > 0 ? (
+                    <div className="mb-2">
+                      <div className="text-[11.5px] text-faint mb-1">问题({guard.issues.length}条 · 点击定位)</div>
+                      <div className="space-y-0.5 max-h-40 overflow-y-auto">
+                        {guard.issues.map((iss, idx) => (
+                          <button key={idx}
+                            onClick={() => { proseEditorRef.current?.focusIssue(iss); setGuardPop(false) }}
+                            className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-soft cursor-pointer text-[11.5px] leading-snug">
+                            <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${
+                              iss.type === 'leak' ? 'bg-danger' :
+                              iss.type === 'ai_tics' ? 'bg-gray-400' :
+                              iss.type === 'purple' ? 'bg-purple-500' :
+                              iss.type === 'repetition' ? 'bg-amber-500' : 'bg-warn'
+                            }`} />
+                            <span className="text-ink truncate flex-1">{iss.message}</span>
+                            {iss.range && <span className="shrink-0 text-brand text-[10px]">跳→</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   {/* 限知泄露 */}
                   <div className="mb-2">
                     <div className="text-[11.5px] text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
@@ -265,6 +295,8 @@ export function WriteLayout({ work }) {
                       ) : '干净'}
                     </div>
                   </div>
+                    </>
+                  )}
                   {/* 开/关 toggle */}
                   <button
                     className="w-full flex items-center gap-2 rounded-lg px-2 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer border border-line"
@@ -342,7 +374,7 @@ export function WriteLayout({ work }) {
         <div className="max-w-[48rem] mx-auto px-6 py-8">
           <DraftCard proposal={proposal} candidates={candidates} streaming={proposalStreaming} onAccept={acceptProposal} onReject={() => { setProposal(null); setProposalStreaming(false); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <div className={`manuscript${serif ? ' serif' : ''}`}>
-            <ProseEditor value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
+            <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false) }}
               chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
               placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
           </div>
@@ -423,7 +455,27 @@ export function WriteLayout({ work }) {
         </div>
         {postCheckResult && !postCheckResult.error && (
           <div className="space-y-1.5">
-            {/* QC 五类 */}
+            {/* F-05: 带 range 的 issues 可点跳转 */}
+            {postCheckResult.issues && postCheckResult.issues.length > 0 && (
+              <div className="rounded-lg border border-line divide-y divide-line/50">
+                {postCheckResult.issues.map((iss, idx) => (
+                  <button key={idx}
+                    onClick={() => proseEditorRef.current?.focusIssue(iss)}
+                    className="w-full text-left flex items-start gap-2 px-2 py-1.5 hover:bg-soft cursor-pointer text-[11.5px] leading-snug first:rounded-t-lg last:rounded-b-lg">
+                    <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${
+                      iss.type === 'leak' ? 'bg-danger' :
+                      iss.type === 'ai_tics' ? 'bg-gray-400' :
+                      iss.type === 'purple' ? 'bg-purple-500' :
+                      iss.type === 'repetition' ? 'bg-amber-500' :
+                      iss.type === 'discipline' ? 'bg-danger' : 'bg-warn'
+                    }`} />
+                    <span className="text-ink flex-1 truncate">{iss.message}</span>
+                    {iss.range && <span className="shrink-0 text-[10px] text-brand">跳→</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* QC 五类(计数汇总) */}
             <div className={`text-[12px] rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
               <span className="font-medium">QC</span>
               {(postCheckResult.quality?.total || 0) > 0 ? (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { useEditor, EditorContent, useEditorState } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
@@ -7,6 +7,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
 import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
+import { focusIssue as _focusIssue } from './GuardDecoration'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -67,7 +68,11 @@ function pmPosToProseOffset(doc, pmPos) {
   return result === null ? offset : result
 }
 
-export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false, onDiscuss }) {
+// F-05: forwardRef 暴露 focusIssue 命令式 API 给 WriteLayout 调用
+export const ProseEditor = forwardRef(function ProseEditor(
+  { value, onChange, chapterKey, placeholder = '开始写本章……', focusMode = false, onDiscuss },
+  ref
+) {
   const [chars, setChars] = useState(0)
   const [recovered, setRecovered] = useState(null)
   const lastEmit = useRef(value || '')
@@ -121,6 +126,11 @@ export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始
       bold: editor.isActive('bold'), italic: editor.isActive('italic'), strike: editor.isActive('strike'),
     } : { bold: false, italic: false, strike: false },
   })
+
+  // F-05: 暴露 focusIssue 给父组件,供护栏面板点击跳转
+  useImperativeHandle(ref, () => ({
+    focusIssue: (issue) => _focusIssue(editor, issue),
+  }), [editor])
 
   const restore = () => {
     if (!editor || !recovered) return
@@ -179,4 +189,4 @@ export function ProseEditor({ value, onChange, chapterKey, placeholder = '开始
       <div className="mt-2 text-right text-[11px] text-faint tnum">{chars} 字</div>
     </div>
   )
-}
+})

@@ -131,3 +131,13 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* F-05: 护栏定位 flash overlay — DOM 叠加层,1.2s 淡出 */
+.guard-flash-overlay {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-warn) 28%, transparent);
+  transition: opacity 0.4s var(--ease-out);
+  z-index: 10;
+}

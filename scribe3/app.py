@@ -1350,25 +1350,47 @@ def dedup_chapter(seq: int, work: str = "main"):
 
 @app.post("/check")
 def check_prose(req: CheckReq, seq: int, work: str = "main"):
-    """护栏轻检查:QC + 限知泄露,不落库(改造③ 停笔静默刷新用)。"""
+    """护栏轻检查:QC + 限知泄露,不落库(改造③ 停笔静默刷新用)。
+    F-05: 新增顶层 issues 列表(带 range),兼容旧 qc/leaks 计数字段。"""
     st = _store_for(work)
-    from scribe3.critique import quality_flags
+    from scribe3.critique import quality_flags, quality_issues
     qf = quality_flags(req.prose)
     leaks = []
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
-            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject}
+            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
+                      "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
         except Exception as e:
             import logging
             logging.getLogger("scribe3").warning("check find_leaks 失败: %s", e)
+
+    # F-05: 组装带 range 的 issues(白送类 QC + leaks)
+    issues: list[dict] = []
+    try:
+        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
+        issues = quality_issues(req.prose, extra)
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning("check quality_issues 失败: %s", e)
+    # 追加 leak issues
+    for lk in leaks:
+        issues.append({
+            "type": "leak",
+            "message": f"限知泄露:视角角色不该知道「{lk['marker']}」",
+            "text": lk["marker"],
+            "range": lk["range"],
+            "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
+        })
+
     return {"qc": {"repetition": len(qf["repetition"]),
                    "structural": len(qf["structural"]),
                    "purple": len(qf["purple"]),
                    "ai_tics": len(qf["ai_tics"]),
                    "oversaturation": len(qf["oversaturation"])},
-            "leaks": leaks}
+            "leaks": leaks,
+            "issues": issues}
 
 
 class PostCheckReq(BaseModel):
@@ -1380,9 +1402,10 @@ class PostCheckReq(BaseModel):
 @app.post("/post-check")
 def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
-    不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。"""
+    不落库。注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。
+    F-05: 新增顶层 issues 列表(带 range),兼容旧 quality/leaks 字段。"""
     import logging
-    from scribe3.critique import quality_flags, discipline_truncate
+    from scribe3.critique import quality_flags, quality_issues, discipline_truncate
     st = _store_for(work)
 
     # 1. 确定性五类 QC
@@ -1401,7 +1424,8 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
-            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject}
+            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
+                      "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
         except Exception as e:
             logging.getLogger("scribe3").warning("post_check find_leaks 失败: %s", e)
@@ -1427,12 +1451,54 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check validate_setting 失败: %s", e)
 
+    # F-05: 组装带 range 的顶层 issues(白送类 QC + leaks + discipline.cut_after)
+    issues: list[dict] = []
+    try:
+        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
+        issues = quality_issues(req.prose, extra)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check quality_issues 失败: %s", e)
+    # leak issues
+    for lk in leaks:
+        issues.append({
+            "type": "leak",
+            "message": f"限知泄露:视角角色不该知道「{lk['marker']}」",
+            "text": lk["marker"],
+            "range": lk["range"],
+            "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
+        })
+    # discipline.cut_after issue(纪律违规起点句)
+    if discipline.get("cut_after"):
+        cut = discipline["cut_after"]
+        idx = req.prose.find(cut)
+        rng = [idx, idx + len(cut)] if idx >= 0 else None
+        issues.append({
+            "type": "discipline",
+            "message": f"纪律违规:{'、'.join(discipline.get('violations', []))}",
+            "text": cut,
+            "range": rng,
+            "meta": {"violations": discipline.get("violations", [])},
+        })
+    # setting issues
+    for hint in setting:
+        evidence = hint.get("evidence") or ""
+        idx = req.prose.find(evidence) if evidence else -1
+        rng = [idx, idx + len(evidence)] if idx >= 0 and evidence else None
+        issues.append({
+            "type": "setting",
+            "message": hint.get("description", "设定校验问题"),
+            "text": evidence,
+            "range": rng,
+            "meta": {"entity": hint.get("entity"), "severity": hint.get("severity")},
+        })
+
     return {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "discipline": discipline,
         "degraded": degraded,
         "setting": setting,
+        "issues": issues,
     }
 
 
