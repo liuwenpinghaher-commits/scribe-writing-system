@@ -9,6 +9,7 @@ import {
 } from '@dnd-kit/sortable'
 import { ChapterCard } from './ChapterCard'
 import { wcLabel } from './outlineColors'
+import { showToast } from './ui/Toast'
 
 // 计算重排后顺序(纯函数,便于单测)
 export function computeReorder(seqs, activeSeq, overSeq) {
@@ -74,7 +75,7 @@ export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder
     if (guarded) return
     setGuarded(true)
     try { localStorage.setItem('s3.reorder.guarded', '1') } catch { /* */ }
-    setTimeout(() => window.alert('重排只改阅读顺序,章号(故事时间轴)不变。'), 0)
+    showToast('重排只改阅读顺序,章号(故事时间轴)不变。')
   }
 
   const sensors = useSensors(

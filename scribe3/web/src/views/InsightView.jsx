@@ -3,6 +3,7 @@ import { Activity, FileText, Bookmark, ShieldAlert, Target, CheckCircle2, EyeOff
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
+import { showToast } from '../ui/Toast'
 
 // ── 通用 Metric 卡 ──────────────────────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
@@ -97,7 +98,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       setPayoffInput('')
       onRefresh?.()
     } catch (e) {
-      alert(e?.body?.detail || e?.message || '回收失败')
+      showToast(e?.body?.detail || e?.message || '回收失败', { tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -109,7 +110,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       await api.markHerring(p.id)
       onRefresh?.()
     } catch (e) {
-      alert(e?.body?.detail || e?.message || '标记失败')
+      showToast(e?.body?.detail || e?.message || '标记失败', { tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -126,7 +127,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       setClueChapter('')
       onRefresh?.()
     } catch (e) {
-      alert(e?.body?.detail || e?.message || '添加线索失败')
+      showToast(e?.body?.detail || e?.message || '添加线索失败', { tone: 'danger' })
     } finally {
       setBusy(false)
     }
@@ -138,7 +139,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       await api.removePromiseClue(p.id, idx)
       onRefresh?.()
     } catch (e) {
-      alert(e?.body?.detail || e?.message || '删除线索失败')
+      showToast(e?.body?.detail || e?.message || '删除线索失败', { tone: 'danger' })
     } finally {
       setBusy(false)
     }

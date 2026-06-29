@@ -5,6 +5,7 @@ import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
 import { DetailPane } from './DetailPane'
 import { ChiefDock } from './ChiefDock'
+import { showToast } from './ui/Toast'
 
 // 收集容器节点 id(默认展开两根 + 各分类容器折叠;手稿支卷默认展开)
 function defaultExpanded(tree) {
@@ -54,6 +55,8 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     const es = api.live(() => {
       clearTimeout(timer)
       timer = setTimeout(reload, 600)
+    }, {
+      onGiveUp: () => showToast('实时同步已断开,改动可能不会自动刷新;刷新页面可重连。', { tone: 'danger', duration: 6000 }),
     })
     return () => {
       clearTimeout(timer)

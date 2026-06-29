@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api } from './api'
 import { DetailView } from './views/CodexView'
+import { ConfirmDialog } from './ui/Dialog.jsx'
+import { showToast } from './ui/Toast'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -66,6 +68,7 @@ async function remove(detailType, row) {
 export function CodexDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [delOpen, setDelOpen] = useState(false)
   const detailType = TYPE_MAP[node?.type]
 
   const reload = () => {
@@ -81,6 +84,11 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
   if (!row) return <div className="p-6 text-[13px] text-faint">未找到该条目(可能已删除)。</div>
 
+  const doDelete = async () => {
+    try { await remove(detailType, row); onDeleted?.() }
+    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-5">
@@ -89,10 +97,22 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
           row={row}
           isNew={false}
           onBack={null}
-          onUpdate={async (updated) => { await persist(detailType, updated); reload(); onChanged?.() }}
-          onDelete={async () => { await remove(detailType, row); onDeleted?.() }}
+          onUpdate={async (updated) => {
+            try { await persist(detailType, updated); reload(); onChanged?.() }
+            catch (e) { showToast(e?.body?.detail || e?.message || '保存失败', { tone: 'danger' }) }
+          }}
+          onDelete={() => setDelOpen(true)}
         />
       </div>
+      <ConfirmDialog
+        open={delOpen}
+        title="确认删除?"
+        body={`将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
+        danger
+        confirmText="删除"
+        onConfirm={doDelete}
+        onClose={() => setDelOpen(false)}
+      />
     </div>
   )
 }

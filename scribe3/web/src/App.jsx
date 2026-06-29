@@ -4,7 +4,7 @@ import { AppRail } from './AppRail'
 import { Library } from './Library'
 import { BinderLayout } from './BinderLayout'
 import { CommandPalette } from './CommandPalette'
-import { ToastProvider } from './ui/Toast'
+import { ToastHost } from './ui/Toast'
 
 // 顶层编排:AppRail(字标/书切换/横切视图tab/主题)+ (作品库 | 混合 Binder 项目树)。
 // F-06:5 平行 Rail 视图 → 左侧统一项目树(BinderLayout)+ 横切走顶栏 tab。
@@ -51,13 +51,14 @@ export default function App() {
   }
 
   return (
-    <ToastProvider>
+    <>
       <div className="h-full flex flex-col bg-canvas">
         <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={() => setCur(null)} theme={theme} onTheme={setTheme} />
         <div className="flex-1 min-h-0">{body}</div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
           onView={onView} onSelectWork={open} onLibrary={() => setCur(null)} />
       </div>
-    </ToastProvider>
+      <ToastHost />
+    </>
   )
 }

@@ -11,6 +11,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, LABEL_META } from './outlineColors'
+import { showToast } from './ui/Toast'
 
 // 单元格 synopsis inline 编辑
 function SynopsisCell({ chapter, onPatchSynopsis }) {
@@ -144,7 +145,7 @@ export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder,
     if (guarded) return
     setGuarded(true)
     try { localStorage.setItem('s3.reorder.guarded', '1') } catch { /* */ }
-    setTimeout(() => window.alert('重排只改阅读顺序,章号(故事时间轴)不变。'), 0)
+    showToast('重排只改阅读顺序,章号(故事时间轴)不变。')
   }
 
   const sensors = useSensors(

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText } from 'lucide-react'
 import { api } from './api'
+import { useChatPersist } from './useChatPersist'
 
 const SUGGESTS = [
   '本章这样展开:……（提思路,主编写整章）',
@@ -58,6 +59,9 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const endRef = useRef(null)
   const taRef = useRef(null)
   const fileRef = useRef(null)
+
+  // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
+  useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   useEffect(() => {

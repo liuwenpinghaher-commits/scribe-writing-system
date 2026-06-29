@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, ChevronRight, ChevronLeft } from 'lucide-react'
 import { api } from './api'
+import { useChatPersist } from './useChatPersist'
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
 function Bubble({ role, content, tools, streaming }) {
@@ -90,6 +91,12 @@ export function ChiefDock({ sel, collapsed, onToggle }) {
   const endRef = useRef(null)
   const taRef = useRef(null)
   const esRef = useRef(null)
+
+  // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复
+  const chatKey = sel?.mode === 'view'
+    ? `${api.getWork()}:view:${sel.viewKey}`
+    : `${api.getWork()}:node:${sel?.node?.id || 'none'}`
+  useChatPersist(chatKey, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   useEffect(() => () => { esRef.current?.close?.() }, [])

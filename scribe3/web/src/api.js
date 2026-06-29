@@ -30,6 +30,7 @@ const put = (p, body) => fetch(BASE + ww(p), {
 
 export const api = {
   setWork: (w) => { WORK = w },
+  getWork: () => WORK,
   get: (p) => fetch(BASE + ww(p)).then(handle),
   del: (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then(handle),
   post: (p, b) => post(p, b),
@@ -121,10 +122,39 @@ export const api = {
     post(`/check?seq=${seq}`, { prose, focalizer }),
   postCheck: (seq, prose, focalizer = '', brief = '') =>
     post(`/post-check?seq=${seq}`, { prose, focalizer, brief }),
-  live: (onChange) => {
-    const es = new EventSource(BASE + ww('/live'))
-    es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
-    return es
+  // SSE /live:浏览器原生 EventSource 出错会立即无退避重连,易把 /live 连接数顶到
+  // 后端 _LIVE_MAX(默认 5)触发 429 静默失败。这里自管重连:出错即 close,按指数退避
+  // (1s→2s→4s→…封顶 30s)再开;连续失败到阈值给一次 toast 提示并停。
+  // 返回 { close() } 与旧 EventSource.close() 调用点兼容。
+  live: (onChange, { onGiveUp } = {}) => {
+    let es = null
+    let timer = null
+    let attempt = 0
+    let stopped = false
+    const MAX_ATTEMPT = 6           // 约 1+2+4+8+16+30 ≈ 1 分钟后放弃
+    const open = () => {
+      if (stopped) return
+      es = new EventSource(BASE + ww('/live'))
+      es.onmessage = (e) => { attempt = 0; try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
+      es.onerror = () => {
+        try { es.close() } catch (_) { /* */ }
+        es = null
+        if (stopped) return
+        attempt += 1
+        if (attempt > MAX_ATTEMPT) { onGiveUp?.(); return }
+        const delay = Math.min(30000, 1000 * 2 ** (attempt - 1))
+        clearTimeout(timer)
+        timer = setTimeout(open, delay)
+      }
+    }
+    open()
+    return {
+      close: () => {
+        stopped = true
+        clearTimeout(timer)
+        try { es?.close() } catch (_) { /* */ }
+      },
+    }
   },
   chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
     const ctrl = new AbortController()
