@@ -865,6 +865,42 @@ def get_progress(work: str = "main", window: str = "all"):
     return _store_for(work).progress(window=window)
 
 
+def _codex_block(st) -> str:
+    """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
+    关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
+    此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
+    不依赖 MCP(MCP 网关连固定库,会串到别的书)。"""
+    def _safe(fn):
+        try:
+            return fn() or []
+        except Exception:
+            return []
+    parts = []
+    chars = _safe(st.characters)
+    if chars:
+        cl = []
+        for c in chars[:14]:
+            bs = ((c.traits or {}).get('backstory') or '') if hasattr(c, 'traits') else ''
+            cl.append(f"- {c.name}:{bs[:48]}" if bs else f"- {c.name}")
+        parts.append("〔角色〕\n" + "\n".join(cl))
+    facs = _safe(st.list_factions) if hasattr(st, 'list_factions') else []
+    if facs:
+        parts.append("〔势力〕" + "；".join(f"{f.get('name')}（{(f.get('ideology') or '')[:18]}）" for f in facs[:10]))
+    items = _safe(st.list_items) if hasattr(st, 'list_items') else []
+    if items:
+        parts.append("〔物件〕" + "；".join(f"{i.get('name')}" for i in items[:14]))
+    terms = _safe(st.list_terms) if hasattr(st, 'list_terms') else []
+    if terms:
+        parts.append("〔术语〕" + "；".join(f"{t.get('name')}:{(t.get('definition') or '')[:16]}" for t in terms[:14]))
+    rules = _safe(st.list_world_rules) if hasattr(st, 'list_world_rules') else []
+    if rules:
+        parts.append("〔世界规则〕" + "；".join(f"{r.get('name')}（代价:{(r.get('cost') or '—')[:14]}）" for r in rules[:10]))
+    motifs = _safe(st.list_motifs) if hasattr(st, 'list_motifs') else []
+    if motifs:
+        parts.append("〔母题〕" + "；".join(m.get('name') for m in motifs[:10]))
+    return "\n".join(parts)
+
+
 def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
     """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定。
 
@@ -911,6 +947,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
+        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem

@@ -189,8 +189,9 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
     setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
+    // 非 agentic:走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
     esRef.current = api.chatStream(finalMsg, {
-      agentic: true,
+      agentic: false,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
       onDone: () => setBusy(false),
