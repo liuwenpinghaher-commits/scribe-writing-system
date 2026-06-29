@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree } from 'react-arborist'
 import {
   ChevronRight, ChevronDown, BookText, BookOpen, FileText,
@@ -135,17 +135,23 @@ function Row({ node, style, dragHandle, tree }) {
 }
 
 // 容器尺寸测量:arborist 不自动撑满,需传数字 width/height。
+// 用 callback ref(元素挂载时才触发)—— 关键:项目树先经「加载中」早返回、boxRef 尚未渲染,
+// 待 tree 加载后 boxRef 才挂载;callback ref 此刻才跑,设 RO + 立即量,彻底避开 useLayoutEffect([])
+// 只在首挂载(boxRef 还没渲染)跑一次的时序坑。
 function useContainerSize() {
-  const ref = useRef(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  useLayoutEffect(() => {
-    const el = ref.current
+  const roRef = useRef(null)
+  const ref = useCallback((el) => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null }
     if (!el) return
-    const update = () => setSize({ width: el.clientWidth, height: el.clientHeight })
-    update()
-    const ro = new ResizeObserver(update)
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      setSize({ width: Math.round(r.width), height: Math.round(r.height) })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    return () => ro.disconnect()
+    roRef.current = ro
   }, [])
   return [ref, size]
 }
@@ -215,31 +221,35 @@ export function ProjectTree({
   if (!tree) return <div className="p-3 text-[12px] text-faint/60">加载项目树…</div>
   if (!data || data.length === 0) return <div className="p-3 text-[12px] text-faint/60">暂无内容</div>
 
+  // 用 relative + absolute inset-0 让测量容器有确定尺寸(不受 Tree 条件渲染影响),
+  // RO 量到真实宽高后再渲染 arborist Tree。
   return (
-    <div ref={boxRef} className="h-full w-full select-none p-1">
-      {size.height > 0 && (
-        <Tree
-          data={data}
-          handlers={handlers}
-          openByDefault={false}
-          initialOpenState={initialOpenState}
-          selection={selId || undefined}
-          width={size.width}
-          height={size.height}
-          indent={INDENT}
-          rowHeight={ROW_HEIGHT}
-          overscanCount={8}
-          disableMultiSelection
-          disableEdit={(d) => d.type !== 'volume'}
-          disableDrag={disableDrag}
-          disableDrop={disableDrop}
-          onMove={onMove}
-          onToggle={(id) => onToggle?.(id)}
-          className="!overflow-x-hidden"
-        >
-          {Row}
-        </Tree>
-      )}
+    <div className="relative h-full w-full select-none">
+      <div ref={boxRef} className="absolute inset-0 p-1 overflow-hidden">
+        {size.width > 0 && size.height > 0 && (
+          <Tree
+            data={data}
+            handlers={handlers}
+            openByDefault={false}
+            initialOpenState={initialOpenState}
+            selection={selId || undefined}
+            width={size.width}
+            height={size.height}
+            indent={INDENT}
+            rowHeight={ROW_HEIGHT}
+            overscanCount={8}
+            disableMultiSelection
+            disableEdit={(d) => d.type !== 'volume'}
+            disableDrag={disableDrag}
+            disableDrop={disableDrop}
+            onMove={onMove}
+            onToggle={(id) => onToggle?.(id)}
+            className="!overflow-x-hidden"
+          >
+            {Row}
+          </Tree>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { PanelLeftOpen } from 'lucide-react'
 import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
@@ -36,12 +36,6 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const initedRef = useRef(false)
   const leftRef = usePanelRef()
   const rightRef = usePanelRef()
-
-  // 布局持久化:panelIds 覆盖含/不含右栏两种布局,避免章/非章切换时漂移。
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: 's3.binder.panels.v4',
-    panelIds: ['tree', 'detail', 'chief'],
-  })
 
   const reload = useCallback(() => api.projectTree().then((t) => {
     setTree(t)
@@ -125,13 +119,13 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   return (
     <ChiefSlotProvider>
     <div className="h-full bg-canvas min-h-0">
-      <Group orientation="horizontal" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} className="h-full">
+      <Group orientation="horizontal" defaultLayout={{ tree: 20, detail: 54, chief: 26 }} className="h-full">
         {/* 左:项目树(可折叠) */}
         <Panel
           id="tree"
           panelRef={leftRef}
-          defaultSize={18} minSize={12} maxSize={32}
-          collapsible collapsedSize={0}
+          defaultSize="20%" minSize="14%" maxSize="34%"
+          collapsible collapsedSize="0%"
           onResize={(size) => setLeftCollapsed(size.asPercentage < 1)}
           className="bg-surface"
         >
@@ -146,7 +140,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
         <Separator className="w-px bg-line data-[separator]:hover:bg-brand/50 transition-colors" />
 
         {/* 中:DetailPane */}
-        <Panel id="detail" minSize={30} className="relative min-w-0">
+        <Panel id="detail" minSize="34%" className="relative min-w-0">
           {/* 左栏折叠时的悬浮展开按钮 */}
           {leftCollapsed && (
             <button onClick={expandLeft} title="展开项目树"
@@ -167,8 +161,8 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
             <Panel
               id="chief"
               panelRef={rightRef}
-              defaultSize={26} minSize={16} maxSize={42}
-              collapsible collapsedSize={3}
+              defaultSize="26%" minSize="18%" maxSize="44%"
+              collapsible collapsedSize="0%"
               onResize={(size) => setRightCollapsed(size.asPercentage < 5)}
               className="bg-surface border-l border-line"
             >
