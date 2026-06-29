@@ -239,6 +239,68 @@ const ACTIONS = {
     return { finalLen: await proseLen(), rounds }
   },
 
+  // 一次会话走完一章四阶段:大纲→节拍→草稿→正文(≥target,清空重写)。用于第2-4章高效推进。
+  writeChapter: async (p) => {
+    await openBook(p, args.title)
+    const seq = args.seq
+    const out = { seq }
+    const switchTab = async (tab) => { await p.getByText(tab, { exact: true }).first().click(); await sleep(1300) }
+    // —— 大纲 ——
+    await openChapterTab(p, seq, '大纲')
+    let raw = await sendChat(p, args.outlineMsg)
+    const syn = cleanReply(raw)
+    if (syn && !syn.includes('主编在思考')) {
+      const ta = p.locator('[data-testid="detail"] textarea').first()
+      await ta.click(); await ta.fill(syn); await switchTab('大纲'); await sleep(1200)
+    }
+    out.outline = syn.length
+    // —— 节拍 ——
+    await switchTab('节拍')
+    raw = await sendChat(p, args.beatsMsg)
+    const metaRe = /^(我先|让我|我来|好的|这是|以下|根据|基于|据你|帮你|拆成|查看|核实|节拍|大纲|说明)/
+    const beats = raw.split(/[\n\s]+/).map((l) => l.replace(/^[\-*0-9.、)）]+/, '').trim())
+      .filter((l) => l.length >= 8 && l.length <= 60 && !metaRe.test(l) && !/[:：]$/.test(l)).slice(0, 8)
+    for (let g = 0; g < 30; g++) { const del = p.locator('[data-testid="detail"] button[title="删除"]'); if (await del.count() === 0) break; await del.first().click({ force: true }); await sleep(350) }
+    const binput = p.locator('[data-testid="detail"] input').first()
+    for (const b of beats) { await binput.click(); await binput.fill(b); await binput.press('Enter'); await sleep(650) }
+    out.beats = beats.length
+    // —— 草稿 ——
+    await switchTab('草稿')
+    raw = await sendChat(p, args.draftMsg)
+    const draft = cleanReply(raw)
+    if (draft && !draft.includes('主编在思考')) {
+      const tad = p.locator('[data-testid="detail"] textarea').last()
+      await tad.click(); await tad.fill(draft); await p.getByRole('button', { name: /存草稿/ }).click(); await sleep(1400)
+    }
+    out.draft = draft.length
+    // —— 正文(清空→写循环→存为正文)——
+    await switchTab('正文')
+    const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
+    await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
+    await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(2200)
+    const proseLen = () => p.evaluate(() => { const e = document.querySelector('[data-testid="detail"] .ProseMirror'); return e ? e.innerText.replace(/\s/g, '').length : 0 })
+    const sendWrite = async (msg) => {
+      const ta = p.locator('[data-testid="chief"] textarea').first()
+      await ta.click(); await ta.fill(msg); await ta.press('Enter')
+      const accept = p.getByRole('button', { name: '接受', exact: true })
+      const t0 = Date.now()
+      while (Date.now() - t0 < 280000) {
+        await sleep(4000)
+        if (await accept.count()) { const en = await accept.first().isEnabled().catch(() => false); if (en) { await sleep(2500); if (await accept.first().isEnabled().catch(() => false)) break } }
+      }
+      if (await accept.count() === 0) return false
+      await accept.first().click(); await sleep(3500); return true
+    }
+    const target = args.target || 5200, maxRounds = args.maxRounds || 6
+    const fr = []
+    fr.push(await sendWrite(args.finalFirstMsg)); let r = 1
+    while ((await proseLen()) < target && r < maxRounds) { const ok = await sendWrite(args.finalContMsg); r++; fr.push(ok); if (!ok) break }
+    await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(3500)
+    out.final = await proseLen(); out.rounds = fr.length
+    await p.screenshot({ path: `${SHOTS}/chapter_${seq}.png` })
+    return out
+  },
+
   // 截图当前书的某状态(调试用)
   shot: async (p) => {
     await openBook(p, args.title)
