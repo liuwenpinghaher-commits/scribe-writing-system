@@ -197,13 +197,20 @@ function DraftTab({ seq, onAdopt }) {
  * 大纲/节拍/草稿 = ChapterStudio 自带轻量编辑器(patchChapter/saveDraft);
  * 正文 = 整体复用 WriteLayout(护栏/QC/帧/伏笔/版本/检索/主编对话全保留)。
  */
-export function ChapterStudio({ work, seq, onSeqChange }) {
+export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   const [phase, setPhase] = useState(() => localStorage.getItem('s3.chapter.phase') || 'final')
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
 
   const setPhaseP = (p) => { setPhase(p); localStorage.setItem('s3.chapter.phase', p) }
+
+  // F-06 场景级跳转:点项目树「场景」节点(sceneIdx 非空)→ 强制切到「正文」tab,
+  // 由 WriteLayout 在正文加载后调 focusScene(sceneIdx) 滚到对应场景段。
+  useEffect(() => {
+    if (sceneIdx != null && phase !== 'final') setPhaseP('final')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneIdx])
 
   // 大纲/节拍 tab 用:拉章 synopsis/beats/title(正文 tab 由 WriteLayout 自己拉,互不干扰)
   useEffect(() => {
@@ -223,7 +230,7 @@ export function ChapterStudio({ work, seq, onSeqChange }) {
       <div className="h-full flex flex-col min-h-0">
         <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
         <div className="flex-1 min-h-0">
-          <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} onSeqChange={onSeqChange} />
+          <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
       </div>
     )

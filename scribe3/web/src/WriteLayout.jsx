@@ -27,7 +27,7 @@ import { useChiefSlot } from './ChiefSlotContext'
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 // seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态;
 // onSeqChange: 内部步进器换章时回调,让项目树选中态跟随。
-export function WriteLayout({ work, seq, onSeqChange }) {
+export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   api.setWork(work)
   const toast = useToast()
   // 波B Step3:WriteChat 经 portal 渲染进右栏 ChiefDock 的槽。slotEl 为该槽 DOM。
@@ -165,6 +165,8 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     return () => { alive = false; clearTimeout(t) }
   }, [prose, chapter, focalizer, guardOn])
 
+  // F-06 场景级跳转:章正文异步加载完成后 +1,供 focusScene 效果在内容就位后再跳。
+  const [proseLoadTick, setProseLoadTick] = useState(0)
   useEffect(() => { api.entities().then(setEntities); api.motifs().then(setMotifs) }, [tick])
   useEffect(() => {
     api.chapter(chapter).then((ch) => {
@@ -173,6 +175,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
       setProse(p); setFocalizer(f); setChTitle(t); setSaved(true)
       // 新章加载完成后重置 dirtyRef,以新章 seq + 新章正文 + focalizer + chTitle 为基准
       dirtyRef.current = { seq: chapter, prose: p, chTitle: t, focalizer: f, dirty: false }
+      setProseLoadTick((n) => n + 1)
     })
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
@@ -180,6 +183,18 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     api.facts(chapter).then(setFacts)
     api.events(chapter).then(setEvents)
   }, [chapter, tick])
+  // F-06 场景级跳转:sceneIdx 给定 + 正文已加载 → 等编辑器 setContent 落定后跳到该场景。
+  // 依赖 [sceneIdx, proseLoadTick]:点不同场景(idx 变)或换章重载(tick 变)都重跳。
+  // 只对当前章的场景跳(seq===chapter,避免树点章号与场景号错配时跳错章)。
+  useEffect(() => {
+    if (sceneIdx == null) return
+    if (seq != null && seq !== chapter) return
+    if (proseLoadTick === 0) return
+    // 用 timeout 让 ProseEditor 的 setContent(value 变化)effect 先落定再定位
+    const t = setTimeout(() => { proseEditorRef.current?.focusScene?.(sceneIdx) }, 60)
+    return () => clearTimeout(t)
+  }, [sceneIdx, proseLoadTick, seq, chapter])
+
   const runRecall = async (e) => { e.preventDefault(); if (!recallQ.trim()) return; setRecallHits(await api.recall(recallQ.trim(), 8)) }
 
   const runPostCheck = async () => {

@@ -7,7 +7,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
 import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
-import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues } from './GuardDecoration'
+import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues, guardKey as _guardKey } from './GuardDecoration'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -134,8 +134,47 @@ export const ProseEditor = forwardRef(function ProseEditor(
   })
 
   // F-05: 暴露 focusIssue 给父组件,供护栏面板点击跳转
+  // F-06: 暴露 focusScene(idx) 给父组件,供项目树点「场景」节点精确定位。
+  //   正文由 sceneBreak 节点(* * * 独行)分隔:第 idx 个场景 = 第 idx 个 sceneBreak 之后的段。
+  //   idx=0 → 文档开头(第一段,首个场景);idx>=1 → 第 idx 个 sceneBreak 节点位置。
+  //   无 sceneBreak 或 idx 越界 → 跳开头/末尾,不报错。定位后短暂高亮(仿 focusIssue)。
   useImperativeHandle(ref, () => ({
     focusIssue: (issue) => _focusIssue(editor, issue),
+    focusScene: (idx) => {
+      if (!editor || !editor.view) return false
+      const doc = editor.state.doc
+      // 收集所有 sceneBreak 顶层节点的 pos
+      const breaks = []
+      doc.forEach((node, pos) => { if (node.type.name === 'sceneBreak') breaks.push(pos) })
+      let pos
+      if (!idx || idx <= 0) {
+        pos = 0  // 首个场景 → 文档开头
+      } else if (idx <= breaks.length) {
+        pos = breaks[idx - 1]  // 第 idx 个场景 = 第 idx 个 sceneBreak 起
+      } else {
+        pos = Math.max(0, doc.content.size - 1)  // 越界 → 末尾
+      }
+      // setTextSelection 到一个安全的文本位置:sceneBreak 是 atom,选其后第一个可选位置
+      const sel = Math.min(Math.max(1, pos === 0 ? 1 : pos + 1), Math.max(1, doc.content.size - 1))
+      editor.chain().setTextSelection(sel).scrollIntoView().run()
+      // 短暂高亮:复用 guard active flash(在该场景首段叠一层)
+      try {
+        const $p = doc.resolve(Math.min(sel, doc.content.size - 1))
+        const blockStart = $p.start($p.depth)
+        const blockEnd = $p.end($p.depth)
+        if (blockEnd > blockStart) {
+          editor.view.dispatch(editor.state.tr.setMeta(_guardKey, {
+            active: { id: 'scene', pm: { pmFrom: blockStart, pmTo: blockEnd } },
+          }))
+          setTimeout(() => {
+            if (editor.view && !editor.view.isDestroyed) {
+              editor.view.dispatch(editor.state.tr.setMeta(_guardKey, { active: null }))
+            }
+          }, 1200)
+        }
+      } catch { /* 高亮失败不影响滚动定位 */ }
+      return true
+    },
   }), [editor])
 
   // F-05 进阶:把 issues 注入常驻波浪线 decoration 层。
