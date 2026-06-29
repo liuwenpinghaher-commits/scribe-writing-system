@@ -5,6 +5,7 @@ import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
 import { DetailPane } from './DetailPane'
 import { ChiefDock } from './ChiefDock'
+import { ChiefSlotProvider } from './ChiefSlotContext'
 import { showToast } from './ui/Toast'
 
 // 收集容器节点 id(默认展开两根 + 各分类容器折叠;手稿支卷默认展开)
@@ -110,8 +111,9 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
 
   const selId = sel?.mode === 'node' ? sel.node?.id : null
   const chapterSel = isChapterSel(sel)
-  // 章节点让位内部 chat(不渲染右栏);其余节点常驻主编。
-  const showChief = !chapterSel
+  // 波B Step3:右栏常驻。章节点 → 右栏=写作槽(WriteLayout 的 WriteChat 经 portal 进来);
+  // 非章节点 → 右栏=讨论 chat(现状)。ChiefDock 据 chapterSel 切换内容。
+  const showChief = true
 
   const toggleRight = () => {
     const p = rightRef.current
@@ -121,6 +123,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const expandLeft = () => { leftRef.current?.expand() }
 
   return (
+    <ChiefSlotProvider>
     <div className="h-full bg-canvas min-h-0">
       <Group orientation="horizontal" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged} className="h-full">
         {/* 左:项目树(可折叠) */}
@@ -169,12 +172,13 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
               onResize={(size) => setRightCollapsed(size.asPercentage < 5)}
               className="bg-surface border-l border-line"
             >
-              <ChiefDock sel={sel} collapsed={rightCollapsed} onToggle={toggleRight} />
+              <ChiefDock sel={sel} chapterSel={chapterSel} collapsed={rightCollapsed} onToggle={toggleRight} />
             </Panel>
           </>
         )}
       </Group>
     </div>
+    </ChiefSlotProvider>
   )
 }
 

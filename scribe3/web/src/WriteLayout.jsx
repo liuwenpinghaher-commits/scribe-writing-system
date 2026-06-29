@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
@@ -21,6 +22,7 @@ import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast.jsx'
+import { useChiefSlot } from './ChiefSlotContext'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 // seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态;
@@ -28,6 +30,8 @@ import { useToast } from './ui/Toast.jsx'
 export function WriteLayout({ work, seq, onSeqChange }) {
   api.setWork(work)
   const toast = useToast()
+  // 波B Step3:WriteChat 经 portal 渲染进右栏 ChiefDock 的槽。slotEl 为该槽 DOM。
+  const { slotEl } = useChiefSlot()
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
   // persistDirtyOldChapter:切章前若有未保存内容,静默保存旧章(fire-and-forget,不阻断切章)
@@ -703,6 +707,8 @@ export function WriteLayout({ work, seq, onSeqChange }) {
 
   const reviewBadge = verifyIssues({ leaks, qcN, causal: causal.length }) + openProm.filter(overdue).length
 
+  // 波B Step3:左轨承载全部数据/校验/演绎面板(原右轨的 校验/演绎 并入左轨,消除第4列)。
+  // 写作 chat 不再是这里的 cap —— 它经 portal 渲染进右栏 ChiefDock(见下方 chatPortal)。
   const leftCaps = [
     // F-06: 「大纲」段下线——章导航职能交给左侧项目树(树取代扁平章列)。
     // 结构/母题/检索暂留(分期摊风险)。
@@ -717,31 +723,6 @@ export function WriteLayout({ work, seq, onSeqChange }) {
         {matSeg === 'recall' && renderRecall()}
       </div>
     ) },
-    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
-      <FramePanel focalizer={focalizer} chapter={chapter} />
-    ) },
-    { key: 'versions', label: '存档', icon: Bookmark, render: () => (
-      <VersionPanel seq={chapter} refreshKey={verTick}
-        onRestore={(text) => { setProse(text); persist(text) }} />
-    ) },
-  ]
-
-  const rightCaps = [
-    { key: 'chat', label: '主编对话', icon: MessagesSquare, bare: true, render: () => (
-      <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
-        onSeedUsed={() => setSeedQuote('')}
-        onProposalStart={(s) => {
-          setProposal({ scope: s.scope, prose: '' })
-          setProposalStreaming(true)
-        }}
-        onProposalChunk={(c) => {
-          setProposal((prev) => prev ? { ...prev, prose: prev.prose + c.text } : { scope: 'chapter', prose: c.text })
-        }}
-        onProposal={(p) => {
-          if (p.scope === 'selection') { setCandidates((cs) => [...cs, p.prose]); setProposal(null); setProposalStreaming(false) }
-          else { setProposal(p); setProposalStreaming(false) }
-        }} />
-    ) },
     { key: 'review', label: '校验 · 校验/伏笔/在场', icon: ShieldCheck, badge: reviewBadge, render: () => (
       <div>
         <Segmented value={revSeg} onChange={setRevSeg} options={[
@@ -755,12 +736,47 @@ export function WriteLayout({ work, seq, onSeqChange }) {
     { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
       <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
     ) },
+    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
+      <FramePanel focalizer={focalizer} chapter={chapter} />
+    ) },
+    { key: 'versions', label: '存档', icon: Bookmark, render: () => (
+      <VersionPanel seq={chapter} refreshKey={verTick}
+        onRestore={(text) => { setProse(text); persist(text) }} />
+    ) },
   ]
+
+  // 铁律:WriteChat 组件实例、props、onProposal/onProposalStart/onProposalChunk 回调
+  // 与原 rightCaps.chat.render 一字不差 —— 同一组件、同一闭包(共享 WriteLayout 全部状态),
+  // 只把 DOM 落点从「内部 Shell 右栏」改成「ChiefDock 右栏槽」(portal)。
+  const writeChatEl = (
+    <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
+      onSeedUsed={() => setSeedQuote('')}
+      onProposalStart={(s) => {
+        setProposal({ scope: s.scope, prose: '' })
+        setProposalStreaming(true)
+      }}
+      onProposalChunk={(c) => {
+        setProposal((prev) => prev ? { ...prev, prose: prev.prose + c.text } : { scope: 'chapter', prose: c.text })
+      }}
+      onProposal={(p) => {
+        if (p.scope === 'selection') { setCandidates((cs) => [...cs, p.prose]); setProposal(null); setProposalStreaming(false) }
+        else { setProposal(p); setProposalStreaming(false) }
+      }} />
+  )
+  // 槽就绪 → portal 进右栏;未就绪(极短时序窗口)→ 兜底浮窗,绝不丢 chat、不破坏主布局。
+  // portal 在不同 container 间移动只搬 DOM、不卸载组件,WriteChat 内部状态(对话历史等)全程保留。
+  const chatPortal = slotEl
+    ? createPortal(writeChatEl, slotEl)
+    : (
+      <div className="fixed bottom-3 right-3 z-40 w-[332px] h-[60vh] rounded-xl border border-line bg-surface shadow-xl overflow-hidden flex flex-col min-h-0">
+        {writeChatEl}
+      </div>
+    )
 
   return (
     <>
-      <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }}
-        right={{ caps: rightCaps, active: rightActive, onActive: setRightActive }} />
+      <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }} />
+      {chatPortal}
       {/* F-05 完整:点正文波浪线弹出的悬浮卡 — 类别 + message + 让主编改这处 + 忽略 */}
       {issueCard && (
         <>

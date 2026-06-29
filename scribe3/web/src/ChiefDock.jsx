@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, ChevronRight, ChevronLeft } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, ChevronRight, ChevronLeft, PenLine } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
+import { useChiefSlot } from './ChiefSlotContext'
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
 function Bubble({ role, content, tools, streaming }) {
@@ -78,12 +79,62 @@ function selContext(sel) {
 }
 
 /**
- * 右主编栏(常驻):讨论模式。
- * 把当前选中节点/视图作为上下文,走 /chat/agentic-stream(可联查实证)。
- * Step1 立常驻框架,修复"右栏没了 + 素材不能讨论"。
- * 注:章节点时让位 WriteLayout 内部 chat(由 BinderLayout 控制 mounted),避免双 chat。
+ * 章写作槽(右栏):chapterSel 时渲染。
+ * 仅挂一个空槽 div,把其 DOM 经 ChiefSlotContext 注册;WriteLayout 经 portal
+ * 把自己的 WriteChat 渲染进这里(WriteChat 仍是 WriteLayout 的子,共享其闭包状态)。
+ * 折叠时只显示竖条;展开时显示头部 + 槽。槽内容由 WriteLayout 的 portal 填充。
  */
-export function ChiefDock({ sel, collapsed, onToggle }) {
+function WriteSlot({ collapsed, onToggle }) {
+  const { setSlotEl } = useChiefSlot()
+
+  if (collapsed) {
+    return (
+      <div className="h-full w-full bg-surface flex flex-col items-center py-3 gap-2">
+        <button onClick={onToggle} title="展开主编写作"
+          className="w-9 h-9 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="w-9 h-9 rounded-lg grid place-items-center bg-soft text-brand"><PenLine size={16} /></div>
+        <div className="text-[10px] text-faint [writing-mode:vertical-rl] mt-1 tracking-wide">主编</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full w-full bg-surface flex flex-col min-h-0">
+      {/* 头部:标题 + 折叠 */}
+      <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
+        <PenLine size={15} className="text-brand shrink-0" />
+        <div className="flex flex-col min-w-0 leading-tight">
+          <span className="text-[12px] font-semibold text-ink">主编 · 写作</span>
+          <span className="text-[10.5px] text-faint truncate">提思路让主编写,或改选中段落</span>
+        </div>
+        <button onClick={onToggle} title="折叠主编写作"
+          className="ml-auto w-7 h-7 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      {/* 写作 chat 槽:WriteLayout 的 WriteChat 经 portal 进来填充此处 */}
+      <div ref={setSlotEl} className="flex-1 min-h-0" />
+    </div>
+  )
+}
+
+/**
+ * 右主编栏(常驻)。
+ * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/agentic-stream(可联查实证)。
+ * - 章/场景节点:写作模式。渲染 WriteSlot,WriteLayout 的 WriteChat 经 portal 落进来。
+ * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
+ */
+export function ChiefDock({ sel, chapterSel, collapsed, onToggle }) {
+  // 章节点:渲染写作槽(WriteLayout portal 进来)。讨论 chat 的状态/SSE 在此分支不创建。
+  if (chapterSel) {
+    return <WriteSlot collapsed={collapsed} onToggle={onToggle} />
+  }
+  return <DiscussionDock sel={sel} collapsed={collapsed} onToggle={onToggle} />
+}
+
+function DiscussionDock({ sel, collapsed, onToggle }) {
   const ctx = useMemo(() => selContext(sel), [sel])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
