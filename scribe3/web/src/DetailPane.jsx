@@ -1,4 +1,4 @@
-import { WriteLayout } from './WriteLayout'
+import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail } from './CodexDetail'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
@@ -41,10 +41,10 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
     )
   }
 
-  // —— 章 / 场景 → 写作台(护栏/对话/草稿卡/正文不退化)——
+  // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   if (node.type === 'chapter' || node.type === 'scene') {
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
-    return <WriteLayout key={work} work={work} seq={seq}
+    return <ChapterStudio key={work} work={work} seq={seq}
       onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
   }
 
