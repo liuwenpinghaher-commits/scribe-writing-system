@@ -722,14 +722,23 @@ function WordHeatmap({ heatmap, dailyGoal }) {
 }
 
 // ── 主视图 ───────────────────────────────────────────────────────────────────
-export function InsightView({ onJumpChapter }) {
+export function InsightView({ onJumpChapter, focus }) {
   const [q, setQ] = useState(null)
   const [intent, setIntent] = useState(null)
   const [goalOpen, setGoalOpen] = useState(false)
   const [progressKey, setProgressKey] = useState(0)
+  const progressRef = useRef(null)
 
   useEffect(() => { api.quality().then(setQ) }, [])
   useEffect(() => { api.intent().then(setIntent).catch(() => setIntent({})) }, [])
+
+  // 「进度」入口:数据就绪后滚动并聚焦码字进度面板
+  useEffect(() => {
+    if (focus === 'progress' && q) {
+      const t = setTimeout(() => progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+      return () => clearTimeout(t)
+    }
+  }, [focus, q])
 
   if (!q) return <div className="p-8 text-faint">加载中…</div>
 
@@ -753,7 +762,9 @@ export function InsightView({ onJumpChapter }) {
           }}
         />
 
-        <ProgressPanel key={progressKey} onGoalEdit={() => setGoalOpen(true)} />
+        <div ref={progressRef} className={focus === 'progress' ? 'scroll-mt-4 rounded-xl ring-2 ring-brand/40 transition-shadow' : ''}>
+          <ProgressPanel key={progressKey} onGoalEdit={() => setGoalOpen(true)} />
+        </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           <Metric icon={FileText} label="规模" value={q.total_words?.toLocaleString() || 0}

@@ -3,6 +3,7 @@ import { CodexDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
+import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
 import { ContainerOutline } from './ContainerOutline'
 
@@ -31,11 +32,12 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
+    const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
     if (k === 'atlas') return <AtlasView key={work} />
     if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} />
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} />
-    if (k === 'overview') return <InsightView key={work} onJumpChapter={onJumpChapter} />   // MVP:概览暂复用仪表盘
-    if (k === 'progress') return <InsightView key={work} onJumpChapter={onJumpChapter} />   // 进度视图:复用仪表盘(含 ProgressPanel)
+    if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 
@@ -49,9 +51,12 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
   }
 
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
+  // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;
+  // 点场景即打开其所属章(正确章,非假跳),并把 idx 透传给 ChapterStudio 供未来定位。
   if (node.type === 'chapter' || node.type === 'scene') {
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
-    return <ChapterStudio key={work} work={work} seq={seq}
+    const sceneIdx = node.type === 'scene' ? node.ref?.idx : null
+    return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx}
       onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
   }
 
