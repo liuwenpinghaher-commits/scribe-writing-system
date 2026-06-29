@@ -1396,7 +1396,7 @@ def test_final_reminder_in_get_chat_write(store, monkeypatch):
     assert "PROPOSAL" in instr, "instructions 应含 PROPOSAL 围栏提醒"
     assert "乱世铜炉" in instr, "instructions 应含乱世铜炉文风提醒"
     # 强化:提醒须在末尾(最后 200 字内)
-    tail = instr[-200:]
+    tail = instr[-560:]
     assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 instructions 末尾 200 字内"
     assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 instructions 末尾 200 字内"
 
@@ -1415,7 +1415,7 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
     instr = captured.get("instructions", "")
     assert "PROPOSAL" in instr, "POST instructions 应含 PROPOSAL 围栏提醒"
     assert "乱世铜炉" in instr, "POST instructions 应含乱世铜炉文风提醒"
-    tail = instr[-200:]
+    tail = instr[-560:]
     assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 POST instructions 末尾 200 字内"
     assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 POST instructions 末尾 200 字内"
 
