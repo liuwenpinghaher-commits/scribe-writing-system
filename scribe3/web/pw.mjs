@@ -332,8 +332,13 @@ const ACTIONS = {
       await tad.click(); await tad.fill(draft); await p.getByRole('button', { name: /存草稿/ }).click(); await sleep(1400)
     }
     out.draft = draft.length
-    // —— 正文(清空→写循环→存为正文)——
+    // —— 正文(设视角→清空→写循环→存为正文)——
     await switchTab('正文')
+    if (args.focalizer) {
+      const fsel = p.locator('select').filter({ has: p.locator('option', { hasText: '作者视角' }) }).first()
+      await fsel.selectOption({ label: args.focalizer }).catch(() => {})
+      await sleep(500); await clickSave(p, 1600)
+    }
     const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
     await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
     await clickSave(p, 2200)
