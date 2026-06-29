@@ -321,33 +321,15 @@ function EditorChat({ context }) {
     setMessages((m) => [...m, { role: 'user', text: msg }])
     setInput('')
     setSending(true)
-    try {
-      const res = await fetch((import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3321') + '/chat/stream?msg=' + encodeURIComponent(msg) + '&work=main')
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let assistantText = ''
-      setMessages((m) => [...m, { role: 'assistant', text: '' }])
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const d = JSON.parse(line.slice(6))
-              if (d.delta) { assistantText += d.delta; setMessages((m) => { const nm = [...m]; nm[nm.length - 1] = { role: 'assistant', text: assistantText }; return nm }) }
-              if (d.done) break
-              if (d.error) { setMessages((m) => { const nm = [...m]; nm[nm.length - 1] = { role: 'assistant', text: '错误: ' + d.error }; return nm }) }
-            } catch {}
-          }
-        }
-      }
-    } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: '连接失败: ' + e.message }])
-    } finally { setSending(false) }
+    // 走 api.chatStream:内部已带当前 work(不再硬编码 &work=main 串库)
+    let assistantText = ''
+    setMessages((m) => [...m, { role: 'assistant', text: '' }])
+    const setLast = (text) => setMessages((m) => { const nm = [...m]; nm[nm.length - 1] = { role: 'assistant', text }; return nm })
+    api.chatStream(msg, {
+      onDelta: (delta) => { assistantText += delta; setLast(assistantText) },
+      onDone: () => setSending(false),
+      onError: (err) => { setLast('错误: ' + err); setSending(false) },
+    })
   }
 
   return (

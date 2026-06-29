@@ -1,9 +1,16 @@
 import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail } from './CodexDetail'
+import { CodexNew } from './CodexNew'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { TimelineView } from './views/TimelineView'
 import { ContainerOutline } from './ContainerOutline'
+
+// 素材分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
+const CAT_LEAF_TYPE = {
+  character: 'character', faction: 'faction', item: 'item', term: 'term',
+  world_rule: 'world_rule', promise: 'promise', motif: 'motif',
+}
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
 const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
@@ -46,6 +53,22 @@ export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapt
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
     return <ChapterStudio key={work} work={work} seq={seq}
       onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
+  }
+
+  // —— 素材新建 → 新建表单(创建后重载树并选中新条目) ——
+  if (node.type === 'codex_new') {
+    const cat = node.ref
+    return <CodexNew key={node.id} catType={cat} label={node.label}
+      onCancel={() => onSelectNode?.({ id: `cat:${cat}`, type: 'codex_category', ref: cat, label: node.label })}
+      onCreated={(catType, ref) => {
+        onTreeChanged?.()
+        const leafType = CAT_LEAF_TYPE[catType]
+        if (leafType && ref != null) {
+          onSelectNode?.({ id: `${leafType}:${ref}`, type: leafType, ref, label: String(ref) })
+        } else {
+          onSelectNode?.({ id: `cat:${catType}`, type: 'codex_category', ref: catType, label: node.label })
+        }
+      }} />
   }
 
   // —— 素材叶 → 详情卡 ——

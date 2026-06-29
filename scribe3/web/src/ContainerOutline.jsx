@@ -322,16 +322,34 @@ function PlainChapterList({ lanes, onOpen }) {
   )
 }
 
-// 非手稿容器(素材分类等)→ 沿用 MVP 子项列表
+// 素材分类:ref(cat_type)→ 可新建?(全部 7 类均可)
+const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
+
+// 非手稿容器(素材分类等)→ 子项列表 + 「+ 新建」入口 + 角色待确认引用
 function PlainList({ node, onSelect }) {
   const kids = node?.children || []
+  const catType = node?.ref
+  const canCreate = node?.type === 'codex_category' && CODEX_CATS.has(catType)
+  const newNode = () => onSelect?.({ id: `new:${catType}`, type: 'codex_new', ref: catType, label: node?.label })
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-6">
-        <h2 className="text-[18px] font-semibold text-ink mb-1">{node?.label}</h2>
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
+          {canCreate && (
+            <button onClick={newNode}
+              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+              <Plus size={13} /> 新建
+            </button>
+          )}
+        </div>
         <div className="text-[12px] text-faint mb-4">{kids.length} 项</div>
+        {/* 角色分类:展示 ingest 抽出的待确认人物引用复核面板 */}
+        {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
         {kids.length === 0 ? (
-          <div className="text-[13px] text-faint/60 py-8 text-center">暂无子项。</div>
+          <div className="text-[13px] text-faint/60 py-8 text-center">
+            暂无子项。{canCreate && <button onClick={newNode} className="text-brand hover:underline cursor-pointer ml-1">点此新建</button>}
+          </div>
         ) : (
           <div className="space-y-1.5">
             {kids.map((c) => (
@@ -342,6 +360,44 @@ function PlainList({ node, onSelect }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ingest 抽出的库外人物引用 → 接受为角色 / 忽略(复用 /ingest-unverified 端点)
+function UnverifiedRefs({ onSelect }) {
+  const [items, setItems] = useState(null)
+  const toast = useToast()
+  const reload = () => api.listUnverified().then(setItems).catch(() => setItems([]))
+  useEffect(() => { reload() }, [])
+  const remove = (id) => setItems((prev) => (prev || []).filter((p) => p.id !== id))
+  const accept = async (p) => {
+    try { await api.acceptUnverified(p.id); remove(p.id); toast?.(`已接受「${p.name}」为角色`) }
+    catch (e) { toast?.(e?.body?.detail || '接受失败', { tone: 'danger' }) }
+  }
+  const ignore = async (p) => {
+    try { await api.ignoreUnverified(p.id); remove(p.id) }
+    catch (e) { toast?.(e?.body?.detail || '忽略失败', { tone: 'danger' }) }
+  }
+  if (!items || items.length === 0) return null
+  return (
+    <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-4 mb-4">
+      <div className="text-[13px] font-medium text-ink mb-3">待确认人物引用 ({items.length})</div>
+      <div className="space-y-2">
+        {items.map((p) => (
+          <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+            <span className="text-[13px] text-ink flex-1 min-w-0 truncate">
+              {p.name} <span className="text-faint">· 第{p.seq}章 · {p.role}</span>
+            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button onClick={() => accept(p)}
+                className="text-[12px] px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
+              <button onClick={() => ignore(p)}
+                className="text-[12px] px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors cursor-pointer">忽略</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
