@@ -680,6 +680,50 @@ def find_duplicate_lines(text: str, min_chars: int = 6) -> list[dict]:
     return out
 
 
+def find_parallelism(text: str, min_run: int = 3, prefix_len: int = 2) -> list[dict]:
+    """检测排比/同句式复读(AI 抒情腔):连续 >=min_run 个句子以相同的起首
+    (前 prefix_len 个汉字)开头,或相邻句反复用同一引导词(就像/穿过/有些/不是…)。
+
+    乱世铜炉志怪笔记体忌排比抒情;opus 评判反复点名"同句式≥3连"是 AI 腔。
+    切句:按换行 + 中文句末标点(。!?…)+ 逗号分句(排比常以逗号断)。
+    归一:剥离起首引号/破折号等装饰符后取前 prefix_len 个汉字为指纹。
+    返回 [{"prefix": <起首>, "count": <连排数>, "sample": <首句>}],按 count 降序。
+    仅在指纹是汉字(非纯标点/数字)时计入。
+    """
+    raw = text or ""
+    # 句/读切分:句末标点与逗号、顿号都作为排比分句边界
+    pieces: list[str] = []
+    for line in raw.split("\n"):
+        for seg in re.split(r"[。！？…,，、;；\n]", line):
+            seg = seg.strip().lstrip("\"'“”‘’—…·　 ")
+            if seg:
+                pieces.append(seg)
+
+    def fp(s: str) -> str:
+        # 取前 prefix_len 个汉字作指纹
+        han = re.findall(r"[一-鿿]", s)
+        return "".join(han[:prefix_len]) if len(han) >= prefix_len else ""
+
+    out: list[dict] = []
+    i = 0
+    n = len(pieces)
+    while i < n:
+        f = fp(pieces[i])
+        if not f:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and fp(pieces[j]) == f:
+            j += 1
+        run = j - i
+        if run >= min_run:
+            out.append({"prefix": f, "count": run, "sample": pieces[i][:24]})
+        i = j if j > i else i + 1
+
+    out.sort(key=lambda x: -x["count"])
+    return out
+
+
 def find_emotion_telling(text: str) -> list[dict]:
     """检测叙述层直陈情绪/直接评语的句子(确定性正则,宁缺勿滥)。
 

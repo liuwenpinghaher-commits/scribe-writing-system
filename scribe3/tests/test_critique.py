@@ -469,3 +469,23 @@ class TestFindEmotionTelling:
         hits = find_emotion_telling("他感到绝望,瘫坐在地。")
         assert hits
         assert all("span" in h and h["span"] for h in hits)
+
+
+class TestFindParallelism:
+    """排比/同句式≥3连检测器(堵 AI 抒情腔,opus 评判反复点名)。"""
+
+    def test_anaphora_run_detected(self):
+        from scribe3.critique import find_parallelism
+        t = "就像她没待过，就像她没剔过纸鸢，就像她没见过指骨。"
+        hits = find_parallelism(t)
+        assert any(h["prefix"] == "就像" and h["count"] >= 3 for h in hits), hits
+
+    def test_normal_prose_no_false_positive(self):
+        from scribe3.critique import find_parallelism
+        t = "柳怀玉捏着竹篾。门外站着青衣女子。河水拍打着岸边的石头。"
+        assert find_parallelism(t) == []
+
+    def test_two_run_not_flagged(self):
+        from scribe3.critique import find_parallelism
+        t = "穿过人群，穿过花香。"  # 仅2连,不足min_run=3
+        assert find_parallelism(t) == []
