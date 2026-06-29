@@ -205,6 +205,20 @@ const ACTIONS = {
   doFinal: async (p) => {
     await openBook(p, args.title)
     await openChapterTab(p, args.seq || 1, '正文')
+    // 设本章视角(focalizer):引擎层锚定限知POV——写作 prompt 会注入"跟随焦点者X限知视角"+限知帧+揭示纪律,
+    // 防模型默认主角视角漂移。按角色名选「本章视角」下拉,保存落库。
+    if (args.focalizer) {
+      const sel = p.locator('select').filter({ has: p.locator('option', { hasText: '作者视角' }) }).first()
+      await sel.selectOption({ label: args.focalizer }).catch(async () => {
+        // label 可能带后缀,用 value 含名兜底
+        const val = await sel.locator('option', { hasText: args.focalizer }).first().getAttribute('value').catch(() => null)
+        if (val) await sel.selectOption(val)
+      })
+      await sleep(600)
+      await clickSave(p, 1800)  // 持久 focalizer
+      const cur = await sel.inputValue().catch(() => '')
+      console.error('焦点者设为:', args.focalizer, '| select值:', cur)
+    }
     // 重写前清空正文(否则首条提案会 append 旧稿→新旧拼接)。clear=true 时执行。
     if (args.clear) {
       const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
@@ -243,6 +257,42 @@ const ACTIONS = {
       r++; rounds.push({ r, ok, len: await proseLen() })
       if (!ok) break
     }
+    await clickSave(p, 3500)
+    await p.screenshot({ path: `${SHOTS}/final_${args.seq || 1}.png` })
+    return { finalLen: await proseLen(), rounds }
+  },
+
+  // 多轮分场景写正文:msgs 数组每条是一轮写作消息(各锚一个具体场景),逐轮发送→接受。
+  // 用于强约束 POV/场景的章节(防模型把整章漂到默认主角)。支持 focalizer + clear。
+  doFinalMulti: async (p) => {
+    await openBook(p, args.title)
+    await openChapterTab(p, args.seq || 1, '正文')
+    if (args.focalizer) {
+      const sel = p.locator('select').filter({ has: p.locator('option', { hasText: '作者视角' }) }).first()
+      await sel.selectOption({ label: args.focalizer }).catch(() => {})
+      await sleep(500); await clickSave(p, 1600)
+    }
+    if (args.clear !== false) {
+      const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
+      await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
+      await clickSave(p, 2200)
+    }
+    const proseLen = () => p.evaluate(() => { const e = document.querySelector('[data-testid="detail"] .ProseMirror'); return e ? e.innerText.replace(/\s/g, '').length : 0 })
+    const sendWrite = async (msg) => {
+      const ta = p.locator('[data-testid="chief"] textarea').first()
+      await ta.click(); await ta.fill(msg); await ta.press('Enter')
+      const accept = p.getByRole('button', { name: '接受', exact: true })
+      const t0 = Date.now()
+      while (Date.now() - t0 < 300000) {
+        await sleep(4000)
+        if (await accept.count()) { const en = await accept.first().isEnabled().catch(() => false); if (en) { await sleep(2500); if (await accept.first().isEnabled().catch(() => false)) break } }
+      }
+      if (await accept.count() === 0) return false
+      await accept.first().click(); await sleep(3500); return true
+    }
+    const rounds = []
+    let i = 0
+    for (const msg of (args.msgs || [])) { i++; const ok = await sendWrite(msg); rounds.push({ r: i, ok, len: await proseLen() }); if (!ok) break }
     await clickSave(p, 3500)
     await p.screenshot({ path: `${SHOTS}/final_${args.seq || 1}.png` })
     return { finalLen: await proseLen(), rounds }
