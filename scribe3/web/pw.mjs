@@ -49,6 +49,15 @@ async function openChapterTab(p, seq, tab) {
   if (tab) { await p.getByText(tab, { exact: true }).first().click(); await sleep(1200) }
 }
 
+// 点「存为正文」:先按 Escape 关掉可能拦截的浮层(fixed inset-0 z-40 弹层背景),再 force 点击。
+async function clickSave(p, wait = 2500) {
+  await p.keyboard.press('Escape').catch(() => {})
+  await sleep(300)
+  const btn = p.getByRole('button', { name: '存为正文' }).first()
+  try { await btn.click({ timeout: 8000 }) } catch { await btn.click({ force: true }) }
+  await sleep(wait)
+}
+
 // 右栏主编 chat:发一条消息,等流式响应真正完成,返回主编回复文本。
 // 完成判定:发送按钮 spinner(busy)消失 + 最后一条 assistant 气泡有真实内容(非「主编在思考…」占位)。
 // agentic 讨论会联查设定,慢(可达 1-3 分钟)。
@@ -200,7 +209,7 @@ const ACTIONS = {
     if (args.clear) {
       const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
       await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
-      await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(2200)
+      await clickSave(p, 2200)
     }
     const target = args.target || 5200
     const maxRounds = args.maxRounds || 6
@@ -234,7 +243,7 @@ const ACTIONS = {
       r++; rounds.push({ r, ok, len: await proseLen() })
       if (!ok) break
     }
-    await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(3500)
+    await clickSave(p, 3500)
     await p.screenshot({ path: `${SHOTS}/final_${args.seq || 1}.png` })
     return { finalLen: await proseLen(), rounds }
   },
@@ -277,7 +286,7 @@ const ACTIONS = {
     await switchTab('正文')
     const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
     await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
-    await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(2200)
+    await clickSave(p, 2200)
     const proseLen = () => p.evaluate(() => { const e = document.querySelector('[data-testid="detail"] .ProseMirror'); return e ? e.innerText.replace(/\s/g, '').length : 0 })
     const sendWrite = async (msg) => {
       const ta = p.locator('[data-testid="chief"] textarea').first()
@@ -295,7 +304,7 @@ const ACTIONS = {
     const fr = []
     fr.push(await sendWrite(args.finalFirstMsg)); let r = 1
     while ((await proseLen()) < target && r < maxRounds) { const ok = await sendWrite(args.finalContMsg); r++; fr.push(ok); if (!ok) break }
-    await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(3500)
+    await clickSave(p, 3500)
     out.final = await proseLen(); out.rounds = fr.length
     await p.screenshot({ path: `${SHOTS}/chapter_${seq}.png` })
     return out
