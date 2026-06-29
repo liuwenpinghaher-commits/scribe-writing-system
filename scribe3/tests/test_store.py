@@ -1228,3 +1228,69 @@ class TestTimelineWindow:
                                   motivated_by_goal="g", causal_in=[("ev:e1", "enables")]))
         items = store.timeline(ch_from=1, ch_to=100)
         assert len(items) >= 5
+
+
+# ===== Phase0-BE2 四阶段写作:beats / draft / chapter_version 扩字段 =====
+
+def test_chapter_beats_roundtrip(store):
+    """节拍 beats 读写往返:写 JSON 串数组,get_chapter 解析还原为 list。"""
+    store.save_chapter(1, "正文。", title="第一章")
+    beats = [{"text": "开场:潭家满门遭屠", "done": True}, {"text": "焦三登场"}]
+    assert store.update_chapter_meta(1, {"beats": beats}) is True
+    ch = store.get_chapter(1)
+    assert ch.get("beats") == beats
+
+
+def test_chapter_beats_default_empty(store):
+    """未写过 beats 的章:get_chapter 返回 beats=[](字段恒在,向后兼容)。"""
+    store.save_chapter(2, "正文。", title="第二章")
+    ch = store.get_chapter(2)
+    assert ch.get("beats") == []
+
+
+def test_chapter_draft_roundtrip(store):
+    """草稿 draft 与正文 prose 分离:save_draft 写 draft,get_chapter 取回,prose 不受影响。"""
+    store.save_chapter(3, "这是定稿正文。", title="第三章")
+    store.save_chapter_draft(3, "这是草稿正文。")
+    ch = store.get_chapter(3)
+    assert ch.get("draft") == "这是草稿正文。"
+    assert ch.get("prose") == "这是定稿正文。"
+
+
+def test_chapter_version_stage_fields(store):
+    """chapter_version 新增 stage/summary/stats;list/get 带上。"""
+    import json
+    vid = store.add_chapter_version(
+        4, "草稿正文。", label="v1", kind="checkpoint",
+        stage="draft", summary="第一稿", stats={"words": 5, "avg_sentence": 5, "dialog_count": 0})
+    rows = store.list_chapter_versions(4)
+    assert rows and rows[0]["id"] == vid
+    assert rows[0]["stage"] == "draft"
+    assert rows[0]["summary"] == "第一稿"
+    got = store.get_chapter_version(vid)
+    assert got["stage"] == "draft"
+    assert json.loads(got["stats"])["words"] == 5
+
+
+def test_chapter_version_stage_defaults_final(store):
+    """向后兼容:add_chapter_version 不传 stage → 默认 'final'。"""
+    vid = store.add_chapter_version(5, "正文。", kind="checkpoint")
+    got = store.get_chapter_version(vid)
+    assert got["stage"] == "final"
+
+
+def test_latest_draft_version(store):
+    """latest_draft_version 取该章最新 draft 版(忽略 final 版)。"""
+    store.add_chapter_version(6, "草稿A。", stage="draft", summary="A")
+    store.add_chapter_version(6, "正文定稿。", stage="final")
+    store.add_chapter_version(6, "草稿B。", stage="draft", summary="B")
+    latest = store.latest_draft_version(6)
+    assert latest is not None
+    assert latest["prose"] == "草稿B。"
+    assert latest["stage"] == "draft"
+
+
+def test_latest_draft_version_none(store):
+    """无 draft 版时 latest_draft_version 返回 None。"""
+    store.add_chapter_version(7, "正文定稿。", stage="final")
+    assert store.latest_draft_version(7) is None

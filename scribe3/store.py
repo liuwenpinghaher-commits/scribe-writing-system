@@ -1130,34 +1130,90 @@ class SurrealStore:
                 "_record_daily_progress 失败(记账跳过,存稿不受影响): %s", _e)
 
     def add_chapter_version(self, seq: int, prose: str, label: str = "",
-                            kind: str = "checkpoint", qc: dict | None = None) -> str:
-        """记一个命名存档点。返回新版本的裸 id。"""
+                            kind: str = "checkpoint", qc: dict | None = None,
+                            stage: str = "final", summary: str = "",
+                            stats: dict | None = None) -> str:
+        """记一个存档点。返回新版本的裸 id。
+        Phase0-BE2:扩 stage('draft'|'final')/ summary / stats(JSON 串绕嵌套 schema)。
+        向后兼容:旧调用不传 stage → 默认 'final';stats 不传 → 不写(列为 NONE)。
+        """
+        import json
+        stats_str = json.dumps(stats, ensure_ascii=False) if stats is not None else None
         rows = self._query(
             "CREATE chapter_version SET seq=$seq, prose=$prose, label=$label, "
-            "kind=$kind, qc=$qc, created_at=time::now()",
-            {"seq": seq, "prose": prose, "label": label, "kind": kind, "qc": qc or {}})
+            "kind=$kind, qc=$qc, stage=$stage, summary=$summary, stats=$stats, "
+            "created_at=time::now()",
+            {"seq": seq, "prose": prose, "label": label, "kind": kind, "qc": qc or {},
+             "stage": stage, "summary": summary, "stats": stats_str})
         # CREATE 返回新记录(含 id,形如 'chapter_version:xxxx');取裸 id 部分。
         rid = rows[0]["id"] if rows else None
         return str(rid).split(":")[-1] if rid else ""
 
     def list_chapter_versions(self, seq: int) -> list[dict]:
-        """某章存档点列表(不含 prose 全文),最新在前。"""
-        return self._query(
-            "SELECT meta::id(id) AS id, seq, label, kind, qc, created_at "
+        """某章存档点列表(不含 prose 全文),最新在前。
+        stage 缺失(旧版本)降级为 'final'(向后兼容)。"""
+        rows = self._query(
+            "SELECT meta::id(id) AS id, seq, label, kind, qc, "
+            "stage, summary, stats, created_at "
             "FROM chapter_version WHERE seq=$seq ORDER BY created_at DESC",
             {"seq": seq})
+        for r in rows:
+            if not r.get("stage"):
+                r["stage"] = "final"
+            r.setdefault("summary", "")
+        return rows
 
     def get_chapter_version(self, vid: str) -> dict | None:
         """单个存档点全文(回看用)。"""
         rows = self._query(
-            "SELECT meta::id(id) AS id, seq, prose, label, kind, qc, created_at "
+            "SELECT meta::id(id) AS id, seq, prose, label, kind, qc, "
+            "stage, summary, stats, created_at "
             "FROM type::record('chapter_version', $vid)", {"vid": vid})
-        return rows[0] if rows else None
+        if not rows:
+            return None
+        r = rows[0]
+        if not r.get("stage"):
+            r["stage"] = "final"
+        r.setdefault("summary", "")
+        return r
+
+    def latest_draft_version(self, seq: int) -> dict | None:
+        """该章最新 draft 版(prose+stats),供刷新恢复。无 draft 版返回 None。"""
+        rows = self._query(
+            "SELECT meta::id(id) AS id, seq, prose, label, summary, stats, created_at "
+            "FROM chapter_version WHERE seq=$seq AND stage='draft' "
+            "ORDER BY created_at DESC LIMIT 1",
+            {"seq": seq})
+        if not rows:
+            return None
+        r = rows[0]
+        r["stage"] = "draft"
+        r.setdefault("summary", "")
+        return r
+
+    def save_chapter_draft(self, seq: int, draft: str) -> None:
+        """落/覆盖某章草稿(与定稿 prose 分离;UPSERT 不碰 prose/embedding/qc)。
+        刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。"""
+        self._execute_write(
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft",
+            {"seq": seq, "draft": draft})
 
     def get_chapter(self, seq: int) -> dict | None:
-        rows = self._query("SELECT seq,title,focalizer,prose FROM type::record('chapter',$seq)",
-                           {"seq": seq})
-        return rows[0] if rows else None
+        """单章身份 + 四阶段内容(synopsis/beats/draft/prose)。
+        beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
+        rows = self._query(
+            "SELECT seq,title,focalizer,prose,synopsis,beats,draft "
+            "FROM type::record('chapter',$seq)", {"seq": seq})
+        if not rows:
+            return None
+        r = rows[0]
+        import json
+        raw_beats = r.get("beats")
+        try:
+            r["beats"] = json.loads(raw_beats) if raw_beats else []
+        except (ValueError, TypeError):
+            r["beats"] = []
+        return r
 
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
@@ -2700,7 +2756,7 @@ class SurrealStore:
             "SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not exists:
             return False
-        allowed = {"synopsis", "volume", "label", "title"}
+        allowed = {"synopsis", "volume", "label", "title", "beats"}
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -2709,6 +2765,10 @@ class SurrealStore:
                 continue
             if k == "volume":
                 volume_id = v   # None = 清空, str = 新卷裸 id
+            elif k == "beats":
+                # 节拍存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
+                import json
+                plain["beats"] = json.dumps(v if v is not None else [], ensure_ascii=False)
             else:
                 plain[k] = v
         # 构建 SET 子句:先处理普通字段,再追加 volume(若有)

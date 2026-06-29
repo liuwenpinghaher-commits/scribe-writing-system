@@ -1404,6 +1404,7 @@ class ChatWriteReq(BaseModel):
     focalizer: str = ""
     images: list[ImageModel] = []
     seed_words: list[str] = []   # 浸泡产出的情绪种子词(由前端可选传入),注入写作 prompt
+    phase: str = ""              # 阶段角色(Phase0-BE2):plan|draft|final;空=现状不变
 
     @field_validator("images")
     @classmethod
@@ -1444,6 +1445,22 @@ def _revelation_discipline_block(focalizer: str | None) -> str:
     )
 
 
+def _phase_role_block(phase: str) -> str:
+    """阶段角色提示块(Phase0-BE2 四阶段):按写作阶段微调主编侧重。
+    phase 空 → 返回空串(默认行为不变)。plan/draft/final 各加一句角色提示,挂 instructions 末尾。"""
+    p = (phase or "").strip().lower()
+    roles = {
+        "plan": "## 阶段角色(规划期)\n你此刻是规划者:重事件因果与结构骨架——先把这章要发生什么、"
+                "推动哪条线、落哪些伏笔/弧光说清,暂不雕字句。",
+        "draft": "## 阶段角色(草稿期)\n你此刻是写手:重限知帧——严格贴焦点者所知所感铺陈,"
+                 "先把场景与节拍落成连贯草稿,允许糙,但不得越界写焦点者不知之事。",
+        "final": "## 阶段角色(正文期)\n你此刻是编审:重 QC——逐句收紧文风、清复读与 AI 腔、"
+                 "查情感直说与限知泄露,把草稿打磨成定稿。",
+    }
+    block = roles.get(p)
+    return f"\n\n{block}" if block else ""
+
+
 def _final_reminder() -> str:
     """末尾强化提醒(recency 效应):把三条非谈判性约束放在 instructions 最后,
     对抗多块拼接后关键规则被稀释的注意力漂移。不含新信息,仅复述最高优先级约束。"""
@@ -1478,6 +1495,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
+    instructions += _phase_role_block(req.phase)
     instructions += _final_reminder()
 
     if req.images:
@@ -1537,6 +1555,7 @@ class ChapterMetaReq(BaseModel):
     volume: str | None = None   # 卷裸 id 或 None(置未分卷)
     label: str | None = None
     title: str | None = None
+    beats: list | None = None   # 节拍:[{text, done?}, ...](Phase0-BE2 四阶段)
 
 
 @app.patch("/chapters/{seq}")
@@ -1663,6 +1682,14 @@ def _bg_ingest(work: str, seq: int) -> None:
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
+    # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
+    try:
+        st.add_chapter_version(req.seq, req.prose, label="", kind="final",
+                               stage="final", stats=_prose_stats(req.prose))
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "save-chapter 自动留 final 版失败(存稿不受影响) work=%s seq=%s: %s", work, req.seq, e)
     # 软校验(确定性、快、不打 LLM):QC + 限知泄露。回写走独立 /ingest(前端接受后再调)。
     from scribe3.critique import quality_flags, find_cross_chapter_repetitions, find_duplicate_lines, find_emotion_telling
     qf = quality_flags(req.prose)
@@ -1931,6 +1958,52 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
     if req.kind == "final":
         background.add_task(_bg_ingest, work, seq)
     return {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
+
+
+def _prose_stats(prose: str) -> dict:
+    """轻量正文统计:{words, avg_sentence, dialog_count}。纯确定性,不打 LLM。
+    - words:去空白字符数(同 save_chapter 的字数口径)。
+    - avg_sentence:按句末标点切句的平均句长(字符)。
+    - dialog_count:含引号的行/句计为对白(粗略,够前端展示)。"""
+    import re
+    words = len("".join((prose or "").split()))
+    sentences = [s for s in re.split(r"[。！？!?…]+", prose or "") if s.strip()]
+    avg_sentence = round(words / len(sentences), 1) if sentences else 0
+    dialog_count = len(re.findall(r"[“「『][^”」』]*[”」』]", prose or ""))
+    return {"words": words, "avg_sentence": avg_sentence, "dialog_count": dialog_count}
+
+
+class SaveDraftReq(BaseModel):
+    prose: str
+    summary: str = ""
+
+
+@app.post("/save-draft")
+def save_draft(req: SaveDraftReq, seq: int, work: str = "main"):
+    """存草稿(四阶段·写手期):写 chapter.draft + 追加 chapter_version(stage='draft')。
+    刷新恢复读最新 draft(chapter.draft 是最新草稿;版本是历史采用点)。返回新版本 id。"""
+    st = _store_for(work)
+    st.save_chapter_draft(seq, req.prose)
+    stats = _prose_stats(req.prose)
+    # kind 限于 ['checkpoint','final'](038 枚举校验);草稿/正文语义走新轴 stage,kind 保持 checkpoint。
+    vid = st.add_chapter_version(seq, req.prose, label="", kind="checkpoint",
+                                 stage="draft", summary=req.summary, stats=stats)
+    return {"status": "saved", "id": vid, "seq": seq, "stage": "draft", "stats": stats}
+
+
+@app.get("/latest-draft")
+def latest_draft(seq: int, work: str = "main"):
+    """取该章最新 draft 版(prose+stats),供刷新恢复。无 draft 版返回空对象 {}。"""
+    v = _store_for(work).latest_draft_version(seq)
+    if not v:
+        return {}
+    import json
+    raw = v.get("stats")
+    try:
+        v["stats"] = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        v["stats"] = {}
+    return v
 
 
 @app.get("/chapter-versions")

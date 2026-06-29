@@ -3052,3 +3052,106 @@ def test_quality_qc_breakdown_preserved(store):
     assert set(ch1["qc_breakdown"]) == {"repetition", "structural", "purple",
                                          "ai_tics", "oversaturation"}
     assert "qc_issues" in ch1 and "causal" in ch1 and "word_count" in ch1
+
+
+# ===== Phase0-BE2 四阶段写作:/save-draft /latest-draft + save-chapter 自动 final 版 + phase 钩子 =====
+
+def test_save_draft_persists_and_versions(store):
+    """POST /save-draft:写 chapter.draft + 追加 chapter_version(stage='draft'),返回版本 id。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 10, "prose": "定稿。", "title": "第十章"})
+    r = c.post("/save-draft", params={"seq": 10},
+               json={"prose": "草稿正文。她推开门，外面下着雨。", "summary": "初稿"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "saved"
+    assert body["id"]
+    # draft 落库,prose 不被覆盖
+    ch = store.get_chapter(10)
+    assert ch["draft"] == "草稿正文。她推开门，外面下着雨。"
+    assert ch["prose"] == "定稿。"
+    # 留了一个 draft 版
+    vers = c.get("/chapter-versions", params={"seq": 10}).json()
+    assert any(v["stage"] == "draft" and v["summary"] == "初稿" for v in vers)
+
+
+def test_latest_draft_roundtrip(store):
+    """GET /latest-draft:取回最新 draft 版(prose+stats)。"""
+    c = _client(store)
+    c.post("/save-draft", params={"seq": 11}, json={"prose": "草稿一。"})
+    c.post("/save-draft", params={"seq": 11}, json={"prose": "草稿二。最新。"})
+    r = c.get("/latest-draft", params={"seq": 11})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["prose"] == "草稿二。最新。"
+    assert "stats" in body
+
+
+def test_latest_draft_none_returns_empty(store):
+    """无 draft 版:GET /latest-draft 返回空对象(204 语义降级为 200 空)。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 12, "prose": "只有定稿。"})
+    r = c.get("/latest-draft", params={"seq": 12})
+    assert r.status_code == 200
+    assert r.json() == {}
+
+
+def test_save_chapter_auto_final_version(store):
+    """POST /save-chapter:存正文时自动追加 chapter_version(stage='final')。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 13, "prose": "正文定稿。", "title": "第十三章"})
+    vers = c.get("/chapter-versions", params={"seq": 13}).json()
+    finals = [v for v in vers if v["stage"] == "final"]
+    assert len(finals) >= 1
+
+
+def test_save_chapter_failsoft_version(store, monkeypatch):
+    """留版失败不阻断存稿(fail-soft)。"""
+    c = _client(store)
+    monkeypatch.setattr(store, "add_chapter_version",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = c.post("/save-chapter", json={"seq": 14, "prose": "正文。"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "saved"
+
+
+def test_patch_chapter_beats(store):
+    """PATCH /chapters/{seq} 能改 beats(经 update_chapter_meta 白名单)。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 15, "prose": "正文。"})
+    r = c.patch("/chapters/15", json={"beats": [{"text": "拍1"}, {"text": "拍2", "done": True}]})
+    assert r.status_code == 200, r.text
+    ch = store.get_chapter(15)
+    assert ch["beats"] == [{"text": "拍1"}, {"text": "拍2", "done": True}]
+
+
+def test_chat_write_phase_default_unchanged(store, monkeypatch):
+    """phase 钩子:默认(phase 空)行为不变 —— instructions 不含阶段角色提示。"""
+    captured = {}
+
+    def fake_stream(message, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        yield "data: x\n\n"
+
+    monkeypatch.setattr(A, "_stream_write", fake_stream)
+    c = _client(store)
+    r = c.post("/chat/write", json={"msg": "这章怎么写", "chapter": 1})
+    assert r.status_code == 200
+    list(r.iter_lines())  # 触发生成器执行
+    assert "阶段角色" not in captured.get("instructions", "")
+
+
+def test_chat_write_phase_plan_injects_role(store, monkeypatch):
+    """phase='plan' → instructions 末尾追加规划期角色提示。"""
+    captured = {}
+
+    def fake_stream(message, instructions, expect_proposal=False):
+        captured["instructions"] = instructions
+        yield "data: x\n\n"
+
+    monkeypatch.setattr(A, "_stream_write", fake_stream)
+    c = _client(store)
+    r = c.post("/chat/write", json={"msg": "规划这章", "chapter": 1, "phase": "plan"})
+    assert r.status_code == 200
+    list(r.iter_lines())
+    assert "阶段角色" in captured["instructions"]
