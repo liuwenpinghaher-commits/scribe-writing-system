@@ -43,8 +43,9 @@ function Bubble({ role, content, tools, streaming }) {
   )
 }
 
-// 据当前选中(章/素材/视图)给主编做上下文前缀 + 一句话定位 + 建议提问
-function selContext(sel) {
+// 据当前选中(章/素材/视图)给主编做上下文前缀 + 一句话定位 + 建议提问。
+// phase(章阶段 tab)给定时,章的上下文/建议按阶段(大纲/节拍/草稿)调整。
+function selContext(sel, phase) {
   if (!sel) return { label: '未选中', prefix: '', suggests: [] }
   if (sel.mode === 'view') {
     const names = { atlas: '关系图谱', insight: '仪表盘', timeline: '时间线', overview: '概览', progress: '进度' }
@@ -59,6 +60,21 @@ function selContext(sel) {
   if (!node) return { label: '未选中', prefix: '', suggests: ['这本书现在整体进度如何?', '接下来我该写哪一章?'] }
   if (node.type === 'chapter' || node.type === 'scene') {
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
+    if (phase === 'outline') return {
+      label: `第 ${seq} 章 · 大纲`,
+      prefix: `【正在写第 ${seq} 章的大纲(synopsis)。请基于已有设定/伏笔/弧光,帮作者把这章大纲讨论清楚】\n`,
+      suggests: [`帮我把第 ${seq} 章大纲展开成 3-5 句`, `这章大纲和已埋的伏笔/弧光对得上吗?`],
+    }
+    if (phase === 'beats') return {
+      label: `第 ${seq} 章 · 节拍`,
+      prefix: `【正在拆第 ${seq} 章的节拍(beats)。请据本章大纲帮作者把这章拆成有序小节点】\n`,
+      suggests: [`据大纲把第 ${seq} 章拆成有序节拍`, `现在的节拍节奏有什么问题?`],
+    }
+    if (phase === 'draft') return {
+      label: `第 ${seq} 章 · 草稿`,
+      prefix: `【正在起第 ${seq} 章的草稿。请据本章大纲/节拍与限知帧,帮作者把草稿往下推】\n`,
+      suggests: [`据大纲和节拍给第 ${seq} 章草稿开个头`, `这段草稿哪里可以更冷/更志怪?`],
+    }
     return {
       label: `第 ${seq} 章`,
       prefix: `【当前选中:第 ${seq} 章】\n`,
@@ -127,15 +143,20 @@ function WriteSlot({ collapsed, onToggle }) {
  * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
  */
 export function ChiefDock({ sel, chapterSel, collapsed, onToggle }) {
-  // 章节点:渲染写作槽(WriteLayout portal 进来)。讨论 chat 的状态/SSE 在此分支不创建。
+  const { chapterPhase } = useChiefSlot()
   if (chapterSel) {
+    // 正文 tab(final)→ 写作槽(WriteLayout 的 WriteChat portal 进来,出草稿卡/护栏改写)。
+    // 大纲/节拍/草稿 tab → 讨论 chat(据阶段调上下文)——右栏不再因切 tab 而消失。
+    if (chapterPhase && chapterPhase !== 'final') {
+      return <DiscussionDock sel={sel} phase={chapterPhase} collapsed={collapsed} onToggle={onToggle} />
+    }
     return <WriteSlot collapsed={collapsed} onToggle={onToggle} />
   }
   return <DiscussionDock sel={sel} collapsed={collapsed} onToggle={onToggle} />
 }
 
-function DiscussionDock({ sel, collapsed, onToggle }) {
-  const ctx = useMemo(() => selContext(sel), [sel])
+function DiscussionDock({ sel, phase, collapsed, onToggle }) {
+  const ctx = useMemo(() => selContext(sel, phase), [sel, phase])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -146,7 +167,7 @@ function DiscussionDock({ sel, collapsed, onToggle }) {
   // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复
   const chatKey = sel?.mode === 'view'
     ? `${api.getWork()}:view:${sel.viewKey}`
-    : `${api.getWork()}:node:${sel?.node?.id || 'none'}`
+    : `${api.getWork()}:node:${sel?.node?.id || 'none'}${phase ? ':' + phase : ''}`
   useChatPersist(chatKey, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])

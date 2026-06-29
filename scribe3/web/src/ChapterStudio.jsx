@@ -6,6 +6,7 @@ import {
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
 import { useToast } from './ui/Toast.jsx'
+import { useChiefSlot } from './ChiefSlotContext'
 
 // 章四阶段:大纲(synopsis)→ 节拍(beats)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;草稿 saveDraft/latestDraft;正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
@@ -204,6 +205,10 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   const [refresh, setRefresh] = useState(0)
 
   const setPhaseP = (p) => { setPhase(p); localStorage.setItem('s3.chapter.phase', p) }
+
+  // 把当前阶段发布给右栏 ChiefDock:正文=写作槽;大纲/节拍/草稿=讨论(右栏 chat 不再消失)。
+  const { setChapterPhase } = useChiefSlot()
+  useEffect(() => { setChapterPhase(phase); return () => setChapterPhase(null) }, [phase, setChapterPhase])
 
   // F-06 场景级跳转:点项目树「场景」节点(sceneIdx 非空)→ 强制切到「正文」tab,
   // 由 WriteLayout 在正文加载后调 focusScene(sceneIdx) 滚到对应场景段。

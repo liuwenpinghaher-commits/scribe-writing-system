@@ -12,7 +12,7 @@ import { createContext, useCallback, useContext, useState } from 'react'
  * - WriteLayout 经 useChiefSlot() 拿到该 DOM,createPortal(<WriteChat/>, slotEl)。
  * - 槽未就绪(null)时,WriteLayout 内部兜底渲染(见 WriteLayout 注释),不丢 chat。
  */
-const ChiefSlotContext = createContext({ slotEl: null, setSlotEl: () => {} })
+const ChiefSlotContext = createContext({ slotEl: null, setSlotEl: () => {}, chapterPhase: null, setChapterPhase: () => {} })
 
 export function ChiefSlotProvider({ children }) {
   // 用 state 持有 slot DOM(而非裸 ref):槽挂载/卸载会触发依赖方重渲染,
@@ -20,8 +20,11 @@ export function ChiefSlotProvider({ children }) {
   const [slotEl, setSlotElState] = useState(null)
   // callback ref 形态:稳定引用,DOM 变化即同步(挂载传 el,卸载传 null)
   const setSlotEl = useCallback((el) => { setSlotElState(el || null) }, [])
+  // 当前章的阶段 tab(由 ChapterStudio 发布):'outline'|'beats'|'draft'|'final'|null。
+  // ChiefDock 据此决定右栏:final=写作槽(WriteLayout portal);其余=讨论(据阶段调上下文)。
+  const [chapterPhase, setChapterPhase] = useState(null)
   return (
-    <ChiefSlotContext.Provider value={{ slotEl, setSlotEl }}>
+    <ChiefSlotContext.Provider value={{ slotEl, setSlotEl, chapterPhase, setChapterPhase }}>
       {children}
     </ChiefSlotContext.Provider>
   )
