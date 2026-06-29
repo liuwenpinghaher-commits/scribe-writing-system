@@ -96,7 +96,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
   const dirtyRef = useRef({ seq: chapter, prose: '', chTitle: '', focalizer: '', dirty: false })
   const [btns, setBtns] = useState(() => loadButtons(work))
-  const [leftActive, setLeftActive] = useState('material')
+  const [leftActive, setLeftActive] = useState('')   // 内轨数据面板默认收起(减章视图密度;点图标可展开)
   const [rightActive, setRightActive] = useState('chat')
   const [matSeg, setMatSeg] = useState('structure')
   const [revSeg, setRevSeg] = useState('verify')

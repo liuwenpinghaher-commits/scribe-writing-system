@@ -202,7 +202,15 @@ export function AtlasView() {
         .map((n) => ({ id: n.id, label: n.label || n.id }))
       setChars(cs)
       if (cs.length) {
-        setFocus(cs[0].id) // 默认聚焦首个角色 → 触发 ego 子图加载
+        // 默认聚焦「最中心」角色(边数最多,通常是主角)→ 一进来就看到主关系网,而非随机首个稀疏角色。
+        const charIds = new Set(cs.map((c) => c.id))
+        const deg = {}
+        for (const e of (g.edges || [])) {
+          if (charIds.has(e.src)) deg[e.src] = (deg[e.src] || 0) + 1
+          if (charIds.has(e.dst)) deg[e.dst] = (deg[e.dst] || 0) + 1
+        }
+        const central = cs.reduce((best, c) => (deg[c.id] || 0) > (deg[best.id] || 0) ? c : best, cs[0])
+        setFocus(central.id) // 触发 ego 子图加载
       } else {
         // 无角色:直接把 top-limit 子图作为展示
         setRaw(g); setLoading(false)

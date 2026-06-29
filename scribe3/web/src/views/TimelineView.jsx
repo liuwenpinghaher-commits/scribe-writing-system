@@ -438,7 +438,8 @@ export function TimelineView({ onJumpChapter }) {
     const tl = timelineRef.current
     const hi = maxCh || 1
     const lo = Math.max(1, hi - 40)
-    tl.setWindow(chToDate(Math.max(1, lo - 0.5)), chToDate(hi + 1), { animation: false })
+    // 右端多留 ~1.5 章余白,末章不贴边(避免被右栏视觉挤压);左端留 0.5 章。
+    tl.setWindow(chToDate(Math.max(1, lo - 0.5)), chToDate(hi + 2.5), { animation: false })
     // 容器尺寸在挂载后可能变化,强制重绘
     requestAnimationFrame(() => tl.redraw())
   }, [items, groups, hasContent, maxCh])
