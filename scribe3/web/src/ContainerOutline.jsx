@@ -112,6 +112,27 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   const lanes = useMemo(() => buildLanes(outline, node), [outline, node])
 
+  // 新建章:空书/任意手稿容器都能起新章(原本只有「新建卷」,无建章入口→空书没法开写)。
+  // 算最大 seq+1,存空章(seq 是故事时间轴主键),reload 后打开进四阶段写作。
+  const [addingCh, setAddingCh] = useState(false)
+  const addChapter = async () => {
+    if (addingCh) return
+    setAddingCh(true)
+    const maxSeq = (outline?.chapters || []).reduce((m, c) => Math.max(m, c.seq || 0), 0)
+    const seq = maxSeq + 1
+    try {
+      await api.saveChapter(seq, '', `第${seq}章`, '')
+      // 若当前在某卷视图,把新章归入该卷(否则进未分卷)
+      if (node?.type === 'volume' && node.ref != null) {
+        const volSeqs = (outline?.chapters || []).filter((c) => String(c.volume) === String(node.ref)).map((c) => c.seq)
+        await api.reorderChapters(node.ref, [...volSeqs, seq]).catch(() => {})
+      }
+      await reload()
+      onOpenChapter?.({ seq, title: `第${seq}章` })
+    } catch (e) { toast?.(e?.body?.detail || '新建章失败', { tone: 'danger' }) }
+    finally { setAddingCh(false) }
+  }
+
   // synopsis inline 编辑:乐观更新 + 失败回滚
   const patchSynopsis = (seq, synopsis) => {
     setOutline((prev) => prev && ({
@@ -239,6 +260,11 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
         <span className="text-[11px] text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
 
         <div className="ml-auto flex items-center gap-3 flex-wrap">
+          {/* 新建章(手稿根/卷都可)——空书起手必需 */}
+          <button onClick={addChapter} disabled={addingCh}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] bg-brand text-brandfg hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">
+            <Plus size={12} /> 新建章
+          </button>
           {/* 手稿根时显示「新建卷」 */}
           {node?.type === 'manuscript_root' && (
             adding ? (
@@ -285,7 +311,13 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         {totalCh === 0 && lanes.length === 0 ? (
-          <div className="text-[13px] text-faint/60 py-10 text-center">暂无章节。</div>
+          <div className="py-12 text-center">
+            <div className="text-[13px] text-faint/60 mb-3">还没有章节。</div>
+            <button onClick={addChapter} disabled={addingCh}
+              className="inline-flex items-center gap-1.5 px-3.5 h-9 rounded-lg bg-brand text-brandfg text-[13px] hover:opacity-90 cursor-pointer disabled:opacity-50">
+              <Plus size={15} /> 新建第一章
+            </button>
+          </div>
         ) : mode === 'corkboard' ? (
           <Corkboard lanes={lanes} colorMode={colorMode} onOpen={onOpenChapter}
             onPatchSynopsis={patchSynopsis} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
