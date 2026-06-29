@@ -196,6 +196,12 @@ const ACTIONS = {
   doFinal: async (p) => {
     await openBook(p, args.title)
     await openChapterTab(p, args.seq || 1, '正文')
+    // 重写前清空正文(否则首条提案会 append 旧稿→新旧拼接)。clear=true 时执行。
+    if (args.clear) {
+      const ed = p.locator('[data-testid="detail"] .ProseMirror').first()
+      await ed.click(); await p.keyboard.press('Meta+a'); await p.keyboard.press('Backspace'); await sleep(700)
+      await p.getByRole('button', { name: '存为正文' }).first().click(); await sleep(2200)
+    }
     const target = args.target || 5200
     const maxRounds = args.maxRounds || 6
     const proseLen = () => p.evaluate(() => {
