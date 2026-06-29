@@ -98,6 +98,9 @@ export const api = {
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
   patchChapter: (seq, b) => patch('/chapters/' + seq, b),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
+  // 四阶段草稿:存草稿(留 draft 版 + 写 chapter.draft)/ 取最新草稿(刷新恢复)
+  saveDraft: (seq, prose, summary = '') => post(`/save-draft?seq=${seq}`, { prose, summary }),
+  latestDraft: (seq) => j(`/latest-draft?seq=${seq}`),
   qc: (seq) => j(`/qc?seq=${seq}`),
   saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
@@ -115,12 +118,12 @@ export const api = {
     es.onmessage = (e) => { try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
     return es
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
     const ctrl = new AbortController()
     fetch(BASE + ww('/chat/write'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msg, chapter, focalizer, images }),
+      body: JSON.stringify({ msg, chapter, focalizer, images, phase }),
       signal: ctrl.signal,
     }).then(async (res) => {
       if (!res.ok) { onError?.(`HTTP ${res.status}`); return }
