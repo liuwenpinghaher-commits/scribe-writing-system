@@ -99,6 +99,12 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     } catch (e) { console.error(e) }
   }
 
+  // 拖拽重排:章跨卷/卷内排序 → 走 sort_order(及 volume),绝不动 seq。
+  // volume = 目标卷裸 id 或 null(未分卷);order = 该卷内章 seq 的全量新序。
+  const handleReorder = async (volume, order) => {
+    try { await api.reorderChapters(volume, order); reload() } catch (e) { console.error(e) }
+  }
+
   const selId = sel?.mode === 'node' ? sel.node?.id : null
   const chapterSel = isChapterSel(sel)
   // 章节点让位内部 chat(不渲染右栏);其余节点常驻主编。
@@ -123,11 +129,12 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           onResize={(size) => setLeftCollapsed(size.asPercentage < 1)}
           className="bg-surface"
         >
-          <div className="h-full overflow-y-auto overflow-x-hidden">
+          <div className="h-full overflow-hidden">
             <ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
               onVolumeRename={handleVolumeRename}
               onVolumeDelete={handleVolumeDelete}
-              onAddVolume={handleAddVolume} />
+              onAddVolume={handleAddVolume}
+              onReorder={handleReorder} />
           </div>
         </Panel>
         <Separator className="w-px bg-line data-[separator]:hover:bg-brand/50 transition-colors" />
