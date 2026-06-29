@@ -234,6 +234,32 @@ def _split_scenes(prose: str) -> list[dict]:
     return result
 
 
+def backfill_scalability_caches(store) -> int:
+    """存量章回填(Phase0-BE1):对缓存为空的现有 chapter 重算 scene_count/scene_meta/
+    qc_issues/qc_causal 并写列。返回回填的章数。
+
+    幂等:只回填 scene_count IS NONE 的章(已写过缓存的 save_chapter 章跳过)。
+    一次性拉这些章的 prose(仅未回填章,非全书),算完写列即丢——迁移期一次成本,
+    之后 outline()/quality() 永不再拉正文。供 apply_schema 后调用或迁移脚本手动跑。
+    """
+    rows = store._query(
+        "SELECT seq, prose FROM chapter WHERE scene_count IS NONE")
+    n = 0
+    for r in rows:
+        seq = r.get("seq")
+        if seq is None:
+            continue
+        prose = r.get("prose") or ""
+        cache = store._compute_chapter_caches(seq, prose)
+        store._execute_write(
+            "UPDATE type::record('chapter', $seq) SET "
+            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb",
+            {"seq": seq, "scn": cache["scene_count"], "scm": cache["scene_meta"],
+             "qc": cache["qc_issues"], "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
+        n += 1
+    return n
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -1045,6 +1071,40 @@ class SurrealStore:
         }
 
     # --- 章节正文(manuscript)---
+    def _compute_chapter_caches(self, seq: int, prose: str) -> dict:
+        """算章级缓存,返回 {scene_count, scene_meta, qc_issues, qc_causal, qc_breakdown}。
+        供 save_chapter 落库 + backfill 回填复用。纯计算,不写库。
+        - 场景:_split_scenes(prose) → scene_count + [{title, char_count}, ...](序列化为 JSON 串)。
+        - QC问题:critique.quality_flags(prose) 五类计数之和(纯文本,无需图);拆分存 qc_breakdown JSON。
+        - 因果违规:verify.causal_complete(self, seq) 违规条数(查该章事件图,O(本章事件))。
+          注意:这是写时快照——若事件图在不重存本章的情况下变更,qc_causal 会陈旧(可接受降级)。
+        """
+        import json
+        scenes = _split_scenes(prose)
+        scene_meta = json.dumps(
+            [{"title": s["title"], "char_count": s["chars"]} for s in scenes],
+            ensure_ascii=False)
+        from scribe3.critique import quality_flags
+        qf = quality_flags(prose)
+        breakdown = {
+            "repetition": len(qf["repetition"]),
+            "structural": len(qf["structural"]),
+            "purple": len(qf["purple"]),
+            "ai_tics": len(qf["ai_tics"]),
+            "oversaturation": len(qf["oversaturation"]),
+        }
+        qc_n = sum(breakdown.values())
+        try:
+            from scribe3.verify import causal_complete
+            qc_causal_n = len(causal_complete(self, seq))
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "qc_causal 计算失败(降级为 0): %s", _e)
+            qc_causal_n = 0
+        return {"scene_count": len(scenes), "scene_meta": scene_meta,
+                "qc_issues": qc_n, "qc_causal": qc_causal_n,
+                "qc_breakdown": json.dumps(breakdown, ensure_ascii=False)}
+
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None,
                      _today: str | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
@@ -1053,10 +1113,15 @@ class SurrealStore:
         from scribe3.embed import embed
         vec = embed([text_for_embed])[0]
         wc = len("".join(prose.split()))
+        # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
+        cache = self._compute_chapter_caches(seq, prose)
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
-            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc",
-            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc})
+            "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
+            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb",
+            {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
+             "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
+             "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
         # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
         try:
             self._record_daily_progress(seq, today=_today)
@@ -1286,22 +1351,70 @@ class SurrealStore:
             content["daily_word_goal"] = int(fields["daily_word_goal"])
         self._execute_write("UPSERT intent:main CONTENT $c", {"c": content})
 
-    def graph(self, chapter: int | None = None) -> dict:
-        """知识图谱:角色/命题节点 + knows 边(谁知道什么)。chapter 给定则只到该章。
-        scribe3 是图库,这是 Atlas 视图的数据源。"""
+    def graph(self, chapter: int | None = None, focus: str | None = None,
+              limit: int = 300, hop: int = 1) -> dict:
+        """知识图谱:角色/命题节点 + knows/关系 边(Atlas 视图)。
+        千万字基座(Phase0-BE1):不再无上限全图返回。
+
+        - focus 给定 → 只返回该实体的 ego 子图:focus + hop 跳邻居 + 它们之间的边。
+        - focus 为 None → 返回"按 secret(密)优先、再按 valid_from 倒序"排序的 top-limit
+          命题节点 + 相关角色 + 这些节点间的边,**硬上限 limit**(节点总数 ≤ limit)。
+        - chapter 时间门保留(截至该章;None=全书)。
+
+        向后兼容:无新参数调用(graph()/graph(ch))仍返回 {nodes, edges},结构不变。
+        """
         ch = chapter if chapter is not None else 9999
         chars = [{"id": e.id, "type": "character", "label": e.name} for e in self.characters()]
         props = [{"id": f.id, "type": "proposition",
                   "label": ("🔒 私密" if f.secret else (f.value or "")[:18]),
-                  "secret": f.secret} for f in self.facts_at(ch)]
-        edges = []
+                  "secret": f.secret, "_vf": f.valid_from} for f in self.facts_at(ch)]
+        # 全量边(限知门控后),供子图/全图共同筛选
+        all_edges = []
         for k in self.knowledge:
             if k.knower_id == "reader" or k.since_chapter > ch:
                 continue
-            edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
+            all_edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
         for r in self.relations_at(ch):
-            edges.append({"src": f"role:{r['src']}", "dst": f"role:{r['dst']}", "rel": r["relation"]})
-        return {"nodes": chars + props, "edges": edges}
+            all_edges.append({"src": f"role:{r['src']}", "dst": f"role:{r['dst']}", "rel": r["relation"]})
+
+        def _strip(nodes):
+            for n in nodes:
+                n.pop("_vf", None)
+            return nodes
+
+        if focus:
+            # —— ego 子图:从 focus 起 BFS hop 跳 ——
+            keep = {focus}
+            frontier = {focus}
+            for _ in range(max(1, hop)):
+                nxt = set()
+                for e in all_edges:
+                    if e["src"] in frontier:
+                        nxt.add(e["dst"])
+                    if e["dst"] in frontier:
+                        nxt.add(e["src"])
+                new = nxt - keep
+                keep |= new
+                frontier = new
+                if not frontier:
+                    break
+            nodes = [n for n in (chars + props) if n["id"] in keep]
+            edges = [e for e in all_edges if e["src"] in keep and e["dst"] in keep]
+            return {"nodes": _strip(nodes), "edges": edges}
+
+        # —— 无 focus:top-limit 重要度子集,硬上限 ——
+        # 命题排序:secret 优先(密谋更值得看),再按 valid_from 倒序(近事在前)。
+        props_sorted = sorted(
+            props, key=lambda p: (0 if p.get("secret") else 1, -(p.get("_vf") or 0)))
+        # 角色先占额(图骨架),命题填满到 limit。
+        budget = max(0, limit)
+        nodes = chars[:budget]
+        remaining = budget - len(nodes)
+        if remaining > 0:
+            nodes += props_sorted[:remaining]
+        keep = {n["id"] for n in nodes}
+        edges = [e for e in all_edges if e["src"] in keep and e["dst"] in keep]
+        return {"nodes": _strip(nodes), "edges": edges}
 
     def max_chapter(self) -> int:
         """有事件的最大章号(体检确定扫描范围);无事件→0。
@@ -1403,7 +1516,7 @@ class SurrealStore:
             "FROM char_state ORDER BY chapter ASC")
 
     def timeline(self, ch_from: int = 1, ch_to: int | None = None,
-                 axis: str = "story") -> list[dict]:
+                 axis: str = "story", limit: int | None = None) -> list[dict]:
         """聚合 [ch_from, ch_to] 区间内所有"章号锚状态",归并成时间线条目。
         进阶:四类泳道—— events / promise(伏笔) / arc(弧光质变) / relation(关系全史)。
         无写、无限知门控(作者全知工艺视图)。复用既有读方法,不新增 SQL 真源。
@@ -1563,6 +1676,10 @@ class SurrealStore:
                 })
 
         items.sort(key=lambda x: (x["chapter"], x["kind"]))
+        # 千万字基座(Phase0-BE1):total items 硬上限,防一次返上万条。
+        # limit 为 None → 不截断(向后兼容,小书全返);给定则取按章序最早的 limit 条。
+        if limit is not None and len(items) > limit:
+            items = items[:limit]
         return items
 
     def orphan_knowledge_edges(self) -> list[dict]:
@@ -2353,7 +2470,9 @@ class SurrealStore:
 
     def outline(self) -> dict:
         """聚合大纲:卷 + 章(梗概/字数/QC/视角/卷/标签 + 场景切分)。
-        不回正文全文(只用 prose 切场景,切完丢弃)。
+        千万字基座(Phase0-BE1):**绝不 SELECT prose**——场景数/详情、QC 计数全读章级缓存列
+        (scene_count / scene_meta / qc_issues / qc_causal,均由 save_chapter 写入)。
+        存量章用 backfill_scalability_caches 回填缓存;未回填章缓存为 NONE,降级为 0/空。
         章按 sort_order 升序排列(sort_order 为 NONE 时回退 seq)。
         SurrealDB 不支持 ORDER BY (expr ?? expr) 括号形式,改在 Python 侧排序。
         """
@@ -2361,19 +2480,38 @@ class SurrealStore:
         rows = self._query(
             "SELECT seq, sort_order, title, synopsis, focalizer, "
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
-            "qc_word_count AS word_count, qc_issues, qc_causal, prose "
+            "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, "
+            "scene_count, scene_meta "
             "FROM chapter")
         # Python 侧排序:sort_order 为 None 时回退 seq
         rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
+        import json
         chapters = []
         for r in rows:
-            prose = r.pop("prose", "") or ""
-            scenes = _split_scenes(prose)
+            raw_meta = r.pop("scene_meta", None)
+            try:
+                meta = json.loads(raw_meta) if raw_meta else []
+            except (ValueError, TypeError):
+                meta = []
+            # qc_breakdown 缓存为 JSON 串;解析失败/缺失降级为零拆分(字段恒在,向后兼容)。
+            raw_bd = r.pop("qc_breakdown", None)
+            try:
+                breakdown = json.loads(raw_bd) if raw_bd else {}
+            except (ValueError, TypeError):
+                breakdown = {}
+            breakdown = {k: breakdown.get(k, 0) for k in
+                         ("repetition", "structural", "purple", "ai_tics", "oversaturation")}
+            # scene_count 缓存优先;缺失(存量未回填)回退 scene_meta 长度,再不济 0。
+            sc = r.get("scene_count")
+            if sc is None:
+                sc = len(meta)
             chapters.append({
                 **r,
-                "scene_count": len(scenes),
-                "scenes": [{"idx": i, "title": s["title"], "char_count": s["chars"]}
-                           for i, s in enumerate(scenes)],
+                "scene_count": sc,
+                "qc_breakdown": breakdown,
+                "scenes": [{"idx": i, "title": m.get("title", ""),
+                            "char_count": m.get("char_count", 0)}
+                           for i, m in enumerate(meta)],
             })
         unassigned = [c["seq"] for c in chapters if not c.get("volume")]
         return {"volumes": vols, "chapters": chapters, "unassigned_chapters": unassigned}

@@ -133,16 +133,42 @@ def migrate(work_local: str, dst_store, src: Surreal | None = None) -> dict:
             src.close()
 
 
+def backfill_caches(db: str = "main") -> dict:
+    """Phase0-BE1 存量回填:对指定 db(书)的现有章回填 scene_count/scene_meta/
+    qc_issues/qc_causal/qc_breakdown 缓存(outline/quality 改读这些列后,旧章需补)。
+    幂等(只补 scene_count IS NONE 的章)。返回 {db, backfilled}。
+
+    跑:python -m scribe3.migrate --backfill [<db>]   (省略 db 默认 main)
+    """
+    from scribe3.store import SurrealStore, backfill_scalability_caches
+    dst = SurrealStore(ns="scribe3", db=db)
+    try:
+        dst.apply_schema()
+        n = backfill_scalability_caches(dst)
+        return {"db": db, "backfilled": n}
+    finally:
+        dst.close()
+
+
 def main() -> None:
     from scribe3.store import SurrealStore
+    # 子命令:--backfill [<db>] 回填千万字缓存列(Phase0-BE1)
+    if len(sys.argv) > 1 and sys.argv[1] == "--backfill":
+        db = sys.argv[2] if len(sys.argv) > 2 else "main"
+        print("缓存回填结果:", backfill_caches(db))
+        return
     work = sys.argv[1] if len(sys.argv) > 1 else None
     if not work:
         print("用法:python -m scribe3.migrate <work_local_id>")
+        print("     python -m scribe3.migrate --backfill [<db>]   # 回填缓存列")
         return
     dst = SurrealStore(ns="scribe3", db="main")
     try:
         dst.apply_schema()
         print("迁移结果:", migrate(work, dst))
+        # 迁移后顺手回填缓存(新写的章已带缓存,这里覆盖存量与确保一致)
+        from scribe3.store import backfill_scalability_caches
+        print("缓存回填:", backfill_scalability_caches(dst))
     finally:
         dst.close()
 

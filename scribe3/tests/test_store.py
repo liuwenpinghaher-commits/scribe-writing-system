@@ -366,7 +366,9 @@ def test_add_knowledge_allows_existing_knower(store):
 
 def test_p3c_schema_cleanup(store):
     """P3-c: schema 清债验证
-    - chapter 死列(qc_issues/qc_causal/qc_at) 已删除,qc_word_count 保留
+    - chapter 死列 qc_at 已删除,qc_word_count 保留
+    - Phase0-BE1(047)起 qc_issues/qc_causal 复活为 LIVE 缓存列(save_chapter 真写,quality 真读),
+      不再是死列——故此处断言它们【存在】(与 038 的删除相反,因审计后已赋予真实读写路径)。
     - place 027 死字段(geography/first_visit_chapter/political_affiliation/notable_events) 已删除
     - 设定表(faction/item/term/world_rule).name UNIQUE 索引已建(delete-before-create 幂等安全)
     """
@@ -376,10 +378,12 @@ def test_p3c_schema_cleanup(store):
     if isinstance(chap_info, list):
         chap_info = chap_info[0] if chap_info else {}
     chap_fields = chap_info.get("fields", {})
-    assert "qc_issues" not in chap_fields, "qc_issues 应已从 chapter 删除"
-    assert "qc_causal" not in chap_fields, "qc_causal 应已从 chapter 删除"
-    assert "qc_at" not in chap_fields, "qc_at 应已从 chapter 删除"
+    assert "qc_at" not in chap_fields, "qc_at 仍应为已删除的死列"
     assert "qc_word_count" in chap_fields, "qc_word_count 是 LIVE 字段,应保留"
+    # 047 复活:qc_issues/qc_causal 现为 LIVE 缓存列,应存在
+    assert "qc_issues" in chap_fields, "qc_issues 047 起为 LIVE 缓存列,应存在"
+    assert "qc_causal" in chap_fields, "qc_causal 047 起为 LIVE 缓存列,应存在"
+    assert "scene_count" in chap_fields, "scene_count 缓存列应存在"
 
     # --- place 字段检查 ---
     place_info = store._query("INFO FOR TABLE place")
@@ -1079,3 +1083,148 @@ class TestValidateCrossChapter:
             f"正常正文 unregistered_name 应≤5条(收紧后),实际 {len(un)} 条: "
             + str([h['entity'] for h in un])
         )
+
+
+# ===== Phase0-BE1 千万字可扩展基座 =====
+
+from scribe3.ontology import Entity, Fact, KnowledgeEdge, Event
+from scribe3.store import backfill_scalability_caches
+
+
+class TestSceneCountCache:
+    """outline() 停拉全文 —— scene_count/scene_meta 缓存列(头号病灶)。"""
+
+    def test_save_chapter_writes_scene_count(self, store):
+        """save_chapter 落库时算好 scene_count 存列。"""
+        store.save_chapter(1, "第一场。\n* * *\n第二场。\n* * *\n第三场。", title="一")
+        rows = store._query(
+            "SELECT scene_count FROM type::record('chapter', 1)")
+        assert rows and rows[0]["scene_count"] == 3
+
+    def test_save_chapter_writes_scene_meta(self, store):
+        """scene_meta 缓存每场景 title+char_count(JSON串),供 project_tree 免拉正文建树。"""
+        import json
+        store.save_chapter(2, "甲段。\n* * *\n乙段乙段。", title="二")
+        rows = store._query("SELECT scene_meta FROM type::record('chapter', 2)")
+        meta = json.loads(rows[0]["scene_meta"])
+        assert isinstance(meta, list) and len(meta) == 2
+        assert meta[0]["title"] and meta[0]["char_count"] == 3   # "甲段。" 按字符数=3
+
+    def test_outline_sql_does_not_select_prose(self):
+        """自证:outline() 源码 SQL 不再 SELECT prose(停拉全书正文)。
+        只看可执行代码行(剥离 docstring/注释),docstring 里提及 prose 不算。"""
+        import inspect
+        import ast
+        from scribe3.store import SurrealStore
+        src = inspect.getsource(SurrealStore.outline)
+        tree = ast.parse(src.strip())
+        func = tree.body[0]
+        # 剥离首条 docstring 表达式
+        body = func.body[1:] if (func.body and isinstance(func.body[0], ast.Expr)
+                                 and isinstance(getattr(func.body[0], "value", None), ast.Constant)) else func.body
+        code_strings = [n.value for n in ast.walk(ast.Module(body=body, type_ignores=[]))
+                        if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        joined = " ".join(code_strings)
+        assert "prose" not in joined, f"outline() 可执行 SQL 不应引用 prose: {joined}"
+
+    def test_outline_scene_count_matches_split(self, store):
+        """outline 返回的 scene_count 与 _split_scenes 直算一致(对拍)。"""
+        prose = "焦三夜行。\n* * *\n他看见镇煞钉。\n---\n第三场。"
+        store.save_chapter(3, prose, title="三")
+        out = store.outline()
+        ch3 = next(c for c in out["chapters"] if c["seq"] == 3)
+        assert ch3["scene_count"] == len(_split_scenes(prose)) == 3
+        # scenes 详情来自缓存,长度对齐
+        assert len(ch3["scenes"]) == 3
+
+    def test_backfill_populates_scene_count(self, store):
+        """存量章(直接写 prose 绕过 save_chapter 缓存)backfill 后有 scene_count。"""
+        # 模拟存量:直接 UPSERT prose,不走 save_chapter(无 scene_count)
+        store._execute_write(
+            "UPSERT type::record('chapter', 7) SET seq=7, title='存量', "
+            "prose='第一场。\n* * *\n第二场。', qc_word_count=10", {})
+        # 回填前 scene_count 为空
+        pre = store._query("SELECT scene_count FROM type::record('chapter', 7)")
+        assert not pre[0].get("scene_count")
+        n = backfill_scalability_caches(store)
+        assert n >= 1
+        post = store._query("SELECT scene_count FROM type::record('chapter', 7)")
+        assert post[0]["scene_count"] == 2
+
+
+class TestQualityCache:
+    """quality 缓存列:qc_issues/qc_causal 在 save_chapter 落库,outline 聚合不重算。"""
+
+    def test_save_chapter_writes_qc_issues(self, store):
+        store.save_chapter(1, "一段正常的志怪内容。", title="一")
+        rows = store._query("SELECT qc_issues, qc_causal FROM type::record('chapter', 1)")
+        assert rows[0]["qc_issues"] is not None
+        assert rows[0]["qc_causal"] is not None
+
+    def test_qc_causal_reflects_event_violations(self, store):
+        """有缺目标事件的章,qc_causal 缓存应记录违规数。"""
+        store.add_event(Event("ev:逃", "逃", story_time=4))   # 缺 motivated_by_goal
+        store.save_chapter(4, "第四章正文。", title="四")
+        rows = store._query("SELECT qc_causal FROM type::record('chapter', 4)")
+        assert rows[0]["qc_causal"] >= 1
+
+    def test_outline_exposes_qc_caches(self, store):
+        store.save_chapter(5, "正文五。", title="五")
+        out = store.outline()
+        ch5 = next(c for c in out["chapters"] if c["seq"] == 5)
+        assert "qc_issues" in ch5 and "qc_causal" in ch5
+
+
+class TestGraphEgoAndLimit:
+    """graph(focus=...) ego 子图;graph() 无 focus 硬上限 limit。"""
+
+    def test_graph_focus_returns_ego_subgraph(self, store):
+        store.add_entity(Entity("role:甲", "character", "甲"))
+        store.add_entity(Entity("role:乙", "character", "乙"))
+        store.add_entity(Entity("role:丙", "character", "丙"))
+        store.add_fact(Fact("fact:f1", "role:甲", "属性", "甲知道的事", valid_from=1))
+        store.add_fact(Fact("fact:f2", "role:乙", "属性", "乙知道的事", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("role:甲", "fact:f1", since_chapter=1))
+        store.add_knowledge(KnowledgeEdge("role:乙", "fact:f2", since_chapter=1))
+        g = store.graph(focus="role:甲", chapter=5)
+        node_ids = {n["id"] for n in g["nodes"]}
+        assert "role:甲" in node_ids
+        assert "fact:f1" in node_ids          # 甲的邻居命题在
+        assert "fact:f2" not in node_ids       # 乙的命题不在 ego 邻域
+
+    def test_graph_no_focus_respects_limit(self, store):
+        store.add_entity(Entity("role:主", "character", "主"))
+        for i in range(50):
+            fid = f"fact:p{i}"
+            store.add_fact(Fact(fid, "role:主", "属性", f"命题{i}", valid_from=1))
+            store.add_knowledge(KnowledgeEdge("role:主", fid, since_chapter=1))
+        g = store.graph(limit=10)
+        assert len(g["nodes"]) <= 10, f"无 focus 节点数应 ≤ limit=10,实际 {len(g['nodes'])}"
+
+    def test_graph_backward_compatible_default(self, store):
+        """无新参数调用仍返回 nodes/edges 结构。"""
+        store.add_entity(Entity("role:甲", "character", "甲"))
+        store.add_fact(Fact("fact:x", "role:甲", "属性", "某值", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("role:甲", "fact:x", since_chapter=1))
+        g = store.graph(5)
+        assert "nodes" in g and "edges" in g
+        assert any(n["id"] == "role:甲" for n in g["nodes"])
+
+
+class TestTimelineWindow:
+    """timeline 总 items 上限(防一次返上万)。"""
+
+    def test_timeline_respects_limit(self, store):
+        for i in range(1, 40):
+            store.add_event(Event(f"ev:e{i}", "action", story_time=i,
+                                  motivated_by_goal="g", causal_in=[("ev:e1", "enables")]))
+        items = store.timeline(ch_from=1, ch_to=100, limit=10)
+        assert len(items) <= 10, f"timeline items 应被 limit 截断,实际 {len(items)}"
+
+    def test_timeline_default_unlimited_backcompat(self, store):
+        """不传 limit 时不截断(向后兼容,全部返回)。"""
+        for i in range(1, 6):
+            store.add_event(Event(f"ev:e{i}", "action", story_time=i,
+                                  motivated_by_goal="g", causal_in=[("ev:e1", "enables")]))
+        items = store.timeline(ch_from=1, ch_to=100)
+        assert len(items) >= 5

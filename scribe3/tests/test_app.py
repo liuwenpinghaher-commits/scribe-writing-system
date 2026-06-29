@@ -3000,3 +3000,55 @@ def test_post_check_new_detectors_fail_soft(store, monkeypatch):
     r = c.post("/post-check", params={"seq": 1},
                json={"prose": "测试正文。", "focalizer": "", "brief": ""})
     assert r.status_code == 200, f"/post-check 新检测器崩溃时应 200,实际: {r.status_code}"
+
+
+# ===== Phase0-BE1 千万字可扩展基座(REST 层) =====
+
+def test_graph_focus_query_returns_ego(store):
+    """GET /graph?focus=role:甲 → 只回甲的 ego 子图。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_fact(Fact("fact:f1", "role:甲", "属性", "甲事", valid_from=1))
+    store.add_fact(Fact("fact:f2", "role:乙", "属性", "乙事", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:f1", since_chapter=1))
+    store.add_knowledge(KnowledgeEdge("role:乙", "fact:f2", since_chapter=1))
+    g = _client(store).get("/graph", params={"focus": "role:甲", "chapter": 5}).json()
+    ids = {n["id"] for n in g["nodes"]}
+    assert "role:甲" in ids and "fact:f1" in ids
+    assert "fact:f2" not in ids
+
+
+def test_graph_limit_query_caps_nodes(store):
+    """GET /graph?limit=5 → 节点总数 ≤ 5。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:主", "character", "主"))
+    for i in range(30):
+        fid = f"fact:q{i}"
+        store.add_fact(Fact(fid, "role:主", "属性", f"命题{i}", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("role:主", fid, since_chapter=1))
+    g = _client(store).get("/graph", params={"limit": 5}).json()
+    assert len(g["nodes"]) <= 5
+
+
+def test_timeline_limit_and_truncated(store):
+    """GET /timeline?limit=N → items 截断到 N,truncated=true。"""
+    from scribe3.ontology import Event
+    for i in range(1, 40):
+        store.add_event(Event(f"ev:t{i}", "action", story_time=i,
+                              motivated_by_goal="g", causal_in=[("ev:t1", "enables")]))
+    r = _client(store).get("/timeline", params={"ch_from": 1, "ch_to": 100, "limit": 10}).json()
+    assert len(r["items"]) <= 10
+    assert r["truncated"] is True
+    assert r["limit"] == 10
+
+
+def test_quality_qc_breakdown_preserved(store):
+    """/quality 返回 qc_breakdown 五类字段(读缓存,字段口径不变)。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    q = _client(store).get("/quality").json()
+    ch1 = q["chapters"][0]
+    assert "qc_breakdown" in ch1
+    assert set(ch1["qc_breakdown"]) == {"repetition", "structural", "purple",
+                                         "ai_tics", "oversaturation"}
+    assert "qc_issues" in ch1 and "causal" in ch1 and "word_count" in ch1

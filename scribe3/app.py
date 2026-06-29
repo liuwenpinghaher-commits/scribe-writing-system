@@ -226,22 +226,32 @@ def patch_event_narrative(eid: str, body: NarrativeIn, work: str = "main"):
 def timeline(ch_from: int = Query(default=1, ge=1),
              ch_to: int | None = Query(default=None, ge=1),
              axis: str = Query(default="story"),
+             limit: int = Query(default=500, ge=1, le=5000),
              work: str = "main"):
     """时间线工艺视图(F-02):返回 [ch_from, ch_to] 区间内按章排序的事件条目。
     作者全知视图,无限知门控。四类泳道:events / promise / arc / relation。
     完整期双轴(spec §3.1):axis='story'(默认,故事编年)| 'narrative'(叙事顺序,
     事件按 narrative_position ?? story_chapter 横铺,倒叙/闪回落叙事位)。
-    axis 非法值回退 'story'(向后兼容)。"""
+    axis 非法值回退 'story'(向后兼容)。
+
+    Phase0-BE1(千万字基座):新增 total items 上限 limit(默认 500,防全书一次返上万条)。
+    items 被截断时返回 truncated=true,前端可据此提示缩小区间;结构其余不变。"""
     if axis not in ("story", "narrative"):
         axis = "story"
     st = _store_for(work)
-    items = st.timeline(ch_from, ch_to, axis=axis)
+    # 多取一条探测是否溢出 limit,以便回报 truncated
+    items = st.timeline(ch_from, ch_to, axis=axis, limit=limit + 1)
+    truncated = len(items) > limit
+    if truncated:
+        items = items[:limit]
     max_ch = st.max_chapter()
     return {
         "from": ch_from,
         "to": ch_to if ch_to is not None else max_ch,
         "max_chapter": max_ch,
         "axis": axis,
+        "limit": limit,
+        "truncated": truncated,
         "items": items,
     }
 
@@ -771,37 +781,41 @@ def fold_voice_flags_endpoint(body: dict, work: str = "main"):
 
 
 @app.get("/graph")
-def graph(chapter: int | None = None, work: str = "main"):
-    """知识图谱:角色/命题节点 + knows 边(Atlas 视图)。"""
-    return _store_for(work).graph(chapter)
+def graph(chapter: int | None = None, focus: str | None = None,
+          limit: int = Query(default=300, ge=1, le=2000), hop: int = Query(default=1, ge=1, le=3),
+          work: str = "main"):
+    """知识图谱:角色/命题节点 + knows/关系 边(Atlas 视图)。
+    Phase0-BE1(千万字基座):默认不再无上限全图返回。
+    - focus 给定 → 该实体 ego 子图(focus + hop 跳邻居 + 它们之间的边)。
+    - focus 为 None → top-limit 重要度子集(secret 优先),节点总数硬上限 limit。
+    - chapter 时间门保留(截至该章;省略=全书)。"""
+    return _store_for(work).graph(chapter=chapter, focus=focus, limit=limit, hop=hop)
 
 
 @app.get("/quality")
 def quality(work: str = "main"):
     """质量仪表盘聚合:每章 字数/双层QC问题/因果违规 + 伏笔状态。
     P3-e1 Fix 1: 使用 OVERDUE_SLACK 模块常量(唯一真源),支持 intent.overdue_threshold 覆盖;
-    foreshadow.promises 含每条 promise 的 overdue 字段,前端直读,不重算。"""
-    from scribe3.critique import quality_flags
+    foreshadow.promises 含每条 promise 的 overdue 字段,前端直读,不重算。
+
+    Phase0-BE1(千万字基座):**改读 outline() 章级缓存列**(qc_word_count/qc_issues/qc_causal/
+    qc_breakdown),不再逐章 get_chapter 全文 + quality_flags 重算 + 逐章查因果图(数千章=分钟级)。
+    缓存由 save_chapter 写时落库;返回字段(seq/title/word_count/qc_issues/qc_breakdown/causal)口径不变。"""
     st = _store_for(work)
+    out = st.outline()
     per = []
-    for c in st.list_chapters():
-        full = st.get_chapter(c["seq"]) or {}
-        prose = full.get("prose", "")
-        qf = quality_flags(prose)
+    for c in out["chapters"]:
         per.append({
-            "seq": c["seq"], "title": c["title"],
-            "word_count": len("".join(prose.split())),
-            "qc_issues": (len(qf["repetition"]) + len(qf["structural"]) + len(qf["purple"])
-                          + len(qf["ai_tics"]) + len(qf["oversaturation"])),
-            "qc_breakdown": {
-                "repetition": len(qf["repetition"]),
-                "structural": len(qf["structural"]),
-                "purple": len(qf["purple"]),
-                "ai_tics": len(qf["ai_tics"]),
-                "oversaturation": len(qf["oversaturation"]),
-            },
-            "causal": len(causal_complete(st, c["seq"])),
+            "seq": c["seq"], "title": c.get("title", ""),
+            "word_count": c.get("word_count") or 0,
+            "qc_issues": c.get("qc_issues") or 0,
+            "qc_breakdown": c.get("qc_breakdown") or {
+                "repetition": 0, "structural": 0, "purple": 0,
+                "ai_tics": 0, "oversaturation": 0},
+            "causal": c.get("qc_causal") or 0,
         })
+    # 缓存稳定章序按 seq 升序返回(与旧 list_chapters ORDER BY seq 口径一致)
+    per.sort(key=lambda x: x["seq"])
     proms = st.list_promises()
     mc = st.max_chapter()
     # 单源阈值:intent 可覆盖 OVERDUE_SLACK(per-work 配置)
