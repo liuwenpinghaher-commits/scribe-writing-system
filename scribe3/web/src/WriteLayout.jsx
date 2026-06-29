@@ -85,6 +85,7 @@ export function WriteLayout({ work, seq, onSeqChange }) {
   const [recallHits, setRecallHits] = useState([])
   const [presentQ, setPresentQ] = useState('')
   const [focusMode, setFocusMode] = useState(false)
+  const [factsExpanded, setFactsExpanded] = useState(false)  // 本章事实:默认前60条,「展开全部」可达全量
   const [chTitle, setChTitle] = useState('')
   const [saved, setSaved] = useState(true)
   // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
@@ -507,9 +508,15 @@ export function WriteLayout({ work, seq, onSeqChange }) {
       ))}
       <div className="h-3" />
       <SectionTitle right={`${facts.length}`}>本章事实</SectionTitle>
-      {facts.length === 0 ? <Empty>无</Empty> : facts.slice(0, 60).map((f) => (
+      {facts.length === 0 ? <Empty>无</Empty> : (factsExpanded ? facts : facts.slice(0, 60)).map((f) => (
         <Row key={f.id} icon={f.secret ? Lock : undefined}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>
       ))}
+      {facts.length > 60 && (
+        <button onClick={() => setFactsExpanded((v) => !v)}
+          className="mt-1.5 text-[11px] text-brand hover:text-brand/80 cursor-pointer">
+          {factsExpanded ? '收起' : `展开全部 ${facts.length} 条`}
+        </button>
+      )}
     </div>
   )
   const renderMotifs = () => (

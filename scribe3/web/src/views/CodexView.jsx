@@ -691,16 +691,17 @@ export function CodexView({ work }) {
       }
       const items = data[t.key] || []
       if (items.length === 0) return <div className="text-[12px] text-faint/50 py-2">暂无{t.label}</div>
+      const shown = items.filter((x) => f(x.name) || f(x.text) || f(x.value))
       return (
         <div className="space-y-0.5">
-          {items.filter((x) => f(x.name) || f(x.text) || f(x.value)).slice(0, 50).map((x) => (
+          {/* 不再 .slice(0,50) 截断:全量可达(搜索框可收窄;父容器自滚动) */}
+          {shown.map((x) => (
             <button key={x.id || x.name}
               onClick={() => setSelected({ type: t.key, row: x })}
               className={`w-full text-left rounded-lg px-2.5 py-1.5 text-[12px] transition-colors cursor-pointer ${selected?.row === x ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
               <span className="truncate block">{x.name || x.text?.slice(0,20) || x.value?.slice(0,20) || x.id}</span>
             </button>
           ))}
-          {items.length > 50 && <div className="text-[10px] text-faint/40 py-1">+{items.length - 50} 项…</div>}
         </div>
       )
     },

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { LayoutGrid, Table2, List, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { api } from './api'
 import { Corkboard } from './Corkboard'
@@ -325,42 +326,98 @@ function PlainChapterList({ lanes, onOpen }) {
 // 素材分类:ref(cat_type)→ 可新建?(全部 7 类均可)
 const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
 
+// 虚拟化阈值:超过则用 react-virtual 渲染(千万字级条目全量可达,不截断、不爆 DOM)
+const VIRTUAL_THRESHOLD = 80
+
+// 虚拟化条目列表(单一滚动容器,只渲可视行)
+function VirtualItemList({ kids, onSelect }) {
+  const parentRef = useRef(null)
+  const virt = useVirtualizer({
+    count: kids.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 52,   // 卡片高度(px,含间距)约值
+    overscan: 8,
+  })
+  return (
+    <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+      <div className="max-w-2xl mx-auto relative" style={{ height: virt.getTotalSize() }}>
+        {virt.getVirtualItems().map((vi) => {
+          const c = kids[vi.index]
+          return (
+            <div key={c.id} ref={virt.measureElement} data-index={vi.index}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+              className="pb-1.5">
+              <button onClick={() => onSelect?.(c)}
+                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                <span className="text-[14px] text-ink">{c.label}</span>
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // 非手稿容器(素材分类等)→ 子项列表 + 「+ 新建」入口 + 角色待确认引用
 function PlainList({ node, onSelect }) {
   const kids = node?.children || []
   const catType = node?.ref
   const canCreate = node?.type === 'codex_category' && CODEX_CATS.has(catType)
   const newNode = () => onSelect?.({ id: `new:${catType}`, type: 'codex_new', ref: catType, label: node?.label })
+  const virtualize = kids.length > VIRTUAL_THRESHOLD
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-6 py-6">
-        <div className="flex items-center gap-3 mb-1">
-          <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
-          {canCreate && (
-            <button onClick={newNode}
-              className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
-              <Plus size={13} /> 新建
-            </button>
-          )}
-        </div>
-        <div className="text-[12px] text-faint mb-4">{kids.length} 项</div>
-        {/* 角色分类:展示 ingest 抽出的待确认人物引用复核面板 */}
-        {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
-        {kids.length === 0 ? (
-          <div className="text-[13px] text-faint/60 py-8 text-center">
-            暂无子项。{canCreate && <button onClick={newNode} className="text-brand hover:underline cursor-pointer ml-1">点此新建</button>}
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {kids.map((c) => (
-              <button key={c.id} onClick={() => onSelect?.(c)}
-                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
-                <span className="text-[14px] text-ink">{c.label}</span>
+    <div className="h-full flex flex-col min-h-0">
+      {/* 头部:标题 + 新建 + 计数 + 待确认(不进虚拟滚动) */}
+      <div className={`shrink-0 ${virtualize ? 'px-6 pt-6 pb-2' : 'hidden'}`}>
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
+            {canCreate && (
+              <button onClick={newNode}
+                className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+                <Plus size={13} /> 新建
               </button>
-            ))}
+            )}
           </div>
-        )}
+          <div className="text-[12px] text-faint">{kids.length} 项</div>
+          {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
+        </div>
       </div>
+
+      {virtualize ? (
+        <VirtualItemList kids={kids} onSelect={onSelect} />
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-6 py-6">
+            <div className="flex items-center gap-3 mb-1">
+              <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
+              {canCreate && (
+                <button onClick={newNode}
+                  className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+                  <Plus size={13} /> 新建
+                </button>
+              )}
+            </div>
+            <div className="text-[12px] text-faint mb-4">{kids.length} 项</div>
+            {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
+            {kids.length === 0 ? (
+              <div className="text-[13px] text-faint/60 py-8 text-center">
+                暂无子项。{canCreate && <button onClick={newNode} className="text-brand hover:underline cursor-pointer ml-1">点此新建</button>}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {kids.map((c) => (
+                  <button key={c.id} onClick={() => onSelect?.(c)}
+                    className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                    <span className="text-[14px] text-ink">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
