@@ -51,7 +51,15 @@ export const api = {
   promises: () => j('/promises'),
   promisesLedger: () => j('/promises/ledger'),
   motifs: () => j('/motifs'),
-  graph: (chapter) => j('/graph' + (chapter ? `?chapter=${chapter}` : '')),
+  graph: (opts = {}) => {
+    const { chapter, focus, limit, hop } = typeof opts === 'object' && opts !== null ? opts : { chapter: opts }
+    const qs = []
+    if (chapter != null) qs.push('chapter=' + enc(chapter))
+    if (focus != null && focus !== '') qs.push('focus=' + enc(focus))
+    if (limit != null) qs.push('limit=' + enc(limit))
+    if (hop != null) qs.push('hop=' + enc(hop))
+    return j('/graph' + (qs.length ? '?' + qs.join('&') : ''))
+  },
   // axis: 'story'(故事编年,默认)| 'narrative'(叙事顺序);完整期双轴(spec §3.1)
   timeline: (from = 1, to, axis) => j('/timeline?ch_from=' + from
     + (to != null ? '&ch_to=' + to : '')
