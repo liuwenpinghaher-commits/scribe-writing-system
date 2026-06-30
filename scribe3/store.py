@@ -1473,14 +1473,14 @@ class SurrealStore:
         return {"nodes": _strip(nodes), "edges": edges}
 
     def max_chapter(self) -> int:
-        """有事件的最大章号(体检确定扫描范围);无事件→0。
-        读 story_chapter(命名漂移收口后唯一真源;valid_from 退场方已删)。"""
-        rows = self._query(
-            "SELECT story_chapter ?? 0 AS ch FROM event")
-        if not rows:
-            return 0
-        vals = [r["ch"] for r in rows if r.get("ch") is not None]
-        return int(max(vals)) if vals else 0
+        """书的最大章号:以 chapter 表实际章节为准(真实范围),并入 event 的 story_chapter 兜底。
+        旧实现只数 event 表 → 仅有伏笔/章节而无事件时返回 0,使时间线/体检整体短路为空(真bug)。"""
+        ch_rows = self._query("SELECT seq FROM chapter")
+        seqs = [r["seq"] for r in (ch_rows or []) if r.get("seq") is not None]
+        ev_rows = self._query("SELECT story_chapter AS ch FROM event")
+        evs = [r["ch"] for r in (ev_rows or []) if r.get("ch") is not None]
+        allv = seqs + evs
+        return int(max(allv)) if allv else 0
 
     def events_at(self, chapter: int) -> list[Event]:
         """读取某章全部事件(沿图边取回 participants+effects,补 P03 限知裂口)。
