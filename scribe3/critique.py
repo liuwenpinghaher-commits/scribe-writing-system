@@ -724,6 +724,61 @@ def find_parallelism(text: str, min_run: int = 3, prefix_len: int = 2) -> list[d
     return out
 
 
+_ONOMAT_LINE = re.compile(r"^[咔笃啪嗒砰咚哗叮当吱嘎咯吧噗嘀嗡][——\-—.。…、，！]*$")
+
+
+def find_poetic_fragments(text: str, max_len: int = 6) -> list[dict]:
+    """诗化分行/拟声悬停检测(AI 抒情/恐怖腔):孤立的短句(非对白)独立成行,或拟声词成行。
+    排除对白行(含引号)与纯标点。返回 [{"line","kind","ending"}];kind=onomatopoeia|fragment,
+    ending=True 表示该碎句正是全文末行(章节拟声/单字煞尾——opus 评判明令禁止)。"""
+    lines = [l.strip() for l in (text or "").split("\n") if l.strip()]
+    out: list[dict] = []
+    n = len(lines)
+    for i, l in enumerate(lines):
+        if len(l) > max_len:
+            continue
+        if any(q in l for q in "“”\"'「」『』"):  # 对白,放过
+            continue
+        if _PUNCT_ONLY.match(l):
+            continue
+        kind = "onomatopoeia" if _ONOMAT_LINE.match(l) else "fragment"
+        out.append({"line": l, "kind": kind, "ending": i == n - 1})
+    return out
+
+
+def find_unbalanced_quotes(text: str) -> list[dict]:
+    """引号开闭不配对(中文“”/「」)。返回失衡项;空列表=配对正常。"""
+    t = text or ""
+    issues: list[dict] = []
+    for op, cl in (("“", "”"), ("「", "」"), ("『", "』")):
+        a, b = t.count(op), t.count(cl)
+        if a != b:
+            issues.append({"pair": op + cl, "open": a, "close": b})
+    if t.count('"') % 2:
+        issues.append({"pair": '"', "count": t.count('"')})
+    return issues
+
+
+_WATCH_MAP = {"一更": 1, "二更": 2, "两更": 2, "三更": 3, "四更": 4, "五更": 5}
+
+
+def find_watch_regression(text: str) -> list[dict]:
+    """更次倒退检测:文中更次(一更→五更)序列若非单调递增(后文更次 < 已达最大更次)即报。
+    志怪夜戏常见硬伤——开篇四更、后文又'三更'。返回倒退点 [{"label","pos","after_max"}]。"""
+    seq = []
+    for m in re.finditer(r"[一二两三四五]更", text or ""):
+        w = _WATCH_MAP.get(m.group(0))
+        if w:
+            seq.append((m.start(), w, m.group(0)))
+    out: list[dict] = []
+    mx = 0
+    for pos, w, label in seq:
+        if w < mx:
+            out.append({"label": label, "pos": pos, "after_max": mx})
+        mx = max(mx, w)
+    return out
+
+
 def find_emotion_telling(text: str) -> list[dict]:
     """检测叙述层直陈情绪/直接评语的句子(确定性正则,宁缺勿滥)。
 

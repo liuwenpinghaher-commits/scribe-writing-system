@@ -489,3 +489,29 @@ class TestFindParallelism:
         from scribe3.critique import find_parallelism
         t = "穿过人群，穿过花香。"  # 仅2连,不足min_run=3
         assert find_parallelism(t) == []
+
+
+class TestSceneDetectors:
+    """诗化分行/拟声煞尾 + 引号配对 + 更次倒退(opus评判揪出的机制硬伤)。"""
+
+    def test_onomatopoeia_ending(self):
+        from scribe3.critique import find_poetic_fragments
+        t = "他站在黑暗里。\n咔——\n咔——\n咔——"
+        pf = find_poetic_fragments(t)
+        assert any(x["kind"] == "onomatopoeia" for x in pf)
+        assert any(x["ending"] for x in pf), "末行拟声应标 ending"
+
+    def test_dialogue_not_flagged(self):
+        from scribe3.critique import find_poetic_fragments
+        t = '“是。”\n“不急。”'
+        assert find_poetic_fragments(t) == [], "对白不应判为诗化碎句"
+
+    def test_watch_regression(self):
+        from scribe3.critique import find_watch_regression
+        assert find_watch_regression("四更天了。后来三更天。")
+        assert find_watch_regression("四更天了。天快亮了,五更。") == []
+
+    def test_unbalanced_quotes(self):
+        from scribe3.critique import find_unbalanced_quotes
+        assert find_unbalanced_quotes("他说“进来")
+        assert find_unbalanced_quotes("他说“进来罢。”") == []
