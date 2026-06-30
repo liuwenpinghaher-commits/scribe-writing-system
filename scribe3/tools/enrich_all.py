@@ -172,9 +172,17 @@ def enrich_promises(st):
         if not d:
             print(f"  伏笔 {text}: 跳过"); continue
         clues = arr(d.get("线索"))
-        if clues:
-            st._update_by("promise", str(pr.get("id")).split(":")[-1], {"clues": clues})
-        print(f"  伏笔 {text}: ✓ ({len(clues)}条线索)")
+        local = str(pr.get("id")).split(":")[-1]
+        setup = pr.get("setup_chapter") or 1
+        existing = len(pr.get("clues") or [])
+        added = 0
+        if not existing:
+            for note in clues[:5]:
+                try:
+                    st.add_promise_clue(local, note, setup); added += 1
+                except Exception as e:
+                    print(f"    线索失败: {e}"); break
+        print(f"  伏笔 {text}: ✓ (+{added}条线索)")
 
 
 CATS = {"角色": enrich_characters, "势力": enrich_factions, "物件": enrich_items,
