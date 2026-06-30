@@ -18,7 +18,13 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
                 {v.kind === 'final' && <span className="text-[10px] text-brand">定稿</span>}
                 <button onClick={() => api.chapterVersion(v.id).then(setView)} className="ml-auto text-[11px] text-faint hover:text-ink cursor-pointer">回看</button>
               </div>
-              {v.qc && (v.qc.repetition || v.qc.purple) ? <div className="text-[10px] text-faint mt-0.5">QC 复读{v.qc.repetition||0}·升华{v.qc.purple||0}</div> : null}
+              {(() => {
+                // v.qc.repetition / .purple 可能是检测器数组([{phrase,count}]/[{phrase,kind}])或数字——统一成计数,
+                // 否则把对象当 React 子节点渲染会崩(整个面板白屏)。
+                const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
+                const rep = cnt(v.qc?.repetition), pur = cnt(v.qc?.purple)
+                return (rep || pur) ? <div className="text-[10px] text-faint mt-0.5">QC 复读{rep}·升华{pur}</div> : null
+              })()}
             </li>
           ))}
         </ul>
