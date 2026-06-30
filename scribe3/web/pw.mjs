@@ -138,6 +138,50 @@ const ACTIONS = {
     return { created: done.length, fail, counts }
   },
 
+  // 给已存在条目补全空字段(DetailView 编辑流):点开条目→逐字段「+ 添加X」→文本blur提交/标签Enter逐个。
+  // 修 seedSettings 只存了 name 的毛病(完整字段在 DetailView 而非新建表单)。args.only 可只填某类。
+  fillSettings: async (p) => {
+    await openBook(p, args.title)
+    const NAME_KEYS = ['名字', '势力名', '物品名', '术语名', '规则名', '母题名', '伏笔内容']
+    const LABELMAP = { 隐喻展开: '物质回声' }  // pw_world label → DetailView 按钮 label(术语「定义」直接匹配,勿映射)
+    const only = args.only
+    const out = []
+    for (const s of WORLD) {
+      if (only && s.cat !== only) continue
+      const nameVal = NAME_KEYS.map((k) => s.fields[k]).find(Boolean)
+      try {
+        await p.getByRole('treeitem').filter({ hasText: new RegExp('^' + s.cat) }).first().click(); await sleep(700)
+        await p.locator('[data-testid="detail"]').getByText(nameVal, { exact: false }).first().click(); await sleep(1100)
+        const filled = [], skipped = []
+        for (const [label, val] of Object.entries(s.fields)) {
+          if (NAME_KEYS.includes(label)) continue
+          const btnLabel = LABELMAP[label] || label
+          const btn = p.locator('[data-testid="detail"] button').filter({ hasText: new RegExp('添加' + btnLabel) }).first()
+          if (await btn.count() === 0) { skipped.push(label); continue }  // 已填(无+添加按钮)或无此字段
+          // type='tags'(性格标签/弱点)=TagsRow 两层:点 Field 按钮→再点内层「+ 添加」→input→逐个 Enter。
+          // array_csv(「(逗号分隔)」)与 text/textarea 一样:单输入框 type 整串→Tab 失焦提交。
+          const isTagsRow = label === '性格标签' || label === '弱点'
+          await btn.click(); await sleep(450)
+          if (isTagsRow) {
+            const inner = p.locator('[data-testid="detail"] button').filter({ hasText: /^\+ 添加$/ }).first()
+            if (await inner.count()) { await inner.click(); await sleep(350) }
+            for (const tag of String(val).split(/[,，]/).map((x) => x.trim()).filter(Boolean)) {
+              await p.keyboard.type(tag); await sleep(140); await p.keyboard.press('Enter'); await sleep(300)
+            }
+            await p.keyboard.press('Escape'); await sleep(250)
+          } else {
+            await p.keyboard.type(String(val)); await sleep(180)
+            await p.keyboard.press('Tab'); await sleep(450)  // blur→commit→persist
+          }
+          filled.push(label)
+        }
+        out.push({ name: nameVal, filled, skipped })
+      } catch (e) { out.push({ name: nameVal, err: e.message.slice(0, 70) }) }
+    }
+    await p.screenshot({ path: `${SHOTS}/settings_filled.png` })
+    return out
+  },
+
   // 测试主编 chat:开章→切tab→发消息→等响应
   testChat: async (p) => {
     await openBook(p, args.title)
