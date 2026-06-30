@@ -159,14 +159,19 @@ def apply_delta(store, delta: dict, seq: int) -> int:
     return n
 
 
-def ingest_chapter(store, seq: int, complete_fn) -> dict:
+def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
     """读某章正文 → Hermes 抽知识 delta → 应用到 store。
-    若 parse_knowledge_delta 返回 None(坏 JSON / 截断),不调用 apply_delta(不 purge),
-    返回 parse_failed=True——保留本章既有知识,避免静默数据丢失。"""
+    抽取是非确定的:长 JSON 偶发截断/坏格式 → parse 返回 None。单次尝试会零星 parse_failed,
+    故重试至多 max_attempts 次(每次重新抽取);全失败才返回 parse_failed=True(不 purge,保留既有知识)。"""
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
-    delta = parse_knowledge_delta(complete_fn(build_knowledge_extract_prompt(ch["prose"])))
+    prompt = build_knowledge_extract_prompt(ch["prose"])
+    delta = None
+    for _ in range(max(1, max_attempts)):
+        delta = parse_knowledge_delta(complete_fn(prompt))
+        if delta is not None:
+            break
     if delta is None:
         return {"applied": -1, "parse_failed": True, "delta": None}
     return {"applied": apply_delta(store, delta, seq), "delta": delta}
