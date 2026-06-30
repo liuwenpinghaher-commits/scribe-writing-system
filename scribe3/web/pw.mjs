@@ -58,6 +58,25 @@ async function clickSave(p, wait = 2500) {
   await sleep(wait)
 }
 
+// 读当前编辑器正文末尾 n 字。
+async function readProseTail(p, n = 160) {
+  return p.evaluate((k) => {
+    const e = document.querySelector('[data-testid="detail"] .ProseMirror')
+    const t = e ? e.innerText.replace(/\s+/g, ' ').trim() : ''
+    return t.slice(-k)
+  }, n)
+}
+
+// 续写消息加 tail 锚定:把当前正文末尾喂回去 + 硬令"接着这句往下写、绝不重述已写情节",
+// 根治 doFinal/doFinalMulti 续写有时重述前文情节→A稿+B稿拼接重复(opus 判出的渲染管线硬伤)。
+async function anchorCont(p, msg) {
+  const tail = await readProseTail(p, 160)
+  if (!tail) return msg
+  return `【接续锚·务必遵守】上文正文已经写到这里:"…${tail}"。请严格从这句之后往下写**全新的后续内容**,` +
+    `绝对不要重写、重述、或换个说法再讲一遍前面已经出现过的任何场景、动作、对话、人物登场(例如纸人眼皮动、` +
+    `朱砂笔折断、某人推门登门等只要前文已写过,就绝不再写第二遍);时间只能继续往后推。\n\n` + msg
+}
+
 // 右栏主编 chat:发一条消息,等流式响应真正完成,返回主编回复文本。
 // 完成判定:发送按钮 spinner(busy)消失 + 最后一条 assistant 气泡有真实内容(非「主编在思考…」占位)。
 // agentic 讨论会联查设定,慢(可达 1-3 分钟)。
@@ -233,6 +252,105 @@ const ACTIONS = {
     return out
   },
 
+  // 补角色剩余4字段:重要度(select)/弱点(tags)/首次出场(number)/能力(结构化AbilitiesRow)。主编生成。
+  enrichCharsRest: async (p) => {
+    await openBook(p, args.title)
+    const names = args.names || WORLD.filter((w) => w.cat === '角色').map((w) => w.fields.名字)
+    const IMP = { '主角': 'protagonist', '重要': 'major', '次要': 'minor', '背景': 'background', protagonist: 'protagonist', major: 'major', minor: 'minor', background: 'background' }
+    const out = []
+    for (const name of names) {
+      try {
+        await p.getByRole('treeitem').filter({ hasText: /^角色/ }).first().click(); await sleep(700)
+        await p.locator('[data-testid="detail"]').getByText(name, { exact: false }).first().click(); await sleep(1400)
+        const prompt = `请基于《纸命》全书与已写4章正文,为角色「${name}」补全:重要度(从 主角/重要/次要/背景 选一),弱点(字符串数组),首次出场(1到4的章号数字),能力(数组,每项{名称,描述},志怪向如通阴阳/扎彩手艺/收魂等,无则给空数组)。只输出JSON,键为:重要度,弱点,首次出场,能力。不要JSON以外文字。`
+        const reply = await sendChat(p, prompt, { maxMs: 200000 })
+        const m = reply.match(/\{[\s\S]*\}/); if (!m) { out.push({ name, err: '无JSON' }); continue }
+        let d; try { d = JSON.parse(m[0]) } catch { out.push({ name, err: 'JSON解析失败' }); continue }
+        const filled = []
+        // 重要度(select)
+        const impv = IMP[String(d['重要度'] || '').trim()]
+        if (impv) {
+          const btn = p.locator('[data-testid="detail"] button').filter({ hasText: /添加重要度/ }).first()
+          if (await btn.count()) { await btn.click(); await sleep(400); const sel = p.locator('[data-testid="detail"] select').last(); await sel.selectOption(impv).catch(() => {}); await sleep(200); await p.keyboard.press('Tab'); await sleep(400); filled.push('重要度') }
+        }
+        // 弱点(tags 多个)
+        const wk = Array.isArray(d['弱点']) ? d['弱点'] : (d['弱点'] ? [d['弱点']] : [])
+        if (wk.length) {
+          const op = p.locator('[data-testid="detail"] button').filter({ hasText: /添加弱点/ }).first()
+          if (await op.count()) {
+            await op.click(); await sleep(400)
+            for (const t of wk) { const inner = p.locator('[data-testid="detail"] button').filter({ hasText: /^\+( 添加)?$/ }).first(); if (await inner.count()) { await inner.click(); await sleep(300) } await p.keyboard.type(String(t)); await sleep(150); await p.keyboard.press('Enter'); await sleep(650) }
+            filled.push('弱点×' + wk.length)
+          }
+        }
+        // 首次出场(number)
+        const fa = d['首次出场']
+        if (fa != null && fa !== '') {
+          const btn = p.locator('[data-testid="detail"] button').filter({ hasText: /添加首次出场/ }).first()
+          if (await btn.count()) { await btn.click(); await sleep(350); await p.keyboard.type(String(fa)); await sleep(150); await p.keyboard.press('Enter'); await sleep(400); filled.push('首次出场') }
+        }
+        // 能力(结构化:Field「+添加能力」→内层「+ 添加能力」→name+描述→保存)
+        const abs = Array.isArray(d['能力']) ? d['能力'] : []
+        if (abs.length) {
+          const fbtn = p.locator('[data-testid="detail"] button').filter({ hasText: /添加能力/ }).first()
+          if (await fbtn.count()) { await fbtn.click(); await sleep(450) }
+          let n = 0
+          for (const ab of abs) {
+            const nm = ab['名称'] || ab.name; const desc = ab['描述'] || ab.description || ''
+            if (!nm) continue
+            const inner = p.locator('[data-testid="detail"] button').filter({ hasText: /^\+ 添加能力$/ }).first()
+            if (await inner.count()) { await inner.click(); await sleep(350) }
+            const nameIn = p.locator('[data-testid="detail"] input[placeholder="能力名称"]').first()
+            await nameIn.fill(String(nm)); await sleep(150)
+            const descTa = p.locator('[data-testid="detail"] textarea[placeholder="描述"]').first()
+            if (await descTa.count()) { await descTa.fill(String(desc)); await sleep(150) }
+            await p.locator('[data-testid="detail"] button').filter({ hasText: /^保存$/ }).first().click(); await sleep(600)
+            n++
+          }
+          if (n) filled.push('能力×' + n)
+        }
+        out.push({ name, filled })
+      } catch (e) { out.push({ name, err: e.message.slice(0, 70) }) }
+    }
+    return out
+  },
+
+  // 主编对话方式补全任意分类的剩余字段。args.cat=分类名;args.fields=[{label,csv}];args.nameKey=名字字段键。
+  enrichCat: async (p) => {
+    await openBook(p, args.title)
+    const cat = args.cat, nameKey = args.nameKey
+    const fields = args.fields  // [{label:'领袖',csv:false}, ...]
+    const ents = WORLD.filter((w) => w.cat === cat).map((w) => w.fields[nameKey])
+    const labelList = fields.map((f) => f.label).join('、')
+    const out = []
+    for (const name of ents) {
+      try {
+        await p.getByRole('treeitem').filter({ hasText: new RegExp('^' + cat) }).first().click(); await sleep(700)
+        await p.locator('[data-testid="detail"]').getByText(name, { exact: false }).first().click(); await sleep(1300)
+        const prompt = `请基于《纸命》全书设定与已写的前4章正文,为${cat}「${name}」补全这些字段:${labelList}。只输出一个JSON对象,键即上述字段名,值为简洁短句(逗号分隔类字段可用顿号或逗号分隔多项),须与正文一致。不要任何JSON以外的文字。`
+        const reply = await sendChat(p, prompt, { maxMs: 200000 })
+        const m = reply.match(/\{[\s\S]*\}/)
+        if (!m) { out.push({ name, err: '无JSON' }); continue }
+        let data; try { data = JSON.parse(m[0]) } catch { out.push({ name, err: 'JSON解析失败' }); continue }
+        const filled = []
+        for (const f of fields) {
+          let val = data[f.label]
+          if (val == null || val === '') continue
+          if (Array.isArray(val)) val = val.join(f.csv ? ',' : '，')
+          if (f.csv) val = String(val).replace(/[、，]/g, ',')  // array_csv 按半角逗号切
+          const btn = p.locator('[data-testid="detail"] button').filter({ hasText: new RegExp('添加' + f.label) }).first()
+          if (await btn.count() === 0) continue
+          await btn.click(); await sleep(450)
+          await p.keyboard.type(String(val)); await sleep(180)
+          await p.keyboard.press('Tab'); await sleep(450)
+          filled.push(f.label)
+        }
+        out.push({ name, filled })
+      } catch (e) { out.push({ name, err: e.message.slice(0, 70) }) }
+    }
+    return out
+  },
+
   // 测试主编 chat:开章→切tab→发消息→等响应
   testChat: async (p) => {
     await openBook(p, args.title)
@@ -348,7 +466,7 @@ const ACTIONS = {
     rounds.push({ r: 1, ok: ok1, len: await proseLen() })
     let r = 1
     while ((await proseLen()) < target && r < maxRounds) {
-      const ok = await sendWrite(args.contMsg || '接着上文继续往下写,推进到下一节拍,约+1800字。不要重复已写内容,换感官换喻体,保持柳怀玉限知志怪笔记体。直接写正文。')
+      const ok = await sendWrite(await anchorCont(p, args.contMsg || '接着上文继续往下写,推进到下一节拍,约+1800字。不要重复已写内容,换感官换喻体,保持柳怀玉限知志怪笔记体。直接写正文。'))
       r++; rounds.push({ r, ok, len: await proseLen() })
       if (!ok) break
     }
@@ -387,7 +505,8 @@ const ACTIONS = {
     }
     const rounds = []
     let i = 0
-    for (const msg of (args.msgs || [])) { i++; const ok = await sendWrite(msg); rounds.push({ r: i, ok, len: await proseLen() }); if (!ok) break }
+    const msgs = args.msgs || []
+    for (let k = 0; k < msgs.length; k++) { i++; const m = k === 0 ? msgs[k] : await anchorCont(p, msgs[k]); const ok = await sendWrite(m); rounds.push({ r: i, ok, len: await proseLen() }); if (!ok) break }
     await clickSave(p, 3500)
     await p.screenshot({ path: `${SHOTS}/final_${args.seq || 1}.png` })
     return { finalLen: await proseLen(), rounds }
@@ -453,7 +572,7 @@ const ACTIONS = {
     const target = args.target || 5200, maxRounds = args.maxRounds || 6
     const fr = []
     fr.push(await sendWrite(args.finalFirstMsg)); let r = 1
-    while ((await proseLen()) < target && r < maxRounds) { const ok = await sendWrite(args.finalContMsg); r++; fr.push(ok); if (!ok) break }
+    while ((await proseLen()) < target && r < maxRounds) { const ok = await sendWrite(await anchorCont(p, args.finalContMsg)); r++; fr.push(ok); if (!ok) break }
     await clickSave(p, 3500)
     out.final = await proseLen(); out.rounds = fr.length
     await p.screenshot({ path: `${SHOTS}/chapter_${seq}.png` })
