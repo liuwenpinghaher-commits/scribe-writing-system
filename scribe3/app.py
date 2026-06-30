@@ -339,6 +339,7 @@ def edit_char(local: str, c: CharIn, work: str = "main"):
     fields = {"name": c.name, "backstory": c.backstory, "backstory_secret": c.backstory_secret,
               "importance": c.importance,
               "appearance": c.appearance, "personality_detail": c.personality_detail,
+              "personality_tags": c.personality_tags, "aliases": c.aliases,
               "abilities": c.abilities, "weaknesses": c.weaknesses,
               "surface_goal": c.surface_goal, "deep_need": c.deep_need,
               "internal_conflict": c.internal_conflict, "fear": c.fear,

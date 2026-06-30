@@ -182,6 +182,57 @@ const ACTIONS = {
     return out
   },
 
+  // 主编对话方式补全角色全字段:逐角色→右栏主编生成全字段JSON→填进 DetailView 所有空字段。
+  // args.names 可指定角色子集;默认全部 WORLD 角色。
+  enrichChars: async (p) => {
+    await openBook(p, args.title)
+    const names = args.names || WORLD.filter((w) => w.cat === '角色').map((w) => w.fields.名字)
+    const TEXT = ['外貌', '性格深描', '表面目标', '深层需求', '内在冲突', '恐惧']
+    const out = []
+    for (const name of names) {
+      try {
+        await p.getByRole('treeitem').filter({ hasText: /^角色/ }).first().click(); await sleep(700)
+        await p.locator('[data-testid="detail"]').getByText(name, { exact: false }).first().click(); await sleep(1400)
+        // 主编生成全字段 JSON
+        const prompt = `请基于《纸命》全书设定与已写的前4章正文,为角色「${name}」补全人物设定卡。只输出一个JSON对象,键为:外貌,性格深描,表面目标,深层需求,内在冲突,恐惧,性格标签(性格标签为字符串数组,其余为10-40字短句,须与正文一致)。不要任何JSON以外的文字。`
+        const reply = await sendChat(p, prompt, { maxMs: 200000 })
+        const m = reply.match(/\{[\s\S]*\}/)
+        if (!m) { out.push({ name, err: '主编未输出JSON' }); continue }
+        let data
+        try { data = JSON.parse(m[0]) } catch { out.push({ name, err: 'JSON解析失败' }); continue }
+        const filled = []
+        // 文本字段
+        for (const f of TEXT) {
+          if (!data[f]) continue
+          const btn = p.locator('[data-testid="detail"] button').filter({ hasText: new RegExp('添加' + f) }).first()
+          if (await btn.count() === 0) continue  // 已填
+          await btn.click(); await sleep(450)
+          await p.keyboard.type(String(data[f])); await sleep(180)
+          await p.keyboard.press('Tab'); await sleep(450)
+          filled.push(f)
+        }
+        // 性格标签(tags,控件已修:可显示+可续加)
+        const tags = Array.isArray(data['性格标签']) ? data['性格标签'] : []
+        if (tags.length) {
+          // 开标签编辑:点 Field 的「+添加性格标签」(空时)或标签区的「+」
+          let opener = p.locator('[data-testid="detail"] button').filter({ hasText: /添加性格标签/ }).first()
+          if (await opener.count()) { await opener.click(); await sleep(400) }
+          for (const tag of tags) {
+            // 点 TagsRow 内的「+ 添加」或「+」开输入(每加一个 reload 后需重开)
+            const inner = p.locator('[data-testid="detail"] button').filter({ hasText: /^\+( 添加)?$/ }).first()
+            if (await inner.count()) { await inner.click(); await sleep(300) }
+            await p.keyboard.type(String(tag)); await sleep(160)
+            await p.keyboard.press('Enter'); await sleep(700)
+          }
+          filled.push('性格标签×' + tags.length)
+        }
+        out.push({ name, filled })
+      } catch (e) { out.push({ name, err: e.message.slice(0, 70) }) }
+    }
+    await p.screenshot({ path: `${SHOTS}/enriched_chars.png` })
+    return out
+  },
+
   // 测试主编 chat:开章→切tab→发消息→等响应
   testChat: async (p) => {
     await openBook(p, args.title)

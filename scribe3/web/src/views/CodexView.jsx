@@ -26,7 +26,8 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const ref = useRef(null)
-  const isEmpty = !value
+  // tags 类用 options 判空(value 恒为 undefined,否则已填标签永不显示、永远只见「+添加」)
+  const isEmpty = type === 'tags' ? !(options && options.length) : !value
 
   useEffect(() => { if (!editing) setVal(value ?? '') }, [value, editing])
   useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
@@ -97,9 +98,9 @@ function TagsRow({ label, tags, onSave, section }) {
           <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() }; if (e.key === 'Escape') setEditing(false) }}
             onBlur={exitIfEmpty} placeholder="回车添加..." className="w-28 h-6 text-[12px] bg-transparent border-b border-brand/40 text-ink outline-none placeholder:text-faint/40" />
-        ) : list.length === 0 ? (
-          <button onClick={() => setEditing(true)} className="text-[12px] text-faint/40 hover:text-brand cursor-pointer">+ 添加</button>
-        ) : null}
+        ) : (
+          <button onClick={() => setEditing(true)} className="text-[12px] text-faint/40 hover:text-brand cursor-pointer">{list.length === 0 ? '+ 添加' : '+'}</button>
+        )}
       </div>
     </div>
   )
