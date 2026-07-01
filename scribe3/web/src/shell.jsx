@@ -73,7 +73,6 @@ export function Shell({ topbar, left, center, right }) {
     <div className="h-full flex flex-col bg-canvas">
       {topbar}
       <div className="flex-1 min-h-0 flex">
-        {left && <Rail side="left" {...left} />}
         {lCap && (
           <>
             <div className="shrink-0 bg-surface border-r border-line flex flex-col min-h-0" style={{ width: lw }}>
