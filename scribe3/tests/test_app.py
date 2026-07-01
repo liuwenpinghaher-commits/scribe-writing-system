@@ -3169,3 +3169,16 @@ def test_patch_chapter_deduction_fields(store):
     assert ch["scene_truth"] == "真相X"
     assert ch["involved_characters"] == ["role:a"]
     assert ch["deductions"][0]["prose"] == "看到:X"
+
+
+def test_deduction_block_injects_truth_and_projections(store):
+    from scribe3.app import _deduction_block
+    store.save_chapter(3, "", title="第3章")
+    store.update_chapter_meta(3, {
+        "scene_truth": "真相:借命发生",
+        "deductions": [{"character_id": "role:柳", "character_name": "柳怀玉", "prose": "看到:纸人动"}]})
+    blk = _deduction_block(store, 3)
+    assert "真相:借命发生" in blk
+    assert "柳怀玉" in blk and "看到:纸人动" in blk
+    store.save_chapter(4, "", title="第4章")
+    assert _deduction_block(store, 4) == ""   # 空章返回空串

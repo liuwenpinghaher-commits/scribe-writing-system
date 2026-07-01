@@ -1376,7 +1376,7 @@ def _current_tail_block(st, chapter: int) -> str:
 
 
 @app.get("/chat/write")
-def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "main"):
+def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "", work: str = "main"):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
     from scribe3.craft import build_craft_block
@@ -1400,6 +1400,9 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", work: str = "mai
     craft = build_craft_block(st.list_craft_rules() or None)
     if craft:
         instructions += "\n\n" + craft
+    instructions += _phase_role_block(phase)
+    if (phase or "").strip().lower() == "draft":
+        instructions += "\n\n" + _deduction_block(st, chapter)
     instructions += _final_reminder()
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg)),
@@ -1499,6 +1502,26 @@ def _phase_role_block(phase: str) -> str:
     return f"\n\n{block}" if block else ""
 
 
+def _deduction_block(st, seq: int) -> str:
+    """草稿期把本章「场景真相 + 各角色限知投影」注入 instructions。
+    空(无真相且无投影)→ 返回空串(默认行为不变)。"""
+    ch = st.get_chapter(seq) or {}
+    truth = (ch.get("scene_truth") or "").strip()
+    deds = ch.get("deductions") or []
+    if not truth and not deds:
+        return ""
+    parts = ["## 本章演绎(据此以作者视角写限知初稿)"]
+    if truth:
+        parts.append(f"〔场景真相·全知〕{truth}")
+    for d in deds:
+        nm = d.get("character_name") or d.get("character_id") or "?"
+        pr = (d.get("prose") or "").strip()
+        if pr:
+            parts.append(f"〔{nm}·限知投影〕{pr}")
+    parts.append("要求:以场景真相为事实骨架;焦点者投影当 POV、他人投影约束其言行并埋反讽;不写角色不知道的私密。")
+    return "\n".join(parts)
+
+
 def _final_reminder() -> str:
     """末尾强化提醒(recency 效应):把三条非谈判性约束放在 instructions 最后,
     对抗多块拼接后关键规则被稀释的注意力漂移。不含新信息,仅复述最高优先级约束。"""
@@ -1555,6 +1578,8 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
+    if (req.phase or "").strip().lower() == "draft":
+        instructions += "\n\n" + _deduction_block(st, req.chapter)
     instructions += _final_reminder()
 
     if req.images:
