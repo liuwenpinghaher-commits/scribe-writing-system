@@ -76,8 +76,19 @@ export function Shell({ topbar, left, center, right }) {
         {left && <Rail side="left" {...left} />}
         {lCap && (
           <>
-            <div className="shrink-0 bg-surface border-r border-line overflow-y-auto overflow-x-hidden" style={{ width: lw }}>
-              <div className="p-3">{lCap.render()}</div>
+            <div className="shrink-0 bg-surface border-r border-line flex flex-col min-h-0" style={{ width: lw }}>
+              {/* 带文字标签的 tab 条(常显,高亮当前)——设计要求"左面板 tabs",不能只有窄图标轨 */}
+              <div className="shrink-0 flex items-center gap-0.5 px-1.5 pt-2 pb-1 border-b border-line overflow-x-auto">
+                {left.caps.map((c) => (
+                  <button key={c.key} onClick={() => left.onActive(c.key)}
+                    className={cn('shrink-0 px-2 h-6 rounded-md text-[11.5px] whitespace-nowrap transition-colors cursor-pointer inline-flex items-center gap-1',
+                      left.active === c.key ? 'bg-brand text-brandfg font-medium' : 'text-faint hover:bg-soft hover:text-ink')}>
+                    {c.icon && <c.icon size={12} />}{c.label.split(' · ')[0]}
+                    {!!c.badge && c.badge > 0 && <span className="text-[9px] tnum opacity-80">{c.badge}</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3">{lCap.render()}</div>
             </div>
             <Resizer onDown={startResize('l')} />
           </>
