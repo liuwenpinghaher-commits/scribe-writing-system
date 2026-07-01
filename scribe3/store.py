@@ -1202,7 +1202,8 @@ class SurrealStore:
         """单章身份 + 四阶段内容(synopsis/beats/draft/prose)。
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         rows = self._query(
-            "SELECT seq,title,focalizer,prose,synopsis,beats,draft "
+            "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
+            "scene_truth,involved_characters,deductions "
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
@@ -1213,6 +1214,13 @@ class SurrealStore:
             r["beats"] = json.loads(raw_beats) if raw_beats else []
         except (ValueError, TypeError):
             r["beats"] = []
+        for _k in ("involved_characters", "deductions"):
+            raw = r.get(_k)
+            try:
+                r[_k] = json.loads(raw) if raw else []
+            except (ValueError, TypeError):
+                r[_k] = []
+        r["scene_truth"] = r.get("scene_truth") or ""
         return r
 
     def list_chapters(self) -> list[dict]:
@@ -2756,7 +2764,8 @@ class SurrealStore:
             "SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not exists:
             return False
-        allowed = {"synopsis", "volume", "label", "title", "beats"}
+        allowed = {"synopsis", "volume", "label", "title", "beats",
+                   "scene_truth", "involved_characters", "deductions"}
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -2765,10 +2774,10 @@ class SurrealStore:
                 continue
             if k == "volume":
                 volume_id = v   # None = 清空, str = 新卷裸 id
-            elif k == "beats":
-                # 节拍存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
+            elif k in ("beats", "involved_characters", "deductions"):
+                # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 import json
-                plain["beats"] = json.dumps(v if v is not None else [], ensure_ascii=False)
+                plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
             else:
                 plain[k] = v
         # 构建 SET 子句:先处理普通字段,再追加 volume(若有)

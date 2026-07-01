@@ -1294,3 +1294,17 @@ def test_latest_draft_version_none(store):
     """无 draft 版时 latest_draft_version 返回 None。"""
     store.add_chapter_version(7, "正文定稿。", stage="final")
     assert store.latest_draft_version(7) is None
+
+
+def test_chapter_deduction_fields_roundtrip(store):
+    """scene_truth / involved_characters / deductions 三字段 patch→get 往返。"""
+    store.save_chapter(1, "", title="第1章")
+    store.update_chapter_meta(1, {
+        "scene_truth": "客观真相:借命正在发生。",
+        "involved_characters": ["role:柳怀玉", "role:苏纸鸢"],
+        "deductions": [{"character_id": "role:柳怀玉", "character_name": "柳怀玉", "prose": "看到:纸人动。"}],
+    })
+    ch = store.get_chapter(1)
+    assert ch["scene_truth"] == "客观真相:借命正在发生。"
+    assert ch["involved_characters"] == ["role:柳怀玉", "role:苏纸鸢"]
+    assert ch["deductions"][0]["character_name"] == "柳怀玉"
