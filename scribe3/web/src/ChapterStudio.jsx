@@ -21,6 +21,7 @@ const PHASES = [
 
 // ——— 大纲:textarea,失焦 patchChapter({synopsis}) ———
 function OutlineTab({ seq, value, onSaved }) {
+  const toast = useToast()
   const [text, setText] = useState(value || '')
   const [saving, setSaving] = useState(false)
   const dirtyRef = useRef(false)
@@ -30,6 +31,7 @@ function OutlineTab({ seq, value, onSaved }) {
     if (!dirtyRef.current) return
     setSaving(true)
     try { await api.patchChapter(seq, { synopsis: text }); dirtyRef.current = false; onSaved?.() }
+    catch (e) { toast(e?.body?.detail || '大纲保存失败', { tone: 'danger' }) }
     finally { setSaving(false) }
   }
 
@@ -53,6 +55,7 @@ function OutlineTab({ seq, value, onSaved }) {
 
 // ——— 节拍:beats 列表(增/删/打勾/上下移),patchChapter({beats}) ———
 function BeatsTab({ seq, value, onSaved }) {
+  const toast = useToast()
   const [beats, setBeats] = useState(() => Array.isArray(value) ? value : [])
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -62,6 +65,7 @@ function BeatsTab({ seq, value, onSaved }) {
     setBeats(next)
     setSaving(true)
     try { await api.patchChapter(seq, { beats: next }); onSaved?.() }
+    catch (e) { toast(e?.body?.detail || '节拍保存失败', { tone: 'danger' }) }
     finally { setSaving(false) }
   }
   const add = () => {
@@ -135,26 +139,43 @@ function DraftTab({ seq, onAdopt }) {
   const [summary, setSummary] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // 换章防丢:draftRef 只持「实时 text/summary/dirty」(渲染时刷新);seq 不放 ref
+  // ——因 draftRef.current.seq=seq 会在换章渲染时先变成新 seq,导致 cleanup 拿错章号。
+  // 旧章 seq 改由 effect 闭包捕获(myseq),cleanup 时用它,保证 flush 落到正确的旧章。
+  const draftRef = useRef({ text: '', summary: '', dirty: false })
+  draftRef.current.text = text
+  draftRef.current.summary = summary
 
   useEffect(() => {
     let alive = true
+    const myseq = seq  // 闭包捕获本 effect 的章号,cleanup 用它 = 真旧章号
     setLoading(true)
     api.latestDraft(seq)
-      .then((d) => { if (alive) { setText(d?.prose || ''); setSummary(d?.summary || '') } })
+      .then((d) => { if (alive) { setText(d?.prose || ''); setSummary(d?.summary || ''); draftRef.current.dirty = false } })
       .catch(() => {})
       .finally(() => { if (alive) setLoading(false) })
-    return () => { alive = false }
+    // cleanup(seq 变化/卸载):若旧章 dirty,先 flush 旧章。text/summary 从 draftRef 读——
+    // 此刻 state 尚未被新 effect 的 setText 重置(重置是异步),故仍是旧章正文。
+    return () => {
+      alive = false
+      const { text: oldText, summary: oldSummary, dirty } = draftRef.current
+      if (dirty && myseq != null) {
+        draftRef.current.dirty = false
+        api.saveDraft(myseq, oldText, oldSummary)
+          .catch(() => { toast(`第 ${myseq} 章草稿自动保存失败,请回该章手动存草稿`, { tone: 'danger' }) })
+      }
+    }
   }, [seq])
 
   const saveDraft = async () => {
     setSaving(true)
-    try { await api.saveDraft(seq, text, summary); toast('草稿已存') }
+    try { await api.saveDraft(seq, text, summary); draftRef.current.dirty = false; toast('草稿已存') }
     catch (e) { toast('存草稿失败:' + (e.message || ''), { tone: 'danger' }) }
     finally { setSaving(false) }
   }
   const adopt = async () => {
     setSaving(true)
-    try { await api.saveDraft(seq, text, summary); onAdopt?.(text); toast('已采用为正文,切到正文 tab 继续打磨') }
+    try { await api.saveDraft(seq, text, summary); draftRef.current.dirty = false; onAdopt?.(text); toast('已采用为正文,切到正文 tab 继续打磨') }
     catch (e) { toast('采用失败:' + (e.message || ''), { tone: 'danger' }) }
     finally { setSaving(false) }
   }
@@ -180,13 +201,13 @@ function DraftTab({ seq, onAdopt }) {
       </div>
       <input
         value={summary}
-        onChange={(e) => setSummary(e.target.value)}
+        onChange={(e) => { setSummary(e.target.value); draftRef.current.dirty = true }}
         placeholder="给这版草稿一句备注(可留空)"
         className="w-full h-8 rounded-lg border border-line bg-canvas px-3 text-[12.5px] text-ink outline-none focus:border-brand mb-2"
       />
       <textarea
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); draftRef.current.dirty = true }}
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
         className="flex-1 min-h-[300px] w-full rounded-xl border border-line bg-canvas px-4 py-3 text-[14px] leading-relaxed text-ink outline-none focus:border-brand resize-none"
       />

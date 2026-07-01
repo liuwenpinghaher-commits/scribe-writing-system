@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Compass, ChevronDown, Check } from 'lucide-react'
 import { api } from './api'
+import { useToast } from './ui/Toast.jsx'
 
 const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线']]
 
 // 顶栏北极星条:作品意图常驻,点开可编辑。喂主编当写作纲领。
 export function NorthStarBar() {
+  const toast = useToast()
   const [intent, setIntent] = useState({ reader_feeling: '', emotional_arc: '', red_lines: '' })
   const [open, setOpen] = useState(false)
   const [saved, setSaved] = useState(false)
-  useEffect(() => { api.intent().then(setIntent) }, [])
+  useEffect(() => { api.intent().then(setIntent).catch(() => {}) }, [])
 
   const summary = FIELDS.map(([k]) => intent[k]).filter(Boolean).join(' · ') || '未设作品意图(点此填北极星)'
   const set = (k, v) => { setIntent((i) => ({ ...i, [k]: v })); setSaved(false) }
@@ -32,7 +34,10 @@ export function NorthStarBar() {
             </div>
           ))}
           <div className="sm:col-span-3 flex justify-end">
-            <button onClick={async () => { await api.putIntent(intent); setSaved(true) }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-[12px] bg-brand text-white hover:opacity-90 cursor-pointer">
+            <button onClick={async () => {
+              try { await api.putIntent(intent); setSaved(true) }
+              catch (e) { toast(e?.body?.detail || '意图保存失败,请重试', { tone: 'danger' }) }  // 失败不置 saved
+            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-[12px] bg-brand text-white hover:opacity-90 cursor-pointer">
               <Check size={13} />{saved ? '已存' : '保存意图'}
             </button>
           </div>

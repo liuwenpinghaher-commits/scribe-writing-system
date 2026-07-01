@@ -41,7 +41,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     if (!dirty || oldProse === undefined || oldSeq == null || oldSeq === targetSeq) return
     api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
       .then(() => { dirtyRef.current.dirty = false; setSaved(true) })
-      .catch(() => { /* 静默保存失败不阻断切章,用户下次手动保存可补救 */ })
+      .catch(() => { toast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }) })
   }
 
   // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
@@ -146,6 +146,19 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [saved])
+
+  // Cmd/Ctrl+S 保存本章(阻止浏览器"保存网页"框)。用 ref 持最新 save,避免重复绑定/闭包过期。
+  const saveRef = useRef(null)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        saveRef.current?.()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     if (!guardOn) { setGuard({ leaks: [], qc: { repetition: 0, structural: 0, purple: 0 }, issues: [] }); return }
@@ -256,7 +269,14 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       } catch { prevToday = 0 }
     }
 
-    const r = await api.saveChapter(chapter, text, chTitle, focalizer)
+    let r
+    try {
+      r = await api.saveChapter(chapter, text, chTitle, focalizer)
+    } catch (e) {
+      // 保存失败:danger 提示,保持 saved=false + dirty=true 以便重试;不吞错
+      toast(e?.body?.detail || ('保存失败:' + (e?.message || '')), { tone: 'danger' })
+      throw e
+    }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
     // 手动保存成功:重置 dirtyRef
     dirtyRef.current.dirty = false
@@ -283,15 +303,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       setProposal(null); return
     }
     setProse(r.next); setProposal(null); setLastQuote(''); setLastSel(null)
-    await persist(r.next)
+    await persist(r.next).catch(() => {})  // 失败已在 persist 内 toast,dirty 保留可重存
   }
   const acceptCandidate = async (text) => {
     const r = applyProposal(prose, { scope: 'selection', prose: text }, lastSel)
     if (!r.ok && r.drifted) { toast('原文已变动,请重新选中要替换的文字', { tone: 'danger' }); setCandidates([]); return }
     setProse(r.next); setCandidates([]); setLastQuote(''); setLastSel(null)
-    await persist(r.next)
+    await persist(r.next).catch(() => {})  // 失败已在 persist 内 toast,dirty 保留可重存
   }
-  const save = () => persist(prose)
+  // persist 内部已 toast 报错;此处吞掉 reject 避免 unhandled rejection(dirty/saved 已由 persist 保留)
+  const save = () => persist(prose).catch(() => {})
+  saveRef.current = save  // Cmd/Ctrl+S 走最新 save(每次渲染刷新 ref)
   const discussSel = (sel) => {
     const text = typeof sel === 'string' ? sel : sel?.text
     if (!text?.trim()) return
@@ -480,9 +502,11 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         </div>
 
         <Btn variant="primary" className="shrink-0 whitespace-nowrap" onClick={async () => {
-          await persist(prose)
-          await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
-          setVerTick((t) => t + 1)
+          try {
+            await persist(prose)  // 失败已在 persist 内 toast;抛出后不落定稿存档点
+            await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
+            setVerTick((t) => t + 1)
+          } catch { /* persist 已提示,存为正文中止 */ }
         }}>存为正文</Btn>
       </div>
     </div>
@@ -756,7 +780,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     ) },
     { key: 'versions', label: '存档', icon: Bookmark, render: () => (
       <VersionPanel seq={chapter} refreshKey={verTick}
-        onRestore={(text) => { setProse(text); persist(text) }} />
+        onRestore={(text) => { setProse(text); persist(text).catch(() => {}) }} />
     ) },
   ]
 

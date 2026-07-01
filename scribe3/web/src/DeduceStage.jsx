@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { api } from './api'
 import { useDeduceSel } from './deduceContext'
+import { useToast } from './ui/Toast.jsx'
 
 // 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
 export function DeduceStage({ seq, meta, onSaved }) {
+  const toast = useToast()
   const { selected } = useDeduceSel()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -17,13 +19,17 @@ export function DeduceStage({ seq, meta, onSaved }) {
   useEffect(() => { setText(cur.prose || ''); dirty.current = false }, [selected, seq]) // eslint-disable-line
 
   const persist = async (val) => {
-    if (selected === 'truth') {
-      await api.patchChapter(seq, { scene_truth: val })
-    } else {
-      const others = (meta?.deductions || []).filter((d) => d.character_id !== selected)
-      await api.patchChapter(seq, { deductions: [...others, { character_id: selected, character_name: cur.character_name, prose: val }] })
+    try {
+      if (selected === 'truth') {
+        await api.patchChapter(seq, { scene_truth: val })
+      } else {
+        const others = (meta?.deductions || []).filter((d) => d.character_id !== selected)
+        await api.patchChapter(seq, { deductions: [...others, { character_id: selected, character_name: cur.character_name, prose: val }] })
+      }
+      onSaved?.()
+    } catch (e) {
+      toast(e?.body?.detail || '演绎保存失败,请重试', { tone: 'danger' })
     }
-    onSaved?.()
   }
   const blur = () => { if (dirty.current) { dirty.current = false; persist(text) } }
 
@@ -41,7 +47,7 @@ export function DeduceStage({ seq, meta, onSaved }) {
       onDelta: (d) => { acc += d; setText(acc) },
       onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
       onDone: () => { setBusy(false); const v = acc.trim(); if (v) { dirty.current = true; persist(v) } },
-      onError: (e) => { setBusy(false); setText('演绎失败:' + e) },
+      onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
     })
   }
 
