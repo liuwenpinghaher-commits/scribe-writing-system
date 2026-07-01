@@ -8,7 +8,6 @@ import { WriteLayout } from './WriteLayout'
 import { FramePanel } from './FramePanel'
 import { DeducePanel } from './DeducePanel'
 import { DeduceStage } from './DeduceStage'
-import { DeduceProvider } from './deduceContext'
 import { cn } from './lib/utils'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -283,40 +282,36 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   }, [seq, phase, refresh])
 
   // 正文 tab:整体交给 WriteLayout(自带顶栏:章导航/视角/护栏/保存/存为正文)。
-  // 两条 return 路径都包进 DeduceProvider,使中区 DeduceStage 与后续左栏演绎树共享选中态。
+  // DeduceProvider 已上提到 BinderLayout,包住左栏演绎树与中区 DeduceStage,共享选中态。
   if (phase === 'final') {
     return (
-      <DeduceProvider>
-        <div className="h-full flex flex-col min-h-0">
-          <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-          <div className="flex-1 min-h-0">
-            <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
-          </div>
+      <div className="h-full flex flex-col min-h-0">
+        <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+        <div className="flex-1 min-h-0">
+          <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
-      </DeduceProvider>
+      </div>
     )
   }
 
   return (
-    <DeduceProvider>
-      <div className="h-full flex flex-col min-h-0 bg-canvas">
-        <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-        {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
-          ) : phase === 'outline' ? (
-            <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
-          ) : phase === 'beats' ? (
-            <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
-          ) : phase === 'deduce' ? (
-            <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
-          ) : phase === 'draft' ? (
-            <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
-          ) : null}
-        </div>
+    <div className="h-full flex flex-col min-h-0 bg-canvas">
+      <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+      {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
+        ) : phase === 'outline' ? (
+          <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
+        ) : phase === 'beats' ? (
+          <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
+        ) : phase === 'deduce' ? (
+          <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
+        ) : phase === 'draft' ? (
+          <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
+        ) : null}
       </div>
-    </DeduceProvider>
+    </div>
   )
 }
 

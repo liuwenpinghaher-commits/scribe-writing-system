@@ -1,0 +1,45 @@
+import { useEffect, useState } from 'react'
+import { BookOpen, User, Check, Plus, X } from 'lucide-react'
+import { api } from './api'
+import { cn } from './lib/utils'
+import { useDeduceSel } from './deduceContext'
+
+// 演绎树:根「场景真相」+ 涉及角色(已演打勾/未演)。选中驱动中区 DeduceStage。
+export function DeduceTree({ seq }) {
+  const { selected, setSelected } = useDeduceSel()
+  const [ch, setCh] = useState(null)
+  const [chars, setChars] = useState([])
+  useEffect(() => { if (seq == null) return; api.chapter(seq).then(setCh).catch(() => {}); api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {}) }, [seq])
+  if (seq == null) return <div className="p-3 text-[13px] text-faint/50">选一章开始演绎</div>
+  const involved = ch?.involved_characters || []
+  const deds = ch?.deductions || []
+  const doneSet = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
+  const involvedChars = chars.filter((c) => involved.includes(c.id))
+  const addable = chars.filter((c) => !involved.includes(c.id))
+  const setInvolved = async (ids) => { await api.patchChapter(seq, { involved_characters: ids }); api.chapter(seq).then(setCh) }
+  return (
+    <div className="p-2">
+      <button onClick={() => setSelected('truth')}
+        className={cn('w-full flex items-center gap-2 px-2 h-8 rounded-lg text-[13px] cursor-pointer', selected === 'truth' ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
+        <BookOpen size={14} />场景真相{(ch?.scene_truth || '').trim() && <Check size={12} className="ml-auto text-ok" />}
+      </button>
+      <div className="text-[10.5px] text-faint uppercase tracking-wider mt-3 mb-1 px-2">涉及角色</div>
+      {involvedChars.length === 0 && <div className="px-2 text-[12px] text-faint/50">加涉及角色 →</div>}
+      {involvedChars.map((c) => (
+        <div key={c.id} className="group flex items-center">
+          <button onClick={() => setSelected(c.id)}
+            className={cn('flex-1 flex items-center gap-2 px-2 h-8 rounded-lg text-[13px] cursor-pointer', selected === c.id ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
+            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-[10px] text-faint/50">未演</span>}
+          </button>
+          <button onClick={() => setInvolved(involved.filter((x) => x !== c.id))} title="移除" className="opacity-0 group-hover:opacity-100 w-5 h-5 grid place-items-center text-faint hover:text-danger cursor-pointer"><X size={11} /></button>
+        </div>
+      ))}
+      {addable.length > 0 && (
+        <details className="mt-1">
+          <summary className="px-2 h-7 flex items-center gap-1 text-[12px] text-brand cursor-pointer list-none"><Plus size={12} />添加涉及角色</summary>
+          {addable.map((c) => <button key={c.id} onClick={() => setInvolved([...involved, c.id])} className="w-full text-left px-4 h-7 text-[12.5px] text-faint hover:bg-soft hover:text-ink cursor-pointer">{c.name}</button>)}
+        </details>
+      )}
+    </div>
+  )
+}

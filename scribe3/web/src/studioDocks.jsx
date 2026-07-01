@@ -5,7 +5,7 @@ import { cn } from './lib/utils'
 import { api } from './api'
 import { ProjectTree } from './ProjectTree'
 import { FramePanel } from './FramePanel'
-import { DeducePanel } from './DeducePanel'
+import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
 import { ChiefDock } from './ChiefDock'
 import { usePref } from './lib/usePref'
@@ -35,7 +35,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     if (seq == null) return base   // 未选章:只给项目树
     base.push(
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <div className="p-3"><FramePanel focalizer={focalizer} chapter={seq} /></div> },
-      { key: 'deduce', icon: Sparkles, label: '演绎 · 角色限知', render: () => <div className="p-3"><DeducePanel chars={chars} chapter={seq} /></div> },
+      { key: 'deduce', icon: Sparkles, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel promises={promises} /> },
       { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} /> },
     )

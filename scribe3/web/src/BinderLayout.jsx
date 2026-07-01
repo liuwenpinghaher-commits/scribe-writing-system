@@ -7,6 +7,7 @@ import { DetailPane } from './DetailPane'
 import { LeftDock, RightDock } from './studioDocks'
 import { ChiefDock } from './ChiefDock'
 import { ChiefSlotProvider } from './ChiefSlotContext'
+import { DeduceProvider } from './deduceContext'
 import { showToast } from './ui/Toast'
 
 // 收集容器节点 id(默认展开两根 + 各分类容器折叠;手稿支卷默认展开)
@@ -122,6 +123,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
 
   return (
     <ChiefSlotProvider>
+    <DeduceProvider>
     <div className="h-full bg-canvas min-h-0">
       <Group orientation="horizontal" defaultLayout={{ left: 22, detail: 52, right: 26 }} className="h-full">
         {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}
@@ -166,6 +168,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
         </Panel>
       </Group>
     </div>
+    </DeduceProvider>
     </ChiefSlotProvider>
   )
 }
