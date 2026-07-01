@@ -6,6 +6,7 @@ import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
 import { ContainerOutline } from './ContainerOutline'
+import { ErrorBoundary } from './ErrorBoundary'
 
 // 素材分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -28,7 +29,21 @@ const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', re
  *  - node.type 素材叶   → CodexDetail 详情卡
  *  - node.type 容器     → 子项列表(MVP)
  */
-export function DetailPane({ sel, work, onSelectNode, onTreeChanged, onJumpChapter }) {
+export function DetailPane(props) {
+  // 崩溃隔离:整个中区路由包一层 ErrorBoundary。key 用能标识当前视图/章的值
+  // (横切视图=viewKey,节点=node.id),切换视图/章时 key 变化 → React 重建边界 → 清掉错误态自恢复。
+  const { sel } = props
+  const boundaryKey = sel?.mode === 'view'
+    ? `view:${sel.viewKey}`
+    : (sel?.node?.id ?? 'empty')
+  return (
+    <ErrorBoundary key={boundaryKey}>
+      {renderDetail(props)}
+    </ErrorBoundary>
+  )
+}
+
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter }) {
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey

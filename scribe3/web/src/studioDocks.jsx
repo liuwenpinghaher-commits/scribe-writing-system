@@ -8,6 +8,7 @@ import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
 import { ChiefDock } from './ChiefDock'
+import { ErrorBoundary } from './ErrorBoundary'
 import { usePref } from './lib/usePref'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/素材/校验。
@@ -48,7 +49,11 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
   return (
     <div className="h-full flex min-h-0 bg-surface">
       <Rail side="left" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
-      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line">{active.render()}</div>
+      {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/素材/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
+          key=tab+章 → 切 tab / 切章时重建复位,用户切走再切回可自恢复。 */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line">
+        <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
+      </div>
     </div>
   )
 }
@@ -65,7 +70,11 @@ export function RightDock({ sel, chapterSel, seq }) {
   useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('chief') }, [caps, tab, setTab])
   return (
     <div className="h-full flex min-h-0 bg-surface">
-      <div className={cn('flex-1 min-w-0 min-h-0', active.bare ? '' : 'overflow-y-auto')}>{active.render()}</div>
+      {/* 崩溃隔离:右栏面板(主编对话/存档)包一层边界,右栏崩溃不影响中区书稿与左栏。
+          key=tab+章 → 切 tab / 切章时重建复位。 */}
+      <div className={cn('flex-1 min-w-0 min-h-0', active.bare ? '' : 'overflow-y-auto')}>
+        <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
+      </div>
       <Rail side="right" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
     </div>
   )
