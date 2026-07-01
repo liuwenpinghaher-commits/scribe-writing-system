@@ -35,7 +35,7 @@ function Resizer({ onDown }) {
     style={{ marginInline: '-1px', width: 3 }} />
 }
 
-function Rail({ side, caps, active, onActive }) {
+export function Rail({ side, caps, active, onActive }) {
   return (
     <div className={cn('w-12 shrink-0 bg-surface flex flex-col items-center py-2 gap-1',
       side === 'left' ? 'border-r' : 'border-l', 'border-line')}>

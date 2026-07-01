@@ -289,20 +289,17 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   return (
     <div className="h-full flex flex-col min-h-0 bg-canvas">
       <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-      {/* 三栏一致体验:左数据面板(帧/演绎/伏笔)+ 中区阶段编辑器(右栏主编 chat 由 ChiefDock 按阶段渲染) */}
-      <div className="flex-1 min-h-0 flex">
-        <ChapterSidePanel seq={seq} focalizer={meta?.focalizer || ''} />
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
-          ) : phase === 'outline' ? (
-            <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
-          ) : phase === 'beats' ? (
-            <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
-          ) : phase === 'draft' ? (
-            <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
-          ) : null}
-        </div>
+      {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
+        ) : phase === 'outline' ? (
+          <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
+        ) : phase === 'beats' ? (
+          <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
+        ) : phase === 'draft' ? (
+          <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
+        ) : null}
       </div>
     </div>
   )

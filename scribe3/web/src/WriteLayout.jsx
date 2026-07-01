@@ -790,7 +790,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
 
   return (
     <>
-      <Shell center={center} left={{ caps: leftCaps, active: leftActive, onActive: setLeftActive }} />
+      {/* 数据面板(素材/校验/演绎/帧/存档)已上移到 BinderLayout 左栏 LeftDock;正文中区只留编辑器 */}
+      <Shell center={center} />
       {chatPortal}
       {/* F-05 完整:点正文波浪线弹出的悬浮卡 — 类别 + message + 让主编改这处 + 忽略 */}
       {issueCard && (
