@@ -1615,6 +1615,9 @@ class ChapterMetaReq(BaseModel):
     label: str | None = None
     title: str | None = None
     beats: list | None = None   # 节拍:[{text, done?}, ...](Phase0-BE2 四阶段)
+    scene_truth: str | None = None          # 场景真相(全知)
+    involved_characters: list | None = None # 涉及角色 id
+    deductions: list | None = None          # [{character_id, character_name, prose}]
 
 
 @app.patch("/chapters/{seq}")

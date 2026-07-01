@@ -3155,3 +3155,17 @@ def test_chat_write_phase_plan_injects_role(store, monkeypatch):
     assert r.status_code == 200
     list(r.iter_lines())
     assert "阶段角色" in captured["instructions"]
+
+
+def test_patch_chapter_deduction_fields(store):
+    """PATCH /chapters 透传 scene_truth/involved_characters/deductions 到 store。"""
+    store.save_chapter(2, "", title="第2章")
+    c = _client(store)
+    r = c.patch("/chapters/2", json={
+        "scene_truth": "真相X", "involved_characters": ["role:a"],
+        "deductions": [{"character_id": "role:a", "character_name": "甲", "prose": "看到:X"}]})
+    assert r.status_code == 200
+    ch = store.get_chapter(2)
+    assert ch["scene_truth"] == "真相X"
+    assert ch["involved_characters"] == ["role:a"]
+    assert ch["deductions"][0]["prose"] == "看到:X"
