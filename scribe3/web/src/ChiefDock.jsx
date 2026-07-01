@@ -155,8 +155,18 @@ export function ChiefDock({ sel, chapterSel, collapsed, onToggle }) {
   return <DiscussionDock sel={sel} collapsed={collapsed} onToggle={onToggle} />
 }
 
+// 从选中节点取当前章 seq(章/场景节点),用于草稿阶段把 chapter 传给后端。
+function selSeq(sel) {
+  const node = sel?.node
+  if (!node) return null
+  if (node.type === 'chapter') return node.ref
+  if (node.type === 'scene') return node.ref?.seq
+  return null
+}
+
 function DiscussionDock({ sel, phase, collapsed, onToggle }) {
   const ctx = useMemo(() => selContext(sel, phase), [sel, phase])
+  const seq = useMemo(() => selSeq(sel), [sel])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -171,7 +181,8 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
   useChatPersist(chatKey, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
-  useEffect(() => () => { esRef.current?.close?.() }, [])
+  // chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort);卸载时都收掉
+  useEffect(() => () => { const h = esRef.current; h?.close?.(); h?.abort?.() }, [])
 
   useEffect(() => {
     const el = taRef.current
@@ -189,7 +200,22 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
     setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    // 非 agentic:走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
+    // 草稿阶段(有本章 seq)→ 走 /chat/write 并带 phase='draft'+chapter,
+    // 使后端 _deduction_block 注入本章场景真相 + 各角色限知投影,主编据真相/投影写限知初稿。
+    // proposal 围栏(草稿正文)与 delta(讨论)都收进同一气泡展示。
+    if (phase === 'draft' && seq != null) {
+      esRef.current = api.chatWrite(finalMsg, {
+        chapter: seq,
+        phase: 'draft',
+        onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
+        onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+        onProposalChunk: (d) => mut((l) => ({ ...l, content: l.content + d })),
+        onDone: () => setBusy(false),
+        onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+      })
+      return
+    }
+    // 非草稿:走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
     esRef.current = api.chatStream(finalMsg, {
       agentic: false,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),

@@ -1402,7 +1402,11 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
     if (phase or "").strip().lower() == "draft":
-        instructions += "\n\n" + _deduction_block(st, chapter)
+        ded = _deduction_block(st, chapter)
+        instructions += "\n\n" + ded
+        logging.getLogger("scribe3").info(
+            "chat/write[GET] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
+            chapter, len(ded))
     instructions += _final_reminder()
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg)),
@@ -1579,7 +1583,11 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
     if (req.phase or "").strip().lower() == "draft":
-        instructions += "\n\n" + _deduction_block(st, req.chapter)
+        ded = _deduction_block(st, req.chapter)
+        instructions += "\n\n" + ded
+        logging.getLogger("scribe3").info(
+            "chat/write[POST] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
+            req.chapter, len(ded))
     instructions += _final_reminder()
 
     if req.images:
