@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ListChecks, AlignLeft, FileEdit, BookText,
-  Plus, Trash2, Check, Save, Loader2,
+  Plus, Trash2, Check, Save, Loader2, Sparkles,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -58,6 +58,7 @@ function ChapterSidePanel({ seq, focalizer }) {
 const PHASES = [
   { key: 'outline', label: '大纲', icon: AlignLeft },
   { key: 'beats', label: '节拍', icon: ListChecks },
+  { key: 'deduce', label: '演绎', icon: Sparkles },
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
 ]
