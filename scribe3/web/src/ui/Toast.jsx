@@ -9,6 +9,7 @@ export function showToast(msg, opts = {}) {
   const o = opts.duration ? { duration: opts.duration } : undefined
   if (tone === 'danger') return sonnerToast.error(msg, o)
   if (tone === 'ok') return sonnerToast.success(msg, o)
+  if (tone === 'warn') return sonnerToast.warning(msg, o)
   return sonnerToast(msg, o)
 }
 

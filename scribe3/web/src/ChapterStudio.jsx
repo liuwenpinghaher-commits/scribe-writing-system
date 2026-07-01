@@ -246,12 +246,22 @@ function DraftTab({ seq, onAdopt }) {
  * 正文 = 整体复用 WriteLayout(护栏/QC/帧/伏笔/版本/检索/主编对话全保留)。
  */
 export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
+  const toast = useToast()
   const [phase, setPhase] = useState(() => localStorage.getItem('s3.chapter.phase') || 'final')
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
 
-  const setPhaseP = (p) => { setPhase(p); localStorage.setItem('s3.chapter.phase', p) }
+  // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
+  const setPhaseP = (p) => {
+    if (p === 'draft' && meta) {
+      const deds = meta.deductions || []
+      const done = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
+      const pending = (meta.involved_characters || []).filter((id) => !done.has(id))
+      if (pending.length) toast(`还有 ${pending.length} 个涉及角色未演绎,可回「演绎」补(不影响继续)`, { tone: 'warn' })
+    }
+    setPhase(p); localStorage.setItem('s3.chapter.phase', p)
+  }
 
   // 把当前阶段发布给右栏 ChiefDock:正文=写作槽;大纲/节拍/草稿=讨论(右栏 chat 不再消失)。
   const { setChapterPhase } = useChiefSlot()

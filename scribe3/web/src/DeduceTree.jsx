@@ -10,6 +10,14 @@ export function DeduceTree({ seq }) {
   const [ch, setCh] = useState(null)
   const [chars, setChars] = useState([])
   useEffect(() => { if (seq == null) return; api.chapter(seq).then(setCh).catch(() => {}); api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {}) }, [seq])
+  // 涉及角色智能预填:章 involved 为空时,按角色名是否出现在大纲/节拍文本里预填一次。
+  // 只在 involved 为空时 patch(patch 后非空→条件不再满足,不会无限循环)。
+  useEffect(() => {
+    if (!ch || (ch.involved_characters || []).length > 0 || chars.length === 0) return
+    const text = (ch.synopsis || '') + ' ' + (ch.beats || []).map((b) => b.text || b).join(' ')
+    const hit = chars.filter((c) => c.name && text.includes(c.name)).map((c) => c.id)
+    if (hit.length) api.patchChapter(seq, { involved_characters: hit }).then(() => api.chapter(seq).then(setCh))
+  }, [ch, chars, seq]) // eslint-disable-line
   if (seq == null) return <div className="p-3 text-[13px] text-faint/50">选一章开始演绎</div>
   const involved = ch?.involved_characters || []
   const deds = ch?.deductions || []
