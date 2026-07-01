@@ -7,6 +7,8 @@ import { api } from './api'
 import { WriteLayout } from './WriteLayout'
 import { FramePanel } from './FramePanel'
 import { DeducePanel } from './DeducePanel'
+import { DeduceStage } from './DeduceStage'
+import { DeduceProvider } from './deduceContext'
 import { cn } from './lib/utils'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -264,45 +266,57 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   }, [sceneIdx])
 
   // 大纲/节拍 tab 用:拉章 synopsis/beats/title(正文 tab 由 WriteLayout 自己拉,互不干扰)
+  // 仅在切章/切阶段时显"加载中"占位;refresh(失焦落库后回读)静默刷新,不卸载中区编辑器
+  // ——否则演绎生成落库触发 refresh→loading→DeduceStage 卸载重挂,竞态把刚生成的 scene_truth 冲掉。
+  const metaKey = useRef('')
   useEffect(() => {
     if (phase === 'final') { setLoading(false); return }
     let alive = true
-    setLoading(true)
+    const key = `${seq}|${phase}`
+    if (metaKey.current !== key) { metaKey.current = key; setLoading(true) }
     api.chapter(seq)
-      .then((ch) => { if (alive) setMeta({ title: ch?.title || '', synopsis: ch?.synopsis || '', beats: ch?.beats || [], focalizer: ch?.focalizer || '' }) })
-      .catch(() => { if (alive) setMeta({ title: '', synopsis: '', beats: [], focalizer: '' }) })
+      .then((ch) => { if (alive) setMeta((m) => ({ ...(m || {}), title: ch?.title || '', synopsis: ch?.synopsis || '', beats: ch?.beats || [], focalizer: ch?.focalizer || '', scene_truth: ch?.scene_truth || '', deductions: ch?.deductions || [], involved_characters: ch?.involved_characters || [] })) })
+      .catch(() => { if (alive) setMeta((m) => ({ ...(m || {}), title: '', synopsis: '', beats: [], focalizer: '', scene_truth: '', deductions: [], involved_characters: [] })) })
       .finally(() => { if (alive) setLoading(false) })
+    api.entities().then((es) => { if (alive) setMeta((m) => ({ ...(m || {}), chars: es.filter((e) => e.kind === 'character') })) }).catch(() => {})
     return () => { alive = false }
   }, [seq, phase, refresh])
 
   // 正文 tab:整体交给 WriteLayout(自带顶栏:章导航/视角/护栏/保存/存为正文)。
+  // 两条 return 路径都包进 DeduceProvider,使中区 DeduceStage 与后续左栏演绎树共享选中态。
   if (phase === 'final') {
     return (
-      <div className="h-full flex flex-col min-h-0">
-        <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-        <div className="flex-1 min-h-0">
-          <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
+      <DeduceProvider>
+        <div className="h-full flex flex-col min-h-0">
+          <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+          <div className="flex-1 min-h-0">
+            <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
+          </div>
         </div>
-      </div>
+      </DeduceProvider>
     )
   }
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-canvas">
-      <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-      {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
-        ) : phase === 'outline' ? (
-          <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
-        ) : phase === 'beats' ? (
-          <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
-        ) : phase === 'draft' ? (
-          <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
-        ) : null}
+    <DeduceProvider>
+      <div className="h-full flex flex-col min-h-0 bg-canvas">
+        <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+        {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
+          ) : phase === 'outline' ? (
+            <OutlineTab seq={seq} value={meta?.synopsis} onSaved={() => setRefresh((r) => r + 1)} />
+          ) : phase === 'beats' ? (
+            <BeatsTab seq={seq} value={meta?.beats} onSaved={() => setRefresh((r) => r + 1)} />
+          ) : phase === 'deduce' ? (
+            <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
+          ) : phase === 'draft' ? (
+            <DraftTab seq={seq} onAdopt={() => setPhaseP('final')} />
+          ) : null}
+        </div>
       </div>
-    </div>
+    </DeduceProvider>
   )
 }
 
