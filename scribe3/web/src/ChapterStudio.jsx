@@ -5,54 +5,9 @@ import {
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
-import { FramePanel } from './FramePanel'
-import { DeducePanel } from './DeducePanel'
 import { DeduceStage } from './DeduceStage'
-import { cn } from './lib/utils'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
-
-// 大纲/节拍/草稿阶段的左侧数据面板(与正文阶段一致的三栏体验):帧/意图 · 演绎 · 伏笔。
-// 复用 FramePanel/DeducePanel 独立组件;伏笔为本章需埋/收的清单。带文字标签 tab 条,常显。
-function ChapterSidePanel({ seq, focalizer }) {
-  const [tab, setTab] = useState('frame')
-  const [chars, setChars] = useState([])
-  const [promises, setPromises] = useState([])
-  useEffect(() => {
-    api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {})
-    api.promises().then((ps) => setPromises(Array.isArray(ps) ? ps : [])).catch(() => {})
-  }, [seq])
-  const caps = [
-    { key: 'frame', label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
-    { key: 'deduce', label: '演绎', render: () => <DeducePanel chars={chars} chapter={seq} /> },
-    { key: 'promise', label: '伏笔', render: () => (
-      <div>
-        <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">本章伏笔 · 埋/收</div>
-        {promises.length === 0 ? <div className="text-[13px] text-faint/50">无</div> : promises.map((p) => (
-          <div key={p.id} className="mb-2 pb-2 border-b border-line/50 last:border-0">
-            <div className="text-[12.5px] text-ink leading-snug">{p.text}</div>
-            <div className="text-[10px] text-faint mt-0.5">埋:第{p.setup_chapter ?? '—'}章 · {p.status === 'paid' ? '已收' : '待收'}</div>
-          </div>
-        ))}
-      </div>
-    ) },
-  ]
-  const active = caps.find((c) => c.key === tab) || caps[0]
-  return (
-    <div className="shrink-0 w-[250px] border-r border-line bg-surface flex flex-col min-h-0">
-      <div className="shrink-0 flex items-center gap-0.5 px-1.5 pt-2 pb-1 border-b border-line overflow-x-auto">
-        {caps.map((c) => (
-          <button key={c.key} onClick={() => setTab(c.key)}
-            className={cn('shrink-0 px-2 h-6 rounded-md text-[11.5px] whitespace-nowrap transition-colors cursor-pointer',
-              tab === c.key ? 'bg-brand text-brandfg font-medium' : 'text-faint hover:bg-soft hover:text-ink')}>
-            {c.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-3">{active.render()}</div>
-    </div>
-  )
-}
 
 // 章四阶段:大纲(synopsis)→ 节拍(beats)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;草稿 saveDraft/latestDraft;正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。

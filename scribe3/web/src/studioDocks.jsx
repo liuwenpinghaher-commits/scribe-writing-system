@@ -15,11 +15,9 @@ import { usePref } from './lib/usePref'
 export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq }) {
   const [tab, setTab] = usePref('s3.leftTab', 'tree')
   const [focalizer, setFocalizer] = useState('')
-  const [chars, setChars] = useState([])
   const [promises, setPromises] = useState([])
   const [motifs, setMotifs] = useState([])
 
-  useEffect(() => { api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {}) }, [])
   useEffect(() => { api.promises().then((p) => setPromises(Array.isArray(p) ? p : [])).catch(() => {}); api.motifs().then((m) => setMotifs(Array.isArray(m) ? m : [])).catch(() => {}) }, [seq])
   useEffect(() => {
     if (seq == null) { setFocalizer(''); return }
@@ -41,7 +39,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, chars, promises, motifs])
+  }, [tree, selId, expanded, seq, focalizer, promises, motifs])
 
   // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
   const active = caps.find((c) => c.key === tab) || caps[0]

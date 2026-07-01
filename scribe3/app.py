@@ -1404,7 +1404,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     if (phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, chapter)
         instructions += "\n\n" + ded
-        logging.getLogger("scribe3").info(
+        logging.getLogger("scribe3").debug(
             "chat/write[GET] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
             chapter, len(ded))
     instructions += _final_reminder()
@@ -1585,7 +1585,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     if (req.phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, req.chapter)
         instructions += "\n\n" + ded
-        logging.getLogger("scribe3").info(
+        logging.getLogger("scribe3").debug(
             "chat/write[POST] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
             req.chapter, len(ded))
     instructions += _final_reminder()

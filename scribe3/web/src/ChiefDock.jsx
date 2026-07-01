@@ -204,12 +204,27 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
     // 使后端 _deduction_block 注入本章场景真相 + 各角色限知投影,主编据真相/投影写限知初稿。
     // proposal 围栏(草稿正文)与 delta(讨论)都收进同一气泡展示。
     if (phase === 'draft' && seq != null) {
+      // proposal 围栏时序:proposal_start → proposal_chunk*(逐段散文文本) → proposal(全量,prose == 各 chunk 拼接)。
+      // delta(讨论)与 proposal_chunk(草稿正文)拼进同一气泡 content,故不能整段替换 content。
+      // 用「基线 base(围栏开始时的 content)+ 本条 proposal 累积 acc」归一:
+      // chunk 逐段累加 acc→content=base+acc(干净流式预览);收尾 proposal 用 base+prose 归一
+      // (围栏路径 prose==acc 不重复;纯 delta 兜底路径无 chunk、base 不变、prose 追加一次)。
+      let propBase = ''
+      let propAcc = ''
+      let propOpen = false // 是否见过围栏开始(区分围栏路径 vs 纯 delta 兜底 proposal)
       esRef.current = api.chatWrite(finalMsg, {
         chapter: seq,
         phase: 'draft',
         onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
         onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
-        onProposalChunk: (d) => mut((l) => ({ ...l, content: l.content + d })),
+        onProposalStart: () => { propOpen = true; propAcc = ''; mut((l) => { propBase = l.content; return l }) },
+        onProposalChunk: (c) => { propAcc += (c?.text ?? c ?? ''); mut((l) => ({ ...l, content: propBase + propAcc })) },
+        // 围栏路径:base 已记录、prose==propAcc→base+prose 不重复。
+        // 兜底路径(无 proposal_start):propOpen=false,把 prose 追加到已有讨论文之后,不吞 delta。
+        onProposal: (p) => {
+          const prose = p?.prose ?? p?.text ?? propAcc
+          mut((l) => ({ ...l, content: propOpen ? propBase + prose : l.content + prose }))
+        },
         onDone: () => setBusy(false),
         onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
       })
