@@ -2924,6 +2924,29 @@ def test_save_chapter_qc_emotion_telling_detected(store):
         f"含情感直说应检出 emotion_telling>0,实际: {body['qc']['emotion_telling']}"
 
 
+def test_qc_endpoint_returns_full_detectors(store):
+    """GET /qc 除原五项外补全 cross_repetition/duplicate_lines/emotion_telling,均为命中列表。"""
+    c = _client(store)
+    dup_line = "这是完全重复的整行内容,字数足够长超过六字。"
+    prose = f"{dup_line}\n{dup_line}\n他感到恐惧,双腿颤抖。她感到害怕,不敢出声。"
+    c.post("/save-chapter", json={"seq": 1, "prose": prose, "title": "体检", "focalizer": None})
+    body = c.get("/qc?seq=1").json()
+    # 原五项仍在(均为列表)
+    for k in ("repetition", "structural", "purple", "ai_tics", "oversaturation"):
+        assert isinstance(body.get(k), list), f"{k} 应为列表,实际: {body.get(k)!r}"
+    # 补全的检测器
+    assert isinstance(body.get("cross_repetition"), list)
+    assert isinstance(body.get("cross_repetition_phrases"), list)
+    assert len(body.get("duplicate_lines", [])) > 0, "含整行复读应检出 duplicate_lines"
+    assert len(body.get("emotion_telling", [])) > 0, "含情感直说应检出 emotion_telling"
+
+
+def test_qc_endpoint_empty_when_no_prose(store):
+    """GET /qc 对无正文的章返回空字典(前端据此显'保存正文后自动体检')。"""
+    c = _client(store)
+    assert c.get("/qc?seq=999").json() == {}
+
+
 # --- M3: /post-check 新增 duplicate_lines / emotion_telling / cross_consistency ---
 
 def test_post_check_includes_new_detector_keys(store):

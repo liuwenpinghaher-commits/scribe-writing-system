@@ -23,7 +23,10 @@ export function FramePanel({ focalizer, chapter }) {
         {!focalizer ? <Empty>作者全知视角——无限知约束</Empty>
           : frame.length === 0 ? <Empty>该角色此章暂无已知事实</Empty>
           : <ul className="space-y-1">{frame.map((f) => (
-            <li key={f.id} className="text-[12px] text-ink"><span className="text-faint">{f.attribute}</span>:{f.value}</li>
+            <li key={f.id} className="text-[12px] text-ink">
+              {f.entity && <span className="text-faint">{f.entity} · </span>}
+              <span className="text-faint">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+            </li>
           ))}</ul>}
       </section>
       <section>
@@ -31,7 +34,10 @@ export function FramePanel({ focalizer, chapter }) {
         {!focalizer ? <Empty>切某角色视角后显示</Empty>
           : irony.length === 0 ? <Empty>无</Empty>
           : <ul className="space-y-1">{irony.map((f) => (
-            <li key={f.id} className="text-[12px] text-faint">{f.value}</li>
+            <li key={f.id} className="text-[12px] text-irony">
+              {f.entity && <span className="opacity-70">{f.entity} · </span>}
+              <span className="opacity-70">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+            </li>
           ))}</ul>}
       </section>
       <section>

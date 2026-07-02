@@ -1723,9 +1723,47 @@ def get_chapter(seq: int, work: str = "main"):
 
 @app.get("/qc")
 def qc(seq: int, work: str = "main"):
-    from scribe3.critique import quality_flags
-    ch = _store_for(work).get_chapter(seq)
-    return quality_flags(ch["prose"]) if ch else {}
+    """本章正文确定性体检(读已存正文,即算即返;全为确定性扫描,不打 LLM)。
+
+    在原 quality_flags 五项(repetition/structural/purple/ai_tics/oversaturation)之外,
+    补全 /save-chapter 同款的单章检测器:cross_repetition(跨章逐字复读)、
+    duplicate_lines(整句重复)、emotion_telling(情感直说)。每项各自 fail-soft。
+
+    返回每项为命中列表(前端取 length 显数、可点开看命中短语);另附
+    cross_repetition_phrases 供高亮定位。cross_consistency 属全书聚合(非单章),
+    留在 /post-check,不在此触发以免面板加载时跑全书查询。"""
+    from scribe3.critique import (quality_flags, find_cross_chapter_repetitions,
+                                  find_duplicate_lines, find_emotion_telling)
+    import logging
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        return {}
+    prose = ch["prose"]
+    out = dict(quality_flags(prose))   # 五项:各为命中列表
+    # 跨章复读(比对前文最近 8 章逐字 ≥8 字重叠,母题白名单放行)
+    cross_rep: list[dict] = []
+    try:
+        priors = [c["prose"] for c in st.recent_proses(seq, k=8) if c.get("prose")]
+        allow = st.motif_terms() if hasattr(st, "motif_terms") else None
+        cross_rep = find_cross_chapter_repetitions(prose, priors, n=8, allow=allow)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("qc cross_repetition 失败 work=%s seq=%s: %s", work, seq, e)
+    out["cross_repetition"] = cross_rep
+    out["cross_repetition_phrases"] = [h.get("phrase") for h in cross_rep[:12]]
+    # 整行复读
+    try:
+        out["duplicate_lines"] = find_duplicate_lines(prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("qc duplicate_lines 失败 work=%s seq=%s: %s", work, seq, e)
+        out["duplicate_lines"] = []
+    # 情感直说
+    try:
+        out["emotion_telling"] = find_emotion_telling(prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("qc emotion_telling 失败 work=%s seq=%s: %s", work, seq, e)
+        out["emotion_telling"] = []
+    return out
 
 
 @app.get("/discipline")
