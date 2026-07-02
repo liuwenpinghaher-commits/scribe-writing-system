@@ -135,10 +135,24 @@ function BeatsTab({ seq, value, onSaved }) {
 // ——— 草稿:编辑器,初值 latestDraft,存草稿 saveDraft;采用=进正文(回调切到正文 tab) ———
 function DraftTab({ seq, onAdopt }) {
   const toast = useToast()
+  const { draftProposal, setDraftProposal } = useChiefSlot()
   const [text, setText] = useState('')
   const [summary, setSummary] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // 待落草稿:仅当本次提议属于当前章且正文非空才提示(防切章串到旧章)。
+  const pending = draftProposal && draftProposal.seq === seq && (draftProposal.prose || '').trim() ? draftProposal : null
+  // 落进后置 dirty,靠既有 flush(切章/存草稿)落库;同时清除待落。
+  const fillDraft = () => {
+    if (!pending) return
+    setText(pending.prose); draftRef.current.dirty = true
+    setDraftProposal(null); toast('已填入草稿框')
+  }
+  const appendDraft = () => {
+    if (!pending) return
+    setText((prev) => (prev ? prev + '\n\n' : '') + pending.prose); draftRef.current.dirty = true
+    setDraftProposal(null); toast('已追加到草稿')
+  }
   // 换章防丢:draftRef 只持「实时 text/summary/dirty」(渲染时刷新);seq 不放 ref
   // ——因 draftRef.current.seq=seq 会在换章渲染时先变成新 seq,导致 cleanup 拿错章号。
   // 旧章 seq 改由 effect 闭包捕获(myseq),cleanup 时用它,保证 flush 落到正确的旧章。
@@ -199,6 +213,18 @@ function DraftTab({ seq, onAdopt }) {
           </button>
         </div>
       </div>
+      {pending && (
+        <div className="mb-2 rounded-xl border border-brand/20 bg-brand/10 text-brand px-3 py-2 flex items-center gap-2 flex-wrap">
+          <Sparkles size={14} className="shrink-0" />
+          <span className="text-[12.5px] flex-1 min-w-0">主编生成了本章草稿({pending.prose.replace(/\s/g, '').length} 字),可直接落进草稿框。</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={fillDraft}
+              className="h-7 px-2.5 rounded-lg bg-brand text-white text-[12px] inline-flex items-center gap-1 cursor-pointer hover:opacity-90">填入草稿框</button>
+            <button onClick={appendDraft}
+              className="h-7 px-2.5 rounded-lg border border-brand/40 text-[12px] text-brand hover:bg-brand/15 inline-flex items-center gap-1 cursor-pointer">追加到草稿</button>
+          </div>
+        </div>
+      )}
       <input
         value={summary}
         onChange={(e) => { setSummary(e.target.value); draftRef.current.dirty = true }}

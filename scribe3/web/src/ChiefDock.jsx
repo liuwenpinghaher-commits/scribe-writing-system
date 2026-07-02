@@ -167,12 +167,14 @@ function selSeq(sel) {
 function DiscussionDock({ sel, phase, collapsed, onToggle }) {
   const ctx = useMemo(() => selContext(sel, phase), [sel, phase])
   const seq = useMemo(() => selSeq(sel), [sel])
+  const { setDraftProposal } = useChiefSlot()
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
   const taRef = useRef(null)
   const esRef = useRef(null)
+  const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
 
   // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复
   const chatKey = sel?.mode === 'view'
@@ -212,6 +214,16 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
       let propBase = ''
       let propAcc = ''
       let propOpen = false // 是否见过围栏开始(区分围栏路径 vs 纯 delta 兜底 proposal)
+      // 本轮 assistant 气泡在生成前的 content(空字符串,因刚 push 了空 assistant),
+      // 用于兜底路径(无围栏)提取「本轮草稿正文」= 最终 content 去掉本轮开始前已有部分。
+      const turnBase = '' // 本轮 assistant 气泡起始为空(见上 setMsgs push 的空 assistant)
+      // 落地:把本次草稿正文经 ChiefSlotContext 发布给中区 DraftTab。
+      // 围栏路径 → 纯草稿正文 = propAcc(== proposal.prose);兜底 → 本轮 delta 正文。
+      const publishDraft = (prose) => {
+        const clean = (prose || '').trim()
+        if (!clean) return
+        setDraftProposal({ seq, prose: clean, ts: ++proposalTsRef.current })
+      }
       esRef.current = api.chatWrite(finalMsg, {
         chapter: seq,
         phase: 'draft',
@@ -221,11 +233,22 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
         onProposalChunk: (c) => { propAcc += (c?.text ?? c ?? ''); mut((l) => ({ ...l, content: propBase + propAcc })) },
         // 围栏路径:base 已记录、prose==propAcc→base+prose 不重复。
         // 兜底路径(无 proposal_start):propOpen=false,把 prose 追加到已有讨论文之后,不吞 delta。
+        // 无论哪条路径,拿到最终草稿正文都 publishDraft 给中区(只发纯草稿正文,不含讨论前言)。
         onProposal: (p) => {
           const prose = p?.prose ?? p?.text ?? propAcc
           mut((l) => ({ ...l, content: propOpen ? propBase + prose : l.content + prose }))
+          publishDraft(prose)
         },
-        onDone: () => setBusy(false),
+        // 兜底:整轮无 proposal(纯 delta 讨论/草稿),onDone 时把本轮 assistant 正文
+        // (去掉本轮开始前已有 content=turnBase)当草稿发布,让用户仍能一键填入。
+        onDone: () => {
+          setBusy(false)
+          if (!propOpen) mut((l) => {
+            const prose = (l.content || '').startsWith(turnBase) ? l.content.slice(turnBase.length) : l.content
+            publishDraft(prose)
+            return l
+          })
+        },
         onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
       })
       return

@@ -12,7 +12,7 @@ import { createContext, useCallback, useContext, useState } from 'react'
  * - WriteLayout 经 useChiefSlot() 拿到该 DOM,createPortal(<WriteChat/>, slotEl)。
  * - 槽未就绪(null)时,WriteLayout 内部兜底渲染(见 WriteLayout 注释),不丢 chat。
  */
-const ChiefSlotContext = createContext({ slotEl: null, setSlotEl: () => {}, chapterPhase: null, setChapterPhase: () => {} })
+const ChiefSlotContext = createContext({ slotEl: null, setSlotEl: () => {}, chapterPhase: null, setChapterPhase: () => {}, draftProposal: null, setDraftProposal: () => {} })
 
 export function ChiefSlotProvider({ children }) {
   // 用 state 持有 slot DOM(而非裸 ref):槽挂载/卸载会触发依赖方重渲染,
@@ -23,8 +23,12 @@ export function ChiefSlotProvider({ children }) {
   // 当前章的阶段 tab(由 ChapterStudio 发布):'outline'|'beats'|'draft'|'final'|null。
   // ChiefDock 据此决定右栏:final=写作槽(WriteLayout portal);其余=讨论(据阶段调上下文)。
   const [chapterPhase, setChapterPhase] = useState(null)
+  // 草稿 proposal 落点通道:ChiefDock(右栏)在草稿生成完毕时发布 { seq, prose, ts },
+  // DraftTab(中区)接住,给出「填入草稿框/追加到草稿」按钮。ts 递增,用于区分
+  // 「同一 prose 再次生成」以便重新提示(不用 Date.now(),避免环境禁用/时钟依赖)。
+  const [draftProposal, setDraftProposal] = useState(null)
   return (
-    <ChiefSlotContext.Provider value={{ slotEl, setSlotEl, chapterPhase, setChapterPhase }}>
+    <ChiefSlotContext.Provider value={{ slotEl, setSlotEl, chapterPhase, setChapterPhase, draftProposal, setDraftProposal }}>
       {children}
     </ChiefSlotContext.Provider>
   )
