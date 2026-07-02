@@ -4,6 +4,7 @@ import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
   BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
+  DatabaseZap, Loader2,
 } from 'lucide-react'
 import { api } from './api'
 import { verifyIssues } from './verifyIssues.js'
@@ -21,7 +22,7 @@ import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
-import { useToast } from './ui/Toast.jsx'
+import { useToast, dismissToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
@@ -111,6 +112,13 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const [guardPop, setGuardPop] = useState(false)
   const guardPopRef = useRef(null)
   const narrowRef = useRef(false)
+  // 进度显性化(批二):/progress 返回 today_words/daily_word_goal/current_streak/total_words/total_word_goal。
+  // 挂载 + 存章后刷新;拉取失败置 null → 顶栏优雅降级为只显字数。
+  const [progress, setProgress] = useState(null)
+  const [progPop, setProgPop] = useState(false)
+  const progPopRef = useRef(null)
+  // ingest 反哺设定库:busy 态防重复点击
+  const [ingesting, setIngesting] = useState(false)
 
   // 窄屏(<1100px)自动折叠右栏:仅在「进入窄屏」的瞬间收起一次,不与用户重新打开较劲
   useEffect(() => {
@@ -138,6 +146,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [guardPop])
+
+  useEffect(() => {
+    if (!progPop) return
+    const onDown = (e) => { if (progPopRef.current && !progPopRef.current.contains(e.target)) setProgPop(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [progPop])
+
+  // 进度:挂载/换 work 时拉一次;失败静默(顶栏降级为只显字数)
+  const refreshProgress = () => api.progress().then(setProgress).catch(() => setProgress(null))
+  useEffect(() => { refreshProgress() }, [work])
 
   // beforeunload 兜底:有未保存修改时,关/刷新页面弹浏览器原生提示
   useEffect(() => {
@@ -286,6 +305,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     // 达标 toast:save 后拉 progress,比较是否刚跨过 daily_word_goal
     try {
       const np = await api.progress()
+      setProgress(np)  // 存章后刷新顶栏进度显示
       const dailyGoal = np.daily_word_goal
       const newToday = np.today_words ?? 0
       prevTodayWordsRef.current = newToday  // 更新缓存
@@ -314,6 +334,37 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // persist 内部已 toast 报错;此处吞掉 reject 避免 unhandled rejection(dirty/saved 已由 persist 保留)
   const save = () => persist(prose).catch(() => {})
   saveRef.current = save  // Cmd/Ctrl+S 走最新 save(每次渲染刷新 ref)
+
+  // 反哺设定库(批二):把本章正文喂回知识库(幂等 purge+重抽本章)。
+  // /ingest 返回 {applied, delta} 或 {applied:-1, parse_failed:true}。applied=新增知识边条数。
+  // 待核实体(_resolve_char 抽出的库外人名)是 ingest 副作用,不在 /ingest 返回里 → 事后查 /ingest-unverified 计数。
+  const runIngest = async () => {
+    if (ingesting) return
+    setIngesting(true)
+    setSaveMenu(false)
+    const busy = toast('正在反哺设定库…（抽取知识,可能稍慢）', { duration: 60000 })
+    try {
+      const r = await api.ingest(chapter)
+      try { dismissToast(busy) } catch { /* noop */ }
+      if (r?.parse_failed) {
+        toast('本章知识抽取失败,可重试', { tone: 'warn' })
+        return
+      }
+      const applied = r?.applied ?? 0
+      // 待核实体:ingest 后查 pending 数(fail-soft,拉不到就不显该项)
+      let pending = null
+      try { pending = (await api.listUnverified()).length } catch { pending = null }
+      const parts = [`新增 ${applied} 条知识`]
+      if (pending != null) parts.push(`${pending} 条待核实体`)
+      toast(`已反哺:${parts.join(' / ')}`, { tone: 'ok' })
+      setTick((t) => t + 1)  // 刷新本章事实/待核引用等派生数据
+    } catch (e) {
+      try { dismissToast(busy) } catch { /* noop */ }
+      toast('反哺失败:' + (e?.body?.detail || e?.message || '请求出错'), { tone: 'danger' })
+    } finally {
+      setIngesting(false)
+    }
+  }
   const discussSel = (sel) => {
     const text = typeof sel === 'string' ? sel : sel?.text
     if (!text?.trim()) return
@@ -467,7 +518,73 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             </div>
           )
         })()}
-        <span className="text-[11px] text-faint tnum whitespace-nowrap shrink-0">{wordCount} 字</span>
+        {/* 进度(批二):默认紧凑显本章字数;有今日目标时附「今日 x/目标」细进度。
+            点开 popover 看今日/全书完整进度。/progress 拉不到(progress===null)则降级为纯字数,不崩。 */}
+        {(() => {
+          const p = progress
+          const dailyGoal = p?.daily_word_goal
+          const todayW = p?.today_words ?? 0
+          const streak = p?.current_streak ?? 0
+          const totalW = p?.total_words ?? null
+          const totalGoal = p?.total_word_goal
+          const dailyPct = dailyGoal ? Math.min(100, Math.round((todayW / dailyGoal) * 100)) : null
+          const totalPct = (totalW != null && totalGoal) ? Math.min(100, Math.round((totalW / totalGoal) * 100)) : null
+          return (
+            <div ref={progPopRef} className="relative shrink-0">
+              <button onClick={() => setProgPop((v) => !v)} title="写作进度"
+                className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-faint hover:bg-soft hover:text-ink cursor-pointer whitespace-nowrap">
+                <span className="text-[11px] tnum">{wordCount} 字</span>
+                {dailyGoal ? (
+                  <span className="hidden sm:inline text-[10.5px] tnum text-faint">
+                    · 今日 {todayW.toLocaleString()}/{dailyGoal.toLocaleString()}
+                    {streak > 1 && <span className="text-warn"> 🔥{streak}</span>}
+                  </span>
+                ) : null}
+              </button>
+              {progPop && (
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">写作进度</div>
+                  <div className="mb-2.5">
+                    <div className="flex items-baseline justify-between text-[12px]">
+                      <span className="text-faint">本章</span>
+                      <span className="text-ink tnum">{wordCount.toLocaleString()} 字</span>
+                    </div>
+                  </div>
+                  {p == null ? (
+                    <div className="text-[11.5px] text-faint">进度数据暂不可用</div>
+                  ) : (
+                    <>
+                      <div className="mb-2.5">
+                        <div className="flex items-baseline justify-between text-[12px] mb-1">
+                          <span className="text-faint flex items-center gap-1">今日{streak > 1 && <span className="text-warn text-[11px]">🔥{streak} 连胜</span>}</span>
+                          <span className="text-ink tnum">{todayW.toLocaleString()}{dailyGoal ? ` / ${dailyGoal.toLocaleString()}` : ''} 字</span>
+                        </div>
+                        {dailyPct != null && (
+                          <div className="h-1.5 rounded-full bg-soft overflow-hidden">
+                            <div className={`h-full rounded-full ${dailyPct >= 100 ? 'bg-ok' : 'bg-brand'}`} style={{ width: `${dailyPct}%` }} />
+                          </div>
+                        )}
+                      </div>
+                      {totalW != null && (
+                        <div>
+                          <div className="flex items-baseline justify-between text-[12px] mb-1">
+                            <span className="text-faint">全书</span>
+                            <span className="text-ink tnum">{totalW.toLocaleString()}{totalGoal ? ` / ${totalGoal.toLocaleString()}` : ''} 字</span>
+                          </div>
+                          {totalPct != null && (
+                            <div className="h-1.5 rounded-full bg-soft overflow-hidden">
+                              <div className={`h-full rounded-full ${totalPct >= 100 ? 'bg-ok' : 'bg-brand'}`} style={{ width: `${totalPct}%` }} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
         <div ref={saveMenuRef} className="relative shrink-0">
@@ -482,10 +599,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             </button>
           </div>
           {saveMenu && (
-            <div className="absolute right-0 top-full mt-1 z-20 min-w-[140px] rounded-lg border border-line bg-surface shadow-lg py-1">
+            <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-lg border border-line bg-surface shadow-lg py-1">
               <button onClick={() => { setSaveMenu(false); setDlg({ kind: 'checkpoint' }) }}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <Bookmark size={13} className="text-faint shrink-0" />存档点
+              </button>
+              {/* 反哺设定库(批二):把本章正文喂回知识库,抽新知/待核实体。busy 态防重复点。 */}
+              <button onClick={runIngest} disabled={ingesting}
+                title="把本章正文喂回设定库(抽取新知识与待核实体)"
+                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-wait">
+                {ingesting ? <Loader2 size={13} className="text-brand shrink-0 animate-spin" /> : <DatabaseZap size={13} className="text-faint shrink-0" />}
+                {ingesting ? '反哺中…' : '反哺设定库'}
               </button>
               <button onClick={() => { setSaveMenu(false); setFocusMode((v) => !v) }}
                 className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">

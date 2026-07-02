@@ -13,6 +13,11 @@ export function showToast(msg, opts = {}) {
   return sonnerToast(msg, o)
 }
 
+// 主动关闭某条 toast(showToast 返回的 id);用于把「进行中」提示替换成结果提示。
+export function dismissToast(id) {
+  if (id != null) sonnerToast.dismiss(id)
+}
+
 // 兼容旧用法:组件里 const toast = useToast(); toast('xx', { tone })
 export const useToast = () => {
   return useCallback((msg, opts) => showToast(msg, opts), [])
