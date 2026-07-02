@@ -8,7 +8,8 @@ import { WriteLayout } from './WriteLayout'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
-import { Btn, Input, Textarea } from './ui.jsx'
+import { Btn, Input } from './ui.jsx'
+import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 
 // 章四阶段:大纲(synopsis)→ 节拍(beats)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;草稿 saveDraft/latestDraft;正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
@@ -43,21 +44,39 @@ function MetaBar({ meta, wordCount }) {
   )
 }
 
-// ——— 大纲:textarea,失焦 patchChapter({synopsis}) ———
+// ——— 大纲:RichEditor(markdown),失焦/切章/切阶段前 flush patchChapter({synopsis}) ———
 function OutlineTab({ seq, value, meta, onSaved }) {
   const toast = useToast()
   const [text, setText] = useState(value || '')
   const [saving, setSaving] = useState(false)
-  const dirtyRef = useRef(false)
-  useEffect(() => { setText(value || ''); dirtyRef.current = false }, [seq, value])
+  // 正文同款范式:dirtyRef 持实时 {key, value, dirty},完全脱离 state 闭包
+  const dirtyRef = useRef({ key: `${seq}|synopsis`, value: value || '', dirty: false })
 
-  const flush = async () => {
-    if (!dirtyRef.current) return
+  // 载入/静默刷新:同 key 且 dirty(正在编辑)→ 不被服务端回读冲掉
+  useEffect(() => {
+    const key = `${seq}|synopsis`
+    if (dirtyRef.current.key === key && dirtyRef.current.dirty) return
+    setText(value || '')
+    dirtyRef.current = { key, value: value || '', dirty: false }
+  }, [seq, value])
+
+  // persistFor:只用捕获的 key/value 落库,不读可能已变的 state
+  const persistFor = async (key, val) => {
+    const sq = Number(key.split('|')[0])
     setSaving(true)
-    try { await api.patchChapter(seq, { synopsis: text }); dirtyRef.current = false; onSaved?.() }
-    catch (e) { toast(e?.body?.detail || '大纲保存失败', { tone: 'danger' }) }
-    finally { setSaving(false) }
+    try { await api.patchChapter(sq, { synopsis: val }); onSaved?.() }
+    catch (e) {
+      if (dirtyRef.current.key === key) dirtyRef.current.dirty = true   // 保留 dirty 可重试
+      toast(e?.body?.detail || '大纲保存失败', { tone: 'danger' })
+    } finally { setSaving(false) }
   }
+  const flush = () => {
+    const w = dirtyRef.current
+    if (w.dirty) { w.dirty = false; persistFor(w.key, w.value) }
+  }
+  // 切章(seq 变)/切阶段(卸载)前 flush:cleanup 时 dirtyRef 仍持旧 key 与旧值
+  useEffect(() => flush, [seq])  // eslint-disable-line
+  useUnsavedGuard(() => dirtyRef.current.dirty)
 
   return (
     <div className={STAGE_WRAP}>
@@ -66,47 +85,91 @@ function OutlineTab({ seq, value, meta, onSaved }) {
         <h3 className="text-f13 font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
         <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
       </div>
-      <Textarea
+      <RichEditor
         value={text}
-        onChange={(e) => { setText(e.target.value); dirtyRef.current = true }}
+        editorKey={`${seq}|synopsis`}
+        ariaLabel="本章大纲"
+        onChange={(md) => { setText(md); dirtyRef.current = { key: `${seq}|synopsis`, value: md, dirty: true } }}
         onBlur={flush}
         placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
-        className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 resize-none"
+        className="flex-1 min-h-0"
       />
       <div className="text-f12 text-faint mt-2 leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
     </div>
   )
 }
 
-// ——— 节拍:beats 列表(增/删/打勾/上下移),patchChapter({beats}) ———
+// ——— 节拍:有序条目列表(增/删/打勾/上下移保留),每条 text 用精简 RichEditor,patchChapter({beats}) ———
+// 本地稳定 id:仅供 React key / 编辑器实例复用,落库前剥掉。
+let beatUid = 0
+const withBeatIds = (arr) => (Array.isArray(arr) ? arr : []).map((b) => ({ ...b, _id: `b${++beatUid}` }))
+const stripBeatIds = (arr) => arr.map(({ _id, ...b }) => b)
+
 function BeatsTab({ seq, value, meta, onSaved }) {
   const toast = useToast()
-  const [beats, setBeats] = useState(() => Array.isArray(value) ? value : [])
+  const [beats, setBeats] = useState(() => withBeatIds(value))
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
-  useEffect(() => { setBeats(Array.isArray(value) ? value : []) }, [seq, value])
+  // dirtyRef:{key:`${seq}|beats`, value:最新条目数组(含_id), dirty}。条目文本编辑只置 dirty,失焦/切换前 flush。
+  const dirtyRef = useRef({ key: `${seq}|beats`, value: withBeatIds(value), dirty: false })
 
-  const persist = async (next) => {
+  useEffect(() => {
+    const key = `${seq}|beats`
+    const w = dirtyRef.current
+    if (w.key === key && w.dirty) return   // 正在编辑,不被静默刷新冲掉
+    const incoming = Array.isArray(value) ? value : []
+    // 内容未变(常见于 onSaved 回读)→ 不重置,避免编辑器整列重挂丢焦点
+    if (w.key === key && JSON.stringify(incoming) === JSON.stringify(stripBeatIds(w.value))) return
+    const next = withBeatIds(incoming)
     setBeats(next)
+    dirtyRef.current = { key, value: next, dirty: false }
+  }, [seq, value])
+
+  // persistFor:只用捕获的 key/条目落库(剥 _id),不读可能已变的 state
+  const persistFor = async (key, arr) => {
+    const sq = Number(key.split('|')[0])
     setSaving(true)
-    try { await api.patchChapter(seq, { beats: next }); onSaved?.() }
-    catch (e) { toast(e?.body?.detail || '节拍保存失败', { tone: 'danger' }) }
-    finally { setSaving(false) }
+    try { await api.patchChapter(sq, { beats: stripBeatIds(arr) }); onSaved?.() }
+    catch (e) {
+      if (dirtyRef.current.key === key) dirtyRef.current.dirty = true
+      toast(e?.body?.detail || '节拍保存失败', { tone: 'danger' })
+    } finally { setSaving(false) }
+  }
+  const flush = () => {
+    const w = dirtyRef.current
+    if (w.dirty) { w.dirty = false; persistFor(w.key, w.value) }
+  }
+  useEffect(() => flush, [seq])  // eslint-disable-line
+  useUnsavedGuard(() => dirtyRef.current.dirty)
+
+  // 结构操作(增/删/勾/移):立即落库(含未失焦的文本改动,state 里已是最新)
+  const commit = (next) => {
+    setBeats(next)
+    dirtyRef.current = { key: `${seq}|beats`, value: next, dirty: false }
+    persistFor(`${seq}|beats`, next)
+  }
+  // 条目文本编辑:只更新 state + 置 dirty,失焦/切换时 flush
+  const editText = (id, md) => {
+    setBeats((prev) => {
+      const next = prev.map((b) => b._id === id ? { ...b, text: md } : b)
+      dirtyRef.current = { key: `${seq}|beats`, value: next, dirty: true }
+      return next
+    })
   }
   const add = () => {
     const t = draft.trim()
     if (!t) return
     setDraft('')
-    persist([...beats, { text: t, done: false }])
+    commit([...beats, { _id: `b${++beatUid}`, text: t, done: false }])
   }
-  const toggle = (i) => persist(beats.map((b, idx) => idx === i ? { ...b, done: !b.done } : b))
-  const remove = (i) => persist(beats.filter((_, idx) => idx !== i))
+  const toggle = (i) => commit(beats.map((b, idx) => idx === i ? { ...b, done: !b.done } : b))
+  const remove = (i) => commit(beats.filter((_, idx) => idx !== i))
   const move = (i, dir) => {
     const j = i + dir
     if (j < 0 || j >= beats.length) return
     const next = [...beats]
     ;[next[i], next[j]] = [next[j], next[i]]
-    persist(next)
+    commit(next)
   }
 
   return (
@@ -135,12 +198,15 @@ function BeatsTab({ seq, value, meta, onSaved }) {
       ) : (
         <div className="space-y-1.5">
           {beats.map((b, i) => (
-            <div key={i} className="group flex items-center gap-2 rounded-lg border border-line bg-canvas px-2.5 py-2">
+            <div key={b._id} className="group flex items-start gap-2 rounded-lg border border-line bg-canvas px-2.5 py-2">
               <button onClick={() => toggle(i)}
-                className={`w-5 h-5 rounded-md border shrink-0 inline-flex items-center justify-center cursor-pointer transition-colors ${b.done ? 'bg-brand border-brand text-brandfg' : 'border-line hover:border-brand'}`}>
+                className={`w-5 h-5 mt-0.5 rounded-md border shrink-0 inline-flex items-center justify-center cursor-pointer transition-colors ${b.done ? 'bg-brand border-brand text-brandfg' : 'border-line hover:border-brand'}`}>
                 {b.done && <Check size={13} />}
               </button>
-              <span className={`flex-1 text-f14 leading-snug ${b.done ? 'text-faint line-through' : 'text-ink'}`}>{b.text}</span>
+              <div className={`flex-1 min-w-0 ${b.done ? 'opacity-55 line-through' : ''}`}>
+                <RichEditor minimal value={b.text} editorKey={`${seq}|beat:${b._id}`} ariaLabel={`节拍 ${i + 1}`}
+                  onChange={(md) => editText(b._id, md)} onBlur={flush} placeholder="节拍内容…" />
+              </div>
               <div className={`flex items-center gap-0.5 shrink-0 ${HOVER_ACTIONS}`}>
                 <Btn variant="ghost" size="xs" icon onClick={() => move(i, -1)} disabled={i === 0} title="上移" aria-label="上移"><ChevronUp size={13} /></Btn>
                 <Btn variant="ghost" size="xs" icon onClick={() => move(i, 1)} disabled={i === beats.length - 1} title="下移" aria-label="下移"><ChevronDown size={13} /></Btn>
@@ -183,6 +249,7 @@ function DraftTab({ seq, meta, onAdopt }) {
   const draftRef = useRef({ text: '', summary: '', dirty: false })
   draftRef.current.text = text
   draftRef.current.summary = summary
+  useUnsavedGuard(() => draftRef.current.dirty)
 
   useEffect(() => {
     let alive = true
@@ -252,11 +319,13 @@ function DraftTab({ seq, meta, onAdopt }) {
         placeholder="给这版草稿一句备注(可留空)"
         className="h-8 mb-2"
       />
-      <Textarea
+      <RichEditor
         value={text}
-        onChange={(e) => { setText(e.target.value); draftRef.current.dirty = true }}
+        editorKey={`${seq}|draft`}
+        ariaLabel="草稿正文"
+        onChange={(md) => { setText(md); draftRef.current.text = md; draftRef.current.dirty = true }}
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
-        className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 resize-none"
+        className="flex-1 min-h-0"
       />
       <div className="text-f12 text-faint mt-2 leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
     </div>

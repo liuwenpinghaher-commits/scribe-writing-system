@@ -3,7 +3,8 @@ import { Sparkles, Loader2 } from 'lucide-react'
 import { api } from './api'
 import { useDeduceSel } from './deduceContext'
 import { useToast } from './ui/Toast.jsx'
-import { Btn, Textarea } from './ui.jsx'
+import { Btn } from './ui.jsx'
+import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 
 // 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
 export function DeduceStage({ seq, meta, onSaved }) {
@@ -50,7 +51,12 @@ export function DeduceStage({ seq, meta, onSaved }) {
     flushThenLoad()
   }, [selected, seq]) // eslint-disable-line
 
-  const blur = () => { if (workRef.current.dirty) { workRef.current.dirty = false; persistFor(selected, seq, text) } }
+  // 失焦 flush:从 workRef 读实时值(不读 state 闭包),与切换 flush 同一落库口径
+  const blur = () => {
+    const w = workRef.current
+    if (w.dirty) { w.dirty = false; persistFor(w.selected, w.seq, w.text) }
+  }
+  useUnsavedGuard(() => workRef.current.dirty)
 
   const gen = () => {
     setBusy(true); let acc = ''
@@ -81,9 +87,11 @@ export function DeduceStage({ seq, meta, onSaved }) {
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
       </div>
-      <Textarea value={text} onChange={(e) => { const v = e.target.value; setText(v); workRef.current.text = v; workRef.current.dirty = true }} onBlur={blur}
+      <RichEditor value={text} editorKey={`${seq}|${selected}`}
+        ariaLabel={selected === 'truth' ? '场景真相' : '限知投影'}
+        onChange={(md) => { setText(md); workRef.current.text = md; workRef.current.dirty = true }} onBlur={blur}
         placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
-        className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 leading-[1.85] resize-none" />
+        className="flex-1 min-h-0" />
       <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
     </div>
   )

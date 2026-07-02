@@ -139,6 +139,48 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 .tiptap-shell.focus-mode .tiptap-prose p { opacity: .3; transition: opacity 220ms var(--ease-standard); }
 .tiptap-shell.focus-mode .tiptap-prose p.has-focus { opacity: 1; }
 
+/* ============ 前置阶段富文本(RichEditor:大纲/节拍/演绎/草稿) ============ */
+/* 外壳仿 Textarea 原语:圆角边框 + 聚焦黛绿;full 版内部滚动。mini(节拍单条)无框透明 */
+.rich-shell {
+  border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas);
+  transition: border-color 150ms; display: flex; flex-direction: column; min-height: 0;
+}
+.rich-shell:focus-within { border-color: var(--color-brand); }
+.rich-shell-full { padding: 12px 16px 8px; }
+.rich-shell-full .rich-content { flex: 1; min-height: 0; overflow-y: auto; }
+.rich-shell-full .rich-content > div { min-height: 100%; }
+.rich-shell:not(.rich-shell-full) { border: none; border-radius: 6px; background: transparent; }
+.tiptap-rich {
+  font-size: 14px; line-height: 1.85; color: var(--color-ink);
+  outline: none; caret-color: var(--color-brand); width: 100%; min-height: 100%;
+  word-break: normal; overflow-wrap: break-word; line-break: strict;
+}
+.tiptap-rich-mini { min-height: 1.6em; font-size: 13px; line-height: 1.6; }
+.tiptap-rich p { margin: 0 0 .35em; }
+.tiptap-rich-mini p { margin: 0; }
+.tiptap-rich strong { font-weight: 650; }
+.tiptap-rich em { font-style: italic; }
+.tiptap-rich s { opacity: .6; }
+.tiptap-rich h1, .tiptap-rich h2, .tiptap-rich h3, .tiptap-rich h4, .tiptap-rich h5, .tiptap-rich h6 {
+  font-weight: 650; color: var(--color-ink); margin: .7em 0 .3em; line-height: 1.5;
+}
+.tiptap-rich h1 { font-size: 1.25em; }
+.tiptap-rich h2 { font-size: 1.15em; }
+.tiptap-rich h3 { font-size: 1.05em; }
+.tiptap-rich h1:first-child, .tiptap-rich h2:first-child, .tiptap-rich h3:first-child { margin-top: 0; }
+.tiptap-rich ul { list-style: disc; padding-left: 1.4em; margin: .15em 0 .5em; }
+.tiptap-rich ol { list-style: decimal; padding-left: 1.5em; margin: .15em 0 .5em; }
+.tiptap-rich li { margin: 0 0 .1em; }
+.tiptap-rich li p { margin: 0; }
+.tiptap-rich blockquote { border-left: 3px solid var(--color-line); padding-left: .8em; color: var(--color-faint); margin: .3em 0 .6em; }
+.tiptap-rich code { font-size: .9em; background: var(--color-soft); border-radius: 4px; padding: .1em .35em; }
+.tiptap-rich pre { background: var(--color-soft); border-radius: 8px; padding: .6em .8em; margin: .3em 0 .6em; overflow-x: auto; }
+.tiptap-rich pre code { background: transparent; padding: 0; }
+.tiptap-rich p.is-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--color-faint); opacity: .55; float: left; height: 0; pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
