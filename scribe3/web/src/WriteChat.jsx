@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
+import { Btn } from './ui.jsx'
 
 const SUGGESTS = [
   '本章这样展开:……（提思路,主编写整章）',
@@ -179,20 +180,19 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             className="flex-1 resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
           />
           <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
-            <button
+            <Btn variant="ghost" size="sm" icon
               onClick={() => fileRef.current?.click()}
-              title="附加图片或文本文件"
-              className="w-7 h-7 rounded-lg grid place-items-center text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer"
+              title="附加图片或文本文件" aria-label="附加图片或文本文件"
             >
               <Paperclip size={14} />
-            </button>
-            <button
+            </Btn>
+            <Btn variant="primary" icon
               onClick={() => send()}
               disabled={busy || (!input.trim() && attachments.length === 0)}
-              className="w-8 h-8 rounded-lg bg-brand text-brandfg grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity"
+              aria-label="发送"
             >
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </button>
+            </Btn>
           </div>
         </div>
         <input

@@ -8,6 +8,7 @@ import { WriteLayout } from './WriteLayout'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
+import { Btn, Input, Textarea } from './ui.jsx'
 
 // 章四阶段:大纲(synopsis)→ 节拍(beats)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;草稿 saveDraft/latestDraft;正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
@@ -21,10 +22,6 @@ const PHASES = [
 
 // 中区各阶段统一容器留白(P1):统一 max-w / py,消除三种 max-w、两种 py。
 const STAGE_WRAP = 'max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0'
-// 中区主操作按钮(生成/采用/加…)统一规格(P1):品牌前景统一 text-brandfg,消除 text-white 混用。
-const PRIMARY_BTN = 'h-7 px-3 rounded-lg bg-brand text-brandfg text-f12 inline-flex items-center gap-1 cursor-pointer hover:brightness-110 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
-// 中区次操作按钮(存草稿等边框款)统一规格。
-const GHOST_BTN = 'h-7 px-2.5 rounded-lg border border-line text-f12 text-ink hover:bg-soft inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
@@ -69,12 +66,12 @@ function OutlineTab({ seq, value, meta, onSaved }) {
         <h3 className="text-f13 font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
         <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
       </div>
-      <textarea
+      <Textarea
         value={text}
         onChange={(e) => { setText(e.target.value); dirtyRef.current = true }}
         onBlur={flush}
         placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
-        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-f14 leading-relaxed text-ink outline-none focus:border-brand resize-none"
+        className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 resize-none"
       />
       <div className="text-f12 text-faint mt-2 leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
     </div>
@@ -121,16 +118,15 @@ function BeatsTab({ seq, value, meta, onSaved }) {
       </div>
 
       <div className="flex gap-2 mb-4">
-        <input
+        <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           placeholder="加一个节拍…(Enter 添加)"
-          className="flex-1 h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand"
         />
-        <button onClick={add} className={`${PRIMARY_BTN} h-9 text-f13`}>
+        <Btn variant="primary" onClick={add} className="h-9 shrink-0">
           <Plus size={15} />加
-        </button>
+        </Btn>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
@@ -146,12 +142,9 @@ function BeatsTab({ seq, value, meta, onSaved }) {
               </button>
               <span className={`flex-1 text-f14 leading-snug ${b.done ? 'text-faint line-through' : 'text-ink'}`}>{b.text}</span>
               <div className={`flex items-center gap-0.5 shrink-0 ${HOVER_ACTIONS}`}>
-                <button onClick={() => move(i, -1)} disabled={i === 0} title="上移"
-                  className="w-6 h-6 rounded inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"><ChevronUp size={13} /></button>
-                <button onClick={() => move(i, 1)} disabled={i === beats.length - 1} title="下移"
-                  className="w-6 h-6 rounded inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"><ChevronDown size={13} /></button>
-                <button onClick={() => remove(i)} title="删除"
-                  className="w-6 h-6 rounded inline-flex items-center justify-center text-faint hover:bg-soft hover:text-danger cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"><Trash2 size={13} /></button>
+                <Btn variant="ghost" size="xs" icon onClick={() => move(i, -1)} disabled={i === 0} title="上移" aria-label="上移"><ChevronUp size={13} /></Btn>
+                <Btn variant="ghost" size="xs" icon onClick={() => move(i, 1)} disabled={i === beats.length - 1} title="下移" aria-label="下移"><ChevronDown size={13} /></Btn>
+                <Btn variant="ghost" size="xs" icon onClick={() => remove(i)} title="删除" aria-label="删除" className="hover:text-danger"><Trash2 size={13} /></Btn>
               </div>
             </div>
           ))}
@@ -235,12 +228,12 @@ function DraftTab({ seq, meta, onAdopt }) {
         <h3 className="text-f13 font-semibold text-ink">草稿 · 自由打磨,满意后采用为正文</h3>
         <div className="flex items-center gap-2">
           <span className="text-f11 text-faint tnum">{wc} 字</span>
-          <button onClick={saveDraft} disabled={saving} className={GHOST_BTN}>
+          <Btn variant="soft" size="sm" onClick={saveDraft} disabled={saving}>
             <Save size={13} />存草稿
-          </button>
-          <button onClick={adopt} disabled={saving || !text.trim()} className={PRIMARY_BTN}>
+          </Btn>
+          <Btn variant="primary" size="sm" onClick={adopt} disabled={saving || !text.trim()}>
             <Check size={13} />采用为正文
-          </button>
+          </Btn>
         </div>
       </div>
       {pending && (
@@ -248,22 +241,22 @@ function DraftTab({ seq, meta, onAdopt }) {
           <Sparkles size={14} className="shrink-0" />
           <span className="text-f13 flex-1 min-w-0">主编生成了本章草稿({pending.prose.replace(/\s/g, '').length} 字),可直接落进草稿框。</span>
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={fillDraft} className={PRIMARY_BTN}>填入草稿框</button>
-            <button onClick={appendDraft} className={GHOST_BTN}>追加到草稿</button>
+            <Btn variant="primary" size="sm" onClick={fillDraft}>填入草稿框</Btn>
+            <Btn variant="soft" size="sm" onClick={appendDraft}>追加到草稿</Btn>
           </div>
         </div>
       )}
-      <input
+      <Input
         value={summary}
         onChange={(e) => { setSummary(e.target.value); draftRef.current.dirty = true }}
         placeholder="给这版草稿一句备注(可留空)"
-        className="w-full h-8 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand mb-2"
+        className="h-8 mb-2"
       />
-      <textarea
+      <Textarea
         value={text}
         onChange={(e) => { setText(e.target.value); draftRef.current.dirty = true }}
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
-        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-f14 leading-relaxed text-ink outline-none focus:border-brand resize-none"
+        className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 resize-none"
       />
       <div className="text-f12 text-faint mt-2 leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
     </div>
@@ -363,11 +356,9 @@ function PhaseBar({ seq, phase, onPhase, onSeqChange }) {
     <div className="shrink-0 border-b border-line bg-surface h-11 flex items-center gap-3 px-3">
       {phase !== 'final' && (
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章"
-            className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronLeft size={16} /></button>
+          <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章" aria-label="上一章"><ChevronLeft size={16} /></Btn>
           <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
-          <button onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章"
-            className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronRight size={16} /></button>
+          <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章" aria-label="下一章"><ChevronRight size={16} /></Btn>
         </div>
       )}
       <div className="flex items-center gap-0.5 rounded-lg bg-soft/60 p-0.5">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Btn } from '../ui.jsx'
+import { Btn, Input } from '../ui.jsx'
 
 // 统一遮罩 token(全站弹层/命令面板共用):固定深色 scrim + z-[100]。
 export const OVERLAY_CLASS = 'fixed inset-0 z-[100] bg-black/40'
@@ -46,10 +46,9 @@ export function InputDialog({ open, title, placeholder = '', defaultValue = '', 
     <Dialog open={open} onClose={onClose} labelledBy="dlg-title">
       <div className="p-4">
         <div id="dlg-title" className="text-f14 font-medium text-ink mb-3">{title}</div>
-        <input autoFocus value={v} placeholder={placeholder}
+        <Input autoFocus value={v} placeholder={placeholder}
           onChange={(e) => setV(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
-          className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus:border-brand" />
+          onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
         <div className="mt-4 flex justify-end gap-2">
           <Btn variant="ghost" onClick={onClose}>取消</Btn>
           <Btn variant="primary" onClick={submit}>{confirmText}</Btn>

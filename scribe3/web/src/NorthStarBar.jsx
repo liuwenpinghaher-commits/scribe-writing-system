@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Compass, ChevronDown, Check } from 'lucide-react'
 import { api } from './api'
 import { useToast } from './ui/Toast.jsx'
+import { Btn, Textarea } from './ui.jsx'
 
 const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线']]
 
@@ -29,17 +30,16 @@ export function NorthStarBar() {
           {FIELDS.map(([k, label]) => (
             <div key={k}>
               <label className="block text-f11 text-faint mb-1">{label}</label>
-              <textarea value={intent[k] || ''} onChange={(e) => set(k, e.target.value)} rows={2}
-                className="w-full rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink outline-none focus:border-brand resize-y" />
+              <Textarea value={intent[k] || ''} onChange={(e) => set(k, e.target.value)} rows={2} className="px-2.5 py-1.5" />
             </div>
           ))}
           <div className="sm:col-span-3 flex justify-end">
-            <button onClick={async () => {
+            <Btn variant="primary" size="sm" onClick={async () => {
               try { await api.putIntent(intent); setSaved(true) }
               catch (e) { toast(e?.body?.detail || '意图保存失败,请重试', { tone: 'danger' }) }  // 失败不置 saved
-            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+            }}>
               <Check size={13} />{saved ? '已存' : '保存意图'}
-            </button>
+            </Btn>
           </div>
         </div>
       )}

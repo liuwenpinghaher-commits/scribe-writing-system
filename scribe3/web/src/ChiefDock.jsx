@@ -5,6 +5,7 @@ import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine } from 'lu
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
+import { Btn } from './ui.jsx'
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
 function Bubble({ role, content, tools, streaming }) {
@@ -294,21 +295,13 @@ function DiscussionDock({ sel, phase }) {
           />
           {busy ? (
             // 生成中:发送键变「停止」——中止在途流(EventSource.close/AbortController.abort)+ 解锁 busy,可立即再发。
-            <button
-              onClick={stop}
-              title="停止生成"
-              className="w-8 h-8 rounded-lg bg-danger text-white grid place-items-center cursor-pointer hover:opacity-90 transition-opacity shrink-0"
-            >
+            <Btn variant="danger" icon onClick={stop} title="停止生成" aria-label="停止生成" className="shrink-0">
               <Square size={13} fill="currentColor" />
-            </button>
+            </Btn>
           ) : (
-            <button
-              onClick={() => send()}
-              disabled={!input.trim()}
-              className="w-8 h-8 rounded-lg bg-brand text-brandfg grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity shrink-0"
-            >
+            <Btn variant="primary" icon onClick={() => send()} disabled={!input.trim()} aria-label="发送" className="shrink-0">
               <Send size={15} />
-            </button>
+            </Btn>
           )}
         </div>
       </div>
