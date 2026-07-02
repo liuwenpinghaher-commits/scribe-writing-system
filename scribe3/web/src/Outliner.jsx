@@ -8,7 +8,7 @@ import {
   useSortable, sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, LABEL_META } from './outlineColors'
 import { showToast } from './ui/Toast'
@@ -29,7 +29,7 @@ function SynopsisCell({ chapter, onPatchSynopsis }) {
     return (
       <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setVal(chapter.synopsis || ''); setEditing(false) } }}
-        className="w-full rounded border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand" />
+        className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand" />
     )
   }
   return (
@@ -70,11 +70,13 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
       <td className="px-2 py-2 align-top text-f12 text-faint whitespace-nowrap">{chapter.focalizer || '—'}</td>
       <td className="px-2 py-2 align-top whitespace-nowrap">
         {labelMeta
-          ? <span className="text-f11" style={{ color: `var(--color-${labelMeta.token})` }}>◆ {labelMeta.text}</span>
+          ? <span className="inline-flex items-center gap-1 text-f11" style={{ color: `var(--color-${labelMeta.token})` }}><Diamond size={11} className="shrink-0" />{labelMeta.text}</span>
           : <span className="text-f11 text-faint/40">—</span>}
       </td>
       <td className="px-2 py-2 align-top whitespace-nowrap text-f12">
-        {qc > 0 ? <span className="text-warn tnum">⚠{qc}</span> : <span className="text-ok">✓</span>}
+        {qc > 0
+          ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
+          : <Check size={13} className="text-ok" />}
       </td>
     </tr>
   )

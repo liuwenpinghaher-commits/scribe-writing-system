@@ -3,7 +3,7 @@ import { Tree } from 'react-arborist'
 import {
   ChevronRight, ChevronDown, BookText, BookOpen, FileText,
   Users, Swords, Package, Tags, Shield, Bookmark, Flame, Lock,
-  Pencil, Trash2, Check, X, Plus,
+  Pencil, Trash2, Check, X, Plus, TriangleAlert,
 } from 'lucide-react'
 
 // 容器节点类型:点击=展开/折叠(也可选中出卡片墙,MVP 仅展开)
@@ -24,7 +24,8 @@ function Badge({ b }) {
   if (b.kind === 'secret') return <Lock size={11} className="text-faint/60 shrink-0" />
   if (b.kind === 'pov') return null
   if (b.kind === 'count') return <span className={`text-f10 tnum shrink-0 ${tone}`}>{b.value}</span>
-  return <span className={`text-f10 tnum shrink-0 ${tone}`}>{b.value}{b.kind === 'qc' ? '⚠' : ''}</span>
+  if (b.kind === 'qc') return <span className={`inline-flex items-center gap-0.5 text-f10 tnum shrink-0 ${tone}`}>{b.value}<TriangleAlert size={10} className="shrink-0" /></span>
+  return <span className={`text-f10 tnum shrink-0 ${tone}`}>{b.value}</span>
 }
 
 // 卷节点内联重命名

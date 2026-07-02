@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, LABEL_META } from './outlineColors'
 
@@ -84,11 +84,11 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
             </span>
           )}
           {qc > 0
-            ? <span className="text-warn tnum">⚠{qc}</span>
-            : <span className="text-ok">✓</span>}
+            ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
+            : <Check size={13} className="text-ok" />}
           {labelMeta && (
             <span className="ml-auto inline-flex items-center gap-1" style={{ color: `var(--color-${labelMeta.token})` }}>
-              ◆ {labelMeta.text}
+              <Diamond size={11} className="shrink-0" />{labelMeta.text}
             </span>
           )}
         </div>

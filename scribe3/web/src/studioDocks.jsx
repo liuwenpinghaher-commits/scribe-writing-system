@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive } from 'lucide-react'
+import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
-import { Empty, Tag } from './ui'
+import { Empty, Tag, SectionTitle, Skeleton } from './ui'
 import { ProjectTree } from './ProjectTree'
 import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
@@ -33,15 +33,16 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
   }, [seq])
 
   const caps = useMemo(() => {
+    // bare:true 的面板自带内边距/需边到边(项目树/演绎树),不套统一 p-3;其余数据面板走容器统一 padding。
     const base = [
-      { key: 'tree', icon: FolderTree, label: '项目树', render: () => (
+      { key: 'tree', icon: FolderTree, bare: true, label: '项目树', render: () => (
         <div className="h-full overflow-hidden"><ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={onToggle} onSelect={onSelect} {...treeCbs} /></div>
       ) },
     ]
     if (seq == null) return base   // 未选章:只给项目树
     base.push(
-      { key: 'frame', icon: Eye, label: '帧/意图', render: () => <div className="p-3"><FramePanel focalizer={focalizer} chapter={seq} /></div> },
-      { key: 'deduce', icon: Sparkles, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
+      { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
+      { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} onJumpChapter={onJumpChapter} /> },
       { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} /> },
     )
@@ -58,7 +59,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       <Rail side="left" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
       {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/素材/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
           key=tab+章 → 切 tab / 切章时重建复位,用户切走再切回可自恢复。 */}
-      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line">
+      <div className={cn('flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line', active.bare ? '' : 'p-3')}>
         <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
       </div>
     </div>
@@ -155,11 +156,13 @@ function PromiseRow({ p, danger, tag, onJumpChapter }) {
   return <div className="mb-2 pb-2 border-b border-line/50 last:border-0">{inner}</div>
 }
 
-function PromiseGroup({ title, tone, items, danger, tag, onJumpChapter }) {
+function PromiseGroup({ title, icon, tone, items, danger, tag, onJumpChapter }) {
   if (!items || items.length === 0) return null
+  const Icon = icon
   return (
     <div className="mb-3 last:mb-0">
-      <div className={cn('text-f11 uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
+      <div className={cn('flex items-center gap-1 text-f11 uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
+        {Icon && <Icon size={12} className="shrink-0" />}
         {title} · {items.length}
       </div>
       {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} onJumpChapter={onJumpChapter} />)}
@@ -168,8 +171,8 @@ function PromiseGroup({ title, tone, items, danger, tag, onJumpChapter }) {
 }
 
 function PromisesPanel({ ledger, onJumpChapter }) {
-  if (ledger === undefined) return <div className="p-3"><Empty>加载中…</Empty></div>
-  if (ledger === null) return <div className="p-3"><Empty>伏笔台账加载失败,切走再切回可重试</Empty></div>
+  if (ledger === undefined) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Skeleton className="w-2/3" /><Skeleton className="w-full mt-2" /><Skeleton className="w-1/2 mt-2" /></div>
+  if (ledger === null) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Empty>伏笔台账加载失败,切走再切回可重试</Empty></div>
   const open = Array.isArray(ledger.open) ? ledger.open : []
   const closed = Array.isArray(ledger.closed) ? ledger.closed : []
   const herring = Array.isArray(ledger.red_herring) ? ledger.red_herring : []
@@ -177,10 +180,10 @@ function PromisesPanel({ ledger, onJumpChapter }) {
   const pending = open.filter((p) => !p.overdue)
   const empty = overdue.length + pending.length + closed.length + herring.length === 0
   return (
-    <div className="p-3">
-      <div className="text-f11 text-faint uppercase tracking-wider mb-2">伏笔 · 埋/收台账</div>
-      {empty ? <Empty>本书暂无伏笔</Empty> : <>
-        <PromiseGroup title="⚠ 超期未收" tone="text-danger font-semibold" items={overdue} danger
+    <div>
+      <SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle>
+      {empty ? <Empty>暂无伏笔——正文里埋下线索后自动入账</Empty> : <>
+        <PromiseGroup title="超期未收" icon={TriangleAlert} tone="text-danger font-semibold" items={overdue} danger
           tag={<Tag tone="danger">超期</Tag>} onJumpChapter={onJumpChapter} />
         <PromiseGroup title="待收" items={pending} onJumpChapter={onJumpChapter} />
         <PromiseGroup title="已收" items={closed} tag={<Tag tone="ok">已收</Tag>} onJumpChapter={onJumpChapter} />
@@ -192,9 +195,9 @@ function PromisesPanel({ ledger, onJumpChapter }) {
 
 function MotifsPanel({ motifs }) {
   return (
-    <div className="p-3">
-      <div className="text-f11 text-faint uppercase tracking-wider mb-1.5">母题</div>
-      {motifs.length === 0 ? <div className="text-f13 text-faint/50">无</div> : motifs.map((m) => (
+    <div>
+      <SectionTitle icon={LayoutList}>母题</SectionTitle>
+      {motifs.length === 0 ? <Empty>暂无母题——在素材/设定里立母题后在此追踪展开</Empty> : motifs.map((m) => (
         <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
           <div className="text-f13 font-semibold text-ink">{m.name}</div>
           {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
@@ -251,9 +254,9 @@ function QCPanel({ seq }) {
   ]
   const noProse = qc && typeof qc === 'object' && Object.keys(qc).length === 0
   return (
-    <div className="p-3">
-      <div className="text-f11 text-faint uppercase tracking-wider mb-1.5">确定性 QC · 本章正文</div>
-      {qc === undefined ? <Empty>加载中…</Empty>
+    <div>
+      <SectionTitle icon={ShieldCheck}>确定性 QC · 本章正文</SectionTitle>
+      {qc === undefined ? <><Skeleton className="w-full" /><Skeleton className="w-full mt-2" /><Skeleton className="w-3/4 mt-2" /></>
         : qc === null ? <Empty>QC 加载失败,切走再切回可重试</Empty>
         : noProse ? <Empty>保存正文后自动体检</Empty>
         : <div>{items.map(([label, hits]) => <QCItem key={label} label={label} hits={hits} />)}</div>}

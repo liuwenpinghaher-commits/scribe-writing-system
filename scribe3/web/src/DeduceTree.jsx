@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, User, Check, Plus, X } from 'lucide-react'
+import { BookOpen, User, Check, Plus, X, Users } from 'lucide-react'
 import { api } from './api'
 import { cn } from './lib/utils'
 import { useDeduceSel } from './deduceContext'
+import { Empty, SectionTitle } from './ui'
 
 // 演绎树:根「场景真相」+ 涉及角色(已演打勾/未演)。选中驱动中区 DeduceStage。
 export function DeduceTree({ seq }) {
@@ -18,7 +19,7 @@ export function DeduceTree({ seq }) {
     const hit = chars.filter((c) => c.name && text.includes(c.name)).map((c) => c.id)
     if (hit.length) api.patchChapter(seq, { involved_characters: hit }).then(() => api.chapter(seq).then(setCh))
   }, [ch, chars, seq]) // eslint-disable-line
-  if (seq == null) return <div className="p-3 text-f13 text-faint/50">选一章开始演绎</div>
+  if (seq == null) return <div className="p-3"><Empty>选一章开始演绎</Empty></div>
   const involved = ch?.involved_characters || []
   const deds = ch?.deductions || []
   const doneSet = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
@@ -31,8 +32,8 @@ export function DeduceTree({ seq }) {
         className={cn('w-full flex items-center gap-2 px-2 h-8 rounded-lg text-f13 cursor-pointer', selected === 'truth' ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
         <BookOpen size={14} />场景真相{(ch?.scene_truth || '').trim() && <Check size={12} className="ml-auto text-ok" />}
       </button>
-      <div className="text-f11 text-faint uppercase tracking-wider mt-3 mb-1 px-2">涉及角色</div>
-      {involvedChars.length === 0 && <div className="px-2 text-f12 text-faint/50">加涉及角色 →</div>}
+      <div className="mt-3 px-2"><SectionTitle icon={Users}>涉及角色</SectionTitle></div>
+      {involvedChars.length === 0 && <div className="px-2"><Empty>暂无涉及角色——下方展开添加 ↓</Empty></div>}
       {involvedChars.map((c) => (
         <div key={c.id} className="group flex items-center">
           <button onClick={() => setSelected(c.id)}
