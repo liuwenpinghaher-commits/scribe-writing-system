@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert } from 'lucide-react'
+import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -43,7 +43,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     base.push(
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
-      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} onJumpChapter={onJumpChapter} /> },
+      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onJumpChapter={onJumpChapter} /> },
       { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
@@ -170,24 +170,41 @@ function PromiseGroup({ title, icon, tone, items, danger, tag, onJumpChapter }) 
   )
 }
 
-function PromisesPanel({ ledger, onJumpChapter }) {
-  if (ledger === undefined) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Skeleton className="w-2/3" /><Skeleton className="w-full mt-2" /><Skeleton className="w-1/2 mt-2" /></div>
+function PromisesPanel({ ledger, seq, onJumpChapter }) {
+  if (ledger === undefined) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Skeleton className="w-2/3" /><Skeleton className="w-full mt-2" /></div>
   if (ledger === null) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Empty>伏笔台账加载失败,切走再切回可重试</Empty></div>
   const open = Array.isArray(ledger.open) ? ledger.open : []
   const closed = Array.isArray(ledger.closed) ? ledger.closed : []
   const herring = Array.isArray(ledger.red_herring) ? ledger.red_herring : []
-  const overdue = open.filter((p) => p.overdue)
-  const pending = open.filter((p) => !p.overdue)
-  const empty = overdue.length + pending.length + closed.length + herring.length === 0
+  // 单遍优先级分桶(每条只进一个桶):本章收 > 本章埋 > 仍悬 > 其余
+  const payThis = [], setThis = [], still = [], rest = []
+  for (const p of [...open, ...closed]) {
+    const isOpen = p.status !== 'paid' && (p.payoff_chapter == null || p.payoff_chapter > (seq ?? -1))
+    if (seq != null && p.payoff_chapter === seq) payThis.push(p)
+    else if (seq != null && p.setup_chapter === seq) setThis.push(p)
+    else if (seq != null && isOpen && p.setup_chapter != null && p.setup_chapter < seq) still.push(p)
+    else rest.push(p)
+  }
+  const overdue = still.filter((p) => p.overdue)
+  const stillRest = still.filter((p) => !p.overdue)
+  const empty = payThis.length + setThis.length + still.length + herring.length + rest.length === 0
   return (
     <div>
       <SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle>
       {empty ? <Empty>暂无伏笔——正文里埋下线索后自动入账</Empty> : <>
+        <PromiseGroup title="本章收" icon={Check} tone="text-ok font-semibold" items={payThis}
+          tag={<Tag tone="ok">本章收</Tag>} onJumpChapter={onJumpChapter} />
+        <PromiseGroup title="本章埋" items={setThis} tag={<Tag tone="brand">本章埋</Tag>} onJumpChapter={onJumpChapter} />
         <PromiseGroup title="超期未收" icon={TriangleAlert} tone="text-danger font-semibold" items={overdue} danger
           tag={<Tag tone="danger">超期</Tag>} onJumpChapter={onJumpChapter} />
-        <PromiseGroup title="待收" items={pending} onJumpChapter={onJumpChapter} />
-        <PromiseGroup title="已收" items={closed} tag={<Tag tone="ok">已收</Tag>} onJumpChapter={onJumpChapter} />
+        <PromiseGroup title="仍悬(截至本章)" items={stillRest} onJumpChapter={onJumpChapter} />
         <PromiseGroup title="障眼法" items={herring} tag={<Tag tone="fore">障眼法</Tag>} onJumpChapter={onJumpChapter} />
+        {rest.length > 0 && (
+          <details className="mt-1">
+            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none">已了结 / 与本章无关 · {rest.length}</summary>
+            <div className="mt-1.5">{rest.map((p) => <PromiseRow key={p.id} p={p} onJumpChapter={onJumpChapter} />)}</div>
+          </details>
+        )}
       </>}
     </div>
   )
