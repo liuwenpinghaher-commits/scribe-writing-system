@@ -556,7 +556,16 @@ def parse_voice_profile_from_fold(reply: str) -> dict | None:
 
 
 # ==== 知识账本抽取(定稿时抽"本章谁新知道什么/做了什么",喂单一真相源)====
-def build_knowledge_extract_prompt(prose: str) -> str:
+def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = None) -> str:
+    motif_seg = ""
+    motif_schema = ""
+    if motif_names:
+        names = "、".join(motif_names)
+        motif_seg = (
+            f"再抽【motif:本章触及了以下【已立母题】中的哪些({names})——"
+            "只能从这些里选,严禁发明新母题;每条给母题名(motif)+本章一句体现它的引文(evidence);"
+            "没触及则输出空列表】。\n")
+        motif_schema = ',"motif":[{"motif":母题名,"evidence":引文}]'
     return (
         "读下面一章小说正文,抽取本章【各角色新知道了什么(learned)、做了什么且被谁看见(did)】——"
         "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。"
@@ -567,11 +576,13 @@ def build_knowledge_extract_prompt(prose: str) -> str:
         "一句话摘要(summary)、快照(snapshot:对 ability 填{技能:状态}、"
         "对 relation 填{对象角色:关系描述}、对 personality 填字符串描述)。"
         "没有明确弧光质变时 arc 输出空列表。\n"
+        + motif_seg +
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
         '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}],'
         '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}],'
         '"arc":[{"who":角色名,"change_type":"ability|relation|personality",'
-        '"summary":一句话摘要,"snapshot":{...}}]}。\n\n'
+        '"summary":一句话摘要,"snapshot":{...}}]'
+        + motif_schema + '}。\n\n'
         "【正文】\n" + prose)
 
 
@@ -588,7 +599,8 @@ def parse_knowledge_delta(reply: str) -> dict | None:
         d = json.loads(m.group(0))
         return {"learned": list(d.get("learned") or []), "did": list(d.get("did") or []),
                 "voice_shift": list(d.get("voice_shift") or []),
-                "arc": list(d.get("arc") or [])}
+                "arc": list(d.get("arc") or []),
+                "motif": list(d.get("motif") or [])}
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return None

@@ -489,3 +489,36 @@ def test_learned_dedup_reingest_source_chapter_no_dangling_knows(store):
     fr_ying_after = project_frame(store, "role:阿萤", 21)
     assert any(fact_text in f.value for f in fr_ying_after.facts), \
         "重 ingest A 章后 B 章阿萤的 knows 边不应悬空,阿萤帧仍应含该命题"
+
+
+# ── 伏笔母题章感知:ingest 抽本章母题 → motif_instance ──────────────────────────
+
+def test_apply_delta_motif_resolves_and_records(store):
+    """delta.motif → 解析到已立母题 → 落 motif_instance;解析不到的名跳过不报错。"""
+    store.add_motif("铜炉", theme="宿命")
+    mid = store.list_motifs()[0]["id"]
+    delta = {"learned": [], "did": [], "voice_shift": [], "arc": [],
+             "motif": [
+                 {"motif": "铜炉", "evidence": "炉火忽明忽暗"},
+                 {"motif": "不存在的母题", "evidence": "x"},
+             ]}
+    apply_delta(store, delta, seq=5)
+    got = store.list_motif_instances(5)
+    assert len(got) == 1
+    assert got[0]["motif_id"] == mid
+    assert got[0]["evidence"] == "炉火忽明忽暗"
+
+
+def test_parse_knowledge_delta_includes_motif():
+    from scribe3.critique import parse_knowledge_delta
+    d = parse_knowledge_delta('{"learned":[],"did":[],"motif":[{"motif":"铜炉","evidence":"炉火"}]}')
+    assert d is not None
+    assert d["motif"] == [{"motif": "铜炉", "evidence": "炉火"}]
+
+
+def test_build_prompt_lists_existing_motifs():
+    from scribe3.critique import build_knowledge_extract_prompt
+    p = build_knowledge_extract_prompt("正文", motif_names=["铜炉", "纸命"])
+    assert "铜炉" in p and "纸命" in p and "motif" in p
+    p2 = build_knowledge_extract_prompt("正文")
+    assert "motif" not in p2

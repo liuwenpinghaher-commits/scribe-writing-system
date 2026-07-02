@@ -20,6 +20,17 @@ def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     return None
 
 
+def _resolve_motif(store, name: str) -> str | None:
+    """按名精确匹配已立母题,返回 motif_id;匹配不到返回 None(不建母题,与 _resolve_char 同范式)。"""
+    needle = (name or "").strip()
+    if not needle:
+        return None
+    for m in store.list_motifs():
+        if (m.get("name") or "").strip() == needle:
+            return m.get("id")
+    return None
+
+
 def _find_existing_learned_prop(store, fact_text: str) -> str | None:
     """在已有命题中查找与 fact_text 近精确匹配的"获知"类命题,返回其 oid 或 None。
     S3 去重策略:保守近精确匹配(归一化后完全相等,或长文本的包含关系),
@@ -156,6 +167,21 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             import logging
             logging.getLogger("scribe3.ingest").warning(
                 "char_state 写入失败(non-fatal),角色 %s 章 %s: %s", who, seq, _arc_e)
+    # 伏笔母题章感知:抽本章触及的已立母题 → 落 motif_instance(只在已立母题里选)
+    for it in delta.get("motif") or []:
+        name = it.get("motif") or it.get("name")
+        if not name:
+            continue
+        mid = _resolve_motif(store, name)
+        if mid is None:
+            continue   # 解析不到的母题名跳过(fail-safe,不建母题)
+        try:
+            store.add_motif_instance(mid, chapter=seq,
+                                     evidence=it.get("evidence") or "", ingest_seq=seq)
+        except Exception as _mi_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "motif_instance 写入失败(non-fatal),母题 %s 章 %s: %s", name, seq, _mi_e)
     return n
 
 
@@ -166,7 +192,8 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
-    prompt = build_knowledge_extract_prompt(ch["prose"])
+    motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
+    prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names)
     delta = None
     for _ in range(max(1, max_attempts)):
         delta = parse_knowledge_delta(complete_fn(prompt))
