@@ -24,7 +24,7 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }
       {current && (
         <>
           <div className="w-px h-5 bg-line shrink-0" />
-          <nav className="flex items-center gap-1 min-w-0 overflow-x-auto">
+          <nav className="flex items-center gap-1">
             {VIEWS.map(({ key, label, icon: Icon }) => {
               const on = view === key
               return (

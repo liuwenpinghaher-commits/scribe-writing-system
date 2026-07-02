@@ -179,7 +179,7 @@ function PromisesPanel({ ledger, seq, onJumpChapter }) {
   // 单遍优先级分桶(每条只进一个桶):本章收 > 本章埋 > 仍悬 > 其余
   const payThis = [], setThis = [], still = [], rest = []
   for (const p of [...open, ...closed]) {
-    const isOpen = p.status !== 'paid' && (p.payoff_chapter == null || p.payoff_chapter > (seq ?? -1))
+    const isOpen = p.status !== 'closed' && (p.payoff_chapter == null || p.payoff_chapter > (seq ?? -1))
     if (seq != null && p.payoff_chapter === seq) payThis.push(p)
     else if (seq != null && p.setup_chapter === seq) setThis.push(p)
     else if (seq != null && isOpen && p.setup_chapter != null && p.setup_chapter < seq) still.push(p)
@@ -226,8 +226,10 @@ function MotifsPanel({ motifs, seq }) {
   const [inst, setInst] = useState(undefined)   // undefined=加载 / null=失败 / []=空
   useEffect(() => {
     if (seq == null) { setInst([]); return }
+    let ignore = false
     setInst(undefined)
-    api.motifInstances(seq).then((r) => setInst(Array.isArray(r) ? r : [])).catch(() => setInst(null))
+    api.motifInstances(seq).then((r) => { if (!ignore) setInst(Array.isArray(r) ? r : []) }).catch(() => { if (!ignore) setInst(null) })
+    return () => { ignore = true }
   }, [seq])
   const list = Array.isArray(inst) ? inst : []
   const evById = new Map(list.map((i) => [i.motif_id, i.evidence]))

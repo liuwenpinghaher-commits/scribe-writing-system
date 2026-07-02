@@ -26,7 +26,7 @@ function Bubble({ role, content, tools, streaming }) {
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
+        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-soft/60 text-ink'}`}>
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -283,7 +283,7 @@ function DiscussionDock({ sel, phase }) {
 
       {/* 输入区 */}
       <div className="shrink-0 border-t border-line px-2.5 py-2">
-        <div className="flex items-end gap-1.5 rounded-xl border border-line bg-canvas px-2.5 py-2 focus-within:border-brand transition-colors">
+        <div className="flex items-end gap-1.5 rounded-xl bg-canvas px-2.5 py-2 focus-within:ring-1 focus-within:ring-brand/40 transition-shadow">
           <textarea
             ref={taRef}
             value={input}

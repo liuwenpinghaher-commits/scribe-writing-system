@@ -163,7 +163,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
             treeCbs={treeCbs} seq={curSeq} onJumpChapter={onJumpChapter} />
         </Panel>
-        <Separator className="w-px bg-line data-[separator]:hover:bg-brand/50 transition-colors" />
+        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
 
         {/* 中栏:编辑器(章导航 + 四阶段 tab + 阶段编辑器) */}
         <Panel id="detail" minSize="34%" className="relative min-w-0">
@@ -178,7 +178,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
               onTreeChanged={reload} onJumpChapter={onJumpChapter} />
           </main>
         </Panel>
-        <Separator className="w-px bg-line data-[separator]:hover:bg-brand/50 transition-colors" />
+        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
 
         {/* 右栏:面板(主编/存档)+ 竖图标轨(镜像) */}
         <Panel
