@@ -103,7 +103,7 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
     return {"slug": slug, "title": title}
 
 
-_TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif"])
+_TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance"])
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
@@ -536,6 +536,8 @@ class SurrealStore:
         self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
         # 4. P2-a Fix5: 清本章 ingest_unverified 记录——重 ingest 时防止累积重复 pending
         self._execute_write("DELETE ingest_unverified WHERE seq = $seq", {"seq": seq})
+        # 5. 母题章实例:随本章 ingest 幂等清除
+        self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
@@ -738,6 +740,23 @@ class SurrealStore:
 
     def list_motifs(self) -> list[dict]:
         return self._query("SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM motif")
+
+    def add_motif_instance(self, motif_id: str, chapter: int,
+                           evidence: str = "", ingest_seq: int | None = None) -> None:
+        self._execute_write(
+            "CREATE motif_instance SET motif_id=$m, chapter=$c, evidence=$e, ingest_seq=$i",
+            {"m": motif_id, "c": chapter, "e": evidence,
+             "i": ingest_seq if ingest_seq is not None else chapter})
+
+    def list_motif_instances(self, chapter: int) -> list[dict]:
+        """本章触及的母题:[{motif_id, name, evidence}](name 由 motif 表 join)。"""
+        rows = self._query(
+            "SELECT motif_id, evidence FROM motif_instance WHERE chapter = $c",
+            {"c": chapter})
+        names = {m.get("id"): (m.get("name") or "") for m in self.list_motifs()}
+        return [{"motif_id": r.get("motif_id"),
+                 "name": names.get(r.get("motif_id"), ""),
+                 "evidence": r.get("evidence") or ""} for r in rows]
 
     # --- 通用 增删改(设定库编辑用)---
     def _update_by(self, table: str, local: str, fields: dict) -> None:

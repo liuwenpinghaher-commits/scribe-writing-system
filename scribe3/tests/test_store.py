@@ -1308,3 +1308,18 @@ def test_chapter_deduction_fields_roundtrip(store):
     assert ch["scene_truth"] == "客观真相:借命正在发生。"
     assert ch["involved_characters"] == ["role:柳怀玉", "role:苏纸鸢"]
     assert ch["deductions"][0]["character_name"] == "柳怀玉"
+
+
+def test_motif_instance_roundtrip_and_purge(store):
+    """add_motif_instance → list_motif_instances(章) 往返;purge_ingest 幂等清本章。"""
+    store.add_motif("铜炉", theme="宿命", echoes="炉火/铜锈")
+    mid = store.list_motifs()[0]["id"]
+    store.add_motif_instance(mid, chapter=3, evidence="炉火忽明忽暗", ingest_seq=3)
+    got = store.list_motif_instances(3)
+    assert len(got) == 1
+    assert got[0]["motif_id"] == mid
+    assert got[0]["name"] == "铜炉"
+    assert got[0]["evidence"] == "炉火忽明忽暗"
+    assert store.list_motif_instances(4) == []
+    store.purge_ingest(3)
+    assert store.list_motif_instances(3) == []
