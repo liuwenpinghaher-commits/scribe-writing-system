@@ -44,7 +44,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} onJumpChapter={onJumpChapter} /> },
-      { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} /> },
+      { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
     return base
@@ -193,17 +193,45 @@ function PromisesPanel({ ledger, onJumpChapter }) {
   )
 }
 
-function MotifsPanel({ motifs }) {
+function MotifRow({ m, evidence, highlight }) {
+  return (
+    <div className={cn('mb-2.5 pb-2.5 border-b border-line/50 last:border-0',
+      highlight && 'rounded-md bg-brand/5 px-2 -mx-1')}>
+      <div className="text-f13 font-semibold text-ink">{m.name}</div>
+      {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
+      {evidence && <div className="text-f12 text-brand mt-0.5 leading-snug">「{evidence}」</div>}
+      {!evidence && m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
+    </div>
+  )
+}
+
+function MotifsPanel({ motifs, seq }) {
+  const [inst, setInst] = useState(undefined)   // undefined=加载 / null=失败 / []=空
+  useEffect(() => {
+    if (seq == null) { setInst([]); return }
+    setInst(undefined)
+    api.motifInstances(seq).then((r) => setInst(Array.isArray(r) ? r : [])).catch(() => setInst(null))
+  }, [seq])
+  const list = Array.isArray(inst) ? inst : []
+  const evById = new Map(list.map((i) => [i.motif_id, i.evidence]))
+  const touched = motifs.filter((m) => evById.has(m.id))
+  const rest = motifs.filter((m) => !evById.has(m.id))
   return (
     <div>
-      <SectionTitle icon={LayoutList}>母题</SectionTitle>
-      {motifs.length === 0 ? <Empty>暂无母题——在素材/设定里立母题后在此追踪展开</Empty> : motifs.map((m) => (
-        <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
-          <div className="text-f13 font-semibold text-ink">{m.name}</div>
-          {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
-          {m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
-        </div>
-      ))}
+      <SectionTitle icon={LayoutList}>素材 · 母题</SectionTitle>
+      {motifs.length === 0 ? <Empty>暂无母题——在素材/设定里立母题后在此追踪</Empty> : <>
+        <div className="text-f11 uppercase tracking-wider text-brand mb-1.5">本章触及 · {touched.length}</div>
+        {inst === undefined ? <Skeleton className="w-2/3" />
+          : inst === null ? <Empty>本章母题加载失败,切走再切回可重试</Empty>
+          : touched.length === 0 ? <Empty>本章暂无触及——写/反哺本章后自动检测</Empty>
+          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight />)}
+        {rest.length > 0 && (
+          <details className="mt-3">
+            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none">全书母题 · {rest.length}</summary>
+            <div className="mt-1.5">{rest.map((m) => <MotifRow key={m.id} m={m} />)}</div>
+          </details>
+        )}
+      </>}
     </div>
   )
 }
