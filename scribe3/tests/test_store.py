@@ -1323,3 +1323,34 @@ def test_motif_instance_roundtrip_and_purge(store):
     assert store.list_motif_instances(4) == []
     store.purge_ingest(3)
     assert store.list_motif_instances(3) == []
+
+
+def test_promise_lifecycle_fields_and_window_state(store):
+    """伏笔生命周期:tier 默认 chapter + 兑现窗口按层级自动推算;arc/book 窗口各异。"""
+    store.plant_promise("窗台上的铜炉", setup_chapter=2)
+    p = [x for x in store.list_promises() if x["text"] == "窗台上的铜炉"][0]
+    assert p["tier"] == "chapter"
+    assert p["payoff_min"] == 3 and p["payoff_max"] == 5
+    store.plant_promise("судьба线", setup_chapter=1, tier="arc")
+    store.plant_promise("书级主线", setup_chapter=1, tier="book")
+    arc = [x for x in store.list_promises() if x["tier"] == "arc"][0]
+    book = [x for x in store.list_promises() if x["tier"] == "book"][0]
+    assert (arc["payoff_min"], arc["payoff_max"]) == (6, 16)
+    assert book["payoff_min"] == 2 and book["payoff_max"] is None
+
+
+def test_promise_window_state_pure():
+    from scribe3.store import promise_window_state
+    p = {"status": "open", "kind": "payoff", "setup_chapter": 2,
+         "payoff_min": 3, "payoff_max": 7, "last_refresh_at": None, "tier": "chapter"}
+    assert promise_window_state(p, max_chapter=2)["state"] == "pre_window"
+    assert promise_window_state(p, max_chapter=3)["state"] == "in_window"
+    assert promise_window_state(p, max_chapter=5)["state"] == "over_half"
+    assert promise_window_state(p, max_chapter=8)["state"] == "overdue"
+    assert promise_window_state(p, max_chapter=5)["salience_gap"] == 3
+    p2 = dict(p, last_refresh_at=5)
+    assert promise_window_state(p2, max_chapter=5)["salience_gap"] == 0
+    pb = dict(p, tier="book", payoff_max=None)
+    assert promise_window_state(pb, max_chapter=99)["state"] == "in_window"
+    assert promise_window_state(dict(p, status="closed"), 5)["state"] == "inactive"
+    assert promise_window_state(dict(p, kind="red_herring"), 5)["state"] == "inactive"

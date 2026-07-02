@@ -164,6 +164,35 @@ def _overdue_flag(p: dict, max_chapter: int, slack: int) -> bool:
                 and setup + slack < max_chapter)
 
 
+_TIER_WINDOW = {"chapter": (1, 3), "arc": (5, 15), "book": (1, None)}
+
+
+def promise_window_state(p: dict, max_chapter: int) -> dict:
+    """伏笔窗口计算态。next_ch = max_chapter+1(即将写的下一章)。
+    state ∈ inactive / pre_window / in_window / over_half / overdue。
+    salience_gap = 距上次露面(埋设或触及)的章数,供'先刷新再兑现'门槛用。"""
+    setup = p.get("setup_chapter")
+    if p.get("status") != "open" or p.get("kind") == "red_herring" or setup is None:
+        return {"state": "inactive", "salience_gap": None}
+    next_ch = max_chapter + 1
+    pmin = p.get("payoff_min") or setup + 1
+    pmax = p.get("payoff_max")
+    last_seen = max(setup, p.get("last_refresh_at") or setup)
+    gap = max_chapter - last_seen
+    if next_ch <= pmin:
+        # 已写进度(max_chapter)还没到窗口起点 payoff_min → 窗前
+        state = "pre_window"
+    elif pmax is None:
+        state = "in_window"
+    elif next_ch > pmax:
+        state = "overdue"
+    elif next_ch > pmin + (pmax - pmin) / 2:
+        state = "over_half"
+    else:
+        state = "in_window"
+    return {"state": state, "salience_gap": gap}
+
+
 def _compute_streaks(rows: list[dict], today: str, daily_goal: int | None) -> tuple[int, int]:
     """纯函数:从 daily_progress 行列表计算 (current_streak, longest_streak)。
     rows 须按 date 升序排列(store.progress 已保证)。
@@ -939,18 +968,35 @@ class SurrealStore:
         return {"folded": len(char_flags), "profile": merged}
 
     # --- 伏笔/promise ---
-    def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise") -> None:
+    def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
+                      tier: str = "chapter") -> None:
+        lo, hi = _TIER_WINDOW.get(tier, _TIER_WINDOW["chapter"])
+        pmin = setup_chapter + lo
+        pmax = None if hi is None else setup_chapter + hi
         self._execute_write(
-            "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', kind=$k",
-            {"t": text, "s": setup_chapter, "k": kind})
+            "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
+            "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, resolution=NONE",
+            {"t": text, "s": setup_chapter, "k": kind,
+             "tier": tier, "pmin": pmin, "pmax": pmax})
 
     def list_promises(self) -> list[dict]:
         rows = self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
-                           "status, kind, clues FROM promise ORDER BY setup_chapter")
+                           "status, kind, clues, tier, payoff_min, payoff_max, resolution "
+                           "FROM promise ORDER BY setup_chapter")
         # 兼容旧库(未跑 045 迁移时 clues 字段为 None):安全回退为 []
         for r in rows:
             if r.get("clues") is None:
                 r["clues"] = []
+            # 兼容旧行(未跑 052 迁移前创建):tier 回退 chapter,窗口按 setup 补算。
+            # book 层 payoff_max 合法为 None,不补;setup_chapter 为 None 时不补。
+            if r.get("tier") is None:
+                r["tier"] = "chapter"
+            if r["tier"] == "chapter" and r.get("setup_chapter") is not None:
+                lo, hi = _TIER_WINDOW["chapter"]
+                if r.get("payoff_min") is None:
+                    r["payoff_min"] = r["setup_chapter"] + lo
+                if r.get("payoff_max") is None:
+                    r["payoff_max"] = r["setup_chapter"] + hi
         return rows
 
     def open_promises(self) -> list[dict]:
