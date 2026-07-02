@@ -179,8 +179,8 @@ def promise_window_state(p: dict, max_chapter: int) -> dict:
     pmax = p.get("payoff_max")
     last_seen = max(setup, p.get("last_refresh_at") or setup)
     gap = max_chapter - last_seen
-    if next_ch <= pmin:
-        # 已写进度(max_chapter)还没到窗口起点 payoff_min → 窗前
+    if next_ch < pmin:
+        # payoff_min = 首个可兑现章:next_ch == pmin 时窗口已开(in_window)
         state = "pre_window"
     elif pmax is None:
         state = "in_window"

@@ -1343,7 +1343,8 @@ def test_promise_window_state_pure():
     from scribe3.store import promise_window_state
     p = {"status": "open", "kind": "payoff", "setup_chapter": 2,
          "payoff_min": 3, "payoff_max": 7, "last_refresh_at": None, "tier": "chapter"}
-    assert promise_window_state(p, max_chapter=2)["state"] == "pre_window"
+    assert promise_window_state(p, max_chapter=1)["state"] == "pre_window"
+    assert promise_window_state(p, max_chapter=2)["state"] == "in_window"
     assert promise_window_state(p, max_chapter=3)["state"] == "in_window"
     assert promise_window_state(p, max_chapter=5)["state"] == "over_half"
     assert promise_window_state(p, max_chapter=8)["state"] == "overdue"
