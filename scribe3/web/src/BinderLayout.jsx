@@ -9,6 +9,7 @@ import { ChiefDock } from './ChiefDock'
 import { ChiefSlotProvider } from './ChiefSlotContext'
 import { DeduceProvider } from './deduceContext'
 import { showToast } from './ui/Toast'
+import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 
 // 收集容器节点 id(默认展开两根 + 各分类容器折叠;手稿支卷默认展开)
 function defaultExpanded(tree) {
@@ -35,6 +36,8 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root']))
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  const [delVol, setDelVol] = useState(null)   // {vid,label,body} 删卷确认
+  const [addingVol, setAddingVol] = useState(false)  // 新建卷输入
   const initedRef = useRef(false)
   const leftRef = usePanelRef()
   const rightRef = usePanelRef()
@@ -77,19 +80,24 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     try { await api.patchVolume(vid, { title: newTitle }); reload() } catch (e) { console.error(e) }
   }
 
-  const handleVolumeDelete = async (vid, label) => {
+  const handleVolumeDelete = (vid, label) => {
     const vols = tree?.manuscript?.children || []
     const volNode = vols.find((v) => v.ref === vid)
     const chCount = volNode?.children?.length ?? 0
-    const msg = chCount > 0
-      ? `删除卷「${label}」?\n该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
-      : `删除卷「${label}」?`
-    if (!window.confirm(msg)) return
-    try { await api.deleteVolume(vid); reload() } catch (e) { console.error(e) }
+    const body = chCount > 0
+      ? `该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
+      : undefined
+    setDelVol({ vid, label, body })
   }
 
-  const handleAddVolume = async () => {
-    const title = window.prompt('新建卷标题:')
+  const doVolumeDelete = async () => {
+    if (!delVol) return
+    try { await api.deleteVolume(delVol.vid); reload() } catch (e) { console.error(e) }
+  }
+
+  const handleAddVolume = () => setAddingVol(true)
+
+  const doAddVolume = async (title) => {
     if (!title?.trim()) return
     try {
       const vols = tree?.manuscript?.children || []
@@ -124,6 +132,23 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   return (
     <ChiefSlotProvider>
     <DeduceProvider>
+    <ConfirmDialog
+      open={!!delVol}
+      title={delVol ? `删除卷「${delVol.label}」?` : ''}
+      body={delVol?.body}
+      danger
+      confirmText="删除"
+      onConfirm={doVolumeDelete}
+      onClose={() => setDelVol(null)}
+    />
+    <InputDialog
+      open={addingVol}
+      title="新建卷"
+      placeholder="卷标题…"
+      confirmText="创建"
+      onConfirm={doAddVolume}
+      onClose={() => setAddingVol(false)}
+    />
     <div className="h-full bg-canvas min-h-0">
       <Group orientation="horizontal" defaultLayout={{ left: 22, detail: 52, right: 26 }} className="h-full">
         {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}

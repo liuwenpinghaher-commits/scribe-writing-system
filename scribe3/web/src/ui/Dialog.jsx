@@ -1,18 +1,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { Btn } from '../ui.jsx'
 
+// 统一遮罩 token(全站弹层/命令面板共用):固定深色 scrim + z-[100]。
+export const OVERLAY_CLASS = 'fixed inset-0 z-[100] bg-black/40'
+
 export function Dialog({ open, onClose, children, labelledBy }) {
   const ref = useRef(null)
   useEffect(() => {
     if (!open) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    const node = ref.current
+    const prev = document.activeElement
+    // 打开时把焦点移入弹层(优先第一个可聚焦元素,否则聚焦容器本身)。
+    const focusables = () => node?.querySelectorAll(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')
+    ;(focusables()?.[0] || node)?.focus()
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose?.(); return }
+      // focus-trap:Tab / Shift+Tab 在弹层内可聚焦元素间循环,不跑到背景。
+      if (e.key !== 'Tab') return
+      const els = [...(focusables() || [])]; if (!els.length) return
+      const first = els[0], last = els[els.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
     document.addEventListener('keydown', onKey)
-    ref.current?.focus()
-    return () => document.removeEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/50" onClick={onClose}>
+    <div className={`${OVERLAY_CLASS} grid place-items-center`} onClick={onClose}>
       <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={labelledBy}
            onClick={(e) => e.stopPropagation()}
            className="min-w-[320px] max-w-[440px] w-[90vw] rounded-xl bg-surface border border-line shadow-[var(--shadow-card)] outline-none">

@@ -7,6 +7,7 @@ import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
 import { wcLabel } from './outlineColors'
 import { useToast } from './ui/Toast'
+import { ConfirmDialog } from './ui/Dialog.jsx'
 
 function useStrPref(key, def) {
   const [v, setV] = useState(() => {
@@ -98,6 +99,7 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
 export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const [outline, setOutline] = useState(null)
   const [err, setErr] = useState(false)
+  const [delVol, setDelVol] = useState(null)   // {vid,title,body} 删卷确认
   const [mode, setMode] = useStrPref('s3.container.mode', 'corkboard')
   const [colorMode, setColorMode] = useStrPref('s3.container.color', 'status')
   const [adding, setAdding] = useState(false)
@@ -218,15 +220,18 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   }
 
   // 删除卷(确认 → 章不删,volume 置空)
-  const deleteVolume = async (vid, title) => {
-    const vol = outline?.volumes?.find((v) => String(v.id) === String(vid))
+  const deleteVolume = (vid, title) => {
     const chCount = lanes.find((l) => String(l.volumeId) === String(vid))?.chapters?.length ?? 0
-    const msg = chCount > 0
-      ? `删除卷「${title}」?\n该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
-      : `删除卷「${title}」?`
-    if (!window.confirm(msg)) return
+    const body = chCount > 0
+      ? `该卷下 ${chCount} 章将移至「未分卷」(章内容不丢失)。`
+      : undefined
+    setDelVol({ vid, title, body })
+  }
+
+  const doDeleteVolume = async () => {
+    if (!delVol) return
     try {
-      await api.deleteVolume(vid)
+      await api.deleteVolume(delVol.vid)
       await reload()
     } catch (err) {
       console.error('deleteVolume failed', err)
@@ -248,6 +253,15 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   return (
     <div className="h-full flex flex-col min-h-0">
+      <ConfirmDialog
+        open={!!delVol}
+        title={delVol ? `删除卷「${delVol.title}」?` : ''}
+        body={delVol?.body}
+        danger
+        confirmText="删除"
+        onConfirm={doDeleteVolume}
+        onClose={() => setDelVol(null)}
+      />
       {/* 工具条:模式 segmented + 色彩编码 + 卷操作 */}
       <div className="shrink-0 border-b border-line bg-surface px-5 py-2.5 flex items-center gap-3 flex-wrap">
         {/* 标题:手稿根 or 单卷 */}

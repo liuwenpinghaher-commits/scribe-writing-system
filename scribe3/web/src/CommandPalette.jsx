@@ -1,6 +1,7 @@
 import { Command } from 'cmdk'
 import { Library as LibIcon } from 'lucide-react'
 import { VIEWS } from './AppRail'
+import { OVERLAY_CLASS } from './ui/Dialog.jsx'
 
 function Item({ onSelect, icon: Icon, label }) {
   return (
@@ -16,7 +17,7 @@ export function CommandPalette({ open, onClose, works, cur, onView, onSelectWork
   if (!open) return null
   const act = (fn) => { fn(); onClose() }
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[16vh] bg-black/40" onClick={onClose}>
+    <div className={`${OVERLAY_CLASS} flex items-start justify-center pt-[16vh]`} onClick={onClose}>
       <Command label="命令面板" className="w-full max-w-lg rounded-xl border border-line bg-surface shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <Command.Input autoFocus placeholder="跳视图 / 切书 / 作品库…"
           className="w-full h-12 px-4 bg-transparent text-[14px] text-ink outline-none border-b border-line placeholder:text-faint/60" />

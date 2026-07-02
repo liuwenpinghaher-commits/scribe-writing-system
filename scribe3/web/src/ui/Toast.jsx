@@ -3,13 +3,21 @@ import { Toaster as SonnerToaster, toast as sonnerToast } from 'sonner'
 
 // 统一 toast:底层换成 sonner(更稳的进出场/堆叠/可访问性)。
 // 保留既有调用签名 toast(msg, { tone, duration }) —— 各调用点(ContainerOutline/
-// WriteLayout/ChapterStudio/Library…)无需改动。tone: 'danger' → error,'ok' → success。
+// WriteLayout/ChapterStudio/Library…)无需改动。
+//
+// 对外 tone 词表(唯一四词,别再直传 sonner 的 success/error):
+//   'ok'     → success(成功/完成)
+//   'danger' → error  (失败/破坏性/断连)
+//   'warn'   → warning(风险提示)
+//   'info'   → info   (中性信息)
+//   其它/缺省 → 默认(无语义中性 toast)
 export function showToast(msg, opts = {}) {
   const tone = opts.tone || 'ink'
   const o = opts.duration ? { duration: opts.duration } : undefined
   if (tone === 'danger') return sonnerToast.error(msg, o)
   if (tone === 'ok') return sonnerToast.success(msg, o)
   if (tone === 'warn') return sonnerToast.warning(msg, o)
+  if (tone === 'info') return sonnerToast.info(msg, o)
   return sonnerToast(msg, o)
 }
 
