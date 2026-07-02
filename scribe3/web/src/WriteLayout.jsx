@@ -9,7 +9,7 @@ import {
 import { api } from './api'
 import { verifyIssues } from './verifyIssues.js'
 import { Shell } from './shell'
-import { Btn, SectionTitle, Empty, Row, Tag } from './ui'
+import { Btn, Input, SectionTitle, Empty, Row, Tag } from './ui'
 import { Chip } from './ui/Chip'
 import { ProseEditor } from './editor/ProseEditor'
 import { applyProposal } from './editor/applyProposal.js'
@@ -423,11 +423,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     <div className="shrink-0 border-b border-line bg-surface px-3 h-11 flex items-center gap-2 min-w-0">
       {/* 左:章节导航 — 固定不缩 */}
       <div className="flex items-center gap-1 shrink-0">
-        <button onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"
-          className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronLeft size={16} /></button>
+        <Btn variant="ghost" size="sm" icon onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"><ChevronLeft size={16} /></Btn>
         <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
-        <button onClick={() => setChapter((c) => c + 1)} aria-label="下一章"
-          className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronRight size={16} /></button>
+        <Btn variant="ghost" size="sm" icon onClick={() => setChapter((c) => c + 1)} aria-label="下一章"><ChevronRight size={16} /></Btn>
       </div>
 
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
@@ -702,8 +700,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     <div>
       <SectionTitle icon={Search}>语义召回设定</SectionTitle>
       <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
-        <input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
-          className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-f13 outline-none focus:border-brand" />
+        <Input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」" className="flex-1 h-8 px-2.5" />
         <Btn variant="primary" size="sm" type="submit">搜</Btn>
       </form>
       {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
@@ -847,8 +844,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
         {chars.length === 0 ? <Empty>无角色</Empty> : (
           <>
-            <input value={presentQ} onChange={(e) => setPresentQ(e.target.value)}
-              placeholder="搜角色…" className="w-full h-8 rounded-lg border border-line bg-canvas px-2.5 text-f13 outline-none focus:border-brand mb-2" />
+            <Input value={presentQ} onChange={(e) => setPresentQ(e.target.value)} placeholder="搜角色…" className="h-8 px-2.5 mb-2" />
             {body}
           </>
         )}

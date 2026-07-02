@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { api } from './api'
 import { DetailView } from './views/CodexView'
+import { Btn } from './ui.jsx'
 
 // 素材分类 ref → DetailView type
 const CAT_TO_TYPE = {
@@ -88,11 +89,10 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
         />
         {err && <div className="mt-3 text-f12 text-danger">{err}</div>}
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2">
-          <button onClick={create} disabled={saving}
-            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-lg bg-brand text-brandfg text-f13 font-medium cursor-pointer disabled:opacity-50">
+          <Btn variant="primary" onClick={create} disabled={saving}>
             {saving && <Loader2 size={14} className="animate-spin" />}创建
-          </button>
-          {onCancel && <button onClick={onCancel} disabled={saving} className="h-8 px-3 rounded-lg text-f13 text-faint hover:text-ink cursor-pointer disabled:opacity-50">取消</button>}
+          </Btn>
+          {onCancel && <Btn variant="ghost" onClick={onCancel} disabled={saving}>取消</Btn>}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Eye, Drama, Target } from 'lucide-react'
 import { api } from './api'
-import { Empty } from './ui'
+import { Empty, Textarea } from './ui'
 
 // 知识帧 / 戏剧反讽 / 北极星意图(原 DeduceLayout 右面板,迁入写作台左面板)。
 export function FramePanel({ focalizer, chapter }) {
@@ -43,9 +43,9 @@ export function FramePanel({ focalizer, chapter }) {
       <section>
         <div className="flex items-center gap-1.5 text-f12 font-medium text-ink mb-1.5"><Target size={14} strokeWidth={1.5} />北极星意图</div>
         {[['reader_feeling', '读者感受'], ['emotional_arc', '主角情感弧'], ['red_lines', '绝不背叛(红线)']].map(([k, label]) => (
-          <textarea key={k} value={intent[k] || ''} placeholder={label}
+          <Textarea key={k} value={intent[k] || ''} placeholder={label}
             onChange={(e) => { setIntent((s) => ({ ...s, [k]: e.target.value })); setIntentSaved(false) }}
-            className="w-full mb-1.5 rounded-lg border border-line bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand" rows={2} />
+            className="mb-1.5 px-2 py-1 text-f12" rows={2} />
         ))}
         <button onClick={async () => { await api.putIntent(intent); setIntentSaved(true) }} className="text-f11 text-brand hover:bg-soft px-2 h-6 rounded-lg cursor-pointer">{intentSaved ? '已存 ✓' : '保存意图'}</button>
       </section>
