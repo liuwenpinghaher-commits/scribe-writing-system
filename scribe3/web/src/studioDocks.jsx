@@ -11,6 +11,8 @@ import { VersionPanel } from './VersionPanel'
 import { ChiefDock } from './ChiefDock'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePref } from './lib/usePref'
+import { ConfirmDialog } from './ui/Dialog.jsx'
+import { useToast } from './ui/Toast.jsx'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/素材/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
@@ -68,7 +70,7 @@ export function RightDock({ sel, chapterSel, seq }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   const caps = useMemo(() => {
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
-    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><VersionPanel seq={seq} /></div> })
+    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} /></div> })
     return c
   }, [sel, chapterSel, seq])
   const active = caps.find((c) => c.key === tab) || caps[0]
@@ -82,6 +84,42 @@ export function RightDock({ sel, chapterSel, seq }) {
       </div>
       <Rail side="right" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
     </div>
+  )
+}
+
+// 右栏存档面板:VersionPanel 的「恢复到此版本」在此接线。
+// RightDock 不持有当前 prose / WriteLayout 的 persist 闭包,故 onRestore 直接把该版本正文
+// 经 api.saveChapter 落库到 chapter 正文(保留原 title/focalizer),再 bump refreshKey 刷新存档列表。
+// 恢复=覆盖当前正文的危险操作 → ConfirmDialog 二次确认;成功/失败均 toast。
+function RightVersionPanel({ seq }) {
+  const toast = useToast()
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [pending, setPending] = useState(null)   // 待确认恢复的版本正文(null=无)
+  const doRestore = async (prose) => {
+    try {
+      // 保留原章标题/focalizer,只覆盖正文;取不到则以 undefined 交后端保持不变。
+      let title, focalizer
+      try { const ch = await api.chapter(seq); title = ch?.title; focalizer = ch?.focalizer } catch { /* 取不到就不带,后端保持原值 */ }
+      await api.saveChapter(seq, prose, title, focalizer)
+      setRefreshKey((k) => k + 1)
+      toast('已恢复到该版本(正文已回写)')
+    } catch (e) {
+      toast('恢复失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' })
+    }
+  }
+  return (
+    <>
+      <VersionPanel seq={seq} refreshKey={refreshKey} onRestore={(prose) => setPending(prose ?? '')} />
+      <ConfirmDialog
+        open={pending != null}
+        title="恢复到此版本?"
+        body="当前正文将被该存档版本覆盖(可再从存档回看/恢复,但未存档的改动会丢失)。"
+        danger
+        confirmText="恢复"
+        onConfirm={() => { const p = pending; setPending(null); doRestore(p) }}
+        onClose={() => setPending(null)}
+      />
+    </>
   )
 }
 

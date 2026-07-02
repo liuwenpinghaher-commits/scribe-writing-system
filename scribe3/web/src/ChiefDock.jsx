@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, ChevronRight, ChevronLeft, PenLine } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -98,37 +98,20 @@ function selContext(sel, phase) {
  * 章写作槽(右栏):chapterSel 时渲染。
  * 仅挂一个空槽 div,把其 DOM 经 ChiefSlotContext 注册;WriteLayout 经 portal
  * 把自己的 WriteChat 渲染进这里(WriteChat 仍是 WriteLayout 的子,共享其闭包状态)。
- * 折叠时只显示竖条;展开时显示头部 + 槽。槽内容由 WriteLayout 的 portal 填充。
+ * 折叠由外层 resizable Panel 负责(RightDock 不传 collapsed/onToggle),此处不再自带折叠 UI。
  */
-function WriteSlot({ collapsed, onToggle }) {
+function WriteSlot() {
   const { setSlotEl } = useChiefSlot()
-
-  if (collapsed) {
-    return (
-      <div className="h-full w-full bg-surface flex flex-col items-center py-3 gap-2">
-        <button onClick={onToggle} title="展开主编写作"
-          className="w-9 h-9 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
-          <ChevronLeft size={18} />
-        </button>
-        <div className="w-9 h-9 rounded-lg grid place-items-center bg-soft text-brand"><PenLine size={16} /></div>
-        <div className="text-[10px] text-faint [writing-mode:vertical-rl] mt-1 tracking-wide">主编</div>
-      </div>
-    )
-  }
 
   return (
     <div className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 + 折叠 */}
+      {/* 头部:标题 */}
       <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
         <PenLine size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
           <span className="text-[12px] font-semibold text-ink">主编 · 写作</span>
           <span className="text-[10.5px] text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
-        <button onClick={onToggle} title="折叠主编写作"
-          className="ml-auto w-7 h-7 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
-          <ChevronRight size={16} />
-        </button>
       </div>
       {/* 写作 chat 槽:WriteLayout 的 WriteChat 经 portal 进来填充此处 */}
       <div ref={setSlotEl} className="flex-1 min-h-0" />
@@ -142,17 +125,17 @@ function WriteSlot({ collapsed, onToggle }) {
  * - 章/场景节点:写作模式。渲染 WriteSlot,WriteLayout 的 WriteChat 经 portal 落进来。
  * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
  */
-export function ChiefDock({ sel, chapterSel, collapsed, onToggle }) {
+export function ChiefDock({ sel, chapterSel }) {
   const { chapterPhase } = useChiefSlot()
   if (chapterSel) {
     // 正文 tab(final)→ 写作槽(WriteLayout 的 WriteChat portal 进来,出草稿卡/护栏改写)。
     // 大纲/节拍/草稿 tab → 讨论 chat(据阶段调上下文)——右栏不再因切 tab 而消失。
     if (chapterPhase && chapterPhase !== 'final') {
-      return <DiscussionDock sel={sel} phase={chapterPhase} collapsed={collapsed} onToggle={onToggle} />
+      return <DiscussionDock sel={sel} phase={chapterPhase} />
     }
-    return <WriteSlot collapsed={collapsed} onToggle={onToggle} />
+    return <WriteSlot />
   }
-  return <DiscussionDock sel={sel} collapsed={collapsed} onToggle={onToggle} />
+  return <DiscussionDock sel={sel} />
 }
 
 // 从选中节点取当前章 seq(章/场景节点),用于草稿阶段把 chapter 传给后端。
@@ -164,7 +147,7 @@ function selSeq(sel) {
   return null
 }
 
-function DiscussionDock({ sel, phase, collapsed, onToggle }) {
+function DiscussionDock({ sel, phase }) {
   const ctx = useMemo(() => selContext(sel, phase), [sel, phase])
   const seq = useMemo(() => selSeq(sel), [sel])
   const { setDraftProposal } = useChiefSlot()
@@ -183,8 +166,13 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
   useChatPersist(chatKey, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
+  // 中止在途流:chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort),两者都收。
+  const stop = () => { const h = esRef.current; h?.close?.(); h?.abort?.(); esRef.current = null; setBusy(false) }
   // chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort);卸载时都收掉
   useEffect(() => () => { const h = esRef.current; h?.close?.(); h?.abort?.() }, [])
+  // 切上下文(chatKey 变=切章/切阶段/切节点/切视图)→ 中止在途流,防旧流 delta 污染新上下文历史(串台)。
+  // 只在 chatKey 真的变了时触发,不误伤正常发送(send 期间 chatKey 不变)。
+  useEffect(() => { const h = esRef.current; if (h) { h.close?.(); h.abort?.(); esRef.current = null; setBusy(false) } }, [chatKey])
 
   useEffect(() => {
     const el = taRef.current
@@ -263,32 +251,15 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
     })
   }
 
-  if (collapsed) {
-    return (
-      <div className="h-full w-full bg-surface flex flex-col items-center py-3 gap-2">
-        <button onClick={onToggle} title="展开主编对话"
-          className="w-9 h-9 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
-          <ChevronLeft size={18} />
-        </button>
-        <div className="w-9 h-9 rounded-lg grid place-items-center bg-soft text-brand"><MessagesSquare size={16} /></div>
-        <div className="text-[10px] text-faint [writing-mode:vertical-rl] mt-1 tracking-wide">主编</div>
-      </div>
-    )
-  }
-
   return (
     <div className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 + 上下文 + 折叠 */}
+      {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI) */}
       <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
         <MessagesSquare size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
           <span className="text-[12px] font-semibold text-ink">主编</span>
           <span className="text-[10.5px] text-faint truncate">{ctx.label}</span>
         </div>
-        <button onClick={onToggle} title="折叠主编对话"
-          className="ml-auto w-7 h-7 rounded-lg inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink cursor-pointer">
-          <ChevronRight size={16} />
-        </button>
       </div>
 
       {/* 消息列表 */}
@@ -321,13 +292,24 @@ function DiscussionDock({ sel, phase, collapsed, onToggle }) {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
             className="flex-1 resize-none bg-transparent text-[13px] text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
           />
-          <button
-            onClick={() => send()}
-            disabled={busy || !input.trim()}
-            className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity shrink-0"
-          >
-            {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          </button>
+          {busy ? (
+            // 生成中:发送键变「停止」——中止在途流(EventSource.close/AbortController.abort)+ 解锁 busy,可立即再发。
+            <button
+              onClick={stop}
+              title="停止生成"
+              className="w-8 h-8 rounded-lg bg-danger text-white grid place-items-center cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+            >
+              <Square size={13} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={() => send()}
+              disabled={!input.trim()}
+              className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+            >
+              <Send size={15} />
+            </button>
+          )}
         </div>
       </div>
     </div>
