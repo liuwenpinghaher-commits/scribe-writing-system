@@ -211,7 +211,7 @@ export const ProseEditor = forwardRef(function ProseEditor(
   if (!editor) return <div className="text-faint text-sm p-4">编辑器加载中…</div>
   const Bub = ({ on, onClick, title, children }) => (
     <button onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={title}
-      className={`w-7 h-7 grid place-items-center rounded-md transition-colors cursor-pointer ${on ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}`}>{children}</button>
+      className={`w-7 h-7 grid place-items-center rounded-md transition-colors cursor-pointer ${on ? 'bg-brand text-brandfg' : 'text-ink hover:bg-soft'}`}>{children}</button>
   )
 
   return (

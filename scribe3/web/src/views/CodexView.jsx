@@ -126,7 +126,7 @@ function AbilitiesRow({ value, onSave, section }) {
       <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="描述" rows={2} onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-full rounded border border-line bg-canvas px-2 py-1 text-[12px] text-ink outline-none resize-y" />
       <div className="flex items-center gap-2">
         <input type="number" value={form.acquired_chapter} onChange={(e) => setForm({ ...form, acquired_chapter: e.target.value })} placeholder="第几章习得" onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-28 h-7 rounded border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
-        <button onClick={saveForm} className="px-3 h-7 rounded bg-brand text-white text-[12px] cursor-pointer">保存</button>
+        <button onClick={saveForm} className="px-3 h-7 rounded bg-brand text-brandfg text-[12px] cursor-pointer">保存</button>
         <button onClick={() => { setAdding(false); setEditingIdx(null) }} className="px-2 h-7 rounded text-faint text-[12px] cursor-pointer">取消</button>
       </div>
     </div>
@@ -247,7 +247,7 @@ function DynamicTimeline({ characterId }) {
             <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="性格描述..." className={`w-full ${inputSm}`} />
           </div>
         )}
-        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-white text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields(); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false }) }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
+        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-brandfg text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields(); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false }) }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
       </div>)}
       {states.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。</div> : (
         <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">

@@ -37,7 +37,7 @@ export function NorthStarBar() {
             <button onClick={async () => {
               try { await api.putIntent(intent); setSaved(true) }
               catch (e) { toast(e?.body?.detail || '意图保存失败,请重试', { tone: 'danger' }) }  // 失败不置 saved
-            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-[12px] bg-brand text-white hover:opacity-90 cursor-pointer">
+            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-[12px] bg-brand text-brandfg hover:opacity-90 cursor-pointer">
               <Check size={13} />{saved ? '已存' : '保存意图'}
             </button>
           </div>

@@ -16,7 +16,7 @@ function Bubble({ role, content, tools, note, streaming }) {
   const me = role === 'user'
   return (
     <div className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-white' : 'bg-soft text-brand'}`}>
+      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
         {me ? <User size={14} /> : <MessagesSquare size={14} />}
       </div>
       <div className={`max-w-[85%] ${me ? '' : 'flex-1 min-w-0'}`}>
@@ -30,7 +30,7 @@ function Bubble({ role, content, tools, note, streaming }) {
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${me ? 'bg-brand text-white' : 'bg-surface border border-line text-ink'}`}>
+        <div className={`rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -189,7 +189,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             <button
               onClick={() => send()}
               disabled={busy || (!input.trim() && attachments.length === 0)}
-              className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity"
+              className="w-8 h-8 rounded-lg bg-brand text-brandfg grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity"
             >
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
             </button>

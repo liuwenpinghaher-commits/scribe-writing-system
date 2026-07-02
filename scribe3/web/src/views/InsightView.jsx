@@ -402,7 +402,7 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
         <div className="flex gap-2 mt-5 justify-end">
           <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-[13px] text-faint hover:bg-soft transition-colors">取消</button>
           <button onClick={save} disabled={saving}
-            className="px-4 py-1.5 rounded-lg text-[13px] bg-brand text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+            className="px-4 py-1.5 rounded-lg text-[13px] bg-brand text-brandfg hover:opacity-90 transition-opacity disabled:opacity-50">
             {saving ? '保存中…' : '保存'}
           </button>
         </div>

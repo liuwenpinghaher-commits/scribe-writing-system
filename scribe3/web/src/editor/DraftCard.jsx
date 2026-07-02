@@ -32,7 +32,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
         {streaming && <span className="text-[11px] text-faint inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" />书写中…</span>}
         <div className="ml-auto flex gap-1.5">
           <button onClick={onReject} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[12px] text-faint hover:bg-soft cursor-pointer transition-colors"><X size={13} />弃用</button>
-          <button onClick={onAccept} disabled={streaming} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[12px] bg-brand text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-opacity"><Check size={13} />接受</button>
+          <button onClick={onAccept} disabled={streaming} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[12px] bg-brand text-brandfg hover:opacity-90 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-opacity"><Check size={13} />接受</button>
         </div>
       </div>
       <div className="manuscript px-4 py-3 text-[15px] leading-[1.85] whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto">{proposal.prose || '​'}</div>
