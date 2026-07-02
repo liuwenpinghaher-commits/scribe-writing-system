@@ -127,7 +127,7 @@ function RightVersionPanel({ seq }) {
 function PromiseSpan({ p }) {
   const setup = p.setup_chapter != null ? `第${p.setup_chapter}章` : '第—章'
   const payoff = p.payoff_chapter != null ? `第${p.payoff_chapter}章` : '待收'
-  return <span className="text-[10px] text-faint tnum">埋 {setup} → 收 {payoff}</span>
+  return <span className="text-f10 text-faint tnum">埋 {setup} → 收 {payoff}</span>
 }
 
 function PromiseRow({ p, danger, tag, onJumpChapter }) {
@@ -136,7 +136,7 @@ function PromiseRow({ p, danger, tag, onJumpChapter }) {
   const clickable = onJumpChapter && jumpTo != null
   const inner = (
     <>
-      <div className={cn('text-[12.5px] leading-snug', danger ? 'text-danger' : 'text-ink')}>{p.text}</div>
+      <div className={cn('text-f13 leading-snug', danger ? 'text-danger' : 'text-ink')}>{p.text}</div>
       <div className="flex items-center gap-1.5 mt-0.5">
         <PromiseSpan p={p} />
         {tag}
@@ -159,7 +159,7 @@ function PromiseGroup({ title, tone, items, danger, tag, onJumpChapter }) {
   if (!items || items.length === 0) return null
   return (
     <div className="mb-3 last:mb-0">
-      <div className={cn('text-[11px] uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
+      <div className={cn('text-f11 uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
         {title} · {items.length}
       </div>
       {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} onJumpChapter={onJumpChapter} />)}
@@ -178,7 +178,7 @@ function PromisesPanel({ ledger, onJumpChapter }) {
   const empty = overdue.length + pending.length + closed.length + herring.length === 0
   return (
     <div className="p-3">
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-2">伏笔 · 埋/收台账</div>
+      <div className="text-f11 text-faint uppercase tracking-wider mb-2">伏笔 · 埋/收台账</div>
       {empty ? <Empty>本书暂无伏笔</Empty> : <>
         <PromiseGroup title="⚠ 超期未收" tone="text-danger font-semibold" items={overdue} danger
           tag={<Tag tone="danger">超期</Tag>} onJumpChapter={onJumpChapter} />
@@ -193,12 +193,12 @@ function PromisesPanel({ ledger, onJumpChapter }) {
 function MotifsPanel({ motifs }) {
   return (
     <div className="p-3">
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">母题</div>
-      {motifs.length === 0 ? <div className="text-[13px] text-faint/50">无</div> : motifs.map((m) => (
+      <div className="text-f11 text-faint uppercase tracking-wider mb-1.5">母题</div>
+      {motifs.length === 0 ? <div className="text-f13 text-faint/50">无</div> : motifs.map((m) => (
         <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
-          <div className="text-[13px] font-semibold text-ink">{m.name}</div>
-          {m.theme && <div className="text-[12px] text-fore mt-0.5">{m.theme}</div>}
-          {m.unfolding && <div className="text-[12px] text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
+          <div className="text-f13 font-semibold text-ink">{m.name}</div>
+          {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
+          {m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
         </div>
       ))}
     </div>
@@ -219,7 +219,7 @@ function QCItem({ label, hits }) {
       <button
         disabled={phrases.length === 0}
         onClick={() => setOpen((o) => !o)}
-        className={cn('w-full flex items-center justify-between py-1 text-[12.5px]',
+        className={cn('w-full flex items-center justify-between py-1 text-f13',
           phrases.length ? 'cursor-pointer hover:bg-soft/60 rounded px-1 -mx-1' : 'cursor-default')}>
         <span className="text-ink">{label}</span>
         <span className={cn('tnum font-medium', tone)}>{count}</span>
@@ -227,9 +227,9 @@ function QCItem({ label, hits }) {
       {open && phrases.length > 0 && (
         <ul className="pb-1.5 pl-1 space-y-0.5">
           {phrases.slice(0, 12).map((p, i) => (
-            <li key={i} className="text-[11px] text-faint leading-snug break-all">· {p}</li>
+            <li key={i} className="text-f11 text-faint leading-snug break-all">· {p}</li>
           ))}
-          {phrases.length > 12 && <li className="text-[11px] text-faint/60">…共 {phrases.length} 处</li>}
+          {phrases.length > 12 && <li className="text-f11 text-faint/60">…共 {phrases.length} 处</li>}
         </ul>
       )}
     </div>
@@ -252,7 +252,7 @@ function QCPanel({ seq }) {
   const noProse = qc && typeof qc === 'object' && Object.keys(qc).length === 0
   return (
     <div className="p-3">
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-1.5">确定性 QC · 本章正文</div>
+      <div className="text-f11 text-faint uppercase tracking-wider mb-1.5">确定性 QC · 本章正文</div>
       {qc === undefined ? <Empty>加载中…</Empty>
         : qc === null ? <Empty>QC 加载失败,切走再切回可重试</Empty>
         : noProse ? <Empty>保存正文后自动体检</Empty>

@@ -425,17 +425,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       <div className="flex items-center gap-1 shrink-0">
         <button onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"
           className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronLeft size={16} /></button>
-        <span className="text-[13px] text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
+        <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
         <button onClick={() => setChapter((c) => c + 1)} aria-label="下一章"
           className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronRight size={16} /></button>
       </div>
 
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
-        <span className="hidden xl:inline text-[12px] text-faint shrink-0">本章视角</span>
+        <span className="hidden xl:inline text-f12 text-faint shrink-0">本章视角</span>
         <select value={focalizer} onChange={(e) => { setFocalizer(e.target.value); dirtyRef.current.focalizer = e.target.value }}
           title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
-          className="h-7 min-w-0 max-w-[180px] rounded-lg border border-line bg-canvas px-2 text-[12.5px] text-ink outline-none focus:border-brand cursor-pointer truncate">
+          className="h-7 min-w-0 max-w-[180px] rounded-lg border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand cursor-pointer truncate">
           <option value="">作者视角(全知)</option>
           {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
         </select>
@@ -459,19 +459,19 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               </Chip>
               {guardPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
+                  <div className="text-f11 font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
                   {/* F-05: 带 range 的 issues — 可点跳转到正文(过滤已忽略) */}
                   {editorIssues && editorIssues.length > 0 ? (
                     <div className="mb-2">
-                      <div className="text-[11.5px] text-faint mb-1">问题({editorIssues.length}条 · 点击定位)</div>
+                      <div className="text-f12 text-faint mb-1">问题({editorIssues.length}条 · 点击定位)</div>
                       <div className="space-y-0.5 max-h-40 overflow-y-auto">
                         {editorIssues.map((iss, idx) => (
                           <button key={idx}
                             onClick={() => { proseEditorRef.current?.focusIssue(iss); setGuardPop(false) }}
-                            className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-soft cursor-pointer text-[11.5px] leading-snug">
+                            className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-soft cursor-pointer text-f12 leading-snug">
                             <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
                             <span className="text-ink truncate flex-1">{iss.message}</span>
-                            {iss.range && <span className="shrink-0 text-brand text-[10px]">跳→</span>}
+                            {iss.range && <span className="shrink-0 text-brand text-f10">跳→</span>}
                           </button>
                         ))}
                       </div>
@@ -480,16 +480,16 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                     <>
                   {/* 限知泄露 */}
                   <div className="mb-2">
-                    <div className="text-[11.5px] text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
+                    <div className="text-f12 text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
                     {focalizer && guard.leaks.length > 0
-                      ? <div className="text-[12px] text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
-                      : <div className="text-[12px] text-ok">无泄露</div>
+                      ? <div className="text-f12 text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
+                      : <div className="text-f12 text-ok">无泄露</div>
                     }
                   </div>
                   {/* 五类 QC */}
                   <div className="mb-3">
-                    <div className="text-[11.5px] text-faint mb-0.5">确定性 QC(五类)</div>
-                    <div className={`text-[12px] ${qcTotal > 0 ? 'text-warn' : 'text-ok'}`}>
+                    <div className="text-f12 text-faint mb-0.5">确定性 QC(五类)</div>
+                    <div className={`text-f12 ${qcTotal > 0 ? 'text-warn' : 'text-ok'}`}>
                       {qcTotal > 0 ? (
                         <span>
                           {(guard.qc.repetition || 0) > 0 && <span>复读 {guard.qc.repetition} </span>}
@@ -505,14 +505,14 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                   )}
                   {/* 开/关 toggle */}
                   <button
-                    className="w-full flex items-center gap-2 rounded-lg px-2 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer border border-line"
+                    className="w-full flex items-center gap-2 rounded-lg px-2 h-8 text-f13 text-ink hover:bg-soft cursor-pointer border border-line"
                     onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
                   >
                     {guardOn ? <ShieldCheck size={13} className="text-brand shrink-0" /> : <ShieldOff size={13} className="text-faint shrink-0" />}
                     <span>{guardOn ? '护栏开' : '护栏关'}</span>
-                    <span className="ml-auto text-[11px] text-faint">{guardOn ? '点击关闭' : '点击开启'}</span>
+                    <span className="ml-auto text-f11 text-faint">{guardOn ? '点击关闭' : '点击开启'}</span>
                   </button>
-                  <div className="text-[10.5px] text-faint mt-1.5 leading-snug">关=完全静默,不校验</div>
+                  <div className="text-f11 text-faint mt-1.5 leading-snug">关=完全静默,不校验</div>
                 </div>
               )}
             </div>
@@ -533,9 +533,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             <div ref={progPopRef} className="relative shrink-0">
               <button onClick={() => setProgPop((v) => !v)} title="写作进度"
                 className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-faint hover:bg-soft hover:text-ink cursor-pointer whitespace-nowrap">
-                <span className="text-[11px] tnum">{wordCount} 字</span>
+                <span className="text-f11 tnum">{wordCount} 字</span>
                 {dailyGoal ? (
-                  <span className="hidden sm:inline text-[10.5px] tnum text-faint">
+                  <span className="hidden sm:inline text-f11 tnum text-faint">
                     · 今日 {todayW.toLocaleString()}/{dailyGoal.toLocaleString()}
                     {streak > 1 && <span className="text-warn"> 🔥{streak}</span>}
                   </span>
@@ -543,20 +543,20 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               </button>
               {progPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[.07em] text-faint mb-2">写作进度</div>
+                  <div className="text-f11 font-semibold uppercase tracking-[.07em] text-faint mb-2">写作进度</div>
                   <div className="mb-2.5">
-                    <div className="flex items-baseline justify-between text-[12px]">
+                    <div className="flex items-baseline justify-between text-f12">
                       <span className="text-faint">本章</span>
                       <span className="text-ink tnum">{wordCount.toLocaleString()} 字</span>
                     </div>
                   </div>
                   {p == null ? (
-                    <div className="text-[11.5px] text-faint">进度数据暂不可用</div>
+                    <div className="text-f12 text-faint">进度数据暂不可用</div>
                   ) : (
                     <>
                       <div className="mb-2.5">
-                        <div className="flex items-baseline justify-between text-[12px] mb-1">
-                          <span className="text-faint flex items-center gap-1">今日{streak > 1 && <span className="text-warn text-[11px]">🔥{streak} 连胜</span>}</span>
+                        <div className="flex items-baseline justify-between text-f12 mb-1">
+                          <span className="text-faint flex items-center gap-1">今日{streak > 1 && <span className="text-warn text-f11">🔥{streak} 连胜</span>}</span>
                           <span className="text-ink tnum">{todayW.toLocaleString()}{dailyGoal ? ` / ${dailyGoal.toLocaleString()}` : ''} 字</span>
                         </div>
                         {dailyPct != null && (
@@ -567,7 +567,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                       </div>
                       {totalW != null && (
                         <div>
-                          <div className="flex items-baseline justify-between text-[12px] mb-1">
+                          <div className="flex items-baseline justify-between text-f12 mb-1">
                             <span className="text-faint">全书</span>
                             <span className="text-ink tnum">{totalW.toLocaleString()}{totalGoal ? ` / ${totalGoal.toLocaleString()}` : ''} 字</span>
                           </div>
@@ -590,7 +590,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         <div ref={saveMenuRef} className="relative shrink-0">
           <div className="inline-flex items-center rounded-lg overflow-hidden ring-1 ring-line">
             <button onClick={save} title="保存本章"
-              className={`inline-flex items-center gap-1 h-7 px-2.5 text-[12px] cursor-pointer whitespace-nowrap hover:bg-soft ${saved ? 'text-ok' : 'text-ink'}`}>
+              className={`inline-flex items-center gap-1 h-7 px-2.5 text-f12 cursor-pointer whitespace-nowrap hover:bg-soft ${saved ? 'text-ok' : 'text-ink'}`}>
               <Save size={14} />{saved ? '已存' : '保存'}
             </button>
             <button onClick={() => setSaveMenu((v) => !v)} aria-label="更多保存选项" aria-expanded={saveMenu}
@@ -601,23 +601,23 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
           {saveMenu && (
             <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-lg border border-line bg-surface shadow-lg py-1">
               <button onClick={() => { setSaveMenu(false); setDlg({ kind: 'checkpoint' }) }}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <Bookmark size={13} className="text-faint shrink-0" />存档点
               </button>
               {/* 反哺设定库(批二):把本章正文喂回知识库,抽新知/待核实体。busy 态防重复点。 */}
               <button onClick={runIngest} disabled={ingesting}
                 title="把本章正文喂回设定库(抽取新知识与待核实体)"
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-wait">
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-wait">
                 {ingesting ? <Loader2 size={13} className="text-brand shrink-0 animate-spin" /> : <DatabaseZap size={13} className="text-faint shrink-0" />}
                 {ingesting ? '反哺中…' : '反哺设定库'}
               </button>
               <button onClick={() => { setSaveMenu(false); setFocusMode((v) => !v) }}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <AlignCenter size={13} className="text-faint shrink-0" />专注模式
                 {focusMode && <Check size={13} className="ml-auto text-brand shrink-0" />}
               </button>
               <button onClick={() => { setSaveMenu(false); const v = !serif; setSerif(v); localStorage.setItem('scribe3:serif', v ? '1' : '0') }}
-                className="w-full flex items-center gap-2 px-3 h-8 text-[12.5px] text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <BookText size={13} className="text-faint shrink-0" />阅读字体:{serif ? '衬线' : '黑体'}
                 {serif && <Check size={13} className="ml-auto text-brand shrink-0" />}
               </button>
@@ -646,9 +646,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             <button key={b} onClick={() => {
               setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
               setCandidates([]); setRightActive('chat')
-            }} className="h-6 px-2 rounded-lg border border-line text-[11px] text-ink hover:bg-soft cursor-pointer">{b}</button>
+            }} className="h-6 px-2 rounded-lg border border-line text-f11 text-ink hover:bg-soft cursor-pointer">{b}</button>
           ))}
-          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-[11px] text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
+          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-f11 text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
@@ -680,7 +680,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       ))}
       {facts.length > 60 && (
         <button onClick={() => setFactsExpanded((v) => !v)}
-          className="mt-1.5 text-[11px] text-brand hover:text-brand/80 cursor-pointer">
+          className="mt-1.5 text-f11 text-brand hover:text-brand/80 cursor-pointer">
           {factsExpanded ? '收起' : `展开全部 ${facts.length} 条`}
         </button>
       )}
@@ -691,9 +691,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       <SectionTitle icon={Flame} right={`${motifs.length}`}>母题 · 参照不透支</SectionTitle>
       {motifs.length === 0 ? <Empty>无</Empty> : motifs.map((m) => (
         <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
-          <div className="text-[13px] font-semibold text-ink">{m.name}</div>
-          {m.theme && <div className="text-[12px] text-fore mt-0.5">{m.theme}</div>}
-          {m.unfolding && <div className="text-[12px] text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
+          <div className="text-f13 font-semibold text-ink">{m.name}</div>
+          {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
+          {m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
         </div>
       ))}
     </div>
@@ -703,7 +703,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       <SectionTitle icon={Search}>语义召回设定</SectionTitle>
       <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
         <input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
-          className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand" />
+          className="flex-1 h-8 rounded-lg border border-line bg-canvas px-2.5 text-f13 outline-none focus:border-brand" />
         <Btn variant="primary" size="sm" type="submit">搜</Btn>
       </form>
       {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
@@ -716,16 +716,16 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
       {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
       {causal.length > 0 ? <Row tone="danger" icon={CircleAlert}>因果违规 {causal.length} 处</Row> : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
-      <div className="text-[11px] text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
+      <div className="text-f11 text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
 
       {/* 生成后全量体检 */}
       <div className="mt-4 border-t border-line pt-3">
         <div className="flex items-center justify-between mb-2">
-          <div className="text-[11.5px] font-semibold text-ink">生成后体检(全量)</div>
+          <div className="text-f12 font-semibold text-ink">生成后体检(全量)</div>
           <button
             onClick={runPostCheck}
             disabled={postChecking || !prose.trim()}
-            className="h-6 px-2.5 rounded-lg text-[11px] bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors"
+            className="h-6 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors"
           >
             {postChecking ? '检查中…' : '立即体检'}
           </button>
@@ -737,7 +737,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               <div className="rounded-lg border border-line divide-y divide-line/50">
                 {postCheckResult.issues.map((iss, idx) => (
                   <div key={idx}
-                    className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-soft text-[11.5px] leading-snug first:rounded-t-lg last:rounded-b-lg group">
+                    className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-soft text-f12 leading-snug first:rounded-t-lg last:rounded-b-lg group">
                     <button onClick={() => proseEditorRef.current?.focusIssue(iss)}
                       className="flex items-start gap-2 flex-1 min-w-0 text-left cursor-pointer">
                       <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
@@ -745,17 +745,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                     </button>
                     {iss.range && (
                       <button onClick={() => sendIssueToChief(iss)} title="让主编改这处"
-                        className="shrink-0 text-[10px] text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
+                        className="shrink-0 text-f10 text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
                         改这处
                       </button>
                     )}
-                    {iss.range && <span className="shrink-0 text-[10px] text-brand">跳→</span>}
+                    {iss.range && <span className="shrink-0 text-f10 text-brand">跳→</span>}
                   </div>
                 ))}
               </div>
             )}
             {/* QC 五类(计数汇总) */}
-            <div className={`text-[12px] rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
+            <div className={`text-f12 rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
               <span className="font-medium">QC</span>
               {(postCheckResult.quality?.total || 0) > 0 ? (
                 <span className="ml-1">
@@ -768,7 +768,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               ) : ' 干净'}
             </div>
             {/* 泄露 */}
-            <div className={`text-[12px] rounded-lg px-2 py-1.5 ${postCheckResult.leaks?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+            <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.leaks?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
               <span className="font-medium">泄露</span>
               {postCheckResult.leaks?.length > 0
                 ? <span className="ml-1">{postCheckResult.leaks.length} 处:{postCheckResult.leaks.map((l) => l.marker).join('、')}</span>
@@ -776,7 +776,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             </div>
             {/* 纪律 */}
             {postCheckResult.discipline && (
-              <div className={`text-[12px] rounded-lg px-2 py-1.5 ${postCheckResult.discipline.violations?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+              <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.discipline.violations?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
                 <span className="font-medium">纪律</span>
                 {postCheckResult.discipline.violations?.length > 0
                   ? <span className="ml-1">{postCheckResult.discipline.violations.join('、')}</span>
@@ -784,19 +784,19 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               </div>
             )}
             {postCheckResult.degraded && (
-              <div className="text-[11px] text-faint">⚠ 纪律判 LLM 调用失败,仅含确定性结果</div>
+              <div className="text-f11 text-faint">⚠ 纪律判 LLM 调用失败,仅含确定性结果</div>
             )}
             {/* 一键修 */}
             <button
               onClick={sendPostCheckToChief}
-              className="w-full mt-1 h-7 rounded-lg border border-brand/40 bg-brand/5 text-brand text-[12px] hover:bg-brand/15 cursor-pointer transition-colors"
+              className="w-full mt-1 h-7 rounded-lg border border-brand/40 bg-brand/5 text-brand text-f12 hover:bg-brand/15 cursor-pointer transition-colors"
             >
               让主编修这章
             </button>
           </div>
         )}
         {postCheckResult?.error && (
-          <div className="text-[11.5px] text-danger">体检失败:{postCheckResult.error}</div>
+          <div className="text-f12 text-danger">体检失败:{postCheckResult.error}</div>
         )}
       </div>
     </div>
@@ -818,15 +818,15 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     const hasImportance = chars.some((c) => c.importance)
     const CharBtn = ({ c }) => (
       <button key={c.id} onClick={() => { setFocalizer(c.id); dirtyRef.current.focalizer = c.id }}
-        className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-[13px] transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+        className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-f13 transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
         <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
         <span className="truncate">{c.name}</span>
-        {c.id === focalizer && <span className="ml-auto text-[11px] text-brand">视角</span>}
+        {c.id === focalizer && <span className="ml-auto text-f11 text-brand">视角</span>}
       </button>
     )
     let body
     if (filtered.length === 0) {
-      body = <div className="text-[12px] text-faint py-2 text-center">无匹配角色</div>
+      body = <div className="text-f12 text-faint py-2 text-center">无匹配角色</div>
     } else if (hasImportance) {
       const groups = {}
       filtered.forEach((c) => {
@@ -835,7 +835,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       })
       body = impOrder.filter((k) => groups[k]).map((k) => (
         <div key={k} className="mb-2">
-          <div className="text-[11px] text-faint px-1 mb-0.5 mt-1">{impLabel[k]}</div>
+          <div className="text-f11 text-faint px-1 mb-0.5 mt-1">{impLabel[k]}</div>
           {groups[k].map((c) => <CharBtn key={c.id} c={c} />)}
         </div>
       ))
@@ -848,7 +848,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         {chars.length === 0 ? <Empty>无角色</Empty> : (
           <>
             <input value={presentQ} onChange={(e) => setPresentQ(e.target.value)}
-              placeholder="搜角色…" className="w-full h-8 rounded-lg border border-line bg-canvas px-2.5 text-[13px] outline-none focus:border-brand mb-2" />
+              placeholder="搜角色…" className="w-full h-8 rounded-lg border border-line bg-canvas px-2.5 text-f13 outline-none focus:border-brand mb-2" />
             {body}
           </>
         )}
@@ -861,7 +861,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     <div className="flex items-center gap-1 mb-3 -mt-0.5">
       {options.map((o) => (
         <button key={o.key} onClick={() => onChange(o.key)}
-          className={`h-6 px-2 rounded-lg text-[11.5px] whitespace-nowrap transition-colors cursor-pointer ${value === o.key ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
+          className={`h-6 px-2 rounded-lg text-f12 whitespace-nowrap transition-colors cursor-pointer ${value === o.key ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
           {o.label}
         </button>
       ))}
@@ -952,21 +952,21 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             }}>
             <div className="flex items-center gap-1.5 mb-1.5">
               <span className={`w-2 h-2 rounded-full shrink-0 ${issueDot(issueCard.issue.type)}`} />
-              <span className="text-[12px] font-semibold text-ink">{issueLabel(issueCard.issue.type)}</span>
+              <span className="text-f12 font-semibold text-ink">{issueLabel(issueCard.issue.type)}</span>
             </div>
-            <div className="text-[12px] text-fore leading-snug mb-2">{issueCard.issue.message}</div>
+            <div className="text-f12 text-fore leading-snug mb-2">{issueCard.issue.message}</div>
             {issueCard.issue.text && (
-              <div className="text-[11.5px] text-faint leading-snug mb-2.5 line-clamp-2 border-l-2 border-line pl-2">
+              <div className="text-f12 text-faint leading-snug mb-2.5 line-clamp-2 border-l-2 border-line pl-2">
                 「{issueCard.issue.text}」
               </div>
             )}
             <div className="flex items-center gap-1.5">
               <button onClick={() => sendIssueToChief(issueCard.issue)}
-                className="flex-1 h-7 inline-flex items-center justify-center gap-1 rounded-lg border border-brand/40 bg-brand/5 text-brand text-[12px] hover:bg-brand/15 cursor-pointer transition-colors">
+                className="flex-1 h-7 inline-flex items-center justify-center gap-1 rounded-lg border border-brand/40 bg-brand/5 text-brand text-f12 hover:bg-brand/15 cursor-pointer transition-colors">
                 <Sparkles size={12} />让主编改这处
               </button>
               <button onClick={() => ignoreIssueHandler(issueCard.issue)}
-                className="h-7 px-2.5 rounded-lg border border-line text-faint text-[12px] hover:bg-soft cursor-pointer transition-colors">
+                className="h-7 px-2.5 rounded-lg border border-line text-faint text-f12 hover:bg-soft cursor-pointer transition-colors">
                 忽略
               </button>
             </div>

@@ -34,11 +34,11 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
 
   const commit = () => { setEditing(false); const fv = type === 'number' ? (val === '' ? null : Number(val)) : val; if (fv !== (value ?? '')) onSave(fv) }
   const cancel = () => { setVal(value ?? ''); setEditing(false) }
-  const inputBase = 'w-full rounded-md border border-brand/40 bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand'
+  const inputBase = 'w-full rounded-md border border-brand/40 bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand'
 
   if (isEmpty && !editing) {
     return (<div className={`py-1.5 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <button onClick={() => setEditing(true)} className="text-[12px] text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150">+ 添加{label}</button>
+      <button onClick={() => setEditing(true)} className="text-f12 text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150">+ 添加{label}</button>
     </div>)
   }
   if (type === 'tags') return <TagsRow label={label} tags={options} onSave={onSave} section={section} />
@@ -46,7 +46,7 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
 
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
       {editing ? (
         <div onClick={(e) => e.stopPropagation()}>
           {type === 'textarea' ? (
@@ -64,10 +64,10 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
               placeholder={placeholder || `输入${label}...`} className={inputBase + ' h-9'} />
           )}
-          <div className="text-[10px] text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
+          <div className="text-f10 text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
         </div>
       ) : (
-        <div className="text-[13px] text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap"
+        <div className="text-f13 text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap"
           onClick={() => setEditing(true)}>{value || placeholder || '—'}</div>
       )}
     </div>
@@ -87,19 +87,19 @@ function TagsRow({ label, tags, onSave, section }) {
 
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
       <div className="flex flex-wrap items-center gap-1" onClick={(e) => editing && e.stopPropagation()}>
         {list.map((t, i) => (
-          <span key={i} className="inline-flex items-center gap-1 text-[12px] text-fore bg-fore/10 px-2 py-0.5 rounded">
+          <span key={i} className="inline-flex items-center gap-1 text-f12 text-fore bg-fore/10 px-2 py-0.5 rounded">
             {t}{editing && <button onClick={() => remove(i)} className="text-faint hover:text-danger cursor-pointer ml-0.5">×</button>}
           </span>
         ))}
         {editing ? (
           <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() }; if (e.key === 'Escape') setEditing(false) }}
-            onBlur={exitIfEmpty} placeholder="回车添加..." className="w-28 h-6 text-[12px] bg-transparent border-b border-brand/40 text-ink outline-none placeholder:text-faint/40" />
+            onBlur={exitIfEmpty} placeholder="回车添加..." className="w-28 h-6 text-f12 bg-transparent border-b border-brand/40 text-ink outline-none placeholder:text-faint/40" />
         ) : (
-          <button onClick={() => setEditing(true)} className="text-[12px] text-faint/40 hover:text-brand cursor-pointer">{list.length === 0 ? '+ 添加' : '+'}</button>
+          <button onClick={() => setEditing(true)} className="text-f12 text-faint/40 hover:text-brand cursor-pointer">{list.length === 0 ? '+ 添加' : '+'}</button>
         )}
       </div>
     </div>
@@ -120,36 +120,36 @@ function AbilitiesRow({ value, onSave, section }) {
   const formEl = (
     <div className="p-2.5 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-1.5">
       <div className="flex gap-2">
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="能力名称" autoFocus onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="flex-1 h-7 rounded border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
-        <input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} placeholder="等级" onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-24 h-7 rounded border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="能力名称" autoFocus onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="flex-1 h-7 rounded border border-line bg-canvas px-2 text-f12 text-ink outline-none" />
+        <input value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} placeholder="等级" onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-24 h-7 rounded border border-line bg-canvas px-2 text-f12 text-ink outline-none" />
       </div>
-      <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="描述" rows={2} onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-full rounded border border-line bg-canvas px-2 py-1 text-[12px] text-ink outline-none resize-y" />
+      <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="描述" rows={2} onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-full rounded border border-line bg-canvas px-2 py-1 text-f12 text-ink outline-none resize-y" />
       <div className="flex items-center gap-2">
-        <input type="number" value={form.acquired_chapter} onChange={(e) => setForm({ ...form, acquired_chapter: e.target.value })} placeholder="第几章习得" onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-28 h-7 rounded border border-line bg-canvas px-2 text-[12px] text-ink outline-none" />
-        <button onClick={saveForm} className="px-3 h-7 rounded bg-brand text-brandfg text-[12px] cursor-pointer">保存</button>
-        <button onClick={() => { setAdding(false); setEditingIdx(null) }} className="px-2 h-7 rounded text-faint text-[12px] cursor-pointer">取消</button>
+        <input type="number" value={form.acquired_chapter} onChange={(e) => setForm({ ...form, acquired_chapter: e.target.value })} placeholder="第几章习得" onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setEditingIdx(null) } }} className="w-28 h-7 rounded border border-line bg-canvas px-2 text-f12 text-ink outline-none" />
+        <button onClick={saveForm} className="px-3 h-7 rounded bg-brand text-brandfg text-f12 cursor-pointer">保存</button>
+        <button onClick={() => { setAdding(false); setEditingIdx(null) }} className="px-2 h-7 rounded text-faint text-f12 cursor-pointer">取消</button>
       </div>
     </div>
   )
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-[11px] text-faint uppercase tracking-wider mb-1">能力</div>
+      <div className="text-f11 text-faint uppercase tracking-wider mb-1">能力</div>
       <div className="space-y-1.5">
         {abilities.map((ab, i) => (
           <div key={i} className="group">
             {editingIdx === i ? formEl : (
               <div className="flex items-center gap-2 py-1 px-1 rounded hover:bg-soft/40 cursor-text transition-colors duration-150" onClick={() => { setEditingIdx(i); setForm(ab) }}>
-                <span className="text-[13px] font-medium text-ink">{ab.name}</span>
+                <span className="text-f13 font-medium text-ink">{ab.name}</span>
                 <Tag tone={ab.level === '宗师级' || ab.level === '高' ? 'fore' : 'faint'}>{ab.level || '—'}</Tag>
-                {ab.acquired_chapter && <span className="text-[10px] text-faint">第{ab.acquired_chapter}章</span>}
-                {ab.description && <span className="text-[11px] text-faint/60 truncate flex-1">{ab.description}</span>}
-                <button onClick={(e) => { e.stopPropagation(); remove(i) }} className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer text-[11px] transition-opacity">删除</button>
+                {ab.acquired_chapter && <span className="text-f10 text-faint">第{ab.acquired_chapter}章</span>}
+                {ab.description && <span className="text-f11 text-faint/60 truncate flex-1">{ab.description}</span>}
+                <button onClick={(e) => { e.stopPropagation(); remove(i) }} className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer text-f11 transition-opacity">删除</button>
               </div>
             )}
           </div>
         ))}
-        {adding ? formEl : <button onClick={(e) => { e.stopPropagation(); setAdding(true); setForm({ name: '', level: '', description: '', acquired_chapter: '' }) }} className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 添加能力</button>}
-        {abilities.length === 0 && !adding && <span className="text-[13px] text-faint/40">—</span>}
+        {adding ? formEl : <button onClick={(e) => { e.stopPropagation(); setAdding(true); setForm({ name: '', level: '', description: '', acquired_chapter: '' }) }} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">+ 添加能力</button>}
+        {abilities.length === 0 && !adding && <span className="text-f13 text-faint/40">—</span>}
       </div>
     </div>
   )
@@ -189,69 +189,69 @@ function DynamicTimeline({ characterId }) {
   const setRow = (setter, idx, field, val) => setter((rows) => rows.map((r, i) => i === idx ? { ...r, [field]: val } : r))
   const addRow = (setter) => setter((rows) => [...rows, { k: '', v: '' }])
   const removeRow = (setter, idx) => setter((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : [{ k: '', v: '' }])
-  const inputSm = 'h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none'
-  if (!states) return <div className="mt-4 text-[12px] text-faint/50">加载中...</div>
+  const inputSm = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none'
+  if (!states) return <div className="mt-4 text-f12 text-faint/50">加载中...</div>
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-faint uppercase tracking-wider">弧光演进史</span><span className="text-[11px] text-faint/50">{states.length}个质变点</span><button onClick={() => setAdding(!adding)} className="ml-auto text-[11px] text-brand hover:text-brand/80 cursor-pointer">+ 记录质变</button></div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">弧光演进史</span><span className="text-f11 text-faint/50">{states.length}个质变点</span><button onClick={() => setAdding(!adding)} className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer">+ 记录质变</button></div>
       <div className="mb-3 flex items-center gap-2 p-2 rounded-lg bg-soft/30">
-        <span className="text-[11px] text-faint">查询第</span><input type="number" value={snapCh} onChange={(e) => setSnapCh(e.target.value)} placeholder="章" className="w-16 h-7 rounded border border-line bg-canvas px-1.5 text-[12px] text-ink outline-none" />
-        <button onClick={querySnapshot} className="px-2 h-7 rounded text-[11px] bg-brand/10 text-brand cursor-pointer">查快照</button>
-        {snapshot && (<div className="flex-1 text-[11px] text-faint space-y-0.5"><div>能力: {Object.keys(snapshot.abilities || {}).length ? JSON.stringify(snapshot.abilities) : '—'}</div><div>关系: {Object.keys(snapshot.relations || {}).length ? JSON.stringify(snapshot.relations) : '—'}</div><div>性格: {snapshot.personality || '—'}</div></div>)}
+        <span className="text-f11 text-faint">查询第</span><input type="number" value={snapCh} onChange={(e) => setSnapCh(e.target.value)} placeholder="章" className="w-16 h-7 rounded border border-line bg-canvas px-1.5 text-f12 text-ink outline-none" />
+        <button onClick={querySnapshot} className="px-2 h-7 rounded text-f11 bg-brand/10 text-brand cursor-pointer">查快照</button>
+        {snapshot && (<div className="flex-1 text-f11 text-faint space-y-0.5"><div>能力: {Object.keys(snapshot.abilities || {}).length ? JSON.stringify(snapshot.abilities) : '—'}</div><div>关系: {Object.keys(snapshot.relations || {}).length ? JSON.stringify(snapshot.relations) : '—'}</div><div>性格: {snapshot.personality || '—'}</div></div>)}
       </div>
       {adding && (<div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
-        <div className="flex gap-2"><input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /><select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none cursor-pointer"><option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option></select><input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-[12px] text-ink outline-none" /></div>
-        <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none resize-y" />
+        <div className="flex gap-2"><input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none" /><select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none cursor-pointer"><option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option></select><input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none" /></div>
+        <textarea placeholder="发生了什么变化..." value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} rows={2} className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-f12 text-ink outline-none resize-y" />
         <div className="flex gap-2 flex-wrap">
           <input placeholder="触发事件" value={form.trigger_event} onChange={(e) => setForm({ ...form, trigger_event: e.target.value })} className={`flex-1 min-w-[120px] ${inputSm}`} />
           <select value={form.confidence} onChange={(e) => setForm({ ...form, confidence: e.target.value })} className={`w-28 ${inputSm} cursor-pointer`}>
             <option value="confirmed">已确认</option>
             <option value="inferred">推断</option>
           </select>
-          <label className="flex items-center gap-1.5 text-[12px] text-faint cursor-pointer select-none">
+          <label className="flex items-center gap-1.5 text-f12 text-faint cursor-pointer select-none">
             <input type="checkbox" checked={form.affects_voice} onChange={(e) => setForm({ ...form, affects_voice: e.target.checked })} className="w-3.5 h-3.5 accent-brand cursor-pointer" />影响声音
           </label>
         </div>
         {/* 能力快照 */}
         {['ability', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-[11px] text-faint uppercase tracking-wider">能力快照</div>
+            <div className="text-f11 text-faint uppercase tracking-wider">能力快照</div>
             {abilityRows.map((row, idx) => (
               <div key={idx} className="flex gap-1.5 items-center">
                 <input value={row.k} onChange={(e) => setRow(setAbilityRows, idx, 'k', e.target.value)} placeholder="能力名" className={`w-24 ${inputSm}`} />
                 <input value={row.v} onChange={(e) => setRow(setAbilityRows, idx, 'v', e.target.value)} placeholder="描述" className={`flex-1 ${inputSm}`} />
-                <button onClick={() => removeRow(setAbilityRows, idx)} className="text-faint hover:text-danger text-[13px] cursor-pointer leading-none">✕</button>
+                <button onClick={() => removeRow(setAbilityRows, idx)} className="text-faint hover:text-danger text-f13 cursor-pointer leading-none">✕</button>
               </div>
             ))}
-            <button onClick={() => addRow(setAbilityRows)} className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+            <button onClick={() => addRow(setAbilityRows)} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
           </div>
         )}
         {/* 关系快照 */}
         {['relation', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-[11px] text-faint uppercase tracking-wider">关系快照</div>
+            <div className="text-f11 text-faint uppercase tracking-wider">关系快照</div>
             {relationRows.map((row, idx) => (
               <div key={idx} className="flex gap-1.5 items-center">
                 <input value={row.k} onChange={(e) => setRow(setRelationRows, idx, 'k', e.target.value)} placeholder="对象" className={`w-24 ${inputSm}`} />
                 <input value={row.v} onChange={(e) => setRow(setRelationRows, idx, 'v', e.target.value)} placeholder="关系" className={`flex-1 ${inputSm}`} />
-                <button onClick={() => removeRow(setRelationRows, idx)} className="text-faint hover:text-danger text-[13px] cursor-pointer leading-none">✕</button>
+                <button onClick={() => removeRow(setRelationRows, idx)} className="text-faint hover:text-danger text-f13 cursor-pointer leading-none">✕</button>
               </div>
             ))}
-            <button onClick={() => addRow(setRelationRows)} className="text-[11px] text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+            <button onClick={() => addRow(setRelationRows)} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
           </div>
         )}
         {/* 性格快照 */}
         {['personality', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-[11px] text-faint uppercase tracking-wider">性格快照</div>
+            <div className="text-f11 text-faint uppercase tracking-wider">性格快照</div>
             <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="性格描述..." className={`w-full ${inputSm}`} />
           </div>
         )}
-        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-brandfg text-[12px] cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields(); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false }) }} className="px-3 h-7 rounded-lg text-faint text-[12px] cursor-pointer">取消</button></div>
+        <div className="flex gap-2"><button onClick={addState} className="px-3 h-7 rounded-lg bg-brand text-brandfg text-f12 cursor-pointer">保存</button><button onClick={() => { setAdding(false); resetSnapFields(); setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false }) }} className="px-3 h-7 rounded-lg text-faint text-f12 cursor-pointer">取消</button></div>
       </div>)}
-      {states.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无弧光记录。</div> : (
+      {states.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无弧光记录。</div> : (
         <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
-          {states.map((s, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" /><div className="flex items-center gap-2 mb-0.5"><span className="text-[11px] text-faint font-medium">第{s.chapter}章</span><Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : 'faint'}>{s.change_type}</Tag>{s.arc_phase && <span className="text-[11px] text-fore">{s.arc_phase}</span>}</div><div className="text-[13px] text-ink">{s.summary}</div>{s.trigger_event && <div className="text-[11px] text-faint/60 mt-0.5">触发: {s.trigger_event}</div>}</div>))}
+          {states.map((s, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" /><div className="flex items-center gap-2 mb-0.5"><span className="text-f11 text-faint font-medium">第{s.chapter}章</span><Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : 'faint'}>{s.change_type}</Tag>{s.arc_phase && <span className="text-f11 text-fore">{s.arc_phase}</span>}</div><div className="text-f13 text-ink">{s.summary}</div>{s.trigger_event && <div className="text-f11 text-faint/60 mt-0.5">触发: {s.trigger_event}</div>}</div>))}
         </div>
       )}
     </div>
@@ -265,9 +265,9 @@ function DynamicRelations({ characterId }) {
   if (!relations) return null
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-faint uppercase tracking-wider">角色关系</span><span className="text-[11px] text-faint/50">{relations.length}条</span></div>
-      {relations.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无关系记录。</div> : (
-        <div className="space-y-1">{relations.map((r, i) => { const oid = r.src === characterId ? r.dst : r.src; return (<div key={i} className="flex items-center gap-3 py-1 px-2 rounded hover:bg-soft/40 transition-colors duration-150"><span className="text-[14px] font-medium text-ink prose-serif min-w-[60px]">{(oid || '').split(':').pop()}</span><Tag tone={['盟友','同门','熟人','夫妻'].includes(r.relation) ? 'ok' : ['利益对立','仇敌'].includes(r.relation) ? 'fore' : 'faint'}>{r.relation}</Tag><span className="text-[11px] text-faint">第{r.since_chapter}章建立</span>{r.until_chapter && <span className="text-[11px] text-danger">第{r.until_chapter}章结束</span>}</div>) })}</div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">角色关系</span><span className="text-f11 text-faint/50">{relations.length}条</span></div>
+      {relations.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无关系记录。</div> : (
+        <div className="space-y-1">{relations.map((r, i) => { const oid = r.src === characterId ? r.dst : r.src; return (<div key={i} className="flex items-center gap-3 py-1 px-2 rounded hover:bg-soft/40 transition-colors duration-150"><span className="text-f14 font-medium text-ink prose-serif min-w-[60px]">{(oid || '').split(':').pop()}</span><Tag tone={['盟友','同门','熟人','夫妻'].includes(r.relation) ? 'ok' : ['利益对立','仇敌'].includes(r.relation) ? 'fore' : 'faint'}>{r.relation}</Tag><span className="text-f11 text-faint">第{r.since_chapter}章建立</span>{r.until_chapter && <span className="text-f11 text-danger">第{r.until_chapter}章结束</span>}</div>) })}</div>
       )}
     </div>
   )
@@ -278,9 +278,9 @@ function ItemStateHistory({ item }) {
   const history = item.state_history || []
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-faint uppercase tracking-wider">状态流转</span><span className="text-[11px] text-faint/50">当前: {item.symbolic_state}</span></div>
-      {history.length === 0 ? <div className="text-[12px] text-faint/50 py-2">尚无状态变更记录。</div> : (
-        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? '#10b981' : h.state === 'lost' ? '#f59e0b' : '#ef4444' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>{h.chapter && <span className="text-[11px] text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-[12px] text-faint mt-0.5">{h.note}</div>}</div>))}</div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">状态流转</span><span className="text-f11 text-faint/50">当前: {item.symbolic_state}</span></div>
+      {history.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无状态变更记录。</div> : (
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? '#10b981' : h.state === 'lost' ? '#f59e0b' : '#ef4444' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>{h.chapter && <span className="text-f11 text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-f12 text-faint mt-0.5">{h.note}</div>}</div>))}</div>
       )}
     </div>
   )
@@ -293,8 +293,8 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-4">
-          {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-          <span className="text-[11px] text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
+          {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
+          <span className="text-f11 text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
         </div>
         <div className="border-t border-line pt-3">
           <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} />
@@ -307,7 +307,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
             <input type="checkbox" id="backstory_secret_cb" checked={!!row.backstory_secret}
               onChange={(e) => save('backstory_secret', e.target.checked)}
               className="w-4 h-4 accent-brand cursor-pointer" />
-            <label htmlFor="backstory_secret_cb" className="text-[12px] text-faint cursor-pointer select-none">🔒 私密(默认屏蔽前史)</label>
+            <label htmlFor="backstory_secret_cb" className="text-f12 text-faint cursor-pointer select-none">🔒 私密(默认屏蔽前史)</label>
           </div>
           <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} />
           <Field label="弱点" type="tags" options={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
@@ -319,7 +319,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
         </div>
         {!isNew && <DynamicTimeline characterId={row.id} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
-        <div className="mt-4 pt-3 border-t border-line"><button onClick={onDelete} className="text-[12px] text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13}/>删除角色</button></div>
+        <div className="mt-4 pt-3 border-t border-line"><button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13}/>删除角色</button></div>
       </div>
     )
   }
@@ -350,8 +350,8 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
-        {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-        <span className="text-[11px] text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
+        {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
+        <span className="text-f11 text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
       </div>
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
@@ -360,17 +360,17 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
               <input type="checkbox" id={`sf_${k}`} checked={!!row[k]}
                 onChange={(e) => save(k, e.target.checked)}
                 className="w-4 h-4 accent-brand cursor-pointer" />
-              <label htmlFor={`sf_${k}`} className="text-[12px] text-faint cursor-pointer select-none">{label}</label>
+              <label htmlFor={`sf_${k}`} className="text-f12 text-faint cursor-pointer select-none">{label}</label>
             </div>
           ) :
-          ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-[13px] text-ink">{row[k] ? '是' : '否'}</div></div>) :
+          ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-f13 text-ink">{row[k] ? '是' : '否'}</div></div>) :
           ftype === 'rule_cat' ? (
             <div key={k} className="py-2">
-              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
               <select
                 value={row[k] || 'magic'}
                 onChange={(e) => save(k, e.target.value)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
               >
                 {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
               </select>
@@ -378,11 +378,11 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
           ) :
           ftype === 'scope' ? (
             <div key={k} className="py-2">
-              <div className="text-[11px] text-faint uppercase tracking-wider mb-1">{label}</div>
+              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
               <select
                 value={row[k] || ''}
                 onChange={(e) => save(k, e.target.value || null)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-[13px] text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
               >
                 <option value="">—</option>
                 {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -399,7 +399,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
         )}
       </div>
       {type === 'items' && !isNew && <ItemStateHistory item={row} />}
-      <div className="mt-4 pt-3 border-t border-line"><button onClick={onDelete} className="text-[12px] text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13}/>删除</button></div>
+      <div className="mt-4 pt-3 border-t border-line"><button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13}/>删除</button></div>
     </div>
   )
 }

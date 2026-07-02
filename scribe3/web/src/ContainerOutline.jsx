@@ -74,7 +74,7 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
         <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
-          className="rounded border border-brand/40 bg-canvas px-1.5 py-0.5 text-[13px] text-ink outline-none focus:border-brand w-32" />
+          className="rounded border border-brand/40 bg-canvas px-1.5 py-0.5 text-f13 text-ink outline-none focus:border-brand w-32" />
         <button onClick={commit} title="确认" className="text-ok hover:text-ok/80 cursor-pointer"><Check size={13} /></button>
         <button onClick={cancel} title="取消" className="text-faint hover:text-ink cursor-pointer"><X size={13} /></button>
       </span>
@@ -82,7 +82,7 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
   }
   return (
     <span className="inline-flex items-center gap-1 group/vol">
-      <span className="text-[15px] font-semibold text-ink">{title}</span>
+      <span className="text-f15 font-semibold text-ink">{title}</span>
       <button onClick={() => setEditing(true)} title="重命名卷"
         className="opacity-0 group-hover/vol:opacity-100 ml-1 text-faint hover:text-ink cursor-pointer transition-opacity">
         <Pencil size={12} />
@@ -241,8 +241,8 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   // 非手稿容器(素材分类等)→ 立即退化为子项列表(不拉 /outline)
   if (!isManuscript) return <PlainList node={node} onSelect={onSelect} />
 
-  if (err) return <div className="p-8 text-[13px] text-danger">大纲加载失败。</div>
-  if (!outline) return <div className="p-8 text-[13px] text-faint/60">加载大纲…</div>
+  if (err) return <div className="p-8 text-f13 text-danger">大纲加载失败。</div>
+  if (!outline) return <div className="p-8 text-f13 text-faint/60">加载大纲…</div>
 
   const totalCh = lanes.reduce((s, l) => s + l.chapters.length, 0)
   const totalWc = lanes.reduce((s, l) => s + l.chapters.reduce((a, c) => a + (c.word_count || 0), 0), 0)
@@ -269,14 +269,14 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
           <VolumeTitle vid={currentVol.id} title={currentVol.title || '未命名卷'}
             onRename={renameVolume} onDelete={deleteVolume} />
         ) : (
-          <h2 className="text-[15px] font-semibold text-ink">{node.label}</h2>
+          <h2 className="text-f15 font-semibold text-ink">{node.label}</h2>
         )}
-        <span className="text-[11px] text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
+        <span className="text-f11 text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
 
         <div className="ml-auto flex items-center gap-3 flex-wrap">
           {/* 新建章(手稿根/卷都可)——空书起手必需 */}
           <button onClick={addChapter} disabled={addingCh}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] bg-brand text-brandfg hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 bg-brand text-brandfg hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">
             <Plus size={12} /> 新建章
           </button>
           {/* 手稿根时显示「新建卷」 */}
@@ -287,11 +287,11 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
                   placeholder="卷标题"
                   onKeyDown={(e) => { if (e.key === 'Enter') commitAddVolume(); if (e.key === 'Escape') { setAdding(false); setNewTitle('') } }}
                   onBlur={commitAddVolume}
-                  className="rounded border border-brand/40 bg-canvas px-2 py-1 text-[12px] text-ink outline-none focus:border-brand w-28" />
+                  className="rounded border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand w-28" />
               </span>
             ) : (
               <button onClick={() => setAdding(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-line text-faint hover:text-ink hover:border-brand/40 transition-colors cursor-pointer">
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-line text-faint hover:text-ink hover:border-brand/40 transition-colors cursor-pointer">
                 <Plus size={12} /> 新建卷
               </button>
             )
@@ -304,17 +304,17 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
               const active = mode === s.key
               return (
                 <button key={s.key} onClick={() => setMode(s.key)}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] transition-colors cursor-pointer ${active ? 'bg-brand text-brandfg' : 'text-faint hover:text-ink'}`}>
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 transition-colors cursor-pointer ${active ? 'bg-brand text-brandfg' : 'text-faint hover:text-ink'}`}>
                   <Icon size={13} />{s.label}
                 </button>
               )
             })}
           </div>
           {mode !== 'list' && (
-            <label className="inline-flex items-center gap-1.5 text-[11px] text-faint">
+            <label className="inline-flex items-center gap-1.5 text-f11 text-faint">
               色彩
               <select value={colorMode} onChange={(e) => setColorMode(e.target.value)}
-                className="h-7 rounded-md border border-line bg-canvas px-1.5 text-[12px] text-ink outline-none cursor-pointer">
+                className="h-7 rounded-md border border-line bg-canvas px-1.5 text-f12 text-ink outline-none cursor-pointer">
                 <option value="status">按状态</option>
                 <option value="pov">按视角</option>
               </select>
@@ -326,9 +326,9 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         {totalCh === 0 && lanes.length === 0 ? (
           <div className="py-12 text-center">
-            <div className="text-[13px] text-faint/60 mb-3">还没有章节。</div>
+            <div className="text-f13 text-faint/60 mb-3">还没有章节。</div>
             <button onClick={addChapter} disabled={addingCh}
-              className="inline-flex items-center gap-1.5 px-3.5 h-9 rounded-lg bg-brand text-brandfg text-[13px] hover:opacity-90 cursor-pointer disabled:opacity-50">
+              className="inline-flex items-center gap-1.5 px-3.5 h-9 rounded-lg bg-brand text-brandfg text-f13 hover:opacity-90 cursor-pointer disabled:opacity-50">
               <Plus size={15} /> 新建第一章
             </button>
           </div>
@@ -352,14 +352,14 @@ function PlainChapterList({ lanes, onOpen }) {
     <div className="max-w-2xl">
       {lanes.map((lane) => (
         <div key={lane.volumeId ?? 'null'} className="mb-5">
-          <div className="text-[13px] font-semibold text-ink mb-1.5">{lane.title}
-            <span className="ml-2 text-[11px] font-normal text-faint">{lane.chapters.length} 章</span></div>
+          <div className="text-f13 font-semibold text-ink mb-1.5">{lane.title}
+            <span className="ml-2 text-f11 font-normal text-faint">{lane.chapters.length} 章</span></div>
           <div className="space-y-1">
             {lane.chapters.map((c) => (
               <button key={c.seq} onClick={() => onOpen?.(c)}
                 className="w-full text-left rounded-lg border border-line bg-surface px-3 py-2 hover:border-brand/30 transition-colors cursor-pointer flex items-center gap-2">
-                <span className="text-[13px] text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
-                <span className="ml-auto text-[11px] text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
+                <span className="text-f13 text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
+                <span className="ml-auto text-f11 text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
               </button>
             ))}
           </div>
@@ -395,7 +395,7 @@ function VirtualItemList({ kids, onSelect }) {
               className="pb-1.5">
               <button onClick={() => onSelect?.(c)}
                 className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
-                <span className="text-[14px] text-ink">{c.label}</span>
+                <span className="text-f14 text-ink">{c.label}</span>
               </button>
             </div>
           )
@@ -418,15 +418,15 @@ function PlainList({ node, onSelect }) {
       <div className={`shrink-0 ${virtualize ? 'px-6 pt-6 pb-2' : 'hidden'}`}>
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
+            <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
             {canCreate && (
               <button onClick={newNode}
-                className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+                className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
                 <Plus size={13} /> 新建
               </button>
             )}
           </div>
-          <div className="text-[12px] text-faint">{kids.length} 项</div>
+          <div className="text-f12 text-faint">{kids.length} 项</div>
           {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
         </div>
       </div>
@@ -437,18 +437,18 @@ function PlainList({ node, onSelect }) {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-6 py-6">
             <div className="flex items-center gap-3 mb-1">
-              <h2 className="text-[18px] font-semibold text-ink">{node?.label}</h2>
+              <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
               {canCreate && (
                 <button onClick={newNode}
-                  className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+                  className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
                   <Plus size={13} /> 新建
                 </button>
               )}
             </div>
-            <div className="text-[12px] text-faint mb-4">{kids.length} 项</div>
+            <div className="text-f12 text-faint mb-4">{kids.length} 项</div>
             {catType === 'character' && <UnverifiedRefs onSelect={onSelect} />}
             {kids.length === 0 ? (
-              <div className="text-[13px] text-faint/60 py-8 text-center">
+              <div className="text-f13 text-faint/60 py-8 text-center">
                 暂无子项。{canCreate && <button onClick={newNode} className="text-brand hover:underline cursor-pointer ml-1">点此新建</button>}
               </div>
             ) : (
@@ -456,7 +456,7 @@ function PlainList({ node, onSelect }) {
                 {kids.map((c) => (
                   <button key={c.id} onClick={() => onSelect?.(c)}
                     className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
-                    <span className="text-[14px] text-ink">{c.label}</span>
+                    <span className="text-f14 text-ink">{c.label}</span>
                   </button>
                 ))}
               </div>
@@ -486,18 +486,18 @@ function UnverifiedRefs({ onSelect }) {
   if (!items || items.length === 0) return null
   return (
     <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-4 mb-4">
-      <div className="text-[13px] font-medium text-ink mb-3">待确认人物引用 ({items.length})</div>
+      <div className="text-f13 font-medium text-ink mb-3">待确认人物引用 ({items.length})</div>
       <div className="space-y-2">
         {items.map((p) => (
           <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
-            <span className="text-[13px] text-ink flex-1 min-w-0 truncate">
+            <span className="text-f13 text-ink flex-1 min-w-0 truncate">
               {p.name} <span className="text-faint">· 第{p.seq}章 · {p.role}</span>
             </span>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button onClick={() => accept(p)}
-                className="text-[12px] px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
+                className="text-f12 px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
               <button onClick={() => ignore(p)}
-                className="text-[12px] px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors cursor-pointer">忽略</button>
+                className="text-f12 px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors cursor-pointer">忽略</button>
             </div>
           </div>
         ))}

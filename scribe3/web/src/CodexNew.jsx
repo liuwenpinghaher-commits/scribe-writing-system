@@ -56,7 +56,7 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
-  if (!type) return <div className="p-6 text-[13px] text-faint">未知设定类型:{catType}</div>
+  if (!type) return <div className="p-6 text-f13 text-faint">未知设定类型:{catType}</div>
 
   const create = async () => {
     if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : '请填写名称'); return }
@@ -74,8 +74,8 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-5">
         <div className="flex items-center gap-3 mb-1">
-          {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-[13px] text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-          <span className="text-[11px] text-faint/50">新建{label || ''}</span>
+          {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
+          <span className="text-f11 text-faint/50">新建{label || ''}</span>
         </div>
         {/* DetailView 在 isNew 模式:onUpdate 只改内存草稿,不落库;onDelete 即取消 */}
         <DetailView
@@ -86,13 +86,13 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
           onUpdate={(updated) => setDraft(updated)}
           onDelete={onCancel}
         />
-        {err && <div className="mt-3 text-[12px] text-danger">{err}</div>}
+        {err && <div className="mt-3 text-f12 text-danger">{err}</div>}
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2">
           <button onClick={create} disabled={saving}
-            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-lg bg-brand text-brandfg text-[13px] font-medium cursor-pointer disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-lg bg-brand text-brandfg text-f13 font-medium cursor-pointer disabled:opacity-50">
             {saving && <Loader2 size={14} className="animate-spin" />}创建
           </button>
-          {onCancel && <button onClick={onCancel} disabled={saving} className="h-8 px-3 rounded-lg text-[13px] text-faint hover:text-ink cursor-pointer disabled:opacity-50">取消</button>}
+          {onCancel && <button onClick={onCancel} disabled={saving} className="h-8 px-3 rounded-lg text-f13 text-faint hover:text-ink cursor-pointer disabled:opacity-50">取消</button>}
         </div>
       </div>
     </div>

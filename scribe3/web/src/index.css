@@ -8,6 +8,17 @@
 @theme {
   --font-ui: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'PingFang SC', sans-serif;
   --font-prose: 'Source Serif 4', 'Noto Serif SC', Georgia, 'Songti SC', serif;
+  /* 字号 scale(fNN 命名,不撞 Tailwind 默认 text-xs/sm/base,避免语义打架)
+     取现用整数字号集为档位,整数值视觉零变化;半像素向上就近折一档 */
+  --text-f10: 10px;   /* 覆盖 9,10 */
+  --text-f11: 11px;   /* 覆盖 10.5,11 */
+  --text-f12: 12px;   /* 覆盖 11.5,12 */
+  --text-f13: 13px;   /* 覆盖 12.5,13 —— 应用最常用正文档 */
+  --text-f14: 14px;   /* 覆盖 13.5,14 */
+  --text-f15: 15px;
+  --text-f18: 18px;
+  --text-f22: 22px;
+  --text-f26: 26px;
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
   /* 层叠柔和阴影(取代生硬单层)*/

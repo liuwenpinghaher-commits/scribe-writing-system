@@ -217,11 +217,11 @@ export const ProseEditor = forwardRef(function ProseEditor(
   return (
     <div className={`tiptap-shell ${focusMode ? 'focus-mode' : ''}`}>
       {recovered && (
-        <div className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 flex items-center gap-2 text-[13px]">
+        <div className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 flex items-center gap-2 text-f13">
           <RotateCcw size={14} className="text-warn shrink-0" />
           <span className="text-ink flex-1">发现上次未保存的草稿。</span>
-          <button onClick={restore} className="px-2 py-0.5 rounded text-brand hover:bg-soft text-[12px] cursor-pointer">恢复</button>
-          <button onClick={discard} className="px-2 py-0.5 rounded text-faint hover:bg-soft text-[12px] cursor-pointer">丢弃</button>
+          <button onClick={restore} className="px-2 py-0.5 rounded text-brand hover:bg-soft text-f12 cursor-pointer">恢复</button>
+          <button onClick={discard} className="px-2 py-0.5 rounded text-faint hover:bg-soft text-f12 cursor-pointer">丢弃</button>
         </div>
       )}
       <BubbleMenu editor={editor} options={{ placement: 'top', offset: 8 }}
@@ -248,14 +248,14 @@ export const ProseEditor = forwardRef(function ProseEditor(
                   const to = pmPosToProseOffset(editor.state.doc, pmTo)
                   onDiscuss({ text: proseStr.slice(from, to), from, to })
                 }}
-                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-[12px] text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
+                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-f12 text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
             </>
           )}
-          <span className="px-1.5 text-[11px] text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
+          <span className="px-1.5 text-f11 text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
         </div>
       </BubbleMenu>
       <EditorContent editor={editor} />
-      <div className="mt-2 text-right text-[11px] text-faint tnum">{chars} 字</div>
+      <div className="mt-2 text-right text-f11 text-faint tnum">{chars} 字</div>
     </div>
   )
 })

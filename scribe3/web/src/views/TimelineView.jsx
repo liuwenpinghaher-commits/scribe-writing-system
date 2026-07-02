@@ -240,7 +240,7 @@ function Field({ k, v }) {
   if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null
   const val = Array.isArray(v) ? v.map(stripRole).join('、') : String(v)
   return (
-    <div className="flex gap-2 text-[12px] leading-relaxed">
+    <div className="flex gap-2 text-f12 leading-relaxed">
       <span className="shrink-0 w-16 text-faint">{k}</span>
       <span className="text-ink break-words min-w-0">{val}</span>
     </div>
@@ -314,7 +314,7 @@ function DetailPanel({ raw, cat, onJump, onClose }) {
     <div className="w-64 shrink-0 border-l border-line bg-surface flex flex-col">
       <div className="flex items-center gap-2 px-3 h-10 border-b border-line">
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: headColor }} />
-        <span className="text-[13px] font-semibold text-ink truncate flex-1" title={title}>{title}</span>
+        <span className="text-f13 font-semibold text-ink truncate flex-1" title={title}>{title}</span>
         <button onClick={onClose} className="shrink-0 text-faint hover:text-ink cursor-pointer" title="关闭">
           <X size={14} />
         </button>
@@ -323,7 +323,7 @@ function DetailPanel({ raw, cat, onJump, onClose }) {
       <div className="shrink-0 border-t border-line p-2">
         <button
           onClick={() => onJump?.(raw._jump ?? raw.chapter)}
-          className="w-full h-8 rounded-lg bg-brand text-brandfg text-[12px] font-medium cursor-pointer hover:opacity-85 flex items-center justify-center gap-1.5"
+          className="w-full h-8 rounded-lg bg-brand text-brandfg text-f12 font-medium cursor-pointer hover:opacity-85 flex items-center justify-center gap-1.5"
         >
           <CornerDownRight size={13} /> 跳到第{raw._jump ?? raw.chapter}章
         </button>
@@ -456,9 +456,9 @@ export function TimelineView({ onJumpChapter }) {
       {/* ── 顶栏 ── */}
       <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-2 px-4 overflow-x-auto">
         <Clock size={15} className="text-brand shrink-0" />
-        <span className="text-[13px] font-medium text-ink shrink-0">时间线</span>
+        <span className="text-f13 font-medium text-ink shrink-0">时间线</span>
         {data && (
-          <span className="text-[11px] text-faint tnum shrink-0">
+          <span className="text-f11 text-faint tnum shrink-0">
             {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
             {maxCh > 0 && ` · 共${maxCh}章`}
             {data.truncated && <span className="text-amber-600"> · 已截断(缩小区间)</span>}
@@ -467,11 +467,11 @@ export function TimelineView({ onJumpChapter }) {
 
         {/* 泳道切换 */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-[11px] text-faint">泳道:</span>
+          <span className="text-f11 text-faint">泳道:</span>
           {[{ v: 'kind', l: '四类' }, { v: 'char', l: '角色' }, { v: 'type', l: '事件类型' }].map(({ v, l }) => (
             <button key={v}
               onClick={() => setLaneMode(v)}
-              className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
+              className={`h-6 px-2 rounded text-f11 font-medium transition-colors cursor-pointer
                 ${laneMode === v ? 'bg-brand text-brandfg' : 'bg-soft text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
@@ -479,19 +479,19 @@ export function TimelineView({ onJumpChapter }) {
 
         {/* 故事/叙事双轴 */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-[11px] text-faint">轴:</span>
+          <span className="text-f11 text-faint">轴:</span>
           {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => (
             <button key={v}
               onClick={() => switchAxis(v)}
               title={v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
-              className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
+              className={`h-6 px-2 rounded text-f11 font-medium transition-colors cursor-pointer
                 ${axis === v ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
         </div>
 
         <button onClick={fitAll}
-          className="ml-2 h-6 px-2 rounded text-[11px] font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
+          className="ml-2 h-6 px-2 rounded text-f11 font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
           title="缩放至全书概览(滚轮按 Ctrl 缩放,拖动平移)"
         >全览</button>
 
@@ -508,20 +508,20 @@ export function TimelineView({ onJumpChapter }) {
         <div className="flex-1 min-w-0 relative">
           {error && (
             <div className="absolute inset-0 flex items-center justify-center p-4">
-              <div className="text-[13px] text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
+              <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
             </div>
           )}
           {!error && loading && !data && (
-            <div className="absolute inset-0 flex items-center justify-center text-[12px] text-faint gap-2">
+            <div className="absolute inset-0 flex items-center justify-center text-f12 text-faint gap-2">
               <RefreshCw size={14} className="animate-spin" />加载时间线…
             </div>
           )}
           {!error && data && !hasContent && (
-            <div className="absolute inset-0 flex items-center justify-center text-[13px] text-faint">
+            <div className="absolute inset-0 flex items-center justify-center text-f13 text-faint">
               <div className="text-center">
                 <Clock size={32} className="mx-auto mb-2 opacity-30" />
                 <div>暂无时间线数据</div>
-                <div className="text-[11px] mt-1 opacity-60">先在写作台录入章节事件</div>
+                <div className="text-f11 mt-1 opacity-60">先在写作台录入章节事件</div>
               </div>
             </div>
           )}
@@ -546,7 +546,7 @@ export function TimelineView({ onJumpChapter }) {
 
       {/* 图例 + 操作提示 */}
       {hasContent && (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-[10px] text-faint">
+        <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-f10 text-faint">
           <span className="shrink-0 font-medium">图例:</span>
           <span className="shrink-0 inline-flex items-center gap-1">
             <i className="inline-block w-3 h-3 rounded border border-line bg-surface" style={{ boxShadow: 'inset 3px 0 0 #7c3aed' }} />事件

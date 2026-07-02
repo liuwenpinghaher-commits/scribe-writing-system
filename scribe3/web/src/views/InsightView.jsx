@@ -10,9 +10,9 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   const c = { brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-center gap-1.5 text-faint text-[11px] uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
+      <div className="flex items-center gap-1.5 text-faint text-f11 uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
       <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
-      {sub && <div className="text-[11px] text-faint mt-0.5">{sub}</div>}
+      {sub && <div className="text-f11 text-faint mt-0.5">{sub}</div>}
     </div>
   )
 }
@@ -148,11 +148,11 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
   const clues = p.clues || []
 
   return (
-    <div className={`rounded-lg border p-2.5 text-[12px] ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
+    <div className={`rounded-lg border p-2.5 text-f12 ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
       <div className="flex items-start gap-1.5">
         <span className={`mt-[3px] w-1.5 h-1.5 rounded-full shrink-0 ${overdue ? 'bg-danger' : p.status === 'closed' ? 'bg-ok' : 'bg-faint'}`} />
         <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
-        {overdue && <span className="text-danger text-[10px] font-medium shrink-0">超期</span>}
+        {overdue && <span className="text-danger text-f10 font-medium shrink-0">超期</span>}
       </div>
       {/* setup→payoff 连线(已回收) + clue 中途标记 */}
       {p.status === 'closed' && p.payoff_chapter != null && (
@@ -162,7 +162,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       {p.status !== 'closed' && p.setup_chapter != null && (
         <PromiseOpenBar setupChapter={p.setup_chapter} maxChapter={maxChapter} clues={clues} />
       )}
-      <div className="text-faint text-[11px] mt-1 pl-3 flex flex-wrap gap-x-2">
+      <div className="text-faint text-f11 mt-1 pl-3 flex flex-wrap gap-x-2">
         {/* 点章号跳写作台 */}
         {p.setup_chapter != null && (
           <button
@@ -189,7 +189,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
       {clues.length > 0 && (
         <div className="pl-3 mt-1.5 space-y-0.5">
           {clues.map((cl, i) => (
-            <div key={i} className="flex items-start gap-1 text-[10px] text-faint group">
+            <div key={i} className="flex items-start gap-1 text-f10 text-faint group">
               <button
                 className="hover:text-brand underline-offset-2 hover:underline shrink-0 cursor-pointer"
                 onClick={() => onJumpChapter?.(cl.chapter)}
@@ -214,24 +214,24 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
           <input
             type="number" min={1} value={clueChapter}
             onChange={(e) => setClueChapter(e.target.value)}
-            className="w-10 h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-fore"
+            className="w-10 h-5 rounded border border-line bg-surface px-1 text-f11 text-ink outline-none focus:border-fore"
             placeholder="章"
             autoFocus
           />
-          <span className="text-[10px] text-faint">章·</span>
+          <span className="text-f10 text-faint">章·</span>
           <input
             type="text" value={clueNote}
             onChange={(e) => setClueNote(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && doAddClue()}
-            className="flex-1 min-w-[80px] h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-fore"
+            className="flex-1 min-w-[80px] h-5 rounded border border-line bg-surface px-1 text-f11 text-ink outline-none focus:border-fore"
             placeholder="线索描述"
           />
           <button onClick={doAddClue} disabled={busy}
-            className="text-[10px] px-2 py-0.5 rounded bg-fore/80 text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
+            className="text-f10 px-2 py-0.5 rounded bg-fore/80 text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
             {busy ? '…' : '加'}
           </button>
           <button onClick={() => { setShowAddClue(false); setClueNote(''); setClueChapter('') }}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
+            className="text-f10 px-1.5 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
             取消
           </button>
         </div>
@@ -239,7 +239,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
         <div className="pl-3 mt-1">
           <button
             onClick={() => setShowAddClue(true)}
-            className="text-[10px] text-faint/60 hover:text-fore transition-colors"
+            className="text-f10 text-faint/60 hover:text-fore transition-colors"
             title="加草蛇灰线线索"
           >
             + 加线索
@@ -252,35 +252,35 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
           {!showAdvance ? (
             <button
               onClick={() => setShowAdvance(true)}
-              className="text-[10px] px-2 py-0.5 rounded border border-ok/40 text-ok hover:bg-ok/10 transition-colors"
+              className="text-f10 px-2 py-0.5 rounded border border-ok/40 text-ok hover:bg-ok/10 transition-colors"
             >
               标记回收
             </button>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-faint">收于第</span>
+              <span className="text-f10 text-faint">收于第</span>
               <input
                 type="number" min={1} value={payoffInput}
                 onChange={(e) => setPayoffInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && doAdvance()}
-                className="w-12 h-5 rounded border border-line bg-surface px-1 text-[11px] text-ink outline-none focus:border-ok"
+                className="w-12 h-5 rounded border border-line bg-surface px-1 text-f11 text-ink outline-none focus:border-ok"
                 placeholder="章"
                 autoFocus
               />
-              <span className="text-[10px] text-faint">章</span>
+              <span className="text-f10 text-faint">章</span>
               <button onClick={doAdvance} disabled={busy}
-                className="text-[10px] px-2 py-0.5 rounded bg-ok text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
+                className="text-f10 px-2 py-0.5 rounded bg-ok text-white hover:opacity-80 disabled:opacity-50 transition-opacity">
                 {busy ? '…' : '确认'}
               </button>
               <button onClick={() => { setShowAdvance(false); setPayoffInput('') }}
-                className="text-[10px] px-2 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
+                className="text-f10 px-2 py-0.5 rounded border border-line text-faint hover:bg-soft transition-colors">
                 取消
               </button>
             </div>
           )}
           <button
             onClick={doMarkHerring} disabled={busy}
-            className="text-[10px] px-2 py-0.5 rounded border border-line text-faint hover:bg-soft hover:text-ink transition-colors disabled:opacity-50"
+            className="text-f10 px-2 py-0.5 rounded border border-line text-faint hover:bg-soft hover:text-ink transition-colors disabled:opacity-50"
           >
             标为障眼法
           </button>
@@ -294,11 +294,11 @@ function LedgerColumn({ icon: Icon, label, tone, rows, maxChapter, onJumpChapter
   const c = { fore: 'text-fore', ok: 'text-ok', faint: 'text-faint' }[tone]
   return (
     <div className="rounded-xl border border-line bg-surface p-4">
-      <div className={`flex items-center gap-1.5 text-[12px] font-semibold mb-3 ${c}`}>
+      <div className={`flex items-center gap-1.5 text-f12 font-semibold mb-3 ${c}`}>
         <Icon size={14} />{label} <span className="text-faint font-normal">({rows.length})</span>
       </div>
       <div className="space-y-2">
-        {rows.length === 0 ? <div className="text-faint text-[12px]">—</div>
+        {rows.length === 0 ? <div className="text-faint text-f12">—</div>
           : rows.map((p) => (
             <PromiseCard
               key={p.id} p={p}
@@ -324,9 +324,9 @@ function PromiseLedger({ onJumpChapter }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-4 mb-6">
       <div className="flex items-center flex-wrap gap-2 mb-3">
-        <div className="flex items-center gap-2"><Bookmark size={16} className="text-fore" /><h2 className="text-[15px] font-semibold text-ink">伏笔台账</h2></div>
-        <span className="text-[11px] text-faint">阈值 {led.threshold} 章 · 现在第 {led.max_chapter} 章</span>
-        <div className="ml-auto flex items-center gap-2 text-[11px]">
+        <div className="flex items-center gap-2"><Bookmark size={16} className="text-fore" /><h2 className="text-f15 font-semibold text-ink">伏笔台账</h2></div>
+        <span className="text-f11 text-faint">阈值 {led.threshold} 章 · 现在第 {led.max_chapter} 章</span>
+        <div className="ml-auto flex items-center gap-2 text-f11">
           <span className={balanced ? 'text-ok' : 'text-danger'}>{balanced ? '✓ 已平衡' : '⚠ 未平衡'}</span>
           <span className="text-faint">超期 {a.overdue_count ?? 0} · 闭无开 {pws} · 契诃夫 {a.never_paid ?? 0} 把枪没响</span>
         </div>
@@ -340,7 +340,7 @@ function PromiseLedger({ onJumpChapter }) {
           maxChapter={led.max_chapter} onJumpChapter={onJumpChapter} onRefresh={refresh} />
       </div>
       {pws > 0 && (
-        <div className="mt-3 text-[11px] text-danger">
+        <div className="mt-3 text-f11 text-danger">
           ⚠ 闭无开(回收早于埋设,疑似凭空 payoff):
           {[...(a.payoff_without_setup || []), ...(a.closed_without_setup || [])]
             .map((x) => `「${x.text}」(埋${x.setup_chapter ?? '?'}→收${x.payoff_chapter})`).join('、')}
@@ -384,25 +384,25 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div className="bg-surface border border-line rounded-2xl p-6 w-80 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="text-[15px] font-semibold text-ink mb-4">编辑写作目标</div>
+        <div className="text-f15 font-semibold text-ink mb-4">编辑写作目标</div>
         <div className="space-y-3">
           <div>
-            <label className="text-[11px] text-faint uppercase tracking-wider block mb-1">整稿目标(字)</label>
+            <label className="text-f11 text-faint uppercase tracking-wider block mb-1">整稿目标(字)</label>
             <input ref={inputRef} type="number" min={0} value={totalGoal} onChange={(e) => setTotalGoal(e.target.value)}
               placeholder="例: 100000"
-              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-[14px] text-ink outline-none focus:border-brand" />
+              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f14 text-ink outline-none focus:border-brand" />
           </div>
           <div>
-            <label className="text-[11px] text-faint uppercase tracking-wider block mb-1">每日目标(字,可空)</label>
+            <label className="text-f11 text-faint uppercase tracking-wider block mb-1">每日目标(字,可空)</label>
             <input type="number" min={0} value={dailyGoal} onChange={(e) => setDailyGoal(e.target.value)}
               placeholder="例: 2000(可不填)"
-              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-[14px] text-ink outline-none focus:border-brand" />
+              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f14 text-ink outline-none focus:border-brand" />
           </div>
         </div>
         <div className="flex gap-2 mt-5 justify-end">
-          <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-[13px] text-faint hover:bg-soft transition-colors">取消</button>
+          <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-f13 text-faint hover:bg-soft transition-colors">取消</button>
           <button onClick={save} disabled={saving}
-            className="px-4 py-1.5 rounded-lg text-[13px] bg-brand text-brandfg hover:opacity-90 transition-opacity disabled:opacity-50">
+            className="px-4 py-1.5 rounded-lg text-f13 bg-brand text-brandfg hover:opacity-90 transition-opacity disabled:opacity-50">
             {saving ? '保存中…' : '保存'}
           </button>
         </div>
@@ -425,7 +425,7 @@ function ProgressPanel({ onGoalEdit }) {
 
   if (!prog) return (
     <div className="rounded-xl border border-line bg-surface p-4 mb-6">
-      <div className="text-[12px] text-faint">进度数据加载中…</div>
+      <div className="text-f12 text-faint">进度数据加载中…</div>
     </div>
   )
 
@@ -454,19 +454,19 @@ function ProgressPanel({ onGoalEdit }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <TrendingUp size={15} className="text-brand" />
-          <span className="text-[14px] font-semibold text-ink">码字进度</span>
+          <span className="text-f14 font-semibold text-ink">码字进度</span>
           {/* 窗口切换按钮组 */}
           <div className="flex gap-0.5 ml-2 bg-soft rounded-lg p-0.5">
             {WIN_OPTS.map(({ v, label }) => (
               <button key={v} onClick={() => setWin(v)}
-                className={`px-2 py-0.5 rounded text-[10px] transition-colors ${win === v ? 'bg-surface text-ink font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
+                className={`px-2 py-0.5 rounded text-f10 transition-colors ${win === v ? 'bg-surface text-ink font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
                 {label}
               </button>
             ))}
           </div>
         </div>
         <button onClick={onGoalEdit}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer">
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-f11 text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer">
           <Pencil size={11} />编辑目标
         </button>
       </div>
@@ -474,48 +474,48 @@ function ProgressPanel({ onGoalEdit }) {
       {/* 荣誉位:今日 + streak */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="rounded-lg bg-canvas border border-line p-3 text-center">
-          <div className="text-[11px] text-faint mb-0.5">今日码字</div>
-          <div className={`text-[22px] font-semibold tnum ${dailyMet ? 'text-ok' : 'text-ink'}`}>
+          <div className="text-f11 text-faint mb-0.5">今日码字</div>
+          <div className={`text-f22 font-semibold tnum ${dailyMet ? 'text-ok' : 'text-ink'}`}>
             +{todayWords.toLocaleString()}
           </div>
           {dailyGoal && (
-            <div className={`text-[10px] mt-0.5 ${dailyMet ? 'text-ok' : 'text-faint'}`}>
+            <div className={`text-f10 mt-0.5 ${dailyMet ? 'text-ok' : 'text-faint'}`}>
               {dailyMet ? '✓ 今日达标' : `目标 ${dailyGoal.toLocaleString()}`}
             </div>
           )}
         </div>
         <div className="rounded-lg bg-canvas border border-line p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-[11px] text-faint mb-0.5">
+          <div className="flex items-center justify-center gap-1 text-f11 text-faint mb-0.5">
             <Flame size={11} />当前连胜
           </div>
-          <div className="text-[22px] font-semibold tnum text-fore">{prog.current_streak}</div>
-          <div className="text-[10px] text-faint mt-0.5">天</div>
+          <div className="text-f22 font-semibold tnum text-fore">{prog.current_streak}</div>
+          <div className="text-f10 text-faint mt-0.5">天</div>
         </div>
         <div className="rounded-lg bg-canvas border border-line p-3 text-center">
-          <div className="flex items-center justify-center gap-1 text-[11px] text-faint mb-0.5">
+          <div className="flex items-center justify-center gap-1 text-f11 text-faint mb-0.5">
             <Trophy size={11} />最长连胜
           </div>
-          <div className="text-[22px] font-semibold tnum text-fore">{prog.longest_streak}</div>
-          <div className="text-[10px] text-faint mt-0.5">天</div>
+          <div className="text-f22 font-semibold tnum text-fore">{prog.longest_streak}</div>
+          <div className="text-f10 text-faint mt-0.5">天</div>
         </div>
       </div>
 
       {/* 整稿进度条 */}
       <div className="mb-4">
-        <div className="flex items-center justify-between mb-1.5 text-[12px]">
+        <div className="flex items-center justify-between mb-1.5 text-f12">
           <span className="text-faint">整稿进度</span>
           <span className="tnum text-ink font-medium">{totalWords.toLocaleString()} / {totalGoal.toLocaleString()} 字 · {totalPct}%</span>
         </div>
         <div className="h-2 rounded-full bg-soft overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, totalPct) + '%', background: totalBarColor }} />
         </div>
-        {totalPct >= 100 && <div className="text-[10px] text-[#f59e0b] mt-1">整稿目标达成！</div>}
+        {totalPct >= 100 && <div className="text-f10 text-[#f59e0b] mt-1">整稿目标达成！</div>}
       </div>
 
       {/* 每日目标进度条(设了才显示) */}
       {dailyGoal && (
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-1.5 text-[12px]">
+          <div className="flex items-center justify-between mb-1.5 text-f12">
             <span className="text-faint">今日进度</span>
             <span className={`tnum font-medium ${dailyMet ? 'text-ok' : 'text-ink'}`}>
               {todayWords.toLocaleString()} / {dailyGoal.toLocaleString()} 字 · {dailyPct}%
@@ -531,7 +531,7 @@ function ProgressPanel({ onGoalEdit }) {
       {daily.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-2">
           <div>
-            <div className="text-[11px] text-faint mb-2">每日字数</div>
+            <div className="text-f11 text-faint mb-2">每日字数</div>
             <ResponsiveContainer width="100%" height={140}>
               <BarChart data={daily} margin={{ left: -20, right: 4, top: 2 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
@@ -546,13 +546,13 @@ function ProgressPanel({ onGoalEdit }) {
           </div>
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[11px] text-faint">累计推进</span>
+              <span className="text-f11 text-faint">累计推进</span>
               {/* 图例说明 */}
-              <span className="flex items-center gap-1 text-[10px] text-faint">
+              <span className="flex items-center gap-1 text-f10 text-faint">
                 <span style={{ display:'inline-block', width:16, height:2, background:'var(--color-brand)', verticalAlign:'middle' }} />实际
               </span>
               {daily.some(d => d.ideal_cumulative != null) && (
-                <span className="flex items-center gap-1 text-[10px] text-faint">
+                <span className="flex items-center gap-1 text-f10 text-faint">
                   <span style={{ display:'inline-block', width:16, height:2, background:'#f59e0b', borderTop:'2px dashed #f59e0b', verticalAlign:'middle' }} />理想
                 </span>
               )}
@@ -584,9 +584,9 @@ function ProgressPanel({ onGoalEdit }) {
       {weekdayHist.length > 0 && weekdayHist.some(d => d.avg_words > 0) && (
         <div className="mt-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-[11px] text-faint">最高产星期几</span>
+            <span className="text-f11 text-faint">最高产星期几</span>
             {bestWeekday && (
-              <span className="text-[11px] text-brand font-medium">{bestWeekday}最高产</span>
+              <span className="text-f11 text-brand font-medium">{bestWeekday}最高产</span>
             )}
           </div>
           <ResponsiveContainer width="100%" height={90}>
@@ -674,8 +674,8 @@ function WordHeatmap({ heatmap, dailyGoal }) {
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-[11px] text-faint">码字热力图 · 近 {WEEKS} 周</div>
-        <div className="flex items-center gap-1.5 text-[10px] text-faint">
+        <div className="text-f11 text-faint">码字热力图 · 近 {WEEKS} 周</div>
+        <div className="flex items-center gap-1.5 text-f10 text-faint">
           <span>少</span>
           {['var(--color-soft)', '#bbf7d0', '#86efac', '#22c55e', '#15803d'].map((c, i) => (
             <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c }} />
@@ -751,7 +751,7 @@ export function InsightView({ onJumpChapter, focus }) {
   return (
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-5xl mx-auto px-8 py-8">
-        <div className="flex items-center gap-2 mb-6"><Activity size={18} className="text-brand" /><h1 className="text-[22px] font-semibold prose-serif text-ink">质量仪表盘</h1></div>
+        <div className="flex items-center gap-2 mb-6"><Activity size={18} className="text-brand" /><h1 className="text-f22 font-semibold prose-serif text-ink">质量仪表盘</h1></div>
 
         <GoalDialog
           open={goalOpen}
@@ -779,7 +779,7 @@ export function InsightView({ onJumpChapter, focus }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
           <div className="rounded-xl border border-line bg-surface p-4">
-            <div className="text-[12px] font-semibold text-ink mb-3">各章字数</div>
+            <div className="text-f12 font-semibold text-ink mb-3">各章字数</div>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
@@ -791,7 +791,7 @@ export function InsightView({ onJumpChapter, focus }) {
             </ResponsiveContainer>
           </div>
           <div className="rounded-xl border border-line bg-surface p-4">
-            <div className="text-[12px] font-semibold text-ink mb-3">各章质检问题(QC + 因果)</div>
+            <div className="text-f12 font-semibold text-ink mb-3">各章质检问题(QC + 因果)</div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
@@ -806,13 +806,13 @@ export function InsightView({ onJumpChapter, focus }) {
         </div>
 
         <div className="rounded-xl border border-line bg-surface p-4">
-          <div className="text-[12px] font-semibold text-ink mb-2">弱章诊断(问题最多的章)</div>
-          {weak.length === 0 ? <div className="text-[13px] text-ok">✓ 各章质检干净</div>
+          <div className="text-f12 font-semibold text-ink mb-2">弱章诊断(问题最多的章)</div>
+          {weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
             : weak.slice(0, 8).map((c) => (
-              <div key={c.seq} className="flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-[13px]">
+              <div key={c.seq} className="flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-f13">
                 <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
-                {c.qc_issues > 0 && <span className="text-danger text-[12px]">QC {c.qc_issues}</span>}
-                {c.causal > 0 && <span className="text-fore text-[12px]">因果 {c.causal}</span>}
+                {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
+                {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
               </div>
             ))}
         </div>

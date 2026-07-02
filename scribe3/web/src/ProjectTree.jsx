@@ -23,8 +23,8 @@ function Badge({ b }) {
     : b.tone === 'ok' ? 'text-ok' : 'text-faint'
   if (b.kind === 'secret') return <Lock size={11} className="text-faint/60 shrink-0" />
   if (b.kind === 'pov') return null
-  if (b.kind === 'count') return <span className={`text-[10px] tnum shrink-0 ${tone}`}>{b.value}</span>
-  return <span className={`text-[10px] tnum shrink-0 ${tone}`}>{b.value}{b.kind === 'qc' ? '⚠' : ''}</span>
+  if (b.kind === 'count') return <span className={`text-f10 tnum shrink-0 ${tone}`}>{b.value}</span>
+  return <span className={`text-f10 tnum shrink-0 ${tone}`}>{b.value}{b.kind === 'qc' ? '⚠' : ''}</span>
 }
 
 // 卷节点内联重命名
@@ -38,7 +38,7 @@ function VolumeInlineEdit({ label, onCommit, onCancel }) {
       <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commit(); if (e.key === 'Escape') onCancel() }}
-        className="flex-1 min-w-0 rounded border border-brand/40 bg-canvas px-1 py-0 text-[12px] text-ink outline-none focus:border-brand" />
+        className="flex-1 min-w-0 rounded border border-brand/40 bg-canvas px-1 py-0 text-f12 text-ink outline-none focus:border-brand" />
       <button onMouseDown={(e) => { e.preventDefault(); commit() }}
         className="text-ok cursor-pointer shrink-0"><Check size={11} /></button>
       <button onMouseDown={(e) => { e.preventDefault(); onCancel() }}
@@ -102,7 +102,7 @@ function Row({ node, style, dragHandle, tree }) {
           <VolumeInlineEdit label={data.label}
             onCommit={handleRename} onCancel={() => node.reset()} />
         ) : (
-          <span className="truncate flex-1 text-[12.5px] leading-tight">{data.label}</span>
+          <span className="truncate flex-1 text-f13 leading-tight">{data.label}</span>
         )}
         {!node.isEditing && (data.badges || []).map((b, i) => <Badge key={i} b={b} />)}
       </button>
@@ -218,8 +218,8 @@ export function ProjectTree({
     onReorder(volRef, siblings)
   }
 
-  if (!tree) return <div className="p-3 text-[12px] text-faint/60">加载项目树…</div>
-  if (!data || data.length === 0) return <div className="p-3 text-[12px] text-faint/60">暂无内容</div>
+  if (!tree) return <div className="p-3 text-f12 text-faint/60">加载项目树…</div>
+  if (!data || data.length === 0) return <div className="p-3 text-f12 text-faint/60">暂无内容</div>
 
   // 用 relative + absolute inset-0 让测量容器有确定尺寸(不受 Tree 条件渲染影响),
   // RO 量到真实宽高后再渲染 arborist Tree。

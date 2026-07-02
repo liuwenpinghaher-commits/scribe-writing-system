@@ -22,9 +22,9 @@ const PHASES = [
 // 中区各阶段统一容器留白(P1):统一 max-w / py,消除三种 max-w、两种 py。
 const STAGE_WRAP = 'max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0'
 // 中区主操作按钮(生成/采用/加…)统一规格(P1):品牌前景统一 text-brandfg,消除 text-white 混用。
-const PRIMARY_BTN = 'h-7 px-3 rounded-lg bg-brand text-brandfg text-[12px] inline-flex items-center gap-1 cursor-pointer hover:brightness-110 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
+const PRIMARY_BTN = 'h-7 px-3 rounded-lg bg-brand text-brandfg text-f12 inline-flex items-center gap-1 cursor-pointer hover:brightness-110 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
 // 中区次操作按钮(存草稿等边框款)统一规格。
-const GHOST_BTN = 'h-7 px-2.5 rounded-lg border border-line text-[12px] text-ink hover:bg-soft inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
+const GHOST_BTN = 'h-7 px-2.5 rounded-lg border border-line text-f12 text-ink hover:bg-soft inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
@@ -37,7 +37,7 @@ function MetaBar({ meta, wordCount }) {
   const done = (meta.deductions || []).filter((d) => (d.prose || '').trim()).length
   const wc = wordCount != null ? wordCount : (meta.synopsis ? null : null)
   return (
-    <div className="text-[11px] text-faint flex items-center gap-2 flex-wrap mb-2 leading-snug">
+    <div className="text-f11 text-faint flex items-center gap-2 flex-wrap mb-2 leading-snug">
       <span>视角:{focName}</span>
       <span className="opacity-50">·</span>
       <span>涉及角色 {done}/{involved.length} 已演绎</span>
@@ -66,17 +66,17 @@ function OutlineTab({ seq, value, meta, onSaved }) {
     <div className={STAGE_WRAP}>
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[13px] font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
-        <span className="text-[11px] text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
+        <h3 className="text-f13 font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
+        <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
       </div>
       <textarea
         value={text}
         onChange={(e) => { setText(e.target.value); dirtyRef.current = true }}
         onBlur={flush}
         placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
-        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-[14px] leading-relaxed text-ink outline-none focus:border-brand resize-none"
+        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-f14 leading-relaxed text-ink outline-none focus:border-brand resize-none"
       />
-      <div className="text-[11.5px] text-faint mt-2 leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
+      <div className="text-f12 text-faint mt-2 leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
     </div>
   )
 }
@@ -116,8 +116,8 @@ function BeatsTab({ seq, value, meta, onSaved }) {
     <div className={STAGE_WRAP}>
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-[13px] font-semibold text-ink">节拍 · 把这章拆成有序的小节点</h3>
-        <span className="text-[11px] text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
+        <h3 className="text-f13 font-semibold text-ink">节拍 · 把这章拆成有序的小节点</h3>
+        <span className="text-f11 text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
       </div>
 
       <div className="flex gap-2 mb-4">
@@ -126,16 +126,16 @@ function BeatsTab({ seq, value, meta, onSaved }) {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           placeholder="加一个节拍…(Enter 添加)"
-          className="flex-1 h-9 rounded-lg border border-line bg-canvas px-3 text-[13px] text-ink outline-none focus:border-brand"
+          className="flex-1 h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand"
         />
-        <button onClick={add} className={`${PRIMARY_BTN} h-9 text-[13px]`}>
+        <button onClick={add} className={`${PRIMARY_BTN} h-9 text-f13`}>
           <Plus size={15} />加
         </button>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
       {beats.length === 0 ? (
-        <div className="text-[13px] text-faint text-center py-10 rounded-xl border border-dashed border-line">还没有节拍。把这章想发生的事一条条列出来。</div>
+        <div className="text-f13 text-faint text-center py-10 rounded-xl border border-dashed border-line">还没有节拍。把这章想发生的事一条条列出来。</div>
       ) : (
         <div className="space-y-1.5">
           {beats.map((b, i) => (
@@ -144,7 +144,7 @@ function BeatsTab({ seq, value, meta, onSaved }) {
                 className={`w-5 h-5 rounded-md border shrink-0 inline-flex items-center justify-center cursor-pointer transition-colors ${b.done ? 'bg-brand border-brand text-brandfg' : 'border-line hover:border-brand'}`}>
                 {b.done && <Check size={13} />}
               </button>
-              <span className={`flex-1 text-[13.5px] leading-snug ${b.done ? 'text-faint line-through' : 'text-ink'}`}>{b.text}</span>
+              <span className={`flex-1 text-f14 leading-snug ${b.done ? 'text-faint line-through' : 'text-ink'}`}>{b.text}</span>
               <div className={`flex items-center gap-0.5 shrink-0 ${HOVER_ACTIONS}`}>
                 <button onClick={() => move(i, -1)} disabled={i === 0} title="上移"
                   className="w-6 h-6 rounded inline-flex items-center justify-center text-faint hover:bg-soft hover:text-ink disabled:opacity-30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"><ChevronUp size={13} /></button>
@@ -157,7 +157,7 @@ function BeatsTab({ seq, value, meta, onSaved }) {
           ))}
         </div>
       )}
-      <div className="text-[11.5px] text-faint mt-4 leading-snug">节拍是草稿的骨架;右栏可让主编据节拍生成草稿。</div>
+      <div className="text-f12 text-faint mt-4 leading-snug">节拍是草稿的骨架;右栏可让主编据节拍生成草稿。</div>
       </div>
     </div>
   )
@@ -232,9 +232,9 @@ function DraftTab({ seq, meta, onAdopt }) {
     <div className={STAGE_WRAP}>
       <MetaBar meta={meta} wordCount={wc} />
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-[13px] font-semibold text-ink">草稿 · 自由打磨,满意后采用为正文</h3>
+        <h3 className="text-f13 font-semibold text-ink">草稿 · 自由打磨,满意后采用为正文</h3>
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-faint tnum">{wc} 字</span>
+          <span className="text-f11 text-faint tnum">{wc} 字</span>
           <button onClick={saveDraft} disabled={saving} className={GHOST_BTN}>
             <Save size={13} />存草稿
           </button>
@@ -246,7 +246,7 @@ function DraftTab({ seq, meta, onAdopt }) {
       {pending && (
         <div className="mb-2 rounded-xl border border-brand/20 bg-brand/10 text-brand px-3 py-2 flex items-center gap-2 flex-wrap">
           <Sparkles size={14} className="shrink-0" />
-          <span className="text-[12.5px] flex-1 min-w-0">主编生成了本章草稿({pending.prose.replace(/\s/g, '').length} 字),可直接落进草稿框。</span>
+          <span className="text-f13 flex-1 min-w-0">主编生成了本章草稿({pending.prose.replace(/\s/g, '').length} 字),可直接落进草稿框。</span>
           <div className="flex items-center gap-1.5 shrink-0">
             <button onClick={fillDraft} className={PRIMARY_BTN}>填入草稿框</button>
             <button onClick={appendDraft} className={GHOST_BTN}>追加到草稿</button>
@@ -257,15 +257,15 @@ function DraftTab({ seq, meta, onAdopt }) {
         value={summary}
         onChange={(e) => { setSummary(e.target.value); draftRef.current.dirty = true }}
         placeholder="给这版草稿一句备注(可留空)"
-        className="w-full h-8 rounded-lg border border-line bg-canvas px-3 text-[12.5px] text-ink outline-none focus:border-brand mb-2"
+        className="w-full h-8 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand mb-2"
       />
       <textarea
         value={text}
         onChange={(e) => { setText(e.target.value); draftRef.current.dirty = true }}
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
-        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-[14px] leading-relaxed text-ink outline-none focus:border-brand resize-none"
+        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-f14 leading-relaxed text-ink outline-none focus:border-brand resize-none"
       />
-      <div className="text-[11.5px] text-faint mt-2 leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
+      <div className="text-f12 text-faint mt-2 leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
     </div>
   )
 }
@@ -365,7 +365,7 @@ function PhaseBar({ seq, phase, onPhase, onSeqChange }) {
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章"
             className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronLeft size={16} /></button>
-          <span className="text-[13px] text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
+          <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
           <button onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章"
             className="w-7 h-7 rounded-lg text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer"><ChevronRight size={16} /></button>
         </div>
@@ -376,7 +376,7 @@ function PhaseBar({ seq, phase, onPhase, onSeqChange }) {
           const on = phase === p.key
           return (
             <button key={p.key} onClick={() => onPhase(p.key)}
-              className={`h-7 px-2.5 rounded-md text-[12.5px] inline-flex items-center gap-1.5 transition-colors cursor-pointer ${on ? 'bg-surface text-brand shadow-sm ring-1 ring-line' : 'text-faint hover:text-ink'}`}>
+              className={`h-7 px-2.5 rounded-md text-f13 inline-flex items-center gap-1.5 transition-colors cursor-pointer ${on ? 'bg-surface text-brand shadow-sm ring-1 ring-line' : 'text-faint hover:text-ink'}`}>
               <Icon size={13} />{p.label}
             </button>
           )

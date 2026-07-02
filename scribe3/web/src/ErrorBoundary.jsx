@@ -20,16 +20,16 @@ export class ErrorBoundary extends Component {
     if (this.state.error) {
       return (
         <div role="alert" className="m-3 rounded-xl border border-danger/40 bg-danger/5 p-4 max-w-full">
-          <h2 className="text-ink text-[15px] font-semibold mb-1">界面出错了</h2>
-          <p className="text-faint text-[13px] mb-3">
+          <h2 className="text-ink text-f15 font-semibold mb-1">界面出错了</h2>
+          <p className="text-faint text-f13 mb-3">
             本视图渲染异常，你的书稿未受影响。可重试或刷新页面。
           </p>
-          <pre className="text-[11px] text-faint/80 whitespace-pre-wrap break-words mb-3">
+          <pre className="text-f11 text-faint/80 whitespace-pre-wrap break-words mb-3">
             {String(this.state.error?.message || this.state.error)}
           </pre>
           <button
             onClick={this.reset}
-            className="h-8 px-3 rounded-lg border border-line text-[13px] text-ink hover:border-brand/50"
+            className="h-8 px-3 rounded-lg border border-line text-f13 text-ink hover:border-brand/50"
           >
             重试
           </button>

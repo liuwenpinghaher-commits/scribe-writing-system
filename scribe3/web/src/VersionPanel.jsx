@@ -14,16 +14,16 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
           {list.map((v) => (
             <li key={v.id} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
               <div className="flex items-center gap-2">
-                <span className="text-[12px] text-ink font-medium">{v.label || (v.kind === 'final' ? '定稿' : '存档')}</span>
-                {v.kind === 'final' && <span className="text-[10px] text-brand">定稿</span>}
-                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="ml-auto text-[11px] text-faint hover:text-ink cursor-pointer">回看</button>
+                <span className="text-f12 text-ink font-medium">{v.label || (v.kind === 'final' ? '定稿' : '存档')}</span>
+                {v.kind === 'final' && <span className="text-f10 text-brand">定稿</span>}
+                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">回看</button>
               </div>
               {(() => {
                 // v.qc.repetition / .purple 可能是检测器数组([{phrase,count}]/[{phrase,kind}])或数字——统一成计数,
                 // 否则把对象当 React 子节点渲染会崩(整个面板白屏)。
                 const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
                 const rep = cnt(v.qc?.repetition), pur = cnt(v.qc?.purple)
-                return (rep || pur) ? <div className="text-[10px] text-faint mt-0.5">QC 复读{rep}·升华{pur}</div> : null
+                return (rep || pur) ? <div className="text-f10 text-faint mt-0.5">QC 复读{rep}·升华{pur}</div> : null
               })()}
             </li>
           ))}
@@ -33,11 +33,11 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
         <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setView(null)}>
           <div className="bg-surface rounded-xl max-w-[680px] w-[90vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-4 h-11 border-b border-line">
-              <span className="text-[13px] text-ink">{view.label || '存档'}</span>
-              <button onClick={() => { onRestore?.(view.prose); setView(null) }} className="ml-auto text-[12px] text-brand hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">恢复到此版本</button>
-              <button onClick={() => setView(null)} className="text-[12px] text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>
+              <span className="text-f13 text-ink">{view.label || '存档'}</span>
+              <button onClick={() => { onRestore?.(view.prose); setView(null) }} className="ml-auto text-f12 text-brand hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">恢复到此版本</button>
+              <button onClick={() => setView(null)} className="text-f12 text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>
             </div>
-            <div className="manuscript px-5 py-4 overflow-y-auto whitespace-pre-wrap text-[15px] leading-[1.85] text-ink">{view.prose}</div>
+            <div className="manuscript px-5 py-4 overflow-y-auto whitespace-pre-wrap text-f15 leading-[1.85] text-ink">{view.prose}</div>
           </div>
         </div>
       )}

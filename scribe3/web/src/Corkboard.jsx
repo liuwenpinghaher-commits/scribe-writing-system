@@ -28,7 +28,7 @@ function EmptyLaneDropZone({ volumeId }) {
   })
   return (
     <div ref={setNodeRef}
-      className={`col-span-full text-[12px] py-4 flex items-center justify-center border border-dashed rounded-xl transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
+      className={`col-span-full text-f12 py-4 flex items-center justify-center border border-dashed rounded-xl transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
       拖到此处移入本卷
     </div>
   )
@@ -42,8 +42,8 @@ function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, activeSeq }) {
   return (
     <div className="mb-6" data-volume-id={lane.volumeId ?? '__null__'}>
       <div className="flex items-baseline gap-2 mb-2 px-0.5">
-        <h3 className="text-[14px] font-semibold text-ink">{lane.title}</h3>
-        <span className="text-[11px] text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
+        <h3 className="text-f14 font-semibold text-ink">{lane.title}</h3>
+        <span className="text-f11 text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
       </div>
       <SortableContext items={seqs.map((s) => `card-${s}`)} strategy={rectSortingStrategy}>
         <div className="grid gap-3 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>

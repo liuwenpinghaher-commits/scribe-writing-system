@@ -59,7 +59,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
   const node = sel?.node
   if (!node) {
     return (
-      <div className="h-full grid place-items-center text-[13px] text-faint/60">
+      <div className="h-full grid place-items-center text-f13 text-faint/60">
         从左侧项目树选一个章开始写,或选一个设定项查看详情。
       </div>
     )

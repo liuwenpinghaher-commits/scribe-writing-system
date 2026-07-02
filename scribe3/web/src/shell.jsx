@@ -19,12 +19,12 @@ function RailBtn({ cap, label, badge, on, onClick }) {
       <span className="relative inline-flex items-center justify-center">
         {Icon && <Icon size={18} />}
         {!!badge && badge > 0 && (
-          <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-brand text-brandfg text-[9px] font-bold leading-[15px] text-center tnum">
+          <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-brand text-brandfg text-f10 font-bold leading-[15px] text-center tnum">
             {badge > 99 ? '99+' : badge}
           </span>
         )}
       </span>
-      <span className="text-[10px] leading-none whitespace-nowrap">{label}</span>
+      <span className="text-f10 leading-none whitespace-nowrap">{label}</span>
     </button>
   )
 }

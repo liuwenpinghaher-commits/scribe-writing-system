@@ -80,9 +80,9 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
   }
   useEffect(() => { reload() }, [node?.id])
 
-  if (!detailType) return <div className="p-6 text-[13px] text-faint">未知设定类型:{node?.type}</div>
+  if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
-  if (!row) return <div className="p-6 text-[13px] text-faint">未找到该条目(可能已删除)。</div>
+  if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已删除)。</div>
 
   const doDelete = async () => {
     try { await remove(detailType, row); onDeleted?.() }

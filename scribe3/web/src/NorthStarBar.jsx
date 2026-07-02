@@ -20,24 +20,24 @@ export function NorthStarBar() {
     <div className="border-b border-line bg-surface">
       <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 px-4 h-9 cursor-pointer hover:bg-soft/40 transition-colors border-l-2 border-brand">
         <Compass size={14} className="text-brand shrink-0" />
-        <span className="text-[12px] text-faint shrink-0">北极星</span>
-        <span className="text-[12px] text-ink truncate">{summary}</span>
+        <span className="text-f12 text-faint shrink-0">北极星</span>
+        <span className="text-f12 text-ink truncate">{summary}</span>
         <ChevronDown size={13} className={`ml-auto shrink-0 text-faint transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="px-4 py-3 grid sm:grid-cols-3 gap-2.5 bg-canvas/50">
           {FIELDS.map(([k, label]) => (
             <div key={k}>
-              <label className="block text-[11px] text-faint mb-1">{label}</label>
+              <label className="block text-f11 text-faint mb-1">{label}</label>
               <textarea value={intent[k] || ''} onChange={(e) => set(k, e.target.value)} rows={2}
-                className="w-full rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-[12.5px] text-ink outline-none focus:border-brand resize-y" />
+                className="w-full rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink outline-none focus:border-brand resize-y" />
             </div>
           ))}
           <div className="sm:col-span-3 flex justify-end">
             <button onClick={async () => {
               try { await api.putIntent(intent); setSaved(true) }
               catch (e) { toast(e?.body?.detail || '意图保存失败,请重试', { tone: 'danger' }) }  // 失败不置 saved
-            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-[12px] bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+            }} className="inline-flex items-center gap-1 h-7 px-3 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
               <Check size={13} />{saved ? '已存' : '保存意图'}
             </button>
           </div>

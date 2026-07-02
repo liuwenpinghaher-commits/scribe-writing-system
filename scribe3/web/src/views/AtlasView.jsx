@@ -142,28 +142,28 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
   return (
     <div className="absolute top-3 right-3 z-20 w-64 rounded-xl border border-line bg-surface/95 backdrop-blur shadow-lg p-3.5 flex flex-col gap-2.5">
       <div className="flex items-start gap-2">
-        <span className="text-[13.5px] font-medium text-ink leading-snug flex-1 break-words">
+        <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">
           {node.secret ? '🔒 私密命题' : node.label}
         </span>
         <button onClick={onClose} className="text-faint hover:text-ink shrink-0 mt-0.5"><X size={14} /></button>
       </div>
-      <div className="flex items-center gap-1.5 text-[11.5px] text-faint">
+      <div className="flex items-center gap-1.5 text-f12 text-faint">
         <i className="w-2.5 h-2.5 rounded-full inline-block"
           style={{ background: node.type === 'character' ? 'var(--color-brand)' : node.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
         {node.type === 'character' ? '角色' : node.secret ? '私密命题' : '命题'}
       </div>
       {relToFocus && (
-        <div className="text-[12px] text-ink">
+        <div className="text-f12 text-ink">
           与中心关系:<span className="font-medium">{REL_LABEL[relToFocus.rel] || (relToFocus.rel === 'knows' ? '知道' : relToFocus.rel)}</span>
         </div>
       )}
       {node.secret && (
-        <div className="text-[11px] text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
+        <div className="text-f11 text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
       )}
       {node.type === 'character' && (
         <button
           onClick={() => onExpand(node.id)}
-          className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg bg-brand text-brandfg text-[12.5px] font-medium hover:opacity-90"
+          className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg bg-brand text-brandfg text-f13 font-medium hover:opacity-90"
         >
           <Crosshair size={13} /> 以此为中心展开
         </button>
@@ -271,33 +271,33 @@ export function AtlasView() {
     <div className="h-full flex flex-col bg-canvas">
       <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-3 px-4">
         <Eye size={15} className="text-brand" />
-        <span className="text-[13px] font-medium text-ink">知识图谱</span>
+        <span className="text-f13 font-medium text-ink">知识图谱</span>
         {focusLabel && (
-          <span className="text-[12px] text-faint tnum inline-flex items-center gap-1">
+          <span className="text-f12 text-faint tnum inline-flex items-center gap-1">
             <Crosshair size={12} className="text-brand" />{focusLabel} 邻域 · {stat.c} 角色 · {stat.p} 命题 · {stat.e} 边
           </span>
         )}
         <select
           value={focus}
           onChange={(e) => { setHop(1); setFocus(e.target.value) }}
-          className="h-7 rounded-lg border border-line bg-canvas px-2 text-[12.5px]"
+          className="h-7 rounded-lg border border-line bg-canvas px-2 text-f13"
         >
           {chars.map((c) => (
             <option key={c.id} value={c.id}>{c.label}</option>
           ))}
         </select>
         {/* hop 展开:1→2→3 跳邻域 */}
-        <div className="inline-flex items-center gap-1 text-[11.5px] text-faint">
+        <div className="inline-flex items-center gap-1 text-f12 text-faint">
           <span>跳数</span>
           {[1, 2, 3].map((h) => (
             <button
               key={h}
               onClick={() => setHop(h)}
-              className={`w-6 h-6 rounded-md border text-[11px] ${hop === h ? 'border-brand text-brand bg-brand/10 font-medium' : 'border-line text-faint hover:text-ink'}`}
+              className={`w-6 h-6 rounded-md border text-f11 ${hop === h ? 'border-brand text-brand bg-brand/10 font-medium' : 'border-line text-faint hover:text-ink'}`}
             >{h}</button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-3 text-[11px] text-faint">
+        <div className="ml-auto flex items-center gap-3 text-f11 text-faint">
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-brand)' }} />角色</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />命题</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-secret)' }} />🔒 私密</span>
@@ -307,21 +307,21 @@ export function AtlasView() {
       <div className="flex-1 min-h-0 relative">
         {err ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-faint">
-            <span className="text-[13px] text-ink">图谱加载失败</span>
-            <span className="text-[12px]">{err}</span>
+            <span className="text-f13 text-ink">图谱加载失败</span>
+            <span className="text-f12">{err}</span>
             <button
               onClick={() => setRetryTick((t) => t + 1)}
-              className="mt-1 h-7 px-3 rounded-lg border border-line text-[12px] hover:border-brand"
+              className="mt-1 h-7 px-3 rounded-lg border border-line text-f12 hover:border-brand"
             >重试</button>
           </div>
         ) : !raw && loading ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-faint text-[13px]">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-faint text-f13">
             <Loader2 size={16} className="animate-spin" /> 加载子图…
           </div>
         ) : (raw && raw.nodes.length === 0) ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-faint">
-            <span className="text-[13px] text-ink">该角色暂无邻域</span>
-            <span className="text-[12px]">尚未录入「知道」边或角色关系。</span>
+            <span className="text-f13 text-ink">该角色暂无邻域</span>
+            <span className="text-f12">尚未录入「知道」边或角色关系。</span>
           </div>
         ) : (
           <>
@@ -343,7 +343,7 @@ export function AtlasView() {
 
             {/* 加载叠层(子图切换时) */}
             {loading && (
-              <div className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/90 backdrop-blur px-2.5 py-1 text-[11.5px] text-faint shadow-sm">
+              <div className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface/90 backdrop-blur px-2.5 py-1 text-f12 text-faint shadow-sm">
                 <Loader2 size={13} className="animate-spin" /> 更新中…
               </div>
             )}
@@ -351,9 +351,9 @@ export function AtlasView() {
             {/* 角色关系图例 */}
             {present.length > 0 && (
               <div className="absolute bottom-3 left-3 z-10 rounded-lg border border-line bg-surface/90 backdrop-blur px-3 py-2 flex flex-col gap-1 shadow-sm">
-                <span className="text-[11px] font-medium text-faint mb-0.5">角色关系</span>
+                <span className="text-f11 font-medium text-faint mb-0.5">角色关系</span>
                 {present.map((rel) => (
-                  <span key={rel} className="inline-flex items-center gap-1.5 text-[11px] text-ink">
+                  <span key={rel} className="inline-flex items-center gap-1.5 text-f11 text-ink">
                     <i className="w-3 h-[2px] rounded-full inline-block" style={{ background: relColor(rel) }} />
                     {REL_LABEL[rel] || rel}
                   </span>
@@ -362,7 +362,7 @@ export function AtlasView() {
             )}
 
             {/* 提示 */}
-            <div className="absolute bottom-3 right-3 z-10 text-[10.5px] text-faint/80 inline-flex items-center gap-1">
+            <div className="absolute bottom-3 right-3 z-10 text-f11 text-faint/80 inline-flex items-center gap-1">
               点击节点查看详情 <ChevronRight size={11} /> 角色可「以此为中心展开」
             </div>
 

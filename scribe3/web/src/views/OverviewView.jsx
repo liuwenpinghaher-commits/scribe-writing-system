@@ -10,9 +10,9 @@ function Stat({ icon: Icon, label, value, sub, tone = 'ink', onClick }) {
   return (
     <div onClick={onClick}
       className={`rounded-xl border border-line bg-surface p-4 ${onClick ? 'cursor-pointer hover:border-brand/30 transition-colors' : ''}`}>
-      <div className="flex items-center gap-1.5 text-faint text-[11px] uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
+      <div className="flex items-center gap-1.5 text-faint text-f11 uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
       <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
-      {sub && <div className="text-[11px] text-faint mt-0.5">{sub}</div>}
+      {sub && <div className="text-f11 text-faint mt-0.5">{sub}</div>}
     </div>
   )
 }
@@ -44,7 +44,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
       <div className="max-w-5xl mx-auto px-8 py-8">
         <div className="flex items-center gap-2 mb-6">
           <BookText size={18} className="text-brand" />
-          <h1 className="text-[22px] font-semibold prose-serif text-ink">概览</h1>
+          <h1 className="text-f22 font-semibold prose-serif text-ink">概览</h1>
         </div>
 
         {/* 规模 */}
@@ -61,9 +61,9 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
         {comp && (
           <div className="rounded-xl border border-line bg-surface p-4 mb-6">
             <div className="flex items-center gap-2 mb-3">
-              <div className="text-[12px] font-semibold text-ink">设定库</div>
+              <div className="text-f12 font-semibold text-ink">设定库</div>
               {comp.completeness_score != null && (
-                <span className="text-[11px] text-faint">完整度 {comp.completeness_score}/100</span>
+                <span className="text-f11 text-faint">完整度 {comp.completeness_score}/100</span>
               )}
             </div>
             <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
@@ -75,13 +75,13 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
                 ['事实/命题', comp.total_facts, BookText],
               ].map(([label, count, Icon]) => (
                 <div key={label} className="rounded-lg border border-line bg-canvas p-2.5">
-                  <div className="flex items-center gap-1.5 text-[11px] text-faint mb-1"><Icon size={12} />{label}</div>
-                  <div className="text-[18px] font-semibold text-ink tnum">{count ?? 0}</div>
+                  <div className="flex items-center gap-1.5 text-f11 text-faint mb-1"><Icon size={12} />{label}</div>
+                  <div className="text-f18 font-semibold text-ink tnum">{count ?? 0}</div>
                 </div>
               ))}
             </div>
             {comp.missing_dimensions?.length > 0 && (
-              <div className="mt-3 text-[12px] text-danger">缺失维度:{comp.missing_dimensions.join('、')}</div>
+              <div className="mt-3 text-f12 text-danger">缺失维度:{comp.missing_dimensions.join('、')}</div>
             )}
           </div>
         )}
@@ -91,16 +91,16 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
           <div className="rounded-xl border border-line bg-surface p-4 mb-6">
             <div className="flex items-center flex-wrap gap-2 mb-2">
               <Bookmark size={15} className="text-fore" />
-              <div className="text-[13px] font-semibold text-ink">伏笔平衡</div>
-              <span className={`text-[11px] ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
+              <div className="text-f13 font-semibold text-ink">伏笔平衡</div>
+              <span className={`text-f11 ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
                 {audit.balanced ? '✓ 已平衡' : '⚠ 未平衡'}
               </span>
               <button onClick={() => onOpenView?.('insight')}
-                className="ml-auto inline-flex items-center gap-1 text-[12px] text-brand hover:underline cursor-pointer">
+                className="ml-auto inline-flex items-center gap-1 text-f12 text-brand hover:underline cursor-pointer">
                 打开伏笔台账 <ArrowRight size={12} />
               </button>
             </div>
-            <div className="text-[12px] text-faint">
+            <div className="text-f12 text-faint">
               已埋未收 {(led.open || []).length} · 已回收 {(led.closed || []).length} · 障眼法 {(led.red_herring || []).length}
               · 超期 {audit.overdue_count ?? 0} · 契诃夫 {audit.never_paid ?? 0} 把枪没响
             </div>
@@ -109,15 +109,15 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
 
         {/* 弱章诊断 */}
         <div className="rounded-xl border border-line bg-surface p-4">
-          <div className="text-[12px] font-semibold text-ink mb-2">最需关注的章</div>
+          <div className="text-f12 font-semibold text-ink mb-2">最需关注的章</div>
           {weak.length === 0 ? (
-            <div className="text-[13px] text-ok">✓ 各章质检干净</div>
+            <div className="text-f13 text-ok">✓ 各章质检干净</div>
           ) : weak.map((c) => (
             <button key={c.seq} onClick={() => onJumpChapter?.(c.seq)}
-              className="w-full flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-[13px] text-left hover:bg-soft/40 rounded px-1 -mx-1 transition-colors cursor-pointer">
+              className="w-full flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-f13 text-left hover:bg-soft/40 rounded px-1 -mx-1 transition-colors cursor-pointer">
               <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
-              {c.qc_issues > 0 && <span className="text-danger text-[12px]">QC {c.qc_issues}</span>}
-              {c.causal > 0 && <span className="text-fore text-[12px]">因果 {c.causal}</span>}
+              {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
+              {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
             </button>
           ))}
         </div>

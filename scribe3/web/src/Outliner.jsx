@@ -29,12 +29,12 @@ function SynopsisCell({ chapter, onPatchSynopsis }) {
     return (
       <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setVal(chapter.synopsis || ''); setEditing(false) } }}
-        className="w-full rounded border border-brand/40 bg-canvas px-2 py-1 text-[12px] text-ink outline-none focus:border-brand" />
+        className="w-full rounded border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand" />
     )
   }
   return (
     <div onClick={() => setEditing(true)}
-      className="text-[12px] leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors truncate">
+      className="text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors truncate">
       {chapter.synopsis
         ? <span className="text-faint">{chapter.synopsis}</span>
         : <span className="text-faint/40">+ 写梗概</span>}
@@ -60,20 +60,20 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
         <div className="flex items-center gap-1.5">
           <span className="w-1 h-4 rounded-sm shrink-0" style={{ background: cardColorVar(chapter, colorMode) }} />
           <button onClick={() => onOpen?.(chapter)}
-            className="text-left text-[13px] text-ink font-medium hover:text-brand transition-colors cursor-pointer truncate">
+            className="text-left text-f13 text-ink font-medium hover:text-brand transition-colors cursor-pointer truncate">
             {chapterLabel(chapter.seq, chapter.title || '')}
           </button>
         </div>
       </td>
       <td className="px-2 py-2 align-top min-w-[180px]"><SynopsisCell chapter={chapter} onPatchSynopsis={onPatchSynopsis} /></td>
-      <td className="px-2 py-2 align-top text-[12px] text-faint tnum whitespace-nowrap">{wcLabel(chapter.word_count)}</td>
-      <td className="px-2 py-2 align-top text-[12px] text-faint whitespace-nowrap">{chapter.focalizer || '—'}</td>
+      <td className="px-2 py-2 align-top text-f12 text-faint tnum whitespace-nowrap">{wcLabel(chapter.word_count)}</td>
+      <td className="px-2 py-2 align-top text-f12 text-faint whitespace-nowrap">{chapter.focalizer || '—'}</td>
       <td className="px-2 py-2 align-top whitespace-nowrap">
         {labelMeta
-          ? <span className="text-[11px]" style={{ color: `var(--color-${labelMeta.token})` }}>◆ {labelMeta.text}</span>
-          : <span className="text-[11px] text-faint/40">—</span>}
+          ? <span className="text-f11" style={{ color: `var(--color-${labelMeta.token})` }}>◆ {labelMeta.text}</span>
+          : <span className="text-f11 text-faint/40">—</span>}
       </td>
-      <td className="px-2 py-2 align-top whitespace-nowrap text-[12px]">
+      <td className="px-2 py-2 align-top whitespace-nowrap text-f12">
         {qc > 0 ? <span className="text-warn tnum">⚠{qc}</span> : <span className="text-ok">✓</span>}
       </td>
     </tr>
@@ -89,7 +89,7 @@ function EmptyLaneDropZone({ volumeId }) {
   })
   return (
     <div ref={setNodeRef}
-      className={`text-[12px] py-3 border border-dashed rounded-lg text-center transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
+      className={`text-f12 py-3 border border-dashed rounded-lg text-center transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
       拖到此处移入本卷
     </div>
   )
@@ -100,15 +100,15 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
   const seqs = lane.chapters.map((c) => c.seq)
   return (
     <div className="mb-6">
-      <h3 className="text-[14px] font-semibold text-ink mb-2 px-0.5">{lane.title}
-        <span className="ml-2 text-[11px] font-normal text-faint">{lane.chapters.length} 章</span>
+      <h3 className="text-f14 font-semibold text-ink mb-2 px-0.5">{lane.title}
+        <span className="ml-2 text-f11 font-normal text-faint">{lane.chapters.length} 章</span>
       </h3>
       {lane.chapters.length === 0 ? (
         <EmptyLaneDropZone volumeId={lane.volumeId} />
       ) : (
         <table className="w-full border-collapse">
           <thead>
-            <tr className="text-[10px] text-faint uppercase tracking-wider">
+            <tr className="text-f10 text-faint uppercase tracking-wider">
               <th className="w-6" />
               <th className="text-left font-medium px-2 py-1.5">章</th>
               <th className="text-left font-medium px-2 py-1.5">梗概</th>

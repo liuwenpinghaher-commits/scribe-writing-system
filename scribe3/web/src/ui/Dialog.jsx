@@ -45,11 +45,11 @@ export function InputDialog({ open, title, placeholder = '', defaultValue = '', 
   return (
     <Dialog open={open} onClose={onClose} labelledBy="dlg-title">
       <div className="p-4">
-        <div id="dlg-title" className="text-[14px] font-medium text-ink mb-3">{title}</div>
+        <div id="dlg-title" className="text-f14 font-medium text-ink mb-3">{title}</div>
         <input autoFocus value={v} placeholder={placeholder}
           onChange={(e) => setV(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
-          className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-[13px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus:border-brand" />
+          className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus:border-brand" />
         <div className="mt-4 flex justify-end gap-2">
           <Btn variant="ghost" onClick={onClose}>取消</Btn>
           <Btn variant="primary" onClick={submit}>{confirmText}</Btn>
@@ -63,8 +63,8 @@ export function ConfirmDialog({ open, title, body, danger, confirmText = '确认
   return (
     <Dialog open={open} onClose={onClose} labelledBy="cfm-title">
       <div className="p-4">
-        <div id="cfm-title" className="text-[14px] font-medium text-ink mb-1.5">{title}</div>
-        {body && <div className="text-[12.5px] text-faint leading-relaxed mb-4">{body}</div>}
+        <div id="cfm-title" className="text-f14 font-medium text-ink mb-1.5">{title}</div>
+        {body && <div className="text-f13 text-faint leading-relaxed mb-4">{body}</div>}
         <div className="mt-2 flex justify-end gap-2">
           <Btn variant="ghost" onClick={onClose}>取消</Btn>
           <Btn variant="primary" className={danger ? '!bg-danger !text-white' : ''} onClick={() => { onConfirm?.(); onClose?.() }}>{confirmText}</Btn>

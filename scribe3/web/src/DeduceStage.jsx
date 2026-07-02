@@ -54,16 +54,16 @@ export function DeduceStage({ seq, meta, onSaved }) {
   return (
     <div className="max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0">
       <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-[14px] font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
+        <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
         <button onClick={gen} disabled={busy}
-          className="ml-auto h-7 px-3 rounded-lg bg-brand text-brandfg text-[12px] inline-flex items-center gap-1 cursor-pointer hover:brightness-110 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+          className="ml-auto h-7 px-3 rounded-lg bg-brand text-brandfg text-f12 inline-flex items-center gap-1 cursor-pointer hover:brightness-110 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </button>
       </div>
       <textarea value={text} onChange={(e) => { setText(e.target.value); dirty.current = true }} onBlur={blur}
         placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
-        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-[14px] leading-[1.85] text-ink outline-none focus:border-brand resize-none" />
-      <div className="text-[11.5px] text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
+        className="flex-1 min-h-0 w-full rounded-xl border border-line bg-canvas px-4 py-3 text-f14 leading-[1.85] text-ink outline-none focus:border-brand resize-none" />
+      <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
     </div>
   )
 }

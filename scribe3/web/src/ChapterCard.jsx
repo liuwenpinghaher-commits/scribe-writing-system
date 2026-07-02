@@ -49,7 +49,7 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
             </button>
           )}
           <button onClick={() => onOpen?.(chapter)}
-            className="flex-1 min-w-0 text-left text-[13.5px] font-semibold text-ink leading-snug hover:text-brand transition-colors cursor-pointer truncate">
+            className="flex-1 min-w-0 text-left text-f14 font-semibold text-ink leading-snug hover:text-brand transition-colors cursor-pointer truncate">
             {chapterLabel(seq, chapter.title || '')}
           </button>
         </div>
@@ -61,21 +61,21 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
             onBlur={commit}
             onKeyDown={(e) => { if (e.key === 'Escape') cancel(); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit() }}
             placeholder="写本章梗概…(⌘/Ctrl+Enter 保存,Esc 取消)"
-            className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1.5 text-[12px] text-ink leading-relaxed outline-none focus:border-brand resize-y" />
+            className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1.5 text-f12 text-ink leading-relaxed outline-none focus:border-brand resize-y" />
         ) : chapter.synopsis ? (
           <div onClick={() => setEditing(true)}
-            className="text-[12px] text-faint leading-relaxed line-clamp-3 cursor-text hover:text-ink/80 transition-colors">
+            className="text-f12 text-faint leading-relaxed line-clamp-3 cursor-text hover:text-ink/80 transition-colors">
             {chapter.synopsis}
           </div>
         ) : (
           <button onClick={() => setEditing(true)}
-            className="text-left text-[12px] text-faint/40 hover:text-brand cursor-text transition-colors">
+            className="text-left text-f12 text-faint/40 hover:text-brand cursor-text transition-colors">
             + 写梗概
           </button>
         )}
 
         {/* 角标行:字数 · POV · QC · 状态 */}
-        <div className="mt-auto flex items-center gap-2 flex-wrap text-[11px]">
+        <div className="mt-auto flex items-center gap-2 flex-wrap text-f11">
           <span className="tnum text-faint">{wcLabel(chapter.word_count)}</span>
           {chapter.focalizer && (
             <span className="inline-flex items-center gap-1 text-faint">

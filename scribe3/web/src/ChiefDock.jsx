@@ -18,14 +18,14 @@ function Bubble({ role, content, tools, streaming }) {
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-[10.5px] text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-f11 text-faint">
                 <Wrench size={9} className="text-brand" />
                 {(t || '').replace(/^mcp_scribe3_/, '').replace(/^s3_/, '')}
               </span>
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
+        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -109,8 +109,8 @@ function WriteSlot() {
       <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
         <PenLine size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
-          <span className="text-[12px] font-semibold text-ink">主编 · 写作</span>
-          <span className="text-[10.5px] text-faint truncate">提思路让主编写,或改选中段落</span>
+          <span className="text-f12 font-semibold text-ink">主编 · 写作</span>
+          <span className="text-f11 text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
       </div>
       {/* 写作 chat 槽:WriteLayout 的 WriteChat 经 portal 进来填充此处 */}
@@ -257,8 +257,8 @@ function DiscussionDock({ sel, phase }) {
       <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
         <MessagesSquare size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
-          <span className="text-[12px] font-semibold text-ink">主编</span>
-          <span className="text-[10.5px] text-faint truncate">{ctx.label}</span>
+          <span className="text-f12 font-semibold text-ink">主编</span>
+          <span className="text-f11 text-faint truncate">{ctx.label}</span>
         </div>
       </div>
 
@@ -266,11 +266,11 @@ function DiscussionDock({ sel, phase }) {
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-[12px] text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论。主编可联查书内实证(角色/伏笔/事件/设定)。</div>
+            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论。主编可联查书内实证(角色/伏笔/事件/设定)。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
-                  className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-[12px] text-ink transition-colors cursor-pointer">{s}</button>
+                  className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
               ))}
             </div>
           </div>
@@ -290,7 +290,7 @@ function DiscussionDock({ sel, phase }) {
             rows={1}
             placeholder="就当前内容问主编…(Enter 发送)"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            className="flex-1 resize-none bg-transparent text-[13px] text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
+            className="flex-1 resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
           />
           {busy ? (
             // 生成中:发送键变「停止」——中止在途流(EventSource.close/AbortController.abort)+ 解锁 busy,可立即再发。
