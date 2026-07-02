@@ -16,7 +16,7 @@ import { useToast } from './ui/Toast.jsx'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/素材/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
-export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq }) {
+export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onJumpChapter }) {
   const [tab, setTab] = usePref('s3.leftTab', 'tree')
   const [focalizer, setFocalizer] = useState('')
   const [ledger, setLedger] = useState(undefined)   // undefined=加载中/未知,null=加载失败,object=数据
@@ -42,12 +42,12 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     base.push(
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <div className="p-3"><FramePanel focalizer={focalizer} chapter={seq} /></div> },
       { key: 'deduce', icon: Sparkles, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
-      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} /> },
+      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} onJumpChapter={onJumpChapter} /> },
       { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} /> },
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, ledger, motifs])
+  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, onJumpChapter])
 
   // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
   const active = caps.find((c) => c.key === tab) || caps[0]
@@ -130,31 +130,44 @@ function PromiseSpan({ p }) {
   return <span className="text-[10px] text-faint tnum">埋 {setup} → 收 {payoff}</span>
 }
 
-function PromiseRow({ p, danger, tag }) {
-  return (
-    <div className="mb-2 pb-2 border-b border-line/50 last:border-0">
+function PromiseRow({ p, danger, tag, onJumpChapter }) {
+  // 联动跳章(P2):有 setup_chapter 且拿到 onJumpChapter → 整条可点,跳到埋设章。
+  const jumpTo = p.setup_chapter != null ? p.setup_chapter : p.payoff_chapter
+  const clickable = onJumpChapter && jumpTo != null
+  const inner = (
+    <>
       <div className={cn('text-[12.5px] leading-snug', danger ? 'text-danger' : 'text-ink')}>{p.text}</div>
       <div className="flex items-center gap-1.5 mt-0.5">
         <PromiseSpan p={p} />
         {tag}
       </div>
-    </div>
+    </>
   )
+  if (clickable) {
+    return (
+      <button type="button" onClick={() => onJumpChapter(jumpTo)}
+        title={`跳到第${jumpTo}章`}
+        className="w-full text-left mb-2 pb-2 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 -mx-1 px-1">
+        {inner}
+      </button>
+    )
+  }
+  return <div className="mb-2 pb-2 border-b border-line/50 last:border-0">{inner}</div>
 }
 
-function PromiseGroup({ title, tone, items, danger, tag }) {
+function PromiseGroup({ title, tone, items, danger, tag, onJumpChapter }) {
   if (!items || items.length === 0) return null
   return (
     <div className="mb-3 last:mb-0">
       <div className={cn('text-[11px] uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
         {title} · {items.length}
       </div>
-      {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} />)}
+      {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} onJumpChapter={onJumpChapter} />)}
     </div>
   )
 }
 
-function PromisesPanel({ ledger }) {
+function PromisesPanel({ ledger, onJumpChapter }) {
   if (ledger === undefined) return <div className="p-3"><Empty>加载中…</Empty></div>
   if (ledger === null) return <div className="p-3"><Empty>伏笔台账加载失败,切走再切回可重试</Empty></div>
   const open = Array.isArray(ledger.open) ? ledger.open : []
@@ -168,10 +181,10 @@ function PromisesPanel({ ledger }) {
       <div className="text-[11px] text-faint uppercase tracking-wider mb-2">伏笔 · 埋/收台账</div>
       {empty ? <Empty>本书暂无伏笔</Empty> : <>
         <PromiseGroup title="⚠ 超期未收" tone="text-danger font-semibold" items={overdue} danger
-          tag={<Tag tone="danger">超期</Tag>} />
-        <PromiseGroup title="待收" items={pending} />
-        <PromiseGroup title="已收" items={closed} tag={<Tag tone="ok">已收</Tag>} />
-        <PromiseGroup title="障眼法" items={herring} tag={<Tag tone="fore">障眼法</Tag>} />
+          tag={<Tag tone="danger">超期</Tag>} onJumpChapter={onJumpChapter} />
+        <PromiseGroup title="待收" items={pending} onJumpChapter={onJumpChapter} />
+        <PromiseGroup title="已收" items={closed} tag={<Tag tone="ok">已收</Tag>} onJumpChapter={onJumpChapter} />
+        <PromiseGroup title="障眼法" items={herring} tag={<Tag tone="fore">障眼法</Tag>} onJumpChapter={onJumpChapter} />
       </>}
     </div>
   )

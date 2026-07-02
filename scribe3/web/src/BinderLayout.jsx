@@ -136,7 +136,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           className="bg-surface"
         >
           <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
-            treeCbs={treeCbs} seq={curSeq} />
+            treeCbs={treeCbs} seq={curSeq} onJumpChapter={onJumpChapter} />
         </Panel>
         <Separator className="w-px bg-line data-[separator]:hover:bg-brand/50 transition-colors" />
 
