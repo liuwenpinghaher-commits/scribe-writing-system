@@ -11,28 +11,46 @@ export function DeduceStage({ seq, meta, onSaved }) {
   const { selected } = useDeduceSel()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const dirty = useRef(false)
   const chars = meta?.chars || []
   const cur = selected === 'truth'
     ? { name: '场景真相', prose: meta?.scene_truth || '' }
     : (meta?.deductions || []).find((d) => d.character_id === selected)
       || { character_id: selected, character_name: (chars.find((c) => c.id === selected) || {}).name || selected, prose: '' }
-  useEffect(() => { setText(cur.prose || ''); dirty.current = false }, [selected, seq]) // eslint-disable-line
+  // 工作态 ref:持当前 selected/seq/text/dirty,完全脱离 state 闭包,切换/落库时机都拿最新值。
+  const workRef = useRef({ selected, seq, text: '', dirty: false })
 
-  const persist = async (val) => {
+  // persistFor:用捕获的旧 sel/sq/val 落库,不读可能已变的 state/props。
+  // 角色分支读最新 chapter 再合并 deductions,避免用过期 meta 覆盖其他角色投影。
+  const persistFor = async (sel, sq, val) => {
     try {
-      if (selected === 'truth') {
-        await api.patchChapter(seq, { scene_truth: val })
+      if (sel === 'truth') {
+        await api.patchChapter(sq, { scene_truth: val })
       } else {
-        const others = (meta?.deductions || []).filter((d) => d.character_id !== selected)
-        await api.patchChapter(seq, { deductions: [...others, { character_id: selected, character_name: cur.character_name, prose: val }] })
+        const ch = await api.chapter(sq)                       // 读最新,避免 meta 过期覆盖别的角色
+        const others = (ch?.deductions || []).filter((d) => d.character_id !== sel)
+        const name = (meta?.chars?.find((c) => c.id === sel) || {}).name
+          || (ch?.deductions || []).find((d) => d.character_id === sel)?.character_name || sel
+        await api.patchChapter(sq, { deductions: [...others, { character_id: sel, character_name: name, prose: val }] })
       }
       onSaved?.()
     } catch (e) {
       toast(e?.body?.detail || '演绎保存失败,请重试', { tone: 'danger' })
     }
   }
-  const blur = () => { if (dirty.current) { dirty.current = false; persist(text) } }
+
+  // 切换(选中项/切章):进入时 workRef 仍持旧 selected/seq/text;若 dirty 先把旧的 flush 掉,再载新的。
+  useEffect(() => {
+    const flushThenLoad = async () => {
+      const w = workRef.current
+      if (w.dirty) await persistFor(w.selected, w.seq, w.text)
+      const v = cur.prose || ''
+      setText(v)
+      workRef.current = { selected, seq, text: v, dirty: false }
+    }
+    flushThenLoad()
+  }, [selected, seq]) // eslint-disable-line
+
+  const blur = () => { if (workRef.current.dirty) { workRef.current.dirty = false; persistFor(selected, seq, text) } }
 
   const gen = () => {
     setBusy(true); let acc = ''
@@ -47,7 +65,10 @@ export function DeduceStage({ seq, meta, onSaved }) {
       onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
       onDelta: (d) => { acc += d; setText(acc) },
       onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
-      onDone: () => { setBusy(false); const v = acc.trim(); if (v) { dirty.current = true; persist(v) } },
+      onDone: () => {
+        setBusy(false); const v = acc.trim()
+        if (v) { persistFor(selected, seq, v); workRef.current = { selected, seq, text: v, dirty: false } }
+      },
       onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
     })
   }
@@ -60,7 +81,7 @@ export function DeduceStage({ seq, meta, onSaved }) {
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
       </div>
-      <Textarea value={text} onChange={(e) => { setText(e.target.value); dirty.current = true }} onBlur={blur}
+      <Textarea value={text} onChange={(e) => { const v = e.target.value; setText(v); workRef.current.text = v; workRef.current.dirty = true }} onBlur={blur}
         placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
         className="flex-1 min-h-0 rounded-xl px-4 py-3 text-f14 leading-[1.85] resize-none" />
       <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
