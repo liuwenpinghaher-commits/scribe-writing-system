@@ -305,6 +305,12 @@ def motifs(work: str = "main"):
     return _store_for(work).list_motifs()
 
 
+@app.get("/motif-instances")
+def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
+    """本章触及的母题:[{motif_id, name, evidence}]。ingest 抽取落库,未反哺的章返回空。"""
+    return _store_for(work).list_motif_instances(chapter)
+
+
 # ===== 设定库 增删改(作者直编,不经 elicitation;非世界状态级别的 agent 写)=====
 class CharIn(BaseModel):
     name: str

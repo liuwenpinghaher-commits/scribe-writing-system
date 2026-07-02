@@ -3205,3 +3205,18 @@ def test_deduction_block_injects_truth_and_projections(store):
     assert "柳怀玉" in blk and "看到:纸人动" in blk
     store.save_chapter(4, "", title="第4章")
     assert _deduction_block(store, 4) == ""   # 空章返回空串
+
+
+def test_motif_instances_endpoint(store):
+    store.add_motif("铜炉", theme="宿命")
+    mid = store.list_motifs()[0]["id"]
+    store.add_motif_instance(mid, chapter=2, evidence="炉火", ingest_seq=2)
+    c = _client(store)
+    r = c.get("/motif-instances?chapter=2")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["motif_id"] == mid
+    assert body[0]["name"] == "铜炉"
+    assert body[0]["evidence"] == "炉火"
+    assert c.get("/motif-instances?chapter=9").json() == []

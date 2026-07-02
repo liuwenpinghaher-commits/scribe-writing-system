@@ -52,6 +52,7 @@ export const api = {
   promises: () => j('/promises'),
   promisesLedger: () => j('/promises/ledger'),
   motifs: () => j('/motifs'),
+  motifInstances: (ch) => j(`/motif-instances?chapter=${ch}`),
   graph: (opts = {}) => {
     const { chapter, focus, limit, hop } = typeof opts === 'object' && opts !== null ? opts : { chapter: opts }
     const qs = []
