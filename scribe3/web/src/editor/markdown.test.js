@@ -18,6 +18,16 @@ describe('mdToHTML', () => {
     expect(mdToHTML('1. a\n2. b')).toBe('<ol><li><p>a</p></li><li><p>b</p></li></ol>')
     expect(mdToHTML('> 引')).toBe('<blockquote><p>引</p></blockquote>')
   })
+  it('分隔线:--- / ___ 是 hr;星号行(场景断)按字面段落保留', () => {
+    expect(mdToHTML('甲\n\n---\n\n乙')).toBe('<p>甲</p><hr><p>乙</p>')
+    expect(mdToHTML('___')).toBe('<hr>')
+    expect(mdToHTML('* * *')).toBe('<p>* * *</p>')
+    expect(mdToHTML('***')).toBe('<p>***</p>')
+  })
+  it('斜体不吞空白内容(星号行不误判)', () => {
+    expect(mdToHTML('a * * b')).toBe('<p>a * * b</p>')
+    expect(mdToHTML('a *x* b')).toBe('<p>a <em>x</em> b</p>')
+  })
   it('HTML 转义', () => {
     expect(mdToHTML('<script>x</script>')).toBe('<p>&lt;script&gt;x&lt;/script&gt;</p>')
   })

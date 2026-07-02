@@ -9,7 +9,7 @@ import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 // 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
 export function DeduceStage({ seq, meta, onSaved }) {
   const toast = useToast()
-  const { selected } = useDeduceSel()
+  const { selected, setSelected } = useDeduceSel()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const chars = meta?.chars || []
@@ -42,24 +42,38 @@ export function DeduceStage({ seq, meta, onSaved }) {
   }
 
   // 切换(选中项/切章):进入时 workRef 仍持旧 selected/seq/text;若 dirty 先把旧的 flush 掉,再载新的。
-  // flush 失败 → 不覆盖 workRef 旧值,恢复 dirty 并中止加载新目标(编辑器停在未保存内容,失焦/再切换可重试)。
+  // alive 取消令牌:persist 在途时目标再变(A→B→C),旧 effect 续体不得 setText/写 workRef,
+  // 否则旧目标内容回灌且后续编辑错写到中间目标。
+  // flush 失败 → 不覆盖 workRef 旧值,恢复 dirty,并把选中态回滚到旧目标(标题与编辑器不分叉,可重试)。
   useEffect(() => {
+    let alive = true
     const flushThenLoad = async () => {
       const w = workRef.current
+      let flushed = null   // 本次成功 flush 的 {sel, sq, val}
       if (w.dirty) {
         const { selected: sel, seq: sq, text: val } = w
         w.dirty = false
         const ok = await persistFor(sel, sq, val)
-        if (!ok) {
-          workRef.current = { selected: sel, seq: sq, text: val, dirty: true }
+        if (!alive) {
+          // 目标又变了:最新 effect 已按 dirty=false 加载新目标,此处绝不回写 workRef(否则错置)。
+          if (!ok) console.warn('[deduce] flush 失败且目标已再切换,该次未保存内容无法自动恢复', sel, sq)
           return
         }
+        if (!ok) {
+          workRef.current = { selected: sel, seq: sq, text: val, dirty: true }
+          // 回滚选中项到旧目标(切章失败无法回滚章导航,编辑器停在未保存内容,失焦/再切换可重试)
+          if (sq === seq && sel !== selected) setSelected(sel)
+          return
+        }
+        flushed = { sel, sq, val }
       }
-      const v = cur.prose || ''
+      // 载入新目标;若新目标恰是刚成功 flush 的同一目标(回滚重试成功路径),用刚保存的值,防 stale meta 回灌
+      const v = (flushed && flushed.sel === selected && flushed.sq === seq) ? flushed.val : (cur.prose || '')
       setText(v)
       workRef.current = { selected, seq, text: v, dirty: false }
     }
     flushThenLoad()
+    return () => { alive = false }
   }, [selected, seq]) // eslint-disable-line
 
   // 失焦 flush:从 workRef 读实时值(不读 state 闭包),与切换 flush 同一落库口径。

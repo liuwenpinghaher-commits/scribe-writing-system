@@ -1,18 +1,20 @@
 // 轻量 markdown ↔ TipTap(StarterKit)转换,零依赖。
 // 口径约定(与 RichEditor 序列化一致,保证 round-trip 稳定):
 // - 块间以空行(\n\n)分隔;段内单个 \n = hardBreak(保留既有纯文本的行结构)。
-// - 支持:# 标题(1-6)、- / * 无序列表、1. 有序列表、> 引用、--- 分隔线、``` 围栏代码。
+// - 支持:# 标题(1-6)、- / * 无序列表、1. 有序列表、> 引用、---/___ 分隔线(hr)、``` 围栏代码。
+// - 分隔线只认 ---/___:「* * *」「***」是正文场景断记号(WriteLayout/prose 口径),
+//   以字面段落保留,round-trip 不变形(否则草稿采用为正文后场景断失效)。
 // - 行内:**粗** *斜* ~~删~~ `码`。纯文本(无 md 记号)进出完全不变形。
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-// 行内 md → html(输入已 escape)
+// 行内 md → html(输入已 escape)。斜体要求内容首尾非空白,避免「* * *」这类星号行被误判。
 function inline(s) {
   return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+(?:\*[^*]+)*)\*\*/g, '<strong>$1</strong>')
     .replace(/~~([^~]+)~~/g, '<s>$1</s>')
-    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^*])\*([^*\s](?:[^*\n]*[^*\s])?)\*(?!\*)/g, '$1<em>$2</em>')
 }
 const il = (s) => inline(esc(s))
 
@@ -34,7 +36,9 @@ export function mdToHTML(md) {
     if ((m = /^(#{1,6})\s+(.*)$/.exec(t))) {
       flushPara(); out.push(`<h${m[1].length}>${il(m[2])}</h${m[1].length}>`); i++; continue
     }
-    if (/^(-{3,}|_{3,}|\*{3,})$/.test(t.replace(/\s/g, ''))) { flushPara(); out.push('<hr>'); i++; continue }
+    if (/^(-{3,}|_{3,})$/.test(t)) { flushPara(); out.push('<hr>'); i++; continue }
+    // 纯星号行(***、* * *)= 场景断字面文本,先于无序列表分支兜住,按普通段落保留
+    if (/^[*\s]+$/.test(t)) { para.push(raw); i++; continue }
     if (t.startsWith('```')) {
       flushPara()
       const code = []

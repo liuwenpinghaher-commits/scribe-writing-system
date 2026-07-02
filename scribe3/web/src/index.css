@@ -173,6 +173,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 .tiptap-rich li { margin: 0 0 .1em; }
 .tiptap-rich li p { margin: 0; }
 .tiptap-rich blockquote { border-left: 3px solid var(--color-line); padding-left: .8em; color: var(--color-faint); margin: .3em 0 .6em; }
+.tiptap-rich hr { border: none; border-top: 1px solid var(--color-line); margin: .9em 0; }
+.tiptap-rich hr.ProseMirror-selectednode { border-top-color: var(--color-brand); }
 .tiptap-rich code { font-size: .9em; background: var(--color-soft); border-radius: 4px; padding: .1em .35em; }
 .tiptap-rich pre { background: var(--color-soft); border-radius: 8px; padding: .6em .8em; margin: .3em 0 .6em; overflow-x: auto; }
 .tiptap-rich pre code { background: transparent; padding: 0; }

@@ -26,7 +26,9 @@ export function RichEditor({ value, onChange, onBlur, placeholder = '', ariaLabe
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ horizontalRule: false }),
+      // horizontalRule 保留:md 的 --- 载入为 hr,禁掉会被 PM 静默丢弃、保存即永久删除。
+      // link/underline 禁掉:docToMd 不序列化这两个 mark,留着会静默丢格式。
+      StarterKit.configure({ link: false, underline: false }),
       Placeholder.configure({ placeholder, showOnlyWhenEditable: true }),
       CharacterCount,
     ],
