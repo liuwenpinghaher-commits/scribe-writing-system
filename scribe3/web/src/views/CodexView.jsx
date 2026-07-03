@@ -339,17 +339,28 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],
     terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea'],['first_mention_chapter','首次提及章','number']],
-    promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['tier','兑现层级','tier_sel'],['promise_kind','类型','text']],
+    promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['tier','兑现层级','tier_sel'],['kind','类型','kind_sel']],
     motifs: [['name','母题名','text'],['theme','绑定主题','text'],['unfolding','隐喻展开','textarea'],['echoes','物质回声','textarea']],
   }
   const fields = fieldMap[type] || []
   const tabLabel = TABS.find((t) => t.key === type)?.label || type
   const stateOptions = ['active','lost','destroyed','unknown']
-  const scopeOptions = ['global','local']
+  // 世界规则作用域:严格对齐后端 DB ASSERT(migrations/027_setting_completeness.surql
+  // `scope IN ['global','regional','faction_specific']`)。曾误含 'local' → 用户选中保存必被
+  // SurrealDB 断言拒绝(报文不可读)。P1-8:去 'local',补正确三值。
+  const scopeOptions = ['global','regional','faction_specific']
   const tierOptions = [
     { value: 'chapter', label: '章级（近场 +1~3 章内兑现）' },
     { value: 'arc',     label: '卷级（中程 +5~15 章内兑现）' },
     { value: 'book',    label: '书级（贯穿全书，永不超期）' },
+  ]
+  // 伏笔类型(P1-3):行数据字段名为 `kind`(GET /promises 与后端 DB 一致),仅 promise/red_herring
+  // 两值(ledger 三栏 open/closed/red_herring 依此归位)。旧版误用 `promise_kind` 读空、且改文案时
+  // 因请求体缺 promise_kind 被后端默认 'promise' 静默重置 red_herring——现统一读写 `kind`,
+  // 由 api.editPromise/addPromiseNew 在线上转译 kind→promise_kind(请求体字段名),两向对齐。
+  const kindOptions = [
+    { value: 'promise',     label: '正伏笔（promise · 需兑现）' },
+    { value: 'red_herring', label: '障眼法（red_herring · 误导，永不兑现）' },
   ]
   const ruleCatOptions = [
     { value: 'magic',      label: '魔法' },
@@ -414,6 +425,19 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
                 className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
               >
                 {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          ) :
+          ftype === 'kind_sel' ? (
+            // 伏笔类型(P1-3):读写 row.kind;缺省视作 promise。改此值等价 mark-herring(store 同为 SET kind)。
+            <div key={k} className="py-2">
+              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
+              <select
+                value={row[k] || 'promise'}
+                onChange={(e) => save(k, e.target.value)}
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+              >
+                {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           ) :

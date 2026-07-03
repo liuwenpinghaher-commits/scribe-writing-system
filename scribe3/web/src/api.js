@@ -30,6 +30,11 @@ const put = (p, body) => fetch(BASE + ww(p), {
   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then(handle)
 
+// 伏笔请求体:前端行数据用 `kind`,后端 PromIn 读 `promise_kind`。有 kind 时补一份 promise_kind
+// 同值(不删 kind,后端忽略多余字段),避免整行回传时 promise_kind 缺省 'promise' 覆盖 red_herring。
+const promKindOut = (b) =>
+  (b && typeof b === 'object' && b.kind !== undefined) ? { ...b, promise_kind: b.kind } : b
+
 export const api = {
   setWork: (w) => { WORK = w },
   getWork: () => WORK,
@@ -83,8 +88,11 @@ export const api = {
   // 事件叙事位编辑(尾1):narrative_position=null 清除回退 story_chapter
   patchEventNarrative: (eid, narrative_position) =>
     patch('/events/' + enc(eid) + '/narrative', { narrative_position }),
-  addPromiseNew: (b) => post('/promises-new', b),
-  editPromise: (pid, b) => patch('/promises/' + enc(pid), b),
+  // 伏笔:前端统一用 `kind`(与 GET /promises 行数据、后端 DB 字段同名);但请求体模型 PromIn
+  // 读 `promise_kind`(缺省 'promise')。整行回传编辑其它字段时,若不带 promise_kind → 后端把
+  // red_herring 静默重置为 promise(P1-3)。此处在线上把 kind 转译为 promise_kind,保留原值。
+  addPromiseNew: (b) => post('/promises-new', promKindOut(b)),
+  editPromise: (pid, b) => patch('/promises/' + enc(pid), promKindOut(b)),
   delPromise: (pid) => del('/promises/' + enc(pid)),
   advancePromise: (pid, payoff_chapter) => post('/promises/' + enc(pid) + '/advance', { payoff_chapter }),
   markHerring: (pid) => post('/promises/' + enc(pid) + '/mark-herring'),
