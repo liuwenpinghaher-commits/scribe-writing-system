@@ -14,19 +14,31 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
  */
 const Ctx = createContext(null)
 
+/** 一次性消费 suppress 标记:置位 → 本次返回 true 并复位;未置位 → false。纯逻辑,便于单测。 */
+export function consumeSuppress(ref) {
+  if (ref.current) { ref.current = false; return true }
+  return false
+}
+
 export function SelectionProvider({ children }) {
-  const [focus, setFocusState] = useState(null)
-  // 最近一次「显式」setFocus 的时刻:同一次交互里聚焦+跳章并发时(如点伏笔行→聚焦伏笔并跳埋设章),
-  // 跳章引发的 sel 镜像不得反把 focus 冲成「章」——SelMirror 据此在极短窗口内避让。
-  const lastSetRef = useRef(0)
-  const setFocus = useCallback((f) => { lastSetRef.current = Date.now(); setFocusState(f) }, [])
-  // 镜像专用:不计入「显式聚焦」时间戳(连续快速点两个树节点时,第二次镜像不得被第一次避让掉)。
-  const mirrorFocus = useCallback((f) => { setFocusState(f) }, [])
-  return <Ctx.Provider value={{ focus, setFocus, mirrorFocus, lastSetRef }}>{children}</Ctx.Provider>
+  const [focus, setFocus] = useState(null)
+  // 一次性事务标记(spec 审查必修1):「聚焦+跳章」复合动作(点伏笔行/仪表盘卡内跳章)在 setFocus
+  // 的同时置位;紧随其后的那一次 sel 变化被 SelMirror 消费掉(跳过镜像,保住伏笔聚焦),
+  // 再往后的任何 sel 变化正常镜像——因果标记替代时间窗,快速连点(跳章后立刻点树节点)天然正确。
+  const suppressNextMirrorRef = useRef(false)
+  const suppressNextMirror = useCallback(() => { suppressNextMirrorRef.current = true }, [])
+  return (
+    <Ctx.Provider value={{ focus, setFocus, suppressNextMirror, suppressNextMirrorRef }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export function useSelection() {
-  return useContext(Ctx) || { focus: null, setFocus: () => {}, mirrorFocus: () => {}, lastSetRef: { current: 0 } }
+  return useContext(Ctx) || {
+    focus: null, setFocus: () => {},
+    suppressNextMirror: () => {}, suppressNextMirrorRef: { current: false },
+  }
 }
 
 /** sel({mode:'view'|'node'}) → focus 镜像(origin:'sel')。纯函数,便于单测。 */
@@ -44,13 +56,13 @@ export function focusFromSel(sel) {
   }
 }
 
-/** 挂在 SelectionProvider 内、由持有 sel 的层(BinderLayout)渲染:sel 变化 → 镜像成 focus。 */
+/** 挂在 SelectionProvider 内、由持有 sel 的层(BinderLayout)渲染:sel 变化 → 镜像成 focus。
+ *  suppress 标记置位时消费掉本次变化(复合动作里的跳章不冲掉刚设的显式聚焦)。 */
 export function SelMirror({ sel }) {
-  const { mirrorFocus, lastSetRef } = useSelection()
+  const { setFocus, suppressNextMirrorRef } = useSelection()
   useEffect(() => {
-    // 400ms 内刚有显式聚焦(点伏笔行/仪表盘卡等触发的跳章与聚焦同属一次交互)→ 本次 sel 变化不镜像覆盖
-    if (Date.now() - lastSetRef.current < 400) return
-    mirrorFocus(focusFromSel(sel))
+    if (consumeSuppress(suppressNextMirrorRef)) return
+    setFocus(focusFromSel(sel))
   }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
   return null
 }

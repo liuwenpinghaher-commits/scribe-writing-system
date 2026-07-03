@@ -6,7 +6,7 @@ import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
-import { focusTalk, focusChatKey } from './lib/focusTalk'
+import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { Btn } from './ui.jsx'
@@ -187,7 +187,12 @@ function DiscussionDock({ sel, phase }) {
   // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复。
   // 块三:显式聚焦(总线 focus)各自成串——切聚焦即切上下文(顺带经 chatKey 效应中止在途流);
   // 镜像/演绎目标不改 key(演绎生成中切目标不得断流,块二口径)。
-  const fKey = focusChatKey(focus)
+  // 必修2(方案a):busy(流在途)期间冻结 fKey——生成中点母题行/帧行等纯聚焦只即时改话术 ctx,
+  // 不改 chatKey(否则下方 chatKey 效应 abort 在途流,兜底发布永不执行,部分稿静默丢失);
+  // 流结束(onDone/onError 置 busy=false)后的下一轮渲染再应用最新 fKey。渲染期写 ref 幂等安全。
+  const fKeyRef = useRef('')
+  fKeyRef.current = nextChatFocusKey(fKeyRef.current, focusChatKey(focus), busy)
+  const fKey = fKeyRef.current
   const chatKey = sel?.mode === 'view'
     ? `${api.getWork()}:view:${sel.viewKey}${fKey}`
     : `${api.getWork()}:node:${sel?.node?.id || 'none'}${phase ? ':' + phase : ''}${fKey}`

@@ -68,3 +68,10 @@ export function focusChatKey(focus) {
   if (!focus || focus.origin === 'sel' || focus.type === 'deduction') return ''
   return `:focus:${focus.type}:${focus.id}`
 }
+
+/** spec 审查必修2:busy(流在途)期间冻结 fKey——显式聚焦只即时改话术,不改 chatKey,
+ *  否则 chatKey 变化效应会 abort 在途写作流,api 层对 AbortError 不回调 onDone,
+ *  fallbackProposalText 兜底发布永不执行,部分稿静默丢失。流结束后即时应用 live 值。纯函数,便于单测。 */
+export function nextChatFocusKey(prev, live, busy) {
+  return busy ? prev : live
+}

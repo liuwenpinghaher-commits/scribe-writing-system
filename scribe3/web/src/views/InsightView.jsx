@@ -149,12 +149,15 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
   const clues = p.clues || []
 
   // 块三:点卡片(含卡内跳章按钮,冒泡)= 选中该伏笔 → 发通用 focus(主编聚焦)。
-  const { setFocus } = useSelection()
+  // 卡内跳章按钮 = 复合动作「聚焦(冒泡)+跳章」:跳前置一次性 suppress 标记,
+  // SelMirror 只消费掉跳章引发的那一次 sel 变化,不冲掉伏笔聚焦(必修1)。
+  const { setFocus, suppressNextMirror } = useSelection()
   const focusMe = () => setFocus({
     type: 'promise', id: p.id, label: p.text || '',
     payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
     origin: 'insight',
   })
+  const jump = (ch) => { suppressNextMirror(); onJumpChapter?.(ch) }
 
   return (
     <div onClick={focusMe} title="聚焦此伏笔"
@@ -177,7 +180,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
         {p.setup_chapter != null && (
           <button
             className="hover:text-brand cursor-pointer underline-offset-2 hover:underline transition-colors"
-            onClick={() => onJumpChapter?.(p.setup_chapter)}
+            onClick={() => jump(p.setup_chapter)}
           >
             埋:第{p.setup_chapter}章
           </button>
@@ -187,7 +190,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
             <ArrowRight size={10} className="self-center text-faint" />
             <button
               className="text-ok hover:text-ok/70 cursor-pointer underline-offset-2 hover:underline transition-colors"
-              onClick={() => onJumpChapter?.(p.payoff_chapter)}
+              onClick={() => jump(p.payoff_chapter)}
             >
               收:第{p.payoff_chapter}章{p.span != null ? ` · 跨${p.span}章` : ''}
             </button>
@@ -202,7 +205,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
             <div key={i} className="flex items-start gap-1 text-f10 text-faint group">
               <button
                 className="hover:text-brand underline-offset-2 hover:underline shrink-0 cursor-pointer"
-                onClick={() => onJumpChapter?.(cl.chapter)}
+                onClick={() => jump(cl.chapter)}
                 title={`跳到第${cl.chapter}章`}
               >
                 ▲第{cl.chapter}章

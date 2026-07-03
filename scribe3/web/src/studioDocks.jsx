@@ -134,18 +134,19 @@ function PromiseSpan({ p }) {
 
 function PromiseRow({ p, danger, tag, onJumpChapter }) {
   // 联动跳章(P2):有 setup_chapter 且拿到 onJumpChapter → 整条可点,跳到埋设章。
-  const { setFocus } = useSelection()
+  const { setFocus, suppressNextMirror } = useSelection()
   const jumpTo = p.setup_chapter != null ? p.setup_chapter : p.payoff_chapter
   const canJump = onJumpChapter && jumpTo != null
-  // 块三:点行 = 选中该伏笔 → 发通用 focus(主编聚焦);可跳时仍跳埋设章
-  // (先聚焦后跳,跳章引发的 sel 镜像由 SelMirror 短窗口避让,不冲掉伏笔聚焦)。
+  // 块三:点行 = 选中该伏笔 → 发通用 focus(主编聚焦);可跳时仍跳埋设章。
+  // 复合动作「聚焦+跳章」:跳章前置一次性 suppress 标记,SelMirror 只消费掉这一次 sel 变化
+  // (不冲掉伏笔聚焦);之后任何 sel 变化正常镜像(必修1:因果标记替代时间窗)。
   const pick = () => {
     setFocus({
       type: 'promise', id: p.id, label: p.text || '',
       payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
       origin: 'panel',
     })
-    if (canJump) onJumpChapter(jumpTo)
+    if (canJump) { suppressNextMirror(); onJumpChapter(jumpTo) }
   }
   return (
     <button type="button" onClick={pick}

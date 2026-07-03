@@ -1,6 +1,6 @@
 // 块三:通用选中总线纯逻辑单测——focusFromSel(sel→focus 镜像)+ focusTalk(focus→主编话术)+ focusChatKey。
 import { describe, it, expect } from 'vitest'
-import { focusTalk, focusChatKey } from './focusTalk'
+import { focusTalk, focusChatKey, nextChatFocusKey } from './focusTalk'
 import { focusFromSel } from '../selectionContext'
 
 describe('focusFromSel(sel → focus 镜像)', () => {
@@ -72,5 +72,23 @@ describe('focusChatKey(chat 历史判别段)', () => {
     expect(focusChatKey({ type: 'chapter', id: 'ch:1', origin: 'sel' })).toBe('')
     expect(focusChatKey({ type: 'deduction', id: 'role:崔判', origin: 'deduce' })).toBe('')
     expect(focusChatKey({ type: 'promise', id: 'p1', origin: 'panel' })).toBe(':focus:promise:p1')
+  })
+})
+
+describe('nextChatFocusKey(必修2:busy 期间冻结 fKey)', () => {
+  it('流在途(busy=true):沿用 prev,不因显式聚焦断流', () => {
+    expect(nextChatFocusKey('', ':focus:motif:m1', true)).toBe('')
+    expect(nextChatFocusKey(':focus:promise:p1', ':focus:motif:m1', true)).toBe(':focus:promise:p1')
+  })
+  it('空闲(busy=false):即时应用 live', () => {
+    expect(nextChatFocusKey('', ':focus:motif:m1', false)).toBe(':focus:motif:m1')
+    expect(nextChatFocusKey(':focus:motif:m1', '', false)).toBe('')
+  })
+  it('流结束后再切:先冻结、解锁后应用(时序模拟)', () => {
+    let key = ''
+    key = nextChatFocusKey(key, ':focus:motif:m1', true)   // 生成中点母题 → 冻结
+    expect(key).toBe('')
+    key = nextChatFocusKey(key, ':focus:motif:m1', false)  // onDone 后下一轮渲染 → 应用
+    expect(key).toBe(':focus:motif:m1')
   })
 })
