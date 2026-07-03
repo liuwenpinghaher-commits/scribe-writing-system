@@ -3280,3 +3280,78 @@ def test_post_arc_beats_lie_belief_target_range_422(store):
     assert c.post("/arc-beats", json={**base, "lie_belief_target": 0}).status_code == 200
     assert c.post("/arc-beats", json={**base, "lie_belief_target": 100}).status_code == 200
     assert c.post("/arc-beats", json=base).status_code == 200
+
+
+# ===== 块四a-1 素材库 material 端点(镜像 motif/promise CRUD 形态)=====
+
+def test_material_crud(store):
+    c = _client(store)
+    # 建(返回 id)
+    r = c.post("/materials", json={"title": "北宋纸扎工艺", "body": "竹篾骨架。",
+                                   "kind": "research", "tags": ["民俗"], "source": "县志"})
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    assert mid
+    c.post("/materials", json={"title": "桥段:井底还魂", "kind": "snippet"})
+    # 列 + kind 过滤
+    all_rows = c.get("/materials").json()
+    assert len(all_rows) == 2
+    research = c.get("/materials", params={"kind": "research"}).json()
+    assert [m["title"] for m in research] == ["北宋纸扎工艺"]
+    assert research[0]["tags"] == ["民俗"] and research[0]["source"] == "县志"
+    # 局部改(只传 body,其余不动)
+    r = c.patch(f"/materials/{mid}", json={"body": "改:桑皮纸捻。"})
+    assert r.status_code == 200
+    got = c.get("/materials", params={"kind": "research"}).json()[0]
+    assert got["body"] == "改:桑皮纸捻。" and got["title"] == "北宋纸扎工艺"
+    # 404:改/删不存在
+    assert c.patch("/materials/nonexistent", json={"title": "x"}).status_code == 404
+    assert c.delete("/materials/nonexistent").status_code == 404
+    # 删
+    assert c.delete(f"/materials/{mid}").status_code == 200
+    assert len(c.get("/materials").json()) == 1
+
+
+def test_material_kind_422(store):
+    """kind 白名单:应用层 422(建/改/列过滤三处)。"""
+    c = _client(store)
+    assert c.post("/materials", json={"title": "x", "kind": "diary"}).status_code == 422
+    r = c.post("/materials", json={"title": "ok", "kind": "note"})
+    mid = r.json()["id"]
+    assert c.patch(f"/materials/{mid}", json={"kind": "diary"}).status_code == 422
+    assert c.get("/materials", params={"kind": "diary"}).status_code == 422
+    c.delete(f"/materials/{mid}")
+
+
+def test_material_ingest_blind(store):
+    """负验证:素材 CRUD 后 ingest 相关表(proposition/knows)零新增。"""
+    c = _client(store)
+    def counts():
+        return (store._query("SELECT count() FROM proposition GROUP ALL"),
+                store._query("SELECT count() FROM knows GROUP ALL"))
+    before = counts()
+    r = c.post("/materials", json={"title": "灵感:灯影戏", "body": "他知道妹妹死了。",
+                                   "kind": "inspiration"})
+    mid = r.json()["id"]
+    c.patch(f"/materials/{mid}", json={"body": "改一版。"})
+    c.delete(f"/materials/{mid}")
+    assert counts() == before
+
+
+def test_project_tree_materials_branch(store):
+    """项目树第三支:素材库根 → kind 分类(计数)→ 素材叶(ref=id)。"""
+    c = _client(store)
+    mid = c.post("/materials", json={"title": "县志:纸扎", "kind": "research"}).json()["id"]
+    c.post("/materials", json={"title": "随手记", "kind": "note"})
+    tree = c.get("/project-tree").json()
+    mats = tree["materials"]
+    assert mats["type"] == "material_root" and mats["label"] == "素材库"
+    cats = {x["ref"]: x for x in mats["children"]}
+    assert set(cats) == {"research", "reference", "snippet", "inspiration", "note"}
+    res = cats["research"]
+    assert res["type"] == "material_category"
+    assert any(b["kind"] == "count" and b["value"] == 1 for b in res["badges"])
+    leaf = res["children"][0]
+    assert leaf["type"] == "material" and leaf["ref"] == mid and leaf["label"] == "县志:纸扎"
+    assert any(b["value"] == 1 for b in cats["note"]["badges"])
+    assert any(b["value"] == 0 for b in cats["snippet"]["badges"])

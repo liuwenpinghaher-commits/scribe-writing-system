@@ -12,9 +12,9 @@ import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 
-// 收集容器节点 id(默认展开两根 + 各分类容器折叠;手稿支卷默认展开)
+// 收集容器节点 id(默认展开三根 + 各分类容器折叠;手稿支卷默认展开)
 function defaultExpanded(tree) {
-  const s = new Set(['manuscript_root', 'codex_root'])
+  const s = new Set(['manuscript_root', 'codex_root', 'material_root'])
   for (const v of tree?.manuscript?.children || []) s.add(v.id)   // 卷默认展开
   return s
 }
@@ -34,7 +34,7 @@ function isChapterSel(sel) {
  */
 export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [tree, setTree] = useState(null)
-  const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root']))
+  const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [delVol, setDelVol] = useState(null)   // {vid,label,body} 删卷确认

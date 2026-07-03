@@ -7,6 +7,12 @@
 const KIND_NAME = {
   chapter: '章', scene: '场景', character: '角色', faction: '势力', item: '物品', term: '术语',
   world_rule: '世界规则', promise: '伏笔', motif: '母题', event: '事件', frame_fact: '命题', view: '视图',
+  material: '素材',
+}
+
+// 素材库分类 → 展示名(块四a-1)
+const MATERIAL_KIND_NAME = {
+  research: '研究', reference: '参考', snippet: '片段', inspiration: '灵感', note: '笔记',
 }
 
 const short = (s, n = 24) => { const t = String(s || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t }
@@ -37,6 +43,14 @@ export function focusTalk(focus) {
         label: `${catName} · ${short(name)}`,
         prefix: `【当前聚焦:时间线${catName}「${name}」${p.chapter != null ? `(第${p.chapter}章)` : ''}】\n`,
         suggests: [`把「${short(name, 16)}」的前因后果理一理?`, `这个${catName}对后文有什么牵动?`],
+      }
+    }
+    case 'material': {
+      const kindName = MATERIAL_KIND_NAME[p.kind] || '笔记'
+      return {
+        label: `素材 · ${short(name)}`,
+        prefix: `【当前聚焦:素材「${name}」(${kindName}${p.source ? `,来源:${short(p.source, 20)}` : ''});素材是非正典材料,不进设定图谱】\n`,
+        suggests: [`素材「${short(name, 16)}」能怎么用进当前故事?`, '这份素材里哪些点值得转成正典设定或伏笔?'],
       }
     }
     case 'frame_fact': {

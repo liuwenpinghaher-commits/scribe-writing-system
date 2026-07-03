@@ -1493,3 +1493,56 @@ def test_arc_anchor_and_plan_roundtrip(store):
     assert store.latest_lie_belief(cid, upto_chapter=3) == 78
     assert store.latest_lie_belief(cid, upto_chapter=2) == 70
     assert store.latest_lie_belief(cid, upto_chapter=1) is None
+
+
+# ===== 块四a-1 素材库 material(非正典材料;不进图谱/不被 ingest)=====
+
+def test_material_roundtrip(store):
+    """建/列(kind 过滤+updated_at DESC)/取/局部改/删 全链往返。"""
+    import time as _t
+    mid1 = store.add_material("北宋纸扎工艺", body="纸人骨架用竹篾……",
+                              kind="research", tags=["民俗", "纸扎"], source="县志影印本")
+    _t.sleep(0.01)   # updated_at 排序需要可分辨的时间差
+    mid2 = store.add_material("桥段:井底还魂", kind="snippet")
+    assert mid1 and mid2 and mid1 != mid2
+    # 全列:按 updated_at DESC(后建在前)
+    rows = store.list_materials()
+    assert [r["id"] for r in rows] == [mid2, mid1]
+    # kind 过滤
+    only_research = store.list_materials(kind="research")
+    assert [r["id"] for r in only_research] == [mid1]
+    assert store.list_materials(kind="note") == []
+    # get:全字段
+    m = store.get_material(mid1)
+    assert m["title"] == "北宋纸扎工艺" and m["kind"] == "research"
+    assert m["tags"] == ["民俗", "纸扎"] and m["source"] == "县志影印本"
+    assert m["created_at"] is not None and m["updated_at"] is not None
+    # 局部更新:只改 body,不动其他字段;updated_at 刷新 → 排序反转
+    _t.sleep(0.01)
+    assert store.update_material(mid1, {"body": "改:骨架用桑皮纸捻"}) is True
+    m2 = store.get_material(mid1)
+    assert m2["body"] == "改:骨架用桑皮纸捻" and m2["title"] == "北宋纸扎工艺"
+    assert [r["id"] for r in store.list_materials()] == [mid1, mid2]
+    # 非法 kind → ValueError(应用层 422 之下的 store 防线)
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        store.update_material(mid1, {"kind": "diary"})
+    with _pt.raises(ValueError):
+        store.add_material("x", kind="diary")
+    # 删:存在 True / 不存在 False
+    assert store.delete_material(mid2) is True
+    assert store.delete_material(mid2) is False
+    assert [r["id"] for r in store.list_materials()] == [mid1]
+    store.delete_material(mid1)
+    assert store.list_materials() == []
+
+
+def test_material_not_in_knowledge(store):
+    """负验证:素材操作对 ingest 相关表(proposition/knows)零感知。"""
+    before_props = store._query("SELECT count() FROM proposition GROUP ALL")
+    before_knows = store._query("SELECT count() FROM knows GROUP ALL")
+    mid = store.add_material("灵感:灯影戏开场", body="他知道妹妹三年前死了。", kind="inspiration")
+    store.update_material(mid, {"body": "改一版。"})
+    store.delete_material(mid)
+    assert store._query("SELECT count() FROM proposition GROUP ALL") == before_props
+    assert store._query("SELECT count() FROM knows GROUP ALL") == before_knows

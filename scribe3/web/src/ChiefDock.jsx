@@ -98,6 +98,7 @@ function selContext(sel, phase, deduceName) {
     character: '角色', faction: '势力', item: '物品', term: '术语',
     world_rule: '世界规则', promise: '伏笔', motif: '母题',
     volume: '卷', manuscript_root: '手稿', codex_root: '设定库', codex_category: '设定分类',
+    material: '素材', material_root: '素材库', material_category: '素材分类',
   }[node.type] || node.type
   const name = (node.label || '').replace(/^\d+\s*/, '') || node.ref || ''
   return {

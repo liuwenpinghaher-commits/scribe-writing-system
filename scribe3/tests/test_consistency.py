@@ -105,6 +105,10 @@ class TestWriteGate:
         ("PATCH", "/char-anchors"),
         ("POST", "/arc-beats"),
         ("DELETE", "/arc-beats/{beat_id}"),
+        # 块四a-1 素材库(非正典材料,作者直编;ingest/图谱/限知/时间线零感知)
+        ("POST", "/materials"),
+        ("PATCH", "/materials/{mid}"),
+        ("DELETE", "/materials/{mid}"),
     }
 
     def test_no_unaudited_write_route(self):

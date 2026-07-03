@@ -104,7 +104,10 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance",
-                                              "promise_touch", "arc_plan"])
+                                              "promise_touch", "arc_plan", "material"])
+
+# 素材库分类白名单(migration 055 DB 级 ASSERT 同源;app 层 422 校验用)
+MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note")
 
 # 角色弧光静态锚(Weiland 五要素 + 弧型 + 私密目标),migration 054 落 character 表
 _ANCHOR_KEYS = ("ghost", "lie", "truth", "want", "need", "arc_type", "private_agenda")
@@ -121,6 +124,7 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues",
                           "tier", "payoff_min", "payoff_max", "resolution"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
+    "material": frozenset({"title", "body", "kind", "tags", "source"}),
 }
 
 
@@ -912,6 +916,62 @@ class SurrealStore:
 
     def delete_motif(self, motif_id: str) -> None:
         self._delete_by("motif", motif_id)
+
+    # --- 素材库 material(非正典写作材料)---
+    # 与设定库(codex=正典)严格分开:不进知识图谱、不被 ingest、不参与限知/伏笔/QC/时间线。
+    _MATERIAL_COLS = ("meta::id(id) AS id, title, body, kind, tags, source, "
+                      "created_at, updated_at")
+
+    def add_material(self, title: str, body: str | None = None, kind: str = "note",
+                     tags: list[str] | None = None, source: str | None = None) -> str:
+        """新建素材,返回裸 id(镜像 add_volume 的 CREATE 返回 id 先例)。"""
+        if kind not in MATERIAL_KINDS:
+            raise ValueError(f"非法素材分类 kind='{kind}'(合法: {list(MATERIAL_KINDS)})")
+        rows = self._query(
+            "CREATE material CONTENT $c",
+            {"c": {"title": title, "body": body, "kind": kind,
+                   "tags": list(tags or []), "source": source}})
+        rid = (rows[0] if rows else {}).get("id")
+        if rid is None:
+            raise RuntimeError("add_material: CREATE 未返回 id")
+        return str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
+
+    def list_materials(self, kind: str | None = None) -> list[dict]:
+        """素材列表(可选 kind 过滤),按 updated_at DESC。"""
+        if kind is not None:
+            return self._query(
+                f"SELECT {self._MATERIAL_COLS} FROM material "
+                "WHERE kind=$k ORDER BY updated_at DESC", {"k": kind})
+        return self._query(
+            f"SELECT {self._MATERIAL_COLS} FROM material ORDER BY updated_at DESC")
+
+    def get_material(self, material_id: str) -> dict | None:
+        rows = self._query(
+            f"SELECT {self._MATERIAL_COLS} FROM type::record('material',$m) LIMIT 1",
+            {"m": material_id})
+        return rows[0] if rows else None
+
+    def _material_exists(self, material_id: str) -> bool:
+        # 不走 exists()(其 _split 只认 ONT2TBL 本体前缀),直接按表查
+        rows = self._query("SELECT id FROM type::record('material',$m) LIMIT 1",
+                           {"m": material_id})
+        return bool(rows)
+
+    def update_material(self, material_id: str, fields: dict) -> bool:
+        """局部更新(updated_at 由 schema VALUE time::now() 自动刷新);返回是否存在。"""
+        if fields.get("kind") is not None and fields["kind"] not in MATERIAL_KINDS:
+            raise ValueError(f"非法素材分类 kind='{fields['kind']}'(合法: {list(MATERIAL_KINDS)})")
+        if not self._material_exists(material_id):
+            return False
+        self._update_by("material", material_id, fields)
+        return True
+
+    def delete_material(self, material_id: str) -> bool:
+        """删除素材;返回 True 若存在并删除,False 若不存在。"""
+        if not self._material_exists(material_id):
+            return False
+        self._delete_by("material", material_id)
+        return True
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
@@ -2908,6 +2968,27 @@ class SurrealStore:
             "children": codex_children,
         }
 
+        # —— 素材库支(非正典材料,与设定库正典严格分开):kind 分类 → 素材条目 ——
+        all_materials = self.list_materials()
+        mat_kind_labels = [("research", "研究"), ("reference", "参考"),
+                           ("snippet", "片段"), ("inspiration", "灵感"), ("note", "笔记")]
+        mat_children = []
+        for k, label in mat_kind_labels:
+            items = [m for m in all_materials if m.get("kind") == k]
+            leaves = [{"id": f"material:{m['id']}", "type": "material",
+                       "label": str(m.get("title") or "—"), "ref": m["id"],
+                       "meta": {"kind": k}}
+                      for m in items]
+            mat_children.append({
+                "id": f"matcat:{k}", "type": "material_category", "label": label,
+                "ref": k, "badges": [{"kind": "count", "value": len(leaves)}],
+                "children": leaves,
+            })
+        materials = {
+            "id": "material_root", "type": "material_root", "label": "素材库",
+            "children": mat_children,
+        }
+
         # —— 横切视图(静态清单)——
         views = [
             {"id": "view:overview", "type": "view", "label": "概览"},
@@ -2917,7 +2998,8 @@ class SurrealStore:
             {"id": "view:progress", "type": "view", "label": "进度"},
         ]
 
-        return {"manuscript": manuscript, "codex": codex, "views": views}
+        return {"manuscript": manuscript, "codex": codex,
+                "materials": materials, "views": views}
 
     # == 章重排(只改 sort_order,绝不动 seq)==
 

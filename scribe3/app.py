@@ -28,7 +28,8 @@ from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
 from scribe3.store import (
-    SurrealStore, _overdue_flag, create_work, delete_work, list_works, rename_work,
+    MATERIAL_KINDS, SurrealStore, _overdue_flag, create_work, delete_work,
+    list_works, rename_work,
 )
 from scribe3.verify import causal_complete
 
@@ -800,6 +801,62 @@ def edit_motif(mid: str, m: MotifIn, work: str = "main"):
 @app.delete("/motifs/{mid}")
 def del_motif(mid: str, work: str = "main"):
     _store_for(work).delete_motif(mid)
+    return {"ok": True}
+
+
+# ===== 素材库 material(非正典写作材料;镜像 motif/promise CRUD 形态)=====
+# 与设定库(codex=正典)严格分开:不进知识图谱、不被 ingest、不参与限知/伏笔/QC/时间线。
+
+def _check_material_kind(kind: str | None) -> None:
+    if kind is not None and kind not in MATERIAL_KINDS:
+        raise HTTPException(status_code=422,
+                            detail=f"非法素材分类 kind='{kind}'(合法: {list(MATERIAL_KINDS)})")
+
+
+class MaterialIn(BaseModel):
+    title: str
+    body: str | None = None
+    kind: str = "note"
+    tags: list[str] = []
+    source: str | None = None
+
+
+class MaterialPatch(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    kind: str | None = None
+    tags: list[str] | None = None
+    source: str | None = None
+
+
+@app.get("/materials")
+def list_materials_ep(kind: str | None = None, work: str = "main"):
+    _check_material_kind(kind)
+    return _store_for(work).list_materials(kind)
+
+
+@app.post("/materials")
+def add_material_ep(m: MaterialIn, work: str = "main"):
+    _check_material_kind(m.kind)
+    mid = _store_for(work).add_material(m.title, m.body, m.kind, m.tags, m.source)
+    return {"ok": True, "id": mid}
+
+
+@app.patch("/materials/{mid}")
+def edit_material_ep(mid: str, m: MaterialPatch, work: str = "main"):
+    _check_material_kind(m.kind)
+    fields = {k: v for k, v in m.model_dump().items() if v is not None}
+    found = _store_for(work).update_material(mid, fields)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
+    return {"ok": True}
+
+
+@app.delete("/materials/{mid}")
+def del_material_ep(mid: str, work: str = "main"):
+    found = _store_for(work).delete_material(mid)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
     return {"ok": True}
 
 
@@ -2228,7 +2285,7 @@ def ignore_unverified_ep(uid: str, work: str = "main"):
 
 
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
-                "promise", "motif", "chapter"]
+                "promise", "motif", "chapter", "material"]
 
 
 _LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))

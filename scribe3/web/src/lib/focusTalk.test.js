@@ -92,3 +92,23 @@ describe('nextChatFocusKey(必修2:busy 期间冻结 fKey)', () => {
     expect(key).toBe(':focus:motif:m1')
   })
 })
+
+describe('focusTalk material 分支(块四a-1 素材库)', () => {
+  it('素材聚焦:label 含标题,prefix 含分类展示名与非正典口径', () => {
+    const t = focusTalk({ type: 'material', id: 'm1', label: '北宋纸扎工艺', payload: { kind: 'research', source: '县志' }, origin: 'panel' })
+    expect(t.label).toBe('素材 · 北宋纸扎工艺')
+    expect(t.prefix).toContain('素材「北宋纸扎工艺」')
+    expect(t.prefix).toContain('研究')
+    expect(t.prefix).toContain('县志')
+    expect(t.prefix).toContain('非正典')
+    expect(t.suggests.length).toBeGreaterThan(0)
+  })
+  it('未知 kind 兜底笔记;无 source 不渲染来源段', () => {
+    const t = focusTalk({ type: 'material', id: 'm2', label: '随手记', payload: {}, origin: 'panel' })
+    expect(t.prefix).toContain('笔记')
+    expect(t.prefix).not.toContain('来源')
+  })
+  it('镜像来源(origin=sel)仍回退 null', () => {
+    expect(focusTalk({ type: 'material', id: 'm1', label: 'x', origin: 'sel' })).toBeNull()
+  })
+})

@@ -4,15 +4,23 @@ import {
   ChevronRight, ChevronDown, BookText, BookOpen, FileText,
   Users, Swords, Package, Tags, Shield, Bookmark, Flame, Lock,
   Pencil, Trash2, Check, X, Plus, TriangleAlert,
+  Microscope, Quote, Scissors, Lightbulb, StickyNote,
 } from 'lucide-react'
 
 // 容器节点类型:点击=展开/折叠(也可选中出卡片墙,MVP 仅展开)
-export const CONTAINER_TYPES = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
+export const CONTAINER_TYPES = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category',
+  'material_root', 'material_category'])
 
 // 分类 ref → 图标
 const CAT_ICON = {
   character: Users, faction: Swords, item: Package, term: Tags,
   world_rule: Shield, promise: Bookmark, motif: Flame,
+}
+
+// 素材库分类 ref(kind)→ 图标
+const MAT_ICON = {
+  research: Microscope, reference: Quote, snippet: Scissors,
+  inspiration: Lightbulb, note: StickyNote,
 }
 
 const ROW_HEIGHT = 28
@@ -64,6 +72,7 @@ function Row({ node, style, dragHandle, tree }) {
   const cb = tree.props.handlers   // 透传父层回调(见 ProjectTree)
 
   const CatIcon = data.type === 'codex_category' ? (CAT_ICON[data.ref] || BookText)
+    : data.type === 'material_category' ? (MAT_ICON[data.ref] || BookText)
     : isVolume ? BookOpen
     : data.type === 'chapter' ? FileText
     : null
@@ -165,8 +174,8 @@ function toOpenState(expanded) {
 }
 
 /**
- * 左侧常驻项目树(react-arborist 虚拟化):手稿支(卷→章→场景)+ 素材支(分类→条目)。
- * 单棵 Tree 含两根(manuscript_root / codex_root),内部 react-window 只渲可视行 —— 数千章不全量 DOM。
+ * 左侧常驻项目树(react-arborist 虚拟化):手稿支(卷→章→场景)+ 设定支(分类→条目)+ 素材库支(kind→素材)。
+ * 单棵 Tree 含三根(manuscript_root / codex_root / material_root),内部 react-window 只渲可视行 —— 数千章不全量 DOM。
  *
  * props 契约(与旧版一致,BinderLayout 不改):
  *   tree / selId / expanded / onToggle / onSelect / onVolumeRename / onVolumeDelete / onAddVolume
@@ -178,12 +187,13 @@ export function ProjectTree({
 }) {
   const [boxRef, size] = useContainerSize()
 
-  // 两根并列为单棵树的顶层 data(原始节点已带 children,直接复用)。
+  // 三根并列为单棵树的顶层 data(原始节点已带 children,直接复用)。
   const data = useMemo(() => {
     if (!tree) return null
     const roots = []
     if (tree.manuscript) roots.push(tree.manuscript)
     if (tree.codex) roots.push(tree.codex)
+    if (tree.materials) roots.push(tree.materials)
     return roots
   }, [tree])
 

@@ -1,0 +1,279 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, FilePlus2, Loader2, Plus, Search, SendToBack, Trash2 } from 'lucide-react'
+import { api } from './api'
+import { RichEditor, useUnsavedGuard } from './editor/RichEditor'
+import { useChiefSlot } from './ChiefSlotContext'
+import { useSelection } from './selectionContext'
+import { Btn, Input } from './ui.jsx'
+import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
+import { useToast } from './ui/Toast'
+
+// 素材库(块四a-1):非正典写作材料。与设定库(正典)严格分开——不进图谱、不被 ingest。
+export const MATERIAL_KINDS = [
+  { key: 'research', label: '研究' },
+  { key: 'reference', label: '参考' },
+  { key: 'snippet', label: '片段' },
+  { key: 'inspiration', label: '灵感' },
+  { key: 'note', label: '笔记' },
+]
+const KIND_LABEL = Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, k.label]))
+
+const matLeafNode = (m) => ({ id: `material:${m.id}`, type: 'material', ref: m.id, label: m.title || '—', meta: { kind: m.kind } })
+
+// 逗号分隔字符串 ↔ tags 数组
+const parseTags = (s) => String(s || '').split(/[,，]/).map((t) => t.trim()).filter(Boolean)
+const joinTags = (arr) => (Array.isArray(arr) ? arr : []).join(', ')
+
+// ——— 表单主体(新建/详情共用):标题 + kind + tags + source + RichEditor 正文 ———
+function MaterialForm({ draft, onDraft, editorKey }) {
+  const set = (k, v) => onDraft({ ...draft, [k]: v })
+  return (
+    <div className="flex flex-col gap-2.5 flex-1 min-h-0">
+      <Input value={draft.title} onChange={(e) => set('title', e.target.value)}
+        placeholder="素材标题…" aria-label="素材标题" className="text-f15 font-medium" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="inline-flex items-center gap-1.5 text-f12 text-faint">
+          分类
+          <select value={draft.kind} onChange={(e) => set('kind', e.target.value)} aria-label="素材分类"
+            className="h-8 rounded-md border border-line bg-canvas px-1.5 text-f13 text-ink outline-none cursor-pointer">
+            {MATERIAL_KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
+          </select>
+        </label>
+        <Input value={draft.tagsText} onChange={(e) => set('tagsText', e.target.value)}
+          placeholder="标签(逗号分隔)" aria-label="素材标签" className="flex-1 min-w-32" />
+        <Input value={draft.source} onChange={(e) => set('source', e.target.value)}
+          placeholder="来源(出处/链接,可空)" aria-label="素材来源" className="flex-1 min-w-32" />
+      </div>
+      <RichEditor
+        value={draft.body}
+        editorKey={editorKey}
+        ariaLabel="素材正文"
+        onChange={(md) => set('body', md)}
+        placeholder="研究资料 / 参考片段 / 灵感剪藏 / 待用桥段 / 笔记……(markdown)"
+        className="flex-1 min-h-0"
+      />
+    </div>
+  )
+}
+
+// ——— 新建(material_new 节点):草稿留内存,「创建」时才落库 ———
+export function MaterialNew({ kind, onCancel, onCreated }) {
+  const toast = useToast()
+  const [draft, setDraft] = useState({ title: '', body: '', kind: KIND_LABEL[kind] ? kind : 'note', tagsText: '', source: '' })
+  const [saving, setSaving] = useState(false)
+  const create = async () => {
+    if (!draft.title.trim()) { toast('请填写素材标题', { tone: 'danger' }); return }
+    setSaving(true)
+    try {
+      const r = await api.addMaterial({
+        title: draft.title.trim(), body: draft.body, kind: draft.kind,
+        tags: parseTags(draft.tagsText), source: draft.source.trim() || null,
+      })
+      onCreated?.(r?.id || null, draft.title.trim())
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '创建失败', { tone: 'danger' })
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
+        <div className="flex items-center gap-3 mb-3 shrink-0">
+          {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16} />返回</button>}
+          <span className="text-f11 text-faint/50">新建素材{KIND_LABEL[kind] ? ` · ${KIND_LABEL[kind]}` : ''}</span>
+        </div>
+        <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" />
+        <div className="mt-4 pt-3 border-t border-line flex items-center gap-2 shrink-0">
+          <Btn variant="primary" onClick={create} disabled={saving}>
+            {saving && <Loader2 size={14} className="animate-spin" />}创建
+          </Btn>
+          {onCancel && <Btn variant="ghost" onClick={onCancel} disabled={saving}>取消</Btn>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ——— 详情/编辑(material 叶节点)+ 素材→写作桥 ———
+export function MaterialDetail({ node, onChanged, onDeleted }) {
+  const toast = useToast()
+  const { setStageProposal } = useChiefSlot()
+  const { setFocus } = useSelection()
+  const [row, setRow] = useState(null)
+  const [draft, setDraft] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [delOpen, setDelOpen] = useState(false)
+  const [insertOpen, setInsertOpen] = useState(false)
+  const dirtyRef = useRef(false)
+  useUnsavedGuard(() => dirtyRef.current)
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    api.materials()
+      .then((rows) => {
+        if (!alive) return
+        const m = rows.find((r) => r.id === node.ref) || null
+        setRow(m)
+        setDraft(m ? { title: m.title || '', body: m.body || '', kind: m.kind || 'note', tagsText: joinTags(m.tags), source: m.source || '' } : null)
+        dirtyRef.current = false
+        // 块三:选中素材 → 通用选中总线显式聚焦,主编按 focusTalk 的 material 分支给聚焦话术
+        if (m) setFocus({ type: 'material', id: m.id, label: m.title || '—', payload: { kind: m.kind, source: m.source }, origin: 'panel' })
+      })
+      .catch(() => { if (alive) setRow(null) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [node?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
+  if (!row || !draft) return <div className="p-6 text-f13 text-faint">未找到该素材(可能已删除)。</div>
+
+  const save = async () => {
+    if (!draft.title.trim()) { toast('标题不能为空', { tone: 'danger' }); return }
+    setSaving(true)
+    try {
+      await api.editMaterial(row.id, {
+        title: draft.title.trim(), body: draft.body, kind: draft.kind,
+        tags: parseTags(draft.tagsText), source: draft.source.trim() || '',
+      })
+      dirtyRef.current = false
+      toast('素材已保存')
+      onChanged?.()
+    } catch (e) { toast(e?.body?.detail || e?.message || '保存失败', { tone: 'danger' }) }
+    finally { setSaving(false) }
+  }
+
+  const doDelete = async () => {
+    try { await api.delMaterial(row.id); dirtyRef.current = false; onDeleted?.() }
+    catch (e) { toast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+  }
+
+  // 素材→写作桥:正文经块二 stageProposal 通道发布(phase='draft'),
+  // 由目标章「草稿」tab 的提示条「填入/追加」闭环落地——不直写编辑器。
+  const publishToDraft = (seqText) => {
+    const seq = Number(String(seqText || '').trim())
+    if (!Number.isInteger(seq) || seq < 1) { toast('请输入有效章号(正整数)', { tone: 'danger' }); return }
+    const content = (draft.body || '').trim()
+    if (!content) { toast('素材正文为空,无可插入内容', { tone: 'danger' }); return }
+    setStageProposal({ phase: 'draft', seq, target: null, content, ts: Date.now() })
+    toast(`已发布到第 ${seq} 章草稿:打开该章「草稿」tab,用提示条填入/追加`)
+  }
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
+        <div className="flex items-center gap-2 mb-3 shrink-0 flex-wrap">
+          <span className="text-f11 text-faint/50">素材 · {KIND_LABEL[draft.kind] || draft.kind}</span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Btn variant="soft" size="sm" onClick={() => setInsertOpen(true)} disabled={!(draft.body || '').trim()}
+              title="把素材正文发布到某章草稿的提示条(填入/追加),不直写编辑器">
+              <SendToBack size={13} />插入到草稿
+            </Btn>
+            <Btn variant="primary" size="sm" onClick={save} disabled={saving}>
+              {saving && <Loader2 size={13} className="animate-spin" />}保存
+            </Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setDelOpen(true)} className="hover:text-danger" title="删除素材">
+              <Trash2 size={13} />删除
+            </Btn>
+          </div>
+        </div>
+        <MaterialForm draft={draft} onDraft={(d) => { setDraft(d); dirtyRef.current = true }} editorKey={`material:${row.id}`} />
+        <div className="text-f12 text-faint mt-2 leading-snug shrink-0">素材是非正典材料:不进知识图谱、不被反哺,放心堆料;正典设定请放「设定库」。</div>
+      </div>
+      <ConfirmDialog
+        open={delOpen}
+        title={`删除素材「${row.title}」?`}
+        body="素材不参与正文/图谱,删除只影响素材库,此操作不可撤销。"
+        danger
+        confirmText="删除"
+        onConfirm={doDelete}
+        onClose={() => setDelOpen(false)}
+      />
+      <InputDialog
+        open={insertOpen}
+        title="插入到第几章的草稿?"
+        placeholder="章号,如 4"
+        confirmText="发布"
+        onConfirm={publishToDraft}
+        onClose={() => setInsertOpen(false)}
+      />
+    </div>
+  )
+}
+
+// ——— 列表(material_root / material_category):搜索(标题/正文/tag)+ 新建 ———
+export function MaterialList({ node, onSelect }) {
+  const isCat = node?.type === 'material_category'
+  const kind = isCat ? node.ref : null
+  const [rows, setRows] = useState(null)
+  const [err, setErr] = useState(false)
+  const [q, setQ] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    api.materials(kind || undefined)
+      .then((r) => { if (alive) { setRows(r); setErr(false) } })
+      .catch(() => { if (alive) setErr(true) })
+    return () => { alive = false }
+  }, [node?.id, kind])
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return rows || []
+    return (rows || []).filter((m) =>
+      (m.title || '').toLowerCase().includes(needle)
+      || (m.body || '').toLowerCase().includes(needle)
+      || (m.tags || []).some((t) => String(t).toLowerCase().includes(needle)))
+  }, [rows, q])
+
+  const newNode = () => onSelect?.({ id: `matnew:${kind || 'note'}`, type: 'material_new', ref: kind || 'note', label: node?.label })
+
+  if (err) return <div className="p-8 text-f13 text-danger">素材加载失败。</div>
+  if (!rows) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载素材…</div>
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-6 py-6">
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-f18 font-semibold text-ink">{isCat ? `素材 · ${KIND_LABEL[kind] || kind}` : '素材库'}</h2>
+          <button onClick={newNode}
+            className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+            <Plus size={13} /> 新建
+          </button>
+        </div>
+        <div className="text-f12 text-faint mb-3">{rows.length} 项 · 非正典材料,不进图谱/不被反哺</div>
+        <div className="relative mb-4">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜索素材"
+            placeholder="按标题 / 正文 / 标签过滤…" className="pl-8 w-full" />
+        </div>
+        {filtered.length === 0 ? (
+          <div className="text-f13 text-faint/60 py-8 text-center">
+            {q.trim() ? '没有匹配的素材。' : <>还没有素材。<button onClick={newNode} className="text-brand hover:underline cursor-pointer ml-1 inline-flex items-center gap-1"><FilePlus2 size={13} />新建一条</button></>}
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {filtered.map((m) => (
+              <button key={m.id} onClick={() => onSelect?.(matLeafNode(m))}
+                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <span className="text-f14 text-ink truncate">{m.title || '—'}</span>
+                  <span className="ml-auto shrink-0 text-f11 text-faint">{KIND_LABEL[m.kind] || m.kind}</span>
+                </div>
+                {(m.tags?.length > 0 || m.source) && (
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                    {(m.tags || []).map((t) => (
+                      <span key={t} className="text-f11 text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
+                    ))}
+                    {m.source && <span className="text-f11 text-faint/60 truncate">来源:{m.source}</span>}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

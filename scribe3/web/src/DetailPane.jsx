@@ -1,6 +1,7 @@
 import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
+import { MaterialDetail, MaterialList, MaterialNew } from './Materials'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
@@ -89,6 +90,32 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
           onSelectNode?.({ id: `cat:${catType}`, type: 'codex_category', ref: catType, label: node.label })
         }
       }} />
+  }
+
+  // —— 素材库(非正典材料,块四a-1)——
+  if (node.type === 'material_new') {
+    const kind = node.ref || 'note'
+    const backToCat = () => onSelectNode?.({ id: `matcat:${kind}`, type: 'material_category', ref: kind, label: node.label })
+    return <MaterialNew key={node.id} kind={kind}
+      onCancel={backToCat}
+      onCreated={(mid, title) => {
+        onTreeChanged?.()
+        if (mid != null) onSelectNode?.({ id: `material:${mid}`, type: 'material', ref: mid, label: title || String(mid) })
+        else backToCat()
+      }} />
+  }
+  if (node.type === 'material') {
+    return <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}
+      onDeleted={() => {
+        onTreeChanged?.()
+        const kind = node.meta?.kind
+        onSelectNode?.(kind
+          ? { id: `matcat:${kind}`, type: 'material_category', ref: kind, label: '素材' }
+          : { id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
+      }} />
+  }
+  if (node.type === 'material_root' || node.type === 'material_category') {
+    return <MaterialList key={node.id} node={node} onSelect={onSelectNode} />
   }
 
   // —— 素材叶 → 详情卡 ——

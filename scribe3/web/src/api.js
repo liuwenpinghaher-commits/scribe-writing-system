@@ -91,6 +91,11 @@ export const api = {
   addMotifNew: (b) => post('/motifs-new', b),
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),
+  // 素材库(非正典材料;镜像 motif 方法组)
+  materials: (kind) => j('/materials' + (kind ? `?kind=${enc(kind)}` : '')),
+  addMaterial: (b) => post('/materials', b),
+  editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
+  delMaterial: (mid) => del('/materials/' + enc(mid)),
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
