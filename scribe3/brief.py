@@ -14,6 +14,7 @@ def arc_directive(name: str, anchors: dict, arc_plan: list[dict],
     """单角色弧光三行指令:当前值 + 当前拍→下一拍 + 禁止事项。
     Task7-B①:done 判定严格 <(target_chapter == next_ch 属"本章应到达该拍",
     该拍进"下一拍"指令,不得提前算已完成)。"""
+    name = (name or "").replace("\n", " ")   # Task8审查:name 也补齐换行清洗
     lie = (anchors.get("lie") or "—").replace("\n", " ")   # Task7-B②:防多行伪造 section 头
     at = (anchors.get("arc_type") or "—").replace("\n", " ")   # Task8:与 lie/promise/agenda 拉齐清洗
     done = [b for b in arc_plan if b["target_chapter"] < next_ch]
@@ -69,19 +70,21 @@ def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
         if not agenda or last is None:
             continue
         if next_ch - last > gap:
-            out.append({"name": c["name"], "agenda": agenda, "last_active": last})
+            out.append({"name": (c["name"] or "").replace("\n", " "),   # Task8审查:name 清洗
+                        "agenda": agenda, "last_active": last})
     return out
 
 
 # ===== Task 8 · M6 设定三态注入(纯函数)=====
 
 def detect_mentions(text: str, entities: list[dict]) -> set[str]:
-    """本章草料文本(synopsis+beats+演绎)中按 名字/别名 包含匹配命中的实体 id 集。"""
+    """本章草料文本(synopsis+beats+演绎)中按 名字/别名 包含匹配命中的实体 id 集。
+    Task8审查:单字(<2)名字/别名不参与子串匹配——防「玉」「柳」等误命中大量无关文本。"""
     hit = set()
     t = text or ""
     for e in entities:
         names = [e.get("name") or ""] + list(e.get("aliases") or [])
-        if any(n and n in t for n in names):
+        if any(len(n) >= 2 and n in t for n in names):
             hit.add(e["id"])
     return hit
 
@@ -127,27 +130,44 @@ def _fact_inject_line(f) -> str:
 def assemble_injection(st, seq, budget_chars: int = _M6_BUDGET_CHARS) -> dict:
     """M6 全知分支设定注入薄壳:facts(全知)→ item → detect_mentions → select_injection。
     返回 {chosen, dropped, used_chars, fallback, facts}。
-    fallback=True:全部 facts 无 injection_mode 且无任何命中 → 调用方回退旧 facts[:28] 防零注入。
+
+    三态是 **opt-in 特性**(Task8 审查必修1):
+    - 本书从未给任何 fact 配 injection_mode → **fallback=True**,门控整体关闭,
+      调用方直接走旧 facts[:28] 全量(真·向后兼容,旧书行为一字不变)。
+    - 一旦 ≥1 条 fact 显式配了 injection_mode → 启用门控,逐条解析:
+      · never              → 不注入;
+      · detected 且挂真实实体 → 须本章草料提及该实体才注入(唯一被相关性门控的通路);
+      · 其余(None / always / detected 但挂世界级命题即 entity 匹配不到真实实体)
+        → **always 语义**:无条件注入,不因未提及被丢。
     注意:限知(focalizer 非空)分支不走此——先限知过滤是正确性,P0 不叠相关性过滤。"""
     facts = st.facts_at(99999)
+    any_mode = any(getattr(f, "injection_mode", None) for f in facts)
+    if not any_mode:
+        # 真·向后兼容:本书未配 injection_mode → 门控关闭,调用方回退旧 facts[:28]
+        return {"chosen": [], "dropped": 0, "used_chars": 0, "fallback": True, "facts": facts}
     ch = st.get_chapter(seq) if seq is not None else None
     draft = chapter_draft_text(ch)
     entities = [{"id": e.id, "name": e.name,
                  "aliases": (getattr(e, "traits", None) or {}).get("aliases") or []}
                 for e in st.all_entities()]
+    entity_ids = {e["id"] for e in entities}
     mentioned = detect_mentions(draft, entities)
-    items, any_mode = [], False
+    items = []
     for f in facts:
-        mode = getattr(f, "injection_mode", None)
-        if mode:
-            any_mode = True
-        items.append({"id": getattr(f, "id", None), "entity": getattr(f, "entity_id", ""),
-                      "text": _fact_inject_line(f), "mode": mode or "detected",
+        raw = getattr(f, "injection_mode", None)
+        entity = getattr(f, "entity_id", "")
+        if raw == "never":
+            mode = "never"
+        elif raw == "detected" and entity in entity_ids:
+            mode = "detected"          # 唯一被相关性门控的通路:显式 detected + 挂真实实体
+        else:
+            mode = "always"            # None / always / detected-on-world-level 全走 always
+        items.append({"id": getattr(f, "id", None), "entity": entity,
+                      "text": _fact_inject_line(f), "mode": mode,
                       "priority": getattr(f, "priority", None)})
     sel = select_injection(items, mentioned, budget_chars)
     return {"chosen": sel["chosen"], "dropped": sel["dropped"],
-            "used_chars": sel["used_chars"],
-            "fallback": (not sel["chosen"]) and (not any_mode), "facts": facts}
+            "used_chars": sel["used_chars"], "fallback": False, "facts": facts}
 
 
 def render_brief(sections: dict) -> str:

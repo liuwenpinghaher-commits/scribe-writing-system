@@ -3428,23 +3428,31 @@ def test_write_system_brief_failsafe(store, monkeypatch):
 
 # ===== Task 8 · M6 设定三态注入(端点回显 + 向后兼容兜底)=====
 
+def _set_mode(store, local: str, mode: str) -> None:
+    """测试辅助:给某命题显式配 injection_mode(add_fact 不写此字段)。"""
+    store._execute_write(
+        "UPDATE type::record('proposition',$l) SET injection_mode=$m", {"l": local, "m": mode})
+
+
 def test_chapter_brief_injection_manifest(store):
-    """/chapter-brief 回显 M6 注入清单:本章草料(synopsis)提及的实体 →
-    其 detected fact 进 chosen(无 injection_mode 配置时,命中即选,非兜底)。"""
+    """/chapter-brief 回显 M6 注入清单(opt-in):显式配 detected 的 fact,本章草料提及其实体
+    → 进 chosen;显式 detected 但未提及 → 落 dropped(不进 chosen)。"""
     from scribe3.ontology import Entity, Fact
     store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
     store.add_entity(Entity("role:阿禾", "character", "阿禾"))
     store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))
     store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))
+    _set_mode(store, "柳疤", "detected")   # 显式开启三态门控
+    _set_mode(store, "禾技", "detected")
     store.save_chapter(2, "", title="第2章")
     store.update_chapter_meta(2, {"synopsis": "本章柳怀玉独往义庄验尸"})  # 只提柳怀玉
     c = _client(store)
     body = c.get("/chapter-brief", params={"seq": 2}).json()
     inj = body["sections"]["injection"]
     ids = [x["id"] for x in inj["chosen"]]
-    assert "fact:柳疤" in ids        # 命中实体 → 选
-    assert "fact:禾技" not in ids    # 未提及 → 不选
-    assert inj["fallback"] is False  # 有命中 → 非兜底
+    assert "fact:柳疤" in ids        # detected + 命中 → 选
+    assert "fact:禾技" not in ids    # detected + 未提及 → 不选
+    assert inj["fallback"] is False  # 门控启用 → 非兜底
 
 
 def test_editor_system_injection_fallback_no_mode_no_hit(store):
@@ -3460,6 +3468,46 @@ def test_editor_system_injection_fallback_no_mode_no_hit(store):
     assert "阴司判官" in s          # 兜底注入,未因零命中丢设定
     # chapter=None(聊天流)同样兜底
     assert "阴司判官" in _editor_system(store)
+
+
+def test_editor_system_legacy_partial_mention_full_facts(store):
+    """必修1 真·向后兼容:旧书(无任何 injection_mode)本章草料点到部分实体 →
+    仍走旧 facts[:28] 全量,未点名实体状态事实 + 世界级命题 + secret 伏线标记都不丢
+    (opt-in 未开启,不得静默降级为仅命中实体事实)。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))
+    store.add_fact(Fact("fact:世通", "世界", "通货", "铜钱", valid_from=1))  # 世界级命题(非真实实体)
+    store.add_fact(Fact("fact:密", "role:阿禾", "真身", "细作", valid_from=1, secret=True))
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章柳怀玉独往义庄"})  # 只点柳怀玉
+    s = _editor_system(store, chapter=2)
+    assert "左手有疤" in s          # 被点名实体
+    assert "会口技" in s            # 未点名实体的状态事实也在(未降级)
+    assert "铜钱" in s              # 世界级命题不丢
+    assert "细作" in s and "私密/伏线" in s   # secret 值 + 标记保留
+
+
+def test_m6_gating_opt_in_none_is_always(store):
+    """必修1:显式配 ≥1 条 injection_mode 才启用门控;启用后 mode=None 按 always 恒注入,
+    detected 未提及才落 dropped,世界级命题走 always 永不被 detected 丢。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))  # detected,未提及
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))      # mode=None → always
+    store.add_fact(Fact("fact:世通", "世界", "通货", "铜钱", valid_from=1))            # 世界级 → always
+    _set_mode(store, "柳疤", "detected")   # 只给这条配 detected → 启用门控
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章只写阿禾在集市"})  # 点阿禾,不点柳怀玉
+    s = _editor_system(store, chapter=2)
+    assert "左手有疤" not in s     # detected 且未提及 → 丢
+    assert "会口技" in s           # mode=None → always 恒注入
+    assert "铜钱" in s             # 世界级 → always,不被 detected 丢
 
 
 # ===== Task 8 折入 B-3 · 五阶段大纲/节拍注入 =====
@@ -3495,3 +3543,16 @@ def test_outline_block_wired_into_chat_write(store, monkeypatch):
     captured.clear()
     c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
     assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+
+
+def test_outline_block_focalizer_guardrail(store):
+    """必修2:限知章(focalizer 非空)_outline_block 含限知免责句;全知章不含。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸"})
+    foc = _outline_block(store, 2, focalizer="role:柳怀玉")
+    assert "柳怀玉赴义庄验尸" in foc          # 大纲仍在(仍引导情节)
+    assert "帧外私密留作伏笔" in foc          # 限知免责句
+    omni = _outline_block(store, 2, focalizer="")
+    assert "柳怀玉赴义庄验尸" in omni
+    assert "帧外私密留作伏笔" not in omni      # 全知章无免责句

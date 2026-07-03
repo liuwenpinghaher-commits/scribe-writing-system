@@ -1024,7 +1024,10 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
     """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定。
 
     focalizer 非空(限知章):设定块只注入焦点者帧内可见事实,secret 明文屏蔽;
-    focalizer 空(作者全知视角):保留原有 facts_at(99999) 全知注入(含私密标记,供主编全知)。
+    focalizer 空(作者全知视角):M6 设定三态注入(opt-in)——本书未配 injection_mode 时
+      等同旧 facts_at(99999)[:28] 全量(含私密标记,行为一字不变);一旦有 fact 显式配了
+      injection_mode 则启用门控(None/always→恒注入,detected 挂真实实体→须本章草料提及,
+      never→不注入,世界级命题→恒注入)+ 字符预算裁剪。
     """
     intent = st.get_intent()
     chars = st.characters()
@@ -1047,9 +1050,11 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         ctx_set = "\n".join(lines) or "(焦点者帧内暂无可见设定)"
         set_label = f"【焦点者({focalizer})帧内可见设定(限知基座,帧外私密已屏蔽)】"
     else:
-        # 作者全知视角:M6 设定三态注入(always 恒进 / detected 命中进 / never 恒不进)
-        # + 字符预算(migration 056)。本章草料(synopsis/beats/scene_truth)驱动 detected 命中。
-        # 向后兼容兜底:全部 facts 无 injection_mode 且无命中 → 回退旧 facts[:28](防零注入)。
+        # 作者全知视角:M6 设定三态注入(opt-in,migration 056)。
+        # 真·向后兼容:本书从未配 injection_mode → assemble_injection 回 fallback=True,
+        #   此处直接走旧 facts[:28] 全量,旧书行为一字不变(未点名实体/世界级命题/secret 均不丢)。
+        # 一旦作者显式配了 ≥1 条 injection_mode → 启用门控:None/always/世界级 恒注入,
+        #   detected 挂真实实体须本章草料(synopsis/beats/scene_truth)提及,never 不注入。
         def _line(f):
             return (f"- {f.entity_id} · {f.attribute}:{f.value}"
                     + ("(私密/伏线)" if f.secret else ""))
@@ -1555,7 +1560,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
-    instructions += _outline_block(st, chapter)   # B-3:五阶段 synopsis/beats 注入(与演绎块并列)
+    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
     if (phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, chapter)
         instructions += "\n\n" + ded
@@ -1661,10 +1666,20 @@ def _phase_role_block(phase: str) -> str:
     return f"\n\n{block}" if block else ""
 
 
-def _outline_block(st, chapter: int) -> str:
+_OUTLINE_BUDGET = 1200   # 大纲/节拍注入字符上限(与 M6 事实注入 1200 预算同量级)
+
+
+def _clip(s: str, n: int) -> str:
+    """超 n 字截断加省略号(防超长 synopsis/beats 撑爆 prompt)。"""
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     """B-3 根治:把本章五阶段的「大纲(synopsis)+ 节拍(beats)」注入写作 prompt。
     此前 synopsis/beats 从不注入 → 模型被指令"据大纲/节拍写"却从未收到内容。
     仿 _deduction_block:空(无 synopsis 且无 beats)→ 返回空串(默认行为不变)。
+    Task8审查必修2:限知章(focalizer 非空)补一句限知免责——大纲是作者视角,
+      帧外私密不得由焦点者知晓或道破(对齐 _deduction_block 的全知/限知分离)。
     自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。"""
     if chapter is None:
         return ""
@@ -1682,9 +1697,13 @@ def _outline_block(st, chapter: int) -> str:
         return ""
     parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
     if synopsis:
-        parts.append(f"〔大纲〕{synopsis}")
+        parts.append("〔大纲〕" + _clip(synopsis, _OUTLINE_BUDGET))
     if beat_texts:
-        parts.append("〔节拍〕" + " ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)))
+        parts.append("〔节拍〕" + _clip(" ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
+                                       _OUTLINE_BUDGET))
+    if focalizer:
+        parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
+                     "帧外私密留作伏笔,不得由焦点者知晓或道破。)")
     return "\n\n" + "\n".join(parts)
 
 
@@ -1764,7 +1783,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
-    instructions += _outline_block(st, req.chapter)   # B-3:五阶段 synopsis/beats 注入(与演绎块并列)
+    instructions += _outline_block(st, req.chapter, req.focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
     if (req.phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, req.chapter)
         instructions += "\n\n" + ded
