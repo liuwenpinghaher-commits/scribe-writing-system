@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api } from './api'
-import { DetailView } from './views/CodexView'
+import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { showToast } from './ui/Toast'
 
@@ -42,13 +42,16 @@ function pickRow(nodeType, rows, ref) {
 }
 
 async function persist(detailType, updated) {
-  if (detailType === 'chars') await api.editChar(localOf(updated), updated)
-  else if (detailType === 'rules') await api.post('/world-rules', updated)
-  else if (detailType === 'factions') await api.post('/factions', updated)
-  else if (detailType === 'items') await api.post('/items', updated)
-  else if (detailType === 'terms') await api.post('/terms', updated)
-  else if (detailType === 'promises') await api.editPromise(updated.id, updated)
-  else if (detailType === 'motifs') await api.editMotif(updated.id, updated)
+  // 防线2(API 边界):掩码占位符绝不回写——把值等于 `🔒 私密` 的字段剔除,
+  // 避免整行回传销毁真实私密(角色 backstory / 势力 private_operation,F-1/F-2)。
+  const payload = stripSecretMask(updated)
+  if (detailType === 'chars') await api.editChar(localOf(payload), payload)
+  else if (detailType === 'rules') await api.post('/world-rules', payload)
+  else if (detailType === 'factions') await api.post('/factions', payload)
+  else if (detailType === 'items') await api.post('/items', payload)
+  else if (detailType === 'terms') await api.post('/terms', payload)
+  else if (detailType === 'promises') await api.editPromise(payload.id, payload)
+  else if (detailType === 'motifs') await api.editMotif(payload.id, payload)
 }
 
 async function remove(detailType, row) {

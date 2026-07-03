@@ -7,6 +7,14 @@ import { Tag } from '../ui'
 // 原内置主组件 CodexView 及其专属子件(TimelineCard 弧光请求瀑布/EditorChat/UnverifiedPanel)
 // 已无人 import,属死代码,已删除。活的弧光视图在 views/TimelineView(vis-timeline,批量拉取)。
 
+// 后端对勾选私密的字段,GET(未 reveal)时把真值替换为此掩码占位符(app.py `_mask_field`,
+// 常量语义 _SECRET_MASK)。若编辑其他字段时整行回传,该占位符会被写回、把真实私密值永久覆盖
+// (codex 无版本史,不可恢复)——彻查 F-1/F-2。因此提交前必须把「值恰等于该占位符」的字段从
+// payload 剔除:不发送 = 后端 PATCH 路径保留原值。前端硬编码,须与后端 `🔒 私密` 同源。
+export const SECRET_MASK = '🔒 私密'
+export const stripSecretMask = (obj) =>
+  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== SECRET_MASK))
+
 const TABS = [
   { key: 'overview', label: '概览', icon: PieChart },
   { key: 'chars', label: '角色', icon: Users },
@@ -288,7 +296,9 @@ function ItemStateHistory({ item }) {
 
 // ═══ DetailView ═══
 export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
-  const save = (key, val) => onUpdate({ ...row, [key]: val })
+  // 整行回传前剔除掩码占位符字段:角色(backstory)/势力(private_operation)勾私密后 GET 打码,
+  // 编辑任一字段不得把 `🔒 私密` 写回销毁真值(F-1/F-2)。stripSecretMask 只按值匹配,故只影响被打码字段。
+  const save = (key, val) => onUpdate(stripSecretMask({ ...row, [key]: val }))
   if (type === 'chars') {
     return (
       <div className="max-w-2xl mx-auto">
