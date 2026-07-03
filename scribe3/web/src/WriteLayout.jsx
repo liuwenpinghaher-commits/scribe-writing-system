@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
@@ -25,6 +25,13 @@ import { InputDialog } from './ui/Dialog.jsx'
 import { useToast, dismissToast, showToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
 
+// 右坞「恢复到此版本」同步编辑器(F3/彻查 G-E4):BinderLayout 持有的共享信号。
+// 右坞 doRestore 落库后 bump restoreTick;WriteLayout(经 DetailPane 隔开、无法直接传 prop)
+// 用 useContext 消费,把 restoreTick 加进本章重拉 effect 依赖 → 恢复即重拉库中最新正文,
+// 覆盖编辑器旧内容(=用户确认丢弃未存改动的恢复语义),杜绝续编辑覆盖恢复结果。
+// 定义在此(WriteLayout 不反向 import BinderLayout/studioDocks)→ 供两者 import 且零环。
+export const RestoreContext = createContext(0)
+
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
 // seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态;
 // onSeqChange: 内部步进器换章时回调,让项目树选中态跟随。
@@ -33,6 +40,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const toast = useToast()
   // 波B Step3:WriteChat 经 portal 渲染进右栏 ChiefDock 的槽。slotEl 为该槽 DOM。
   const { slotEl } = useChiefSlot()
+  // F3:右坞恢复信号。bump 时本章重拉 effect 重跑 → 编辑器同步为库中最新(恢复版)正文。
+  const restoreTick = useContext(RestoreContext)
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
   // persistDirtyOldChapter:切章前若有未保存内容,静默保存旧章(fire-and-forget,不阻断切章)
@@ -231,7 +240,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     api.qc(chapter).then(setQc)
     api.facts(chapter).then(setFacts)
     api.events(chapter).then(setEvents)
-  }, [chapter, tick])
+    // restoreTick:右坞恢复后 bump → 重拉本章,setProse 为库中恢复版并重置 dirtyRef。
+  }, [chapter, tick, restoreTick])
   // F-06 场景级跳转:sceneIdx 给定 + 正文已加载 → 等编辑器 setContent 落定后跳到该场景。
   // 依赖 [sceneIdx, proseLoadTick]:点不同场景(idx 变)或换章重载(tick 变)都重跳。
   // 只对当前章的场景跳(seq===chapter,避免树点章号与场景号错配时跳错章)。

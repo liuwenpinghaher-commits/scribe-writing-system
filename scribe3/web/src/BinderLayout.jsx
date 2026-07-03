@@ -5,6 +5,7 @@ import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
 import { DetailPane } from './DetailPane'
 import { LeftDock, RightDock } from './studioDocks'
+import { RestoreContext } from './WriteLayout'
 import { ChiefDock } from './ChiefDock'
 import { ChiefSlotProvider } from './ChiefSlotContext'
 import { DeduceProvider } from './deduceContext'
@@ -37,6 +38,9 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
+  // F3:右坞「恢复到此版本」→ bump → 经 RestoreContext 通知中区 WriteLayout 重拉本章正文,
+  // 恢复即同步编辑器(否则续编辑会用旧内容覆盖刚恢复的版本)。
+  const [restoreTick, setRestoreTick] = useState(0)
   const [delVol, setDelVol] = useState(null)   // {vid,label,body} 删卷确认
   const [addingVol, setAddingVol] = useState(false)  // 新建卷输入
   const initedRef = useRef(false)
@@ -153,6 +157,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
       onConfirm={doAddVolume}
       onClose={() => setAddingVol(false)}
     />
+    <RestoreContext.Provider value={restoreTick}>
     <div className="h-full bg-canvas min-h-0">
       <Group orientation="horizontal" defaultLayout={{ left: 22, detail: 52, right: 26 }} className="h-full">
         {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}
@@ -193,10 +198,12 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           onResize={(size) => setRightCollapsed(size.asPercentage < 5)}
           className="bg-surface border-l border-line"
         >
-          <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} />
+          <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq}
+            onRestored={() => setRestoreTick((t) => t + 1)} />
         </Panel>
       </Group>
     </div>
+    </RestoreContext.Provider>
     </DeduceProvider>
     </ChiefSlotProvider>
     </SelectionProvider>

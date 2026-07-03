@@ -68,13 +68,13 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
 }
 
 // 三栏写作台的「右栏」:面板 + 竖图标轨(镜像)。图标切换:主编对话/版本存档。
-export function RightDock({ sel, chapterSel, seq }) {
+export function RightDock({ sel, chapterSel, seq, onRestored }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   const caps = useMemo(() => {
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
-    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} /></div> })
+    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     return c
-  }, [sel, chapterSel, seq])
+  }, [sel, chapterSel, seq, onRestored])
   const active = caps.find((c) => c.key === tab) || caps[0]
   useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('chief') }, [caps, tab, setTab])
   return (
@@ -93,7 +93,7 @@ export function RightDock({ sel, chapterSel, seq }) {
 // RightDock 不持有当前 prose / WriteLayout 的 persist 闭包,故 onRestore 直接把该版本正文
 // 经 api.saveChapter 落库到 chapter 正文(保留原 title/focalizer),再 bump refreshKey 刷新存档列表。
 // 恢复=覆盖当前正文的危险操作 → ConfirmDialog 二次确认;成功/失败均 toast。
-function RightVersionPanel({ seq }) {
+function RightVersionPanel({ seq, onRestored }) {
   const toast = useToast()
   const [refreshKey, setRefreshKey] = useState(0)
   const [pending, setPending] = useState(null)   // 待确认恢复的版本正文(null=无)
@@ -104,6 +104,9 @@ function RightVersionPanel({ seq }) {
       try { const ch = await api.chapter(seq); title = ch?.title; focalizer = ch?.focalizer } catch { /* 取不到就不带,后端保持原值 */ }
       await api.saveChapter(seq, prose, title, focalizer)
       setRefreshKey((k) => k + 1)
+      // F3:落库成功后通知中区 WriteLayout 重拉本章 → 编辑器同步为恢复版,
+      // 防止编辑器仍持旧正文、用户续编辑保存时把恢复结果覆盖掉。
+      onRestored?.()
       toast('已恢复到该版本(正文已回写)')
     } catch (e) {
       toast('恢复失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' })
