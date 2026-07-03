@@ -59,9 +59,11 @@ def _resolve_promise(open_rows: list[dict], text: str) -> str | None:
 
 
 def _find_existing_learned_prop(store, fact_text: str) -> str | None:
-    """在已有命题中查找与 fact_text 近精确匹配的"获知"类命题,返回其 oid 或 None。
-    S3 去重策略:保守近精确匹配(归一化后完全相等,或长文本的包含关系),
-    不使用语义相似度以防误合并——正确性优先于激进去重。
+    """在已有命题中查找与 fact_text 归一化后【完全相等】的"获知"类命题,返回其 oid 或 None。
+    去重策略(批0 彻查 D-2):只保完全相等,不做包含匹配。
+    包含匹配会把『X』与『X,但那只是假消息』误合并成一条——获知否定/限定版的角色被挂到
+    未否定命题,限知帧显示与正文相反。语义相反的命题必须各自独立,正确性优先于激进去重。
+    仅复用【仍生效】的命题(valid_to IS NONE):已被 supersede 的旧命题不复用。
     fail-safe:任何异常返回 None(调用方继续创建新命题)。"""
     import logging
     _log = logging.getLogger("scribe3.ingest")
@@ -70,20 +72,17 @@ def _find_existing_learned_prop(store, fact_text: str) -> str | None:
         needle = fact_text.strip()
         if not needle:
             return None
-        # 全量扫描"获知"命题(数量通常较少)
+        # 全量扫描【仍生效】的"获知"命题(数量通常较少;已 supersede 的旧命题不复用)
         rows = store._query(
             "SELECT meta::id(id) AS local, value FROM proposition "
-            "WHERE attribute = '获知'")
+            "WHERE attribute = '获知' AND valid_to IS NONE")
         for r in rows:
             existing = (r.get("value") or "").strip()
             if not existing:
                 continue
-            # 近精确:完全相等,或长文本互相包含(≥15字时才启用包含检查)
+            # 只认完全相等:去掉包含匹配分支,防相反语义误合并
             if existing == needle:
                 return f"fact:{r['local']}"
-            if len(needle) >= 15 and len(existing) >= 15:
-                if needle in existing or existing in needle:
-                    return f"fact:{r['local']}"
     except Exception as e:
         _log.warning("learned 去重查找失败(fail-safe,将新建命题): %s", e)
     return None

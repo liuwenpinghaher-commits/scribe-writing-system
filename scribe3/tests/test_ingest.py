@@ -491,6 +491,65 @@ def test_learned_dedup_reingest_source_chapter_no_dangling_knows(store):
         "重 ingest A 章后 B 章阿萤的 knows 边不应悬空,阿萤帧仍应含该命题"
 
 
+# ── 批0 D-2:learned 去重去包含匹配,防相反语义误合并 ────────────────────────────
+
+def test_learned_dedup_forward_inclusion_opposite_semantics_not_merged(store):
+    """『X』与『X,但那只是假消息』互为包含关系但语义相反 → 必须是 2 条独立命题。
+
+    修前(包含匹配 bug):否定/限定版被并到肯定版一条,获知否定版的角色被挂到
+    未否定命题,限知帧显示与正文相反。
+    """
+    _ensure_chars(store, "焦三", "阿萤")
+    base = "长老会早已知道血月之夜将举行大祭之事"     # 18 字 ≥15
+    assert len(base) >= 15
+    # 焦三先获知肯定版
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": base}], "did": []}, seq=1)
+    # 阿萤后获知否定/限定版(文本包含肯定版)
+    negated = base + ",但那只是放出的假消息"
+    apply_delta(store, {"learned": [{"who": "阿萤", "fact": negated}], "did": []}, seq=2)
+
+    all_props = store.facts_at(99)
+    # 完全相等各一条:肯定版与否定版都应作为独立命题存在
+    has_base = any(f.value == base for f in all_props)
+    has_negated = any(f.value == negated for f in all_props)
+    assert has_base and has_negated, \
+        f"包含关系的相反语义命题不得合并;has_base={has_base} has_negated={has_negated} " \
+        f"实际命题={[f.value for f in all_props if base in f.value]}"
+
+    # 语义正确:阿萤知道的应是否定版,而非被挂到未否定命题
+    fr_ying = project_frame(store, "role:阿萤", 2)
+    assert any(f.value == negated for f in fr_ying.facts), \
+        "阿萤应知道否定/限定版命题(不得被并到肯定版)"
+
+
+def test_learned_dedup_reverse_inclusion_not_merged(store):
+    """反向包含(短命题是长命题的子串,二者均 ≥15 字)也不得合并。"""
+    _ensure_chars(store, "焦三", "阿萤")
+    short = "御史台密报朝廷城主暗中通敌一事"     # 15 字 ≥15
+    assert len(short) >= 15
+    long = short + "已被彻查坐实"                  # 包含 short,长度更长
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": long}], "did": []}, seq=1)
+    apply_delta(store, {"learned": [{"who": "阿萤", "fact": short}], "did": []}, seq=2)
+
+    all_props = store.facts_at(99)
+    has_long = any(f.value == long for f in all_props)
+    has_short = any(f.value == short for f in all_props)
+    assert has_long and has_short, \
+        f"反向包含不得合并;has_long={has_long} has_short={has_short}"
+
+
+def test_learned_dedup_exact_equal_still_reused(store):
+    """去包含匹配后仍须保留:完全相等命题跨角色/跨章复用同一条(正确性 + 去重不回退)。"""
+    _ensure_chars(store, "焦三", "阿萤")
+    fact_text = "血月之夜将举行大祭"
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": fact_text}], "did": []}, seq=1)
+    apply_delta(store, {"learned": [{"who": "阿萤", "fact": fact_text}], "did": []}, seq=2)
+    all_props = store.facts_at(99)
+    matching = [f for f in all_props if f.value == fact_text]
+    assert len(matching) == 1, \
+        f"完全相等命题应复用为 1 条,实际 {len(matching)} 条"
+
+
 # ── 伏笔母题章感知:ingest 抽本章母题 → motif_instance ──────────────────────────
 
 def test_apply_delta_motif_resolves_and_records(store):
