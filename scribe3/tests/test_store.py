@@ -1355,3 +1355,93 @@ def test_promise_window_state_pure():
     assert promise_window_state(pb, max_chapter=99)["state"] == "in_window"
     assert promise_window_state(dict(p, status="closed"), 5)["state"] == "inactive"
     assert promise_window_state(dict(p, kind="red_herring"), 5)["state"] == "inactive"
+
+
+def test_promise_touch_roundtrip_purge_and_lifecycle(store):
+    """promise_touch 往返 + promises_with_lifecycle 派生刷新态 + purge 幂等清本章。"""
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = [x for x in store.list_promises() if x["text"] == "井底的名字"][0]["id"]
+    store.add_promise_touch(pid, chapter=3, evidence="她又梦见井", ingest_seq=3)
+    store.add_promise_touch(pid, chapter=4, evidence="井绳断了", ingest_seq=4)
+    touches = store.list_promise_touches(pid)
+    assert [t["chapter"] for t in touches] == [3, 4]
+    # promises_with_lifecycle 派生 refresh_count/last_refresh_at + window 计算态
+    rows = store.promises_with_lifecycle(max_chapter=4)
+    row = [r for r in rows if r["id"] == pid][0]
+    assert row["refresh_count"] == 2 and row["last_refresh_at"] == 4
+    assert row["window"]["state"] in ("over_half", "overdue")  # setup=1 → 窗口 2~4
+    assert row["window"]["salience_gap"] == 0
+    # purge 幂等:重 ingest 第4章前清第4章触及
+    store.purge_ingest(4)
+    assert [t["chapter"] for t in store.list_promise_touches(pid)] == [3]
+
+
+def test_promise_legacy_row_fallback_and_resolution_default(store):
+    """Task1 跟进⑤:旧行(裸 CREATE 无 052 字段)回退路径 + resolution 默认值。"""
+    store._execute_write(
+        "CREATE promise SET text=$t, setup_chapter=2, payoff_chapter=NONE, "
+        "status='open', kind='promise'", {"t": "052前的旧伏笔"})
+    old = [x for x in store.list_promises() if x["text"] == "052前的旧伏笔"][0]
+    assert old["tier"] == "chapter"                              # tier 回退 chapter
+    assert old["payoff_min"] == 3 and old["payoff_max"] == 5     # 窗口按 setup 补算
+    assert old["clues"] == []
+    assert old.get("resolution") is None
+    store.plant_promise("新伏笔", setup_chapter=1)
+    new = [x for x in store.list_promises() if x["text"] == "新伏笔"][0]
+    assert new.get("resolution") is None                         # 052 起默认 NONE(未回收)
+
+
+def test_overdue_flag_window_alignment():
+    """Task1 跟进①⑤:_overdue_flag 与 promise_window_state 同口径。
+    有窗口:overdue = max_chapter+1 > payoff_max(首边界 pmax=7 → max_chapter=7 即超期);
+    book 层 payoff_max=None 永不超期;无窗口旧行才走 legacy slack。"""
+    from scribe3.store import _overdue_flag
+    p = {"status": "open", "kind": "promise", "setup_chapter": 2,
+         "payoff_min": 3, "payoff_max": 7, "tier": "chapter"}
+    assert _overdue_flag(p, max_chapter=7, slack=3) is True    # next_ch=8 > pmax=7,首边界
+    assert _overdue_flag(p, max_chapter=6, slack=3) is False   # next_ch=7 ≤ pmax,窗内
+    assert _overdue_flag(p, max_chapter=7, slack=99) is True   # 有窗口时 slack 不参与判定
+    book = {"status": "open", "kind": "promise", "setup_chapter": 1,
+            "payoff_min": 2, "payoff_max": None, "tier": "book"}
+    assert _overdue_flag(book, max_chapter=999, slack=3) is False  # 书级永不超期
+    legacy = {"status": "open", "kind": "promise", "setup_chapter": 1}
+    assert _overdue_flag(legacy, max_chapter=5, slack=3) is True    # 1+3 < 5
+    assert _overdue_flag(legacy, max_chapter=5, slack=10) is False  # legacy 分支吃 slack
+
+
+def test_plant_promise_invalid_tier_raises(store):
+    """Task1 跟进③:非法 tier 不再静默回退 chapter,直接 ValueError。"""
+    import pytest
+    with pytest.raises(ValueError):
+        store.plant_promise("坏层级", setup_chapter=1, tier="saga")
+
+
+def test_promise_window_state_pmin_fallback_tier_aware():
+    """Task1 跟进④:payoff_min 缺失时按 tier 查 _TIER_WINDOW 回退(非一律 setup+1);
+    payoff_min=0 的 falsy 显式值不再被误判为缺失。"""
+    from scribe3.store import promise_window_state
+    arc = {"status": "open", "kind": "promise", "setup_chapter": 1,
+           "payoff_min": None, "payoff_max": 16, "tier": "arc", "last_refresh_at": None}
+    # arc 窗口 lo=5 → pmin 回退 6;max_chapter=3 → next_ch=4 < 6 → pre_window
+    assert promise_window_state(arc, max_chapter=3)["state"] == "pre_window"
+    zero = {"status": "open", "kind": "promise", "setup_chapter": 3,
+            "payoff_min": 0, "payoff_max": 9, "tier": "chapter", "last_refresh_at": None}
+    # pmin=0 是显式值(is None 判定):next_ch=1 ≥ 0 → in_window(旧代码误回退 setup+1=4 → pre_window)
+    assert promise_window_state(zero, max_chapter=0)["state"] == "in_window"
+
+
+def test_update_promise_recomputes_window(store):
+    """Task1 跟进②:setup_chapter/tier 变更且未显式给窗口值时按 tier 重算 payoff_min/max。"""
+    store.plant_promise("会挪位置的伏笔", setup_chapter=1)
+    pid = [x for x in store.list_promises() if x["text"] == "会挪位置的伏笔"][0]["id"]
+    store.update_promise(pid, {"setup_chapter": 4})
+    p = [x for x in store.list_promises() if x["id"] == pid][0]
+    assert p["payoff_min"] == 5 and p["payoff_max"] == 7
+    store.update_promise(pid, {"tier": "book"})
+    p = [x for x in store.list_promises() if x["id"] == pid][0]
+    assert p["tier"] == "book"
+    assert p["payoff_min"] == 5 and p["payoff_max"] is None  # book:hi=None → pmax 显式清空
+    # 显式给窗口值时尊重调用方,不重算
+    store.update_promise(pid, {"setup_chapter": 2, "payoff_min": 9, "payoff_max": 12})
+    p = [x for x in store.list_promises() if x["id"] == pid][0]
+    assert p["payoff_min"] == 9 and p["payoff_max"] == 12

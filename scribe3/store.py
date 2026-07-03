@@ -103,7 +103,8 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
     return {"slug": slug, "title": title}
 
 
-_TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance"])
+_TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance",
+                                              "promise_touch"])
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
@@ -114,7 +115,8 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
                               "valid_to", "secret", "leak_markers", "ingest_seq"}),
     "event": frozenset({"event_type", "story_chapter",
                         "motivated_by_goal", "location", "preconditions"}),
-    "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues"}),
+    "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues",
+                          "tier", "payoff_min", "payoff_max", "resolution"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
 }
 
@@ -152,16 +154,23 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
 
 
 def _overdue_flag(p: dict, max_chapter: int, slack: int) -> bool:
-    """伏笔超期单源判定。open 且非 red_herring 且 setup+slack < max_chapter → 超期。
+    """伏笔超期单源判定。/promises、/quality、/promises/ledger 三处共用,杜绝口径漂移。
 
-    /promises、/quality、/promises/ledger 三处共用此函数,杜绝阈值口径漂移。
+    与 promise_window_state 同口径(next_ch = max_chapter+1):
+    - 有窗口(payoff_max 非 None)→ overdue = max_chapter + 1 > payoff_max,slack 不参与;
+    - payoff_max 为 None 且 tier=='book' → 书级伏笔永不超期;
+    - 无窗口旧行(未经 052 迁移/list_promises 补算的裸 dict)→ legacy:setup + slack < max_chapter。
     setup_chapter 缺失时不判超期(交由 audit 的 closed_without_setup 报数据异常)。
     """
     setup = p.get("setup_chapter")
-    return bool(p.get("status") == "open"
-                and p.get("kind") != "red_herring"
-                and setup is not None
-                and setup + slack < max_chapter)
+    if p.get("status") != "open" or p.get("kind") == "red_herring" or setup is None:
+        return False
+    pmax = p.get("payoff_max")
+    if pmax is not None:
+        return max_chapter + 1 > pmax
+    if p.get("tier") == "book":
+        return False
+    return setup + slack < max_chapter
 
 
 _TIER_WINDOW = {"chapter": (1, 3), "arc": (5, 15), "book": (1, None)}
@@ -175,7 +184,10 @@ def promise_window_state(p: dict, max_chapter: int) -> dict:
     if p.get("status") != "open" or p.get("kind") == "red_herring" or setup is None:
         return {"state": "inactive", "salience_gap": None}
     next_ch = max_chapter + 1
-    pmin = p.get("payoff_min") or setup + 1
+    pmin = p.get("payoff_min")
+    if pmin is None:  # 旧行回退:按 tier 查窗口下沿(is None 判定,payoff_min=0 是显式值)
+        lo, _hi = _TIER_WINDOW.get(p.get("tier") or "chapter", _TIER_WINDOW["chapter"])
+        pmin = setup + lo
     pmax = p.get("payoff_max")
     last_seen = max(setup, p.get("last_refresh_at") or setup)
     gap = max_chapter - last_seen
@@ -567,6 +579,8 @@ class SurrealStore:
         self._execute_write("DELETE ingest_unverified WHERE seq = $seq", {"seq": seq})
         # 5. 母题章实例:随本章 ingest 幂等清除
         self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
+        # 6. 伏笔章触及:随本章 ingest 幂等清除(手动登记 ingest_seq=NONE 不受影响)
+        self._execute_write("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
@@ -787,6 +801,20 @@ class SurrealStore:
                  "name": names.get(r.get("motif_id"), ""),
                  "evidence": r.get("evidence") or ""} for r in rows]
 
+    # --- 伏笔章触及 promise_touch ---
+    def add_promise_touch(self, promise_id: str, chapter: int,
+                          evidence: str = "", ingest_seq: int | None = None) -> None:
+        self._execute_write(
+            "CREATE promise_touch SET promise_id=$p, chapter=$c, evidence=$e"
+            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
+            {"p": promise_id, "c": chapter, "e": evidence or None,
+             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
+
+    def list_promise_touches(self, promise_id: str) -> list[dict]:
+        return self._query(
+            "SELECT promise_id, chapter, evidence FROM promise_touch "
+            "WHERE promise_id=$p ORDER BY chapter ASC", {"p": promise_id})
+
     # --- 通用 增删改(设定库编辑用)---
     def _update_by(self, table: str, local: str, fields: dict) -> None:
         if table not in _TABLES:
@@ -833,11 +861,36 @@ class SurrealStore:
         self._delete_by(t, l)
 
     def update_promise(self, pid: str, fields: dict) -> bool:
-        """更新伏笔字段;返回 True 若存在,False 若不存在。"""
-        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": pid})
+        """更新伏笔字段;返回 True 若存在,False 若不存在。
+
+        setup_chapter 或 tier 变更且调用方未显式给 payoff_min/payoff_max 时,
+        按(新)tier 重算兑现窗口,防脏窗口落库(edit_prom 端点自动跟随)。"""
+        rows = self._query("SELECT id, tier, setup_chapter FROM type::record('promise',$pid) "
+                           "LIMIT 1", {"pid": pid})
         if not rows:
             return False
+        fields = dict(fields)
+        new_setup = fields.get("setup_chapter")
+        new_tier = fields.get("tier")
+        window_given = (fields.get("payoff_min") is not None
+                        or fields.get("payoff_max") is not None)
+        clear_pmax = False
+        if (new_setup is not None or new_tier is not None) and not window_given:
+            tier = new_tier or rows[0].get("tier") or "chapter"
+            if tier not in _TIER_WINDOW:
+                raise ValueError(f"非法伏笔层级 tier='{tier}'(合法: {sorted(_TIER_WINDOW)})")
+            setup = new_setup if new_setup is not None else rows[0].get("setup_chapter")
+            if setup is not None:
+                lo, hi = _TIER_WINDOW[tier]
+                fields["payoff_min"] = setup + lo
+                if hi is None:
+                    clear_pmax = True  # _update_by 过滤 None 值,book 层需显式清 payoff_max
+                else:
+                    fields["payoff_max"] = setup + hi
         self._update_by("promise", pid, fields)
+        if clear_pmax:
+            self._execute_write(
+                "UPDATE type::record('promise',$pid) SET payoff_max=NONE", {"pid": pid})
         return True
 
     def delete_promise(self, promise_id: str) -> bool:
@@ -970,7 +1023,9 @@ class SurrealStore:
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
                       tier: str = "chapter") -> None:
-        lo, hi = _TIER_WINDOW.get(tier, _TIER_WINDOW["chapter"])
+        if tier not in _TIER_WINDOW:
+            raise ValueError(f"非法伏笔层级 tier='{tier}'(合法: {sorted(_TIER_WINDOW)})")
+        lo, hi = _TIER_WINDOW[tier]
         pmin = setup_chapter + lo
         pmax = None if hi is None else setup_chapter + hi
         self._execute_write(
@@ -1001,6 +1056,23 @@ class SurrealStore:
 
     def open_promises(self) -> list[dict]:
         return [p for p in self.list_promises() if p["status"] == "open"]
+
+    def promises_with_lifecycle(self, max_chapter: int | None = None) -> list[dict]:
+        """list_promises + 派生 refresh_count/last_refresh_at(自 promise_touch)+ window 计算态。"""
+        if max_chapter is None:
+            max_chapter = self.max_chapter()
+        touches = self._query(
+            "SELECT promise_id, chapter FROM promise_touch ORDER BY chapter ASC")
+        by_pid: dict[str, list[int]] = {}
+        for t in touches or []:
+            by_pid.setdefault(t["promise_id"], []).append(t["chapter"])
+        out = []
+        for p in self.list_promises():
+            chs = by_pid.get(p["id"], [])
+            p = dict(p, refresh_count=len(chs), last_refresh_at=(chs[-1] if chs else None))
+            p["window"] = promise_window_state(p, max_chapter)
+            out.append(p)
+        return out
 
     def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
         """回收伏笔:标 closed + payoff_chapter。payoff≥setup 校验(Python 侧先行,拒绝脏数据)。"""

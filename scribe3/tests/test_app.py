@@ -642,20 +642,21 @@ def test_quality_overdue_uses_module_constant(store):
 
 
 def test_quality_overdue_intent_override(store):
-    """Fix 1: intent 设置 overdue_threshold 时覆盖默认 OVERDUE_SLACK。"""
-    import scribe3.app as A
-    # 设置 intent.overdue_threshold = 10(宽松)
+    """Fix 1 → Task2 口径对齐更新:有兑现窗口(payoff_max)的伏笔按窗口判超期,
+    intent.overdue_threshold 不再参与(仅作用于无窗口的 legacy 旧行,单测见
+    test_store.test_overdue_flag_window_alignment)。
+    plant_promise 默认 chapter 层 → payoff_max = setup+3 = 4;max_chapter=5 →
+    next_ch=6 > 4 → 即便 threshold=10 也超期。"""
     store.set_intent({"reader_feeling": "", "emotional_arc": "", "red_lines": "",
                       "overdue_threshold": 10})
     store.plant_promise("宽松伏笔", setup_chapter=1, kind="promise")
-    # max_chapter = 1+3+1 = 5,远小于 threshold=10 → 不应超期
     store.add_event(Event("ev:ov2", "action", story_time=5))
     c = _client(store)
     q = c.get("/quality").json()
     proms = q["foreshadow"].get("promises", [])
     p = next((x for x in proms if "宽松" in x.get("text", "")), None)
     assert p is not None
-    assert p["overdue"] is False, f"threshold=10 时 max_ch=5 不应超期: {p}"
+    assert p["overdue"] is True, f"窗口口径:pmax=4 < next_ch=6,threshold 不拦窗口超期: {p}"
 
 
 # ===== P3-e1 Fix 2: reference_lines 类型对齐 =====
