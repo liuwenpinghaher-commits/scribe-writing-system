@@ -481,7 +481,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
         ) : phase === 'beats' ? (
           <BeatsTab seq={seq} work={work} value={meta?.beats} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'deduce' ? (
-          <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
+          <DeduceStage seq={seq} work={work} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'draft' ? (
           <DraftTab seq={seq} work={work} meta={meta} onAdopt={(text) => {
             // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。

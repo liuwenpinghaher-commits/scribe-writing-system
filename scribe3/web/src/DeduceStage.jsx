@@ -8,7 +8,8 @@ import { Btn } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 
 // 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
-export function DeduceStage({ seq, meta, onSaved }) {
+// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F6,同 F1/F5)。
+export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
   const [text, setText] = useState('')
@@ -26,13 +27,14 @@ export function DeduceStage({ seq, meta, onSaved }) {
   const persistFor = async (sel, sq, val) => {
     try {
       if (sel === 'truth') {
-        await api.patchChapter(sq, { scene_truth: val })
+        // 传 work:切书卸载 flush 走全局 WORK 会把本书场景真相写进别的书(F6,同 OutlineTab/BeatsTab 钉书)
+        await api.patchChapter(sq, { scene_truth: val }, work)
       } else {
-        const ch = await api.chapter(sq)                       // 读最新,避免 meta 过期覆盖别的角色
+        const ch = await api.chapter(sq, work)                 // 读最新且钉住目标书,避免 meta 过期覆盖别的角色/读错书
         const others = (ch?.deductions || []).filter((d) => d.character_id !== sel)
         const name = (meta?.chars?.find((c) => c.id === sel) || {}).name
           || (ch?.deductions || []).find((d) => d.character_id === sel)?.character_name || sel
-        await api.patchChapter(sq, { deductions: [...others, { character_id: sel, character_name: name, prose: val }] })
+        await api.patchChapter(sq, { deductions: [...others, { character_id: sel, character_name: name, prose: val }] }, work)
       }
       onSaved?.()
       return true
