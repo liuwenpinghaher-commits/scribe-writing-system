@@ -5,6 +5,7 @@ import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine } from 'lu
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
+import { fallbackProposalText } from './lib/stageProposal'
 import { useDeduceSel } from './deduceContext'
 import { Btn } from './ui.jsx'
 
@@ -260,11 +261,12 @@ function DiscussionDock({ sel, phase }) {
           mut((l) => ({ ...l, content: propOpen ? propBase + prose : l.content + prose }))
           publish(prose)
         },
-        // 兜底:整轮无任何 proposal 事件(纯 delta 讨论/生成)→ 把本轮 delta 正文当生成结果发布,
-        // 让用户仍能一键填入。收到过 proposal 则绝不重发(否则会用含讨论前言的全文覆盖纯净稿)。
+        // 兜底(选择逻辑抽 fallbackProposalText 纯函数,负例见单测):无 proposal 收尾时,
+        // 围栏开过 → 发部分正文 propAcc(截断稿),否则发纯 delta;收到过 proposal 绝不重发。
         onDone: () => {
           setBusy(false)
-          if (!gotProposal) publish(turnText)
+          const fb = fallbackProposalText({ gotProposal, propOpen, propAcc, turnText })
+          if (fb != null) publish(fb)
         },
         onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
       })

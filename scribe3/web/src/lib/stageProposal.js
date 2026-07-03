@@ -19,16 +19,34 @@ export function matchStageProposal(p, { phase, seq, target = null }) {
 /**
  * 主编生成的节拍 markdown → 条目文本数组。
  * 优先剥行首列表标记(- * + / 1. 1、 1) / 一、);标题行(#)是分组名不是条目,跳过;
- * 无列表标记时按非空行拆。条目内的行内 markdown(加粗等)原样保留(节拍编辑器就是 markdown)。
+ * ``` / ~~~ 码块整段跳过;无列表标记时按非空行拆。行内 markdown(加粗等)原样保留。
+ * 剥标记按 markdown 规范收紧:`- ` 后必须有空白(`-3度`/`**粗体**` 不误剥);
+ * 数字序号后不得紧跟数字(`3.5万字` 是小数不是序号)。
  */
 export function beatsFromMarkdown(md) {
   const items = []
+  let inFence = false
   for (const raw of (md || '').split('\n')) {
     const l = raw.trim()
+    if (/^(```|~~~)/.test(l)) { inFence = !inFence; continue }
+    if (inFence) continue
     if (!l) continue
     if (/^#{1,6}\s/.test(l)) continue
-    const t = l.replace(/^([-*+]|\d+[.、)]|[一二三四五六七八九十]+[、.])\s*/, '').trim()
+    const t = l.replace(/^(?:[-*+]\s+|\d+[.、)](?!\d)\s*|[一二三四五六七八九十]+[、.]\s*)/, '').trim()
     if (t) items.push(t)
   }
   return items
+}
+
+/**
+ * chatWrite 兜底发布的正文选择(块二质量审查必修,抽纯函数供单测):
+ * - 收到过 proposal 收尾事件 → null(已按围栏稿发布,绝不重发/覆盖);
+ * - 围栏开过但没收尾(LLM 在围栏内被 max-tokens 截断;后端 ProposalParser.flush 对未闭合
+ *   围栏只吐 delta、不补 proposal 收尾)→ 发已累积的部分正文 propAcc——截断稿仍是正文,
+ *   发 turnText 会把讨论前言当成果、丢掉半截稿;
+ * - 整轮无围栏 → 发纯 delta 累积 turnText。
+ */
+export function fallbackProposalText({ gotProposal, propOpen, propAcc, turnText }) {
+  if (gotProposal) return null
+  return propOpen ? propAcc : turnText
 }

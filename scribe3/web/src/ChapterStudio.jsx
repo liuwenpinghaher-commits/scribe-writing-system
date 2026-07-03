@@ -113,6 +113,7 @@ function OutlineTab({ seq, value, meta, onSaved }) {
         <ProposalBar
           text={`主编生成了内容(${pending.content.replace(/\s/g, '').length} 字),可落进大纲。`}
           actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+          onDismiss={clear}
         />
       )}
       <RichEditor
@@ -231,6 +232,7 @@ function BeatsTab({ seq, value, meta, onSaved }) {
         <ProposalBar
           text={`主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
           actions={[{ label: '追加为新条目', variant: 'primary', onClick: appendPending }]}
+          onDismiss={clear}
         />
       )}
 
@@ -364,6 +366,7 @@ function DraftTab({ seq, meta, onAdopt }) {
         <ProposalBar
           text={`主编生成了本章草稿(${pending.content.replace(/\s/g, '').length} 字),可直接落进草稿框。`}
           actions={[{ label: '填入草稿框', variant: 'primary', onClick: fillDraft }, { label: '追加到草稿', onClick: appendDraft }]}
+          onDismiss={clear}
         />
       )}
       <Input

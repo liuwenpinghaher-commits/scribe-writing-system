@@ -154,6 +154,7 @@ export function DeduceStage({ seq, meta, onSaved }) {
         <ProposalBar
           text={`主编生成了「${selected === 'truth' ? '场景真相' : cur.character_name}」的内容(${pending.content.replace(/\s/g, '').length} 字)。`}
           actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+          onDismiss={clear}
         />
       )}
       <RichEditor value={text} editorKey={`${seq}|${selected}`}
