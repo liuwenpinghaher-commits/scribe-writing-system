@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, GitBranch, Trash2, Plus } from 'lucide-react'
 import { api } from './api'
 import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { showToast } from './ui/Toast'
+import { Btn, SectionTitle, Empty } from './ui'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -64,6 +65,197 @@ async function remove(detailType, row) {
   else if (detailType === 'motifs') await api.delMotif(row.id)
 }
 
+// ═══ 弧光锚编辑(M3):ghost/lie/truth/want/need + arc_type + private_agenda ═══
+// 七键静态锚,存于 character 记录,经 PATCH /char-anchors 局部更新(不碰角色档案其它字段)。
+const ARC_TYPES = [
+  { v: 'positive', label: '正向成长(positive)' },
+  { v: 'flat', label: '平稳弧(flat)' },
+  { v: 'disillusionment', label: '幻灭(disillusionment)' },
+  { v: 'fall', label: '坠落(fall)' },
+  { v: 'corruption', label: '腐化(corruption)' },
+]
+// 锚文本键(不含 arc_type 下拉),渲染成一列小 textarea。
+const ANCHOR_TEXT = [
+  ['ghost', '心魔 / 前史创伤(Ghost)', '过去某件事在角色心里留下的阴影'],
+  ['lie', '错误信念(Lie)', '角色因创伤而信奉、需被击穿的谎言'],
+  ['truth', '真相(Truth)', '角色最终须领悟的、与 Lie 相对的真相'],
+  ['want', '表层渴望(Want)', '角色自以为想要的外在目标'],
+  ['need', '深层需求(Need)', '角色真正需要、往往与 Want 冲突的东西'],
+]
+
+// lie_belief 历史小曲线:纯 SVG 折线,无图表库。数据优先取 /char-states 的 lie_belief 实测,
+// 无实测则回退 arc_plan 的 lie_belief_target 计划轨迹;不足 2 点不渲染(与"无数据不渲染"一致)。
+function LieBeliefSpark({ states, arcPlan }) {
+  const actual = (states || [])
+    .filter((s) => typeof s.lie_belief === 'number')
+    .map((s) => ({ chapter: s.chapter, value: s.lie_belief }))
+  const planned = (arcPlan || [])
+    .filter((b) => typeof b.lie_belief_target === 'number')
+    .map((b) => ({ chapter: b.target_chapter, value: b.lie_belief_target }))
+  const useActual = actual.length >= 2
+  const pts = (useActual ? actual : planned).slice().sort((a, b) => a.chapter - b.chapter)
+  if (pts.length < 2) return null   // 无数据不渲染
+
+  const W = 260, H = 72, PX = 6, PY = 8
+  const chs = pts.map((p) => p.chapter)
+  const cMin = Math.min(...chs), cMax = Math.max(...chs)
+  const span = cMax - cMin || 1
+  const x = (c) => PX + ((c - cMin) / span) * (W - PX * 2)
+  const y = (v) => PY + (1 - Math.max(0, Math.min(100, v)) / 100) * (H - PY * 2)
+  const line = pts.map((p) => `${x(p.chapter).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ')
+  return (
+    <div className="mt-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-f11 text-faint uppercase tracking-wider">信奉度曲线(Lie belief)</span>
+        <span className="text-f10 text-faint/60">{useActual ? '实测' : '计划轨迹'} · {pts.length} 点</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[280px]" preserveAspectRatio="xMidYMid meet" role="img" aria-label="信奉度曲线">
+        {/* 0 / 50 / 100 三条参考线 */}
+        {[0, 50, 100].map((v) => (
+          <line key={v} x1={PX} x2={W - PX} y1={y(v)} y2={y(v)} className="stroke-line" strokeWidth="0.5" strokeDasharray="2 3" />
+        ))}
+        <polyline points={line} fill="none" className="stroke-brand" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map((p, i) => (
+          <g key={i}>
+            <circle cx={x(p.chapter)} cy={y(p.value)} r="2.4" className="fill-brand" />
+            <text x={x(p.chapter)} y={y(p.value) - 4} textAnchor="middle" className="fill-faint" fontSize="6">{p.value}</text>
+          </g>
+        ))}
+        {/* 章号轴:首末标注 */}
+        <text x={x(cMin)} y={H - 1} textAnchor="start" className="fill-faint/70" fontSize="6">第{cMin}章</text>
+        <text x={x(cMax)} y={H - 1} textAnchor="end" className="fill-faint/70" fontSize="6">第{cMax}章</text>
+      </svg>
+    </div>
+  )
+}
+
+function CharArcAnchors({ characterId }) {
+  const [anchors, setAnchors] = useState(null)   // null=加载中
+  const [arcPlan, setArcPlan] = useState([])
+  const [states, setStates] = useState([])
+  const [form, setForm] = useState(null)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [beat, setBeat] = useState(null)   // 新增里程碑草稿 或 null
+  const [beatErr, setBeatErr] = useState('')
+
+  const reload = () => {
+    api.charAnchors(characterId)
+      .then((r) => { const a = r?.anchors || {}; setAnchors(a); setForm(a); setArcPlan(Array.isArray(r?.arc_plan) ? r.arc_plan : []); setDirty(false) })
+      .catch(() => { setAnchors({}); setForm({}); setArcPlan([]) })
+    api.charStates(characterId).then((s) => setStates(Array.isArray(s) ? s : [])).catch(() => setStates([]))
+  }
+  useEffect(() => { setAnchors(null); reload() }, [characterId])
+
+  const setField = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true) }
+  const save = async () => {
+    setSaving(true)
+    try {
+      // 只回传锚七键(白名单),空串保留为清空;后端 set_char_anchors 只写传入键。
+      const payload = {}
+      for (const k of ['ghost', 'lie', 'truth', 'want', 'need', 'arc_type', 'private_agenda']) payload[k] = form?.[k] ?? ''
+      await api.patchCharAnchors(characterId, payload)
+      setAnchors(form); setDirty(false)
+      showToast('弧光锚已保存', { tone: 'ok' })
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '弧光锚保存失败', { tone: 'danger' })
+    } finally { setSaving(false) }
+  }
+
+  const addBeat = async () => {
+    const b = beat
+    if (!b?.beat_name?.trim() || b.target_chapter === '' || b.target_chapter == null) { setBeatErr('里程碑名与目标章必填'); return }
+    const lbt = b.lie_belief_target === '' || b.lie_belief_target == null ? null : Number(b.lie_belief_target)
+    if (lbt != null && (Number.isNaN(lbt) || lbt < 0 || lbt > 100)) { setBeatErr('信奉度目标须为 0-100'); return }
+    try {
+      await api.postArcBeat({ character_id: characterId, beat_name: b.beat_name.trim(), target_chapter: Number(b.target_chapter), lie_belief_target: lbt, trigger_event: b.trigger_event || '' })
+      setBeat(null); setBeatErr(''); reload()
+    } catch (e) { setBeatErr(e?.body?.detail || e?.message || '里程碑保存失败') }
+  }
+  const delBeat = async (id) => {
+    try { await api.delArcBeat(id); reload() }
+    catch (e) { showToast(e?.body?.detail || e?.message || '里程碑删除失败', { tone: 'danger' }) }
+  }
+
+  if (anchors === null) return <div className="mt-6 text-f12 text-faint/50">弧光锚加载中…</div>
+  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
+  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+  return (
+    <div className="mt-6 pt-4 border-t border-line">
+      <SectionTitle icon={GitBranch}>弧光锚 · 角色内核</SectionTitle>
+      <div className="space-y-2.5">
+        {ANCHOR_TEXT.map(([k, label, ph]) => (
+          <div key={k}>
+            <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">{label}</div>
+            <textarea rows={2} value={form?.[k] ?? ''} onChange={(e) => setField(k, e.target.value)} placeholder={ph} className={ta} />
+          </div>
+        ))}
+        <div>
+          <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">弧型(Arc type)</div>
+          <select value={form?.arc_type ?? ''} onChange={(e) => setField('arc_type', e.target.value)}
+            className="w-full h-9 rounded-md border border-line bg-canvas px-2.5 text-f13 text-ink outline-none focus:border-brand cursor-pointer">
+            <option value="">—</option>
+            {ARC_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">私密日程(Private agenda)</div>
+          <textarea rows={2} value={form?.private_agenda ?? ''} onChange={(e) => setField('private_agenda', e.target.value)}
+            placeholder="角色背地里在推进的目标(喂『待激活角色』心跳)" className={ta} />
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <Btn variant="primary" size="sm" onClick={save} disabled={!dirty || saving}>
+          {saving && <Loader2 size={13} className="animate-spin" />}保存弧光锚
+        </Btn>
+        {dirty && <span className="text-f11 text-faint">有未保存改动</span>}
+      </div>
+
+      {/* 弧光里程碑(arc_plan):目标章 + 该拍应到达的信奉度 */}
+      <div className="mt-5">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-f11 text-faint uppercase tracking-wider">弧光里程碑</span>
+          <span className="text-f11 text-faint/50">{arcPlan.length} 个节拍</span>
+          {!beat && <button onClick={() => { setBeat({ beat_name: '', target_chapter: '', lie_belief_target: '', trigger_event: '' }); setBeatErr('') }}
+            className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />加节拍</button>}
+        </div>
+        {beat && (
+          <div className="mb-3 p-2.5 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-1.5">
+            <div className="flex gap-1.5">
+              <input value={beat.beat_name} onChange={(e) => setBeat({ ...beat, beat_name: e.target.value })} placeholder="节拍名(如:识破谎言)" className={`flex-1 ${inp}`} />
+              <input type="number" value={beat.target_chapter} onChange={(e) => setBeat({ ...beat, target_chapter: e.target.value })} placeholder="目标章" className={`w-20 ${inp}`} />
+            </div>
+            <div className="flex gap-1.5">
+              <input type="number" value={beat.lie_belief_target} onChange={(e) => setBeat({ ...beat, lie_belief_target: e.target.value })} placeholder="信奉度目标 0-100(可空)" className={`w-40 ${inp}`} />
+              <input value={beat.trigger_event} onChange={(e) => setBeat({ ...beat, trigger_event: e.target.value })} placeholder="触发事件(可空)" className={`flex-1 ${inp}`} />
+            </div>
+            {beatErr && <div className="text-f11 text-danger">{beatErr}</div>}
+            <div className="flex gap-2">
+              <Btn variant="primary" size="xs" onClick={addBeat}>保存节拍</Btn>
+              <Btn variant="ghost" size="xs" onClick={() => { setBeat(null); setBeatErr('') }}>取消</Btn>
+            </div>
+          </div>
+        )}
+        {arcPlan.length === 0 ? <Empty>尚无里程碑——加节拍规划弧光行进(目标章 + 信奉度)</Empty> : (
+          <div className="space-y-1">
+            {arcPlan.map((b) => (
+              <div key={b.id} className="group flex items-center gap-2 py-1 px-1.5 rounded hover:bg-soft/40">
+                <span className="text-f11 text-faint tnum shrink-0">第{b.target_chapter}章</span>
+                <span className="text-f13 text-ink min-w-0 truncate">{b.beat_name}</span>
+                {typeof b.lie_belief_target === 'number' && <span className="text-f10 text-brand shrink-0">信奉度→{b.lie_belief_target}</span>}
+                {b.trigger_event && <span className="text-f11 text-faint/60 truncate">· {b.trigger_event}</span>}
+                <button onClick={() => delBeat(b.id)} className="ml-auto opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer transition-opacity" title="删除节拍"><Trash2 size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <LieBeliefSpark states={states} arcPlan={arcPlan} />
+    </div>
+  )
+}
+
 /**
  * 素材叶节点的中间栏详情卡:复用 CodexView 的 DetailView(角色档案/通用字段表/弧光/关系),
  * 自己负责按 node 懒加载该条全字段 + 落库回写。
@@ -106,6 +298,8 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
           }}
           onDelete={() => setDelOpen(true)}
         />
+        {/* 角色专属:弧光锚编辑 + 里程碑 + 信奉度曲线(独立 PATCH /char-anchors,不碰角色档案回写) */}
+        {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} />}
       </div>
       <ConfirmDialog
         open={delOpen}

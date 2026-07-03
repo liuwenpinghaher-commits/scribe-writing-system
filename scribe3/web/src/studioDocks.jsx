@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check } from 'lucide-react'
+import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
 import { Empty, Tag, SectionTitle, Skeleton } from './ui'
 import { ProjectTree } from './ProjectTree'
+import { BriefPanel } from './BriefPanel'
 import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
@@ -42,6 +43,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     ]
     if (seq == null) return base   // 未选章:只给项目树
     base.push(
+      { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onJumpChapter={onJumpChapter} /> },
@@ -302,6 +304,54 @@ function QCItem({ label, hits }) {
   )
 }
 
+// M2a 张力检查(Task9 露出):按钮触发 POST /tension-check(rubric 走 LLM,可能慢),
+// 渲染 8 项 {item,pass,detail,fix}。确定性 3 项即时返回;rubric 失败降级只显确定性项。
+const TENSION_LABEL = {
+  promise_progress: '伏笔进展', open_loops: '开环账本', irony_surface: '信息差盘点',
+  dramatic_question: '戏剧问题', outcome_grammar: '结局语法', value_shift: '价值反转',
+  micro_tension: '微张力', hook: '续读钩子',
+}
+function TensionCheck({ seq }) {
+  const [state, setState] = useState('idle')   // idle / loading / done / error
+  const [res, setRes] = useState(null)
+  const run = async () => {
+    setState('loading'); setRes(null)
+    try {
+      const r = await api.tensionCheck(seq)
+      setRes(r); setState('done')
+    } catch (e) { setRes({ error: e?.body?.detail || e?.message || '请求失败' }); setState('error') }
+  }
+  const items = res?.items || []
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-f12 font-semibold text-ink inline-flex items-center gap-1.5"><Gauge size={13} className="text-faint" />叙事张力检查</div>
+        <button onClick={run} disabled={state === 'loading'}
+          className="h-6 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors inline-flex items-center gap-1">
+          {state === 'loading' && <Loader2 size={11} className="animate-spin" />}{state === 'loading' ? '检查中…' : '张力检查'}
+        </button>
+      </div>
+      {res?.error === 'no_prose' && <Empty>保存正文后可做张力检查</Empty>}
+      {res?.error && res.error !== 'no_prose' && <div className="text-f12 text-danger">检查失败:{res.error}</div>}
+      {state === 'done' && !res?.error && (
+        <div className="space-y-1.5">
+          {items.map((it, i) => (
+            <div key={i} className="text-f12">
+              <div className="flex items-center gap-1.5">
+                <span className={cn('shrink-0 w-1.5 h-1.5 rounded-full', it.pass ? 'bg-ok' : 'bg-danger')} />
+                <span className="text-ink font-medium">{TENSION_LABEL[it.item] || it.item}</span>
+                <span className="text-faint">{it.detail}</span>
+              </div>
+              {!it.pass && it.fix && <div className="text-f11 text-faint/70 leading-snug pl-3 mt-0.5">→ {it.fix}</div>}
+            </div>
+          ))}
+          {res?.rubric_failed && <div className="text-f11 text-faint">⚠ rubric(LLM)判定失败,仅含确定性 3 项</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function QCPanel({ seq }) {
   const [qc, setQc] = useState(undefined)   // undefined=加载中,null=失败,{}=无正文,object=数据
   useEffect(() => { setQc(undefined); api.qc(seq).then(setQc).catch(() => setQc(null)) }, [seq])
@@ -323,6 +373,7 @@ function QCPanel({ seq }) {
         : qc === null ? <Empty>QC 加载失败,切走再切回可重试</Empty>
         : noProse ? <Empty>保存正文后自动体检</Empty>
         : <div>{items.map(([label, hits]) => <QCItem key={label} label={label} hits={hits} />)}</div>}
+      {seq != null && qc !== undefined && <TensionCheck seq={seq} />}
     </div>
   )
 }

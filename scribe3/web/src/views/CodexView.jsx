@@ -339,13 +339,18 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],
     terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea'],['first_mention_chapter','首次提及章','number']],
-    promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['promise_kind','类型','text']],
+    promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['tier','兑现层级','tier_sel'],['promise_kind','类型','text']],
     motifs: [['name','母题名','text'],['theme','绑定主题','text'],['unfolding','隐喻展开','textarea'],['echoes','物质回声','textarea']],
   }
   const fields = fieldMap[type] || []
   const tabLabel = TABS.find((t) => t.key === type)?.label || type
   const stateOptions = ['active','lost','destroyed','unknown']
   const scopeOptions = ['global','local']
+  const tierOptions = [
+    { value: 'chapter', label: '章级（近场 +1~3 章内兑现）' },
+    { value: 'arc',     label: '卷级（中程 +5~15 章内兑现）' },
+    { value: 'book',    label: '书级（贯穿全书，永不超期）' },
+  ]
   const ruleCatOptions = [
     { value: 'magic',      label: '魔法' },
     { value: 'technology', label: '科技' },
@@ -396,6 +401,19 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
               >
                 <option value="">—</option>
                 {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          ) :
+          ftype === 'tier_sel' ? (
+            // 伏笔兑现层级(B-2):章级近场兑现 / 卷级中程 / 书级贯穿全书(书级永不超期)。
+            <div key={k} className="py-2">
+              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
+              <select
+                value={row[k] || 'chapter'}
+                onChange={(e) => save(k, e.target.value)}
+                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
+              >
+                {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           ) :

@@ -23,7 +23,7 @@ function emptyDraft(catType) {
     case 'item': return { name: '', symbolic_state: 'active' }
     case 'term': return { name: '' }
     case 'world_rule': return { name: '', category: 'magic' }
-    case 'promise': return { text: '', setup_chapter: 1 }
+    case 'promise': return { text: '', setup_chapter: 1, tier: 'chapter' }
     case 'motif': return { name: '' }
     default: return { name: '' }
   }

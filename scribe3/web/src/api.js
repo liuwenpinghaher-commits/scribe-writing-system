@@ -93,6 +93,15 @@ export const api = {
   addMotifNew: (b) => post('/motifs-new', b),
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),
+  // 工艺引擎(P0 露出):章前简报 / 角色弧光锚 / 弧光里程碑 / 张力检查(镜像既有方法,work 走 ww 惯例)
+  chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),
+  charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
+  patchCharAnchors: (id, anchors) => patch('/char-anchors', { character_id: id, anchors }),
+  postArcBeat: (b) => post('/arc-beats', b),
+  delArcBeat: (id) => del('/arc-beats/' + enc(id)),
+  charStates: (id) => j(`/char-states?character_id=${enc(id)}`),
+  // POST 但只读(登记在后端 KNOWN_REST_WRITE_ROUTES);rubric 走 LLM 可能慢,调用方给 loading 态
+  tensionCheck: (seq) => post(`/tension-check?seq=${seq}`),
   // 素材库(非正典材料;镜像 motif 方法组)
   materials: (kind) => j('/materials' + (kind ? `?kind=${enc(kind)}` : '')),
   addMaterial: (b) => post('/materials', b),
