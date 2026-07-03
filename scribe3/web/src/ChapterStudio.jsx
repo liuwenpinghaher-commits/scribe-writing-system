@@ -455,7 +455,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
       <div className="h-full flex flex-col min-h-0">
         <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
         <div className="flex-1 min-h-0">
-          <WriteLayout key={`${work}-${seq}`} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
+          <WriteLayout key={work} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
       </div>
     )

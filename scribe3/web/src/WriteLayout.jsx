@@ -22,7 +22,7 @@ import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
-import { useToast, dismissToast } from './ui/Toast.jsx'
+import { useToast, dismissToast, showToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
@@ -40,9 +40,11 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const persistDirtyOldChapter = (targetSeq) => {
     const { seq: oldSeq, prose: oldProse, chTitle: oldChTitle, focalizer: oldFocalizer, dirty } = dirtyRef.current
     if (!dirty || oldProse === undefined || oldSeq == null || oldSeq === targetSeq) return
+    // 乐观置净:先标 dirty=false,避免与卸载兜底 flush(见下)对同一改动重复保存;失败再恢复
+    dirtyRef.current.dirty = false
     api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
-      .then(() => { dirtyRef.current.dirty = false; setSaved(true) })
-      .catch(() => { toast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }) })
+      .then(() => { setSaved(true) })
+      .catch(() => { dirtyRef.current.dirty = true; toast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }) })
   }
 
   // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
@@ -63,6 +65,21 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     persistDirtyOldChapter(seq)
     _setChapter(seq)
   }, [seq])
+  // 切章丢稿根治(F1/彻查 G-B3):外部切章(项目树点章)由上层 DetailPane 的
+  // ErrorBoundary(key=节点 id=ch:seq)整树重挂 WriteLayout —— 旧实例直接卸载,上面的
+  // [seq] 同步 effect 来不及在旧实例里 flush。ProseEditor 无 onBlur,未手存正文只活在
+  // dirtyRef 里,重挂即永久丢失。此处补一个「卸载兜底 flush」:组件卸载时若 dirtyRef 仍脏,
+  // fire-and-forget 落库旧章(fetch 不随组件卸载中断)。与 persistDirtyOldChapter 的乐观
+  // 置净配合去重:内部步进已 persist 的改动此刻 dirty 已 false,不重复保存。
+  useEffect(() => {
+    return () => {
+      const { seq: oldSeq, prose: oldProse, chTitle: oldChTitle, focalizer: oldFocalizer, dirty } = dirtyRef.current
+      if (!dirty || oldProse === undefined || oldSeq == null) return
+      dirtyRef.current.dirty = false
+      api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
+        .catch(() => showToast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }))
+    }
+  }, [])
   const [entities, setEntities] = useState([])
   const [focalizer, setFocalizer] = useState('')
   const [prose, setProse] = useState('')
