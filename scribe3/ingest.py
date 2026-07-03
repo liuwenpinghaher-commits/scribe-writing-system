@@ -31,6 +31,17 @@ def _resolve_motif(store, name: str) -> str | None:
     return None
 
 
+def _resolve_promise(store, text: str) -> str | None:
+    """按原文精确匹配 open 伏笔,返回 promise id;匹配不到返回 None(同 _resolve_motif 范式)。"""
+    needle = (text or "").strip()
+    if not needle:
+        return None
+    for p in store.open_promises():
+        if (p.get("text") or "").strip() == needle:
+            return p.get("id")
+    return None
+
+
 def _find_existing_learned_prop(store, fact_text: str) -> str | None:
     """在已有命题中查找与 fact_text 近精确匹配的"获知"类命题,返回其 oid 或 None。
     S3 去重策略:保守近精确匹配(归一化后完全相等,或长文本的包含关系),
@@ -182,6 +193,19 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             import logging
             logging.getLogger("scribe3.ingest").warning(
                 "motif_instance 写入失败(non-fatal),母题 %s 章 %s: %s", name, seq, _mi_e)
+    # 伏笔章触及:抽本章推进的已埋 open 伏笔 → promise_touch(只在已埋伏笔里选)
+    # ingest_seq=seq 必须显式传:缺省=手动登记不可 purge,re-ingest 会双计 refresh_count
+    for it in delta.get("promise_touch") or []:
+        pid = _resolve_promise(store, it.get("text") or "")
+        if pid is None:
+            continue   # 解析不到的伏笔原文跳过(fail-safe,不建伏笔)
+        try:
+            store.add_promise_touch(pid, chapter=seq,
+                                    evidence=it.get("evidence") or "", ingest_seq=seq)
+        except Exception as _pt_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "promise_touch 写入失败(non-fatal),伏笔 %s 章 %s: %s", it.get("text"), seq, _pt_e)
     return n
 
 
@@ -193,7 +217,9 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
     if not ch or not ch.get("prose"):
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
     motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
-    prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names)
+    promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
+    prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names,
+                                            promise_items=promise_items)
     delta = None
     for _ in range(max(1, max_attempts)):
         delta = parse_knowledge_delta(complete_fn(prompt))

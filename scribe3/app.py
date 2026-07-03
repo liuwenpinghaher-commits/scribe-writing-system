@@ -283,6 +283,7 @@ def promises(work: str = "main"):
     proms = st.list_promises()
     mc = st.max_chapter()
     intent = st.get_intent()
+    # 经 list_promises 补算窗口后 legacy slack 分支仅数据异常行可达,threshold 近似废弃,留防御
     slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
     for p in proms:
         p["overdue"] = _overdue_flag(p, mc, slack)
@@ -296,6 +297,7 @@ def promises_ledger(work: str = "main"):
     overdue 阈值同 /promises、/quality(_overdue_flag 单源)。"""
     st = _store_for(work)
     intent = st.get_intent()
+    # 经 list_promises 补算窗口后 legacy slack 分支仅数据异常行可达,threshold 近似废弃,留防御
     slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
     return st.promise_ledger(slack)
 
@@ -826,6 +828,7 @@ def quality(work: str = "main"):
     proms = st.list_promises()
     mc = st.max_chapter()
     # 单源阈值:intent 可覆盖 OVERDUE_SLACK(per-work 配置)
+    # 经 list_promises 补算窗口后 legacy slack 分支仅数据异常行可达,threshold 近似废弃,留防御
     intent = st.get_intent()
     slack = intent.get("overdue_threshold") if intent.get("overdue_threshold") is not None else OVERDUE_SLACK
     prom_list = []

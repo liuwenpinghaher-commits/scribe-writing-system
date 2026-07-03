@@ -872,6 +872,9 @@ class SurrealStore:
         fields = dict(fields)
         new_setup = fields.get("setup_chapter")
         new_tier = fields.get("tier")
+        # tier 校验在窗口分支之外:非法 tier 即使显式给了窗口也不得落库
+        if new_tier is not None and new_tier not in _TIER_WINDOW:
+            raise ValueError(f"非法伏笔层级 tier='{new_tier}'(合法: {sorted(_TIER_WINDOW)})")
         window_given = (fields.get("payoff_min") is not None
                         or fields.get("payoff_max") is not None)
         clear_pmax = False

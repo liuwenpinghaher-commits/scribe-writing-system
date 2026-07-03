@@ -1369,11 +1369,25 @@ def test_promise_touch_roundtrip_purge_and_lifecycle(store):
     rows = store.promises_with_lifecycle(max_chapter=4)
     row = [r for r in rows if r["id"] == pid][0]
     assert row["refresh_count"] == 2 and row["last_refresh_at"] == 4
-    assert row["window"]["state"] in ("over_half", "overdue")  # setup=1 → 窗口 2~4
+    # setup=1 → 窗口 2~4;max_chapter=4 → next_ch=5 > pmax=4 → overdue(输入确定,钉死)
+    assert row["window"]["state"] == "overdue"
     assert row["window"]["salience_gap"] == 0
     # purge 幂等:重 ingest 第4章前清第4章触及
     store.purge_ingest(4)
     assert [t["chapter"] for t in store.list_promise_touches(pid)] == [3]
+
+
+def test_update_promise_rejects_bad_tier_even_with_explicit_window(store):
+    """Task2 跟进②:非法 tier + 显式窗口不得绕过 tier 校验(校验须在窗口分支之外)。"""
+    import pytest
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = [x for x in store.list_promises() if x["text"] == "井底的名字"][0]["id"]
+    with pytest.raises(ValueError):
+        store.update_promise(pid, {"tier": "saga", "payoff_min": 9})
+    # 合法 tier + 显式窗口仍应通过且不被重算覆盖
+    assert store.update_promise(pid, {"tier": "arc", "payoff_min": 9}) is True
+    row = [x for x in store.list_promises() if x["id"] == pid][0]
+    assert row["payoff_min"] == 9
 
 
 def test_promise_legacy_row_fallback_and_resolution_default(store):

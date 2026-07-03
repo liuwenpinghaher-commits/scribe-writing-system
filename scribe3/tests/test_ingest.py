@@ -522,3 +522,48 @@ def test_build_prompt_lists_existing_motifs():
     assert "铜炉" in p and "纸命" in p and "motif" in p
     p2 = build_knowledge_extract_prompt("正文")
     assert "motif" not in p2
+
+
+# ── 伏笔触及抽取联动:ingest 抽本章推进的已埋伏笔 → promise_touch ────────────────
+
+def test_extract_prompt_contains_promises():
+    from scribe3.critique import build_knowledge_extract_prompt
+    p = build_knowledge_extract_prompt("正文", promise_items=[
+        {"id": "promise:abc", "text": "井底的名字"}])
+    assert "promise_touch" in p and "井底的名字" in p
+    # 不传 promise_items 时不出现 promise 段(与 motif 段同范式)
+    p2 = build_knowledge_extract_prompt("正文")
+    assert "promise_touch" not in p2
+
+
+def test_apply_delta_promise_touch(store):
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = [x for x in store.list_promises()][0]["id"]
+    from scribe3.ingest import apply_delta
+    apply_delta(store, {"promise_touch": [
+        {"text": "井底的名字", "evidence": "她又梦见那口井"},
+        {"text": "不存在的伏笔", "evidence": "x"},   # 解析不到 → 跳过不建
+    ]}, seq=3)
+    touches = store.list_promise_touches(pid)
+    assert len(touches) == 1 and touches[0]["chapter"] == 3
+
+
+def test_ingest_chapter_passes_open_promises(store):
+    """ingest_chapter 应收集 open 伏笔传入抽取 prompt,并把 promise_touch 落表(ingest_seq=seq 可 purge)。"""
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = [x for x in store.list_promises()][0]["id"]
+    store.save_chapter(3, "她又梦见那口井。", focalizer=None)
+    seen_prompts = []
+
+    def fake(p):
+        seen_prompts.append(p)
+        return ('{"learned":[],"did":[],"voice_shift":[],'
+                '"promise_touch":[{"text":"井底的名字","evidence":"她又梦见那口井"}]}')
+
+    ingest_chapter(store, 3, fake)
+    assert "井底的名字" in seen_prompts[0] and "promise_touch" in seen_prompts[0]
+    touches = store.list_promise_touches(pid)
+    assert len(touches) == 1 and touches[0]["chapter"] == 3
+    # 幂等:re-ingest 不双计(ingest_seq=seq 必须显式传,缺省=手动登记不可 purge)
+    ingest_chapter(store, 3, fake)
+    assert len(store.list_promise_touches(pid)) == 1
