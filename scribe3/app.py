@@ -315,7 +315,7 @@ def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
 
 
 @app.get("/chapter-brief")
-def chapter_brief(seq: int, focalizer: str = "", work: str = "main"):
+def chapter_brief(seq: int = Query(ge=1), focalizer: str = "", work: str = "main"):
     """Task7 章前创作简报(只读):弧光指令 + 伏笔窗口分流 + 开环账本 + 待激活角色。
     与 _editor_write_system 的注入同源(assemble_chapter_brief 单源)。"""
     from scribe3.brief import assemble_chapter_brief
@@ -1047,10 +1047,21 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         ctx_set = "\n".join(lines) or "(焦点者帧内暂无可见设定)"
         set_label = f"【焦点者({focalizer})帧内可见设定(限知基座,帧外私密已屏蔽)】"
     else:
-        # 作者全知视角:保留原有全量注入(含私密标记供主编参考)
-        facts = st.facts_at(99999)
-        lines = [f"- {f.entity_id} · {f.attribute}:{f.value}" + ("(私密/伏线)" if f.secret else "")
-                 for f in facts[:28]]
+        # 作者全知视角:M6 设定三态注入(always 恒进 / detected 命中进 / never 恒不进)
+        # + 字符预算(migration 056)。本章草料(synopsis/beats/scene_truth)驱动 detected 命中。
+        # 向后兼容兜底:全部 facts 无 injection_mode 且无命中 → 回退旧 facts[:28](防零注入)。
+        def _line(f):
+            return (f"- {f.entity_id} · {f.attribute}:{f.value}"
+                    + ("(私密/伏线)" if f.secret else ""))
+        try:
+            from scribe3.brief import assemble_injection
+            inj = assemble_injection(st, chapter)
+            if inj["fallback"]:
+                lines = [_line(f) for f in inj["facts"][:28]]
+            else:
+                lines = [f"- {i['text']}" for i in inj["chosen"]]
+        except Exception:
+            lines = [_line(f) for f in st.facts_at(99999)[:28]]
         ctx_set = "\n".join(lines) or "(尚无设定)"
         set_label = "【已确立设定(你全知,含私密伏线)】"
 
@@ -1544,6 +1555,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
+    instructions += _outline_block(st, chapter)   # B-3:五阶段 synopsis/beats 注入(与演绎块并列)
     if (phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, chapter)
         instructions += "\n\n" + ded
@@ -1649,6 +1661,33 @@ def _phase_role_block(phase: str) -> str:
     return f"\n\n{block}" if block else ""
 
 
+def _outline_block(st, chapter: int) -> str:
+    """B-3 根治:把本章五阶段的「大纲(synopsis)+ 节拍(beats)」注入写作 prompt。
+    此前 synopsis/beats 从不注入 → 模型被指令"据大纲/节拍写"却从未收到内容。
+    仿 _deduction_block:空(无 synopsis 且无 beats)→ 返回空串(默认行为不变)。
+    自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。"""
+    if chapter is None:
+        return ""
+    try:
+        ch = st.get_chapter(chapter) or {}
+    except Exception:
+        return ""
+    synopsis = (ch.get("synopsis") or "").strip()
+    beat_texts = []
+    for b in ch.get("beats") or []:
+        t = ((b.get("text") if isinstance(b, dict) else str(b)) or "").strip()
+        if t:
+            beat_texts.append(t)
+    if not synopsis and not beat_texts:
+        return ""
+    parts = ["## 本章大纲/节拍(据此展开正文,勿另起炉灶)"]
+    if synopsis:
+        parts.append(f"〔大纲〕{synopsis}")
+    if beat_texts:
+        parts.append("〔节拍〕" + " ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)))
+    return "\n\n" + "\n".join(parts)
+
+
 def _deduction_block(st, seq: int) -> str:
     """草稿期把本章「场景真相 + 各角色限知投影」注入 instructions。
     空(无真相且无投影)→ 返回空串(默认行为不变)。"""
@@ -1725,6 +1764,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
+    instructions += _outline_block(st, req.chapter)   # B-3:五阶段 synopsis/beats 注入(与演绎块并列)
     if (req.phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, req.chapter)
         instructions += "\n\n" + ded

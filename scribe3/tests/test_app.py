@@ -3424,3 +3424,74 @@ def test_write_system_brief_failsafe(store, monkeypatch):
     s = _editor_write_system(store, chapter=2)
     assert isinstance(s, str) and "修订纪律" in s
     assert "本章创作简报" not in s
+
+
+# ===== Task 8 · M6 设定三态注入(端点回显 + 向后兼容兜底)=====
+
+def test_chapter_brief_injection_manifest(store):
+    """/chapter-brief 回显 M6 注入清单:本章草料(synopsis)提及的实体 →
+    其 detected fact 进 chosen(无 injection_mode 配置时,命中即选,非兜底)。"""
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章柳怀玉独往义庄验尸"})  # 只提柳怀玉
+    c = _client(store)
+    body = c.get("/chapter-brief", params={"seq": 2}).json()
+    inj = body["sections"]["injection"]
+    ids = [x["id"] for x in inj["chosen"]]
+    assert "fact:柳疤" in ids        # 命中实体 → 选
+    assert "fact:禾技" not in ids    # 未提及 → 不选
+    assert inj["fallback"] is False  # 有命中 → 非兜底
+
+
+def test_editor_system_injection_fallback_no_mode_no_hit(store):
+    """向后兼容兜底:facts 全无 injection_mode 且本章草料无提及 →
+    全知分支回退旧 facts[:28](防零注入),设定不因零命中而丢。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:崔判", "character", "崔判"))
+    store.add_fact(Fact("fact:判官", "role:崔判", "身份", "阴司判官", valid_from=1))
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "一段与设定实体无关的市井风物侧笔"})
+    s = _editor_system(store, chapter=2)
+    assert "阴司判官" in s          # 兜底注入,未因零命中丢设定
+    # chapter=None(聊天流)同样兜底
+    assert "阴司判官" in _editor_system(store)
+
+
+# ===== Task 8 折入 B-3 · 五阶段大纲/节拍注入 =====
+
+def test_outline_block_injects_synopsis_and_beats(store):
+    """_outline_block:有 synopsis/beats → 含大纲/节拍内容;空章 → 空串。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}]})
+    blk = _outline_block(store, 2)
+    assert "柳怀玉赴义庄验尸" in blk
+    assert "抵达义庄" in blk and "发现异样" in blk
+    store.save_chapter(3, "", title="第3章")
+    assert _outline_block(store, 3) == ""   # 空 synopsis/beats → 空串
+
+
+def test_outline_block_wired_into_chat_write(store, monkeypatch):
+    """B-3 根治:GET 与 POST /chat/write 组装路径都注入本章大纲/节拍(此前从不注入)。"""
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}]})
+    captured = {}
+
+    def cap(message, instructions):
+        captured["ins"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(A, "_responses_events", cap)
+    c = _client(store)
+    c.get("/chat/write", params={"msg": "写本章", "chapter": 2})
+    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+    captured.clear()
+    c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
+    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]

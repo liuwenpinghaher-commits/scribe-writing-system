@@ -38,6 +38,8 @@ class Fact:
     caused_by_event: str | None = None
     tx_from: int = 0                 # 草稿版本(切片恒 0)
     tx_to: int | None = None
+    injection_mode: str | None = None  # M6 设定三态注入:always/detected/never(None=detected)
+    priority: int | None = None        # M6 预算裁剪优先级(越大越先保)
 
 
 @dataclass

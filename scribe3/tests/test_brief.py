@@ -160,3 +160,33 @@ def test_render_brief_zero_weighted_loops_omitted():
                         "loops": {"weighted": 0, "cap": 12, "over_cap": False},
                         "heartbeat": []})
     assert "开环账本" not in out
+
+
+# ===== Task 8 · M6 设定三态注入(纯函数)=====
+
+def test_select_injection_modes_budget_and_manifest():
+    from scribe3.brief import select_injection
+    items = [
+        {"id": "f1", "entity": "role:崔判", "text": "崔判是阴司判官", "mode": "always", "priority": 9},
+        {"id": "f2", "entity": "role:柳怀玉", "text": "柳怀玉左手有疤", "mode": "detected", "priority": 5},
+        {"id": "f3", "entity": "role:阿禾", "text": "阿禾会口技", "mode": "detected", "priority": 5},
+        {"id": "f4", "entity": "role:崔判", "text": "崔判怕铜镜", "mode": "never", "priority": 9},
+    ]
+    r = select_injection(items, mentioned_entities={"role:柳怀玉"}, budget_chars=1000)
+    ids = [i["id"] for i in r["chosen"]]
+    assert "f1" in ids          # always 恒注入
+    assert "f2" in ids          # detected 且被提及
+    assert "f3" not in ids      # detected 未提及
+    assert "f4" not in ids      # never 恒不注入
+    assert r["dropped"] == 0
+    # 预算裁剪:预算极小 → 按 priority 保 always,记 dropped
+    r2 = select_injection(items, {"role:柳怀玉", "role:阿禾"}, budget_chars=10)
+    assert r2["dropped"] >= 1
+
+
+def test_mentioned_entities_by_alias():
+    from scribe3.brief import detect_mentions
+    ents = [{"id": "role:柳怀玉", "name": "柳怀玉", "aliases": ["柳师爷"]},
+            {"id": "role:阿禾", "name": "阿禾", "aliases": []}]
+    hit = detect_mentions("这章柳师爷去义庄", ents)
+    assert hit == {"role:柳怀玉"}

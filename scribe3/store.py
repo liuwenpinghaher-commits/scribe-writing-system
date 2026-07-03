@@ -674,12 +674,14 @@ class SurrealStore:
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "
-            "valid_from, valid_to, secret, leak_markers FROM proposition "
+            "valid_from, valid_to, secret, leak_markers, injection_mode, priority FROM proposition "
             "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"],
                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
-                     r.get("leak_markers", [])) for r in rows]
+                     r.get("leak_markers", []),
+                     injection_mode=r.get("injection_mode"), priority=r.get("priority"))
+                for r in rows]
 
     def characters(self) -> list[Entity]:
         rows = self._query(
