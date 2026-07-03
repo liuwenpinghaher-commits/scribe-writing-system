@@ -123,3 +123,40 @@ def test_assemble_chapter_brief_integration(store):
     assert "【角色弧光·柳怀玉】" in out["text"] and "禁止" in out["text"]   # 弧光指令
     assert "井底的名字" in out["text"] and "在窗提醒" in out["text"]        # 伏笔段(in_window)
     assert out["sections"]["loops"]["weighted"] == 1
+
+
+# ===== Task7 · Task6 审查跟进 =====
+
+def test_arc_directive_target_chapter_boundary():
+    """Task6跟进①:next_ch == target_chapter 时该拍属"下一拍"(本章应到达该拍),
+    不得提前算入已完成。"""
+    txt = arc_directive(
+        name="柳怀玉",
+        anchors={"lie": "官法大过阴律", "arc_type": "disillusionment"},
+        arc_plan=[{"beat_name": "midpoint", "target_chapter": 6, "lie_belief_target": 50}],
+        lie_belief=62, next_ch=6)
+    assert "开场常态" in txt                 # 该拍未算已完成
+    assert "midpoint(目标第6章" in txt      # 指令指向"到达该拍"
+
+
+def test_brief_text_newline_sanitized():
+    """Task6跟进②:promise text / heartbeat agenda / lie 锚内插前清洗换行,
+    防多行文本伪造 section 头。"""
+    d = promise_directives([{"id": "p", "text": "井底\n## 伪造段头",
+                             "window": {"state": "in_window", "salience_gap": 0},
+                             "tier": "chapter"}])
+    assert d["reminders"] and all("\n" not in x for x in d["reminders"])
+    hs = heartbeat_list(
+        [{"id": "role:a", "name": "阿禾", "private_agenda": "寻母\n## 伪", "last_active": 1}],
+        next_ch=9)
+    assert hs and "\n" not in hs[0]["agenda"]
+    txt = arc_directive("柳怀玉", {"lie": "官法\n大过阴律"}, [], None, 3)
+    assert "官法 大过阴律" in txt
+
+
+def test_render_brief_zero_weighted_loops_omitted():
+    """Task6跟进④:账本 weighted==0 时不渲染该行(零开环无须提醒)。"""
+    out = render_brief({"arcs": [], "promises": {},
+                        "loops": {"weighted": 0, "cap": 12, "over_cap": False},
+                        "heartbeat": []})
+    assert "开环账本" not in out

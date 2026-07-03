@@ -3267,6 +3267,16 @@ def test_patch_char_anchors_unknown_character_404(store):
     assert r2.status_code == 200
 
 
+def test_patch_char_anchors_non_character_entity_404(store):
+    """Task7-C①:存在但非 character 的实体(如 place)PATCH 锚应 404,不误 200。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("place:义庄", "place", "义庄"))
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "place:义庄", "anchors": {"lie": "x"}})
+    assert r.status_code == 404
+
+
 def test_post_arc_beats_lie_belief_target_range_422(store):
     """Task5-C⑤:POST /arc-beats 的 lie_belief_target 非 None 时须 0-100,否则 422。"""
     from scribe3.ontology import Entity
@@ -3355,3 +3365,62 @@ def test_project_tree_materials_branch(store):
     assert leaf["type"] == "material" and leaf["ref"] == mid and leaf["label"] == "县志:纸扎"
     assert any(b["value"] == 1 for b in cats["note"]["badges"])
     assert any(b["value"] == 0 for b in cats["snippet"]["badges"])
+
+
+# ===== Task7:/chapter-brief 端点 + 写作 prompt 注入章前简报 + M8 修订纪律 =====
+
+def _seed_brief_book(store):
+    """1 角色设 lie 锚 + 1 条 open promise(chapter 层,seq=2 时 in_window)。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.set_char_anchors("role:柳怀玉", {"lie": "官法大过阴律",
+                                           "arc_type": "disillusionment"})
+    store.plant_promise("井底的名字", setup_chapter=1)
+
+
+def test_chapter_brief_endpoint(store):
+    """GET /chapter-brief:200 + {sections, text},text 含标题与种子数据。"""
+    _seed_brief_book(store)
+    c = _client(store)
+    r = c.get("/chapter-brief", params={"seq": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert "text" in body and "sections" in body
+    assert "本章创作简报" in body["text"]
+    assert "井底的名字" in body["text"]
+    assert "柳怀玉" in body["text"]
+
+
+def test_write_system_carries_brief_and_revision_discipline(store):
+    """_editor_write_system(chapter=2):含章前简报 + M8 修订纪律(span 级定向)。"""
+    from scribe3.app import _editor_write_system
+    _seed_brief_book(store)
+    s = _editor_write_system(store, chapter=2)
+    assert "本章创作简报" in s
+    assert "井底的名字" in s
+    assert "修订纪律" in s
+    assert "span" in s.lower() and "定向" in s
+    assert "禁止开放式整章自评重写" in s
+
+
+def test_write_system_empty_brief_not_injected(store):
+    """空简报(sections 各桶全空)不注入;chapter=None 不组装;修订纪律恒在。"""
+    from scribe3.app import _editor_write_system
+    s = _editor_write_system(store, chapter=2)
+    assert "修订纪律" in s
+    assert "本章创作简报" not in s
+    s2 = _editor_write_system(store)   # chapter=None → 不组装简报
+    assert "修订纪律" in s2 and "本章创作简报" not in s2
+
+
+def test_write_system_brief_failsafe(store, monkeypatch):
+    """fail-safe:简报组装抛异常时 write_system 仍返回且含修订纪律,不阻断写作。"""
+    from scribe3.app import _editor_write_system
+
+    def boom(*a, **kw):
+        raise RuntimeError("简报组装崩了")
+
+    monkeypatch.setattr(store, "promises_with_lifecycle", boom)
+    s = _editor_write_system(store, chapter=2)
+    assert isinstance(s, str) and "修订纪律" in s
+    assert "本章创作简报" not in s

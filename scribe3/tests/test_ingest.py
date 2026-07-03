@@ -650,3 +650,33 @@ def test_ingest_chapter_passes_belief_chars(store):
     ingest_chapter(store, 3, fake)
     assert "官法大过阴律" in seen_prompts[0] and "belief" in seen_prompts[0]
     assert store.latest_lie_belief(cid, 3) == 58
+
+
+# ── Task7:Task5 审查跟进(②歧义 warning / ③belief re-ingest 幂等)────────────────
+
+def test_resolve_promise_ambiguous_prefix_skips_with_warning(caplog):
+    """Task5跟进②:截断键歧义(多条同前40字)跳过时应记一行 warning(与写失败日志对称)。"""
+    import logging
+    from scribe3.ingest import _resolve_promise
+    prefix = "甲" * 40
+    rows = [{"id": "promise:a", "text": prefix + "一支"},
+            {"id": "promise:b", "text": prefix + "二支"}]
+    with caplog.at_level(logging.WARNING, logger="scribe3.ingest"):
+        assert _resolve_promise(rows, prefix) is None
+    assert any("歧义" in r.message for r in caplog.records), \
+        "歧义跳过应有 warning 日志"
+
+
+def test_apply_delta_belief_reingest_idempotent(store):
+    """Task5跟进③:同章两次 apply_delta belief,char_state belief 行只剩一份(purge 幂等)。"""
+    _ensure_chars(store, "柳怀玉")
+    cid = "role:柳怀玉"
+    store.set_char_anchors(cid, {"lie": "恩义终会被辜负"})
+    delta = {"belief": [{"who": "柳怀玉", "value": 62, "why": "目睹师门弃卒"}]}
+    apply_delta(store, delta, seq=3)
+    apply_delta(store, delta, seq=3)   # re-ingest 同章
+    rows = store._query(
+        "SELECT * FROM char_state WHERE character_id=$cid AND change_type='belief'",
+        {"cid": cid})
+    assert len(rows) == 1, f"同章二次 apply_delta 后 belief 行应只剩 1 条,实际 {len(rows)}"
+    assert store.latest_lie_belief(cid, 3) == 62

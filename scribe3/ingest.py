@@ -49,6 +49,12 @@ def _resolve_promise(open_rows: list[dict], text: str) -> str | None:
             prefix_hits.append(p.get("id"))
     if len(prefix_hits) == 1:
         return prefix_hits[0]
+    if len(prefix_hits) > 1:
+        # Task7-C②:截断键歧义跳过要有痕迹(与 promise_touch 写失败日志对称)
+        import logging
+        logging.getLogger("scribe3.ingest").warning(
+            "promise_touch 截断键歧义跳过(%d 条伏笔同前40字),needle=%r",
+            len(prefix_hits), needle)
     return None
 
 

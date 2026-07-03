@@ -10,11 +10,13 @@ _LOOP_CAP = 12          # 开环加权上限
 
 def arc_directive(name: str, anchors: dict, arc_plan: list[dict],
                   lie_belief: int | None, next_ch: int) -> str:
-    """单角色弧光三行指令:当前值 + 当前拍→下一拍 + 禁止事项。"""
-    lie = anchors.get("lie") or "—"
+    """单角色弧光三行指令:当前值 + 当前拍→下一拍 + 禁止事项。
+    Task7-B①:done 判定严格 <(target_chapter == next_ch 属"本章应到达该拍",
+    该拍进"下一拍"指令,不得提前算已完成)。"""
+    lie = (anchors.get("lie") or "—").replace("\n", " ")   # Task7-B②:防多行伪造 section 头
     at = anchors.get("arc_type") or "—"
-    done = [b for b in arc_plan if b["target_chapter"] <= next_ch]
-    ahead = [b for b in arc_plan if b["target_chapter"] > next_ch]
+    done = [b for b in arc_plan if b["target_chapter"] < next_ch]
+    ahead = [b for b in arc_plan if b["target_chapter"] >= next_ch]
     cur = done[-1]["beat_name"] if done else "开场常态"
     nxt = (f"{ahead[0]['beat_name']}(目标第{ahead[0]['target_chapter']}章"
            + (f",信奉度趋 {ahead[0]['lie_belief_target']}" if ahead[0].get("lie_belief_target") is not None else "")
@@ -33,7 +35,7 @@ def promise_directives(rows: list[dict]) -> dict:
     for p in rows:
         w = p.get("window") or {}
         state, gap = w.get("state"), w.get("salience_gap") or 0
-        text = (p.get("text") or "")[:40]
+        text = (p.get("text") or "").replace("\n", " ")[:40]   # Task7-B②:清洗换行
         if state == "in_window":
             reminders.append(f"「{text}」在兑现窗口内,适时推进")
         elif state == "over_half":
@@ -61,7 +63,7 @@ def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
     """待激活名单:有 private_agenda 且距上次活跃超过 gap 章的角色。"""
     out = []
     for c in chars:
-        agenda = (c.get("private_agenda") or "").strip()
+        agenda = (c.get("private_agenda") or "").replace("\n", " ").strip()   # Task7-B②
         last = c.get("last_active")
         if not agenda or last is None:
             continue
@@ -81,7 +83,7 @@ def render_brief(sections: dict) -> str:
     if pd.get("reminders"):
         parts.append("【伏笔·在窗提醒】" + "；".join(pd["reminders"]))
     led = sections.get("loops")
-    if led:
+    if led and led.get("weighted"):   # Task7-B④:weighted==0 不渲染(零开环无须提醒)
         warn = "——已超上限:先收一条再开新坑" if led["over_cap"] else ""
         parts.append(f"【开环账本】加权开环 {led['weighted']}/{led['cap']}{warn}")
     hb = sections.get("heartbeat") or []
@@ -92,7 +94,11 @@ def render_brief(sections: dict) -> str:
 
 
 def assemble_chapter_brief(st, seq: int, focalizer: str = "") -> dict:
-    """连 store 的薄壳:收集数据 → 各纯函数 → {sections, text}。seq 为即将写的章号。"""
+    """连 store 的薄壳:收集数据 → 各纯函数 → {sections, text}。seq 为即将写的章号。
+
+    focalizer(Task7-B③ 预留,当前不参与组装):为后续限知章过滤预留——P1 可按焦点者
+    知识帧过滤伏笔/弧光条目(避免向限知写作 prompt 泄露焦点者不知道的线索)。
+    P0 不做:简报是给"作者视角"的创作指令,非角色知识;YAGNI,先不叠过滤。"""
     next_ch = seq
     max_ch = max(0, seq - 1)
     rows = st.promises_with_lifecycle(max_chapter=max_ch)
@@ -101,6 +107,9 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "") -> dict:
     for c in st.characters():
         a = st.char_anchors(c.id)
         states = st.list_char_states(c.id)
+        # 留档(Task6跟进③):last_active 用 char_state 最大章是近似——露面但无弧光变化
+        # 不刷新;从未有 char_state 的有日程角色永不入待激活名单。若后续有真实露面源
+        # (如章 involved_characters)可替换;P1 再改。
         last_active = max((s.get("chapter") or 0) for s in states) if states else None
         chars_hb.append({"id": c.id, "name": c.name,
                          "private_agenda": a.get("private_agenda"),

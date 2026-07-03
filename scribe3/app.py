@@ -314,6 +314,14 @@ def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
     return _store_for(work).list_motif_instances(chapter)
 
 
+@app.get("/chapter-brief")
+def chapter_brief(seq: int, focalizer: str = "", work: str = "main"):
+    """Task7 章前创作简报(只读):弧光指令 + 伏笔窗口分流 + 开环账本 + 待激活角色。
+    与 _editor_write_system 的注入同源(assemble_chapter_brief 单源)。"""
+    from scribe3.brief import assemble_chapter_brief
+    return assemble_chapter_brief(_store_for(work), seq, focalizer=focalizer)
+
+
 # ===== 角色弧光:静态锚(五要素)+ arc_plan 里程碑(migration 054)=====
 @app.get("/char-anchors")
 def get_char_anchors(character_id: str, work: str = "main"):
@@ -326,10 +334,12 @@ def get_char_anchors(character_id: str, work: str = "main"):
 @app.patch("/char-anchors")
 def patch_char_anchors(req: dict, work: str = "main"):
     """局部更新弧光锚:只写传入的键,未传字段不动(store 层 _ANCHOR_KEYS 白名单)。
-    Task5-C④:角色不存在回 404,不再静默 200。"""
+    Task5-C④:角色不存在回 404,不再静默 200。
+    Task7-C①:存在但非 character(如 place)同样 404,防误挂锚。"""
     st = _store_for(work)
     cid = req["character_id"]
-    if st.entity(cid) is None:
+    ent = st.entity(cid)
+    if ent is None or ent.kind != "character":
         raise HTTPException(status_code=404, detail=f"角色 '{cid}' 不存在")
     st.set_char_anchors(cid, req.get("anchors") or {})
     return {"status": "updated"}
@@ -1116,7 +1126,7 @@ def chat_agentic_stream(msg: str, work: str = "main"):
 
 
 def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
-    return _editor_system(st, focalizer=focalizer, chapter=chapter) + (
+    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
         "## 核心判断:讨论 vs 动稿\n"
@@ -1143,6 +1153,31 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
         "  「" + _LUANSHI_EXEMPLAR + "」\n"
         "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
     )
+    # Task7:章前简报注入(chapter 已知才组装;fail-safe——组装异常只 warning 不阻断写作)
+    brief_txt = ""
+    if chapter is not None:
+        try:
+            from scribe3.brief import assemble_chapter_brief
+            _brief = assemble_chapter_brief(st, chapter, focalizer=focalizer)
+            sec = _brief.get("sections") or {}
+            _pd = sec.get("promises") or {}
+            # 空简报判 sections 各桶(text 恒含标题行,不能判 text)
+            if (sec.get("arcs") or _pd.get("reminders") or _pd.get("directives")
+                    or _pd.get("decisions") or (sec.get("loops") or {}).get("weighted")
+                    or sec.get("heartbeat")):
+                brief_txt = _brief.get("text") or ""
+        except Exception as _bf_e:
+            import logging
+            logging.getLogger("scribe3").warning("章前简报组装失败(non-fatal): %s", _bf_e)
+    # Task7:M8 修订纪律(恒注入,与是否有简报无关)
+    revision = (
+        "\n\n## 修订纪律\n"
+        "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
+        "除非作者明确要求整章重写。\n"
+        "- 禁止开放式整章自评重写(critique 放在大纲/节拍层;正文层只做表达增强)——"
+        "自评重写会同质化、越改越平。\n"
+        "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
+    return base + revision + (("\n\n" + brief_txt) if brief_txt else "")
 
 
 _LUANSHI_EXEMPLAR = (
