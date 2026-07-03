@@ -3834,3 +3834,57 @@ def test_edit_promise_rest_illegal_tier_rejected(store):
     assert r.status_code == 422, r.text
 
 
+# ==== T9 审查 Minor1: /tension-check 值型错 JSON 降级不崩(不 500)====
+
+def test_tension_check_rubric_type_error_degrades(store, monkeypatch):
+    """LLM 返回合法 JSON 但值型错(outcomes 是字符串列表而非 dict 列表)→ 组装 rubric
+    items 时 o.get() 会抛 AttributeError。应降级 rubric_failed=True,而非端点 500。"""
+    import scribe3.llm as llm
+    bad_type = (
+        '{"dramatic_question":{"present":true,"note":"能否验尸"},'
+        '"outcomes":["义庄对峙","井边"],'  # 应为 dict 列表,这里是字符串列表
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"信息截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: bad_type)
+    store.save_chapter(6, "义庄里灯影摇动。", title="第六章")
+    resp = _client(store).post("/tension-check", params={"seq": 6})
+    assert resp.status_code == 200, f"值型错 JSON 不应 500,实际 {resp.status_code}"
+    r = resp.json()
+    assert r["rubric_failed"] is True and r["rubric"] is None
+    # 确定性项仍返回,不因 rubric 组装失败而丢
+    assert {i["item"] for i in r["items"]} == {"promise_progress", "open_loops", "irony_surface"}
+
+
+# ==== T9 审查 Minor2: micro_tension detail 文案(空 deserts 不显尾冒号)====
+
+def test_tension_check_micro_tension_empty_deserts_shows_none(store, monkeypatch):
+    """micro_tension.deserts 为空 → detail 应为 '无',而非 '荒漠段:'(运算符优先级 bug)。"""
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true},'
+        '"outcomes":[{"scene":"义庄","type":"yes_but"}],'
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(7, "一段正文。", title="第七章")
+    r = _client(store).post("/tension-check", params={"seq": 7}).json()
+    mt = [i for i in r["items"] if i["item"] == "micro_tension"][0]
+    assert mt["detail"] == "无", f"空 deserts 的 detail 应为 '无',实际 {mt['detail']!r}"
+
+
+def test_tension_check_micro_tension_with_deserts(store, monkeypatch):
+    """micro_tension.deserts 非空 → detail 带 '荒漠段:' 前缀 + 内容(修文案不破坏非空分支)。"""
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true},'
+        '"outcomes":[{"scene":"义庄","type":"yes_but"}],'
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":["第2段","第5段"]},'
+        '"hook":{"present":true,"type":"截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(8, "一段正文。", title="第八章")
+    r = _client(store).post("/tension-check", params={"seq": 8}).json()
+    mt = [i for i in r["items"] if i["item"] == "micro_tension"][0]
+    assert mt["detail"] == "荒漠段:第2段、第5段"

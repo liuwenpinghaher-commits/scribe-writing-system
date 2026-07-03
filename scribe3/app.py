@@ -2054,25 +2054,36 @@ def tension_check(seq: int, work: str = "main"):
     rep = parse_tension_report(raw)
     if rep is None:
         return {"items": items, "rubric": None, "rubric_failed": True}
-    outs = rep.get("outcomes") or []
-    yes_leak = [o for o in outs if o.get("type") == "yes"]
-    items += [
-        {"item": "dramatic_question", "pass": bool((rep.get("dramatic_question") or {}).get("present")),
-         "detail": (rep.get("dramatic_question") or {}).get("note") or "",
-         "fix": "给本章立一个悬着的小问题,章末回答并升级"},
-        {"item": "outcome_grammar", "pass": not yes_leak,
-         "detail": f"{len(yes_leak)} 场顺利达成(泄气)",
-         "fix": "把顺利达成改为 yes-but(达成+新并发症)或 no-and(失败+更糟)"},
-        {"item": "value_shift", "pass": bool((rep.get("value_shift") or {}).get("present")),
-         "detail": (rep.get("value_shift") or {}).get("note") or "",
-         "fix": "至少让一场戏的核心价值发生极性反转"},
-        {"item": "micro_tension", "pass": not ((rep.get("micro_tension") or {}).get("deserts")),
-         "detail": "荒漠段:" + "、".join((rep.get("micro_tension") or {}).get("deserts") or []) or "无",
-         "fix": "在荒漠段给 POV 角色写情绪对立/念头交战(对话与内心相悖/动作带矛盾情绪)"},
-        {"item": "hook", "pass": bool((rep.get("hook") or {}).get("present")),
-         "detail": f"{(rep.get('hook') or {}).get('type')}/{(rep.get('hook') or {}).get('strength')}",
-         "fix": "章末以危险临近/信息截断/悬置选择收尾"},
-    ]
+    # Minor1(T9):rep 是合法 JSON 但值型可能错(如 outcomes 是字符串列表而非 dict 列表)。
+    # o.get()/"、".join() 会抛 AttributeError/TypeError——整段组装纳入 try,失败降级
+    # rubric_failed=True(与坏 JSON 同口径),确定性项照常返回,端点不 500。
+    try:
+        outs = rep.get("outcomes") or []
+        yes_leak = [o for o in outs if o.get("type") == "yes"]
+        deserts = (rep.get("micro_tension") or {}).get("deserts") or []
+        items += [
+            {"item": "dramatic_question", "pass": bool((rep.get("dramatic_question") or {}).get("present")),
+             "detail": (rep.get("dramatic_question") or {}).get("note") or "",
+             "fix": "给本章立一个悬着的小问题,章末回答并升级"},
+            {"item": "outcome_grammar", "pass": not yes_leak,
+             "detail": f"{len(yes_leak)} 场顺利达成(泄气)",
+             "fix": "把顺利达成改为 yes-but(达成+新并发症)或 no-and(失败+更糟)"},
+            {"item": "value_shift", "pass": bool((rep.get("value_shift") or {}).get("present")),
+             "detail": (rep.get("value_shift") or {}).get("note") or "",
+             "fix": "至少让一场戏的核心价值发生极性反转"},
+            {"item": "micro_tension", "pass": not deserts,
+             # Minor2(T9):运算符优先级——原 "荒漠段:"+join or "无" 因加法先算,"无"永不触发,
+             # 空 deserts 时显示尾冒号。改为整体三元:空 → "无"。
+             "detail": ("荒漠段:" + "、".join(deserts)) if deserts else "无",
+             "fix": "在荒漠段给 POV 角色写情绪对立/念头交战(对话与内心相悖/动作带矛盾情绪)"},
+            {"item": "hook", "pass": bool((rep.get("hook") or {}).get("present")),
+             "detail": f"{(rep.get('hook') or {}).get('type')}/{(rep.get('hook') or {}).get('strength')}",
+             "fix": "章末以危险临近/信息截断/悬置选择收尾"},
+        ]
+    except (AttributeError, TypeError) as e:
+        logging.getLogger("scribe3").warning(
+            "tension_check rubric 值型错(合法 JSON 但结构不符)work=%s seq=%s: %s", work, seq, e)
+        return {"items": items, "rubric": None, "rubric_failed": True}
     return {"items": items, "rubric": rep}
 
 
