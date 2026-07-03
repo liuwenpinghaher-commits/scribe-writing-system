@@ -3,7 +3,7 @@ import { cn } from './lib/utils'
 // 竖轨 tab 的常显短名:图标下方显示 2-3 字中文,不再靠 hover 才认得出。
 // caps 里的 label 可能带 " · "(如「帧/意图」「演绎 · 角色限知」),取首段并压到短名。
 const SHORT = {
-  tree: '项目树', frame: '帧', deduce: '演绎', promise: '伏笔', material: '素材', review: '校验',
+  tree: '项目树', frame: '帧', deduce: '演绎', promise: '伏笔', motif: '母题', review: '校验',
   chief: '主编', versions: '存档',
 }
 function shortLabel(c) {

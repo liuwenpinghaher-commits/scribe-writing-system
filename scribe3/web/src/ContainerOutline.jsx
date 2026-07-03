@@ -5,7 +5,8 @@ import { api } from './api'
 import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
-import { wcLabel } from './outlineColors'
+import { wcLabel, povLabel, POV_HINT } from './outlineColors'
+import { NorthStarBar } from './NorthStarBar'
 import { useToast } from './ui/Toast'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 
@@ -253,6 +254,8 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   return (
     <div className="h-full flex flex-col min-h-0">
+      {/* 北极星书级常驻(块四a-2):全书大纲页头复用正文侧同一组件(/intent 读写),只读摘要+点开编辑 */}
+      <NorthStarBar />
       <ConfirmDialog
         open={!!delVol}
         title={delVol ? `删除卷「${delVol.title}」?` : ''}
@@ -359,7 +362,8 @@ function PlainChapterList({ lanes, onOpen }) {
               <button key={c.seq} onClick={() => onOpen?.(c)}
                 className="w-full text-left rounded-lg border border-line bg-surface px-3 py-2 hover:border-brand/30 transition-colors cursor-pointer flex items-center gap-2">
                 <span className="text-f13 text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
-                <span className="ml-auto text-f11 text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
+                <span className="ml-auto text-f11 text-faint shrink-0" title={POV_HINT}>{povLabel(c.focalizer)}</span>
+                <span className="text-f11 text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
               </button>
             ))}
           </div>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
+import { NorthStarBar } from './NorthStarBar'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
@@ -393,9 +394,10 @@ function DraftTab({ seq, meta, onAdopt }) {
  * 大纲/节拍/草稿 = ChapterStudio 自带轻量编辑器(patchChapter/saveDraft);
  * 正文 = 整体复用 WriteLayout(护栏/QC/帧/伏笔/版本/检索/主编对话全保留)。
  */
-export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
+export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }) {
   const toast = useToast()
-  const [phase, setPhase] = useState(() => localStorage.getItem('s3.chapter.phase') || 'final')
+  // 初值优先吃 selection 的 phase 提示(全书大纲点章行→直落大纲阶段,不闪上次阶段)
+  const [phase, setPhase] = useState(() => initialPhase || localStorage.getItem('s3.chapter.phase') || 'final')
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
@@ -410,6 +412,13 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
     }
     setPhase(p); localStorage.setItem('s3.chapter.phase', p)
   }
+
+  // 单一真相源(块四a-2):从全书大纲点章行进来(selection 带 phase 提示)→ 落该章对应阶段
+  // (通常 'outline',与书级大纲读写同一 synopsis 字段)。项目树/章导航不带提示 → 保持上次阶段。
+  useEffect(() => {
+    if (initialPhase) setPhaseP(initialPhase)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPhase, seq])
 
   // 把当前阶段发布给右栏 ChiefDock:正文=写作槽;大纲/节拍/草稿=讨论(右栏 chat 不再消失)。
   const { setChapterPhase } = useChiefSlot()
@@ -455,6 +464,9 @@ export function ChapterStudio({ work, seq, sceneIdx, onSeqChange }) {
   return (
     <div className="h-full flex flex-col min-h-0 bg-canvas">
       <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+      {/* 北极星书级常驻(块四a-2):前置阶段(大纲/节拍/演绎/草稿)页头复用正文侧同一 NorthStarBar
+          (只读摘要+点开编辑,同 /intent 端点);正文阶段由 WriteLayout 内部自带,不重复挂。 */}
+      <NorthStarBar />
       {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (

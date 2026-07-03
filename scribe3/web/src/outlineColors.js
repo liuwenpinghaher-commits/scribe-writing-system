@@ -34,6 +34,15 @@ export function cardColorVar(chapter, mode) {
   return `var(--color-${token})`
 }
 
+// focalizer → 展示名:剥 "role:" 前缀;空 = 作者全知(未设 POV 即全知叙述)。
+// 视角决定该章限知(该章只写 focalizer 知道/看到的),故全书大纲章行常显。
+export function povLabel(focalizer) {
+  const f = String(focalizer || '').replace(/^role:/, '').trim()
+  return f || '作者全知'
+}
+// 章行视角的轻提示(tooltip 文案,统一一处)
+export const POV_HINT = '视角决定该章限知(只写该视角知道/看到的)'
+
 // 字数 → 紧凑显示(1234 → 1.2k)
 export function wcLabel(n) {
   const v = n || 0

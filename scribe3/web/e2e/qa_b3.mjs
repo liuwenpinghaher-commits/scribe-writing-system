@@ -123,7 +123,7 @@ const run = async () => {
   rec('③ 伏笔行点选→主编聚焦该伏笔(含文本片段)', lbl.includes('伏笔 · ') && lbl.includes('借命契'), `chief="${lbl}"`)
 
   // ============ ④ 母题行 → 主编聚焦该母题 ============
-  await page.getByRole('button', { name: '素材 · 母题' }).click()
+  await page.getByRole('button', { name: '母题', exact: true }).click()
   const mRow = page.getByTestId('left').getByRole('button', { name: /命与纸/ }).first()
   await mRow.waitFor({ timeout: 10000 })
   await mRow.click()
@@ -193,7 +193,7 @@ const run = async () => {
   await page.waitForTimeout(400)            // 流在途(请求挂起中)
   const stopBtn = page.getByRole('button', { name: '停止生成' })
   const busyBefore = await stopBtn.isVisible().catch(() => false)
-  await page.getByRole('button', { name: '素材 · 母题' }).click()
+  await page.getByRole('button', { name: '母题', exact: true }).click()
   await page.getByTestId('left').getByRole('button', { name: /命与纸/ }).first().click()
   await page.waitForTimeout(300)
   lbl = await chiefLabel()

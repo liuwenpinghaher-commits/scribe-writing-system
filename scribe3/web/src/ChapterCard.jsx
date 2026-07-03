@@ -3,7 +3,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
-import { cardColorVar, wcLabel, LABEL_META } from './outlineColors'
+import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
 
 // 卡片墙单卡:色条 + 章号标题 + synopsis(inline 编辑)+ 字数/POV/QC/状态角标。
 // 拖拽手柄(GripVertical)单独绑 listeners,正文区可点击进写作台。
@@ -63,8 +63,8 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
             placeholder="写本章梗概…(⌘/Ctrl+Enter 保存,Esc 取消)"
             className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1.5 text-f12 text-ink leading-relaxed outline-none focus:border-brand resize-y" />
         ) : chapter.synopsis ? (
-          <div onClick={() => setEditing(true)}
-            className="text-f12 text-faint leading-relaxed line-clamp-3 cursor-text hover:text-ink/80 transition-colors">
+          <div onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步"
+            className="text-f12 text-faint leading-relaxed line-clamp-3 break-words cursor-text hover:text-ink/80 transition-colors">
             {chapter.synopsis}
           </div>
         ) : (
@@ -77,12 +77,11 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
         {/* 角标行:字数 · POV · QC · 状态 */}
         <div className="mt-auto flex items-center gap-2 flex-wrap text-f11">
           <span className="tnum text-faint">{wcLabel(chapter.word_count)}</span>
-          {chapter.focalizer && (
-            <span className="inline-flex items-center gap-1 text-faint">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: cardColorVar(chapter, 'pov') }} />
-              {chapter.focalizer}
-            </span>
-          )}
+          {/* 视角常显(块四a-2):有 focalizer 显名(剥 role: 前缀),空显「作者全知」;tooltip 提示限知含义 */}
+          <span className="inline-flex items-center gap-1 text-faint" title={POV_HINT}>
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: cardColorVar(chapter, 'pov') }} />
+            {povLabel(chapter.focalizer)}
+          </span>
           {qc > 0
             ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
             : <Check size={13} className="text-ok" />}

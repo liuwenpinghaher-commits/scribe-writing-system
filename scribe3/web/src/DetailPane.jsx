@@ -9,7 +9,7 @@ import { TimelineView } from './views/TimelineView'
 import { ContainerOutline } from './ContainerOutline'
 import { ErrorBoundary } from './ErrorBoundary'
 
-// 素材分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
+// 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
   character: 'character', faction: 'faction', item: 'item', term: 'term',
   world_rule: 'world_rule', promise: 'promise', motif: 'motif',
@@ -17,17 +17,18 @@ const CAT_LEAF_TYPE = {
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
 const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
-// 手稿容器(卷/手稿根)→ 章卡片墙/大纲表多模式;其余容器(素材分类)→ 子项列表
+// 手稿容器(卷/手稿根)→ 章卡片墙/大纲表多模式;其余容器(设定分类)→ 子项列表
 const MANUSCRIPT_CONTAINER = new Set(['manuscript_root', 'volume'])
 
-// 把卡片/行点击的章 → 章 TreeNode(与 WriteLayout.onSeqChange 同形),选中后中间栏切写作台
-const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim() })
+// 把卡片/行点击的章 → 章 TreeNode(与 WriteLayout.onSeqChange 同形),选中后中间栏切写作台。
+// phase:'outline' —— 单一真相源:从全书大纲点进某章,默认落该章「大纲」阶段(同一 synopsis 字段)。
+const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
 
 /**
  * 中间栏:按 sel 路由。
  *  - mode==='view'      → 横切视图(图谱/时间线/仪表盘/进度/概览)
  *  - node.type 章/场景  → 完整写作台 WriteLayout(传 seq)
- *  - node.type 素材叶   → CodexDetail 详情卡
+ *  - node.type 设定叶   → CodexDetail 详情卡
  *  - node.type 容器     → 子项列表(MVP)
  */
 export function DetailPane(props) {
@@ -72,11 +73,11 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
   if (node.type === 'chapter' || node.type === 'scene') {
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
     const sceneIdx = node.type === 'scene' ? node.ref?.idx : null
-    return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx}
+    return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx} initialPhase={node.phase}
       onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
   }
 
-  // —— 素材新建 → 新建表单(创建后重载树并选中新条目) ——
+  // —— 设定新建 → 新建表单(创建后重载树并选中新条目) ——
   if (node.type === 'codex_new') {
     const cat = node.ref
     return <CodexNew key={node.id} catType={cat} label={node.label}
@@ -118,7 +119,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
     return <MaterialList key={node.id} node={node} onSelect={onSelectNode} />
   }
 
-  // —— 素材叶 → 详情卡 ——
+  // —— 设定叶 → 详情卡 ——
   if (CODEX_LEAF.has(node.type)) {
     return <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />
   }
@@ -130,7 +131,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
       onSelect={onSelectNode} />
   }
 
-  // —— 其余容器(素材分类)→ 子项列表 ——
+  // —— 其余容器(设定分类)→ 子项列表 ——
   if (CONTAINER.has(node.type)) {
     return <ContainerOutline key={node.id} node={node} onSelect={onSelectNode}
       onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))} />

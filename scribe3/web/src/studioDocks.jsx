@@ -15,7 +15,7 @@ import { ConfirmDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast.jsx'
 import { useSelection } from './selectionContext'
 
-// 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/素材/校验。
+// 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
 export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onJumpChapter }) {
   const [tab, setTab] = usePref('s3.leftTab', 'tree')
@@ -45,7 +45,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onJumpChapter={onJumpChapter} /> },
-      { key: 'material', icon: LayoutList, label: '素材 · 母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
+      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
     return base
@@ -58,7 +58,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
   return (
     <div className="h-full flex min-h-0 bg-surface">
       <Rail side="left" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
-      {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/素材/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
+      {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/母题/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
           key=tab+章 → 切 tab / 切章时重建复位,用户切走再切回可自恢复。 */}
       <div className={cn('flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line', active.bare ? '' : 'p-3')}>
         <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
@@ -250,8 +250,8 @@ function MotifsPanel({ motifs, seq }) {
   const rest = motifs.filter((m) => !evById.has(m.id))
   return (
     <div>
-      <SectionTitle icon={LayoutList}>素材 · 母题</SectionTitle>
-      {motifs.length === 0 ? <Empty>暂无母题——在素材/设定里立母题后在此追踪</Empty> : <>
+      <SectionTitle icon={LayoutList}>母题 · 设定库</SectionTitle>
+      {motifs.length === 0 ? <Empty>暂无母题——在设定库立母题后在此追踪</Empty> : <>
         <div className="text-f11 uppercase tracking-wider text-brand mb-1.5">本章触及 · {touched.length}</div>
         {inst === undefined ? <Skeleton className="w-2/3" />
           : inst === null ? <Empty>本章母题加载失败,切走再切回可重试</Empty>

@@ -10,7 +10,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
-import { cardColorVar, wcLabel, LABEL_META } from './outlineColors'
+import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
 import { showToast } from './ui/Toast'
 
 // 单元格 synopsis inline 编辑
@@ -33,10 +33,10 @@ function SynopsisCell({ chapter, onPatchSynopsis }) {
     )
   }
   return (
-    <div onClick={() => setEditing(true)}
-      className="text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors truncate">
+    <div onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步"
+      className="text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors">
       {chapter.synopsis
-        ? <span className="text-faint">{chapter.synopsis}</span>
+        ? <span className="text-faint line-clamp-2 break-words">{chapter.synopsis}</span>
         : <span className="text-faint/40">+ 写梗概</span>}
     </div>
   )
@@ -65,9 +65,10 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
           </button>
         </div>
       </td>
-      <td className="px-2 py-2 align-top min-w-[180px]"><SynopsisCell chapter={chapter} onPatchSynopsis={onPatchSynopsis} /></td>
+      {/* 梗概列:w-full+max-w-0 让 auto 表格布局把剩余宽度全给梗概且不被长文撑破(截断/换行在 SynopsisCell) */}
+      <td className="px-2 py-2 align-top min-w-[180px] w-full max-w-0"><SynopsisCell chapter={chapter} onPatchSynopsis={onPatchSynopsis} /></td>
       <td className="px-2 py-2 align-top text-f12 text-faint tnum whitespace-nowrap">{wcLabel(chapter.word_count)}</td>
-      <td className="px-2 py-2 align-top text-f12 text-faint whitespace-nowrap">{chapter.focalizer || '—'}</td>
+      <td className="px-2 py-2 align-top text-f12 text-faint whitespace-nowrap" title={POV_HINT}>{povLabel(chapter.focalizer)}</td>
       <td className="px-2 py-2 align-top whitespace-nowrap">
         {labelMeta
           ? <span className="inline-flex items-center gap-1 text-f11" style={{ color: `var(--color-${labelMeta.token})` }}><Diamond size={11} className="shrink-0" />{labelMeta.text}</span>
@@ -113,9 +114,9 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
             <tr className="text-f10 text-faint uppercase tracking-wider">
               <th className="w-6" />
               <th className="text-left font-medium px-2 py-1.5">章</th>
-              <th className="text-left font-medium px-2 py-1.5">梗概</th>
+              <th className="text-left font-medium px-2 py-1.5 whitespace-nowrap">梗概<span className="ml-1 normal-case tracking-normal text-faint/60">(即章级大纲 · 处处同步)</span></th>
               <th className="text-left font-medium px-2 py-1.5">字数</th>
-              <th className="text-left font-medium px-2 py-1.5">视角</th>
+              <th className="text-left font-medium px-2 py-1.5 whitespace-nowrap" title={POV_HINT}>视角</th>
               <th className="text-left font-medium px-2 py-1.5">状态</th>
               <th className="text-left font-medium px-2 py-1.5">QC</th>
             </tr>
