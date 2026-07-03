@@ -3251,3 +3251,32 @@ def test_char_anchors_and_arc_beats_endpoints(store):
     assert rd.status_code == 200 and rd.json()["status"] == "deleted"
     got3 = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
     assert [b["beat_name"] for b in got3["arc_plan"]] == ["third_plot_point"]
+
+
+def test_patch_char_anchors_unknown_character_404(store):
+    """Task5-C④:PATCH /char-anchors 对不存在的 character_id 回 404,不再静默 200。"""
+    from scribe3.ontology import Entity
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "role:不存在的角色", "anchors": {"lie": "x"}})
+    assert r.status_code == 404
+    # 存在的角色不受影响
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    r2 = c.patch("/char-anchors", json={
+        "character_id": "role:柳怀玉", "anchors": {"lie": "官法大过阴律"}})
+    assert r2.status_code == 200
+
+
+def test_post_arc_beats_lie_belief_target_range_422(store):
+    """Task5-C⑤:POST /arc-beats 的 lie_belief_target 非 None 时须 0-100,否则 422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    c = _client(store)
+    base = {"character_id": "role:柳怀玉", "beat_name": "midpoint", "target_chapter": 6}
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 130}).status_code == 422
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": -1}).status_code == 422
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": "五十"}).status_code == 422
+    # 边界与 None 合法
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 0}).status_code == 200
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 100}).status_code == 200
+    assert c.post("/arc-beats", json=base).status_code == 200

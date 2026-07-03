@@ -557,7 +557,8 @@ def parse_voice_profile_from_fold(reply: str) -> dict | None:
 
 # ==== 知识账本抽取(定稿时抽"本章谁新知道什么/做了什么",喂单一真相源)====
 def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = None,
-                                   promise_items: list[dict] | None = None) -> str:
+                                   promise_items: list[dict] | None = None,
+                                   belief_chars: list[dict] | None = None) -> str:
     motif_seg = ""
     motif_schema = ""
     if motif_names:
@@ -573,9 +574,19 @@ def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = N
         listing = "；".join(f"「{(p.get('text') or '')[:40]}」" for p in promise_items)
         promise_seg = (
             f"再抽【promise_touch:本章推进/呼应/兑现了以下【已埋伏笔】中的哪些({listing})——"
-            "只能从这些里选,严禁发明;每条给伏笔原文片段(text,须与上列某条逐字对应)"
+            "只能从这些里选,严禁发明;仅出现相近意象或字眼、并不指向该悬念的不算触及;"
+            "每条给伏笔原文片段(text,须与上列某条逐字对应)"
             "+本章一句体现推进的引文(evidence);没触及则输出空列表】。\n")
         promise_schema = ',"promise_touch":[{"text":伏笔原文,"evidence":引文}]'
+    belief_seg = ""
+    belief_schema = ""
+    if belief_chars:
+        desc = "；".join(f"{c['name']}(其信念:「{c['lie']}」)" for c in belief_chars)
+        belief_seg = (
+            f"再抽【belief:下列角色本章结束时对各自核心错误信念的信奉度(0-100,{desc})——"
+            "只评这些角色;每条给角色名(who)+信奉度(value)+一句依据(why);"
+            "本章无相关表现的角色不输出】。\n")
+        belief_schema = ',"belief":[{"who":角色名,"value":0到100整数,"why":依据}]'
     return (
         "读下面一章小说正文,抽取本章【各角色新知道了什么(learned)、做了什么且被谁看见(did)】——"
         "用于维护'谁知道什么'的知识账本(防后续章里某角色说出他视角不可能知道的信息)。"
@@ -586,13 +597,13 @@ def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = N
         "一句话摘要(summary)、快照(snapshot:对 ability 填{技能:状态}、"
         "对 relation 填{对象角色:关系描述}、对 personality 填字符串描述)。"
         "没有明确弧光质变时 arc 输出空列表。\n"
-        + motif_seg + promise_seg +
+        + motif_seg + promise_seg + belief_seg +
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
         '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}],'
         '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}],'
         '"arc":[{"who":角色名,"change_type":"ability|relation|personality",'
         '"summary":一句话摘要,"snapshot":{...}}]'
-        + motif_schema + promise_schema + '}。\n\n'
+        + motif_schema + promise_schema + belief_schema + '}。\n\n'
         "【正文】\n" + prose)
 
 
@@ -611,7 +622,8 @@ def parse_knowledge_delta(reply: str) -> dict | None:
                 "voice_shift": list(d.get("voice_shift") or []),
                 "arc": list(d.get("arc") or []),
                 "motif": list(d.get("motif") or []),
-                "promise_touch": list(d.get("promise_touch") or [])}
+                "promise_touch": list(d.get("promise_touch") or []),
+                "belief": list(d.get("belief") or [])}
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return None

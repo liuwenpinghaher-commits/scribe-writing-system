@@ -31,14 +31,24 @@ def _resolve_motif(store, name: str) -> str | None:
     return None
 
 
-def _resolve_promise(store, text: str) -> str | None:
-    """按原文精确匹配 open 伏笔,返回 promise id;匹配不到返回 None(同 _resolve_motif 范式)。"""
+def _resolve_promise(open_rows: list[dict], text: str) -> str | None:
+    """在给定 open 伏笔候选里按原文匹配,返回 promise id;匹配不到返回 None。
+    Task5-B①:抽取 prompt 里伏笔文案截断到 40 字,>40 字伏笔 LLM 只能回截断键——
+    故支持截断键匹配:needle == text.strip() 或(needle == text.strip()[:40] 且该前缀
+    在候选集内唯一命中;多条同前 40 字则歧义跳过,零误匹配)。
+    Task5-B③:候选由调用方传入(复用 ingest_chapter 已取的 open_promises),免每条触及重查整表。"""
     needle = (text or "").strip()
     if not needle:
         return None
-    for p in store.open_promises():
-        if (p.get("text") or "").strip() == needle:
+    prefix_hits: list[str] = []
+    for p in open_rows:
+        t = (p.get("text") or "").strip()
+        if t == needle:
             return p.get("id")
+        if len(t) > 40 and t[:40] == needle:
+            prefix_hits.append(p.get("id"))
+    if len(prefix_hits) == 1:
+        return prefix_hits[0]
     return None
 
 
@@ -73,7 +83,8 @@ def _find_existing_learned_prop(store, fact_text: str) -> str | None:
     return None
 
 
-def apply_delta(store, delta: dict, seq: int) -> int:
+def apply_delta(store, delta: dict, seq: int,
+                open_promises: list[dict] | None = None) -> int:
     """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。
     章级幂等:先清本章既有 ingest 产出,再重写——重复 ingest 不会残留悬挂边。
     P2-E1: 每条命题同时写 reader_knows(叙述揭示即读者已知,戏剧反讽闭环)。
@@ -195,8 +206,11 @@ def apply_delta(store, delta: dict, seq: int) -> int:
                 "motif_instance 写入失败(non-fatal),母题 %s 章 %s: %s", name, seq, _mi_e)
     # 伏笔章触及:抽本章推进的已埋 open 伏笔 → promise_touch(只在已埋伏笔里选)
     # ingest_seq=seq 必须显式传:缺省=手动登记不可 purge,re-ingest 会双计 refresh_count
-    for it in delta.get("promise_touch") or []:
-        pid = _resolve_promise(store, it.get("text") or "")
+    touches = delta.get("promise_touch") or []
+    if touches and open_promises is None:
+        open_promises = store.open_promises()   # 调用方未传时兜底,只查一次
+    for it in touches:
+        pid = _resolve_promise(open_promises or [], it.get("text") or "")
         if pid is None:
             continue   # 解析不到的伏笔原文跳过(fail-safe,不建伏笔)
         try:
@@ -206,6 +220,24 @@ def apply_delta(store, delta: dict, seq: int) -> int:
             import logging
             logging.getLogger("scribe3.ingest").warning(
                 "promise_touch 写入失败(non-fatal),伏笔 %s 章 %s: %s", it.get("text"), seq, _pt_e)
+    # Task5: lie_belief 位移——有 lie 锚角色本章的信念信奉度 → char_state(change_type='belief')
+    # 值入库前 clamp [0,100](store 不钳,调用方负责);解析不到的角色跳过(同 _resolve_char 范式)
+    for it in delta.get("belief") or []:
+        who, value = it.get("who"), it.get("value")
+        if not who or not isinstance(value, (int, float)):
+            continue
+        oid = _resolve_char(store, who, seq, "belief_who")
+        if oid is None:
+            continue
+        try:
+            store.add_char_state(character_id=oid, chapter=seq, change_type="belief",
+                                 summary=it.get("why") or "信念位移",
+                                 lie_belief=int(max(0, min(100, value))),
+                                 confidence="inferred", ingest_seq=seq)
+        except Exception as _b_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "belief 写入失败(non-fatal),角色 %s 章 %s: %s", who, seq, _b_e)
     return n
 
 
@@ -218,8 +250,15 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
         return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
     motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
     promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
+    # Task5: 收集有 lie 锚的角色 → prompt belief 段(只评这些角色的信念信奉度)
+    belief_chars = []
+    for c in store.characters():
+        a = store.char_anchors(c.id)
+        if a.get("lie"):
+            belief_chars.append({"name": c.name, "lie": a["lie"]})
     prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names,
-                                            promise_items=promise_items)
+                                            promise_items=promise_items,
+                                            belief_chars=belief_chars)
     delta = None
     for _ in range(max(1, max_attempts)):
         delta = parse_knowledge_delta(complete_fn(prompt))
@@ -227,4 +266,5 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
             break
     if delta is None:
         return {"applied": -1, "parse_failed": True, "delta": None}
-    return {"applied": apply_delta(store, delta, seq), "delta": delta}
+    return {"applied": apply_delta(store, delta, seq, open_promises=promise_items),
+            "delta": delta}

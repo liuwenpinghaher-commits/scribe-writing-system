@@ -324,17 +324,28 @@ def get_char_anchors(character_id: str, work: str = "main"):
 
 @app.patch("/char-anchors")
 def patch_char_anchors(req: dict, work: str = "main"):
-    """局部更新弧光锚:只写传入的键,未传字段不动(store 层 _ANCHOR_KEYS 白名单)。"""
+    """局部更新弧光锚:只写传入的键,未传字段不动(store 层 _ANCHOR_KEYS 白名单)。
+    Task5-C④:角色不存在回 404,不再静默 200。"""
     st = _store_for(work)
-    st.set_char_anchors(req["character_id"], req.get("anchors") or {})
+    cid = req["character_id"]
+    if st.entity(cid) is None:
+        raise HTTPException(status_code=404, detail=f"角色 '{cid}' 不存在")
+    st.set_char_anchors(cid, req.get("anchors") or {})
     return {"status": "updated"}
 
 
 @app.post("/arc-beats")
 def post_arc_beat(req: dict, work: str = "main"):
+    # Task5-C⑤:lie_belief_target 非 None 时须 0-100 数值,否则 422(应用层闸;DB 级 ASSERT 不做)
+    lbt = req.get("lie_belief_target")
+    if lbt is not None and (isinstance(lbt, bool)
+                            or not isinstance(lbt, (int, float))
+                            or not (0 <= lbt <= 100)):
+        raise HTTPException(status_code=422,
+                            detail="lie_belief_target 须为 0-100 的数值或不传")
     _store_for(work).add_arc_beat(
         req["character_id"], req["beat_name"], int(req["target_chapter"]),
-        req.get("lie_belief_target"), req.get("trigger_event") or "")
+        lbt, req.get("trigger_event") or "")
     return {"status": "created"}
 
 

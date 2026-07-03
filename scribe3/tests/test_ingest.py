@@ -531,6 +531,8 @@ def test_extract_prompt_contains_promises():
     p = build_knowledge_extract_prompt("正文", promise_items=[
         {"id": "promise:abc", "text": "井底的名字"}])
     assert "promise_touch" in p and "井底的名字" in p
+    # Task5-B②:排除条款——相近意象/字眼不指向该悬念的不算触及
+    assert "不算触及" in p
     # 不传 promise_items 时不出现 promise 段(与 motif 段同范式)
     p2 = build_knowledge_extract_prompt("正文")
     assert "promise_touch" not in p2
@@ -567,3 +569,84 @@ def test_ingest_chapter_passes_open_promises(store):
     # 幂等:re-ingest 不双计(ingest_seq=seq 必须显式传,缺省=手动登记不可 purge)
     ingest_chapter(store, 3, fake)
     assert len(store.list_promise_touches(pid)) == 1
+
+
+def test_resolve_promise_truncated_unique_match(store):
+    """Task5-B①:>40字伏笔,LLM 只回 prompt 里的 40 字截断键 → 唯一命中仍解析成功。"""
+    long_text = "老宅地窖里那半页烧残的族谱上记着一个被全族除名的名字这些年没有任何人敢当面提起它半个字"
+    assert len(long_text) > 40
+    store.plant_promise(long_text, setup_chapter=1)
+    pid = [x for x in store.list_promises()][0]["id"]
+    apply_delta(store, {"promise_touch": [
+        {"text": long_text[:40], "evidence": "她又翻出那半页族谱"},
+    ]}, seq=3)
+    touches = store.list_promise_touches(pid)
+    assert len(touches) == 1 and touches[0]["chapter"] == 3
+
+
+def test_resolve_promise_truncated_ambiguous_skipped(store):
+    """Task5-B①:两条 open 伏笔共享同一前 40 字 → 截断键歧义,跳过不落(零误匹配)。"""
+    base = "城南义庄第三口棺材底下压着的那封旧信迟迟没有人来取走它上面的火漆印从未被人拆开过"
+    assert len(base) == 40
+    store.plant_promise(base + ",甲结尾", setup_chapter=1)
+    store.plant_promise(base + ",乙结尾", setup_chapter=1)
+    pids = [x["id"] for x in store.list_promises()]
+    apply_delta(store, {"promise_touch": [{"text": base, "evidence": "x"}]}, seq=3)
+    for pid in pids:
+        assert store.list_promise_touches(pid) == []
+
+
+# ── Task5:ingest 抽 lie_belief 位移(弧光进度压成可监控标量)────────────────────
+
+def test_extract_prompt_contains_belief_seg():
+    from scribe3.critique import build_knowledge_extract_prompt
+    p = build_knowledge_extract_prompt("正文", belief_chars=[
+        {"name": "柳怀玉", "lie": "官法大过阴律"}])
+    assert "belief" in p and "官法大过阴律" in p
+    # 空列表/不传时无 belief 段(与 motif/promise 段同范式)
+    p2 = build_knowledge_extract_prompt("正文", belief_chars=[])
+    assert "belief" not in p2
+    p3 = build_knowledge_extract_prompt("正文")
+    assert "belief" not in p3
+
+
+def test_parse_knowledge_delta_includes_belief():
+    from scribe3.critique import parse_knowledge_delta
+    d = parse_knowledge_delta(
+        '{"learned":[],"did":[],"belief":[{"who":"柳怀玉","value":62,"why":"目睹师门弃卒"}]}')
+    assert d is not None
+    assert d["belief"] == [{"who": "柳怀玉", "value": 62, "why": "目睹师门弃卒"}]
+
+
+def test_apply_delta_lie_belief(store):
+    """delta.belief → 解析到已有角色 → char_state(change_type='belief', lie_belief=clamp值);
+    幻觉角色跳过;值 clamp 到 [0,100]。"""
+    _ensure_chars(store, "柳怀玉")
+    cid = "role:柳怀玉"
+    store.set_char_anchors(cid, {"lie": "恩义终会被辜负"})
+    apply_delta(store, {"belief": [
+        {"who": "柳怀玉", "value": 62, "why": "目睹师门弃卒"},
+        {"who": "幻觉角色", "value": 10, "why": "x"},   # 解析不到 → 跳过
+    ]}, seq=3)
+    assert store.latest_lie_belief(cid, 3) == 62
+    # clamp:超界值入库前钳到 [0,100]
+    apply_delta(store, {"belief": [{"who": "柳怀玉", "value": 130, "why": "y"}]}, seq=4)
+    assert store.latest_lie_belief(cid, 4) == 100
+
+
+def test_ingest_chapter_passes_belief_chars(store):
+    """ingest_chapter 应收集有 lie 锚的角色传入抽取 prompt,并把 belief 落 char_state。"""
+    _ensure_chars(store, "柳怀玉")
+    cid = "role:柳怀玉"
+    store.set_char_anchors(cid, {"lie": "官法大过阴律"})
+    store.save_chapter(3, "柳怀玉判牍,见冤不能雪。", focalizer=None)
+    seen_prompts = []
+
+    def fake(p):
+        seen_prompts.append(p)
+        return ('{"learned":[],"did":[],"voice_shift":[],'
+                '"belief":[{"who":"柳怀玉","value":58,"why":"判牍见冤"}]}')
+
+    ingest_chapter(store, 3, fake)
+    assert "官法大过阴律" in seen_prompts[0] and "belief" in seen_prompts[0]
+    assert store.latest_lie_belief(cid, 3) == 58
