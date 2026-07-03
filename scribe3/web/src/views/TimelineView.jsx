@@ -369,10 +369,17 @@ export function TimelineView({ onJumpChapter }) {
   const onJumpRef = useRef(onJumpChapter)
   onJumpRef.current = onJumpChapter
   // 块三:选中事件/伏笔/弧光/关系 → 发通用 focus(主编聚焦);取消选中 → 清空(回退视图级话术)。
-  // vis 事件处理器只注册一次,经 ref 取最新 setFocus。
-  const { setFocus } = useSelection()
+  // vis 事件处理器只注册一次,经 ref 取最新 setFocus/focus/suppressNextMirror。
+  const { focus, setFocus, suppressNextMirror } = useSelection()
   const setFocusRef = useRef(setFocus)
   setFocusRef.current = setFocus
+  const focusRef = useRef(focus)
+  focusRef.current = focus
+  const suppressRef = useRef(suppressNextMirror)
+  suppressRef.current = suppressNextMirror
+  // 跳章统一入口:跳前置一次性 suppress 标记——跳章引发的 sel 镜像被消费掉,
+  // 保住刚选中的 event/promise 聚焦(与 InsightView 卡内跳章行为对齐)。
+  const jumpKeepFocus = (ch) => { suppressRef.current(); onJumpRef.current?.(ch) }
 
   const load = useCallback((ax = axis) => {
     setLoading(true); setError(null)
@@ -443,11 +450,11 @@ export function TimelineView({ onJumpChapter }) {
         const it = itemsDsRef.current.get(id)
         if (it) { setSelected({ raw: it._raw, cat: it._cat }); setFocusRef.current(visItemFocus(it)) }
       })
-      // 双击 → 跳章
+      // 双击 → 跳章(保聚焦:suppress 掉跳章引发的 sel 镜像)
       tl.on('doubleClick', (props) => {
         if (!props.item) return
         const it = itemsDsRef.current.get(props.item)
-        if (it) onJumpRef.current?.(it._jump ?? it._raw?.chapter)
+        if (it) jumpKeepFocus(it._jump ?? it._raw?.chapter)
       })
 
       timelineRef.current = tl
@@ -458,7 +465,9 @@ export function TimelineView({ onJumpChapter }) {
       groupsDsRef.current.add(groups)
       itemsDsRef.current.add(items)
       setSelected(null)
-      setFocusRef.current(null)   // 数据重载(泳道/轴切换/刷新):旧选中失效,总线同步清空
+      // 数据重载(泳道/轴切换/刷新):旧选中失效——仅当当前 focus 确为时间线所发时才清空,
+      // 不误清别处(面板/图谱等)刚设的聚焦。
+      if (focusRef.current?.origin === 'timeline') setFocusRef.current(null)
     }
 
     // 默认窗口:大书只看最近 ~40 章(虚拟化生效);小书看全书概览
@@ -565,8 +574,8 @@ export function TimelineView({ onJumpChapter }) {
           <DetailPanel
             raw={selected.raw}
             cat={selected.cat}
-            onJump={onJumpChapter}
-            onClose={() => { setSelected(null); setFocus(null); timelineRef.current?.setSelection([]) }}
+            onJump={jumpKeepFocus}
+            onClose={() => { setSelected(null); if (focus?.origin === 'timeline') setFocus(null); timelineRef.current?.setSelection([]) }}
           />
         )}
       </div>

@@ -157,7 +157,8 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
     payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
     origin: 'insight',
   })
-  const jump = (ch) => { suppressNextMirror(); onJumpChapter?.(ch) }
+  // prop 缺省时不置标记(否则 suppress 滞留,误吞下一次无关的 sel 镜像)
+  const jump = (ch) => { if (onJumpChapter) { suppressNextMirror(); onJumpChapter(ch) } }
 
   return (
     <div onClick={focusMe} title="聚焦此伏笔"

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 /**
  * 块三:通用选中总线(universal selection bus)。
@@ -27,11 +27,11 @@ export function SelectionProvider({ children }) {
   // 再往后的任何 sel 变化正常镜像——因果标记替代时间窗,快速连点(跳章后立刻点树节点)天然正确。
   const suppressNextMirrorRef = useRef(false)
   const suppressNextMirror = useCallback(() => { suppressNextMirrorRef.current = true }, [])
-  return (
-    <Ctx.Provider value={{ focus, setFocus, suppressNextMirror, suppressNextMirrorRef }}>
-      {children}
-    </Ctx.Provider>
-  )
+  // value 稳定化:setter/ref 全稳定,只随 focus 变——useSelection 消费者不做无谓重渲染
+  const value = useMemo(
+    () => ({ focus, setFocus, suppressNextMirror, suppressNextMirrorRef }),
+    [focus, suppressNextMirror])
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useSelection() {
