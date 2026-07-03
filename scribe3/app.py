@@ -65,6 +65,9 @@ _complete_fn = None
 # (save-chapter 排一个 + checkpoint(final) 又排一个)对同章并发 purge→抽取→写,
 # 造成 knows/reader_knows/char_state/motif_instance/promise_touch 双份或互删。
 # 排队前查此集合:同 (work,seq) 已在途/在排则跳过第二次;标记在 _bg_ingest 完成时清除。
+# ⚠ 单 worker 依赖:此为模块级进程内 set,仅在单 worker 部署下有效(自动 _bg_ingest 与
+#   手动 /ingest 同进程共享此集合去重)。上多 worker(多进程/多机)前必须改为跨进程去重
+#   (如 SurrealDB 上的在途锁行 / Redis SETNX),否则同章 ingest 会跨进程交错。
 _pending_ingest: set[tuple[str, int]] = set()
 _pending_ingest_lock = threading.Lock()
 
@@ -2636,9 +2639,24 @@ def chapter_version(vid: str, work: str = "main"):
 
 @app.post("/ingest")
 def ingest(seq: int, work: str = "main"):
+    """手动反哺设定库(前端"反哺设定库"按钮),同步跑 ingest_chapter。
+    P0-1 收尾:纳入 _pending_ingest 去重护栏——与后台 _bg_ingest/_enqueue_ingest
+    共用同一 (work,seq) 在途集合。同章已有 ingest 在途(后台自动或另一次手点)时拒 409,
+    防手点反哺撞自动 ingest 交错造成 knows/reader_knows/char_state/motif_instance/
+    promise_touch 双份或互删。自身执行期间也占位在途,故并发 _enqueue_ingest 同章会被跳过;
+    完成/异常均在 finally 清标记(避免该章永久锁死)。"""
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
-    return ingest_chapter(_store_for(work), seq, hermes_complete)
+    key = (work, seq)
+    with _pending_ingest_lock:
+        if key in _pending_ingest:
+            raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
+        _pending_ingest.add(key)
+    try:
+        return ingest_chapter(_store_for(work), seq, hermes_complete)
+    finally:
+        with _pending_ingest_lock:
+            _pending_ingest.discard(key)
 
 
 @app.get("/ingest-unverified")

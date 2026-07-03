@@ -4146,3 +4146,59 @@ def test_draft_check_registered_in_write_gate(store):
     """写路由审计门镜像:/draft-check 虽为 POST 但只读,须登记 KNOWN_REST_WRITE_ROUTES。"""
     from scribe3.tests.test_consistency import TestWriteGate
     assert ("POST", "/draft-check") in TestWriteGate.KNOWN_REST_WRITE_ROUTES
+
+
+# ===== 批A 余项(P0-1 收尾)TDD: /ingest 手动端点纳入去重护栏 =====
+# /ingest(前端"反哺设定库"按钮)在 _pending_ingest 去重集之外——手点反哺撞后台
+# 自动 ingest 在途时同章交错。修:/ingest 也走同一 (work,seq) 在途集合护栏。
+
+def test_ingest_rejected_when_chapter_pending(store):
+    """/ingest:同章已有 ingest 在途(_pending_ingest 有标记,模拟后台 _bg_ingest 在跑)
+    → 拒 409,防手点反哺撞自动 ingest 交错。"""
+    A.set_store(store)
+    A._pending_ingest.add(("main", 4))   # 模拟后台 _bg_ingest 同章在途
+    client = TestClient(A.app)
+    r = client.post("/ingest", params={"seq": 4, "work": "main"})
+    assert r.status_code == 409, f"同章在途应拒 409,实际 {r.status_code}: {r.text}"
+    # 被拒不应误清他人的在途标记
+    assert ("main", 4) in A._pending_ingest, "被拒的 /ingest 不应清除在途标记"
+
+
+def test_ingest_marks_pending_during_run_and_clears(store, monkeypatch):
+    """/ingest 同步跑:执行期间占用 _pending_ingest(在途),故并发 _enqueue_ingest 同章去重;
+    完成后清除在途标记。与后台 _bg_ingest/_enqueue_ingest 共用同一机制协同去重。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)
+    seen = {}
+
+    def fake_ingest(st, seq, fn, **kw):
+        seen["pending_during"] = ("main", seq) in A._pending_ingest
+        from fastapi import BackgroundTasks
+        # 在途期间并发排队(如后台 save-chapter 触发)应被去重跳过
+        seen["enqueue_during"] = A._enqueue_ingest(BackgroundTasks(), "main", seq)
+        return {"applied": 0}
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", fake_ingest)
+    client = TestClient(A.app)
+    r = client.post("/ingest", params={"seq": 7, "work": "main"})
+    assert r.status_code == 200, f"无在途冲突应 200,实际 {r.status_code}: {r.text}"
+    assert seen["pending_during"] is True, "ingest 执行期间该章应标记在途"
+    assert seen["enqueue_during"] is False, "在途期间 _enqueue_ingest 同章应去重跳过"
+    assert ("main", 7) not in A._pending_ingest, "ingest 完成后应清除在途标记"
+
+
+def test_ingest_clears_pending_on_exception(store, monkeypatch):
+    """/ingest 抛异常也须在 finally 清除在途标记,避免该章永久锁死无法再反哺。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)
+
+    def boom(st, seq, fn, **kw):
+        raise RuntimeError("ingest 崩了")
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", boom)
+    client = TestClient(A.app)
+    try:
+        client.post("/ingest", params={"seq": 8, "work": "main"})
+    except RuntimeError:
+        pass
+    assert ("main", 8) not in A._pending_ingest, "异常后仍须清除在途标记(finally)"
