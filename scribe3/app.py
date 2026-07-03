@@ -2019,6 +2019,50 @@ def discipline(seq: int, brief: str = "", work: str = "main"):
     return discipline_truncate(ch["prose"], brief, hermes_complete)
 
 
+@app.post("/tension-check")
+def tension_check(seq: int, work: str = "main"):
+    """M2a 叙事张力检查:确定性3项(伏笔进展/开环账本/信息差盘点)+ LLM rubric 5项
+    (戏剧问题/结局语法/价值反转/微张力荒漠/续读钩子,单次合并盲评)。读已存正文,不落库,
+    登记为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。no_prose 早退;rubric 失败(坏 JSON /
+    LLM 异常)→ rubric_failed=True,确定性项照常返回,不崩。"""
+    from scribe3.brief import tension_deterministic
+    from scribe3.critique import build_tension_rubric_prompt, parse_tension_report
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        return {"items": [], "error": "no_prose"}
+    items = tension_deterministic(st, seq)
+    raw = None
+    try:
+        from scribe3.llm import hermes_complete
+        raw = hermes_complete(build_tension_rubric_prompt(ch["prose"]))
+    except Exception as e:
+        logging.getLogger("scribe3").warning("tension_check rubric LLM 失败 work=%s seq=%s: %s", work, seq, e)
+    rep = parse_tension_report(raw)
+    if rep is None:
+        return {"items": items, "rubric": None, "rubric_failed": True}
+    outs = rep.get("outcomes") or []
+    yes_leak = [o for o in outs if o.get("type") == "yes"]
+    items += [
+        {"item": "dramatic_question", "pass": bool((rep.get("dramatic_question") or {}).get("present")),
+         "detail": (rep.get("dramatic_question") or {}).get("note") or "",
+         "fix": "给本章立一个悬着的小问题,章末回答并升级"},
+        {"item": "outcome_grammar", "pass": not yes_leak,
+         "detail": f"{len(yes_leak)} 场顺利达成(泄气)",
+         "fix": "把顺利达成改为 yes-but(达成+新并发症)或 no-and(失败+更糟)"},
+        {"item": "value_shift", "pass": bool((rep.get("value_shift") or {}).get("present")),
+         "detail": (rep.get("value_shift") or {}).get("note") or "",
+         "fix": "至少让一场戏的核心价值发生极性反转"},
+        {"item": "micro_tension", "pass": not ((rep.get("micro_tension") or {}).get("deserts")),
+         "detail": "荒漠段:" + "、".join((rep.get("micro_tension") or {}).get("deserts") or []) or "无",
+         "fix": "在荒漠段给 POV 角色写情绪对立/念头交战(对话与内心相悖/动作带矛盾情绪)"},
+        {"item": "hook", "pass": bool((rep.get("hook") or {}).get("present")),
+         "detail": f"{(rep.get('hook') or {}).get('type')}/{(rep.get('hook') or {}).get('strength')}",
+         "fix": "章末以危险临近/信息截断/悬置选择收尾"},
+    ]
+    return {"items": items, "rubric": rep}
+
+
 # ===== 写 =====
 class SaveChapterReq(BaseModel):
     seq: int
@@ -2189,7 +2233,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     F-05: 新增顶层 issues 列表(带 range),兼容旧 quality/leaks 字段。
     M2-②: 新增 duplicate_lines/emotion_telling(B/C 检测器)+ cross_consistency(跨章矛盾)。"""
     import logging
-    from scribe3.critique import quality_flags, quality_issues, discipline_truncate, find_duplicate_lines, find_emotion_telling
+    from scribe3.critique import (quality_flags, quality_issues, discipline_truncate,
+                                  find_duplicate_lines, find_emotion_telling,
+                                  find_parallelism, find_poetic_fragments,
+                                  find_unbalanced_quotes, find_watch_regression)
     st = _store_for(work)
 
     # 1. 确定性五类 QC
@@ -2310,6 +2357,41 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("validate_cross_chapter_consistency")
 
+    # P1-10 彻查:4 个既有确定性检测器接线(此前已实现但全仓零生产接线)。
+    # 排比/诗化分行/引号失配/更次倒退——均对单章成文,不需跨章上下文
+    # (find_watch_regression 检测的是本章内更次序列的非单调,非跨章连续性);各自 fail-soft。
+    parallelism: list[dict] = []
+    try:
+        parallelism = find_parallelism(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_parallelism 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_parallelism")
+
+    poetic_fragments: list[dict] = []
+    try:
+        poetic_fragments = find_poetic_fragments(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_poetic_fragments 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_poetic_fragments")
+
+    unbalanced_quotes: list[dict] = []
+    try:
+        unbalanced_quotes = find_unbalanced_quotes(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_unbalanced_quotes 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_unbalanced_quotes")
+
+    watch_regression: list[dict] = []
+    try:
+        watch_regression = find_watch_regression(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_watch_regression 失败: %s", e)
+        degraded = True
+        degraded_stages.append("find_watch_regression")
+
     return {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
@@ -2322,6 +2404,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "duplicate_lines": dup_lines,
         "emotion_telling": emotion_telling,
         "cross_consistency": cross_consistency,
+        "parallelism": parallelism,
+        "poetic_fragments": poetic_fragments,
+        "unbalanced_quotes": unbalanced_quotes,
+        "watch_regression": watch_regression,
     }
 
 

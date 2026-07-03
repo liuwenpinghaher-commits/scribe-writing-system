@@ -515,3 +515,31 @@ class TestSceneDetectors:
         from scribe3.critique import find_unbalanced_quotes
         assert find_unbalanced_quotes("他说“进来")
         assert find_unbalanced_quotes("他说“进来罢。”") == []
+
+
+# ==== Task9 M2a: 张力检查 rubric prompt + 解析(纯函数,不打 LLM)====
+
+def test_tension_rubric_prompt_and_parse():
+    from scribe3.critique import build_tension_rubric_prompt, parse_tension_report
+    p = build_tension_rubric_prompt("……正文……")
+    for k in ("dramatic_question", "outcomes", "value_shift", "micro_tension", "hook"):
+        assert k in p
+    rep = parse_tension_report(
+        '{"dramatic_question":{"present":true,"answered_escalated":true,"note":"能否验尸"},'
+        '"outcomes":[{"scene":"义庄对峙","type":"yes_but"}],'
+        '"value_shift":{"present":true,"note":"信任→怀疑"},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"信息截断","strength":"strong"}}')
+    assert rep["dramatic_question"]["present"] is True
+    assert parse_tension_report("垃圾") is None
+
+
+def test_parse_tension_report_robust_to_bad_json():
+    from scribe3.critique import parse_tension_report
+    assert parse_tension_report("") is None
+    assert parse_tension_report(None) is None
+    # 截断/坏 JSON:提到 { 但 json.loads 失败 → None(镜像 parse_knowledge_delta)
+    assert parse_tension_report('{"dramatic_question":{"present":tru') is None
+    # 前后有解说文字但内含合法 JSON 块 → 仍能提取
+    rep = parse_tension_report('好的,报告如下:{"hook":{"present":true}} 完毕')
+    assert rep is not None and rep["hook"]["present"] is True

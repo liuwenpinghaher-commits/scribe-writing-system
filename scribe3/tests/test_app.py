@@ -3664,3 +3664,98 @@ def test_b5_codex_block_hides_secret_backstory_in_limited_pov(store):
     assert "SECRETMARKER" not in limited, "限知章设定圣经不应明文注入私密 backstory(POV 倒灌)"
     omni = _editor_system(store, focalizer="", chapter=3)
     assert "SECRETMARKER" in omni, "全知章(作者)应保留私密 backstory"
+
+
+# ==== Task9 M2a: 张力检查——确定性3项 + /tension-check(不真打 LLM)====
+
+def test_tension_deterministic_items(store):
+    from scribe3.brief import tension_deterministic
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = store.list_promises()[0]["id"]
+    # 第3章无任何触及 → 进展路标不过(开着但本章未推进)
+    items = tension_deterministic(store, seq=3)
+    prog = [i for i in items if i["item"] == "promise_progress"][0]
+    assert prog["pass"] is False
+    # 三项确定性齐全
+    assert {i["item"] for i in items} == {"promise_progress", "open_loops", "irony_surface"}
+    store.add_promise_touch(pid, chapter=3, evidence="梦见井", ingest_seq=3)
+    items = tension_deterministic(store, seq=3)
+    prog = [i for i in items if i["item"] == "promise_progress"][0]
+    assert prog["pass"] is True
+
+
+def test_tension_check_no_prose(store):
+    c = _client(store)
+    r = c.post("/tension-check", params={"seq": 9}).json()
+    assert r == {"items": [], "error": "no_prose"}
+
+
+def test_tension_check_full_items_with_mocked_rubric(store, monkeypatch):
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true,"answered_escalated":true,"note":"能否验尸"},'
+        '"outcomes":[{"scene":"义庄对峙","type":"yes"},{"scene":"井边","type":"yes_but"}],'
+        '"value_shift":{"present":true,"note":"信任→怀疑"},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"信息截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(3, "义庄里灯影摇动,他俯身去看那具尸首。", title="第三章")
+    r = _client(store).post("/tension-check", params={"seq": 3}).json()
+    names = {i["item"] for i in r["items"]}
+    # 确定性3 + rubric5 = 8 项齐全
+    assert names == {"promise_progress", "open_loops", "irony_surface",
+                     "dramatic_question", "outcome_grammar", "value_shift",
+                     "micro_tension", "hook"}
+    assert len(r["items"]) == 8
+    assert r["rubric"]["dramatic_question"]["present"] is True
+    # 一场 yes(泄气)→ outcome_grammar 不过
+    og = [i for i in r["items"] if i["item"] == "outcome_grammar"][0]
+    assert og["pass"] is False
+
+
+def test_tension_check_rubric_failed_when_llm_junk(store, monkeypatch):
+    import scribe3.llm as llm
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: "抱歉我无法……")
+    store.save_chapter(4, "一段正文内容。", title="第四章")
+    r = _client(store).post("/tension-check", params={"seq": 4}).json()
+    assert r["rubric_failed"] is True
+    assert r["rubric"] is None
+    # 确定性项仍返回(不因 rubric 失败而丢)
+    assert {i["item"] for i in r["items"]} == {"promise_progress", "open_loops", "irony_surface"}
+
+
+def test_tension_check_survives_llm_exception(store, monkeypatch):
+    import scribe3.llm as llm
+    def boom(*a, **k):
+        raise RuntimeError("hermes down")
+    monkeypatch.setattr(llm, "hermes_complete", boom)
+    store.save_chapter(5, "一段正文内容。", title="第五章")
+    r = _client(store).post("/tension-check", params={"seq": 5}).json()
+    # LLM 抛异常也不崩,降级为 rubric_failed
+    assert r["rubric_failed"] is True and r["rubric"] is None
+
+
+# ==== P1-10: 4 检测器接线进 /post-check(彻查)====
+
+def test_post_check_wires_four_detectors(store):
+    """排比/诗化分行/引号失配/更次倒退 4 个既有检测器应接进 /post-check 确定性聚合。"""
+    c = _client(store)
+    prose = "他想起娘。他想起爹。他想起家门。\n呜。\n他说“你好\n四更天守着,又到三更。"
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert r["parallelism"], "同句式≥3连 应命中 parallelism"
+    assert r["poetic_fragments"], "孤立短句 应命中 poetic_fragments"
+    assert r["unbalanced_quotes"], "引号开闭失配 应命中 unbalanced_quotes"
+    assert r["watch_regression"], "四更→三更倒退 应命中 watch_regression"
+
+
+def test_post_check_four_detectors_clean_text(store):
+    """干净文本:4 检测器均空列表(不误报,不破坏既有输出)。"""
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "他走进义庄,点亮了灯。屋里静得很。", "focalizer": "", "brief": ""}).json()
+    for k in ("parallelism", "poetic_fragments", "unbalanced_quotes", "watch_regression"):
+        assert r[k] == [], f"{k} 干净文本应为空"
+    # 既有键未被破坏
+    for k in ("quality", "issues", "duplicate_lines", "emotion_telling", "cross_consistency"):
+        assert k in r

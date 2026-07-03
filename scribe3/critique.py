@@ -629,6 +629,37 @@ def parse_knowledge_delta(reply: str) -> dict | None:
         return None
 
 
+# ==== M2a: 叙事张力盲评 rubric(对成文单章,LLM 单次合并评审)====
+
+def build_tension_rubric_prompt(prose: str) -> str:
+    """张力盲评 prompt:戏剧问题/结局语法/价值反转/微张力荒漠/续读钩子,单次调用合并评审。"""
+    return (
+        "你是叙事张力评审。读下面一章小说正文,只输出一个 JSON(不要任何其他文字):\n"
+        '{"dramatic_question":{"present":布尔,"answered_escalated":布尔,"note":一句},'
+        '"outcomes":[{"scene":场景一句概括,"type":"yes"|"yes_but"|"no_and"|"no"}],'
+        '"value_shift":{"present":布尔,"note":"哪个价值从什么极翻到什么极"},'
+        '"micro_tension":{"deserts":[连续500字以上无POV情绪对立/念头交战的段落开头8字]},'
+        '"hook":{"present":布尔,"type":"危险临近|信息截断|选择悬置|反转|不祥预示|无","strength":"strong"|"soft"}}\n'
+        "判定标准:dramatic_question=本章是否有一个悬着的小问题且章末被回答并升级;"
+        "outcomes=各场景结局语法(顺利达成记 yes——它是泄气信号);"
+        "value_shift=至少一场发生价值极性反转;hook=章末最后几行是否有续读钩子。\n\n"
+        f"正文:\n{prose}")
+
+
+def parse_tension_report(raw: str) -> dict | None:
+    """解析张力盲评 JSON。镜像 parse_knowledge_delta:提取首个 {...} 块,json.loads,失败返 None。
+    坏 JSON / 截断 / 空 / None 一律 fail-safe 返回 None,调用方据此标 rubric_failed 不崩。"""
+    try:
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        if not m:
+            _log.warning("parse_tension_report 无 JSON 块: raw[:120]=%r", (raw or "")[:120])
+            return None
+        return json.loads(m.group(0))
+    except Exception as e:
+        _log.warning("parse_tension_report 失败: %s | raw[:120]=%r", e, (raw or "")[:120])
+        return None
+
+
 # ==== M2: 确定性文本质检——整行精确复读 + 叙述层情感直说 ====
 
 # 句子切分:按换行符 + 中文句末标点(。！？…)拆句(带 capture group 保留分隔符)

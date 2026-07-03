@@ -61,6 +61,44 @@ def open_loop_ledger(rows: list[dict], cap: int = _LOOP_CAP) -> dict:
     return {"weighted": weighted, "cap": cap, "over_cap": weighted > cap}
 
 
+def tension_deterministic(st, seq: int) -> list[dict]:
+    """章后确定性张力项:进展路标 / 信息差盘点 / 开环账本。每项 {item, pass, detail, fix}。
+
+    - promise_progress:本章(seq)是否至少推进一条 open 伏笔(promise_touch 的 last_refresh_at==seq);
+      若无任何开着的 active 伏笔则视为无需推进(pass)。
+    - open_loops:加权开环是否超上限(open_loop_ledger)。
+    - irony_surface:读者知/在场焦点者不知的命题(戏剧反讽面)。dramatic_irony 是 knowledge.py
+      的模块函数(world, focalizer, chapter);此处按本章 focalizer 计算,取不到 focalizer/知识边
+      时 fail-safe 空列表(pass=False 属预期,提示主动制造信息差)。"""
+    rows = st.promises_with_lifecycle(max_chapter=seq)
+    touched = [p for p in rows if p.get("last_refresh_at") == seq]
+    open_active = [p for p in rows if (p.get("window") or {}).get("state") not in (None, "inactive")]
+    items = [{
+        "item": "promise_progress",
+        "pass": bool(touched) or not open_active,
+        "detail": f"本章推进伏笔 {len(touched)} 条 / 开着 {len(open_active)} 条",
+        "fix": "下一章至少让一条 open 伏笔产生路标级进展(关键信息/新障碍/关键决定)",
+    }]
+    led = open_loop_ledger(rows)
+    items.append({"item": "open_loops", "pass": not led["over_cap"],
+                  "detail": f"加权开环 {led['weighted']}/{led['cap']}",
+                  "fix": "先收一条再开新坑"})
+    # 信息差盘点:读者知而在场焦点者不知的命题数(irony 面)。空 → 提示主动制造。
+    irony = []
+    try:
+        from scribe3.knowledge import dramatic_irony
+        ch = st.get_chapter(seq) if hasattr(st, "get_chapter") else None
+        foc = (ch or {}).get("focalizer")
+        if foc:
+            irony = dramatic_irony(st, foc, seq)
+    except Exception:
+        irony = []
+    items.append({"item": "irony_surface", "pass": bool(irony),
+                  "detail": f"读者知/角色不知命题 {len(irony)} 条",
+                  "fix": "考虑向读者(而非角色)提前揭示某高危信息,把后续普通戏变成悬念戏"})
+    return items
+
+
 def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
     """待激活名单:有 private_agenda 且距上次活跃超过 gap 章的角色。"""
     out = []
