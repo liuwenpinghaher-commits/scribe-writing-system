@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections import OrderedDict
 
@@ -59,6 +60,13 @@ async def _auth_middleware(request, call_next):
 _STORE_CACHE_MAX = 8
 _stores: OrderedDict[str, SurrealStore] = OrderedDict()
 _complete_fn = None
+
+# P0-1: 同章 ingest 去重——(work,seq) 在途集合。防"存为正文"双触发
+# (save-chapter 排一个 + checkpoint(final) 又排一个)对同章并发 purge→抽取→写,
+# 造成 knows/reader_knows/char_state/motif_instance/promise_touch 双份或互删。
+# 排队前查此集合:同 (work,seq) 已在途/在排则跳过第二次;标记在 _bg_ingest 完成时清除。
+_pending_ingest: set[tuple[str, int]] = set()
+_pending_ingest_lock = threading.Lock()
 
 # P28: LLM调用限流(并发上限 + 日调用上限)
 _MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
@@ -2108,18 +2116,43 @@ class CheckReq(BaseModel):
 
 
 def _bg_ingest(work: str, seq: int) -> None:
-    """后台客观回写:开独立 store 连接跑 ingest_chapter。异常只记日志,不影响存稿。"""
+    """后台客观回写:开**独立** store 连接跑 ingest_chapter(P2-3:不复用 _store_for 的共享 ws,
+    避免多后台任务跨线程交错同一连接)。异常只记日志,不影响存稿(non-fatal)。
+    schema 已由端点侧 _store_for(work) 建好,此处不重复 apply。完成时(finally)清在途标记。"""
     import logging
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
+    st = None
     try:
-        st = _store_for(work)
+        st = SurrealStore(ns="scribe3", db=work)
         r = ingest_chapter(st, seq, hermes_complete)
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
+    finally:
+        with _pending_ingest_lock:
+            _pending_ingest.discard((work, seq))
+        if st is not None:
+            try:
+                st.close()
+            except Exception as ce:
+                logging.getLogger("scribe3").warning(
+                    "后台 ingest 独立连接关闭失败 %s 第%s章: %s", work, seq, ce)
+
+
+def _enqueue_ingest(background: BackgroundTasks, work: str, seq: int) -> bool:
+    """排后台 ingest,同章去重(P0-1 竞态根治):同 (work,seq) 已在途/在排 → 跳过第二次排队。
+    谁先排谁负责,第二个跳过——这样"存为正文"的 save-chapter + checkpoint(final) 双触发
+    只会真正跑一次 ingest。返回是否真正排入(在途标记随 _bg_ingest 完成时清除)。"""
+    key = (work, seq)
+    with _pending_ingest_lock:
+        if key in _pending_ingest:
+            return False
+        _pending_ingest.add(key)
+    background.add_task(_bg_ingest, work, seq)
+    return True
 
 
 @app.post("/save-chapter")
@@ -2169,7 +2202,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             import logging
             logging.getLogger("scribe3").warning("find_leaks 失败 work=%s seq=%s: %s", work, req.seq, e)
             leak_error = str(e)[:160]
-    background.add_task(_bg_ingest, work, req.seq)
+    _enqueue_ingest(background, work, req.seq)
     return {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"]), "cross_repetition": len(cross_rep),
@@ -2440,9 +2473,12 @@ def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: 
     st = _store_for(work)
     vid = st.add_chapter_version(seq, req.prose, label=req.label,
                                  kind=req.kind, qc=req.qc)
-    # kind=final → 这是正式定稿,知识图谱应同步更新(非 final 的草稿快照不 ingest)
+    # kind=final → 这是正式定稿,知识图谱应同步更新(非 final 的草稿快照不 ingest)。
+    # P0-1:走去重排队——"存为正文"里 save-chapter 已排的同章 ingest 仍在途时,这里跳过,
+    # 不重复排(checkpoint 的职责是落 final 版本;ingest 由 save-chapter 负责)。
+    # checkpoint 单独触达(无前置 save-chapter)时仍会正常排入,不丢 ingest。
     if req.kind == "final":
-        background.add_task(_bg_ingest, work, seq)
+        _enqueue_ingest(background, work, seq)
     return {"status": "saved", "id": vid, "seq": seq, "kind": req.kind}
 
 

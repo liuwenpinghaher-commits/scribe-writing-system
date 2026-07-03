@@ -2,11 +2,25 @@
 
 前端读 NS=scribe3。写作统一走主编对话(/chat/write),不经直接渲染。
 """
+import pytest
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
 from scribe3.ontology import Event
 from scribe3.scenario import luanshi_leak_world
+
+
+@pytest.fixture(autouse=True)
+def _reset_pending_ingest():
+    """每个测试前后清空 _pending_ingest 去重集合,防跨测试泄漏
+    (mock 掉的 _bg_ingest 不会走 finally 清标记)。红阶段属性未建时静默跳过。"""
+    s = getattr(A, "_pending_ingest", None)
+    if s is not None:
+        s.clear()
+    yield
+    s = getattr(A, "_pending_ingest", None)
+    if s is not None:
+        s.clear()
 
 
 def _client(store, complete_fn=None):
@@ -1267,6 +1281,69 @@ def test_checkpoint_non_final_no_bg_ingest(store, monkeypatch):
                     json={"prose": "中间稿", "label": "草稿", "kind": "checkpoint", "qc": {}})
     assert r.status_code == 200
     assert "args" not in called, "非 final checkpoint 不应触发 _bg_ingest"
+
+
+# ===== P0-1 / P2-3: 存为正文双 ingest 竞态根治 =====
+# (同章去重排队 + checkpoint 与 save-chapter 同章只 ingest 一次 + _bg_ingest 独立连接)
+
+def test_enqueue_ingest_dedups_same_chapter():
+    """_enqueue_ingest:同 (work,seq) 已在途 → 跳过第二次排队;不同章正常排。"""
+    from fastapi import BackgroundTasks
+    bg = BackgroundTasks()
+    assert A._enqueue_ingest(bg, "main", 5) is True      # 首次:真正排入
+    assert A._enqueue_ingest(bg, "main", 5) is False     # 同章第二次:去重跳过
+    assert len(bg.tasks) == 1                            # 只排了一个后台任务
+    assert A._enqueue_ingest(bg, "main", 6) is True      # 不同章:仍排
+    assert len(bg.tasks) == 2
+
+
+def test_save_then_checkpoint_ingests_once(store, monkeypatch):
+    """存为正文全链路:save-chapter + checkpoint(final) 同章 → 只 ingest 一次
+    (checkpoint 侧因 save-chapter 已在途被去重跳过)。"""
+    A.set_store(store)
+    calls = []
+    # mock 不清 pending → 模拟 ingest 仍在途,坐实 checkpoint 侧去重
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: calls.append((work, seq)))
+    client = TestClient(A.app)
+    client.post("/save-chapter?work=main",
+                json={"seq": 9, "prose": "同一段正文。", "title": "九", "focalizer": ""})
+    client.post("/checkpoint", params={"seq": 9, "work": "main"},
+                json={"prose": "同一段正文。", "label": "定稿", "kind": "final", "qc": {}})
+    assert calls == [("main", 9)], "同章存为正文只应 ingest 一次(实际=%r)" % (calls,)
+
+
+def test_bg_ingest_independent_connection_and_close(store, monkeypatch):
+    """_bg_ingest 用独立 store 连接(不复用共享 _store_for,修 P2-3),用完 close,
+    并在 finally 清除在途标记。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)                  # 共享 store 挂到 work=main
+    A._pending_ingest.add(("main", 3))  # 模拟在途
+    made = []
+
+    class FakeStore:
+        def __init__(self, **kw):
+            self.kwargs = kw
+            self.closed = False
+            made.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(A, "SurrealStore", FakeStore)
+    captured = {}
+
+    def fake_ingest(st, seq, fn, **kw):
+        captured["store"] = st
+        return {"applied": 0}
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", fake_ingest)
+    A._bg_ingest("main", 3)
+    assert made, "应新建独立 SurrealStore 连接"
+    assert captured["store"] is made[0]         # ingest 收到的是新建独立 store
+    assert captured["store"] is not store        # 不是共享连接(P2-3)
+    assert made[0].kwargs.get("db") == "main"    # 指向本书 DB
+    assert made[0].closed is True                # 用完 close,不泄漏
+    assert ("main", 3) not in A._pending_ingest  # finally 清除在途标记
 
 
 # ===== S5 TDD: soak seed_words 进写作 prompt(无 LLM,传入才注入) =====
