@@ -88,6 +88,25 @@ def _find_existing_learned_prop(store, fact_text: str) -> str | None:
     return None
 
 
+def _upsert_reader_knows(store, fid: str, seq: int) -> None:
+    """幂等写 reader_knows 边(批0 彻查 D-1):发边前先查该命题是否已有 reader 边,不存在才补。
+    语义:叙述揭示即读者已知,与命题是否复用无关——故新建/复用命题一律补边。
+    幂等:已有边则跳过(防重复边);purge_ingest 删本章 reader 边后重 ingest 会自愈补回。
+    non-fatal:任何异常只告警不阻断主写。"""
+    import logging
+    _log = logging.getLogger("scribe3.ingest")
+    try:
+        existing = store._query(
+            "SELECT proposition FROM reader_knows WHERE proposition = $p", {"p": fid})
+        if existing:
+            return   # 已有 reader 边,幂等跳过
+        store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,
+                                          acquired_via="narrated"),
+                            ingest_seq=seq)
+    except Exception as _e:
+        _log.warning("reader_knows 写入失败(non-fatal),命题 %s: %s", fid, _e)
+
+
 def apply_delta(store, delta: dict, seq: int,
                 open_promises: list[dict] | None = None) -> int:
     """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。
@@ -108,20 +127,16 @@ def apply_delta(store, delta: dict, seq: int,
         # S3: 尝试复用已有近精确命题(消重复真相)
         existing_fid = _find_existing_learned_prop(store, fact)
         if existing_fid is not None:
-            # 复用:只发 knows 边,不创建新命题
+            # 复用:不创建新命题(复用现有客观命题)
             fid = existing_fid
-            _log.debug("learned 去重:复用命题 %s (文本近似 %r)", fid, fact[:30])
+            _log.debug("learned 去重:复用命题 %s (文本完全相等 %r)", fid, fact[:30])
         else:
             # 新建客观命题
             fid = f"fact:k{seq}-{i}"
             store.add_fact(Fact(fid, oid, "获知", fact, valid_from=seq), ingest_seq=seq)
-            # reader_knows:新建命题才需要写 reader 边;复用已有命题的 reader 边已存在
-            try:
-                store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,
-                                                  acquired_via="narrated"),
-                                    ingest_seq=seq)
-            except Exception as _e:
-                _log.warning("reader_knows 写入失败(non-fatal),命题 %s: %s", fid, _e)
+        # reader_knows:叙述揭示即读者已知——对新建与复用命题一律幂等 upsert
+        # (D-1:复用分支旧代码不补 reader 边,重 ingest 源章 purge 后 reader 永久丢失)
+        _upsert_reader_knows(store, fid, seq)
         store.add_knowledge(KnowledgeEdge(oid, fid, since_chapter=seq, acquired_via="learned"),
                            ingest_seq=seq)
         n += 1

@@ -550,6 +550,58 @@ def test_learned_dedup_exact_equal_still_reused(store):
         f"完全相等命题应复用为 1 条,实际 {len(matching)} 条"
 
 
+# ── 批0 D-1:reader_knows 复用命题分支幂等补边,重 ingest 自愈 ─────────────────
+
+def test_reader_knows_reuse_branch_reingest_self_heals(store):
+    """复用命题分支也须幂等补 reader 边:重 ingest 源章后 reader 仍知(不变量②自愈)。
+
+    修前(复用分支不补 reader 边):
+    ③ purge_ingest(A) 删本章 reader_knows,复用保护只保命题+他章 knows 边、不保
+       reader 边 → reader_knows 永久丢失,"叙述即读者已知"对复用命题不成立。
+    """
+    _ensure_chars(store, "焦三", "阿萤")
+    fact_text = "尸丹能让亡魂附体重返人间"
+    from scribe3.knowledge import project_frame
+
+    # ① A 章(seq=20):焦三 learned → 建命题 + reader 边
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": fact_text}], "did": []}, seq=20)
+    assert any(fact_text in f.value for f in project_frame(store, "reader", 20).facts), \
+        "A 章 ingest 后 reader 应知该命题"
+
+    # ② B 章(seq=21):阿萤 learned 同文本 → 复用同一命题;reader 仍知
+    apply_delta(store, {"learned": [{"who": "阿萤", "fact": fact_text}], "did": []}, seq=21)
+    assert any(fact_text in f.value for f in project_frame(store, "reader", 21).facts), \
+        "B 章复用命题后 reader 仍应知"
+
+    # ③ 重 ingest A 章:purge(20) 删本章 reader 边 → 复用分支须补边自愈
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": fact_text}], "did": []}, seq=20)
+    assert any(fact_text in f.value for f in project_frame(store, "reader", 21).facts), \
+        "重 ingest A 章后 reader 仍应知该命题(复用分支幂等补边自愈)"
+    # 焦三、阿萤的 knows 边也不应因 reingest 丢失
+    assert any(fact_text in f.value for f in project_frame(store, "role:焦三", 20).facts), \
+        "重 ingest 后焦三仍应知"
+    assert any(fact_text in f.value for f in project_frame(store, "role:阿萤", 21).facts), \
+        "重 ingest A 章后阿萤(复用命题)的 knows 边不应悬空"
+
+
+def test_reader_knows_reuse_branch_no_duplicate_edges(store):
+    """复用分支幂等补边不产生重复 reader_knows 边:多角色多章复用同命题,reader 边恒 1 条。"""
+    _ensure_chars(store, "焦三", "阿萤", "老李")
+    fact_text = "城主已暗通北狄意图献城"
+    apply_delta(store, {"learned": [{"who": "焦三", "fact": fact_text}], "did": []}, seq=30)
+    apply_delta(store, {"learned": [{"who": "阿萤", "fact": fact_text}], "did": []}, seq=31)
+    apply_delta(store, {"learned": [{"who": "老李", "fact": fact_text}], "did": []}, seq=32)
+
+    all_props = store.facts_at(99)
+    matching = [f for f in all_props if f.value == fact_text]
+    assert len(matching) == 1, f"应复用为 1 条命题,实际 {len(matching)}"
+    fid = matching[0].id   # "fact:k30-0"
+    rows = store._query(
+        "SELECT proposition FROM reader_knows WHERE proposition = $p", {"p": fid})
+    assert len(rows) == 1, \
+        f"复用分支幂等,reader_knows 应只 1 条,实际 {len(rows)} 条"
+
+
 # ── 伏笔母题章感知:ingest 抽本章母题 → motif_instance ──────────────────────────
 
 def test_apply_delta_motif_resolves_and_records(store):
