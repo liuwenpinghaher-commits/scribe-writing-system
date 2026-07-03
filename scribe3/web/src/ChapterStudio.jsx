@@ -7,7 +7,8 @@ import { api } from './api'
 import { WriteLayout } from './WriteLayout'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
-import { useChiefSlot } from './ChiefSlotContext'
+import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
+import { beatsFromMarkdown } from './lib/stageProposal'
 import { Btn, Input } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 
@@ -78,13 +79,42 @@ function OutlineTab({ seq, value, meta, onSaved }) {
   useEffect(() => flush, [seq])  // eslint-disable-line
   useUnsavedGuard(() => dirtyRef.current.dirty)
 
+  // 块二:接主编 stageProposal(phase/seq 匹配才显示);落进编辑器置 dirty,走上面的健壮保存。
+  const { pending, clear } = useStageProposal('outline', seq)
+  const { setChiefIntent } = useChiefSlot()
+  const fillPending = () => {
+    if (!pending) return
+    setText(pending.content)
+    dirtyRef.current = { key: `${seq}|synopsis`, value: pending.content, dirty: true }
+    clear(); toast('已填入大纲')
+  }
+  const appendPending = () => {
+    if (!pending) return
+    const base = dirtyRef.current.key === `${seq}|synopsis` ? dirtyRef.current.value : text
+    const next = (base ? base + '\n\n' : '') + pending.content
+    setText(next)
+    dirtyRef.current = { key: `${seq}|synopsis`, value: next, dirty: true }
+    clear(); toast('已追加到大纲')
+  }
+
   return (
     <div className={STAGE_WRAP}>
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2">
         <h3 className="text-f13 font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
-        <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'outline', seq, text: `帮我把第 ${seq} 章大纲展开成 3-5 句` })} title="把话术带到右栏主编,生成后可一键填入">
+            <Sparkles size={13} />让主编生成
+          </Btn>
+          <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
+        </div>
       </div>
+      {pending && (
+        <ProposalBar
+          text={`主编生成了内容(${pending.content.replace(/\s/g, '').length} 字),可落进大纲。`}
+          actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+        />
+      )}
       <RichEditor
         value={text}
         editorKey={`${seq}|synopsis`}
@@ -172,13 +202,37 @@ function BeatsTab({ seq, value, meta, onSaved }) {
     commit(next)
   }
 
+  // 块二:接主编 stageProposal(phase/seq 匹配才显示);解析成条目「追加为新条目」,
+  // 走 commit(结构操作既有健壮路径,立即落库)。基于 dirtyRef 最新条目追加,不吞未 flush 的文本编辑。
+  const { pending, clear } = useStageProposal('beats', seq)
+  const { setChiefIntent } = useChiefSlot()
+  const pendingItems = pending ? beatsFromMarkdown(pending.content) : []
+  const appendPending = () => {
+    if (!pending) return
+    if (!pendingItems.length) { clear(); return }
+    const base = dirtyRef.current.key === `${seq}|beats` ? dirtyRef.current.value : beats
+    commit([...base, ...pendingItems.map((t) => ({ _id: `b${++beatUid}`, text: t, done: false }))])
+    clear(); toast(`已追加 ${pendingItems.length} 条节拍`)
+  }
+
   return (
     <div className={STAGE_WRAP}>
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 gap-2">
         <h3 className="text-f13 font-semibold text-ink">节拍 · 把这章拆成有序的小节点</h3>
-        <span className="text-f11 text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'beats', seq, text: `据大纲把第 ${seq} 章拆成有序节拍,一行一条` })} title="把话术带到右栏主编,生成后可一键追加">
+            <Sparkles size={13} />让主编生成
+          </Btn>
+          <span className="text-f11 text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
+        </div>
       </div>
+      {pending && (
+        <ProposalBar
+          text={`主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
+          actions={[{ label: '追加为新条目', variant: 'primary', onClick: appendPending }]}
+        />
+      )}
 
       <div className="flex gap-2 mb-4">
         <Input
@@ -225,23 +279,23 @@ function BeatsTab({ seq, value, meta, onSaved }) {
 // ——— 草稿:编辑器,初值 latestDraft,存草稿 saveDraft;采用=进正文(回调切到正文 tab) ———
 function DraftTab({ seq, meta, onAdopt }) {
   const toast = useToast()
-  const { draftProposal, setDraftProposal } = useChiefSlot()
+  const { setChiefIntent } = useChiefSlot()
   const [text, setText] = useState('')
   const [summary, setSummary] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  // 待落草稿:仅当本次提议属于当前章且正文非空才提示(防切章串到旧章)。
-  const pending = draftProposal && draftProposal.seq === seq && (draftProposal.prose || '').trim() ? draftProposal : null
+  // 待落草稿(块二并入通用 stageProposal 通道):phase/seq 匹配且内容非空才提示(防切章/切阶段串台)。
+  const { pending, clear } = useStageProposal('draft', seq)
   // 落进后置 dirty,靠既有 flush(切章/存草稿)落库;同时清除待落。
   const fillDraft = () => {
     if (!pending) return
-    setText(pending.prose); draftRef.current.dirty = true
-    setDraftProposal(null); toast('已填入草稿框')
+    setText(pending.content); draftRef.current.dirty = true
+    clear(); toast('已填入草稿框')
   }
   const appendDraft = () => {
     if (!pending) return
-    setText((prev) => (prev ? prev + '\n\n' : '') + pending.prose); draftRef.current.dirty = true
-    setDraftProposal(null); toast('已追加到草稿')
+    setText((prev) => (prev ? prev + '\n\n' : '') + pending.content); draftRef.current.dirty = true
+    clear(); toast('已追加到草稿')
   }
   // 换章防丢:draftRef 只持「实时 text/summary/dirty」(渲染时刷新);seq 不放 ref
   // ——因 draftRef.current.seq=seq 会在换章渲染时先变成新 seq,导致 cleanup 拿错章号。
@@ -295,6 +349,9 @@ function DraftTab({ seq, meta, onAdopt }) {
         <h3 className="text-f13 font-semibold text-ink">草稿 · 自由打磨,满意后采用为正文</h3>
         <div className="flex items-center gap-2">
           <span className="text-f11 text-faint tnum">{wc} 字</span>
+          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })} title="把话术带到右栏主编,生成后可一键填入">
+            <Sparkles size={13} />让主编生成
+          </Btn>
           <Btn variant="soft" size="sm" onClick={saveDraft} disabled={saving}>
             <Save size={13} />存草稿
           </Btn>
@@ -304,14 +361,10 @@ function DraftTab({ seq, meta, onAdopt }) {
         </div>
       </div>
       {pending && (
-        <div className="mb-2 rounded-xl border border-brand/20 bg-brand/10 text-brand px-3 py-2 flex items-center gap-2 flex-wrap">
-          <Sparkles size={14} className="shrink-0" />
-          <span className="text-f13 flex-1 min-w-0">主编生成了本章草稿({pending.prose.replace(/\s/g, '').length} 字),可直接落进草稿框。</span>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Btn variant="primary" size="sm" onClick={fillDraft}>填入草稿框</Btn>
-            <Btn variant="soft" size="sm" onClick={appendDraft}>追加到草稿</Btn>
-          </div>
-        </div>
+        <ProposalBar
+          text={`主编生成了本章草稿(${pending.content.replace(/\s/g, '').length} 字),可直接落进草稿框。`}
+          actions={[{ label: '填入草稿框', variant: 'primary', onClick: fillDraft }, { label: '追加到草稿', onClick: appendDraft }]}
+        />
       )}
       <Input
         value={summary}

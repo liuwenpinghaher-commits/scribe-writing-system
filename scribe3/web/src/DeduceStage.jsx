@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { api } from './api'
 import { useDeduceSel } from './deduceContext'
+import { useStageProposal, ProposalBar } from './ChiefSlotContext'
 import { useToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
@@ -101,6 +102,25 @@ export function DeduceStage({ seq, meta, onSaved }) {
     }
   }, []) // eslint-disable-line
 
+  // 块二:接主编 stageProposal —— phase='deduce' 且 seq/target(truth 或角色)全匹配才显示,
+  // 防切章/切目标错落。落进编辑器置 dirty,走上面失焦/切换/卸载的健壮保存。
+  const { pending, clear } = useStageProposal('deduce', seq, selected)
+  const fillPending = () => {
+    if (!pending) return
+    setText(pending.content)
+    workRef.current = { selected, seq, text: pending.content, dirty: true }
+    clear(); toast('已填入,失焦自动存')
+  }
+  const appendPending = () => {
+    if (!pending) return
+    const w = workRef.current
+    const base = (w.selected === selected && w.seq === seq) ? w.text : text
+    const next = (base ? base + '\n\n' : '') + pending.content
+    setText(next)
+    workRef.current = { selected, seq, text: next, dirty: true }
+    clear(); toast('已追加,失焦自动存')
+  }
+
   const gen = () => {
     setBusy(true); let acc = ''
     const instr = selected === 'truth'
@@ -130,6 +150,12 @@ export function DeduceStage({ seq, meta, onSaved }) {
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
       </div>
+      {pending && (
+        <ProposalBar
+          text={`主编生成了「${selected === 'truth' ? '场景真相' : cur.character_name}」的内容(${pending.content.replace(/\s/g, '').length} 字)。`}
+          actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+        />
+      )}
       <RichEditor value={text} editorKey={`${seq}|${selected}`}
         ariaLabel={selected === 'truth' ? '场景真相' : '限知投影'}
         onChange={(md) => { setText(md); workRef.current.text = md; workRef.current.dirty = true }} onBlur={blur}

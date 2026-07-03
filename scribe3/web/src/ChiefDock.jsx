@@ -5,6 +5,7 @@ import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine } from 'lu
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
+import { useDeduceSel } from './deduceContext'
 import { Btn } from './ui.jsx'
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
@@ -45,8 +46,9 @@ function Bubble({ role, content, tools, streaming }) {
 }
 
 // 据当前选中(章/素材/视图)给主编做上下文前缀 + 一句话定位 + 建议提问。
-// phase(章阶段 tab)给定时,章的上下文/建议按阶段(大纲/节拍/草稿)调整。
-function selContext(sel, phase) {
+// phase(章阶段 tab)给定时,章的上下文/建议按阶段(大纲/节拍/演绎/草稿)调整。
+// deduceName:演绎阶段当前编辑目标的展示名('场景真相' 或角色名),仅 phase==='deduce' 用。
+function selContext(sel, phase, deduceName) {
   if (!sel) return { label: '未选中', prefix: '', suggests: [] }
   if (sel.mode === 'view') {
     const names = { atlas: '关系图谱', insight: '仪表盘', timeline: '时间线', overview: '概览', progress: '进度' }
@@ -70,6 +72,13 @@ function selContext(sel, phase) {
       label: `第 ${seq} 章 · 节拍`,
       prefix: `【正在拆第 ${seq} 章的节拍(beats)。请据本章大纲帮作者把这章拆成有序小节点】\n`,
       suggests: [`据大纲把第 ${seq} 章拆成有序节拍`, `现在的节拍节奏有什么问题?`],
+    }
+    if (phase === 'deduce') return {
+      label: `第 ${seq} 章 · 演绎 · ${deduceName || '场景真相'}`,
+      prefix: `【正在做第 ${seq} 章的演绎,当前编辑:${deduceName || '场景真相'}。请据本章大纲/节拍/设定帮作者把这一场演绎清楚】\n`,
+      suggests: (deduceName && deduceName !== '场景真相')
+        ? [`以「${deduceName}」截至本章的限知,写他这一场的限知投影(看到/听到、知道、以为、做了/说了、没察觉的)`, `「${deduceName}」在这一场最可能误读什么?`]
+        : [`写第 ${seq} 章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,含角色们察觉不到的隐藏机制`, '这一场的真相还缺哪块机制?'],
     }
     if (phase === 'draft') return {
       label: `第 ${seq} 章 · 草稿`,
@@ -148,10 +157,17 @@ function selSeq(sel) {
   return null
 }
 
+// 前置阶段(块二)→ 走 /chat/write 的 phase 映射:后端 _phase_role_block 只认 plan|draft|final,
+// 大纲/节拍属规划期→'plan';演绎与 DeduceStage.gen 同口径(不带阶段角色,靠 focalizer);草稿→'draft'。
+const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: '', draft: 'draft' }
+
 function DiscussionDock({ sel, phase }) {
-  const ctx = useMemo(() => selContext(sel, phase), [sel, phase])
   const seq = useMemo(() => selSeq(sel), [sel])
-  const { setDraftProposal } = useChiefSlot()
+  const { setStageProposal, chiefIntent, setChiefIntent } = useChiefSlot()
+  // 演绎阶段:读左树/中区共享的当前演绎目标('truth' 或 character_id),生成完按它发布 target。
+  const { selected: deduceSel } = useDeduceSel()
+  const deduceName = deduceSel === 'truth' ? '场景真相' : String(deduceSel || '').replace(/^role:/, '')
+  const ctx = useMemo(() => selContext(sel, phase, phase === 'deduce' ? deduceName : undefined), [sel, phase, deduceName])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -182,6 +198,15 @@ function DiscussionDock({ sel, phase }) {
     el.style.height = Math.min(el.scrollHeight, 128) + 'px'
   }, [input])
 
+  // 块二:消费中区「让主编生成」入口——匹配当前 phase/seq 才消费(预填话术 + 聚焦输入框)。
+  useEffect(() => {
+    if (!chiefIntent) return
+    if (chiefIntent.phase !== phase || chiefIntent.seq !== seq) return
+    setChiefIntent(null)
+    setInput(chiefIntent.text || '')
+    setTimeout(() => taRef.current?.focus(), 0)
+  }, [chiefIntent, phase, seq, setChiefIntent])
+
   const send = (text) => {
     const q = (text ?? input).trim()
     if (!q || busy) return
@@ -191,10 +216,13 @@ function DiscussionDock({ sel, phase }) {
     setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    // 草稿阶段(有本章 seq)→ 走 /chat/write 并带 phase='draft'+chapter,
-    // 使后端 _deduction_block 注入本章场景真相 + 各角色限知投影,主编据真相/投影写限知初稿。
-    // proposal 围栏(草稿正文)与 delta(讨论)都收进同一气泡展示。
-    if (phase === 'draft' && seq != null) {
+    // 前置阶段(大纲/节拍/演绎/草稿,有本章 seq)→ 走 /chat/write(带映射 phase + chapter):
+    // 草稿期后端 _deduction_block 注入本章场景真相 + 各角色限知投影;演绎带 focalizer(与 DeduceStage.gen 同口径)。
+    // proposal 围栏(生成正文)与 delta(讨论)都收进同一气泡展示;生成完发布 stageProposal 给中区落地。
+    if (seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase)) {
+      // 发布 target 在发送时捕获:演绎=当前演绎目标;其余阶段 null。生成期间用户切目标/切章,
+      // 中区靠 phase/seq/target 匹配不错落。
+      const target = phase === 'deduce' ? deduceSel : null
       // proposal 围栏时序:proposal_start → proposal_chunk*(逐段散文文本) → proposal(全量,prose == 各 chunk 拼接)。
       // delta(讨论)与 proposal_chunk(草稿正文)拼进同一气泡 content,故不能整段替换 content。
       // 用「基线 base(围栏开始时的 content)+ 本条 proposal 累积 acc」归一:
@@ -203,46 +231,46 @@ function DiscussionDock({ sel, phase }) {
       let propBase = ''
       let propAcc = ''
       let propOpen = false // 是否见过围栏开始(区分围栏路径 vs 纯 delta 兜底 proposal)
-      // 本轮 assistant 气泡在生成前的 content(空字符串,因刚 push 了空 assistant),
-      // 用于兜底路径(无围栏)提取「本轮草稿正文」= 最终 content 去掉本轮开始前已有部分。
-      const turnBase = '' // 本轮 assistant 气泡起始为空(见上 setMsgs push 的空 assistant)
-      // 落地:把本次草稿正文经 ChiefSlotContext 发布给中区 DraftTab。
-      // 围栏路径 → 纯草稿正文 = propAcc(== proposal.prose);兜底 → 本轮 delta 正文。
-      const publishDraft = (prose) => {
+      let gotProposal = false // 是否收到过 proposal 收尾事件(收到则 onDone 不再兜底发布,防双发)
+      // 本轮纯 delta 累积:兜底路径(整轮无 proposal 事件)的发布正文。
+      // 独立累积而非从气泡 content 反推——发布绝不能在 setMsgs updater 里做
+      // (updater 在 render 期间执行,跨组件 setState 触发 React 告警且时序不可靠)。
+      let turnText = ''
+      // 落地:把本次生成正文经 ChiefSlotContext 发布给中区对应阶段编辑器。
+      // 围栏路径 → 纯生成正文 = propAcc(== proposal.prose);兜底 → 本轮 delta 正文。
+      const publish = (prose) => {
         const clean = (prose || '').trim()
         if (!clean) return
-        setDraftProposal({ seq, prose: clean, ts: ++proposalTsRef.current })
+        setStageProposal({ phase, seq, target, content: clean, ts: ++proposalTsRef.current })
       }
       esRef.current = api.chatWrite(finalMsg, {
         chapter: seq,
-        phase: 'draft',
-        onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
+        phase: WRITE_PHASE[phase],
+        focalizer: phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : '',
+        onDelta: (d) => { turnText += d; mut((l) => ({ ...l, content: l.content + d })) },
         onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
         onProposalStart: () => { propOpen = true; propAcc = ''; mut((l) => { propBase = l.content; return l }) },
         onProposalChunk: (c) => { propAcc += (c?.text ?? c ?? ''); mut((l) => ({ ...l, content: propBase + propAcc })) },
         // 围栏路径:base 已记录、prose==propAcc→base+prose 不重复。
         // 兜底路径(无 proposal_start):propOpen=false,把 prose 追加到已有讨论文之后,不吞 delta。
-        // 无论哪条路径,拿到最终草稿正文都 publishDraft 给中区(只发纯草稿正文,不含讨论前言)。
+        // 无论哪条路径,拿到最终生成正文都 publish 给中区(只发纯生成正文,不含讨论前言)。
         onProposal: (p) => {
+          gotProposal = true
           const prose = p?.prose ?? p?.text ?? propAcc
           mut((l) => ({ ...l, content: propOpen ? propBase + prose : l.content + prose }))
-          publishDraft(prose)
+          publish(prose)
         },
-        // 兜底:整轮无 proposal(纯 delta 讨论/草稿),onDone 时把本轮 assistant 正文
-        // (去掉本轮开始前已有 content=turnBase)当草稿发布,让用户仍能一键填入。
+        // 兜底:整轮无任何 proposal 事件(纯 delta 讨论/生成)→ 把本轮 delta 正文当生成结果发布,
+        // 让用户仍能一键填入。收到过 proposal 则绝不重发(否则会用含讨论前言的全文覆盖纯净稿)。
         onDone: () => {
           setBusy(false)
-          if (!propOpen) mut((l) => {
-            const prose = (l.content || '').startsWith(turnBase) ? l.content.slice(turnBase.length) : l.content
-            publishDraft(prose)
-            return l
-          })
+          if (!gotProposal) publish(turnText)
         },
         onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
       })
       return
     }
-    // 非草稿:走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
+    // 非章前置阶段(素材/视图等):走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
     esRef.current = api.chatStream(finalMsg, {
       agentic: false,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
