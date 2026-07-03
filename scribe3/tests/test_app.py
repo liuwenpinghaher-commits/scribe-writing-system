@@ -3647,3 +3647,20 @@ def test_b4_faction_masked_private_op_preserves_real_value(store):
                if f["name"] == "红庐")
     assert row["ideology"] == "复辟", "ideology 应更新"
     assert row["private_operation"] == "走私军械", "私密真值应存活(掩码被哨兵剔除)"
+
+
+# ===== 批0 · B5:_codex_block 限知隐私密(彻查 F-3)=====
+
+def test_b5_codex_block_hides_secret_backstory_in_limited_pov(store):
+    """B5(F-3):限知章(focalizer 非空,乙≠甲)主编基座不含私密角色 甲 的 backstory;
+    全知章(focalizer 空=作者全知)保留(向后兼容)。"""
+    from scribe3.ontology import Entity
+    from scribe3.app import _editor_system
+    store.add_entity(Entity("role:甲", "character", "甲",
+                            traits={"backstory": "SECRETMARKER_他是前朝皇子",
+                                    "backstory_secret": True}))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    limited = _editor_system(store, focalizer="乙", chapter=3)
+    assert "SECRETMARKER" not in limited, "限知章设定圣经不应明文注入私密 backstory(POV 倒灌)"
+    omni = _editor_system(store, focalizer="", chapter=3)
+    assert "SECRETMARKER" in omni, "全知章(作者)应保留私密 backstory"

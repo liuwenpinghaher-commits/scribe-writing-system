@@ -1019,11 +1019,14 @@ def get_progress(work: str = "main", window: str = "all"):
     return _store_for(work).progress(window=window)
 
 
-def _codex_block(st) -> str:
+def _codex_block(st, reveal: bool = True) -> str:
     """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
     关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
     此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
-    不依赖 MCP(MCP 网关连固定库,会串到别的书)。"""
+    不依赖 MCP(MCP 网关连固定库,会串到别的书)。
+
+    reveal=False(限知模式,focalizer 非空):对 backstory_secret 角色隐去 backstory,
+    防 POV 倒灌(F-3——限知章设定圣经明文注入私密前史);reveal=True(全知)保留。"""
     def _safe(fn):
         try:
             return fn() or []
@@ -1034,7 +1037,10 @@ def _codex_block(st) -> str:
     if chars:
         cl = []
         for c in chars[:14]:
-            bs = ((c.traits or {}).get('backstory') or '') if hasattr(c, 'traits') else ''
+            traits = (c.traits or {}) if hasattr(c, 'traits') else {}
+            bs = traits.get('backstory') or ''
+            if bs and not reveal and traits.get('backstory_secret'):
+                bs = ''   # 限知模式:私密前史对帧外隐去(F-3)
             cl.append(f"- {c.name}:{bs[:48]}" if bs else f"- {c.name}")
         parts.append("〔角色〕\n" + "\n".join(cl))
     facs = _safe(st.list_factions) if hasattr(st, 'list_factions') else []
@@ -1117,7 +1123,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
-        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st) or '(尚无设定)'}\n\n"
+        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem
