@@ -3,7 +3,9 @@
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3321'
 let WORK = 'main'
 const enc = encodeURIComponent
-const ww = (p) => p + (p.includes('?') ? '&' : '?') + 'work=' + enc(WORK)
+// work 可选覆盖:缺省读模块全局 WORK;显式传入把 ?work= 钉死到指定书,
+// 防止「保存构造 URL 瞬间 WORK 已被切书翻成别的书」而写错书(卸载兜底 flush 关键)。
+const ww = (p, work) => p + (p.includes('?') ? '&' : '?') + 'work=' + enc(work ?? WORK)
 
 async function handle(res) {
   if (!res.ok) {
@@ -16,7 +18,7 @@ async function handle(res) {
 
 const j = (p) => fetch(BASE + ww(p)).then(handle)
 const jraw = (p) => fetch(BASE + p).then(handle)
-const post = (p, body) => fetch(BASE + ww(p), {
+const post = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
 }).then(handle)
@@ -114,10 +116,12 @@ export const api = {
   patchChapter: (seq, b) => patch('/chapters/' + seq, b),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
   // 四阶段草稿:存草稿(留 draft 版 + 写 chapter.draft)/ 取最新草稿(刷新恢复)
-  saveDraft: (seq, prose, summary = '') => post(`/save-draft?seq=${seq}`, { prose, summary }),
+  // work 可选:卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书。
+  saveDraft: (seq, prose, summary = '', work) => post(`/save-draft?seq=${seq}`, { prose, summary }, work),
   latestDraft: (seq) => j(`/latest-draft?seq=${seq}`),
   qc: (seq) => j(`/qc?seq=${seq}`),
-  saveChapter: (seq, prose, title, focalizer) => post('/save-chapter', { seq, prose, title, focalizer }),
+  // work 可选:卸载兜底 flush / 切章 persist 传入捕获的 work,钉死目标书,防切书写错书。
+  saveChapter: (seq, prose, title, focalizer, work) => post('/save-chapter', { seq, prose, title, focalizer }, work),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
   // 命名存档点 + 护栏校验(改造③④)
   checkpoint: (seq, prose, label = '', kind = 'checkpoint', qc = {}) =>

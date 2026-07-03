@@ -51,7 +51,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     if (!dirty || oldProse === undefined || oldSeq == null || oldSeq === targetSeq) return
     // 乐观置净:先标 dirty=false,避免与卸载兜底 flush(见下)对同一改动重复保存;失败再恢复
     dirtyRef.current.dirty = false
-    api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
+    api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer, work)
       .then(() => { setSaved(true) })
       .catch(() => { dirtyRef.current.dirty = true; toast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }) })
   }
@@ -80,12 +80,15 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // dirtyRef 里,重挂即永久丢失。此处补一个「卸载兜底 flush」:组件卸载时若 dirtyRef 仍脏,
   // fire-and-forget 落库旧章(fetch 不随组件卸载中断)。与 persistDirtyOldChapter 的乐观
   // 置净配合去重:内部步进已 persist 的改动此刻 dirty 已 false,不重复保存。
+  // Critical(切书):⌘K 切书时 App.open 先同步 api.setWork(B) 再触发重挂,此刻全局 WORK 已是 B,
+  // 若 saveChapter 走全局 WORK 会把 A 的正文写进 B(静默跨书损坏)。故传本实例捕获的 work(空 deps
+  // 闭包捕获、key=${work} 保证实例内稳定)钉死目标书 —— 见 api.saveChapter 的 work 形参。
   useEffect(() => {
     return () => {
       const { seq: oldSeq, prose: oldProse, chTitle: oldChTitle, focalizer: oldFocalizer, dirty } = dirtyRef.current
       if (!dirty || oldProse === undefined || oldSeq == null) return
       dirtyRef.current.dirty = false
-      api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer)
+      api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer, work)
         .catch(() => showToast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }))
     }
   }, [])

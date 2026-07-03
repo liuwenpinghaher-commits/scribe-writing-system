@@ -280,7 +280,7 @@ function BeatsTab({ seq, value, meta, onSaved }) {
 }
 
 // ——— 草稿:编辑器,初值 latestDraft,存草稿 saveDraft;采用=进正文(回调切到正文 tab) ———
-function DraftTab({ seq, meta, onAdopt }) {
+function DraftTab({ seq, work, meta, onAdopt }) {
   const toast = useToast()
   const { setChiefIntent } = useChiefSlot()
   const [text, setText] = useState('')
@@ -311,6 +311,7 @@ function DraftTab({ seq, meta, onAdopt }) {
   useEffect(() => {
     let alive = true
     const myseq = seq  // 闭包捕获本 effect 的章号,cleanup 用它 = 真旧章号
+    const mywork = work  // 同源钉书:切书卸载 flush 走全局 WORK 会写错书(见 WriteLayout Critical 注释)
     setLoading(true)
     api.latestDraft(seq)
       .then((d) => { if (alive) { setText(d?.prose || ''); setSummary(d?.summary || ''); draftRef.current.dirty = false } })
@@ -323,7 +324,7 @@ function DraftTab({ seq, meta, onAdopt }) {
       const { text: oldText, summary: oldSummary, dirty } = draftRef.current
       if (dirty && myseq != null) {
         draftRef.current.dirty = false
-        api.saveDraft(myseq, oldText, oldSummary)
+        api.saveDraft(myseq, oldText, oldSummary, mywork)
           .catch(() => { toast(`第 ${myseq} 章草稿自动保存失败,请回该章手动存草稿`, { tone: 'danger' }) })
       }
     }
@@ -478,7 +479,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
         ) : phase === 'deduce' ? (
           <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'draft' ? (
-          <DraftTab seq={seq} meta={meta} onAdopt={(text) => {
+          <DraftTab seq={seq} work={work} meta={meta} onAdopt={(text) => {
             // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
             // 保留本章 title/focalizer;落库成功后再切正文 tab,让 WriteLayout 拉到刚搬入的正文。
             api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')
