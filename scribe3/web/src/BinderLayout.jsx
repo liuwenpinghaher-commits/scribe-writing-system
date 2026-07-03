@@ -170,7 +170,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           className="bg-surface"
         >
           <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
-            treeCbs={treeCbs} seq={curSeq} onJumpChapter={onJumpChapter} />
+            treeCbs={treeCbs} seq={curSeq} />
         </Panel>
         <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
 

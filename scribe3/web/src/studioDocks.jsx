@@ -18,7 +18,7 @@ import { useSelection } from './selectionContext'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
-export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onJumpChapter }) {
+export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq }) {
   const [tab, setTab] = usePref('s3.leftTab', 'tree')
   const [focalizer, setFocalizer] = useState('')
   const [ledger, setLedger] = useState(undefined)   // undefined=加载中/未知,null=加载失败,object=数据
@@ -46,12 +46,12 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
-      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onJumpChapter={onJumpChapter} /> },
+      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
       { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
     )
     base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, onJumpChapter])
+  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, onSelect])
 
   // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
   const active = caps.find((c) => c.key === tab) || caps[0]
@@ -137,25 +137,27 @@ function PromiseSpan({ p }) {
   return <span className="text-f10 text-faint tnum">埋 {setup} → 收 {payoff}</span>
 }
 
-function PromiseRow({ p, danger, tag, onJumpChapter }) {
-  // 联动跳章(P2):有 setup_chapter 且拿到 onJumpChapter → 整条可点,跳到埋设章。
+function PromiseRow({ p, danger, tag, onSelect }) {
+  // 块四b:点行 = 发通用 focus(主编 focusTalk 聚焦此伏笔)+ 导航中区出 CodexDetail 伏笔详情
+  //  (与点项目树「伏笔叶」同形 → 复用既有 CODEX_LEAF→CodexDetail 路径,不再只跳章)。
   const { setFocus, suppressNextMirror } = useSelection()
-  const jumpTo = p.setup_chapter != null ? p.setup_chapter : p.payoff_chapter
-  const canJump = onJumpChapter && jumpTo != null
-  // 块三:点行 = 选中该伏笔 → 发通用 focus(主编聚焦);可跳时仍跳埋设章。
-  // 复合动作「聚焦+跳章」:跳章前置一次性 suppress 标记,SelMirror 只消费掉这一次 sel 变化
-  // (不冲掉伏笔聚焦);之后任何 sel 变化正常镜像(必修1:因果标记替代时间窗)。
+  // 复合动作「聚焦+导航」:onSelect 改 sel → SelMirror 会把 sel 镜像成 focus(origin:'sel')覆盖掉
+  // 刚设的 panel 聚焦;故前置一次性 suppress 标记吞掉随之而来的那一次 sel 镜像,保住 panel focusTalk
+  // (与块三「聚焦+跳章」同一机制,必修1:因果标记替代时间窗)。
   const pick = () => {
     setFocus({
       type: 'promise', id: p.id, label: p.text || '',
       payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
       origin: 'panel',
     })
-    if (canJump) { suppressNextMirror(); onJumpChapter(jumpTo) }
+    if (onSelect) {
+      suppressNextMirror()
+      onSelect({ id: `promise:${p.id}`, type: 'promise', ref: p.id, label: p.text || '' })
+    }
   }
   return (
     <button type="button" onClick={pick}
-      title={canJump ? `聚焦此伏笔,并跳到第${jumpTo}章` : '聚焦此伏笔'}
+      title="查看伏笔详情(埋/收/线索/编辑)"
       className="w-full text-left mb-2 pb-2 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 -mx-1 px-1">
       <div className={cn('text-f13 leading-snug', danger ? 'text-danger' : 'text-ink')}>{p.text}</div>
       <div className="flex items-center gap-1.5 mt-0.5">
@@ -166,7 +168,7 @@ function PromiseRow({ p, danger, tag, onJumpChapter }) {
   )
 }
 
-function PromiseGroup({ title, icon, tone, items, danger, tag, onJumpChapter }) {
+function PromiseGroup({ title, icon, tone, items, danger, tag, onSelect }) {
   if (!items || items.length === 0) return null
   const Icon = icon
   return (
@@ -175,12 +177,12 @@ function PromiseGroup({ title, icon, tone, items, danger, tag, onJumpChapter }) 
         {Icon && <Icon size={12} className="shrink-0" />}
         {title} · {items.length}
       </div>
-      {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} onJumpChapter={onJumpChapter} />)}
+      {items.map((p) => <PromiseRow key={p.id} p={p} danger={danger} tag={tag} onSelect={onSelect} />)}
     </div>
   )
 }
 
-function PromisesPanel({ ledger, seq, onJumpChapter }) {
+function PromisesPanel({ ledger, seq, onSelect }) {
   if (ledger === undefined) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Skeleton className="w-2/3" /><Skeleton className="w-full mt-2" /></div>
   if (ledger === null) return <div><SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle><Empty>伏笔台账加载失败,切走再切回可重试</Empty></div>
   const open = Array.isArray(ledger.open) ? ledger.open : []
@@ -202,17 +204,23 @@ function PromisesPanel({ ledger, seq, onJumpChapter }) {
     <div>
       <SectionTitle icon={Bookmark}>伏笔 · 埋/收台账</SectionTitle>
       {empty ? <Empty>暂无伏笔——正文里埋下线索后自动入账</Empty> : <>
+        {/* 窄栏减负:默认只重点展开「本章相关」(本章收/埋/超期/仍悬) */}
         <PromiseGroup title="本章收" icon={Check} tone="text-ok font-semibold" items={payThis}
-          tag={<Tag tone="ok">本章收</Tag>} onJumpChapter={onJumpChapter} />
-        <PromiseGroup title="本章埋" items={setThis} tag={<Tag tone="brand">本章埋</Tag>} onJumpChapter={onJumpChapter} />
+          tag={<Tag tone="ok">本章收</Tag>} onSelect={onSelect} />
+        <PromiseGroup title="本章埋" items={setThis} tag={<Tag tone="brand">本章埋</Tag>} onSelect={onSelect} />
         <PromiseGroup title="超期未收" icon={TriangleAlert} tone="text-danger font-semibold" items={overdue} danger
-          tag={<Tag tone="danger">超期</Tag>} onJumpChapter={onJumpChapter} />
-        <PromiseGroup title="仍悬(截至本章)" items={stillRest} onJumpChapter={onJumpChapter} />
-        <PromiseGroup title="障眼法" items={herring} tag={<Tag tone="fore">障眼法</Tag>} onJumpChapter={onJumpChapter} />
-        {rest.length > 0 && (
+          tag={<Tag tone="danger">超期</Tag>} onSelect={onSelect} />
+        <PromiseGroup title="仍悬(截至本章)" items={stillRest} onSelect={onSelect} />
+        {/* 障眼法 / 已了结 / 无关 强折叠(可点开)—— 与本章无关的噪声不占窄栏视野 */}
+        {(herring.length + rest.length > 0) && (
           <details className="mt-1">
-            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none">已了结 / 与本章无关 · {rest.length}</summary>
-            <div className="mt-1.5">{rest.map((p) => <PromiseRow key={p.id} p={p} onJumpChapter={onJumpChapter} />)}</div>
+            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none hover:text-fore">
+              其它 · 障眼法 / 已了结 / 无关 · {herring.length + rest.length}
+            </summary>
+            <div className="mt-2">
+              <PromiseGroup title="障眼法" items={herring} tag={<Tag tone="fore">障眼法</Tag>} onSelect={onSelect} />
+              <PromiseGroup title="已了结 / 无关" items={rest} onSelect={onSelect} />
+            </div>
           </details>
         )}
       </>}

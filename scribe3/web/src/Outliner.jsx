@@ -13,30 +13,45 @@ import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
 import { showToast } from './ui/Toast'
 
-// 单元格 synopsis inline 编辑
+// 单元格 synopsis inline 编辑。梗概是章级大纲的单一真相源(与 ChapterStudio OutlineTab
+// 同写 chapter.synopsis / api.patchChapter);大纲常含多段 markdown,故用多行 <textarea>——
+// 单行 <input> 无法承载换行,inline 编辑一次即把多段梗概静默压平(块四a-2 审查 Important-1)。
+// Enter=换行(不提交);⌘/Ctrl+Enter 或失焦=提交;Esc=取消(还原)。
 function SynopsisCell({ chapter, onPatchSynopsis }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(chapter.synopsis || '')
   const ref = useRef(null)
   useEffect(() => { if (!editing) setVal(chapter.synopsis || '') }, [chapter.synopsis, editing])
-  useEffect(() => { if (editing && ref.current) { ref.current.focus(); ref.current.select() } }, [editing])
+  useEffect(() => {
+    if (editing && ref.current) {
+      const el = ref.current
+      el.focus()
+      // 多行内容:落点在末尾(不 select-all),避免误击一键清空整段梗概
+      const end = el.value.length
+      try { el.setSelectionRange(end, end) } catch { /* 某些环境不支持,忽略 */ }
+    }
+  }, [editing])
   const commit = () => {
     setEditing(false)
-    const next = val.trim()
+    const next = val.trim()   // 只削首尾空白,内部换行(多段梗概)完整保留 —— 不再压平
     if (next !== (chapter.synopsis || '')) onPatchSynopsis?.(chapter.seq, next)
   }
   if (editing) {
+    const rows = Math.min(10, Math.max(2, (val.match(/\n/g)?.length ?? 0) + 1))
     return (
-      <input ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setVal(chapter.synopsis || ''); setEditing(false) } }}
-        className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink outline-none focus:border-brand" />
+      <textarea ref={ref} value={val} rows={rows} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit() }
+          else if (e.key === 'Escape') { e.preventDefault(); setVal(chapter.synopsis || ''); setEditing(false) }
+        }}
+        className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1 text-f12 text-ink leading-snug outline-none focus:border-brand resize-y" />
     )
   }
   return (
-    <div onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步"
+    <div onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步(⌘↵ 保存)"
       className="text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors">
       {chapter.synopsis
-        ? <span className="text-faint line-clamp-2 break-words">{chapter.synopsis}</span>
+        ? <span className="text-faint line-clamp-2 break-words whitespace-pre-line">{chapter.synopsis}</span>
         : <span className="text-faint/40">+ 写梗概</span>}
     </div>
   )

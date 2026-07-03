@@ -117,10 +117,17 @@ const run = async () => {
   await page.getByRole('button', { name: '伏笔', exact: true }).click()
   const pRow = page.getByTestId('left').getByRole('button', { name: /借命契/ }).first()
   await pRow.waitFor({ timeout: 10000 })
-  await pRow.click()   // 聚焦伏笔 + 跳埋设章(镜像避让,不冲掉聚焦)
+  await pRow.click()   // 块四b:聚焦伏笔 + 导航到该伏笔的中区 CodexDetail 详情(不再跳章;镜像避让,不冲掉聚焦)
   await page.waitForTimeout(900)
   lbl = await chiefLabel()
   rec('③ 伏笔行点选→主编聚焦该伏笔(含文本片段)', lbl.includes('伏笔 · ') && lbl.includes('借命契'), `chief="${lbl}"`)
+
+  // 块四b:点伏笔行现在把 sel 导航到伏笔详情(seq→null,章级 tab 暂隐)→ ④母题前先回章上下文。
+  if (!(await chNode(SEQ).isVisible().catch(() => false))) { await vol.click() }
+  await chNode(SEQ).click()
+  await page.waitForTimeout(700)
+  await tab('大纲').click()
+  await page.waitForTimeout(300)
 
   // ============ ④ 母题行 → 主编聚焦该母题 ============
   await page.getByRole('button', { name: '母题', exact: true }).click()
