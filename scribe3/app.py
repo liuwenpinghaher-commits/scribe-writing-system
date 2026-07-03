@@ -113,10 +113,15 @@ def _facts(fs, reveal_secret: bool = False):
     return [_item(f) for f in fs]
 
 
+# 私密字段掩码占位符(唯一真相源):GET 打码用此值,写路径收到此值即视为"未改"(不落库)。
+# 前端 F4 防线硬编码同值 '🔒 私密';二者必须一致。
+_SECRET_MASK = "🔒 私密"
+
+
 def _mask_field(row: dict, field: str, secret_field: str, reveal: bool) -> dict:
     """若 row[secret_field] 为 True 且未解锁,将 row[field] 替换为锁占位符。"""
     if row.get(secret_field) and not reveal:
-        row = {**row, field: "🔒 私密"}
+        row = {**row, field: _SECRET_MASK}
     return row
 
 
@@ -387,9 +392,11 @@ class CharIn(BaseModel):
 
 @app.post("/characters")
 def add_char(c: CharIn, work: str = "main"):
+    # 掩码写哨兵:backstory 收到掩码占位符 → 视为未提供(不落库为字面掩码值)。
+    backstory = None if c.backstory == _SECRET_MASK else c.backstory
     _store_for(work).add_entity(Entity(
         f"role:{c.name}", "character", c.name,
-        traits={"backstory": c.backstory, "backstory_secret": c.backstory_secret,
+        traits={"backstory": backstory, "backstory_secret": c.backstory_secret,
                 "personality_tags": c.personality_tags, "aliases": c.aliases}))
     return {"ok": True, "oid": f"role:{c.name}"}
 
@@ -397,7 +404,9 @@ def add_char(c: CharIn, work: str = "main"):
 @app.patch("/characters/{local}")
 def edit_char(local: str, c: CharIn, work: str = "main"):
     st = _store_for(work)
-    fields = {"name": c.name, "backstory": c.backstory, "backstory_secret": c.backstory_secret,
+    # 掩码写哨兵:backstory 收到掩码占位符 → 置 None(下方 None 过滤剔除)= 视为未改,不覆盖库中真值。
+    backstory = None if c.backstory == _SECRET_MASK else c.backstory
+    fields = {"name": c.name, "backstory": backstory, "backstory_secret": c.backstory_secret,
               "importance": c.importance,
               "appearance": c.appearance, "personality_detail": c.personality_detail,
               "personality_tags": c.personality_tags, "aliases": c.aliases,
@@ -642,10 +651,36 @@ def list_factions(work: str = "main", reveal_secret: bool = False):
 
 @app.post("/factions")
 def add_faction_ep(fc: FactionIn, work: str = "main"):
-    _store_for(work).add_faction(fc.name, fc.ideology, fc.status, fc.leader,
-                                  fc.known_members, fc.public_face,
-                                  fc.private_operation, fc.first_mention_chapter,
-                                  fc.private_operation_secret)
+    """势力 upsert:真 merge 语义(端点层)。
+
+    store.add_faction 是 DELETE+CREATE 整行覆盖——对字段省略脆弱(缺任一字段即销毁),
+    不止 private_operation(public_face/ideology/leader 同理)。此处根治:
+    - 只取客户端「真正提交」的字段(exclude_unset),未提交字段一律保留库中旧值;
+    - 掩码写哨兵:private_operation 收到掩码占位符 → 视为未改(丢弃,保旧真值),
+      覆盖前端 F4 未拦截的 curl/MCP 直传掩码路径。
+    这样编辑任一字段都不销毁未传/掩码字段。store.add_faction 保持覆盖语义供其它调用方。
+    """
+    st = _store_for(work)
+    sent = fc.model_dump(exclude_unset=True)          # 仅客户端显式提交的字段
+    if sent.get("private_operation") == _SECRET_MASK:  # 掩码哨兵:显式回传掩码=未改
+        sent.pop("private_operation", None)
+    old = next((f for f in st.list_factions() if f.get("name") == fc.name), {})
+
+    def pick(k, default):
+        # 客户端提交了该字段 → 用提交值(含显式清空 None);否则保留旧值,再退默认。
+        return sent[k] if k in sent else old.get(k, default)
+
+    st.add_faction(
+        fc.name,
+        ideology=pick("ideology", None),
+        status=pick("status", "active"),
+        leader=pick("leader", None),
+        known_members=pick("known_members", []),
+        public_face=pick("public_face", None),
+        private_operation=pick("private_operation", None),
+        first_mention_chapter=pick("first_mention_chapter", None),
+        private_operation_secret=pick("private_operation_secret", False),
+    )
     return {"ok": True}
 
 

@@ -3583,3 +3583,67 @@ def test_chat_write_with_image_no_500(store, monkeypatch):
         "images": [{"data": _PNG_1x1, "type": "image/png"}],
     })
     assert r.status_code != 500, f"带图写作不应 500,实际 {r.status_code}: {r.text}"
+
+
+# ===== 批0 · B4:掩码写哨兵 + 势力 merge(彻查 F-1/F-2)=====
+
+def test_b4_char_patch_masked_backstory_preserves_real_value(store):
+    """B4(F-1):角色私密 backstory 打码后 PATCH 整行(含掩码 backstory)+改其他字段,
+    真值不被销毁(掩码哨兵剔除 backstory=视为未改)。"""
+    c = _client(store)
+    c.post("/characters", json={"name": "甲", "backstory": "真实前史ABC",
+                                "backstory_secret": True})
+    masked = next(e for e in c.get("/entities").json() if e["name"] == "甲")
+    assert masked["backstory"] == "🔒 私密", "GET 应打码"
+    # 前端把打码值整行回传,并改 fear
+    c.patch("/characters/甲", json={"name": "甲", "backstory": "🔒 私密",
+                                    "backstory_secret": True, "fear": "怕火"})
+    revealed = next(e for e in c.get("/entities", params={"reveal_secret": True}).json()
+                    if e["name"] == "甲")
+    assert revealed["backstory"] == "真实前史ABC", "私密真值应存活(未被掩码覆盖)"
+    assert revealed["fear"] == "怕火", "其他字段应正常更新"
+
+
+def test_b4_add_char_masked_backstory_not_persisted(store):
+    """B4:curl 直接 POST /characters 传掩码 backstory → 哨兵剔除,不落库为字面掩码。"""
+    c = _client(store)
+    c.post("/characters", json={"name": "乙", "backstory": "🔒 私密",
+                                "backstory_secret": True})
+    revealed = next(e for e in c.get("/entities", params={"reveal_secret": True}).json()
+                    if e["name"] == "乙")
+    assert revealed["backstory"] != "🔒 私密", "掩码占位符不应落库"
+    assert revealed["backstory"] is None
+
+
+def test_b4_faction_partial_update_preserves_other_fields(store):
+    """B4(F-2):势力只改 leader(仅提交 name+leader)→
+    private_operation/public_face/ideology 都不被整行覆盖销毁(端点层真 merge)。"""
+    c = _client(store)
+    c.post("/factions", json={"name": "青叶门", "ideology": "复辟", "leader": "甲",
+                              "public_face": "药铺", "private_operation": "养死士",
+                              "private_operation_secret": True})
+    c.post("/factions", json={"name": "青叶门", "leader": "乙"})  # 只改 leader
+    row = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+               if f["name"] == "青叶门")
+    assert row["leader"] == "乙", "leader 应更新"
+    assert row["ideology"] == "复辟", "ideology 不应被销毁"
+    assert row["public_face"] == "药铺", "public_face 不应被销毁"
+    assert row["private_operation"] == "养死士", "private_operation 不应被销毁"
+
+
+def test_b4_faction_masked_private_op_preserves_real_value(store):
+    """B4:势力私密 private_operation 打码后整行回传(含掩码)+改 ideology →
+    掩码哨兵剔除私密字段,真值存活。"""
+    c = _client(store)
+    c.post("/factions", json={"name": "红庐", "ideology": "改良", "public_face": "商会",
+                              "private_operation": "走私军械",
+                              "private_operation_secret": True})
+    masked = next(f for f in c.get("/factions").json() if f["name"] == "红庐")
+    assert masked["private_operation"] == "🔒 私密", "GET 应打码"
+    c.post("/factions", json={"name": "红庐", "ideology": "复辟", "public_face": "商会",
+                              "private_operation": "🔒 私密",
+                              "private_operation_secret": True})
+    row = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+               if f["name"] == "红庐")
+    assert row["ideology"] == "复辟", "ideology 应更新"
+    assert row["private_operation"] == "走私军械", "私密真值应存活(掩码被哨兵剔除)"
