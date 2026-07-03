@@ -1781,7 +1781,8 @@ class SurrealStore:
         返回与 list_char_states 字段完全一致,额外保留 character_id 供 Python 侧分组。"""
         return self._query(
             "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
-            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence "
+            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence, "
+            "lie_belief "
             "FROM char_state ORDER BY chapter ASC")
 
     def timeline(self, ch_from: int = 1, ch_to: int | None = None,
@@ -2184,7 +2185,8 @@ class SurrealStore:
         """列角色全部弧光记录(含 before/after/trigger,演进史完整展示)。"""
         return self._query(
             "SELECT meta::id(id) AS id, character_id, chapter, change_type, summary, "
-            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence "
+            "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence, "
+            "lie_belief "
             "FROM char_state WHERE character_id=$cid ORDER BY chapter ASC",
             {"cid": character_id})
 

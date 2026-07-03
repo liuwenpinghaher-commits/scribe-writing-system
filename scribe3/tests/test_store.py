@@ -1495,6 +1495,20 @@ def test_arc_anchor_and_plan_roundtrip(store):
     assert store.latest_lie_belief(cid, upto_chapter=1) is None
 
 
+def test_list_char_states_exposes_lie_belief(store):
+    """craft:list_char_states 须投影 lie_belief(migration 054/T5 写入),
+    GET /char-states 透传本方法——不暴露该列则前端弧光曲线(T10 LieBeliefSpark)
+    取不到实测值,只能回退 arc_plan 计划轨迹。"""
+    store.add_entity(Entity("role:江砚", "character", "江砚"))
+    cid = "role:江砚"
+    store.add_char_state(character_id=cid, chapter=4, change_type="belief",
+                         summary="信念动摇", lie_belief=62)
+    rows = store.list_char_states(cid)
+    assert len(rows) == 1
+    assert "lie_belief" in rows[0], "list_char_states 投影缺 lie_belief 列"
+    assert rows[0]["lie_belief"] == 62
+
+
 # ===== 块四a-1 素材库 material(非正典材料;不进图谱/不被 ingest)=====
 
 def test_material_roundtrip(store):
