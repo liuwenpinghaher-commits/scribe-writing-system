@@ -2486,6 +2486,81 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     }
 
 
+class DraftCheckReq(BaseModel):
+    prose: str
+    focalizer: str = ""
+
+
+@app.post("/draft-check")
+def draft_check(req: DraftCheckReq, seq: int = 0, work: str = "main"):
+    """块四b(§5.4):草稿阶段轻量确定性分析。对**任意草稿文本**跑确定性检测器
+    (quality_flags 五类 + 整行复读 + 排比 + 情感直说)+ 限知泄露预览(可选,只读)。
+    与 /post-check 共用同一批确定性聚合,但入参是草稿文本、**不读章、不写库**:
+    绝不跑 LLM ingest、绝不写 proposition/knows/台账/任何库——纯计算 + 只读预览。
+    注册为 read-only POST(见 KNOWN_REST_WRITE_ROUTES)。各检测器 fail-soft。"""
+    import logging
+    from scribe3.critique import (quality_flags, find_duplicate_lines,
+                                  find_parallelism, find_emotion_telling)
+    degraded_stages: list[str] = []
+
+    qf = quality_flags(req.prose)
+    quality = {
+        "repetition": len(qf["repetition"]),
+        "structural": len(qf["structural"]),
+        "purple": len(qf["purple"]),
+        "ai_tics": len(qf["ai_tics"]),
+        "oversaturation": len(qf["oversaturation"]),
+    }
+    quality["total"] = sum(quality.values())
+
+    dup_lines: list[dict] = []
+    try:
+        dup_lines = find_duplicate_lines(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("draft_check find_duplicate_lines 失败: %s", e)
+        degraded_stages.append("find_duplicate_lines")
+
+    parallelism: list[dict] = []
+    try:
+        parallelism = find_parallelism(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("draft_check find_parallelism 失败: %s", e)
+        degraded_stages.append("find_parallelism")
+
+    emotion_telling: list[dict] = []
+    try:
+        emotion_telling = find_emotion_telling(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("draft_check find_emotion_telling 失败: %s", e)
+        degraded_stages.append("find_emotion_telling")
+
+    # 限知泄露预览:仅当给了 focalizer 才碰 store,且只 READ(find_leaks 只读 load_knowledge,
+    # 不写任何边/命题)。无 focalizer → 完全不接触 store,零库交互。fail-soft。
+    leaks: list[dict] = []
+    leaks_degraded = False
+    if req.focalizer:
+        try:
+            from scribe3.verify import find_leaks
+            st = _store_for(work)
+            leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
+                      "range": list(lk.range) if lk.range else None}
+                     for lk in find_leaks(req.prose, st, req.focalizer, seq)]
+        except Exception as e:
+            logging.getLogger("scribe3").warning("draft_check find_leaks 失败: %s", e)
+            leaks_degraded = True
+            degraded_stages.append("find_leaks")
+
+    return {
+        "quality": quality,
+        "duplicate_lines": dup_lines,
+        "parallelism": parallelism,
+        "emotion_telling": emotion_telling,
+        "leaks": leaks,
+        "leaks_degraded": leaks_degraded,
+        "degraded_stages": degraded_stages,
+    }
+
+
 @app.post("/checkpoint")
 def checkpoint(req: CheckpointReq, seq: int, background: BackgroundTasks, work: str = "main"):
     st = _store_for(work)

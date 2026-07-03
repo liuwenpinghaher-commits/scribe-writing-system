@@ -4064,3 +4064,85 @@ def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
     assert "tools" not in captured["body"], "with_tools=False 时 body 不得含 tools"
     list(llm.hermes_responses_events("m", "i", with_tools=True))
     assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3"}]
+
+
+# ===== 块四b TDD: /draft-check 草稿轻量确定性分析(不 ingest 不落库) =====
+# 设计 §5.4:草稿阶段对任意草稿文本跑确定性检测(复用 critique 的 quality_flags/整行复读/
+# 排比/情感直说 + 限知泄露预览),绝不跑 LLM ingest、绝不写 proposition/knows/台账。
+
+def test_draft_check_returns_deterministic_structure(store):
+    """/draft-check 应返回 quality(五类)+ duplicate_lines / parallelism / emotion_telling 键。"""
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": "他推开门,天光落在案上。"}).json()
+    assert set(r["quality"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
+    for k in ("duplicate_lines", "parallelism", "emotion_telling", "leaks"):
+        assert k in r, f"/draft-check 应含 {k} 键,实际键: {list(r)}"
+        assert isinstance(r[k], list)
+
+
+def test_draft_check_clean_text_empty(store):
+    """/draft-check:干净草稿文本 → 各确定性检测器空。"""
+    c = _client(store)
+    r = c.post("/draft-check",
+               json={"prose": "他推开门,天光落在案上。她没有回头,只把碗搁下。"}).json()
+    assert r["duplicate_lines"] == []
+    assert r["parallelism"] == []
+    assert r["emotion_telling"] == []
+    assert r["leaks"] == []
+
+
+def test_draft_check_detects_duplicate_lines(store):
+    """/draft-check:含整行复读的草稿 → duplicate_lines 非空。"""
+    dup = "这是整行完全重复的内容足够长超过六字。"
+    prose = f"{dup}\n{dup}\n正常内容。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["duplicate_lines"]) > 0, f"整行复读应检出,实际: {r['duplicate_lines']}"
+
+
+def test_draft_check_detects_parallelism(store):
+    """/draft-check:含排比(连续同句式)的草稿 → parallelism 非空。"""
+    prose = "他走过长街,他走过小巷,他走过荒野。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["parallelism"]) > 0, f"排比应检出,实际: {r['parallelism']}"
+
+
+def test_draft_check_detects_emotion_telling(store):
+    """/draft-check:含情感直说的草稿 → emotion_telling 非空。"""
+    prose = "他感到恐惧,双腿颤抖。她感到害怕,不敢出声。他其实不是个坏人。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["emotion_telling"]) > 0, f"情感直说应检出,实际: {r['emotion_telling']}"
+
+
+def test_draft_check_no_db_writes(store):
+    """/draft-check 只读:含实体/情节的草稿跑完后,库中无任何 proposition/knows 新增
+    (断言库无新增——绝不跑 ingest、绝不落库)。"""
+    c = _client(store)
+    before_facts = len(store.facts_at(9999))
+    before_knows = len(store.load_knowledge())
+    prose = "焦三在乱葬岗治眼,老道看得分明。他感到恐惧。"
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert "quality" in r
+    assert len(store.facts_at(9999)) == before_facts, "draft-check 不应新增 proposition"
+    assert len(store.load_knowledge()) == before_knows, "draft-check 不应新增 knows"
+
+
+def test_draft_check_leak_preview_readonly(store):
+    """/draft-check:给 focalizer+seq 时跑限知泄露预览(只读),命中泄露且不落库。"""
+    luanshi_leak_world(store)
+    c = _client(store)
+    before_facts = len(store.facts_at(9999))
+    before_knows = len(store.load_knowledge())
+    r = c.post("/draft-check", params={"seq": 1},
+               json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
+    assert len(r["leaks"]) > 0, "老道写出治眼应被预览检出泄露"
+    assert len(store.facts_at(9999)) == before_facts, "泄露预览是只读,不应新增 proposition"
+    assert len(store.load_knowledge()) == before_knows, "泄露预览是只读,不应新增 knows"
+
+
+def test_draft_check_registered_in_write_gate(store):
+    """写路由审计门镜像:/draft-check 虽为 POST 但只读,须登记 KNOWN_REST_WRITE_ROUTES。"""
+    from scribe3.tests.test_consistency import TestWriteGate
+    assert ("POST", "/draft-check") in TestWriteGate.KNOWN_REST_WRITE_ROUTES
