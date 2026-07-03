@@ -2,9 +2,18 @@ import { useEffect, useState } from 'react'
 import { Eye, Drama, Target, Check } from 'lucide-react'
 import { api } from './api'
 import { Empty, Textarea, SectionTitle } from './ui'
+import { useSelection } from './selectionContext'
+
+// 块三:帧行(知识帧/戏剧反讽的一条事实)→ 通用 focus。value 为 null 即私密(面板本身就打码)。
+function factFocus(f, irony) {
+  const secret = f.value == null
+  const label = `${f.entity ? f.entity + '·' : ''}${f.attribute}${secret ? '' : ':' + f.value}`
+  return { type: 'frame_fact', id: String(f.id), label, payload: { secret, irony: !!irony }, origin: 'panel' }
+}
 
 // 知识帧 / 戏剧反讽 / 北极星意图(原 DeduceLayout 右面板,迁入写作台左面板)。
 export function FramePanel({ focalizer, chapter }) {
+  const { setFocus } = useSelection()
   const [frame, setFrame] = useState([])
   const [irony, setIrony] = useState([])
   const [intent, setIntent] = useState({ reader_feeling: '', emotional_arc: '', red_lines: '' })
@@ -23,9 +32,12 @@ export function FramePanel({ focalizer, chapter }) {
         {!focalizer ? <Empty>作者全知视角——暂无限知约束</Empty>
           : frame.length === 0 ? <Empty>该角色此章暂无已知事实</Empty>
           : <ul className="space-y-1">{frame.map((f) => (
-            <li key={f.id} className="text-f12 text-ink">
-              {f.entity && <span className="text-faint">{f.entity} · </span>}
-              <span className="text-faint">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+            <li key={f.id}>
+              <button type="button" onClick={() => setFocus(factFocus(f))} title="聚焦此事实"
+                className="w-full text-left text-f12 text-ink cursor-pointer rounded hover:bg-soft/60 px-1 -mx-1">
+                {f.entity && <span className="text-faint">{f.entity} · </span>}
+                <span className="text-faint">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+              </button>
             </li>
           ))}</ul>}
       </section>
@@ -34,9 +46,12 @@ export function FramePanel({ focalizer, chapter }) {
         {!focalizer ? <Empty>切到某角色视角后显示</Empty>
           : irony.length === 0 ? <Empty>暂无戏剧反讽</Empty>
           : <ul className="space-y-1">{irony.map((f) => (
-            <li key={f.id} className="text-f12 text-irony">
-              {f.entity && <span className="opacity-70">{f.entity} · </span>}
-              <span className="opacity-70">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+            <li key={f.id}>
+              <button type="button" onClick={() => setFocus(factFocus(f, true))} title="聚焦此反讽"
+                className="w-full text-left text-f12 text-irony cursor-pointer rounded hover:bg-soft/60 px-1 -mx-1">
+                {f.entity && <span className="opacity-70">{f.entity} · </span>}
+                <span className="opacity-70">{f.attribute}</span>:{f.value == null ? <span className="text-secret">🔒 私密</span> : f.value}
+              </button>
             </li>
           ))}</ul>}
       </section>

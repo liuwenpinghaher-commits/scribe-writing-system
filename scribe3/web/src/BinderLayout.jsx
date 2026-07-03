@@ -8,6 +8,7 @@ import { LeftDock, RightDock } from './studioDocks'
 import { ChiefDock } from './ChiefDock'
 import { ChiefSlotProvider } from './ChiefSlotContext'
 import { DeduceProvider } from './deduceContext'
+import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 
@@ -130,8 +131,11 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const expandLeft = () => { leftRef.current?.expand() }
 
   return (
+    <SelectionProvider>
     <ChiefSlotProvider>
     <DeduceProvider>
+    {/* 块三:sel(项目树/视图级)变化 → 镜像进通用选中总线 focus(显式聚焦短窗口内避让,见 SelMirror) */}
+    <SelMirror sel={sel} />
     <ConfirmDialog
       open={!!delVol}
       title={delVol ? `删除卷「${delVol.label}」?` : ''}
@@ -195,6 +199,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     </div>
     </DeduceProvider>
     </ChiefSlotProvider>
+    </SelectionProvider>
   )
 }
 

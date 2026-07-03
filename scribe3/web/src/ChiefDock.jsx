@@ -6,7 +6,9 @@ import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
+import { focusTalk, focusChatKey } from './lib/focusTalk'
 import { useDeduceSel } from './deduceContext'
+import { useSelection } from './selectionContext'
 import { Btn } from './ui.jsx'
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
@@ -168,7 +170,12 @@ function DiscussionDock({ sel, phase }) {
   // 演绎阶段:读左树/中区共享的当前演绎目标('truth' 或 character_id),生成完按它发布 target。
   const { selected: deduceSel } = useDeduceSel()
   const deduceName = deduceSel === 'truth' ? '场景真相' : String(deduceSel || '').replace(/^role:/, '')
-  const ctx = useMemo(() => selContext(sel, phase, phase === 'deduce' ? deduceName : undefined), [sel, phase, deduceName])
+  // 块三:通用选中总线 focus 优先——任何视图的显式选中(图谱节点/时间线事件/伏笔行/母题行/帧行…)
+  // 立即改写主编标题与话术;focus 为空/sel 镜像/演绎目标 → 回退既有视图级/节点级/阶段话术。
+  const { focus } = useSelection()
+  const ctx = useMemo(
+    () => focusTalk(focus) || selContext(sel, phase, phase === 'deduce' ? deduceName : undefined),
+    [focus, sel, phase, deduceName])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -177,10 +184,13 @@ function DiscussionDock({ sel, phase }) {
   const esRef = useRef(null)
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
 
-  // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复
+  // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复。
+  // 块三:显式聚焦(总线 focus)各自成串——切聚焦即切上下文(顺带经 chatKey 效应中止在途流);
+  // 镜像/演绎目标不改 key(演绎生成中切目标不得断流,块二口径)。
+  const fKey = focusChatKey(focus)
   const chatKey = sel?.mode === 'view'
-    ? `${api.getWork()}:view:${sel.viewKey}`
-    : `${api.getWork()}:node:${sel?.node?.id || 'none'}${phase ? ':' + phase : ''}`
+    ? `${api.getWork()}:view:${sel.viewKey}${fKey}`
+    : `${api.getWork()}:node:${sel?.node?.id || 'none'}${phase ? ':' + phase : ''}${fKey}`
   useChatPersist(chatKey, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
@@ -289,7 +299,7 @@ function DiscussionDock({ sel, phase }) {
         <MessagesSquare size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
           <span className="text-f12 font-semibold text-ink">主编</span>
-          <span className="text-f11 text-faint truncate">{ctx.label}</span>
+          <span className="text-f11 text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
       </div>
 

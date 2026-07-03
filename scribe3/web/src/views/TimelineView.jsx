@@ -30,6 +30,7 @@ import 'vis-timeline/styles/vis-timeline-graph2d.css'
 import { Clock, RefreshCw, X, CornerDownRight } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
+import { useSelection } from '../selectionContext'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
 // 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
@@ -235,6 +236,26 @@ function buildVis(rawItems, laneMode, maxCh) {
   return { items, groups: groupArr }
 }
 
+// 块三:时间线选中项 → 通用选中总线 focus(伏笔→promise;事件/弧光/关系→event,payload.cat 细分)。
+function visItemFocus(it) {
+  const raw = it._raw || {}
+  const isPromise = it._cat === 'promise'
+  return {
+    type: isPromise ? 'promise' : 'event',
+    id: String(raw.id || it.id),
+    label: raw.label || raw.event_type || '',
+    payload: isPromise
+      ? {
+          cat: it._cat,
+          setup_chapter: raw.chapter,
+          payoff_chapter: raw._payoff?.chapter ?? raw.refs?.payoff_chapter ?? null,
+          overdue: !!(raw.refs?.overdue && !raw._payoff),
+        }
+      : { cat: it._cat, chapter: raw.chapter },
+    origin: 'timeline',
+  }
+}
+
 // ── 详情面板 ────────────────────────────────────────────────────────────────
 function Field({ k, v }) {
   if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null
@@ -347,6 +368,11 @@ export function TimelineView({ onJumpChapter }) {
   const groupsDsRef = useRef(null)       // vis DataSet(groups)
   const onJumpRef = useRef(onJumpChapter)
   onJumpRef.current = onJumpChapter
+  // 块三:选中事件/伏笔/弧光/关系 → 发通用 focus(主编聚焦);取消选中 → 清空(回退视图级话术)。
+  // vis 事件处理器只注册一次,经 ref 取最新 setFocus。
+  const { setFocus } = useSelection()
+  const setFocusRef = useRef(setFocus)
+  setFocusRef.current = setFocus
 
   const load = useCallback((ax = axis) => {
     setLoading(true); setError(null)
@@ -410,12 +436,12 @@ export function TimelineView({ onJumpChapter }) {
         tooltip: { followMouse: true, overflowMethod: 'cap' },
       })
 
-      // 单击选中 → 详情面板
+      // 单击选中 → 详情面板 + 通用选中总线(主编聚焦)
       tl.on('select', (props) => {
         const id = props.items?.[0]
-        if (!id) { setSelected(null); return }
+        if (!id) { setSelected(null); setFocusRef.current(null); return }
         const it = itemsDsRef.current.get(id)
-        if (it) setSelected({ raw: it._raw, cat: it._cat })
+        if (it) { setSelected({ raw: it._raw, cat: it._cat }); setFocusRef.current(visItemFocus(it)) }
       })
       // 双击 → 跳章
       tl.on('doubleClick', (props) => {
@@ -432,6 +458,7 @@ export function TimelineView({ onJumpChapter }) {
       groupsDsRef.current.add(groups)
       itemsDsRef.current.add(items)
       setSelected(null)
+      setFocusRef.current(null)   // 数据重载(泳道/轴切换/刷新):旧选中失效,总线同步清空
     }
 
     // 默认窗口:大书只看最近 ~40 章(虚拟化生效);小书看全书概览
@@ -539,7 +566,7 @@ export function TimelineView({ onJumpChapter }) {
             raw={selected.raw}
             cat={selected.cat}
             onJump={onJumpChapter}
-            onClose={() => { setSelected(null); timelineRef.current?.setSelection([]) }}
+            onClose={() => { setSelected(null); setFocus(null); timelineRef.current?.setSelection([]) }}
           />
         )}
       </div>

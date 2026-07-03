@@ -13,6 +13,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { usePref } from './lib/usePref'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast.jsx'
+import { useSelection } from './selectionContext'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/素材/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
@@ -133,27 +134,30 @@ function PromiseSpan({ p }) {
 
 function PromiseRow({ p, danger, tag, onJumpChapter }) {
   // 联动跳章(P2):有 setup_chapter 且拿到 onJumpChapter → 整条可点,跳到埋设章。
+  const { setFocus } = useSelection()
   const jumpTo = p.setup_chapter != null ? p.setup_chapter : p.payoff_chapter
-  const clickable = onJumpChapter && jumpTo != null
-  const inner = (
-    <>
+  const canJump = onJumpChapter && jumpTo != null
+  // 块三:点行 = 选中该伏笔 → 发通用 focus(主编聚焦);可跳时仍跳埋设章
+  // (先聚焦后跳,跳章引发的 sel 镜像由 SelMirror 短窗口避让,不冲掉伏笔聚焦)。
+  const pick = () => {
+    setFocus({
+      type: 'promise', id: p.id, label: p.text || '',
+      payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
+      origin: 'panel',
+    })
+    if (canJump) onJumpChapter(jumpTo)
+  }
+  return (
+    <button type="button" onClick={pick}
+      title={canJump ? `聚焦此伏笔,并跳到第${jumpTo}章` : '聚焦此伏笔'}
+      className="w-full text-left mb-2 pb-2 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 -mx-1 px-1">
       <div className={cn('text-f13 leading-snug', danger ? 'text-danger' : 'text-ink')}>{p.text}</div>
       <div className="flex items-center gap-1.5 mt-0.5">
         <PromiseSpan p={p} />
         {tag}
       </div>
-    </>
+    </button>
   )
-  if (clickable) {
-    return (
-      <button type="button" onClick={() => onJumpChapter(jumpTo)}
-        title={`跳到第${jumpTo}章`}
-        className="w-full text-left mb-2 pb-2 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 -mx-1 px-1">
-        {inner}
-      </button>
-    )
-  }
-  return <div className="mb-2 pb-2 border-b border-line/50 last:border-0">{inner}</div>
 }
 
 function PromiseGroup({ title, icon, tone, items, danger, tag, onJumpChapter }) {
@@ -211,14 +215,22 @@ function PromisesPanel({ ledger, seq, onJumpChapter }) {
 }
 
 function MotifRow({ m, evidence, highlight }) {
+  // 块三:点行 = 选中该母题 → 发通用 focus(主编聚焦该母题,不跳转)。
+  const { setFocus } = useSelection()
+  const pick = () => setFocus({
+    type: 'motif', id: m.id, label: m.name,
+    payload: { theme: m.theme, evidence: evidence || null },
+    origin: 'panel',
+  })
   return (
-    <div className={cn('mb-2.5 pb-2.5 border-b border-line/50 last:border-0',
-      highlight && 'rounded-md bg-brand/5 px-2 -mx-1')}>
+    <button type="button" onClick={pick} title="聚焦此母题"
+      className={cn('block w-full text-left mb-2.5 pb-2.5 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+        highlight && 'rounded-md bg-brand/5 px-2 -mx-1')}>
       <div className="text-f13 font-semibold text-ink">{m.name}</div>
       {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
       {evidence && <div className="text-f12 text-brand mt-0.5 leading-snug">「{evidence}」</div>}
       {!evidence && m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
-    </div>
+    </button>
   )
 }
 

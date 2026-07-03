@@ -4,6 +4,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
 import { showToast } from '../ui/Toast'
+import { useSelection } from '../selectionContext'
 
 // ── 通用 Metric 卡 ──────────────────────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
@@ -147,8 +148,17 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
 
   const clues = p.clues || []
 
+  // 块三:点卡片(含卡内跳章按钮,冒泡)= 选中该伏笔 → 发通用 focus(主编聚焦)。
+  const { setFocus } = useSelection()
+  const focusMe = () => setFocus({
+    type: 'promise', id: p.id, label: p.text || '',
+    payload: { setup_chapter: p.setup_chapter, payoff_chapter: p.payoff_chapter, status: p.status, overdue: !!p.overdue },
+    origin: 'insight',
+  })
+
   return (
-    <div className={`rounded-lg border p-2.5 text-f12 ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
+    <div onClick={focusMe} title="聚焦此伏笔"
+      className={`rounded-lg border p-2.5 text-f12 cursor-pointer ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
       <div className="flex items-start gap-1.5">
         <span className={`mt-[3px] w-1.5 h-1.5 rounded-full shrink-0 ${overdue ? 'bg-danger' : p.status === 'closed' ? 'bg-ok' : 'bg-faint'}`} />
         <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>

@@ -6,6 +6,7 @@ import forceAtlas2 from 'graphology-layout-forceatlas2'
 import { Eye, X, Crosshair, ChevronRight, Loader2 } from 'lucide-react'
 import { api } from '../api'
 import { REL_LABEL, relColor } from '../lib/relColors'
+import { useSelection } from '../selectionContext'
 
 // 关系图谱 = scribe3 真知识图:角色 —knows→ 命题(谁知道什么)+ 角色关系边。
 // 重写要点(波A):sigma(WebGL/canvas)+ graphology + forceAtlas2,默认只画 focus 角色的
@@ -123,10 +124,25 @@ function GraphContent({ data, focus, theme, onPickNode, onHoverNode }) {
           secret: g.getNodeAttribute(node, '_secret'),
         })
       },
+      // 块三:点画布空白 → 清选中(详情面板关闭 + 总线 focus 清空 → 主编回退视图级话术)
+      clickStage: () => onPickNode(null),
       enterNode: ({ node }) => onHoverNode?.(node),
       leaveNode: () => onHoverNode?.(null),
     })
   }, [registerEvents, sigma, onPickNode, onHoverNode])
+
+  // 真机 e2e 只读 seam:暴露节点的屏幕坐标,让测试能对 WebGL 画布做「真实点击」命中节点(不改任何状态)。
+  useEffect(() => {
+    window.__s3Atlas = {
+      nodes: () => sigma.getGraph().nodes(),
+      nodeViewport: (id) => {
+        const g = sigma.getGraph()
+        if (!g.hasNode(id)) return null
+        return sigma.graphToViewport({ x: g.getNodeAttribute(id, 'x'), y: g.getNodeAttribute(id, 'y') })
+      },
+    }
+    return () => { delete window.__s3Atlas }
+  }, [sigma])
 
   return null
 }
@@ -183,6 +199,15 @@ export function AtlasView() {
   const [theme, setTheme] = useState(readTheme)
   const [retryTick, setRetryTick] = useState(0) // 重试触发器
   const reqId = useRef(0)
+  // 块三:选中节点 → 通用选中总线(主编聚焦);清选中 → focus 清空(回退视图级话术)。
+  const { setFocus: setBusFocus } = useSelection()
+  const pickNode = useCallback((n) => {
+    setPicked(n)
+    if (!n) { setBusFocus(null); return }
+    setBusFocus(n.type === 'character'
+      ? { type: 'character', id: n.id, label: n.label, origin: 'atlas' }
+      : { type: 'frame_fact', id: n.id, label: n.secret ? '私密命题' : n.label, payload: { secret: !!n.secret }, origin: 'atlas' })
+  }, [setBusFocus])
 
   // 主题(明暗切换时刷新色板)
   useEffect(() => {
@@ -336,7 +361,7 @@ export function AtlasView() {
                   data={raw}
                   focus={focus}
                   theme={theme}
-                  onPickNode={setPicked}
+                  onPickNode={pickNode}
                 />
               )}
             </SigmaContainer>
@@ -371,7 +396,7 @@ export function AtlasView() {
               focus={focus}
               edges={raw?.edges || []}
               onExpand={onExpandTo}
-              onClose={() => setPicked(null)}
+              onClose={() => pickNode(null)}
             />
           </>
         )}
