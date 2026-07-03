@@ -478,7 +478,13 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
         ) : phase === 'deduce' ? (
           <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'draft' ? (
-          <DraftTab seq={seq} meta={meta} onAdopt={() => setPhaseP('final')} />
+          <DraftTab seq={seq} meta={meta} onAdopt={(text) => {
+            // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
+            // 保留本章 title/focalizer;落库成功后再切正文 tab,让 WriteLayout 拉到刚搬入的正文。
+            api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')
+              .then(() => setPhaseP('final'))
+              .catch((e) => toast('采用为正文失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' }))
+          }} />
         ) : null}
       </div>
     </div>
