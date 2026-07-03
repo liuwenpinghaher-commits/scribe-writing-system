@@ -3221,3 +3221,33 @@ def test_motif_instances_endpoint(store):
     assert body[0]["name"] == "铜炉"
     assert body[0]["evidence"] == "炉火"
     assert c.get("/motif-instances?chapter=9").json() == []
+
+
+def test_char_anchors_and_arc_beats_endpoints(store):
+    """Task4 弧光端点:PATCH 锚→GET 回读一致;POST 两 beat→有序;DELETE 后消失。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "role:柳怀玉",
+        "anchors": {"lie": "官法大过阴律", "arc_type": "disillusionment"}})
+    assert r.status_code == 200 and r.json()["status"] == "updated"
+    got = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert got["anchors"]["lie"] == "官法大过阴律"
+    assert got["anchors"]["arc_type"] == "disillusionment"
+    assert got["arc_plan"] == []
+    # POST 两个 beat → arc_plan 按 target_chapter 有序
+    r1 = c.post("/arc-beats", json={"character_id": "role:柳怀玉", "beat_name": "midpoint",
+                                    "target_chapter": 6, "lie_belief_target": 50,
+                                    "trigger_event": "判牍改命"})
+    assert r1.status_code == 200 and r1.json()["status"] == "created"
+    c.post("/arc-beats", json={"character_id": "role:柳怀玉",
+                               "beat_name": "third_plot_point", "target_chapter": 10})
+    got2 = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert [b["beat_name"] for b in got2["arc_plan"]] == ["midpoint", "third_plot_point"]
+    # DELETE 后消失
+    bid = got2["arc_plan"][0]["id"]
+    rd = c.delete(f"/arc-beats/{bid}")
+    assert rd.status_code == 200 and rd.json()["status"] == "deleted"
+    got3 = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert [b["beat_name"] for b in got3["arc_plan"]] == ["third_plot_point"]

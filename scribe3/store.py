@@ -104,7 +104,10 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance",
-                                              "promise_touch"])
+                                              "promise_touch", "arc_plan"])
+
+# 角色弧光静态锚(Weiland 五要素 + 弧型 + 私密目标),migration 054 落 character 表
+_ANCHOR_KEYS = ("ghost", "lie", "truth", "want", "need", "arc_type", "private_agenda")
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
@@ -2068,19 +2071,22 @@ class SurrealStore:
                        after_state: dict | None = None, trigger_event: str | None = None,
                        arc_phase: str | None = None, affects_voice: bool | None = None,
                        confidence: str = "confirmed",
-                       ingest_seq: int | None = None) -> None:
+                       ingest_seq: int | None = None,
+                       lie_belief: int | None = None) -> None:
         """记录角色弧光质变点(能力/关系/性格变化)。
         affects_voice=True 时自动创建 voice_evolution_flag(该更新声音了)。
-        ingest_seq:由 ingest 自动回写时传入,供 purge_ingest 幂等清理;手动种的不传。"""
+        ingest_seq:由 ingest 自动回写时传入,供 purge_ingest 幂等清理;手动种的不传。
+        lie_belief:该章结束时对核心错误信念的信奉度(0-100,migration 054);
+        钳制由调用方负责(ingest 抽取路径入库前 clamp 到 [0,100])。"""
         _, local = _split(character_id)
         self._execute_write(
             "CREATE char_state SET character_id=$cid, chapter=$ch, change_type=$ct, "
             "summary=$sum, before_state=$bs, after_state=$as, trigger_event=$te, "
-            "arc_phase=$ap, affects_voice=$av, confidence=$conf"
+            "arc_phase=$ap, affects_voice=$av, confidence=$conf, lie_belief=$lb"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"cid": character_id, "ch": chapter, "ct": change_type, "sum": summary,
              "bs": before_state, "as": after_state, "te": trigger_event,
-             "ap": arc_phase, "av": affects_voice, "conf": confidence,
+             "ap": arc_phase, "av": affects_voice, "conf": confidence, "lb": lie_belief,
              **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         if affects_voice:
             self.add_voice_flag(character_id, chapter, summary)
@@ -2119,6 +2125,58 @@ class SurrealStore:
             "before_state, after_state, trigger_event, arc_phase, affects_voice, confidence "
             "FROM char_state WHERE character_id=$cid ORDER BY chapter ASC",
             {"cid": character_id})
+
+    # --- 角色弧光静态锚 + arc_plan 里程碑(migration 054)---
+    def set_char_anchors(self, character_id: str, anchors: dict) -> None:
+        """写角色弧光锚。局部更新:只写传入的键,未传的字段不动;
+        键限 _ANCHOR_KEYS 白名单(SET 片段来自常量元组,注入安全)。"""
+        sets, vars_ = [], {}
+        for k in _ANCHOR_KEYS:
+            if k in anchors:
+                sets.append(f"{k}=${k}")
+                vars_[k] = anchors[k]
+        if not sets:
+            return
+        _, local = _split(character_id)
+        vars_["_l"] = local
+        self._execute_write(
+            f"UPDATE type::record('character',$_l) SET {', '.join(sets)}", vars_)
+
+    def char_anchors(self, character_id: str) -> dict:
+        """读单角色的弧光锚(七键)。角色不存在返回 {}。"""
+        _, local = _split(character_id)
+        rows = self._query(
+            "SELECT ghost, lie, truth, want, need, arc_type, private_agenda "
+            "FROM type::record('character',$_l)", {"_l": local})
+        return rows[0] if rows else {}
+
+    def add_arc_beat(self, character_id: str, beat_name: str, target_chapter: int,
+                     lie_belief_target: int | None = None, trigger_event: str = "") -> None:
+        """加一条弧光里程碑(beat):目标章 + 该拍应到达的 lie 信奉度 + 触发事件。"""
+        self._execute_write(
+            "CREATE arc_plan SET character_id=$c, beat_name=$b, target_chapter=$t, "
+            "lie_belief_target=$lb, trigger_event=$te",
+            {"c": character_id, "b": beat_name, "t": target_chapter,
+             "lb": lie_belief_target, "te": trigger_event or None})
+
+    def list_arc_plan(self, character_id: str) -> list[dict]:
+        """角色的弧光里程碑,按 target_chapter 升序。"""
+        return self._query(
+            "SELECT meta::id(id) AS id, character_id, beat_name, target_chapter, "
+            "lie_belief_target, trigger_event FROM arc_plan "
+            "WHERE character_id=$c ORDER BY target_chapter ASC", {"c": character_id})
+
+    def delete_arc_beat(self, beat_id: str) -> None:
+        self._execute_write("DELETE type::record('arc_plan', $b)", {"b": beat_id})
+
+    def latest_lie_belief(self, character_id: str, upto_chapter: int) -> int | None:
+        """到某章为止最新的 lie 信奉度(char_state 里 chapter<=upto 且 lie_belief 非空的最新一条)。"""
+        # SurrealDB 3.x:ORDER BY 字段必须出现在投影里,故连带 SELECT chapter
+        rows = self._query(
+            "SELECT lie_belief, chapter FROM char_state WHERE character_id=$c AND chapter<=$ch "
+            "AND lie_belief IS NOT NONE ORDER BY chapter DESC LIMIT 1",
+            {"c": character_id, "ch": upto_chapter})
+        return rows[0]["lie_belief"] if rows else None
 
     # --- 设定完整性检查(层2 主编引导)---
     def setting_completeness(self) -> dict:

@@ -101,6 +101,10 @@ class TestWriteGate:
         ("DELETE", "/volumes/{vid}"),
         # 作者工具尾项:事件叙事位编辑(尾1)
         ("PATCH", "/events/{eid}/narrative"),
+        # 工艺引擎P0 Task4:角色弧光锚(作者直编,局部更新)+ arc_plan 里程碑增删
+        ("PATCH", "/char-anchors"),
+        ("POST", "/arc-beats"),
+        ("DELETE", "/arc-beats/{beat_id}"),
     }
 
     def test_no_unaudited_write_route(self):

@@ -313,6 +313,37 @@ def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
     return _store_for(work).list_motif_instances(chapter)
 
 
+# ===== 角色弧光:静态锚(五要素)+ arc_plan 里程碑(migration 054)=====
+@app.get("/char-anchors")
+def get_char_anchors(character_id: str, work: str = "main"):
+    """单角色的弧光锚(七键)+ 里程碑计划(按 target_chapter 有序)。"""
+    st = _store_for(work)
+    return {"anchors": st.char_anchors(character_id),
+            "arc_plan": st.list_arc_plan(character_id)}
+
+
+@app.patch("/char-anchors")
+def patch_char_anchors(req: dict, work: str = "main"):
+    """局部更新弧光锚:只写传入的键,未传字段不动(store 层 _ANCHOR_KEYS 白名单)。"""
+    st = _store_for(work)
+    st.set_char_anchors(req["character_id"], req.get("anchors") or {})
+    return {"status": "updated"}
+
+
+@app.post("/arc-beats")
+def post_arc_beat(req: dict, work: str = "main"):
+    _store_for(work).add_arc_beat(
+        req["character_id"], req["beat_name"], int(req["target_chapter"]),
+        req.get("lie_belief_target"), req.get("trigger_event") or "")
+    return {"status": "created"}
+
+
+@app.delete("/arc-beats/{beat_id}")
+def del_arc_beat(beat_id: str, work: str = "main"):
+    _store_for(work).delete_arc_beat(beat_id)
+    return {"status": "deleted"}
+
+
 # ===== 设定库 增删改(作者直编,不经 elicitation;非世界状态级别的 agent 写)=====
 class CharIn(BaseModel):
     name: str

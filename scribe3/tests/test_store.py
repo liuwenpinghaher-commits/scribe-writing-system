@@ -1459,3 +1459,37 @@ def test_update_promise_recomputes_window(store):
     store.update_promise(pid, {"setup_chapter": 2, "payoff_min": 9, "payoff_max": 12})
     p = [x for x in store.list_promises() if x["id"] == pid][0]
     assert p["payoff_min"] == 9 and p["payoff_max"] == 12
+
+
+def test_arc_anchor_and_plan_roundtrip(store):
+    """Task4 弧光:静态锚(五要素)set/get + 局部更新不清空 + arc_plan 有序 + latest_lie_belief。"""
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    cid = "role:柳怀玉"
+    store.set_char_anchors(cid, {"lie": "官法大过阴律", "arc_type": "disillusionment",
+                                 "private_agenda": "查清父亲卷宗"})
+    a = store.char_anchors(cid)
+    assert a["lie"] == "官法大过阴律" and a["arc_type"] == "disillusionment"
+    # 局部更新:只传 want,不清空已设的 lie
+    store.set_char_anchors(cid, {"want": "升迁刑名"})
+    a2 = store.char_anchors(cid)
+    assert a2["want"] == "升迁刑名" and a2["lie"] == "官法大过阴律"
+    # 不存在的角色 → 空 dict
+    assert store.char_anchors("role:不存在的角色") == {}
+    # arc_plan 里程碑:按 target_chapter 升序
+    store.add_arc_beat(cid, beat_name="midpoint", target_chapter=6, lie_belief_target=50,
+                       trigger_event="判牍改命")
+    store.add_arc_beat(cid, beat_name="third_plot_point", target_chapter=10, lie_belief_target=20)
+    plan = store.list_arc_plan(cid)
+    assert [b["beat_name"] for b in plan] == ["midpoint", "third_plot_point"]
+    assert plan[0]["lie_belief_target"] == 50 and plan[0]["trigger_event"] == "判牍改命"
+    # delete_arc_beat 后消失
+    store.delete_arc_beat(plan[0]["id"])
+    assert [b["beat_name"] for b in store.list_arc_plan(cid)] == ["third_plot_point"]
+    # lie_belief 走 char_state:latest_lie_belief 取 chapter<=upto 且非空的最新一条
+    store.add_char_state(character_id=cid, chapter=2, change_type="belief",
+                         summary="初疑", lie_belief=70, ingest_seq=2)
+    store.add_char_state(character_id=cid, chapter=3, change_type="belief",
+                         summary="又退回", lie_belief=78, ingest_seq=3)
+    assert store.latest_lie_belief(cid, upto_chapter=3) == 78
+    assert store.latest_lie_belief(cid, upto_chapter=2) == 70
+    assert store.latest_lie_belief(cid, upto_chapter=1) is None
