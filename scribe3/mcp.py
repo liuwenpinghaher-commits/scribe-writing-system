@@ -598,11 +598,16 @@ async def s3_add_term(ctx: Context, name: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
-                           kind: str = "promise") -> dict:
-    """埋伏笔(写,待批)。kind=promise/red_herring。"""
-    ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章):{text}")
+                           kind: str = "promise", tier: str = "chapter") -> dict:
+    """埋伏笔(写,待批)。kind=promise/red_herring。
+    tier 三档决定兑现窗口与超期判定:
+      chapter=近场伏笔(埋后 +1..+3 章内兑现,默认);
+      arc=卷级伏笔(+5..+15 章窗口,跨情节弧);
+      book=书级伏笔/母题(payoff_max=None,永不判超期,全书终章前兑现)。
+    非法 tier 由 store 层 raise ValueError。"""
+    ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章·{tier}):{text}")
     return commit_if_approved("s3_plant_promise", ok,
-                              lambda: _store.plant_promise(text, setup_chapter, kind=kind))
+                              lambda: _store.plant_promise(text, setup_chapter, kind=kind, tier=tier))
 
 
 @mcp.tool(annotations=_RW)

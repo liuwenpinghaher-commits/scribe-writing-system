@@ -421,3 +421,38 @@ def test_s3_list_factions_masks_private_operation_by_default(store):
     assert secret_fac_reveal is not None
     assert "杀人灭口" in str(secret_fac_reveal.get("private_operation", "")), \
         "reveal_secret=True 应返回 private_operation 明文"
+
+
+# ===== 彻查 B-2: s3_plant_promise tier 三档透传(MCP 生产入口)=====
+
+class _AcceptCtx:
+    """假 elicitation 上下文:恒批准,用于验证 MCP 写工具批准后落库路径。"""
+    async def elicit(self, message, schema):
+        return type("_R", (), {"action": "accept"})()
+
+
+def test_s3_plant_promise_signature_accepts_tier():
+    """签名守卫:s3_plant_promise 必须暴露 tier 参数(默认 chapter)。"""
+    import inspect
+    sig = inspect.signature(M.s3_plant_promise)
+    assert "tier" in sig.parameters, f"s3_plant_promise 缺 tier 参数; 当前: {list(sig.parameters)}"
+    assert sig.parameters["tier"].default == "chapter"
+
+
+def test_s3_plant_promise_tier_arc_lands_arc_window(store):
+    """MCP s3_plant_promise 带 tier=arc(setup=2)批准后 → 落 arc 层,窗口 7..17(+5..+15)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级伏笔MCP", 2, tier="arc"))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔MCP")
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 7 and p["payoff_max"] == 17
+
+
+def test_s3_plant_promise_default_tier_chapter(store):
+    """MCP s3_plant_promise 不带 tier → 默认 chapter(payoff_max=setup+3)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "近场伏笔MCP", 1))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "近场伏笔MCP")
+    assert p["tier"] == "chapter" and p["payoff_max"] == 4

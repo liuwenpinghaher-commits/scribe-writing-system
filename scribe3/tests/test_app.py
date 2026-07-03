@@ -3759,3 +3759,78 @@ def test_post_check_four_detectors_clean_text(store):
     # 既有键未被破坏
     for k in ("quality", "issues", "duplicate_lines", "emotion_telling", "cross_consistency"):
         assert k in r
+
+
+# ==== 彻查 B-2: 伏笔 tier 三生产入口(REST /promises-new + PATCH /promises/{pid})====
+
+def test_add_promise_rest_tier_book_never_overdue(store):
+    """POST /promises-new 带 tier=book → 落 book 层,payoff_max=None(书级永不超期)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级母题:铜炉终反噬", "setup_chapter": 1, "tier": "book"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "书级母题:铜炉终反噬")
+    assert p["tier"] == "book"
+    assert p["payoff_max"] is None, f"书级伏笔 payoff_max 应为 None,实际 {p['payoff_max']}"
+
+
+def test_add_promise_rest_tier_arc_window(store):
+    """POST /promises-new 带 tier=arc,setup=2 → 窗口 payoff_min=7 / payoff_max=17(+5..+15)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级伏笔", "setup_chapter": 2, "tier": "arc"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔")
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 7 and p["payoff_max"] == 17
+
+
+def test_add_promise_rest_default_tier_chapter(store):
+    """POST /promises-new 不带 tier → 默认 chapter 层(payoff_max=setup+3),不回归。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "近场伏笔", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "近场伏笔")
+    assert p["tier"] == "chapter"
+    assert p["payoff_max"] == 4
+
+
+def test_add_promise_rest_illegal_tier_rejected(store):
+    """POST /promises-new 带非法 tier → 422(非法值不落库)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "坏层级", "setup_chapter": 1, "tier": "卷"})
+    assert r.status_code == 422, r.text
+    assert not any(x["text"] == "坏层级" for x in store.list_promises())
+
+
+def test_edit_promise_rest_tier_recomputes_window(store):
+    """PATCH /promises/{pid} 改 tier=arc → 窗口按 arc 重算(setup=3 → 8..18)。"""
+    store.plant_promise("先近后卷", setup_chapter=3, kind="promise")  # 建时 chapter → payoff_max=6
+    pid = next(x for x in store.list_promises() if x["text"] == "先近后卷")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "先近后卷", "setup_chapter": 3, "tier": "arc"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 8 and p["payoff_max"] == 18
+
+
+def test_edit_promise_rest_without_tier_preserves_tier(store):
+    """PATCH 不带 tier → 既有 tier 不被改回 chapter(可选字段,缺省即保留)。"""
+    store.plant_promise("已是书级", setup_chapter=1, kind="promise", tier="book")
+    pid = next(x for x in store.list_promises() if x["text"] == "已是书级")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "已是书级改名", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "book", "缺省 tier 的编辑不得把 book 改回 chapter"
+    assert p["payoff_max"] is None
+
+
+def test_edit_promise_rest_illegal_tier_rejected(store):
+    """PATCH 带非法 tier → 422。"""
+    store.plant_promise("待改", setup_chapter=1, kind="promise")
+    pid = next(x for x in store.list_promises() if x["text"] == "待改")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "待改", "setup_chapter": 1, "tier": "xx"})
+    assert r.status_code == 422, r.text
+
+

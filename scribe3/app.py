@@ -502,17 +502,30 @@ class PromIn(BaseModel):
     text: str
     setup_chapter: int = 1
     promise_kind: str = "promise"
+    # tier 三档兑现窗口:chapter(近场 +1..+3)/arc(卷级 +5..+15)/book(书级 payoff_max=None 永不超期)。
+    # 可选:add 时缺省即 chapter;edit 时缺省即保留既有 tier(不发送则 update_promise 不动窗口/层级)。
+    tier: str | None = None
 
 
 @app.post("/promises-new")
 def add_prom(p: PromIn, work: str = "main"):
-    _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind)
+    try:
+        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind,
+                                       tier=p.tier or "chapter")
+    except ValueError as e:  # 非法 tier → store 层 raise
+        raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
 
 
 @app.patch("/promises/{pid}")
 def edit_prom(pid: str, p: PromIn, work: str = "main"):
-    found = _store_for(work).update_promise(pid, {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind})
+    fields = {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind}
+    if p.tier is not None:  # 仅在显式改 tier 时透传(缺省保留既有层级,由 update_promise 重算窗口)
+        fields["tier"] = p.tier
+    try:
+        found = _store_for(work).update_promise(pid, fields)
+    except ValueError as e:  # 非法 tier → store 层 raise
+        raise HTTPException(status_code=422, detail=str(e))
     if not found:
         raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
     return {"ok": True}
