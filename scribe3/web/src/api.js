@@ -22,7 +22,7 @@ const post = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
 }).then(handle)
-const patch = (p, body) => fetch(BASE + ww(p), {
+const patch = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then(handle)
 const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then(handle)
@@ -113,7 +113,8 @@ export const api = {
   patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
   deleteVolume: (vid) => del('/volumes/' + enc(vid)),
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
-  patchChapter: (seq, b) => patch('/chapters/' + seq, b),
+  // work 可选:大纲/节拍卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书(F5,同 saveDraft/saveChapter)。
+  patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),
   chapter: (seq) => j(`/chapter?seq=${seq}`),
   // 四阶段草稿:存草稿(留 draft 版 + 写 chapter.draft)/ 取最新草稿(刷新恢复)
   // work 可选:卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书。

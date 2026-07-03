@@ -47,7 +47,8 @@ function MetaBar({ meta, wordCount }) {
 }
 
 // ——— 大纲:RichEditor(markdown),失焦/切章/切阶段前 flush patchChapter({synopsis}) ———
-function OutlineTab({ seq, value, meta, onSaved }) {
+// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F5)。
+function OutlineTab({ seq, value, meta, onSaved, work }) {
   const toast = useToast()
   const [text, setText] = useState(value || '')
   const [saving, setSaving] = useState(false)
@@ -66,7 +67,8 @@ function OutlineTab({ seq, value, meta, onSaved }) {
   const persistFor = async (key, val) => {
     const sq = Number(key.split('|')[0])
     setSaving(true)
-    try { await api.patchChapter(sq, { synopsis: val }); onSaved?.() }
+    // 传 work:切书时卸载 flush 走全局 WORK 会把本书大纲写进别的书(F5,同 DraftTab 钉书)
+    try { await api.patchChapter(sq, { synopsis: val }, work); onSaved?.() }
     catch (e) {
       if (dirtyRef.current.key === key) dirtyRef.current.dirty = true   // 保留 dirty 可重试
       toast(e?.body?.detail || '大纲保存失败', { tone: 'danger' })
@@ -137,7 +139,8 @@ let beatUid = 0
 const withBeatIds = (arr) => (Array.isArray(arr) ? arr : []).map((b) => ({ ...b, _id: `b${++beatUid}` }))
 const stripBeatIds = (arr) => arr.map(({ _id, ...b }) => b)
 
-function BeatsTab({ seq, value, meta, onSaved }) {
+// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F5)。
+function BeatsTab({ seq, value, meta, onSaved, work }) {
   const toast = useToast()
   const [beats, setBeats] = useState(() => withBeatIds(value))
   const [draft, setDraft] = useState('')
@@ -161,7 +164,8 @@ function BeatsTab({ seq, value, meta, onSaved }) {
   const persistFor = async (key, arr) => {
     const sq = Number(key.split('|')[0])
     setSaving(true)
-    try { await api.patchChapter(sq, { beats: stripBeatIds(arr) }); onSaved?.() }
+    // 传 work:切书时卸载 flush 走全局 WORK 会把本书节拍写进别的书(F5,同 DraftTab 钉书)
+    try { await api.patchChapter(sq, { beats: stripBeatIds(arr) }, work); onSaved?.() }
     catch (e) {
       if (dirtyRef.current.key === key) dirtyRef.current.dirty = true
       toast(e?.body?.detail || '节拍保存失败', { tone: 'danger' })
@@ -473,9 +477,9 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
         {loading ? (
           <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
         ) : phase === 'outline' ? (
-          <OutlineTab seq={seq} value={meta?.synopsis} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
+          <OutlineTab seq={seq} work={work} value={meta?.synopsis} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'beats' ? (
-          <BeatsTab seq={seq} value={meta?.beats} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
+          <BeatsTab seq={seq} work={work} value={meta?.beats} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'deduce' ? (
           <DeduceStage seq={seq} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'draft' ? (
