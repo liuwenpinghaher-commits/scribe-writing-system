@@ -129,7 +129,7 @@ def test_chat_stream_sse(store, monkeypatch):
 def test_chat_agentic_sse(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_item.added",
                "item": {"type": "function_call", "name": "s3_list_promises", "arguments": "{}"}}
         yield {"type": "response.output_text.delta", "delta": "已查"}
@@ -145,7 +145,7 @@ def test_chat_agentic_sse(store, monkeypatch):
 def test_chat_write_splits_proposal(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         for t in ["这样改：", "⟦PROPOSAL scope=selection⟧", "单嫣立于老槐之下。", "⟦/PROPOSAL⟧"]:
             yield {"type": "response.output_text.delta", "delta": t}
 
@@ -160,7 +160,7 @@ def test_chat_write_splits_proposal(store, monkeypatch):
 def test_chat_write_discuss_only(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         for t in ["这章节奏偏慢，", "建议提速。"]:
             yield {"type": "response.output_text.delta", "delta": t}
 
@@ -1179,7 +1179,7 @@ def test_current_tail_block_wired_into_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1195,7 +1195,7 @@ def test_current_tail_block_wired_into_chat_write_post(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1353,7 +1353,7 @@ def test_soak_block_injects_seed_words_when_provided(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1373,7 +1373,7 @@ def test_soak_block_absent_when_no_seed_words(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1391,7 +1391,7 @@ def test_soak_get_route_ignores_seed_words(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1464,7 +1464,7 @@ def test_final_reminder_in_get_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1484,7 +1484,7 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -2929,7 +2929,7 @@ def test_chat_write_post_focalizer_instructions_contain_revelation_discipline(st
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -2946,7 +2946,7 @@ def test_chat_write_post_no_focalizer_no_revelation_discipline(store, monkeypatc
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -3230,7 +3230,7 @@ def test_chat_write_phase_default_unchanged(store, monkeypatch):
     """phase 钩子:默认(phase 空)行为不变 —— instructions 不含阶段角色提示。"""
     captured = {}
 
-    def fake_stream(message, instructions, expect_proposal=False):
+    def fake_stream(message, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         yield "data: x\n\n"
 
@@ -3246,7 +3246,7 @@ def test_chat_write_phase_plan_injects_role(store, monkeypatch):
     """phase='plan' → instructions 末尾追加规划期角色提示。"""
     captured = {}
 
-    def fake_stream(message, instructions, expect_proposal=False):
+    def fake_stream(message, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         yield "data: x\n\n"
 
@@ -3609,7 +3609,7 @@ def test_outline_block_wired_into_chat_write(store, monkeypatch):
                                   "beats": [{"text": "抵达义庄"}]})
     captured = {}
 
-    def cap(message, instructions):
+    def cap(message, instructions, **_kw):
         captured["ins"] = instructions
         return iter([])
 
@@ -3653,7 +3653,7 @@ def test_chat_write_with_image_no_500(store, monkeypatch):
     import scribe3.app as appmod
     monkeypatch.setattr(
         appmod, "_stream_write",
-        lambda msg, instructions, expect_proposal=False: iter([]))
+        lambda msg, instructions, expect_proposal=False, **_kw: iter([]))
     r = _client(store).post("/chat/write", json={
         "msg": "看这张图写一段",
         "chapter": 1,
@@ -3965,3 +3965,102 @@ def test_tension_check_micro_tension_with_deserts(store, monkeypatch):
     r = _client(store).post("/tension-check", params={"seq": 8}).json()
     mt = [i for i in r["items"] if i["item"] == "micro_tension"][0]
     assert mt["detail"] == "荒漠段:第2段、第5段"
+
+
+# ===== 批B P0-2:多书下 MCP 工具串书——非 SCRIBE3_WORK 的书禁挂 s3_ 工具 =====
+def _cap_responses(cap):
+    """捕获传给 responses(:8643)的 with_tools 与 instructions 的假 fn。"""
+    def fake_events(message, instructions, model=None, with_tools=True, **_kw):
+        cap["with_tools"] = with_tools
+        cap["instructions"] = instructions
+        return iter([])
+    return fake_events
+
+
+def test_p0_2_get_write_non_current_work_no_tools(store, monkeypatch):
+    """GET /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False),防串到错库。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")          # 把测试内存 store 绑到别的书(不连真库)
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "book_other"})
+    assert cap["with_tools"] is False, "非当前书应禁挂 s3_ 工具"
+    assert "s3_" not in cap["instructions"], "非当前书 instructions 不得诱导调用 s3_"
+
+
+def test_p0_2_get_write_current_work_mounts_tools(store, monkeypatch):
+    """GET /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具(with_tools=True)。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "main"})
+    assert cap["with_tools"] is True, "当前书应挂 s3_ 工具"
+
+
+def test_p0_2_post_write_non_current_work_no_tools(store, monkeypatch):
+    """POST /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False)。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).post("/chat/write?work=book_other", json={"msg": "写本章", "chapter": 1})
+    assert cap["with_tools"] is False
+    assert "s3_" not in cap["instructions"]
+
+
+def test_p0_2_post_write_current_work_mounts_tools(store, monkeypatch):
+    """POST /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).post("/chat/write?work=main", json={"msg": "写本章", "chapter": 1})
+    assert cap["with_tools"] is True
+
+
+def test_p0_2_agentic_non_current_work_no_tools(store, monkeypatch):
+    """agentic-stream:work != SCRIBE3_WORK 时禁挂工具 + instructions 删除 s3_ 联查诱导段。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "book_other"})
+    assert cap["with_tools"] is False
+    assert "s3_" not in cap["instructions"], "非当前书 agentic 指令不得含 s3_ 联查诱导"
+
+
+def test_p0_2_agentic_current_work_mounts_tools(store, monkeypatch):
+    """agentic-stream:work == SCRIBE3_WORK 时挂工具 + instructions 含 s3_ 联查段。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "main"})
+    assert cap["with_tools"] is True
+    assert "s3_" in cap["instructions"], "当前书 agentic 指令应含 s3_ 联查段"
+
+
+def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
+    """llm 层:with_tools=False 的 body 不含 tools;=True 时挂 scribe3 MCP。"""
+    import scribe3.llm as llm
+    captured = {}
+
+    class _FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def raise_for_status(self): pass
+        def iter_lines(self): return iter([])
+
+    def fake_stream(method, url, **kw):
+        captured["body"] = kw.get("json")
+        return _FakeResp()
+
+    monkeypatch.setattr(llm.httpx, "stream", fake_stream)
+    list(llm.hermes_responses_events("m", "i", with_tools=False))
+    assert "tools" not in captured["body"], "with_tools=False 时 body 不得含 tools"
+    list(llm.hermes_responses_events("m", "i", with_tools=True))
+    assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3"}]

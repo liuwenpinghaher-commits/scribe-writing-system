@@ -736,7 +736,13 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str) -> dict:
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
 def setup_store(ns: str = "scribe3", db: str | None = None):
-    """连 NS=scribe3 + 幂等建 schema,挂上。db 缺省读 SCRIBE3_WORK 再回退 main(P30)。"""
+    """连 NS=scribe3 + 幂等建 schema,挂上。db 缺省读 SCRIBE3_WORK 再回退 main(P30)。
+
+    审计 P0-2(串书):本进程一经启动即固定绑定这一个 db(_store 模块级单例),整个进程生命周期
+    只服务 SCRIBE3_WORK 那本书。app.py 已做短期护栏——仅当请求的 work==SCRIBE3_WORK 时才给对话
+    挂 s3_ 工具(_work_has_tools),其余书禁挂,故不会串到错库写入。
+    中期(让每本书都能联查各自库)需:①工具签名加 work 参数并按调用解析 per-work store(带缓存/LRU),
+    或 ②每书独立 MCP profile;二者都要跨 app→Hermes→MCP 进程边界传递 work,改动面大,留作跟进。"""
     import os
     from scribe3.store import SurrealStore
     db = db or os.environ.get("SCRIBE3_WORK", "main")

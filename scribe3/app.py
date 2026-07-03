@@ -109,6 +109,16 @@ def _store_for(work: str) -> SurrealStore:
     return _stores[work]
 
 
+def _work_has_tools(work: str) -> bool:
+    """当前请求的书是否等于 MCP 进程绑定的库(SCRIBE3_WORK 环境变量,默认 main)。
+
+    审计 P0-2:mcp.py 的 s3_ 工具固定连 SCRIBE3_WORK 那本书,联查读它、待批写也落它。
+    若给「别的书」的对话也挂 s3_ 工具,模型联查读到的是错库、写入(add_fact/plant_promise…)
+    更落到错库——不可逆。故仅当 work==SCRIBE3_WORK 才挂 s3_ 工具;其余书退化为纯对话
+    (无联查/无待批写),绝不串库。中期(让每本书工具指向自己库)见 mcp.setup_store 注释。"""
+    return work == os.environ.get("SCRIBE3_WORK", "main")
+
+
 def _facts(fs, reveal_secret: bool = False):
     def _item(f):
         d = {"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
@@ -1176,17 +1186,21 @@ def chat_agentic_stream(msg: str, work: str = "main"):
     事件:tool(工具调用提示)/delta(回复片段)/done。注:MCP 连 db=main,agentic 当前以主参照库为准。"""
     from scribe3.llm import hermes_responses_events
     fn = _responses_events or hermes_responses_events
-    instructions = _editor_system(_store_for(work)) + (
-        "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
-        "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
-        "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
-        "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
-        "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
-    )
+    # P0-2:仅当前书(==SCRIBE3_WORK)才挂 s3_ 工具;非当前书退化纯对话,且删掉 s3_ 诱导段防幻觉调用。
+    with_tools = _work_has_tools(work)
+    instructions = _editor_system(_store_for(work))
+    if with_tools:
+        instructions += (
+            "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
+            "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
+            "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
+            "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
+            "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
+        )
 
     def gen():
         try:
-            for ev in fn(msg, instructions):
+            for ev in fn(msg, instructions, with_tools=with_tools):
                 t = ev.get("type", "")
                 if t == "response.output_text.delta":
                     d = ev.get("delta", "")
@@ -1317,10 +1331,12 @@ def _is_write_intent(msg) -> bool:
     return bool(_WRITE_VERB_RE.search(text))
 
 
-def _stream_write(message, instructions: str, expect_proposal: bool = False):
+def _stream_write(message, instructions: str, expect_proposal: bool = False,
+                  with_tools: bool = True):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
-    expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。"""
+    expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
+    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。"""
     import json as _j
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
@@ -1351,7 +1367,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False):
                 prop["prose"] = []
 
     try:
-        for ev in fn(message, instructions):
+        for ev in fn(message, instructions, with_tools=with_tools):
             t = ev.get("type", "")
             if t == "response.output_text.delta":
                 yield from drain(parser.feed(ev.get("delta", "")))
@@ -1631,7 +1647,8 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
             chapter, len(ded))
     instructions += _final_reminder()
     return StreamingResponse(
-        _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg)),
+        _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
+                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
         media_type="text/event-stream",
     )
 
@@ -1863,7 +1880,8 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
         message = req.msg
 
     return StreamingResponse(
-        _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg)),
+        _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
+                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
         media_type="text/event-stream",
     )
 
