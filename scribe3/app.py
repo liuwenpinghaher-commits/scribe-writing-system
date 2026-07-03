@@ -1795,7 +1795,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
         for img in req.images:
-            content.append({"type": "input_image", "image_url": f"data:{img.get('type','image/jpeg')};base64,{img.get('data','')}"})
+            content.append({"type": "input_image", "image_url": f"data:{img.type};base64,{img.data}"})
         message = [{"role": "user", "content": content}]
     else:
         message = req.msg

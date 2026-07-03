@@ -3556,3 +3556,30 @@ def test_outline_block_focalizer_guardrail(store):
     omni = _outline_block(store, 2, focalizer="")
     assert "柳怀玉赴义庄验尸" in omni
     assert "帧外私密留作伏笔" not in omni      # 全知章无免责句
+
+
+# ===== 批0 · B1:图片写作 500(彻查 B-1)=====
+
+# 1x1 透明 PNG(base64,validate=True 可解码,远小于 5MB 上限)
+_PNG_1x1 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_chat_write_with_image_no_500(store, monkeypatch):
+    """B1(彻查 B-1):POST /chat/write 带 ImageModel 图片附件不再 500。
+
+    修前:图片组装对 pydantic ImageModel 调 img.get('type')/img.get('data')
+    → AttributeError('ImageModel' object has no attribute 'get')→ 500,带图写作 100% 死。
+    """
+    import scribe3.app as appmod
+    monkeypatch.setattr(
+        appmod, "_stream_write",
+        lambda msg, instructions, expect_proposal=False: iter([]))
+    r = _client(store).post("/chat/write", json={
+        "msg": "看这张图写一段",
+        "chapter": 1,
+        "images": [{"data": _PNG_1x1, "type": "image/png"}],
+    })
+    assert r.status_code != 500, f"带图写作不应 500,实际 {r.status_code}: {r.text}"
