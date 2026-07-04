@@ -625,15 +625,31 @@ _GENERIC_REFS = ("那男人", "那女人", "少年", "青年", "老者", "主人
 def find_elegant_variation(text: str, names: list[str], window: int = 200) -> list[dict]:
     """同义词循环检测(确定性近似,维基 elegant variation/同义词轮换)。对每个 name 的
     每次出现,查其后 window 字符内是否出现 ≥2 个【不同】泛称 → 报命中;同一 name 多次
-    出现只报首个触发的一处(去噪,避免同一角色刷屏)。report-only。"""
+    出现只报首个触发的一处(去噪,避免同一角色刷屏)。report-only。
+
+    引号豁免(A7-Important 尾巾修复,原实现是模块里唯一不做引号豁免的检测器):
+    ①name 本身若落在引号内(台词里提及其名)不作为触发锚点——台词里说出角色名不算
+    叙述层"点名"; ②窗口内的泛称若落在引号内(如台词「那男人到底是谁?」里的泛称
+    是角色的疑问用词,不是叙述者刻意避重复换用的同义词)不计入 aliases。两处都用
+    _quoted_ranges(text) 判定,与模块内其余检测器(find_god_view/find_rule_of_three
+    等)同一套引号区间口径。"""
     s = text or ""
+    quoted = _quoted_ranges(s)
     out: list[dict] = []
     for name in names or []:
         if not name:
             continue
         for m in re.finditer(re.escape(name), s):
+            if _in_any_span(m.start(), m.end(), quoted):
+                continue  # name 本身在引号内(台词提及),不作为触发锚点
             window_text = s[m.end():m.end() + window]
-            aliases = [g for g in _GENERIC_REFS if g in window_text]
+            aliases = []
+            for g in _GENERIC_REFS:
+                for gm in re.finditer(re.escape(g), window_text):
+                    abs_start, abs_end = m.end() + gm.start(), m.end() + gm.end()
+                    if not _in_any_span(abs_start, abs_end, quoted):
+                        aliases.append(g)
+                        break  # 该泛称找到一处不落引号内的出现即计入,不重复计数
             if len(aliases) >= 2:
                 out.append({"name": name, "aliases": aliases, "range": [m.start(), m.end()]})
                 break  # 同一 name 多次命中只报首处
@@ -1798,7 +1814,7 @@ def _ai_grade_tier(value: float, light_max: float, medium_max: float) -> str:
     return "heavy"
 
 
-def aggregate_ai_grade(flags: dict, text: str) -> dict:
+def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) -> dict:
     """整章 AI 味定档聚合:quality_flags(text) 的分项命中 → 6 指标(千字/占比口径,轻中重
     三档)→ 7-Gate 骨架(A-G)→ 章级 grade(light/medium/heavy)。
 
@@ -1814,9 +1830,17 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
     解释腔上帝感):详见各 gate_*_hit 计算处注释。
 
     flags 里缺的键(旧调用方传部分 dict)一律 .get 容错;text 为空/纯空白返回 light 空骨架。
-    """
+
+    precomputed(计划A尾巾 A8-Important 修复):调用方(/post-check)在调用本函数前往往
+    已经对同一份 text 跑过 find_duplicate_lines/find_emotion_telling/find_parallelism/
+    find_poetic_fragments(拼装 duplicate_lines/emotion_telling/parallelism/
+    poetic_fragments 等响应字段),本函数原先又对同一 text 重算一遍这四个检测器——
+    纯浪费。precomputed 允许调用方把已算好的结果直接传进来复用,键名与上述四个检测器
+    同名;缺哪个键就现算哪个,兼容 /check 等没有预算过的旧调用方(不传即整体现算,
+    行为与修复前一致)。"""
     flags = flags or {}
     text = text or ""
+    precomputed = precomputed or {}
     indicator_names = ("banned_density", "parallel_run", "psych_ratio",
                         "dialogue_tag_density", "rhythm_uniform", "repeat_density")
     if not text.strip():
@@ -1824,7 +1848,8 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
             "grade": "light",
             "gates": {g: {"hit": False, "count": 0} for g in "ABCDEFG"},
             "gates_hit": [],
-            "indicators": {name: {"value": 0, "tier": "light"} for name in indicator_names},
+            "indicators": {name: {"value": "ok" if name == "rhythm_uniform" else 0, "tier": "light"}
+                           for name in indicator_names},
         }
 
     ai_tics = flags.get("ai_tics") or []
@@ -1843,13 +1868,16 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
     banned_tier = _ai_grade_tier(banned_density, _AI_GRADE_BANNED_LIGHT, _AI_GRADE_BANNED_MEDIUM)
 
     # ②parallel_run:结构复读(anaphora/short 均计,与 find_parallelism 同口径取最大连排数)
+    parallelism_hits = (precomputed["parallelism"] if "parallelism" in precomputed
+                        else find_parallelism(text))
     parallel_counts = ([s.get("count", 0) for s in structural]
-                       + [p.get("count", 0) for p in find_parallelism(text)])
+                       + [p.get("count", 0) for p in parallelism_hits])
     parallel_run = max(parallel_counts) if parallel_counts else 0
     parallel_tier = _ai_grade_tier(parallel_run, _AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM)
 
     # ③psych_ratio
-    emotion_hits = find_emotion_telling(text)
+    emotion_hits = (precomputed["emotion_telling"] if "emotion_telling" in precomputed
+                    else find_emotion_telling(text))
     sent_count = len([s for s in _SENT_SPLIT.split(text) if s.strip()]) or 1
     psych_ratio = len(emotion_hits) / sent_count * 100
     psych_tier = _ai_grade_tier(psych_ratio, _AI_GRADE_PSYCH_LIGHT, _AI_GRADE_PSYCH_MEDIUM)
@@ -1865,7 +1893,8 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
     rhythm_tier = "heavy" if rhythm_verdict == "uniform" else "light"
 
     # ⑥repeat_density
-    dup_lines = find_duplicate_lines(text)
+    dup_lines = (precomputed["duplicate_lines"] if "duplicate_lines" in precomputed
+                else find_duplicate_lines(text))
     repeat_count = len(repetition) + len(dup_lines)
     repeat_density = repeat_count * per_k
     repeat_tier = _ai_grade_tier(repeat_density, _AI_GRADE_REPEAT_LIGHT, _AI_GRADE_REPEAT_MEDIUM)
@@ -1895,7 +1924,8 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
 
     # D 节奏均匀:rhythm uniform 或 structural.short(极短断句滥用)或 poetic_fragments 命中
     short_structural = [s for s in structural if s.get("kind") == "short"]
-    poetic_hits = find_poetic_fragments(text)
+    poetic_hits = (precomputed["poetic_fragments"] if "poetic_fragments" in precomputed
+                  else find_poetic_fragments(text))
     gate_d_hit = rhythm_verdict == "uniform" or bool(short_structural) or bool(poetic_hits)
     gate_d_count = (1 if rhythm_verdict == "uniform" else 0) + len(short_structural) + len(poetic_hits)
 

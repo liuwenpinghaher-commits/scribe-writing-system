@@ -973,6 +973,22 @@ class TestAdverbTriadVariation:
         t = "陈九抬头看天。" + "无关叙述。" * 60 + "少年攥紧了拳。"
         assert find_elegant_variation(t, names=["陈九"]) == []
 
+    def test_elegant_variation_quoted_generic_refs_exempt(self):
+        """A7-Important 尾巾修复:find_elegant_variation 是模块里唯一不做引号豁免的
+        检测器——台词「那男人到底是谁?那少年又是谁?」里的泛称是角色的疑问用词,
+        不是叙述者刻意换用同义词避免重复,不该计入 aliases。落在引号区间内的泛称
+        出现不触发命中,叙述层原正例(test_elegant_variation)不受影响仍应命中。"""
+        from scribe3.critique import find_elegant_variation
+        t = "陈九望着他们。「那男人到底是谁?那少年又是谁?」"
+        assert find_elegant_variation(t, names=["陈九"]) == []
+
+    def test_elegant_variation_name_in_quote_not_anchor(self):
+        """同上修复的另一半:name 本身出现在引号内(台词里被人喊出名字)不作为触发
+        锚点——「陈九,你听我说。」是台词提及,不是叙述者的"点名"动作。"""
+        from scribe3.critique import find_elegant_variation
+        t = "「陈九,你听我说。」他望着窗外。那男人叹气。少年低头。"
+        assert find_elegant_variation(t, names=["陈九"]) == []
+
 
 class TestAiGrade:
     def test_clean_chapter_light(self):
@@ -992,17 +1008,117 @@ class TestAiGrade:
         g = aggregate_ai_grade(quality_flags(text), text)
         assert g["grade"] == "light" and g["gates_hit"] == []
 
-    def test_heavy_when_four_gates(self):
+    def test_heavy_by_indicators(self):
+        """6 指标本身高强度重复堆砌 → 多项指标各自越过 heavy 阈值,grade 由
+        max(tiers) 走到 heavy(与 Gate 数强制无关,即使 gates_hit>=4 也是"顺带满足",
+        非本测试要验证的分支)。原名 test_heavy_when_four_gates——审查发现该名字
+        暗示在测「Gate 数强制 heavy」分支,实际该文本 6 指标已直接判 heavy,即使把
+        _AI_GRADE_HEAVY_GATE_COUNT 从 4 改到 99(相当于关掉 Gate 强制分支)本测试
+        仍然绿,是假绿,故改名并新增 test_four_gates_force_heavy 补齐真正的 Gate
+        强制路径覆盖(见下)。"""
         from scribe3.critique import aggregate_ai_grade, quality_flags
         text = ("他心中一动,眼中闪过一丝狡黠。这不是恐惧而是愤怒。"
                 "他感到害怕。殊不知,他终于明白这就是命。") * 12
         g = aggregate_ai_grade(quality_flags(text), text)
         assert g["grade"] == "heavy" and len(g["gates_hit"]) >= 4
 
+    def test_four_gates_force_heavy(self):
+        """真正验证"命中 Gate 数 >= _AI_GRADE_HEAVY_GATE_COUNT 强制 heavy"这条分支:
+        构造 6 项指标全部落在 light/medium 档(没有任何一项自己够格 heavy)、但零星命中
+        4 个不同 Gate(A 禁用词「隐约」1 处、B 否定翻转「不是恐惧而是愤怒」1 处、
+        F 结尾升华「这一刻,...」句首 1 处、G 解释腔上帝感「殊不知」1 处)的文本——
+        纯靠 Gate 计数把 grade 从"本该是 medium"顶到 heavy。
+
+        变异验证(修复过程中人工执行,验证后已还原常量):把
+        _AI_GRADE_HEAVY_GATE_COUNT 从 4 改成 99 重跑,本测试断言的 grade 从 "heavy"
+        变成 "medium"(gates_hit 仍是 ["A","B","F","G"],指标本身从未到 heavy)——
+        证明该分支确实被本测试覆盖到,不是像被替换掉的旧测试那样"改了阈值常量测试
+        仍然绿"的假绿。"""
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        fillers = (
+            "院子里的老槐树落了满地的叶子,风一吹又打着旋卷起来。"
+            "他把外套裹紧,慢慢走向巷口那盏昏黄的路灯。"
+            "隔壁修鞋匠的摊子已经收了,只剩一张空板凳歪在墙边。"
+            "巷子尽头的猫跳上矮墙,盯着他看了一会儿又跳了下去。"
+            "远处传来几声犬吠,很快又归于安静。"
+            "他低头看了看表,时间比想象中晚了许多。"
+            "路口的糖水铺子还亮着灯,老板娘正收拾着最后几张桌子。"
+            "自行车链条发出轻微的吱嘎声,一路陪着他走到桥边。"
+            "河面上飘着几片枯叶,顺着水流慢慢往下游去。"
+            "对面楼里传来收音机的声音,断断续续放着旧歌。"
+            "他数了数口袋里剩下的硬币,刚好够买一碗面。"
+            "面馆的老板认得他,笑着多加了一个卤蛋。"
+            "他坐在角落的位置,慢慢地把面吃完。"
+            "走出面馆时,天边已经泛起一点鱼肚白。"
+        )
+        text = (
+            "这一刻,他终于放下了心中的石头。"  # Gate F:句首升华
+            "窗外隐约传来钟声,一下一下敲得人心里发沉。"  # Gate A:禁用词「隐约」1 处
+            "这不是恐惧而是愤怒,他攥紧了拳头站在原地。"  # Gate B:否定翻转 1 处
+            "殊不知,那把旧伞早已经不知去向,被人顺手扔进了河里。"  # Gate G:上帝视角 1 处
+            + fillers  # 纯填充叙述,不触发任何检测器,只用来把 banned_density 稀释到 medium 档
+        )
+        g = aggregate_ai_grade(quality_flags(text), text)
+        for name, ind in g["indicators"].items():
+            assert ind["tier"] != "heavy", f"{name} 不该到 heavy 档(应全是 light/medium):{ind}"
+        assert set(g["gates_hit"]) == {"A", "B", "F", "G"}
+        assert g["grade"] == "heavy", "6 指标均未到 heavy,只能是 Gate 数(>=4)强制升级"
+
     def test_gate_mapping_keys(self):
         from scribe3.critique import aggregate_ai_grade, quality_flags
         g = aggregate_ai_grade(quality_flags("平常句子。" * 30), "平常句子。" * 30)
         assert set(g["gates"].keys()) == set("ABCDEFG")
+
+    def test_empty_text_rhythm_uniform_value_is_string(self):
+        """A8-Minor 尾巾修复:空文本骨架分支给 indicators.rhythm_uniform.value 写的是
+        整数 0,与正常分支该键的字符串契约("ok"/"uniform")不一致——调用方若无差别地
+        当字符串用会拿到类型错误。空文本时 rhythm 未判定,语义上等价于"ok"(未见异常
+        节奏),故写 "ok" 而非 0。其余 5 个指标(非二值枚举语义)仍是数值 0,不受影响。"""
+        from scribe3.critique import aggregate_ai_grade
+        g = aggregate_ai_grade({}, "")
+        assert g["indicators"]["rhythm_uniform"]["value"] == "ok"
+        assert isinstance(g["indicators"]["rhythm_uniform"]["value"], str)
+        for name, ind in g["indicators"].items():
+            if name != "rhythm_uniform":
+                assert ind["value"] == 0
+
+    def test_precomputed_reused_not_recomputed(self, monkeypatch):
+        """A8-Important 尾巾修复:/post-check 在调用 aggregate_ai_grade 前已经对同一份
+        text 算过 find_duplicate_lines/find_emotion_telling/find_parallelism/
+        find_poetic_fragments 四项(拼装响应里的 duplicate_lines/emotion_telling/
+        parallelism/poetic_fragments 字段),aggregate_ai_grade 内部原先又对同一 text
+        重算一遍——纯浪费。传 precomputed 后应直接复用,不二次调用 find_emotion_telling
+        (用 monkeypatch 计数验证;其余三个检测器同一套 precomputed 机制,逻辑等价,
+        不逐一重复断言)。"""
+        import scribe3.critique as critique_mod
+        text = ("灯灭了。他坐在黑里听雨,雨点砸在瓦上,忽急忽缓。"
+                "窗缝里钻进一点凉风,吹得烛芯歪了一下。") * 3
+        calls: list[str] = []
+        orig_find_emotion_telling = critique_mod.find_emotion_telling
+
+        def spy(t):
+            calls.append(t)
+            return orig_find_emotion_telling(t)
+
+        monkeypatch.setattr(critique_mod, "find_emotion_telling", spy)
+        precomputed = {
+            "duplicate_lines": critique_mod.find_duplicate_lines(text),
+            "emotion_telling": orig_find_emotion_telling(text),
+            "parallelism": critique_mod.find_parallelism(text),
+            "poetic_fragments": critique_mod.find_poetic_fragments(text),
+        }
+        calls.clear()  # 上面为构造 precomputed 手动调用过一次,清空后只统计聚合函数内部的调用
+        qf = critique_mod.quality_flags(text)
+        critique_mod.aggregate_ai_grade(qf, text, precomputed=precomputed)
+        assert calls == [], "传入 precomputed 后 aggregate_ai_grade 不该再调用 find_emotion_telling"
+
+    def test_no_precomputed_still_computes(self):
+        """向后兼容:不传 precomputed(如 /check 端点)时行为与修复前一致,现算四项,
+        不因新增可选参数而回归。"""
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        text = "灯灭了。他坐在黑里听雨,雨点砸在瓦上,忽急忽缓。" * 3
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["grade"] in ("light", "medium", "heavy")
 
 
 # ===== 方案A任务9:标点归一建议生成器(report-only,移植 oh-story

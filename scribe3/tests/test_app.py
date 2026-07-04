@@ -2020,6 +2020,41 @@ def test_post_check_returns_punct_suggestions(store):
     assert r["punct_suggestions"] and r["punct_suggestions"][0]["suggestion"] == "到"
 
 
+def test_post_check_ai_grade_reuses_precomputed_detectors(store, monkeypatch):
+    """A8-Important 尾巾修复:/post-check 组装响应时已经对 req.prose 跑过
+    find_duplicate_lines/find_emotion_telling/find_parallelism/find_poetic_fragments
+    (即响应里的 duplicate_lines/emotion_telling/parallelism/poetic_fragments 字段),
+    调 aggregate_ai_grade 时应把这四项通过 precomputed 参数直接传进去复用,而不是让
+    aggregate_ai_grade 内部对同一份文本重新跑一遍。monkeypatch aggregate_ai_grade
+    捕获调用参数,断言 precomputed 四个键齐全且值与响应里对应字段完全一致(同一份
+    结果被复用,不是又现算了一份等值的)。"""
+    import scribe3.critique as C
+    A.set_store(store)
+    prose = "三——五天后他就到了。这不是恐惧而是愤怒。普通句子。"
+    captured = {}
+    orig = C.aggregate_ai_grade
+
+    def spy(flags, text, precomputed=None):
+        captured["precomputed"] = precomputed
+        return orig(flags, text, precomputed=precomputed)
+
+    monkeypatch.setattr(C, "aggregate_ai_grade", spy)
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""})
+    assert r.status_code == 200, r.text
+    precomputed = captured.get("precomputed")
+    assert precomputed is not None, "/post-check 应把 precomputed 传给 aggregate_ai_grade"
+    assert set(precomputed.keys()) == {
+        "duplicate_lines", "emotion_telling", "parallelism", "poetic_fragments"
+    }
+    body = r.json()
+    assert precomputed["duplicate_lines"] == body["duplicate_lines"]
+    assert precomputed["emotion_telling"] == body["emotion_telling"]
+    assert precomputed["parallelism"] == body["parallelism"]
+    assert precomputed["poetic_fragments"] == body["poetic_fragments"]
+
+
 def test_post_check_returns_issues_with_range(store):
     """/post-check 返回顶层 issues 字段;AI腔 issue 含正确 range。"""
     prose = "那不是恐惧——是渴望。"

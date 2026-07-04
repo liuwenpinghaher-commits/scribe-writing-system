@@ -2612,10 +2612,18 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded_stages.append("find_watch_regression")
 
     # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,记 degraded,不 500)。
+    # 计划A尾巾(A8-Important):dup_lines/emotion_telling/parallelism/poetic_fragments
+    # 上面已经算过一遍,precomputed 传进去复用,避免 aggregate_ai_grade 内部对同一份
+    # req.prose 重新跑一遍这四个检测器。
     ai_grade = None
     try:
         from scribe3.critique import aggregate_ai_grade
-        ai_grade = aggregate_ai_grade(qf, req.prose)
+        ai_grade = aggregate_ai_grade(qf, req.prose, precomputed={
+            "duplicate_lines": dup_lines,
+            "emotion_telling": emotion_telling,
+            "parallelism": parallelism,
+            "poetic_fragments": poetic_fragments,
+        })
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check aggregate_ai_grade 失败: %s", e)
         degraded = True
