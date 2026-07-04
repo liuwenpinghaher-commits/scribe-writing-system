@@ -484,7 +484,7 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
 
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
                   allow_words: set[str] | None = None) -> dict:
-    """聚合五类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    """聚合六类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
     allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。"""
     return {
         "repetition": find_repetitions(text),
@@ -492,6 +492,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
         "purple": find_purple_prose(text, extra_patterns),
         "ai_tics": find_ai_tics(text, allow_words),
         "oversaturation": find_oversaturation(text),
+        "god_view": find_god_view(text),
     }
 
 
@@ -531,7 +532,7 @@ def locate_phrase(text: str, phrase: str, max_hits: int = 20) -> list[tuple[int,
 
 def quality_issues(text: str, extra_patterns: list[str] | None = None,
                    allow_words: set[str] | None = None) -> list[dict]:
-    """五类 QC 的"带 offset"展开形式(与 quality_flags 并存)。
+    """六类 QC 的"带 offset"展开形式(与 quality_flags 并存)。
     仅对"白送类"(finditer 直接给 offset)和"去空白 n-gram 可 locate_phrase"的类别补 range。
     返回结构: {type, message, text, range:[start,end], meta}。
     range 为 None 表示无法定位(前端兜底用 text.indexOf 回退)。
@@ -619,6 +620,22 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
 
     # ⑥ 过饱和 — 密度超阈值的类别,用 finditer 逐处命中收 offset
     issues.extend(_oversaturation_issues(s))
+
+    # ⑦ 上帝视角/解释腔 — find_god_view 白送 offset,逐条展开
+    _god_view_msg = {
+        "god_spoiler": "上帝视角/解释腔:剧透式全知插话",
+        "explain_causality": "上帝视角/解释腔:替读者点破因果",
+        "summarize": "上帝视角/解释腔:替角色心理下总结",
+        "sublimation": "上帝视角/解释腔:升华式盖棺陈词",
+    }
+    for hit in find_god_view(s):
+        issues.append({
+            "type": "god_view",
+            "message": _god_view_msg.get(hit["kind"], "上帝视角/解释腔"),
+            "text": hit["phrase"],
+            "range": hit["range"],
+            "meta": {"kind": hit["kind"]},
+        })
 
     return issues
 
@@ -732,7 +749,9 @@ def build_discipline_prompt(text: str, brief: str = "", known: dict | None = Non
         "① double_climax:出现第二场打斗/救援/开挂,或偷跑了本不属于本章的后续剧情、凭空发明新登场角色;\n"
         "② voice_collapse:声细如蚊/半截就断的 terse 角色崩成大段流畅独白、系统结算音、或与主角同温;\n"
         "③ exposition_dump:大段身世/前史/规则的集中倾泻(本该零星渗出);\n"
-        "④ knowledge_leak:某角色说出或表现出知晓【其视角不可能知道】的他人私密信息。\n"
+        "④ knowledge_leak:某角色说出或表现出知晓【其视角不可能知道】的他人私密信息;\n"
+        "⑤ god_view:评判性副词补语(如“关切得恰到好处”)、剧透点破潜台词(如“谁都看得出他在撒谎”)、"
+        "定性盖棺比喻——属上帝腔,标记之(这些无标志词的隐蔽层交你语义判断,不做正则)。\n"
         "若违规,找出正文里【复发/穿帮开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
         '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。'
         + kb + "\n\n【正文】\n" + text)
@@ -986,6 +1005,46 @@ def _strip_quoted(text: str) -> str:
     for rx in _QUOTED_SPANS:
         s = rx.sub("", s)
     return s
+
+
+def _quoted_ranges(text: str) -> list[tuple[int, int]]:
+    """7 对引号包裹片段在原文里的 [start,end) 区间(与 _strip_quoted 共用同一份
+    _QUOTED_SPANS,只是不删字符、只记区间)。与 A3 的 _allow_spans 同为"区间列表"手法,
+    供 find_god_view 判定命中是否落在台词/弹幕内——叙述层才算破 POV,人物台词里说
+    "殊不知"只是口癖,不算上帝视角。"""
+    s = text or ""
+    spans: list[tuple[int, int]] = []
+    for rx in _QUOTED_SPANS:
+        for m in rx.finditer(s):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+# ==== 方案A任务4:上帝视角/解释腔检测器(find_god_view)====
+# 纯静态语言指纹,与 verify.py 的 find_leaks(知识帧 fact-leak 检测,判"角色说出其视角
+# 不可能知道的信息")分工不同——那里查的是知识账本语义,这里只查字面句式。
+# 归位纪律:①"这意味着/正是因为"已在 _EXPLAIN(find_oversaturation 管),此处只收
+# "之所以…是因为";②"原来…"已被 LUANSHI_PURPLE_SEEDS[0] 部分覆盖,此处不再收。
+_GOD_VIEW_PATTERNS = [   # oh-story anti-ai-writing 模式8 + 总结/升华句式,纯语言层
+    ("god_spoiler", re.compile(r"(她|他)不知道的是|殊不知|多年以后|冥冥之中|仿佛预示着")),
+    ("explain_causality", re.compile(r"之所以[^。！？\n]{1,30}(?:，)?是因为")),
+    ("summarize", re.compile(r"(?:他|她)(?:终于明白|这才意识到|这才明白)|此刻[，,](?:他|她)")),
+    ("sublimation", re.compile(r"^(?:这一刻|这就是)[^。！？\n]{2,30}[。！？]", re.M)),
+]
+
+
+def find_god_view(text: str) -> list[dict]:
+    """上帝视角/解释腔语言指纹(oh-story anti-ai-writing 模式8)。对话内豁免(叙述层才算破 POV)。
+    与 verify.find_leaks(知识帧事实泄露)分工:此处只查静态语言指纹,report-only,宁可漏不滥杀。"""
+    s = text or ""
+    quoted = _quoted_ranges(s)
+    out: list[dict] = []
+    for kind, pat in _GOD_VIEW_PATTERNS:
+        for m in pat.finditer(s):
+            if _in_any_span(m.start(), m.end(), quoted):
+                continue
+            out.append({"kind": kind, "phrase": m.group(0), "range": [m.start(), m.end()]})
+    return out
 
 
 def find_duplicate_lines(text: str, min_chars: int = 6) -> list[dict]:

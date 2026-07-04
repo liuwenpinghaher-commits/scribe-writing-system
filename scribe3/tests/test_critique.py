@@ -714,3 +714,45 @@ class TestQuoteExemption:
     def test_strip_quoted_seven_pairs(self):
         from scribe3.critique import _strip_quoted
         assert _strip_quoted("a「一」b『二』c【三】d“四”e‘五’f\"六\"g'七'h") == "abcdefgh"
+
+
+# ==== 方案A任务4:上帝视角检测器(find_god_view)====
+# 归位纪律:①"这意味着/正是因为"已在 _EXPLAIN(find_oversaturation 管),此处只收
+# "之所以…是因为";②不碰 verify.py 的 find_leaks(那是知识帧 fact-leak 检测器,与本检测器
+# 的静态语言指纹分工不同);③"原来…"已被 LUANSHI_PURPLE_SEEDS[0] 部分覆盖,此处不再收。
+
+class TestGodView:
+    def test_god_spoiler(self):
+        from scribe3.critique import find_god_view
+        hits = find_god_view("她不知道的是，桥下的水早已改了道。")
+        assert any(h["kind"] == "god_spoiler" for h in hits)
+
+    def test_shubuzhi(self):
+        from scribe3.critique import find_god_view
+        assert find_god_view("殊不知，那盏灯根本不是人点的。")
+
+    def test_duonianyihou(self):
+        from scribe3.critique import find_god_view
+        assert find_god_view("多年以后,他仍会想起这个雨夜。")
+
+    def test_explain_causality(self):
+        from scribe3.critique import find_god_view
+        assert any(h["kind"] == "explain_causality"
+                   for h in find_god_view("他之所以退后半步，是因为闻到了血腥味。"))
+
+    def test_summarize_psych(self):
+        from scribe3.critique import find_god_view
+        assert any(h["kind"] == "summarize" for h in find_god_view("他终于明白，这一切都是命。"))
+
+    def test_dialogue_exempt(self):
+        from scribe3.critique import find_god_view
+        assert not find_god_view("「殊不知他早跑了!」老板娘啐了一口。")
+
+    def test_normal_prose_clean(self):
+        from scribe3.critique import find_god_view
+        assert find_god_view("灯芯爆了个花。他伸手拢住风。") == []
+
+    def test_offsets_present(self):
+        from scribe3.critique import find_god_view
+        h = find_god_view("殊不知，灯早灭了。")[0]
+        assert h["range"] is not None
