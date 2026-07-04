@@ -1968,6 +1968,9 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) 
 #   ① numeric_range: 数字/汉字数字区间 X——Y(或 X—Y / X--Y)→ 建议"到";
 #   ② ellipsis:      句中 ……/ASCII ...(非数字区间)→ 建议"。"或"，"(上下文判定,见下);
 #   ③ double_hyphen:  半角双连字符 --(非数字区间)→ 建议"——"或删除(句首/引号后)。
+#   ④ 【未移植】JS 原版的冒号分支(前瞻后文出现"因为/原来/答案"等词 → 建议"："):
+#     那是改写器语义(替标点重排句子的语气),前瞻词表在中文叙述里误报面大
+#     ("因为"作普通连词满地都是),scribe3 守 report-only 纪律宁可漏不滥报,刻意不做。
 # 单独出现、不落入以上三类的 ——/—(如纯粹的插入语破折号)刻意不报——那是
 # find_ai_tics 的 em_dash 密度门(见 quality_flags["ai_tics"] 里 "kind":"em_dash")
 # 已经覆盖的信号,本函数重复上报只会制造噪声;两者可能同位置命中的去重合并
@@ -2032,10 +2035,16 @@ def normalize_punctuation_suggestions(text: str) -> list[dict]:
 
         if is_ellipsis:
             rest = s[end:].lstrip()
-            if not rest:
-                # 段尾:后面没有任何非空白内容,直接收尾;若省略号本身就在文本
-                # 起点(before==""),连句号也不必补,直接建议删除。
-                suggestion = "。" if before else ""
+            # A9 规格审查补丁:JS choosePauseReplacement 最前面的两条通用短路
+            # (double_hyphen 分支已对称实现,此前 ellipsis 分支漏移植)——
+            # 段首(before=="")或紧跟开括号/开引号的省略号是多余的开场符号,
+            # 直接建议删除,不落入下方句中"。/，"判定(那会误报)。
+            if not before or _PUNCT_OPENING_DELIM_RE.match(before):
+                suggestion = ""
+            elif not rest:
+                # 段尾:后面没有任何非空白内容,直接补句号收尾
+                # (段首情形已被上方短路接走,此处 before 必非空)。
+                suggestion = "。"
             elif _PUNCT_CLOSING_QUOTE_RE.match(rest[0]):
                 # 紧跟收尾引号(对齐 JS isClosingQuote 分支):前面已是句末标点
                 # 就不重复加句号,否则补句号收尾。

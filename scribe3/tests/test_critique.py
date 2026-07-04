@@ -1144,3 +1144,19 @@ class TestNormalizePunct:
         s = normalize_punctuation_suggestions("三——五天。")
         st, en = s[0]["range"]
         assert "三——五天。"[st:en] == "——"
+
+    def test_ellipsis_at_paragraph_start_suggests_delete(self):
+        """A9 规格审查补丁:ellipsis 分支缺 JS choosePauseReplacement 最前面的通用短路
+        (double_hyphen 分支已对称实现)——before==""(段首)时省略号是多余的开场符号,
+        应建议删除(suggestion=""),而不是像修复前那样误建议"，"。"""
+        from scribe3.critique import normalize_punctuation_suggestions
+        s = normalize_punctuation_suggestions("……天亮了，一切都结束了。")
+        assert s and s[0]["kind"] == "ellipsis" and s[0]["suggestion"] == ""
+
+    def test_ellipsis_after_opening_delim_suggests_delete(self):
+        """同上短路的另一半:before 是开括号/开引号(_PUNCT_OPENING_DELIM_RE)时——
+        如「（……）他没有再说话。」括号内起头的省略号——应建议删除(suggestion=""),
+        而不是像修复前那样误建议"。"。"""
+        from scribe3.critique import normalize_punctuation_suggestions
+        s = normalize_punctuation_suggestions("（……）他没有再说话。")
+        assert s and s[0]["kind"] == "ellipsis" and s[0]["suggestion"] == ""
