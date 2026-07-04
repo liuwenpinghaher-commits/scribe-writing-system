@@ -533,6 +533,9 @@ def find_tension_monotony(chapters_meta: list[dict]) -> list[dict]:
 
 def render_brief(sections: dict) -> str:
     parts = ["## 本章创作简报(章前组装,遵守但不复述)"]
+    pu = sections.get("purpose") or {}
+    if pu.get("text"):   # 北极星任务6:目的合同必达清单+滚入(空 delta 章不渲染)
+        parts.append(pu["text"])
     parts += list(sections.get("arcs") or [])
     pd = sections.get("promises") or {}
     if pd.get("directives"):
@@ -631,6 +634,17 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         "heartbeat": heartbeat_list(chars_hb, next_ch),
         "stale": stale_entity_directives(stale_rows, next_ch),
     }
+    # 北极星任务6:目的合同注入——本章必达清单 + 上章未达成滚入(与因果催收同渠道
+    # 语气);fail-soft:目的数据故障不拖垮简报其余部分。
+    try:
+        from scribe3.purpose import parse_deltas, render_purpose_section
+        _cur = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+        _prev = parse_deltas((st.get_chapter(max_ch) or {}).get("deltas")) if max_ch else []
+        sections["purpose"] = render_purpose_section(
+            _cur, [d for d in _prev if d.get("status") == "carried"])
+    except Exception as e:
+        _log.warning("assemble_chapter_brief purpose 段组装失败(fail-soft): %s", e)
+        sections["purpose"] = {"text": "", "count": 0}
     # 北极星任务2:因果欠账催收——近 _CAUSAL_LOOKBACK 章倒序收集 causal_complete 违规,
     # top-5 转译三选一软指令;全窗口无事件→no_event_data 整段不渲染;取数 fail-soft
     # (causal 数据故障不拖垮简报其余部分,警告级日志,不假绿吞错)。

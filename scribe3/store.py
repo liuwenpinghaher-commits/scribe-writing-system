@@ -1499,8 +1499,26 @@ class SurrealStore:
             degraded.append("ai_grade")
             advisory["ai_grade"] = None
             advisory["qc_breakdown"] = None
-        fulfillment = {"status": "not_available", "deltas": [],
-                       "note": "目的合同未启用(北极星任务6接入后此栏出真数据)"}
+        # 北极星任务6:目的合同接入后 fulfillment 出真数据(登记了 deltas 的章);
+        # 未登记章保持 not_available 占位。carried 链≥2 → alert(连续未达成告警,蓝图 §3-④)。
+        try:
+            rows = self._query("SELECT deltas FROM type::record('chapter',$s)", {"s": seq})
+            from scribe3.purpose import parse_deltas
+            ds = parse_deltas(rows[0].get("deltas") if rows else None)
+        except Exception:
+            degraded.append("fulfillment")
+            ds = []
+        if ds:
+            counts = {s: sum(1 for d in ds if d.get("status") == s)
+                      for s in ("planned", "achieved", "carried", "waived")}
+            chain = max(((seq - d["carried_from"]) for d in ds
+                         if d.get("status") == "carried" and d.get("carried_from") is not None),
+                        default=1 if counts["carried"] else 0)
+            fulfillment = {"status": "active", "total": len(ds), **counts,
+                           "carried_chain_max": chain, "alert": chain >= 2}
+        else:
+            fulfillment = {"status": "not_available", "deltas": [],
+                           "note": "本章未登记目的合同(空 delta 章照常可写)"}
         return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
                 "fulfillment": fulfillment, "degraded": degraded}
 
@@ -1648,7 +1666,7 @@ class SurrealStore:
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         rows = self._query(
             "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
-            "scene_truth,involved_characters,deductions "
+            "scene_truth,involved_characters,deductions,purpose_text,deltas "
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
@@ -1659,7 +1677,7 @@ class SurrealStore:
             r["beats"] = json.loads(raw_beats) if raw_beats else []
         except (ValueError, TypeError):
             r["beats"] = []
-        for _k in ("involved_characters", "deductions"):
+        for _k in ("involved_characters", "deductions", "deltas"):
             raw = r.get(_k)
             try:
                 r[_k] = json.loads(raw) if raw else []
@@ -3370,7 +3388,8 @@ class SurrealStore:
         if not exists:
             return False
         allowed = {"synopsis", "volume", "label", "title", "beats",
-                   "scene_truth", "involved_characters", "deductions"}
+                   "scene_truth", "involved_characters", "deductions",
+                   "purpose_text", "deltas"}   # 北极星任务6:目的合同两字段
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -3379,7 +3398,7 @@ class SurrealStore:
                 continue
             if k == "volume":
                 volume_id = v   # None = 清空, str = 新卷裸 id
-            elif k in ("beats", "involved_characters", "deductions"):
+            elif k in ("beats", "involved_characters", "deductions", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 import json
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)

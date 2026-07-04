@@ -2002,6 +2002,25 @@ def _final_reminder() -> str:
     )
 
 
+def _purpose_workflow_block(st, chapter: int) -> str:
+    """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
+    生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
+    (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
+    空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
+    try:
+        from scribe3.purpose import parse_deltas
+        ds = parse_deltas((st.get_chapter(chapter) or {}).get("deltas"))
+    except Exception:
+        ds = []
+    if ds:
+        return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
+                "验收验的是「状态变化发生没发生」,不是好不好。")
+    return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
+            "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
+            "有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
+            "空合同也可正常写作,此工序不阻塞。")
+
+
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
@@ -2036,6 +2055,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         logging.getLogger("scribe3").debug(
             "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
             chapter, len(ded))
+    instructions += _purpose_workflow_block(st, chapter)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
 
@@ -2190,10 +2210,15 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
             f"第 {attempt} 轮未产出合格章稿(无 scope=chapter 围栏且散文不足 "
             f"{_FALLBACK_MIN_CHARS} 字)——请检查驱动语是否要求用围栏交稿"))
 
+    _last_post: dict = {}   # 北极星任务6:finalize 结算要用最后一轮 fulfillment 结果
+
     def _post_check(prose: str) -> dict:
-        return post_check(PostCheckReq(prose=prose, focalizer=req.focalizer,
+        resp = post_check(PostCheckReq(prose=prose, focalizer=req.focalizer,
                                        short_mode=req.short_mode),
                           seq=req.chapter, work=work)
+        _last_post.clear()
+        _last_post.update(resp)
+        return resp
 
     def _persist_version(prose: str, attempt: int, verdict: str) -> str:
         return st.add_chapter_version(
@@ -2208,6 +2233,15 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
+        # 北极星任务6:pass 章结算目的合同(achieved 置位/未达成 carried 滚下章)——
+        # 用最后一轮 post-check 的 fulfillment(含认知类 LLM 判定),fail-soft。
+        try:
+            from scribe3.purpose import settle_purpose
+            _items = (_last_post.get("fulfillment") or {}).get("items") or []
+            if _items:
+                settle_purpose(st, req.chapter, _items)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("loop 目的合同结算失败(忽略): %s", e)
         # P0门审查 P1-3:loop 的同步 ingest 也走 _pending_ingest 在途护栏——与 /ingest、
         # _bg_ingest 共用同一 (work,seq) 集合,防 loop 长请求期间用户手点反哺/存稿触发的
         # ingest 与本次交错(knows/char_state/motif_instance 双份或互删)。
@@ -2289,6 +2323,8 @@ class ChapterMetaReq(BaseModel):
     scene_truth: str | None = None          # 场景真相(全知)
     involved_characters: list | None = None # 涉及角色 id
     deductions: list | None = None          # [{character_id, character_name, prose}]
+    purpose_text: str | None = None         # 北极星任务6:一句话章节目的
+    deltas: list | None = None              # 北极星任务6:delta 清单(登记时校验+预演)
 
 
 @app.patch("/chapters/{seq}")
@@ -2298,6 +2334,20 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
+    # 北极星任务6:目的合同登记校验——条数量控 + 认知类写前预演(不可实现 → 422 带原因,
+    # 蓝图 §3-④:本体第一次在写之前对"该写什么"说出有内容的话)。
+    if "deltas" in fields and fields["deltas"] is not None:
+        from scribe3.purpose import parse_deltas, rehearse_delta, validate_deltas
+        _ds = parse_deltas(fields["deltas"])
+        _err = validate_deltas(_ds)
+        if _err:
+            raise HTTPException(status_code=422, detail=_err)
+        _foc = (_store_for(work).get_chapter(seq) or {}).get("focalizer")
+        for _d in _ds:
+            _rerr = rehearse_delta(_store_for(work), seq, _d, _foc)
+            if _rerr:
+                raise HTTPException(status_code=422, detail=_rerr)
+        fields["deltas"] = _ds   # 存规范化后的清单
     try:
         ok = _store_for(work).update_chapter_meta(seq, fields)
     except ValueError as e:
@@ -3010,10 +3060,41 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("merge_findings")
 
+    # 北极星任务6:目的合同写后验收段(蓝图 §3-④)——结构类查库零噪声;认知类
+    # LLM 三值判定(FABLES:supported 须逐字引文),只进面板与 advisory,永不进
+    # blocking(宪法)。/post-check 是 read-only:此处只验收不落库,结算(settle)
+    # 挂 loop pass finalize 与 /ingest 成功路径。fail-soft。
+    fulfillment: dict = {"status": "not_available", "items": []}
+    try:
+        from scribe3.purpose import (check_fulfillment_structural,
+                                     judge_knowledge_delta, parse_deltas)
+        _pc_ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+        if _pc_ds:
+            _items = check_fulfillment_structural(st, seq, _pc_ds)
+            _kn_fn = _complete_fn
+            if _kn_fn is None:
+                from scribe3.llm import hermes_complete as _kn_fn
+            for _it in _items:
+                if (_it["kind"] == "knowledge" and _it["verdict"] == "not_checkable"
+                        and _it.get("status") not in ("achieved", "waived")):
+                    _j = judge_knowledge_delta(req.prose, _it, _kn_fn)
+                    _it["verdict"] = _j["verdict"]
+                    if _j.get("evidence"):
+                        _it["evidence"] = _j["evidence"]
+            fulfillment = {"status": "active", "items": _items,
+                           "achieved": sum(1 for i in _items
+                                           if i["verdict"] in ("achieved", "supported")),
+                           "total": len(_items)}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check fulfillment 失败(fail-soft): %s", e)
+        degraded = True
+        degraded_stages.append("fulfillment")
+
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
+        "fulfillment": fulfillment,
         "discipline": discipline,
         "degraded": degraded,
         "degraded_stages": degraded_stages,
@@ -3210,6 +3291,16 @@ def ingest(seq: int, work: str = "main"):
         st = _store_for(work)
         r = ingest_chapter(st, seq, hermes_complete)
         if not r.get("parse_failed"):
+            # 北极星任务6:手动链路结构类结算(认知类留面板人工;loop 链有完整结算)。
+            # settle 在 scorecard 刷新之前——刷新要读结算后的 deltas 状态。
+            try:
+                from scribe3.purpose import (check_fulfillment_structural,
+                                             parse_deltas, settle_purpose)
+                _ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+                if _ds:
+                    settle_purpose(st, seq, check_fulfillment_structural(st, seq, _ds))
+            except Exception as e:
+                logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
         return r
     finally:

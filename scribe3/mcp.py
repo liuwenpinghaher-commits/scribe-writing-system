@@ -27,6 +27,7 @@ def set_store(s) -> None:
 
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
+                "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
@@ -630,6 +631,32 @@ async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
         "s3_plant_promise", ok,
         lambda: _store.plant_promise(text, setup_chapter, kind=kind, tier=tier,
                                      resolution=resolution))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
+                              deltas_json: str = "[]") -> dict:
+    """登记章节目的合同(写,待批)——北极星任务6(蓝图 §3-④):与作者聊定本章目的后,
+    把目的翻译成本章承诺改变的世界状态清单(delta),写前登记、写后逐条验收「做没做」。
+    purpose_text:一句话目的。deltas_json:JSON 数组,每条
+    {kind: knowledge|promise|fact|heat, subject, predicate, ref?}——ref 是 fact/promise id
+    或 "甲|乙" 关系对(带 ref 才能机器验收);≤7 条(目的过载即拒)。
+    认知类带 ref 的 delta 做写前预演:限知结构下不可实现 → 直接拒绝并给原因。"""
+    from scribe3.purpose import parse_deltas, rehearse_delta, validate_deltas
+    ds = parse_deltas(deltas_json)
+    err = validate_deltas(ds)
+    if err:
+        return {"error": err}
+    foc = (_store.get_chapter(chapter) or {}).get("focalizer")
+    for d in ds:
+        rerr = rehearse_delta(_store, chapter, d, foc)
+        if rerr:
+            return {"error": rerr}
+    ok = await _ask(ctx, f"登记第{chapter}章目的合同:{purpose_text}({len(ds)}条delta)")
+    return commit_if_approved(
+        "s3_register_purpose", ok,
+        lambda: _store.update_chapter_meta(chapter, {"purpose_text": purpose_text,
+                                                     "deltas": ds}))
 
 
 @mcp.tool(annotations=_RW)
