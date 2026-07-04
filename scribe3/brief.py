@@ -11,6 +11,60 @@ _SALIENCE_GAP_MAX = 3   # 距上次露面超过此章数 → 兑现前先刷新
 _LOOP_CAP = 12          # 开环加权上限
 _M6_BUDGET_CHARS = 1200  # M6 设定注入字符预算(全知分支;超出按 always优先/priority 降序裁)
 
+# ===== 方案B任务17 · 平台留存轴确定性指标(纯文本层)=====
+# 与 scribe3/critique.py 的 _PLATFORM_RUBRICS[platform]["word_range"] 数值保持一致
+# (人工同步,故意不跨模块 import——tension_deterministic 签名 (st, seq) 有状态,平台
+# 确定性指标只吃纯文本、无状态,分开更干净;critique.py 的 build_platform_rubric_prompt
+# 走 LLM 轴,本处只做"可用正则/计数机械判定"的那部分)。
+_PLATFORM_WORD_RANGE = {
+    "qidian": (2000, 4000),
+    "fanqie": (1500, 2500),
+    "zhihu": (8000, 13000),
+}
+_VISIBLE_CHAR_RE = re.compile(r"[一-鿿Ａ-ｚA-Za-z0-9]")   # 可见字符:CJK+全角/半角字母数字,剔标点空白
+_QUOTE_SPAN_RE = re.compile(r"[“「][^”」]{0,2000}[”」]", re.S)   # 对话span:中文弯引号/直角引号包裹
+
+
+def _visible_len(s: str) -> int:
+    """可见字数(剔除标点/空白后的有效字符计数),口径同 critique._degen_visible_length。"""
+    return len(_VISIBLE_CHAR_RE.findall(s or ""))
+
+
+def platform_deterministic(text: str, platform: str) -> list[dict]:
+    """平台留存轴里"可用正则/计数机械判定"的确定性指标(独立新函数,不动
+    tension_deterministic——它签名 (st, seq) 有状态,平台确定性指标是纯文本层,
+    分开更干净)。返回 [{"metric","value","ok","note"}]。
+
+    - word_count:可见字数(剔标点/空白)+ 是否落在该平台章字数参考区间(word_range)。
+    - dialogue_ratio:引号(“”「」)内可见字数 / 全文可见字数——对话密度参考,无固定
+      阈值判 pass/fail(ok 恒 True,仅供作者/编排层参考)。
+
+    爽点密度/情绪节点密度等指标需要"标注情绪节点/剧情事件"才能判——机器读不懂语义,
+    不在此覆盖,走 critique.build_platform_rubric_prompt 的 LLM 轴。
+
+    非法 platform(不在三者之内)直接 ValueError,与 critique.build_platform_rubric_prompt
+    同一口径——平台留存不是默认轴,拼错平台名不该静默退化。
+    """
+    if platform not in _PLATFORM_WORD_RANGE:
+        raise ValueError(f"未知平台: {platform!r},仅支持 {tuple(_PLATFORM_WORD_RANGE)}")
+    lo, hi = _PLATFORM_WORD_RANGE[platform]
+    wc = _visible_len(text)
+    items = [{
+        "metric": "word_count",
+        "value": wc,
+        "ok": lo <= wc <= hi,
+        "note": f"该平台章字数参考区间 {lo}-{hi},实际可见字数 {wc}",
+    }]
+    quoted_len = sum(_visible_len(m.group(0)) for m in _QUOTE_SPAN_RE.finditer(text or ""))
+    ratio = round(quoted_len / wc, 4) if wc else 0.0
+    items.append({
+        "metric": "dialogue_ratio",
+        "value": ratio,
+        "ok": True,   # 无固定阈值,仅供参考
+        "note": f"引号内可见字数 {quoted_len} / 全文可见字数 {wc}",
+    })
+    return items
+
 
 def arc_directive(name: str, anchors: dict, arc_plan: list[dict],
                   lie_belief: int | None, next_ch: int) -> str:

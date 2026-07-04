@@ -1431,6 +1431,127 @@ def parse_reversal_report(raw: str) -> dict | None:
         return None
 
 
+# ==== 方案B任务17:平台留存轴 + S1-S4 裁决(oh-story story-review/references/
+#      rubrics/{qidian,fanqie,zhihu}.md 提炼,真实文件已核实存在——非按要点臆造)====
+# 背景(主篇3.4):build_tension_rubric_prompt 只有内在戏剧轴,返布尔无严重度无裁决;
+# 本节补平台留存轴,输出与 build_reversal_rubric_prompt 同一套统一 FindingsSchema
+# (六字段 + severity S1-S4 + category="platform" + verdict,方案B任务18 已备)。
+#
+# 严肃向定位:平台轴【可选】——只有调用方显式传 platform 才启用本函数;不传 platform
+# 时写作/评审主链路完全不受影响。app 端点接线不在本任务(app.py 被 B24 占用):
+# TODO(接线,后续任务) 按 work.target_platform 非空才调 build_platform_rubric_prompt,
+# 目标端点可挂在 /post-check 之后或独立 /platform-check,当前 critique/brief 层已就绪。
+#
+# 每平台三块:name(展示名)+ word_range(章字数区间,供 prompt 提示 & platform_deterministic
+# 复用)+ deterministic(可用正则/计数判定的口径,列在 prompt 里给 LLM 对齐平台惯例参考,
+# 真正的确定性判定见 brief.platform_deterministic)+ llm_axes(需要通读语义才能判的轴,
+# 交给 LLM 逐项裁决)。
+_PLATFORM_RUBRICS: dict[str, dict] = {
+    "qidian": {
+        "name": "起点中文网",
+        "word_range": (2000, 4000),
+        "deterministic": [
+            "爽点密度:每 3000 字 ≥1 情绪节点(升级/打脸/获宝),连续 5000 字无情绪节点则 FAIL",
+            "黄金三章:前三章决定读者去留——须强钩子前置、爽点提前、人设速立,不得铺垫拖沓",
+            "钩子密度:每章结尾须有悬念/钩子,连续 3 章结尾无钩子则 FAIL",
+        ],
+        "llm_axes": [
+            "升级节奏:每 50 章应有等级/实力突破,100 章无任何升级为 FAIL",
+            "金手指使用:每章提及或使用金手指(系统/戒指/功法),连续 5 章未提及为 FAIL",
+            "角色存在感:主角每章须出场并推进,连续 2 章不出场或无推进为 FAIL",
+            "追读比预估:章尾钩子+情绪连续性→预估追读比走高;连续 3 章无钩子或情绪断裂则预估走低",
+        ],
+    },
+    "fanqie": {
+        "name": "番茄小说",
+        "word_range": (1500, 2500),
+        "deterministic": [
+            "开头吸引力:前 3 段须含冲突/悬念/钩子,纯描写/背景介绍则 FAIL",
+            "情绪节点:每 1000 字须有情绪起伏,连续 2000 字情绪平直则 FAIL",
+        ],
+        "llm_axes": [
+            "读者留存:每章结尾须有翻页动力(悬念/反转/新信息),连续 3 章无翻页动力为 FAIL",
+            "题材匹配:内容须符合标签类型(如甜宠/逆袭/重生),偏离标签类型超过 3 章为 FAIL",
+            "算法友好:短段落、快节奏、高信息密度,大段落/慢节奏/低信息密度为 FAIL",
+            "完读率预估:3 章 Hook 有效+节奏不拖→预估完读率走高;前 3 章无 Hook 或连续拖沓则预估走低",
+        ],
+    },
+    "zhihu": {
+        "name": "知乎盐言故事",
+        "word_range": (8000, 13000),
+        "deterministic": [
+            "字数控制:8000-13000 字(盐言标准),超出或不足为 FAIL",
+            "开头钩子:第一句须含信息量(动作/冲突/悬念),纯描写/背景为 FAIL",
+        ],
+        "llm_axes": [
+            "第一人称:全文须用「我」视角(除非多视角设计),否则 FAIL",
+            "情绪拉扯:每段须有情绪变化(期待→失望→惊喜等),连续 3 段情绪无变化为 FAIL",
+            "反转设计:至少 1 个有效反转(前文有伏笔支撑),无反转或反转无伏笔支撑为 FAIL",
+            "结尾余韵:结尾须留有思考空间/情感余韵,完全封闭无回味为 FAIL",
+            "完读率/开头跳失率预估:第一句含动作/冲突/悬念→跳失率预估走低、完读率预估走高;"
+            "第一句纯描写/背景则跳失率预估走高、完读率预估走低",
+        ],
+    },
+}
+
+
+def build_platform_rubric_prompt(prose: str, platform: str) -> str:
+    """平台留存轴 rubric prompt(oh-story rubrics/{qidian,fanqie,zhihu}.md 提炼)。
+
+    非法 platform(不在三者之内)直接 ValueError——平台留存不是内在戏剧轴的默认项,
+    拼错平台名不该静默退化成某个平台的规则,调用方须显式确认平台。
+
+    输出契约与 build_reversal_rubric_prompt 同一套统一 FindingsSchema(六字段 +
+    severity S1-S4 + category 固定 "platform" + verdict APPROVE|CONCERNS|REJECT),
+    供多 reviewer 结果经 normalize_findings/merge_verdicts 统一合并。
+
+    接线说明(app 端点接线不在本任务,app.py 被并行任务占用):按 work.target_platform
+    非空才调用本函数(严肃向作品默认不传 platform,平台轴整体不触发)。
+    """
+    rubric = _PLATFORM_RUBRICS.get(platform)
+    if rubric is None:
+        raise ValueError(f"未知平台: {platform!r},仅支持 {tuple(_PLATFORM_RUBRICS)}")
+    det = "\n".join(f"  · {d}" for d in rubric["deterministic"])
+    axes = "\n".join(f"  · {a}" for a in rubric["llm_axes"])
+    lo, hi = rubric["word_range"]
+    return (
+        ANTI_SYCOPHANCY + "\n\n"
+        f"你是【{rubric['name']}】平台留存评审。读下面一章小说正文,评估其在本平台的读者"
+        f"留存表现(该平台章节字数参考区间:{lo}-{hi} 字)。\n"
+        "【平台惯例口径(部分可由确定性指标核验,供你判断严重度时参考)】\n" + det + "\n"
+        "【平台留存轴(逐项判定,任一命中即问题)】\n" + axes + "\n\n"
+        '只输出一行 JSON:{"findings":[{"severity":"S1"|"S2"|"S3"|"S4",'
+        '"category":"platform","location":定位,"evidence":引文,'
+        '"issue":问题描述,"fix":修复建议}],"verdict":"APPROVE"|"CONCERNS"|"REJECT"}。\n\n'
+        f"正文:\n{prose}")
+
+
+def parse_platform_report(raw: str) -> dict | None:
+    """解析平台留存评审 JSON。镜像 parse_tension_report 的容错(提取首个 {...} 块,
+    json.loads,坏 JSON/截断/空/None 一律 fail-safe 返回 None)。
+
+    额外两步归一化(平台轴接入统一编排前置清洗):
+    - findings 过 normalize_findings 清洗(非法 severity/category 整条丢弃,按
+      severity 排序);
+    - verdict 非法值(不在 APPROVE/CONCERNS/REJECT 三者)归 CONCERNS——保守,不能盖章。
+    """
+    try:
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        if not m:
+            _log.warning("parse_platform_report 无 JSON 块: raw[:120]=%r", (raw or "")[:120])
+            return None
+        d = json.loads(m.group(0))
+    except Exception as e:
+        _log.warning("parse_platform_report 失败: %s | raw[:120]=%r", e, (raw or "")[:120])
+        return None
+    verdict = d.get("verdict")
+    if verdict not in ("APPROVE", "CONCERNS", "REJECT"):
+        if verdict is not None:
+            _log.warning("parse_platform_report 遇到非法 verdict,按 CONCERNS 计: %r", verdict)
+        verdict = "CONCERNS"
+    return {"findings": normalize_findings(d.get("findings") or []), "verdict": verdict}
+
+
 # ==== M2: 确定性文本质检——整行精确复读 + 叙述层情感直说 ====
 
 # 句子切分:按换行符 + 中文句末标点(。！？…)拆句(带 capture group 保留分隔符)

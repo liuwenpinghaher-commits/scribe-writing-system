@@ -1361,3 +1361,42 @@ class TestMergeFindings:
         issues = [{"type": "ai_tics", "message": "m", "text": "——", "range": [5, 7], "meta": orig_meta}]
         merge_findings(issues, [])
         assert "fix_action" not in orig_meta
+
+
+# ==== 方案B任务17:平台留存轴 + S1-S4 裁决(oh-story story-review/references/rubrics/
+#      {qidian,fanqie,zhihu}.md)。严肃向定位:平台轴可选——只有显式传 platform 才用。====
+
+class TestPlatformRubric:
+    def test_qidian_prompt_content(self):
+        from scribe3.critique import build_platform_rubric_prompt
+        p = build_platform_rubric_prompt("正文……", platform="qidian")
+        assert "爽点密度" in p and "黄金三章" in p
+        assert "找问题" in p          # ANTI_SYCOPHANCY
+        assert "S1" in p and "verdict" in p   # FindingsSchema 输出契约
+
+    def test_fanqie_and_zhihu_supported(self):
+        from scribe3.critique import build_platform_rubric_prompt
+        assert "情绪节点" in build_platform_rubric_prompt("x", platform="fanqie")
+        assert "完读率" in build_platform_rubric_prompt("x", platform="zhihu")
+
+    def test_unknown_platform_raises(self):
+        from scribe3.critique import build_platform_rubric_prompt
+        import pytest
+        with pytest.raises(ValueError):
+            build_platform_rubric_prompt("x", platform="weibo")
+
+    def test_parse_platform_report(self):
+        from scribe3.critique import parse_platform_report
+        raw = '{"findings":[{"severity":"S2","category":"platform","location":"ch1","evidence":"e","issue":"i","fix":"f"}],"verdict":"CONCERNS"}'
+        rep = parse_platform_report(raw)
+        assert rep["verdict"] == "CONCERNS" and rep["findings"][0]["severity"] == "S2"
+
+    def test_parse_platform_report_bad_json(self):
+        from scribe3.critique import parse_platform_report
+        assert parse_platform_report("不是JSON") is None
+
+    def test_parse_normalizes_findings(self):
+        from scribe3.critique import parse_platform_report
+        # findings 经 normalize_findings 清洗:非法 severity 丢弃
+        raw = '{"findings":[{"severity":"P0","category":"platform","location":"","evidence":"","issue":"","fix":""}],"verdict":"APPROVE"}'
+        assert parse_platform_report(raw)["findings"] == []

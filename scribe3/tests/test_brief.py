@@ -310,3 +310,21 @@ class TestEmotionModuleRecall:
     def test_bad_json_tolerated(self):
         mats = [{"kind": "emotion_module", "title": "坏卡", "content": "不是JSON"}]
         assert emotion_module_recall(mats, target_emotion="憋屈")["text"] == ""
+
+
+# ===== 方案B任务17 · 平台留存轴确定性指标(纯文本层,独立于 tension_deterministic)=====
+
+class TestPlatformDeterministic:
+    def test_dialogue_ratio(self):
+        from scribe3.brief import platform_deterministic
+        # 对话占比:引号内字数/总可见字数
+        t = "「你走。」他说。「不走。」她答。叙述文字若干若干。"
+        items = platform_deterministic(t, platform="qidian")
+        dr = next(i for i in items if i["metric"] == "dialogue_ratio")
+        assert 0 < dr["value"] < 1
+
+    def test_word_count_range(self):
+        from scribe3.brief import platform_deterministic
+        items = platform_deterministic("字" * 100, platform="qidian")
+        wc = next(i for i in items if i["metric"] == "word_count")
+        assert wc["value"] == 100 and wc["ok"] is False   # 起点章通常 2000-4000,100 字不达标
