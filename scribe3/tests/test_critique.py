@@ -870,3 +870,32 @@ class TestDegeneration:
     def test_mojibake(self):
         from scribe3.critique import find_degeneration
         assert any(h["severity"] == "blocking" for h in find_degeneration("他说�了一半。"))
+
+
+# ==== 方案A任务6:句长方差/burstiness 检测器(find_rhythm_uniformity)====
+# GPTZero/DetectGPT/Binoculars 公认头号 AI 破绽:句长分布异常均匀("节拍器")。
+# 切句→剥引号只算叙述句→CV(变异系数)+相邻句长差比。report-only,句数不足不判。
+
+class TestRhythmUniformity:
+    def _mk(self, lens):  # 造指定句长序列的文本
+        return "".join("字" * n + "。" for n in lens)
+
+    def test_metronome_flagged(self):
+        from scribe3.critique import find_rhythm_uniformity
+        r = find_rhythm_uniformity(self._mk([18] * 30))
+        assert r and r["verdict"] == "uniform" and r["cv"] < 0.1
+
+    def test_bursty_human_prose_clean(self):
+        from scribe3.critique import find_rhythm_uniformity
+        r = find_rhythm_uniformity(self._mk([3, 41, 12, 7, 55, 2, 23, 9, 38, 5] * 3))
+        assert r["verdict"] == "ok"
+
+    def test_short_chapter_not_judged(self):
+        from scribe3.critique import find_rhythm_uniformity
+        assert find_rhythm_uniformity(self._mk([10, 20, 15])) is None
+
+    def test_dialogue_stripped(self):
+        # 弹幕/台词短句密集不该拉低 CV 判定
+        from scribe3.critique import find_rhythm_uniformity
+        t = self._mk([3, 41, 12, 7, 55, 2, 23, 9, 38, 5] * 2) + "「好。」「走。」「快。」" * 10
+        assert find_rhythm_uniformity(t)["verdict"] == "ok"

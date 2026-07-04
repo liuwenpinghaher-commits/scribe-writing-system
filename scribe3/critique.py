@@ -539,8 +539,14 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
 
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
                   allow_words: set[str] | None = None) -> dict:
-    """聚合七类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
-    allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。"""
+    """聚合八类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。
+
+    注意:"rhythm" 键与其余七键类型不同——其余键均为**命中列表**(list[dict],空列表=无命中,
+    调用方惯用 len() 计数),"rhythm" 键是 find_rhythm_uniformity 的返回值,类型为
+    **dict(判定结果) 或 None(句数不足未判)**。对 quality_flags 结果做"逐键当 list
+    处理"(len()/迭代)的调用方须显式排除或跳过 rhythm 键(现有消费点均按显式键名取值,
+    未见通配遍历,不受影响;新增消费方引入前先 grep quality_flags 确认)。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
@@ -549,6 +555,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
         "oversaturation": find_oversaturation(text),
         "god_view": find_god_view(text),
         "degeneration": find_degeneration(text),
+        "rhythm": find_rhythm_uniformity(text),
     }
 
 
@@ -717,6 +724,18 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
             "text": hit["phrase"],
             "range": hit["range"],
             "meta": meta,
+        })
+
+    # ⑨ 句长方差/burstiness(方案A任务6)— 章级判定,非逐处命中,无法给 offset,range=None。
+    # 仅 verdict=="uniform"(节拍器)才报一条;"ok"或句数不足(None)不报。
+    rhythm = find_rhythm_uniformity(s)
+    if rhythm and rhythm["verdict"] == "uniform":
+        issues.append({
+            "type": "rhythm",
+            "message": f"节奏单调:句长分布异常均匀(cv={rhythm['cv']},疑似AI节拍器)",
+            "text": "",
+            "range": None,
+            "meta": rhythm,
         })
 
     return issues
@@ -1552,3 +1571,46 @@ def find_degeneration(text: str) -> list[dict]:
     out.extend(_degen_meta_leak(body, quoted))
     out.extend(_degen_truncated(body))
     return out
+
+
+# ==== 方案A任务6:句长方差/burstiness 检测器(find_rhythm_uniformity)====
+# GPTZero/DetectGPT/Binoculars 公认头号 AI 破绽:句长分布异常均匀("节拍器")——
+# 人类文本天然 bursty(长短句剧烈交替),LLM 默认输出句长收敛。确定性量化,report-only。
+#
+# 阈值已用 tools/calibrate_rhythm.py 真机标定回填(2026-07-04):经 REST 拉取本机三本已
+# 存在库、已人工/流程验收过质量的作品(book_bfd18b78「铜炉试炼·三轮验证」5章、
+# book_c256380e「纸命」双POV 4章、main「乱世铜炉·设定参照」18章)共 27 章正文,
+# 逐章跑检测器取 CV / mean_adj_ratio 分位数:
+#   CV             P10=0.517  P50=0.591  P90=0.776
+#   mean_adj_ratio P10=0.550  P50=0.616  P90=0.754
+# 取 P10(约 10% 已验收章节比该值更"均匀")作为新地板值——用回填后阈值复核这 27 章,
+# 2/27(book_bfd18b78 第1章、main 第18章)恰好落在 P10 边界以下被判 uniform,
+# 与"P10=约一成样本比该值更均匀"的定义相符,非阈值算错;report-only/advisory 性质,
+# 该假阳性率可接受。样本仅 27 章,后续语料增长应重跑脚本复核阈值。
+_RHYTHM_MIN_SENTS = 20     # 句数下限:样本太少 CV 波动大,不判(避免短章误报)
+_RHYTHM_CV_FLOOR = 0.517   # 变异系数(sigma/mean)低于此值视为"过于均匀"
+_RHYTHM_ADJ_FLOOR = 0.550  # 相邻句长差绝对值均值 / 句长均值,低于此值视为"缺乏突变"
+
+
+def find_rhythm_uniformity(text: str) -> dict | None:
+    """句长方差/burstiness 量化(GPTZero/DetectGPT/Binoculars 公认头号 AI 破绽:句长分布
+    异常均匀=节拍器)。report-only,不改写、不阻塞。
+
+    做法:剥引号(_strip_quoted)只算叙述句的可见字长(复用 _DEGEN_VISIBLE_RE,与 A5
+    退化检测同口径),按句末标点切句 → 句长序列 → CV(变异系数=标准差/均值)+
+    相邻句长差比(缺乏突变的另一侧写照,单独用 CV 会被"逐渐变长的等差数列"骗过)。
+    两者都低于阈值才判 verdict="uniform"(节拍器),否则"ok"。
+    句数 < _RHYTHM_MIN_SENTS 时样本太薄,直接返回 None(不判,不误报短章/片段)。
+    """
+    s = _strip_quoted(text or "")
+    lens = [n for n in (_degen_visible_length(seg) for seg in re.split(r"[。！？!?…]+", s)) if n > 0]
+    if len(lens) < _RHYTHM_MIN_SENTS:
+        return None
+    mean = sum(lens) / len(lens)
+    sigma = (sum((x - mean) ** 2 for x in lens) / len(lens)) ** 0.5
+    cv = sigma / mean if mean else 0.0
+    adj = [abs(a - b) for a, b in zip(lens, lens[1:])]
+    mean_adj_ratio = (sum(adj) / len(adj) / mean) if adj and mean else 0.0
+    verdict = "uniform" if (cv < _RHYTHM_CV_FLOOR and mean_adj_ratio < _RHYTHM_ADJ_FLOOR) else "ok"
+    return {"cv": round(cv, 3), "sigma": round(sigma, 1), "mean": round(mean, 1),
+            "mean_adj_ratio": round(mean_adj_ratio, 3), "n_sentences": len(lens), "verdict": verdict}
