@@ -52,14 +52,36 @@ def test_distill_chapter_persists_lessons_with_embedding(store):
     assert all(r["importance"] == 2 for r in rows), "ExpeL 初始重要性 2"
 
 
-def test_distill_soft_dedup_bumps_importance(store):
+def test_distill_idempotent_marker_skips_same_conversation(store):
+    """P1门审查 P1-1:对话无新增即跳过——存稿风暴不再虚增 importance/白烧长 prompt。"""
+    store.add_chat_message(chapter=4, stage="", role="user", text="同一课", turn="t1")
+    r1 = distill_chapter(store, 4, lambda p, **kw: _DISTILL_OK)
+    assert r1["added"] == 2
+    r2 = distill_chapter(store, 4, lambda p, **kw: _DISTILL_OK)
+    assert r2 == {"added": 0, "merged": 0, "skipped": "already_distilled"}
+
+
+def test_distill_same_chapter_rerun_no_importance_bump(store):
+    """P1门审查 P1-1:同章重蒸(有新对话)合并但不 bump——ExpeL 语义:
+    跨章重复才是偏好积累,同章编辑期重跑不算。"""
     store.add_chat_message(chapter=4, stage="", role="user", text="同一课", turn="t1")
     distill_chapter(store, 4, lambda p, **kw: _DISTILL_OK)
+    store.add_chat_message(chapter=4, stage="", role="user", text="又聊了一句", turn="t2")
     r2 = distill_chapter(store, 4, lambda p, **kw: _DISTILL_OK)
-    assert r2["merged"] == 2 and r2["added"] == 0, "近重蒸馏合并不新增(软去重)"
-    rows = store.list_lessons()
-    assert len(rows) == 2
-    assert all(r["importance"] == 3 for r in rows), "合并→importance+1(跨章重复偏好积累)"
+    assert r2["merged"] == 2 and r2["added"] == 0
+    assert all(r["importance"] == 2 for r in store.list_lessons())
+
+
+def test_lesson_cross_chapter_bump_and_negation_not_swallowed(store):
+    """跨章同课 bump;反向纠偏(否定式)绝不被旧课吞并反向强化(P1-3,
+    真机标定:反向句对 sim=0.88 < 0.97 合并线)。"""
+    assert store.add_lesson(3, "correction", "反转揭示压到章尾", condition="反转章") is True
+    assert store.add_lesson(5, "correction", "反转揭示压到章尾", condition="反转章") is False
+    assert store.list_lessons()[0]["importance"] == 3, "跨章同课 bump"
+    assert store.add_lesson(6, "correction", "反转揭示别再压到章尾,提前到中段",
+                            condition="反转章") is True, "反向纠偏必须落新条目"
+    assert store.add_lesson(6, "pitfall", "反转揭示压到章尾", condition="反转章") is True, \
+        "不同 kind 永不合并(P1-3)"
 
 
 def test_distill_no_messages_noop(store):

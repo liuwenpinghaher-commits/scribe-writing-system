@@ -2241,15 +2241,6 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
-        # 北极星任务6:pass 章结算目的合同(achieved 置位/未达成 carried 滚下章)——
-        # 用最后一轮 post-check 的 fulfillment(含认知类 LLM 判定),fail-soft。
-        try:
-            from scribe3.purpose import settle_purpose
-            _items = (_last_post.get("fulfillment") or {}).get("items") or []
-            if _items:
-                settle_purpose(st, req.chapter, _items)
-        except Exception as e:
-            logging.getLogger("scribe3").warning("loop 目的合同结算失败(忽略): %s", e)
         # P0门审查 P1-3:loop 的同步 ingest 也走 _pending_ingest 在途护栏——与 /ingest、
         # _bg_ingest 共用同一 (work,seq) 集合,防 loop 长请求期间用户手点反哺/存稿触发的
         # ingest 与本次交错(knows/char_state/motif_instance 双份或互删)。
@@ -2262,15 +2253,42 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         try:
             from scribe3.llm import hermes_complete
             r = ingest_chapter(st, req.chapter, hermes_complete)
+            # 北极星任务6 + P1门审查 P0-1:结算必须在 ingest **之后**——promise_touch/
+            # relation_touch/获知 fact 正是 ingest 抽取落库的,先结算必然把已兑现的
+            # delta 误判 not_achieved 错误滚入下章(错账向后污染,brief 会催 LLM 重做
+            # 已做过的回收)。结构类此刻现场重算;认知类沿用最后一轮 post-check 的
+            # LLM verdicts 合并(此前的时序错误正是把真机 ch7 的 promise 误记 carried)。
+            try:
+                from scribe3.purpose import (check_fulfillment_structural,
+                                             parse_deltas, settle_purpose)
+                _ds = parse_deltas((st.get_chapter(req.chapter) or {}).get("deltas"))
+                if _ds:
+                    _struct = check_fulfillment_structural(st, req.chapter, _ds)
+                    _kn = {(i.get("kind"), i.get("predicate")): i
+                           for i in ((_last_post.get("fulfillment") or {}).get("items") or [])
+                           if i.get("kind") == "knowledge"}
+                    _merged = []
+                    for _it in _struct:
+                        if _it["kind"] == "knowledge" and _it["verdict"] == "not_checkable":
+                            _j = _kn.get((_it["kind"], _it["predicate"]))
+                            if _j and _j.get("verdict"):
+                                _it = {**_it, "verdict": _j["verdict"]}
+                        _merged.append(_it)
+                    settle_purpose(st, req.chapter, _merged)
+            except Exception as se:
+                logging.getLogger("scribe3").warning("loop 目的合同结算失败(忽略): %s", se)
             # 北极星任务8:loop 章 ingest 后复盘蒸馏(loop 自动轮不写 chat_message,
             # 该章无人工对话时蒸馏自动 no_messages 跳过;有过讨论则照常沉淀)。
+            # P1门审查 P2-5:与 /ingest 一致认 _complete_fn(测试可注入)。
             try:
                 from scribe3.lesson import distill_chapter
-                distill_chapter(st, req.chapter, hermes_complete)
+                _dfn2 = _complete_fn
+                if _dfn2 is None:
+                    _dfn2 = hermes_complete
+                distill_chapter(st, req.chapter, _dfn2)
             except Exception as de:
                 logging.getLogger("scribe3").warning("loop 复盘蒸馏失败(忽略): %s", de)
-            # ingest 后刷新 scorecard(P2-3 单源 _refresh_scorecard_after_ingest):
-            # 存稿快照无本章事件(qc_causal=-1 哨兵),反哺后重算出真值。
+            # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后——fulfillment 读结算态)。
             _refresh_scorecard_after_ingest(st, req.chapter)
             return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
         except Exception as e:
@@ -2349,17 +2367,26 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
-    # 北极星任务6:目的合同登记校验——条数量控 + 认知类写前预演(不可实现 → 422 带原因,
-    # 蓝图 §3-④:本体第一次在写之前对"该写什么"说出有内容的话)。
+    # 北极星任务6:目的合同登记校验——strict 解析(P1-5:非法条目 422 指明第几条,
+    # 绝不静默丢弃后整体覆盖=静默数据销毁)+ 条数量控 + 认知类写前预演
+    # (不可实现 → 422 带原因;预演降级放行时响应带旗,P2-2)。
+    _rehearse_degraded = False
+    if "purpose_text" in fields and fields["purpose_text"]:
+        fields["purpose_text"] = str(fields["purpose_text"])[:200]
     if "deltas" in fields and fields["deltas"] is not None:
-        from scribe3.purpose import parse_deltas, rehearse_delta, validate_deltas
-        _ds = parse_deltas(fields["deltas"])
+        from scribe3.purpose import (parse_deltas_strict, rehearse_delta_ex,
+                                     validate_deltas)
+        _ds, _errs = parse_deltas_strict(fields["deltas"])
+        if _errs:
+            raise HTTPException(status_code=422,
+                                detail="deltas 有非法条目,未写入:" + ";".join(_errs))
         _err = validate_deltas(_ds)
         if _err:
             raise HTTPException(status_code=422, detail=_err)
         _foc = (_store_for(work).get_chapter(seq) or {}).get("focalizer")
         for _d in _ds:
-            _rerr = rehearse_delta(_store_for(work), seq, _d, _foc)
+            _rerr, _rdeg = rehearse_delta_ex(_store_for(work), seq, _d, _foc)
+            _rehearse_degraded = _rehearse_degraded or _rdeg
             if _rerr:
                 raise HTTPException(status_code=422, detail=_rerr)
         fields["deltas"] = _ds   # 存规范化后的清单
@@ -2369,7 +2396,10 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
         raise HTTPException(status_code=422, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
-    return {"status": "updated", "seq": seq}
+    _resp = {"status": "updated", "seq": seq}
+    if _rehearse_degraded:
+        _resp["rehearse_degraded"] = True   # P2-2:预演故障放行须对调用方可见
+    return _resp
 
 
 # == 卷 CRUD ==
@@ -3522,22 +3552,27 @@ def north_star_book(work: str = "main"):
         out["contradiction_density"] = {"no_data": True, "degraded": True,
                                         "self_compare_only": True}
     try:   # ④ 目的达成率(任务6 deltas 聚合;waived 出分母)
+        # P1门审查 P1-4:按 (kind,predicate) 链尾状态去重——carried 滚动副本会把
+        # 还清的债永久挂账、分母每滚一次膨胀(一条最终达成的 delta 被计成 50%)。
         from scribe3.purpose import parse_deltas
-        ach = tot = carried = waived = 0
+        tail: dict = {}   # (kind, predicate) -> (seq, status)
         for c in st.list_chapters():
             for d in parse_deltas((st.get_chapter(c["seq"]) or {}).get("deltas")):
-                tot += 1
-                if d["status"] == "achieved":
-                    ach += 1
-                elif d["status"] == "carried":
-                    carried += 1
-                elif d["status"] == "waived":
-                    waived += 1
+                key = (d["kind"], d["predicate"])
+                prev = tail.get(key)
+                if prev is None or c["seq"] >= prev[0]:
+                    tail[key] = (c["seq"], d["status"])
+        statuses = [s for _, s in tail.values()]
+        tot = len(statuses)
+        ach = statuses.count("achieved")
+        carried = statuses.count("carried")
+        waived = statuses.count("waived")
         denom = tot - waived
         out["fulfillment"] = ({"no_data": True} if tot == 0 else
                               {"no_data": False, "achieved": ach, "total": tot,
                                "carried_backlog": carried, "waived": waived,
-                               "rate": (ach / denom) if denom else None})
+                               "rate": (ach / denom) if denom else None,
+                               "note": "按目的链尾状态去重统计(滚动副本不重复计账)"})
     except Exception as e:
         logging.getLogger("scribe3").warning("north_star_book fulfillment 失败: %s", e)
         out["fulfillment"] = {"no_data": True, "degraded": True}
@@ -3546,10 +3581,12 @@ def north_star_book(work: str = "main"):
     except Exception:
         out["causal_debt_total"] = None
     try:   # ⑤ QD 文体多样性档案(北极星任务9):分布单调告警,只进面板不进任何门禁
-        from scribe3.qd import style_drift_alerts
+        from scribe3.qd import CV_FLAT_RUN, style_drift_alerts
         profs = st.list_style_profiles()
         out["style_diversity"] = {"no_data": not profs, "profiles_n": len(profs),
                                   "alerts": style_drift_alerts(profs),
+                                  # P2-3:窗口不足≠无漂移——前端不得把空 alerts 当绿灯
+                                  "insufficient_window": len(profs) < CV_FLAT_RUN + 3,
                                   "latest": (profs[-1] if profs else None)}
     except Exception as e:
         logging.getLogger("scribe3").warning("north_star_book style_diversity 失败: %s", e)

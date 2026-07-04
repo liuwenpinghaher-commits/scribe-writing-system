@@ -41,15 +41,59 @@ def parse_deltas(raw) -> list[dict]:
         if not isinstance(d, dict) or d.get("kind") not in DELTA_KINDS:
             continue
         item = {"kind": d["kind"],
-                "subject": str(d.get("subject") or ""),
-                "predicate": str(d.get("predicate") or ""),
+                "subject": str(d.get("subject") or "")[:60],
+                "predicate": str(d.get("predicate") or "")[:120],
                 "status": d.get("status") if d.get("status") in DELTA_STATUSES else "planned"}
         if d.get("ref"):
-            item["ref"] = str(d["ref"])
+            item["ref"] = str(d["ref"])[:80]
         if d.get("carried_from") is not None:
-            item["carried_from"] = int(d["carried_from"])
+            try:
+                item["carried_from"] = int(d["carried_from"])
+            except (TypeError, ValueError):
+                continue   # 宽松读侧:坏 carried_from 丢弃该条(登记侧 strict 已拦,P1-5)
         out.append(item)
     return out
+
+
+def parse_deltas_strict(raw) -> tuple[list[dict], list[str]]:
+    """登记通道用 strict 解析(P1门审查 P1-5):非法条目**报错**而非静默丢弃——
+    kind 打错一个字母("knowlege")会把已登记合同整体清空还返回 200,属静默数据
+    销毁。subject/predicate/ref 截断(全库唯一无上限注入字段,carried 逐章复制放大)。
+    返回 (规范化列表, 错误列表);错误列表非空时调用方必须拒绝写入。"""
+    if raw is None:
+        return [], []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "[]")
+        except Exception:
+            return [], ["deltas 不是合法 JSON"]
+    if not isinstance(raw, list):
+        return [], ["deltas 须为数组"]
+    out: list[dict] = []
+    errs: list[str] = []
+    for i, d in enumerate(raw):
+        if not isinstance(d, dict):
+            errs.append(f"第{i + 1}条不是对象")
+            continue
+        if d.get("kind") not in DELTA_KINDS:
+            errs.append(f"第{i + 1}条 kind 非法:{d.get('kind')!r}(合法:{'/'.join(DELTA_KINDS)})")
+            continue
+        item = {"kind": d["kind"], "subject": str(d.get("subject") or "")[:60],
+                "predicate": str(d.get("predicate") or "")[:120],
+                "status": d.get("status") if d.get("status") in DELTA_STATUSES else "planned"}
+        if not item["predicate"]:
+            errs.append(f"第{i + 1}条 predicate 为空")
+            continue
+        if d.get("ref"):
+            item["ref"] = str(d["ref"])[:80]
+        if d.get("carried_from") is not None:
+            try:
+                item["carried_from"] = int(d["carried_from"])
+            except (TypeError, ValueError):
+                errs.append(f"第{i + 1}条 carried_from 非整数:{d.get('carried_from')!r}")
+                continue
+        out.append(item)
+    return out, errs
 
 
 def validate_deltas(deltas: list[dict]) -> str | None:
@@ -60,38 +104,45 @@ def validate_deltas(deltas: list[dict]) -> str | None:
     return None
 
 
-def rehearse_delta(st, chapter: int, delta: dict, focalizer: str | None) -> str | None:
-    """写前预演(蓝图:本体第一次在写之前对"该写什么"说出有内容的话——不是提议
-    情节,是校验目的的可实现性)。只对 kind=knowledge 且带 ref 的正向获知目标预查:
-    限知章读者视野≈焦点者视野,ref 为帧外私密 → 不可实现,写前报错。
-    返回 None=可实现;str=报错文案。负向目标(仍不知)/无 ref/全知章不预演;
-    预演基础设施故障 → 放行不拦(fail-open,预演是辅助不是闸门)。"""
+def rehearse_delta_ex(st, chapter: int, delta: dict,
+                      focalizer: str | None) -> tuple[str | None, bool]:
+    """预演带降级旗版本(P1门审查 P2-2):返回 (err, degraded)。
+    degraded=True 表示预演基础设施故障被放行——登记响应必须带此旗,
+    否则"预演形同虚设"只有服务端日志知道。"""
     if delta.get("kind") != "knowledge" or not delta.get("ref"):
-        return None
-    if not focalizer or "不知" in (delta.get("predicate") or ""):
-        return None
+        return None, False
+    pred = delta.get("predicate") or ""
+    # 负向认知目标豁免(收窄口径:P3——"不知"子串过宽,"不知火舞"也会豁免)
+    if not focalizer or any(t in pred for t in ("仍不知", "不知道", "尚不知", "不得知")):
+        return None, False
     try:
         facts = {f.id: f for f in st.facts_at(chapter)}
     except Exception as e:
-        _log.warning("rehearse facts_at 失败(放行不拦): %s", e)
-        return None
+        _log.warning("rehearse facts_at 失败(放行+降级旗): %s", e)
+        return None, True
     f = facts.get(delta["ref"])
     if f is None:
         return (f"目的引用的事实 {delta['ref']} 本章尚未确立"
-                f"——先登记该事实(或把 valid_from 提前),再挂此目的")
+                f"——先登记该事实(或把 valid_from 提前),再挂此目的"), False
     if not getattr(f, "secret", False):
-        return None   # 公开事实任何视角都可传达
+        return None, False
     try:
         from scribe3.knowledge import project_frame
         frame = project_frame(st, focalizer, chapter)
     except Exception as e:
-        _log.warning("rehearse project_frame 失败(放行不拦): %s", e)
-        return None
+        _log.warning("rehearse project_frame 失败(放行+降级旗): %s", e)
+        return None, True
     if frame.knows(f.id):
-        return None
+        return None, False
     return (f"目的「{delta.get('predicate')}」在当前限知结构下不可实现:焦点者 "
             f"{focalizer} 的知识帧不含私密 {delta['ref']}"
-            f"——换 POV,或先安排 {focalizer} 的获知渠道")
+            f"——换 POV,或先安排 {focalizer} 的获知渠道"), False
+
+
+def rehearse_delta(st, chapter: int, delta: dict, focalizer: str | None) -> str | None:
+    """写前预演(蓝图:校验目的可实现性,不提议情节)。薄壳:见 rehearse_delta_ex
+    (登记通道请用 ex 版拿降级旗,P2-2)。返回 None=可实现;str=报错文案。"""
+    return rehearse_delta_ex(st, chapter, delta, focalizer)[0]
 
 
 def check_fulfillment_structural(st, seq: int, deltas: list[dict]) -> list[dict]:

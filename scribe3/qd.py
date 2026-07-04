@@ -145,6 +145,7 @@ def chapter_style_profile(text: str, focalizer: str | None = None) -> dict:
         "func_word_per_k": func_vec,
         "punct_per_k": punct,
         "pov": {"mode": "first" if (fp / nk if nk else 0) > 1.0 else "third",
+                "declared_focalizer": focalizer or "",   # 与机械信号交叉校验用(元数据声明)
                 "first_person_per_k": round(fp / nk, 3) if nk else 0.0,
                 "psych_per_k": round(psych / nk, 3) if nk else 0.0},
     }

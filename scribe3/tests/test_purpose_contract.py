@@ -43,6 +43,32 @@ def test_patch_chapter_registers_purpose_and_deltas(store):
     assert ch["deltas"][0]["kind"] == "fact" and ch["deltas"][0]["status"] == "planned"
 
 
+def test_patch_strict_rejects_bad_kind_and_carried_from(store):
+    """P1门审查 P1-5:kind typo/坏 carried_from → 422 指明第几条,绝不静默丢弃后
+    整体覆盖(静默数据销毁);合法登记不受影响。"""
+    store.save_chapter(3, "正文。", title="三")
+    c = _client(store)
+    r1 = c.patch("/chapters/3", json={"deltas": [
+        {"kind": "knowlege", "subject": "a", "predicate": "typo课"}]})
+    assert r1.status_code == 422 and "第1条 kind 非法" in r1.text
+    r2 = c.patch("/chapters/3", json={"deltas": [
+        {"kind": "fact", "subject": "a", "predicate": "p", "carried_from": "abc"}]})
+    assert r2.status_code == 422 and "carried_from 非整数" in r2.text
+
+
+def test_mcp_register_purpose_missing_chapter_no_fake_written(store):
+    """P1门审查 P1-2:章不存在须回 error,绝不 'written' 假绿(实际零写入)。"""
+    import asyncio
+
+    import scribe3.mcp as M
+    from .test_mcp import _AcceptCtx
+    M.set_store(store)
+    res = asyncio.run(M.s3_register_purpose(
+        _AcceptCtx(), 99, "登到不存在的章", '[{"kind":"fact","subject":"a","predicate":"p"}]'))
+    assert "error" in res and "不存在" in res["error"]
+    assert res.get("status") != "written"
+
+
 def test_deltas_overload_rejected(store):
     store.save_chapter(3, "正文。", title="三")
     many = [_delta("fact", "x", f"目的{i}") for i in range(MAX_DELTAS + 1)]
@@ -143,6 +169,10 @@ def test_settle_marks_achieved_and_carries_to_next(store):
     settle_purpose(store, 5, results)
     ch6b = parse_deltas(store.get_chapter(6)["deltas"])
     assert sum(1 for d in ch6b if d["predicate"] == "没做到的目的") == 1
+    # P1门审查 P2-1:滚入副本已在 ch6 合同里 → brief 不得双渲染同一条
+    out = assemble_chapter_brief(store, 6)
+    assert out["text"].count("没做到的目的") == 1, \
+        "「滚入清单」与「上章未达成」不得重复渲染同一 delta"
 
 
 # ===== brief 注入 =====

@@ -642,21 +642,33 @@ async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
     {kind: knowledge|promise|fact|heat, subject, predicate, ref?}——ref 是 fact/promise id
     或 "甲|乙" 关系对(带 ref 才能机器验收);≤7 条(目的过载即拒)。
     认知类带 ref 的 delta 做写前预演:限知结构下不可实现 → 直接拒绝并给原因。"""
-    from scribe3.purpose import parse_deltas, rehearse_delta, validate_deltas
-    ds = parse_deltas(deltas_json)
+    from scribe3.purpose import (parse_deltas_strict, rehearse_delta_ex,
+                                 validate_deltas)
+    ds, errs = parse_deltas_strict(deltas_json)   # P1-5:非法条目报错,不静默丢
+    if errs:
+        return {"error": "deltas 有非法条目:" + ";".join(errs)}
     err = validate_deltas(ds)
     if err:
         return {"error": err}
     foc = (_store.get_chapter(chapter) or {}).get("focalizer")
+    rehearse_degraded = False
     for d in ds:
-        rerr = rehearse_delta(_store, chapter, d, foc)
+        rerr, rdeg = rehearse_delta_ex(_store, chapter, d, foc)
+        rehearse_degraded = rehearse_degraded or rdeg
         if rerr:
             return {"error": rerr}
     ok = await _ask(ctx, f"登记第{chapter}章目的合同:{purpose_text}({len(ds)}条delta)")
-    return commit_if_approved(
-        "s3_register_purpose", ok,
-        lambda: _store.update_chapter_meta(chapter, {"purpose_text": purpose_text,
-                                                     "deltas": ds}))
+    if not ok:
+        return {"status": "declined", "tool": "s3_register_purpose"}
+    # P1门审查 P1-2:update_chapter_meta 对不存在章返回 False 必须透传——
+    # commit_if_approved 会吞返回值,LLM 传错章号也回 "written" 假绿(实际零写入)。
+    if not _store.update_chapter_meta(chapter, {"purpose_text": (purpose_text or "")[:200],
+                                                "deltas": ds}):
+        return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
+    out = {"status": "written", "tool": "s3_register_purpose"}
+    if rehearse_degraded:
+        out["rehearse_degraded"] = True   # P2-2:预演基础设施故障放行须可见,不静默
+    return out
 
 
 @mcp.tool(annotations=_RW)

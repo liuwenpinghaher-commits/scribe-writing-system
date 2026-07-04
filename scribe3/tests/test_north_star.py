@@ -108,6 +108,22 @@ def test_book_scorecard_four_dims_no_total(store):
     assert "total_score" not in flat and "overall" not in flat, "绝不合成总分(宪法)"
 
 
+def test_book_fulfillment_dedups_by_chain_tail(store):
+    """P1门审查 P1-4:书级达成率按 (kind,predicate) 链尾去重——还清的债不再挂账,
+    分母不随滚动膨胀(此前一条最终达成的 delta 被计成 50%)。"""
+    store.save_chapter(5, "五。", title="五")
+    store.save_chapter(6, "六。", title="六")
+    store.update_chapter_meta(5, {"deltas": [
+        {"kind": "promise", "subject": "债", "predicate": "同一条债",
+         "status": "carried", "carried_from": 5}]})
+    store.update_chapter_meta(6, {"deltas": [
+        {"kind": "promise", "subject": "债", "predicate": "同一条债",
+         "status": "achieved", "carried_from": 5}]})
+    fu = _client(store).get("/north-star/book").json()["fulfillment"]
+    assert fu["total"] == 1 and fu["achieved"] == 1 and fu["carried_backlog"] == 0
+    assert abs(fu["rate"] - 1.0) < 1e-6
+
+
 def test_book_scorecard_empty_book_no_fake_green(store):
     """空书:各维 no_data 如实标注,不出 0 假绿。"""
     data = _client(store).get("/north-star/book").json()

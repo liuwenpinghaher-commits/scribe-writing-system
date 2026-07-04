@@ -643,8 +643,12 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         from scribe3.purpose import parse_deltas, render_purpose_section
         _cur = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
         _prev = parse_deltas((st.get_chapter(max_ch) or {}).get("deltas")) if max_ch else []
+        # P1门审查 P2-1:剔除已滚入本章合同的副本——否则同一 delta 双渲染
+        # (「第N章滚入」+「第N章起未达成」两行),量控自伤+prompt 重复施压。
+        _cur_keys = {(d.get("kind"), d.get("predicate")) for d in _cur}
         sections["purpose"] = render_purpose_section(
-            _cur, [d for d in _prev if d.get("status") == "carried"])
+            _cur, [d for d in _prev if d.get("status") == "carried"
+                   and (d.get("kind"), d.get("predicate")) not in _cur_keys])
     except Exception as e:
         _log.warning("assemble_chapter_brief purpose 段组装失败(fail-soft): %s", e)
         sections["purpose"] = {"text": "", "count": 0}
@@ -653,7 +657,7 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
     # 下限(宁缺勿滥);fail-soft:lesson 数据故障不拖垮简报。
     try:
         from scribe3.lesson import render_lessons_section
-        _last_ls = st.list_lessons(chapter=max_ch) if max_ch else []
+        _last_ls = (st.list_lessons(chapter=max_ch) if max_ch else [])[-3:]   # 取最新3条(P3:最老3条会让新纠偏永不注入)
         _ch_meta = st.get_chapter(seq) or {}
         _qtxt = " ".join(filter(None, [
             (_ch_meta.get("synopsis") or "").strip(),

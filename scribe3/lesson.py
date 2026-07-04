@@ -21,7 +21,9 @@ _log = logging.getLogger("scribe3.lesson")
 
 LESSON_KINDS = ("decision", "correction", "pitfall")
 DISTILL_MAX = 5          # 单章蒸馏条数上限(量控:lesson 无节制累加会稀释 brief 硬指令)
-MERGE_SIM = 0.92         # 软去重相似度线(SemHash 0.9 先例上收紧;台账 D-017)
+MERGE_SIM = 0.97         # 软去重自动合并线(P1门审查 P1-3 自 0.92 收紧:embedding 对否定
+                         # 不敏感,反向纠偏会被 0.92 档旧课吞并反向强化;0.92-0.97 灰区
+                         # 直接新增不合并;台账 D-017 更新)
 RECALL_MIN_SIM = 0.48    # 召回相似度下限(bge-small-zh 真机标定:相关≥0.52/无关≤0.35,
                          # 台账 D-017;宁缺勿滥——Power of Noise)
 
@@ -89,6 +91,16 @@ def distill_chapter(st, seq: int, complete_fn) -> dict:
         return {"added": 0, "merged": 0, "skipped": "messages_unavailable"}
     if not msgs:
         return {"added": 0, "merged": 0, "skipped": "no_messages"}
+    # P1门审查 P1-1:幂等标记——每次存稿都触发 ingest→蒸馏,同一段对话反复蒸馏会
+    # 把 importance 虚增到升格阈(真机复现 3 次→4)且每次白烧一发长 prompt;
+    # (消息数+最新 turn)未变即跳过。标记读写 fail-soft(挂了宁可多蒸不静默丢)。
+    _count, _last = len(msgs), str(msgs[-1].get("turn") or msgs[-1].get("ts") or "")
+    try:
+        mk = st.get_distill_marker(seq)
+        if mk and mk.get("msg_count") == _count and str(mk.get("last_turn") or "") == _last:
+            return {"added": 0, "merged": 0, "skipped": "already_distilled"}
+    except Exception as e:
+        _log.warning("distill 幂等标记读取失败(照常蒸馏): %s", e)
     raw = complete_fn(build_distill_prompt(msgs))
     items = parse_distill(str(raw))
     added = merged = 0
@@ -101,6 +113,10 @@ def distill_chapter(st, seq: int, complete_fn) -> dict:
                 merged += 1
         except Exception as e:
             _log.warning("distill 落库单条失败(跳过该条): %s", e)
+    try:
+        st.set_distill_marker(seq, _count, _last)
+    except Exception as e:
+        _log.warning("distill 幂等标记写入失败(忽略): %s", e)
     return {"added": added, "merged": merged}
 
 

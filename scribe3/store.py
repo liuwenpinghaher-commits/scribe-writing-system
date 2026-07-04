@@ -879,6 +879,19 @@ class SurrealStore:
             {"c": chapter})
         return list(reversed(rows))
 
+    # --- 蒸馏幂等标记(P1门审查 P1-1)---
+    def get_distill_marker(self, chapter: int) -> dict | None:
+        rows = self._query(
+            "SELECT chapter, msg_count, last_turn FROM type::record('distill_marker',$c)",
+            {"c": chapter})
+        return rows[0] if rows else None
+
+    def set_distill_marker(self, chapter: int, msg_count: int, last_turn: str) -> None:
+        self._execute_write(
+            "UPSERT type::record('distill_marker',$c) SET chapter=$c, msg_count=$n, "
+            "last_turn=$t, ts=time::now()",
+            {"c": chapter, "n": msg_count, "t": last_turn or ""})
+
     # --- QD 文体档案 style_profile(北极星任务9)---
     def _upsert_style_profile(self, seq: int, profile: dict) -> None:
         import json
@@ -911,16 +924,27 @@ class SurrealStore:
         import json as _json
         vec = embed([f"{text} {condition}".strip()])[0]
         near = self._query(
-            "SELECT meta::id(id) AS id, embedding, vector::distance::knn() AS dist "
+            "SELECT meta::id(id) AS id, chapter, kind, embedding, "
+            "vector::distance::knn() AS dist "
             "FROM lesson WHERE embedding <|3,COSINE|> $qv ORDER BY dist", {"qv": vec})
         for n in near:
+            # P1门审查 P1-3:合并须同 kind 且 sim≥MERGE_SIM(0.97 收紧)——embedding 对
+            # 否定不敏感,反向纠偏("反转别再压章尾")与旧课 0.92 档极易误合并,
+            # "correction 最值钱"恰是被吞的那类;0.92-0.97 灰区直接新增,重复由
+            # importance 机制无害共存。
+            if n.get("kind") != kind:
+                continue
             if n.get("dist") is not None and (1 - n["dist"]) >= MERGE_SIM:
                 row = self._query(
                     "SELECT invalid_at FROM type::record('lesson',$i)", {"i": n["id"]})
                 if row and row[0].get("invalid_at"):
                     continue   # 已失效条目不合并(允许同课重立)
-                self._execute_write(
-                    "UPDATE type::record('lesson',$i) SET importance += 1", {"i": n["id"]})
+                # P1门审查 P1-1:同章重跑不 bump——ExpeL"跨章重复=偏好积累"语义,
+                # 同章编辑期反复蒸馏不算重复偏好。
+                if n.get("chapter") != chapter:
+                    self._execute_write(
+                        "UPDATE type::record('lesson',$i) SET importance += 1",
+                        {"i": n["id"]})
                 return False
         self._execute_write(
             "CREATE lesson SET chapter=$c, kind=$k, text=$t, condition=$cond, "
@@ -937,10 +961,18 @@ class SurrealStore:
         if not include_invalid:
             where.append("invalid_at IS NONE")
         w = ("WHERE " + " AND ".join(where) + " ") if where else ""
-        return self._query(
+        rows = self._query(
             f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
-            f"invalid_at, <string> created_at AS created_at FROM lesson {w}ORDER BY created_at ASC",
+            f"evidence_turns, invalid_at, <string> created_at AS created_at "
+            f"FROM lesson {w}ORDER BY created_at ASC",
             {"c": chapter})
+        import json as _json
+        for r in rows:   # P1门审查 P2-8:证据指针读侧还原(此前只写不读,溯源链断)
+            try:
+                r["evidence_turns"] = _json.loads(r.get("evidence_turns") or "[]")
+            except Exception:
+                r["evidence_turns"] = []
+        return rows
 
     def recall_lessons(self, query: str, k: int = 3, min_sim: float | None = None) -> list[dict]:
         """HNSW 语义召回 lesson,相似度下限过滤(宁缺勿滥:相关但不适用比无关更毒),
@@ -1607,12 +1639,14 @@ class SurrealStore:
             advisory["qc_breakdown"] = None
         # 北极星任务6:目的合同接入后 fulfillment 出真数据(登记了 deltas 的章);
         # 未登记章保持 not_available 占位。carried 链≥2 → alert(连续未达成告警,蓝图 §3-④)。
+        _ful_read_failed = False
         try:
             rows = self._query("SELECT deltas FROM type::record('chapter',$s)", {"s": seq})
             from scribe3.purpose import parse_deltas
             ds = parse_deltas(rows[0].get("deltas") if rows else None)
         except Exception:
             degraded.append("fulfillment")
+            _ful_read_failed = True   # P1门审查 P2-10:读取失败≠未登记,note 不得误导
             ds = []
         if ds:
             counts = {s: sum(1 for d in ds if d.get("status") == s)
@@ -1622,6 +1656,9 @@ class SurrealStore:
                         default=1 if counts["carried"] else 0)
             fulfillment = {"status": "active", "total": len(ds), **counts,
                            "carried_chain_max": chain, "alert": chain >= 2}
+        elif _ful_read_failed:
+            fulfillment = {"status": "unavailable", "deltas": [],
+                           "note": "目的数据读取失败(degraded),非未登记——修好后重存本章刷新"}
         else:
             fulfillment = {"status": "not_available", "deltas": [],
                            "note": "本章未登记目的合同(空 delta 章照常可写)"}

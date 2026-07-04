@@ -106,4 +106,5 @@ def test_book_scorecard_has_style_diversity(store):
     data = _client(store).get("/north-star/book").json()
     sd = data["style_diversity"]
     assert sd["profiles_n"] == 1 and isinstance(sd["alerts"], list)
-    data_empty = None   # 空书口径由 test_book_scorecard_empty_book_no_fake_green 覆盖
+    assert sd["insufficient_window"] is True, \
+        "窗口不足须显式标注,前端不得把空 alerts 当'无漂移'绿灯(P2-3)"

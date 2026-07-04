@@ -125,6 +125,32 @@ def test_loop_chapter_422_on_short_unfenced_output(store, monkeypatch):
     assert r.status_code == 422
 
 
+def test_loop_settle_runs_after_ingest(store, monkeypatch):
+    """P1门审查 P0-1 回归:结算必须在 ingest **之后**——promise_touch 由 ingest
+    落库,先结算会把已兑现 delta 误判 not_achieved 错误滚入下章(错账向后污染,
+    此前真机 ch7 的 promise 被误记 carried 正是这个时序缺陷)。"""
+    import scribe3.ingest as I
+    store.save_chapter(1, "第一章占位。", title="一")
+    store.plant_promise("要还的债", setup_chapter=1, tier="chapter")
+    pid = next(p["id"] for p in store.list_promises())
+    store.update_chapter_meta(1, {"deltas": [
+        {"kind": "promise", "subject": "债", "predicate": "伏笔本章推进", "ref": pid}]})
+
+    def fake_ingest(st, seq, llm):
+        st.add_promise_touch(pid, chapter=seq, evidence="ingest 抽出的触碰")
+        return {}
+
+    monkeypatch.setattr(I, "ingest_chapter", fake_ingest)
+    fn, state = _stub_rounds(_fenced(_CLEAN))
+    monkeypatch.setattr(A, "_responses_events", fn)
+    r = _client(store).post("/loop/chapter", json={"chapter": 1})
+    assert r.json()["verdict"] == "pass"
+    from scribe3.purpose import parse_deltas
+    d = parse_deltas(store.get_chapter(1)["deltas"])[0]
+    assert d["status"] == "achieved", \
+        "ingest 落的 touch 必须被结算看见;carried 即时序回退(P0-1)"
+
+
 def test_loop_pass_refreshes_scorecard_causal_truth(store, monkeypatch):
     """P2-8 强化:ingest 真落事件后 scorecard 的 qc_causal 必须从 -1 哨兵变真值 0。"""
     import scribe3.ingest as I
