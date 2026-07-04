@@ -4273,9 +4273,11 @@ def test_post_check_four_detectors_clean_text(store):
 # ==== 彻查 B-2: 伏笔 tier 三生产入口(REST /promises-new + PATCH /promises/{pid})====
 
 def test_add_promise_rest_tier_book_never_overdue(store):
-    """POST /promises-new 带 tier=book → 落 book 层,payoff_max=None(书级永不超期)。"""
+    """POST /promises-new 带 tier=book → 落 book 层,payoff_max=None(书级永不超期)。
+    方案B任务21:book 级悬念必须带 resolution(真实答案)才放行,故补此字段。"""
     c = _client(store)
-    r = c.post("/promises-new", json={"text": "书级母题:铜炉终反噬", "setup_chapter": 1, "tier": "book"})
+    r = c.post("/promises-new", json={"text": "书级母题:铜炉终反噬", "setup_chapter": 1,
+                                      "tier": "book", "resolution": "铜炉本是镇魂器,终将反噬铸炉者"})
     assert r.status_code == 200, r.text
     p = next(x for x in store.list_promises() if x["text"] == "书级母题:铜炉终反噬")
     assert p["tier"] == "book"
@@ -4283,9 +4285,11 @@ def test_add_promise_rest_tier_book_never_overdue(store):
 
 
 def test_add_promise_rest_tier_arc_window(store):
-    """POST /promises-new 带 tier=arc,setup=2 → 窗口 payoff_min=7 / payoff_max=17(+5..+15)。"""
+    """POST /promises-new 带 tier=arc,setup=2 → 窗口 payoff_min=7 / payoff_max=17(+5..+15)。
+    方案B任务21:arc 级悬念必须带 resolution(真实答案)才放行,故补此字段。"""
     c = _client(store)
-    r = c.post("/promises-new", json={"text": "卷级伏笔", "setup_chapter": 2, "tier": "arc"})
+    r = c.post("/promises-new", json={"text": "卷级伏笔", "setup_chapter": 2, "tier": "arc",
+                                      "resolution": "卷级伏笔的真实答案:此人是内奸"})
     assert r.status_code == 200, r.text
     p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔")
     assert p["tier"] == "arc"
@@ -4308,6 +4312,61 @@ def test_add_promise_rest_illegal_tier_rejected(store):
     r = c.post("/promises-new", json={"text": "坏层级", "setup_chapter": 1, "tier": "卷"})
     assert r.status_code == 422, r.text
     assert not any(x["text"] == "坏层级" for x in store.list_promises())
+
+
+# ==== 方案B任务21:悬念存档答案强制(rules/story-narrative.md:20)——
+# "悬念必须有文档记录的真实答案"。book/arc 长期悬念建伏笔时必填 resolution;
+# chapter 级短期悬念(本章内起落即兑现)豁免,向后兼容不传该字段的既有调用方。====
+
+def test_add_promise_book_tier_missing_resolution_422(store):
+    """POST /promises-new 建 book 级伏笔缺 resolution → 422,且不落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级悬念:铜炉来历", "setup_chapter": 1, "tier": "book"})
+    assert r.status_code == 422, r.text
+    assert "真实答案" in r.json()["detail"]
+    assert not any(x["text"] == "书级悬念:铜炉来历" for x in store.list_promises())
+
+
+def test_add_promise_arc_tier_missing_resolution_422(store):
+    """POST /promises-new 建 arc 级伏笔缺 resolution → 422,且不落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级悬念:信件来源", "setup_chapter": 2, "tier": "arc"})
+    assert r.status_code == 422, r.text
+    assert not any(x["text"] == "卷级悬念:信件来源" for x in store.list_promises())
+
+
+def test_add_promise_book_tier_with_resolution_ok(store):
+    """POST /promises-new 建 book 级伏笔带 resolution → 200,正常落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级悬念:主角身世", "setup_chapter": 1,
+                                      "tier": "book", "resolution": "主角是前朝遗孤"})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "书级悬念:主角身世" for x in store.list_promises())
+
+
+def test_add_promise_arc_tier_with_resolution_ok(store):
+    """POST /promises-new 建 arc 级伏笔带 resolution → 200,正常落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级悬念:密室机关", "setup_chapter": 3,
+                                      "tier": "arc", "resolution": "机关由老仆暗中打开"})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "卷级悬念:密室机关" for x in store.list_promises())
+
+
+def test_add_promise_chapter_tier_missing_resolution_exempt(store):
+    """POST /promises-new 建 chapter 级(短期悬念)缺 resolution → 200(豁免,向后兼容)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "章内悬念:谁在敲门", "setup_chapter": 5, "tier": "chapter"})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "章内悬念:谁在敲门" for x in store.list_promises())
+
+
+def test_add_promise_no_tier_missing_resolution_exempt(store):
+    """POST /promises-new 不传 tier(默认 chapter)缺 resolution → 200(向后兼容既有调用方)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "未传层级的伏笔", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "未传层级的伏笔" for x in store.list_promises())
 
 
 def test_edit_promise_rest_tier_recomputes_window(store):

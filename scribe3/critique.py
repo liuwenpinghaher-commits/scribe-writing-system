@@ -667,10 +667,74 @@ def find_elegant_variation(text: str, names: list[str], window: int = 200) -> li
     return out
 
 
+# ==== 方案B任务21:水字数确定性信号(rules/story-consistency.md:28 的确定性子集)====
+# oh-story 原文列了 5 条水字数信号,其中"全章对话无新信息"/"连续2章无冲突"需要通读
+# 语义才能判(无法靠规则/计数确定),不在此实现——已作为附加判据挂进
+# build_reasoning_audit_prompt 的"水字数征兆"节,交给 LLM 一并审议。本函数只做可用
+# 正则/计数判定的两条确定性子集,全 advisory(report-only,不阻断)。
+_FILLER_ACTION_WORDS = ("走", "跑", "抓", "推", "打", "拔", "扑", "跳", "转身", "抬手", "挥")
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    """段落切分:优先按空行(\\n\\n)切;全文无空行(单换行排版)时退化按 \\n 切——两种
+    排版在渲染稿里都常见,不做正则近似,直接双策略回退(不产出空段)。"""
+    s = text or ""
+    paras = [p for p in s.split("\n\n") if p.strip()]
+    if len(paras) <= 1:
+        paras = [p for p in s.split("\n") if p.strip()]
+    return paras
+
+
+def find_filler_signals(text: str) -> list[dict]:
+    """水字数确定性信号检测(rules/story-consistency.md:28)。两类:
+
+    ① same_emotion_run:连续 ≥3 段(按 _split_paragraphs 切段)都命中同一个 _EMO_LABEL
+      词 → {"kind":"same_emotion_run","emotion":该情绪词,"paragraphs":[起段号,止段号]}
+      (0-indexed,闭区间,同一 run 内只报一条)。
+    ② static_scene:单段可见字数(_degen_visible_length)>500,且段内无对话(7 对引号
+      _QUOTED_SPANS 任一未命中)、无动作词(_FILLER_ACTION_WORDS)→
+      {"kind":"static_scene","paragraph":段号,"chars":可见字数}——疑似停滞场景描写;
+      段内一旦有对话或动作词,说明场景仍在推进,不报。
+
+    全 advisory。"全章对话无新信息/连续2章无冲突"两条判据需要通读语义,不在此做
+    确定性判定,已挂进 build_reasoning_audit_prompt 的"水字数征兆"节交 LLM 审议。
+    """
+    paragraphs = _split_paragraphs(text)
+    out: list[dict] = []
+
+    # ① same_emotion_run:逐段记它命中的 _EMO_LABEL 词(未命中记 None),再找连续 run。
+    para_emo: list[str | None] = [next((w for w in _EMO_LABEL if w in p), None) for p in paragraphs]
+    i, n = 0, len(para_emo)
+    while i < n:
+        emo = para_emo[i]
+        if emo is None:
+            i += 1
+            continue
+        j = i
+        while j < n and para_emo[j] == emo:
+            j += 1
+        if j - i >= 3:
+            out.append({"kind": "same_emotion_run", "emotion": emo, "paragraphs": [i, j - 1]})
+        i = j
+
+    # ② static_scene:单段可见字数超阈 + 无对话 + 无动作词。
+    for idx, p in enumerate(paragraphs):
+        visible = _degen_visible_length(p)
+        if visible <= 500:
+            continue
+        if any(rx.search(p) for rx in _QUOTED_SPANS):
+            continue  # 段内有对话/弹幕,场景仍在推进
+        if any(w in p for w in _FILLER_ACTION_WORDS):
+            continue  # 段内有动作词,场景仍在推进
+        out.append({"kind": "static_scene", "paragraph": idx, "chars": visible})
+
+    return out
+
+
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
                   allow_words: set[str] | None = None,
                   allow_patterns: list[str] | None = None) -> dict:
-    """聚合十类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    """聚合十一类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
     allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。
     allow_patterns(方案B任务14):题材豁免正则,来自本书 craft_rule allow_pattern,前置
     skip 判定(减法),透传给 find_purple_prose——与 extra_patterns 的加法标记路径分离。
@@ -688,7 +752,10 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
 
     "elegant_variation"(同义词循环)因需要角色名单,纯函数层拿不到,不在此聚合——
     接线在 scribe3/app.py 的 /post-check(取 store 角色上下文后调用 find_elegant_variation),
-    仅并入 issues,不进 quality_flags。"""
+    仅并入 issues,不进 quality_flags。
+
+    "filler"(方案B任务21:水字数确定性信号)键为 find_filler_signals 的命中列表,
+    与其余"命中列表"键(repetition/structural/…)同一读取惯例(空列表=无命中)。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
@@ -700,6 +767,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
         "rhythm": find_rhythm_uniformity(text),
         "adverb": find_adverb_density(text),
         "rule_of_three": _rule_of_three_gated(text),
+        "filler": find_filler_signals(text),
     }
 
 
@@ -907,6 +975,22 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
             "text": r["phrase"],
             "range": r["range"],
             "meta": {},
+        })
+
+    # ⑫ 水字数确定性信号(方案B任务21)— same_emotion_run 跨多段、static_scene 是整段
+    # 判定,均无法给精确 offset,range=None(前端按 text.indexOf 兜底,同⑨⑩既有惯例)。
+    for f in find_filler_signals(s):
+        if f["kind"] == "same_emotion_run":
+            span = f["paragraphs"][1] - f["paragraphs"][0] + 1
+            msg = f"水字数:连续{span}段情绪均为「{f['emotion']}」,疑似情绪停滞不推进"
+        else:
+            msg = f"水字数:第{f['paragraph']}段场景描写达{f['chars']}字且无对话无动作,疑似停滞"
+        issues.append({
+            "type": "filler",
+            "message": msg,
+            "text": "",
+            "range": None,
+            "meta": f,
         })
 
     return issues
@@ -1548,6 +1632,92 @@ def parse_platform_report(raw: str) -> dict | None:
     if verdict not in ("APPROVE", "CONCERNS", "REJECT"):
         if verdict is not None:
             _log.warning("parse_platform_report 遇到非法 verdict,按 CONCERNS 计: %r", verdict)
+        verdict = "CONCERNS"
+    return {"findings": normalize_findings(d.get("findings") or []), "verdict": verdict}
+
+
+# ==== 方案B任务21:5 类推理一致性审计(oh-story consistency-checker.md 第三步
+#      "推理型一致性审查")====
+# 分工声明:本节与"事实对账"(概念上指具体实体事实——人名/数字/地点等可直接 grep
+# 核对的硬事实——是否前后一致)彻底分离:事实对账比的是"具体值对不对",本节审的是
+# "规则/因果/代价"这类需要推理才能发现的矛盾——每条前提孤立看都成立,组合起来才
+# 暴露矛盾,无法靠字面 grep 揪出,必须交给 LLM 顺着证据链推理。
+def build_reasoning_audit_prompt(rules_text: str, events_text: str) -> str:
+    """5 类推理一致性审计 prompt(oh-story consistency-checker.md 第三步:推理型一致性
+    审查,移植其 5 类审计维度 + 证据链输出格式要求)。
+
+    5 类(任一命中即问题):
+    ① 规则边界悖论——规则的适用条件/例外条件/触发代价被"按规则应该不能发生却发生了"
+      或"例外条件被无限扩大"打破;
+    ② 设定层级冲突——世界级规则/势力级规则/角色个人能力/一次性道具效果分层,下位设定
+      无解释覆盖上位设定(局部例外必须有来源/代价/章节证据);
+    ③ 跨章因果链——对核心事件建立「原因→条件→行动→结果→后果」链,检查是否缺关键
+      条件、结果反向否定原因、后果被遗忘,或前章设下的限制在后章无解释消失;
+    ④ 规则可滥用漏洞——能力/金手指/制度规则是否存在显而易见的无限刷资源/零成本规避
+      风险/绕过主线冲突的用法(前文已给出限制但后文忘用才报,"还可以更好玩"不算);
+    ⑤ 代价一致性——能力/交易/复活/治疗/突破等高收益行为,核对既定代价是否每次兑现、
+      强度是否前后跳变、是否只在方便时存在、是否被无成本绕过。
+
+    rules_text/events_text 任一为空(None 或去空白后为空串)→ 相应节标注"(无数据)",
+    prompt 仍照常生成——不因缺一半数据就整体放弃审计(例如仅凭事件链也能看出因果
+    断裂,仅凭规则文本也能看出层级冲突)。
+
+    输出契约:FindingsSchema 六字段(severity/category/location/evidence/issue/fix)+
+    verdict,与 build_reversal_rubric_prompt/build_platform_rubric_prompt 同一套统一
+    schema,供 normalize_findings/merge_verdicts 统一合并;evidence 字段固定按证据链
+    格式填写"前提/规则→触发→矛盾→需裁决"四段(oh-story 原文对推理型 finding 的格式
+    硬性要求),不得只填半句结论。category 收窄映射:①②④(规则类)→"rule_boundary";
+    ③(因果链)→"causal";⑤(代价一致性)→"consistency"。
+    """
+    rules_block = rules_text.strip() if rules_text and rules_text.strip() else "(无数据)"
+    events_block = events_text.strip() if events_text and events_text.strip() else "(无数据)"
+    return (
+        ANTI_SYCOPHANCY + "\n\n"
+        "你是世界规则推理一致性审计员(oh-story consistency-checker 第三步:推理型一致性"
+        "审查)。只依据下面提供的设定规则与事件链中已写明、或可由其直接推出的事实审计,"
+        "不补设定、不替作者创作。\n\n"
+        "审计以下 5 类(任一命中即问题):\n"
+        "① rule_boundary·规则边界悖论:规则的适用条件/例外条件/触发代价,是否出现"
+        "「按规则应该不能发生却发生了」或「例外条件被无限扩大」;\n"
+        "② rule_boundary·设定层级冲突:世界级规则/势力级规则/角色个人能力/一次性道具"
+        "效果——下位设定是否无解释覆盖上位设定(局部例外须有来源/代价/章节证据);\n"
+        "③ causal·跨章因果链:对核心事件建立「原因→条件→行动→结果→后果」链,是否缺"
+        "关键条件、结果反向否定原因、后果被遗忘,或前章设下的限制在后章无解释消失;\n"
+        "④ rule_boundary·规则可滥用漏洞:能力/金手指/制度规则是否存在显而易见的无限刷"
+        "资源/零成本规避风险/绕过主线冲突的用法(前文已限制但后文忘用才报,\"还可以更"
+        "好玩\"不算);\n"
+        "⑤ consistency·代价一致性:高收益行为(能力/交易/复活/治疗/突破)的既定代价是否"
+        "每次兑现、强度是否前后跳变、是否被无成本绕过。\n\n"
+        "【证据链输出契约】命中的 finding,其 evidence 字段必须按以下四段顺序完整填写,"
+        "不得只填半句结论:「前提/规则:…；触发事件:…；矛盾点:…；需裁决:…」。\n\n"
+        "【水字数征兆·附加判据(rules/story-consistency.md:28,与上述 5 类一并审计,"
+        "category 记 \"prose\")】以下两条无法用规则/计数确定性判定,一并交你审议:"
+        "全章对话无新信息;连续 2 章无冲突。\n\n"
+        "【设定规则】\n" + rules_block + "\n\n"
+        "【事件链】\n" + events_block + "\n\n"
+        '只输出一行 JSON:{"findings":[{"severity":"S1"|"S2"|"S3"|"S4",'
+        '"category":"rule_boundary"|"causal"|"consistency"|"prose","location":定位,'
+        '"evidence":"前提/规则:…；触发:…；矛盾:…；需裁决:…","issue":问题描述,'
+        '"fix":修复建议}],"verdict":"APPROVE"|"CONCERNS"|"REJECT"}。')
+
+
+def parse_reasoning_audit(raw: str) -> dict | None:
+    """解析推理一致性审计 JSON。镜像 parse_platform_report 的容错(提取首个 {...} 块,
+    json.loads,坏 JSON/截断/空/None 一律 fail-safe 返回 None)+ normalize_findings 清洗
+    + verdict 非法值归 CONCERNS(保守,不能盖章)。"""
+    try:
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        if not m:
+            _log.warning("parse_reasoning_audit 无 JSON 块: raw[:120]=%r", (raw or "")[:120])
+            return None
+        d = json.loads(m.group(0))
+    except Exception as e:
+        _log.warning("parse_reasoning_audit 失败: %s | raw[:120]=%r", e, (raw or "")[:120])
+        return None
+    verdict = d.get("verdict")
+    if verdict not in ("APPROVE", "CONCERNS", "REJECT"):
+        if verdict is not None:
+            _log.warning("parse_reasoning_audit 遇到非法 verdict,按 CONCERNS 计: %r", verdict)
         verdict = "CONCERNS"
     return {"findings": normalize_findings(d.get("findings") or []), "verdict": verdict}
 

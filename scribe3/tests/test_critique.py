@@ -1400,3 +1400,117 @@ class TestPlatformRubric:
         # findings 经 normalize_findings 清洗:非法 severity 丢弃
         raw = '{"findings":[{"severity":"P0","category":"platform","location":"","evidence":"","issue":"","fix":""}],"verdict":"APPROVE"}'
         assert parse_platform_report(raw)["findings"] == []
+
+
+# ==== 方案B任务21:5 类推理一致性审计(oh-story consistency-checker.md 第三步
+#      "推理型一致性审查")——规则边界悖论/设定层级冲突/跨章因果链/规则可滥用漏洞/
+#      代价一致性,输出证据链(前提/规则→触发→矛盾→需裁决)。====
+
+class TestReasoningAuditPrompt:
+    def test_prompt_has_5_categories_and_evidence_chain_contract(self):
+        from scribe3.critique import build_reasoning_audit_prompt
+        p = build_reasoning_audit_prompt("规则:传送阵只能传死物", "事件1:活体传送")
+        for kw in ("规则边界悖论", "设定层级冲突", "跨章因果链", "规则可滥用漏洞", "代价一致性"):
+            assert kw in p, f"缺 5 类之一: {kw}"
+        # 证据链输出契约:前提/规则→触发→矛盾→需裁决
+        for kw in ("前提/规则", "触发", "矛盾", "裁决"):
+            assert kw in p, f"缺证据链契约要素: {kw}"
+        assert "找问题" in p and "不是验证" in p   # ANTI_SYCOPHANCY
+        assert "S1" in p and "verdict" in p        # FindingsSchema 输出契约
+
+    def test_prompt_consumes_rules_and_events_text(self):
+        from scribe3.critique import build_reasoning_audit_prompt
+        p = build_reasoning_audit_prompt("世界规则:禁止复活", "第8章:主角重伤三天不能动武")
+        assert "世界规则:禁止复活" in p
+        assert "第8章:主角重伤三天不能动武" in p
+
+    def test_prompt_empty_rules_text_not_crash(self):
+        from scribe3.critique import build_reasoning_audit_prompt
+        p = build_reasoning_audit_prompt("", "第9章:当天全力战斗")
+        assert "(无数据)" in p
+        assert "第9章:当天全力战斗" in p
+
+    def test_prompt_empty_events_text_not_crash(self):
+        from scribe3.critique import build_reasoning_audit_prompt
+        p = build_reasoning_audit_prompt("规则:每次预知损失寿命", "")
+        assert "(无数据)" in p
+        assert "规则:每次预知损失寿命" in p
+
+    def test_prompt_both_empty_still_generates(self):
+        from scribe3.critique import build_reasoning_audit_prompt
+        p = build_reasoning_audit_prompt(None, None)
+        assert isinstance(p, str) and p
+        assert p.count("(无数据)") == 2
+
+
+class TestParseReasoningAudit:
+    def test_parse_ok(self):
+        from scribe3.critique import parse_reasoning_audit
+        raw = ('{"findings":[{"severity":"S1","category":"rule_boundary","location":"ch18",'
+               '"evidence":"前提/规则:传送阵只能传死物;触发:第18章活体传送;矛盾点:无例外说明;'
+               '需裁决:补例外来源","issue":"违反传送规则","fix":"补代价或改结果"}],'
+               '"verdict":"REJECT"}')
+        rep = parse_reasoning_audit(raw)
+        assert rep["verdict"] == "REJECT"
+        assert rep["findings"][0]["category"] == "rule_boundary"
+
+    def test_parse_bad_json_returns_none(self):
+        from scribe3.critique import parse_reasoning_audit
+        assert parse_reasoning_audit("不是JSON,纯文本回复") is None
+        assert parse_reasoning_audit("") is None
+        assert parse_reasoning_audit(None) is None
+
+    def test_parse_normalizes_and_defaults_verdict(self):
+        from scribe3.critique import parse_reasoning_audit
+        raw = '{"findings":[{"severity":"XX","category":"causal","location":"","evidence":"","issue":"","fix":""}]}'
+        rep = parse_reasoning_audit(raw)
+        assert rep["findings"] == []          # 非法 severity 被 normalize_findings 丢弃
+        assert rep["verdict"] == "CONCERNS"    # 缺 verdict 保守归 CONCERNS
+
+
+# ==== 方案B任务21:水字数确定性信号(rules/story-consistency.md:28)====
+# same_emotion_run(连续≥3段同一情绪词)/static_scene(单段>500可见字且无对话无动作词)
+# 两类确定性子集;"全章对话无新信息/连续2章无冲突"不做确定性,已挂进
+# build_reasoning_audit_prompt 的"水字数征兆"节交 LLM 审议。
+
+class TestFillerSignals:
+    def test_same_emotion_run_detected(self):
+        from scribe3.critique import find_filler_signals
+        text = "他悲伤地站在雨里,久久不语。\n\n她也很悲伤,泪流满面地望着窗外。\n\n悲伤弥漫了整个屋子,无人开口。"
+        out = find_filler_signals(text)
+        hits = [f for f in out if f["kind"] == "same_emotion_run"]
+        assert hits, "连续3段同情绪应命中 same_emotion_run"
+        assert hits[0]["emotion"] == "悲伤"
+        assert hits[0]["paragraphs"] == [0, 2]
+
+    def test_mixed_emotion_not_detected(self):
+        from scribe3.critique import find_filler_signals
+        text = "他心中涌起一阵愤怒。\n\n她却只觉欣喜。\n\n他又陷入了孤独之中。"
+        out = find_filler_signals(text)
+        assert not [f for f in out if f["kind"] == "same_emotion_run"]
+
+    def test_static_scene_long_no_dialogue_no_action(self):
+        from scribe3.critique import find_filler_signals
+        para = "远处云雾缭绕,山峦叠嶂,寂静无人,唯有风声掠过树梢,月色如水,笼罩着荒野。" * 20
+        out = find_filler_signals(para)
+        hits = [f for f in out if f["kind"] == "static_scene"]
+        assert hits, "超500字无对话无动作词的静态场景应命中"
+        assert hits[0]["chars"] > 500
+
+    def test_static_scene_with_dialogue_not_detected(self):
+        from scribe3.critique import find_filler_signals
+        base = "远处云雾缭绕,山峦叠嶂,寂静无人,唯有风声掠过树梢,月色如水,笼罩着荒野。" * 20
+        para = base + "“这里究竟是何处?”一人忽然低声问道。" + base
+        out = find_filler_signals(para)
+        assert not [f for f in out if f["kind"] == "static_scene"], "含对话的长段不应命中"
+
+    def test_wired_into_quality_flags_and_issues(self):
+        from scribe3.critique import quality_flags, quality_issues
+        text = "他悲伤地站在雨里,久久不语。\n\n她也很悲伤,泪流满面地望着窗外。\n\n悲伤弥漫了整个屋子,无人开口。"
+        flags = quality_flags(text)
+        assert "filler" in flags and flags["filler"]
+        issues = quality_issues(text)
+        filler_issues = [i for i in issues if i["type"] == "filler"]
+        assert filler_issues
+        assert filler_issues[0]["range"] is None
+        assert "水字数" in filler_issues[0]["message"]

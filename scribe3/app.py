@@ -556,13 +556,26 @@ class PromIn(BaseModel):
     # tier 三档兑现窗口:chapter(近场 +1..+3)/arc(卷级 +5..+15)/book(书级 payoff_max=None 永不超期)。
     # 可选:add 时缺省即 chapter;edit 时缺省即保留既有 tier(不发送则 update_promise 不动窗口/层级)。
     tier: str | None = None
+    # 悬念存档答案(方案B任务21,rules/story-narrative.md:20):"悬念必须有文档记录的
+    # 真实答案"。仅 tier∈{book,arc} 的长期悬念强制(见 add_prom 校验);chapter 级短期
+    # 悬念本章内起落即兑现,不强制,向后兼容不传此字段的既有调用方。
+    resolution: str | None = None
 
 
 @app.post("/promises-new")
 def add_prom(p: PromIn, work: str = "main"):
+    tier = p.tier or "chapter"
+    # 悬念存档答案强制(方案B任务21):book/arc 长期悬念必须在建伏笔时就写下真实答案,
+    # 不能含糊留白;chapter 级短期悬念(本章内起落即兑现)豁免,向后兼容。
+    # store 层不动(plant_promise 签名不变,防破既有测试面)——本校验只挡在 REST 入口,
+    # resolution 的落库交由后续任务扩展 store 层持久化(此处暂不产出无法定位新建
+    # 记录 id 的 best-effort 猜测更新,避免文本撞车时误写到别的伏笔)。
+    if tier in ("book", "arc") and not (p.resolution and p.resolution.strip()):
+        raise HTTPException(
+            status_code=422,
+            detail="悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)")
     try:
-        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind,
-                                       tier=p.tier or "chapter")
+        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind, tier=tier)
     except ValueError as e:  # 非法 tier → store 层 raise
         raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
