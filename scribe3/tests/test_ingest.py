@@ -44,6 +44,70 @@ def test_ingest_chapter_end_to_end(store):
     assert any("聚魂" in f.value for f in project_frame(store, "role:焦三", 1).facts)
 
 
+# ── 批D P1-5: ingest 抽取关键事件 → event 表(因果 QC / 时间线泳道有真数据)──
+
+def test_apply_delta_extracts_event(store):
+    """事件抽取:LLM delta 的 events → event 表,参与者复用 _resolve_char 解析为 role: oid。"""
+    _ensure_chars(store, "老道", "焦三")
+    delta = {"learned": [], "did": [],
+             "events": [{"type": "对峙", "participants": {"SUBJ": "老道", "OBJ": "焦三"},
+                         "goal": "老道索丹", "caused_by": []}]}
+    apply_delta(store, delta, seq=1)
+    evs = store.events_at(1)
+    assert len(evs) == 1, "本章事件应落库"
+    assert evs[0].type == "对峙"
+    assert evs[0].participants.get("SUBJ") == "role:老道"
+    assert evs[0].participants.get("OBJ") == "role:焦三"
+    assert evs[0].motivated_by_goal == "老道索丹"
+
+
+def test_apply_delta_event_causal_link_clean(store):
+    """caused_by 引用本章前序事件序号 → causal_in 图边;都有目标+因果 → causal_complete 无违规。"""
+    from scribe3.verify import causal_complete
+    _ensure_chars(store, "焦三")
+    delta = {"learned": [], "did": [],
+             "events": [{"type": "取丹", "participants": {"SUBJ": "焦三"}, "goal": "救母", "caused_by": []},
+                        {"type": "被追", "participants": {"OBJ": "焦三"}, "goal": "灭口", "caused_by": [0]}]}
+    apply_delta(store, delta, seq=2)
+    evs = {e.type: e for e in store.events_at(2)}
+    assert evs["被追"].causal_in, "非首事件应有 causal_in 入边"
+    assert causal_complete(store, 2) == [], "都有目标+非首有因果入边→因果完整"
+
+
+def test_apply_delta_event_missing_goal_flags_violation(store):
+    """缺 goal 的抽取事件被 causal_complete 如实标违规(真信号,非假绿)。"""
+    from scribe3.verify import causal_complete
+    _ensure_chars(store, "焦三")
+    delta = {"learned": [], "did": [],
+             "events": [{"type": "游荡", "participants": {"SUBJ": "焦三"}, "caused_by": []}]}
+    apply_delta(store, delta, seq=3)
+    assert len(store.events_at(3)) == 1
+    viols = causal_complete(store, 3)
+    assert any("goal" in v.reason for v in viols), "缺目标事件应被标违规"
+
+
+def test_apply_delta_event_unresolved_participant_skipped(store):
+    """不建幻觉角色:参与者解析不到则跳过该槽位(登记待确认),事件本体仍落库。"""
+    delta = {"learned": [], "did": [],
+             "events": [{"type": "神秘事件", "participants": {"SUBJ": "查无此人"},
+                         "goal": "?", "caused_by": []}]}
+    apply_delta(store, delta, seq=4)
+    evs = store.events_at(4)
+    assert len(evs) == 1, "解析不到参与者不阻断事件落库"
+    assert evs[0].participants == {}, "未解析角色不进 involves 图边"
+    assert any(u["name"] == "查无此人" for u in store.list_unverified()), "登记为待确认"
+
+
+def test_apply_delta_events_idempotent(store):
+    """章级幂等:重跑同章 ingest → 事件不双计(purge_ingest 清 ingest_seq=seq 的事件+图边)。"""
+    _ensure_chars(store, "焦三")
+    delta = {"learned": [], "did": [],
+             "events": [{"type": "取丹", "participants": {"SUBJ": "焦三"}, "goal": "救母", "caused_by": []}]}
+    apply_delta(store, delta, seq=5)
+    apply_delta(store, delta, seq=5)
+    assert len(store.events_at(5)) == 1, "重 ingest 不残留旧事件"
+
+
 def test_apply_delta_writes_voice_flag(store):
     _ensure_chars(store, "焦三")
     from scribe3.ingest import apply_delta

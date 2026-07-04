@@ -192,6 +192,28 @@ def test_parse_voice_shift():
     assert d["learned"] == [] and d["did"] == []
 
 
+# ==== 批D P1-5: 事件抽取 prompt + 解析 ====
+
+def test_extract_prompt_has_events():
+    p = build_knowledge_extract_prompt("正文")
+    assert "events" in p
+
+
+def test_parse_events():
+    reply = ('{"learned":[],"did":[],"events":[{"type":"对峙",'
+             '"participants":{"SUBJ":"老道","OBJ":"焦三"},"goal":"索丹","caused_by":[]}]}')
+    d = parse_knowledge_delta(reply)
+    assert len(d["events"]) == 1
+    assert d["events"][0]["type"] == "对峙"
+    assert d["events"][0]["participants"]["SUBJ"] == "老道"
+
+
+def test_parse_events_defaults_empty_when_absent():
+    """旧模型/旧响应不含 events 字段时默认空列表(向后兼容)。"""
+    d = parse_knowledge_delta('{"learned":[],"did":[]}')
+    assert d["events"] == []
+
+
 # ==== F-05: locate_phrase + quality_issues 单测 ====
 
 from scribe3.critique import locate_phrase, quality_issues

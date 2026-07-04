@@ -597,12 +597,21 @@ def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = N
         "一句话摘要(summary)、快照(snapshot:对 ability 填{技能:状态}、"
         "对 relation 填{对象角色:关系描述}、对 personality 填字符串描述)。"
         "没有明确弧光质变时 arc 输出空列表。\n"
+        "再抽【events:本章推动剧情的关键情节事件(动作/冲突/转折,通常 2-6 个)】——"
+        "每条列:事件类型短标签(type,≤12字,如「对峙」「揭露」「立誓」)、"
+        "参与者(participants:{SUBJ:主动方角色名, OBJ:受动方角色名, WITNESS:在场见证角色名};"
+        "只填有的槽位,没有的槽位省略)、该事件为何发生的动机/目标(goal,一句话)、"
+        "因果来由(caused_by:本章前面第几个事件直接导致了它,填其序号数组(从0起,只能指向本章更早的事件);"
+        "本章第一个或无明确前因的事件填空数组[])。"
+        "按事件在本章的发生先后顺序输出;没有明确事件时 events 输出空列表。\n"
         + motif_seg + promise_seg + belief_seg +
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
         '"did":[{"who":角色名,"action":所为(短句),"seen_by":[在场看见的角色名]}],'
         '"voice_shift":[{"who":角色名,"reason":重大事件(短句)}],'
         '"arc":[{"who":角色名,"change_type":"ability|relation|personality",'
-        '"summary":一句话摘要,"snapshot":{...}}]'
+        '"summary":一句话摘要,"snapshot":{...}}],'
+        '"events":[{"type":类型标签,"participants":{"SUBJ":角色名,"OBJ":角色名,"WITNESS":角色名},'
+        '"goal":动机目标,"caused_by":[前序事件序号]}]'
         + motif_schema + promise_schema + belief_schema + '}。\n\n'
         "【正文】\n" + prose)
 
@@ -623,7 +632,9 @@ def parse_knowledge_delta(reply: str) -> dict | None:
                 "arc": list(d.get("arc") or []),
                 "motif": list(d.get("motif") or []),
                 "promise_touch": list(d.get("promise_touch") or []),
-                "belief": list(d.get("belief") or [])}
+                "belief": list(d.get("belief") or []),
+                # 批D P1-5:事件抽取。旧模型/旧响应不含该字段时默认空列表(向后兼容)。
+                "events": list(d.get("events") or [])}
     except Exception as e:
         _log.warning("parse_knowledge_delta 失败,知识不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
         return None

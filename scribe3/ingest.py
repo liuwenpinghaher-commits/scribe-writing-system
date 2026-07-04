@@ -7,7 +7,7 @@ apply_delta 纯应用(可测,不连网);ingest_chapter 走 Hermes 抽取。
 from __future__ import annotations
 
 from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_delta
-from scribe3.ontology import Entity, Fact, KnowledgeEdge
+from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 
 
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
@@ -258,6 +258,45 @@ def apply_delta(store, delta: dict, seq: int,
             import logging
             logging.getLogger("scribe3.ingest").warning(
                 "belief 写入失败(non-fatal),角色 %s 章 %s: %s", who, seq, _b_e)
+    # 批D P1-5:从本章正文抽关键事件 → event 表(事件图随 ingest 自然长出,
+    # 因果 QC/时间线事件泳道有真数据)。与 arc/motif 同范式:
+    #   · 参与者复用 _resolve_char 解析,解析不到的槽位跳过(不建幻觉角色,登记待确认);
+    #   · caused_by 指向本章更早事件序号 → causal_in 图边(causal_complete 据此判连贯);
+    #   · 事件 id 用 ev:i{seq}-{k} 确定式命名 + ingest_seq=seq → purge_ingest 幂等清理;
+    #   · 逐条 non-fatal 兜底,单条写库失败不阻断其余事件与整个 ingest。
+    ev_specs = delta.get("events") or []
+    ev_ids = [f"ev:i{seq}-{k}" for k in range(len(ev_specs))]
+    for k, it in enumerate(ev_specs):
+        etype = (it.get("type") or "").strip()
+        if not etype:
+            continue   # 无类型标签的事件跳过(fail-safe)
+        # 参与者 name→role 解析:只认合法槽位,解析不到的角色不入 involves(登记待确认)
+        participants: dict = {}
+        raw_parts = it.get("participants")
+        if isinstance(raw_parts, dict):
+            for slot, who in raw_parts.items():
+                if slot not in ("SUBJ", "OBJ", "WITNESS") or not who:
+                    continue
+                poid = _resolve_char(store, who, seq, f"event_{slot}")
+                if poid is not None:
+                    participants[slot] = poid
+        # caused_by → causal_in:只取指向本章更早事件的合法回指(防前指/自环/越界)
+        causal_in: list = []
+        for c in (it.get("caused_by") or []):
+            if isinstance(c, bool):        # bool 是 int 子类,先排除
+                continue
+            if isinstance(c, int) and 0 <= c < k:
+                causal_in.append((ev_ids[c], "enables"))
+        try:
+            store.add_event(
+                Event(ev_ids[k], etype, participants=participants, story_time=seq,
+                      motivated_by_goal=(it.get("goal") or "").strip() or None,
+                      causal_in=causal_in),
+                ingest_seq=seq)
+        except Exception as _ev_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "event 写入失败(non-fatal),事件 %s 章 %s: %s", ev_ids[k], seq, _ev_e)
     return n
 
 

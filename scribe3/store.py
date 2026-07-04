@@ -511,18 +511,23 @@ class SurrealStore:
              "k": RecordID(ktbl, klocal),
              "p": RecordID(ptbl, plocal)})
 
-    def add_event(self, ev: Event) -> Event:
+    def add_event(self, ev: Event, ingest_seq: int | None = None) -> Event:
+        """落事件 + 图边(involves/causes/causal)。
+        ingest_seq:由 ingest 抽取路径传入(批D P1-5),供 purge_ingest 幂等清理;
+        手动种 / MCP s3_add_event 不传 → ingest_seq=NONE,不受 purge 影响(向后兼容)。"""
         _, local = _split(ev.id)
         ev_rid = RecordID("event", local)
         loc_local = _split(ev.location)[1] if ev.location else None
         self._execute_write(
             "CREATE type::record('event', $local) SET event_type=$t, "
             "story_chapter=$vf, narrative_position=$np, "
-            "motivated_by_goal=$g, location=$loc, preconditions=$pre",
+            "motivated_by_goal=$g, location=$loc, preconditions=$pre"
+            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
              "np": ev.narrative_position,  # 完整期:可空叙事位;null 回退 story_chapter(向后兼容)
              "loc": RecordID("place", loc_local) if loc_local else None,
-             "pre": ev.preconditions})
+             "pre": ev.preconditions,
+             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         # participants → involves 图边
         for slot, ent_oid in ev.participants.items():
             if not ent_oid:
@@ -606,6 +611,15 @@ class SurrealStore:
         self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
         # 6. 伏笔章触及:随本章 ingest 幂等清除(手动登记 ingest_seq=NONE 不受影响)
         self._execute_write("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
+        # 7. 事件图(批D P1-5):随本章 ingest 幂等清除本章抽取的事件 + 图边。
+        #    先删图边(involves/causes/causal)再删事件本体——否则 RELATE 边悬挂指向已删事件。
+        #    只清 ingest_seq=seq:手动种 / MCP s3_add_event(ingest_seq=NONE)的事件不动。
+        ev_filter = "(SELECT VALUE id FROM event WHERE ingest_seq = $seq)"
+        self._execute_write(f"DELETE involves WHERE in IN {ev_filter}", {"seq": seq})
+        self._execute_write(f"DELETE causes WHERE in IN {ev_filter}", {"seq": seq})
+        self._execute_write(
+            f"DELETE causal WHERE in IN {ev_filter} OR out IN {ev_filter}", {"seq": seq})
+        self._execute_write("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
