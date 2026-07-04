@@ -1762,12 +1762,13 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
+    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=[], short_mode=short_mode)
+        seed_words=[], short_mode=short_mode, with_tools=_wt)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
-                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
+                      with_tools=_wt),
         media_type="text/event-stream",
     )
 
@@ -2002,10 +2003,12 @@ def _final_reminder() -> str:
     )
 
 
-def _purpose_workflow_block(st, chapter: int) -> str:
+def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
     """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
     生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
     (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
+    with_tools(P0-2 守卫,P1 全量抓漏):非当前书对话不挂 s3_ 工具,提示语绝不
+    提及 s3_ 工具名(诱导调用不存在的工具=坏提示+违反防串库语义)。
     空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
     try:
         from scribe3.purpose import parse_deltas
@@ -2015,18 +2018,21 @@ def _purpose_workflow_block(st, chapter: int) -> str:
     if ds:
         return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
                 "验收验的是「状态变化发生没发生」,不是好不好。")
+    register_hint = ("有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
+                     if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
     return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
             "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
-            "有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
-            "空合同也可正常写作,此工序不阻塞。")
+            + register_hint + "空合同也可正常写作,此工序不阻塞。")
 
 
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
-                                 seed_words: list, short_mode: bool) -> str:
+                                 seed_words: list, short_mode: bool,
+                                 with_tools: bool = False) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
-    (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。"""
+    (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
+    with_tools:透传给工序提示段(P0-2:非当前书不得诱导 s3_ 工具)。"""
     from scribe3.craft import build_craft_block
     instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
     instructions += f"\n当前第 {chapter} 章。"
@@ -2055,7 +2061,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         logging.getLogger("scribe3").debug(
             "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
             chapter, len(ded))
-    instructions += _purpose_workflow_block(st, chapter)   # 北极星任务6:目的合同工序
+    instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
 
@@ -2064,9 +2070,10 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
+    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-        seed_words=req.seed_words, short_mode=req.short_mode)
+        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -2094,7 +2101,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
-                      with_tools=_work_has_tools(work),   # P0-2:仅当前书挂 s3_ 工具
+                      with_tools=_wt,
                       on_complete=_persist_assistant),
         media_type="text/event-stream",
     )
@@ -2191,7 +2198,8 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     def _generate(attempt: int, constraints: str) -> str:
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-            seed_words=[], short_mode=req.short_mode)
+            seed_words=[], short_mode=req.short_mode,
+            with_tools=_work_has_tools(work))
         if constraints:
             instructions += "\n\n" + constraints
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"

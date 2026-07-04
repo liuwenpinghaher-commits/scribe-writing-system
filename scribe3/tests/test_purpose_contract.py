@@ -228,6 +228,17 @@ def test_s3_register_purpose_gated(store):
 
 def test_write_instructions_contain_purpose_workflow(store):
     instructions = A._assemble_write_instructions(
-        store, chapter=1, focalizer="", phase="", seed_words=[], short_mode=False)
+        store, chapter=1, focalizer="", phase="", seed_words=[], short_mode=False,
+        with_tools=True)
     assert "delta 草单" in instructions and "待批" in instructions, \
         "工序长在对话流程里(蓝图):聊定目的→列草单→待批登记"
+    assert "s3_register_purpose" in instructions, "挂工具对话应指明待批登记工具"
+
+
+def test_purpose_workflow_no_s3_mention_without_tools(store):
+    """P0-2 守卫(P1 全量抓漏):非当前书对话不挂工具,工序提示绝不提 s3_ 工具名。"""
+    instructions = A._assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="", seed_words=[], short_mode=False,
+        with_tools=False)
+    assert "delta 草单" in instructions, "工序提示仍在(只是不诱导工具)"
+    assert "s3_" not in instructions
