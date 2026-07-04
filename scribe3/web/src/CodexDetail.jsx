@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, GitBranch, Trash2, Plus } from 'lucide-react'
+import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X } from 'lucide-react'
 import { api } from './api'
 import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
@@ -256,6 +256,129 @@ function CharArcAnchors({ characterId }) {
   )
 }
 
+// ═══ 声音演变消费端(P1-11 后半环):voice_profile 声线指纹 + open voice_evolution_flag ═══
+// 后端只有三个端点:GET /voice-flags(全书 open,前端按角色过滤)、POST /voice-flags/{id}/resolve、
+// POST /voice-flags/fold(把该角色 open flags 折进 voice_profile,LLM 演化,返回演化后 profile)。
+// ⚠ 无 GET voice_profile 端点——初次加载只能拉 flags;声线指纹在「一键折叠」成功后由 fold 响应展示。
+// voice_profile 9 节字段(store.set_voice_profile):string 段直出,list 段逐行列。
+const VOICE_FIELDS = [
+  ['style_summary', '风格速写'],
+  ['catchphrases', '口头禅'],
+  ['sentence_patterns', '句式特征'],
+  ['vocabulary_profile', '用词偏好'],
+  ['tone_rules', '语气规则'],
+  ['internal_monologue_style', '内心独白'],
+  ['ooc_signals', 'OOC 破音信号'],
+  ['reference_lines', '参考台词'],
+]
+const hasVoiceVal = (v) => Array.isArray(v) ? v.length > 0 : (v != null && String(v).trim() !== '')
+
+// characterId=row.id(带前缀 role:xxx,fold 用它,后端 _split 依赖冒号);
+// characterName=row.name(裸名,主书历史 flag 的 character 存的是裸名,过滤兼容两种约定)。
+function CharVoice({ characterId, characterName }) {
+  const [flags, setFlags] = useState(null)   // null=加载中
+  const [profile, setProfile] = useState(null)   // fold 后展示;无 GET 端点故初次为 null
+  const [folding, setFolding] = useState(false)
+  const [resolvingId, setResolvingId] = useState('')
+
+  // flag.character 可能是 role:单嫣(规范)或 单嫣(主书历史裸名),两者都归到本角色。
+  const mine = (f) => {
+    const c = f?.character
+    return c === characterId || c === characterName
+      || c === (characterId || '').split(':').slice(1).join(':')
+  }
+  const loadFlags = () => api.voiceFlags()
+    .then((all) => setFlags((Array.isArray(all) ? all : []).filter(mine)))
+    .catch(() => setFlags([]))
+  useEffect(() => { setFlags(null); setProfile(null); loadFlags() }, [characterId])
+
+  const resolveOne = async (fid) => {
+    setResolvingId(fid)
+    try {
+      await api.resolveVoiceFlag(fid)
+      setFlags((fs) => (fs || []).filter((f) => f.id !== fid))
+      showToast('已标记该声音变化为已处理', { tone: 'ok' })
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '处理失败', { tone: 'danger' })
+    } finally { setResolvingId('') }
+  }
+
+  const fold = async () => {
+    setFolding(true)
+    try {
+      const r = await api.foldVoiceFlags(characterId)   // 用带前缀 id,防 _split 500
+      if (r?.folded > 0 && r?.profile) {
+        setProfile(r.profile)
+        showToast(`已折叠 ${r.folded} 条声音变化 → 声线指纹已更新`, { tone: 'ok' })
+        loadFlags()   // 已 resolve,列表应清空
+      } else if (r?.degraded) {
+        showToast('声音演变解析失败(soft,未改动),请稍后重试', { tone: 'danger' })
+      } else {
+        showToast('无待折叠的声音变化', { tone: 'info' })
+      }
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '折叠失败', { tone: 'danger' })
+    } finally { setFolding(false) }
+  }
+
+  if (flags === null) return <div className="mt-6 text-f12 text-faint/50">声音演变加载中…</div>
+  const openCount = flags.length
+  const profileFields = profile ? VOICE_FIELDS.filter(([k]) => hasVoiceVal(profile[k])) : []
+
+  return (
+    <div className="mt-6 pt-4 border-t border-line" data-testid="char-voice">
+      <SectionTitle icon={AudioLines} right={openCount > 0 ? `${openCount} 条待折叠` : null}>
+        声音演变 · 角色声线
+      </SectionTitle>
+
+      {/* 声线指纹(voice_profile):无独立 GET 端点,折叠成功后由 fold 响应展示 */}
+      {profileFields.length > 0 && (
+        <div className="mb-4 p-3 rounded-lg border border-line bg-soft/20 space-y-2" data-testid="voice-profile">
+          <div className="flex items-center gap-2">
+            <span className="text-f11 text-brand uppercase tracking-wider">声线指纹</span>
+            {profile?.version != null && <span className="text-f10 text-faint/60">v{profile.version}</span>}
+          </div>
+          {profileFields.map(([k, label]) => (
+            <div key={k}>
+              <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">{label}</div>
+              {Array.isArray(profile[k])
+                ? <ul className="list-disc pl-4 space-y-0.5">{profile[k].map((v, i) => <li key={i} className="text-f13 text-ink leading-relaxed">{typeof v === 'string' ? v : JSON.stringify(v)}</li>)}</ul>
+                : <div className="text-f13 text-ink leading-relaxed">{profile[k]}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 待折叠 flags 列表:哪章何事件触发的声音变化 */}
+      {openCount > 0 ? (
+        <div className="space-y-1.5">
+          {flags.map((f) => (
+            <div key={f.id} className="group flex items-start gap-2 py-1.5 px-2 rounded-lg hover:bg-soft/40">
+              <span className="text-f11 text-faint tnum shrink-0 mt-0.5">第{f.trigger_chapter}章</span>
+              <span className="text-f13 text-ink min-w-0 flex-1 leading-relaxed">{f.reason}</span>
+              <button onClick={() => resolveOne(f.id)} disabled={resolvingId === f.id}
+                className="shrink-0 opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer transition-opacity disabled:opacity-40"
+                title="忽略此条(标记已处理,不折进声线)">
+                {resolvingId === f.id ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : profileFields.length === 0 ? (
+        <Empty>暂无声音演变记录——写作中标记「影响声音」的角色质变会在此累积,可一键折叠进声线指纹。</Empty>
+      ) : null}
+
+      <div className="mt-3 flex items-center gap-2">
+        <Btn variant="primary" size="sm" onClick={fold} disabled={folding || openCount === 0}>
+          {folding ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+          一键折叠{openCount > 0 ? `(${openCount})` : ''}
+        </Btn>
+        {openCount > 0 && <span className="text-f11 text-faint">把待折叠变化演化进声线指纹</span>}
+      </div>
+    </div>
+  )
+}
+
 /**
  * 素材叶节点的中间栏详情卡:复用 CodexView 的 DetailView(角色档案/通用字段表/弧光/关系),
  * 自己负责按 node 懒加载该条全字段 + 落库回写。
@@ -300,6 +423,8 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
         />
         {/* 角色专属:弧光锚编辑 + 里程碑 + 信奉度曲线(独立 PATCH /char-anchors,不碰角色档案回写) */}
         {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} />}
+        {/* 角色专属:声音演变后半环(P1-11)——voice flags 列表 + 一键折叠 + 折叠后声线指纹(独立 /voice-flags/*,不碰角色档案) */}
+        {detailType === 'chars' && row?.id && <CharVoice characterId={row.id} characterName={row.name} />}
       </div>
       <ConfirmDialog
         open={delOpen}

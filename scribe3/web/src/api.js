@@ -108,6 +108,12 @@ export const api = {
   postArcBeat: (b) => post('/arc-beats', b),
   delArcBeat: (id) => del('/arc-beats/' + enc(id)),
   charStates: (id) => j(`/char-states?character_id=${enc(id)}`),
+  // 声音演变后半环(P1-11 消费端):列全书 open flags(前端按角色过滤)/ 单条 resolve / 一键折叠进 voice_profile。
+  // ⚠ 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
+  // fold 的 character_id 须带本体前缀(如 role:单嫣);后端 _split 依赖冒号,裸名会 500。
+  voiceFlags: () => j('/voice-flags'),
+  resolveVoiceFlag: (fid) => post('/voice-flags/' + enc(fid) + '/resolve'),
+  foldVoiceFlags: (characterId) => post('/voice-flags/fold', { character_id: characterId }),
   // POST 但只读(登记在后端 KNOWN_REST_WRITE_ROUTES);rubric 走 LLM 可能慢,调用方给 loading 态
   tensionCheck: (seq) => post(`/tension-check?seq=${seq}`),
   // 素材库(非正典材料;镜像 motif 方法组)
