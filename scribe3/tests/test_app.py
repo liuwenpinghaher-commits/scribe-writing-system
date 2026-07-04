@@ -1991,6 +1991,22 @@ def test_check_backward_compat_qc_counts_unchanged(store):
     assert isinstance(r["qc"]["ai_tics"], int)
 
 
+def test_check_returns_ai_grade(store):
+    """方案A任务8:/check 干净文本应带 ai_grade 字段,grade=="light"。"""
+    prose = ("灯灭了。他坐在黑里听雨,雨点砸在瓦上,忽急忽缓。"
+             "窗缝里钻进一点凉风,吹得烛芯歪了一下。"
+             "楼下传来收伞的声响,又归于寂静。"
+             "他摸黑倒了半杯茶,茶已经凉透。"
+             "墙角的座钟走得很慢,像是在数着雨点。"
+             "院子里的石阶湿了大半,水顺着瓦沟往下淌。"
+             "远处狗叫了两声,随即也停了。"
+             "他把手拢进袖子里,靠着墙闭上眼睛。")
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
+    assert "ai_grade" in r, "/check 应返回 ai_grade 字段"
+    assert r["ai_grade"]["grade"] == "light"
+
+
 def test_post_check_returns_issues_with_range(store):
     """/post-check 返回顶层 issues 字段;AI腔 issue 含正确 range。"""
     prose = "那不是恐惧——是渴望。"

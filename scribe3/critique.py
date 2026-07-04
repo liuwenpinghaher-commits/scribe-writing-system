@@ -1755,3 +1755,161 @@ def find_rhythm_uniformity(text: str) -> dict | None:
     verdict = "uniform" if (cv < _RHYTHM_CV_FLOOR and mean_adj_ratio < _RHYTHM_ADJ_FLOOR) else "ok"
     return {"cv": round(cv, 3), "sigma": round(sigma, 1), "mean": round(mean, 1),
             "mean_adj_ratio": round(mean_adj_ratio, 3), "n_sentences": len(lens), "verdict": verdict}
+
+
+# ==== 方案A任务8:整章 AI 味定档聚合(aggregate_ai_grade)+ 7-Gate 骨架 ====
+# 把 quality_flags 的分项确定性命中,聚合成"可决策的章级结论"——写作闭环回炉触发依据。
+# report-only,不改文本。指标口径与 7-Gate 映射均来自 oh-story story-deslop SKILL.md
+# 附录§H.2。三档阈值(轻/中/重)是【临时标定,待真机校准】,先用宽松值把骨架跑通。
+_AI_GRADE_BANNED_LIGHT, _AI_GRADE_BANNED_MEDIUM = 1.0, 3.0        # ①千字禁用词密度
+_AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM = 3, 5        # ②排比/结构复读最大连排数
+_AI_GRADE_PSYCH_LIGHT, _AI_GRADE_PSYCH_MEDIUM = 2.0, 5.0          # ③情感直说占句子数百分比
+_AI_GRADE_DIALOGUE_LIGHT, _AI_GRADE_DIALOGUE_MEDIUM = 2.0, 4.0    # ④千字对话腔标记密度
+_AI_GRADE_REPEAT_LIGHT, _AI_GRADE_REPEAT_MEDIUM = 1.0, 2.0        # ⑥千字复读密度
+_AI_GRADE_HEAVY_GATE_COUNT = 4    # oh-story"4+ Gate 有问题=重度",命中≥此数强制 heavy
+
+_GRADE_ORDER = {"light": 0, "medium": 1, "heavy": 2}
+
+# 对话腔调标记:引号收尾紧跟极短"XX说/XX道"型提示语(如「……」他说。/「……」淡淡道,)
+_AI_GRADE_DIALOGUE_TAG_RE = re.compile(r"[”」]\s*[^\n。！？]{0,6}(说|道)[。，]")
+
+
+def _ai_grade_tier(value: float, light_max: float, medium_max: float) -> str:
+    """三档判定:value < light_max → light;light_max <= value <= medium_max → medium;
+    value > medium_max → heavy(与 6 指标"轻<X/中X-Y/重>Y"的区间语义对齐)。"""
+    if value < light_max:
+        return "light"
+    if value <= medium_max:
+        return "medium"
+    return "heavy"
+
+
+def aggregate_ai_grade(flags: dict, text: str) -> dict:
+    """整章 AI 味定档聚合:quality_flags(text) 的分项命中 → 6 指标(千字/占比口径,轻中重
+    三档)→ 7-Gate 骨架(A-G)→ 章级 grade(light/medium/heavy)。
+
+    6 指标(oh-story story-deslop SKILL.md AI味6指标):
+      ① banned_density   ai_tics 里 banned_word/contextual_word 命中数/千字(可见字数口径)
+      ② parallel_run      flags["structural"] + find_parallelism(text) 的最大连排 count
+      ③ psych_ratio       find_emotion_telling(text) 命中数 / 句子数(百分比)
+      ④ dialogue_tag_density  「XX说/道」型提示语命中数/千字
+      ⑤ rhythm_uniform    flags["rhythm"] 的 verdict(ok=轻/uniform=重,无中档;缺失=轻)
+      ⑥ repeat_density    (flags["repetition"] + find_duplicate_lines(text) 命中数)/千字
+
+    7-Gate 映射(附录§H.2,A-G 对应禁用词/句式套路/心理告知/节奏均匀/对话腔调/结尾升华/
+    解释腔上帝感):详见各 gate_*_hit 计算处注释。
+
+    flags 里缺的键(旧调用方传部分 dict)一律 .get 容错;text 为空/纯空白返回 light 空骨架。
+    """
+    flags = flags or {}
+    text = text or ""
+    indicator_names = ("banned_density", "parallel_run", "psych_ratio",
+                        "dialogue_tag_density", "rhythm_uniform", "repeat_density")
+    if not text.strip():
+        return {
+            "grade": "light",
+            "gates": {g: {"hit": False, "count": 0} for g in "ABCDEFG"},
+            "gates_hit": [],
+            "indicators": {name: {"value": 0, "tier": "light"} for name in indicator_names},
+        }
+
+    ai_tics = flags.get("ai_tics") or []
+    structural = flags.get("structural") or []
+    purple = flags.get("purple") or []
+    god_view = flags.get("god_view") or []
+    repetition = flags.get("repetition") or []
+    rhythm = flags.get("rhythm")
+
+    visible = _degen_visible_length(text)
+    per_k = 1000.0 / visible if visible else 0.0
+
+    # ①banned_density
+    banned_hits = [h for h in ai_tics if h.get("kind") in ("banned_word", "contextual_word")]
+    banned_density = len(banned_hits) * per_k
+    banned_tier = _ai_grade_tier(banned_density, _AI_GRADE_BANNED_LIGHT, _AI_GRADE_BANNED_MEDIUM)
+
+    # ②parallel_run:结构复读(anaphora/short 均计,与 find_parallelism 同口径取最大连排数)
+    parallel_counts = ([s.get("count", 0) for s in structural]
+                       + [p.get("count", 0) for p in find_parallelism(text)])
+    parallel_run = max(parallel_counts) if parallel_counts else 0
+    parallel_tier = _ai_grade_tier(parallel_run, _AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM)
+
+    # ③psych_ratio
+    emotion_hits = find_emotion_telling(text)
+    sent_count = len([s for s in _SENT_SPLIT.split(text) if s.strip()]) or 1
+    psych_ratio = len(emotion_hits) / sent_count * 100
+    psych_tier = _ai_grade_tier(psych_ratio, _AI_GRADE_PSYCH_LIGHT, _AI_GRADE_PSYCH_MEDIUM)
+
+    # ④dialogue_tag_density
+    dialogue_hits = len(_AI_GRADE_DIALOGUE_TAG_RE.findall(text))
+    dialogue_density = dialogue_hits * per_k
+    dialogue_tier = _ai_grade_tier(dialogue_density, _AI_GRADE_DIALOGUE_LIGHT,
+                                   _AI_GRADE_DIALOGUE_MEDIUM)
+
+    # ⑤rhythm_uniform:二值指标,无中档;None(句数不足未判)按轻处理
+    rhythm_verdict = rhythm.get("verdict") if isinstance(rhythm, dict) else None
+    rhythm_tier = "heavy" if rhythm_verdict == "uniform" else "light"
+
+    # ⑥repeat_density
+    dup_lines = find_duplicate_lines(text)
+    repeat_count = len(repetition) + len(dup_lines)
+    repeat_density = repeat_count * per_k
+    repeat_tier = _ai_grade_tier(repeat_density, _AI_GRADE_REPEAT_LIGHT, _AI_GRADE_REPEAT_MEDIUM)
+
+    indicators = {
+        "banned_density": {"value": round(banned_density, 2), "tier": banned_tier},
+        "parallel_run": {"value": parallel_run, "tier": parallel_tier},
+        "psych_ratio": {"value": round(psych_ratio, 2), "tier": psych_tier},
+        "dialogue_tag_density": {"value": round(dialogue_density, 2), "tier": dialogue_tier},
+        "rhythm_uniform": {"value": rhythm_verdict or "ok", "tier": rhythm_tier},
+        "repeat_density": {"value": round(repeat_density, 2), "tier": repeat_tier},
+    }
+
+    # ---- 7-Gate 映射(附录§H.2)----
+    # A 禁用词:ai_tics 的 banned_word/contextual_word 命中且 banned_density 达"中"档(含重)
+    gate_a_hit = bool(banned_hits) and _GRADE_ORDER[banned_tier] >= _GRADE_ORDER["medium"]
+
+    # B 句式套路:not_a_but_b(否定翻转)+ toxic_pattern(毒句式)+ purple(升华/抒情直陈)
+    # 命中数合计 >= 1
+    not_a_but_b_hits = [h for h in ai_tics if h.get("kind") == "not_a_but_b"]
+    toxic_hits = [h for h in ai_tics if h.get("kind") == "toxic_pattern"]
+    gate_b_count = len(not_a_but_b_hits) + len(toxic_hits) + len(purple)
+    gate_b_hit = gate_b_count >= 1
+
+    # C 心理告知:psych_ratio 达"中"档(含重)
+    gate_c_hit = _GRADE_ORDER[psych_tier] >= _GRADE_ORDER["medium"]
+
+    # D 节奏均匀:rhythm uniform 或 structural.short(极短断句滥用)或 poetic_fragments 命中
+    short_structural = [s for s in structural if s.get("kind") == "short"]
+    poetic_hits = find_poetic_fragments(text)
+    gate_d_hit = rhythm_verdict == "uniform" or bool(short_structural) or bool(poetic_hits)
+    gate_d_count = (1 if rhythm_verdict == "uniform" else 0) + len(short_structural) + len(poetic_hits)
+
+    # E 对话腔调:dialogue_tag_density 达"中"档(含重)
+    gate_e_hit = _GRADE_ORDER[dialogue_tier] >= _GRADE_ORDER["medium"]
+
+    # F 结尾升华 / G 解释腔上帝感:god_view 按 kind 拆分,sublimation 归 F,其余归 G
+    sublimation_hits = [h for h in god_view if h.get("kind") == "sublimation"]
+    other_god_hits = [h for h in god_view if h.get("kind") != "sublimation"]
+    gate_f_hit = len(sublimation_hits) >= 1
+    gate_g_hit = len(other_god_hits) >= 1
+
+    gates = {
+        "A": {"hit": gate_a_hit, "count": len(banned_hits)},
+        "B": {"hit": gate_b_hit, "count": gate_b_count},
+        "C": {"hit": gate_c_hit, "count": len(emotion_hits)},
+        "D": {"hit": gate_d_hit, "count": gate_d_count},
+        "E": {"hit": gate_e_hit, "count": dialogue_hits},
+        "F": {"hit": gate_f_hit, "count": len(sublimation_hits)},
+        "G": {"hit": gate_g_hit, "count": len(other_god_hits)},
+    }
+    gates_hit = [g for g in "ABCDEFG" if gates[g]["hit"]]
+
+    # grade:6 指标最高档;命中 Gate 数 >= _AI_GRADE_HEAVY_GATE_COUNT 强制 heavy
+    # (oh-story"4+ Gate 有问题=重度")。
+    tiers = [banned_tier, parallel_tier, psych_tier, dialogue_tier, rhythm_tier, repeat_tier]
+    grade = max(tiers, key=lambda t: _GRADE_ORDER[t])
+    if len(gates_hit) >= _AI_GRADE_HEAVY_GATE_COUNT:
+        grade = "heavy"
+
+    return {"grade": grade, "gates": gates, "gates_hit": gates_hit, "indicators": indicators}

@@ -2393,13 +2393,21 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
             "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
         })
 
-    return {"qc": {"repetition": len(qf["repetition"]),
+    resp = {"qc": {"repetition": len(qf["repetition"]),
                    "structural": len(qf["structural"]),
                    "purple": len(qf["purple"]),
                    "ai_tics": len(qf["ai_tics"]),
                    "oversaturation": len(qf["oversaturation"])},
             "leaks": leaks,
             "issues": issues}
+    # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,不 500)。
+    try:
+        from scribe3.critique import aggregate_ai_grade
+        resp["ai_grade"] = aggregate_ai_grade(qf, req.prose)
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning("check aggregate_ai_grade 失败: %s", e)
+    return resp
 
 
 class PostCheckReq(BaseModel):
@@ -2603,7 +2611,17 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("find_watch_regression")
 
-    return {
+    # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,记 degraded,不 500)。
+    ai_grade = None
+    try:
+        from scribe3.critique import aggregate_ai_grade
+        ai_grade = aggregate_ai_grade(qf, req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check aggregate_ai_grade 失败: %s", e)
+        degraded = True
+        degraded_stages.append("aggregate_ai_grade")
+
+    resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
@@ -2621,6 +2639,9 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "unbalanced_quotes": unbalanced_quotes,
         "watch_regression": watch_regression,
     }
+    if ai_grade is not None:
+        resp["ai_grade"] = ai_grade
+    return resp
 
 
 class DraftCheckReq(BaseModel):

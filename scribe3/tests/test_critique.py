@@ -953,3 +953,34 @@ class TestAdverbTriadVariation:
         from scribe3.critique import find_elegant_variation
         t = "陈九抬头看天。" + "无关叙述。" * 60 + "少年攥紧了拳。"
         assert find_elegant_variation(t, names=["陈九"]) == []
+
+
+class TestAiGrade:
+    def test_clean_chapter_light(self):
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        # 注:原计划文本用 "灯灭了。……" * 8 简单倍增拉长,实测该写法会把同一句话逐字
+        # 复读 8 次,反而击穿 find_structural_repeats(anaphora)/find_repetitions/
+        # find_duplicate_lines(均按"确定性命中即计数",这就是它们该做的事,不是误报)。
+        # 改用 8 句互不重复但同样干净的叙述句,真机验证六项指标与 7 个 Gate 均为零命中。
+        text = ("灯灭了。他坐在黑里听雨,雨点砸在瓦上,忽急忽缓。"
+                "窗缝里钻进一点凉风,吹得烛芯歪了一下。"
+                "楼下传来收伞的声响,又归于寂静。"
+                "他摸黑倒了半杯茶,茶已经凉透。"
+                "墙角的座钟走得很慢,像是在数着雨点。"
+                "院子里的石阶湿了大半,水顺着瓦沟往下淌。"
+                "远处狗叫了两声,随即也停了。"
+                "他把手拢进袖子里,靠着墙闭上眼睛。")
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["grade"] == "light" and g["gates_hit"] == []
+
+    def test_heavy_when_four_gates(self):
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        text = ("他心中一动,眼中闪过一丝狡黠。这不是恐惧而是愤怒。"
+                "他感到害怕。殊不知,他终于明白这就是命。") * 12
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["grade"] == "heavy" and len(g["gates_hit"]) >= 4
+
+    def test_gate_mapping_keys(self):
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        g = aggregate_ai_grade(quality_flags("平常句子。" * 30), "平常句子。" * 30)
+        assert set(g["gates"].keys()) == set("ABCDEFG")
