@@ -453,9 +453,11 @@ def test_s3_plant_promise_signature_accepts_tier():
 
 
 def test_s3_plant_promise_tier_arc_lands_arc_window(store):
-    """MCP s3_plant_promise 带 tier=arc(setup=2)批准后 → 落 arc 层,窗口 7..17(+5..+15)。"""
+    """MCP s3_plant_promise 带 tier=arc(setup=2)批准后 → 落 arc 层,窗口 7..17(+5..+15)。
+    B21 约束:tier∈{book,arc} 必须带 resolution(悬念真实答案),测试同步补齐。"""
     M.set_store(store)
-    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级伏笔MCP", 2, tier="arc"))
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级伏笔MCP", 2, tier="arc",
+                                         resolution="钟声源头是井底铜人,第15章现形"))
     assert res["status"] == "written"
     p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔MCP")
     assert p["tier"] == "arc"
