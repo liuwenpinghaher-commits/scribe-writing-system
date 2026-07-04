@@ -3,6 +3,8 @@
 纯函数生成各 section(可测不连库);assemble_chapter_brief 是唯一连 store 的薄壳。"""
 from __future__ import annotations
 
+import re
+
 _TIER_W = {"book": 3, "arc": 2, "chapter": 1}
 _SALIENCE_GAP_MAX = 3   # 距上次露面超过此章数 → 兑现前先刷新
 _LOOP_CAP = 12          # 开环加权上限
@@ -227,6 +229,79 @@ def validate_beat_budgets(beats: list[dict], target_words: int) -> dict:
     if total < target_words:
         return {"ok": False, "total": total, "reason": "under"}
     return {"ok": True, "total": total, "reason": None}
+
+
+# ===== 方案B任务11 · 章节定位六型 + 卷级张弛基线(纯函数检测器)=====
+
+_CHAPTER_ROLE_RE = re.compile(r"chapter_role[:：]\s*(高压|推进|修炼|关系回收|低压|信息整理)")
+_PRESSURE_RE = re.compile(r"压力级[:：]\s*([1-5])")
+
+_TENSION_WINDOW = 6   # 滑窗:6章内 pressure 全高/全低视为张弛失衡
+
+
+def parse_chapter_meta(outline_text_or_beats) -> dict | None:
+    """从大纲文本或节拍(beats)里解析章级定位标注:压力级(1-5)、chapter_role(六型之一)。
+
+    入参可以是纯文本(如 synopsis 或 chapter_draft_text 的拼接结果),也可以是
+    beats list[dict]/list[str](逐条 text 拼接后再解析,与其余检测器同口径)。
+    正则:「压力级:N」「chapter_role:X」(全/半角冒号皆可)。
+    两者都抓不到 → 返回 None(旧数据无标注,向后兼容;调用方据 None 跳过该章)。"""
+    if isinstance(outline_text_or_beats, list):
+        text = "\n".join(
+            (b.get("text") if isinstance(b, dict) else str(b)) or ""
+            for b in outline_text_or_beats)
+    else:
+        text = outline_text_or_beats or ""
+    role_m = _CHAPTER_ROLE_RE.search(text)
+    pressure_m = _PRESSURE_RE.search(text)
+    if not role_m and not pressure_m:
+        return None
+    out: dict = {}
+    if role_m:
+        out["role"] = role_m.group(1)
+    if pressure_m:
+        out["pressure"] = int(pressure_m.group(1))
+    return out
+
+
+def find_tension_monotony(chapters_meta: list[dict]) -> list[dict]:
+    """卷级张弛基线:全书章级 {seq, role, pressure} 序列上检测两类单调性问题。
+
+    ①role_run:同一 chapter_role 连续出现 >3 章(oh-story 铁律"同情绪母题别连超2-3章")
+      → {"kind":"role_run","role":…,"seqs":[本次连排全部 seq]}。
+    ②pressure_flat:滑窗 _TENSION_WINDOW(6)章内 pressure 全 ≥4 或全 ≤2
+      → {"kind":"pressure_flat","window":[窗口内各 seq]}(均衡基线非硬配额,严肃志怪取克制档,
+      但长期一路高压或一路低压都是失衡)。
+    缺 role/pressure 字段的章跳过(向后兼容)——不参与对应那一类检测,也不打断另一类的连续性
+    判定(role_run 只看有 role 的章按序连续,pressure_flat 同理)。"""
+    issues: list[dict] = []
+
+    # ① 同 role 连续 >3 章(按 seq 排序后,忽略缺 role 的章)
+    role_entries = sorted((m for m in chapters_meta if m.get("role")), key=lambda m: m["seq"])
+    run_role, run_seqs = None, []
+    for m in role_entries:
+        if m["role"] == run_role:
+            run_seqs.append(m["seq"])
+        else:
+            if run_role is not None and len(run_seqs) > 3:
+                issues.append({"kind": "role_run", "role": run_role, "seqs": list(run_seqs)})
+            run_role, run_seqs = m["role"], [m["seq"]]
+    if run_role is not None and len(run_seqs) > 3:
+        issues.append({"kind": "role_run", "role": run_role, "seqs": list(run_seqs)})
+
+    # ② 滑窗 6 章内 pressure 全 ≥4 或全 ≤2(按 seq 排序后,忽略缺 pressure 的章)
+    pressure_entries = sorted((m for m in chapters_meta if m.get("pressure") is not None),
+                              key=lambda m: m["seq"])
+    seen_windows: set[tuple] = set()
+    for i in range(len(pressure_entries) - _TENSION_WINDOW + 1):
+        window = pressure_entries[i:i + _TENSION_WINDOW]
+        pressures = [w["pressure"] for w in window]
+        if all(p >= 4 for p in pressures) or all(p <= 2 for p in pressures):
+            window_seqs = tuple(w["seq"] for w in window)
+            if window_seqs not in seen_windows:
+                seen_windows.add(window_seqs)
+                issues.append({"kind": "pressure_flat", "window": list(window_seqs)})
+    return issues
 
 
 def render_brief(sections: dict) -> str:

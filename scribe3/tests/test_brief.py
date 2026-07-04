@@ -5,7 +5,8 @@
 """
 from scribe3.brief import (arc_directive, promise_directives,
                            open_loop_ledger, heartbeat_list, render_brief,
-                           assemble_chapter_brief, validate_beat_budgets)
+                           assemble_chapter_brief, validate_beat_budgets,
+                           find_tension_monotony, parse_chapter_meta)
 
 
 def test_arc_directive():
@@ -214,3 +215,41 @@ class TestBeatBudgets:
     def test_missing_budget_tolerated(self):
         # 旧数据无 budget 字段:不判,ok=None(向后兼容)
         assert validate_beat_budgets([{"text": "旧节拍"}], target_words=2000)["ok"] is None
+
+
+# ===== 方案B任务11 · 章节定位六型 + 卷级张弛基线(纯函数检测器)=====
+
+class TestTensionMonotony:
+    def test_same_role_run_over_3_flagged(self):
+        meta = [{"seq": i, "role": "高压", "pressure": 5} for i in range(1, 5)]
+        issues = find_tension_monotony(meta)
+        assert any(i["kind"] == "role_run" for i in issues)
+
+    def test_varied_roles_clean(self):
+        meta = [{"seq": 1, "role": "高压", "pressure": 4}, {"seq": 2, "role": "低压", "pressure": 2},
+                {"seq": 3, "role": "推进", "pressure": 3}, {"seq": 4, "role": "高压", "pressure": 5}]
+        assert find_tension_monotony(meta) == []
+
+    def test_all_high_pressure_flagged(self):
+        meta = [{"seq": i, "role": r, "pressure": 5} for i, r in enumerate(["高压", "推进", "高压", "推进", "高压", "推进"], 1)]
+        issues = find_tension_monotony(meta)
+        assert any(i["kind"] == "pressure_flat" for i in issues)
+
+    def test_missing_meta_tolerated(self):
+        assert find_tension_monotony([{"seq": 1}, {"seq": 2}]) == []
+
+
+class TestParseChapterMeta:
+    def test_parses_role_and_pressure(self):
+        text = "本章大纲……压力级:4\nchapter_role:高压\n后续文本"
+        meta = parse_chapter_meta(text)
+        assert meta == {"role": "高压", "pressure": 4}
+
+    def test_parses_from_beats_list(self):
+        beats = [{"text": "开场铺垫"}, {"text": "压力级:2 chapter_role:低压"}]
+        assert parse_chapter_meta(beats) == {"role": "低压", "pressure": 2}
+
+    def test_no_match_returns_none(self):
+        assert parse_chapter_meta("旧数据无标注的大纲文本") is None
+        assert parse_chapter_meta(None) is None
+        assert parse_chapter_meta([]) is None

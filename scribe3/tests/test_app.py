@@ -3366,6 +3366,39 @@ def test_post_check_cross_consistency_is_list(store):
     assert isinstance(cc, list), f"cross_consistency 应为列表,实际: {type(cc)}"
 
 
+# ===== 方案B任务11:章节定位六型 + 卷级张弛基线接线进 /post-check =====
+
+def test_post_check_reports_tension_monotony_role_run(store):
+    """全书连续 4 章都标「chapter_role:高压」→ /post-check 的 tension_monotony
+    应检出 role_run(卷级张弛基线,带 work 全章上下文,不限于当前 seq 那一章)。"""
+    for seq in range(1, 5):
+        store.save_chapter(seq, f"第{seq}章正文,平平无奇。", title=f"第{seq}章")
+        store.update_chapter_meta(seq, {"synopsis": "压力级:5 chapter_role:高压"})
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 4},
+               json={"prose": "第4章正文,平平无奇。", "focalizer": "", "brief": ""}).json()
+    tm = r.get("tension_monotony")
+    assert isinstance(tm, list), f"tension_monotony 应为列表,实际: {type(tm)}"
+    assert any(i.get("kind") == "role_run" for i in tm), f"应检出 role_run,实际: {tm}"
+
+
+def test_post_check_tension_monotony_empty_when_no_annotations(store):
+    """旧数据无「压力级/chapter_role」标注 → tension_monotony 为空列表,不误报、不崩。"""
+    store.save_chapter(1, "一段正常内容,无定位标注。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常内容,无定位标注。", "focalizer": "", "brief": ""}).json()
+    assert r.get("tension_monotony") == []
+
+
 def test_post_check_new_detectors_fail_soft(store, monkeypatch):
     """/post-check:find_duplicate_lines 或 find_emotion_telling 抛异常时 fail-soft,不崩溃,200 返回。"""
     import scribe3.critique as CQ

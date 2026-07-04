@@ -1890,6 +1890,14 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
         "全部情节点预算求和必须落在[章目标字数, ×1.1]区间;"
         "节拍列表末尾输出一行「预算合计:X字」。"
     )
+    # 方案B任务11:章节定位六型 + 卷级张弛基线(oh-story outline-structure-theory.md:282-289 移植)——
+    # 大纲/节拍标注补充"这一章在全书张弛节奏里的定位",供 brief.find_tension_monotony 卷级检测消费。
+    parts.append(
+        "章节定位标注:生成/调整大纲或节拍时,每章须标注「压力级:1-5」与"
+        "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」;"
+        "低压/关系回收章允许无显性爽点,但须保留追读拉力(未解悬念或未了结的关系张力仍须推进);"
+        "均衡基线非硬配额,严肃志怪基调整体取克制档,但同一 chapter_role 不得连排超过 2-3 章。"
+    )
     return "\n\n" + "\n".join(parts)
 
 
@@ -2578,6 +2586,27 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("validate_cross_chapter_consistency")
 
+    # 方案B任务11:卷级张弛基线——接线落点说明:仓内无独立"全书体检/审计"端点
+    # (/qc 显式注明 cross_consistency 属全书聚合但"留在 /post-check,不在此触发,以免
+    # 面板加载时跑全书查询";/post-check 是仓内唯一已把"全书聚合"字段(cross_consistency/
+    # orphan_edges)混入单章体检响应的端点),故本检测器同样落点于此,带 work 全章上下文
+    # (遍历 st.list_chapters() 逐章解析 role/pressure,而非只看当前 seq)。fail-soft:
+    # 书级扫描异常不阻断本次单章体检的其余字段。
+    tension_monotony: list[dict] = []
+    try:
+        from scribe3.brief import find_tension_monotony, parse_chapter_meta, chapter_draft_text
+        chapters_meta: list[dict] = []
+        for c in st.list_chapters():
+            full = st.get_chapter(c["seq"]) or {}
+            meta = parse_chapter_meta(chapter_draft_text(full))
+            if meta:
+                chapters_meta.append({"seq": c["seq"], **meta})
+        tension_monotony = find_tension_monotony(chapters_meta)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_tension_monotony 失败 work=%s: %s", work, e)
+        degraded = True
+        degraded_stages.append("find_tension_monotony")
+
     # 批E-B(P2-15):orphan_knowledge_edges 审计器接线——此前仅测试、零生产接线。
     # 真实孤儿路径:DELETE /facts 删命题时 knows 图边级联消失,但 reader_knows(独立表,
     # CREATE 非 RELATE)不级联 → 留悬挂边。全书聚合(非单章),同 cross_consistency 留在
@@ -2665,6 +2694,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "duplicate_lines": dup_lines,
         "emotion_telling": emotion_telling,
         "cross_consistency": cross_consistency,
+        "tension_monotony": tension_monotony,
         "orphan_edges": orphan_edges,
         "parallelism": parallelism,
         "poetic_fragments": poetic_fragments,
