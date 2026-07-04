@@ -664,6 +664,14 @@ class TestQuoteExemption:
         hits = find_repetitions(t, n=6, min_count=3)
         assert any("影子" in h["phrase"] for h in hits)
 
+    def test_dialogue_structural_repeats_exempt(self):
+        # 台词同3字开头(你走吧…×4)不判 anaphora;极短对白(啊!/不!)不进 short 计数
+        t = ("「你走吧娘。」「你走吧爹。」「你走吧哥。」「你走吧嫂。」他没接话。\n"
+             "「啊！」「不！」「啊！」「不！」「啊！」屋里静了下来。")
+        out = find_structural_repeats(t)
+        assert not any(o["kind"] == "anaphora" for o in out), out
+        assert not any(o["kind"] == "short" for o in out), out
+
     def test_strip_quoted_seven_pairs(self):
         from scribe3.critique import _strip_quoted
         assert _strip_quoted("a「一」b『二』c【三】d“四”e‘五’f\"六\"g'七'h") == "abcdefgh"
