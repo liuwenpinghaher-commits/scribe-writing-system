@@ -1618,6 +1618,32 @@ def test_reverse_current_state_belief_included(store):
     assert snap["belief"]["chapter"] == 4
 
 
+def test_reverse_current_state_cross_type_chapter_order(store):
+    """B24 审查发现的正确性 bug:composite 首现于早期章、其最新记录却晚于
+    专项类型(ability)最新记录时,派生键(abilities 等)必须按 chapter 全局时间序
+    合并——而不是先按 change_type 折叠(latest_by_type,dict 按首次插入序遍历)
+    再合并,否则更早插入的专项类型会在遍历顺序上"后到"从而覆盖更新的 composite 值。
+
+    时间线:ch1 composite{剑术:初级} / ch2 ability{剑术:精通} / ch10 composite{剑术:入圣}
+    正确结果应为 chapter 序最新的 ch10 composite 值:剑术=入圣。"""
+    store.add_entity(Entity("role:丙", "character", "丙"))
+    cid = "role:丙"
+    store.add_char_state(character_id=cid, chapter=1, change_type="composite",
+                         summary="初学剑术",
+                         after_state={"ability_snapshot": {"剑术": "初级"}})
+    store.add_char_state(character_id=cid, chapter=2, change_type="ability",
+                         summary="剑术精进",
+                         after_state={"ability_snapshot": {"剑术": "精通"}})
+    store.add_char_state(character_id=cid, chapter=10, change_type="composite",
+                         summary="剑术通神",
+                         after_state={"ability_snapshot": {"剑术": "入圣"}})
+
+    snap = store.reverse_current_state(cid)
+
+    assert snap["abilities"]["剑术"] == "入圣", (
+        f"应取 chapter 全局最新(10)的 composite 值,而非按 change_type 分组遍历序覆盖: {snap}")
+
+
 # ===== 块四a-1 素材库 material(非正典材料;不进图谱/不被 ingest)=====
 
 def test_material_roundtrip(store):

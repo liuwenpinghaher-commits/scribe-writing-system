@@ -2358,11 +2358,18 @@ class SurrealStore:
 
         返回结构:
           - 每个出现过的 change_type 一个键,值为 {"chapter":最新章号,"summary":该条摘要,
-            "after_state":该条 after_state}(逆向续写时可读该章号判断信息新鲜度);
+            "after_state":该条 after_state}(该视图按 change_type 分组各取最新一条,
+            用 latest_by_type 折叠即可——这里只关心"这一类型本身最新是什么",与
+            "跨类型 chapter 全局序"无关);
           - 额外派生键(与 char_state_at 同范式,方便直接消费):
             abilities/relations/personality 分别聚合 ability/relation/personality/composite
-            类型最新一条的 after_state;belief 类型的 lie_belief 提升为顶层 lie_belief 键。
-        list_char_states 已按 chapter ASC 排序,故后遍历的同 change_type 记录天然覆盖更早的。
+            类型的 after_state;belief 类型的 lie_belief 提升为顶层 lie_belief 键。
+            这些派生键必须照抄 char_state_at 的范式——对 list_char_states 返回的 rows
+            (已按 chapter ASC 排序)直接顺序遍历、逐条 update 覆盖——因为 composite 与
+            专项类型(如 ability)会写同一个键(如"剑术"),只有按全局 chapter 时间序
+            遍历才能保证最终值是时间上最新的值;若先按 change_type 折叠
+            (latest_by_type,dict 按首次插入序遍历)再合并,插入序较晚遍历到的旧类型
+            会覆盖 chapter 实际更新的另一类型,产出过期值(B24 审查发现的正确性 bug)。
         """
         rows = self.list_char_states(character_id)
         if not rows:
@@ -2371,14 +2378,17 @@ class SurrealStore:
         for r in rows:
             latest_by_type[r["change_type"]] = r
         snapshot: dict = {}
-        abilities: dict = {}
-        relations: dict = {}
-        personality = ""
-        lie_belief = None
         for ct, r in latest_by_type.items():
             after = r.get("after_state") or {}
             snapshot[ct] = {"chapter": r["chapter"], "summary": r.get("summary"),
                             "after_state": after or None}
+        abilities: dict = {}
+        relations: dict = {}
+        personality = ""
+        lie_belief = None
+        for r in rows:
+            ct = r["change_type"]
+            after = r.get("after_state") or {}
             if ct in ("ability", "composite"):
                 abilities.update(after.get("ability_snapshot") or {})
             if ct in ("relation", "composite"):
