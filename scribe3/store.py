@@ -324,6 +324,7 @@ class SurrealStore:
     def __init__(self, url: str | None = None, ns: str = "scribe3", db: str = "main",
                  user: str | None = None, password: str | None = None):
         self.url = url or os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
+        self.db_name = db   # 本库名(=work);chat_message.work 等冗余字段由此自动填(台账 D-002)
         user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
         password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
         self._db = Surreal(self.url)
@@ -853,6 +854,21 @@ class SurrealStore:
         return [{"motif_id": r.get("motif_id"),
                  "name": names.get(r.get("motif_id"), ""),
                  "evidence": r.get("evidence") or ""} for r in rows]
+
+    # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
+    def add_chat_message(self, chapter: int, stage: str, role: str, text: str) -> None:
+        """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。"""
+        self._execute_write(
+            "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, ts=time::now()",
+            {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text})
+
+    def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
+        """按章(缺省全部)拉取对话留痕,ts 升序;ts 转字符串(REST 直接可回)。"""
+        where = "WHERE chapter = $c " if chapter is not None else ""
+        return self._query(
+            f"SELECT work, chapter, stage, role, text, <string> ts AS ts "
+            f"FROM chat_message {where}ORDER BY ts ASC LIMIT {int(limit)}",
+            {"c": chapter})
 
     # --- 伏笔章触及 promise_touch ---
     def add_promise_touch(self, promise_id: str, chapter: int,

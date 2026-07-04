@@ -1450,17 +1450,20 @@ def _is_write_intent(msg) -> bool:
 
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
-                  with_tools: bool = True):
+                  with_tools: bool = True, on_complete=None):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
-    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。"""
+    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。
+    on_complete:北极星任务1——流尽后以 assistant 落库文本回调一次(围栏外散文+提案标记,
+    不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
     import json as _j
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
+    prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
 
     # 兜底追踪状态
     saw_proposal = False
@@ -1481,6 +1484,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 yield f"data: {_j.dumps({'proposal_chunk': {'text': val}}, ensure_ascii=False)}\n\n"
             elif kind == "proposal_close":
                 yield f"data: {_j.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
+                prop_marks.append(f"⟦提案 scope={prop['scope']}·{len(''.join(prop['prose']))}字⟧")
                 prop["scope"] = None
                 prop["prose"] = []
 
@@ -1501,11 +1505,22 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             accumulated = "".join(delta_acc)
             prose_body = _strip_preamble(accumulated)
             if len(prose_body.strip()) >= _FALLBACK_MIN_CHARS:
+                prop_marks.append(f"⟦提案 scope=chapter·{len(prose_body)}字·兜底⟧")
                 yield (
                     f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
     except Exception as e:
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+    # 北极星任务1:流尽(含异常提前收尾)后落库 assistant 文本——半截对话也留痕(如实,D-004)。
+    if on_complete is not None:
+        try:
+            txt = "".join(delta_acc).strip()
+            if prop_marks:
+                txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
+            if txt:
+                on_complete(txt)
+        except Exception:
+            logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
     yield 'data: {"done": true}\n\n'
 
 
@@ -2045,11 +2060,31 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     else:
         message = req.msg
 
+    # 北极星任务1:会话落库(蓝图 §4-② 第1级)——user 受理即写,assistant 流尽回调写;
+    # 均 best-effort(D-004),落库失败只告警,绝不影响写作主链路。
+    user_text = req.msg + (f"\n[附图{len(req.images)}张]" if req.images else "")
+    try:
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user", text=user_text)
+    except Exception:
+        logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
+
+    def _persist_assistant(text: str) -> None:
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant", text=text)
+
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
-                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
+                      with_tools=_work_has_tools(work),   # P0-2:仅当前书挂 s3_ 工具
+                      on_complete=_persist_assistant),
         media_type="text/event-stream",
     )
+
+
+@app.get("/chat/messages")
+def chat_messages(chapter: int | None = None, limit: int = 500, work: str = "main"):
+    """会话留痕回看(北极星任务1):按章拉 chat_message,ts 升序。
+    复盘蒸馏(任务8)与「当初为什么这么定」的翻账都从这里读。
+    GET /chat/write(兼容端点,无生产调用方)不落库——台账 D-005。"""
+    return _store_for(work).list_chat_messages(chapter=chapter, limit=limit)
 
 
 @app.get("/chapters")
