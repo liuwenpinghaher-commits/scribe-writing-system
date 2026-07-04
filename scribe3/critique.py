@@ -4,6 +4,7 @@
 纯函数(无 DB/无网络),作渲染层质检兜底。语义级违规(双高潮/声音崩)是另一路(LLM 判官,后续)。
 """
 import bisect
+import bisect
 import json
 import logging
 import re
@@ -375,8 +376,28 @@ _WANDAI_BLOCK_HITS = 2        # wandai 毒句式命中 ≥2 处时该类升 bloc
 _AI_TIC_SENT_DELIM = re.compile(r"[。！？\n]")
 
 
+def _merge_spans(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """区间排序+合并为【有序、互不重叠】列表(供 _in_any_span 二分)。
+    相交判定等价性:查询区间与"若干区间的并集"相交 ⟺ 与其中任一原区间相交,
+    故合并不改变 _in_any_span 的判定结果,只是把病态文本(对话密集×命中密集)下的
+    线性扫描 O(n²) 降为 O(log n) 每查询。"""
+    if not spans:
+        return []
+    spans = sorted(spans)
+    merged: list[tuple[int, int]] = [spans[0]]
+    for s, e in spans[1:]:
+        ls, le = merged[-1]
+        if s <= le:
+            if e > le:
+                merged[-1] = (ls, e)
+        else:
+            merged.append((s, e))
+    return merged
+
+
 def _allow_spans(text: str, allow_words: set[str] | None) -> list[tuple[int, int]]:
-    """allow_words 里每个词在 text 中的所有命中区间(finditer),供豁免判定用。"""
+    """allow_words 里每个词在 text 中的所有命中区间(finditer),供豁免判定用。
+    出口经 _merge_spans 排序合并(满足 _in_any_span 的有序互不重叠前置条件)。"""
     if not allow_words:
         return []
     spans: list[tuple[int, int]] = []
@@ -385,13 +406,19 @@ def _allow_spans(text: str, allow_words: set[str] | None) -> list[tuple[int, int
             continue
         for m in re.finditer(re.escape(w), text):
             spans.append((m.start(), m.end()))
-    return spans
+    return _merge_spans(spans)
 
 
 def _in_any_span(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
     """[start,end) 与 spans 中任一区间相交即返回 True(豁免路径:与 find_purple_prose
-    的 extra_patterns 加法标记机制无关,这是独立的新写的区间相交判定)。"""
-    return any(start < s_end and s_start < end for s_start, s_end in spans)
+    的 extra_patterns 加法标记机制无关,这是独立的区间相交判定)。
+    前置条件:spans 须为 _merge_spans 的产物(有序、互不重叠)——现有三处调用
+    (find_ai_tics 的 _allow_spans、find_god_view/_degen_meta_leak 的 _quoted_ranges)
+    均已满足。二分找"最右一个 s_start < end"的区间,唯一可能相交的候选。"""
+    if not spans:
+        return False
+    i = bisect.bisect_left(spans, (end,)) - 1  # spans[i] 是最右一个 s_start < end
+    return i >= 0 and spans[i][1] > start
 
 
 def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
@@ -1072,7 +1099,9 @@ def _quoted_ranges(text: str) -> list[tuple[int, int]]:
     for rx in _QUOTED_SPANS:
         for m in rx.finditer(s):
             spans.append((m.start(), m.end()))
-    return spans
+    # 7 对正则各自命中可能交叠(如嵌套异种引号),出口排序合并,
+    # 满足 _in_any_span 的有序互不重叠前置条件(二分判定)。
+    return _merge_spans(spans)
 
 
 # ==== 方案A任务4:上帝视角/解释腔检测器(find_god_view)====
@@ -1084,7 +1113,10 @@ _GOD_VIEW_PATTERNS = [   # oh-story anti-ai-writing 模式8 + 总结/升华句�
     ("god_spoiler", re.compile(r"(她|他)不知道的是|殊不知|多年以后|冥冥之中|仿佛预示着")),
     ("explain_causality", re.compile(r"之所以[^。！？\n]{1,30}(?:，)?是因为")),
     ("summarize", re.compile(r"(?:他|她)(?:终于明白|这才意识到|这才明白)|此刻[，,](?:他|她)")),
-    ("sublimation", re.compile(r"^(?:这一刻|这就是)[^。！？\n]{2,30}[。！？]", re.M)),
+    # sublimation 只锚"行首(容忍全角/半角/Tab 缩进)开头的整句"——刻意收窄防误伤:
+    # 句中出现"这一刻/这就是"(如"爱情在这一刻绽放")是合法叙述,不报;
+    # 段首起句的"这一刻，…。/这就是…。"才是升华式盖棺陈词(宁可漏不滥杀)。
+    ("sublimation", re.compile(r"^[ 　\t]*(?:这一刻|这就是)[^。！？\n]{2,30}[。！？]", re.M)),
 ]
 
 

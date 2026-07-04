@@ -772,11 +772,13 @@ class TestGodView:
 
     def test_shubuzhi(self):
         from scribe3.critique import find_god_view
-        assert find_god_view("殊不知，那盏灯根本不是人点的。")
+        hits = find_god_view("殊不知，那盏灯根本不是人点的。")
+        assert any(h["kind"] == "god_spoiler" for h in hits)
 
     def test_duonianyihou(self):
         from scribe3.critique import find_god_view
-        assert find_god_view("多年以后,他仍会想起这个雨夜。")
+        hits = find_god_view("多年以后,他仍会想起这个雨夜。")
+        assert any(h["kind"] == "god_spoiler" for h in hits)
 
     def test_explain_causality(self):
         from scribe3.critique import find_god_view
@@ -786,6 +788,23 @@ class TestGodView:
     def test_summarize_psych(self):
         from scribe3.critique import find_god_view
         assert any(h["kind"] == "summarize" for h in find_god_view("他终于明白，这一切都是命。"))
+
+    def test_summarize_cike(self):
+        # summarize 第二子模式:「此刻，他/她」镜头拉远式心理总结
+        from scribe3.critique import find_god_view
+        assert any(h["kind"] == "summarize" for h in find_god_view("此刻，他只想回家。"))
+
+    def test_sublimation_indented(self):
+        # 真实网文段首常带全角/半角缩进,行首锚须容忍缩进空白
+        from scribe3.critique import find_god_view
+        assert any(h["kind"] == "sublimation"
+                   for h in find_god_view("    这一刻，他终于放下了心。"))
+
+    def test_sublimation_midsentence_exempt(self):
+        # 句中出现"这一刻"是合法叙述(刻意收窄防误伤),不报 sublimation
+        from scribe3.critique import find_god_view
+        assert not any(h["kind"] == "sublimation"
+                       for h in find_god_view("爱情在这一刻绽放得热烈。"))
 
     def test_dialogue_exempt(self):
         from scribe3.critique import find_god_view
