@@ -80,6 +80,42 @@ def test_scorecard_lazy_backfill_when_cache_missing(store):
     assert sc is not None and sc["constraints"] is not None
 
 
+# ===== 北极星任务7 · 书级 scorecard 四维 =====
+
+def test_book_scorecard_four_dims_no_total(store):
+    """四维面板:张弛/回收率/矛盾密度(仅自比)/达成率;绝不合成总分(宪法)。"""
+    import json as _j
+    store.save_chapter(1, "第一章正文,字数若干,人事各安。", title="一")
+    store.save_chapter(2, "第二章正文,风声渐紧,旧账翻页。", title="二")
+    store.plant_promise("要收的", setup_chapter=1, tier="chapter")
+    pid = next(p["id"] for p in store.list_promises() if p["text"] == "要收的")
+    store.advance_promise(pid, payoff_chapter=2)
+    store.plant_promise("还开着的", setup_chapter=2, tier="chapter")
+    store.update_chapter_meta(1, {"deltas": [
+        {"kind": "fact", "subject": "a", "predicate": "p1", "status": "achieved"},
+        {"kind": "fact", "subject": "b", "predicate": "p2", "status": "carried",
+         "carried_from": 1}]})
+    data = _client(store).get("/north-star/book").json()
+    assert set(data) >= {"tension", "promise_recovery", "contradiction_density",
+                         "fulfillment"}
+    pr = data["promise_recovery"]
+    assert pr["payoff"] == 1 and pr["open"] == 1 and abs(pr["rate"] - 0.5) < 1e-6
+    cd = data["contradiction_density"]
+    assert cd["self_compare_only"] is True, "矛盾密度只可自比趋势(蓝图 v2 口径警示)"
+    fu = data["fulfillment"]
+    assert fu["achieved"] == 1 and fu["total"] == 2 and fu["carried_backlog"] == 1
+    flat = _j.dumps(data, ensure_ascii=False)
+    assert "total_score" not in flat and "overall" not in flat, "绝不合成总分(宪法)"
+
+
+def test_book_scorecard_empty_book_no_fake_green(store):
+    """空书:各维 no_data 如实标注,不出 0 假绿。"""
+    data = _client(store).get("/north-star/book").json()
+    assert data["promise_recovery"]["no_data"] is True
+    assert data["fulfillment"]["no_data"] is True
+    assert data["contradiction_density"]["no_data"] is True
+
+
 def test_scorecard_table_in_live_tables():
     """D-008/蓝图附录 A.2:scorecard 缓存表须入 _LIVE_TABLES 走 /live SSE 推送。"""
     assert "chapter_scorecard" in A._LIVE_TABLES

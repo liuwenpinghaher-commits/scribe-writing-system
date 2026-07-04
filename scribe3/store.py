@@ -1689,6 +1689,19 @@ class SurrealStore:
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
 
+    # --- 书级聚合小件(北极星任务7)---
+    def total_word_count(self) -> int:
+        """全书可见字数合计(qc_word_count 存稿缓存求和,不拉正文)。"""
+        rows = self._query("SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        return int((rows[0].get("w") if rows else 0) or 0)
+
+    def causal_debt_total(self) -> int:
+        """因果欠账存量:各章 qc_causal 正值求和(-1 哨兵=无事件数据,不计入)。
+        蓝图 §3-②:brief 只催收 top-5,超出部分落面板由此字段承载。"""
+        rows = self._query("SELECT qc_causal FROM chapter")
+        return sum((r.get("qc_causal") or 0) for r in rows
+                   if (r.get("qc_causal") or 0) > 0)
+
     def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:
         """before_seq 之前最近 k 章的 {seq, prose}(按 seq 升序)。
         供跨章复读检测与"前文已用措辞→生成时避免"清单复用。"""

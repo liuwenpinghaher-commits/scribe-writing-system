@@ -3429,6 +3429,80 @@ def north_star_chapter(seq: int, work: str = "main"):
     return sc
 
 
+@app.get("/north-star/book")
+def north_star_book(work: str = "main"):
+    """书级北极星 scorecard(北极星任务7,蓝图 §3-③ 后半):四维面板——张弛分布/
+    伏笔回收率/跨章矛盾密度/目的达成率 + 因果欠账存量(§3-② 溢出承载)。
+    绝不合成加权总分(宪法):北极星语义=所有 setpoint 在区间内 + 各维无恶化趋势,
+    面板全绿只证明机器没失职,"是不是好小说"的裁决留给人。
+    按需现算不建缓存表(D-016:底座对表 Q2 裁决弃 DB EVENT 聚合;章级变更已走
+    /live 推送,前端因章变而重取书级)。各维独立 fail-soft,空书 no_data 不假绿。"""
+    st = _store_for(work)
+    out: dict = {}
+    try:   # ① 张弛分布(find_tension_monotony,与 /post-check 同源组装)
+        from scribe3.brief import chapter_draft_text, find_tension_monotony, parse_chapter_meta
+        metas: list[dict] = []
+        for c in st.list_chapters():
+            m = parse_chapter_meta(chapter_draft_text(st.get_chapter(c["seq"]) or {}))
+            if m:
+                metas.append({"seq": c["seq"], **m})
+        out["tension"] = {"no_data": not metas, "chapters_with_meta": len(metas),
+                          "findings": find_tension_monotony(metas) if metas else []}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book tension 失败: %s", e)
+        out["tension"] = {"no_data": True, "degraded": True}
+    try:   # ② 伏笔回收率 = payoff/(open+payoff),另列超期数(蓝图公式)
+        rows = st.promises_with_lifecycle()
+        payoff = sum(1 for p in rows if p.get("payoff_chapter"))
+        open_ = sum(1 for p in rows if p.get("status") == "open")
+        overdue = sum(1 for p in rows if (p.get("window") or {}).get("state") == "overdue")
+        denom = payoff + open_
+        out["promise_recovery"] = ({"no_data": True} if not rows else
+                                   {"no_data": False, "payoff": payoff, "open": open_,
+                                    "overdue": overdue,
+                                    "rate": (payoff / denom) if denom else None})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book promise 失败: %s", e)
+        out["promise_recovery"] = {"no_data": True, "degraded": True}
+    try:   # ③ 跨章矛盾密度(CED 口径归一"错误/万字";仅自比趋势)
+        cc = st.validate_cross_chapter_consistency() or []
+        total_wc = st.total_word_count()
+        out["contradiction_density"] = {
+            "no_data": total_wc == 0, "issues": len(cc), "total_chars": total_wc,
+            "per_10k": (len(cc) / total_wc * 10000) if total_wc else None,
+            "self_compare_only": True,
+            "note": "口径同 ConStory CED、检测器不同,数字不可对标外部基准(蓝图 v2 口径警示)"}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book contradiction 失败: %s", e)
+        out["contradiction_density"] = {"no_data": True, "degraded": True,
+                                        "self_compare_only": True}
+    try:   # ④ 目的达成率(任务6 deltas 聚合;waived 出分母)
+        from scribe3.purpose import parse_deltas
+        ach = tot = carried = waived = 0
+        for c in st.list_chapters():
+            for d in parse_deltas((st.get_chapter(c["seq"]) or {}).get("deltas")):
+                tot += 1
+                if d["status"] == "achieved":
+                    ach += 1
+                elif d["status"] == "carried":
+                    carried += 1
+                elif d["status"] == "waived":
+                    waived += 1
+        denom = tot - waived
+        out["fulfillment"] = ({"no_data": True} if tot == 0 else
+                              {"no_data": False, "achieved": ach, "total": tot,
+                               "carried_backlog": carried, "waived": waived,
+                               "rate": (ach / denom) if denom else None})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book fulfillment 失败: %s", e)
+        out["fulfillment"] = {"no_data": True, "degraded": True}
+    try:   # 附加信息位:因果欠账存量(非四维,§3-② brief top-5 溢出的面板承载)
+        out["causal_debt_total"] = st.causal_debt_total()
+    except Exception:
+        out["causal_debt_total"] = None
+    return out
+
+
 # chapter_scorecard:北极星任务3——scorecard 缓存表入 /live SSE(蓝图附录 A.2,前端面板不轮询)
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
                 "promise", "motif", "chapter", "material", "chapter_scorecard"]
