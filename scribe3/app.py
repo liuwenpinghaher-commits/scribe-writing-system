@@ -2288,11 +2288,15 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
 
 
 @app.post("/dedup-chapter")
-def dedup_chapter(seq: int, work: str = "main"):
+def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     """确定性事后跨章改写(QC 的'治'层):定位本章含跨章逐字复读的句子→定向 LLM 改写→存回。
 
     比'prompt 预防'可靠(实测最严重章跨章复读 30→8,↓73%),契合本系统'确定性扫描+定向改'的纪律。
-    幂等:无复读则原样返回、不调 LLM。"""
+    幂等:无复读则原样返回、不调 LLM(不落版、不排 ingest)。
+
+    C-1(正文覆写三路对称):真改写正文后,与 /save-chapter 对称——落 final 版本(补版本历史断链)
+    + 排后台 ingest(内容变了理应重抽知识账本;经 _enqueue_ingest 与 P0-1 同章去重护栏协同,
+    若该章已有 ingest 在途则跳过,不产生双份)。"""
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
@@ -2304,6 +2308,16 @@ def dedup_chapter(seq: int, work: str = "main"):
     res = rewrite_cross_repetitions(ch["prose"], priors, hermes_complete, n=8, allow=allow)
     if res["rewritten"] > 0:
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
+        # 落 final 版(与 /save-chapter 对称;fail-soft:留版失败不阻断改写落库)
+        try:
+            st.add_chapter_version(seq, res["prose"], label="", kind="final",
+                                   stage="final", stats=_prose_stats(res["prose"]))
+        except Exception as e:
+            import logging
+            logging.getLogger("scribe3").warning(
+                "dedup-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
+        # 内容变了 → 排 ingest(去重护栏防与自动 ingest 撞双份)
+        _enqueue_ingest(background, work, seq)
     return {"seq": seq, "rewritten": res["rewritten"],
             "cross_repetition_before": res["before"], "cross_repetition_after": res["after"]}
 

@@ -111,6 +111,17 @@ def test_ingest_chapter_sync_reuses_ingest_chapter(store, monkeypatch):
     assert res["applied"] == 1
 
 
+def test_s3_save_chapter_records_final_version(store):
+    """C-1:s3_save_chapter 覆写正文后落 final 版本(与 app /save-chapter 对称,补版本历史断链)。"""
+    M.set_store(store)
+    out = M.s3_save_chapter(5, "MCP 存的正文。", title="第五章")
+    assert out["status"] == "saved"
+    versions = store.list_chapter_versions(5)
+    assert versions, "s3_save_chapter 应留一个版本"
+    assert versions[0]["stage"] == "final", f"应为 final 版: {versions[0]}"
+    assert store.get_chapter(5)["prose"] == "MCP 存的正文。"
+
+
 def test_tools_discoverable_and_annotated():
     tools = {t.name: t for t in asyncio.run(M.mcp.list_tools())}
     want = EXPECTED_WRITE_GATED | EXPECTED_WRITE_UNGATED | EXPECTED_WRITE_UNGATED_WORLD | EXPECTED_READ

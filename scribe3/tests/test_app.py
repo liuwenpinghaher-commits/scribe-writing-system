@@ -362,6 +362,92 @@ def test_item_first_chapter_roundtrip(store):
         f"first_chapter 应写入并回读为 3: {it}"
 
 
+def test_items_patch_preserves_state_history(store):
+    """P1-9:POST /items 改 PATCH/merge 语义——编辑其它字段不清空 state_history(未传字段保旧值)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器", description="旧描述")
+    store.update_item_state("镇煞钉", "lost", 3, note="奈何谷失落")
+    before = next(i for i in store.list_items() if i["name"] == "镇煞钉")
+    assert before["state_history"], "前置:应已有一条状态史"
+    # 只编辑描述(不传 state_history / symbolic_state / category)
+    r = c.post("/items", json={"name": "镇煞钉", "description": "新描述"})
+    assert r.status_code == 200, r.text
+    after = next(i for i in c.get("/items").json() if i["name"] == "镇煞钉")
+    assert after["description"] == "新描述", "描述应更新"
+    assert after["symbolic_state"] == "lost", f"未传 symbolic_state 应保留 lost: {after}"
+    assert after.get("category") == "法器", "未传 category 应保留"
+    assert len(after["state_history"]) == len(before["state_history"]), \
+        f"编辑其它字段不应清空 state_history: {after['state_history']}"
+
+
+def test_item_state_endpoint_appends_history(store):
+    """P1-9:POST /items/{name}/state 追加一条状态流转史(暴露 update_item_state)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器")
+    r = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": 3, "note": "奈何谷失落"})
+    assert r.status_code == 200, r.text
+    it = next(i for i in c.get("/items").json() if i["name"] == "镇煞钉")
+    assert it["symbolic_state"] == "lost"
+    hist = it["state_history"]
+    assert len(hist) == 1 and hist[0]["state"] == "lost" and hist[0]["chapter"] == 3, \
+        f"应追加一条 lost@3 的状态史: {hist}"
+    # 缺 chapter → 422
+    assert c.post("/items/镇煞钉/state", json={"state": "active"}).status_code == 422
+
+
+def test_get_voice_profile_endpoint(store):
+    """批D P1-11:GET /voice-profile?character_id= 返回声线指纹字段(刷新回显),无则 null 不 500。"""
+    c = _client(store)
+    store.set_voice_profile("role:甲", {"style_summary": "短句冷峻",
+                                        "catchphrases": ["哼"], "version": 2})
+    r = c.get("/voice-profile", params={"character_id": "role:甲"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body and body.get("style_summary") == "短句冷峻" and body.get("version") == 2
+    r2 = c.get("/voice-profile", params={"character_id": "role:无人"})
+    assert r2.status_code == 200 and r2.json() in (None, {})
+
+
+def test_dedup_chapter_saves_version_and_enqueues_ingest(store, monkeypatch):
+    """C-1:/dedup-chapter 真改写正文后落 final 版本 + 排 ingest(与 /save-chapter 对称)。"""
+    A.set_store(store)
+    store.save_chapter(2, "原始正文。", title="t")
+    import scribe3.critique as C
+    monkeypatch.setattr(C, "rewrite_cross_repetitions",
+                        lambda prose, priors, fn, **kw: {"prose": "改写后的正文。",
+                                                         "rewritten": 3, "before": 5, "after": 1})
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    before = len(store.list_chapter_versions(2))
+    r = client.post("/dedup-chapter?seq=2&work=main")
+    assert r.status_code == 200, r.text
+    assert r.json()["rewritten"] == 3
+    versions = store.list_chapter_versions(2)
+    assert len(versions) == before + 1, "改写后应新增一个版本"
+    assert versions[0]["stage"] == "final", f"应落 final 版: {versions[0]}"
+    assert called.get("args") == ("main", 2), "改写后应排 ingest"
+    assert store.get_chapter(2)["prose"] == "改写后的正文。", "改写正文应存回"
+
+
+def test_dedup_chapter_no_rewrite_no_version_no_ingest(store, monkeypatch):
+    """C-1:无跨章复读时 /dedup-chapter 幂等——不落版、不排 ingest。"""
+    A.set_store(store)
+    store.save_chapter(3, "干净正文。", title="t")
+    import scribe3.critique as C
+    monkeypatch.setattr(C, "rewrite_cross_repetitions",
+                        lambda prose, priors, fn, **kw: {"prose": prose, "rewritten": 0,
+                                                         "before": 0, "after": 0})
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    before = len(store.list_chapter_versions(3))
+    r = client.post("/dedup-chapter?seq=3&work=main")
+    assert r.status_code == 200
+    assert len(store.list_chapter_versions(3)) == before, "无改写不应新增版本"
+    assert "args" not in called, "无改写不应排 ingest"
+
+
 def test_term_first_mention_chapter_roundtrip(store):
     """POST /terms 携带 first_mention_chapter 应写入并可从 GET /terms 读回。"""
     c = _client(store)

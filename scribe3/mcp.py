@@ -365,8 +365,22 @@ def s3_discipline_check(seq: int, brief: str = "") -> dict:
 # ===== manuscript 写(草稿,直接写,不待批——非世界状态)=====
 @mcp.tool(annotations=_RW)
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None) -> dict:
-    """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。"""
+    """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。
+
+    C-1(正文覆写三路对称):覆写正文后与 app /save-chapter 对称落 final 版本——补版本历史断链
+    (此前经此工具改稿的存档点缺失)。ingest 不在此内联:MCP 进程无 app 的 BackgroundTasks /
+    _pending_ingest 去重队列,且有专用 s3_ingest_chapter 工具供 agent 显式客观回写;把慢 LLM 抽取
+    硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。"""
     _store.save_chapter(seq, prose, title=title, focalizer=focalizer)
+    # 落 final 版(fail-soft:留版失败不阻断存稿)
+    try:
+        stats = {"words": len("".join((prose or "").split()))}
+        _store.add_chapter_version(seq, prose, label="", kind="final",
+                                   stage="final", stats=stats)
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3.mcp").warning(
+            "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
     return {"status": "saved", "seq": seq}
 
 
