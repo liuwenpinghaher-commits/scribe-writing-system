@@ -101,6 +101,50 @@ def tension_deterministic(st, seq: int) -> list[dict]:
     return items
 
 
+# ===== 方案B任务12 · 连续性 heat/last_touch 状态机 + 关系触碰追踪 =====
+# 背景(oh-story plot-core-methods.md:254-276):角色/支线/伏笔/关系维护 heat + last_touch_chapter;
+# 有效触碰判定(推进/施压/改变关系/产生后果才算,提名字不算);回顾阈值(核心角色 3-5 章/主要支线 4-6 章)。
+# scribe3 既有 promise 的 last_refresh_at、char 的 last_active——本任务补统一 heat 语义 +
+# 新增"关系"维度触碰追踪(真新增,不重复既有 promise_touch/heartbeat_list 逻辑)。
+
+_HEAT_HOT_MAX = 2    # 距上次触碰 ≤2 章 → hot
+_HEAT_WARM_MAX = 5   # 3~5 章 → warm;>5 章(或从未触碰)→ cold
+
+
+def heat_of(last_touch: int | None, current: int) -> str:
+    """纯函数:按距上次有效触碰的章数算 heat 档位。
+    hot(≤2 章)/ warm(3~5 章)/ cold(>5 章,或从未触碰 last_touch=None)。"""
+    if last_touch is None:
+        return "cold"
+    gap = current - last_touch
+    if gap <= _HEAT_HOT_MAX:
+        return "hot"
+    if gap <= _HEAT_WARM_MAX:
+        return "warm"
+    return "cold"
+
+
+def stale_entity_directives(rows: list[dict], next_ch: int) -> dict:
+    """纯函数:cold 实体(该 warm 却 cold)生成"本章须安排有效触碰"指令段。
+    rows: [{name, kind, last_touch}],kind 为 char/promise/relation 等维度标签任意字符串。
+    返回 {"text": 指令段文案(无 cold 实体则空串), "items": [{name, kind, heat, last_touch}](仅 cold)}。"""
+    items = []
+    for r in rows:
+        h = heat_of(r.get("last_touch"), next_ch)
+        if h == "cold":
+            items.append({"name": r.get("name"), "kind": r.get("kind"),
+                         "heat": h, "last_touch": r.get("last_touch")})
+    if not items:
+        return {"text": "", "items": []}
+    listing = "；".join(f"{i['name']}({i['kind']})" for i in items)
+    text = (
+        f"【连续性提醒·该 warm 却 cold】{listing} 距上次有效触碰已过久:"
+        "本章须为其安排一次有效触碰(推进/施压/改变关系/产生后果才算,"
+        "仅提名字/空头回调不算)。回顾阈值参考:核心角色 3-5 章一次,主要支线 4-6 章一次。"
+    )
+    return {"text": text, "items": items}
+
+
 def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
     """待激活名单:有 private_agenda 且距上次活跃超过 gap 章的角色。"""
     out = []
@@ -322,6 +366,9 @@ def render_brief(sections: dict) -> str:
     if hb:
         items = "；".join(f"{h['name']}(上次第{h['last_active']}章,其日程:{h['agenda']})" for h in hb)
         parts.append(f"【待激活角色】{items}——本章至少让其日程推进一步或被提及")
+    stale = sections.get("stale") or {}
+    if stale.get("text"):
+        parts.append(stale["text"])
     return "\n\n".join(parts)
 
 
@@ -349,11 +396,43 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "") -> dict:
         if a.get("lie"):
             arcs.append(arc_directive(c.name, a, st.list_arc_plan(c.id),
                                       st.latest_lie_belief(c.id, max_ch), next_ch))
+    # 方案B任务12:连续性 heat/last_touch 状态机——char/promise/relation 三维度取数汇总,
+    # 逐维度 fail-soft:任一维度取不到数据就跳过该维度,不影响其余维度与整体简报组装。
+    stale_rows: list[dict] = []
+    try:
+        for c in chars_hb:
+            if c.get("last_active") is not None:
+                stale_rows.append({"name": c["name"], "kind": "char",
+                                   "last_touch": c["last_active"]})
+    except Exception:
+        pass
+    try:
+        for p in rows:
+            if p.get("status") != "open":   # 只对仍开着的支线/伏笔催回顾,已收线的不必
+                continue
+            last_touch = p.get("last_refresh_at")
+            if last_touch is None:
+                last_touch = p.get("setup_chapter")
+            stale_rows.append({"name": (p.get("text") or "")[:20], "kind": "promise",
+                               "last_touch": last_touch})
+    except Exception:
+        pass
+    try:
+        by_pair: dict[tuple, int] = {}
+        for t in st.list_relation_touches() or []:
+            pair = tuple(sorted([t.get("a") or "", t.get("b") or ""]))
+            ch = t.get("chapter") or 0
+            by_pair[pair] = max(by_pair.get(pair, ch), ch)
+        for (pa, pb), ch in by_pair.items():
+            stale_rows.append({"name": f"{pa}↔{pb}", "kind": "relation", "last_touch": ch})
+    except Exception:
+        pass
     sections = {
         "arcs": arcs,
         "promises": promise_directives(rows),
         "loops": open_loop_ledger(rows),
         "heartbeat": heartbeat_list(chars_hb, next_ch),
+        "stale": stale_entity_directives(stale_rows, next_ch),
     }
     # Task8:M6 设定注入清单回显(与 _editor_system 全知分支同源 assemble_injection)
     try:

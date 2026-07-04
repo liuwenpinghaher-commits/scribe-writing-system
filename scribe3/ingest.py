@@ -10,6 +10,55 @@ from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_del
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 
 
+# ===== 方案B任务12:关系触碰抽取(角色/支线/伏笔已有 last_active/last_refresh_at 触碰追踪,
+# 唯独"关系"维度真新增)。critique.py 有并行任务在改,build_knowledge_extract_prompt/
+# parse_knowledge_delta 的签名与实现禁碰——本段 prompt 追加段/独立解析均只在 ingest.py 本地实现,
+# 由 ingest_chapter 把追加段拼到 critique.py 产出的基础 prompt 之后、把独立解析结果并入 delta。 =====
+
+RELATION_TOUCH_KINDS = ("冲突", "靠近", "决裂", "亏欠", "协作")
+
+
+def _relation_touch_prompt_addendum() -> str:
+    """「关系触碰」抽取指令段(拼接在 build_knowledge_extract_prompt 基础 prompt 之后)。
+    有效触碰纪律与 promise_touch 同严:须实质推进/施压/改变关系状态/产生后果才算,
+    仅提名字、寒暄带过、无实质互动的空头出场不算触碰。"""
+    kinds = "/".join(RELATION_TOUCH_KINDS)
+    return (
+        "另外再抽【relation_touches:本章哪些角色对之间发生了对关系状态本身产生实质影响的互动】——"
+        "有效触碰纪律:须实质推进/施压/改变关系状态/产生后果才算,"
+        "仅提名字、寒暄带过、无实质互动的空头出场不算触碰。"
+        f"每条给两个角色名(a,b)+关系变化类型(kind,只能是{kinds}之一,不得发明其他值);"
+        "没有满足纪律的触碰则输出空列表。"
+        "在同一行 JSON 里补充键:"
+        '"relation_touches":[{"a":角色名,"b":角色名,"kind":"' + '|'.join(RELATION_TOUCH_KINDS) + '"}]。'
+    )
+
+
+def parse_relation_touches(reply: str) -> list[dict]:
+    """从 LLM 原始回复中独立解析 relation_touches 字段(与 parse_knowledge_delta 并行、
+    不改后者——critique.py 有并行任务在改,禁碰)。
+    缺省容错:字段不存在 / 坏 JSON / 单条缺字段或 kind 越界 → 该条丢弃,不抛异常。"""
+    import json
+    import logging
+    import re
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        if not m:
+            return []
+        d = json.loads(m.group(0))
+        out = []
+        for it in (d.get("relation_touches") or []):
+            a, b, kind = it.get("a"), it.get("b"), it.get("kind")
+            if a and b and kind in RELATION_TOUCH_KINDS:
+                out.append({"a": a, "b": b, "kind": kind})
+        return out
+    except Exception as e:
+        logging.getLogger("scribe3.ingest").warning(
+            "parse_relation_touches 失败(fail-soft,不落关系触碰): %s | reply[:120]=%r",
+            e, (reply or "")[:120])
+        return []
+
+
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     """解析角色:已存在返回 oid;不存在则登记待确认,返回 None(不建实体、不发边)。
     替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。"""
@@ -296,6 +345,23 @@ def apply_delta(store, delta: dict, seq: int,
             import logging
             logging.getLogger("scribe3.ingest").warning(
                 "promise_touch 写入失败(non-fatal),伏笔 %s 章 %s: %s", it.get("text"), seq, _pt_e)
+    # 方案B任务12:关系触碰——本章角色对之间的有效触碰(有效性判定已在 prompt 抽取纪律里做,
+    # 这里只做资格解析:两端角色须已存在(_resolve_char 同范式,幻觉角色不建);kind 越界丢弃。
+    for it in delta.get("relation_touches") or []:
+        a_name, b_name, kind = it.get("a"), it.get("b"), it.get("kind")
+        if not a_name or not b_name or kind not in RELATION_TOUCH_KINDS:
+            continue
+        a_oid = _resolve_char(store, a_name, seq, "relation_touch_a")
+        b_oid = _resolve_char(store, b_name, seq, "relation_touch_b")
+        if a_oid is None or b_oid is None:
+            continue   # 一方未知角色跳过(fail-safe,不建幻觉角色)
+        try:
+            store.add_relation_touch(a_oid, b_oid, chapter=seq, kind=kind)
+        except Exception as _rt_e:
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "relation_touch 写入失败(non-fatal),%s-%s 章 %s: %s",
+                a_name, b_name, seq, _rt_e)
     # Task5: lie_belief 位移——有 lie 锚角色本章的信念信奉度 → char_state(change_type='belief')
     # 值入库前 clamp [0,100](store 不钳,调用方负责);解析不到的角色跳过(同 _resolve_char 范式)
     for it in delta.get("belief") or []:
@@ -380,10 +446,17 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
     prompt = build_knowledge_extract_prompt(ch["prose"], motif_names=motif_names,
                                             promise_items=promise_items,
                                             belief_chars=belief_chars)
+    # 方案B任务12:关系触碰段拼在基础 prompt 之后(不改 critique.py 的
+    # build_knowledge_extract_prompt——该文件有并行任务在改,禁碰)。
+    prompt = prompt + "\n\n" + _relation_touch_prompt_addendum()
     delta = None
     for _ in range(max(1, max_attempts)):
-        delta = parse_knowledge_delta(complete_fn(prompt))
+        reply = complete_fn(prompt)
+        delta = parse_knowledge_delta(reply)
         if delta is not None:
+            # relation_touches 独立解析(parse_knowledge_delta 不认得这个新键,
+            # 同一份原始回复上并行取键,不改 critique.py)。
+            delta["relation_touches"] = parse_relation_touches(reply)
             break
     if delta is None:
         return {"applied": -1, "parse_failed": True, "delta": None}

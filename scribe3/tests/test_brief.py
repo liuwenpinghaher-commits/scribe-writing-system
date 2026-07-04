@@ -6,7 +6,8 @@
 from scribe3.brief import (arc_directive, promise_directives,
                            open_loop_ledger, heartbeat_list, render_brief,
                            assemble_chapter_brief, validate_beat_budgets,
-                           find_tension_monotony, parse_chapter_meta)
+                           find_tension_monotony, parse_chapter_meta,
+                           heat_of, stale_entity_directives)
 
 
 def test_arc_directive():
@@ -253,3 +254,33 @@ class TestParseChapterMeta:
         assert parse_chapter_meta("旧数据无标注的大纲文本") is None
         assert parse_chapter_meta(None) is None
         assert parse_chapter_meta([]) is None
+
+
+# ===== 方案B任务12 · 连续性 heat/last_touch 状态机 + 关系触碰追踪 =====
+
+class TestHeat:
+    def test_heat_tiers(self):
+        assert heat_of(last_touch=9, current=10) == "hot"      # 距离≤2
+        assert heat_of(last_touch=6, current=10) == "warm"     # 3-5
+        assert heat_of(last_touch=2, current=10) == "cold"     # >5
+        assert heat_of(last_touch=None, current=10) == "cold"
+
+    def test_cold_entities_injected(self):
+        rows = [{"name": "白纸人", "kind": "char", "last_touch": 2}]
+        out = stale_entity_directives(rows, next_ch=10)
+        assert "白纸人" in out["text"] and out["items"][0]["heat"] == "cold"
+
+    def test_hot_warm_entities_not_injected(self):
+        """只有 cold 才生成指令段——hot/warm 无需催。"""
+        rows = [{"name": "阿禾", "kind": "char", "last_touch": 9},   # hot
+                {"name": "柳怀玉", "kind": "char", "last_touch": 6}]  # warm
+        out = stale_entity_directives(rows, next_ch=10)
+        assert out["text"] == "" and out["items"] == []
+
+    def test_directive_text_mentions_valid_touch_discipline_and_thresholds(self):
+        """指令段须含有效触碰纪律 + 回顾阈值语境(核心角色/主要支线)。"""
+        rows = [{"name": "老李", "kind": "promise", "last_touch": None}]
+        out = stale_entity_directives(rows, next_ch=5)
+        assert "有效触碰" in out["text"]
+        assert "提名字" in out["text"] or "空头" in out["text"]
+        assert "核心角色" in out["text"] and "主要支线" in out["text"]

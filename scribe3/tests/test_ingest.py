@@ -937,3 +937,76 @@ def test_apply_delta_belief_reingest_idempotent(store):
         {"cid": cid})
     assert len(rows) == 1, f"同章二次 apply_delta 后 belief 行应只剩 1 条,实际 {len(rows)}"
     assert store.latest_lie_belief(cid, 3) == 62
+
+
+# ── 方案B任务12:关系触碰抽取 ── ingest 抽本章角色对间的有效触碰 → relation_touch ──
+# critique.py 有并行任务在改,build_knowledge_extract_prompt/parse_knowledge_delta 禁碰;
+# 关系触碰的 prompt 段/解析改在 ingest.py 本地实现(不改 critique.py 的函数签名/内容)。
+
+def test_apply_delta_relation_touch_resolves_and_records(store):
+    """delta.relation_touches → 双方均已存在的角色对 → 落 relation_touch;
+    未知角色/非法 kind 的条目跳过不报错(与 motif/promise 同 fail-safe 范式)。"""
+    _ensure_chars(store, "柳怀玉", "阿禾")
+    delta = {"learned": [], "did": [], "voice_shift": [], "arc": [],
+             "relation_touches": [
+                 {"a": "柳怀玉", "b": "阿禾", "kind": "冲突"},
+                 {"a": "柳怀玉", "b": "不存在的人", "kind": "靠近"},
+                 {"a": "柳怀玉", "b": "阿禾", "kind": "非法种类"},
+             ]}
+    apply_delta(store, delta, seq=5)
+    got = store.list_relation_touches("role:柳怀玉", "role:阿禾")
+    assert len(got) == 1
+    assert got[0]["kind"] == "冲突"
+    assert got[0]["chapter"] == 5
+
+
+def test_parse_relation_touches_from_reply():
+    """parse_relation_touches(ingest.py 本地函数,不碰 critique.py)从 LLM 原始回复解出该字段。"""
+    from scribe3.ingest import parse_relation_touches
+    reply = ('{"learned":[],"did":[],'
+             '"relation_touches":[{"a":"柳怀玉","b":"阿禾","kind":"冲突"}]}')
+    assert parse_relation_touches(reply) == [{"a": "柳怀玉", "b": "阿禾", "kind": "冲突"}]
+
+
+def test_parse_relation_touches_drops_illegal_kind_and_missing_field():
+    from scribe3.ingest import parse_relation_touches
+    reply = ('{"relation_touches":[{"a":"x","b":"y","kind":"非法种类"},'
+             '{"a":"x","kind":"冲突"}]}')   # 一条 kind 越界,一条缺 b——均丢弃
+    assert parse_relation_touches(reply) == []
+
+
+def test_parse_relation_touches_tolerates_missing_field_and_bad_json():
+    """缺省容错:字段不存在 / 坏 JSON → 空列表,不抛异常。"""
+    from scribe3.ingest import parse_relation_touches
+    assert parse_relation_touches('{"learned":[]}') == []
+    assert parse_relation_touches("不是JSON") == []
+
+
+def test_prompt_addendum_mentions_relation_touch_schema_and_discipline():
+    """知识抽取 prompt 增的「关系触碰」段:含 schema 键名 + 全部 kind 枚举 + 有效触碰纪律。"""
+    from scribe3.ingest import _relation_touch_prompt_addendum
+    seg = _relation_touch_prompt_addendum()
+    assert "relation_touches" in seg
+    for k in ("冲突", "靠近", "决裂", "亏欠", "协作"):
+        assert k in seg
+    assert "有效触碰" in seg
+    assert "提名字" in seg or "空头" in seg
+
+
+def test_ingest_chapter_end_to_end_extracts_relation_touch(store):
+    """端到端:ingest_chapter 组装的 prompt 含关系触碰段;LLM 回复带 relation_touches →
+    落库可读回(与既有 test_ingest_chapter_end_to_end 同范式,验真实调用链路而非只测局部函数)。"""
+    _ensure_chars(store, "柳怀玉", "阿禾")
+    store.save_chapter(6, "柳怀玉与阿禾在义庄前正面对峙。", focalizer="role:柳怀玉")
+    seen_prompt = {}
+
+    def fake(p):
+        seen_prompt["p"] = p
+        return ('{"learned":[],"did":[],'
+                '"relation_touches":[{"a":"柳怀玉","b":"阿禾","kind":"冲突"}]}')
+
+    r = ingest_chapter(store, 6, fake)
+    assert r["applied"] == 0   # learned/did 均空,应用条数不含 relation_touch(与 motif/event 一致)
+    assert "relation_touches" in seen_prompt["p"]
+    got = store.list_relation_touches("role:柳怀玉", "role:阿禾")
+    assert len(got) == 1 and got[0]["kind"] == "冲突" and got[0]["chapter"] == 6

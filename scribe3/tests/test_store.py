@@ -1364,6 +1364,26 @@ def test_motif_instance_roundtrip_and_purge(store):
     assert store.list_motif_instances(3) == []
 
 
+def test_relation_touch_roundtrip_and_purge(store):
+    """方案B任务12:add_relation_touch → list_relation_touches(a,b) 对称往返;
+    purge_ingest 幂等清本章。a/b 是无序对——反过来传参也应命中同一条记录。"""
+    store.add_relation_touch("role:柳怀玉", "role:阿禾", chapter=3, kind="冲突", note="正面对峙")
+    got = store.list_relation_touches("role:柳怀玉", "role:阿禾")
+    assert len(got) == 1
+    assert got[0]["kind"] == "冲突"
+    assert got[0]["note"] == "正面对峙"
+    # 对称查询:反过来传参仍能命中
+    got_rev = store.list_relation_touches("role:阿禾", "role:柳怀玉")
+    assert len(got_rev) == 1
+    # 单侧查询同样命中
+    assert len(store.list_relation_touches(a="role:柳怀玉")) == 1
+    assert len(store.list_relation_touches(b="role:阿禾")) == 1
+    # 无关角色对查不到
+    assert store.list_relation_touches("role:柳怀玉", "role:老李") == []
+    store.purge_ingest(3)
+    assert store.list_relation_touches("role:柳怀玉", "role:阿禾") == []
+
+
 def test_promise_lifecycle_fields_and_window_state(store):
     """伏笔生命周期:tier 默认 chapter + 兑现窗口按层级自动推算;arc/book 窗口各异。"""
     store.plant_promise("窗台上的铜炉", setup_chapter=2)

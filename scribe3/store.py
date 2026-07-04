@@ -104,7 +104,8 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance",
-                                              "promise_touch", "arc_plan", "material"])
+                                              "promise_touch", "arc_plan", "material",
+                                              "relation_touch"])
 
 # 素材库分类白名单(migration 055 DB 级 ASSERT 同源;app 层 422 校验用)
 MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note")
@@ -611,6 +612,9 @@ class SurrealStore:
         self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
         # 6. 伏笔章触及:随本章 ingest 幂等清除(手动登记 ingest_seq=NONE 不受影响)
         self._execute_write("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
+        # 6b. 方案B任务12:关系触碰(本章角色对之间的有效触碰),随本章 ingest 幂等清除。
+        #     relation_touch 无独立 ingest_seq 字段(表结构见 migrations/058),按 chapter 清除。
+        self._execute_write("DELETE relation_touch WHERE chapter = $seq", {"seq": seq})
         # 7. 事件图(批D P1-5):随本章 ingest 幂等清除本章抽取的事件 + 图边。
         #    先删图边(involves/causes/causal)再删事件本体——否则 RELATE 边悬挂指向已删事件。
         #    只清 ingest_seq=seq:手动种 / MCP s3_add_event(ingest_seq=NONE)的事件不动。
@@ -858,6 +862,37 @@ class SurrealStore:
         return self._query(
             "SELECT promise_id, chapter, evidence FROM promise_touch "
             "WHERE promise_id=$p ORDER BY chapter ASC", {"p": promise_id})
+
+    # --- 关系触碰 relation_touch(方案B任务12:连续性 heat/last_touch 状态机——
+    #     角色/支线/伏笔已有 last_active/last_refresh_at,唯独"关系"维度无触碰追踪,补此) ---
+    def add_relation_touch(self, a: str, b: str, chapter: int, kind: str, note: str = "") -> None:
+        """登记一次关系触碰。a/b 是无序对(登记时不必关心先后)。
+        kind 语义由调用方约束(ingest 抽取纪律见 ingest.py),store 层不做枚举校验。"""
+        self._execute_write(
+            "CREATE relation_touch SET a=$a, b=$b, chapter=$c, kind=$k, note=$n",
+            {"a": a, "b": b, "c": chapter, "k": kind, "n": note or None})
+
+    def list_relation_touches(self, a: str | None = None, b: str | None = None) -> list[dict]:
+        """列关系触碰记录,按章号升序。a/b 无序对:传单侧或双侧均对称匹配(不论登记时先后)。
+        两者都不传则返回全部。"""
+        if a is not None and b is not None:
+            rows = self._query(
+                "SELECT a, b, chapter, kind, note FROM relation_touch "
+                "WHERE (a=$a AND b=$b) OR (a=$b AND b=$a) ORDER BY chapter ASC",
+                {"a": a, "b": b})
+        elif a is not None:
+            rows = self._query(
+                "SELECT a, b, chapter, kind, note FROM relation_touch "
+                "WHERE a=$a OR b=$a ORDER BY chapter ASC", {"a": a})
+        elif b is not None:
+            rows = self._query(
+                "SELECT a, b, chapter, kind, note FROM relation_touch "
+                "WHERE a=$b OR b=$b ORDER BY chapter ASC", {"b": b})
+        else:
+            rows = self._query(
+                "SELECT a, b, chapter, kind, note FROM relation_touch ORDER BY chapter ASC")
+        return [{"a": r.get("a"), "b": r.get("b"), "chapter": r.get("chapter"),
+                 "kind": r.get("kind"), "note": r.get("note") or ""} for r in rows]
 
     # --- 通用 增删改(设定库编辑用)---
     def _update_by(self, table: str, local: str, fields: dict) -> None:
