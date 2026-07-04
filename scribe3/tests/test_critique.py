@@ -867,6 +867,24 @@ class TestDegeneration:
         from scribe3.critique import find_degeneration
         assert find_degeneration("灯灭了。他坐在黑里,听雨。「明天再说。」") == []
 
+    def test_sentence_loop_mixed_line_precise_range(self):
+        """混合行(叙述+引号内物件):句子在剥引号文本上计数,但 range/phrase 经下标映射
+        精确还原回原文——range 指向第二次出现的行,phrase 与原文逐字一致(含该行自己的
+        引号片段,而非第一行的或整行兜底)。"""
+        from scribe3.critique import find_degeneration
+        t = ("他说「东」,这句话十二个字十二个字十二个字。\n"
+             "他说「西」,这句话十二个字十二个字十二个字。\n"
+             "他说「南」,这句话十二个字十二个字十二个字。")
+        hits = [h for h in find_degeneration(t) if h["kind"] == "sentence_loop"]
+        assert hits and hits[0]["count"] == 3
+        s, e = hits[0]["range"]
+        # range 不变量:phrase 是原文精确子串
+        assert t[s:e] == hits[0]["phrase"]
+        # 指向第二次出现处:带的是第二行的引号片段「西」,不是第一行的「东」
+        assert "「西」" in hits[0]["phrase"] and "「东」" not in hits[0]["phrase"]
+        # 三行内容不同,不应误报 adjacent_repeat
+        assert not any(h["kind"] == "adjacent_repeat" for h in find_degeneration(t))
+
     def test_mojibake(self):
         from scribe3.critique import find_degeneration
         assert any(h["severity"] == "blocking" for h in find_degeneration("他说�了一半。"))

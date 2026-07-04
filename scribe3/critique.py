@@ -1389,7 +1389,7 @@ _DEGEN_META_TIER2_RE = re.compile(
     r"第[一二三四五六七八九十百千万两0-9]+章|本章|这一章|上一章|下一章|上章|下章|前一章|后一章|前文|后文|伏笔|读者|任务描述"
 )
 # 标题行(如"第一章 桥下")属"正文标题行"而非泄漏,排除对首个内容行的误判(移植自 JS
-# hasYamlFrontMatter 相邻逻辑里的标题豁免注释)。
+# findMetaLeak 里的首行标题豁免逻辑,check-degeneration.js:278-282)。
 _DEGEN_TITLE_RE = re.compile(r"^第[一二三四五六七八九十百千万两0-9]+章")
 
 # 截断判定:全文最后一个非空行须以句末/收尾标点结束,否则疑似中途被切断(advisory——
@@ -1429,49 +1429,69 @@ def _degen_adjacent_repeat(body: list[dict]) -> list[dict]:
     return out
 
 
+def _strip_quoted_with_map(text: str) -> tuple[str, list[int]]:
+    """_strip_quoted 的带 offset 映射版:返回 (剥引号后文本, 每个剩余字符在原 text 里的下标)。
+
+    与 _strip_quoted 完全同序地逐个正则删除引号包裹片段(保证两者输出逐字一致),但同步
+    维护"剩余字符→原始下标"映射——参照 locate_phrase 的"折叠字符+下标映射"手法,使
+    在剥引号文本上定位到的区间可精确还原回原文 offset(混合行不再需要 find 兜底)。
+    """
+    chars = list(text or "")
+    idxs = list(range(len(chars)))
+    for rx in _QUOTED_SPANS:
+        s = "".join(chars)
+        keep = [True] * len(s)
+        for m in rx.finditer(s):
+            for i in range(m.start(), m.end()):
+                keep[i] = False
+        chars = [c for c, k in zip(chars, keep) if k]
+        idxs = [i for i, k in zip(idxs, keep) if k]
+    return "".join(chars), idxs
+
+
 def _degen_sentence_loop(body: list[dict]) -> list[dict]:
     """长句(引号外、可见字数≥REPEAT_MIN_LEN)出现≥REPEAT_MIN_COUNT 次判为打转。
     只豁免引号内台词,引号外叙述句(含"叙述+引号内物件"混合行)仍参与计数。
-    range 指向该句第二次出现处(方案A任务5要求,与 JS 的"首次出现"不同)。"""
+    range 指向该句第二次出现处(方案A任务5要求,与 JS 的"首次出现"不同)。
+
+    定位:句子在【剥引号文本】上计数,经 _strip_quoted_with_map 的下标映射精确还原回
+    原文区间——混合行(叙述+引号)的句子若跨过引号片段,range/phrase 为原文里覆盖该句
+    首尾字符的连续区间(中间夹着的引号片段一并包含,保证 phrase == 原文[start:end])。
+    """
     counts: dict[str, int] = {}
-    occurrences: list[tuple[str, dict]] = []
+    # (句子, 行, 行内起, 行内止):起止为原文行坐标,入队时即映射好,回填不再 find
+    occurrences: list[tuple[str, dict, int, int]] = []
     for b in body:
-        stripped = _strip_quoted(b["line"])
-        for piece in re.split(r"[。！？!?]", stripped):
+        stripped, idx_map = _strip_quoted_with_map(b["line"])
+        # 用 finditer 取非分隔符连续段(与 re.split 的非空片段等价),自带片段起点
+        for m in re.finditer(r"[^。！？!?]+", stripped):
+            piece = m.group(0)
             st = piece.strip()
             if _degen_visible_length(st) < REPEAT_MIN_LEN:
                 continue
+            lead = len(piece) - len(piece.lstrip())
+            ss = m.start() + lead          # st 在剥引号文本里的 [ss, se)
+            se = ss + len(st)
+            line_start = idx_map[ss]                # 映射回原文行坐标
+            line_end = idx_map[se - 1] + 1
             counts[st] = counts.get(st, 0) + 1
-            occurrences.append((st, b))
+            occurrences.append((st, b, line_start, line_end))
     flagged = {s for s, c in counts.items() if c >= REPEAT_MIN_COUNT}
     if not flagged:
         return []
     out: list[dict] = []
     seen: dict[str, int] = {}
-    cursor: dict[tuple[int, str], int] = {}
-    for st, b in occurrences:
+    for st, b, line_start, line_end in occurrences:
         if st not in flagged:
             continue
-        key = (id(b), st)
-        start_from = cursor.get(key, 0)
-        idx = b["line"].find(st, start_from)
-        if idx < 0:
-            idx = b["line"].find(st)
-        if idx >= 0:
-            cursor[key] = idx + 1
         seen[st] = seen.get(st, 0) + 1
         if seen[st] != 2:  # 只在第二次出现时报一条(range 指向第二次出现处)
             continue
-        if idx < 0:
-            start, end, phrase = b["start"], b["start"] + len(b["line"]), b["line"]
-        else:
-            start, end = b["start"] + idx, b["start"] + idx + len(st)
-            phrase = b["line"][idx:idx + len(st)]  # 原文精确子串,与 range 保持一致(非剥引号版)
         out.append({
             "kind": "sentence_loop",
             "severity": "blocking",
-            "phrase": phrase,
-            "range": [start, end],
+            "phrase": b["line"][line_start:line_end],  # 原文精确子串,与 range 逐字一致
+            "range": [b["start"] + line_start, b["start"] + line_end],
             "count": counts[st],
         })
     return out
