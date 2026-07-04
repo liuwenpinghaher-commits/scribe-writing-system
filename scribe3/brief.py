@@ -114,6 +114,39 @@ def promise_directives(rows: list[dict]) -> dict:
     return {"reminders": reminders, "directives": directives, "decisions": decisions}
 
 
+# ===== 北极星任务2 · 因果欠账催收(蓝图 §3-②)=====
+
+_CAUSAL_TOP_N = 5          # 注入量硬上限(v2 量控):违规量受制于 ingest 抽取质量,
+                           # 超出只计 overflow(面板/scorecard 消费),不塞爆 brief
+_CAUSAL_LOOKBACK = 8       # 催收回看窗口(章),对齐 _avoid_directive 的 lookback=8 先例
+
+
+def causal_directives(violations: list[dict], no_event_data: bool,
+                      top_n: int = _CAUSAL_TOP_N) -> dict:
+    """把上文 causal_complete 违规转译成下一章 brief 的三选一软指令。
+
+    violation 可能是抽取漏而非叙事漏(motivated_by_goal/causal_in 是 ingest 时
+    LLM 抽取的自由文本)——所以必须是"三选一软指令"而非硬约束,给"抽取误报"留出口。
+    no_event_data=True → 整段不渲染(沿用 /causal 假绿防护语义:没数据≠没欠账)。
+    violations 元素:{"chapter", "event_id", "reason"};按章序倒序(最近优先)取 top_n。
+    返回 {"directives": [...], "overflow": 截断条数, "total": 总违规数}。
+    """
+    if no_event_data or not violations:
+        return {"directives": [], "overflow": 0, "total": 0}
+    ordered = sorted(violations, key=lambda v: -(v.get("chapter") or 0))
+    dirs = []
+    for v in ordered[:top_n]:
+        eid = (str(v.get("event_id") or "?")).replace("\n", " ")[:40]   # Task7-B② 清洗先例
+        lack = "缺因果入边" if "causal_in" in (v.get("reason") or "") else "缺动机"
+        dirs.append(
+            f"上文第{v.get('chapter')}章事件「{eid}」{lack}:本章三选一——"
+            f"①补交代其动机或前因;②显式转为悬念(挂 promise,tier=chapter);"
+            f"③标记为抽取误报待清洗。")
+    return {"directives": dirs,
+            "overflow": max(0, len(ordered) - top_n),
+            "total": len(ordered)}
+
+
 def open_loop_ledger(rows: list[dict], cap: int = _LOOP_CAP) -> dict:
     """开环账本:tier 加权计数(book×3/arc×2/chapter×1),只计窗口态非 inactive 的 open 线。"""
     weighted = sum(_TIER_W.get(p.get("tier") or "chapter", 1)
@@ -508,6 +541,12 @@ def render_brief(sections: dict) -> str:
         parts.append("【伏笔·待作者决策(阻塞级)】\n" + "\n".join(f"- {x}" for x in pd["decisions"]))
     if pd.get("reminders"):
         parts.append("【伏笔·在窗提醒】" + "；".join(pd["reminders"]))
+    ca = sections.get("causal") or {}
+    if ca.get("directives"):   # 北极星任务2:no_event_data/零违规 → directives 空 → 段不渲染
+        note = (f"(另有 {ca['overflow']} 条欠账只落面板,未进简报)"
+                if ca.get("overflow") else "")
+        parts.append("【因果欠账·三选一】" + note + "\n"
+                     + "\n".join(f"- {x}" for x in ca["directives"]))
     led = sections.get("loops")
     if led and led.get("weighted"):   # Task7-B④:weighted==0 不渲染(零开环无须提醒)
         warn = "——已超上限:先收一条再开新坑" if led["over_cap"] else ""
@@ -592,6 +631,23 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         "heartbeat": heartbeat_list(chars_hb, next_ch),
         "stale": stale_entity_directives(stale_rows, next_ch),
     }
+    # 北极星任务2:因果欠账催收——近 _CAUSAL_LOOKBACK 章倒序收集 causal_complete 违规,
+    # top-5 转译三选一软指令;全窗口无事件→no_event_data 整段不渲染;取数 fail-soft
+    # (causal 数据故障不拖垮简报其余部分,警告级日志,不假绿吞错)。
+    try:
+        from scribe3.verify import causal_complete
+        viols: list[dict] = []
+        any_events = False
+        for ch in range(max_ch, max(0, max_ch - _CAUSAL_LOOKBACK), -1):
+            if not st.events_at(ch):
+                continue
+            any_events = True
+            for v in causal_complete(st, ch):
+                viols.append({"chapter": ch, "event_id": v.event_id, "reason": v.reason})
+        sections["causal"] = causal_directives(viols, no_event_data=not any_events)
+    except Exception as e:
+        _log.warning("assemble_chapter_brief causal 段组装失败(fail-soft 跳过): %s", e)
+        sections["causal"] = {"directives": [], "overflow": 0, "total": 0}
     # Task8:M6 设定注入清单回显(与 _editor_system 全知分支同源 assemble_injection)
     try:
         inj = assemble_injection(st, seq)
