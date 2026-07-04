@@ -115,7 +115,8 @@ def test_apply_delta_writes_voice_flag(store):
              "voice_shift": [{"who": "焦三", "reason": "被师父背叛"}]}
     apply_delta(store, delta, 10)
     flags = store.list_voice_flags("open")
-    assert any(f["character"] == "焦三" and f["trigger_chapter"] == 10 for f in flags)
+    # 批D P1-11:voice_shift 的裸名 who 经 add_voice_flag 规范化为 role: 前缀
+    assert any(f["character"] == "role:焦三" and f["trigger_chapter"] == 10 for f in flags)
 
 
 # ── P0 数据丢失修复测试 ────────────────────────────────────────────────────────
