@@ -1284,6 +1284,68 @@ class TestAiGrade:
         g = aggregate_ai_grade(quality_flags(text), text)
         assert g["grade"] in ("light", "medium", "heavy")
 
+    def test_parallel_run_ignores_scattered_whole_chapter_opener_tally(self):
+        """真机冒烟发现的误判(2026-07-04):find_structural_repeats 的 anaphora
+        "count" 是【全章同 3 字开头句子的总条数】(collections.Counter 全局计数),
+        不是"连续排比的连排长度"——主角名字在整章里散布着当主语开头,是中文叙事
+        最正常的形态(第三人称限知视角写谁都这样),不该判定为"AI 排比"。
+
+        本用例复现:「苏纸鸢」开头的句子在 20 句里出现 10 次,但每次都被别的句子
+        隔开,从未连续 2 句相邻(真实排比要求连续)。修复前 aggregate_ai_grade 把
+        find_structural_repeats 的 anaphora 总计数(10)直接当"最大连排数"喂给
+        parallel_run,判定 tier=heavy;find_parallelism(真正的连续排比检测器,逐句
+        比对相邻指纹)在同一文本上正确给出 []——从未探测到长度>=3 的连续同头句。
+        这就是真机 6 个已人工验收章节全部误判 heavy 的根因。
+
+        修复后 parallel_run 只采信 find_parallelism 的连排计数,不再掺入
+        find_structural_repeats 的全章总计数,该场景应判 light(value=0)。"""
+        from scribe3.critique import aggregate_ai_grade, find_parallelism, quality_flags
+        digits = "零一二三四五六七八九"
+        parts = []
+        for d in digits:
+            parts.append(f"苏纸鸢想起{d}件往事。")
+            parts.append(f"窗外的雨滴敲着船篷第{d}下。")
+        text = "".join(parts)
+        # 前提断言:真正的连续排比检测器在此文本上确认"没有连续同头句"
+        assert find_parallelism(text) == [], "夹具设计前提被破坏:不应存在真正的连排"
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["indicators"]["parallel_run"]["value"] == 0
+        assert g["indicators"]["parallel_run"]["tier"] == "light"
+
+    def test_parallel_run_still_catches_real_consecutive_burst(self):
+        """阈值重标定(2026-07-04 真机标定,见 _AI_GRADE_PARALLEL_LIGHT/_MEDIUM 常量
+        注释)不能把 parallel_run 整体调哑——真正连续的排比堆砌(8 句连续同 2 字
+        开头,find_parallelism 真连排检测器命中)仍必须单独判 heavy,不依赖其余
+        指标凑数。这是与 test_parallel_run_ignores_scattered_whole_chapter_opener_
+        tally 对称的正例回归锁。"""
+        from scribe3.critique import aggregate_ai_grade, find_parallelism, quality_flags
+        text = ("她穿过黑暗的巷子。她穿过潮湿的地下室。她穿过破碎的镜子。她穿过腐烂的花园。"
+                "她穿过冰冷的走廊。她穿过燃烧的森林。她穿过寂静的墓地。她穿过无尽的深渊。")
+        assert find_parallelism(text) and find_parallelism(text)[0]["count"] == 8
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["indicators"]["parallel_run"] == {"value": 8, "tier": "heavy"}
+        assert g["grade"] == "heavy"
+
+    def test_heavy_reverse_smoke(self):
+        """任务 Step 4 反向对照:密集禁用词(一丝×多/隐约)+ 否定翻转(不是…而是…)+
+        同句式 8 连排比 + 情感直说(感到害怕)混编的真 AI 味重灾文本,阈值放宽后
+        仍必须整体判 heavy——防止本次标定为了消灭真机误判而把口子开得太大。
+        禁用词特意塞进"她穿…"排比句自身的同一子句内(不用逗号另起分句),避免
+        find_parallelism 的逗号分句边界把 8 连排比切断,三项指标(banned_density/
+        parallel_run/psych_ratio)各自独立命中 heavy,不是靠单一指标撑场面。"""
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        text = (
+            "她穿过飘着一丝寒气的黑暗巷子。她穿过弥漫一丝腥味的潮湿地下室。"
+            "她穿过映着一丝血光的破碎镜子。她穿过散着一丝腐气的腐烂花园。"
+            "她穿过传来隐约脚步的冰冷走廊。她穿过回荡隐约哭喊的燃烧森林。"
+            "她穿过贴着一丝凉意的寂静墓地。她穿过再无一丝声响的无尽深渊。"
+            "这不是恐惧而是绝望,她感到害怕,浑身发抖。"
+        )
+        g = aggregate_ai_grade(quality_flags(text), text)
+        assert g["indicators"]["banned_density"]["tier"] == "heavy", g["indicators"]
+        assert g["indicators"]["parallel_run"]["tier"] == "heavy", g["indicators"]
+        assert g["grade"] == "heavy", g["indicators"]
+
 
 # ===== 方案A任务9:标点归一建议生成器(report-only,移植 oh-story
 # normalize-punctuation.js 的上下文判定,不落盘改写)=====

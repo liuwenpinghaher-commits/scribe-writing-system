@@ -2388,12 +2388,44 @@ def find_rhythm_uniformity(text: str) -> dict | None:
 # ==== 方案A任务8:整章 AI 味定档聚合(aggregate_ai_grade)+ 7-Gate 骨架 ====
 # 把 quality_flags 的分项确定性命中,聚合成"可决策的章级结论"——写作闭环回炉触发依据。
 # report-only,不改文本。指标口径与 7-Gate 映射均来自 oh-story story-deslop SKILL.md
-# 附录§H.2。三档阈值(轻/中/重)是【临时标定,待真机校准】,先用宽松值把骨架跑通。
+# 附录§H.2。
+#
+# 三档阈值真机标定(2026-07-04,真机冒烟修复配套):用 tools/calibrate_ai_grade.py
+# 拉取 :3321 当时在库的全部 4 个 work / 27 章正文(book_5ce0a5c4 无正文跳过,实取
+# book_bfd18b78×5 + book_c256380e×4 + main×18 = 27 章)跑 P50/P90/P99 分位:
+#   banned_density        P50=0.40 P90=0.60 P99=2.23 max=2.29
+#   parallel_run(修复后)  P50=0.00 P90=4.00 P99=4.00 max=4.00
+#   psych_ratio           P50=0.00 P90=0.00 P99=0.69 max=0.93
+#   dialogue_tag_density  P50=0.00 P90=0.22 P99=0.86 max=1.02
+#   repeat_density        P50=0.00 P90=1.35 P99=1.88 max=1.92
+# ①banned_density/③psych_ratio/④dialogue_tag_density 三项真机分布远低于原有临时
+# 阈值(P99 均未触及原 medium 上界),维持原值不变——原临时值本就够宽松,标定
+# 只是确认,不是巧合(main ch5/ch12 各自密集复读"一丝/隐约""突然"4 次,banned_density
+# 落在 medium 属真实命中,不是误判,对应下方"6 个达标章大多 light、最多个别
+# medium"验收里被允许的"个别 medium")。
+# ②parallel_run 与⑥repeat_density 两项按 P90 上侧回填,是本次真机冒烟修复的
+# 主体——27 章样本里既有完整叙事章也有短篇设定/存根章(全零指标拉低分位),
+# 单纯照抄全库 P99/P90 数值会让样本里最长、最"像小说"的达标章(纸命 ch1-4,
+# 6774~8965 字)因为文本更长、天然多出几处不打眼的短语复现/惯用连排,反而卡在
+# 分位线上——不是它们有问题,是全库分位数被大量存根章拉低。故在 P90 数值基础上
+# 留足余量,以"6 个已人工验收章节(纸命 ch1-4、main ch5/ch12)大多 light、最多
+# 个别 medium"为验收标准复核过:
+#   _AI_GRADE_PARALLEL_LIGHT/_MEDIUM 3,5→5,7:parallel_run 语义修复后(见下方
+#     ②parallel_run 计算处注释)真机连排最大值稳定在 3~4(P90=P99=max=4),原
+#     light<3 门槛比 find_parallelism 自身 min_run=3 的探测下限还低,等于"只要
+#     测到任何排比就至少 medium"——把 4/6 达标章卡在 medium。新阈值 light<5 让
+#     真机全部已知连排值(0/3/4)落 light,medium(5~7)/heavy(>7)留给真正超出
+#     已验收样本上限的排比堆砌(反向验证见 tests/test_critique.py 的
+#     TestAiGrade::test_heavy_reverse_smoke,8 连排比判 heavy)。
+#   _AI_GRADE_REPEAT_LIGHT/_MEDIUM 1.0,2.0→2.0,3.0:达标章千字复读密度实测
+#     1.09~1.92,原 medium 下界 1.0 太严,4/6 达标章因此常年卡 medium;新
+#     light<2.0 覆盖真机全部已知值(max=1.92),medium(2.0~3.0)/heavy(>3.0)
+#     留给真正密集复读的文本。
 _AI_GRADE_BANNED_LIGHT, _AI_GRADE_BANNED_MEDIUM = 1.0, 3.0        # ①千字禁用词密度
-_AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM = 3, 5        # ②排比/结构复读最大连排数
+_AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM = 5, 7        # ②排比/结构复读最大连排数
 _AI_GRADE_PSYCH_LIGHT, _AI_GRADE_PSYCH_MEDIUM = 2.0, 5.0          # ③情感直说占句子数百分比
 _AI_GRADE_DIALOGUE_LIGHT, _AI_GRADE_DIALOGUE_MEDIUM = 2.0, 4.0    # ④千字对话腔标记密度
-_AI_GRADE_REPEAT_LIGHT, _AI_GRADE_REPEAT_MEDIUM = 1.0, 2.0        # ⑥千字复读密度
+_AI_GRADE_REPEAT_LIGHT, _AI_GRADE_REPEAT_MEDIUM = 2.0, 3.0        # ⑥千字复读密度
 _AI_GRADE_HEAVY_GATE_COUNT = 4    # oh-story"4+ Gate 有问题=重度",命中≥此数强制 heavy
 
 _GRADE_ORDER = {"light": 0, "medium": 1, "heavy": 2}
@@ -2419,7 +2451,8 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None,
 
     6 指标(oh-story story-deslop SKILL.md AI味6指标):
       ① banned_density   ai_tics 里 banned_word/contextual_word 命中数/千字(可见字数口径)
-      ② parallel_run      flags["structural"] + find_parallelism(text) 的最大连排 count
+      ② parallel_run      find_parallelism(text) 的最大连排 count(真机冒烟修复见下方
+                           ②parallel_run 计算处注释——不再掺入 flags["structural"])
       ③ psych_ratio       find_emotion_telling(text) 命中数 / 句子数(百分比)
       ④ dialogue_tag_density  「XX说/道」型提示语命中数/千字
       ⑤ rhythm_uniform    flags["rhythm"] 的 verdict(ok=轻/uniform=重,无中档;缺失=轻)
@@ -2470,11 +2503,24 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None,
     banned_density = len(banned_hits) * per_k
     banned_tier = _ai_grade_tier(banned_density, _AI_GRADE_BANNED_LIGHT, _AI_GRADE_BANNED_MEDIUM)
 
-    # ②parallel_run:结构复读(anaphora/short 均计,与 find_parallelism 同口径取最大连排数)
+    # ②parallel_run(真机冒烟修复 2026-07-04):只采信 find_parallelism 的最大连排数,
+    # 不再掺入 flags["structural"] 的 count。根因:find_structural_repeats 的
+    # anaphora/short 两种 kind 的 "count" 字段都是【全章总命中条数】(anaphora 是
+    # collections.Counter 对"同 3 字开头句子"的全局出现次数,short 是"极短断句"
+    # 的全章总条数),不是"连续排比的连排长度"。真机验收章节实测:第三人称限知
+    # 视角主角名字(如"苏纸鸢")在整章散布着当主语开头是完全正常的中文叙事形态,
+    # 243 句里出现 23 次、但从未连续相邻——却被当年实现直接当"最大连排数"喂给
+    # parallel_run,6 个已人工验收章节因此全部误判 heavy(见
+    # tests/test_critique.py::test_parallel_run_ignores_scattered_whole_chapter_opener_tally
+    # 复现)。find_parallelism 才是真正逐句比对相邻指纹的连续排比检测器,其 count
+    # 语义与 parallel_run 的"最大连排数"定义一致,真机验收章节实测其值稳定在
+    # 3~4(见 tools/calibrate_ai_grade.py 标定注释),量级远小于 structural 的全章
+    # 计数,不会再被虚高污染。structural 的 anaphora/short 命中仍完整保留在
+    # flags["structural"] 里供 /post-check 等端点做"全章重复主语/开头"的编辑提示,
+    # 以及下方 Gate D(短句节奏)继续读取 short kind——只是不再喂给 parallel_run。
     parallelism_hits = (precomputed["parallelism"] if "parallelism" in precomputed
                         else find_parallelism(text))
-    parallel_counts = ([s.get("count", 0) for s in structural]
-                       + [p.get("count", 0) for p in parallelism_hits])
+    parallel_counts = [p.get("count", 0) for p in parallelism_hits]
     parallel_run = max(parallel_counts) if parallel_counts else 0
     parallel_tier = _ai_grade_tier(parallel_run, _AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM)
 
