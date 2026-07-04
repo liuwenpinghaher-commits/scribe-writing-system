@@ -179,9 +179,11 @@ def test_quality_flags_has_oversaturation():
 
 class TestAiTicsLexicon:
     def test_tier1_word_hit_with_category(self):
-        hits = find_ai_tics("她眼中闪过一丝狡黠。")
+        # 文本须避开毒句式区间——「眼中闪过一丝狡黠」整段归 toxic_pattern,
+        # 其内部的 banned 命中会被重叠去重丢弃(见 test_banned_inside_toxic_deduped)。
+        hits = find_ai_tics("她隐约露出几分狡黠。")
         kinds = {(h["kind"], h.get("category")) for h in hits}
-        assert ("banned_word", "表情类") in kinds or ("banned_word", "情态类") in kinds
+        assert ("banned_word", "形容类") in kinds or ("banned_word", "情态类") in kinds
 
     def test_density_escalates_to_blocking(self):
         t = "他心中一动。她心头一震。他心下了然。她心中暗道。" * 3
@@ -203,6 +205,32 @@ class TestAiTicsLexicon:
         hits = [h for h in find_ai_tics("他不禁打了个寒颤。") if h["kind"] == "banned_word"]
         assert hits and all(h["severity"] == "advisory" for h in hits)
 
+    def test_single_sentence_cluster_stays_advisory(self):
+        """单句击穿防护:一句内命中 3+ 词不算"密度现象",升 blocking 须命中分布在
+        ≥_BANNED_MIN_SENTS 个不同句子(按 [。！？\n] 切分)。"""
+        # 协调审查锁定用例:「眼中闪过一丝狡黠」句(banned 与 toxic 重叠部分已被去重丢弃)
+        t = "她眼中闪过一丝狡黠。" + "这是一段很长的普通叙述。" * 40
+        hits = [h for h in find_ai_tics(t) if h["kind"] == "banned_word"]
+        assert all(h["severity"] == "advisory" for h in hits)
+        # 无 toxic 干扰的单句 4 命中(不禁/隐约/几分/狡黠)同样不升 blocking
+        t2 = "他不禁隐约觉出几分狡黠。" + "这是一段很长的普通叙述。" * 40
+        hits2 = [h for h in find_ai_tics(t2) if h["kind"] == "banned_word"]
+        assert hits2 and all(h["severity"] == "advisory" for h in hits2)
+        # 对照:命中分散在 3+ 句的高密文本 → blocking
+        t3 = "他心中一动。她心头一震。他心下了然。"
+        hits3 = [h for h in find_ai_tics(t3) if h["kind"] == "banned_word"]
+        assert hits3 and all(h["severity"] == "blocking" for h in hits3)
+
+    def test_banned_inside_toxic_deduped(self):
+        """banned 命中区间落在 toxic_pattern 区间内 → 丢弃 banned,只留更完整的 toxic
+        一条代表(同 A1 惯例);丢弃的命中不计入密度/句子簇计数。"""
+        hits = find_ai_tics("她眼中闪过一丝狡黠。")
+        toxic = [h for h in hits if h["kind"] == "toxic_pattern"]
+        banned = [h for h in hits if h["kind"] == "banned_word"]
+        assert toxic, "毒句式应命中"
+        # 该句 3 个 banned 词(眼中闪过/一丝/狡黠)全在 toxic 区间内,应全部被丢弃
+        assert banned == [], f"toxic 区间内的 banned 应去重:{banned}"
+
     def test_toxic_pattern_hit(self):
         assert any(h["kind"] == "toxic_pattern" for h in find_ai_tics("她的声音不大，却带着一种不容置疑的力量。"))
 
@@ -214,6 +242,21 @@ class TestAiTicsLexicon:
         assert not [h for h in find_ai_tics("突然,门开了。") if h["kind"] == "contextual_word"]
         t = "突然一声。好像有人。瞬间黑了。突然又响。好像更近。瞬间又亮。" * 4
         assert [h for h in find_ai_tics(t) if h["kind"] == "contextual_word"]
+
+
+from scribe3.critique import quality_issues
+
+
+def test_quality_issues_banned_word_entry():
+    """quality_issues 层:banned_word 条目 message 含中文描述+类别,range 切片==phrase。"""
+    text = "他不禁打了个寒颤。"
+    entries = [i for i in quality_issues(text) if i["meta"].get("kind") == "banned_word"]
+    assert entries, "应有 banned_word issue 条目"
+    it = entries[0]
+    assert it["type"] == "ai_tics"
+    assert "禁用词" in it["message"] and "动作类" in it["message"]
+    s, e = it["range"]
+    assert text[s:e] == it["text"] == "不禁"
 
 
 from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_delta

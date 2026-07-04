@@ -3,6 +3,7 @@
 跨段复读/排比开头/单字断句/升华句——prompt 规则治不了已生成文本,确定性扫描+定向删才拦得住。
 纯函数(无 DB/无网络),作渲染层质检兜底。语义级违规(双高潮/声音崩)是另一路(LLM 判官,后续)。
 """
+import bisect
 import json
 import logging
 import re
@@ -363,6 +364,16 @@ _TOXIC_PATTERNS = [   # oh-story ★★★★/★★★ 毒句式(★★★★�
     ("xinzhong_yongqi", re.compile(r"心中涌起一股[^，,。！？\n]{1,8}")),
 ]
 
+# ---- find_ai_tics 分级阈值(模块级命名常量,测试可引用)----
+_BANNED_DENSITY_PER_K = 3.0   # banned_word 升 blocking 的千字密度阈值
+_BANNED_MIN_SENTS = 3         # 升 blocking 还须命中分布在 ≥3 个不同句子(防单句 3+ 词击穿"密度"语义)
+_CONTEXTUAL_PER_K = 1.5       # contextual_word 合计千字密度阈值
+_CONTEXTUAL_MIN_HITS = 2      # contextual_word 至少命中处数(防极短文本分母失真)
+_WANDAI_BLOCK_HITS = 2        # wandai 毒句式命中 ≥2 处时该类升 blocking
+
+# banned_word 句子簇计数的句切分符(与协调审查口径一致:[。！？\n])
+_AI_TIC_SENT_DELIM = re.compile(r"[。！？\n]")
+
 
 def _allow_spans(text: str, allow_words: set[str] | None) -> list[tuple[int, int]]:
     """allow_words 里每个词在 text 中的所有命中区间(finditer),供豁免判定用。"""
@@ -389,10 +400,14 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
     - em_dash:全章破折号密度>2‰(原有,保持不动);
     - not_a_but_b:否定翻转伪深刻句式(原有,经 find_negation_flips,保持不动);
     - banned_word:一级禁用词表(7类,建表见 _BANNED_LEXICON)命中,allow_words 白名单豁免
-      (与其在 allow_words 区间相交的命中放行);千字总密度>3 时该次调用全部命中升 blocking,
-      否则 advisory;
-    - contextual_word:二级词(突然/好像/瞬间)合计千字密度>1.5 才报,逐个给 range,advisory;
-    - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥2 处时该类全部升 blocking。
+      (与其在 allow_words 区间相交的命中放行);命中区间落在任一 toxic_pattern 区间内的
+      丢弃(只留更完整的 toxic 一条代表,同 A1 惯例,且不计入密度/句子簇);升 blocking 须
+      同时满足:千字总密度>_BANNED_DENSITY_PER_K 且命中分布在 ≥_BANNED_MIN_SENTS 个
+      不同句子,否则 advisory;
+    - contextual_word:二级词(突然/好像/瞬间)合计千字密度>_CONTEXTUAL_PER_K 且
+      ≥_CONTEXTUAL_MIN_HITS 处才报,逐个给 range,advisory;
+    - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥_WANDAI_BLOCK_HITS
+      处时该类全部升 blocking。
     """
     s = text or ""
     out: list[dict] = []
@@ -403,7 +418,19 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
     for hit in find_negation_flips(s):
         out.append({"kind": "not_a_but_b", "phrase": hit["phrase"], "variant": hit["variant"]})
 
-    # banned_word:一级词表,allow_words 豁免,密度决定 blocking/advisory
+    # toxic_pattern 先算:banned_word 去重需要其区间(毒句式是更完整的病灶单位,
+    # 「眼中闪过一丝狡黠」报一条 toxic 即可,其内部的 眼中闪过/一丝/狡黠 不再逐词重报)。
+    toxic_by_name: dict[str, list[dict]] = {}
+    for name, pat in _TOXIC_PATTERNS:
+        for m in pat.finditer(s):
+            toxic_by_name.setdefault(name, []).append({
+                "kind": "toxic_pattern", "phrase": m.group(0), "pattern": name,
+                "range": [m.start(), m.end()], "severity": "advisory",
+            })
+    toxic_spans = [(h["range"][0], h["range"][1])
+                   for hits in toxic_by_name.values() for h in hits]
+
+    # banned_word:一级词表;allow_words 豁免 + toxic 区间去重;密度×句子簇决定分级
     allow_spans = _allow_spans(s, allow_words)
     banned_hits: list[dict] = []
     for category, words in _BANNED_LEXICON.items():
@@ -411,18 +438,25 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
             for m in re.finditer(re.escape(w), s):
                 if _in_any_span(m.start(), m.end(), allow_spans):
                     continue
+                # 落在任一 toxic_pattern 区间内 → 丢弃(不上报,也不计入密度/句子簇)
+                if any(t_s <= m.start() and m.end() <= t_e for t_s, t_e in toxic_spans):
+                    continue
                 banned_hits.append({
                     "kind": "banned_word", "phrase": w, "category": category,
                     "range": [m.start(), m.end()],
                 })
     if banned_hits and wc > 0:
         density = len(banned_hits) * 1000 / wc
-        # 短文本护栏(与 contextual_word 的 ≥2 处护栏同思路):密度公式对极短片段
-        # (如 /check 端点传入的编辑片段)分母过小恒超阈——「他不禁打了个寒颤。」wc=9
-        # 单次命中密度即 111‰,若只看密度则短片段分级恒 blocking,分级设计落空。
-        # 取舍:选「命中总数≥3」而非「wc≥500」——前者直接度量"密度现象"本身
-        # (孤立 1-2 处命中不构成密度问题,无论文本多短),后者会让 400 字的真高密段落漏判。
-        severity = "blocking" if density > 3 and len(banned_hits) >= 3 else "advisory"
+        # 短文本/单句护栏:密度公式对极短片段(如 /check 端点传入的编辑片段)分母过小
+        # 恒超阈;且单句连中 3 词(AI 一句堆砌)也不构成跨文本的"密度现象"。
+        # 取舍:升 blocking 须命中分布在 ≥_BANNED_MIN_SENTS 个【不同句子】(按 [。！？\n]
+        # 切分)——比「命中总数≥3」更贴合意图(不可被单句击穿),比「wc≥500」不漏判
+        # 400 字级真高密段落。
+        delims = [m.start() for m in _AI_TIC_SENT_DELIM.finditer(s)]
+        hit_sents = {bisect.bisect_left(delims, h["range"][0]) for h in banned_hits}
+        severity = ("blocking"
+                    if density > _BANNED_DENSITY_PER_K and len(hit_sents) >= _BANNED_MIN_SENTS
+                    else "advisory")
         for h in banned_hits:
             h["severity"] = severity
         out.extend(banned_hits)
@@ -436,20 +470,14 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
                 "range": [m.start(), m.end()], "severity": "advisory",
             })
     # 密度公式对极短文本(个位数字数)会因分母过小而失真——单次孤立出现不构成"密度"现象,
-    # 至少要有 2 处命中才谈得上密度超阈,防短文本单词误判。
-    if len(contextual_hits) >= 2 and wc > 0 and len(contextual_hits) * 1000 / wc > 1.5:
+    # 至少要有 _CONTEXTUAL_MIN_HITS 处命中才谈得上密度超阈,防短文本单词误判。
+    if (len(contextual_hits) >= _CONTEXTUAL_MIN_HITS and wc > 0
+            and len(contextual_hits) * 1000 / wc > _CONTEXTUAL_PER_K):
         out.extend(contextual_hits)
 
-    # toxic_pattern:毒句式命中即报;wandai 类 ≥2 处升 blocking
-    toxic_by_name: dict[str, list[dict]] = {}
-    for name, pat in _TOXIC_PATTERNS:
-        for m in pat.finditer(s):
-            toxic_by_name.setdefault(name, []).append({
-                "kind": "toxic_pattern", "phrase": m.group(0), "pattern": name,
-                "range": [m.start(), m.end()], "severity": "advisory",
-            })
+    # toxic_pattern 上报:wandai 类 ≥_WANDAI_BLOCK_HITS 处升 blocking
     for name, hits in toxic_by_name.items():
-        if name == "wandai" and len(hits) >= 2:
+        if name == "wandai" and len(hits) >= _WANDAI_BLOCK_HITS:
             for h in hits:
                 h["severity"] = "blocking"
         out.extend(hits)
