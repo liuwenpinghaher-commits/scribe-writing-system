@@ -1213,3 +1213,35 @@ class TestNormalizePunct:
         from scribe3.critique import normalize_punctuation_suggestions
         s = normalize_punctuation_suggestions("（……）他没有再说话。")
         assert s and s[0]["kind"] == "ellipsis" and s[0]["suggestion"] == ""
+
+
+# ==== 方案B任务18:反谄媚对抗注入 + 统一 Findings Schema ====
+
+class TestFindingsSchema:
+    """反 LLM 盖章通过的确定性纠偏:①每个 reviewer prompt 硬写"找问题不是验证正确性";
+    ②统一 Findings Schema(severity S1-S4 + category 九类 + 六字段)可机器合并排序;
+    ③分歧不自动妥协,verdict 汇总保守(任一 REJECT 即 REJECT,空评审=CONCERNS)。"""
+
+    def test_anti_sycophancy_in_all_llm_prompts(self):
+        from scribe3.critique import build_discipline_prompt, build_tension_rubric_prompt
+        for p in (build_discipline_prompt("正文"), build_tension_rubric_prompt("正文")):
+            assert "找问题" in p and "不是验证" in p
+
+    def test_normalize_findings_sort_and_enum(self):
+        from scribe3.critique import normalize_findings
+        fs = [{"severity": "S3", "category": "prose", "location": "ch3", "evidence": "e", "issue": "i", "fix": "f"},
+              {"severity": "S1", "category": "consistency", "location": "ch1", "evidence": "e", "issue": "i", "fix": "f"}]
+        out = normalize_findings(fs)
+        assert out[0]["severity"] == "S1"
+
+    def test_normalize_rejects_bad_enum(self):
+        from scribe3.critique import normalize_findings
+        assert normalize_findings([{"severity": "P0", "category": "prose",
+                                    "location": "", "evidence": "", "issue": "", "fix": ""}]) == []
+
+    def test_merge_verdicts(self):
+        from scribe3.critique import merge_verdicts
+        assert merge_verdicts(["APPROVE", "REJECT", "CONCERNS"]) == "REJECT"
+        assert merge_verdicts(["APPROVE", "CONCERNS"]) == "CONCERNS"
+        assert merge_verdicts(["APPROVE", "APPROVE"]) == "APPROVE"
+        assert merge_verdicts([]) == "CONCERNS"   # 无评审=不能盖章

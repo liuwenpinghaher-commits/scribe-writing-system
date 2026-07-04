@@ -986,6 +986,77 @@ def _oversaturation_issues(text: str) -> list[dict]:
     return issues
 
 
+# ==== 方案B任务18:反谄媚对抗注入 + 统一 Findings Schema ====
+# 背景(oh-story story-review/SKILL.md):LLM 评审默认倾向"找亮点、给通过"(谄媚/盖章通过),
+# 确定性纠偏是在每个 reviewer prompt 里硬写"你的任务是找问题,不是验证正确性"——
+# 用最严苛的标准审视,宁可误报不可漏报。仅对"评审性"prompt(discipline 纪律判官/
+# tension 张力评审)注入;build_knowledge_extract_prompt/build_voice_fold_prompt 是
+# 抽取/折叠而非评审,不注入(它们的任务本就是"如实抽取",不存在"验证正确性"的谄媚风险)。
+ANTI_SYCOPHANCY = "你的任务是找问题,不是验证正确性;以最严苛的标准审视,宁可误报不可漏报。"
+
+# 统一 Findings Schema:后续 reviewer 编排(方案B任务19/21 与 loop 化)公用契约。
+# severity 从重到轻 S1(阻断)→S4(建议);category 覆盖九类问题域。
+# 现有 parse_discipline/parse_tension_report 的输出**不强改**(向后兼容,各自 caller
+# 仍按老字段消费);新消费方(未来的多 reviewer 编排层)用 normalize_findings 清洗
+# 各 reviewer 的原始输出,统一成可机器合并排序的一张表。
+FINDING_SEVERITIES = ("S1", "S2", "S3", "S4")
+FINDING_CATEGORIES = (
+    "structure", "character", "prose", "consistency", "platform",
+    "factual", "format", "causal", "rule_boundary",
+)
+
+
+def normalize_findings(findings: list) -> list:
+    """清洗一批 finding dict,统一成 Findings Schema:severity(S1-S4)、category(九类)、
+    location/evidence/issue/fix(允许空串,但键缺失时补 "" 而非直接判非法)。
+
+    枚举(severity/category)非法即整条丢弃(记 warning);其余四个字段只做"键缺失补齐",
+    不因空串拒绝(找不到具体证据/定位时,评审仍可先报问题,后续再补)。
+    返回按 severity 排序(S1 最前,S4 最后)的新列表,供多 reviewer 结果机器合并展示。
+    """
+    order = {s: i for i, s in enumerate(FINDING_SEVERITIES)}
+    out: list[dict] = []
+    for f in findings or []:
+        severity = f.get("severity")
+        category = f.get("category")
+        if severity not in FINDING_SEVERITIES:
+            _log.warning("normalize_findings 丢弃:非法 severity=%r | finding=%r", severity, f)
+            continue
+        if category not in FINDING_CATEGORIES:
+            _log.warning("normalize_findings 丢弃:非法 category=%r | finding=%r", category, f)
+            continue
+        out.append({
+            "severity": severity,
+            "category": category,
+            "location": f.get("location") or "",
+            "evidence": f.get("evidence") or "",
+            "issue": f.get("issue") or "",
+            "fix": f.get("fix") or "",
+        })
+    out.sort(key=lambda d: order[d["severity"]])
+    return out
+
+
+_VERDICT_RANK = {"REJECT": 2, "CONCERNS": 1, "APPROVE": 0}
+
+
+def merge_verdicts(verdicts: list) -> str:
+    """多 reviewer VERDICT 汇总:分歧不自动妥协,取【最严重】者——任一 REJECT 即 REJECT,
+    无 REJECT 但有 CONCERNS 即 CONCERNS,全 APPROVE 才 APPROVE。空列表(无评审跑过)
+    保守视为 CONCERNS——不能盖章。非法 verdict 值按 CONCERNS 计(同样保守,记 warning)。
+    """
+    if not verdicts:
+        return "CONCERNS"
+    worst = "APPROVE"
+    for v in verdicts:
+        if v not in _VERDICT_RANK:
+            _log.warning("merge_verdicts 遇到非法值,按 CONCERNS 计: %r", v)
+            v = "CONCERNS"
+        if _VERDICT_RANK[v] > _VERDICT_RANK[worst]:
+            worst = v
+    return worst
+
+
 # ==== LLM 语义判官(纪律闸)——确定性检测的盲区:双高潮/声音崩/解说倾泻/知识泄露 ====
 def build_discipline_prompt(text: str, brief: str = "", known: dict | None = None) -> str:
     kb = ""
@@ -995,6 +1066,7 @@ def build_discipline_prompt(text: str, brief: str = "", known: dict | None = Non
         kb = ("\n\n【各角色截至本章已知(判 knowledge_leak 的事实依据;角色说出此清单之外的他人私密=泄露)】\n"
               + lines)
     return (
+        ANTI_SYCOPHANCY + "\n\n"
         "你是叙事结构【纪律判官】。下面是一章志怪小说。本章的命题/纪律要求:\n" +
         (brief or "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)") +
         "\n\n判定是否违反以下纪律(任一即违规):\n"
@@ -1191,6 +1263,7 @@ def build_tension_rubric_prompt(prose: str) -> str:
       超过2000字即"烂尾"(高潮后拖沓收不住)。
     """
     return (
+        ANTI_SYCOPHANCY + "\n\n"
         "你是叙事张力评审。读下面一章小说正文,只输出一个 JSON(不要任何其他文字):\n"
         '{"dramatic_question":{"present":布尔,"answered_escalated":布尔,"note":一句},'
         '"outcomes":[{"scene":场景一句概括,"type":"yes"|"yes_but"|"no_and"|"no"}],'
