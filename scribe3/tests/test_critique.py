@@ -637,3 +637,33 @@ class TestNegationFlips:
     def test_yuqishuo(self):
         from scribe3.critique import find_negation_flips
         assert any(h["variant"] == "yuqishuo" for h in find_negation_flips("与其说是庙，不如说是坟。"))
+
+
+# ==== 方案A任务2:引号剥离豁免(stripQuoted,对齐 oh-story)====
+
+class TestQuoteExemption:
+    """台词/弹幕复沓是体裁正常形态,复读/排比/结构检测只判叙述层(oh-story stripQuoted 移植)。"""
+
+    def test_dialogue_repetition_exempt(self):
+        # 纯台词复沓(角色喊三遍)是体裁正常形态,不报
+        t = "「救命啊救命啊救命啊!」她喊。\n「救命啊救命啊救命啊!」又是一声。\n「救命啊救命啊救命啊!」第三声。"
+        assert find_repetitions(t) == []
+
+    def test_dialogue_parallelism_exempt(self):
+        from scribe3.critique import find_parallelism
+        t = "“你走。”“你走。”“你走。”他连说三次。"
+        assert all(p["prefix"] != "你走" for p in find_parallelism(t))
+
+    def test_narration_repetition_still_caught(self):
+        t = ("影子贴着墙根爬过去了。" * 3) + "「没事。」"
+        assert find_repetitions(t, n=8, min_count=3)
+
+    def test_mixed_line_outside_quotes_still_counted(self):
+        # 混合行:引号外叙述仍计
+        t = "他说「好」,影子贴着墙根爬。他说「好」,影子贴着墙根爬。他说「好」,影子贴着墙根爬。"
+        hits = find_repetitions(t, n=6, min_count=3)
+        assert any("影子" in h["phrase"] for h in hits)
+
+    def test_strip_quoted_seven_pairs(self):
+        from scribe3.critique import _strip_quoted
+        assert _strip_quoted("a「一」b『二』c【三】d“四”e‘五’f\"六\"g'七'h") == "abcdefgh"

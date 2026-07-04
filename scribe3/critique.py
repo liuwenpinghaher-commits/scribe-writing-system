@@ -13,8 +13,10 @@ _PUNCT_ONLY = re.compile(r"^[，。！？、；：「」『』“”‘’…—
 
 
 def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -> list[dict]:
-    """长度≥n、出现≥min_count 次的子串(去重叠,保留最长代表)。跨段复读是单遍长程生成典型病。"""
+    """长度≥n、出现≥min_count 次的子串(去重叠,保留最长代表)。跨段复读是单遍长程生成典型病。
+    引号内(台词/弹幕)豁免——体裁正常形态,只判叙述层复读。"""
     from collections import Counter
+    text = _strip_quoted(text)
     s = re.sub(r"\s+", "", text or "")
     if len(s) < n:
         return []
@@ -157,8 +159,10 @@ _HAS_CJK = re.compile(r'[一-鿿]')
 
 
 def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4) -> list[dict]:
-    """排比开头(同3字开头≥min_anaphora句)+ 单字/极短断句滥用。字面 n-gram 查不到这些。"""
+    """排比开头(同3字开头≥min_anaphora句)+ 单字/极短断句滥用。字面 n-gram 查不到这些。
+    引号内(台词/弹幕)豁免——体裁正常形态,只判叙述层。"""
     from collections import Counter
+    text = _strip_quoted(text)
     raw = re.split(r"[。！？\n]+", text or "")
     sents = [t for t in (_EDGE.sub("", s) for s in raw) if t]
     out: list[dict] = []
@@ -840,6 +844,22 @@ def _strip_dialogue(text: str) -> str:
     return _DIALOGUE_RE.sub("", text or "")
 
 
+# 7 对引号(对齐 oh-story stripQuoted):台词/弹幕复沓是体裁常态,复读/排比/结构检测只判叙述层。
+# 与 _DIALOGUE_RE(仅“”「」两对,供 find_emotion_telling 用)分开维护——语义不同、互不影响。
+_QUOTED_SPANS = [re.compile(p, re.S) for p in (
+    r"「[^」]*」", r"『[^』]*』", r"【[^】]*】",
+    r"“[^”]*”", r"‘[^’]*’", r'"[^"]*"', r"'[^']*'",
+)]
+
+
+def _strip_quoted(text: str) -> str:
+    """剥 7 对引号内片段(oh-story stripQuoted):台词/弹幕复沓是体裁常态,复读/排比只判叙述层。"""
+    s = text or ""
+    for rx in _QUOTED_SPANS:
+        s = rx.sub("", s)
+    return s
+
+
 def find_duplicate_lines(text: str, min_chars: int = 6) -> list[dict]:
     """检测精确重复的整行或整句(>=2次,字符总长>=min_chars)。
 
@@ -901,7 +921,9 @@ def find_parallelism(text: str, min_run: int = 3, prefix_len: int = 2) -> list[d
     归一:剥离起首引号/破折号等装饰符后取前 prefix_len 个汉字为指纹。
     返回 [{"prefix": <起首>, "count": <连排数>, "sample": <首句>}],按 count 降序。
     仅在指纹是汉字(非纯标点/数字)时计入。
+    引号内(台词/弹幕)豁免——体裁正常形态,只判叙述层排比。
     """
+    text = _strip_quoted(text)
     raw = text or ""
     # 句/读切分:句末标点与逗号、顿号都作为排比分句边界
     pieces: list[str] = []
