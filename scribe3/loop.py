@@ -90,7 +90,11 @@ def triage(post: dict) -> dict:
             advisory_items.append({"type": "degraded", "range": None, "text": "",
                                    "message": f"关键检测降级({','.join(degraded_names)}):"
                                               f"没查≠没病,须人工过目"})
-        verdict = "advisory" if advisory_items else "pass"
+        # setting(实体登记提醒)不拦截 pass(D-013,P0 门真机发现):它指向"去登记
+        # 实体"而非"改稿",且 pass 后的 ingest 本就做实体抽取入待批,拦截只会让
+        # 几乎每章卡人;提示仍随 advisory_items 返回,不丢信息。
+        gating = [i for i in advisory_items if i.get("type") != "setting"]
+        verdict = "advisory" if gating else "pass"
     return {"verdict": verdict, "blocking": blocking,
             "advisory_count": len(advisory_items), "advisory_items": advisory_items,
             "degraded_stages": degraded_stages, "leaks": leaks}

@@ -74,6 +74,16 @@ def test_triage_clean_pass():
     assert t["verdict"] == "pass" and t["blocking"] == []
 
 
+def test_triage_setting_hint_does_not_gate_pass():
+    """setting(实体登记提醒)不拦截 pass(D-013):指向登记不指向改稿;提示仍随清单返回。"""
+    hint = {"type": "setting", "message": "「焦三挑」出现 2 次但未登记", "text": "焦三挑",
+            "range": [1, 4], "meta": {}}
+    t = triage(_post(issues=[hint]))
+    assert t["verdict"] == "pass"
+    assert t["advisory_items"] and t["advisory_items"][0]["type"] == "setting", \
+        "提示不丢,只是不改变 verdict"
+
+
 # ===== build_regen_constraints:三元组模板 =====
 
 def test_constraints_triplet_and_round_diff():
