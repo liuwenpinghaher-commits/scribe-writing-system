@@ -1568,6 +1568,56 @@ def test_list_char_states_exposes_lie_belief(store):
     assert rows[0]["lie_belief"] == 62
 
 
+# ===== 方案B任务24:story-import 逆向导入——reverse_current_state（纯查询）=====
+
+def test_reverse_current_state_no_history_returns_empty(store):
+    """无 char_state 记录的角色:reverse_current_state 返回空 dict(与 char_state_at
+    的"空历史仍给壳"不同——逆向导入只关心"有没有可用的当前状态",没有就是空)。"""
+    store.add_entity(Entity("role:无名", "character", "无名"))
+    assert store.reverse_current_state("role:无名") == {}
+
+
+def test_reverse_current_state_takes_latest_per_change_type(store):
+    """同一角色 3 章各类 state 后,快照应取每类的最新章值(而非最早/累加错乱)。
+    ability 在第1、3章各写一次 → 应取第3章值；relation/personality 各写一次。"""
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    cid = "role:甲"
+    store.add_char_state(character_id=cid, chapter=1, change_type="ability",
+                         summary="学会入门剑法",
+                         after_state={"ability_snapshot": {"内力": "初窥"}})
+    store.add_char_state(character_id=cid, chapter=3, change_type="ability",
+                         summary="内力大成",
+                         after_state={"ability_snapshot": {"内力": "大成"}})
+    store.add_char_state(character_id=cid, chapter=2, change_type="relation",
+                         summary="与阿萤结盟",
+                         after_state={"relation_snapshot": {"阿萤": "盟友"}})
+    store.add_char_state(character_id=cid, chapter=2, change_type="personality",
+                         summary="心境转变",
+                         after_state={"personality_snapshot": "冷峻内敛"})
+
+    snap = store.reverse_current_state(cid)
+
+    assert snap["ability"]["chapter"] == 3, f"ability 应取最新章(3): {snap}"
+    assert snap["abilities"]["内力"] == "大成", f"abilities 快照应是第3章值: {snap}"
+    assert snap["relation"]["chapter"] == 2
+    assert snap["relations"]["阿萤"] == "盟友"
+    assert snap["personality"] == "冷峻内敛"
+
+
+def test_reverse_current_state_belief_included(store):
+    """belief 类 change_type 应把最新 lie_belief 值合入快照(逆向续写需要知道
+    角色当前对错误信念的信奉度)。"""
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    cid = "role:乙"
+    store.add_char_state(character_id=cid, chapter=1, change_type="belief",
+                         summary="初疑", lie_belief=30)
+    store.add_char_state(character_id=cid, chapter=4, change_type="belief",
+                         summary="深信", lie_belief=85)
+    snap = store.reverse_current_state(cid)
+    assert snap["lie_belief"] == 85, f"应取最新章(4)的 lie_belief: {snap}"
+    assert snap["belief"]["chapter"] == 4
+
+
 # ===== 块四a-1 素材库 material(非正典材料;不进图谱/不被 ingest)=====
 
 def test_material_roundtrip(store):

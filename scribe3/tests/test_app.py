@@ -2,11 +2,13 @@
 
 前端读 NS=scribe3。写作统一走主编对话(/chat/write),不经直接渲染。
 """
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
-from scribe3.ontology import Event
+from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
 
 
@@ -4713,3 +4715,81 @@ def test_post_check_no_characters_no_elegant_variation(store):
                json={"prose": "陈九抬头看天。那男人叹了口气。少年攥紧了拳。", "focalizer": "", "brief": ""})
     assert r.status_code == 200
     assert not any(i.get("type") == "elegant_variation" for i in r.json().get("issues", []))
+
+
+# ===== 方案B任务24:story-import 逆向导入(全计划最后一个功能任务)=====
+
+def test_write_gate_includes_import_route():
+    """test_consistency 守卫的镜像:确认 /import 已登记在 KNOWN_REST_WRITE_ROUTES。"""
+    from scribe3.tests.test_consistency import TestWriteGate
+    assert ("POST", "/import") in TestWriteGate.KNOWN_REST_WRITE_ROUTES
+
+
+def test_import_endpoint_e2e_and_idempotent_resume(store, monkeypatch, tmp_path):
+    """POST /import:逐章按 seq 升序走 ingest_chapter(journal 包裹);
+    断言 imported==2、open_promises 可见、journal 文件 stages_completed 含两章;
+    再次以相同 chapters 调用 → 全部 skipped(幂等续跑,B23 journal 断点续跑语义)。"""
+    monkeypatch.setenv("SCRIBE3_IMPORT_JOURNAL_DIR", str(tmp_path))
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.plant_promise("怀玉腰间的玉佩来历不明", setup_chapter=1)
+
+    def fake_complete(prompt, **kw):
+        return ('{"learned":[{"who":"柳怀玉","fact":"知晓玉佩来历"}],"did":[],'
+                '"voice_shift":[],"arc":[],"events":[]}')
+
+    c = _client(store, complete_fn=fake_complete)
+    body = {"chapters": [{"seq": 1, "prose": "柳怀玉在城郊遇险。"},
+                         {"seq": 2, "prose": "柳怀玉揭开玉佩秘密。"}]}
+    r = c.post("/import", params={"work": "main"}, json=body)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["imported"] == 2, data
+    assert data["skipped"] == 0
+    assert data["resume_from"] == 3
+    assert any(p["status"] == "open" for p in data["open_promises"]), "open_promises 应可见"
+    assert "error" not in data
+
+    jf = tmp_path / "scribe3_import_main.json"
+    assert jf.exists(), "journal 文件应已落盘"
+    jdata = json.loads(jf.read_text())
+    assert set(jdata["stages_completed"]) >= {"import_ch1", "import_ch2"}
+    assert jdata["in_progress"] is None
+
+    # 第二次以相同 chapters 调用:两章均已 complete → 全部幂等跳过
+    r2 = c.post("/import", params={"work": "main"}, json=body)
+    data2 = r2.json()
+    assert data2["imported"] == 0
+    assert data2["skipped"] == 2
+    assert data2["resume_from"] == 3
+
+
+def test_import_endpoint_stops_on_parse_failed_and_reports_resume(store, monkeypatch, tmp_path):
+    """crash-safe 协议:某章 ingest parse_failed → 立即中止、不继续后续章;
+    响应 200+error 保留已完成进度 + resume 指引(而非 4xx 丢掉进度信息);
+    journal 该章保持未 complete(in_progress),供下次整章重跑。"""
+    monkeypatch.setenv("SCRIBE3_IMPORT_JOURNAL_DIR", str(tmp_path))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+
+    calls = {"n": 0}
+
+    def flaky_complete(prompt, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '{"learned":[],"did":[],"voice_shift":[],"arc":[],"events":[]}'
+        return "不是JSON,解析必然失败"
+
+    c = _client(store, complete_fn=flaky_complete)
+    body = {"chapters": [{"seq": 1, "prose": "阿禾出场。"},
+                         {"seq": 2, "prose": "阿禾遇险。"},
+                         {"seq": 3, "prose": "阿禾获救。"}]}
+    r = c.post("/import", params={"work": "main"}, json=body)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["imported"] == 1, data
+    assert data["resume_from"] == 2, "应指回失败的第2章,而非跳过它续第3章"
+    assert data.get("error"), "失败应带 error 字段(200+error,保留已完成进度)"
+
+    jf = tmp_path / "scribe3_import_main.json"
+    jdata = json.loads(jf.read_text())
+    assert jdata["stages_completed"] == ["import_ch1"]
+    assert jdata["in_progress"] == "import_ch2", "失败章应停在 in_progress,不可 complete,供整章重跑"

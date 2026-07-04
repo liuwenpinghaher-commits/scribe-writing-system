@@ -1010,3 +1010,51 @@ def test_ingest_chapter_end_to_end_extracts_relation_touch(store):
     assert "relation_touches" in seen_prompt["p"]
     got = store.list_relation_touches("role:柳怀玉", "role:阿禾")
     assert len(got) == 1 and got[0]["kind"] == "冲突" and got[0]["chapter"] == 6
+
+
+# ===== 方案B任务24:story-import 逆向导入——弧光五锚逆向 prompt+解析
+# (只建 prompt 函数 + 解析函数并单测;实际 LLM 调用接线留 TODO,
+# 作为 import 完成后的可选异步步骤,不在 /import 端点里串行跑 N 次 LLM)=====
+
+def test_build_reverse_anchor_prompt_mentions_char_and_anchors():
+    """prompt 须点名角色 + 状态记录原文 + 五锚字段名,约束只输出一行 JSON。"""
+    from scribe3.ingest import build_reverse_anchor_prompt
+    p = build_reverse_anchor_prompt("柳怀玉", "第1章:学会内力初窥;第3章:内力大成。")
+    assert "柳怀玉" in p
+    assert "内力大成" in p, "状态记录原文应拼入 prompt,供 LLM 依据倒推"
+    for k in ("ghost", "lie", "truth", "want", "need"):
+        assert k in p
+    assert "JSON" in p
+
+
+def test_build_reverse_anchor_prompt_handles_empty_states_text():
+    """states_text 为空不应崩;应有兜底占位文案。"""
+    from scribe3.ingest import build_reverse_anchor_prompt
+    p = build_reverse_anchor_prompt("阿禾", "")
+    assert "阿禾" in p
+    assert isinstance(p, str) and p
+
+
+def test_parse_reverse_anchors_success():
+    """成功解析:五键齐全,原样透传。"""
+    from scribe3.ingest import parse_reverse_anchors
+    reply = ('{"ghost":"幼时失怙","lie":"我必须靠自己","truth":"求助不是软弱",'
+             '"want":"证明自己","need":"学会信任他人"}')
+    got = parse_reverse_anchors(reply)
+    assert got == {"ghost": "幼时失怙", "lie": "我必须靠自己", "truth": "求助不是软弱",
+                   "want": "证明自己", "need": "学会信任他人"}
+
+
+def test_parse_reverse_anchors_missing_key_defaults_empty():
+    """缺键补空字符串(与 char_anchors 白名单键对齐),不抛异常。"""
+    from scribe3.ingest import parse_reverse_anchors
+    got = parse_reverse_anchors('{"ghost":"幼时失怙","lie":"我必须靠自己"}')
+    assert got == {"ghost": "幼时失怙", "lie": "我必须靠自己", "truth": "",
+                   "want": "", "need": ""}
+
+
+def test_parse_reverse_anchors_bad_json_returns_none():
+    """坏 JSON / 无 JSON 块 → None(fail-soft,调用方不应把 None 写入 char_anchors)。"""
+    from scribe3.ingest import parse_reverse_anchors
+    assert parse_reverse_anchors("不是JSON") is None
+    assert parse_reverse_anchors("") is None

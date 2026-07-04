@@ -112,6 +112,8 @@ class TestWriteGate:
         ("POST", "/materials"),
         ("PATCH", "/materials/{mid}"),
         ("DELETE", "/materials/{mid}"),
+        # 方案B任务24:story-import 逆向导入(作者可信通道,journal 断点续跑)
+        ("POST", "/import"),
     }
 
     def test_no_unaudited_write_route(self):

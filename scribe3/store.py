@@ -2347,6 +2347,58 @@ class SurrealStore:
             {"c": character_id, "ch": upto_chapter})
         return rows[0]["lie_belief"] if rows else None
 
+    def reverse_current_state(self, character_id: str) -> dict:
+        """方案B任务24(story-import 逆向导入):对该角色 char_states 按 change_type 分组,
+        各取 max(chapter) 的最新一条,合成「当前状态快照」——用于反推续写起点的角色当前态,
+        与 char_state_at(锁定到某个既定章号)不同,这里没有"续写到第几章"的既定坐标,
+        只关心"到目前为止最新是什么"。
+
+        无状态角色(list_char_states 为空)返回 {}(不像 char_state_at 那样给空壳,
+        逆向导入只关心"有没有可用状态",没有就是空,调用方据此判断是否需要人工补设定)。
+
+        返回结构:
+          - 每个出现过的 change_type 一个键,值为 {"chapter":最新章号,"summary":该条摘要,
+            "after_state":该条 after_state}(逆向续写时可读该章号判断信息新鲜度);
+          - 额外派生键(与 char_state_at 同范式,方便直接消费):
+            abilities/relations/personality 分别聚合 ability/relation/personality/composite
+            类型最新一条的 after_state;belief 类型的 lie_belief 提升为顶层 lie_belief 键。
+        list_char_states 已按 chapter ASC 排序,故后遍历的同 change_type 记录天然覆盖更早的。
+        """
+        rows = self.list_char_states(character_id)
+        if not rows:
+            return {}
+        latest_by_type: dict[str, dict] = {}
+        for r in rows:
+            latest_by_type[r["change_type"]] = r
+        snapshot: dict = {}
+        abilities: dict = {}
+        relations: dict = {}
+        personality = ""
+        lie_belief = None
+        for ct, r in latest_by_type.items():
+            after = r.get("after_state") or {}
+            snapshot[ct] = {"chapter": r["chapter"], "summary": r.get("summary"),
+                            "after_state": after or None}
+            if ct in ("ability", "composite"):
+                abilities.update(after.get("ability_snapshot") or {})
+            if ct in ("relation", "composite"):
+                relations.update(after.get("relation_snapshot") or {})
+            if ct in ("personality", "composite"):
+                p = after.get("personality_snapshot")
+                if p:
+                    personality = p
+            if ct == "belief" and r.get("lie_belief") is not None:
+                lie_belief = r["lie_belief"]
+        if abilities:
+            snapshot["abilities"] = abilities
+        if relations:
+            snapshot["relations"] = relations
+        if personality:
+            snapshot["personality"] = personality
+        if lie_belief is not None:
+            snapshot["lie_belief"] = lie_belief
+        return snapshot
+
     # --- 设定完整性检查(层2 主编引导)---
     def setting_completeness(self) -> dict:
         """检查当前书的设定完整度,返回各维度缺项。"""

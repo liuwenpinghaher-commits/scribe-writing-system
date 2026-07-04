@@ -434,7 +434,7 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
     故重试至多 max_attempts 次(每次重新抽取);全失败才返回 parse_failed=True(不 purge,保留既有知识)。"""
     ch = store.get_chapter(seq)
     if not ch or not ch.get("prose"):
-        return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}}
+        return {"applied": 0, "delta": {"learned": [], "did": [], "voice_shift": []}, "annotated": []}
     motif_names = [m.get("name") for m in store.list_motifs() if m.get("name")]
     promise_items = [{"id": p["id"], "text": p["text"]} for p in store.open_promises()]
     # Task5: 收集有 lie 锚的角色 → prompt belief 段(只评这些角色的信念信奉度)
@@ -459,7 +459,7 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
             delta["relation_touches"] = parse_relation_touches(reply)
             break
     if delta is None:
-        return {"applied": -1, "parse_failed": True, "delta": None}
+        return {"applied": -1, "parse_failed": True, "delta": None, "annotated": []}
     # B22: apply_delta 前 grep 回原文核对实体事实(learned.fact/did.action),
     # 核不到就标注"原文未明确"——防 LLM 编造原文没有的实体值悄悄坐实进知识账本。
     verify = grep_back_verify(delta, ch["prose"])
@@ -470,4 +470,57 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
             "grep_back_verify 章 %s 有 %d 处断言原文未明确核实到: %s",
             seq, len(verify["annotated"]), verify["annotated"])
     return {"applied": apply_delta(store, delta, seq, open_promises=promise_items),
-            "delta": delta}
+            "delta": delta, "annotated": verify["annotated"]}
+
+
+# ===== 方案B任务24:story-import 逆向导入——弧光五锚逆向 prompt + 解析 =====
+# 背景:story-import 场景下角色没有作者预先手填的五锚(ghost/lie/truth/want/need)——
+# 只有已发布章节反推出的 char_state 弧光记录(如 store.reverse_current_state 合成的快照,
+# 或 list_char_states 拼出的人类可读摘要)。本节只交付"读弧光记录倒推五锚"的 prompt 构造
+# 与结果解析两个纯函数,不连网、不在此处接 LLM 调用——import 端点若对每个主要角色都同步串行
+# 调一次 LLM 会显著拖慢响应,故五锚逆向留作 import 完成后的【可选异步步骤】(TODO:后续任务
+# 按角色排队后台调用 complete_fn(build_reverse_anchor_prompt(...)) 再用
+# parse_reverse_anchors 解析写入 store.set_char_anchors)。
+
+def build_reverse_anchor_prompt(char_name: str, states_text: str) -> str:
+    """构造"由已发布章节的弧光记录倒推角色五锚"的 prompt。
+    states_text:该角色弧光记录的人类可读摘要(如 reverse_current_state 快照的文本化,
+    或 list_char_states 逐条 summary 拼接),为空时给兜底占位文案,不崩。"""
+    body = (states_text or "").strip() or "(暂无弧光记录)"
+    return (
+        "你是故事弧光分析师。下面是角色「" + char_name + "」在已发布章节里的状态演变记录:\n"
+        + body + "\n\n"
+        "请倒推该角色这条弧光成立所必须假设的五个锚点(弧光五锚体系):\n"
+        "ghost(过去的伤——此前发生、至今仍影响他的创伤/遗憾)、"
+        "lie(错误信念——他因 ghost 而相信的、限制自己的错误认知)、"
+        "truth(真相——他最终需要认清、能破除 lie 的真相)、"
+        "want(表层欲望——他自己认为想要的东西)、"
+        "need(深层需要——他真正需要但自己未必已经意识到的东西)。\n"
+        "只依据给定记录合理推断,记录信息不足以支撑某项时给最保守的简短推断,"
+        "不要编造与记录矛盾的细节。\n"
+        '只输出一行 JSON:{"ghost":一句话,"lie":一句话,"truth":一句话,'
+        '"want":一句话,"need":一句话}。'
+    )
+
+
+def parse_reverse_anchors(reply: str) -> dict | None:
+    """解析五锚逆向 LLM 回复。
+    成功:返回 {"ghost":str,"lie":str,"truth":str,"want":str,"need":str}
+    (五键齐全;回复缺某键则该键补空字符串,与 char_anchors 白名单键对齐,方便调用方
+    直接传给 store.set_char_anchors)。
+    失败(坏 JSON / 无 JSON 块):返回 None(fail-soft,调用方不应把 None 写入 char_anchors)。"""
+    import json
+    import logging
+    import re
+    try:
+        m = re.search(r"\{.*\}", reply or "", re.S)
+        if not m:
+            logging.getLogger("scribe3.ingest").warning(
+                "parse_reverse_anchors 无 JSON 块,五锚不回写: reply[:120]=%r", (reply or "")[:120])
+            return None
+        d = json.loads(m.group(0))
+        return {k: str(d.get(k) or "") for k in ("ghost", "lie", "truth", "want", "need")}
+    except Exception as e:
+        logging.getLogger("scribe3.ingest").warning(
+            "parse_reverse_anchors 失败,五锚不回写: %s | reply[:120]=%r", e, (reply or "")[:120])
+        return None

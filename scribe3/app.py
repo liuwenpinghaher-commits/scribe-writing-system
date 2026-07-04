@@ -2942,6 +2942,95 @@ def ingest(seq: int, work: str = "main"):
             _pending_ingest.discard(key)
 
 
+class ImportChapterItem(BaseModel):
+    seq: int
+    prose: str
+
+
+class ImportReq(BaseModel):
+    chapters: list[ImportChapterItem]
+
+
+def _import_journal_path(work: str):
+    """story-import 断点续跑 journal 文件路径(方案B任务24)。
+    取舍记录:scribe3 一书一 DB(SurrealDB),没有天然的"该书的磁盘目录"可挂 journal——
+    另起一套按书的文件系统目录纯为 journal 服务不值当。journal 的语义本就是"短生命周期的
+    崩溃恢复提示"(见 pipeline_journal.py docstring),故落在系统临时目录、按 work 名隔离
+    即可;可用 SCRIBE3_IMPORT_JOURNAL_DIR 环境变量覆盖(测试用它指到 tmp_path,避免与其他
+    测试/其他 work 撞车)。"""
+    import tempfile
+    from pathlib import Path
+    base = Path(os.environ.get("SCRIBE3_IMPORT_JOURNAL_DIR") or tempfile.gettempdir())
+    return base / f"scribe3_import_{work}.json"
+
+
+@app.post("/import")
+def story_import(req: ImportReq, work: str = "main"):
+    """story-import 逆向导入(方案B任务24,P3 战略):作者贴已发布章节 → 逐章复用现有单章
+    逆向内核 ingest_chapter 反推知识账本(角色关系/伏笔触及/弧光/事件),免人工重建 bible
+    即可从下一章无缝续写。
+
+    ①逐章按 seq 升序存正文(save_chapter)+ 走 ingest_chapter(grep-back 自检已内置在
+      ingest_chapter 里,自动生效,这里不重复做)。
+    ②用 PipelineJournal(见 pipeline_journal.py)包裹每章:stage=f"import_ch{seq}",
+      journal 文件路径见 _import_journal_path;should_skip 使已完成章在进程崩溃重启/
+      重复调用本端点时被跳过,故本端点整体幂等可重入。
+    ③crash-safe 取舍:某章 ingest 失败(抛异常或 parse_failed)不会"跳过继续下一章"——
+      按 journal 协议,一个 Stage 中途失败视为整体没跑通,不 complete_stage,立即中止
+      循环。响应选 200 + error 字段而非 4xx:失败时已完成的 imported/skipped/resume_from
+      仍是调用方需要的有效进度信息,4xx 容易被调用方整体丢弃响应体,丢失这份进度。
+    ④五锚逆向(build_reverse_anchor_prompt/parse_reverse_anchors,ingest.py)刻意不在这里
+      接线——对每个主要角色同步串行调一次 LLM 会显著拖慢本端点,留作 import 完成后的
+      可选异步步骤(TODO:后续任务按 delta 里出现过的角色排队后台调用)。
+    """
+    from scribe3.ingest import ingest_chapter
+    from scribe3.pipeline_journal import PipelineJournal
+
+    st = _store_for(work)
+    complete_fn = _complete_fn
+    if complete_fn is None:
+        from scribe3.llm import hermes_complete
+        complete_fn = hermes_complete
+
+    journal = PipelineJournal(_import_journal_path(work))
+    chapters = sorted(req.chapters, key=lambda c: c.seq)
+
+    def _open_promises():
+        return [p for p in st.promises_with_lifecycle() if p["status"] == "open"]
+
+    imported = 0
+    skipped = 0
+    annotated_total = 0
+    max_seq = 0
+    for item in chapters:
+        stage = f"import_ch{item.seq}"
+        if journal.should_skip(stage):
+            skipped += 1
+            max_seq = max(max_seq, item.seq)
+            continue
+        journal.start_stage(stage)
+        st.save_chapter(item.seq, item.prose)
+        try:
+            result = ingest_chapter(st, item.seq, complete_fn)
+        except Exception as e:
+            # 中途崩溃:journal 保持 in_progress=stage,不 complete——下次重跑本端点会
+            # 从这一章重新整章跑(should_skip 对未 complete 的 stage 恒返回 False)。
+            return {"imported": imported, "skipped": skipped, "resume_from": item.seq,
+                    "open_promises": _open_promises(), "annotated_total": annotated_total,
+                    "error": f"第 {item.seq} 章 ingest 抛异常,已中止:{e}"}
+        if result.get("parse_failed"):
+            return {"imported": imported, "skipped": skipped, "resume_from": item.seq,
+                    "open_promises": _open_promises(), "annotated_total": annotated_total,
+                    "error": f"第 {item.seq} 章知识抽取解析失败(parse_failed),已中止"}
+        journal.complete_stage(stage)
+        imported += 1
+        annotated_total += len(result.get("annotated") or [])
+        max_seq = max(max_seq, item.seq)
+
+    return {"imported": imported, "skipped": skipped, "resume_from": max_seq + 1,
+            "open_promises": _open_promises(), "annotated_total": annotated_total}
+
+
 @app.get("/ingest-unverified")
 def ingest_unverified(status: str = "pending", work: str = "main"):
     return _store_for(work).list_unverified(status)
