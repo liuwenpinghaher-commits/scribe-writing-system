@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
-import { Users, Boxes, Bookmark, Flame, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, ArrowLeft, Trash2 } from 'lucide-react'
+import { Users, Boxes, Bookmark, Flame, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, ArrowLeft, Trash2, Plus } from 'lucide-react'
 import { api } from '../api'
 import { Tag } from '../ui'
+import { showToast } from '../ui/Toast'
 
 // 注:本文件仅导出 DetailView(被 CodexNew/CodexDetail 复用)。
 // 原内置主组件 CodexView 及其专属子件(TimelineCard 弧光请求瀑布/EditorChat/UnverifiedPanel)
@@ -266,16 +267,149 @@ function DynamicTimeline({ characterId }) {
   )
 }
 
-// ═══ DynamicRelations ═══
+// ═══ DynamicRelations(批D 件2:角色关系生产入口)═══
+// relations_at 返回【裸 local】src/dst(meta::id),而 characterId 是全 oid(role:名);
+// 旧版 `r.src === characterId` 恒不匹配(裸名 ≠ role:名)→ 关系恒空(限知关系图黑洞根因之一)。
+// 修:按裸 local 比较展示;建立/演变/结束用全 oid(后端 _split/entity 依赖冒号前缀)。
+// relation 受控词表须与 migration 029 的 DB ASSERT 一致(越界值 500)。
+const REL_VOCAB = [
+  ['亲属', ['父子', '母子', '兄弟', '姐妹', '夫妻', '师徒', '养父子']],
+  ['正面', ['知己', '战友', '盟友', '同门', '恩人']],
+  ['中性', ['同行', '熟人', '上下级', '雇主雇员']],
+  ['对立', ['仇敌', '宿敌', '竞争者', '利益对立']],
+  ['复杂', ['爱恨交织', '前恋人', '背叛者']],
+  ['其它', ['custom']],
+]
+const REL_TONE = (rel) =>
+  ['知己', '战友', '盟友', '同门', '恩人', '夫妻', '师徒', '父子', '母子', '兄弟', '姐妹', '养父子', '同行', '熟人'].includes(rel) ? 'ok'
+    : ['仇敌', '宿敌', '竞争者', '利益对立', '背叛者'].includes(rel) ? 'fore' : 'faint'
+
+// 受控词表下拉(optgroup 分组 + custom)
+function RelSelect({ value, onChange, className }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={`${className} cursor-pointer`}>
+      {REL_VOCAB.map(([grp, items]) => (
+        <optgroup key={grp} label={grp}>
+          {items.map((it) => <option key={it} value={it}>{it}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
 function DynamicRelations({ characterId }) {
+  const meLocal = String(characterId || '').split(':').pop()
   const [relations, setRelations] = useState(null)
-  useEffect(() => { api.get('/character-relations?chapter=9999').then((all) => { setRelations((all || []).filter((r) => r.src === characterId || r.dst === characterId)) }).catch(() => setRelations([])) }, [characterId])
+  const [chars, setChars] = useState([])
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ dst: '', relation: '同门', since_chapter: '', note: '' })
+  const [actOn, setActOn] = useState(null)   // 当前展开动作面板的行 key
+  const [act, setAct] = useState({ mode: '', relation: '同门', chapter: '' })
+
+  const reload = () => api.characterRelations(9999)
+    .then((all) => setRelations((all || []).filter((r) => r.src === meLocal || r.dst === meLocal)))
+    .catch(() => setRelations([]))
+  useEffect(() => { reload() }, [characterId])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    api.entities()
+      .then((es) => setChars((es || []).filter((e) => e.kind === 'character' && e.id !== characterId)))
+      .catch(() => setChars([]))
+  }, [characterId])
+
+  const submitAdd = async () => {
+    if (!form.dst || !form.relation || form.since_chapter === '') { showToast('对象、关系、建立章必填', { tone: 'danger' }); return }
+    try {
+      await api.addCharacterRelation({ src: characterId, dst: form.dst, relation: form.relation, since_chapter: Number(form.since_chapter), note: form.note || null })
+      showToast('关系已建立', { tone: 'ok' })
+      setAdding(false); setForm({ dst: '', relation: '同门', since_chapter: '', note: '' })
+      reload()
+    } catch (e) { showToast(e?.body?.detail || e?.message || '建立失败', { tone: 'danger' }) }
+  }
+
+  const rowKey = (r) => `${r.src}->${r.dst}`
+  const submitAct = async (r) => {
+    const srcOid = `role:${r.src}`, dstOid = `role:${r.dst}`
+    try {
+      if (act.mode === 'evolve') {
+        if (act.chapter === '' || !act.relation) { showToast('新关系与演变章必填', { tone: 'danger' }); return }
+        await api.evolveRelation({ src: srcOid, dst: dstOid, relation: act.relation, since_chapter: Number(act.chapter) })
+        showToast('关系已演变', { tone: 'ok' })
+      } else if (act.mode === 'end') {
+        if (act.chapter === '') { showToast('结束章必填', { tone: 'danger' }); return }
+        await api.endRelation({ src: srcOid, dst: dstOid, until_chapter: Number(act.chapter) })
+        showToast('关系已结束', { tone: 'ok' })
+      }
+      setActOn(null); reload()
+    } catch (e) { showToast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' }) }
+  }
+
+  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
   if (!relations) return null
   return (
-    <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">角色关系</span><span className="text-f11 text-faint/50">{relations.length}条</span></div>
-      {relations.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无关系记录。</div> : (
-        <div className="space-y-1">{relations.map((r, i) => { const oid = r.src === characterId ? r.dst : r.src; return (<div key={i} className="flex items-center gap-3 py-1 px-2 rounded hover:bg-soft/40 transition-colors duration-150"><span className="text-f14 font-medium text-ink prose-serif min-w-[60px]">{(oid || '').split(':').pop()}</span><Tag tone={['盟友','同门','熟人','夫妻'].includes(r.relation) ? 'ok' : ['利益对立','仇敌'].includes(r.relation) ? 'fore' : 'faint'}>{r.relation}</Tag><span className="text-f11 text-faint">第{r.since_chapter}章建立</span>{r.until_chapter && <span className="text-f11 text-danger">第{r.until_chapter}章结束</span>}</div>) })}</div>
+    <div className="mt-4" data-testid="dynamic-relations">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-f11 text-faint uppercase tracking-wider">角色关系</span>
+        <span className="text-f11 text-faint/50">{relations.length}条</span>
+        <button onClick={() => setAdding(!adding)} className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />建立关系</button>
+      </div>
+
+      {adding && (
+        <div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex gap-2 flex-wrap">
+            <select value={form.dst} onChange={(e) => setForm({ ...form, dst: e.target.value })} className={`min-w-[120px] ${inp} cursor-pointer`}>
+              <option value="">选择对象角色…</option>
+              {chars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <RelSelect value={form.relation} onChange={(v) => setForm({ ...form, relation: v })} className={inp} />
+            <input type="number" value={form.since_chapter} onChange={(e) => setForm({ ...form, since_chapter: e.target.value })} placeholder="建立章" className={`w-20 ${inp}`} />
+          </div>
+          <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="备注(可选)" className={`w-full ${inp}`} />
+          <div className="flex gap-2">
+            <button onClick={submitAdd} className="px-3 h-7 rounded-lg bg-brand text-brandfg text-f12 cursor-pointer">保存</button>
+            <button onClick={() => setAdding(false)} className="px-3 h-7 rounded-lg text-faint text-f12 cursor-pointer">取消</button>
+          </div>
+        </div>
+      )}
+
+      {relations.length === 0 && !adding ? <div className="text-f12 text-faint/50 py-2">尚无关系记录。</div> : (
+        <div className="space-y-1">{relations.map((r) => {
+          const otherLocal = r.src === meLocal ? r.dst : r.src
+          const dir = r.src === meLocal ? '→' : '←'
+          const k = rowKey(r)
+          return (
+            <div key={k} className="group py-1 px-2 rounded hover:bg-soft/40 transition-colors duration-150">
+              <div className="flex items-center gap-3">
+                <span className="text-f10 text-faint/60 w-3 text-center" title={r.src === meLocal ? '本角色 → 对方' : '对方 → 本角色'}>{dir}</span>
+                <span className="text-f14 font-medium text-ink prose-serif min-w-[60px]">{otherLocal}</span>
+                <Tag tone={REL_TONE(r.relation)}>{r.relation}</Tag>
+                <span className="text-f11 text-faint">第{r.since_chapter}章建立</span>
+                {r.until_chapter && <span className="text-f11 text-danger">第{r.until_chapter}章结束</span>}
+                {r.note && <span className="text-f11 text-faint/60 truncate">· {r.note}</span>}
+                {!r.until_chapter && (
+                  <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center gap-2 transition-opacity">
+                    <button onClick={() => { setActOn(k); setAct({ mode: 'evolve', relation: r.relation, chapter: '' }) }} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">演变</button>
+                    <button onClick={() => { setActOn(k); setAct({ mode: 'end', relation: r.relation, chapter: '' }) }} className="text-f11 text-faint hover:text-danger cursor-pointer">结束</button>
+                  </span>
+                )}
+              </div>
+              {actOn === k && (
+                <div className="mt-1.5 ml-6 p-2 rounded-md border border-brand/30 bg-brand/[0.02] flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                  {act.mode === 'evolve' ? (<>
+                    <span className="text-f11 text-faint">演变为</span>
+                    <RelSelect value={act.relation} onChange={(v) => setAct({ ...act, relation: v })} className={inp} />
+                    <input type="number" value={act.chapter} onChange={(e) => setAct({ ...act, chapter: e.target.value })} placeholder="第几章" className={`w-20 ${inp}`} />
+                  </>) : (<>
+                    <span className="text-f11 text-faint">结束于第</span>
+                    <input type="number" value={act.chapter} onChange={(e) => setAct({ ...act, chapter: e.target.value })} placeholder="章" className={`w-16 ${inp}`} />
+                    <span className="text-f11 text-faint">章</span>
+                  </>)}
+                  <button onClick={() => submitAct(r)} className="px-2.5 h-7 rounded-md bg-brand text-brandfg text-f11 cursor-pointer">确认</button>
+                  <button onClick={() => setActOn(null)} className="px-2 h-7 rounded-md text-faint text-f11 cursor-pointer">取消</button>
+                </div>
+              )}
+            </div>
+          )
+        })}</div>
       )}
     </div>
   )
@@ -334,7 +468,9 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     )
   }
   const fieldMap = {
-    facts: [['entity','主体','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','私密','bool']],
+    // 批D 件1:命题生产表单(限知引擎核心)。entity 填实体 oid(role:名);secret 勾选后命题对读者隐藏,
+    // leak_markers 是"出现即算泄密"的标记词表 —— find_leaks 据此对 UI 作者的命题做限知泄露检测。
+    facts: [['entity','主体(实体 oid,如 role:焦三)','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','🔒 命题私密(对读者隐藏,find_leaks 检测泄露)','secret_flag'],['leak_markers','泄露标记词(逗号分隔,出现即视为泄密)','array_csv']],
     rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['scope','作用域','scope'],['established_chapter','确立章节','number'],['limitations','限制条件(逗号分隔)','array_csv'],['exceptions','例外情形(逗号分隔)','array_csv'],['capabilities','赋予能力(逗号分隔)','array_csv'],['note','备注','textarea']],
     factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],

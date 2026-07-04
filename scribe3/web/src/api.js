@@ -85,6 +85,16 @@ export const api = {
   addFact: (b) => post('/facts', b),
   editFact: (local, b) => patch('/facts/' + enc(local), b),
   delFact: (local) => del('/facts/' + enc(local)),
+  // 批D 件1:命题时态演进(限知引擎核心)。supersede=关闭同 entity+attribute 开区间先驱并写新值
+  // (改命题值的时态正确路径,保历史);forget=令某 knower(默认 reader)从某章起不再知此命题。
+  supersedeFact: (b) => post('/facts/supersede', b),
+  forgetKnowledge: (b) => post('/knowledge/forget', b),
+  // 批D 件2:角色关系(character_relation)—— GET 读 + 建立/演变/结束。relation 受控词表见 migration 029
+  // (DB ASSERT 校验,越界值 500);src/dst 须带本体前缀(role:名),后端 _split/entity 依赖冒号。
+  characterRelations: (chapter) => j('/character-relations' + (chapter != null ? `?chapter=${enc(chapter)}` : '')),
+  addCharacterRelation: (b) => post('/character-relations', b),
+  evolveRelation: (b) => post('/character-relations/evolve', b),
+  endRelation: (b) => post('/character-relations/end', b),
   // 事件叙事位编辑(尾1):narrative_position=null 清除回退 story_chapter
   patchEventNarrative: (eid, narrative_position) =>
     patch('/events/' + enc(eid) + '/narrative', { narrative_position }),

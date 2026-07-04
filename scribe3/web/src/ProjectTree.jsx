@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Tree } from 'react-arborist'
 import {
   ChevronRight, ChevronDown, BookText, BookOpen, FileText,
-  Users, Swords, Package, Tags, Shield, Bookmark, Flame, Lock,
+  Users, Swords, Package, Tags, Shield, Bookmark, Flame, Lock, Boxes,
   Pencil, Trash2, Check, X, Plus, TriangleAlert,
   Microscope, Quote, Scissors, Lightbulb, StickyNote,
 } from 'lucide-react'
@@ -14,7 +14,7 @@ export const CONTAINER_TYPES = new Set(['manuscript_root', 'codex_root', 'volume
 // 分类 ref → 图标
 const CAT_ICON = {
   character: Users, faction: Swords, item: Package, term: Tags,
-  world_rule: Shield, promise: Bookmark, motif: Flame,
+  world_rule: Shield, promise: Bookmark, motif: Flame, proposition: Boxes,
 }
 
 // 素材库分类 ref(kind)→ 图标

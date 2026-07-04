@@ -3,6 +3,7 @@ import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
 import { PanelLeftOpen } from 'lucide-react'
 import { api } from './api'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
+import { buildPropositionCategory } from './codexTree'
 import { DetailPane } from './DetailPane'
 import { LeftDock, RightDock } from './studioDocks'
 import { RestoreContext } from './WriteLayout'
@@ -12,6 +13,10 @@ import { DeduceProvider } from './deduceContext'
 import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
+
+// 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
+// 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
+const PROP_SCAN_CHAPTER = 100000
 
 // 收集容器节点 id(默认展开三根 + 各分类容器折叠;手稿支卷默认展开)
 function defaultExpanded(tree) {
@@ -47,7 +52,14 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const leftRef = usePanelRef()
   const rightRef = usePanelRef()
 
-  const reload = useCallback(() => api.projectTree().then((t) => {
+  const reload = useCallback(() => Promise.all([
+    api.projectTree(),
+    api.facts(PROP_SCAN_CHAPTER).catch(() => []),   // 命题分类:后端 /project-tree 不含,前端注入
+  ]).then(([t, facts]) => {
+    // 批D 件1:把「命题」分类注入设定支(幂等 —— 已注入则不重复;live SSE 每次重拉都重建)。
+    if (t?.codex?.children && !t.codex.children.some((c) => c.ref === 'proposition')) {
+      t.codex.children.push(buildPropositionCategory(facts))
+    }
     setTree(t)
     if (!initedRef.current) { setExpanded(defaultExpanded(t)); initedRef.current = true }
   }).catch(() => {}), [])

@@ -1,5 +1,5 @@
 import { ChapterStudio } from './ChapterStudio'
-import { CodexDetail } from './CodexDetail'
+import { CodexDetail, PropositionDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
 import { MaterialDetail, MaterialList, MaterialNew } from './Materials'
 import { AtlasView } from './views/AtlasView'
@@ -12,7 +12,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
   character: 'character', faction: 'faction', item: 'item', term: 'term',
-  world_rule: 'world_rule', promise: 'promise', motif: 'motif',
+  world_rule: 'world_rule', promise: 'promise', motif: 'motif', proposition: 'proposition',
 }
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
@@ -117,6 +117,12 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
   }
   if (node.type === 'material_root' || node.type === 'material_category') {
     return <MaterialList key={node.id} node={node} onSelect={onSelectNode} />
+  }
+
+  // —— 命题叶(批D 件1)→ 独立安全详情块(不走 DetailView 整行 PATCH,防私密值/leak_markers 被有损回写抹掉) ——
+  if (node.type === 'proposition') {
+    return <PropositionDetail key={node.id} node={node} onChanged={onTreeChanged}
+      onDeleted={() => { onTreeChanged?.(); onSelectNode?.({ id: 'cat:proposition', type: 'codex_category', ref: 'proposition', label: '命题' }) }} />
   }
 
   // —— 设定叶 → 详情卡 ——

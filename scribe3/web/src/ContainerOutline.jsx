@@ -373,8 +373,8 @@ function PlainChapterList({ lanes, onOpen }) {
   )
 }
 
-// 素材分类:ref(cat_type)→ 可新建?(全部 7 类均可)
-const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
+// 素材分类:ref(cat_type)→ 可新建?(7 正典类 + 批D 命题生产入口)
+const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif', 'proposition'])
 
 // 虚拟化阈值:超过则用 react-virtual 渲染(千万字级条目全量可达,不截断、不爆 DOM)
 const VIRTUAL_THRESHOLD = 80

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X } from 'lucide-react'
+import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X, Boxes, Lock, History, EyeOff } from 'lucide-react'
 import { api } from './api'
 import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
@@ -375,6 +375,122 @@ function CharVoice({ characterId, characterName }) {
         </Btn>
         {openCount > 0 && <span className="text-f11 text-faint">把待折叠变化演化进声线指纹</span>}
       </div>
+    </div>
+  )
+}
+
+// ═══ 命题详情(批D 件1):限知引擎核心素材的独立详情块 ═══
+// ⚠ GET /facts 有损:私密命题 value 被后端屏蔽为 null(_facts),且不回 valid_from/valid_to/leak_markers,
+// 亦无单条 reveal 端点 —— 故此处【不做整行 PATCH 回写】(会把私密值 null 掉/抹掉 leak_markers,同 F-1/F-2 坑),
+// 改为时态正确的三动作:超越(改值·保历史)/ 让 knower 遗忘(知识边)/ 删除。全字段生产在「+ 新建命题」。
+const FACT_SCAN_CHAPTER = 100000
+
+export function PropositionDetail({ node, onChanged, onDeleted }) {
+  const [row, setRow] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [panel, setPanel] = useState(null)          // 'supersede' | 'forget' | null
+  const [sup, setSup] = useState({ value: '', since_chapter: '', secret: false })
+  const [forget, setForget] = useState({ knower_id: 'reader', until_chapter: '' })
+  const [busy, setBusy] = useState(false)
+  const [delOpen, setDelOpen] = useState(false)
+
+  const reload = () => {
+    setLoading(true)
+    api.facts(FACT_SCAN_CHAPTER)
+      .then((rows) => {
+        const r = (rows || []).find((x) => x.id === `fact:${node.ref}`
+          || String(x.id || '').split(':').pop() === node.ref)
+        setRow(r || null); setLoading(false)
+      })
+      .catch(() => { setRow(null); setLoading(false) })
+  }
+  useEffect(() => { setPanel(null); reload() }, [node?.id])
+
+  const doSupersede = async () => {
+    if (!sup.value.trim() || sup.since_chapter === '') { showToast('新值与生效章必填', { tone: 'danger' }); return }
+    setBusy(true)
+    try {
+      await api.supersedeFact({ entity_id: row.entity, attribute: row.attribute,
+        value: sup.value.trim(), since_chapter: Number(sup.since_chapter), secret: sup.secret })
+      showToast('命题已超越(旧值封存于历史,新值生效)', { tone: 'ok' })
+      setPanel(null); setSup({ value: '', since_chapter: '', secret: false })
+      onChanged?.()   // 新命题 oid 已生成、旧命题转闭区间 → 通知重拉树
+    } catch (e) { showToast(e?.body?.detail || e?.message || '超越失败', { tone: 'danger' }) }
+    finally { setBusy(false) }
+  }
+
+  const doForget = async () => {
+    if (forget.until_chapter === '' || !forget.knower_id.trim()) { showToast('knower 与失效章必填', { tone: 'danger' }); return }
+    setBusy(true)
+    try {
+      await api.forgetKnowledge({ knower_id: forget.knower_id.trim(),
+        proposition_id: `fact:${node.ref}`, until_chapter: Number(forget.until_chapter) })
+      showToast('已设置遗忘(该 knower 自此章起不再知此命题)', { tone: 'ok' })
+      setPanel(null); setForget({ knower_id: 'reader', until_chapter: '' })
+    } catch (e) { showToast(e?.body?.detail || e?.message || '遗忘设置失败', { tone: 'danger' }) }
+    finally { setBusy(false) }
+  }
+
+  const doDelete = async () => {
+    try { await api.delFact(node.ref); onDeleted?.() }
+    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+  }
+
+  if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载命题…</div>
+  if (!row) return <div className="p-6 text-f13 text-faint">未找到该命题(可能已被超越或删除)。项目树只投影仍处开区间的命题。</div>
+
+  const entLocal = String(row.entity || '').split(':').pop() || '—'
+  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
+
+  return (
+    <div className="h-full overflow-y-auto" data-testid="proposition-detail">
+      <div className="max-w-2xl mx-auto px-6 py-5">
+        <SectionTitle icon={Boxes}>命题详情</SectionTitle>
+        <div className="space-y-2.5 mt-2">
+          <div><div className="text-f11 text-faint uppercase tracking-wider mb-0.5">主体</div><div className="text-f14 text-ink prose-serif">{entLocal}</div></div>
+          <div><div className="text-f11 text-faint uppercase tracking-wider mb-0.5">属性</div><div className="text-f13 text-ink">{row.attribute || '—'}</div></div>
+          <div>
+            <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">值</div>
+            {row.is_secret
+              ? <div className="inline-flex items-center gap-1.5 text-f13 text-faint"><Lock size={13} />私密 · 值对读者屏蔽(限知)</div>
+              : <div className="text-f13 text-ink leading-relaxed whitespace-pre-wrap">{row.value || '—'}</div>}
+          </div>
+        </div>
+
+        {/* 动作条:超越改值 / 让读者遗忘 / 删除 */}
+        <div className="mt-5 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
+          <Btn variant={panel === 'supersede' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'supersede' ? null : 'supersede')}><History size={13} />超越(改值)</Btn>
+          <Btn variant={panel === 'forget' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'forget' ? null : 'forget')}><EyeOff size={13} />让读者遗忘</Btn>
+          <button onClick={() => setDelOpen(true)} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13} />删除命题</button>
+        </div>
+
+        {panel === 'supersede' && (
+          <div className="mt-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
+            <div className="text-f11 text-faint">超越 = 关闭「{entLocal}·{row.attribute}」现开区间命题,自指定章起写入新值(旧值封存为历史,不破坏时态)。</div>
+            <textarea value={sup.value} onChange={(e) => setSup({ ...sup, value: e.target.value })} rows={2} placeholder="新值…" className={ta} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="number" value={sup.since_chapter} onChange={(e) => setSup({ ...sup, since_chapter: e.target.value })} placeholder="自第几章生效" className={`w-32 ${inp}`} />
+              <label className="flex items-center gap-1.5 text-f12 text-faint cursor-pointer select-none">
+                <input type="checkbox" checked={sup.secret} onChange={(e) => setSup({ ...sup, secret: e.target.checked })} className="w-3.5 h-3.5 accent-brand cursor-pointer" />新值私密
+              </label>
+              <Btn variant="primary" size="sm" onClick={doSupersede} disabled={busy}>{busy && <Loader2 size={13} className="animate-spin" />}确认超越</Btn>
+            </div>
+          </div>
+        )}
+
+        {panel === 'forget' && (
+          <div className="mt-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
+            <div className="text-f11 text-faint">令某 knower(默认 reader 读者帧)自指定章起不再知晓此命题(设知识边 until_chapter)。</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input value={forget.knower_id} onChange={(e) => setForget({ ...forget, knower_id: e.target.value })} placeholder="knower(reader 或 role:名)" className={`w-56 ${inp}`} />
+              <input type="number" value={forget.until_chapter} onChange={(e) => setForget({ ...forget, until_chapter: e.target.value })} placeholder="自第几章失效" className={`w-32 ${inp}`} />
+              <Btn variant="primary" size="sm" onClick={doForget} disabled={busy}>{busy && <Loader2 size={13} className="animate-spin" />}确认遗忘</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+      <ConfirmDialog open={delOpen} title="确认删除命题?" body={`将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`} danger confirmText="删除" onConfirm={doDelete} onClose={() => setDelOpen(false)} />
     </div>
   )
 }

@@ -13,6 +13,7 @@ const CAT_TO_TYPE = {
   world_rule: 'rules',
   promise: 'promises',
   motif: 'motifs',
+  proposition: 'facts',   // 批D 件1:命题生产入口(POST /facts,含 secret/leak_markers)
 }
 
 // 各类型空草稿(给必要默认值,避免后端 422)
@@ -25,6 +26,7 @@ function emptyDraft(catType) {
     case 'world_rule': return { name: '', category: 'magic' }
     case 'promise': return { text: '', setup_chapter: 1, tier: 'chapter' }
     case 'motif': return { name: '' }
+    case 'proposition': return { entity: '', attribute: '', value: '', valid_from: 1, secret: false, leak_markers: [] }
     default: return { name: '' }
   }
 }
@@ -32,6 +34,8 @@ function emptyDraft(catType) {
 // 校验:创建前最小必填
 function isValid(catType, d) {
   if (catType === 'promise') return !!(d.text && d.text.trim())
+  // 命题:主体 + 属性 + 值三者必填(对齐后端 FactIn 无默认的 entity/attribute/value)
+  if (catType === 'proposition') return !!(d.entity && d.entity.trim() && d.attribute && d.attribute.trim() && d.value && d.value.trim())
   return !!(d.name && d.name.trim())
 }
 
@@ -44,6 +48,7 @@ async function createRecord(catType, d) {
   if (catType === 'world_rule') { await api.post('/world-rules', d); return d.name }
   if (catType === 'promise') { const r = await api.addPromiseNew(d); return r?.id || r?.pid || null }
   if (catType === 'motif') { const r = await api.addMotifNew(d); return r?.id || r?.mid || null }
+  if (catType === 'proposition') { const r = await api.addFact(d); return r?.oid ? String(r.oid).split(':').pop() : null }
   return null
 }
 
@@ -60,7 +65,7 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
   if (!type) return <div className="p-6 text-f13 text-faint">未知设定类型:{catType}</div>
 
   const create = async () => {
-    if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : '请填写名称'); return }
+    if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : catType === 'proposition' ? '请填写主体、属性与值' : '请填写名称'); return }
     setSaving(true); setErr('')
     try {
       const ref = await createRecord(catType, draft)
