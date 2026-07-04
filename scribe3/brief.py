@@ -208,6 +208,27 @@ def assemble_injection(st, seq, budget_chars: int = _M6_BUDGET_CHARS) -> dict:
             "used_chars": sel["used_chars"], "fallback": False, "facts": facts}
 
 
+# ===== 方案B任务10 · 情节点字数预算契约(纯函数验证器)=====
+
+def validate_beat_budgets(beats: list[dict], target_words: int) -> dict:
+    """校验节拍(beats)字数预算求和是否落在 [target_words, target_words*1.1] 区间。
+
+    仅当全部 beat 都带 budget 字段(非 None)才判定——旧数据(无 budget)向后兼容,
+    不判、不报错,返回 ok=None。防"欠字反复回炉"/"均匀注水":
+    - total < target        → ok=False, reason="under"(欠字)
+    - total > target*1.1    → ok=False, reason="over"(超字)
+    - 其余(区间内)          → ok=True, reason=None
+    返回 {ok, total, reason}。"""
+    if not beats or any(b.get("budget") is None for b in beats):
+        return {"ok": None, "total": None, "reason": None}
+    total = sum(b["budget"] for b in beats)
+    if total > target_words * 1.1:
+        return {"ok": False, "total": total, "reason": "over"}
+    if total < target_words:
+        return {"ok": False, "total": total, "reason": "under"}
+    return {"ok": True, "total": total, "reason": None}
+
+
 def render_brief(sections: dict) -> str:
     parts = ["## 本章创作简报(章前组装,遵守但不复述)"]
     parts += list(sections.get("arcs") or [])

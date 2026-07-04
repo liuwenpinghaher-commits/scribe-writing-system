@@ -1852,6 +1852,13 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     仿 _deduction_block:空(无 synopsis 且无 beats)→ 返回空串(默认行为不变)。
     Task8审查必修2:限知章(focalizer 非空)补一句限知免责——大纲是作者视角,
       帧外私密不得由焦点者知晓或道破(对齐 _deduction_block 的全知/限知分离)。
+    方案B任务10:情节点字数预算契约(oh-story artifact-protocols.md 移植)——
+      本函数是 chat_write(GET/POST)唯一共用的组装点,前端"大纲/节拍" tab 与
+      "草稿" tab 都映射到同一 phase 经此函数注入(节拍无独立生成端点,由
+      前端/主编对话驱动),故契约段落点选在此处而非另开端点:
+      · 生成/调整节拍时的密度+预算标注规范(始终附带,覆盖节拍生成时刻);
+      · 写草稿时"按预算分配笔墨"的执行要求(仅当已有节拍内容时附带)。
+      确定性校验见 brief.validate_beat_budgets(后续可接进节拍保存端点)。
     自带前导 \\n\\n(与 _motif_block/_recap_block 同约定,caller 直接 += 即可)。"""
     if chapter is None:
         return ""
@@ -1873,9 +1880,16 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     if beat_texts:
         parts.append("〔节拍〕" + _clip(" ".join(f"{i}.{t}" for i, t in enumerate(beat_texts, 1)),
                                        _OUTLINE_BUDGET))
+        parts.append("写作要求:严格按各情节点字数预算分配笔墨,预算内欠账的密点优先补足,不得均匀注水。")
     if focalizer:
         parts.append("(以上为作者视角大纲,写限知视角时只呈现焦点者可感知的部分;"
                      "帧外私密留作伏笔,不得由焦点者知晓或道破。)")
+    parts.append(
+        "情节点字数预算契约:生成/调整节拍时,每个情节点须标注「密度:密|疏」与"
+        "「字数预算:N字」(密≥250字,慢镜头爽点400-600字,疏≈40字过场);"
+        "全部情节点预算求和必须落在[章目标字数, ×1.1]区间;"
+        "节拍列表末尾输出一行「预算合计:X字」。"
+    )
     return "\n\n" + "\n".join(parts)
 
 

@@ -5,7 +5,7 @@
 """
 from scribe3.brief import (arc_directive, promise_directives,
                            open_loop_ledger, heartbeat_list, render_brief,
-                           assemble_chapter_brief)
+                           assemble_chapter_brief, validate_beat_budgets)
 
 
 def test_arc_directive():
@@ -190,3 +190,27 @@ def test_mentioned_entities_by_alias():
             {"id": "role:阿禾", "name": "阿禾", "aliases": []}]
     hit = detect_mentions("这章柳师爷去义庄", ents)
     assert hit == {"role:柳怀玉"}
+
+
+# ===== 方案B任务10 · 情节点字数预算契约(纯函数验证器)=====
+
+class TestBeatBudgets:
+    def test_budget_sum_within_window(self):
+        beats = [{"text": "夜探义庄", "density": "密", "budget": 900},
+                 {"text": "过场赶路", "density": "疏", "budget": 60},
+                 {"text": "纸人现形", "density": "密", "budget": 1200}]
+        r = validate_beat_budgets(beats, target_words=2000)
+        assert r["ok"] and r["total"] == 2160   # ∈ [2000, 2200]
+
+    def test_budget_overflow_flagged(self):
+        beats = [{"text": "a", "density": "密", "budget": 3000}]
+        r = validate_beat_budgets(beats, target_words=2000)
+        assert not r["ok"] and r["reason"] == "over"
+
+    def test_budget_underflow_flagged(self):
+        assert not validate_beat_budgets([{"text": "a", "density": "疏", "budget": 40}],
+                                         target_words=2000)["ok"]
+
+    def test_missing_budget_tolerated(self):
+        # 旧数据无 budget 字段:不判,ok=None(向后兼容)
+        assert validate_beat_budgets([{"text": "旧节拍"}], target_words=2000)["ok"] is None
