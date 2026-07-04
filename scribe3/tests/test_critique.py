@@ -943,6 +943,25 @@ class TestAdverbTriadVariation:
         from scribe3.critique import find_rule_of_three
         assert find_rule_of_three("院子安静、破败。") == []
 
+    def test_four_items_multichar_not_reported(self):
+        """规格审查锁 bug:负向环视 (?<!、) 只保证起点前一字不是顿号,不保证起点对齐
+        分项边界——「院里安静、破败、荒凉、死寂。」曾从"破败"第二个字起匹配出
+        「败、荒凉、死寂」,把半个词冒充分项,使四项列举被误报。全局切分后
+        len(items)==4 → 不报。"""
+        from scribe3.critique import find_rule_of_three
+        assert find_rule_of_three("院里安静、破败、荒凉、死寂。") == []
+
+    def test_four_items_leading_name_not_reported(self):
+        """同上锁 bug:首项为短词(老李)时曾从「静、破败、荒凉」处击穿。四项 → 不报。"""
+        from scribe3.critique import find_rule_of_three
+        assert find_rule_of_three("老李、安静、破败、荒凉。") == []
+
+    def test_comma_bounded_triple_reported(self):
+        """边界:顿号列表止于逗号——「他带上刀、粮、水，然后出发。」逗号前的三项应命中。"""
+        from scribe3.critique import find_rule_of_three
+        hits = find_rule_of_three("他带上刀、粮、水，然后出发。")
+        assert len(hits) == 1
+
     def test_elegant_variation(self):
         from scribe3.critique import find_elegant_variation
         t = "陈九抬头看天。那男人叹了口气。少年攥紧了拳。陈九转身就走。"

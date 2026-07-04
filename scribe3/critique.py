@@ -561,27 +561,41 @@ def find_adverb_density(text: str, per_k_max: float = 3.0) -> dict | None:
     return {"words": words, "per_k": round(per_k, 2), "count": count}
 
 
-# 句内顿号三连(维基 rule of three):恰好三项 X、Y、Z(每项 1-6 字,不含顿号/逗号/句号)
-# 后接句读。四项及以上是铺陈列举,不该报——用负向环视排除"第一项前面还有顿号"的
-# 情形(即排除从更长列表中间截出来的伪三连),故 4+ 项列表整体不命中任一起点。
-_RULE_OF_THREE_ITEM = r"[^、，,。！？\n]{1,6}"
-_RULE_OF_THREE_RE = re.compile(
-    r"(?<!、)(" + _RULE_OF_THREE_ITEM + r")、(" + _RULE_OF_THREE_ITEM + r")、("
-    + _RULE_OF_THREE_ITEM + r")(?=[。！？\n])"
-)
+# 句内顿号三连(维基 rule of three):恰好三项 X、Y、Z(每项 1-6 字)。
+# 实现是"先全局切分再判长度",不是局部正则近似——负向环视 (?<!、) 只能保证起点前
+# 一字不是顿号,不能保证起点对齐分项边界(多字词场景被击穿:「院里安静、破败、荒凉、
+# 死寂。」曾从"破败"第二个字起匹配出「败、荒凉、死寂」,把半个词冒充分项,使四项
+# 列举被误报,污染密度门)。全局切分:句读([。！？\n])切句,句内再按逗号/分号切段
+# (顿号列表止于逗号,「他带上刀、粮、水，然后出发」逗号前是完整候选序列),每段
+# 完整 split("、") 后 len(items)==3 且每项 1-6 字才命中——≥4 项、2 项、超长项都
+# 整体不报,不存在"从列表中间截出伪三连"的起点。
+_RULE_OF_THREE_SEG_RE = re.compile(r"[^。！？\n，,；;]+")   # 句读+逗号/分号界定的候选段
+_RULE_OF_THREE_ITEM_MAX = 6   # 每分项最大字数(超长项是正常叙述,不是排比分项)
 
 
 def find_rule_of_three(text: str) -> list[dict]:
-    """句内三段式(维基 rule of three)检测:恰好三项顿号并列后接句读。引号内
-    (台词/弹幕)豁免——体裁正常形态,只判叙述层。report-only,不做密度门(密度门
-    在 quality_flags/quality_issues 聚合处实现,见 _rule_of_three_gated)。"""
+    """句内三段式(维基 rule of three)检测:恰好三项顿号并列(全局切分判定,见上方
+    模块注释)。引号内(台词/弹幕)豁免——体裁正常形态,只判叙述层;range 覆盖三项
+    整体(段内去空白后的起止)。report-only,不做密度门(密度门在 quality_flags/
+    quality_issues 聚合处实现,见 _rule_of_three_gated)。"""
     s = text or ""
     quoted = _quoted_ranges(s)
     out: list[dict] = []
-    for m in _RULE_OF_THREE_RE.finditer(s):
-        if _in_any_span(m.start(), m.end(), quoted):
+    for m in _RULE_OF_THREE_SEG_RE.finditer(s):
+        seg = m.group(0)
+        if "、" not in seg:
             continue
-        out.append({"phrase": m.group(0), "range": [m.start(), m.end()]})
+        core = seg.strip()
+        items = core.split("、")
+        # 恰好三项、每项非空且 1-6 字:≥4 项是铺陈列举,2 项是普通并列,均不报;
+        # 任一项超长(如首项带主语状语的长叙述)说明这不是干净的排比分项,也不报。
+        if len(items) != 3 or not all(1 <= len(it) <= _RULE_OF_THREE_ITEM_MAX for it in items):
+            continue
+        start = m.start() + seg.find(core)
+        end = start + len(core)
+        if _in_any_span(start, end, quoted):
+            continue
+        out.append({"phrase": core, "range": [start, end]})
     return out
 
 
