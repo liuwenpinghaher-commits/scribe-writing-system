@@ -2254,6 +2254,13 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         try:
             from scribe3.llm import hermes_complete
             r = ingest_chapter(st, req.chapter, hermes_complete)
+            # 北极星任务8:loop 章 ingest 后复盘蒸馏(loop 自动轮不写 chat_message,
+            # 该章无人工对话时蒸馏自动 no_messages 跳过;有过讨论则照常沉淀)。
+            try:
+                from scribe3.lesson import distill_chapter
+                distill_chapter(st, req.chapter, hermes_complete)
+            except Exception as de:
+                logging.getLogger("scribe3").warning("loop 复盘蒸馏失败(忽略): %s", de)
             # ingest 后刷新 scorecard(P2-3 单源 _refresh_scorecard_after_ingest):
             # 存稿快照无本章事件(qc_causal=-1 哨兵),反哺后重算出真值。
             _refresh_scorecard_after_ingest(st, req.chapter)
@@ -2572,6 +2579,13 @@ def _bg_ingest(work: str, seq: int) -> None:
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+        # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
+        try:
+            from scribe3.lesson import distill_chapter
+            distill_chapter(st, seq, hermes_complete)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("后台 ingest 复盘蒸馏失败(忽略) %s 第%s章: %s",
+                                                 work, seq, e)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
     finally:
@@ -3302,6 +3316,16 @@ def ingest(seq: int, work: str = "main"):
             except Exception as e:
                 logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+        # 北极星任务8:章后复盘蒸馏(事件驱动挂 ingest 路径,蓝图定死不走 cron)——
+        # 与知识抽取成败无关(对话的方法教训独立于 parse_failed);fail-soft 绝不拖垮 ingest。
+        try:
+            from scribe3.lesson import distill_chapter
+            _dfn = _complete_fn
+            if _dfn is None:
+                from scribe3.llm import hermes_complete as _dfn
+            distill_chapter(st, seq, _dfn)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("/ingest 复盘蒸馏失败(忽略): %s", e)
         return r
     finally:
         with _pending_ingest_lock:
@@ -3427,6 +3451,19 @@ def north_star_chapter(seq: int, work: str = "main"):
     if sc is None:
         raise HTTPException(status_code=404, detail=f"chapter {seq} 不存在或无正文")
     return sc
+
+
+@app.get("/lessons/promotable")
+def lessons_promotable(work: str = "main", threshold: int = 4):
+    """升格候选队列(北极星任务8):importance ≥ threshold 的有效 lesson。
+    只列候选——升格动作必须由作者在主编对话让其调用 s3_craft_rule_add
+    (elicitation 待批);蒸馏产物升格永不自动生效(宪法条款,防自评自改变体)。"""
+    rows = [r for r in _store_for(work).list_lessons()
+            if (r.get("importance") or 0) >= threshold]
+    for r in rows:
+        r["note"] = ("已达升格阈:如认可,请在主编对话中让其调用 s3_craft_rule_add"
+                     "(elicitation 待批)升格为 craft_rule;系统绝不自动升格")
+    return rows
 
 
 @app.get("/north-star/book")

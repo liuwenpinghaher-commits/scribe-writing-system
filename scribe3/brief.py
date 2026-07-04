@@ -564,6 +564,9 @@ def render_brief(sections: dict) -> str:
     em = sections.get("emotion_module") or {}
     if em.get("text"):
         parts.append(em["text"])
+    ls = sections.get("lessons") or {}
+    if ls.get("text"):   # 北极星任务8:复盘要点(软指令,空则不渲染)
+        parts.append(ls["text"])
     return "\n\n".join(parts)
 
 
@@ -645,6 +648,24 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
     except Exception as e:
         _log.warning("assemble_chapter_brief purpose 段组装失败(fail-soft): %s", e)
         sections["purpose"] = {"text": "", "count": 0}
+    # 北极星任务8:上章复盘要点+历史教训语义召回(沉淀环反哺边①,软指令);
+    # 召回 query=本章大纲/节拍(按语境召回,CIPHER/AutoGuide 先例),k=3+相似度
+    # 下限(宁缺勿滥);fail-soft:lesson 数据故障不拖垮简报。
+    try:
+        from scribe3.lesson import render_lessons_section
+        _last_ls = st.list_lessons(chapter=max_ch) if max_ch else []
+        _ch_meta = st.get_chapter(seq) or {}
+        _qtxt = " ".join(filter(None, [
+            (_ch_meta.get("synopsis") or "").strip(),
+            " ".join(((b.get("text") if isinstance(b, dict) else str(b)) or "")
+                     for b in (_ch_meta.get("beats") or []))])).strip()
+        _recalled = st.recall_lessons(_qtxt, k=3) if _qtxt else []
+        _seen_ids = {l.get("id") for l in _last_ls}
+        _recalled = [r for r in _recalled if r.get("id") not in _seen_ids]
+        sections["lessons"] = render_lessons_section(_last_ls, _recalled)
+    except Exception as e:
+        _log.warning("assemble_chapter_brief lessons 段组装失败(fail-soft): %s", e)
+        sections["lessons"] = {"text": "", "count": 0}
     # 北极星任务2:因果欠账催收——近 _CAUSAL_LOOKBACK 章倒序收集 causal_complete 违规,
     # top-5 转译三选一软指令;全窗口无事件→no_event_data 整段不渲染;取数 fail-soft
     # (causal 数据故障不拖垮简报其余部分,警告级日志,不假绿吞错)。

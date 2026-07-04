@@ -879,6 +879,91 @@ class SurrealStore:
             {"c": chapter})
         return list(reversed(rows))
 
+    # --- 复盘 lesson(北极星任务8,蓝图 §4-② 沉淀环;与情绪模式向量分表分索引 Q4)---
+    def add_lesson(self, chapter: int, kind: str, text: str, condition: str = "",
+                   evidence_turns: list | None = None) -> bool:
+        """落一条 lesson(带软去重):先在 lesson 专属 HNSW 索引召回近邻,
+        余弦相似 ≥ MERGE_SIM 的既有条目 → importance+1 合并不新增(返回 False);
+        否则新增(返回 True)。embedding=text+condition(条件参与语义)。"""
+        from scribe3.embed import embed
+        from scribe3.lesson import MERGE_SIM
+        import json as _json
+        vec = embed([f"{text} {condition}".strip()])[0]
+        near = self._query(
+            "SELECT meta::id(id) AS id, embedding, vector::distance::knn() AS dist "
+            "FROM lesson WHERE embedding <|3,COSINE|> $qv ORDER BY dist", {"qv": vec})
+        for n in near:
+            if n.get("dist") is not None and (1 - n["dist"]) >= MERGE_SIM:
+                row = self._query(
+                    "SELECT invalid_at FROM type::record('lesson',$i)", {"i": n["id"]})
+                if row and row[0].get("invalid_at"):
+                    continue   # 已失效条目不合并(允许同课重立)
+                self._execute_write(
+                    "UPDATE type::record('lesson',$i) SET importance += 1", {"i": n["id"]})
+                return False
+        self._execute_write(
+            "CREATE lesson SET chapter=$c, kind=$k, text=$t, condition=$cond, "
+            "evidence_turns=$ev, importance=2, uses=0, created_at=time::now(), embedding=$v",
+            {"c": chapter, "k": kind, "t": text, "cond": condition or "",
+             "ev": _json.dumps(evidence_turns or [], ensure_ascii=False), "v": vec})
+        return True
+
+    def list_lessons(self, chapter: int | None = None,
+                     include_invalid: bool = False) -> list[dict]:
+        where = []
+        if chapter is not None:
+            where.append("chapter = $c")
+        if not include_invalid:
+            where.append("invalid_at IS NONE")
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        return self._query(
+            f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
+            f"invalid_at, <string> created_at AS created_at FROM lesson {w}ORDER BY created_at ASC",
+            {"c": chapter})
+
+    def recall_lessons(self, query: str, k: int = 3, min_sim: float | None = None) -> list[dict]:
+        """HNSW 语义召回 lesson,相似度下限过滤(宁缺勿滥:相关但不适用比无关更毒),
+        命中即 uses+1(质量闭环);invalid 条目 Python 侧过滤(避开 KNN×WHERE 组合坑,Q4)。"""
+        if not (query or "").strip():
+            return []
+        from scribe3.embed import embed
+        if min_sim is None:
+            from scribe3.lesson import RECALL_MIN_SIM as min_sim   # 真机标定值(D-017)
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
+            f"invalid_at, vector::distance::knn() AS dist "
+            f"FROM lesson WHERE embedding <|{int(max(k * 3, 6))},COSINE|> $qv ORDER BY dist",
+            {"qv": qv})
+        out: list[dict] = []
+        for r in rows:
+            if r.get("invalid_at"):
+                continue
+            sim = 1 - r["dist"] if r.get("dist") is not None else 0.0
+            if sim < min_sim:
+                continue
+            r["sim"] = round(sim, 4)
+            r.pop("dist", None)
+            r.pop("invalid_at", None)
+            out.append(r)
+            if len(out) >= k:
+                break
+        for r in out:
+            self._execute_write("UPDATE type::record('lesson',$i) SET uses += 1",
+                                {"i": r["id"]})
+        return out
+
+    def bump_lesson_importance(self, lesson_id: str, delta: int = 1) -> None:
+        self._execute_write(
+            "UPDATE type::record('lesson',$i) SET importance += $d",
+            {"i": lesson_id, "d": delta})
+
+    def invalidate_lesson(self, lesson_id: str) -> None:
+        """失效标记不物理删(Zep 先例):craft_rule 审批溯源链保留。"""
+        self._execute_write(
+            "UPDATE type::record('lesson',$i) SET invalid_at = time::now()",
+            {"i": lesson_id})
+
     # --- 伏笔章触及 promise_touch ---
     def add_promise_touch(self, promise_id: str, chapter: int,
                           evidence: str = "", ingest_seq: int | None = None) -> None:
