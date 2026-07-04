@@ -120,8 +120,14 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
 
   const selId = sel?.mode === 'node' ? sel.node?.id : null
   const chapterSel = isChapterSel(sel)
-  // 当前章号(chapter/scene 节点的 ref 即 seq)——喂给左右栏数据面板。
+  // 当前章号(chapter/scene 节点的 ref 即 seq)——喂给右栏数据面板/主编切换。
   const curSeq = chapterSel && sel?.node?.ref != null ? Number(sel.node.ref) : null
+  // 块四b 塌栏 UX:左栏数据面板改用「上次章 seq」记忆。点伏笔/母题/角色等非章节点时 curSeq 变 null,
+  // 若直接喂 null,左栏(伏笔/母题/帧/演绎/校验)会塌回仅项目树、还把当前 tab 复位掉。改以最近一次的章 seq
+  // 喂左栏 → 点行浏览详情时数据面板不被弹出,可继续看该书台账。右栏仍用 curSeq(存档/主编按真实选中切)。
+  const lastChapterSeqRef = useRef(null)
+  if (curSeq != null) lastChapterSeqRef.current = curSeq
+  const leftSeq = curSeq != null ? curSeq : lastChapterSeqRef.current
   const treeCbs = { onVolumeRename: handleVolumeRename, onVolumeDelete: handleVolumeDelete, onAddVolume: handleAddVolume, onReorder: handleReorder }
   // 波B Step3:右栏常驻。章节点 → 右栏=写作槽(WriteLayout 的 WriteChat 经 portal 进来);
   // 非章节点 → 右栏=讨论 chat(现状)。ChiefDock 据 chapterSel 切换内容。
@@ -170,7 +176,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           className="bg-surface"
         >
           <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
-            treeCbs={treeCbs} seq={curSeq} />
+            treeCbs={treeCbs} seq={leftSeq} />
         </Panel>
         <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
 
