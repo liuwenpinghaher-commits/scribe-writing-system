@@ -1295,6 +1295,72 @@ def parse_tension_report(raw: str) -> dict | None:
         return None
 
 
+# ==== 方案B任务13b:反转工具箱 rubric + 悬念/伏笔边界
+#      (oh-story reversal-toolkit.md 7类反转 + hooks-suspense.md 悬念vs伏笔边界)====
+
+_REVERSAL_TYPES = ("身份反转", "动机反转", "因果反转", "立场反转",
+                    "信息差反转", "时间线反转", "道德反转")
+
+
+def build_reversal_rubric_prompt(prose: str, beat_meta: dict | None) -> str:
+    """反转机检 rubric prompt(oh-story reversal-toolkit.md 7类反转)。
+
+    beat_meta 无 reversal_type(空 dict / None)→ 本章未标注反转,不审,返回空串
+    (镜像 _deduction_block/_outline_block 的"无内容即空串"约定)。
+    beat_meta 含 reversal_type → 组装:7类枚举说明 + 本章反转声明(type/setup_clues/
+    reveal_position_pct)+ 4 条机检轴 + 输出契约(与方案B任务18 normalize_findings 的
+    FindingsSchema 六字段一致,供多 reviewer 结果统一合并)+ ANTI_SYCOPHANCY。
+
+    悬念/伏笔边界(oh-story hooks-suspense.md):不建新表——短期悬念对应 promise
+    账本里 tier:chapter(本章内起落即兑现的钩子),长期伏笔对应 tier:arc/book
+    (跨章/跨卷才兑现);两账本语义分离,reversal 的 setup_clues 多数指向后者,
+    评审时须按此区分对待,不得混为一谈。
+    """
+    if not beat_meta or not beat_meta.get("reversal_type"):
+        return ""
+    rtype = beat_meta.get("reversal_type")
+    clues = beat_meta.get("setup_clues") or []
+    pct = beat_meta.get("reveal_position_pct")
+    types_list = "、".join(_REVERSAL_TYPES)
+    clues_str = "；".join(str(c) for c in clues) if clues else "(未标注)"
+    return (
+        ANTI_SYCOPHANCY + "\n\n"
+        "你是叙事反转机制评审。反转共 7 类(" + types_list + ")。\n"
+        f"本章声明的反转:类型={rtype};铺垫线索(setup_clues)={clues_str};"
+        f"揭示位置(reveal_position_pct)={pct}。\n"
+        "悬念/伏笔边界:短期悬念(本章内起落的钩子)记 tier:chapter;长期伏笔"
+        "(跨章/跨卷才兑现)记 tier:arc/book——两账本语义分离,本反转的铺垫属于哪一账本,"
+        "评审时须区分对待,不得混为一谈。\n"
+        "检查以下 4 项机检轴(任一命中即问题):\n"
+        "① setup_insufficient:声明的铺垫线索(setup_clues)少于 3 处,或正文里找不到"
+        "对应线索的真实着落;\n"
+        "② reveal_overlong:揭示/交代反转真相的文字超过 300 字(该收在动作与留白,"
+        "不该大段解说);\n"
+        "③ unearned_new_info:揭示时引入了前文完全未出现过的新信息(伏笔没有真正埋过,"
+        "反转是硬凭空冒出来的);\n"
+        "④ position_out_of_range:揭示位置(reveal_position_pct)越出本章 50%-85% 的"
+        "最佳区间(太早显得仓促无蓄力,太晚来不及消化)。\n"
+        '只输出一行 JSON:{"findings":[{"severity":"S1"|"S2"|"S3"|"S4",'
+        '"category":"structure"|"character"|"prose"|"consistency"|"platform"|'
+        '"factual"|"format"|"causal"|"rule_boundary","location":定位,"evidence":引文,'
+        '"issue":问题描述,"fix":修复建议}],"verdict":"APPROVE"|"CONCERNS"|"REJECT"}。\n\n'
+        f"正文:\n{prose}")
+
+
+def parse_reversal_report(raw: str) -> dict | None:
+    """解析反转机检 JSON。镜像 parse_tension_report:提取首个 {...} 块,json.loads,
+    坏 JSON / 截断 / 空 / None 一律 fail-safe 返回 None,调用方据此标 rubric_failed 不崩。"""
+    try:
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        if not m:
+            _log.warning("parse_reversal_report 无 JSON 块: raw[:120]=%r", (raw or "")[:120])
+            return None
+        return json.loads(m.group(0))
+    except Exception as e:
+        _log.warning("parse_reversal_report 失败: %s | raw[:120]=%r", e, (raw or "")[:120])
+        return None
+
+
 # ==== M2: 确定性文本质检——整行精确复读 + 叙述层情感直说 ====
 
 # 句子切分:按换行符 + 中文句末标点(。！？…)拆句(带 capture group 保留分隔符)

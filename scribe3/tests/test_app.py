@@ -3947,6 +3947,34 @@ def test_outline_block_focalizer_guardrail(store):
     assert "帧外私密留作伏笔" not in omni      # 全知章无免责句
 
 
+# ===== 方案B任务13b:反转标注规范 + 叙述者真诚视角硬约束 =====
+
+def test_reversal_annotation_and_focalizer_sincerity_wired(store, monkeypatch):
+    """B13b:①_outline_block 节拍标注规范追加反转字段(reversal_type/setup_clues/
+    reveal_position_pct);②写作 instructions 含叙述者真诚视角硬约束("真诚相信"),
+    GET/POST 两条组装链均命中(防知情POV倒灌的又一道文字层约束)。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}]})
+    blk = _outline_block(store, 2)
+    assert "reversal_type" in blk and "setup_clues" in blk and "reveal_position_pct" in blk
+
+    captured = {}
+
+    def cap(message, instructions, **_kw):
+        captured["ins"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(A, "_responses_events", cap)
+    c = _client(store)
+    c.get("/chat/write", params={"msg": "写本章", "chapter": 2})
+    assert "真诚相信" in captured["ins"]
+    captured.clear()
+    c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
+    assert "真诚相信" in captured["ins"]
+
+
 # ===== 批0 · B1:图片写作 500(彻查 B-1)=====
 
 # 1x1 透明 PNG(base64,validate=True 可解码,远小于 5MB 上限)

@@ -1732,6 +1732,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
     instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
     if (phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, chapter)
         instructions += "\n\n" + ded
@@ -1822,6 +1823,18 @@ def _revelation_discipline_block(focalizer: str | None) -> str:
     )
 
 
+def _focalizer_sincerity_block() -> str:
+    """方案B任务13b:叙述者真诚视角硬约束(与 focalizer 限知引擎同向,是防
+    "知情POV倒灌"的又一道文字层约束)——不管本章是否标注了反转/是否限知,
+    叙述者的措辞都不得带上只有事后才成立的"知情腔",否则等于提前剧透。
+    始终附带,不因参数为空而跳过(与 _final_reminder 同类,恒定注入)。"""
+    return (
+        "\n\n【叙述者真诚视角】叙述者必须真诚相信自己当前视角的认知,"
+        "不得写出暗示后文反转的知情语气(如提前埋「果然」「殊不知」「万万没想到」式的"
+        "预告腔,或用只有揭示之后才成立的措辞去描述当下场景)。"
+    )
+
+
 def _phase_role_block(phase: str) -> str:
     """阶段角色提示块(Phase0-BE2 四阶段):按写作阶段微调主编侧重。
     phase 空 → 返回空串(默认行为不变)。plan/draft/final 各加一句角色提示,挂 instructions 末尾。"""
@@ -1897,6 +1910,15 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
         "「chapter_role:高压|推进|修炼|关系回收|低压|信息整理」;"
         "低压/关系回收章允许无显性爽点,但须保留追读拉力(未解悬念或未了结的关系张力仍须推进);"
         "均衡基线非硬配额,严肃志怪基调整体取克制档,但同一 chapter_role 不得连排超过 2-3 章。"
+    )
+    # 方案B任务13b:反转标注规范(oh-story reversal-toolkit.md 7类反转)——
+    # 若本章含反转,节拍须显式标注 reversal_type/setup_clues/reveal_position_pct 三字段,
+    # 供 critique.build_reversal_rubric_prompt 机检(铺垫是否≥3处/揭示是否<300字/
+    # 有无凭空新信息/揭示位置是否落在50-85%最佳区间)。
+    parts.append(
+        "反转标注规范:若本章含反转,节拍须标注「reversal_type:七类之一(身份反转/"
+        "动机反转/因果反转/立场反转/信息差反转/时间线反转/道德反转)」+「setup_clues」"
+        "(≥3 处铺垫,须引用前文对应片段)+「reveal_position_pct」(建议落在 50-85 区间)。"
     )
     return "\n\n" + "\n".join(parts)
 
@@ -1978,6 +2000,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
     instructions += _outline_block(st, req.chapter, req.focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
     if (req.phase or "").strip().lower() == "draft":
         ded = _deduction_block(st, req.chapter)
         instructions += "\n\n" + ded

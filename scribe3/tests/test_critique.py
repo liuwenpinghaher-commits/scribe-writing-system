@@ -702,6 +702,43 @@ def test_parse_tension_report_tolerates_missing_pacing_axes():
     assert rep2["pacing_rushed"]["present"] is True
 
 
+# ==== 方案B任务13b:反转工具箱 rubric + 悬念/伏笔边界(oh-story reversal-toolkit.md)====
+
+def test_reversal_rubric_prompt_has_axes_and_anti_sycophancy():
+    """build_reversal_rubric_prompt:含 4 项机检轴关键词(铺垫<3处/揭示交代>300字/
+    引入前文未现新信息/位置越出最佳区间50-85%)+ ANTI_SYCOPHANCY 常量文本(直接引用)。"""
+    from scribe3.critique import build_reversal_rubric_prompt, ANTI_SYCOPHANCY
+    p = build_reversal_rubric_prompt(
+        "……正文……",
+        beat_meta={"reversal_type": "身份反转", "setup_clues": ["c1", "c2", "c3"],
+                   "reveal_position_pct": 70})
+    assert ANTI_SYCOPHANCY in p
+    assert "setup_insufficient" in p and "3" in p          # 铺垫<3处
+    assert "reveal_overlong" in p and "300" in p            # 揭示交代>300字
+    assert "unearned_new_info" in p                          # 引入前文未现新信息
+    assert "position_out_of_range" in p and "50" in p and "85" in p   # 位置越出50-85%
+    # 反转声明的三字段回填进 prompt
+    assert "身份反转" in p and "c1" in p and "70" in p
+
+
+def test_reversal_rubric_prompt_empty_when_no_beat_meta():
+    """本章无反转不审:beat_meta 为空 dict 或 None → 返回空串。"""
+    from scribe3.critique import build_reversal_rubric_prompt
+    assert build_reversal_rubric_prompt("正文", beat_meta={}) == ""
+    assert build_reversal_rubric_prompt("正文", beat_meta=None) == ""
+
+
+def test_parse_reversal_report_ok_and_bad_json():
+    """parse_reversal_report:照 parse_tension_report 的容错风格——合法 JSON 返 dict,
+    坏 JSON 返 None。"""
+    from scribe3.critique import parse_reversal_report
+    rep = parse_reversal_report('{"findings":[],"verdict":"APPROVE"}')
+    assert rep == {"findings": [], "verdict": "APPROVE"}
+    assert parse_reversal_report("垃圾") is None
+    assert parse_reversal_report("") is None
+    assert parse_reversal_report(None) is None
+
+
 # ==== 方案A任务1:否定翻转 4+3 变体检测器(find_negation_flips) ====
 
 class TestNegationFlips:
