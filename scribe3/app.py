@@ -295,7 +295,13 @@ def irony(focalizer: str, chapter: int = Query(ge=1), work: str = "main"):
 
 @app.get("/causal")
 def causal(chapter: int = Query(ge=1), work: str = "main"):
-    return [{"event": v.event_id, "reason": v.reason} for v in causal_complete(_store_for(work), chapter)]
+    """本章事件图的因果完整性校验。
+    批D P1-5 假绿止血:返回对象 {no_event_data, violations} 而非裸 violations 列表——
+    event 表对该章为空时 no_event_data=True(区分'因果完整=violations 空'与
+    '根本没有事件数据可校验'),防空表恒返 [] 被前端读作'因果完整✅'的假信号。"""
+    st = _store_for(work)
+    violations = [{"event": v.event_id, "reason": v.reason} for v in causal_complete(st, chapter)]
+    return {"no_event_data": not st.events_at(chapter), "violations": violations}
 
 
 @app.get("/recall")

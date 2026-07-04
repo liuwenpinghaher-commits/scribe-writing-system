@@ -55,9 +55,21 @@ def test_frame_excludes_others_secret(store):
 
 
 def test_causal_clean(store):
-    luanshi_leak_world(store)
+    """有事件且无违规:no_event_data=False + violations=[](真绿,非假绿)。"""
+    luanshi_leak_world(store)   # ch1 含 1 个干净事件(有目标、章首无需 causal_in)
     c = _client(store)
-    assert c.get("/causal", params={"chapter": 1}).json() == []
+    resp = c.get("/causal", params={"chapter": 1}).json()
+    assert resp["no_event_data"] is False
+    assert resp["violations"] == []
+
+
+def test_causal_no_event_data_marker(store):
+    """批D P1-5 假绿止血:event 表对该章为空时,/causal 返回 no_event_data 标记而非空绿。
+    区分'因果完整'(有事件、无违规)与'根本没有事件数据可校验'。"""
+    c = _client(store)   # 空库,第 9 章无任何事件
+    resp = c.get("/causal", params={"chapter": 9}).json()
+    assert resp["no_event_data"] is True
+    assert resp["violations"] == []
 
 
 def test_graph_endpoint(store):

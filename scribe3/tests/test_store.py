@@ -1201,6 +1201,18 @@ class TestQualityCache:
         ch5 = next(c for c in out["chapters"] if c["seq"] == 5)
         assert "qc_issues" in ch5 and "qc_causal" in ch5
 
+    def test_qc_causal_no_event_data_sentinel(self, store):
+        """批D P1-5 假绿止血:章无落库事件时 qc_causal=-1(无事件数据哨兵),
+        区分'因果完整=0'与'根本没有事件可校验'。有事件的章仍写真实违规数(≥0)。"""
+        store.save_chapter(7, "第七章正文,无任何落库事件。", title="七")
+        rows = store._query("SELECT qc_causal FROM type::record('chapter', 7)")
+        assert rows[0]["qc_causal"] == -1, "空事件章应为 -1 哨兵而非 0"
+        # 对照:有事件(缺目标违规)的章记录真实违规数,不被哨兵覆盖
+        store.add_event(Event("ev:逃", "逃", story_time=7))   # 缺 motivated_by_goal
+        store.save_chapter(7, "第七章正文,现有一个缺目标事件。", title="七")
+        rows2 = store._query("SELECT qc_causal FROM type::record('chapter', 7)")
+        assert rows2[0]["qc_causal"] >= 1, "有事件时写真实违规数"
+
 
 class TestGraphEgoAndLimit:
     """graph(focus=...) ego 子图;graph() 无 focus 硬上限 limit。"""

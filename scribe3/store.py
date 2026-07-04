@@ -1324,7 +1324,12 @@ class SurrealStore:
         qc_n = sum(breakdown.values())
         try:
             from scribe3.verify import causal_complete
-            qc_causal_n = len(causal_complete(self, seq))
+            # 批D P1-5 假绿止血:本章无落库事件时写 -1 哨兵(无事件数据),
+            # 区分'因果完整=0'与'根本没有事件可校验'——防空事件图恒返 0 被读作真绿。
+            if not self.events_at(seq):
+                qc_causal_n = -1
+            else:
+                qc_causal_n = len(causal_complete(self, seq))
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "qc_causal 计算失败(降级为 0): %s", _e)
