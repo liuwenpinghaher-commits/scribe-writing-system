@@ -3,6 +3,7 @@
 纯函数生成各 section(可测不连库);assemble_chapter_brief 是唯一连 store 的薄壳。"""
 from __future__ import annotations
 
+import json
 import re
 
 _TIER_W = {"book": 3, "arc": 2, "chapter": 1}
@@ -157,6 +158,63 @@ def heartbeat_list(chars: list[dict], next_ch: int, gap: int = 3) -> list[dict]:
             out.append({"name": (c["name"] or "").replace("\n", " "),   # Task8审查:name 清洗
                         "agenda": agenda, "last_active": last})
     return out
+
+
+# ===== 方案B任务15 · EM/RH/TR 情绪模式库(章前按目标情绪召回)=====
+# 背景(oh-story long-analyze/output-templates.md:359-370):EM-001情绪模块卡/
+# RH-001爽点循环/TR-001触动点三张带 id 互引 schema;统一挂 store material 表
+# kind="emotion_module",卡内容为 JSON,id 前缀 EM-/RH-/TR- 自行区分,互引用 id 字符串。
+# canonical-read-order:情绪模块卡是权威真相源,拆文报告只是投影——与拆文报告冲突时
+# 以本卡为准。量化门:反应篇幅比=反应字数/装逼字数,<1.5 视为爽感没接住。
+# 反抄袭边界:原文专名/事件顺序/标志台词/独特设定不可照搬,迁移至少改 3 项。
+
+def emotion_module_recall(materials: list[dict], target_emotion: str) -> dict:
+    """章前按目标情绪从素材库召回 emotion_module 卡,拼成写作指令段。
+
+    materials: 素材列表,元素需含 "kind"(=="emotion_module" 才参与召回)与卡片 JSON
+    文本字段——兼容 store.list_materials() 的 "body" 字段与调用方直传的 "content" 字段
+    (优先取 "content",取不到再退回 "body")。
+    target_emotion: 目标情绪,子串匹配容错(卡片 emotion 字段包含 target_emotion 即命中,
+    反向亦可——避免"憋屈"与"憋屈感"这类措辞差异漏召回)。
+    JSON 解析失败或字段缺失的卡 fail-soft 跳过,不影响其余卡片召回。
+    返回 {"text": 指令段文案(无命中则空串), "items": [命中的卡片 dict,原始 JSON 解析结果]}。
+    """
+    items: list[dict] = []
+    if target_emotion:
+        for m in materials or []:
+            if (m or {}).get("kind") != "emotion_module":
+                continue
+            raw = m.get("content")
+            if raw is None:
+                raw = m.get("body")
+            try:
+                card = json.loads(raw) if raw else None
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(card, dict):
+                continue
+            emotion = card.get("emotion") or ""
+            if not emotion:
+                continue
+            if target_emotion in emotion or emotion in target_emotion:
+                items.append(card)
+    if not items:
+        return {"text": "", "items": []}
+    cards_text = "\n".join(
+        f"- 【{c.get('id', '?')}】情绪:{c.get('emotion', '?')} | "
+        f"触发:{c.get('trigger', '?')} | 蓄力:{c.get('escalation', '?')} | "
+        f"释放:{c.get('release', '?')}"
+        for c in items
+    )
+    text = (
+        "【情绪模块卡·权威真相源】以下卡片是本章目标情绪的权威真相源,与拆文报告冲突时"
+        "以本卡为准:\n"
+        f"{cards_text}\n"
+        "量化门:反应篇幅比=反应字数/装逼字数,<1.5=爽感没接住——蓄力(escalation)与"
+        "释放(release)后须给足角色/旁观者反应篇幅。\n"
+        "反抄袭边界:原文专名/事件顺序/标志台词/独特设定不可照搬,迁移至少改 3 项。"
+    )
+    return {"text": text, "items": items}
 
 
 # ===== Task 8 · M6 设定三态注入(纯函数)=====
@@ -369,15 +427,23 @@ def render_brief(sections: dict) -> str:
     stale = sections.get("stale") or {}
     if stale.get("text"):
         parts.append(stale["text"])
+    em = sections.get("emotion_module") or {}
+    if em.get("text"):
+        parts.append(em["text"])
     return "\n\n".join(parts)
 
 
-def assemble_chapter_brief(st, seq: int, focalizer: str = "") -> dict:
+def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: str = "") -> dict:
     """连 store 的薄壳:收集数据 → 各纯函数 → {sections, text}。seq 为即将写的章号。
 
     focalizer(Task7-B③ 预留,当前不参与组装):为后续限知章过滤预留——P1 可按焦点者
     知识帧过滤伏笔/弧光条目(避免向限知写作 prompt 泄露焦点者不知道的线索)。
-    P0 不做:简报是给"作者视角"的创作指令,非角色知识;YAGNI,先不叠过滤。"""
+    P0 不做:简报是给"作者视角"的创作指令,非角色知识;YAGNI,先不叠过滤。
+
+    target_emotion(方案B任务15):可选目标情绪,默认空串不触发 EM/RH/TR 情绪模块卡召回。
+    当前 assemble_chapter_brief 现有数据源(章 meta/beats)里没有现成的"目标情绪"字段,
+    故留为显式可选参数——接线点留给写作端点:调用方从大纲/节拍的情绪标注(如有)或
+    作者手动指定中取值后传入。"""
     next_ch = seq
     max_ch = max(0, seq - 1)
     rows = st.promises_with_lifecycle(max_chapter=max_ch)
@@ -445,4 +511,11 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "") -> dict:
         }
     except Exception:
         sections["injection"] = {"chosen": [], "dropped": 0, "fallback": True}
+    # 方案B任务15:EM/RH/TR 情绪模式库——有 target_emotion 才召回,取数 fail-soft
+    # (素材库故障不应影响简报其余部分组装)。
+    try:
+        mats = st.list_materials(kind="emotion_module") if target_emotion else []
+        sections["emotion_module"] = emotion_module_recall(mats, target_emotion)
+    except Exception:
+        sections["emotion_module"] = {"text": "", "items": []}
     return {"sections": sections, "text": render_brief(sections)}

@@ -107,8 +107,11 @@ _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instanc
                                               "promise_touch", "arc_plan", "material",
                                               "relation_touch"])
 
-# 素材库分类白名单(migration 055 DB 级 ASSERT 同源;app 层 422 校验用)
-MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note")
+# 素材库分类白名单(migration 055 DB 级 ASSERT 同源;app 层 422 校验用)。
+# emotion_module(方案B任务15,migration 060 DB 级 ASSERT 同步):EM-001情绪模块卡/
+# RH-001爽点循环/TR-001触动点三张互引 schema 统一挂此 kind,卡内容(JSON)自带
+# id 前缀 EM-/RH-/TR- 自行区分类型,互引用 id 字符串(如 escalation 步骤引用其他卡 id)。
+MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note", "emotion_module")
 
 # 角色弧光静态锚(Weiland 五要素 + 弧型 + 私密目标),migration 054 落 character 表
 _ANCHOR_KEYS = ("ghost", "lie", "truth", "want", "need", "arc_type", "private_agenda")

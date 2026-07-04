@@ -7,7 +7,8 @@ from scribe3.brief import (arc_directive, promise_directives,
                            open_loop_ledger, heartbeat_list, render_brief,
                            assemble_chapter_brief, validate_beat_budgets,
                            find_tension_monotony, parse_chapter_meta,
-                           heat_of, stale_entity_directives)
+                           heat_of, stale_entity_directives,
+                           emotion_module_recall)
 
 
 def test_arc_directive():
@@ -284,3 +285,28 @@ class TestHeat:
         assert "有效触碰" in out["text"]
         assert "提名字" in out["text"] or "空头" in out["text"]
         assert "核心角色" in out["text"] and "主要支线" in out["text"]
+
+
+# ===== 方案B任务15 · EM/RH/TR 情绪模式库(章前按目标情绪召回)=====
+
+class TestEmotionModuleRecall:
+    def test_recall_by_target_emotion(self):
+        mats = [
+            {"kind": "emotion_module", "title": "憋屈反杀",
+             "content": '{"id":"EM-001","emotion":"憋屈","trigger":"当众羞辱","escalation":"隐忍蓄力","release":"当众反杀"}'},
+            {"kind": "emotion_module", "title": "别的",
+             "content": '{"id":"EM-002","emotion":"温情","trigger":"…","escalation":"…","release":"…"}'},
+            {"kind": "note", "title": "无关", "content": "随手记"},
+        ]
+        out = emotion_module_recall(mats, target_emotion="憋屈")
+        assert "EM-001" in out["text"] and "EM-002" not in out["text"]
+        assert "反应篇幅比" in out["text"]        # 量化门
+        assert "不可照搬" in out["text"]          # 反抄袭边界
+        assert "权威真相源" in out["text"]        # canonical-read-order
+
+    def test_no_match_returns_empty(self):
+        assert emotion_module_recall([], target_emotion="憋屈")["text"] == ""
+
+    def test_bad_json_tolerated(self):
+        mats = [{"kind": "emotion_module", "title": "坏卡", "content": "不是JSON"}]
+        assert emotion_module_recall(mats, target_emotion="憋屈")["text"] == ""

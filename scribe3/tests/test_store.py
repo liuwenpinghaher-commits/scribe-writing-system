@@ -1621,6 +1621,23 @@ def test_material_not_in_knowledge(store):
     assert store._query("SELECT count() FROM knows GROUP ALL") == before_knows
 
 
+def test_material_kind_emotion_module(store):
+    """方案B任务15:EM/RH/TR 情绪模式库统一挂 kind="emotion_module"(卡内 id 前缀
+    EM-/RH-/TR- 自行区分,互引用 id 字符串);MATERIAL_KINDS 白名单须放行,
+    add_material 校验通过并可正常列出/取回。"""
+    from scribe3.store import MATERIAL_KINDS
+    assert "emotion_module" in MATERIAL_KINDS
+    mid = store.add_material(
+        "憋屈反杀", body='{"id":"EM-001","emotion":"憋屈","trigger":"当众羞辱",'
+                        '"escalation":"隐忍蓄力","release":"当众反杀"}',
+        kind="emotion_module")
+    assert mid
+    m = store.get_material(mid)
+    assert m["kind"] == "emotion_module" and m["title"] == "憋屈反杀"
+    assert [r["id"] for r in store.list_materials(kind="emotion_module")] == [mid]
+    store.delete_material(mid)
+
+
 # ============================================================
 # 批C · 后端正确性小修(审计 P1-7 / P2-12 / D-3)
 # ============================================================
