@@ -2026,14 +2026,46 @@ def test_check_returns_ai_grade(store):
 # ===== 方案A任务9(计划A最后一项):/post-check 接线 punct_suggestions =====
 
 def test_post_check_returns_punct_suggestions(store):
-    """/post-check 响应应含 punct_suggestions 字段,数字区间「三——五天」应建议
-    改为「到」(normalize_punctuation_suggestions 接线,report-only 不改写正文)。"""
-    prose = "三——五天后他就到了。普通句子。"
+    """/post-check 响应应含 punct_suggestions 字段,省略号收尾该规范化为「。」
+    (normalize_punctuation_suggestions 接线,report-only 不改写正文)。
+    注:不用「三——五天」数字区间场景——那条 punct 建议与 ai_tics.em_dash issue
+    同 range,方案B任务20接线 merge_findings 后会被去重丢弃(见下方
+    test_post_check_merge_findings_dedups_punct_suggestion_against_issue),
+    此处换一个不与任何 issue 重叠的场景,单纯验证 punct_suggestions 字段本身接线正常。"""
+    prose = "他走了……天亮了。普通句子在这里补齐字数用来测试。"
     c = _client(store)
     r = c.post("/post-check", params={"seq": 1},
                json={"prose": prose, "focalizer": "", "brief": ""}).json()
     assert "punct_suggestions" in r, "/post-check 应返回 punct_suggestions 字段"
-    assert r["punct_suggestions"] and r["punct_suggestions"][0]["suggestion"] == "到"
+    assert r["punct_suggestions"] and r["punct_suggestions"][0]["suggestion"] == "。"
+
+
+def test_post_check_merge_findings_dedups_punct_suggestion_against_issue(store):
+    """方案B任务20:finding-merge 纪律——「三——五天」的 punct 建议(numeric_range,
+    机械替换)与 ai_tics.em_dash issue(按功能改写)同 range,merge_findings 接线后
+    应丢 punct 建议,只留 issue;issue.meta 应带 fix_action=rewrite(非退化类默认)。"""
+    prose = "三——五天后他就到了。普通句子。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert r["punct_suggestions"] == [], "机械替换建议应让位给按功能改写的 issue"
+    em_dash_issues = [i for i in r["issues"]
+                       if i.get("type") == "ai_tics" and i.get("meta", {}).get("kind") == "em_dash"]
+    assert em_dash_issues, "em_dash issue 应仍保留"
+    assert all(i["meta"].get("fix_action") == "rewrite" for i in em_dash_issues)
+
+
+def test_post_check_degeneration_issue_gets_regenerate_fix_action(store):
+    """方案B任务20:degradation 类精确绑定"重新生成该段"——含 AI 拒绝语泄漏的正文,
+    /post-check 响应里对应的 degeneration issue.meta.fix_action 应为 regenerate
+    (对齐 scribe3 已验证的 continue-steer 回炉,不是改写)。"""
+    prose = "作为AI,我无法继续创作这段内容。普通句子在这里补齐字数用来测试。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    deg_issues = [i for i in r["issues"] if i.get("type") == "degeneration"]
+    assert deg_issues, "应检出 degeneration issue(AI拒绝语泄漏)"
+    assert all(i["meta"].get("fix_action") == "regenerate" for i in deg_issues)
 
 
 def test_post_check_ai_grade_reuses_precomputed_detectors(store, monkeypatch):

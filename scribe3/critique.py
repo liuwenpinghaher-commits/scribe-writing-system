@@ -1077,6 +1077,56 @@ def merge_verdicts(verdicts: list) -> str:
     return worst
 
 
+def _ranges_overlap(a: list[int] | None, b: list[int] | None) -> bool:
+    """标准半开区间相交判定([a0,a1) 与 [b0,b1) 有交集);任一侧为 None 视为不相交。"""
+    if not a or not b:
+        return False
+    a0, a1 = a
+    b0, b1 = b
+    return a0 < b1 and b0 < a1
+
+
+# ==== 方案B任务20:finding-merge 纪律 + degradation→重新生成 ====
+# 背景(oh-story story-review/SKILL.md:151/:153):
+# ①合并多检测器 finding 时要去重归口——同一位置若同时存在"机械替换"(如标点归一
+#   punct_suggestions)与"按功能改写"(如 ai_tics/god_view 等 issue)两条建议,两者冲突,
+#   丢弃机械替换那条,只留按功能改写的 issue(机械替换不理解上下文,盲改易破坏语义,
+#   按功能改写的判断优先级更高)。
+# ②degradation 类(find_degeneration 产出的 type=="degeneration" issue)要精确绑定
+#   "重新生成该段"而不是"改写"——对齐 scribe3 已验证的 continue-steer 回炉机制(模型退化
+#   是生成过程本身失控,局部改写治标不治本,必须整段回炉重打)。
+# 这里的 fix_action(regenerate/rewrite)是 loop 化回炉编排的 severity/action 分流依据
+# 之一,与设计文档「blocking→regenerate / advisory→rewrite」的两态合流一致。
+def merge_findings(issues: list[dict], punct_suggestions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """合并 issues 与 punct_suggestions 前的去重归口 + fix_action 绑定,不修改入参。
+
+    - 去重归口:punct_suggestions 中 range 与任一 issue.range 相交的一条 → 丢弃
+      (「按功能改写」的 issue 优先于「机械替换」建议;issue.range 为 None 的不参与相交判定,
+      issues 本身一律不丢)。
+    - fix_action 绑定:type=="degeneration" 的 issue,meta 加 "fix_action": "regenerate"
+      (重新生成该段);其余 issue meta 加 "fix_action": "rewrite"(默认按功能改写)。
+    - 返回全新列表 + 浅拷贝后的 meta dict,不原地修改传入的 issues/punct_suggestions。
+    """
+    merged_issues: list[dict] = []
+    issue_ranges: list[list[int] | None] = []
+    for iss in issues:
+        new_iss = dict(iss)
+        meta = dict(iss.get("meta") or {})
+        meta["fix_action"] = "regenerate" if iss.get("type") == "degeneration" else "rewrite"
+        new_iss["meta"] = meta
+        merged_issues.append(new_iss)
+        issue_ranges.append(iss.get("range"))
+
+    merged_suggestions: list[dict] = []
+    for sug in punct_suggestions:
+        srange = sug.get("range")
+        if any(_ranges_overlap(srange, ir) for ir in issue_ranges):
+            continue
+        merged_suggestions.append(sug)
+
+    return merged_issues, merged_suggestions
+
+
 # ==== LLM 语义判官(纪律闸)——确定性检测的盲区:双高潮/声音崩/解说倾泻/知识泄露 ====
 def build_discipline_prompt(text: str, brief: str = "", known: dict | None = None) -> str:
     kb = ""

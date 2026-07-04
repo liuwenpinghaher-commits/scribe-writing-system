@@ -2721,6 +2721,17 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("normalize_punctuation_suggestions")
 
+    # 方案B任务20:finding-merge 纪律——同位置"机械替换"(punct_suggestions)让位
+    # "按功能改写"(issues),并给 degeneration issue 绑定 fix_action=regenerate
+    # (回炉重打,不是改写)。fail-soft:异常时保留合并前的原始值,记 degraded_stages。
+    try:
+        from scribe3.critique import merge_findings
+        issues, punct_suggestions = merge_findings(issues, punct_suggestions)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check merge_findings 失败: %s", e)
+        degraded = True
+        degraded_stages.append("merge_findings")
+
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,

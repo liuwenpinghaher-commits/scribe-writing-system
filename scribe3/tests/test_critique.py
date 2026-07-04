@@ -3,7 +3,8 @@
 跨段复读/排比开头/升华句——prompt 规则治不了已生成文本,确定性扫描才拦得住(scribe2 实证)。
 """
 from scribe3.critique import (find_purple_prose, find_repetitions,
-                              find_structural_repeats, quality_flags)
+                              find_structural_repeats, merge_findings,
+                              quality_flags)
 
 
 def test_find_repetitions():
@@ -1298,3 +1299,42 @@ class TestAllowPatternsExemption:
         text = "他感到害怕。"
         assert find_emotion_telling(text) != []
         assert find_emotion_telling(text, allow_patterns=[r"感到害怕"]) == []
+
+
+# ==== 方案B任务20:finding-merge 纪律 + degradation→重新生成 ====
+# 背景(oh-story story-review/SKILL.md:151/:153):①合并多检测器 finding 时去重归口——
+# 同位置"机械替换"(punct_suggestions)vs"按功能改写"(issue)两条冲突时丢机械的;
+# ②degradation 类精确绑定"重新生成该段,不是改写"(对齐 continue-steer 回炉)。
+
+class TestMergeFindings:
+    def test_em_dash_dedup_prefers_functional(self):
+        # 同 range 的 ai_tics.em_dash issue 与 punct suggestion 并存 → 丢 punct 建议(机械替换让位按功能改写)
+        issues = [{"type": "ai_tics", "message": "AI腔:破折号过密", "text": "——",
+                   "range": [5, 7], "meta": {"kind": "em_dash"}}]
+        suggestions = [{"range": [5, 7], "original": "——", "suggestion": "到",
+                        "reason": "数字区间用'到'", "kind": "numeric_range"}]
+        merged_issues, merged_sug = merge_findings(issues, suggestions)
+        assert merged_sug == [] and len(merged_issues) == 1
+
+    def test_non_overlapping_both_kept(self):
+        issues = [{"type": "ai_tics", "message": "m", "text": "——", "range": [5, 7], "meta": {"kind": "em_dash"}}]
+        suggestions = [{"range": [20, 22], "original": "……", "suggestion": "。", "reason": "r", "kind": "ellipsis"}]
+        mi, ms = merge_findings(issues, suggestions)
+        assert len(mi) == 1 and len(ms) == 1
+
+    def test_degeneration_gets_regenerate_action(self):
+        issues = [{"type": "degeneration", "message": "模型退化:紧邻整行复读", "text": "x",
+                   "range": [0, 10], "meta": {"kind": "adjacent_repeat"}},
+                  {"type": "ai_tics", "message": "m", "text": "y", "range": [12, 14], "meta": {"kind": "banned_word"}}]
+        mi, _ = merge_findings(issues, [])
+        deg = [i for i in mi if i["type"] == "degeneration"]
+        other = [i for i in mi if i["type"] != "degeneration"]
+        assert all(i["meta"]["fix_action"] == "regenerate" for i in deg)
+        assert all(i["meta"].get("fix_action", "rewrite") == "rewrite" for i in other)
+
+    def test_does_not_mutate_input(self):
+        """不修改入参(浅拷贝 meta),原 issue.meta 不应被污染上 fix_action。"""
+        orig_meta = {"kind": "em_dash"}
+        issues = [{"type": "ai_tics", "message": "m", "text": "——", "range": [5, 7], "meta": orig_meta}]
+        merge_findings(issues, [])
+        assert "fix_action" not in orig_meta
