@@ -2384,15 +2384,19 @@ class SurrealStore:
                  description: str | None = None, current_owner: str | None = None,
                  symbolic_state: str = "active",
                  special_properties: list | None = None,
-                 first_chapter: int | None = None) -> str:
-        """添加/覆盖物品(同名幂等:先删后建)。返回物品名。"""
+                 first_chapter: int | None = None,
+                 state_history: list | None = None) -> str:
+        """添加/覆盖物品(同名幂等:先删后建)。返回物品名。
+        state_history:P1-9——DELETE+CREATE 覆盖会清空状态流转史;端点层 PATCH 语义读回旧
+        state_history 经此参数透传保留(缺省 None → [] 供全新物品)。"""
         self._execute_write("DELETE item WHERE name=$n", {"n": name})
         self._execute_write(
             "CREATE item SET name=$n, category=$cat, description=$desc, "
-            "current_owner=$co, symbolic_state=$ss, state_history=[], "
+            "current_owner=$co, symbolic_state=$ss, state_history=$sh, "
             "special_properties=$sp, first_chapter=$fc",
             {"n": name, "cat": category, "desc": description, "co": current_owner,
-             "ss": symbolic_state, "sp": special_properties or [], "fc": first_chapter})
+             "ss": symbolic_state, "sh": state_history or [],
+             "sp": special_properties or [], "fc": first_chapter})
         return name
 
     def list_items(self, state: str | None = None) -> list[dict]:

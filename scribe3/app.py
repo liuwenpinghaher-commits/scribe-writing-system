@@ -754,12 +754,41 @@ def list_items_endpoint(state: str | None = None, work: str = "main"):
 
 @app.post("/items")
 def add_item_endpoint(req: dict, work: str = "main"):
+    """物品 upsert:PATCH/merge 语义(端点层,参照 /factions)。
+
+    P1-9:store.add_item 是 DELETE+CREATE 整行覆盖(state_history 硬置 []);编辑物品任一
+    字段(如描述)都会清空状态流转史。此处根治:客户端「真正提交」的键才更新,未提交字段
+    (含 state_history)一律读回旧值保留。这样编辑其它字段不再清 state_history;状态流转走
+    专用 POST /items/{name}/state(update_item_state 追加史)。"""
     st = _store_for(work)
-    st.add_item(req.get("name",""), category=req.get("category"),
-                description=req.get("description"), current_owner=req.get("current_owner"),
-                symbolic_state=req.get("symbolic_state","active"),
-                special_properties=req.get("special_properties"),
-                first_chapter=req.get("first_chapter"))
+    name = req.get("name", "")
+    old = next((i for i in st.list_items() if i.get("name") == name), {})
+
+    def pick(k, default):
+        # 客户端提交了该字段 → 用提交值;否则保留旧值,再退默认。
+        return req[k] if k in req else old.get(k, default)
+
+    st.add_item(name,
+                category=pick("category", None),
+                description=pick("description", None),
+                current_owner=pick("current_owner", None),
+                symbolic_state=pick("symbolic_state", "active"),
+                special_properties=pick("special_properties", None),
+                first_chapter=pick("first_chapter", None),
+                state_history=pick("state_history", old.get("state_history", [])))
+    return {"ok": True}
+
+
+@app.post("/items/{name}/state")
+def update_item_state_endpoint(name: str, req: dict, work: str = "main"):
+    """记录物品符号状态流转(P1-9:暴露 store.update_item_state,此前无可达调用方)。
+    body: {"state": "lost"|"destroyed"|"active"|"unknown", "chapter": int, "note": str?}
+    追加一条 state_history(如「镇煞钉 lost@第3章」),不清空既有史。"""
+    new_state = req.get("state") or req.get("symbolic_state")
+    chapter = req.get("chapter")
+    if not new_state or chapter is None:
+        raise HTTPException(status_code=422, detail="缺少必填字段: state/chapter")
+    _store_for(work).update_item_state(name, new_state, int(chapter), note=req.get("note", ""))
     return {"ok": True}
 
 

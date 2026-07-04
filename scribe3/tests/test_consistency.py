@@ -84,6 +84,7 @@ class TestWriteGate:
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),
         ("POST", "/factions"), ("DELETE", "/factions"),
         ("POST", "/items"), ("DELETE", "/items"),
+        ("POST", "/items/{name}/state"),   # P1-9 物品状态流转:update_item_state 追加 state_history
         ("POST", "/terms"), ("DELETE", "/terms"),
         ("POST", "/char-states"),
         ("POST", "/ingest-unverified/{uid}/accept"),
