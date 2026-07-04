@@ -107,6 +107,62 @@ def _upsert_reader_knows(store, fid: str, seq: int) -> None:
         _log.warning("reader_knows 写入失败(non-fatal),命题 %s: %s", fid, _e)
 
 
+def grep_back_verify(delta: dict, source_prose: str) -> dict:
+    """写后 grep 回原文核对(oh-story material-decomposition.md:388-396 三纪律落地):
+    合成阶段 LLM 可能"看似坐实"地编造原文没有的实体值——在 apply_delta 之前对
+    【实体事实类】字段做确定性回捞核对:值能在正文里找到踪迹才算可溯源,核不到就
+    标注"(原文未明确)"(报告式,宁标注不静默丢——annotate 不 drop)。
+
+    只校验 learned.fact(角色新知道的事)与 did.action(角色所为)——这两个字段是
+    知识账本(见模块头 docstring"看见即知道")的硬事实主体,理应可在正文里溯源。
+    以下字段是 LLM 对正文的【推断/解读判断】,不是应逐字可查的具体断言,豁免不查:
+      · arc(弧光快照,store 落库时 confidence 显式标 "inferred")
+      · belief(信念信奉度量表,同样 confidence="inferred" 的心理判断)
+      · voice_shift(声音触发归因,"是否值得变声"的主观判断)
+      · events.goal / events.type(动机目标与事件分类标签,判断性而非逐字断言;
+        events.participants 另经 _resolve_char 按已存在角色解析,已有校验)
+      · motif / promise_touch(母题/伏笔命中判断,限定在"已立母题/已埋伏笔"候选集
+        内选,非自由生成的新断言,误判风险由候选集本身兜底)
+
+    判定:value 去空白标点后可见字数 <4 时不校验(4-gram 在过短文本上无意义,直接
+    放行);否则取其所有连续 4-gram,任一 4-gram 在正文(同样去空白标点)中出现
+    即算可溯源(部分重叠即可,容忍复述改写)。
+
+    纯函数、确定性、不连网、不改动入参(对 delta 深拷贝后处理再返回)。
+    返回 {"delta": 处理后的 delta, "dropped": [...], "annotated": [...]}。
+    """
+    import re
+    import copy
+    result_delta = copy.deepcopy(delta or {})
+    dropped: list[str] = []
+    annotated: list[str] = []
+    clean_prose = re.sub(r"[^\w]", "", source_prose or "")
+
+    def _traceable(clean_value: str) -> bool:
+        grams = {clean_value[i:i + 4] for i in range(len(clean_value) - 3)}
+        return any(g in clean_prose for g in grams)
+
+    def _verify_field(items, field: str, label: str) -> None:
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            value = it.get(field)
+            if not isinstance(value, str) or not value:
+                continue
+            clean_value = re.sub(r"[^\w]", "", value)
+            if len(clean_value) < 4:
+                continue   # 短值不校验(4-gram 无意义)
+            if _traceable(clean_value):
+                continue   # 可溯源
+            it[field] = f"{value}(原文未明确)"
+            annotated.append(f"{label}.{field}:{it.get('who') or '?'}={value!r}")
+
+    _verify_field(result_delta.get("learned") or [], "fact", "learned")
+    _verify_field(result_delta.get("did") or [], "action", "did")
+
+    return {"delta": result_delta, "dropped": dropped, "annotated": annotated}
+
+
 def apply_delta(store, delta: dict, seq: int,
                 open_promises: list[dict] | None = None) -> int:
     """把知识 delta 落到 store:新知→当事人知道;所为→当事人+在场者知道。返回应用条数。
@@ -331,5 +387,14 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
             break
     if delta is None:
         return {"applied": -1, "parse_failed": True, "delta": None}
+    # B22: apply_delta 前 grep 回原文核对实体事实(learned.fact/did.action),
+    # 核不到就标注"原文未明确"——防 LLM 编造原文没有的实体值悄悄坐实进知识账本。
+    verify = grep_back_verify(delta, ch["prose"])
+    delta = verify["delta"]
+    if verify["annotated"]:
+        import logging
+        logging.getLogger("scribe3.ingest").warning(
+            "grep_back_verify 章 %s 有 %d 处断言原文未明确核实到: %s",
+            seq, len(verify["annotated"]), verify["annotated"])
     return {"applied": apply_delta(store, delta, seq, open_promises=promise_items),
             "delta": delta}

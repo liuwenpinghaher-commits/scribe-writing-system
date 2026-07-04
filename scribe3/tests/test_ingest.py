@@ -886,6 +886,44 @@ def test_resolve_promise_ambiguous_prefix_skips_with_warning(caplog):
         "歧义跳过应有 warning 日志"
 
 
+# ── B22: grep-back 事实保真自检(合成阶段防"看似坐实"编造)────────────────────
+# delta 真实 schema(见 critique.parse_knowledge_delta/build_knowledge_extract_prompt):
+# learned.fact / did.action 是知识账本的硬事实主体,理应可在正文里溯源(对应任务描述里
+# 示例的 {"facts":[{"entity","attr","value"}]} 抽象结构);arc 是弧光【推断】快照
+# (store 落库时 confidence 显式标 "inferred"),对应任务描述里的
+# {"char_states":[{"emotion"}]} 抽象结构——同属推断类字段,豁免不查。
+
+class TestGrepBackVerify:
+    def test_traceable_fact_passes(self):
+        from scribe3.ingest import grep_back_verify
+        delta = {"learned": [{"who": "陈九", "fact": "青铜灯"}]}
+        prose = "陈九把青铜灯拢在袖子里。"
+        r = grep_back_verify(delta, prose)
+        assert r["dropped"] == [] and r["annotated"] == []
+
+    def test_untraceable_value_annotated(self):
+        from scribe3.ingest import grep_back_verify
+        delta = {"learned": [{"who": "陈九", "fact": "紫金葫芦"}]}
+        prose = "陈九把青铜灯拢在袖子里。"
+        r = grep_back_verify(delta, prose)
+        assert r["annotated"] and "原文未明确" in str(r["delta"])
+
+    def test_short_value_skipped(self):
+        # 长度<4 的值不校验(单字/双字值 4-gram 无意义)
+        from scribe3.ingest import grep_back_verify
+        delta = {"learned": [{"who": "陈九", "fact": "老九"}]}
+        r = grep_back_verify(delta, "无关正文。")
+        assert r["annotated"] == [] and r["dropped"] == []
+
+    def test_inferred_fields_exempt(self):
+        # 推断类字段(情绪/动机/关系判断)不校验,只校验实体事实(learned/did)
+        from scribe3.ingest import grep_back_verify
+        delta = {"arc": [{"who": "陈九", "change_type": "personality",
+                          "summary": "极度恐惧但压抑着"}]}
+        r = grep_back_verify(delta, "陈九手一抖。")
+        assert r["annotated"] == [] and r["dropped"] == []
+
+
 def test_apply_delta_belief_reingest_idempotent(store):
     """Task5跟进③:同章两次 apply_delta belief,char_state belief 行只剩一份(purge 幂等)。"""
     _ensure_chars(store, "柳怀玉")
