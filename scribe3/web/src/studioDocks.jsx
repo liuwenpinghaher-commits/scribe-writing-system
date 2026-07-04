@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
+import { Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
 import { Empty, Tag, SectionTitle, Skeleton } from './ui'
 import { ProjectTree } from './ProjectTree'
 import { BriefPanel } from './BriefPanel'
+import { NorthStarPanel } from './NorthStarPanel'
 import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
@@ -44,6 +45,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     if (seq == null) return base   // 未选章:只给项目树
     base.push(
       { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
+      { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
