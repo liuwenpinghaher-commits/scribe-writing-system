@@ -12,6 +12,7 @@ import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
+                          "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批)
                           "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                           "s3_craft_rule_remove", "s3_add_character_relation",
                           "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
