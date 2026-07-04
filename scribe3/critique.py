@@ -1927,3 +1927,113 @@ def aggregate_ai_grade(flags: dict, text: str) -> dict:
         grade = "heavy"
 
     return {"grade": grade, "gates": gates, "gates_hit": gates_hit, "indicators": indicators}
+
+
+# ==== 方案A任务9(计划A最后一项):标点归一建议生成器(report-only)====
+# 移植自 oh-story story-deslop/scripts/normalize-punctuation.js 的
+# choosePauseReplacement 上下文判定——但那是全仓唯一会 fs.writeFileSync 落盘改写
+# 正文的脚本;scribe3 守 report-only 纪律,这里只出"建议"清单,不动原文一个字符。
+#
+# 范围刻意收窄到 JS 里"会真正改写成中文标点"的三种确定性情形:
+#   ① numeric_range: 数字/汉字数字区间 X——Y(或 X—Y / X--Y)→ 建议"到";
+#   ② ellipsis:      句中 ……/ASCII ...(非数字区间)→ 建议"。"或"，"(上下文判定,见下);
+#   ③ double_hyphen:  半角双连字符 --(非数字区间)→ 建议"——"或删除(句首/引号后)。
+# 单独出现、不落入以上三类的 ——/—(如纯粹的插入语破折号)刻意不报——那是
+# find_ai_tics 的 em_dash 密度门(见 quality_flags["ai_tics"] 里 "kind":"em_dash")
+# 已经覆盖的信号,本函数重复上报只会制造噪声;两者可能同位置命中的去重合并
+# 留给计划B任务20(finding-merge)按 "kind"+"range" 做,故此处每条建议都带 kind。
+_PUNCT_PAUSE_RE = re.compile(r"…+|\.{3,}|——|—|--+")
+# 数字区间的"数字"按 oh-story 原意扩展到汉字数字(JS 原版只认 ASCII \d,三——五
+# 这种汉字数字区间在中文小说里更常见,故此处一并收纳,不是 JS 的字面直译)。
+_PUNCT_DIGIT_RE = re.compile(r"[0-9〇一二三四五六七八九十百千万]")
+_PUNCT_OPENING_DELIM_RE = re.compile(r"[「『（(“‘]")
+_PUNCT_CLOSING_QUOTE_RE = re.compile(r"[”」』]")
+_PUNCT_SENTENCE_END_RE = re.compile(r"[，,。.!！?？;；:：…]")
+
+
+def _punct_prev_non_space(text: str, idx: int) -> str:
+    """从 idx 起向左找第一个非空白字符,取不到返回空串(JS previousNonSpace 移植)。"""
+    i = idx
+    while i >= 0:
+        if not text[i].isspace():
+            return text[i]
+        i -= 1
+    return ""
+
+
+def _punct_next_non_space(text: str, idx: int) -> str:
+    """从 idx 起向右找第一个非空白字符,取不到返回空串(JS nextNonSpace 移植)。"""
+    i = idx
+    while i < len(text):
+        if not text[i].isspace():
+            return text[i]
+        i += 1
+    return ""
+
+
+def normalize_punctuation_suggestions(text: str) -> list[dict]:
+    """标点归一建议生成器(report-only,不改写原文,只出建议清单)。
+
+    引号内(7 对,复用 _quoted_ranges)一律跳过——台词/弹幕里的迟疑省略号、破折号
+    是合法演技(角色说话打断/欲言又止),不是 AI 腔标点滥用,只判叙述层。
+
+    返回 list[{"range":[s,e], "original", "suggestion", "reason", "kind"}]。
+    suggestion 为空串表示"建议删除"。"""
+    s = text or ""
+    quoted = _quoted_ranges(s)
+    out: list[dict] = []
+    for m in _PUNCT_PAUSE_RE.finditer(s):
+        start, end = m.start(), m.end()
+        if _in_any_span(start, end, quoted):
+            continue
+        token = m.group(0)
+        before = _punct_prev_non_space(s, start - 1)
+        after = _punct_next_non_space(s, end)
+
+        # ①数字/汉字数字区间——三种 token(……/——/—/--+)均可能表区间,最优先判定
+        # (对齐 JS choosePauseReplacement 把 digit-range 分支放在最前的顺序)。
+        if before and after and _PUNCT_DIGIT_RE.match(before) and _PUNCT_DIGIT_RE.match(after):
+            out.append({"range": [start, end], "original": token, "suggestion": "到",
+                        "reason": "数字区间用'到'", "kind": "numeric_range"})
+            continue
+
+        is_ellipsis = "…" in token or token.startswith(".")
+        is_double_hyphen = token.startswith("-") and not is_ellipsis
+
+        if is_ellipsis:
+            rest = s[end:].lstrip()
+            if not rest:
+                # 段尾:后面没有任何非空白内容,直接收尾;若省略号本身就在文本
+                # 起点(before==""),连句号也不必补,直接建议删除。
+                suggestion = "。" if before else ""
+            elif _PUNCT_CLOSING_QUOTE_RE.match(rest[0]):
+                # 紧跟收尾引号(对齐 JS isClosingQuote 分支):前面已是句末标点
+                # 就不重复加句号,否则补句号收尾。
+                suggestion = "" if _PUNCT_SENTENCE_END_RE.match(before or "") else "。"
+            else:
+                # 句中场景:看省略号之后先遇到句末标点(。！？)还是先遇到逗号类
+                # 停顿(，,；;)。先遇句末且中途无逗号打断,说明后半截是个紧凑的
+                # 独立小句——省略号在此起"场景/时间转折"的句末作用,建议"。";
+                # 反之说明还在同一句里延续,省略号只是停顿,建议"，"。
+                # (中文没有 JS 原版"后接大写字母=新句"的信号,这是移植时的对应判据。)
+                m_end = re.search(r"[。！？]", rest)
+                m_comma = re.search(r"[，,；;]", rest)
+                if m_end and (not m_comma or m_end.start() < m_comma.start()):
+                    suggestion = "。"
+                else:
+                    suggestion = "，"
+            reason = f"省略号规范化为'{suggestion}'" if suggestion else "省略号冗余,建议删除"
+            out.append({"range": [start, end], "original": token, "suggestion": suggestion,
+                        "reason": reason, "kind": "ellipsis"})
+        elif is_double_hyphen:
+            # 对齐 JS isOpeningDelimiter 分支:半角双连字符若紧跟句首/开引号,
+            # 那是误输入的多余符号,建议删除;否则规范化为全角破折号。
+            if not before or _PUNCT_OPENING_DELIM_RE.match(before):
+                suggestion, reason = "", "半角双连字符位于句首/引号后,建议删除"
+            else:
+                suggestion, reason = "——", "半角双连字符规范化为全角破折号"
+            out.append({"range": [start, end], "original": token, "suggestion": suggestion,
+                        "reason": reason, "kind": "double_hyphen"})
+        # else:单独出现的 ——/—(非数字区间、非双连字符)不在本函数范围——
+        # 已由 find_ai_tics 的 em_dash 密度门覆盖,见模块顶部说明。
+    return out

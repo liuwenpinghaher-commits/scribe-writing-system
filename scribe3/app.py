@@ -2621,6 +2621,16 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("aggregate_ai_grade")
 
+    # 方案A任务9(计划A最后一项):标点归一建议(report-only,不改写正文),fail-soft。
+    punct_suggestions: list[dict] = []
+    try:
+        from scribe3.critique import normalize_punctuation_suggestions
+        punct_suggestions = normalize_punctuation_suggestions(req.prose)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check normalize_punctuation_suggestions 失败: %s", e)
+        degraded = True
+        degraded_stages.append("normalize_punctuation_suggestions")
+
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
@@ -2638,6 +2648,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "poetic_fragments": poetic_fragments,
         "unbalanced_quotes": unbalanced_quotes,
         "watch_regression": watch_regression,
+        "punct_suggestions": punct_suggestions,
     }
     if ai_grade is not None:
         resp["ai_grade"] = ai_grade

@@ -2007,6 +2007,19 @@ def test_check_returns_ai_grade(store):
     assert r["ai_grade"]["grade"] == "light"
 
 
+# ===== 方案A任务9(计划A最后一项):/post-check 接线 punct_suggestions =====
+
+def test_post_check_returns_punct_suggestions(store):
+    """/post-check 响应应含 punct_suggestions 字段,数字区间「三——五天」应建议
+    改为「到」(normalize_punctuation_suggestions 接线,report-only 不改写正文)。"""
+    prose = "三——五天后他就到了。普通句子。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert "punct_suggestions" in r, "/post-check 应返回 punct_suggestions 字段"
+    assert r["punct_suggestions"] and r["punct_suggestions"][0]["suggestion"] == "到"
+
+
 def test_post_check_returns_issues_with_range(store):
     """/post-check 返回顶层 issues 字段;AI腔 issue 含正确 range。"""
     prose = "那不是恐惧——是渴望。"

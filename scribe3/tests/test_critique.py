@@ -1003,3 +1003,28 @@ class TestAiGrade:
         from scribe3.critique import aggregate_ai_grade, quality_flags
         g = aggregate_ai_grade(quality_flags("平常句子。" * 30), "平常句子。" * 30)
         assert set(g["gates"].keys()) == set("ABCDEFG")
+
+
+# ===== 方案A任务9:标点归一建议生成器(report-only,移植 oh-story
+# normalize-punctuation.js 的上下文判定,不落盘改写)=====
+
+class TestNormalizePunct:
+    def test_numeric_range_dash(self):
+        from scribe3.critique import normalize_punctuation_suggestions
+        s = normalize_punctuation_suggestions("三——五天后就到。")
+        assert s and s[0]["suggestion"] == "到" and s[0]["original"] == "——"
+
+    def test_ellipsis_to_period(self):
+        from scribe3.critique import normalize_punctuation_suggestions
+        s = normalize_punctuation_suggestions("他走了……天亮了。")
+        assert any(x["original"] == "……" for x in s)
+
+    def test_quoted_dialogue_untouched(self):
+        from scribe3.critique import normalize_punctuation_suggestions
+        assert normalize_punctuation_suggestions("「我……我不知道。」") == []
+
+    def test_report_only_ranges(self):
+        from scribe3.critique import normalize_punctuation_suggestions
+        s = normalize_punctuation_suggestions("三——五天。")
+        st, en = s[0]["range"]
+        assert "三——五天。"[st:en] == "——"
