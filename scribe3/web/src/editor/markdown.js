@@ -2,7 +2,8 @@
 // 口径约定(与 RichEditor 序列化一致,保证 round-trip 稳定):
 // - 块间以空行(\n\n)分隔;段内单个 \n = hardBreak(保留既有纯文本的行结构)。
 // - 支持:# 标题(1-6)、- / * 无序列表、1. 有序列表、> 引用、---/___ 分隔线(hr)、``` 围栏代码。
-// - 分隔线只认 ---/___:「* * *」「***」是正文场景断记号(WriteLayout/prose 口径),
+// - 分隔线认 dash/underscore 族(--- / ___ / 空格分隔的 - - - / _ _ _,CommonMark thematic break);
+//   「* * *」「***」不认 hr —— 是正文场景断记号(WriteLayout/prose 口径),
 //   以字面段落保留,round-trip 不变形(否则草稿采用为正文后场景断失效)。
 // - 行内:**粗** *斜* ~~删~~ `码`。纯文本(无 md 记号)进出完全不变形。
 
@@ -36,7 +37,8 @@ export function mdToHTML(md) {
     if ((m = /^(#{1,6})\s+(.*)$/.exec(t))) {
       flushPara(); out.push(`<h${m[1].length}>${il(m[2])}</h${m[1].length}>`); i++; continue
     }
-    if (/^(-{3,}|_{3,})$/.test(t)) { flushPara(); out.push('<hr>'); i++; continue }
+    // hr:3+ 连续或空格分隔的 - / _(--- / - - - / ___ / _ _ _)。星号族不在此,留给下方星号行守卫按场景断字面保留。
+    if (/^(?:-[ \t]*){3,}$|^(?:_[ \t]*){3,}$/.test(t)) { flushPara(); out.push('<hr>'); i++; continue }
     // 纯星号行(***、* * *)= 场景断字面文本,先于无序列表分支兜住,按普通段落保留
     if (/^[*\s]+$/.test(t)) { para.push(raw); i++; continue }
     if (t.startsWith('```')) {
@@ -51,7 +53,8 @@ export function mdToHTML(md) {
     if (/^[-*+]\s+/.test(t)) {
       flushPara()
       const items = []
-      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) { items.push(lines[i].trim().replace(/^[-*+]\s+/, '')); i++ }
+      // 星号行守卫(与主循环顶部一致):列表内遇到 `* * *`(场景断)即停,不并入列表 —— 交回主循环按字面段落兜住。
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim()) && !/^[*\s]+$/.test(lines[i].trim())) { items.push(lines[i].trim().replace(/^[-*+]\s+/, '')); i++ }
       out.push('<ul>' + items.map((x) => `<li><p>${il(x)}</p></li>`).join('') + '</ul>')
       continue
     }
