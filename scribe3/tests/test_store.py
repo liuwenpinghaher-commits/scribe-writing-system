@@ -1464,6 +1464,15 @@ def test_promise_legacy_row_fallback_and_resolution_default(store):
     assert new.get("resolution") is None                         # 052 起默认 NONE(未回收)
 
 
+def test_plant_promise_resolution_persists(store):
+    """B21 收尾清理批:plant_promise 新增可选 resolution 参数,应落库可读回;
+    不传 resolution 时保持向后兼容(默认 None,行为不变)。"""
+    store.plant_promise("镇魂器悬念", setup_chapter=1, tier="book",
+                        resolution="铜炉本是镇魂器,终将反噬铸炉者")
+    row = [x for x in store.list_promises() if x["text"] == "镇魂器悬念"][0]
+    assert row["resolution"] == "铜炉本是镇魂器,终将反噬铸炉者"
+
+
 def test_overdue_flag_window_alignment():
     """Task1 跟进①⑤:_overdue_flag 与 promise_window_state 同口径。
     有窗口:overdue = max_chapter+1 > payoff_max(首边界 pmax=7 → max_chapter=7 即超期);

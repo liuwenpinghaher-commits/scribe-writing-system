@@ -311,6 +311,18 @@ class TestEmotionModuleRecall:
         mats = [{"kind": "emotion_module", "title": "坏卡", "content": "不是JSON"}]
         assert emotion_module_recall(mats, target_emotion="憋屈")["text"] == ""
 
+    def test_falls_back_to_body_field_when_no_content(self):
+        """B15 审查盲区(收尾清理批 Minor):store.list_materials() 返回的元素用
+        "body" 字段(无 "content" 键),emotion_module_recall 须回退读 body,
+        不能因为没有 "content" 就漏召回。"""
+        mats = [
+            {"kind": "emotion_module", "title": "憋屈反杀",
+             "body": '{"id":"EM-001","emotion":"憋屈","trigger":"当众羞辱","escalation":"隐忍蓄力","release":"当众反杀"}'},
+        ]
+        out = emotion_module_recall(mats, target_emotion="憋屈")
+        assert "EM-001" in out["text"]
+        assert out["items"] and out["items"][0]["id"] == "EM-001"
+
 
 # ===== 方案B任务17 · 平台留存轴确定性指标(纯文本层,独立于 tension_deterministic)=====
 
@@ -351,3 +363,15 @@ class TestInheritedOpenBlock:
 
     def test_empty_when_nothing_due(self):
         assert inherited_open_block([], chapter=5)["text"] == ""
+
+    def test_book_tier_past_payoff_min_not_injected(self):
+        """B19 审查(收尾清理批 Minor):显式锁 book 级守卫分支——payoff_min<chapter
+        但 payoff_max=None(book 层无远期上限)的 open promise 不被注入:
+        第一条件(pmax<=chapter)因 pmax 为 None 为假,第二条件(窗口内)也因
+        pmax 为 None 跳过——book 级悬念不该每章都被当作"到期继承项"催办。"""
+        rows = [
+            {"id": "pb", "text": "书级母题", "status": "open", "setup_chapter": 1,
+             "payoff_min": 3, "payoff_max": None, "tier": "book"},
+        ]
+        out = inherited_open_block(rows, chapter=10)   # chapter=10 > payoff_min=3
+        assert out["text"] == "" and out["items"] == []

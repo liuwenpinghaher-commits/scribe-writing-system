@@ -617,6 +617,8 @@ class SurrealStore:
         self._execute_write("DELETE promise_touch WHERE ingest_seq = $seq", {"seq": seq})
         # 6b. 方案B任务12:关系触碰(本章角色对之间的有效触碰),随本章 ingest 幂等清除。
         #     relation_touch 无独立 ingest_seq 字段(表结构见 migrations/058),按 chapter 清除。
+        #     Minor(收尾清理批):手动登记的关系触碰会被同章重 ingest 冲掉(无 promise_touch
+        #     式 ingest_seq 保护),未来开放手动登记入口时需先加字段。
         self._execute_write("DELETE relation_touch WHERE chapter = $seq", {"seq": seq})
         # 7. 事件图(批D P1-5):随本章 ingest 幂等清除本章抽取的事件 + 图边。
         #    先删图边(involves/causes/causal)再删事件本体——否则 RELATE 边悬挂指向已删事件。
@@ -1065,8 +1067,11 @@ class SurrealStore:
         return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "purple_regex"]
 
     def allow_patterns(self) -> list[str]:
-        """方案B任务14:本书题材豁免正则(喂 critique 各检测器的 allow_patterns 前置
-        skip 判定——减法,与 purple_patterns/extra_patterns 的加法标记彻底分离)。"""
+        """方案B任务14:本书题材豁免正则(前置 skip 判定——减法,与 purple_patterns/
+        extra_patterns 的加法标记彻底分离)。实际消费方:critique.find_purple_prose
+        (经 quality_flags/quality_issues 透传)与 critique.find_emotion_telling
+        (app.py /post-check 直接传入)——不是"各检测器"都吃这个白名单,新增消费方
+        时请在此处补记,避免文档与接线脱节(收尾清理批 B14 审查发现)。"""
         return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "allow_pattern"]
 
     def allow_words(self) -> list[str]:
@@ -1177,7 +1182,11 @@ class SurrealStore:
 
     # --- 伏笔/promise ---
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
-                      tier: str = "chapter") -> None:
+                      tier: str = "chapter", resolution: str = "") -> None:
+        """种下伏笔。resolution(方案B任务21,收尾清理批 B21 落库):悬念存档答案,
+        book/arc 长期悬念的强制校验在 REST 层(app.py /promises-new),store 层
+        只负责落库,不做 tier 相关的必填校验——保持本函数对既有调用方(不传
+        resolution 即空串)向后兼容,语义不变。"""
         if tier not in _TIER_WINDOW:
             raise ValueError(f"非法伏笔层级 tier='{tier}'(合法: {sorted(_TIER_WINDOW)})")
         lo, hi = _TIER_WINDOW[tier]
@@ -1185,9 +1194,11 @@ class SurrealStore:
         pmax = None if hi is None else setup_chapter + hi
         self._execute_write(
             "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
-            "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, resolution=NONE",
+            "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, "
+            "resolution=$resolution",
             {"t": text, "s": setup_chapter, "k": kind,
-             "tier": tier, "pmin": pmin, "pmax": pmax})
+             "tier": tier, "pmin": pmin, "pmax": pmax,
+             "resolution": resolution or None})
 
     def list_promises(self) -> list[dict]:
         rows = self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "

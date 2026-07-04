@@ -612,16 +612,24 @@ async def s3_add_term(ctx: Context, name: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
-                           kind: str = "promise", tier: str = "chapter") -> dict:
+                           kind: str = "promise", tier: str = "chapter",
+                           resolution: str = "") -> dict:
     """埋伏笔(写,待批)。kind=promise/red_herring。
     tier 三档决定兑现窗口与超期判定:
       chapter=近场伏笔(埋后 +1..+3 章内兑现,默认);
       arc=卷级伏笔(+5..+15 章窗口,跨情节弧);
       book=书级伏笔/母题(payoff_max=None,永不判超期,全书终章前兑现)。
-    非法 tier 由 store 层 raise ValueError。"""
+    resolution(方案B任务21,收尾清理批 B21 与 REST /promises-new 同约束):
+    tier∈{book,arc} 的长期悬念必须带 resolution(文档记录的真实答案),不能含糊
+    留白;tier=chapter 短期悬念(本章内起落即兑现)豁免,向后兼容不传此字段的
+    既有调用方。非法 tier 由 store 层 raise ValueError。"""
+    if tier in ("book", "arc") and not resolution.strip():
+        return {"error": "悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)"}
     ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章·{tier}):{text}")
-    return commit_if_approved("s3_plant_promise", ok,
-                              lambda: _store.plant_promise(text, setup_chapter, kind=kind, tier=tier))
+    return commit_if_approved(
+        "s3_plant_promise", ok,
+        lambda: _store.plant_promise(text, setup_chapter, kind=kind, tier=tier,
+                                     resolution=resolution))
 
 
 @mcp.tool(annotations=_RW)

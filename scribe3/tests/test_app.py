@@ -1348,6 +1348,25 @@ def test_post_check_short_mode_suppresses_emotion_telling(store):
     assert r["ai_grade"]["gates"]["C"]["hit"] is False
 
 
+def test_post_check_allow_pattern_exempts_emotion_telling(store):
+    """B14 收尾清理批:find_emotion_telling 的 allow_patterns 此前只有单测覆盖,
+    /post-check 生产链未接线。seed 一条 allow_pattern 覆盖直写情绪句后,
+    /post-check 的 emotion_telling 应豁免该命中(不再上报)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    prose = "他感到害怕。"
+    before = c.post("/post-check", params={"seq": 1},
+                     json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert before["emotion_telling"] != [], "豁免前应命中直写情绪"
+
+    store.add_craft_rule("allow_pattern", r"感到害怕", "题材豁免:直写情绪合法")
+    after = c.post("/post-check", params={"seq": 1},
+                    json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert after["emotion_telling"] == [], "seed allow_pattern 后应豁免该直写情绪句"
+
+
 # ===== 批E B(P2-15):orphan_knowledge_edges 审计器接线进 /post-check =====
 
 def test_post_check_reports_orphan_edges(store):
@@ -4336,12 +4355,14 @@ def test_add_promise_arc_tier_missing_resolution_422(store):
 
 
 def test_add_promise_book_tier_with_resolution_ok(store):
-    """POST /promises-new 建 book 级伏笔带 resolution → 200,正常落库。"""
+    """POST /promises-new 建 book 级伏笔带 resolution → 200,正常落库。
+    B21 收尾清理批:resolution 现已落库,此处补断言可读回真实值(此前只测 200)。"""
     c = _client(store)
     r = c.post("/promises-new", json={"text": "书级悬念:主角身世", "setup_chapter": 1,
                                       "tier": "book", "resolution": "主角是前朝遗孤"})
     assert r.status_code == 200, r.text
-    assert any(x["text"] == "书级悬念:主角身世" for x in store.list_promises())
+    row = [x for x in store.list_promises() if x["text"] == "书级悬念:主角身世"][0]
+    assert row["resolution"] == "主角是前朝遗孤"
 
 
 def test_add_promise_arc_tier_with_resolution_ok(store):
@@ -4370,15 +4391,30 @@ def test_add_promise_no_tier_missing_resolution_exempt(store):
 
 
 def test_edit_promise_rest_tier_recomputes_window(store):
-    """PATCH /promises/{pid} 改 tier=arc → 窗口按 arc 重算(setup=3 → 8..18)。"""
+    """PATCH /promises/{pid} 改 tier=arc → 窗口按 arc 重算(setup=3 → 8..18)。
+    B21 收尾清理批:升格 arc 须带 resolution(与 /promises-new 同约束),补该字段。"""
     store.plant_promise("先近后卷", setup_chapter=3, kind="promise")  # 建时 chapter → payoff_max=6
     pid = next(x for x in store.list_promises() if x["text"] == "先近后卷")["id"]
     c = _client(store)
-    r = c.patch(f"/promises/{pid}", json={"text": "先近后卷", "setup_chapter": 3, "tier": "arc"})
+    r = c.patch(f"/promises/{pid}", json={"text": "先近后卷", "setup_chapter": 3, "tier": "arc",
+                                          "resolution": "升格卷级的真实答案:老仆是幕后人"})
     assert r.status_code == 200, r.text
     p = next(x for x in store.list_promises() if x["id"] == pid)
     assert p["tier"] == "arc"
     assert p["payoff_min"] == 8 and p["payoff_max"] == 18
+
+
+def test_edit_promise_rest_tier_upgrade_missing_resolution_422(store):
+    """B21 收尾清理批(审查发现的绕过口):PATCH 把 tier 升格成 book/arc,
+    但请求与库里都没有 resolution → 422(与 /promises-new 同文案),且不落库。"""
+    store.plant_promise("短期悬念想升格", setup_chapter=2, kind="promise")  # chapter 级,无 resolution
+    pid = next(x for x in store.list_promises() if x["text"] == "短期悬念想升格")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "短期悬念想升格", "tier": "book"})
+    assert r.status_code == 422, r.text
+    assert "真实答案" in r.json()["detail"]
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "chapter", "422 拒绝后 tier 不得被改动"
 
 
 def test_edit_promise_rest_without_tier_preserves_tier(store):

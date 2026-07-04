@@ -1212,6 +1212,13 @@ def merge_findings(issues: list[dict], punct_suggestions: list[dict]) -> tuple[l
 
 
 # ==== LLM 语义判官(纪律闸)——确定性检测的盲区:双高潮/声音崩/解说倾泻/知识泄露 ====
+
+# Minor(收尾清理批):默认纪律文案单一来源——app.py /post-check 拼继承开放项时
+# 也要引用同一段文案(此前是手写字面量副本,有漂移风险)。
+DEFAULT_DISCIPLINE_BRIEF = (
+    "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)")
+
+
 def build_discipline_prompt(text: str, brief: str = "", known: dict | None = None) -> str:
     kb = ""
     if known:
@@ -1222,7 +1229,7 @@ def build_discipline_prompt(text: str, brief: str = "", known: dict | None = Non
     return (
         ANTI_SYCOPHANCY + "\n\n"
         "你是叙事结构【纪律判官】。下面是一章志怪小说。本章的命题/纪律要求:\n" +
-        (brief or "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)") +
+        (brief or DEFAULT_DISCIPLINE_BRIEF) +
         "\n\n判定是否违反以下纪律(任一即违规):\n"
         "① double_climax:出现第二场打斗/救援/开挂,或偷跑了本不属于本章的后续剧情、凭空发明新登场角色;\n"
         "② voice_collapse:声细如蚊/半截就断的 terse 角色崩成大段流畅独白、系统结算音、或与主角同温;\n"
@@ -1473,6 +1480,12 @@ def build_reversal_rubric_prompt(prose: str, beat_meta: dict | None) -> str:
     if not beat_meta or not beat_meta.get("reversal_type"):
         return ""
     rtype = beat_meta.get("reversal_type")
+    if rtype not in _REVERSAL_TYPES:
+        # Minor(收尾清理批):reversal_type 拼写漂移仍照常生成 prompt——LLM 消费
+        # 容忍拼写漂移(rtype 只作为展示文案拼进 prompt),这里只留日志线索供排查,
+        # 不阻断评审流程。
+        _log.warning("build_reversal_rubric_prompt 未知 reversal_type=%r,仅支持 %s",
+                     rtype, _REVERSAL_TYPES)
     clues = beat_meta.get("setup_clues") or []
     pct = beat_meta.get("reveal_position_pct")
     types_list = "、".join(_REVERSAL_TYPES)
@@ -1531,12 +1544,14 @@ def parse_reversal_report(raw: str) -> dict | None:
 # 真正的确定性判定见 brief.platform_deterministic)+ llm_axes(需要通读语义才能判的轴,
 # 交给 LLM 逐项裁决)。
 _PLATFORM_RUBRICS: dict[str, dict] = {
+    # 取舍说明(B17 审查):源表 qidian.md 另有「日更支持」词条(大纲支持 4000
+    # 字/天节奏),本函数是单章评审 prompt,不适用于跨章日更节奏判定,故此处
+    # 有意不纳入——非遗漏。「黄金三章」不在源 qidian.md 表内,已删除,不再固化。
     "qidian": {
         "name": "起点中文网",
         "word_range": (2000, 4000),
         "deterministic": [
             "爽点密度:每 3000 字 ≥1 情绪节点(升级/打脸/获宝),连续 5000 字无情绪节点则 FAIL",
-            "黄金三章:前三章决定读者去留——须强钩子前置、爽点提前、人设速立,不得铺垫拖沓",
             "钩子密度:每章结尾须有悬念/钩子,连续 3 章结尾无钩子则 FAIL",
         ],
         "llm_axes": [
@@ -1566,6 +1581,8 @@ _PLATFORM_RUBRICS: dict[str, dict] = {
         "deterministic": [
             "字数控制:8000-13000 字(盐言标准),超出或不足为 FAIL",
             "开头钩子:第一句须含信息量(动作/冲突/悬念),纯描写/背景为 FAIL",
+            "格式合规:段落以短为主(有长短/疏密变化)、无空行、对话格式正确,通篇同长度"
+            "或连续超长段落/空行/对话标签则 FAIL(逐章可检查)",
         ],
         "llm_axes": [
             "第一人称:全文须用「我」视角(除非多视角设计),否则 FAIL",

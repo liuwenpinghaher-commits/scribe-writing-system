@@ -1032,6 +1032,56 @@ class TestRhythmUniformity:
         t = self._mk([3, 41, 12, 7, 55, 2, 23, 9, 38, 5] * 2) + "「好。」「走。」「快。」" * 10
         assert find_rhythm_uniformity(t)["verdict"] == "ok"
 
+    def test_low_cv_high_adj_ratio_stays_ok(self):
+        """A6 审查(收尾清理批 Minor):verdict 是 cv 和 mean_adj_ratio 都低于地板值
+        才判 uniform 的 AND 语义——纯交替句长(10,21,10,21,...)整体方差不大(cv 低,
+        接近 0.35)但相邻句长每次都跳变(mean_adj_ratio 高,约 0.71,不算"缺乏突变"),
+        锁住"仅 cv 低不足以判 uniform"。"""
+        from scribe3.critique import find_rhythm_uniformity
+        r = find_rhythm_uniformity(self._mk([10, 21] * 12))
+        assert r["cv"] < 0.517, f"构造应满足 cv 低于地板值,实得 cv={r['cv']}"
+        assert r["mean_adj_ratio"] >= 0.550, (
+            f"构造应满足 mean_adj_ratio 不低于地板值,实得 mean_adj_ratio={r['mean_adj_ratio']}")
+        assert r["verdict"] == "ok", "仅 cv 低、mean_adj_ratio 不低时不应判 uniform(AND 语义)"
+
+    def test_strip_quoted_flips_verdict_on_dialogue_heavy_text(self):
+        """A6 审查(收尾清理批 Minor):构造对话密集文本——叙述外壳「他说。」逐句
+        完全相同(AI 味节拍器),但引号内台词长度剧烈起伏(bursty)。生产实现
+        find_rhythm_uniformity 先 _strip_quoted 再切句计长,应准确判定为
+        verdict="uniform"(揭穿被台词长度掩盖的单调叙述外壳);若不剥引号直接
+        按整句(含台词)计长,则台词的剧烈起伏会拉高 cv/mean_adj_ratio,误判为
+        "ok"——用手动复现的"不剥引号"算法验证确有翻转,锁住 _strip_quoted 这一步
+        对判定正确性不可或缺。"""
+        import re
+        from scribe3.critique import find_rhythm_uniformity
+
+        def mk_dialogue(lens):
+            return "".join(f"「{'甲' * n}」他说。" for n in lens)
+
+        lens_pattern = [3, 41, 12, 7, 55, 2, 23, 9, 38, 5] * 3
+        text = mk_dialogue(lens_pattern)
+
+        r = find_rhythm_uniformity(text)
+        assert r["verdict"] == "uniform", (
+            "剥引号后叙述外壳「他说」逐句相同,应判定为 uniform(节拍器)")
+
+        # 手动复现"不剥引号"的算法(不调用 _strip_quoted),验证会翻转判定
+        degen_re = re.compile(r"[一-鿿Ａ-ｚA-Za-z0-9]")
+        segs = re.split(r"[。！？!?…]+", text)
+        raw_lens = [n for n in (len(degen_re.findall(seg)) for seg in segs) if n > 0]
+        mean = sum(raw_lens) / len(raw_lens)
+        sigma = (sum((x - mean) ** 2 for x in raw_lens) / len(raw_lens)) ** 0.5
+        cv_unstripped = sigma / mean if mean else 0.0
+        adj = [abs(a - b) for a, b in zip(raw_lens, raw_lens[1:])]
+        mean_adj_unstripped = (sum(adj) / len(adj) / mean) if adj and mean else 0.0
+        from scribe3.critique import _RHYTHM_CV_FLOOR, _RHYTHM_ADJ_FLOOR
+        verdict_unstripped = ("uniform" if (cv_unstripped < _RHYTHM_CV_FLOOR
+                                            and mean_adj_unstripped < _RHYTHM_ADJ_FLOOR)
+                              else "ok")
+        assert verdict_unstripped == "ok", (
+            "不剥引号时台词长度起伏应把判定拉回 ok,与剥引号后的 uniform 相反")
+        assert verdict_unstripped != r["verdict"], "本用例应演示剥引号步骤翻转了判定结果"
+
 
 # ==== 方案A任务7:副词密度 + 句内三段式 + 同义词循环三检测器 ====
 # oh-story anti-ai-writing 模式2(副词表)+ 维基 rule of three + 维基 elegant variation。
@@ -1370,7 +1420,7 @@ class TestPlatformRubric:
     def test_qidian_prompt_content(self):
         from scribe3.critique import build_platform_rubric_prompt
         p = build_platform_rubric_prompt("正文……", platform="qidian")
-        assert "爽点密度" in p and "黄金三章" in p
+        assert "爽点密度" in p and "追读比" in p
         assert "找问题" in p          # ANTI_SYCOPHANCY
         assert "S1" in p and "verdict" in p   # FindingsSchema 输出契约
 

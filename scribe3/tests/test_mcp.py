@@ -515,3 +515,41 @@ def test_s3_plant_promise_legal_tier_writes(store):
     proms = store.list_promises()
     assert len(proms) == 1 and proms[0]["tier"] == "arc"
     assert proms[0]["payoff_min"] == 7 and proms[0]["payoff_max"] == 17
+
+
+# ============================================================
+# 收尾清理批 B21: s3_plant_promise 补 resolution 约束(与 REST /promises-new 同口径)
+# ============================================================
+def test_s3_plant_promise_book_tier_missing_resolution_errors_no_write(store):
+    """B21 收尾清理批:tier=book 且未带 resolution → 返回 error dict(不抛异常),
+    且不落库、不触发 elicitation 批准流程。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "书级悬念MCP", 1, tier="book"))
+    assert "error" in res
+    assert store.list_promises() == [], "缺 resolution 应在写前拦截,不落库"
+
+
+def test_s3_plant_promise_arc_tier_missing_resolution_errors_no_write(store):
+    """B21 收尾清理批:tier=arc 且未带 resolution → 返回 error dict(不抛异常)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级悬念MCP", 2, tier="arc"))
+    assert "error" in res
+    assert store.list_promises() == []
+
+
+def test_s3_plant_promise_book_tier_with_resolution_writes_and_persists(store):
+    """B21 收尾清理批:tier=book 带 resolution → 正常落库且 resolution 可读回。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(
+        _AcceptCtx(), "书级悬念MCP2", 1, tier="book", resolution="铜炉本是镇魂器"))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "书级悬念MCP2")
+    assert p["resolution"] == "铜炉本是镇魂器"
+
+
+def test_s3_plant_promise_chapter_tier_missing_resolution_exempt(store):
+    """B21 收尾清理批:tier=chapter(短期悬念)缺 resolution → 豁免,正常落库(向后兼容)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "章内悬念MCP", 1))
+    assert res["status"] == "written"
+    assert any(x["text"] == "章内悬念MCP" for x in store.list_promises())

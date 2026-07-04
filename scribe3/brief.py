@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+
+_log = logging.getLogger("scribe3")
 
 _TIER_W = {"book": 3, "arc": 2, "chapter": 1}
 _SALIENCE_GAP_MAX = 3   # 距上次露面超过此章数 → 兑现前先刷新
@@ -559,8 +562,8 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
             if c.get("last_active") is not None:
                 stale_rows.append({"name": c["name"], "kind": "char",
                                    "last_touch": c["last_active"]})
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("assemble_chapter_brief stale_rows(char) 失败: %s", e)
     try:
         for p in rows:
             if p.get("status") != "open":   # 只对仍开着的支线/伏笔催回顾,已收线的不必
@@ -570,8 +573,8 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
                 last_touch = p.get("setup_chapter")
             stale_rows.append({"name": (p.get("text") or "")[:20], "kind": "promise",
                                "last_touch": last_touch})
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("assemble_chapter_brief stale_rows(promise) 失败: %s", e)
     try:
         by_pair: dict[tuple, int] = {}
         for t in st.list_relation_touches() or []:
@@ -580,8 +583,8 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
             by_pair[pair] = max(by_pair.get(pair, ch), ch)
         for (pa, pb), ch in by_pair.items():
             stale_rows.append({"name": f"{pa}↔{pb}", "kind": "relation", "last_touch": ch})
-    except Exception:
-        pass
+    except Exception as e:
+        _log.debug("assemble_chapter_brief stale_rows(relation) 失败: %s", e)
     sections = {
         "arcs": arcs,
         "promises": promise_directives(rows),

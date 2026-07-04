@@ -567,15 +567,15 @@ def add_prom(p: PromIn, work: str = "main"):
     tier = p.tier or "chapter"
     # 悬念存档答案强制(方案B任务21):book/arc 长期悬念必须在建伏笔时就写下真实答案,
     # 不能含糊留白;chapter 级短期悬念(本章内起落即兑现)豁免,向后兼容。
-    # store 层不动(plant_promise 签名不变,防破既有测试面)——本校验只挡在 REST 入口,
-    # resolution 的落库交由后续任务扩展 store 层持久化(此处暂不产出无法定位新建
-    # 记录 id 的 best-effort 猜测更新,避免文本撞车时误写到别的伏笔)。
     if tier in ("book", "arc") and not (p.resolution and p.resolution.strip()):
         raise HTTPException(
             status_code=422,
             detail="悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)")
+    # B21 收尾清理批:plant_promise 已支持 resolution 落库,此处把已校验的字段透传;
+    # 未传/空串时 or "" 保持向后兼容(store 层默认值不变)。
     try:
-        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind, tier=tier)
+        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind, tier=tier,
+                                        resolution=p.resolution or "")
     except ValueError as e:  # 非法 tier → store 层 raise
         raise HTTPException(status_code=422, detail=str(e))
     return {"ok": True}
@@ -586,6 +586,7 @@ def edit_prom(pid: str, p: PromIn, work: str = "main"):
     # P1-3:exclude_unset——只 SET 客户端真正提交的字段,未传字段保留库中旧值
     # (此前 promise_kind/setup_chapter 的默认值会静默把 red_herring 重置为 promise、setup 重置为 1)。
     sent = p.model_dump(exclude_unset=True)
+    st = _store_for(work)
     fields: dict = {}
     if "text" in sent:
         fields["text"] = sent["text"]
@@ -595,8 +596,19 @@ def edit_prom(pid: str, p: PromIn, work: str = "main"):
         fields["kind"] = sent["promise_kind"]
     if sent.get("tier") is not None:  # 仅显式改 tier 时透传(缺省保留既有层级,由 update_promise 重算窗口)
         fields["tier"] = sent["tier"]
+    if sent.get("resolution") is not None:  # B21 收尾清理批:PATCH 也可补写悬念真实答案
+        fields["resolution"] = sent["resolution"]
+    # B21 收尾清理批(审查发现的绕过口):把 tier 改成 book/arc 等于把短期悬念升格成
+    # 长期悬念,须与 /promises-new 同约束——显式传入 tier∈{book,arc} 且改后无 resolution
+    # (请求里没带、库里也没有)→ 422。pid 不存在时不在此拦(交给下面 404,语义更准)。
+    if sent.get("tier") in ("book", "arc") and not (sent.get("resolution") or "").strip():
+        row = next((x for x in st.list_promises() if x["id"] == pid), None)
+        if row is not None and not (row.get("resolution") or "").strip():
+            raise HTTPException(
+                status_code=422,
+                detail="悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)")
     try:
-        found = _store_for(work).update_promise(pid, fields)
+        found = st.update_promise(pid, fields)
     except ValueError as e:  # 非法 tier → store 层 raise
         raise HTTPException(status_code=422, detail=str(e))
     if not found:
@@ -2561,12 +2573,13 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             from scribe3.llm import hermes_complete
             complete_fn = hermes_complete
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
-        # build_discipline_prompt(critique.py:1141)的默认纪律文案,再拼继承项,
+        # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,
+        # 收尾清理批 Minor:消除手写字面量副本的漂移风险),再拼继承项,
         # 避免"继承开放项非空"顶掉默认纪律要求(两者都该在场)。
         brief_for_discipline = req.brief
         if inherited_text:
-            base_brief = req.brief or (
-                "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)")
+            from scribe3.critique import DEFAULT_DISCIPLINE_BRIEF
+            base_brief = req.brief or DEFAULT_DISCIPLINE_BRIEF
             brief_for_discipline = base_brief + "\n\n" + inherited_text
         discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
     except Exception as e:
@@ -2654,7 +2667,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
 
     emotion_telling: list[dict] = []
     try:
-        emotion_telling = find_emotion_telling(req.prose, short_mode=req.short_mode)
+        # B14 审查(收尾清理批):allow_pats 已在本函数上文从 st.allow_patterns() 取出
+        # (供 quality_flags/quality_issues 用),此前未传给 find_emotion_telling——
+        # 题材豁免正则对直写情绪检测器不生效,这里补上,与其余检测器同一豁免机制。
+        emotion_telling = find_emotion_telling(req.prose, allow_pats, short_mode=req.short_mode)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check find_emotion_telling 失败: %s", e)
         degraded = True
@@ -3018,6 +3034,9 @@ def story_import(req: ImportReq, work: str = "main"):
     ④五锚逆向(build_reverse_anchor_prompt/parse_reverse_anchors,ingest.py)刻意不在这里
       接线——对每个主要角色同步串行调一次 LLM 会显著拖慢本端点,留作 import 完成后的
       可选异步步骤(TODO:后续任务按 delta 里出现过的角色排队后台调用)。
+    ⑤Minor(收尾清理批):正文 save_chapter 先于知识抽取(ingest_chapter)落库,
+      失败重跑会覆写该章正文(幂等覆盖)——journal 保护的是"跳过已完成章",
+      不是"正文不被重写"。
     """
     from scribe3.ingest import ingest_chapter
     from scribe3.pipeline_journal import PipelineJournal
