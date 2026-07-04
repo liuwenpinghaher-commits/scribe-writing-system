@@ -6,6 +6,8 @@ elicitation 本身是生产侧(ctx.elicit);可测核心 = commit_if_approved 门
 """
 import asyncio
 
+import pytest
+
 import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
@@ -487,3 +489,29 @@ def test_s3_record_knowledge_doc_no_invalid_enum():
     """P1-13: s3_record_knowledge 文档不含非法枚举 'heard'(DB ASSERT 只认 saw/told/inferred/given/learned)。"""
     doc = M.s3_record_knowledge.__doc__ or ""
     assert "heard" not in doc, "文档不应含非法 acquired_via 值 'heard'"
+
+
+# ============================================================
+# 批E · C(B-2 审查 Minor):s3_plant_promise 非法 tier 无测试 → 补测
+# ============================================================
+def test_s3_plant_promise_illegal_tier_raises_no_write(store):
+    """批E-C:s3_plant_promise 非法 tier → store 层 plant_promise raise ValueError,
+    且抛错前不落库(commit_if_approved 批准路径下 do_write 异常冒泡,库中无残留伏笔)。"""
+    M.set_store(store)
+    with pytest.raises(ValueError):
+        M.commit_if_approved(
+            "s3_plant_promise", True,
+            lambda: store.plant_promise("非法层级伏笔", 1, tier="galaxy"))
+    assert store.list_promises() == [], "非法 tier 抛错前不应有伏笔落库"
+
+
+def test_s3_plant_promise_legal_tier_writes(store):
+    """批E-C 对照:合法 tier(arc)批准后正常落库,窗口按 arc 档(setup+5..+15)。"""
+    M.set_store(store)
+    out = M.commit_if_approved(
+        "s3_plant_promise", True,
+        lambda: store.plant_promise("卷级伏笔", 2, tier="arc"))
+    assert out["status"] == "written"
+    proms = store.list_promises()
+    assert len(proms) == 1 and proms[0]["tier"] == "arc"
+    assert proms[0]["payoff_min"] == 7 and proms[0]["payoff_max"] == 17
