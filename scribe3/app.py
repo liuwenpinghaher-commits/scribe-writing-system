@@ -873,6 +873,15 @@ def char_state_at(character_id: str, chapter: int, work: str = "main"):
     return _store_for(work).char_state_at(character_id, chapter)
 
 
+@app.get("/voice-profile")
+def get_voice_profile_endpoint(character_id: str, work: str = "main"):
+    """获取角色声线指纹(9节 voice_profile,设计文档 §3.1.2)。
+    批D P1-11 后端跟进:此前 store.get_voice_profile 无 REST 暴露 → 前端声线指纹只在
+    fold 响应里一次性展示、刷新不回显。补此 GET(镜像 /char-states)让指纹常驻回显。
+    角色无指纹时返回 null(不 500),前端据此隐藏声音区或提示尚未建立。"""
+    return _store_for(work).get_voice_profile(character_id)
+
+
 
 class MotifIn(BaseModel):
     name: str

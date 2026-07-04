@@ -1026,10 +1026,15 @@ class SurrealStore:
     # --- 声音进化标记 ---
     def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
         # seq 是退场方(021 起改名为 trigger_chapter)。只写真源 trigger_chapter。
+        # character_id 规范化(批D P1-11 后端跟进):ingest 的 voice_shift 路径传裸名(who),
+        # 而 fold_voice_flags/add_char_state 一律用 role: 前缀 id 匹配 → 裸名 flag 永不被 fold
+        # (主书历史裸名 flag 致前端 fold 空操作)。此处统一在写入层补 role: 前缀,幂等:
+        # 已带前缀(add_char_state 传 role:xxx / ingest arc 经 _resolve_char)不二次加前缀。
+        cid = character if ":" in character else f"role:{character}"
         self._execute_write(
             "CREATE voice_evolution_flag SET character=$c, "
             "trigger_chapter=$s, reason=$r, status='open'",
-            {"c": character, "s": seq, "r": reason})
+            {"c": cid, "s": seq, "r": reason})
 
     def list_voice_flags(self, status: str = "open") -> list[dict]:
         return self._query(

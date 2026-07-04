@@ -87,6 +87,26 @@ def test_add_voice_flag_sets_trigger_chapter(store):
     assert any(f["reason"] == "声音突变" for f in flags)
 
 
+def test_add_voice_flag_normalizes_bare_name_to_role_prefix(store):
+    """批D P1-11:裸名(ingest voice_shift 传 who 名)写入的 voice flag 应统一带 role: 前缀,
+    否则 fold_voice_flags/前端按 role: id 匹配永远空操作。既有带前缀写入不被二次加前缀。"""
+    store.add_voice_flag("胡不为", 3, "声音因恐惧发颤")            # 裸名(模拟 ingest voice_shift)
+    store.add_voice_flag("role:赵芙南", 4, "声调转冷")             # 已带前缀
+    chars = {f["character"] for f in store.list_voice_flags("open")}
+    assert "role:胡不为" in chars, f"裸名应规范化为 role: 前缀: {chars}"
+    assert "胡不为" not in chars, f"不应残留裸名: {chars}"
+    assert "role:赵芙南" in chars and "role:role:赵芙南" not in chars, \
+        f"带前缀写入不应二次加前缀: {chars}"
+
+
+def test_bare_name_voice_flag_is_foldable(store):
+    """批D P1-11:裸名写入的 flag 规范化后可被 fold_voice_flags(role: id)消化(此前空操作)。"""
+    store.add_voice_flag("胡不为", 3, "声音因恐惧发颤")
+    res = store.fold_voice_flags("role:胡不为",
+                                 lambda p: '{"style_summary":"声音因恐惧而短促发颤"}')
+    assert res.get("folded") == 1, f"裸名 flag 应被 role: id fold 到,实际: {res}"
+
+
 def test_graph_recall_returns_secret_flag(store):
     luanshi_leak_world(store)
     # graph_recall 依赖向量索引;luanshi_leak_world 内 add_fact 现已自动建 embedding,
