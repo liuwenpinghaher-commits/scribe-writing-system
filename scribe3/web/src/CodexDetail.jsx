@@ -5,6 +5,7 @@ import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { showToast } from './ui/Toast'
 import { Btn, SectionTitle, Empty } from './ui'
+import { isChapterNum } from './lib/utils'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -407,7 +408,8 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
   useEffect(() => { setPanel(null); reload() }, [node?.id])
 
   const doSupersede = async () => {
-    if (!sup.value.trim() || sup.since_chapter === '') { showToast('新值与生效章必填', { tone: 'danger' }); return }
+    // 批D Minor①:生效章须 ≥1(旧 === '' 守卫漏拦 0/负数;valid_from 语义 1-based)。
+    if (!sup.value.trim() || !isChapterNum(sup.since_chapter)) { showToast('新值必填,生效章须为 ≥1 的章号', { tone: 'danger' }); return }
     setBusy(true)
     try {
       await api.supersedeFact({ entity_id: row.entity, attribute: row.attribute,
@@ -415,6 +417,9 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
       showToast('命题已超越(旧值封存于历史,新值生效)', { tone: 'ok' })
       setPanel(null); setSup({ value: '', since_chapter: '', secret: false })
       onChanged?.()   // 新命题 oid 已生成、旧命题转闭区间 → 通知重拉树
+      // 批D Minor③:超越后本详情栏原会陈旧(node.id 未变,[node.id] effect 不重触)——
+      // 补自身 reload:旧命题已转闭区间,facts(100000) 查不到 → 显示「已被超越」(诚实,非旧值残留)。
+      reload()
     } catch (e) { showToast(e?.body?.detail || e?.message || '超越失败', { tone: 'danger' }) }
     finally { setBusy(false) }
   }

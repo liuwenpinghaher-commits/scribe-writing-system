@@ -35,7 +35,7 @@ function EmptyLaneDropZone({ volumeId }) {
 }
 
 // 卷泳道(只负责渲染,不持有 DndContext)
-function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, activeSeq }) {
+function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel, activeSeq }) {
   const seqs = lane.chapters.map((c) => c.seq)
   const totalWc = lane.chapters.reduce((s, c) => s + (c.word_count || 0), 0)
 
@@ -49,7 +49,7 @@ function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, activeSeq }) {
         <div className="grid gap-3 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {lane.chapters.map((c) => (
             <ChapterCard key={c.seq} chapter={c} colorMode={colorMode}
-              onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
+              onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onPatchLabel={onPatchLabel} />
           ))}
           {lane.chapters.length === 0 && (
             <EmptyLaneDropZone volumeId={lane.volumeId} />
@@ -65,7 +65,7 @@ function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, activeSeq }) {
  * lanes = [{ volumeId, title, chapters:[...] }]
  * onReorder(volumeId, newSeqs, prevSeqs, fromVolumeId?) → 父层乐观+回滚
  */
-export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder, onCrossVolumeMove }) {
+export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onPatchLabel, onReorder, onCrossVolumeMove }) {
   const [guarded, setGuarded] = useState(() => {
     try { return localStorage.getItem('s3.reorder.guarded') === '1' } catch { return false }
   })
@@ -145,7 +145,7 @@ export function Corkboard({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder
       onDragStart={onDragStart} onDragEnd={onDragEnd}>
       {lanes.map((lane) => (
         <VolumeLane key={lane.volumeId ?? 'null'} lane={lane} colorMode={colorMode}
-          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} activeSeq={activeSeq} />
+          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onPatchLabel={onPatchLabel} activeSeq={activeSeq} />
       ))}
       <DragOverlay>
         {activeChapter && (

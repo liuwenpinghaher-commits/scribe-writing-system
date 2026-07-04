@@ -145,6 +145,16 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     api.patchChapter(seq, { synopsis }).catch((e) => { reload(); toast?.(e?.body?.detail || '梗概保存失败', { tone: 'danger' }) })
   }
 
+  // 章状态(label)编辑:乐观更新 + 失败回滚(#70 卡片墙「按状态」色源生产入口)。
+  // label=null 清空(未设);后端 ASSERT NONE 或五枚举,空串会 500,故清空必发 null。
+  const patchLabel = (seq, label) => {
+    setOutline((prev) => prev && ({
+      ...prev,
+      chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, label } : c),
+    }))
+    api.patchChapter(seq, { label }).catch((e) => { reload(); toast?.(e?.body?.detail || '状态保存失败', { tone: 'danger' }) })
+  }
+
   // 卷内拖拽重排:乐观重排该卷章序 + 失败回滚
   const reorder = (volumeId, newSeqs, prevSeqs) => {
     setOutline((prev) => {
@@ -337,10 +347,10 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
           </div>
         ) : mode === 'corkboard' ? (
           <Corkboard lanes={lanes} colorMode={colorMode} onOpen={onOpenChapter}
-            onPatchSynopsis={patchSynopsis} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
+            onPatchSynopsis={patchSynopsis} onPatchLabel={patchLabel} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
         ) : mode === 'outliner' ? (
           <Outliner lanes={lanes} colorMode={colorMode} onOpen={onOpenChapter}
-            onPatchSynopsis={patchSynopsis} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
+            onPatchSynopsis={patchSynopsis} onPatchLabel={patchLabel} onReorder={reorder} onCrossVolumeMove={crossVolumeMove} />
         ) : (
           <PlainChapterList lanes={lanes} onOpen={onOpenChapter} />
         )}

@@ -30,6 +30,7 @@ import 'vis-timeline/styles/vis-timeline-graph2d.css'
 import { Clock, RefreshCw, X, CornerDownRight } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
+import { hasNarrativeData } from '../lib/timelineAxis'
 import { useSelection } from '../selectionContext'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
@@ -412,6 +413,14 @@ export function TimelineView({ onJumpChapter }) {
 
   const hasContent = items.length > 0 && groups.length > 0
 
+  // #74:仅当确有「叙事位 ≠ 故事章」的事件时,「叙事顺序」轴才有意义(否则两轴投影一致=空操作)。
+  // 判定与 axis 无关(每事件恒带 story_chapter/narrative_position),默认 story 轴加载即可判。
+  const canNarrative = useMemo(() => hasNarrativeData(data?.items || []), [data])
+  // 防御:若因外部数据变更陷在无叙事数据的 narrative 轴,回落 story(正常经禁用按钮到不了此态)。
+  useEffect(() => {
+    if (data && !canNarrative && axis === 'narrative') switchAxis('story')
+  }, [canNarrative, data])  // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── 初始化 / 更新 vis-timeline ────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || !hasContent) return
@@ -513,17 +522,24 @@ export function TimelineView({ onJumpChapter }) {
           ))}
         </div>
 
-        {/* 故事/叙事双轴 */}
+        {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」(诚实,不留空操作死切换) */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
           <span className="text-f11 text-faint">轴:</span>
-          {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => (
-            <button key={v}
-              onClick={() => switchAxis(v)}
-              title={v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
-              className={`h-6 px-2 rounded text-f11 font-medium transition-colors cursor-pointer
-                ${axis === v ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
-            >{l}</button>
-          ))}
+          {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => {
+            const disabled = v === 'narrative' && !canNarrative
+            return (
+              <button key={v}
+                onClick={() => { if (!disabled) switchAxis(v) }}
+                disabled={disabled}
+                title={disabled
+                  ? '暂无倒叙/闪回事件(全部事件叙事位=故事章)——录入含「叙事位」的事件后可切叙事顺序轴'
+                  : v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
+                className={`h-6 px-2 rounded text-f11 font-medium transition-colors
+                  ${disabled ? 'bg-soft/40 text-faint/40 cursor-not-allowed'
+                    : axis === v ? 'bg-indigo-500 text-white cursor-pointer' : 'bg-soft text-faint hover:text-ink cursor-pointer'}`}
+              >{l}</button>
+            )
+          })}
         </div>
 
         <button onClick={fitAll}

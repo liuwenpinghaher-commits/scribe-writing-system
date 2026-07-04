@@ -3,6 +3,7 @@ import { Users, Boxes, Bookmark, Flame, Shield, Swords, MapPin, Tags, PieChart, 
 import { api } from '../api'
 import { Tag } from '../ui'
 import { showToast } from '../ui/Toast'
+import { isChapterNum } from '../lib/utils'
 
 // 注:本文件仅导出 DetailView(被 CodexNew/CodexDetail 复用)。
 // 原内置主组件 CodexView 及其专属子件(TimelineCard 弧光请求瀑布/EditorChat/UnverifiedPanel)
@@ -272,13 +273,15 @@ function DynamicTimeline({ characterId }) {
 // 旧版 `r.src === characterId` 恒不匹配(裸名 ≠ role:名)→ 关系恒空(限知关系图黑洞根因之一)。
 // 修:按裸 local 比较展示;建立/演变/结束用全 oid(后端 _split/entity 依赖冒号前缀)。
 // relation 受控词表须与 migration 029 的 DB ASSERT 一致(越界值 500)。
-const REL_VOCAB = [
+// ⚠ 批D Minor②:后端 ASSERT 只收下列固定词 + 字面量 'custom';任何自由文本自定义词都会 500。
+// 故不提供「custom + 自由文本框」(输入真实自定义词必 500),也不留死字面量 'custom'(选它=写入
+// 无意义的 'custom' 且显示为 'custom')—— 直接移除 custom 选项,每个下拉项都映射到后端确收的真实关系词。
+export const REL_VOCAB = [
   ['亲属', ['父子', '母子', '兄弟', '姐妹', '夫妻', '师徒', '养父子']],
   ['正面', ['知己', '战友', '盟友', '同门', '恩人']],
   ['中性', ['同行', '熟人', '上下级', '雇主雇员']],
   ['对立', ['仇敌', '宿敌', '竞争者', '利益对立']],
   ['复杂', ['爱恨交织', '前恋人', '背叛者']],
-  ['其它', ['custom']],
 ]
 const REL_TONE = (rel) =>
   ['知己', '战友', '盟友', '同门', '恩人', '夫妻', '师徒', '父子', '母子', '兄弟', '姐妹', '养父子', '同行', '熟人'].includes(rel) ? 'ok'
@@ -317,7 +320,8 @@ function DynamicRelations({ characterId }) {
   }, [characterId])
 
   const submitAdd = async () => {
-    if (!form.dst || !form.relation || form.since_chapter === '') { showToast('对象、关系、建立章必填', { tone: 'danger' }); return }
+    // 批D Minor①:建立章须 ≥1(旧 === '' 守卫漏拦 0/负数 → 后端 since_chapter ASSERT >=1 报 500)。
+    if (!form.dst || !form.relation || !isChapterNum(form.since_chapter)) { showToast('对象、关系必填,建立章须为 ≥1 的章号', { tone: 'danger' }); return }
     try {
       await api.addCharacterRelation({ src: characterId, dst: form.dst, relation: form.relation, since_chapter: Number(form.since_chapter), note: form.note || null })
       showToast('关系已建立', { tone: 'ok' })
@@ -331,11 +335,13 @@ function DynamicRelations({ characterId }) {
     const srcOid = `role:${r.src}`, dstOid = `role:${r.dst}`
     try {
       if (act.mode === 'evolve') {
-        if (act.chapter === '' || !act.relation) { showToast('新关系与演变章必填', { tone: 'danger' }); return }
+        // 批D Minor①:演变章须 ≥1(演变新建关系边,同样撞 since_chapter ASSERT >=1)。
+        if (!act.relation || !isChapterNum(act.chapter)) { showToast('新关系必填,演变章须为 ≥1 的章号', { tone: 'danger' }); return }
         await api.evolveRelation({ src: srcOid, dst: dstOid, relation: act.relation, since_chapter: Number(act.chapter) })
         showToast('关系已演变', { tone: 'ok' })
       } else if (act.mode === 'end') {
-        if (act.chapter === '') { showToast('结束章必填', { tone: 'danger' }); return }
+        // until_chapter 后端无 ASSERT,但章号 1-based,0/负数无意义,一并拦(与建立/演变一致)。
+        if (!isChapterNum(act.chapter)) { showToast('结束章须为 ≥1 的章号', { tone: 'danger' }); return }
         await api.endRelation({ src: srcOid, dst: dstOid, until_chapter: Number(act.chapter) })
         showToast('关系已结束', { tone: 'ok' })
       }

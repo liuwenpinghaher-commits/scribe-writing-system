@@ -4,10 +4,11 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
+import { LabelSelect } from './LabelSelect'
 
 // 卡片墙单卡:色条 + 章号标题 + synopsis(inline 编辑)+ 字数/POV/QC/状态角标。
 // 拖拽手柄(GripVertical)单独绑 listeners,正文区可点击进写作台。
-export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragHandle = true }) {
+export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, onPatchLabel, dragHandle = true }) {
   const seq = chapter.seq
   const sortable = useSortable({ id: `card-${seq}`, data: { seq } })
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable
@@ -85,11 +86,11 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, dragH
           {qc > 0
             ? <span className="inline-flex items-center gap-0.5 text-warn tnum"><TriangleAlert size={12} className="shrink-0" />{qc}</span>
             : <Check size={13} className="text-ok" />}
-          {labelMeta && (
-            <span className="ml-auto inline-flex items-center gap-1" style={{ color: `var(--color-${labelMeta.token})` }}>
-              <Diamond size={11} className="shrink-0" />{labelMeta.text}
-            </span>
-          )}
+          {/* 章状态:可编辑下拉(#70 色源生产入口);有值时前置 ◇ 保留原徽章视觉 */}
+          <span className="ml-auto inline-flex items-center gap-0.5">
+            {labelMeta && <Diamond size={11} className="shrink-0" style={{ color: `var(--color-${labelMeta.token})` }} />}
+            <LabelSelect value={chapter.label} onChange={(v) => onPatchLabel?.(seq, v)} className="text-f11 max-w-[76px]" />
+          </span>
         </div>
       </div>
     </div>

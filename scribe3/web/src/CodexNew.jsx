@@ -3,6 +3,7 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 import { api } from './api'
 import { DetailView } from './views/CodexView'
 import { Btn } from './ui.jsx'
+import { isChapterNum } from './lib/utils'
 
 // 素材分类 ref → DetailView type
 const CAT_TO_TYPE = {
@@ -34,8 +35,9 @@ function emptyDraft(catType) {
 // 校验:创建前最小必填
 function isValid(catType, d) {
   if (catType === 'promise') return !!(d.text && d.text.trim())
-  // 命题:主体 + 属性 + 值三者必填(对齐后端 FactIn 无默认的 entity/attribute/value)
-  if (catType === 'proposition') return !!(d.entity && d.entity.trim() && d.attribute && d.attribute.trim() && d.value && d.value.trim())
+  // 命题:主体 + 属性 + 值三者必填(对齐后端 FactIn 无默认的 entity/attribute/value)。
+  // 批D Minor①:生效章须 ≥1(默认 1;用户在 DetailView 数字框可清空/输 0,valid_from 语义 1-based)。
+  if (catType === 'proposition') return !!(d.entity && d.entity.trim() && d.attribute && d.attribute.trim() && d.value && d.value.trim() && isChapterNum(d.valid_from))
   return !!(d.name && d.name.trim())
 }
 
@@ -65,7 +67,7 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
   if (!type) return <div className="p-6 text-f13 text-faint">未知设定类型:{catType}</div>
 
   const create = async () => {
-    if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : catType === 'proposition' ? '请填写主体、属性与值' : '请填写名称'); return }
+    if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : catType === 'proposition' ? '请填写主体、属性、值,生效章须为 ≥1 的章号' : '请填写名称'); return }
     setSaving(true); setErr('')
     try {
       const ref = await createRecord(catType, draft)

@@ -11,6 +11,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, TriangleAlert, Check, Diamond } from 'lucide-react'
 import { chapterLabel } from './chapterLabel'
 import { cardColorVar, wcLabel, povLabel, POV_HINT, LABEL_META } from './outlineColors'
+import { LabelSelect } from './LabelSelect'
 import { showToast } from './ui/Toast'
 
 // 单元格 synopsis inline 编辑。梗概是章级大纲的单一真相源(与 ChapterStudio OutlineTab
@@ -57,7 +58,7 @@ function SynopsisCell({ chapter, onPatchSynopsis }) {
   )
 }
 
-function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
+function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis, onPatchLabel }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: `row-${chapter.seq}`, data: { seq: chapter.seq } })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }
@@ -84,10 +85,12 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis }) {
       <td className="px-2 py-2 align-top min-w-[180px] w-full max-w-0"><SynopsisCell chapter={chapter} onPatchSynopsis={onPatchSynopsis} /></td>
       <td className="px-2 py-2 align-top text-f12 text-faint tnum whitespace-nowrap">{wcLabel(chapter.word_count)}</td>
       <td className="px-2 py-2 align-top text-f12 text-faint whitespace-nowrap" title={POV_HINT}>{povLabel(chapter.focalizer)}</td>
+      {/* 状态:可编辑下拉(#70 色源生产入口);有值时前置 ◇ 保留原徽章视觉 */}
       <td className="px-2 py-2 align-top whitespace-nowrap">
-        {labelMeta
-          ? <span className="inline-flex items-center gap-1 text-f11" style={{ color: `var(--color-${labelMeta.token})` }}><Diamond size={11} className="shrink-0" />{labelMeta.text}</span>
-          : <span className="text-f11 text-faint/40">—</span>}
+        <span className="inline-flex items-center gap-0.5">
+          {labelMeta && <Diamond size={11} className="shrink-0" style={{ color: `var(--color-${labelMeta.token})` }} />}
+          <LabelSelect value={chapter.label} onChange={(v) => onPatchLabel?.(chapter.seq, v)} className="text-f11" />
+        </span>
       </td>
       <td className="px-2 py-2 align-top whitespace-nowrap text-f12">
         {qc > 0
@@ -114,7 +117,7 @@ function EmptyLaneDropZone({ volumeId }) {
 }
 
 // 卷泳道表格(只负责渲染,不持有 DndContext)
-function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
+function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel }) {
   const seqs = lane.chapters.map((c) => c.seq)
   return (
     <div className="mb-6">
@@ -140,7 +143,7 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
             <tbody>
               {lane.chapters.map((c, i) => (
                 <Row key={c.seq} chapter={c} idx={i} colorMode={colorMode}
-                  onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
+                  onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onPatchLabel={onPatchLabel} />
               ))}
             </tbody>
           </SortableContext>
@@ -155,7 +158,7 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis }) {
  * onReorder(volumeId, newSeqs, prevSeqs) → 卷内重排
  * onCrossVolumeMove(activeSeq, toVolumeId, overSeq) → 跨卷
  */
-export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder, onCrossVolumeMove }) {
+export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onPatchLabel, onReorder, onCrossVolumeMove }) {
   const [guarded, setGuarded] = useState(() => {
     try { return localStorage.getItem('s3.reorder.guarded') === '1' } catch { return false }
   })
@@ -215,7 +218,7 @@ export function Outliner({ lanes, colorMode, onOpen, onPatchSynopsis, onReorder,
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       {lanes.map((lane) => (
         <LaneTable key={lane.volumeId ?? 'null'} lane={lane} colorMode={colorMode}
-          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} />
+          onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onPatchLabel={onPatchLabel} />
       ))}
     </DndContext>
   )
