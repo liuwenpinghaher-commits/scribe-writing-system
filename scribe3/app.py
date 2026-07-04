@@ -2018,39 +2018,51 @@ def _final_reminder() -> str:
     )
 
 
+def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
+                                 seed_words: list, short_mode: bool) -> str:
+    """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
+    POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
+    "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
+    (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。"""
+    from scribe3.craft import build_craft_block
+    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
+    instructions += f"\n当前第 {chapter} 章。"
+    if focalizer:
+        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    instructions += _avoid_directive(st, chapter)
+    instructions += _voice_anchor_block(st, focalizer)
+    instructions += _arc_state_block(st, focalizer, chapter)
+    instructions += _motif_block(st)
+    instructions += _frame_block(st, focalizer, chapter)
+    instructions += _revelation_discipline_block(focalizer)
+    instructions += _recap_block(st, chapter)
+    instructions += _current_tail_block(st, chapter)
+    instructions += _soak_block(seed_words)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
+    if craft:
+        instructions += "\n\n" + craft
+    instructions += _phase_role_block(phase)
+    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
+    if (phase or "").strip().lower() == "draft":
+        ded = _deduction_block(st, chapter)
+        instructions += "\n\n" + ded
+        logging.getLogger("scribe3").debug(
+            "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
+            chapter, len(ded))
+    instructions += _final_reminder()
+    return instructions
+
+
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
-    from scribe3.craft import build_craft_block
     st = _store_for(work)
-    instructions = _editor_write_system(st, focalizer=req.focalizer, chapter=req.chapter)
-    instructions += f"\n当前第 {req.chapter} 章。"
-    if req.focalizer:
-        instructions += f"作者指定本章跟随焦点者 {req.focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
-    else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-    instructions += _avoid_directive(st, req.chapter)
-    instructions += _voice_anchor_block(st, req.focalizer)
-    instructions += _arc_state_block(st, req.focalizer, req.chapter)
-    instructions += _motif_block(st)
-    instructions += _frame_block(st, req.focalizer, req.chapter)
-    instructions += _revelation_discipline_block(req.focalizer)
-    instructions += _recap_block(st, req.chapter)
-    instructions += _current_tail_block(st, req.chapter)
-    instructions += _soak_block(req.seed_words)
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=req.short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(req.phase)
-    instructions += _outline_block(st, req.chapter, req.focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
-    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    if (req.phase or "").strip().lower() == "draft":
-        ded = _deduction_block(st, req.chapter)
-        instructions += "\n\n" + ded
-        logging.getLogger("scribe3").debug(
-            "chat/write[POST] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-            req.chapter, len(ded))
-    instructions += _final_reminder()
+    instructions = _assemble_write_instructions(
+        st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+        seed_words=req.seed_words, short_mode=req.short_mode)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -2085,6 +2097,123 @@ def chat_messages(chapter: int | None = None, limit: int = 500, work: str = "mai
     复盘蒸馏(任务8)与「当初为什么这么定」的翻账都从这里读。
     GET /chat/write(兼容端点,无生产调用方)不落库——台账 D-005。"""
     return _store_for(work).list_chat_messages(chapter=chapter, limit=limit)
+
+
+def _collect_write(message, instructions: str, with_tools: bool = True):
+    """同步(非 SSE)写作收集器,loop 编排(北极星任务4)用。与 _stream_write 同一事件源
+    (_responses_events 可 monkeypatch)与同一 ProposalParser 语义,只是不产 SSE 帧。
+    返回 (围栏外散文, proposals=[{scope, prose}, ...]);LLM 异常向上抛(journal 的
+    in_progress 会停在 generate stage,resume/审计可见,不吞错)。"""
+    from scribe3.llm import hermes_responses_events
+    from scribe3.proposal import ProposalParser
+    fn = _responses_events or hermes_responses_events
+    parser = ProposalParser()
+    outside: list[str] = []
+    proposals: list[dict] = []
+    cur = {"scope": None, "prose": []}
+
+    def drain(events):
+        for kind, val in events:
+            if kind == "delta":
+                outside.append(val)
+            elif kind == "proposal_open":
+                cur["scope"] = val
+                cur["prose"] = []
+            elif kind == "proposal_delta":
+                cur["prose"].append(val)
+            elif kind == "proposal_close":
+                proposals.append({"scope": cur["scope"], "prose": "".join(cur["prose"])})
+                cur["scope"] = None
+                cur["prose"] = []
+
+    for ev in fn(message, instructions, with_tools=with_tools):
+        if ev.get("type") == "response.output_text.delta":
+            drain(parser.feed(ev.get("delta", "")))
+    drain(parser.flush())
+    return "".join(outside), proposals
+
+
+def _loop_journal_path(work: str, chapter: int):
+    """loop 编排 journal 路径(北极星任务4,台账 D-012)。与 _import_journal_path 的
+    临时目录语义**刻意不同**:loop journal 兼任秘密审计(任务13)的抽查数据源
+    ("哪章被自动回炉了几轮、为什么"),须持久——默认 ~/.scribe3-loop-journals/{work}/,
+    SCRIBE3_LOOP_JOURNAL_DIR 可覆盖(测试指 tmp_path)。每次调用新开带纳秒时间戳的
+    文件:重复 loop 同章不串账(journal 的 should_skip 语义只在单次运行内成立)。"""
+    import time
+    from pathlib import Path
+    base = os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR") or os.path.expanduser("~/.scribe3-loop-journals")
+    d = Path(base) / work
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"loop_ch{chapter}_{time.time_ns()}.json"
+
+
+class LoopChapterReq(BaseModel):
+    chapter: int
+    focalizer: str = ""
+    msg: str = ""            # 可选驱动语;默认"按简报写第N章正文"
+    phase: str = "final"
+    short_mode: bool = False
+
+
+@app.post("/loop/chapter")
+def loop_chapter(req: LoopChapterReq, work: str = "main"):
+    """北极星任务4:修复环编排端点(蓝图 §3-①)。同步长请求(D-009:单用户本地工具
+    形态;响应带 journal_path 留 202 演进位)。编排纯逻辑在 scribe3/loop.py(依赖注入),
+    本端点只绑真实现:
+    - generate 复用 chat_write 完整组装链(_assemble_write_instructions 同一函数,
+      宪法:regenerate 绝不另起简化 prompt);负面约束段追加在 instructions 尾部;
+    - post_check 直接调用 /post-check 端点函数(判据零漂移);
+    - blocking→自动回炉≤2轮 / advisory→清单待批不重写 / pass→落库+final版+同步 ingest;
+    - loop 自动轮不写 chat_message(D-010,journal 已留痕)。"""
+    from scribe3.ingest import ingest_chapter
+    from scribe3.loop import run_chapter_loop
+    from scribe3.pipeline_journal import PipelineJournal
+    st = _store_for(work)
+    jp = _loop_journal_path(work, req.chapter)
+    journal = PipelineJournal(jp)
+
+    def _generate(attempt: int, constraints: str) -> str:
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+            seed_words=[], short_mode=req.short_mode)
+        if constraints:
+            instructions += "\n\n" + constraints
+        msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
+                          f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+        text, proposals = _collect_write(msg, instructions, with_tools=_work_has_tools(work))
+        return proposals[-1]["prose"] if proposals else _strip_preamble(text)
+
+    def _post_check(prose: str) -> dict:
+        return post_check(PostCheckReq(prose=prose, focalizer=req.focalizer,
+                                       short_mode=req.short_mode),
+                          seq=req.chapter, work=work)
+
+    def _persist_version(prose: str, attempt: int, verdict: str) -> str:
+        return st.add_chapter_version(
+            req.chapter, prose, label=f"loop第{attempt}稿·{verdict}",
+            kind="checkpoint", stage="draft", stats=_prose_stats(prose))
+
+    def _finalize(prose: str) -> dict:
+        title = (st.get_chapter(req.chapter) or {}).get("title") or ""
+        st.save_chapter(req.chapter, prose, title=title, focalizer=req.focalizer or None)
+        try:
+            st.add_chapter_version(req.chapter, prose, label="loop过审", kind="final",
+                                   stage="final", stats=_prose_stats(prose))
+        except Exception as e:
+            logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
+        try:
+            from scribe3.llm import hermes_complete
+            r = ingest_chapter(st, req.chapter, hermes_complete)
+            return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
+        except Exception as e:
+            logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
+            return {"ok": False, "error": str(e)[:160]}
+
+    result = run_chapter_loop(chapter=req.chapter, generate=_generate,
+                              post_check=_post_check, persist_version=_persist_version,
+                              finalize=_finalize, journal=journal)
+    result["journal_path"] = str(jp)
+    return result
 
 
 @app.get("/chapters")
