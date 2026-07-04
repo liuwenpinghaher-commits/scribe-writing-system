@@ -4476,3 +4476,52 @@ def test_draft_check_quality_flags_fail_soft(store, monkeypatch):
     body = r.json()
     assert "quality_flags" in body["degraded_stages"], "quality_flags 应 fail-soft 计入 degraded"
     assert body["quality"]["total"] == 0, "降级时质量计数归零,不 500"
+
+
+# ===== 方案A任务7:/post-check 接线 find_elegant_variation(同义词循环) =====
+
+def test_post_check_elegant_variation_issue(store):
+    """/post-check:store 里有角色「陈九」,正文用泛称(那男人/少年)反复替换指代时,
+    issues 应含 type=elegant_variation 一条,meta.aliases 含命中的泛称。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:陈九", "character", "陈九"))
+    prose = "陈九抬头看天。那男人叹了口气。少年攥紧了拳。陈九转身就走。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    ev = [i for i in r.get("issues", []) if i.get("type") == "elegant_variation"]
+    assert ev, f"应检出 elegant_variation issue,实际 issues 类型: {[i.get('type') for i in r.get('issues', [])]}"
+    assert set(ev[0]["meta"]["aliases"]) >= {"那男人", "少年"}
+
+
+def test_post_check_elegant_variation_fail_soft(store, monkeypatch):
+    """/post-check:st.characters() 抛异常时 elegant_variation 检测 fail-soft 跳过,不 500。"""
+    import scribe3.store as storemod
+
+    monkeypatch.setattr(storemod.SurrealStore, "characters",
+                        lambda self: (_ for _ in ()).throw(RuntimeError("db 炸了")))
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "正文。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"characters() 抛异常时 /post-check 应 200,实际: {r.status_code}"
+    assert not any(i.get("type") == "elegant_variation" for i in r.json().get("issues", []))
+
+
+def test_post_check_no_characters_no_elegant_variation(store):
+    """/post-check:库中无角色时,elegant_variation 不产生命中(不误报,不崩溃)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "陈九抬头看天。那男人叹了口气。少年攥紧了拳。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    assert not any(i.get("type") == "elegant_variation" for i in r.json().get("issues", []))

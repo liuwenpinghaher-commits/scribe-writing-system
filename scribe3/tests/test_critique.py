@@ -917,3 +917,39 @@ class TestRhythmUniformity:
         from scribe3.critique import find_rhythm_uniformity
         t = self._mk([3, 41, 12, 7, 55, 2, 23, 9, 38, 5] * 2) + "「好。」「走。」「快。」" * 10
         assert find_rhythm_uniformity(t)["verdict"] == "ok"
+
+
+# ==== 方案A任务7:副词密度 + 句内三段式 + 同义词循环三检测器 ====
+# oh-story anti-ai-writing 模式2(副词表)+ 维基 rule of three + 维基 elegant variation。
+# 三者均 report-only,宁可漏不滥杀:单次出现/单句三连合法,密度/循环才是AI腔信号。
+
+class TestAdverbTriadVariation:
+    def test_adverb_density(self):
+        from scribe3.critique import find_adverb_density
+        t = "他微微一笑。她淡淡开口。风缓缓吹过。他轻轻放下。" + "长句填充。" * 20
+        r = find_adverb_density(t)   # 该文本千字密度远超3
+        assert r and r["per_k"] > 3
+
+    def test_adverb_sparse_clean(self):
+        from scribe3.critique import find_adverb_density
+        assert find_adverb_density("他微微一笑。" + "普通叙述句子填充内容。" * 200) is None
+
+    def test_rule_of_three(self):
+        from scribe3.critique import find_rule_of_three
+        t = "院子里安静、破败、荒凉。屋里阴冷、潮湿、发霉。桌上干净、整齐、一尘不染。"
+        assert len(find_rule_of_three(t)) >= 3
+
+    def test_two_items_clean(self):
+        from scribe3.critique import find_rule_of_three
+        assert find_rule_of_three("院子安静、破败。") == []
+
+    def test_elegant_variation(self):
+        from scribe3.critique import find_elegant_variation
+        t = "陈九抬头看天。那男人叹了口气。少年攥紧了拳。陈九转身就走。"
+        hits = find_elegant_variation(t, names=["陈九"])
+        assert hits and set(hits[0]["aliases"]) >= {"那男人", "少年"}
+
+    def test_variation_far_apart_clean(self):
+        from scribe3.critique import find_elegant_variation
+        t = "陈九抬头看天。" + "无关叙述。" * 60 + "少年攥紧了拳。"
+        assert find_elegant_variation(t, names=["陈九"]) == []

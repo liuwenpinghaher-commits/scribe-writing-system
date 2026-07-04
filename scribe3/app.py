@@ -2514,6 +2514,23 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "meta": {"entity": hint.get("entity"), "severity": hint.get("severity")},
         })
 
+    # 方案A任务7:同义词循环(elegant_variation)——需要角色名单,纯函数层拿不到,
+    # 不进 quality_flags;这里用 store 上下文取角色名单再调用,fail-soft(取不到角色/
+    # store 异常时直接跳过,不影响 /post-check 整体 200)。
+    try:
+        from scribe3.critique import find_elegant_variation
+        names = [c.name for c in st.characters()]
+        for hit in find_elegant_variation(req.prose, names):
+            issues.append({
+                "type": "elegant_variation",
+                "message": f"同义词循环:「{hit['name']}」被泛称({'、'.join(hit['aliases'])})反复替换指代,疑似刻意避重复过犹不及",
+                "text": hit["name"],
+                "range": hit["range"],
+                "meta": {"aliases": hit["aliases"]},
+            })
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check find_elegant_variation 失败: %s", e)
+
     # M2-②: 接线 B/C 检测器 + 跨章矛盾(fail-soft;异常不阻断,记 degraded_stages)
     dup_lines: list[dict] = []
     try:

@@ -537,16 +537,114 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
     return out
 
 
+# ==== 方案A任务7:副词密度 + 句内三段式 + 同义词循环三检测器 ====
+# 归位纪律(承接 A3 _BANNED_LEXICON 注释②):微微/淡淡/缓缓/轻轻 四个副词【不进】禁用词表
+# ——单次出现是正常修辞,只有密度异常才是 AI 腔信号,故单独走密度检测,report-only。
+_ADVERB_WORDS = ("微微", "淡淡", "缓缓", "轻轻")   # oh-story anti-ai-writing 模式2
+
+
+def find_adverb_density(text: str, per_k_max: float = 3.0) -> dict | None:
+    """副词密度检测(oh-story anti-ai-writing 模式2)。_strip_quoted 后按可见字数
+    (_degen_visible_length,复用 A5 口径)计千字密度——单次出现合法,密度超阈才报;
+    未超阈或全文无命中返回 None(report-only,advisory 性质)。"""
+    s = _strip_quoted(text or "")
+    wc = _degen_visible_length(s)
+    if wc == 0:
+        return None
+    words: dict[str, int] = {w: c for w in _ADVERB_WORDS if (c := s.count(w)) > 0}
+    count = sum(words.values())
+    if count == 0:
+        return None
+    per_k = count * 1000 / wc
+    if per_k <= per_k_max:
+        return None
+    return {"words": words, "per_k": round(per_k, 2), "count": count}
+
+
+# 句内顿号三连(维基 rule of three):恰好三项 X、Y、Z(每项 1-6 字,不含顿号/逗号/句号)
+# 后接句读。四项及以上是铺陈列举,不该报——用负向环视排除"第一项前面还有顿号"的
+# 情形(即排除从更长列表中间截出来的伪三连),故 4+ 项列表整体不命中任一起点。
+_RULE_OF_THREE_ITEM = r"[^、，,。！？\n]{1,6}"
+_RULE_OF_THREE_RE = re.compile(
+    r"(?<!、)(" + _RULE_OF_THREE_ITEM + r")、(" + _RULE_OF_THREE_ITEM + r")、("
+    + _RULE_OF_THREE_ITEM + r")(?=[。！？\n])"
+)
+
+
+def find_rule_of_three(text: str) -> list[dict]:
+    """句内三段式(维基 rule of three)检测:恰好三项顿号并列后接句读。引号内
+    (台词/弹幕)豁免——体裁正常形态,只判叙述层。report-only,不做密度门(密度门
+    在 quality_flags/quality_issues 聚合处实现,见 _rule_of_three_gated)。"""
+    s = text or ""
+    quoted = _quoted_ranges(s)
+    out: list[dict] = []
+    for m in _RULE_OF_THREE_RE.finditer(s):
+        if _in_any_span(m.start(), m.end(), quoted):
+            continue
+        out.append({"phrase": m.group(0), "range": [m.start(), m.end()]})
+    return out
+
+
+# rule_of_three 报告门:单句偶尔三连打比方是正常修辞,只有千字密度超阈才谈得上
+# "句内三段式滥用"这一 AI 腔信号——故聚合层(quality_flags/quality_issues)只有
+# 密度 >_RULE_OF_THREE_GATE_PER_K 才整体上报,否则该章不计入(见 _rule_of_three_gated)。
+_RULE_OF_THREE_GATE_PER_K = 2.0
+
+
+def _rule_of_three_gated(text: str) -> list[dict]:
+    """find_rule_of_three 的报告门:命中千字密度(可见字数口径)须 >_RULE_OF_THREE_GATE_PER_K
+    才整体上报,否则返回空列表(单次修辞合法,密度才是信号)。"""
+    hits = find_rule_of_three(text)
+    if not hits:
+        return []
+    wc = _degen_visible_length(_strip_quoted(text or "")) or 1
+    per_k = len(hits) * 1000 / wc
+    return hits if per_k > _RULE_OF_THREE_GATE_PER_K else []
+
+
+# 同义词循环/精致变异(维基 elegant variation):角色被点名后,后文频繁改用"那男人/
+# 少年"等泛称替换指代,过犹不及的"避免重复"手法。泛称表刻意只收 2 字以上的确定性
+# 词——不收单字词或过泛词如"男人/女人"(会子串误报,如"那男人"里已含"男人")。
+_GENERIC_REFS = ("那男人", "那女人", "少年", "青年", "老者", "主人公", "主角")
+
+
+def find_elegant_variation(text: str, names: list[str], window: int = 200) -> list[dict]:
+    """同义词循环检测(确定性近似,维基 elegant variation/同义词轮换)。对每个 name 的
+    每次出现,查其后 window 字符内是否出现 ≥2 个【不同】泛称 → 报命中;同一 name 多次
+    出现只报首个触发的一处(去噪,避免同一角色刷屏)。report-only。"""
+    s = text or ""
+    out: list[dict] = []
+    for name in names or []:
+        if not name:
+            continue
+        for m in re.finditer(re.escape(name), s):
+            window_text = s[m.end():m.end() + window]
+            aliases = [g for g in _GENERIC_REFS if g in window_text]
+            if len(aliases) >= 2:
+                out.append({"name": name, "aliases": aliases, "range": [m.start(), m.end()]})
+                break  # 同一 name 多次命中只报首处
+    return out
+
+
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
                   allow_words: set[str] | None = None) -> dict:
-    """聚合八类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    """聚合十类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
     allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。
 
-    注意:"rhythm" 键与其余七键类型不同——其余键均为**命中列表**(list[dict],空列表=无命中,
-    调用方惯用 len() 计数),"rhythm" 键是 find_rhythm_uniformity 的返回值,类型为
-    **dict(判定结果) 或 None(句数不足未判)**。对 quality_flags 结果做"逐键当 list
-    处理"(len()/迭代)的调用方须显式排除或跳过 rhythm 键(现有消费点均按显式键名取值,
-    未见通配遍历,不受影响;新增消费方引入前先 grep quality_flags 确认)。"""
+    注意:"rhythm"/"adverb" 两键与其余八键类型不同——其余键均为**命中列表**(list[dict],
+    空列表=无命中,调用方惯用 len() 计数);"rhythm" 是 find_rhythm_uniformity 的返回值,
+    类型为 **dict(判定结果) 或 None(句数不足未判)**;"adverb" 是 find_adverb_density 的
+    返回值,类型为 **dict(超阈命中详情) 或 None(未超阈/无命中)**。对 quality_flags 结果做
+    "逐键当 list 处理"(len()/迭代)的调用方须显式排除或跳过这两键(现有消费点均按显式键名
+    取值,未见通配遍历,不受影响;新增消费方引入前先 grep quality_flags 确认)。
+
+    "rule_of_three" 键经密度报告门(_rule_of_three_gated):单次三连合法,只有千字密度
+    超 _RULE_OF_THREE_GATE_PER_K 才整体上报,否则该章返回空列表——与其余"命中即入列"
+    键的语义略有差异,调用方按空列表=无问题的既有惯例读取即可,无需特殊处理。
+
+    "elegant_variation"(同义词循环)因需要角色名单,纯函数层拿不到,不在此聚合——
+    接线在 scribe3/app.py 的 /post-check(取 store 角色上下文后调用 find_elegant_variation),
+    仅并入 issues,不进 quality_flags。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
@@ -556,6 +654,8 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
         "god_view": find_god_view(text),
         "degeneration": find_degeneration(text),
         "rhythm": find_rhythm_uniformity(text),
+        "adverb": find_adverb_density(text),
+        "rule_of_three": _rule_of_three_gated(text),
     }
 
 
@@ -736,6 +836,27 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
             "text": "",
             "range": None,
             "meta": rhythm,
+        })
+
+    # ⑩ 副词密度(方案A任务7)— 章级判定(千字密度),非逐处命中,range=None。
+    adverb = find_adverb_density(s)
+    if adverb:
+        issues.append({
+            "type": "adverb",
+            "message": f"副词密度过高:「{'/'.join(adverb['words'])}」千字{adverb['per_k']}处(阈值3.0),疑似AI腔",
+            "text": "",
+            "range": None,
+            "meta": adverb,
+        })
+
+    # ⑪ 句内三段式(方案A任务7)— 密度报告门(_rule_of_three_gated)过阈才逐条上报,带 range。
+    for r in _rule_of_three_gated(s):
+        issues.append({
+            "type": "rule_of_three",
+            "message": "句内三段式:「X、Y、Z」排比式并列密度过高,疑似AI腔",
+            "text": r["phrase"],
+            "range": r["range"],
+            "meta": {},
         })
 
     return issues
