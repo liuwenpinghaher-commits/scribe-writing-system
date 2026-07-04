@@ -30,6 +30,16 @@ def test_triage_leak_is_blocking():
     assert "治眼" in t["blocking"][0]["quote"]
 
 
+def test_triage_leak_issue_not_double_counted_in_advisory():
+    """issues 里 type=leak 的兼容层投影不进待批清单(同事已作 blocking 承载)。"""
+    leak_issue = {"type": "leak", "message": "限知泄露:视角角色不该知道「治眼」",
+                  "text": "治眼", "range": [1, 3], "meta": {}}
+    t = triage(_post(leaks=[{"marker": "治眼", "fact_id": "fact:治眼"}],
+                     issues=[leak_issue]))
+    assert t["verdict"] == "blocking"
+    assert all(i["type"] != "leak" for i in t["advisory_items"]), "泄密不得双重计数"
+
+
 def test_triage_degeneration_blocking_vs_advisory():
     hard = {"type": "degeneration", "message": "逐句复读", "text": "他走了。他走了。",
             "meta": {"severity": "blocking", "kind": "sentence_loop"}}

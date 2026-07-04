@@ -70,9 +70,12 @@ def triage(post: dict) -> dict:
     leaks_degraded = bool(post.get("leaks_degraded"))
     # advisory 清单本体(蓝图 §3-①:"rewrite 建议清单呈给作者",不能只给数量)——
     # 复用 issues/punct_suggestions 的 range 数据,人批时可定位原文。
+    # 注:type=="leak" 的 issue 是顶层 leaks 的同事另一投影(post-check F-05 兼容层),
+    # 已作 blocking 承载,不再进待批清单——防同一处泄密双重计数(P0 门真机发现)。
     advisory_items = ([{"type": i.get("type"), "message": i.get("message"),
                         "text": (str(i.get("text") or ""))[:60], "range": i.get("range")}
-                       for i in (post.get("issues") or []) if not _is_blocking_issue(i)]
+                       for i in (post.get("issues") or [])
+                       if not _is_blocking_issue(i) and i.get("type") != "leak"]
                       + [{"type": "punct", "message": str(s.get("message") or "标点建议"),
                           "text": (str(s.get("text") or ""))[:60], "range": s.get("range")}
                          for s in (post.get("punct_suggestions") or [])])
