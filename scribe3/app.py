@@ -2204,6 +2204,14 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         try:
             from scribe3.llm import hermes_complete
             r = ingest_chapter(st, req.chapter, hermes_complete)
+            # ingest 后刷新 scorecard:存稿时快照还没有本章事件(qc_causal=-1 哨兵),
+            # 反哺落库后重算,让 loop 章的面板反映真实因果状态(P0 门真机发现)。
+            try:
+                st._upsert_scorecard(st._compute_scorecard(
+                    req.chapter, prose, req.focalizer or None))
+            except Exception as se:
+                logging.getLogger("scribe3").warning(
+                    "loop ingest 后 scorecard 刷新失败(忽略): %s", se)
             return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)

@@ -60,6 +60,7 @@ def test_loop_chapter_clean_pass_direct_ingest(store, monkeypatch):
     assert body["verdict"] == "pass"
     assert state["n"] == 1, "干净章一次生成直通"
     assert (store.get_chapter(1) or {}).get("prose", "").startswith("院门虚掩"), "pass 章正文落库"
+    assert store.get_chapter_scorecard(1) is not None, "pass 链上 scorecard 已算(save+ingest后刷新)"
     assert body.get("journal_path"), "响应必须带 journal 路径(202 演进位,D-009)"
     assert body["rounds"][0]["version_id"], "每轮稿留版本"
     assert store.list_chat_messages(chapter=1) == [], "loop 自动轮不写 chat_message(D-010)"
