@@ -55,6 +55,8 @@ export const api = {
   events: (ch) => j(`/events?chapter=${ch}`),
   frame: (foc, ch) => j(`/frame?focalizer=${enc(foc)}&chapter=${ch}`),
   irony: (foc, ch) => j(`/irony?focalizer=${enc(foc)}&chapter=${ch}`),
+  // 批D P1-5:返回 {no_event_data: bool, violations: [{event, reason}]}(非裸 list)。
+  // 消费端经 causalStatus 归一化三态,勿对结果直接 .length(见 WriteLayout / causalStatus.js)。
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
   promisesLedger: () => j('/promises/ledger'),

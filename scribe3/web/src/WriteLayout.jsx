@@ -2,12 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { createPortal } from 'react-dom'
 import {
   ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
-  Users, AlignCenter, Search, CircleAlert, CircleCheck, Lock,
+  Users, AlignCenter, Search, CircleAlert, CircleCheck, CircleDashed, Lock,
   BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
   DatabaseZap, Loader2,
 } from 'lucide-react'
 import { api } from './api'
 import { verifyIssues } from './verifyIssues.js'
+import { causalStatus } from './causalStatus.js'
 import { Shell } from './shell'
 import { Btn, Input, SectionTitle, Empty, Row, Tag } from './ui'
 import { Chip } from './ui/Chip'
@@ -110,7 +111,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const [issueCard, setIssueCard] = useState(null)
   const [ignoreTick, setIgnoreTick] = useState(0)
   const [guardOn, setGuardOn] = useState(() => localStorage.getItem('scribe3:guardOn') !== '0')
-  const [causal, setCausal] = useState([])
+  // 批D P1-5:/causal 现返回 {no_event_data, violations}(非裸 list)。持整个对象,派生态经 causalStatus。
+  // 初值 null → causalStatus 归一为「无数据」中性态,首帧不闪「因果完整✅」假绿。
+  const [causal, setCausal] = useState(null)
   const [promises, setPromises] = useState([])
   const [facts, setFacts] = useState([])
   const [events, setEvents] = useState([])
@@ -306,6 +309,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // (backend 用 OVERDUE_SLACK 常量 + intent.overdue_threshold 覆盖,保证全局一致)
   const overdue = (p) => Boolean(p.overdue)
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
+  // /causal 三态派生:状态条(renderVerify)与校验徽章(reviewBadge)同源,防「因果完整✅」假绿。
+  const cstat = causalStatus(causal)
 
   const persist = async (text) => {
     // 记住 save 前当日字数,用于达标判定(fail-soft:拉不到就跳过)
@@ -742,7 +747,11 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       <SectionTitle icon={ShieldCheck}>软校验 · 不挡接受</SectionTitle>
       {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
       {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
-      {causal.length > 0 ? <Row tone="danger" icon={CircleAlert}>因果违规 {causal.length} 处</Row> : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
+      {cstat.state === 'violations'
+        ? <Row tone="danger" icon={CircleAlert}>因果违规 {cstat.count} 处</Row>
+        : cstat.state === 'no-data'
+          ? <Row tone="faint" icon={CircleDashed}>无事件数据可校验</Row>
+          : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
       <div className="text-f11 text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
 
       {/* 生成后全量体检 */}
@@ -894,7 +903,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     </div>
   )
 
-  const reviewBadge = verifyIssues({ leaks, qcN, causal: causal.length }) + openProm.filter(overdue).length
+  const reviewBadge = verifyIssues({ leaks, qcN, causal: cstat.count }) + openProm.filter(overdue).length
 
   // 波B Step3:左轨承载全部数据/校验/演绎面板(原右轨的 校验/演绎 并入左轨,消除第4列)。
   // 写作 chat 不再是这里的 cap —— 它经 portal 渲染进右栏 ChiefDock(见下方 chatPortal)。
