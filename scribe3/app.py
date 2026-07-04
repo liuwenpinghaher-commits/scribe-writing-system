@@ -2499,6 +2499,20 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check 取 craft 豁免失败: %s", e)
 
+    # 方案B任务19:跨批开放伏笔账本注入 reviewer(scribe3 DB 优势区)——同一处取
+    # craft 豁免的上下文里,顺手筛"预计回收章≤本章"的 open promise 作"继承的
+    # 开放项",供下面 LLM 纪律判读作背景(未处理的坑要在 findings 里指出)。
+    # fail-soft:取不到不影响本次体检其余字段。
+    from scribe3.brief import inherited_open_block
+    inherited_open_promises: list[dict] = []
+    inherited_text = ""
+    try:
+        inherited = inherited_open_block(st.promises_with_lifecycle(max_chapter=seq), chapter=seq)
+        inherited_open_promises = inherited["items"]
+        inherited_text = inherited["text"]
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check inherited_open_block 失败: %s", e)
+
     # 1. 确定性五类 QC
     qf = quality_flags(req.prose, extra, allow_words, allow_pats)
     qc_breakdown = {
@@ -2533,7 +2547,15 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         if complete_fn is None:
             from scribe3.llm import hermes_complete
             complete_fn = hermes_complete
-        discipline = discipline_truncate(req.prose, req.brief, complete_fn)
+        # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
+        # build_discipline_prompt(critique.py:1141)的默认纪律文案,再拼继承项,
+        # 避免"继承开放项非空"顶掉默认纪律要求(两者都该在场)。
+        brief_for_discipline = req.brief
+        if inherited_text:
+            base_brief = req.brief or (
+                "(默认:乱世铜炉式克制——单一戏剧主线、不偷跑后续章剧情、terse 角色不大段独白、不解说倾泻)")
+            brief_for_discipline = base_brief + "\n\n" + inherited_text
+        discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
         degraded = True
@@ -2747,6 +2769,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "discipline": discipline,
         "degraded": degraded,
         "degraded_stages": degraded_stages,
+        "inherited_open_promises": inherited_open_promises,
         "setting": setting,
         "issues": issues,
         "duplicate_lines": dup_lines,

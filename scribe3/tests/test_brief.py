@@ -8,7 +8,7 @@ from scribe3.brief import (arc_directive, promise_directives,
                            assemble_chapter_brief, validate_beat_budgets,
                            find_tension_monotony, parse_chapter_meta,
                            heat_of, stale_entity_directives,
-                           emotion_module_recall)
+                           emotion_module_recall, inherited_open_block)
 
 
 def test_arc_directive():
@@ -328,3 +328,26 @@ class TestPlatformDeterministic:
         items = platform_deterministic("字" * 100, platform="qidian")
         wc = next(i for i in items if i["metric"] == "word_count")
         assert wc["value"] == 100 and wc["ok"] is False   # 起点章通常 2000-4000,100 字不达标
+
+
+# ===== 方案B任务19 · 跨批开放伏笔账本注入 reviewer(scribe3 DB 优势区)=====
+# 背景(oh-story story-review/SKILL.md:133):审章前先读"预计回收章≤本章"的 open
+# promises 作"继承的开放项"注入 reviewer。oh-story 靠读伏笔.md 文件做(demo 实锤:
+# 51 条全 [待补充] 冻结);scribe3 有活 DB,直接对 promises_with_lifecycle 结果筛,
+# 不依赖任何人工维护的台账文件。
+
+class TestInheritedOpenBlock:
+    def test_due_promises_injected(self):
+        rows = [
+            {"id": "p1", "text": "玉佩来历", "status": "open", "setup_chapter": 1, "payoff_min": 3, "payoff_max": 5, "tier": "arc"},
+            {"id": "p2", "text": "远期书级", "status": "open", "setup_chapter": 1, "payoff_min": 40, "payoff_max": None, "tier": "book"},
+            {"id": "p3", "text": "已关闭", "status": "closed", "setup_chapter": 1, "payoff_min": 2, "payoff_max": 3, "tier": "chapter"},
+        ]
+        out = inherited_open_block(rows, chapter=5)
+        assert "玉佩来历" in out["text"]           # 窗口内到期,注入
+        assert "远期书级" not in out["text"]        # 远未到期,不注入
+        assert "已关闭" not in out["text"]          # closed 不注入
+        assert "找问题" in out["text"] or "继承的开放项" in out["text"]
+
+    def test_empty_when_nothing_due(self):
+        assert inherited_open_block([], chapter=5)["text"] == ""

@@ -1395,6 +1395,33 @@ def test_post_check_leaks_detected(store):
     assert len(r["leaks"]) > 0, "老道写出治眼应被检出泄露"
 
 
+# ===== 方案B任务19:跨批开放伏笔账本注入 reviewer =====
+# 背景(oh-story story-review/SKILL.md:133):审章前先读"预计回收章≤本章"的 open
+# promise 作"继承的开放项"注入 reviewer——scribe3 有活 DB,直接筛
+# promises_with_lifecycle 结果,不像 oh-story 靠人工维护的伏笔.md 文件。
+
+def test_post_check_injects_inherited_open_promises(store):
+    """/post-check 审查本章(seq=5)时,已 seed 的到期 open promise(chapter 层
+    setup_chapter=1 → payoff_max=4,seq=5 已过窗口)应:
+    ①注入 discipline prompt(complete_fn 收到的 prompt 含该伏笔文本);
+    ②响应含非空 inherited_open_promises 列表。"""
+    store.plant_promise("到期未收的青铜匣", setup_chapter=1, kind="promise")
+
+    captured_prompts = []
+
+    def fake_complete(prompt, **kw):
+        captured_prompts.append(prompt)
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 5},
+               json={"prose": "本章正文,未提及该伏笔。", "focalizer": "", "brief": ""}).json()
+
+    assert captured_prompts, "discipline complete_fn 应被调用"
+    assert "到期未收的青铜匣" in captured_prompts[0], "discipline prompt 应含继承的开放项文本"
+    assert r.get("inherited_open_promises"), "响应应含非空 inherited_open_promises"
+
+
 # ===== Fix 1: _current_tail_block 续写衔接注入 =====
 
 def test_current_tail_block_with_prose(store):

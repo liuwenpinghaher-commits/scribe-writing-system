@@ -118,6 +118,41 @@ def open_loop_ledger(rows: list[dict], cap: int = _LOOP_CAP) -> dict:
     return {"weighted": weighted, "cap": cap, "over_cap": weighted > cap}
 
 
+# ===== 方案B任务19 · 跨批开放伏笔账本注入 reviewer(scribe3 DB 优势区)=====
+# 背景(oh-story story-review/SKILL.md:133):审章前先读开放伏笔("预计回收章≤本章"
+# 的 open promise)作"继承的开放项"注入 reviewer——oh-story 靠人工维护的伏笔.md 文件
+# 做这件事(demo 实锤:51 条全 [待补充] 冻结,等于没做);scribe3 有活 DB,直接对
+# promises_with_lifecycle/list_promises 的结果按窗口字段筛,不依赖任何人工台账。
+def inherited_open_block(rows: list[dict], chapter: int) -> dict:
+    """筛出「审查本章(chapter)时已到期/在兑现窗口内」的 open promise,组装成
+    一段可直接拼进 reviewer prompt 的"继承的开放项"文案。
+
+    到期口径(不依赖 window 计算态字段,rows 可以是 list_promises 的裸行):
+    status=="open" 且满足以下任一:
+      - payoff_max 非 None 且 payoff_max<=chapter(已到/超兑现窗口终点,含 overdue);
+      - payoff_min<=chapter<=payoff_max(仍在兑现窗口内,尚未到终点但已该露面)。
+    book 层 payoff_max 常年为 None(无远期上限),只会命中第一条为假、第二条也因
+    payoff_max 为 None 而跳过——不会被误判到期,措辞/口径与 promise_directives(:90)一致。
+    """
+    due = []
+    for p in rows:
+        if p.get("status") != "open":
+            continue
+        pmin, pmax = p.get("payoff_min"), p.get("payoff_max")
+        if pmax is not None and pmax <= chapter:
+            due.append(p)
+        elif pmin is not None and pmax is not None and pmin <= chapter <= pmax:
+            due.append(p)
+    if not due:
+        return {"text": "", "items": due}
+    lines = "\n".join(
+        f"  · 「{(p.get('text') or '').replace(chr(10), ' ')}」(tier={p.get('tier') or 'chapter'},"
+        f"兑现窗口 {p.get('payoff_min')}-{p.get('payoff_max') if p.get('payoff_max') is not None else '无上限'})"
+        for p in due)
+    text = ("继承的开放项(审查本章是否推进/回收了它们;未处理的要在 findings 里指出):\n" + lines)
+    return {"text": text, "items": due}
+
+
 def tension_deterministic(st, seq: int) -> list[dict]:
     """章后确定性张力项:进展路标 / 信息差盘点 / 开环账本。每项 {item, pass, detail, fix}。
 
