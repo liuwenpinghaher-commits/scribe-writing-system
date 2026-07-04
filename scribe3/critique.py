@@ -199,18 +199,145 @@ def find_purple_prose(text: str, extra_patterns: list[str] | None = None) -> lis
 
 
 # 通用 AI 腔硬检(E1/E2,题材无关,来自 hermes-novel hard-checks)
-_NOT_A_BUT_B = re.compile(r"不是.{1,15}——是")
+# E2「不是A——是B」结构性扫描,移植自 oh-story check-ai-patterns.js 的
+# findNotIsComparisons/findPositiveFlipEnd——原正则 `不是.{1,15}——是` 只认破折号一种变体,
+# 真实文本里"不是A而是B/不是A，是B/不是A。是B/不是A是B"同样是伪深刻制造器,须结构性扫。
+_STOP_CHARS = set("。！？!?\n")
+_SOFT_SEPARATORS = set("，,、；;：:")
+_HARD_SEPARATORS = set("。.！!？?")
+_MAX_NEGATIVE_SPAN = 80
+_MAX_POSITIVE_SPAN = 80
+# either-or「不是A就是B/也是B」里紧贴的"是"是连词的一部分,不是肯定项系动词;
+# 也借此排掉「不是A,也不是B」这种第二个否定段(prev 为"也"时不算翻转)。
+_COMPACT_EITHER_OR_PREV = set("不就也")
+# 句尾语气/反问助词:"…,是吗/是吧/是嘛"是反问尾巴,不是否定后的肯定翻转。
+_TAG_PARTICLES = set("吗吧嘛")
+_TRAILING_NOISE = re.compile(r"[\s\)）】\]]+$")
+
+_WIKI_FLIPS = [
+    ("bujin", re.compile(r"不仅[^。！？\n]{1,40}?(?:而且|还)[^。！？\n]{1,40}")),
+    ("erfei", re.compile(r"[^。！？\n，,]{1,20}，?而非[^。！？\n]{1,20}")),
+    ("yuqishuo", re.compile(r"与其说[^。！？\n]{1,40}?不如说[^。！？\n]{1,40}")),
+]
+
+
+def _skip_gap(s: str, i: int) -> int:
+    """跳过行内空白,若随后紧跟换行则再跳一次换行后的行首空白(移植自 JS skipGap)。"""
+    n = len(s)
+    while i < n and s[i] in " \t\r":
+        i += 1
+    if i < n and s[i] == "\n":
+        i += 1
+        while i < n and s[i] in " \t\r":
+            i += 1
+    return i
+
+
+def _find_positive_flip(candidate: str) -> tuple[int, str] | None:
+    """在以"不是"开头的候选串里找肯定翻转点。返回 (候选串内结束下标, variant) 或 None。
+    逐字符扫描,移植自 findPositiveFlipEnd,护栏语义与 JS 版一致(#166 假阳性坑验证过)。"""
+    n = len(candidate)
+    index = 2  # 跳过"不是"
+    scanned = 0
+    crossed_separator = False
+    while index < n and scanned <= _MAX_NEGATIVE_SPAN:
+        ch = candidate[index]
+
+        if candidate[index:index + 2] == "而是":
+            return index + 2, "compact_ershi"
+
+        if ch in _SOFT_SEPARATORS:
+            nxt = _skip_gap(candidate, index + 1)
+            if candidate[nxt:nxt + 2] == "而是":
+                return nxt + 2, "compact_ershi"
+            if nxt < n and candidate[nxt] == "是" and (nxt + 1 >= n or candidate[nxt + 1] not in _TAG_PARTICLES):
+                return nxt + 1, "soft_sep_shi"
+            crossed_separator = True
+
+        if ch in _HARD_SEPARATORS:
+            nxt = _skip_gap(candidate, index + 1)
+            if nxt < n and candidate[nxt] == "是" and (nxt + 1 >= n or candidate[nxt + 1] not in _TAG_PARTICLES):
+                return nxt + 1, "hard_sep_shi"
+            if ch != ".":
+                break
+            crossed_separator = True
+
+        if ch in _STOP_CHARS:
+            break
+
+        # 首分句内的紧凑形式"不是A是B";跨分隔符后"只是/但是/还是/于是"的尾"是"是连词
+        # 而非系动词(crossed_separator 挡掉),就/也 开头同理(either-or 惯用语排除)。
+        if (ch == "是" and candidate[index - 1] not in _COMPACT_EITHER_OR_PREV
+                and not crossed_separator
+                and (index + 1 >= n or candidate[index + 1] not in _TAG_PARTICLES)):
+            return index + 1, "compact_shi"
+
+        index += 1
+        scanned += 1
+
+    return None
+
+
+def _extract_flip_end(candidate: str, marker_end: int) -> int:
+    """从翻转点向后扩到下一个 STOP_CHAR 或 MAX_POSITIVE_SPAN 上限(移植 extractFinding)。"""
+    end = marker_end
+    limit = min(len(candidate), marker_end + _MAX_POSITIVE_SPAN)
+    while end < limit:
+        if candidate[end] in _STOP_CHARS:
+            break
+        end += 1
+    return end
+
+
+def find_negation_flips(text: str) -> list[dict]:
+    """否定翻转伪深刻句式:「不是A——是B」及其结构性变体(compact_ershi/soft_sep_shi/
+    hard_sep_shi/compact_shi)+ 维基三变体(不仅…而且/而非/与其说…不如说)。
+
+    移植自 oh-story check-ai-patterns.js 的 findNotIsComparisons——原正则只认
+    破折号一种写法,真实生成文本里"不是A而是B/,是B/。是B/是B"同样是伪深刻制造器。
+    含结构性护栏(是不是反问/连词尾"是"/either-or/双重否定/反问语气词),照搬 JS 已验证
+    的护栏语义,不是自造词表。report-only,不改文本;返回 offset 供前端定位。
+    """
+    s = text or ""
+    out: list[dict] = []
+    offset = 0
+    n = len(s)
+    while offset < n:
+        start = s.find("不是", offset)
+        if start < 0:
+            break
+        if start > 0 and s[start - 1] == "是":  # "是不是" 反问,跳过
+            offset = start + 2
+            continue
+        candidate = s[start:]
+        found = _find_positive_flip(candidate)
+        if found is None:
+            offset = start + 2
+            continue
+        marker_end, variant = found
+        end = _extract_flip_end(candidate, marker_end)
+        raw = _TRAILING_NOISE.sub("", candidate[:end])
+        visible = re.sub(r"[\s，,。.！!?？、；;:：「」『』“”‘’…—\-（）()【】\[\]]", "", raw)
+        if len(visible) >= 4:
+            out.append({"variant": variant, "phrase": raw, "range": [start, start + len(raw)]})
+        offset = start + max(len(raw), 2)
+
+    for variant, pat in _WIKI_FLIPS:
+        for m in pat.finditer(s):
+            out.append({"variant": variant, "phrase": m.group(0), "range": [m.start(), m.end()]})
+
+    return out
 
 
 def find_ai_tics(text: str) -> list[dict]:
-    """E1 破折号全章>5;E2「不是A——是B」句式(LLM 最常见的伪深刻制造器)。"""
+    """E1 破折号全章>5;E2 否定翻转伪深刻句式(不是A——是B 及其 4+3 变体,LLM 最常见的伪深刻制造器)。"""
     out: list[dict] = []
     dash = (text or "").count("——")
     wc = len("".join((text or "").split()))
     if wc > 0 and dash * 1000 / wc > 2:
         out.append({"kind": "em_dash", "count": dash})
-    for m in _NOT_A_BUT_B.finditer(text or ""):
-        out.append({"kind": "not_a_but_b", "phrase": m.group(0)})
+    for hit in find_negation_flips(text):
+        out.append({"kind": "not_a_but_b", "phrase": hit["phrase"], "variant": hit["variant"]})
     return out
 
 
@@ -293,14 +420,14 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None) -> list[d
     issues: list[dict] = []
     s = text or ""
 
-    # ① AI 腔 · not_a_but_b — 白送:finditer 直接给 offset
-    for m in _NOT_A_BUT_B.finditer(s):
+    # ① AI 腔 · not_a_but_b — 白送:find_negation_flips 直接给 offset
+    for hit in find_negation_flips(s):
         issues.append({
             "type": "ai_tics",
-            "message": "AI腔:「不是A——是B」伪深刻句式",
-            "text": m.group(0),
-            "range": [m.start(), m.end()],
-            "meta": {"kind": "not_a_but_b"},
+            "message": "AI腔:否定翻转伪深刻句式(不是A——是B 及变体)",
+            "text": hit["phrase"],
+            "range": hit["range"],
+            "meta": {"kind": "not_a_but_b", "variant": hit["variant"]},
         })
 
     # ② AI 腔 · em_dash — 密度超阈值才报,逐个给 offset

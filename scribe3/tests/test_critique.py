@@ -565,3 +565,67 @@ def test_parse_tension_report_robust_to_bad_json():
     # 前后有解说文字但内含合法 JSON 块 → 仍能提取
     rep = parse_tension_report('好的,报告如下:{"hook":{"present":true}} 完毕')
     assert rep is not None and rep["hook"]["present"] is True
+
+
+# ==== 方案A任务1:否定翻转 4+3 变体检测器(find_negation_flips) ====
+
+class TestNegationFlips:
+    """否定翻转 4 变体 + 维基 3 变体 + 结构性护栏(oh-story check-ai-patterns.js 移植)。"""
+
+    # —— 4 变体正例 ——
+    def test_compact_ershi(self):
+        from scribe3.critique import find_negation_flips
+        assert any(h["variant"] == "compact_ershi"
+                   for h in find_negation_flips("这不是逃避而是选择。"))
+
+    def test_soft_sep_shi(self):
+        from scribe3.critique import find_negation_flips
+        hits = find_negation_flips("这不是结束，是开始。")
+        assert hits and hits[0]["range"] is not None
+
+    def test_hard_sep_shi(self):
+        from scribe3.critique import find_negation_flips
+        assert find_negation_flips("这不是恐惧。是愤怒。")
+
+    def test_compact_shi(self):
+        from scribe3.critique import find_negation_flips
+        assert find_negation_flips("那不是灯火是磷光。")
+
+    def test_legacy_dash_still_caught(self):
+        from scribe3.critique import find_negation_flips
+        assert find_negation_flips("不是风声——是脚步声。")
+
+    # —— 结构性护栏负例(照搬 oh-story,别自己发明) ——
+    def test_shibushi_question_skipped(self):
+        from scribe3.critique import find_negation_flips
+        assert not find_negation_flips("你说这是不是天意?")
+
+    def test_conjunction_after_sep_skipped(self):
+        from scribe3.critique import find_negation_flips
+        # 跨分隔符后首字非「是/而」不判:但是/还是/于是 的尾「是」是连词
+        assert not find_negation_flips("他不是英雄，但是他很勇敢。")
+
+    def test_either_or_skipped(self):
+        from scribe3.critique import find_negation_flips
+        assert not find_negation_flips("他不是疯了就是傻了。")
+
+    def test_double_negation_skipped(self):
+        from scribe3.critique import find_negation_flips
+        assert not find_negation_flips("这不是雨，也不是雪。")
+
+    def test_tag_particle_skipped(self):
+        from scribe3.critique import find_negation_flips
+        assert not find_negation_flips("你不是早知道了吗?")
+
+    # —— 维基三变体 ——
+    def test_bujin_erqie(self):
+        from scribe3.critique import find_negation_flips
+        assert any(h["variant"] == "bujin" for h in find_negation_flips("他不仅救了人，而且分文不取。"))
+
+    def test_erfei(self):
+        from scribe3.critique import find_negation_flips
+        assert any(h["variant"] == "erfei" for h in find_negation_flips("他要的是命，而非钱。"))
+
+    def test_yuqishuo(self):
+        from scribe3.critique import find_negation_flips
+        assert any(h["variant"] == "yuqishuo" for h in find_negation_flips("与其说是庙，不如说是坟。"))
