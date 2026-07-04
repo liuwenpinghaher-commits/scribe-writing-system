@@ -82,6 +82,40 @@ def test_chat_write_get_does_not_persist(store, monkeypatch):
     assert store.list_chat_messages(chapter=1) == []
 
 
+def test_turn_id_pairs_user_and_assistant(store, monkeypatch):
+    """P0门审查 P2-6:同轮 user/assistant 共享 turn id,并发会话可配对。"""
+    monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))
+    _client(store).post("/chat/write", json={"msg": "问", "chapter": 9})
+    msgs = store.list_chat_messages(chapter=9)
+    assert len(msgs) == 2
+    assert msgs[0].get("turn") and msgs[0]["turn"] == msgs[1]["turn"], \
+        "user 与 assistant 必须共享同一 turn id"
+
+
+def test_list_chat_messages_limit_takes_latest(store):
+    """P0门审查 P2-6:limit 取最新 N 条(升序返回),超量后回看不能只见最老。"""
+    for i in range(6):
+        store.add_chat_message(chapter=1, stage="", role="user", text=f"m{i}")
+    msgs = store.list_chat_messages(chapter=1, limit=2)
+    assert [m["text"] for m in msgs] == ["m4", "m5"], "应取最新两条且升序"
+    assert store.list_chat_messages(chapter=1, limit=0), "非法 limit 夹取到 1,不 500"
+
+
+def test_stream_write_on_complete_survives_client_disconnect(monkeypatch):
+    """P0门审查 P1-6:客户端断流(GeneratorExit)也要落已累积的半截 assistant 文本。"""
+    captured = {}
+
+    def fake_events(msg, instructions, with_tools=True):
+        yield {"type": "response.output_text.delta", "delta": "前半"}
+        yield {"type": "response.output_text.delta", "delta": "后半"}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    gen = A._stream_write("msg", "instr", on_complete=lambda t: captured.update(text=t))
+    next(gen)          # 客户端只收到第一帧
+    gen.close()        # 断开:Starlette 语义 = 在 yield 点抛 GeneratorExit
+    assert captured.get("text") == "前半", "断流也须留痕半截文本(finally 落库)"
+
+
 def test_chat_messages_endpoint(store, monkeypatch):
     """GET /chat/messages 回看端点:按章拉取,ts 序列化为字符串。"""
     monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))

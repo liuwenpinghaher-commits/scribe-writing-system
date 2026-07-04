@@ -70,6 +70,9 @@ _complete_fn = None
 #   (如 SurrealDB 上的在途锁行 / Redis SETNX),否则同章 ingest 会跨进程交错。
 _pending_ingest: set[tuple[str, int]] = set()
 _pending_ingest_lock = threading.Lock()
+# P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
+_loop_inflight: set[tuple[str, int]] = set()
+_loop_inflight_lock = threading.Lock()
 
 # P28: LLM调用限流(并发上限 + 日调用上限)
 _MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
@@ -1509,19 +1512,23 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 yield (
                     f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
+        yield 'data: {"done": true}\n\n'
     except Exception as e:
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
-    # 北极星任务1:流尽(含异常提前收尾)后落库 assistant 文本——半截对话也留痕(如实,D-004)。
-    if on_complete is not None:
-        try:
-            txt = "".join(delta_acc).strip()
-            if prop_marks:
-                txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
-            if txt:
-                on_complete(txt)
-        except Exception:
-            logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
-    yield 'data: {"done": true}\n\n'
+        yield 'data: {"done": true}\n\n'
+    finally:
+        # 北极星任务1 + P0门审查 P1-6:落库必须在 finally——客户端断流时 Starlette
+        # 在 yield 点抛 GeneratorExit(BaseException,except Exception 接不住),
+        # 半截对话也要留痕;本块纯副作用不 yield,GeneratorExit 语义安全(D-004)。
+        if on_complete is not None:
+            try:
+                txt = "".join(delta_acc).strip()
+                if prop_marks:
+                    txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
+                if txt:
+                    on_complete(txt)
+            except Exception:
+                logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
 
 
 def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
@@ -1749,38 +1756,15 @@ def _current_tail_block(st, chapter: int) -> str:
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
                work: str = "main", short_mode: bool = False):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
-    事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
-    from scribe3.craft import build_craft_block
+    事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。
+    P0门对抗审查 P2-1:改调 _assemble_write_instructions 单源——此前 GET 自带一套
+    内联组装且已漂移(缺 _revelation_discipline_block 限知揭示纪律),旧注入点教训
+    (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
+    不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
-    instructions += f"\n当前第 {chapter} 章。"
-    if focalizer:
-        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
-    else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-    instructions += _avoid_directive(st, chapter)
-    instructions += _voice_anchor_block(st, focalizer)
-    instructions += _arc_state_block(st, focalizer, chapter)
-    instructions += _motif_block(st)
-    instructions += _frame_block(st, focalizer, chapter)
-    instructions += _recap_block(st, chapter)
-    instructions += _current_tail_block(st, chapter)
-    # P2-a Fix1: GET/POST 块序列对称——soak 当前休眠(GET 无 seed_words 参数,前端未接入),
-    # 传空列表使 _soak_block 返回 "" 无副作用,消除"GET 少一块"的维护陷阱。
-    instructions += _soak_block([])
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(phase)
-    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
-    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    if (phase or "").strip().lower() == "draft":
-        ded = _deduction_block(st, chapter)
-        instructions += "\n\n" + ded
-        logging.getLogger("scribe3").debug(
-            "chat/write[GET] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-            chapter, len(ded))
-    instructions += _final_reminder()
+    instructions = _assemble_write_instructions(
+        st, chapter=chapter, focalizer=focalizer, phase=phase,
+        seed_words=[], short_mode=short_mode)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
                       with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
@@ -2074,14 +2058,19 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
 
     # 北极星任务1:会话落库(蓝图 §4-② 第1级)——user 受理即写,assistant 流尽回调写;
     # 均 best-effort(D-004),落库失败只告警,绝不影响写作主链路。
+    # turn id(P2-6):串起本轮 user/assistant,防并发会话交错污染蒸馏配对。
+    import uuid
+    turn_id = uuid.uuid4().hex[:12]
     user_text = req.msg + (f"\n[附图{len(req.images)}张]" if req.images else "")
     try:
-        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user", text=user_text)
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user",
+                            text=user_text, turn=turn_id)
     except Exception:
         logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
 
     def _persist_assistant(text: str) -> None:
-        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant", text=text)
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
+                            text=text, turn=turn_id)
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
@@ -2169,6 +2158,13 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     from scribe3.loop import run_chapter_loop
     from scribe3.pipeline_journal import PipelineJournal
     st = _store_for(work)
+    # P0门审查 P1-3:同章 loop 互斥——在途拒 409,防双生成/双落库/双 ingest。
+    _lkey = (work, req.chapter)
+    with _loop_inflight_lock:
+        if _lkey in _loop_inflight:
+            raise HTTPException(status_code=409,
+                                detail=f"chapter {req.chapter} 已有 loop 在途(同章互斥)")
+        _loop_inflight.add(_lkey)
     jp = _loop_journal_path(work, req.chapter)
     journal = PipelineJournal(jp)
 
@@ -2181,7 +2177,18 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
                           f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
         text, proposals = _collect_write(msg, instructions, with_tools=_work_has_tools(work))
-        return proposals[-1]["prose"] if proposals else _strip_preamble(text)
+        # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
+        # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通
+        # pass,把既有整章正文静默覆盖掉。
+        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
+        if chapter_props:
+            return chapter_props[-1]["prose"]
+        body = _strip_preamble(text)
+        if len(body.strip()) >= _FALLBACK_MIN_CHARS:
+            return body
+        raise HTTPException(status_code=422, detail=(
+            f"第 {attempt} 轮未产出合格章稿(无 scope=chapter 围栏且散文不足 "
+            f"{_FALLBACK_MIN_CHARS} 字)——请检查驱动语是否要求用围栏交稿"))
 
     def _post_check(prose: str) -> dict:
         return post_check(PostCheckReq(prose=prose, focalizer=req.focalizer,
@@ -2201,25 +2208,36 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                                    stage="final", stats=_prose_stats(prose))
         except Exception as e:
             logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
+        # P0门审查 P1-3:loop 的同步 ingest 也走 _pending_ingest 在途护栏——与 /ingest、
+        # _bg_ingest 共用同一 (work,seq) 集合,防 loop 长请求期间用户手点反哺/存稿触发的
+        # ingest 与本次交错(knows/char_state/motif_instance 双份或互删)。
+        ikey = (work, req.chapter)
+        with _pending_ingest_lock:
+            if ikey in _pending_ingest:
+                return {"ok": False,
+                        "error": "同章 ingest 在途(_pending_ingest 护栏),本次跳过;正文已落库,稍后可手动 /ingest"}
+            _pending_ingest.add(ikey)
         try:
             from scribe3.llm import hermes_complete
             r = ingest_chapter(st, req.chapter, hermes_complete)
-            # ingest 后刷新 scorecard:存稿时快照还没有本章事件(qc_causal=-1 哨兵),
-            # 反哺落库后重算,让 loop 章的面板反映真实因果状态(P0 门真机发现)。
-            try:
-                st._upsert_scorecard(st._compute_scorecard(
-                    req.chapter, prose, req.focalizer or None))
-            except Exception as se:
-                logging.getLogger("scribe3").warning(
-                    "loop ingest 后 scorecard 刷新失败(忽略): %s", se)
+            # ingest 后刷新 scorecard(P2-3 单源 _refresh_scorecard_after_ingest):
+            # 存稿快照无本章事件(qc_causal=-1 哨兵),反哺后重算出真值。
+            _refresh_scorecard_after_ingest(st, req.chapter)
             return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
             return {"ok": False, "error": str(e)[:160]}
+        finally:
+            with _pending_ingest_lock:
+                _pending_ingest.discard(ikey)
 
-    result = run_chapter_loop(chapter=req.chapter, generate=_generate,
-                              post_check=_post_check, persist_version=_persist_version,
-                              finalize=_finalize, journal=journal)
+    try:
+        result = run_chapter_loop(chapter=req.chapter, generate=_generate,
+                                  post_check=_post_check, persist_version=_persist_version,
+                                  finalize=_finalize, journal=journal)
+    finally:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_lkey)
     result["journal_path"] = str(jp)
     return result
 
@@ -2473,6 +2491,21 @@ class CheckReq(BaseModel):
                               # 直写情绪不计入 psych_ratio/Gate C
 
 
+def _refresh_scorecard_after_ingest(st, seq: int) -> None:
+    """ingest 后刷新章 scorecard(P0门审查 P2-3,单源供 /ingest、_bg_ingest、loop 共用):
+    存稿时快照没有本章事件,qc_causal 停在 -1 哨兵;反哺落库后重算出真值。
+    fail-soft:刷新失败只告警,不影响 ingest 结果。"""
+    try:
+        ch = st.get_chapter(seq) or {}
+        prose = ch.get("prose") or ""
+        if prose.strip():
+            st._upsert_scorecard(st._compute_scorecard(seq, prose, ch.get("focalizer")))
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "ingest 后 scorecard 刷新失败(忽略) seq=%s: %s", seq, e)
+
+
 def _bg_ingest(work: str, seq: int) -> None:
     """后台客观回写:开**独立** store 连接跑 ingest_chapter(P2-3:不复用 _store_for 的共享 ws,
     避免多后台任务跨线程交错同一连接)。异常只记日志,不影响存稿(non-fatal)。
@@ -2487,6 +2520,8 @@ def _bg_ingest(work: str, seq: int) -> None:
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
+        else:
+            _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
     finally:
@@ -2776,7 +2811,11 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     try:
         issues = quality_issues(req.prose, extra, allow_words, allow_pats)
     except Exception as e:
+        # P0门审查 P1-4:issues 喂 loop 的 blocking 判据②(degeneration)与待批清单,
+        # 该 stage 挂掉必须记 degraded——否则"没查被当没病",loop 会假绿宣 pass。
         logging.getLogger("scribe3").warning("post_check quality_issues 失败: %s", e)
+        degraded = True
+        degraded_stages.append("quality_issues")
     # leak issues
     for lk in leaks:
         issues.append({
@@ -2931,12 +2970,20 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     ai_grade = None
     try:
         from scribe3.critique import aggregate_ai_grade
-        ai_grade = aggregate_ai_grade(qf, req.prose, precomputed={
-            "duplicate_lines": dup_lines,
-            "emotion_telling": emotion_telling,
-            "parallelism": parallelism,
-            "poetic_fragments": poetic_fragments,
-        }, short_mode=req.short_mode)
+        # P0门审查 P1-5:降级的输入检测器不得以空列表冒充结果喂 precomputed——
+        # 假零会让 Gate 判不出 heavy(blocking 判据③被掏空)。缺谁让 aggregate 自己
+        # 重算谁;重算仍挂会落本 except 记 aggregate_ai_grade 降级(pass 门关键 stage)。
+        _pre: dict = {}
+        if "find_duplicate_lines" not in degraded_stages:
+            _pre["duplicate_lines"] = dup_lines
+        if "find_emotion_telling" not in degraded_stages:
+            _pre["emotion_telling"] = emotion_telling
+        if "find_parallelism" not in degraded_stages:
+            _pre["parallelism"] = parallelism
+        if "find_poetic_fragments" not in degraded_stages:
+            _pre["poetic_fragments"] = poetic_fragments
+        ai_grade = aggregate_ai_grade(qf, req.prose, precomputed=_pre,
+                                      short_mode=req.short_mode)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check aggregate_ai_grade 失败: %s", e)
         degraded = True
@@ -3160,7 +3207,11 @@ def ingest(seq: int, work: str = "main"):
             raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
         _pending_ingest.add(key)
     try:
-        return ingest_chapter(_store_for(work), seq, hermes_complete)
+        st = _store_for(work)
+        r = ingest_chapter(st, seq, hermes_complete)
+        if not r.get("parse_failed"):
+            _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+        return r
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard(key)

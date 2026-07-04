@@ -856,19 +856,28 @@ class SurrealStore:
                  "evidence": r.get("evidence") or ""} for r in rows]
 
     # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
-    def add_chat_message(self, chapter: int, stage: str, role: str, text: str) -> None:
-        """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。"""
+    def add_chat_message(self, chapter: int, stage: str, role: str, text: str,
+                         turn: str = "") -> None:
+        """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。
+        turn(P0门审查 P2-6):同一轮 user/assistant 共享的配对 id,防并发会话交错
+        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。"""
         self._execute_write(
-            "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, ts=time::now()",
-            {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text})
+            "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, "
+            "turn=$turn, ts=time::now()",
+            {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text,
+             "turn": turn or ""})
 
     def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
-        """按章(缺省全部)拉取对话留痕,ts 升序;ts 转字符串(REST 直接可回)。"""
+        """按章(缺省全部)拉取对话留痕,ts 升序返回;limit 取**最新** N 条再反转
+        (P0门审查 P2-6:此前 ASC LIMIT 取最老 N 条,超量后回看永远读不到新对话);
+        limit 夹取 [1,2000] 防 SurrealQL 非法值 500。"""
+        n = max(1, min(int(limit), 2000))
         where = "WHERE chapter = $c " if chapter is not None else ""
-        return self._query(
-            f"SELECT work, chapter, stage, role, text, <string> ts AS ts "
-            f"FROM chat_message {where}ORDER BY ts ASC LIMIT {int(limit)}",
+        rows = self._query(
+            f"SELECT work, chapter, stage, role, text, turn, <string> ts AS ts "
+            f"FROM chat_message {where}ORDER BY ts DESC LIMIT {n}",
             {"c": chapter})
+        return list(reversed(rows))
 
     # --- 伏笔章触及 promise_touch ---
     def add_promise_touch(self, promise_id: str, chapter: int,

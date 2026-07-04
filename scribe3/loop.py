@@ -26,8 +26,9 @@ _log = logging.getLogger("scribe3.loop")
 MAX_REGEN_ROUNDS = 2   # regenerate 硬上限(蓝图定案;Self-Refine Δ5.0→0.9→0.9,首轮拿走绝大部分收益)
 
 # pass 门的关键检测 stage:任何一个降级都不得宣 pass(诚实降级,没查≠没病)。
-# leaks 有独立 leaks_degraded 旗;degeneration/ai_grade 走 degraded_stages。
-_PASS_CRITICAL_STAGES = ("aggregate_ai_grade",)
+# leaks 有独立 leaks_degraded 旗;quality_issues 喂判据②(degeneration issue 的来源,
+# P0门审查 P1-4)、aggregate_ai_grade 喂判据③——两者降级时 pass 不可信。
+_PASS_CRITICAL_STAGES = ("aggregate_ai_grade", "quality_issues")
 
 
 def triage(post: dict) -> dict:
@@ -48,18 +49,19 @@ def triage(post: dict) -> dict:
     for lk in leaks:
         blocking.append({"detector": "find_leaks", "kind": "leak",
                          "quote": str((lk or {}).get("marker") or lk)[:60],
-                         "note": f"帧外私密破绽词(fact={((lk or {}).get('fact_id') or '?')})"})
+                         "note": (f"帧外私密破绽词(fact="
+                                  f"{((lk or {}).get('fact_id') or '?')})")[:120]})
     for iss in post.get("issues") or []:
         meta = iss.get("meta") or {}
         sev = str(meta.get("severity") or "")
         if iss.get("type") == "degeneration" and sev == "blocking":
             blocking.append({"detector": "find_degeneration", "kind": meta.get("kind") or "degeneration",
                              "quote": str(iss.get("text") or "")[:60],
-                             "note": str(iss.get("message") or "")})
+                             "note": str(iss.get("message") or "")[:120]})   # P2-7 note 截断
         elif sev.upper() == "S1":
             blocking.append({"detector": "findings_schema", "kind": iss.get("type") or "S1",
                              "quote": str(iss.get("text") or "")[:60],
-                             "note": str(iss.get("message") or "")})
+                             "note": str(iss.get("message") or "")[:120]})
     grade = (post.get("ai_grade") or {}).get("grade")
     if grade == "heavy":
         gates = (post.get("ai_grade") or {}).get("gates_hit") or []
@@ -165,21 +167,29 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
         prose = generate(attempt, constraints)
         journal.complete_stage(stage_gen)
 
+        # P0门审查 P1-1:稿一落地立刻留版(在 post_check 之前)——检测环节任何异常
+        # 都不再吞掉一次昂贵的 LLM 生成;verdict 后补进 rounds 与 journal stage 名。
+        vid = None
+        try:
+            vid = persist_version(prose, attempt, "raw")
+        except Exception as e:
+            _log.warning("loop ch%s attempt%s 留版失败(继续): %s", chapter, attempt, e)
+
         stage_chk = f"ch{chapter}_a{attempt}_post_check"
         journal.start_stage(stage_chk)
         post = post_check(prose)
         journal.complete_stage(stage_chk)
 
         tri = triage(post)
-        vid = None
-        try:
-            vid = persist_version(prose, attempt, tri["verdict"])
-        except Exception as e:   # 留版失败不阻断编排(与 save-chapter 端点先例同)
-            _log.warning("loop ch%s attempt%s 留版失败(继续): %s", chapter, attempt, e)
+        # P2-5:verdict 也落 journal——审计"哪章回炉几轮、每轮判了什么"不再只在
+        # HTTP 响应里;细节理由(findings)在版本库+响应。
+        vstage = f"ch{chapter}_a{attempt}_verdict_{tri['verdict']}"
+        journal.start_stage(vstage)
+        journal.complete_stage(vstage)
         rounds.append({"attempt": attempt, "verdict": tri["verdict"],
                        "version_id": vid,
                        "blocking_summary": _round_summary(tri["blocking"]),
-                       "blocking": tri["blocking"],
+                       "blocking": tri["blocking"][:24],   # P2-7 响应帽(prompt 侧另有 12 条帽)
                        "advisory_count": tri["advisory_count"],
                        "advisory_items": (tri.get("advisory_items") or [])[:20],   # 量控
                        "degraded_stages": tri["degraded_stages"]})
@@ -195,6 +205,10 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
               "advisory_count": tri["advisory_count"],
               "advisory_items": (tri.get("advisory_items") or [])[:20],   # 待批清单本体
               "degraded_stages": tri["degraded_stages"]}
+    if tri["verdict"] != "pass" and rounds and rounds[-1]["version_id"] is None:
+        # P0门审查 P1-2:非 pass 分支版本库是唯一存储,留版失败时稿本体随响应返回,
+        # 作者可手工拷走——绝不静默丢一次生成(pass 分支有 finalize 落库兜底)。
+        result["prose_unsaved"] = prose
     if tri["verdict"] == "pass":
         stage_ing = f"ch{chapter}_ingest"
         journal.start_stage(stage_ing)

@@ -174,6 +174,48 @@ def test_loop_advisory_no_rewrite_no_ingest(tmp_path):
         "清单本体必须在响应里(蓝图:建议清单呈给作者,不能只给数量)"
 
 
+def test_loop_draft_persisted_before_post_check_crash(tmp_path):
+    """P0门审查 P1-1:稿一生成立刻留版——post_check 崩了也不吞一次昂贵生成。"""
+    persisted = []
+
+    def gen(attempt, constraints):
+        return "昂贵的稿"
+
+    def pc(prose):
+        raise RuntimeError("post_check down")
+
+    def pv(prose, attempt, verdict):
+        persisted.append((prose, verdict))
+        return "v0"
+
+    j = PipelineJournal(tmp_path / "j.json")
+    with pytest.raises(RuntimeError):
+        run_chapter_loop(chapter=8, generate=gen, post_check=pc,
+                         persist_version=pv, finalize=lambda p: None, journal=j)
+    assert persisted and persisted[0][0] == "昂贵的稿", "检测崩溃前稿必须已在版本库"
+
+
+def test_loop_prose_in_response_when_persist_fails_non_pass(tmp_path):
+    """P0门审查 P1-2:非 pass 分支留版失败 → 稿本体随响应返回,绝不静默丢。"""
+    soft = {"type": "discipline", "message": "轻微", "text": "", "meta": {"severity": "S3"}}
+    deps, j, gen_log, fin_log = _wire(tmp_path, [_post(issues=[soft])])
+
+    def boom(prose, attempt, verdict):
+        raise RuntimeError("version store down")
+
+    deps["persist_version"] = boom
+    res = run_chapter_loop(chapter=9, **deps)
+    assert res["verdict"] == "advisory"
+    assert res.get("prose_unsaved") == "第0稿散文", "唯一存储失败时稿必须在响应里"
+
+
+def test_loop_journal_records_verdict_stages(tmp_path):
+    """P2-5:verdict 落 journal,审计不再只依赖 HTTP 响应。"""
+    deps, j, gen_log, fin_log = _wire(tmp_path, [_post()])
+    run_chapter_loop(chapter=10, **deps)
+    assert j.should_skip("ch10_a0_verdict_pass")
+
+
 def test_loop_persist_failure_does_not_break(tmp_path):
     deps, j, gen_log, fin_log = _wire(tmp_path, [_post()])
 

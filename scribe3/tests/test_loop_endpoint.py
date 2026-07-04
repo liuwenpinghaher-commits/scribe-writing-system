@@ -104,6 +104,47 @@ def test_loop_chapter_two_rounds_needs_human(store, monkeypatch):
     assert jp and json.load(open(jp))["stages_completed"], "journal 落盘可审计"
 
 
+def test_loop_chapter_409_on_concurrent_same_chapter(store, monkeypatch):
+    """P0门审查 P1-3:同章 loop 在途 → 409(防双生成/双落库/双 ingest)。"""
+    monkeypatch.setattr(A, "_responses_events", _stub_rounds(_fenced(_CLEAN))[0])
+    with A._loop_inflight_lock:
+        A._loop_inflight.add(("main", 9))
+    try:
+        r = _client(store).post("/loop/chapter", json={"chapter": 9})
+        assert r.status_code == 409
+    finally:
+        with A._loop_inflight_lock:
+            A._loop_inflight.discard(("main", 9))
+
+
+def test_loop_chapter_422_on_short_unfenced_output(store, monkeypatch):
+    """P0门审查 P1-7:无 chapter 围栏且散文不足长度门 → 422,绝不让聊天语覆盖正文。"""
+    fn, state = _stub_rounds("好的,我知道了。")   # 无围栏短对话
+    monkeypatch.setattr(A, "_responses_events", fn)
+    r = _client(store).post("/loop/chapter", json={"chapter": 3})
+    assert r.status_code == 422
+
+
+def test_loop_pass_refreshes_scorecard_causal_truth(store, monkeypatch):
+    """P2-8 强化:ingest 真落事件后 scorecard 的 qc_causal 必须从 -1 哨兵变真值 0。"""
+    import scribe3.ingest as I
+    from scribe3.ontology import Event
+
+    def fake_ingest(st, seq, llm):
+        st.add_event(Event(id="ev:回填", type="事", story_time=seq,
+                           motivated_by_goal="goal:x", causal_in=[]))
+        return {}
+
+    monkeypatch.setattr(I, "ingest_chapter", fake_ingest)
+    fn, state = _stub_rounds(_fenced(_CLEAN))
+    monkeypatch.setattr(A, "_responses_events", fn)
+    r = _client(store).post("/loop/chapter", json={"chapter": 1})
+    assert r.json()["verdict"] == "pass"
+    sc = store.get_chapter_scorecard(1)
+    assert sc["constraints"]["qc_causal"] == 0, \
+        "ingest 后哨兵须转真值(0=有事件零违规),-1 表示刷新没生效"
+
+
 def test_loop_chapter_advisory_degraded_not_pass_no_rewrite(store, monkeypatch):
     """构造 advisory(确定性构造:关键检测器 ai_grade 挂 → 降级不判 pass,没查≠没病)
     → 只出清单不重写、不 ingest;同时覆盖 DoD 降级路径(degraded_stages 如实上报)。
