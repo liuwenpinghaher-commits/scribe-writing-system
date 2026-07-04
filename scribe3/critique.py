@@ -512,7 +512,7 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
 
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
                   allow_words: set[str] | None = None) -> dict:
-    """聚合六类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    """聚合七类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
     allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。"""
     return {
         "repetition": find_repetitions(text),
@@ -521,6 +521,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
         "ai_tics": find_ai_tics(text, allow_words),
         "oversaturation": find_oversaturation(text),
         "god_view": find_god_view(text),
+        "degeneration": find_degeneration(text),
     }
 
 
@@ -663,6 +664,32 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
             "text": hit["phrase"],
             "range": hit["range"],
             "meta": {"kind": hit["kind"]},
+        })
+
+    # ⑧ 模型退化(方案A任务5)— find_degeneration 白送 offset,逐条展开;
+    # meta_leak 按 tier 区分消息(工程词泄漏(tier1)/(tier2)),其余按 kind 固定文案。
+    _degeneration_msg = {
+        "adjacent_repeat": "模型退化:紧邻整行复读",
+        "sentence_loop": "模型退化:长句打转复读",
+        "refusal": "模型退化:AI拒绝语泄漏",
+        "mojibake": "模型退化:乱码",
+        "english_ai": "模型退化:英文AI腔泄漏",
+        "placeholder": "模型退化:占位符泄漏",
+        "truncated": "模型退化:疑似中途截断",
+    }
+    for hit in find_degeneration(s):
+        kind = hit["kind"]
+        if kind == "meta_leak":
+            msg = f"工程词泄漏(tier{hit['tier']}):{hit['phrase']}"
+        else:
+            msg = _degeneration_msg.get(kind, "模型退化")
+        meta = {k: v for k, v in hit.items() if k not in ("range", "phrase")}
+        issues.append({
+            "type": "degeneration",
+            "message": msg,
+            "text": hit["phrase"],
+            "range": hit["range"],
+            "meta": meta,
         })
 
     return issues
@@ -1254,4 +1281,242 @@ def find_emotion_telling(text: str) -> list[dict]:
         if not any(r["span"] in span or span in r["span"] for r in out):
             out.append({"span": span, "kind": "cliche"})
 
+    return out
+
+
+# ==== 方案A任务5:模型退化检测(find_degeneration,移植自 oh-story
+# skills/story-deslop/scripts/check-degeneration.js)====
+# 弱模型/长程生成典型退化指纹,模型自己发现不了,靠确定性扫描+定向重写才拦得住:
+#   - 复读/打转(verbatim repetition):长句反复出现,或紧邻整行一字不差重复;
+#   - 占位/拒绝语泄漏:作为AI/我无法继续/此处省略/乱码/英文 AI 腔;
+#   - 工程词泄漏:细纲/情节点/本章/下一章 等写作流水线术语漏进正文;
+#   - 中途截断:正文末尾未以句末/收尾标点结束。
+# report-only,不改文本;kind 与阈值常量均与 JS 源逐字对照。
+
+# 复读阈值(逐字移植 JS 源):长句(可见字数≥REPEAT_MIN_LEN)出现≥REPEAT_MIN_COUNT 次判
+# 为打转(sentence_loop);紧邻整行重复(可见字数≥ADJACENT_MIN_LEN)判为即时循环
+# (adjacent_repeat)。短句/弹幕/对话刷屏豁免——通俗网文的排比/复沓/弹幕是体裁正常手法。
+REPEAT_MIN_LEN = 12
+REPEAT_MIN_COUNT = 3
+ADJACENT_MIN_LEN = 8
+
+# 可见字符集(逐字移植 JS visibleLength):中文 + 全角字母数字 + 半角字母数字。
+_DEGEN_VISIBLE_RE = re.compile(r"[一-鿿Ａ-ｚA-Za-z0-9]")
+
+
+def _degen_visible_length(s: str) -> int:
+    """可见字数(剔除标点/空白后的有效字符计数),移植自 JS visibleLength。"""
+    return len(_DEGEN_VISIBLE_RE.findall(s or ""))
+
+
+# 占位/拒绝语泄漏:hard=任何行都判(正文里永不合法);soft=仅"非对话叙述行"判(角色台词
+# 里可能合法,如"对不起,我无法答应你"是正常对话)。对话行判定:该行剥引号后剩余可见
+# 字符数 <2(近乎整行都是台词/物件名,叙述几乎为零)。均为 blocking(与 JS 一致:
+# findPlaceholders 无论 hard/soft,命中一律 severity='blocking')。
+_DEGEN_PLACEHOLDER_PATTERNS: list[tuple[re.Pattern, str, bool]] = [
+    (re.compile(
+        r'作为(一个)?(AI|人工智能|大?语言模型|智能助手|聊天助手)'
+        r'(?=[，,。、；;：:！!？?\s）)」』"】]|我|无法|不能|没法|$)'
+    ), "refusal", False),
+    (re.compile(r"�"), "mojibake", True),
+    (re.compile(r"^(Sure|Certainly|Here'?s|As an AI|I (?:cannot|can't|am unable|apologize))"),
+     "english_ai", True),
+    (re.compile(r"[（(](此处|以下|这里|下文|后续)?\s*(省略|略)(去|过)?[^）)]{0,10}[）)]"),
+     "placeholder", True),
+    (re.compile(r"(未完待续|TODO|占位符|placeholder)"), "placeholder", True),
+    (re.compile(
+        r"我(无法|不能)(继续(写|创作|生成|下去)|生成(内容|文本|正文)?|创作|续写|完成(这个|本)?(章|篇|创作|请求))"
+    ), "refusal", False),
+]
+
+# 工程词泄漏(逐字移植):tier1=纯写作流水线术语,正文里几乎永不合法;tier2=章节结构/
+# 歧义词,角色在故事内真实阅读/讨论"第X章"、或故事内系统/界面用语时属例外,恒 advisory
+# 交人/LLM 判。tier1 命中若落在对话行(引号内)降级 advisory——写手/编剧题材角色可能
+# 真讨论创作;tier2 恒 advisory。
+_DEGEN_META_TIER1_RE = re.compile(r"细纲|情节点|卷纲|功能标签|目标情绪|字数目标|章首钩子|章尾钩子")
+_DEGEN_META_TIER2_RE = re.compile(
+    r"第[一二三四五六七八九十百千万两0-9]+章|本章|这一章|上一章|下一章|上章|下章|前一章|后一章|前文|后文|伏笔|读者|任务描述"
+)
+# 标题行(如"第一章 桥下")属"正文标题行"而非泄漏,排除对首个内容行的误判(移植自 JS
+# hasYamlFrontMatter 相邻逻辑里的标题豁免注释)。
+_DEGEN_TITLE_RE = re.compile(r"^第[一二三四五六七八九十百千万两0-9]+章")
+
+# 截断判定:全文最后一个非空行须以句末/收尾标点结束,否则疑似中途被切断(advisory——
+# 与 JS 的 blocking 不同,此处按方案A任务5要求降级,交人/LLM 判)。
+_DEGEN_TRUNCATED_END_RE = re.compile(r'[。！？…”」』"]$')
+
+
+def _degen_body_lines(text: str) -> list[dict]:
+    """按行拆分 + 剔除空行,记录每行【去首尾空白后的内容】在原始 text 里的起始 offset,
+    供各子检测器还原 range。"""
+    body: list[dict] = []
+    pos = 0
+    for raw in (text or "").split("\n"):
+        trimmed = raw.strip()
+        if trimmed:
+            lead = len(raw) - len(raw.lstrip())
+            body.append({"start": pos + lead, "line": trimmed})
+        pos += len(raw) + 1  # +1 补回被 split 吃掉的换行符
+    return body
+
+
+def _degen_adjacent_repeat(body: list[dict]) -> list[dict]:
+    """紧邻整行一字不差重复(即时循环)。range 指向第二次出现处。"""
+    out: list[dict] = []
+    for i in range(1, len(body)):
+        cur, prev = body[i], body[i - 1]
+        if cur["line"] != prev["line"]:
+            continue
+        if _degen_visible_length(_strip_quoted(cur["line"])) < ADJACENT_MIN_LEN:
+            continue
+        out.append({
+            "kind": "adjacent_repeat",
+            "severity": "blocking",
+            "phrase": cur["line"],
+            "range": [cur["start"], cur["start"] + len(cur["line"])],
+        })
+    return out
+
+
+def _degen_sentence_loop(body: list[dict]) -> list[dict]:
+    """长句(引号外、可见字数≥REPEAT_MIN_LEN)出现≥REPEAT_MIN_COUNT 次判为打转。
+    只豁免引号内台词,引号外叙述句(含"叙述+引号内物件"混合行)仍参与计数。
+    range 指向该句第二次出现处(方案A任务5要求,与 JS 的"首次出现"不同)。"""
+    counts: dict[str, int] = {}
+    occurrences: list[tuple[str, dict]] = []
+    for b in body:
+        stripped = _strip_quoted(b["line"])
+        for piece in re.split(r"[。！？!?]", stripped):
+            st = piece.strip()
+            if _degen_visible_length(st) < REPEAT_MIN_LEN:
+                continue
+            counts[st] = counts.get(st, 0) + 1
+            occurrences.append((st, b))
+    flagged = {s for s, c in counts.items() if c >= REPEAT_MIN_COUNT}
+    if not flagged:
+        return []
+    out: list[dict] = []
+    seen: dict[str, int] = {}
+    cursor: dict[tuple[int, str], int] = {}
+    for st, b in occurrences:
+        if st not in flagged:
+            continue
+        key = (id(b), st)
+        start_from = cursor.get(key, 0)
+        idx = b["line"].find(st, start_from)
+        if idx < 0:
+            idx = b["line"].find(st)
+        if idx >= 0:
+            cursor[key] = idx + 1
+        seen[st] = seen.get(st, 0) + 1
+        if seen[st] != 2:  # 只在第二次出现时报一条(range 指向第二次出现处)
+            continue
+        if idx < 0:
+            start, end, phrase = b["start"], b["start"] + len(b["line"]), b["line"]
+        else:
+            start, end = b["start"] + idx, b["start"] + idx + len(st)
+            phrase = b["line"][idx:idx + len(st)]  # 原文精确子串,与 range 保持一致(非剥引号版)
+        out.append({
+            "kind": "sentence_loop",
+            "severity": "blocking",
+            "phrase": phrase,
+            "range": [start, end],
+            "count": counts[st],
+        })
+    return out
+
+
+def _degen_placeholders(body: list[dict]) -> list[dict]:
+    """占位符/拒绝语/乱码/英文 AI 腔泄漏。一行只报一条(命中优先级同 JS 数组顺序)。"""
+    out: list[dict] = []
+    for b in body:
+        line = b["line"]
+        dialogue = _degen_visible_length(_strip_quoted(line)) < 2
+        for pat, kind, hard in _DEGEN_PLACEHOLDER_PATTERNS:
+            if not hard and dialogue:
+                continue  # soft 拒绝语在对话行里可能是正常台词,豁免
+            m = pat.search(line)
+            if not m:
+                continue
+            start, end = b["start"] + m.start(), b["start"] + m.end()
+            out.append({
+                "kind": kind,
+                "severity": "blocking",
+                "phrase": m.group(0),  # 精确匹配片段,与 range 保持一致(range 不变量)
+                "range": [start, end],
+            })
+            break  # 一行一条足矣
+    return out
+
+
+def _degen_meta_leak(body: list[dict], quoted_ranges: list[tuple[int, int]]) -> list[dict]:
+    """工程词泄漏:tier1 优先于 tier2(命中 tier1 即跳过 tier2,同一行不叠报)。
+    首个内容行若是章节标题("第N章…")豁免,避免每章标题都被 tier2 的"第X章"命中误报。
+    tier1 命中落在【引号内】(_quoted_ranges)降级 advisory;tier2 恒 advisory。"""
+    out: list[dict] = []
+    first_seen = False
+    for b in body:
+        line = b["line"]
+        if not first_seen:
+            first_seen = True
+            if _DEGEN_TITLE_RE.match(line):
+                continue
+        m = _DEGEN_META_TIER1_RE.search(line)
+        if m:
+            start, end = b["start"] + m.start(), b["start"] + m.end()
+            dialogue = _in_any_span(start, end, quoted_ranges)
+            out.append({
+                "kind": "meta_leak",
+                "tier": 1,
+                "severity": "advisory" if dialogue else "blocking",
+                "phrase": m.group(0),
+                "range": [start, end],
+            })
+            continue  # tier1 命中即可,不再叠 tier2
+        m = _DEGEN_META_TIER2_RE.search(line)
+        if m:
+            start, end = b["start"] + m.start(), b["start"] + m.end()
+            out.append({
+                "kind": "meta_leak",
+                "tier": 2,
+                "severity": "advisory",
+                "phrase": m.group(0),
+                "range": [start, end],
+            })
+    return out
+
+
+def _degen_truncated(body: list[dict]) -> list[dict]:
+    """全文最后一个非空行未以句末/收尾标点结束 → 疑似被模型中途切断。
+    phrase/range 取行尾最多 24 字(不经 compact,保证 range 精确指向 phrase,不含全行)。"""
+    if not body:
+        return []
+    last = body[-1]
+    if _DEGEN_TRUNCATED_END_RE.search(last["line"]):
+        return []
+    tail = last["line"][-24:]
+    tail_start = last["start"] + len(last["line"]) - len(tail)
+    return [{
+        "kind": "truncated",
+        "severity": "advisory",
+        "phrase": tail,
+        "range": [tail_start, tail_start + len(tail)],
+    }]
+
+
+def find_degeneration(text: str) -> list[dict]:
+    """模型退化指纹汇总检测(report-only):复读/打转 + 占位拒绝语泄漏 + 工程词泄漏
+    (tier1/tier2)+ 中途截断。移植自 oh-story check-degeneration.js,阈值/正则逐字对照,
+    仅 truncated 的 severity 按方案A任务5要求由 blocking 降级为 advisory。
+    返回统一 {"kind","severity","phrase","range"[,"tier"]}。
+    """
+    s = text or ""
+    body = _degen_body_lines(s)
+    quoted = _quoted_ranges(s)
+    out: list[dict] = []
+    out.extend(_degen_adjacent_repeat(body))
+    out.extend(_degen_sentence_loop(body))
+    out.extend(_degen_placeholders(body))
+    out.extend(_degen_meta_leak(body, quoted))
+    out.extend(_degen_truncated(body))
     return out

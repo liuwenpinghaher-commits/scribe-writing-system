@@ -799,3 +799,55 @@ class TestGodView:
         from scribe3.critique import find_god_view
         h = find_god_view("殊不知，灯早灭了。")[0]
         assert h["range"] is not None
+
+
+# ==== 方案A任务5:模型退化检测(find_degeneration,oh-story check-degeneration.js 移植)====
+# 复读循环(紧邻整行/长句打转)+ 占位拒绝语泄漏 + 工程词泄漏(tier1 blocking/tier2 advisory)+
+# 截断——弱模型自己发现不了的退化指纹,靠确定性扫描兜底(report-only)。
+
+class TestDegeneration:
+    def test_adjacent_duplicate_line(self):
+        from scribe3.critique import find_degeneration
+        t = "夜风把幡子吹得笔直贴在杆上。\n夜风把幡子吹得笔直贴在杆上。\n他没回头。"
+        assert any(h["kind"] == "adjacent_repeat" for h in find_degeneration(t))
+
+    def test_long_sentence_loop(self):
+        from scribe3.critique import find_degeneration
+        t = ("他沿着河堤往北走了很久很久。其间。" * 3) + "然后停下。"
+        assert any(h["kind"] == "sentence_loop" for h in find_degeneration(t))
+
+    def test_ai_refusal_leak(self):
+        from scribe3.critique import find_degeneration
+        assert any(h["kind"] == "refusal" and h["severity"] == "blocking"
+                   for h in find_degeneration("作为AI，我无法继续创作这个章节。"))
+
+    def test_placeholder_leak(self):
+        from scribe3.critique import find_degeneration
+        assert any(h["kind"] == "placeholder" for h in find_degeneration("他转身离去。(此处省略三百字)"))
+
+    def test_meta_tier1_blocking(self):
+        from scribe3.critique import find_degeneration
+        assert any(h["kind"] == "meta_leak" and h["tier"] == 1 and h["severity"] == "blocking"
+                   for h in find_degeneration("按照细纲，他此时应当愤怒。"))
+
+    def test_meta_tier1_dialogue_downgraded(self):
+        from scribe3.critique import find_degeneration
+        hits = [h for h in find_degeneration("「你的字数目标完成了?」他打趣道。") if h["kind"] == "meta_leak"]
+        assert hits and hits[0]["severity"] == "advisory"
+
+    def test_meta_tier2_advisory(self):
+        from scribe3.critique import find_degeneration
+        hits = [h for h in find_degeneration("上一章说过的那口井还在冒水。") if h["kind"] == "meta_leak"]
+        assert hits and hits[0]["tier"] == 2 and hits[0]["severity"] == "advisory"
+
+    def test_truncated_ending(self):
+        from scribe3.critique import find_degeneration
+        assert any(h["kind"] == "truncated" for h in find_degeneration("他抬起头,看见远处的"))
+
+    def test_clean_prose_empty(self):
+        from scribe3.critique import find_degeneration
+        assert find_degeneration("灯灭了。他坐在黑里,听雨。「明天再说。」") == []
+
+    def test_mojibake(self):
+        from scribe3.critique import find_degeneration
+        assert any(h["severity"] == "blocking" for h in find_degeneration("他说�了一半。"))
