@@ -575,6 +575,30 @@ class TestFindEmotionTelling:
         assert all("span" in h and h["span"] for h in hits)
 
 
+# ==== 方案B任务13:情绪表达4级分级(oh-story style-craft.md:直写<思想<神态<动作)====
+# 4 级是表达质量阶梯:L1直写情绪词/L2思想转述 是 telling,检测器上报;
+# L3神态/L4动作是合法的 showing 手法,不扫描、不上报——语义写在 find_emotion_telling
+# docstring 里,这里只测检测器实际覆盖的 L1/L2 两级。
+class TestEmotionLevels:
+    def test_level1_direct(self):
+        hits = find_emotion_telling("他感到害怕。")
+        assert hits[0]["level"] == 1     # 直写情绪词
+
+    def test_level2_thought(self):
+        hits = find_emotion_telling("他心中暗道,这下完了。")
+        assert hits and hits[0]["level"] == 2   # 思想转述
+
+    def test_kind_field_backward_compat(self):
+        hits = find_emotion_telling("他感到害怕。")
+        assert hits[0]["kind"] == "emotion_word" and "span" in hits[0]
+
+    def test_summary_ratio(self):
+        from scribe3.critique import emotion_telling_summary
+        text = "他感到害怕。" + "他攥紧了刀柄。" * 9
+        agg = emotion_telling_summary(text)
+        assert agg["l1_count"] == 1 and 0 < agg["l1_ratio"] < 0.2
+
+
 class TestFindParallelism:
     """排比/同句式≥3连检测器(堵 AI 抒情腔,opus 评判反复点名)。"""
 
@@ -647,6 +671,35 @@ def test_parse_tension_report_robust_to_bad_json():
     # 前后有解说文字但内含合法 JSON 块 → 仍能提取
     rep = parse_tension_report('好的,报告如下:{"hook":{"present":true}} 完毕')
     assert rep is not None and rep["hook"]["present"] is True
+
+
+# ==== 方案B任务13:失败模式 rubric 轴(oh-story emotional-methods.md:太平/太赶/烂尾)====
+
+def test_tension_rubric_prompt_has_pacing_axes():
+    """prompt 含 pacing_flat(连续≥5节无情绪转折=太平)/pacing_rushed(转折铺垫<3节太赶,
+    或反转后交代>2000字烂尾)两条 LLM 语义判定轴的关键词。"""
+    from scribe3.critique import build_tension_rubric_prompt
+    p = build_tension_rubric_prompt("……正文……")
+    assert "pacing_flat" in p and "pacing_rushed" in p
+
+
+def test_parse_tension_report_tolerates_missing_pacing_axes():
+    """parse_tension_report 本身不校验字段结构(镜像 parse_knowledge_delta,只提取
+    JSON 块 + json.loads),新轴缺省时不炸,其余字段照常解析;布尔字段一律用 .get()
+    链式取值,与现有轴(如 hook/value_shift)同一容错口径。"""
+    from scribe3.critique import parse_tension_report
+    # 老响应完全没有新轴键
+    rep = parse_tension_report('{"hook":{"present":true}}')
+    assert rep is not None
+    assert rep.get("pacing_flat", {}).get("present") is None
+    assert rep.get("pacing_rushed", {}).get("present") is None
+    # 新响应带新轴,布尔解析与现有轴一致
+    rep2 = parse_tension_report(
+        '{"hook":{"present":true},'
+        '"pacing_flat":{"present":false,"note":"有转折"},'
+        '"pacing_rushed":{"present":true,"note":"反转后交代过长"}}')
+    assert rep2["pacing_flat"]["present"] is False
+    assert rep2["pacing_rushed"]["present"] is True
 
 
 # ==== 方案A任务1:否定翻转 4+3 变体检测器(find_negation_flips) ====

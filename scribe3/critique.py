@@ -1181,17 +1181,30 @@ def parse_knowledge_delta(reply: str) -> dict | None:
 # ==== M2a: 叙事张力盲评 rubric(对成文单章,LLM 单次合并评审)====
 
 def build_tension_rubric_prompt(prose: str) -> str:
-    """张力盲评 prompt:戏剧问题/结局语法/价值反转/微张力荒漠/续读钩子,单次调用合并评审。"""
+    """张力盲评 prompt:戏剧问题/结局语法/价值反转/微张力荒漠/续读钩子/节奏失败模式,
+    单次调用合并评审。
+
+    方案B任务13新增两条节奏失败模式轴(oh-story emotional-methods.md 语义判定,
+    LLM 通读判断,确定性正则判不了):
+    - pacing_flat:   连续≥5节没有情绪转折即"太平"(读者会跳读)。
+    - pacing_rushed: 转折前铺垫不足3节即"太赶"(反转没立住);或反转后交代解释
+      超过2000字即"烂尾"(高潮后拖沓收不住)。
+    """
     return (
         "你是叙事张力评审。读下面一章小说正文,只输出一个 JSON(不要任何其他文字):\n"
         '{"dramatic_question":{"present":布尔,"answered_escalated":布尔,"note":一句},'
         '"outcomes":[{"scene":场景一句概括,"type":"yes"|"yes_but"|"no_and"|"no"}],'
         '"value_shift":{"present":布尔,"note":"哪个价值从什么极翻到什么极"},'
         '"micro_tension":{"deserts":[连续500字以上无POV情绪对立/念头交战的段落开头8字]},'
-        '"hook":{"present":布尔,"type":"危险临近|信息截断|选择悬置|反转|不祥预示|无","strength":"strong"|"soft"}}\n'
+        '"hook":{"present":布尔,"type":"危险临近|信息截断|选择悬置|反转|不祥预示|无","strength":"strong"|"soft"},'
+        '"pacing_flat":{"present":布尔,"note":一句},'
+        '"pacing_rushed":{"present":布尔,"note":一句}}\n'
         "判定标准:dramatic_question=本章是否有一个悬着的小问题且章末被回答并升级;"
         "outcomes=各场景结局语法(顺利达成记 yes——它是泄气信号);"
-        "value_shift=至少一场发生价值极性反转;hook=章末最后几行是否有续读钩子。\n\n"
+        "value_shift=至少一场发生价值极性反转;hook=章末最后几行是否有续读钩子;"
+        "pacing_flat=是否存在连续5节以上没有任何情绪转折(太平,读者会跳读);"
+        "pacing_rushed=是否存在转折前铺垫不足3节就发生(太赶,反转立不住),"
+        "或反转后交代解释超过2000字仍未收住(烂尾)。\n\n"
         f"正文:\n{prose}")
 
 
@@ -1235,6 +1248,10 @@ _VERDICT_RE = re.compile(
 _CLICHE_RE = re.compile(
     r"心里像被(?:什么)?(?:揪|攥|堵|压|刺|扎|灼|撕)(?:住|着|了|痛)?"
 )
+
+# 方案B任务13:情绪表达4级(oh-story style-craft.md:直写<思想<神态<动作,表达质量阶梯)
+# L2 思想转述——用叙述层动词直接转述人物内心念头(而非具体情绪词),同属 telling。
+_THOUGHT_REPORT_RE = re.compile(r"(?:心中暗道|心想|心道|暗想|暗忖)")
 
 
 def _strip_dialogue(text: str) -> str:
@@ -1458,32 +1475,69 @@ def find_watch_regression(text: str) -> list[dict]:
 
 
 def find_emotion_telling(text: str) -> list[dict]:
-    """检测叙述层直陈情绪/直接评语的句子(确定性正则,宁缺勿滥)。
+    """检测叙述层直陈情绪/直接评语/思想转述的句子(确定性正则,宁缺勿滥)。
 
-    规则:
+    方案B任务13:情绪表达4级(oh-story style-craft.md)是一条"直写 < 思想 < 神态 <
+    动作"的表达质量阶梯——直写情绪词最生硬,动作/神态侧写最含蓄高级。本检测器只
+    上报前两级(L1/L2)确定性可判的 telling,L3(神态)/L4(动作)是合法的 showing
+    手法,语义上不该报——因此不扫描,不构成检测规则。
+
+    规则(L1,level=1,直写):
     - emotion_word: (他|她|它)?(感到|觉得|心里|心中|心头)(一阵|一)?(情绪词)
     - verdict:      (他|她)(其实)?(不是|是)(个)?(坏人|好人|善人|恶人)
     - cliche(weak): 心里像被什么(揪|攥|堵)住 等标签化套语
 
+    规则(L2,level=2,思想转述):
+    - thought_report: 心中暗道|心想|心道|暗想|暗忖——用叙述层动词直接转述人物内心
+      念头,不点名具体情绪词,但仍是 telling(比直写情绪词含蓄一级,仍非 showing)。
+
     对话内情感词处理:粗略去除中文弯引号包裹片段后再扫描(减少误报)。
-    返回 [{"span": <命中片段>, "kind": "emotion_word"|"verdict"|"cliche"}]。
+    返回 [{"span": <命中片段>, "kind": "emotion_word"|"verdict"|"cliche"|"thought_report",
+    "level": 1|2}](kind/span 字段向后兼容既有调用方)。
     """
     s = _strip_dialogue(text or "")
     out: list[dict] = []
 
     for m in _EMOTION_WORD_RE.finditer(s):
-        out.append({"span": m.group(0), "kind": "emotion_word"})
+        out.append({"span": m.group(0), "kind": "emotion_word", "level": 1})
 
     for m in _VERDICT_RE.finditer(s):
-        out.append({"span": m.group(0), "kind": "verdict"})
+        out.append({"span": m.group(0), "kind": "verdict", "level": 1})
 
     for m in _CLICHE_RE.finditer(s):
         # 避免与 emotion_word 重叠上报
         span = m.group(0)
         if not any(r["span"] in span or span in r["span"] for r in out):
-            out.append({"span": span, "kind": "cliche"})
+            out.append({"span": span, "kind": "cliche", "level": 1})
+
+    for m in _THOUGHT_REPORT_RE.finditer(s):
+        out.append({"span": m.group(0), "kind": "thought_report", "level": 2})
 
     return out
+
+
+def emotion_telling_summary(text: str, hits: list[dict] | None = None) -> dict:
+    """情绪表达4级分级聚合(方案B任务13),供整章定档/前端聚合展示消费。
+
+    按 find_emotion_telling 命中的 level 拆分 L1(直写)/L2(思想转述)计数:
+      l1_count / l2_count  各级命中数
+      l1_ratio             l1_count / 句数(句子按 [。！？\\n] 切分,与 aggregate_ai_grade
+                            _SENT_SPLIT 同口径)
+      total                L1+L2 合计命中数
+
+    hits 可选:调用方已算好 find_emotion_telling(text) 结果时直接传入复用,避免重算
+    (见 aggregate_ai_grade 的 C 指标用法);缺省则内部现算。
+    """
+    hits = find_emotion_telling(text) if hits is None else hits
+    l1_count = sum(1 for h in hits if h.get("level") == 1)
+    l2_count = sum(1 for h in hits if h.get("level") == 2)
+    sent_count = len([s for s in _SENT_SPLIT.split(text or "") if s.strip()]) or 1
+    return {
+        "l1_count": l1_count,
+        "l2_count": l2_count,
+        "l1_ratio": l1_count / sent_count,
+        "total": len(hits),
+    }
 
 
 # ==== 方案A任务5:模型退化检测(find_degeneration,移植自 oh-story
@@ -1875,11 +1929,14 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) 
     parallel_run = max(parallel_counts) if parallel_counts else 0
     parallel_tier = _ai_grade_tier(parallel_run, _AI_GRADE_PARALLEL_LIGHT, _AI_GRADE_PARALLEL_MEDIUM)
 
-    # ③psych_ratio
+    # ③psych_ratio(方案B任务13:改用 emotion_telling_summary 同口径统计,复用其
+    # L1+L2 命中计数,不再自己重复一遍"数命中"逻辑;total=len(emotion_hits) 恒成立,
+    # 与修复前数值等价——旧调用方文本从无 L2 思想转述模式,l2_count 恒为 0)
     emotion_hits = (precomputed["emotion_telling"] if "emotion_telling" in precomputed
                     else find_emotion_telling(text))
+    emo_summary = emotion_telling_summary(text, hits=emotion_hits)
     sent_count = len([s for s in _SENT_SPLIT.split(text) if s.strip()]) or 1
-    psych_ratio = len(emotion_hits) / sent_count * 100
+    psych_ratio = emo_summary["total"] / sent_count * 100
     psych_tier = _ai_grade_tier(psych_ratio, _AI_GRADE_PSYCH_LIGHT, _AI_GRADE_PSYCH_MEDIUM)
 
     # ④dialogue_tag_density
