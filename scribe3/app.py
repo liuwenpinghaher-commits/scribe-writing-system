@@ -2539,6 +2539,18 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("validate_cross_chapter_consistency")
 
+    # 批E-B(P2-15):orphan_knowledge_edges 审计器接线——此前仅测试、零生产接线。
+    # 真实孤儿路径:DELETE /facts 删命题时 knows 图边级联消失,但 reader_knows(独立表,
+    # CREATE 非 RELATE)不级联 → 留悬挂边。全书聚合(非单章),同 cross_consistency 留在
+    # /post-check;fail-soft。注:内部按边逐条 existence 查(N+1),仅在此按需体检跑,非热路径。
+    orphan_edges: list[dict] = []
+    try:
+        orphan_edges = st.orphan_knowledge_edges()
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check orphan_knowledge_edges 失败: %s", e)
+        degraded = True
+        degraded_stages.append("orphan_knowledge_edges")
+
     # P1-10 彻查:4 个既有确定性检测器接线(此前已实现但全仓零生产接线)。
     # 排比/诗化分行/引号失配/更次倒退——均对单章成文,不需跨章上下文
     # (find_watch_regression 检测的是本章内更次序列的非单调,非跨章连续性);各自 fail-soft。
@@ -2586,6 +2598,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "duplicate_lines": dup_lines,
         "emotion_telling": emotion_telling,
         "cross_consistency": cross_consistency,
+        "orphan_edges": orphan_edges,
         "parallelism": parallelism,
         "poetic_fragments": poetic_fragments,
         "unbalanced_quotes": unbalanced_quotes,

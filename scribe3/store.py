@@ -792,6 +792,9 @@ class SurrealStore:
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
+            # entity_link:疑似死(P2-15)——migration 026 定义字段+索引但"数据迁移后切换"从未落地,
+            #   全仓无写入方,此处 entity_link.name 恒 null,subject 回退 entity_id(下方 or 兜底)。
+            #   保留待确认(移除牵动 live 召回查询+idx_prop_entity_link 索引)。
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, secret, "
             f"  entity_link.name AS subject, "
             f"  <-knows<-character.name AS knowers, "
@@ -1522,6 +1525,9 @@ class SurrealStore:
         # 用最近一行(任意日)的 words_total 作 prev,delta = 全书净增
         prev_total = rows[0]["words_total"] if rows else 0
         delta = max(0, new_total - prev_total)  # 缩写日记 0,不倒扣;words_total 快照仍如实更新
+        # save_count / chapters_touched:疑似死(P2-15)——写入(下方)但无生产读取方
+        #   (progress()/_streak 只读 words_written/words_total),仅 test_store 断言写入。
+        #   保留写侧供未来 /progress UI("今日存 N 次/触 M 章");疑似死待确认。
         self._execute_write(
             "UPSERT type::record('daily_progress', $d) SET "
             "date=$d, "
@@ -2615,6 +2621,8 @@ class SurrealStore:
             known_names.add(pl.get("name", ""))
         for fc in self.list_factions():
             known_names.add(fc["name"])
+            # faction.aliases:疑似死(P2-15)——faction 无 aliases schema/写入路径(add_faction 不写),
+            #   此 get 恒空,为前瞻性防御读;isinstance 守卫使其无害,保留守卫待确认。
             known_names.update(fc.get("aliases") or [] if isinstance(fc.get("aliases"), list) else [])
         known_names.discard("")
 

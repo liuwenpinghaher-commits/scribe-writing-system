@@ -1315,6 +1315,40 @@ def test_post_check_degraded_on_llm_failure(store):
     assert "quality" in data and "total" in data["quality"]
 
 
+# ===== 批E B(P2-15):orphan_knowledge_edges 审计器接线进 /post-check =====
+
+def test_post_check_reports_orphan_edges(store):
+    """批E-B:orphan_knowledge_edges 此前仅测试、零生产接线 → 接进 /post-check。
+    真实孤儿路径:del_fact 删命题时 knows 图边级联消失,但 reader_knows(独立表)不级联,
+    留悬挂边;/post-check 的 orphan_edges 字段应检出。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    store.add_entity(Entity("role:丁", "character", "丁"))
+    store.add_fact(Fact("fact:rk_pc", "role:丁", "获知", "读者知识测试", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("reader", "fact:rk_pc", since_chapter=1,
+                                      acquired_via="narrated"))
+    store.delete_record("fact:rk_pc")   # reader_knows 独立表不级联 → 悬挂孤儿
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正文。", "focalizer": "", "brief": ""}).json()
+    assert "orphan_edges" in r, "post-check 应含 orphan_edges 字段(审计器接线)"
+    assert any("rk_pc" in str(o) for o in r["orphan_edges"]), \
+        f"应检出 reader_knows 孤儿边,实际: {r['orphan_edges']}"
+
+
+def test_post_check_orphan_edges_empty_when_clean(store):
+    """批E-B:无孤儿边时 orphan_edges 为空列表(不误报)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "干净正文。", "focalizer": "", "brief": ""}).json()
+    assert r.get("orphan_edges") == [], f"无孤儿应为空,实际: {r.get('orphan_edges')}"
+
+
 def test_post_check_leaks_detected(store):
     """/post-check:有 focalizer 且散文含泄露时,leaks 非空。"""
     luanshi_leak_world(store)
