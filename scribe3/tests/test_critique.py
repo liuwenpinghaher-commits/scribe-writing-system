@@ -197,6 +197,12 @@ class TestAiTicsLexicon:
         assert not [h for h in find_ai_tics("他拔出凛冽刀。", allow_words={"凛冽刀"})
                     if h["kind"] == "banned_word"]
 
+    def test_short_text_single_hit_stays_advisory(self):
+        """短文本单次命中不升 blocking:「他不禁打了个寒颤。」wc=9,密度 111‰>3‰,
+        但孤立 1 处命中不构成"密度"现象(/check 端点常传很短的编辑片段)。"""
+        hits = [h for h in find_ai_tics("他不禁打了个寒颤。") if h["kind"] == "banned_word"]
+        assert hits and all(h["severity"] == "advisory" for h in hits)
+
     def test_toxic_pattern_hit(self):
         assert any(h["kind"] == "toxic_pattern" for h in find_ai_tics("她的声音不大，却带着一种不容置疑的力量。"))
 

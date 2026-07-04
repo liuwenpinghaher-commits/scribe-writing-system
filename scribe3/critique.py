@@ -417,7 +417,12 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
                 })
     if banned_hits and wc > 0:
         density = len(banned_hits) * 1000 / wc
-        severity = "blocking" if density > 3 else "advisory"
+        # 短文本护栏(与 contextual_word 的 ≥2 处护栏同思路):密度公式对极短片段
+        # (如 /check 端点传入的编辑片段)分母过小恒超阈——「他不禁打了个寒颤。」wc=9
+        # 单次命中密度即 111‰,若只看密度则短片段分级恒 blocking,分级设计落空。
+        # 取舍:选「命中总数≥3」而非「wc≥500」——前者直接度量"密度现象"本身
+        # (孤立 1-2 处命中不构成密度问题,无论文本多短),后者会让 400 字的真高密段落漏判。
+        severity = "blocking" if density > 3 and len(banned_hits) >= 3 else "advisory"
         for h in banned_hits:
             h["severity"] = severity
         out.extend(banned_hits)
