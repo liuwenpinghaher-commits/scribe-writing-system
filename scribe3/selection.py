@@ -116,7 +116,8 @@ def pseudo_diversity(profiles: list[dict]) -> dict:
 
 
 def run_selection(*, chapter: int, generate, post_check, persist_candidate,
-                  profile_fn, judge_fn, journal, n: int = 3) -> dict:
+                  profile_fn, judge_fn, journal, n: int = 3,
+                  save_result=None) -> dict:
     """选择环编排:
     generate(strategy: dict) -> prose             按策略出候选(完整组装链+策略段)
     post_check(prose) -> dict                     /post-check 同构(过滤输入)
@@ -189,10 +190,21 @@ def run_selection(*, chapter: int, generate, post_check, persist_candidate,
         c["prose_head"] = c["prose"][:300]
         c.setdefault("rubric_rank", None)
 
-    return {"chapter": chapter,
-            "candidates": [{k: v for k, v in c.items() if k != "prose"} for c in cands],
-            "consensus": consensus,
-            "pseudo_diversity_round": pseudo_round,
-            "verdict": "awaiting_human",
-            "journal_recorded": True,
-            "note": "机器只备料:过滤明细与排序仅供参考,终选与理由在作者(理由入 lesson 流)"}
+    out_cands = [{k: v for k, v in c.items() if k != "prose"} for c in cands]
+    # P2门审查 P2-2:展示序洗牌——此前候选卡顺序恒等策略序,"甲乙丙"两次就被
+    # 记住(标签隐藏了、位置没盲),叠加降级排序会恒定锚向首策略。
+    import random as _rnd
+    _rnd.shuffle(out_cands)
+    result = {"chapter": chapter,
+              "candidates": out_cands,
+              "consensus": consensus,
+              "pseudo_diversity_round": pseudo_round,
+              "verdict": "awaiting_human",
+              "journal_recorded": True,
+              "note": "机器只备料:过滤明细与排序仅供参考,终选与理由在作者(理由入 lesson 流)"}
+    if save_result is not None:
+        try:
+            save_result(result)   # P2-3:结果落 journal 旁文件,断连不丢元数据
+        except Exception as e:
+            _log.warning("selection 结果落盘回调失败(忽略): %s", e)
+    return result

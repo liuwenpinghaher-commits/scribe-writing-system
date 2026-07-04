@@ -137,17 +137,17 @@ export function NorthStarPanel({ seq }) {
         ) : (
           <>
             <Dim label="张弛分布"
-                 main={book.tension?.no_data ? '无节拍标注数据' : (book.tension?.findings?.length ? `${book.tension.findings.length} 处失衡` : '无失衡')}
+                 main={book.tension?.no_data ? (book.tension?.degraded ? '计算失败(degraded)' : '无节拍标注数据') : (book.tension?.findings?.length ? `${book.tension.findings.length} 处失衡` : '无失衡')}
                  warn={!!book.tension?.findings?.length} />
             <Dim label="伏笔回收率"
-                 main={book.promise_recovery?.no_data ? '无伏笔数据' : `${Math.round((book.promise_recovery?.rate ?? 0) * 100)}%`}
+                 main={book.promise_recovery?.no_data ? (book.promise_recovery?.degraded ? '计算失败(degraded)' : '无伏笔数据') : (book.promise_recovery?.rate == null ? '—' : `${Math.round(book.promise_recovery.rate * 100)}%`)}
                  sub={book.promise_recovery?.no_data ? '' : `开 ${book.promise_recovery.open} · 收 ${book.promise_recovery.payoff} · 超期 ${book.promise_recovery.overdue}`}
                  warn={(book.promise_recovery?.overdue || 0) > 0} />
             <Dim label="跨章矛盾密度"
-                 main={book.contradiction_density?.no_data ? '无正文数据' : `${(book.contradiction_density?.per_10k ?? 0).toFixed(2)} / 万字`}
+                 main={book.contradiction_density?.no_data ? (book.contradiction_density?.degraded ? '计算失败(degraded)' : '无正文数据') : `${(book.contradiction_density?.per_10k ?? 0).toFixed(2)} / 万字`}
                  sub="仅自比趋势,不可对标外部基准" />
             <Dim label="目的达成率"
-                 main={book.fulfillment?.no_data ? '未启用目的合同' : `${Math.round((book.fulfillment?.rate ?? 0) * 100)}%`}
+                 main={book.fulfillment?.no_data ? (book.fulfillment?.degraded ? '计算失败(degraded)' : '未启用目的合同') : (book.fulfillment?.rate == null ? '—' : `${Math.round(book.fulfillment.rate * 100)}%`)}
                  sub={book.fulfillment?.no_data ? '' : `欠账 ${book.fulfillment.carried_backlog} · 放弃 ${book.fulfillment.waived}(链尾去重口径)`}
                  warn={(book.fulfillment?.carried_backlog || 0) > 0} />
             <Dim label="因果欠账存量" main={book.causal_debt_total ?? '—'} warn={(book.causal_debt_total || 0) > 0} />

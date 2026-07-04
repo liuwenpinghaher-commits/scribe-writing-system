@@ -10,6 +10,7 @@ import { useToast } from './ui/Toast.jsx'
 
 const AXES = ['切入点', '节奏', '信息释放', '其他']
 
+// P2审查 P2-5:chosen 比较须排除 null===null(留版失败候选曾开局即高亮"已选")
 function CandidateCard({ c, revealed, chosen, onChoose }) {
   const [showRank, setShowRank] = useState(false)
   return (
@@ -34,14 +35,16 @@ function CandidateCard({ c, revealed, chosen, onChoose }) {
       )}
       {!c.filtered && (
         <div className="mt-1.5">
-          <Btn size="sm" variant={chosen ? 'primary' : 'ghost'} onClick={onChoose}>{chosen ? '已选此稿' : '选这稿'}</Btn>
+          {c.version_id
+            ? <Btn size="sm" variant={chosen ? 'primary' : 'ghost'} onClick={onChoose}>{chosen ? '已选此稿' : '选这稿'}</Btn>
+            : <span className="text-f11 text-danger">留版失败,不可终选(可复制正文手工处理)</span>}
         </div>
       )}
     </div>
   )
 }
 
-export function SelectionPanel({ seq }) {
+export function SelectionPanel({ seq, onFinalized }) {
   const toast = useToast()
   const [state, setState] = useState('idle')   // idle|running|ready|finalizing|done
   const [res, setRes] = useState(null)
@@ -50,14 +53,22 @@ export function SelectionPanel({ seq }) {
   const [axis, setAxis] = useState('切入点')
   const [reason, setReason] = useState('')
 
-  const run = async () => {
+  const run = async (force = false) => {
     setState('running'); setRes(null); setPick(null); setRevealed(false)
     try {
-      const r = await api.selectChapter(seq)
+      const r = await api.selectChapter(seq, force)
       r.candidates?.forEach((c, i) => { c._label = ['甲', '乙', '丙', '丁'][i] || i + 1 })
       setRes(r); setState('ready')
     } catch (e) {
-      toast(e?.body?.detail || '候选生成失败(检查后端与 LLM 网关)', { tone: 'danger' })
+      const detail = e?.body?.detail || ''
+      if (e?.status === 422 && detail.includes('force')) {
+        // P2审查 P3:force 有 UI 通道——非关键章确认后带 force 重发(作者主权)
+        if (window.confirm('本章无关键章标注(高压/关系回收/反转)。仍要花 3 倍生成成本出候选吗?')) {
+          return run(true)
+        }
+        setState('idle'); return
+      }
+      toast(detail || '候选生成失败(检查后端与 LLM 网关)', { tone: 'danger' })
       setState('idle')
     }
   }
@@ -69,6 +80,7 @@ export function SelectionPanel({ seq }) {
     try {
       await api.selectFinalize(seq, { version_id: pick, reason_axis: axis, reason_text: reason.trim() })
       toast('已定稿并落库,理由已入 lesson 流')
+      onFinalized?.()   // P2审查 P1-2:通知编辑器重载(恢复语义),防 stale buffer 盖掉终选稿
       setState('done')
     } catch (e) {
       toast(e?.body?.detail || '终选落库失败', { tone: 'danger' })
@@ -105,7 +117,7 @@ export function SelectionPanel({ seq }) {
           </div>
           {res.candidates?.map((c) => (
             <CandidateCard key={c.version_id || c.strategy} c={c} revealed={revealed}
-                           chosen={pick === c.version_id}
+                           chosen={pick != null && pick === c.version_id}
                            onChoose={() => setPick(c.version_id)} />
           ))}
           {state !== 'done' && (

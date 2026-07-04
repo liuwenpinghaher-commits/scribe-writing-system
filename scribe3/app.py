@@ -2192,8 +2192,14 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
             raise HTTPException(status_code=409,
                                 detail=f"chapter {req.chapter} 已有 loop 在途(同章互斥)")
         _loop_inflight.add(_lkey)
-    jp = _loop_journal_path(work, req.chapter)
-    journal = PipelineJournal(jp)
+    # P2门审查 P2-1(loop 侧同修):journal 构造若抛异常须释放互斥,否则该章永久 409。
+    try:
+        jp = _loop_journal_path(work, req.chapter)
+        journal = PipelineJournal(jp)
+    except Exception:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_lkey)
+        raise
 
     def _generate(attempt: int, constraints: str) -> str:
         instructions = _assemble_write_instructions(
@@ -3492,30 +3498,45 @@ def north_star_chapter(seq: int, work: str = "main"):
 
 
 @app.get("/audit/blind-pack")
-def audit_blind_pack(work: str = "main", per_volume: int = 2, seed: int = 0):
+def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
+                     per_volume: int | None = None):
     """盲评包导出(北极星任务13,秘密审计制度——防 Goodhart 的流程性防护):
     池A=被自动 regenerate 的章(loop journal 含 *_verdict_blocking,附第0稿并排、
     随机左右序,审「重写后真的更好吗」);池B=随机抽样章(seed 可复现)。
-    样本用盲号(不含章号),key 单独字段供评完对照。结论只供人读,
+    sample_n 是**全书总抽样数**(P2门审查 P2-4:旧名 per_volume 语义失实,制度 doc
+    的"每卷 2-3 章"由作者按卷分次导出或 sample_n=卷数×2 执行;旧参名兼容保留)。
+    样本用盲号(不含章号;池A样本带双稿形态,天然暴露"回炉过"池别——制度 doc 已
+    明示此偏离)。key 补 regen_rounds(回炉轮数,journal 计)。结论只供人读,
     **永不接入任何自动收敛判据**(宪法级);read-only 端点。"""
+    if per_volume is not None:
+        sample_n = per_volume
     import glob as _glob
     import json as _json
     import random
+    import re as _re_mod
+    _re_audit = _re_mod.compile(r"_a(\d+)_")
     st = _store_for(work)
     base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
             or os.path.expanduser("~/.scribe3-loop-journals"))
     pool_a: set[int] = set()
+    regen_rounds: dict[int, int] = {}   # P2门审查 P2-4:key 补回炉轮数(制度 doc 承诺)
     for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
         try:
-            data = _json.loads(open(fp, encoding="utf-8").read())
-            if any("_verdict_blocking" in s for s in (data.get("stages_completed") or [])):
-                pool_a.add(int(os.path.basename(fp).split("_")[1][2:]))
+            with open(fp, encoding="utf-8") as _fh:
+                data = _json.loads(_fh.read())
+            stages = data.get("stages_completed") or []
+            if any("_verdict_blocking" in s for s in stages):
+                seq_a = int(os.path.basename(fp).split("_")[1][2:])
+                pool_a.add(seq_a)
+                attempts = [int(m.group(1)) for s in stages
+                            for m in [_re_audit.search(s)] if m]
+                regen_rounds[seq_a] = max(regen_rounds.get(seq_a, 0), max(attempts, default=0))
         except Exception:
             continue
     chapters = [c["seq"] for c in st.list_chapters()]
     rng = random.Random(seed)
     rest = [c for c in chapters if c not in pool_a]
-    pool_b = sorted(rng.sample(rest, min(per_volume, len(rest)))) if rest else []
+    pool_b = sorted(rng.sample(rest, min(sample_n, len(rest)))) if rest else []
     picked = [("A", s) for s in sorted(pool_a) if s in chapters] + [("B", s) for s in pool_b]
     rng.shuffle(picked)
     samples, key = [], {}
@@ -3544,6 +3565,7 @@ def audit_blind_pack(work: str = "main", per_volume: int = 2, seed: int = 0):
         except Exception:
             sc = {}
         key[blind_id] = {"chapter": seq, "pool": pool,
+                         "regen_rounds": regen_rounds.get(seq),
                          "ai_grade": ((sc.get("advisory_scores") or {}).get("ai_grade")
                                       or {}).get("grade"),
                          "constraints": sc.get("constraints")}
@@ -3589,8 +3611,16 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         if _skey in _loop_inflight:
             raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
         _loop_inflight.add(_skey)
-    jp = _loop_journal_path(work, req.chapter)
-    journal = PipelineJournal(str(jp).replace("loop_ch", "select_ch"))
+    # P2门审查 P2-1:journal 构造放锁后 try 内(构造抛异常曾致锁永不释放、该章全 409);
+    # 且只替换**文件名**(str.replace 全路径会把含 loop_ch 的目录段也改写)。
+    try:
+        jp = _loop_journal_path(work, req.chapter)
+        jp = jp.with_name(jp.name.replace("loop_ch", "select_ch", 1))
+        journal = PipelineJournal(jp)
+    except Exception:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+        raise
 
     def _generate(strategy: dict) -> str:
         instructions = _assemble_write_instructions(
@@ -3621,11 +3651,12 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
                                       label=f"选择环候选·{strategy_key}",
                                       stats=_prose_stats(prose))
 
-    _judge_flip = {"v": False}
-
     def _judge(a: str, b: str) -> str:
-        """成对比较(rubric 初筛员,只排序)。LLM 失败 → 交替返回制造同对矛盾 →
-        round_robin 判 inconsistent → consensus=False 交人(优雅降级,绝不假排序)。"""
+        """成对比较(rubric 初筛员,只排序)。LLM 失败 → **恒返回 "A"(先手)**:
+        位置对换下同对两方向都判先手 = w1≠w2 矛盾 → round_robin 判 inconsistent →
+        consensus=False 交人。P2门审查 P1-1:此前的"交替返回"推理是反的——交替
+        ("A","B") 在位置对换下恰好等于两方向一致判先手胜,产出零矛盾的确定性
+        **假共识**(已复现);恒定先手才是被双向对换必然识破的降级形态。"""
         prompt = ("两份同一章级合同下的候选章稿,只判哪份更好(贴合同/张力/文风三维综合),"
                   '只输出一个字母 A 或 B。\n'
                   f"【A】\n{a[:2800]}\n【B】\n{b[:2800]}")
@@ -3634,23 +3665,34 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
             if fn is None:
                 from scribe3.llm import hermes_complete as fn
             raw = str(fn(prompt)).strip().upper()
-            pick = next((c for c in raw if c in ("A", "B")), None)
-            if pick:
-                return pick
+            # P2门审查 P3:取独立的 A/B token(防 "ANSWER" 里的 A 误判)
+            import re as _re2
+            m = _re2.search(r"(?<![A-Z0-9])([AB])(?![A-Z0-9])", raw)
+            if m:
+                return m.group(1)
         except Exception as e:
             logging.getLogger("scribe3").warning("selection judge 失败(降级为无共识): %s", e)
-        _judge_flip["v"] = not _judge_flip["v"]
-        return "A" if _judge_flip["v"] else "B"
+        return "A"
+
+    def _save_result(res: dict) -> None:
+        """P2门审查 P2-3:结果元数据落 journal 旁文件——同步长请求断连/切章后,
+        候选的 filtered/rank/profile 不再只活在一次 HTTP 响应里(prose 本就在版本库)。"""
+        import json as _j2
+        try:
+            with open(str(jp) + ".result.json", "w", encoding="utf-8") as f:
+                _j2.dump(res, f, ensure_ascii=False)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("selection 结果落盘失败(忽略): %s", e)
 
     try:
         result = run_selection(chapter=req.chapter, generate=_generate,
                                post_check=_post_check, persist_candidate=_persist,
                                profile_fn=chapter_style_profile, judge_fn=_judge,
-                               journal=journal)
+                               journal=journal, save_result=_save_result)
     finally:
         with _loop_inflight_lock:
             _loop_inflight.discard(_skey)
-    result["journal_path"] = str(jp).replace("loop_ch", "select_ch")
+    result["journal_path"] = str(jp)
     result["key_chapter"] = is_key_chapter(meta)
     return result
 
@@ -3668,6 +3710,12 @@ def select_finalize(req: SelectFinalizeReq, work: str = "main"):
     (蓝图:理由是沉淀环最贵的输入;强制一句,轴+自由文本双格式)。"""
     if not (req.reason_text or "").strip():
         raise HTTPException(status_code=422, detail="终选必须留一句理由(入 lesson 流)")
+    # P2门审查 P1-3:同章 loop/选择在途时禁止终选——否则 loop pass 的 save+ingest
+    # 与终选落库互踩(正文与知识表错位)。检查即可,不持锁。
+    with _loop_inflight_lock:
+        if (work, req.chapter) in _loop_inflight:
+            raise HTTPException(status_code=409,
+                                detail=f"chapter {req.chapter} 有生成在途,完成后再终选")
     st = _store_for(work)
     ver = st.get_chapter_version(req.version_id)
     if not ver or ver.get("seq") != req.chapter:
