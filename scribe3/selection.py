@@ -49,9 +49,12 @@ PSEUDO_DIST_MIN = 0.12   # 自由维度归一距离下限(自定口径,样本积
 
 def is_key_chapter(meta: dict) -> bool:
     """关键章判定(蓝图:转折/开局/卷尾/反转——合同字段现成可判):
-    chapter_role∈{高压,关系回收} 或含 reversal_type。无标注不触发(N 倍成本只花刀刃)。"""
+    role∈{高压,关系回收} 或含 reversal_type。无标注不触发(N 倍成本只花刀刃)。
+    键名兼容:parse_chapter_meta 生产输出是 'role'(P2 真机发现:此前只认
+    'chapter_role' 与 stub 测试互为假绿,真标注章被 422 拦——契约以生产源为准)。"""
     m = meta or {}
-    return (m.get("chapter_role") in ("高压", "关系回收")) or bool(m.get("reversal_type"))
+    role = m.get("role") or m.get("chapter_role")
+    return (role in ("高压", "关系回收")) or bool(m.get("reversal_type"))
 
 
 def round_robin_rank(texts: list[str], judge_fn) -> dict:

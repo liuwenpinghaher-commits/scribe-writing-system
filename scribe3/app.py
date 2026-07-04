@@ -3572,7 +3572,14 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
     ch = st.get_chapter(req.chapter)
     if not ch:
         raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
-    meta = parse_chapter_meta(chapter_draft_text(ch)) or {}
+    _draft_txt = chapter_draft_text(ch)
+    meta = parse_chapter_meta(_draft_txt) or {}
+    # reversal_type 不在 parse_chapter_meta 输出里(它只抓压力级/role)——
+    # 关键章判定的反转分支从草料文本直接正则(方案B任务13b 的标注规范同源)。
+    import re as _re
+    _rev = _re.search(r"reversal_type\s*[::]\s*(\S+)", _draft_txt)
+    if _rev:
+        meta["reversal_type"] = _rev.group(1)
     if not is_key_chapter(meta) and not req.force:
         raise HTTPException(status_code=422, detail=(
             "非关键章不触发选择环(N 倍成本只花刀刃):节拍标注 chapter_role 为 高压/关系回收 "

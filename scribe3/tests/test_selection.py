@@ -16,11 +16,20 @@ from scribe3.selection import (STRATEGIES, is_key_chapter, pseudo_diversity,
 # ===== 关键章判定 =====
 
 def test_is_key_chapter_by_role_or_reversal():
-    assert is_key_chapter({"chapter_role": "高压"}) is True
-    assert is_key_chapter({"chapter_role": "关系回收"}) is True
-    assert is_key_chapter({"chapter_role": "推进", "reversal_type": "身份反转"}) is True
-    assert is_key_chapter({"chapter_role": "低压"}) is False
+    assert is_key_chapter({"role": "高压"}) is True, \
+        "生产键名是 role(parse_chapter_meta 输出;P2 真机抓出的契约假绿)"
+    assert is_key_chapter({"role": "关系回收", "pressure": 3}) is True
+    assert is_key_chapter({"chapter_role": "高压"}) is True, "旧键名兼容"
+    assert is_key_chapter({"role": "推进", "reversal_type": "身份反转"}) is True
+    assert is_key_chapter({"role": "低压"}) is False
     assert is_key_chapter({}) is False, "无标注不触发(N 倍成本只花在刀刃上)"
+
+
+def test_is_key_chapter_against_real_parse(store):
+    """契约测试:直接吃 parse_chapter_meta 的真实输出,防 stub 键名再次假绿。"""
+    from scribe3.brief import parse_chapter_meta
+    meta = parse_chapter_meta("井台对峙。压力级:5 chapter_role:高压")
+    assert meta and is_key_chapter(meta) is True
 
 
 # ===== 全循环赛排序(rubric 只排序) =====
