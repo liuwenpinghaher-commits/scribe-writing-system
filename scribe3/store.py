@@ -1427,7 +1427,111 @@ class SurrealStore:
             qc_causal_n = 0
         return {"scene_count": len(scenes), "scene_meta": scene_meta,
                 "qc_issues": qc_n, "qc_causal": qc_causal_n,
-                "qc_breakdown": json.dumps(breakdown, ensure_ascii=False)}
+                "qc_breakdown": json.dumps(breakdown, ensure_ascii=False),
+                # 内存透传(不落章表):scorecard 复用同一份 quality_flags,免重算(北极星任务3)
+                "_quality_flags": qf}
+
+    def _compute_scorecard(self, seq: int, prose: str, focalizer: str | None,
+                           precomputed_flags: dict | None = None) -> dict:
+        """章级北极星 scorecard 三分栏(北极星任务3,蓝图 §3-③ 前半)。纯计算不写库。
+
+        constraints(硬,全确定性):leaks(全知章 None=N/A,绝不写 0 假绿)/
+          degeneration_blocking / qc_causal(-1 哨兵=无事件数据)/ promise_overdue。
+        advisory_scores(软参考,只提示不门禁):ai_grade / qc_breakdown。
+        fulfillment(正向达成):任务6 目的合同接入前占位 not_available。
+        每个检测器独立 fail-soft:挂了记 degraded 如实上报(不假绿),绝不拖垮存稿。
+        不合成总分(宪法条款)。
+        """
+        constraints: dict = {}
+        advisory: dict = {}
+        degraded: list[str] = []
+        try:
+            if focalizer:
+                from scribe3.verify import find_leaks
+                constraints["leaks"] = len(find_leaks(prose, self, focalizer, seq))
+            else:
+                constraints["leaks"] = None   # 全知章泄密不可判:N/A ≠ 0
+        except Exception:
+            degraded.append("leaks")
+            constraints["leaks"] = None
+        try:
+            from scribe3.critique import find_degeneration
+            degs = find_degeneration(prose)
+            constraints["degeneration_blocking"] = sum(
+                1 for d in degs if d.get("severity") == "blocking")
+            constraints["degeneration_total"] = len(degs)
+        except Exception:
+            degraded.append("degeneration")
+            constraints["degeneration_blocking"] = None
+            constraints["degeneration_total"] = None
+        try:
+            from scribe3.verify import causal_complete
+            constraints["qc_causal"] = (-1 if not self.events_at(seq)
+                                        else len(causal_complete(self, seq)))
+        except Exception:
+            degraded.append("qc_causal")
+            constraints["qc_causal"] = None
+        try:
+            rows = self.promises_with_lifecycle(max_chapter=seq)
+            constraints["promise_overdue"] = sum(
+                1 for p in rows if (p.get("window") or {}).get("state") == "overdue")
+        except Exception:
+            degraded.append("promise_overdue")
+            constraints["promise_overdue"] = None
+        try:
+            from scribe3.critique import aggregate_ai_grade, quality_flags
+            qf = precomputed_flags if precomputed_flags is not None else quality_flags(prose)
+            g = aggregate_ai_grade(qf, prose)
+            advisory["ai_grade"] = {"grade": g.get("grade"), "gates_hit": g.get("gates_hit")}
+            advisory["qc_breakdown"] = {k: len(qf.get(k) or []) for k in
+                                        ("repetition", "structural", "purple",
+                                         "ai_tics", "oversaturation")}
+        except Exception:
+            degraded.append("ai_grade")
+            advisory["ai_grade"] = None
+            advisory["qc_breakdown"] = None
+        fulfillment = {"status": "not_available", "deltas": [],
+                       "note": "目的合同未启用(北极星任务6接入后此栏出真数据)"}
+        return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
+                "fulfillment": fulfillment, "degraded": degraded}
+
+    def _upsert_scorecard(self, sc: dict) -> None:
+        import json
+        self._execute_write(
+            "UPSERT type::record('chapter_scorecard',$seq) SET seq=$seq, constraints=$c, "
+            "advisory=$a, fulfillment=$f, degraded=$d, computed_at=time::now()",
+            {"seq": sc["seq"],
+             "c": json.dumps(sc["constraints"], ensure_ascii=False),
+             "a": json.dumps(sc["advisory_scores"], ensure_ascii=False),
+             "f": json.dumps(sc["fulfillment"], ensure_ascii=False),
+             "d": json.dumps(sc["degraded"], ensure_ascii=False)})
+
+    def get_chapter_scorecard(self, seq: int) -> dict | None:
+        """读章 scorecard;缓存行缺失(旧库章)→ 现算回填(lazy backfill)。
+        章不存在或无正文 → None(端点侧 404)。"""
+        import json
+        rows = self._query(
+            "SELECT seq, constraints, advisory, fulfillment, degraded, "
+            "<string> computed_at AS computed_at "
+            "FROM type::record('chapter_scorecard',$s)", {"s": seq})
+        if rows:
+            r = rows[0]
+            return {"seq": seq,
+                    "constraints": json.loads(r.get("constraints") or "{}"),
+                    "advisory_scores": json.loads(r.get("advisory") or "{}"),
+                    "fulfillment": json.loads(r.get("fulfillment") or "{}"),
+                    "degraded": json.loads(r.get("degraded") or "[]"),
+                    "computed_at": r.get("computed_at")}
+        ch = self.get_chapter(seq)
+        if not ch or not (ch.get("prose") or "").strip():
+            return None
+        sc = self._compute_scorecard(seq, ch["prose"], ch.get("focalizer"))
+        try:
+            self._upsert_scorecard(sc)
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "scorecard lazy 回填落库失败(返回现算结果): %s", _e)
+        return sc
 
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None,
                      _today: str | None = None) -> None:
@@ -1446,6 +1550,14 @@ class SurrealStore:
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
              "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
+        # 北极星任务3:章级 scorecard 存稿即算(独立缓存表,D-008)——fail-soft,
+        # scorecard 是面板不是命门,失败只告警绝不阻断存稿。
+        try:
+            self._upsert_scorecard(self._compute_scorecard(
+                seq, prose, focalizer, precomputed_flags=cache.get("_quality_flags")))
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "chapter_scorecard 计算/落库失败(存稿不受影响): %s", _e)
         # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
         try:
             self._record_daily_progress(seq, today=_today)

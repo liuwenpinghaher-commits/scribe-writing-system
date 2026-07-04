@@ -3138,8 +3138,21 @@ def ignore_unverified_ep(uid: str, work: str = "main"):
     return {"ok": True}
 
 
+@app.get("/north-star/chapter/{seq}")
+def north_star_chapter(seq: int, work: str = "main"):
+    """章级北极星 scorecard(北极星任务3,蓝图 §3-③):constraints(硬约束偏离)/
+    advisory_scores(软参考)/fulfillment(正向达成,任务6 前占位)三分栏。
+    不合成总分(宪法条款);loop 编排(任务4)只读 constraints。
+    缓存缺失时 store 侧 lazy 现算回填;章不存在/无正文 → 404。"""
+    sc = _store_for(work).get_chapter_scorecard(seq)
+    if sc is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} 不存在或无正文")
+    return sc
+
+
+# chapter_scorecard:北极星任务3——scorecard 缓存表入 /live SSE(蓝图附录 A.2,前端面板不轮询)
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
-                "promise", "motif", "chapter", "material"]
+                "promise", "motif", "chapter", "material", "chapter_scorecard"]
 
 
 _LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))
