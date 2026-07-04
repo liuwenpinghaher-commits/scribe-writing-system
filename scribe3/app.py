@@ -2408,7 +2408,17 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
     F-05: 新增顶层 issues 列表(带 range),兼容旧 qc/leaks 计数字段。"""
     st = _store_for(work)
     from scribe3.critique import quality_flags, quality_issues
-    qf = quality_flags(req.prose)
+    # 方案B任务14:本书 craft 豁免——extra(升华正则加法)+ allow_words/allow_patterns
+    # (前置 skip 判定,减法),fail-soft(取不到就退回 None,不影响本次检查)。
+    import logging
+    extra = allow_words = allow_pats = None
+    try:
+        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
+        allow_words = set(st.allow_words()) if hasattr(st, "allow_words") else None
+        allow_pats = st.allow_patterns() if hasattr(st, "allow_patterns") else None
+    except Exception as e:
+        logging.getLogger("scribe3").warning("check 取 craft 豁免失败: %s", e)
+    qf = quality_flags(req.prose, extra, allow_words, allow_pats)
     leaks = []
     if req.focalizer:
         try:
@@ -2417,16 +2427,13 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
                       "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
         except Exception as e:
-            import logging
             logging.getLogger("scribe3").warning("check find_leaks 失败: %s", e)
 
     # F-05: 组装带 range 的 issues(白送类 QC + leaks)
     issues: list[dict] = []
     try:
-        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
-        issues = quality_issues(req.prose, extra)
+        issues = quality_issues(req.prose, extra, allow_words, allow_pats)
     except Exception as e:
-        import logging
         logging.getLogger("scribe3").warning("check quality_issues 失败: %s", e)
     # 追加 leak issues
     for lk in leaks:
@@ -2474,8 +2481,18 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
                                   find_unbalanced_quotes, find_watch_regression)
     st = _store_for(work)
 
+    # 方案B任务14:本书 craft 豁免——extra(升华正则加法)+ allow_words/allow_patterns
+    # (前置 skip 判定,减法),fail-soft(取不到就退回 None,不影响本次体检)。
+    extra = allow_words = allow_pats = None
+    try:
+        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
+        allow_words = set(st.allow_words()) if hasattr(st, "allow_words") else None
+        allow_pats = st.allow_patterns() if hasattr(st, "allow_patterns") else None
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check 取 craft 豁免失败: %s", e)
+
     # 1. 确定性五类 QC
-    qf = quality_flags(req.prose)
+    qf = quality_flags(req.prose, extra, allow_words, allow_pats)
     qc_breakdown = {
         "repetition": len(qf["repetition"]),
         "structural": len(qf["structural"]),
@@ -2529,8 +2546,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     # F-05: 组装带 range 的顶层 issues(白送类 QC + leaks + discipline.cut_after)
     issues: list[dict] = []
     try:
-        extra = st.purple_patterns() if hasattr(st, "purple_patterns") else None
-        issues = quality_issues(req.prose, extra)
+        issues = quality_issues(req.prose, extra, allow_words, allow_pats)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check quality_issues 失败: %s", e)
     # leak issues

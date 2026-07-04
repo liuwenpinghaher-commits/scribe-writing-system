@@ -742,7 +742,7 @@ async def s3_forget_knowledge(ctx: Context, knower_id: str, proposition_id: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "") -> dict:
-    """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|cover_action。"""
+    """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|allow_pattern|allow_word。"""
     ok = await _ask(ctx, f"加题材规则 [{kind}] {pattern}")
     return commit_if_approved("s3_craft_rule_add", ok,
                               lambda: _store.add_craft_rule(kind, pattern, note))

@@ -1,7 +1,8 @@
 """引擎层 craft · 题材无关的写作引擎 + 情感词典。
 从 hermes-novel craft wiki(写作/.agents/wiki/)萃取,已清洗科幻《量子幽灵》残留。
-纯常量/纯函数,无 DB/网络,可离线单测。题材特化(升华正则/法器写法/角色覆盖动作)
-不在此——将由后续 craft_rule per-work 表承载(规划中,尚未建表)。
+纯常量/纯函数,无 DB/网络,可离线单测。题材特化(升华正则/法器写法)由 craft_rule
+per-work 表承载(已建表,store.py CRUD + seed;方案B任务14补齐 allow_pattern/
+allow_word 豁免路径)。
 """
 from __future__ import annotations
 

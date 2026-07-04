@@ -111,8 +111,10 @@ class TestEnumParity:
         assert vals == {"open", "done"}
 
     def test_craft_rule_kind_members(self):
+        """方案B任务14:删 cover_action(全程无消费者的空格,勘误篇裁定取删),
+        新增 allow_pattern/allow_word(题材豁免前置 skip 判定新路径)。"""
         vals = {e.value for e in CraftRuleKind}
-        assert vals == {"purple_regex", "artifact_craft", "cover_action"}
+        assert vals == {"purple_regex", "artifact_craft", "allow_pattern", "allow_word"}
 
     def test_entity_kind_members(self):
         vals = {e.value for e in EntityKind}

@@ -1061,6 +1061,15 @@ class SurrealStore:
         """本书升华正则(喂 critique.find_purple_prose 的 extra_patterns)。"""
         return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "purple_regex"]
 
+    def allow_patterns(self) -> list[str]:
+        """方案B任务14:本书题材豁免正则(喂 critique 各检测器的 allow_patterns 前置
+        skip 判定——减法,与 purple_patterns/extra_patterns 的加法标记彻底分离)。"""
+        return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "allow_pattern"]
+
+    def allow_words(self) -> list[str]:
+        """方案B任务14:本书题材豁免词(喂 critique.find_ai_tics 的 allow_words 白名单)。"""
+        return [r["pattern"] for r in self.list_craft_rules() if r["kind"] == "allow_word"]
+
     def seed_craft_rules(self) -> None:
         """首书(乱世铜炉系)种子:scribe2 实战的升华正则8条 + 法器四件套。幂等(已有则跳过)。"""
         if self.list_craft_rules():

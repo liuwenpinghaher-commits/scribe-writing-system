@@ -22,3 +22,16 @@ def test_seed_craft_rules_luanshi(store):
     kinds = {r["kind"] for r in rules}
     assert "purple_regex" in kinds and "artifact_craft" in kinds
     assert any("天地为炉" in r["pattern"] for r in rules)
+
+
+class TestAllowPath:
+    """方案B任务14:题材豁免 allow_pattern/allow_word 新路径——前置 skip 判定(减法),
+    与 find_purple_prose 的 extra_patterns(加法标记)彻底分离,绝不复用后者。"""
+
+    def test_allow_pattern_kind_accepted(self, store):
+        store.add_craft_rule("allow_pattern", r"心头一震|凛冽刀", "志怪题材别删清单")
+        assert store.allow_patterns() == [r"心头一震|凛冽刀"]
+
+    def test_allow_word_kind_accepted(self, store):
+        store.add_craft_rule("allow_word", "凛冽刀", "世界观术语")
+        assert "凛冽刀" in store.allow_words()

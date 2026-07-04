@@ -1270,6 +1270,22 @@ def test_check_returns_all_five_qc_classes(store):
     assert set(r["qc"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
 
 
+def test_check_allow_pattern_exempts_purple_issue(store):
+    """方案B任务14接线:store 里 seed 一条 allow_pattern 后,/check 对含该句式的
+    文本不再报 purple issue(前置 skip 判定,减法,与 extra_patterns 加法路径分离)。"""
+    prose = "他知道,回不去了。"
+    c = _client(store)
+    before = c.post("/check", params={"seq": 1},
+                     json={"prose": prose, "focalizer": ""}).json()
+    assert before["qc"]["purple"] > 0, "豁免前应命中升华句"
+
+    store.add_craft_rule("allow_pattern", r"回不去", "志怪题材别删清单")
+    after = c.post("/check", params={"seq": 1},
+                    json={"prose": prose, "focalizer": ""}).json()
+    assert after["qc"]["purple"] == 0, "seed allow_pattern 后应豁免该句"
+    assert not any(i["type"] == "purple" for i in after["issues"])
+
+
 # ===== Fix 2 TDD: /post-check 生成后全量体检 =====
 
 def test_post_check_returns_assembled_structure(store):

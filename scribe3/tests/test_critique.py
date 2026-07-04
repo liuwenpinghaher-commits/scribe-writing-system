@@ -1282,3 +1282,19 @@ class TestFindingsSchema:
         assert merge_verdicts(["APPROVE", "CONCERNS"]) == "CONCERNS"
         assert merge_verdicts(["APPROVE", "APPROVE"]) == "APPROVE"
         assert merge_verdicts([]) == "CONCERNS"   # 无评审=不能盖章
+
+
+# ==== 方案B任务14:题材豁免 allow_pattern/allow_word 新路径 ====
+# 铁律:豁免是**前置 skip 判定**(减法),与 find_purple_prose 的 extra_patterns
+# (加法标记,越加越标红)彻底分离,绝不复用后者。
+
+class TestAllowPatternsExemption:
+    def test_purple_prose_allow_skips_sentence(self):
+        text = "他知道,回不去了。"
+        assert find_purple_prose(text) != []
+        assert find_purple_prose(text, allow_patterns=[r"回不去"]) == []
+
+    def test_emotion_telling_allow(self):
+        text = "他感到害怕。"
+        assert find_emotion_telling(text) != []
+        assert find_emotion_telling(text, allow_patterns=[r"感到害怕"]) == []

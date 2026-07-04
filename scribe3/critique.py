@@ -192,15 +192,26 @@ _PURPLE_PATS = LUANSHI_PURPLE_SEEDS
 _PURPLE_RE = [re.compile(p) for p in _PURPLE_PATS]
 
 
-def find_purple_prose(text: str, extra_patterns: list[str] | None = None) -> list[dict]:
+def find_purple_prose(text: str, extra_patterns: list[str] | None = None,
+                      allow_patterns: list[str] | None = None) -> list[dict]:
     """升华/抒情/主题直陈句:替读者下结论、硬塞命运隐喻——冷笔大忌。生成后扫描+删。
-    通用正则跨题材;题材专属升华句经 extra_patterns 注入(来自 craft_rule purple_regex)。"""
+    通用正则跨题材;题材专属升华句经 extra_patterns 注入(来自 craft_rule purple_regex,
+    加法标记,越加越标红)。
+
+    allow_patterns(方案B任务14):题材豁免正则,来自 craft_rule allow_pattern——前置
+    skip 判定(减法),命中句匹配任一 allow 正则即放行不报。与 extra_patterns 彻底
+    分离,绝不复用同一批正则(铁律:加法/减法两条独立路径)。
+    """
     pats = list(_PURPLE_RE) + [re.compile(p) for p in (extra_patterns or [])]
+    allow_pats = [re.compile(p) for p in (allow_patterns or [])]
     out: list[dict] = []
     for s in re.split(r"(?<=[。！？\n])", text or ""):
         st = s.strip()
-        if st and any(rx.search(st) for rx in pats):
-            out.append({"phrase": st[:30], "kind": "purple"})
+        if not st or not any(rx.search(st) for rx in pats):
+            continue
+        if allow_pats and any(rx.search(st) for rx in allow_pats):
+            continue  # 前置豁免:命中句落在题材别删清单里,不报
+        out.append({"phrase": st[:30], "kind": "purple"})
     return out
 
 
@@ -657,9 +668,12 @@ def find_elegant_variation(text: str, names: list[str], window: int = 200) -> li
 
 
 def quality_flags(text: str, extra_patterns: list[str] | None = None,
-                  allow_words: set[str] | None = None) -> dict:
+                  allow_words: set[str] | None = None,
+                  allow_patterns: list[str] | None = None) -> dict:
     """聚合十类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
     allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。
+    allow_patterns(方案B任务14):题材豁免正则,来自本书 craft_rule allow_pattern,前置
+    skip 判定(减法),透传给 find_purple_prose——与 extra_patterns 的加法标记路径分离。
 
     注意:"rhythm"/"adverb" 两键与其余八键类型不同——其余键均为**命中列表**(list[dict],
     空列表=无命中,调用方惯用 len() 计数);"rhythm" 是 find_rhythm_uniformity 的返回值,
@@ -678,7 +692,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
-        "purple": find_purple_prose(text, extra_patterns),
+        "purple": find_purple_prose(text, extra_patterns, allow_patterns),
         "ai_tics": find_ai_tics(text, allow_words),
         "oversaturation": find_oversaturation(text),
         "god_view": find_god_view(text),
@@ -724,12 +738,15 @@ def locate_phrase(text: str, phrase: str, max_hits: int = 20) -> list[tuple[int,
 
 
 def quality_issues(text: str, extra_patterns: list[str] | None = None,
-                   allow_words: set[str] | None = None) -> list[dict]:
+                   allow_words: set[str] | None = None,
+                   allow_patterns: list[str] | None = None) -> list[dict]:
     """六类 QC 的"带 offset"展开形式(与 quality_flags 并存)。
     仅对"白送类"(finditer 直接给 offset)和"去空白 n-gram 可 locate_phrase"的类别补 range。
     返回结构: {type, message, text, range:[start,end], meta}。
     range 为 None 表示无法定位(前端兜底用 text.indexOf 回退)。
     allow_words:禁用词白名单,透传给 find_ai_tics 的 banned_word 豁免。
+    allow_patterns(方案B任务14):题材豁免正则,前置 skip 判定(减法),命中句匹配即
+    从 purple 一类里放行不报——与 extra_patterns 加法路径分离。
     """
     issues: list[dict] = []
     s = text or ""
@@ -779,11 +796,14 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None,
 
     # ③ 升华 · purple — 整句 locate,逐句给 offset
     pats = list(_PURPLE_RE) + [re.compile(p) for p in (extra_patterns or [])]
+    allow_pats = [re.compile(p) for p in (allow_patterns or [])]
     for sent in re.split(r"(?<=[。！？\n])", s):
         st = sent.strip()
         if not st:
             continue
         if any(rx.search(st) for rx in pats):
+            if allow_pats and any(rx.search(st) for rx in allow_pats):
+                continue  # 前置豁免:命中句落在题材别删清单里,不报
             # 用 locate_phrase 在原文找整句起止(去空白后匹配)
             phrase_key = re.sub(r"\s+", "", st)
             hits = locate_phrase(s, phrase_key, max_hits=1)
@@ -1613,7 +1633,7 @@ def find_watch_regression(text: str) -> list[dict]:
     return out
 
 
-def find_emotion_telling(text: str) -> list[dict]:
+def find_emotion_telling(text: str, allow_patterns: list[str] | None = None) -> list[dict]:
     """检测叙述层直陈情绪/直接评语/思想转述的句子(确定性正则,宁缺勿滥)。
 
     方案B任务13:情绪表达4级(oh-story style-craft.md)是一条"直写 < 思想 < 神态 <
@@ -1633,23 +1653,41 @@ def find_emotion_telling(text: str) -> list[dict]:
     对话内情感词处理:粗略去除中文弯引号包裹片段后再扫描(减少误报)。
     返回 [{"span": <命中片段>, "kind": "emotion_word"|"verdict"|"cliche"|"thought_report",
     "level": 1|2}](kind/span 字段向后兼容既有调用方)。
+
+    allow_patterns(方案B任务14):题材豁免正则,来自 craft_rule allow_pattern——前置
+    skip 判定(减法),命中 span 匹配任一 allow 正则即放行不报。与其余检测器同一豁免
+    机制,独立于本函数既有的 level 分级逻辑(B13),不改动分级判定,只在收录前多一道
+    豁免过滤。
     """
     s = _strip_dialogue(text or "")
+    allow_pats = [re.compile(p) for p in (allow_patterns or [])]
+
+    def _allowed(span: str) -> bool:
+        return bool(allow_pats) and any(rx.search(span) for rx in allow_pats)
+
     out: list[dict] = []
 
     for m in _EMOTION_WORD_RE.finditer(s):
+        if _allowed(m.group(0)):
+            continue
         out.append({"span": m.group(0), "kind": "emotion_word", "level": 1})
 
     for m in _VERDICT_RE.finditer(s):
+        if _allowed(m.group(0)):
+            continue
         out.append({"span": m.group(0), "kind": "verdict", "level": 1})
 
     for m in _CLICHE_RE.finditer(s):
         # 避免与 emotion_word 重叠上报
         span = m.group(0)
+        if _allowed(span):
+            continue
         if not any(r["span"] in span or span in r["span"] for r in out):
             out.append({"span": span, "kind": "cliche", "level": 1})
 
     for m in _THOUGHT_REPORT_RE.finditer(s):
+        if _allowed(m.group(0)):
+            continue
         out.append({"span": m.group(0), "kind": "thought_report", "level": 2})
 
     return out

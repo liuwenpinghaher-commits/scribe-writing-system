@@ -49,4 +49,5 @@ class FlagStatus(str, Enum):
 class CraftRuleKind(str, Enum):
     purple_regex = "purple_regex"
     artifact_craft = "artifact_craft"
-    cover_action = "cover_action"
+    allow_pattern = "allow_pattern"   # 方案B任务14:题材豁免正则(前置 skip 判定,减法)
+    allow_word = "allow_word"         # 方案B任务14:题材豁免词(前置 skip 判定,减法)
