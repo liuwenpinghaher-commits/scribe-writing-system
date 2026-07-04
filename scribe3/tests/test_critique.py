@@ -615,7 +615,15 @@ class TestNegationFlips:
 
     def test_tag_particle_skipped(self):
         from scribe3.critique import find_negation_flips
-        assert not find_negation_flips("你不是早知道了吗?")
+        # 紧凑分支真正走到裸「是」且后一字是语气词:反问尾巴,不报 compact_shi
+        assert not find_negation_flips("这不是假的是吗?")
+
+    # —— 结构命中与维基宽命中重叠去重 ——
+    def test_overlap_dedup_struct_wins(self):
+        from scribe3.critique import find_negation_flips
+        # bujin 宽正则与 compact_shi 结构命中 range 相交 → 只保留更精确的结构命中
+        hits = find_negation_flips("他不仅救了人，而且不是懦夫是英雄。")
+        assert len(hits) == 1 and hits[0]["variant"] == "compact_shi"
 
     # —— 维基三变体 ——
     def test_bujin_erqie(self):

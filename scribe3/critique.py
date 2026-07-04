@@ -212,7 +212,7 @@ _MAX_POSITIVE_SPAN = 80
 _COMPACT_EITHER_OR_PREV = set("不就也")
 # 句尾语气/反问助词:"…,是吗/是吧/是嘛"是反问尾巴,不是否定后的肯定翻转。
 _TAG_PARTICLES = set("吗吧嘛")
-_TRAILING_NOISE = re.compile(r"[\s\)）】\]]+$")
+_TRAILING_NOISE = re.compile(r"[\s|\)）】\]]+$")
 
 _WIKI_FLIPS = [
     ("bujin", re.compile(r"不仅[^。！？\n]{1,40}?(?:而且|还)[^。！？\n]{1,40}")),
@@ -235,7 +235,9 @@ def _skip_gap(s: str, i: int) -> int:
 
 def _find_positive_flip(candidate: str) -> tuple[int, str] | None:
     """在以"不是"开头的候选串里找肯定翻转点。返回 (候选串内结束下标, variant) 或 None。
-    逐字符扫描,移植自 findPositiveFlipEnd,护栏语义与 JS 版一致(#166 假阳性坑验证过)。"""
+    逐字符扫描,移植自 findPositiveFlipEnd(#166 假阳性坑验证过)。对 JS 的唯一主动扩展:
+    compact 紧凑分支也查 TAG_PARTICLES(JS 只在软/硬分隔分支查),统一三分支的反问语气词
+    口径——「这不是假的是吗」同样是反问尾巴,不该报 compact_shi。"""
     n = len(candidate)
     index = 2  # 跳过"不是"
     scanned = 0
@@ -295,11 +297,12 @@ def find_negation_flips(text: str) -> list[dict]:
 
     移植自 oh-story check-ai-patterns.js 的 findNotIsComparisons——原正则只认
     破折号一种写法,真实生成文本里"不是A而是B/,是B/。是B/是B"同样是伪深刻制造器。
-    含结构性护栏(是不是反问/连词尾"是"/either-or/双重否定/反问语气词),照搬 JS 已验证
-    的护栏语义,不是自造词表。report-only,不改文本;返回 offset 供前端定位。
+    结构性护栏(是不是反问/连词尾"是"/either-or/双重否定)照搬 JS 已验证语义,不是自造
+    词表;唯一主动扩展见 _find_positive_flip(compact 分支也挡反问语气词)。
+    report-only,不改文本;返回 offset 供前端定位。
     """
     s = text or ""
-    out: list[dict] = []
+    struct_hits: list[dict] = []
     offset = 0
     n = len(s)
     while offset < n:
@@ -319,11 +322,16 @@ def find_negation_flips(text: str) -> list[dict]:
         raw = _TRAILING_NOISE.sub("", candidate[:end])
         visible = re.sub(r"[\s，,。.！!?？、；;:：「」『』“”‘’…—\-（）()【】\[\]]", "", raw)
         if len(visible) >= 4:
-            out.append({"variant": variant, "phrase": raw, "range": [start, start + len(raw)]})
+            struct_hits.append({"variant": variant, "phrase": raw, "range": [start, start + len(raw)]})
         offset = start + max(len(raw), 2)
 
+    out = list(struct_hits)
     for variant, pat in _WIKI_FLIPS:
         for m in pat.finditer(s):
+            # 去重叠(仿 find_repetitions 惯例):维基宽正则若与结构扫描命中 range 相交,
+            # 是同一处病灶(如「不仅…而且不是A是B」),保留更精确的结构命中,丢宽命中防虚增计数。
+            if any(m.start() < h["range"][1] and h["range"][0] < m.end() for h in struct_hits):
+                continue
             out.append({"variant": variant, "phrase": m.group(0), "range": [m.start(), m.end()]})
 
     return out
