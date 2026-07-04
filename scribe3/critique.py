@@ -341,15 +341,114 @@ def find_negation_flips(text: str) -> list[dict]:
     return out
 
 
-def find_ai_tics(text: str) -> list[dict]:
-    """E1 破折号全章>5;E2 否定翻转伪深刻句式(不是A——是B 及其 4+3 变体,LLM 最常见的伪深刻制造器)。"""
+# ==== 方案A任务3:禁用词分级建表(来自 oh-story banned-words.md,已按归位纪律清洗)====
+# 归位纪律:①比喻词(仿佛/如同/宛如/好似/犹如)不进表——已在 _SIMILE_WORDS,find_oversaturation 管;
+# ②缓缓/微微/轻轻/淡淡 四个副词不进一级词表——它们走后续任务的密度检测,单次出现合法;
+# ③不由得/不禁 保留进表(判断/心理类里的"轻度AI腔"信号)。
+_BANNED_LEXICON: dict[str, tuple[str, ...]] = {
+    "情态类": ("一丝", "一抹", "些许", "几分", "隐约"),
+    "动作类": ("深吸一口气", "不禁"),
+    "表情类": ("眼中闪过", "嘴角勾起", "眉头微皱", "眉眼低垂", "瞳孔微缩"),
+    "心理类": ("心中一动", "心头一震", "心下了然", "心中暗道", "心底泛起", "不由得"),
+    "判断类": ("不容置疑", "不容置喙", "不易察觉", "显而易见", "毫无疑问", "不可否认"),
+    "形容类": ("闪烁着光芒", "狡黠", "深邃", "凛冽"),
+    "过渡类": ("不由自主", "情不自禁", "自然而然"),
+}
+_CONTEXTUAL_WORDS = ("突然", "好像", "瞬间")   # 二级:仅密度超阈才报
+_TOXIC_PATTERNS = [   # oh-story ★★★★/★★★ 毒句式(★★★★★否定翻转已由 find_negation_flips 承担)
+    ("wandai", re.compile(r"[，,]带着(?:一种|一丝|几分)?[^，,。！？\n]{2,20}的[^，,。！？\n]{0,6}(?:力量|气息|意味)")),
+    ("shengyin_buda", re.compile(r"声音不大[，,]却")),
+    ("yanzhong_shanguo", re.compile(r"眼中闪过一丝[^，,。！？\n]{1,8}")),
+    ("zuijiao_gouqi", re.compile(r"嘴角勾起一抹[^，,。！？\n]{1,8}")),
+    ("xinzhong_yongqi", re.compile(r"心中涌起一股[^，,。！？\n]{1,8}")),
+]
+
+
+def _allow_spans(text: str, allow_words: set[str] | None) -> list[tuple[int, int]]:
+    """allow_words 里每个词在 text 中的所有命中区间(finditer),供豁免判定用。"""
+    if not allow_words:
+        return []
+    spans: list[tuple[int, int]] = []
+    for w in allow_words:
+        if not w:
+            continue
+        for m in re.finditer(re.escape(w), text):
+            spans.append((m.start(), m.end()))
+    return spans
+
+
+def _in_any_span(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    """[start,end) 与 spans 中任一区间相交即返回 True(豁免路径:与 find_purple_prose
+    的 extra_patterns 加法标记机制无关,这是独立的新写的区间相交判定)。"""
+    return any(start < s_end and s_start < end for s_start, s_end in spans)
+
+
+def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
+    """AI 腔确定性检测,report-only,分级 blocking/advisory(密度阈值防单词误伤):
+
+    - em_dash:全章破折号密度>2‰(原有,保持不动);
+    - not_a_but_b:否定翻转伪深刻句式(原有,经 find_negation_flips,保持不动);
+    - banned_word:一级禁用词表(7类,建表见 _BANNED_LEXICON)命中,allow_words 白名单豁免
+      (与其在 allow_words 区间相交的命中放行);千字总密度>3 时该次调用全部命中升 blocking,
+      否则 advisory;
+    - contextual_word:二级词(突然/好像/瞬间)合计千字密度>1.5 才报,逐个给 range,advisory;
+    - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥2 处时该类全部升 blocking。
+    """
+    s = text or ""
     out: list[dict] = []
-    dash = (text or "").count("——")
-    wc = len("".join((text or "").split()))
+    dash = s.count("——")
+    wc = len("".join(s.split()))
     if wc > 0 and dash * 1000 / wc > 2:
         out.append({"kind": "em_dash", "count": dash})
-    for hit in find_negation_flips(text):
+    for hit in find_negation_flips(s):
         out.append({"kind": "not_a_but_b", "phrase": hit["phrase"], "variant": hit["variant"]})
+
+    # banned_word:一级词表,allow_words 豁免,密度决定 blocking/advisory
+    allow_spans = _allow_spans(s, allow_words)
+    banned_hits: list[dict] = []
+    for category, words in _BANNED_LEXICON.items():
+        for w in words:
+            for m in re.finditer(re.escape(w), s):
+                if _in_any_span(m.start(), m.end(), allow_spans):
+                    continue
+                banned_hits.append({
+                    "kind": "banned_word", "phrase": w, "category": category,
+                    "range": [m.start(), m.end()],
+                })
+    if banned_hits and wc > 0:
+        density = len(banned_hits) * 1000 / wc
+        severity = "blocking" if density > 3 else "advisory"
+        for h in banned_hits:
+            h["severity"] = severity
+        out.extend(banned_hits)
+
+    # contextual_word:二级词,合计密度过阈值才报
+    contextual_hits: list[dict] = []
+    for w in _CONTEXTUAL_WORDS:
+        for m in re.finditer(re.escape(w), s):
+            contextual_hits.append({
+                "kind": "contextual_word", "phrase": w,
+                "range": [m.start(), m.end()], "severity": "advisory",
+            })
+    # 密度公式对极短文本(个位数字数)会因分母过小而失真——单次孤立出现不构成"密度"现象,
+    # 至少要有 2 处命中才谈得上密度超阈,防短文本单词误判。
+    if len(contextual_hits) >= 2 and wc > 0 and len(contextual_hits) * 1000 / wc > 1.5:
+        out.extend(contextual_hits)
+
+    # toxic_pattern:毒句式命中即报;wandai 类 ≥2 处升 blocking
+    toxic_by_name: dict[str, list[dict]] = {}
+    for name, pat in _TOXIC_PATTERNS:
+        for m in pat.finditer(s):
+            toxic_by_name.setdefault(name, []).append({
+                "kind": "toxic_pattern", "phrase": m.group(0), "pattern": name,
+                "range": [m.start(), m.end()], "severity": "advisory",
+            })
+    for name, hits in toxic_by_name.items():
+        if name == "wandai" and len(hits) >= 2:
+            for h in hits:
+                h["severity"] = "blocking"
+        out.extend(hits)
+
     return out
 
 
@@ -378,13 +477,15 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
     return out
 
 
-def quality_flags(text: str, extra_patterns: list[str] | None = None) -> dict:
-    """聚合五类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex。"""
+def quality_flags(text: str, extra_patterns: list[str] | None = None,
+                  allow_words: set[str] | None = None) -> dict:
+    """聚合五类确定性质检(渲染层兜底)。extra_patterns 来自本书 craft_rule purple_regex;
+    allow_words 为禁用词白名单(世界观术语/专名豁免,per-work 接线见后续任务),透传给 find_ai_tics。"""
     return {
         "repetition": find_repetitions(text),
         "structural": find_structural_repeats(text),
         "purple": find_purple_prose(text, extra_patterns),
-        "ai_tics": find_ai_tics(text),
+        "ai_tics": find_ai_tics(text, allow_words),
         "oversaturation": find_oversaturation(text),
     }
 
@@ -423,11 +524,13 @@ def locate_phrase(text: str, phrase: str, max_hits: int = 20) -> list[tuple[int,
     return out
 
 
-def quality_issues(text: str, extra_patterns: list[str] | None = None) -> list[dict]:
+def quality_issues(text: str, extra_patterns: list[str] | None = None,
+                   allow_words: set[str] | None = None) -> list[dict]:
     """五类 QC 的"带 offset"展开形式(与 quality_flags 并存)。
     仅对"白送类"(finditer 直接给 offset)和"去空白 n-gram 可 locate_phrase"的类别补 range。
     返回结构: {type, message, text, range:[start,end], meta}。
     range 为 None 表示无法定位(前端兜底用 text.indexOf 回退)。
+    allow_words:禁用词白名单,透传给 find_ai_tics 的 banned_word 豁免。
     """
     issues: list[dict] = []
     s = text or ""
@@ -454,6 +557,26 @@ def quality_issues(text: str, extra_patterns: list[str] | None = None) -> list[d
                 "range": [m.start(), m.end()],
                 "meta": {"kind": "em_dash"},
             })
+
+    # ②b AI 腔 · banned_word/contextual_word/toxic_pattern — 建表分级命中,白送 offset
+    _ai_tics_msg = {
+        "banned_word": "AI腔:禁用词命中",
+        "contextual_word": "AI腔:高频套语密度过高",
+        "toxic_pattern": "AI腔:毒句式命中",
+    }
+    for hit in find_ai_tics(s, allow_words):
+        kind = hit["kind"]
+        if kind not in _ai_tics_msg:
+            continue  # em_dash/not_a_but_b 已在①②处理,避免重复
+        category = hit.get("category")
+        msg = _ai_tics_msg[kind] + (f"({category})" if category else "")
+        issues.append({
+            "type": "ai_tics",
+            "message": msg,
+            "text": hit["phrase"],
+            "range": hit["range"],
+            "meta": {k: v for k, v in hit.items() if k not in ("range", "phrase")},
+        })
 
     # ③ 升华 · purple — 整句 locate,逐句给 offset
     pats = list(_PURPLE_RE) + [re.compile(p) for p in (extra_patterns or [])]

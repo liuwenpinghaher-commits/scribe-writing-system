@@ -177,6 +177,39 @@ def test_quality_flags_has_oversaturation():
     assert "oversaturation" in flags
 
 
+class TestAiTicsLexicon:
+    def test_tier1_word_hit_with_category(self):
+        hits = find_ai_tics("她眼中闪过一丝狡黠。")
+        kinds = {(h["kind"], h.get("category")) for h in hits}
+        assert ("banned_word", "表情类") in kinds or ("banned_word", "情态类") in kinds
+
+    def test_density_escalates_to_blocking(self):
+        t = "他心中一动。她心头一震。他心下了然。她心中暗道。" * 3
+        assert any(h.get("severity") == "blocking" for h in find_ai_tics(t))
+
+    def test_isolated_hit_is_advisory(self):
+        t = "他深吸一口气。" + "这是一段很长的普通叙述。" * 40
+        hits = [h for h in find_ai_tics(t) if h["kind"] == "banned_word"]
+        assert hits and all(h["severity"] == "advisory" for h in hits)
+
+    def test_allow_words_exempt(self):
+        # 世界观术语「凛冽刀」含一级词「凛冽」,白名单放行
+        assert not [h for h in find_ai_tics("他拔出凛冽刀。", allow_words={"凛冽刀"})
+                    if h["kind"] == "banned_word"]
+
+    def test_toxic_pattern_hit(self):
+        assert any(h["kind"] == "toxic_pattern" for h in find_ai_tics("她的声音不大，却带着一种不容置疑的力量。"))
+
+    def test_simile_words_not_duplicated(self):
+        # 比喻词归 find_oversaturation,find_ai_tics 不报
+        assert not [h for h in find_ai_tics("山影仿佛巨兽。") if h["kind"] == "banned_word"]
+
+    def test_contextual_tier2_density_only(self):
+        assert not [h for h in find_ai_tics("突然,门开了。") if h["kind"] == "contextual_word"]
+        t = "突然一声。好像有人。瞬间黑了。突然又响。好像更近。瞬间又亮。" * 4
+        assert [h for h in find_ai_tics(t) if h["kind"] == "contextual_word"]
+
+
 from scribe3.critique import build_knowledge_extract_prompt, parse_knowledge_delta
 
 
