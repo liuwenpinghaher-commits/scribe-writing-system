@@ -134,6 +134,8 @@ def test_settle_marks_achieved_and_carries_to_next(store):
     ch5 = parse_deltas(store.get_chapter(5)["deltas"])
     assert {d["predicate"]: d["status"] for d in ch5} == {
         "达成的目的": "achieved", "没做到的目的": "carried", "放弃的目的": "waived"}
+    assert next(d for d in ch5 if d["status"] == "carried")["carried_from"] == 5, \
+        "本章 carried 条目也须标起欠章(brief 滚入段溯源,真机发现)"
     ch6 = parse_deltas(store.get_chapter(6)["deltas"])
     assert any(d["predicate"] == "没做到的目的" and d["carried_from"] == 5 for d in ch6), \
         "未达成 delta 须滚入下一章合同"

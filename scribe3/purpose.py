@@ -184,7 +184,9 @@ def settle_purpose(st, seq: int, results: list[dict]) -> dict:
             d["status"] = "achieved"
         elif v in ("not_achieved", "contradicted"):
             d["status"] = "carried"
-            carried_new.append({**d, "status": "carried", "carried_from": seq})
+            d.setdefault("carried_from", seq)   # 本章条目也标起欠章(brief 滚入段溯源用)
+            carried_new.append({**d, "status": "carried",
+                                "carried_from": d.get("carried_from", seq)})
         cur.append(d)
     st.update_chapter_meta(seq, {"deltas": cur})
     if carried_new and st.get_chapter(seq + 1):
