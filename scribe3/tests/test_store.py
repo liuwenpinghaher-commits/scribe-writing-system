@@ -638,16 +638,23 @@ def test_record_daily_progress_failsoft(store, monkeypatch):
 
 
 def test_intent_word_goals_roundtrip(store):
-    """set_intent 写入 total_word_goal/daily_word_goal 后 get_intent 回读一致。"""
+    """set_intent 写入 total_word_goal/daily_word_goal 后 get_intent 回读一致。
+
+    P2-12:改 MERGE 后,局部更新(只传 reader_feeling)不再抹掉此前设的字数目标
+    (旧行为 CONTENT 整替会静默清空未传字段——正是审计要修的 bug)。
+    "未设时键不存在" 由全新库场景保证(见 test_intent_crud:GET 空库不含 word goal 键)。
+    """
     store.set_intent({"reader_feeling": "沉浸", "total_word_goal": 100000, "daily_word_goal": 2000})
     got = store.get_intent()
     assert got["total_word_goal"] == 100000
     assert got["daily_word_goal"] == 2000
 
-    # 不设时键不存在不报错
+    # 只更新 reader_feeling 不传字数目标 → 目标保留(MERGE 非整替;不报错)
     store.set_intent({"reader_feeling": "平静"})
     got2 = store.get_intent()
-    assert "total_word_goal" not in got2 or got2.get("total_word_goal") is None
+    assert got2["reader_feeling"] == "平静"
+    assert got2.get("total_word_goal") == 100000, "P2-12:未传字段应保留,不被抹空"
+    assert got2.get("daily_word_goal") == 2000
 
 
 def test_progress_returns_correct_structure(store):
@@ -1560,3 +1567,95 @@ def test_material_not_in_knowledge(store):
     store.delete_material(mid)
     assert store._query("SELECT count() FROM proposition GROUP ALL") == before_props
     assert store._query("SELECT count() FROM knows GROUP ALL") == before_knows
+
+
+# ============================================================
+# 批C · 后端正确性小修(审计 P1-7 / P2-12 / D-3)
+# ============================================================
+import pytest  # noqa: E402
+from scribe3.store import _overdue_flag  # noqa: E402
+
+
+def test_apply_schema_failed_migration_not_marked_and_retryable(store, tmp_path):
+    """P1-7: 迁移抛异常 → 不写 _migration 记录并向上抛;成功的仍标记;失败者下次可重试。
+
+    迁移全用 IF NOT EXISTS/OVERWRITE(幂等重放无害),故任何异常都是真失败,
+    绝不能标记已应用(否则永久跳过、schema 静默漂移)。
+    """
+    (tmp_path / "001_cgood.surql").write_text(
+        "DEFINE TABLE IF NOT EXISTS _mig_cgood SCHEMALESS;", encoding="utf-8")
+    (tmp_path / "002_cbad.surql").write_text(
+        "DEFINE TABLE IF NOT EXISTS _mig_cbad SCHEMALESS;", encoding="utf-8")
+    orig = store._db.query
+    fail = {"on": True}
+
+    def flaky(surql, *a, **k):
+        if fail["on"] and "_mig_cbad" in surql:
+            raise RuntimeError("模拟迁移失败(连接抖动/语法错)")
+        return orig(surql, *a, **k)
+
+    store._db.query = flaky
+    try:
+        with pytest.raises(RuntimeError):
+            store.apply_schema(migrations_dir=str(tmp_path))
+        ids = {r["id"] for r in store._query("SELECT meta::id(id) AS id FROM _migration")}
+        assert "002_cbad" not in ids, "失败迁移不得标记已应用"
+        assert "001_cgood" in ids, "成功迁移应正常标记"
+        # 修复后重试:该迁移应被应用并标记(未被永久跳过)
+        fail["on"] = False
+        store.apply_schema(migrations_dir=str(tmp_path))
+        ids2 = {r["id"] for r in store._query("SELECT meta::id(id) AS id FROM _migration")}
+        assert "002_cbad" in ids2, "修复后重试应成功应用并标记"
+    finally:
+        store._db.query = orig
+
+
+def test_apply_schema_normal_migrations_unaffected(store):
+    """P1-7 自审:正常迁移全绿(conftest 已 apply_schema),重复调用幂等不抛。"""
+    store.apply_schema()  # 再跑一次:全已应用 → 无操作、不抛
+    ids = {r["id"] for r in store._query("SELECT meta::id(id) AS id FROM _migration")}
+    assert "056_injection_mode" in ids, "真迁移应已全部标记"
+
+
+def test_set_intent_merge_preserves_unpassed_fields(store):
+    """P2-12: 只 set reader_feeling 不传 emotional_arc → emotional_arc 保留(MERGE 非整替)。"""
+    store.set_intent({"reader_feeling": "压抑见微光", "emotional_arc": "由怯到决",
+                      "red_lines": "不洗白反派"})
+    store.set_intent({"reader_feeling": "苦中带甜"})  # 仅传一字段
+    got = store.get_intent()
+    assert got["reader_feeling"] == "苦中带甜"
+    assert got["emotional_arc"] == "由怯到决", "未传字段应保留,不被抹空"
+    assert got["red_lines"] == "不洗白反派"
+
+
+def test_set_intent_merge_preserves_thresholds(store):
+    """P2-12: 局部更新不得抹掉此前设的 overdue_threshold / word goals。"""
+    store.set_intent({"reader_feeling": "A", "emotional_arc": "B", "red_lines": "C",
+                      "overdue_threshold": 7, "total_word_goal": 100000})
+    store.set_intent({"reader_feeling": "A2"})
+    got = store.get_intent()
+    assert got.get("overdue_threshold") == 7, "未传阈值应保留"
+    assert got.get("total_word_goal") == 100000, "未传字数目标应保留"
+
+
+def test_timeline_promise_overdue_single_source(store):
+    """D-3: timeline 伏笔泳道 overdue 走 _overdue_flag 单源(不再恒 False,与 /promises 一致)。"""
+    store.plant_promise("早埋未收的伏笔", setup_chapter=1, tier="chapter")  # pmax=4
+    store.add_event(Event("ev:推进", "act", story_time=8, motivated_by_goal="g"))  # max_chapter=8
+    items = store.timeline(ch_from=1, ch_to=8)
+    setups = [i for i in items if i["kind"] == "promise_setup"]
+    assert setups, "应有伏笔埋点条目"
+    assert setups[0]["refs"]["overdue"] is True, \
+        "超期伏笔在 timeline 泳道应 overdue=True(与 /promises 一致)"
+    p = store.list_promises()[0]
+    assert setups[0]["refs"]["overdue"] == _overdue_flag(p, store.max_chapter(), 3), \
+        "timeline overdue 必须与 _overdue_flag 单源一致"
+
+
+def test_timeline_promise_overdue_book_tier_false(store):
+    """D-3: book 级伏笔在 timeline 泳道永不超期(与单源一致)。"""
+    store.plant_promise("书级悬念", setup_chapter=1, tier="book")  # payoff_max=None
+    store.add_event(Event("ev:远推", "act", story_time=99, motivated_by_goal="g"))
+    items = store.timeline(ch_from=1, ch_to=99)
+    setups = [i for i in items if i["kind"] == "promise_setup"]
+    assert setups and setups[0]["refs"]["overdue"] is False, "book 级伏笔不应标超期"

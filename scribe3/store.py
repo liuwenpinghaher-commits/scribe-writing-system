@@ -160,8 +160,14 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
                  r.get("leak_markers", [])) for _, r in top]
 
 
+# 伏笔超期默认宽限(章)。单源常量:app.py / health.py 均从此处导入,timeline 直用,
+# 杜绝多处各写一份魔数导致口径漂移(仅对无窗口 legacy 旧行生效;窗口/tier 行不参与)。
+OVERDUE_SLACK = 3
+
+
 def _overdue_flag(p: dict, max_chapter: int, slack: int) -> bool:
-    """伏笔超期单源判定。/promises、/quality、/promises/ledger 三处共用,杜绝口径漂移。
+    """伏笔超期单源判定。/promises、/quality、/promises/ledger、timeline、体检 cron 五处共用,
+    杜绝口径漂移。
 
     与 promise_window_state 同口径(next_ch = max_chapter+1):
     - 有窗口(payoff_max 非 None)→ overdue = max_chapter + 1 > payoff_max,slack 不参与;
@@ -336,6 +342,11 @@ class SurrealStore:
             applied = {f"_migration:{r['id']}" for r in (rows or []) if r and r.get("id")}
         except Exception:
             applied = set()
+        # P1-7:迁移全用 IF NOT EXISTS / OVERWRITE(幂等重放本就无害,不会报错),
+        # 故运行中的任何异常都是真失败(连接抖动/语法错)——绝不能标记已应用,
+        # 否则该迁移被永久跳过、schema 静默漂移。失败者不写 _migration 记录、聚合后向上抛,
+        # 保证下次启动可重试;成功者照常标记。
+        failures: list[tuple[str, str]] = []
         for f in sorted(d.glob("*.surql")):
             key = f"_migration:{f.stem}"
             if key in applied:
@@ -343,9 +354,16 @@ class SurrealStore:
             try:
                 self._db.query(f.read_text(encoding="utf-8"))
             except Exception as e:
-                logging.getLogger("scribe3").warning("迁移 %s 失败(可能已应用): %s", f.stem, str(e)[:80])
+                logging.getLogger("scribe3").warning(
+                    "迁移 %s 失败,不标记已应用(下次可重试): %s", f.stem, str(e)[:120])
+                failures.append((f.stem, str(e)[:120]))
+                continue  # 真失败:跳过 CREATE _migration 记录
             self._db.query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
                            {"name": f.stem})
+        if failures:
+            raise RuntimeError(
+                "apply_schema 迁移失败清单(未标记已应用): "
+                + "; ".join(f"{n}: {e}" for n, e in failures))
 
     # --- 唯一写入点 ---
     def _execute_write(self, surql: str, vars: dict) -> None:
@@ -1607,18 +1625,22 @@ class SurrealStore:
         return result
 
     def set_intent(self, fields: dict) -> None:
-        content: dict = {
-            "reader_feeling": fields.get("reader_feeling", ""),
-            "emotional_arc": fields.get("emotional_arc", ""),
-            "red_lines": fields.get("red_lines", ""),
-        }
+        # P2-12:MERGE(非 CONTENT 整替)——只写调用方真正传入的字段,未传字段保留库中旧值。
+        # 此前 CONTENT 会把未传的 reader_feeling/emotional_arc/red_lines/阈值抹掉
+        # (GET 失败后局部保存会毁未传目标)。intent 为 SCHEMAFULL,首建时缺省字段由 schema DEFAULT 补齐。
+        content: dict = {}
+        for k in ("reader_feeling", "emotional_arc", "red_lines"):
+            if k in fields:
+                content[k] = fields[k]
         if fields.get("overdue_threshold") is not None:
             content["overdue_threshold"] = fields["overdue_threshold"]
         if fields.get("total_word_goal") is not None:
             content["total_word_goal"] = int(fields["total_word_goal"])
         if fields.get("daily_word_goal") is not None:
             content["daily_word_goal"] = int(fields["daily_word_goal"])
-        self._execute_write("UPSERT intent:main CONTENT $c", {"c": content})
+        if not content:
+            return
+        self._execute_write("UPSERT intent:main MERGE $c", {"c": content})
 
     def graph(self, chapter: int | None = None, focus: str | None = None,
               limit: int = 300, hop: int = 1) -> dict:
@@ -1802,10 +1824,16 @@ class SurrealStore:
           每个事件条目恒带 story_chapter / narrative_position,前端可在两者不同时标"闪回"。
           axis 只影响事件泳道的 chapter 投影;伏笔/弧光/关系仅有故事章,两轴一致。"""
         narrative = (axis == "narrative")
-        hi = ch_to if ch_to is not None else self.max_chapter()
+        mc = self.max_chapter()
+        hi = ch_to if ch_to is not None else mc
         if hi == 0:
             return []
         items: list[dict] = []
+        # D-3:伏笔泳道 overdue 走 _overdue_flag 单源(与 /promises、/quality、/promises/ledger 一致);
+        # 此前读 p.get("overdue")(list_promises 从不填该键)→ 恒 False,破不变量⑤。
+        _intent = self.get_intent()
+        _slack = (_intent.get("overdue_threshold")
+                  if _intent.get("overdue_threshold") is not None else OVERDUE_SLACK)
 
         # 预建 ev_id→chapter 映射,供 causal_in 章号补全(一次全表查,不逐条单查)
         # 同时用 _all_events_bulk() 一次性拉取全表事件(含图边),消除逐章 events_at N+1。
@@ -1865,7 +1893,7 @@ class SurrealStore:
                         "status": p.get("status"),
                         "promise_kind": p.get("kind"),
                         "payoff_chapter": p.get("payoff_chapter"),
-                        "overdue": p.get("overdue", False),
+                        "overdue": _overdue_flag(p, mc, _slack),
                     },
                 })
             pf = p.get("payoff_chapter")
