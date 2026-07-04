@@ -68,20 +68,28 @@ def triage(post: dict) -> dict:
 
     degraded_stages = list(post.get("degraded_stages") or [])
     leaks_degraded = bool(post.get("leaks_degraded"))
-    advisory_count = (len([i for i in (post.get("issues") or [])
-                           if not _is_blocking_issue(i)])
-                      + len(post.get("punct_suggestions") or []))
+    # advisory 清单本体(蓝图 §3-①:"rewrite 建议清单呈给作者",不能只给数量)——
+    # 复用 issues/punct_suggestions 的 range 数据,人批时可定位原文。
+    advisory_items = ([{"type": i.get("type"), "message": i.get("message"),
+                        "text": (str(i.get("text") or ""))[:60], "range": i.get("range")}
+                       for i in (post.get("issues") or []) if not _is_blocking_issue(i)]
+                      + [{"type": "punct", "message": str(s.get("message") or "标点建议"),
+                          "text": (str(s.get("text") or ""))[:60], "range": s.get("range")}
+                         for s in (post.get("punct_suggestions") or [])])
 
     if blocking:
         verdict = "blocking"
-    elif leaks_degraded or any(s in degraded_stages for s in _PASS_CRITICAL_STAGES):
-        verdict = "advisory"   # 降级不 pass:关键检测没跑成,人工过目
-        advisory_count = max(advisory_count, 1)
-    elif advisory_count:
-        verdict = "advisory"
     else:
-        verdict = "pass"
-    return {"verdict": verdict, "blocking": blocking, "advisory_count": advisory_count,
+        if leaks_degraded or any(s in degraded_stages for s in _PASS_CRITICAL_STAGES):
+            # 降级不 pass:关键检测没跑成,合成一条清单项,人工过目
+            degraded_names = ((["leaks"] if leaks_degraded else [])
+                              + [s for s in degraded_stages if s in _PASS_CRITICAL_STAGES])
+            advisory_items.append({"type": "degraded", "range": None, "text": "",
+                                   "message": f"关键检测降级({','.join(degraded_names)}):"
+                                              f"没查≠没病,须人工过目"})
+        verdict = "advisory" if advisory_items else "pass"
+    return {"verdict": verdict, "blocking": blocking,
+            "advisory_count": len(advisory_items), "advisory_items": advisory_items,
             "degraded_stages": degraded_stages, "leaks": leaks}
 
 
@@ -166,6 +174,7 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
                        "blocking_summary": _round_summary(tri["blocking"]),
                        "blocking": tri["blocking"],
                        "advisory_count": tri["advisory_count"],
+                       "advisory_items": (tri.get("advisory_items") or [])[:20],   # 量控
                        "degraded_stages": tri["degraded_stages"]})
         if tri["verdict"] != "blocking":
             break
@@ -177,6 +186,7 @@ def run_chapter_loop(*, chapter: int, generate, post_check, persist_version,
 
     result = {"chapter": chapter, "rounds": rounds,
               "advisory_count": tri["advisory_count"],
+              "advisory_items": (tri.get("advisory_items") or [])[:20],   # 待批清单本体
               "degraded_stages": tri["degraded_stages"]}
     if tri["verdict"] == "pass":
         stage_ing = f"ch{chapter}_ingest"

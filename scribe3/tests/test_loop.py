@@ -150,6 +150,8 @@ def test_loop_advisory_no_rewrite_no_ingest(tmp_path):
     assert len(gen_log) == 1, "advisory 绝不自动重写(宪法条款)"
     assert fin_log == [], "advisory 不自动 ingest,人批后走既有链路"
     assert res["advisory_count"] >= 1
+    assert res["advisory_items"] and res["advisory_items"][0]["message"], \
+        "清单本体必须在响应里(蓝图:建议清单呈给作者,不能只给数量)"
 
 
 def test_loop_persist_failure_does_not_break(tmp_path):

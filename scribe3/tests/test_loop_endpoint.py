@@ -121,4 +121,6 @@ def test_loop_chapter_advisory_degraded_not_pass_no_rewrite(store, monkeypatch):
     assert body["verdict"] == "advisory"
     assert state["n"] == 1, "advisory 绝不自动重写"
     assert "aggregate_ai_grade" in body["degraded_stages"], "降级须如实上报,不假绿"
+    assert any(i["type"] == "degraded" for i in body["advisory_items"]), \
+        "降级须以清单项形式呈给作者(合成 degraded 项)"
     assert not (store.get_chapter(3) or {}).get("prose"), "advisory 正文不自动落库(D-010)"
