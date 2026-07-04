@@ -4202,3 +4202,62 @@ def test_ingest_clears_pending_on_exception(store, monkeypatch):
     except RuntimeError:
         pass
     assert ("main", 8) not in A._pending_ingest, "异常后仍须清除在途标记(finally)"
+
+
+# ============================================================
+# 批C · 端点正确性小修(审计 P1-8 / P1-3 / Minor draft-check)
+# ============================================================
+def test_world_rule_illegal_scope_422(store):
+    """P1-8: 非法 scope 提前 422(应用层枚举校验),不再走到 DB ASSERT 才 500。"""
+    c = _client(store)
+    r = c.post("/world-rules", json={"name": "禁术", "category": "magic", "scope": "galactic"})
+    assert r.status_code == 422, f"非法 scope 应 422,实得 {r.status_code}: {r.text}"
+
+
+def test_world_rule_legal_scopes_ok(store):
+    """P1-8 回归:三个合法 scope 正常创建 200。"""
+    c = _client(store)
+    for sc in ("global", "regional", "faction_specific"):
+        r = c.post("/world-rules", json={"name": f"规则_{sc}", "category": "magic", "scope": sc})
+        assert r.status_code == 200, f"合法 scope={sc} 应 200,实得 {r.status_code}: {r.text}"
+
+
+def test_edit_promise_preserves_unpassed_kind(store):
+    """P1-3: PATCH 只改 text 不传 kind → kind 保留(red_herring 不被重置为 promise)。"""
+    c = _client(store)
+    c.post("/promises-new", json={"text": "障眼法", "setup_chapter": 2,
+                                  "promise_kind": "red_herring"})
+    pid = c.get("/promises").json()[0]["id"]
+    r = c.patch(f"/promises/{pid}", json={"text": "障眼法(改文案)"})
+    assert r.status_code == 200, r.text
+    p = c.get("/promises").json()[0]
+    assert p["text"] == "障眼法(改文案)"
+    assert p["kind"] == "red_herring", "未传 kind 不应被重置为默认 promise"
+    assert p["setup_chapter"] == 2, "未传 setup_chapter 不应被重置为默认 1"
+
+
+def test_edit_promise_explicit_kind_still_updates(store):
+    """P1-3 自审:显式传 kind 仍正常更新(exclude_unset 不影响正常更新)。"""
+    c = _client(store)
+    c.post("/promises-new", json={"text": "线索", "setup_chapter": 1,
+                                  "promise_kind": "promise"})
+    pid = c.get("/promises").json()[0]["id"]
+    r = c.patch(f"/promises/{pid}", json={"text": "线索", "promise_kind": "red_herring"})
+    assert r.status_code == 200, r.text
+    assert c.get("/promises").json()[0]["kind"] == "red_herring", "显式传 kind 应更新"
+
+
+def test_draft_check_quality_flags_fail_soft(store, monkeypatch):
+    """Minor: quality_flags 抛错时 /draft-check 不 500,degraded_stages 含 quality_flags。"""
+    import scribe3.critique as C
+
+    def boom(prose):
+        raise RuntimeError("检测器炸了")
+
+    monkeypatch.setattr(C, "quality_flags", boom)
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": "测试正文。"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "quality_flags" in body["degraded_stages"], "quality_flags 应 fail-soft 计入 degraded"
+    assert body["quality"]["total"] == 0, "降级时质量计数归零,不 500"

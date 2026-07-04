@@ -29,16 +29,16 @@ from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
 from scribe3.store import (
-    MATERIAL_KINDS, SurrealStore, _overdue_flag, create_work, delete_work,
-    list_works, rename_work,
+    MATERIAL_KINDS, OVERDUE_SLACK, SurrealStore, _overdue_flag, create_work,
+    delete_work, list_works, rename_work,
 )
 from scribe3.verify import causal_complete
 
 app = FastAPI(title="scribe3")
 _CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
 
-# P3-e1 Fix 1: overdue 阈值单源——模块常量(前端从 /quality 消费,不重算)
-OVERDUE_SLACK = 3
+# P3-e1 Fix 1 / 批C D-3+H-1:overdue 阈值单源——常量定义在 store.py(OVERDUE_SLACK),
+# app / health cron / timeline 均从 store 导入同一份,杜绝口径漂移(前端从 /quality 消费,不重算)。
 app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _CORS.split(",") if o.strip()],
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
@@ -540,9 +540,18 @@ def add_prom(p: PromIn, work: str = "main"):
 
 @app.patch("/promises/{pid}")
 def edit_prom(pid: str, p: PromIn, work: str = "main"):
-    fields = {"text": p.text, "setup_chapter": p.setup_chapter, "kind": p.promise_kind}
-    if p.tier is not None:  # 仅在显式改 tier 时透传(缺省保留既有层级,由 update_promise 重算窗口)
-        fields["tier"] = p.tier
+    # P1-3:exclude_unset——只 SET 客户端真正提交的字段,未传字段保留库中旧值
+    # (此前 promise_kind/setup_chapter 的默认值会静默把 red_herring 重置为 promise、setup 重置为 1)。
+    sent = p.model_dump(exclude_unset=True)
+    fields: dict = {}
+    if "text" in sent:
+        fields["text"] = sent["text"]
+    if "setup_chapter" in sent:
+        fields["setup_chapter"] = sent["setup_chapter"]
+    if "promise_kind" in sent:  # 端点入参名 promise_kind ↔ store 字段名 kind
+        fields["kind"] = sent["promise_kind"]
+    if sent.get("tier") is not None:  # 仅显式改 tier 时透传(缺省保留既有层级,由 update_promise 重算窗口)
+        fields["tier"] = sent["tier"]
     try:
         found = _store_for(work).update_promise(pid, fields)
     except ValueError as e:  # 非法 tier → store 层 raise
@@ -650,8 +659,16 @@ def list_rules(category: str | None = None, work: str = "main"):
     return _store_for(work).list_world_rules(category)
 
 
+# P1-8:world_rule.scope 合法枚举(对齐 migration 027 的 DB ASSERT);应用层提前 422,
+# 不再让非法值走到落库层 ASSERT 才 500。
+_WORLD_RULE_SCOPES = {"global", "regional", "faction_specific"}
+
+
 @app.post("/world-rules")
 def add_rule(r: RuleIn, work: str = "main"):
+    if r.scope not in _WORLD_RULE_SCOPES:
+        raise HTTPException(status_code=422,
+                            detail=f"非法 scope='{r.scope}'(合法: {sorted(_WORLD_RULE_SCOPES)})")
     _store_for(work).add_world_rule(r.name, r.category, r.source, r.capabilities, r.cost,
                                      r.limitations, r.exceptions, r.scope,
                                      r.established_chapter, r.note)
@@ -2506,15 +2523,22 @@ def draft_check(req: DraftCheckReq, seq: int = 0, work: str = "main"):
                                   find_parallelism, find_emotion_telling)
     degraded_stages: list[str] = []
 
-    qf = quality_flags(req.prose)
-    quality = {
-        "repetition": len(qf["repetition"]),
-        "structural": len(qf["structural"]),
-        "purple": len(qf["purple"]),
-        "ai_tics": len(qf["ai_tics"]),
-        "oversaturation": len(qf["oversaturation"]),
-    }
-    quality["total"] = sum(quality.values())
+    # Minor:quality_flags 也 fail-soft(与其余检测器一致)——抛错时降级归零而非整个端点 500。
+    try:
+        qf = quality_flags(req.prose)
+        quality = {
+            "repetition": len(qf["repetition"]),
+            "structural": len(qf["structural"]),
+            "purple": len(qf["purple"]),
+            "ai_tics": len(qf["ai_tics"]),
+            "oversaturation": len(qf["oversaturation"]),
+        }
+        quality["total"] = sum(quality.values())
+    except Exception as e:
+        logging.getLogger("scribe3").warning("draft_check quality_flags 失败: %s", e)
+        degraded_stages.append("quality_flags")
+        quality = {"repetition": 0, "structural": 0, "purple": 0,
+                   "ai_tics": 0, "oversaturation": 0, "total": 0}
 
     dup_lines: list[dict] = []
     try:
