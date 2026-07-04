@@ -879,6 +879,27 @@ class SurrealStore:
             {"c": chapter})
         return list(reversed(rows))
 
+    # --- QD 文体档案 style_profile(北极星任务9)---
+    def _upsert_style_profile(self, seq: int, profile: dict) -> None:
+        import json
+        self._execute_write(
+            "UPSERT type::record('style_profile',$s) SET seq=$s, profile=$p, "
+            "computed_at=time::now()",
+            {"s": seq, "p": json.dumps(profile, ensure_ascii=False)})
+
+    def list_style_profiles(self) -> list[dict]:
+        import json
+        rows = self._query(
+            "SELECT seq, profile FROM style_profile ORDER BY seq ASC")
+        out = []
+        for r in rows:
+            try:
+                p = json.loads(r.get("profile") or "{}")
+            except Exception:
+                p = {}
+            out.append({"seq": r.get("seq"), **p})
+        return out
+
     # --- 复盘 lesson(北极星任务8,蓝图 §4-② 沉淀环;与情绪模式向量分表分索引 Q4)---
     def add_lesson(self, chapter: int, kind: str, text: str, condition: str = "",
                    evidence_turns: list | None = None) -> bool:
@@ -1670,6 +1691,13 @@ class SurrealStore:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "chapter_scorecard 计算/落库失败(存稿不受影响): %s", _e)
+        # 北极星任务9:QD 文体档案存稿即算(纯确定性,fail-soft)。
+        try:
+            from scribe3.qd import chapter_style_profile
+            self._upsert_style_profile(seq, chapter_style_profile(prose, focalizer))
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "style_profile 计算/落库失败(存稿不受影响): %s", _e)
         # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
         try:
             self._record_daily_progress(seq, today=_today)

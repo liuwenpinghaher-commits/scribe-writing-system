@@ -3537,6 +3537,15 @@ def north_star_book(work: str = "main"):
         out["causal_debt_total"] = st.causal_debt_total()
     except Exception:
         out["causal_debt_total"] = None
+    try:   # ⑤ QD 文体多样性档案(北极星任务9):分布单调告警,只进面板不进任何门禁
+        from scribe3.qd import style_drift_alerts
+        profs = st.list_style_profiles()
+        out["style_diversity"] = {"no_data": not profs, "profiles_n": len(profs),
+                                  "alerts": style_drift_alerts(profs),
+                                  "latest": (profs[-1] if profs else None)}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book style_diversity 失败: %s", e)
+        out["style_diversity"] = {"no_data": True, "degraded": True, "alerts": []}
     return out
 
 
