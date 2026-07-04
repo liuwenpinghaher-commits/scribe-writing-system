@@ -22,7 +22,7 @@ EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
                  "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
-                 "s3_emotion_palette", "s3_craft_rule_list"}
+                 "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags"}
 
 
 def test_write_gated_set_no_drift():
@@ -456,3 +456,23 @@ def test_s3_plant_promise_default_tier_chapter(store):
     assert res["status"] == "written"
     p = next(x for x in store.list_promises() if x["text"] == "近场伏笔MCP")
     assert p["tier"] == "chapter" and p["payoff_max"] == 4
+
+
+# ============================================================
+# 批C · P1-13 MCP 文档断链修复
+# ============================================================
+def test_s3_list_voice_flags_readonly_and_returns(store):
+    """P1-13: s3_list_voice_flags 存在、只读、可取 open flags(修 resolve_voice_flag 文档断链)。"""
+    M.set_store(store)
+    assert M.requires_approval("s3_list_voice_flags") is False, "应为只读放行"
+    assert "s3_list_voice_flags" not in M.WRITE_GATED
+    store.add_voice_flag("role:焦三", 3, "受刑后声音变冷")
+    flags = M.s3_list_voice_flags()
+    assert isinstance(flags, list) and len(flags) == 1
+    assert flags[0]["reason"] == "受刑后声音变冷"
+
+
+def test_s3_record_knowledge_doc_no_invalid_enum():
+    """P1-13: s3_record_knowledge 文档不含非法枚举 'heard'(DB ASSERT 只认 saw/told/inferred/given/learned)。"""
+    doc = M.s3_record_knowledge.__doc__ or ""
+    assert "heard" not in doc, "文档不应含非法 acquired_via 值 'heard'"

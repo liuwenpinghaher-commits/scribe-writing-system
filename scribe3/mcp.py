@@ -630,6 +630,14 @@ async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int) -> dict:
                               lambda: _store.add_promise_clue(pid, note, chapter))
 
 
+@mcp.tool(annotations=_RO)
+def s3_list_voice_flags(status: str = "open") -> list[dict]:
+    """列声音演变 flag(默认 open;读,放行)。
+    flag 由 ingest/add_char_state 在 affects_voice=True 时自动创建;
+    取到的 id 供 s3_resolve_voice_flag / s3_fold_voice_flags 消化(补 P1-13 文档断链)。"""
+    return _store.list_voice_flags(status)
+
+
 @mcp.tool(annotations=_RW)
 async def s3_resolve_voice_flag(ctx: Context, flag_id: str) -> dict:
     """关闭声音演变 flag(status: open → done;写,待批)。
@@ -681,7 +689,7 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
     proposition 必须是已存在的 fact: oid(如 fact:治眼),不接受自然语言文本;
     请先用 s3_add_fact 创建命题,再用本工具建知识边。
     knower 为 character oid(如 role:焦三)或特殊值 "reader"。
-    acquired_via: saw/heard/inferred/told,默认 saw。
+    acquired_via: saw/told/inferred/given/learned,默认 saw(枚举外的值会被 DB ASSERT 拒)。
     """
     err = _check_proposition(proposition)
     if err:
