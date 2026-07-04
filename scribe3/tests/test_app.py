@@ -407,6 +407,18 @@ def test_item_state_endpoint_appends_history(store):
     assert c.post("/items/镇煞钉/state", json={"state": "active"}).status_code == 422
 
 
+def test_item_state_endpoint_malformed_chapter_422(store):
+    """批E-A3(批D后端 Minor):chapter 为非数字串(如 'abc')→ int() 抛 ValueError,
+    应捕获返 422(而非未处理异常 500)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器")
+    r = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": "abc"})
+    assert r.status_code == 422, f"畸形 chapter 应返 422,实际 {r.status_code}: {r.text}"
+    # 合法数字串仍应工作(int('5') 正常)
+    ok = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": "5"})
+    assert ok.status_code == 200, f"数字串 chapter 应正常,实际 {ok.status_code}: {ok.text}"
+
+
 def test_get_voice_profile_endpoint(store):
     """批D P1-11:GET /voice-profile?character_id= 返回声线指纹字段(刷新回显),无则 null 不 500。"""
     c = _client(store)
@@ -1038,6 +1050,77 @@ def test_patch_fact_preserves_and_reembeds(store):
     hits = store.semantic_recall("独特词BBB", k=10)
     assert any(h.id == oid for h in hits), \
         "PATCH value 后语义召回应能找到新值(embedding 须重建)"
+
+
+# ===== 批E A1: GET /facts 无损化(P1-4 后端跟进)=====
+
+def test_get_facts_reveal_secret_param(store):
+    """批E-A1①: GET /facts?reveal_secret=true 返真 value + leak_markers;默认仍屏蔽。
+    修复前:GET /facts 无 reveal_secret 参数,secret value 恒屏蔽且不回 leak_markers →
+           在库命题只能 supersede/删除,不能安全整行编辑。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:甲", "attribute": "底细", "value": "真名叫玄一",
+        "secret": True, "valid_from": 1, "leak_markers": ["玄一", "旧疤"],
+    })
+    assert r.status_code == 200, r.text
+    oid = r.json()["oid"]
+    # 默认:secret value 与 leak_markers 均屏蔽
+    default = c.get("/facts", params={"chapter": 1}).json()
+    row = next(f for f in default if f["id"] == oid)
+    assert row["value"] is None, "默认应屏蔽 secret value"
+    assert row["leak_markers"] == [], "默认应屏蔽 secret leak_markers(破绽词本身敏感)"
+    assert row["is_secret"] is True
+    # reveal_secret=true:返真 value + leak_markers(整行编辑基座)
+    revealed = c.get("/facts", params={"chapter": 1, "reveal_secret": "true"}).json()
+    rrow = next(f for f in revealed if f["id"] == oid)
+    assert rrow["value"] == "真名叫玄一", "reveal 应返真 value"
+    assert rrow["leak_markers"] == ["玄一", "旧疤"], "reveal 应返真 leak_markers"
+    assert rrow["valid_from"] == 1
+
+
+def test_get_single_fact_full_fields(store):
+    """批E-A1②: GET /facts/{local}?reveal_secret= 返全字段(valid_from/valid_to/
+    leak_markers/secret);默认屏蔽 secret value/leak_markers,reveal 解锁。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:乙", "attribute": "职位", "value": "内应",
+        "secret": True, "valid_from": 2, "valid_to": 9, "leak_markers": ["暗记"],
+    })
+    assert r.status_code == 200, r.text
+    oid = r.json()["oid"]
+    local = oid.split(":", 1)[1]
+    # 默认屏蔽 secret value/leak_markers,但全字段(valid_from/valid_to/is_secret)俱在
+    d = c.get(f"/facts/{local}").json()
+    assert d["id"] == oid
+    assert d["entity"] == "role:乙" and d["attribute"] == "职位"
+    assert d["valid_from"] == 2 and d["valid_to"] == 9
+    assert d["is_secret"] is True
+    assert d["value"] is None and d["leak_markers"] == []
+    # reveal:全字段含真 value/leak_markers
+    dr = c.get(f"/facts/{local}", params={"reveal_secret": "true"}).json()
+    assert dr["value"] == "内应" and dr["leak_markers"] == ["暗记"]
+    assert dr["valid_from"] == 2 and dr["valid_to"] == 9 and dr["is_secret"] is True
+
+
+def test_get_single_fact_404(store):
+    """批E-A1②: GET /facts/{local} 对不存在命题返 404(而非 500/空体)。"""
+    c = _client(store)
+    assert c.get("/facts/does_not_exist").status_code == 404
+
+
+def test_get_single_fact_nonsecret_full_fields(store):
+    """批E-A1②: 非私密命题单条 GET 无需 reveal 即返全字段真值。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:丙", "attribute": "位置", "value": "城西驿",
+        "valid_from": 3,
+    })
+    oid = r.json()["oid"]
+    local = oid.split(":", 1)[1]
+    d = c.get(f"/facts/{local}").json()
+    assert d["value"] == "城西驿" and d["is_secret"] is False
+    assert d["valid_from"] == 3 and d["valid_to"] is None
 
 
 # ===== P3-d: 雄心死字段接活驱动生成 =====

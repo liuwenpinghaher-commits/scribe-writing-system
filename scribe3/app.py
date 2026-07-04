@@ -122,16 +122,27 @@ def _work_has_tools(work: str) -> bool:
     return work == os.environ.get("SCRIBE3_WORK", "main")
 
 
+def _fact_item(f, reveal_secret: bool = False) -> dict:
+    """命题序列化(单条,列表/单条端点共用)。
+    批E-A1 无损化:回全字段 valid_from/valid_to/leak_markers,让前端能整行安全编辑
+    (此前只回 value,现有命题只能 supersede/删除)。私密门控:secret 且未解锁时,
+    value 与 leak_markers 一并屏蔽——leak_markers 是私密的"破绽词",本身即敏感,
+    与 value 同级隐藏。"""
+    hide = f.secret and not reveal_secret
+    return {
+        "id": f.id,
+        "entity": f.entity_id,
+        "attribute": f.attribute,
+        "is_secret": f.secret,
+        "value": None if hide else f.value,   # 私密 value 屏蔽,前端只知"此处有私密"
+        "valid_from": f.valid_from,
+        "valid_to": f.valid_to,
+        "leak_markers": [] if hide else list(f.leak_markers or []),
+    }
+
+
 def _facts(fs, reveal_secret: bool = False):
-    def _item(f):
-        d = {"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
-             "is_secret": f.secret}
-        if f.secret and not reveal_secret:
-            d["value"] = None   # 私密 value 屏蔽,前端只知"此处有私密"
-        else:
-            d["value"] = f.value
-        return d
-    return [_item(f) for f in fs]
+    return [_fact_item(f, reveal_secret) for f in fs]
 
 
 # 私密字段掩码占位符(唯一真相源):GET 打码用此值,写路径收到此值即视为"未改"(不落库)。
@@ -220,8 +231,21 @@ def entities(work: str = "main", reveal_secret: bool = False):
 
 
 @app.get("/facts")
-def facts(chapter: int = Query(ge=1), work: str = "main"):
-    return _facts(_store_for(work).facts_at(chapter))
+def facts(chapter: int = Query(ge=1), work: str = "main", reveal_secret: bool = False):
+    """本章有效命题。批E-A1:加 reveal_secret(默认 False 仍屏蔽私密 value/leak_markers);
+    每条回全字段(valid_from/valid_to/leak_markers)供前端整行编辑。"""
+    return _facts(_store_for(work).facts_at(chapter), reveal_secret=reveal_secret)
+
+
+@app.get("/facts/{local}")
+def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
+    """单条命题全字段读回(批E-A1②)。含 valid_from/valid_to/leak_markers/is_secret,
+    让在库 leak_markers 等私密字段可安全编辑(reveal_secret=true 解锁真 value/leak_markers)。
+    不存在 → 404。"""
+    f = _store_for(work).fact(f"fact:{local}")
+    if f is None:
+        raise HTTPException(status_code=404, detail=f"命题 fact:{local} 不存在")
+    return _fact_item(f, reveal_secret=reveal_secret)
 
 
 @app.get("/events")
@@ -794,7 +818,12 @@ def update_item_state_endpoint(name: str, req: dict, work: str = "main"):
     chapter = req.get("chapter")
     if not new_state or chapter is None:
         raise HTTPException(status_code=422, detail="缺少必填字段: state/chapter")
-    _store_for(work).update_item_state(name, new_state, int(chapter), note=req.get("note", ""))
+    # 批E-A3:chapter 畸形(非数字串如 'abc')→ int() ValueError,返 422 而非 500 未处理异常
+    try:
+        chapter_int = int(chapter)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"chapter 须为整数,收到: {chapter!r}")
+    _store_for(work).update_item_state(name, new_state, chapter_int, note=req.get("note", ""))
     return {"ok": True}
 
 
