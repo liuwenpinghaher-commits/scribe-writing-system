@@ -1706,7 +1706,8 @@ def _current_tail_block(st, chapter: int) -> str:
 
 
 @app.get("/chat/write")
-def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "", work: str = "main"):
+def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
+               work: str = "main", short_mode: bool = False):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
     事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
     from scribe3.craft import build_craft_block
@@ -1727,7 +1728,7 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     # P2-a Fix1: GET/POST 块序列对称——soak 当前休眠(GET 无 seed_words 参数,前端未接入),
     # 传空列表使 _soak_block 返回 "" 无副作用,消除"GET 少一块"的维护陷阱。
     instructions += _soak_block([])
-    craft = build_craft_block(st.list_craft_rules() or None)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
@@ -1783,6 +1784,8 @@ class ChatWriteReq(BaseModel):
     images: list[ImageModel] = []
     seed_words: list[str] = []   # 浸泡产出的情绪种子词(由前端可选传入),注入写作 prompt
     phase: str = ""              # 阶段角色(Phase0-BE2):plan|draft|final;空=现状不变
+    short_mode: bool = False     # 方案B任务16:短篇模式——跳过 build_craft_block 的
+                                  # ENGINES["restraint"](留白/克制)注入
 
     @field_validator("images")
     @classmethod
@@ -1995,7 +1998,7 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     instructions += _recap_block(st, req.chapter)
     instructions += _current_tail_block(st, req.chapter)
     instructions += _soak_block(req.seed_words)
-    craft = build_craft_block(st.list_craft_rules() or None)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=req.short_mode)
     if craft:
         instructions += "\n\n" + craft
     instructions += _phase_role_block(req.phase)
@@ -2269,6 +2272,8 @@ class CheckpointReq(BaseModel):
 class CheckReq(BaseModel):
     prose: str
     focalizer: str = ""
+    short_mode: bool = False  # 方案B任务16:短篇模式——透传给 aggregate_ai_grade,
+                              # 直写情绪不计入 psych_ratio/Gate C
 
 
 def _bg_ingest(work: str, seq: int) -> None:
@@ -2455,7 +2460,7 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
     # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,不 500)。
     try:
         from scribe3.critique import aggregate_ai_grade
-        resp["ai_grade"] = aggregate_ai_grade(qf, req.prose)
+        resp["ai_grade"] = aggregate_ai_grade(qf, req.prose, short_mode=req.short_mode)
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning("check aggregate_ai_grade 失败: %s", e)
@@ -2466,6 +2471,9 @@ class PostCheckReq(BaseModel):
     prose: str
     focalizer: str = ""
     brief: str = ""
+    short_mode: bool = False  # 方案B任务16:短篇模式——直写情绪+审判金句合法,
+                              # 透传给 find_emotion_telling/aggregate_ai_grade,
+                              # emotion_telling 检出归零、psych_ratio/Gate C 不触发
 
 
 @app.post("/post-check")
@@ -2611,7 +2619,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
 
     emotion_telling: list[dict] = []
     try:
-        emotion_telling = find_emotion_telling(req.prose)
+        emotion_telling = find_emotion_telling(req.prose, short_mode=req.short_mode)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check find_emotion_telling 失败: %s", e)
         degraded = True
@@ -2705,7 +2713,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "emotion_telling": emotion_telling,
             "parallelism": parallelism,
             "poetic_fragments": poetic_fragments,
-        })
+        }, short_mode=req.short_mode)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check aggregate_ai_grade 失败: %s", e)
         degraded = True

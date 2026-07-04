@@ -1683,7 +1683,8 @@ def find_watch_regression(text: str) -> list[dict]:
     return out
 
 
-def find_emotion_telling(text: str, allow_patterns: list[str] | None = None) -> list[dict]:
+def find_emotion_telling(text: str, allow_patterns: list[str] | None = None,
+                         short_mode: bool = False) -> list[dict]:
     """检测叙述层直陈情绪/直接评语/思想转述的句子(确定性正则,宁缺勿滥)。
 
     方案B任务13:情绪表达4级(oh-story style-craft.md)是一条"直写 < 思想 < 神态 <
@@ -1708,7 +1709,15 @@ def find_emotion_telling(text: str, allow_patterns: list[str] | None = None) -> 
     skip 判定(减法),命中 span 匹配任一 allow 正则即放行不报。与其余检测器同一豁免
     机制,独立于本函数既有的 level 分级逻辑(B13),不改动分级判定,只在收录前多一道
     豁免过滤。
+
+    short_mode(方案B任务16):短篇模式开关——短篇要直写情绪+审判金句(见
+    scribe3/genres.py 四题材包的 keep_list),长篇的"留白/克制"引擎(craft.py
+    ENGINES["restraint"])全线让位。short_mode=True 时本检测器直接返回 []
+    (不做任何 telling 判定,视图层/AI味定档不再因直写情绪而扣分),优先级高于
+    allow_patterns(两者语义重叠时 short_mode 是更彻底的整体开关)。
     """
+    if short_mode:
+        return []
     s = _strip_dialogue(text or "")
     allow_pats = [re.compile(p) for p in (allow_patterns or [])]
 
@@ -2095,7 +2104,8 @@ def _ai_grade_tier(value: float, light_max: float, medium_max: float) -> str:
     return "heavy"
 
 
-def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) -> dict:
+def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None,
+                       short_mode: bool = False) -> dict:
     """整章 AI 味定档聚合:quality_flags(text) 的分项命中 → 6 指标(千字/占比口径,轻中重
     三档)→ 7-Gate 骨架(A-G)→ 章级 grade(light/medium/heavy)。
 
@@ -2118,7 +2128,11 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) 
     poetic_fragments 等响应字段),本函数原先又对同一 text 重算一遍这四个检测器——
     纯浪费。precomputed 允许调用方把已算好的结果直接传进来复用,键名与上述四个检测器
     同名;缺哪个键就现算哪个,兼容 /check 等没有预算过的旧调用方(不传即整体现算,
-    行为与修复前一致)。"""
+    行为与修复前一致)。
+
+    short_mode(方案B任务16):短篇模式开关,透传自 find_emotion_telling。True 时
+    ③psych_ratio 强制归零(不管 precomputed 是否带了 emotion_telling 键,short_mode
+    整体覆盖——短篇直写情绪不算 AI 味),Gate C(心理告知)因而不会触发。"""
     flags = flags or {}
     text = text or ""
     precomputed = precomputed or {}
@@ -2159,8 +2173,11 @@ def aggregate_ai_grade(flags: dict, text: str, precomputed: dict | None = None) 
     # ③psych_ratio(方案B任务13:改用 emotion_telling_summary 同口径统计,复用其
     # L1+L2 命中计数,不再自己重复一遍"数命中"逻辑;total=len(emotion_hits) 恒成立,
     # 与修复前数值等价——旧调用方文本从无 L2 思想转述模式,l2_count 恒为 0)
-    emotion_hits = (precomputed["emotion_telling"] if "emotion_telling" in precomputed
-                    else find_emotion_telling(text))
+    if short_mode:
+        emotion_hits: list[dict] = []
+    else:
+        emotion_hits = (precomputed["emotion_telling"] if "emotion_telling" in precomputed
+                        else find_emotion_telling(text))
     emo_summary = emotion_telling_summary(text, hits=emotion_hits)
     sent_count = len([s for s in _SENT_SPLIT.split(text) if s.strip()]) or 1
     psych_ratio = emo_summary["total"] / sent_count * 100

@@ -1331,6 +1331,21 @@ def test_post_check_degraded_on_llm_failure(store):
     assert "quality" in data and "total" in data["quality"]
 
 
+def test_post_check_short_mode_suppresses_emotion_telling(store):
+    """方案B任务16:short_mode=true 时,直写情绪的文本 emotion_telling 应为空,
+    psych_ratio 归零、Gate C(心理告知)不触发——短篇直写情绪合法,不算 AI 味。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    prose = "他感到害怕。" + "他攥紧了刀柄。" * 20
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": "", "short_mode": True}).json()
+    assert r["emotion_telling"] == []
+    assert r["ai_grade"]["indicators"]["psych_ratio"]["value"] == 0
+    assert r["ai_grade"]["gates"]["C"]["hit"] is False
+
+
 # ===== 批E B(P2-15):orphan_knowledge_edges 审计器接线进 /post-check =====
 
 def test_post_check_reports_orphan_edges(store):
@@ -2082,9 +2097,9 @@ def test_post_check_ai_grade_reuses_precomputed_detectors(store, monkeypatch):
     captured = {}
     orig = C.aggregate_ai_grade
 
-    def spy(flags, text, precomputed=None):
+    def spy(flags, text, precomputed=None, short_mode=False):
         captured["precomputed"] = precomputed
-        return orig(flags, text, precomputed=precomputed)
+        return orig(flags, text, precomputed=precomputed, short_mode=short_mode)
 
     monkeypatch.setattr(C, "aggregate_ai_grade", spy)
     c = _client(store)

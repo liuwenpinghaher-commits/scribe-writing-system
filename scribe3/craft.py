@@ -145,14 +145,25 @@ PALETTE: dict[str, dict] = {
 }
 
 
-def build_craft_block(rules: list[dict] | None = None) -> str:
+def build_craft_block(rules: list[dict] | None = None, short_mode: bool = False) -> str:
     """组装引擎层引导块(注入渲染 prompt);题材层 rules 叠加其后。
-    rules: [{kind, pattern, note}] 来自 craft_rule per-work 表。"""
+    rules: [{kind, pattern, note}] 来自 craft_rule per-work 表。
+
+    short_mode(方案B任务16):短篇模式——短篇要直写情绪+审判金句(见
+    scribe3/genres.py 四题材包),留白/克制引擎(ENGINES["restraint"])的"情绪不
+    解释""克制收尾"与短篇的直给腔调冲突,short_mode=True 时跳过该引擎的注入,
+    其余引擎(身体先行/温度曲线/闲笔/……)不受影响。
+
+    TODO(题材包 prompt 消费):四题材包的 pov_tone/moves/opening_patterns 等尚未
+    接进本函数的 rules 叠加——本任务(B16)只负责数据落库(genres.seed_genre_pack),
+    生成侧消费留待后续任务接线。"""
     _ZH = {"body": "身体先行", "temperature": "温度曲线", "idle": "闲笔",
            "metaphor": "认知比喻", "subtext": "潜台词", "sensory": "感官锚定",
            "soak": "浸泡", "restraint": "留白"}
     lines = ["## 写作引擎(题材无关,渲染时遵守)"]
     for key in _ZH:
+        if short_mode and key == "restraint":
+            continue
         lines.append(f"- 【{_ZH[key]}】{ENGINES[key]}")
     if rules:
         lines.append("## 本书题材规则(本作专属)")

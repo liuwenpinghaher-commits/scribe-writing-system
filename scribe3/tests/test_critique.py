@@ -600,6 +600,29 @@ class TestEmotionLevels:
         assert agg["l1_count"] == 1 and 0 < agg["l1_ratio"] < 0.2
 
 
+# ==== 方案B任务16:短篇模式开关——短篇要直写情绪+审判金句,长篇的克制/留白
+# 引擎(craft.py ENGINES["restraint"])全线让位;检测器侧 short_mode=True 直接
+# 放行,不因直写情绪判 telling。====
+class TestShortMode:
+    def test_emotion_telling_short_mode_off(self):
+        assert find_emotion_telling("他感到害怕。") != []
+        assert find_emotion_telling("他感到害怕。", short_mode=True) == []
+
+    def test_quality_flags_short_mode(self):
+        # quality_flags 不直接调 find_emotion_telling(该键不在其聚合字典里,见
+        # quality_flags docstring"elegant_variation"一段的姊妹说明);short_mode 的
+        # 落点在 aggregate_ai_grade——断言其 psych_ratio 指标在 short_mode 下归零、
+        # Gate C(心理告知)不触发。
+        from scribe3.critique import aggregate_ai_grade, quality_flags
+        text = "他感到害怕。" + "他攥紧了刀柄。" * 20
+        qf = quality_flags(text)
+        g_normal = aggregate_ai_grade(qf, text)
+        g_short = aggregate_ai_grade(qf, text, short_mode=True)
+        assert g_normal["indicators"]["psych_ratio"]["value"] > 0
+        assert g_short["indicators"]["psych_ratio"]["value"] == 0
+        assert g_short["gates"]["C"]["hit"] is False
+
+
 class TestFindParallelism:
     """排比/同句式≥3连检测器(堵 AI 抒情腔,opus 评判反复点名)。"""
 
