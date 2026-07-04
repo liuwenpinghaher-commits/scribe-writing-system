@@ -266,10 +266,13 @@ def apply_delta(store, delta: dict, seq: int,
     #   · 逐条 non-fatal 兜底,单条写库失败不阻断其余事件与整个 ingest。
     ev_specs = delta.get("events") or []
     ev_ids = [f"ev:i{seq}-{k}" for k in range(len(ev_specs))]
+    # P1-5 M1:记已成功落库的事件序号——caused_by 建 causal 边前须校验被引序号确已落库,
+    # 否则引用"因空 type 被跳过的幽灵事件"会 RELATE 出指向未落库事件的悬挂 causal 边。
+    persisted_idx: set[int] = set()
     for k, it in enumerate(ev_specs):
         etype = (it.get("type") or "").strip()
         if not etype:
-            continue   # 无类型标签的事件跳过(fail-safe)
+            continue   # 无类型标签的事件跳过(fail-safe)——不落库=幽灵,后续引用它不建边
         # 参与者 name→role 解析:只认合法槽位,解析不到的角色不入 involves(登记待确认)
         participants: dict = {}
         raw_parts = it.get("participants")
@@ -285,7 +288,9 @@ def apply_delta(store, delta: dict, seq: int,
         for c in (it.get("caused_by") or []):
             if isinstance(c, bool):        # bool 是 int 子类,先排除
                 continue
-            if isinstance(c, int) and 0 <= c < k:
+            # P1-5 M1:合法回指须满足 0<=c<k 且 c 确已落库(在 persisted_idx 内)——
+            # 引用被跳过(空 type)的幽灵序号不建边,防指向未落库事件的悬挂 causal 边。
+            if isinstance(c, int) and 0 <= c < k and c in persisted_idx:
                 causal_in.append((ev_ids[c], "enables"))
         try:
             store.add_event(
@@ -293,6 +298,7 @@ def apply_delta(store, delta: dict, seq: int,
                       motivated_by_goal=(it.get("goal") or "").strip() or None,
                       causal_in=causal_in),
                 ingest_seq=seq)
+            persisted_idx.add(k)   # 落库成功才登记,供后续事件 caused_by 校验(防悬挂边)
         except Exception as _ev_e:
             import logging
             logging.getLogger("scribe3.ingest").warning(

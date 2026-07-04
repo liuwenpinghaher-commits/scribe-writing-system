@@ -74,6 +74,49 @@ def test_apply_delta_event_causal_link_clean(store):
     assert causal_complete(store, 2) == [], "都有目标+非首有因果入边→因果完整"
 
 
+def test_apply_delta_caused_by_ghost_event_no_dangling_edge(store):
+    """批E-A2(P1-5 M1):caused_by 引用一个因空 type 被跳过的幽灵事件序号 →
+    不建指向未落库事件的悬挂 causal 边。
+    幽灵:index 0 事件 type 为空 → 跳过不落库;index 1 事件 caused_by=[0] 引用它。
+    修复前:causal_in 无条件 append (ev_ids[0],'enables') → RELATE 悬挂边指向不存在的
+           ev:i{seq}-0;修复后:仅当被引用序号确已落库才建边。"""
+    _ensure_chars(store, "焦三")
+    seq = 6
+    delta = {"learned": [], "did": [],
+             "events": [
+                 {"type": "", "participants": {"SUBJ": "焦三"}, "goal": "无类型幽灵", "caused_by": []},
+                 {"type": "逃亡", "participants": {"SUBJ": "焦三"}, "goal": "避祸", "caused_by": [0]},
+             ]}
+    apply_delta(store, delta, seq=seq)
+    evs = store.events_at(seq)
+    assert len(evs) == 1, f"空 type 幽灵事件应被跳过,只落 1 事件,实际 {len(evs)}"
+    real = evs[0]
+    assert real.type == "逃亡"
+    ghost_id = f"ev:i{seq}-0"
+    assert all(src != ghost_id for src, _ in real.causal_in), \
+        f"不应建指向未落库幽灵事件的悬挂边,实际 causal_in={real.causal_in}"
+    assert real.causal_in == [], "唯一因是幽灵 → causal_in 应为空"
+
+
+def test_apply_delta_caused_by_mixed_ghost_and_real(store):
+    """批E-A2:混合场景——index 0 幽灵(空 type)、index 1 真事件、index 2 caused_by=[0,1]。
+    只保留指向已落库 index 1 的边,丢弃指向幽灵 index 0 的悬挂边(不误伤合法回指)。"""
+    _ensure_chars(store, "焦三")
+    seq = 7
+    delta = {"learned": [], "did": [],
+             "events": [
+                 {"type": "", "participants": {"SUBJ": "焦三"}, "goal": "幽灵", "caused_by": []},
+                 {"type": "起因", "participants": {"SUBJ": "焦三"}, "goal": "动机A", "caused_by": []},
+                 {"type": "结果", "participants": {"SUBJ": "焦三"}, "goal": "动机B", "caused_by": [0, 1]},
+             ]}
+    apply_delta(store, delta, seq=seq)
+    evs = {e.type: e for e in store.events_at(seq)}
+    assert len(evs) == 2, "只落 2 个有类型事件"
+    srcs = {src for src, _ in evs["结果"].causal_in}
+    assert f"ev:i{seq}-1" in srcs, "指向已落库真事件(index 1)的合法边应保留"
+    assert f"ev:i{seq}-0" not in srcs, "指向幽灵(index 0)的悬挂边应丢弃"
+
+
 def test_apply_delta_event_missing_goal_flags_violation(store):
     """缺 goal 的抽取事件被 causal_complete 如实标违规(真信号,非假绿)。"""
     from scribe3.verify import causal_complete
