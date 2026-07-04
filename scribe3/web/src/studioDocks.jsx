@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -7,6 +7,7 @@ import { Empty, Tag, SectionTitle, Skeleton } from './ui'
 import { ProjectTree } from './ProjectTree'
 import { BriefPanel } from './BriefPanel'
 import { NorthStarPanel } from './NorthStarPanel'
+import { SelectionPanel } from './SelectionPanel'
 import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
@@ -76,6 +77,7 @@ export function RightDock({ sel, chapterSel, seq, onRestored }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   const caps = useMemo(() => {
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
+    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} /></div> })
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     return c
   }, [sel, chapterSel, seq, onRestored])

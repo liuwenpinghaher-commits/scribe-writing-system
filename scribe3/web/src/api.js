@@ -114,6 +114,8 @@ export const api = {
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),
   // 工艺引擎(P0 露出):章前简报 / 角色弧光锚 / 弧光里程碑 / 张力检查(镜像既有方法,work 走 ww 惯例)
+  selectChapter: (seq) => post('/select/chapter', { chapter: seq }),          // 北极星任务11:关键章 3 候选
+  selectFinalize: (seq, payload) => post('/select/finalize', { chapter: seq, ...payload }),   // 终选+理由入 lesson
   northStarChapter: (seq) => j(`/north-star/chapter/${seq}`),   // 北极星任务10:章级 scorecard
   northStarBook: () => j('/north-star/book'),                   // 北极星任务10:书级四维
   chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),

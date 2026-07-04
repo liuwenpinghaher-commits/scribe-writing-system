@@ -3491,6 +3491,200 @@ def north_star_chapter(seq: int, work: str = "main"):
     return sc
 
 
+@app.get("/audit/blind-pack")
+def audit_blind_pack(work: str = "main", per_volume: int = 2, seed: int = 0):
+    """盲评包导出(北极星任务13,秘密审计制度——防 Goodhart 的流程性防护):
+    池A=被自动 regenerate 的章(loop journal 含 *_verdict_blocking,附第0稿并排、
+    随机左右序,审「重写后真的更好吗」);池B=随机抽样章(seed 可复现)。
+    样本用盲号(不含章号),key 单独字段供评完对照。结论只供人读,
+    **永不接入任何自动收敛判据**(宪法级);read-only 端点。"""
+    import glob as _glob
+    import json as _json
+    import random
+    st = _store_for(work)
+    base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
+            or os.path.expanduser("~/.scribe3-loop-journals"))
+    pool_a: set[int] = set()
+    for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
+        try:
+            data = _json.loads(open(fp, encoding="utf-8").read())
+            if any("_verdict_blocking" in s for s in (data.get("stages_completed") or [])):
+                pool_a.add(int(os.path.basename(fp).split("_")[1][2:]))
+        except Exception:
+            continue
+    chapters = [c["seq"] for c in st.list_chapters()]
+    rng = random.Random(seed)
+    rest = [c for c in chapters if c not in pool_a]
+    pool_b = sorted(rng.sample(rest, min(per_volume, len(rest)))) if rest else []
+    picked = [("A", s) for s in sorted(pool_a) if s in chapters] + [("B", s) for s in pool_b]
+    rng.shuffle(picked)
+    samples, key = [], {}
+    for i, (pool, seq) in enumerate(picked):
+        blind_id = f"S{seed}-{i + 1:02d}"
+        ch = st.get_chapter(seq) or {}
+        item = {"blind_id": blind_id, "prose": ch.get("prose") or "",
+                "questions": ["张力:想继续读下一章吗(1-5)?",
+                              "声音:遮住人名还认得出这本书吗(1-5)?",
+                              "记忆点:24 小时后还记得哪个画面?",
+                              "违和:有没有机器味/被打磨过头的段落(引原文)?"]}
+        if pool == "A":
+            vers = [v for v in (st.list_chapter_versions(seq) or [])
+                    if "loop第0稿" in (v.get("label") or "")]
+            if vers:
+                raw = (st.get_chapter_version(vers[0]["id"]) or {}).get("prose") or ""
+                pair = [item["prose"], raw]
+                rng.shuffle(pair)   # 随机左右序防位置偏置(Arena 先例)
+                item["pair"] = [{"tag": f"稿{'甲乙'[k]}", "prose": p}
+                                for k, p in enumerate(pair)]
+                item["pair_question"] = "两稿哪份更好?自动重写是否磨掉了好东西?"
+                item.pop("prose")
+        samples.append(item)
+        try:
+            sc = st.get_chapter_scorecard(seq) or {}
+        except Exception:
+            sc = {}
+        key[blind_id] = {"chapter": seq, "pool": pool,
+                         "ai_grade": ((sc.get("advisory_scores") or {}).get("ai_grade")
+                                      or {}).get("grade"),
+                         "constraints": sc.get("constraints")}
+    return {"samples": samples, "key": key,
+            "note": "评审时勿看 key;结论写人工文档,永不接入任何自动收敛判据(宪法)"}
+
+
+class SelectChapterReq(BaseModel):
+    chapter: int
+    force: bool = False       # 非关键章硬要出候选(作者主权;默认拦,N 倍成本只花刀刃)
+    msg: str = ""             # 可选驱动语补充
+
+
+@app.post("/select/chapter")
+def select_chapter(req: SelectChapterReq, work: str = "main"):
+    """选择环(北极星任务11,蓝图 §4-①):关键章同一合同出 3 个策略多样候选 →
+    确定性过滤(triage blocking 杀)→ rubric 全循环赛只排序(无共识则不排)→
+    候选留版本,响应供对比页,终选走 /select/finalize(人)。
+    关键章判定:chapter_role∈{高压,关系回收} 或含 reversal_type(节拍标注,
+    parse_chapter_meta);非关键章 422(force=true 可越过)。同章互斥 409。"""
+    from scribe3.brief import chapter_draft_text, parse_chapter_meta
+    from scribe3.pipeline_journal import PipelineJournal
+    from scribe3.qd import chapter_style_profile
+    from scribe3.selection import STRATEGIES, is_key_chapter, run_selection
+    st = _store_for(work)
+    ch = st.get_chapter(req.chapter)
+    if not ch:
+        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
+    meta = parse_chapter_meta(chapter_draft_text(ch)) or {}
+    if not is_key_chapter(meta) and not req.force:
+        raise HTTPException(status_code=422, detail=(
+            "非关键章不触发选择环(N 倍成本只花刀刃):节拍标注 chapter_role 为 高压/关系回收 "
+            "或标注 reversal_type 后再试;确要出候选传 force=true"))
+    _skey = (work, req.chapter)
+    with _loop_inflight_lock:   # 与修复环共用同章互斥(同章不得同时 loop 与选择)
+        if _skey in _loop_inflight:
+            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
+        _loop_inflight.add(_skey)
+    jp = _loop_journal_path(work, req.chapter)
+    journal = PipelineJournal(str(jp).replace("loop_ch", "select_ch"))
+
+    def _generate(strategy: dict) -> str:
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
+            seed_words=[], short_mode=False, with_tools=False)   # 候选生成不挂工具(纯写作)
+        instructions += "\n\n【选择环候选策略(本候选必须执行)】" + strategy["directive"]
+        msg = ((req.msg + "\n") if req.msg else "") + (
+            f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
+            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+        text, proposals = _collect_write(msg, instructions, with_tools=False)
+        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
+        if chapter_props:
+            return chapter_props[-1]["prose"]
+        body = _strip_preamble(text)
+        if len(body.strip()) >= _FALLBACK_MIN_CHARS:
+            return body
+        raise HTTPException(status_code=422,
+                            detail=f"策略 {strategy['key']} 未产出合格章稿(无围栏且散文不足)")
+
+    def _post_check(prose: str) -> dict:
+        return post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
+                          seq=req.chapter, work=work)
+
+    def _persist(prose: str, strategy_key: str) -> str:
+        # kind 枚举 DB 级 ASSERT 仅 checkpoint/final(migration 先例)——候选语义由
+        # label 前缀「选择环候选·」承载,免改已有表 schema(免影子库演练,D-019 附注)。
+        return st.add_chapter_version(req.chapter, prose, kind="checkpoint", stage="draft",
+                                      label=f"选择环候选·{strategy_key}",
+                                      stats=_prose_stats(prose))
+
+    _judge_flip = {"v": False}
+
+    def _judge(a: str, b: str) -> str:
+        """成对比较(rubric 初筛员,只排序)。LLM 失败 → 交替返回制造同对矛盾 →
+        round_robin 判 inconsistent → consensus=False 交人(优雅降级,绝不假排序)。"""
+        prompt = ("两份同一章级合同下的候选章稿,只判哪份更好(贴合同/张力/文风三维综合),"
+                  '只输出一个字母 A 或 B。\n'
+                  f"【A】\n{a[:2800]}\n【B】\n{b[:2800]}")
+        try:
+            fn = _complete_fn
+            if fn is None:
+                from scribe3.llm import hermes_complete as fn
+            raw = str(fn(prompt)).strip().upper()
+            pick = next((c for c in raw if c in ("A", "B")), None)
+            if pick:
+                return pick
+        except Exception as e:
+            logging.getLogger("scribe3").warning("selection judge 失败(降级为无共识): %s", e)
+        _judge_flip["v"] = not _judge_flip["v"]
+        return "A" if _judge_flip["v"] else "B"
+
+    try:
+        result = run_selection(chapter=req.chapter, generate=_generate,
+                               post_check=_post_check, persist_candidate=_persist,
+                               profile_fn=chapter_style_profile, judge_fn=_judge,
+                               journal=journal)
+    finally:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+    result["journal_path"] = str(jp).replace("loop_ch", "select_ch")
+    result["key_chapter"] = is_key_chapter(meta)
+    return result
+
+
+class SelectFinalizeReq(BaseModel):
+    chapter: int
+    version_id: str
+    reason_axis: str = "其他"
+    reason_text: str
+
+
+@app.post("/select/finalize")
+def select_finalize(req: SelectFinalizeReq, work: str = "main"):
+    """选择环终选(人):选中候选落正文 + 留 final 版 + **终选理由入 lesson 流**
+    (蓝图:理由是沉淀环最贵的输入;强制一句,轴+自由文本双格式)。"""
+    if not (req.reason_text or "").strip():
+        raise HTTPException(status_code=422, detail="终选必须留一句理由(入 lesson 流)")
+    st = _store_for(work)
+    ver = st.get_chapter_version(req.version_id)
+    if not ver or ver.get("seq") != req.chapter:
+        raise HTTPException(status_code=404, detail="候选版本不存在或不属于该章")
+    prose = ver.get("prose") or ""
+    title = (st.get_chapter(req.chapter) or {}).get("title") or ""
+    foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
+    st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
+    try:
+        st.add_chapter_version(req.chapter, prose, label=f"终选定稿·{ver.get('label') or ''}",
+                               kind="final", stage="final", stats=_prose_stats(prose))
+    except Exception as e:
+        logging.getLogger("scribe3").warning("终选留 final 版失败(正文已落库): %s", e)
+    try:
+        st.add_lesson(req.chapter, "decision",
+                      f"第{req.chapter}章关键章终选胜在{(req.reason_axis or '其他')[:12]}:"
+                      f"{req.reason_text.strip()[:160]}",
+                      condition="关键章多候选终选")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("终选理由入 lesson 失败(定稿不受影响): %s", e)
+    return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
+            "note": "正文已落库;反哺(ingest)由作者在面板触发或走 loop"}
+
+
 @app.get("/lessons/promotable")
 def lessons_promotable(work: str = "main", threshold: int = 4):
     """升格候选队列(北极星任务8):importance ≥ threshold 的有效 lesson。
