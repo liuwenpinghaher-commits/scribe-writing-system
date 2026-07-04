@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scribe3.store import OVERDUE_SLACK, _overdue_flag
 from scribe3.verify import causal_complete
-
-OVERDUE_SPAN = 3   # 伏笔埋下超过这么多章仍未回收 = 超期
 
 
 @dataclass
@@ -29,8 +28,12 @@ def health_report(store, up_to: int) -> HealthReport:
     for ch in chapters:
         for v in causal_complete(store, ch):
             viols.append((ch, v.event_id, v.reason))
-    overdue = [p for p in store.open_promises()
-               if p["setup_chapter"] + OVERDUE_SPAN < up_to]
+    # H-1:cron 也走 _overdue_flag 单源(与 /promises、/quality、/promises/ledger、timeline 一致):
+    # book 级伏笔永不超期、red_herring 不判、窗口口径统一——不再对它们永久误报。
+    intent = store.get_intent()
+    slack = (intent.get("overdue_threshold")
+             if intent.get("overdue_threshold") is not None else OVERDUE_SLACK)
+    overdue = [p for p in store.open_promises() if _overdue_flag(p, up_to, slack)]
     return HealthReport(chapters, viols, overdue)
 
 
