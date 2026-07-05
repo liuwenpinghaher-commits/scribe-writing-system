@@ -3172,6 +3172,21 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("normalize_punctuation_suggestions")
 
+    # 批次三:时间线第一刀(季节冲突/时辰倒流/同章同主体双地),report-only——
+    # 只进 advisory 通道(不设 meta.severity),永不 blocking;fail-soft 且不记
+    # degraded(不在 _PASS_CRITICAL_STAGES,时间线没查成不动摇 pass 门)。
+    try:
+        from scribe3.critique import find_intra_chapter_time_conflicts
+        for tc in find_intra_chapter_time_conflicts(req.prose):
+            issues.append({"type": "timeline", "message": tc["note"], "text": tc["phrase"],
+                           "range": tc["range"], "meta": {"kind": tc["kind"]}})
+        for hint in st.validate_event_colocation(seq):
+            issues.append({"type": "timeline", "message": hint["note"], "text": "",
+                           "range": None, "meta": {"kind": "event_colocation",
+                                                   "subject": hint["subject"]}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check timeline 检测失败(忽略): %s", e)
+
     # 方案B任务20:finding-merge 纪律——同位置"机械替换"(punct_suggestions)让位
     # "按功能改写"(issues),并给 degeneration issue 绑定 fix_action=regenerate
     # (回炉重打,不是改写)。fail-soft:异常时保留合并前的原始值,记 degraded_stages。

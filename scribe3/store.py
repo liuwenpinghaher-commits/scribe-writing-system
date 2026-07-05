@@ -3041,6 +3041,27 @@ class SurrealStore:
 
         return hints
 
+    def validate_event_colocation(self, chapter: int) -> list[dict]:
+        """遗留处置批次三:同章同主体多地事件 hint(纯结构查询,report-only)。
+        story_time/story_chapter 是章粒度——双地可能有合法移动衔接,故 severity=low
+        且 note 明示人工确认;永不进 blocking。"""
+        by_subj: dict[str, set] = {}
+        for ev in self.events_at(chapter):
+            subj = (ev.participants or {}).get("SUBJ")
+            if subj and ev.location:
+                by_subj.setdefault(str(subj), set()).add(str(ev.location))
+        hints: list[dict] = []
+        for subj, locs in sorted(by_subj.items()):
+            if len(locs) >= 2:
+                ls = sorted(locs)
+                hints.append({
+                    "type": "event_colocation", "severity": "low",
+                    "subject": subj, "locations": ls,
+                    "note": (f"同章主体 {subj} 的事件分布在 {len(ls)} 个地点"
+                             f"({'、'.join(ls)});story_time 为章粒度,可能有移动"
+                             f"衔接,请人工确认时间线")})
+        return hints
+
     def validate_cross_chapter_consistency(self) -> list[dict]:
         """跨章一致性检测(全书扫描)。
 

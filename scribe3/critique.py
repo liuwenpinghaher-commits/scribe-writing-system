@@ -2742,3 +2742,122 @@ def normalize_punctuation_suggestions(text: str) -> list[dict]:
         # else:单独出现的 ——/—(非数字区间、非双连字符)不在本函数范围——
         # 已由 find_ai_tics 的 em_dash 密度门覆盖,见模块顶部说明。
     return out
+
+
+# ===== 时间线检测器第一刀(遗留处置批次三,ConStory 对照:Timeline 6 子类原仅 2 窄点)=====
+# report-only:产出只走 advisory 通道,永不进 blocking(宪法:停机判据只挂确定性项,
+# 时间语义歧义多——回忆/对话/闪回都合法,第一刀宁窄勿滥)。
+
+_SEASON_FAMILIES = {
+    "春": ("初春", "早春", "暮春", "开春", "入春", "春日", "春夜", "阳春"),
+    "夏": ("盛夏", "仲夏", "初夏", "入夏", "夏日", "夏夜", "酷暑", "三伏"),
+    "秋": ("初秋", "深秋", "晚秋", "入秋", "秋日", "秋夜", "秋凉"),
+    "冬": ("隆冬", "深冬", "初冬", "寒冬", "入冬", "冬日", "冬夜", "数九", "腊月"),
+}
+_SEASON_RE = re.compile("|".join(w for ws in _SEASON_FAMILIES.values() for w in ws))
+_SEASON_OF = {w: fam for fam, ws in _SEASON_FAMILIES.items() for w in ws}
+
+# 时辰粗档(升序;只收叙述常用词,单字"晨/夜"不收防误报)
+_TIME_STEPS = [
+    (1, ("拂晓", "黎明", "五更", "天蒙蒙亮")),
+    (2, ("清晨", "早晨", "一大早")),
+    (3, ("上午", "日上三竿")),
+    (4, ("晌午", "正午")),
+    (5, ("午后", "过午")),
+    (6, ("黄昏", "傍晚", "日暮", "夕阳", "落日")),
+    (7, ("掌灯", "入夜", "天黑", "天擦黑")),
+    (8, ("夜里", "夜深")),
+    (9, ("深夜", "半夜", "三更", "子时")),
+]
+_TIME_RE = re.compile("|".join(w for _, ws in _TIME_STEPS for w in ws))
+_TIME_STEP_OF = {w: n for n, ws in _TIME_STEPS for w in ws}
+
+# 回忆/追述豁免(句内命中即豁免该句的时间标记)与跨日衔接(倒流判定的重置词)
+_MEMORY_RE = re.compile(r"想起|记得|回忆|忆起|去年|那年|往年|当年|旧年|儿时|从前|早年")
+_DAY_BREAK_RE = re.compile(r"次日|翌日|翌晨|次晨|第二天|隔天|转天|天亮|天明|一觉|睡醒|醒来"
+                           r"|三天后|数日后|几天后|翌年|过了[一两三几]?[天日夜]")
+
+_SENT_BOUND = "。!?!?\n"
+
+
+def _sentence_span(s: str, pos: int) -> tuple[int, int]:
+    """pos 所在句的 [start,end)(以中文句号/叹问/换行为界)。"""
+    st = pos
+    while st > 0 and s[st - 1] not in _SENT_BOUND:
+        st -= 1
+    en = pos
+    while en < len(s) and s[en] not in _SENT_BOUND:
+        en += 1
+    return st, min(en + 1, len(s))
+
+
+def find_intra_chapter_time_conflicts(text: str) -> list[dict]:
+    """章内时间标记冲突(第一刀两式):
+    ① season_conflict —— 叙述层出现两个不同季节族词(台词/回忆句豁免);
+    ② time_regression —— 时辰档后退≥2(台词/回忆豁免,跨日衔接词重置)。
+    返回 [{kind, phrase, range, note}],供 /post-check 组装 type="timeline" issue。"""
+    s = text or ""
+    if not s.strip():
+        return []
+    quoted = _quoted_ranges(s)
+
+    def _exempt(pos: int, end: int) -> bool:
+        if any(a <= pos < b for a, b in quoted):
+            return True
+        st, en = _sentence_span(s, pos)
+        return bool(_MEMORY_RE.search(s[st:en]))
+
+    out: list[dict] = []
+    # ① 季节族冲突:首个"与先前族不同"的命中即报一条(全文最多一条,防刷屏)
+    seen_fam: dict[str, tuple[str, int]] = {}
+    for m in _SEASON_RE.finditer(s):
+        if _exempt(m.start(), m.end()):
+            continue
+        fam = _SEASON_OF[m.group(0)]
+        if seen_fam and fam not in seen_fam:
+            first_w, first_pos = next(iter(seen_fam.values()))
+            out.append({"kind": "season_conflict", "phrase": m.group(0),
+                        "range": [m.start(), m.end()],
+                        "note": (f"章内季节冲突:前文「{first_w}」(第{first_pos}字起)与"
+                                 f"「{m.group(0)}」分属不同季节;若是闪回/跨季过场请忽略")})
+            break
+        seen_fam.setdefault(fam, (m.group(0), m.start()))
+    # ② 时辰倒流:相邻叙述层时辰档后退≥2 且其间无跨日衔接。
+    # 真章冒烟(9 达标章 7 误报,全数属三类)后收窄:
+    #   a) 跨夜顺行:夜档(≥7)→晨档(≤2)是守夜文常态(深夜→五更=进入新一天);
+    #   b) 非时点用法:比喻(像/如/似/仿佛 3字内)、追述系词(前2字含"是")、
+    #      参照(后接"前",如"黎明前的黑暗";注:后接"的"不豁免——"正午的日头"是真时点);
+    #   c) 复合词/人名(如"柳三更"):前字为汉字且前2字窗无时点引导字 → 词内成分豁免。
+    def _non_temporal(mm) -> bool:
+        st0, en0 = mm.start(), mm.end()
+        pre3, pre2 = s[max(0, st0 - 3):st0], s[max(0, st0 - 2):st0]
+        if any(w in pre3 for w in ("像", "如", "似", "仿佛", "好比")):
+            return True
+        if "是" in pre2:
+            return True
+        if s[en0:en0 + 1] == "前":
+            return True
+        pre1 = s[st0 - 1:st0]
+        if pre1 and not re.match(r"[\s,。;:!?、「」『』“”‘’]", pre1):
+            if not any(w in pre2 for w in ("到", "至", "近", "约", "才", "刚", "已",
+                                           "将", "过", "入", "交", "挨", "从", "自", "于")):
+                return True
+        return False
+
+    prev: tuple[str, int, int] | None = None   # (word, step, end_pos)
+    for m in _TIME_RE.finditer(s):
+        if _exempt(m.start(), m.end()) or _non_temporal(m):
+            continue
+        step = _TIME_STEP_OF[m.group(0)]
+        if prev is not None:
+            pw, ps, pe = prev
+            if ps >= 7 and step <= 2:
+                prev = (m.group(0), step, m.end())   # a) 跨夜顺行,新的一天
+                continue
+            if step <= ps - 2 and not _DAY_BREAK_RE.search(s[pe:m.start()]):
+                out.append({"kind": "time_regression", "phrase": m.group(0),
+                            "range": [m.start(), m.end()],
+                            "note": (f"章内时辰倒流:「{pw}」之后出现「{m.group(0)}」且无"
+                                     f"跨日衔接(次日/天亮等);若是回叙请补衔接或忽略")})
+        prev = (m.group(0), step, m.end())
+    return out
