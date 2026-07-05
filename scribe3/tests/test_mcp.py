@@ -6,10 +6,13 @@ elicitation 本身是生产侧(ctx.elicit);可测核心 = commit_if_approved 门
 """
 import asyncio
 
+import pytest
+
 import scribe3.mcp as M
 from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
+                          "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批)
                           "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                           "s3_craft_rule_remove", "s3_add_character_relation",
                           "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
@@ -22,7 +25,7 @@ EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
                  "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
-                 "s3_emotion_palette", "s3_craft_rule_list"}
+                 "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags"}
 
 
 def test_write_gated_set_no_drift():
@@ -109,6 +112,17 @@ def test_ingest_chapter_sync_reuses_ingest_chapter(store, monkeypatch):
     monkeypatch.setattr("scribe3.llm.hermes_complete", lambda *a, **k: "{}")
     res = M.s3_ingest_chapter(1)
     assert res["applied"] == 1
+
+
+def test_s3_save_chapter_records_final_version(store):
+    """C-1:s3_save_chapter 覆写正文后落 final 版本(与 app /save-chapter 对称,补版本历史断链)。"""
+    M.set_store(store)
+    out = M.s3_save_chapter(5, "MCP 存的正文。", title="第五章")
+    assert out["status"] == "saved"
+    versions = store.list_chapter_versions(5)
+    assert versions, "s3_save_chapter 应留一个版本"
+    assert versions[0]["stage"] == "final", f"应为 final 版: {versions[0]}"
+    assert store.get_chapter(5)["prose"] == "MCP 存的正文。"
 
 
 def test_tools_discoverable_and_annotated():
@@ -367,3 +381,178 @@ def test_s3_add_clue_signature():
     for param in ("pid", "note", "chapter"):
         assert param in sig.parameters, \
             f"s3_add_clue 缺少参数 {param},当前参数: {list(sig.parameters)}"
+
+
+# ===== R4: s3_list_factions private_operation 屏蔽(第三轮 P1-b) =====
+
+def test_s3_list_factions_masks_private_operation_by_default(store):
+    """s3_list_factions 默认应掩码 private_operation_secret=True 的势力私下运作。
+    修复前:直接 return _store.list_factions()——SELECT * 泄露明文 private_operation。
+    修复后:对每条 faction 套 _mask_value,默认显示 '🔒 私密',reveal_secret=True 解锁。
+    """
+    M.set_store(store)
+    # 添加一个 private_operation_secret=True 的势力
+    store.add_faction(
+        "测试邪教",
+        ideology="颠覆正道",
+        status="active",
+        leader="堂主",
+        known_members=["甲", "乙"],
+        public_face="慈善堂",
+        private_operation="幕后控制命脉,任务失败杀人灭口",
+        first_mention_chapter=1,
+        private_operation_secret=True,
+    )
+    # 添加一个普通公开势力(private_operation_secret=False)
+    store.add_faction(
+        "公开门派",
+        ideology="行侠仗义",
+        status="active",
+        public_face="正道盟",
+        private_operation="开门收徒",
+        private_operation_secret=False,
+    )
+
+    factions = M.s3_list_factions()  # 默认 reveal_secret=False
+
+    # 找到秘密势力
+    secret_fac = next((f for f in factions if f.get("name") == "测试邪教"), None)
+    assert secret_fac is not None, "应能列出秘密势力"
+    assert secret_fac["private_operation"] == "🔒 私密", \
+        f"默认应掩码 private_operation,实际: {secret_fac['private_operation']}"
+    assert "杀人灭口" not in str(secret_fac.get("private_operation", "")), \
+        "默认不应泄露 private_operation 明文"
+
+    # 公开势力的 private_operation 不受影响
+    public_fac = next((f for f in factions if f.get("name") == "公开门派"), None)
+    assert public_fac is not None
+    assert public_fac["private_operation"] == "开门收徒", \
+        "非秘密势力的 private_operation 应保持明文"
+
+    # reveal_secret=True 解锁
+    factions_reveal = M.s3_list_factions(reveal_secret=True)
+    secret_fac_reveal = next((f for f in factions_reveal if f.get("name") == "测试邪教"), None)
+    assert secret_fac_reveal is not None
+    assert "杀人灭口" in str(secret_fac_reveal.get("private_operation", "")), \
+        "reveal_secret=True 应返回 private_operation 明文"
+
+
+# ===== 彻查 B-2: s3_plant_promise tier 三档透传(MCP 生产入口)=====
+
+class _AcceptCtx:
+    """假 elicitation 上下文:恒批准,用于验证 MCP 写工具批准后落库路径。"""
+    async def elicit(self, message, schema):
+        return type("_R", (), {"action": "accept"})()
+
+
+def test_s3_plant_promise_signature_accepts_tier():
+    """签名守卫:s3_plant_promise 必须暴露 tier 参数(默认 chapter)。"""
+    import inspect
+    sig = inspect.signature(M.s3_plant_promise)
+    assert "tier" in sig.parameters, f"s3_plant_promise 缺 tier 参数; 当前: {list(sig.parameters)}"
+    assert sig.parameters["tier"].default == "chapter"
+
+
+def test_s3_plant_promise_tier_arc_lands_arc_window(store):
+    """MCP s3_plant_promise 带 tier=arc(setup=2)批准后 → 落 arc 层,窗口 7..17(+5..+15)。
+    B21 约束:tier∈{book,arc} 必须带 resolution(悬念真实答案),测试同步补齐。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级伏笔MCP", 2, tier="arc",
+                                         resolution="钟声源头是井底铜人,第15章现形"))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔MCP")
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 7 and p["payoff_max"] == 17
+
+
+def test_s3_plant_promise_default_tier_chapter(store):
+    """MCP s3_plant_promise 不带 tier → 默认 chapter(payoff_max=setup+3)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "近场伏笔MCP", 1))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "近场伏笔MCP")
+    assert p["tier"] == "chapter" and p["payoff_max"] == 4
+
+
+# ============================================================
+# 批C · P1-13 MCP 文档断链修复
+# ============================================================
+def test_s3_list_voice_flags_readonly_and_returns(store):
+    """P1-13: s3_list_voice_flags 存在、只读、可取 open flags(修 resolve_voice_flag 文档断链)。"""
+    M.set_store(store)
+    assert M.requires_approval("s3_list_voice_flags") is False, "应为只读放行"
+    assert "s3_list_voice_flags" not in M.WRITE_GATED
+    store.add_voice_flag("role:焦三", 3, "受刑后声音变冷")
+    flags = M.s3_list_voice_flags()
+    assert isinstance(flags, list) and len(flags) == 1
+    assert flags[0]["reason"] == "受刑后声音变冷"
+
+
+def test_s3_record_knowledge_doc_no_invalid_enum():
+    """P1-13: s3_record_knowledge 文档不含非法枚举 'heard'(DB ASSERT 只认 saw/told/inferred/given/learned)。"""
+    doc = M.s3_record_knowledge.__doc__ or ""
+    assert "heard" not in doc, "文档不应含非法 acquired_via 值 'heard'"
+
+
+# ============================================================
+# 批E · C(B-2 审查 Minor):s3_plant_promise 非法 tier 无测试 → 补测
+# ============================================================
+def test_s3_plant_promise_illegal_tier_raises_no_write(store):
+    """批E-C:s3_plant_promise 非法 tier → store 层 plant_promise raise ValueError,
+    且抛错前不落库(commit_if_approved 批准路径下 do_write 异常冒泡,库中无残留伏笔)。"""
+    M.set_store(store)
+    with pytest.raises(ValueError):
+        M.commit_if_approved(
+            "s3_plant_promise", True,
+            lambda: store.plant_promise("非法层级伏笔", 1, tier="galaxy"))
+    assert store.list_promises() == [], "非法 tier 抛错前不应有伏笔落库"
+
+
+def test_s3_plant_promise_legal_tier_writes(store):
+    """批E-C 对照:合法 tier(arc)批准后正常落库,窗口按 arc 档(setup+5..+15)。"""
+    M.set_store(store)
+    out = M.commit_if_approved(
+        "s3_plant_promise", True,
+        lambda: store.plant_promise("卷级伏笔", 2, tier="arc"))
+    assert out["status"] == "written"
+    proms = store.list_promises()
+    assert len(proms) == 1 and proms[0]["tier"] == "arc"
+    assert proms[0]["payoff_min"] == 7 and proms[0]["payoff_max"] == 17
+
+
+# ============================================================
+# 收尾清理批 B21: s3_plant_promise 补 resolution 约束(与 REST /promises-new 同口径)
+# ============================================================
+def test_s3_plant_promise_book_tier_missing_resolution_errors_no_write(store):
+    """B21 收尾清理批:tier=book 且未带 resolution → 返回 error dict(不抛异常),
+    且不落库、不触发 elicitation 批准流程。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "书级悬念MCP", 1, tier="book"))
+    assert "error" in res
+    assert store.list_promises() == [], "缺 resolution 应在写前拦截,不落库"
+
+
+def test_s3_plant_promise_arc_tier_missing_resolution_errors_no_write(store):
+    """B21 收尾清理批:tier=arc 且未带 resolution → 返回 error dict(不抛异常)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "卷级悬念MCP", 2, tier="arc"))
+    assert "error" in res
+    assert store.list_promises() == []
+
+
+def test_s3_plant_promise_book_tier_with_resolution_writes_and_persists(store):
+    """B21 收尾清理批:tier=book 带 resolution → 正常落库且 resolution 可读回。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(
+        _AcceptCtx(), "书级悬念MCP2", 1, tier="book", resolution="铜炉本是镇魂器"))
+    assert res["status"] == "written"
+    p = next(x for x in store.list_promises() if x["text"] == "书级悬念MCP2")
+    assert p["resolution"] == "铜炉本是镇魂器"
+
+
+def test_s3_plant_promise_chapter_tier_missing_resolution_exempt(store):
+    """B21 收尾清理批:tier=chapter(短期悬念)缺 resolution → 豁免,正常落库(向后兼容)。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "章内悬念MCP", 1))
+    assert res["status"] == "written"
+    assert any(x["text"] == "章内悬念MCP" for x in store.list_promises())

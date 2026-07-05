@@ -27,6 +27,7 @@ def set_store(s) -> None:
 
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
+                "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
@@ -163,9 +164,21 @@ def s3_list_world_rules(category: str | None = None) -> list[dict]:
 
 
 @mcp.tool(annotations=_RO)
-def s3_list_factions() -> list[dict]:
-    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。"""
-    return _store.list_factions()
+def s3_list_factions(reveal_secret: bool = False) -> list[dict]:
+    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。
+
+    默认掩码私密私下运作(显示 '🔒 私密'),private_operation_secret 标志始终保留。
+    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    rows = _store.list_factions()
+    result = []
+    for row in rows:
+        row = dict(row)
+        is_secret = bool(row.get("private_operation_secret", False))
+        row["private_operation"] = _mask_value(
+            row.get("private_operation") or "", is_secret, reveal_secret
+        )
+        result.append(row)
+    return result
 
 
 @mcp.tool(annotations=_RO)
@@ -353,8 +366,22 @@ def s3_discipline_check(seq: int, brief: str = "") -> dict:
 # ===== manuscript 写(草稿,直接写,不待批——非世界状态)=====
 @mcp.tool(annotations=_RW)
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None) -> dict:
-    """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。"""
+    """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。
+
+    C-1(正文覆写三路对称):覆写正文后与 app /save-chapter 对称落 final 版本——补版本历史断链
+    (此前经此工具改稿的存档点缺失)。ingest 不在此内联:MCP 进程无 app 的 BackgroundTasks /
+    _pending_ingest 去重队列,且有专用 s3_ingest_chapter 工具供 agent 显式客观回写;把慢 LLM 抽取
+    硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。"""
     _store.save_chapter(seq, prose, title=title, focalizer=focalizer)
+    # 落 final 版(fail-soft:留版失败不阻断存稿)
+    try:
+        stats = {"words": len("".join((prose or "").split()))}
+        _store.add_chapter_version(seq, prose, label="", kind="final",
+                                   stage="final", stats=stats)
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3.mcp").warning(
+            "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
     return {"status": "saved", "seq": seq}
 
 
@@ -586,11 +613,62 @@ async def s3_add_term(ctx: Context, name: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
-                           kind: str = "promise") -> dict:
-    """埋伏笔(写,待批)。kind=promise/red_herring。"""
-    ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章):{text}")
-    return commit_if_approved("s3_plant_promise", ok,
-                              lambda: _store.plant_promise(text, setup_chapter, kind=kind))
+                           kind: str = "promise", tier: str = "chapter",
+                           resolution: str = "") -> dict:
+    """埋伏笔(写,待批)。kind=promise/red_herring。
+    tier 三档决定兑现窗口与超期判定:
+      chapter=近场伏笔(埋后 +1..+3 章内兑现,默认);
+      arc=卷级伏笔(+5..+15 章窗口,跨情节弧);
+      book=书级伏笔/母题(payoff_max=None,永不判超期,全书终章前兑现)。
+    resolution(方案B任务21,收尾清理批 B21 与 REST /promises-new 同约束):
+    tier∈{book,arc} 的长期悬念必须带 resolution(文档记录的真实答案),不能含糊
+    留白;tier=chapter 短期悬念(本章内起落即兑现)豁免,向后兼容不传此字段的
+    既有调用方。非法 tier 由 store 层 raise ValueError。"""
+    if tier in ("book", "arc") and not resolution.strip():
+        return {"error": "悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)"}
+    ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章·{tier}):{text}")
+    return commit_if_approved(
+        "s3_plant_promise", ok,
+        lambda: _store.plant_promise(text, setup_chapter, kind=kind, tier=tier,
+                                     resolution=resolution))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
+                              deltas_json: str = "[]") -> dict:
+    """登记章节目的合同(写,待批)——北极星任务6(蓝图 §3-④):与作者聊定本章目的后,
+    把目的翻译成本章承诺改变的世界状态清单(delta),写前登记、写后逐条验收「做没做」。
+    purpose_text:一句话目的。deltas_json:JSON 数组,每条
+    {kind: knowledge|promise|fact|heat, subject, predicate, ref?}——ref 是 fact/promise id
+    或 "甲|乙" 关系对(带 ref 才能机器验收);≤7 条(目的过载即拒)。
+    认知类带 ref 的 delta 做写前预演:限知结构下不可实现 → 直接拒绝并给原因。"""
+    from scribe3.purpose import (parse_deltas_strict, rehearse_delta_ex,
+                                 validate_deltas)
+    ds, errs = parse_deltas_strict(deltas_json)   # P1-5:非法条目报错,不静默丢
+    if errs:
+        return {"error": "deltas 有非法条目:" + ";".join(errs)}
+    err = validate_deltas(ds)
+    if err:
+        return {"error": err}
+    foc = (_store.get_chapter(chapter) or {}).get("focalizer")
+    rehearse_degraded = False
+    for d in ds:
+        rerr, rdeg = rehearse_delta_ex(_store, chapter, d, foc)
+        rehearse_degraded = rehearse_degraded or rdeg
+        if rerr:
+            return {"error": rerr}
+    ok = await _ask(ctx, f"登记第{chapter}章目的合同:{purpose_text}({len(ds)}条delta)")
+    if not ok:
+        return {"status": "declined", "tool": "s3_register_purpose"}
+    # P1门审查 P1-2:update_chapter_meta 对不存在章返回 False 必须透传——
+    # commit_if_approved 会吞返回值,LLM 传错章号也回 "written" 假绿(实际零写入)。
+    if not _store.update_chapter_meta(chapter, {"purpose_text": (purpose_text or "")[:200],
+                                                "deltas": ds}):
+        return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
+    out = {"status": "written", "tool": "s3_register_purpose"}
+    if rehearse_degraded:
+        out["rehearse_degraded"] = True   # P2-2:预演基础设施故障放行须可见,不静默
+    return out
 
 
 @mcp.tool(annotations=_RW)
@@ -611,6 +689,14 @@ async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int) -> dict:
     ok = await _ask(ctx, f"追加线索到伏笔 {pid}(第{chapter}章): {note[:30]}")
     return commit_if_approved("s3_add_clue", ok,
                               lambda: _store.add_promise_clue(pid, note, chapter))
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_voice_flags(status: str = "open") -> list[dict]:
+    """列声音演变 flag(默认 open;读,放行)。
+    flag 由 ingest/add_char_state 在 affects_voice=True 时自动创建;
+    取到的 id 供 s3_resolve_voice_flag / s3_fold_voice_flags 消化(补 P1-13 文档断链)。"""
+    return _store.list_voice_flags(status)
 
 
 @mcp.tool(annotations=_RW)
@@ -664,7 +750,7 @@ async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
     proposition 必须是已存在的 fact: oid(如 fact:治眼),不接受自然语言文本;
     请先用 s3_add_fact 创建命题,再用本工具建知识边。
     knower 为 character oid(如 role:焦三)或特殊值 "reader"。
-    acquired_via: saw/heard/inferred/told,默认 saw。
+    acquired_via: saw/told/inferred/given/learned,默认 saw(枚举外的值会被 DB ASSERT 拒)。
     """
     err = _check_proposition(proposition)
     if err:
@@ -703,7 +789,7 @@ async def s3_forget_knowledge(ctx: Context, knower_id: str, proposition_id: str,
 
 @mcp.tool(annotations=_RW)
 async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "") -> dict:
-    """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|cover_action。"""
+    """加一条本书题材 craft 规则(写,待批)。kind=purple_regex|artifact_craft|allow_pattern|allow_word。"""
     ok = await _ask(ctx, f"加题材规则 [{kind}] {pattern}")
     return commit_if_approved("s3_craft_rule_add", ok,
                               lambda: _store.add_craft_rule(kind, pattern, note))
@@ -719,7 +805,13 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str) -> dict:
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
 def setup_store(ns: str = "scribe3", db: str | None = None):
-    """连 NS=scribe3 + 幂等建 schema,挂上。db 缺省读 SCRIBE3_WORK 再回退 main(P30)。"""
+    """连 NS=scribe3 + 幂等建 schema,挂上。db 缺省读 SCRIBE3_WORK 再回退 main(P30)。
+
+    审计 P0-2(串书):本进程一经启动即固定绑定这一个 db(_store 模块级单例),整个进程生命周期
+    只服务 SCRIBE3_WORK 那本书。app.py 已做短期护栏——仅当请求的 work==SCRIBE3_WORK 时才给对话
+    挂 s3_ 工具(_work_has_tools),其余书禁挂,故不会串到错库写入。
+    中期(让每本书都能联查各自库)需:①工具签名加 work 参数并按调用解析 per-work store(带缓存/LRU),
+    或 ②每书独立 MCP profile;二者都要跨 app→Hermes→MCP 进程边界传递 work,改动面大,留作跟进。"""
     import os
     from scribe3.store import SurrealStore
     db = db or os.environ.get("SCRIBE3_WORK", "main")

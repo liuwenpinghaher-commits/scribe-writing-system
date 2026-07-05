@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText } from 'lucide-react'
 import { api } from './api'
+import { useChatPersist } from './useChatPersist'
+import { Btn } from './ui.jsx'
 
 const SUGGESTS = [
   '本章这样展开:……（提思路,主编写整章）',
@@ -15,21 +17,21 @@ function Bubble({ role, content, tools, note, streaming }) {
   const me = role === 'user'
   return (
     <div className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-white' : 'bg-soft text-brand'}`}>
+      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
         {me ? <User size={14} /> : <MessagesSquare size={14} />}
       </div>
       <div className={`max-w-[85%] ${me ? '' : 'flex-1 min-w-0'}`}>
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-[10.5px] text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-f11 text-faint">
                 <Wrench size={9} className="text-brand" />
                 {(t || '').replace(/^mcp_scribe3_/, '')}
               </span>
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-[13.5px] leading-relaxed ${me ? 'bg-brand text-white' : 'bg-surface border border-line text-ink'}`}>
+        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -42,7 +44,7 @@ function Bubble({ role, content, tools, note, streaming }) {
             )
           }
         </div>
-        {note && <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand"><Sparkles size={11} />{note}</div>}
+        {note && <div className="mt-1 inline-flex items-center gap-1 text-f11 text-brand"><Sparkles size={11} />{note}</div>}
       </div>
     </div>
   )
@@ -58,6 +60,9 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const endRef = useRef(null)
   const taRef = useRef(null)
   const fileRef = useRef(null)
+
+  // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
+  useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   useEffect(() => {
@@ -124,7 +129,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
     >
       {dragging && (
         <div className="absolute inset-0 z-20 bg-brand/10 border-2 border-dashed border-brand rounded-lg flex items-center justify-center pointer-events-none">
-          <span className="text-brand text-[13px] font-medium">拖入附件</span>
+          <span className="text-brand text-f13 font-medium">拖入附件</span>
         </div>
       )}
 
@@ -132,10 +137,10 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-[12px] text-faint mb-2.5 leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
+            <div className="text-f12 text-faint mb-2.5 leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
             <div className="space-y-1.5">
               {SUGGESTS.map((s) => (
-                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-[12px] text-ink transition-colors cursor-pointer">{s}</button>
+                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
               ))}
             </div>
           </div>
@@ -149,7 +154,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
       {attachments.length > 0 && (
         <div className="shrink-0 px-2.5 pb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((a) => (
-            <div key={a.id} className="relative flex items-center gap-1.5 rounded-lg border border-line bg-soft px-2 py-1 text-[11.5px] text-ink max-w-[130px]">
+            <div key={a.id} className="relative flex items-center gap-1.5 rounded-lg border border-line bg-soft px-2 py-1 text-f12 text-ink max-w-[130px]">
               {a.kind === 'image'
                 ? <img src={a.url} alt={a.name} className="w-5 h-5 rounded object-cover shrink-0" />
                 : <FileText size={12} className="text-brand shrink-0" />}
@@ -172,23 +177,22 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             rows={1}
             placeholder="提思路 / 提要求…(Enter 发送,Shift+Enter 换行)"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            className="flex-1 resize-none bg-transparent text-[13px] text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
+            className="flex-1 resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
           />
           <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
-            <button
+            <Btn variant="ghost" size="sm" icon
               onClick={() => fileRef.current?.click()}
-              title="附加图片或文本文件"
-              className="w-7 h-7 rounded-lg grid place-items-center text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer"
+              title="附加图片或文本文件" aria-label="附加图片或文本文件"
             >
               <Paperclip size={14} />
-            </button>
-            <button
+            </Btn>
+            <Btn variant="primary" icon
               onClick={() => send()}
               disabled={busy || (!input.trim() && attachments.length === 0)}
-              className="w-8 h-8 rounded-lg bg-brand text-white grid place-items-center disabled:opacity-40 disabled:cursor-default cursor-pointer hover:opacity-90 transition-opacity"
+              aria-label="发送"
             >
               {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </button>
+            </Btn>
           </div>
         </div>
         <input

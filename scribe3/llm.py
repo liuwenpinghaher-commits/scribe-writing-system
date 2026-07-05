@@ -154,14 +154,19 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
 
 
 def hermes_responses_events(message: str, instructions: str, model: str | None = None,
-                            timeout: float = 600.0):
-    """主编 agentic:POST scribe3 网关(:8643)/v1/responses(tools=scribe3 MCP + stream),逐事件 yield。
+                            timeout: float = 600.0, with_tools: bool = True):
+    """主编 agentic:POST scribe3 网关(:8643)/v1/responses(可选 tools=scribe3 MCP + stream),逐事件 yield。
     server_label='scribe3' 引用 profile config 里挂的 scribe3 MCP,主编自动发现并调用 s3_ 工具。
     SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。
-    建链瞬时错自动重试,已 yield 后不重试。"""
+    建链瞬时错自动重试,已 yield 后不重试。
+
+    with_tools:审计 P0-2 门控。MCP 进程固定连 SCRIBE3_WORK 那本书;仅当当前请求的书 ==
+    SCRIBE3_WORK 时才 with_tools=True 挂 s3_ 工具,否则挂上去会读/写错库(不可逆)。
+    with_tools=False → body 不含 tools,退化为纯对话(无联查/无待批写),绝不串库。"""
     import json as _j
-    body: dict = {"input": message, "instructions": instructions, "stream": True,
-                  "tools": [{"type": "mcp", "server_label": "scribe3"}]}
+    body: dict = {"input": message, "instructions": instructions, "stream": True}
+    if with_tools:
+        body["tools"] = [{"type": "mcp", "server_label": "scribe3"}]
     if model:
         body["model"] = model
 

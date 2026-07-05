@@ -1,895 +1,655 @@
 /**
- * TimelineView · 作者工具 F-02 完整期 · 多泳道时间线 + SVG 因果弧线
+ * TimelineView · 作者工具 F-02 · 时间线泳道(vis-timeline 重写,波A)
  *
- * 横轴=章号,纵向多泳道:事件 / 伏笔(setup→payoff 横条) / 弧光(◆点) / 关系(since→until 甘特条)
- * 泳道切换:按角色 / 按情节线(promise) / 按事件类型
- * 完整期新增:SVG 因果弧线叠层——事件卡间的 causal_in 弧线(event→event, 跨泳道/跨章)
- *   - 坐标用确定值:x = (chapter - chFrom) * COL_W + COL_W/2, y = laneIndex * LANE_H + LANE_H/2
- *   - 贝塞尔弧线 + 箭头 marker,可开关(默认关,密集时避免乱)
+ * 根治三痛点(替代原手搓 SVG 网格):
+ *   1. 信息叠加 —— 同章多事件交给 vis-timeline groups 内的自动堆叠(stack),不再 left+=idx*5。
+ *   2. 节点不可点看详情 —— select 事件 → 右侧详情面板展示该 item 完整字段;双击/按钮再跳章。
+ *   3. 千万字横向无虚拟化 —— vis-timeline 原生窗口化(只渲染可视区间)+ 滚轮缩放 + 拖动。
  *
- * spec: docs/系统文档/作者工具/02-时间线视图.md §完整
- * 关键:关系全史用 _all_relations()(后端无时间门),不漏已失效历史关系。
+ * 章号轴:scribe3 以「章号」(整数)为时间轴。vis-timeline 偏好 Date,故把
+ *   第 N 章 映射为合成时间 chapterToDate(N) = 2000-01-01 + (N-1) 天;
+ *   反向 dateToChapter 用于 select/缩放窗口。轴标签经 format.minorLabels 显示「第N章」。
+ *
+ * 泳道(groups,可切换):
+ *   - kind(默认):事件 / 伏笔 / 弧光 / 关系 四类各一道。
+ *   - char:按焦点角色(参与/见证)分道 + 固定「伏笔」道。
+ *   - type:按事件类型分道(仅事件)。
+ * item:
+ *   - 事件 / 弧光 / 伏笔收点 / 关系失效 → 点类型(type:'point' / 'box')。
+ *   - 伏笔(setup→payoff)、关系(since→until)→ 区间(type:'range',带 start+end)。
+ *     未收 / 未失效 → end = 全书末章(开口区间)。
+ *
+ * 数据源:api.timeline(from,to,axis) → /timeline(store.timeline)。
+ * 对外接口不变:<TimelineView onJumpChapter={fn} />(DetailPane 在用)。
+ * spec: docs/系统文档/作者工具/02-时间线视图.md
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { Clock, RefreshCw, GitFork } from 'lucide-react'
+import { Timeline } from 'vis-timeline/standalone'
+import { DataSet } from 'vis-data/standalone'
+import 'vis-timeline/styles/vis-timeline-graph2d.css'
+import { Clock, RefreshCw, X, CornerDownRight } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
+import { hasNarrativeData } from '../lib/timelineAxis'
+import { useSelection } from '../selectionContext'
 
-// ── 布局常量 ──────────────────────────────────────────────────────────────────
-const COL_W    = 150  // 每章列宽(px)
-const LANE_H   = 90   // 每条泳道高度(px)
-const LABEL_W  = 80   // 左侧泳道标签宽(px)
-const HEADER_H = 28   // 章号表头高度(px)
-const CARD_W   = 110  // 事件卡宽
-const CARD_H   = 66   // 事件卡高
-const BAR_H    = 14   // 甘特条高度
+// ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
+// 第 N 章 → 2000-01-01 起第 (N-1) 天。一天一章,vis 缩放/堆叠按天粒度天然贴合。
+const EPOCH = Date.UTC(2000, 0, 1)
+const DAY = 86400000
+const chToDate = (ch) => new Date(EPOCH + (ch - 1) * DAY)
+const dateToCh = (d) => Math.round((d.getTime() - EPOCH) / DAY) + 1
 
 // ── 配色 ─────────────────────────────────────────────────────────────────────
 const EVENT_TYPE_COLOR = {
-  '炼器': '#7c3aed', '战斗': '#dc2626', '拜师': '#0ea5e9',
-  '对话': '#16a34a', '决策': '#d97706', '失去': '#be185d', '获得': '#15803d',
+  炼器: '#7c3aed', 战斗: '#dc2626', 拜师: '#0ea5e9',
+  对话: '#16a34a', 决策: '#d97706', 失去: '#be185d', 获得: '#15803d',
 }
-const evColor  = (t) => EVENT_TYPE_COLOR[t] || '#64748b'
-
-const ARC_COLORS = {
-  ability: '#7c3aed', relation: '#0ea5e9', personality: '#ec4899', composite: '#f97316',
-}
+const evColor = (t) => EVENT_TYPE_COLOR[t] || '#64748b'
+const ARC_COLORS = { ability: '#7c3aed', relation: '#0ea5e9', personality: '#ec4899', composite: '#f97316' }
 const arcColor = (ct) => ARC_COLORS[ct] || '#64748b'
-
-const PROMISE_COLOR   = '#f59e0b'
+const PROMISE_COLOR = '#f59e0b'
 const PROMISE_HERRING = '#94a3b8'
-const CAUSAL_COLOR    = '#6366f1'  // 因果弧线:靛紫色,与事件卡不冲突
 
-// ── 工具函数 ──────────────────────────────────────────────────────────────────
 const stripRole = (id) => (id || '').replace(/^role:/, '')
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
+))
 
-/** 从 items 推导泳道 key 列表(有序) */
-function deriveLaneKeys(items, laneMode) {
-  if (laneMode === 'promise') return ['__promise__']
-  if (laneMode === 'type') {
-    const types = [...new Set(
-      items.filter((i) => i.kind === 'event').map((i) => i.event_type || '其他')
-    )].sort()
-    return types.length ? types : ['其他']
-  }
-  // char 模式:角色泳道 + 固定伏笔道
-  const chars = new Set()
-  const hasPromise = items.some((i) => i.lane_keys?.includes('__promise__'))
-  for (const item of items) {
-    for (const lk of item.lane_keys || []) {
-      if (lk !== '__promise__') chars.add(lk)
-    }
-  }
-  const sorted = [...chars].sort()
-  return hasPromise ? [...sorted, '__promise__'] : sorted
-}
+// 固定 group id(kind 模式 / char 模式的伏笔道)
+const G_EVENT = '__event__'
+const G_PROMISE = '__promise__'
+const G_ARC = '__arc__'
+const G_RELATION = '__relation__'
 
-/** Separated 语义:一 item 可落到多泳道 */
-function buildLanes(items, laneMode, allLaneKeys) {
-  const map = {}
-  for (const lk of allLaneKeys) map[lk] = []
-  for (const item of items) {
-    const keys = item.lane_keys || []
-    let relevant
-    if (laneMode === 'char') relevant = keys  // 含 __promise__
-    else if (laneMode === 'promise') relevant = keys.filter((k) => k === '__promise__')
-    else relevant = keys.slice(0, 1)  // type 模式:第一个 key
-    for (const lk of relevant) {
-      if (map[lk] !== undefined) map[lk].push(item)
-    }
-  }
-  return map
-}
-
-// ── 子组件 ────────────────────────────────────────────────────────────────────
-
+// ── items / groups 构建 ─────────────────────────────────────────────────────
 /**
- * CausalArrowLayer · 跨泳道 SVG 因果弧线叠层(完整期)
- *
- * 绝对定位在整个网格内容区(HEADER_H 以下),覆盖 allLaneKeys.length * LANE_H 高度。
- * 坐标计算(确定值,不依赖 DOM):
- *   x = (event.chapter - chFrom) * COL_W + COL_W/2  → 列中心
- *   y = laneIndex * LANE_H + LANE_H/2                → 泳道中心
- * 弧线方向:因(cause)→果(effect),箭头指向果事件。
- * 悬浮高亮:hover 某条弧线时高亮该弧线及两端事件 id。
- *
- * props:
- *   items         - timeline items 完整列表(仅用 kind=event)
- *   allLaneKeys   - 当前模式的泳道 key 顺序
- *   chFrom        - 显示区间起章
- *   totalCols     - 列数(chRange.length)
- *   hiddenLanes   - Set<laneKey> 隐藏的泳道(隐藏泳道里的弧线也不画)
- *   laneMode      - 'char'|'promise'|'type'(非 char 模式下泳道切换会变,y 随之变)
+ * 把 timeline items(后端结构)转成 vis DataSet 的 items + groups。
+ * 返回 { items, groups }。每个 vis item 挂 `_raw`(原始 item)+ `_jump`(跳章号)
+ * 供 select 详情面板与跳章使用。
  */
-function CausalArrowLayer({ items, allLaneKeys, chFrom, totalCols, hiddenLanes, laneMode }) {
-  const [hoveredId, setHoveredId] = useState(null)
+function buildVis(rawItems, laneMode, maxCh) {
+  const groups = new Map()   // id → {id, content, _order}
+  const items = []
+  const endCh = maxCh || 1
 
-  // 建立 event id → (chapter, laneIndex) 的查找表
-  // 一个事件可在多条泳道,取第一个可见泳道的 index 作为 y 基准
-  const evPos = useMemo(() => {
-    const map = {}
-    for (const item of items) {
-      if (item.kind !== 'event') continue
-      const ch = item.chapter
-      const x = (ch - chFrom) * COL_W + COL_W / 2
-      // 找第一个可见 lane
-      let laneIdx = -1
-      for (const lk of (item.lane_keys || [])) {
-        const idx = allLaneKeys.indexOf(lk)
-        if (idx !== -1 && !hiddenLanes.has(lk)) { laneIdx = idx; break }
-      }
-      if (laneIdx === -1) continue  // 无可见泳道,跳过
-      const y = laneIdx * LANE_H + LANE_H / 2
-      map[item.id] = { x, y, chapter: ch }
+  const ensureGroup = (id, content, order) => {
+    if (!groups.has(id)) groups.set(id, { id, content, _order: order })
+  }
+
+  // 关系配对(start id 形如 "src->dst@sc";end id "src->dst@end{uc}")
+  const relStarts = rawItems.filter((i) => i.kind === 'relation_start')
+  const promSetups = rawItems.filter((i) => i.kind === 'promise_setup')
+  const promPayoffs = rawItems.filter((i) => i.kind === 'promise_payoff')
+
+  // 角色道排序辅助:char 模式下角色名稳定排序
+  const charOrder = new Map()
+  if (laneMode === 'char') {
+    const chars = new Set()
+    for (const it of rawItems) for (const lk of it.lane_keys || []) {
+      if (lk !== G_PROMISE) chars.add(lk)
     }
-    return map
-  }, [items, allLaneKeys, chFrom, hiddenLanes])
+    ;[...chars].sort().forEach((c, i) => charOrder.set(c, i))
+  }
 
-  // 收集所有因果弧线:果事件 → 因事件
-  const arcs = useMemo(() => {
-    const result = []
-    for (const item of items) {
-      if (item.kind !== 'event') continue
-      const causalIn = item.refs?.causal_in || []
-      if (!causalIn.length) continue
-      const effectPos = evPos[item.id]
-      if (!effectPos) continue
+  // 给一个 item 决定它落到哪些 group(可多道)
+  const groupsFor = (it) => {
+    if (laneMode === 'kind') {
+      if (it.kind === 'event') return [G_EVENT]
+      if (it.kind === 'arc') return [G_ARC]
+      if (it.kind === 'promise_setup' || it.kind === 'promise_payoff') return [G_PROMISE]
+      return [G_RELATION] // relation_start/end
+    }
+    if (laneMode === 'type') {
+      if (it.kind !== 'event') return [] // type 模式只看事件
+      return ['et:' + (it.event_type || '其他')]
+    }
+    // char 模式:伏笔进固定伏笔道;其余进各 lane_keys 角色道
+    if (it.kind === 'promise_setup' || it.kind === 'promise_payoff') return [G_PROMISE]
+    return (it.lane_keys || []).filter((k) => k !== G_PROMISE)
+  }
 
-      for (const ci of causalIn) {
-        // ci 格式:{id, chapter} (完整期后端补全)
-        // 兼容旧格式(字符串):若 ci 是字符串,转为 {id: ci, chapter: null}
-        const causeId = typeof ci === 'string' ? ci : ci.id
-        const causeChapter = typeof ci === 'string' ? null : ci.chapter
-        if (!causeId) continue
-
-        // 如果前驱事件在 evPos 里(在当前显示区间内),直接用其坐标
-        // 否则用 causeChapter(可能在区间外,仍可算 x,但无 y → 画到边界)
-        const causePos = evPos[causeId]
-        if (!causePos && causeChapter == null) continue  // 完全无坐标信息
-
-        const cx = causePos ? causePos.x : (causeChapter - chFrom) * COL_W + COL_W / 2
-        const cy = causePos ? causePos.y : effectPos.y  // 无泳道信息时与果事件同行
-        const ex = effectPos.x
-        const ey = effectPos.y
-
-        result.push({
-          id: `${causeId}→${item.id}`,
-          cx, cy, ex, ey,
-          causeId, effectId: item.id,
-          label: item.label || item.event_type || '',
-        })
+  const registerGroupsFor = (it) => {
+    for (const gid of groupsFor(it)) {
+      if (laneMode === 'kind') {
+        const content = gid === G_EVENT ? '事件' : gid === G_ARC ? '弧光'
+          : gid === G_PROMISE ? '◇伏笔' : '关系'
+        const order = gid === G_EVENT ? 0 : gid === G_ARC ? 1 : gid === G_PROMISE ? 2 : 3
+        ensureGroup(gid, content, order)
+      } else if (laneMode === 'type') {
+        ensureGroup(gid, gid.slice(3), 0)
+      } else {
+        if (gid === G_PROMISE) ensureGroup(gid, '◇伏笔', 9999)
+        else ensureGroup(gid, stripRole(gid), charOrder.get(gid) ?? 5000)
       }
     }
-    return result
-  }, [items, evPos, chFrom])
-
-  if (!arcs.length) return null
-
-  const svgW = totalCols * COL_W
-  const svgH = allLaneKeys.length * LANE_H
-  const markerId = 'causal-arrow-head'
-  const markerIdHover = 'causal-arrow-head-hover'
-
-  return (
-    <svg
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: svgW,
-        height: svgH,
-        pointerEvents: 'all',  // 覆盖父 div 的 none,让 hover 事件能传到 <g>
-        zIndex: 20,
-        overflow: 'visible',
-      }}
-    >
-      <defs>
-        {/* 普通箭头 marker */}
-        <marker id={markerId} markerWidth={8} markerHeight={8}
-          refX={7} refY={3} orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L0,6 L8,3 z" fill={CAUSAL_COLOR} opacity={0.65} />
-        </marker>
-        {/* 高亮箭头 marker */}
-        <marker id={markerIdHover} markerWidth={8} markerHeight={8}
-          refX={7} refY={3} orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L0,6 L8,3 z" fill={CAUSAL_COLOR} opacity={1} />
-        </marker>
-      </defs>
-
-      {arcs.map((arc) => {
-        const isHovered = hoveredId === arc.id
-        // 贝塞尔控制点:在两点中间,垂直偏上(避免遮挡卡片)
-        // 若同一泳道(cy≈ey):弧线向上凸;跨泳道:用 S 曲线
-        const midX = (arc.cx + arc.ex) / 2
-        const dy = arc.ey - arc.cy
-        // 弓高:同行至少 30px,跨行等比例增加,但不超过 LANE_H/2
-        const bow = Math.min(Math.abs(dy) / 2 + 30, LANE_H * 0.6)
-        // 控制点在上方(y 减小=向上)
-        const cpY = Math.min(arc.cy, arc.ey) - bow
-        // 路径:从 cause(cx,cy) 经控制点 到 effect(ex,ey)
-        const d = `M ${arc.cx} ${arc.cy} Q ${midX} ${cpY} ${arc.ex} ${arc.ey}`
-
-        return (
-          <g key={arc.id}
-            onMouseEnter={() => setHoveredId(arc.id)}
-            onMouseLeave={() => setHoveredId(null)}
-            style={{ pointerEvents: 'stroke', cursor: 'default' }}
-          >
-            {/* 透明宽带方便 hover */}
-            <path d={d} fill="none" stroke="transparent" strokeWidth={12} />
-            {/* 实际弧线 */}
-            <path
-              d={d}
-              fill="none"
-              stroke={CAUSAL_COLOR}
-              strokeWidth={isHovered ? 2 : 1.2}
-              strokeDasharray={isHovered ? undefined : '6 3'}
-              opacity={isHovered ? 1 : 0.55}
-              markerEnd={`url(#${isHovered ? markerIdHover : markerId})`}
-            />
-            {/* hover 时显示标签 */}
-            {isHovered && (
-              <text
-                x={midX}
-                y={cpY - 4}
-                textAnchor="middle"
-                fontSize={9}
-                fill={CAUSAL_COLOR}
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
-              >
-                {arc.label}
-              </text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-/**
- * NarrativeEditor · 叙事位内联编辑小控件(尾1)
- * 点击闪回角标或"叙@N"字样弹出数字框;支持清除(空值→ null,回退 story_chapter)。
- */
-function NarrativeEditor({ eventId, storyChapter, currentNp, onDone }) {
-  const [val, setVal] = useState(currentNp != null ? String(currentNp) : '')
-  const [saving, setSaving] = useState(false)
-
-  const commit = useCallback((e) => {
-    e && e.stopPropagation()
-    const parsed = val.trim() === '' ? null : parseInt(val, 10)
-    if (val.trim() !== '' && isNaN(parsed)) return   // 非法数字,忽略
-    setSaving(true)
-    api.patchEventNarrative(eventId, parsed)
-      .then(() => onDone(parsed))
-      .catch(() => { setSaving(false) })
-  }, [val, eventId, onDone])
-
-  const onKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); commit() }
-    if (e.key === 'Escape') { e.preventDefault(); onDone(currentNp) }
   }
 
+  // 已配对的伏笔/关系 id,避免 payoff/end 重复出条
+  const pairedPromise = new Set()
+  const pairedRelation = new Set()
+
+  // ── 事件 ──
+  for (const ev of rawItems.filter((i) => i.kind === 'event')) {
+    registerGroupsFor(ev)
+    const color = evColor(ev.event_type)
+    const sc = ev.story_chapter ?? ev.chapter
+    const np = ev.narrative_position
+    const isFlashback = np != null && np !== sc
+    const subj = (ev.refs?.subj || []).map(stripRole).join('、') || '—'
+    for (const gid of groupsFor(ev)) {
+      items.push({
+        id: 'ev:' + ev.id + ':' + gid,
+        group: gid,
+        start: chToDate(ev.chapter),
+        type: 'box',
+        content: esc(ev.label || ev.event_type) + (isFlashback ? ' ⟲' : ''),
+        title: `第${ev.chapter}章 · ${esc(ev.label || ev.event_type)}　主:${esc(subj)}`,
+        style: `border-color:${color};box-shadow:inset 3px 0 0 ${color};`,
+        _raw: ev, _jump: sc, _cat: 'event',
+      })
+    }
+  }
+
+  // ── 弧光(◆点) ──
+  for (const a of rawItems.filter((i) => i.kind === 'arc')) {
+    registerGroupsFor(a)
+    const color = arcColor(a.refs?.change_type)
+    for (const gid of groupsFor(a)) {
+      items.push({
+        id: 'arc:' + a.id + ':' + gid,
+        group: gid,
+        start: chToDate(a.chapter),
+        type: 'point',
+        content: '◆ ' + esc(a.refs?.arc_phase || a.label || ''),
+        title: `第${a.chapter}章 弧光 · ${esc(a.refs?.arc_phase || '')}${a.label ? ' · ' + esc(a.label) : ''}`,
+        style: `color:${color};border-color:${color};`,
+        className: 'tl-arc',
+        _raw: a, _jump: a.chapter, _cat: 'arc',
+      })
+    }
+  }
+
+  // ── 伏笔(setup→payoff 区间) ──
+  const payoffById = new Map(promPayoffs.map((p) => [p.id, p]))
+  for (const s of promSetups) {
+    registerGroupsFor(s)
+    pairedPromise.add(s.id)
+    const payoff = payoffById.get(s.id)
+    const isHerring = s.refs?.promise_kind === 'red_herring'
+    const isOverdue = s.refs?.overdue && !payoff
+    const color = isHerring ? PROMISE_HERRING : PROMISE_COLOR
+    const sc = s.chapter
+    const pc = payoff?.chapter ?? null
+    const endChapter = pc != null ? pc : endCh
+    for (const gid of groupsFor(s)) {
+      items.push({
+        id: 'pr:' + s.id + ':' + gid,
+        group: gid,
+        start: chToDate(sc),
+        end: chToDate(Math.max(endChapter, sc + 0.4)),
+        type: 'range',
+        content: '◇ ' + esc(s.label?.length > 18 ? s.label.slice(0, 17) + '…' : s.label)
+          + (isHerring ? ' (障)' : '') + (pc == null ? (isOverdue ? ' ⚠未收' : ' …待收') : ''),
+        title: `伏笔 ch${sc}${pc != null ? '→ch' + pc + ' 已收' : isOverdue ? ' · 超期未收' : ' · 待收'} · ${esc(s.label)}`,
+        style: `background-color:${color}33;border-color:${color};color:#7c5a10;`
+          + (isHerring ? 'border-style:dashed;' : '') + (isOverdue ? 'border-color:#ef4444;' : ''),
+        _raw: { ...s, _payoff: payoff }, _jump: sc, _cat: 'promise',
+      })
+    }
+  }
+
+  // ── 关系(since→until 区间) ──
+  const relEndByPrefix = new Map()
+  for (const e of rawItems.filter((i) => i.kind === 'relation_end')) {
+    relEndByPrefix.set(e.id.split('@')[0], e)
+  }
+  for (const r of relStarts) {
+    registerGroupsFor(r)
+    pairedRelation.add(r.id)
+    const prefix = r.id.split('@')[0]
+    const end = relEndByPrefix.get(prefix)
+    const rel = r.refs?.relation || r.label
+    const color = relColor(rel)
+    const sc = r.chapter
+    const uc = end?.chapter ?? r.refs?.until_chapter ?? null
+    const endChapter = uc != null ? uc : endCh
+    const srcName = r.refs?.src ? stripRole(r.refs.src) : ''
+    const dstName = r.refs?.dst ? stripRole(r.refs.dst) : ''
+    for (const gid of groupsFor(r)) {
+      items.push({
+        id: 'rel:' + r.id + ':' + gid,
+        group: gid,
+        start: chToDate(sc),
+        end: chToDate(Math.max(endChapter, sc + 0.4)),
+        type: 'range',
+        content: esc(relLabel(rel)) + (srcName ? ` ${esc(srcName)}→${esc(dstName)}` : '')
+          + (uc != null ? ' ✗' : ''),
+        title: `关系 ${esc(relLabel(rel))} ${esc(srcName)}→${esc(dstName)} · ch${sc}${uc != null ? '→ch' + uc + ' 失效' : ' 起'}`,
+        style: `background-color:${color}26;border-color:${color};border-style:dashed;color:${color};`,
+        _raw: { ...r, _end: end }, _jump: sc, _cat: 'relation',
+      })
+    }
+  }
+
+  const groupArr = [...groups.values()].sort((a, b) => a._order - b._order)
+    .map(({ id, content }) => ({ id, content }))
+  return { items, groups: groupArr }
+}
+
+// 块三:时间线选中项 → 通用选中总线 focus(伏笔→promise;事件/弧光/关系→event,payload.cat 细分)。
+function visItemFocus(it) {
+  const raw = it._raw || {}
+  const isPromise = it._cat === 'promise'
+  return {
+    type: isPromise ? 'promise' : 'event',
+    id: String(raw.id || it.id),
+    label: raw.label || raw.event_type || '',
+    payload: isPromise
+      ? {
+          cat: it._cat,
+          setup_chapter: raw.chapter,
+          payoff_chapter: raw._payoff?.chapter ?? raw.refs?.payoff_chapter ?? null,
+          overdue: !!(raw.refs?.overdue && !raw._payoff),
+        }
+      : { cat: it._cat, chapter: raw.chapter },
+    origin: 'timeline',
+  }
+}
+
+// ── 详情面板 ────────────────────────────────────────────────────────────────
+function Field({ k, v }) {
+  if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null
+  const val = Array.isArray(v) ? v.map(stripRole).join('、') : String(v)
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-surface/90 rounded-lg"
-    >
-      <div className="flex flex-col gap-1 px-2 w-full">
-        <span className="text-[9px] text-faint">叙事位(空=清除,回退故事章{storyChapter})</span>
-        <div className="flex items-center gap-1">
-          <input
-            autoFocus
-            type="number"
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder={String(storyChapter)}
-            className="w-14 h-5 rounded border border-brand bg-canvas text-center text-[11px] text-ink outline-none"
-            disabled={saving}
-          />
-          <button
-            onClick={commit}
-            disabled={saving}
-            className="h-5 px-1.5 rounded bg-brand text-brandfg text-[10px] font-medium cursor-pointer disabled:opacity-50"
-          >{saving ? '…' : '确认'}</button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDone(currentNp) }}
-            className="h-5 px-1 rounded text-faint text-[10px] hover:text-ink cursor-pointer"
-          >✕</button>
-        </div>
-      </div>
+    <div className="flex gap-2 text-f12 leading-relaxed">
+      <span className="shrink-0 w-16 text-faint">{k}</span>
+      <span className="text-ink break-words min-w-0">{val}</span>
     </div>
   )
 }
 
-function EventCard({ item, onJumpChapter, stacked, onTimelineRefresh }) {
-  const color = evColor(item.event_type)
-  const subj  = (item.refs?.subj || []).map(stripRole).join('、') || '—'
-  const wit   = (item.refs?.witness || []).map(stripRole).join('、')
-  // 双轴(完整期):story_chapter / narrative_position 不同 → 闪回/倒叙事件
-  const sc = item.story_chapter ?? item.chapter
-  const np = item.narrative_position
-  const isFlashback = np != null && np !== sc
-  // 点事件卡始终跳故事章正文(chapter.seq = story_chapter)
-  const jumpCh = sc
+function DetailPanel({ raw, cat, onJump, onClose }) {
+  if (!raw) return null
+  const r = raw.refs || {}
+  const sc = raw.story_chapter ?? raw.chapter
+  const np = raw.narrative_position
+  let title = '', headColor = '#64748b', body = null
 
-  // 叙事位内联编辑状态
-  const [editingNp, setEditingNp] = useState(false)
-
-  const handleNpDone = useCallback((newNp) => {
-    setEditingNp(false)
-    // 批了写后刷新时间线(newNp 变化才重拉)
-    if (newNp !== np) {
-      onTimelineRefresh?.()
-    }
-  }, [np, onTimelineRefresh])
+  if (cat === 'event') {
+    title = raw.label || raw.event_type; headColor = evColor(raw.event_type)
+    body = (
+      <>
+        <Field k="类型" v={raw.event_type} />
+        <Field k="故事章" v={sc} />
+        {np != null && np !== sc && <Field k="叙事位" v={np} />}
+        <Field k="主体" v={r.subj} />
+        <Field k="客体" v={r.obj} />
+        <Field k="见证" v={r.witness} />
+        <Field k="目标" v={raw.goal} />
+        <Field k="地点" v={r.location} />
+        <Field k="效果" v={r.effects} />
+        <Field k="因果前驱" v={(r.causal_in || []).map((c) => (typeof c === 'string' ? c : `${c.id}${c.chapter != null ? '(ch' + c.chapter + ')' : ''}`))} />
+      </>
+    )
+  } else if (cat === 'arc') {
+    title = raw.label || '弧光'; headColor = arcColor(r.change_type)
+    body = (
+      <>
+        <Field k="章号" v={raw.chapter} />
+        <Field k="质变类型" v={r.change_type} />
+        <Field k="弧光阶段" v={r.arc_phase} />
+        <Field k="角色" v={r.character ? stripRole(r.character) : null} />
+        <Field k="影响声音" v={r.affects_voice ? '是' : null} />
+        <Field k="摘要" v={raw.label} />
+      </>
+    )
+  } else if (cat === 'promise') {
+    title = raw.label || '伏笔'; headColor = r.promise_kind === 'red_herring' ? PROMISE_HERRING : PROMISE_COLOR
+    const payoff = raw._payoff
+    body = (
+      <>
+        <Field k="文本" v={raw.label} />
+        <Field k="埋设章" v={raw.chapter} />
+        <Field k="收束章" v={payoff?.chapter ?? r.payoff_chapter} />
+        <Field k="状态" v={r.status} />
+        <Field k="种类" v={r.promise_kind === 'red_herring' ? '障眼法' : r.promise_kind} />
+        {r.overdue && !payoff && <Field k="提示" v="超期未收" />}
+      </>
+    )
+  } else if (cat === 'relation') {
+    title = relLabel(r.relation || raw.label); headColor = relColor(r.relation || raw.label)
+    const end = raw._end
+    body = (
+      <>
+        <Field k="关系" v={relLabel(r.relation || raw.label)} />
+        <Field k="源" v={r.src ? stripRole(r.src) : null} />
+        <Field k="目标" v={r.dst ? stripRole(r.dst) : null} />
+        <Field k="建立章" v={raw.chapter} />
+        <Field k="失效章" v={end?.chapter ?? r.until_chapter} />
+        <Field k="备注" v={r.note} />
+      </>
+    )
+  }
 
   return (
-    <div
-      onClick={() => !editingNp && onJumpChapter?.(jumpCh)}
-      title={isFlashback
-        ? `闪回 · 故事@${sc}章 / 叙事@${np} · ${item.label}${item.goal ? ' · ' + item.goal : ''}`
-        : `第${sc}章 · ${item.label}${item.goal ? ' · ' + item.goal : ''}`}
-      style={{
-        position: 'absolute',
-        left: stacked * 5,
-        top: (LANE_H - CARD_H) / 2 + stacked * 3,
-        width: CARD_W,
-        height: CARD_H,
-        borderLeft: `3px solid ${color}`,
-        zIndex: 10 - stacked,
-      }}
-      className="rounded-lg bg-surface border border-line shadow-sm px-2 py-1 flex flex-col gap-0.5 hover:shadow-md hover:border-brand/60 transition-shadow cursor-pointer select-none"
-    >
-      {/* 叙事位内联编辑浮层 */}
-      {editingNp && (
-        <NarrativeEditor
-          eventId={item.id}
-          storyChapter={sc}
-          currentNp={np}
-          onDone={handleNpDone}
-        />
-      )}
-
-      <div className="flex items-center gap-1 min-w-0">
-        <span className="shrink-0 w-2 h-2 rounded-full inline-block" style={{ background: color }} />
-        <span className="text-[11px] font-semibold text-ink truncate">{item.label || item.event_type}</span>
-        {isFlashback && (
-          <span
-            className="shrink-0 text-[8px] font-medium px-1 rounded bg-indigo-100 text-indigo-600 leading-tight cursor-pointer hover:bg-indigo-200"
-            title={`故事@${sc} / 叙事@${np} · 点击编辑叙事位`}
-            onClick={(e) => { e.stopPropagation(); setEditingNp(true) }}
-          >闪回</span>
-        )}
-        <span
-          className="ml-auto text-[10px] text-faint shrink-0 cursor-pointer hover:text-brand"
-          title="点击编辑叙事位(narrative_position)"
-          onClick={(e) => { e.stopPropagation(); setEditingNp(true) }}
+    <div className="w-64 shrink-0 border-l border-line bg-surface flex flex-col">
+      <div className="flex items-center gap-2 px-3 h-10 border-b border-line">
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: headColor }} />
+        <span className="text-f13 font-semibold text-ink truncate flex-1" title={title}>{title}</span>
+        <button onClick={onClose} className="shrink-0 text-faint hover:text-ink cursor-pointer" title="关闭">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-1.5">{body}</div>
+      <div className="shrink-0 border-t border-line p-2">
+        <button
+          onClick={() => onJump?.(raw._jump ?? raw.chapter)}
+          className="w-full h-8 rounded-lg bg-brand text-brandfg text-f12 font-medium cursor-pointer hover:opacity-85 flex items-center justify-center gap-1.5"
         >
-          {isFlashback ? `故@${sc}/叙@${np}` : `ch${sc}`}
-        </span>
+          <CornerDownRight size={13} /> 跳到第{raw._jump ?? raw.chapter}章
+        </button>
       </div>
-      {item.goal && <div className="text-[10px] text-faint truncate">{item.goal}</div>}
-      <div className="text-[10px] text-faint/80 truncate">
-        主:{subj}{wit ? <span className="opacity-60"> 见:{wit}</span> : null}
-      </div>
-      {(item.refs?.causal_in || []).length > 0 && (
-        <div className="text-[9px] text-faint/60 truncate">⤴ {item.refs.causal_in.join('、')}</div>
-      )}
-    </div>
-  )
-}
-
-/** 伏笔 setup→payoff 横条(SVG) */
-function PromiseBar({ setupItem, payoffItem, chFrom, totalCols, onJumpChapter }) {
-  const isHerring = setupItem.refs?.promise_kind === 'red_herring'
-  const isOverdue  = setupItem.refs?.overdue && !payoffItem
-  const color = isHerring ? PROMISE_HERRING : PROMISE_COLOR
-  const sc = setupItem.chapter
-  const pc = payoffItem?.chapter ?? null
-  const barY = LANE_H / 2 - BAR_H / 2
-  const startX = (sc - chFrom) * COL_W + COL_W / 2
-  const endX   = pc != null ? (pc - chFrom) * COL_W + COL_W / 2 : totalCols * COL_W - 8
-  const barW   = Math.max(endX - startX, 4)
-
-  return (
-    <g>
-      <rect x={startX} y={barY} width={barW} height={BAR_H} rx={3}
-        fill={color} fillOpacity={isHerring ? 0.3 : 0.22}
-        stroke={color} strokeWidth={1.5}
-        strokeDasharray={isHerring ? '4 3' : undefined}
-        style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(sc)}
-      />
-      {/* setup 菱形 ◇ */}
-      <rect x={startX - 5} y={barY + BAR_H / 2 - 5} width={10} height={10}
-        rx={1} transform={`rotate(45,${startX},${barY + BAR_H / 2})`}
-        fill={color} stroke="#fff" strokeWidth={1}
-        style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(sc)}
-      ><title>{`ch${sc} 埋:${setupItem.label}`}</title></rect>
-      {/* payoff 圆 ● */}
-      {pc != null ? (
-        <circle cx={endX} cy={barY + BAR_H / 2} r={5}
-          fill={color} stroke="#fff" strokeWidth={1}
-          style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(pc)}
-        ><title>{`ch${pc} 收:${setupItem.label}`}</title></circle>
-      ) : (
-        <>
-          <polygon
-            points={`${endX},${barY + 2} ${endX + 7},${barY + BAR_H / 2} ${endX},${barY + BAR_H - 2}`}
-            fill={isOverdue ? '#ef4444' : color} fillOpacity={0.7}
-          />
-          {isOverdue && (
-            <text x={endX + 9} y={barY + BAR_H - 1} fontSize={10} fill="#ef4444" fontWeight="bold">⚠</text>
-          )}
-        </>
-      )}
-      <text x={startX + 8} y={barY + BAR_H - 3} fontSize={9}
-        fill={isHerring ? '#94a3b8' : '#92400e'}
-        style={{ pointerEvents: 'none', userSelect: 'none' }}
-      >
-        {setupItem.label.length > 14 ? setupItem.label.slice(0, 13) + '…' : setupItem.label}
-        {isHerring ? ' (障)' : ''}
-      </text>
-    </g>
-  )
-}
-
-/** 关系 since→until 甘特条(SVG) */
-function RelationBar({ startItem, endItem, chFrom, totalCols, onJumpChapter }) {
-  const rel    = startItem.refs?.relation || startItem.label
-  const color  = relColor(rel)
-  const sc     = startItem.chapter
-  const uc     = endItem?.chapter ?? null
-  const barY   = LANE_H / 2 - BAR_H / 2
-  const startX = (sc - chFrom) * COL_W + COL_W / 2
-  const endX   = uc != null ? (uc - chFrom) * COL_W + COL_W / 2 : totalCols * COL_W - 8
-  const barW   = Math.max(endX - startX, 4)
-  const srcName = startItem.refs?.src ? stripRole(startItem.refs.src) : ''
-  const dstName = startItem.refs?.dst ? stripRole(startItem.refs.dst) : ''
-
-  return (
-    <g>
-      <rect x={startX} y={barY} width={barW} height={BAR_H} rx={3}
-        fill={color} fillOpacity={0.16}
-        stroke={color} strokeWidth={1.5} strokeDasharray="5 3"
-        style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(sc)}
-      />
-      {/* 建立点 ● */}
-      <circle cx={startX} cy={barY + BAR_H / 2} r={4}
-        fill={color} stroke="#fff" strokeWidth={1}
-        style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(sc)}
-      ><title>{`ch${sc} 建立: ${relLabel(rel)}  ${srcName}→${dstName}`}</title></circle>
-      {/* 失效点 ✗ */}
-      {uc != null && (
-        <>
-          <line x1={endX - 4} y1={barY + 2} x2={endX + 4} y2={barY + BAR_H - 2} stroke={color} strokeWidth={2} />
-          <line x1={endX + 4} y1={barY + 2} x2={endX - 4} y2={barY + BAR_H - 2} stroke={color} strokeWidth={2} />
-        </>
-      )}
-      <text x={startX + 8} y={barY + BAR_H - 3} fontSize={9} fill={color}
-        style={{ pointerEvents: 'none', userSelect: 'none' }}
-      >
-        {relLabel(rel)}{srcName ? ` ${srcName}→${dstName}` : ''}
-      </text>
-    </g>
-  )
-}
-
-/** 单条泳道内容 */
-function LaneRow({ laneKey, items, chFrom, chRange, onJumpChapter, laneMode, onTimelineRefresh }) {
-  const totalCols = chRange.length
-  const svgW = totalCols * COL_W
-
-  const eventItems  = items.filter((i) => i.kind === 'event')
-  const arcItems    = items.filter((i) => i.kind === 'arc')
-  const promSetups  = items.filter((i) => i.kind === 'promise_setup')
-  const promPayoffs = items.filter((i) => i.kind === 'promise_payoff')
-  const relStarts   = items.filter((i) => i.kind === 'relation_start')
-  const relEnds     = items.filter((i) => i.kind === 'relation_end')
-
-  // 配对伏笔(同 id)
-  const promPairs = promSetups.map((s) => ({
-    setup: s, payoff: promPayoffs.find((p) => p.id === s.id) || null,
-  }))
-
-  // 配对关系(id prefix 同 "src->dst")
-  const relPairs = relStarts.map((s) => {
-    const prefix = s.id.split('@')[0]
-    return { start: s, end: relEnds.find((e) => e.id.startsWith(prefix)) || null }
-  })
-
-  // 按章分组事件(同章堆叠)
-  const evByChapter = {}
-  for (const ev of eventItems) {
-    if (!evByChapter[ev.chapter]) evByChapter[ev.chapter] = []
-    evByChapter[ev.chapter].push(ev)
-  }
-
-  return (
-    <div style={{ position: 'relative', width: svgW, height: LANE_H }}>
-      {/* 轴线 */}
-      <div style={{
-        position: 'absolute', top: LANE_H / 2, left: 0, right: 0,
-        height: 1, background: 'var(--color-line)', opacity: 0.35,
-      }} />
-
-      {/* SVG 叠层 */}
-      <svg style={{ position: 'absolute', top: 0, left: 0, width: svgW, height: LANE_H, overflow: 'visible' }}
-        pointerEvents="none"
-      >
-        {/* 伏笔横条(只在伏笔泳道显示) */}
-        {laneKey === '__promise__' && promPairs.map(({ setup, payoff }) => (
-          <PromiseBar key={setup.id} setupItem={setup} payoffItem={payoff}
-            chFrom={chFrom} totalCols={totalCols} onJumpChapter={onJumpChapter} />
-        ))}
-        {/* 关系甘特条(角色泳道 + char 模式) */}
-        {laneKey !== '__promise__' && laneMode === 'char' && relPairs.map(({ start, end }) => (
-          <RelationBar key={start.id} startItem={start} endItem={end}
-            chFrom={chFrom} totalCols={totalCols} onJumpChapter={onJumpChapter} />
-        ))}
-        {/* 弧光◆点 */}
-        {arcItems.map((item) => {
-          const color = arcColor(item.refs?.change_type)
-          const cx = (item.chapter - chFrom) * COL_W + COL_W / 2
-          const cy = LANE_H / 2
-          return (
-            <g key={item.id} style={{ cursor: 'pointer' }} onClick={() => onJumpChapter?.(item.chapter)}>
-              <rect x={cx - 6} y={cy - 6} width={12} height={12} rx={1}
-                transform={`rotate(45,${cx},${cy})`}
-                fill={color} stroke="#fff" strokeWidth={1.5}
-              ><title>{`ch${item.chapter} ${item.refs?.arc_phase || ''} · ${item.label}`}</title></rect>
-              <text x={cx + 9} y={cy + 4} fontSize={9} fill={color}
-                style={{ pointerEvents: 'none', userSelect: 'none' }}>
-                {item.refs?.arc_phase || ''}
-              </text>
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* 事件卡(绝对定位) */}
-      {Object.entries(evByChapter).map(([ch, evs]) =>
-        evs.map((ev, idx) => (
-          <div key={ev.id + '_' + laneKey + '_' + idx}
-            style={{
-              position: 'absolute',
-              left: (parseInt(ch) - chFrom) * COL_W + (COL_W - CARD_W) / 2 + idx * 5,
-              top: 0,
-            }}
-          >
-            <EventCard item={ev} onJumpChapter={onJumpChapter} stacked={idx}
-              onTimelineRefresh={onTimelineRefresh} />
-          </div>
-        ))
-      )}
     </div>
   )
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 export function TimelineView({ onJumpChapter }) {
-  const [data, setData]       = useState(null)
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState(null)
-  const [chFrom, setChFrom]   = useState(1)
-  const [chTo, setChTo]       = useState(null)
-  const [laneMode, setLaneMode] = useState('char')  // 'char' | 'promise' | 'type'
-  const [axis, setAxis] = useState('story')          // 'story'(故事编年) | 'narrative'(叙事顺序)
-  const [hiddenLanes, setHiddenLanes] = useState(new Set())
-  const [showCausal, setShowCausal] = useState(false)  // 因果弧线开关(默认关,密集时避免乱)
-  const containerRef = useRef(null)
+  const [error, setError] = useState(null)
+  const [laneMode, setLaneMode] = useState('kind')   // 'kind' | 'char' | 'type'
+  const [axis, setAxis] = useState('story')            // 'story' | 'narrative'
+  const [selected, setSelected] = useState(null)       // { raw, cat }
 
-  const load = (from, to, ax = axis) => {
+  const containerRef = useRef(null)
+  const timelineRef = useRef(null)       // vis Timeline 实例
+  const itemsDsRef = useRef(null)        // vis DataSet(items)
+  const groupsDsRef = useRef(null)       // vis DataSet(groups)
+  const onJumpRef = useRef(onJumpChapter)
+  onJumpRef.current = onJumpChapter
+  // 块三:选中事件/伏笔/弧光/关系 → 发通用 focus(主编聚焦);取消选中 → 清空(回退视图级话术)。
+  // vis 事件处理器只注册一次,经 ref 取最新 setFocus/focus/suppressNextMirror。
+  const { focus, setFocus, suppressNextMirror } = useSelection()
+  const setFocusRef = useRef(setFocus)
+  setFocusRef.current = setFocus
+  const focusRef = useRef(focus)
+  focusRef.current = focus
+  const suppressRef = useRef(suppressNextMirror)
+  suppressRef.current = suppressNextMirror
+  // 跳章统一入口:跳前置一次性 suppress 标记——跳章引发的 sel 镜像被消费掉,
+  // 保住刚选中的 event/promise 聚焦(与 InsightView 卡内跳章行为对齐)。
+  const jumpKeepFocus = (ch) => { suppressRef.current(); onJumpRef.current?.(ch) }
+
+  const load = useCallback((ax = axis) => {
     setLoading(true); setError(null)
-    api.timeline(from, to, ax)
+    api.timeline(1, null, ax)
       .then((d) => { setData(d); setLoading(false) })
       .catch((e) => { setError(e.message || '加载失败'); setLoading(false) })
-  }
+  }, [axis])
 
-  useEffect(() => { load(chFrom, chTo) }, [])
+  useEffect(() => { load() }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const apply = () => load(chFrom, chTo)
-
-  // 切换故事/叙事轴:立即重拉(事件 x 坐标随轴重排)
-  const switchAxis = (ax) => { setAxis(ax); load(chFrom, chTo, ax) }
+  const switchAxis = (ax) => { setAxis(ax); load(ax) }
 
   const maxCh = data?.max_chapter || 0
-
-  const chRange = useMemo(() => {
-    if (!data) return []
-    const lo = data.from || 1
-    const hi = data.to || maxCh
-    return lo <= hi ? Array.from({ length: hi - lo + 1 }, (_, i) => lo + i) : []
-  }, [data])
-
-  const allLaneKeys = useMemo(() => {
-    if (!data) return []
-    return deriveLaneKeys(data.items || [], laneMode)
-  }, [data, laneMode])
-
-  const laneMap = useMemo(() => {
-    if (!data) return {}
-    return buildLanes(data.items || [], laneMode, allLaneKeys)
-  }, [data, laneMode, allLaneKeys])
 
   const counts = useMemo(() => {
     if (!data) return { events: 0, promises: 0, arcs: 0, relations: 0 }
     const it = data.items || []
     return {
-      events:    it.filter((i) => i.kind === 'event').length,
-      promises:  it.filter((i) => i.kind === 'promise_setup').length,
-      arcs:      it.filter((i) => i.kind === 'arc').length,
+      events: it.filter((i) => i.kind === 'event').length,
+      promises: it.filter((i) => i.kind === 'promise_setup').length,
+      arcs: it.filter((i) => i.kind === 'arc').length,
       relations: it.filter((i) => i.kind === 'relation_start').length,
     }
   }, [data])
 
-  const toggleLane = (lk) => setHiddenLanes((prev) => {
-    const next = new Set(prev)
-    if (next.has(lk)) next.delete(lk); else next.add(lk)
-    return next
-  })
+  const { items, groups } = useMemo(
+    () => (data ? buildVis(data.items || [], laneMode, maxCh) : { items: [], groups: [] }),
+    [data, laneMode, maxCh]
+  )
 
-  const hasContent = chRange.length > 0 && allLaneKeys.length > 0
+  const hasContent = items.length > 0 && groups.length > 0
+
+  // #74:仅当确有「叙事位 ≠ 故事章」的事件时,「叙事顺序」轴才有意义(否则两轴投影一致=空操作)。
+  // 判定与 axis 无关(每事件恒带 story_chapter/narrative_position),默认 story 轴加载即可判。
+  const canNarrative = useMemo(() => hasNarrativeData(data?.items || []), [data])
+  // 防御:若因外部数据变更陷在无叙事数据的 narrative 轴,回落 story(正常经禁用按钮到不了此态)。
+  useEffect(() => {
+    if (data && !canNarrative && axis === 'narrative') switchAxis('story')
+  }, [canNarrative, data])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 初始化 / 更新 vis-timeline ────────────────────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current || !hasContent) return
+
+    if (!timelineRef.current) {
+      // 首次创建
+      itemsDsRef.current = new DataSet(items)
+      groupsDsRef.current = new DataSet(groups)
+      const tl = new Timeline(containerRef.current, itemsDsRef.current, groupsDsRef.current, {
+        stack: true,                 // 同组自动堆叠防重叠(根治叠加)
+        stackSubgroups: true,
+        orientation: { axis: 'top', item: 'top' },
+        zoomable: true,
+        moveable: true,
+        selectable: true,
+        horizontalScroll: true,
+        zoomKey: 'ctrlKey',          // ctrl+滚轮缩放,普通滚轮垂直滚动
+        margin: { item: { horizontal: 4, vertical: 6 }, axis: 6 },
+        groupHeightMode: 'auto',
+        minHeight: '100%',
+        maxHeight: '100%',
+        zoomMin: 1000 * 60 * 60 * 24 * 2,        // 最细约 2 章
+        zoomMax: 1000 * 60 * 60 * 24 * 100000,   // 最粗整书
+        // 轴标签:把合成日期换算回章号显示「第N章」
+        format: {
+          minorLabels: (date) => '第' + dateToCh(new Date(date)) + '章',
+          majorLabels: () => '',
+        },
+        tooltip: { followMouse: true, overflowMethod: 'cap' },
+      })
+
+      // 单击选中 → 详情面板 + 通用选中总线(主编聚焦)
+      tl.on('select', (props) => {
+        const id = props.items?.[0]
+        if (!id) { setSelected(null); setFocusRef.current(null); return }
+        const it = itemsDsRef.current.get(id)
+        if (it) { setSelected({ raw: it._raw, cat: it._cat }); setFocusRef.current(visItemFocus(it)) }
+      })
+      // 双击 → 跳章(保聚焦:suppress 掉跳章引发的 sel 镜像)
+      tl.on('doubleClick', (props) => {
+        if (!props.item) return
+        const it = itemsDsRef.current.get(props.item)
+        if (it) jumpKeepFocus(it._jump ?? it._raw?.chapter)
+      })
+
+      timelineRef.current = tl
+    } else {
+      // 更新数据(laneMode / axis / 刷新)——保留实例避免重建闪烁
+      itemsDsRef.current.clear()
+      groupsDsRef.current.clear()
+      groupsDsRef.current.add(groups)
+      itemsDsRef.current.add(items)
+      setSelected(null)
+      // 数据重载(泳道/轴切换/刷新):旧选中失效——仅当当前 focus 确为时间线所发时才清空,
+      // 不误清别处(面板/图谱等)刚设的聚焦。
+      if (focusRef.current?.origin === 'timeline') setFocusRef.current(null)
+    }
+
+    // 默认窗口:大书只看最近 ~40 章(虚拟化生效);小书看全书概览
+    const tl = timelineRef.current
+    const hi = maxCh || 1
+    const lo = Math.max(1, hi - 40)
+    // 右端多留 ~1.5 章余白,末章不贴边(避免被右栏视觉挤压);左端留 0.5 章。
+    tl.setWindow(chToDate(Math.max(1, lo - 0.5)), chToDate(hi + 2.5), { animation: false })
+    // 容器尺寸在挂载后可能变化,强制重绘
+    requestAnimationFrame(() => tl.redraw())
+  }, [items, groups, hasContent, maxCh])
+
+  // 卸载销毁
+  useEffect(() => () => {
+    if (timelineRef.current) { timelineRef.current.destroy(); timelineRef.current = null }
+  }, [])
+
+  const fitAll = () => timelineRef.current?.fit({ animation: true })
 
   return (
     <div className="h-full flex flex-col bg-canvas" style={{ minHeight: 0 }}>
-
-      {/* ── 顶栏 ──────────────────────────────────────────────────────── */}
+      {/* ── 顶栏 ── */}
       <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-2 px-4 overflow-x-auto">
         <Clock size={15} className="text-brand shrink-0" />
-        <span className="text-[13px] font-medium text-ink shrink-0">时间线</span>
-
+        <span className="text-f13 font-medium text-ink shrink-0">时间线</span>
         {data && (
-          <span className="text-[11px] text-faint tnum shrink-0">
+          <span className="text-f11 text-faint tnum shrink-0">
             {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
             {maxCh > 0 && ` · 共${maxCh}章`}
+            {data.truncated && <span className="text-amber-600"> · 已截断(缩小区间)</span>}
           </span>
         )}
 
         {/* 泳道切换 */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-[11px] text-faint">泳道:</span>
-          {[{ v: 'char', l: '角色' }, { v: 'promise', l: '伏笔线' }, { v: 'type', l: '类型' }].map(({ v, l }) => (
+          <span className="text-f11 text-faint">泳道:</span>
+          {[{ v: 'kind', l: '四类' }, { v: 'char', l: '角色' }, { v: 'type', l: '事件类型' }].map(({ v, l }) => (
             <button key={v}
-              onClick={() => { setLaneMode(v); setHiddenLanes(new Set()) }}
-              className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
+              onClick={() => setLaneMode(v)}
+              className={`h-6 px-2 rounded text-f11 font-medium transition-colors cursor-pointer
                 ${laneMode === v ? 'bg-brand text-brandfg' : 'bg-soft text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
         </div>
 
-        {/* 故事/叙事双轴切换(完整期 spec §3.1):narrative 时事件按 narrative_position 重排 */}
+        {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」(诚实,不留空操作死切换) */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-[11px] text-faint">轴:</span>
-          {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => (
-            <button key={v}
-              onClick={() => switchAxis(v)}
-              title={v === 'narrative'
-                ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位'
-                : '故事编年:事件按实际发生章号横铺'}
-              className={`h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer
-                ${axis === v ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
-            >{l}</button>
-          ))}
+          <span className="text-f11 text-faint">轴:</span>
+          {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => {
+            const disabled = v === 'narrative' && !canNarrative
+            return (
+              <button key={v}
+                onClick={() => { if (!disabled) switchAxis(v) }}
+                disabled={disabled}
+                title={disabled
+                  ? '暂无倒叙/闪回事件(全部事件叙事位=故事章)——录入含「叙事位」的事件后可切叙事顺序轴'
+                  : v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
+                className={`h-6 px-2 rounded text-f11 font-medium transition-colors
+                  ${disabled ? 'bg-soft/40 text-faint/40 cursor-not-allowed'
+                    : axis === v ? 'bg-indigo-500 text-white cursor-pointer' : 'bg-soft text-faint hover:text-ink cursor-pointer'}`}
+              >{l}</button>
+            )
+          })}
         </div>
 
-        {/* 章号范围 */}
-        <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-[11px] text-faint">第</span>
-          <input type="number" min={1} max={maxCh || 999} value={chFrom}
-            onChange={(e) => setChFrom(Math.max(1, Number(e.target.value)))}
-            className="w-11 h-6 rounded border border-line bg-canvas text-center text-[12px] text-ink outline-none focus:border-brand"
-          />
-          <span className="text-[11px] text-faint">—</span>
-          <input type="number" min={chFrom} max={maxCh || 999}
-            placeholder={maxCh ? String(maxCh) : '末'} value={chTo ?? ''}
-            onChange={(e) => setChTo(e.target.value === '' ? null : Math.max(chFrom, Number(e.target.value)))}
-            className="w-11 h-6 rounded border border-line bg-canvas text-center text-[12px] text-ink outline-none focus:border-brand"
-          />
-          <span className="text-[11px] text-faint">章</span>
-          <button onClick={apply}
-            className="h-6 px-2 rounded bg-brand text-brandfg text-[11px] font-medium cursor-pointer hover:opacity-80"
-          >应用</button>
-        </div>
-
-        {/* 因果弧线开关 */}
-        <button
-          onClick={() => setShowCausal((v) => !v)}
-          title={showCausal ? '关闭因果弧线' : '显示事件因果弧线(causal_in)'}
-          className={`ml-2 h-6 px-2 rounded text-[11px] font-medium transition-colors cursor-pointer shrink-0 flex items-center gap-1
-            ${showCausal ? 'bg-indigo-500 text-white' : 'bg-soft text-faint hover:text-ink'}`}
-        >
-          <GitFork size={11} />
-          因果线
-        </button>
+        <button onClick={fitAll}
+          className="ml-2 h-6 px-2 rounded text-f11 font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
+          title="缩放至全书概览(滚轮按 Ctrl 缩放,拖动平移)"
+        >全览</button>
 
         <div className="ml-auto shrink-0">
-          <button onClick={() => load(chFrom, chTo)} disabled={loading}
+          <button onClick={() => load()} disabled={loading}
             className="w-7 h-7 grid place-items-center rounded-lg text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* ── 主体 ──────────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-        {error && (
-          <div className="m-4 text-[13px] text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
-        )}
-        {!error && !loading && data && !hasContent && (
-          <div className="flex-1 flex items-center justify-center text-[13px] text-faint">
-            <div className="text-center">
-              <Clock size={32} className="mx-auto mb-2 opacity-30" />
-              <div>此区间无数据</div>
-              <div className="text-[11px] mt-1 opacity-60">先在写作台录入章节事件,或扩大章号范围</div>
+      {/* ── 主体 ── */}
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 relative">
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div className="text-f13 text-red-500 bg-red-50 rounded-lg px-3 py-2 border border-red-200">{error}</div>
             </div>
-          </div>
-        )}
-        {loading && !hasContent && (
-          <div className="flex-1 flex items-center justify-center text-[12px] text-faint gap-2">
-            <RefreshCw size={14} className="animate-spin" />加载时间线…
-          </div>
-        )}
-
-        {hasContent && (
-          <div className="flex-1 min-h-0 overflow-auto" ref={containerRef}>
-            <div style={{ display: 'flex', minWidth: 'max-content' }}>
-
-              {/* 左侧泳道标签(固定宽) */}
-              <div style={{ width: LABEL_W, minWidth: LABEL_W, flexShrink: 0, borderRight: '1px solid var(--color-line)' }}>
-                <div style={{ height: HEADER_H }} />
-                {allLaneKeys.map((lk) => {
-                  const visible = !hiddenLanes.has(lk)
-                  return (
-                    <div key={lk} style={{
-                      height: LANE_H, borderTop: '1px solid var(--color-line)',
-                      display: 'flex', alignItems: 'center', padding: '0 6px', gap: 4,
-                      opacity: visible ? 1 : 0.35,
-                    }}>
-                      <button onClick={() => toggleLane(lk)}
-                        title={visible ? '隐藏' : '显示'}
-                        style={{
-                          width: 14, height: 14, borderRadius: 3, flexShrink: 0, cursor: 'pointer',
-                          border: '1px solid var(--color-line)',
-                          background: visible ? 'var(--color-brand)' : 'transparent',
-                          color: visible ? '#fff' : 'var(--color-faint)',
-                          fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}
-                      >●</button>
-                      <span style={{
-                        fontSize: 10, color: 'var(--color-faint)', userSelect: 'none',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        maxWidth: LABEL_W - 28,
-                      }} title={lk === '__promise__' ? '伏笔' : stripRole(lk)}>
-                        {lk === '__promise__' ? '◇伏笔' : stripRole(lk)}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* 右侧:表头 + 泳道内容 */}
-              <div style={{ position: 'relative', flexShrink: 0, isolation: 'isolate' }}>
-                {/* 章号表头 */}
-                <div style={{
-                  display: 'flex', height: HEADER_H,
-                  width: chRange.length * COL_W,
-                  borderBottom: '1px solid var(--color-line)',
-                }}>
-                  {chRange.map((ch) => (
-                    <div key={ch} style={{
-                      width: COL_W, minWidth: COL_W, height: HEADER_H,
-                      borderRight: '1px solid var(--color-line)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      opacity: 0.5,
-                    }}>
-                      <span style={{ fontSize: 10, fontFamily: 'monospace', userSelect: 'none' }}>第{ch}章</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* 泳道行 */}
-                {allLaneKeys.map((lk) => {
-                  if (hiddenLanes.has(lk)) {
-                    return (
-                      <div key={lk} style={{
-                        height: LANE_H, borderTop: '1px solid var(--color-line)',
-                        width: chRange.length * COL_W, opacity: 0.15,
-                        background: 'repeating-linear-gradient(45deg, transparent, transparent 8px, var(--color-soft) 8px, var(--color-soft) 9px)',
-                      }} />
-                    )
-                  }
-                  return (
-                    <div key={lk} style={{
-                      borderTop: '1px solid var(--color-line)',
-                      position: 'relative',
-                      width: chRange.length * COL_W,
-                    }}>
-                      {/* 列竖线 */}
-                      <div style={{ position: 'absolute', top: 0, left: 0, display: 'flex', height: '100%', pointerEvents: 'none', zIndex: 0 }}>
-                        {chRange.map((ch) => (
-                          <div key={ch} style={{
-                            width: COL_W, minWidth: COL_W, height: '100%',
-                            borderRight: '1px dashed var(--color-line)', opacity: 0.25,
-                          }} />
-                        ))}
-                      </div>
-                      <LaneRow
-                        laneKey={lk}
-                        items={laneMap[lk] || []}
-                        chFrom={data.from || chFrom}
-                        chRange={chRange}
-                        onJumpChapter={onJumpChapter}
-                        laneMode={laneMode}
-                        onTimelineRefresh={() => load(chFrom, chTo)}
-                      />
-                    </div>
-                  )
-                })}
-
-                {/* 因果弧线叠层(完整期):覆盖全部泳道区域,绝对定位在 HEADER_H 以下 */}
-                {showCausal && (
-                  <div style={{
-                    position: 'absolute',
-                    top: HEADER_H,
-                    left: 0,
-                    width: chRange.length * COL_W,
-                    height: allLaneKeys.length * LANE_H,
-                    pointerEvents: 'none',
-                    zIndex: 25,
-                  }}>
-                    <CausalArrowLayer
-                      items={data.items || []}
-                      allLaneKeys={allLaneKeys}
-                      chFrom={data.from || chFrom}
-                      totalCols={chRange.length}
-                      hiddenLanes={hiddenLanes}
-                      laneMode={laneMode}
-                    />
-                  </div>
-                )}
+          )}
+          {!error && loading && !data && (
+            <div className="absolute inset-0 flex items-center justify-center text-f12 text-faint gap-2">
+              <RefreshCw size={14} className="animate-spin" />加载时间线…
+            </div>
+          )}
+          {!error && data && !hasContent && (
+            <div className="absolute inset-0 flex items-center justify-center text-f13 text-faint">
+              <div className="text-center">
+                <Clock size={32} className="mx-auto mb-2 opacity-30" />
+                <div>暂无时间线数据</div>
+                <div className="text-f11 mt-1 opacity-60">先在写作台录入章节事件</div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+          {/* vis-timeline 挂载容器(始终在 DOM,有内容才可见) */}
+          <div
+            ref={containerRef}
+            className="tl-vis absolute inset-0"
+            style={{ visibility: hasContent ? 'visible' : 'hidden' }}
+          />
+        </div>
 
-        {/* 图例 */}
-        {hasContent && (
-          <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-[10px] text-faint">
-            <span className="shrink-0 font-medium">图例:</span>
-            <span className="shrink-0 inline-flex items-center gap-1">
-              <i className="inline-block w-3 h-3 rounded border-l-2 border-brand bg-surface shrink-0" />事件卡
-            </span>
-            <span className="shrink-0 inline-flex items-center gap-1">
-              <i className="inline-block w-2.5 h-2.5 bg-purple-600 shrink-0" style={{ transform: 'rotate(45deg)' }} />弧光◆
-            </span>
-            <span className="shrink-0 inline-flex items-center gap-1">
-              <i className="inline-block w-3 h-2 rounded bg-amber-400/25 border border-amber-400 shrink-0" />伏笔条
-            </span>
-            <span className="shrink-0 inline-flex items-center gap-1">
-              <i className="inline-block w-3 h-2 rounded border border-dashed border-sky-500 shrink-0" />关系甘特
-            </span>
-            <span className="shrink-0 text-red-500">⚠ 超期未收</span>
-            <span className="shrink-0">✗ 失效</span>
-            <span className="shrink-0 inline-flex items-center gap-1">
-              <i className="inline-block w-3 h-2 rounded border border-dashed border-slate-400 bg-slate-100/30 shrink-0" />障眼法
-            </span>
-            <span className="shrink-0 inline-flex items-center gap-1" style={{ color: CAUSAL_COLOR }}>
-              <svg width={20} height={10} viewBox="0 0 20 10" style={{ display: 'inline' }}>
-                <defs>
-                  <marker id="leg-causal" markerWidth={5} markerHeight={5} refX={4} refY={2.5} orient="auto">
-                    <path d="M0,0 L0,5 L5,2.5 z" fill={CAUSAL_COLOR} opacity={0.7} />
-                  </marker>
-                </defs>
-                <path d="M 1 8 Q 10 2 19 8" fill="none" stroke={CAUSAL_COLOR} strokeWidth={1.5}
-                  strokeDasharray="4 2" opacity={0.65} markerEnd="url(#leg-causal)" />
-              </svg>
-              因果弧线(开关见顶栏)
-            </span>
-          </div>
+        {/* 详情面板 */}
+        {selected && (
+          <DetailPanel
+            raw={selected.raw}
+            cat={selected.cat}
+            onJump={jumpKeepFocus}
+            onClose={() => { setSelected(null); if (focus?.origin === 'timeline') setFocus(null); timelineRef.current?.setSelection([]) }}
+          />
         )}
       </div>
+
+      {/* 图例 + 操作提示 */}
+      {hasContent && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-f10 text-faint">
+          <span className="shrink-0 font-medium">图例:</span>
+          <span className="shrink-0 inline-flex items-center gap-1">
+            <i className="inline-block w-3 h-3 rounded border border-line bg-surface" style={{ boxShadow: 'inset 3px 0 0 #7c3aed' }} />事件
+          </span>
+          <span className="shrink-0 inline-flex items-center gap-1">
+            <i className="inline-block w-2.5 h-2.5 bg-purple-600" style={{ transform: 'rotate(45deg)' }} />弧光◆
+          </span>
+          <span className="shrink-0 inline-flex items-center gap-1">
+            <i className="inline-block w-3 h-2 rounded bg-amber-400/25 border border-amber-400" />伏笔条◇
+          </span>
+          <span className="shrink-0 inline-flex items-center gap-1">
+            <i className="inline-block w-3 h-2 rounded border border-dashed border-sky-500" />关系条
+          </span>
+          <span className="shrink-0 text-red-500">⚠ 超期未收</span>
+          <span className="shrink-0">✗ 失效</span>
+          <span className="shrink-0 ml-auto opacity-70">单击看详情 · 双击跳章 · Ctrl+滚轮缩放 · 拖动平移</span>
+        </div>
+      )}
+
+      {/* vis-timeline 主题微调(贴 tailwind/CSS 变量) */}
+      <style>{`
+        .tl-vis .vis-timeline { border: none; font-family: inherit; }
+        .tl-vis .vis-panel.vis-left,
+        .tl-vis .vis-panel.vis-center,
+        .tl-vis .vis-panel.vis-top,
+        .tl-vis .vis-panel.vis-bottom { border-color: var(--color-line); }
+        .tl-vis .vis-labelset .vis-label,
+        .tl-vis .vis-foreground .vis-group { border-color: var(--color-line); }
+        .tl-vis .vis-labelset .vis-label { color: var(--color-faint); font-size: 11px; }
+        .tl-vis .vis-labelset .vis-label .vis-inner { padding: 4px 8px; font-weight: 500; }
+        .tl-vis .vis-time-axis .vis-text { color: var(--color-faint); font-size: 10px; }
+        .tl-vis .vis-time-axis .vis-grid.vis-minor { border-color: color-mix(in srgb, var(--color-line) 60%, transparent); }
+        .tl-vis .vis-item {
+          border-radius: 6px; border-width: 1px;
+          background-color: var(--color-surface); color: var(--color-ink);
+          font-size: 11px;
+        }
+        .tl-vis .vis-item.vis-selected {
+          box-shadow: 0 0 0 2px var(--color-brand); z-index: 5;
+        }
+        .tl-vis .vis-item.vis-box { padding: 2px 6px; }
+        .tl-vis .vis-item.vis-dot { border-width: 5px; }
+        .tl-vis .vis-item.tl-arc.vis-point .vis-item-content { font-weight: 600; }
+        .tl-vis .vis-item .vis-item-content { padding: 1px 2px; white-space: nowrap; }
+        .tl-vis .vis-current-time { background-color: var(--color-brand); }
+        .tl-vis .vis-tooltip {
+          background: var(--color-surface); color: var(--color-ink);
+          border: 1px solid var(--color-line); border-radius: 6px;
+          padding: 4px 8px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+        }
+      `}</style>
     </div>
   )
 }

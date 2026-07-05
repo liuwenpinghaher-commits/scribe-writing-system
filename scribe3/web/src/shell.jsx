@@ -1,101 +1,51 @@
-import { useEffect, useState } from 'react'
 import { cn } from './lib/utils'
 
-// 宽度持久化(借鉴 scribe2 WorkspaceShell)
-function useNumPref(key, def) {
-  const [v, setV] = useState(() => {
-    try { const s = localStorage.getItem(key); return s == null ? def : Number(s) || def } catch { return def }
-  })
-  useEffect(() => { try { localStorage.setItem(key, String(v)) } catch { /* */ } }, [key, v])
-  return [v, setV]
+// 竖轨 tab 的常显短名:图标下方显示 2-3 字中文,不再靠 hover 才认得出。
+// caps 里的 label 可能带 " · "(如「帧/意图」「演绎 · 角色限知」),取首段并压到短名。
+const SHORT = {
+  tree: '项目树', frame: '帧', deduce: '演绎', promise: '伏笔', motif: '母题', review: '校验',
+  chief: '主编', versions: '存档',
+}
+function shortLabel(c) {
+  return SHORT[c.key] || (c.label || '').split(/\s*·\s*|\//)[0].trim() || c.key
 }
 
-function RailBtn({ icon: Icon, label, badge, on, onClick, side }) {
+function RailBtn({ cap, label, badge, on, onClick }) {
+  const Icon = cap.icon
   return (
-    <button onClick={onClick} aria-label={label} aria-pressed={on}
-      className={cn('group relative w-9 h-9 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer',
+    <button onClick={onClick} aria-label={cap.label} aria-pressed={on} title={cap.label}
+      className={cn('group relative w-full flex flex-col items-center gap-0.5 py-1.5 rounded-lg transition-colors cursor-pointer',
         on ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink')}>
-      <Icon size={18} />
-      {!!badge && badge > 0 && (
-        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-brand text-brandfg text-[9px] font-bold leading-4 text-center tnum">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
-      <span className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[11px] text-canvas opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50',
-        side === 'left' ? 'left-full ml-2' : 'right-full mr-2')}>
-        {label}
+      <span className="relative inline-flex items-center justify-center">
+        {Icon && <Icon size={18} />}
+        {!!badge && badge > 0 && (
+          <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-brand text-brandfg text-f10 font-bold leading-[15px] text-center tnum">
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
       </span>
+      <span className="text-f10 leading-none whitespace-nowrap">{label}</span>
     </button>
   )
 }
 
-function Resizer({ onDown }) {
-  return <div onMouseDown={onDown}
-    className="w-px shrink-0 bg-line hover:bg-brand/50 cursor-col-resize relative z-10 transition-colors"
-    style={{ marginInline: '-1px', width: 3 }} />
-}
-
-function Rail({ side, caps, active, onActive }) {
+export function Rail({ side, caps, active, onActive }) {
   return (
-    <div className={cn('w-12 shrink-0 bg-surface flex flex-col items-center py-2 gap-1',
+    <div className={cn('w-[56px] shrink-0 bg-surface flex flex-col items-stretch px-1 py-2 gap-1',
       side === 'left' ? 'border-r' : 'border-l', 'border-line')}>
       {caps.map((c) => (
-        <RailBtn key={c.key} icon={c.icon} label={c.label} badge={c.badge} side={side}
+        <RailBtn key={c.key} cap={c} label={shortLabel(c)} badge={c.badge}
           on={active === c.key} onClick={() => onActive(active === c.key ? '' : c.key)} />
       ))}
     </div>
   )
 }
 
-/** WorkspaceShell:[左轨][左面板][中区 自适应][右面板][右轨],面板可拖拽改宽、可折叠。 */
-export function Shell({ topbar, left, center, right }) {
-  const [lw, setLw] = useNumPref('s3.lw', 250)
-  const [rw, setRw] = useNumPref('s3.rw', 332)
-  const lCap = left?.caps.find((c) => c.key === left.active)
-  const rCap = right?.caps.find((c) => c.key === right.active)
-
-  const startResize = (which) => (e) => {
-    e.preventDefault()
-    const x0 = e.clientX, w0 = which === 'l' ? lw : rw
-    const move = (ev) => {
-      const w = Math.max(190, Math.min(620, which === 'l' ? w0 + (ev.clientX - x0) : w0 - (ev.clientX - x0)))
-      ;(which === 'l' ? setLw : setRw)(w)
-    }
-    const up = () => {
-      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up)
-      document.body.style.cursor = ''; document.body.style.userSelect = ''
-    }
-    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up)
-    document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'
-  }
-
+/** Shell:仅承载中区书稿(topbar/左右栏已上移到 BinderLayout 的 LeftDock/RightDock)。 */
+export function Shell({ center }) {
   return (
     <div className="h-full flex flex-col bg-canvas">
-      {topbar}
-      <div className="flex-1 min-h-0 flex">
-        {left && <Rail side="left" {...left} />}
-        {lCap && (
-          <>
-            <div className="shrink-0 bg-surface border-r border-line overflow-y-auto overflow-x-hidden" style={{ width: lw }}>
-              <div className="p-3">{lCap.render()}</div>
-            </div>
-            <Resizer onDown={startResize('l')} />
-          </>
-        )}
-        <main className="flex-1 min-w-[480px] overflow-hidden flex flex-col">{center}</main>
-        {rCap && (
-          <>
-            <Resizer onDown={startResize('r')} />
-            <div className="shrink-0 bg-surface border-l border-line flex flex-col min-h-0" style={{ width: rw }}>
-              <div className="flex items-center h-9 shrink-0 px-3 border-b border-line">
-                <span className="text-[11px] font-semibold uppercase tracking-[.08em] text-faint">{rCap.label}</span>
-              </div>
-              <div className={rCap.bare ? 'flex-1 min-h-0' : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3'}>{rCap.render()}</div>
-            </div>
-          </>
-        )}
-        {right && <Rail side="right" {...right} />}
-      </div>
+      <main className="flex-1 min-w-[480px] overflow-hidden flex flex-col">{center}</main>
     </div>
   )
 }

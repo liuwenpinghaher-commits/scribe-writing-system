@@ -45,7 +45,7 @@ def test_stream_write_fallback_wraps_fenceless_prose(monkeypatch):
     prose = "老乌头守着铁炉坐了半宿。" * 12   # >120 chars
     assert len(prose) >= 120, "前置断言:prose 须足够长"
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": prose}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
@@ -60,7 +60,7 @@ def test_stream_write_fallback_wraps_fenceless_prose(monkeypatch):
 
 def test_stream_write_no_fallback_when_fence_present(monkeypatch):
     """模型正确输出围栏 → 只有 1 个 proposal 事件,不再追加兜底事件(无双发)。"""
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta",
                "delta": "思路：⟦PROPOSAL scope=chapter⟧正文正文正文⟦/PROPOSAL⟧"}
 
@@ -74,7 +74,7 @@ def test_stream_write_no_fallback_when_fence_present(monkeypatch):
 
 def test_stream_write_no_fallback_for_short_discussion(monkeypatch):
     """短回复(讨论句式,<120字) + expect_proposal=False → 不应产生任何 proposal 事件。"""
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "我觉得可以。"}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
@@ -85,7 +85,7 @@ def test_stream_write_no_fallback_for_short_discussion(monkeypatch):
 
 def test_stream_write_no_fallback_short_prose_with_write_intent(monkeypatch):
     """即使 expect_proposal=True,若散文 <120 字,也不应触发兜底(防把短确认误包成草稿)。"""
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "好的,我来写。"}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
@@ -107,7 +107,7 @@ def test_is_write_intent_detection():
 
 def test_stream_write_streams_proposal_progressively(monkeypatch):
     """proposal 围栏应流式推送:proposal_start → proposal_chunk(s) → proposal(final)。"""
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "思路。⟦PROPOSAL scope=chapter⟧前半"}
         yield {"type": "response.output_text.delta", "delta": "后半⟦/PROPOSAL⟧"}
 

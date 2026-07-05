@@ -41,5 +41,10 @@ def parse_soak(reply: str) -> dict:
 
 
 def soak(world, chapter: int, focalizer: str, complete_fn) -> dict:
-    """渲染前置:调一次模型拿情感曲线种子词。complete_fn(prompt)->str。"""
+    """渲染前置:调一次模型拿情感曲线种子词。complete_fn(prompt)->str。
+
+    ⚠ 休眠(P2-15,2026-07-04):本函数是 7 引擎之一(浸泡/craft.ENGINES)且有测试
+    (test_soak/test_craft),但当前无生产调用方——app._soak_block 只消费"外部预先传入的
+    seed_words",不自动触发 soak()(见 app.py:1794 注释),也无 /soak 端点。属"已建成待接线
+    的能力",非死码;保留(勿删整模块),接线时补端点或写作前置调用。"""
     return parse_soak(complete_fn(build_soak_prompt(world, chapter, focalizer)))

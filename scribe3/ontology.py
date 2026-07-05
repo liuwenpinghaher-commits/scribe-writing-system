@@ -38,6 +38,8 @@ class Fact:
     caused_by_event: str | None = None
     tx_from: int = 0                 # 草稿版本(切片恒 0)
     tx_to: int | None = None
+    injection_mode: str | None = None  # M6 设定三态注入:always/detected/never(None=detected)
+    priority: int | None = None        # M6 预算裁剪优先级(越大越先保)
 
 
 @dataclass
@@ -45,8 +47,8 @@ class KnowledgeEdge:
     """knower 知道 proposition(=Fact.id)。无隐式闭包:不自动知道逻辑后果。"""
     knower_id: str                  # role:焦三 / reader / world
     proposition_id: str
-    polarity: bool = True           # False=误信(切片暂不用)
-    certainty: float = 1.0
+    polarity: bool = True           # False=误信;有生产消费(knowledge 投影只取 polarity=True 的边)
+    certainty: float = 1.0          # 疑似死(P2-15):write→read roundtrip + test_store 断言,但无行为消费方;保留待确认
     since_chapter: int = 0
     until_chapter: int | None = None
     acquired_via: str = "given"     # saw / told / inferred / given
@@ -61,6 +63,8 @@ class Event:
     participants: dict = field(default_factory=dict)   # role -> entity_id
     location: str | None = None
     story_time: int = 0                                # 章
+    # preconditions:疑似死(P2-15):write+read roundtrip(P3-e1 Fix3 已接读回)+ test,但
+    #   无行为消费方,且无 API/ingest 生产入口(ingest 恒写 []);保留待确认(移除牵动 schema+2测试)。
     preconditions: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)   # Fact ids
     causal_in: list = field(default_factory=list)      # [(event_id, type)]

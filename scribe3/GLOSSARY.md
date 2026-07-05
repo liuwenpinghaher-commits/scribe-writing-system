@@ -37,6 +37,6 @@
 | 中文名 | 规范代码名 | 枚举 |
 |---|---|---|
 | 实体本体类别 | `entity_kind` | character/item/place/faction |
-| 题材规则类型 | `craft_rule_kind` | purple_regex/artifact_craft/cover_action |
+| 题材规则类型 | `craft_rule_kind` | purple_regex/artifact_craft/allow_pattern/allow_word |
 | 声音语域 | `voice_kind` | free/pressure/relation/narration |
 | 伏笔性质 | `promise_kind` | promise/red_herring |

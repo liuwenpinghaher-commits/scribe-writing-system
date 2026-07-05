@@ -11,7 +11,7 @@ export function Chip({ tone = 'faint', icon: Icon, children, className, ...p }) 
   return (
     <button type="button"
       className={cn(
-        'inline-flex items-center gap-1 h-6 px-2 rounded-lg border text-[11px] whitespace-nowrap cursor-pointer transition-colors active:scale-[.98] focus-visible:ring-2 focus-visible:ring-brand/40 motion-reduce:active:scale-100',
+        'inline-flex items-center gap-1 h-6 px-2 rounded-lg border text-f11 whitespace-nowrap cursor-pointer transition-colors active:scale-[.98] focus-visible:ring-2 focus-visible:ring-brand/40 motion-reduce:active:scale-100',
         TONES[tone],
         className
       )}

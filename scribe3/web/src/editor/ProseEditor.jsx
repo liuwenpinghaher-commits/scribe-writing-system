@@ -7,7 +7,7 @@ import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
 import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
-import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues } from './GuardDecoration'
+import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues, guardKey as _guardKey } from './GuardDecoration'
 
 const esc = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -134,8 +134,47 @@ export const ProseEditor = forwardRef(function ProseEditor(
   })
 
   // F-05: 暴露 focusIssue 给父组件,供护栏面板点击跳转
+  // F-06: 暴露 focusScene(idx) 给父组件,供项目树点「场景」节点精确定位。
+  //   正文由 sceneBreak 节点(* * * 独行)分隔:第 idx 个场景 = 第 idx 个 sceneBreak 之后的段。
+  //   idx=0 → 文档开头(第一段,首个场景);idx>=1 → 第 idx 个 sceneBreak 节点位置。
+  //   无 sceneBreak 或 idx 越界 → 跳开头/末尾,不报错。定位后短暂高亮(仿 focusIssue)。
   useImperativeHandle(ref, () => ({
     focusIssue: (issue) => _focusIssue(editor, issue),
+    focusScene: (idx) => {
+      if (!editor || !editor.view) return false
+      const doc = editor.state.doc
+      // 收集所有 sceneBreak 顶层节点的 pos
+      const breaks = []
+      doc.forEach((node, pos) => { if (node.type.name === 'sceneBreak') breaks.push(pos) })
+      let pos
+      if (!idx || idx <= 0) {
+        pos = 0  // 首个场景 → 文档开头
+      } else if (idx <= breaks.length) {
+        pos = breaks[idx - 1]  // 第 idx 个场景 = 第 idx 个 sceneBreak 起
+      } else {
+        pos = Math.max(0, doc.content.size - 1)  // 越界 → 末尾
+      }
+      // setTextSelection 到一个安全的文本位置:sceneBreak 是 atom,选其后第一个可选位置
+      const sel = Math.min(Math.max(1, pos === 0 ? 1 : pos + 1), Math.max(1, doc.content.size - 1))
+      editor.chain().setTextSelection(sel).scrollIntoView().run()
+      // 短暂高亮:复用 guard active flash(在该场景首段叠一层)
+      try {
+        const $p = doc.resolve(Math.min(sel, doc.content.size - 1))
+        const blockStart = $p.start($p.depth)
+        const blockEnd = $p.end($p.depth)
+        if (blockEnd > blockStart) {
+          editor.view.dispatch(editor.state.tr.setMeta(_guardKey, {
+            active: { id: 'scene', pm: { pmFrom: blockStart, pmTo: blockEnd } },
+          }))
+          setTimeout(() => {
+            if (editor.view && !editor.view.isDestroyed) {
+              editor.view.dispatch(editor.state.tr.setMeta(_guardKey, { active: null }))
+            }
+          }, 1200)
+        }
+      } catch { /* 高亮失败不影响滚动定位 */ }
+      return true
+    },
   }), [editor])
 
   // F-05 进阶:把 issues 注入常驻波浪线 decoration 层。
@@ -172,17 +211,17 @@ export const ProseEditor = forwardRef(function ProseEditor(
   if (!editor) return <div className="text-faint text-sm p-4">编辑器加载中…</div>
   const Bub = ({ on, onClick, title, children }) => (
     <button onMouseDown={(e) => e.preventDefault()} onClick={onClick} title={title}
-      className={`w-7 h-7 grid place-items-center rounded-md transition-colors cursor-pointer ${on ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}`}>{children}</button>
+      className={`w-7 h-7 grid place-items-center rounded-md transition-colors cursor-pointer ${on ? 'bg-brand text-brandfg' : 'text-ink hover:bg-soft'}`}>{children}</button>
   )
 
   return (
     <div className={`tiptap-shell ${focusMode ? 'focus-mode' : ''}`}>
       {recovered && (
-        <div className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 flex items-center gap-2 text-[13px]">
+        <div className="mb-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 flex items-center gap-2 text-f13">
           <RotateCcw size={14} className="text-warn shrink-0" />
           <span className="text-ink flex-1">发现上次未保存的草稿。</span>
-          <button onClick={restore} className="px-2 py-0.5 rounded text-brand hover:bg-soft text-[12px] cursor-pointer">恢复</button>
-          <button onClick={discard} className="px-2 py-0.5 rounded text-faint hover:bg-soft text-[12px] cursor-pointer">丢弃</button>
+          <button onClick={restore} className="px-2 py-0.5 rounded text-brand hover:bg-soft text-f12 cursor-pointer">恢复</button>
+          <button onClick={discard} className="px-2 py-0.5 rounded text-faint hover:bg-soft text-f12 cursor-pointer">丢弃</button>
         </div>
       )}
       <BubbleMenu editor={editor} options={{ placement: 'top', offset: 8 }}
@@ -209,14 +248,14 @@ export const ProseEditor = forwardRef(function ProseEditor(
                   const to = pmPosToProseOffset(editor.state.doc, pmTo)
                   onDiscuss({ text: proseStr.slice(from, to), from, to })
                 }}
-                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-[12px] text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
+                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-f12 text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
             </>
           )}
-          <span className="px-1.5 text-[11px] text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
+          <span className="px-1.5 text-f11 text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
         </div>
       </BubbleMenu>
       <EditorContent editor={editor} />
-      <div className="mt-2 text-right text-[11px] text-faint tnum">{chars} 字</div>
+      <div className="mt-2 text-right text-f11 text-faint tnum">{chars} 字</div>
     </div>
   )
 })

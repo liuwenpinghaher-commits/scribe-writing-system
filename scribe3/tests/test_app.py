@@ -2,11 +2,27 @@
 
 前端读 NS=scribe3。写作统一走主编对话(/chat/write),不经直接渲染。
 """
+import json
+
+import pytest
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
-from scribe3.ontology import Event
+from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
+
+
+@pytest.fixture(autouse=True)
+def _reset_pending_ingest():
+    """每个测试前后清空 _pending_ingest 去重集合,防跨测试泄漏
+    (mock 掉的 _bg_ingest 不会走 finally 清标记)。红阶段属性未建时静默跳过。"""
+    s = getattr(A, "_pending_ingest", None)
+    if s is not None:
+        s.clear()
+    yield
+    s = getattr(A, "_pending_ingest", None)
+    if s is not None:
+        s.clear()
 
 
 def _client(store, complete_fn=None):
@@ -41,9 +57,21 @@ def test_frame_excludes_others_secret(store):
 
 
 def test_causal_clean(store):
-    luanshi_leak_world(store)
+    """有事件且无违规:no_event_data=False + violations=[](真绿,非假绿)。"""
+    luanshi_leak_world(store)   # ch1 含 1 个干净事件(有目标、章首无需 causal_in)
     c = _client(store)
-    assert c.get("/causal", params={"chapter": 1}).json() == []
+    resp = c.get("/causal", params={"chapter": 1}).json()
+    assert resp["no_event_data"] is False
+    assert resp["violations"] == []
+
+
+def test_causal_no_event_data_marker(store):
+    """批D P1-5 假绿止血:event 表对该章为空时,/causal 返回 no_event_data 标记而非空绿。
+    区分'因果完整'(有事件、无违规)与'根本没有事件数据可校验'。"""
+    c = _client(store)   # 空库,第 9 章无任何事件
+    resp = c.get("/causal", params={"chapter": 9}).json()
+    assert resp["no_event_data"] is True
+    assert resp["violations"] == []
 
 
 def test_graph_endpoint(store):
@@ -115,7 +143,7 @@ def test_chat_stream_sse(store, monkeypatch):
 def test_chat_agentic_sse(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_item.added",
                "item": {"type": "function_call", "name": "s3_list_promises", "arguments": "{}"}}
         yield {"type": "response.output_text.delta", "delta": "已查"}
@@ -131,7 +159,7 @@ def test_chat_agentic_sse(store, monkeypatch):
 def test_chat_write_splits_proposal(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         for t in ["这样改：", "⟦PROPOSAL scope=selection⟧", "单嫣立于老槐之下。", "⟦/PROPOSAL⟧"]:
             yield {"type": "response.output_text.delta", "delta": t}
 
@@ -146,7 +174,7 @@ def test_chat_write_splits_proposal(store, monkeypatch):
 def test_chat_write_discuss_only(store, monkeypatch):
     import scribe3.app as appmod
 
-    def fake_events(msg, instructions, model=None):
+    def fake_events(msg, instructions, model=None, **_kw):
         for t in ["这章节奏偏慢，", "建议提速。"]:
             yield {"type": "response.output_text.delta", "delta": t}
 
@@ -158,7 +186,9 @@ def test_chat_write_discuss_only(store, monkeypatch):
 def test_save_chapter_runs_softcheck(store):
     r = _client(store).post("/save-chapter", json={"seq": 1, "prose": "一段正常的志怪。", "focalizer": "role:x"}).json()
     assert r["status"] == "saved" and "qc" in r and "leaks" in r
-    assert set(r["qc"]) == {"repetition", "structural", "purple", "cross_repetition"}
+    # M2-①: qc 已扩展含 duplicate_lines + emotion_telling(向后兼容,用 >= 子集断言)
+    assert set(r["qc"]) >= {"repetition", "structural", "purple", "cross_repetition",
+                             "duplicate_lines", "emotion_telling"}
 
 
 def test_apply_delta_idempotent(store):
@@ -346,6 +376,104 @@ def test_item_first_chapter_roundtrip(store):
         f"first_chapter 应写入并回读为 3: {it}"
 
 
+def test_items_patch_preserves_state_history(store):
+    """P1-9:POST /items 改 PATCH/merge 语义——编辑其它字段不清空 state_history(未传字段保旧值)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器", description="旧描述")
+    store.update_item_state("镇煞钉", "lost", 3, note="奈何谷失落")
+    before = next(i for i in store.list_items() if i["name"] == "镇煞钉")
+    assert before["state_history"], "前置:应已有一条状态史"
+    # 只编辑描述(不传 state_history / symbolic_state / category)
+    r = c.post("/items", json={"name": "镇煞钉", "description": "新描述"})
+    assert r.status_code == 200, r.text
+    after = next(i for i in c.get("/items").json() if i["name"] == "镇煞钉")
+    assert after["description"] == "新描述", "描述应更新"
+    assert after["symbolic_state"] == "lost", f"未传 symbolic_state 应保留 lost: {after}"
+    assert after.get("category") == "法器", "未传 category 应保留"
+    assert len(after["state_history"]) == len(before["state_history"]), \
+        f"编辑其它字段不应清空 state_history: {after['state_history']}"
+
+
+def test_item_state_endpoint_appends_history(store):
+    """P1-9:POST /items/{name}/state 追加一条状态流转史(暴露 update_item_state)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器")
+    r = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": 3, "note": "奈何谷失落"})
+    assert r.status_code == 200, r.text
+    it = next(i for i in c.get("/items").json() if i["name"] == "镇煞钉")
+    assert it["symbolic_state"] == "lost"
+    hist = it["state_history"]
+    assert len(hist) == 1 and hist[0]["state"] == "lost" and hist[0]["chapter"] == 3, \
+        f"应追加一条 lost@3 的状态史: {hist}"
+    # 缺 chapter → 422
+    assert c.post("/items/镇煞钉/state", json={"state": "active"}).status_code == 422
+
+
+def test_item_state_endpoint_malformed_chapter_422(store):
+    """批E-A3(批D后端 Minor):chapter 为非数字串(如 'abc')→ int() 抛 ValueError,
+    应捕获返 422(而非未处理异常 500)。"""
+    c = _client(store)
+    store.add_item("镇煞钉", category="法器")
+    r = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": "abc"})
+    assert r.status_code == 422, f"畸形 chapter 应返 422,实际 {r.status_code}: {r.text}"
+    # 合法数字串仍应工作(int('5') 正常)
+    ok = c.post("/items/镇煞钉/state", json={"state": "lost", "chapter": "5"})
+    assert ok.status_code == 200, f"数字串 chapter 应正常,实际 {ok.status_code}: {ok.text}"
+
+
+def test_get_voice_profile_endpoint(store):
+    """批D P1-11:GET /voice-profile?character_id= 返回声线指纹字段(刷新回显),无则 null 不 500。"""
+    c = _client(store)
+    store.set_voice_profile("role:甲", {"style_summary": "短句冷峻",
+                                        "catchphrases": ["哼"], "version": 2})
+    r = c.get("/voice-profile", params={"character_id": "role:甲"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body and body.get("style_summary") == "短句冷峻" and body.get("version") == 2
+    r2 = c.get("/voice-profile", params={"character_id": "role:无人"})
+    assert r2.status_code == 200 and r2.json() in (None, {})
+
+
+def test_dedup_chapter_saves_version_and_enqueues_ingest(store, monkeypatch):
+    """C-1:/dedup-chapter 真改写正文后落 final 版本 + 排 ingest(与 /save-chapter 对称)。"""
+    A.set_store(store)
+    store.save_chapter(2, "原始正文。", title="t")
+    import scribe3.critique as C
+    monkeypatch.setattr(C, "rewrite_cross_repetitions",
+                        lambda prose, priors, fn, **kw: {"prose": "改写后的正文。",
+                                                         "rewritten": 3, "before": 5, "after": 1})
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    before = len(store.list_chapter_versions(2))
+    r = client.post("/dedup-chapter?seq=2&work=main")
+    assert r.status_code == 200, r.text
+    assert r.json()["rewritten"] == 3
+    versions = store.list_chapter_versions(2)
+    assert len(versions) == before + 1, "改写后应新增一个版本"
+    assert versions[0]["stage"] == "final", f"应落 final 版: {versions[0]}"
+    assert called.get("args") == ("main", 2), "改写后应排 ingest"
+    assert store.get_chapter(2)["prose"] == "改写后的正文。", "改写正文应存回"
+
+
+def test_dedup_chapter_no_rewrite_no_version_no_ingest(store, monkeypatch):
+    """C-1:无跨章复读时 /dedup-chapter 幂等——不落版、不排 ingest。"""
+    A.set_store(store)
+    store.save_chapter(3, "干净正文。", title="t")
+    import scribe3.critique as C
+    monkeypatch.setattr(C, "rewrite_cross_repetitions",
+                        lambda prose, priors, fn, **kw: {"prose": prose, "rewritten": 0,
+                                                         "before": 0, "after": 0})
+    called = {}
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    client = TestClient(A.app)
+    before = len(store.list_chapter_versions(3))
+    r = client.post("/dedup-chapter?seq=3&work=main")
+    assert r.status_code == 200
+    assert len(store.list_chapter_versions(3)) == before, "无改写不应新增版本"
+    assert "args" not in called, "无改写不应排 ingest"
+
+
 def test_term_first_mention_chapter_roundtrip(store):
     """POST /terms 携带 first_mention_chapter 应写入并可从 GET /terms 读回。"""
     c = _client(store)
@@ -455,6 +583,62 @@ def test_arc_state_block_empty_when_no_meaningful_data(store):
     from scribe3.app import _arc_state_block
     block = _arc_state_block(store, "role:丙", 3)
     assert block == "", "无有效内容时应返回空串"
+
+
+# ===== R3#1 限知物理隔离:_editor_system focalizer 模式不泄露帧外 secret =====
+
+def test_editor_system_focalizer_masks_out_of_frame_secret(store):
+    """R3#1 核心守卫:focalizer 模式下,基座 prompt 不含帧外 secret 明文。
+    修复前:_editor_system 无条件 dump facts_at(99999) 含 secret value → 会含「卧底」。
+    修复后:focalizer 非空时改用 project_frame 投影 + _facts(reveal_secret=False) 屏蔽。
+    """
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    from scribe3.app import _editor_system
+
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+
+    # 甲知道的公开事实
+    store.add_fact(Fact("fact:k", "role:甲", "知道", "乙在城里", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:k", since_chapter=1, acquired_via="saw"))
+
+    # 帧外私密:乙的真名是卧底,甲不知道(无 KnowledgeEdge)
+    store.add_fact(Fact("fact:s", "role:乙", "真名", "乙是卧底", valid_from=1, secret=True))
+    # 故意不给甲关于 fact:s 的 KnowledgeEdge
+
+    # focalizer 模式:基座不应含帧外 secret 明文
+    sys_foc = _editor_system(store, focalizer="role:甲", chapter=3)
+    assert "卧底" not in sys_foc, (
+        f"focalizer 模式:帧外 secret 明文「卧底」不应出现在基座 prompt 中\n"
+        f"(前 500 字): {sys_foc[:500]}"
+    )
+
+    # 作者全知视角:_editor_system() 不传 focalizer → 保留全知行为(不强断言含密文,只断言不崩)
+    sys_omni = _editor_system(store)
+    assert isinstance(sys_omni, str) and len(sys_omni) > 0, "作者全知视角应返回非空字符串"
+
+
+def test_editor_write_system_focalizer_masks_out_of_frame_secret(store):
+    """R3#1 连锁守卫:_editor_write_system(focalizer) 透传屏蔽,/chat/write 基座不含帧外 secret。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    from scribe3.app import _editor_write_system
+
+    store.add_entity(Entity("role:主角", "character", "主角"))
+    store.add_entity(Entity("role:反派", "character", "反派"))
+
+    # 主角知道的公开事实
+    store.add_fact(Fact("fact:pub", "role:反派", "位置", "城南茶馆", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:主角", "fact:pub", since_chapter=1, acquired_via="saw"))
+
+    # 帧外私密:反派身份,主角不知道
+    store.add_fact(Fact("fact:sec", "role:反派", "真实身份", "皇族密探", valid_from=1, secret=True))
+    # 不给主角关于 fact:sec 的 KnowledgeEdge
+
+    sys_write_foc = _editor_write_system(store, focalizer="role:主角", chapter=2)
+    assert "皇族密探" not in sys_write_foc, (
+        f"_editor_write_system focalizer 模式:帧外 secret 不应出现\n"
+        f"(前 500 字): {sys_write_foc[:500]}"
+    )
 
 
 # ── ingest_unverified 复核闭环 ────────────────────────────────────────────────
@@ -584,20 +768,21 @@ def test_quality_overdue_uses_module_constant(store):
 
 
 def test_quality_overdue_intent_override(store):
-    """Fix 1: intent 设置 overdue_threshold 时覆盖默认 OVERDUE_SLACK。"""
-    import scribe3.app as A
-    # 设置 intent.overdue_threshold = 10(宽松)
+    """Fix 1 → Task2 口径对齐更新:有兑现窗口(payoff_max)的伏笔按窗口判超期,
+    intent.overdue_threshold 不再参与(仅作用于无窗口的 legacy 旧行,单测见
+    test_store.test_overdue_flag_window_alignment)。
+    plant_promise 默认 chapter 层 → payoff_max = setup+3 = 4;max_chapter=5 →
+    next_ch=6 > 4 → 即便 threshold=10 也超期。"""
     store.set_intent({"reader_feeling": "", "emotional_arc": "", "red_lines": "",
                       "overdue_threshold": 10})
     store.plant_promise("宽松伏笔", setup_chapter=1, kind="promise")
-    # max_chapter = 1+3+1 = 5,远小于 threshold=10 → 不应超期
     store.add_event(Event("ev:ov2", "action", story_time=5))
     c = _client(store)
     q = c.get("/quality").json()
     proms = q["foreshadow"].get("promises", [])
     p = next((x for x in proms if "宽松" in x.get("text", "")), None)
     assert p is not None
-    assert p["overdue"] is False, f"threshold=10 时 max_ch=5 不应超期: {p}"
+    assert p["overdue"] is True, f"窗口口径:pmax=4 < next_ch=6,threshold 不拦窗口超期: {p}"
 
 
 # ===== P3-e1 Fix 2: reference_lines 类型对齐 =====
@@ -869,6 +1054,77 @@ def test_patch_fact_preserves_and_reembeds(store):
         "PATCH value 后语义召回应能找到新值(embedding 须重建)"
 
 
+# ===== 批E A1: GET /facts 无损化(P1-4 后端跟进)=====
+
+def test_get_facts_reveal_secret_param(store):
+    """批E-A1①: GET /facts?reveal_secret=true 返真 value + leak_markers;默认仍屏蔽。
+    修复前:GET /facts 无 reveal_secret 参数,secret value 恒屏蔽且不回 leak_markers →
+           在库命题只能 supersede/删除,不能安全整行编辑。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:甲", "attribute": "底细", "value": "真名叫玄一",
+        "secret": True, "valid_from": 1, "leak_markers": ["玄一", "旧疤"],
+    })
+    assert r.status_code == 200, r.text
+    oid = r.json()["oid"]
+    # 默认:secret value 与 leak_markers 均屏蔽
+    default = c.get("/facts", params={"chapter": 1}).json()
+    row = next(f for f in default if f["id"] == oid)
+    assert row["value"] is None, "默认应屏蔽 secret value"
+    assert row["leak_markers"] == [], "默认应屏蔽 secret leak_markers(破绽词本身敏感)"
+    assert row["is_secret"] is True
+    # reveal_secret=true:返真 value + leak_markers(整行编辑基座)
+    revealed = c.get("/facts", params={"chapter": 1, "reveal_secret": "true"}).json()
+    rrow = next(f for f in revealed if f["id"] == oid)
+    assert rrow["value"] == "真名叫玄一", "reveal 应返真 value"
+    assert rrow["leak_markers"] == ["玄一", "旧疤"], "reveal 应返真 leak_markers"
+    assert rrow["valid_from"] == 1
+
+
+def test_get_single_fact_full_fields(store):
+    """批E-A1②: GET /facts/{local}?reveal_secret= 返全字段(valid_from/valid_to/
+    leak_markers/secret);默认屏蔽 secret value/leak_markers,reveal 解锁。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:乙", "attribute": "职位", "value": "内应",
+        "secret": True, "valid_from": 2, "valid_to": 9, "leak_markers": ["暗记"],
+    })
+    assert r.status_code == 200, r.text
+    oid = r.json()["oid"]
+    local = oid.split(":", 1)[1]
+    # 默认屏蔽 secret value/leak_markers,但全字段(valid_from/valid_to/is_secret)俱在
+    d = c.get(f"/facts/{local}").json()
+    assert d["id"] == oid
+    assert d["entity"] == "role:乙" and d["attribute"] == "职位"
+    assert d["valid_from"] == 2 and d["valid_to"] == 9
+    assert d["is_secret"] is True
+    assert d["value"] is None and d["leak_markers"] == []
+    # reveal:全字段含真 value/leak_markers
+    dr = c.get(f"/facts/{local}", params={"reveal_secret": "true"}).json()
+    assert dr["value"] == "内应" and dr["leak_markers"] == ["暗记"]
+    assert dr["valid_from"] == 2 and dr["valid_to"] == 9 and dr["is_secret"] is True
+
+
+def test_get_single_fact_404(store):
+    """批E-A1②: GET /facts/{local} 对不存在命题返 404(而非 500/空体)。"""
+    c = _client(store)
+    assert c.get("/facts/does_not_exist").status_code == 404
+
+
+def test_get_single_fact_nonsecret_full_fields(store):
+    """批E-A1②: 非私密命题单条 GET 无需 reveal 即返全字段真值。"""
+    c = _client(store)
+    r = c.post("/facts", json={
+        "entity": "role:丙", "attribute": "位置", "value": "城西驿",
+        "valid_from": 3,
+    })
+    oid = r.json()["oid"]
+    local = oid.split(":", 1)[1]
+    d = c.get(f"/facts/{local}").json()
+    assert d["value"] == "城西驿" and d["is_secret"] is False
+    assert d["valid_from"] == 3 and d["valid_to"] is None
+
+
 # ===== P3-d: 雄心死字段接活驱动生成 =====
 
 def test_voice_anchor_includes_monologue_style(store):
@@ -1016,6 +1272,22 @@ def test_check_returns_all_five_qc_classes(store):
     assert set(r["qc"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
 
 
+def test_check_allow_pattern_exempts_purple_issue(store):
+    """方案B任务14接线:store 里 seed 一条 allow_pattern 后,/check 对含该句式的
+    文本不再报 purple issue(前置 skip 判定,减法,与 extra_patterns 加法路径分离)。"""
+    prose = "他知道,回不去了。"
+    c = _client(store)
+    before = c.post("/check", params={"seq": 1},
+                     json={"prose": prose, "focalizer": ""}).json()
+    assert before["qc"]["purple"] > 0, "豁免前应命中升华句"
+
+    store.add_craft_rule("allow_pattern", r"回不去", "志怪题材别删清单")
+    after = c.post("/check", params={"seq": 1},
+                    json={"prose": prose, "focalizer": ""}).json()
+    assert after["qc"]["purple"] == 0, "seed allow_pattern 后应豁免该句"
+    assert not any(i["type"] == "purple" for i in after["issues"])
+
+
 # ===== Fix 2 TDD: /post-check 生成后全量体检 =====
 
 def test_post_check_returns_assembled_structure(store):
@@ -1061,6 +1333,74 @@ def test_post_check_degraded_on_llm_failure(store):
     assert "quality" in data and "total" in data["quality"]
 
 
+def test_post_check_short_mode_suppresses_emotion_telling(store):
+    """方案B任务16:short_mode=true 时,直写情绪的文本 emotion_telling 应为空,
+    psych_ratio 归零、Gate C(心理告知)不触发——短篇直写情绪合法,不算 AI 味。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    prose = "他感到害怕。" + "他攥紧了刀柄。" * 20
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": "", "short_mode": True}).json()
+    assert r["emotion_telling"] == []
+    assert r["ai_grade"]["indicators"]["psych_ratio"]["value"] == 0
+    assert r["ai_grade"]["gates"]["C"]["hit"] is False
+
+
+def test_post_check_allow_pattern_exempts_emotion_telling(store):
+    """B14 收尾清理批:find_emotion_telling 的 allow_patterns 此前只有单测覆盖,
+    /post-check 生产链未接线。seed 一条 allow_pattern 覆盖直写情绪句后,
+    /post-check 的 emotion_telling 应豁免该命中(不再上报)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    prose = "他感到害怕。"
+    before = c.post("/post-check", params={"seq": 1},
+                     json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert before["emotion_telling"] != [], "豁免前应命中直写情绪"
+
+    store.add_craft_rule("allow_pattern", r"感到害怕", "题材豁免:直写情绪合法")
+    after = c.post("/post-check", params={"seq": 1},
+                    json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert after["emotion_telling"] == [], "seed allow_pattern 后应豁免该直写情绪句"
+
+
+# ===== 批E B(P2-15):orphan_knowledge_edges 审计器接线进 /post-check =====
+
+def test_post_check_reports_orphan_edges(store):
+    """批E-B:orphan_knowledge_edges 此前仅测试、零生产接线 → 接进 /post-check。
+    真实孤儿路径:del_fact 删命题时 knows 图边级联消失,但 reader_knows(独立表)不级联,
+    留悬挂边;/post-check 的 orphan_edges 字段应检出。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    store.add_entity(Entity("role:丁", "character", "丁"))
+    store.add_fact(Fact("fact:rk_pc", "role:丁", "获知", "读者知识测试", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("reader", "fact:rk_pc", since_chapter=1,
+                                      acquired_via="narrated"))
+    store.delete_record("fact:rk_pc")   # reader_knows 独立表不级联 → 悬挂孤儿
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正文。", "focalizer": "", "brief": ""}).json()
+    assert "orphan_edges" in r, "post-check 应含 orphan_edges 字段(审计器接线)"
+    assert any("rk_pc" in str(o) for o in r["orphan_edges"]), \
+        f"应检出 reader_knows 孤儿边,实际: {r['orphan_edges']}"
+
+
+def test_post_check_orphan_edges_empty_when_clean(store):
+    """批E-B:无孤儿边时 orphan_edges 为空列表(不误报)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "干净正文。", "focalizer": "", "brief": ""}).json()
+    assert r.get("orphan_edges") == [], f"无孤儿应为空,实际: {r.get('orphan_edges')}"
+
+
 def test_post_check_leaks_detected(store):
     """/post-check:有 focalizer 且散文含泄露时,leaks 非空。"""
     luanshi_leak_world(store)
@@ -1072,6 +1412,33 @@ def test_post_check_leaks_detected(store):
     r = c.post("/post-check", params={"seq": 1},
                json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
     assert len(r["leaks"]) > 0, "老道写出治眼应被检出泄露"
+
+
+# ===== 方案B任务19:跨批开放伏笔账本注入 reviewer =====
+# 背景(oh-story story-review/SKILL.md:133):审章前先读"预计回收章≤本章"的 open
+# promise 作"继承的开放项"注入 reviewer——scribe3 有活 DB,直接筛
+# promises_with_lifecycle 结果,不像 oh-story 靠人工维护的伏笔.md 文件。
+
+def test_post_check_injects_inherited_open_promises(store):
+    """/post-check 审查本章(seq=5)时,已 seed 的到期 open promise(chapter 层
+    setup_chapter=1 → payoff_max=4,seq=5 已过窗口)应:
+    ①注入 discipline prompt(complete_fn 收到的 prompt 含该伏笔文本);
+    ②响应含非空 inherited_open_promises 列表。"""
+    store.plant_promise("到期未收的青铜匣", setup_chapter=1, kind="promise")
+
+    captured_prompts = []
+
+    def fake_complete(prompt, **kw):
+        captured_prompts.append(prompt)
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 5},
+               json={"prose": "本章正文,未提及该伏笔。", "focalizer": "", "brief": ""}).json()
+
+    assert captured_prompts, "discipline complete_fn 应被调用"
+    assert "到期未收的青铜匣" in captured_prompts[0], "discipline prompt 应含继承的开放项文本"
+    assert r.get("inherited_open_promises"), "响应应含非空 inherited_open_promises"
 
 
 # ===== Fix 1: _current_tail_block 续写衔接注入 =====
@@ -1106,7 +1473,7 @@ def test_current_tail_block_wired_into_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1122,7 +1489,7 @@ def test_current_tail_block_wired_into_chat_write_post(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1210,6 +1577,69 @@ def test_checkpoint_non_final_no_bg_ingest(store, monkeypatch):
     assert "args" not in called, "非 final checkpoint 不应触发 _bg_ingest"
 
 
+# ===== P0-1 / P2-3: 存为正文双 ingest 竞态根治 =====
+# (同章去重排队 + checkpoint 与 save-chapter 同章只 ingest 一次 + _bg_ingest 独立连接)
+
+def test_enqueue_ingest_dedups_same_chapter():
+    """_enqueue_ingest:同 (work,seq) 已在途 → 跳过第二次排队;不同章正常排。"""
+    from fastapi import BackgroundTasks
+    bg = BackgroundTasks()
+    assert A._enqueue_ingest(bg, "main", 5) is True      # 首次:真正排入
+    assert A._enqueue_ingest(bg, "main", 5) is False     # 同章第二次:去重跳过
+    assert len(bg.tasks) == 1                            # 只排了一个后台任务
+    assert A._enqueue_ingest(bg, "main", 6) is True      # 不同章:仍排
+    assert len(bg.tasks) == 2
+
+
+def test_save_then_checkpoint_ingests_once(store, monkeypatch):
+    """存为正文全链路:save-chapter + checkpoint(final) 同章 → 只 ingest 一次
+    (checkpoint 侧因 save-chapter 已在途被去重跳过)。"""
+    A.set_store(store)
+    calls = []
+    # mock 不清 pending → 模拟 ingest 仍在途,坐实 checkpoint 侧去重
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: calls.append((work, seq)))
+    client = TestClient(A.app)
+    client.post("/save-chapter?work=main",
+                json={"seq": 9, "prose": "同一段正文。", "title": "九", "focalizer": ""})
+    client.post("/checkpoint", params={"seq": 9, "work": "main"},
+                json={"prose": "同一段正文。", "label": "定稿", "kind": "final", "qc": {}})
+    assert calls == [("main", 9)], "同章存为正文只应 ingest 一次(实际=%r)" % (calls,)
+
+
+def test_bg_ingest_independent_connection_and_close(store, monkeypatch):
+    """_bg_ingest 用独立 store 连接(不复用共享 _store_for,修 P2-3),用完 close,
+    并在 finally 清除在途标记。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)                  # 共享 store 挂到 work=main
+    A._pending_ingest.add(("main", 3))  # 模拟在途
+    made = []
+
+    class FakeStore:
+        def __init__(self, **kw):
+            self.kwargs = kw
+            self.closed = False
+            made.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(A, "SurrealStore", FakeStore)
+    captured = {}
+
+    def fake_ingest(st, seq, fn, **kw):
+        captured["store"] = st
+        return {"applied": 0}
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", fake_ingest)
+    A._bg_ingest("main", 3)
+    assert made, "应新建独立 SurrealStore 连接"
+    assert captured["store"] is made[0]         # ingest 收到的是新建独立 store
+    assert captured["store"] is not store        # 不是共享连接(P2-3)
+    assert made[0].kwargs.get("db") == "main"    # 指向本书 DB
+    assert made[0].closed is True                # 用完 close,不泄漏
+    assert ("main", 3) not in A._pending_ingest  # finally 清除在途标记
+
+
 # ===== S5 TDD: soak seed_words 进写作 prompt(无 LLM,传入才注入) =====
 
 def test_soak_block_injects_seed_words_when_provided(store, monkeypatch):
@@ -1217,7 +1647,7 @@ def test_soak_block_injects_seed_words_when_provided(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1237,7 +1667,7 @@ def test_soak_block_absent_when_no_seed_words(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1255,7 +1685,7 @@ def test_soak_get_route_ignores_seed_words(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1328,7 +1758,7 @@ def test_final_reminder_in_get_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1338,7 +1768,7 @@ def test_final_reminder_in_get_chat_write(store, monkeypatch):
     assert "PROPOSAL" in instr, "instructions 应含 PROPOSAL 围栏提醒"
     assert "乱世铜炉" in instr, "instructions 应含乱世铜炉文风提醒"
     # 强化:提醒须在末尾(最后 200 字内)
-    tail = instr[-200:]
+    tail = instr[-1400:]
     assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 instructions 末尾 200 字内"
     assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 instructions 末尾 200 字内"
 
@@ -1348,7 +1778,7 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
     import scribe3.app as appmod
     captured = {}
 
-    def fake_stream(msg, instructions, expect_proposal=False):
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
         captured["instructions"] = instructions
         return iter([])
 
@@ -1357,7 +1787,7 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
     instr = captured.get("instructions", "")
     assert "PROPOSAL" in instr, "POST instructions 应含 PROPOSAL 围栏提醒"
     assert "乱世铜炉" in instr, "POST instructions 应含乱世铜炉文风提醒"
-    tail = instr[-200:]
+    tail = instr[-1400:]
     assert "PROPOSAL" in tail, "PROPOSAL 提醒应出现在 POST instructions 末尾 200 字内"
     assert "乱世铜炉" in tail, "乱世铜炉提醒应出现在 POST instructions 末尾 200 字内"
 
@@ -1638,6 +2068,102 @@ def test_check_backward_compat_qc_counts_unchanged(store):
     r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
     assert set(r["qc"].keys()) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
     assert isinstance(r["qc"]["ai_tics"], int)
+
+
+def test_check_returns_ai_grade(store):
+    """方案A任务8:/check 干净文本应带 ai_grade 字段,grade=="light"。"""
+    prose = ("灯灭了。他坐在黑里听雨,雨点砸在瓦上,忽急忽缓。"
+             "窗缝里钻进一点凉风,吹得烛芯歪了一下。"
+             "楼下传来收伞的声响,又归于寂静。"
+             "他摸黑倒了半杯茶,茶已经凉透。"
+             "墙角的座钟走得很慢,像是在数着雨点。"
+             "院子里的石阶湿了大半,水顺着瓦沟往下淌。"
+             "远处狗叫了两声,随即也停了。"
+             "他把手拢进袖子里,靠着墙闭上眼睛。")
+    c = _client(store)
+    r = c.post("/check", params={"seq": 1}, json={"prose": prose, "focalizer": ""}).json()
+    assert "ai_grade" in r, "/check 应返回 ai_grade 字段"
+    assert r["ai_grade"]["grade"] == "light"
+
+
+# ===== 方案A任务9(计划A最后一项):/post-check 接线 punct_suggestions =====
+
+def test_post_check_returns_punct_suggestions(store):
+    """/post-check 响应应含 punct_suggestions 字段,省略号收尾该规范化为「。」
+    (normalize_punctuation_suggestions 接线,report-only 不改写正文)。
+    注:不用「三——五天」数字区间场景——那条 punct 建议与 ai_tics.em_dash issue
+    同 range,方案B任务20接线 merge_findings 后会被去重丢弃(见下方
+    test_post_check_merge_findings_dedups_punct_suggestion_against_issue),
+    此处换一个不与任何 issue 重叠的场景,单纯验证 punct_suggestions 字段本身接线正常。"""
+    prose = "他走了……天亮了。普通句子在这里补齐字数用来测试。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert "punct_suggestions" in r, "/post-check 应返回 punct_suggestions 字段"
+    assert r["punct_suggestions"] and r["punct_suggestions"][0]["suggestion"] == "。"
+
+
+def test_post_check_merge_findings_dedups_punct_suggestion_against_issue(store):
+    """方案B任务20:finding-merge 纪律——「三——五天」的 punct 建议(numeric_range,
+    机械替换)与 ai_tics.em_dash issue(按功能改写)同 range,merge_findings 接线后
+    应丢 punct 建议,只留 issue;issue.meta 应带 fix_action=rewrite(非退化类默认)。"""
+    prose = "三——五天后他就到了。普通句子。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert r["punct_suggestions"] == [], "机械替换建议应让位给按功能改写的 issue"
+    em_dash_issues = [i for i in r["issues"]
+                       if i.get("type") == "ai_tics" and i.get("meta", {}).get("kind") == "em_dash"]
+    assert em_dash_issues, "em_dash issue 应仍保留"
+    assert all(i["meta"].get("fix_action") == "rewrite" for i in em_dash_issues)
+
+
+def test_post_check_degeneration_issue_gets_regenerate_fix_action(store):
+    """方案B任务20:degradation 类精确绑定"重新生成该段"——含 AI 拒绝语泄漏的正文,
+    /post-check 响应里对应的 degeneration issue.meta.fix_action 应为 regenerate
+    (对齐 scribe3 已验证的 continue-steer 回炉,不是改写)。"""
+    prose = "作为AI,我无法继续创作这段内容。普通句子在这里补齐字数用来测试。"
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    deg_issues = [i for i in r["issues"] if i.get("type") == "degeneration"]
+    assert deg_issues, "应检出 degeneration issue(AI拒绝语泄漏)"
+    assert all(i["meta"].get("fix_action") == "regenerate" for i in deg_issues)
+
+
+def test_post_check_ai_grade_reuses_precomputed_detectors(store, monkeypatch):
+    """A8-Important 尾巾修复:/post-check 组装响应时已经对 req.prose 跑过
+    find_duplicate_lines/find_emotion_telling/find_parallelism/find_poetic_fragments
+    (即响应里的 duplicate_lines/emotion_telling/parallelism/poetic_fragments 字段),
+    调 aggregate_ai_grade 时应把这四项通过 precomputed 参数直接传进去复用,而不是让
+    aggregate_ai_grade 内部对同一份文本重新跑一遍。monkeypatch aggregate_ai_grade
+    捕获调用参数,断言 precomputed 四个键齐全且值与响应里对应字段完全一致(同一份
+    结果被复用,不是又现算了一份等值的)。"""
+    import scribe3.critique as C
+    A.set_store(store)
+    prose = "三——五天后他就到了。这不是恐惧而是愤怒。普通句子。"
+    captured = {}
+    orig = C.aggregate_ai_grade
+
+    def spy(flags, text, precomputed=None, short_mode=False):
+        captured["precomputed"] = precomputed
+        return orig(flags, text, precomputed=precomputed, short_mode=short_mode)
+
+    monkeypatch.setattr(C, "aggregate_ai_grade", spy)
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""})
+    assert r.status_code == 200, r.text
+    precomputed = captured.get("precomputed")
+    assert precomputed is not None, "/post-check 应把 precomputed 传给 aggregate_ai_grade"
+    assert set(precomputed.keys()) == {
+        "duplicate_lines", "emotion_telling", "parallelism", "poetic_fragments"
+    }
+    body = r.json()
+    assert precomputed["duplicate_lines"] == body["duplicate_lines"]
+    assert precomputed["emotion_telling"] == body["emotion_telling"]
+    assert precomputed["parallelism"] == body["parallelism"]
+    assert precomputed["poetic_fragments"] == body["poetic_fragments"]
 
 
 def test_post_check_returns_issues_with_range(store):
@@ -2264,6 +2790,84 @@ def test_timeline_existing_seed_unaffected_by_axis(store):
     assert s_map == n_map, f"无 narrative_position 时两轴应一致: story={s_map} narrative={n_map}"
 
 
+# ===== 批量等价测试(P1-d 性能修复回归) =====
+
+def test_timeline_bulk_equivalence(store):
+    """P1-d 性能修复:批量查聚合结果与逐条预期完全一致。
+    种 3 章事件(含 participants/causal_in)+ 2 角色弧光 → timeline 批量结果与
+    逐字段预期对齐,验证批量聚合没漏没错。
+    """
+    from scribe3.ontology import Entity, Event as OntEvent, Fact
+
+    # 种角色
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+
+    # 种事件 ch1(因)
+    store.add_event(OntEvent("ev:起", "起因",
+                             participants={"SUBJ": "role:甲"},
+                             story_time=1))
+    # 种事件 ch3(果,有因果边)
+    store.add_event(OntEvent("ev:果", "结果",
+                             participants={"SUBJ": "role:乙", "OBJ": "role:甲"},
+                             story_time=3,
+                             causal_in=[("ev:起", "enables")]))
+    # 种事件 ch5(另一章,无 participants)
+    store.add_event(OntEvent("ev:尾", "收尾",
+                             participants={},
+                             story_time=5))
+
+    # 种弧光质变(change_type 须在 schema 枚举内: ability/relation/personality/composite)
+    store.add_char_state("role:甲", 2, "ability", "甲觉醒",
+                         arc_phase="觉醒", affects_voice=True)
+    store.add_char_state("role:乙", 4, "personality", "乙转变",
+                         arc_phase="转折", affects_voice=False)
+
+    items = store.timeline(ch_from=1, ch_to=6)
+
+    # ── 事件条目验证 ──
+    ev_items = {i["id"]: i for i in items if i["kind"] == "event"}
+    assert set(ev_items.keys()) == {"ev:起", "ev:果", "ev:尾"}, \
+        f"事件泳道应含 3 条,实际 ids={set(ev_items.keys())}"
+
+    # ev:起 章号/lane_keys
+    assert ev_items["ev:起"]["chapter"] == 1
+    assert ev_items["ev:起"]["story_chapter"] == 1
+    assert "role:甲" in ev_items["ev:起"]["lane_keys"]
+
+    # ev:果 章号/lane_keys/causal_in 带章号
+    assert ev_items["ev:果"]["chapter"] == 3
+    ci = ev_items["ev:果"]["refs"]["causal_in"]
+    assert len(ci) == 1, f"causal_in 应有 1 条,实际={ci}"
+    assert ci[0]["id"] == "ev:起"
+    assert ci[0]["chapter"] == 1, f"causal_in 章号应为 1,实际={ci[0]['chapter']}"
+    assert "role:乙" in ev_items["ev:果"]["lane_keys"]
+    assert "role:甲" in ev_items["ev:果"]["lane_keys"]
+
+    # ev:尾 无 participants → lane_keys=[]
+    assert ev_items["ev:尾"]["chapter"] == 5
+    assert ev_items["ev:尾"]["lane_keys"] == []
+
+    # ── 弧光条目验证 ──
+    arc_items = [i for i in items if i["kind"] == "arc"]
+    assert len(arc_items) == 2, f"弧光泳道应含 2 条,实际={len(arc_items)}"
+    arc_by_cid = {i["refs"]["character"]: i for i in arc_items}
+    assert "role:甲" in arc_by_cid and "role:乙" in arc_by_cid
+
+    arc_jia = arc_by_cid["role:甲"]
+    assert arc_jia["chapter"] == 2
+    assert arc_jia["refs"]["arc_phase"] == "觉醒"
+    assert arc_jia["lane_keys"] == ["role:甲"]
+
+    arc_yi = arc_by_cid["role:乙"]
+    assert arc_yi["chapter"] == 4
+    assert arc_yi["refs"]["arc_phase"] == "转折"
+
+    # ── items 按 chapter 升序 ──
+    chaps = [i["chapter"] for i in items]
+    assert chaps == sorted(chaps), f"items 应按 chapter 升序,实际={chaps}"
+
+
 # ===== 尾1: PATCH /events/{eid}/narrative TDD =====
 
 def test_patch_event_narrative_set(store):
@@ -2328,3 +2932,1986 @@ def test_patch_event_narrative_404(store):
     r = c.patch("/events/ev:不存在事件/narrative",
                 json={"narrative_position": 1}, params={"work": "main"})
     assert r.status_code == 404
+
+
+# ===== R2: 写路径校验补全 =====
+
+# --- R2.1: 角色关系端点实体存在校验 ---
+
+def test_add_character_relation_missing_fields_422(store):
+    """POST /character-relations 缺字段→422 而非 500。"""
+    c = _client(store)
+    r = c.post("/character-relations", json={"src": "role:甲"})  # 缺 dst/relation/since_chapter
+    assert r.status_code == 422, f"缺字段应返回 422: {r.text}"
+
+
+def test_add_character_relation_nonexistent_src_422(store):
+    """POST /character-relations src 不存在→422,不建悬挂边。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:乙R2", "character", "乙"))
+    c = _client(store)
+    r = c.post("/character-relations", json={
+        "src": "role:不存在角色", "dst": "role:乙R2",
+        "relation": "ally", "since_chapter": 1
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+    # 确认悬挂边未写入
+    rels = store.relations_at(9999)
+    assert not any(x.get("src") == "不存在角色" for x in rels), "不应建立悬挂边"
+
+
+def test_add_character_relation_nonexistent_dst_422(store):
+    """POST /character-relations dst 不存在→422,不建悬挂边。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:甲R2", "character", "甲"))
+    c = _client(store)
+    r = c.post("/character-relations", json={
+        "src": "role:甲R2", "dst": "role:不存在乙",
+        "relation": "ally", "since_chapter": 1
+    })
+    assert r.status_code == 422, f"dst 不存在应返回 422: {r.text}"
+
+
+def test_evolve_relation_nonexistent_src_422(store):
+    """POST /character-relations/evolve src 不存在→422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:辛R2", "character", "辛"))
+    c = _client(store)
+    r = c.post("/character-relations/evolve", json={
+        "src": "role:不存在庚", "dst": "role:辛R2",
+        "relation": "enemy", "since_chapter": 5
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+
+
+def test_end_relation_nonexistent_src_422(store):
+    """POST /character-relations/end src 不存在→422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:癸R2", "character", "癸"))
+    c = _client(store)
+    r = c.post("/character-relations/end", json={
+        "src": "role:不存在壬", "dst": "role:癸R2",
+        "until_chapter": 5
+    })
+    assert r.status_code == 422, f"src 不存在应返回 422: {r.text}"
+
+
+def test_end_relation_missing_fields_422(store):
+    """POST /character-relations/end 缺字段→422。"""
+    c = _client(store)
+    r = c.post("/character-relations/end", json={"src": "role:甲"})  # 缺 dst/until_chapter
+    assert r.status_code == 422, f"缺字段应返回 422: {r.text}"
+
+
+# --- R2.2: 标记端点不存在返回 404 ---
+
+def test_mark_herring_nonexistent_404(store):
+    """POST /promises/不存在pid/mark-herring → 404。"""
+    c = _client(store)
+    r = c.post("/promises/不存在pid/mark-herring")
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_edit_promise_nonexistent_404(store):
+    """PATCH /promises/不存在pid → 404。"""
+    c = _client(store)
+    r = c.patch("/promises/不存在pid",
+                json={"text": "x", "setup_chapter": 1, "promise_kind": "promise"})
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_delete_promise_nonexistent_404(store):
+    """DELETE /promises/不存在pid → 404。"""
+    c = _client(store)
+    r = c.delete("/promises/不存在pid")
+    assert r.status_code == 404, f"不存在 promise 应返回 404: {r.text}"
+
+
+def test_update_volume_nonexistent_404(store):
+    """PATCH /volumes/不存在vid → 404。"""
+    c = _client(store)
+    r = c.patch("/volumes/不存在vid", json={"title": "新标题"})
+    assert r.status_code == 404, f"不存在 volume 应返回 404: {r.text}"
+
+
+def test_delete_volume_nonexistent_404(store):
+    """DELETE /volumes/不存在vid → 404。"""
+    c = _client(store)
+    r = c.delete("/volumes/不存在vid")
+    assert r.status_code == 404, f"不存在 volume 应返回 404: {r.text}"
+
+
+def test_resolve_voice_flag_nonexistent_404(store):
+    """POST /voice-flags/不存在fid/resolve → 404。"""
+    c = _client(store)
+    r = c.post("/voice-flags/不存在fid/resolve")
+    assert r.status_code == 404, f"不存在 voice flag 应返回 404: {r.text}"
+
+
+# --- R2.3: PATCH /chapters/{seq} volume=null 清空生效 ---
+
+def test_patch_chapter_clear_volume(store):
+    """PATCH /chapters/{seq} 传 volume=null 应清空卷归属(exclude_unset 语义)。"""
+    # 建一章
+    store.save_chapter(1, "正文甲", "标题甲")
+    # 建一个卷并绑定
+    vid = store.add_volume(title="第一卷", sort_order=1)
+    store.update_chapter_meta(1, {"volume": vid})
+    ch_before = store.get_chapter(1)
+    assert ch_before is not None
+    # 通过端点传 volume=null 清空
+    c = _client(store)
+    r = c.patch("/chapters/1", json={"volume": None})
+    assert r.status_code == 200, f"清空卷归属应返回 200: {r.text}"
+    ch_after = store.get_chapter(1)
+    # volume 应清空(None 或不含 volume 键)
+    vol_val = ch_after.get("volume") if ch_after else "NOKEY"
+    assert vol_val is None, f"volume 应已清空,实际: {vol_val}"
+
+
+# --- R2.4: add_promise_clue 章号范围校验 ---
+
+def test_add_promise_clue_before_setup_422(store):
+    """POST /promises/{pid}/clues chapter < setup_chapter → 422。"""
+    store.plant_promise("范围测试伏笔", setup_chapter=5, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "范围测试" in p["text"])
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "太早的线索", "chapter": 2})
+    assert r.status_code == 422, f"chapter < setup 应返回 422: {r.text}"
+
+
+def test_add_promise_clue_after_payoff_422(store):
+    """POST /promises/{pid}/clues chapter > payoff_chapter → 422。"""
+    store.plant_promise("有回收的伏笔", setup_chapter=2, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "有回收" in p["text"])
+    store.advance_promise(pid, payoff_chapter=8)
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "太晚的线索", "chapter": 10})
+    assert r.status_code == 422, f"chapter > payoff 应返回 422: {r.text}"
+
+
+def test_add_promise_clue_in_range_ok(store):
+    """POST /promises/{pid}/clues chapter 在合法范围内 → 200。"""
+    store.plant_promise("合法范围伏笔", setup_chapter=3, kind="promise")
+    pid = next(p["id"] for p in store.list_promises() if "合法范围" in p["text"])
+    store.advance_promise(pid, payoff_chapter=9)
+    c = _client(store)
+    r = c.post(f"/promises/{pid}/clues", json={"note": "合法线索", "chapter": 6})
+    assert r.status_code == 200, f"合法章号应返回 200: {r.text}"
+
+
+# --- R2.5: reorder_chapters 不存在 volume → 422 ---
+
+def test_reorder_chapters_nonexistent_volume_422(store):
+    """POST /chapters/reorder 指定不存在 volume → 422。"""
+    store.save_chapter(1, "章甲", "标题")
+    c = _client(store)
+    r = c.post("/chapters/reorder", json={"volume": "不存在卷id", "order": [1]})
+    assert r.status_code == 422, f"不存在 volume 应返回 422: {r.text}"
+
+
+def test_patch_chapter_nonexistent_volume_422(store):
+    """PATCH /chapters/{seq} 指定不存在 volume → 422。"""
+    store.save_chapter(2, "章乙", "标题乙")
+    c = _client(store)
+    r = c.patch("/chapters/2", json={"volume": "幽灵卷id"})
+    assert r.status_code == 422, f"不存在 volume 应返回 422: {r.text}"
+
+
+# ===== R6: /post-check degraded 覆盖 find_leaks/validate_setting 失败(第三轮 P1-b) =====
+
+def test_post_check_degraded_when_find_leaks_raises(store, monkeypatch):
+    """find_leaks 抛异常时:/post-check 应返回 degraded=True、leaks_degraded=True、
+    degraded_stages 含 'find_leaks'——让限知兜底闸崩溃可观测,不静默返回 leaks:[] + degraded:false。
+    修复前:find_leaks 异常只记日志,degraded 保持 False,调用方无感知。"""
+    store.save_chapter(1, "测试散文内容。", title="一")
+    store.add_entity(__import__("scribe3.ontology", fromlist=["Entity"]).Entity("role:甲", "character", "甲"))
+
+    import scribe3.app as A
+    import scribe3.verify as V
+    monkeypatch.setattr(V, "find_leaks", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("模拟 find_leaks 崩溃")))
+
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "测试散文内容。", "focalizer": "role:甲", "brief": ""})
+    assert r.status_code == 200, f"/post-check 应 200: {r.text}"
+    body = r.json()
+    assert body.get("degraded") is True, \
+        f"find_leaks 崩溃时 degraded 应为 True,实际: {body.get('degraded')}"
+    assert body.get("leaks_degraded") is True, \
+        f"find_leaks 崩溃时 leaks_degraded 应为 True,实际: {body.get('leaks_degraded')}"
+    assert "find_leaks" in body.get("degraded_stages", []), \
+        f"degraded_stages 应含 'find_leaks',实际: {body.get('degraded_stages')}"
+
+
+def test_post_check_degraded_when_validate_setting_raises(store, monkeypatch):
+    """validate_setting 抛异常时:/post-check 应返回 degraded=True、
+    degraded_stages 含 'validate_setting'。"""
+    store.save_chapter(1, "测试散文内容。", title="一")
+
+    import scribe3.store as ST
+    monkeypatch.setattr(ST.SurrealStore, "validate_setting",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("模拟 validate_setting 崩溃")))
+
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "测试散文内容。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"/post-check 应 200: {r.text}"
+    body = r.json()
+    assert body.get("degraded") is True, \
+        f"validate_setting 崩溃时 degraded 应为 True,实际: {body.get('degraded')}"
+    assert "validate_setting" in body.get("degraded_stages", []), \
+        f"degraded_stages 应含 'validate_setting',实际: {body.get('degraded_stages')}"
+
+
+def test_post_check_not_degraded_when_all_ok(store):
+    """所有子步骤成功时,degraded=False、leaks_degraded=False、degraded_stages=[]。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    c = _client(store, complete_fn=lambda p, **kw: '{"score":8,"violations":[],"cut_after":null}')
+    r = c.post("/post-check", params={"seq": 1, "work": "main"},
+               json={"prose": "一段正常的志怪内容。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("degraded") is False, f"全部成功时 degraded 应 False: {body}"
+    assert body.get("leaks_degraded") is False, f"leaks_degraded 应 False: {body}"
+    assert body.get("degraded_stages") == [], f"degraded_stages 应空列表: {body}"
+
+
+# ===== R3: _avoid_directive lookback 默认值 3→8(第三轮 P1-b) =====
+
+def test_avoid_directive_default_lookback_is_8(store):
+    """_avoid_directive 默认 lookback 应为 8(覆盖足够前文,防跨章复读)。
+    修复前:lookback=3,第 7-10 章看不到前段措辞,跨章复读回升。"""
+    import inspect
+    from scribe3.app import _avoid_directive
+    sig = inspect.signature(_avoid_directive)
+    default_lookback = sig.parameters["lookback"].default
+    assert default_lookback == 8, \
+        f"_avoid_directive 默认 lookback 应为 8,实际: {default_lookback}"
+
+
+# ===== P2-a TDD: soak 块 GET/POST 对称 + proposal 兜底剥离 =====
+
+def test_soak_block_empty_returns_empty_string():
+    """P2-a Fix1: _soak_block([]) 返回空串,无副作用。"""
+    from scribe3.app import _soak_block
+    assert _soak_block([]) == "", "_soak_block([]) 应返回空串"
+
+
+def test_soak_block_nonempty_returns_block():
+    """_soak_block 非空时注入情绪种子词块。"""
+    from scribe3.app import _soak_block
+    block = _soak_block(["哀", "沉"])
+    assert "哀" in block and "沉" in block, f"_soak_block 应含种子词,实际: {block}"
+
+
+def test_get_chat_write_instructions_include_soak_position(store):
+    """P2-a Fix1: GET /chat/write 的 instructions 块序列中 soak_block 已对称注入(空则静默)。
+    通过检查 _soak_block 在 GET 流程中被调用(利用 monkeypatch 捕获调用)来验证。"""
+    from scribe3.app import _soak_block
+    called = {"n": 0}
+    original = _soak_block
+
+    import scribe3.app as A
+    original_fn = A._soak_block
+
+    def patched(seed_words):
+        called["n"] += 1
+        return original_fn(seed_words)
+
+    A._soak_block = patched
+    try:
+        c = _client(store)
+        # GET /chat/write 触发流式响应,TestClient 会收完整响应
+        resp = c.get("/chat/write", params={"msg": "续写一段", "chapter": 1})
+        assert resp.status_code == 200
+        assert called["n"] >= 1, \
+            f"GET /chat/write 应调用 _soak_block 至少 1 次以保持 GET/POST 对称,实际: {called['n']}"
+    finally:
+        A._soak_block = original_fn
+
+
+def test_strip_preamble_removes_preamble():
+    """P2-a Fix6: _strip_preamble 剥离含'处理思路'的首段,保留散文主体。"""
+    from scribe3.app import _strip_preamble
+    text = "我的处理思路：先写打斗再收尾。\n\n焦三举刀砍去，寒光一闪。" + "甲" * 200
+    result = _strip_preamble(text)
+    assert "我的处理思路" not in result, \
+        f"_strip_preamble 应剥离开场思路段,实际首 50 字: {result[:50]}"
+    assert "焦三" in result, "散文主体应保留"
+
+
+def test_strip_preamble_preserves_plain_prose():
+    """P2-a Fix6: 无开场白的纯散文不被截断。"""
+    from scribe3.app import _strip_preamble
+    prose = "焦三举刀砍去，寒光一闪。" + "乙" * 300
+    result = _strip_preamble(prose)
+    assert result.startswith("焦三") or "焦三" in result[:20], \
+        f"纯散文不应被截断,首 20 字: {result[:20]}"
+
+
+def test_purge_ingest_clears_unverified_via_api(store):
+    """P2-a Fix5: 同章重 ingest 后 pending unverified 不累积——通过 API ingest 两次验证。"""
+    c = _client(store)
+    # 先建章正文
+    store.save_chapter(1, "路人甲出现，路人乙消失。", title="一")
+
+    # 直接向 store 注入两个 unverified 模拟首次 ingest 结果
+    store.add_unverified_ref("路人甲", 1, "saw")
+    store.add_unverified_ref("路人乙", 1, "saw")
+    rows_first = c.get("/ingest-unverified").json()
+    count_first = sum(1 for r in rows_first if r["seq"] == 1)
+    assert count_first == 2, f"首次 ingest 后应有 2 条 seq=1 unverified,实际: {count_first}"
+
+    # purge_ingest 清理 + 再注入同一批(模拟重 ingest)
+    store.purge_ingest(1)
+    store.add_unverified_ref("路人甲", 1, "saw")
+    store.add_unverified_ref("路人乙", 1, "saw")
+    rows_second = c.get("/ingest-unverified").json()
+    count_second = sum(1 for r in rows_second if r["seq"] == 1)
+    assert count_second == 2, \
+        f"重 ingest 后 seq=1 unverified 应仍为 2(不累积为 4),实际: {count_second}"
+
+
+# ===== M1+M2: 限知揭示纪律 + 情感不直说 + 接线检测器(机制A) =====
+
+# --- M1-① _revelation_discipline_block 单元测试 ---
+
+def test_revelation_discipline_block_with_focalizer():
+    """_revelation_discipline_block(非空焦点者):返回含「限知揭示纪律」和「读设定卡」的文本块。"""
+    from scribe3.app import _revelation_discipline_block
+    block = _revelation_discipline_block("role:甲")
+    assert "限知揭示纪律" in block, f"应含「限知揭示纪律」标题,实际: {block[:200]}"
+    assert "读设定卡" in block, f"应含「读设定卡」关键词(配角批发真相对应),实际: {block[:200]}"
+    # 强化版:逼问→不倒豆子 + 禁长篇身世独白 + 禁排比抒情(复判定位的残留靶标)
+    assert "倒豆子" in block and "2-3句" in block, "应含「被逼问不倒豆子/连续设定陈述≤2-3句」约束"
+    assert "身世独白" in block, "应含「禁止临死/摊牌长篇身世独白」约束"
+    assert "排比抒情" in block, "应含「禁止排比抒情回环」约束"
+
+
+def test_revelation_discipline_block_empty_focalizer():
+    """_revelation_discipline_block(''):作者全知章返回空串。"""
+    from scribe3.app import _revelation_discipline_block
+    assert _revelation_discipline_block("") == "", "空焦点者应返回空串"
+
+
+def test_revelation_discipline_block_none_focalizer():
+    """_revelation_discipline_block(None):等同空焦点者,返回空串。"""
+    from scribe3.app import _revelation_discipline_block
+    assert _revelation_discipline_block(None) == "", "None 焦点者应返回空串"
+
+
+# --- M1-② _final_reminder 包含「情感不可直说」 ---
+
+def test_final_reminder_includes_emotion_no_tell():
+    """_final_reminder():应含「情感不可直说」和「show」关键词。"""
+    from scribe3.app import _final_reminder
+    reminder = _final_reminder()
+    assert "情感不可直说" in reminder, f"_final_reminder 应含「情感不可直说」,实际: {reminder}"
+    assert "show" in reminder.lower() or "Show" in reminder, \
+        f"_final_reminder 应含 show(don't tell),实际: {reminder}"
+
+
+# --- M1-③ _revelation_discipline_block 注入 POST /chat/write ---
+
+def test_chat_write_post_focalizer_instructions_contain_revelation_discipline(store, monkeypatch):
+    """POST /chat/write 限知章 instructions 应含揭示纪律块关键词(「限知揭示纪律」)。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).post("/chat/write",
+                        json={"msg": "续写", "chapter": 3, "focalizer": "role:甲"})
+    instr = captured.get("instructions", "")
+    assert "限知揭示纪律" in instr, \
+        f"focalizer 章 POST /chat/write instructions 应含「限知揭示纪律」,前300字: {instr[:300]}"
+
+
+def test_chat_write_post_no_focalizer_no_revelation_discipline(store, monkeypatch):
+    """POST /chat/write 作者全知章(无 focalizer):instructions 不含揭示纪律块。"""
+    import scribe3.app as appmod
+    captured = {}
+
+    def fake_stream(msg, instructions, expect_proposal=False, **_kw):
+        captured["instructions"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(appmod, "_stream_write", fake_stream)
+    _client(store).post("/chat/write",
+                        json={"msg": "续写", "chapter": 1, "focalizer": ""})
+    instr = captured.get("instructions", "")
+    assert "限知揭示纪律" not in instr, \
+        "无 focalizer 的全知章 instructions 不应注入限知揭示纪律块"
+
+
+# --- M2: /save-chapter QC dict 新增 duplicate_lines / emotion_telling ---
+
+def test_save_chapter_qc_includes_duplicate_lines_and_emotion_telling(store):
+    """/save-chapter 返回 qc 字典应含 duplicate_lines + emotion_telling 两键。"""
+    c = _client(store)
+    # 构造含整行复读 + 情感直说的散文
+    prose = (
+        "他感到恐惧,心中一阵战栗。\n"
+        "他感到恐惧,心中一阵战栗。\n"  # 整行复读
+        "他其实不是个坏人。\n"         # verdict(情感直说)
+        "老道抬头望月。\n"
+    )
+    r = c.post("/save-chapter", json={"seq": 1, "prose": prose, "title": "测试", "focalizer": None})
+    assert r.status_code == 200, f"/save-chapter 应 200: {r.text}"
+    body = r.json()
+    qc = body.get("qc", {})
+    assert "duplicate_lines" in qc, f"qc 应含 duplicate_lines 键,实际 qc: {qc}"
+    assert "emotion_telling" in qc, f"qc 应含 emotion_telling 键,实际 qc: {qc}"
+    # 验证计数非负
+    assert isinstance(qc["duplicate_lines"], int) and qc["duplicate_lines"] >= 0
+    assert isinstance(qc["emotion_telling"], int) and qc["emotion_telling"] >= 0
+
+
+def test_save_chapter_qc_duplicate_lines_detected(store):
+    """/save-chapter:含整行复读的散文 qc.duplicate_lines > 0。"""
+    c = _client(store)
+    dup_line = "这是完全重复的整行内容,字数足够长超过六字。"
+    prose = f"{dup_line}\n{dup_line}\n正常内容行。"
+    r = c.post("/save-chapter", json={"seq": 2, "prose": prose, "title": "复读", "focalizer": None})
+    body = r.json()
+    assert body["qc"]["duplicate_lines"] > 0, \
+        f"含整行复读应检出 duplicate_lines>0,实际: {body['qc']['duplicate_lines']}"
+
+
+def test_save_chapter_qc_emotion_telling_detected(store):
+    """/save-chapter:含叙述层情感直说的散文 qc.emotion_telling > 0。"""
+    c = _client(store)
+    prose = "他感到恐惧,双腿颤抖。老道抬头望月。她感到害怕,不敢出声。"
+    r = c.post("/save-chapter", json={"seq": 3, "prose": prose, "title": "情感直说", "focalizer": None})
+    body = r.json()
+    assert body["qc"]["emotion_telling"] > 0, \
+        f"含情感直说应检出 emotion_telling>0,实际: {body['qc']['emotion_telling']}"
+
+
+def test_qc_endpoint_returns_full_detectors(store):
+    """GET /qc 除原五项外补全 cross_repetition/duplicate_lines/emotion_telling,均为命中列表。"""
+    c = _client(store)
+    dup_line = "这是完全重复的整行内容,字数足够长超过六字。"
+    prose = f"{dup_line}\n{dup_line}\n他感到恐惧,双腿颤抖。她感到害怕,不敢出声。"
+    c.post("/save-chapter", json={"seq": 1, "prose": prose, "title": "体检", "focalizer": None})
+    body = c.get("/qc?seq=1").json()
+    # 原五项仍在(均为列表)
+    for k in ("repetition", "structural", "purple", "ai_tics", "oversaturation"):
+        assert isinstance(body.get(k), list), f"{k} 应为列表,实际: {body.get(k)!r}"
+    # 补全的检测器
+    assert isinstance(body.get("cross_repetition"), list)
+    assert isinstance(body.get("cross_repetition_phrases"), list)
+    assert len(body.get("duplicate_lines", [])) > 0, "含整行复读应检出 duplicate_lines"
+    assert len(body.get("emotion_telling", [])) > 0, "含情感直说应检出 emotion_telling"
+
+
+def test_qc_endpoint_empty_when_no_prose(store):
+    """GET /qc 对无正文的章返回空字典(前端据此显'保存正文后自动体检')。"""
+    c = _client(store)
+    assert c.get("/qc?seq=999").json() == {}
+
+
+# --- M3: /post-check 新增 duplicate_lines / emotion_telling / cross_consistency ---
+
+def test_post_check_includes_new_detector_keys(store):
+    """/post-check 响应应含 duplicate_lines / emotion_telling / cross_consistency 三键。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常的志怪内容。", "focalizer": "", "brief": ""}).json()
+    assert "duplicate_lines" in r, f"/post-check 应含 duplicate_lines 键,实际键: {list(r)}"
+    assert "emotion_telling" in r, f"/post-check 应含 emotion_telling 键,实际键: {list(r)}"
+    assert "cross_consistency" in r, f"/post-check 应含 cross_consistency 键,实际键: {list(r)}"
+
+
+def test_post_check_duplicate_lines_count_positive(store):
+    """/post-check:含整行复读的散文,duplicate_lines 为列表且长度>0。"""
+    dup = "这是整行完全重复的内容足够长超过六字。"
+    prose = f"{dup}\n{dup}\n正常内容。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    dup_lines = r.get("duplicate_lines", [])
+    assert isinstance(dup_lines, list), f"duplicate_lines 应为列表,实际: {type(dup_lines)}"
+    assert len(dup_lines) > 0, f"含整行复读应检出 duplicate_lines>0 条,实际: {dup_lines}"
+
+
+def test_post_check_emotion_telling_count_positive(store):
+    """/post-check:含情感直说的散文,emotion_telling 为列表且长度>0。"""
+    prose = "他感到恐惧,双腿颤抖。她感到害怕,不敢出声。他其实不是个坏人。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    et = r.get("emotion_telling", [])
+    assert isinstance(et, list), f"emotion_telling 应为列表,实际: {type(et)}"
+    assert len(et) > 0, f"含情感直说应检出 emotion_telling>0 条,实际: {et}"
+
+
+def test_post_check_cross_consistency_is_list(store):
+    """/post-check cross_consistency 应为列表(空库或有章时均不崩)。"""
+    store.save_chapter(1, "一段正常内容。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常内容。", "focalizer": "", "brief": ""}).json()
+    cc = r.get("cross_consistency")
+    assert isinstance(cc, list), f"cross_consistency 应为列表,实际: {type(cc)}"
+
+
+# ===== 方案B任务11:章节定位六型 + 卷级张弛基线接线进 /post-check =====
+
+def test_post_check_reports_tension_monotony_role_run(store):
+    """全书连续 4 章都标「chapter_role:高压」→ /post-check 的 tension_monotony
+    应检出 role_run(卷级张弛基线,带 work 全章上下文,不限于当前 seq 那一章)。"""
+    for seq in range(1, 5):
+        store.save_chapter(seq, f"第{seq}章正文,平平无奇。", title=f"第{seq}章")
+        store.update_chapter_meta(seq, {"synopsis": "压力级:5 chapter_role:高压"})
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 4},
+               json={"prose": "第4章正文,平平无奇。", "focalizer": "", "brief": ""}).json()
+    tm = r.get("tension_monotony")
+    assert isinstance(tm, list), f"tension_monotony 应为列表,实际: {type(tm)}"
+    assert any(i.get("kind") == "role_run" for i in tm), f"应检出 role_run,实际: {tm}"
+
+
+def test_post_check_tension_monotony_empty_when_no_annotations(store):
+    """旧数据无「压力级/chapter_role」标注 → tension_monotony 为空列表,不误报、不崩。"""
+    store.save_chapter(1, "一段正常内容,无定位标注。", title="一")
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "一段正常内容,无定位标注。", "focalizer": "", "brief": ""}).json()
+    assert r.get("tension_monotony") == []
+
+
+def test_post_check_new_detectors_fail_soft(store, monkeypatch):
+    """/post-check:find_duplicate_lines 或 find_emotion_telling 抛异常时 fail-soft,不崩溃,200 返回。"""
+    import scribe3.critique as CQ
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    monkeypatch.setattr(CQ, "find_duplicate_lines",
+                        lambda text, **kw: (_ for _ in ()).throw(RuntimeError("模拟 find_duplicate_lines 崩溃")))
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "测试正文。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"/post-check 新检测器崩溃时应 200,实际: {r.status_code}"
+
+
+# ===== Phase0-BE1 千万字可扩展基座(REST 层) =====
+
+def test_graph_focus_query_returns_ego(store):
+    """GET /graph?focus=role:甲 → 只回甲的 ego 子图。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    store.add_fact(Fact("fact:f1", "role:甲", "属性", "甲事", valid_from=1))
+    store.add_fact(Fact("fact:f2", "role:乙", "属性", "乙事", valid_from=1))
+    store.add_knowledge(KnowledgeEdge("role:甲", "fact:f1", since_chapter=1))
+    store.add_knowledge(KnowledgeEdge("role:乙", "fact:f2", since_chapter=1))
+    g = _client(store).get("/graph", params={"focus": "role:甲", "chapter": 5}).json()
+    ids = {n["id"] for n in g["nodes"]}
+    assert "role:甲" in ids and "fact:f1" in ids
+    assert "fact:f2" not in ids
+
+
+def test_graph_limit_query_caps_nodes(store):
+    """GET /graph?limit=5 → 节点总数 ≤ 5。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:主", "character", "主"))
+    for i in range(30):
+        fid = f"fact:q{i}"
+        store.add_fact(Fact(fid, "role:主", "属性", f"命题{i}", valid_from=1))
+        store.add_knowledge(KnowledgeEdge("role:主", fid, since_chapter=1))
+    g = _client(store).get("/graph", params={"limit": 5}).json()
+    assert len(g["nodes"]) <= 5
+
+
+def test_timeline_limit_and_truncated(store):
+    """GET /timeline?limit=N → items 截断到 N,truncated=true。"""
+    from scribe3.ontology import Event
+    for i in range(1, 40):
+        store.add_event(Event(f"ev:t{i}", "action", story_time=i,
+                              motivated_by_goal="g", causal_in=[("ev:t1", "enables")]))
+    r = _client(store).get("/timeline", params={"ch_from": 1, "ch_to": 100, "limit": 10}).json()
+    assert len(r["items"]) <= 10
+    assert r["truncated"] is True
+    assert r["limit"] == 10
+
+
+def test_quality_qc_breakdown_preserved(store):
+    """/quality 返回 qc_breakdown 五类字段(读缓存,字段口径不变)。"""
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    q = _client(store).get("/quality").json()
+    ch1 = q["chapters"][0]
+    assert "qc_breakdown" in ch1
+    assert set(ch1["qc_breakdown"]) == {"repetition", "structural", "purple",
+                                         "ai_tics", "oversaturation"}
+    assert "qc_issues" in ch1 and "causal" in ch1 and "word_count" in ch1
+
+
+# ===== Phase0-BE2 四阶段写作:/save-draft /latest-draft + save-chapter 自动 final 版 + phase 钩子 =====
+
+def test_save_draft_persists_and_versions(store):
+    """POST /save-draft:写 chapter.draft + 追加 chapter_version(stage='draft'),返回版本 id。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 10, "prose": "定稿。", "title": "第十章"})
+    r = c.post("/save-draft", params={"seq": 10},
+               json={"prose": "草稿正文。她推开门，外面下着雨。", "summary": "初稿"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "saved"
+    assert body["id"]
+    # draft 落库,prose 不被覆盖
+    ch = store.get_chapter(10)
+    assert ch["draft"] == "草稿正文。她推开门，外面下着雨。"
+    assert ch["prose"] == "定稿。"
+    # 留了一个 draft 版
+    vers = c.get("/chapter-versions", params={"seq": 10}).json()
+    assert any(v["stage"] == "draft" and v["summary"] == "初稿" for v in vers)
+
+
+def test_latest_draft_roundtrip(store):
+    """GET /latest-draft:取回最新 draft 版(prose+stats)。"""
+    c = _client(store)
+    c.post("/save-draft", params={"seq": 11}, json={"prose": "草稿一。"})
+    c.post("/save-draft", params={"seq": 11}, json={"prose": "草稿二。最新。"})
+    r = c.get("/latest-draft", params={"seq": 11})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["prose"] == "草稿二。最新。"
+    assert "stats" in body
+
+
+def test_latest_draft_none_returns_empty(store):
+    """无 draft 版:GET /latest-draft 返回空对象(204 语义降级为 200 空)。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 12, "prose": "只有定稿。"})
+    r = c.get("/latest-draft", params={"seq": 12})
+    assert r.status_code == 200
+    assert r.json() == {}
+
+
+def test_save_chapter_auto_final_version(store):
+    """POST /save-chapter:存正文时自动追加 chapter_version(stage='final')。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 13, "prose": "正文定稿。", "title": "第十三章"})
+    vers = c.get("/chapter-versions", params={"seq": 13}).json()
+    finals = [v for v in vers if v["stage"] == "final"]
+    assert len(finals) >= 1
+
+
+def test_save_chapter_failsoft_version(store, monkeypatch):
+    """留版失败不阻断存稿(fail-soft)。"""
+    c = _client(store)
+    monkeypatch.setattr(store, "add_chapter_version",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    r = c.post("/save-chapter", json={"seq": 14, "prose": "正文。"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "saved"
+
+
+def test_patch_chapter_beats(store):
+    """PATCH /chapters/{seq} 能改 beats(经 update_chapter_meta 白名单)。"""
+    c = _client(store)
+    c.post("/save-chapter", json={"seq": 15, "prose": "正文。"})
+    r = c.patch("/chapters/15", json={"beats": [{"text": "拍1"}, {"text": "拍2", "done": True}]})
+    assert r.status_code == 200, r.text
+    ch = store.get_chapter(15)
+    assert ch["beats"] == [{"text": "拍1"}, {"text": "拍2", "done": True}]
+
+
+def test_chat_write_phase_default_unchanged(store, monkeypatch):
+    """phase 钩子:默认(phase 空)行为不变 —— instructions 不含阶段角色提示。"""
+    captured = {}
+
+    def fake_stream(message, instructions, expect_proposal=False, **_kw):
+        captured["instructions"] = instructions
+        yield "data: x\n\n"
+
+    monkeypatch.setattr(A, "_stream_write", fake_stream)
+    c = _client(store)
+    r = c.post("/chat/write", json={"msg": "这章怎么写", "chapter": 1})
+    assert r.status_code == 200
+    list(r.iter_lines())  # 触发生成器执行
+    assert "阶段角色" not in captured.get("instructions", "")
+
+
+def test_chat_write_phase_plan_injects_role(store, monkeypatch):
+    """phase='plan' → instructions 末尾追加规划期角色提示。"""
+    captured = {}
+
+    def fake_stream(message, instructions, expect_proposal=False, **_kw):
+        captured["instructions"] = instructions
+        yield "data: x\n\n"
+
+    monkeypatch.setattr(A, "_stream_write", fake_stream)
+    c = _client(store)
+    r = c.post("/chat/write", json={"msg": "规划这章", "chapter": 1, "phase": "plan"})
+    assert r.status_code == 200
+    list(r.iter_lines())
+    assert "阶段角色" in captured["instructions"]
+
+
+def test_patch_chapter_deduction_fields(store):
+    """PATCH /chapters 透传 scene_truth/involved_characters/deductions 到 store。"""
+    store.save_chapter(2, "", title="第2章")
+    c = _client(store)
+    r = c.patch("/chapters/2", json={
+        "scene_truth": "真相X", "involved_characters": ["role:a"],
+        "deductions": [{"character_id": "role:a", "character_name": "甲", "prose": "看到:X"}]})
+    assert r.status_code == 200
+    ch = store.get_chapter(2)
+    assert ch["scene_truth"] == "真相X"
+    assert ch["involved_characters"] == ["role:a"]
+    assert ch["deductions"][0]["prose"] == "看到:X"
+
+
+def test_deduction_block_injects_truth_and_projections(store):
+    from scribe3.app import _deduction_block
+    store.save_chapter(3, "", title="第3章")
+    store.update_chapter_meta(3, {
+        "scene_truth": "真相:借命发生",
+        "deductions": [{"character_id": "role:柳", "character_name": "柳怀玉", "prose": "看到:纸人动"}]})
+    blk = _deduction_block(store, 3)
+    assert "真相:借命发生" in blk
+    assert "柳怀玉" in blk and "看到:纸人动" in blk
+    store.save_chapter(4, "", title="第4章")
+    assert _deduction_block(store, 4) == ""   # 空章返回空串
+
+
+def test_motif_instances_endpoint(store):
+    store.add_motif("铜炉", theme="宿命")
+    mid = store.list_motifs()[0]["id"]
+    store.add_motif_instance(mid, chapter=2, evidence="炉火", ingest_seq=2)
+    c = _client(store)
+    r = c.get("/motif-instances?chapter=2")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["motif_id"] == mid
+    assert body[0]["name"] == "铜炉"
+    assert body[0]["evidence"] == "炉火"
+    assert c.get("/motif-instances?chapter=9").json() == []
+
+
+def test_char_anchors_and_arc_beats_endpoints(store):
+    """Task4 弧光端点:PATCH 锚→GET 回读一致;POST 两 beat→有序;DELETE 后消失。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "role:柳怀玉",
+        "anchors": {"lie": "官法大过阴律", "arc_type": "disillusionment"}})
+    assert r.status_code == 200 and r.json()["status"] == "updated"
+    got = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert got["anchors"]["lie"] == "官法大过阴律"
+    assert got["anchors"]["arc_type"] == "disillusionment"
+    assert got["arc_plan"] == []
+    # POST 两个 beat → arc_plan 按 target_chapter 有序
+    r1 = c.post("/arc-beats", json={"character_id": "role:柳怀玉", "beat_name": "midpoint",
+                                    "target_chapter": 6, "lie_belief_target": 50,
+                                    "trigger_event": "判牍改命"})
+    assert r1.status_code == 200 and r1.json()["status"] == "created"
+    c.post("/arc-beats", json={"character_id": "role:柳怀玉",
+                               "beat_name": "third_plot_point", "target_chapter": 10})
+    got2 = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert [b["beat_name"] for b in got2["arc_plan"]] == ["midpoint", "third_plot_point"]
+    # DELETE 后消失
+    bid = got2["arc_plan"][0]["id"]
+    rd = c.delete(f"/arc-beats/{bid}")
+    assert rd.status_code == 200 and rd.json()["status"] == "deleted"
+    got3 = c.get("/char-anchors", params={"character_id": "role:柳怀玉"}).json()
+    assert [b["beat_name"] for b in got3["arc_plan"]] == ["third_plot_point"]
+
+
+def test_patch_char_anchors_unknown_character_404(store):
+    """Task5-C④:PATCH /char-anchors 对不存在的 character_id 回 404,不再静默 200。"""
+    from scribe3.ontology import Entity
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "role:不存在的角色", "anchors": {"lie": "x"}})
+    assert r.status_code == 404
+    # 存在的角色不受影响
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    r2 = c.patch("/char-anchors", json={
+        "character_id": "role:柳怀玉", "anchors": {"lie": "官法大过阴律"}})
+    assert r2.status_code == 200
+
+
+def test_patch_char_anchors_non_character_entity_404(store):
+    """Task7-C①:存在但非 character 的实体(如 place)PATCH 锚应 404,不误 200。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("place:义庄", "place", "义庄"))
+    c = _client(store)
+    r = c.patch("/char-anchors", json={
+        "character_id": "place:义庄", "anchors": {"lie": "x"}})
+    assert r.status_code == 404
+
+
+def test_post_arc_beats_lie_belief_target_range_422(store):
+    """Task5-C⑤:POST /arc-beats 的 lie_belief_target 非 None 时须 0-100,否则 422。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    c = _client(store)
+    base = {"character_id": "role:柳怀玉", "beat_name": "midpoint", "target_chapter": 6}
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 130}).status_code == 422
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": -1}).status_code == 422
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": "五十"}).status_code == 422
+    # 边界与 None 合法
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 0}).status_code == 200
+    assert c.post("/arc-beats", json={**base, "lie_belief_target": 100}).status_code == 200
+    assert c.post("/arc-beats", json=base).status_code == 200
+
+
+# ===== 块四a-1 素材库 material 端点(镜像 motif/promise CRUD 形态)=====
+
+def test_material_crud(store):
+    c = _client(store)
+    # 建(返回 id)
+    r = c.post("/materials", json={"title": "北宋纸扎工艺", "body": "竹篾骨架。",
+                                   "kind": "research", "tags": ["民俗"], "source": "县志"})
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    assert mid
+    c.post("/materials", json={"title": "桥段:井底还魂", "kind": "snippet"})
+    # 列 + kind 过滤
+    all_rows = c.get("/materials").json()
+    assert len(all_rows) == 2
+    research = c.get("/materials", params={"kind": "research"}).json()
+    assert [m["title"] for m in research] == ["北宋纸扎工艺"]
+    assert research[0]["tags"] == ["民俗"] and research[0]["source"] == "县志"
+    # 局部改(只传 body,其余不动)
+    r = c.patch(f"/materials/{mid}", json={"body": "改:桑皮纸捻。"})
+    assert r.status_code == 200
+    got = c.get("/materials", params={"kind": "research"}).json()[0]
+    assert got["body"] == "改:桑皮纸捻。" and got["title"] == "北宋纸扎工艺"
+    # 404:改/删不存在
+    assert c.patch("/materials/nonexistent", json={"title": "x"}).status_code == 404
+    assert c.delete("/materials/nonexistent").status_code == 404
+    # 删
+    assert c.delete(f"/materials/{mid}").status_code == 200
+    assert len(c.get("/materials").json()) == 1
+
+
+def test_material_kind_422(store):
+    """kind 白名单:应用层 422(建/改/列过滤三处)。"""
+    c = _client(store)
+    assert c.post("/materials", json={"title": "x", "kind": "diary"}).status_code == 422
+    r = c.post("/materials", json={"title": "ok", "kind": "note"})
+    mid = r.json()["id"]
+    assert c.patch(f"/materials/{mid}", json={"kind": "diary"}).status_code == 422
+    assert c.get("/materials", params={"kind": "diary"}).status_code == 422
+    c.delete(f"/materials/{mid}")
+
+
+def test_material_ingest_blind(store):
+    """负验证:素材 CRUD 后 ingest 相关表(proposition/knows)零新增。"""
+    c = _client(store)
+    def counts():
+        return (store._query("SELECT count() FROM proposition GROUP ALL"),
+                store._query("SELECT count() FROM knows GROUP ALL"))
+    before = counts()
+    r = c.post("/materials", json={"title": "灵感:灯影戏", "body": "他知道妹妹死了。",
+                                   "kind": "inspiration"})
+    mid = r.json()["id"]
+    c.patch(f"/materials/{mid}", json={"body": "改一版。"})
+    c.delete(f"/materials/{mid}")
+    assert counts() == before
+
+
+def test_project_tree_materials_branch(store):
+    """项目树第三支:素材库根 → kind 分类(计数)→ 素材叶(ref=id)。"""
+    c = _client(store)
+    mid = c.post("/materials", json={"title": "县志:纸扎", "kind": "research"}).json()["id"]
+    c.post("/materials", json={"title": "随手记", "kind": "note"})
+    tree = c.get("/project-tree").json()
+    mats = tree["materials"]
+    assert mats["type"] == "material_root" and mats["label"] == "素材库"
+    cats = {x["ref"]: x for x in mats["children"]}
+    assert set(cats) == {"research", "reference", "snippet", "inspiration", "note"}
+    res = cats["research"]
+    assert res["type"] == "material_category"
+    assert any(b["kind"] == "count" and b["value"] == 1 for b in res["badges"])
+    leaf = res["children"][0]
+    assert leaf["type"] == "material" and leaf["ref"] == mid and leaf["label"] == "县志:纸扎"
+    assert any(b["value"] == 1 for b in cats["note"]["badges"])
+    assert any(b["value"] == 0 for b in cats["snippet"]["badges"])
+
+
+# ===== Task7:/chapter-brief 端点 + 写作 prompt 注入章前简报 + M8 修订纪律 =====
+
+def _seed_brief_book(store):
+    """1 角色设 lie 锚 + 1 条 open promise(chapter 层,seq=2 时 in_window)。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.set_char_anchors("role:柳怀玉", {"lie": "官法大过阴律",
+                                           "arc_type": "disillusionment"})
+    store.plant_promise("井底的名字", setup_chapter=1)
+
+
+def test_chapter_brief_endpoint(store):
+    """GET /chapter-brief:200 + {sections, text},text 含标题与种子数据。"""
+    _seed_brief_book(store)
+    c = _client(store)
+    r = c.get("/chapter-brief", params={"seq": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert "text" in body and "sections" in body
+    assert "本章创作简报" in body["text"]
+    assert "井底的名字" in body["text"]
+    assert "柳怀玉" in body["text"]
+
+
+def test_write_system_carries_brief_and_revision_discipline(store):
+    """_editor_write_system(chapter=2):含章前简报 + M8 修订纪律(span 级定向)。"""
+    from scribe3.app import _editor_write_system
+    _seed_brief_book(store)
+    s = _editor_write_system(store, chapter=2)
+    assert "本章创作简报" in s
+    assert "井底的名字" in s
+    assert "修订纪律" in s
+    assert "span" in s.lower() and "定向" in s
+    assert "禁止开放式整章自评重写" in s
+
+
+def test_write_system_empty_brief_not_injected(store):
+    """空简报(sections 各桶全空)不注入;chapter=None 不组装;修订纪律恒在。"""
+    from scribe3.app import _editor_write_system
+    s = _editor_write_system(store, chapter=2)
+    assert "修订纪律" in s
+    assert "本章创作简报" not in s
+    s2 = _editor_write_system(store)   # chapter=None → 不组装简报
+    assert "修订纪律" in s2 and "本章创作简报" not in s2
+
+
+def test_write_system_brief_failsafe(store, monkeypatch):
+    """fail-safe:简报组装抛异常时 write_system 仍返回且含修订纪律,不阻断写作。"""
+    from scribe3.app import _editor_write_system
+
+    def boom(*a, **kw):
+        raise RuntimeError("简报组装崩了")
+
+    monkeypatch.setattr(store, "promises_with_lifecycle", boom)
+    s = _editor_write_system(store, chapter=2)
+    assert isinstance(s, str) and "修订纪律" in s
+    assert "本章创作简报" not in s
+
+
+# ===== Task 8 · M6 设定三态注入(端点回显 + 向后兼容兜底)=====
+
+def _set_mode(store, local: str, mode: str) -> None:
+    """测试辅助:给某命题显式配 injection_mode(add_fact 不写此字段)。"""
+    store._execute_write(
+        "UPDATE type::record('proposition',$l) SET injection_mode=$m", {"l": local, "m": mode})
+
+
+def test_chapter_brief_injection_manifest(store):
+    """/chapter-brief 回显 M6 注入清单(opt-in):显式配 detected 的 fact,本章草料提及其实体
+    → 进 chosen;显式 detected 但未提及 → 落 dropped(不进 chosen)。"""
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))
+    _set_mode(store, "柳疤", "detected")   # 显式开启三态门控
+    _set_mode(store, "禾技", "detected")
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章柳怀玉独往义庄验尸"})  # 只提柳怀玉
+    c = _client(store)
+    body = c.get("/chapter-brief", params={"seq": 2}).json()
+    inj = body["sections"]["injection"]
+    ids = [x["id"] for x in inj["chosen"]]
+    assert "fact:柳疤" in ids        # detected + 命中 → 选
+    assert "fact:禾技" not in ids    # detected + 未提及 → 不选
+    assert inj["fallback"] is False  # 门控启用 → 非兜底
+
+
+def test_editor_system_injection_fallback_no_mode_no_hit(store):
+    """向后兼容兜底:facts 全无 injection_mode 且本章草料无提及 →
+    全知分支回退旧 facts[:28](防零注入),设定不因零命中而丢。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:崔判", "character", "崔判"))
+    store.add_fact(Fact("fact:判官", "role:崔判", "身份", "阴司判官", valid_from=1))
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "一段与设定实体无关的市井风物侧笔"})
+    s = _editor_system(store, chapter=2)
+    assert "阴司判官" in s          # 兜底注入,未因零命中丢设定
+    # chapter=None(聊天流)同样兜底
+    assert "阴司判官" in _editor_system(store)
+
+
+def test_editor_system_legacy_partial_mention_full_facts(store):
+    """必修1 真·向后兼容:旧书(无任何 injection_mode)本章草料点到部分实体 →
+    仍走旧 facts[:28] 全量,未点名实体状态事实 + 世界级命题 + secret 伏线标记都不丢
+    (opt-in 未开启,不得静默降级为仅命中实体事实)。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))
+    store.add_fact(Fact("fact:世通", "世界", "通货", "铜钱", valid_from=1))  # 世界级命题(非真实实体)
+    store.add_fact(Fact("fact:密", "role:阿禾", "真身", "细作", valid_from=1, secret=True))
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章柳怀玉独往义庄"})  # 只点柳怀玉
+    s = _editor_system(store, chapter=2)
+    assert "左手有疤" in s          # 被点名实体
+    assert "会口技" in s            # 未点名实体的状态事实也在(未降级)
+    assert "铜钱" in s              # 世界级命题不丢
+    assert "细作" in s and "私密/伏线" in s   # secret 值 + 标记保留
+
+
+def test_m6_gating_opt_in_none_is_always(store):
+    """必修1:显式配 ≥1 条 injection_mode 才启用门控;启用后 mode=None 按 always 恒注入,
+    detected 未提及才落 dropped,世界级命题走 always 永不被 detected 丢。"""
+    from scribe3.app import _editor_system
+    from scribe3.ontology import Entity, Fact
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+    store.add_fact(Fact("fact:柳疤", "role:柳怀玉", "外貌", "左手有疤", valid_from=1))  # detected,未提及
+    store.add_fact(Fact("fact:禾技", "role:阿禾", "技艺", "会口技", valid_from=1))      # mode=None → always
+    store.add_fact(Fact("fact:世通", "世界", "通货", "铜钱", valid_from=1))            # 世界级 → always
+    _set_mode(store, "柳疤", "detected")   # 只给这条配 detected → 启用门控
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "本章只写阿禾在集市"})  # 点阿禾,不点柳怀玉
+    s = _editor_system(store, chapter=2)
+    assert "左手有疤" not in s     # detected 且未提及 → 丢
+    assert "会口技" in s           # mode=None → always 恒注入
+    assert "铜钱" in s             # 世界级 → always,不被 detected 丢
+
+
+# ===== Task 8 折入 B-3 · 五阶段大纲/节拍注入 =====
+
+def test_outline_block_injects_synopsis_and_beats(store):
+    """_outline_block:有 synopsis/beats → 含大纲/节拍内容;空章 → 空串。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}]})
+    blk = _outline_block(store, 2)
+    assert "柳怀玉赴义庄验尸" in blk
+    assert "抵达义庄" in blk and "发现异样" in blk
+    store.save_chapter(3, "", title="第3章")
+    assert _outline_block(store, 3) == ""   # 空 synopsis/beats → 空串
+
+
+def test_outline_block_wired_into_chat_write(store, monkeypatch):
+    """B-3 根治:GET 与 POST /chat/write 组装路径都注入本章大纲/节拍(此前从不注入)。"""
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}]})
+    captured = {}
+
+    def cap(message, instructions, **_kw):
+        captured["ins"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(A, "_responses_events", cap)
+    c = _client(store)
+    c.get("/chat/write", params={"msg": "写本章", "chapter": 2})
+    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+    captured.clear()
+    c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
+    assert "柳怀玉赴义庄验尸" in captured["ins"] and "抵达义庄" in captured["ins"]
+
+
+def test_outline_block_focalizer_guardrail(store):
+    """必修2:限知章(focalizer 非空)_outline_block 含限知免责句;全知章不含。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸"})
+    foc = _outline_block(store, 2, focalizer="role:柳怀玉")
+    assert "柳怀玉赴义庄验尸" in foc          # 大纲仍在(仍引导情节)
+    assert "帧外私密留作伏笔" in foc          # 限知免责句
+    omni = _outline_block(store, 2, focalizer="")
+    assert "柳怀玉赴义庄验尸" in omni
+    assert "帧外私密留作伏笔" not in omni      # 全知章无免责句
+
+
+# ===== 方案B任务13b:反转标注规范 + 叙述者真诚视角硬约束 =====
+
+def test_reversal_annotation_and_focalizer_sincerity_wired(store, monkeypatch):
+    """B13b:①_outline_block 节拍标注规范追加反转字段(reversal_type/setup_clues/
+    reveal_position_pct);②写作 instructions 含叙述者真诚视角硬约束("真诚相信"),
+    GET/POST 两条组装链均命中(防知情POV倒灌的又一道文字层约束)。"""
+    from scribe3.app import _outline_block
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {"synopsis": "柳怀玉赴义庄验尸",
+                                  "beats": [{"text": "抵达义庄"}]})
+    blk = _outline_block(store, 2)
+    assert "reversal_type" in blk and "setup_clues" in blk and "reveal_position_pct" in blk
+
+    captured = {}
+
+    def cap(message, instructions, **_kw):
+        captured["ins"] = instructions
+        return iter([])
+
+    monkeypatch.setattr(A, "_responses_events", cap)
+    c = _client(store)
+    c.get("/chat/write", params={"msg": "写本章", "chapter": 2})
+    assert "真诚相信" in captured["ins"]
+    captured.clear()
+    c.post("/chat/write", json={"msg": "写本章", "chapter": 2})
+    assert "真诚相信" in captured["ins"]
+
+
+# ===== 批0 · B1:图片写作 500(彻查 B-1)=====
+
+# 1x1 透明 PNG(base64,validate=True 可解码,远小于 5MB 上限)
+_PNG_1x1 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_chat_write_with_image_no_500(store, monkeypatch):
+    """B1(彻查 B-1):POST /chat/write 带 ImageModel 图片附件不再 500。
+
+    修前:图片组装对 pydantic ImageModel 调 img.get('type')/img.get('data')
+    → AttributeError('ImageModel' object has no attribute 'get')→ 500,带图写作 100% 死。
+    """
+    import scribe3.app as appmod
+    monkeypatch.setattr(
+        appmod, "_stream_write",
+        lambda msg, instructions, expect_proposal=False, **_kw: iter([]))
+    r = _client(store).post("/chat/write", json={
+        "msg": "看这张图写一段",
+        "chapter": 1,
+        "images": [{"data": _PNG_1x1, "type": "image/png"}],
+    })
+    assert r.status_code != 500, f"带图写作不应 500,实际 {r.status_code}: {r.text}"
+
+
+# ===== 批0 · B4:掩码写哨兵 + 势力 merge(彻查 F-1/F-2)=====
+
+def test_b4_char_patch_masked_backstory_preserves_real_value(store):
+    """B4(F-1):角色私密 backstory 打码后 PATCH 整行(含掩码 backstory)+改其他字段,
+    真值不被销毁(掩码哨兵剔除 backstory=视为未改)。"""
+    c = _client(store)
+    c.post("/characters", json={"name": "甲", "backstory": "真实前史ABC",
+                                "backstory_secret": True})
+    masked = next(e for e in c.get("/entities").json() if e["name"] == "甲")
+    assert masked["backstory"] == "🔒 私密", "GET 应打码"
+    # 前端把打码值整行回传,并改 fear
+    c.patch("/characters/甲", json={"name": "甲", "backstory": "🔒 私密",
+                                    "backstory_secret": True, "fear": "怕火"})
+    revealed = next(e for e in c.get("/entities", params={"reveal_secret": True}).json()
+                    if e["name"] == "甲")
+    assert revealed["backstory"] == "真实前史ABC", "私密真值应存活(未被掩码覆盖)"
+    assert revealed["fear"] == "怕火", "其他字段应正常更新"
+
+
+def test_b4_add_char_masked_backstory_not_persisted(store):
+    """B4:curl 直接 POST /characters 传掩码 backstory → 哨兵剔除,不落库为字面掩码。"""
+    c = _client(store)
+    c.post("/characters", json={"name": "乙", "backstory": "🔒 私密",
+                                "backstory_secret": True})
+    revealed = next(e for e in c.get("/entities", params={"reveal_secret": True}).json()
+                    if e["name"] == "乙")
+    assert revealed["backstory"] != "🔒 私密", "掩码占位符不应落库"
+    assert revealed["backstory"] is None
+
+
+def test_b4_faction_partial_update_preserves_other_fields(store):
+    """B4(F-2):势力只改 leader(仅提交 name+leader)→
+    private_operation/public_face/ideology 都不被整行覆盖销毁(端点层真 merge)。"""
+    c = _client(store)
+    c.post("/factions", json={"name": "青叶门", "ideology": "复辟", "leader": "甲",
+                              "public_face": "药铺", "private_operation": "养死士",
+                              "private_operation_secret": True})
+    c.post("/factions", json={"name": "青叶门", "leader": "乙"})  # 只改 leader
+    row = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+               if f["name"] == "青叶门")
+    assert row["leader"] == "乙", "leader 应更新"
+    assert row["ideology"] == "复辟", "ideology 不应被销毁"
+    assert row["public_face"] == "药铺", "public_face 不应被销毁"
+    assert row["private_operation"] == "养死士", "private_operation 不应被销毁"
+
+
+def test_b4_faction_masked_private_op_preserves_real_value(store):
+    """B4:势力私密 private_operation 打码后整行回传(含掩码)+改 ideology →
+    掩码哨兵剔除私密字段,真值存活。"""
+    c = _client(store)
+    c.post("/factions", json={"name": "红庐", "ideology": "改良", "public_face": "商会",
+                              "private_operation": "走私军械",
+                              "private_operation_secret": True})
+    masked = next(f for f in c.get("/factions").json() if f["name"] == "红庐")
+    assert masked["private_operation"] == "🔒 私密", "GET 应打码"
+    c.post("/factions", json={"name": "红庐", "ideology": "复辟", "public_face": "商会",
+                              "private_operation": "🔒 私密",
+                              "private_operation_secret": True})
+    row = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+               if f["name"] == "红庐")
+    assert row["ideology"] == "复辟", "ideology 应更新"
+    assert row["private_operation"] == "走私军械", "私密真值应存活(掩码被哨兵剔除)"
+
+
+# ===== 批0 · B5:_codex_block 限知隐私密(彻查 F-3)=====
+
+def test_b5_codex_block_hides_secret_backstory_in_limited_pov(store):
+    """B5(F-3):限知章(focalizer 非空,乙≠甲)主编基座不含私密角色 甲 的 backstory;
+    全知章(focalizer 空=作者全知)保留(向后兼容)。"""
+    from scribe3.ontology import Entity
+    from scribe3.app import _editor_system
+    store.add_entity(Entity("role:甲", "character", "甲",
+                            traits={"backstory": "SECRETMARKER_他是前朝皇子",
+                                    "backstory_secret": True}))
+    store.add_entity(Entity("role:乙", "character", "乙"))
+    limited = _editor_system(store, focalizer="乙", chapter=3)
+    assert "SECRETMARKER" not in limited, "限知章设定圣经不应明文注入私密 backstory(POV 倒灌)"
+    omni = _editor_system(store, focalizer="", chapter=3)
+    assert "SECRETMARKER" in omni, "全知章(作者)应保留私密 backstory"
+
+
+# ==== Task9 M2a: 张力检查——确定性3项 + /tension-check(不真打 LLM)====
+
+def test_tension_deterministic_items(store):
+    from scribe3.brief import tension_deterministic
+    store.plant_promise("井底的名字", setup_chapter=1)
+    pid = store.list_promises()[0]["id"]
+    # 第3章无任何触及 → 进展路标不过(开着但本章未推进)
+    items = tension_deterministic(store, seq=3)
+    prog = [i for i in items if i["item"] == "promise_progress"][0]
+    assert prog["pass"] is False
+    # 三项确定性齐全
+    assert {i["item"] for i in items} == {"promise_progress", "open_loops", "irony_surface"}
+    store.add_promise_touch(pid, chapter=3, evidence="梦见井", ingest_seq=3)
+    items = tension_deterministic(store, seq=3)
+    prog = [i for i in items if i["item"] == "promise_progress"][0]
+    assert prog["pass"] is True
+
+
+def test_tension_check_no_prose(store):
+    c = _client(store)
+    r = c.post("/tension-check", params={"seq": 9}).json()
+    assert r == {"items": [], "error": "no_prose"}
+
+
+def test_tension_check_full_items_with_mocked_rubric(store, monkeypatch):
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true,"answered_escalated":true,"note":"能否验尸"},'
+        '"outcomes":[{"scene":"义庄对峙","type":"yes"},{"scene":"井边","type":"yes_but"}],'
+        '"value_shift":{"present":true,"note":"信任→怀疑"},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"信息截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(3, "义庄里灯影摇动,他俯身去看那具尸首。", title="第三章")
+    r = _client(store).post("/tension-check", params={"seq": 3}).json()
+    names = {i["item"] for i in r["items"]}
+    # 确定性3 + rubric5 = 8 项齐全
+    assert names == {"promise_progress", "open_loops", "irony_surface",
+                     "dramatic_question", "outcome_grammar", "value_shift",
+                     "micro_tension", "hook"}
+    assert len(r["items"]) == 8
+    assert r["rubric"]["dramatic_question"]["present"] is True
+    # 一场 yes(泄气)→ outcome_grammar 不过
+    og = [i for i in r["items"] if i["item"] == "outcome_grammar"][0]
+    assert og["pass"] is False
+
+
+def test_tension_check_rubric_failed_when_llm_junk(store, monkeypatch):
+    import scribe3.llm as llm
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: "抱歉我无法……")
+    store.save_chapter(4, "一段正文内容。", title="第四章")
+    r = _client(store).post("/tension-check", params={"seq": 4}).json()
+    assert r["rubric_failed"] is True
+    assert r["rubric"] is None
+    # 确定性项仍返回(不因 rubric 失败而丢)
+    assert {i["item"] for i in r["items"]} == {"promise_progress", "open_loops", "irony_surface"}
+
+
+def test_tension_check_survives_llm_exception(store, monkeypatch):
+    import scribe3.llm as llm
+    def boom(*a, **k):
+        raise RuntimeError("hermes down")
+    monkeypatch.setattr(llm, "hermes_complete", boom)
+    store.save_chapter(5, "一段正文内容。", title="第五章")
+    r = _client(store).post("/tension-check", params={"seq": 5}).json()
+    # LLM 抛异常也不崩,降级为 rubric_failed
+    assert r["rubric_failed"] is True and r["rubric"] is None
+
+
+# ==== P1-10: 4 检测器接线进 /post-check(彻查)====
+
+def test_post_check_wires_four_detectors(store):
+    """排比/诗化分行/引号失配/更次倒退 4 个既有检测器应接进 /post-check 确定性聚合。"""
+    c = _client(store)
+    prose = "他想起娘。他想起爹。他想起家门。\n呜。\n他说“你好\n四更天守着,又到三更。"
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    assert r["parallelism"], "同句式≥3连 应命中 parallelism"
+    assert r["poetic_fragments"], "孤立短句 应命中 poetic_fragments"
+    assert r["unbalanced_quotes"], "引号开闭失配 应命中 unbalanced_quotes"
+    assert r["watch_regression"], "四更→三更倒退 应命中 watch_regression"
+
+
+def test_post_check_four_detectors_clean_text(store):
+    """干净文本:4 检测器均空列表(不误报,不破坏既有输出)。"""
+    c = _client(store)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "他走进义庄,点亮了灯。屋里静得很。", "focalizer": "", "brief": ""}).json()
+    for k in ("parallelism", "poetic_fragments", "unbalanced_quotes", "watch_regression"):
+        assert r[k] == [], f"{k} 干净文本应为空"
+    # 既有键未被破坏
+    for k in ("quality", "issues", "duplicate_lines", "emotion_telling", "cross_consistency"):
+        assert k in r
+
+
+# ==== 彻查 B-2: 伏笔 tier 三生产入口(REST /promises-new + PATCH /promises/{pid})====
+
+def test_add_promise_rest_tier_book_never_overdue(store):
+    """POST /promises-new 带 tier=book → 落 book 层,payoff_max=None(书级永不超期)。
+    方案B任务21:book 级悬念必须带 resolution(真实答案)才放行,故补此字段。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级母题:铜炉终反噬", "setup_chapter": 1,
+                                      "tier": "book", "resolution": "铜炉本是镇魂器,终将反噬铸炉者"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "书级母题:铜炉终反噬")
+    assert p["tier"] == "book"
+    assert p["payoff_max"] is None, f"书级伏笔 payoff_max 应为 None,实际 {p['payoff_max']}"
+
+
+def test_add_promise_rest_tier_arc_window(store):
+    """POST /promises-new 带 tier=arc,setup=2 → 窗口 payoff_min=7 / payoff_max=17(+5..+15)。
+    方案B任务21:arc 级悬念必须带 resolution(真实答案)才放行,故补此字段。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级伏笔", "setup_chapter": 2, "tier": "arc",
+                                      "resolution": "卷级伏笔的真实答案:此人是内奸"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "卷级伏笔")
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 7 and p["payoff_max"] == 17
+
+
+def test_add_promise_rest_default_tier_chapter(store):
+    """POST /promises-new 不带 tier → 默认 chapter 层(payoff_max=setup+3),不回归。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "近场伏笔", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["text"] == "近场伏笔")
+    assert p["tier"] == "chapter"
+    assert p["payoff_max"] == 4
+
+
+def test_add_promise_rest_illegal_tier_rejected(store):
+    """POST /promises-new 带非法 tier → 422(非法值不落库)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "坏层级", "setup_chapter": 1, "tier": "卷"})
+    assert r.status_code == 422, r.text
+    assert not any(x["text"] == "坏层级" for x in store.list_promises())
+
+
+# ==== 方案B任务21:悬念存档答案强制(rules/story-narrative.md:20)——
+# "悬念必须有文档记录的真实答案"。book/arc 长期悬念建伏笔时必填 resolution;
+# chapter 级短期悬念(本章内起落即兑现)豁免,向后兼容不传该字段的既有调用方。====
+
+def test_add_promise_book_tier_missing_resolution_422(store):
+    """POST /promises-new 建 book 级伏笔缺 resolution → 422,且不落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级悬念:铜炉来历", "setup_chapter": 1, "tier": "book"})
+    assert r.status_code == 422, r.text
+    assert "真实答案" in r.json()["detail"]
+    assert not any(x["text"] == "书级悬念:铜炉来历" for x in store.list_promises())
+
+
+def test_add_promise_arc_tier_missing_resolution_422(store):
+    """POST /promises-new 建 arc 级伏笔缺 resolution → 422,且不落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级悬念:信件来源", "setup_chapter": 2, "tier": "arc"})
+    assert r.status_code == 422, r.text
+    assert not any(x["text"] == "卷级悬念:信件来源" for x in store.list_promises())
+
+
+def test_add_promise_book_tier_with_resolution_ok(store):
+    """POST /promises-new 建 book 级伏笔带 resolution → 200,正常落库。
+    B21 收尾清理批:resolution 现已落库,此处补断言可读回真实值(此前只测 200)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "书级悬念:主角身世", "setup_chapter": 1,
+                                      "tier": "book", "resolution": "主角是前朝遗孤"})
+    assert r.status_code == 200, r.text
+    row = [x for x in store.list_promises() if x["text"] == "书级悬念:主角身世"][0]
+    assert row["resolution"] == "主角是前朝遗孤"
+
+
+def test_add_promise_arc_tier_with_resolution_ok(store):
+    """POST /promises-new 建 arc 级伏笔带 resolution → 200,正常落库。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "卷级悬念:密室机关", "setup_chapter": 3,
+                                      "tier": "arc", "resolution": "机关由老仆暗中打开"})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "卷级悬念:密室机关" for x in store.list_promises())
+
+
+def test_add_promise_chapter_tier_missing_resolution_exempt(store):
+    """POST /promises-new 建 chapter 级(短期悬念)缺 resolution → 200(豁免,向后兼容)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "章内悬念:谁在敲门", "setup_chapter": 5, "tier": "chapter"})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "章内悬念:谁在敲门" for x in store.list_promises())
+
+
+def test_add_promise_no_tier_missing_resolution_exempt(store):
+    """POST /promises-new 不传 tier(默认 chapter)缺 resolution → 200(向后兼容既有调用方)。"""
+    c = _client(store)
+    r = c.post("/promises-new", json={"text": "未传层级的伏笔", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    assert any(x["text"] == "未传层级的伏笔" for x in store.list_promises())
+
+
+def test_edit_promise_rest_tier_recomputes_window(store):
+    """PATCH /promises/{pid} 改 tier=arc → 窗口按 arc 重算(setup=3 → 8..18)。
+    B21 收尾清理批:升格 arc 须带 resolution(与 /promises-new 同约束),补该字段。"""
+    store.plant_promise("先近后卷", setup_chapter=3, kind="promise")  # 建时 chapter → payoff_max=6
+    pid = next(x for x in store.list_promises() if x["text"] == "先近后卷")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "先近后卷", "setup_chapter": 3, "tier": "arc",
+                                          "resolution": "升格卷级的真实答案:老仆是幕后人"})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "arc"
+    assert p["payoff_min"] == 8 and p["payoff_max"] == 18
+
+
+def test_edit_promise_rest_tier_upgrade_missing_resolution_422(store):
+    """B21 收尾清理批(审查发现的绕过口):PATCH 把 tier 升格成 book/arc,
+    但请求与库里都没有 resolution → 422(与 /promises-new 同文案),且不落库。"""
+    store.plant_promise("短期悬念想升格", setup_chapter=2, kind="promise")  # chapter 级,无 resolution
+    pid = next(x for x in store.list_promises() if x["text"] == "短期悬念想升格")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "短期悬念想升格", "tier": "book"})
+    assert r.status_code == 422, r.text
+    assert "真实答案" in r.json()["detail"]
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "chapter", "422 拒绝后 tier 不得被改动"
+
+
+def test_edit_promise_rest_without_tier_preserves_tier(store):
+    """PATCH 不带 tier → 既有 tier 不被改回 chapter(可选字段,缺省即保留)。"""
+    store.plant_promise("已是书级", setup_chapter=1, kind="promise", tier="book")
+    pid = next(x for x in store.list_promises() if x["text"] == "已是书级")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "已是书级改名", "setup_chapter": 1})
+    assert r.status_code == 200, r.text
+    p = next(x for x in store.list_promises() if x["id"] == pid)
+    assert p["tier"] == "book", "缺省 tier 的编辑不得把 book 改回 chapter"
+    assert p["payoff_max"] is None
+
+
+def test_edit_promise_rest_illegal_tier_rejected(store):
+    """PATCH 带非法 tier → 422。"""
+    store.plant_promise("待改", setup_chapter=1, kind="promise")
+    pid = next(x for x in store.list_promises() if x["text"] == "待改")["id"]
+    c = _client(store)
+    r = c.patch(f"/promises/{pid}", json={"text": "待改", "setup_chapter": 1, "tier": "xx"})
+    assert r.status_code == 422, r.text
+
+
+# ==== T9 审查 Minor1: /tension-check 值型错 JSON 降级不崩(不 500)====
+
+def test_tension_check_rubric_type_error_degrades(store, monkeypatch):
+    """LLM 返回合法 JSON 但值型错(outcomes 是字符串列表而非 dict 列表)→ 组装 rubric
+    items 时 o.get() 会抛 AttributeError。应降级 rubric_failed=True,而非端点 500。"""
+    import scribe3.llm as llm
+    bad_type = (
+        '{"dramatic_question":{"present":true,"note":"能否验尸"},'
+        '"outcomes":["义庄对峙","井边"],'  # 应为 dict 列表,这里是字符串列表
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"信息截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: bad_type)
+    store.save_chapter(6, "义庄里灯影摇动。", title="第六章")
+    resp = _client(store).post("/tension-check", params={"seq": 6})
+    assert resp.status_code == 200, f"值型错 JSON 不应 500,实际 {resp.status_code}"
+    r = resp.json()
+    assert r["rubric_failed"] is True and r["rubric"] is None
+    # 确定性项仍返回,不因 rubric 组装失败而丢
+    assert {i["item"] for i in r["items"]} == {"promise_progress", "open_loops", "irony_surface"}
+
+
+# ==== T9 审查 Minor2: micro_tension detail 文案(空 deserts 不显尾冒号)====
+
+def test_tension_check_micro_tension_empty_deserts_shows_none(store, monkeypatch):
+    """micro_tension.deserts 为空 → detail 应为 '无',而非 '荒漠段:'(运算符优先级 bug)。"""
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true},'
+        '"outcomes":[{"scene":"义庄","type":"yes_but"}],'
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":[]},'
+        '"hook":{"present":true,"type":"截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(7, "一段正文。", title="第七章")
+    r = _client(store).post("/tension-check", params={"seq": 7}).json()
+    mt = [i for i in r["items"] if i["item"] == "micro_tension"][0]
+    assert mt["detail"] == "无", f"空 deserts 的 detail 应为 '无',实际 {mt['detail']!r}"
+
+
+def test_tension_check_micro_tension_with_deserts(store, monkeypatch):
+    """micro_tension.deserts 非空 → detail 带 '荒漠段:' 前缀 + 内容(修文案不破坏非空分支)。"""
+    import scribe3.llm as llm
+    fixed = (
+        '{"dramatic_question":{"present":true},'
+        '"outcomes":[{"scene":"义庄","type":"yes_but"}],'
+        '"value_shift":{"present":true},'
+        '"micro_tension":{"deserts":["第2段","第5段"]},'
+        '"hook":{"present":true,"type":"截断","strength":"strong"}}')
+    monkeypatch.setattr(llm, "hermes_complete", lambda *a, **k: fixed)
+    store.save_chapter(8, "一段正文。", title="第八章")
+    r = _client(store).post("/tension-check", params={"seq": 8}).json()
+    mt = [i for i in r["items"] if i["item"] == "micro_tension"][0]
+    assert mt["detail"] == "荒漠段:第2段、第5段"
+
+
+# ===== 批B P0-2:多书下 MCP 工具串书——非 SCRIBE3_WORK 的书禁挂 s3_ 工具 =====
+def _cap_responses(cap):
+    """捕获传给 responses(:8643)的 with_tools 与 instructions 的假 fn。"""
+    def fake_events(message, instructions, model=None, with_tools=True, **_kw):
+        cap["with_tools"] = with_tools
+        cap["instructions"] = instructions
+        return iter([])
+    return fake_events
+
+
+def test_p0_2_get_write_non_current_work_no_tools(store, monkeypatch):
+    """GET /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False),防串到错库。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")          # 把测试内存 store 绑到别的书(不连真库)
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "book_other"})
+    assert cap["with_tools"] is False, "非当前书应禁挂 s3_ 工具"
+    assert "s3_" not in cap["instructions"], "非当前书 instructions 不得诱导调用 s3_"
+
+
+def test_p0_2_get_write_current_work_mounts_tools(store, monkeypatch):
+    """GET /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具(with_tools=True)。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "main"})
+    assert cap["with_tools"] is True, "当前书应挂 s3_ 工具"
+
+
+def test_p0_2_post_write_non_current_work_no_tools(store, monkeypatch):
+    """POST /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False)。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).post("/chat/write?work=book_other", json={"msg": "写本章", "chapter": 1})
+    assert cap["with_tools"] is False
+    assert "s3_" not in cap["instructions"]
+
+
+def test_p0_2_post_write_current_work_mounts_tools(store, monkeypatch):
+    """POST /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).post("/chat/write?work=main", json={"msg": "写本章", "chapter": 1})
+    assert cap["with_tools"] is True
+
+
+def test_p0_2_agentic_non_current_work_no_tools(store, monkeypatch):
+    """agentic-stream:work != SCRIBE3_WORK 时禁挂工具 + instructions 删除 s3_ 联查诱导段。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "book_current")
+    A.set_store(store, work="book_other")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "book_other"})
+    assert cap["with_tools"] is False
+    assert "s3_" not in cap["instructions"], "非当前书 agentic 指令不得含 s3_ 联查诱导"
+
+
+def test_p0_2_agentic_current_work_mounts_tools(store, monkeypatch):
+    """agentic-stream:work == SCRIBE3_WORK 时挂工具 + instructions 含 s3_ 联查段。"""
+    import scribe3.app as A
+    monkeypatch.setenv("SCRIBE3_WORK", "main")
+    cap = {}
+    monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
+    _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "main"})
+    assert cap["with_tools"] is True
+    assert "s3_" in cap["instructions"], "当前书 agentic 指令应含 s3_ 联查段"
+
+
+def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
+    """llm 层:with_tools=False 的 body 不含 tools;=True 时挂 scribe3 MCP。"""
+    import scribe3.llm as llm
+    captured = {}
+
+    class _FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def raise_for_status(self): pass
+        def iter_lines(self): return iter([])
+
+    def fake_stream(method, url, **kw):
+        captured["body"] = kw.get("json")
+        return _FakeResp()
+
+    monkeypatch.setattr(llm.httpx, "stream", fake_stream)
+    list(llm.hermes_responses_events("m", "i", with_tools=False))
+    assert "tools" not in captured["body"], "with_tools=False 时 body 不得含 tools"
+    list(llm.hermes_responses_events("m", "i", with_tools=True))
+    assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3"}]
+
+
+# ===== 块四b TDD: /draft-check 草稿轻量确定性分析(不 ingest 不落库) =====
+# 设计 §5.4:草稿阶段对任意草稿文本跑确定性检测(复用 critique 的 quality_flags/整行复读/
+# 排比/情感直说 + 限知泄露预览),绝不跑 LLM ingest、绝不写 proposition/knows/台账。
+
+def test_draft_check_returns_deterministic_structure(store):
+    """/draft-check 应返回 quality(五类)+ duplicate_lines / parallelism / emotion_telling 键。"""
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": "他推开门,天光落在案上。"}).json()
+    assert set(r["quality"]) >= {"repetition", "structural", "purple", "ai_tics", "oversaturation"}
+    for k in ("duplicate_lines", "parallelism", "emotion_telling", "leaks"):
+        assert k in r, f"/draft-check 应含 {k} 键,实际键: {list(r)}"
+        assert isinstance(r[k], list)
+
+
+def test_draft_check_clean_text_empty(store):
+    """/draft-check:干净草稿文本 → 各确定性检测器空。"""
+    c = _client(store)
+    r = c.post("/draft-check",
+               json={"prose": "他推开门,天光落在案上。她没有回头,只把碗搁下。"}).json()
+    assert r["duplicate_lines"] == []
+    assert r["parallelism"] == []
+    assert r["emotion_telling"] == []
+    assert r["leaks"] == []
+
+
+def test_draft_check_detects_duplicate_lines(store):
+    """/draft-check:含整行复读的草稿 → duplicate_lines 非空。"""
+    dup = "这是整行完全重复的内容足够长超过六字。"
+    prose = f"{dup}\n{dup}\n正常内容。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["duplicate_lines"]) > 0, f"整行复读应检出,实际: {r['duplicate_lines']}"
+
+
+def test_draft_check_detects_parallelism(store):
+    """/draft-check:含排比(连续同句式)的草稿 → parallelism 非空。"""
+    prose = "他走过长街,他走过小巷,他走过荒野。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["parallelism"]) > 0, f"排比应检出,实际: {r['parallelism']}"
+
+
+def test_draft_check_detects_emotion_telling(store):
+    """/draft-check:含情感直说的草稿 → emotion_telling 非空。"""
+    prose = "他感到恐惧,双腿颤抖。她感到害怕,不敢出声。他其实不是个坏人。"
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert len(r["emotion_telling"]) > 0, f"情感直说应检出,实际: {r['emotion_telling']}"
+
+
+def test_draft_check_no_db_writes(store):
+    """/draft-check 只读:含实体/情节的草稿跑完后,库中无任何 proposition/knows 新增
+    (断言库无新增——绝不跑 ingest、绝不落库)。"""
+    c = _client(store)
+    before_facts = len(store.facts_at(9999))
+    before_knows = len(store.load_knowledge())
+    prose = "焦三在乱葬岗治眼,老道看得分明。他感到恐惧。"
+    r = c.post("/draft-check", json={"prose": prose}).json()
+    assert "quality" in r
+    assert len(store.facts_at(9999)) == before_facts, "draft-check 不应新增 proposition"
+    assert len(store.load_knowledge()) == before_knows, "draft-check 不应新增 knows"
+
+
+def test_draft_check_leak_preview_readonly(store):
+    """/draft-check:给 focalizer+seq 时跑限知泄露预览(只读),命中泄露且不落库。"""
+    luanshi_leak_world(store)
+    c = _client(store)
+    before_facts = len(store.facts_at(9999))
+    before_knows = len(store.load_knowledge())
+    r = c.post("/draft-check", params={"seq": 1},
+               json={"prose": "老道看见焦三在治眼。", "focalizer": "role:老道"}).json()
+    assert len(r["leaks"]) > 0, "老道写出治眼应被预览检出泄露"
+    assert len(store.facts_at(9999)) == before_facts, "泄露预览是只读,不应新增 proposition"
+    assert len(store.load_knowledge()) == before_knows, "泄露预览是只读,不应新增 knows"
+
+
+def test_draft_check_registered_in_write_gate(store):
+    """写路由审计门镜像:/draft-check 虽为 POST 但只读,须登记 KNOWN_REST_WRITE_ROUTES。"""
+    from scribe3.tests.test_consistency import TestWriteGate
+    assert ("POST", "/draft-check") in TestWriteGate.KNOWN_REST_WRITE_ROUTES
+
+
+# ===== 批A 余项(P0-1 收尾)TDD: /ingest 手动端点纳入去重护栏 =====
+# /ingest(前端"反哺设定库"按钮)在 _pending_ingest 去重集之外——手点反哺撞后台
+# 自动 ingest 在途时同章交错。修:/ingest 也走同一 (work,seq) 在途集合护栏。
+
+def test_ingest_rejected_when_chapter_pending(store):
+    """/ingest:同章已有 ingest 在途(_pending_ingest 有标记,模拟后台 _bg_ingest 在跑)
+    → 拒 409,防手点反哺撞自动 ingest 交错。"""
+    A.set_store(store)
+    A._pending_ingest.add(("main", 4))   # 模拟后台 _bg_ingest 同章在途
+    client = TestClient(A.app)
+    r = client.post("/ingest", params={"seq": 4, "work": "main"})
+    assert r.status_code == 409, f"同章在途应拒 409,实际 {r.status_code}: {r.text}"
+    # 被拒不应误清他人的在途标记
+    assert ("main", 4) in A._pending_ingest, "被拒的 /ingest 不应清除在途标记"
+
+
+def test_ingest_marks_pending_during_run_and_clears(store, monkeypatch):
+    """/ingest 同步跑:执行期间占用 _pending_ingest(在途),故并发 _enqueue_ingest 同章去重;
+    完成后清除在途标记。与后台 _bg_ingest/_enqueue_ingest 共用同一机制协同去重。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)
+    seen = {}
+
+    def fake_ingest(st, seq, fn, **kw):
+        seen["pending_during"] = ("main", seq) in A._pending_ingest
+        from fastapi import BackgroundTasks
+        # 在途期间并发排队(如后台 save-chapter 触发)应被去重跳过
+        seen["enqueue_during"] = A._enqueue_ingest(BackgroundTasks(), "main", seq)
+        return {"applied": 0}
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", fake_ingest)
+    client = TestClient(A.app)
+    r = client.post("/ingest", params={"seq": 7, "work": "main"})
+    assert r.status_code == 200, f"无在途冲突应 200,实际 {r.status_code}: {r.text}"
+    assert seen["pending_during"] is True, "ingest 执行期间该章应标记在途"
+    assert seen["enqueue_during"] is False, "在途期间 _enqueue_ingest 同章应去重跳过"
+    assert ("main", 7) not in A._pending_ingest, "ingest 完成后应清除在途标记"
+
+
+def test_ingest_clears_pending_on_exception(store, monkeypatch):
+    """/ingest 抛异常也须在 finally 清除在途标记,避免该章永久锁死无法再反哺。"""
+    import scribe3.ingest as ingest_mod
+    A.set_store(store)
+
+    def boom(st, seq, fn, **kw):
+        raise RuntimeError("ingest 崩了")
+
+    monkeypatch.setattr(ingest_mod, "ingest_chapter", boom)
+    client = TestClient(A.app)
+    try:
+        client.post("/ingest", params={"seq": 8, "work": "main"})
+    except RuntimeError:
+        pass
+    assert ("main", 8) not in A._pending_ingest, "异常后仍须清除在途标记(finally)"
+
+
+# ============================================================
+# 批C · 端点正确性小修(审计 P1-8 / P1-3 / Minor draft-check)
+# ============================================================
+def test_world_rule_illegal_scope_422(store):
+    """P1-8: 非法 scope 提前 422(应用层枚举校验),不再走到 DB ASSERT 才 500。"""
+    c = _client(store)
+    r = c.post("/world-rules", json={"name": "禁术", "category": "magic", "scope": "galactic"})
+    assert r.status_code == 422, f"非法 scope 应 422,实得 {r.status_code}: {r.text}"
+
+
+def test_world_rule_legal_scopes_ok(store):
+    """P1-8 回归:三个合法 scope 正常创建 200。"""
+    c = _client(store)
+    for sc in ("global", "regional", "faction_specific"):
+        r = c.post("/world-rules", json={"name": f"规则_{sc}", "category": "magic", "scope": sc})
+        assert r.status_code == 200, f"合法 scope={sc} 应 200,实得 {r.status_code}: {r.text}"
+
+
+def test_edit_promise_preserves_unpassed_kind(store):
+    """P1-3: PATCH 只改 text 不传 kind → kind 保留(red_herring 不被重置为 promise)。"""
+    c = _client(store)
+    c.post("/promises-new", json={"text": "障眼法", "setup_chapter": 2,
+                                  "promise_kind": "red_herring"})
+    pid = c.get("/promises").json()[0]["id"]
+    r = c.patch(f"/promises/{pid}", json={"text": "障眼法(改文案)"})
+    assert r.status_code == 200, r.text
+    p = c.get("/promises").json()[0]
+    assert p["text"] == "障眼法(改文案)"
+    assert p["kind"] == "red_herring", "未传 kind 不应被重置为默认 promise"
+    assert p["setup_chapter"] == 2, "未传 setup_chapter 不应被重置为默认 1"
+
+
+def test_edit_promise_explicit_kind_still_updates(store):
+    """P1-3 自审:显式传 kind 仍正常更新(exclude_unset 不影响正常更新)。"""
+    c = _client(store)
+    c.post("/promises-new", json={"text": "线索", "setup_chapter": 1,
+                                  "promise_kind": "promise"})
+    pid = c.get("/promises").json()[0]["id"]
+    r = c.patch(f"/promises/{pid}", json={"text": "线索", "promise_kind": "red_herring"})
+    assert r.status_code == 200, r.text
+    assert c.get("/promises").json()[0]["kind"] == "red_herring", "显式传 kind 应更新"
+
+
+def test_draft_check_quality_flags_fail_soft(store, monkeypatch):
+    """Minor: quality_flags 抛错时 /draft-check 不 500,degraded_stages 含 quality_flags。"""
+    import scribe3.critique as C
+
+    def boom(prose):
+        raise RuntimeError("检测器炸了")
+
+    monkeypatch.setattr(C, "quality_flags", boom)
+    c = _client(store)
+    r = c.post("/draft-check", json={"prose": "测试正文。"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "quality_flags" in body["degraded_stages"], "quality_flags 应 fail-soft 计入 degraded"
+    assert body["quality"]["total"] == 0, "降级时质量计数归零,不 500"
+
+
+# ===== 方案A任务7:/post-check 接线 find_elegant_variation(同义词循环) =====
+
+def test_post_check_elegant_variation_issue(store):
+    """/post-check:store 里有角色「陈九」,正文用泛称(那男人/少年)反复替换指代时,
+    issues 应含 type=elegant_variation 一条,meta.aliases 含命中的泛称。"""
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:陈九", "character", "陈九"))
+    prose = "陈九抬头看天。那男人叹了口气。少年攥紧了拳。陈九转身就走。"
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": prose, "focalizer": "", "brief": ""}).json()
+    ev = [i for i in r.get("issues", []) if i.get("type") == "elegant_variation"]
+    assert ev, f"应检出 elegant_variation issue,实际 issues 类型: {[i.get('type') for i in r.get('issues', [])]}"
+    assert set(ev[0]["meta"]["aliases"]) >= {"那男人", "少年"}
+
+
+def test_post_check_elegant_variation_fail_soft(store, monkeypatch):
+    """/post-check:st.characters() 抛异常时 elegant_variation 检测 fail-soft 跳过,不 500。"""
+    import scribe3.store as storemod
+
+    monkeypatch.setattr(storemod.SurrealStore, "characters",
+                        lambda self: (_ for _ in ()).throw(RuntimeError("db 炸了")))
+
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "正文。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200, f"characters() 抛异常时 /post-check 应 200,实际: {r.status_code}"
+    assert not any(i.get("type") == "elegant_variation" for i in r.json().get("issues", []))
+
+
+def test_post_check_no_characters_no_elegant_variation(store):
+    """/post-check:库中无角色时,elegant_variation 不产生命中(不误报,不崩溃)。"""
+    def fake_complete(prompt, **kw):
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    c = _client(store, complete_fn=fake_complete)
+    r = c.post("/post-check", params={"seq": 1},
+               json={"prose": "陈九抬头看天。那男人叹了口气。少年攥紧了拳。", "focalizer": "", "brief": ""})
+    assert r.status_code == 200
+    assert not any(i.get("type") == "elegant_variation" for i in r.json().get("issues", []))
+
+
+# ===== 方案B任务24:story-import 逆向导入(全计划最后一个功能任务)=====
+
+def test_write_gate_includes_import_route():
+    """test_consistency 守卫的镜像:确认 /import 已登记在 KNOWN_REST_WRITE_ROUTES。"""
+    from scribe3.tests.test_consistency import TestWriteGate
+    assert ("POST", "/import") in TestWriteGate.KNOWN_REST_WRITE_ROUTES
+
+
+def test_import_endpoint_e2e_and_idempotent_resume(store, monkeypatch, tmp_path):
+    """POST /import:逐章按 seq 升序走 ingest_chapter(journal 包裹);
+    断言 imported==2、open_promises 可见、journal 文件 stages_completed 含两章;
+    再次以相同 chapters 调用 → 全部 skipped(幂等续跑,B23 journal 断点续跑语义)。"""
+    monkeypatch.setenv("SCRIBE3_IMPORT_JOURNAL_DIR", str(tmp_path))
+    store.add_entity(Entity("role:柳怀玉", "character", "柳怀玉"))
+    store.plant_promise("怀玉腰间的玉佩来历不明", setup_chapter=1)
+
+    def fake_complete(prompt, **kw):
+        return ('{"learned":[{"who":"柳怀玉","fact":"知晓玉佩来历"}],"did":[],'
+                '"voice_shift":[],"arc":[],"events":[]}')
+
+    c = _client(store, complete_fn=fake_complete)
+    body = {"chapters": [{"seq": 1, "prose": "柳怀玉在城郊遇险。"},
+                         {"seq": 2, "prose": "柳怀玉揭开玉佩秘密。"}]}
+    r = c.post("/import", params={"work": "main"}, json=body)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["imported"] == 2, data
+    assert data["skipped"] == 0
+    assert data["resume_from"] == 3
+    assert any(p["status"] == "open" for p in data["open_promises"]), "open_promises 应可见"
+    assert "error" not in data
+
+    jf = tmp_path / "scribe3_import_main.json"
+    assert jf.exists(), "journal 文件应已落盘"
+    jdata = json.loads(jf.read_text())
+    assert set(jdata["stages_completed"]) >= {"import_ch1", "import_ch2"}
+    assert jdata["in_progress"] is None
+
+    # 第二次以相同 chapters 调用:两章均已 complete → 全部幂等跳过
+    r2 = c.post("/import", params={"work": "main"}, json=body)
+    data2 = r2.json()
+    assert data2["imported"] == 0
+    assert data2["skipped"] == 2
+    assert data2["resume_from"] == 3
+
+
+def test_import_endpoint_stops_on_parse_failed_and_reports_resume(store, monkeypatch, tmp_path):
+    """crash-safe 协议:某章 ingest parse_failed → 立即中止、不继续后续章;
+    响应 200+error 保留已完成进度 + resume 指引(而非 4xx 丢掉进度信息);
+    journal 该章保持未 complete(in_progress),供下次整章重跑。"""
+    monkeypatch.setenv("SCRIBE3_IMPORT_JOURNAL_DIR", str(tmp_path))
+    store.add_entity(Entity("role:阿禾", "character", "阿禾"))
+
+    calls = {"n": 0}
+
+    def flaky_complete(prompt, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return '{"learned":[],"did":[],"voice_shift":[],"arc":[],"events":[]}'
+        return "不是JSON,解析必然失败"
+
+    c = _client(store, complete_fn=flaky_complete)
+    body = {"chapters": [{"seq": 1, "prose": "阿禾出场。"},
+                         {"seq": 2, "prose": "阿禾遇险。"},
+                         {"seq": 3, "prose": "阿禾获救。"}]}
+    r = c.post("/import", params={"work": "main"}, json=body)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["imported"] == 1, data
+    assert data["resume_from"] == 2, "应指回失败的第2章,而非跳过它续第3章"
+    assert data.get("error"), "失败应带 error 字段(200+error,保留已完成进度)"
+
+    jf = tmp_path / "scribe3_import_main.json"
+    jdata = json.loads(jf.read_text())
+    assert jdata["stages_completed"] == ["import_ch1"]
+    assert jdata["in_progress"] == "import_ch2", "失败章应停在 in_progress,不可 complete,供整章重跑"
