@@ -60,6 +60,9 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const endRef = useRef(null)
   const taRef = useRef(null)
   const fileRef = useRef(null)
+  const ctrlRef = useRef(null)   // 断头修复#83:在途写作流的 AbortController(停止/卸载中止)
+  const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current = null; setBusy(false) }
+  useEffect(() => () => { ctrlRef.current?.abort?.() }, [])
 
   // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
   useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
@@ -108,7 +111,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
     setMsgs((m) => [...m, { role: 'user', content: displayQ }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    api.chatWrite(finalMsg, {
+    // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
+    ctrlRef.current = api.chatWrite(finalMsg, {
       chapter, focalizer, images,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
@@ -186,13 +190,19 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             >
               <Paperclip size={14} />
             </Btn>
-            <Btn variant="primary" icon
-              onClick={() => send()}
-              disabled={busy || (!input.trim() && attachments.length === 0)}
-              aria-label="发送"
-            >
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </Btn>
+            {busy ? (
+              <Btn variant="primary" icon onClick={stop} title="停止生成" aria-label="停止生成">
+                <X size={15} />
+              </Btn>
+            ) : (
+              <Btn variant="primary" icon
+                onClick={() => send()}
+                disabled={!input.trim() && attachments.length === 0}
+                aria-label="发送"
+              >
+                <Send size={15} />
+              </Btn>
+            )}
           </div>
         </div>
         <input

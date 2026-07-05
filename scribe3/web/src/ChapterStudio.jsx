@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
-  Plus, Trash2, Check, Save, Loader2, Sparkles,
+  Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -291,6 +291,8 @@ function DraftTab({ seq, work, meta, onAdopt }) {
   const [summary, setSummary] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [checking, setChecking] = useState(false)   // 断头修复#22:草稿质检
+  const [checkRes, setCheckRes] = useState(null)
   // 待落草稿(块二并入通用 stageProposal 通道):phase/seq 匹配且内容非空才提示(防切章/切阶段串台)。
   const { pending, clear } = useStageProposal('draft', seq)
   // 落进后置 dirty,靠既有 flush(切章/存草稿)落库;同时清除待落。
@@ -360,6 +362,17 @@ function DraftTab({ seq, work, meta, onAdopt }) {
           <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })} title="把话术带到右栏主编,生成后可一键填入">
             <Sparkles size={13} />让主编生成
           </Btn>
+          {/* 断头修复#22:/draft-check 后端与测试全绿而前端零调用——草稿阶段首次接上确定性质检 */}
+          <Btn variant="ghost" size="sm" disabled={checking || !text.trim()}
+            onClick={() => {
+              setChecking(true)
+              api.draftCheck(seq, text, meta?.focalizer || '')
+                .then(setCheckRes)
+                .catch((e) => setCheckRes({ error: e?.body?.detail || e?.message || '质检失败' }))
+                .finally(() => setChecking(false))
+            }} title="确定性轻质检:五类 QC/整行复读/排比/情感直说/泄露预览,不落库不打断">
+            {checking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}质检
+          </Btn>
           <Btn variant="soft" size="sm" onClick={saveDraft} disabled={saving}>
             <Save size={13} />存草稿
           </Btn>
@@ -374,6 +387,27 @@ function DraftTab({ seq, work, meta, onAdopt }) {
           actions={[{ label: '填入草稿框', variant: 'primary', onClick: fillDraft }, { label: '追加到草稿', onClick: appendDraft }]}
           onDismiss={clear}
         />
+      )}
+      {checkRes && (
+        <div className="mb-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-ink">草稿质检</span>
+            <button onClick={() => setCheckRes(null)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">关闭</button>
+          </div>
+          {checkRes.error ? <div className="text-danger mt-1">{checkRes.error}</div> : (() => {
+            const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
+            const q = checkRes.quality || {}
+            const bits = [
+              ['复读', cnt(q.repetition)], ['排比', cnt(q.structural)], ['升华', cnt(q.purple)],
+              ['AI腔', cnt(q.ai_tics)], ['过饱和', cnt(q.oversaturation)],
+              ['整行重复', cnt(checkRes.duplicate_lines)], ['情感直说', cnt(checkRes.emotion_telling)],
+              ['泄露预览', cnt(checkRes.leaks)],
+            ].filter(([, n]) => n > 0)
+            return bits.length === 0
+              ? <div className="text-ok mt-1">干净——确定性检测零命中</div>
+              : <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-warn">{bits.map(([l, n]) => <span key={l}>{l} {n}</span>)}</div>
+          })()}
+        </div>
       )}
       <Input
         value={summary}
@@ -413,7 +447,13 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
       const deds = meta.deductions || []
       const done = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
       const pending = (meta.involved_characters || []).filter((id) => !done.has(id))
-      if (pending.length) toast(`还有 ${pending.length} 个涉及角色未演绎,可回「演绎」补(不影响继续)`, { tone: 'warn' })
+      if (pending.length) {
+        // 断头修复#8:软门带可点"去补"入口(此前只有文案,无跳转动作)
+        toast(`还有 ${pending.length} 个涉及角色未演绎(不影响继续)`, {
+          tone: 'warn',
+          action: { label: '去补', onClick: () => { setPhase('deduce'); localStorage.setItem('s3.chapter.phase', 'deduce') } },
+        })
+      }
     }
     setPhase(p); localStorage.setItem('s3.chapter.phase', p)
   }

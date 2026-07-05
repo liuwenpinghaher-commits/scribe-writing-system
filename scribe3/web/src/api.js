@@ -110,6 +110,10 @@ export const api = {
   markHerring: (pid) => post('/promises/' + enc(pid) + '/mark-herring'),
   addPromiseClue: (pid, note, chapter) => post('/promises/' + enc(pid) + '/clues', { note, chapter }),
   removePromiseClue: (pid, idx) => del('/promises/' + enc(pid) + '/clues/' + idx),
+  // 断头修复 P1-9:物品状态变更端点(记 state_history)此前前端零调用方
+  itemState: (name, state, chapter, reason) => post('/items/' + enc(name) + '/state', { state, chapter, reason }),
+  // 断头修复#22:草稿轻量质检(后端全绿、前端此前零调用)
+  draftCheck: (seq, prose, focalizer) => post(`/draft-check?seq=${seq}`, { prose, focalizer }),
   addMotifNew: (b) => post('/motifs-new', b),
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),

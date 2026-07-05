@@ -1249,7 +1249,12 @@ DISCIPLINE_KINDS = ("double_climax", "voice_collapse", "exposition_dump",
 def parse_discipline(reply: str) -> dict:
     try:
         m = re.search(r"\{.*\}", reply or "", re.S)
-        d = json.loads(m.group(0)) if m else {}
+        if not m:
+            # 回复里连 JSON 都没有=同样是解析失败形态(fail-open 放行但计 degraded)
+            _log.warning("parse_discipline 无 JSON,纪律默认放行 | reply[:120]=%r", (reply or "")[:120])
+            return {"ok": True, "violations": [], "extra": [], "cut_after": "",
+                    "parse_failed": True}
+        d = json.loads(m.group(0))
         # 批次二(D-024 真机发现):生产 LLM 往 violations 混塞自由文本("未处理开放项:…"),
         # 与五类标签求交保序;其余进 extra 不丢(人可读,不参与共振/升格判定)。
         raw_v = [str(v) for v in (d.get("violations") or [])]
@@ -1259,15 +1264,20 @@ def parse_discipline(reply: str) -> dict:
                 "cut_after": (d.get("cut_after") or "").strip()}
     except Exception as e:
         _log.warning("parse_discipline 失败,纪律默认放行: %s | reply[:120]=%r", e, (reply or "")[:120])
-        return {"ok": True, "violations": [], "extra": [], "cut_after": ""}   # 解析失败不阻断(fail-open)
+        # 审计 E-2/#58:fail-open 保持(不误拦),但带 parse_failed 标记供上游计
+        # degraded——此前解析失败只有日志,"没查"被静默当"没病"(纪律判假绿口)。
+        return {"ok": True, "violations": [], "extra": [], "cut_after": "",
+                "parse_failed": True}
 
 
 def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None = None) -> dict:
     """判定违规→复发点靠后(留≥40%)则截到复发点;复发太早只标记不砍(交回重生)。"""
     v = parse_discipline(complete_fn(build_discipline_prompt(text, brief, known)))
     extra = v.get("extra") or []
+    _pf = {"parse_failed": True} if v.get("parse_failed") else {}
     if v["ok"] or not v["cut_after"]:
-        return {"text": text, "violations": v["violations"], "extra": extra, "changed": False}
+        return {"text": text, "violations": v["violations"], "extra": extra,
+                "changed": False, **_pf}
     idx = text.find(v["cut_after"])
     if idx < 0:
         return {"text": text, "violations": v["violations"], "extra": extra, "changed": False}

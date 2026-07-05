@@ -11,7 +11,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -88,22 +87,10 @@ def _s1_circuit_open(work: str) -> bool:
 def _s1_record(work: str, s1_triggered: bool) -> None:
     _s1_recent.setdefault(work, deque(maxlen=10)).append(bool(s1_triggered))
 
-# P28: LLM调用限流(并发上限 + 日调用上限)
-_MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
-_DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
-_sema = asyncio.Semaphore(_MAX_CONCURRENT)
-_day = (time.strftime("%Y-%m-%d"), 0)
-
-def _check_daily():
-    global _day
-    today = time.strftime("%Y-%m-%d")
-    d, n = _day
-    if d != today:
-        _day = (today, 0)
-        d, n = today, 0
-    if n >= _DAILY_CALL_CAP:
-        raise HTTPException(status_code=429, detail="daily LLM budget exhausted")
-    _day = (today, n + 1)
+# P28 限流三件套裁决(审计 P1-12,方案原文"接线或删除二选一"):
+# 日调用帽下沉到 llm.py 单点接线(所有 LLM 出口:complete/stream/responses);
+# _sema 并发闸(asyncio,与同步 httpx 调用形态不符)与 CircuitBreaker(持续故障
+# 熔断,0.18 网关自身有重试/排队)删除——见台账 D-029。
 
 
 def set_store(store, work: str = "main") -> None:
@@ -177,7 +164,22 @@ def _mask_field(row: dict, field: str, secret_field: str, reveal: bool) -> dict:
 # ===== 书 =====
 @app.get("/health")
 def health():
-    return {"ok": True, "ns": "scribe3"}
+    # 审计 #80:真探测——ping 默认书连接(此前纯桩,DB 挂了照样报 ok 假绿)。
+    try:
+        _store_for("main")._query("RETURN 1")
+        return {"ok": True, "ns": "scribe3", "db": "ok"}
+    except Exception as e:
+        return {"ok": False, "ns": "scribe3", "db": f"down: {str(e)[:80]}"}
+
+
+@app.get("/ready")
+def ready():
+    """就绪探针:DB 可达 200,否则 503(部署/看门狗用)。"""
+    try:
+        _store_for("main")._query("RETURN 1")
+        return {"ready": True}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"db not ready: {str(e)[:80]}")
 
 
 @app.get("/works")
@@ -2075,6 +2077,20 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         logging.getLogger("scribe3").debug(
             "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
             chapter, len(ded))
+    elif (phase or "").strip().lower() == "deduce":
+        # 断头修复(演绎多棱镜 #5):投影必须从同一场景真相物理派生——此前指令说
+        # "据场景真相"但真相从不进 prompt(B-3 同型坑:被指令据 X 却没收到 X),
+        # "多投影天然一致"沦为对模型的口头要求。真相非空即注入;生成真相本身时
+        # 它可作重写参照,无害。
+        try:
+            _truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
+        except Exception:
+            _truth = ""
+        if _truth:
+            instructions += ("\n\n## 本场「场景真相」(全知,各角色投影派生的唯一事实源)\n"
+                             + _truth
+                             + "\n\n生成角色限知投影时:只从上述真相中该角色能感知/推知的"
+                               "部分派生;真相里没有的事不得出现在任何投影里。")
     instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
@@ -2644,6 +2660,16 @@ def _bg_ingest(work: str, seq: int) -> None:
     import logging
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
+    # 审计 P1-6:ingest 结果状态落 chapter(ingest_status/ingest_error)——此前失败只写
+    # 服务端日志,前端零感知,知识账本悄悄落后,后续章简报/限知帧全吃陈旧数据。
+    def _mark(st0, status, err=""):
+        try:
+            st0._execute_write(
+                "UPDATE type::record('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
+                {"seq": seq, "st": status, "er": (err or "")[:200]})
+        except Exception as me:
+            logging.getLogger("scribe3").warning("ingest 状态落库失败(忽略): %s", me)
+
     st = None
     try:
         st = SurrealStore(ns="scribe3", db=work)
@@ -2651,8 +2677,10 @@ def _bg_ingest(work: str, seq: int) -> None:
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
+            _mark(st, "parse_failed", "LLM 回复解析失败,知识账本未更新")
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+            _mark(st, "ok")
         # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
         try:
             from scribe3.lesson import distill_chapter
@@ -2662,6 +2690,8 @@ def _bg_ingest(work: str, seq: int) -> None:
                                                  work, seq, e)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
+        if st is not None:
+            _mark(st, "failed", str(e))
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard((work, seq))
@@ -2698,9 +2728,11 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
+    # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
     try:
-        st.add_chapter_version(req.seq, req.prose, label="", kind="final",
-                               stage="final", stats=_prose_stats(req.prose))
+        if st.latest_version_prose(req.seq, "final") != req.prose:
+            st.add_chapter_version(req.seq, req.prose, label="", kind="final",
+                                   stage="final", stats=_prose_stats(req.prose))
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning(
@@ -2940,6 +2972,11 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             base_brief = req.brief or DEFAULT_DISCIPLINE_BRIEF
             brief_for_discipline = base_brief + "\n\n" + inherited_text
         discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
+        # 审计 E-2/#58:LLM 回复解析失败 → fail-open 放行但计 degraded(没查≠没病;
+        # 不入 _PASS_CRITICAL_STAGES——纪律判是 S1 来源,不是 pass 门关键检测)。
+        if discipline.get("parse_failed"):
+            degraded = True
+            degraded_stages.append("discipline_parse")
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
         degraded = True

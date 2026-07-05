@@ -274,7 +274,8 @@ def apply_delta(store, delta: dict, seq: int,
     for it in delta.get("voice_shift") or []:
         who, reason = it.get("who"), it.get("reason")
         if who and reason and hasattr(store, "add_voice_flag"):
-            store.add_voice_flag(who, seq, reason)   # 只标记(角色名),不生成独白
+            # 只标记(角色名),不生成独白;ingest_seq 供 purge 幂等(审计 C-2)
+            store.add_voice_flag(who, seq, reason, ingest_seq=seq)
     # G4: 自动从正文抽取角色弧光(char_state)——边写边长出弧光,反哺下一章约束
     for it in delta.get("arc") or []:
         who = it.get("who")

@@ -610,8 +610,14 @@ class SurrealStore:
             # 有他章引用:保留命题,仅边已在步骤1删除
         # 3. char_state 无跨章复用问题,直接清
         self._execute_write("DELETE char_state WHERE ingest_seq = $seq", {"seq": seq})
-        # 4. P2-a Fix5: 清本章 ingest_unverified 记录——重 ingest 时防止累积重复 pending
-        self._execute_write("DELETE ingest_unverified WHERE seq = $seq", {"seq": seq})
+        # 4. P2-a Fix5: 清本章 ingest_unverified 记录——重 ingest 时防止累积重复 pending。
+        # 审计 C-3:只清 pending——accepted/ignored 是人的决策,re-ingest 不得抹掉
+        # (否则同名再被抽到即"复活"回待办,人反复裁同一个名字)。
+        self._execute_write("DELETE ingest_unverified WHERE seq = $seq AND status = 'pending'",
+                            {"seq": seq})
+        # 审计 C-2:ingest 路径产的 voice_evolution_flag 同步幂等清除(re-ingest 防累积);
+        # 手动/无 ingest_seq 的 flag 不动。
+        self._execute_write("DELETE voice_evolution_flag WHERE ingest_seq = $seq", {"seq": seq})
         # 5. 母题章实例:随本章 ingest 幂等清除
         self._execute_write("DELETE motif_instance WHERE ingest_seq = $seq", {"seq": seq})
         # 6. 伏笔章触及:随本章 ingest 幂等清除(手动登记 ingest_seq=NONE 不受影响)
@@ -624,18 +630,31 @@ class SurrealStore:
         # 7. 事件图(批D P1-5):随本章 ingest 幂等清除本章抽取的事件 + 图边。
         #    先删图边(involves/causes/causal)再删事件本体——否则 RELATE 边悬挂指向已删事件。
         #    只清 ingest_seq=seq:手动种 / MCP s3_add_event(ingest_seq=NONE)的事件不动。
-        ev_filter = "(SELECT VALUE id FROM event WHERE ingest_seq = $seq)"
-        self._execute_write(f"DELETE involves WHERE in IN {ev_filter}", {"seq": seq})
-        self._execute_write(f"DELETE causes WHERE in IN {ev_filter}", {"seq": seq})
-        self._execute_write(
-            f"DELETE causal WHERE in IN {ev_filter} OR out IN {ev_filter}", {"seq": seq})
-        self._execute_write("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
+        # 审计 M2:原 causal 一句里子查询出现两次=执行两次;先取 ids 参数化,零子查询。
+        ev_ids = self._query("SELECT VALUE id FROM event WHERE ingest_seq = $seq", {"seq": seq})
+        if ev_ids:
+            self._execute_write("DELETE involves WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
-        """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。"""
+        """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。
+        审计 C-3:同名已被人裁决(ignored/accepted)则不再登记——决策跨 re-ingest 存活。"""
+        decided = self._query(
+            "SELECT id FROM ingest_unverified WHERE name=$n AND status != 'pending' LIMIT 1",
+            {"n": name})
+        if decided:
+            return
         self._execute_write(
             "CREATE ingest_unverified SET name=$n, seq=$s, role=$r, status='pending'",
             {"n": name, "s": seq, "r": role})
+
+    def set_unverified_status(self, uid: str, status: str) -> None:
+        """裁决待确认条目(pending→ignored/accepted;accept 的建实体流程在 accept_unverified)。"""
+        self._execute_write(
+            "UPDATE type::record('ingest_unverified',$uid) SET status=$st",
+            {"uid": uid, "st": status})
 
     def list_unverified(self, status: str = "pending") -> list[dict]:
         """列待确认条目(pending/accepted/ignored)。"""
@@ -1260,7 +1279,8 @@ class SurrealStore:
             "范例:灵龙镇煞钉·阳铜黑狗血七七四十九天炼成·三百六十支围太极阵·画井为狱镇魂锁煞")
 
     # --- 声音进化标记 ---
-    def add_voice_flag(self, character: str, seq: int, reason: str) -> None:
+    def add_voice_flag(self, character: str, seq: int, reason: str,
+                       ingest_seq: int | None = None) -> None:
         # seq 是退场方(021 起改名为 trigger_chapter)。只写真源 trigger_chapter。
         # character_id 规范化(批D P1-11 后端跟进):ingest 的 voice_shift 路径传裸名(who),
         # 而 fold_voice_flags/add_char_state 一律用 role: 前缀 id 匹配 → 裸名 flag 永不被 fold
@@ -1269,8 +1289,10 @@ class SurrealStore:
         cid = character if ":" in character else f"role:{character}"
         self._execute_write(
             "CREATE voice_evolution_flag SET character=$c, "
-            "trigger_chapter=$s, reason=$r, status='open'",
-            {"c": cid, "s": seq, "r": reason})
+            "trigger_chapter=$s, reason=$r, status='open'"
+            + (", ingest_seq=$i" if ingest_seq is not None else ""),
+            {"c": cid, "s": seq, "r": reason,
+             **({"i": ingest_seq} if ingest_seq is not None else {})})
 
     def list_voice_flags(self, status: str = "open") -> list[dict]:
         return self._query(
@@ -1711,9 +1733,15 @@ class SurrealStore:
                      _today: str | None = None) -> None:
         """落/覆盖某章正文(UPSERT)。附带章向量 + QC缓存(字数,不再全拉正文统计)。
         _today:测试时注入固定日期字符串(YYYY-MM-DD),生产不传。"""
+        # 审计 E-1:embedding 是召回辅助不是正文,故障绝不拖死存稿(命门 fail-soft)。
         text_for_embed = f"{title} {prose[:200]}".strip()
-        from scribe3.embed import embed
-        vec = embed([text_for_embed])[0]
+        try:
+            from scribe3.embed import embed
+            vec = embed([text_for_embed])[0]
+        except Exception as _ee:
+            logging.getLogger("scribe3.store").warning(
+                "save_chapter embedding 失败(正文照存,该章暂无语义召回向量): %s", _ee)
+            vec = None
         wc = len("".join(prose.split()))
         # 千万字缓存(Phase0-BE1):落库时算好场景切分 + QC 计数,聚合端点不再全表拉正文/重算。
         cache = self._compute_chapter_caches(seq, prose)
@@ -1820,7 +1848,8 @@ class SurrealStore:
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         rows = self._query(
             "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
-            "scene_truth,involved_characters,deductions,purpose_text,deltas "
+            "scene_truth,involved_characters,deductions,purpose_text,deltas,"
+            "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
@@ -2601,7 +2630,8 @@ class SurrealStore:
              "ap": arc_phase, "av": affects_voice, "conf": confidence, "lb": lie_belief,
              **({"iseq": ingest_seq} if ingest_seq is not None else {})})
         if affects_voice:
-            self.add_voice_flag(character_id, chapter, summary)
+            # 审计 C-2:透传 ingest_seq——ingest 路径产的 flag 随 purge 幂等,手动的保留
+            self.add_voice_flag(character_id, chapter, summary, ingest_seq=ingest_seq)
 
     def char_state_at(self, character_id: str, chapter: int) -> dict:
         """返回角色在某章时刻的完整状态快照(合并所有 CharState 到该章)。"""
@@ -3062,7 +3092,28 @@ class SurrealStore:
                              f"衔接,请人工确认时间线")})
         return hints
 
+    def latest_version_prose(self, seq: int, kind: str) -> str | None:
+        """某章某 kind 最新版本的正文(审计 P2-1:final 版同稿去重的比对源)。"""
+        rows = self._query(
+            "SELECT prose, created_at FROM chapter_version WHERE seq=$s AND kind=$k "
+            "ORDER BY created_at DESC LIMIT 1", {"s": seq, "k": kind})
+        return rows[0].get("prose") if rows else None
+
     def validate_cross_chapter_consistency(self) -> list[dict]:
+        """跨章一致性检测(带指纹缓存壳)。审计 P2-13:每次 /post-check 全书扫太贵,
+        以 (章数, Σqc_word_count) 为指纹——正文未变直接回缓存;指纹是弱哈希
+        (同字数改动漏检),一致性 hint 是 advisory 级,可接受,存稿即失效重扫。"""
+        fp_rows = self._query(
+            "SELECT count() AS n, math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        fp = ((fp_rows[0].get("n") or 0), (fp_rows[0].get("w") or 0)) if fp_rows else (0, 0)
+        cached = getattr(self, "_cc_cache", None)
+        if cached and cached[0] == fp:
+            return cached[1]
+        hints = self._validate_cross_chapter_impl()
+        self._cc_cache = (fp, hints)
+        return hints
+
+    def _validate_cross_chapter_impl(self) -> list[dict]:
         """跨章一致性检测(全书扫描)。
 
         返回 hint 列表(与 validate_setting 同结构),包含:

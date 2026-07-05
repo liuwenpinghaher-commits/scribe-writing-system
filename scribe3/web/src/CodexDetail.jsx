@@ -504,6 +504,90 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
  * 素材叶节点的中间栏详情卡:复用 CodexView 的 DetailView(角色档案/通用字段表/弧光/关系),
  * 自己负责按 node 懒加载该条全字段 + 落库回写。
  */
+
+// 伏笔生命周期特化块(断头修复#21):埋→收状态一览 + 回收 + 线索增删——
+// 入口 title 承诺"埋/收/线索/编辑",此前详情面只有埋/编辑,收与线索要绕道仪表盘。
+function PromiseLifecycle({ row, onChanged }) {
+  const [payoff, setPayoff] = useState('')
+  const [clue, setClue] = useState({ note: '', chapter: '' })
+  const [busy, setBusy] = useState(false)
+  const clues = Array.isArray(row.clues) ? row.clues : []
+  const act = async (fn, okMsg) => {
+    setBusy(true)
+    try { await fn(); showToast(okMsg, { tone: 'ok' }); onChanged?.() }
+    catch (e) { showToast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' }) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-5 rounded-xl border border-line bg-canvas p-3 space-y-2.5">
+      <div className="text-f12 font-medium text-ink">生命周期 · 埋第{row.setup_chapter ?? '—'}章
+        {row.payoff_chapter != null ? ` → 收第${row.payoff_chapter}章` : ' → 待收'}
+        {row.status ? `(${row.status})` : ''}</div>
+      {row.payoff_chapter == null && (
+        <div className="flex items-center gap-2">
+          <input value={payoff} onChange={(e) => setPayoff(e.target.value)} placeholder="回收章号"
+            className="w-24 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
+          <button disabled={busy || !/^\d+$/.test(payoff)}
+            onClick={() => act(() => api.advancePromise(row.id, Number(payoff)), '已回收(closed)')}
+            className="h-7 px-2.5 rounded-lg border border-line text-f12 text-ink hover:bg-soft cursor-pointer disabled:opacity-40">标记回收</button>
+        </div>
+      )}
+      <div className="space-y-1">
+        <div className="text-f11 text-faint">草蛇灰线线索({clues.length})</div>
+        {clues.map((c, i) => (
+          <div key={i} className="flex items-center gap-2 text-f12 text-ink">
+            <span className="text-faint shrink-0">第{c.chapter ?? '?'}章</span>
+            <span className="flex-1 min-w-0 truncate">{c.note || String(c)}</span>
+            <button disabled={busy} onClick={() => act(() => api.removePromiseClue(row.id, i), '线索已删')}
+              className="text-f11 text-faint hover:text-ink cursor-pointer shrink-0">删</button>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <input value={clue.chapter} onChange={(e) => setClue({ ...clue, chapter: e.target.value })}
+            placeholder="章" className="w-14 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
+          <input value={clue.note} onChange={(e) => setClue({ ...clue, note: e.target.value })}
+            placeholder="线索内容(不点破的中途暗示)" className="flex-1 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
+          <button disabled={busy || !clue.note.trim() || !/^\d+$/.test(clue.chapter)}
+            onClick={() => act(async () => { await api.addPromiseClue(row.id, clue.note.trim(), Number(clue.chapter)); setClue({ note: '', chapter: '' }) }, '线索已加')}
+            className="h-7 px-2.5 rounded-lg border border-line text-f12 text-ink hover:bg-soft cursor-pointer disabled:opacity-40">+ 线索</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 物品状态变更特化块(断头修复 P1-9):走 POST /items/{name}/state 记 state_history——
+// 通用编辑的 symbolic_state 直改不留痕,历史链此前在前端无入口。
+function ItemStateChange({ name, onChanged }) {
+  const [f, setF] = useState({ state: 'lost', chapter: '', reason: '' })
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="mt-5 rounded-xl border border-line bg-canvas p-3 space-y-2">
+      <div className="text-f12 font-medium text-ink">记录状态变更(入历史链,区别于直接改档案)</div>
+      <div className="flex items-center gap-2">
+        <select value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })}
+          className="h-7 px-1.5 rounded-lg border border-line bg-surface text-f12">
+          {['active', 'lost', 'destroyed', 'unknown'].map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <input value={f.chapter} onChange={(e) => setF({ ...f, chapter: e.target.value })}
+          placeholder="发生章" className="w-20 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
+        <input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })}
+          placeholder="缘由(如:铜炉在乱岗被夺)" className="flex-1 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
+        <button disabled={busy || !/^\d+$/.test(f.chapter)}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await api.itemState(name, f.state, Number(f.chapter), f.reason.trim())
+              showToast('状态变更已记录', { tone: 'ok' }); setF({ state: 'lost', chapter: '', reason: '' }); onChanged?.()
+            } catch (e) { showToast(e?.body?.detail || e?.message || '记录失败', { tone: 'danger' }) }
+            finally { setBusy(false) }
+          }}
+          className="h-7 px-2.5 rounded-lg border border-line text-f12 text-ink hover:bg-soft cursor-pointer disabled:opacity-40">记录</button>
+      </div>
+    </div>
+  )
+}
+
 export function CodexDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -542,6 +626,14 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
           }}
           onDelete={() => setDelOpen(true)}
         />
+        {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
+        {detailType === 'promises' && row?.id && (
+          <PromiseLifecycle row={row} onChanged={() => { reload(); onChanged?.() }} />
+        )}
+        {/* 物品专属(断头修复 P1-9):状态变更入历史链 */}
+        {detailType === 'items' && row?.name && (
+          <ItemStateChange name={row.name} onChanged={() => { reload(); onChanged?.() }} />
+        )}
         {/* 角色专属:弧光锚编辑 + 里程碑 + 信奉度曲线(独立 PATCH /char-anchors,不碰角色档案回写) */}
         {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} />}
         {/* 角色专属:声音演变后半环(P1-11)——voice flags 列表 + 一键折叠 + 折叠后声线指纹(独立 /voice-flags/*,不碰角色档案) */}

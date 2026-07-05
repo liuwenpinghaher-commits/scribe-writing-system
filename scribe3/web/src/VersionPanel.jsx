@@ -23,7 +23,20 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
                 // 否则把对象当 React 子节点渲染会崩(整个面板白屏)。
                 const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
                 const rep = cnt(v.qc?.repetition), pur = cnt(v.qc?.purple)
-                return (rep || pur) ? <div className="text-f10 text-faint mt-0.5">QC 复读{rep}·升华{pur}</div> : null
+                // 断头修复#16:stats/summary 后端一直落库(_prose_stats),此前 UI 不消费
+                const s = v.stats || {}
+                const bits = [
+                  s.words ? `${s.words}字` : null,
+                  s.avg_sentence ? `句长${s.avg_sentence}` : null,
+                  s.dialog_count != null && s.words ? `对白${s.dialog_count}` : null,
+                  (rep || pur) ? `QC 复读${rep}·升华${pur}` : null,
+                ].filter(Boolean)
+                return (
+                  <>
+                    {bits.length > 0 && <div className="text-f10 text-faint mt-0.5">{bits.join(' · ')}</div>}
+                    {v.summary && <div className="text-f10 text-faint/80 mt-0.5 truncate">{v.summary}</div>}
+                  </>
+                )
               })()}
             </li>
           ))}

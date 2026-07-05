@@ -162,8 +162,9 @@ function selSeq(sel) {
 }
 
 // 前置阶段(块二)→ 走 /chat/write 的 phase 映射:后端 _phase_role_block 只认 plan|draft|final,
-// 大纲/节拍属规划期→'plan';演绎与 DeduceStage.gen 同口径(不带阶段角色,靠 focalizer);草稿→'draft'。
-const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: '', draft: 'draft' }
+// 大纲/节拍属规划期→'plan';演绎传真实 phase(后端注入场景真相块,投影同源派生的
+// 物理保证,断头修复#5);草稿→'draft'。
+const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: 'deduce', draft: 'draft' }
 
 function DiscussionDock({ sel, phase }) {
   const seq = useMemo(() => selSeq(sel), [sel])

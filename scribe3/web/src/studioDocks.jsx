@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -20,20 +20,35 @@ import { useSelection } from './selectionContext'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
-export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq }) {
+export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onCollapse }) {
   const [tab, setTab] = usePref('s3.leftTab', 'tree')
   const [focalizer, setFocalizer] = useState('')
   const [ledger, setLedger] = useState(undefined)   // undefined=加载中/未知,null=加载失败,object=数据
   const [motifs, setMotifs] = useState([])
+  const [qcCount, setQcCount] = useState(0)   // 断头修复#13:校验 tab 红点数据源
 
   useEffect(() => {
     setLedger(undefined)
     api.promisesLedger().then((l) => setLedger(l && typeof l === 'object' ? l : {})).catch(() => setLedger(null))
     api.motifs().then((m) => setMotifs(Array.isArray(m) ? m : [])).catch(() => {})
+    // 断头修复#13:QC 命中总数喂校验 tab badge(轻端点,读存稿缓存)
+    if (seq != null) {
+      api.qc(seq).then((q) => {
+        const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
+        setQcCount(q && typeof q === 'object'
+          ? Object.values(q).reduce((s, v) => s + cnt(v), 0) : 0)
+      }).catch(() => setQcCount(0))
+    } else setQcCount(0)
   }, [seq])
   useEffect(() => {
     if (seq == null) { setFocalizer(''); return }
-    api.chapter(seq).then((ch) => setFocalizer(ch?.focalizer || '')).catch(() => setFocalizer(''))
+    const pull = () => api.chapter(seq).then((ch) => setFocalizer(ch?.focalizer || '')).catch(() => setFocalizer(''))
+    pull()
+    // 断头修复#14(focalizer 双源):顶栏改视角存稿后 chapter 表变更经 s3-live 推送——
+    // 监听重拉,左栏帧面板不再按库中旧视角渲染(文档明令避免的"各自拉取不一致")。
+    const onLive = (e) => { if ((e?.detail?.table || e?.detail?.tb) === 'chapter') pull() }
+    window.addEventListener('s3-live', onLive)
+    return () => window.removeEventListener('s3-live', onLive)
   }, [seq])
 
   const caps = useMemo(() => {
@@ -49,12 +64,18 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
-      { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
+      // 断头修复#13:badge 两端早已就绪(Rail 渲染✓ 数据✓),此前 caps 不传——红点永不显示
+      { key: 'promise', icon: Bookmark, label: '伏笔',
+        badge: _promiseBadge(ledger, seq),
+        render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
       { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
+      // 断头修复(死 leftCaps 回填③):语义召回检索——原 WriteLayout renderRecall 不可达
+      { key: 'recall', icon: Search, label: '检索 · 语义召回', render: () => <RecallPanel /> },
     )
-    base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露', render: () => <QCPanel seq={seq} /> })
+    base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露',
+      badge: qcCount || undefined, render: () => <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, onSelect])
+  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, qcCount, onSelect])
 
   // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
   const active = caps.find((c) => c.key === tab) || caps[0]
@@ -62,7 +83,9 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
 
   return (
     <div className="h-full flex min-h-0 bg-surface">
-      <Rail side="left" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
+      {/* Rail 点当前高亮项发空串=折叠信号(设计:点当前项收起该栏)——此前被
+          `k || active.key` 吞掉,折叠从未接通;现空串走 onCollapse 收起整栏。 */}
+      <Rail side="left" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
       {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/母题/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
           key=tab+章 → 切 tab / 切章时重建复位,用户切走再切回可自恢复。 */}
       <div className={cn('flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line', active.bare ? '' : 'p-3')}>
@@ -73,8 +96,48 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
 }
 
 // 三栏写作台的「右栏」:面板 + 竖图标轨(镜像)。图标切换:主编对话/版本存档。
-export function RightDock({ sel, chapterSel, seq, onRestored }) {
+// 伏笔 badge(断头修复#13):待办数=仍悬(setup<本章且未收)+超期;ledger 未就绪不显。
+function _promiseBadge(ledger, seq) {
+  if (!ledger || typeof ledger !== 'object' || seq == null) return undefined
+  const open = Array.isArray(ledger.open) ? ledger.open : []
+  const n = open.filter((p) => p && (p.payoff_chapter == null || p.payoff_chapter > seq)
+    && ((p.window || {}).state === 'overdue'
+        || (p.setup_chapter != null && p.setup_chapter < seq))).length
+  return n || undefined
+}
+
+// 语义召回检索面板(死 leftCaps 回填③:原 WriteLayout renderRecall)。
+function RecallPanel() {
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState([])
+  const run = (e) => { e.preventDefault(); if (q.trim()) api.recall(q.trim(), 8).then(setHits).catch(() => setHits([])) }
+  return (
+    <div>
+      <SectionTitle>语义召回设定</SectionTitle>
+      <form onSubmit={run} className="flex gap-1.5 mb-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」"
+          className="flex-1 h-8 px-2.5 rounded-lg border border-line bg-canvas text-f12" />
+        <button type="submit" className="h-8 px-2.5 rounded-lg bg-brand text-brandfg text-f12 cursor-pointer">搜</button>
+      </form>
+      {hits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
+        : hits.map((f) => (
+          <div key={f.id} className="text-f12 text-ink py-1 border-b border-line/40 last:border-0">
+            <span className="text-faint">{f.attribute}</span>:{f.value}
+          </div>
+        ))}
+    </div>
+  )
+}
+
+export function RightDock({ sel, chapterSel, seq, onRestored, onCollapse }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
+  // 断头修复#12:中区"让主编改这处/体检送主编"需要把右栏切到主编 tab——
+  // 此前 WriteLayout 的 setRightActive 信号无人消费;现经窗口事件接通。
+  useEffect(() => {
+    const on = (e) => { if (e?.detail) setTab(String(e.detail)) }
+    window.addEventListener('s3-right-tab', on)
+    return () => window.removeEventListener('s3-right-tab', on)
+  }, [setTab])
   const caps = useMemo(() => {
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
     if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
@@ -90,7 +153,8 @@ export function RightDock({ sel, chapterSel, seq, onRestored }) {
       <div className={cn('flex-1 min-w-0 min-h-0', active.bare ? '' : 'overflow-y-auto')}>
         <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
       </div>
-      <Rail side="right" caps={caps} active={active.key} onActive={(k) => setTab(k || active.key)} />
+      {/* 同左栏:点当前项=折叠信号 → 收起右栏 */}
+      <Rail side="right" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
     </div>
   )
 }

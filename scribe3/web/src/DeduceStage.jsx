@@ -131,7 +131,8 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
     // 兼容纯 delta 流。全部累进到 acc，完成后落库。
     api.chatWrite(instr, {
-      chapter: seq, focalizer: selected === 'truth' ? '' : selected,
+      // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
+      chapter: seq, phase: 'deduce', focalizer: selected === 'truth' ? '' : selected,
       onProposalStart: () => { acc = ''; setText('') },
       onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
       onDelta: (d) => { acc += d; setText(acc) },
