@@ -18,7 +18,7 @@ import os
 import re
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,6 +73,20 @@ _pending_ingest_lock = threading.Lock()
 # P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
 _loop_inflight: set[tuple[str, int]] = set()
 _loop_inflight_lock = threading.Lock()
+
+# 遗留处置 1-A:S1 熔断(三重防误杀之三)——最近 10 次 loop 中由 S1(findings_schema)
+# 触发 blocking 的比例 >30%(样本≥5)→ 暂停共振升格并在响应标注(宁可漏不可磨;
+# 检测器错杀由盲评池人工裁决后再调共振表)。进程内状态,重启清零(熔断是保护不是账本)。
+_s1_recent: dict[str, deque] = {}
+
+
+def _s1_circuit_open(work: str) -> bool:
+    d = _s1_recent.get(work)
+    return bool(d) and len(d) >= 5 and (sum(d) / len(d)) > 0.3
+
+
+def _s1_record(work: str, s1_triggered: bool) -> None:
+    _s1_recent.setdefault(work, deque(maxlen=10)).append(bool(s1_triggered))
 
 # P28: LLM调用限流(并发上限 + 日调用上限)
 _MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
@@ -2311,6 +2325,22 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
     finally:
         with _loop_inflight_lock:
             _loop_inflight.discard(_lkey)
+    # 遗留处置 1-A:熔断数据源。审查 P2-1:记"S1 是某轮唯一 blocking 来源"而非"S1 出现
+    # 过"——与泄密/退化同场时章确有硬伤,S1 非决定性,计入会污染误杀率分子、熔断偏易开。
+    def _s1_sole_blocking(rounds):
+        for r0 in rounds:
+            bl = r0.get("blocking") or []
+            if bl and all(b.get("detector") == "findings_schema" for b in bl):
+                return True
+        return False
+    _s1_record(work, _s1_sole_blocking(result.get("rounds", [])))
+    # 遗留处置 1-C(#2):rounds 明细(含 blocking 原因)落 journal 旁,复用选择环
+    # .result.json 模式——审计与盲评池的"为什么"单文件可查,不再只活在 HTTP 响应里。
+    try:
+        with open(str(jp) + ".result.json", "w", encoding="utf-8") as _f:
+            json.dump(result, _f, ensure_ascii=False, indent=1)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("loop 结果落盘失败(忽略): %s", e)
     result["journal_path"] = str(jp)
     return result
 
@@ -2658,6 +2688,13 @@ def _enqueue_ingest(background: BackgroundTasks, work: str, seq: int) -> bool:
 
 @app.post("/save-chapter")
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
+    # 遗留处置 1-B:同章生成在途(loop/选择环)时拒绝手动存稿——数分钟长请求期间
+    # 手改再存会与自动落库互踩静默覆盖。409 不丢编辑(正文仍在前端编辑器里)。
+    with _loop_inflight_lock:
+        if (work, req.seq) in _loop_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
+                "你的编辑不会丢,可先复制正文"))
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
@@ -2722,6 +2759,12 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     C-1(正文覆写三路对称):真改写正文后,与 /save-chapter 对称——落 final 版本(补版本历史断链)
     + 排后台 ingest(内容变了理应重抽知识账本;经 _enqueue_ingest 与 P0-1 同章去重护栏协同,
     若该章已有 ingest 在途则跳过,不产生双份)。"""
+    # 批次一审查 P1-2:与 /save-chapter 同款在途护栏——loop/选择环期间 dedup 改写落库
+    # 会与自动落库互踩(1-B 堵了手动存稿这个门,这里是同一风险的另一个门)。
+    with _loop_inflight_lock:
+        if (work, seq) in _loop_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {seq} 章生成在途(loop/选择环),完成后再去重"))
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
@@ -2933,17 +2976,38 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "range": lk["range"],
             "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
         })
-    # discipline.cut_after issue(纪律违规起点句)
-    if discipline.get("cut_after"):
-        cut = discipline["cut_after"]
-        idx = req.prose.find(cut)
-        rng = [idx, idx + len(cut)] if idx >= 0 else None
+    # 纪律违规 issue(遗留处置 1-A)。violations 即报——此前 cut_after 为空时违规被
+    # 静默吞;cut_after 只负责定位。severity 三重防误杀:单次 LLM 判默认 S2(advisory);
+    # 仅确定性信号同向命中(共振表,≤5 条硬编码)才升 S1 → triage blocking 判据④;
+    # 熔断开(近 10 次 loop S1 触发率>30%)时升格暂停。共振表(自定口径,待盲评池校准):
+    #   knowledge_leak ↔ find_leaks 命中 或 god_view(kind=god_spoiler,叙述层知识泄露形态)
+    #   god_view       ↔ god_view(kind∈{god_spoiler,explain_causality};批次一审查 P1-1:
+    #                    summarize 的"此刻,他"/sublimation 是好稿常见句式或纯风格,
+    #                    与全知违规同向性不足,拿来共振=为无关违规背书,故收窄强全知两类)
+    #   exposition_dump↔ oversaturation>0
+    #   double_climax / voice_collapse 无确定性对应物 → 恒 S2
+    if discipline.get("violations") or discipline.get("cut_after"):
+        cut = discipline.get("cut_after") or ""
+        idx = req.prose.find(cut) if cut else -1
+        rng = [idx, idx + len(cut)] if (cut and idx >= 0) else None
+        _viol = set(discipline.get("violations") or [])
+        _god_kinds = {(i.get("meta") or {}).get("kind")
+                      for i in issues if i.get("type") == "god_view"}
+        _resonance = (
+            ("knowledge_leak" in _viol and (bool(leaks) or "god_spoiler" in _god_kinds))
+            or ("god_view" in _viol
+                and bool(_god_kinds & {"god_spoiler", "explain_causality"}))
+            or ("exposition_dump" in _viol
+                and (qc_breakdown.get("oversaturation") or 0) > 0)
+        )
+        _sev = "S1" if (_resonance and not _s1_circuit_open(work)) else "S2"
         issues.append({
             "type": "discipline",
             "message": f"纪律违规:{'、'.join(discipline.get('violations', []))}",
             "text": cut,
             "range": rng,
-            "meta": {"violations": discipline.get("violations", [])},
+            "meta": {"violations": discipline.get("violations", []),
+                     "severity": _sev, "resonance": _resonance},
         })
     # setting issues
     for hint in setting:
@@ -3153,6 +3217,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
         "fulfillment": fulfillment,
+        "s1_circuit_open": _s1_circuit_open(work),   # 1-A 熔断状态对调用方可见
         "discipline": discipline,
         "degraded": degraded,
         "degraded_stages": degraded_stages,

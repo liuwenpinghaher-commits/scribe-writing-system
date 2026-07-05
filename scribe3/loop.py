@@ -124,6 +124,8 @@ def build_regen_constraints(blocking: list[dict], next_attempt: int,
         "aggregate_ai_grade": "按简报文风重写,拆掉被命中的套路句式,句长错落、情绪走物象",
     }
     lines = [f"## 上稿被确定性检测打回(即将进行第 {next_attempt} 轮重写)",
+             "以下约束优先级高于本轮用户指令与大纲中与之冲突的部分;"
+             "若约束与叙事意图根本冲突,宁可留疑而不违规(遗留处置 1-C #12)。",
              "以下硬伤必须全部消除;未列出的部分保持原有叙事意图与质感,不要整体翻新:"]
     for b in blocking[:12]:   # 量控:防超长 findings 稀释组装链其余强制项
         q = f"「{b['quote']}」" if b.get("quote") else ""

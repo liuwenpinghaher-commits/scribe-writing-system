@@ -2951,7 +2951,7 @@ class SurrealStore:
     # --- validate(设定校验,设计文档 §3.4)---
     def validate_setting(self, chapter: int, prose: str) -> list[dict]:
         """设定校验:比对正文与设定圣经,产出冲突线索。
-        覆盖:能力矛盾/规则违反/OOC/物品状态矛盾/命名不一致。"""
+        覆盖:规则违反/OOC/物品状态矛盾/命名不一致(能力矛盾未实现,归检测器扩展)。"""
         hints = []
 
         # 1. 物品状态校验:destroyed/lost 的物品不应在正文中被使用

@@ -45,6 +45,16 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const restoreTick = useContext(RestoreContext)
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
+  // 审查 P1-3:保存失败时的本地暂存(localStorage)——自动保存的两条失败路径
+  // (切章 fire-and-forget / 卸载兜底 flush)里编辑内容随实例销毁,暂存是唯一找回渠道。
+  const stashKey = (w, s) => `s3_unsaved:${w || 'main'}:${s}`
+  const stashUnsaved = (w, s, p, t, f) => {
+    try {
+      localStorage.setItem(stashKey(w, s), JSON.stringify({ prose: p, chTitle: t, focalizer: f, ts: Date.now() }))
+    } catch { /* 配额满等:暂存失败不再有兜底,toast 文案已如实 */ }
+  }
+  const [stash, setStash] = useState(null)   // 挂载检测到的未保存暂存稿(横幅数据)
+
   // persistDirtyOldChapter:切章前若有未保存内容,静默保存旧章(fire-and-forget,不阻断切章)
   // 全部从 dirtyRef 读取,完全脱离 state 闭包,任何调用时机都拿到最新值。
   const persistDirtyOldChapter = (targetSeq) => {
@@ -54,7 +64,14 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     dirtyRef.current.dirty = false
     api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer, work)
       .then(() => { setSaved(true) })
-      .catch(() => { dirtyRef.current.dirty = true; toast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }) })
+      .catch((e) => {
+        // 审查 P1-3:失败即暂存本地(唯一可靠去处——此 catch 异步到达时多半已切章,
+        // dirtyRef 已被新章加载重置,恢复 dirty 会误标新章,须 seq 守卫)。
+        stashUnsaved(work, oldSeq, oldProse, oldChTitle, oldFocalizer)
+        if (dirtyRef.current.seq === oldSeq) dirtyRef.current.dirty = true
+        toast(e?.status === 409 ? `第 ${oldSeq} 章生成在途,本次编辑已暂存本地,回该章可恢复`
+          : `第 ${oldSeq} 章自动保存失败,编辑已暂存本地,回该章可恢复`, { tone: 'danger' })
+      })
   }
 
   // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
@@ -90,7 +107,13 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       if (!dirty || oldProse === undefined || oldSeq == null) return
       dirtyRef.current.dirty = false
       api.saveChapter(oldSeq, oldProse, oldChTitle, oldFocalizer, work)
-        .catch(() => showToast(`第 ${oldSeq} 章自动保存失败,请回该章手动保存`, { tone: 'danger' }))
+        .catch((e) => {
+          // 审查 P1-3:组件已卸载,编辑器与 dirtyRef 均已销毁,"请手动保存"无从执行,
+          // "编辑不会丢"更是空话——暂存 localStorage 是此路径唯一真兑现。
+          stashUnsaved(work, oldSeq, oldProse, oldChTitle, oldFocalizer)
+          showToast(e?.status === 409 ? `第 ${oldSeq} 章生成在途,本次编辑已暂存本地,回该章可恢复`
+            : `第 ${oldSeq} 章保存失败,编辑已暂存本地,回该章可恢复`, { tone: 'danger' })
+        })
     }
   }, [])
   const [entities, setEntities] = useState([])
@@ -240,6 +263,15 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       // 新章加载完成后重置 dirtyRef,以新章 seq + 新章正文 + focalizer + chTitle 为基准
       dirtyRef.current = { seq: chapter, prose: p, chTitle: t, focalizer: f, dirty: false }
       setProseLoadTick((n) => n + 1)
+      // 审查 P1-3:检测本章暂存稿——与库中一致(后来存上了)静默清除;不一致弹恢复横幅。
+      try {
+        const raw = localStorage.getItem(stashKey(work, chapter))
+        if (raw) {
+          const st0 = JSON.parse(raw)
+          if ((st0?.prose ?? '') === p) { localStorage.removeItem(stashKey(work, chapter)); setStash(null) }
+          else setStash({ ...st0, seq: chapter })
+        } else setStash(null)
+      } catch { setStash(null) }
     })
     api.causal(chapter).then(setCausal)
     api.promises().then(setPromises)
@@ -686,6 +718,21 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         <div className="max-w-[48rem] mx-auto px-6 py-8">
+          {stash && stash.seq === chapter && (
+            <div className="mb-4 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-f12 text-ink flex items-center gap-3">
+              <span className="flex-1">检测到本章未保存的暂存稿({(stash.prose || '').length} 字,{new Date(stash.ts).toLocaleTimeString()}),与当前正文不一致。</span>
+              <button onClick={() => {
+                setProse(stash.prose || ''); dirtyRef.current.prose = stash.prose || ''
+                dirtyRef.current.dirty = true; setSaved(false)
+                try { localStorage.removeItem(stashKey(work, chapter)) } catch { /* */ }
+                setStash(null)
+              }} className="h-6 px-2 rounded-lg border border-amber-400 hover:bg-amber-100 cursor-pointer shrink-0">恢复到编辑器</button>
+              <button onClick={() => {
+                try { localStorage.removeItem(stashKey(work, chapter)) } catch { /* */ }
+                setStash(null)
+              }} className="h-6 px-2 rounded-lg border border-line text-faint hover:bg-soft cursor-pointer shrink-0">丢弃</button>
+            </div>
+          )}
           <DraftCard proposal={proposal} candidates={candidates} streaming={proposalStreaming} onAccept={acceptProposal} onReject={() => { setProposal(null); setProposalStreaming(false); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <div className={`manuscript${serif ? ' serif' : ''}`}>
             <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false); dirtyRef.current.prose = t; dirtyRef.current.dirty = true }}
