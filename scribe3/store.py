@@ -1420,6 +1420,10 @@ class SurrealStore:
             "SELECT promise_id, chapter FROM promise_touch ORDER BY chapter ASC")
         by_pid: dict[str, list[int]] = {}
         for t in touches or []:
+            # 审查 P1-3:回看旧章视角(max_chapter=seq)时丢弃未来章 touch——
+            # 否则 refresh_count 吃到 seq 之后的刷新,把旧章视角误升 decision。
+            if (t.get("chapter") or 0) > max_chapter:
+                continue
             by_pid.setdefault(t["promise_id"], []).append(t["chapter"])
         out = []
         for p in self.list_promises():
@@ -3091,6 +3095,33 @@ class SurrealStore:
                              f"({'、'.join(ls)});story_time 为章粒度,可能有移动"
                              f"衔接,请人工确认时间线")})
         return hints
+
+    def lie_belief_jumps(self, threshold: int = 15) -> list[dict]:
+        """弧光跳变(工艺引擎 M3 检测半件,pulse arc 维数据源):同一角色相邻两次
+        lie_belief 记录位移>threshold → 顿悟太便宜。纯结构查询,report-only。"""
+        rows = self._query(
+            "SELECT character_id, chapter, lie_belief FROM char_state "
+            "WHERE lie_belief != NONE ORDER BY character_id, chapter")
+        out: list[dict] = []
+        prev: dict = {}
+        for r in rows:
+            cid = str(r.get("character_id"))
+            lb = r.get("lie_belief")
+            if lb is None:
+                continue
+            p = prev.get(cid)
+            ch = r.get("chapter")
+            if p is not None and ch == p["chapter"]:
+                # 审查 P1-4:同章多记录(重复 ingest 残留)不构成"跳变对",取后值为准
+                prev[cid] = {"lie_belief": lb, "chapter": ch}
+                continue
+            if p is not None and abs(lb - p["lie_belief"]) > threshold:
+                out.append({"character_id": cid, "chapter": ch,
+                            "cur": lb, "prev": p["lie_belief"],
+                            "prev_chapter": p["chapter"],
+                            "gap": (ch or 0) - (p["chapter"] or 0)})
+            prev[cid] = {"lie_belief": lb, "chapter": ch}
+        return out
 
     def latest_version_prose(self, seq: int, kind: str) -> str | None:
         """某章某 kind 最新版本的正文(审计 P2-1:final 版同稿去重的比对源)。"""

@@ -123,6 +123,16 @@ export const api = {
   northStarChapter: (seq) => j(`/north-star/chapter/${seq}`),   // 北极星任务10:章级 scorecard
   northStarBook: () => j('/north-star/book'),                   // 北极星任务10:书级四维
   chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),
+  chapterPulse: (seq) => j(`/chapter-pulse?seq=${seq}`),   // 主编主动化 T1:六维脉搏
+  inbox: (seq) => j('/inbox' + (seq != null ? `?seq=${seq}` : '')),   // T4:决策收件箱
+  // Chapter Pilot(主编主动化 T6-T11)
+  pilotStep: (seq, mode = 'manual', steer = '') => post('/pilot/step', { seq, mode, steer }),
+  pilotApprove: (seq) => post('/pilot/approve', { seq }),
+  pilotStatus: (seq) => j(`/pilot/status?seq=${seq}`),
+  pilotRun: (start_seq, until_seq) => post('/pilot/run', { start_seq, until_seq }),
+  pilotPause: () => post('/pilot/pause'),
+  pilotRunStatus: () => j('/pilot/run-status'),
+  addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
   patchCharAnchors: (id, anchors) => patch('/char-anchors', { character_id: id, anchors }),
   postArcBeat: (b) => post('/arc-beats', b),
@@ -255,8 +265,10 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic }) => {
+  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic, seq }) => {
+    // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
+      + (seq != null ? `&seq=${seq}` : '')
     const es = new EventSource(BASE + ww(path))
     es.onmessage = (e) => {
       try {

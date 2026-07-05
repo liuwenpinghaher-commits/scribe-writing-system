@@ -261,7 +261,8 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           }}
           className="bg-surface border-l border-line"
         >
-          <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq}
+          {/* 审查 P0-1:lastSeq=最近章记忆——非章上下文讨论也有"当前章",时机C 注入不再死线 */}
+          <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
             onRestored={() => setRestoreTick((t) => t + 1)} onCollapse={collapseRight} />
         </Panel>
       </Group>

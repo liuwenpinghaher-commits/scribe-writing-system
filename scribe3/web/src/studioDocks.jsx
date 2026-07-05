@@ -15,7 +15,7 @@ import { ChiefDock } from './ChiefDock'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePref } from './lib/usePref'
 import { ConfirmDialog } from './ui/Dialog.jsx'
-import { useToast } from './ui/Toast.jsx'
+import { useToast, showToast } from './ui/Toast.jsx'
 import { useSelection } from './selectionContext'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
@@ -129,8 +129,68 @@ function RecallPanel() {
   )
 }
 
-export function RightDock({ sel, chapterSel, seq, onRestored, onCollapse }) {
+// 决策收件箱(主编主动化 T4):等作者的事项一处集中(needs_human/升格候选/pulse decision)。
+// 「聊这个」经窗口事件 s3-chief-seed 预填聊天输入框(WriteChat/DiscussionDock 两端监听)。
+function InboxPanel({ seq, onCount }) {
+  const [data, setData] = useState(null)
+  useEffect(() => {
+    let dead = false, timer = null
+    const pull = () => api.inbox(seq).then((d) => { if (!dead) { setData(d); onCount?.(d.count) } }).catch(() => { if (!dead) setData({ items: [], count: 0, failed: true }) })
+    pull()
+    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard'])   // 审查 P1-8
+    const onLive = (e) => { if (!TABLES.has(e?.detail?.table)) return; clearTimeout(timer); timer = setTimeout(pull, 600) }
+    window.addEventListener('s3-live', onLive)
+    return () => { dead = true; clearTimeout(timer); window.removeEventListener('s3-live', onLive) }
+  }, [seq])
+  if (!data) return <Skeleton className="w-full" />
+  if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
+  const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策' }
+  return (
+    <div className="space-y-2">
+      <SectionTitle icon={TriangleAlert} right={`${data.count}`}>决策收件箱</SectionTitle>
+      {data.items.map((it, i) => (
+        <div key={i} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
+          <div className="text-f10 text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
+          <div className="text-f12 text-ink leading-snug">{it.message}</div>
+          {it.action?.kind === 'pilot_approve' && (
+            <button onClick={() => {
+              api.pilotApprove(it.action.payload)
+                .then((r) => { showToast(`第 ${it.action.payload} 章已放行 → ${r.state}`, { tone: 'ok' }) })
+                .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
+            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">放行 · 继续推进 →</button>
+          )}
+          {it.action?.kind === 'chat' && (
+            <button onClick={() => {
+              // 审查 P0-2:监听者可能未挂载(切 tab 后才渲)——pending 落 sessionStorage,
+              // 挂载时消费;事件保留给已挂载者即时响应。
+              try { sessionStorage.setItem('s3.chief.seed', it.action.payload) } catch { /* */ }
+              try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: it.action.payload })) } catch { /* */ }
+              try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollapse }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
+  const [inboxCount, setInboxCount] = useState(0)
+  // 审查 P1-9:badge 常驻拉取(此前依赖面板挂载,badge 恒 0 是死指标);
+  // live 按表过滤+600ms 防抖(P1-8 同款,防 ingest 期风暴)。
+  useEffect(() => {
+    let timer = null, dead = false
+    const pull = () => api.inbox(seq).then((d) => { if (!dead) setInboxCount(d.count) }).catch(() => {})
+    pull()
+    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard'])
+    const onLive = (e) => {
+      if (!TABLES.has(e?.detail?.table)) return
+      clearTimeout(timer); timer = setTimeout(pull, 600)
+    }
+    window.addEventListener('s3-live', onLive)
+    return () => { dead = true; clearTimeout(timer); window.removeEventListener('s3-live', onLive) }
+  }, [seq])
   // 断头修复#12:中区"让主编改这处/体检送主编"需要把右栏切到主编 tab——
   // 此前 WriteLayout 的 setRightActive 信号无人消费;现经窗口事件接通。
   useEffect(() => {
@@ -139,11 +199,14 @@ export function RightDock({ sel, chapterSel, seq, onRestored, onCollapse }) {
     return () => window.removeEventListener('s3-right-tab', on)
   }, [setTab])
   const caps = useMemo(() => {
-    const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
+    const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
     if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
+    // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision)
+    c.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', badge: inboxCount || undefined,
+      render: () => <div className="p-3"><InboxPanel seq={seq} onCount={setInboxCount} /></div> })
     return c
-  }, [sel, chapterSel, seq, onRestored])
+  }, [sel, chapterSel, seq, onRestored, inboxCount])
   const active = caps.find((c) => c.key === tab) || caps[0]
   useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('chief') }, [caps, tab, setTab])
   return (

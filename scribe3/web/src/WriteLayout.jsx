@@ -17,6 +17,7 @@ import { issueLabel, issueDot, ignoreIssue, filterIgnored, expandToSentence } fr
 import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
 import { NorthStarBar } from './NorthStarBar'
+import { PulseBar } from './PulseBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
@@ -167,6 +168,38 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
 
   // (原窄屏自动收右栏 effect 已删:它 set 的 rightActive 是零消费死状态,自 F-06 起
   // 无任何实际效果;右栏收起现由 BinderLayout 折叠体系承担——点轨当前项/拖分隔条。)
+
+  // 主编主动化 T5·时机D(M9 卡文诊断):每 60s 采样正文长度,连续 5 个采样点
+  // 净变化 ≤0(删多写少/零输入)→ 主编问一句(每章一次;纯话术零表,三处方)。
+  const stuckRef = useRef({ seq: null, samples: [] })
+  useEffect(() => {
+    const t = setInterval(() => {
+      const s = stuckRef.current
+      if (s.seq !== chapter) { s.seq = chapter; s.samples = [] }
+      // 审查 P1-5:删旧闭包 prose 回退(空新章会回退到旧章长度,采样恒等误报卡文);
+      // dirtyRef 载入时已同步,是唯一权威源。输入框/编辑器聚焦中不打断(计划坑防)。
+      if (localStorage.getItem('s3.pulse.mute.stuck') === '1') return
+      const ae = document.activeElement
+      const typing = ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)
+      s.samples.push((dirtyRef.current.prose || '').length)
+      if (typing && s.samples.length >= 6) { s.samples = s.samples.slice(-5); return }
+      if (s.samples.length < 6) return
+      s.samples = s.samples.slice(-6)
+      const delta = s.samples[5] - s.samples[0]
+      const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.stuck`
+      if (delta <= 0 && s.samples[0] > 0 && localStorage.getItem(spokeKey) !== '1') {
+        localStorage.setItem(spokeKey, '1')
+        toast('这五分钟正文没往前走(依据:字数采样)——卡住了?', {
+          tone: 'info', duration: 8000,
+          action: { label: '聊聊', onClick: () => {
+            try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: '我卡住了。帮我诊断:是情节卡(回查本章目标与对手/冲突要不要升级/要不要切配角视角)、语言卡(换个叙述距离或语感重起这段),还是心态卡(先写烂再改)?给我一个最小可行的下一步。' })) } catch { /* */ }
+            focusChiefTab()
+          } },
+        })
+      }
+    }, 60000)
+    return () => clearInterval(t)
+  }, [chapter, work])
 
   useEffect(() => {
     if (!saveMenu) return
@@ -436,6 +469,26 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       throw e
     }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
+    // 主编主动化 T5·时机B:落稿后有命中 → 主编摘要一条(每章一次,防烦协议)
+    try {
+      const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
+      // 审查 P2-13:补齐 6 键(此前漏 cross_repetition/duplicate_lines/emotion_telling)
+      const qcn = r.qc ? cnt(r.qc.repetition) + cnt(r.qc.structural) + cnt(r.qc.purple)
+        + cnt(r.qc.cross_repetition) + cnt(r.qc.duplicate_lines) + cnt(r.qc.emotion_telling) : 0
+      const lk = r.leaks || 0
+      const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.postsave`
+      if ((qcn > 0 || lk > 0) && localStorage.getItem(spokeKey) !== '1'
+          && localStorage.getItem('s3.pulse.mute.quality') !== '1') {
+        localStorage.setItem(spokeKey, '1')
+        toast(`本章落稿体检:泄露 ${lk} · QC ${qcn}(依据:存稿自动检)`, {
+          tone: 'warn',
+          action: { label: '要我修吗', onClick: () => {
+            try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: `本章存稿检出泄露 ${lk} 处、QC ${qcn} 处,请按清单逐处修复,保持其余原样` })) } catch { /* */ }
+            focusChiefTab()
+          } },
+        })
+      }
+    } catch { /* 提醒失败不影响保存 */ }
     // 手动保存成功:重置 dirtyRef
     dirtyRef.current.dirty = false
     dirtyRef.current.prose = text
@@ -780,7 +833,11 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
 
   const center = (
     <div className="flex flex-col h-full">
-      <NorthStarBar />
+      <div className="flex items-center border-b border-line bg-surface">
+        <NorthStarBar />
+        {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
+        <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
+      </div>
       {topbarMid}
       {lastSel && (
         <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line bg-surface">
