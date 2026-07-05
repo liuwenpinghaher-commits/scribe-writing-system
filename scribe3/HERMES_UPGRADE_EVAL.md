@@ -15,3 +15,10 @@
 4. 窗口: 中期,不进第一阶段
 
 ## 决策: 不盲升,待破坏性变更评估后择机
+
+## 结果(2026-07-05,遗留处置批次三执行)
+
+已按协议升级并采纳:v0.17.0(v2026.6.19+51, b88d0007c)→ **v0.18.0(tag v2026.7.1)**。
+HERMES_HOME 隔离网关三 e2e 全过(Responses 生成/MCP 工具流/elicitation fail-closed)→
+重启 8643 采纳 → 金丝雀 loop-qa 一章绿。回滚锚 b88d0007c。执行记录与运维教训
+(前台 restart 勿加 timeout/混血态窗口/launchd 只管 default profile)见台账 D-028。

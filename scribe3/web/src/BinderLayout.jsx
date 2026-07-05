@@ -69,7 +69,10 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   // live SSE:别处改数据后服务端推事件 → 防抖 600ms 重拉项目树,保持树/大纲不 stale。
   useEffect(() => {
     let timer = null
-    const es = api.live(() => {
+    const es = api.live((ev) => {
+      // 北极星任务10:把 /live 变更以窗口事件广播给各面板(NorthStarPanel 等),
+      // 单 SSE 连接复用——SCRIBE3_LIVE_MAX=5 配额,面板绝不自开 EventSource。
+      try { window.dispatchEvent(new CustomEvent('s3-live', { detail: ev })) } catch { /* */ }
       clearTimeout(timer)
       timer = setTimeout(reload, 600)
     }, {

@@ -324,6 +324,7 @@ class SurrealStore:
     def __init__(self, url: str | None = None, ns: str = "scribe3", db: str = "main",
                  user: str | None = None, password: str | None = None):
         self.url = url or os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
+        self.db_name = db   # 本库名(=work);chat_message.work 等冗余字段由此自动填(台账 D-002)
         user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
         password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
         self._db = Surreal(self.url)
@@ -759,13 +760,16 @@ class SurrealStore:
                             {"local": local, "v": embed([text])[0]})
 
     def semantic_recall(self, query: str, k: int = 5) -> list[Fact]:
-        """语义召回最相关命题(HNSW <|K,COSINE|>,按距离升序)。"""
+        """语义召回最相关命题(HNSW <|K,EF|>,按距离升序)。
+        D-022:<|K,COSINE|> 显式距离形式经 EXPLAIN 实锤为 KnnTopK+TableScan 暴力扫描,
+        <|K,EF数字|> 才走 HNSW 索引(KnnScan);EF=max(40,K) 召回富余,14 组对拍一致。"""
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            {"qv": qv})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
@@ -791,7 +795,8 @@ class SurrealStore:
         qv = embed([query])[0]
         rows = self._query(
             f"SELECT seq, title, vector::distance::knn() AS dist "
-            f"FROM chapter WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+            f"FROM chapter WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            {"qv": qv})   # D-022:EF 形式走 HNSW,显式 COSINE 是暴力扫描
         return [{"seq": r["seq"], "title": r.get("title", ""), "distance": r["dist"]} for r in rows]
 
     def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
@@ -810,7 +815,7 @@ class SurrealStore:
             f"  <-causes<-event.event_type AS source_events, "
             f"  <-causes<-event->involves->character.name AS co_present, "
             f"  vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
             f"  AND valid_from <= $ch ORDER BY dist", {"qv": qv, "ch": chapter})
         out = []
         for r in rows:
@@ -853,6 +858,168 @@ class SurrealStore:
         return [{"motif_id": r.get("motif_id"),
                  "name": names.get(r.get("motif_id"), ""),
                  "evidence": r.get("evidence") or ""} for r in rows]
+
+    # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
+    def add_chat_message(self, chapter: int, stage: str, role: str, text: str,
+                         turn: str = "") -> None:
+        """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。
+        turn(P0门审查 P2-6):同一轮 user/assistant 共享的配对 id,防并发会话交错
+        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。"""
+        self._execute_write(
+            "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, "
+            "turn=$turn, ts=time::now()",
+            {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text,
+             "turn": turn or ""})
+
+    def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
+        """按章(缺省全部)拉取对话留痕,ts 升序返回;limit 取**最新** N 条再反转
+        (P0门审查 P2-6:此前 ASC LIMIT 取最老 N 条,超量后回看永远读不到新对话);
+        limit 夹取 [1,2000] 防 SurrealQL 非法值 500。"""
+        n = max(1, min(int(limit), 2000))
+        where = "WHERE chapter = $c " if chapter is not None else ""
+        rows = self._query(
+            f"SELECT work, chapter, stage, role, text, turn, <string> ts AS ts "
+            f"FROM chat_message {where}ORDER BY ts DESC LIMIT {n}",
+            {"c": chapter})
+        return list(reversed(rows))
+
+    # --- 蒸馏幂等标记(P1门审查 P1-1)---
+    def get_distill_marker(self, chapter: int) -> dict | None:
+        rows = self._query(
+            "SELECT chapter, msg_count, last_turn FROM type::record('distill_marker',$c)",
+            {"c": chapter})
+        return rows[0] if rows else None
+
+    def set_distill_marker(self, chapter: int, msg_count: int, last_turn: str) -> None:
+        self._execute_write(
+            "UPSERT type::record('distill_marker',$c) SET chapter=$c, msg_count=$n, "
+            "last_turn=$t, ts=time::now()",
+            {"c": chapter, "n": msg_count, "t": last_turn or ""})
+
+    # --- QD 文体档案 style_profile(北极星任务9)---
+    def _upsert_style_profile(self, seq: int, profile: dict) -> None:
+        import json
+        self._execute_write(
+            "UPSERT type::record('style_profile',$s) SET seq=$s, profile=$p, "
+            "computed_at=time::now()",
+            {"s": seq, "p": json.dumps(profile, ensure_ascii=False)})
+
+    def list_style_profiles(self) -> list[dict]:
+        import json
+        rows = self._query(
+            "SELECT seq, profile FROM style_profile ORDER BY seq ASC")
+        out = []
+        for r in rows:
+            try:
+                p = json.loads(r.get("profile") or "{}")
+            except Exception:
+                p = {}
+            out.append({"seq": r.get("seq"), **p})
+        return out
+
+    # --- 复盘 lesson(北极星任务8,蓝图 §4-② 沉淀环;与情绪模式向量分表分索引 Q4)---
+    def add_lesson(self, chapter: int, kind: str, text: str, condition: str = "",
+                   evidence_turns: list | None = None) -> bool:
+        """落一条 lesson(带软去重):先在 lesson 专属 HNSW 索引召回近邻,
+        余弦相似 ≥ MERGE_SIM 的既有条目 → importance+1 合并不新增(返回 False);
+        否则新增(返回 True)。embedding=text+condition(条件参与语义)。"""
+        from scribe3.embed import embed
+        from scribe3.lesson import MERGE_SIM
+        import json as _json
+        vec = embed([f"{text} {condition}".strip()])[0]
+        near = self._query(
+            "SELECT meta::id(id) AS id, chapter, kind, embedding, "
+            "vector::distance::knn() AS dist "
+            "FROM lesson WHERE embedding <|3,40|> $qv ORDER BY dist", {"qv": vec})
+        for n in near:
+            # P1门审查 P1-3:合并须同 kind 且 sim≥MERGE_SIM(0.97 收紧)——embedding 对
+            # 否定不敏感,反向纠偏("反转别再压章尾")与旧课 0.92 档极易误合并,
+            # "correction 最值钱"恰是被吞的那类;0.92-0.97 灰区直接新增,重复由
+            # importance 机制无害共存。
+            if n.get("kind") != kind:
+                continue
+            if n.get("dist") is not None and (1 - n["dist"]) >= MERGE_SIM:
+                row = self._query(
+                    "SELECT invalid_at FROM type::record('lesson',$i)", {"i": n["id"]})
+                if row and row[0].get("invalid_at"):
+                    continue   # 已失效条目不合并(允许同课重立)
+                # P1门审查 P1-1:同章重跑不 bump——ExpeL"跨章重复=偏好积累"语义,
+                # 同章编辑期反复蒸馏不算重复偏好。
+                if n.get("chapter") != chapter:
+                    self._execute_write(
+                        "UPDATE type::record('lesson',$i) SET importance += 1",
+                        {"i": n["id"]})
+                return False
+        self._execute_write(
+            "CREATE lesson SET chapter=$c, kind=$k, text=$t, condition=$cond, "
+            "evidence_turns=$ev, importance=2, uses=0, created_at=time::now(), embedding=$v",
+            {"c": chapter, "k": kind, "t": text, "cond": condition or "",
+             "ev": _json.dumps(evidence_turns or [], ensure_ascii=False), "v": vec})
+        return True
+
+    def list_lessons(self, chapter: int | None = None,
+                     include_invalid: bool = False) -> list[dict]:
+        where = []
+        if chapter is not None:
+            where.append("chapter = $c")
+        if not include_invalid:
+            where.append("invalid_at IS NONE")
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
+            f"evidence_turns, invalid_at, <string> created_at AS created_at "
+            f"FROM lesson {w}ORDER BY created_at ASC",
+            {"c": chapter})
+        import json as _json
+        for r in rows:   # P1门审查 P2-8:证据指针读侧还原(此前只写不读,溯源链断)
+            try:
+                r["evidence_turns"] = _json.loads(r.get("evidence_turns") or "[]")
+            except Exception:
+                r["evidence_turns"] = []
+        return rows
+
+    def recall_lessons(self, query: str, k: int = 3, min_sim: float | None = None) -> list[dict]:
+        """HNSW 语义召回 lesson,相似度下限过滤(宁缺勿滥:相关但不适用比无关更毒),
+        命中即 uses+1(质量闭环);invalid 条目 Python 侧过滤(避开 KNN×WHERE 组合坑,Q4)。"""
+        if not (query or "").strip():
+            return []
+        from scribe3.embed import embed
+        if min_sim is None:
+            from scribe3.lesson import RECALL_MIN_SIM as min_sim   # 真机标定值(D-017)
+        qv = embed([query])[0]
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
+            f"invalid_at, vector::distance::knn() AS dist "
+            f"FROM lesson WHERE embedding <|{int(max(k * 3, 6))},{max(40, int(k * 3))}|> $qv "
+            f"ORDER BY dist", {"qv": qv})
+        out: list[dict] = []
+        for r in rows:
+            if r.get("invalid_at"):
+                continue
+            sim = 1 - r["dist"] if r.get("dist") is not None else 0.0
+            if sim < min_sim:
+                continue
+            r["sim"] = round(sim, 4)
+            r.pop("dist", None)
+            r.pop("invalid_at", None)
+            out.append(r)
+            if len(out) >= k:
+                break
+        for r in out:
+            self._execute_write("UPDATE type::record('lesson',$i) SET uses += 1",
+                                {"i": r["id"]})
+        return out
+
+    def bump_lesson_importance(self, lesson_id: str, delta: int = 1) -> None:
+        self._execute_write(
+            "UPDATE type::record('lesson',$i) SET importance += $d",
+            {"i": lesson_id, "d": delta})
+
+    def invalidate_lesson(self, lesson_id: str) -> None:
+        """失效标记不物理删(Zep 先例):craft_rule 审批溯源链保留。"""
+        self._execute_write(
+            "UPDATE type::record('lesson',$i) SET invalid_at = time::now()",
+            {"i": lesson_id})
 
     # --- 伏笔章触及 promise_touch ---
     def add_promise_touch(self, promise_id: str, chapter: int,
@@ -1411,7 +1578,134 @@ class SurrealStore:
             qc_causal_n = 0
         return {"scene_count": len(scenes), "scene_meta": scene_meta,
                 "qc_issues": qc_n, "qc_causal": qc_causal_n,
-                "qc_breakdown": json.dumps(breakdown, ensure_ascii=False)}
+                "qc_breakdown": json.dumps(breakdown, ensure_ascii=False),
+                # 内存透传(不落章表):scorecard 复用同一份 quality_flags,免重算(北极星任务3)
+                "_quality_flags": qf}
+
+    def _compute_scorecard(self, seq: int, prose: str, focalizer: str | None,
+                           precomputed_flags: dict | None = None) -> dict:
+        """章级北极星 scorecard 三分栏(北极星任务3,蓝图 §3-③ 前半)。纯计算不写库。
+
+        constraints(硬,全确定性):leaks(全知章 None=N/A,绝不写 0 假绿)/
+          degeneration_blocking / qc_causal(-1 哨兵=无事件数据)/ promise_overdue。
+        advisory_scores(软参考,只提示不门禁):ai_grade / qc_breakdown。
+        fulfillment(正向达成):任务6 目的合同接入前占位 not_available。
+        每个检测器独立 fail-soft:挂了记 degraded 如实上报(不假绿),绝不拖垮存稿。
+        不合成总分(宪法条款)。
+        """
+        constraints: dict = {}
+        advisory: dict = {}
+        degraded: list[str] = []
+        try:
+            if focalizer:
+                from scribe3.verify import find_leaks
+                constraints["leaks"] = len(find_leaks(prose, self, focalizer, seq))
+            else:
+                constraints["leaks"] = None   # 全知章泄密不可判:N/A ≠ 0
+        except Exception:
+            degraded.append("leaks")
+            constraints["leaks"] = None
+        try:
+            from scribe3.critique import find_degeneration
+            degs = find_degeneration(prose)
+            constraints["degeneration_blocking"] = sum(
+                1 for d in degs if d.get("severity") == "blocking")
+            constraints["degeneration_total"] = len(degs)
+        except Exception:
+            degraded.append("degeneration")
+            constraints["degeneration_blocking"] = None
+            constraints["degeneration_total"] = None
+        try:
+            from scribe3.verify import causal_complete
+            constraints["qc_causal"] = (-1 if not self.events_at(seq)
+                                        else len(causal_complete(self, seq)))
+        except Exception:
+            degraded.append("qc_causal")
+            constraints["qc_causal"] = None
+        try:
+            rows = self.promises_with_lifecycle(max_chapter=seq)
+            constraints["promise_overdue"] = sum(
+                1 for p in rows if (p.get("window") or {}).get("state") == "overdue")
+        except Exception:
+            degraded.append("promise_overdue")
+            constraints["promise_overdue"] = None
+        try:
+            from scribe3.critique import aggregate_ai_grade, quality_flags
+            qf = precomputed_flags if precomputed_flags is not None else quality_flags(prose)
+            g = aggregate_ai_grade(qf, prose)
+            advisory["ai_grade"] = {"grade": g.get("grade"), "gates_hit": g.get("gates_hit")}
+            advisory["qc_breakdown"] = {k: len(qf.get(k) or []) for k in
+                                        ("repetition", "structural", "purple",
+                                         "ai_tics", "oversaturation")}
+        except Exception:
+            degraded.append("ai_grade")
+            advisory["ai_grade"] = None
+            advisory["qc_breakdown"] = None
+        # 北极星任务6:目的合同接入后 fulfillment 出真数据(登记了 deltas 的章);
+        # 未登记章保持 not_available 占位。carried 链≥2 → alert(连续未达成告警,蓝图 §3-④)。
+        _ful_read_failed = False
+        try:
+            rows = self._query("SELECT deltas FROM type::record('chapter',$s)", {"s": seq})
+            from scribe3.purpose import parse_deltas
+            ds = parse_deltas(rows[0].get("deltas") if rows else None)
+        except Exception:
+            degraded.append("fulfillment")
+            _ful_read_failed = True   # P1门审查 P2-10:读取失败≠未登记,note 不得误导
+            ds = []
+        if ds:
+            counts = {s: sum(1 for d in ds if d.get("status") == s)
+                      for s in ("planned", "achieved", "carried", "waived")}
+            chain = max(((seq - d["carried_from"]) for d in ds
+                         if d.get("status") == "carried" and d.get("carried_from") is not None),
+                        default=1 if counts["carried"] else 0)
+            fulfillment = {"status": "active", "total": len(ds), **counts,
+                           "carried_chain_max": chain, "alert": chain >= 2}
+        elif _ful_read_failed:
+            fulfillment = {"status": "unavailable", "deltas": [],
+                           "note": "目的数据读取失败(degraded),非未登记——修好后重存本章刷新"}
+        else:
+            fulfillment = {"status": "not_available", "deltas": [],
+                           "note": "本章未登记目的合同(空 delta 章照常可写)"}
+        return {"seq": seq, "constraints": constraints, "advisory_scores": advisory,
+                "fulfillment": fulfillment, "degraded": degraded}
+
+    def _upsert_scorecard(self, sc: dict) -> None:
+        import json
+        self._execute_write(
+            "UPSERT type::record('chapter_scorecard',$seq) SET seq=$seq, constraints=$c, "
+            "advisory=$a, fulfillment=$f, degraded=$d, computed_at=time::now()",
+            {"seq": sc["seq"],
+             "c": json.dumps(sc["constraints"], ensure_ascii=False),
+             "a": json.dumps(sc["advisory_scores"], ensure_ascii=False),
+             "f": json.dumps(sc["fulfillment"], ensure_ascii=False),
+             "d": json.dumps(sc["degraded"], ensure_ascii=False)})
+
+    def get_chapter_scorecard(self, seq: int) -> dict | None:
+        """读章 scorecard;缓存行缺失(旧库章)→ 现算回填(lazy backfill)。
+        章不存在或无正文 → None(端点侧 404)。"""
+        import json
+        rows = self._query(
+            "SELECT seq, constraints, advisory, fulfillment, degraded, "
+            "<string> computed_at AS computed_at "
+            "FROM type::record('chapter_scorecard',$s)", {"s": seq})
+        if rows:
+            r = rows[0]
+            return {"seq": seq,
+                    "constraints": json.loads(r.get("constraints") or "{}"),
+                    "advisory_scores": json.loads(r.get("advisory") or "{}"),
+                    "fulfillment": json.loads(r.get("fulfillment") or "{}"),
+                    "degraded": json.loads(r.get("degraded") or "[]"),
+                    "computed_at": r.get("computed_at")}
+        ch = self.get_chapter(seq)
+        if not ch or not (ch.get("prose") or "").strip():
+            return None
+        sc = self._compute_scorecard(seq, ch["prose"], ch.get("focalizer"))
+        try:
+            self._upsert_scorecard(sc)
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "scorecard lazy 回填落库失败(返回现算结果): %s", _e)
+        return sc
 
     def save_chapter(self, seq: int, prose: str, title: str = "", focalizer: str | None = None,
                      _today: str | None = None) -> None:
@@ -1430,6 +1724,21 @@ class SurrealStore:
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
              "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
+        # 北极星任务3:章级 scorecard 存稿即算(独立缓存表,D-008)——fail-soft,
+        # scorecard 是面板不是命门,失败只告警绝不阻断存稿。
+        try:
+            self._upsert_scorecard(self._compute_scorecard(
+                seq, prose, focalizer, precomputed_flags=cache.get("_quality_flags")))
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "chapter_scorecard 计算/落库失败(存稿不受影响): %s", _e)
+        # 北极星任务9:QD 文体档案存稿即算(纯确定性,fail-soft)。
+        try:
+            from scribe3.qd import chapter_style_profile
+            self._upsert_style_profile(seq, chapter_style_profile(prose, focalizer))
+        except Exception as _e:
+            logging.getLogger("scribe3.store").warning(
+                "style_profile 计算/落库失败(存稿不受影响): %s", _e)
         # fail-soft:记账失败绝不阻断存稿(统计是锦上添花,存稿是命门)
         try:
             self._record_daily_progress(seq, today=_today)
@@ -1511,7 +1820,7 @@ class SurrealStore:
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         rows = self._query(
             "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
-            "scene_truth,involved_characters,deductions "
+            "scene_truth,involved_characters,deductions,purpose_text,deltas "
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
@@ -1522,7 +1831,7 @@ class SurrealStore:
             r["beats"] = json.loads(raw_beats) if raw_beats else []
         except (ValueError, TypeError):
             r["beats"] = []
-        for _k in ("involved_characters", "deductions"):
+        for _k in ("involved_characters", "deductions", "deltas"):
             raw = r.get(_k)
             try:
                 r[_k] = json.loads(raw) if raw else []
@@ -1533,6 +1842,30 @@ class SurrealStore:
 
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+
+    def chapters_lite(self) -> list[dict]:
+        """遗留处置 2-D(#5):书级面板窄查询——一次拉草料/目的字段,不拉 prose/embedding
+        (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
+        调用方不必区分"无键"与"空值"。"""
+        rows = self._query(
+            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter ORDER BY seq")
+        for r in rows:
+            for k in ("title", "synopsis", "beats", "scene_truth", "deltas"):
+                r.setdefault(k, None)
+        return rows
+
+    # --- 书级聚合小件(北极星任务7)---
+    def total_word_count(self) -> int:
+        """全书可见字数合计(qc_word_count 存稿缓存求和,不拉正文)。"""
+        rows = self._query("SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        return int((rows[0].get("w") if rows else 0) or 0)
+
+    def causal_debt_total(self) -> int:
+        """因果欠账存量:各章 qc_causal 正值求和(-1 哨兵=无事件数据,不计入)。
+        蓝图 §3-②:brief 只催收 top-5,超出部分落面板由此字段承载。"""
+        rows = self._query("SELECT qc_causal FROM chapter")
+        return sum((r.get("qc_causal") or 0) for r in rows
+                   if (r.get("qc_causal") or 0) > 0)
 
     def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:
         """before_seq 之前最近 k 章的 {seq, prose}(按 seq 升序)。
@@ -2633,7 +2966,7 @@ class SurrealStore:
     # --- validate(设定校验,设计文档 §3.4)---
     def validate_setting(self, chapter: int, prose: str) -> list[dict]:
         """设定校验:比对正文与设定圣经,产出冲突线索。
-        覆盖:能力矛盾/规则违反/OOC/物品状态矛盾/命名不一致。"""
+        覆盖:规则违反/OOC/物品状态矛盾/命名不一致(能力矛盾未实现,归检测器扩展)。"""
         hints = []
 
         # 1. 物品状态校验:destroyed/lost 的物品不应在正文中被使用
@@ -2706,6 +3039,27 @@ class SurrealStore:
         except Exception:
             pass  # jieba 不可用时静默跳过,不阻塞校验
 
+        return hints
+
+    def validate_event_colocation(self, chapter: int) -> list[dict]:
+        """遗留处置批次三:同章同主体多地事件 hint(纯结构查询,report-only)。
+        story_time/story_chapter 是章粒度——双地可能有合法移动衔接,故 severity=low
+        且 note 明示人工确认;永不进 blocking。"""
+        by_subj: dict[str, set] = {}
+        for ev in self.events_at(chapter):
+            subj = (ev.participants or {}).get("SUBJ")
+            if subj and ev.location:
+                by_subj.setdefault(str(subj), set()).add(str(ev.location))
+        hints: list[dict] = []
+        for subj, locs in sorted(by_subj.items()):
+            if len(locs) >= 2:
+                ls = sorted(locs)
+                hints.append({
+                    "type": "event_colocation", "severity": "low",
+                    "subject": subj, "locations": ls,
+                    "note": (f"同章主体 {subj} 的事件分布在 {len(ls)} 个地点"
+                             f"({'、'.join(ls)});story_time 为章粒度,可能有移动"
+                             f"衔接,请人工确认时间线")})
         return hints
 
     def validate_cross_chapter_consistency(self) -> list[dict]:
@@ -3233,7 +3587,8 @@ class SurrealStore:
         if not exists:
             return False
         allowed = {"synopsis", "volume", "label", "title", "beats",
-                   "scene_truth", "involved_characters", "deductions"}
+                   "scene_truth", "involved_characters", "deductions",
+                   "purpose_text", "deltas"}   # 北极星任务6:目的合同两字段
         # volume 需单独处理(record link 不能传字符串参数)
         volume_id = _UNSET  # 哨兵:区分"未传 volume"与"传了 None(清空)"
         plain: dict = {}
@@ -3242,7 +3597,7 @@ class SurrealStore:
                 continue
             if k == "volume":
                 volume_id = v   # None = 清空, str = 新卷裸 id
-            elif k in ("beats", "involved_characters", "deductions"):
+            elif k in ("beats", "involved_characters", "deductions", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
                 import json
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)

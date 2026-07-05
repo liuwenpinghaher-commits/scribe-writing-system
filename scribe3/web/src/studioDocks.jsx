@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2 } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
 import { Empty, Tag, SectionTitle, Skeleton } from './ui'
 import { ProjectTree } from './ProjectTree'
 import { BriefPanel } from './BriefPanel'
+import { NorthStarPanel } from './NorthStarPanel'
+import { SelectionPanel } from './SelectionPanel'
 import { FramePanel } from './FramePanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
@@ -44,6 +46,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
     if (seq == null) return base   // 未选章:只给项目树
     base.push(
       { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
+      { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
       { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       { key: 'promise', icon: Bookmark, label: '伏笔', render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
@@ -74,6 +77,7 @@ export function RightDock({ sel, chapterSel, seq, onRestored }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   const caps = useMemo(() => {
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} /> }]
+    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     return c
   }, [sel, chapterSel, seq, onRestored])

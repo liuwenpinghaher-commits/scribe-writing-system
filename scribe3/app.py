@@ -18,7 +18,7 @@ import os
 import re
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +70,23 @@ _complete_fn = None
 #   (如 SurrealDB 上的在途锁行 / Redis SETNX),否则同章 ingest 会跨进程交错。
 _pending_ingest: set[tuple[str, int]] = set()
 _pending_ingest_lock = threading.Lock()
+# P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
+_loop_inflight: set[tuple[str, int]] = set()
+_loop_inflight_lock = threading.Lock()
+
+# 遗留处置 1-A:S1 熔断(三重防误杀之三)——最近 10 次 loop 中由 S1(findings_schema)
+# 触发 blocking 的比例 >30%(样本≥5)→ 暂停共振升格并在响应标注(宁可漏不可磨;
+# 检测器错杀由盲评池人工裁决后再调共振表)。进程内状态,重启清零(熔断是保护不是账本)。
+_s1_recent: dict[str, deque] = {}
+
+
+def _s1_circuit_open(work: str) -> bool:
+    d = _s1_recent.get(work)
+    return bool(d) and len(d) >= 5 and (sum(d) / len(d)) > 0.3
+
+
+def _s1_record(work: str, s1_triggered: bool) -> None:
+    _s1_recent.setdefault(work, deque(maxlen=10)).append(bool(s1_triggered))
 
 # P28: LLM调用限流(并发上限 + 日调用上限)
 _MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
@@ -1450,17 +1467,20 @@ def _is_write_intent(msg) -> bool:
 
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
-                  with_tools: bool = True):
+                  with_tools: bool = True, on_complete=None):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
-    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。"""
+    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。
+    on_complete:北极星任务1——流尽后以 assistant 落库文本回调一次(围栏外散文+提案标记,
+    不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
     import json as _j
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
+    prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
 
     # 兜底追踪状态
     saw_proposal = False
@@ -1481,6 +1501,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 yield f"data: {_j.dumps({'proposal_chunk': {'text': val}}, ensure_ascii=False)}\n\n"
             elif kind == "proposal_close":
                 yield f"data: {_j.dumps({'proposal': {'scope': prop['scope'], 'prose': ''.join(prop['prose'])}}, ensure_ascii=False)}\n\n"
+                prop_marks.append(f"⟦提案 scope={prop['scope']}·{len(''.join(prop['prose']))}字⟧")
                 prop["scope"] = None
                 prop["prose"] = []
 
@@ -1501,12 +1522,27 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             accumulated = "".join(delta_acc)
             prose_body = _strip_preamble(accumulated)
             if len(prose_body.strip()) >= _FALLBACK_MIN_CHARS:
+                prop_marks.append(f"⟦提案 scope=chapter·{len(prose_body)}字·兜底⟧")
                 yield (
                     f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
+        yield 'data: {"done": true}\n\n'
     except Exception as e:
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
-    yield 'data: {"done": true}\n\n'
+        yield 'data: {"done": true}\n\n'
+    finally:
+        # 北极星任务1 + P0门审查 P1-6:落库必须在 finally——客户端断流时 Starlette
+        # 在 yield 点抛 GeneratorExit(BaseException,except Exception 接不住),
+        # 半截对话也要留痕;本块纯副作用不 yield,GeneratorExit 语义安全(D-004)。
+        if on_complete is not None:
+            try:
+                txt = "".join(delta_acc).strip()
+                if prop_marks:
+                    txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
+                if txt:
+                    on_complete(txt)
+            except Exception:
+                logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
 
 
 def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
@@ -1734,41 +1770,19 @@ def _current_tail_block(st, chapter: int) -> str:
 def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
                work: str = "main", short_mode: bool = False):
     """对话驱动写作(SSE):主编自判讨论 vs 动稿;动稿用 ⟦PROPOSAL⟧ 围栏回传新散文。
-    事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。"""
-    from scribe3.craft import build_craft_block
+    事件:delta(对话,进右轨)/ tool(工具调用)/ proposal(草稿,进中区)/ done。
+    P0门对抗审查 P2-1:改调 _assemble_write_instructions 单源——此前 GET 自带一套
+    内联组装且已漂移(缺 _revelation_discipline_block 限知揭示纪律),旧注入点教训
+    (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
+    不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
-    instructions += f"\n当前第 {chapter} 章。"
-    if focalizer:
-        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
-    else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-    instructions += _avoid_directive(st, chapter)
-    instructions += _voice_anchor_block(st, focalizer)
-    instructions += _arc_state_block(st, focalizer, chapter)
-    instructions += _motif_block(st)
-    instructions += _frame_block(st, focalizer, chapter)
-    instructions += _recap_block(st, chapter)
-    instructions += _current_tail_block(st, chapter)
-    # P2-a Fix1: GET/POST 块序列对称——soak 当前休眠(GET 无 seed_words 参数,前端未接入),
-    # 传空列表使 _soak_block 返回 "" 无副作用,消除"GET 少一块"的维护陷阱。
-    instructions += _soak_block([])
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(phase)
-    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
-    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    if (phase or "").strip().lower() == "draft":
-        ded = _deduction_block(st, chapter)
-        instructions += "\n\n" + ded
-        logging.getLogger("scribe3").debug(
-            "chat/write[GET] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-            chapter, len(ded))
-    instructions += _final_reminder()
+    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    instructions = _assemble_write_instructions(
+        st, chapter=chapter, focalizer=focalizer, phase=phase,
+        seed_words=[], short_mode=short_mode, with_tools=_wt)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
-                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
+                      with_tools=_wt),
         media_type="text/event-stream",
     )
 
@@ -2003,39 +2017,77 @@ def _final_reminder() -> str:
     )
 
 
+def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
+    """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
+    生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
+    (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
+    with_tools(P0-2 守卫,P1 全量抓漏):非当前书对话不挂 s3_ 工具,提示语绝不
+    提及 s3_ 工具名(诱导调用不存在的工具=坏提示+违反防串库语义)。
+    空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
+    try:
+        from scribe3.purpose import parse_deltas
+        ds = parse_deltas((st.get_chapter(chapter) or {}).get("deltas"))
+    except Exception:
+        ds = []
+    if ds:
+        return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
+                "验收验的是「状态变化发生没发生」,不是好不好。")
+    register_hint = ("有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
+                     if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
+    return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
+            "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
+            + register_hint + "空合同也可正常写作,此工序不阻塞。")
+
+
+def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
+                                 seed_words: list, short_mode: bool,
+                                 with_tools: bool = False) -> str:
+    """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
+    POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
+    "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
+    (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
+    with_tools:透传给工序提示段(P0-2:非当前书不得诱导 s3_ 工具)。"""
+    from scribe3.craft import build_craft_block
+    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
+    instructions += f"\n当前第 {chapter} 章。"
+    if focalizer:
+        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    instructions += _avoid_directive(st, chapter)
+    instructions += _voice_anchor_block(st, focalizer)
+    instructions += _arc_state_block(st, focalizer, chapter)
+    instructions += _motif_block(st)
+    instructions += _frame_block(st, focalizer, chapter)
+    instructions += _revelation_discipline_block(focalizer)
+    instructions += _recap_block(st, chapter)
+    instructions += _current_tail_block(st, chapter)
+    instructions += _soak_block(seed_words)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
+    if craft:
+        instructions += "\n\n" + craft
+    instructions += _phase_role_block(phase)
+    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
+    if (phase or "").strip().lower() == "draft":
+        ded = _deduction_block(st, chapter)
+        instructions += "\n\n" + ded
+        logging.getLogger("scribe3").debug(
+            "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
+            chapter, len(ded))
+    instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
+    instructions += _final_reminder()
+    return instructions
+
+
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
-    from scribe3.craft import build_craft_block
     st = _store_for(work)
-    instructions = _editor_write_system(st, focalizer=req.focalizer, chapter=req.chapter)
-    instructions += f"\n当前第 {req.chapter} 章。"
-    if req.focalizer:
-        instructions += f"作者指定本章跟随焦点者 {req.focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
-    else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-    instructions += _avoid_directive(st, req.chapter)
-    instructions += _voice_anchor_block(st, req.focalizer)
-    instructions += _arc_state_block(st, req.focalizer, req.chapter)
-    instructions += _motif_block(st)
-    instructions += _frame_block(st, req.focalizer, req.chapter)
-    instructions += _revelation_discipline_block(req.focalizer)
-    instructions += _recap_block(st, req.chapter)
-    instructions += _current_tail_block(st, req.chapter)
-    instructions += _soak_block(req.seed_words)
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=req.short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(req.phase)
-    instructions += _outline_block(st, req.chapter, req.focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
-    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    if (req.phase or "").strip().lower() == "draft":
-        ded = _deduction_block(st, req.chapter)
-        instructions += "\n\n" + ded
-        logging.getLogger("scribe3").debug(
-            "chat/write[POST] phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-            req.chapter, len(ded))
-    instructions += _final_reminder()
+    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    instructions = _assemble_write_instructions(
+        st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -2045,11 +2097,252 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     else:
         message = req.msg
 
+    # 北极星任务1:会话落库(蓝图 §4-② 第1级)——user 受理即写,assistant 流尽回调写;
+    # 均 best-effort(D-004),落库失败只告警,绝不影响写作主链路。
+    # turn id(P2-6):串起本轮 user/assistant,防并发会话交错污染蒸馏配对。
+    import uuid
+    turn_id = uuid.uuid4().hex[:12]
+    user_text = req.msg + (f"\n[附图{len(req.images)}张]" if req.images else "")
+    try:
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user",
+                            text=user_text, turn=turn_id)
+    except Exception:
+        logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
+
+    def _persist_assistant(text: str) -> None:
+        st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
+                            text=text, turn=turn_id)
+
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
-                      with_tools=_work_has_tools(work)),   # P0-2:仅当前书挂 s3_ 工具
+                      with_tools=_wt,
+                      on_complete=_persist_assistant),
         media_type="text/event-stream",
     )
+
+
+@app.get("/chat/messages")
+def chat_messages(chapter: int | None = None, limit: int = 500, work: str = "main"):
+    """会话留痕回看(北极星任务1):按章拉 chat_message,ts 升序。
+    复盘蒸馏(任务8)与「当初为什么这么定」的翻账都从这里读。
+    GET /chat/write(兼容端点,无生产调用方)不落库——台账 D-005。"""
+    return _store_for(work).list_chat_messages(chapter=chapter, limit=limit)
+
+
+def _collect_write(message, instructions: str, with_tools: bool = True):
+    """同步(非 SSE)写作收集器,loop 编排(北极星任务4)用。与 _stream_write 同一事件源
+    (_responses_events 可 monkeypatch)与同一 ProposalParser 语义,只是不产 SSE 帧。
+    返回 (围栏外散文, proposals=[{scope, prose}, ...]);LLM 异常向上抛(journal 的
+    in_progress 会停在 generate stage,resume/审计可见,不吞错)。"""
+    from scribe3.llm import hermes_responses_events
+    from scribe3.proposal import ProposalParser
+    fn = _responses_events or hermes_responses_events
+    parser = ProposalParser()
+    outside: list[str] = []
+    proposals: list[dict] = []
+    cur = {"scope": None, "prose": []}
+
+    def drain(events):
+        for kind, val in events:
+            if kind == "delta":
+                outside.append(val)
+            elif kind == "proposal_open":
+                cur["scope"] = val
+                cur["prose"] = []
+            elif kind == "proposal_delta":
+                cur["prose"].append(val)
+            elif kind == "proposal_close":
+                proposals.append({"scope": cur["scope"], "prose": "".join(cur["prose"])})
+                cur["scope"] = None
+                cur["prose"] = []
+
+    for ev in fn(message, instructions, with_tools=with_tools):
+        if ev.get("type") == "response.output_text.delta":
+            drain(parser.feed(ev.get("delta", "")))
+    drain(parser.flush())
+    return "".join(outside), proposals
+
+
+def _loop_journal_path(work: str, chapter: int):
+    """loop 编排 journal 路径(北极星任务4,台账 D-012)。与 _import_journal_path 的
+    临时目录语义**刻意不同**:loop journal 兼任秘密审计(任务13)的抽查数据源
+    ("哪章被自动回炉了几轮、为什么"),须持久——默认 ~/.scribe3-loop-journals/{work}/,
+    SCRIBE3_LOOP_JOURNAL_DIR 可覆盖(测试指 tmp_path)。每次调用新开带纳秒时间戳的
+    文件:重复 loop 同章不串账(journal 的 should_skip 语义只在单次运行内成立)。"""
+    import time
+    from pathlib import Path
+    base = os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR") or os.path.expanduser("~/.scribe3-loop-journals")
+    d = Path(base) / work
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"loop_ch{chapter}_{time.time_ns()}.json"
+
+
+class LoopChapterReq(BaseModel):
+    chapter: int
+    focalizer: str = ""
+    msg: str = ""            # 可选驱动语;默认"按简报写第N章正文"
+    phase: str = "final"
+    short_mode: bool = False
+
+
+@app.post("/loop/chapter")
+def loop_chapter(req: LoopChapterReq, work: str = "main"):
+    """北极星任务4:修复环编排端点(蓝图 §3-①)。同步长请求(D-009:单用户本地工具
+    形态;响应带 journal_path 留 202 演进位)。编排纯逻辑在 scribe3/loop.py(依赖注入),
+    本端点只绑真实现:
+    - generate 复用 chat_write 完整组装链(_assemble_write_instructions 同一函数,
+      宪法:regenerate 绝不另起简化 prompt);负面约束段追加在 instructions 尾部;
+    - post_check 直接调用 /post-check 端点函数(判据零漂移);
+    - blocking→自动回炉≤2轮 / advisory→清单待批不重写 / pass→落库+final版+同步 ingest;
+    - loop 自动轮不写 chat_message(D-010,journal 已留痕)。"""
+    from scribe3.ingest import ingest_chapter
+    from scribe3.loop import run_chapter_loop
+    from scribe3.pipeline_journal import PipelineJournal
+    st = _store_for(work)
+    # P0门审查 P1-3:同章 loop 互斥——在途拒 409,防双生成/双落库/双 ingest。
+    _lkey = (work, req.chapter)
+    with _loop_inflight_lock:
+        if _lkey in _loop_inflight:
+            raise HTTPException(status_code=409,
+                                detail=f"chapter {req.chapter} 已有 loop 在途(同章互斥)")
+        _loop_inflight.add(_lkey)
+    # P2门审查 P2-1(loop 侧同修):journal 构造若抛异常须释放互斥,否则该章永久 409。
+    try:
+        jp = _loop_journal_path(work, req.chapter)
+        journal = PipelineJournal(jp)
+    except Exception:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_lkey)
+        raise
+
+    def _generate(attempt: int, constraints: str) -> str:
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
+            seed_words=[], short_mode=req.short_mode,
+            with_tools=_work_has_tools(work))
+        if constraints:
+            instructions += "\n\n" + constraints
+        msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
+                          f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+        text, proposals = _collect_write(msg, instructions, with_tools=_work_has_tools(work))
+        # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
+        # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通
+        # pass,把既有整章正文静默覆盖掉。
+        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
+        if chapter_props:
+            return chapter_props[-1]["prose"]
+        body = _strip_preamble(text)
+        if len(body.strip()) >= _FALLBACK_MIN_CHARS:
+            return body
+        raise HTTPException(status_code=422, detail=(
+            f"第 {attempt} 轮未产出合格章稿(无 scope=chapter 围栏且散文不足 "
+            f"{_FALLBACK_MIN_CHARS} 字)——请检查驱动语是否要求用围栏交稿"))
+
+    _last_post: dict = {}   # 北极星任务6:finalize 结算要用最后一轮 fulfillment 结果
+
+    def _post_check(prose: str) -> dict:
+        resp = post_check(PostCheckReq(prose=prose, focalizer=req.focalizer,
+                                       short_mode=req.short_mode),
+                          seq=req.chapter, work=work)
+        _last_post.clear()
+        _last_post.update(resp)
+        return resp
+
+    def _persist_version(prose: str, attempt: int, verdict: str) -> str:
+        return st.add_chapter_version(
+            req.chapter, prose, label=f"loop第{attempt}稿·{verdict}",
+            kind="checkpoint", stage="draft", stats=_prose_stats(prose))
+
+    def _finalize(prose: str) -> dict:
+        title = (st.get_chapter(req.chapter) or {}).get("title") or ""
+        st.save_chapter(req.chapter, prose, title=title, focalizer=req.focalizer or None)
+        try:
+            st.add_chapter_version(req.chapter, prose, label="loop过审", kind="final",
+                                   stage="final", stats=_prose_stats(prose))
+        except Exception as e:
+            logging.getLogger("scribe3").warning("loop final 留版失败(不阻断): %s", e)
+        # P0门审查 P1-3:loop 的同步 ingest 也走 _pending_ingest 在途护栏——与 /ingest、
+        # _bg_ingest 共用同一 (work,seq) 集合,防 loop 长请求期间用户手点反哺/存稿触发的
+        # ingest 与本次交错(knows/char_state/motif_instance 双份或互删)。
+        ikey = (work, req.chapter)
+        with _pending_ingest_lock:
+            if ikey in _pending_ingest:
+                return {"ok": False,
+                        "error": "同章 ingest 在途(_pending_ingest 护栏),本次跳过;正文已落库,稍后可手动 /ingest"}
+            _pending_ingest.add(ikey)
+        try:
+            from scribe3.llm import hermes_complete
+            r = ingest_chapter(st, req.chapter, hermes_complete)
+            # 北极星任务6 + P1门审查 P0-1:结算必须在 ingest **之后**——promise_touch/
+            # relation_touch/获知 fact 正是 ingest 抽取落库的,先结算必然把已兑现的
+            # delta 误判 not_achieved 错误滚入下章(错账向后污染,brief 会催 LLM 重做
+            # 已做过的回收)。结构类此刻现场重算;认知类沿用最后一轮 post-check 的
+            # LLM verdicts 合并(此前的时序错误正是把真机 ch7 的 promise 误记 carried)。
+            try:
+                from scribe3.purpose import (check_fulfillment_structural,
+                                             parse_deltas, settle_purpose)
+                _ds = parse_deltas((st.get_chapter(req.chapter) or {}).get("deltas"))
+                if _ds:
+                    _struct = check_fulfillment_structural(st, req.chapter, _ds)
+                    _kn = {(i.get("kind"), i.get("predicate")): i
+                           for i in ((_last_post.get("fulfillment") or {}).get("items") or [])
+                           if i.get("kind") == "knowledge"}
+                    _merged = []
+                    for _it in _struct:
+                        if _it["kind"] == "knowledge" and _it["verdict"] == "not_checkable":
+                            _j = _kn.get((_it["kind"], _it["predicate"]))
+                            if _j and _j.get("verdict"):
+                                _it = {**_it, "verdict": _j["verdict"]}
+                        _merged.append(_it)
+                    settle_purpose(st, req.chapter, _merged)
+            except Exception as se:
+                logging.getLogger("scribe3").warning("loop 目的合同结算失败(忽略): %s", se)
+            # 北极星任务8:loop 章 ingest 后复盘蒸馏(loop 自动轮不写 chat_message,
+            # 该章无人工对话时蒸馏自动 no_messages 跳过;有过讨论则照常沉淀)。
+            # P1门审查 P2-5:与 /ingest 一致认 _complete_fn(测试可注入)。
+            try:
+                from scribe3.lesson import distill_chapter
+                _dfn2 = _complete_fn
+                if _dfn2 is None:
+                    _dfn2 = hermes_complete
+                distill_chapter(st, req.chapter, _dfn2)
+            except Exception as de:
+                logging.getLogger("scribe3").warning("loop 复盘蒸馏失败(忽略): %s", de)
+            # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后——fulfillment 读结算态)。
+            _refresh_scorecard_after_ingest(st, req.chapter)
+            return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
+        except Exception as e:
+            logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
+            return {"ok": False, "error": str(e)[:160]}
+        finally:
+            with _pending_ingest_lock:
+                _pending_ingest.discard(ikey)
+
+    try:
+        result = run_chapter_loop(chapter=req.chapter, generate=_generate,
+                                  post_check=_post_check, persist_version=_persist_version,
+                                  finalize=_finalize, journal=journal)
+    finally:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_lkey)
+    # 遗留处置 1-A:熔断数据源。审查 P2-1:记"S1 是某轮唯一 blocking 来源"而非"S1 出现
+    # 过"——与泄密/退化同场时章确有硬伤,S1 非决定性,计入会污染误杀率分子、熔断偏易开。
+    def _s1_sole_blocking(rounds):
+        for r0 in rounds:
+            bl = r0.get("blocking") or []
+            if bl and all(b.get("detector") == "findings_schema" for b in bl):
+                return True
+        return False
+    _s1_record(work, _s1_sole_blocking(result.get("rounds", [])))
+    # 遗留处置 1-C(#2):rounds 明细(含 blocking 原因)落 journal 旁,复用选择环
+    # .result.json 模式——审计与盲评池的"为什么"单文件可查,不再只活在 HTTP 响应里。
+    try:
+        with open(str(jp) + ".result.json", "w", encoding="utf-8") as _f:
+            json.dump(result, _f, ensure_ascii=False, indent=1)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("loop 结果落盘失败(忽略): %s", e)
+    result["journal_path"] = str(jp)
+    return result
 
 
 @app.get("/chapters")
@@ -2099,6 +2392,8 @@ class ChapterMetaReq(BaseModel):
     scene_truth: str | None = None          # 场景真相(全知)
     involved_characters: list | None = None # 涉及角色 id
     deductions: list | None = None          # [{character_id, character_name, prose}]
+    purpose_text: str | None = None         # 北极星任务6:一句话章节目的
+    deltas: list | None = None              # 北极星任务6:delta 清单(登记时校验+预演)
 
 
 @app.patch("/chapters/{seq}")
@@ -2108,13 +2403,39 @@ def patch_chapter(seq: int, req: ChapterMetaReq, work: str = "main"):
     R2.5: 目标 volume 不存在→422。
     """
     fields = req.model_dump(exclude_unset=True)
+    # 北极星任务6:目的合同登记校验——strict 解析(P1-5:非法条目 422 指明第几条,
+    # 绝不静默丢弃后整体覆盖=静默数据销毁)+ 条数量控 + 认知类写前预演
+    # (不可实现 → 422 带原因;预演降级放行时响应带旗,P2-2)。
+    _rehearse_degraded = False
+    if "purpose_text" in fields and fields["purpose_text"]:
+        fields["purpose_text"] = str(fields["purpose_text"])[:200]
+    if "deltas" in fields and fields["deltas"] is not None:
+        from scribe3.purpose import (parse_deltas_strict, rehearse_delta_ex,
+                                     validate_deltas)
+        _ds, _errs = parse_deltas_strict(fields["deltas"])
+        if _errs:
+            raise HTTPException(status_code=422,
+                                detail="deltas 有非法条目,未写入:" + ";".join(_errs))
+        _err = validate_deltas(_ds)
+        if _err:
+            raise HTTPException(status_code=422, detail=_err)
+        _foc = (_store_for(work).get_chapter(seq) or {}).get("focalizer")
+        for _d in _ds:
+            _rerr, _rdeg = rehearse_delta_ex(_store_for(work), seq, _d, _foc)
+            _rehearse_degraded = _rehearse_degraded or _rdeg
+            if _rerr:
+                raise HTTPException(status_code=422, detail=_rerr)
+        fields["deltas"] = _ds   # 存规范化后的清单
     try:
         ok = _store_for(work).update_chapter_meta(seq, fields)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
-    return {"status": "updated", "seq": seq}
+    _resp = {"status": "updated", "seq": seq}
+    if _rehearse_degraded:
+        _resp["rehearse_degraded"] = True   # P2-2:预演故障放行须对调用方可见
+    return _resp
 
 
 # == 卷 CRUD ==
@@ -2301,6 +2622,21 @@ class CheckReq(BaseModel):
                               # 直写情绪不计入 psych_ratio/Gate C
 
 
+def _refresh_scorecard_after_ingest(st, seq: int) -> None:
+    """ingest 后刷新章 scorecard(P0门审查 P2-3,单源供 /ingest、_bg_ingest、loop 共用):
+    存稿时快照没有本章事件,qc_causal 停在 -1 哨兵;反哺落库后重算出真值。
+    fail-soft:刷新失败只告警,不影响 ingest 结果。"""
+    try:
+        ch = st.get_chapter(seq) or {}
+        prose = ch.get("prose") or ""
+        if prose.strip():
+            st._upsert_scorecard(st._compute_scorecard(seq, prose, ch.get("focalizer")))
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "ingest 后 scorecard 刷新失败(忽略) seq=%s: %s", seq, e)
+
+
 def _bg_ingest(work: str, seq: int) -> None:
     """后台客观回写:开**独立** store 连接跑 ingest_chapter(P2-3:不复用 _store_for 的共享 ws,
     避免多后台任务跨线程交错同一连接)。异常只记日志,不影响存稿(non-fatal)。
@@ -2315,6 +2651,15 @@ def _bg_ingest(work: str, seq: int) -> None:
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
+        else:
+            _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+        # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
+        try:
+            from scribe3.lesson import distill_chapter
+            distill_chapter(st, seq, hermes_complete)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("后台 ingest 复盘蒸馏失败(忽略) %s 第%s章: %s",
+                                                 work, seq, e)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
     finally:
@@ -2343,6 +2688,13 @@ def _enqueue_ingest(background: BackgroundTasks, work: str, seq: int) -> bool:
 
 @app.post("/save-chapter")
 def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "main"):
+    # 遗留处置 1-B:同章生成在途(loop/选择环)时拒绝手动存稿——数分钟长请求期间
+    # 手改再存会与自动落库互踩静默覆盖。409 不丢编辑(正文仍在前端编辑器里)。
+    with _loop_inflight_lock:
+        if (work, req.seq) in _loop_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
+                "你的编辑不会丢,可先复制正文"))
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
@@ -2407,6 +2759,12 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     C-1(正文覆写三路对称):真改写正文后,与 /save-chapter 对称——落 final 版本(补版本历史断链)
     + 排后台 ingest(内容变了理应重抽知识账本;经 _enqueue_ingest 与 P0-1 同章去重护栏协同,
     若该章已有 ingest 在途则跳过,不产生双份)。"""
+    # 批次一审查 P1-2:与 /save-chapter 同款在途护栏——loop/选择环期间 dedup 改写落库
+    # 会与自动落库互踩(1-B 堵了手动存稿这个门,这里是同一风险的另一个门)。
+    with _loop_inflight_lock:
+        if (work, seq) in _loop_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {seq} 章生成在途(loop/选择环),完成后再去重"))
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
@@ -2604,7 +2962,11 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     try:
         issues = quality_issues(req.prose, extra, allow_words, allow_pats)
     except Exception as e:
+        # P0门审查 P1-4:issues 喂 loop 的 blocking 判据②(degeneration)与待批清单,
+        # 该 stage 挂掉必须记 degraded——否则"没查被当没病",loop 会假绿宣 pass。
         logging.getLogger("scribe3").warning("post_check quality_issues 失败: %s", e)
+        degraded = True
+        degraded_stages.append("quality_issues")
     # leak issues
     for lk in leaks:
         issues.append({
@@ -2614,17 +2976,39 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "range": lk["range"],
             "meta": {"fact_id": lk["fact_id"], "subject": lk["subject"]},
         })
-    # discipline.cut_after issue(纪律违规起点句)
-    if discipline.get("cut_after"):
-        cut = discipline["cut_after"]
-        idx = req.prose.find(cut)
-        rng = [idx, idx + len(cut)] if idx >= 0 else None
+    # 纪律违规 issue(遗留处置 1-A)。violations 即报——此前 cut_after 为空时违规被
+    # 静默吞;cut_after 只负责定位。severity 三重防误杀:单次 LLM 判默认 S2(advisory);
+    # 仅确定性信号同向命中(共振表,≤5 条硬编码)才升 S1 → triage blocking 判据④;
+    # 熔断开(近 10 次 loop S1 触发率>30%)时升格暂停。共振表(自定口径,待盲评池校准):
+    #   knowledge_leak ↔ find_leaks 命中 或 god_view(kind=god_spoiler,叙述层知识泄露形态)
+    #   god_view       ↔ god_view(kind∈{god_spoiler,explain_causality};批次一审查 P1-1:
+    #                    summarize 的"此刻,他"/sublimation 是好稿常见句式或纯风格,
+    #                    与全知违规同向性不足,拿来共振=为无关违规背书,故收窄强全知两类)
+    #   exposition_dump↔ oversaturation>0
+    #   double_climax / voice_collapse 无确定性对应物 → 恒 S2
+    if discipline.get("violations") or discipline.get("cut_after"):
+        cut = discipline.get("cut_after") or ""
+        idx = req.prose.find(cut) if cut else -1
+        rng = [idx, idx + len(cut)] if (cut and idx >= 0) else None
+        _viol = set(discipline.get("violations") or [])
+        _god_kinds = {(i.get("meta") or {}).get("kind")
+                      for i in issues if i.get("type") == "god_view"}
+        _resonance = (
+            ("knowledge_leak" in _viol and (bool(leaks) or "god_spoiler" in _god_kinds))
+            or ("god_view" in _viol
+                and bool(_god_kinds & {"god_spoiler", "explain_causality"}))
+            or ("exposition_dump" in _viol
+                and (qc_breakdown.get("oversaturation") or 0) > 0)
+        )
+        _sev = "S1" if (_resonance and not _s1_circuit_open(work)) else "S2"
         issues.append({
             "type": "discipline",
             "message": f"纪律违规:{'、'.join(discipline.get('violations', []))}",
             "text": cut,
             "range": rng,
-            "meta": {"violations": discipline.get("violations", [])},
+            "meta": {"violations": discipline.get("violations", []),
+                     "extra": discipline.get("extra") or [],   # LLM 自由文本观察(D-024,不参与升格)
+                     "severity": _sev, "resonance": _resonance},
         })
     # setting issues
     for hint in setting:
@@ -2759,12 +3143,20 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     ai_grade = None
     try:
         from scribe3.critique import aggregate_ai_grade
-        ai_grade = aggregate_ai_grade(qf, req.prose, precomputed={
-            "duplicate_lines": dup_lines,
-            "emotion_telling": emotion_telling,
-            "parallelism": parallelism,
-            "poetic_fragments": poetic_fragments,
-        }, short_mode=req.short_mode)
+        # P0门审查 P1-5:降级的输入检测器不得以空列表冒充结果喂 precomputed——
+        # 假零会让 Gate 判不出 heavy(blocking 判据③被掏空)。缺谁让 aggregate 自己
+        # 重算谁;重算仍挂会落本 except 记 aggregate_ai_grade 降级(pass 门关键 stage)。
+        _pre: dict = {}
+        if "find_duplicate_lines" not in degraded_stages:
+            _pre["duplicate_lines"] = dup_lines
+        if "find_emotion_telling" not in degraded_stages:
+            _pre["emotion_telling"] = emotion_telling
+        if "find_parallelism" not in degraded_stages:
+            _pre["parallelism"] = parallelism
+        if "find_poetic_fragments" not in degraded_stages:
+            _pre["poetic_fragments"] = poetic_fragments
+        ai_grade = aggregate_ai_grade(qf, req.prose, precomputed=_pre,
+                                      short_mode=req.short_mode)
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check aggregate_ai_grade 失败: %s", e)
         degraded = True
@@ -2780,6 +3172,21 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("normalize_punctuation_suggestions")
 
+    # 批次三:时间线第一刀(季节冲突/时辰倒流/同章同主体双地),report-only——
+    # 只进 advisory 通道(不设 meta.severity),永不 blocking;fail-soft 且不记
+    # degraded(不在 _PASS_CRITICAL_STAGES,时间线没查成不动摇 pass 门)。
+    try:
+        from scribe3.critique import find_intra_chapter_time_conflicts
+        for tc in find_intra_chapter_time_conflicts(req.prose):
+            issues.append({"type": "timeline", "message": tc["note"], "text": tc["phrase"],
+                           "range": tc["range"], "meta": {"kind": tc["kind"]}})
+        for hint in st.validate_event_colocation(seq):
+            issues.append({"type": "timeline", "message": hint["note"], "text": "",
+                           "range": None, "meta": {"kind": "event_colocation",
+                                                   "subject": hint["subject"]}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check timeline 检测失败(忽略): %s", e)
+
     # 方案B任务20:finding-merge 纪律——同位置"机械替换"(punct_suggestions)让位
     # "按功能改写"(issues),并给 degeneration issue 绑定 fix_action=regenerate
     # (回炉重打,不是改写)。fail-soft:异常时保留合并前的原始值,记 degraded_stages。
@@ -2791,10 +3198,45 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("merge_findings")
 
+    # 北极星任务6:目的合同写后验收段(蓝图 §3-④)——结构类查库零噪声;认知类
+    # LLM 三值判定(FABLES:supported 须逐字引文),只进面板与 advisory,永不进
+    # blocking(宪法)。/post-check 是 read-only:此处只验收不落库,结算(settle)
+    # 挂 loop pass finalize 与 /ingest 成功路径。fail-soft。
+    fulfillment: dict = {"status": "not_available", "items": []}
+    try:
+        from scribe3.purpose import (check_fulfillment_structural,
+                                     judge_knowledge_delta, parse_deltas)
+        _pc_ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+        if _pc_ds:
+            _items = check_fulfillment_structural(st, seq, _pc_ds)
+            _kn_fn = _complete_fn
+            if _kn_fn is None:
+                from scribe3.llm import hermes_complete as _kn_fn
+            for _it in _items:
+                if (_it["kind"] == "knowledge" and _it["verdict"] == "not_checkable"
+                        and _it.get("status") not in ("achieved", "waived")):
+                    _j = judge_knowledge_delta(req.prose, _it, _kn_fn)
+                    _it["verdict"] = _j["verdict"]
+                    if _j.get("evidence"):
+                        _it["evidence"] = _j["evidence"]
+            fulfillment = {"status": "active", "items": _items,
+                           "achieved": sum(1 for i in _items
+                                           if i["verdict"] in ("achieved", "supported")),
+                           "total": len(_items)}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check fulfillment 失败(fail-soft): %s", e)
+        degraded = True
+        degraded_stages.append("fulfillment")
+
+    from scribe3.critique import _degen_visible_length
+    _visible_chars = _degen_visible_length(req.prose or "")
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
+        "fulfillment": fulfillment,
+        "s1_circuit_open": _s1_circuit_open(work),   # 1-A 熔断状态对调用方可见
+        "visible_chars": _visible_chars,   # 2-B:A5 口径可见字数,triage 短文本降档判据源
         "discipline": discipline,
         "degraded": degraded,
         "degraded_stages": degraded_stages,
@@ -2988,7 +3430,31 @@ def ingest(seq: int, work: str = "main"):
             raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
         _pending_ingest.add(key)
     try:
-        return ingest_chapter(_store_for(work), seq, hermes_complete)
+        st = _store_for(work)
+        r = ingest_chapter(st, seq, hermes_complete)
+        if not r.get("parse_failed"):
+            # 北极星任务6:手动链路结构类结算(认知类留面板人工;loop 链有完整结算)。
+            # settle 在 scorecard 刷新之前——刷新要读结算后的 deltas 状态。
+            try:
+                from scribe3.purpose import (check_fulfillment_structural,
+                                             parse_deltas, settle_purpose)
+                _ds = parse_deltas((st.get_chapter(seq) or {}).get("deltas"))
+                if _ds:
+                    settle_purpose(st, seq, check_fulfillment_structural(st, seq, _ds))
+            except Exception as e:
+                logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
+            _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+        # 北极星任务8:章后复盘蒸馏(事件驱动挂 ingest 路径,蓝图定死不走 cron)——
+        # 与知识抽取成败无关(对话的方法教训独立于 parse_failed);fail-soft 绝不拖垮 ingest。
+        try:
+            from scribe3.lesson import distill_chapter
+            _dfn = _complete_fn
+            if _dfn is None:
+                from scribe3.llm import hermes_complete as _dfn
+            distill_chapter(st, seq, _dfn)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("/ingest 复盘蒸馏失败(忽略): %s", e)
+        return r
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard(key)
@@ -3103,8 +3569,417 @@ def ignore_unverified_ep(uid: str, work: str = "main"):
     return {"ok": True}
 
 
+@app.get("/north-star/chapter/{seq}")
+def north_star_chapter(seq: int, work: str = "main"):
+    """章级北极星 scorecard(北极星任务3,蓝图 §3-③):constraints(硬约束偏离)/
+    advisory_scores(软参考)/fulfillment(正向达成,任务6 前占位)三分栏。
+    不合成总分(宪法条款);loop 编排(任务4)只读 constraints。
+    缓存缺失时 store 侧 lazy 现算回填;章不存在/无正文 → 404。"""
+    sc = _store_for(work).get_chapter_scorecard(seq)
+    if sc is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} 不存在或无正文")
+    return sc
+
+
+@app.get("/audit/blind-pack")
+def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
+                     per_volume: int | None = None):
+    """盲评包导出(北极星任务13,秘密审计制度——防 Goodhart 的流程性防护):
+    池A=被自动 regenerate 的章(loop journal 含 *_verdict_blocking,附第0稿并排、
+    随机左右序,审「重写后真的更好吗」);池B=随机抽样章(seed 可复现)。
+    sample_n 是**全书总抽样数**(P2门审查 P2-4:旧名 per_volume 语义失实,制度 doc
+    的"每卷 2-3 章"由作者按卷分次导出或 sample_n=卷数×2 执行;旧参名兼容保留)。
+    样本用盲号(不含章号;池A样本带双稿形态,天然暴露"回炉过"池别——制度 doc 已
+    明示此偏离)。key 补 regen_rounds(回炉轮数,journal 计)。结论只供人读,
+    **永不接入任何自动收敛判据**(宪法级);read-only 端点。"""
+    if per_volume is not None:
+        sample_n = per_volume
+    import glob as _glob
+    import json as _json
+    import random
+    import re as _re_mod
+    _re_audit = _re_mod.compile(r"_a(\d+)_")
+    st = _store_for(work)
+    base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
+            or os.path.expanduser("~/.scribe3-loop-journals"))
+    pool_a: set[int] = set()
+    pool_a2: set[int] = set()   # 2-A:needs_human 章(三稿全拦)——检测器假阳性富矿
+    regen_rounds: dict[int, int] = {}   # P2门审查 P2-4:key 补回炉轮数(制度 doc 承诺)
+    blocking_dist: dict[int, dict] = {}   # 2-A:拦截原因分布(detector 计数,来自 .result.json)
+    for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
+        try:
+            with open(fp, encoding="utf-8") as _fh:
+                data = _json.loads(_fh.read())
+            stages = data.get("stages_completed") or []
+            seq_a = int(os.path.basename(fp).split("_")[1][2:])
+            if any("_needs_human" in s for s in stages):
+                pool_a2.add(seq_a)
+            elif any("_verdict_blocking" in s for s in stages):
+                pool_a.add(seq_a)
+            else:
+                continue
+            attempts = [int(m.group(1)) for s in stages
+                        for m in [_re_audit.search(s)] if m]
+            regen_rounds[seq_a] = max(regen_rounds.get(seq_a, 0), max(attempts, default=0))
+            try:   # 1-C#2 的旁文件有则读 detector 分布(旧 journal 没有,None 即如实)
+                with open(fp + ".result.json", encoding="utf-8") as _fh2:
+                    rj = _json.loads(_fh2.read())
+                _cnt: dict[str, int] = {}
+                for _r0 in rj.get("rounds") or []:
+                    for _b in _r0.get("blocking") or []:
+                        _d = str(_b.get("detector") or "?")
+                        _cnt[_d] = _cnt.get(_d, 0) + 1
+                if _cnt:
+                    blocking_dist[seq_a] = _cnt
+            except Exception:
+                pass
+        except Exception:
+            continue
+    pool_a -= pool_a2   # 同章多 journal 时 needs_human 语义优先(A 的"重写后过审"对照不成立)
+    chapters = [c["seq"] for c in st.list_chapters()]
+    rng = random.Random(seed)
+    rest = [c for c in chapters if c not in pool_a and c not in pool_a2]
+    pool_b = sorted(rng.sample(rest, min(sample_n, len(rest)))) if rest else []
+    # 池A2 不要求章已落库正文(needs_human 章 prose 不落库,三稿在版本库)
+    picked = ([("A", s) for s in sorted(pool_a) if s in chapters]
+              + [("A2", s) for s in sorted(pool_a2)]
+              + [("B", s) for s in pool_b])
+    rng.shuffle(picked)
+    samples, key = [], {}
+    for i, (pool, seq) in enumerate(picked):
+        blind_id = f"S{seed}-{i + 1:02d}"
+        ch = st.get_chapter(seq) or {}
+        item = {"blind_id": blind_id, "prose": ch.get("prose") or "",
+                "questions": ["张力:想继续读下一章吗(1-5)?",
+                              "声音:遮住人名还认得出这本书吗(1-5)?",
+                              "记忆点:24 小时后还记得哪个画面?",
+                              "违和:有没有机器味/被打磨过头的段落(引原文)?"]}
+        if pool == "A":
+            vers = [v for v in (st.list_chapter_versions(seq) or [])
+                    if "loop第0稿" in (v.get("label") or "")]
+            if vers:
+                raw = (st.get_chapter_version(vers[0]["id"]) or {}).get("prose") or ""
+                pair = [item["prose"], raw]
+                rng.shuffle(pair)   # 随机左右序防位置偏置(Arena 先例)
+                item["pair"] = [{"tag": f"稿{'甲乙'[k]}", "prose": p}
+                                for k, p in enumerate(pair)]
+                item["pair_question"] = "两稿哪份更好?自动重写是否磨掉了好东西?"
+                item.pop("prose")
+        elif pool == "A2":
+            # 2-A:needs_human 章三稿并排(正文未落库,稿全在版本库 loop第N稿)。
+            # 按轮次序不随机——A2 审的是「检测器拦得对不对」,轮次演进本身是证据
+            # (自定口径,记 D-025);位置偏置防护留给池A的优劣对比场景。
+            # 版本库可能存多轮 loop 的稿(label 无 run id);list_chapter_versions 新→旧,
+            # 顺扫遇到重复 attempt 号即越过组边界——只取最新一组(needs_human 那次)。
+            _re_draft_n = _re_mod.compile(r"loop第(\d+)稿")
+            _cand, _seen_n = [], set()
+            for v in (st.list_chapter_versions(seq) or []):
+                _m = _re_draft_n.search(v.get("label") or "")
+                if not _m:
+                    continue
+                _n = int(_m.group(1))
+                if _n in _seen_n:
+                    break
+                _seen_n.add(_n)
+                _cand.append((_n, v))
+            _cand.sort(key=lambda t: t[0])
+            item["triple"] = [
+                {"tag": f"第{n}稿",
+                 "prose": (st.get_chapter_version(v["id"]) or {}).get("prose") or ""}
+                for n, v in _cand]
+            item["triple_question"] = ("这几稿真的都不行吗?有可用稿即说明检测器过严,"
+                                       "引原文说明哪一稿哪一段其实成立。")
+            item.pop("prose")   # needs_human 正文未落库,不出空 prose 误导评审
+        samples.append(item)
+        try:
+            sc = st.get_chapter_scorecard(seq) or {}
+        except Exception:
+            sc = {}
+        key[blind_id] = {"chapter": seq, "pool": pool,
+                         "regen_rounds": regen_rounds.get(seq),
+                         "blocking_dist": blocking_dist.get(seq),   # 2-A:拦截原因分布
+                         "ai_grade": ((sc.get("advisory_scores") or {}).get("ai_grade")
+                                      or {}).get("grade"),
+                         "constraints": sc.get("constraints")}
+    return {"samples": samples, "key": key,
+            "note": "评审时勿看 key;结论写人工文档,永不接入任何自动收敛判据(宪法)"}
+
+
+class SelectChapterReq(BaseModel):
+    chapter: int
+    force: bool = False       # 非关键章硬要出候选(作者主权;默认拦,N 倍成本只花刀刃)
+    msg: str = ""             # 可选驱动语补充
+
+
+@app.post("/select/chapter")
+def select_chapter(req: SelectChapterReq, work: str = "main"):
+    """选择环(北极星任务11,蓝图 §4-①):关键章同一合同出 3 个策略多样候选 →
+    确定性过滤(triage blocking 杀)→ rubric 全循环赛只排序(无共识则不排)→
+    候选留版本,响应供对比页,终选走 /select/finalize(人)。
+    关键章判定:chapter_role∈{高压,关系回收} 或含 reversal_type(节拍标注,
+    parse_chapter_meta);非关键章 422(force=true 可越过)。同章互斥 409。"""
+    from scribe3.brief import chapter_draft_text, parse_chapter_meta
+    from scribe3.pipeline_journal import PipelineJournal
+    from scribe3.qd import chapter_style_profile
+    from scribe3.selection import STRATEGIES, is_key_chapter, run_selection
+    st = _store_for(work)
+    ch = st.get_chapter(req.chapter)
+    if not ch:
+        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
+    _draft_txt = chapter_draft_text(ch)
+    meta = parse_chapter_meta(_draft_txt) or {}
+    # reversal_type 不在 parse_chapter_meta 输出里(它只抓压力级/role)——
+    # 关键章判定的反转分支从草料文本直接正则(方案B任务13b 的标注规范同源)。
+    import re as _re
+    _rev = _re.search(r"reversal_type\s*[::]\s*(\S+)", _draft_txt)
+    if _rev:
+        meta["reversal_type"] = _rev.group(1)
+    if not is_key_chapter(meta) and not req.force:
+        raise HTTPException(status_code=422, detail=(
+            "非关键章不触发选择环(N 倍成本只花刀刃):节拍标注 chapter_role 为 高压/关系回收 "
+            "或标注 reversal_type 后再试;确要出候选传 force=true"))
+    _skey = (work, req.chapter)
+    with _loop_inflight_lock:   # 与修复环共用同章互斥(同章不得同时 loop 与选择)
+        if _skey in _loop_inflight:
+            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
+        _loop_inflight.add(_skey)
+    # P2门审查 P2-1:journal 构造放锁后 try 内(构造抛异常曾致锁永不释放、该章全 409);
+    # 且只替换**文件名**(str.replace 全路径会把含 loop_ch 的目录段也改写)。
+    try:
+        jp = _loop_journal_path(work, req.chapter)
+        jp = jp.with_name(jp.name.replace("loop_ch", "select_ch", 1))
+        journal = PipelineJournal(jp)
+    except Exception:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+        raise
+
+    def _generate(strategy: dict) -> str:
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
+            seed_words=[], short_mode=False, with_tools=False)   # 候选生成不挂工具(纯写作)
+        instructions += "\n\n【选择环候选策略(本候选必须执行)】" + strategy["directive"]
+        msg = ((req.msg + "\n") if req.msg else "") + (
+            f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
+            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+        text, proposals = _collect_write(msg, instructions, with_tools=False)
+        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
+        if chapter_props:
+            return chapter_props[-1]["prose"]
+        body = _strip_preamble(text)
+        if len(body.strip()) >= _FALLBACK_MIN_CHARS:
+            return body
+        raise HTTPException(status_code=422,
+                            detail=f"策略 {strategy['key']} 未产出合格章稿(无围栏且散文不足)")
+
+    def _post_check(prose: str) -> dict:
+        return post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
+                          seq=req.chapter, work=work)
+
+    def _persist(prose: str, strategy_key: str) -> str:
+        # kind 枚举 DB 级 ASSERT 仅 checkpoint/final(migration 先例)——候选语义由
+        # label 前缀「选择环候选·」承载,免改已有表 schema(免影子库演练,D-019 附注)。
+        return st.add_chapter_version(req.chapter, prose, kind="checkpoint", stage="draft",
+                                      label=f"选择环候选·{strategy_key}",
+                                      stats=_prose_stats(prose))
+
+    def _judge(a: str, b: str) -> str:
+        """成对比较(rubric 初筛员,只排序)。LLM 失败 → **恒返回 "A"(先手)**:
+        位置对换下同对两方向都判先手 = w1≠w2 矛盾 → round_robin 判 inconsistent →
+        consensus=False 交人。P2门审查 P1-1:此前的"交替返回"推理是反的——交替
+        ("A","B") 在位置对换下恰好等于两方向一致判先手胜,产出零矛盾的确定性
+        **假共识**(已复现);恒定先手才是被双向对换必然识破的降级形态。"""
+        prompt = ("两份同一章级合同下的候选章稿,只判哪份更好(贴合同/张力/文风三维综合),"
+                  '只输出一个字母 A 或 B。\n'
+                  f"【A】\n{a[:2800]}\n【B】\n{b[:2800]}")
+        try:
+            fn = _complete_fn
+            if fn is None:
+                from scribe3.llm import hermes_complete as fn
+            raw = str(fn(prompt)).strip().upper()
+            # P2门审查 P3:取独立的 A/B token(防 "ANSWER" 里的 A 误判)
+            import re as _re2
+            m = _re2.search(r"(?<![A-Z0-9])([AB])(?![A-Z0-9])", raw)
+            if m:
+                return m.group(1)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("selection judge 失败(降级为无共识): %s", e)
+        return "A"
+
+    def _save_result(res: dict) -> None:
+        """P2门审查 P2-3:结果元数据落 journal 旁文件——同步长请求断连/切章后,
+        候选的 filtered/rank/profile 不再只活在一次 HTTP 响应里(prose 本就在版本库)。"""
+        import json as _j2
+        try:
+            with open(str(jp) + ".result.json", "w", encoding="utf-8") as f:
+                _j2.dump(res, f, ensure_ascii=False)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("selection 结果落盘失败(忽略): %s", e)
+
+    try:
+        result = run_selection(chapter=req.chapter, generate=_generate,
+                               post_check=_post_check, persist_candidate=_persist,
+                               profile_fn=chapter_style_profile, judge_fn=_judge,
+                               journal=journal, save_result=_save_result)
+    finally:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+    result["journal_path"] = str(jp)
+    result["key_chapter"] = is_key_chapter(meta)
+    return result
+
+
+class SelectFinalizeReq(BaseModel):
+    chapter: int
+    version_id: str
+    reason_axis: str = "其他"
+    reason_text: str
+
+
+@app.post("/select/finalize")
+def select_finalize(req: SelectFinalizeReq, work: str = "main"):
+    """选择环终选(人):选中候选落正文 + 留 final 版 + **终选理由入 lesson 流**
+    (蓝图:理由是沉淀环最贵的输入;强制一句,轴+自由文本双格式)。"""
+    if not (req.reason_text or "").strip():
+        raise HTTPException(status_code=422, detail="终选必须留一句理由(入 lesson 流)")
+    # P2门审查 P1-3:同章 loop/选择在途时禁止终选——否则 loop pass 的 save+ingest
+    # 与终选落库互踩(正文与知识表错位)。检查即可,不持锁。
+    with _loop_inflight_lock:
+        if (work, req.chapter) in _loop_inflight:
+            raise HTTPException(status_code=409,
+                                detail=f"chapter {req.chapter} 有生成在途,完成后再终选")
+    st = _store_for(work)
+    ver = st.get_chapter_version(req.version_id)
+    if not ver or ver.get("seq") != req.chapter:
+        raise HTTPException(status_code=404, detail="候选版本不存在或不属于该章")
+    prose = ver.get("prose") or ""
+    title = (st.get_chapter(req.chapter) or {}).get("title") or ""
+    foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
+    st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
+    try:
+        st.add_chapter_version(req.chapter, prose, label=f"终选定稿·{ver.get('label') or ''}",
+                               kind="final", stage="final", stats=_prose_stats(prose))
+    except Exception as e:
+        logging.getLogger("scribe3").warning("终选留 final 版失败(正文已落库): %s", e)
+    try:
+        st.add_lesson(req.chapter, "decision",
+                      f"第{req.chapter}章关键章终选胜在{(req.reason_axis or '其他')[:12]}:"
+                      f"{req.reason_text.strip()[:160]}",
+                      condition="关键章多候选终选")
+    except Exception as e:
+        logging.getLogger("scribe3").warning("终选理由入 lesson 失败(定稿不受影响): %s", e)
+    return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
+            "note": "正文已落库;反哺(ingest)由作者在面板触发或走 loop"}
+
+
+@app.get("/lessons/promotable")
+def lessons_promotable(work: str = "main", threshold: int = 4):
+    """升格候选队列(北极星任务8):importance ≥ threshold 的有效 lesson。
+    只列候选——升格动作必须由作者在主编对话让其调用 s3_craft_rule_add
+    (elicitation 待批);蒸馏产物升格永不自动生效(宪法条款,防自评自改变体)。"""
+    rows = [r for r in _store_for(work).list_lessons()
+            if (r.get("importance") or 0) >= threshold]
+    for r in rows:
+        r["note"] = ("已达升格阈:如认可,请在主编对话中让其调用 s3_craft_rule_add"
+                     "(elicitation 待批)升格为 craft_rule;系统绝不自动升格")
+    return rows
+
+
+@app.get("/north-star/book")
+def north_star_book(work: str = "main"):
+    """书级北极星 scorecard(北极星任务7,蓝图 §3-③ 后半):四维面板——张弛分布/
+    伏笔回收率/跨章矛盾密度/目的达成率 + 因果欠账存量(§3-② 溢出承载)。
+    绝不合成加权总分(宪法):北极星语义=所有 setpoint 在区间内 + 各维无恶化趋势,
+    面板全绿只证明机器没失职,"是不是好小说"的裁决留给人。
+    按需现算不建缓存表(D-016:底座对表 Q2 裁决弃 DB EVENT 聚合;章级变更已走
+    /live 推送,前端因章变而重取书级)。各维独立 fail-soft,空书 no_data 不假绿。"""
+    st = _store_for(work)
+    out: dict = {}
+    try:   # ① 张弛分布(find_tension_monotony,与 /post-check 同源组装)
+        from scribe3.brief import chapter_draft_text, find_tension_monotony, parse_chapter_meta
+        metas: list[dict] = []
+        # 2-D(#5):窄查询一次拉草料字段(chapter_draft_text 只吃 synopsis/beats/
+        # scene_truth),不再逐章 get_chapter 拉 prose/embedding 全行
+        for c in st.chapters_lite():
+            m = parse_chapter_meta(chapter_draft_text(c))
+            if m:
+                metas.append({"seq": c["seq"], **m})
+        out["tension"] = {"no_data": not metas, "chapters_with_meta": len(metas),
+                          "findings": find_tension_monotony(metas) if metas else []}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book tension 失败: %s", e)
+        out["tension"] = {"no_data": True, "degraded": True}
+    try:   # ② 伏笔回收率 = payoff/(open+payoff),另列超期数(蓝图公式)
+        rows = st.promises_with_lifecycle()
+        payoff = sum(1 for p in rows if p.get("payoff_chapter"))
+        open_ = sum(1 for p in rows if p.get("status") == "open")
+        overdue = sum(1 for p in rows if (p.get("window") or {}).get("state") == "overdue")
+        denom = payoff + open_
+        out["promise_recovery"] = ({"no_data": True} if not rows else
+                                   {"no_data": False, "payoff": payoff, "open": open_,
+                                    "overdue": overdue,
+                                    "rate": (payoff / denom) if denom else None})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book promise 失败: %s", e)
+        out["promise_recovery"] = {"no_data": True, "degraded": True}
+    try:   # ③ 跨章矛盾密度(CED 口径归一"错误/万字";仅自比趋势)
+        cc = st.validate_cross_chapter_consistency() or []
+        total_wc = st.total_word_count()
+        out["contradiction_density"] = {
+            "no_data": total_wc == 0, "issues": len(cc), "total_chars": total_wc,
+            "per_10k": (len(cc) / total_wc * 10000) if total_wc else None,
+            "self_compare_only": True,
+            "note": "口径同 ConStory CED、检测器不同,数字不可对标外部基准(蓝图 v2 口径警示)"}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book contradiction 失败: %s", e)
+        out["contradiction_density"] = {"no_data": True, "degraded": True,
+                                        "self_compare_only": True}
+    try:   # ④ 目的达成率(任务6 deltas 聚合;waived 出分母)
+        # P1门审查 P1-4:按 (kind,predicate) 链尾状态去重——carried 滚动副本会把
+        # 还清的债永久挂账、分母每滚一次膨胀(一条最终达成的 delta 被计成 50%)。
+        from scribe3.purpose import parse_deltas
+        tail: dict = {}   # (kind, predicate) -> (seq, status)
+        for c in st.chapters_lite():   # 2-D(#5):deltas 从窄查询取,不拉全行
+            for d in parse_deltas(c.get("deltas")):
+                key = (d["kind"], d["predicate"])
+                prev = tail.get(key)
+                if prev is None or c["seq"] >= prev[0]:
+                    tail[key] = (c["seq"], d["status"])
+        statuses = [s for _, s in tail.values()]
+        tot = len(statuses)
+        ach = statuses.count("achieved")
+        carried = statuses.count("carried")
+        waived = statuses.count("waived")
+        denom = tot - waived
+        out["fulfillment"] = ({"no_data": True} if tot == 0 else
+                              {"no_data": False, "achieved": ach, "total": tot,
+                               "carried_backlog": carried, "waived": waived,
+                               "rate": (ach / denom) if denom else None,
+                               "note": "按目的链尾状态去重统计(滚动副本不重复计账)"})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book fulfillment 失败: %s", e)
+        out["fulfillment"] = {"no_data": True, "degraded": True}
+    try:   # 附加信息位:因果欠账存量(非四维,§3-② brief top-5 溢出的面板承载)
+        out["causal_debt_total"] = st.causal_debt_total()
+    except Exception:
+        out["causal_debt_total"] = None
+    try:   # ⑤ QD 文体多样性档案(北极星任务9):分布单调告警,只进面板不进任何门禁
+        from scribe3.qd import CV_FLAT_RUN, style_drift_alerts
+        profs = st.list_style_profiles()
+        out["style_diversity"] = {"no_data": not profs, "profiles_n": len(profs),
+                                  "alerts": style_drift_alerts(profs),
+                                  # P2-3:窗口不足≠无漂移——前端不得把空 alerts 当绿灯
+                                  "insufficient_window": len(profs) < CV_FLAT_RUN + 3,
+                                  "latest": (profs[-1] if profs else None)}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("north_star_book style_diversity 失败: %s", e)
+        out["style_diversity"] = {"no_data": True, "degraded": True, "alerts": []}
+    return out
+
+
+# chapter_scorecard:北极星任务3——scorecard 缓存表入 /live SSE(蓝图附录 A.2,前端面板不轮询)
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
-                "promise", "motif", "chapter", "material"]
+                "promise", "motif", "chapter", "material", "chapter_scorecard"]
 
 
 _LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))

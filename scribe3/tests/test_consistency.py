@@ -114,6 +114,12 @@ class TestWriteGate:
         ("DELETE", "/materials/{mid}"),
         # 方案B任务24:story-import 逆向导入(作者可信通道,journal 断点续跑)
         ("POST", "/import"),
+        # 北极星任务4:修复环编排(写:留版本;pass 分支另 save_chapter+ingest;
+        # advisory/needs_human 分支只留版本不落正文——写语义见 loop_chapter docstring)
+        ("POST", "/loop/chapter"),
+        # 北极星任务11:选择环(写:候选留版本;finalize 落正文+final版+lesson)
+        ("POST", "/select/chapter"),
+        ("POST", "/select/finalize"),
     }
 
     def test_no_unaudited_write_route(self):
