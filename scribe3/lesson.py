@@ -95,13 +95,25 @@ def distill_chapter(st, seq: int, complete_fn) -> dict:
     # 把 importance 虚增到升格阈(真机复现 3 次→4)且每次白烧一发长 prompt;
     # (消息数+最新 turn)未变即跳过。标记读写 fail-soft(挂了宁可多蒸不静默丢)。
     _count, _last = len(msgs), str(msgs[-1].get("turn") or msgs[-1].get("ts") or "")
+    mk = None
     try:
         mk = st.get_distill_marker(seq)
         if mk and mk.get("msg_count") == _count and str(mk.get("last_turn") or "") == _last:
             return {"added": 0, "merged": 0, "skipped": "already_distilled"}
     except Exception as e:
         _log.warning("distill 幂等标记读取失败(照常蒸馏): %s", e)
-    raw = complete_fn(build_distill_prompt(msgs))
+        mk = None
+    # 遗留处置 2-C 增量蒸馏:只喂上次标记之后的新增对话(教训天然增量,add_lesson
+    # 软去重兜住重复),长会话 prompt 从全量级降到增量级。边界回退全量:消息数回退
+    # (对话被删改,marker 切片失效)或 count 相同但 last_turn 变(原地编辑)。
+    feed = msgs
+    try:
+        _prev = int((mk or {}).get("msg_count") or 0)
+        if 0 < _prev < _count:
+            feed = msgs[_prev:]
+    except Exception:
+        feed = msgs
+    raw = complete_fn(build_distill_prompt(feed))
     items = parse_distill(str(raw))
     added = merged = 0
     for it in items:

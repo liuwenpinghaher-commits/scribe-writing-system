@@ -3007,6 +3007,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             "text": cut,
             "range": rng,
             "meta": {"violations": discipline.get("violations", []),
+                     "extra": discipline.get("extra") or [],   # LLM 自由文本观察(D-024,不参与升格)
                      "severity": _sev, "resonance": _resonance},
         })
     # setting issues
@@ -3212,12 +3213,15 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         degraded = True
         degraded_stages.append("fulfillment")
 
+    from scribe3.critique import _degen_visible_length
+    _visible_chars = _degen_visible_length(req.prose or "")
     resp = {
         "quality": {**qc_breakdown, "total": qc_total},
         "leaks": leaks,
         "leaks_degraded": leaks_degraded,
         "fulfillment": fulfillment,
         "s1_circuit_open": _s1_circuit_open(work),   # 1-A 熔断状态对调用方可见
+        "visible_chars": _visible_chars,   # 2-B:A5 口径可见字数,triage 短文本降档判据源
         "discipline": discipline,
         "degraded": degraded,
         "degraded_stages": degraded_stages,
@@ -3584,25 +3588,47 @@ def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
     base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
             or os.path.expanduser("~/.scribe3-loop-journals"))
     pool_a: set[int] = set()
+    pool_a2: set[int] = set()   # 2-A:needs_human 章(三稿全拦)——检测器假阳性富矿
     regen_rounds: dict[int, int] = {}   # P2门审查 P2-4:key 补回炉轮数(制度 doc 承诺)
+    blocking_dist: dict[int, dict] = {}   # 2-A:拦截原因分布(detector 计数,来自 .result.json)
     for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
         try:
             with open(fp, encoding="utf-8") as _fh:
                 data = _json.loads(_fh.read())
             stages = data.get("stages_completed") or []
-            if any("_verdict_blocking" in s for s in stages):
-                seq_a = int(os.path.basename(fp).split("_")[1][2:])
+            seq_a = int(os.path.basename(fp).split("_")[1][2:])
+            if any("_needs_human" in s for s in stages):
+                pool_a2.add(seq_a)
+            elif any("_verdict_blocking" in s for s in stages):
                 pool_a.add(seq_a)
-                attempts = [int(m.group(1)) for s in stages
-                            for m in [_re_audit.search(s)] if m]
-                regen_rounds[seq_a] = max(regen_rounds.get(seq_a, 0), max(attempts, default=0))
+            else:
+                continue
+            attempts = [int(m.group(1)) for s in stages
+                        for m in [_re_audit.search(s)] if m]
+            regen_rounds[seq_a] = max(regen_rounds.get(seq_a, 0), max(attempts, default=0))
+            try:   # 1-C#2 的旁文件有则读 detector 分布(旧 journal 没有,None 即如实)
+                with open(fp + ".result.json", encoding="utf-8") as _fh2:
+                    rj = _json.loads(_fh2.read())
+                _cnt: dict[str, int] = {}
+                for _r0 in rj.get("rounds") or []:
+                    for _b in _r0.get("blocking") or []:
+                        _d = str(_b.get("detector") or "?")
+                        _cnt[_d] = _cnt.get(_d, 0) + 1
+                if _cnt:
+                    blocking_dist[seq_a] = _cnt
+            except Exception:
+                pass
         except Exception:
             continue
+    pool_a -= pool_a2   # 同章多 journal 时 needs_human 语义优先(A 的"重写后过审"对照不成立)
     chapters = [c["seq"] for c in st.list_chapters()]
     rng = random.Random(seed)
-    rest = [c for c in chapters if c not in pool_a]
+    rest = [c for c in chapters if c not in pool_a and c not in pool_a2]
     pool_b = sorted(rng.sample(rest, min(sample_n, len(rest)))) if rest else []
-    picked = [("A", s) for s in sorted(pool_a) if s in chapters] + [("B", s) for s in pool_b]
+    # 池A2 不要求章已落库正文(needs_human 章 prose 不落库,三稿在版本库)
+    picked = ([("A", s) for s in sorted(pool_a) if s in chapters]
+              + [("A2", s) for s in sorted(pool_a2)]
+              + [("B", s) for s in pool_b])
     rng.shuffle(picked)
     samples, key = [], {}
     for i, (pool, seq) in enumerate(picked):
@@ -3624,6 +3650,31 @@ def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
                                 for k, p in enumerate(pair)]
                 item["pair_question"] = "两稿哪份更好?自动重写是否磨掉了好东西?"
                 item.pop("prose")
+        elif pool == "A2":
+            # 2-A:needs_human 章三稿并排(正文未落库,稿全在版本库 loop第N稿)。
+            # 按轮次序不随机——A2 审的是「检测器拦得对不对」,轮次演进本身是证据
+            # (自定口径,记 D-025);位置偏置防护留给池A的优劣对比场景。
+            # 版本库可能存多轮 loop 的稿(label 无 run id);list_chapter_versions 新→旧,
+            # 顺扫遇到重复 attempt 号即越过组边界——只取最新一组(needs_human 那次)。
+            _re_draft_n = _re_mod.compile(r"loop第(\d+)稿")
+            _cand, _seen_n = [], set()
+            for v in (st.list_chapter_versions(seq) or []):
+                _m = _re_draft_n.search(v.get("label") or "")
+                if not _m:
+                    continue
+                _n = int(_m.group(1))
+                if _n in _seen_n:
+                    break
+                _seen_n.add(_n)
+                _cand.append((_n, v))
+            _cand.sort(key=lambda t: t[0])
+            item["triple"] = [
+                {"tag": f"第{n}稿",
+                 "prose": (st.get_chapter_version(v["id"]) or {}).get("prose") or ""}
+                for n, v in _cand]
+            item["triple_question"] = ("这几稿真的都不行吗?有可用稿即说明检测器过严,"
+                                       "引原文说明哪一稿哪一段其实成立。")
+            item.pop("prose")   # needs_human 正文未落库,不出空 prose 误导评审
         samples.append(item)
         try:
             sc = st.get_chapter_scorecard(seq) or {}
@@ -3631,6 +3682,7 @@ def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
             sc = {}
         key[blind_id] = {"chapter": seq, "pool": pool,
                          "regen_rounds": regen_rounds.get(seq),
+                         "blocking_dist": blocking_dist.get(seq),   # 2-A:拦截原因分布
                          "ai_grade": ((sc.get("advisory_scores") or {}).get("ai_grade")
                                       or {}).get("grade"),
                          "constraints": sc.get("constraints")}
@@ -3831,8 +3883,10 @@ def north_star_book(work: str = "main"):
     try:   # ① 张弛分布(find_tension_monotony,与 /post-check 同源组装)
         from scribe3.brief import chapter_draft_text, find_tension_monotony, parse_chapter_meta
         metas: list[dict] = []
-        for c in st.list_chapters():
-            m = parse_chapter_meta(chapter_draft_text(st.get_chapter(c["seq"]) or {}))
+        # 2-D(#5):窄查询一次拉草料字段(chapter_draft_text 只吃 synopsis/beats/
+        # scene_truth),不再逐章 get_chapter 拉 prose/embedding 全行
+        for c in st.chapters_lite():
+            m = parse_chapter_meta(chapter_draft_text(c))
             if m:
                 metas.append({"seq": c["seq"], **m})
         out["tension"] = {"no_data": not metas, "chapters_with_meta": len(metas),
@@ -3870,8 +3924,8 @@ def north_star_book(work: str = "main"):
         # 还清的债永久挂账、分母每滚一次膨胀(一条最终达成的 delta 被计成 50%)。
         from scribe3.purpose import parse_deltas
         tail: dict = {}   # (kind, predicate) -> (seq, status)
-        for c in st.list_chapters():
-            for d in parse_deltas((st.get_chapter(c["seq"]) or {}).get("deltas")):
+        for c in st.chapters_lite():   # 2-D(#5):deltas 从窄查询取,不拉全行
+            for d in parse_deltas(c.get("deltas")):
                 key = (d["kind"], d["predicate"])
                 prev = tail.get(key)
                 if prev is None or c["seq"] >= prev[0]:

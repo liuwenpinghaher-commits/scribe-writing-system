@@ -30,6 +30,11 @@ MAX_REGEN_ROUNDS = 2   # regenerate 硬上限(蓝图定案;Self-Refine Δ5.0→0
 # P0门审查 P1-4)、aggregate_ai_grade 喂判据③——两者降级时 pass 不可信。
 _PASS_CRITICAL_STAGES = ("aggregate_ai_grade", "quality_issues")
 
+# 遗留处置 2-B(D-025 自定口径):短文本密度类信号置信度警示。
+_SHORT_TEXT_MIN_CHARS = 500          # 低于此可见字数,仅密度类证据的 heavy 降 advisory
+_NON_DENSITY_GATES = {"B", "D", "F", "G"}    # 句式套路/节奏结构/升华/god_view(计数与形态类)
+_NON_DENSITY_INDICATORS = ("parallel_run", "rhythm_uniform")   # 计数/verdict 类指标
+
 
 def triage(post: dict) -> dict:
     """把 /post-check 响应按 severity 三分流。返回
@@ -63,10 +68,26 @@ def triage(post: dict) -> dict:
                              "quote": str(iss.get("text") or "")[:60],
                              "note": str(iss.get("message") or "")[:120]})
     grade = (post.get("ai_grade") or {}).get("grade")
+    _short_low_conf = None
     if grade == "heavy":
-        gates = (post.get("ai_grade") or {}).get("gates_hit") or []
-        blocking.append({"detector": "aggregate_ai_grade", "kind": "ai_grade_heavy",
-                         "quote": "", "note": f"整章 AI 味定档 heavy(命中 Gate {'/'.join(gates)})"})
+        ag = post.get("ai_grade") or {}
+        gates = ag.get("gates_hit") or []
+        # 遗留处置 2-B:短文本(<500 可见字)上密度类信号分母过小,单发命中即爆表
+        # (P2 真机:400 字三候选全灭)。heavy 证据全为密度类(Gate A/C/E 由千字密度/
+        # 占比档位驱动)→ 降 advisory 并显式标注;含任何非密度证据(Gate B/D/F/G 或
+        # parallel_run/rhythm_uniform 指标自身 heavy)→ 照常 blocking。
+        ind = ag.get("indicators") or {}
+        vis = post.get("visible_chars")
+        _non_density = (any(g in _NON_DENSITY_GATES for g in gates)
+                        or any((ind.get(x) or {}).get("tier") == "heavy"
+                               for x in _NON_DENSITY_INDICATORS))
+        if isinstance(vis, int) and vis < _SHORT_TEXT_MIN_CHARS and not _non_density:
+            _short_low_conf = (f"短文本置信度警示:可见 {vis} 字 < {_SHORT_TEXT_MIN_CHARS},"
+                               f"heavy 仅由密度类信号构成(Gate {'/'.join(gates) or '无'}),"
+                               f"降为待批——阈值为自定口径,待真实短章数据标定")
+        else:
+            blocking.append({"detector": "aggregate_ai_grade", "kind": "ai_grade_heavy",
+                             "quote": "", "note": f"整章 AI 味定档 heavy(命中 Gate {'/'.join(gates)})"})
 
     degraded_stages = list(post.get("degraded_stages") or [])
     leaks_degraded = bool(post.get("leaks_degraded"))
@@ -81,6 +102,10 @@ def triage(post: dict) -> dict:
                       + [{"type": "punct", "message": str(s.get("message") or "标点建议"),
                           "text": (str(s.get("text") or ""))[:60], "range": s.get("range")}
                          for s in (post.get("punct_suggestions") or [])])
+    if _short_low_conf:
+        # 2-B:降档必须显式可见——作者要知道"没拦"是因为置信度不足,不是稿子没问题
+        advisory_items.append({"type": "short_text_low_confidence",
+                               "message": _short_low_conf, "text": "", "range": None})
 
     if blocking:
         verdict = "blocking"

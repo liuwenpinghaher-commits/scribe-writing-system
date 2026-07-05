@@ -760,13 +760,16 @@ class SurrealStore:
                             {"local": local, "v": embed([text])[0]})
 
     def semantic_recall(self, query: str, k: int = 5) -> list[Fact]:
-        """语义召回最相关命题(HNSW <|K,COSINE|>,按距离升序)。"""
+        """语义召回最相关命题(HNSW <|K,EF|>,按距离升序)。
+        D-022:<|K,COSINE|> 显式距离形式经 EXPLAIN 实锤为 KnnTopK+TableScan 暴力扫描,
+        <|K,EF数字|> 才走 HNSW 索引(KnnScan);EF=max(40,K) 召回富余,14 组对拍一致。"""
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            {"qv": qv})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"], r["valid_from"],
                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
@@ -792,7 +795,8 @@ class SurrealStore:
         qv = embed([query])[0]
         rows = self._query(
             f"SELECT seq, title, vector::distance::knn() AS dist "
-            f"FROM chapter WHERE embedding <|{int(k)},COSINE|> $qv ORDER BY dist", {"qv": qv})
+            f"FROM chapter WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            {"qv": qv})   # D-022:EF 形式走 HNSW,显式 COSINE 是暴力扫描
         return [{"seq": r["seq"], "title": r.get("title", ""), "distance": r["dist"]} for r in rows]
 
     def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
@@ -811,7 +815,7 @@ class SurrealStore:
             f"  <-causes<-event.event_type AS source_events, "
             f"  <-causes<-event->involves->character.name AS co_present, "
             f"  vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},COSINE|> $qv "
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
             f"  AND valid_from <= $ch ORDER BY dist", {"qv": qv, "ch": chapter})
         out = []
         for r in rows:
@@ -926,7 +930,7 @@ class SurrealStore:
         near = self._query(
             "SELECT meta::id(id) AS id, chapter, kind, embedding, "
             "vector::distance::knn() AS dist "
-            "FROM lesson WHERE embedding <|3,COSINE|> $qv ORDER BY dist", {"qv": vec})
+            "FROM lesson WHERE embedding <|3,40|> $qv ORDER BY dist", {"qv": vec})
         for n in near:
             # P1门审查 P1-3:合并须同 kind 且 sim≥MERGE_SIM(0.97 收紧)——embedding 对
             # 否定不敏感,反向纠偏("反转别再压章尾")与旧课 0.92 档极易误合并,
@@ -986,8 +990,8 @@ class SurrealStore:
         rows = self._query(
             f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
             f"invalid_at, vector::distance::knn() AS dist "
-            f"FROM lesson WHERE embedding <|{int(max(k * 3, 6))},COSINE|> $qv ORDER BY dist",
-            {"qv": qv})
+            f"FROM lesson WHERE embedding <|{int(max(k * 3, 6))},{max(40, int(k * 3))}|> $qv "
+            f"ORDER BY dist", {"qv": qv})
         out: list[dict] = []
         for r in rows:
             if r.get("invalid_at"):
@@ -1838,6 +1842,17 @@ class SurrealStore:
 
     def list_chapters(self) -> list[dict]:
         return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+
+    def chapters_lite(self) -> list[dict]:
+        """遗留处置 2-D(#5):书级面板窄查询——一次拉草料/目的字段,不拉 prose/embedding
+        (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
+        调用方不必区分"无键"与"空值"。"""
+        rows = self._query(
+            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter ORDER BY seq")
+        for r in rows:
+            for k in ("title", "synopsis", "beats", "scene_truth", "deltas"):
+                r.setdefault(k, None)
+        return rows
 
     # --- 书级聚合小件(北极星任务7)---
     def total_word_count(self) -> int:

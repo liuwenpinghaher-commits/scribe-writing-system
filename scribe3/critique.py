@@ -1242,29 +1242,40 @@ def build_discipline_prompt(text: str, brief: str = "", known: dict | None = Non
         + kb + "\n\n【正文】\n" + text)
 
 
+DISCIPLINE_KINDS = ("double_climax", "voice_collapse", "exposition_dump",
+                    "knowledge_leak", "god_view")
+
+
 def parse_discipline(reply: str) -> dict:
     try:
         m = re.search(r"\{.*\}", reply or "", re.S)
         d = json.loads(m.group(0)) if m else {}
-        return {"ok": bool(d.get("ok", True)), "violations": list(d.get("violations") or []),
+        # 批次二(D-024 真机发现):生产 LLM 往 violations 混塞自由文本("未处理开放项:…"),
+        # 与五类标签求交保序;其余进 extra 不丢(人可读,不参与共振/升格判定)。
+        raw_v = [str(v) for v in (d.get("violations") or [])]
+        return {"ok": bool(d.get("ok", True)),
+                "violations": [v for v in raw_v if v in DISCIPLINE_KINDS],
+                "extra": [v for v in raw_v if v not in DISCIPLINE_KINDS],
                 "cut_after": (d.get("cut_after") or "").strip()}
     except Exception as e:
         _log.warning("parse_discipline 失败,纪律默认放行: %s | reply[:120]=%r", e, (reply or "")[:120])
-        return {"ok": True, "violations": [], "cut_after": ""}   # 解析失败不阻断(fail-open)
+        return {"ok": True, "violations": [], "extra": [], "cut_after": ""}   # 解析失败不阻断(fail-open)
 
 
 def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None = None) -> dict:
     """判定违规→复发点靠后(留≥40%)则截到复发点;复发太早只标记不砍(交回重生)。"""
     v = parse_discipline(complete_fn(build_discipline_prompt(text, brief, known)))
+    extra = v.get("extra") or []
     if v["ok"] or not v["cut_after"]:
-        return {"text": text, "violations": v["violations"], "changed": False}
+        return {"text": text, "violations": v["violations"], "extra": extra, "changed": False}
     idx = text.find(v["cut_after"])
     if idx < 0:
-        return {"text": text, "violations": v["violations"], "changed": False}
+        return {"text": text, "violations": v["violations"], "extra": extra, "changed": False}
     cut = text[:idx + len(v["cut_after"])]
     if len(cut) < len(text) * 0.4:
-        return {"text": text, "violations": v["violations"], "changed": False, "cut_after": v["cut_after"]}
-    return {"text": cut, "violations": v["violations"], "changed": True}
+        return {"text": text, "violations": v["violations"], "extra": extra,
+                "changed": False, "cut_after": v["cut_after"]}
+    return {"text": cut, "violations": v["violations"], "extra": extra, "changed": True}
 
 
 # ==== 声音演变折叠(fold_voice_flags:LLM 把开放 flag 折进 voice_profile)====
