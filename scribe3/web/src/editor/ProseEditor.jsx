@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import Focus from '@tiptap/extension-focus'
-import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Copy, RotateCcw, Sparkles, MessagesSquare } from 'lucide-react'
 import { SceneBreak } from './SceneBreak'
 import { GuardDecoration, focusIssue as _focusIssue, pushIssues as _pushIssues, guardKey as _guardKey } from './GuardDecoration'
 
@@ -239,16 +239,22 @@ export const ProseEditor = forwardRef(function ProseEditor(
           {onDiscuss && (
             <>
               <div className="w-px h-5 bg-line mx-0.5" />
-              <button onMouseDown={(e) => e.preventDefault()} title="让主编改这段"
-                onClick={() => {
-                  const { from: pmFrom, to: pmTo } = editor.state.selection
-                  // prose 字符串与 toText 同口径;偏移由同口径转换器折算,text 直接从该串切片 → 三者必然自洽
-                  const proseStr = toText(editor)
-                  const from = pmPosToProseOffset(editor.state.doc, pmFrom)
-                  const to = pmPosToProseOffset(editor.state.doc, pmTo)
-                  onDiscuss({ text: proseStr.slice(from, to), from, to })
-                }}
-                className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-f12 text-brand hover:bg-soft cursor-pointer transition-colors"><Sparkles size={13} />改这段</button>
+              {/* 选中后两种意图:改这段(出候选改写)/ 聊这段(只讨论不改稿) */}
+              {[
+                { intent: 'edit', label: '改这段', Icon: Sparkles, title: '让主编改这段(出 2-3 候选)' },
+                { intent: 'discuss', label: '聊这段', Icon: MessagesSquare, title: '就这段和主编讨论(不改稿)' },
+              ].map(({ intent, label, Icon, title }) => (
+                <button key={intent} onMouseDown={(e) => e.preventDefault()} title={title}
+                  onClick={() => {
+                    const { from: pmFrom, to: pmTo } = editor.state.selection
+                    // prose 字符串与 toText 同口径;偏移由同口径转换器折算,text 直接从该串切片 → 三者必然自洽
+                    const proseStr = toText(editor)
+                    const from = pmPosToProseOffset(editor.state.doc, pmFrom)
+                    const to = pmPosToProseOffset(editor.state.doc, pmTo)
+                    onDiscuss({ text: proseStr.slice(from, to), from, to, intent })
+                  }}
+                  className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-f12 text-brand hover:bg-soft cursor-pointer transition-colors"><Icon size={13} />{label}</button>
+              ))}
             </>
           )}
           <span className="px-1.5 text-f11 text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>

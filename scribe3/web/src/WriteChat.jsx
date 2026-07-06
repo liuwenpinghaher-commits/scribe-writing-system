@@ -198,7 +198,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
 
       {/* 输入区 */}
       <div className="shrink-0 border-t border-line px-2.5 py-2">
-        <div className={`flex items-end gap-1.5 rounded-xl border ${dragging ? 'border-brand' : 'border-line'} bg-canvas px-2.5 py-2 focus-within:border-brand transition-colors`}>
+        {/* 图2 风格:textarea 全宽在上,控件收在底部一行(附件左·发送右)——不再让图标竖列挤占输入宽度 */}
+        <div className={`rounded-xl border ${dragging ? 'border-brand' : 'border-line/50'} bg-canvas px-2.5 pt-2 pb-1.5 focus-within:border-brand transition-colors`}>
           <textarea
             ref={taRef}
             value={input}
@@ -206,15 +207,16 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             rows={1}
             placeholder="提思路 / 提要求…(Enter 发送,Shift+Enter 换行)"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            className="flex-1 resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
+            className="w-full resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
           />
-          <div className="flex items-center gap-0.5 shrink-0 pb-0.5">
+          <div className="flex items-center gap-0.5 mt-0.5">
             <Btn variant="ghost" size="sm" icon
               onClick={() => fileRef.current?.click()}
               title="附加图片或文本文件" aria-label="附加图片或文本文件"
             >
               <Paperclip size={14} />
             </Btn>
+            <div className="flex-1" />
             {busy ? (
               <Btn variant="primary" icon onClick={stop} title="停止生成" aria-label="停止生成">
                 <X size={15} />

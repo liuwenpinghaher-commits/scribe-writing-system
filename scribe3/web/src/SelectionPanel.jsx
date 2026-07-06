@@ -85,7 +85,9 @@ export function SelectionPanel({ seq, onFinalized }) {
         }
         setState('idle'); return
       }
-      toast(detail || '候选生成失败(检查后端与 LLM 网关)', { tone: 'danger' })
+      // 区分:有后端 detail=后端/LLM 真错误(如实显示);无 detail(fetch 层 reject)=请求根本
+      // 没送达后端(网络异常或页面版本过期)——后者提示刷新,不再误导成"LLM 网关"问题。
+      toast(detail || '请求未送达后端:可能网络异常或页面版本过期,请刷新页面(Cmd+Shift+R)后重试', { tone: 'danger' })
       setState('idle')
     }
   }
@@ -109,9 +111,10 @@ export function SelectionPanel({ seq, onFinalized }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <GitCompare size={14} className="text-brand" />
-        <span className="text-f12 text-ink">关键章 3 候选(策略多样,生成需数分钟)</span>
-        <Btn size="sm" variant="primary" className="ml-auto" disabled={state === 'running'} onClick={run}>
+        <GitCompare size={14} className="text-brand shrink-0" />
+        {/* min-w-0+truncate:长标题不挤按钮;详情在下方 Empty。按钮 shrink-0+nowrap:「出 3 候选」不换行截断 */}
+        <span className="text-f12 text-ink font-medium truncate min-w-0" title="关键章 3 候选(策略多样,生成需数分钟)">选择环 · 关键章 3 候选</span>
+        <Btn size="sm" variant="primary" className="ml-auto shrink-0 whitespace-nowrap" disabled={state === 'running'} onClick={run}>
           {state === 'running' ? <><Loader2 size={12} className="animate-spin" />生成中…</> : '出 3 候选'}
         </Btn>
       </div>
@@ -119,6 +122,18 @@ export function SelectionPanel({ seq, onFinalized }) {
       {state === 'running' && <Empty>三路真机生成+检测中,请稍候(约 2-5 分钟)…</Empty>}
       {res && (
         <>
+          {/* B1:全部生成失败=只显错误(无候选可选);部分失败=提示条,其余候选正常展示 */}
+          {res.verdict === 'all_failed' && (
+            <div className="mb-2 flex items-start gap-1.5 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-f11 text-danger leading-snug">
+              <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+              <span>所有候选生成失败(检查 LLM 网关 / 日帽):{(res.gen_errors || []).join('；') || '未知原因'}</span>
+            </div>
+          )}
+          {res.gen_errors?.length > 0 && res.verdict !== 'all_failed' && (
+            <div className="mb-2 text-f11 text-warn leading-snug">
+              {res.gen_errors.length} 个策略未出稿(其余候选正常):{res.gen_errors.join('；')}
+            </div>
+          )}
           {res.consensus === false && (
             <div className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-300/50 bg-amber-500/10 px-2 py-1 text-f11 text-amber-600">
               <AlertTriangle size={11} />rubric 评审无共识(循环偏好/位置分歧)——不提供排序,凭你判断

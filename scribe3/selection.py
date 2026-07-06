@@ -129,27 +129,43 @@ def run_selection(*, chapter: int, generate, post_check, persist_candidate,
     机器只备料,终选永远在人(宪法:rubric 只排序不门禁)。"""
     used = STRATEGIES[:n]
     cands: list[dict] = []
+    gen_errors: list[str] = []
     for s in used:
         stage = f"sel_ch{chapter}_gen_{s['key']}"
         journal.start_stage(stage)
-        prose = generate(s)
+        try:
+            prose = generate(s)
+        except Exception as e:   # B1:一发失败不炸全部——跳过该候选、清 journal in_progress、继续其余
+            _log.warning("selection 候选 %s 生成失败(跳过): %s", s["key"], e)
+            gen_errors.append(f"{s['key']}:{str(e)[:80]}")
+            journal.complete_stage(stage)
+            continue
         journal.complete_stage(stage)
         cands.append({"strategy": s["key"], "prose": prose})
+    if not cands:   # 全部失败:诚实返回 all_failed,不假装有候选(前端据此提示查网关/日帽)
+        return {"chapter": chapter, "candidates": [], "consensus": None,
+                "verdict": "all_failed", "gen_errors": gen_errors,
+                "note": "所有候选生成失败(检查 LLM 网关/日帽);无候选可选",
+                "journal_recorded": True}
 
     # 伪多样检测:命中→用未出战策略重生成一次(换轴,绝不同参重掷)
     pseudo_round = False
     profs = [profile_fn(c["prose"]) for c in cands]
     pd = pseudo_diversity(profs)
     if pd["pseudo"] and len(STRATEGIES) > n:
-        pseudo_round = True
         spare = STRATEGIES[n]
         i_replace = pd["near_pairs"][0][1]   # 换掉相近对的后者
         stage = f"sel_ch{chapter}_gen_{spare['key']}"
         journal.start_stage(stage)
-        prose = generate(spare)
+        try:   # B1:重生成失败不炸——保留原候选(伪多样但至少有稿),同主循环容错
+            prose = generate(spare)
+            cands[i_replace] = {"strategy": spare["key"], "prose": prose}
+            profs[i_replace] = profile_fn(prose)
+            pseudo_round = True
+        except Exception as e:
+            _log.warning("selection 伪多样重生成 %s 失败(保留原候选): %s", spare["key"], e)
+            gen_errors.append(f"{spare['key']}(重生成):{str(e)[:80]}")
         journal.complete_stage(stage)
-        cands[i_replace] = {"strategy": spare["key"], "prose": prose}
-        profs[i_replace] = profile_fn(prose)
 
     # 确定性过滤(写前可判子集:triage blocking——泄密/退化/ai heavy/S1)
     journal.start_stage(f"sel_ch{chapter}_filter")
@@ -199,6 +215,7 @@ def run_selection(*, chapter: int, generate, post_check, persist_candidate,
               "candidates": out_cands,
               "consensus": consensus,
               "pseudo_diversity_round": pseudo_round,
+              "gen_errors": gen_errors,   # B1:部分候选生成失败(前端可提示「N 个策略未出稿」)
               "verdict": "awaiting_human",
               "journal_recorded": True,
               "note": "机器只备料:过滤明细与排序仅供参考,终选与理由在作者(理由入 lesson 流)"}

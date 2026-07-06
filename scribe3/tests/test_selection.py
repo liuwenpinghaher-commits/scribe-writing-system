@@ -142,6 +142,68 @@ def test_run_selection_filters_blocking_and_ranks(tmp_path):
     assert res["verdict"] == "awaiting_human", "机器只备料,终选永远在人"
 
 
+def test_run_selection_generate_failure_fail_soft(tmp_path):
+    """B1(爆炸半径):某候选 generate 抛异常(LLM 网关/日帽/超时)→ run_selection 不崩、
+    跳过该候选、其余正常返回。此前 generate 循环无 try-catch,一发失败炸全部候选
+    (前面已烧的候选丢失)+ journal 停 in_progress + 端点 500。"""
+    def gen(strategy):
+        if strategy["key"] == "in_medias_res":
+            raise RuntimeError("LLM 网关连接失败")
+        return {"cold_open": "候选甲文本" * 40, "slow_burn": "候选乙的文本内容" * 30}[strategy["key"]]
+    deps = dict(
+        generate=gen,
+        post_check=lambda prose: {"leaks": [], "issues": [], "degraded_stages": [],
+                                  "leaks_degraded": False, "punct_suggestions": []},
+        persist_candidate=lambda prose, key: f"v-{key}",
+        profile_fn=lambda prose: _prof(0.3 + (len(prose) % 7) * 0.1, 0.1 + (len(prose) % 5) * 0.12),
+        judge_fn=lambda a, b: "A" if len(a) >= len(b) else "B",
+        journal=PipelineJournal(tmp_path / "sel.json"),
+    )
+    res = run_selection(chapter=9, **deps)   # 不得抛
+    assert res["verdict"] == "awaiting_human", "有成功候选→正常交人,不炸全部"
+    assert len(res["candidates"]) == 2, "失败候选被跳过,其余 2 个正常返回"
+    assert all(c.get("version_id") for c in res["candidates"]), "成功候选正常留版"
+
+
+# ===== 端点级:D1 pilot 互斥 / B4 日帽预检 / C3 终选反哺 ingest =====
+from .test_app import _client   # noqa: E402
+
+
+def test_select_chapter_blocked_during_pilot(store):
+    """D1:pilot 非 loop 步在途/连写中出候选 → 409(防互踩,同终选 R2-3)。"""
+    import scribe3.app as A
+    store.save_chapter(5, "正文", title="五")
+    A._pilot_inflight.add(("main", 5))
+    try:
+        r = _client(store).post("/select/chapter?work=main", json={"chapter": 5, "force": True})
+        assert r.status_code == 409, f"pilot 在途出候选须 409,实际 {r.status_code}"
+    finally:
+        A._pilot_inflight.discard(("main", 5))
+
+
+def test_select_chapter_daily_cap_precheck(store, monkeypatch):
+    """B4:日帽剩余不足 → 出候选前 429 预检(不半途烧一半再炸)。"""
+    import scribe3.llm as L
+    monkeypatch.setattr(L, "daily_remaining", lambda: 2)   # 剩 2 < 选择环约需 10
+    store.save_chapter(6, "正文", title="六")
+    r = _client(store).post("/select/chapter?work=main", json={"chapter": 6, "force": True})
+    assert r.status_code == 429 and "日帽" in r.text, f"帽不足须 429,实际 {r.status_code}"
+
+
+def test_select_finalize_enqueues_ingest(store, monkeypatch):
+    """C3(D-13):终选定稿后排后台 ingest 反哺知识账本(不再停在旧稿)。"""
+    import scribe3.app as A
+    store.save_chapter(7, "旧正文", title="七")
+    vid = store.add_chapter_version(7, "候选正文内容", kind="checkpoint", stage="candidate",
+                                    label="选择环候选·cold_open")
+    enqueued = []
+    monkeypatch.setattr(A, "_enqueue_ingest", lambda bg, w, seq: enqueued.append(seq) or True)
+    r = _client(store).post("/select/finalize?work=main", json={
+        "chapter": 7, "version_id": vid, "reason_axis": "切入点", "reason_text": "更冷更克制"})
+    assert r.status_code == 200, f"终选须 200,实际 {r.status_code}:{r.text[:120]}"
+    assert 7 in enqueued, "终选后须排 ingest 反哺"
+
+
 def test_run_selection_pseudo_diverse_regenerates_with_unused_strategy(tmp_path):
     near = "几乎一样的候选A"
     near2 = "几乎一样的候选B"

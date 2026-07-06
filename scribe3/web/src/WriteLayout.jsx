@@ -40,6 +40,10 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const toast = useToast()
   // 波B Step3:WriteChat 经 portal 渲染进右栏 ChiefDock 的槽。slotEl 为该槽 DOM。
   const { slotEl } = useChiefSlot()
+  // 隐藏保活容器:切到非主编 tab(选择环/存档/Pilot/收件箱)时 slotEl=null,WriteChat
+  // portal 进此隐藏 div——不可见不遮挡,但组件不卸载、对话历史/输入全程保留
+  // (根治旧兜底 fixed 浮窗切 tab 后浮起遮挡 + 浮窗外框套输入框的框套框)。
+  const [hiddenSlotEl, setHiddenSlotEl] = useState(null)
   // F3:右坞恢复信号。bump 时本章重拉 effect 重跑 → 编辑器同步为库中最新(恢复版)正文。
   const restoreTick = useContext(RestoreContext)
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
@@ -562,6 +566,16 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const discussSel = (sel) => {
     const text = typeof sel === 'string' ? sel : sel?.text
     if (!text?.trim()) return
+    const intent = (typeof sel === 'object' && sel?.intent) || 'edit'
+    if (intent === 'discuss') {
+      // 聊这段:只讨论不改稿——引用进对话让作者接着问,不设 lastSel(不进候选替换链路)
+      setLastSel(null)
+      setLastQuote(text)
+      setSeedQuote(`就正文这段和你聊聊(先不改稿):「${text}」\n`)
+      setCandidates([])
+      focusChiefTab()
+      return
+    }
     setLastSel(typeof sel === 'string' ? null : sel)
     setLastQuote(text)
     setSeedQuote(`把这段改一下,给我 2-3 个侧重不同的候选:「${text}」`)
@@ -901,20 +915,18 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         else { setProposal(p); setProposalStreaming(false) }
       }} />
   )
-  // 槽就绪 → portal 进右栏;未就绪(极短时序窗口)→ 兜底浮窗,绝不丢 chat、不破坏主布局。
-  // portal 在不同 container 间移动只搬 DOM、不卸载组件,WriteChat 内部状态(对话历史等)全程保留。
-  const chatPortal = slotEl
-    ? createPortal(writeChatEl, slotEl)
-    : (
-      <div className="fixed bottom-3 right-3 z-40 w-[332px] h-[60vh] rounded-xl border border-line bg-surface shadow-xl overflow-hidden flex flex-col min-h-0">
-        {writeChatEl}
-      </div>
-    )
+  // 槽就绪(主编 tab)→ portal 进右栏槽;否则(非主编 tab / 槽未就绪的极短窗口)→ portal 进
+  // 隐藏保活容器(display:none),不可见不遮挡、状态全保留。portal 在 container 间移动只搬
+  // DOM、不卸载组件,WriteChat 内部状态(对话历史等)全程保留。
+  const chatTarget = slotEl || hiddenSlotEl
+  const chatPortal = chatTarget ? createPortal(writeChatEl, chatTarget) : null
 
   return (
     <>
       {/* 数据面板(素材/校验/演绎/帧/存档)已上移到 BinderLayout 左栏 LeftDock;正文中区只留编辑器 */}
       <Shell center={center} />
+      {/* 隐藏保活容器:非主编 tab 时 WriteChat portal 落这里(display:none),保状态不遮挡 */}
+      <div ref={setHiddenSlotEl} className="hidden" aria-hidden="true" />
       {chatPortal}
       {/* F-05 完整:点正文波浪线弹出的悬浮卡 — 类别 + message + 让主编改这处 + 忽略 */}
       {issueCard && (

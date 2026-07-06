@@ -3845,6 +3845,14 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         raise HTTPException(status_code=422, detail=(
             "非关键章不触发选择环(N 倍成本只花刀刃):节拍标注 chapter_role 为 高压/关系回收 "
             "或标注 reversal_type 后再试;确要出候选传 force=true"))
+    _guard_pilot_busy(work, req.chapter)   # D1:pilot 非 loop 步在途/连写中不出候选(防互踩,同终选 R2-3)
+    # B4:选择环单次 ~10 发 LLM,启动前预检剩余日帽——撞帽半途炸不如提前如实拦
+    from scribe3.llm import daily_remaining
+    _sel_est = 10
+    if daily_remaining() < _sel_est:
+        raise HTTPException(status_code=429, detail=(
+            f"LLM 日帽剩余不足:选择环约需 {_sel_est} 发,当前剩 {daily_remaining()} 发。"
+            f"次日 0 点重置,或调大 SCRIBE3_DAILY_CALL_CAP"))
     _skey = (work, req.chapter)
     with _loop_inflight_lock:   # 与修复环共用同章互斥(同章不得同时 loop 与选择)
         if _skey in _loop_inflight:
@@ -3876,8 +3884,9 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         body = _strip_preamble(text)
         if len(body.strip()) >= _FALLBACK_MIN_CHARS:
             return body
-        raise HTTPException(status_code=422,
-                            detail=f"策略 {strategy['key']} 未产出合格章稿(无围栏且散文不足)")
+        # B2:业务层不抛 HTTPException(HTTP 语义应留给端点层)——抛普通异常,由 run_selection
+        # 的 B1 容错捕获成"该候选生成失败"跳过,不污染 HTTP 语义、不拖垮其余候选。
+        raise RuntimeError(f"策略 {strategy['key']} 未产出合格章稿(无围栏且散文不足)")
 
     def _post_check(prose: str) -> dict:
         return post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
@@ -3886,7 +3895,10 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
     def _persist(prose: str, strategy_key: str) -> str:
         # kind 枚举 DB 级 ASSERT 仅 checkpoint/final(migration 先例)——候选语义由
         # label 前缀「选择环候选·」承载,免改已有表 schema(免影子库演练,D-019 附注)。
-        return st.add_chapter_version(req.chapter, prose, kind="checkpoint", stage="draft",
+        # C1(彻查 D-10):候选用独立 stage="candidate",不用 "draft"——否则
+        # latest_draft_version(按 stage='draft' 取最新)会把选择环候选当"最新草稿",
+        # 污染作者草稿 tab 的「刷新恢复」。version_id 不变,CandidateCard 展开全文不受影响。
+        return st.add_chapter_version(req.chapter, prose, kind="checkpoint", stage="candidate",
                                       label=f"选择环候选·{strategy_key}",
                                       stats=_prose_stats(prose))
 
@@ -3944,7 +3956,7 @@ class SelectFinalizeReq(BaseModel):
 
 
 @app.post("/select/finalize")
-def select_finalize(req: SelectFinalizeReq, work: str = "main"):
+def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: str = "main"):
     """选择环终选(人):选中候选落正文 + 留 final 版 + **终选理由入 lesson 流**
     (蓝图:理由是沉淀环最贵的输入;强制一句,轴+自由文本双格式)。"""
     if not (req.reason_text or "").strip():
@@ -3964,6 +3976,7 @@ def select_finalize(req: SelectFinalizeReq, work: str = "main"):
     title = (st.get_chapter(req.chapter) or {}).get("title") or ""
     foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
     st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
+    _enqueue_ingest(background, work, req.chapter)   # C3(D-13):终选定稿反哺知识账本(去重后台),不再停在旧稿
     try:
         st.add_chapter_version(req.chapter, prose, label=f"终选定稿·{ver.get('label') or ''}",
                                kind="final", stage="final", stats=_prose_stats(prose))
@@ -3977,7 +3990,7 @@ def select_finalize(req: SelectFinalizeReq, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("终选理由入 lesson 失败(定稿不受影响): %s", e)
     return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
-            "note": "正文已落库;反哺(ingest)由作者在面板触发或走 loop"}
+            "note": "正文已落库;已排后台反哺(ingest)更新知识账本"}
 
 
 # ═══════════ Chapter Pilot(主编主动化 T6/T7/T10):章生命周期驱动器 ═══════════

@@ -48,6 +48,14 @@ def _tick_daily() -> None:
                 f"LLM 日调用上限已达({_DAILY_CALL_CAP},SCRIBE3_DAILY_CALL_CAP 可调)")
         _daily[1] += 1
 
+
+def daily_remaining() -> int:
+    """B4:剩余日帽额度(只读,供选择环等多发操作启动前预检)。非今天则视为满额(次日 0 点重置)。"""
+    today = time.strftime("%Y-%m-%d")
+    with _daily_lock:
+        used = _daily[1] if _daily[0] == today else 0
+    return max(0, _DAILY_CALL_CAP - used)
+
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
 HERMES_RESPONSES = os.environ.get("HERMES_RESPONSES_API", "http://127.0.0.1:8643/v1")
