@@ -22,6 +22,11 @@ _log = logging.getLogger("scribe3.llm")
 # 自带重试/排队,持续故障由其兜);日调用帽在此单点接线——llm.py 是全部 LLM 出口
 # (complete/stream/responses),比散在 app 端点层可靠。进程内计数,重启清零(帽是
 # 成本保险丝不是账本)。
+# R2-15:此帽是**进程级**——mcp.py 是独立 stdio 进程(run_mcp.sh),持有自己的 _daily
+# 计数器;其 s3_dedup/s3_ingest/s3_fold_voice 等工具的 LLM 调用不计入 app(:3321)进程的
+# 帽,反之亦然。系统总预算 = 各进程帽之和;要收紧 mcp 侧,给其进程单独设小
+# SCRIBE3_DAILY_CALL_CAP。另:重试/agentic 网关内多轮/流式断连已耗 token 都只计 1 笔,
+# 帽 ≠ 精确 token 成本,勿拿 500 反推预算。
 _DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
 _daily_lock = threading.Lock()
 _daily = ["", 0]   # [day, count]

@@ -127,11 +127,14 @@ export const api = {
   inbox: (seq) => j('/inbox' + (seq != null ? `?seq=${seq}` : '')),   // T4:决策收件箱
   // Chapter Pilot(主编主动化 T6-T11)
   pilotStep: (seq, mode = 'manual', steer = '') => post('/pilot/step', { seq, mode, steer }),
-  pilotApprove: (seq) => post('/pilot/approve', { seq }),
+  pilotApprove: (seq, expect_state = '') => post('/pilot/approve', { seq, expect_state }),   // R1-3:带 expect_state 知情背书,防 stale 误触终选
   pilotStatus: (seq) => j(`/pilot/status?seq=${seq}`),
   pilotRun: (start_seq, until_seq) => post('/pilot/run', { start_seq, until_seq }),
   pilotPause: () => post('/pilot/pause'),
   pilotRunStatus: () => j('/pilot/run-status'),
+  pilotDismiss: (seq) => post('/pilot/dismiss', { seq }),         // R1-4:pilot 僵尸态退出
+  pilotResetStep: (seq) => post('/pilot/reset-step', { seq }),   // R1-4:stalled/parked 解卡重跑当前步
+  resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
   patchCharAnchors: (id, anchors) => patch('/char-anchors', { character_id: id, anchors }),
@@ -154,6 +157,7 @@ export const api = {
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
+  ignoreAllUnverified: (status = 'pending') => api.post('/ingest-unverified/ignore-all' + (status ? `?status=${enc(status)}` : '')),   // R2-12:批量清死水
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   projectTree: () => j('/project-tree'),

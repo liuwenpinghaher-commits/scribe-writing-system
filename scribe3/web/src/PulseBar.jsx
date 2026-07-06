@@ -29,9 +29,12 @@ function Sparkline({ curve }) {
   )
 }
 
+const MUTE_DIMS = ['promise', 'arc', 'relation', 'tension', 'causal', 'quality', 'stuck']
+
 export function PulseBar({ seq, onChat }) {
   const [pulse, setPulse] = useState(null)
   const [open, setOpen] = useState(null)   // 展开的维度名
+  const [muteTick, setMuteTick] = useState(0)   // R2-10:静音恢复后强制重渲染
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -65,6 +68,18 @@ export function PulseBar({ seq, onChat }) {
           {DIM_LABEL[d.dimension]}
         </button>
       ))}
+      {(() => {
+        // R2-10:解除入口——列出本书已静音维度,一键全部恢复(此前静音后全 UI 无解除;stuck 维亦在此可恢复)
+        const w = api.getWork()
+        const muted = MUTE_DIMS.filter((d) => { try { return localStorage.getItem(`s3.pulse.mute.${w}.${d}`) === '1' } catch { return false } })
+        if (!muted.length) return null
+        return (
+          <button key={`m${muteTick}`}
+            onClick={() => { muted.forEach((d) => { try { localStorage.removeItem(`s3.pulse.mute.${w}.${d}`) } catch { /* */ } }); setMuteTick((t) => t + 1) }}
+            title={`已静音:${muted.join('/')} — 点击全部恢复`}
+            className="text-f10 text-faint hover:text-ink cursor-pointer">🔕{muted.length}</button>
+        )
+      })()}
       {cur && (
         <div className="absolute left-0 top-full mt-1 z-30 w-[340px] max-h-72 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg p-2.5 space-y-1.5">
           <div className="text-f12 font-medium text-ink">{DIM_LABEL[cur.dimension]}{cur.degraded ? '(该维降级:没查≠没病)' : ''}</div>

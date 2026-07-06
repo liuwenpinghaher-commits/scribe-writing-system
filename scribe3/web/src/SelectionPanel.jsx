@@ -13,6 +13,15 @@ const AXES = ['切入点', '节奏', '信息释放', '其他']
 // P2审查 P2-5:chosen 比较须排除 null===null(留版失败候选曾开局即高亮"已选")
 function CandidateCard({ c, revealed, chosen, onChoose }) {
   const [showRank, setShowRank] = useState(false)
+  const [full, setFull] = useState(null)        // R1-7:全文(null=未展开,只显示 prose_head)
+  const [loadingFull, setLoadingFull] = useState(false)
+  const toggleFull = () => {
+    if (full != null) { setFull(null); return }
+    if (!c.version_id) return
+    setLoadingFull(true)
+    api.chapterVersion(c.version_id).then((v) => setFull(v?.prose || ''))
+      .catch(() => setFull('')).finally(() => setLoadingFull(false))
+  }
   return (
     <div className={`rounded-lg border p-2.5 mb-2 ${chosen ? 'border-brand bg-brand/5' : 'border-line bg-surface'} ${c.filtered ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2 mb-1.5">
@@ -27,7 +36,15 @@ function CandidateCard({ c, revealed, chosen, onChoose }) {
           <ChevronDown size={12} className={showRank ? 'rotate-180' : ''} />
         </button>
       </div>
-      <div className="text-f12 text-ink whitespace-pre-wrap leading-relaxed max-h-44 overflow-y-auto">{c.prose_head}…</div>
+      <div className={`text-f12 text-ink whitespace-pre-wrap leading-relaxed overflow-y-auto ${full != null ? 'max-h-[60vh]' : 'max-h-44'}`}>{full != null ? full : `${c.prose_head}…`}</div>
+      {/* R1-7:展开全文——按 version_id 拉留版全稿(不重烧 LLM);三卡同页各自展开=并排读全文,
+          终选不再被迫在 300 字头部上做(切走也不毁对比状态:候选正文在版本库) */}
+      {c.version_id && (
+        <button onClick={toggleFull} disabled={loadingFull}
+          className="text-f11 text-brand hover:underline cursor-pointer mt-1 disabled:opacity-50">
+          {loadingFull ? '加载中…' : full != null ? '收起' : '展开全文'}
+        </button>
+      )}
       {c.profile && showRank && (
         <div className="mt-1 text-f11 text-faint">
           句长CV {c.profile.sent_cv} · 对话占比 {Math.round((c.profile.dialogue_ratio || 0) * 100)}%

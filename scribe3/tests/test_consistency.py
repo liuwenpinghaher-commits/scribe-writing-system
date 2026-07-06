@@ -98,6 +98,7 @@ class TestWriteGate:
         ("POST", "/char-states"),
         ("POST", "/ingest-unverified/{uid}/accept"),
         ("POST", "/ingest-unverified/{uid}/ignore"),
+        ("POST", "/ingest-unverified/ignore-all"),   # R2-12:批量忽略死水(改 status,写)
         ("POST", "/facts/supersede"),
         ("POST", "/knowledge/forget"),
         ("POST", "/character-relations"),

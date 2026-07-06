@@ -2,21 +2,32 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Empty } from './ui'
 
-// 存档点历史(改造④):作者命名里程碑;回看只读 + 恢复。
+// 存档点历史(改造④):作者命名里程碑;回看只读 + 恢复 + R1-6 多选并排对比(needs_human 三稿裁决)。
 export function VersionPanel({ seq, refreshKey, onRestore }) {
   const [list, setList] = useState([])
   const [view, setView] = useState(null)   // 正在回看的版本全文
+  const [compare, setCompare] = useState([])   // R1-6:并排对比集合 [{id,label,prose}]
+  const [showCompare, setShowCompare] = useState(false)
   useEffect(() => { api.chapterVersions(seq).then(setList).catch(() => setList([])) }, [seq, refreshKey])
+  useEffect(() => { setCompare([]); setShowCompare(false) }, [seq])   // 切章清空对比集
+  const inCompare = (id) => compare.some((c) => c.id === id)
+  const toggleCompare = (v) => {
+    if (inCompare(v.id)) { setCompare((cs) => cs.filter((c) => c.id !== v.id)); return }
+    // 拉全稿入对比集(复用留版,不重烧);needs_human 三稿全在版本库,选中即可并排裁决
+    api.chapterVersion(v.id).then((full) => setCompare((cs) => cs.length >= 4 ? cs
+      : [...cs, { id: v.id, label: v.label || (v.kind === 'final' ? '定稿' : '存档'), prose: full?.prose || '' }])).catch(() => {})
+  }
   return (
     <div>
       {list.length === 0 ? <Empty>还没有存档点。写到满意时点顶部「存档点」。</Empty> : (
         <ul className="space-y-1.5">
           {list.map((v) => (
-            <li key={v.id} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
+            <li key={v.id} className={`rounded-lg border bg-canvas px-2.5 py-2 ${inCompare(v.id) ? 'border-brand' : 'border-line'}`}>
               <div className="flex items-center gap-2">
                 <span className="text-f12 text-ink font-medium">{v.label || (v.kind === 'final' ? '定稿' : '存档')}</span>
                 {v.kind === 'final' && <span className="text-f10 text-brand">定稿</span>}
-                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">回看</button>
+                <button onClick={() => toggleCompare(v)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">{inCompare(v.id) ? '✓ 对比中' : '+ 对比'}</button>
+                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="text-f11 text-faint hover:text-ink cursor-pointer">回看</button>
               </div>
               {(() => {
                 // v.qc.repetition / .purple 可能是检测器数组([{phrase,count}]/[{phrase,kind}])或数字——统一成计数,
@@ -42,6 +53,14 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
           ))}
         </ul>
       )}
+      {/* R1-6:选了 ≥2 稿 → 并排对比入口(needs_human 三稿裁决的承载) */}
+      {compare.length >= 2 && (
+        <div className="sticky bottom-0 mt-2 pt-2 bg-surface border-t border-line">
+          <button onClick={() => setShowCompare(true)} className="w-full h-8 rounded-lg bg-brand text-brandfg text-f12 cursor-pointer">
+            并排对比 {compare.length} 稿 →
+          </button>
+        </div>
+      )}
       {view && (
         <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setView(null)}>
           <div className="bg-surface rounded-xl max-w-[680px] w-[90vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -51,6 +70,28 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
               <button onClick={() => setView(null)} className="text-f12 text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>
             </div>
             <div className="manuscript px-5 py-4 overflow-y-auto whitespace-pre-wrap text-f15 leading-[1.85] text-ink">{view.prose}</div>
+          </div>
+        </div>
+      )}
+      {/* R1-6:三稿横向并排(每稿一列可滚动),裁决时同屏读全文,「选此稿」直接恢复 */}
+      {showCompare && (
+        <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setShowCompare(false)}>
+          <div className="bg-surface rounded-xl max-w-[95vw] w-[95vw] max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-4 h-11 border-b border-line shrink-0">
+              <span className="text-f13 text-ink">并排对比 · {compare.length} 稿</span>
+              <button onClick={() => setShowCompare(false)} className="ml-auto text-f12 text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto p-4 min-h-0">
+              {compare.map((c) => (
+                <div key={c.id} className="w-[360px] shrink-0 flex flex-col border border-line rounded-lg overflow-hidden">
+                  <div className="px-3 h-8 flex items-center gap-2 border-b border-line bg-canvas shrink-0">
+                    <span className="text-f12 text-ink font-medium truncate">{c.label}</span>
+                    <button onClick={() => { onRestore?.(c.prose); setShowCompare(false) }} className="ml-auto text-f11 text-brand hover:underline cursor-pointer shrink-0">选此稿</button>
+                  </div>
+                  <div className="manuscript px-3 py-3 overflow-y-auto whitespace-pre-wrap text-f13 leading-[1.8] text-ink">{c.prose}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

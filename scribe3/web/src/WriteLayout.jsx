@@ -178,7 +178,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       if (s.seq !== chapter) { s.seq = chapter; s.samples = [] }
       // 审查 P1-5:删旧闭包 prose 回退(空新章会回退到旧章长度,采样恒等误报卡文);
       // dirtyRef 载入时已同步,是唯一权威源。输入框/编辑器聚焦中不打断(计划坑防)。
-      if (localStorage.getItem('s3.pulse.mute.stuck') === '1') return
+      if (localStorage.getItem(`s3.pulse.mute.${work || 'main'}.stuck`) === '1') return   // R2-10:键含 work
       const ae = document.activeElement
       const typing = ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)
       s.samples.push((dirtyRef.current.prose || '').length)
@@ -195,6 +195,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: '我卡住了。帮我诊断:是情节卡(回查本章目标与对手/冲突要不要升级/要不要切配角视角)、语言卡(换个叙述距离或语感重起这段),还是心态卡(先写烂再改)?给我一个最小可行的下一步。' })) } catch { /* */ }
             focusChiefTab()
           } },
+          // R2-10:stuck 维静音写入点(此前 s3.pulse.mute.stuck 是死键,防烦协议对卡文维不成立)
+          cancel: { label: '不再提醒', onClick: () => { try { localStorage.setItem(`s3.pulse.mute.${work || 'main'}.stuck`, '1') } catch { /* */ } } },
         })
       }
     }, 60000)
@@ -478,7 +480,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       const lk = r.leaks || 0
       const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.postsave`
       if ((qcn > 0 || lk > 0) && localStorage.getItem(spokeKey) !== '1'
-          && localStorage.getItem('s3.pulse.mute.quality') !== '1') {
+          && localStorage.getItem(`s3.pulse.mute.${work || 'main'}.quality`) !== '1') {   // R2-10:键含 work
         localStorage.setItem(spokeKey, '1')
         toast(`本章落稿体检:泄露 ${lk} · QC ${qcn}(依据:存稿自动检)`, {
           tone: 'warn',

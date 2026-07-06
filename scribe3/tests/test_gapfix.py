@@ -151,10 +151,16 @@ def test_deduce_phase_injects_scene_truth(store):
         seed_words=[], short_mode=False)
     assert "井底沉着妹妹的骨殖" in ins_deduce, "deduce 阶段必须把场景真相注入 prompt"
     assert "唯一事实源" in ins_deduce
-    ins_final = A._assemble_write_instructions(
-        store, chapter=9, focalizer="role:老范", phase="final", with_tools=False,
-        seed_words=[], short_mode=False)
-    assert "唯一事实源" not in ins_final, "非 deduce/draft 阶段不注入该块"
+    # F-1 修复(B-3 同型第四次):正文相位(final=loop/pilot/选择环一步到正文,draft=四阶段草稿)
+    # 必须注入演绎块——否则 deduce 步烧的 1+N 发 LLM 产物(场景真相+限知投影)物理不进 prompt,
+    # 驱动语"按简报与演绎写"沦为空指令。走 _deduction_block(措辞异于 deduce 分支的"唯一事实源")。
+    for ph in ("final", "draft"):
+        ins = A._assemble_write_instructions(
+            store, chapter=9, focalizer="role:老范", phase=ph, with_tools=False,
+            seed_words=[], short_mode=False)
+        assert "本章演绎" in ins, f"{ph} 相位必须注入演绎块(F-1)"
+        assert "井底沉着妹妹的骨殖" in ins, f"{ph} 相位必须收到场景真相原文(F-1)"
+        assert "唯一事实源" not in ins, f"{ph} 走 _deduction_block 而非 deduce 分支措辞"
 
 
 # ===== 9. /health 真探测 + /ready(审计 #80)=====

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -133,31 +133,61 @@ function RecallPanel() {
 // 「聊这个」经窗口事件 s3-chief-seed 预填聊天输入框(WriteChat/DiscussionDock 两端监听)。
 function InboxPanel({ seq, onCount }) {
   const [data, setData] = useState(null)
+  const [confirmFinalize, setConfirmFinalize] = useState(null)   // R1-3:delivered 终选二次确认(null=无)
+  const pullRef = useRef(null)
   useEffect(() => {
     let dead = false, timer = null
     const pull = () => api.inbox(seq).then((d) => { if (!dead) { setData(d); onCount?.(d.count) } }).catch(() => { if (!dead) setData({ items: [], count: 0, failed: true }) })
+    pullRef.current = pull
     pull()
-    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard'])   // 审查 P1-8
+    // R2-5:+idea(#想法待批)+lesson(升格候选)——此前含死过滤 lesson、缺 idea 致 badge 不刷
+    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard', 'idea'])
     const onLive = (e) => { if (!TABLES.has(e?.detail?.table)) return; clearTimeout(timer); timer = setTimeout(pull, 600) }
     window.addEventListener('s3-live', onLive)
     return () => { dead = true; clearTimeout(timer); window.removeEventListener('s3-live', onLive) }
   }, [seq])
   if (!data) return <Skeleton className="w-full" />
+  // R1-8:拉取失败绝不渲染成"一切有账"(fail-safe 掩盖器是最危险的假绿——pilot parked/needs_human 的唯一出口)
+  if (data.failed) return <Empty>收件箱拉取失败——这不代表没有事项(可能后端/网络异常)。请稍后切走再切回重试。</Empty>
   if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
-  const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策' }
+  const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
+    pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: 'Pilot 停靠',
+    idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章' }
+  const approve = (seqP, expectState) =>
+    api.pilotApprove(seqP, expectState)
+      .then((r) => { showToast(`第 ${seqP} 章已放行 → ${r.state}`, { tone: 'ok' }); pullRef.current?.() })
+      .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
+  const doResolve = (id) =>
+    api.resolveIdea(id).then(() => { showToast('已处理,移出收件箱', { tone: 'ok' }); pullRef.current?.() })
+      .catch((e) => showToast(e?.body?.detail || '处理失败', { tone: 'danger' }))
+  const degraded = data.degraded_sources || []
   return (
     <div className="space-y-2">
       <SectionTitle icon={TriangleAlert} right={`${data.count}`}>决策收件箱</SectionTitle>
+      {/* R2-18:部分来源失败如实告知,不把残缺清单当完整(对齐 pulse「没查≠没病」) */}
+      {degraded.length > 0 && (
+        <div className="text-f10 text-danger bg-danger/8 rounded px-2 py-1 leading-snug">
+          部分来源加载失败({degraded.join(' / ')}):清单可能不全,没查≠没病。
+        </div>
+      )}
       {data.items.map((it, i) => (
         <div key={i} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
           <div className="text-f10 text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
+          {/* R2-4:交付卡结构化渲染(埋/收清单+QC+完整拿不准)——此前后端产出前端永不显示 */}
+          {it.kind === 'pilot_delivered' && it.card && <DeliveryCard card={it.card} />}
+          {/* B-8:大纲提案就地可编辑的可发现性——放行会吃到你的最新大纲(expand_beats 重读库) */}
+          {it.kind === 'pilot_outline' && (
+            <div className="text-f10 text-faint mt-0.5 leading-snug">想改?到左栏「项目树/大纲」或中区大纲 tab 编辑后再放行。</div>
+          )}
           {it.action?.kind === 'pilot_approve' && (
             <button onClick={() => {
-              api.pilotApprove(it.action.payload)
-                .then((r) => { showToast(`第 ${it.action.payload} 章已放行 → ${r.state}`, { tone: 'ok' }) })
-                .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
-            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">放行 · 继续推进 →</button>
+              // R1-3:delivered→finalize=宪法级终选背书,二次确认;outline 轻放行直发
+              if (it.action.expect_state === 'delivered') setConfirmFinalize({ seq: it.action.payload, expect: it.action.expect_state })
+              else approve(it.action.payload, it.action.expect_state)
+            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">
+              {it.action.expect_state === 'delivered' ? '终选定稿 →' : '放行 · 继续推进 →'}
+            </button>
           )}
           {it.action?.kind === 'chat' && (
             <button onClick={() => {
@@ -168,8 +198,124 @@ function InboxPanel({ seq, onCount }) {
               try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
             }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
           )}
+          {/* R1-5:想法待批 resolve 出口——处理完毕移出收件箱,防 pending_approval 永久积压 */}
+          {it.resolve?.kind === 'idea_resolve' && (
+            <button onClick={() => doResolve(it.resolve.payload)}
+              className="mt-1 ml-3 text-f11 text-faint hover:text-ink hover:underline cursor-pointer">已处理 · 移出 →</button>
+          )}
         </div>
       ))}
+      <ConfirmDialog
+        open={confirmFinalize != null}
+        title="终选定稿这一章?"
+        body="放行 delivered 章将执行 finalize（宪法级终选背书,盲评/审计以终选为准)。确认这就是你要定的稿?"
+        confirmText="终选定稿"
+        onConfirm={() => { const f = confirmFinalize; setConfirmFinalize(null); approve(f.seq, f.expect) }}
+        onClose={() => setConfirmFinalize(null)}
+      />
+    </div>
+  )
+}
+
+// R2-4:交付卡——主编交付时算的埋/收清单 + QC 命中数 + 自审拿不准,终选决策的关键依据。
+function DeliveryCard({ card }) {
+  const proms = Array.isArray(card.promises) ? card.promises : []
+  const lc = (card.low_confidence || '').trim()
+  return (
+    <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-f11">
+      <div className="flex gap-3 text-faint">
+        <span className="tnum">{card.words ?? '?'} 字</span>
+        <span className={card.qc ? 'text-danger' : 'text-ok'}>QC {card.qc || 0} 处</span>
+      </div>
+      {proms.length > 0 && <div className="text-fore leading-snug">本章伏笔:{proms.join('、')}</div>}
+      {lc && lc !== '无' && <div className="text-fore leading-snug"><span className="text-faint">主编拿不准:</span>{lc}</div>}
+    </div>
+  )
+}
+
+// R1-4:Pilot 驾驶舱——章生命周期状态机的 UI 起点(此前 5 个 api 包装零消费,状态机只能 curl 进入)。
+// 状态徽章 + 手动推进/解卡/退出 + 连写到第 N 章/暂停 + 停靠文案 + stalled 提醒,轮询 run-status。
+const PILOT_STATE_LABEL = {
+  idle: '未启动', outline_proposed: '大纲待放行', beats_ready: '节拍就绪', deduced: '演绎就绪',
+  drafting: '草稿生成中', checked: '体检通过', delivered: '已交付 · 待终选', finalized: '已定稿',
+}
+function PilotDock({ seq }) {
+  const [st, setSt] = useState(null)
+  const [run, setRun] = useState(null)
+  const [until, setUntil] = useState('')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  useEffect(() => {
+    if (seq == null) return undefined
+    let dead = false
+    const tick = () => {
+      if (dead) return
+      api.pilotStatus(seq).then((s) => { if (!dead) setSt(s) }).catch(() => {})
+      api.pilotRunStatus().then((r) => { if (!dead) setRun(r) }).catch(() => {})
+    }
+    tick()
+    const t = setInterval(tick, 3500)   // 常驻轮询:连写进度/停靠/stalled 实时可见(窄查,轻)
+    return () => { dead = true; clearInterval(t) }
+  }, [seq])
+  if (seq == null) return <Empty>选一章后可用 Pilot 驱动写作</Empty>
+  const refresh = () => {
+    api.pilotStatus(seq).then(setSt).catch(() => {})
+    api.pilotRunStatus().then(setRun).catch(() => {})
+  }
+  const act = (fn, okMsg) => {
+    setBusy(true)
+    return fn().then(() => { toast(okMsg); refresh() })
+      .catch((e) => toast(e?.body?.detail || '操作失败', { tone: 'danger' }))
+      .finally(() => setBusy(false))
+  }
+  const state = st?.state || 'idle'
+  const running = !!run?.running
+  const untilN = Number(until)
+  return (
+    <div className="space-y-3">
+      <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-f11 font-medium">{PILOT_STATE_LABEL[state] || state}</span>
+        {st?.stalled && <span className="px-2 py-0.5 rounded-full bg-danger/10 text-danger text-f10">卡住 · 超 30 分未推进</span>}
+        {st?.next_action && !st?.parked && !running && <span className="text-f10 text-faint">下一步:{st.next_action}</span>}
+      </div>
+      {st?.parked && <div className="text-f11 text-danger bg-danger/8 rounded px-2 py-1.5 leading-snug">停靠:{st.parked}</div>}
+      <div className="flex gap-2 flex-wrap">
+        <button disabled={busy || running || state === 'finalized'}
+          onClick={() => act(() => api.pilotStep(seq), '已推进一步')}
+          className="h-7 px-2.5 rounded-lg text-f11 bg-brand text-brandfg disabled:opacity-40 cursor-pointer">推进一步 →</button>
+        {(st?.parked || st?.stalled) && (
+          <button disabled={busy} onClick={() => act(() => api.pilotResetStep(seq), '已解卡,可重跑当前步')}
+            className="h-7 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink cursor-pointer">解卡</button>
+        )}
+        {state !== 'idle' && state !== 'finalized' && (
+          <button disabled={busy}
+            onClick={() => { if (window.confirm('退出 Pilot 编排?不动正文/草料,想再用从头 step 即可。')) act(() => api.pilotDismiss(seq), '已退出 Pilot') }}
+            className="h-7 px-2.5 rounded-lg text-f11 text-faint hover:text-danger cursor-pointer">退出</button>
+        )}
+      </div>
+      <div className="border-t border-line pt-2.5">
+        {running ? (
+          <div className="space-y-1.5">
+            <div className="text-f11 text-brand inline-flex items-center gap-1.5">
+              <Loader2 size={12} className="animate-spin" />连写中 · 第 {run.cur_seq ?? '?'} 章(目标第 {run.until ?? '?'} 章)
+            </div>
+            <button disabled={busy} onClick={() => act(() => api.pilotPause(), '已暂停(步边界生效)')}
+              className="h-7 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink cursor-pointer">暂停连写</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-f11 text-faint">连写到第</span>
+            <input value={until} onChange={(e) => setUntil(e.target.value.replace(/\D/g, ''))} placeholder={String((seq ?? 0) + 3)}
+              className="w-14 h-7 px-2 rounded-lg border border-line bg-canvas text-f11 text-center" />
+            <span className="text-f11 text-faint">章(终选留你,不自动定稿)</span>
+            <button disabled={busy || !until || untilN < seq}
+              onClick={() => act(() => api.pilotRun(seq, untilN), '连写已启动')}
+              className="h-7 px-2.5 rounded-lg text-f11 bg-brand text-brandfg disabled:opacity-40 cursor-pointer">开始连写</button>
+          </div>
+        )}
+        {run?.stopped && !running && <div className="text-f10 text-faint mt-1.5 leading-snug">上次连写:{run.stopped}</div>}
+      </div>
     </div>
   )
 }
@@ -183,7 +329,7 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
     let timer = null, dead = false
     const pull = () => api.inbox(seq).then((d) => { if (!dead) setInboxCount(d.count) }).catch(() => {})
     pull()
-    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard'])
+    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard', 'idea'])   // R2-5:+idea/lesson
     const onLive = (e) => {
       if (!TABLES.has(e?.detail?.table)) return
       clearTimeout(timer); timer = setTimeout(pull, 600)
@@ -202,6 +348,8 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
     if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
+    // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
+    if (seq != null) c.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
     // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision)
     c.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', badge: inboxCount || undefined,
       render: () => <div className="p-3"><InboxPanel seq={seq} onCount={setInboxCount} /></div> })

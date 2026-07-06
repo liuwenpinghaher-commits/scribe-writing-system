@@ -69,6 +69,20 @@ def test_s1_flows_into_loop_blocking(store, monkeypatch):
     assert t["blocking"][0]["detector"] == "findings_schema"
 
 
+def test_non_discipline_s1_does_not_block(store):
+    """R3-1(D-7):判据④按 type 白名单收口——ooc_signal.severity 透传到 setting issue 的 S1
+    (未经共振三刹车)绝不触发 blocking;只有 discipline 源(共振升格+熔断保护)的 S1 才阻断。"""
+    from scribe3.loop import triage
+    base = {"leaks": [], "degraded_stages": [], "leaks_degraded": False, "punct_suggestions": []}
+    setting_s1 = {"type": "setting", "message": "x", "text": "", "meta": {"severity": "S1"}}
+    t = triage({**base, "issues": [setting_s1]})
+    assert not any(b.get("detector") == "findings_schema" for b in t["blocking"]), \
+        "非 discipline 源的 S1 不得绕过共振三刹车触发 blocking"
+    disc_s1 = {"type": "discipline", "message": "y", "text": "", "meta": {"severity": "S1"}}
+    t2 = triage({**base, "issues": [disc_s1]})
+    assert any(b.get("detector") == "findings_schema" for b in t2["blocking"]), "discipline 源 S1 仍阻断"
+
+
 def test_s1_circuit_breaker_suspends_upgrade(store):
     """熔断:最近 10 次 loop 中 S1 触发率 >30% → 共振也不升格,响应标注。"""
     luanshi_leak_world(store)

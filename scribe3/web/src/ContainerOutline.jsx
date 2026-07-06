@@ -497,10 +497,20 @@ function UnverifiedRefs({ onSelect }) {
     try { await api.ignoreUnverified(p.id); remove(p.id) }
     catch (e) { toast?.(e?.body?.detail || '忽略失败', { tone: 'danger' }) }
   }
+  // R2-12:批量忽略死水(产生≫消化,几十上百条时逐条点不现实)
+  const ignoreAll = async () => {
+    try { const r = await api.ignoreAllUnverified(); setItems([]); toast?.(`已忽略 ${r.ignored} 条待确认引用`) }
+    catch (e) { toast?.(e?.body?.detail || '批量忽略失败', { tone: 'danger' }) }
+  }
   if (!items || items.length === 0) return null
   return (
     <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-4 mb-4">
-      <div className="text-f13 font-medium text-ink mb-3">待确认人物引用 ({items.length})</div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-f13 font-medium text-ink">待确认人物引用 ({items.length})</span>
+        {items.length > 3 && (
+          <button onClick={ignoreAll} className="text-f11 text-faint hover:text-ink cursor-pointer">全部忽略 →</button>
+        )}
+      </div>
       <div className="space-y-2">
         {items.map((p) => (
           <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">

@@ -14,9 +14,10 @@ import { Toaster as SonnerToaster, toast as sonnerToast } from 'sonner'
 export function showToast(msg, opts = {}) {
   const tone = opts.tone || 'ink'
   // action {label, onClick}:可点动作(断头修复#8:软门"去补"此前只有文案无入口)
-  const o = (opts.duration || opts.action)
+  const o = (opts.duration || opts.action || opts.cancel)
     ? { ...(opts.duration ? { duration: opts.duration } : {}),
-        ...(opts.action ? { action: opts.action } : {}) }
+        ...(opts.action ? { action: opts.action } : {}),
+        ...(opts.cancel ? { cancel: opts.cancel } : {}) }   // R2-10:第二动作(如「不再提醒」静音)
     : undefined
   if (tone === 'danger') return sonnerToast.error(msg, o)
   if (tone === 'ok') return sonnerToast.success(msg, o)

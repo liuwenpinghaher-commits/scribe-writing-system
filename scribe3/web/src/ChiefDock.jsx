@@ -135,7 +135,9 @@ function WriteSlot() {
 
 /**
  * 右主编栏(常驻)。
- * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/agentic-stream(可联查实证)。
+ * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/stream(纯对话)。
+ *   注:agentic 联查(/chat/agentic-stream)当前禁用(防跨书串库,见 send() 的 agentic:false);
+ *   要联查书内实证请到章内写作槽,主编在那挂 s3_ 工具。
  * - 章/场景节点:写作模式。渲染 WriteSlot,WriteLayout 的 WriteChat 经 portal 落进来。
  * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
  */
@@ -151,7 +153,7 @@ function ProactiveGreeting({ seq }) {
       if (dead) return
       const w = api.getWork()
       for (const d of p.dimensions || []) {
-        if (localStorage.getItem(`s3.pulse.mute.${d.dimension}`) === '1') continue
+        if (localStorage.getItem(`s3.pulse.mute.${w}.${d.dimension}`) === '1') continue   // R2-10:键含 work(此前跨书全局静音)
         if (localStorage.getItem(`s3.spoke.${w}.${seq}.${d.dimension}`) === '1') continue
         const hit = (d.items || []).find((it) => it.severity === 'decision')
         if (hit) {
@@ -173,7 +175,7 @@ function ProactiveGreeting({ seq }) {
           <button onClick={() => { try { sessionStorage.setItem('s3.chief.seed', item.action.payload) } catch { /* */ }; try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: item.action.payload })) } catch { /* */ }; setItem(null) }}
             className="text-f11 text-brand hover:underline cursor-pointer">聊聊 →</button>
         )}
-        <button onClick={() => { localStorage.setItem(`s3.pulse.mute.${item.dim}`, '1'); setItem(null) }}
+        <button onClick={() => { localStorage.setItem(`s3.pulse.mute.${api.getWork()}.${item.dim}`, '1'); setItem(null) }}
           className="text-f11 text-faint hover:text-ink cursor-pointer">静音此维</button>
       </div>
     </div>
@@ -388,7 +390,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论。主编可联查书内实证(角色/伏笔/事件/设定)。</div>
+            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}

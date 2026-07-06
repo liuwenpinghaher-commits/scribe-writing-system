@@ -317,6 +317,41 @@ def test_skip_step_preserves_manual_edits(store, monkeypatch):
     assert ch["synopsis"] == "作者手写的大纲,一个字都不许动。"
 
 
+def test_deduce_preserves_manual_scene_truth(store, monkeypatch):
+    """R1-2:半有内容——作者手写 scene_truth、deductions 空 → deduce 复用真相不覆盖,只补投影。
+    合取守卫(truth AND deductions)在半有态判 False → 旧代码整体重生成覆盖手写真相;
+    meta 无版本化=不可恢复。"""
+    _wire_llm(monkeypatch)
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.save_chapter(11, "", title="十一")
+    store.update_chapter_meta(11, {"scene_truth": "作者手写:井底有骨,不许动。",
+                                   "involved_characters": ["role:哑姑"]})
+    r = A._pilot_executor("main")["deduce"](store, 11)
+    ch = store.get_chapter(11)
+    assert ch["scene_truth"] == "作者手写:井底有骨,不许动。", "手写真相不可被 LLM 覆盖"
+    assert len(ch["deductions"]) == 1, "空投影被补齐"
+    assert "skipped" not in r, "半有内容不整体 skip(要真补缺)"
+
+
+def test_deduce_merges_manual_deductions_by_character(store, monkeypatch):
+    """R1-2:已有某角色投影 + 缺 truth → 逐 character_id merge:已有角色不动、只补缺失角色 + 生成真相。"""
+    _wire_llm(monkeypatch)
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.add_entity(Entity("role:老范", "character", "老范"))
+    store.save_chapter(12, "", title="十二")
+    store.update_chapter_meta(12, {
+        "involved_characters": ["role:哑姑", "role:老范"],
+        "deductions": [{"character_id": "role:哑姑", "character_name": "哑姑", "prose": "作者手写投影,勿动。"}]})
+    A._pilot_executor("main")["deduce"](store, 12)
+    ch = store.get_chapter(12)
+    by_id = {d["character_id"]: d for d in ch["deductions"]}
+    assert by_id["role:哑姑"]["prose"] == "作者手写投影,勿动。", "已有角色投影不被覆盖"
+    assert "role:老范" in by_id, "缺失角色投影被补齐"
+    assert (ch.get("scene_truth") or "").strip(), "缺失的真相被生成"
+
+
 def test_steer_reaches_outline_prompt(store, monkeypatch):
     """B-3 同型防(审查 G):想法 steer 必须真进大纲提案 prompt。"""
     store.save_chapter(6, "", title="六")
@@ -357,6 +392,165 @@ def test_approve_expect_state_mismatch_409(store):
     c = _client(store)
     r = c.post("/pilot/approve", json={"seq": 7, "expect_state": "outline_proposed"})
     assert r.status_code == 409 and "状态已变" in r.text
+
+
+def test_advisory_park_reason_guides_truthfully(store):
+    """R2-1:advisory 停靠文案如实指路。approve/继续 会重跑 draft_loop=按建议重写整章
+    (prose 未落库),而非采纳现草稿;采纳现稿的正确路径=到存档恢复该版。旧文案
+    "请过目后 approve 继续"暗示 approve=采纳,与实际行为相反(E-2/D-3)。"""
+    import scribe3.pilot as _PL
+    store.save_chapter(20, "", title="廿")
+    _PL.write_state(store, 20, "deduced")
+    ex = _executor()
+    ex["draft_loop"] = lambda st, seq: {"verdict": "advisory",
+                                        "rounds": [{"advisory_items": ["建议A", "建议B"]}]}
+    r = _PL.step(store, 20, ex, mode="run")
+    assert r["gate"] == "parked"
+    assert "存档" in r["reason"], "须指明采纳现稿走存档恢复"
+    assert "重" in r["reason"], "须说明放行=重新生成整章"
+    assert "过目后 approve 继续" not in r["reason"], "去掉误导语(approve≠采纳现稿)"
+
+
+def test_inbox_delivered_carries_card_and_expect_state(store):
+    """R2-4/R1-3:delivered 收件项附结构化交付卡(promises/qc/完整 low_conf)+
+    approve 动作带 expect_state(知情背书,防 stale 误触终选)。"""
+    import json as _json
+    import scribe3.pilot as _PL
+    store.save_chapter(30, "正文内容一二三四。", title="卅")
+    _PL.write_state(store, 30, "delivered")
+    card = {"seq": 30, "words": 8, "qc": 2, "promises": ["埋「铜炉」"], "low_confidence": "拿不准结尾的收束"}
+    store._execute_write("UPDATE type::record('chapter',30) SET pilot_card=$c",
+                         {"seq": 30, "c": _json.dumps(card, ensure_ascii=False)})
+    d = next(it for it in _client(store).get("/inbox").json()["items"]
+             if it["kind"] == "pilot_delivered" and it["seq"] == 30)
+    assert d["action"]["expect_state"] == "delivered", "approve 须带 expect_state 防误背书"
+    assert d.get("card"), "delivered 须附结构化交付卡(promises/qc 此前死数据)"
+    assert d["card"]["promises"] == ["埋「铜炉」"] and d["card"]["qc"] == 2
+    assert "拿不准结尾的收束" in d["card"]["low_confidence"], "low_conf 不截断"
+
+
+def test_inbox_outline_carries_expect_state(store):
+    """R1-3:outline 提案 approve 动作带 expect_state=outline_proposed。"""
+    import scribe3.pilot as _PL
+    store.save_chapter(31, "", title="卅一")
+    store.update_chapter_meta(31, {"synopsis": "本章大纲一句话"})
+    _PL.write_state(store, 31, "outline_proposed")
+    o = next(it for it in _client(store).get("/inbox").json()["items"]
+             if it["kind"] == "pilot_outline" and it["seq"] == 31)
+    assert o["action"]["expect_state"] == "outline_proposed"
+
+
+def test_inbox_reports_degraded_sources(store, monkeypatch):
+    """R2-18:某源失败必须记入 degraded_sources,不被当完整清单假绿(对齐 pulse degraded)。"""
+    def boom(*a, **k):
+        raise RuntimeError("lessons 源炸了")
+    monkeypatch.setattr(store, "list_lessons", boom)
+    r = _client(store).get("/inbox").json()
+    assert "lessons" in (r.get("degraded_sources") or []), "失败源须如实标记降级"
+
+
+def test_status_no_false_stall_on_waiting_states(store):
+    """R2-2:delivered(等终选)/outline_proposed(等放行大纲)是本就等作者的停靠态,
+    超时不报 stalled——它们由 approve/propose 授权动作到达,非 auto 链卡死。误报会吓作者。"""
+    import scribe3.pilot as _PL
+    import time as _t
+    store.save_chapter(40, "", title="卌")
+    old = int(_t.time()) - _PL.STALL_SECONDS - 100
+    for state in ("delivered", "outline_proposed"):
+        _PL.write_state(store, 40, state)
+        store._execute_write("UPDATE type::record('chapter',40) SET pilot_state_at=$t",
+                             {"seq": 40, "t": old})
+        assert _PL.status(store, 40)["stalled"] is False, f"{state} 是等作者停靠态,不该报 stalled"
+
+
+def test_status_stall_on_stuck_auto_chain_state(store):
+    """R2-2:drafting(由 auto 动作 draft_loop 到达的中间态)超时仍报 stalled——连写断了该提醒。"""
+    import scribe3.pilot as _PL
+    import time as _t
+    store.save_chapter(41, "", title="卌一")
+    _PL.write_state(store, 41, "drafting")
+    store._execute_write("UPDATE type::record('chapter',41) SET pilot_state_at=$t",
+                         {"seq": 41, "t": int(_t.time()) - _PL.STALL_SECONDS - 100})
+    assert _PL.status(store, 41)["stalled"] is True, "auto 链中间态卡住仍须报 stalled"
+
+
+def test_dismiss_clears_steer(store):
+    """R2-13:dismiss 一并清 pilot_steer——否则陈旧作者意图重启 pilot 时以「最高优先」静默复活。"""
+    store.save_chapter(50, "", title="五十")
+    store._execute_write("UPDATE type::record('chapter',50) SET pilot_steer=$s, pilot_state='drafting'",
+                         {"seq": 50, "s": "旧意图:写成悲剧"})
+    _client(store).post("/pilot/dismiss", json={"seq": 50})
+    rows = store._query("SELECT pilot_steer FROM type::record('chapter',50)")
+    assert not (rows[0].get("pilot_steer") if rows else None), "dismiss 须清 steer"
+
+
+def test_manual_step_writes_journal(store, monkeypatch, tmp_path):
+    """R2-9:手动 /pilot/step 也留 journal 痕(此前只 approve/run 传 journal,手动步零留痕——生产实锤)。"""
+    _wire_llm(monkeypatch)
+    import os
+    import json as _json
+    monkeypatch.setenv("SCRIBE3_LOOP_JOURNAL_DIR", str(tmp_path))
+    store.save_chapter(51, "", title="五一")
+    _client(store).post("/pilot/step", json={"seq": 51})
+    jf = os.path.join(str(tmp_path), "main", "pilot_ch51.json")
+    assert os.path.exists(jf), "手动 step 须建 journal"
+    assert _json.loads(open(jf, encoding="utf-8").read())["stages_completed"], "手动步 action 须留痕"
+
+
+def test_parked_step_journal_not_stuck_in_progress(store, tmp_path):
+    """R2-9:停靠(执行失败)时 journal 不停在 in_progress(否则与「崩在中途」混叠,停靠史不可重建)。"""
+    import scribe3.pilot as _PL
+    from scribe3.pipeline_journal import PipelineJournal
+    store.save_chapter(52, "", title="五二")
+    j = PipelineJournal(str(tmp_path / "pilot_ch52.json"))
+    _PL.step(store, 52, _executor(fail_at="propose_outline"), mode="run", journal=j)
+    assert j.in_progress() is None, "停靠后 journal 不停在 in_progress"
+    assert any("parked" in s for s in j.stages_completed()), "停靠须留 parked 痕"
+
+
+def test_approve_blocked_during_run(store):
+    """R2-3:连写运行中 approve 须 409(防 stale 放行与 run 并发双跑同章)。"""
+    store.save_chapter(53, "x", title="五三")
+    import scribe3.pilot as _PL
+    _PL.write_state(store, 53, "delivered")
+    A._pilot_run_state["main"] = {"running": True, "cur_seq": 53}
+    try:
+        r = _client(store).post("/pilot/approve", json={"seq": 53})
+        assert r.status_code == 409, "run 中 approve 须 409"
+    finally:
+        A._pilot_run_state.pop("main", None)
+
+
+def test_save_chapter_blocked_during_pilot_inflight(store):
+    """R2-3:pilot 非 loop 步在途(full_check/deliver)时 save-chapter 须 409,防体检/交付挂旧稿。"""
+    store.save_chapter(54, "旧", title="五四")
+    A._pilot_inflight.add(("main", 54))
+    try:
+        r = _client(store).post("/save-chapter", json={"seq": 54, "prose": "新", "title": "五四"})
+        assert r.status_code == 409, "pilot 在途时 save 须 409"
+    finally:
+        A._pilot_inflight.discard(("main", 54))
+
+
+def test_run_outer_exception_writes_parked(store, monkeypatch):
+    """R2-8:连写循环体外异常(executor 缺动作/DB 抖动)须写 chapter.pilot_parked,
+    否则只活进程内存,重启失忆、收件箱无承载。"""
+    A.set_store(store)
+    store.save_chapter(55, "", title="五五")
+    monkeypatch.setattr(A, "_pilot_executor", lambda work: {})   # step 缺动作→RuntimeError(体外异常路径)
+    A._pilot_run_bg("main", 55, 55)
+    rows = store._query("SELECT pilot_parked FROM type::record('chapter',55)")
+    assert (rows[0].get("pilot_parked") if rows else ""), "体外异常须落 pilot_parked"
+
+
+def test_ignore_all_unverified(store):
+    """R2-12:批量忽略 pending unverified(死水清账出口——产生速率≫消化,账本失信号价值)。"""
+    store.add_unverified_ref("张三", 1, "character")
+    store.add_unverified_ref("李四", 2, "character")
+    assert len(store.list_unverified("pending")) == 2
+    r = _client(store).post("/ingest-unverified/ignore-all").json()
+    assert r["ignored"] == 2
+    assert store.list_unverified("pending") == []
 
 
 def test_idea_resolve_and_pilot_dismiss(store):

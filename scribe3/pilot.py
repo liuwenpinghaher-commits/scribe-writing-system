@@ -89,6 +89,18 @@ def gate_of(action: str, authz: dict, mode: str) -> str:
     return g
 
 
+def _park_journal(journal, seq: int, action: str) -> None:
+    """R2-9:停靠也留痕。先 complete 原 stage 清 in_progress(不与「崩在中途」语义混叠),
+    再补一条 _parked 痕(停靠史可事后重建)。fail-soft。"""
+    if not journal:
+        return
+    try:
+        journal.complete_stage(f"pilot_ch{seq}_{action}")          # 清 in_progress
+        journal.complete_stage(f"pilot_ch{seq}_{action}_parked")   # 留停靠痕
+    except Exception:
+        pass
+
+
 def step(st, seq: int, executor: dict, *, mode: str = "manual",
          authz_overrides: dict | None = None, journal=None) -> dict:
     """推进一步:读状态 → 执行下一动作(注入的 executor)→ 写新状态 → 返回停靠决策。
@@ -119,6 +131,7 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
     except Exception as e:
         _log.warning("pilot ch%s %s 执行失败(如实停靠): %s", seq, action, e)
         write_state(st, seq, cur, parked=f"{action} 失败:{str(e)[:120]}")
+        _park_journal(journal, seq, action)
         return {"seq": seq, "state": cur, "action": action, "gate": "parked",
                 "reason": f"{action} 失败:{str(e)[:120]}"}
     # 停靠协议(P1 审查 P0-1/P1-7):
@@ -135,9 +148,14 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
         elif artifact.get("verdict") == "advisory":
             _n = sum(len(r0.get("advisory") or r0.get("advisory_items") or [])
                      for r0 in (artifact.get("rounds") or []))
-            park = f"advisory:草稿有 {_n or '若干'} 项待批建议(宪法:不替作者放行),请过目后 approve 继续"
+            # R2-1:如实指路——approve/继续会重跑 draft_loop(prose 未落库=按建议重写整章),
+            # 不是采纳现草稿。采纳现稿的正确闭环=到「存档」恢复该 advisory 留版并保存。
+            park = (f"advisory:草稿已生成并留档,附 {_n or '若干'} 项待批建议(宪法:不替作者放行)。"
+                    f"采纳此稿→到「存档」恢复该版并保存后再推进;要主编按建议重写整章→放行/继续"
+                    f"(将重新生成一稿,非采纳现草稿)")
         if park:
             write_state(st, seq, cur, parked=f"{action} → {park}")
+            _park_journal(journal, seq, action)
             return {"seq": seq, "state": cur, "action": action, "gate": "parked",
                     "reason": park, "artifact": artifact}
     write_state(st, seq, nxt)
@@ -152,10 +170,16 @@ def step(st, seq: int, executor: dict, *, mode: str = "manual",
 
 STALL_SECONDS = 30 * 60
 
+# R2-2:只有「由 auto 授权动作到达的中间态」才可能 stall(连写本应继续推进却停住)。
+# 由 propose/approve 到达的态(outline_proposed 等放行大纲、delivered 等终选)与 idle/
+# finalized 都是本就等作者的停靠态,超时不算卡死——对它们报 stalled 是误报,会吓作者。
+_AUTO_ARRIVED_STATES = frozenset(
+    tgt for act, tgt in NEXT.values() if DEFAULT_AUTHZ.get(act) == "auto")
+
 
 def status(st, seq: int) -> dict:
     s = read_state(st, seq)
-    stalled = bool(s["at"] and s["state"] not in ("idle", "finalized")
+    stalled = bool(s["at"] and s["state"] in _AUTO_ARRIVED_STATES
                    and (time.time() - s["at"]) > STALL_SECONDS and not s["parked"])
     nxt = NEXT.get(s["state"])
     return {**s, "seq": seq, "stalled": stalled,
