@@ -135,21 +135,71 @@ function WriteSlot() {
 
 /**
  * 右主编栏(常驻)。
- * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/agentic-stream(可联查实证)。
+ * - 非章节点:讨论模式。把当前选中节点/视图作为上下文,走 /chat/stream(纯对话)。
+ *   注:agentic 联查(/chat/agentic-stream)当前禁用(防跨书串库,见 send() 的 agentic:false);
+ *   要联查书内实证请到章内写作槽,主编在那挂 s3_ 工具。
  * - 章/场景节点:写作模式。渲染 WriteSlot,WriteLayout 的 WriteChat 经 portal 落进来。
  * 波B Step3:右栏常驻;章=写作槽 / 非章=讨论 chat。无双 chat,无嵌套第4列。
  */
-export function ChiefDock({ sel, chapterSel }) {
+// 主编主动化 T5·时机A:进章开场白——有 decision 级且该维「本章未开过口、未静音」才说,
+// 只说一条(防烦协议:每章每维最多一次;显示即记账,刷新不重复)。
+// 每条自带依据(pulse message 本身就是"因为…"),按钮:聊(seed 预填)/静音此维。
+function ProactiveGreeting({ seq }) {
+  const [item, setItem] = useState(null)
+  useEffect(() => {
+    if (seq == null) { setItem(null); return }
+    let dead = false
+    api.chapterPulse(seq).then((p) => {
+      if (dead) return
+      const w = api.getWork()
+      for (const d of p.dimensions || []) {
+        if (localStorage.getItem(`s3.pulse.mute.${w}.${d.dimension}`) === '1') continue   // R2-10:键含 work(此前跨书全局静音)
+        if (localStorage.getItem(`s3.spoke.${w}.${seq}.${d.dimension}`) === '1') continue
+        const hit = (d.items || []).find((it) => it.severity === 'decision')
+        if (hit) {
+          localStorage.setItem(`s3.spoke.${w}.${seq}.${d.dimension}`, '1')   // 显示即记账
+          setItem({ dim: d.dimension, ...hit })
+          return
+        }
+      }
+      setItem(null)
+    }).catch(() => setItem(null))
+    return () => { dead = true }
+  }, [seq])
+  if (!item) return null
+  return (
+    <div className="mx-3 mt-2 px-2.5 py-2 rounded-lg border border-warn/40 bg-warn/5 text-f12 leading-snug">
+      <span className="text-ink">进章提醒:{item.message}</span>
+      <div className="mt-1 flex items-center gap-3">
+        {item.action?.kind === 'chat' && (
+          <button onClick={() => { try { sessionStorage.setItem('s3.chief.seed', item.action.payload) } catch { /* */ }; try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: item.action.payload })) } catch { /* */ }; setItem(null) }}
+            className="text-f11 text-brand hover:underline cursor-pointer">聊聊 →</button>
+        )}
+        <button onClick={() => { localStorage.setItem(`s3.pulse.mute.${api.getWork()}.${item.dim}`, '1'); setItem(null) }}
+          className="text-f11 text-faint hover:text-ink cursor-pointer">静音此维</button>
+      </div>
+    </div>
+  )
+}
+
+export function ChiefDock({ sel, chapterSel, lastSeq }) {
   const { chapterPhase } = useChiefSlot()
+  const seq = selSeq(sel)
   if (chapterSel) {
     // 正文 tab(final)→ 写作槽(WriteLayout 的 WriteChat portal 进来,出草稿卡/护栏改写)。
     // 大纲/节拍/草稿 tab → 讨论 chat(据阶段调上下文)——右栏不再因切 tab 而消失。
     if (chapterPhase && chapterPhase !== 'final') {
-      return <DiscussionDock sel={sel} phase={chapterPhase} />
+      return (<div className="h-full flex flex-col min-h-0">
+        <ProactiveGreeting seq={seq} />
+        <div className="flex-1 min-h-0"><DiscussionDock sel={sel} phase={chapterPhase} /></div>
+      </div>)
     }
-    return <WriteSlot />
+    return (<div className="h-full flex flex-col min-h-0">
+      <ProactiveGreeting seq={seq} />
+      <div className="flex-1 min-h-0"><WriteSlot /></div>
+    </div>)
   }
-  return <DiscussionDock sel={sel} />
+  return <DiscussionDock sel={sel} ctxSeq={lastSeq} />
 }
 
 // 从选中节点取当前章 seq(章/场景节点),用于草稿阶段把 chapter 传给后端。
@@ -162,10 +212,11 @@ function selSeq(sel) {
 }
 
 // 前置阶段(块二)→ 走 /chat/write 的 phase 映射:后端 _phase_role_block 只认 plan|draft|final,
-// 大纲/节拍属规划期→'plan';演绎与 DeduceStage.gen 同口径(不带阶段角色,靠 focalizer);草稿→'draft'。
-const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: '', draft: 'draft' }
+// 大纲/节拍属规划期→'plan';演绎传真实 phase(后端注入场景真相块,投影同源派生的
+// 物理保证,断头修复#5);草稿→'draft'。
+const WRITE_PHASE = { outline: 'plan', beats: 'plan', deduce: 'deduce', draft: 'draft' }
 
-function DiscussionDock({ sel, phase }) {
+function DiscussionDock({ sel, phase, ctxSeq }) {
   const seq = useMemo(() => selSeq(sel), [sel])
   const { setStageProposal, chiefIntent, setChiefIntent } = useChiefSlot()
   // 演绎阶段:读左树/中区共享的当前演绎目标('truth' 或 character_id),生成完按它发布 target。
@@ -184,6 +235,18 @@ function DiscussionDock({ sel, phase }) {
   const taRef = useRef(null)
   const esRef = useRef(null)
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
+  // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨——挂载时消费 sessionStorage pending
+  // (点按钮时监听者可能未挂载),事件给已挂载者;预填=追加不整替(不吞作者半句)。
+  const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem('s3.chief.seed')
+      if (pending) { sessionStorage.removeItem('s3.chief.seed'); seedIn(pending) }
+    } catch { /* */ }
+    const on = (e) => { if (e?.detail) { try { sessionStorage.removeItem('s3.chief.seed') } catch { /* */ }; seedIn(e.detail) } }
+    window.addEventListener('s3-chief-seed', on)
+    return () => window.removeEventListener('s3-chief-seed', on)
+  }, [])
 
   // 主编对话历史持久化:按 work+当前选中节点/视图存,切节点/刷新可恢复。
   // 块三:显式聚焦(总线 focus)各自成串——切聚焦即切上下文(顺带经 chatKey 效应中止在途流);
@@ -227,6 +290,20 @@ function DiscussionDock({ sel, phase }) {
   const send = (text) => {
     const q = (text ?? input).trim()
     if (!q || busy) return
+    // 主编主动化 T8:「#想法 」→ 想法收件箱
+    if (q.startsWith('#想法')) {
+      const idea = q.replace(/^#想法\s*/, '')
+      if (!idea) return
+      setInput('')
+      setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
+      api.addIdea(idea).then((r) => {
+        const tail = r.status === 'unclear' ? `\n\n${r.question}`
+          : r.status === 'pending_approval' ? '\n\n(动设定/改旧章级——已挂收件箱等你批)'
+          : r.target_seq ? `\n\n已落到第 ${r.target_seq} 章的作者意图。` : ''
+        setMsgs((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `收到想法(${r.kind}):${r.note || ''}${tail}` }; return c })
+      }).catch((e) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `想法登记失败:${e?.body?.detail || e?.message || ''}` }; return c }))
+      return
+    }
     const finalMsg = ctx.prefix + q
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto'
@@ -290,7 +367,7 @@ function DiscussionDock({ sel, phase }) {
     }
     // 非章前置阶段(素材/视图等):走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
     esRef.current = api.chatStream(finalMsg, {
-      agentic: false,
+      agentic: false, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
       onDone: () => setBusy(false),
@@ -313,7 +390,7 @@ function DiscussionDock({ sel, phase }) {
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论。主编可联查书内实证(角色/伏笔/事件/设定)。</div>
+            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}

@@ -4,7 +4,8 @@
 
 ```bash
 # 1. 启动 SurrealDB
-surreal start --bind 127.0.0.1:8001 --user root --pass root memory
+surreal start --bind 127.0.0.1:8001 --user root --pass root file:~/.scribe2-surreal/data.db
+# ⚠ 勿用 memory 模式:重启即丢全部书稿;生产数据即在上述 file 路径(目录名带 scribe2 是历史遗留,勿删)
 
 # 2. 启动后端(:3321)
 cd scribe3 && .venv/bin/uvicorn scribe3.app:app --port 3321

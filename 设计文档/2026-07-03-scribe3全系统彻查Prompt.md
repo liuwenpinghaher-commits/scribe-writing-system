@@ -1,123 +1,104 @@
-# scribe3 · 全系统彻底审查 Prompt(对抗验证版 v1)
+# scribe3 · 全系统彻底审查 Prompt(对抗验证版 v2,2026-07-06 修订)
 
-> 适配自「专访 1.0 全系统彻查 Prompt」。用法:多 agent 并行按维审查 → 对抗验证 → 运行时验证 → 汇总。
-> 与 2026-07-03 的《全系统架构与业务闭环审计》(29 问题/44 断链)方法论互补:那次是"字段级生产-消费闭环";本次编码的是**抓真 bug 的纪律**——生产可达性验证、判别实验、不变量审计、公理对撞——并把误报坑(信文档不信运行时、"零消费"误报、旧报告过时)写成铁律。
->
-> **基准**:审查开始时的 HEAD commit(记录之)。在途事实:工艺引擎 P0 的 T8-T11 未实施、审计修复批A-E 未启动、块四b 未做——**已知未完成事项不作为发现**;app.py 写作注入区与 ContainerOutline/NorthStar 区可能有并行 agent 在途改动,发现须以复核时的实际代码为准并注明。
+> v1→v2:注入 2026-07-05/06 两轮大改造(北极星三环、遗留处置三批、断头修复批、主编主动化 P0+P1)的全部实战教训。v1 时代的 29 项审计、22 断头、D-001~D-032 台账问题**已全修**,列入去重清单;新增四条铁律(前端最后一厘米/运行时活性/B-3 同型/stub 完整性)与三个新审查面(北极星三环、Chapter Pilot、脉搏与时机引擎)。
+> 用法:多 agent 并行按维审查 → 对抗验证 → 运行时验证 → 汇总。基准 commit 审查开始时记录(当前 7f08a7f)。
 
-## 系统速写(供审查者定向)
+## 系统速写(供审查者定向,2026-07-06 现状)
 
-中文长篇小说 AI 写作引擎:SurrealDB(每书一 DB,ns=scribe3)权威库 + FastAPI(:3321,~100 端点)+ React/Vite 前端(:3311)+ Hermes LLM 网关(唯一 LLM 出口,llm.py)+ MCP 工具层(tools/mcp.py,48 工具,门控写)。核心域:五阶段写作流(大纲/节拍/演绎/草稿/正文)、限知视角引擎(knowledge.py:proposition/knows/reader_knows/project_frame/dramatic_irony)、ingest 反哺(定稿→LLM 抽 learned/did/arc/voice_shift/motif/promise_touch/belief→购幂等 purge 重写)、伏笔生命周期(tier/窗口/触及/salience)、弧光(锚五要素+lie_belief)、章前组装器(brief.py)、确定性检测管线(critique.py)、素材库(非正典,物理隔离)、主编对话(讨论/写作双模,⟦PROPOSAL⟧ 围栏,stageProposal 通道)、选中总线(selectionContext/focusTalk)。
+中文长篇小说 AI 写作引擎:SurrealDB 3.1.5(每书一 DB,ns=scribe3,:8001,生产文件 ~/.scribe2-surreal/data.db)+ FastAPI(:3321,~120 端点)+ React/Vite(:3311)+ Hermes 0.18 网关(:8643 scribe3 profile,唯一 LLM 出口 llm.py,日调用帽单点)+ MCP 工具层(mcp.py,s3_ 前缀,elicitation 门控写)。
+
+核心域(★=v2 新面):
+- 五阶段写作流(大纲/节拍/演绎/草稿/正文)+ 限知引擎(project_frame/dramatic_irony/find_leaks)+ ingest 反哺(幂等 purge)+ 伏笔生命周期(tier 窗口/touch/salience/refresh_count)+ 弧光(锚+lie_belief)+ 章前简报(brief.py)+ 确定性检测管线(critique.py,含时间线检测器/filter-words 未做)+ 素材库隔离 + 主编双模对话。
+- ★**北极星三环**:修复环(POST /loop/chapter:triage 四判据①leaks②degeneration blocking③ai_grade heavy④S1→regenerate≤2轮→needs_human;S1=纪律判×确定性共振三刹车[降档/共振表 kind 收窄/熔断>30%];advisory 永不自动重写)、沉淀环(chat→distill lesson[增量]→brief 反哺;升格待批)、选择环(关键章 3 候选→过滤→全循环赛 rubric→半盲终选)。
+- ★**Chapter Pilot**(pilot.py+app.py Pilot 段):状态机 idle→outline_proposed→beats_ready→deduced→drafting→checked→delivered→finalized;授权 auto/propose/approve,宪法锚 finalize 硬编码;跳步协议(字段已有不覆盖);停靠协议(pilot_park/needs_human/advisory 如实停);连写 /pilot/run(交付即续,终选留人);想法收件箱 /ideas(#想法 前缀,五类路由,setting/revise 永远待批);_pilot_inflight 与 _loop_inflight 双锁体系。
+- ★**脉搏与时机引擎**:/chapter-pulse 六维(decision 全源确定性信号,无总分)、PulseBar、/inbox 五源、进章开场白/落稿摘要/卡文探测/讨论 digest 注入(seq→lastSeq 传递链)、防烦协议(每章每维一次/静音/带依据,localStorage 记账)。
 
 ### 铁律(违反任何一条,该发现作废)
 
-1. **运行时真相优先**。系统能力以 `scribe3/app.py` 实际注册的路由(`@app.get/post/patch/delete`)与实际接线为准;设计文档/旧审计/注释/记忆只当线索。本项目实证:4 个检测器实现且测试绿但产品零接线;README 级能力(限流/熔断)是死代码;promise 窗口函数曾零消费方。**能力存在 ≠ 生产可达。**
-2. **测试绿 ≠ 生产可达**。pytest 直连 store 内部对象;生产要经过端点→store→SurrealDB 的真实链路与 work 参数;前端 `tsc --noEmit` 是假绿(真检查是 `npm run build` + vitest)。必须验证"生产路径真的走到":端点有没有人调(grep api.js/mcp.py)、UI 有没有入口、注入块有没有拼进最终 prompt(读 `_editor_system`/`_editor_write_system` 的实际拼接)。
-3. **fail-safe 是掩盖器**。scribe3 到处是 non-fatal try/except(ingest 各循环、embedding、_resolve_* 静默跳过、后台 ingest 只 warning)。审它们的不是"存在与否"(单机可用性取舍是设计),而是:降级发生时**有没有信号**、降级后**语义还对不对**、会不会掩盖上游真错(实证:apply_schema 把失败迁移标已应用 → schema 漂移不可自愈)。
-4. **每个发现要证据**:file:line + 触发条件 + 具体失败场景(什么输入/状态 → 什么错误结果)+ 复现方式(pytest/curl/UI 步骤)。能复现标 `CONFIRMED`,仅静态推理标 `PLAUSIBLE` 并说明缺什么证据。
-5. **区分缺陷与设计决策**。对照文末「有意设计清单」;挑战设计须论证"当初的代价权衡已变化",不许直接当 bug 报。
-6. **与已知问题去重**。文末「已知问题清单」(29 项审计 + 各块遗留清单)已排入修复批A-E;重复报出记 `DUPLICATE_KNOWN` 剔除。**但已知问题的新变体/新影响面/新根因算新发现**(须写明与已知条目的差异)。
-7. **自我反驳 pass**。定稿前对每条做"如何证明它不是问题"的反向论证,反驳与回应写进条目。
+1. **运行时真相优先**。能力以 app.py 实际路由与实际接线为准;文档/旧审计/注释/记忆只当线索。实证史:4 检测器实现且测试绿但零接线;限流熔断死代码;/health 曾纯桩。
+2. **测试绿 ≠ 生产可达**。pytest 直连 store;生产要走端点→store→DB 真链与 work 参数;前端 `tsc --noEmit` 假绿(真检查 `npm run build`)。
+3. **fail-safe 是掩盖器**。审降级:有没有信号、降级后语义对不对、会不会掩盖上游真错。
+4. **每个发现要证据**:file:line+触发条件+失败场景+复现方式;CONFIRMED/PLAUSIBLE 分标。
+5. **区分缺陷与设计决策**(对照有意设计清单);挑战设计须论证权衡已变。
+6. **与已知清单去重**(文末);已知问题的新变体/新影响面算新发现,须写明差异。
+7. **自我反驳 pass**:每条做反向论证并写进条目。
+8. ★**前端最后一厘米**(本系统最高发缺陷形态,22 断头实证)。凡功能类发现必须**追信号链到终点**:UI 入口存在→回调真被绑定→状态真变化→请求真发出→端点存在且被这个前端调→响应被消费渲染。任何一环断=「断在半路」并指明断点。原型案例:Rail 折叠信号在源头发出、被中间一行 `k || active.key` 吞掉;/draft-check 后端+测试全绿两天、前端零调用。判定三档:闭环/断在半路(断点 file:line)/未做。
+9. ★**build 绿 ≠ 运行时活**。esbuild 不查 TDZ/运行时引用(实证:renderCheckupCard 定义在调用点之后,build 绿页面崩,ErrorBoundary 吞掉连 pageerror 都没有——中区静默变"界面出错了")。前端发现的验证优先级:Playwright(pw_pilot_smoke.mjs 已入库可扩)>浏览器手测>纯静态推理(必须标 PLAUSIBLE)。查 ErrorBoundary fallback 是否吞过崩溃:真机各主视图走一遍看有无"界面出错了"。
+10. ★**B-3 同型防**(prompt 注入类专用)。"指令说『据 X 写』但 X 从未进 prompt"在本系统已三次复发(大纲注入/演绎 scene_truth/时机C digest)。凡审 prompt 组装:断言**具体内容**在最终 prompt 里,不是段标题在;凡新增注入:查所有调用方是否都传了触发参数(phase/seq)。
+11. ★**测试 stub 完整性**。`set_complete_fn` 只覆盖 `_complete_fn` 通道;`hermes_complete/hermes_complete_stream/hermes_responses_events` 直连处必须 patch scribe3.llm 模块属性(实证:pilot 测试首跑烧真网关生成整章)。审测试时查:stub 是否拦了被测代码的**全部** LLM 出口;stub 判据是否会被 system prompt 内容误触(实证:"纪律"字样判据被写作链 system 误吞)。
+12. ★**检测器误报纪律**。新检测器/新阈值上线前必须真章标定(实证:时间线检测器 9 达标章首跑 7/7 误报——跨夜顺行/比喻追述/人名"柳三更"三类根因;密度标定发现切片判档整体不稳)。审任何检测器:找它的标定证据;无标定=PLAUSIBLE 顶格。
 
 ### 执行阶段
 
-- **阶段 0 · 盘点(以实际为准)**:产出"系统真实能力地图"——(a) 全部路由(grep `@app\.` scribe3/app.py);(b) 数据实体(migrations/001-055 累积终态 × store.py CREATE/UPDATE 反推隐式字段);(c) 前端 API 调用点(web/src/api.js 每方法的消费组件);(d) MCP 工具清单与门控(tools/mcp.py);(e) env/开关(grep SCRIBE3_/环境变量);(f) 检测器清单(critique.py 全部 find_*/quality_* 及各自消费方);(g) prompt 组装点清单(所有拼 LLM prompt 的函数)。
-- **阶段 1 · 分维并行审查**(九维,独立、只读、产候选)。
-- **阶段 2 · 对抗验证**:逐条复核 file:line、写复现、做反驳、与已知清单去重、定级。
-- **阶段 3 · 运行时验证**(与阶段 1 可并行):pytest 全量基线;`npm run build`+vitest;对 :3321 跑只读判别实验(GET 端点全扫、/quality、/chapter-brief、/promises/ledger、跨端点口径对撞);**通读可得的后端输出/日志**,每条 warn/error 归因。红线:不重启在跑的后端、不对真实书(book_c256380e)做任何写、写实验一律用临时 work 且用后删。
-- **阶段 4 · 汇总分级输出**(格式见文末)。
+- **阶段 0 · 盘点**:路由全量(grep `@app\.`)/迁移终态(001-069)/api.js 消费点/mcp.py 工具/env 开关(SCRIBE3_*)/检测器清单及消费方/prompt 组装点清单(_editor_system/_editor_write_system/_assemble_write_instructions/_pulse_digest/_pilot_llm_gen/build_*_prompt 族)。
+- **阶段 1 · 分维并行审查**(十维,见下)。
+- **阶段 2 · 对抗验证**:复核/复现/反驳/去重/定级。
+- **阶段 3 · 运行时验证**:pytest 全量基线(仓库根跑!cd scribe3 会被 mcp.py 遮蔽);npm run build;**pw_pilot_smoke.mjs**;对 :3321 只读判别实验;读后端日志逐条归因。红线:不重启在跑后端、不写真实书(book_c256380e/book_bfd18b78)、写实验只用 loop-qa/pilot-qa 或临时 work 且用后删、门级全量 pytest 期间冻结 scribe3/*.py(inspect 伪影)。
+- **阶段 4 · 汇总分级输出**(格式文末)。
 
-### 九个审查维度(每维给"怎么查")
+### 十个审查维度
 
-**A · 架构与分层**
-- 分层契约:store.py(`_execute_write` 唯一写入点纪律——grep `_db.query` 找绕过者)/ knowledge.py(限知投影)/ critique.py(确定性检测,唯一例外 tension rubric)/ ingest.py(反哺)/ brief.py(章前组装)/ llm.py(唯一 LLM 出口——grep requests/httpx 找绕过 Hermes 的外呼)/ app.py(路由,不该手搓状态)/ tools/(MCP)/ web(前端)。查穿透与双头真相。
-- 双表示一致性:promise 的存储窗口(payoff_min/max)×计算态(promise_window_state)×_overdue_flag 三处口径;synopsis 的书级/章级;narrative_position 双时态(story_chapter vs narrative_position);检测器的 flags 版 vs issues 带 offset 版。
-- 全局机制完备性:**所有** LLM 调用点都走 hermes_complete/_stream 吗?超时/重试口径一致吗?prompt 组装点(阶段0-g)有没有第二套注入逻辑漂移(GET/POST 注入不对称是已知,查还有没有同类)?
-- 包装器/工厂:_store_for 的 LRU 语义;_client 测试与生产的差异面。
+**A · 架构与分层**:store `_execute_write` 唯一写入纪律;llm.py 唯一 LLM 出口(grep httpx/requests 绕行)+日帽覆盖三出口;prompt 组装点第二套逻辑漂移;双表示一致性(promise 窗口三口径/检测器 flags vs issues);_store_for LRU;★pilot executor 是否绕过既有链自造生成逻辑(宪法:只编排)。
 
-**B · 业务流程(以作者旅程端到端走查)**
-旅程清单:①建书→立设定/角色/锚 ②五阶段逐章(大纲→节拍→演绎→草稿→正文,含阶段间数据流转) ③存为正文→checkpoint→ingest→下章限知帧反映新知 ④伏笔全生命周期(plant→touch→窗口→advance/展期/abandon→ledger/quality 呈现) ⑤母题/弧光(锚→belief→里程碑)/关系 ⑥主编对话全模式(讨论/chatWrite/围栏/多候选/stageProposal 落地/聚焦话术/chiefIntent) ⑦质检环(/quality、/post-check、/tension-check、draft 检测)→修订 ⑧素材库(建→搜→插入草稿→聚焦) ⑨多书(建第二本→隔离验证→切换) ⑩版本/checkpoint(落版→恢复→对比) ⑪横切视图消费(时间线/图谱/仪表盘/体检 cron)。
-每步五问:前置条件谁保证?失败分支去哪(用户看到什么)?幂等吗(双击/重试重放)?并发另一写进来会怎样?**UI 有入口吗**(存在但无入口 = 死功能)?
-- 状态机 producer/consumer 矩阵:promise.status×resolution×kind×tier、chapter 的阶段字段(synopsis/beats/scene_truth/deductions/draft/prose)、char_state.change_type 六值、motif、material.kind、ingest_unverified、voice_evolution_flag、chapter_version.kind——每个值谁写谁读、有没有写而无读/读而永不出现、非法迁移有没有拦。
+**B · 业务旅程端到端**(每步五问:前置谁保证/失败去哪/幂等吗/并发进来怎样/**UI 有入口吗**):
+①建书→设定 ②五阶段逐章 ③存正文→ingest→限知帧更新 ④伏笔全生命周期 ⑤弧光/关系 ⑥主编双模+stageProposal ⑦质检环 ⑧素材 ⑨多书隔离 ⑩版本恢复 ⑪横切视图 ★⑫修复环全链(loop 三分流/回炉约束/journal+result.json)★⑬选择环(候选/过滤/rubric/终选理由入 lesson)★⑭Pilot 旅程(#想法→路由→step/run→停靠→收件箱→放行→终选;僵尸态 dismiss;advisory 停靠后作者怎么走)★⑮时机引擎(六维变色/开场白/落稿摘要/卡文/静音)。
 
-**C · 数据生命周期(核心维度,逐实体建账本)**
-31 表逐表:生产(谁建、字段完整性、id 规则)/ 存储(surql 约束×store 写入一致?typed 字段与灵活 dict 有没有影子真相?)/ 消费(谁读?secret/限知门控在每条消费路径口径一致吗——域层过滤 vs SQL WHERE vs 前端展示?)/ 演化(更新会不会覆盖作者手工确认?ingest 重跑 purge 幂等对每类 ingest 产物都成立吗——proposition/knows/reader_knows/char_state/motif_instance/promise_touch 逐个验)/ 删除(级联完整吗?删章/删角色/删书的联动;删除后重引入会悬空吗——learned 跨章复用保护是先例,查同类)。
-- 五类病:孤儿字段、幽灵读、双写发散、断链、无限增长表(chapter_version 已知,查还有:promise_touch/motif_instance/char_state/daily_progress/reader_knows 有 retention 吗)。
-- 书稿数据安全(单机版"隐私"):哪些路径可能覆盖/丢失作者正文(prose)?checkpoint 恢复的覆盖面?e2e 脚本的快照恢复纪律有没有产品级等价物?
+**C · 数据生命周期**:31+表逐表账本(生产/存储/消费/演化/删除);五类病(孤儿字段/幽灵读/双写发散/断链/无限增长——promise_touch/motif_instance/char_state/reader_knows/**idea/pilot journal/localStorage 记账键** 有 retention 吗);书稿安全(哪些路径可能覆盖 prose——pilot 跳步协议保护面完整吗)。
 
-**D · 一致性与不变量**
-- scribe3 不变量清单并查缺口:①角色只能知道其知识帧内命题(写作产出层谁保证?);②reader_knows 随叙述单调递增(purge 会破块吗——purge 后 reader 边被清,读者"忘了"已读内容,语义对吗?);③synopsis 单一真相源;④max_chapter 口径单源(chapter∪event);⑤_overdue_flag 单源;⑥窗口边界 next_ch==payoff_min 属 in_window;⑦每书一 DB 物理隔离;⑧素材不进任何分析管线。
-- **设计公理对撞矩阵**:列全全局假设(H1 每书一DB隔离、H2 ingest purge 幂等、H3 learned 跨章复用保护、H4 保存即后台 ingest、H5 checkpoint(final) 也 ingest、H6 markdown 序列化往返无损、H7 focalizer 空=作者全知、H8 演绎 merge-latest、H9 suppress 一次性标记、H10 busy 冻结 fKey、H11 stageProposal 单槽 last-wins、H12 每保存落 final 版本、H13 store LRU=8 驱逐、H14 检测器纯确定性、H15 MCP 固定 SCRIBE3_WORK……),**两两对撞**找碰撞场景。已实证 H4×H5 碰撞 = 双 ingest 竞态(P0-1)、H1×H15 = 串书(P0-2)——同类碰撞大概率不止两处(候选:H2×H3 复用命题的边被他章 purge 波及?H6×生成内容含 `*`/`#` 字面量?H12×H13 驱逐时后台任务持旧连接?H9×H10 聚焦与镜像交错?)。
-- revision/版本链:chapter_version 的 kind 语义、恢复路径(restore 谁调)、恢复后 ingest 状态与知识账本还一致吗(恢复旧正文但 knows 边是新的——有没有"恢复即重 ingest"或至少警告?)。
+**D · 一致性与不变量**:既有八不变量+★新增:⑨advisory 永不自动放行(pilot 停靠协议)⑩终选/升格/动圣经/伏笔弃置永远 approve ⑪pulse 无总分、decision 全源确定性 ⑫S1 仅共振升格且熔断可暂停 ⑬跳步协议不覆盖人工内容 ⑭连写不产终选背书版。
+**公理对撞矩阵**(v1 的 H1-H15 之外新增):H16 跳步"字段已有=产物在"×作者故意清空重写流;H17 _pilot_inflight×_loop_inflight 双锁次序与死锁面;H18 steer 追加 2000 字帽×多想法尾部截断丢失;H19 连写循环×LLM 日帽×预算可见性;H20 pulse decision←promise_directives 语义漂移(directives 措辞变化会不会改变 severity 映射);H21 pilot_state SCHEMAFULL 字段×get_chapter 显式列(实证坑:读不到,已修 read_state 直查——查还有没有同类"新字段没进显式 SELECT");H22 sessionStorage seed 单槽×连续两次「聊这个」覆盖;H23 localStorage 记账键(s3.spoke.*)×多书同 seq 串扰(键含 work 吗——逐个验)。
 
-**E · 降级与失败路径账本**
-grep 全部 `except`/`fallback`/`warning`/`fail.?safe`/`降级`/`兜底`(py)与 `catch`/`console.warn`(jsx),每处记录:{触发条件, 降级行为, 可观测信号, 降级后语义是否仍正确, 会否掩盖上游真错}。重点:LLM 失败/超时/parse_failed 重试耗尽、embedding 失败(语义召回静默缺块)、_resolve_char/motif/promise 静默跳过的累积面、前端 persist .catch(块一修过演绎,查其余——**静默丢作者文字最优先**)、SSE/live 断连、后台任务异常。
+**E · 降级与失败路径账本**:全部 except/fallback/catch 逐处记录五元组;重点:LLM 失败链、embedding 失败(已 fail-soft,查信号)、_resolve_* 静默、前端 persist catch(暂存机制已建,查覆盖面)、SSE 断连、后台任务、★pilot parked 的可发现性(收件箱之外还有信号吗)、★连写异常停靠后 run-status 的残留语义。
 
-**F · 秘密与注入(scribe3 版安全)**
-- secret 命题屏蔽全链:存储(secret 标记)→限知帧(masked)→主编 prompt(全知模式显式含私密 vs 限知模式屏蔽——分支口径)→图谱打码→时间线/仪表盘→**日志**(secret value 有没有进过 logging?)→MCP 只读工具(s3_ 系列会不会把 secret 吐给未门控调用方?)。
-- 凭据:SurrealDB root/root 默认凭据、Hermes key 的读取/日志/错误响应泄漏面;.env/config 有没有进 git。
-- prompt 注入面:书稿文本/素材/母题名/伏笔文本内插进 system prompt(brief.py 已做换行清洗,查其余内插点:_codex_block、voice、craft_rule.pattern——作者可控文本能不能伪造指令段头)。
-- 破坏性端点:purge/delete 类端点的误触面(前端有没有确认;MCP 写门控覆盖全吗)。
+**F · 秘密与注入**:secret 屏蔽全链(存储→帧→prompt 双模→图谱→日志→MCP);★新注入面:pilot_steer/idea.text/低置信段自审输出 内插 prompt 的伪造指令面;★pilot_card/交付卡会不会带 secret;凭据面(SurrealDB root/Hermes key);破坏性端点确认面(dismiss/reset-step/ideas/resolve 的误触)。
 
-**G · 并发与时序**
-- 后台任务矩阵:BackgroundTasks(_bg_ingest)× 请求线程 × _stores LRU 驱逐 × SSE live——交错语义逐对推演(已知 P0-1/P2-2/P2-3,查新变体)。
-- 前端:dirtyRef flush × 切换 × 服务端回读(块一修过主路径,遗留双 PATCH 竞序在案);stageProposal 单槽覆盖;suppress 标记 × 多导航源;busy 冻结 × 切章 abort。
-- 幂等清单:全部 POST 重放一遍的语义(双击面)——plant_promise 重复埋?ingest 重跑?checkpoint 连点(已知)?arc-beats 重复建?
-- SurrealDB 单 ws 连接的请求交错(P2-3 已知,查具体高危对:transaction 收集期间另一线程写入会怎样?)。
+**G · 并发与时序**:后台任务矩阵(_bg_ingest/★_pilot_run_bg)×请求线程×LRU×SSE;★连写期间作者操作面(step/approve/save/dedup/loop 六路互斥闭合吗——run 循环间隙窗口);前端竞态(dirtyRef/stageProposal/suppress/busy);幂等清单(POST 双击面,★/ideas 双发、★/pilot/run 双开 TOCTOU 已知记录在案查修复);ws 单连接交错。
 
-**H · 观测与运维**
-- 静默失败信号:ingest 失败(已知 P1-6)之外——embedding 失败后语义检索缺块有信号吗?migration 失败(已知 P1-7)?体检 cron 只查 main(已知 P2-9)?
-- 日志三查:关键路径缺日志/噪声日志/书稿内容与 secret 入日志。
-- 运维真实可用性:migrate.py/qc_scan.py/health.py 真跑一遍(dry-run,只读档);备份/导出能力存在吗(若无,列为观察而非 bug——单机 SurrealDB 文件即备份,但要确认数据文件路径与丢失面)。
+**H · 观测与运维**:静默失败信号面;日志三查(缺/噪/泄);★pilot journal 完整性(每 action 都留痕吗;journal 文件按章覆盖还是追加);★时机引擎记账可审计性(开口≤4/章有脚本可验吗);运维脚本真跑(migrate/qc_scan[已多书]/health);备份面(数据文件路径+丢失面)。
 
-**I · 前后端契约**
-- api.js 每方法 × 端点响应 shape 逐对;错误语义(404/409/422/500)前后端一致吗;端点改了 shape 前端跟了吗(近期 promise 行加 tier/window 字段——PromisesPanel/ledger 消费到了吗,还是拿旧字段?)。
-- 前端状态覆盖:空态/加载/错误/成功;后端产出但 UI 永不展示的死数据(voice/craft_rule 已知,查新增:promises_with_lifecycle 的 window 态、brief sections、tension-check items 有前端消费吗——**注:T10 未实施,brief/tension 无前端属已知未完成,不报**,但查"已有前端的面板拿不拿新字段")。
-- markdown 往返:块一的 md↔tiptap 转换在四阶段真实数据形态下的损耗尾巴(已知 Minor 清单在案,查新形态:LLM 生成的表格/有序列表嵌套/长破折号)。
+**I · 前后端契约**:api.js×端点 shape 逐对;错误语义一致性;★新契约:pulse dimensions/inbox items(五源 kind 枚举前端全认吗——pilot_outline/pilot_delivered/pilot_parked/idea_*/needs_human/promotable_lesson/pulse_decision)/pilot status/run-status/交付卡 JSON;★前端死数据新查(后端产出 UI 永不显示:idea.note?pilot_card.promises?curve?)。
+
+**J ·(新)LLM 链路质量与成本**:每个 LLM 调用点的 {prompt 规模, 频次, 触发方, 失败重试, 日帽覆盖};★pilot 单章全链调用账(大纲1+节拍1+真相1+投影N+loop≤3×[生成+纪律]+体检1+自审1≈10-15 发)——连写 10 章的成本可见性;★pulse/inbox 的查询放大(单次 pulse≈11-13 查询含 2 次全书扫描,三消费方各自拉);stub 完整性抽查(铁律11)。
 
 ### 方法与工具
 
-- 结构理解 codegraph(`codegraph explore/node`)优先;但"零消费"判死刑前必须文本 grep 复核(codegraph 有过未消费误报)。
-- 验证:`scribe3/.venv/bin/python -m pytest scribe3/tests -q`(全量基线应全绿,~10min);`cd scribe3/web && npm run build && npx vitest run`;e2e 参考 `scribe3/web/e2e/`(快照/恢复纪律)。
-- 判别实验:curl :3321(在跑的后端;只读 GET 随意;写实验只对临时 work,用后删)。无 body 的 POST 注意 FastAPI 422 面。
-- **红线**:不重启在跑的后端;不对 book_c256380e 做任何写;不跑会改真实书稿的 e2e(除非先快照后恢复且注明)。
+- codegraph 优先结构理解;"零消费"判死刑前 grep 复核。
+- 验证:仓库根 `scribe3/.venv/bin/python -m pytest scribe3/tests -q`(基线 1154 绿);`cd scribe3/web && npm run build`;`node pw_pilot_smoke.mjs`;curl :3321 只读。
+- **红线**:不重启在跑后端;不写 book_c256380e/book_bfd18b78;写实验只用 loop-qa 或临时 work;全量 pytest 期间冻结 scribe3/*.py。
 
 ### 有意设计清单(不要当 bug 报)
 
-- `_execute_write` 唯一写入点 + 事务收集拼单条 surql(SDK 不支持跨调用事务的绕法)
-- fail-safe ingest:抽取失败不阻断存稿、_resolve_* 匹配不到不建实体(防幻觉污染)、non-fatal 循环
-- 素材库物理隔离(不 ingest/不进图谱/不进分析)是规格;素材插入草稿走 stageProposal 而非直写是规格
-- 每书一 DB;work 参数贯穿 REST;MCP 固定 SCRIBE3_WORK 是**已知缺陷**(P0-2)非设计
-- 限知全知双模:focalizer 空 = 作者全知(含私密)是有意;主编全知注入"(私密/伏线)"标记是有意
-- 检测器管线确定性优先(不跑 LLM;tension rubric 是显式例外)
-- 草稿保存 = 版本化落库(无失焦自动存是取舍);演绎 merge-latest;markdown 零依赖转换(不引 tiptap-markdown 包)
-- e2e 真机脚本要求快照/恢复纪律是项目规范
-- demo/种子:bt_seed.py 存在;测试用独立内存 SurrealDB(conftest 每测试一实例)
-- 平静接受:单机单用户无 auth、SurrealDB 本地 root 凭据(列观察不列 bug,除非有远程暴露面)
+v1 全部条目仍有效(唯一写入点/fail-safe ingest/素材隔离/每书一DB/限知双模/检测器确定性优先/草稿版本化/merge-latest/单机无 auth)+ v2 新增:
+- **宪法全集**:不造总分;rubric/fulfillment 永不进 blocking;advisory 永不自动重写**且不替作者放行**;蒸馏升格永不自动生效;regenerate 复用完整组装链;停机判据只挂确定性项;终选/升格/动圣经/伏笔弃置永远 approve;S1 三刹车(单判恒S2/共振表收窄/熔断);pilot 只编排不造生成逻辑。
+- 跳步协议(字段已有→skipped 不覆盖)是防覆盖人工编辑的**设计**,不是"pilot 不干活";想重提案=清空字段或未来 revise 通道。
+- 连写不等终选即写下一章(loop pass 已 ingest,知识不断档;终选是背书不是数据依赖)。
+- pilot 用独立 _pilot_inflight(预登记 _loop_inflight 会撞 loop 自身互斥)。
+- 熔断进程内不落库(保护不是账本);时机记账 localStorage(轻;丢了重提醒一次可接受)。
+- pulse 弱指纹缓存(跨章一致性扫 (count,Σ字数),同字数改动漏检可容——advisory 级)。
+- 自定口径集(标定前提下可改不算 bug):S1 熔断 30%/短文本 500 字/共振表 3 条/刷新耗尽 3 次/弧光跳变 15/steer 帽 2000/digest 600。
 
-### 已知问题清单(去重用;报出即 DUPLICATE_KNOWN)
+### 已知问题清单(报出即 DUPLICATE_KNOWN)
 
-审计29项:P0-1 双ingest竞态;P0-2 MCP串书;P1-3 promise_kind↔kind漂移;P1-4 命题/secret无UI生产入口;P1-5 事件图断链因果假绿;P1-6 ingest失败静默;P1-7 apply_schema失败标已应用;P1-8 world_rule.scope枚举漂移;P1-9 物品状态双断链;P1-10 四检测器零接线;P1-11 声音后半环UI黑洞;P1-12 限流熔断死代码;P1-13 MCP文档断链;P2-1 自动final版本刷屏;P2-2 /works全量开store+LRU驱逐竞态;P2-3 ws连接跨线程;P2-4 GET/POST注入不对称;P2-5/6/7 [已规划A线];P2-8 motif_terms跨书;P2-9 cron口径漂移;P2-10 死端点;P2-11 半成品旋钮;P2-12 set_intent整体替换;P2-13 跨章一致性全量扫;P2-14 051缺号;P2-15 死字段死代码合集;P2-16 切章自动保存烧LLM。
-各块遗留(设计文档《写作台二轮》§七.5):双PATCH竞序、A→B→A过期加载、markdown Minor 群(`- - -`漂移/ul吃星号行/docToMd无单测/setChars重渲)、useDirtySave 待提炼、素材树拉body/kind白名单5处散落/focus枚举未收口、聚焦payload未结构化传后端。
-A线P0在途:T1-T7 已落地(伏笔窗口/触及/弧光锚/lie_belief/brief.py/端点注入),T8三态注入、T9张力检查、T10前端露出、T11端到端**未实施**——缺这些不是发现。
+**已全修(2026-07-05/06,勿再报)**:v1 的审计 29 项(P0-1~P2-16)与各块遗留;22 断头(D-029);北极星三轮审查 39 项(D-015/018/020);遗留处置三批(D-021~028:S1 接线/池A2/短文本/增量蒸馏/HNSW EF/时间线检测器/Hermes 0.18);主编主动化两轮审查 16 项(D-030~032:时机C 死线/seed 丢失/refresh 泄漏/跳变分档/卡文闭包/QC 死分支/needs_human 滞留/live 风暴/badge 死指标/advisory 假交付/并发背书/覆盖手写/ideas 脏值/审计链/体检消费/收件箱出口)。
+**已知未做(裁决在案,不作为发现)**:工艺引擎 P1/P2 自排期 13 条(关系四轴/场景卡/MRU/情感曲线等,评测裁"不做/等触发",台账可查);M7.1 filter words 与 M9 卡文诊断话术已并入主动化(卡文=时机D);pilot P2(自治升级环/盲评节律)挂"真实连写≥10章"触发;authz book 级配置未接入(接入时须同步 gate==approve 停靠防御,D-032 钉住);pilot 崩溃窗口非原子(loop 互斥+版本库兜底,D-032 记录可接受);/pilot/run TOCTOU 已知记录;idea unclear 无收件箱承载(D-032);金标③纸命第5章=作者参与项。
 
-### 重点怀疑区(线索,须重新验证后才算发现)
+### 重点怀疑区(v2 线索,须重新验证后才算发现)
 
-- WriteLayout/ChiefDock 巨型组件的状态机与竞态残面(块一二三修了大头,查残余)
-- 限知引擎边界:knows 边的 until_chapter/polarity 消费面;project_frame 对"忘知""误信"的语义;dramatic_irony 的口径
-- ingest learned 去重(_find_existing_learned_prop 的包含匹配)误合并面:两个不同事实互为子串?
-- purge 幂等 × learned 复用保护的边界(重 ingest A 章后 B 章复用命题的 reader_knows 边)
-- 语义检索链(semantic_index/embedding→召回)的实际接线与失败面
-- 时间线双时态(narrative_position 回退 story_chapter)的消费一致性
-- brief 组装 N+1 与注入总长在真实规模下的账(已裁定可接受,查规模临界点)
-- checkpoint 恢复 × 知识账本一致性(恢复旧正文后 knows/char_state 是新的)
-- Hermes 网关双模(chat 速答 vs agentic 联查)与 s3_ 工具的门控一致性
-- ContainerOutline/项目树在 100+ 章书的量级(outline 停拉全文的既有优化还成立吗)
+1. pilot 全链成本与失败恢复的**真实长跑**面:连写 5+ 章会暴露什么(state 残留/journal 膨胀/steer 累积语义)。
+2. pulse/inbox 查询放大在 50+ 章书的延迟(三消费方各自拉全书扫描)。
+3. 交付卡 promises 字段/curve 数据的前端消费(刚加的字段有没有 UI 出口——铁律8 自查)。
+4. 时机引擎 localStorage 键膨胀与多书串扰(H23)。
+5. advisory 停靠后作者的实际操作闭环(收件箱提示"手动保存该稿后 reset"——这条路 UI 真走得通吗)。
+6. 069 迁移在**生产库**(已有 chapter 行)上的字段回填语义;pilot_state 对旧章的 idle 默认。
+7. loop journal 目录无 retention(pilot_ch*.json 每章一份+loop 每次一份+result.json——量级账)。
+8. 讨论 digest 的 lastSeq 语义:作者看视图时聊"全书",digest 却注入最近章——语境错配面。
+9. DiscussionDock agentic 模式(chatStream agentic:true 路径)有没有消费方;/chat/agentic-stream 的 seq 注入零调用方(P0 审查发现,修的是 stream 路径——agentic 路径现在有人用吗)。
+10. WriteChat 会话持久化(useChatPersist)×pilot 交付卡话术的键空间。
 
 ### 输出格式
 
-1. **执行摘要**:九维各一句话结论 + 问题计数(按严重度)。
-2. **发现清单**(最严重在前),每条:`{P0-P3, CONFIRMED/PLAUSIBLE, 维度, 标题, file:line, 失败场景, 复现方式, 根因, 修复方案草案, 影响面, 反驳与回应}`。
-3. **覆盖证明**:已审且无问题的区域清单(维度×模块矩阵,注明验证方式)——没有这个,"没发现"≠"没问题"。
-4. **不建议做清单**:看似问题但修复代价 > 收益,或属有意设计。
-5. **方法自评**:哪些区域没到达、置信度低,下一轮建议。
+1. **执行摘要**:十维各一句话+计数。
+2. **发现清单**:`{P0-P3, CONFIRMED/PLAUSIBLE, 维度, 标题, file:line, 失败场景, 复现, 根因, 修复草案, 影响面, 反驳与回应}`。
+3. **覆盖证明**:维度×模块矩阵(没有它,"没发现"≠"没问题")。
+4. **不建议做清单**。
+5. **方法自评**:未到达区域/低置信区/下轮建议。

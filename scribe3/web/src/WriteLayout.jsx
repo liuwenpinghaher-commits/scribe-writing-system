@@ -7,7 +7,6 @@ import {
   DatabaseZap, Loader2,
 } from 'lucide-react'
 import { api } from './api'
-import { verifyIssues } from './verifyIssues.js'
 import { causalStatus } from './causalStatus.js'
 import { Shell } from './shell'
 import { Btn, Input, SectionTitle, Empty, Row, Tag } from './ui'
@@ -17,8 +16,8 @@ import { applyProposal } from './editor/applyProposal.js'
 import { issueLabel, issueDot, ignoreIssue, filterIgnored, expandToSentence } from './editor/guardIssues.js'
 import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
-import { DeducePanel } from './DeducePanel'
 import { NorthStarBar } from './NorthStarBar'
+import { PulseBar } from './PulseBar'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
@@ -137,27 +136,20 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // 批D P1-5:/causal 现返回 {no_event_data, violations}(非裸 list)。持整个对象,派生态经 causalStatus。
   // 初值 null → causalStatus 归一为「无数据」中性态,首帧不闪「因果完整✅」假绿。
   const [causal, setCausal] = useState(null)
-  const [promises, setPromises] = useState([])
-  const [facts, setFacts] = useState([])
-  const [events, setEvents] = useState([])
   const [motifs, setMotifs] = useState([])
-  const [recallQ, setRecallQ] = useState('')
-  const [recallHits, setRecallHits] = useState([])
-  const [presentQ, setPresentQ] = useState('')
   const [focusMode, setFocusMode] = useState(false)
-  const [factsExpanded, setFactsExpanded] = useState(false)  // 本章事实:默认前60条,「展开全部」可达全量
   const [chTitle, setChTitle] = useState('')
   const [saved, setSaved] = useState(true)
   // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
   // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
   const dirtyRef = useRef({ seq: chapter, prose: '', chTitle: '', focalizer: '', dirty: false })
   const [btns, setBtns] = useState(() => loadButtons(work))
-  const [leftActive, setLeftActive] = useState('frame')   // 默认展开「帧/意图」数据面板(设计要求左栏 tabs 常显;点图标可收起)
-  const [rightActive, setRightActive] = useState('chat')
-  const [matSeg, setMatSeg] = useState('structure')
-  const [revSeg, setRevSeg] = useState('verify')
+  // 断头修复#12:右栏 tab 由 RightDock(usePref)独立持有——原 rightActive 死状态删除,
+  // "让主编改这处"等改经窗口事件切右栏到主编 tab(RightDock 端监听 s3-right-tab)。
+  const focusChiefTab = () => {
+    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+  }
   const [tick, setTick] = useState(0)
-  const [verTick, setVerTick] = useState(0)
   const [dlg, setDlg] = useState(null)
   const [serif, setSerif] = useState(() => localStorage.getItem('scribe3:serif') === '1')
   // 达标 toast:记录上次 persist 前的 today_words,save 后比较是否跨过 daily_word_goal
@@ -166,7 +158,6 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const saveMenuRef = useRef(null)
   const [guardPop, setGuardPop] = useState(false)
   const guardPopRef = useRef(null)
-  const narrowRef = useRef(false)
   // 进度显性化(批二):/progress 返回 today_words/daily_word_goal/current_streak/total_words/total_word_goal。
   // 挂载 + 存章后刷新;拉取失败置 null → 顶栏优雅降级为只显字数。
   const [progress, setProgress] = useState(null)
@@ -175,18 +166,42 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // ingest 反哺设定库:busy 态防重复点击
   const [ingesting, setIngesting] = useState(false)
 
-  // 窄屏(<1100px)自动折叠右栏:仅在「进入窄屏」的瞬间收起一次,不与用户重新打开较劲
+  // (原窄屏自动收右栏 effect 已删:它 set 的 rightActive 是零消费死状态,自 F-06 起
+  // 无任何实际效果;右栏收起现由 BinderLayout 折叠体系承担——点轨当前项/拖分隔条。)
+
+  // 主编主动化 T5·时机D(M9 卡文诊断):每 60s 采样正文长度,连续 5 个采样点
+  // 净变化 ≤0(删多写少/零输入)→ 主编问一句(每章一次;纯话术零表,三处方)。
+  const stuckRef = useRef({ seq: null, samples: [] })
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 1099px)')
-    const apply = (matches) => {
-      if (matches && !narrowRef.current) { setRightActive(''); narrowRef.current = true }
-      else if (!matches) { narrowRef.current = false }
-    }
-    apply(mq.matches)
-    const onChange = (e) => apply(e.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
+    const t = setInterval(() => {
+      const s = stuckRef.current
+      if (s.seq !== chapter) { s.seq = chapter; s.samples = [] }
+      // 审查 P1-5:删旧闭包 prose 回退(空新章会回退到旧章长度,采样恒等误报卡文);
+      // dirtyRef 载入时已同步,是唯一权威源。输入框/编辑器聚焦中不打断(计划坑防)。
+      if (localStorage.getItem(`s3.pulse.mute.${work || 'main'}.stuck`) === '1') return   // R2-10:键含 work
+      const ae = document.activeElement
+      const typing = ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT' || ae.isContentEditable)
+      s.samples.push((dirtyRef.current.prose || '').length)
+      if (typing && s.samples.length >= 6) { s.samples = s.samples.slice(-5); return }
+      if (s.samples.length < 6) return
+      s.samples = s.samples.slice(-6)
+      const delta = s.samples[5] - s.samples[0]
+      const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.stuck`
+      if (delta <= 0 && s.samples[0] > 0 && localStorage.getItem(spokeKey) !== '1') {
+        localStorage.setItem(spokeKey, '1')
+        toast('这五分钟正文没往前走(依据:字数采样)——卡住了?', {
+          tone: 'info', duration: 8000,
+          action: { label: '聊聊', onClick: () => {
+            try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: '我卡住了。帮我诊断:是情节卡(回查本章目标与对手/冲突要不要升级/要不要切配角视角)、语言卡(换个叙述距离或语感重起这段),还是心态卡(先写烂再改)?给我一个最小可行的下一步。' })) } catch { /* */ }
+            focusChiefTab()
+          } },
+          // R2-10:stuck 维静音写入点(此前 s3.pulse.mute.stuck 是死键,防烦协议对卡文维不成立)
+          cancel: { label: '不再提醒', onClick: () => { try { localStorage.setItem(`s3.pulse.mute.${work || 'main'}.stuck`, '1') } catch { /* */ } } },
+        })
+      }
+    }, 60000)
+    return () => clearInterval(t)
+  }, [chapter, work])
 
   useEffect(() => {
     if (!saveMenu) return
@@ -274,10 +289,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       } catch { setStash(null) }
     })
     api.causal(chapter).then(setCausal)
-    api.promises().then(setPromises)
     api.qc(chapter).then(setQc)
-    api.facts(chapter).then(setFacts)
-    api.events(chapter).then(setEvents)
     // restoreTick:右坞恢复后 bump → 重拉本章,setProse 为库中恢复版并重置 dirtyRef。
   }, [chapter, tick, restoreTick])
   // F-06 场景级跳转:sceneIdx 给定 + 正文已加载 → 等编辑器 setContent 落定后跳到该场景。
@@ -292,7 +304,6 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     return () => clearTimeout(t)
   }, [sceneIdx, proseLoadTick, seq, chapter])
 
-  const runRecall = async (e) => { e.preventDefault(); if (!recallQ.trim()) return; setRecallHits(await api.recall(recallQ.trim(), 8)) }
 
   const runPostCheck = async () => {
     if (!prose.trim() || postChecking) return
@@ -330,19 +341,115 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     }
     if (lines.length === 0) lines.push('体检通过,无问题')
     setSeedQuote(`本章体检发现:\n${lines.join('\n')}\n\n请据此修订本章。`)
-    setRightActive('chat')
+    focusChiefTab()
   }
 
   const chars = entities.filter((e) => e.kind === 'character')
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
-  const openProm = promises.filter((p) => p.status === 'open')
-  // P3-e1 Fix 1: 单源 overdue — 读 backend 预判断的 overdue 字段,不在前端重算阈值
-  // (backend 用 OVERDUE_SLACK 常量 + intent.overdue_threshold 覆盖,保证全局一致)
-  const overdue = (p) => Boolean(p.overdue)
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
   // /causal 三态派生:状态条(renderVerify)与校验徽章(reviewBadge)同源,防「因果完整✅」假绿。
   const cstat = causalStatus(causal)
+
+  // ——— 体检卡(断头修复:原死 leftCaps 的 renderVerify 回填中区正文列;结构/事件/
+  // 检索/伏笔列表已由左栏各 tab 承载,「在场选视角」与顶栏视角下拉重复故删,
+  // 其余死渲染函数与 leftCaps 数组一并移除,见台账 D-029)———
+  const renderCheckupCard = () => ((postCheckResult || postChecking) ? (
+    <div className="mb-4 rounded-xl border border-line bg-surface p-3 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="text-f12 font-semibold text-ink">全量体检</div>
+        {postChecking && <Loader2 size={13} className="animate-spin text-brand" />}
+        <button onClick={() => setPostCheckResult(null)}
+          className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">关闭</button>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-f11">
+        <span className={leaks > 0 ? 'text-danger' : 'text-ok'}>泄露 {leaks}</span>
+        <span className={qcN > 0 ? 'text-warn' : 'text-ok'}>QC {qcN}</span>
+        <span className={cstat.state === 'violations' ? 'text-danger' : 'text-faint'}>
+          因果 {cstat.state === 'violations' ? `${cstat.count} 违规` : cstat.state === 'no-data' ? '无数据' : '完整'}
+        </span>
+      </div>
+      {postCheckResult && !postCheckResult.error && (
+        <div className="space-y-1.5">
+          {postCheckResult.issues && postCheckResult.issues.length > 0 && (
+            <div className="rounded-lg border border-line divide-y divide-line/50 max-h-56 overflow-y-auto">
+              {postCheckResult.issues.map((iss, idx) => (
+                <div key={idx}
+                  className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-soft text-f12 leading-snug first:rounded-t-lg last:rounded-b-lg group">
+                  <button onClick={() => proseEditorRef.current?.focusIssue(iss)}
+                    className="flex items-start gap-2 flex-1 min-w-0 text-left cursor-pointer">
+                    <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
+                    <span className="text-ink flex-1 truncate">{iss.message}</span>
+                  </button>
+                  {iss.range && (
+                    <button onClick={() => sendIssueToChief(iss)} title="让主编改这处"
+                      className="shrink-0 text-f10 text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
+                      改这处
+                    </button>
+                  )}
+                  {iss.range && <span className="shrink-0 text-f10 text-brand">跳→</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className={`text-f12 rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
+            <span className="font-medium">QC</span>
+            {(postCheckResult.quality?.total || 0) > 0 ? (
+              <span className="ml-1">
+                {postCheckResult.quality.repetition > 0 && <span>复读 {postCheckResult.quality.repetition} </span>}
+                {postCheckResult.quality.structural > 0 && <span>排比 {postCheckResult.quality.structural} </span>}
+                {postCheckResult.quality.purple > 0 && <span>升华 {postCheckResult.quality.purple} </span>}
+                {postCheckResult.quality.ai_tics > 0 && <span>AI腔 {postCheckResult.quality.ai_tics} </span>}
+                {postCheckResult.quality.oversaturation > 0 && <span>过饱和 {postCheckResult.quality.oversaturation} </span>}
+              </span>
+            ) : ' 干净'}
+          </div>
+          <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.leaks?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+            <span className="font-medium">泄露</span>
+            {postCheckResult.leaks?.length > 0
+              ? <span className="ml-1">{postCheckResult.leaks.length} 处:{postCheckResult.leaks.map((l) => l.marker).join('、')}</span>
+              : ' 无'}
+          </div>
+          {postCheckResult.discipline && (
+            <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.discipline.violations?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
+              <span className="font-medium">纪律</span>
+              {postCheckResult.discipline.violations?.length > 0
+                ? <span className="ml-1">{postCheckResult.discipline.violations.join('、')}</span>
+                : ' 守纪'}
+            </div>
+          )}
+          {/* 断头修复 T2.2:跨章一致性检测一直在跑、响应一直携带——这是 UI 首个消费点 */}
+          {Array.isArray(postCheckResult.cross_consistency) && (
+            <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.cross_consistency.length > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
+              <span className="font-medium">跨章一致</span>
+              {postCheckResult.cross_consistency.length > 0 ? (
+                <div className="mt-0.5 space-y-0.5">
+                  {postCheckResult.cross_consistency.slice(0, 6).map((h, i) => (
+                    <div key={i} className="text-f11 leading-snug">· {h.message || h.note || h.type}</div>
+                  ))}
+                  {postCheckResult.cross_consistency.length > 6 && (
+                    <div className="text-f11 text-faint">…共 {postCheckResult.cross_consistency.length} 处</div>
+                  )}
+                </div>
+              ) : ' 无疑点'}
+            </div>
+          )}
+          {(postCheckResult.degraded_stages || []).length > 0 && (
+            <div className="text-f11 text-faint">⚠ 部分检测降级({postCheckResult.degraded_stages.join('、')}):没查≠没病</div>
+          )}
+          <button
+            onClick={sendPostCheckToChief}
+            className="w-full mt-1 h-7 rounded-lg border border-brand/40 bg-brand/5 text-brand text-f12 hover:bg-brand/15 cursor-pointer transition-colors"
+          >
+            让主编修这章
+          </button>
+        </div>
+      )}
+      {postCheckResult?.error && (
+        <div className="text-f12 text-danger">体检失败:{postCheckResult.error}</div>
+      )}
+    </div>
+  ) : null)
 
   const persist = async (text) => {
     // 记住 save 前当日字数,用于达标判定(fail-soft:拉不到就跳过)
@@ -364,6 +471,26 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       throw e
     }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
+    // 主编主动化 T5·时机B:落稿后有命中 → 主编摘要一条(每章一次,防烦协议)
+    try {
+      const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
+      // 审查 P2-13:补齐 6 键(此前漏 cross_repetition/duplicate_lines/emotion_telling)
+      const qcn = r.qc ? cnt(r.qc.repetition) + cnt(r.qc.structural) + cnt(r.qc.purple)
+        + cnt(r.qc.cross_repetition) + cnt(r.qc.duplicate_lines) + cnt(r.qc.emotion_telling) : 0
+      const lk = r.leaks || 0
+      const spokeKey = `s3.spoke.${work || 'main'}.${chapter}.postsave`
+      if ((qcn > 0 || lk > 0) && localStorage.getItem(spokeKey) !== '1'
+          && localStorage.getItem(`s3.pulse.mute.${work || 'main'}.quality`) !== '1') {   // R2-10:键含 work
+        localStorage.setItem(spokeKey, '1')
+        toast(`本章落稿体检:泄露 ${lk} · QC ${qcn}(依据:存稿自动检)`, {
+          tone: 'warn',
+          action: { label: '要我修吗', onClick: () => {
+            try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: `本章存稿检出泄露 ${lk} 处、QC ${qcn} 处,请按清单逐处修复,保持其余原样` })) } catch { /* */ }
+            focusChiefTab()
+          } },
+        })
+      }
+    } catch { /* 提醒失败不影响保存 */ }
     // 手动保存成功:重置 dirtyRef
     dirtyRef.current.dirty = false
     dirtyRef.current.prose = text
@@ -439,9 +566,8 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     setLastQuote(text)
     setSeedQuote(`把这段改一下,给我 2-3 个侧重不同的候选:「${text}」`)
     setCandidates([])
-    setRightActive('chat')
+    focusChiefTab()
   }
-  const deduceToChief = (name, prose) => { setSeedQuote(`【${name}·演绎草稿(限知素材)】\n${prose}\n\n请据这份演绎草稿,以作者视角写本章。`); setRightActive('chat') }
 
   // F-05 完整:正文常驻波浪线的 issue 列表(过滤掉已忽略的)。
   // 只依赖 guard.issues / ignoreTick:guard.issues 由 3s 防抖按当前 prose 重算,
@@ -476,7 +602,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     setLastQuote(text)
     setSeedQuote(`这处有「${issueLabel(iss.type)}」问题(${iss.message}),把这一句改一下,给我 2-3 个候选:「${text}」`)
     setCandidates([])
-    setRightActive('chat')
+    focusChiefTab()
   }
 
   // 「忽略」→ 持久化到 localStorage(prose 指纹 + issue key),并撤掉波浪线
@@ -669,6 +795,13 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                 className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <Bookmark size={13} className="text-faint shrink-0" />存档点
               </button>
+              {/* 全量体检(断头修复:原死 leftCaps 的唯一入口回填)——含 LLM 纪律判,结果卡出现在正文上方 */}
+              <button onClick={() => { setSaveMenu(false); runPostCheck() }} disabled={postChecking || !prose.trim()}
+                title="全量体检:QC/泄露/纪律/时间线/跨章一致(含 LLM 判,较慢)"
+                className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap disabled:opacity-60">
+                {postChecking ? <Loader2 size={13} className="text-brand shrink-0 animate-spin" /> : <ShieldCheck size={13} className="text-faint shrink-0" />}
+                {postChecking ? '体检中…' : '全量体检'}
+              </button>
               {/* 反哺设定库(批二):把本章正文喂回知识库,抽新知/待核实体。busy 态防重复点。 */}
               <button onClick={runIngest} disabled={ingesting}
                 title="把本章正文喂回设定库(抽取新知识与待核实体)"
@@ -694,7 +827,6 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
           try {
             await persist(prose)  // 失败已在 persist 内 toast;抛出后不落定稿存档点
             await api.checkpoint(chapter, prose, '定稿', 'final', qc || {})
-            setVerTick((t) => t + 1)
           } catch { /* persist 已提示,存为正文中止 */ }
         }}>存为正文</Btn>
       </div>
@@ -703,14 +835,18 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
 
   const center = (
     <div className="flex flex-col h-full">
-      <NorthStarBar />
+      <div className="flex items-center border-b border-line bg-surface">
+        <NorthStarBar />
+        {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
+        <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
+      </div>
       {topbarMid}
       {lastSel && (
         <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line bg-surface">
           {btns.map((b) => (
             <button key={b} onClick={() => {
               setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
-              setCandidates([]); setRightActive('chat')
+              setCandidates([]); focusChiefTab()
             }} className="h-6 px-2 rounded-lg border border-line text-f11 text-ink hover:bg-soft cursor-pointer">{b}</button>
           ))}
           <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-f11 text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
@@ -733,6 +869,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               }} className="h-6 px-2 rounded-lg border border-line text-faint hover:bg-soft cursor-pointer shrink-0">丢弃</button>
             </div>
           )}
+          {renderCheckupCard()}
           <DraftCard proposal={proposal} candidates={candidates} streaming={proposalStreaming} onAccept={acceptProposal} onReject={() => { setProposal(null); setProposalStreaming(false); setCandidates([]); setLastQuote(''); setLastSel(null) }} onAcceptCandidate={acceptCandidate} />
           <div className={`manuscript${serif ? ' serif' : ''}`}>
             <ProseEditor ref={proseEditorRef} value={prose} onChange={(t) => { setProse(t); setSaved(false); dirtyRef.current.prose = t; dirtyRef.current.dirty = true }}
@@ -745,250 +882,6 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
     </div>
   )
 
-  // ——— 各子区渲染(从原 11 tab 抽出,内容/handler 不变,合并复用)———
-  // F-06: renderOutline(扁平章按钮列)已下线——章导航由左侧项目树承载。
-  const renderStructure = () => (
-    <div>
-      <SectionTitle icon={LayoutList} right={`${events.length}`}>本章事件</SectionTitle>
-      {events.length === 0 ? <Empty>本章未设计事件</Empty> : events.map((ev) => (
-        <Row key={ev.id}><Tag tone="brand">{ev.type}</Tag><span className="ml-1 text-faint">{ev.id}</span>{!ev.goal && <span className="ml-1 text-danger">· 缺目标</span>}</Row>
-      ))}
-      <div className="h-3" />
-      <SectionTitle right={`${facts.length}`}>本章事实</SectionTitle>
-      {facts.length === 0 ? <Empty>无</Empty> : (factsExpanded ? facts : facts.slice(0, 60)).map((f) => (
-        <Row key={f.id} icon={f.secret ? Lock : undefined}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>
-      ))}
-      {facts.length > 60 && (
-        <button onClick={() => setFactsExpanded((v) => !v)}
-          className="mt-1.5 text-f11 text-brand hover:text-brand/80 cursor-pointer">
-          {factsExpanded ? '收起' : `展开全部 ${facts.length} 条`}
-        </button>
-      )}
-    </div>
-  )
-  const renderMotifs = () => (
-    <div>
-      <SectionTitle icon={Flame} right={`${motifs.length}`}>母题 · 参照不透支</SectionTitle>
-      {motifs.length === 0 ? <Empty>无</Empty> : motifs.map((m) => (
-        <div key={m.id} className="mb-2.5 pb-2.5 border-b border-line/50 last:border-0">
-          <div className="text-f13 font-semibold text-ink">{m.name}</div>
-          {m.theme && <div className="text-f12 text-fore mt-0.5">{m.theme}</div>}
-          {m.unfolding && <div className="text-f12 text-faint mt-0.5 leading-snug">{m.unfolding}</div>}
-        </div>
-      ))}
-    </div>
-  )
-  const renderRecall = () => (
-    <div>
-      <SectionTitle icon={Search}>语义召回设定</SectionTitle>
-      <form onSubmit={runRecall} className="flex gap-1.5 mb-3">
-        <Input value={recallQ} onChange={(e) => setRecallQ(e.target.value)} placeholder="按意思搜,如「炼丹复活」" className="flex-1 h-8 px-2.5" />
-        <Btn variant="primary" size="sm" type="submit">搜</Btn>
-      </form>
-      {recallHits.length === 0 ? <Empty>输入意思,向量召回最相关设定(非字面)</Empty>
-        : recallHits.map((f) => <Row key={f.id}><span className="text-faint">{f.attribute}</span>:{f.value}</Row>)}
-    </div>
-  )
-  const renderVerify = () => (
-    <div>
-      <SectionTitle icon={ShieldCheck}>软校验 · 不挡接受</SectionTitle>
-      {leaks > 0 ? <Row tone="danger" icon={Lock}>限知泄露 {leaks} 处:写了 {focName} 不该知道的私密</Row> : <Row tone="ok" icon={CircleCheck}>限知:无泄露</Row>}
-      {qcN > 0 ? <Row tone="warn" icon={CircleAlert}>确定性 QC:{qcN} 处(复读/排比/升华)</Row> : <Row tone="ok" icon={CircleCheck}>确定性 QC 干净</Row>}
-      {cstat.state === 'violations'
-        ? <Row tone="danger" icon={CircleAlert}>因果违规 {cstat.count} 处</Row>
-        : cstat.state === 'no-data'
-          ? <Row tone="faint" icon={CircleDashed}>无事件数据可校验</Row>
-          : <Row tone="ok" icon={CircleCheck}>因果完整</Row>}
-      <div className="text-f11 text-faint mt-2 leading-snug">保存/接受草稿时自动跑。北极星意图喂主编当写作纲领。</div>
-
-      {/* 生成后全量体检 */}
-      <div className="mt-4 border-t border-line pt-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-f12 font-semibold text-ink">生成后体检(全量)</div>
-          <button
-            onClick={runPostCheck}
-            disabled={postChecking || !prose.trim()}
-            className="h-6 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors"
-          >
-            {postChecking ? '检查中…' : '立即体检'}
-          </button>
-        </div>
-        {postCheckResult && !postCheckResult.error && (
-          <div className="space-y-1.5">
-            {/* F-05: 带 range 的 issues 可点跳转 */}
-            {postCheckResult.issues && postCheckResult.issues.length > 0 && (
-              <div className="rounded-lg border border-line divide-y divide-line/50">
-                {postCheckResult.issues.map((iss, idx) => (
-                  <div key={idx}
-                    className="w-full flex items-start gap-2 px-2 py-1.5 hover:bg-soft text-f12 leading-snug first:rounded-t-lg last:rounded-b-lg group">
-                    <button onClick={() => proseEditorRef.current?.focusIssue(iss)}
-                      className="flex items-start gap-2 flex-1 min-w-0 text-left cursor-pointer">
-                      <span className={`shrink-0 mt-1 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
-                      <span className="text-ink flex-1 truncate">{iss.message}</span>
-                    </button>
-                    {iss.range && (
-                      <button onClick={() => sendIssueToChief(iss)} title="让主编改这处"
-                        className="shrink-0 text-f10 text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
-                        改这处
-                      </button>
-                    )}
-                    {iss.range && <span className="shrink-0 text-f10 text-brand">跳→</span>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {/* QC 五类(计数汇总) */}
-            <div className={`text-f12 rounded-lg px-2 py-1.5 ${(postCheckResult.quality?.total || 0) > 0 ? 'bg-warn/10 text-warn' : 'bg-ok/10 text-ok'}`}>
-              <span className="font-medium">QC</span>
-              {(postCheckResult.quality?.total || 0) > 0 ? (
-                <span className="ml-1">
-                  {postCheckResult.quality.repetition > 0 && <span>复读 {postCheckResult.quality.repetition} </span>}
-                  {postCheckResult.quality.structural > 0 && <span>排比 {postCheckResult.quality.structural} </span>}
-                  {postCheckResult.quality.purple > 0 && <span>升华 {postCheckResult.quality.purple} </span>}
-                  {postCheckResult.quality.ai_tics > 0 && <span>AI腔 {postCheckResult.quality.ai_tics} </span>}
-                  {postCheckResult.quality.oversaturation > 0 && <span>过饱和 {postCheckResult.quality.oversaturation} </span>}
-                </span>
-              ) : ' 干净'}
-            </div>
-            {/* 泄露 */}
-            <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.leaks?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
-              <span className="font-medium">泄露</span>
-              {postCheckResult.leaks?.length > 0
-                ? <span className="ml-1">{postCheckResult.leaks.length} 处:{postCheckResult.leaks.map((l) => l.marker).join('、')}</span>
-                : ' 无'}
-            </div>
-            {/* 纪律 */}
-            {postCheckResult.discipline && (
-              <div className={`text-f12 rounded-lg px-2 py-1.5 ${postCheckResult.discipline.violations?.length > 0 ? 'bg-danger/10 text-danger' : 'bg-ok/10 text-ok'}`}>
-                <span className="font-medium">纪律</span>
-                {postCheckResult.discipline.violations?.length > 0
-                  ? <span className="ml-1">{postCheckResult.discipline.violations.join('、')}</span>
-                  : ' 守纪'}
-              </div>
-            )}
-            {postCheckResult.degraded && (
-              <div className="text-f11 text-faint">⚠ 纪律判 LLM 调用失败,仅含确定性结果</div>
-            )}
-            {/* 一键修 */}
-            <button
-              onClick={sendPostCheckToChief}
-              className="w-full mt-1 h-7 rounded-lg border border-brand/40 bg-brand/5 text-brand text-f12 hover:bg-brand/15 cursor-pointer transition-colors"
-            >
-              让主编修这章
-            </button>
-          </div>
-        )}
-        {postCheckResult?.error && (
-          <div className="text-f12 text-danger">体检失败:{postCheckResult.error}</div>
-        )}
-      </div>
-    </div>
-  )
-  const renderForeshadow = () => (
-    <div>
-      <SectionTitle icon={Bookmark} right={`${openProm.length} 未回收`}>伏笔 · 超期红</SectionTitle>
-      {openProm.length === 0 ? <Empty>无未回收伏笔</Empty> : openProm.map((p) => (
-        <Row key={p.id} tone={overdue(p) ? 'danger' : 'fore'} icon={Bookmark}>{p.text.slice(0, 40)}<span className="text-faint"> · 第{p.setup_chapter}章埋{overdue(p) ? ' · 超期' : ''}</span></Row>
-      ))}
-    </div>
-  )
-  const renderPresent = () => {
-    const impOrder = ['protagonist', 'major', 'minor']
-    const impLabel = { protagonist: '主角', major: '重要角色', minor: '次要角色' }
-    const q = presentQ.trim().toLowerCase()
-    const filtered = chars.filter((c) => !q || c.name.toLowerCase().includes(q))
-    // group by importance if any char has it; else single group
-    const hasImportance = chars.some((c) => c.importance)
-    const CharBtn = ({ c }) => (
-      <button key={c.id} onClick={() => { setFocalizer(c.id); dirtyRef.current.focalizer = c.id }}
-        className={`w-full flex items-center gap-2 rounded-lg px-2.5 py-2 mb-0.5 text-f13 transition-colors cursor-pointer ${c.id === focalizer ? 'bg-soft text-ink ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-        <span className={`w-2 h-2 rounded-full shrink-0 ${c.id === focalizer ? 'bg-brand' : 'bg-line'}`} />
-        <span className="truncate">{c.name}</span>
-        {c.id === focalizer && <span className="ml-auto text-f11 text-brand">视角</span>}
-      </button>
-    )
-    let body
-    if (filtered.length === 0) {
-      body = <div className="text-f12 text-faint py-2 text-center">无匹配角色</div>
-    } else if (hasImportance) {
-      const groups = {}
-      filtered.forEach((c) => {
-        const k = impOrder.includes(c.importance) ? c.importance : 'minor'
-        ;(groups[k] = groups[k] || []).push(c)
-      })
-      body = impOrder.filter((k) => groups[k]).map((k) => (
-        <div key={k} className="mb-2">
-          <div className="text-f11 text-faint px-1 mb-0.5 mt-1">{impLabel[k]}</div>
-          {groups[k].map((c) => <CharBtn key={c.id} c={c} />)}
-        </div>
-      ))
-    } else {
-      body = filtered.map((c) => <CharBtn key={c.id} c={c} />)
-    }
-    return (
-      <div>
-        <SectionTitle icon={Users}>可在场角色 · 点击设为视角</SectionTitle>
-        {chars.length === 0 ? <Empty>无角色</Empty> : (
-          <>
-            <Input value={presentQ} onChange={(e) => setPresentQ(e.target.value)} placeholder="搜角色…" className="h-8 px-2.5 mb-2" />
-            {body}
-          </>
-        )}
-      </div>
-    )
-  }
-
-  // 小分段控件:一排药丸按钮,active 高亮
-  const Segmented = ({ value, onChange, options }) => (
-    <div className="flex items-center gap-1 mb-3 -mt-0.5">
-      {options.map((o) => (
-        <button key={o.key} onClick={() => onChange(o.key)}
-          className={`h-6 px-2 rounded-lg text-f12 whitespace-nowrap transition-colors cursor-pointer ${value === o.key ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink'}`}>
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-
-  const reviewBadge = verifyIssues({ leaks, qcN, causal: cstat.count }) + openProm.filter(overdue).length
-
-  // 波B Step3:左轨承载全部数据/校验/演绎面板(原右轨的 校验/演绎 并入左轨,消除第4列)。
-  // 写作 chat 不再是这里的 cap —— 它经 portal 渲染进右栏 ChiefDock(见下方 chatPortal)。
-  const leftCaps = [
-    // F-06: 「大纲」段下线——章导航职能交给左侧项目树(树取代扁平章列)。
-    // 结构/母题/检索暂留(分期摊风险)。
-    { key: 'material', label: '素材 · 结构/母题/检索', icon: LayoutList, render: () => (
-      <div>
-        <Segmented value={matSeg} onChange={setMatSeg} options={[
-          { key: 'structure', label: '结构' },
-          { key: 'motifs', label: '母题' }, { key: 'recall', label: '检索' },
-        ]} />
-        {matSeg === 'structure' && renderStructure()}
-        {matSeg === 'motifs' && renderMotifs()}
-        {matSeg === 'recall' && renderRecall()}
-      </div>
-    ) },
-    { key: 'review', label: '校验 · 校验/伏笔/在场', icon: ShieldCheck, badge: reviewBadge, render: () => (
-      <div>
-        <Segmented value={revSeg} onChange={setRevSeg} options={[
-          { key: 'verify', label: '校验' }, { key: 'foreshadow', label: '伏笔' }, { key: 'present', label: '在场' },
-        ]} />
-        {revSeg === 'verify' && renderVerify()}
-        {revSeg === 'foreshadow' && renderForeshadow()}
-        {revSeg === 'present' && renderPresent()}
-      </div>
-    ) },
-    { key: 'deduce', label: '演绎 · 角色限知', icon: Sparkles, render: () => (
-      <DeducePanel chars={chars} chapter={chapter} onToChief={deduceToChief} />
-    ) },
-    { key: 'frame', label: '帧/意图', icon: Eye, render: () => (
-      <FramePanel focalizer={focalizer} chapter={chapter} />
-    ) },
-    { key: 'versions', label: '存档', icon: Bookmark, render: () => (
-      <VersionPanel seq={chapter} refreshKey={verTick}
-        onRestore={(text) => { setProse(text); persist(text).catch(() => {}) }} />
-    ) },
-  ]
 
   // 铁律:WriteChat 组件实例、props、onProposal/onProposalStart/onProposalChunk 回调
   // 与原 rightCaps.chat.render 一字不差 —— 同一组件、同一闭包(共享 WriteLayout 全部状态),
@@ -1063,7 +956,6 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         onConfirm={async (val) => {
           if (dlg?.kind === 'checkpoint') {
             await api.checkpoint(chapter, prose, val || '', 'checkpoint', qc || {})
-            setVerTick((t) => t + 1)
           } else if (dlg?.kind === 'rewrite') {
             if (val) setBtns(addButton(work, val))
           }

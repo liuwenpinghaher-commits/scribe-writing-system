@@ -287,7 +287,7 @@ const REL_TONE = (rel) =>
   ['知己', '战友', '盟友', '同门', '恩人', '夫妻', '师徒', '父子', '母子', '兄弟', '姐妹', '养父子', '同行', '熟人'].includes(rel) ? 'ok'
     : ['仇敌', '宿敌', '竞争者', '利益对立', '背叛者'].includes(rel) ? 'fore' : 'faint'
 
-// 受控词表下拉(optgroup 分组 + custom)
+// 受控词表下拉(optgroup 分组)
 function RelSelect({ value, onChange, className }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} className={`${className} cursor-pointer`}>

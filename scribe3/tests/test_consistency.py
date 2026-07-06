@@ -78,6 +78,15 @@ class TestWriteGate:
         ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST
         ("POST", "/post-check"),   # 生成后全量体检:QC+泄露+纪律LLM,不落库,read-only POST
         ("POST", "/draft-check"),   # 块四b 草稿轻量确定性分析:确定性检测器+泄露预览,只读不落库,read-only POST
+        # 主编主动化(D-030/031):想法收件箱+Chapter Pilot。授权语义:
+        # ideas 只写 idea 表/pilot_steer(setting/revise 永远 pending_approval,宪法);
+        # pilot step/approve/run 全走既有链(loop/post-check/留版),finalize 宪法锚留人;
+        # pause/reset-step 只改进程旗/清 parked 标记。
+        ("POST", "/ideas"),
+        ("POST", "/ideas/resolve"),   # 想法处理完出收件箱(status→done,防积压)
+        ("POST", "/pilot/step"), ("POST", "/pilot/approve"), ("POST", "/pilot/run"),
+        ("POST", "/pilot/pause"), ("POST", "/pilot/reset-step"),
+        ("POST", "/pilot/dismiss"),   # 僵尸 pilot 态退出编排(清 pilot_*,零破坏)
         ("POST", "/tension-check"),   # M2a张力检查:确定性3项+LLM rubric,只读不落库,read-only POST
         ("POST", "/dedup-chapter"),   # QC治层:确定性事后跨章改写并存回(作者可信通道)
         ("POST", "/chat/write"),
@@ -89,6 +98,7 @@ class TestWriteGate:
         ("POST", "/char-states"),
         ("POST", "/ingest-unverified/{uid}/accept"),
         ("POST", "/ingest-unverified/{uid}/ignore"),
+        ("POST", "/ingest-unverified/ignore-all"),   # R2-12:批量忽略死水(改 status,写)
         ("POST", "/facts/supersede"),
         ("POST", "/knowledge/forget"),
         ("POST", "/character-relations"),

@@ -11,6 +11,7 @@ _log = logging.getLogger("scribe3")
 
 _TIER_W = {"book": 3, "arc": 2, "chapter": 1}
 _SALIENCE_GAP_MAX = 3   # 距上次露面超过此章数 → 兑现前先刷新
+_REFRESH_EXHAUSTED = 3  # 刷新≥此次数仍未兑现 → 读者已猜到,升决策禁续刷(工艺 M1)
 _LOOP_CAP = 12          # 开环加权上限
 _M6_BUDGET_CHARS = 1200  # M6 设定注入字符预算(全知分支;超出按 always优先/priority 降序裁)
 
@@ -98,8 +99,15 @@ def promise_directives(rows: list[dict]) -> dict:
         w = p.get("window") or {}
         state, gap = w.get("state"), w.get("salience_gap") or 0
         text = (p.get("text") or "").replace("\n", " ")[:40]   # Task7-B②:清洗换行
+        rc = int(p.get("refresh_count") or 0)
         if state == "in_window":
             reminders.append(f"「{text}」在兑现窗口内,适时推进")
+        elif state == "over_half" and rc >= _REFRESH_EXHAUSTED:
+            # 工艺引擎 M1 兑现前置门槛后半:刷新≥3 次仍未兑现 → 读者大概率已猜到,
+            # 再刷新只会腻——升级为决策项,禁止继续"蓄势"。
+            decisions.append(
+                f"伏笔「{text}」已刷新 {rc} 次仍未兑现:读者大概率已猜到,再刷新只会腻——"
+                f"本章直接兑现,或显式改道(展期改 tier / 降级弃置),不要再安排刷新")
         elif state == "over_half":
             if gap > _SALIENCE_GAP_MAX:
                 directives.append(

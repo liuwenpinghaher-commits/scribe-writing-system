@@ -60,6 +60,20 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const endRef = useRef(null)
   const taRef = useRef(null)
   const fileRef = useRef(null)
+  const ctrlRef = useRef(null)   // 断头修复#83:在途写作流的 AbortController(停止/卸载中止)
+  const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current = null; setBusy(false) }
+  useEffect(() => () => { ctrlRef.current?.abort?.() }, [])
+  // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨(sessionStorage pending+事件),预填=追加
+  const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem('s3.chief.seed')
+      if (pending) { sessionStorage.removeItem('s3.chief.seed'); seedIn(pending) }
+    } catch { /* */ }
+    const on = (e) => { if (e?.detail) { try { sessionStorage.removeItem('s3.chief.seed') } catch { /* */ }; seedIn(e.detail) } }
+    window.addEventListener('s3-chief-seed', on)
+    return () => window.removeEventListener('s3-chief-seed', on)
+  }, [])
 
   // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
   useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
@@ -94,6 +108,20 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
   const send = (text) => {
     const q = (text ?? input).trim()
     if ((!q && attachments.length === 0) || busy) return
+    // 主编主动化 T8:「#想法 」前缀 → 想法收件箱(主编路由落位,不走写作流)
+    if (q.startsWith('#想法')) {
+      const idea = q.replace(/^#想法\s*/, '')
+      if (!idea) return
+      setInput('')
+      setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
+      api.addIdea(idea).then((r) => {
+        const tail = r.status === 'unclear' ? `\n\n${r.question}`
+          : r.status === 'pending_approval' ? '\n\n(动设定/改旧章级——已挂收件箱等你批)'
+          : r.target_seq ? `\n\n已落到第 ${r.target_seq} 章的作者意图,下次提案/写作最高优先吃它。` : ''
+        setMsgs((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `收到想法(${r.kind}):${r.note || ''}${tail}` }; return c })
+      }).catch((e) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `想法登记失败:${e?.body?.detail || e?.message || ''}` }; return c }))
+      return
+    }
 
     // text attachments → quoted into message body
     const textExtra = attachments.filter((a) => a.kind === 'text').map((a) => `\n\n【附件:${a.name}】\n${a.content}`).join('')
@@ -108,7 +136,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
     setMsgs((m) => [...m, { role: 'user', content: displayQ }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    api.chatWrite(finalMsg, {
+    // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
+    ctrlRef.current = api.chatWrite(finalMsg, {
       chapter, focalizer, images,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
@@ -186,13 +215,19 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
             >
               <Paperclip size={14} />
             </Btn>
-            <Btn variant="primary" icon
-              onClick={() => send()}
-              disabled={busy || (!input.trim() && attachments.length === 0)}
-              aria-label="发送"
-            >
-              {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            </Btn>
+            {busy ? (
+              <Btn variant="primary" icon onClick={stop} title="停止生成" aria-label="停止生成">
+                <X size={15} />
+              </Btn>
+            ) : (
+              <Btn variant="primary" icon
+                onClick={() => send()}
+                disabled={!input.trim() && attachments.length === 0}
+                aria-label="发送"
+              >
+                <Send size={15} />
+              </Btn>
+            )}
           </div>
         </div>
         <input

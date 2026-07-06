@@ -110,6 +110,10 @@ export const api = {
   markHerring: (pid) => post('/promises/' + enc(pid) + '/mark-herring'),
   addPromiseClue: (pid, note, chapter) => post('/promises/' + enc(pid) + '/clues', { note, chapter }),
   removePromiseClue: (pid, idx) => del('/promises/' + enc(pid) + '/clues/' + idx),
+  // 断头修复 P1-9:物品状态变更端点(记 state_history)此前前端零调用方
+  itemState: (name, state, chapter, reason) => post('/items/' + enc(name) + '/state', { state, chapter, reason }),
+  // 断头修复#22:草稿轻量质检(后端全绿、前端此前零调用)
+  draftCheck: (seq, prose, focalizer) => post(`/draft-check?seq=${seq}`, { prose, focalizer }),
   addMotifNew: (b) => post('/motifs-new', b),
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),
@@ -119,6 +123,19 @@ export const api = {
   northStarChapter: (seq) => j(`/north-star/chapter/${seq}`),   // 北极星任务10:章级 scorecard
   northStarBook: () => j('/north-star/book'),                   // 北极星任务10:书级四维
   chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),
+  chapterPulse: (seq) => j(`/chapter-pulse?seq=${seq}`),   // 主编主动化 T1:六维脉搏
+  inbox: (seq) => j('/inbox' + (seq != null ? `?seq=${seq}` : '')),   // T4:决策收件箱
+  // Chapter Pilot(主编主动化 T6-T11)
+  pilotStep: (seq, mode = 'manual', steer = '') => post('/pilot/step', { seq, mode, steer }),
+  pilotApprove: (seq, expect_state = '') => post('/pilot/approve', { seq, expect_state }),   // R1-3:带 expect_state 知情背书,防 stale 误触终选
+  pilotStatus: (seq) => j(`/pilot/status?seq=${seq}`),
+  pilotRun: (start_seq, until_seq) => post('/pilot/run', { start_seq, until_seq }),
+  pilotPause: () => post('/pilot/pause'),
+  pilotRunStatus: () => j('/pilot/run-status'),
+  pilotDismiss: (seq) => post('/pilot/dismiss', { seq }),         // R1-4:pilot 僵尸态退出
+  pilotResetStep: (seq) => post('/pilot/reset-step', { seq }),   // R1-4:stalled/parked 解卡重跑当前步
+  resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
+  addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
   patchCharAnchors: (id, anchors) => patch('/char-anchors', { character_id: id, anchors }),
   postArcBeat: (b) => post('/arc-beats', b),
@@ -140,6 +157,7 @@ export const api = {
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
+  ignoreAllUnverified: (status = 'pending') => api.post('/ingest-unverified/ignore-all' + (status ? `?status=${enc(status)}` : '')),   // R2-12:批量清死水
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
   projectTree: () => j('/project-tree'),
@@ -251,8 +269,10 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic }) => {
+  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic, seq }) => {
+    // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
+      + (seq != null ? `&seq=${seq}` : '')
     const es = new EventSource(BASE + ww(path))
     es.onmessage = (e) => {
       try {

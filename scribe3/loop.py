@@ -63,7 +63,11 @@ def triage(post: dict) -> dict:
             blocking.append({"detector": "find_degeneration", "kind": meta.get("kind") or "degeneration",
                              "quote": str(iss.get("text") or "")[:60],
                              "note": str(iss.get("message") or "")[:120]})   # P2-7 note 截断
-        elif sev.upper() == "S1":
+        elif sev.upper() == "S1" and iss.get("type") == "discipline":
+            # R3-1(D-7):按 type 白名单收口——合法 S1 恒为 type="discipline"(共振表升格+
+            # 熔断保护,app.py:3093-3102);ooc_signal.severity 可透传到 setting issue 伪成
+            # S1,若判据④只按值不按源,会绕过共振三刹车直达 blocking。未来 critique reviewers
+            # 若接线产 S1,须在此扩白名单(而非放开)。
             blocking.append({"detector": "findings_schema", "kind": iss.get("type") or "S1",
                              "quote": str(iss.get("text") or "")[:60],
                              "note": str(iss.get("message") or "")[:120]})

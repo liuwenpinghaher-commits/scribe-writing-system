@@ -11,7 +11,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -88,22 +87,10 @@ def _s1_circuit_open(work: str) -> bool:
 def _s1_record(work: str, s1_triggered: bool) -> None:
     _s1_recent.setdefault(work, deque(maxlen=10)).append(bool(s1_triggered))
 
-# P28: LLM调用限流(并发上限 + 日调用上限)
-_MAX_CONCURRENT = int(os.environ.get("SCRIBE3_MAX_CONCURRENT", "3"))
-_DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
-_sema = asyncio.Semaphore(_MAX_CONCURRENT)
-_day = (time.strftime("%Y-%m-%d"), 0)
-
-def _check_daily():
-    global _day
-    today = time.strftime("%Y-%m-%d")
-    d, n = _day
-    if d != today:
-        _day = (today, 0)
-        d, n = today, 0
-    if n >= _DAILY_CALL_CAP:
-        raise HTTPException(status_code=429, detail="daily LLM budget exhausted")
-    _day = (today, n + 1)
+# P28 限流三件套裁决(审计 P1-12,方案原文"接线或删除二选一"):
+# 日调用帽下沉到 llm.py 单点接线(所有 LLM 出口:complete/stream/responses);
+# _sema 并发闸(asyncio,与同步 httpx 调用形态不符)与 CircuitBreaker(持续故障
+# 熔断,0.18 网关自身有重试/排队)删除——见台账 D-029。
 
 
 def set_store(store, work: str = "main") -> None:
@@ -177,7 +164,22 @@ def _mask_field(row: dict, field: str, secret_field: str, reveal: bool) -> dict:
 # ===== 书 =====
 @app.get("/health")
 def health():
-    return {"ok": True, "ns": "scribe3"}
+    # 审计 #80:真探测——ping 默认书连接(此前纯桩,DB 挂了照样报 ok 假绿)。
+    try:
+        _store_for("main")._query("RETURN 1")
+        return {"ok": True, "ns": "scribe3", "db": "ok"}
+    except Exception as e:
+        return {"ok": False, "ns": "scribe3", "db": f"down: {str(e)[:80]}"}
+
+
+@app.get("/ready")
+def ready():
+    """就绪探针:DB 可达 200,否则 503(部署/看门狗用)。"""
+    try:
+        _store_for("main")._query("RETURN 1")
+        return {"ready": True}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"db not ready: {str(e)[:80]}")
 
 
 @app.get("/works")
@@ -385,6 +387,15 @@ def motifs(work: str = "main"):
 def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
     """本章触及的母题:[{motif_id, name, evidence}]。ingest 抽取落库,未反哺的章返回空。"""
     return _store_for(work).list_motif_instances(chapter)
+
+
+@app.get("/chapter-pulse")
+def chapter_pulse_ep(seq: int = Query(ge=1), work: str = "main"):
+    """主编主动化 T1:六维脉搏(promise/arc/relation/tension/causal/quality)。
+    只读聚合,零新检测器;decision 级=时机引擎开口依据(全部源自确定性信号);
+    宪法:无总分,分维 severity。"""
+    from scribe3.pulse import chapter_pulse
+    return chapter_pulse(_store_for(work), seq)
 
 
 @app.get("/chapter-brief")
@@ -1295,11 +1306,46 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
     ) + rem
 
 
+def _pulse_digest(st, seq: int | None) -> str:
+    """主编主动化 T3(时机C):讨论模式注入的脉搏速览段(≤400 字)。
+    decision 级全文(主编该主动带出的话头)+ nudge 级只计数(防唠叨);
+    写作模式已有完整简报,不注入此段(防双重施压)。fail-soft:挂了返回空段。"""
+    if seq is None:
+        return ""
+    try:
+        from scribe3.pulse import chapter_pulse
+        p = chapter_pulse(st, int(seq))
+        decisions, nudges = [], 0
+        for d in p["dimensions"]:
+            for it in d["items"]:
+                if it["severity"] == "decision":
+                    decisions.append(it["message"])
+                elif it["severity"] == "nudge":
+                    nudges += 1
+        if not decisions and not nudges:
+            return ""
+        lines = [f"\n\n## 本章脉搏速览(第{seq}章,系统确定性信号——讨论时自然带出相关项,勿逐条播报)"]
+        lines += [f"- 【需决策】{m}" for m in decisions[:4]]
+        if nudges:
+            lines.append(f"- 另有 {nudges} 项建议级提示(作者问到再展开)")
+        out, total = [], 0
+        for ln in lines:
+            if total + len(ln) > 600:   # 按行裁剪,不截半句(审查 P2-10)
+                break
+            out.append(ln)
+            total += len(ln)
+        return "\n".join(out)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("pulse digest 失败(忽略): %s", e)
+        return ""
+
+
 @app.get("/chat/stream")
-def chat_stream(msg: str, work: str = "main"):
-    """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。"""
+def chat_stream(msg: str, work: str = "main", seq: int | None = None):
+    """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
+    seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。"""
     from scribe3.llm import hermes_complete_stream
-    sysmsg = _editor_system(_store_for(work))
+    sysmsg = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
 
     def gen():
         try:
@@ -1316,14 +1362,14 @@ _responses_events = None  # 测试可 monkeypatch
 
 
 @app.get("/chat/agentic-stream")
-def chat_agentic_stream(msg: str, work: str = "main"):
+def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
     事件:tool(工具调用提示)/delta(回复片段)/done。注:MCP 连 db=main,agentic 当前以主参照库为准。"""
     from scribe3.llm import hermes_responses_events
     fn = _responses_events or hermes_responses_events
     # P0-2:仅当前书(==SCRIBE3_WORK)才挂 s3_ 工具;非当前书退化纯对话,且删掉 s3_ 诱导段防幻觉调用。
     with_tools = _work_has_tools(work)
-    instructions = _editor_system(_store_for(work))
+    instructions = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
     if with_tools:
         instructions += (
             "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
@@ -2069,12 +2115,33 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
     instructions += _phase_role_block(phase)
     instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
     instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    if (phase or "").strip().lower() == "draft":
+    _ph_lower = (phase or "").strip().lower()
+    if _ph_lower in ("draft", "final"):
+        # F-1 修复(B-3 同型第四次):正文相位——draft(四阶段草稿)与 final(loop/pilot/
+        # 选择环一步到正文的默认相位)——都必须注入演绎块。此前只 draft 注入,而 loop/pilot/
+        # 选择环全走 final → deduce 步烧的 1+N 发 LLM 产物(场景真相+限知投影)物理漏在
+        # prompt 外,驱动语"按简报与演绎写"沦为空指令。演绎字段空→_deduction_block 返空串→
+        # 不注入(默认行为不变)。回归钉:test_gapfix.test_deduce_phase_injects_scene_truth。
         ded = _deduction_block(st, chapter)
-        instructions += "\n\n" + ded
-        logging.getLogger("scribe3").debug(
-            "chat/write 组装 phase=draft chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-            chapter, len(ded))
+        if ded:
+            instructions += "\n\n" + ded
+            logging.getLogger("scribe3").debug(
+                "chat/write 组装 phase=%s chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
+                _ph_lower, chapter, len(ded))
+    elif _ph_lower == "deduce":
+        # 断头修复(演绎多棱镜 #5):投影必须从同一场景真相物理派生——此前指令说
+        # "据场景真相"但真相从不进 prompt(B-3 同型坑:被指令据 X 却没收到 X),
+        # "多投影天然一致"沦为对模型的口头要求。真相非空即注入;生成真相本身时
+        # 它可作重写参照,无害。
+        try:
+            _truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
+        except Exception:
+            _truth = ""
+        if _truth:
+            instructions += ("\n\n## 本场「场景真相」(全知,各角色投影派生的唯一事实源)\n"
+                             + _truth
+                             + "\n\n生成角色限知投影时:只从上述真相中该角色能感知/推知的"
+                               "部分派生;真相里没有的事不得出现在任何投影里。")
     instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
@@ -2644,6 +2711,16 @@ def _bg_ingest(work: str, seq: int) -> None:
     import logging
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
+    # 审计 P1-6:ingest 结果状态落 chapter(ingest_status/ingest_error)——此前失败只写
+    # 服务端日志,前端零感知,知识账本悄悄落后,后续章简报/限知帧全吃陈旧数据。
+    def _mark(st0, status, err=""):
+        try:
+            st0._execute_write(
+                "UPDATE type::record('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
+                {"seq": seq, "st": status, "er": (err or "")[:200]})
+        except Exception as me:
+            logging.getLogger("scribe3").warning("ingest 状态落库失败(忽略): %s", me)
+
     st = None
     try:
         st = SurrealStore(ns="scribe3", db=work)
@@ -2651,8 +2728,10 @@ def _bg_ingest(work: str, seq: int) -> None:
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
+            _mark(st, "parse_failed", "LLM 回复解析失败,知识账本未更新")
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+            _mark(st, "ok")
         # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
         try:
             from scribe3.lesson import distill_chapter
@@ -2662,6 +2741,8 @@ def _bg_ingest(work: str, seq: int) -> None:
                                                  work, seq, e)
     except Exception as e:
         logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
+        if st is not None:
+            _mark(st, "failed", str(e))
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard((work, seq))
@@ -2695,12 +2776,15 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             raise HTTPException(status_code=409, detail=(
                 f"第 {req.seq} 章生成在途(loop/选择环),完成后再存——"
                 "你的编辑不会丢,可先复制正文"))
+    _guard_pilot_busy(work, req.seq)   # R2-3:pilot 非 loop 步在途/连写中也拦(防挂旧稿)
     st = _store_for(work)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
+    # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
     try:
-        st.add_chapter_version(req.seq, req.prose, label="", kind="final",
-                               stage="final", stats=_prose_stats(req.prose))
+        if st.latest_version_prose(req.seq, "final") != req.prose:
+            st.add_chapter_version(req.seq, req.prose, label="", kind="final",
+                                   stage="final", stats=_prose_stats(req.prose))
     except Exception as e:
         import logging
         logging.getLogger("scribe3").warning(
@@ -2765,6 +2849,7 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         if (work, seq) in _loop_inflight:
             raise HTTPException(status_code=409, detail=(
                 f"第 {seq} 章生成在途(loop/选择环),完成后再去重"))
+    _guard_pilot_busy(work, seq)   # R2-3:pilot 非 loop 步在途/连写中也拦
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
@@ -2940,6 +3025,11 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             base_brief = req.brief or DEFAULT_DISCIPLINE_BRIEF
             brief_for_discipline = base_brief + "\n\n" + inherited_text
         discipline = discipline_truncate(req.prose, brief_for_discipline, complete_fn)
+        # 审计 E-2/#58:LLM 回复解析失败 → fail-open 放行但计 degraded(没查≠没病;
+        # 不入 _PASS_CRITICAL_STAGES——纪律判是 S1 来源,不是 pass 门关键检测)。
+        if discipline.get("parse_failed"):
+            degraded = True
+            degraded_stages.append("discipline_parse")
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check discipline 失败: %s", e)
         degraded = True
@@ -3078,9 +3168,11 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     try:
         from scribe3.brief import find_tension_monotony, parse_chapter_meta, chapter_draft_text
         chapters_meta: list[dict] = []
-        for c in st.list_chapters():
-            full = st.get_chapter(c["seq"]) or {}
-            meta = parse_chapter_meta(chapter_draft_text(full))
+        # R2-16:窄查(chapters_lite 只拉草料字段,不逐章 get_chapter 全行含 prose)——
+        # 与 north_star_book 同一 tension 聚合的 2-D#5 先例对齐;chapter_draft_text 仅用
+        # synopsis/beats/scene_truth,chapters_lite 全覆盖,行为等价、去掉全书 prose 拉取。
+        for c in st.chapters_lite():
+            meta = parse_chapter_meta(chapter_draft_text(c))
             if meta:
                 chapters_meta.append({"seq": c["seq"], **meta})
         tension_monotony = find_tension_monotony(chapters_meta)
@@ -3569,6 +3661,21 @@ def ignore_unverified_ep(uid: str, work: str = "main"):
     return {"ok": True}
 
 
+@app.post("/ingest-unverified/ignore-all")
+def ignore_all_unverified_ep(status: str = "pending", work: str = "main"):
+    """R2-12:批量忽略——unverified 死水(产生速率≫消化)一键清账,防账本失信号价值。
+    只清指定 status(默认 pending);accepted/ignored 的决策存活是设计。"""
+    st = _store_for(work)
+    n = 0
+    for r in st.list_unverified(status):
+        try:
+            st.ignore_unverified(r.get("id"))
+            n += 1
+        except Exception:
+            pass
+    return {"ignored": n}
+
+
 @app.get("/north-star/chapter/{seq}")
 def north_star_chapter(seq: int, work: str = "main"):
     """章级北极星 scorecard(北极星任务3,蓝图 §3-③):constraints(硬约束偏离)/
@@ -3848,6 +3955,7 @@ def select_finalize(req: SelectFinalizeReq, work: str = "main"):
         if (work, req.chapter) in _loop_inflight:
             raise HTTPException(status_code=409,
                                 detail=f"chapter {req.chapter} 有生成在途,完成后再终选")
+    _guard_pilot_busy(work, req.chapter)   # R2-3:pilot 非 loop 步在途/连写中也拦
     st = _store_for(work)
     ver = st.get_chapter_version(req.version_id)
     if not ver or ver.get("seq") != req.chapter:
@@ -3870,6 +3978,624 @@ def select_finalize(req: SelectFinalizeReq, work: str = "main"):
         logging.getLogger("scribe3").warning("终选理由入 lesson 失败(定稿不受影响): %s", e)
     return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
             "note": "正文已落库;反哺(ingest)由作者在面板触发或走 loop"}
+
+
+# ═══════════ Chapter Pilot(主编主动化 T6/T7/T10):章生命周期驱动器 ═══════════
+# 作者=创意总监,主编=执行主编。状态机在 scribe3/pilot.py(纯核可测);此处只做
+# executor 绑定(全部复用既有链,禁止新写生成逻辑)+ HTTP 面 + 连写循环。
+
+def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str = "",
+                   max_tokens: int | None = 1600) -> str:
+    """pilot 生成通道:同一 _assemble_write_instructions 组装链(宪法:不另起简化 prompt)。"""
+    from scribe3.llm import hermes_complete
+    ins = _assemble_write_instructions(
+        st, chapter=seq, focalizer=focalizer, phase=phase,
+        with_tools=False, seed_words=[], short_mode=False)
+    return (hermes_complete(ask, system=ins, max_tokens=max_tokens) or "").strip()
+
+
+def _pilot_steer(st, seq: int) -> str:
+    rows = st._query("SELECT pilot_steer FROM type::record('chapter',$seq)", {"seq": seq})
+    return ((rows[0] if rows else {}).get("pilot_steer") or "").strip()
+
+
+def _pilot_journal(work: str, seq: int):
+    """审查 P1-5:pilot 审计留痕(每章一份 pilot_ch{n}.json,stage=pilot_ch{n}_{action})。
+    fail-soft:journal 建不起来不阻塞编排。"""
+    try:
+        from scribe3.pipeline_journal import PipelineJournal
+        base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
+                or os.path.expanduser("~/.scribe3-loop-journals"))
+        d = os.path.join(base, work)
+        os.makedirs(d, exist_ok=True)
+        return PipelineJournal(os.path.join(d, f"pilot_ch{seq}.json"))
+    except Exception as e:
+        logging.getLogger("scribe3").warning("pilot journal 建立失败(忽略): %s", e)
+        return None
+
+
+def _pilot_executor(work: str) -> dict:
+    """action → callable(st, seq)。全部落库走 update_chapter_meta 白名单/既有端点函数。"""
+    def propose_outline(st, seq):
+        ch0 = st.get_chapter(seq) or {}
+        if (ch0.get("synopsis") or "").strip():
+            # 审查 P1-2:字段已有内容(可能人工编辑)——跳步推进,绝不覆盖;
+            # 想重新提案:清空大纲或走未来 revise 通道。
+            return {"skipped": "大纲已有内容,按既有推进(不覆盖)"}
+        steer = _pilot_steer(st, seq)
+        out = _pilot_llm_gen(st, work, seq, "plan",
+                             f"给第{seq}章出大纲提案:3-5句,写清这章发生什么、压力级(1-5)、"
+                             f"章末钩子。只输出大纲正文。"
+                             + (f"\n作者意图(最高优先):{steer}" if steer else ""))
+        st.update_chapter_meta(seq, {"synopsis": out})
+        return {"synopsis": out}
+
+    def expand_beats(st, seq):
+        ch = st.get_chapter(seq) or {}
+        if ch.get("beats"):
+            return {"skipped": "节拍已有内容,按既有推进(不覆盖)"}
+        out = _pilot_llm_gen(st, work, seq, "plan",
+                             f"据本章大纲展开节拍:4-7条,每条一行一个动作/转折,"
+                             f"不写成正文。只输出节拍行,每行一条。\n大纲:{ch.get('synopsis') or ''}")
+        import re as _re_b
+        beats = [{"text": _re_b.sub(r"^\s*(?:[-·•]|\d{1,2}[.、])\s*", "", ln).strip()}
+                 for ln in out.splitlines() if ln.strip()]
+        beats = [b for b in beats if b["text"]][:8]
+        st.update_chapter_meta(seq, {"beats": beats})
+        return {"beats": beats}
+
+    def deduce(st, seq):
+        ch = st.get_chapter(seq) or {}
+        have_truth = bool((ch.get("scene_truth") or "").strip())
+        have_deds = bool(ch.get("deductions"))
+        if have_truth and have_deds:
+            return {"skipped": "演绎已有内容,按既有推进(不覆盖)"}
+        involved = ch.get("involved_characters") or []
+        if not involved:   # 后端版智能预填(同 DeduceTree 前端逻辑):名字出现在大纲/节拍
+            text = (ch.get("synopsis") or "") + " " + " ".join(
+                (b.get("text") if isinstance(b, dict) else str(b)) or "" for b in ch.get("beats") or [])
+            involved = [c.id for c in st.characters() if c.name and c.name in text][:4]
+            if involved:
+                st.update_chapter_meta(seq, {"involved_characters": involved})
+        # R1-2 修复:字段级跳步。旧代码合取守卫(truth AND deductions)在"半有"态判 False →
+        # 整体重生成覆盖作者手写;而 scene_truth/deductions 无版本化=覆盖即不可恢复,且作者
+        # 手写常是核心创意。故:真相已有则复用不覆盖;投影逐 character_id merge 只补缺失角色。
+        if have_truth:
+            truth = (ch.get("scene_truth") or "").strip()
+        else:
+            truth = _pilot_llm_gen(st, work, seq, "deduce",
+                                   f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,"
+                                   f"含角色们察觉不到的隐藏机制。只输出真相正文。")
+            st.update_chapter_meta(seq, {"scene_truth": truth})
+        existing = {str(d.get("character_id")): d for d in (ch.get("deductions") or [])
+                    if isinstance(d, dict) and d.get("character_id")}
+        deds = list(ch.get("deductions") or [])
+        made = 0
+        for cid in involved:
+            if str(cid) in existing:
+                continue   # 该角色投影已有(可能作者手编)——不覆盖
+            name = str(cid).split(":")[-1]
+            prose = _pilot_llm_gen(
+                st, work, seq, "deduce",
+                f"以「{name}」截至第{seq}章的限知,写他这一场的限知投影,分五个小标题:"
+                f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
+                f"只含他所知所感。", focalizer=str(cid))
+            deds.append({"character_id": str(cid), "character_name": name, "prose": prose})
+            made += 1
+        if made or not have_deds:
+            st.update_chapter_meta(seq, {"deductions": deds})
+        return {"scene_truth_chars": len(truth), "deductions": len(deds)}
+
+    def draft_loop(st, seq):
+        ch = st.get_chapter(seq) or {}
+        if (ch.get("prose") or "").strip():
+            # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
+            return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
+        steer = _pilot_steer(st, seq)
+        req = LoopChapterReq(chapter=seq, focalizer=ch.get("focalizer") or "",
+                             msg=(f"按简报与演绎写第{seq}章正文。"
+                                  + (f"作者意图:{steer}" if steer else "")))
+        return loop_chapter(req, work=work)   # 端点函数直调:互斥/journal/回炉/落库全复用
+
+    def full_check(st, seq):
+        ch = st.get_chapter(seq) or {}
+        prose = (ch.get("prose") or "").strip()
+        if not prose:
+            return {"pilot_park": "正文为空,无从体检(上游未交稿——若在等 advisory 裁决请先处理)"}
+        resp = post_check(PostCheckReq(prose=prose, focalizer=ch.get("focalizer") or ""),
+                          seq=seq, work=work)
+        # 审查 P1-7:体检结果必须被消费——blocking 停靠,不再"烧一遍然后扔"
+        from scribe3.loop import triage
+        t = triage(resp)
+        if t["verdict"] == "blocking":
+            dets = "、".join(sorted({b.get("detector") or "?" for b in t["blocking"]}))
+            return {"pilot_park": f"全量体检 blocking({dets}),请处理后继续", "post_check": resp}
+        resp["_triage_verdict"] = t["verdict"]
+        return resp
+
+    def deliver(st, seq):
+        ch = st.get_chapter(seq) or {}
+        prose = ch.get("prose") or ""
+        if not prose.strip():
+            return {"pilot_park": "空正文不可交付(审查 P0-1 独立防御)"}
+        # 交付卡:低置信段=主编自审(置信度校准,调研:主动暴露不确定处)
+        low_conf = ""
+        try:
+            low_conf = _pilot_llm_gen(
+                st, work, seq, "final",
+                f"你刚交付第{seq}章。列出你拿不准的地方(≤3处,每处引原文短语+一句为什么拿不准);"
+                f"没有就回「无」。只输出清单。\n正文:\n{prose[:3000]}", max_tokens=400)
+        except Exception as e:
+            low_conf = f"(自审未跑成:{str(e)[:60]})"
+        try:
+            st.add_chapter_version(seq, prose, label=f"pilot交付", kind="checkpoint",
+                                   stage="final", stats=_prose_stats(prose))
+        except Exception as e:
+            logging.getLogger("scribe3").warning("pilot 交付留版失败(忽略): %s", e)
+        _qrows = st._query("SELECT qc_issues FROM type::record('chapter',$seq)", {"seq": seq})
+        _qc = (_qrows[0] if _qrows else {}).get("qc_issues")
+        _qn = len(_qc) if isinstance(_qc, list) else (_qc or 0)
+        _prom = []
+        try:
+            for pr in st.promises_with_lifecycle(max_chapter=seq):
+                if pr.get("setup_chapter") == seq:
+                    _prom.append(f"埋「{(pr.get('text') or '')[:20]}」")
+                if pr.get("payoff_chapter") == seq:
+                    _prom.append(f"收「{(pr.get('text') or '')[:20]}」")
+        except Exception:
+            pass
+        card = {"seq": seq, "words": len("".join(prose.split())),
+                "qc": _qn, "promises": _prom, "low_confidence": low_conf}
+        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_card=$c",
+                          {"seq": seq, "c": json.dumps(card, ensure_ascii=False)})
+        return {"card": card}
+
+    def finalize(st, seq):
+        ch = st.get_chapter(seq) or {}
+        prose = ch.get("prose") or ""
+        if st.latest_version_prose(seq, "final") != prose:
+            st.add_chapter_version(seq, prose, label="pilot终选", kind="final",
+                                   stage="final", stats=_prose_stats(prose))
+        return {"finalized": True}
+
+    return {"propose_outline": propose_outline, "expand_beats": expand_beats,
+            "deduce": deduce, "draft_loop": draft_loop, "full_check": full_check,
+            "deliver": deliver, "finalize": finalize}
+
+
+# pilot 自身并发互斥(独立于 _loop_inflight:draft_loop 直调 loop 端点函数,
+# loop 自己会登记 _loop_inflight——pilot 若预登记会撞自己 409)。
+_pilot_inflight: set[tuple[str, int]] = set()
+_pilot_inflight_lock = threading.Lock()
+
+
+def _guard_pilot_busy(work: str, seq: int) -> None:
+    """R2-3:pilot 非 loop 步在途 / 连写运行中 → 拦 save/dedup/select(防 full_check/deliver
+    期间改正文致体检、交付挂旧稿,防双写)。draft_loop 期已由 _loop_inflight 拦(loop 自登记)。"""
+    with _pilot_inflight_lock:
+        if (work, seq) in _pilot_inflight:
+            raise HTTPException(status_code=409, detail=f"第 {seq} 章 pilot 正在推进,请稍候再改")
+    if _pilot_run_state.get(work, {}).get("running"):
+        raise HTTPException(status_code=409, detail="连写进行中——请先 /pilot/pause 再改本章")
+
+
+class PilotStepReq(BaseModel):
+    seq: int
+    mode: str = "manual"     # manual | run(run 由 /pilot/run 循环使用)
+    steer: str = ""          # 追加/更新作者意图(写入 pilot_steer)
+
+
+@app.post("/pilot/step")
+def pilot_step(req: PilotStepReq, work: str = "main"):
+    """推进一步。approve 级动作(finalize)不在此执行——必须走 /pilot/approve(宪法)。"""
+    from scribe3.pilot import NEXT, read_state, step
+    st = _store_for(work)
+    if not st.get_chapter(req.seq):
+        raise HTTPException(status_code=404, detail=f"第 {req.seq} 章不存在(先建章或用 /pilot/run 自动建)")
+    if req.steer.strip():
+        # P2-8:与 /ideas 一致改追加(覆盖会清掉 Inbox 攒的想法),帽 2000
+        _prev_s = _pilot_steer(st, req.seq)
+        _merged = ((_prev_s + "\n") if _prev_s else "") + req.steer.strip()
+        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
+                          {"seq": req.seq, "s": _merged[-2000:]})
+    cur = read_state(st, req.seq)["state"]
+    nxt = NEXT.get(cur)
+    if nxt and nxt[0] == "finalize":
+        raise HTTPException(status_code=409, detail="终选是宪法级动作:请走 /pilot/approve(作者背书)")
+    if _pilot_run_state.get(work, {}).get("running"):
+        raise HTTPException(status_code=409, detail="连写进行中(/pilot/pause 先停),防并发双跑")
+    _k = (work, req.seq)
+    with _pilot_inflight_lock:
+        if _k in _pilot_inflight:
+            raise HTTPException(status_code=409, detail=f"第 {req.seq} 章 pilot 已在推进")
+        _pilot_inflight.add(_k)
+    try:
+        # R2-9:手动步也传 journal(此前只 approve/run 传,手动步零留痕——生产实锤)
+        return step(st, req.seq, _pilot_executor(work), mode=req.mode,
+                    journal=_pilot_journal(work, req.seq))
+    finally:
+        with _pilot_inflight_lock:
+            _pilot_inflight.discard(_k)
+
+
+class IdeaIn(BaseModel):
+    text: str
+
+
+_IDEA_ROUTE_PROMPT = """你是写作系统的想法路由器。作者丢来一句想法,判断它该落到哪:
+- outline:关于某未来/当前章"写什么"(剧情走向/场景/事件)→ 给该章定向
+- steer:对某章的写法要求(语气/节奏/禁忌,如"别煽情")
+- setting:动人物长期设定/世界观(如"老范其实识字""改成三兄妹")
+- revise:要改已写好的章的具体内容
+- unclear:信息不足,需要问一个澄清问题
+只输出 JSON:{"kind":"outline|steer|setting|revise|unclear","target_seq":章号或null,
+"note":"一句话复述你的理解","question":"仅 unclear 时给一个澄清问题"}
+当前书最新章:{max_ch};作者想法:{text}"""
+
+
+@app.post("/ideas")
+def add_idea(req: IdeaIn, work: str = "main"):
+    """想法收件箱(主编主动化 T8):作者唯一的输入负担——丢一句话,主编路由落位。
+    宪法:setting 类永不自动动圣经(pending_approval 进决策收件箱);
+    outline/steer 落该章 pilot_steer(propose_outline/draft 时最高优先吃它);
+    revise 生成定向修订提案进收件箱;unclear 只问一个澄清问题。"""
+    import json as _json
+    st = _store_for(work)
+    text = (req.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="想法不能为空")
+    complete_fn = _complete_fn
+    if complete_fn is None:
+        from scribe3.llm import hermes_complete
+        complete_fn = hermes_complete
+    route = {"kind": "unclear", "target_seq": None, "note": "", "question": "能再说具体点吗?"}
+    try:
+        raw = complete_fn(_IDEA_ROUTE_PROMPT.replace("{max_ch}", str(st.max_chapter()))
+                          .replace("{text}", text[:500]))
+        import re as _re
+        m = _re.search(r"\{.*\}", raw or "", _re.S)
+        if m:
+            d = _json.loads(m.group(0))
+            if d.get("kind") in ("outline", "steer", "setting", "revise", "unclear"):
+                route = {"kind": d["kind"],
+                         "target_seq": d.get("target_seq"),
+                         "note": str(d.get("note") or "")[:200],
+                         "question": str(d.get("question") or "")[:200]}
+    except Exception as e:
+        logging.getLogger("scribe3").warning("idea 路由失败(落 unclear): %s", e)
+    kind = route["kind"]
+    # 审查 P1-3:target_seq 脏值(LLM 返回"第3章"/越界/负数)一律降级,绝不 500 丢想法
+    tseq = None
+    try:
+        tseq = int(route.get("target_seq"))
+    except (TypeError, ValueError):
+        tseq = None
+    if kind in ("outline", "steer") and (tseq is None or not st.get_chapter(tseq)):
+        kind, route["note"] = "unclear", (route.get("note") or "")
+        route["question"] = f"这想法该落到第几章?(路由到的章 {route.get('target_seq')!r} 不存在)"
+    status = "routed"
+    if kind in ("outline", "steer"):
+        # 追加进该章 pilot_steer(想法可累积,帽 2000 字防膨胀;pilot 提案/草稿最高优先注入)
+        prev = _pilot_steer(st, tseq)
+        merged = ((prev + "\n") if prev else "") + text
+        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
+                          {"seq": tseq, "s": merged[-2000:]})
+        status = "done"
+    elif kind in ("setting", "revise"):
+        status = "pending_approval"   # 宪法:动圣经/改旧章永远等人
+    elif kind == "unclear":
+        status = "unclear"
+    # 想法本体先落库(任何后续失败不丢想法)
+    st._execute_write(
+        "CREATE idea SET text=$t, route_kind=$k, target_seq=$sq, note=$n, status=$st_, created_at=time::now()",
+        {"t": text, "k": kind, "sq": tseq, "n": route["note"], "st_": status})
+    q = (route.get("question") or "").strip() or "能再说具体点吗?"
+    return {"kind": kind, "target_seq": tseq, "status": status,
+            "note": route["note"], "question": q if kind == "unclear" else None}
+
+
+class IdeaResolveReq(BaseModel):
+    id: str
+
+
+@app.post("/ideas/resolve")
+def resolve_idea(req: IdeaResolveReq, work: str = "main"):
+    """审查 P1-4:想法处理完毕出收件箱(status→done)——决策收件箱不积压噪声。"""
+    _store_for(work)._execute_write(
+        "UPDATE type::record('idea',$id) SET status='done'", {"id": req.id})
+    return {"ok": True}
+
+
+class PilotDismissReq(BaseModel):
+    seq: int
+
+
+@app.post("/pilot/dismiss")
+def pilot_dismiss(req: PilotDismissReq, work: str = "main"):
+    """审查 P1-6:pilot 僵尸态出口——作者绕开 pilot 手写的章,一键退出编排
+    (清 pilot_state,不动任何正文/草料;想再用 pilot 从头 step 即可)。"""
+    if _pilot_run_state.get(work, {}).get("running"):
+        raise HTTPException(status_code=409, detail="连写进行中——请先 /pilot/pause 再退出 pilot")
+    # R2-13:一并清 pilot_steer——否则陈旧作者意图重启 pilot 时以「最高优先」静默复活(不可见的行为漂移)
+    _store_for(work)._execute_write(
+        "UPDATE type::record('chapter',$seq) SET pilot_state=NONE, pilot_state_at=NONE, "
+        "pilot_parked=NONE, pilot_card=NONE, pilot_steer=NONE", {"seq": req.seq})
+    return {"seq": req.seq, "pilot_state": None}
+
+
+@app.get("/pilot/status")
+def pilot_status(seq: int, work: str = "main"):
+    from scribe3.pilot import status
+    return status(_store_for(work), seq)
+
+
+class PilotApproveReq(BaseModel):
+    seq: int
+    expect_state: str = ""   # 审查 P1-1:知情背书——前端携带条目状态,错位 409 防误触终选
+
+
+@app.post("/pilot/approve")
+def pilot_approve(req: PilotApproveReq, work: str = "main"):
+    """作者背书放行当前停靠动作(propose 停靠=继续推进;delivered→finalize=终选)。"""
+    from scribe3.pilot import read_state, step
+    st = _store_for(work)
+    cur = read_state(st, req.seq)["state"]
+    if req.expect_state and cur != req.expect_state:
+        raise HTTPException(status_code=409, detail=(
+            f"状态已变({req.expect_state} → {cur}),为防误背书请刷新收件箱再操作"))
+    if cur == "finalized":
+        return {"seq": req.seq, "state": cur, "note": "已定稿"}
+    # R2-3:连写运行中不许 approve(防 stale 放行与 run 并发双跑同章)
+    if _pilot_run_state.get(work, {}).get("running"):
+        raise HTTPException(status_code=409, detail="连写进行中(/pilot/pause 先停),防并发双跑")
+    _k = (work, req.seq)
+    with _pilot_inflight_lock:
+        if _k in _pilot_inflight:
+            raise HTTPException(status_code=409, detail=f"第 {req.seq} 章pilot 已在推进")
+        _pilot_inflight.add(_k)
+    try:
+        return step(st, req.seq, _pilot_executor(work), mode="manual",
+                    journal=_pilot_journal(work, req.seq))
+    finally:
+        with _pilot_inflight_lock:
+            _pilot_inflight.discard(_k)
+
+
+class PilotRunReq(BaseModel):
+    start_seq: int
+    until_seq: int
+
+
+# 连写运行态(进程内;pause 在 step 边界生效,不打断在途 loop)
+_pilot_run_state: dict[str, dict] = {}
+
+
+def _pilot_run_bg(work: str, start: int, until: int) -> None:
+    """T10 连写:逐章推进到 delivered(交付卡照发),finalize(宪法锚)永远留人——
+    连写不等终选:loop pass 已同步 ingest,下一章简报吃得到本章知识;终选是作者背书,
+    攒在收件箱。停靠条件:pause / parked(needs_human·执行失败·日帽)/ until 达成。"""
+    from scribe3.pilot import read_state, step
+    state = _pilot_run_state.setdefault(work, {})
+    state.update({"running": True, "cur_seq": start, "until": until, "stopped": ""})
+    try:
+        st = _store_for(work)   # 与 sync 端点同模型(executor 内 loop/post-check 也走它)
+        ex = _pilot_executor(work)
+        for seq in range(start, until + 1):
+            state["cur_seq"] = seq
+            if not st.get_chapter(seq):
+                st.save_chapter(seq, "", title=f"第{seq}章")
+            while True:
+                if not state.get("running"):
+                    state["stopped"] = "作者暂停"
+                    return
+                cur = read_state(st, seq)["state"]
+                if cur in ("delivered", "finalized"):
+                    break   # 本章交付,下一章(终选留人)
+                _k = (work, seq)
+                with _pilot_inflight_lock:
+                    _pilot_inflight.add(_k)
+                try:
+                    r = step(st, seq, ex, mode="run", journal=_pilot_journal(work, seq))
+                finally:
+                    with _pilot_inflight_lock:
+                        _pilot_inflight.discard(_k)
+                if r["gate"] == "parked":
+                    state["stopped"] = f"第{seq}章停靠:{r.get('reason') or ''}"
+                    # R2-7:parked artifact 若含 prose_unsaved(留版失败的唯一副本)→ 落兜底文件,绝不静默丢
+                    _unsaved = (r.get("artifact") or {}).get("prose_unsaved")
+                    if _unsaved:
+                        try:
+                            _bj = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
+                                   or os.path.expanduser("~/.scribe3-loop-journals"))
+                            _bd = os.path.join(_bj, work)
+                            os.makedirs(_bd, exist_ok=True)
+                            with open(os.path.join(_bd, f"pilot_unsaved_ch{seq}.txt"), "w", encoding="utf-8") as _fh:
+                                _fh.write(_unsaved)
+                            state["stopped"] += "(草稿留版失败,已存兜底 pilot_unsaved 文件)"
+                        except Exception:
+                            pass
+                    return
+                if r["state"] == "delivered":
+                    break
+        state["stopped"] = f"连写完成:第{start}-{until}章已交付(终选在收件箱等你)"
+    except Exception as e:
+        logging.getLogger("scribe3").warning("pilot run %s 异常停靠: %s", work, e)
+        state["stopped"] = f"异常停靠:{str(e)[:120]}"
+        # R2-8:体外异常也写库(否则只活进程内存,重启失忆、收件箱无承载)
+        try:
+            _cur = state.get("cur_seq")
+            if _cur is not None:
+                _store_for(work)._execute_write(
+                    "UPDATE type::record('chapter',$seq) SET pilot_parked=$p",
+                    {"seq": _cur, "p": f"连写异常停靠:{str(e)[:100]}"})
+        except Exception:
+            pass
+    finally:
+        state["running"] = False
+
+
+@app.post("/pilot/run")
+def pilot_run(req: PilotRunReq, background: BackgroundTasks, work: str = "main"):
+    if req.until_seq < req.start_seq:
+        raise HTTPException(status_code=422, detail="until_seq 须 ≥ start_seq")
+    if _pilot_run_state.get(work, {}).get("running"):
+        raise HTTPException(status_code=409, detail="该书连写已在进行(/pilot/pause 可停)")
+    # R2-3:有手动 pilot 步在途也不启动连写(防同章同 action 并发双跑)
+    with _pilot_inflight_lock:
+        if any(w == work for (w, _s) in _pilot_inflight):
+            raise HTTPException(status_code=409, detail="有 pilot 步在途,请稍候再启动连写")
+    background.add_task(_pilot_run_bg, work, req.start_seq, req.until_seq)
+    return {"running": True, "start": req.start_seq, "until": req.until_seq,
+            "note": "逐章推进到交付;终选(宪法)在收件箱等你;/pilot/pause 随时停"}
+
+
+@app.post("/pilot/pause")
+def pilot_pause(work: str = "main"):
+    state = _pilot_run_state.get(work)
+    if state:
+        state["running"] = False
+    return {"paused": True}
+
+
+@app.get("/pilot/run-status")
+def pilot_run_status(work: str = "main"):
+    return _pilot_run_state.get(work) or {"running": False, "stopped": ""}
+
+
+@app.post("/pilot/reset-step")
+def pilot_reset(req: PilotApproveReq, work: str = "main"):
+    """stalled/parked 解卡:清 parked 标记(状态不回退——版本库无损,重跑当前步即可)。"""
+    from scribe3.pilot import read_state, write_state
+    st = _store_for(work)
+    s = read_state(st, req.seq)
+    write_state(st, req.seq, s["state"], parked="")
+    return {"seq": req.seq, "state": s["state"], "parked": ""}
+
+
+@app.get("/inbox")
+def decision_inbox(work: str = "main", seq: int | None = None):
+    """主编主动化 T4:决策收件箱——所有「等作者」的事项一处集中(替代散落各面板)。
+    三源聚合:①needs_human 章(loop 三稿全拦,journal 扫描)②升格候选 lesson(≥阈,
+    宪法:永不自动升格)③当前章 pulse decision 级。只读聚合,零新状态。"""
+    import glob as _glob
+    import json as _json
+    st = _store_for(work)
+    items: list[dict] = []
+    degraded: list[str] = []   # R2-18:失败源如实标记(对齐 pulse degraded,防部分失败被当完整清单假绿)
+    # ① needs_human 章
+    base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
+            or os.path.expanduser("~/.scribe3-loop-journals"))
+    # 审查 P1-7:同章取时间戳最新的 journal(文件名含 time_ns 可排序)——旧 needs_human
+    # 之后重跑过审的章不再滞留收件箱。
+    latest: dict[int, tuple[int, str]] = {}
+    for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
+        try:
+            bn = os.path.basename(fp)
+            s_ = int(bn.split("_")[1][2:])
+            ns_ = int(bn.rsplit("_", 1)[1].split(".")[0])
+            if s_ not in latest or ns_ > latest[s_][0]:
+                latest[s_] = (ns_, fp)
+        except Exception:
+            continue
+    seen_nh: set[int] = set()
+    # P2-9:pilot parked 的章由⑤源承载(带更准 reason),journal 源跳过防同章双挂
+    _pilot_parked_seqs: set[int] = set()
+    try:
+        for rr in st._query("SELECT seq, pilot_parked FROM chapter WHERE pilot_parked != NONE"):
+            if (rr.get("pilot_parked") or "").strip():
+                _pilot_parked_seqs.add(rr.get("seq"))
+    except Exception:
+        pass
+    for s_, (_ns, fp) in latest.items():
+        if s_ in _pilot_parked_seqs:
+            continue
+        try:
+            with open(fp, encoding="utf-8") as _fh:
+                stages = (_json.loads(_fh.read()) or {}).get("stages_completed") or []
+            if any("_needs_human" in x for x in stages):
+                seen_nh.add(s_)
+        except Exception:
+            continue
+    for s in sorted(seen_nh):
+        items.append({"kind": "needs_human", "seq": s,
+                      "message": f"第 {s} 章 loop 三稿全被拦(needs_human):三稿在版本库,请裁决——真不行还是检测器过严?",
+                      "action": {"kind": "chat",
+                                 "payload": f"第 {s} 章三稿全被拦(needs_human),帮我并排评估版本库三稿:哪稿其实成立?检测器是不是过严?给裁决建议"}})
+    # ② 升格候选
+    try:
+        for r in st.list_lessons():
+            if (r.get("importance") or 0) >= 4 and not r.get("invalid_at"):
+                items.append({"kind": "promotable_lesson", "id": r.get("id"),
+                              "message": f"教训已达升格阈(重要性 {r.get('importance')}):「{(r.get('text') or '')[:60]}」——认可则在主编对话让其走待批升格",
+                              "action": {"kind": "chat", "payload": f"这条教训「{(r.get('text') or '')[:40]}」我认可,想升格为长期工艺规则——请到章内写作对话(主编在那挂 s3_craft_rule_add)走待批升格"}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox lessons 失败(忽略): %s", e)
+        degraded.append("lessons")
+    # ⑤ pilot 停靠项(T11):propose 级(大纲提案/交付卡)+ parked(needs_human/失败)
+    try:
+        rows = st._query(
+            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter "
+            "WHERE pilot_state != NONE ORDER BY seq")
+        for r in rows:
+            ps, seq_p = r.get("pilot_state"), r.get("seq")
+            if r.get("pilot_parked"):
+                items.append({"kind": "pilot_parked", "seq": seq_p,
+                              "message": f"第 {seq_p} 章 pilot 停靠:{r['pilot_parked']}",
+                              "action": {"kind": "chat",
+                                         "payload": f"第 {seq_p} 章 pilot 停在「{r['pilot_parked'][:60]}」,帮我分析怎么解"}})
+            elif ps == "outline_proposed":
+                items.append({"kind": "pilot_outline", "seq": seq_p,
+                              "message": f"第 {seq_p} 章大纲提案待放行:{(r.get('synopsis') or '')[:80]}",
+                              # R1-3:approve 带 expect_state(知情背书,防 stale 收件箱误触下一动作)
+                              "action": {"kind": "pilot_approve", "payload": seq_p,
+                                         "expect_state": "outline_proposed"}})
+            elif ps == "delivered":
+                card = {}
+                try:
+                    card = _json.loads(r.get("pilot_card") or "{}")
+                except Exception:
+                    pass
+                lc = (card.get("low_confidence") or "").strip()
+                items.append({"kind": "pilot_delivered", "seq": seq_p,
+                              "message": f"第 {seq_p} 章已交付({card.get('words', '?')} 字)"
+                                         + (f";主编拿不准:{lc[:100]}" if lc and lc != "无" else ";主编自评无拿不准处"),
+                              # R2-4:附结构化交付卡(promises/qc/完整 low_conf)——此前 promises/qc 写而无读(死数据)
+                              "card": card or None,
+                              # R1-3:delivered→finalize 是宪法级终选背书,expect_state 防 stale 误触
+                              "action": {"kind": "pilot_approve", "payload": seq_p,
+                                         "expect_state": "delivered"}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox pilot 失败(忽略): %s", e)
+        degraded.append("pilot")
+    # ④ 想法待批(T8:setting=动圣经/revise=改旧章——宪法与品味决策,永远等人)
+    try:
+        for r in st._query("SELECT meta::id(id) AS id, text, route_kind, note "
+                           "FROM idea WHERE status = 'pending_approval'"):
+            lbl = "动设定" if r.get("route_kind") == "setting" else "修旧章"
+            items.append({"kind": f"idea_{r.get('route_kind')}", "id": r.get("id"),
+                          "message": f"想法待批({lbl}):「{(r.get('text') or '')[:60]}」"
+                                     f"——主编理解:{r.get('note') or '(无)'}",
+                          "action": {"kind": "chat",
+                                     "payload": f"我这个想法:「{(r.get('text') or '')[:80]}」——"
+                                                f"帮我评估影响面和落法,先别动手"},
+                          "resolve": {"kind": "idea_resolve", "payload": r.get("id")}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox ideas 失败(忽略): %s", e)
+        degraded.append("ideas")
+    # ③ 当前章 pulse decision
+    if seq is not None:
+        try:
+            from scribe3.pulse import chapter_pulse
+            for d in chapter_pulse(st, int(seq))["dimensions"]:
+                for it in d["items"]:
+                    if it["severity"] == "decision":
+                        items.append({"kind": "pulse_decision", "dimension": d["dimension"],
+                                      "seq": int(seq), "message": it["message"],
+                                      "action": it.get("action")})
+        except Exception as e:
+            logging.getLogger("scribe3").warning("inbox pulse 失败(忽略): %s", e)
+            degraded.append("pulse")
+    return {"items": items, "count": len(items), "degraded_sources": degraded}
 
 
 @app.get("/lessons/promotable")
@@ -3979,7 +4705,9 @@ def north_star_book(work: str = "main"):
 
 # chapter_scorecard:北极星任务3——scorecard 缓存表入 /live SSE(蓝图附录 A.2,前端面板不轮询)
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
-                "promise", "motif", "chapter", "material", "chapter_scorecard"]
+                "promise", "motif", "chapter", "material", "chapter_scorecard",
+                "idea", "lesson"]   # R2-5:#想法待批/升格候选的表变更也推送,收件箱 badge 实时刷新
+                                    # (此前前端过滤集含 lesson=死过滤、缺 idea=badge 不动)
 
 
 _LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))
