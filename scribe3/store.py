@@ -1399,6 +1399,22 @@ class SurrealStore:
             cands.append(row)
         return apply_strength(cands)[:k]
 
+    def material_graph(self) -> dict:
+        """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
+        nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
+                  "recall_count": m.get("recall_count") or 0, "pinned": bool(m.get("pinned")),
+                  "ref_tags": m.get("ref_tags") or []}
+                 for m in self.list_materials()]
+        edges = []
+        try:
+            rows = self._query(
+                "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates")
+            edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
+                     for r in (rows or [])]
+        except Exception:
+            edges = []   # relates 表未建(无边)→ 空,前端只渲染节点
+        return {"nodes": nodes, "edges": edges}
+
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
         self._execute_write(

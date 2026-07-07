@@ -71,3 +71,14 @@ def test_project_tree_includes_emotion_module(store):
     """Task5.1:项目树素材支补齐 emotion_module(前后端一致)。"""
     c = _rest_client(store)
     assert "情绪卡" in str(c.get("/project-tree").json()), "项目树素材支应含 emotion_module"
+
+
+def test_material_graph_endpoint(store):
+    """记忆网络端点:节点 + relates 联想边(sigma 可视化用)。"""
+    m1 = store.add_material("密室A", "寒气逼人的密室机关", "snippet", ref_tags=["手法"])
+    store.add_material("密室B", "寒气逼人的密室暗器", "snippet")
+    store.build_material_edges(m1, top_k=3, threshold=-1.0)  # 建 relates 边
+    c = _rest_client(store)
+    g = c.get("/materials/graph").json()
+    assert len(g["nodes"]) == 2 and any(n["title"] == "密室A" for n in g["nodes"])
+    assert isinstance(g["edges"], list)   # 有 relates 边(m1 的语义近邻)

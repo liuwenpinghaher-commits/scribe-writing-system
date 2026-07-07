@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, FilePlus2, Loader2, Plus, Search, SendToBack, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, FilePlus2, Loader2, Network, Plus, Search, SendToBack, Trash2, Upload } from 'lucide-react'
 import { api } from './api'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -7,6 +7,8 @@ import { useSelection } from './selectionContext'
 import { Btn, Input } from './ui.jsx'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast'
+import { MaterialImport } from './MaterialImport'
+import { MaterialNetwork } from './MaterialNetwork'
 
 // 素材库(块四a-1):非正典写作材料。与设定库(正典)严格分开——不进图谱、不被 ingest。
 export const MATERIAL_KINDS = [
@@ -15,6 +17,7 @@ export const MATERIAL_KINDS = [
   { key: 'snippet', label: '片段' },
   { key: 'inspiration', label: '灵感' },
   { key: 'note', label: '笔记' },
+  { key: 'emotion_module', label: '情绪卡' },   // 修前后端割裂:后端一直有,前端此前不可见
 ]
 const KIND_LABEL = Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, k.label]))
 
@@ -105,8 +108,15 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   const [saving, setSaving] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
   const [insertOpen, setInsertOpen] = useState(false)
+  const [refs, setRefs] = useState([])   // 正向溯源:这条记忆用在了哪些章
   const dirtyRef = useRef(false)
   useUnsavedGuard(() => dirtyRef.current)
+
+  useEffect(() => {
+    let alive = true
+    api.materialRefs(node.ref).then((r) => { if (alive) setRefs(r || []) }).catch(() => {})
+    return () => { alive = false }
+  }, [node?.ref])
 
   useEffect(() => {
     let alive = true
@@ -179,7 +189,19 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
           </div>
         </div>
         <MaterialForm draft={draft} onDraft={(d) => { setDraft(d); dirtyRef.current = true }} editorKey={`material:${row.id}`} />
-        <div className="text-f12 text-faint mt-2 leading-snug shrink-0">素材是非正典材料:不进知识图谱、不被反哺,放心堆料;正典设定请放「设定库」。</div>
+        <div className="text-f12 text-faint mt-2 leading-snug shrink-0">素材是参考记忆:借鉴非照搬,不进知识图谱/不被反哺;正典设定请放「设定库」。</div>
+        {refs.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-line shrink-0">
+            <div className="text-f11 text-faint mb-1.5">📍 这条记忆被写作参考过 {refs.length} 次(正向溯源)</div>
+            <div className="flex flex-wrap gap-1.5">
+              {refs.map((r, i) => (
+                <span key={i} className="text-f11 text-ink bg-soft rounded px-2 py-0.5" title={r.reason || ''}>
+                  第{r.chapter}章{r.dimension ? `·参考${r.dimension}` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <ConfirmDialog
         open={delOpen}
@@ -209,36 +231,65 @@ export function MaterialList({ node, onSelect }) {
   const [rows, setRows] = useState(null)
   const [err, setErr] = useState(false)
   const [q, setQ] = useState('')
+  const [view, setView] = useState('list')       // list | network | import
+  const [reloadTick, setReloadTick] = useState(0) // 导入后刷新列表
 
+  // 空 q:按 kind 列全部;非空 q:三通道召回搜索(语义+关键词+图,debounce 350ms)取代客户端 substring
   useEffect(() => {
     let alive = true
-    api.materials(kind || undefined)
-      .then((r) => { if (alive) { setRows(r); setErr(false) } })
-      .catch(() => { if (alive) setErr(true) })
-    return () => { alive = false }
-  }, [node?.id, kind])
+    const needle = q.trim()
+    if (!needle) {
+      api.materials(kind || undefined)
+        .then((r) => { if (alive) { setRows(r); setErr(false) } })
+        .catch(() => { if (alive) setErr(true) })
+      return () => { alive = false }
+    }
+    const t = setTimeout(() => {
+      api.materialRecall(needle)
+        .then((r) => { if (alive) { setRows((r || []).map((x) => ({ ...x, id: x.material_id || x.id }))); setErr(false) } })
+        .catch(() => { if (alive) setErr(true) })
+    }, 350)
+    return () => { alive = false; clearTimeout(t) }
+  }, [node?.id, kind, q, reloadTick])
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    if (!needle) return rows || []
-    return (rows || []).filter((m) =>
-      (m.title || '').toLowerCase().includes(needle)
-      || (m.body || '').toLowerCase().includes(needle)
-      || (m.tags || []).some((t) => String(t).toLowerCase().includes(needle)))
-  }, [rows, q])
+  const filtered = rows || []   // 后端已按 kind 过滤 / 三通道相关性排序,前端不再二次过滤
 
   const newNode = () => onSelect?.({ id: `matnew:${kind || 'note'}`, type: 'material_new', ref: kind || 'note', label: node?.label })
 
+  // 全屏切换:导入界面 / 记忆网络(不受列表加载态影响)
+  if (view === 'import') {
+    return <MaterialImport onCancel={() => setView('list')}
+      onImported={() => { setView('list'); setReloadTick((t) => t + 1) }} />
+  }
+  if (view === 'network') {
+    return (
+      <div className="h-full relative">
+        <button onClick={() => setView('list')}
+          className="absolute top-2.5 left-4 z-30 inline-flex items-center gap-1 text-f12 text-faint hover:text-ink cursor-pointer">
+          <ArrowLeft size={14} />返回列表
+        </button>
+        <MaterialNetwork onSelect={(m) => onSelect?.(matLeafNode(m))} />
+      </div>
+    )
+  }
   if (err) return <div className="p-8 text-f13 text-danger">素材加载失败。</div>
   if (!rows) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载素材…</div>
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-6">
-        <div className="flex items-center gap-3 mb-1">
+        <div className="flex items-center gap-2 mb-1">
           <h2 className="text-f18 font-semibold text-ink">{isCat ? `素材 · ${KIND_LABEL[kind] || kind}` : '素材库'}</h2>
+          <button onClick={() => setView('network')} title="记忆网络(素材联想可视化)"
+            className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-line text-faint hover:border-brand/40 hover:text-brand transition-colors cursor-pointer">
+            <Network size={13} /> 网络
+          </button>
+          <button onClick={() => setView('import')} title="多格式导入(文件/网页/文本 → AI 切分)"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-line text-faint hover:border-brand/40 hover:text-brand transition-colors cursor-pointer">
+            <Upload size={13} /> 导入
+          </button>
           <button onClick={newNode}
-            className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
             <Plus size={13} /> 新建
           </button>
         </div>
@@ -258,11 +309,16 @@ export function MaterialList({ node, onSelect }) {
               <button key={m.id} onClick={() => onSelect?.(matLeafNode(m))}
                 className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
                 <div className="flex items-center gap-2">
+                  {m.pinned && <span className="shrink-0 text-f11 text-brand" title="核心记忆(恒高召回)">📌</span>}
                   <span className="text-f14 text-ink truncate">{m.title || '—'}</span>
+                  {m.recall_count > 0 && <span className="shrink-0 text-f10 text-faint/70" title="被写作参考的次数">·{m.recall_count}次参考</span>}
                   <span className="ml-auto shrink-0 text-f11 text-faint">{KIND_LABEL[m.kind] || m.kind}</span>
                 </div>
-                {(m.tags?.length > 0 || m.source) && (
+                {(m.ref_tags?.length > 0 || m.tags?.length > 0 || m.source) && (
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                    {(m.ref_tags || []).map((t) => (
+                      <span key={'r' + t} className="text-f11 text-brand bg-brand/8 rounded px-1.5 py-0.5">参考·{t}</span>
+                    ))}
                     {(m.tags || []).map((t) => (
                       <span key={t} className="text-f11 text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
                     ))}

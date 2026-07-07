@@ -1,6 +1,9 @@
 // scribe3 后端 API · 多书:每次调用带当前 work(一书一 DB)。
-// 生产经 VITE_API_BASE 注入;开发缺省回退本机 :3321。
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3321'
+// 生产经 VITE_API_BASE 注入;开发缺省回退同源 '/api'(vite.config server.proxy 转发到 :3321)。
+// 同源缘由:直连跨端口 :3321 时,浏览器扩展/安全策略常在请求发出前拦截 POST(F12 里连
+// 请求都看不到),而 GET 简单请求能过——表现为「GET 正常但选择环等 POST 请求未送达」。
+// 走同源 /api 后浏览器眼里全是本源请求,跨端口/跨源/preflight/扩展拦截整类消失。
+const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 let WORK = 'main'
 const enc = encodeURIComponent
 // work 可选覆盖:缺省读模块全局 WORK;显式传入把 ?work= 钉死到指定书,
@@ -154,6 +157,15 @@ export const api = {
   addMaterial: (b) => post('/materials', b),
   editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
   delMaterial: (mid) => del('/materials/' + enc(mid)),
+  // 素材记忆:三通道召回搜索 + 双向溯源 + 多格式导入
+  materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
+  materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
+  materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
+  materialGraph: () => j('/materials/graph'),
+  materialImport: (formData) => fetch(BASE + ww('/materials/import'), { method: 'POST', body: formData }).then(handle),
+  materialImportPreview: (jobId) => j('/materials/import/' + enc(jobId) + '/preview'),
+  materialImportCommit: (jobId, items) => post('/materials/import/' + enc(jobId) + '/commit', { items }),
+  materialImportProgressUrl: (jobId) => BASE + ww('/materials/import/' + enc(jobId) + '/progress'),
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),

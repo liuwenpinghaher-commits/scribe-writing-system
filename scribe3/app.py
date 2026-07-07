@@ -1200,6 +1200,12 @@ def material_recall_ep(q: str, chapter: int | None = None, k: int = 5, work: str
     return _store_for(work).material_recall(q, chapter, k)
 
 
+@app.get("/materials/graph")
+def material_graph_ep(work: str = "main"):
+    """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
+    return _store_for(work).material_graph()
+
+
 @app.get("/materials/refs-by-chapter")
 def material_refs_by_chapter_ep(chapter: int, work: str = "main"):
     """反向溯源:本章参考了哪些素材(+ reason/dimension)。"""
