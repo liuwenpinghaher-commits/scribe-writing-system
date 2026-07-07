@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowLeft, ClipboardType, Link2, Loader2, Trash2, Upload } from 'lucide-react'
 import { api } from './api'
-import { MATERIAL_KINDS } from './Materials'
+import { MATERIAL_KINDS } from './materialKinds'
 import { Btn, Input, Textarea } from './ui.jsx'
 import { useToast } from './ui/Toast'
 

@@ -7,18 +7,12 @@ import { useSelection } from './selectionContext'
 import { Btn, Input } from './ui.jsx'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { useToast } from './ui/Toast'
+import { MATERIAL_KINDS } from './materialKinds'
 import { MaterialImport } from './MaterialImport'
 import { MaterialNetwork } from './MaterialNetwork'
 
-// 素材库(块四a-1):非正典写作材料。与设定库(正典)严格分开——不进图谱、不被 ingest。
-export const MATERIAL_KINDS = [
-  { key: 'research', label: '研究' },
-  { key: 'reference', label: '参考' },
-  { key: 'snippet', label: '片段' },
-  { key: 'inspiration', label: '灵感' },
-  { key: 'note', label: '笔记' },
-  { key: 'emotion_module', label: '情绪卡' },   // 修前后端割裂:后端一直有,前端此前不可见
-]
+// 素材库:非正典写作材料。MATERIAL_KINDS 抽到 materialKinds.js(破 MaterialImport 循环 import),此处 re-export 兼容既有 from './Materials' 引用。
+export { MATERIAL_KINDS } from './materialKinds'
 const KIND_LABEL = Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, k.label]))
 
 const matLeafNode = (m) => ({ id: `material:${m.id}`, type: 'material', ref: m.id, label: m.title || '—', meta: { kind: m.kind } })
