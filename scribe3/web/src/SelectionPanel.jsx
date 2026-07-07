@@ -85,6 +85,11 @@ export function SelectionPanel({ seq, onFinalized }) {
         }
         setState('idle'); return
       }
+      // 404=该章在后端不存在(常见:用「下一章」翻过了实际章数到空章)——友好指路,别显技术性"chapter X 不存在"
+      if (e?.status === 404) {
+        toast(`第 ${seq} 章还没有正文(可能翻到了空章)——回到有内容的章再出候选`, { tone: 'danger' })
+        setState('idle'); return
+      }
       // 区分:有后端 detail=后端/LLM 真错误(如实显示);无 detail(fetch 层 reject)=请求根本
       // 没送达后端(网络异常或页面版本过期)——后者提示刷新,不再误导成"LLM 网关"问题。
       toast(detail || '请求未送达后端:可能网络异常或页面版本过期,请刷新页面(Cmd+Shift+R)后重试', { tone: 'danger' })

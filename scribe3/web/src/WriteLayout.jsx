@@ -18,6 +18,7 @@ import { DraftCard } from './editor/DraftCard'
 import { WriteChat } from './WriteChat'
 import { NorthStarBar } from './NorthStarBar'
 import { PulseBar } from './PulseBar'
+import { ChapterMemoryRefs } from './ChapterMemoryRefs'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
 import { VersionPanel } from './VersionPanel.jsx'
 import { FramePanel } from './FramePanel.jsx'
@@ -48,6 +49,12 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const restoreTick = useContext(RestoreContext)
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
+  // 章导航上界(修:「下一章」原 c+1 无上界,能翻过实际章数到空章 → 选择环等对空章 404)。
+  // 允许到 maxSeq+1(写紧邻的下一新章),不能再翻更远。
+  const [maxSeq, setMaxSeq] = useState(null)
+  useEffect(() => {
+    api.chapters().then((cs) => setMaxSeq(Array.isArray(cs) && cs.length ? Math.max(...cs.map((c) => c.seq || 0)) : 1)).catch(() => {})
+  }, [work, chapter])
   // 审查 P1-3:保存失败时的本地暂存(localStorage)——自动保存的两条失败路径
   // (切章 fire-and-forget / 卸载兜底 flush)里编辑内容随实例销毁,暂存是唯一找回渠道。
   const stashKey = (w, s) => `s3_unsaved:${w || 'main'}:${s}`
@@ -632,7 +639,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       <div className="flex items-center gap-1 shrink-0">
         <Btn variant="ghost" size="sm" icon onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"><ChevronLeft size={16} /></Btn>
         <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
-        <Btn variant="ghost" size="sm" icon onClick={() => setChapter((c) => c + 1)} aria-label="下一章"><ChevronRight size={16} /></Btn>
+        <Btn variant="ghost" size="sm" icon disabled={maxSeq != null && chapter >= maxSeq + 1}
+          title={maxSeq != null && chapter >= maxSeq + 1 ? '已到最后一章(再写新章会自动接续)' : '下一章'}
+          onClick={() => setChapter((c) => c + 1)} aria-label="下一章"><ChevronRight size={16} /></Btn>
       </div>
 
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
@@ -853,6 +862,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         <NorthStarBar />
         {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
         <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
+        <ChapterMemoryRefs chapter={chapter} />
       </div>
       {topbarMid}
       {lastSel && (
