@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, ScrollText, Eye, Compass,
@@ -11,6 +11,7 @@ import { NorthStarPanel } from './NorthStarPanel'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
+import { useTopbarSlot } from './TopbarSlotContext'
 import { beatsFromMarkdown } from './lib/stageProposal'
 import { Btn, Input } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
@@ -448,7 +449,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   const [refresh, setRefresh] = useState(0)
 
   // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
-  const setPhaseP = (p) => {
+  const setPhaseP = useCallback((p) => {
     if (p === 'draft' && meta) {
       const deds = meta.deductions || []
       const done = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
@@ -462,7 +463,12 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
       }
     }
     setPhase(p); localStorage.setItem('s3.chapter.phase', p)
-  }
+  }, [meta, toast])
+
+  const topbarPhase = useMemo(() => (
+    <PhaseTabs phase={phase} onPhase={setPhaseP} data-testid="chapter-phase-topbar" />
+  ), [phase, setPhaseP])
+  useTopbarSlot('chapter-phase', topbarPhase)
 
   // 单一真相源(块四a-2):从全书大纲点章行进来(selection 带 phase 提示)→ 落该章对应阶段
   // (通常 'outline',与书级大纲读写同一 synopsis 字段)。项目树/章导航不带提示 → 保持上次阶段。
@@ -504,7 +510,6 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   if (phase === 'final') {
     return (
       <div className="h-full flex flex-col min-h-0">
-        <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
         <div className="flex-1 min-h-0">
           <WriteLayout key={work} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
@@ -514,7 +519,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-canvas">
-      <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
+      <ChapterNavBar seq={seq} onSeqChange={onSeqChange} />
       {/* 中区只负责当前章对象工作台；简报/限知帧/北极星归入章页签。 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
@@ -545,31 +550,29 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   )
 }
 
-// 顶部:章导航 + 五阶段 tab。
-// 去正文双章导航(P2):final 阶段 WriteLayout.topbarMid 自带一套章导航,
-// 故此处在 final 隐藏 PhaseBar 的章导航,只留阶段 tab,消除顶部两条 h-11 竖向冗余。
-function PhaseBar({ seq, phase, onPhase, onSeqChange }) {
+function PhaseTabs({ phase, onPhase, ...props }) {
   return (
-    <div className="shrink-0 border-b border-line bg-surface h-11 flex items-center gap-3 px-3">
-      {phase !== 'final' && (
-        <div className="flex items-center gap-1 shrink-0">
-          <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章" aria-label="上一章"><ChevronLeft size={16} /></Btn>
-          <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
-          <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章" aria-label="下一章"><ChevronRight size={16} /></Btn>
-        </div>
-      )}
-      <div className="flex items-center gap-0.5 rounded-lg bg-soft/60 p-0.5">
-        {PHASES.map((p) => {
-          const Icon = p.icon
-          const on = phase === p.key
-          return (
-            <button key={p.key} onClick={() => onPhase(p.key)}
-              className={`h-7 px-2.5 rounded-md text-f13 inline-flex items-center gap-1.5 transition-colors cursor-pointer ${on ? 'bg-surface text-brand shadow-sm ring-1 ring-line' : 'text-faint hover:text-ink'}`}>
-              <Icon size={13} />{p.label}
-            </button>
-          )
-        })}
-      </div>
+    <div {...props} className="min-w-0 max-w-[min(720px,58vw)] overflow-x-auto flex items-center gap-0.5 rounded-lg bg-soft/60 p-0.5">
+      {PHASES.map((p) => {
+        const Icon = p.icon
+        const on = phase === p.key
+        return (
+          <button key={p.key} onClick={() => onPhase(p.key)}
+            className={`h-7 px-2.5 rounded-md text-f13 inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 ${on ? 'bg-surface text-brand shadow-sm ring-1 ring-line' : 'text-faint hover:text-ink'}`}>
+            <Icon size={13} />{p.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function ChapterNavBar({ seq, onSeqChange }) {
+  return (
+    <div className="shrink-0 border-b border-line bg-surface h-11 flex items-center gap-1 px-3">
+      <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章" aria-label="上一章"><ChevronLeft size={16} /></Btn>
+      <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
+      <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章" aria-label="下一章"><ChevronRight size={16} /></Btn>
     </div>
   )
 }

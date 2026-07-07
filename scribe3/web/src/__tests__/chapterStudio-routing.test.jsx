@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ChapterStudio } from '../ChapterStudio'
 import { ChiefSlotProvider } from '../ChiefSlotContext'
+import { TopbarSlotProvider } from '../TopbarSlotContext'
 
 const apiMock = vi.hoisted(() => ({
   chapter: vi.fn(),
@@ -21,11 +23,21 @@ vi.mock('../editor/RichEditor.jsx', () => ({
   useUnsavedGuard: () => {},
 }))
 
+function StudioHarness() {
+  const [slot, setSlot] = useState(null)
+  return (
+    <TopbarSlotProvider onSlot={setSlot}>
+      <div data-testid="topbar-slot">{slot}</div>
+      <ChiefSlotProvider>
+        <ChapterStudio work="demo" seq={3} initialPhase="outline" />
+      </ChiefSlotProvider>
+    </TopbarSlotProvider>
+  )
+}
+
 function renderStudio() {
   return render(
-    <ChiefSlotProvider>
-      <ChapterStudio work="demo" seq={3} initialPhase="outline" />
-    </ChiefSlotProvider>,
+    <StudioHarness />,
   )
 }
 

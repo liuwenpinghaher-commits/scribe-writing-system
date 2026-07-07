@@ -13,6 +13,7 @@ export default function App() {
   const [cur, setCur] = useState(null)   // 当前作品 {slug,title};null=作品库
   const [theme, setTheme] = useState(() => localStorage.getItem('s3-theme') || 'light')
   const [cmdOpen, setCmdOpen] = useState(false)
+  const [topbarExtra, setTopbarExtra] = useState(null)
   // 单一真相源:选中节点 / 横切视图。{mode:'node', node} | {mode:'view', viewKey}
   const [sel, setSel] = useState({ mode: 'node', node: null })
 
@@ -32,7 +33,8 @@ export default function App() {
   const reload = async () => setWorks(await api.works())
   useEffect(() => { reload() }, [])
 
-  const open = (w) => { api.setWork(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
+  const open = (w) => { api.setWork(w.slug); setCur(w); setTopbarExtra(null); setSel({ mode: 'node', node: null }) }
+  const openLibrary = () => { setTopbarExtra(null); setCur(null) }
 
   // 顶栏横切 tab:切到对应横切视图(中间栏换成图谱/时间线/仪表盘…)
   const onView = (viewKey) => setSel({ mode: 'view', viewKey })
@@ -42,21 +44,20 @@ export default function App() {
 
   // 当前高亮的顶栏 tab(横切态才高亮;节点态不亮)
   const activeView = sel.mode === 'view' ? sel.viewKey : null
-  const layoutV2 = localStorage.getItem('s3.layout.v2') === '1'
-
   // 阶段3:flag 下沉到 BinderLayout 内部(四区壳/三栏壳共享同一套 state/Provider),App 层不再分流
   let body
   if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
   } else {
-    body = <BinderLayout key={cur.slug} work={cur.slug} sel={sel} onSel={setSel} onJumpChapter={handleJumpChapter} />
+    body = <BinderLayout key={cur.slug} work={cur.slug} sel={sel} onSel={setSel} onJumpChapter={handleJumpChapter}
+      onTopbarSlot={setTopbarExtra} />
   }
 
   return (
     <>
       <div className="h-full flex flex-col bg-canvas">
-        <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={() => setCur(null)}
-          theme={theme} onTheme={setTheme} showViews={!layoutV2} />
+        <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={openLibrary}
+          theme={theme} onTheme={setTheme} extra={topbarExtra} />
         <div className="flex-1 min-h-0">{body}</div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
           onView={onView} onSelectWork={open} onLibrary={() => setCur(null)} />

@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>章阶段条上移 Demo</title>
+  <style>
+    :root {
+      --canvas: #f7f5ef;
+      --surface: #fffdf8;
+      --soft: #efede6;
+      --line: #ded8cc;
+      --ink: #2f2d28;
+      --muted: #817b70;
+      --faint: #a09a8f;
+      --brand: #3d765f;
+      --brand-soft: #e6eee8;
+      --warn: #b77a1d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #ece8dd;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .page {
+      min-height: 100vh;
+      padding: 28px;
+      display: grid;
+      gap: 22px;
+    }
+    .demo {
+      border: 1px solid var(--line);
+      background: var(--canvas);
+      box-shadow: 0 18px 42px rgba(35, 31, 23, .10);
+      overflow: hidden;
+    }
+    .caption {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfaf6;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .tag {
+      height: 20px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-size: 11px;
+    }
+    .app {
+      height: 360px;
+      display: grid;
+      grid-template-rows: 64px 1fr;
+    }
+    .globalbar {
+      height: 64px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .brand {
+      min-width: 112px;
+      font-size: 17px;
+      font-weight: 650;
+      color: var(--ink);
+    }
+    .divider {
+      width: 1px;
+      height: 34px;
+      background: var(--line);
+      margin: 0 2px;
+    }
+    .nav, .phase {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .nav button, .phase button {
+      height: 34px;
+      border: 0;
+      border-radius: 10px;
+      padding: 0 12px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 15px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .phase {
+      margin-left: auto;
+      padding: 5px;
+      border-radius: 13px;
+      background: var(--soft);
+      overflow-x: auto;
+      max-width: 62%;
+    }
+    .phase button {
+      height: 32px;
+      border-radius: 9px;
+      font-size: 14px;
+      padding: 0 10px;
+      flex: 0 0 auto;
+    }
+    .phase button.active {
+      background: var(--surface);
+      color: var(--brand);
+      box-shadow: inset 0 0 0 1px var(--line), 0 1px 3px rgba(40, 34, 25, .08);
+      font-weight: 650;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 142px 248px 1fr 300px;
+      min-height: 0;
+    }
+    .rail, .dir, .chief {
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+      min-height: 0;
+    }
+    .chief {
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+    .rail { padding: 18px 12px; color: var(--muted); }
+    .rail .item {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+    .rail .item.on { background: var(--brand-soft); color: var(--brand); font-weight: 650; }
+    .dir .chapter {
+      height: 56px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .dir .chapter.on { background: #f1eee6; color: var(--ink); font-weight: 650; }
+    .detail {
+      min-width: 0;
+      background: var(--canvas);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+    }
+    .local-phase {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--line);
+      background: var(--canvas);
+    }
+    .northstar {
+      height: 74px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 34px;
+      color: var(--muted);
+    }
+    .northstar strong { color: var(--ink); font-size: 18px; }
+    .editorbar {
+      height: 88px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 0 34px;
+    }
+    .pill {
+      height: 36px;
+      min-width: 128px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfaf6;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .save {
+      margin-left: auto;
+      height: 44px;
+      border-radius: 13px;
+      background: var(--brand);
+      color: white;
+      padding: 0 22px;
+      display: inline-flex;
+      align-items: center;
+      font-weight: 650;
+    }
+    .canvas {
+      padding: 34px 56px;
+      color: #27231d;
+      font-size: 20px;
+      line-height: 2.05;
+      background:
+        linear-gradient(to right, transparent 0, transparent calc(100% - 1px), rgba(80, 70, 50, .05) calc(100% - 1px)),
+        var(--canvas);
+    }
+    .chief {
+      padding: 18px 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .chief h3 {
+      margin: 0 0 14px;
+      color: var(--ink);
+      font-size: 17px;
+    }
+    .note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 16px;
+      background: #fff9e8;
+      border-top: 1px solid #eadbb8;
+      color: #7b5b22;
+      font-size: 13px;
+    }
+    .delta {
+      color: var(--warn);
+      font-weight: 700;
+    }
+    .proposed .detail { grid-template-rows: auto auto 1fr; }
+    .proposed .local-phase { display: none; }
+    .proposed .globalbar { gap: 14px; }
+    .proposed .northstar { height: 74px; }
+    .proposed .editorbar { height: 88px; }
+    .compact-label {
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 12px;
+    }
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 118px 210px 1fr 260px; }
+      .phase { max-width: 56%; }
+      .phase button { padding: 0 8px; }
+      .canvas { padding: 28px 36px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="demo current">
+      <div class="caption">
+        当前结构
+        <span class="tag">章节阶段条占用栏3第一行</span>
+        <span class="compact-label">中区顶部形成三层：阶段条 / 北极星 / 正文工具条</span>
+      </div>
+      <div class="app">
+        <header class="globalbar">
+          <div class="brand">纸命</div>
+          <div class="divider"></div>
+          <nav class="nav">
+            <button>图谱</button>
+            <button>时间线</button>
+            <button>仪表盘</button>
+          </nav>
+        </header>
+        <div class="layout">
+          <aside class="rail">
+            <div class="item on">手稿</div>
+            <div class="item">角色</div>
+            <div class="item">母题</div>
+            <div class="item">素材库</div>
+          </aside>
+          <aside class="dir">
+            <div class="chapter on"><span>第1章</span><span>6.6k</span></div>
+            <div class="chapter"><span>第2章</span><span>8.5k</span></div>
+            <div class="chapter"><span>第3章</span><span>7.9k</span></div>
+            <div class="chapter"><span>第4章</span><span>8.7k</span></div>
+          </aside>
+          <main class="detail">
+            <div class="local-phase">
+              <div class="phase">
+                <button>大纲</button>
+                <button>节拍</button>
+                <button>演绎</button>
+                <button>草稿</button>
+                <button class="active">正文</button>
+                <button>简报</button>
+                <button>限知帧</button>
+                <button>北极星</button>
+              </div>
+            </div>
+            <div class="northstar"><strong>北极星</strong><span>未设作品意图(点此填北极星)</span><span>伏笔</span><span>关系</span><span>张力</span></div>
+            <div class="editorbar"><span>第 1 章</span><span class="pill">本章视角</span><span class="pill">限知:柳怀玉</span><span>6551 字</span><span class="save">存为正文</span></div>
+            <div class="canvas">炉河上四更天还漾得慢，柳怀玉把纸人一张张摊开。油灯在案边压低，像一枚不肯熄的铜钱。</div>
+          </main>
+          <aside class="chief"><h3>主编</h3><p>提思路、主编对话和上下文仍在右侧常驻。</p></aside>
+        </div>
+      </div>
+      <div class="note">问题：同一章对象的阶段切换压在正文区内部，视觉上挤占写作空间，也和顶栏“视图入口”不在一个决策层。</div>
+    </section>
+
+    <section class="demo proposed">
+      <div class="caption">
+        建议结构
+        <span class="tag">章节阶段条上移到顶栏</span>
+        <span class="compact-label">中区少一行，正文更靠上</span>
+      </div>
+      <div class="app">
+        <header class="globalbar">
+          <div class="brand">纸命</div>
+          <div class="divider"></div>
+          <nav class="nav">
+            <button>图谱</button>
+            <button>时间线</button>
+            <button>仪表盘</button>
+          </nav>
+          <div class="phase" aria-label="当前章阶段">
+            <button>大纲</button>
+            <button>节拍</button>
+            <button>演绎</button>
+            <button>草稿</button>
+            <button class="active">正文</button>
+            <button>简报</button>
+            <button>限知帧</button>
+            <button>北极星</button>
+          </div>
+        </header>
+        <div class="layout">
+          <aside class="rail">
+            <div class="item on">手稿</div>
+            <div class="item">角色</div>
+            <div class="item">母题</div>
+            <div class="item">素材库</div>
+          </aside>
+          <aside class="dir">
+            <div class="chapter on"><span>第1章</span><span>6.6k</span></div>
+            <div class="chapter"><span>第2章</span><span>8.5k</span></div>
+            <div class="chapter"><span>第3章</span><span>7.9k</span></div>
+            <div class="chapter"><span>第4章</span><span>8.7k</span></div>
+          </aside>
+          <main class="detail">
+            <div class="local-phase"></div>
+            <div class="northstar"><strong>北极星</strong><span>未设作品意图(点此填北极星)</span><span>伏笔</span><span>关系</span><span>张力</span></div>
+            <div class="editorbar"><span>第 1 章</span><span class="pill">本章视角</span><span class="pill">限知:柳怀玉</span><span>6551 字</span><span class="save">存为正文</span></div>
+            <div class="canvas">炉河上四更天还漾得慢，柳怀玉把纸人一张张摊开。油灯在案边压低，像一枚不肯熄的铜钱。</div>
+          </main>
+          <aside class="chief"><h3>主编</h3><p>阶段条只在选中章节/场景时出现；选设定、素材、图谱时自动隐藏。</p></aside>
+        </div>
+      </div>
+      <div class="note"><span>收益：阶段切换与视图入口同层，栏3减少 <span class="delta">64px</span> 垂直占用。</span><span>实现要点：用同一个 phase 状态上提渲染，不复制第二套按钮。</span></div>
+    </section>
+  </div>
+</body>
+</html>

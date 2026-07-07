@@ -14,6 +14,7 @@ import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { FourPaneShell } from './layout/FourPaneShell'
+import { TopbarSlotProvider } from './TopbarSlotContext'
 
 // 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
 // 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
@@ -39,7 +40,7 @@ function isChapterSel(sel) {
  * sel 单一真相源:{mode:'node', node} | {mode:'view', viewKey},由父层(App)持有。
  * 栏宽经 useDefaultLayout(id=s3.binder.layout)持久化;左/右 collapsible 折叠+展开(折叠态另存)。
  */
-export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
+export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) {
   const [tree, setTree] = useState(null)
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -185,6 +186,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   }, [isViewSel])
 
   return (
+    <TopbarSlotProvider onSlot={onTopbarSlot}>
     <SelectionProvider>
     <ChiefSlotProvider>
     <DeduceProvider>
@@ -281,6 +283,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     </DeduceProvider>
     </ChiefSlotProvider>
     </SelectionProvider>
+    </TopbarSlotProvider>
   )
 }
 

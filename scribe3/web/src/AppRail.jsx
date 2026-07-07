@@ -10,7 +10,7 @@ export const VIEWS = [
 
 // 应用级顶栏:字标 + 作品切换(回作品库)+ 横切视图 tab + 主题。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true }) {
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, extra = null }) {
   return (
     <header className="h-12 shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
       <span className="font-semibold tracking-wide text-brand text-sm select-none">SCRIBE3</span>
@@ -38,7 +38,9 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         </>
       )}
 
-      <div className="ml-auto flex items-center gap-1">
+      {extra && <div className="ml-auto min-w-0 flex items-center">{extra}</div>}
+
+      <div className={`${extra ? '' : 'ml-auto'} flex items-center gap-1`}>
         <button onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
           title={theme === 'dark' ? '切换浅色' : '切换深色'} aria-label="切换深浅色"
           className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer">
