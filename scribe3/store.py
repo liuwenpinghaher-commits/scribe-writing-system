@@ -3767,7 +3767,7 @@ class SurrealStore:
             _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
         ]
         codex = {
-            "id": "codex_root", "type": "codex_root", "label": "素材",
+            "id": "codex_root", "type": "codex_root", "label": "设定库",
             "children": codex_children,
         }
 

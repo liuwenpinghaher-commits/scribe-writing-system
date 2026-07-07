@@ -179,8 +179,9 @@ function CharArcAnchors({ characterId }) {
   }
 
   if (anchors === null) return <div className="mt-6 text-f12 text-faint/50">弧光锚加载中…</div>
-  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
-  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+  // 统一 ui.jsx 标准风格(rounded-lg/h-9/px-3,与 Input/Textarea 一致)
+  const ta = 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y'
+  const inp = 'h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60'
   return (
     <div className="mt-6 pt-4 border-t border-line">
       <SectionTitle icon={GitBranch}>弧光锚 · 角色内核</SectionTitle>
@@ -194,7 +195,7 @@ function CharArcAnchors({ characterId }) {
         <div>
           <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">弧型(Arc type)</div>
           <select value={form?.arc_type ?? ''} onChange={(e) => setField('arc_type', e.target.value)}
-            className="w-full h-9 rounded-md border border-line bg-canvas px-2.5 text-f13 text-ink outline-none focus:border-brand cursor-pointer">
+            className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand cursor-pointer">
             <option value="">—</option>
             {ARC_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
           </select>
@@ -445,8 +446,9 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该命题(可能已被超越或删除)。项目树只投影仍处开区间的命题。</div>
 
   const entLocal = String(row.entity || '').split(':').pop() || '—'
-  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
-  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
+  // 统一 ui.jsx 标准风格(rounded-lg/h-9/px-3,与 Input/Textarea 一致)
+  const inp = 'h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60'
+  const ta = 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y'
 
   return (
     <div className="h-full overflow-y-auto" data-testid="proposition-detail">
