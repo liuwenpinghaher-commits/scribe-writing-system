@@ -68,10 +68,16 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('detail-content').textContent).toBe('node:character:小翠')
   })
 
-  it('视图作为栏1入口:点击后隐藏栏2,栏3全画布渲染 view', () => {
+  it('横切视图不再作为栏1入口', () => {
     render(<Harness />)
 
-    fireEvent.click(screen.getByRole('button', { name: '图谱' }))
+    expect(screen.queryByRole('button', { name: '图谱' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '时间线' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '仪表盘' })).toBeNull()
+  })
+
+  it('外层顶栏切入视图时隐藏栏2,栏3全画布渲染 view', () => {
+    render(<Harness initialSel={{ mode: 'view', viewKey: 'atlas' }} />)
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
     expect(screen.getByTestId('detail-content').textContent).toBe('view:atlas')
