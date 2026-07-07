@@ -3,6 +3,7 @@ import { api } from './api'
 import { AppRail } from './AppRail'
 import { Library } from './Library'
 import { BinderLayout } from './BinderLayout'
+import { FourPane } from './layout/FourPane'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 
@@ -43,9 +44,13 @@ export default function App() {
   // 当前高亮的顶栏 tab(横切态才高亮;节点态不亮)
   const activeView = sel.mode === 'view' ? sel.viewKey : null
 
+  // 阶段2:feature flag `s3.layout.v2` 分流新四区骨架 / 旧布局(localStorage 设 '1' 开启,可随时回退)
+  const V2 = localStorage.getItem('s3.layout.v2') === '1'
   let body
   if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
+  } else if (V2) {
+    body = <FourPane key={cur.slug} work={cur.slug} sel={sel} onSel={setSel} />
   } else {
     body = <BinderLayout key={cur.slug} work={cur.slug} sel={sel} onSel={setSel} onJumpChapter={handleJumpChapter} />
   }
