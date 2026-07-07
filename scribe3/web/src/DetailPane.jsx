@@ -7,6 +7,8 @@ import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
 import { ErrorBoundary } from './ErrorBoundary'
+import { ContainerOutline } from './ContainerOutline'
+import { NorthStarPanel } from './NorthStarPanel'
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -59,6 +61,12 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
       </div>
     )
   }
+
+  if (node.type === 'book_outline') {
+    return <ContainerOutline key="book:outline" node={{ id: 'manuscript_root', type: 'manuscript_root', ref: null, label: '全书大纲' }} onSelect={onSelectNode}
+      onOpenChapter={(c) => onSelectNode?.({ id: `ch:${c.seq}`, type: 'chapter', ref: c.seq, label: `${c.seq} ${c.title || ''}`.trim(), phase: 'outline' })} />
+  }
+  if (node.type === 'book_northstar') return <NorthStarPanel scope="book" />
 
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;

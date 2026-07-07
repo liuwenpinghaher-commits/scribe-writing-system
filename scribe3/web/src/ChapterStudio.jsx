@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
-  Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck,
+  Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, ScrollText, Eye, Compass,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
-import { NorthStarBar } from './NorthStarBar'
+import { BriefPanel } from './BriefPanel'
+import { FramePanel } from './FramePanel'
+import { NorthStarPanel } from './NorthStarPanel'
 import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
@@ -21,7 +23,11 @@ const PHASES = [
   { key: 'deduce', label: '演绎', icon: Sparkles },
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
+  { key: 'brief', label: '简报', icon: ScrollText },
+  { key: 'frame', label: '限知帧', icon: Eye },
+  { key: 'northstar', label: '北极星', icon: Compass },
 ]
+const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft', 'frame'])
 
 // 中区各阶段统一容器留白(P1):统一 max-w / py,消除三种 max-w、两种 py。
 const STAGE_WRAP = 'max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0'
@@ -481,7 +487,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   // ——否则演绎生成落库触发 refresh→loading→DeduceStage 卸载重挂,竞态把刚生成的 scene_truth 冲掉。
   const metaKey = useRef('')
   useEffect(() => {
-    if (phase === 'final') { setLoading(false); return }
+    if (phase === 'final' || !META_PHASES.has(phase)) { setLoading(false); return }
     let alive = true
     const key = `${seq}|${phase}`
     if (metaKey.current !== key) { metaKey.current = key; setLoading(true) }
@@ -509,10 +515,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   return (
     <div className="h-full flex flex-col min-h-0 bg-canvas">
       <PhaseBar seq={seq} phase={phase} onPhase={setPhaseP} onSeqChange={onSeqChange} />
-      {/* 北极星书级常驻(块四a-2):前置阶段(大纲/节拍/演绎/草稿)页头复用正文侧同一 NorthStarBar
-          (只读摘要+点开编辑,同 /intent 端点);正文阶段由 WriteLayout 内部自带,不重复挂。 */}
-      <NorthStarBar />
-      {/* 中区只负责阶段编辑器;数据面板(帧/演绎/伏笔…)已上移到左栏 LeftDock,右栏主编由 RightDock 承载 */}
+      {/* 中区只负责当前章对象工作台；简报/限知帧/北极星归入章页签。 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-16 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载…</div>
@@ -530,6 +533,12 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
               .then(() => setPhaseP('final'))
               .catch((e) => toast('采用为正文失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' }))
           }} />
+        ) : phase === 'brief' ? (
+          <div className={STAGE_WRAP}><BriefPanel seq={seq} /></div>
+        ) : phase === 'frame' ? (
+          <div className={STAGE_WRAP}><FramePanel focalizer={meta?.focalizer || ''} chapter={seq} /></div>
+        ) : phase === 'northstar' ? (
+          <div className={STAGE_WRAP}><NorthStarPanel seq={seq} /></div>
         ) : null}
       </div>
     </div>
