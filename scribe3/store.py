@@ -128,7 +128,9 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues",
                           "tier", "payoff_min", "payoff_max", "resolution"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
-    "material": frozenset({"title", "body", "kind", "tags", "source"}),
+    "material": frozenset({"title", "body", "kind", "tags", "source", "ref_tags",
+                           "tokens", "embedding", "about_entities", "pinned",
+                           "archived", "recall_count", "last_recalled_at"}),
 }
 
 
@@ -315,6 +317,25 @@ def backfill_scalability_caches(store) -> int:
             {"seq": seq, "scn": cache["scene_count"], "scm": cache["scene_meta"],
              "qc": cache["qc_issues"], "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
         n += 1
+    return n
+
+
+def backfill_material_memory(store) -> int:
+    """存量素材记忆化回填:补 tokens+embedding + 建联想边。幂等(只补缺 tokens 者)。返回补齐条数。"""
+    rows = store._query("SELECT meta::id(id) AS id, title, body, tokens FROM material")
+    n = 0
+    for r in (rows or []):
+        if r.get("tokens"):
+            continue  # 已补,幂等跳过
+        try:
+            toks, vec = store._material_index_fields(r.get("title"), r.get("body"))
+            store._execute_write(
+                "UPDATE type::record('material',$m) SET tokens=$t, embedding=$v",
+                {"m": r["id"], "t": toks, "v": vec})
+            store.build_material_edges(r["id"])
+            n += 1
+        except Exception:
+            pass  # fail-soft 逐条
     return n
 
 
@@ -1183,17 +1204,21 @@ class SurrealStore:
     # --- 素材库 material(非正典写作材料)---
     # 与设定库(codex=正典)严格分开:不进知识图谱、不被 ingest、不参与限知/伏笔/QC/时间线。
     _MATERIAL_COLS = ("meta::id(id) AS id, title, body, kind, tags, source, "
-                      "created_at, updated_at")
+                      "ref_tags, tokens, about_entities, pinned, archived, "
+                      "recall_count, last_recalled_at, created_at, updated_at")
 
     def add_material(self, title: str, body: str | None = None, kind: str = "note",
-                     tags: list[str] | None = None, source: str | None = None) -> str:
-        """新建素材,返回裸 id(镜像 add_volume 的 CREATE 返回 id 先例)。"""
+                     tags: list[str] | None = None, source: str | None = None,
+                     ref_tags: list[str] | None = None) -> str:
+        """新建素材(记忆化:jieba 切 tokens + 生成 embedding),返回裸 id。"""
         if kind not in MATERIAL_KINDS:
             raise ValueError(f"非法素材分类 kind='{kind}'(合法: {list(MATERIAL_KINDS)})")
+        toks, vec = self._material_index_fields(title, body)
         rows = self._query(
             "CREATE material CONTENT $c",
             {"c": {"title": title, "body": body, "kind": kind,
-                   "tags": list(tags or []), "source": source}})
+                   "tags": list(tags or []), "source": source,
+                   "ref_tags": list(ref_tags or []), "tokens": toks, "embedding": vec}})
         rid = (rows[0] if rows else {}).get("id")
         if rid is None:
             raise RuntimeError("add_material: CREATE 未返回 id")
@@ -1221,11 +1246,16 @@ class SurrealStore:
         return bool(rows)
 
     def update_material(self, material_id: str, fields: dict) -> bool:
-        """局部更新(updated_at 由 schema VALUE time::now() 自动刷新);返回是否存在。"""
+        """局部更新;title/body 变则重算 tokens+embedding。返回是否存在。"""
         if fields.get("kind") is not None and fields["kind"] not in MATERIAL_KINDS:
             raise ValueError(f"非法素材分类 kind='{fields['kind']}'(合法: {list(MATERIAL_KINDS)})")
         if not self._material_exists(material_id):
             return False
+        if "title" in fields or "body" in fields:
+            cur = self.get_material(material_id) or {}
+            toks, vec = self._material_index_fields(
+                fields.get("title", cur.get("title")), fields.get("body", cur.get("body")))
+            fields = {**fields, "tokens": toks, "embedding": vec}
         self._update_by("material", material_id, fields)
         return True
 
@@ -1235,6 +1265,80 @@ class SurrealStore:
             return False
         self._delete_by("material", material_id)
         return True
+
+    # --- 素材记忆:向量/溯源/联想边(Phase1)---
+    @staticmethod
+    def _material_index_fields(title, body):
+        """jieba 切词 + embedding(add/update/backfill 共用,DRY)。"""
+        import jieba
+        from scribe3.embed import embed
+        text = f"{title or ''}\n{body or ''}"
+        toks = " ".join(w for w in jieba.cut(text) if w.strip())
+        return toks, embed([text])[0]
+
+    def _material_embedding(self, material_id: str):
+        rows = self._query(
+            "SELECT embedding FROM type::record('material',$m) LIMIT 1", {"m": material_id})
+        return (rows[0].get("embedding") if rows else None)
+
+    def add_material_reference(self, material_id, chapter, dimension=None,
+                               reason=None, via="manual") -> None:
+        """记一次参考(溯源)+ 强化(recall_count++/last_recalled_at)。"""
+        self._execute_write(
+            "CREATE material_reference SET material_id=$m, chapter=$c, "
+            "dimension=$d, reason=$r, via=$v",
+            {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via})
+        self._execute_write(
+            "UPDATE type::record('material',$m) SET recall_count += 1, "
+            "last_recalled_at = time::now()", {"m": material_id})
+
+    def material_refs_by_material(self, material_id) -> list[dict]:
+        return self._query(
+            "SELECT material_id, chapter, dimension, reason, via FROM material_reference "
+            "WHERE material_id=$m ORDER BY chapter", {"m": material_id})
+
+    def material_refs_by_chapter(self, chapter) -> list[dict]:
+        return self._query(
+            "SELECT material_id, chapter, dimension, reason, via FROM material_reference "
+            "WHERE chapter=$c", {"c": int(chapter)})
+
+    def build_material_edges(self, material_id, top_k: int = 5, threshold: float = 0.3) -> None:
+        """建联想边:relates(语义近邻 top-k,图 RELATE)+ about_entities(提及实体,数组)。
+        threshold=相似度下限(1-距离),低于则不建 relates 边。防爆炸:只保 top-k。"""
+        emb = self._material_embedding(material_id)
+        if not emb:
+            return
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
+            f"WHERE embedding <|{top_k + 1},{max(40, top_k + 1)}|> $qv "
+            f"AND meta::id(id) != $self ORDER BY dist LIMIT {top_k}",
+            {"qv": emb, "self": material_id})
+        for r in rows:
+            sim = 1.0 - float(r.get("dist") or 0.0)
+            if sim < threshold:
+                continue
+            self._execute_write(
+                "RELATE (type::record('material',$a))->relates->(type::record('material',$b)) "
+                "SET weight=$w, reason=$reason",
+                {"a": material_id, "b": r["id"], "w": sim, "reason": "语义近邻"})
+        try:  # about_entities:素材提及的实体 id(图召回按实体关联),富集失败不阻塞
+            from scribe3.brief import detect_mentions
+            ents = [{"id": e.id, "name": e.name,
+                     "aliases": (getattr(e, "traits", None) or {}).get("aliases") or []}
+                    for e in self.all_entities()]
+            row = self.get_material(material_id) or {}
+            mentioned = list(detect_mentions(f"{row.get('title', '')} {row.get('body') or ''}", ents))
+            if mentioned:
+                self._execute_write("UPDATE type::record('material',$m) SET about_entities=$e",
+                                    {"m": material_id, "e": mentioned})
+        except Exception:
+            pass
+
+    def material_relates(self, material_id) -> list[dict]:
+        """查素材的 relates 联想邻居。"""
+        return self._query(
+            "SELECT meta::id(out) AS id, weight, reason FROM relates "
+            "WHERE in = type::record('material',$m)", {"m": material_id})
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
