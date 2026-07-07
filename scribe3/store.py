@@ -1335,10 +1335,69 @@ class SurrealStore:
             pass
 
     def material_relates(self, material_id) -> list[dict]:
-        """查素材的 relates 联想邻居。"""
-        return self._query(
-            "SELECT meta::id(out) AS id, weight, reason FROM relates "
-            "WHERE in = type::record('material',$m)", {"m": material_id})
+        """查素材的 relates 联想邻居(表未建/无边→空,首次召回空库时鲁棒)。"""
+        try:
+            return self._query(
+                "SELECT meta::id(out) AS id, weight, reason FROM relates "
+                "WHERE in = type::record('material',$m)", {"m": material_id})
+        except Exception:
+            return []
+
+    def material_recall(self, query: str, chapter: int | None = None, k: int = 5,
+                        mentioned_entities=None) -> list[dict]:
+        """素材三通道召回(语义 HNSW + 全文 BM25 + 图 relates/about)→ RRF 融合 → 强度加权。
+        archived 排除。返回按强度排序的 top-k 素材行(含 material_id/score)。"""
+        import jieba
+        from scribe3.embed import embed
+        from scribe3.material_recall import apply_strength
+        if not (query or "").strip():
+            return []
+        k3, ef = k * 3, max(40, k * 3)
+        # 语义路(HNSW,archived 排除)
+        try:
+            vec_ids = [r["id"] for r in self._query(
+                f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
+                f"WHERE embedding <|{k3},{ef}|> $qv AND archived != true ORDER BY dist",
+                {"qv": embed([query])[0]})]
+        except Exception:
+            vec_ids = []
+        # 全文路(jieba 切 query → BM25 search::score)
+        q_toks = " ".join(w for w in jieba.cut(query) if w.strip())
+        fts_ids = []
+        if q_toks:
+            try:
+                fts_ids = [r["id"] for r in self._query(
+                    "SELECT meta::id(id) AS id, search::score(1) AS s FROM material "
+                    "WHERE tokens @1@ $q AND archived != true ORDER BY s DESC LIMIT $lim",
+                    {"q": q_toks, "lim": k * 2})]
+            except Exception:
+                fts_ids = []
+        # 图路:语义种子沿 relates 扩展 + about_entities 匹配本章提及实体
+        graph_ids: list[str] = []
+        for sid in vec_ids[:2]:
+            graph_ids.extend(e["id"] for e in self.material_relates(sid))
+        if mentioned_entities:
+            try:
+                graph_ids.extend(r["id"] for r in self._query(
+                    "SELECT meta::id(id) AS id FROM material "
+                    "WHERE about_entities CONTAINSANY $ents AND archived != true",
+                    {"ents": list(mentioned_entities)}))
+            except Exception:
+                pass
+        # RRF 融合三路 → 位次转分 → 强度加权
+        fused = _reciprocal_rank_fusion(vec_ids, fts_ids, graph_ids, k=60)
+        top_ids = [i for i, _ in fused[:k * 2]]
+        if not top_ids:
+            return []
+        cands = []
+        for i, mid in enumerate(top_ids):
+            row = self.get_material(mid)
+            if not row or row.get("archived"):
+                continue   # 图路邻居可能含 archived,Python 层再兜一次
+            row["material_id"] = mid
+            row["score"] = 1.0 / (i + 1)
+            cands.append(row)
+        return apply_strength(cands)[:k]
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
