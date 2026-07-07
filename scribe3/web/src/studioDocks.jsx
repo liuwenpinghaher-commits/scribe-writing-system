@@ -68,7 +68,7 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
       { key: 'promise', icon: Bookmark, label: '伏笔',
         badge: _promiseBadge(ledger, seq),
         render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
-      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
+      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} onSelect={onSelect} /> },
       // 断头修复(死 leftCaps 回填③):语义召回检索——原 WriteLayout renderRecall 不可达
       { key: 'recall', icon: Search, label: '检索 · 语义召回', render: () => <RecallPanel /> },
     )
@@ -507,14 +507,20 @@ function PromisesPanel({ ledger, seq, onSelect }) {
   )
 }
 
-function MotifRow({ m, evidence, highlight }) {
+function MotifRow({ m, evidence, highlight, onSelect }) {
   // 块三:点行 = 选中该母题 → 发通用 focus(主编聚焦该母题,不跳转)。
-  const { setFocus } = useSelection()
-  const pick = () => setFocus({
-    type: 'motif', id: m.id, label: m.name,
-    payload: { theme: m.theme, evidence: evidence || null },
-    origin: 'panel',
-  })
+  const { setFocus, suppressNextMirror } = useSelection()
+  const pick = () => {
+    setFocus({
+      type: 'motif', id: m.id, label: m.name,
+      payload: { theme: m.theme, evidence: evidence || null },
+      origin: 'panel',
+    })
+    if (onSelect) {
+      suppressNextMirror()
+      onSelect({ id: `motif:${m.id}`, type: 'motif', ref: m.id, label: m.name })
+    }
+  }
   return (
     <button type="button" onClick={pick} title="聚焦此母题"
       className={cn('block w-full text-left mb-2.5 pb-2.5 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
@@ -527,7 +533,7 @@ function MotifRow({ m, evidence, highlight }) {
   )
 }
 
-function MotifsPanel({ motifs, seq }) {
+function MotifsPanel({ motifs, seq, onSelect }) {
   const [inst, setInst] = useState(undefined)   // undefined=加载 / null=失败 / []=空
   useEffect(() => {
     if (seq == null) { setInst([]); return }
@@ -548,11 +554,11 @@ function MotifsPanel({ motifs, seq }) {
         {inst === undefined ? <Skeleton className="w-2/3" />
           : inst === null ? <Empty>本章母题加载失败,切走再切回可重试</Empty>
           : touched.length === 0 ? <Empty>本章暂无触及——写/反哺本章后自动检测</Empty>
-          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight />)}
+          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight onSelect={onSelect} />)}
         {rest.length > 0 && (
           <details className="mt-3">
             <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none">全书母题 · {rest.length}</summary>
-            <div className="mt-1.5">{rest.map((m) => <MotifRow key={m.id} m={m} />)}</div>
+            <div className="mt-1.5">{rest.map((m) => <MotifRow key={m.id} m={m} onSelect={onSelect} />)}</div>
           </details>
         )}
       </>}

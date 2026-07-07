@@ -1,12 +1,11 @@
 import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail, PropositionDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
-import { MaterialDetail, MaterialList, MaterialNew } from './Materials'
+import { MaterialDetail, MaterialNew } from './Materials'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
-import { ContainerOutline } from './ContainerOutline'
 import { ErrorBoundary } from './ErrorBoundary'
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
@@ -16,13 +15,7 @@ const CAT_LEAF_TYPE = {
 }
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
-const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
-// 手稿容器(卷/手稿根)→ 章卡片墙/大纲表多模式;其余容器(设定分类)→ 子项列表
-const MANUSCRIPT_CONTAINER = new Set(['manuscript_root', 'volume'])
-
-// 把卡片/行点击的章 → 章 TreeNode(与 WriteLayout.onSeqChange 同形),选中后中间栏切写作台。
-// phase:'outline' —— 单一真相源:从全书大纲点进某章,默认落该章「大纲」阶段(同一 synopsis 字段)。
-const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
+const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category', 'material_root', 'material_category'])
 
 /**
  * 中间栏:按 sel 路由。
@@ -115,9 +108,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
           : { id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
       }} />
   }
-  if (node.type === 'material_root' || node.type === 'material_category') {
-    return <MaterialList key={node.id} node={node} onSelect={onSelectNode} />
-  }
+  if (node.type === 'material_root' || node.type === 'material_category') return <ContainerDetailEmpty node={node} />
 
   // —— 命题叶(批D 件1)→ 独立安全详情块(不走 DetailView 整行 PATCH,防私密值/leak_markers 被有损回写抹掉) ——
   if (node.type === 'proposition') {
@@ -130,18 +121,19 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
     return <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />
   }
 
-  // —— 手稿容器(卷/手稿根)→ 卡片墙/大纲表多模式 ——
-  if (MANUSCRIPT_CONTAINER.has(node.type)) {
-    return <ContainerOutline key={node.id} node={node}
-      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))}
-      onSelect={onSelectNode} />
-  }
-
-  // —— 其余容器(设定分类)→ 子项列表 ——
-  if (CONTAINER.has(node.type)) {
-    return <ContainerOutline key={node.id} node={node} onSelect={onSelectNode}
-      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))} />
-  }
+  // —— 容器只驱动栏2目录;栏3只承载条目详情/横切视图 ——
+  if (CONTAINER.has(node.type)) return <ContainerDetailEmpty node={node} />
 
   return <div className="p-8 text-faint">未知节点类型:{node.type}</div>
+}
+
+function ContainerDetailEmpty({ node }) {
+  return (
+    <div className="h-full grid place-items-center text-center px-6 text-f13 text-faint/60">
+      <div>
+        <div className="text-ink/70 mb-1">{node?.label || '目录'}</div>
+        <div>选择目录条目查看详情。</div>
+      </div>
+    </div>
+  )
 }

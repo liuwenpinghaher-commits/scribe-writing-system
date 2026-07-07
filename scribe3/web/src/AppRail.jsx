@@ -10,7 +10,7 @@ export const VIEWS = [
 
 // 应用级顶栏:字标 + 作品切换(回作品库)+ 横切视图 tab + 主题。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }) {
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true }) {
   return (
     <header className="h-12 shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
       <span className="font-semibold tracking-wide text-brand text-sm select-none">SCRIBE3</span>
@@ -21,7 +21,7 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme }
         <ChevronDown size={11} className="shrink-0 opacity-50" />
       </button>
 
-      {current && (
+      {current && showViews && (
         <>
           <div className="w-px h-5 bg-line shrink-0" />
           <nav className="flex items-center gap-1">

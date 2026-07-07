@@ -13,6 +13,7 @@ import { DeduceProvider } from './deduceContext'
 import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
+import { FourPaneShell } from './layout/FourPaneShell'
 
 // 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
 // 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
@@ -152,6 +153,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   // 波B Step3:右栏常驻。章节点 → 右栏=写作槽(WriteLayout 的 WriteChat 经 portal 进来);
   // 非章节点 → 右栏=讨论 chat(现状)。ChiefDock 据 chapterSel 切换内容。
   const showChief = true
+  const V2 = localStorage.getItem('s3.layout.v2') === '1'   // 阶段3:flag下沉——四区壳/三栏壳切换,共享上方所有 state/Provider
 
   const collapseLeft = () => { leftRef.current?.collapse() }
   const collapseRight = () => { rightRef.current?.collapse() }
@@ -207,6 +209,13 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     />
     <RestoreContext.Provider value={restoreTick}>
     <div className="h-full bg-canvas min-h-0">
+      {V2 ? (
+        <FourPaneShell tree={tree} selId={selId} expanded={expanded} toggle={toggle}
+          onSelectNode={onSelectNode} treeCbs={treeCbs} leftSeq={leftSeq} collapseLeft={collapseLeft}
+          sel={sel} work={work} reload={reload} onJumpChapter={onJumpChapter}
+          chapterSel={chapterSel} curSeq={curSeq} onRestored={() => setRestoreTick((t) => t + 1)}
+          collapseRight={collapseRight} />
+      ) : (
       <Group orientation="horizontal" defaultLayout={savedLayout ?? { left: 22, detail: 52, right: 26 }}
         onLayoutChanged={onLayoutChanged} className="h-full">
         {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}
@@ -266,6 +275,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
             onRestored={() => setRestoreTick((t) => t + 1)} onCollapse={collapseRight} />
         </Panel>
       </Group>
+      )}
     </div>
     </RestoreContext.Provider>
     </DeduceProvider>
