@@ -46,3 +46,28 @@ def test_emotion_module_recallable(store):
     mid = store.add_material("憋屈反杀桥段", card, "emotion_module", ref_tags=["情绪"])
     res = store.material_recall("憋屈", chapter=5, k=5)
     assert mid in [r["material_id"] for r in res]
+
+
+def _rest_client(store):
+    from fastapi.testclient import TestClient
+    import scribe3.app as A
+    A.set_store(store)
+    A.set_complete_fn(lambda p, **k: "x")
+    return TestClient(A.app)
+
+
+def test_material_rest_recall_and_provenance(store):
+    """Task5:REST 搜索 + 双向溯源端点。"""
+    mid = store.add_material("密室白描", "冷硬密室寒气逼人", "snippet", ref_tags=["手法"])
+    store.add_material_reference(mid, 3, "手法", "适合刑讯", "brief")
+    c = _rest_client(store)
+    assert mid in [r["material_id"] for r in c.get("/materials/recall?q=密室").json()]
+    refs = c.get(f"/materials/{mid}/refs").json()
+    assert len(refs) == 1 and refs[0]["chapter"] == 3
+    assert mid in [r["material_id"] for r in c.get("/materials/refs-by-chapter?chapter=3").json()]
+
+
+def test_project_tree_includes_emotion_module(store):
+    """Task5.1:项目树素材支补齐 emotion_module(前后端一致)。"""
+    c = _rest_client(store)
+    assert "情绪卡" in str(c.get("/project-tree").json()), "项目树素材支应含 emotion_module"

@@ -1194,6 +1194,24 @@ def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "ma
     return {"created": len(ids), "ids": ids}
 
 
+@app.get("/materials/recall")
+def material_recall_ep(q: str, chapter: int | None = None, k: int = 5, work: str = "main"):
+    """素材三通道召回(前端搜索:关键词+语义+图);纯检索排序,不烧 LLM 重排。"""
+    return _store_for(work).material_recall(q, chapter, k)
+
+
+@app.get("/materials/refs-by-chapter")
+def material_refs_by_chapter_ep(chapter: int, work: str = "main"):
+    """反向溯源:本章参考了哪些素材(+ reason/dimension)。"""
+    return _store_for(work).material_refs_by_chapter(chapter)
+
+
+@app.get("/materials/{mid}/refs")
+def material_refs_ep(mid: str, work: str = "main"):
+    """正向溯源:这条素材用在了哪些章。"""
+    return _store_for(work).material_refs_by_material(mid)
+
+
 @app.get("/voice-flags")
 def voice_flags(work: str = "main"):
     return _store_for(work).list_voice_flags("open")

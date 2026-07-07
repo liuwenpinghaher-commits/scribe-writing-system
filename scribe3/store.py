@@ -3758,7 +3758,8 @@ class SurrealStore:
         # —— 素材库支(非正典材料,与设定库正典严格分开):kind 分类 → 素材条目 ——
         all_materials = self.list_materials()
         mat_kind_labels = [("research", "研究"), ("reference", "参考"),
-                           ("snippet", "片段"), ("inspiration", "灵感"), ("note", "笔记")]
+                           ("snippet", "片段"), ("inspiration", "灵感"), ("note", "笔记"),
+                           ("emotion_module", "情绪卡")]
         mat_children = []
         for k, label in mat_kind_labels:
             items = [m for m in all_materials if m.get("kind") == k]
