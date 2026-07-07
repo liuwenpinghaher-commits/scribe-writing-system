@@ -19,7 +19,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
@@ -1080,6 +1080,118 @@ def del_material_ep(mid: str, work: str = "main"):
     if not found:
         raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
     return {"ok": True}
+
+
+# ===== 素材导入(多格式 → AI 切分打标摘要 → 预览确认 → 落库)=====
+_import_jobs: dict = {}   # job_id → {stage, done, total, items, error, work}
+
+
+class ImportCommitReq(BaseModel):
+    items: list[dict]
+
+
+def _run_import(job_id: str, markdown: str, source: str | None) -> None:
+    """后台流水线:AI 切分打标摘要 → 结果存 job 待预览(不直接落库)。fail-soft。"""
+    from scribe3.llm import hermes_complete
+    from scribe3.material_import import split_and_tag
+    job = _import_jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        job["stage"] = "AI 切分打标中"
+        job["items"] = split_and_tag(
+            markdown, lambda p: hermes_complete(p, max_tokens=4000), source)
+        job["total"] = len(job["items"])
+        job["stage"] = "待预览确认"
+    except Exception as e:
+        job["stage"], job["error"] = "error", str(e)[:200]
+    finally:
+        job["done"] = True
+
+
+@app.post("/materials/import")
+async def material_import_ep(background: BackgroundTasks, text: str = Form(None),
+                            url: str = Form(None), source: str = Form(None),
+                            file: UploadFile = File(None), work: str = "main"):
+    """导入入口:file(markitdown 解析)/url(httpx 抓)/text → 后台 AI 切分打标 → 返回 job_id。"""
+    import uuid
+    markdown = ""
+    if file is not None:
+        import os
+        import tempfile
+        from scribe3.material_import import parse_to_markdown
+        content = await file.read()
+        suffix = os.path.splitext(file.filename or "")[1] or ".txt"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            tmp.write(content)
+            tmp.close()
+            markdown = parse_to_markdown(tmp.name)
+        finally:
+            os.unlink(tmp.name)
+        source = source or file.filename
+    elif url:
+        import httpx
+        markdown = httpx.get(url, timeout=30, follow_redirects=True).text
+        source = source or url
+    elif text:
+        markdown = text
+    if not (markdown or "").strip():
+        raise HTTPException(status_code=422, detail="无内容可导入(text/url/file 至少一个非空)")
+    job_id = uuid.uuid4().hex[:12]
+    _import_jobs[job_id] = {"stage": "解析完成", "done": False, "total": 0,
+                            "items": [], "error": "", "work": work}
+    background.add_task(_run_import, job_id, markdown, source)
+    return {"job_id": job_id}
+
+
+@app.get("/materials/import/{job_id}/progress")
+async def material_import_progress_ep(job_id: str):
+    """SSE 进度推送:解析→切分打标→待预览/完成/错误(0.5s 轮询,上限 5 分钟防挂)。"""
+    import asyncio
+    import json as _j
+
+    async def gen():
+        for _ in range(600):
+            job = _import_jobs.get(job_id)
+            if job is None:
+                yield "data: " + _j.dumps({"stage": "not_found", "done": True}) + "\n\n"
+                return
+            yield ("data: " + _j.dumps({"stage": job["stage"], "done": job["done"],
+                                        "total": job["total"], "error": job["error"]}) + "\n\n")
+            if job["done"]:
+                return
+            await asyncio.sleep(0.5)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/materials/import/{job_id}/preview")
+def material_import_preview_ep(job_id: str):
+    """预览 AI 切分结果(作者编辑/删条/合并前)。"""
+    job = _import_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"导入任务 '{job_id}' 不存在或已清理")
+    return {"stage": job["stage"], "done": job["done"], "error": job["error"],
+            "items": job["items"]}
+
+
+@app.post("/materials/import/{job_id}/commit")
+def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "main"):
+    """作者确认(可编辑后)→ 批量落库 + 建联想边。单条 fail-soft。返回落库数。"""
+    st = _store_for(work)
+    ids = []
+    for it in req.items:
+        if not (it.get("title") or "").strip():
+            continue
+        try:
+            mid = st.add_material(it["title"].strip(), it.get("body"), it.get("kind") or "note",
+                                  it.get("tags"), it.get("source"), ref_tags=it.get("ref_tags"))
+            st.build_material_edges(mid)
+            ids.append(mid)
+        except Exception:
+            pass
+    _import_jobs.pop(job_id, None)
+    return {"created": len(ids), "ids": ids}
 
 
 @app.get("/voice-flags")
