@@ -150,6 +150,17 @@ def s3_graph_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = 
 
 
 @mcp.tool(annotations=_RO)
+def s3_material_recall(query: str, chapter: int = 9999, k: int = 5) -> list[dict]:
+    """素材记忆召回:三通道(语义+关键词+图)唤起与 query 相关的参考素材(借鉴非事实)。
+    返回标题/正文摘要/参考维度,供主编借鉴并向作者说明为什么参考。区别于设定召回:
+    素材是创作参考(风格/手法/桥段),非故事内事实,不受限知约束,可放心用于讨论与构思。"""
+    return [{"id": r.get("material_id"), "title": r.get("title"),
+             "excerpt": (r.get("body") or "")[:200], "ref_tags": r.get("ref_tags") or [],
+             "pinned": r.get("pinned")}
+            for r in _store.material_recall(query, chapter, k)]
+
+
+@mcp.tool(annotations=_RO)
 def s3_setting_completeness() -> dict:
     """设定完整性检查:返回当前书缺少哪些设定维度(世界规则/势力/地点/角色深描/私密伏线)。
     主编据此引导作者补全设定。"""

@@ -1295,6 +1295,15 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         items = "；".join(
             f"第{p.get('setup_chapter')}章埋:{(p.get('text') or '')[:30]}" for p in promises[:6])
         rem = f"\n【⚠ 开着的承诺线·勿忘(适时推进/回收,别让它凭空消失)】{items}"
+    # 素材记忆能力提示(非空库时引导主编按需经 s3_material_recall 唤起参考素材;借鉴非事实)
+    mat_hint = ""
+    try:
+        if st.list_materials():
+            mat_hint = ("\n【素材记忆库】作者备有素材记忆(研究/风格/桥段等参考),讨论或构思时"
+                        "可经 s3_material_recall(query) 按当前话题唤起相关素材借鉴(借鉴非照搬),"
+                        "并向作者说明为什么参考。")
+    except Exception:
+        pass
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
@@ -1303,7 +1312,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
-    ) + rem
+    ) + rem + mat_hint
 
 
 def _pulse_digest(st, seq: int | None) -> str:
@@ -2085,6 +2094,49 @@ def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
             + register_hint + "空合同也可正常写作,此工序不阻塞。")
 
 
+def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None) -> str:
+    """写作总闸素材注入(全生成相位共用):聚焦 query → material_recall(三通道)→ LLM 重排理由 →
+    render 参考段 + 写溯源(反哺强度)。门控:无草料/空库/无命中 → 空串(零开销,不调 LLM)。
+    参考语义:素材是借鉴非事实,注入段自带反照搬边界。限知不约束素材(元层面创作参考,非故事内知识)。
+    全 try/except fail-soft:素材召回任何异常都不阻断写作主链。"""
+    try:
+        from scribe3.brief import chapter_draft_text, detect_mentions
+        from scribe3.material_recall import (extract_focus_query, gate,
+                                             render_material_block, rerank_materials)
+        draft = chapter_draft_text(st.get_chapter(chapter) or {})
+        if not (draft or "").strip():
+            return ""
+        entities = [{"id": e.id, "name": e.name,
+                     "aliases": (getattr(e, "traits", None) or {}).get("aliases") or []}
+                    for e in st.all_entities()]
+        mentioned = detect_mentions(draft, entities)
+        query = extract_focus_query({"beats": [draft[:200]], "mentioned": list(mentioned)})
+        if not query:
+            return ""
+        cands = gate(st.material_recall(query, chapter, k=5, mentioned_entities=mentioned))
+        if not cands:
+            return ""   # 门控:空库/无命中 → 不调 LLM 重排
+        if llm is None:
+            from scribe3.llm import hermes_complete
+            def llm(p):
+                return hermes_complete(p, max_tokens=500)
+        ranked = rerank_materials(cands, query, llm, k=3)
+        block = render_material_block(ranked)
+        if block:
+            for c in ranked:   # 溯源反哺(recall_count++/last_recalled_at)
+                try:
+                    st.add_material_reference(
+                        c["material_id"], chapter,
+                        dimension=(c.get("ref_tags") or [None])[0],
+                        reason=c.get("reason"), via=f"phase:{phase}")
+                except Exception:
+                    pass
+        return "\n\n" + block if block else ""
+    except Exception:
+        logging.getLogger("scribe3").debug("素材召回块失败(不阻断写作)", exc_info=True)
+        return ""
+
+
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool,
                                  with_tools: bool = False) -> str:
@@ -2114,6 +2166,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
     instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _material_recall_block(st, chapter, phase, focalizer)  # 素材联想记忆(借鉴参考,覆盖全生成相位)
     instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
     _ph_lower = (phase or "").strip().lower()
     if _ph_lower in ("draft", "final"):
