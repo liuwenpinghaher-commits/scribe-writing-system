@@ -5,3 +5,4 @@ surrealdb>=1.0
 pydantic>=2.0
 jieba>=0.42
 fastembed>=0.8
+markitdown[pdf,docx]>=0.1
