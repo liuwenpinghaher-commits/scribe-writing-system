@@ -1,7 +1,7 @@
 import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail, PropositionDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
-import { MaterialDetail, MaterialNew } from './Materials'
+import { MaterialDetail, MaterialImportPane, MaterialNetworkPane, MaterialNew } from './Materials'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
@@ -9,6 +9,7 @@ import { TimelineView } from './views/TimelineView'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
+import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -40,16 +41,16 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject }) {
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
     const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
-    if (k === 'atlas') return <AtlasView key={work} />
-    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} />
-    if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} />
+    if (k === 'atlas') return <AtlasView key={work} onNavigateToObject={onNavigateToObject} />
+    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
+    if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
-    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} focus="progress" />  // 仪表盘聚焦码字进度面板
+    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 
@@ -68,6 +69,13 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
   }
   if (node.type === 'book_northstar') return <NorthStarPanel scope="book" />
 
+  if (node.type === 'capability_group') return <CapabilityGroupDetailPane key={node.id} node={node} />
+  if (node.type === 'deduce_view') return <DeduceDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'promise_view') return <PromiseDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'motif_view') return <MotifDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'recall_result') return <RecallResultDetail key={node.id} node={node} onOpenTarget={onNavigateToObject || onSelectNode} />
+  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} onRecheck={() => {}} />
+
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;
   // 点场景即打开其所属章(正确章,非假跳),并把 idx 透传给 ChapterStudio 供未来定位。
@@ -75,6 +83,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
     const sceneIdx = node.type === 'scene' ? node.ref?.idx : null
     return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx} initialPhase={node.phase}
+      onSelectNode={onSelectNode}
       onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
   }
 
@@ -105,6 +114,18 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
         if (mid != null) onSelectNode?.({ id: `material:${mid}`, type: 'material', ref: mid, label: title || String(mid) })
         else backToCat()
       }} />
+  }
+  if (node.type === 'material_import') {
+    const backToMaterials = () => onSelectNode?.({ id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
+    return <MaterialImportPane key={node.id}
+      onCancel={backToMaterials}
+      onImported={() => {
+        onTreeChanged?.()
+        backToMaterials()
+      }} />
+  }
+  if (node.type === 'material_network') {
+    return <MaterialNetworkPane key={node.id} onSelect={onSelectNode} />
   }
   if (node.type === 'material') {
     return <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}

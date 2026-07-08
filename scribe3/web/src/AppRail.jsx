@@ -8,7 +8,7 @@ export const VIEWS = [
   { key: 'insight', label: '仪表盘', icon: Activity },
 ]
 
-// 应用级顶栏:字标 + 作品切换(回作品库)+ 横切视图 tab + 主题。
+// 应用级顶栏:字标 + 作品切换(回作品库)+ 章内阶段 tab + 横切视图 tab + 主题。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
 export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, extra = null }) {
   return (
@@ -21,10 +21,14 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         <ChevronDown size={11} className="shrink-0 opacity-50" />
       </button>
 
+      {current && extra && (
+        <div className="min-w-0 flex items-center" data-testid="topbar-work-tabs">{extra}</div>
+      )}
+
       {current && showViews && (
         <>
-          <div className="w-px h-5 bg-line shrink-0" />
-          <nav className="flex items-center gap-1">
+          <div className="w-px h-5 bg-line shrink-0" data-testid="topbar-view-separator" />
+          <nav className="flex items-center gap-1" data-testid="topbar-global-views">
             {VIEWS.map(({ key, label, icon: Icon }) => {
               const on = view === key
               return (
@@ -38,9 +42,7 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         </>
       )}
 
-      {extra && <div className="ml-auto min-w-0 flex items-center">{extra}</div>}
-
-      <div className={`${extra ? '' : 'ml-auto'} flex items-center gap-1`}>
+      <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
         <button onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
           title={theme === 'dark' ? '切换浅色' : '切换深色'} aria-label="切换深浅色"
           className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer">

@@ -35,6 +35,7 @@ export function MaterialImport({ onImported, onCancel }) {
   const [err, setErr] = useState(null)       // running 阶段的软错误
   const [submitting, setSubmitting] = useState(false)
   const [committing, setCommitting] = useState(false)
+  const [commitResult, setCommitResult] = useState(null)
 
   const esRef = useRef(null)          // 当前 EventSource
   const settledRef = useRef(false)    // 完成/失败只结算一次
@@ -51,7 +52,7 @@ export function MaterialImport({ onImported, onCancel }) {
     closeES()
     settledRef.current = false
     gotMsgRef.current = false
-    setPhase('input'); setJobId(null); setProg(null); setItems([]); setErr(null)
+    setPhase('input'); setJobId(null); setProg(null); setItems([]); setErr(null); setCommitResult(null)
   }
 
   // —— 选文件(拖拽 / 点击) ——
@@ -74,7 +75,7 @@ export function MaterialImport({ onImported, onCancel }) {
 
     settledRef.current = false
     gotMsgRef.current = false
-    setErr(null); setSubmitting(true)
+    setErr(null); setCommitResult(null); setSubmitting(true)
     try {
       const r = await api.materialImport(fd)
       const id = r?.job_id ?? r?.id ?? null
@@ -151,6 +152,7 @@ export function MaterialImport({ onImported, onCancel }) {
         source: it?.source || '',
       })))
       setErr(null)
+      setCommitResult(null)
       setPhase('preview')
       if (!list.length) toast('未从来源中解析出可导入的素材', { tone: 'warn' })
     } catch (e) {
@@ -175,9 +177,21 @@ export function MaterialImport({ onImported, onCancel }) {
       const payload = items.map(({ _key, ...rest }) => ({ ...rest, title: rest.title.trim() }))
       const r = await api.materialImportCommit(jobId, payload)
       const created = r?.created ?? payload.length
-      toast(`已导入 ${created} 条素材`, { tone: 'ok' })
       onImported?.(r)
-      resetToInput()
+      const failed = Array.isArray(r?.failed) ? r.failed : []
+      const warnings = Array.isArray(r?.warnings) ? r.warnings : []
+      if (failed.length || warnings.length) {
+        setCommitResult({ created, failed, warnings })
+        const failedItems = failed
+          .map((f) => payload[Number(f.index)])
+          .filter(Boolean)
+          .map((it) => ({ ...it, _key: 'imp-' + (keyRef.current++) }))
+        setItems(failedItems)
+        toast(failed.length ? `部分导入成功:成功 ${created} 条,失败 ${failed.length} 条` : `已导入 ${created} 条素材,但有 ${warnings.length} 条警告`, { tone: failed.length ? 'warn' : 'ok' })
+      } else {
+        toast(`已导入 ${created} 条素材`, { tone: 'ok' })
+        resetToInput()
+      }
     } catch (e) {
       toast(e?.body?.detail || e?.message || '导入提交失败', { tone: 'danger' })
     } finally {
@@ -291,6 +305,32 @@ export function MaterialImport({ onImported, onCancel }) {
         {/* ——— 预览阶段:可编辑列表 + 确认 ——— */}
         {phase === 'preview' && (
           <div className="flex-1 min-h-0 flex flex-col">
+            {commitResult && (
+              <div role="status" className="mb-3 rounded-lg border border-line bg-soft px-3 py-2 text-f12 text-ink leading-relaxed shrink-0">
+                <div className="font-medium text-ink">部分导入成功</div>
+                <div className="text-faint">成功 {commitResult.created} 条 · 失败 {commitResult.failed.length} 条{commitResult.warnings.length ? ` · 警告 ${commitResult.warnings.length} 条` : ''}</div>
+                {commitResult.failed.length > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    {commitResult.failed.map((f) => (
+                      <div key={`${f.index}-${f.title}`} className="text-f12">
+                        <span className="font-medium">{f.title || `第 ${Number(f.index) + 1} 条`}</span>
+                        <span className="text-faint">: {f.reason || '提交失败'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {commitResult.warnings.length > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    {commitResult.warnings.map((w) => (
+                      <div key={`${w.index}-${w.stage}`} className="text-f12">
+                        <span className="font-medium">{w.title || `第 ${Number(w.index) + 1} 条`}</span>
+                        <span className="text-faint">: {w.stage || 'warning'} · {w.reason || '处理降级'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="text-f12 text-faint mb-3 shrink-0">
               解析出 {items.length} 条素材,确认前可改标题 / 分类或删除。
             </div>

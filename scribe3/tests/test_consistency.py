@@ -122,6 +122,16 @@ class TestWriteGate:
         ("POST", "/materials"),
         ("PATCH", "/materials/{mid}"),
         ("DELETE", "/materials/{mid}"),
+        # 审查修复:素材导入是作者显式提交路径;import 只建后台预览 job,
+        # commit 才批量落素材且逐条返回 failed/warnings。
+        ("POST", "/materials/import"),
+        ("POST", "/materials/import/{job_id}/commit"),
+        # 审查修复:统一对象 lifecycle 删除,必须先经过 impact/token;
+        # 有引用时无 token 返回 409,不会静默删除。
+        ("DELETE", "/objects/{object_type}/{object_id}"),
+        # 审查修复:统一对象 lifecycle 归档,作者显式操作;只标记 archived,
+        # 不清引用、不硬删,用于替代高风险删除默认动作。
+        ("POST", "/objects/{object_type}/{object_id}/archive"),
         # 方案B任务24:story-import 逆向导入(作者可信通道,journal 断点续跑)
         ("POST", "/import"),
         # 北极星任务4:修复环编排(写:留版本;pass 分支另 save_chapter+ingest;

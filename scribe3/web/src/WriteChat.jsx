@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { Btn } from './ui.jsx'
@@ -51,7 +51,7 @@ function Bubble({ role, content, tools, note, streaming }) {
 }
 
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
-export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposalStart, onProposalChunk, onProposal }) {
+export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal }) {
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -138,7 +138,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
     // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
     ctrlRef.current = api.chatWrite(finalMsg, {
-      chapter, focalizer, images,
+      chapter, focalizer, images, phase,
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
       onProposalStart: (s) => onProposalStart?.(s),
@@ -151,7 +151,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
 
   return (
     <div
-      className="flex flex-col h-full min-h-0 relative"
+      data-testid="chief-write-chat"
+      className="flex flex-col h-full min-h-0 relative bg-surface"
       onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles([...e.dataTransfer.files]) }}
@@ -163,10 +164,10 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
       )}
 
       {/* 消息列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-f12 text-faint mb-2.5 leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
+            <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
             <div className="space-y-1.5">
               {SUGGESTS.map((s) => (
                 <button key={s} onClick={() => send(s)} className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
@@ -197,37 +198,46 @@ export function WriteChat({ chapter, focalizer, seedQuote, onSeedUsed, onProposa
       )}
 
       {/* 输入区 */}
-      <div className="shrink-0 border-t border-line px-2.5 py-2">
-        {/* 图2 风格:textarea 全宽在上,控件收在底部一行(附件左·发送右)——不再让图标竖列挤占输入宽度 */}
-        <div className={`rounded-xl border ${dragging ? 'border-brand' : 'border-line/50'} bg-canvas px-2.5 pt-2 pb-1.5 focus-within:border-brand transition-colors`}>
+      <div className="shrink-0 border-t border-line bg-surface px-3 py-2">
+        <div
+          data-testid="chief-chat-composer"
+          data-chief-composer="true"
+          className="chief-composer-panel rounded-xl px-2.5 py-2"
+        >
           <textarea
             ref={taRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={1}
-            placeholder="提思路 / 提要求…(Enter 发送,Shift+Enter 换行)"
+            placeholder="提思路 / 提要求…"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            className="w-full resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
+            className="block w-full min-h-[36px] max-h-28 resize-none border-0 bg-transparent px-0 py-0.5 text-f13 leading-relaxed text-ink outline-none shadow-none ring-0 placeholder:text-faint/70 focus:border-transparent focus:outline-none focus:ring-0 focus:shadow-none focus-visible:outline-none"
           />
-          <div className="flex items-center gap-0.5 mt-0.5">
-            <Btn variant="ghost" size="sm" icon
+          <div data-testid="chief-chat-toolbar" className="mt-1.5 flex items-center gap-1.5">
+            <Btn variant="ghost" icon
               onClick={() => fileRef.current?.click()}
-              title="附加图片或文本文件" aria-label="附加图片或文本文件"
+              title="添加图片或文本文件" aria-label="添加附件"
             >
-              <Paperclip size={14} />
+              <Paperclip size={15} />
+            </Btn>
+            <Btn variant="ghost" icon title="语音输入待接入" aria-label="语音输入" disabled>
+              <Mic size={15} />
             </Btn>
             <div className="flex-1" />
             {busy ? (
-              <Btn variant="primary" icon onClick={stop} title="停止生成" aria-label="停止生成">
+              <Btn variant="danger" onClick={stop} title="停止生成" aria-label="停止生成" className="h-8 min-w-[88px] shadow-none">
                 <X size={15} />
+                停止
               </Btn>
             ) : (
-              <Btn variant="primary" icon
+              <Btn variant="primary"
                 onClick={() => send()}
                 disabled={!input.trim() && attachments.length === 0}
+                className="h-8 min-w-[88px] shadow-none"
                 aria-label="发送"
               >
                 <Send size={15} />
+                发送
               </Btn>
             )}
           </div>

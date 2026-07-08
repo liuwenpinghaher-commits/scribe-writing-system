@@ -8,7 +8,6 @@ import { WriteLayout } from './WriteLayout'
 import { BriefPanel } from './BriefPanel'
 import { FramePanel } from './FramePanel'
 import { NorthStarPanel } from './NorthStarPanel'
-import { DeduceStage } from './DeduceStage'
 import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
 import { useTopbarSlot } from './TopbarSlotContext'
@@ -21,17 +20,21 @@ import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 const PHASES = [
   { key: 'outline', label: '大纲', icon: AlignLeft },
   { key: 'beats', label: '节拍', icon: ListChecks },
-  { key: 'deduce', label: '演绎', icon: Sparkles },
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
   { key: 'brief', label: '简报', icon: ScrollText },
   { key: 'frame', label: '限知帧', icon: Eye },
   { key: 'northstar', label: '北极星', icon: Compass },
 ]
-const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft', 'frame'])
+const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
+const META_PHASES = new Set(['outline', 'beats', 'draft', 'frame'])
+const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
-// 中区各阶段统一容器留白(P1):统一 max-w / py,消除三种 max-w、两种 py。
-const STAGE_WRAP = 'max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0'
+// 中区各阶段统一章工作台骨架:同一 max-w / padding / header / meta 节奏,阶段只换内容。
+const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-5 h-full flex flex-col min-h-0 gap-3 bg-canvas'
+const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
+const AUX_PANEL_WRAP = 'max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0'
+const FRAME_PANEL_WRAP = 'max-w-[68rem] mx-auto px-5 py-5 h-full flex flex-col min-h-0'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
@@ -44,11 +47,52 @@ function MetaBar({ meta, wordCount }) {
   const done = (meta.deductions || []).filter((d) => (d.prose || '').trim()).length
   const wc = wordCount != null ? wordCount : (meta.synopsis ? null : null)
   return (
-    <div className="text-f11 text-faint flex items-center gap-2 flex-wrap mb-2 leading-snug">
-      <span>视角:{focName}</span>
-      <span className="opacity-50">·</span>
-      <span>涉及角色 {done}/{involved.length} 已演绎</span>
-      {wc != null && <><span className="opacity-50">·</span><span className="tnum">字数 {wc}</span></>}
+    <div data-testid="chapter-stage-meta" className="flex items-center gap-1.5 flex-wrap pb-3 border-b border-line">
+      <span className="inline-flex items-center h-6 rounded-full border border-brand/20 bg-brand/10 px-2.5 text-f11 text-brand">视角 · {focName}</span>
+      <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-f11 text-faint">涉及角色 {done}/{involved.length} 已演绎</span>
+      {wc != null && <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-f11 text-faint tnum">字数 {wc}</span>}
+    </div>
+  )
+}
+
+function StageTitle({ title, subtitle, actions }) {
+  return (
+    <div className="flex items-start justify-between gap-4 min-w-0">
+      <div className="min-w-0">
+        <h3 data-testid="chapter-stage-heading" className="text-f20 leading-tight font-semibold text-ink">{title}</h3>
+        <div className="mt-1 text-f13 text-faint leading-snug">{subtitle}</div>
+      </div>
+      {actions && <div className={STAGE_ACTIONS}>{actions}</div>}
+    </div>
+  )
+}
+
+export function ChapterMaterialRefs({ seq, onSelectMaterial }) {
+  const [refs, setRefs] = useState(null)
+  useEffect(() => {
+    if (seq == null) { setRefs([]); return }
+    let alive = true
+    api.materialRefsByChapter(seq).then((r) => { if (alive) setRefs(Array.isArray(r) ? r : []) }).catch(() => { if (alive) setRefs([]) })
+    return () => { alive = false }
+  }, [seq])
+  if (!refs || refs.length === 0) return null
+  return (
+    <div className="shrink-0 border-b border-line bg-surface px-4 py-2">
+      <div className="mb-1 text-f11 font-semibold text-faint">本章参考素材</div>
+      <div className="flex flex-wrap gap-1.5">
+        {refs.map((r, i) => {
+          const title = r.title || r.material_id
+          const phase = r.phase || r.dimension || r.via
+          return (
+            <button key={`${r.material_id}:${i}`} type="button"
+              onClick={() => onSelectMaterial?.({ id: `material:${r.material_id}`, type: 'material', ref: r.material_id, label: title, meta: { kind: r.kind } })}
+              className="rounded-md border border-line bg-canvas px-2 py-1 text-f11 text-ink hover:border-brand/40">
+              <span>{title}</span>
+              {phase && <span className="ml-1 text-faint">phase:{phase}</span>}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -108,17 +152,20 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
   }
 
   return (
-    <div className={STAGE_WRAP}>
+    <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="outline">
+      <StageTitle
+        title="大纲"
+        subtitle="本章要发生什么、读者应带走什么、哪些伏笔需要埋下。"
+        actions={(
+          <>
+            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'outline', seq, text: `帮我把第 ${seq} 章大纲展开成 3-5 句` })} title="把话术带到右栏主编,生成后可一键填入">
+              <Sparkles size={13} />让主编生成
+            </Btn>
+            <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
+          </>
+        )}
+      />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex items-center justify-between mb-2 gap-2">
-        <h3 className="text-f13 font-semibold text-ink">本章大纲 · 一句话到一段话写清这章要发生什么</h3>
-        <div className="flex items-center gap-2 shrink-0">
-          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'outline', seq, text: `帮我把第 ${seq} 章大纲展开成 3-5 句` })} title="把话术带到右栏主编,生成后可一键填入">
-            <Sparkles size={13} />让主编生成
-          </Btn>
-          <span className="text-f11 text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
-        </div>
-      </div>
       {pending && (
         <ProposalBar
           text={`主编生成了内容(${pending.content.replace(/\s/g, '').length} 字),可落进大纲。`}
@@ -135,7 +182,7 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
         placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
         className="flex-1 min-h-0"
       />
-      <div className="text-f12 text-faint mt-2 leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
+      <div className="text-f12 text-faint leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
     </div>
   )
 }
@@ -229,17 +276,20 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
   }
 
   return (
-    <div className={STAGE_WRAP}>
+    <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="beats">
+      <StageTitle
+        title="节拍"
+        subtitle="把大纲拆成有序小节点,保持因果顺序和信息释放节奏。"
+        actions={(
+          <>
+            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'beats', seq, text: `据大纲把第 ${seq} 章拆成有序节拍,一行一条` })} title="把话术带到右栏主编,生成后可一键追加">
+              <Sparkles size={13} />让主编生成
+            </Btn>
+            <span className="text-f11 text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
+          </>
+        )}
+      />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <h3 className="text-f13 font-semibold text-ink">节拍 · 把这章拆成有序的小节点</h3>
-        <div className="flex items-center gap-2 shrink-0">
-          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'beats', seq, text: `据大纲把第 ${seq} 章拆成有序节拍,一行一条` })} title="把话术带到右栏主编,生成后可一键追加">
-            <Sparkles size={13} />让主编生成
-          </Btn>
-          <span className="text-f11 text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
-        </div>
-      </div>
       {pending && (
         <ProposalBar
           text={`主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
@@ -248,7 +298,7 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
         />
       )}
 
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2">
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -262,11 +312,11 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
 
       <div className="flex-1 min-h-0 overflow-y-auto">
       {beats.length === 0 ? (
-        <div className="text-f13 text-faint text-center py-10 rounded-xl border border-dashed border-line">还没有节拍。把这章想发生的事一条条列出来。</div>
+        <div className="text-f13 text-faint text-center py-10 rounded-lg border border-dashed border-line bg-surface">还没有节拍。把这章想发生的事一条条列出来。</div>
       ) : (
         <div className="space-y-1.5">
           {beats.map((b, i) => (
-            <div key={b._id} className="group flex items-start gap-2 rounded-lg border border-line bg-canvas px-2.5 py-2">
+            <div key={b._id} className="group flex items-start gap-2 rounded-lg border border-line bg-surface px-2.5 py-2">
               <button onClick={() => toggle(i)}
                 className={`w-5 h-5 mt-0.5 rounded-md border shrink-0 inline-flex items-center justify-center cursor-pointer transition-colors ${b.done ? 'bg-brand border-brand text-brandfg' : 'border-line hover:border-brand'}`}>
                 {b.done && <Check size={13} />}
@@ -360,34 +410,36 @@ function DraftTab({ seq, work, meta, onAdopt }) {
 
   const wc = text.replace(/\s/g, '').length
   return (
-    <div className={STAGE_WRAP}>
+    <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="draft">
+      <StageTitle
+        title="草稿"
+        subtitle="放手起草,满意后采用为正文再进入正式校验。"
+        actions={(
+          <>
+            <span className="text-f11 text-faint tnum">{wc} 字</span>
+            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })} title="把话术带到右栏主编,生成后可一键填入">
+              <Sparkles size={13} />让主编生成
+            </Btn>
+            <Btn variant="ghost" size="sm" disabled={checking || !text.trim()}
+              onClick={() => {
+                setChecking(true)
+                api.draftCheck(seq, text, meta?.focalizer || '')
+                  .then(setCheckRes)
+                  .catch((e) => setCheckRes({ error: e?.body?.detail || e?.message || '质检失败' }))
+                  .finally(() => setChecking(false))
+              }} title="确定性轻质检:五类 QC/整行复读/排比/情感直说/泄露预览,不落库不打断">
+              {checking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}质检
+            </Btn>
+            <Btn variant="soft" size="sm" onClick={saveDraft} disabled={saving}>
+              <Save size={13} />存草稿
+            </Btn>
+            <Btn variant="primary" size="sm" onClick={adopt} disabled={saving || !text.trim()}>
+              <Check size={13} />采用为正文
+            </Btn>
+          </>
+        )}
+      />
       <MetaBar meta={meta} wordCount={wc} />
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-f13 font-semibold text-ink">草稿 · 自由打磨,满意后采用为正文</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-f11 text-faint tnum">{wc} 字</span>
-          <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })} title="把话术带到右栏主编,生成后可一键填入">
-            <Sparkles size={13} />让主编生成
-          </Btn>
-          {/* 断头修复#22:/draft-check 后端与测试全绿而前端零调用——草稿阶段首次接上确定性质检 */}
-          <Btn variant="ghost" size="sm" disabled={checking || !text.trim()}
-            onClick={() => {
-              setChecking(true)
-              api.draftCheck(seq, text, meta?.focalizer || '')
-                .then(setCheckRes)
-                .catch((e) => setCheckRes({ error: e?.body?.detail || e?.message || '质检失败' }))
-                .finally(() => setChecking(false))
-            }} title="确定性轻质检:五类 QC/整行复读/排比/情感直说/泄露预览,不落库不打断">
-            {checking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}质检
-          </Btn>
-          <Btn variant="soft" size="sm" onClick={saveDraft} disabled={saving}>
-            <Save size={13} />存草稿
-          </Btn>
-          <Btn variant="primary" size="sm" onClick={adopt} disabled={saving || !text.trim()}>
-            <Check size={13} />采用为正文
-          </Btn>
-        </div>
-      </div>
       {pending && (
         <ProposalBar
           text={`主编生成了本章草稿(${pending.content.replace(/\s/g, '').length} 字),可直接落进草稿框。`}
@@ -396,7 +448,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
         />
       )}
       {checkRes && (
-        <div className="mb-2 rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12">
+        <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12">
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">草稿质检</span>
             <button onClick={() => setCheckRes(null)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">关闭</button>
@@ -420,7 +472,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
         value={summary}
         onChange={(e) => { setSummary(e.target.value); draftRef.current.dirty = true }}
         placeholder="给这版草稿一句备注(可留空)"
-        className="h-8 mb-2"
+        className="h-8"
       />
       <RichEditor
         value={text}
@@ -430,7 +482,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
         className="flex-1 min-h-0"
       />
-      <div className="text-f12 text-faint mt-2 leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
+      <div className="text-f12 text-faint leading-snug">草稿区不跑护栏/QC,放手写;正文区才上全套校验。</div>
     </div>
   )
 }
@@ -440,16 +492,24 @@ function DraftTab({ seq, work, meta, onAdopt }) {
  * 大纲/节拍/草稿 = ChapterStudio 自带轻量编辑器(patchChapter/saveDraft);
  * 正文 = 整体复用 WriteLayout(护栏/QC/帧/伏笔/版本/检索/主编对话全保留)。
  */
-export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }) {
+export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, onSelectNode }) {
   const toast = useToast()
   // 初值优先吃 selection 的 phase 提示(全书大纲点章行→直落大纲阶段,不闪上次阶段)
-  const [phase, setPhase] = useState(() => initialPhase || localStorage.getItem('s3.chapter.phase') || 'final')
+  const [phase, setPhase] = useState(() => normalizePhase(initialPhase || localStorage.getItem('s3.chapter.phase') || 'final'))
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
 
   // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
   const setPhaseP = useCallback((p) => {
+    const nextPhase = normalizePhase(p)
+    const openDeduce = () => {
+      try { window.dispatchEvent(new CustomEvent('s3-open-capability', { detail: { capability: 'deduce', seq } })) } catch { /* */ }
+    }
+    if (p === 'deduce') {
+      openDeduce()
+      return
+    }
     if (p === 'draft' && meta) {
       const deds = meta.deductions || []
       const done = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
@@ -458,12 +518,12 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
         // 断头修复#8:软门带可点"去补"入口(此前只有文案,无跳转动作)
         toast(`还有 ${pending.length} 个涉及角色未演绎(不影响继续)`, {
           tone: 'warn',
-          action: { label: '去补', onClick: () => { setPhase('deduce'); localStorage.setItem('s3.chapter.phase', 'deduce') } },
+          action: { label: '去补', onClick: openDeduce },
         })
       }
     }
-    setPhase(p); localStorage.setItem('s3.chapter.phase', p)
-  }, [meta, toast])
+    setPhase(nextPhase); localStorage.setItem('s3.chapter.phase', nextPhase)
+  }, [meta, seq, toast])
 
   const topbarPhase = useMemo(() => (
     <PhaseTabs phase={phase} onPhase={setPhaseP} data-testid="chapter-phase-topbar" />
@@ -473,7 +533,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   // 单一真相源(块四a-2):从全书大纲点章行进来(selection 带 phase 提示)→ 落该章对应阶段
   // (通常 'outline',与书级大纲读写同一 synopsis 字段)。项目树/章导航不带提示 → 保持上次阶段。
   useEffect(() => {
-    if (initialPhase) setPhaseP(initialPhase)
+    if (initialPhase) setPhaseP(normalizePhase(initialPhase))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPhase, seq])
 
@@ -510,6 +570,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
   if (phase === 'final') {
     return (
       <div className="h-full flex flex-col min-h-0">
+        <ChapterMaterialRefs seq={seq} onSelectMaterial={onSelectNode} />
         <div className="flex-1 min-h-0">
           <WriteLayout key={work} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
@@ -528,8 +589,6 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
           <OutlineTab seq={seq} work={work} value={meta?.synopsis} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'beats' ? (
           <BeatsTab seq={seq} work={work} value={meta?.beats} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
-        ) : phase === 'deduce' ? (
-          <DeduceStage seq={seq} work={work} meta={meta} onSaved={() => setRefresh((r) => r + 1)} />
         ) : phase === 'draft' ? (
           <DraftTab seq={seq} work={work} meta={meta} onAdopt={(text) => {
             // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
@@ -539,11 +598,11 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange }
               .catch((e) => toast('采用为正文失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' }))
           }} />
         ) : phase === 'brief' ? (
-          <div className={STAGE_WRAP}><BriefPanel seq={seq} /></div>
+          <div className={AUX_PANEL_WRAP}><BriefPanel seq={seq} /></div>
         ) : phase === 'frame' ? (
-          <div className={STAGE_WRAP}><FramePanel focalizer={meta?.focalizer || ''} chapter={seq} /></div>
+          <div className={FRAME_PANEL_WRAP}><FramePanel focalizer={meta?.focalizer || ''} focalizerOptions={meta?.chars || []} chapter={seq} /></div>
         ) : phase === 'northstar' ? (
-          <div className={STAGE_WRAP}><NorthStarPanel seq={seq} /></div>
+          <div className={AUX_PANEL_WRAP}><NorthStarPanel seq={seq} /></div>
         ) : null}
       </div>
     </div>

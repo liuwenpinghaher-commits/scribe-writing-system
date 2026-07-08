@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>左栏能力与手稿目录 Demo</title>
+  <style>
+    :root {
+      --canvas: #f6f4ee;
+      --surface: #fffdf8;
+      --surface-2: #f0ede5;
+      --line: #ddd6ca;
+      --ink: #2d2a25;
+      --muted: #756f65;
+      --faint: #9a9388;
+      --brand: #2f7563;
+      --brand-soft: #dcebe5;
+      --accent: #8a5c19;
+      --danger: #a34040;
+      --blue: #386a9f;
+      --shadow: rgba(38, 32, 24, .12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #e8e3d8;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+    }
+
+    .demo {
+      width: min(1440px, 100%);
+      height: min(900px, calc(100vh - 48px));
+      min-height: 720px;
+      border: 1px solid var(--line);
+      background: var(--canvas);
+      box-shadow: 0 20px 52px var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 48px 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      min-width: 0;
+    }
+
+    .brand {
+      color: var(--brand);
+      font-weight: 760;
+      font-size: 15px;
+      min-width: 72px;
+    }
+
+    .book {
+      height: 30px;
+      max-width: 170px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      background: #fbfaf6;
+      color: var(--muted);
+      border-radius: 7px;
+      font-size: 13px;
+    }
+
+    .views, .phase {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .views {
+      padding-left: 12px;
+      border-left: 1px solid var(--line);
+    }
+
+    .phase {
+      margin-left: auto;
+      max-width: 54%;
+      overflow-x: auto;
+      scrollbar-width: none;
+      background: var(--surface-2);
+      padding: 3px;
+      border-radius: 8px;
+    }
+
+    .phase::-webkit-scrollbar { display: none; }
+
+    .topbtn {
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0 9px;
+      font-size: 13px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+
+    .topbtn.active {
+      background: var(--surface);
+      color: var(--brand);
+      font-weight: 680;
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 124px 320px minmax(460px, 1fr) 300px;
+    }
+
+    .rail,
+    .directory,
+    .right {
+      min-height: 0;
+      background: var(--surface);
+    }
+
+    .rail {
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .rail-scroll {
+      overflow-y: auto;
+      padding: 10px 8px 14px;
+    }
+
+    .group-label {
+      margin: 12px 8px 6px;
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .rail-btn {
+      width: 100%;
+      height: 36px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px;
+      margin-bottom: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .rail-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+    .rail-btn.active {
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-weight: 720;
+    }
+
+    .rail-ico {
+      width: 18px;
+      height: 18px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 5px;
+      background: rgba(47, 117, 99, .08);
+      font-size: 11px;
+      flex: 0 0 auto;
+    }
+
+    .directory {
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+    }
+
+    .dir-head {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 253, 248, .96);
+      padding: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .dir-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .dir-title {
+      font-size: 15px;
+      font-weight: 760;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .badge {
+      min-width: 0;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0 8px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+
+    .badge.green { background: var(--brand-soft); color: var(--brand); }
+    .badge.warn { background: #f4e4c9; color: var(--accent); }
+    .badge.red { background: #f2dada; color: var(--danger); }
+    .badge.blue { background: #dbe7f2; color: var(--blue); }
+
+    .current {
+      border: 1px solid var(--line);
+      background: #fbfaf6;
+      border-radius: 8px;
+      padding: 9px;
+      margin-bottom: 9px;
+    }
+
+    .current-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .current-sub {
+      margin-top: 3px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .input {
+      min-width: 0;
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 0 9px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .small-btn {
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--muted);
+      padding: 0 9px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .small-btn.primary {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: white;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .chip {
+      height: 24px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted);
+      padding: 0 8px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .chip.active {
+      background: var(--brand-soft);
+      color: var(--brand);
+      border-color: transparent;
+      font-weight: 680;
+    }
+
+    .dir-body {
+      overflow-y: auto;
+      min-height: 0;
+      padding: 10px 10px 18px;
+    }
+
+    .section-title {
+      color: var(--faint);
+      font-size: 10px;
+      font-weight: 760;
+      text-transform: uppercase;
+      margin: 12px 2px 6px;
+    }
+
+    .tree-row {
+      min-height: 34px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 8px;
+      margin: 2px 0;
+      text-align: left;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .tree-row:hover { background: var(--surface-2); color: var(--ink); }
+
+    .tree-row.active {
+      background: var(--brand-soft);
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .indent-1 { padding-left: 22px; }
+    .indent-2 { padding-left: 42px; }
+
+    .arrow {
+      color: var(--faint);
+      width: 12px;
+      text-align: center;
+    }
+
+    .count {
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .detail {
+      min-width: 0;
+      min-height: 0;
+      background: var(--canvas);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .detail-head {
+      min-height: 76px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 253, 248, .82);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 22px;
+    }
+
+    .crumb {
+      color: var(--faint);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .detail-title {
+      font-size: 20px;
+      font-weight: 780;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+
+    .detail-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 22px;
+    }
+
+    .workspace {
+      display: grid;
+      gap: 16px;
+      max-width: 960px;
+    }
+
+    .band {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .band-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 760;
+      margin-bottom: 10px;
+    }
+
+    .body-text {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(221, 214, 202, .72);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metric-row:last-child { border-bottom: 0; }
+
+    .quote {
+      border-left: 3px solid var(--brand);
+      padding-left: 12px;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.8;
+      background: linear-gradient(90deg, rgba(47, 117, 99, .08), transparent);
+    }
+
+    .right {
+      border-left: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+    }
+
+    .right-tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 2px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .right-tabs button {
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .right-tabs button.active {
+      background: var(--surface-2);
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .right-body {
+      padding: 14px;
+      overflow: auto;
+      min-height: 0;
+    }
+
+    .chief-box {
+      border: 1px solid var(--line);
+      background: #fbfaf6;
+      border-radius: 8px;
+      padding: 13px;
+      margin-bottom: 12px;
+    }
+
+    .chief-title {
+      font-size: 13px;
+      font-weight: 760;
+      margin-bottom: 6px;
+    }
+
+    .chief-text {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .hint {
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 110px 286px minmax(420px, 1fr); }
+      .right { display: none; }
+      .phase { max-width: 45%; }
+    }
+
+    @media (max-width: 900px) {
+      .page { padding: 10px; }
+      .demo { height: calc(100vh - 20px); min-height: 680px; }
+      .shell { grid-template-columns: 96px minmax(230px, 36%) 1fr; }
+      .book { display: none; }
+      .views .topbtn span { display: none; }
+      .phase { display: none; }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="demo" aria-label="左栏能力与手稿目录交互 Demo">
+      <header class="topbar">
+        <div class="brand">SCRIBE3</div>
+        <div class="book">乱世铜炉 <span>⌄</span></div>
+        <nav class="views" aria-label="全局视图">
+          <button class="topbtn">图谱</button>
+          <button class="topbtn">时间线</button>
+          <button class="topbtn active">仪表盘</button>
+        </nav>
+        <nav class="phase" aria-label="当前章阶段">
+          <button class="topbtn">大纲</button>
+          <button class="topbtn">节拍</button>
+          <button class="topbtn">草稿</button>
+          <button class="topbtn active">正文</button>
+          <button class="topbtn">简报</button>
+          <button class="topbtn">限知帧</button>
+          <button class="topbtn">北极星</button>
+        </nav>
+      </header>
+
+      <div class="shell">
+        <aside class="rail" aria-label="能力入口">
+          <div></div>
+          <div class="rail-scroll" id="rail"></div>
+        </aside>
+
+        <aside class="directory" aria-label="二级目录">
+          <div class="dir-head" id="dirHead"></div>
+          <div class="dir-body" id="dirBody"></div>
+        </aside>
+
+        <section class="detail" aria-label="详情区域">
+          <div class="detail-head" id="detailHead"></div>
+          <div class="detail-body" id="detailBody"></div>
+        </section>
+
+        <aside class="right" aria-label="右侧主编">
+          <div class="right-tabs">
+            <button class="active">主编</button>
+            <button>选择环</button>
+            <button>存档</button>
+            <button>Pilot</button>
+            <button>收件箱</button>
+          </div>
+          <div class="right-body">
+            <div class="chief-box">
+              <div class="chief-title">当前上下文</div>
+              <div class="chief-text" id="chiefContext">手稿 · 第 23 章 · 正文</div>
+            </div>
+            <div class="chief-box">
+              <div class="chief-title">主编建议</div>
+              <div class="chief-text">右栏只保留辅助判断和对话,不再把演绎、伏笔、母题、搜索、校验塞到这里做主工作台。</div>
+            </div>
+            <div class="hint">切换左侧能力时,这里只跟随显示上下文摘要,主操作始终在栏2和栏3完成。</div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const railGroups = [
+      { label: '内容', items: [
+        { key: 'manuscript', icon: '稿', label: '手稿' },
+        { key: 'codex', icon: '设', label: '设定' },
+        { key: 'materials', icon: '素', label: '素材' },
+      ] },
+      { label: '工艺', items: [
+        { key: 'deduce', icon: '演', label: '演绎' },
+        { key: 'promise', icon: '伏', label: '伏笔' },
+        { key: 'motif', icon: '母', label: '母题' },
+      ] },
+      { label: '检查', items: [
+        { key: 'search', icon: '搜', label: '搜索' },
+        { key: 'review', icon: '验', label: '校验' },
+      ] },
+    ];
+
+    const state = {
+      activeRail: 'manuscript',
+      activeItem: 'ch23',
+    };
+
+    const data = {
+      manuscript: {
+        title: '手稿',
+        badge: '第 23 章',
+        current: ['当前: 第 23 章 · 正文', '第二卷 · 角色误判升级 · 2,840 字'],
+        chips: ['当前卷', '未完成', '含伏笔', '含母题'],
+        sections: [
+          { title: '书级', rows: [
+            ['book-outline', '全书大纲', '纲', ''],
+            ['book-northstar', '北极星', '星', ''],
+            ['book-progress', '进度', '度', ''],
+          ] },
+          { title: '卷', rows: [
+            ['vol1', '第一卷 · 火起铜炉', '▾', '12'],
+            ['ch01', '第 1 章 入城', '', '终选', 1],
+            ['ch02', '第 2 章 借命契', '', '正文', 1],
+            ['vol2', '第二卷 · 纸上命', '▾', '28'],
+            ['ch21', '第 21 章 灰烬账', '', '正文', 1],
+            ['ch22', '第 22 章 夜审', '', '草稿', 1],
+            ['ch23', '第 23 章 纸命回火', '', '正文', 1],
+            ['sc23a', '场景 1 · 误认药引', '', '1,020', 2],
+            ['sc23b', '场景 2 · 小翠隐瞒', '', '860', 2],
+            ['sc23c', '场景 3 · 柳怀玉定策', '', '960', 2],
+            ['vol3', '第三卷 · 山门裂', '▸', '34'],
+          ] },
+          { title: '未归卷章节', rows: [
+            ['ch98', '第 98 章 尾声备忘', '', '草稿'],
+            ['ch99', '番外 · 炉灰', '', '片段'],
+          ] },
+        ],
+      },
+      codex: {
+        title: '设定',
+        badge: '184 条',
+        current: ['当前: 角色 · 柳怀玉', '设定分类在栏2,详情在栏3'],
+        chips: ['角色', '势力', '物件', '命题'],
+        sections: [
+          { title: '分类', rows: [
+            ['character', '角色', '人', '38'],
+            ['faction', '势力', '盟', '9'],
+            ['item', '物件', '器', '43'],
+            ['term', '术语', '词', '31'],
+            ['world', '世界规则', '界', '18'],
+            ['proposition', '命题', '题', '45'],
+          ] },
+          { title: '角色', rows: [
+            ['char-liu', '柳怀玉', '', '主角'],
+            ['char-cui', '小翠', '', '限知'],
+            ['char-yan', '严知府', '', '对手'],
+          ] },
+        ],
+      },
+      materials: {
+        title: '素材',
+        badge: '67 条',
+        current: ['当前: 资料 · 铜炉制度', '素材列表留在栏2,素材详情进入栏3'],
+        chips: ['笔记', '片段', '资料', '灵感'],
+        sections: [
+          { title: '类型', rows: [
+            ['mat-note', '笔记', '记', '22'],
+            ['mat-fragment', '片段', '段', '15'],
+            ['mat-source', '资料', '资', '18'],
+            ['mat-idea', '灵感', '灵', '12'],
+          ] },
+          { title: '最近素材', rows: [
+            ['mat-copper', '铜炉制度摘录', '', '资料'],
+            ['mat-market', '夜市气味片段', '', '片段'],
+            ['mat-oath', '借命契口吻', '', '笔记'],
+          ] },
+        ],
+      },
+      deduce: {
+        title: '演绎',
+        badge: '当前章',
+        current: ['当前章: 第 23 章', '场景真相和角色限知不再放顶栏'],
+        chips: ['同步当前章', '场景真相', '角色限知'],
+        sections: [
+          { title: '推导目录', rows: [
+            ['deduce-truth', '场景真相', '真', '3'],
+            ['deduce-roles', '角色限知', '限', '4'],
+            ['deduce-liu', '柳怀玉知道什么', '', '角色', 1],
+            ['deduce-cui', '小翠隐瞒什么', '', '角色', 1],
+            ['deduce-add', '+ 添加涉及角色', '', '', 1],
+            ['deduce-conflict', '冲突与误判', '误', '2'],
+            ['deduce-public', '可公开信息', '明', '6'],
+          ] },
+        ],
+      },
+      promise: {
+        title: '伏笔',
+        badge: '7 悬',
+        current: ['当前: 本章要收', '伏笔台账走栏2列表,详情在栏3'],
+        chips: ['本章', '全书', '超期', '仍悬'],
+        sections: [
+          { title: '分类', rows: [
+            ['promise-payoff', '本章要收', '收', '3'],
+            ['promise-setup', '本章新埋', '埋', '2'],
+            ['promise-overdue', '超期未收', '警', '4'],
+            ['promise-open', '仍悬', '悬', '7'],
+            ['promise-done', '已回收', '完', '19'],
+          ] },
+          { title: '条目', rows: [
+            ['promise-contract', '借命契为何反噬', '', '超期'],
+            ['promise-ash', '炉灰颜色变化', '', '本章收'],
+            ['promise-name', '小翠真名', '', '仍悬'],
+          ] },
+        ],
+      },
+      motif: {
+        title: '母题',
+        badge: '本章 4',
+        current: ['当前: 命与纸', '母题不再只是小面板,可进入完整证据页'],
+        chips: ['本章触及', '本卷', '全书', '证据不足'],
+        sections: [
+          { title: '范围', rows: [
+            ['motif-chapter', '本章触及', '章', '4'],
+            ['motif-volume', '本卷主母题', '卷', '3'],
+            ['motif-book', '全书母题', '书', '11'],
+            ['motif-thin', '证据不足', '弱', '2'],
+            ['motif-repeat', '过度重复', '重', '1'],
+          ] },
+          { title: '母题', rows: [
+            ['motif-paper', '命与纸', '', '主'],
+            ['motif-fire', '火与债', '', '高频'],
+            ['motif-name', '真名与替身', '', '弱'],
+          ] },
+        ],
+      },
+      search: {
+        title: '搜索',
+        badge: '语义',
+        current: ['按意思搜: 炼丹复活', '搜索框固定在栏2顶部,结果详情在栏3'],
+        chips: ['全书', '设定', '正文', '素材'],
+        sections: [
+          { title: '结果', rows: [
+            ['search-1', '柳怀玉炼丹失败记录', '设', '92%'],
+            ['search-2', '第 11 章 复活禁术', '章', '88%'],
+            ['search-3', '铜炉制度摘录', '素', '81%'],
+            ['search-4', '命题: 借命必有代价', '题', '77%'],
+          ] },
+          { title: '最近搜索', rows: [
+            ['search-r1', '炼丹复活', '', '刚刚'],
+            ['search-r2', '小翠隐瞒身份', '', '昨日'],
+          ] },
+        ],
+      },
+      review: {
+        title: '校验',
+        badge: '12 命中',
+        current: ['当前章: 第 23 章', '命中列表在栏2,解释和修复建议在栏3'],
+        chips: ['本章', '重查', '只看严重'],
+        sections: [
+          { title: '检查项', rows: [
+            ['review-summary', '本章总览', '览', '12'],
+            ['review-repeat', '复读', '复', '3'],
+            ['review-cross', '跨章复读', '跨', '2'],
+            ['review-sentence', '整句重复', '句', '1'],
+            ['review-parallel', '排比句式', '排', '2'],
+            ['review-emotion', '情感直说', '情', '1'],
+            ['review-ai', 'AI 腔', '腔', '2'],
+            ['review-tension', '张力检查', '力', '1'],
+            ['review-leak', '限知泄露', '漏', '0'],
+          ] },
+        ],
+      },
+    };
+
+    const detailCopy = {
+      manuscript: {
+        crumb: '手稿 / 第二卷 / 第 23 章',
+        title: '第 23 章 · 纸命回火',
+        body: [
+          ['章工作台', '栏3只负责正文、阶段工作台和章详情。栏2保留卷章目录,不会因为打开正文而被替换。'],
+          ['当前段落', '柳怀玉看见炉灰变白,才意识到借命契并没有失效。小翠知道真相,但她不能在此时说出口。'],
+        ],
+        metrics: [['字数', '2,840'], ['状态', '正文'], ['伏笔', '收 3 · 埋 2'], ['母题', '命与纸 · 火与债']],
+      },
+      codex: {
+        crumb: '设定 / 角色',
+        title: '柳怀玉',
+        body: [
+          ['角色档案', '设定分类和条目列表固定在栏2,角色档案、关系、命题证据进入栏3。'],
+          ['当前问题', '这一章里柳怀玉只能看到炉灰变化,不能知道小翠真名,否则会破坏限知。'],
+        ],
+        metrics: [['首现章', '第 1 章'], ['关系', '小翠 · 严知府'], ['命题', '行动先于理解'], ['风险', '限知泄露']],
+      },
+      materials: {
+        crumb: '素材 / 资料',
+        title: '铜炉制度摘录',
+        body: [
+          ['素材详情', '素材搜索、类型过滤和最近素材留在栏2,栏3展示素材正文、来源、可用片段和引用关系。'],
+          ['可用片段', '铜炉并非刑具,而是契约的见证物。炉灰变白代表债务换手,不是净化。'],
+        ],
+        metrics: [['类型', '资料'], ['可信度', '高'], ['已引用', '4 处'], ['可联想', '7 条']],
+      },
+      deduce: {
+        crumb: '演绎 / 第 23 章',
+        title: '场景真相与角色限知',
+        body: [
+          ['演绎工作台', '演绎回到左栏能力入口,二级目录承载场景真相、角色限知、冲突误判。栏3展示完整推导。'],
+          ['本场真相', '小翠知道借命契会反噬,柳怀玉只看见反常现象。读者可以看见她犹豫,但不能得到解释。'],
+        ],
+        metrics: [['真相层', '3'], ['涉及角色', '4'], ['误判', '2'], ['可公开信息', '6']],
+      },
+      promise: {
+        crumb: '伏笔 / 本章要收',
+        title: '借命契为何反噬',
+        body: [
+          ['伏笔详情', '伏笔分类和条目列表留在栏2,栏3显示埋收窗口、证据、关联章节和修复动作。'],
+          ['收束建议', '本章可以收“炉灰变白”的现象,但不要解释完整规则。完整规则留到第 28 章。'],
+        ],
+        metrics: [['埋设', '第 2 章'], ['计划回收', '第 23 章'], ['状态', '超期'], ['相关母题', '命与纸']],
+      },
+      motif: {
+        crumb: '母题 / 本章触及',
+        title: '命与纸',
+        body: [
+          ['母题详情', '母题入口留在左栏,证据片段、出现章节、过度重复提示和使用建议进入栏3。'],
+          ['证据片段', '纸命不是命运隐喻,而是故事里的契约物。它必须通过动作和代价出现,不能只靠台词解释。'],
+        ],
+        metrics: [['本章出现', '4'], ['全书出现', '18'], ['证据强度', '高'], ['重复风险', '中']],
+      },
+      search: {
+        crumb: '搜索 / 语义召回',
+        title: '“炼丹复活”的召回结果',
+        body: [
+          ['召回详情', '搜索框固定在栏2顶部,结果列表不挤详情。栏3展示命中理由、上下文和跳转目标。'],
+          ['命中理由', '结果同时匹配“炼丹失败”“复活禁术”“借命代价”三个语义簇,不是简单关键词命中。'],
+        ],
+        metrics: [['最高相关', '92%'], ['设定命中', '8'], ['正文命中', '12'], ['素材命中', '5']],
+      },
+      review: {
+        crumb: '校验 / 本章总览',
+        title: '第 23 章校验命中',
+        body: [
+          ['校验详情', '校验类型和命中列表在栏2,栏3展示上下文、解释、定位和修复建议。'],
+          ['严重命中', '“她心中充满复杂情绪”属于情感直说。建议改成动作、停顿或选择,让读者自己判断。'],
+        ],
+        metrics: [['总命中', '12'], ['严重', '2'], ['可自动修', '5'], ['限知泄露', '0']],
+      },
+    };
+
+    function renderRail() {
+      const rail = document.getElementById('rail');
+      rail.innerHTML = railGroups.map(group => `
+        <div class="group-label">${group.label}</div>
+        ${group.items.map(item => `
+          <button class="rail-btn ${state.activeRail === item.key ? 'active' : ''}" data-rail="${item.key}">
+            <span class="rail-ico">${item.icon}</span>
+            <span>${item.label}</span>
+          </button>
+        `).join('')}
+      `).join('');
+
+      rail.querySelectorAll('[data-rail]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.activeRail = btn.dataset.rail;
+          state.activeItem = defaultItem(btn.dataset.rail);
+          render();
+        });
+      });
+    }
+
+    function defaultItem(key) {
+      const first = data[key].sections[0].rows[0];
+      if (key === 'manuscript') return 'ch23';
+      return first[0];
+    }
+
+    function renderDirectory() {
+      const cfg = data[state.activeRail];
+      const [main, sub] = cfg.current;
+      document.getElementById('dirHead').innerHTML = `
+        <div class="dir-title-row">
+          <div class="dir-title">${cfg.title}</div>
+          <span class="badge green">${cfg.badge}</span>
+        </div>
+        <div class="current">
+          <div class="current-main"><span>${main}</span><span>固定</span></div>
+          <div class="current-sub">${sub}</div>
+        </div>
+        <div class="controls">
+          <input class="input" value="${state.activeRail === 'search' ? '炼丹复活' : ''}" placeholder="${state.activeRail === 'search' ? '按意思搜' : '跳章 / 过滤'}" />
+          <button class="small-btn">${state.activeRail === 'manuscript' ? '上一章' : '范围'}</button>
+          <button class="small-btn primary">${state.activeRail === 'search' ? '搜索' : '同步'}</button>
+        </div>
+        <div class="chips">
+          ${cfg.chips.map((chip, index) => `<button class="chip ${index === 0 ? 'active' : ''}">${chip}</button>`).join('')}
+        </div>
+      `;
+
+      document.getElementById('dirBody').innerHTML = cfg.sections.map(section => `
+        <div class="section-title">${section.title}</div>
+        ${section.rows.map(row => {
+          const [id, label, icon, count, indent = 0] = row;
+          return `
+            <button class="tree-row indent-${indent} ${state.activeItem === id ? 'active' : ''}" data-item="${id}">
+              <span class="arrow">${icon}</span>
+              <span>${label}</span>
+              <span class="count">${count || ''}</span>
+            </button>
+          `;
+        }).join('')}
+      `).join('');
+
+      document.getElementById('dirBody').querySelectorAll('[data-item]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.activeItem = btn.dataset.item;
+          renderDirectory();
+          renderDetail();
+        });
+      });
+    }
+
+    function renderDetail() {
+      const copy = detailCopy[state.activeRail];
+      const cfg = data[state.activeRail];
+      document.getElementById('detailHead').innerHTML = `
+        <div>
+          <div class="crumb">${copy.crumb}</div>
+          <div class="detail-title">${copy.title}</div>
+        </div>
+        <div class="detail-actions">
+          <span class="badge blue">${cfg.title}</span>
+          <span class="badge warn">栏3详情</span>
+        </div>
+      `;
+
+      document.getElementById('detailBody').innerHTML = `
+        <div class="workspace">
+          <div class="grid-2">
+            <div class="band">
+              <div class="band-title">${copy.body[0][0]}</div>
+              <div class="body-text">${copy.body[0][1]}</div>
+            </div>
+            <div class="band">
+              <div class="band-title">状态</div>
+              ${copy.metrics.map(([k, v]) => `<div class="metric-row"><span>${k}</span><strong>${v}</strong></div>`).join('')}
+            </div>
+          </div>
+          <div class="band">
+            <div class="band-title">${copy.body[1][0]}</div>
+            <div class="quote">${copy.body[1][1]}</div>
+          </div>
+          <div class="band">
+            <div class="band-title">钻取规则</div>
+            <div class="body-text">当前交互固定为:栏1选能力,栏2选目录或对象,栏3打开详情。栏2不会被详情替换,右栏只更新上下文。</div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('chiefContext').textContent = `${cfg.title} · ${copy.title}`;
+    }
+
+    function render() {
+      renderRail();
+      renderDirectory();
+      renderDetail();
+    }
+
+    render();
+  </script>
+</body>
+</html>

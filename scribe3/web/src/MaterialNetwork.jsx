@@ -7,11 +7,7 @@ import { api } from './api'
 
 // 记忆网络(素材库=主编联想记忆 · 可视化):照 AtlasView 的 sigma(WebGL)+ graphology 范式。
 // 节点=素材(label=标题,size 随 recall_count,pinned 高亮为 brand 色);点击节点 → onSelect(material)。
-//
-// TODO(需后端 /materials/graph 端点):素材↔素材的「联想(relates)」边。现有端点都不合适——
-//   materialRecall 是「按 query 召回」、materialRefs 是「素材↔章节双向溯源」,都建不出素材间联想边。
-//   待后端补 /materials/graph → { edges:[{src,dst,weight}] } 后,在 buildGraph 里 addEdge 即可。
-//   当前实现:仅渲染节点(用 api.materials()),边为空。
+// 边=后端 /materials/graph 返回的 relates 联想边;若边查询降级,保留节点并显示 degraded 提示。
 
 // —— 主题色:WebGL 不认 CSS var(),运行时从 :root 取真色,随明暗主题自适应(同 AtlasView) ——
 function cssVar(name, fallback) {
@@ -136,6 +132,7 @@ export function MaterialNetwork({ onSelect }) {
   const [theme, setTheme] = useState(readTheme)
   const [picked, setPicked] = useState(null)
   const [retryTick, setRetryTick] = useState(0)
+  const [degradedSources, setDegradedSources] = useState([])
 
   // 明暗切换 → 刷新色板(同 AtlasView)
   useEffect(() => {
@@ -147,12 +144,17 @@ export function MaterialNetwork({ onSelect }) {
   // 载入素材(节点),retry 触发重拉
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null)
+    setLoading(true); setErr(null); setDegradedSources([])
     api.materialGraph()
       .then((g) => {
         if (!alive) return
         setRows(Array.isArray(g?.nodes) ? g.nodes : [])
         setEdges(Array.isArray(g?.edges) ? g.edges : [])
+        setDegradedSources(g?.edges_degraded
+          ? (Array.isArray(g?.degraded_sources) && g.degraded_sources.length
+            ? g.degraded_sources
+            : [{ source: 'edges', reason: '边关系加载失败' }])
+          : [])
         setLoading(false)
       })
       .catch((e) => { if (alive) { setErr(e?.message || '加载失败'); setLoading(false) } })
@@ -166,6 +168,7 @@ export function MaterialNetwork({ onSelect }) {
 
   const materials = useMemo(() => (rows || []).filter((m) => m?.id), [rows])
   const pinnedCount = useMemo(() => materials.filter((m) => m?.pinned).length, [materials])
+  const edgeDegraded = degradedSources.length > 0
 
   const sigmaSettings = useMemo(() => ({
     renderLabels: true,
@@ -216,6 +219,15 @@ export function MaterialNetwork({ onSelect }) {
             >
               <GraphContent materials={materials} edges={edges} theme={theme} onPick={pick} />
             </SigmaContainer>
+
+            {edgeDegraded && (
+              <div role="status" className="absolute top-3 left-3 z-20 max-w-[320px] rounded-lg border border-line bg-surface/95 px-3 py-2 text-f12 shadow-sm">
+                <div className="font-medium text-ink">边关系降级</div>
+                <div className="mt-0.5 text-faint leading-snug">
+                  {degradedSources.map((s) => `${s.source || 'edges'}: ${s.reason || '加载失败'}`).join('；')}
+                </div>
+              </div>
+            )}
 
             <div className="absolute bottom-3 left-3 z-10 text-f11 text-faint/70 max-w-[240px] leading-snug pointer-events-none">
               节点=素材(大小随召回次数),边=联想(语义近邻)。

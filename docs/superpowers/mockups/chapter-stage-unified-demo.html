@@ -1,0 +1,1320 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>章工作台统一三栏 Demo</title>
+  <style>
+    :root {
+      --canvas: #f7f8fa;
+      --surface: #ffffff;
+      --surface-soft: #f1f4f7;
+      --surface-warm: #fbfaf7;
+      --line: #e5e9ee;
+      --line-strong: #cbd3dc;
+      --ink: #17202c;
+      --muted: #5d6877;
+      --faint: #8b96a5;
+      --brand: #1f6f62;
+      --brand-soft: #e2f0ec;
+      --brand-line: #b9d9d1;
+      --warn: #9b6417;
+      --warn-soft: #fff4dc;
+      --danger: #b04444;
+      --ok: #20734b;
+      --shadow: rgba(15, 23, 42, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: #edf1f5;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button { cursor: pointer; }
+
+    .page {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .demo {
+      width: min(1520px, 100%);
+      height: min(920px, calc(100vh - 40px));
+      min-height: 760px;
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr);
+      background: var(--canvas);
+      border: 1px solid #dbe2ea;
+      box-shadow: 0 18px 44px var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      padding: 0 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      color: #124c43;
+      font-size: 15px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .book-pill {
+      max-width: 190px;
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .global-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .topbtn,
+    .iconbtn,
+    .textbtn,
+    .primarybtn {
+      border: 0;
+      border-radius: 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease;
+    }
+
+    .topbtn {
+      height: 30px;
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .topbtn.active,
+    .topbtn:hover {
+      color: var(--ink);
+      background: var(--surface-soft);
+    }
+
+    .top-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .search {
+      width: 220px;
+      height: 30px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: var(--surface-soft);
+      color: var(--ink);
+      padding: 0 10px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search:focus {
+      border-color: var(--brand-line);
+      box-shadow: 0 0 0 3px var(--brand-soft);
+      background: var(--surface);
+    }
+
+    .body {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 56px 238px minmax(520px, 1fr) 318px;
+    }
+
+    .rail {
+      min-height: 0;
+      background: #f2f5f8;
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 7px;
+      gap: 6px;
+    }
+
+    .railbtn {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .railbtn.active {
+      color: var(--brand);
+      background: var(--surface);
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .directory {
+      min-width: 0;
+      min-height: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dir-head {
+      padding: 12px 12px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .dir-title {
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .dir-title strong {
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .mini-count {
+      color: var(--faint);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dir-tools {
+      display: grid;
+      grid-template-columns: 1fr 32px;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .dir-search {
+      min-width: 0;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--canvas);
+      padding: 0 9px;
+      font-size: 13px;
+      color: var(--ink);
+      outline: none;
+    }
+
+    .iconbtn {
+      width: 32px;
+      height: 32px;
+      background: var(--canvas);
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+
+    .iconbtn:hover {
+      color: var(--ink);
+      border-color: var(--line-strong);
+      background: var(--surface);
+    }
+
+    .dir-list {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+    }
+
+    .section-label {
+      padding: 7px 6px 5px;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .chapter-row,
+    .scene-row {
+      width: 100%;
+      border: 0;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      gap: 6px;
+      border-radius: 7px;
+      padding: 7px 8px;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .chapter-row:hover,
+    .scene-row:hover {
+      background: var(--surface-soft);
+    }
+
+    .chapter-row.active {
+      background: var(--brand-soft);
+      color: #114e45;
+      box-shadow: inset 0 0 0 1px var(--brand-line);
+    }
+
+    .num {
+      color: var(--faint);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .row-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-meta {
+      color: var(--faint);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .scene-row {
+      grid-template-columns: 18px 1fr auto;
+      padding-left: 25px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stage {
+      min-width: 0;
+      min-height: 0;
+      background: var(--canvas);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .stage-head {
+      flex: 0 0 auto;
+      background: rgba(255, 255, 255, .82);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chapter-line {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+    }
+
+    .navbtn {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+    }
+
+    .navbtn:hover {
+      color: var(--ink);
+      background: var(--surface-soft);
+    }
+
+    .chapter-id {
+      font-size: 13px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .chapter-name {
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 680;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .autosave {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--faint);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--ok);
+    }
+
+    .stage-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      overflow-x: auto;
+      padding: 0 16px 10px;
+    }
+
+    .stage-tab {
+      height: 32px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .stage-tab svg {
+      width: 15px;
+      height: 15px;
+      stroke-width: 1.8;
+    }
+
+    .stage-tab.active {
+      color: var(--brand);
+      background: var(--surface);
+      box-shadow: inset 0 0 0 1px var(--line);
+    }
+
+    .stage-tab:hover {
+      color: var(--ink);
+      background: var(--surface-soft);
+    }
+
+    .stage-content {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 22px 22px;
+    }
+
+    .workbench {
+      width: min(920px, 100%);
+      min-height: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .phase-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      min-width: 0;
+    }
+
+    .phase-title h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .phase-subtitle {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .phase-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .textbtn,
+    .primarybtn {
+      min-height: 32px;
+      padding: 0 11px;
+      font-size: 13px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+    }
+
+    .textbtn:hover {
+      color: var(--ink);
+      border-color: var(--line-strong);
+    }
+
+    .primarybtn {
+      border-color: #1f6f62;
+      background: var(--brand);
+      color: #fff;
+    }
+
+    .meta-strip {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chip {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      padding: 0 9px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .chip.strong {
+      color: var(--brand);
+      border-color: var(--brand-line);
+      background: var(--brand-soft);
+    }
+
+    .chip.warn {
+      color: var(--warn);
+      border-color: #edd39d;
+      background: var(--warn-soft);
+    }
+
+    .canvas-panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .paper,
+    .list-surface {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .paper textarea {
+      width: 100%;
+      min-height: 420px;
+      resize: none;
+      border: 0;
+      outline: none;
+      display: block;
+      background: transparent;
+      color: var(--ink);
+      padding: 22px 24px;
+      font-size: 15px;
+      line-height: 1.74;
+    }
+
+    .paper.footered textarea {
+      min-height: 350px;
+    }
+
+    .paper-footer {
+      border-top: 1px solid var(--line);
+      background: var(--surface-warm);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .summary-input {
+      flex: 1;
+      min-width: 0;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 0 10px;
+      color: var(--ink);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .beat-input {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+
+    .beat-input input {
+      min-width: 0;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 0 10px;
+      outline: none;
+    }
+
+    .beat-list {
+      display: grid;
+      gap: 0;
+    }
+
+    .beat-row {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      align-items: start;
+      gap: 10px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .beat-row:first-child {
+      border-top: 0;
+    }
+
+    .check {
+      width: 20px;
+      height: 20px;
+      margin-top: 1px;
+      border-radius: 6px;
+      border: 1px solid var(--line-strong);
+      display: grid;
+      place-items: center;
+      color: var(--brand);
+      font-size: 13px;
+    }
+
+    .beat-main strong {
+      display: block;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .beat-main span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .tiny-actions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .tiny-actions button {
+      width: 26px;
+      height: 26px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--faint);
+    }
+
+    .tiny-actions button:hover {
+      color: var(--ink);
+      background: var(--surface-soft);
+    }
+
+    .final-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .qc-panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .qc-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 9px;
+    }
+
+    .qc-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 0;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .qc-item:first-of-type {
+      border-top: 0;
+    }
+
+    .qc-badge {
+      min-width: 24px;
+      height: 22px;
+      border-radius: 999px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0 8px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      background: var(--surface-soft);
+      color: var(--muted);
+    }
+
+    .qc-badge.warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .chief {
+      min-width: 0;
+      min-height: 0;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .chief-head {
+      padding: 13px 14px 11px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chief-head h2 {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.25;
+    }
+
+    .chief-head p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .chief-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .note {
+      border: 1px solid var(--line);
+      background: var(--canvas);
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .note strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .note p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .chief-compose {
+      border-top: 1px solid var(--line);
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .chief-compose textarea {
+      width: 100%;
+      min-height: 78px;
+      resize: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--canvas);
+      color: var(--ink);
+      padding: 9px 10px;
+      font-size: 13px;
+      line-height: 1.45;
+      outline: none;
+    }
+
+    .hidden { display: none; }
+
+    @media (max-width: 1180px) {
+      .body {
+        grid-template-columns: 56px 224px minmax(480px, 1fr);
+      }
+
+      .chief {
+        display: none;
+      }
+    }
+
+    @media (max-width: 880px) {
+      .page {
+        padding: 0;
+      }
+
+      .demo {
+        width: 100%;
+        height: 100vh;
+        min-height: 680px;
+        border: 0;
+      }
+
+      .body {
+        grid-template-columns: 52px minmax(0, 1fr);
+      }
+
+      .directory {
+        display: none;
+      }
+
+      .stage-content {
+        padding: 14px;
+      }
+
+      .phase-title {
+        display: grid;
+      }
+
+      .phase-actions {
+        justify-content: flex-start;
+      }
+
+      .final-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .search,
+      .global-tabs {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="demo" aria-label="章工作台统一三栏 demo">
+      <header class="topbar">
+        <div class="brand">写作 3.0</div>
+        <button class="book-pill" type="button">纸命 · 第三稿</button>
+        <nav class="global-tabs" aria-label="横切视图">
+          <button class="topbtn active" type="button">大纲</button>
+          <button class="topbtn" type="button">图谱</button>
+          <button class="topbtn" type="button">时间线</button>
+          <button class="topbtn" type="button">仪表盘</button>
+        </nav>
+        <div class="top-actions">
+          <input class="search" aria-label="全局搜索" value="" placeholder="搜索章节、角色、素材" />
+          <button class="topbtn" type="button">导出</button>
+          <button class="topbtn" type="button">设置</button>
+        </div>
+      </header>
+
+      <div class="body">
+        <aside class="rail" aria-label="一级入口">
+          <button class="railbtn active" type="button">稿</button>
+          <button class="railbtn" type="button">设</button>
+          <button class="railbtn" type="button">素</button>
+          <button class="railbtn" type="button">演</button>
+          <button class="railbtn" type="button">搜</button>
+        </aside>
+
+        <aside class="directory" aria-label="手稿目录">
+          <div class="dir-head">
+            <div class="eyebrow">Manuscript</div>
+            <div class="dir-title">
+              <strong>手稿</strong>
+              <span class="mini-count">3 卷 · 42 章</span>
+            </div>
+            <div class="dir-tools">
+              <input class="dir-search" aria-label="过滤章节" placeholder="跳章 / 过滤" />
+              <button class="iconbtn" type="button" aria-label="新建章节">+</button>
+            </div>
+          </div>
+          <div class="dir-list">
+            <div class="section-label">卷一 · 入炉</div>
+            <button class="chapter-row" type="button">
+              <span class="num">05</span>
+              <span class="row-title">灰市里的第一炉火</span>
+              <span class="row-meta">2.8k</span>
+            </button>
+            <button class="chapter-row" type="button">
+              <span class="num">06</span>
+              <span class="row-title">借命契</span>
+              <span class="row-meta">3.1k</span>
+            </button>
+            <button class="chapter-row active" type="button">
+              <span class="num">07</span>
+              <span class="row-title">铜炉认主</span>
+              <span class="row-meta">4.2k</span>
+            </button>
+            <button class="scene-row" type="button">
+              <span class="num">1</span>
+              <span class="row-title">炉坊门口</span>
+              <span class="row-meta">860</span>
+            </button>
+            <button class="scene-row" type="button">
+              <span class="num">2</span>
+              <span class="row-title">小翠递药</span>
+              <span class="row-meta">1.3k</span>
+            </button>
+            <button class="scene-row" type="button">
+              <span class="num">3</span>
+              <span class="row-title">炉身开裂</span>
+              <span class="row-meta">2.0k</span>
+            </button>
+            <button class="chapter-row" type="button">
+              <span class="num">08</span>
+              <span class="row-title">判官夜访</span>
+              <span class="row-meta">1.9k</span>
+            </button>
+            <div class="section-label">卷二 · 赊命</div>
+            <button class="chapter-row" type="button">
+              <span class="num">19</span>
+              <span class="row-title">城隍庙账本</span>
+              <span class="row-meta">5.0k</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="stage" aria-label="章详情">
+          <header class="stage-head">
+            <div class="chapter-line">
+              <button class="navbtn" type="button" aria-label="上一章">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <span class="chapter-id">第 07 章</span>
+              <strong class="chapter-name">铜炉认主</strong>
+              <button class="navbtn" type="button" aria-label="下一章">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+              <span class="autosave"><i class="dot"></i>已自动保存 18 秒前</span>
+            </div>
+            <nav class="stage-tabs" aria-label="章阶段">
+              <button class="stage-tab active" type="button" data-phase="outline">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h10M4 18h16"/></svg>
+                大纲
+              </button>
+              <button class="stage-tab" type="button" data-phase="beats">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
+                节拍
+              </button>
+              <button class="stage-tab" type="button" data-phase="draft">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                草稿
+              </button>
+              <button class="stage-tab" type="button" data-phase="final">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+                正文
+              </button>
+              <button class="stage-tab" type="button" data-phase="brief">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                简报
+              </button>
+              <button class="stage-tab" type="button" data-phase="frame">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                限知帧
+              </button>
+              <button class="stage-tab" type="button" data-phase="northstar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m12 2 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"/></svg>
+                北极星
+              </button>
+            </nav>
+          </header>
+
+          <div class="stage-content">
+            <article class="workbench" data-panel="outline">
+              <div class="phase-title">
+                <div>
+                  <h1>大纲</h1>
+                  <div class="phase-subtitle">本章要发生什么、读者应带走什么、哪些伏笔需要埋下。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">让主编展开</button>
+                  <button class="primarybtn" type="button">同步到节拍</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">视角 · 焦三</span>
+                <span class="chip">涉及角色 2/3 已演绎</span>
+                <span class="chip warn">伏笔 2</span>
+                <span class="chip">素材引用 4</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="paper">
+                  <textarea aria-label="本章大纲">焦三被小翠引进炉坊，第一次见到祖传铜炉。铜炉在无人点火时自行升温，暗示它并非死物，而是在辨认新的债主。
+
+本章重点不是揭晓炉子的来历，而是建立“炉认主”的压力：焦三以为自己占了便宜，读者知道他已经被账本记名。</textarea>
+                </div>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="beats">
+              <div class="phase-title">
+                <div>
+                  <h1>节拍</h1>
+                  <div class="phase-subtitle">把大纲拆成可执行的小节点，保持因果顺序和信息释放节奏。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">据大纲生成</button>
+                  <button class="primarybtn" type="button">整理顺序</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">5 个节拍</span>
+                <span class="chip">3 个完成</span>
+                <span class="chip warn">第 4 条需补动机</span>
+                <span class="chip">预计 4.4k 字</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="beat-input">
+                  <input aria-label="新增节拍" placeholder="加一个节拍" />
+                  <button class="primarybtn" type="button">添加</button>
+                </div>
+                <div class="list-surface beat-list">
+                  <div class="beat-row">
+                    <span class="check">✓</span>
+                    <div class="beat-main">
+                      <strong>焦三被小翠带到炉坊门口</strong>
+                      <span>先写冷风、药味和门缝里的红光，建立“进去就回不了头”的氛围。</span>
+                    </div>
+                    <div class="tiny-actions"><button>↑</button><button>↓</button><button>×</button></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check">✓</span>
+                    <div class="beat-main">
+                      <strong>铜炉无火自热</strong>
+                      <span>让焦三以为是机关，小翠不解释，只提醒他不要碰炉耳。</span>
+                    </div>
+                    <div class="tiny-actions"><button>↑</button><button>↓</button><button>×</button></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check"></span>
+                    <div class="beat-main">
+                      <strong>炉身裂出一条旧账痕</strong>
+                      <span>账痕像名字，又不像名字，埋后续“借命契”回收。</span>
+                    </div>
+                    <div class="tiny-actions"><button>↑</button><button>↓</button><button>×</button></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check"></span>
+                    <div class="beat-main">
+                      <strong>焦三主动伸手试探</strong>
+                      <span>需要补足他为什么冒险，否则动作显得服务剧情。</span>
+                    </div>
+                    <div class="tiny-actions"><button>↑</button><button>↓</button><button>×</button></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="draft">
+              <div class="phase-title">
+                <div>
+                  <h1>草稿</h1>
+                  <div class="phase-subtitle">放手起草，不强压护栏；满意后采用为正文再进入正式校验。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">让主编生成</button>
+                  <button class="textbtn" type="button">草稿质检</button>
+                  <button class="primarybtn" type="button">采用为正文</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">草稿 2,168 字</span>
+                <span class="chip">备注 · 第一版偏冷</span>
+                <span class="chip warn">情绪直说 1</span>
+                <span class="chip">自动保存</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="paper footered">
+                  <textarea aria-label="草稿正文">炉坊的门比焦三想的窄。
+
+小翠先进去，肩膀一偏，像是被门里的热气吞了一下。她没有回头，只把袖口往上挽，露出腕上一道旧烫痕。
+
+“进来以后，不要问炉子是谁的。”她说。</textarea>
+                  <div class="paper-footer">
+                    <input class="summary-input" aria-label="草稿备注" value="这一版保留冷感，后半段再加焦三的贪念动机。" />
+                    <button class="textbtn" type="button">存草稿</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="final">
+              <div class="phase-title">
+                <div>
+                  <h1>正文</h1>
+                  <div class="phase-subtitle">正式文本区，承载保存、护栏、QC、场景定位和版本能力。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">护栏</button>
+                  <button class="textbtn" type="button">质检</button>
+                  <button class="primarybtn" type="button">保存正文</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">正文 4,208 字</span>
+                <span class="chip">场景 3</span>
+                <span class="chip warn">QC 2</span>
+                <span class="chip">版本 12</span>
+              </div>
+              <div class="final-grid">
+                <div class="paper">
+                  <textarea aria-label="正式正文">炉坊的门槛压得很低，焦三跨进去时，不得不把头低下。
+
+他闻见药灰、冷铁，还有一种像雨夜泥土翻起来的腥气。铜炉就摆在屋子正中，炉膛里没有火，炉壁却泛着暗红。
+
+小翠站在炉边，轻声说：“它醒了。”</textarea>
+                </div>
+                <aside class="qc-panel" aria-label="正文质检">
+                  <div class="qc-title">
+                    <span>正文状态</span>
+                    <span class="qc-badge warn">2</span>
+                  </div>
+                  <div class="qc-item"><span>整句重复</span><span class="qc-badge">0</span></div>
+                  <div class="qc-item"><span>视角泄露</span><span class="qc-badge warn">1</span></div>
+                  <div class="qc-item"><span>伏笔未收</span><span class="qc-badge warn">1</span></div>
+                  <div class="qc-item"><span>AI 腔</span><span class="qc-badge">0</span></div>
+                </aside>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="brief">
+              <div class="phase-title">
+                <div>
+                  <h1>简报</h1>
+                  <div class="phase-subtitle">章级事实、设定引用和写作约束集中在同一工作台骨架里。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">刷新简报</button>
+                  <button class="primarybtn" type="button">带到主编</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">章级上下文</span>
+                <span class="chip">角色 3</span>
+                <span class="chip">素材 4</span>
+                <span class="chip warn">冲突 1</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="list-surface">
+                  <div class="beat-row">
+                    <span class="check">1</span>
+                    <div class="beat-main"><strong>本章目标</strong><span>建立铜炉主动认主，焦三第一次被迫进入赊命体系。</span></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check">2</span>
+                    <div class="beat-main"><strong>不可泄露</strong><span>小翠知道铜炉来历，但本章不能明说她曾经也是炉主。</span></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check">3</span>
+                    <div class="beat-main"><strong>素材引用</strong><span>民间炉灶禁忌、旧账契据、药坊火候术语。</span></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="frame">
+              <div class="phase-title">
+                <div>
+                  <h1>限知帧</h1>
+                  <div class="phase-subtitle">按当前视角限制信息释放，避免正文提前写出角色不知道的事实。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">校验帧</button>
+                  <button class="primarybtn" type="button">应用到正文</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">视角 · 焦三</span>
+                <span class="chip">已知 5</span>
+                <span class="chip warn">未知但文本暗示 1</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="list-surface">
+                  <div class="beat-row">
+                    <span class="check">✓</span>
+                    <div class="beat-main"><strong>焦三知道</strong><span>炉子异常升温，小翠有旧伤，炉坊气味不像普通药坊。</span></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check"></span>
+                    <div class="beat-main"><strong>焦三不知道</strong><span>铜炉会记录债名，小翠曾经替别人还过一命。</span></div>
+                  </div>
+                  <div class="beat-row">
+                    <span class="check">!</span>
+                    <div class="beat-main"><strong>风险句</strong><span>“它在等新的债主”过早越过焦三认知，应改成感官暗示。</span></div>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="workbench hidden" data-panel="northstar">
+              <div class="phase-title">
+                <div>
+                  <h1>北极星</h1>
+                  <div class="phase-subtitle">让章内写作始终贴合全书承诺、主题压力和人物弧线。</div>
+                </div>
+                <div class="phase-actions">
+                  <button class="textbtn" type="button">对齐全书</button>
+                  <button class="primarybtn" type="button">生成提醒</button>
+                </div>
+              </div>
+              <div class="meta-strip">
+                <span class="chip strong">核心命题</span>
+                <span class="chip">代价不可转嫁</span>
+                <span class="chip warn">本章需显化</span>
+              </div>
+              <div class="canvas-panel">
+                <div class="paper">
+                  <textarea aria-label="北极星">本章必须让读者感到：焦三不是被命运随手卷入，而是在“占便宜”的一瞬间主动签下了第一笔账。
+
+人物弧线：焦三从“我只是看看”滑向“我可以试一下”，贪念要比恐惧更具体。</textarea>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <aside class="chief" aria-label="右侧主编">
+          <div class="chief-head">
+            <h2>主编上下文</h2>
+            <p id="chief-copy">当前阶段:大纲。右栏只换意图，不换位置。</p>
+          </div>
+          <div class="chief-body">
+            <div class="note">
+              <strong>可用上下文</strong>
+              <p>本章大纲、节拍、视角帧、素材引用和上一章尾声。</p>
+            </div>
+            <div class="note">
+              <strong>建议</strong>
+              <p id="chief-tip">先把“炉认主”的因果写清，再进入节拍拆分。</p>
+            </div>
+            <div class="note">
+              <strong>风险</strong>
+              <p>小翠的真实身份不要在本章直接暴露。</p>
+            </div>
+          </div>
+          <div class="chief-compose">
+            <textarea aria-label="给主编的指令">帮我检查这一阶段是否服务第 7 章的核心转折。</textarea>
+            <button class="primarybtn" type="button">发送给主编</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const labels = {
+      outline: ['大纲', '先把“炉认主”的因果写清，再进入节拍拆分。'],
+      beats: ['节拍', '检查每个节点是否推动焦三主动靠近铜炉。'],
+      draft: ['草稿', '现在可以放松写，但保留“采用为正文”的清晰出口。'],
+      final: ['正文', '正式区应优先显示保存、护栏和质检，不被草稿工具干扰。'],
+      brief: ['简报', '简报是章级事实台，不应该拥有另一套页面风格。'],
+      frame: ['限知帧', '所有视角限制都在同一章工作台里检查。'],
+      northstar: ['北极星', '北极星用于校准本章，不再像独立页面跳走。'],
+    };
+
+    const tabs = Array.from(document.querySelectorAll('.stage-tab'));
+    const panels = Array.from(document.querySelectorAll('[data-panel]'));
+    const chiefCopy = document.getElementById('chief-copy');
+    const chiefTip = document.getElementById('chief-tip');
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const phase = tab.dataset.phase;
+        tabs.forEach((t) => t.classList.toggle('active', t === tab));
+        panels.forEach((panel) => panel.classList.toggle('hidden', panel.dataset.panel !== phase));
+        const [label, tip] = labels[phase] || labels.outline;
+        chiefCopy.textContent = `当前阶段:${label}。右栏只换意图，不换位置。`;
+        chiefTip.textContent = tip;
+      });
+    });
+  </script>
+</body>
+</html>

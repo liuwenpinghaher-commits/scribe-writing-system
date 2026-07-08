@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot, BookOpen } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -17,69 +17,127 @@ import { usePref } from './lib/usePref'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { useToast, showToast } from './ui/Toast.jsx'
 import { useSelection } from './selectionContext'
+import { useWorkScopedPref } from './hooks/useWorkScopedPref'
+import { SearchDirectory } from './capabilities/search/SearchDirectory'
+import { IssueDirectory } from './capabilities/issues/IssueDirectory'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
-export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onCollapse }) {
-  const [tab, setTab] = usePref('s3.leftTab', 'tree')
+export function useLeftDockCapabilities({
+  tree, selId, expanded, onToggle, onSelect, treeCbs, seq,
+  includeStageTabs = true, splitProjectRoots = false, renderMaterialRoot, work = 'main',
+}) {
+  const [tab, setTab] = useWorkScopedPref(work, 'leftTab', splitProjectRoots ? 'manuscript' : 'tree')
   const [focalizer, setFocalizer] = useState('')
   const [ledger, setLedger] = useState(undefined)   // undefined=加载中/未知,null=加载失败,object=数据
   const [motifs, setMotifs] = useState([])
   const [qcCount, setQcCount] = useState(0)   // 断头修复#13:校验 tab 红点数据源
 
   useEffect(() => {
+    let cancelled = false
     setLedger(undefined)
-    api.promisesLedger().then((l) => setLedger(l && typeof l === 'object' ? l : {})).catch(() => setLedger(null))
-    api.motifs().then((m) => setMotifs(Array.isArray(m) ? m : [])).catch(() => {})
+    api.promisesLedger(work)
+      .then((l) => { if (!cancelled) setLedger(l && typeof l === 'object' ? l : {}) })
+      .catch(() => { if (!cancelled) setLedger(null) })
+    api.motifs(work)
+      .then((m) => { if (!cancelled) setMotifs(Array.isArray(m) ? m : []) })
+      .catch(() => {})
     // 断头修复#13:QC 命中总数喂校验 tab badge(轻端点,读存稿缓存)
     if (seq != null) {
-      api.qc(seq).then((q) => {
+      api.qc(seq, work).then((q) => {
+        if (cancelled) return
         const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
         setQcCount(q && typeof q === 'object'
           ? Object.values(q).reduce((s, v) => s + cnt(v), 0) : 0)
-      }).catch(() => setQcCount(0))
-    } else setQcCount(0)
-  }, [seq])
+      }).catch(() => { if (!cancelled) setQcCount(0) })
+    } else if (!cancelled) setQcCount(0)
+    return () => { cancelled = true }
+  }, [seq, work])
   useEffect(() => {
     if (seq == null) { setFocalizer(''); return }
-    const pull = () => api.chapter(seq).then((ch) => setFocalizer(ch?.focalizer || '')).catch(() => setFocalizer(''))
+    let cancelled = false
+    const pull = () => api.chapter(seq, work)
+      .then((ch) => { if (!cancelled) setFocalizer(ch?.focalizer || '') })
+      .catch(() => { if (!cancelled) setFocalizer('') })
     pull()
     // 断头修复#14(focalizer 双源):顶栏改视角存稿后 chapter 表变更经 s3-live 推送——
     // 监听重拉,左栏帧面板不再按库中旧视角渲染(文档明令避免的"各自拉取不一致")。
     const onLive = (e) => { if ((e?.detail?.table || e?.detail?.tb) === 'chapter') pull() }
     window.addEventListener('s3-live', onLive)
-    return () => window.removeEventListener('s3-live', onLive)
-  }, [seq])
+    return () => {
+      cancelled = true
+      window.removeEventListener('s3-live', onLive)
+    }
+  }, [seq, work])
 
   const caps = useMemo(() => {
     // bare:true 的面板自带内边距/需边到边(项目树/演绎树),不套统一 p-3;其余数据面板走容器统一 padding。
-    const base = [
-      { key: 'tree', icon: FolderTree, bare: true, label: '项目树', render: () => (
-        <div className="h-full overflow-hidden"><ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={onToggle} onSelect={onSelect} {...treeCbs} /></div>
+    const projectTree = (subtree) => (
+      <div className="h-full overflow-hidden">
+        <ProjectTree tree={subtree} selId={selId} expanded={expanded} onToggle={onToggle} onSelect={onSelect} {...treeCbs} />
+      </div>
+    )
+    const base = splitProjectRoots ? [
+      { key: 'manuscript', icon: BookOpen, bare: true, label: '手稿', render: () => projectTree({ manuscript: tree?.manuscript }) },
+      { key: 'codex', icon: FolderTree, bare: true, label: '设定库', render: () => projectTree({ codex: tree?.codex }) },
+      { key: 'materials', icon: Archive, bare: true, label: '素材库', render: () => (
+        renderMaterialRoot
+          ? renderMaterialRoot(tree?.materials || { id: 'material_root', type: 'material_root', label: '素材库' })
+          : projectTree({ materials: tree?.materials })
       ) },
+    ] : [
+      { key: 'tree', icon: FolderTree, bare: true, label: '项目树', render: () => projectTree(tree) },
     ]
-    if (seq == null) return base   // 未选章:只给项目树
+    if (includeStageTabs) {
+      base.push(
+        { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
+        { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
+        { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
+      )
+    }
     base.push(
-      { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
-      { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
-      { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
       { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       // 断头修复#13:badge 两端早已就绪(Rail 渲染✓ 数据✓),此前 caps 不传——红点永不显示
       { key: 'promise', icon: Bookmark, label: '伏笔',
         badge: _promiseBadge(ledger, seq),
         render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
-      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} onSelect={onSelect} /> },
+      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} work={work} onSelect={onSelect} /> },
       // 断头修复(死 leftCaps 回填③):语义召回检索——原 WriteLayout renderRecall 不可达
-      { key: 'recall', icon: Search, label: '检索 · 语义召回', render: () => <RecallPanel /> },
+      { key: 'search', icon: Search, label: '搜索',
+        render: () => splitProjectRoots ? <SearchDirectory onSelectItem={onSelect} /> : <RecallPanel /> },
     )
-    base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露',
-      badge: qcCount || undefined, render: () => <QCPanel seq={seq} /> })
+    base.push({ key: 'review', icon: ShieldCheck, label: '校验',
+      badge: qcCount || undefined,
+      render: () => splitProjectRoots ? <IssueDirectory seq={seq} onSelectItem={onSelect} /> : <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, qcCount, onSelect])
+  }, [tree, selId, expanded, onToggle, treeCbs, seq, includeStageTabs, splitProjectRoots, renderMaterialRoot, focalizer, ledger, motifs, qcCount, onSelect])
 
-  // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
-  const active = caps.find((c) => c.key === tab) || caps[0]
-  useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('tree') }, [caps, tab, setTab])
+  // tab 失效(如旧版 recall key 或切到无正文的章)→ 回退当前入口组首项
+  const normalizedTab = tab === 'recall' ? 'search' : tab
+  const active = caps.find((c) => c.key === normalizedTab) || caps[0]
+  useEffect(() => {
+    if (tab !== normalizedTab) {
+      setTab(normalizedTab)
+      return
+    }
+    if (!caps.find((c) => c.key === normalizedTab)) setTab(caps[0]?.key || (splitProjectRoots ? 'manuscript' : 'tree'))
+  }, [caps, normalizedTab, setTab, splitProjectRoots, tab])
+
+  useEffect(() => {
+    const onOpenCapability = (e) => {
+      const raw = e?.detail?.capability
+      const key = raw === 'recall' ? 'search' : raw === 'issues' ? 'review' : raw
+      if (key) setTab(key)
+    }
+    window.addEventListener('s3-open-capability', onOpenCapability)
+    return () => window.removeEventListener('s3-open-capability', onOpenCapability)
+  }, [setTab])
+
+  return { caps, active, setTab }
+}
+
+export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, work = 'main', onCollapse }) {
+  const { caps, active, setTab } = useLeftDockCapabilities({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, work })
 
   return (
     <div className="h-full flex min-h-0 bg-surface">
@@ -533,15 +591,15 @@ function MotifRow({ m, evidence, highlight, onSelect }) {
   )
 }
 
-function MotifsPanel({ motifs, seq, onSelect }) {
+function MotifsPanel({ motifs, seq, work, onSelect }) {
   const [inst, setInst] = useState(undefined)   // undefined=加载 / null=失败 / []=空
   useEffect(() => {
     if (seq == null) { setInst([]); return }
     let ignore = false
     setInst(undefined)
-    api.motifInstances(seq).then((r) => { if (!ignore) setInst(Array.isArray(r) ? r : []) }).catch(() => { if (!ignore) setInst(null) })
+    api.motifInstances(seq, work).then((r) => { if (!ignore) setInst(Array.isArray(r) ? r : []) }).catch(() => { if (!ignore) setInst(null) })
     return () => { ignore = true }
-  }, [seq])
+  }, [seq, work])
   const list = Array.isArray(inst) ? inst : []
   const evById = new Map(list.map((i) => [i.motif_id, i.evidence]))
   const touched = motifs.filter((m) => evById.has(m.id))
@@ -647,7 +705,11 @@ function TensionCheck({ seq }) {
 
 function QCPanel({ seq }) {
   const [qc, setQc] = useState(undefined)   // undefined=加载中,null=失败,{}=无正文,object=数据
-  useEffect(() => { setQc(undefined); api.qc(seq).then(setQc).catch(() => setQc(null)) }, [seq])
+  useEffect(() => {
+    if (seq == null) { setQc({}); return }
+    setQc(undefined)
+    api.qc(seq).then(setQc).catch(() => setQc(null))
+  }, [seq])
   const items = [
     ['复读(章内)', qc?.repetition],
     ['跨章复读', qc?.cross_repetition],

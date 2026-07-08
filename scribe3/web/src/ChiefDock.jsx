@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -118,12 +118,12 @@ function WriteSlot() {
   const { setSlotEl } = useChiefSlot()
 
   return (
-    <div className="h-full w-full bg-surface flex flex-col min-h-0">
+    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
       {/* 头部:标题 */}
-      <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
+      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
         <PenLine size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
-          <span className="text-f12 font-semibold text-ink">主编 · 写作</span>
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
           <span className="text-f11 text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
       </div>
@@ -376,21 +376,21 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   }
 
   return (
-    <div className="h-full w-full bg-surface flex flex-col min-h-0">
+    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
       {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI) */}
-      <div className="shrink-0 h-11 px-3 flex items-center gap-2 border-b border-line">
+      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
         <MessagesSquare size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
-          <span className="text-f12 font-semibold text-ink">主编</span>
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
           <span className="text-f11 text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3">
+      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
         {msgs.length === 0 ? (
           <div className="pt-2">
-            <div className="text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
+            <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
@@ -405,27 +405,42 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       </div>
 
       {/* 输入区 */}
-      <div className="shrink-0 border-t border-line px-2.5 py-2">
-        <div className="flex items-end gap-1.5 rounded-xl bg-canvas px-2.5 py-2 focus-within:ring-1 focus-within:ring-brand/40 transition-shadow">
+      <div className="shrink-0 border-t border-line bg-surface px-3 py-2">
+        <div
+          data-testid="chief-chat-composer"
+          data-chief-composer="true"
+          className="chief-composer-panel rounded-xl px-2.5 py-2"
+        >
           <textarea
             ref={taRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={1}
-            placeholder="就当前内容问主编…(Enter 发送)"
+            placeholder="就当前内容问主编…"
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-            className="flex-1 resize-none bg-transparent text-f13 text-ink outline-none max-h-32 leading-relaxed placeholder:text-faint"
+            className="block w-full min-h-[36px] max-h-28 resize-none border-0 bg-transparent px-0 py-0.5 text-f13 leading-relaxed text-ink outline-none shadow-none ring-0 placeholder:text-faint/70 focus:border-transparent focus:outline-none focus:ring-0 focus:shadow-none focus-visible:outline-none"
           />
-          {busy ? (
-            // 生成中:发送键变「停止」——中止在途流(EventSource.close/AbortController.abort)+ 解锁 busy,可立即再发。
-            <Btn variant="danger" icon onClick={stop} title="停止生成" aria-label="停止生成" className="shrink-0">
-              <Square size={13} fill="currentColor" />
+          <div data-testid="chief-chat-toolbar" className="mt-1.5 flex items-center gap-1.5">
+            <Btn variant="ghost" icon title="附件功能待接入讨论模式" aria-label="添加附件" disabled>
+              <Paperclip size={15} />
             </Btn>
-          ) : (
-            <Btn variant="primary" icon onClick={() => send()} disabled={!input.trim()} aria-label="发送" className="shrink-0">
-              <Send size={15} />
+            <Btn variant="ghost" icon title="语音输入待接入" aria-label="语音输入" disabled>
+              <Mic size={15} />
             </Btn>
-          )}
+            <div className="flex-1" />
+            {busy ? (
+              // 生成中:发送键变「停止」——中止在途流(EventSource.close/AbortController.abort)+ 解锁 busy,可立即再发。
+              <Btn variant="danger" onClick={stop} title="停止生成" aria-label="停止生成" className="h-8 min-w-[88px] shadow-none">
+                <Square size={13} fill="currentColor" />
+                停止
+              </Btn>
+            ) : (
+              <Btn variant="primary" onClick={() => send()} disabled={!input.trim()} aria-label="发送" className="h-8 min-w-[88px] shadow-none">
+                <Send size={15} />
+                发送
+              </Btn>
+            )}
+          </div>
         </div>
       </div>
     </div>

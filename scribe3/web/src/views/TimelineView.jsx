@@ -257,6 +257,34 @@ function visItemFocus(it) {
   }
 }
 
+function timelineTarget(raw, cat) {
+  const ch = raw?._jump ?? raw?.story_chapter ?? raw?.chapter
+  if (cat === 'promise') {
+    const id = raw?.id ? (String(raw.id).startsWith('promise:') ? raw.id : `promise:${raw.id}`) : ''
+    return {
+      id,
+      type: 'promise',
+      label: raw?.label || '伏笔',
+      chapter: ch,
+      ref: 'open',
+    }
+  }
+  if (cat === 'relation') {
+    return {
+      id: raw?.id || '',
+      type: 'relation',
+      label: raw?.label || raw?.refs?.relation || '关系',
+      chapter: ch,
+    }
+  }
+  return {
+    id: raw?.id || '',
+    type: 'event',
+    label: raw?.label || raw?.event_type || '事件',
+    chapter: ch,
+  }
+}
+
 // ── 详情面板 ────────────────────────────────────────────────────────────────
 function Field({ k, v }) {
   if (v == null || v === '' || (Array.isArray(v) && !v.length)) return null
@@ -269,7 +297,7 @@ function Field({ k, v }) {
   )
 }
 
-function DetailPanel({ raw, cat, onJump, onClose }) {
+function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
   if (!raw) return null
   const r = raw.refs || {}
   const sc = raw.story_chapter ?? raw.chapter
@@ -344,7 +372,10 @@ function DetailPanel({ raw, cat, onJump, onClose }) {
       <div className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-1.5">{body}</div>
       <div className="shrink-0 border-t border-line p-2">
         <button
-          onClick={() => onJump?.(raw._jump ?? raw.chapter)}
+          onClick={() => {
+            if (onNavigate) onNavigate(timelineTarget(raw, cat))
+            else onJump?.(raw._jump ?? raw.chapter)
+          }}
           className="w-full h-8 rounded-lg bg-brand text-brandfg text-f12 font-medium cursor-pointer hover:opacity-85 flex items-center justify-center gap-1.5"
         >
           <CornerDownRight size={13} /> 跳到第{raw._jump ?? raw.chapter}章
@@ -355,7 +386,7 @@ function DetailPanel({ raw, cat, onJump, onClose }) {
 }
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
-export function TimelineView({ onJumpChapter }) {
+export function TimelineView({ onJumpChapter, onNavigateToObject }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -591,6 +622,7 @@ export function TimelineView({ onJumpChapter }) {
             raw={selected.raw}
             cat={selected.cat}
             onJump={jumpKeepFocus}
+            onNavigate={onNavigateToObject}
             onClose={() => { setSelected(null); if (focus?.origin === 'timeline') setFocus(null); timelineRef.current?.setSelection([]) }}
           />
         )}

@@ -14,6 +14,7 @@ import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { FourPaneShell } from './layout/FourPaneShell'
+import { isFourPaneLayoutEnabled } from './layout/layoutFlag'
 import { TopbarSlotProvider } from './TopbarSlotContext'
 
 // 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
@@ -95,6 +96,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) 
   })
 
   const onSelectNode = (node) => {
+    if (!node) { onSel({ mode: 'node', node: null }); return }
     if (node.type === 'view') { onSel({ mode: 'view', viewKey: node.id.split(':')[1] }); return }
     onSel({ mode: 'node', node })
   }
@@ -154,7 +156,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) 
   // 波B Step3:右栏常驻。章节点 → 右栏=写作槽(WriteLayout 的 WriteChat 经 portal 进来);
   // 非章节点 → 右栏=讨论 chat(现状)。ChiefDock 据 chapterSel 切换内容。
   const showChief = true
-  const V2 = localStorage.getItem('s3.layout.v2') === '1'   // 阶段3:flag下沉——四区壳/三栏壳切换,共享上方所有 state/Provider
+  const V2 = isFourPaneLayoutEnabled()   // 默认四栏;localStorage.s3.layout.v2='0' 时回旧三栏
 
   const collapseLeft = () => { leftRef.current?.collapse() }
   const collapseRight = () => { rightRef.current?.collapse() }

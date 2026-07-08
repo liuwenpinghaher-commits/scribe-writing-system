@@ -18,6 +18,19 @@ function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   )
 }
 
+function ErrorState({ message, onRetry }) {
+  return (
+    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-f13 text-danger">
+      <div>{message}</div>
+      {onRetry && (
+        <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
+          重试
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── 伏笔相关 ────────────────────────────────────────────────────────────────
 
 // setup→payoff 连线(已回收专用) + clue 中途标记点
@@ -428,14 +441,27 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
 // ── 码字进度面板 ─────────────────────────────────────────────────────────────
 function ProgressPanel({ onGoalEdit }) {
   const [prog, setProg] = useState(null)
+  const [err, setErr] = useState(null)
   const [win, setWin] = useState('all')  // 趋势窗口: '30' | '90' | 'all'
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
+    let alive = true
     setProg(null)
-    api.progress(win).then(setProg).catch(() => setProg(null))
-  }, [win])
+    setErr(null)
+    api.progress(win)
+      .then((r) => { if (alive) { setProg(r); setErr(null) } })
+      .catch((e) => { if (alive) { setProg(null); setErr(e?.body?.detail || e?.message || '进度数据加载失败') } })
+    return () => { alive = false }
+  }, [win, retryKey])
 
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
+
+  if (err) return (
+    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+      <ErrorState message="进度数据加载失败" onRetry={() => setRetryKey((k) => k + 1)} />
+    </div>
+  )
 
   if (!prog) return (
     <div className="rounded-xl border border-line bg-surface p-4 mb-6">
@@ -737,14 +763,24 @@ function WordHeatmap({ heatmap, dailyGoal }) {
 }
 
 // ── 主视图 ───────────────────────────────────────────────────────────────────
-export function InsightView({ onJumpChapter, focus }) {
+export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   const [q, setQ] = useState(null)
+  const [qErr, setQErr] = useState(null)
   const [intent, setIntent] = useState(null)
   const [goalOpen, setGoalOpen] = useState(false)
   const [progressKey, setProgressKey] = useState(0)
+  const [qualityKey, setQualityKey] = useState(0)
   const progressRef = useRef(null)
 
-  useEffect(() => { api.quality().then(setQ) }, [])
+  useEffect(() => {
+    let alive = true
+    setQ(null)
+    setQErr(null)
+    api.quality()
+      .then((r) => { if (alive) { setQ(r); setQErr(null) } })
+      .catch((e) => { if (alive) setQErr(e?.body?.detail || e?.message || '质量仪表盘加载失败') })
+    return () => { alive = false }
+  }, [qualityKey])
   useEffect(() => { api.intent().then(setIntent).catch(() => setIntent({})) }, [])
 
   // 「进度」入口:数据就绪后滚动并聚焦码字进度面板
@@ -755,6 +791,15 @@ export function InsightView({ onJumpChapter, focus }) {
     }
   }, [focus, q])
 
+  if (qErr) {
+    return (
+      <div className="h-full overflow-y-auto bg-canvas">
+        <div className="max-w-5xl mx-auto px-8 py-8">
+          <ErrorState message="质量仪表盘加载失败" onRetry={() => setQualityKey((k) => k + 1)} />
+        </div>
+      </div>
+    )
+  }
   if (!q) return <div className="p-8 text-faint">加载中…</div>
 
   const chs = q.chapters || []
@@ -822,13 +867,28 @@ export function InsightView({ onJumpChapter, focus }) {
         <div className="rounded-xl border border-line bg-surface p-4">
           <div className="text-f12 font-semibold text-ink mb-2">弱章诊断(问题最多的章)</div>
           {weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
-            : weak.slice(0, 8).map((c) => (
-              <div key={c.seq} className="flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-f13">
-                <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
-                {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
-                {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
-              </div>
-            ))}
+            : weak.slice(0, 8).map((c) => {
+              const title = chapterLabel(c.seq, c.title)
+              return (
+                <button
+                  key={c.seq}
+                  type="button"
+                  onClick={() => onNavigateToObject?.({
+                    type: 'weak_chapter',
+                    id: `issue:weak:${c.seq}`,
+                    chapter: c.seq,
+                    title: `${title} · 弱章诊断`,
+                    reason: `该章有 ${c.qc_issues || 0} 个 QC 问题、${c.causal || 0} 个因果问题。`,
+                    target_node: { id: `ch:${c.seq}`, type: 'chapter', ref: c.seq, label: title },
+                  })}
+                  className="flex w-full items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-left text-f13 hover:bg-soft/60"
+                >
+                  <span className="text-ink flex-1 truncate">{title}</span>
+                  {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
+                  {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
+                </button>
+              )
+            })}
         </div>
       </div>
     </div>

@@ -911,7 +911,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   // 与原 rightCaps.chat.render 一字不差 —— 同一组件、同一闭包(共享 WriteLayout 全部状态),
   // 只把 DOM 落点从「内部 Shell 右栏」改成「ChiefDock 右栏槽」(portal)。
   const writeChatEl = (
-    <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote}
+    <WriteChat chapter={chapter} focalizer={focalizer} seedQuote={seedQuote} phase="final"
       onSeedUsed={() => setSeedQuote('')}
       onProposalStart={(s) => {
         setProposal({ scope: s.scope, prose: '' })

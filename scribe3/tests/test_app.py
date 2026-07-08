@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import scribe3.app as A
 from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
+from scribe3.store import MATERIAL_KINDS
 
 
 @pytest.fixture(autouse=True)
@@ -3857,7 +3858,7 @@ def test_project_tree_materials_branch(store):
     mats = tree["materials"]
     assert mats["type"] == "material_root" and mats["label"] == "素材库"
     cats = {x["ref"]: x for x in mats["children"]}
-    assert set(cats) == {"research", "reference", "snippet", "inspiration", "note"}
+    assert set(cats) == set(MATERIAL_KINDS)
     res = cats["research"]
     assert res["type"] == "material_category"
     assert any(b["kind"] == "count" and b["value"] == 1 for b in res["badges"])

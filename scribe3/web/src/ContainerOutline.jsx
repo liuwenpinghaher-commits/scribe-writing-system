@@ -24,6 +24,19 @@ const SEG = [
   { key: 'list', label: '列表', icon: List },
 ]
 
+function ErrorState({ message, onRetry }) {
+  return (
+    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
+      <div>{message}</div>
+      {onRetry && (
+        <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
+          重试
+        </button>
+      )}
+    </div>
+  )
+}
+
 // 把 outline 数据 → 按卷分组的泳道(只取当前容器节点关心的卷)。
 function buildLanes(outline, node) {
   if (!outline) return []
@@ -99,7 +112,8 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
 // 容器节点(卷/手稿根)的多模式视图:卡片墙 / 大纲表 / 列表。
 export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   const [outline, setOutline] = useState(null)
-  const [err, setErr] = useState(false)
+  const [err, setErr] = useState(null)
+  const [actionErr, setActionErr] = useState(null)
   const [delVol, setDelVol] = useState(null)   // {vid,title,body} 删卷确认
   const [mode, setMode] = useStrPref('s3.container.mode', 'corkboard')
   const [colorMode, setColorMode] = useStrPref('s3.container.color', 'status')
@@ -109,8 +123,13 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   const toast = useToast()
   const isManuscript = node?.type === 'volume' || node?.type === 'manuscript_root'
-  const reload = () => api.outline().then((o) => { setOutline(o); setErr(false) }).catch(() => setErr(true))
-  useEffect(() => { if (isManuscript) reload() }, [isManuscript])
+  const reload = () => {
+    setErr(null)
+    return api.outline()
+      .then((o) => { setOutline(o); setErr(null) })
+      .catch((e) => { setErr(e?.body?.detail || e?.message || '大纲加载失败') })
+  }
+  useEffect(() => { if (isManuscript) reload() }, [isManuscript]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (adding && addRef.current) addRef.current.focus() }, [adding])
 
   const lanes = useMemo(() => buildLanes(outline, node), [outline, node])
@@ -206,27 +225,38 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
   }
 
   // 新建卷
-  const commitAddVolume = async () => {
-    const t = newTitle.trim()
+  const commitAddVolume = async (titleOverride = null) => {
+    const t = String(titleOverride ?? newTitle).trim()
     if (!t) { setAdding(false); setNewTitle(''); return }
     const maxOrder = (outline?.volumes || []).reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
+    setActionErr(null)
     try {
       await api.addVolume(t, maxOrder + 1)
       setNewTitle('')
       setAdding(false)
       await reload()
     } catch (err) {
-      console.error('addVolume failed', err)
+      setAdding(false)
+      const detail = err?.body?.detail || err?.message
+      setActionErr({
+        message: detail ? `新建卷失败: ${detail}` : '新建卷失败',
+        retry: () => commitAddVolume(t),
+      })
     }
   }
 
   // 重命名卷
   const renameVolume = async (vid, title) => {
+    setActionErr(null)
     try {
       await api.patchVolume(vid, { title })
       await reload()
     } catch (err) {
-      console.error('patchVolume failed', err)
+      const detail = err?.body?.detail || err?.message
+      setActionErr({
+        message: detail ? `重命名卷失败: ${detail}` : '重命名卷失败',
+        retry: () => renameVolume(vid, title),
+      })
     }
   }
 
@@ -241,18 +271,45 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   const doDeleteVolume = async () => {
     if (!delVol) return
+    const target = delVol
+    setActionErr(null)
     try {
-      await api.deleteVolume(delVol.vid)
+      await api.deleteVolume(target.vid)
+      setDelVol(null)
       await reload()
     } catch (err) {
-      console.error('deleteVolume failed', err)
+      setDelVol(null)
+      const detail = err?.body?.detail || err?.message
+      setActionErr({
+        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
+        retry: () => doDeleteVolumeFor(target),
+      })
+    }
+  }
+
+  const doDeleteVolumeFor = async (target) => {
+    if (!target) return
+    setActionErr(null)
+    try {
+      await api.deleteVolume(target.vid)
+      await reload()
+    } catch (err) {
+      const detail = err?.body?.detail || err?.message
+      setActionErr({
+        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
+        retry: () => doDeleteVolumeFor(target),
+      })
     }
   }
 
   // 非手稿容器(素材分类等)→ 立即退化为子项列表(不拉 /outline)
   if (!isManuscript) return <PlainList node={node} onSelect={onSelect} />
 
-  if (err) return <div className="p-8 text-f13 text-danger">大纲加载失败。</div>
+  if (err) return (
+    <div className="p-8">
+      <ErrorState message="大纲加载失败" onRetry={reload} />
+    </div>
+  )
   if (!outline) return <div className="p-8 text-f13 text-faint/60">加载大纲…</div>
 
   const totalCh = lanes.reduce((s, l) => s + l.chapters.length, 0)
@@ -335,6 +392,12 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
           )}
         </div>
       </div>
+
+      {actionErr && (
+        <div className="shrink-0 border-b border-line bg-surface px-5 py-3">
+          <ErrorState message={actionErr.message} onRetry={actionErr.retry} />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4">
         {totalCh === 0 && lanes.length === 0 ? (

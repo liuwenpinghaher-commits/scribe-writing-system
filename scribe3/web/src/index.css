@@ -101,6 +101,22 @@ body {
 ::selection { background: color-mix(in srgb, var(--color-brand) 20%, transparent); color: inherit; }
 /* 输入聚焦:黛绿边 + 18% 光晕 */
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 16%, transparent); }
+/* 主编输入器是整体 composer: 焦点画在外层面板, textarea 本身不再变成独立大框 */
+.chief-composer-panel {
+  border: 1px solid color-mix(in srgb, var(--color-line) 72%, transparent);
+  background: color-mix(in srgb, var(--color-canvas) 78%, var(--color-surface));
+  transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
+}
+.chief-composer-panel:focus-within {
+  border-color: color-mix(in srgb, var(--color-brand) 46%, var(--color-line));
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 10%, transparent);
+}
+[data-chief-composer="true"] textarea:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+}
 /* 骨架屏 */
 .skel { background: linear-gradient(90deg, var(--color-soft) 25%, color-mix(in srgb, var(--color-line) 60%, var(--color-soft)) 37%, var(--color-soft) 63%); background-size: 400% 100%; animation: skel 1.4s ease infinite; border-radius: 6px; }
 @keyframes skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }

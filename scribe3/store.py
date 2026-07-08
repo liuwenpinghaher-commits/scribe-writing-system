@@ -119,10 +119,11 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
         "surface_goal", "deep_need", "internal_conflict", "fear",
-        "first_appearance", "personality_tags"}),
+        "first_appearance", "personality_tags", "archived"}),
     "place": frozenset({"name"}),
     "proposition": frozenset({"entity_id", "attribute", "value", "valid_from",
-                              "valid_to", "secret", "leak_markers", "ingest_seq"}),
+                              "valid_to", "secret", "leak_markers", "ingest_seq",
+                              "archived"}),
     "event": frozenset({"event_type", "story_chapter",
                         "motivated_by_goal", "location", "preconditions"}),
     "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues",
@@ -152,7 +153,8 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
     rows = store._query(
         "SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
         "secret, leak_markers FROM proposition "
-        "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
+        "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+        "AND (archived = NONE OR archived != true)", {"ch": chapter})
     scored = []
     for r in rows:
         val = r.get("value", "")
@@ -757,7 +759,8 @@ class SurrealStore:
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "
             "valid_from, valid_to, secret, leak_markers, injection_mode, priority FROM proposition "
-            "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
+            "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+            "AND (archived = NONE OR archived != true)", {"ch": chapter})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"],
                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
@@ -769,7 +772,8 @@ class SurrealStore:
         rows = self._query(
             "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
             "importance, appearance, personality_detail, abilities, weaknesses, "
-            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character")
+            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character "
+            "WHERE archived = NONE OR archived != true")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
                                "backstory_secret": r.get("backstory_secret", False),
@@ -808,7 +812,8 @@ class SurrealStore:
         rows = self._query(
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
+            f"AND (archived = NONE OR archived != true) ORDER BY dist",
             {"qv": qv})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"], r["valid_from"],
@@ -856,7 +861,8 @@ class SurrealStore:
             f"  <-causes<-event->involves->character.name AS co_present, "
             f"  vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
-            f"  AND valid_from <= $ch ORDER BY dist", {"qv": qv, "ch": chapter})
+            f"  AND valid_from <= $ch AND (archived = NONE OR archived != true) "
+            f"ORDER BY dist", {"qv": qv, "ch": chapter})
         out = []
         for r in rows:
             out.append({
@@ -1147,9 +1153,65 @@ class SurrealStore:
             "UPDATE type::record('event',$local) SET narrative_position=$np",
             {"local": local, "np": narrative_position})
 
-    def delete_record(self, oid: str) -> None:
+    def record_lifecycle_impact(self, oid: str) -> dict | None:
+        """对象删除影响计数。返回 None 表示对象不存在。"""
+        if not self.exists(oid):
+            return None
+        table, local = _split(oid)
+        rid = RecordID(table, local)
+        counts: dict[str, int] = {}
+        label = oid
+        if oid.startswith("role:"):
+            ent = self.entity(oid)
+            label = ent.name if ent else oid
+            counts["proposition"] = len(self._query(
+                "SELECT id FROM proposition WHERE entity_id=$oid", {"oid": oid}))
+            try:
+                counts["knowledge_edge"] = len(self._query(
+                    "SELECT id FROM knows WHERE in=$rid", {"rid": rid}))
+            except Exception:
+                counts["knowledge_edge"] = 0
+            try:
+                counts["event_involvement"] = len(self._query(
+                    "SELECT id FROM involves WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["event_involvement"] = 0
+        elif oid.startswith("fact:"):
+            fact = self.fact(oid)
+            label = f"{fact.entity_id}·{fact.attribute}" if fact else oid
+            try:
+                counts["knowledge_edge"] = len(self._query(
+                    "SELECT id FROM knows WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["knowledge_edge"] = 0
+            counts["reader_knowledge"] = len(self._query(
+                "SELECT id FROM reader_knows WHERE proposition=$rid", {"rid": rid}))
+            try:
+                counts["event_effect"] = len(self._query(
+                    "SELECT id FROM causes WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["event_effect"] = 0
+        return {"object": {"id": oid, "label": label}, "counts": counts}
+
+    def _cleanup_record_refs(self, oid: str) -> None:
+        table, local = _split(oid)
+        rid = RecordID(table, local)
+        if oid.startswith("role:"):
+            self._execute_write("DELETE knows WHERE in=$rid", {"rid": rid})
+            self._execute_write("DELETE involves WHERE out=$rid", {"rid": rid})
+        elif oid.startswith("fact:"):
+            self._execute_write("DELETE knows WHERE out=$rid", {"rid": rid})
+            self._execute_write("DELETE reader_knows WHERE proposition=$rid", {"rid": rid})
+            self._execute_write("DELETE causes WHERE out=$rid", {"rid": rid})
+
+    def delete_record(self, oid: str, cleanup_refs: bool = False) -> bool:
+        if not self.exists(oid):
+            return False
+        if cleanup_refs:
+            self._cleanup_record_refs(oid)
         t, l = _split(oid)
         self._delete_by(t, l)
+        return True
 
     def update_promise(self, pid: str, fields: dict) -> bool:
         """更新伏笔字段;返回 True 若存在,False 若不存在。
@@ -1224,14 +1286,21 @@ class SurrealStore:
             raise RuntimeError("add_material: CREATE 未返回 id")
         return str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
 
-    def list_materials(self, kind: str | None = None) -> list[dict]:
+    def list_materials(self, kind: str | None = None, archived: bool | None = False) -> list[dict]:
         """素材列表(可选 kind 过滤),按 updated_at DESC。"""
+        filters = []
+        vars = {}
         if kind is not None:
-            return self._query(
-                f"SELECT {self._MATERIAL_COLS} FROM material "
-                "WHERE kind=$k ORDER BY updated_at DESC", {"k": kind})
+            filters.append("kind=$k")
+            vars["k"] = kind
+        if archived is True:
+            filters.append("archived = true")
+        elif archived is False:
+            filters.append("(archived = NONE OR archived != true)")
+        where = f" WHERE {' AND '.join(filters)}" if filters else ""
         return self._query(
-            f"SELECT {self._MATERIAL_COLS} FROM material ORDER BY updated_at DESC")
+            f"SELECT {self._MATERIAL_COLS} FROM material{where} ORDER BY updated_at DESC",
+            vars)
 
     def get_material(self, material_id: str) -> dict | None:
         rows = self._query(
@@ -1259,10 +1328,39 @@ class SurrealStore:
         self._update_by("material", material_id, fields)
         return True
 
-    def delete_material(self, material_id: str) -> bool:
+    def material_lifecycle_impact(self, material_id: str) -> dict | None:
+        row = self.get_material(material_id)
+        if not row:
+            return None
+        counts = {
+            "material_reference": len(self.material_refs_by_material(material_id)),
+        }
+        try:
+            rid = RecordID("material", material_id)
+            counts["graph"] = len(self._query(
+                "SELECT id FROM relates WHERE in=$rid OR out=$rid", {"rid": rid}))
+        except Exception:
+            counts["graph"] = 0
+        if row.get("embedding"):
+            counts["semantic_index"] = 1
+        if row.get("about_entities"):
+            counts["about_entities"] = len(row.get("about_entities") or [])
+        return {"object": {"id": material_id, "label": row.get("title") or material_id}, "counts": counts}
+
+    def _cleanup_material_refs(self, material_id: str) -> None:
+        rid = RecordID("material", material_id)
+        self._execute_write("DELETE material_reference WHERE material_id=$m", {"m": material_id})
+        try:
+            self._execute_write("DELETE relates WHERE in=$rid OR out=$rid", {"rid": rid})
+        except Exception:
+            pass
+
+    def delete_material(self, material_id: str, cleanup_refs: bool = False) -> bool:
         """删除素材;返回 True 若存在并删除,False 若不存在。"""
         if not self._material_exists(material_id):
             return False
+        if cleanup_refs:
+            self._cleanup_material_refs(material_id)
         self._delete_by("material", material_id)
         return True
 
@@ -1399,21 +1497,32 @@ class SurrealStore:
             cands.append(row)
         return apply_strength(cands)[:k]
 
-    def material_graph(self) -> dict:
+    def material_graph(self, focus: str | None = None, limit: int = 200, hop: int = 1) -> dict:
         """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
-        nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
+        all_nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
                   "recall_count": m.get("recall_count") or 0, "pinned": bool(m.get("pinned")),
                   "ref_tags": m.get("ref_tags") or []}
                  for m in self.list_materials()]
+        truncated = len(all_nodes) > limit
+        nodes = all_nodes[:limit]
+        keep = {n["id"] for n in nodes}
         edges = []
+        degraded_sources = []
         try:
             rows = self._query(
                 "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates")
             edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
-                     for r in (rows or [])]
-        except Exception:
-            edges = []   # relates 表未建(无边)→ 空,前端只渲染节点
-        return {"nodes": nodes, "edges": edges}
+                     for r in (rows or []) if r.get("src") in keep and r.get("dst") in keep]
+        except Exception as e:
+            edges = []
+            degraded_sources.append({"source": "relates", "reason": str(e)})
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "edges_degraded": bool(degraded_sources),
+            "degraded_sources": degraded_sources,
+            "truncated": truncated,
+        }
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:

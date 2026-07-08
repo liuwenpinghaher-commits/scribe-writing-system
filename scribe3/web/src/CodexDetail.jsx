@@ -21,6 +21,18 @@ const TYPE_MAP = {
 // 裸 id:角色行 id 形如 "role:焦三",取冒号后;其余设定多用 name 作主键。
 const localOf = (row) => (row.id || '').includes(':') ? row.id.split(':').slice(1).join(':') : (row.id || row.name || '')
 
+function lifecycleDeleteBody(impact, fallback) {
+  if (!impact) return fallback
+  const refs = (Array.isArray(impact.references) ? impact.references : [])
+    .filter((r) => Number(r?.count || 0) > 0)
+  const refText = refs.length ? refs.map((r) => `${r.kind}: ${r.count}`).join('; ') : '未发现引用'
+  const action = impact.recommended_action === 'archive' ? '归档' : '删除'
+  const suffix = impact.recommended_action === 'archive'
+    ? '确认归档只会从默认列表和召回中隐藏,不会清理相关引用。'
+    : '确认删除会同步清理相关引用。'
+  return `影响范围: ${refText}。建议操作: ${action}。${suffix}`
+}
+
 // 按 type 拉「该分类全部条目」,再按 ref 选中一条(复用 CodexView 的多端点读路径)。
 async function loadRows(nodeType) {
   if (nodeType === 'character') {
@@ -395,6 +407,8 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
   const [forget, setForget] = useState({ knower_id: 'reader', until_chapter: '' })
   const [busy, setBusy] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
+  const [delLoading, setDelLoading] = useState(false)
+  const [deleteImpact, setDeleteImpact] = useState(null)
 
   const reload = () => {
     setLoading(true)
@@ -406,7 +420,7 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
       })
       .catch(() => { setRow(null); setLoading(false) })
   }
-  useEffect(() => { setPanel(null); reload() }, [node?.id])
+  useEffect(() => { setPanel(null); setDeleteImpact(null); reload() }, [node?.id])
 
   const doSupersede = async () => {
     // 批D Minor①:生效章须 ≥1(旧 === '' 守卫漏拦 0/负数;valid_from 语义 1-based)。
@@ -437,9 +451,27 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
     finally { setBusy(false) }
   }
 
+  const openDelete = async () => {
+    if (delLoading) return
+    setDelLoading(true)
+    try {
+      const impact = await api.objectImpact('fact', node.ref)
+      setDeleteImpact(impact || null)
+      setDelOpen(true)
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '读取删除影响失败', { tone: 'danger' })
+    } finally {
+      setDelLoading(false)
+    }
+  }
+
   const doDelete = async () => {
-    try { await api.delFact(node.ref); onDeleted?.() }
-    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+    const shouldArchive = deleteImpact?.recommended_action === 'archive'
+    try {
+      if (shouldArchive) await api.archiveObject('fact', node.ref)
+      else await api.deleteObject('fact', node.ref, deleteImpact?.confirm_impact_token || '')
+      onDeleted?.()
+    } catch (e) { showToast(e?.body?.detail || e?.message || (shouldArchive ? '归档失败' : '删除失败'), { tone: 'danger' }) }
   }
 
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载命题…</div>
@@ -469,7 +501,9 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
         <div className="mt-5 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
           <Btn variant={panel === 'supersede' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'supersede' ? null : 'supersede')}><History size={13} />超越(改值)</Btn>
           <Btn variant={panel === 'forget' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'forget' ? null : 'forget')}><EyeOff size={13} />让读者遗忘</Btn>
-          <button onClick={() => setDelOpen(true)} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13} />删除命题</button>
+          <button onClick={openDelete} disabled={delLoading} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150 disabled:opacity-40">
+            {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除命题
+          </button>
         </div>
 
         {panel === 'supersede' && (
@@ -497,7 +531,15 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
           </div>
         )}
       </div>
-      <ConfirmDialog open={delOpen} title="确认删除命题?" body={`将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`} danger confirmText="删除" onConfirm={doDelete} onClose={() => setDelOpen(false)} />
+      <ConfirmDialog
+        open={delOpen}
+        title={deleteImpact?.recommended_action === 'archive' ? '确认归档命题?' : '确认删除命题?'}
+        body={lifecycleDeleteBody(deleteImpact, `将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`)}
+        danger={deleteImpact?.recommended_action !== 'archive'}
+        confirmText={deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
+        onConfirm={doDelete}
+        onClose={() => setDelOpen(false)}
+      />
     </div>
   )
 }
@@ -594,6 +636,8 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
   const [delOpen, setDelOpen] = useState(false)
+  const [delLoading, setDelLoading] = useState(false)
+  const [deleteImpact, setDeleteImpact] = useState(null)
   const detailType = TYPE_MAP[node?.type]
 
   const reload = () => {
@@ -603,15 +647,37 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
       .then((rows) => { setRow(pickRow(node.type, rows, node.ref) || null); setLoading(false) })
       .catch(() => { setRow(null); setLoading(false) })
   }
-  useEffect(() => { reload() }, [node?.id])
+  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id])
 
   if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已删除)。</div>
 
+  const openDelete = async () => {
+    if (detailType !== 'chars') { setDelOpen(true); return }
+    if (delLoading) return
+    setDelLoading(true)
+    try {
+      const impact = await api.objectImpact('role', localOf(row))
+      setDeleteImpact(impact || null)
+      setDelOpen(true)
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '读取删除影响失败', { tone: 'danger' })
+    } finally {
+      setDelLoading(false)
+    }
+  }
+
   const doDelete = async () => {
-    try { await remove(detailType, row); onDeleted?.() }
-    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+    try {
+      if (detailType === 'chars') {
+        if (deleteImpact?.recommended_action === 'archive') await api.archiveObject('role', localOf(row))
+        else await api.deleteObject('role', localOf(row), deleteImpact?.confirm_impact_token || '')
+      }
+      else await remove(detailType, row)
+      onDeleted?.()
+    }
+    catch (e) { showToast(e?.body?.detail || e?.message || (deleteImpact?.recommended_action === 'archive' ? '归档失败' : '删除失败'), { tone: 'danger' }) }
   }
 
   return (
@@ -626,7 +692,7 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
             try { await persist(detailType, updated); reload(); onChanged?.() }
             catch (e) { showToast(e?.body?.detail || e?.message || '保存失败', { tone: 'danger' }) }
           }}
-          onDelete={() => setDelOpen(true)}
+          onDelete={openDelete}
         />
         {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
         {detailType === 'promises' && row?.id && (
@@ -644,9 +710,11 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
       <ConfirmDialog
         open={delOpen}
         title="确认删除?"
-        body={`将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
-        danger
-        confirmText="删除"
+        body={detailType === 'chars'
+          ? lifecycleDeleteBody(deleteImpact, `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`)
+          : `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
+        danger={detailType !== 'chars' || deleteImpact?.recommended_action !== 'archive'}
+        confirmText={detailType === 'chars' && deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
         onConfirm={doDelete}
         onClose={() => setDelOpen(false)}
       />

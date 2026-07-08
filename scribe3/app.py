@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -21,7 +22,7 @@ from collections import OrderedDict, deque
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from scribe3.knowledge import dramatic_irony, project_frame
@@ -116,6 +117,84 @@ def _store_for(work: str) -> SurrealStore:
     return _stores[work]
 
 
+_OBJECT_PREFIX = {"role": "role", "fact": "fact"}
+
+
+def _normalize_lifecycle_id(object_type: str, object_id: str) -> str:
+    if object_type == "material":
+        return object_id
+    prefix = _OBJECT_PREFIX.get(object_type)
+    if not prefix:
+        raise HTTPException(status_code=404, detail=f"unsupported object type '{object_type}'")
+    return object_id if object_id.startswith(prefix + ":") else f"{prefix}:{object_id}"
+
+
+def _impact_token(work: str, object_type: str, object_id: str, references: list[dict]) -> str:
+    raw = json.dumps(
+        {"work": work, "type": object_type, "id": object_id, "references": references},
+        ensure_ascii=False, sort_keys=True,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _object_impact(st: SurrealStore, object_type: str, object_id: str, work: str) -> dict:
+    normalized = _normalize_lifecycle_id(object_type, object_id)
+    if object_type == "material":
+        raw = st.material_lifecycle_impact(normalized)
+    else:
+        raw = st.record_lifecycle_impact(normalized)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    references = [
+        {"kind": kind, "count": count}
+        for kind, count in sorted((raw.get("counts") or {}).items())
+        if count
+    ]
+    payload = {
+        "object": {
+            "type": object_type,
+            "id": normalized,
+            "label": raw["object"].get("label") or normalized,
+        },
+        "references": references,
+        "recommended_action": "archive" if references else "hard_delete_allowed",
+    }
+    payload["confirm_impact_token"] = _impact_token(work, object_type, normalized, references)
+    return payload
+
+
+def _delete_object_with_lifecycle(st: SurrealStore, object_type: str, object_id: str,
+                                  work: str, confirm_impact_token: str | None):
+    impact = _object_impact(st, object_type, object_id, work)
+    has_refs = any((r.get("count") or 0) > 0 for r in impact["references"])
+    if has_refs and confirm_impact_token != impact["confirm_impact_token"]:
+        return JSONResponse(status_code=409, content=impact)
+    normalized = impact["object"]["id"]
+    if object_type == "material":
+        ok = st.delete_material(normalized, cleanup_refs=True)
+    else:
+        ok = st.delete_record(normalized, cleanup_refs=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    return {"ok": True, "impact": impact}
+
+
+def _archive_object_with_lifecycle(st: SurrealStore, object_type: str, object_id: str, work: str):
+    impact = _object_impact(st, object_type, object_id, work)
+    normalized = impact["object"]["id"]
+    if object_type == "material":
+        ok = st.update_material(normalized, {"archived": True})
+    else:
+        if st.exists(normalized):
+            st.update_record(normalized, {"archived": True})
+            ok = True
+        else:
+            ok = False
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    return {"ok": True, "object": impact["object"], "impact": impact}
+
+
 def _work_has_tools(work: str) -> bool:
     """当前请求的书是否等于 MCP 进程绑定的库(SCRIBE3_WORK 环境变量,默认 main)。
 
@@ -197,6 +276,24 @@ def works():
             st = {"chapter_count": 0, "word_count": 0}
         out.append({**w, **st})
     return out
+
+
+@app.get("/objects/{object_type}/{object_id}/impact")
+def object_impact_ep(object_type: str, object_id: str, work: str = "main"):
+    return _object_impact(_store_for(work), object_type, object_id, work)
+
+
+@app.delete("/objects/{object_type}/{object_id}")
+def object_delete_ep(object_type: str, object_id: str,
+                     confirm_impact_token: str | None = None,
+                     work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), object_type, object_id, work, confirm_impact_token)
+
+
+@app.post("/objects/{object_type}/{object_id}/archive")
+def object_archive_ep(object_type: str, object_id: str, work: str = "main"):
+    return _archive_object_with_lifecycle(_store_for(work), object_type, object_id, work)
 
 
 class WorkIn(BaseModel):
@@ -352,6 +449,158 @@ def recall(q: str, k: int = Query(default=5, ge=1, le=50), work: str = "main"):
     return _facts(_store_for(work).semantic_recall(q, k))
 
 
+def _search_excerpt(text: str, q: str, limit: int = 96) -> str:
+    text = text or ""
+    q = q or ""
+    if not text:
+        return ""
+    idx = text.lower().find(q.lower()) if q else -1
+    if idx < 0:
+        return text[:limit]
+    start = max(0, idx - 24)
+    end = min(len(text), idx + len(q) + 48)
+    return ("…" if start else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+def _search_hit(q: str, *parts: str | None) -> bool:
+    needle = (q or "").strip().lower()
+    if not needle:
+        return False
+    return any(needle in str(p or "").lower() for p in parts)
+
+
+@app.get("/search")
+def global_search(q: str, limit: int = Query(default=30, ge=1, le=100), work: str = "main"):
+    """全局搜索:正文/设定/素材/伏笔/母题的 typed target 聚合,供四栏钻取。"""
+    query = (q or "").strip()
+    if not query:
+        return {"query": query, "results": []}
+    st = _store_for(work)
+    results = []
+
+    def add(item):
+        if len(results) < limit * 3:
+            results.append(item)
+
+    for c in st.list_chapters():
+        ch = st.get_chapter(int(c["seq"])) or c
+        text = "\n".join(str(ch.get(k) or "") for k in ("title", "synopsis", "prose", "scene_truth"))
+        if _search_hit(query, text):
+            seq = int(ch["seq"])
+            title = ch.get("title") or f"第{seq}章"
+            add({
+                "id": f"search:chapter:{seq}",
+                "type": "chapter",
+                "label": title,
+                "excerpt": _search_excerpt(text, query),
+                "source": "正文",
+                "chapter": seq,
+                "score": 1.0 if _search_hit(query, title) else 0.75,
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"{seq} {title}".strip()},
+            })
+
+    for ev in st._all_events_bulk():
+        text = "\n".join([
+            ev.id or "",
+            ev.type or "",
+            ev.motivated_by_goal or "",
+            ev.location or "",
+            " ".join(ev.preconditions or []),
+            " ".join(ev.participants.values() or []),
+        ])
+        if _search_hit(query, text):
+            seq = int(ev.story_time or 0)
+            label = ev.type or ev.id
+            add({
+                "id": f"search:event:{ev.id}",
+                "type": "event",
+                "label": label,
+                "excerpt": _search_excerpt(text, query),
+                "source": "事件",
+                "chapter": seq or None,
+                "score": 0.78 if _search_hit(query, label) else 0.62,
+                "target_node": {"id": ev.id, "type": "event", "chapter": seq, "label": label},
+            })
+
+    for m in st.list_materials():
+        if m.get("archived"):
+            continue
+        text = "\n".join([m.get("title") or "", m.get("body") or "", " ".join(m.get("tags") or [])])
+        if _search_hit(query, text):
+            mid = str(m["id"])
+            add({
+                "id": f"search:material:{mid}",
+                "type": "material",
+                "label": m.get("title") or mid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "素材",
+                "score": 0.9 if _search_hit(query, m.get("title")) else 0.65,
+                "target_node": {"id": f"material:{mid}", "type": "material", "ref": mid, "label": m.get("title") or mid,
+                                "meta": {"kind": m.get("kind")}},
+            })
+
+    for e in st.all_entities():
+        text = "\n".join([e.name or "", str((e.traits or {}).get("backstory") or ""), " ".join((e.traits or {}).get("aliases") or [])])
+        if _search_hit(query, text):
+            local = e.id.split(":", 1)[-1]
+            add({
+                "id": f"search:entity:{e.id}",
+                "type": e.kind,
+                "label": e.name,
+                "excerpt": _search_excerpt(text, query),
+                "source": "设定",
+                "score": 0.8,
+                "target_node": {"id": f"{e.kind}:{local}", "type": e.kind, "ref": local, "label": e.name},
+            })
+
+    max_ch = max(1, st.max_chapter())
+    for f in st.facts_at(max_ch):
+        text = "\n".join([f.entity_id or "", f.attribute or "", f.value or ""])
+        if _search_hit(query, text):
+            local = f.id.split(":", 1)[-1]
+            add({
+                "id": f"search:fact:{local}",
+                "type": "proposition",
+                "label": f.value or f.attribute or local,
+                "excerpt": _search_excerpt(text, query),
+                "source": "设定",
+                "score": 0.7,
+                "target_node": {"id": f"proposition:{local}", "type": "proposition", "ref": local, "label": f.value or local},
+            })
+
+    for p in st.list_promises():
+        text = "\n".join(str(p.get(k) or "") for k in ("text", "status", "kind"))
+        if _search_hit(query, text):
+            pid = str(p.get("id") or p.get("text"))
+            add({
+                "id": f"search:promise:{pid}",
+                "type": "promise",
+                "label": p.get("text") or pid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "伏笔",
+                "chapter": p.get("setup_chapter"),
+                "score": 0.6,
+                "target_node": {"id": f"promise:{pid}", "type": "promise_view", "ref": "open", "label": p.get("text") or pid},
+            })
+
+    for m in st.list_motifs():
+        text = "\n".join(str(m.get(k) or "") for k in ("name", "theme", "echoes", "unfolding"))
+        if _search_hit(query, text):
+            mid = str(m.get("id") or m.get("name"))
+            add({
+                "id": f"search:motif:{mid}",
+                "type": "motif",
+                "label": m.get("name") or mid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "母题",
+                "score": 0.6,
+                "target_node": {"id": f"motif:{mid}", "type": "motif", "ref": mid, "label": m.get("name") or mid},
+            })
+
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return {"query": query, "results": results[:limit]}
+
+
 @app.get("/promises")
 def promises(work: str = "main"):
     """P3-e1 Fix 1: 每条 promise 携带 overdue 字段(backend 单源,前端直读)。"""
@@ -498,9 +747,9 @@ def edit_char(local: str, c: CharIn, work: str = "main"):
 
 
 @app.delete("/characters/{local}")
-def del_char(local: str, work: str = "main"):
-    _store_for(work).delete_record(f"role:{local}")
-    return {"ok": True}
+def del_char(local: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "role", local, work, confirm_impact_token)
 
 
 class FactIn(BaseModel):
@@ -545,9 +794,9 @@ def edit_fact(local: str, f: FactIn, work: str = "main"):
 
 
 @app.delete("/facts/{local}")
-def del_fact(local: str, work: str = "main"):
-    _store_for(work).delete_record(f"fact:{local}")
-    return {"ok": True}
+def del_fact(local: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "fact", local, work, confirm_impact_token)
 
 
 class SupersedeIn(BaseModel):
@@ -1052,9 +1301,29 @@ class MaterialPatch(BaseModel):
 
 
 @app.get("/materials")
-def list_materials_ep(kind: str | None = None, work: str = "main"):
+def list_materials_ep(kind: str | None = None, limit: int | None = Query(default=None, ge=1, le=500),
+                      cursor: int = Query(default=0, ge=0), q: str = "", view: str = "all",
+                      work: str = "main"):
     _check_material_kind(kind)
-    return _store_for(work).list_materials(kind)
+    rows = _store_for(work).list_materials(kind, archived=True if view == "archived" else False)
+    needle = (q or "").strip().lower()
+    if needle:
+        rows = [m for m in rows if needle in "\n".join([
+            str(m.get("title") or ""), str(m.get("body") or ""),
+            " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
+        ]).lower()]
+    if view == "pinned":
+        rows = [m for m in rows if m.get("pinned")]
+    elif view == "referenced":
+        rows = [m for m in rows if (m.get("recall_count") or 0) > 0]
+    elif view == "untagged":
+        rows = [m for m in rows if not (m.get("tags") or m.get("ref_tags"))]
+    if limit is None:
+        return rows
+    start = int(cursor or 0)
+    items = rows[start:start + limit]
+    next_cursor = start + limit if start + limit < len(rows) else None
+    return {"items": items, "next_cursor": next_cursor, "total": len(rows)}
 
 
 @app.post("/materials")
@@ -1075,11 +1344,9 @@ def edit_material_ep(mid: str, m: MaterialPatch, work: str = "main"):
 
 
 @app.delete("/materials/{mid}")
-def del_material_ep(mid: str, work: str = "main"):
-    found = _store_for(work).delete_material(mid)
-    if not found:
-        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
-    return {"ok": True}
+def del_material_ep(mid: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "material", mid, work, confirm_impact_token)
 
 
 # ===== 素材导入(多格式 → AI 切分打标摘要 → 预览确认 → 落库)=====
@@ -1180,18 +1447,30 @@ def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "ma
     """作者确认(可编辑后)→ 批量落库 + 建联想边。单条 fail-soft。返回落库数。"""
     st = _store_for(work)
     ids = []
-    for it in req.items:
-        if not (it.get("title") or "").strip():
+    failed = []
+    warnings = []
+    for idx, it in enumerate(req.items):
+        title = (it.get("title") or "").strip()
+        if not title:
+            failed.append({"index": idx, "title": "", "reason": "标题为空"})
             continue
         try:
-            mid = st.add_material(it["title"].strip(), it.get("body"), it.get("kind") or "note",
+            mid = st.add_material(title, it.get("body"), it.get("kind") or "note",
                                   it.get("tags"), it.get("source"), ref_tags=it.get("ref_tags"))
-            st.build_material_edges(mid)
             ids.append(mid)
-        except Exception:
-            pass
+            try:
+                st.build_material_edges(mid)
+            except Exception as e:
+                warnings.append({
+                    "index": idx,
+                    "title": title,
+                    "stage": "build_edges",
+                    "reason": str(e),
+                })
+        except Exception as e:
+            failed.append({"index": idx, "title": title, "reason": str(e)})
     _import_jobs.pop(job_id, None)
-    return {"created": len(ids), "ids": ids}
+    return {"created": len(ids), "ids": ids, "failed": failed, "warnings": warnings}
 
 
 @app.get("/materials/recall")
@@ -1201,15 +1480,22 @@ def material_recall_ep(q: str, chapter: int | None = None, k: int = 5, work: str
 
 
 @app.get("/materials/graph")
-def material_graph_ep(work: str = "main"):
+def material_graph_ep(focus: str | None = None, limit: int = Query(default=200, ge=1, le=2000),
+                      hop: int = Query(default=1, ge=1, le=3), work: str = "main"):
     """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
-    return _store_for(work).material_graph()
+    return _store_for(work).material_graph(focus=focus, limit=limit, hop=hop)
 
 
 @app.get("/materials/refs-by-chapter")
 def material_refs_by_chapter_ep(chapter: int, work: str = "main"):
     """反向溯源:本章参考了哪些素材(+ reason/dimension)。"""
-    return _store_for(work).material_refs_by_chapter(chapter)
+    st = _store_for(work)
+    rows = st.material_refs_by_chapter(chapter)
+    out = []
+    for r in rows:
+        m = st.get_material(str(r.get("material_id"))) or {}
+        out.append({**r, "title": m.get("title"), "kind": m.get("kind"), "source": m.get("source")})
+    return out
 
 
 @app.get("/materials/{mid}/refs")
@@ -2789,6 +3075,94 @@ def qc(seq: int, work: str = "main"):
         logging.getLogger("scribe3").warning("qc emotion_telling 失败 work=%s seq=%s: %s", work, seq, e)
         out["emotion_telling"] = []
     return out
+
+
+_QC_ISSUE_LABELS = {
+    "repetition": "复读(章内)",
+    "cross_repetition": "跨章复读",
+    "duplicate_lines": "整句重复",
+    "structural": "排比句式",
+    "emotion_telling": "情感直说",
+    "purple": "辞藻升华",
+    "ai_tics": "AI 腔",
+    "oversaturation": "过饱和",
+}
+
+
+def _issue_hit_text(hit) -> str:
+    if isinstance(hit, str):
+        return hit
+    if isinstance(hit, dict):
+        for k in ("phrase", "line", "span", "text", "detail", "reason"):
+            if hit.get(k):
+                return str(hit[k])
+    return str(hit)
+
+
+def _issue_hit_range(hit) -> list[int]:
+    if isinstance(hit, dict):
+        span = hit.get("range") or hit.get("loc")
+        if isinstance(span, (list, tuple)) and len(span) == 2:
+            return [int(span[0] or 0), int(span[1] or 0)]
+        if hit.get("start") is not None or hit.get("end") is not None:
+            return [int(hit.get("start") or 0), int(hit.get("end") or 0)]
+    return [0, 0]
+
+
+@app.get("/issues")
+def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "main"):
+    """校验台账:把 QC/因果等现有确定性结果归一化为可钻取 issue。"""
+    st = _store_for(work)
+    seqs = [chapter] if chapter is not None else [int(c["seq"]) for c in st.list_chapters()]
+    issues = []
+    degraded_sources = []
+    for seq in seqs:
+      try:
+        q = qc(seq, work)
+      except Exception as e:
+        degraded_sources.append({"source": "qc", "chapter": seq, "reason": str(e)})
+        q = {}
+      for source_key, label in _QC_ISSUE_LABELS.items():
+        hits = q.get(source_key) or []
+        if isinstance(hits, int):
+            hits = [{} for _ in range(hits)]
+        if not isinstance(hits, list):
+            continue
+        for idx, hit in enumerate(hits):
+            reason = _issue_hit_text(hit)
+            severity = "error" if source_key in {"duplicate_lines", "cross_repetition"} else "warning"
+            issues.append({
+                "id": f"issue:qc:{seq}:{source_key}:{idx}",
+                "source": "qc",
+                "kind": source_key,
+                "severity": severity,
+                "title": label,
+                "reason": reason,
+                "chapter": seq,
+                "range": _issue_hit_range(hit),
+                "status": "open",
+                "suggested_action": "定位到正文后改写或删减重复表达。",
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
+            })
+      try:
+        causal_result = causal(seq, work)
+        for idx, v in enumerate(causal_result.get("violations") or []):
+            issues.append({
+                "id": f"issue:causal:{seq}:{idx}",
+                "source": "causal",
+                "kind": "causal",
+                "severity": "warning",
+                "title": "因果链缺口",
+                "reason": v.get("reason") or str(v),
+                "chapter": seq,
+                "range": [0, 0],
+                "status": "open",
+                "suggested_action": "补上前因、目标或结果承接。",
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
+            })
+      except Exception as e:
+        degraded_sources.append({"source": "causal", "chapter": seq, "reason": str(e)})
+    return {"issues": issues, "degraded_sources": degraded_sources}
 
 
 @app.get("/discipline")

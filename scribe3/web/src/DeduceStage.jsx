@@ -146,7 +146,10 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   }
 
   return (
-    <div className="max-w-[48rem] mx-auto px-6 py-6 h-full flex flex-col min-h-0">
+    <div
+      data-testid="deduce-stage"
+      className="w-full max-w-[min(1120px,calc(100%-48px))] mx-auto px-6 py-6 h-full flex flex-col min-h-0"
+    >
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
         <Btn variant="primary" size="sm" onClick={gen} disabled={busy} className="ml-auto">
@@ -164,7 +167,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
         ariaLabel={selected === 'truth' ? '场景真相' : '限知投影'}
         onChange={(md) => { setText(md); workRef.current.text = md; workRef.current.dirty = true }} onBlur={blur}
         placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
-        className="flex-1 min-h-0" />
+        className="flex-1 min-h-0 w-full" />
       <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
     </div>
   )

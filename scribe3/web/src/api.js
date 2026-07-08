@@ -19,7 +19,7 @@ async function handle(res) {
   return res.json()
 }
 
-const j = (p) => fetch(BASE + ww(p)).then(handle)
+const j = (p, work) => fetch(BASE + ww(p, work)).then(handle)
 const jraw = (p) => fetch(BASE + p).then(handle)
 const post = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -62,9 +62,9 @@ export const api = {
   // 消费端经 causalStatus 归一化三态,勿对结果直接 .length(见 WriteLayout / causalStatus.js)。
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
-  promisesLedger: () => j('/promises/ledger'),
-  motifs: () => j('/motifs'),
-  motifInstances: (ch) => j(`/motif-instances?chapter=${ch}`),
+  promisesLedger: (work) => j('/promises/ledger', work),
+  motifs: (work) => j('/motifs', work),
+  motifInstances: (ch, work) => j(`/motif-instances?chapter=${ch}`, work),
   graph: (opts = {}) => {
     const { chapter, focus, limit, hop } = typeof opts === 'object' && opts !== null ? opts : { chapter: opts }
     const qs = []
@@ -86,10 +86,10 @@ export const api = {
   // 设定库增删改
   addChar: (b) => post('/characters', b),
   editChar: (local, b) => patch('/characters/' + enc(local), b),
-  delChar: (local) => del('/characters/' + enc(local)),
+  delChar: (local, token = '') => del('/characters/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   addFact: (b) => post('/facts', b),
   editFact: (local, b) => patch('/facts/' + enc(local), b),
-  delFact: (local) => del('/facts/' + enc(local)),
+  delFact: (local, token = '') => del('/facts/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   // 批D 件1:命题时态演进(限知引擎核心)。supersede=关闭同 entity+attribute 开区间先驱并写新值
   // (改命题值的时态正确路径,保历史);forget=令某 knower(默认 reader)从某章起不再知此命题。
   supersedeFact: (b) => post('/facts/supersede', b),
@@ -153,19 +153,39 @@ export const api = {
   // POST 但只读(登记在后端 KNOWN_REST_WRITE_ROUTES);rubric 走 LLM 可能慢,调用方给 loading 态
   tensionCheck: (seq) => post(`/tension-check?seq=${seq}`),
   // 素材库(非正典材料;镜像 motif 方法组)
-  materials: (kind) => j('/materials' + (kind ? `?kind=${enc(kind)}` : '')),
+  materials: (arg) => {
+    const opts = arg && typeof arg === 'object' ? arg : { kind: arg }
+    const qs = []
+    if (opts.kind) qs.push('kind=' + enc(opts.kind))
+    if (opts.limit != null) qs.push('limit=' + enc(opts.limit))
+    if (opts.cursor != null) qs.push('cursor=' + enc(opts.cursor))
+    if (opts.view) qs.push('view=' + enc(opts.view))
+    if (opts.q) qs.push('q=' + enc(opts.q))
+    return j('/materials' + (qs.length ? '?' + qs.join('&') : ''))
+  },
   addMaterial: (b) => post('/materials', b),
   editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
-  delMaterial: (mid) => del('/materials/' + enc(mid)),
+  delMaterial: (mid, token = '') => del('/materials/' + enc(mid) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
+  objectImpact: (type, id) => j('/objects/' + enc(type) + '/' + enc(id) + '/impact'),
+  deleteObject: (type, id, token = '') => del('/objects/' + enc(type) + '/' + enc(id) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
+  archiveObject: (type, id) => post('/objects/' + enc(type) + '/' + enc(id) + '/archive'),
   // 素材记忆:三通道召回搜索 + 双向溯源 + 多格式导入
   materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
   materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
   materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
-  materialGraph: () => j('/materials/graph'),
+  materialGraph: (opts = {}) => {
+    const qs = []
+    if (opts.focus != null && opts.focus !== '') qs.push('focus=' + enc(opts.focus))
+    if (opts.limit != null) qs.push('limit=' + enc(opts.limit))
+    if (opts.hop != null) qs.push('hop=' + enc(opts.hop))
+    return j('/materials/graph' + (qs.length ? '?' + qs.join('&') : ''))
+  },
   materialImport: (formData) => fetch(BASE + ww('/materials/import'), { method: 'POST', body: formData }).then(handle),
   materialImportPreview: (jobId) => j('/materials/import/' + enc(jobId) + '/preview'),
   materialImportCommit: (jobId, items) => post('/materials/import/' + enc(jobId) + '/commit', { items }),
   materialImportProgressUrl: (jobId) => BASE + ww('/materials/import/' + enc(jobId) + '/progress'),
+  search: (q) => j('/search?q=' + enc(q)),
+  issues: (chapter) => j('/issues' + (chapter != null ? `?chapter=${enc(chapter)}` : '')),
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
@@ -190,7 +210,7 @@ export const api = {
   // work 可选:卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书。
   saveDraft: (seq, prose, summary = '', work) => post(`/save-draft?seq=${seq}`, { prose, summary }, work),
   latestDraft: (seq) => j(`/latest-draft?seq=${seq}`),
-  qc: (seq) => j(`/qc?seq=${seq}`),
+  qc: (seq, work) => j(`/qc?seq=${seq}`, work),
   // work 可选:卸载兜底 flush / 切章 persist 传入捕获的 work,钉死目标书,防切书写错书。
   saveChapter: (seq, prose, title, focalizer, work) => post('/save-chapter', { seq, prose, title, focalizer }, work),
   ingest: (seq) => post(`/ingest?seq=${seq}`),

@@ -148,7 +148,7 @@ function GraphContent({ data, focus, theme, onPickNode, onHoverNode }) {
 }
 
 // 节点详情面板(点击后弹出)
-function NodeDetail({ node, focus, edges, onExpand, onClose }) {
+function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
   if (!node) return null
   // 该节点与 focus 之间的关系(若直连)
   const relToFocus = focus && focus !== node.id
@@ -176,6 +176,17 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
       {node.secret && (
         <div className="text-f11 text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
       )}
+      <button
+        onClick={() => onOpenNode?.({
+          id: node.id,
+          type: node.type === 'character' ? 'character' : 'proposition',
+          label: node.secret ? '私密命题' : node.label,
+          secret: !!node.secret,
+        })}
+        className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:bg-soft"
+      >
+        打开设定
+      </button>
       {node.type === 'character' && (
         <button
           onClick={() => onExpand(node.id)}
@@ -188,7 +199,7 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
   )
 }
 
-export function AtlasView() {
+export function AtlasView({ onNavigateToObject }) {
   const [raw, setRaw] = useState(null)        // 当前子图数据
   const [chars, setChars] = useState([])      // 全部角色(下拉用)— 仅 id/label
   const [focus, setFocus] = useState('')      // 当前中心角色 id
@@ -396,6 +407,7 @@ export function AtlasView() {
               focus={focus}
               edges={raw?.edges || []}
               onExpand={onExpandTo}
+              onOpenNode={onNavigateToObject}
               onClose={() => pickNode(null)}
             />
           </>
