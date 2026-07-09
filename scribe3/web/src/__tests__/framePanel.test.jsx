@@ -7,6 +7,12 @@ const apiMock = vi.hoisted(() => ({
   frame: vi.fn(),
   irony: vi.fn(),
   intent: vi.fn(),
+  materialRefsByChapter: vi.fn(),
+  facts: vi.fn(),
+  characterRelations: vi.fn(),
+  motifInstances: vi.fn(),
+  promisesLedger: vi.fn(),
+  issues: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -17,15 +23,18 @@ function FocusProbe() {
 }
 
 function renderFrame(props = {}) {
+  const onSelectNode = props.onSelectNode || vi.fn()
   return render(
     <SelectionProvider>
       <FramePanel
+        work="demo"
         focalizer="role:小翠"
         chapter={3}
         focalizerOptions={[
           { id: 'role:小翠', name: '小翠' },
           { id: 'role:柳怀玉', name: '柳怀玉' },
         ]}
+        onSelectNode={onSelectNode}
         {...props}
       />
       <FocusProbe />
@@ -43,13 +52,24 @@ describe('FramePanel 限知帧决策面板', () => {
       { id: 'i1', entity: '读者', attribute: '真相', value: '续命者为空', chapter: 1 },
     ])
     apiMock.intent.mockResolvedValue({})
+    apiMock.materialRefsByChapter.mockResolvedValue([
+      { material_id: 'm1', title: '铜炉制度', kind: 'worldbuilding', phase: 'outline' },
+    ])
+    apiMock.facts.mockResolvedValue([
+      { id: 'p1', entity: 'role:柳怀玉', attribute: '身份', value: '纸扎匠', chapter: 3 },
+    ])
+    apiMock.characterRelations.mockResolvedValue([])
+    apiMock.motifInstances.mockResolvedValue([{ id: 'motif:命纸:3', motif_id: '命纸', title: '命与纸', chapter: 3 }])
+    apiMock.promisesLedger.mockResolvedValue({ open: [], closed: [], red_herring: [] })
+    apiMock.issues.mockResolvedValue({ issues: [] })
   })
 
   it('以二栏上下文树和详情栏展示可写/禁写/反讽/来源', async () => {
     renderFrame()
 
-    await waitFor(() => expect(screen.getByRole('navigation', { name: '限知帧上下文树' })).toBeTruthy())
-    expect(screen.getByRole('region', { name: '限知帧详情' })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('navigation', { name: '关联上下文树' })).toBeTruthy())
+    expect(screen.getByRole('region', { name: '关联详情' })).toBeTruthy()
+    expect(screen.getByText('第 3 章关联树')).toBeTruthy()
     expect(screen.getByText('可写事实总览')).toBeTruthy()
 
     expect(screen.getByRole('button', { name: /可写事实 1/ })).toBeTruthy()
@@ -63,7 +83,7 @@ describe('FramePanel 限知帧决策面板', () => {
     expect(screen.getByText(/柳怀玉 · 秘密/)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /柳怀玉 · 秘密/ }))
-    const detail = screen.getByRole('region', { name: '限知帧详情' })
+    const detail = screen.getByRole('region', { name: '关联详情' })
     expect(within(detail).getByText('事实详情')).toBeTruthy()
     expect(within(detail).getByText('私密/未知')).toBeTruthy()
     expect(screen.getByTestId('focus-label').textContent).toContain('柳怀玉·秘密')
@@ -76,7 +96,7 @@ describe('FramePanel 限知帧决策面板', () => {
   it('按 demo 渲染向右延展的三列上下文画布和完整详情返回', async () => {
     renderFrame()
 
-    await waitFor(() => expect(screen.getByRole('region', { name: '限知帧画布' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('region', { name: '关联画布' })).toBeTruthy())
     expect(screen.getByText('分组')).toBeTruthy()
     expect(screen.getByText('当前分类')).toBeTruthy()
     expect(screen.getByText('就地详情')).toBeTruthy()
@@ -95,8 +115,34 @@ describe('FramePanel 限知帧决策面板', () => {
     expect(screen.getByText('返回机制')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '返回上下文树' }))
-    expect(screen.getByRole('region', { name: '限知帧画布' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '关联画布' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: '完整限知详情' })).toBeNull()
+  })
+
+  it('展示章级设定和素材,点击后进入真实三栏详情', async () => {
+    const onSelectNode = vi.fn()
+    renderFrame({ onSelectNode })
+
+    await waitFor(() => expect(screen.getByRole('region', { name: '关联画布' })).toBeTruthy())
+    expect(screen.getByRole('button', { name: /本章设定/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /本章素材/ })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /本章素材/ }))
+    fireEvent.click(screen.getByRole('button', { name: /铜炉制度/ }))
+    expect(onSelectNode).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'material:m1',
+      type: 'material',
+      ref: 'm1',
+      label: '铜炉制度',
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: /本章设定/ }))
+    fireEvent.click(screen.getByRole('button', { name: /柳怀玉 · 身份/ }))
+    expect(onSelectNode).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'character',
+      ref: '柳怀玉',
+      label: '柳怀玉',
+    }))
   })
 
   it('切换视角时重新读取该角色的限知树', async () => {

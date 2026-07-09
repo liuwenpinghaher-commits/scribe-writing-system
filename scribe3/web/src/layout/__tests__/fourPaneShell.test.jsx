@@ -156,7 +156,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByRole('button', { name: '素材库' })).toBeTruthy()
     expect(screen.getByTestId('col-directory')).toBeTruthy()
     expect(screen.queryByTestId('project-tree')).toBeNull()
-    expect(screen.getByText('书级工具')).toBeTruthy()
+    expect(screen.getByText('书级')).toBeTruthy()
     expect(screen.getByText('卷章')).toBeTruthy()
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
 
@@ -202,13 +202,43 @@ describe('FourPaneShell 四栏钻取', () => {
     render(<Harness />)
 
     const panel = screen.getByTestId('col-directory-panel')
-    expect(panel.getAttribute('data-default-size')).toBe('16')
-    expect(panel.getAttribute('data-min-size')).toBe('12')
-    expect(panel.getAttribute('data-max-size')).toBe('28')
+    expect(panel.getAttribute('data-default-size')).toBe('14')
+    expect(panel.getAttribute('data-min-size')).toBe('10')
+    expect(panel.getAttribute('data-max-size')).toBe('24')
     const handles = screen.getAllByRole('separator')
     expect(handles).toHaveLength(2)
     expect(handles[0].className).toContain('cursor-col-resize')
     expect(screen.getByTestId('col-directory').className).not.toContain('w-[288px]')
+  })
+
+  it('点击当前栏1入口可以折叠栏2,并从详情栏恢复', () => {
+    render(<Harness />)
+
+    expect(screen.getByTestId('col-directory')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '手稿' }))
+
+    expect(screen.queryByTestId('col-directory')).toBeNull()
+    expect(screen.getByTestId('directory-restore-button')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('directory-restore-button'))
+
+    expect(screen.getByTestId('col-directory')).toBeTruthy()
+  })
+
+  it('右侧主编栏可以折叠并从详情栏恢复', () => {
+    render(<Harness />)
+
+    expect(screen.getByTestId('chief')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('right-collapse-button'))
+
+    expect(screen.queryByTestId('chief')).toBeNull()
+    expect(screen.getByTestId('right-restore-button')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('right-restore-button'))
+
+    expect(screen.getByTestId('chief')).toBeTruthy()
   })
 
   it('左栏能力切换进入栏2,右侧主编栏保持常驻', () => {
@@ -352,7 +382,7 @@ describe('FourPaneShell 四栏钻取', () => {
     fireEvent.click(screen.getByRole('button', { name: '手稿' }))
 
     expect(screen.getByTestId('col-directory')).toBeTruthy()
-    expect(screen.getByText('书级工具')).toBeTruthy()
+    expect(screen.getByText('书级')).toBeTruthy()
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
   })
 

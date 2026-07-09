@@ -23,7 +23,7 @@ const PHASES = [
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
   { key: 'brief', label: '简报', icon: ScrollText },
-  { key: 'frame', label: '限知帧', icon: Eye },
+  { key: 'frame', label: '关联', icon: Eye },
   { key: 'northstar', label: '北极星', icon: Compass },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
@@ -600,7 +600,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
         ) : phase === 'brief' ? (
           <div className={AUX_PANEL_WRAP}><BriefPanel seq={seq} /></div>
         ) : phase === 'frame' ? (
-          <div className={FRAME_PANEL_WRAP}><FramePanel focalizer={meta?.focalizer || ''} focalizerOptions={meta?.chars || []} chapter={seq} /></div>
+          <div className={FRAME_PANEL_WRAP}><FramePanel work={work} meta={meta} focalizer={meta?.focalizer || ''} focalizerOptions={meta?.chars || []} chapter={seq} onSelectNode={onSelectNode} /></div>
         ) : phase === 'northstar' ? (
           <div className={AUX_PANEL_WRAP}><NorthStarPanel seq={seq} /></div>
         ) : null}

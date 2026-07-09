@@ -13,7 +13,7 @@ const apiMock = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
-vi.mock('../FramePanel', () => ({ FramePanel: ({ focalizer, chapter }) => <div data-testid="frame-panel">帧:{focalizer}:{chapter}</div> }))
+vi.mock('../FramePanel', () => ({ FramePanel: ({ focalizer, chapter }) => <div data-testid="frame-panel">关联:{focalizer}:{chapter}</div> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
 vi.mock('../NorthStarBar', () => ({ NorthStarBar: () => <div data-testid="northstar-bar" /> }))
 vi.mock('../WriteLayout', () => ({ WriteLayout: () => <div data-testid="write-layout" /> }))
@@ -49,14 +49,14 @@ describe('ChapterStudio 章工作台归位', () => {
     apiMock.latestDraft.mockResolvedValue({ prose: '', summary: '' })
   })
 
-  it('章工作台提供简报、限知帧、北极星页签并渲染对应面板', async () => {
+  it('章工作台提供简报、关联、北极星页签并渲染对应面板', async () => {
     renderStudio()
 
     fireEvent.click(await screen.findByRole('button', { name: /简报/ }))
     expect((await screen.findByTestId('brief-panel')).textContent).toBe('简报:3')
 
-    fireEvent.click(screen.getByRole('button', { name: /限知帧/ }))
-    expect((await screen.findByTestId('frame-panel')).textContent).toBe('帧:role:小翠:3')
+    fireEvent.click(screen.getByRole('button', { name: /关联/ }))
+    expect((await screen.findByTestId('frame-panel')).textContent).toBe('关联:role:小翠:3')
 
     fireEvent.click(screen.getByRole('button', { name: /北极星/ }))
     expect((await screen.findByTestId('northstar-panel')).textContent).toBe('北极星:3')

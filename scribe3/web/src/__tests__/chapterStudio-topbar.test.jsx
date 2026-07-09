@@ -14,7 +14,7 @@ const apiMock = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
-vi.mock('../FramePanel', () => ({ FramePanel: ({ focalizer, chapter }) => <div data-testid="frame-panel">帧:{focalizer}:{chapter}</div> }))
+vi.mock('../FramePanel', () => ({ FramePanel: ({ focalizer, chapter }) => <div data-testid="frame-panel">关联:{focalizer}:{chapter}</div> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
 vi.mock('../WriteLayout', () => ({ WriteLayout: () => <div data-testid="write-layout" /> }))
 vi.mock('../DeduceStage', () => ({ DeduceStage: () => <div data-testid="deduce-stage" /> }))
@@ -66,6 +66,8 @@ describe('ChapterStudio 顶栏阶段条', () => {
     const topbar = await screen.findByTestId('chapter-phase-topbar')
     expect(within(topbar).getByRole('button', { name: /大纲/ })).toBeTruthy()
     expect(within(topbar).getByRole('button', { name: /正文/ })).toBeTruthy()
+    expect(within(topbar).getByRole('button', { name: /关联/ })).toBeTruthy()
+    expect(within(topbar).queryByRole('button', { name: /限知帧/ })).toBeNull()
     expect(within(topbar).queryByRole('button', { name: /演绎/ })).toBeNull()
 
     const detail = screen.getByTestId('detail-body')
@@ -106,7 +108,7 @@ describe('ChapterStudio 顶栏阶段条', () => {
     expect(screen.getByTestId('chapter-stage-heading').textContent).toBe('草稿')
   })
 
-  it('简报、限知帧、北极星保留原面板结构,不套统一章工作台外壳', async () => {
+  it('简报、关联、北极星保留原面板结构,不套统一章工作台外壳', async () => {
     render(<Harness />)
 
     const topbar = await screen.findByTestId('chapter-phase-topbar')
@@ -114,7 +116,7 @@ describe('ChapterStudio 顶栏阶段条', () => {
     await screen.findByTestId('brief-panel')
     await waitFor(() => expect(screen.queryByTestId('chapter-workbench-shell')).toBeNull())
 
-    fireEvent.click(within(topbar).getByRole('button', { name: /限知帧/ }))
+    fireEvent.click(within(topbar).getByRole('button', { name: /关联/ }))
     await screen.findByTestId('frame-panel')
     await waitFor(() => expect(screen.queryByTestId('chapter-workbench-shell')).toBeNull())
 

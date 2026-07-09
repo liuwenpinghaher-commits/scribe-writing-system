@@ -21,7 +21,7 @@ const errs = []
 p.on('pageerror', (e) => errs.push('PAGEERR ' + e.message))
 p.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (!/ERR_CONNECTION_CLOSED|favicon/.test(t)) errs.push('CONSOLE ' + t.slice(0, 160)) } })
 
-await p.addInitScript((v) => { try { if (v) localStorage.setItem('s3.layout.v2', '1'); else localStorage.removeItem('s3.layout.v2') } catch {} }, V2)
+await p.addInitScript((v) => { try { localStorage.setItem('s3.layout.v2', v ? '1' : '0') } catch {} }, V2)
 
 const out = { mode: V2 ? 'v2-四栏' : '旧三栏', title: TITLE, entry: ENTRY }
 try {

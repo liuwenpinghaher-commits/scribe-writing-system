@@ -40,8 +40,13 @@ describe('DirectoryPane 手稿目录', () => {
   it('在卷章目录上方渲染 sticky 当前选择区', () => {
     render(<DirectoryPane entry={entry} seq={2} sel={{ node: { type: 'chapter', ref: 2 } }} onSelectItem={() => {}} />)
 
+    expect(screen.getByTestId('manuscript-directory')).toBeTruthy()
     expect(screen.getByTestId('directory-sticky-header').textContent).toContain('当前')
-    expect(screen.getByText('书级工具')).toBeTruthy()
+    expect(screen.getByTestId('manuscript-current-card').textContent).toContain('当前')
+    expect(screen.getByText('书级')).toBeTruthy()
+    expect(screen.getByTestId('manuscript-book-tools').textContent).toContain('全书大纲')
+    expect(screen.getByTestId('manuscript-volume-list').textContent).toContain('北极星')
+    expect(screen.getByTestId('manuscript-volume-list').textContent).toContain('第一卷')
     expect(screen.getByRole('button', { name: /第一卷/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /第 2 章/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /场景 1 炉灰/ })).toBeTruthy()
@@ -59,5 +64,6 @@ describe('DirectoryPane 手稿目录', () => {
       ref: 1,
     }))
     expect(screen.getByTestId('directory-sticky-header')).toBeTruthy()
+    expect(screen.getByTestId('manuscript-volume-list')).toBeTruthy()
   })
 })

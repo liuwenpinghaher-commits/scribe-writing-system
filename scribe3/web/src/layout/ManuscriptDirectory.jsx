@@ -1,9 +1,9 @@
 import { DirectoryHeader } from './DirectoryHeader'
 
 const BOOK_TOOLS = [
-  { id: 'book:outline', type: 'book_outline', ref: null, label: '全书大纲' },
-  { id: 'book:northstar', type: 'book_northstar', ref: null, label: '北极星' },
-  { id: 'view:progress', type: 'view', ref: 'progress', label: '进度' },
+  { id: 'book:outline', type: 'book_outline', ref: null, label: '全书大纲', marker: '纲' },
+  { id: 'book:northstar', type: 'book_northstar', ref: null, label: '北极星', marker: '星' },
+  { id: 'view:progress', type: 'view', ref: 'progress', label: '进度', marker: '度' },
 ]
 
 export function chapterNodeFrom(row) {
@@ -56,17 +56,23 @@ function rowMeta(row) {
 
 function BookTools({ onSelectItem }) {
   return (
-    <div className="px-3 py-2 border-b border-line">
-      <div className="mb-1 text-f10 uppercase tracking-wider text-faint/60">书级工具</div>
-      <div className="grid grid-cols-3 gap-1">
+    <div data-testid="manuscript-book-tools">
+      <div className="px-1 py-1 text-f10 font-semibold uppercase tracking-wider text-faint/60">书级</div>
+      <div className="grid gap-0.5">
         {BOOK_TOOLS.map((tool) => (
           <button
             key={tool.id}
             type="button"
-            onClick={() => onSelectItem?.(tool)}
-            className="h-7 rounded-md border border-line bg-canvas px-2 text-f12 text-ink hover:border-brand/40 hover:text-brand"
+            aria-label={tool.label}
+            onClick={() => {
+              const { marker, ...node } = tool
+              onSelectItem?.(node)
+            }}
+            className="grid min-h-8 w-full grid-cols-[18px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-f12 text-faint hover:bg-hover hover:text-ink"
           >
-            {tool.label}
+            <span aria-hidden="true" className="grid h-5 w-5 place-items-center rounded bg-brand/10 text-f10 font-semibold text-brand">{tool.marker}</span>
+            <span className="min-w-0 truncate">{tool.label}</span>
+            <span aria-hidden="true" className="text-f10 text-faint">书</span>
           </button>
         ))}
       </div>
@@ -82,12 +88,13 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onJumpChapt
   const currentLabel = currentRow?.node?.label || (currentSeq != null ? `第 ${currentSeq} 章` : '')
 
   return (
-    <div className="h-full min-h-0 flex flex-col">
+    <div data-testid="manuscript-directory" className="h-full min-h-0 flex flex-col">
       <DirectoryHeader
         title="手稿"
         badge={currentSeq != null ? `第 ${currentSeq} 章` : '卷章'}
         current={currentLabel}
         subtitle="卷 / 章 / 场景目录"
+        currentCardTestId="manuscript-current-card"
         inputPlaceholder="跳章 / 过滤"
         secondaryAction="上一章"
         primaryAction="同步"
@@ -99,9 +106,9 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onJumpChapt
           if (currentSeq != null) onSelectItem?.(chapterNodeFrom({ type: 'chapter', ref: currentSeq, label: currentLabel }))
         }}
       />
-      <BookTools onSelectItem={onSelectItem} />
-      <div className="flex-1 min-h-0 overflow-auto px-2 py-2">
-        <div className="px-1 py-1 text-f10 uppercase tracking-wider text-faint/60">卷章</div>
+      <div data-testid="manuscript-volume-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
+        <BookTools onSelectItem={onSelectItem} />
+        <div className="mt-3 px-1 py-1 text-f10 font-semibold uppercase tracking-wider text-faint/60">卷章</div>
         {rows.length === 0 ? (
           <div className="px-2 py-6 text-center text-f12 text-faint/60">暂无章节。</div>
         ) : rows.map((row) => {
@@ -114,13 +121,13 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onJumpChapt
               type="button"
               disabled={disabled}
               onClick={() => onSelectItem?.(chapterNodeFrom(row.node))}
-              className={`w-full grid grid-cols-[16px_1fr_auto] items-center gap-1 rounded-md px-2 py-1.5 text-left text-f12 ${
-                active ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-hover'
-              } ${disabled ? 'cursor-default text-faint' : ''}`}
-              style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+              className={`my-0.5 grid min-h-8 w-full grid-cols-[18px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-f12 ${
+                active ? 'bg-brand/10 text-brand font-semibold' : 'text-ink hover:bg-hover'
+              } ${disabled ? 'cursor-default text-faint hover:bg-transparent' : ''}`}
+              style={{ paddingLeft: `${8 + row.depth * 16}px` }}
             >
-              <span className="text-faint">{marker}</span>
-              <span className="truncate">{row.node.label}</span>
+              <span className="w-5 text-center text-faint">{marker}</span>
+              <span className="min-w-0 truncate">{row.node.label}</span>
               <span className="text-f10 text-faint">{rowMeta(row)}</span>
             </button>
           )

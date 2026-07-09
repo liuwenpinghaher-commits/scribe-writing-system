@@ -7,6 +7,7 @@ export function DirectoryHeader({
   primaryAction = '同步',
   secondaryAction = '范围',
   chips = [],
+  currentCardTestId,
   onPrimary,
   onSecondary,
 }) {
@@ -19,7 +20,7 @@ export function DirectoryHeader({
         <div className="min-w-0 flex-1 text-f13 font-semibold text-ink">{title}</div>
         {badge && <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-f10 text-brand">{badge}</span>}
       </div>
-      <div className="rounded-md border border-line bg-canvas px-2.5 py-2 mb-2">
+      <div data-testid={currentCardTestId} className="rounded-md border border-line bg-canvas px-2.5 py-2 mb-2">
         <div className="flex items-center justify-between gap-2 text-f12 font-medium text-ink">
           <span className="truncate">当前:{current || '未选择'}</span>
           <span className="shrink-0 text-f10 text-faint">固定</span>

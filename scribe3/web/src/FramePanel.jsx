@@ -12,11 +12,144 @@ function factFocus(f, irony) {
 }
 
 function factTitle(f) {
+  if (f.titleText) return f.titleText
   return `${f.entity ? f.entity + ' · ' : ''}${f.attribute}`
 }
 
 function factValue(f) {
+  if (f.valueText != null) return String(f.valueText)
   return f.value == null ? '私密/未知' : String(f.value)
+}
+
+function localEntityName(entity) {
+  return String(entity || '').replace(/^[^:]+:/, '') || '未命名对象'
+}
+
+function materialAssociationRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const ref = row.material_id || row.id || row.ref || row.material || `material-${index}`
+    const title = row.title || row.label || String(ref)
+    const kind = row.kind || row.material_kind || row.type || '素材'
+    const phase = row.phase ? ` · ${row.phase}` : ''
+    return {
+      id: `material:${ref}`,
+      titleText: title,
+      valueText: `${kind}${phase}`,
+      entity: '素材库',
+      attribute: title,
+      value: kind,
+      tone: 'brand',
+      badge: '素材',
+      targetNode: { id: `material:${ref}`, type: 'material', ref, label: title, meta: { kind } },
+    }
+  })
+}
+
+function factAssociationRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const entity = row.entity || row.entity_id || row.subject || ''
+    const name = localEntityName(entity)
+    const attr = row.attribute || row.predicate || '设定'
+    const ref = row.id || row.local || `${name}:${attr}:${index}`
+    const targetNode = String(entity).startsWith('role:')
+      ? { id: `character:${name}`, type: 'character', ref: name, label: name }
+      : { id: `proposition:${ref}`, type: 'proposition', ref, label: `${name} · ${attr}` }
+    return {
+      id: `codex:${ref}`,
+      titleText: `${name} · ${attr}`,
+      valueText: row.value == null ? '未显性落值' : String(row.value),
+      entity: name,
+      attribute: attr,
+      value: row.value,
+      chapter: row.chapter,
+      tone: 'brand',
+      badge: '设定',
+      targetNode,
+    }
+  })
+}
+
+function relationAssociationRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const src = localEntityName(row.src || row.source || row.from || row.character_a)
+    const dst = localEntityName(row.dst || row.target || row.to || row.character_b)
+    const relation = row.relation || row.kind || row.label || '关系'
+    return {
+      id: `relation:${row.id || `${src}:${dst}:${relation}:${index}`}`,
+      titleText: `${src} -> ${dst}`,
+      valueText: relation,
+      entity: src,
+      attribute: relation,
+      value: dst,
+      chapter: row.chapter,
+      tone: 'brand',
+      badge: '关系',
+      targetNode: { id: `character:${src}`, type: 'character', ref: src, label: src },
+    }
+  })
+}
+
+function motifAssociationRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => {
+    const ref = row.motif_id || row.id || row.ref || `motif-${index}`
+    const title = row.title || row.label || String(ref)
+    return {
+      id: `motif:${ref}:${row.chapter || ''}:${index}`,
+      titleText: title,
+      valueText: row.chapter != null ? `第 ${row.chapter} 章` : '本章母题',
+      entity: '母题',
+      attribute: title,
+      value: row.chapter,
+      tone: 'ok',
+      badge: '母题',
+      targetNode: { id: `motif:${ref}`, type: 'motif_view', ref, label: title },
+    }
+  })
+}
+
+function promiseAssociationRows(ledger, chapter) {
+  const rows = []
+  const add = (kind, label, items) => {
+    ;(Array.isArray(items) ? items : []).forEach((row, index) => {
+      const ref = row.id || row.promise_id || row.title || `${kind}-${index}`
+      const title = row.title || row.label || row.text || String(ref)
+      rows.push({
+        id: `promise:${kind}:${ref}`,
+        titleText: title,
+        valueText: label,
+        entity: '伏笔',
+        attribute: title,
+        value: label,
+        chapter: row.chapter || row.plant_chapter || chapter,
+        tone: kind === 'red_herring' ? 'warn' : 'brand',
+        badge: label,
+        targetNode: { id: `promise:${ref}`, type: 'promise_view', ref, label: title, meta: { kind } },
+      })
+    })
+  }
+  add('open', '未回收', ledger?.open)
+  add('closed', '已回收', ledger?.closed)
+  add('red_herring', '反讽/误导', ledger?.red_herring)
+  return rows
+}
+
+function issueAssociationRows(payload) {
+  const rows = Array.isArray(payload) ? payload : (Array.isArray(payload?.issues) ? payload.issues : [])
+  return rows.map((row, index) => {
+    const ref = row.id || row.code || row.title || `issue-${index}`
+    const title = row.title || row.message || row.summary || String(ref)
+    return {
+      id: `issue:${ref}`,
+      titleText: title,
+      valueText: row.severity || row.tone || '待校验',
+      entity: '校验',
+      attribute: title,
+      value: row.severity,
+      tone: row.severity === 'error' ? 'danger' : 'warn',
+      badge: '校验',
+      targetNode: { id: `issue:${ref}`, type: 'review_issue', ref, label: title, payload: row },
+    }
+  })
 }
 
 function focalizerLabel(value, options) {
@@ -94,6 +227,12 @@ function factRows(section, fact) {
 }
 
 function relatedRows(section, fact) {
+  if (fact.targetNode) {
+    const rows = [[section.label, factTitle(fact)], ['打开详情', fact.targetNode.label || fact.targetNode.ref || fact.targetNode.id]]
+    if (fact.chapter != null) rows.push(['正文证据', `第 ${fact.chapter} 章`])
+    rows.push(['详情类型', fact.targetNode.type])
+    return rows
+  }
   const entity = String(fact.entity || '').replace(/^role:/, '') || '本章事实'
   const rows = [[section.label, factTitle(fact)], ['设定库', entity]]
   if (fact.chapter != null) rows.push(['正文证据', `第 ${fact.chapter} 章`])
@@ -102,6 +241,41 @@ function relatedRows(section, fact) {
 }
 
 function groupRows(section, focalizerName) {
+  if (section.key === 'codex') {
+    return [
+      ['分类含义', '本章正文、简报或推演已经引用到的设定库对象。'],
+      ['写作约束', '点击条目进入原设定详情,不在关联页复制第二套编辑表单。'],
+      ['当前范围', `本章设定有 ${section.items.length} 条,用于核对角色、命题和关系是否闭环。`],
+    ]
+  }
+  if (section.key === 'materials') {
+    return [
+      ['分类含义', '本章引用过或可追溯到的素材库材料。'],
+      ['写作约束', '素材是参考与来源,进入详情后再决定是否吸收为设定或正文证据。'],
+      ['当前范围', `本章素材有 ${section.items.length} 条,点击可回到素材库完整详情。`],
+    ]
+  }
+  if (section.key === 'promise') {
+    return [
+      ['分类含义', '本章相关的伏笔、误导与回收状态。'],
+      ['写作约束', '伏笔只给结构提示,正文仍要靠场景动作落地。'],
+      ['当前范围', `本章伏笔有 ${section.items.length} 条。`],
+    ]
+  }
+  if (section.key === 'motif') {
+    return [
+      ['分类含义', '本章出现的母题实例与主题回声。'],
+      ['写作约束', '母题用于统一意象和价值判断,避免只堆符号。'],
+      ['当前范围', `本章母题有 ${section.items.length} 条。`],
+    ]
+  }
+  if (section.key === 'review') {
+    return [
+      ['分类含义', '本章校验、搜索或一致性检查命中的待处理项。'],
+      ['写作约束', '先定位真实问题,再决定修改正文、设定还是素材。'],
+      ['当前范围', `本章校验有 ${section.items.length} 条。`],
+    ]
+  }
   if (section.key === 'write') {
     return [
       ['分类含义', '这类事实可以进入当前 POV 的感知、行动和判断。'],
@@ -245,11 +419,17 @@ function FullDetail({ model, path, onBack }) {
   )
 }
 
-// 限知帧:写作决策面板。默认只给作者看“能写什么”,禁写/反讽/来源按需切换。
-export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
+// 关联:章级设定/素材/伏笔/母题/校验 + 限知写作决策面板。
+export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = [], onSelectNode }) {
   const { focus, setFocus } = useSelection()
   const [frame, setFrame] = useState([])
   const [irony, setIrony] = useState([])
+  const [materialRefs, setMaterialRefs] = useState([])
+  const [chapterFacts, setChapterFacts] = useState([])
+  const [relations, setRelations] = useState([])
+  const [motifs, setMotifs] = useState([])
+  const [promiseLedger, setPromiseLedger] = useState(null)
+  const [reviewIssues, setReviewIssues] = useState([])
   const [active, setActive] = useState('write')
   const [picked, setPicked] = useState(null)
   const [orientation, setOrientation] = useState('wide')
@@ -280,14 +460,67 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
     return () => { alive = false }
   }, [effectiveFocalizer, chapter, setFocus])
 
+  useEffect(() => {
+    let alive = true
+    setMaterialRefs([])
+    setChapterFacts([])
+    setRelations([])
+    setMotifs([])
+    setPromiseLedger(null)
+    setReviewIssues([])
+    if (chapter == null) return () => { alive = false }
+    api.materialRefsByChapter(chapter).then((rows) => { if (alive) setMaterialRefs(Array.isArray(rows) ? rows : []) }).catch(() => { if (alive) setMaterialRefs([]) })
+    api.facts(chapter).then((rows) => { if (alive) setChapterFacts(Array.isArray(rows) ? rows : []) }).catch(() => { if (alive) setChapterFacts([]) })
+    api.characterRelations(chapter).then((rows) => { if (alive) setRelations(Array.isArray(rows) ? rows : []) }).catch(() => { if (alive) setRelations([]) })
+    api.motifInstances(chapter, work).then((rows) => { if (alive) setMotifs(Array.isArray(rows) ? rows : []) }).catch(() => { if (alive) setMotifs([]) })
+    api.promisesLedger(work).then((rows) => { if (alive) setPromiseLedger(rows || {}) }).catch(() => { if (alive) setPromiseLedger({}) })
+    api.issues(chapter).then((rows) => { if (alive) setReviewIssues(rows || {}) }).catch(() => { if (alive) setReviewIssues({ issues: [] }) })
+    return () => { alive = false }
+  }, [chapter, work])
+
   const writable = frame.filter((f) => f.value != null).map((f) => ({ ...f, tone: 'ok', badge: '可写' }))
   const forbidden = frame.filter((f) => f.value == null).map((f) => ({ ...f, tone: 'danger', badge: '风险' }))
   const ironyRows = irony.map((f) => ({ ...f, tone: 'brand', badge: '反讽' }))
+  const codexRows = [...factAssociationRows(chapterFacts), ...relationAssociationRows(relations)]
+  const materialRows = materialAssociationRows(materialRefs)
+  const motifRows = motifAssociationRows(motifs)
+  const promiseRows = promiseAssociationRows(promiseLedger, chapter)
+  const issueRows = issueAssociationRows(reviewIssues)
   const sourceRows = [
     ...frame.map((f) => ({ ...f, sourceKind: '知识帧', tone: f.value == null ? 'danger' : 'ok', badge: '来源' })),
     ...irony.map((f) => ({ ...f, sourceKind: '戏剧反讽', tone: 'brand', badge: '来源' })),
   ]
   const sections = [
+    {
+      key: 'codex', label: '本章设定', title: '本章设定',
+      description: '本章已经牵连到的角色、命题和关系,点击进入设定库原详情。',
+      detailHint: '用于核对本章设定闭环；点击条目会跳到既有三栏设定详情。',
+      empty: '本章暂无设定条目', icon: BookOpen, items: codexRows, countTone: codexRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
+    },
+    {
+      key: 'materials', label: '本章素材', title: '本章素材',
+      description: '本章引用或召回过的素材库材料,点击进入素材详情。',
+      detailHint: '用于追溯本章来源和参考,不替代素材库自身能力。',
+      empty: '本章暂无素材条目', icon: FileSearch, items: materialRows, countTone: materialRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
+    },
+    {
+      key: 'promise', label: '本章伏笔', title: '本章伏笔',
+      description: '本章关联的伏笔、误导和回收账本。',
+      detailHint: '点击后进入伏笔详情,用于检查种下、推进和回收是否闭环。',
+      empty: '本章暂无伏笔条目', icon: Eye, items: promiseRows, countTone: promiseRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
+    },
+    {
+      key: 'motif', label: '本章母题', title: '本章母题',
+      description: '本章出现的母题实例和主题回声。',
+      detailHint: '点击后进入母题详情,用于检查意象和主题是否持续。',
+      empty: '本章暂无母题条目', icon: Drama, items: motifRows, countTone: motifRows.length ? 'text-ok' : 'text-faint', tone: 'ok',
+    },
+    {
+      key: 'review', label: '本章校验', title: '本章校验',
+      description: '本章校验或一致性检查命中的待处理项。',
+      detailHint: '点击后进入校验详情,用于定位正文、设定或素材的冲突。',
+      empty: '本章暂无校验条目', icon: Lock, items: issueRows, countTone: issueRows.length ? 'text-warn' : 'text-faint', tone: 'warn',
+    },
     {
       key: 'write', label: '可写事实', title: '可写事实',
       description: '当前视角已经知道、可以安全进入正文的信息。',
@@ -325,26 +558,26 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
   const detailModel = picked ? {
     kind: 'fact',
     title: factTitle(picked.fact),
-    kicker: `限知帧 · ${pickedSection.label}`,
-    sub: picked.fact.value == null ? '当前 POV 不知道；只能写痕迹、误读或延后揭露。' : `当前值:${factValue(picked.fact)}`,
+    kicker: `${picked.fact.targetNode ? '章级关联' : '限知帧'} · ${pickedSection.label}`,
+    sub: picked.fact.targetNode ? pickedSection.detailHint : (picked.fact.value == null ? '当前 POV 不知道；只能写痕迹、误读或延后揭露。' : `当前值:${factValue(picked.fact)}`),
     value: factValue(picked.fact),
     body: factRows(pickedSection, picked.fact),
     related: relatedRows(pickedSection, picked.fact),
   } : {
     kind: 'group',
     title: `${pickedSection.title}总览`,
-    kicker: `限知分类 · ${focalizerName}`,
+    kicker: `关联分类 · ${focalizerName}`,
     sub: `${pickedSection.description} · ${pickedSection.items.length}项`,
     body: groupRows(pickedSection, focalizerName),
     related: pickedSection.items.length ? pickedSection.items.slice(0, 4).map((f) => [pickedSection.label, factTitle(f)]) : [['本章', `第 ${chapter} 章`]],
   }
   const detailPath = `第 ${chapter} 章 / ${focalizerName} / ${pickedSection.label}${picked ? ' / ' + factTitle(picked.fact) : ''}`
   const summaryStats = [
+    ['设定', codexRows.length, codexRows.length ? 'brand' : 'muted'],
+    ['素材', materialRows.length, materialRows.length ? 'brand' : 'muted'],
     ['可写', writable.length, 'ok'],
     ['禁写', forbidden.length, forbidden.length ? 'danger' : 'muted'],
     ['反讽', ironyRows.length, ironyRows.length ? 'brand' : 'muted'],
-    ['盲区', 0, 'warn'],
-    ['来源', sourceRows.length, 'ink'],
     ['风险', forbidden.length, forbidden.length ? 'danger' : 'muted'],
   ]
 
@@ -358,6 +591,11 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
     setActive(sectionKey)
     setPicked({ sectionKey, fact })
     setFullOpen(false)
+    if (fact.targetNode) {
+      onSelectNode?.(fact.targetNode)
+      setFocus({ type: 'chapter_association', id: fact.id, label: factTitle(fact), payload: { target: fact.targetNode }, origin: 'panel' })
+      return
+    }
     setFocus(factFocus(fact, sectionKey === 'irony' || fact.sourceKind === '戏剧反讽'))
   }
 
@@ -409,7 +647,7 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
         </div>
         <div className="grid gap-1.5">{renderItemButtons(false)}</div>
       </section>
-      <section aria-label="限知帧详情" className="min-w-0">
+      <section aria-label="关联详情" className="min-w-0">
         <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-f11 tracking-wide text-faint">
           <span>就地详情</span><span>随路径更新</span>
         </div>
@@ -452,8 +690,8 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
           <div className="flex items-center gap-2">
             <Eye size={17} className="text-brand" />
             <div>
-              <div className="text-f20 font-semibold leading-tight text-ink">第 {chapter} 章限知帧树</div>
-              <div className="text-f12 text-faint">从当前 POV 向右展开可写、禁写、反讽和盲区,把“知道什么”和“不能写什么”放在同一条路径上。</div>
+              <div className="text-f20 font-semibold leading-tight text-ink">第 {chapter} 章关联树</div>
+              <div className="text-f12 text-faint">把设定、素材、伏笔、母题、校验和限知边界放在同一条章级路径上。</div>
             </div>
           </div>
           {options.length > 1 ? (
@@ -487,7 +725,7 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
       ) : fullOpen ? (
         <FullDetail model={detailModel} path={detailPath} onBack={() => setFullOpen(false)} />
       ) : (
-        <section aria-label="限知帧画布" className="tree-shell flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)]">
+        <section aria-label="关联画布" className="tree-shell flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/70 bg-surface px-4 py-2">
             <div className="min-w-0 truncate text-f12 text-faint">
               <span>第 {chapter} 章</span><span className="mx-2">/</span><span>{focalizerName}</span><span className="mx-2">/</span><span className="font-medium text-ink">{pickedSection.label}</span>{picked && <><span className="mx-2">/</span><span className="font-medium text-ink">{factTitle(picked.fact)}</span></>}
@@ -507,7 +745,7 @@ export function FramePanel({ focalizer, chapter, focalizerOptions = [] }) {
             </div>
           </div>
           <div className="min-h-0 overflow-auto px-4 py-4">
-            <nav aria-label="限知帧上下文树">
+            <nav aria-label="关联上下文树">
               {orientation === 'wide' ? renderWideBoard() : renderDownBoard()}
             </nav>
           </div>

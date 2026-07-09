@@ -3,16 +3,34 @@ import { DetailPane } from '../DetailPane'
 import { Rail } from '../shell'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { cn } from '../lib/utils'
-import { useState } from 'react'
-import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels'
+import { useEffect, useState } from 'react'
+import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
 
-const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout'
-const FOUR_PANE_DEFAULT_LAYOUT = { directory: 16, detail: 60, right: 24 }
-const DIRECTORY_PANEL = { default: 16, min: 12, max: 28 }
+const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
+const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
+const DIRECTORY_PANEL = { default: 14, min: 10, max: 24 }
 const RIGHT_PANEL = { default: 24, min: 18, max: 36 }
 const RESIZER_CLASS = 'relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line'
+const RESTORE_BUTTON_CLASS = 'absolute top-2 z-20 h-7 w-7 rounded-lg border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
+
+function collapsedStorageKey(work, side) {
+  return `s3.${work || 'default'}.${side}Collapsed`
+}
+
+function readCollapsed(work, side) {
+  try { return localStorage.getItem(collapsedStorageKey(work, side)) === '1' } catch { return false }
+}
+
+function writeCollapsed(work, side, collapsed) {
+  try { localStorage.setItem(collapsedStorageKey(work, side), collapsed ? '1' : '0') } catch { /* */ }
+}
+
+function callPanel(panel, method) {
+  try { panel?.[method]?.() } catch { /* panel may be unmounted in view mode */ }
+}
 
 function entrySource(tree, key) {
   if (key === 'manuscript') return tree?.manuscript
@@ -48,6 +66,10 @@ export function FourPaneShell({
 }) {
   const isView = sel?.mode === 'view'
   const [directoryRefresh, setDirectoryRefresh] = useState(0)
+  const directoryRef = usePanelRef()
+  const rightRef = usePanelRef()
+  const [directoryCollapsed, setDirectoryCollapsed] = useState(() => readCollapsed(work, 'directory'))
+  const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(work, 'right'))
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: FOUR_PANE_LAYOUT_ID })
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
@@ -62,10 +84,48 @@ export function FourPaneShell({
     splitProjectRoots: true,
   })
   const activeEntry = entryForActive(tree, active)
+  useEffect(() => {
+    setDirectoryCollapsed(readCollapsed(work, 'directory'))
+    setRightCollapsed(readCollapsed(work, 'right'))
+  }, [work])
+  useEffect(() => {
+    if (isView) return
+    if (directoryCollapsed) callPanel(directoryRef.current, 'collapse')
+    else callPanel(directoryRef.current, 'expand')
+  }, [directoryCollapsed, directoryRef, isView])
+  useEffect(() => {
+    if (rightCollapsed) callPanel(rightRef.current, 'collapse')
+    else callPanel(rightRef.current, 'expand')
+  }, [rightCollapsed, rightRef])
+  const collapseDirectory = () => {
+    setDirectoryCollapsed(true)
+    writeCollapsed(work, 'directory', true)
+    callPanel(directoryRef.current, 'collapse')
+  }
+  const expandDirectory = () => {
+    setDirectoryCollapsed(false)
+    writeCollapsed(work, 'directory', false)
+    callPanel(directoryRef.current, 'expand')
+  }
+  const toggleDirectory = () => {
+    if (directoryCollapsed) expandDirectory()
+    else collapseDirectory()
+  }
+  const collapseRightPanel = () => {
+    setRightCollapsed(true)
+    writeCollapsed(work, 'right', true)
+    callPanel(rightRef.current, 'collapse')
+  }
+  const expandRightPanel = () => {
+    setRightCollapsed(false)
+    writeCollapsed(work, 'right', false)
+    callPanel(rightRef.current, 'expand')
+  }
   const handleActive = (key) => {
     const nextKey = key || (isView ? active?.key : '')
-    if (!nextKey) { collapseLeft?.(); return }
+    if (!nextKey) { toggleDirectory(); return }
     setTab(nextKey)
+    if (directoryCollapsed) expandDirectory()
     if (isView) onSelectNode?.(null)
   }
   const handleNavigateToObject = (target) => {
@@ -97,9 +157,17 @@ export function FourPaneShell({
             <>
               <Panel
                 id="directory"
+                panelRef={directoryRef}
                 defaultSize={`${DIRECTORY_PANEL.default}%`}
                 minSize={`${DIRECTORY_PANEL.min}%`}
                 maxSize={`${DIRECTORY_PANEL.max}%`}
+                collapsible
+                collapsedSize="0%"
+                onResize={(size) => {
+                  const collapsed = size.asPercentage < 1
+                  setDirectoryCollapsed(collapsed)
+                  writeCollapsed(work, 'directory', collapsed)
+                }}
                 className={cn('border-r border-line bg-surface/60 min-h-0 overflow-hidden')}
               >
                 <div
@@ -109,17 +177,19 @@ export function FourPaneShell({
                   data-min-size={String(DIRECTORY_PANEL.min)}
                   data-max-size={String(DIRECTORY_PANEL.max)}
                 >
-                  <div className="h-full min-w-0" data-testid="col-directory">
-                    <ErrorBoundary key={`${active?.key}:${leftSeq ?? ''}:${directoryRefresh}`}>
-                      <DirectoryPane
-                        entry={activeEntry}
-                        onSelectItem={onSelectNode}
-                        sel={sel}
-                        seq={leftSeq}
-                        onJumpChapter={onJumpChapter}
-                      />
-                    </ErrorBoundary>
-                  </div>
+                  {!directoryCollapsed && (
+                    <div className="h-full min-w-0" data-testid="col-directory">
+                      <ErrorBoundary key={`${active?.key}:${leftSeq ?? ''}:${directoryRefresh}`}>
+                        <DirectoryPane
+                          entry={activeEntry}
+                          onSelectItem={onSelectNode}
+                          sel={sel}
+                          seq={leftSeq}
+                          onJumpChapter={onJumpChapter}
+                        />
+                      </ErrorBoundary>
+                    </div>
+                  )}
                 </div>
               </Panel>
               <Separator className={RESIZER_CLASS} data-testid="directory-resize-handle" />
@@ -129,9 +199,21 @@ export function FourPaneShell({
           <Panel
             id="detail"
             minSize={isView ? '56%' : '34%'}
-            className="min-w-0 overflow-hidden flex flex-col"
+            className="relative min-w-0 overflow-hidden flex flex-col"
             data-testid="detail-panel"
           >
+            {directoryCollapsed && !isView && (
+              <button type="button" data-testid="directory-restore-button" aria-label="展开目录" title="展开目录"
+                onClick={expandDirectory} className={`${RESTORE_BUTTON_CLASS} left-2`}>
+                <PanelLeftOpen size={15} />
+              </button>
+            )}
+            {rightCollapsed && (
+              <button type="button" data-testid="right-restore-button" aria-label="展开主编栏" title="展开主编栏"
+                onClick={expandRightPanel} className={`${RESTORE_BUTTON_CLASS} right-2`}>
+                <PanelRightOpen size={15} />
+              </button>
+            )}
             <div className="h-full min-w-0 overflow-hidden flex flex-col" data-testid="detail">
               <DetailPane sel={sel} work={work} onSelectNode={onSelectNode}
                 onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
@@ -142,14 +224,31 @@ export function FourPaneShell({
           {/* 栏4 · 主编(复用 RightDock,随共享 sel 切上下文) */}
           <Panel
             id="right"
+            panelRef={rightRef}
             defaultSize={`${RIGHT_PANEL.default}%`}
             minSize={`${RIGHT_PANEL.min}%`}
             maxSize={`${RIGHT_PANEL.max}%`}
+            collapsible
+            collapsedSize="0%"
+            onResize={(size) => {
+              const collapsed = size.asPercentage < 5
+              setRightCollapsed(collapsed)
+              writeCollapsed(work, 'right', collapsed)
+            }}
             className="border-l border-line bg-surface overflow-hidden"
             data-testid="right-panel"
           >
-            <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
-              onRestored={onRestored} onCollapse={collapseRight} />
+            {!rightCollapsed && (
+              <div className="relative h-full min-h-0">
+                <button type="button" data-testid="right-collapse-button" aria-label="收起主编栏" title="收起主编栏"
+                  onClick={collapseRightPanel}
+                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-lg border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
+                  <PanelRightClose size={15} />
+                </button>
+                <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
+                  onRestored={onRestored} onCollapse={collapseRightPanel} />
+              </div>
+            )}
           </Panel>
         </Group>
       </div>
