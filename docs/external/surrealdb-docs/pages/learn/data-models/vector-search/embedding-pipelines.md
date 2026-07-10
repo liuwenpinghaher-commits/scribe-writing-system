@@ -1,0 +1,28 @@
+---
+title: "https://surrealdb.com/docs/learn/data-models/vector-search/embedding-pipelines"
+url: "https://surrealdb.com/docs/learn/data-models/vector-search/embedding-pipelines"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/data-models/vector-search/embedding-pipelines
+
+Source: https://surrealdb.com/docs/learn/data-models/vector-search/embedding-pipelines
+
+Embeddings are produced **outside** SurrealDB by your chosen model (API or local). The database’s job is to store the resulting arrays and index them for retrieval.
+To store vectors in SurrealDB, you typically define a field within your data schema dedicated to holding the vector data. These vectors represent data points in embedding space and can be used for various applications, from recommendation systems to image recognition. Below is an example of how to create records with vector embeddings:
+
+```surql
+CREATE Document:1 CONTENT {
+   items: [
+    {
+      content: "apple",
+      embedding: [0.00995, -0.02680, -0.01881, -0.08697]
+    }
+  ]
+};
+```
+
+There are no strict rules or limitations regarding the length of the embeddings, and they can be as large as needed. Just keep in mind that larger embeddings lead to more data to process and that can affect performance and query times based on your physical hardware.
+In fact, embeddings retrieved from a model can be cut down to any length you prefer if the accuracy is still acceptable for your use case.
+For end-to-end similarity examples, see [Similarity search](https://surrealdb.com/docs/learn/data-models/vector-search/similarity-search). For HNSW, DISKANN, and brute-force trade-offs, see [Vector indexes](https://surrealdb.com/docs/learn/data-models/vector-search/vector-indexes).

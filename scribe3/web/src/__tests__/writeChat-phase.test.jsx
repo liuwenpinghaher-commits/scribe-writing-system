@@ -6,6 +6,13 @@ import { api } from '../api'
 const apiMock = vi.hoisted(() => ({
   getWork: vi.fn(() => 'demo_work'),
   addIdea: vi.fn(),
+  aiRunStatus: vi.fn(() => Promise.resolve({ run_id: 'run_1', status: 'requires_approval' })),
+  aiRunEvents: vi.fn(() => ({ close: vi.fn() })),
+  aiRunApproval: vi.fn(() => Promise.resolve({ status: 'resumed' })),
+  runWrite: vi.fn((_msg, opts) => {
+    opts.onDone?.()
+    return { abort: vi.fn(), close: vi.fn() }
+  }),
   chatWrite: vi.fn((_msg, opts) => {
     opts.onDone?.()
     return { abort: vi.fn() }
@@ -36,6 +43,24 @@ describe('WriteChat phase', () => {
       chapter: 4,
       focalizer: '崔判',
       phase: 'final',
+    })
+    expect(api.runWrite).not.toHaveBeenCalled()
+  })
+
+  it('明确登记世界状态时走 Hermes Runs 而不是普通写作流', async () => {
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '请登记伏笔: 铜炉会反噬持有人' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => expect(api.runWrite).toHaveBeenCalled())
+    expect(api.chatWrite).not.toHaveBeenCalled()
+    expect(api.runWrite.mock.calls[0][0]).toContain('请登记伏笔')
+    expect(api.runWrite.mock.calls[0][1]).toMatchObject({
+      chapter: 4,
+      phase: 'final',
+      focalizer: '崔判',
     })
   })
 
@@ -68,5 +93,88 @@ describe('WriteChat phase', () => {
     expect(send.textContent).toContain('发送')
     expect(send.className).toContain('min-w-')
     expect(toolbar.textContent).not.toContain('Enter 发送')
+  })
+
+  it('正文阶段收到 Hermes approval 事件时可批准', async () => {
+    apiMock.runWrite.mockImplementation((_msg, opts) => {
+      opts.onRun?.({ run_id: 'run_1' })
+      opts.onApproval?.({ run_id: 'run_1', approval_id: 'ap_1', message: '允许写入伏笔?' })
+      return { abort: vi.fn() }
+    })
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '请登记伏笔' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
+    expect(await screen.findByText('允许写入伏笔?')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+
+    await waitFor(() => expect(apiMock.aiRunApproval).toHaveBeenCalledWith('run_1', {
+      approval_id: 'ap_1',
+      decision: 'approve',
+    }))
+    expect(await screen.findByText('已批准')).toBeTruthy()
+  })
+
+  it('刷新后恢复正文阶段未决 Hermes approval 并可继续审批', async () => {
+    let recoveredHandlers = null
+    apiMock.runWrite.mockImplementation((_msg, opts) => {
+      opts.onRun?.({ run_id: 'run_1' })
+      opts.onApproval?.({ run_id: 'run_1', approval_id: 'ap_1', message: '允许写入伏笔?' })
+      return { abort: vi.fn(), close: vi.fn() }
+    })
+    apiMock.aiRunEvents.mockImplementation((_runId, handlers) => {
+      recoveredHandlers = handlers
+      return { close: vi.fn() }
+    })
+    const first = render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '请登记伏笔' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByText('允许写入伏笔?')).toBeTruthy()
+    expect(apiMock.aiRunEvents).not.toHaveBeenCalled()
+    first.unmount()
+    vi.clearAllMocks()
+    apiMock.getWork.mockReturnValue('demo_work')
+    apiMock.aiRunStatus.mockResolvedValue({ run_id: 'run_1', status: 'requires_approval' })
+    apiMock.aiRunEvents.mockImplementation((_runId, handlers) => {
+      recoveredHandlers = handlers
+      return { close: vi.fn() }
+    })
+
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    expect(await screen.findByText('允许写入伏笔?')).toBeTruthy()
+    await waitFor(() => expect(apiMock.aiRunStatus).toHaveBeenCalledWith('run_1'))
+    await waitFor(() => expect(apiMock.aiRunEvents).toHaveBeenCalledWith('run_1', expect.any(Object)))
+    fireEvent.click(screen.getByRole('button', { name: '批准' }))
+
+    await waitFor(() => expect(apiMock.aiRunApproval).toHaveBeenCalledWith('run_1', {
+      approval_id: 'ap_1',
+      decision: 'approve',
+    }))
+    recoveredHandlers.onApprovalResolved?.({ run_id: 'run_1', approval_id: 'ap_1', decision: 'approve' })
+    expect(await screen.findByText('已批准')).toBeTruthy()
+  })
+
+  it('正文阶段显示 Hermes 工具输出摘要', async () => {
+    apiMock.chatWrite.mockImplementation((_msg, opts) => {
+      opts.onTool?.('mcp_scribe3_read_s3_hybrid_recall')
+      opts.onToolOutput?.({ snippets: ['铜炉曾在第二章出现'] }, 'call_2')
+      opts.onDone?.()
+      return { abort: vi.fn() }
+    })
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '查铜炉素材' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    expect(await screen.findByText(/铜炉曾在第二章出现/)).toBeTruthy()
+    expect(screen.getByText('hybrid_recall')).toBeTruthy()
   })
 })

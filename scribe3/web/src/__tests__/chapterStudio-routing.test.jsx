@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChapterStudio } from '../ChapterStudio'
 import { ChiefSlotProvider } from '../ChiefSlotContext'
 import { TopbarSlotProvider } from '../TopbarSlotContext'
@@ -9,6 +9,7 @@ const apiMock = vi.hoisted(() => ({
   chapter: vi.fn(),
   entities: vi.fn(),
   latestDraft: vi.fn(),
+  archiveChapter: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -23,21 +24,21 @@ vi.mock('../editor/RichEditor.jsx', () => ({
   useUnsavedGuard: () => {},
 }))
 
-function StudioHarness() {
+function StudioHarness({ onArchived } = {}) {
   const [slot, setSlot] = useState(null)
   return (
     <TopbarSlotProvider onSlot={setSlot}>
       <div data-testid="topbar-slot">{slot}</div>
       <ChiefSlotProvider>
-        <ChapterStudio work="demo" seq={3} initialPhase="outline" />
+        <ChapterStudio work="demo" seq={3} initialPhase="outline" onArchived={onArchived} />
       </ChiefSlotProvider>
     </TopbarSlotProvider>
   )
 }
 
-function renderStudio() {
+function renderStudio(props) {
   return render(
-    <StudioHarness />,
+    <StudioHarness {...props} />,
   )
 }
 
@@ -47,6 +48,7 @@ describe('ChapterStudio 章工作台归位', () => {
     apiMock.chapter.mockResolvedValue({ title: '三', synopsis: '', beats: [], focalizer: 'role:小翠', prose: '', deductions: [], involved_characters: [] })
     apiMock.entities.mockResolvedValue([{ id: 'role:小翠', kind: 'character', name: '小翠' }])
     apiMock.latestDraft.mockResolvedValue({ prose: '', summary: '' })
+    apiMock.archiveChapter.mockResolvedValue({ status: 'archived', seq: 3 })
   })
 
   it('章工作台提供简报、关联、北极星页签并渲染对应面板', async () => {
@@ -60,5 +62,16 @@ describe('ChapterStudio 章工作台归位', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /北极星/ }))
     expect((await screen.findByTestId('northstar-panel')).textContent).toBe('北极星:3')
+  })
+
+  it('章工作台提供归档章节入口,确认后调用章节归档并通知外层刷新', async () => {
+    const onArchived = vi.fn()
+    renderStudio({ onArchived })
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档章节' }))
+    fireEvent.click(screen.getByRole('button', { name: '归档' }))
+
+    expect(apiMock.archiveChapter).toHaveBeenCalledWith(3, '')
+    await waitFor(() => expect(onArchived).toHaveBeenCalledWith(3))
   })
 })

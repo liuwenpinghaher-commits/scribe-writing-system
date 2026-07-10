@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
+import { displayToolName } from './lib/toolName'
+import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
+import { patchApprovalInMessages, useHermesRunRecovery } from './lib/hermesRunRecovery'
 import { Btn } from './ui.jsx'
 
 const SUGGESTS = [
@@ -13,7 +16,12 @@ const SUGGESTS = [
   '这章节奏如何?有什么风险',
 ]
 
-function Bubble({ role, content, tools, note, streaming }) {
+function toolOutputPreview(output) {
+  const text = typeof output === 'string' ? output : JSON.stringify(output)
+  return text.length > 220 ? text.slice(0, 220) + '…' : text
+}
+
+function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming, onApprovalDecision }) {
   const me = role === 'user'
   return (
     <div className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
@@ -26,7 +34,7 @@ function Bubble({ role, content, tools, note, streaming }) {
             {tools.map((t, i) => (
               <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-f11 text-faint">
                 <Wrench size={9} className="text-brand" />
-                {(t || '').replace(/^mcp_scribe3_/, '')}
+                {displayToolName(t)}
               </span>
             ))}
           </div>
@@ -43,6 +51,50 @@ function Bubble({ role, content, tools, note, streaming }) {
               </div>
             )
           }
+          {!me && approvals?.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {approvals.map((ap) => (
+                <div key={`${ap.run_id || ''}:${ap.approval_id || ''}`} className="border-l-2 border-brand/50 pl-2.5 py-1">
+                  <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
+                  <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    {ap.status === 'approved' ? (
+                      <span className="text-f12 text-ok">已批准</span>
+                    ) : ap.status === 'denied' ? (
+                      <span className="text-f12 text-danger">已拒绝</span>
+                    ) : ap.status === 'submitting' ? (
+                      <span className="text-f12 text-faint">提交中…</span>
+                    ) : ap.status === 'error' ? (
+                      <span className="text-f12 text-danger">提交失败</span>
+                    ) : (
+                      <>
+                        <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
+                          <Check size={12} />批准
+                        </button>
+                        <button type="button" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md border border-line bg-surface px-2 text-f12 font-medium text-ink">
+                          <X size={12} />拒绝
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!me && toolOutputs?.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {toolOutputs.map((out, i) => (
+                <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
+                  <div className="text-f12 font-medium text-ink">工具返回</div>
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-f11 leading-snug text-faint">
+                    {toolOutputPreview(out.output)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {note && <div className="mt-1 inline-flex items-center gap-1 text-f11 text-brand"><Sparkles size={11} />{note}</div>}
       </div>
@@ -61,7 +113,8 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
   const taRef = useRef(null)
   const fileRef = useRef(null)
   const ctrlRef = useRef(null)   // 断头修复#83:在途写作流的 AbortController(停止/卸载中止)
-  const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current = null; setBusy(false) }
+  const activeRunIdsRef = useRef(new Set())
+  const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current?.close?.(); ctrlRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) }
   useEffect(() => () => { ctrlRef.current?.abort?.() }, [])
   // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨(sessionStorage pending+事件),预填=追加
   const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
@@ -77,6 +130,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
 
   // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
   useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
+  useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef })
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
   useEffect(() => {
@@ -90,6 +144,23 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 128) + 'px'
   }, [input])
+
+  const patchApproval = (approval, patch) => {
+    setMsgs((m) => patchApprovalInMessages(m, approval, patch))
+  }
+
+  const handleApprovalDecision = async (approval, decision) => {
+    patchApproval(approval, { status: 'submitting' })
+    try {
+      await api.aiRunApproval(approval.run_id, {
+        approval_id: approval.approval_id,
+        decision,
+      })
+      patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision })
+    } catch (e) {
+      patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
+    }
+  }
 
   const addFiles = (files) => {
     for (const f of files) {
@@ -136,16 +207,42 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     setMsgs((m) => [...m, { role: 'user', content: displayQ }, { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
-    ctrlRef.current = api.chatWrite(finalMsg, {
-      chapter, focalizer, images, phase,
+    const streamHandlers = {
+      onRun: (run) => {
+        const runId = run?.run_id || run?.id
+        if (runId) activeRunIdsRef.current.add(runId)
+        mut((l) => ({ ...l, run_id: l.run_id || runId, runStatus: run?.status || l.runStatus }))
+      },
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+      onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
+      onApproval: (approval) => {
+        const runId = approval?.run_id
+        if (runId) activeRunIdsRef.current.add(runId)
+        mut((l) => ({ ...l, run_id: l.run_id || runId, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] }))
+      },
+      onApprovalResolved: (approval) => {
+        const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+        patchApproval(approval, { ...approval, status })
+      },
       onProposalStart: (s) => onProposalStart?.(s),
       onProposalChunk: (c) => onProposalChunk?.(c),
       onProposal: (p) => { onProposal?.(p); mut((l) => ({ ...l, note: '已在手稿处生成改写,请接受/弃用' })) },
-      onDone: () => setBusy(false),
-      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+      onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
+      onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+    }
+    if (shouldUseHermesRun(finalMsg)) {
+      ctrlRef.current = api.runWrite(finalMsg, {
+        chapter, focalizer, phase,
+        instructions: hermesRunInstructions({ chapter, focalizer, phase }),
+        ...streamHandlers,
+      })
+      return
+    }
+    // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
+    ctrlRef.current = api.chatWrite(finalMsg, {
+      chapter, focalizer, images, phase,
+      ...streamHandlers,
     })
   }
 
@@ -175,7 +272,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} />
+          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} />
         ))}
         <div ref={endRef} />
       </div>

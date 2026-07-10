@@ -137,6 +137,60 @@ export const api = {
   pilotRunStatus: () => j('/pilot/run-status'),
   pilotDismiss: (seq) => post('/pilot/dismiss', { seq }),         // R1-4:pilot 僵尸态退出
   pilotResetStep: (seq) => post('/pilot/reset-step', { seq }),   // R1-4:stalled/parked 解卡重跑当前步
+  // Hermes Runs/Approval:长任务事件流 + 人类审批闭环
+  // H-10 全系统预算:日帽(app+MCP 共享台账)+ token 真实用量(trace 聚合)
+  aiUsage: (days = 7) => j(`/ai/usage?days=${days}`),
+  aiRunCreate: (body) => post('/ai/runs', body),
+  aiRunStatus: (runId) => j('/ai/runs/' + enc(runId)),
+  aiRunTrace: (runId) => j('/ai/runs/' + enc(runId) + '/trace'),
+  aiRunApproval: (runId, body) => post('/ai/runs/' + enc(runId) + '/approval', body),
+  aiRunStop: (runId) => post('/ai/runs/' + enc(runId) + '/stop'),
+  aiRunEvents: (runId, {
+    onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+  } = {}) => {
+    const es = new EventSource(BASE + ww('/ai/runs/' + enc(runId) + '/events'))
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        if (d.delta) onDelta?.(d.delta)
+        else if (d.tool) onTool?.(d.tool, d.tool_args)
+        else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
+        else if (d.approval) onApproval?.(d.approval)
+        else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
+        else if (d.run) onRun?.(d.run)
+        else if (d.done) { es.close(); onDone?.() }
+        else if (d.error) { es.close(); onError?.(d.error) }
+      } catch (_) { /* */ }
+    }
+    es.onerror = () => { es.close(); onError?.('连接中断') }
+    return es
+  },
+  runWrite: (input, {
+    instructions = '', onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+  } = {}) => {
+    let es = null
+    let runId = null
+    let stopped = false
+    api.aiRunCreate({ input, instructions }).then((run) => {
+      if (stopped) return
+      runId = run?.run_id || run?.id
+      if (!runId) throw new Error('Hermes Run 未返回 run_id')
+      onRun?.({ ...run, run_id: runId })
+      es = api.aiRunEvents(runId, {
+        onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun,
+        onDone: () => { es = null; onDone?.() },
+        onError,
+      })
+    }).catch((e) => {
+      if (!stopped) onError?.(e?.body?.detail || e?.message || 'Hermes Run 创建失败')
+    })
+    const stop = () => {
+      stopped = true
+      try { es?.close?.() } catch (_) { /* */ }
+      if (runId) api.aiRunStop(runId).catch(() => {})
+    }
+    return { abort: stop, close: stop }
+  },
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
@@ -192,13 +246,19 @@ export const api = {
   ignoreAllUnverified: (status = 'pending') => api.post('/ingest-unverified/ignore-all' + (status ? `?status=${enc(status)}` : '')),   // R2-12:批量清死水
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
+  archivedChapters: () => j('/chapters/archived'),
+  createChapter: (body = {}) => post('/chapters', body),
+  archiveChapter: (seq, reason = '') => post('/chapters/' + seq + '/archive', { reason }),
+  restoreChapter: (seq) => post('/chapters/' + seq + '/restore'),
+  chapterImpact: (seq) => j('/chapters/' + seq + '/impact'),
+  deleteChapter: (seq, token = '') => del('/chapters/' + seq + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   projectTree: () => j('/project-tree'),
   outline: () => j('/outline'),
   // 拖拽重排:只改 sort_order(及 volume),不动 seq
   reorderChapters: (volume, order) => post('/chapters/reorder', { volume, order }),
   // 卷 CRUD
   listVolumes: () => j('/volumes'),
-  addVolume: (title, sort_order = 0, color = null) => post('/volumes', { title, sort_order, color }),
+  addVolume: (title, sort_order = 0, color = null, intro = null) => post('/volumes', { title, sort_order, color, intro }),
   patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
   deleteVolume: (vid) => del('/volumes/' + enc(vid)),
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
@@ -257,7 +317,7 @@ export const api = {
       },
     }
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError }) => {
     const ctrl = new AbortController()
     fetch(BASE + ww('/chat/write'), {
       method: 'POST',
@@ -284,9 +344,12 @@ export const api = {
               const d = JSON.parse(payload)
               if (d.delta) onDelta?.(d.delta)
               else if (d.tool) onTool?.(d.tool)
+              else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
               else if (d.proposal_start) onProposalStart?.(d.proposal_start)
               else if (d.proposal_chunk) onProposalChunk?.(d.proposal_chunk)
               else if (d.proposal) onProposal?.(d.proposal)
+              else if (d.approval) onApproval?.(d.approval)
+              else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
               else if (d.done) { onDone?.(); return }
               else if (d.error) { onError?.(d.error); return }
             } catch (_) { /* */ }
@@ -301,7 +364,7 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic, seq }) => {
+  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq }) => {
     // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
       + (seq != null ? `&seq=${seq}` : '')
@@ -311,6 +374,9 @@ export const api = {
         const d = JSON.parse(e.data)
         if (d.delta) onDelta(d.delta)
         else if (d.tool) { onTool && onTool(d.tool, d.tool_args) }
+        else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
+        else if (d.approval) onApproval?.(d.approval)
+        else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
         else if (d.done) { es.close(); onDone() }
         else if (d.error) { es.close(); onError(d.error) }
       } catch (_) { /* */ }

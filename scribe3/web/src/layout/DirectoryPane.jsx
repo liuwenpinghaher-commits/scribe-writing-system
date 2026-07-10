@@ -16,7 +16,7 @@ import { CodexDirectory } from './CodexDirectory'
 
 const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
 
-export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter }) {
+export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter, onCreateChapter, onArchivedChanged }) {
   if (!entry) {
     return (
       <div className="h-full grid place-items-center px-4 text-center text-f12 text-faint/50" data-testid="directory-empty">
@@ -26,7 +26,7 @@ export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter }) 
   }
   const capability = entry.capability
   if (capability === 'manuscript') {
-    return <ManuscriptDirectory entry={entry} sel={sel} seq={seq} onSelectItem={onSelectItem} onJumpChapter={onJumpChapter} />
+    return <ManuscriptDirectory entry={entry} sel={sel} seq={seq} onSelectItem={onSelectItem} onJumpChapter={onJumpChapter} onCreateChapter={onCreateChapter} onArchivedChanged={onArchivedChanged} />
   }
   if (capability === 'materials') {
     return <MaterialList key={entry.id} node={entry.source || entry} onSelect={onSelectItem} />
@@ -49,7 +49,7 @@ export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter }) 
     return <MaterialList key={entry.id} node={entry} onSelect={onSelectItem} />
   }
   if (t === 'manuscript_root') {
-    return <ManuscriptDirectory entry={entry} sel={sel} seq={seq} onSelectItem={onSelectItem} onJumpChapter={onJumpChapter} />
+    return <ManuscriptDirectory entry={entry} sel={sel} seq={seq} onSelectItem={onSelectItem} onJumpChapter={onJumpChapter} onCreateChapter={onCreateChapter} onArchivedChanged={onArchivedChanged} />
   }
   // 手稿根/卷 → 卡片墙;设定分类/设定根 → PlainList(均走 ContainerOutline)
   return (

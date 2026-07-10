@@ -1,0 +1,99 @@
+---
+title: "https://surrealdb.com/docs/reference/php/v2/concepts/events"
+url: "https://surrealdb.com/docs/reference/php/v2/concepts/events"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/php/v2/concepts/events
+
+Source: https://surrealdb.com/docs/reference/php/v2/concepts/events
+
+Version 2 of the PHP SDK exposes two ways to observe what it is doing. The high-level `subscribe()` method covers connection lifecycle changes with a simple callback. The lower-level PSR-14 event dispatcher emits a richer stream that includes per-request events, and integrates with framework dispatchers.
+##  Lifecycle events with `subscribe()`[](https://surrealdb.com/docs/reference/php/v2/concepts/events#lifecycle-events-with-subscribe)
+Use [`subscribe()`](https://surrealdb.com/docs/reference/php/v2/api/core#subscribe) for quick hooks into the connection lifecycle. Pass an event name and a listener; the method returns a closure that removes the listener when called.
+
+```php
+$unsubscribe = $db->subscribe('connected', function (string $version): void {
+    echo "Connected to SurrealDB {$version}";
+});
+
+// later
+$unsubscribe();
+```
+
+The available event names are `connecting`, `connected`, `reconnecting`, `disconnected`, `error`, `auth`, and `using`. This is the simplest option when you only need to react to the connection coming up, dropping, or re-authenticating. See [Connecting to SurrealDB](https://surrealdb.com/docs/reference/php/v2/concepts/connecting-to-surrealdb#connection-status) and [Authentication](https://surrealdb.com/docs/reference/php/v2/concepts/authentication#listening-to-authentication-changes) for lifecycle examples.
+##  PSR-14 events[](https://surrealdb.com/docs/reference/php/v2/concepts/events#psr-14-events)
+For full observation, including every RPC request and response, the SDK dispatches typed event objects through a [PSR-14](https://www.php-fig.org/psr/psr-14/) event dispatcher. Unlike `subscribe()`, this stream reaches RPC-level events and lets you reuse a framework's dispatcher.
+By default the SDK creates its own dispatcher. To receive events, either register listeners on a dispatcher you control and pass it through `DriverOptions`, or pass your framework's PSR-14 dispatcher.
+
+```php
+use SurrealDB\SDK\Surreal;
+use SurrealDB\SDK\Connection\DriverOptions;
+use SurrealDB\SDK\Events\EventDispatcher;
+use SurrealDB\SDK\Events\ListenerProvider;
+use SurrealDB\SDK\Events\RpcResponseReceived;
+
+$provider = new ListenerProvider();
+$provider->on(RpcResponseReceived::class, function (RpcResponseReceived $event): void {
+    error_log($event->request->method);
+});
+
+$db = new Surreal(new DriverOptions(
+    events: new EventDispatcher($provider),
+));
+```
+
+The bundled `ListenerProvider` matches a listener against the event class and any of its parents or interfaces, so you can listen to a single event type or a shared base.
+###  Using a framework dispatcher[](https://surrealdb.com/docs/reference/php/v2/concepts/events#using-a-framework-dispatcher)
+Because the SDK depends only on the PSR-14 `EventDispatcherInterface`, you can pass the dispatcher from Laravel, Symfony, or any PSR-14 bridge. The SDK then dispatches its events into your application's existing listener setup.
+
+```php
+$db = new Surreal(new DriverOptions(
+    events: $container->get(\Psr\EventDispatcher\EventDispatcherInterface::class),
+));
+```
+
+###  Event catalogue[](https://surrealdb.com/docs/reference/php/v2/concepts/events#event-catalogue)
+All events live in the `SurrealDB\SDK\Events` namespace and are readonly value objects.  
+| Event  | Dispatched when  | Payload  |  
+| --- | --- | --- |  
+| `Connecting`  | A connection attempt starts  | none  |  
+| `Connected`  | The connection is established and ready  | `version`  |  
+| `Disconnected`  | The connection closes  | none  |  
+| `Reconnecting`  | A dropped connection is being re-established  | none  |  
+| `ConnectionError`  | A connection-level error occurs  | `error`  |  
+| `AuthChanged`  | A session's authentication changes or clears  |  `tokens`, `session`  |  
+| `NamespaceDatabaseSelected`  | The namespace or database changes  | the selection, `session`  |  
+| `RpcRequestSent`  | Just before a request is handed to the transport  | `request`  |  
+| `RpcResponseReceived`  | After a response is received (success or error)  |  `request`, `response`  |  
+| `LiveMessageReceived`  | A live query notification arrives  | `message`  |  
+
+```php
+use SurrealDB\SDK\Events\RpcRequestSent;
+use SurrealDB\SDK\Events\AuthChanged;
+
+$provider->on(RpcRequestSent::class, function (RpcRequestSent $event): void {
+    // $event->request->method, $event->request->params
+});
+
+$provider->on(AuthChanged::class, function (AuthChanged $event): void {
+    // $event->tokens is null when the session is signed out
+});
+```
+
+Note
+`RpcRequestSent` and `RpcResponseReceived` fire for every call, so keep their listeners cheap. For tracing and metrics, prefer the dedicated [telemetry](https://surrealdb.com/docs/reference/php/v2/concepts/observability) seam, which is built on this same pipeline.
+##  Choosing between them[](https://surrealdb.com/docs/reference/php/v2/concepts/events#choosing-between-them)
+  * •
+Use `subscribe()` for connection lifecycle hooks with the least setup.
+  * •
+Use the PSR-14 dispatcher when you need per-request events, want to fan events into a framework's listeners, or are building observability tooling.
+
+##  Learn more[](https://surrealdb.com/docs/reference/php/v2/concepts/events#learn-more)
+  * •
+[Surreal API reference](https://surrealdb.com/docs/reference/php/v2/api/core#subscribe) for the `subscribe()` signature
+  * •
+[Observability](https://surrealdb.com/docs/reference/php/v2/concepts/observability) for tracing and metrics
+  * •
+[Connecting to SurrealDB](https://surrealdb.com/docs/reference/php/v2/concepts/connecting-to-surrealdb) for the lifecycle these events track

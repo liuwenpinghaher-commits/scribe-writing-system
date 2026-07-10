@@ -1,0 +1,133 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/clauses/group"
+url: "https://surrealdb.com/docs/reference/query-language/clauses/group"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/clauses/group
+
+Source: https://surrealdb.com/docs/reference/query-language/clauses/group
+
+The `GROUP` clause is used to aggregate data based on one or more fields. It is particularly useful when you want to perform calculations on groups of data, such as counting the number of records, calculating averages, or finding sums for each group. 
+This is often used in reporting and data analysis to summarize data in a meaningful way. More specifically, it is used to:
+  * •
+Aggregating data: When you need to calculate aggregate values like SUM, COUNT, AVG, MIN, or MAX for each group of data.
+  * •
+Data summarisation: When you want to summarise data into categories or groups.
+  * •
+Reporting: When generating reports that require grouped data, such as sales reports by region or department.
+
+This clause is followed with either:
+  * •
+`BY` to specify certain fields to group by, or
+  * •
+`ALL` to group by all fields.
+
+##  Syntax[](https://surrealdb.com/docs/reference/query-language/clauses/group#syntax)
+Clause Syntax
+
+```syntax
+GROUP [ BY @fields | ALL ]
+```
+
+##  Aggregate functions[](https://surrealdb.com/docs/reference/query-language/clauses/group#aggregate-functions)
+A [number of functions](https://surrealdb.com/docs/reference/query-language/functions/database-functions/#aggregate-functions) can be used inside a `GROUP BY` query to perform an operation on the data as a whole as opposed to per record.
+For example, the [`math::sum()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/math#mathsum) function can be used on an array of numbers to calculate their final sum.
+
+```surql
+-- Returns 30
+math::sum([
+    {
+        name: "Billy",
+        money: 10
+    },
+    { 
+        name: "Tommy",
+        money: 20
+    }
+].money);
+```
+
+Attempting to use the same function inside a `SELECT` query will not work as `math::sum()` expects an array of numbers but only receives a single integer each time it is called.
+
+```surql
+SELECT 
+    name AS names, 
+    math::sum(money) AS money 
+FROM [
+    {
+        name: "Billy",
+        money: 10
+    },
+    { 
+        name: "Tommy",
+        money: 20
+    }
+];
+```
+
+If the data is aggregated with a `GROUP` clause, the query will no longer fail.
+
+```surql
+SELECT 
+    name AS names,
+    math::sum(money) AS money
+FROM [
+    {
+        name: "Billy",
+        money: 10
+    },
+    { 
+        name: "Tommy",
+        money: 20
+    }
+] GROUP ALL;
+```
+
+Output
+
+```surql
+[
+	{
+		money: 30,
+		names: [
+			'Billy',
+			'Tommy'
+		]
+	}
+]
+```
+
+##  Longer example[](https://surrealdb.com/docs/reference/query-language/clauses/group#longer-example)
+
+```surql
+SELECT
+    product_id,
+    region,
+    math::sum(amount) AS total_sales
+FROM
+    sales
+GROUP BY
+    product_id, region;
+```
+
+Explanation:
+  * •
+`SELECT product_id, region, math::sum(amount) AS total_sales`: This selects the `product_id` and `region` columns and calculates the total sales amount for each group. The `AS` clause is used to rename the calculated column to `total_sales`.
+  * •
+`FROM sales`: This specifies the table from which to retrieve the data. Using the `FROM` clause, we specify the table `sales` to retrieve the data from.
+  * •
+`GROUP BY product_id, region`: This groups the results by product_id and region, so the `math::sum()` function calculates the total sales for each unique combination of product_id and region.
+
+This query will return a result set where each row represents a unique combination of `product_id` and `region`, along with the total sales amount for that combination. This is useful for understanding how different products are performing in different regions.
+##  Latest record per group[](https://surrealdb.com/docs/reference/query-language/clauses/group#latest-record-per-group)
+When you need the most recently modified record for each value of a field, group by that field and use [`.map()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/array#arraymap) to run a nested `SELECT` per group:
+
+```surql
+(SELECT id, role FROM person GROUP BY role).map(|$o| {
+    SELECT * FROM ONLY $o.id ORDER BY modified_at DESC LIMIT 1
+});
+```
+
+`GROUP BY` collects record ids into an array, after which the inner query orders those records and returns the latest. For a worked example with sample data, see [Latest record per group](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#latest-record-per-group).

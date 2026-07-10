@@ -1,0 +1,142 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns"
+url: "https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns
+
+Source: https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns
+
+A query that is nested inside another one is called a subquery. Subqueries are executed first, enabling their output to be used inside a larger query.
+##  Subquery examples[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#subquery-examples)
+###  `SELECT` inside `SELECT`[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#select-inside-select)
+A `SELECT` can be used to populate the value of a field, which can be given an alias via the `AS` keyword.
+
+```surql
+SELECT 
+	*,
+	SELECT * FROM events WHERE type = 'activity' LIMIT 5 AS history
+FROM user;
+```
+
+To refer to part of the outer query, the preset `$parent` parameter can be used.
+
+```surql
+SELECT 
+	*,
+	SELECT * FROM events WHERE host == $parent.id AS hosted_events
+FROM user;
+```
+
+###  Other statements inside a larger query[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#other-statements-inside-a-larger-query)
+Other statements such as `CREATE`, `UPDATE` and so on can be used as subqueries as well. This can be useful to combine multiple queries into one or keep statements that should either succeed or fail together inside a single transaction.
+
+```surql
+CREATE ONLY person:billy SET
+    father = CREATE ONLY person:pete RETURN VALUE id,
+    mother = CREATE ONLY person:brenda RETURN VALUE id;
+```
+
+Output
+
+```surql
+{
+	father: person:pete,
+	id: person:billy,
+	mother: person:brenda
+}
+```
+
+Patterns such as appending a new comment id to a record are covered in [record references](https://surrealdb.com/docs/reference/query-language/language-primitives/record-references). See also [`RETURN`](https://surrealdb.com/docs/reference/query-language/statements/return).
+##  `$parent` and `$this`[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#parent-and-this)
+In nested contexts, SurrealDB predefines:
+  * •
+**`$this`**— the current record in the**inner** scope.
+  * •
+**`$parent`**— the current record in the**enclosing** scope.
+
+They let an inner `SELECT` relate its `WHERE` clause to the record being processed outside.
+
+```surql
+SELECT
+    name,
+    SELECT VALUE name FROM user
+      WHERE member_of = $parent.member_of AS group_members
+FROM user
+WHERE name = "User1";
+```
+
+```surql
+SELECT
+    *,
+    SELECT VALUE id FROM person
+      WHERE $this.name = $parent.name AS people_with_same_name
+FROM person;
+```
+
+Full detail: [Reserved variables — `$parent`, `$this`](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#parent-this).
+##  Latest record per group[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#latest-record-per-group)
+A common pattern is to return the **most recently modified record** for each distinct value of a field — the equivalent of a `ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` window in SQL. In SurrealQL you can combine [`GROUP BY`](https://surrealdb.com/docs/reference/query-language/clauses/group-by), [`.map()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/array#arraymap), and a nested [`SELECT`](https://surrealdb.com/docs/reference/query-language/statements/select):
+
+```surql
+CREATE person:1 SET role = "user", modified_at = d'1970-01-01';
+CREATE person:2 SET role = "admin", modified_at = d'1990-01-01';
+CREATE person:3 SET role = "user", modified_at = d'1999-01-01';
+CREATE person:4 SET role = "admin", modified_at = d'2999-01-01';
+
+(SELECT id, role FROM person GROUP BY role).map(|$o| {
+    SELECT * FROM ONLY $o.id ORDER BY modified_at DESC LIMIT 1
+});
+```
+
+Output
+
+```surql
+[
+	{
+		id: person:4,
+		modified_at: d'2999-01-01T00:00:00Z',
+		role: 'admin'
+	},
+	{
+		id: person:3,
+		modified_at: d'1999-01-01T00:00:00Z',
+		role: 'user'
+	}
+]
+```
+
+How it works:
+  1. 1.
+**`GROUP BY role`**collapses records into one row per role. Non-aggregated fields such as`id` become arrays of the grouped record ids.
+  2. 2.
+**`.map(|$o| { … })`**runs the nested query once per grouped record.
+  3. 3.
+**`SELECT * FROM ONLY $o.id ORDER BY modified_at DESC LIMIT 1`**fetches all of the records in that group, orders by`modified_at` , and returns the latest one.
+
+To partition by more than one field, include every non-aggregated field in both the projection and the `GROUP BY` clause:
+
+```surql
+(SELECT id, role, status FROM person GROUP BY role, status).map(|$o| {
+    SELECT * FROM ONLY $o.id ORDER BY modified_at DESC LIMIT 1
+});
+```
+
+See also the [`GROUP` clause](https://surrealdb.com/docs/reference/query-language/clauses/group-by#latest-record-per-group) reference for a shorter summary.
+##  Graph paths and inner queries[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/subqueries-and-advanced-patterns#graph-paths-and-inner-queries)
+Graph traversal (`->edge->table`) can include a **parenthesised inner query** on the edge or node, similar to filtering or projecting in a subquery. This allows you to restrict or shape the edges before the traversal continues.
+
+```surql
+SELECT ->(SELECT like_strength FROM likes
+  WHERE like_strength > 10) AS likes FROM person;
+```
+
+Shorthand filters are often written without a nested `SELECT`, but the nested form is useful when you need full `SELECT` power (`ORDER BY`, `GROUP BY`, and so on):
+
+```surql
+SELECT ->(likes WHERE like_strength > 10) AS likes FROM person;
+```
+
+More examples: [Selecting inside graph queries](https://surrealdb.com/docs/reference/query-language/statements/select#selecting-inside-graph-queries) and [graph clauses](https://surrealdb.com/docs/reference/query-language/statements/relate#graph-clauses) on the `RELATE` page.

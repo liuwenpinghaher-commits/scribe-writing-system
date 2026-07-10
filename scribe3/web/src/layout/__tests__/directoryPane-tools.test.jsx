@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { DirectoryPane } from '../DirectoryPane'
 import { DetailPane } from '../../DetailPane'
 
@@ -24,18 +24,15 @@ vi.mock('../../views/OverviewView', () => ({ OverviewView: () => <div data-testi
 vi.mock('../../views/TimelineView', () => ({ TimelineView: () => <div data-testid="view-timeline" /> }))
 
 describe('DirectoryPane 手稿书级工具', () => {
-  it('手稿根目录顶部提供全书大纲、北极星、进度入口', () => {
+  it('手稿根目录不再在卷章上方显示全书大纲、北极星、进度入口', () => {
     const onSelectItem = vi.fn()
     render(<DirectoryPane entry={{ id: 'manuscript_root', type: 'manuscript_root', label: '手稿' }} onSelectItem={onSelectItem} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '全书大纲' }))
-    expect(onSelectItem).toHaveBeenCalledWith({ id: 'book:outline', type: 'book_outline', ref: null, label: '全书大纲' })
-
-    fireEvent.click(screen.getByRole('button', { name: '北极星' }))
-    expect(onSelectItem).toHaveBeenCalledWith({ id: 'book:northstar', type: 'book_northstar', ref: null, label: '北极星' })
-
-    fireEvent.click(screen.getByRole('button', { name: '进度' }))
-    expect(onSelectItem).toHaveBeenCalledWith({ id: 'view:progress', type: 'view', ref: 'progress', label: '进度' })
+    expect(screen.queryByRole('button', { name: '全书大纲' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '北极星' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '进度' })).toBeNull()
+    expect(screen.getByText('卷章')).toBeTruthy()
+    expect(onSelectItem).not.toHaveBeenCalled()
   })
 
   it('书级工具节点在栏3渲染对应工作台', () => {

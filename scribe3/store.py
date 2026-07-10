@@ -8,14 +8,23 @@ oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:�
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
+import websockets.exceptions as _ws_exc
 from surrealdb import RecordID, Surreal
+from surrealdb.errors import ConnectionUnavailableError
 
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
+
+# 连接类异常(触发重连重试的白名单;语法/校验类错误不在内,绝不重试)。
+# OSError 覆盖 ConnectionError/TimeoutError/socket 层错;EOFError 见于半关闭流。
+_CONN_ERRORS = (_ws_exc.WebSocketException, ConnectionUnavailableError, OSError, EOFError)
 
 # 本体 id 前缀 ↔ SurrealDB 表名
 ONT2TBL = {"role": "character", "place": "place", "fact": "proposition", "ev": "event"}
@@ -27,6 +36,29 @@ _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
 _UNSET = object()       # update_chapter_meta 的哨兵:区分"未传 volume"与"传了 None"
 
 
+def _chapter_range_target(start: int | None = None, end: int | None = None,
+                          *, end_inclusive: bool = True) -> str:
+    """构造数值型 chapter record id 范围目标。
+
+    SurrealDB 3.1.5 不接受 ``chapter:$start..=$end`` 这类边界参数绑定,
+    因此只在严格验证为正整数后拼接十进制字面量。
+    """
+    for name, value in (("start", start), ("end", end)):
+        if value is not None and type(value) is not int:
+            raise TypeError(f"{name} must be an int")
+        if value is not None and value < 1:
+            raise ValueError(f"{name} must be >= 1")
+    if start is not None and end is not None and start > end:
+        raise ValueError("start must be <= end")
+    if start is None and end is None:
+        return "chapter:.."
+    if start is None:
+        return f"chapter:..{'=' if end_inclusive else ''}{end}"
+    if end is None:
+        return f"chapter:{start}.."
+    return f"chapter:{start}..{'=' if end_inclusive else ''}{end}"
+
+
 def _split(oid: str) -> tuple[str, str]:
     prefix, local = oid.split(":", 1)
     return ONT2TBL[prefix], local
@@ -34,6 +66,69 @@ def _split(oid: str) -> tuple[str, str]:
 
 def _join(table: str, local: str) -> str:
     return f"{TBL2ONT[table]}:{local}"
+
+
+def _json_obj(value) -> dict | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _oid_effect(oid: str | None) -> dict | None:
+    if not oid or ":" not in oid:
+        return None
+    prefix = oid.split(":", 1)[0]
+    typ = {"role": "character", "fact": "fact", "ev": "event"}.get(prefix, prefix)
+    return {"type": typ, "id": oid}
+
+
+def _write_effect_from_tool(tool: str | None, args: dict | None) -> dict | None:
+    if not tool or not tool.startswith("s3_") or not isinstance(args, dict):
+        return None
+    objects: list[dict] = []
+    if tool in {"s3_add_character", "s3_add_fact", "s3_add_event"}:
+        obj = _oid_effect(args.get("oid"))
+        if obj:
+            objects.append(obj)
+    elif tool == "s3_record_knowledge":
+        proposition = args.get("proposition") or args.get("proposition_id")
+        obj = _oid_effect(proposition)
+        if obj:
+            objects.append(obj)
+    elif tool in {"s3_add_item", "s3_add_term", "s3_add_world_rule", "s3_add_faction"}:
+        name = args.get("name")
+        if name:
+            objects.append({"type": tool.removeprefix("s3_add_"), "name": name})
+    elif tool == "s3_plant_promise":
+        pid = args.get("pid") or args.get("id")
+        if pid:
+            objects.append({"type": "promise", "id": pid})
+    elif tool == "s3_add_clue":
+        pid = args.get("pid") or args.get("promise_id")
+        if pid:
+            objects.append({"type": "promise_clue", "promise_id": pid})
+    if not objects:
+        return None
+    return {"objects": objects}
+
+
+def _write_effect_from_approval_message(message: str | None) -> dict | None:
+    if not message:
+        return None
+    objects: list[dict] = []
+    fact = re.search(r"fact:([^\s:·，,]+)", message)
+    if fact:
+        objects.append({"type": "fact", "id": f"fact:{fact.group(1)}"})
+    role = re.search(r"role:([^\s=·，,]+)", message)
+    if role:
+        objects.append({"type": "character", "id": f"role:{role.group(1)}"})
+    return {"objects": objects} if objects else None
 
 
 def _url() -> str:
@@ -305,7 +400,7 @@ def backfill_scalability_caches(store) -> int:
     之后 outline()/quality() 永不再拉正文。供 apply_schema 后调用或迁移脚本手动跑。
     """
     rows = store._query(
-        "SELECT seq, prose FROM chapter WHERE scene_count IS NONE")
+        "SELECT seq, prose FROM chapter:.. WHERE scene_count IS NONE")
     n = 0
     for r in rows:
         seq = r.get("seq")
@@ -348,11 +443,37 @@ class SurrealStore:
                  user: str | None = None, password: str | None = None):
         self.url = url or os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
         self.db_name = db   # 本库名(=work);chat_message.work 等冗余字段由此自动填(台账 D-002)
-        user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
-        password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+        self._ns = ns
+        self._user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
+        self._password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+        self._connect()
+
+    def _connect(self) -> None:
         self._db = Surreal(self.url)
-        self._db.signin({"username": user, "password": password})
-        self._db.use(ns, db)
+        self._db.signin({"username": self._user, "password": self._password})
+        self._db.use(self._ns, self.db_name)
+
+    def _reconnect(self) -> None:
+        try:
+            self._db.close()
+        except Exception:
+            pass
+        self._connect()
+
+    def _raw_query(self, surql: str, vars: dict | None = None):
+        """S-1 连接韧性单点(2026-07-04 :8001 事故根治):连接类异常 → 重建连接
+        (signin/use 是 WS 连接级状态,SDK 懒重连不会重放)→ 重试一次。
+        本机 WS 不存在"已提交但响应丢失"的分区窗口(服务端死=写未提交),
+        且核心写多为 UPSERT 幂等,故写路径重试一次可接受。
+        语法/校验等非连接错误原样抛,绝不重试。"""
+        try:
+            return self._db.query(surql, vars or {})
+        except _CONN_ERRORS as e:
+            logging.getLogger("scribe3.store").warning(
+                "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                type(e).__name__, str(e)[:120])
+            self._reconnect()
+            return self._db.query(surql, vars or {})
 
     def close(self) -> None:
         try:
@@ -363,8 +484,8 @@ class SurrealStore:
     # --- schema ---
     def apply_schema(self, migrations_dir: str | None = None) -> None:
         d = Path(migrations_dir or Path(__file__).parent / "migrations")
-        self._db.query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
-                       "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
+        self._raw_query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
+                        "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
         try:
             rows = self._query("SELECT meta::id(id) AS id FROM _migration")
             applied = {f"_migration:{r['id']}" for r in (rows or []) if r and r.get("id")}
@@ -380,14 +501,14 @@ class SurrealStore:
             if key in applied:
                 continue
             try:
-                self._db.query(f.read_text(encoding="utf-8"))
+                self._raw_query(f.read_text(encoding="utf-8"))
             except Exception as e:
                 logging.getLogger("scribe3").warning(
                     "迁移 %s 失败,不标记已应用(下次可重试): %s", f.stem, str(e)[:120])
                 failures.append((f.stem, str(e)[:120]))
                 continue  # 真失败:跳过 CREATE _migration 记录
-            self._db.query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
-                           {"name": f.stem})
+            self._raw_query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
+                            {"name": f.stem})
         if failures:
             raise RuntimeError(
                 "apply_schema 迁移失败清单(未标记已应用): "
@@ -396,7 +517,7 @@ class SurrealStore:
     # --- 唯一写入点 ---
     def _execute_write(self, surql: str, vars: dict) -> None:
         """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。"""
-        self._db.query(surql, vars)
+        self._raw_query(surql, vars)
 
     @contextmanager
     def transaction(self):
@@ -436,7 +557,7 @@ class SurrealStore:
         old(surql, all_vars)
 
     def _query(self, surql: str, vars: dict | None = None) -> list[dict]:
-        res = self._db.query(surql, vars or {})
+        res = self._raw_query(surql, vars or {})
         # surrealdb-py 2.0:SELECT 直接返回 rows 列表;兼容包一层 {"result":...} 的旧形态
         if isinstance(res, list):
             if res and isinstance(res[0], dict) and "result" in res[0] and "status" in res[0]:
@@ -591,7 +712,7 @@ class SurrealStore:
                 f"SET since_chapter={chapter}, acquired_via='given'")
         if stmts:
             surql = "BEGIN TRANSACTION; " + "; ".join(stmts) + "; COMMIT TRANSACTION;"
-            self._db.query(surql)
+            self._raw_query(surql)
 
     def purge_ingest(self, seq: int) -> None:
         """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边 + char_state(幂等再 ingest 的前置清理)。
@@ -907,15 +1028,15 @@ class SurrealStore:
 
     # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
     def add_chat_message(self, chapter: int, stage: str, role: str, text: str,
-                         turn: str = "") -> None:
+                         turn: str = "", trace: dict | None = None) -> None:
         """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。
         turn(P0门审查 P2-6):同一轮 user/assistant 共享的配对 id,防并发会话交错
         污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。"""
         self._execute_write(
             "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, "
-            "turn=$turn, ts=time::now()",
+            "turn=$turn, trace=$trace, ts=time::now() RETURN NONE",
             {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text,
-             "turn": turn or ""})
+             "turn": turn or "", "trace": trace or {}})
 
     def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
         """按章(缺省全部)拉取对话留痕,ts 升序返回;limit 取**最新** N 条再反转
@@ -924,10 +1045,270 @@ class SurrealStore:
         n = max(1, min(int(limit), 2000))
         where = "WHERE chapter = $c " if chapter is not None else ""
         rows = self._query(
-            f"SELECT work, chapter, stage, role, text, turn, <string> ts AS ts "
+            f"SELECT work, chapter, stage, role, text, turn, trace, <string> ts AS ts "
             f"FROM chat_message {where}ORDER BY ts DESC LIMIT {n}",
             {"c": chapter})
         return list(reversed(rows))
+
+    # --- Hermes Runs/Approval 审计链 ---
+    def upsert_ai_run_trace(self, run_id: str, *, status: str | None = None,
+                            session_key: str | None = None,
+                            input_text: str | None = None,
+                            instructions: str | None = None,
+                            tool_calls: list[dict] | None = None,
+                            tool_outputs: list[dict] | None = None,
+                            approvals: list[dict] | None = None,
+                            raw_events: list[dict] | None = None,
+                            usage: dict | None = None,
+                            error=None,
+                            response: dict | None = None) -> None:
+        existing = self.get_ai_run_trace(run_id) or {}
+        payload = {
+            "work": self.db_name,
+            "run_id": run_id,
+            "status": status or existing.get("status") or "created",
+            "session_key": session_key if session_key is not None else existing.get("session_key"),
+            "input_text": input_text if input_text is not None else existing.get("input_text"),
+            "instructions": instructions if instructions is not None else existing.get("instructions"),
+            "tool_calls": tool_calls if tool_calls is not None else (existing.get("tool_calls") or []),
+            "tool_outputs": tool_outputs if tool_outputs is not None else (existing.get("tool_outputs") or []),
+            "approvals": approvals if approvals is not None else (existing.get("approvals") or []),
+            "raw_events": raw_events if raw_events is not None else (existing.get("raw_events") or []),
+            "usage": usage if usage is not None else existing.get("usage"),
+            "error": error if error is not None else existing.get("error"),
+            "response": response if response is not None else existing.get("response"),
+        }
+        self._execute_write(
+            "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
+            "status=$status, session_key=$session_key, input_text=$input_text, "
+            "instructions=$instructions, tool_calls=$tool_calls, tool_outputs=$tool_outputs, "
+            "approvals=$approvals, raw_events=$raw_events, usage=$usage, error=$error, "
+            "response=$response, updated_at=time::now() RETURN NONE",
+            {"run": run_id, **payload},
+        )
+
+    def append_ai_run_trace_event(self, run_id: str, event: dict) -> None:
+        trace = self.get_ai_run_trace(run_id) or {}
+        tool_calls = list(trace.get("tool_calls") or [])
+        tool_outputs = list(trace.get("tool_outputs") or [])
+        approvals = list(trace.get("approvals") or [])
+        raw_events = list(trace.get("raw_events") or [])
+        status = trace.get("status") or "created"
+        usage = trace.get("usage")
+        error = trace.get("error")
+
+        def _find_call(call_id: str | None = None) -> dict | None:
+            if call_id:
+                for call in reversed(tool_calls):
+                    if call.get("call_id") == call_id:
+                        return call
+            completed = {out.get("call_id") for out in tool_outputs if out.get("call_id")}
+            for call in reversed(tool_calls):
+                if call.get("call_id") not in completed:
+                    return call
+            return tool_calls[-1] if tool_calls else None
+
+        def _find_approval(approval_id: str | None = None,
+                           call_id: str | None = None,
+                           approval_status: str | None = None) -> dict | None:
+            for approval in reversed(approvals):
+                if approval_id and approval.get("approval_id") != approval_id:
+                    continue
+                if call_id and approval.get("call_id") != call_id:
+                    continue
+                if approval_status and approval.get("status") != approval_status:
+                    continue
+                return approval
+            return None
+
+        kind = event.get("kind") or event.get("type") or ""
+        source_type = event.get("source_type") or event.get("type") or kind
+        if kind in {"tool.started", "tool.start"}:
+            parsed_args = _json_obj(event.get("arguments"))
+            tool_calls.append({
+                "call_id": event.get("call_id"),
+                "name": event.get("name") or event.get("tool_name") or "",
+                "arguments": event.get("arguments", ""),
+                "parsed_arguments": parsed_args,
+                "approval_id": event.get("approval_id"),
+                "source_type": source_type,
+            })
+        elif kind in {"tool.output", "tool.complete"}:
+            call_id = event.get("call_id")
+            call = _find_call(call_id)
+            parsed_output = _json_obj(event.get("output"))
+            tool = (
+                event.get("name") or event.get("tool_name")
+                or (parsed_output or {}).get("tool")
+                or (call or {}).get("name")
+                or ""
+            )
+            approval_id = event.get("approval_id") or (call or {}).get("approval_id")
+            approval = (
+                _find_approval(approval_id=approval_id, approval_status="resolved")
+                or _find_approval(approval_id=approval_id)
+                or _find_approval(call_id=call_id, approval_status="resolved")
+                or _find_approval(call_id=call_id)
+            )
+            decision = event.get("decision") or (approval or {}).get("decision")
+            if approval and not approval_id:
+                approval_id = approval.get("approval_id")
+            result_status = (parsed_output or {}).get("status") or event.get("status")
+            parsed_args = (call or {}).get("parsed_arguments") or _json_obj((call or {}).get("arguments"))
+            write_effect = (
+                _write_effect_from_tool(tool, parsed_args)
+                or (call or {}).get("write_effect")
+                or (approval or {}).get("write_effect")
+            )
+            if not result_status and tool.startswith("s3_"):
+                if decision in {"approve", "approved", "once", "session", "always", True}:
+                    result_status = "written"
+                elif decision in {"deny", "denied", "reject", "rejected", False}:
+                    result_status = "declined"
+            if call is not None:
+                if approval_id:
+                    call["approval_id"] = approval_id
+                if result_status:
+                    call["result_status"] = result_status
+                if write_effect:
+                    call["write_effect"] = write_effect
+            tool_outputs.append({
+                "call_id": call_id,
+                "tool": tool,
+                "output": event.get("output", ""),
+                "parsed_output": parsed_output,
+                "approval_id": approval_id,
+                "decision": decision,
+                "result_status": result_status,
+                "write_effect": write_effect,
+                "source_type": source_type,
+            })
+        elif kind in {"approval.requested", "approval.request"}:
+            call_id = event.get("call_id") or event.get("tool_call_id")
+            call = _find_call(call_id)
+            if call and not call_id:
+                call_id = call.get("call_id")
+            tool = event.get("name") or event.get("tool_name") or (call or {}).get("name") or ""
+            approval_id = event.get("approval_id")
+            write_effect = _write_effect_from_approval_message(event.get("message", ""))
+            if call and approval_id:
+                call["approval_id"] = approval_id
+            if call and write_effect:
+                call["write_effect"] = write_effect
+            approvals.append({
+                "run_id": event.get("run_id") or run_id,
+                "approval_id": approval_id,
+                "call_id": call_id,
+                "tool": tool,
+                "message": event.get("message", ""),
+                "write_effect": write_effect,
+                "status": "requested",
+                "source": event.get("source") or "runtime",
+                "source_type": source_type,
+            })
+        elif kind == "approval.resolved":
+            approval_id = event.get("approval_id")
+            requested = _find_approval(approval_id=approval_id, approval_status="requested")
+            call_id = event.get("call_id") or event.get("tool_call_id") or (requested or {}).get("call_id")
+            call = _find_call(call_id)
+            if call and not call_id:
+                call_id = call.get("call_id")
+            tool = event.get("name") or event.get("tool_name") or (requested or {}).get("tool") or (call or {}).get("name") or ""
+            if call and approval_id:
+                call["approval_id"] = approval_id
+            write_effect = (requested or {}).get("write_effect") or (call or {}).get("write_effect")
+            approvals.append({
+                "run_id": event.get("run_id") or run_id,
+                "approval_id": approval_id,
+                "call_id": call_id,
+                "tool": tool,
+                "decision": event.get("decision"),
+                "write_effect": write_effect,
+                "status": "resolved",
+                "source": event.get("source") or "runtime",
+                "source_type": source_type,
+            })
+        elif kind == "run.completed":
+            status = "completed"
+            usage = event.get("usage")
+        elif kind == "run.failed":
+            status = "failed"
+            error = event.get("error") or "run failed"
+        else:
+            raw_events.append(event)
+
+        self.upsert_ai_run_trace(
+            run_id,
+            status=status,
+            tool_calls=tool_calls,
+            tool_outputs=tool_outputs,
+            approvals=approvals,
+            raw_events=raw_events,
+            usage=usage,
+            error=error,
+        )
+
+    def get_ai_run_trace(self, run_id: str) -> dict | None:
+        rows = self._query(
+            "SELECT work, run_id, status, session_key, input_text, instructions, "
+            "tool_calls, tool_outputs, approvals, raw_events, usage, error, response, "
+            "<string> created_at AS created_at, <string> updated_at AS updated_at "
+            "FROM type::record('ai_run_trace', $run)",
+            {"run": run_id},
+        )
+        return rows[0] if rows else None
+
+    def list_ai_run_traces(self, limit: int = 100) -> list[dict]:
+        n = max(1, min(int(limit), 1000))
+        rows = self._query(
+            f"SELECT work, run_id, status, session_key, input_text, tool_calls, "
+            f"tool_outputs, approvals, usage, error, <string> updated_at AS updated_at "
+            f"FROM ai_run_trace ORDER BY updated_at DESC LIMIT {n}",
+        )
+        return rows
+
+    def usage_summary(self, days: int = 7) -> dict:
+        """H-10:近 N 天 LLM token 真实用量聚合(/ai/usage 数据源)。
+
+        数据源是两条审计链已存的 Hermes usage:chat_message.trace.usage(Responses
+        写作/讨论)+ ai_run_trace.usage(Runs 写入型任务)。行数有限(留痕表按章),
+        取回后在 Python 侧按天聚合——SurrealQL 嵌套字段 group-by 不值得为此冒方言坑。
+        天按 ts 前 10 位(UTC 日界),与日帽台账的本地日界可能差几小时,预算展示可容忍。
+        """
+        n = max(1, min(int(days), 90))
+        import datetime as _dt
+        cutoff = (_dt.date.today() - _dt.timedelta(days=n - 1)).isoformat()
+        zero = lambda: {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0}  # noqa: E731
+        acc: dict[str, dict] = {}
+
+        def _add(day: str, channel: str, u) -> None:
+            if not isinstance(u, dict) or not day or day < cutoff:
+                return
+            d = acc.setdefault(day, {"responses": zero(), "runs": zero()})
+            slot = d[channel]
+            slot["calls"] += 1
+            slot["input_tokens"] += int(u.get("input_tokens") or u.get("prompt_tokens") or 0)
+            slot["output_tokens"] += int(u.get("output_tokens") or u.get("completion_tokens") or 0)
+            slot["total_tokens"] += int(u.get("total_tokens") or 0)
+
+        for r in self._query(
+                "SELECT <string> ts AS ts, trace.usage AS usage FROM chat_message "
+                "WHERE trace.usage != NONE ORDER BY ts DESC LIMIT 5000"):
+            _add((r.get("ts") or "")[:10], "responses", r.get("usage"))
+        for r in self._query(
+                "SELECT <string> updated_at AS ts, usage FROM ai_run_trace "
+                "WHERE usage != NONE ORDER BY ts DESC LIMIT 2000"):
+            _add((r.get("ts") or "")[:10], "runs", r.get("usage"))
+
+        days_out = []
+        for day in sorted(acc, reverse=True):
+            d = acc[day]
+            total = zero()
+            for ch in ("responses", "runs"):
+                for k in total:
+                    total[k] += d[ch][k]
+            days_out.append({"day": day, **d, "total": total})
+        return {"days": days_out, "since": cutoff}
 
     # --- 蒸馏幂等标记(P1门审查 P1-1)---
     def get_distill_marker(self, chapter: int) -> dict | None:
@@ -2040,7 +2421,8 @@ class SurrealStore:
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
-            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb",
+            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
+            "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
              "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
@@ -2132,7 +2514,7 @@ class SurrealStore:
         """落/覆盖某章草稿(与定稿 prose 分离;UPSERT 不碰 prose/embedding/qc)。
         刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。"""
         self._execute_write(
-            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft",
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
             {"seq": seq, "draft": draft})
 
     def get_chapter(self, seq: int) -> dict | None:
@@ -2141,12 +2523,12 @@ class SurrealStore:
         rows = self._query(
             "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
             "scene_truth,involved_characters,deductions,purpose_text,deltas,"
+            "archived,<string> archived_at AS archived_at,archive_reason,"
             "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
         r = rows[0]
-        import json
         raw_beats = r.get("beats")
         try:
             r["beats"] = json.loads(raw_beats) if raw_beats else []
@@ -2159,17 +2541,28 @@ class SurrealStore:
             except (ValueError, TypeError):
                 r[_k] = []
         r["scene_truth"] = r.get("scene_truth") or ""
+        r["archived"] = bool(r.get("archived"))
+        r["archive_reason"] = r.get("archive_reason") or ""
         return r
 
     def list_chapters(self) -> list[dict]:
-        return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+        return self._query(
+            "SELECT seq,title FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq")
+
+    def chapter_seqs_in_range(self, start_seq: int, end_seq: int) -> list[int]:
+        """闭区间读取已存章节号;不过滤归档章,供 pilot 判定 record 是否存在。"""
+        target = _chapter_range_target(start_seq, end_seq)
+        rows = self._query(f"SELECT seq FROM {target} ORDER BY seq")
+        return [int(row["seq"]) for row in rows if row.get("seq") is not None]
 
     def chapters_lite(self) -> list[dict]:
         """遗留处置 2-D(#5):书级面板窄查询——一次拉草料/目的字段,不拉 prose/embedding
         (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
         调用方不必区分"无键"与"空值"。"""
         rows = self._query(
-            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter ORDER BY seq")
+            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq")
         for r in rows:
             for k in ("title", "synopsis", "beats", "scene_truth", "deltas"):
                 r.setdefault(k, None)
@@ -2178,22 +2571,27 @@ class SurrealStore:
     # --- 书级聚合小件(北极星任务7)---
     def total_word_count(self) -> int:
         """全书可见字数合计(qc_word_count 存稿缓存求和,不拉正文)。"""
-        rows = self._query("SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        rows = self._query(
+            "SELECT math::sum(qc_word_count) AS w FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
         return int((rows[0].get("w") if rows else 0) or 0)
 
     def causal_debt_total(self) -> int:
         """因果欠账存量:各章 qc_causal 正值求和(-1 哨兵=无事件数据,不计入)。
         蓝图 §3-②:brief 只催收 top-5,超出部分落面板由此字段承载。"""
-        rows = self._query("SELECT qc_causal FROM chapter")
+        rows = self._query(
+            "SELECT qc_causal FROM chapter:.. WHERE archived = NONE OR archived != true")
         return sum((r.get("qc_causal") or 0) for r in rows
                    if (r.get("qc_causal") or 0) > 0)
 
     def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:
         """before_seq 之前最近 k 章的 {seq, prose}(按 seq 升序)。
         供跨章复读检测与"前文已用措辞→生成时避免"清单复用。"""
+        target = _chapter_range_target(end=before_seq, end_inclusive=False)
         rows = self._query(
-            "SELECT seq, prose FROM chapter WHERE seq < $s ORDER BY seq DESC LIMIT $k",
-            {"s": before_seq, "k": k})
+            f"SELECT seq, prose FROM {target} "
+            "WHERE archived = NONE OR archived != true "
+            "ORDER BY seq DESC LIMIT $k", {"k": k})
         return list(reversed(rows))
 
     def motif_terms(self) -> set[str]:
@@ -2214,11 +2612,15 @@ class SurrealStore:
 
     def stats(self) -> dict:
         """本书章数 + 字数(读 QC 缓存,不回传全表正文)。"""
-        rows = self._query(
-            "SELECT count() AS chapter_count, math::sum(qc_word_count) AS word_count "
-            "FROM chapter GROUP ALL")
-        r = rows[0] if rows else {"chapter_count": 0, "word_count": 0}
-        return {"chapter_count": r.get("chapter_count", 0), "word_count": r.get("word_count", 0)}
+        count_rows = self._query(
+            "SELECT count() AS chapter_count FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
+        word_rows = self._query(
+            "SELECT math::sum(qc_word_count) AS word_count FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
+        chapter_count = (count_rows[0].get("chapter_count") if count_rows else 0) or 0
+        word_count = (word_rows[0].get("word_count") if word_rows else 0) or 0
+        return {"chapter_count": chapter_count, "word_count": word_count}
 
     # --- 每日码字账 ---
     def _record_daily_progress(self, seq: int, today: str | None = None) -> None:
@@ -2452,7 +2854,7 @@ class SurrealStore:
     def max_chapter(self) -> int:
         """书的最大章号:以 chapter 表实际章节为准(真实范围),并入 event 的 story_chapter 兜底。
         旧实现只数 event 表 → 仅有伏笔/章节而无事件时返回 0,使时间线/体检整体短路为空(真bug)。"""
-        ch_rows = self._query("SELECT seq FROM chapter")
+        ch_rows = self._query("SELECT seq FROM chapter:..")
         seqs = [r["seq"] for r in (ch_rows or []) if r.get("seq") is not None]
         ev_rows = self._query("SELECT story_chapter AS ch FROM event")
         evs = [r["ch"] for r in (ev_rows or []) if r.get("ch") is not None]
@@ -3422,9 +3824,11 @@ class SurrealStore:
         """跨章一致性检测(带指纹缓存壳)。审计 P2-13:每次 /post-check 全书扫太贵,
         以 (章数, Σqc_word_count) 为指纹——正文未变直接回缓存;指纹是弱哈希
         (同字数改动漏检),一致性 hint 是 advisory 级,可接受,存稿即失效重扫。"""
-        fp_rows = self._query(
-            "SELECT count() AS n, math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
-        fp = ((fp_rows[0].get("n") or 0), (fp_rows[0].get("w") or 0)) if fp_rows else (0, 0)
+        count_rows = self._query("SELECT count() AS n FROM chapter GROUP ALL")
+        word_rows = self._query(
+            "SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        fp = (((count_rows[0].get("n") if count_rows else 0) or 0),
+              ((word_rows[0].get("w") if word_rows else 0) or 0))
         cached = getattr(self, "_cc_cache", None)
         if cached and cached[0] == fp:
             return cached[1]
@@ -3446,7 +3850,7 @@ class SurrealStore:
         hints: list[dict] = []
 
         # ── 收集全书章正文 ──────────────────────────────────────────────────
-        chapters = self._query("SELECT seq, prose FROM chapter ORDER BY seq")
+        chapters = self._query("SELECT seq, prose FROM chapter:.. ORDER BY seq")
         chapters = [c for c in chapters if c.get("prose")]
         if not chapters:
             return hints
@@ -3700,6 +4104,152 @@ class SurrealStore:
             {"vid": vid})
         return True
 
+    def create_chapter(self, title: str = "", volume_id: str | None = None) -> dict:
+        """创建一个空章节。
+
+        seq 是故事时间轴主键,永不复用归档章号;volume_id 存在时把新章追加到该卷末尾。
+        """
+        if volume_id is not None:
+            vcheck = self._query(
+                "SELECT id FROM type::record('volume',$vid) LIMIT 1",
+                {"vid": volume_id})
+            if not vcheck:
+                raise ValueError(f"create_chapter: volume '{volume_id}' 不存在")
+        seq = self.max_chapter() + 1
+        if seq < 1:
+            seq = 1
+        title = (title or "").strip() or f"第{seq}章"
+        self.save_chapter(seq, "", title=title, focalizer=None)
+        if volume_id is not None:
+            rows = self._query(
+                "SELECT seq, sort_order FROM chapter:.. "
+                "WHERE archived != true AND volume = type::record('volume', $vid)",
+                {"vid": volume_id})
+            rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
+            order = [r["seq"] for r in rows if r["seq"] != seq] + [seq]
+            self.reorder_chapters(volume_id, order)
+        return {"seq": seq, "title": title, "volume": volume_id}
+
+    def archive_chapter(self, seq: int, reason: str = "") -> bool:
+        """软删除章节:隐藏但保留正文、版本和所有引用。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
+            {"seq": seq, "reason": (reason or "").strip() or None})
+        return True
+
+    def restore_chapter(self, seq: int) -> bool:
+        """恢复已归档章节。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET archived=false, archived_at=NONE, archive_reason=NONE",
+            {"seq": seq})
+        return True
+
+    def archived_chapters(self) -> list[dict]:
+        """列出归档箱中的章节,只返回目录展示需要的轻量字段。"""
+        rows = self._query(
+            "SELECT seq, title, archived_at, archive_reason FROM chapter:.. "
+            "WHERE archived = true ORDER BY seq")
+        out = []
+        for row in rows:
+            seq = row.get("seq")
+            out.append({
+                "seq": seq,
+                "title": row.get("title") or f"第{seq}章",
+                "archived_at": str(row.get("archived_at") or ""),
+                "archive_reason": row.get("archive_reason") or "",
+            })
+        return out
+
+    def _safe_count(self, surql: str, vars: dict) -> int:
+        try:
+            rows = self._query(surql, vars)
+        except Exception:
+            return 0
+        return int((rows[0].get("n") if rows else 0) or 0)
+
+    def _chapter_impact_token(self, seq: int, references: list[dict]) -> str:
+        raw = json.dumps(
+            {"db": self.db_name, "type": "chapter", "seq": seq, "references": references},
+            ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+    def chapter_lifecycle_impact(self, seq: int) -> dict | None:
+        """章节永久删除前的影响清单。"""
+        ch = self.get_chapter(seq)
+        if not ch:
+            return None
+        refs = []
+        prose_chars = len((ch.get("prose") or "").strip())
+        if prose_chars:
+            refs.append({"kind": "正文", "count": prose_chars})
+        count_specs = [
+            ("版本", "SELECT count() AS n FROM chapter_version WHERE seq=$seq GROUP ALL"),
+            ("主编对话", "SELECT count() AS n FROM chat_message WHERE chapter=$seq GROUP ALL"),
+            ("素材引用", "SELECT count() AS n FROM material_reference WHERE chapter=$seq GROUP ALL"),
+            ("伏笔触及", "SELECT count() AS n FROM promise_touch WHERE chapter=$seq GROUP ALL"),
+            ("母题触及", "SELECT count() AS n FROM motif_instance WHERE chapter=$seq GROUP ALL"),
+            ("关系触碰", "SELECT count() AS n FROM relation_touch WHERE chapter=$seq GROUP ALL"),
+            ("事件", "SELECT count() AS n FROM event WHERE story_chapter=$seq OR ingest_seq=$seq GROUP ALL"),
+            ("角色状态", "SELECT count() AS n FROM char_state WHERE chapter=$seq OR ingest_seq=$seq GROUP ALL"),
+            ("章级北极星", "SELECT count() AS n FROM chapter_scorecard WHERE seq=$seq GROUP ALL"),
+        ]
+        for kind, query in count_specs:
+            n = self._safe_count(query, {"seq": seq})
+            if n:
+                refs.append({"kind": kind, "count": n})
+        label = ch.get("title") or f"第{seq}章"
+        return {
+            "object": {"type": "chapter", "id": seq, "label": label},
+            "references": refs,
+            "recommended_action": "archive",
+            "confirm_impact_token": self._chapter_impact_token(seq, refs),
+        }
+
+    def delete_chapter_permanent(self, seq: int) -> bool:
+        """永久删除章节和明确以该章为 owner 的派生记录。危险操作,端点层必须 token 门禁。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        try:
+            self.purge_ingest(seq)
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning(
+                "delete_chapter_permanent purge_ingest(%s) 失败,继续清章节本体: %s", seq, e)
+        ev_ids = self._query(
+            "SELECT VALUE id FROM event WHERE story_chapter=$seq OR ingest_seq=$seq",
+            {"seq": seq})
+        if ev_ids:
+            self._execute_write("DELETE involves WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE event WHERE id IN $ids", {"ids": ev_ids})
+        for query in [
+            "DELETE chapter_version WHERE seq=$seq",
+            "DELETE chapter_scorecard WHERE seq=$seq",
+            "DELETE chat_message WHERE chapter=$seq",
+            "DELETE material_reference WHERE chapter=$seq",
+            "DELETE promise_touch WHERE chapter=$seq",
+            "DELETE motif_instance WHERE chapter=$seq",
+            "DELETE relation_touch WHERE chapter=$seq",
+            "DELETE char_state WHERE chapter=$seq OR ingest_seq=$seq",
+            "DELETE ingest_unverified WHERE seq=$seq",
+            "DELETE voice_evolution_flag WHERE trigger_chapter=$seq OR ingest_seq=$seq",
+            "DELETE lesson WHERE chapter=$seq",
+            "DELETE distill_marker WHERE chapter=$seq",
+        ]:
+            try:
+                self._execute_write(query, {"seq": seq})
+            except Exception:
+                pass
+        self._execute_write("DELETE type::record('chapter', $seq)", {"seq": seq})
+        return True
+
     # == 大纲聚合 ==
 
     def outline(self) -> dict:
@@ -3716,7 +4266,7 @@ class SurrealStore:
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, "
             "scene_count, scene_meta "
-            "FROM chapter")
+            "FROM chapter:.. WHERE archived = NONE OR archived != true")
         # Python 侧排序:sort_order 为 None 时回退 seq
         rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
         import json

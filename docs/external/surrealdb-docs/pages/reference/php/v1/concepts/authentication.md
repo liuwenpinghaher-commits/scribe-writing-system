@@ -1,0 +1,144 @@
+---
+title: "https://surrealdb.com/docs/reference/php/v1/concepts/authentication"
+url: "https://surrealdb.com/docs/reference/php/v1/concepts/authentication"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/php/v1/concepts/authentication
+
+Source: https://surrealdb.com/docs/reference/php/v1/concepts/authentication
+
+Since SurrealDB is a database that is designed to be used in a distributed environment, it is important to secure the database and the data that is stored in it.  
+SurrealDB provides a number of methods for authenticating users and securing the database.
+##  Define scope[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#define-scope)
+If you haven't defined a scope for your database, you can define a scope by quering to the database using the [`query`](https://surrealdb.com/docs/reference/php/v1/methods/query) method.
+
+```php
+$db->query('
+	DEFINE SCOPE user SESSION 24h
+	SIGNUP ( CREATE user SET email = $email, pass = crypto::argon2::generate($pass) )
+	SIGNIN ( SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass) );
+');
+```
+
+In `2.0` and above, the `DEFINE SCOPE` Statement has been replaced with the `DEFINE ACCESS ... TYPE RECORD` Statement so the above query would be:
+
+```php
+$db->query('
+DEFINE ACCESS user ON DATABASE TYPE RECORD
+	SIGNUP ( CREATE user SET email = $email, pass = crypto::argon2::generate($pass) )
+	SIGNIN ( SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass) )
+	DURATION FOR TOKEN 15m, FOR SESSION 12h
+;
+');
+```
+
+##  Signup with credentials[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#signup-with-credentials)
+To signup a new scoped user, you can use the [`signup`](https://surrealdb.com/docs/reference/php/v1/methods/signup) method from the `Surreal` class. This method takes an associative array  
+with the `namespace`, `database`, and `scope` keys as arguments. The `email` and `pass` keys are also required for this example, but it can be different  
+depending on the required parameters you have defined for the scope.
+
+```php
+$db->signup([
+	"namespace" => "surrealdb",
+	"database" => "surrealdb",
+	"scope" => "user",
+	"email" => "user@email.com",
+	"pass" => "password-123"
+]);
+```
+
+```php
+// 2.0 and above
+$db->signup([
+	"namespace" => "surrealdb",
+	"database" => "surrealdb",
+	"access" => "user",
+	"email" => "user@email.com",
+	"pass" => "password-123"
+]);
+```
+
+##  Signin with credentials[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#signin-with-credentials)
+To signin with credentials, you can use the [`signin`](https://surrealdb.com/docs/reference/php/v1/methods/signin) method.
+RootNamespaceDatabaseScopeAccess
+Root authentication gives you access to all namespaces and databases within the SurrealDB instance.
+
+```php
+$token = $db->signin([
+	"username" => "root",
+	"password" => "secret"
+]);
+```
+
+Namespace authentication gives you access to all databases within a particular namespace.
+
+```php
+$token = $db->signin([
+	"username" => "root",
+	"password" => "secret",
+	"namespace" => "surrealdb"
+]);
+```
+
+Database authentication gives you access to all data within a single database.
+
+```php
+$token = $db->signin([
+	"username" => "root",
+	"password" => "secret",
+	"namespace" => "surrealdb",
+	"database" => "surrealdb"
+]);
+```
+
+Authenticate using a specific [Scope](https://surrealdb.com/docs/reference/query-language/statements/define/scope) within a database.
+
+```php
+$token = $db->signin([
+	"email" => "user@email.com",
+	"pass" => "secret",
+	"namespace" => "surrealdb",
+	"database" => "surrealdb",
+	"scope" => "user"
+]);
+```
+
+Authenticate using a specific [access method](https://surrealdb.com/docs/reference/query-language/statements/define/access) within a database.
+
+```php
+$token = $db->signin([
+	"email" => "user@email.com",
+	"pass" => "secret",
+	"namespace" => "surrealdb",
+	"database" => "surrealdb",
+	"access" => "user"
+]);
+```
+
+##  Signin with auth token[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#signin-with-auth-token)
+If you already have signed in and have an auth token stored somewhere, you can authenticate using the [`authenticate`](https://surrealdb.com/docs/reference/php/v1/methods/authenticate) method.  
+This method takes one argument, the auth token.
+
+```php
+$db->authenticate($token);
+```
+
+##  User information[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#user-information)
+When you signed in successfully, you can get the user information by using the [`info`](https://surrealdb.com/docs/reference/php/v1/methods/info) method.  
+This returns the user information as an associative array.
+
+```php
+$user = $db->info();
+```
+
+##  Invalidate user session[](https://surrealdb.com/docs/reference/php/v1/concepts/authentication#invalidate-user-session)
+To invalidate a user session, you can use the [`invalidate`](https://surrealdb.com/docs/reference/php/v1/methods/invalidate) method. When executed, the user  
+session will be invalidated and the user will be signed out.
+
+```php
+$db->invalidate();
+```
+
+In the next article we will cover how to query to the database.

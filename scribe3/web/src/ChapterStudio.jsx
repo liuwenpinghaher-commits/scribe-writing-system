@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
-  Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, ScrollText, Eye, Compass,
+  Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, ScrollText, Eye, Compass, Archive,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -14,6 +14,7 @@ import { useTopbarSlot } from './TopbarSlotContext'
 import { beatsFromMarkdown } from './lib/stageProposal'
 import { Btn, Input } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
+import { ConfirmDialog } from './ui/Dialog.jsx'
 
 // 章四阶段:大纲(synopsis)→ 节拍(beats)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;草稿 saveDraft/latestDraft;正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
@@ -492,13 +493,14 @@ function DraftTab({ seq, work, meta, onAdopt }) {
  * 大纲/节拍/草稿 = ChapterStudio 自带轻量编辑器(patchChapter/saveDraft);
  * 正文 = 整体复用 WriteLayout(护栏/QC/帧/伏笔/版本/检索/主编对话全保留)。
  */
-export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, onSelectNode }) {
+export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, onSelectNode, onArchived }) {
   const toast = useToast()
   // 初值优先吃 selection 的 phase 提示(全书大纲点章行→直落大纲阶段,不闪上次阶段)
   const [phase, setPhase] = useState(() => normalizePhase(initialPhase || localStorage.getItem('s3.chapter.phase') || 'final'))
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
+  const [archiveOpen, setArchiveOpen] = useState(false)
 
   // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
   const setPhaseP = useCallback((p) => {
@@ -565,22 +567,46 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     return () => { alive = false }
   }, [seq, phase, refresh])
 
+  const archiveChapter = async () => {
+    try {
+      await api.archiveChapter(seq, '')
+      toast('章节已归档', { tone: 'ok' })
+      onArchived?.(seq)
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '归档章节失败', { tone: 'danger' })
+    }
+  }
+
+  const archiveDialog = (
+    <ConfirmDialog
+      open={archiveOpen}
+      title={`归档第 ${seq} 章?`}
+      body="归档后会从手稿目录隐藏,正文和关联不会删除。"
+      danger
+      confirmText="归档"
+      onConfirm={archiveChapter}
+      onClose={() => setArchiveOpen(false)}
+    />
+  )
+
   // 正文 tab:整体交给 WriteLayout(自带顶栏:章导航/视角/护栏/保存/存为正文)。
   // DeduceProvider 已上提到 BinderLayout,包住左栏演绎树与中区 DeduceStage,共享选中态。
   if (phase === 'final') {
     return (
       <div className="h-full flex flex-col min-h-0">
+        <ChapterNavBar seq={seq} onSeqChange={onSeqChange} onArchive={() => setArchiveOpen(true)} />
         <ChapterMaterialRefs seq={seq} onSelectMaterial={onSelectNode} />
         <div className="flex-1 min-h-0">
           <WriteLayout key={work} work={work} seq={seq} sceneIdx={sceneIdx} onSeqChange={onSeqChange} />
         </div>
+        {archiveDialog}
       </div>
     )
   }
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-canvas">
-      <ChapterNavBar seq={seq} onSeqChange={onSeqChange} />
+      <ChapterNavBar seq={seq} onSeqChange={onSeqChange} onArchive={() => setArchiveOpen(true)} />
       {/* 中区只负责当前章对象工作台；简报/限知帧/北极星归入章页签。 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
@@ -605,6 +631,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           <div className={AUX_PANEL_WRAP}><NorthStarPanel seq={seq} /></div>
         ) : null}
       </div>
+      {archiveDialog}
     </div>
   )
 }
@@ -626,12 +653,17 @@ function PhaseTabs({ phase, onPhase, ...props }) {
   )
 }
 
-function ChapterNavBar({ seq, onSeqChange }) {
+function ChapterNavBar({ seq, onSeqChange, onArchive }) {
   return (
     <div className="shrink-0 border-b border-line bg-surface h-11 flex items-center gap-1 px-3">
       <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章" aria-label="上一章"><ChevronLeft size={16} /></Btn>
       <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
       <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.((seq || 1) + 1)} title="下一章" aria-label="下一章"><ChevronRight size={16} /></Btn>
+      <div className="ml-auto">
+        <Btn variant="ghost" size="sm" onClick={onArchive} title="归档后从目录隐藏,正文和关联保留">
+          <Archive size={13} />归档章节
+        </Btn>
+      </div>
     </div>
   )
 }

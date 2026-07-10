@@ -10,6 +10,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
 import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
+import { VolumeDetailPane } from './layout/VolumeDetailPane'
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -18,7 +19,7 @@ const CAT_LEAF_TYPE = {
 }
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
-const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category', 'material_root', 'material_category'])
+const CONTAINER = new Set(['manuscript_root', 'codex_root', 'codex_category', 'material_root', 'material_category'])
 
 /**
  * 中间栏:按 sel 路由。
@@ -41,7 +42,7 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived }) {
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
@@ -68,6 +69,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
       onOpenChapter={(c) => onSelectNode?.({ id: `ch:${c.seq}`, type: 'chapter', ref: c.seq, label: `${c.seq} ${c.title || ''}`.trim(), phase: 'outline' })} />
   }
   if (node.type === 'book_northstar') return <NorthStarPanel scope="book" />
+  if (node.type === 'volume') return <VolumeDetailPane key={node.id} node={node} onSelectNode={onSelectNode} onChanged={onTreeChanged} />
 
   if (node.type === 'capability_group') return <CapabilityGroupDetailPane key={node.id} node={node} />
   if (node.type === 'deduce_view') return <DeduceDetailPane key={node.id} node={node} work={work} />
@@ -84,7 +86,8 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     const sceneIdx = node.type === 'scene' ? node.ref?.idx : null
     return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx} initialPhase={node.phase}
       onSelectNode={onSelectNode}
-      onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
+      onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })}
+      onArchived={onChapterArchived} />
   }
 
   // —— 设定新建 → 新建表单(创建后重载树并选中新条目) ——

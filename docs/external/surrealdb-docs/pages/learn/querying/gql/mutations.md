@@ -1,0 +1,132 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/gql/mutations"
+url: "https://surrealdb.com/docs/learn/querying/gql/mutations"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/gql/mutations
+
+Source: https://surrealdb.com/docs/learn/querying/gql/mutations
+
+Available since: v3.2.0
+ISO GQL on SurrealDB supports the four **data-modifying** statements from the standard — **`INSERT`**,**`SET`**,**`REMOVE`**, and**`DELETE`**— in addition to read-only`MATCH … RETURN` queries. Mutations run on the same [`POST /gql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql) endpoint and through [`eval::gql`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval#evalgql) when the `gql` capability is enabled.
+Warning
+GQL remains **experimental**. Enable it with [`--allow-experimental gql`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start#experimental-capabilities). Mutation-bearing queries open a **write transaction** — the same permissions, field validation, events, indexes, references, and live-query behaviour as native SurrealQL `CREATE` / `UPDATE` / `DELETE` / `RELATE` apply.
+##  Linear programs[](https://surrealdb.com/docs/learn/querying/gql/mutations#linear-programs)
+A GQL query is a **linear program** : an ordered sequence of `MATCH` / `OPTIONAL` read clauses and data-modifying statements, in **any interleaving** , optionally ending in `RETURN`.
+  * •
+The **binding table** threads through every step in textual order.
+  * •
+A **`MATCH`or`OPTIONAL` after a mutation** re-scans **live** (post-write) state in the same transaction — a clause after `SET` or `DELETE` sees updated or removed records; a clause after `INSERT` sees created records and may bind variables the `INSERT` introduced.
+  * •
+**`RETURN`is optional** when the query mutates. Read-only queries must still end with `RETURN`.
+  * •
+A mutation-only query (no `RETURN`) returns an **empty** result.
+
+The examples below assume that [the following seed data](https://surrealdb.com/docs/learn/querying/gql/via-http#load-sample-data) has been first uploaded.
+###  Via `eval::gql`[](https://surrealdb.com/docs/learn/querying/gql/mutations#via-evalgql)
+The same mutation strings work in the REPL when both **`gql`**and**`eval`**are allowed — see[Try without HTTP](https://surrealdb.com/docs/learn/querying/gql/via-http#try-without-http--evalgql):
+
+```surql
+eval::gql("MATCH (n:person WHERE n.name = 'A') SET n.age = 99 RETURN n.age AS age");
+-- { age: 99 }
+```
+
+##  `SET`[](https://surrealdb.com/docs/learn/querying/gql/mutations#set)
+Update properties on a bound node or edge.
+
+```gql
+MATCH (n:person WHERE n.name = 'A') SET n.age = 99 RETURN n.age AS age
+```
+
+  * •
+**`SET a.p = v`**— set one property.
+  * •
+**`SET a = { … }`**— replace all**user** properties (a `CONTENT`-style replace). Properties absent from the map are dropped. The record `id`, and an edge's `in` / `out`, are preserved.
+
+Setting reserved keys **`id`**,**`in`**, or**`out`**is rejected on both the per-property form (`SET a.id = …`) and the object form.
+**`SET a:Label`**is rejected — a SurrealDB record belongs to exactly one table; labels are immutable.
+##  `REMOVE`[](https://surrealdb.com/docs/learn/querying/gql/mutations#remove)
+Unset a property without deleting the record.
+
+```gql
+MATCH (n:person WHERE n.name = 'A') REMOVE n.age RETURN n.name AS name
+```
+
+**`REMOVE a:Label`**is rejected for the same one-table-per-record rule as`SET` label mutations.
+##  `DELETE`[](https://surrealdb.com/docs/learn/querying/gql/mutations#delete)
+Delete a matched node or edge.
+
+```gql
+MATCH (n:person WHERE n.name = 'A') DETACH DELETE n
+```
+
+  * •
+**`NODETACH DELETE`**(ISO default) — errors if the node still has connected edges.
+  * •
+**`DETACH DELETE`**— deletes the node and cascades connected edges. Bound edge variables for cascaded edges become`null` in a trailing `RETURN`.
+
+A deleted binding becomes **`null`**in post-mutation projections.
+##  `INSERT`[](https://surrealdb.com/docs/learn/querying/gql/mutations#insert)
+Create nodes and edges. Each new node requires a **label** (table name).
+**Leading insert** (no preceding `MATCH`) — runs once:
+
+```gql
+INSERT (p:person {name: 'Z', age: 1}) RETURN p.name AS name
+```
+
+**After`MATCH`** — runs **once per binding row**. Relate existing endpoints or create new nodes:
+
+```gql
+MATCH (a:person WHERE a.name = 'A')
+MATCH (b:person WHERE b.name = 'C')
+INSERT (a)-[:likes]->(b)
+RETURN a.name AS src, b.name AS dst
+```
+
+Graph-pattern form: `INSERT (a:Label {…})-[:Edge {…}]->(b:Label {…})`. A node with no label and no properties references a variable already bound by a preceding `MATCH` (an existing endpoint).
+##  Read after write[](https://surrealdb.com/docs/learn/querying/gql/mutations#read-after-write)
+Mutations and reads can interleave in one query:
+
+```gql
+MATCH (n:person WHERE n.name = 'C') SET n.age = 20
+MATCH (m:person WHERE m.age = 20)
+RETURN m.name AS name ORDER BY name
+```
+
+The second `MATCH` sees the updated age on `C` and returns both `B` and `C` (both age 20).
+##  `RETURN` after mutations[](https://surrealdb.com/docs/learn/querying/gql/mutations#return-after-mutations)
+When present, `RETURN` projects the **post-mutation** binding table:
+  * •
+**`SET`/`INSERT`** rebind the mutated or created record (the **after** image).
+  * •
+Fan-out that binds the same record more than once applies writes **per row** , in order (last-write-wins for row-dependent values).
+  * •
+**`DELETE`**nulls deleted bindings;**`DETACH DELETE`**also nulls cascaded edge bindings.
+
+##  Rejected forms[](https://surrealdb.com/docs/learn/querying/gql/mutations#rejected-forms)
+The lowering layer rejects several ISO forms that do not map cleanly to SurrealDB's one-table-per-record model, including:
+  * •
+Label mutations (`SET a:Label`, `REMOVE a:Label`)
+  * •
+Mutations on unbound variables, groups, or path patterns
+  * •
+Reserved property keys on `SET` (`id`, `in`, `out`)
+  * •
+Malformed `INSERT` graph patterns (e.g. undirected edges, anonymous nodes without labels where required)
+
+Parse and semantic errors return the same error envelope as read queries.
+##  SurrealQL vs GQL for writes[](https://surrealdb.com/docs/learn/querying/gql/mutations#surrealql-vs-gql-for-writes)  
+| Task  | Prefer  |  
+| --- | --- |  
+| Schema changes, bulk load, `RELATE` with arbitrary SurrealQL  |  [SurrealQL](https://surrealdb.com/docs/reference/query-language) on [`POST /sql`](https://surrealdb.com/docs/reference/rest-api/http-protocol)  |  
+| Graph-pattern read + write in one ISO GQL program  | GQL mutations on [`POST /gql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql)  |  
+| Nested GQL inside an open SurrealQL transaction  | [`eval::gql`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval#evalgql)  |  
+##  Next steps[](https://surrealdb.com/docs/learn/querying/gql/mutations#next-steps)
+  * •
+[GQL overview](https://surrealdb.com/docs/learn/querying/gql/overview) — capabilities, wire surfaces, and syntax differences from openCypher
+  * •
+[Sample queries](https://surrealdb.com/docs/learn/querying/gql/sample-queries) — read-only pattern examples
+  * •
+[`POST /gql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql) — HTTP headers and response envelope

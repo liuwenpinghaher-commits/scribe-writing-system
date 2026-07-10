@@ -1,0 +1,171 @@
+---
+title: "https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies"
+url: "https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies
+
+Source: https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies
+
+Indexes speed up the shapes of queries you run often: equality filters, uniqueness checks, text search, and similarity over vectors.
+You need the same namespace/database scope and privileges as other `DEFINE` statements. Clause-by-clause detail can be found in the [`DEFINE INDEX`](https://surrealdb.com/docs/reference/query-language/statements/define/indexes) page.
+##  Index types[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#index-types)
+SurrealDB offers a range of indexing capabilities designed to optimize data retrieval and search efficiency.
+###  Standard (non-unique) index[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#standard-non-unique-index)
+An index with `FIELDS` or `COLUMNS` and no special clause (`UNIQUE`, `COUNT`, `FULLTEXT`, etc.) is a **standard B-tree index** — the default secondary index type.
+Let's create a non-unique index for an age field on a user table.
+
+```surql
+-- optimise queries looking for users of a given age
+DEFINE INDEX userAgeIndex ON TABLE user FIELDS age;
+```
+
+###  Unique index[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#unique-index)
+A unique index ensures that each value in the index is unique. A unique index helps enforce uniqueness across records by preventing duplicate entries in fields such as user IDs, email addresses, and other unique identifiers.
+Let's create a unique index for the email address field on a user table.
+
+```surql
+-- Makes sure that the email address in the user table is always unique
+DEFINE INDEX userEmailIndex ON TABLE user FIELDS email UNIQUE;
+```
+
+The created index can be viewed using the [`INFO` statement](https://surrealdb.com/docs/reference/query-language/statements/info).
+
+```surql
+INFO FOR TABLE user;
+```
+
+The `INFO` statement will help you understand what indexes are defined in your `TABLE`.
+
+```surql
+{
+    "events": {},
+    "fields": {},
+    "indexes": {
+        "userEmailIndex": {
+            sql: "DEFINE INDEX userEmailIndex ON user FIELDS email UNIQUE"
+        }
+    },
+    "lives": {},
+    "tables": {}
+}
+```
+
+As we defined a `UNIQUE` index on the `email` column, a duplicate entry for that column or field will throw an error.
+
+```surql
+-- Create a user record and set an email ID.
+CREATE user:1 SET email = 'test@surrealdb.com';
+-- Create another user record and set the same email ID.
+CREATE user:2 SET email = 'test@surrealdb.com';
+```
+
+Response
+
+```surql
+"Database index `userEmailIndex` already contains 'test@surrealdb.com',
+with record `user:1`"
+```
+
+###  Composite index[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#composite-index)
+A composite index spans multiple fields of a table. Composite indexes are mainly used to create a unique index when the definition of what is unique pertains to more than one field.
+
+```surql
+-- Create an index on the account and email fields of the user table
+DEFINE INDEX test ON user FIELDS account, email UNIQUE;
+```
+
+###  Count index[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#count-index)
+Available since: v3.0.0
+A count index uses the `COUNT` special clause instead of the usual `FIELDS` / `COLUMNS` form (which defines a standard B-tree index). Use it with `count()` and `GROUP ALL`.
+  * •
+**`COUNT`** — full-table counts: `SELECT count() FROM   
+GROUP ALL`.
+  * •
+**`COUNT WHERE `** — filtered counts when the query `WHERE` exactly matches the index condition.
+
+An unconditional count index is optional for full-table counts; SurrealDB already uses a `CountScan` fast path that counts keys without deserialising rows. `COUNT WHERE` is most useful for repeated filtered counts without scanning the whole table.
+
+```surql
+DEFINE INDEX idx ON indexed_reading COUNT;
+
+FOR $_ IN 0..100000 {
+    CREATE reading SET temperature = rand::int(0, 10);
+};
+
+FOR $_ IN 0..100000 {
+    CREATE indexed_reading SET temperature = rand::int(0, 10);
+};
+
+-- Wait a moment before running these two
+-- queries to ensure the index is built
+SELECT count() FROM reading GROUP ALL;
+SELECT count() FROM indexed_reading GROUP ALL;
+```
+
+Filtered example:
+
+```surql
+DEFINE INDEX item_active_count ON item COUNT WHERE status = "active";
+
+SELECT count() FROM item WHERE status = "active" GROUP ALL;
+```
+
+A **standard index** (`DEFINE INDEX … FIELDS …` on the same field) can also accelerate filtered counts when it fully covers the `WHERE` clause; you typically choose one approach, not both. For choosing between standard and count indexes (including storage tradeoffs), see [When to use which](https://surrealdb.com/docs/reference/query-language/statements/define/indexes#when-to-use-which). For counting several statuses (`IN` lists vs per-status totals), see [Multiple conditions](https://surrealdb.com/docs/reference/query-language/statements/define/indexes#multiple-conditions).
+###  Full-text search (`FULLTEXT`) index[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#full-text-search-fulltext-index)
+Enables efficient searching through textual data, supporting advanced text-matching features like proximity searches and keyword highlighting.
+The [Full-Text search](https://surrealdb.com/docs/learn/data-models/full-text-search/overview) index helps implement comprehensive search functionalities in applications, such as searching through articles, product descriptions, and user-generated content.
+Let's create a full-text search index for a `name` field on a `user` table.
+
+```surql
+-- Define the an analyzer with
+DEFINE ANALYZER example_ascii TOKENIZERS class FILTERS ascii;
+-- Since 3.0.0: only FULLTEXT used to benefit from concurrent full-text search
+DEFINE INDEX userNameIndex ON TABLE user FIELDS name FULLTEXT ANALYZER example_ascii BM25 HIGHLIGHTS;
+```
+
+  * •
+`SEARCH` or `FULLTEXT`: By using the `SEARCH` keyword, you enable full-text search on the specified column.
+  * •
+`ANALYZER ascii`: Uses a custom [analyzer](https://surrealdb.com/docs/reference/query-language/statements/define/analyzer) called `example_ascii` which uses the class tokenizier and `ascii` filter to analysing the text input.
+  * •
+`BM25`: Ranking algorithm used for relevance scoring.
+  * •
+`HIGHLIGHTS`: Allows keyword highlighting in search results output when using the [`search::highlight`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/search#searchhighlight) function
+  * •
+`FIELDS`: a full-text search index can only be used on one field at a time. To use full-text search on more than one field, use a separate `DEFINE INDEX` statement for each one.
+
+##  Rebuilding Indexes[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#rebuilding-indexes)
+Indexes can be rebuilt using the [`REBUILD`](https://surrealdb.com/docs/reference/query-language/statements/rebuild) statement. This can be useful when you want to update the index definition or when you want to rebuild the index to optimize performance.
+You may want to rebuild an index overtime to ensure that the index is up-to-date with the latest data in the table.
+
+```surql
+REBUILD INDEX userEmailIndex ON user;
+```
+
+##  Using `CONCURRENTLY` clause[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#using-concurrently-clause)
+Building indexes can be lengthy and may time out before they're completed. Without `CONCURRENTLY`, `DEFINE INDEX` blocks until the index is ready. They `CONCURRENTLY` clause can be used when the statement should return immediately while the build runs in the background, during which progress can be monitored with [INFO FOR INDEX](https://surrealdb.com/docs/reference/query-language/statements/info#index-information).
+
+```surql
+-- Create an INDEX concurrently
+DEFINE INDEX test ON user FIELDS email CONCURRENTLY;
+INFO FOR INDEX test ON user;
+INFO FOR INDEX test ON user;
+```
+
+##  The `DEFER` clause[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#the-defer-clause)
+Index updates in SurrealDB occur synchronously during document operations. This ensures immediate consistency, in which all reads return the most recent write. However, this can become a bottleneck during high-volume parallel ingestion, leading to write-write conflicts and increased latency, particularly with Full-Text or Vector indexes.
+The `DEFER` clause can be used in this case if eventual consistency is acceptable, namely a setting in which reads may return stale data for a short period, but will eventually converge to the most recent write. An index with this clause will be enqueued in a persistent background queue so that ingestion and indexing are decoupled.
+
+```surql
+DEFINE ANALYZER simple TOKENIZERS blank,class FILTERS lowercase;
+DEFINE INDEX title_index ON blog FIELDS title SEARCH ANALYZER simple BM25(1.2,0.75) HIGHLIGHTS DEFER;
+```
+
+Note: As unique indexes offer a guarantee that no records that contravene the index will ever exist, the `UNIQUE` clause cannot be used together with `DEFER`.
+##  Performance Implications[](https://surrealdb.com/docs/learn/schema-management/indexes/index-types-and-strategies#performance-implications)
+When defining indexes, it's essential to consider the fields most frequently queried or used to optimize performance.
+Indexes may improve the performance of SurrealQL statements. This may not be noticeable with small tables but it can be significant for large tables; especially when the indexed fields are used in the `WHERE` clause of a [`SELECT`](https://surrealdb.com/docs/reference/query-language/statements/insert) statement.
+Indexes can also impact the performance of write operations ([INSERT](https://surrealdb.com/docs/reference/query-language/statements/insert), [UPDATE](https://surrealdb.com/docs/reference/query-language/statements/update), [DELETE](https://surrealdb.com/docs/reference/query-language/statements/delete)) since the index needs to be updated accordingly. Therefore, it's essential to balance the need for read performance with write performance.

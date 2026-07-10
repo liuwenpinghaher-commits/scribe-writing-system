@@ -1,0 +1,196 @@
+---
+title: "https://surrealdb.com/docs/reference/rust/methods/invalidate"
+url: "https://surrealdb.com/docs/reference/rust/methods/invalidate"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/rust/methods/invalidate
+
+Source: https://surrealdb.com/docs/reference/rust/methods/invalidate
+
+Invalidates the authentication for the current connection.
+Method Syntax
+
+```rust
+db.invalidate()
+```
+
+3.x2.x
+###  Example usage[](https://surrealdb.com/docs/reference/rust/methods/invalidate#example-usage)
+Note: the following example uses the `ureq` crate with the `json` feature to first send a request to the database's [`/signup`](https://surrealdb.com/docs/reference/rest-api/http-protocol#signup) endpoint which returns a token. The `reqwest` crate and others can be used here instead.
+Alternatively, you could use a command like the following, copy the returned token, and paste it into the `.authenticate()` method which is used before `.invalidate()`.
+
+```bash
+curl -X POST -H "Accept: application/json" -d '{"ns":"main","db":"main","ac":"account","user":"info@surrealdb.com","pass":"123456"}' http://localhost:8000/signup`
+```
+
+As the `DEFINE ACCESS` method below shows, a token will remain valid by default for 15 minutes.
+
+```rust
+// Use the following statement to set up the access
+//
+// DEFINE ACCESS account ON DATABASE TYPE RECORD
+// 	SIGNUP ( CREATE user SET email = $email, pass = crypto::argon2::generate($pass) )
+// 	SIGNIN ( SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass) )
+// 	DURATION FOR TOKEN 15m, FOR SESSION 12h
+// ;
+
+// DEFINE TABLE cat SCHEMALESS
+//     PERMISSIONS for select, update, delete, create
+//     WHERE $auth.id;
+
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Ws;
+use surrealdb::types::SurrealValue;
+
+#[derive(Deserialize, SurrealValue)]
+struct Response {
+    token: String,
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.token)
+    }
+}
+
+#[derive(Serialize)]
+struct Signup {
+    ns: String,
+    db: String,
+    ac: String,
+    email: String,
+    pass: String,
+}
+
+#[tokio::main]
+async fn main() -> surrealdb::Result<()> {
+    let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
+    let response_string = ureq::post("http://127.0.0.1:8000/signup")
+        .header("Accept", "application/json")
+        .send_json(Signup {
+            ns: "main".to_string(),
+            db: "main".to_string(),
+            ac: "account".to_string(),
+            email: "info@surrealdb.com".to_string(),
+            pass: "123456".to_string(),
+        })
+        .unwrap()
+        .into_body()
+        .read_to_string()
+        .unwrap();
+
+    let response = serde_json::from_str::<Response>(&response_string).unwrap();
+
+    db.authenticate(response.token).await?;
+    // User is present inside the $auth parameter
+    println!("{:?}", db.query("$auth").await?);
+
+    db.invalidate().await?;
+    // Invalidated, now unable to see this parameter
+    println!("{:?}", db.query("$auth;").await?);
+
+    Ok(())
+}
+```
+
+The output for both `println!` statements should look like this.
+
+```
+IndexedResults { results: {0: (DbResultStats { execution_time: Some(26.458µs), query_type: Some(Other) }, Ok(RecordId(RecordId { table: Table("user"), key: String("ajdvh7uwk0sc79j48liw") })))}, live_queries: {} }
+Error: Error { code: -32002, message: "Anonymous access not allowed: Not enough permissions to perform this action", details: NotAllowed(Some(Auth(NotAllowed { actor: "anonymous", action: "process", resource: "query" }))) }
+```
+
+###  Revoking a refresh token (`.refresh(token)`)[](https://surrealdb.com/docs/reference/rust/methods/invalidate#revoking-a-refresh-token-refreshtoken)
+[`db.invalidate()`](https://docs.rs/surrealdb/latest/surrealdb/struct.Surreal.html#method.invalidate) normally clears the whole session. To revoke only the refresh token carried inside a [`Token`](https://docs.rs/surrealdb/latest/surrealdb/opt/auth/struct.Token.html) (without invalidating the entire session), call [`.refresh(token)`](https://docs.rs/surrealdb/latest/surrealdb/method/struct.Invalidate.html#method.refresh) on the invalidate builder, then await:
+
+```rust
+// Get a token from signin
+let token = db.signin(credentials).await?;
+
+// Later, explicitly revoke the refresh token
+db.invalidate().refresh(token).await?;
+```
+
+Use this when you need to drop refresh capability for a specific token pair while leaving other session state intact.
+###  See also[](https://surrealdb.com/docs/reference/rust/methods/invalidate#see-also)
+  * •
+[.invalidate() method on Docs.rs](https://docs.rs/surrealdb/latest/surrealdb/struct.Surreal.html#method.invalidate)
+  * •
+[`Invalidate::refresh` on Docs.rs](https://docs.rs/surrealdb/latest/surrealdb/method/struct.Invalidate.html#method.refresh)
+
+###  Example usage[](https://surrealdb.com/docs/reference/rust/methods/invalidate#example-usage-1)
+Note: the following example uses the `ureq` crate with the `json` feature to first send a request to the database's [`/signup`](https://surrealdb.com/docs/reference/rest-api/http-protocol#signup) endpoint which returns a token. The `reqwest` crate and others can be used here instead.
+Alternatively, you could use a command like the following, copy the returned token, and paste it into the `.authenticate()` method which is used before `.invalidate()`.
+
+```bash
+curl -X POST -H "Accept: application/json" -d '{"ns":"main","db":"main","ac":"account","user":"info@surrealdb.com","pass":"123456"}' http://localhost:8000/signup`
+```
+
+As the `DEFINE ACCESS` method below shows, a token will remain valid by default for 15 minutes.
+
+```rust
+// Use the following statement to set up the access
+//
+// DEFINE ACCESS account ON DATABASE TYPE RECORD
+// 	SIGNUP ( CREATE user SET email = $email, pass = crypto::argon2::generate($pass) )
+// 	SIGNIN ( SELECT * FROM user WHERE email = $email AND crypto::argon2::compare(pass, $pass) )
+// 	DURATION FOR TOKEN 15m, FOR SESSION 12h
+// ;
+
+// DEFINE TABLE cat SCHEMALESS
+//     PERMISSIONS for select, update, delete, create
+//     WHERE $auth.id;
+
+use serde::Deserialize;
+use std::fmt::Display;
+use surrealdb::engine::remote::ws::Ws;
+use surrealdb::Surreal;
+
+#[derive(Deserialize)]
+struct Response {
+    token: String,
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.token)
+    }
+}
+
+#[tokio::main]
+async fn main() -> surrealdb::Result<()> {
+    let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
+
+    let token = ureq::post("http://127.0.0.1:8000/signup")
+        .set("Accept", "application/json")
+        .send_json(ureq::json!({
+            "ns": "main",
+            "db": "main",
+            "ac": "account",
+            "email": "info@surrealdb.com",
+            "pass": "123456"
+        }))
+        .unwrap()
+        .into_json::<Response>()
+        .unwrap()
+        .to_string();
+
+    db.authenticate(token).await?;
+    // User is present inside the $auth parameter
+    dbg!(db.query("RETURN $auth").await?);
+
+    db.invalidate().await?;
+    // User is now gone
+    dbg!(db.query("RETURN $auth;").await?);
+
+    Ok(())
+}
+```
+
+###  See also[](https://surrealdb.com/docs/reference/rust/methods/invalidate#see-also-1)
+  * •
+[.invalidate() method on Docs.rs](https://docs.rs/surrealdb/latest/surrealdb/struct.Surreal.html#method.invalidate)

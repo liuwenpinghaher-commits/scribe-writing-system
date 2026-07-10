@@ -20,6 +20,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 
+import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -196,13 +197,320 @@ def _archive_object_with_lifecycle(st: SurrealStore, object_type: str, object_id
 
 
 def _work_has_tools(work: str) -> bool:
-    """当前请求的书是否等于 MCP 进程绑定的库(SCRIBE3_WORK 环境变量,默认 main)。
+    """当前请求是否可挂 s3_ MCP 工具。
 
-    审计 P0-2:mcp.py 的 s3_ 工具固定连 SCRIBE3_WORK 那本书,联查读它、待批写也落它。
-    若给「别的书」的对话也挂 s3_ 工具,模型联查读到的是错库、写入(add_fact/plant_promise…)
-    更落到错库——不可逆。故仅当 work==SCRIBE3_WORK 才挂 s3_ 工具;其余书退化为纯对话
-    (无联查/无待批写),绝不串库。中期(让每本书工具指向自己库)见 mcp.setup_store 注释。"""
-    return work == os.environ.get("SCRIBE3_WORK", "main")
+    H-01 后 mcp.py 的所有 s3_ 工具都支持显式 work 参数,同一 MCP 进程按书缓存
+    SurrealStore。故不再用 SCRIBE3_WORK 禁掉非默认书;防串库责任转为提示层硬约束:
+    所有 s3_ 调用必须传当前 work。"""
+    return True
+
+
+def _normalize_work(work: str | None) -> str:
+    return (work or os.environ.get("SCRIBE3_WORK", "main")).strip() or "main"
+
+
+def _s3_work_scope_block(work: str | None) -> str:
+    w = _normalize_work(work)
+    return (
+        f"\n\n【s3_ 工具作用域·硬约束】当前作品 slug: work={w}。"
+        f"调用任何 s3_ 工具时必须显式传 `work` 参数,值固定为 \"{w}\";"
+        "只读工具和写入待批工具都一样。不得省略 work,不得改成 SCRIBE3_WORK/default/main,"
+        "避免跨书读取或写入。"
+    )
+
+
+def _hermes_session_key(work: str, scope: str, seq: int | None = None) -> str:
+    parts = ["scribe3", f"work:{work}", scope]
+    if seq is not None:
+        parts.append(f"chapter:{seq}")
+    return "|".join(parts)
+
+
+def _listish(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, tuple):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def _hermes_profile_config_summary(profile: str, home=None) -> dict:
+    """Return non-secret profile tool-surface facts for runtime diagnostics."""
+    from pathlib import Path
+
+    root = Path(home) if home is not None else Path(os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes")))
+    config_path = root / "profiles" / profile / "config.yaml"
+    summary = {
+        "profile": profile,
+        "config_path": str(config_path),
+        "ok": False,
+        "api_server_toolsets": [],
+        "api_server_mcp_tool_count": 0,
+        "api_server_native_toolsets": [],
+        "mcp_toolsets": {},
+    }
+    if not config_path.exists():
+        summary["error"] = "profile config not found"
+        return summary
+    try:
+        import yaml
+    except Exception as exc:
+        summary["error"] = f"yaml unavailable: {type(exc).__name__}"
+        return summary
+    try:
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        summary["error"] = f"config parse failed: {str(exc)[:120]}"
+        return summary
+
+    mcp_servers = cfg.get("mcp_servers") or {}
+    if isinstance(mcp_servers, dict):
+        for name, server in mcp_servers.items():
+            if not isinstance(server, dict):
+                continue
+            tools = server.get("tools") if isinstance(server.get("tools"), dict) else {}
+            include = _listish((tools or {}).get("include"))
+            summary["mcp_toolsets"][str(name)] = {
+                "enabled": bool(server.get("enabled", True)),
+                "tool_count": len(include),
+                "tools": include,
+            }
+
+    platform_toolsets = cfg.get("platform_toolsets") or {}
+    api_server = []
+    if isinstance(platform_toolsets, dict):
+        api_server = _listish(platform_toolsets.get("api_server"))
+    summary["api_server_toolsets"] = api_server
+    summary["api_server_mcp_tool_count"] = sum(
+        summary["mcp_toolsets"][name]["tool_count"]
+        for name in api_server
+        if name in summary["mcp_toolsets"]
+    )
+    summary["api_server_native_toolsets"] = [
+        name for name in api_server
+        if name not in summary["mcp_toolsets"] and not name.startswith("mcp-")
+    ]
+    summary["ok"] = True
+    return summary
+
+
+def _hermes_cron_status(profile: str = "scribe3", *, timeout: float = 3.0) -> dict:
+    """Best-effort ops snapshot. Failure must not make runtime status unusable."""
+    import subprocess
+
+    status = {
+        "checked": False,
+        "profile": profile,
+        "gateway_running": False,
+        "active_jobs": None,
+        "scribe3_qc": {"present": False, "active": False, "last_status": None},
+    }
+    try:
+        stat = subprocess.run(
+            ["hermes", "-p", profile, "cron", "status"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        listing = subprocess.run(
+            ["hermes", "-p", profile, "cron", "list"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        status["error"] = str(exc)[:160]
+        return status
+
+    status["checked"] = True
+    status_text = (stat.stdout or "") + "\n" + (stat.stderr or "")
+    list_text = (listing.stdout or "") + "\n" + (listing.stderr or "")
+    status["gateway_running"] = "Gateway is running" in status_text
+    m = re.search(r"(\d+)\s+active job", status_text)
+    if m:
+        status["active_jobs"] = int(m.group(1))
+    if "scribe3-体检" in list_text:
+        status["scribe3_qc"]["present"] = True
+        # The job id line carries [active] immediately before the Name line in Hermes list output.
+        idx = list_text.find("scribe3-体检")
+        nearby = list_text[max(0, idx - 160): idx + 240]
+        status["scribe3_qc"]["active"] = "[active]" in nearby
+        job_tail = list_text[idx:]
+        last = re.search(r"Last run:\s+.*?\s+([A-Za-z_ -]+)\s*(?:\n|$)", job_tail)
+        if last:
+            status["scribe3_qc"]["last_status"] = last.group(1).strip()
+    return status
+
+
+def _profile_by_name(profiles: list[dict], name: str, fallback_index: int | None = None) -> dict:
+    for profile in profiles:
+        if profile.get("profile") == name:
+            return profile
+    if fallback_index is not None and len(profiles) > fallback_index:
+        return profiles[fallback_index]
+    return {}
+
+
+def _profile_has_skill(profile: dict, skill_name: str) -> bool:
+    return any((skill or {}).get("name") == skill_name for skill in (profile.get("skills") or []))
+
+
+def _issue(severity: str, code: str, message: str) -> dict:
+    return {"severity": severity, "code": code, "message": message}
+
+
+def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | None = None,
+                              cron: dict | None = None) -> dict:
+    configs = profile_configs or {}
+    default = _profile_by_name(profiles, "default", 0)
+    read = _profile_by_name(profiles, "scribe3", 1)
+    write = _profile_by_name(profiles, "scribe3_write", 2)
+    read_profile = read.get("profile") or "scribe3"
+    write_profile = write.get("profile") or "scribe3_write"
+    read_cfg = configs.get(read_profile) or {}
+    write_cfg = configs.get(write_profile) or {}
+
+    default_features = default.get("features") or {}
+    read_features = read.get("features") or {}
+    write_features = write.get("features") or {}
+    chat_available = bool(default.get("ok") and default_features.get("chat_completions"))
+    read_available = bool(read.get("ok") and read_features.get("responses_api"))
+    write_available = bool(
+        write.get("ok")
+        and write_features.get("run_submission")
+        and write_features.get("run_approval_response")
+    )
+    read_skill_loaded = _profile_has_skill(read, "scribe-novel-v2")
+    write_skill_loaded = _profile_has_skill(write, "scribe-novel-v2")
+    issues = []
+    if not chat_available:
+        issues.append(_issue("error", "default_gateway_unavailable", "默认 Hermes 补全网关不可用"))
+    if not read_available:
+        issues.append(_issue("error", "read_gateway_unavailable", "scribe3 只读 Responses 网关不可用"))
+    if not write_available:
+        issues.append(_issue("error", "write_gateway_unavailable", "scribe3_write Runs/Approval 写网关不可用"))
+    if read_cfg.get("api_server_mcp_tool_count") == 0:
+        issues.append(_issue("error", "read_mcp_tools_missing", "只读网关没有启用 scribe3_read MCP 工具面"))
+    if write_cfg.get("api_server_mcp_tool_count") == 0:
+        issues.append(_issue("error", "write_mcp_tools_missing", "写网关没有启用 scribe3 MCP 工具面"))
+    if "scribe3_write" in (read_cfg.get("api_server_toolsets") or []):
+        issues.append(_issue("error", "read_gateway_has_write_tools", "只读网关误启用了写工具面"))
+    if read_cfg.get("api_server_native_toolsets"):
+        issues.append(_issue("warning", "read_native_toolsets_enabled", "只读网关启用了非 scribe3 原生工具面"))
+    if write_cfg.get("api_server_native_toolsets"):
+        issues.append(_issue("warning", "write_native_toolsets_enabled", "写网关启用了非 scribe3 原生工具面"))
+    if not (read_skill_loaded or write_skill_loaded):
+        issues.append(_issue("warning", "scribe_skill_missing", "scribe-novel-v2 skill 未加载"))
+    if cron and cron.get("checked") and not (cron.get("scribe3_qc") or {}).get("present"):
+        issues.append(_issue("warning", "scribe3_cron_missing", "scribe3-体检 cron 未注册"))
+
+    return {
+        "chat": {
+            "profile": default.get("profile") or "default",
+            "available": chat_available,
+            "version": (default.get("health") or {}).get("version"),
+        },
+        "read": {
+            "profile": read_profile,
+            "available": read_available,
+            "version": (read.get("health") or {}).get("version"),
+            "mcp_toolsets": read_cfg.get("api_server_toolsets") or [],
+            "mcp_tool_count": read_cfg.get("api_server_mcp_tool_count") or 0,
+            "native_toolsets": read_cfg.get("api_server_native_toolsets") or [],
+            "scribe_skill_loaded": read_skill_loaded,
+        },
+        "write": {
+            "profile": write_profile,
+            "available": write_available,
+            "version": (write.get("health") or {}).get("version"),
+            "mcp_toolsets": write_cfg.get("api_server_toolsets") or [],
+            "mcp_tool_count": write_cfg.get("api_server_mcp_tool_count") or 0,
+            "native_toolsets": write_cfg.get("api_server_native_toolsets") or [],
+            "scribe_skill_loaded": write_skill_loaded,
+        },
+        "cron": cron or {"checked": False},
+        "degraded": {
+            "chat": not chat_available,
+            "read_tools": not read_available,
+            "write_runs": not write_available,
+        },
+        "issues": issues,
+    }
+
+
+def _hermes_runtime_status() -> dict:
+    from scribe3.hermes_runtime import HermesRuntime
+    from scribe3.llm import (
+        HERMES,
+        HERMES_RESPONSES,
+        HERMES_RESPONSES_PROFILE,
+        HERMES_RUNS,
+        HERMES_RUNS_PROFILE,
+    )
+
+    profiles = [
+        HermesRuntime(api_base=HERMES, profile="default").probe(),
+        HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE).probe(),
+        HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE).probe(),
+    ]
+    profile_configs = {
+        HERMES_RESPONSES_PROFILE: _hermes_profile_config_summary(HERMES_RESPONSES_PROFILE),
+        HERMES_RUNS_PROFILE: _hermes_profile_config_summary(HERMES_RUNS_PROFILE),
+    }
+    cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
+    summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)
+    has_error = any(issue.get("severity") == "error" for issue in summary["issues"])
+    return {
+        "ok": all(p.get("ok") for p in profiles) and not has_error,
+        "profiles": profiles,
+        "profile_configs": profile_configs,
+        "cron": cron,
+        "summary": summary,
+    }
+
+
+def _hermes_runs_runtime():
+    from scribe3.hermes_runtime import HermesRuntime
+    from scribe3.llm import HERMES_RUNS, HERMES_RUNS_PROFILE
+    return HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE)
+
+
+def _run_session_key(work: str) -> str:
+    return _hermes_session_key(_normalize_work(work), "runs")
+
+
+def _record_ai_run_trace(work: str, run_id: str | None, **fields) -> None:
+    if not run_id:
+        return
+    try:
+        _store_for(work).upsert_ai_run_trace(run_id, **fields)
+    except Exception:
+        logging.getLogger("scribe3").warning("ai_run_trace 落库失败(忽略)", exc_info=True)
+
+
+def _record_ai_run_event(work: str, run_id: str, app_ev: dict, *, source: str | None = None) -> None:
+    try:
+        payload = dict(app_ev or {})
+        if source:
+            payload["source"] = source
+        _store_for(work).append_ai_run_trace_event(run_id, payload)
+    except Exception:
+        logging.getLogger("scribe3").warning("ai_run_trace event 落库失败(忽略)", exc_info=True)
+
+
+SCRIBE3_READ_MCP_LABEL = os.environ.get("SCRIBE3_READ_MCP_LABEL", "scribe3_read")
+
+
+def _response_events_iter(fn, message, instructions: str, **kwargs):
+    """Call real Hermes with full runtime kwargs while preserving old test stubs."""
+    if _responses_events is None:
+        return fn(message, instructions, **kwargs)
+    safe = {k: v for k, v in kwargs.items() if k in {"model", "with_tools"}}
+    return fn(message, instructions, **safe)
 
 
 def _fact_item(f, reveal_secret: bool = False) -> dict:
@@ -259,6 +567,189 @@ def ready():
         return {"ready": True}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"db not ready: {str(e)[:80]}")
+
+
+@app.get("/ai/runtime-status")
+def ai_runtime_status():
+    return _hermes_runtime_status()
+
+
+@app.get("/ai/usage")
+def ai_usage(work: str = "main", days: int = 7):
+    """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。
+
+    - cap:计"发起的 LLM 调用笔数"。scope=shared 表示 app 与 MCP 进程同记一本
+      SQLite 台账(SCRIBE3_LLM_LEDGER);=process 表示台账故障已回退进程内计数。
+    - tokens:Hermes 各响应体回传的真实 usage,按天聚合(Responses/Runs 分列)。
+      fail-soft:聚合挂了回空列表带 error,帽信息照常返回。
+    """
+    from scribe3 import usage as usage_mod
+    from scribe3.llm import _DAILY_CALL_CAP, daily_remaining
+    used, scope = usage_mod.used_today()
+    try:
+        tokens = _store_for(work).usage_summary(days=days)
+    except Exception as e:
+        tokens = {"days": [], "error": str(e)}
+    return {
+        "work": work,
+        "cap": {"cap": _DAILY_CALL_CAP, "used_today": used,
+                "remaining": daily_remaining(), "scope": scope},
+        "tokens": tokens,
+    }
+
+
+class AIRunCreateReq(BaseModel):
+    input: str
+    instructions: str = ""
+    session_id: str | None = None
+    conversation_history: list[dict] | None = None
+    previous_response_id: str | None = None
+
+
+class AIRunApprovalReq(BaseModel):
+    approval_id: str | None = None
+    choice: str | None = None
+    decision: str | None = None
+    message: str | None = None
+    approved: bool | None = None
+
+
+def _hermes_approval_choice(req: AIRunApprovalReq) -> str:
+    raw = (req.choice or req.decision or "").strip().lower()
+    if not raw and req.approved is not None:
+        raw = "approve" if req.approved else "deny"
+    aliases = {
+        "approve": "once",
+        "approved": "once",
+        "allow": "once",
+        "yes": "once",
+        "true": "once",
+        "deny": "deny",
+        "denied": "deny",
+        "reject": "deny",
+        "rejected": "deny",
+        "no": "deny",
+        "false": "deny",
+    }
+    choice = aliases.get(raw, raw)
+    if choice not in {"once", "session", "always", "deny"}:
+        raise HTTPException(
+            status_code=400,
+            detail="invalid approval decision; expected approve/deny or once/session/always/deny",
+        )
+    return choice
+
+
+@app.post("/ai/runs")
+def ai_run_create(req: AIRunCreateReq, work: str = "main"):
+    """创建 Hermes Run。用于需要人类审批/可恢复事件流的 agentic 长任务。"""
+    ins = (req.instructions or "").strip()
+    ins = (ins + _s3_work_scope_block(work)) if ins else _s3_work_scope_block(work).lstrip()
+    session_key = _run_session_key(work)
+    result = _hermes_runs_runtime().create_run(
+        req.input,
+        instructions=ins,
+        session_id=req.session_id,
+        conversation_history=req.conversation_history,
+        previous_response_id=req.previous_response_id,
+        session_key=session_key,
+    )
+    run_id = result.get("run_id") or result.get("id")
+    _record_ai_run_trace(
+        work,
+        run_id,
+        status=result.get("status") or "created",
+        session_key=session_key,
+        input_text=req.input,
+        instructions=ins,
+        response=result,
+    )
+    return result
+
+
+@app.get("/ai/runs/{run_id}")
+def ai_run_status(run_id: str, work: str = "main"):
+    result = _hermes_runs_runtime().run_status(run_id, session_key=_run_session_key(work))
+    _record_ai_run_trace(work, run_id, status=result.get("status") or result.get("state"), response=result)
+    return result
+
+
+@app.get("/ai/runs/{run_id}/trace")
+def ai_run_trace(run_id: str, work: str = "main"):
+    trace = _store_for(work).get_ai_run_trace(run_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="ai_run_trace not found")
+    return trace
+
+
+@app.get("/ai/runs/{run_id}/events")
+def ai_run_events(run_id: str, work: str = "main"):
+    from scribe3.hermes_runtime import HermesEventAdapter
+
+    adapter = HermesEventAdapter()
+    _record_ai_run_trace(work, run_id, status="streaming")
+
+    def gen():
+        try:
+            for ev in _hermes_runs_runtime().run_events(run_id, session_key=_run_session_key(work)):
+                app_ev = adapter.adapt(ev)
+                kind = app_ev.get("kind")
+                _record_ai_run_event(work, run_id, app_ev)
+                if kind == "text.delta":
+                    yield f"data: {json.dumps({'delta': app_ev.get('delta', '')}, ensure_ascii=False)}\n\n"
+                elif kind == "tool.started":
+                    yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif kind == "tool.output":
+                    yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+                elif kind == "approval.requested":
+                    yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                elif kind == "approval.resolved":
+                    yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+                elif kind == "run.completed":
+                    yield f"data: {json.dumps({'run': {'run_id': app_ev.get('run_id'), 'status': 'completed', 'usage': app_ev.get('usage')}}, ensure_ascii=False)}\n\n"
+                elif kind == "run.failed":
+                    yield f"data: {json.dumps({'error': app_ev.get('error') or 'run failed'}, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps({'raw': app_ev}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _record_ai_run_trace(work, run_id, status="failed", error=str(e)[:160])
+            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/ai/runs/{run_id}/approval")
+def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
+    payload = req.model_dump(exclude_none=True)
+    choice = _hermes_approval_choice(req)
+    hermes_payload = {"choice": choice}
+    try:
+        result = _hermes_runs_runtime().approve_run(
+            run_id,
+            hermes_payload,
+            session_key=_run_session_key(work),
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        _record_ai_run_trace(work, run_id, status="approval_failed", error=detail)
+        raise HTTPException(status_code=502, detail=f"Hermes approval failed: {detail}") from exc
+    _record_ai_run_event(work, run_id, {
+        "kind": "approval.resolved",
+        "run_id": run_id,
+        "approval_id": payload.get("approval_id"),
+        "decision": payload.get("decision"),
+        "choice": choice,
+    }, source="user")
+    _record_ai_run_trace(work, run_id, status=result.get("status") or "approval_submitted", response=result)
+    return result
+
+
+@app.post("/ai/runs/{run_id}/stop")
+def ai_run_stop(run_id: str, work: str = "main"):
+    result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
+    _record_ai_run_trace(work, run_id, status=result.get("status") or "stopped", response=result)
+    return result
 
 
 @app.get("/works")
@@ -1795,14 +2286,16 @@ _responses_events = None  # 测试可 monkeypatch
 @app.get("/chat/agentic-stream")
 def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
-    事件:tool(工具调用提示)/delta(回复片段)/done。注:MCP 连 db=main,agentic 当前以主参照库为准。"""
+    事件:tool(工具调用提示)/delta(回复片段)/done。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     fn = _responses_events or hermes_responses_events
-    # P0-2:仅当前书(==SCRIBE3_WORK)才挂 s3_ 工具;非当前书退化纯对话,且删掉 s3_ 诱导段防幻觉调用。
+    adapter = HermesEventAdapter()
+    # H-01:工具 work-scoped,所有作品都可挂工具;提示必须钉死当前 work,防跨书读写。
     with_tools = _work_has_tools(work)
     instructions = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
     if with_tools:
-        instructions += (
+        instructions += _s3_work_scope_block(work) + (
             "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
             "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
             "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
@@ -1812,16 +2305,29 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
 
     def gen():
         try:
-            for ev in fn(msg, instructions, with_tools=with_tools):
-                t = ev.get("type", "")
-                if t == "response.output_text.delta":
-                    d = ev.get("delta", "")
+            events = _response_events_iter(
+                fn,
+                msg,
+                instructions,
+                with_tools=with_tools,
+                session_key=_hermes_session_key(work, "agentic", seq),
+                store=True,
+                server_label=SCRIBE3_READ_MCP_LABEL,
+            )
+            for ev in events:
+                app_ev = adapter.adapt(ev)
+                if app_ev["kind"] == "text.delta":
+                    d = app_ev.get("delta", "")
                     if d:
                         yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
-                elif t == "response.output_item.added":
-                    item = ev.get("item", {}) or {}
-                    if item.get("type") == "function_call":
-                        yield f"data: {json.dumps({'tool': item.get('name', ''), 'tool_args': item.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "tool.started":
+                    yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "tool.output":
+                    yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "approval.requested":
+                    yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "approval.resolved":
+                    yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
@@ -1944,17 +2450,20 @@ def _is_write_intent(msg) -> bool:
 
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
-                  with_tools: bool = True, on_complete=None):
+                  with_tools: bool = True, on_complete=None,
+                  mcp_server_label: str = SCRIBE3_READ_MCP_LABEL):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
-    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。
+    with_tools:H-01 work-scoped MCP 开关;为 True 时 instructions 必须已钉死当前 work。
     on_complete:北极星任务1——流尽后以 assistant 落库文本回调一次(围栏外散文+提案标记,
     不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
     import json as _j
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
+    adapter = HermesEventAdapter()
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
     prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
@@ -1962,6 +2471,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     # 兜底追踪状态
     saw_proposal = False
     delta_acc: list[str] = []   # 累积全部 delta 文本,用于兜底长散文
+    trace = {"status": "streaming", "tool_calls": [], "tool_outputs": [],
+             "response_id": None, "usage": None}
 
     def drain(events):
         nonlocal saw_proposal
@@ -1983,15 +2494,51 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 prop["prose"] = []
 
     try:
-        for ev in fn(message, instructions, with_tools=with_tools):
-            t = ev.get("type", "")
-            if t == "response.output_text.delta":
-                yield from drain(parser.feed(ev.get("delta", "")))
-            elif t == "response.output_item.added":
-                item = ev.get("item", {}) or {}
-                if item.get("type") == "function_call":
-                    yield f"data: {_j.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
+        for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
+                                        server_label=mcp_server_label):
+            app_ev = adapter.adapt(ev)
+            if app_ev["kind"] == "text.delta":
+                yield from drain(parser.feed(app_ev.get("delta", "")))
+            elif app_ev["kind"] == "tool.started":
+                trace["tool_calls"].append({
+                    "name": app_ev.get("name", ""),
+                    "arguments": app_ev.get("arguments", ""),
+                    "call_id": app_ev.get("call_id"),
+                })
+                yield f"data: {_j.dumps({'tool': app_ev.get('name', '')}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "tool.output":
+                trace["tool_outputs"].append({
+                    "call_id": app_ev.get("call_id"),
+                    "output": app_ev.get("output", ""),
+                })
+                yield f"data: {_j.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "approval.requested":
+                trace.setdefault("approvals", []).append({
+                    "run_id": app_ev.get("run_id"),
+                    "approval_id": app_ev.get("approval_id"),
+                    "message": app_ev.get("message", ""),
+                    "status": "requested",
+                })
+                yield f"data: {_j.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "approval.resolved":
+                trace.setdefault("approvals", []).append({
+                    "run_id": app_ev.get("run_id"),
+                    "approval_id": app_ev.get("approval_id"),
+                    "decision": app_ev.get("decision"),
+                    "status": "resolved",
+                })
+                yield f"data: {_j.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "run.completed":
+                trace["status"] = "completed"
+                trace["response_id"] = app_ev.get("response_id")
+                trace["usage"] = app_ev.get("usage")
+            elif app_ev["kind"] == "run.failed":
+                trace["status"] = "failed"
+                trace["response_id"] = app_ev.get("response_id")
+                trace["error"] = app_ev.get("error")
         yield from drain(parser.flush())
+        if trace["status"] == "streaming":
+            trace["status"] = "completed"
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
         # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
         # 只把散文主体包进 proposal,避免对话话术混入手稿。
@@ -2005,6 +2552,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 )
         yield 'data: {"done": true}\n\n'
     except Exception as e:
+        trace["status"] = "failed"
+        trace["error"] = str(e)[:160]
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
     finally:
@@ -2017,7 +2566,10 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 if prop_marks:
                     txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
                 if txt:
-                    on_complete(txt)
+                    try:
+                        on_complete(txt, trace)
+                    except TypeError:
+                        on_complete(txt)
             except Exception:
                 logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
 
@@ -2253,10 +2805,10 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=[], short_mode=short_mode, with_tools=_wt)
+        seed_words=[], short_mode=short_mode, with_tools=_wt, work=work)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
                       with_tools=_wt),
@@ -2494,12 +3046,12 @@ def _final_reminder() -> str:
     )
 
 
-def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
+def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
+                            work: str | None = None) -> str:
     """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
     生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
     (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
-    with_tools(P0-2 守卫,P1 全量抓漏):非当前书对话不挂 s3_ 工具,提示语绝不
-    提及 s3_ 工具名(诱导调用不存在的工具=坏提示+违反防串库语义)。
+    with_tools:H-01 work-scoped MCP;启用工具时必须提醒模型所有 s3_ 调用带当前 work。
     空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
     try:
         from scribe3.purpose import parse_deltas
@@ -2509,7 +3061,8 @@ def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
     if ds:
         return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
                 "验收验的是「状态变化发生没发生」,不是好不好。")
-    register_hint = ("有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
+    w = _normalize_work(work)
+    register_hint = (f"有 s3_register_purpose 工具就调用它走待批登记;调用时必须传 work=\"{w}\"。"
                      if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
     return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
             "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
@@ -2561,15 +3114,18 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
 
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool,
-                                 with_tools: bool = False) -> str:
+                                 with_tools: bool = False,
+                                 work: str | None = None) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
     (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
-    with_tools:透传给工序提示段(P0-2:非当前书不得诱导 s3_ 工具)。"""
+    with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。"""
     from scribe3.craft import build_craft_block
     instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
     instructions += f"\n当前第 {chapter} 章。"
+    if with_tools:
+        instructions += _s3_work_scope_block(work)
     if focalizer:
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
@@ -2617,7 +3173,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                              + _truth
                              + "\n\n生成角色限知投影时:只从上述真相中该角色能感知/推知的"
                                "部分派生;真相里没有的事不得出现在任何投影里。")
-    instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
+    instructions += _purpose_workflow_block(st, chapter, with_tools, work)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
 
@@ -2626,10 +3182,10 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
 def chat_write_post(req: ChatWriteReq, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
-    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt)
+        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -2651,9 +3207,9 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     except Exception:
         logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
 
-    def _persist_assistant(text: str) -> None:
+    def _persist_assistant(text: str, trace: dict | None = None) -> None:
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
-                            text=text, turn=turn_id)
+                            text=text, turn=turn_id, trace=trace or {})
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
@@ -2676,9 +3232,11 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
     (_responses_events 可 monkeypatch)与同一 ProposalParser 语义,只是不产 SSE 帧。
     返回 (围栏外散文, proposals=[{scope, prose}, ...]);LLM 异常向上抛(journal 的
     in_progress 会停在 generate stage,resume/审计可见,不吞错)。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
+    adapter = HermesEventAdapter()
     parser = ProposalParser()
     outside: list[str] = []
     proposals: list[dict] = []
@@ -2698,9 +3256,11 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
                 cur["scope"] = None
                 cur["prose"] = []
 
-    for ev in fn(message, instructions, with_tools=with_tools):
-        if ev.get("type") == "response.output_text.delta":
-            drain(parser.feed(ev.get("delta", "")))
+    for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
+                                    server_label=SCRIBE3_READ_MCP_LABEL):
+        app_ev = adapter.adapt(ev)
+        if app_ev["kind"] == "text.delta":
+            drain(parser.feed(app_ev.get("delta", "")))
     drain(parser.flush())
     return "".join(outside), proposals
 
@@ -2761,7 +3321,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
             seed_words=[], short_mode=req.short_mode,
-            with_tools=_work_has_tools(work))
+            with_tools=_work_has_tools(work), work=work)
         if constraints:
             instructions += "\n\n" + constraints
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
@@ -2890,6 +3450,71 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()
+
+
+@app.get("/chapters/archived")
+def archived_chapters(work: str = "main"):
+    """归档箱:列出已归档但尚未永久删除的章节。"""
+    return _store_for(work).archived_chapters()
+
+
+class ChapterCreateReq(BaseModel):
+    title: str | None = None
+    volume: str | None = None
+
+
+@app.post("/chapters")
+def create_chapter(req: ChapterCreateReq, work: str = "main"):
+    """新建空章:seq 使用历史最大章号+1,不复用归档章。"""
+    try:
+        ch = _store_for(work).create_chapter(req.title or "", req.volume)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"status": "created", **ch}
+
+
+class ChapterArchiveReq(BaseModel):
+    reason: str | None = None
+
+
+@app.post("/chapters/{seq}/archive")
+def archive_chapter(seq: int, req: ChapterArchiveReq | None = None, work: str = "main"):
+    """归档章节:默认删除动作,隐藏但保留正文、版本和关联。"""
+    ok = _store_for(work).archive_chapter(seq, (req.reason if req else "") or "")
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "archived", "seq": seq}
+
+
+@app.post("/chapters/{seq}/restore")
+def restore_chapter(seq: int, work: str = "main"):
+    ok = _store_for(work).restore_chapter(seq)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "restored", "seq": seq}
+
+
+@app.get("/chapters/{seq}/impact")
+def chapter_impact(seq: int, work: str = "main"):
+    impact = _store_for(work).chapter_lifecycle_impact(seq)
+    if impact is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return impact
+
+
+@app.delete("/chapters/{seq}")
+def delete_chapter(seq: int, confirm_impact_token: str | None = None, work: str = "main"):
+    """永久删除章节。必须先读取 impact 并带回 confirm_impact_token。"""
+    st = _store_for(work)
+    impact = st.chapter_lifecycle_impact(seq)
+    if impact is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    if confirm_impact_token != impact["confirm_impact_token"]:
+        return JSONResponse(status_code=409, content=impact)
+    ok = st.delete_chapter_permanent(seq)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "deleted", "seq": seq, "impact": impact}
 
 
 # ===== 大纲/卷章树(手稿支数据层,作者工具 F-01 后端)=====
@@ -4435,7 +5060,7 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
     def _generate(strategy: dict) -> str:
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
-            seed_words=[], short_mode=False, with_tools=False)   # 候选生成不挂工具(纯写作)
+            seed_words=[], short_mode=False, with_tools=False, work=work)   # 候选生成不挂工具(纯写作)
         instructions += "\n\n【选择环候选策略(本候选必须执行)】" + strategy["directive"]
         msg = ((req.msg + "\n") if req.msg else "") + (
             f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
@@ -4566,7 +5191,7 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     from scribe3.llm import hermes_complete
     ins = _assemble_write_instructions(
         st, chapter=seq, focalizer=focalizer, phase=phase,
-        with_tools=False, seed_words=[], short_mode=False)
+        with_tools=False, seed_words=[], short_mode=False, work=work)
     return (hermes_complete(ask, system=ins, max_tokens=max_tokens) or "").strip()
 
 
@@ -4956,10 +5581,12 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
     try:
         st = _store_for(work)   # 与 sync 端点同模型(executor 内 loop/post-check 也走它)
         ex = _pilot_executor(work)
+        existing_seqs = set(st.chapter_seqs_in_range(start, until))
         for seq in range(start, until + 1):
             state["cur_seq"] = seq
-            if not st.get_chapter(seq):
+            if seq not in existing_seqs:
                 st.save_chapter(seq, "", title=f"第{seq}章")
+                existing_seqs.add(seq)
             while True:
                 if not state.get("running"):
                     state["stopped"] = "作者暂停"
@@ -5077,7 +5704,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     # P2-9:pilot parked 的章由⑤源承载(带更准 reason),journal 源跳过防同章双挂
     _pilot_parked_seqs: set[int] = set()
     try:
-        for rr in st._query("SELECT seq, pilot_parked FROM chapter WHERE pilot_parked != NONE"):
+        for rr in st._query("SELECT seq, pilot_parked FROM chapter:.. WHERE pilot_parked != NONE"):
             if (rr.get("pilot_parked") or "").strip():
                 _pilot_parked_seqs.add(rr.get("seq"))
     except Exception:
@@ -5110,7 +5737,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     # ⑤ pilot 停靠项(T11):propose 级(大纲提案/交付卡)+ parked(needs_human/失败)
     try:
         rows = st._query(
-            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter "
+            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter:.. "
             "WHERE pilot_state != NONE ORDER BY seq")
         for r in rows:
             ps, seq_p = r.get("pilot_state"), r.get("seq")

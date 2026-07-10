@@ -90,6 +90,11 @@ class TestWriteGate:
         ("POST", "/tension-check"),   # M2a张力检查:确定性3项+LLM rubric,只读不落库,read-only POST
         ("POST", "/dedup-chapter"),   # QC治层:确定性事后跨章改写并存回(作者可信通道)
         ("POST", "/chat/write"),
+        # Hermes Runs/Approval:写入型 agentic 任务入口。create/approval/stop 都走
+        # scribe3_write gateway + work-scoped session key,并 best-effort 写 ai_run_trace。
+        ("POST", "/ai/runs"),
+        ("POST", "/ai/runs/{run_id}/approval"),
+        ("POST", "/ai/runs/{run_id}/stop"),
         ("POST", "/world-rules"), ("DELETE", "/world-rules"),
         ("POST", "/factions"), ("DELETE", "/factions"),
         ("POST", "/items"), ("DELETE", "/items"),
@@ -107,8 +112,12 @@ class TestWriteGate:
         ("POST", "/voice-flags/{fid}/resolve"),
         ("POST", "/voice-flags/fold"),
         # F-01 大纲/卷章树手稿支
+        ("POST", "/chapters"),
         ("POST", "/chapters/reorder"),
         ("PATCH", "/chapters/{seq}"),
+        ("POST", "/chapters/{seq}/archive"),
+        ("POST", "/chapters/{seq}/restore"),
+        ("DELETE", "/chapters/{seq}"),
         ("POST", "/volumes"),
         ("PATCH", "/volumes/{vid}"),
         ("DELETE", "/volumes/{vid}"),

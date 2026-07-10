@@ -8,6 +8,8 @@ import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
+import { api } from '../api'
+import { showToast } from '../ui/Toast'
 
 const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
 const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
@@ -138,6 +140,26 @@ export function FourPaneShell({
     reload?.()
     setDirectoryRefresh((v) => v + 1)
   }
+  const handleCreateChapter = async (volume) => {
+    try {
+      const created = await api.createChapter({ volume })
+      reload?.()
+      setDirectoryRefresh((v) => v + 1)
+      const seq = created?.seq
+      if (seq != null) {
+        const title = created?.title || `第${seq}章`
+        onSelectNode?.({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
+      }
+      showToast('章节已创建', { tone: 'ok' })
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '新建章节失败', { tone: 'danger' })
+    }
+  }
+  const handleChapterArchived = (seq) => {
+    reload?.()
+    setDirectoryRefresh((v) => v + 1)
+    if (sel?.node?.type === 'chapter' && Number(sel.node.ref) === Number(seq)) onSelectNode?.(null)
+  }
 
   return (
     <div className="h-full flex flex-col bg-canvas" data-testid="four-col">
@@ -186,6 +208,8 @@ export function FourPaneShell({
                           sel={sel}
                           seq={leftSeq}
                           onJumpChapter={onJumpChapter}
+                          onCreateChapter={handleCreateChapter}
+                          onArchivedChanged={handleTreeChanged}
                         />
                       </ErrorBoundary>
                     </div>
@@ -217,7 +241,8 @@ export function FourPaneShell({
             <div className="h-full min-w-0 overflow-hidden flex flex-col" data-testid="detail">
               <DetailPane sel={sel} work={work} onSelectNode={onSelectNode}
                 onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
-                onNavigateToObject={handleNavigateToObject} />
+                onNavigateToObject={handleNavigateToObject}
+                onChapterArchived={handleChapterArchived} />
             </div>
           </Panel>
           <Separator className={RESIZER_CLASS} data-testid="right-resize-handle" />

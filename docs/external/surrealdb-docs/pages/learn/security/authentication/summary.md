@@ -1,0 +1,156 @@
+---
+title: "https://surrealdb.com/docs/learn/security/authentication/summary"
+url: "https://surrealdb.com/docs/learn/security/authentication/summary"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/security/authentication/summary
+
+Source: https://surrealdb.com/docs/learn/security/authentication/summary
+
+Note
+This page is intended to direct the reader to other more specific and comprehensive resources. Some information shown in this page may be simplified or omit information that could be relevant in a particular scenario. When available, we recommend that you consult the provided references.
+##  Product[](https://surrealdb.com/docs/learn/security/authentication/summary#product)
+###  Capabilities[](https://surrealdb.com/docs/learn/security/authentication/summary#capabilities)
+SurrealDB offers the ability to limit its functionality to what is strictly required to reduce its attack surface. Most capabilities (e.g. scripting, networking…) are disabled by default. Even when enabled, capabilities can be restricted to specific targets such as functions that can be executed or network addresses that outbound connections can be made to.
+  * •
+[Security: Capabilities](https://surrealdb.com/docs/learn/security/authorization/capabilities)
+  * •
+[Security Best Practices: Capabilities](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#capabilities)
+
+###  System users[](https://surrealdb.com/docs/learn/security/authentication/summary#system-users)
+SurrealDB is managed by system users. Such users can be defined at the root, namespace and database level, which they can sign into with username and password. The password for those users is stored hashed and salted using the [Argon2id](https://datatracker.ietf.org/doc/html/rfc9106#name-recommendations) algorithm with default parameters, which ensures robust resistance against modern attacks. Passwords can also be provided to SurrealDB already hashed in the form of a passhash, ensuring that the SurrealDB server never has knowledge of the original password. When defining a user, the maximum duration for authentication tokens and authenticated sessions can be explicitly defined to mitigate the impact of compromised credentials.
+  * •
+[Statement: DEFINE USER](https://surrealdb.com/docs/reference/query-language/statements/define/user)
+  * •
+[Security Best Practices: Expiration](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#expiration)
+
+####  Roles[](https://surrealdb.com/docs/learn/security/authentication/summary#roles)
+SurrealDB implements Role-Based Access Control (RBAC) for system users at any level. This means that even if a person or system needs to authenticate with a SurrealDB user at the root, namespace or database level, its access can be restricted within that level by the owner, editor and viewer roles to minimize the impact of an incident involving the user.
+  * •
+[Statement: DEFINE USER (Roles)](https://surrealdb.com/docs/reference/query-language/statements/define/user#roles)
+  * •
+[Security: Authentication (System Users)](https://surrealdb.com/docs/learn/security/authentication/authentication#system-users)
+  * •
+[Security Best Practices: Least Privilege](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#least-privilege)
+
+###  Record users[](https://surrealdb.com/docs/learn/security/authentication/summary#record-users)
+SurrealDB allows the creation of users that can be easily signed up but with no access to the database aside from specifically defined permissions. This allows clients like single-page applications or mobile applications to directly connect to the database and access certain data or even run arbitrary queries. When accessing the database as a record user, users will be restricted by table and field permissions, which deny all operations by default. End users can independently sign up and sign in to use surreal following custom logic that can be defined with SurrealQL.
+  * •
+[Statement: DEFINE ACCESS ... TYPE RECORD](https://surrealdb.com/docs/reference/query-language/statements/define/access/record)
+  * •
+[Security: Authentication (Record Users)](https://surrealdb.com/docs/learn/security/authentication/authentication#record-users)
+
+####  Permissions[](https://surrealdb.com/docs/learn/security/authentication/summary#permissions)
+SurrealDB enforces table and field permissions for record users. Those permissions ensure that record users can only perform explicitly defined actions over explicitly defined data. Permissions are specified when defining a table or a field and use SurrealQL syntax to establish the conditions under which the table or the field can be queried with SELECT, UPDATE, CREATE and DELETE operations individually. No table permissions are defined by default, thus preventing a record user from querying any data unless explicitly allowed.
+  * •
+[Statement: DEFINE TABLE](https://surrealdb.com/docs/reference/query-language/statements/define/table)
+  * •
+[Statement: DEFINE FIELD](https://surrealdb.com/docs/reference/query-language/statements/define/field)
+
+###  JSON web tokens[](https://surrealdb.com/docs/learn/security/authentication/summary#json-web-tokens)
+SurrealDB internally uses JWTs to perform and manage authentication for both system and record users. It also supports accepting tokens issued by third party authentication providers in order to authenticate as a system user on any level as well as a record user for an application. This ensures that advanced authentication features not present in SurrealDB can be integrated through a third party provider. This integration is simple and reliable thanks to JSON Web Key Set (JWKS) support implemented by SurrealDB.
+  * •
+[Statement: DEFINE ACCESS ... TYPE JWT](https://surrealdb.com/docs/reference/query-language/statements/define/access/jwt)
+  * •
+[Statement: DEFINE ACCESS ... TYPE RECORD ... WITH JWT](https://surrealdb.com/docs/reference/query-language/statements/define/access/record#with-json-web-token)
+  * •
+[Tutorial: Integrate Auth0 as an authentication provider](https://surrealdb.com/docs/tutorials/integrate-auth0-as-authentication-provider)
+  * •
+[Tutorial: Integrate AWS Cognito as an authentication provider](https://surrealdb.com/docs/tutorials/integrate-aws-cognito-as-authentication-provider)
+  * •
+[Security Best Practices: JSON Web Tokens](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#json-web-tokens)
+  * •
+[Security Best Practices: Expiration](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#expiration)
+
+###  Custom authentication[](https://surrealdb.com/docs/learn/security/authentication/summary#custom-authentication)
+SurrealDB allows record users to authenticate using a token that can be issued by a third party or SurrealDB itself after successful authentication. When verifying these tokens, custom logic can be implemented using SurrealQL to abort authentication while returning a custom error if certain conditions are not met. This logic can be used to implement various kinds of token auditing and revocation mechanisms. Additionally, tokens issued by SurrealDB can be customized to be signed with specific keys or using a specific algorithms so that other services can rely on the authentication provided by SurrealDB.
+  * •
+[Statement: DEFINE ACCESS ... TYPE RECORD ... AUTHENTICATE](https://surrealdb.com/docs/reference/query-language/statements/define/access/record#with-authenticate-clause)
+  * •
+[Statement: DEFINE ACCESS ... TYPE RECORD ... WITH ISSUER](https://surrealdb.com/docs/reference/query-language/statements/define/access/record#with-issuer)
+  * •
+[Security Best Practices: Expiration](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#expiration)
+
+###  Parametrized queries[](https://surrealdb.com/docs/learn/security/authentication/summary#parametrized-queries)
+SurrealDB is usually queried through [multiple SDKs](https://surrealdb.com/docs/reference/rest-api/sdks) and a powerful [RPC interface](https://surrealdb.com/docs/reference/rest-api/rpc). The default query method for both of those interfaces is designed to accept query logic and variables separately to prevent query injection attacks like SQL injection. This separation ensures that user-controlled inputs are not mixed with any business logic defined in SurrealQL.
+  * •
+[Interfaces: RPC (Query Method)](https://surrealdb.com/docs/reference/rest-api/rpc#query)
+  * •
+[Interfaces: Rust SDK (Query Method)](https://surrealdb.com/docs/reference/rust/setup#query)
+  * •
+[Security Best Practices: Query Safety](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#query-safety)
+
+###  Sessions[](https://surrealdb.com/docs/learn/security/authentication/summary#sessions)
+SurrealDB accepts persistent connections through its RPC interface in the form of sessions. Sessions will usually be associated with an authentication token that represents a system user or a record user. Sessions and tokens can be configured to have different expiration times. Thanks to this, tokens can be issued to last the minimum time required to mitigate the impact of an attacker stealing the token while ensuring that sessions can last as long as required for the service or application.
+  * •
+[Security: Sessions](https://surrealdb.com/docs/learn/security/authentication/authentication#sessions)
+  * •
+[Statements: DEFINE USER (Duration)](https://surrealdb.com/docs/reference/query-language/statements/define/user#duration)
+  * •
+[Statements: DEFINE ACCESS (Duration)](https://surrealdb.com/docs/reference/query-language/statements/define/access#duration)
+  * •
+[Security Best Practices: Expiration](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#expiration)
+  * •
+[Interfaces: RPC (Authenticate)](https://surrealdb.com/docs/reference/rest-api/rpc#authenticate)
+
+###  Cryptographic functions[](https://surrealdb.com/docs/learn/security/authentication/summary#cryptographic-functions)
+SurrealDB provides a series of cryptographic functions that can be called from within SurrealQL in order to implement modern and robust security practices in your application. This includes state of the art password hashing algorithms such as Argon2, Bcrypt, Scrypt and PBKDF2. Traditional hashing algorithms like SHA-256 and SHA-512 are also provided for other applications such as integrity verification.
+  * •
+[Cryptographic functions](https://surrealdb.com/docs/reference/query-language/functions/database-functions/crypto)
+  * •
+[Security Best Practices: Passwords](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#passwords)
+
+###  Other security functions[](https://surrealdb.com/docs/learn/security/authentication/summary#other-security-functions)
+SurrealDB also provides other functions that support developers with building secure applications. An example of this are functions which encode and sanitize HTML content that is stored in the database to prevent code injection (which can lead to cross-site scripting, clickjacking or content injection) when displaying the content in an HTML page.
+  * •
+[string::encode() function](https://surrealdb.com/docs/reference/query-language/functions/database-functions/string#stringhtmlencode)
+  * •
+[string::sanitize() function](https://surrealdb.com/docs/reference/query-language/functions/database-functions/string#stringhtmlsanitize)
+  * •
+[Security Best Practices: Content Safety](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#content-safety)
+
+###  Transport layer security[](https://surrealdb.com/docs/learn/security/authentication/summary#transport-layer-security)
+SurrealDB has the ability to provide a secure TLS connection to its HTTP server without the need for a reverse proxy or load balancer. A certificate and a private key can be provided when starting the server in order to provide a secure connection.
+  * •
+[CLI Start command](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start)
+  * •
+[Security Best Practices: Encryption in Transit](https://surrealdb.com/docs/learn/security/best-practices/security-best-practices#encryption-in-transit)
+
+##  Process[](https://surrealdb.com/docs/learn/security/authentication/summary#process)
+###  Open source security[](https://surrealdb.com/docs/learn/security/authentication/summary#open-source-security)
+SurrealDB has an open source security policy extending its security process to the wider community. This policy is made available through GitHub and a “security.txt” file, and allows SurrealDB to benefit from the security expertise and resources of its community. In turn, it provides the community with safe and responsible avenues to contribute to the security of a source available product that they rely on.
+  * •
+[GitHub: Security Policy](https://github.com/surrealdb/surrealdb/security/policy)
+  * •
+[Website: Well-Known Security File](https://surrealdb.com/.well-known/security.txt)
+
+###  Responsible disclosure[](https://surrealdb.com/docs/learn/security/authentication/summary#responsible-disclosure)
+SurrealDB encourages external contributors to report security vulnerabilities following a small set of practices described in the open source security policy. SurrealDB commits to address all legitimate reports within three days, work on resolving the issue while keeping the reporter updated and crediting the reporter when an advisory is eventually published. The responsible disclosure process protects legitimate security reporters from legal repercussions and promotes an open discussion around the security of SurrealDB.
+  * •
+[GitHub: Security Policy (Reporting a Vulnerability)](https://github.com/surrealdb/surrealdb/security/policy#reporting-a-vulnerability)
+
+###  Security advisory[](https://surrealdb.com/docs/learn/security/authentication/summary#security-advisory)
+SurrealDB releases security advisories whenever a significant security issue has been resolved in the product. These advisories provide details about the vulnerability, its potential impact, affected versions and possible workarounds. The publication of advisories assists both humans and automations in identifying existing risks early as well as being aware of how to immediately mitigate or resolve them.
+  * •
+[GitHub: Security Policy (Security Advisories)](https://github.com/surrealdb/surrealdb/security/policy#security-advisories)
+  * •
+[GitHub: Security Advisories](https://github.com/surrealdb/surrealdb/security/advisories)
+
+###  Software composition analysis[](https://surrealdb.com/docs/learn/security/authentication/summary#software-composition-analysis)
+SurrealDB includes SCA in its development process by using both the Cargo Deny binary crate for Rust code as well as Dependabot in its CI/CD pipelines. The latter ensures that changes including dependencies with known vulnerabilities cannot be merged unless those vulnerabilities are explicitly acknowledged in a public file; this usually requires either updating or replacing the affected dependency. The former provides notification of emerging vulnerabilities in dependencies that are currently being used by SurrealDB so that they can be updated or replaced.
+  * •
+[GitHub: Security Policy (Dependencies)](https://github.com/surrealdb/surrealdb/security/policy#dependencies)
+  * •
+[GitHub: Cargo Deny Configuration](https://github.com/surrealdb/surrealdb/blob/main/deny.toml)
+
+###  Fuzzing[](https://surrealdb.com/docs/learn/security/authentication/summary#fuzzing)
+SurrealDB automatically identifies crashes and other security-relevant bugs using automated coverage-based fuzzing. This process is hosted by the Google OSS-Fuzz project and continuously runs SurrealDB with a huge range of valid and invalid inputs mutated with the help of artificial intelligence in order to cover every part of the code. This enables the early detection of edge cases which may result in security issues. The OSS-Fuzz project automatically publicly discloses bugs that have not been fixed in 90 days.
+  * •
+[GitHub: Security Policy (Fuzzing)](https://github.com/surrealdb/surrealdb/security/policy#fuzzing)
+
+###  Supply chain security[](https://surrealdb.com/docs/learn/security/authentication/summary#supply-chain-security)
+SurrealDB aims to reduce the risk and impact of compromised dependencies in its supply chain by implementing processes and automation to ensure that new and updated dependencies are consciously evaluated, especially when they have not yet been audited by trusted organisations or they extend their access to Rust standard library interfaces. This is accomplished in Rust code by using the Cargo ACL and Cargo Vet binary crates, both of which will need to pass in CI/CD before any changes to dependencies can be merged.
+  * •
+[GitHub: Supply Chain Security](https://github.com/surrealdb/surrealdb/blob/main/supply-chain/README.md)

@@ -1,0 +1,65 @@
+---
+title: "https://surrealdb.com/docs/architecture"
+url: "https://surrealdb.com/docs/architecture"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/architecture
+
+Source: https://surrealdb.com/docs/architecture
+
+SurrealDB is built around a flexible architecture that separates the query engine (compute) from the underlying storage layer. This separation allows the same database, API, and query language to run consistently across vastly different deployment environments — from embedded edge applications to globally distributed cloud clusters.
+Because compute and storage are decoupled, SurrealDB can scale seamlessly as applications grow. You can start with an embedded or single-node deployment during development, then move to distributed multi-node clusters without changing application code or queries.
+![](https://surrealdb.com/docs/~/assets/img/image/cloud/light/enterprise-multi-node-light.png)![](https://surrealdb.com/docs/~/assets/img/image/cloud/enterprise-multi-node.png)
+This flexibility enables SurrealDB to run wherever your application needs it:
+  * •
+Embedded directly inside desktop, mobile, browser, or edge applications
+  * •
+On a single server for production simplicity
+  * •
+Across distributed cloud-native clusters for high availability and horizontal scale
+  * •
+In fully managed environments such as [SurrealDB Cloud](https://surrealdb.com/docs/build/deployment/surrealdb-cloud/what-is-surrealdb-cloud)
+
+The result is a unified database platform that supports local-first, edge-native, and globally distributed architectures using the same developer experience everywhere.
+##  Query layer[](https://surrealdb.com/docs/architecture#query-layer)
+The query layer (compute) handles client queries and coordinates work against storage:
+  * •
+Parses and executes [SurrealQL](https://surrealdb.com/docs/reference/query-language)
+  * •
+Authenticates connections and sessions (for example via `SIGNIN` and access methods)
+  * •
+Enforces table- and field-level `PERMISSIONS` as records are read and written
+  * •
+Plans index-backed queries, updates index entries on writes, and coordinates [transactions against storage](https://surrealdb.com/docs/transactions-and-isolation)
+
+At a high level, incoming SurrealQL passes through a parser, an executor that groups statements into transactions, an iterator that plans data access (including indexes) and fetches keys from storage, and a document processor that applies permissions and persists changes through the storage API. Every transaction runs under snapshot isolation with write–write conflict detection on commit, regardless of storage backend.
+##  Storage layer[](https://surrealdb.com/docs/architecture#storage-layer)
+The storage layer handles persistence and durability. It determines deployment characteristics such as scalability, temporal versioning, replication, and fault tolerance. SurrealDB integrates with several engines depending on how you run the database:  
+| Concern  | Typical engine  |  
+| --- | --- |  
+| Single-node production  |  [RocksDB](https://rocksdb.org/) (recommended for single node)  |  
+| Single-node / embedded  |  [SurrealKV](https://github.com/surrealdb/surrealkv) (beta)  |  
+| In-memory server or embedded  | [SurrealMX](https://github.com/surrealdb/surrealmx)  |  
+| Browser persistence  | [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)  |  
+| Distributed multi-node  |  [SurrealDS](https://surrealdb.com/platform/surrealds) on [SurrealDB Cloud Scale](https://surrealdb.com/pricing/scale) and self-hosted Enterprise  |  
+Each storage engine must support transactional read and write of individual keys and key ranges so the query layer can offer consistent semantics across deployment models.
+##  Deployment models[](https://surrealdb.com/docs/architecture#deployment-models)
+SurrealDB supports:
+  * •
+**Managed deployment** through [SurrealDB Cloud](https://surrealdb.com/docs/build/deployment/surrealdb-cloud/what-is-surrealdb-cloud) — from single-node **Start** instances to multi-node **Scale** clusters on SurrealDS
+  * •
+**Single-node self-hosted** deployments through RocksDB (and optionally SurrealKV while in beta)
+  * •
+**Multi-node self-hosted** deployment on Kubernetes ([EKS](https://surrealdb.com/docs/build/deployment/self-hosted/amazon-eks), [GKE](https://surrealdb.com/docs/build/deployment/self-hosted/google-gke), [AKS](https://surrealdb.com/docs/build/deployment/self-hosted/azure-aks)) or managed multi-node tiers on [SurrealDB Cloud](https://surrealdb.com/docs/build/deployment/surrealdb-cloud/what-is-surrealdb-cloud)
+  * •
+**Embedded** deployments:
+    * ◦
+In-memory through SurrealMX
+    * ◦
+Persistent through RocksDB or SurrealKV
+    * ◦
+In the browser through IndexedDB
+
+For deployment options, storage trade-offs, and how to choose a model, see [Deployment](https://surrealdb.com/docs/build/deployment). For isolation guarantees and concurrency behaviour, see [Transactions and isolation](https://surrealdb.com/docs/transactions-and-isolation).

@@ -16,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
   acceptUnverified: vi.fn(() => Promise.resolve({ ok: true })),
   ignoreUnverified: vi.fn(() => Promise.resolve({ ok: true })),
   ignoreAllUnverified: vi.fn(() => Promise.resolve({ ignored: 0 })),
+  createChapter: vi.fn(() => Promise.resolve({ status: 'created', seq: 8, title: '第8章', volume: null })),
 }))
 
 vi.mock('../../DetailPane', () => ({
@@ -91,7 +92,14 @@ vi.mock('../../Materials', async () => {
 })
 
 const tree = {
-  manuscript: { id: 'manuscript_root', type: 'manuscript_root', label: '手稿', children: [] },
+  manuscript: {
+    id: 'manuscript_root',
+    type: 'manuscript_root',
+    label: '手稿',
+    children: [
+      { id: 'vol:1', type: 'volume', ref: '1', label: '第一卷', children: [{ id: 'ch:1', type: 'chapter', ref: 1, label: '第 1 章 入城' }] },
+    ],
+  },
   codex: {
     id: 'codex_root',
     type: 'codex_root',
@@ -143,6 +151,7 @@ describe('FourPaneShell 四栏钻取', () => {
     apiMock.issues.mockResolvedValue({ issues: [{ id: 'issue:1', title: '整句重复', chapter: 4, source: 'qc', severity: 'warning', range: [0, 4], status: 'open' }], degraded_sources: [] })
     apiMock.chapter.mockResolvedValue({ title: '第七章', scene_truth: '', deductions: [], involved_characters: [] })
     apiMock.entities.mockResolvedValue([])
+    apiMock.createChapter.mockResolvedValue({ status: 'created', seq: 8, title: '第8章', volume: null })
   })
 
   it('入口只切换栏2目录,目录条目才切换栏3详情,且栏2常驻', () => {
@@ -156,7 +165,7 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByRole('button', { name: '素材库' })).toBeTruthy()
     expect(screen.getByTestId('col-directory')).toBeTruthy()
     expect(screen.queryByTestId('project-tree')).toBeNull()
-    expect(screen.getByText('书级')).toBeTruthy()
+    expect(screen.queryByText('书级')).toBeNull()
     expect(screen.getByText('卷章')).toBeTruthy()
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
 
@@ -196,6 +205,27 @@ describe('FourPaneShell 四栏钻取', () => {
     await waitFor(() => {
       expect(screen.getByTestId('material-list').getAttribute('data-instance')).not.toBe(firstInstance)
     })
+  })
+
+  it('二栏新建章会调用后端并在三栏选中新章', async () => {
+    const reload = vi.fn()
+    function CreateHarness() {
+      const [sel, setSel] = useState({ mode: 'node', node: null })
+      const onSelectNode = (node) => {
+        if (!node) { setSel({ mode: 'node', node: null }); return }
+        if (node.type === 'view') setSel({ mode: 'view', viewKey: node.id.split(':')[1] })
+        else setSel({ mode: 'node', node })
+      }
+      return <FourPaneShell tree={tree} sel={sel} onSelectNode={onSelectNode} work="demo" leftSeq={1} reload={reload} />
+    }
+    render(<CreateHarness />)
+
+    expect(screen.queryByRole('button', { name: '新建章' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '在第一卷中新建章' }))
+
+    await waitFor(() => expect(apiMock.createChapter).toHaveBeenCalledWith({ volume: '1' }))
+    expect(reload).toHaveBeenCalled()
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:8')
   })
 
   it('二栏使用可拖拽面板且默认更窄,不再写死 288px', () => {
@@ -382,7 +412,7 @@ describe('FourPaneShell 四栏钻取', () => {
     fireEvent.click(screen.getByRole('button', { name: '手稿' }))
 
     expect(screen.getByTestId('col-directory')).toBeTruthy()
-    expect(screen.getByText('书级')).toBeTruthy()
+    expect(screen.queryByText('书级')).toBeNull()
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
   })
 

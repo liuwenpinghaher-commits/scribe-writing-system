@@ -1,0 +1,169 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/statements/overview"
+url: "https://surrealdb.com/docs/reference/query-language/statements/overview"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/statements/overview
+
+Source: https://surrealdb.com/docs/reference/query-language/statements/overview
+
+SurrealDB provides statements to configure resources, control execution flow, and read or write data. The categories below group them by role.
+##  Types of statements[](https://surrealdb.com/docs/reference/query-language/statements/overview#types-of-statements)
+SurrealDB has a large variety of statements. They can be divided into three types:
+  * •
+Statements that define and access database resources,
+  * •
+Statements used for control flow and handling manual transactions,
+  * •
+Statements used in the context of queries, usually in CRUD (create, read, update, delete) operations.
+
+###  Database resource statements[](https://surrealdb.com/docs/reference/query-language/statements/overview#database-resource-statements)
+These statements pertain to defining, removing, altering, and rebuilding database resources. They are:
+  * •
+[`DEFINE`](https://surrealdb.com/docs/reference/query-language/statements/define/overview) statements to define database resources,
+  * •
+[`ALTER`](https://surrealdb.com/docs/reference/query-language/statements/alter) statements to alter certain resources,
+  * •
+[`REMOVE`](https://surrealdb.com/docs/reference/query-language/statements/remove) statements to remove resources,
+  * •
+[`REBUILD`](https://surrealdb.com/docs/reference/query-language/statements/rebuild) to rebuild an index,
+  * •
+[`ACCESS`](https://surrealdb.com/docs/reference/query-language/statements/access) to manage access grants.
+
+Some other statements pertain to using defined resources. They are:
+  * •
+[`USE`](https://surrealdb.com/docs/reference/query-language/statements/use) to move from one namespace or database to another,
+  * •
+[`INFO`](https://surrealdb.com/docs/reference/query-language/statements/info) statements to see the definitions for resources,
+  * •
+[`SHOW`](https://surrealdb.com/docs/reference/query-language/statements/show) to see the changefeed for a table or database.
+
+###  Control flow statements[](https://surrealdb.com/docs/reference/query-language/statements/overview#control-flow-statements)
+These statements are used to describe how query execution should progress.
+Some control flow statements only pertain to manual transactions. While all statements in SurrealDB are conducted inside their own transaction, these statements can be used to manually set up a larger transaction composed of multiple statements. They are:
+  * •
+[`BEGIN`](https://surrealdb.com/docs/reference/query-language/statements/begin) to begin a manual transaction,
+  * •
+[`COMMIT`](https://surrealdb.com/docs/reference/query-language/statements/commit) to commit a transaction,
+  * •
+[`CANCEL`](https://surrealdb.com/docs/reference/query-language/statements/cancel) to cancel a transaction.
+
+Other control flow statements are used in the same manner as in other programming languages. They are:
+  * •
+[`FOR`](https://surrealdb.com/docs/reference/query-language/statements/for) to begin a for loop,
+  * •
+[`CONTINUE`](https://surrealdb.com/docs/reference/query-language/statements/continue) to continue to the next iteration of a loop,
+  * •
+[`BREAK`](https://surrealdb.com/docs/reference/query-language/statements/break) to break out of a for loop, internal scope, function, etc.,
+  * •
+[`IF` and `ELSE`](https://surrealdb.com/docs/reference/query-language/statements/if-else) to describe what to do depending on a condition,
+  * •
+[`SLEEP`](https://surrealdb.com/docs/reference/query-language/statements/sleep) to halt all execution for a certain length of time,
+  * •
+[`RETURN`](https://surrealdb.com/docs/reference/query-language/statements/return) to break and return a value,
+  * •
+[`THROW`](https://surrealdb.com/docs/reference/query-language/statements/throw) to cancel execution and return an error.
+
+###  Query statements[](https://surrealdb.com/docs/reference/query-language/statements/overview#query-statements)
+These statements are used to execute queries, most often but not always in the context of a CRUD operation.
+The statements that pertain to the handling of records are:
+  * •
+[`CREATE`](https://surrealdb.com/docs/reference/query-language/statements/create) to create one or more records of one or more types of tables,
+  * •
+[`INSERT`](https://surrealdb.com/docs/reference/query-language/statements/insert) to create one or more regular records or graph edges,
+  * •
+[`RELATE`](https://surrealdb.com/docs/reference/query-language/statements/relate) to create a single graph edge between two records,
+  * •
+[`UPDATE`](https://surrealdb.com/docs/reference/query-language/statements/update) to update records,
+  * •
+[`UPSERT`](https://surrealdb.com/docs/reference/query-language/statements/upsert) to update a record and create a new one if it does not exist,
+  * •
+[`SELECT`](https://surrealdb.com/docs/reference/query-language/statements/select) to select records (but also ad-hoc values),
+  * •
+[`LIVE SELECT`](https://surrealdb.com/docs/reference/query-language/statements/live-select) to stream all the changes to a table,
+  * •
+[`DELETE`](https://surrealdb.com/docs/reference/query-language/statements/delete) to delete one or more records,
+  * •
+[`KILL`](https://surrealdb.com/docs/reference/query-language/statements/kill) to cancel a `LIVE SELECT`.
+
+The other statements used when executing a query are:
+  * •
+[`LET`](https://surrealdb.com/docs/reference/query-language/statements/let) to assign a value to a parameter for later use,
+  * •
+[`RETURN`](https://surrealdb.com/docs/reference/query-language/statements/return) when used in front of a value or expression, in which case it has no effect but is often used for readability.
+
+The following flowchart can be used to get a sense of when it makes sense to use `CREATE`, `INSERT`, `UPDATE`, `UPSERT`, and `RELATE`.
+![A flowchart that explains in which cases to use the statements CREATE, INSERT, UPDATE, UPSERT, and RELATE.](https://surrealdb.com/docs/reference/query-language/statements/~/assets/img/surrealql/statements/statement_flowchart.png)
+##  Statement parameters[](https://surrealdb.com/docs/reference/query-language/statements/overview#statement-parameters)
+A number of parameters prefixed with `$` are automatically available within a statement that provide access to relevant context inside the statement. These are known as reserved variable names. For example:
+  * •
+[$before](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#before-after) and [$after](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#before-after) can be accessed in statements that mutate values to see the values before and after an update,
+  * •
+[$session](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#session) provides context on the current session,
+  * •
+[$parent](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#parent-this) provides access to the value in a primary query while inside a subquery.
+
+For a full list of these automatically generated parameters, see the [parameters](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#reserved-variable-names) page.
+##  Output when resource not defined[](https://surrealdb.com/docs/reference/query-language/statements/overview#output-when-resource-not-defined)
+Available since: v3.0.0
+Many but not all statements in versions before 3.0 returned an empty array when a resource was not defined.
+
+```surql
+SELECT * FROM person;
+DELETE person;
+REMOVE TABLE person;
+```
+
+Output before 3.0
+
+```surql
+-------- Query 1 --------
+
+[]
+
+-------- Query 2 --------
+
+[]
+
+-------- Query 3 --------
+
+"The table 'person' does not exist"
+```
+
+All statements return an error if this is the case, making it clear that the resource is not defined as opposed to defined and empty.
+
+```surql
+SELECT * FROM person;
+DELETE person;
+```
+
+Output
+
+```surql
+-------- Query --------
+
+"The table 'person' does not exist"
+
+-------- Query --------
+
+"The table 'person' does not exist"
+```
+
+However, statements that create a resource will not return an error unless the [database is defined](https://surrealdb.com/docs/reference/query-language/statements/define/database) as `STRICT`. Instead, they will automatically define the needed table (and even use the [`$session`](https://surrealdb.com/docs/learn/security/authentication/authentication#session) parameter to define the database and namespace if necessary) so that the query will work.
+Note the output of the following queries, in which the value `[]` is returned after deleting the records of a defined table to show that zero records were returned. However, the final `REMOVE TABLE` statement returns a simple `NONE` to indicate that the statement succeeded.
+
+```surql
+SELECT * FROM person; -- Error
+DELETE person;        -- Error
+CREATE person:one;    -- Succeeds
+DELETE person;        -- Empty array
+REMOVE TABLE person;  -- NONE
+```
+
+The following chart can help to remember which output to expect depending on your SurrealDB version and database strictness.  
+| Example of statement  | STRICT database  | Non-STRICT database behavior (default)  | Behavior in versions < 3.0  |  
+| --- | --- | --- | --- |  
+| CREATE / UPDATE  | Error if not defined  | Succeeds (defines table, database, namespace if necessary)  | Identical  |  
+| SELECT / DELETE  | Error if not defined  | Returns error if table not defined  | Empty array if table not defined  |

@@ -25,6 +25,13 @@ def _free_port() -> int:
     return p
 
 
+@pytest.fixture(autouse=True)
+def _isolated_llm_ledger(tmp_path, monkeypatch):
+    """H-10:LLM 日帽共享台账(SQLite)按测试隔离到 tmp,防测试笔数灌进生产台账
+    误触真实日帽(与 store 夹具同理:测试绝不碰生产数据)。"""
+    monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "llm_ledger.sqlite3"))
+
+
 @pytest.fixture()
 def store():
     port = _free_port()

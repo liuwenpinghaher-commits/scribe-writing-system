@@ -1,0 +1,247 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/clauses/explain"
+url: "https://surrealdb.com/docs/reference/query-language/clauses/explain"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/clauses/explain
+
+Source: https://surrealdb.com/docs/reference/query-language/clauses/explain
+
+The `EXPLAIN` clause is used to explain the plan used for a query. It is particularly useful when you want to understand how a query is executed and how it is optimized by the database.
+When `EXPLAIN` is used, the statement returns an explanation, essentially revealing the execution plan to provide transparency and understanding of the query performance.
+##  Syntax[](https://surrealdb.com/docs/reference/query-language/clauses/explain#syntax)
+Clause Syntax
+
+```syntax
+@query EXPLAIN [FULL]
+```
+
+Using the `EXPLAIN` clause in addition to the `FULL` keyword is expeciallly useful when you want to understand the performance of a query and can provide more details when debugging.
+##  Examples[](https://surrealdb.com/docs/reference/query-language/clauses/explain#examples)
+For example, consider the performance of the following query when the field `email` is not indexed. We can see that the execution plan will iterate over the whole table.
+Index not used
+
+```surql
+CREATE person:tobie SET
+	name = "Tobie",
+	address = "1 Bagshot Row",
+	email = "tobie@surrealdb.com";
+
+SELECT * FROM person WHERE email='tobie@surrealdb.com' EXPLAIN;
+SELECT * FROM person WHERE email='tobie@surrealdb.com' EXPLAIN FULL;
+```
+
+Output
+
+```surql
+-------- Query --------
+
+{
+	attributes: {
+		projections: '*'
+	},
+	children: [
+		{
+			attributes: {
+				direction: 'Forward',
+				predicate: "email = 'tobie@surrealdb.com'",
+				table: 'person'
+			},
+			context: 'Db',
+			operator: 'TableScan'
+		}
+	],
+	context: 'Db',
+	operator: 'SelectProject'
+}
+
+-------- Query --------
+
+{
+	attributes: {
+		projections: '*'
+	},
+	children: [
+		{
+			attributes: {
+				direction: 'Forward',
+				predicate: "email = 'tobie@surrealdb.com'",
+				table: 'person'
+			},
+			context: 'Db',
+			metrics: {
+				elapsed_ns: 66543,
+				output_batches: 1,
+				output_rows: 1
+			},
+			operator: 'TableScan'
+		}
+	],
+	context: 'Db',
+	metrics: {
+		elapsed_ns: 8251,
+		output_batches: 1,
+		output_rows: 1
+	},
+	operator: 'SelectProject',
+	total_rows: 1
+}
+```
+
+On the other hand, here is the result when the field `email` is indexed. We can see that the execution plan will use the index to retrieve the record.
+Index used
+
+```surql
+DEFINE INDEX fast_email ON TABLE person FIELDS email;
+
+CREATE person:tobie SET
+	name = "Tobie",
+	address = "1 Bagshot Row",
+	email = "tobie@surrealdb.com";
+
+SELECT * FROM person WHERE email='tobie@surrealdb.com' EXPLAIN;
+SELECT * FROM person WHERE email='tobie@surrealdb.com' EXPLAIN FULL;
+```
+
+Output
+
+```surql
+-------- Query --------
+
+{
+	attributes: {
+		projections: '*'
+	},
+	children: [
+		{
+			attributes: {
+				access: "= 'tobie@surrealdb.com'",
+				direction: 'Forward',
+				index: 'fast_email'
+			},
+			context: 'Db',
+			operator: 'IndexScan'
+		}
+	],
+	context: 'Db',
+	operator: 'SelectProject'
+}
+
+-------- Query --------
+
+{
+	attributes: {
+		projections: '*'
+	},
+	children: [
+		{
+			attributes: {
+				access: "= 'tobie@surrealdb.com'",
+				direction: 'Forward',
+				index: 'fast_email'
+			},
+			context: 'Db',
+			metrics: {
+				elapsed_ns: 48624,
+				output_batches: 1,
+				output_rows: 1
+			},
+			operator: 'IndexScan'
+		}
+	],
+	context: 'Db',
+	metrics: {
+		elapsed_ns: 4999,
+		output_batches: 1,
+		output_rows: 1
+	},
+	operator: 'SelectProject',
+	total_rows: 1
+}
+```
+
+###  K-nearest neighbours (KNN) searches[](https://surrealdb.com/docs/reference/query-language/clauses/explain#k-nearest-neighbours-knn-searches)
+Available since: v3.1.5
+When a [KNN search](https://surrealdb.com/docs/reference/query-language/language-primitives/operators#knn) over an indexed vector field is combined with an additional non-KNN condition, that condition is pushed _into_ the index search so that non-matching candidates are rejected during the search rather than afterwards. The plan shows this as a `predicate` attribute on the `KnnScan` operator. To display the query plan, add the `EXPLAIN` clause to the end of a query as shown in the example below.
+Filtered KNN
+
+```surql
+DEFINE INDEX idx_pt ON pts FIELDS point HNSW DIMENSION 4;
+INSERT INTO pts [
+	{ point: [1, 2, 3, 4], flag: true },
+	{ point: [4, 3, 2, 1], flag: false },
+	{ point: [3, 3, 3, 3], flag: true }
+];
+
+SELECT id, flag, vector::distance::knn() AS distance FROM pts
+	WHERE flag = true AND point <|2,40|> [2, 3, 4, 5]
+	ORDER BY distance EXPLAIN;
+```
+
+Output
+
+```surql
+{
+	attributes: {
+		projections: 'id, flag, distance'
+	},
+	children: [
+		{
+			attributes: {
+				sort_keys: 'distance ASC'
+			},
+			children: [
+				{
+					attributes: {
+						fields: 'distance = vector::distance::knn(...)'
+					},
+					children: [
+						{
+							attributes: {
+								predicate: 'flag = true'
+							},
+							children: [
+								{
+									attributes: {
+										dimension: '4',
+										ef: '40',
+										index: 'idx_pt',
+										k: '2',
+										predicate: 'flag = true'
+									},
+									context: 'Db',
+									operator: 'KnnScan'
+								}
+							],
+							context: 'Db',
+							expressions: [
+								{
+									role: 'predicate',
+									sql: 'flag = true'
+								}
+							],
+							operator: 'Filter'
+						}
+					],
+					context: 'Db',
+					expressions: [
+						{
+							role: 'distance',
+							sql: 'vector::distance::knn(...)'
+						}
+					],
+					operator: 'Compute'
+				}
+			],
+			context: 'Db',
+			operator: 'SortByKey'
+		}
+	],
+	context: 'Db',
+	operator: 'SelectProject'
+}
+```
+
+The innermost `KnnScan` operator carries the `predicate: 'flag = true'` attribute — the condition that is evaluated inside the index search. The same condition also appears on the `Filter` operator above it. Adding `EXPLAIN FULL` includes per-operator `metrics`. The query plan is identical for a DISKANN index. For a guided walkthrough, see [Filtering through vector search](https://surrealdb.com/docs/learn/data-models/vector-search/similarity-search#how-the-filter-is-applied).
