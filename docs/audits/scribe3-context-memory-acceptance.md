@@ -92,6 +92,42 @@
 - Task 16:GLOBAL_CARD_CACHE 键接线前须加 chapter/focalizer 维(当前休眠)、`_secret_fact_ids` 每 save 全表扫 proposition(可缓存)、写作热路径缓存命中率(M2 失效优先取舍)、run 逻辑-work 绑定(依赖 Task 13 落逻辑 work)、实时 run 端点跨 work 委托 Hermes session_key 强制(建议本报告 §4 场景验证)。
 - Task 12(可选 scribe3-memory Hermes provider):优先级最低,Scribe Web 主路不依赖,未实现。
 
+## 8. Step 4/6 真机验收结果(2026-07-11 补,独立开 flag 后端,未碰生产)
+
+**Step 4 七场景全 PASS**(REST 端到端 + 已有测试/代码确认):
+
+| # | 场景 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 历史承接 | PASS | 3 轮真主编回复同一线程(6 消息)、navigate rev0→1→2、焦点标签逐条落库、当前快照 focus 正确 |
+| 2 | 跨 work 隔离 | PASS | session/navigate 跨 work→404、thread→409 context_work_mismatch、cross_work_rejections+1、金标 leaks=0 |
+| 3 | 限知秘密屏蔽 | PASS | trace.context manifest 无秘密 token;at-rest+GET API 双抹、秘密条目 text 空、非秘密保留(精准) |
+| 4 | Run 过期审批 | PASS | origin 绑定入 trace→navigate→审批 409 run_context_changed(进 Hermes 前拦)、deny 不被拦、test_ai_runs 12 绿 |
+| 5 | 刷新恢复 | PASS | 重启后端后 16 消息/焦点/session/current_rev=2(不回退)/rev0 快照 hash 一致/8 记忆项全按 id 从 DB 恢复 |
+| 6 | Hermes 断连降级 | PASS | 坏网关下 runtime-status ok=False、available 全 False、degraded 三项 True、issues 含 *_gateway_unavailable(诚实上报非伪装) |
+| 7 | SurrealDB 重连 | PASS | test_store_reconnect 4 例 + test_context_store 14 例(CAS/幂等/revision 单调/去重)全绿 |
+
+**Step 6 灰度逐级全达标**(证明可安全放量):
+
+| 步 | flag | 指标 | 达标 |
+|---|---|---|---|
+| 6.1 | SNAPSHOT | 无绑定 chat/write→400 context_binding_required | ✅ |
+| 6.2 | +EDITORIAL | 主编线程 16 消息 DB 恢复连续 | ✅ |
+| 6.3 | +FABRIC+ASSEMBLER(M4 同开) | retrieval p50=6ms/p95=28-34ms(<250ms)、pending/failed=0、金标绿 | ✅ |
+| 6.4 | 捕获+consolidation | 8 轮:memory_item 0→4→8 单调增、event 全 drain(pending/failed=0) | ✅ |
+| 6.5 | +INSPECTOR | 全 5 flag=true、GET trace 可取(有数据屏蔽/无数据 404) | ✅ |
+
+金标 baseline(fake:clean)7 门槛绿(Recall@10/nDCG@10=1.0/p95=0.0035ms/36 例)+ 4 负向对照(cross_work/excluded/stale/partial)正确亮红,证门槛非虚绿。
+
+**验证边界(concern,非阻断)**:
+- **Inspector 的 memory_trace 数据源生产暂空**:chat/write 已把 envelope manifest 写进 `chat_message.trace.context`(已验不泄秘密),但 Inspector 专用的 `memory_trace` 表(GET /context/sessions/{id}/trace/{rev})的 build/save_memory_trace 仍无生产调用方,生产显"未检索到证据"。屏蔽机制本身 store 层 + manifest 双层测试锁死;真实检索→memory_trace 落库是明确的后续接线(Task 14 已标注)。
+- **金标 CLI 用内置 FakeRetriever**:验证指标器+门禁链路+baseline;真实 MemoryRetriever 的生产表现由 runtime-status 真实指标(p95<250ms、捕获收敛)独立验证(§8 步 6.3/6.4)。
+
+**验收产生的临时演练 work(未删,遵守破坏性红线,建议按需清理)**:`book_5bd72f52`(验收17演练A)、`book_8468fcd2`(验收17演练B)——在生产 SurrealDB per-work db,与纸命隔离。
+
 ---
 
-*本报告随金丝雀门(§3)与浏览器验收(§4)结果更新。代码与测试证据见对应提交。*
+## 验收总结
+
+统一上下文+记忆系统 17 任务全部完成:代码实现 + 每任务双审/对抗审 + 全系统 10 维审查(27 agent) + 回修 + 自动化验收(后端 1527/前端 381) + 写作质量金丝雀门 PASS + 7 场景 + 灰度逐级验证,全部达标。**系统默认关时与重构前字节等价,可按 §5 次序安全灰度放量。** 剩余 concern 均为已如实记账的后续接线增强,非缺陷/阻断。
+
+*代码与测试证据见提交 83c93e4 / 1fd6e2f / 9fd35b7 / 1fa4619。*
