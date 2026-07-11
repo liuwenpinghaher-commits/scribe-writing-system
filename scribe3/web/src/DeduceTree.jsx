@@ -17,14 +17,26 @@ export function DeduceTree({ seq }) {
   }
   const [ch, setCh] = useState(null)
   const [chars, setChars] = useState([])
+  const [inferredInvolved, setInferredInvolved] = useState([])
+  const [syncingInferred, setSyncingInferred] = useState(false)
+  const [syncError, setSyncError] = useState('')
   useEffect(() => { if (seq == null) return; api.chapter(seq).then(setCh).catch(() => {}); api.entities().then((es) => setChars(es.filter((e) => e.kind === 'character'))).catch(() => {}) }, [seq])
-  // 涉及角色智能预填:章 involved 为空时,按角色名是否出现在大纲/节拍文本里预填一次。
-  // 只在 involved 为空时 patch(patch 后非空→条件不再满足,不会无限循环)。
+  // 涉及角色智能建议:查看演绎树必须只读,只给出本地建议;写入必须由用户点击确认。
   useEffect(() => {
-    if (!ch || (ch.involved_characters || []).length > 0 || chars.length === 0) return
-    const text = (ch.synopsis || '') + ' ' + (ch.beats || []).map((b) => b.text || b).join(' ')
+    if (!ch || (ch.involved_characters || []).length > 0 || chars.length === 0) {
+      setInferredInvolved([])
+      setSyncError('')
+      return
+    }
+    const text = [
+      ch.title || '',
+      ch.synopsis || '',
+      (ch.beats || []).map((b) => b.text || b).join(' '),
+      ch.scene_truth || '',
+    ].join(' ')
     const hit = chars.filter((c) => c.name && text.includes(c.name)).map((c) => c.id)
-    if (hit.length) api.patchChapter(seq, { involved_characters: hit }).then(() => api.chapter(seq).then(setCh))
+    setInferredInvolved(hit)
+    setSyncError('')
   }, [ch, chars, seq]) // eslint-disable-line
   if (seq == null) return <div className="p-3"><Empty>选一章开始演绎</Empty></div>
   const involved = ch?.involved_characters || []
@@ -32,7 +44,23 @@ export function DeduceTree({ seq }) {
   const doneSet = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
   const involvedChars = chars.filter((c) => involved.includes(c.id))
   const addable = chars.filter((c) => !involved.includes(c.id))
+  const nameOf = (id) => chars.find((c) => c.id === id)?.name || id
   const setInvolved = async (ids) => { await api.patchChapter(seq, { involved_characters: ids }); api.chapter(seq).then(setCh) }
+  const syncInferred = async () => {
+    if (!inferredInvolved.length || syncingInferred) return
+    setSyncingInferred(true)
+    setSyncError('')
+    try {
+      await api.patchChapter(seq, { involved_characters: inferredInvolved })
+      const next = await api.chapter(seq)
+      setCh(next)
+      setInferredInvolved([])
+    } catch (e) {
+      setSyncError(e?.body?.detail || e?.message || '同步失败')
+    } finally {
+      setSyncingInferred(false)
+    }
+  }
   return (
     <div className="p-2">
       <button onClick={() => pick('truth', '场景真相')}
@@ -41,11 +69,25 @@ export function DeduceTree({ seq }) {
       </button>
       <div className="mt-3 px-2"><SectionTitle icon={Users}>涉及角色</SectionTitle></div>
       {involvedChars.length === 0 && <div className="px-2"><Empty>暂无涉及角色——下方展开添加 ↓</Empty></div>}
+      {inferredInvolved.length > 0 && (
+        <div role="status" className="mx-2 mb-2 rounded-lg border border-brand/20 bg-brand/5 px-2.5 py-2 text-f12 text-ink">
+          <div className="font-medium text-brand">检测到可能涉及角色: {inferredInvolved.map(nameOf).join('、')}</div>
+          <div className="mt-0.5 text-faint">确认后会写入第 {seq} 章;打开面板本身不会改数据。</div>
+          <button
+            onClick={syncInferred}
+            disabled={syncingInferred}
+            className="mt-1.5 h-7 rounded-lg border border-brand/40 bg-canvas px-2 text-f12 text-brand hover:bg-brand/10 disabled:opacity-50 cursor-pointer"
+          >
+            {syncingInferred ? '同步中…' : '同步到本章'}
+          </button>
+          {syncError && <div role="alert" className="mt-1 text-danger">{syncError}</div>}
+        </div>
+      )}
       {involvedChars.map((c) => (
         <div key={c.id} className="group flex items-center">
           <button onClick={() => pick(c.id, c.name)}
             className={cn('flex-1 flex items-center gap-2 px-2 h-8 rounded-lg text-f13 cursor-pointer', selected === c.id ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
-            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-f10 text-faint/50">未演</span>}
+            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-meta text-faint/50">未演</span>}
           </button>
           <button onClick={() => setInvolved(involved.filter((x) => x !== c.id))} title="移除" className="opacity-0 group-hover:opacity-100 w-5 h-5 grid place-items-center text-faint hover:text-danger cursor-pointer"><X size={11} /></button>
         </div>

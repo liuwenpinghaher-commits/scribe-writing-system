@@ -1,0 +1,12 @@
+-- 080_memory_lifecycle.surql · Task 10:记忆生命周期补齐 system_time 的 invalid_at
+-- 只增不改(迁移铁律):仅追加一个字段,IF NOT EXISTS 幂等重放无害。
+--
+-- 三时态收口(其余两态已在 078 就位):
+--   system_time    = created_at / updated_at / invalid_at —— 系统何时记录 / 更正 / 失效。
+--                    created_at/updated_at 已在 078;本迁移补 invalid_at(invalidate 记录失效时刻)。
+--   story_time     = valid_from / valid_to(078)—— 事实在故事世界第几章成立。
+--   knowledge_time = known_from / known_to(078)—— 某聚焦角色何时可以知道。
+--
+-- focalizer 不落库:它是 resolve_temporal_view 的【投影参数】(是否叠加限知视角),
+--   而非 memory_item 存储字段(决策与理由见 memory_lifecycle.py 顶注)——故此处不加 focalizer 列。
+DEFINE FIELD IF NOT EXISTS invalid_at ON memory_item TYPE option<datetime>;

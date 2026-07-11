@@ -1,0 +1,44 @@
+---
+title: "https://surrealdb.com/docs/reference/mojo/concepts/error-handling"
+url: "https://surrealdb.com/docs/reference/mojo/concepts/error-handling"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/mojo/concepts/error-handling
+
+Source: https://surrealdb.com/docs/reference/mojo/concepts/error-handling
+
+The Mojo SDK reports failures in two places: on the `RpcResponse` for errors the server returns, and as raised Mojo `Error` values for transport and protocol failures.
+##  Response errors[](https://surrealdb.com/docs/reference/mojo/concepts/error-handling#response-errors)
+A query that the server rejects comes back as an `RpcResponse` with `is_error()` true. Read the code and message with `error_code()` and `error_message()`.
+
+```python
+var resp = client.query("SELECT * FROM person WHERE;")  # invalid
+
+if resp.is_error():
+    print("code:", resp.error_code().value())
+    print("message:", resp.error_message().value())
+```
+
+##  Raised errors[](https://surrealdb.com/docs/reference/mojo/concepts/error-handling#raised-errors)
+Transport and protocol failures raise Mojo `Error` values whose messages carry a typed prefix from `SurrealErrorKind`:
+
+```
+ConnectionError(-1): tcp connect failed to localhost:8000
+ProtocolError(-1): http response has no header terminator
+UnsupportedFeatureError(-1): websocket transport is not available; use the http engine
+```
+
+The kinds live in `surrealdb.errors.SurrealErrorKind` and cover connection, protocol, RPC, query, auth, decode, engine, serialization, live-query, timeout, and unsupported-feature failures.
+The matching helper functions (`fail_connection`, `fail_protocol`, `fail_unsupported_feature`, and the rest) are exported, so you can raise SDK-shaped errors from your own code.
+
+```python
+from surrealdb import fail_connection
+
+fn dial() raises:
+    fail_connection("tcp connect failed to localhost:8000")
+```
+
+##  Unsupported features[](https://surrealdb.com/docs/reference/mojo/concepts/error-handling#unsupported-features)
+Before issuing a request that needs a stateful feature, the client checks the active transport's `capabilities()`. If the transport does not support the feature, the SDK raises an `UnsupportedFeatureError` rather than sending a request the server would reject. This is how an HTTP-only connection responds to a live query or a session request.

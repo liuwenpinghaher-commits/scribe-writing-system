@@ -1,0 +1,11 @@
+-r requirements.txt
+pytest==9.1.1
+httpx2==2.5.0
+
+# --- Spectron 影子适配器可选依赖(Task 15,发布后才启用)---
+# Spectron 是 SurrealDB 官方记忆/检索方案。截至 2026-07-11,以下两个官方包尚未在
+# PyPI 发布(find_spec 均为 None,detect_spectron 恒返回 disabled)。在它们真正发布
+# 且版本可锁定前,**不填任何虚构版本号,也不用 GitHub 未发布分支冒充稳定依赖**。
+# 发布后按官方公布的稳定版本在此启用(示例,版本号待官方公布后填 == 精确锁定):
+#   surrealdb[spectron]==<待官方发布>
+#   spectron-integration-hermes-agent==<待官方发布>

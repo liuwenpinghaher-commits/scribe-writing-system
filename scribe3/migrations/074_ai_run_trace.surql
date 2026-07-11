@@ -1,0 +1,30 @@
+-- scribe3 · 074_ai_run_trace.surql · Hermes Runs/Approval 写入型任务审计链
+-- Runs 可以是书级/设定级写任务,不一定天然属于某章 chat_message;独立表按 run_id 留痕。
+DEFINE TABLE IF NOT EXISTS ai_run_trace SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS work ON ai_run_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS run_id ON ai_run_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON ai_run_trace TYPE string DEFAULT 'created';
+DEFINE FIELD IF NOT EXISTS session_key ON ai_run_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS input_text ON ai_run_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS instructions ON ai_run_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS tool_calls ON ai_run_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS tool_calls.* ON ai_run_trace TYPE object;
+DEFINE FIELD IF NOT EXISTS tool_calls.*.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS tool_outputs ON ai_run_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS tool_outputs.* ON ai_run_trace TYPE object;
+DEFINE FIELD IF NOT EXISTS tool_outputs.*.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS approvals ON ai_run_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS approvals.* ON ai_run_trace TYPE object;
+DEFINE FIELD IF NOT EXISTS approvals.*.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS raw_events ON ai_run_trace TYPE array DEFAULT [];
+DEFINE FIELD IF NOT EXISTS raw_events.* ON ai_run_trace TYPE object;
+DEFINE FIELD IF NOT EXISTS raw_events.*.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS usage ON ai_run_trace TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS usage.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS error ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS response ON ai_run_trace TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS response.* ON ai_run_trace TYPE any;
+DEFINE FIELD IF NOT EXISTS created_at ON ai_run_trace TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated_at ON ai_run_trace TYPE datetime;
+DEFINE INDEX IF NOT EXISTS ai_run_trace_work_idx ON ai_run_trace FIELDS work;
+DEFINE INDEX IF NOT EXISTS ai_run_trace_run_idx ON ai_run_trace FIELDS run_id UNIQUE;

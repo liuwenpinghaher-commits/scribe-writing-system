@@ -1,0 +1,30 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/surrealql/what-is-surrealql"
+url: "https://surrealdb.com/docs/learn/querying/surrealql/what-is-surrealql"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/surrealql/what-is-surrealql
+
+Source: https://surrealdb.com/docs/learn/querying/surrealql/what-is-surrealql
+
+In this section, you will explore [SurrealQL](https://surrealdb.com/docs/reference/query-language), a powerful database query language that closely resembles traditional SQL but comes with unique differences and improvements.
+SurrealQL is designed to provide developers with an intuitive way to interact with SurrealDB. It offers a familiar syntax and supports various statement types, allowing you to perform complex database operations efficiently.
+While SurrealQL shares similarities with traditional SQL, it introduces enhancements and optimisations that make it well-suited for working with SurrealDB's advanced features. Whether you are querying data, modifying records, or managing database structures, SurrealQL provides a comprehensive set of capabilities to meet your needs.
+##  Key features[](https://surrealdb.com/docs/learn/querying/surrealql/what-is-surrealql#key-features)
+SurrealQL offers several key features that make it a powerful tool for working with SurrealDB:
+  * •
+**Familiar syntax** : SurrealQL adopts a syntax similar to traditional SQL, making it easy for developers familiar with SQL to transition to SurrealDB seamlessly.
+  * •
+**Advanced querying** : SurrealQL supports a wide range of querying capabilities, including filtering, sorting, aggregating, and joining data from multiple tables.
+  * •
+**Data manipulation** : With SurrealQL, you can easily insert, update, and delete records in your SurrealDB database, allowing you to manage your data effectively.
+  * •
+**Graph relationships** : SurrealQL supports graph relationships, allowing you to define and query relationships between records in your database.
+  * •
+**Schema management** : SurrealQL provides features for creating and modifying database schemas, allowing you to define the structure of your data and enforce data integrity.
+  * •
+**Performance optimisation** : SurrealQL incorporates optimisations specific to SurrealDB, ensuring efficient execution of queries and minimising resource usage.
+
+![Surrealist query view](https://surrealdb.com/docs/learn/querying/surrealql/~/assets/img/image/surrealist/query-new.png)

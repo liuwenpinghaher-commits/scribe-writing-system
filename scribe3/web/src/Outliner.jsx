@@ -49,12 +49,12 @@ function SynopsisCell({ chapter, onPatchSynopsis }) {
     )
   }
   return (
-    <div onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步(⌘↵ 保存)"
-      className="text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors">
+    <button type="button" onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步(⌘↵ 保存)"
+      className="w-full text-left text-f12 leading-snug cursor-text rounded px-1 -mx-1 py-0.5 hover:bg-soft/40 transition-colors">
       {chapter.synopsis
         ? <span className="text-faint line-clamp-2 break-words whitespace-pre-line">{chapter.synopsis}</span>
         : <span className="text-faint/40">+ 写梗概</span>}
-    </div>
+    </button>
   )
 }
 
@@ -89,7 +89,7 @@ function Row({ chapter, idx, colorMode, onOpen, onPatchSynopsis, onPatchLabel })
       <td className="px-2 py-2 align-top whitespace-nowrap">
         <span className="inline-flex items-center gap-0.5">
           {labelMeta && <Diamond size={11} className="shrink-0" style={{ color: `var(--color-${labelMeta.token})` }} />}
-          <LabelSelect value={chapter.label} onChange={(v) => onPatchLabel?.(chapter.seq, v)} className="text-f11" />
+          <LabelSelect value={chapter.label} onChange={(v) => onPatchLabel?.(chapter.seq, v)} className="text-meta" />
         </span>
       </td>
       <td className="px-2 py-2 align-top whitespace-nowrap text-f12">
@@ -122,14 +122,14 @@ function LaneTable({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel }) {
   return (
     <div className="mb-6">
       <h3 className="text-f14 font-semibold text-ink mb-2 px-0.5">{lane.title}
-        <span className="ml-2 text-f11 font-normal text-faint">{lane.chapters.length} 章</span>
+        <span className="ml-2 text-meta font-normal text-faint">{lane.chapters.length} 章</span>
       </h3>
       {lane.chapters.length === 0 ? (
         <EmptyLaneDropZone volumeId={lane.volumeId} />
       ) : (
         <table className="w-full border-collapse">
           <thead>
-            <tr className="text-f10 text-faint uppercase tracking-wider">
+            <tr className="text-meta text-faint uppercase tracking-wider">
               <th className="w-6" />
               <th className="text-left font-medium px-2 py-1.5">章</th>
               <th className="text-left font-medium px-2 py-1.5 whitespace-nowrap">梗概<span className="ml-1 normal-case tracking-normal text-faint/60">(即章级大纲 · 处处同步)</span></th>

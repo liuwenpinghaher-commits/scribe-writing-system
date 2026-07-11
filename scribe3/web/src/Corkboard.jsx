@@ -43,7 +43,7 @@ function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel, ac
     <div className="mb-6" data-volume-id={lane.volumeId ?? '__null__'}>
       <div className="flex items-baseline gap-2 mb-2 px-0.5">
         <h3 className="text-f14 font-semibold text-ink">{lane.title}</h3>
-        <span className="text-f11 text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
+        <span className="text-meta text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
       </div>
       <SortableContext items={seqs.map((s) => `card-${s}`)} strategy={rectSortingStrategy}>
         <div className="grid gap-3 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>

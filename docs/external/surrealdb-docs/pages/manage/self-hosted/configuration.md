@@ -1,0 +1,20 @@
+---
+title: "https://surrealdb.com/docs/manage/self-hosted/configuration"
+url: "https://surrealdb.com/docs/manage/self-hosted/configuration"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/manage/self-hosted/configuration
+
+Source: https://surrealdb.com/docs/manage/self-hosted/configuration
+
+Most server behaviour is fixed at process start. The [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start) command is the primary entry point: pass flags for bind addresses, storage paths, authentication, TLS material, logging, and feature toggles.
+Review the command reference whenever you upgrade, as defaults and supported flags can change between releases. Keep a short changelog of server flags per environment so rollbacks and comparisons stay straightforward.
+Equivalent settings are often available as [environment variables](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables), which suits containers, systemd units, and secret managers. Prefer one coherent source of truth (file, env, or flags) so configuration does not diverge silently across hosts.
+**Storage engines** are selected by the path on [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start). For most self-hosted servers, use **RocksDB** (`rocksdb://…`) for on-disk production data. The default **`memory`**backend (SurrealMX) suits development and tests as well as solutions that make use of its Redis-like persistent storage, while the optional**SurrealKV** (`surrealkv://…`, beta) is an alternative single-node disk engine with a smaller tuning surface. Capacity planning, backups, and versioning options differ by engine — see the [Deployment](https://surrealdb.com/docs/build/deployment) and [Run a single-node, on-disk server](https://surrealdb.com/docs/running/file-backed) pages for more.
+**Bind address and port** determine where clients and operators reach the server. Restrict admin interfaces to trusted networks, use a load balancer or service mesh for TLS termination if that matches your platform, and document ports for HTTP, WebSocket, and any separate metrics endpoints you expose.
+Firewall rules should default to deny: allow only the subnets and ports your applications and operators require.
+Set **authentication** and **root user** credentials explicitly in production. Root credentials grant broad access: rotate them on a schedule, store them in a vault, and avoid reusing development passwords.
+**TLS** : supply certificates and keys via `surreal start` or env vars so wire traffic is encrypted. Renew certificates before expiry, pin trusted CAs where appropriate, and consider a reverse proxy for advanced policies while keeping SurrealDB’s own TLS configuration minimal and auditable.
+After changes, confirm the effective configuration by inspecting startup logs and probing only the intended listeners. In regulated environments, record who approved credential and TLS updates and when they took effect.

@@ -1,0 +1,24 @@
+---
+title: "https://surrealdb.com/docs/manage/cloud/instance-management"
+url: "https://surrealdb.com/docs/manage/cloud/instance-management"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/manage/cloud/instance-management
+
+Source: https://surrealdb.com/docs/manage/cloud/instance-management
+
+A **SurrealDB Cloud instance** is a managed SurrealDB deployment you operate from the dashboard or Surrealist. This page summarises lifecycle actions and placement options.
+##  Creating instances[](https://surrealdb.com/docs/manage/cloud/instance-management#creating-instances)
+When you **create an instance** , you choose a **plan** (Start or Scale), a **region** close to your applications, and an **instance type** (CPU, memory, and storage profile). **Start** provisions a single-node instance with dedicated storage. **Scale** provisions a multi-node cluster on SurrealDS — at least **three compute units** by default — for fault-tolerant, horizontally scalable workloads. Options such as network access mode depend on your organisation and plan.
+Give each instance a clear name so teams can find it in the organisation view. See [Cloud architecture](https://surrealdb.com/docs/manage/cloud/architecture) for how plans map to topology.
+##  Pausing and resuming[](https://surrealdb.com/docs/manage/cloud/instance-management#pausing-and-resuming)
+**Pause** an instance to stop compute charges while keeping storage and configuration. **Resume** when you need the database online again. Pausing is suited to non-production environments or predictable downtime; always confirm whether connections and automated jobs tolerate the outage.
+Unused free instances will be paused automatically after 7 days. 
+##  Deleting instances[](https://surrealdb.com/docs/manage/cloud/instance-management#deleting-instances)
+**Delete** removes the instance and its data from Cloud according to the product behaviour shown at confirmation time. Ensure you have **backups** (paid plans) or a **logical export** before deletion if you might need the data later.
+##  Instance types and regions[](https://surrealdb.com/docs/manage/cloud/instance-management#instance-types-and-regions)
+**Instance types** balance vCPU, memory, and I/O for different workloads. **Regions** affect latency to clients and data residency; pick the same region as your app stack when possible.
+##  First-time setup[](https://surrealdb.com/docs/manage/cloud/instance-management#first-time-setup)
+If you have not created an organisation or connected a client yet, follow **[Getting started with SurrealDB Cloud](https://surrealdb.com/docs/build/deployment/surrealdb-cloud/getting-started)** for account setup, instance creation, and connection strings.

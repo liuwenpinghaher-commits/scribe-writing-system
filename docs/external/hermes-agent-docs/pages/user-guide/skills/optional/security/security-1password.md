@@ -1,0 +1,158 @@
+---
+title: "1Password"
+url: "https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password"
+source: "Hermes Agent Docs"
+crawled_at: "2026-07-09T15:47:42.185037+00:00"
+---
+
+Source: https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password
+
+# 1Password
+Set up and use 1Password CLI (op). Use when installing the CLI, enabling desktop app integration, signing in, and reading/injecting secrets for commands.
+## Skill metadata[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#skill-metadata "Direct link to Skill metadata")  
+|   |   |  
+| --- | --- |  
+| Source  | Optional — install with `hermes skills install official/security/1password`  |  
+| Path  | `optional-skills/security/1password`  |  
+| Version  | `1.0.0`  |  
+| Author  | arceus77-7, enhanced by Hermes Agent  |  
+| License  | MIT  |  
+| Platforms  | linux, macos, windows  |  
+| Tags  |  `security`, `secrets`, `1password`, `op`, `cli`  |  
+## Reference: full SKILL.md[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#reference-full-skillmd "Direct link to Reference: full SKILL.md")
+info
+The following is the complete skill definition that Hermes loads when this skill is triggered. This is what the agent sees as instructions when the skill is active.
+# 1Password CLI
+Use this skill when the user wants secrets managed through 1Password instead of plaintext env vars or files.
+## Requirements[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#requirements "Direct link to Requirements")
+  * 1Password account
+  * 1Password CLI (`op`) installed
+  * One of: desktop app integration, service account token (`OP_SERVICE_ACCOUNT_TOKEN`), or Connect server
+  * `tmux` available for stable authenticated sessions during Hermes terminal calls (desktop app flow only)
+
+## When to Use[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#when-to-use "Direct link to When to Use")
+  * Install or configure 1Password CLI
+  * Sign in with `op signin`
+  * Read secret references like `op://Vault/Item/field`
+  * Inject secrets into config/templates using `op inject`
+  * Run commands with secret env vars via `op run`
+
+## Authentication Methods[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#authentication-methods "Direct link to Authentication Methods")
+### Service Account (recommended for Hermes)[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#service-account-recommended-for-hermes "Direct link to Service Account \(recommended for Hermes\)")
+Set `OP_SERVICE_ACCOUNT_TOKEN` in `${HERMES_HOME:-~/.hermes}/.env` (the skill will prompt for this on first load). No desktop app needed. Supports `op read`, `op inject`, `op run`.
+
+```
+export OP_SERVICE_ACCOUNT_TOKEN="your-token-here"  
+op whoami  # verify — should show Type: SERVICE_ACCOUNT  
+
+```
+
+### Desktop App Integration (interactive)[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#desktop-app-integration-interactive "Direct link to Desktop App Integration \(interactive\)")
+  1. Enable in 1Password desktop app: Settings → Developer → Integrate with 1Password CLI
+  2. Ensure app is unlocked
+  3. Run `op signin` and approve the biometric prompt
+
+### Connect Server (self-hosted)[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#connect-server-self-hosted "Direct link to Connect Server \(self-hosted\)")
+
+```
+export OP_CONNECT_HOST="http://localhost:8080"  
+export OP_CONNECT_TOKEN="your-connect-token"  
+
+```
+
+## Setup[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#setup "Direct link to Setup")
+  1. Install CLI:
+
+```
+# macOS  
+brew install 1password-cli  
+  
+# Linux (official package/install docs)  
+# See references/get-started.md for distro-specific links.  
+  
+# Windows (winget)  
+winget install AgileBits.1Password.CLI  
+
+```
+
+  2. Verify:
+
+```
+op --version  
+
+```
+
+  3. Choose an auth method above and configure it.
+
+## Hermes Execution Pattern (desktop app flow)[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#hermes-execution-pattern-desktop-app-flow "Direct link to Hermes Execution Pattern \(desktop app flow\)")
+Hermes terminal commands are non-interactive by default and can lose auth context between calls. For reliable `op` use with desktop app integration, run sign-in and secret operations inside a dedicated tmux session.
+Note: This is NOT needed when using `OP_SERVICE_ACCOUNT_TOKEN` — the token persists across terminal calls automatically.
+
+```
+SOCKET_DIR="${TMPDIR:-/tmp}/hermes-tmux-sockets"  
+mkdir -p "$SOCKET_DIR"  
+SOCKET="$SOCKET_DIR/hermes-op.sock"  
+SESSION="op-auth-$(date +%Y%m%d-%H%M%S)"  
+  
+tmux -S "$SOCKET" new -d -s "$SESSION" -n shell  
+  
+# Sign in (approve in desktop app when prompted)  
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "eval \"\$(op signin --account my.1password.com)\"" Enter  
+  
+# Verify auth  
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "op whoami" Enter  
+  
+# Example read  
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "op read 'op://Private/Npmjs/one-time password?attribute=otp'" Enter  
+  
+# Capture output when needed  
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -200  
+  
+# Cleanup  
+tmux -S "$SOCKET" kill-session -t "$SESSION"  
+
+```
+
+## Common Operations[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#common-operations "Direct link to Common Operations")
+### Read a secret[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#read-a-secret "Direct link to Read a secret")
+
+```
+op read "op://app-prod/db/password"  
+
+```
+
+### Get OTP[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#get-otp "Direct link to Get OTP")
+
+```
+op read "op://app-prod/npm/one-time password?attribute=otp"  
+
+```
+
+### Inject into template[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#inject-into-template "Direct link to Inject into template")
+
+```
+echo "db_password: {{ op://app-prod/db/password }}" | op inject  
+
+```
+
+### Run a command with secret env var[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#run-a-command-with-secret-env-var "Direct link to Run a command with secret env var")
+
+```
+export DB_PASSWORD="op://app-prod/db/password"  
+op run -- sh -c '[ -n "$DB_PASSWORD" ] && echo "DB_PASSWORD is set" || echo "DB_PASSWORD missing"'  
+
+```
+
+## Guardrails[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#guardrails "Direct link to Guardrails")
+  * Never print raw secrets back to user unless they explicitly request the value.
+  * Prefer `op run` / `op inject` instead of writing secrets into files.
+  * If command fails with "account is not signed in", run `op signin` again in the same tmux session.
+  * If desktop app integration is unavailable (headless/CI), use service account token flow.
+
+## CI / Headless note[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#ci--headless-note "Direct link to CI / Headless note")
+For non-interactive use, authenticate with `OP_SERVICE_ACCOUNT_TOKEN` and avoid interactive `op signin`. Service accounts require CLI v2.18.0+.
+## References[​](https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password#references "Direct link to References")
+  * `references/get-started.md`
+  * `references/cli-examples.md`
+  * <https://developer.1password.com/docs/cli/>
+  * <https://developer.1password.com/docs/service-accounts/>

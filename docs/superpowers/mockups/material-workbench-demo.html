@@ -1,0 +1,1389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>素材库工作台 Demo</title>
+  <style>
+    :root {
+      --canvas: #f7f7f5;
+      --surface: #ffffff;
+      --surface-2: #f4f4f2;
+      --surface-3: #ececea;
+      --line: #ebebe7;
+      --line-strong: #d8d8d2;
+      --ink: #28251f;
+      --muted: #6f695f;
+      --faint: #9b9489;
+      --brand: #2c7464;
+      --brand-ink: #175245;
+      --brand-soft: #dcebe5;
+      --amber: #94651c;
+      --amber-soft: #f4e4c7;
+      --violet: #6653a6;
+      --violet-soft: #e6e1f4;
+      --red: #a54545;
+      --shadow: rgba(35, 28, 18, .06);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: #f0efec;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 20px;
+      display: grid;
+      place-items: center;
+    }
+
+    .demo {
+      width: min(1480px, 100%);
+      height: min(920px, calc(100vh - 40px));
+      min-height: 760px;
+      border: 1px solid #e3e2de;
+      background: var(--canvas);
+      box-shadow: 0 16px 40px var(--shadow);
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .brand {
+      color: var(--brand);
+      font-size: 15px;
+      font-weight: 780;
+      min-width: 70px;
+    }
+
+    .book {
+      height: 30px;
+      max-width: 188px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: var(--surface-2);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-tabs {
+      display: flex;
+      gap: 4px;
+      min-width: 0;
+      padding-left: 4px;
+    }
+
+    .top-tab {
+      height: 30px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .top-tab.active {
+      color: var(--brand);
+      background: var(--surface-2);
+      font-weight: 720;
+    }
+
+    .top-tab:hover {
+      color: var(--ink);
+      background: var(--surface-2);
+    }
+
+    .top-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .status-pill {
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 0;
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--surface-2);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 56px 284px minmax(560px, 1fr) 300px;
+    }
+
+    .rail,
+    .directory,
+    .detail,
+    .chief {
+      min-width: 0;
+      min-height: 0;
+      background: #fbfbfa;
+    }
+
+    .rail {
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .rail-logo {
+      height: 48px;
+      display: grid;
+      place-items: center;
+      color: var(--brand);
+      border-bottom: 1px solid var(--line);
+      font-size: 18px;
+      font-weight: 780;
+    }
+
+    .rail-scroll {
+      overflow-y: auto;
+      padding: 7px 5px;
+      scrollbar-width: none;
+    }
+
+    .rail-scroll::-webkit-scrollbar {
+      display: none;
+    }
+
+    .rail-tab {
+      width: 46px;
+      height: 48px;
+      margin: 3px 0;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: grid;
+      place-items: center;
+      grid-template-rows: 19px 14px;
+      gap: 2px;
+    }
+
+    .rail-tab:hover {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    .rail-tab.active {
+      background: var(--brand-soft);
+      color: var(--brand-ink);
+      font-weight: 720;
+    }
+
+    .rail-icon {
+      width: 19px;
+      height: 19px;
+      display: grid;
+      place-items: center;
+      color: currentColor;
+    }
+
+    .rail-label {
+      font-size: 10px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .directory {
+      border-right: 1px solid var(--line);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .dir-head {
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, .98);
+      display: grid;
+      gap: 10px;
+    }
+
+    .dir-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dir-title h1 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.1;
+    }
+
+    .dir-title .count {
+      color: var(--faint);
+      font-size: 12px;
+      margin-left: auto;
+    }
+
+    .search-line {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 0 10px;
+    }
+
+    .search-line:focus-within {
+      border-color: transparent;
+      box-shadow: 0 0 0 3px rgba(44, 116, 100, .12);
+    }
+
+    .search-line input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .search-line input::placeholder {
+      color: var(--faint);
+    }
+
+    .action-line {
+      display: grid;
+      grid-template-columns: 1.08fr .9fr .9fr 32px;
+      gap: 6px;
+    }
+
+    .tool-btn,
+    .icon-btn {
+      height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tool-btn:hover,
+    .icon-btn:hover {
+      border-color: transparent;
+      color: var(--ink);
+      background: var(--surface);
+    }
+
+    .tool-btn.primary {
+      color: var(--brand-ink);
+      border-color: transparent;
+      background: var(--brand-soft);
+      font-weight: 700;
+    }
+
+    .icon-btn {
+      padding: 0;
+    }
+
+    .dir-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .section {
+      margin-bottom: 17px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 760;
+      margin: 0 0 8px;
+    }
+
+    .chip-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .chip {
+      min-height: 32px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      justify-content: space-between;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .chip.active {
+      color: var(--brand-ink);
+      border-color: transparent;
+      background: var(--brand-soft);
+      font-weight: 720;
+    }
+
+    .chip .n {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 520;
+    }
+
+    .category-list,
+    .tag-list,
+    .material-list {
+      display: grid;
+      gap: 6px;
+    }
+
+    .category {
+      height: 34px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 8px;
+      text-align: left;
+    }
+
+    .category:hover,
+    .category.active {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--brand);
+      flex: 0 0 auto;
+    }
+
+    .dot.amber { background: var(--amber); }
+    .dot.violet { background: var(--violet); }
+    .dot.red { background: var(--red); }
+    .dot.gray { background: #7d867d; }
+
+    .category .label {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+
+    .category .n {
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .tag-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tag {
+      height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .tag span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .material-list {
+      padding-bottom: 8px;
+    }
+
+    .material-card {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .material-card:hover {
+      border-color: transparent;
+      background: #fffefa;
+    }
+
+    .material-card.active {
+      border-color: transparent;
+      background: var(--brand-soft);
+      box-shadow: inset 3px 0 0 var(--brand);
+    }
+
+    .material-top {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .pin {
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: var(--brand);
+      background: var(--brand-soft);
+      flex: 0 0 auto;
+    }
+
+    .material-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 710;
+    }
+
+    .material-kind {
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .material-summary {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .mini-tag {
+      min-height: 20px;
+      border-radius: 999px;
+      padding: 2px 7px;
+      color: var(--muted);
+      background: var(--surface-3);
+      font-size: 11px;
+    }
+
+    .mini-tag.brand {
+      color: var(--brand-ink);
+      background: var(--brand-soft);
+    }
+
+    .detail {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .detail-head {
+      min-width: 0;
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+      display: grid;
+      gap: 12px;
+    }
+
+    .crumb {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .detail-title-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .detail-title {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+
+    .detail-title h2 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 22px;
+      line-height: 1.22;
+    }
+
+    .detail-sub {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 0 0 auto;
+    }
+
+    .soft-btn,
+    .primary-btn {
+      height: 32px;
+      border-radius: 8px;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .soft-btn {
+      border: 0;
+      color: var(--muted);
+      background: var(--surface-2);
+    }
+
+    .primary-btn {
+      border: 0;
+      color: white;
+      background: var(--brand);
+      font-weight: 720;
+    }
+
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      border-radius: 9px;
+      background: var(--surface-3);
+      width: fit-content;
+    }
+
+    .tab {
+      height: 30px;
+      min-width: 66px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .tab.active {
+      background: var(--surface);
+      color: var(--brand-ink);
+      font-weight: 720;
+      box-shadow: none;
+    }
+
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 18px 20px 22px;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .block,
+    .side-block {
+      border: 0;
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .block {
+      padding: 16px;
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .side-block {
+      padding: 12px;
+    }
+
+    .block-title {
+      margin: 0 0 11px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .body-text {
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.74;
+      margin: 0;
+    }
+
+    .quote {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-left: 3px solid var(--amber);
+      background: #fff9ed;
+      color: #4b3822;
+      font-size: 13px;
+      line-height: 1.62;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .field-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+    }
+
+    .field-label {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 720;
+    }
+
+    .field-value {
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .reference-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .ref-item {
+      display: grid;
+      gap: 4px;
+      padding: 9px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+    }
+
+    .ref-title {
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .ref-desc {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .network-mini {
+      height: 150px;
+      position: relative;
+      border: 0;
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 50% 48%, rgba(44, 116, 100, .12), transparent 34%),
+        linear-gradient(180deg, #fffdf8, #f8f5ef);
+      overflow: hidden;
+    }
+
+    .edge {
+      position: absolute;
+      height: 1px;
+      background: rgba(111, 105, 95, .35);
+      transform-origin: left center;
+    }
+
+    .edge.e1 { width: 98px; left: 104px; top: 68px; transform: rotate(-24deg); }
+    .edge.e2 { width: 104px; left: 111px; top: 77px; transform: rotate(27deg); }
+    .edge.e3 { width: 80px; left: 82px; top: 84px; transform: rotate(151deg); }
+
+    .node {
+      position: absolute;
+      min-width: 40px;
+      height: 24px;
+      border-radius: 999px;
+      padding: 0 8px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: var(--surface);
+      border: 0;
+      font-size: 11px;
+      box-shadow: 0 4px 12px rgba(35, 28, 18, .08);
+    }
+
+    .node.center {
+      left: 94px;
+      top: 62px;
+      color: var(--brand-ink);
+      background: var(--brand-soft);
+      border-color: transparent;
+      font-weight: 720;
+    }
+
+    .node.n1 { left: 178px; top: 28px; }
+    .node.n2 { left: 190px; top: 103px; }
+    .node.n3 { left: 25px; top: 82px; }
+
+    .use-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .use-card {
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 11px;
+      display: grid;
+      gap: 7px;
+      min-height: 112px;
+    }
+
+    .use-card strong {
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .use-card span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.48;
+    }
+
+    .chief {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .chief-head {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .chief-title {
+      margin: 0;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 760;
+    }
+
+    .chief-sub {
+      margin-top: 4px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .chief-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    .coach-card {
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 11px;
+    }
+
+    .coach-card h3 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .coach-card p,
+    .coach-card li {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.56;
+    }
+
+    .coach-card p {
+      margin: 0;
+    }
+
+    .coach-card ul {
+      margin: 0;
+      padding-left: 16px;
+    }
+
+    .chief-input {
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .ask {
+      height: 36px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--faint);
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 12px;
+    }
+
+    .ico {
+      width: 15px;
+      height: 15px;
+      display: inline-block;
+      color: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    @media (max-width: 1180px) {
+      .page { padding: 0; }
+      .demo {
+        width: 100%;
+        height: 100vh;
+        min-height: 720px;
+      }
+
+      .shell {
+        grid-template-columns: 56px 284px minmax(480px, 1fr);
+      }
+
+      .chief {
+        display: none;
+      }
+
+      .workspace-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .use-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 860px) {
+      .shell {
+        grid-template-columns: 56px minmax(0, 1fr);
+      }
+
+      .detail {
+        display: none;
+      }
+
+      .top-tabs,
+      .status-pill {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <main class="demo" aria-label="素材库工作台静态演示">
+      <header class="topbar">
+        <div class="brand">Scribe</div>
+        <div class="book">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 4.5h10a4 4 0 0 1 4 4v11H8a3 3 0 0 1-3-3v-12Z" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M8 4.5v12.2M8 16.7h11" stroke="currentColor" stroke-width="1.7"/>
+          </svg>
+          乱世铜炉
+        </div>
+        <nav class="top-tabs" aria-label="顶栏视图">
+          <button class="top-tab">仪表盘</button>
+          <button class="top-tab">图谱</button>
+          <button class="top-tab">时间线</button>
+          <button class="top-tab">视图</button>
+        </nav>
+        <div class="top-actions">
+          <span class="status-pill">当前入口: 素材库</span>
+          <span class="status-pill">聚焦: 城市边界</span>
+          <span class="status-pill">第 12 章</span>
+        </div>
+      </header>
+
+      <section class="shell">
+        <aside class="rail" aria-label="一级入口">
+          <div class="rail-logo">S</div>
+          <div class="rail-scroll">
+            <button class="rail-tab" title="手稿">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 4h9l3 3v13H6V4Z" stroke="currentColor" stroke-width="1.7"/>
+                <path d="M14.5 4v4H18M8.5 12h7M8.5 16h5" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">手稿</span>
+            </button>
+            <button class="rail-tab" title="设定库">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 5.5h16M6 5.5v14M18 5.5v14M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">设定</span>
+            </button>
+            <button class="rail-tab active" title="素材库">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 5h14v5H5V5ZM5 14h6v5H5v-5ZM15 14h4v5h-4v-5Z" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">素材</span>
+            </button>
+            <button class="rail-tab" title="演绎">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 12h5l3-6 3 12 3-6h2" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">演绎</span>
+            </button>
+            <button class="rail-tab" title="伏笔">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7 7h10v10H7V7ZM4 4l3 3M20 4l-3 3M4 20l3-3M20 20l-3-3" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">伏笔</span>
+            </button>
+            <button class="rail-tab" title="母题">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 4c4 3 6 5.8 6 9a6 6 0 0 1-12 0c0-3.2 2-6 6-9Z" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">母题</span>
+            </button>
+            <button class="rail-tab" title="检索">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="5.5" stroke="currentColor" stroke-width="1.7"/>
+                <path d="m15 15 4.5 4.5" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">检索</span>
+            </button>
+            <button class="rail-tab" title="校验">
+              <svg class="rail-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 12.5 9.5 17 19 7" stroke="currentColor" stroke-width="1.7"/>
+              </svg>
+              <span class="rail-label">校验</span>
+            </button>
+          </div>
+        </aside>
+
+        <aside class="directory" aria-label="素材目录">
+          <header class="dir-head">
+            <div class="dir-title">
+              <h1>素材库</h1>
+              <span class="count">246 项</span>
+            </div>
+            <label class="search-line">
+              <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="5.5" stroke="currentColor" stroke-width="1.8"/>
+                <path d="m15 15 4.5 4.5" stroke="currentColor" stroke-width="1.8"/>
+              </svg>
+              <input value="边界 城市 雾" aria-label="搜索素材" />
+            </label>
+            <div class="action-line" aria-label="素材操作">
+              <button class="tool-btn primary">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8"/>
+                </svg>
+                新建
+              </button>
+              <button class="tool-btn">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 4v11M8 8l4-4 4 4M5 15v4h14v-4" stroke="currentColor" stroke-width="1.8"/>
+                </svg>
+                导入
+              </button>
+              <button class="tool-btn">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="7" cy="7" r="2.5" stroke="currentColor" stroke-width="1.7"/>
+                  <circle cx="17" cy="8" r="2.5" stroke="currentColor" stroke-width="1.7"/>
+                  <circle cx="12" cy="17" r="2.5" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="M9.2 8.4 14.8 7M8.4 9.2 11 14.8M15.8 10.2 13 14.8" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                网络
+              </button>
+              <button class="icon-btn" title="保存当前视图">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 4h10l2 2v14H6V4Z" stroke="currentColor" stroke-width="1.7"/>
+                  <path d="M8 4v6h8V4M9 17h6" stroke="currentColor" stroke-width="1.7"/>
+                </svg>
+              </button>
+            </div>
+          </header>
+
+          <div class="dir-body">
+            <section class="section">
+              <h2 class="section-title">智能视图</h2>
+              <div class="chip-grid">
+                <button class="chip active"><span>搜索结果</span><span class="n">18</span></button>
+                <button class="chip"><span>未整理</span><span class="n">31</span></button>
+                <button class="chip"><span>核心记忆</span><span class="n">12</span></button>
+                <button class="chip"><span>已引用</span><span class="n">57</span></button>
+                <button class="chip"><span>无标签</span><span class="n">9</span></button>
+                <button class="chip"><span>最近导入</span><span class="n">24</span></button>
+              </div>
+            </section>
+
+            <section class="section">
+              <h2 class="section-title">分类</h2>
+              <div class="category-list">
+                <button class="category active"><span class="dot"></span><span class="label">研究资料</span><span class="n">72</span></button>
+                <button class="category"><span class="dot amber"></span><span class="label">灵感片段</span><span class="n">46</span></button>
+                <button class="category"><span class="dot violet"></span><span class="label">人物参考</span><span class="n">38</span></button>
+                <button class="category"><span class="dot gray"></span><span class="label">场景笔记</span><span class="n">61</span></button>
+                <button class="category"><span class="dot red"></span><span class="label">待确认摘录</span><span class="n">29</span></button>
+              </div>
+            </section>
+
+            <section class="section">
+              <h2 class="section-title">标签</h2>
+              <div class="tag-list">
+                <button class="tag"><span>城市</span><span>28</span></button>
+                <button class="tag"><span>边界</span><span>17</span></button>
+                <button class="tag"><span>工业</span><span>14</span></button>
+                <button class="tag"><span>雾</span><span>11</span></button>
+              </div>
+            </section>
+
+            <section class="section">
+              <h2 class="section-title">素材</h2>
+              <div class="material-list">
+                <button class="material-card active">
+                  <div class="material-top">
+                    <span class="pin">
+                      <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M14 4 20 10 16.5 10.5 12 15 9 12 13.5 7.5 14 4Z" stroke="currentColor" stroke-width="1.6"/>
+                        <path d="M8.5 15.5 5 19" stroke="currentColor" stroke-width="1.6"/>
+                      </svg>
+                    </span>
+                    <span class="material-title">城墙外环与雾港边界</span>
+                    <span class="material-kind">研究</span>
+                  </div>
+                  <div class="material-summary">旧城外环由三层废弃货线和临时棚户组成，夜雾会把边界感推到近乎神话。</div>
+                  <div class="meta-row">
+                    <span class="mini-tag brand">参考 7 次</span>
+                    <span class="mini-tag">城市</span>
+                    <span class="mini-tag">边界</span>
+                  </div>
+                </button>
+
+                <button class="material-card">
+                  <div class="material-top">
+                    <span class="material-title">码头晨雾中的铜炉反光</span>
+                    <span class="material-kind">片段</span>
+                  </div>
+                  <div class="material-summary">雾不是遮挡，而像被烧热的水汽，贴着船壳和低矮屋顶慢慢翻卷。</div>
+                  <div class="meta-row">
+                    <span class="mini-tag">雾</span>
+                    <span class="mini-tag">视觉</span>
+                  </div>
+                </button>
+
+                <button class="material-card">
+                  <div class="material-top">
+                    <span class="material-title">边检站口述史摘录</span>
+                    <span class="material-kind">摘录</span>
+                  </div>
+                  <div class="material-summary">守站人把每一次放行都描述成一次赊账，像城市把风险暂时借给个人。</div>
+                  <div class="meta-row">
+                    <span class="mini-tag brand">参考 3 次</span>
+                    <span class="mini-tag">制度</span>
+                  </div>
+                </button>
+              </div>
+            </section>
+          </div>
+        </aside>
+
+        <article class="detail" aria-label="素材详情工作台">
+          <header class="detail-head">
+            <div class="crumb">素材库 / 研究资料 / 城市边界</div>
+            <div class="detail-title-line">
+              <div class="detail-title">
+                <h2>城墙外环与雾港边界</h2>
+                <div class="detail-sub">
+                  <span>研究资料</span>
+                  <span>来源: 城市规划笔记.md</span>
+                  <span>参考 7 次</span>
+                </div>
+              </div>
+              <div class="detail-actions">
+                <button class="soft-btn">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8"/>
+                  </svg>
+                  送主编
+                </button>
+                <button class="primary-btn">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 12h13M11 6l6 6-6 6M20 5v14" stroke="currentColor" stroke-width="1.8"/>
+                  </svg>
+                  插入草稿
+                </button>
+              </div>
+            </div>
+            <nav class="tabs" aria-label="详情页签">
+              <button class="tab active" data-tab="content">内容</button>
+              <button class="tab" data-tab="relations">关系</button>
+              <button class="tab" data-tab="use">使用</button>
+            </nav>
+          </header>
+
+          <div class="detail-body">
+            <section class="workspace-grid tab-panel" data-panel="content">
+              <div class="block">
+                <h3 class="block-title">正文</h3>
+                <p class="body-text">
+                  旧城外环不是一道完整城墙，而是由三层铁路、仓储区、临时市场和废弃哨站缝合出来的边界。
+                  对城内人来说，它像安全线；对城外人来说，它更像一套迟早会松动的筛网。雾港的夜雾从水面压过来时，
+                  这道边界会先消失在声音里，只剩货车倒车、铁门拖拽和远处炉火的闷响。
+                </p>
+                <div class="quote">
+                  可用写法：不要直接描写“城墙很高”，而是让角色在三道临检、两次绕路和一次被误认中体会边界。
+                </div>
+              </div>
+
+              <aside class="side-stack">
+                <section class="side-block">
+                  <h3 class="block-title">元数据</h3>
+                  <div class="field-list">
+                    <div class="field">
+                      <div class="field-label">标签</div>
+                      <div class="meta-row">
+                        <span class="mini-tag brand">城市</span>
+                        <span class="mini-tag brand">边界</span>
+                        <span class="mini-tag">雾</span>
+                      </div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">状态</div>
+                      <div class="field-value">核心记忆 · 已整理 · 可召回</div>
+                    </div>
+                    <div class="field">
+                      <div class="field-label">最近使用</div>
+                      <div class="field-value">第 12 章 · 边检站冲突</div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="side-block">
+                  <h3 class="block-title">引用章节</h3>
+                  <div class="reference-list">
+                    <div class="ref-item">
+                      <div class="ref-title">第 8 章 · 雾港初见</div>
+                      <div class="ref-desc">用作场景质感参考</div>
+                    </div>
+                    <div class="ref-item">
+                      <div class="ref-title">第 12 章 · 边检站</div>
+                      <div class="ref-desc">用作冲突空间设计</div>
+                    </div>
+                  </div>
+                </section>
+              </aside>
+            </section>
+
+            <section class="workspace-grid tab-panel hidden" data-panel="relations">
+              <div class="block">
+                <h3 class="block-title">局部网络</h3>
+                <div class="network-mini">
+                  <div class="edge e1"></div>
+                  <div class="edge e2"></div>
+                  <div class="edge e3"></div>
+                  <div class="node center">边界</div>
+                  <div class="node n1">雾港</div>
+                  <div class="node n2">炉火</div>
+                  <div class="node n3">边检</div>
+                </div>
+              </div>
+              <aside class="side-stack">
+                <section class="side-block">
+                  <h3 class="block-title">相关素材</h3>
+                  <div class="reference-list">
+                    <div class="ref-item">
+                      <div class="ref-title">边检站口述史摘录</div>
+                      <div class="ref-desc">制度压力与个人赊账感</div>
+                    </div>
+                    <div class="ref-item">
+                      <div class="ref-title">码头晨雾中的铜炉反光</div>
+                      <div class="ref-desc">同一空间的视觉母题</div>
+                    </div>
+                  </div>
+                </section>
+              </aside>
+            </section>
+
+            <section class="block tab-panel hidden" data-panel="use">
+              <h3 class="block-title">使用到写作</h3>
+              <p class="body-text">素材详情不直接改正文，只把内容发布到目标章的草稿提示条，保留作者确认动作。</p>
+              <div class="use-grid">
+                <div class="use-card">
+                  <strong>插入到草稿</strong>
+                  <span>选择目标章后，把素材正文作为可填入/追加的候选内容。</span>
+                  <button class="primary-btn">第 12 章</button>
+                </div>
+                <div class="use-card">
+                  <strong>发送给主编</strong>
+                  <span>让主编围绕当前素材评估可用章节、人物视角和叙事风险。</span>
+                  <button class="soft-btn">生成建议</button>
+                </div>
+                <div class="use-card">
+                  <strong>保存为视图</strong>
+                  <span>把当前搜索、标签、分类条件保存为素材工作视图。</span>
+                  <button class="soft-btn">保存筛选</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <aside class="chief" aria-label="主编上下文">
+          <header class="chief-head">
+            <h2 class="chief-title">主编</h2>
+            <div class="chief-sub">素材聚焦上下文</div>
+          </header>
+          <div class="chief-body">
+            <section class="coach-card">
+              <h3>当前素材判断</h3>
+              <p>这条素材适合支撑“边界作为制度压力”的场景，不适合直接变成设定事实。保留在素材库即可。</p>
+            </section>
+            <section class="coach-card">
+              <h3>可用位置</h3>
+              <ul>
+                <li>第 12 章边检站冲突</li>
+                <li>第 15 章返城失败</li>
+                <li>第 18 章雾港追踪</li>
+              </ul>
+            </section>
+            <section class="coach-card">
+              <h3>写作提醒</h3>
+              <p>把边界写成行动成本：排队、盘问、绕路、误认，比解释城市结构更有效。</p>
+            </section>
+          </div>
+          <footer class="chief-input">
+            <div class="ask">问主编：这条素材适合放在哪一章？</div>
+          </footer>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tab')
+    const panels = document.querySelectorAll('.tab-panel')
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((x) => x.classList.remove('active'))
+        panels.forEach((x) => x.classList.add('hidden'))
+        tab.classList.add('active')
+        document.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.remove('hidden')
+      })
+    })
+  </script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+# Hermes Agent Docs Markdown Export
+
+- Source sitemap: https://hermes-agent.nousresearch.com/docs/sitemap.xml
+- Crawled at: 2026-07-09T15:47:42.185037+00:00
+- Success: 360
+- Failed: 0
+
+## Pages
+
+- [Hermes Agent](pages/index.md) - https://hermes-agent.nousresearch.com/docs/
+- [ACP Internals](pages/developer-guide/acp-internals.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/acp-internals
+- [Adding a Platform Adapter](pages/developer-guide/adding-platform-adapters.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/adding-platform-adapters
+- [Adding Providers](pages/developer-guide/adding-providers.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/adding-providers
+- [Adding Tools](pages/developer-guide/adding-tools.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/adding-tools
+- [Agent Loop Internals](pages/developer-guide/agent-loop.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/agent-loop
+- [Architecture](pages/developer-guide/architecture.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/architecture
+- [Building a Browser Provider Plugin](pages/developer-guide/browser-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/browser-provider-plugin
+- [Browser CDP Supervisor](pages/developer-guide/browser-supervisor.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/browser-supervisor
+- [Context Compression and Caching](pages/developer-guide/context-compression-and-caching.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/context-compression-and-caching
+- [Building a Context Engine Plugin](pages/developer-guide/context-engine-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/context-engine-plugin
+- [Contributing](pages/developer-guide/contributing.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/contributing
+- [Creating Skills](pages/developer-guide/creating-skills.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/creating-skills
+- [Cron Internals](pages/developer-guide/cron-internals.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/cron-internals
+- [Extending the CLI](pages/developer-guide/extending-the-cli.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/extending-the-cli
+- [Gateway Internals](pages/developer-guide/gateway-internals.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/gateway-internals
+- [Building an Image Generation Provider Plugin](pages/developer-guide/image-gen-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/image-gen-provider-plugin
+- [Building a Memory Provider Plugin](pages/developer-guide/memory-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin
+- [Building a Model Provider Plugin](pages/developer-guide/model-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/model-provider-plugin
+- [Plugin LLM Access](pages/developer-guide/plugin-llm-access.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/plugin-llm-access
+- [Build a Hermes Plugin](pages/developer-guide/plugins.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/plugins
+- [Programmatic Integration](pages/developer-guide/programmatic-integration.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/programmatic-integration
+- [Prompt Assembly](pages/developer-guide/prompt-assembly.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/prompt-assembly
+- [Provider Runtime Resolution](pages/developer-guide/provider-runtime.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/provider-runtime
+- [Building a Secret Source Plugin](pages/developer-guide/secret-source-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/secret-source-plugin
+- [Session Storage](pages/developer-guide/session-storage.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/session-storage
+- [Tools Runtime](pages/developer-guide/tools-runtime.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/tools-runtime
+- [Trajectory Format](pages/developer-guide/trajectory-format.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/trajectory-format
+- [Building a Video Generation Provider Plugin](pages/developer-guide/video-gen-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/video-gen-provider-plugin
+- [Building a Web Search Provider Plugin](pages/developer-guide/web-search-provider-plugin.md) - https://hermes-agent.nousresearch.com/docs/developer-guide/web-search-provider-plugin
+- [Installation](pages/getting-started/installation.md) - https://hermes-agent.nousresearch.com/docs/getting-started/installation
+- [Learning Path](pages/getting-started/learning-path.md) - https://hermes-agent.nousresearch.com/docs/getting-started/learning-path
+- [Nix & NixOS Setup](pages/getting-started/nix-setup.md) - https://hermes-agent.nousresearch.com/docs/getting-started/nix-setup
+- [Platform Support](pages/getting-started/platform-support.md) - https://hermes-agent.nousresearch.com/docs/getting-started/platform-support
+- [Quickstart](pages/getting-started/quickstart.md) - https://hermes-agent.nousresearch.com/docs/getting-started/quickstart
+- [Hermes on Android with Termux](pages/getting-started/termux.md) - https://hermes-agent.nousresearch.com/docs/getting-started/termux
+- [Updating & Uninstalling](pages/getting-started/updating.md) - https://hermes-agent.nousresearch.com/docs/getting-started/updating
+- [Automate Anything with Cron](pages/guides/automate-with-cron.md) - https://hermes-agent.nousresearch.com/docs/guides/automate-with-cron
+- [Automation Blueprints](pages/guides/automation-blueprints.md) - https://hermes-agent.nousresearch.com/docs/guides/automation-blueprints
+- [AWS Bedrock](pages/guides/aws-bedrock.md) - https://hermes-agent.nousresearch.com/docs/guides/aws-bedrock
+- [Microsoft Foundry](pages/guides/azure-foundry.md) - https://hermes-agent.nousresearch.com/docs/guides/azure-foundry
+- [Script-Only Cron Jobs](pages/guides/cron-script-only.md) - https://hermes-agent.nousresearch.com/docs/guides/cron-script-only
+- [Cron Troubleshooting](pages/guides/cron-troubleshooting.md) - https://hermes-agent.nousresearch.com/docs/guides/cron-troubleshooting
+- [Tutorial: Build a Daily Briefing Bot](pages/guides/daily-briefing-bot.md) - https://hermes-agent.nousresearch.com/docs/guides/daily-briefing-bot
+- [Delegation & Parallel Work](pages/guides/delegation-patterns.md) - https://hermes-agent.nousresearch.com/docs/guides/delegation-patterns
+- [Tutorial: Build a GitHub PR Review Agent](pages/guides/github-pr-review-agent.md) - https://hermes-agent.nousresearch.com/docs/guides/github-pr-review-agent
+- [Google Gemini](pages/guides/google-gemini.md) - https://hermes-agent.nousresearch.com/docs/guides/google-gemini
+- [Google Vertex AI](pages/guides/google-vertex.md) - https://hermes-agent.nousresearch.com/docs/guides/google-vertex
+- [Run Local LLMs on Mac](pages/guides/local-llm-on-mac.md) - https://hermes-agent.nousresearch.com/docs/guides/local-llm-on-mac
+- [Run Hermes Locally with Ollama — Zero API Cost](pages/guides/local-ollama-setup.md) - https://hermes-agent.nousresearch.com/docs/guides/local-ollama-setup
+- [Register a Microsoft Graph Application](pages/guides/microsoft-graph-app-registration.md) - https://hermes-agent.nousresearch.com/docs/guides/microsoft-graph-app-registration
+- [Migrate from OpenClaw](pages/guides/migrate-from-openclaw.md) - https://hermes-agent.nousresearch.com/docs/guides/migrate-from-openclaw
+- [MiniMax OAuth](pages/guides/minimax-oauth.md) - https://hermes-agent.nousresearch.com/docs/guides/minimax-oauth
+- [OAuth over SSH / Remote Hosts](pages/guides/oauth-over-ssh.md) - https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh
+- [Operate the Teams Meeting Pipeline](pages/guides/operate-teams-meeting-pipeline.md) - https://hermes-agent.nousresearch.com/docs/guides/operate-teams-meeting-pipeline
+- [Pipe Script Output to Messaging Platforms](pages/guides/pipe-script-output.md) - https://hermes-agent.nousresearch.com/docs/guides/pipe-script-output
+- [Using Hermes as a Python Library](pages/guides/python-library.md) - https://hermes-agent.nousresearch.com/docs/guides/python-library
+- [Run Hermes Agent with Nous Portal](pages/guides/run-hermes-with-nous-portal.md) - https://hermes-agent.nousresearch.com/docs/guides/run-hermes-with-nous-portal
+- [Run Nemotron 3 Ultra free in Hermes Agent](pages/guides/run-nemotron-3-ultra-free.md) - https://hermes-agent.nousresearch.com/docs/guides/run-nemotron-3-ultra-free
+- [Set Up a Team Telegram Assistant](pages/guides/team-telegram-assistant.md) - https://hermes-agent.nousresearch.com/docs/guides/team-telegram-assistant
+- [Tips & Best Practices](pages/guides/tips.md) - https://hermes-agent.nousresearch.com/docs/guides/tips
+- [Use MCP with Hermes](pages/guides/use-mcp-with-hermes.md) - https://hermes-agent.nousresearch.com/docs/guides/use-mcp-with-hermes
+- [Use SOUL.md with Hermes](pages/guides/use-soul-with-hermes.md) - https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes
+- [Use Voice Mode with Hermes](pages/guides/use-voice-mode-with-hermes.md) - https://hermes-agent.nousresearch.com/docs/guides/use-voice-mode-with-hermes
+- [Automated GitHub PR Comments with Webhooks](pages/guides/webhook-github-pr-review.md) - https://hermes-agent.nousresearch.com/docs/guides/webhook-github-pr-review
+- [Working with Skills](pages/guides/work-with-skills.md) - https://hermes-agent.nousresearch.com/docs/guides/work-with-skills
+- [xAI Grok OAuth (SuperGrok / X Premium+)](pages/guides/xai-grok-oauth.md) - https://hermes-agent.nousresearch.com/docs/guides/xai-grok-oauth
+- [Integrations](pages/integrations.md) - https://hermes-agent.nousresearch.com/docs/integrations/
+- [Nous Portal](pages/integrations/nous-portal.md) - https://hermes-agent.nousresearch.com/docs/integrations/nous-portal
+- [AI Providers](pages/integrations/providers.md) - https://hermes-agent.nousresearch.com/docs/integrations/providers
+- [Automation Blueprints](pages/reference/automation-blueprints-catalog.md) - https://hermes-agent.nousresearch.com/docs/reference/automation-blueprints-catalog
+- [CLI Commands Reference](pages/reference/cli-commands.md) - https://hermes-agent.nousresearch.com/docs/reference/cli-commands
+- [Environment Variables Reference](pages/reference/environment-variables.md) - https://hermes-agent.nousresearch.com/docs/reference/environment-variables
+- [FAQ & Troubleshooting](pages/reference/faq.md) - https://hermes-agent.nousresearch.com/docs/reference/faq
+- [MCP Config Reference](pages/reference/mcp-config-reference.md) - https://hermes-agent.nousresearch.com/docs/reference/mcp-config-reference
+- [Model Catalog](pages/reference/model-catalog.md) - https://hermes-agent.nousresearch.com/docs/reference/model-catalog
+- [Optional Skills Catalog](pages/reference/optional-skills-catalog.md) - https://hermes-agent.nousresearch.com/docs/reference/optional-skills-catalog
+- [Profile Commands Reference](pages/reference/profile-commands.md) - https://hermes-agent.nousresearch.com/docs/reference/profile-commands
+- [Bundled Skills Catalog](pages/reference/skills-catalog.md) - https://hermes-agent.nousresearch.com/docs/reference/skills-catalog
+- [Slash Commands Reference](pages/reference/slash-commands.md) - https://hermes-agent.nousresearch.com/docs/reference/slash-commands
+- [Built-in Tools Reference](pages/reference/tools-reference.md) - https://hermes-agent.nousresearch.com/docs/reference/tools-reference
+- [Toolsets Reference](pages/reference/toolsets-reference.md) - https://hermes-agent.nousresearch.com/docs/reference/toolsets-reference
+- [Search the documentation](pages/search.md) - https://hermes-agent.nousresearch.com/docs/search
+- [Skills Hub](pages/skills.md) - https://hermes-agent.nousresearch.com/docs/skills/
+- [Checkpoints and `/rollback`](pages/user-guide/checkpoints-and-rollback.md) - https://hermes-agent.nousresearch.com/docs/user-guide/checkpoints-and-rollback
+- [CLI Interface](pages/user-guide/cli.md) - https://hermes-agent.nousresearch.com/docs/user-guide/cli
+- [Configuration](pages/user-guide/configuration.md) - https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+- [Configuring Models](pages/user-guide/configuring-models.md) - https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models
+- [Desktop App](pages/user-guide/desktop.md) - https://hermes-agent.nousresearch.com/docs/user-guide/desktop
+- [Hermes Agent — Docker](pages/user-guide/docker.md) - https://hermes-agent.nousresearch.com/docs/user-guide/docker
+- [ACP Editor Integration](pages/user-guide/features/acp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/acp
+- [API Server](pages/user-guide/features/api-server.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server
+- [Batch Processing](pages/user-guide/features/batch-processing.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/batch-processing
+- [Browser Automation](pages/user-guide/features/browser.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/browser
+- [Built-in Plugins](pages/user-guide/features/built-in-plugins.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/built-in-plugins
+- [Code Execution (Programmatic Tool Calling)](pages/user-guide/features/code-execution.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/code-execution
+- [Codex App-Server Runtime](pages/user-guide/features/codex-app-server-runtime.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/codex-app-server-runtime
+- [Computer Use](pages/user-guide/features/computer-use.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/computer-use
+- [Context Files](pages/user-guide/features/context-files.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files
+- [Context References](pages/user-guide/features/context-references.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/context-references
+- [Credential Pools](pages/user-guide/features/credential-pools.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/credential-pools
+- [Scheduled Tasks (Cron)](pages/user-guide/features/cron.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/cron
+- [Curator](pages/user-guide/features/curator.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/curator
+- [Subagent Delegation](pages/user-guide/features/delegation.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/delegation
+- [Deliverable Mode](pages/user-guide/features/deliverable-mode.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/deliverable-mode
+- [Extending the Dashboard](pages/user-guide/features/extending-the-dashboard.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/extending-the-dashboard
+- [Fallback Providers](pages/user-guide/features/fallback-providers.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers
+- [Persistent Goals (`/goal`)](pages/user-guide/features/goals.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/goals
+- [Honcho Memory](pages/user-guide/features/honcho.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/honcho
+- [Event Hooks](pages/user-guide/features/hooks.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks
+- [Image Generation](pages/user-guide/features/image-generation.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/image-generation
+- [Kanban — Multi-Agent Profile Collaboration](pages/user-guide/features/kanban.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban
+- [Kanban tutorial](pages/user-guide/features/kanban-tutorial.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban-tutorial
+- [Kanban worker lanes](pages/user-guide/features/kanban-worker-lanes.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban-worker-lanes
+- [Language Server Protocol (LSP)](pages/user-guide/features/lsp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/lsp
+- [MCP (Model Context Protocol)](pages/user-guide/features/mcp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp
+- [Persistent Memory](pages/user-guide/features/memory.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/memory
+- [Memory Providers](pages/user-guide/features/memory-providers.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers
+- [Mixture of Agents](pages/user-guide/features/mixture-of-agents.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/mixture-of-agents
+- [Features Overview](pages/user-guide/features/overview.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/overview
+- [Personality & SOUL.md](pages/user-guide/features/personality.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/personality
+- [Pets](pages/user-guide/features/pets.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/pets
+- [Plugins](pages/user-guide/features/plugins.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins
+- [Provider Routing](pages/user-guide/features/provider-routing.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/provider-routing
+- [Skills System](pages/user-guide/features/skills.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/skills
+- [Skins & Themes](pages/user-guide/features/skins.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/skins
+- [Spotify](pages/user-guide/features/spotify.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/spotify
+- [Subscription Proxy](pages/user-guide/features/subscription-proxy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/subscription-proxy
+- [Nous Tool Gateway](pages/user-guide/features/tool-gateway.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/tool-gateway
+- [Tool Search](pages/user-guide/features/tool-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/tool-search
+- [Tools & Toolsets](pages/user-guide/features/tools.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/tools
+- [Voice & TTS](pages/user-guide/features/tts.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/tts
+- [Vision & Image Paste](pages/user-guide/features/vision.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/vision
+- [Voice Mode](pages/user-guide/features/voice-mode.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode
+- [Web Dashboard](pages/user-guide/features/web-dashboard.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard
+- [Web Search & Extract](pages/user-guide/features/web-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/web-search
+- [X (Twitter) Search](pages/user-guide/features/x-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/features/x-search
+- [Git Worktrees](pages/user-guide/git-worktrees.md) - https://hermes-agent.nousresearch.com/docs/user-guide/git-worktrees
+- [Managed Scope](pages/user-guide/managed-scope.md) - https://hermes-agent.nousresearch.com/docs/user-guide/managed-scope
+- [Messaging Gateway](pages/user-guide/messaging.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/
+- [BlueBubbles (iMessage)](pages/user-guide/messaging/bluebubbles.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/bluebubbles
+- [DingTalk Setup](pages/user-guide/messaging/dingtalk.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/dingtalk
+- [Discord Setup](pages/user-guide/messaging/discord.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord
+- [Email Setup](pages/user-guide/messaging/email.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/email
+- [Feishu / Lark Setup](pages/user-guide/messaging/feishu.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/feishu
+- [Google Chat Setup](pages/user-guide/messaging/google_chat.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/google_chat
+- [Home Assistant Integration](pages/user-guide/messaging/homeassistant.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/homeassistant
+- [IRC](pages/user-guide/messaging/irc.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/irc
+- [LINE Setup](pages/user-guide/messaging/line.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/line
+- [Matrix Setup](pages/user-guide/messaging/matrix.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/matrix
+- [Mattermost Setup](pages/user-guide/messaging/mattermost.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/mattermost
+- [Microsoft Graph Webhook Listener](pages/user-guide/messaging/msgraph-webhook.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/msgraph-webhook
+- [ntfy](pages/user-guide/messaging/ntfy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/ntfy
+- [Open WebUI Integration](pages/user-guide/messaging/open-webui.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/open-webui
+- [Photon iMessage](pages/user-guide/messaging/photon.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/photon
+- [QQ Bot](pages/user-guide/messaging/qqbot.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/qqbot
+- [Raft Setup](pages/user-guide/messaging/raft.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/raft
+- [Signal Setup](pages/user-guide/messaging/signal.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/signal
+- [SimpleX Chat](pages/user-guide/messaging/simplex.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/simplex
+- [Slack Setup](pages/user-guide/messaging/slack.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/slack
+- [SMS Setup (Twilio)](pages/user-guide/messaging/sms.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/sms
+- [Microsoft Teams Setup](pages/user-guide/messaging/teams.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/teams
+- [Microsoft Teams Meetings](pages/user-guide/messaging/teams-meetings.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/teams-meetings
+- [Telegram Setup](pages/user-guide/messaging/telegram.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/telegram
+- [Webhooks](pages/user-guide/messaging/webhooks.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks
+- [WeCom (Enterprise WeChat)](pages/user-guide/messaging/wecom.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/wecom
+- [WeCom Callback (Self-Built App)](pages/user-guide/messaging/wecom-callback.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/wecom-callback
+- [Weixin (WeChat)](pages/user-guide/messaging/weixin.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin
+- [WhatsApp Setup](pages/user-guide/messaging/whatsapp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp
+- [WhatsApp Business Cloud API Setup](pages/user-guide/messaging/whatsapp-cloud.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/whatsapp-cloud
+- [Yuanbao](pages/user-guide/messaging/yuanbao.md) - https://hermes-agent.nousresearch.com/docs/user-guide/messaging/yuanbao
+- [Running Many Gateways at Once](pages/user-guide/multi-profile-gateways.md) - https://hermes-agent.nousresearch.com/docs/user-guide/multi-profile-gateways
+- [Profile Distributions: Share a Whole Agent](pages/user-guide/profile-distributions.md) - https://hermes-agent.nousresearch.com/docs/user-guide/profile-distributions
+- [Profiles: Running Multiple Agents](pages/user-guide/profiles.md) - https://hermes-agent.nousresearch.com/docs/user-guide/profiles
+- [Secrets](pages/user-guide/secrets.md) - https://hermes-agent.nousresearch.com/docs/user-guide/secrets/
+- [Bitwarden Secrets Manager](pages/user-guide/secrets/bitwarden.md) - https://hermes-agent.nousresearch.com/docs/user-guide/secrets/bitwarden
+- [1Password](pages/user-guide/secrets/onepassword.md) - https://hermes-agent.nousresearch.com/docs/user-guide/secrets/onepassword
+- [Security](pages/user-guide/security.md) - https://hermes-agent.nousresearch.com/docs/user-guide/security
+- [Sessions](pages/user-guide/sessions.md) - https://hermes-agent.nousresearch.com/docs/user-guide/sessions
+- [Apple Notes](pages/user-guide/skills/bundled/apple/apple-apple-notes.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/apple/apple-apple-notes
+- [Apple Reminders](pages/user-guide/skills/bundled/apple/apple-apple-reminders.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/apple/apple-apple-reminders
+- [Findmy](pages/user-guide/skills/bundled/apple/apple-findmy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/apple/apple-findmy
+- [Imessage](pages/user-guide/skills/bundled/apple/apple-imessage.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/apple/apple-imessage
+- [Macos Computer Use](pages/user-guide/skills/bundled/apple/apple-macos-computer-use.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/apple/apple-macos-computer-use
+- [Claude Code](pages/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code
+- [Codex](pages/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex
+- [Hermes Agent](pages/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-hermes-agent
+- [Kanban Codex Lane](pages/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-kanban-codex-lane.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-kanban-codex-lane
+- [Opencode](pages/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-opencode.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-opencode
+- [Computer Use](pages/user-guide/skills/bundled/computer-use/computer-use-computer-use.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/computer-use/computer-use-computer-use
+- [Architecture Diagram](pages/user-guide/skills/bundled/creative/creative-architecture-diagram.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-architecture-diagram
+- [Ascii Art](pages/user-guide/skills/bundled/creative/creative-ascii-art.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-ascii-art
+- [Ascii Video](pages/user-guide/skills/bundled/creative/creative-ascii-video.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-ascii-video
+- [Baoyu Infographic](pages/user-guide/skills/bundled/creative/creative-baoyu-infographic.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-baoyu-infographic
+- [Claude Design](pages/user-guide/skills/bundled/creative/creative-claude-design.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-claude-design
+- [Comfyui](pages/user-guide/skills/bundled/creative/creative-comfyui.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-comfyui
+- [Design Md](pages/user-guide/skills/bundled/creative/creative-design-md.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-design-md
+- [Excalidraw](pages/user-guide/skills/bundled/creative/creative-excalidraw.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-excalidraw
+- [Humanizer](pages/user-guide/skills/bundled/creative/creative-humanizer.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-humanizer
+- [Manim Video](pages/user-guide/skills/bundled/creative/creative-manim-video.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-manim-video
+- [P5Js](pages/user-guide/skills/bundled/creative/creative-p5js.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-p5js
+- [Popular Web Designs](pages/user-guide/skills/bundled/creative/creative-popular-web-designs.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-popular-web-designs
+- [Pretext](pages/user-guide/skills/bundled/creative/creative-pretext.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-pretext
+- [Sketch](pages/user-guide/skills/bundled/creative/creative-sketch.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-sketch
+- [Songwriting And Ai Music](pages/user-guide/skills/bundled/creative/creative-songwriting-and-ai-music.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-songwriting-and-ai-music
+- [Touchdesigner Mcp](pages/user-guide/skills/bundled/creative/creative-touchdesigner-mcp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/creative/creative-touchdesigner-mcp
+- [Jupyter Live Kernel](pages/user-guide/skills/bundled/data-science/data-science-jupyter-live-kernel.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/data-science/data-science-jupyter-live-kernel
+- [Dogfood](pages/user-guide/skills/bundled/dogfood/dogfood-dogfood.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/dogfood/dogfood-dogfood
+- [Himalaya](pages/user-guide/skills/bundled/email/email-himalaya.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/email/email-himalaya
+- [Codebase Inspection](pages/user-guide/skills/bundled/github/github-codebase-inspection.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-codebase-inspection
+- [Github Auth](pages/user-guide/skills/bundled/github/github-github-auth.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-github-auth
+- [Github Code Review](pages/user-guide/skills/bundled/github/github-github-code-review.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-github-code-review
+- [Github Issues](pages/user-guide/skills/bundled/github/github-github-issues.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-github-issues
+- [Github Pr Workflow](pages/user-guide/skills/bundled/github/github-github-pr-workflow.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-github-pr-workflow
+- [Github Repo Management](pages/user-guide/skills/bundled/github/github-github-repo-management.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/github/github-github-repo-management
+- [Gif Search](pages/user-guide/skills/bundled/media/media-gif-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/media/media-gif-search
+- [Heartmula](pages/user-guide/skills/bundled/media/media-heartmula.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/media/media-heartmula
+- [Songsee](pages/user-guide/skills/bundled/media/media-songsee.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/media/media-songsee
+- [Youtube Content](pages/user-guide/skills/bundled/media/media-youtube-content.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/media/media-youtube-content
+- [Evaluating Llms Harness](pages/user-guide/skills/bundled/mlops/mlops-evaluation-lm-evaluation-harness.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-evaluation-lm-evaluation-harness
+- [Weights And Biases](pages/user-guide/skills/bundled/mlops/mlops-evaluation-weights-and-biases.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-evaluation-weights-and-biases
+- [Huggingface Hub](pages/user-guide/skills/bundled/mlops/mlops-huggingface-hub.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-huggingface-hub
+- [Llama Cpp](pages/user-guide/skills/bundled/mlops/mlops-inference-llama-cpp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-inference-llama-cpp
+- [Serving Llms Vllm](pages/user-guide/skills/bundled/mlops/mlops-inference-vllm.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-inference-vllm
+- [Audiocraft Audio Generation](pages/user-guide/skills/bundled/mlops/mlops-models-audiocraft.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-models-audiocraft
+- [Segment Anything Model](pages/user-guide/skills/bundled/mlops/mlops-models-segment-anything.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/mlops/mlops-models-segment-anything
+- [Obsidian](pages/user-guide/skills/bundled/note-taking/note-taking-obsidian.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/note-taking/note-taking-obsidian
+- [Airtable](pages/user-guide/skills/bundled/productivity/productivity-airtable.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-airtable
+- [Google Workspace](pages/user-guide/skills/bundled/productivity/productivity-google-workspace.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-google-workspace
+- [Maps](pages/user-guide/skills/bundled/productivity/productivity-maps.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-maps
+- [Nano Pdf](pages/user-guide/skills/bundled/productivity/productivity-nano-pdf.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-nano-pdf
+- [Notion](pages/user-guide/skills/bundled/productivity/productivity-notion.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-notion
+- [Ocr And Documents](pages/user-guide/skills/bundled/productivity/productivity-ocr-and-documents.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-ocr-and-documents
+- [Petdex](pages/user-guide/skills/bundled/productivity/productivity-petdex.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-petdex
+- [Powerpoint](pages/user-guide/skills/bundled/productivity/productivity-powerpoint.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-powerpoint
+- [Teams Meeting Pipeline](pages/user-guide/skills/bundled/productivity/productivity-teams-meeting-pipeline.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/productivity/productivity-teams-meeting-pipeline
+- [Arxiv](pages/user-guide/skills/bundled/research/research-arxiv.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-arxiv
+- [Blogwatcher](pages/user-guide/skills/bundled/research/research-blogwatcher.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-blogwatcher
+- [Llm Wiki](pages/user-guide/skills/bundled/research/research-llm-wiki.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-llm-wiki
+- [Polymarket](pages/user-guide/skills/bundled/research/research-polymarket.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-polymarket
+- [Research Paper Writing](pages/user-guide/skills/bundled/research/research-research-paper-writing.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/research/research-research-paper-writing
+- [Openhue](pages/user-guide/skills/bundled/smart-home/smart-home-openhue.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/smart-home/smart-home-openhue
+- [Xurl](pages/user-guide/skills/bundled/social-media/social-media-xurl.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/social-media/social-media-xurl
+- [Hermes Agent Skill Authoring](pages/user-guide/skills/bundled/software-development/software-development-hermes-agent-skill-authoring.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-hermes-agent-skill-authoring
+- [Node Inspect Debugger](pages/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger
+- [Plan](pages/user-guide/skills/bundled/software-development/software-development-plan.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-plan
+- [Python Debugpy](pages/user-guide/skills/bundled/software-development/software-development-python-debugpy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-python-debugpy
+- [Requesting Code Review](pages/user-guide/skills/bundled/software-development/software-development-requesting-code-review.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-requesting-code-review
+- [Simplify Code](pages/user-guide/skills/bundled/software-development/software-development-simplify-code.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-simplify-code
+- [Spike](pages/user-guide/skills/bundled/software-development/software-development-spike.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-spike
+- [Systematic Debugging](pages/user-guide/skills/bundled/software-development/software-development-systematic-debugging.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-systematic-debugging
+- [Test Driven Development](pages/user-guide/skills/bundled/software-development/software-development-test-driven-development.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/software-development/software-development-test-driven-development
+- [Yuanbao](pages/user-guide/skills/bundled/yuanbao/yuanbao-yuanbao.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled/yuanbao/yuanbao-yuanbao
+- [Google Workspace Skill](pages/user-guide/skills/google-workspace.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/google-workspace
+- [Antigravity Cli](pages/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-antigravity-cli.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-antigravity-cli
+- [Blackbox](pages/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-blackbox.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-blackbox
+- [Grok](pages/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-grok.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-grok
+- [Honcho](pages/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-honcho.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-honcho
+- [Openhands](pages/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-openhands.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-openhands
+- [Evm](pages/user-guide/skills/optional/blockchain/blockchain-evm.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/blockchain/blockchain-evm
+- [Hyperliquid](pages/user-guide/skills/optional/blockchain/blockchain-hyperliquid.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/blockchain/blockchain-hyperliquid
+- [Solana](pages/user-guide/skills/optional/blockchain/blockchain-solana.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/blockchain/blockchain-solana
+- [One Three One Rule](pages/user-guide/skills/optional/communication/communication-one-three-one-rule.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/communication/communication-one-three-one-rule
+- [Baoyu Article Illustrator](pages/user-guide/skills/optional/creative/creative-baoyu-article-illustrator.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-baoyu-article-illustrator
+- [Baoyu Comic](pages/user-guide/skills/optional/creative/creative-baoyu-comic.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-baoyu-comic
+- [Blender Mcp](pages/user-guide/skills/optional/creative/creative-blender-mcp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-blender-mcp
+- [Concept Diagrams](pages/user-guide/skills/optional/creative/creative-concept-diagrams.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-concept-diagrams
+- [Creative Ideation](pages/user-guide/skills/optional/creative/creative-creative-ideation.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-creative-ideation
+- [Hyperframes](pages/user-guide/skills/optional/creative/creative-hyperframes.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-hyperframes
+- [Kanban Video Orchestrator](pages/user-guide/skills/optional/creative/creative-kanban-video-orchestrator.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-kanban-video-orchestrator
+- [Meme Generation](pages/user-guide/skills/optional/creative/creative-meme-generation.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-meme-generation
+- [Pixel Art](pages/user-guide/skills/optional/creative/creative-pixel-art.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/creative/creative-pixel-art
+- [Inference Sh Cli](pages/user-guide/skills/optional/devops/devops-cli.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/devops/devops-cli
+- [Docker Management](pages/user-guide/skills/optional/devops/devops-docker-management.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/devops/devops-docker-management
+- [Hermes S6 Container Supervision](pages/user-guide/skills/optional/devops/devops-hermes-s6-container-supervision.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/devops/devops-hermes-s6-container-supervision
+- [Pinggy Tunnel](pages/user-guide/skills/optional/devops/devops-pinggy-tunnel.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/devops/devops-pinggy-tunnel
+- [Watchers](pages/user-guide/skills/optional/devops/devops-watchers.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/devops/devops-watchers
+- [Adversarial Ux Test](pages/user-guide/skills/optional/dogfood/dogfood-adversarial-ux-test.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/dogfood/dogfood-adversarial-ux-test
+- [Agentmail](pages/user-guide/skills/optional/email/email-agentmail.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/email/email-agentmail
+- [3 Statement Model](pages/user-guide/skills/optional/finance/finance-3-statement-model.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-3-statement-model
+- [Comps Analysis](pages/user-guide/skills/optional/finance/finance-comps-analysis.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-comps-analysis
+- [Dcf Model](pages/user-guide/skills/optional/finance/finance-dcf-model.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-dcf-model
+- [Excel Author](pages/user-guide/skills/optional/finance/finance-excel-author.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-excel-author
+- [Lbo Model](pages/user-guide/skills/optional/finance/finance-lbo-model.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-lbo-model
+- [Merger Model](pages/user-guide/skills/optional/finance/finance-merger-model.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-merger-model
+- [Pptx Author](pages/user-guide/skills/optional/finance/finance-pptx-author.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-pptx-author
+- [Stocks](pages/user-guide/skills/optional/finance/finance-stocks.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/finance/finance-stocks
+- [Minecraft Modpack Server](pages/user-guide/skills/optional/gaming/gaming-minecraft-modpack-server.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/gaming/gaming-minecraft-modpack-server
+- [Pokemon Player](pages/user-guide/skills/optional/gaming/gaming-pokemon-player.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/gaming/gaming-pokemon-player
+- [Fitness Nutrition](pages/user-guide/skills/optional/health/health-fitness-nutrition.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/health/health-fitness-nutrition
+- [Neuroskill Bci](pages/user-guide/skills/optional/health/health-neuroskill-bci.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/health/health-neuroskill-bci
+- [Fastmcp](pages/user-guide/skills/optional/mcp/mcp-fastmcp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mcp/mcp-fastmcp
+- [Mcporter](pages/user-guide/skills/optional/mcp/mcp-mcporter.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mcp/mcp-mcporter
+- [Openclaw Migration](pages/user-guide/skills/optional/migration/migration-openclaw-migration.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/migration/migration-openclaw-migration
+- [Huggingface Accelerate](pages/user-guide/skills/optional/mlops/mlops-accelerate.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-accelerate
+- [Chroma](pages/user-guide/skills/optional/mlops/mlops-chroma.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-chroma
+- [Clip](pages/user-guide/skills/optional/mlops/mlops-clip.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-clip
+- [Faiss](pages/user-guide/skills/optional/mlops/mlops-faiss.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-faiss
+- [Optimizing Attention Flash](pages/user-guide/skills/optional/mlops/mlops-flash-attention.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-flash-attention
+- [Guidance](pages/user-guide/skills/optional/mlops/mlops-guidance.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-guidance
+- [Huggingface Tokenizers](pages/user-guide/skills/optional/mlops/mlops-huggingface-tokenizers.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-huggingface-tokenizers
+- [Outlines](pages/user-guide/skills/optional/mlops/mlops-inference-outlines.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-inference-outlines
+- [Instructor](pages/user-guide/skills/optional/mlops/mlops-instructor.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-instructor
+- [Lambda Labs Gpu Cloud](pages/user-guide/skills/optional/mlops/mlops-lambda-labs.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-lambda-labs
+- [Llava](pages/user-guide/skills/optional/mlops/mlops-llava.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-llava
+- [Modal Serverless Gpu](pages/user-guide/skills/optional/mlops/mlops-modal.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-modal
+- [Nemo Curator](pages/user-guide/skills/optional/mlops/mlops-nemo-curator.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-nemo-curator
+- [Obliteratus](pages/user-guide/skills/optional/mlops/mlops-obliteratus.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-obliteratus
+- [Peft Fine Tuning](pages/user-guide/skills/optional/mlops/mlops-peft.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-peft
+- [Pinecone](pages/user-guide/skills/optional/mlops/mlops-pinecone.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-pinecone
+- [Pytorch Fsdp](pages/user-guide/skills/optional/mlops/mlops-pytorch-fsdp.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-pytorch-fsdp
+- [Pytorch Lightning](pages/user-guide/skills/optional/mlops/mlops-pytorch-lightning.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-pytorch-lightning
+- [Qdrant Vector Search](pages/user-guide/skills/optional/mlops/mlops-qdrant.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-qdrant
+- [Dspy](pages/user-guide/skills/optional/mlops/mlops-research-dspy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-research-dspy
+- [Sparse Autoencoder Training](pages/user-guide/skills/optional/mlops/mlops-saelens.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-saelens
+- [Simpo Training](pages/user-guide/skills/optional/mlops/mlops-simpo.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-simpo
+- [Slime Rl Training](pages/user-guide/skills/optional/mlops/mlops-slime.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-slime
+- [Stable Diffusion Image Generation](pages/user-guide/skills/optional/mlops/mlops-stable-diffusion.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-stable-diffusion
+- [Tensorrt Llm](pages/user-guide/skills/optional/mlops/mlops-tensorrt-llm.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-tensorrt-llm
+- [Distributed Llm Pretraining Torchtitan](pages/user-guide/skills/optional/mlops/mlops-torchtitan.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-torchtitan
+- [Axolotl](pages/user-guide/skills/optional/mlops/mlops-training-axolotl.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-training-axolotl
+- [Fine Tuning With Trl](pages/user-guide/skills/optional/mlops/mlops-training-trl-fine-tuning.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-training-trl-fine-tuning
+- [Unsloth](pages/user-guide/skills/optional/mlops/mlops-training-unsloth.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-training-unsloth
+- [Whisper](pages/user-guide/skills/optional/mlops/mlops-whisper.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/mlops/mlops-whisper
+- [Mpp Agent](pages/user-guide/skills/optional/payments/payments-mpp-agent.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/payments/payments-mpp-agent
+- [Stripe Link Cli](pages/user-guide/skills/optional/payments/payments-stripe-link-cli.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/payments/payments-stripe-link-cli
+- [Stripe Projects](pages/user-guide/skills/optional/payments/payments-stripe-projects.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/payments/payments-stripe-projects
+- [Canvas](pages/user-guide/skills/optional/productivity/productivity-canvas.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-canvas
+- [Here.Now](pages/user-guide/skills/optional/productivity/productivity-here-now.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-here-now
+- [Memento Flashcards](pages/user-guide/skills/optional/productivity/productivity-memento-flashcards.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-memento-flashcards
+- [Shop](pages/user-guide/skills/optional/productivity/productivity-shop.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-shop
+- [Shopify](pages/user-guide/skills/optional/productivity/productivity-shopify.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-shopify
+- [Siyuan](pages/user-guide/skills/optional/productivity/productivity-siyuan.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-siyuan
+- [Telephony](pages/user-guide/skills/optional/productivity/productivity-telephony.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/productivity/productivity-telephony
+- [Bioinformatics](pages/user-guide/skills/optional/research/research-bioinformatics.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-bioinformatics
+- [Darwinian Evolver](pages/user-guide/skills/optional/research/research-darwinian-evolver.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-darwinian-evolver
+- [Domain Intel](pages/user-guide/skills/optional/research/research-domain-intel.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-domain-intel
+- [Drug Discovery](pages/user-guide/skills/optional/research/research-drug-discovery.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-drug-discovery
+- [Duckduckgo Search](pages/user-guide/skills/optional/research/research-duckduckgo-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-duckduckgo-search
+- [Gitnexus Explorer](pages/user-guide/skills/optional/research/research-gitnexus-explorer.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-gitnexus-explorer
+- [Osint Investigation](pages/user-guide/skills/optional/research/research-osint-investigation.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-osint-investigation
+- [Parallel Cli](pages/user-guide/skills/optional/research/research-parallel-cli.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-parallel-cli
+- [Qmd](pages/user-guide/skills/optional/research/research-qmd.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-qmd
+- [Scrapling](pages/user-guide/skills/optional/research/research-scrapling.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-scrapling
+- [Searxng Search](pages/user-guide/skills/optional/research/research-searxng-search.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/research/research-searxng-search
+- [1Password](pages/user-guide/skills/optional/security/security-1password.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-1password
+- [Godmode](pages/user-guide/skills/optional/security/security-godmode.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-godmode
+- [Oss Forensics](pages/user-guide/skills/optional/security/security-oss-forensics.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-oss-forensics
+- [Sherlock](pages/user-guide/skills/optional/security/security-sherlock.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-sherlock
+- [Unbroker](pages/user-guide/skills/optional/security/security-unbroker.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-unbroker
+- [Web Pentest](pages/user-guide/skills/optional/security/security-web-pentest.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/security/security-web-pentest
+- [Code Wiki](pages/user-guide/skills/optional/software-development/software-development-code-wiki.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/software-development/software-development-code-wiki
+- [Rest Graphql Debug](pages/user-guide/skills/optional/software-development/software-development-rest-graphql-debug.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/software-development/software-development-rest-graphql-debug
+- [Subagent Driven Development](pages/user-guide/skills/optional/software-development/software-development-subagent-driven-development.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/software-development/software-development-subagent-driven-development
+- [Cloudflare Temporary Deploy](pages/user-guide/skills/optional/web-development/web-development-cloudflare-temporary-deploy.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/web-development/web-development-cloudflare-temporary-deploy
+- [Page Agent](pages/user-guide/skills/optional/web-development/web-development-page-agent.md) - https://hermes-agent.nousresearch.com/docs/user-guide/skills/optional/web-development/web-development-page-agent
+- [TUI](pages/user-guide/tui.md) - https://hermes-agent.nousresearch.com/docs/user-guide/tui
+- [Windows (Native) Guide](pages/user-guide/windows-native.md) - https://hermes-agent.nousresearch.com/docs/user-guide/windows-native
+- [Windows (WSL2) Guide](pages/user-guide/windows-wsl-quickstart.md) - https://hermes-agent.nousresearch.com/docs/user-guide/windows-wsl-quickstart
+- [User Stories & Use Cases](pages/user-stories.md) - https://hermes-agent.nousresearch.com/docs/user-stories

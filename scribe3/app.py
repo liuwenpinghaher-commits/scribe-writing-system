@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -19,11 +20,18 @@ import threading
 import time
 from collections import OrderedDict, deque
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+import httpx
+from fastapi import (
+    BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
+from scribe3.context_models import NavigationIntent, StaleContextError
+from scribe3.context_service import (
+    ContextService, ContextServiceError, ContextWorkMismatch,
+)
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
@@ -116,14 +124,526 @@ def _store_for(work: str) -> SurrealStore:
     return _stores[work]
 
 
-def _work_has_tools(work: str) -> bool:
-    """当前请求的书是否等于 MCP 进程绑定的库(SCRIBE3_WORK 环境变量,默认 main)。
+_OBJECT_PREFIX = {"role": "role", "fact": "fact"}
 
-    审计 P0-2:mcp.py 的 s3_ 工具固定连 SCRIBE3_WORK 那本书,联查读它、待批写也落它。
-    若给「别的书」的对话也挂 s3_ 工具,模型联查读到的是错库、写入(add_fact/plant_promise…)
-    更落到错库——不可逆。故仅当 work==SCRIBE3_WORK 才挂 s3_ 工具;其余书退化为纯对话
-    (无联查/无待批写),绝不串库。中期(让每本书工具指向自己库)见 mcp.setup_store 注释。"""
-    return work == os.environ.get("SCRIBE3_WORK", "main")
+
+def _normalize_lifecycle_id(object_type: str, object_id: str) -> str:
+    if object_type == "material":
+        return object_id
+    prefix = _OBJECT_PREFIX.get(object_type)
+    if not prefix:
+        raise HTTPException(status_code=404, detail=f"unsupported object type '{object_type}'")
+    return object_id if object_id.startswith(prefix + ":") else f"{prefix}:{object_id}"
+
+
+def _impact_token(work: str, object_type: str, object_id: str, references: list[dict]) -> str:
+    raw = json.dumps(
+        {"work": work, "type": object_type, "id": object_id, "references": references},
+        ensure_ascii=False, sort_keys=True,
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _object_impact(st: SurrealStore, object_type: str, object_id: str, work: str) -> dict:
+    normalized = _normalize_lifecycle_id(object_type, object_id)
+    if object_type == "material":
+        raw = st.material_lifecycle_impact(normalized)
+    else:
+        raw = st.record_lifecycle_impact(normalized)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    references = [
+        {"kind": kind, "count": count}
+        for kind, count in sorted((raw.get("counts") or {}).items())
+        if count
+    ]
+    payload = {
+        "object": {
+            "type": object_type,
+            "id": normalized,
+            "label": raw["object"].get("label") or normalized,
+        },
+        "references": references,
+        "recommended_action": "archive" if references else "hard_delete_allowed",
+    }
+    payload["confirm_impact_token"] = _impact_token(work, object_type, normalized, references)
+    return payload
+
+
+def _delete_object_with_lifecycle(st: SurrealStore, object_type: str, object_id: str,
+                                  work: str, confirm_impact_token: str | None):
+    impact = _object_impact(st, object_type, object_id, work)
+    has_refs = any((r.get("count") or 0) > 0 for r in impact["references"])
+    if has_refs and confirm_impact_token != impact["confirm_impact_token"]:
+        return JSONResponse(status_code=409, content=impact)
+    normalized = impact["object"]["id"]
+    if object_type == "material":
+        ok = st.delete_material(normalized, cleanup_refs=True)
+    else:
+        ok = st.delete_record(normalized, cleanup_refs=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    return {"ok": True, "impact": impact}
+
+
+def _archive_object_with_lifecycle(st: SurrealStore, object_type: str, object_id: str, work: str):
+    impact = _object_impact(st, object_type, object_id, work)
+    normalized = impact["object"]["id"]
+    if object_type == "material":
+        ok = st.update_material(normalized, {"archived": True})
+    else:
+        if st.exists(normalized):
+            st.update_record(normalized, {"archived": True})
+            ok = True
+        else:
+            ok = False
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{object_type} '{object_id}' 不存在")
+    return {"ok": True, "object": impact["object"], "impact": impact}
+
+
+def _work_has_tools(work: str) -> bool:
+    """当前请求是否可挂 s3_ MCP 工具。
+
+    H-01 后 mcp.py 的所有 s3_ 工具都支持显式 work 参数,同一 MCP 进程按书缓存
+    SurrealStore。故不再用 SCRIBE3_WORK 禁掉非默认书;防串库责任转为提示层硬约束:
+    所有 s3_ 调用必须传当前 work。"""
+    return True
+
+
+def _normalize_work(work: str | None) -> str:
+    return (work or os.environ.get("SCRIBE3_WORK", "main")).strip() or "main"
+
+
+def _s3_work_scope_block(work: str | None) -> str:
+    w = _normalize_work(work)
+    return (
+        f"\n\n【s3_ 工具作用域·硬约束】当前作品 slug: work={w}。"
+        f"调用任何 s3_ 工具时必须显式传 `work` 参数,值固定为 \"{w}\";"
+        "只读工具和写入待批工具都一样。不得省略 work,不得改成 SCRIBE3_WORK/default/main,"
+        "避免跨书读取或写入。"
+    )
+
+
+def _hermes_session_key(work: str, thread_id: str, chapter: int | None = None) -> str:
+    """稳定 session key 只含 work + thread —— 导航切章不换 Hermes session,主编历史连续(Task 11)。
+
+    为什么删 chapter:章/阶段/焦点只存 ContextEnvelope.focus,不再用 session key 切断主编历史。
+    LRU 100 掉链是常态,掉链后由 Scribe 侧 thread messages + working summary 重建,不依赖
+    Hermes 端无限续接。chapter 形参保留只为语义显式(调用点可传当前章),函数内丢弃不参与拼 key。
+    格式经 scribe3_session_key 单一源拼串(Minor #6 防漂移)。"""
+    del chapter
+    from scribe3.hermes_runtime import scribe3_session_key
+    return scribe3_session_key(work, thread_id=thread_id)
+
+
+def _editor_turn_context(work: str, actor_id: str = "author"):
+    """组装本轮主编 turn 的会话连续上下文(Task 11 产出 HermesTurnContext)。
+
+    thread_id 取本 work 的稳定主编线程(get_or_create_editorial_thread,一 work 一连续线程);
+    conversation/previous_response 从线程行取(Hermes 会话续接锚,LRU 100 掉链常态);
+    context_* 属动态 envelope 层(默认关),此处留空,开启后由 assembler 填。
+    fail-soft:线程取数异常则退化为 work 兜底线程名,仍给出稳定 session key,不阻断对话。"""
+    from scribe3.hermes_runtime import HermesTurnContext
+    w = _normalize_work(work)
+    try:
+        thread = _store_for(w).get_or_create_editorial_thread(w, actor_id)
+        return HermesTurnContext(
+            work=w,
+            thread_id=thread["thread_id"],
+            conversation_id=thread.get("hermes_conversation_id") or None,
+            previous_response_id=thread.get("previous_response_id") or None,
+        )
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "editorial thread 取数失败,退化为 work 兜底线程", exc_info=True)
+        return HermesTurnContext(work=w, thread_id=w)
+
+
+def _listish(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, tuple):
+        return [str(v) for v in value]
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def _hermes_profile_config_summary(profile: str, home=None) -> dict:
+    """Return non-secret profile tool-surface facts for runtime diagnostics."""
+    from pathlib import Path
+
+    root = Path(home) if home is not None else Path(os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes")))
+    config_path = root / "profiles" / profile / "config.yaml"
+    summary = {
+        "profile": profile,
+        "config_path": str(config_path),
+        "ok": False,
+        "api_server_toolsets": [],
+        "api_server_mcp_tool_count": 0,
+        "api_server_native_toolsets": [],
+        "mcp_toolsets": {},
+    }
+    if not config_path.exists():
+        summary["error"] = "profile config not found"
+        return summary
+    try:
+        import yaml
+    except Exception as exc:
+        summary["error"] = f"yaml unavailable: {type(exc).__name__}"
+        return summary
+    try:
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        summary["error"] = f"config parse failed: {str(exc)[:120]}"
+        return summary
+
+    mcp_servers = cfg.get("mcp_servers") or {}
+    if isinstance(mcp_servers, dict):
+        for name, server in mcp_servers.items():
+            if not isinstance(server, dict):
+                continue
+            tools = server.get("tools") if isinstance(server.get("tools"), dict) else {}
+            include = _listish((tools or {}).get("include"))
+            summary["mcp_toolsets"][str(name)] = {
+                "enabled": bool(server.get("enabled", True)),
+                "tool_count": len(include),
+                "tools": include,
+            }
+
+    platform_toolsets = cfg.get("platform_toolsets") or {}
+    api_server = []
+    if isinstance(platform_toolsets, dict):
+        api_server = _listish(platform_toolsets.get("api_server"))
+    summary["api_server_toolsets"] = api_server
+    summary["api_server_mcp_tool_count"] = sum(
+        summary["mcp_toolsets"][name]["tool_count"]
+        for name in api_server
+        if name in summary["mcp_toolsets"]
+    )
+    summary["api_server_native_toolsets"] = [
+        name for name in api_server
+        if name not in summary["mcp_toolsets"] and not name.startswith("mcp-")
+    ]
+    summary["ok"] = True
+    return summary
+
+
+def _hermes_cron_status(profile: str = "scribe3", *, timeout: float = 3.0) -> dict:
+    """Best-effort ops snapshot. Failure must not make runtime status unusable."""
+    import subprocess
+
+    status = {
+        "checked": False,
+        "profile": profile,
+        "gateway_running": False,
+        "active_jobs": None,
+        "scribe3_qc": {"present": False, "active": False, "last_status": None},
+    }
+    try:
+        stat = subprocess.run(
+            ["hermes", "-p", profile, "cron", "status"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        listing = subprocess.run(
+            ["hermes", "-p", profile, "cron", "list"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as exc:
+        status["error"] = str(exc)[:160]
+        return status
+
+    status["checked"] = True
+    status_text = (stat.stdout or "") + "\n" + (stat.stderr or "")
+    list_text = (listing.stdout or "") + "\n" + (listing.stderr or "")
+    status["gateway_running"] = "Gateway is running" in status_text
+    m = re.search(r"(\d+)\s+active job", status_text)
+    if m:
+        status["active_jobs"] = int(m.group(1))
+    if "scribe3-体检" in list_text:
+        status["scribe3_qc"]["present"] = True
+        # The job id line carries [active] immediately before the Name line in Hermes list output.
+        idx = list_text.find("scribe3-体检")
+        nearby = list_text[max(0, idx - 160): idx + 240]
+        status["scribe3_qc"]["active"] = "[active]" in nearby
+        job_tail = list_text[idx:]
+        last = re.search(r"Last run:\s+.*?\s+([A-Za-z_ -]+)\s*(?:\n|$)", job_tail)
+        if last:
+            status["scribe3_qc"]["last_status"] = last.group(1).strip()
+    return status
+
+
+def _profile_by_name(profiles: list[dict], name: str, fallback_index: int | None = None) -> dict:
+    for profile in profiles:
+        if profile.get("profile") == name:
+            return profile
+    if fallback_index is not None and len(profiles) > fallback_index:
+        return profiles[fallback_index]
+    return {}
+
+
+def _profile_has_skill(profile: dict, skill_name: str) -> bool:
+    return any((skill or {}).get("name") == skill_name for skill in (profile.get("skills") or []))
+
+
+def _issue(severity: str, code: str, message: str) -> dict:
+    return {"severity": severity, "code": code, "message": message}
+
+
+def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | None = None,
+                              cron: dict | None = None) -> dict:
+    configs = profile_configs or {}
+    default = _profile_by_name(profiles, "default", 0)
+    read = _profile_by_name(profiles, "scribe3", 1)
+    write = _profile_by_name(profiles, "scribe3_write", 2)
+    read_profile = read.get("profile") or "scribe3"
+    write_profile = write.get("profile") or "scribe3_write"
+    read_cfg = configs.get(read_profile) or {}
+    write_cfg = configs.get(write_profile) or {}
+
+    default_features = default.get("features") or {}
+    read_features = read.get("features") or {}
+    write_features = write.get("features") or {}
+    chat_available = bool(default.get("ok") and default_features.get("chat_completions"))
+    read_available = bool(read.get("ok") and read_features.get("responses_api"))
+    write_available = bool(
+        write.get("ok")
+        and write_features.get("run_submission")
+        and write_features.get("run_approval_response")
+    )
+    read_skill_loaded = _profile_has_skill(read, "scribe-novel-v2")
+    write_skill_loaded = _profile_has_skill(write, "scribe-novel-v2")
+    issues = []
+    if not chat_available:
+        issues.append(_issue("error", "default_gateway_unavailable", "默认 Hermes 补全网关不可用"))
+    if not read_available:
+        issues.append(_issue("error", "read_gateway_unavailable", "scribe3 只读 Responses 网关不可用"))
+    if not write_available:
+        issues.append(_issue("error", "write_gateway_unavailable", "scribe3_write Runs/Approval 写网关不可用"))
+    if read_cfg.get("api_server_mcp_tool_count") == 0:
+        issues.append(_issue("error", "read_mcp_tools_missing", "只读网关没有启用 scribe3_read MCP 工具面"))
+    if write_cfg.get("api_server_mcp_tool_count") == 0:
+        issues.append(_issue("error", "write_mcp_tools_missing", "写网关没有启用 scribe3 MCP 工具面"))
+    if "scribe3_write" in (read_cfg.get("api_server_toolsets") or []):
+        issues.append(_issue("error", "read_gateway_has_write_tools", "只读网关误启用了写工具面"))
+    if read_cfg.get("api_server_native_toolsets"):
+        issues.append(_issue("warning", "read_native_toolsets_enabled", "只读网关启用了非 scribe3 原生工具面"))
+    if write_cfg.get("api_server_native_toolsets"):
+        issues.append(_issue("warning", "write_native_toolsets_enabled", "写网关启用了非 scribe3 原生工具面"))
+    if not (read_skill_loaded or write_skill_loaded):
+        issues.append(_issue("warning", "scribe_skill_missing", "scribe-novel-v2 skill 未加载"))
+    if cron and cron.get("checked") and not (cron.get("scribe3_qc") or {}).get("present"):
+        issues.append(_issue("warning", "scribe3_cron_missing", "scribe3-体检 cron 未注册"))
+
+    return {
+        "chat": {
+            "profile": default.get("profile") or "default",
+            "available": chat_available,
+            "version": (default.get("health") or {}).get("version"),
+        },
+        "read": {
+            "profile": read_profile,
+            "available": read_available,
+            "version": (read.get("health") or {}).get("version"),
+            "mcp_toolsets": read_cfg.get("api_server_toolsets") or [],
+            "mcp_tool_count": read_cfg.get("api_server_mcp_tool_count") or 0,
+            "native_toolsets": read_cfg.get("api_server_native_toolsets") or [],
+            "scribe_skill_loaded": read_skill_loaded,
+        },
+        "write": {
+            "profile": write_profile,
+            "available": write_available,
+            "version": (write.get("health") or {}).get("version"),
+            "mcp_toolsets": write_cfg.get("api_server_toolsets") or [],
+            "mcp_tool_count": write_cfg.get("api_server_mcp_tool_count") or 0,
+            "native_toolsets": write_cfg.get("api_server_native_toolsets") or [],
+            "scribe_skill_loaded": write_skill_loaded,
+        },
+        "cron": cron or {"checked": False},
+        "degraded": {
+            "chat": not chat_available,
+            "read_tools": not read_available,
+            "write_runs": not write_available,
+        },
+        "issues": issues,
+    }
+
+
+def _flag_enabled(name: str) -> bool:
+    """Task 16-B 统一开关判定门面(委托 context_cache.flag_enabled,单一真值来源)。
+    每次读 env,默认关 → 系统行为与开关引入前【字节等价】。"""
+    from scribe3 import context_cache
+    return context_cache.flag_enabled(name)
+
+
+def _context_memory_metrics(work: str = "main") -> dict:
+    """Task 16-B runtime-status 指标块。绝不含原始 prompt / 秘密值——只有计数、
+    分位数与布尔/短标识。诚实区分【当前有真实值】与【采集骨架待 16-C 接线】:
+
+    真实值:cross_work_rejections(16-A)、memory_events_pending/failed(store 计数)、
+      context_sessions_active(store 计数)、spectron_shadow(detect)、hermes_memory_provider。
+    采集骨架(接线后自动填,当前 0/None):retrieval_p50/p95、context_tokens_p95、
+      stale_rejections——依赖 16-C 把检索/组装接进生产读路径与 stale 拒绝路径。"""
+    from scribe3 import context_cache
+    metrics = dict(context_cache.metrics_snapshot())   # 检索/组装侧(当前多为 0/None)
+    # 安全指标(16-A 只读快照,不复算)
+    metrics["cross_work_rejections"] = get_security_metrics().get("cross_work_rejections", 0)
+    # 记忆捕获管线水位(per work,与既有 memory_capture.failed_events 同库口径)
+    pending = failed = 0
+    sessions = 0
+    try:
+        st = _store_for(work)
+        try:
+            pending = st.count_memory_events(status="pending")
+        except Exception:
+            pending = 0
+        try:
+            failed = st.count_failed_memory_events()
+        except Exception:
+            failed = 0
+        try:
+            sessions = st.count_active_context_sessions()
+        except Exception:
+            sessions = 0
+    except Exception:
+        pass
+    metrics["memory_events_pending"] = pending
+    metrics["memory_events_failed"] = failed
+    metrics["context_sessions_active"] = sessions
+    # Spectron 影子:只上报开关 + 可用性 + 原因(全无秘密);包未发布时 available=False 是正确态
+    try:
+        from scribe3.spectron_adapter import detect_spectron
+        det = detect_spectron()
+        metrics["spectron_shadow"] = {
+            "flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+            "available": bool(det.enabled),
+            "reason": det.reason,
+        }
+    except Exception:
+        metrics["spectron_shadow"] = {"flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+                                      "available": False, "reason": "detect_failed"}
+    # 生产记忆提供方:自建多通道检索恒为生产提供方(Spectron 仅影子,永不接管生产读,Task 15)。
+    metrics["hermes_memory_provider"] = "scribe3_builtin"
+    return metrics
+
+
+def _hermes_runtime_status() -> dict:
+    from scribe3.hermes_runtime import HermesRuntime
+    from scribe3.llm import (
+        HERMES,
+        HERMES_RESPONSES,
+        HERMES_RESPONSES_PROFILE,
+        HERMES_RUNS,
+        HERMES_RUNS_PROFILE,
+    )
+
+    profiles = [
+        HermesRuntime(api_base=HERMES, profile="default").probe(),
+        HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE).probe(),
+        HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE).probe(),
+    ]
+    profile_configs = {
+        HERMES_RESPONSES_PROFILE: _hermes_profile_config_summary(HERMES_RESPONSES_PROFILE),
+        HERMES_RUNS_PROFILE: _hermes_profile_config_summary(HERMES_RUNS_PROFILE),
+    }
+    cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
+    summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)
+    has_error = any(issue.get("severity") == "error" for issue in summary["issues"])
+    # Task 9:捕获管线工作者失败不阻断对话,但对 runtime-status 可见(留 outbox failed 计数)。
+    mem_capture = {"failed_events": 0}
+    try:
+        mem_capture["failed_events"] = _store_for("main").count_failed_memory_events()
+    except Exception:
+        mem_capture["error"] = "count_failed_memory_events 不可用"
+    # Task 16-B:统一上下文/记忆运行指标块(真实值 + 待接线骨架,绝不含 prompt/秘密)。
+    try:
+        context_memory = _context_memory_metrics()
+    except Exception:
+        context_memory = {"error": "context_memory 指标不可用"}
+    return {
+        "ok": all(p.get("ok") for p in profiles) and not has_error,
+        "profiles": profiles,
+        "profile_configs": profile_configs,
+        "cron": cron,
+        "summary": summary,
+        "memory_capture": mem_capture,
+        "context_memory": context_memory,
+    }
+
+
+def _hermes_runs_runtime():
+    from scribe3.hermes_runtime import HermesRuntime
+    from scribe3.llm import HERMES_RUNS, HERMES_RUNS_PROFILE
+    return HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE)
+
+
+def _run_session_key(work: str) -> str:
+    # Runs(写 profile 长任务)与主编讨论线程隔离:稳定 key = work|runs(不随章/线程漂)。
+    # 不复用 _hermes_session_key(后者 Task 11 起专指 work+thread 讨论线程),但共用
+    # scribe3_session_key 单一格式源(Minor #6 防漂移)。
+    from scribe3.hermes_runtime import scribe3_session_key
+    return scribe3_session_key(_normalize_work(work), scope="runs")
+
+
+def _record_ai_run_trace(work: str, run_id: str | None, **fields) -> None:
+    if not run_id:
+        return
+    try:
+        _store_for(work).upsert_ai_run_trace(run_id, **fields)
+    except Exception:
+        logging.getLogger("scribe3").warning("ai_run_trace 落库失败(忽略)", exc_info=True)
+
+
+def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
+                         text: str, chapter: int | None = None) -> None:
+    """Task 9:把本轮作者意图幂等捕获成经验记忆(同步 drain)。
+
+    best-effort:任何失败只告警,绝不阻断写作主链路(与 chat_message 落库同纪律 D-004)。
+    幂等:event_id = turn:<turn_id>(同轮重放不重复记)。分类/正典红线/linked_ids 领域反查
+    在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。
+
+    Task 16-C 对称门控:SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ 最前零成本短路,不捕获、
+    不 embed、不写 memory_event/memory_item —— 与检索侧(_get_write_retriever 返 None)
+    同开同关,"记忆织物"关时写作路径【字节等价】,根治"捕获恒开只写不读半空转"。"""
+    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+        return
+    if not (text or "").strip() or not turn_id:
+        return
+    try:
+        from scribe3.memory_capture import MemoryCapture, turn_event
+        MemoryCapture(store).capture_event(turn_event(
+            text=text, event_id=f"turn:{turn_id}", work=store.db_name,
+            thread_id=thread_id, known_from=chapter))
+    except Exception:
+        logging.getLogger("scribe3").warning("记忆捕获失败(忽略,不阻断写作)", exc_info=True)
+
+
+def _record_ai_run_event(work: str, run_id: str, app_ev: dict, *, source: str | None = None) -> None:
+    try:
+        payload = dict(app_ev or {})
+        if source:
+            payload["source"] = source
+        _store_for(work).append_ai_run_trace_event(run_id, payload)
+    except Exception:
+        logging.getLogger("scribe3").warning("ai_run_trace event 落库失败(忽略)", exc_info=True)
+
+
+SCRIBE3_READ_MCP_LABEL = os.environ.get("SCRIBE3_READ_MCP_LABEL", "scribe3_read")
+
+
+def _response_events_iter(fn, message, instructions: str, **kwargs):
+    """Call real Hermes with full runtime kwargs while preserving old test stubs."""
+    if _responses_events is None:
+        return fn(message, instructions, **kwargs)
+    safe = {k: v for k, v in kwargs.items() if k in {"model", "with_tools"}}
+    return fn(message, instructions, **safe)
 
 
 def _fact_item(f, reveal_secret: bool = False) -> dict:
@@ -182,6 +702,677 @@ def ready():
         raise HTTPException(status_code=503, detail=f"db not ready: {str(e)[:80]}")
 
 
+@app.get("/ai/runtime-status")
+def ai_runtime_status():
+    return _hermes_runtime_status()
+
+
+@app.get("/capabilities")
+def capabilities():
+    """Task 16-B 灰度能力下发:只读各 feature flag 的 env 状态(不下发任何秘密)。
+
+    前端能力以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
+    默认全关时各 flag 均 False,系统行为与开关引入前字节等价(capabilities 只上报、不改行为)。
+    回滚顺序:inspector → memory retrieval → editorial thread → context snapshot;数据表保留不删。"""
+    from scribe3 import context_cache, embed
+    return {
+        "flags": {
+            "snapshot_v1": _flag_enabled("SCRIBE3_CONTEXT_SNAPSHOT_V1"),
+            "editorial_thread_v1": _flag_enabled("SCRIBE3_EDITORIAL_THREAD_V1"),
+            "memory_fabric_v1": _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"),
+            "context_inspector_v1": _flag_enabled("SCRIBE3_CONTEXT_INSPECTOR_V1"),
+            "spectron_shadow": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+            # Task 7 既有开关,一并上报(不改语义)
+            "assembler_v1": _flag_enabled("SCRIBE3_CONTEXT_ASSEMBLER_V1"),
+        },
+        "versions": {
+            "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
+            "embedding_model": embed.model_version(),
+        },
+    }
+
+
+@app.get("/ai/usage")
+def ai_usage(work: str = "main", days: int = 7):
+    """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。
+
+    - cap:计"发起的 LLM 调用笔数"。scope=shared 表示 app 与 MCP 进程同记一本
+      SQLite 台账(SCRIBE3_LLM_LEDGER);=process 表示台账故障已回退进程内计数。
+    - tokens:Hermes 各响应体回传的真实 usage,按天聚合(Responses/Runs 分列)。
+      fail-soft:聚合挂了回空列表带 error,帽信息照常返回。
+    """
+    from scribe3 import usage as usage_mod
+    from scribe3.llm import _DAILY_CALL_CAP, daily_remaining
+    used, scope = usage_mod.used_today()
+    try:
+        tokens = _store_for(work).usage_summary(days=days)
+    except Exception as e:
+        tokens = {"days": [], "error": str(e)}
+    return {
+        "work": work,
+        "cap": {"cap": _DAILY_CALL_CAP, "used_today": used,
+                "remaining": daily_remaining(), "scope": scope},
+        "tokens": tokens,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task 13:Runs 审批前重校验"发起时上下文快照"的判据
+# ---------------------------------------------------------------------------
+
+def _run_focus_target(focus) -> tuple[str, str] | None:
+    """把焦点归一到可比较的写目标 (kind, key):
+    - 章/场景 → ('chapter', <章号>)(id 兼容 '9' / 'chapter:9' / 'scene:9:2');
+    - entry/view 等中性视图 → None(无具体写目标,不与任何 run 的写目标相交);
+    - 其它具名对象(角色/伏笔/事实…) → ('entity', <id>)。
+    MVP 判据,可精化:目前按 focus.type/id 粗匹配,足够拦"旧 run 写当前章/条目"。"""
+    if not isinstance(focus, dict):
+        return None
+    ftype = focus.get("type")
+    fid = str(focus.get("id") or "").strip()
+    if ftype in ("chapter", "scene"):
+        # 场景 id 形如 'scene:9:2' / 章 id 形如 'chapter:9' 或裸 '9' → 取章号维度
+        parts = [p for p in fid.replace("chapter:", "").replace("scene:", "").split(":") if p]
+        return ("chapter", parts[0]) if parts else None
+    if ftype in ("entry", "view") or not fid:
+        return None
+    return ("entity", fid)
+
+
+def _run_focus_affects(origin_focus, current_focus) -> bool:
+    """写目标是否影响当前焦点:同章/同条目 → 影响(True);任一为中性视图或不同目标 → False。
+    影响=原审批作废(409 run_context_changed);不影响=可经 approve_stale 二次确认放行。
+
+    I-2 残留风险(如实记账,MVP 判据):只按 (kind,key) 相等判影响,未纳入"下游爆炸半径"——
+    过期 run 写其原目标、而作者已导航到相邻/下游章并 approve_stale 放行时,写入可能与作者
+    刚写的当前章矛盾(如 origin=promise:7 的伏笔回收会牵动其所属章,但焦点若停在别处则判无关)。
+    有 approve_stale 二次确认(作者主动"忽略过期")兜底,故为 Important 非 Critical。
+    未把写目标所属章/伏笔归属章纳入判定,是为不过度收紧到"切个章就作废"伤体验;收紧留后续。"""
+    o = _run_focus_target(origin_focus)
+    c = _run_focus_target(current_focus)
+    if o is None or c is None:
+        return False
+    return o == c
+
+
+class RunContextChanged(HTTPException):
+    """审批重校验失败:发起时快照与当前快照不一致。code 区分两态:
+    - run_context_changed:影响当前章/条目 → 原审批作废,须新建 run 重新联查;
+    - run_context_stale:无关的过期 run → 前端展示两卡,用户带 approve_stale=true 才执行。"""
+
+    def __init__(self, code: str, *, origin, current, run_id: str):
+        super().__init__(status_code=409, detail={
+            "code": code,
+            "run_id": run_id,
+            "origin_context_revision": origin.get("revision"),
+            "origin_focus": origin.get("focus"),
+            "current_context_revision": current.get("revision"),
+            "current_focus": current.get("focus"),
+        })
+
+
+def _recheck_run_origin_context(store, run_id: str, trace: dict, req: "AIRunApprovalReq",
+                                choice: str) -> int | None:
+    """审批写入前的上下文闸门。返回本次执行绑定的"当前 revision"(供记 completion);
+    无 origin 绑定 / deny 时返回 None(跳过校验,现有行为零回归)。
+
+    三结果(计划 Step 4):
+    - 未变(origin revision == 当前 session revision,且 session 一致)→ 放行;
+    - 已变且影响当前章/条目 → RunContextChanged('run_context_changed');
+    - 已变但写目标与当前焦点无关 → 需 approve_stale=true,否则 RunContextChanged('run_context_stale')。
+
+    I-3 fail-closed:origin 已绑定但【核实不了当前快照】(session 缺失/被删/读不到)时,
+    绝不回退用审批请求自报的 revision 放行——/ai/runs* 是后端公开面,"核实不了就保守作废"。
+    """
+    origin_rev = trace.get("origin_context_revision")
+    origin_session = trace.get("context_session_id")
+    origin_focus = trace.get("focus")
+    # deny 永远安全(不写入);无 origin 绑定的存量 run 不做重校验。
+    if choice == "deny" or origin_rev is None:
+        return None
+    origin_snap = {"revision": origin_rev, "focus": origin_focus}
+    # I-3:能核实才放行,核实不了(无 session / live 读不到)一律作废,不信任自报值。
+    live = store.get_context_snapshot(origin_session) if origin_session else None
+    if live is None:
+        raise RunContextChanged("run_context_changed", origin=origin_snap,
+                                current={"revision": None, "focus": None}, run_id=run_id)
+    current_rev = live.get("revision")
+    current_focus = live.get("focus")
+    # 声明的 session 与发起时不一致 → 按"已变"处理(裁决:对不上按已变,保守作废)。
+    session_mismatch = bool(req.context_session_id) and req.context_session_id != origin_session
+    if not (session_mismatch or current_rev != origin_rev):
+        return current_rev   # 未变
+    current_snap = {"revision": current_rev, "focus": current_focus}
+    # 换了 session 无法确证写目标相交 → 保守按"影响"作废(写入安全不打折)。
+    if session_mismatch or _run_focus_affects(origin_focus, current_focus):
+        raise RunContextChanged("run_context_changed", origin=origin_snap,
+                                current=current_snap, run_id=run_id)
+    if not req.approve_stale:
+        raise RunContextChanged("run_context_stale", origin=origin_snap,
+                                current=current_snap, run_id=run_id)
+    return current_rev
+
+
+class AIRunCreateReq(BaseModel):
+    input: str
+    instructions: str = ""
+    session_id: str | None = None
+    conversation_history: list[dict] | None = None
+    previous_response_id: str | None = None
+    # Task 13:发起时的上下文绑定(可选)——供审批前重校验"旧 run 拿着过期焦点写入当前章"。
+    # 缺省(存量/旧前端)→ 不记 origin binding,审批不被重校验拦截(现有行为零回归)。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
+
+
+class AIRunApprovalReq(BaseModel):
+    approval_id: str | None = None
+    choice: str | None = None
+    decision: str | None = None
+    message: str | None = None
+    approved: bool | None = None
+    # Task 13:审批当刻声明的上下文(前端从当前快照带上);approve_stale=用户看过"发起时/
+    # 当前焦点"两卡后仍决定放行"无关的过期 run"的二次确认令牌。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
+    approve_stale: bool = False
+
+
+def _hermes_approval_choice(req: AIRunApprovalReq) -> str:
+    raw = (req.choice or req.decision or "").strip().lower()
+    if not raw and req.approved is not None:
+        raw = "approve" if req.approved else "deny"
+    aliases = {
+        "approve": "once",
+        "approved": "once",
+        "allow": "once",
+        "yes": "once",
+        "true": "once",
+        "deny": "deny",
+        "denied": "deny",
+        "reject": "deny",
+        "rejected": "deny",
+        "no": "deny",
+        "false": "deny",
+    }
+    choice = aliases.get(raw, raw)
+    if choice not in {"once", "session", "always", "deny"}:
+        raise HTTPException(
+            status_code=400,
+            detail="invalid approval decision; expected approve/deny or once/session/always/deny",
+        )
+    return choice
+
+
+@app.post("/ai/runs")
+def ai_run_create(req: AIRunCreateReq, work: str = "main"):
+    """创建 Hermes Run。用于需要人类审批/可恢复事件流的 agentic 长任务。"""
+    ins = (req.instructions or "").strip()
+    ins = (ins + _s3_work_scope_block(work)) if ins else _s3_work_scope_block(work).lstrip()
+    session_key = _run_session_key(work)
+    result = _hermes_runs_runtime().create_run(
+        req.input,
+        instructions=ins,
+        session_id=req.session_id,
+        conversation_history=req.conversation_history,
+        previous_response_id=req.previous_response_id,
+        session_key=session_key,
+    )
+    run_id = result.get("run_id") or result.get("id")
+    _record_ai_run_trace(
+        work,
+        run_id,
+        status=result.get("status") or "created",
+        session_key=session_key,
+        input_text=req.input,
+        instructions=ins,
+        response=result,
+    )
+    # Task 13:把 run 链回作品级主编线程,并快照"发起时的上下文"(session/revision/hash/focus)。
+    # best-effort:绑定失败只告警,绝不阻断 run 创建(与 trace 留痕同纪律)。
+    _bind_run_origin_context(work, run_id, req)
+    return result
+
+
+def _bind_run_origin_context(work: str, run_id: str | None, req: AIRunCreateReq) -> None:
+    """记 parent_thread_id(作品级主编线程)+ 发起时上下文快照。
+
+    thread 优先取发起时快照落库的 thread_id(与该会话严格一致),取不到再退化到
+    _editor_turn_context(work) 的稳定主编线程;origin_context_revision/hash/focus 从
+    快照读——审批时以此为准判"是否过期",不信任审批请求自报的值。"""
+    if not run_id:
+        return
+    try:
+        store = _store_for(work)
+        parent_thread_id = _editor_turn_context(work).thread_id
+        origin_session = req.context_session_id
+        origin_rev = req.context_revision
+        origin_hash = None
+        origin_focus = None
+        if origin_session:
+            snap = (store.get_context_snapshot(origin_session, revision=origin_rev)
+                    if origin_rev is not None else None) \
+                or store.get_context_snapshot(origin_session)
+            if snap:
+                # Minor:origin revision/hash/focus 一律以【库内实际读到的快照】为准,不用请求自报值——
+                # 与"不信任自报"一致;自报一个库里不存在的 revision 时,回退当前快照后三者仍是一致对。
+                origin_rev = snap.get("revision")
+                origin_hash = snap.get("context_hash")
+                origin_focus = snap.get("focus")
+                parent_thread_id = snap.get("thread_id") or parent_thread_id
+        store.update_ai_run_context(
+            run_id,
+            parent_thread_id=parent_thread_id,
+            context_session_id=origin_session,
+            origin_context_revision=origin_rev,
+            origin_context_hash=origin_hash,
+            focus=origin_focus,
+        )
+    except Exception:
+        logging.getLogger("scribe3").warning("run origin context 绑定失败(忽略)", exc_info=True)
+
+
+@app.get("/ai/runs/{run_id}")
+def ai_run_status(run_id: str, work: str = "main"):
+    result = _hermes_runs_runtime().run_status(run_id, session_key=_run_session_key(work))
+    _record_ai_run_trace(work, run_id, status=result.get("status") or result.get("state"), response=result)
+    return result
+
+
+@app.get("/ai/runs/{run_id}/trace")
+def ai_run_trace(run_id: str, work: str = "main"):
+    store = _store_for(work)
+    trace = store.get_ai_run_trace(run_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="ai_run_trace not found")
+    # Task 16-A 纵深(spec 审):对齐其他 surface 的 work 绑定。ai_run_trace.work 存的是
+    # 物理库名(db_name)——生产 db-per-work 下 _store_for(work)→db=work,恒成立故为 tautology
+    # (跨 work 早在 get_ai_run_trace 读不到→404);仅在 store 与请求同库时校验,测试注入
+    # (set_store 使 db_name≠work)下跳过避免误报。真正的逻辑-work 绑定待 Task 13 把逻辑 work
+    # 落进 ai_run_trace(现存 db_name)后随多 work 并库一并加固。
+    if store.db_name == work:
+        _assert_work_binding(trace.get("work"), work,
+                             kind="ai_run_trace", ident=run_id)
+    return trace
+
+
+@app.get("/ai/runs/{run_id}/events")
+def ai_run_events(run_id: str, work: str = "main"):
+    from scribe3.hermes_runtime import HermesEventAdapter
+
+    adapter = HermesEventAdapter()
+    _record_ai_run_trace(work, run_id, status="streaming")
+
+    def gen():
+        try:
+            for ev in _hermes_runs_runtime().run_events(run_id, session_key=_run_session_key(work)):
+                app_ev = adapter.adapt(ev)
+                kind = app_ev.get("kind")
+                _record_ai_run_event(work, run_id, app_ev)
+                if kind == "text.delta":
+                    yield f"data: {json.dumps({'delta': app_ev.get('delta', '')}, ensure_ascii=False)}\n\n"
+                elif kind == "tool.started":
+                    yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif kind == "tool.output":
+                    yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+                elif kind == "approval.requested":
+                    yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                elif kind == "approval.resolved":
+                    yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+                elif kind == "run.completed":
+                    yield f"data: {json.dumps({'run': {'run_id': app_ev.get('run_id'), 'status': 'completed', 'usage': app_ev.get('usage')}}, ensure_ascii=False)}\n\n"
+                elif kind == "run.failed":
+                    yield f"data: {json.dumps({'error': app_ev.get('error') or 'run failed'}, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps({'raw': app_ev}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            _record_ai_run_trace(work, run_id, status="failed", error=str(e)[:160])
+            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        yield 'data: {"done": true}\n\n'
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/ai/runs/{run_id}/approval")
+def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
+    payload = req.model_dump(exclude_none=True)
+    choice = _hermes_approval_choice(req)
+    # Task 13:写入前重校验发起时上下文快照(限知写入安全闸)。校验通过后原 approve 流程一字不改;
+    # RunContextChanged(409)在此前抛出,绝不进 Hermes approve——旧 run 的过期写入被物理拦下。
+    store = _store_for(work)
+    trace = store.get_ai_run_trace(run_id) or {}
+    completion_rev = _recheck_run_origin_context(store, run_id, trace, req, choice)
+    hermes_payload = {"choice": choice}
+    try:
+        result = _hermes_runs_runtime().approve_run(
+            run_id,
+            hermes_payload,
+            session_key=_run_session_key(work),
+        )
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        _record_ai_run_trace(work, run_id, status="approval_failed", error=detail)
+        raise HTTPException(status_code=502, detail=f"Hermes approval failed: {detail}") from exc
+    _record_ai_run_event(work, run_id, {
+        "kind": "approval.resolved",
+        "run_id": run_id,
+        "approval_id": payload.get("approval_id"),
+        "decision": payload.get("decision"),
+        "choice": choice,
+    }, source="user")
+    _record_ai_run_trace(work, run_id, status=result.get("status") or "approval_submitted", response=result)
+    # Task 13:记完成时上下文 revision + write_effects 台账(仅 approve 类且有 origin 绑定时)。
+    # Minor:同一审批重放时按 (approval_id, revision, kind) 去重,不叠重复台账
+    # (读改写非 CAS,能挡幂等重放;真并发双批准极罕见,同 approval_id 亦会命中去重)。
+    if choice != "deny" and completion_rev is not None:
+        try:
+            effects = list(trace.get("write_effects") or [])
+            new_effect = {
+                "kind": "approval",
+                "approval_id": payload.get("approval_id"),
+                "choice": choice,
+                "stale_confirmed": bool(req.approve_stale),
+                "context_revision": completion_rev,
+            }
+            key = (new_effect["approval_id"], new_effect["context_revision"], new_effect["kind"])
+            if not any((e.get("approval_id"), e.get("context_revision"), e.get("kind")) == key
+                       for e in effects):
+                effects.append(new_effect)
+            store.update_ai_run_context(
+                run_id,
+                completion_context_revision=completion_rev,
+                write_effects=effects,
+            )
+        except Exception:
+            logging.getLogger("scribe3").warning("run completion context 记账失败(忽略)", exc_info=True)
+    return result
+
+
+@app.post("/ai/runs/{run_id}/stop")
+def ai_run_stop(run_id: str, work: str = "main"):
+    result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
+    _record_ai_run_trace(work, run_id, status=result.get("status") or "stopped", response=result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 4:Context API(会话/导航/快照)
+# work 约定:?work= 只用于定位 store(全仓约定);校验以 session 落库的 work
+# 为准(Task 16 的 work 绑定校验语义,现在就按此做)——不符 409 context_work_mismatch。
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Task 16-A(安全隔离子集):统一 work 绑定校验 + 安全指标。
+# 单机单用户无 claim 体系——?work= 只是前端【声明】,权威 work 以记录落库值为准。
+# 每个 surface(context/thread/memory/trace/run)取记录落库 work 与请求 ?work= 比对,
+# 不符 → 409 context_work_mismatch。隔离底座仍是 per-work db:记录不在本 work 库 → 404。
+# cross_work_rejections 是内存安全指标,供 Task 16-B 的 /ai/runtime-status 消费(不含
+# 任何 prompt / 秘密值)。
+# ---------------------------------------------------------------------------
+_security_metrics = {"cross_work_rejections": 0}
+
+
+def get_security_metrics() -> dict:
+    """安全指标只读快照(Task 16-B runtime-status 用)。绝不含原始 prompt / 秘密值。"""
+    return dict(_security_metrics)
+
+
+def _bump_cross_work_rejection() -> None:
+    _security_metrics["cross_work_rejections"] += 1
+
+
+def _thread_work(thread_id: str | None) -> str | None:
+    """从 ethread:<work>:<uuid> 解出落库 work(work 是无冒号 slug,uuid hex 无冒号)。
+    无法解析(非 ethread 命名/旧格式)→ None:交由端点 not-found 分支给 404,不误判 409。"""
+    if not isinstance(thread_id, str) or not thread_id.startswith("ethread:"):
+        return None
+    work, sep, _tail = thread_id[len("ethread:"):].rpartition(":")
+    return work if (sep and work) else None
+
+
+def _assert_work_binding(record_work: str | None, requested_work: str,
+                         *, kind: str, ident: str) -> None:
+    """统一 work 绑定校验:记录落库 work ≠ 请求声明 work → 409 context_work_mismatch。
+
+    record_work=None(无法判定归属 work)→ 不在此拦,由端点 not-found 分支给 404
+    (计划 Task 16 ① 的 409/404 协调:存在但越权→409;不存在/不可判→404)。"""
+    if record_work is not None and record_work != requested_work:
+        _bump_cross_work_rejection()
+        raise HTTPException(status_code=409, detail={
+            "code": "context_work_mismatch",
+            "message": f"{kind} '{ident}' 属于 work '{record_work}',"
+                       f"请求 work '{requested_work}' 不符",
+            "expected": requested_work, "actual": record_work})
+
+
+def _context_http_error(e: Exception) -> HTTPException:
+    """context 语义异常 → HTTPException(detail 恒带稳定 code,前端读 error.body.detail.code)。"""
+    if isinstance(e, StaleContextError):
+        return HTTPException(status_code=409, detail={
+            "code": e.code, "expected": e.expected, "actual": e.actual, "latest": e.latest})
+    status = {
+        "context_binding_required": 400,
+        "context_session_not_found": 404,
+        "context_snapshot_not_found": 404,
+        "context_session_ended": 409,
+        "context_work_mismatch": 409,
+    }.get(getattr(e, "code", ""), 500)
+    detail = {"code": getattr(e, "code", "context_error"), "message": str(e)}
+    if isinstance(e, ContextWorkMismatch):
+        detail |= {"expected": e.expected, "actual": e.actual}
+        # ContextService 路径的跨 work 越权也计入统一安全指标(与 _assert_work_binding 同源)。
+        _bump_cross_work_rejection()
+    return HTTPException(status_code=status, detail=detail)
+
+
+class ContextSessionCreateReq(BaseModel):
+    actor_id: str = "author"
+    device_id: str = ""
+    # work 可放 body(优先)或 ?work= query;创建后固化进 session 记录
+    work: str | None = None
+
+
+@app.post("/context/sessions")
+def context_session_create(req: ContextSessionCreateReq, work: str = "main"):
+    """开上下文会话:落 revision=0 初始快照并返回(session 与快照同事务,无中间态)。"""
+    w = (req.work or work).strip() or "main"
+    return _store_for(w).create_context_session(w, req.actor_id, req.device_id)
+
+
+@app.get("/context/sessions/{session_id}")
+def context_session_get(session_id: str, work: str = "main"):
+    """读会话当前快照(含 revision/context_hash,前端绑定 LLM 调用的三件套来源)。"""
+    try:
+        return ContextService(_store_for(work)).get(session_id, work)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+@app.post("/context/sessions/{session_id}/navigate")
+def context_session_navigate(session_id: str, intent: NavigationIntent, work: str = "main"):
+    """CAS 推进上下文(body 为 NavigationIntent 形状)。失配 409 stale_context
+    (带 latest 供前端直接对齐);同 navigation_id 幂等重放(store 合同)。"""
+    try:
+        return ContextService(_store_for(work)).navigate(
+            session_id, work, intent.model_dump(mode="json"))
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+@app.get("/context/sessions/{session_id}/snapshots/{revision}")
+def context_snapshot_get(session_id: str, revision: int, work: str = "main"):
+    """读历史版快照(回放/审计);该 revision 不存在 → 404 context_snapshot_not_found。"""
+    try:
+        return ContextService(_store_for(work)).get(session_id, work, revision=revision)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+@app.get("/context/sessions/{session_id}/trace/{revision}")
+def context_trace_get(session_id: str, revision: int, work: str = "main"):
+    """读某快照版本的记忆溯源 trace(Task 14 上下文检查器数据源):主编到底看到了
+    什么、为什么选这条记忆、为什么弃那条。
+
+    限知红线:私密事实的 value 在服务端【权威屏蔽】后才返回(前端不可信,Task 7 教训)——
+    store.get_memory_trace_for_snapshot 落库时已屏蔽,此处再过一遍 mask_memory_trace 兜底。
+
+    诚实边界:真实 trace 数据待 Task 16 检索接进生产 prompt 后填充;在此之前该版本
+    多无溯源 → 404 memory_trace_not_found(前端据此显"未检索到证据",不显"没有相关事实")。"""
+    from scribe3.store import mask_memory_trace
+    trace = _store_for(work).get_memory_trace_for_snapshot(session_id, int(revision))
+    if not trace:
+        raise HTTPException(status_code=404, detail={
+            "code": "memory_trace_not_found",
+            "message": "该快照版本暂无记忆溯源(检索生产接线待 Task 16)"})
+    # Task 16-A:memory_trace 落库 work 与请求 ?work= 比对(空 work=旧数据→不判,走 mask)。
+    _assert_work_binding(trace.get("work") or None, work,
+                         kind="memory_trace", ident=session_id)
+    return mask_memory_trace(trace)
+
+
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)
+# GET  /chat/threads               本 work 线程列表(含分支)
+# GET  /chat/threads/{id}/messages 该线程全部消息(store.list_thread_messages)
+# POST /chat/threads/{id}/fork     显式分支(写 parent_thread_id 建新线程)
+# 导航路径绝不调 fork——fork 只在作者显式"另起支线"时触发。
+# ---------------------------------------------------------------------------
+
+class ForkThreadReq(BaseModel):
+    title: str | None = None
+
+
+@app.get("/chat/threads")
+def chat_threads(work: str = "main", actor_id: str = "author"):
+    """本 work 线程列表;顺带保证默认线程存在(首次访问即建,幂等)。"""
+    store = _store_for(work)
+    store.get_or_create_editorial_thread(work, actor_id)
+    return {"threads": store.list_editorial_threads(work)}
+
+
+@app.get("/chat/threads/{thread_id}/messages")
+def chat_thread_messages(thread_id: str, work: str = "main", limit: int = 500):
+    """该线程全部消息(ts 升序)。Task 16-A:thread_id 内嵌 work(ethread:<work>:<uuid>)——
+    落库 work 与请求 ?work= 不符 → 409(否则空 [] 会把越权伪装成"无消息")。"""
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
+    return _store_for(work).list_thread_messages(thread_id, limit=limit)
+
+
+@app.post("/chat/threads/{thread_id}/fork")
+def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
+    """显式分支:以 thread_id 为父建新线程(写 parent_thread_id)。父不存在 404。
+    Task 16-A:先校验父线程落库 work 与请求 ?work= 一致(防跨 work fork 出他书子线程)。"""
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
+    try:
+        return _store_for(work).fork_editorial_thread(thread_id, title=req.title)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={
+            "code": "thread_not_found", "message": str(e)}) from e
+
+
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 12:/memory/* REST(可选 scribe3-memory Hermes provider 消费)
+#
+# 把 Task 8/9 的内部检索/捕获/固化能力暴露成 HTTP,仅供【直接用 Hermes 会话】(非 Scribe Web
+# 主路)读写 Scribe 记忆。Scribe Web 的 chat/write 主路【完全不经】这些端点——它在 app 内直调
+# ContextAssembler / MemoryRetriever / MemoryCapture,与本段解耦;关闭 provider(不设
+# SCRIBE3_API_BASE)对主路零影响。
+#
+# work-scoped 硬红线(复用 16-A):?work= 定位 per-work db(物理隔离,跨 work 检索不到彼此);
+# thread_id 内嵌 work(ethread:<work>:<uuid>)时再过 _assert_work_binding,跨 work 声明→409。
+# best-effort:捕获/固化失败只告警不 5xx(与主链路捕获同纪律,不阻断上游会话)。
+# ---------------------------------------------------------------------------
+class MemoryPrefetchReq(BaseModel):
+    thread_id: str | None = None
+    query: str = ""
+    k: int = Field(default=24, ge=1, le=200)
+
+
+@app.post("/memory/prefetch")
+def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
+    """检索本 work 记忆,返回组装好的记忆块文本(供直连 Hermes 会话注入 prompt)。
+
+    讨论模式组装(无章 → 限知门 fail-open,作者全知视角):canonical 命题 + 经验记忆,
+    work 隔离 / 秘密屏蔽在检索·组装链内生效。组装异常降级空块(绝不 5xx 拖垮上游会话)。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.context_assembler import ContextAssembler, render_envelope_text
+    from scribe3.memory_retrieval import MemoryRetriever
+    try:
+        snap = _write_snapshot(store, chapter=None, focalizer=None, phase=None, work=w)
+        envelope = ContextAssembler(store, MemoryRetriever(store)).assemble(
+            snap, req.query or "", "discussion")
+        context = render_envelope_text(envelope)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/prefetch 组装失败(降级空块)", exc_info=True)
+        context = ""
+    return {"context": context, "work": w}
+
+
+class MemoryCaptureTurnReq(BaseModel):
+    thread_id: str | None = None
+    event_id: str | None = None
+    user: str = ""
+    assistant: str = ""
+    messages: list = Field(default_factory=list)
+
+
+@app.post("/memory/capture-turn")
+def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
+    """幂等捕获一轮对话为经验记忆(同步 drain)。event_id 幂等键:同 event_id 二次→idempotent。
+
+    捕获作者意图文本(user 优先,空则退 assistant);分类/正典红线/linked_ids 领域反查在
+    MemoryCapture 内。best-effort:失败只告警,返回 capture_failed 而非 5xx。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.memory_capture import MemoryCapture, turn_event
+    text = (req.user or "").strip() or (req.assistant or "").strip()
+    if not text:
+        return {"status": "skipped", "work": w}
+    ev_id = (req.event_id or "").strip() or None
+    try:
+        result = MemoryCapture(store).capture_event(turn_event(
+            text=text, event_id=ev_id, work=w, thread_id=req.thread_id))
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/capture-turn 捕获失败(忽略,不阻断上游会话)", exc_info=True)
+        return {"status": "capture_failed", "work": w}
+    return {"status": result.get("status"),
+            "idempotent": bool(result.get("idempotent")),
+            "event_id": ev_id, "work": w}
+
+
+class MemoryFlushReq(BaseModel):
+    thread_id: str | None = None
+    reason: str = "manual"
+
+
+@app.post("/memory/flush")
+def memory_flush(req: MemoryFlushReq, work: str = "main"):
+    """固化线程工作摘要 + drain 掉线残留(Hermes on_pre_compress / on_session_end 触发)。
+    幂等:working_summary 按 (work,thread) 唯一 UPSERT。best-effort:失败降级 through_turn=0。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.memory_capture import MemoryCapture
+    try:
+        result = MemoryCapture(store).consolidate_thread(req.thread_id, work=w)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/flush 固化失败(忽略)", exc_info=True)
+        result = {"through_turn": 0}
+    return {"status": "flushed", "reason": req.reason, "work": w,
+            "through_turn": result.get("through_turn", 0)}
+
+
 @app.get("/works")
 def works():
     out = []
@@ -197,6 +1388,24 @@ def works():
             st = {"chapter_count": 0, "word_count": 0}
         out.append({**w, **st})
     return out
+
+
+@app.get("/objects/{object_type}/{object_id}/impact")
+def object_impact_ep(object_type: str, object_id: str, work: str = "main"):
+    return _object_impact(_store_for(work), object_type, object_id, work)
+
+
+@app.delete("/objects/{object_type}/{object_id}")
+def object_delete_ep(object_type: str, object_id: str,
+                     confirm_impact_token: str | None = None,
+                     work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), object_type, object_id, work, confirm_impact_token)
+
+
+@app.post("/objects/{object_type}/{object_id}/archive")
+def object_archive_ep(object_type: str, object_id: str, work: str = "main"):
+    return _archive_object_with_lifecycle(_store_for(work), object_type, object_id, work)
 
 
 class WorkIn(BaseModel):
@@ -352,6 +1561,158 @@ def recall(q: str, k: int = Query(default=5, ge=1, le=50), work: str = "main"):
     return _facts(_store_for(work).semantic_recall(q, k))
 
 
+def _search_excerpt(text: str, q: str, limit: int = 96) -> str:
+    text = text or ""
+    q = q or ""
+    if not text:
+        return ""
+    idx = text.lower().find(q.lower()) if q else -1
+    if idx < 0:
+        return text[:limit]
+    start = max(0, idx - 24)
+    end = min(len(text), idx + len(q) + 48)
+    return ("…" if start else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+def _search_hit(q: str, *parts: str | None) -> bool:
+    needle = (q or "").strip().lower()
+    if not needle:
+        return False
+    return any(needle in str(p or "").lower() for p in parts)
+
+
+@app.get("/search")
+def global_search(q: str, limit: int = Query(default=30, ge=1, le=100), work: str = "main"):
+    """全局搜索:正文/设定/素材/伏笔/母题的 typed target 聚合,供四栏钻取。"""
+    query = (q or "").strip()
+    if not query:
+        return {"query": query, "results": []}
+    st = _store_for(work)
+    results = []
+
+    def add(item):
+        if len(results) < limit * 3:
+            results.append(item)
+
+    for c in st.list_chapters():
+        ch = st.get_chapter(int(c["seq"])) or c
+        text = "\n".join(str(ch.get(k) or "") for k in ("title", "synopsis", "prose", "scene_truth"))
+        if _search_hit(query, text):
+            seq = int(ch["seq"])
+            title = ch.get("title") or f"第{seq}章"
+            add({
+                "id": f"search:chapter:{seq}",
+                "type": "chapter",
+                "label": title,
+                "excerpt": _search_excerpt(text, query),
+                "source": "正文",
+                "chapter": seq,
+                "score": 1.0 if _search_hit(query, title) else 0.75,
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"{seq} {title}".strip()},
+            })
+
+    for ev in st._all_events_bulk():
+        text = "\n".join([
+            ev.id or "",
+            ev.type or "",
+            ev.motivated_by_goal or "",
+            ev.location or "",
+            " ".join(ev.preconditions or []),
+            " ".join(ev.participants.values() or []),
+        ])
+        if _search_hit(query, text):
+            seq = int(ev.story_time or 0)
+            label = ev.type or ev.id
+            add({
+                "id": f"search:event:{ev.id}",
+                "type": "event",
+                "label": label,
+                "excerpt": _search_excerpt(text, query),
+                "source": "事件",
+                "chapter": seq or None,
+                "score": 0.78 if _search_hit(query, label) else 0.62,
+                "target_node": {"id": ev.id, "type": "event", "chapter": seq, "label": label},
+            })
+
+    for m in st.list_materials():
+        if m.get("archived"):
+            continue
+        text = "\n".join([m.get("title") or "", m.get("body") or "", " ".join(m.get("tags") or [])])
+        if _search_hit(query, text):
+            mid = str(m["id"])
+            add({
+                "id": f"search:material:{mid}",
+                "type": "material",
+                "label": m.get("title") or mid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "素材",
+                "score": 0.9 if _search_hit(query, m.get("title")) else 0.65,
+                "target_node": {"id": f"material:{mid}", "type": "material", "ref": mid, "label": m.get("title") or mid,
+                                "meta": {"kind": m.get("kind")}},
+            })
+
+    for e in st.all_entities():
+        text = "\n".join([e.name or "", str((e.traits or {}).get("backstory") or ""), " ".join((e.traits or {}).get("aliases") or [])])
+        if _search_hit(query, text):
+            local = e.id.split(":", 1)[-1]
+            add({
+                "id": f"search:entity:{e.id}",
+                "type": e.kind,
+                "label": e.name,
+                "excerpt": _search_excerpt(text, query),
+                "source": "设定",
+                "score": 0.8,
+                "target_node": {"id": f"{e.kind}:{local}", "type": e.kind, "ref": local, "label": e.name},
+            })
+
+    max_ch = max(1, st.max_chapter())
+    for f in st.facts_at(max_ch):
+        text = "\n".join([f.entity_id or "", f.attribute or "", f.value or ""])
+        if _search_hit(query, text):
+            local = f.id.split(":", 1)[-1]
+            add({
+                "id": f"search:fact:{local}",
+                "type": "proposition",
+                "label": f.value or f.attribute or local,
+                "excerpt": _search_excerpt(text, query),
+                "source": "设定",
+                "score": 0.7,
+                "target_node": {"id": f"proposition:{local}", "type": "proposition", "ref": local, "label": f.value or local},
+            })
+
+    for p in st.list_promises():
+        text = "\n".join(str(p.get(k) or "") for k in ("text", "status", "kind"))
+        if _search_hit(query, text):
+            pid = str(p.get("id") or p.get("text"))
+            add({
+                "id": f"search:promise:{pid}",
+                "type": "promise",
+                "label": p.get("text") or pid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "伏笔",
+                "chapter": p.get("setup_chapter"),
+                "score": 0.6,
+                "target_node": {"id": f"promise:{pid}", "type": "promise_view", "ref": "open", "label": p.get("text") or pid},
+            })
+
+    for m in st.list_motifs():
+        text = "\n".join(str(m.get(k) or "") for k in ("name", "theme", "echoes", "unfolding"))
+        if _search_hit(query, text):
+            mid = str(m.get("id") or m.get("name"))
+            add({
+                "id": f"search:motif:{mid}",
+                "type": "motif",
+                "label": m.get("name") or mid,
+                "excerpt": _search_excerpt(text, query),
+                "source": "母题",
+                "score": 0.6,
+                "target_node": {"id": f"motif:{mid}", "type": "motif", "ref": mid, "label": m.get("name") or mid},
+            })
+
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return {"query": query, "results": results[:limit]}
+
+
 @app.get("/promises")
 def promises(work: str = "main"):
     """P3-e1 Fix 1: 每条 promise 携带 overdue 字段(backend 单源,前端直读)。"""
@@ -498,9 +1859,9 @@ def edit_char(local: str, c: CharIn, work: str = "main"):
 
 
 @app.delete("/characters/{local}")
-def del_char(local: str, work: str = "main"):
-    _store_for(work).delete_record(f"role:{local}")
-    return {"ok": True}
+def del_char(local: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "role", local, work, confirm_impact_token)
 
 
 class FactIn(BaseModel):
@@ -545,9 +1906,9 @@ def edit_fact(local: str, f: FactIn, work: str = "main"):
 
 
 @app.delete("/facts/{local}")
-def del_fact(local: str, work: str = "main"):
-    _store_for(work).delete_record(f"fact:{local}")
-    return {"ok": True}
+def del_fact(local: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "fact", local, work, confirm_impact_token)
 
 
 class SupersedeIn(BaseModel):
@@ -1052,9 +2413,29 @@ class MaterialPatch(BaseModel):
 
 
 @app.get("/materials")
-def list_materials_ep(kind: str | None = None, work: str = "main"):
+def list_materials_ep(kind: str | None = None, limit: int | None = Query(default=None, ge=1, le=500),
+                      cursor: int = Query(default=0, ge=0), q: str = "", view: str = "all",
+                      work: str = "main"):
     _check_material_kind(kind)
-    return _store_for(work).list_materials(kind)
+    rows = _store_for(work).list_materials(kind, archived=True if view == "archived" else False)
+    needle = (q or "").strip().lower()
+    if needle:
+        rows = [m for m in rows if needle in "\n".join([
+            str(m.get("title") or ""), str(m.get("body") or ""),
+            " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
+        ]).lower()]
+    if view == "pinned":
+        rows = [m for m in rows if m.get("pinned")]
+    elif view == "referenced":
+        rows = [m for m in rows if (m.get("recall_count") or 0) > 0]
+    elif view == "untagged":
+        rows = [m for m in rows if not (m.get("tags") or m.get("ref_tags"))]
+    if limit is None:
+        return rows
+    start = int(cursor or 0)
+    items = rows[start:start + limit]
+    next_cursor = start + limit if start + limit < len(rows) else None
+    return {"items": items, "next_cursor": next_cursor, "total": len(rows)}
 
 
 @app.post("/materials")
@@ -1075,11 +2456,164 @@ def edit_material_ep(mid: str, m: MaterialPatch, work: str = "main"):
 
 
 @app.delete("/materials/{mid}")
-def del_material_ep(mid: str, work: str = "main"):
-    found = _store_for(work).delete_material(mid)
-    if not found:
-        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
-    return {"ok": True}
+def del_material_ep(mid: str, confirm_impact_token: str | None = None, work: str = "main"):
+    return _delete_object_with_lifecycle(
+        _store_for(work), "material", mid, work, confirm_impact_token)
+
+
+# ===== 素材导入(多格式 → AI 切分打标摘要 → 预览确认 → 落库)=====
+_import_jobs: dict = {}   # job_id → {stage, done, total, items, error, work}
+
+
+class ImportCommitReq(BaseModel):
+    items: list[dict]
+
+
+def _run_import(job_id: str, markdown: str, source: str | None) -> None:
+    """后台流水线:AI 切分打标摘要 → 结果存 job 待预览(不直接落库)。fail-soft。"""
+    from scribe3.llm import hermes_complete
+    from scribe3.material_import import split_and_tag
+    job = _import_jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        job["stage"] = "AI 切分打标中"
+        job["items"] = split_and_tag(
+            markdown, lambda p: hermes_complete(p, max_tokens=4000), source)
+        job["total"] = len(job["items"])
+        job["stage"] = "待预览确认"
+    except Exception as e:
+        job["stage"], job["error"] = "error", str(e)[:200]
+    finally:
+        job["done"] = True
+
+
+@app.post("/materials/import")
+async def material_import_ep(background: BackgroundTasks, text: str = Form(None),
+                            url: str = Form(None), source: str = Form(None),
+                            file: UploadFile = File(None), work: str = "main"):
+    """导入入口:file(markitdown 解析)/url(httpx 抓)/text → 后台 AI 切分打标 → 返回 job_id。"""
+    import uuid
+    markdown = ""
+    if file is not None:
+        import os
+        import tempfile
+        from scribe3.material_import import parse_to_markdown
+        content = await file.read()
+        suffix = os.path.splitext(file.filename or "")[1] or ".txt"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            tmp.write(content)
+            tmp.close()
+            markdown = parse_to_markdown(tmp.name)
+        finally:
+            os.unlink(tmp.name)
+        source = source or file.filename
+    elif url:
+        import httpx
+        markdown = httpx.get(url, timeout=30, follow_redirects=True).text
+        source = source or url
+    elif text:
+        markdown = text
+    if not (markdown or "").strip():
+        raise HTTPException(status_code=422, detail="无内容可导入(text/url/file 至少一个非空)")
+    job_id = uuid.uuid4().hex[:12]
+    _import_jobs[job_id] = {"stage": "解析完成", "done": False, "total": 0,
+                            "items": [], "error": "", "work": work}
+    background.add_task(_run_import, job_id, markdown, source)
+    return {"job_id": job_id}
+
+
+@app.get("/materials/import/{job_id}/progress")
+async def material_import_progress_ep(job_id: str):
+    """SSE 进度推送:解析→切分打标→待预览/完成/错误(0.5s 轮询,上限 5 分钟防挂)。"""
+    import asyncio
+    import json as _j
+
+    async def gen():
+        for _ in range(600):
+            job = _import_jobs.get(job_id)
+            if job is None:
+                yield "data: " + _j.dumps({"stage": "not_found", "done": True}) + "\n\n"
+                return
+            yield ("data: " + _j.dumps({"stage": job["stage"], "done": job["done"],
+                                        "total": job["total"], "error": job["error"]}) + "\n\n")
+            if job["done"]:
+                return
+            await asyncio.sleep(0.5)
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/materials/import/{job_id}/preview")
+def material_import_preview_ep(job_id: str):
+    """预览 AI 切分结果(作者编辑/删条/合并前)。"""
+    job = _import_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"导入任务 '{job_id}' 不存在或已清理")
+    return {"stage": job["stage"], "done": job["done"], "error": job["error"],
+            "items": job["items"]}
+
+
+@app.post("/materials/import/{job_id}/commit")
+def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "main"):
+    """作者确认(可编辑后)→ 批量落库 + 建联想边。单条 fail-soft。返回落库数。"""
+    st = _store_for(work)
+    ids = []
+    failed = []
+    warnings = []
+    for idx, it in enumerate(req.items):
+        title = (it.get("title") or "").strip()
+        if not title:
+            failed.append({"index": idx, "title": "", "reason": "标题为空"})
+            continue
+        try:
+            mid = st.add_material(title, it.get("body"), it.get("kind") or "note",
+                                  it.get("tags"), it.get("source"), ref_tags=it.get("ref_tags"))
+            ids.append(mid)
+            try:
+                st.build_material_edges(mid)
+            except Exception as e:
+                warnings.append({
+                    "index": idx,
+                    "title": title,
+                    "stage": "build_edges",
+                    "reason": str(e),
+                })
+        except Exception as e:
+            failed.append({"index": idx, "title": title, "reason": str(e)})
+    _import_jobs.pop(job_id, None)
+    return {"created": len(ids), "ids": ids, "failed": failed, "warnings": warnings}
+
+
+@app.get("/materials/recall")
+def material_recall_ep(q: str, chapter: int | None = None, k: int = 5, work: str = "main"):
+    """素材三通道召回(前端搜索:关键词+语义+图);纯检索排序,不烧 LLM 重排。"""
+    return _store_for(work).material_recall(q, chapter, k)
+
+
+@app.get("/materials/graph")
+def material_graph_ep(focus: str | None = None, limit: int = Query(default=200, ge=1, le=2000),
+                      hop: int = Query(default=1, ge=1, le=3), work: str = "main"):
+    """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
+    return _store_for(work).material_graph(focus=focus, limit=limit, hop=hop)
+
+
+@app.get("/materials/refs-by-chapter")
+def material_refs_by_chapter_ep(chapter: int, work: str = "main"):
+    """反向溯源:本章参考了哪些素材(+ reason/dimension)。"""
+    st = _store_for(work)
+    rows = st.material_refs_by_chapter(chapter)
+    out = []
+    for r in rows:
+        m = st.get_material(str(r.get("material_id"))) or {}
+        out.append({**r, "title": m.get("title"), "kind": m.get("kind"), "source": m.get("source")})
+    return out
+
+
+@app.get("/materials/{mid}/refs")
+def material_refs_ep(mid: str, work: str = "main"):
+    """正向溯源:这条素材用在了哪些章。"""
+    return _store_for(work).material_refs_by_material(mid)
 
 
 @app.get("/voice-flags")
@@ -1295,6 +2829,15 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         items = "；".join(
             f"第{p.get('setup_chapter')}章埋:{(p.get('text') or '')[:30]}" for p in promises[:6])
         rem = f"\n【⚠ 开着的承诺线·勿忘(适时推进/回收,别让它凭空消失)】{items}"
+    # 素材记忆能力提示(非空库时引导主编按需经 s3_material_recall 唤起参考素材;借鉴非事实)
+    mat_hint = ""
+    try:
+        if st.list_materials():
+            mat_hint = ("\n【素材记忆库】作者备有素材记忆(研究/风格/桥段等参考),讨论或构思时"
+                        "可经 s3_material_recall(query) 按当前话题唤起相关素材借鉴(借鉴非照搬),"
+                        "并向作者说明为什么参考。")
+    except Exception:
+        pass
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
@@ -1303,7 +2846,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
-    ) + rem
+    ) + rem + mat_hint
 
 
 def _pulse_digest(st, seq: int | None) -> str:
@@ -1364,14 +2907,16 @@ _responses_events = None  # 测试可 monkeypatch
 @app.get("/chat/agentic-stream")
 def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
-    事件:tool(工具调用提示)/delta(回复片段)/done。注:MCP 连 db=main,agentic 当前以主参照库为准。"""
+    事件:tool(工具调用提示)/delta(回复片段)/done。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     fn = _responses_events or hermes_responses_events
-    # P0-2:仅当前书(==SCRIBE3_WORK)才挂 s3_ 工具;非当前书退化纯对话,且删掉 s3_ 诱导段防幻觉调用。
+    adapter = HermesEventAdapter()
+    # H-01:工具 work-scoped,所有作品都可挂工具;提示必须钉死当前 work,防跨书读写。
     with_tools = _work_has_tools(work)
     instructions = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
     if with_tools:
-        instructions += (
+        instructions += _s3_work_scope_block(work) + (
             "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
             "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
             "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
@@ -1379,27 +2924,73 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
             "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
         )
 
+    # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
+    # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
+    turn = _editor_turn_context(work)
+
     def gen():
+        resp_id = None
         try:
-            for ev in fn(msg, instructions, with_tools=with_tools):
-                t = ev.get("type", "")
-                if t == "response.output_text.delta":
-                    d = ev.get("delta", "")
+            events = _response_events_iter(
+                fn,
+                msg,
+                instructions,
+                with_tools=with_tools,
+                session_key=turn.session_key,
+                conversation=turn.conversation_id,
+                previous_response_id=turn.previous_response_id,
+                store=True,
+                server_label=SCRIBE3_READ_MCP_LABEL,
+            )
+            for ev in events:
+                app_ev = adapter.adapt(ev)
+                if app_ev["kind"] == "text.delta":
+                    d = app_ev.get("delta", "")
                     if d:
                         yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
-                elif t == "response.output_item.added":
-                    item = ev.get("item", {}) or {}
-                    if item.get("type") == "function_call":
-                        yield f"data: {json.dumps({'tool': item.get('name', ''), 'tool_args': item.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "tool.started":
+                    yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "tool.output":
+                    yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "approval.requested":
+                    yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "approval.resolved":
+                    yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "run.completed":
+                    # 记新 response id,turn 结束后回写线程,供下一轮 previous_response_id 续接。
+                    resp_id = app_ev.get("response_id") or resp_id
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        if resp_id:
+            try:
+                # 竞态记账(#5):同一线程若并发两 turn,后完成者覆盖 previous_response_id。
+                # 现状不显现——前端 ChiefDock 默认 agentic:false(本路未启用)且 UI busy 期
+                # 串行化发送;重新启用 agentic 或引入并发发送时需加"仅当更晚 turn 才覆盖"的护栏。
+                _store_for(work).update_thread_response_id(turn.thread_id, resp_id)
+            except Exception:
+                logging.getLogger("scribe3").warning("thread response_id 回写失败(忽略)", exc_info=True)
         yield 'data: {"done": true}\n\n'
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
-    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + (
+def _editor_identity_block() -> str:
+    """主编身份 + 硬协议(纯身份,零数据注入)。I1:v1 上下文段由 envelope 独占,故 v1
+    只取本块作身份,避免 _editor_system 的设定/角色/伏笔注入与 envelope 的 canonical/global
+    重复(facts 出现 2 次、promises 最多 3 次的注意力稀释病灶,B-3 同型)。
+    与 _editor_system 共享措辞但独立成函数:_editor_system 保持原样(旧路径字节一致),
+    本块把"上面的世界观与北极星"改指"下方提供的"——v1 里数据段在身份之后由 envelope 给出。"""
+    return (
+        "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
+        "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣下方提供的世界观与北极星,"
+        "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
+    )
+
+
+def _write_protocol_block() -> str:
+    """写作硬协议(讨论 vs 动稿)+ 文风基准(纯静态,零数据)。原 _editor_write_system 内联串
+    原样抽出,供旧 _editor_write_system 与 v1 共用——不改一字,保旧路径字节一致。"""
+    return (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
         "## 核心判断:讨论 vs 动稿\n"
@@ -1426,6 +3017,22 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
         "  「" + _LUANSHI_EXEMPLAR + "」\n"
         "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
     )
+
+
+def _write_revision_block() -> str:
+    """M8 修订纪律(恒注入)。原 _editor_write_system 内联串原样抽出,旧/ v1 共用。"""
+    return (
+        "\n\n## 修订纪律\n"
+        "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
+        "除非作者明确要求整章重写。\n"
+        "- 禁止开放式整章自评重写(critique 放在大纲/节拍层;正文层只做表达增强)——"
+        "自评重写会同质化、越改越平。\n"
+        "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
+
+
+def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
+    # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
+    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + _write_protocol_block()
     # Task7:章前简报注入(chapter 已知才组装;fail-safe——组装异常只 warning 不阻断写作)
     brief_txt = ""
     if chapter is not None:
@@ -1443,13 +3050,7 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
             import logging
             logging.getLogger("scribe3").warning("章前简报组装失败(non-fatal): %s", _bf_e)
     # Task7:M8 修订纪律(恒注入,与是否有简报无关)
-    revision = (
-        "\n\n## 修订纪律\n"
-        "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
-        "除非作者明确要求整章重写。\n"
-        "- 禁止开放式整章自评重写(critique 放在大纲/节拍层;正文层只做表达增强)——"
-        "自评重写会同质化、越改越平。\n"
-        "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
+    revision = _write_revision_block()
     return base + revision + (("\n\n" + brief_txt) if brief_txt else "")
 
 
@@ -1513,17 +3114,20 @@ def _is_write_intent(msg) -> bool:
 
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
-                  with_tools: bool = True, on_complete=None):
+                  with_tools: bool = True, on_complete=None,
+                  mcp_server_label: str = SCRIBE3_READ_MCP_LABEL):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
-    with_tools:审计 P0-2——仅当前书(==SCRIBE3_WORK)挂 s3_ 工具;非当前书 False,防串到错库。
+    with_tools:H-01 work-scoped MCP 开关;为 True 时 instructions 必须已钉死当前 work。
     on_complete:北极星任务1——流尽后以 assistant 落库文本回调一次(围栏外散文+提案标记,
     不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
     import json as _j
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
+    adapter = HermesEventAdapter()
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
     prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
@@ -1531,6 +3135,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     # 兜底追踪状态
     saw_proposal = False
     delta_acc: list[str] = []   # 累积全部 delta 文本,用于兜底长散文
+    trace = {"status": "streaming", "tool_calls": [], "tool_outputs": [],
+             "response_id": None, "usage": None}
 
     def drain(events):
         nonlocal saw_proposal
@@ -1552,15 +3158,51 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 prop["prose"] = []
 
     try:
-        for ev in fn(message, instructions, with_tools=with_tools):
-            t = ev.get("type", "")
-            if t == "response.output_text.delta":
-                yield from drain(parser.feed(ev.get("delta", "")))
-            elif t == "response.output_item.added":
-                item = ev.get("item", {}) or {}
-                if item.get("type") == "function_call":
-                    yield f"data: {_j.dumps({'tool': item.get('name', '')}, ensure_ascii=False)}\n\n"
+        for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
+                                        server_label=mcp_server_label):
+            app_ev = adapter.adapt(ev)
+            if app_ev["kind"] == "text.delta":
+                yield from drain(parser.feed(app_ev.get("delta", "")))
+            elif app_ev["kind"] == "tool.started":
+                trace["tool_calls"].append({
+                    "name": app_ev.get("name", ""),
+                    "arguments": app_ev.get("arguments", ""),
+                    "call_id": app_ev.get("call_id"),
+                })
+                yield f"data: {_j.dumps({'tool': app_ev.get('name', '')}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "tool.output":
+                trace["tool_outputs"].append({
+                    "call_id": app_ev.get("call_id"),
+                    "output": app_ev.get("output", ""),
+                })
+                yield f"data: {_j.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "approval.requested":
+                trace.setdefault("approvals", []).append({
+                    "run_id": app_ev.get("run_id"),
+                    "approval_id": app_ev.get("approval_id"),
+                    "message": app_ev.get("message", ""),
+                    "status": "requested",
+                })
+                yield f"data: {_j.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "approval.resolved":
+                trace.setdefault("approvals", []).append({
+                    "run_id": app_ev.get("run_id"),
+                    "approval_id": app_ev.get("approval_id"),
+                    "decision": app_ev.get("decision"),
+                    "status": "resolved",
+                })
+                yield f"data: {_j.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+            elif app_ev["kind"] == "run.completed":
+                trace["status"] = "completed"
+                trace["response_id"] = app_ev.get("response_id")
+                trace["usage"] = app_ev.get("usage")
+            elif app_ev["kind"] == "run.failed":
+                trace["status"] = "failed"
+                trace["response_id"] = app_ev.get("response_id")
+                trace["error"] = app_ev.get("error")
         yield from drain(parser.flush())
+        if trace["status"] == "streaming":
+            trace["status"] = "completed"
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
         # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
         # 只把散文主体包进 proposal,避免对话话术混入手稿。
@@ -1574,6 +3216,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 )
         yield 'data: {"done": true}\n\n'
     except Exception as e:
+        trace["status"] = "failed"
+        trace["error"] = str(e)[:160]
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
     finally:
@@ -1586,7 +3230,10 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 if prop_marks:
                     txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
                 if txt:
-                    on_complete(txt)
+                    try:
+                        on_complete(txt, trace)
+                    except TypeError:
+                        on_complete(txt)
             except Exception:
                 logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
 
@@ -1822,10 +3469,10 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=[], short_mode=short_mode, with_tools=_wt)
+        seed_words=[], short_mode=short_mode, with_tools=_wt, work=work)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
                       with_tools=_wt),
@@ -1871,6 +3518,14 @@ class ChatWriteReq(BaseModel):
     phase: str = ""              # 阶段角色(Phase0-BE2):plan|draft|final;空=现状不变
     short_mode: bool = False     # 方案B任务16:短篇模式——跳过 build_craft_block 的
                                   # ENGINES["restraint"](留白/克制)注入
+    # Task 4:上下文绑定字段一律 optional——契约不硬断存量调用方(1270 项测试/旧前端/
+    # loop/pilot)。强制校验挂 SCRIBE3_CONTEXT_SNAPSHOT_V1:开关开 + 字段缺失/过期 → 4xx;
+    # 开关关(默认)→ 完全忽略,行为不变。见 context_service.ContextService.enforce。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
+    context_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    thread_id: str | None = None   # Task 6:主编线程归属(一 work 一连续线程)
+    focus: dict | None = None      # Task 6:本轮焦点标签(切焦点不切线程,焦点只作每轮标签)
 
     @field_validator("images")
     @classmethod
@@ -2063,12 +3718,12 @@ def _final_reminder() -> str:
     )
 
 
-def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
+def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
+                            work: str | None = None) -> str:
     """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
     生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
     (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
-    with_tools(P0-2 守卫,P1 全量抓漏):非当前书对话不挂 s3_ 工具,提示语绝不
-    提及 s3_ 工具名(诱导调用不存在的工具=坏提示+违反防串库语义)。
+    with_tools:H-01 work-scoped MCP;启用工具时必须提醒模型所有 s3_ 调用带当前 work。
     空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
     try:
         from scribe3.purpose import parse_deltas
@@ -2078,24 +3733,351 @@ def _purpose_workflow_block(st, chapter: int, with_tools: bool = False) -> str:
     if ds:
         return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
                 "验收验的是「状态变化发生没发生」,不是好不好。")
-    register_hint = ("有 s3_register_purpose 工具就调用它走待批登记;无工具时请作者在章面板登记。"
+    w = _normalize_work(work)
+    register_hint = (f"有 s3_register_purpose 工具就调用它走待批登记;调用时必须传 work=\"{w}\"。"
                      if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
     return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
             "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
             + register_hint + "空合同也可正常写作,此工序不阻塞。")
 
 
+def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None) -> str:
+    """写作总闸素材注入(全生成相位共用):聚焦 query → material_recall(三通道)→ LLM 重排理由 →
+    render 参考段 + 写溯源(反哺强度)。门控:无草料/空库/无命中 → 空串(零开销,不调 LLM)。
+    参考语义:素材是借鉴非事实,注入段自带反照搬边界。限知不约束素材(元层面创作参考,非故事内知识)。
+    全 try/except fail-soft:素材召回任何异常都不阻断写作主链。"""
+    try:
+        from scribe3.brief import chapter_draft_text, detect_mentions
+        from scribe3.material_recall import (extract_focus_query, gate,
+                                             render_material_block, rerank_materials)
+        draft = chapter_draft_text(st.get_chapter(chapter) or {})
+        if not (draft or "").strip():
+            return ""
+        entities = [{"id": e.id, "name": e.name,
+                     "aliases": (getattr(e, "traits", None) or {}).get("aliases") or []}
+                    for e in st.all_entities()]
+        mentioned = detect_mentions(draft, entities)
+        query = extract_focus_query({"beats": [draft[:200]], "mentioned": list(mentioned)})
+        if not query:
+            return ""
+        cands = gate(st.material_recall(query, chapter, k=5, mentioned_entities=mentioned))
+        if not cands:
+            return ""   # 门控:空库/无命中 → 不调 LLM 重排
+        if llm is None:
+            from scribe3.llm import hermes_complete
+            def llm(p):
+                return hermes_complete(p, max_tokens=500)
+        ranked = rerank_materials(cands, query, llm, k=3)
+        block = render_material_block(ranked)
+        if block:
+            for c in ranked:   # 溯源反哺(recall_count++/last_recalled_at)
+                try:
+                    st.add_material_reference(
+                        c["material_id"], chapter,
+                        dimension=(c.get("ref_tags") or [None])[0],
+                        reason=c.get("reason"), via=f"phase:{phase}")
+                except Exception:
+                    pass
+        return "\n\n" + block if block else ""
+    except Exception:
+        logging.getLogger("scribe3").debug("素材召回块失败(不阻断写作)", exc_info=True)
+        return ""
+
+
+# M1:v1 组装失败回退旧链的累计次数(金丝雀读它判断真机是否真走了 v1,防静默降级)。
+_context_assembler_fallbacks = 0
+
+
+def _context_assembler_enabled() -> bool:
+    """Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1 是否开启(每次调用读,默认关)。
+    关 → _assemble_write_instructions 走旧散点组装链,行为一字不变(1270+ 后端测试
+      与真机写作路径零影响,控制器裁决)。开 → 走 ContextAssembler 组装的 envelope。
+    Task 17 的"写作质量金丝雀门"真机验证通过后才允许默认开启。"""
+    return os.environ.get("SCRIBE3_CONTEXT_ASSEMBLER_V1", "").strip().lower() in {
+        "1", "true", "yes", "on"}
+
+
+# ContextSnapshot.phase 的合法枚举(context_models.PhaseName);写作端点的 phase
+# 串("plan"/"draft"/"final"/...)不在此集合的一律降 None,防合成快照校验失败。
+_ASSEMBLER_PHASES = {"outline", "beats", "deduce", "draft", "final"}
+
+
+def _write_snapshot(st, *, chapter, focalizer, phase, work):
+    """为写作组装合成一份最小 ContextSnapshot(v1 路径喂给 ContextAssembler)。
+    写作端点不像导航那样带完整快照,这里用确定性占位补齐 session/thread/nav——
+    它只作 assembler 的取数坐标(work/chapter/focalizer/phase),不入 CAS 存储。"""
+    from datetime import datetime, timezone
+    from scribe3.context_models import ContextFocus, ContextSnapshot
+    w = _normalize_work(work)
+    ph = (phase or "").strip().lower()
+    ph = ph if ph in _ASSEMBLER_PHASES else None
+    has_ch = chapter is not None
+    snap = ContextSnapshot(
+        session_id="write", work=w, revision=0, thread_id=f"write:{w}",
+        entry="chapter", directory_path=(),
+        focus=ContextFocus(type="chapter" if has_ch else "view",
+                           id=str(chapter) if has_ch else w,
+                           label=focalizer or ""),
+        detail_route=f"chapter:{chapter}" if has_ch else "view:book",
+        chapter=chapter, phase=ph, focalizer=focalizer or None,
+        previous_revision=None, navigation_id=f"write:{w}:{chapter}",
+        captured_at=datetime.now(timezone.utc), context_hash="")
+    return snap.with_hash()
+
+
+def _get_write_retriever(st):
+    """Task 8 MemoryRetriever 注入点(对称门控,Task 16-C)。
+
+    SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ None:assembler 走 store 直查降级(canonical
+      仍有真数据),与 16-C 前【字节等价】——写作 prompt 不读经验记忆、零检索成本。
+    【开】→ MemoryRetriever(st):四通道检索 / RRF / 限知门 / 正典压制接进写作 envelope
+      (剧透门 known_from、秘密屏蔽 C1、work 隔离全在检索/组装链内生效)。
+    注:检索真进 prompt 还需 SCRIBE3_CONTEXT_ASSEMBLER_V1 同开(v1 组装路径消费本 retriever);
+    任一关 = 当前生产行为。捕获侧 _capture_turn_memory 由同一 flag 对称门控(同开同关)。
+    M4 记账:门控不完全对称——读路径需 MEMORY_FABRIC + ASSEMBLER_V1【同开】(assembler 是 envelope
+      注入点),写(捕获)只需 MEMORY_FABRIC。Task 17 金丝雀门须【同开两旗】才真验读路径。"""
+    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+        return None
+    from scribe3.memory_retrieval import MemoryRetriever
+    return MemoryRetriever(st)
+
+
+def _build_write_retrieval_query(st, *, chapter, seed_words) -> str:
+    """I1(Task 16-C):为写作检索拼一个有意义的 query,靶向本章相关经验记忆。
+
+    源优先级(选 seed_words 为主的理由:它是作者给本章的种子词/意象,签名已带、最贴"此刻在写什么",
+    是最自然的检索靶向;章纲作退路补全):
+      ① seed_words —— 本章种子词(_soak_block 同源),空白项剔除后拼接;
+      ② 无种子词 → 章纲 synopsis(get_chapter)截断 200 字,给一个"本章要写什么"的兜底靶向。
+    作者 msg 未透传到本组装函数(_assemble_write_instructions 链只带 seed_words),不为它改签名/注入点
+    (文档1 教训:每新开一个注入点泄露过一次限知);seed_words+章纲已足够靶向,故不硬塞 msg。
+    仅在检索器接上(MEMORY_FABRIC 开)时被调用;返回空串则退化为"只出 canonical"的保守行为(不崩)。"""
+    parts = [w.strip() for w in (seed_words or []) if isinstance(w, str) and w.strip()]
+    if parts:
+        return " ".join(parts)[:200]
+    try:
+        ch = st.get_chapter(chapter) or {}
+        syn = (ch.get("synopsis") or "").strip()
+        if syn:
+            return syn[:200]
+    except Exception:
+        pass
+    return ""
+
+
+def _write_context_binding(req, headers=None) -> dict:
+    """从 chat/write 请求解析【前端真实上下文会话绑定】(供落 memory_trace 给 ContextInspector)。
+
+    三件套 + thread 优先取 body 字段,缺失回退等价请求头 X-Scribe-Context-*(与
+    ContextService.enforce 同源同形,I-1 双通道)。返回 dict(值可为 None);
+    调用侧只在检索发生【且 session_id/revision 齐备】时消费——即前端确实带了会话绑定
+    (WriteChat.runContextBind 发 context_session_id + context_revision)。不带绑定的
+    调用方(loop / 存量)→ session_id 缺 → 不落 trace(Inspector 诚实 404)。"""
+    from scribe3.context_service import HEADER_HASH, HEADER_REVISION, HEADER_SESSION
+    headers = headers if headers is not None else {}
+    session_id = getattr(req, "context_session_id", None) or headers.get(HEADER_SESSION)
+    context_hash = getattr(req, "context_hash", None) or headers.get(HEADER_HASH)
+    revision = getattr(req, "context_revision", None)
+    if revision is None:
+        raw = headers.get(HEADER_REVISION)
+        try:
+            revision = int(raw) if raw not in (None, "") else None
+        except (TypeError, ValueError):
+            revision = None
+    return {
+        "context_session_id": session_id,
+        "context_revision": revision,
+        "context_hash": context_hash,
+        "thread_id": getattr(req, "thread_id", None),
+    }
+
+
+def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) -> str:
+    """Task 16 最后一厘米:一次写作检索的 RetrievalResult → memory_trace(ContextInspector 数据源)。
+
+    键对齐(命门):context_session_id/snapshot_revision 取【前端真实会话绑定】(ctx,来自
+    chat/write 的 req/请求头)——前端 ContextInspector 正是用同一 snapshot.session_id/revision
+    查 GET /context/sessions/{id}/trace/{rev},键天然对齐,检索发生即显真数据。snapshot_hash/
+    thread_id 前端未必带(WriteChat 只发 session_id+revision)→ 回退写作合成快照 snap。
+
+    幂等:trace_id 用 (work,session,thread,revision) 确定性 hash;同一快照版本反复写只留最新
+    一条(save_memory_trace 先删后建)。
+
+    秘密屏蔽(限知红线):build_memory_trace(store=st) 叠加 _secret_fact_ids 权威判定,
+    save_memory_trace 落库前再 mask_memory_trace 兜底 → DB at-rest 绝无秘密 value。
+
+    调用方 best-effort try/except 兜底:本函数任何异常都不得阻断写作主链路。"""
+    import hashlib
+
+    from scribe3.store import build_memory_trace
+    session_id = str(ctx.get("context_session_id"))
+    revision = int(ctx.get("context_revision"))
+    snap_hash = str(ctx.get("context_hash") or getattr(snap, "context_hash", "") or "")
+    thread_id = str(ctx.get("thread_id") or getattr(snap, "thread_id", "") or "")
+    env_hash = str(getattr(envelope, "envelope_hash", "") or "")
+    block_tokens = {b.name: b.token_estimate
+                    for b in (getattr(envelope, "blocks", None) or [])}
+    # channels:每条选入候选实际命中的通道计数(审计观测;Inspector 主看 block_tokens/证据)。
+    channels: dict = {}
+    for c in (getattr(result, "selected", None) or []):
+        for ch in (getattr(c, "channels", None) or ()):
+            channels[str(ch)] = channels.get(str(ch), 0) + 1
+    key = f"{work or ''}|{session_id}|{thread_id}|{revision}"
+    trace_id = "mt:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    trace = build_memory_trace(
+        trace_id=trace_id, work=str(work or ""), thread_id=thread_id,
+        context_session_id=session_id, snapshot_revision=revision,
+        result=result, query=query or "", snapshot_hash=snap_hash,
+        envelope_hash=env_hash, channels=channels, block_tokens=block_tokens,
+        store=st)
+    st.save_memory_trace(trace)
+    return trace_id
+
+
+def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
+                                    short_mode, with_tools=False, work=None,
+                                    envelope_trace=None, memory_trace_ctx=None):
+    """SCRIBE3_CONTEXT_ASSEMBLER_V1【开】路径:身份/硬协议保持内嵌,上下文段由
+    ContextAssembler 统一组装(可预算/可溯源/正典优先/限知屏蔽);强制纪律仍逐条内嵌
+    (_final_reminder/_revelation_discipline_block/_focalizer_sincerity_block 等是
+    "每请求硬协议",不进 envelope——计划全局约束的稳定层分工)。旧块函数
+    (_frame_block/_recap_block/_material_recall_block)不删不改,其取数语义由 assembler
+    的 store 降级路径承接(source adapter)。⚠ Task 17 金丝雀门真机验证前默认不启用。"""
+    from scribe3.context_assembler import (
+        ContextAssembler, envelope_trace_manifest, render_envelope_text)
+    from scribe3.craft import build_craft_block
+    # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
+    # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
+    # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
+    instructions = (_editor_identity_block() + _write_protocol_block()
+                    + _write_revision_block())
+    instructions += f"\n当前第 {chapter} 章。"
+    if with_tools:
+        instructions += _s3_work_scope_block(work)
+    if focalizer:
+        instructions += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
+                         "贴该角色所知所感写,别写他不知道的私密。")
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
+    snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
+                           phase=phase, work=work)
+    mode = "write" if (phase or "").strip().lower() in ("draft", "final") else "plan"
+    # I1(Task 16-C 核心修复):写作路径必须给 assemble 一个【有意义 query】,否则
+    #   store.memory_bm25/vector 对空串硬返 [](graph 种子亦空)→ episodic/working 三条经验
+    #   通道全归零,只剩 structured/canonical(与 query 无关,retriever=None 降级即可得),
+    #   捕获→memory_item→检索的经验回路在生产仍是"只写不读"。故 fabric 开(retriever 非 None)时
+    #   用本章种子词/章纲作 query 靶向经验记忆;fabric 关(retriever=None)时 query 仍空——
+    #   envelope 与接线前逐字不变(默认关字节等价,连 focus 块"作者此刻问"都不出现)。
+    #   剧透门不受影响:known_from 门在 store SQL/Python 侧恒生效,有意义 query 也挡不掉未来揭示。
+    retriever = _get_write_retriever(st)
+    retrieval_query = (_build_write_retrieval_query(st, chapter=chapter, seed_words=seed_words)
+                       if retriever is not None else "")
+    # Task 16 最后一厘米:检索发生(retriever 非 None = MEMORY_FABRIC 开)时收集本次完整
+    # RetrievalResult,组装后落 memory_trace 给 ContextInspector 真数据。retriever=None
+    # (MEMORY_FABRIC 关)→ 收集器 None → assemble 走协议 retrieve() → 与接线前【字节等价】。
+    _retrieval_out = {} if retriever is not None else None
+    envelope = ContextAssembler(st, retriever).assemble(
+        snap, retrieval_query, mode, retrieval_out=_retrieval_out)
+    # M3 记账 + 指标接入:采样本次组装 envelope 的 token 估算(context_tokens_p95 由 0 变真实)。
+    # 纯观测副作用,不改 instructions 字节;仅 v1 路径(ASSEMBLER_V1 开)才走到这里——即 MEMORY_FABRIC
+    # 关而 ASSEMBLER_V1 开时仍会采样(内存 deque,无秘密、字节无害),这是刻意的观测下限,非泄露。
+    try:
+        from scribe3 import context_cache as _cc
+        _cc.record_context_tokens(envelope.total_token_estimate)
+    except Exception:
+        pass
+    # Caveat 1(Task 17 Step 5b):把 envelope 的【安全块清单】回填 envelope_trace,供
+    # chat/write 落 chat_message.trace.context 审计"主编这轮看到了哪些上下文块"(Task 14
+    # ContextInspector 数据源)。复用 envelope_trace_manifest —— 它本就"给 trace.context 用"
+    # (计划 Step 5):每块只记 name/token/source id/被屏蔽 source id + omitted 原因,
+    # 【绝不含】块正文与秘密 value(限知红线,test_trace_manifest_excludes_secret_values 锁死)。
+    # 纯观测副作用:envelope_trace 缺省 None(仅 chat_write_post 传入)→ 其余调用方字节等价;
+    # 摘要计算异常绝不影响写作主链路。
+    if envelope_trace is not None:
+        try:
+            envelope_trace["context"] = envelope_trace_manifest(envelope)
+        except Exception:
+            pass
+    # Task 16 最后一厘米:检索真发生(retriever 非 None)且前端带了会话绑定
+    # (memory_trace_ctx 有 session_id + revision)时,落 memory_trace 给 ContextInspector。
+    # 键用前端真实会话(前端 Inspector 查同一 session/revision,天然对齐);无绑定的调用方
+    # (loop / 存量)→ 不落(诚实 404)。best-effort:落库失败只告警,绝不阻断写作主链路
+    # (与 chat_message 同纪律);秘密屏蔽复用 _save_write_memory_trace 内 build/save 双重 mask。
+    _mtc = memory_trace_ctx or {}
+    if (_retrieval_out is not None and _mtc.get("context_session_id")
+            and _mtc.get("context_revision") is not None):
+        _result = _retrieval_out.get("result")
+        if _result is not None:
+            try:
+                _save_write_memory_trace(
+                    st, snap=snap, envelope=envelope, result=_result,
+                    query=retrieval_query, work=work, ctx=_mtc)
+            except Exception:
+                logging.getLogger("scribe3").warning(
+                    "memory_trace 落库失败(忽略,不阻断写作)", exc_info=True)
+    env_text = render_envelope_text(envelope)
+    if env_text:
+        instructions += "\n\n" + env_text
+    # 生成模式/情绪种子/工艺块(叠加,非上下文事实)
+    instructions += _soak_block(seed_words)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
+    if craft:
+        instructions += "\n\n" + craft
+    instructions += _phase_role_block(phase)
+    # 每请求硬协议(强制纪律,恒内嵌 prompt,不进 envelope)
+    instructions += _revelation_discipline_block(focalizer)
+    instructions += _focalizer_sincerity_block()
+    instructions += _purpose_workflow_block(st, chapter, with_tools, work)
+    instructions += _final_reminder()
+    return instructions
+
+
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool,
-                                 with_tools: bool = False) -> str:
+                                 with_tools: bool = False,
+                                 work: str | None = None,
+                                 envelope_trace: dict | None = None,
+                                 memory_trace_ctx: dict | None = None) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
     (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
-    with_tools:透传给工序提示段(P0-2:非当前书不得诱导 s3_ 工具)。"""
+    with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。
+    envelope_trace(Caveat 1):可选可变收集器;仅 v1 路径成功组装时被回填
+      {"context": <安全块清单>}(仅 chat_write_post 传入,供落 chat_message.trace.context)。
+      缺省 None → 全部其余调用方与旧路径字节等价。
+    memory_trace_ctx(Task 16 最后一厘米):可选前端会话绑定
+      {context_session_id/context_revision/context_hash/thread_id};仅 v1 路径且检索发生
+      (MEMORY_FABRIC 开)+ 绑定齐备时,把 RetrievalResult 落 memory_trace 给 ContextInspector。
+      缺省 None → 不落 trace,其余调用方(loop/存量)行为不变。
+
+    Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1【开】→ 委托 _assemble_write_instructions_v1
+      (ContextAssembler 统一组装);组装异常 → 回退下方旧链(fail-safe)。
+      【关】(默认)→ 直接执行下方旧链,行为一字不变(控制器裁决的硬性验收条件)。"""
+    if _context_assembler_enabled():
+        try:
+            return _assemble_write_instructions_v1(
+                st, chapter=chapter, focalizer=focalizer, phase=phase,
+                seed_words=seed_words, short_mode=short_mode,
+                with_tools=with_tools, work=work, envelope_trace=envelope_trace,
+                memory_trace_ctx=memory_trace_ctx)
+        except Exception:
+            # M1:回退是【结构化信号】,不能静默——否则 Task 17 金丝雀门会被蒙蔽(v1
+            # 其实全程降级到旧链却以为在测 v1)。累计计数器 + 带阶段/章/书的 warning,
+            # 供金丝雀读 app._context_assembler_fallbacks 判断"这次真机是否真走了 v1"。
+            global _context_assembler_fallbacks
+            _context_assembler_fallbacks += 1
+            logging.getLogger("scribe3").warning(
+                "ContextAssembler v1 组装失败,回退旧组装链(fail-safe) "
+                "stage=assemble_write_instructions chapter=%s focalizer=%s work=%s "
+                "fallbacks=%d",
+                chapter, focalizer, work, _context_assembler_fallbacks, exc_info=True)
     from scribe3.craft import build_craft_block
     instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
     instructions += f"\n当前第 {chapter} 章。"
+    if with_tools:
+        instructions += _s3_work_scope_block(work)
     if focalizer:
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
@@ -2114,6 +4096,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
     instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
+    instructions += _material_recall_block(st, chapter, phase, focalizer)  # 素材联想记忆(借鉴参考,覆盖全生成相位)
     instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
     _ph_lower = (phase or "").strip().lower()
     if _ph_lower in ("draft", "final"):
@@ -2142,19 +4125,35 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                              + _truth
                              + "\n\n生成角色限知投影时:只从上述真相中该角色能感知/推知的"
                                "部分派生;真相里没有的事不得出现在任何投影里。")
-    instructions += _purpose_workflow_block(st, chapter, with_tools)   # 北极星任务6:目的合同工序
+    instructions += _purpose_workflow_block(st, chapter, with_tools, work)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
     return instructions
 
 
 @app.post("/chat/write")
-def chat_write_post(req: ChatWriteReq, work: str = "main"):
+def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
-    _wt = _work_has_tools(work)   # P0-2:仅当前书挂 s3_ 工具(组装链提示同频)
+    # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,默认关=零变化)。
+    # 必须在 user 落库与 StreamingResponse 之前完成——流一旦开始,4xx 会退化成流中错误。
+    # 双通道(I-1):body 三件套缺失时逐字段回退请求头 X-Scribe-Context-*
+    # (api.js contextHeaders 产出),两通道都缺才 400。
+    try:
+        ContextService(st).enforce(req, work, headers=request.headers)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
+    # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
+    # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
+    _envelope_trace: dict = {}
+    # Task 16 最后一厘米:前端真实会话绑定(供 v1 检索路径落 memory_trace 给 ContextInspector);
+    # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 v1 + MEMORY_FABRIC 开 + 绑定齐备时
+    # 被消费落 trace——flag 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
+    _memory_trace_ctx = _write_context_binding(req, request.headers)
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt)
+        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
+        envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -2170,15 +4169,35 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     import uuid
     turn_id = uuid.uuid4().hex[:12]
     user_text = req.msg + (f"\n[附图{len(req.images)}张]" if req.images else "")
+    # Task 6:线程归属 + 本轮 context 绑定/焦点标签随消息落库(切焦点不切线程);
+    # 全 optional,存量调用方(不传 thread_id)仍走 backfill 的默认线程回看。
+    _bind = dict(thread_id=req.thread_id, context_session_id=req.context_session_id,
+                 context_revision=req.context_revision, context_hash=req.context_hash,
+                 focus=req.focus)
     try:
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user",
-                            text=user_text, turn=turn_id)
+                            text=user_text, turn=turn_id, **_bind)
     except Exception:
         logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
 
-    def _persist_assistant(text: str) -> None:
+    def _persist_assistant(text: str, trace: dict | None = None) -> None:
+        # assistant 侧 response_id 取自 Hermes trace(便于按响应回溯本轮)。
+        trace = dict(trace or {})
+        # Caveat 1:v1 组装路径(ASSEMBLER_V1 开且成功)才有 envelope 块清单 →
+        # 并入 trace.context 供审计"主编这轮看到了哪些上下文块"。manifest 每块仅记
+        # name/token/source id/被屏蔽 source id,绝无块正文与秘密 value(限知红线)。
+        # flag 关或回退旧链时 _envelope_trace 为空 → 不加 context 键(字节等价)。
+        _ctx = _envelope_trace.get("context")
+        if _ctx:
+            trace["context"] = _ctx
+        resp_id = trace.get("response_id")
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
-                            text=text, turn=turn_id)
+                            text=text, turn=turn_id, trace=trace,
+                            response_id=resp_id, **_bind)
+        # Task 9:本轮作者意图捕获成经验记忆(幂等 + 同步 drain;每 8 轮/会话末 consolidate)。
+        # 捕获作者原话(决策/偏好/不确定的真源),不碰正文生成与 prompt 组装(写作路径零改动)。
+        _capture_turn_memory(st, work=work, thread_id=(req.thread_id or f"write:{work}"),
+                             turn_id=turn_id, text=user_text, chapter=req.chapter)
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
@@ -2201,9 +4220,11 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
     (_responses_events 可 monkeypatch)与同一 ProposalParser 语义,只是不产 SSE 帧。
     返回 (围栏外散文, proposals=[{scope, prose}, ...]);LLM 异常向上抛(journal 的
     in_progress 会停在 generate stage,resume/审计可见,不吞错)。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
+    adapter = HermesEventAdapter()
     parser = ProposalParser()
     outside: list[str] = []
     proposals: list[dict] = []
@@ -2223,9 +4244,11 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
                 cur["scope"] = None
                 cur["prose"] = []
 
-    for ev in fn(message, instructions, with_tools=with_tools):
-        if ev.get("type") == "response.output_text.delta":
-            drain(parser.feed(ev.get("delta", "")))
+    for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
+                                    server_label=SCRIBE3_READ_MCP_LABEL):
+        app_ev = adapter.adapt(ev)
+        if app_ev["kind"] == "text.delta":
+            drain(parser.feed(app_ev.get("delta", "")))
     drain(parser.flush())
     return "".join(outside), proposals
 
@@ -2286,7 +4309,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
             seed_words=[], short_mode=req.short_mode,
-            with_tools=_work_has_tools(work))
+            with_tools=_work_has_tools(work), work=work)
         if constraints:
             instructions += "\n\n" + constraints
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
@@ -2415,6 +4438,71 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
 @app.get("/chapters")
 def chapters(work: str = "main"):
     return _store_for(work).list_chapters()
+
+
+@app.get("/chapters/archived")
+def archived_chapters(work: str = "main"):
+    """归档箱:列出已归档但尚未永久删除的章节。"""
+    return _store_for(work).archived_chapters()
+
+
+class ChapterCreateReq(BaseModel):
+    title: str | None = None
+    volume: str | None = None
+
+
+@app.post("/chapters")
+def create_chapter(req: ChapterCreateReq, work: str = "main"):
+    """新建空章:seq 使用历史最大章号+1,不复用归档章。"""
+    try:
+        ch = _store_for(work).create_chapter(req.title or "", req.volume)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"status": "created", **ch}
+
+
+class ChapterArchiveReq(BaseModel):
+    reason: str | None = None
+
+
+@app.post("/chapters/{seq}/archive")
+def archive_chapter(seq: int, req: ChapterArchiveReq | None = None, work: str = "main"):
+    """归档章节:默认删除动作,隐藏但保留正文、版本和关联。"""
+    ok = _store_for(work).archive_chapter(seq, (req.reason if req else "") or "")
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "archived", "seq": seq}
+
+
+@app.post("/chapters/{seq}/restore")
+def restore_chapter(seq: int, work: str = "main"):
+    ok = _store_for(work).restore_chapter(seq)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "restored", "seq": seq}
+
+
+@app.get("/chapters/{seq}/impact")
+def chapter_impact(seq: int, work: str = "main"):
+    impact = _store_for(work).chapter_lifecycle_impact(seq)
+    if impact is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return impact
+
+
+@app.delete("/chapters/{seq}")
+def delete_chapter(seq: int, confirm_impact_token: str | None = None, work: str = "main"):
+    """永久删除章节。必须先读取 impact 并带回 confirm_impact_token。"""
+    st = _store_for(work)
+    impact = st.chapter_lifecycle_impact(seq)
+    if impact is None:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    if confirm_impact_token != impact["confirm_impact_token"]:
+        return JSONResponse(status_code=409, content=impact)
+    ok = st.delete_chapter_permanent(seq)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    return {"status": "deleted", "seq": seq, "impact": impact}
 
 
 # ===== 大纲/卷章树(手稿支数据层,作者工具 F-01 后端)=====
@@ -2600,6 +4688,94 @@ def qc(seq: int, work: str = "main"):
         logging.getLogger("scribe3").warning("qc emotion_telling 失败 work=%s seq=%s: %s", work, seq, e)
         out["emotion_telling"] = []
     return out
+
+
+_QC_ISSUE_LABELS = {
+    "repetition": "复读(章内)",
+    "cross_repetition": "跨章复读",
+    "duplicate_lines": "整句重复",
+    "structural": "排比句式",
+    "emotion_telling": "情感直说",
+    "purple": "辞藻升华",
+    "ai_tics": "AI 腔",
+    "oversaturation": "过饱和",
+}
+
+
+def _issue_hit_text(hit) -> str:
+    if isinstance(hit, str):
+        return hit
+    if isinstance(hit, dict):
+        for k in ("phrase", "line", "span", "text", "detail", "reason"):
+            if hit.get(k):
+                return str(hit[k])
+    return str(hit)
+
+
+def _issue_hit_range(hit) -> list[int]:
+    if isinstance(hit, dict):
+        span = hit.get("range") or hit.get("loc")
+        if isinstance(span, (list, tuple)) and len(span) == 2:
+            return [int(span[0] or 0), int(span[1] or 0)]
+        if hit.get("start") is not None or hit.get("end") is not None:
+            return [int(hit.get("start") or 0), int(hit.get("end") or 0)]
+    return [0, 0]
+
+
+@app.get("/issues")
+def issue_ledger(chapter: int | None = Query(default=None, ge=1), work: str = "main"):
+    """校验台账:把 QC/因果等现有确定性结果归一化为可钻取 issue。"""
+    st = _store_for(work)
+    seqs = [chapter] if chapter is not None else [int(c["seq"]) for c in st.list_chapters()]
+    issues = []
+    degraded_sources = []
+    for seq in seqs:
+      try:
+        q = qc(seq, work)
+      except Exception as e:
+        degraded_sources.append({"source": "qc", "chapter": seq, "reason": str(e)})
+        q = {}
+      for source_key, label in _QC_ISSUE_LABELS.items():
+        hits = q.get(source_key) or []
+        if isinstance(hits, int):
+            hits = [{} for _ in range(hits)]
+        if not isinstance(hits, list):
+            continue
+        for idx, hit in enumerate(hits):
+            reason = _issue_hit_text(hit)
+            severity = "error" if source_key in {"duplicate_lines", "cross_repetition"} else "warning"
+            issues.append({
+                "id": f"issue:qc:{seq}:{source_key}:{idx}",
+                "source": "qc",
+                "kind": source_key,
+                "severity": severity,
+                "title": label,
+                "reason": reason,
+                "chapter": seq,
+                "range": _issue_hit_range(hit),
+                "status": "open",
+                "suggested_action": "定位到正文后改写或删减重复表达。",
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
+            })
+      try:
+        causal_result = causal(seq, work)
+        for idx, v in enumerate(causal_result.get("violations") or []):
+            issues.append({
+                "id": f"issue:causal:{seq}:{idx}",
+                "source": "causal",
+                "kind": "causal",
+                "severity": "warning",
+                "title": "因果链缺口",
+                "reason": v.get("reason") or str(v),
+                "chapter": seq,
+                "range": [0, 0],
+                "status": "open",
+                "suggested_action": "补上前因、目标或结果承接。",
+                "target_node": {"id": f"ch:{seq}", "type": "chapter", "ref": seq, "label": f"第 {seq} 章"},
+            })
+      except Exception as e:
+        degraded_sources.append({"source": "causal", "chapter": seq, "reason": str(e)})
+    return {"issues": issues, "degraded_sources": degraded_sources}
 
 
 @app.get("/discipline")
@@ -3872,7 +6048,7 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
     def _generate(strategy: dict) -> str:
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
-            seed_words=[], short_mode=False, with_tools=False)   # 候选生成不挂工具(纯写作)
+            seed_words=[], short_mode=False, with_tools=False, work=work)   # 候选生成不挂工具(纯写作)
         instructions += "\n\n【选择环候选策略(本候选必须执行)】" + strategy["directive"]
         msg = ((req.msg + "\n") if req.msg else "") + (
             f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
@@ -4003,7 +6179,7 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     from scribe3.llm import hermes_complete
     ins = _assemble_write_instructions(
         st, chapter=seq, focalizer=focalizer, phase=phase,
-        with_tools=False, seed_words=[], short_mode=False)
+        with_tools=False, seed_words=[], short_mode=False, work=work)
     return (hermes_complete(ask, system=ins, max_tokens=max_tokens) or "").strip()
 
 
@@ -4393,10 +6569,12 @@ def _pilot_run_bg(work: str, start: int, until: int) -> None:
     try:
         st = _store_for(work)   # 与 sync 端点同模型(executor 内 loop/post-check 也走它)
         ex = _pilot_executor(work)
+        existing_seqs = set(st.chapter_seqs_in_range(start, until))
         for seq in range(start, until + 1):
             state["cur_seq"] = seq
-            if not st.get_chapter(seq):
+            if seq not in existing_seqs:
                 st.save_chapter(seq, "", title=f"第{seq}章")
+                existing_seqs.add(seq)
             while True:
                 if not state.get("running"):
                     state["stopped"] = "作者暂停"
@@ -4514,7 +6692,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     # P2-9:pilot parked 的章由⑤源承载(带更准 reason),journal 源跳过防同章双挂
     _pilot_parked_seqs: set[int] = set()
     try:
-        for rr in st._query("SELECT seq, pilot_parked FROM chapter WHERE pilot_parked != NONE"):
+        for rr in st._query("SELECT seq, pilot_parked FROM chapter:.. WHERE pilot_parked != NONE"):
             if (rr.get("pilot_parked") or "").strip():
                 _pilot_parked_seqs.add(rr.get("seq"))
     except Exception:
@@ -4547,7 +6725,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
     # ⑤ pilot 停靠项(T11):propose 级(大纲提案/交付卡)+ parked(needs_human/失败)
     try:
         rows = st._query(
-            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter "
+            "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter:.. "
             "WHERE pilot_state != NONE ORDER BY seq")
         for r in rows:
             ps, seq_p = r.get("pilot_state"), r.get("seq")

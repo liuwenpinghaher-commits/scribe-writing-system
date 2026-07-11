@@ -21,11 +21,26 @@ export default function App() {
     localStorage.setItem('s3-theme', theme)
   }, [theme])
 
+  // 全局键盘层(App 层 window keydown,仓内既有惯例落点;Task 10 Step 4 + 双审收尾):
+  //   · ⌘K   作品内 → 与顶栏搜索派发同一 s3-open-capability{search, focus:true},统一触发
+  //          左侧搜索工作区并聚焦其唯一搜索框(不另开第二个搜索面,不复制结果 store);
+  //          作品库 → 命令面板(此时无 cur,面板只出「作品/作品库」组,不出「视图」组)。
+  //   · ⇧⌘K 命令面板 —— 复活"键盘跳视图/切书"power-path。作品内(cur 存在)时命令面板的
+  //          「视图」组(CommandPalette 里 {cur && …})才可达,补上被 ⌘K 让位后失去的键盘入口。
   useEffect(() => {
-    const h = (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmdOpen((v) => !v) } }
+    const h = (e) => {
+      if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) return
+      e.preventDefault()
+      if (e.shiftKey) { setCmdOpen(true); return }
+      if (cur) {
+        try { window.dispatchEvent(new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } })) } catch { /* 非浏览器环境静默 */ }
+      } else {
+        setCmdOpen((v) => !v)
+      }
+    }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [])
+  }, [cur])
 
   useEffect(() => { if (cur) api.setWork(cur.slug) }, [cur])
 
@@ -33,6 +48,7 @@ export default function App() {
   useEffect(() => { reload() }, [])
 
   const open = (w) => { api.setWork(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
+  const openLibrary = () => setCur(null)
 
   // 顶栏横切 tab:切到对应横切视图(中间栏换成图谱/时间线/仪表盘…)
   const onView = (viewKey) => setSel({ mode: 'view', viewKey })
@@ -42,7 +58,7 @@ export default function App() {
 
   // 当前高亮的顶栏 tab(横切态才高亮;节点态不亮)
   const activeView = sel.mode === 'view' ? sel.viewKey : null
-
+  // 阶段3:flag 下沉到 BinderLayout 内部(四区壳/三栏壳共享同一套 state/Provider),App 层不再分流
   let body
   if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
@@ -53,7 +69,8 @@ export default function App() {
   return (
     <>
       <div className="h-full flex flex-col bg-canvas">
-        <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={() => setCur(null)} theme={theme} onTheme={setTheme} />
+        <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={openLibrary}
+          theme={theme} onTheme={setTheme} />
         <div className="flex-1 min-h-0">{body}</div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
           onView={onView} onSelectWork={open} onLibrary={() => setCur(null)} />

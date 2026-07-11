@@ -257,11 +257,11 @@ export const ProseEditor = forwardRef(function ProseEditor(
               ))}
             </>
           )}
-          <span className="px-1.5 text-f11 text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
+          <span className="px-1.5 text-meta text-faint tnum">选中 {editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to).length} 字</span>
         </div>
       </BubbleMenu>
       <EditorContent editor={editor} />
-      <div className="mt-2 text-right text-f11 text-faint tnum">{chars} 字</div>
+      <div className="mt-2 text-right text-meta text-faint tnum">{chars} 字</div>
     </div>
   )
 })

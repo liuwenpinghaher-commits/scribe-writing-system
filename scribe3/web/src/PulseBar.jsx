@@ -21,7 +21,7 @@ function Sparkline({ curve }) {
   const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(h - (p.pressure / max) * h).toFixed(1)}`).join(' ')
   return (
     <div className="mt-1.5">
-      <div className="text-f10 text-faint mb-0.5">全书压力级(1-5,你标的目标节奏)</div>
+      <div className="text-meta text-faint mb-0.5">全书压力级(1-5,你标的目标节奏)</div>
       <svg width={w} height={h} className="block">
         <path d={d} fill="none" stroke="var(--color-brand)" strokeWidth="1.5" />
       </svg>
@@ -63,7 +63,7 @@ export function PulseBar({ seq, onChat }) {
         <button key={d.dimension} data-testid={`pulse-${d.dimension}`}
           onClick={() => setOpen(open === d.dimension ? null : d.dimension)}
           title={`${DIM_LABEL[d.dimension]}:${d.severity === 'decision' ? '需决策' : d.severity === 'nudge' ? '有建议' : '安'}`}
-          className="flex items-center gap-1 text-f11 text-faint hover:text-ink cursor-pointer">
+          className="flex items-center gap-1 text-meta text-faint hover:text-ink cursor-pointer">
           <span className={`w-2 h-2 rounded-full ${SEV_DOT[d.severity] || 'bg-line'}`} />
           {DIM_LABEL[d.dimension]}
         </button>
@@ -77,7 +77,7 @@ export function PulseBar({ seq, onChat }) {
           <button key={`m${muteTick}`}
             onClick={() => { muted.forEach((d) => { try { localStorage.removeItem(`s3.pulse.mute.${w}.${d}`) } catch { /* */ } }); setMuteTick((t) => t + 1) }}
             title={`已静音:${muted.join('/')} — 点击全部恢复`}
-            className="text-f10 text-faint hover:text-ink cursor-pointer">🔕{muted.length}</button>
+            className="text-meta text-faint hover:text-ink cursor-pointer">🔕{muted.length}</button>
         )
       })()}
       {cur && (
@@ -90,7 +90,7 @@ export function PulseBar({ seq, onChat }) {
               </div>
               {it.action?.kind === 'chat' && (
                 <button onClick={() => { onChat?.(it.action.payload); setOpen(null) }}
-                  className="mt-0.5 text-f11 text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
+                  className="mt-0.5 text-meta text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
               )}
             </div>
           ))}

@@ -1,0 +1,1296 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>设定库钻取 Demo</title>
+  <style>
+    :root {
+      --canvas: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --surface-3: #e8eef5;
+      --line: #e5e7eb;
+      --line-strong: #cbd5e1;
+      --ink: #18212f;
+      --muted: #5d6878;
+      --faint: #8a94a3;
+      --brand: #226c5f;
+      --brand-ink: #104f45;
+      --brand-soft: #dceee9;
+      --blue: #2563eb;
+      --blue-soft: #e5edff;
+      --amber: #9a620e;
+      --amber-soft: #fff1d6;
+      --red: #b03838;
+      --red-soft: #fde9e9;
+      --shadow: rgba(15, 23, 42, .08);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: #edf1f5;
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button { cursor: pointer; }
+
+    .page {
+      min-height: 100vh;
+      padding: 20px;
+      display: grid;
+      place-items: center;
+    }
+
+    .demo {
+      width: min(1500px, 100%);
+      height: min(920px, calc(100vh - 40px));
+      min-height: 760px;
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr);
+      background: var(--canvas);
+      border: 1px solid #dce3ec;
+      box-shadow: 0 18px 44px var(--shadow);
+      overflow: hidden;
+    }
+
+    .topbar {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      color: var(--brand-ink);
+      font-size: 15px;
+      font-weight: 780;
+      white-space: nowrap;
+    }
+
+    .book {
+      height: 30px;
+      min-width: 0;
+      max-width: 176px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .top-views {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      padding-left: 10px;
+      border-left: 1px solid var(--line);
+    }
+
+    .topbtn {
+      height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .topbtn.active,
+    .topbtn:hover {
+      color: var(--ink);
+      background: var(--surface-2);
+    }
+
+    .top-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ghost-btn,
+    .primary-btn {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 10px;
+      border-radius: 7px;
+      font-size: 13px;
+      transition: background .16s ease, color .16s ease, border-color .16s ease;
+    }
+
+    .ghost-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .ghost-btn:hover {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    .primary-btn {
+      border: 1px solid var(--brand);
+      background: var(--brand);
+      color: #fff;
+      font-weight: 680;
+    }
+
+    .primary-btn:hover {
+      background: var(--brand-ink);
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 56px minmax(230px, 300px) minmax(460px, 1fr) minmax(280px, 340px);
+    }
+
+    .rail {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 6px;
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+    }
+
+    .rail button {
+      width: 44px;
+      min-height: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .rail button:hover {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    .rail button.active {
+      background: var(--brand-soft);
+      color: var(--brand-ink);
+      font-weight: 720;
+      box-shadow: inset 3px 0 0 var(--brand);
+    }
+
+    .rail .sep {
+      height: 1px;
+      margin: 3px 4px;
+      background: var(--line);
+    }
+
+    .icon {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 1.85;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .directory {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: rgba(255, 255, 255, .72);
+      border-right: 1px solid var(--line);
+    }
+
+    .dir-head {
+      flex: 0 0 auto;
+      padding: 14px 14px 10px;
+      background: rgba(255, 255, 255, .86);
+      border-bottom: 1px solid rgba(229, 231, 235, .72);
+    }
+
+    .crumb {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 6px;
+      margin-bottom: 10px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .crumb button {
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .crumb button:hover {
+      color: var(--brand-ink);
+    }
+
+    .dir-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .dir-title {
+      min-width: 0;
+      flex: 1;
+      margin: 0;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 760;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .count {
+      flex: 0 0 auto;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .dir-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 6px;
+      margin-top: 12px;
+    }
+
+    .search {
+      position: relative;
+      min-width: 0;
+    }
+
+    .search svg {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 15px;
+      height: 15px;
+      color: var(--faint);
+      pointer-events: none;
+    }
+
+    .search input {
+      width: 100%;
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink);
+      padding: 0 9px 0 30px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search input:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(34, 108, 95, .13);
+    }
+
+    .iconbtn {
+      width: 32px;
+      height: 32px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--muted);
+    }
+
+    .iconbtn:hover {
+      color: var(--ink);
+      background: var(--surface-3);
+    }
+
+    .dir-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 10px 8px 14px;
+    }
+
+    .section-label {
+      padding: 10px 8px 6px;
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 720;
+      text-transform: uppercase;
+    }
+
+    .cat-row,
+    .item-row,
+    .pending-row {
+      width: 100%;
+      min-height: 40px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+      padding: 7px 8px;
+      text-align: left;
+      transition: background .16s ease, color .16s ease;
+    }
+
+    .cat-row:hover,
+    .item-row:hover,
+    .pending-row:hover {
+      background: var(--surface-2);
+    }
+
+    .cat-row.active,
+    .item-row.active {
+      background: var(--brand-soft);
+      color: var(--brand-ink);
+      font-weight: 720;
+    }
+
+    .row-main {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .row-text {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .row-title {
+      min-width: 0;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-sub {
+      min-width: 0;
+      color: var(--faint);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .badge {
+      min-width: 22px;
+      height: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cat-row.active .badge,
+    .item-row.active .badge {
+      background: rgba(255, 255, 255, .6);
+      color: var(--brand-ink);
+    }
+
+    .kind-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: var(--brand);
+      box-shadow: 0 0 0 4px var(--brand-soft);
+      flex: 0 0 auto;
+    }
+
+    .kind-dot.blue { background: var(--blue); box-shadow: 0 0 0 4px var(--blue-soft); }
+    .kind-dot.amber { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
+    .kind-dot.red { background: var(--red); box-shadow: 0 0 0 4px var(--red-soft); }
+
+    .pending-row {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      background: #fffaf0;
+    }
+
+    .pending-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tiny {
+      height: 26px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 8px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tiny:hover {
+      color: var(--ink);
+      background: var(--surface-2);
+    }
+
+    .detail {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      background: var(--canvas);
+    }
+
+    .detail-inner {
+      width: min(860px, 100%);
+      margin: 0 auto;
+      padding: 22px 28px 36px;
+    }
+
+    .detail-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      min-width: 0;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .avatar {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 12px;
+      background: var(--brand-soft);
+      color: var(--brand-ink);
+      font-size: 20px;
+      font-weight: 780;
+    }
+
+    .detail-title {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .detail-title h1 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 780;
+    }
+
+    .meta-line {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      padding: 0 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pill.warn {
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .doc-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(230px, .7fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .doc-main,
+    .doc-side {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .block {
+      background: transparent;
+    }
+
+    .block h2 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .block p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.72;
+    }
+
+    .field-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      grid-template-columns: 74px minmax(0, 1fr);
+      gap: 10px;
+      align-items: baseline;
+      min-height: 30px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(229, 231, 235, .72);
+    }
+
+    .field:last-child { border-bottom: 0; }
+
+    .field .k {
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .field .v {
+      min-width: 0;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.62;
+    }
+
+    .tag-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+
+    .beat {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .beat .ch {
+      height: 24px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .beat .txt {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.62;
+    }
+
+    .side-panel {
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .68);
+      border: 1px solid rgba(229, 231, 235, .8);
+    }
+
+    .side-panel h3 {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .link-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 30px;
+      color: var(--muted);
+      font-size: 13px;
+      border-bottom: 1px solid rgba(229, 231, 235, .72);
+    }
+
+    .link-row:last-child { border-bottom: 0; }
+
+    .context {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+    }
+
+    .context-head {
+      flex: 0 0 auto;
+      padding: 14px 14px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .context-head h2 {
+      margin: 0;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .context-head p {
+      margin: 5px 0 0;
+      color: var(--faint);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .context-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .qa {
+      border-radius: 10px;
+      background: var(--canvas);
+      padding: 11px 12px;
+    }
+
+    .qa h3 {
+      margin: 0 0 7px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .qa p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.62;
+    }
+
+    .ask {
+      flex: 0 0 auto;
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .ask textarea {
+      width: 100%;
+      min-height: 74px;
+      resize: none;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      outline: none;
+      padding: 10px;
+      color: var(--ink);
+      background: var(--canvas);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .ask textarea:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(34, 108, 95, .13);
+    }
+
+    .ask-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      gap: 8px;
+    }
+
+    .hint {
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .empty {
+      height: 100%;
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      color: var(--faint);
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .empty strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 56px minmax(220px, 280px) minmax(420px, 1fr); }
+      .context { display: none; }
+      .doc-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    @media (max-width: 820px) {
+      .page { padding: 0; }
+      .demo { height: 100vh; min-height: 0; border: 0; }
+      .top-views { display: none; }
+      .shell { grid-template-columns: 56px minmax(0, 1fr); }
+      .detail { display: none; }
+      .directory { border-right: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="demo" aria-label="设定库钻取演示">
+      <header class="topbar">
+        <div class="brand">Scribe3</div>
+        <button class="book" type="button" title="纸命">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5z"/><path d="M6.5 17H20"/><path d="M8 7h7"/></svg>
+          纸命
+        </button>
+        <nav class="top-views" aria-label="全局视图">
+          <button class="topbtn" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v7H4z"/><path d="M13 5h7v7h-7z"/><path d="M4 14h7v5H4z"/><path d="M13 14h7v5h-7z"/></svg>
+            图谱
+          </button>
+          <button class="topbtn" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18h14"/><path d="M7 6v12"/><path d="M12 10v8"/><path d="M17 4v14"/></svg>
+            时间线
+          </button>
+          <button class="topbtn" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13a8 8 0 1 1 16 0"/><path d="M12 13l4-4"/><path d="M8 21h8"/></svg>
+            仪表盘
+          </button>
+        </nav>
+        <div class="top-actions">
+          <button class="ghost-btn" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M7 12h10"/><path d="M10 17h4"/></svg>
+            筛选
+          </button>
+          <button class="primary-btn" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            新建设定
+          </button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <nav class="rail" aria-label="一级入口">
+          <button type="button" title="手稿">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h9l3 3v13H6z"/><path d="M14 4v4h4"/><path d="M8.5 12h7"/><path d="M8.5 16h5"/></svg>
+            手稿
+          </button>
+          <button class="active" type="button" title="设定库" aria-current="page">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 1 5 16.5z"/><path d="M8 7h7"/><path d="M8 11h8"/><path d="M8 15h5"/></svg>
+            设定库
+          </button>
+          <button type="button" title="素材库">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14"/><path d="M7 4h10l2 3v12H5V7z"/><path d="M9 12h6"/></svg>
+            素材库
+          </button>
+          <div class="sep"></div>
+          <button type="button" title="演绎">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19c3-7 5-7 8-7s5 0 8-7"/><path d="M6 8h4"/><path d="M14 16h4"/></svg>
+            演绎
+          </button>
+          <button type="button" title="伏笔">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10"/><path d="M7 19h10"/><path d="M9 5v4a3 3 0 0 0 6 0V5"/><path d="M9 19v-4a3 3 0 0 1 6 0v4"/></svg>
+            伏笔
+          </button>
+          <button type="button" title="母题">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16"/><path d="M6 8c4 0 6 2 6 4"/><path d="M18 8c-4 0-6 2-6 4"/><path d="M7 16c3 0 5-1 5-4"/><path d="M17 16c-3 0-5-1-5-4"/></svg>
+            母题
+          </button>
+          <button type="button" title="搜索">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>
+            搜索
+          </button>
+          <button type="button" title="校验">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l4 4L19 6"/><path d="M4 20h16"/></svg>
+            校验
+          </button>
+        </nav>
+
+        <aside class="directory" aria-label="设定库目录">
+          <div class="dir-head">
+            <div class="crumb" id="crumb">
+              <button type="button" data-action="root">设定库</button>
+              <span id="crumb-tail">/ 角色</span>
+            </div>
+            <div class="dir-title-row">
+              <h1 class="dir-title" id="dir-title">角色</h1>
+              <span class="count" id="dir-count">10 项</span>
+            </div>
+            <div class="dir-tools">
+              <label class="search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input id="search" type="search" placeholder="搜设定、别名、标签" aria-label="搜索设定" />
+              </label>
+              <button class="iconbtn" type="button" title="新建设定" aria-label="新建设定" data-action="new">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              </button>
+              <button class="iconbtn" type="button" title="更多操作" aria-label="更多操作">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="dir-body" id="directory-list"></div>
+        </aside>
+
+        <section class="detail" aria-label="设定详情">
+          <div class="detail-inner" id="detail"></div>
+        </section>
+
+        <aside class="context" aria-label="主编上下文">
+          <div class="context-head">
+            <h2>主编</h2>
+            <p id="context-title">当前上下文: 小翠 / 角色档案</p>
+          </div>
+          <div class="context-body">
+            <div class="qa">
+              <h3>可问方向</h3>
+              <p>检查她与苏纸鸢、柳怀玉、阴差体系之间的限知边界，避免童女视角泄露不该知道的真相。</p>
+            </div>
+            <div class="qa">
+              <h3>关联提醒</h3>
+              <p>第 2 章首次出场；与“阴阳镜照真身”“纸人认主”“命与纸”存在强关联。</p>
+            </div>
+            <div class="qa">
+              <h3>待补闭环</h3>
+              <p>来历不明的弃婴与白衣会借命术之间尚未建立明确证据链。</p>
+            </div>
+          </div>
+          <div class="ask">
+            <textarea aria-label="询问主编" placeholder="就当前设定问主编…"></textarea>
+            <div class="ask-row">
+              <span class="hint">Enter 发送</span>
+              <button class="primary-btn" type="button">发送</button>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const categories = [
+      { key: 'character', label: '角色', count: 10, dot: '', desc: '人物档案 / 关系 / 弧光' },
+      { key: 'faction', label: '势力', count: 8, dot: 'blue', desc: '组织目标 / 资源 / 冲突' },
+      { key: 'item', label: '物件', count: 8, dot: 'amber', desc: '状态链 / 持有人 / 证据' },
+      { key: 'term', label: '术语', count: 8, dot: '', desc: '概念解释 / 使用边界' },
+      { key: 'world_rule', label: '世界规则', count: 8, dot: 'blue', desc: '规则、代价、例外' },
+      { key: 'promise', label: '伏笔', count: 8, dot: 'red', desc: '埋设 / 回收 / 线索' },
+      { key: 'motif', label: '母题', count: 8, dot: 'amber', desc: '主题变体 / 证据章节' },
+      { key: 'proposition', label: '命题', count: 0, dot: '', desc: '论断 / 反例 / 结论' }
+    ];
+
+    const items = {
+      character: [
+        { id: 'xiaocui', label: '小翠', sub: 'major / 天生失语 / 阴阳眼', ch: '2' },
+        { id: 'cuipan', label: '崔判', sub: '阴差 / 放水 / 迟迟未收魂', ch: '1' },
+        { id: 'liuhuaiyu', label: '柳怀玉', sub: '纸扎匠 / 左手烫疤 / 借命牵连', ch: '1' },
+        { id: 'shentuiguan', label: '沈推官', sub: '官府线 / 案卷 / 证据压力', ch: '3' },
+        { id: 'caobangsan', label: '漕帮三哥', sub: '运河漕帮 / 见证人', ch: '2' },
+        { id: 'caobangliang', label: '漕帮两弟兄', sub: '漕帮 / 可疑目击', ch: '2' },
+        { id: 'xuanyi', label: '玄一道人', sub: '术法线 / 阴阳镜', ch: '4' },
+        { id: 'tusan', label: '秃三', sub: '盐帮 / 打手 / 暴力线', ch: '3' },
+        { id: 'suzhiyuan', label: '苏纸鸢', sub: '白衣会 / 纸鸢 / 利用与保护', ch: '2' },
+        { id: 'qianwanguan', label: '钱万贯', sub: '商贾 / 借命受益者', ch: '4' }
+      ],
+      faction: ['纸马行', '阴司差役房', '白衣会', '运河漕帮', '巡检司', '承影斋', '黑风口盐帮', '城南义庄'].map((label, index) => ({ id: `faction-${index}`, label, sub: '势力关系 / 资源 / 目标', ch: String(index + 1) })),
+      item: ['借命契', '朱砂笔', '生死簿残页', '替身纸人', '引魂幡', '纸鸢', '阴阳镜', '烫疤烙铁'].map((label, index) => ({ id: `item-${index}`, label, sub: '物件状态 / 持有人 / 历史链', ch: String(index + 1) })),
+      term: ['阳寿', '开光', '借命', '替身', '阴差', '魂幡引路', '收魂', '走纸'].map((label, index) => ({ id: `term-${index}`, label, sub: '术语定义 / 使用限制', ch: String(index + 1) })),
+      world_rule: ['阴差收魂', '阴阳镜照真身', '纸人替死', '纸人认主', '借命术', '阳寿可量', '朱砂封魂', '走纸夜行'].map((label, index) => ({ id: `rule-${index}`, label, sub: '规则 / 代价 / 例外', ch: String(index + 1) })),
+      promise: ['承影斋经手的借命契为何续命者空着', '苏纸鸢鬓边纸鸢骨架为何细白', '生死簿残页上的续命名被谁涂改', '崔判迟迟未收的是谁的魂', '柳怀玉糊的纸人为何自己动', '柳怀玉左手烫疤之下另有来历', '哑女小翠看见了什么', '白衣会借命术的最终图谋'].map((label, index) => ({ id: `promise-${index}`, label, sub: '伏笔台账 / 线索 / 回收章', ch: String(index + 1) })),
+      motif: ['命与纸', '火与烧', '运河与水', '替身', '手艺人的良心', '阴阳之隔', '债与还', '名与实'].map((label, index) => ({ id: `motif-${index}`, label, sub: '母题证据 / 出现章节', ch: String(index + 1) })),
+      proposition: []
+    };
+
+    const details = {
+      xiaocui: {
+        type: '角色档案',
+        title: '小翠',
+        avatar: '翠',
+        tags: ['沉默', '通灵', '直觉敏锐', '忠诚'],
+        summary: '约莫八九岁的哑女童，眼睛格外清亮，穿一身洗得发白的粗布衣裳，总是跟在苏纸鸢身后，沉默得像个纸扎的童女。',
+        fields: [
+          ['重要度', 'major'],
+          ['首次出场', '第 2 章'],
+          ['能力', '阴阳眼；能看见阴差、纸人魂与阴阳交界之物。'],
+          ['弱点', '天生失语，无法用言语传递看到的真相；孩童身躯无法对抗有形之力。'],
+          ['表面目标', '跟随苏纸鸢，做她的眼睛和手。'],
+          ['深层需求', '想要一个真正的家，不再是被人遗弃的孤魂。']
+        ],
+        beats: [
+          ['2', '首次跟随苏纸鸢进入柳怀玉视线，看到纸人魂的异常。'],
+          ['3', '对王婆与义庄的反应异常，提示她能看见普通人看不见的东西。'],
+          ['4', '阴阳镜线索进入她的视野，但她无法开口说明。']
+        ],
+        links: ['苏纸鸢', '柳怀玉', '阴阳镜照真身', '命与纸']
+      }
+    };
+
+    const pendingRefs = [
+      { label: '神秘人', sub: '第 1 章 / did_who' },
+      { label: '王婆', sub: '第 3 章 / seen_by' },
+      { label: '第三十六个纸人', sub: '第 1 章 / did_who' }
+    ];
+
+    const state = { category: 'character', selected: 'xiaocui', query: '' };
+
+    const directoryList = document.querySelector('#directory-list');
+    const dirTitle = document.querySelector('#dir-title');
+    const dirCount = document.querySelector('#dir-count');
+    const crumbTail = document.querySelector('#crumb-tail');
+    const detail = document.querySelector('#detail');
+    const contextTitle = document.querySelector('#context-title');
+    const search = document.querySelector('#search');
+
+    document.querySelector('[data-action="root"]').addEventListener('click', () => {
+      state.category = null;
+      state.selected = null;
+      render();
+    });
+
+    document.querySelector('[data-action="new"]').addEventListener('click', () => {
+      state.selected = 'new';
+      render();
+    });
+
+    search.addEventListener('input', (event) => {
+      state.query = event.target.value.trim();
+      renderDirectory();
+    });
+
+    function activeCategory() {
+      return categories.find((cat) => cat.key === state.category) || null;
+    }
+
+    function categoryItems() {
+      const list = state.category ? (items[state.category] || []) : [];
+      if (!state.query) return list;
+      return list.filter((item) => `${item.label} ${item.sub}`.includes(state.query));
+    }
+
+    function renderDirectory() {
+      const cat = activeCategory();
+      directoryList.innerHTML = '';
+      dirTitle.textContent = cat ? cat.label : '设定库';
+      dirCount.textContent = cat ? `${items[cat.key].length} 项` : `${categories.length} 类`;
+      crumbTail.textContent = cat ? `/ ${cat.label}` : '';
+
+      if (!cat) {
+        const label = document.createElement('div');
+        label.className = 'section-label';
+        label.textContent = '分类';
+        directoryList.appendChild(label);
+        categories.forEach((category) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'cat-row';
+          button.innerHTML = `
+            <span class="row-main">
+              <span class="kind-dot ${category.dot}"></span>
+              <span class="row-text">
+                <span class="row-title">${category.label}</span>
+                <span class="row-sub">${category.desc}</span>
+              </span>
+            </span>
+            <span class="badge">${category.count}</span>
+          `;
+          button.addEventListener('click', () => {
+            state.category = category.key;
+            state.selected = (items[category.key] || [])[0]?.id || null;
+            state.query = '';
+            search.value = '';
+            render();
+          });
+          directoryList.appendChild(button);
+        });
+        return;
+      }
+
+      if (cat.key === 'character') {
+        const pendingLabel = document.createElement('div');
+        pendingLabel.className = 'section-label';
+        pendingLabel.textContent = '待确认引用';
+        directoryList.appendChild(pendingLabel);
+        pendingRefs.forEach((ref) => {
+          const row = document.createElement('div');
+          row.className = 'pending-row';
+          row.innerHTML = `
+            <span class="row-text">
+              <span class="row-title">${ref.label}</span>
+              <span class="row-sub">${ref.sub}</span>
+            </span>
+            <span class="badge">新</span>
+            <span class="pending-actions">
+              <button class="tiny" type="button">接受</button>
+              <button class="tiny" type="button">忽略</button>
+            </span>
+          `;
+          directoryList.appendChild(row);
+        });
+      }
+
+      const itemLabel = document.createElement('div');
+      itemLabel.className = 'section-label';
+      itemLabel.textContent = '条目';
+      directoryList.appendChild(itemLabel);
+
+      const filtered = categoryItems();
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.innerHTML = `<div><strong>没有匹配条目</strong>换个关键词，或新建一个${cat.label}。</div>`;
+        directoryList.appendChild(empty);
+        return;
+      }
+
+      filtered.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `item-row ${state.selected === item.id ? 'active' : ''}`;
+        button.innerHTML = `
+          <span class="row-main">
+            <span class="kind-dot ${cat.dot}"></span>
+            <span class="row-text">
+              <span class="row-title">${item.label}</span>
+              <span class="row-sub">${item.sub}</span>
+            </span>
+          </span>
+          <span class="badge">第 ${item.ch} 章</span>
+        `;
+        button.addEventListener('click', () => {
+          state.selected = item.id;
+          renderDetail();
+          renderDirectory();
+        });
+        directoryList.appendChild(button);
+      });
+    }
+
+    function renderDetail() {
+      const cat = activeCategory();
+      const selectedItem = (items[state.category] || []).find((item) => item.id === state.selected);
+
+      if (!cat) {
+        detail.innerHTML = `
+          <div class="empty">
+            <div>
+              <strong>选择一个设定分类</strong>
+              分类留在二栏，详情只在三栏展开。
+            </div>
+          </div>
+        `;
+        contextTitle.textContent = '当前上下文: 设定库';
+        return;
+      }
+
+      if (state.selected === 'new') {
+        detail.innerHTML = `
+          <div class="detail-top">
+            <div class="avatar">新</div>
+            <div class="detail-title">
+              <h1>新建${cat.label}</h1>
+              <div class="meta-line">
+                <span class="pill">分类: ${cat.label}</span>
+                <span class="pill warn">自动回到当前目录</span>
+              </div>
+            </div>
+          </div>
+          <div class="doc-grid">
+            <div class="doc-main">
+              <div class="block">
+                <h2>名称</h2>
+                <p>这里在真实应用中渲染原来的新建设定表单，不改变二栏目录，不丢当前分类上下文。</p>
+              </div>
+            </div>
+          </div>
+        `;
+        contextTitle.textContent = `当前上下文: 新建${cat.label}`;
+        return;
+      }
+
+      const data = details[state.selected] || {
+        type: cat.label,
+        title: selectedItem?.label || cat.label,
+        avatar: (selectedItem?.label || cat.label).slice(0, 1),
+        tags: ['可编辑', '已入库'],
+        summary: selectedItem?.sub || '该条目沿用原设定库详情表单，二栏只负责目录定位。',
+        fields: [
+          ['分类', cat.label],
+          ['出场', selectedItem ? `第 ${selectedItem.ch} 章` : '未记录'],
+          ['状态', '已保存'],
+          ['来源', '设定库原始数据']
+        ],
+        beats: [
+          [selectedItem?.ch || '-', '条目详情在三栏展开，二栏继续保留同分类列表。']
+        ],
+        links: ['相邻设定', '相关章节']
+      };
+
+      detail.innerHTML = `
+        <div class="detail-top">
+          <div class="avatar">${data.avatar}</div>
+          <div class="detail-title">
+            <h1>${data.title}</h1>
+            <div class="meta-line">
+              <span class="pill">${data.type}</span>
+              <span class="pill">设定库</span>
+              <span class="pill warn">私密字段默认屏蔽</span>
+            </div>
+          </div>
+          <div class="detail-actions">
+            <button class="ghost-btn" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+              编辑
+            </button>
+            <button class="ghost-btn" type="button">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+              删除
+            </button>
+          </div>
+        </div>
+
+        <div class="doc-grid">
+          <div class="doc-main">
+            <div class="block">
+              <h2>摘要</h2>
+              <p>${data.summary}</p>
+            </div>
+            <div class="block">
+              <h2>档案字段</h2>
+              <div class="field-list">
+                ${data.fields.map(([k, v]) => `<div class="field"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}
+              </div>
+            </div>
+            <div class="block">
+              <h2>章节轨迹</h2>
+              <div class="timeline">
+                ${data.beats.map(([ch, txt]) => `<div class="beat"><span class="ch">${ch}</span><span class="txt">${txt}</span></div>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="doc-side">
+            <div class="side-panel">
+              <h3>标签</h3>
+              <div class="tag-wrap">${data.tags.map((tag) => `<span class="tag">${tag}</span>`).join('')}</div>
+            </div>
+            <div class="side-panel">
+              <h3>关联</h3>
+              ${data.links.map((link) => `<div class="link-row"><span>${link}</span><span class="badge">打开</span></div>`).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+      contextTitle.textContent = `当前上下文: ${data.title} / ${data.type}`;
+    }
+
+    function render() {
+      renderDirectory();
+      renderDetail();
+    }
+
+    render();
+  </script>
+</body>
+</html>

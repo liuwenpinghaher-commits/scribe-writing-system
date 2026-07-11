@@ -46,7 +46,7 @@ export function DeducePanel({ chars, chapter, onToChief }) {
             <span className="text-f12 font-medium text-ink">{name} · 演绎草稿</span>
             <div className="ml-auto flex gap-0.5">
               <button onClick={() => navigator.clipboard?.writeText(draft.prose)} title="复制" className="w-6 h-6 grid place-items-center rounded text-faint hover:text-ink hover:bg-soft cursor-pointer"><Copy size={12} /></button>
-              <button onClick={() => onToChief?.(name, draft.prose)} title="交给主编据此成文" className="inline-flex items-center gap-1 h-6 px-2 rounded text-f11 text-brand hover:bg-soft cursor-pointer transition-colors"><ArrowRight size={11} />给主编</button>
+              <button onClick={() => onToChief?.(name, draft.prose)} title="交给主编据此成文" className="inline-flex items-center gap-1 h-6 px-2 rounded text-meta text-brand hover:bg-soft cursor-pointer transition-colors"><ArrowRight size={11} />给主编</button>
             </div>
           </div>
           <div className="manuscript px-3 py-2.5 text-f14 leading-[1.8] whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto">{draft.prose}</div>

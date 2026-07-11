@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Empty } from './ui'
+import { AsyncState } from './ui/AsyncState.jsx'
 
 // 存档点历史(改造④):作者命名里程碑;回看只读 + 恢复 + R1-6 多选并排对比(needs_human 三稿裁决)。
 export function VersionPanel({ seq, refreshKey, onRestore }) {
-  const [list, setList] = useState([])
+  // Task 8:undefined=加载中,null=拉取失败,array=数据——此前 catch 落空数组,
+  // 失败被谎报成「还没有存档点」(与收件箱 badge 同型的可见状态谎报);现走 AsyncState 如实呈现。
+  const [list, setList] = useState(undefined)
+  const [retryTick, setRetryTick] = useState(0)   // 错误重试:bump 重跑同一拉取,不改 API 调用
   const [view, setView] = useState(null)   // 正在回看的版本全文
   const [compare, setCompare] = useState([])   // R1-6:并排对比集合 [{id,label,prose}]
   const [showCompare, setShowCompare] = useState(false)
-  useEffect(() => { api.chapterVersions(seq).then(setList).catch(() => setList([])) }, [seq, refreshKey])
+  useEffect(() => {
+    setList(undefined)
+    api.chapterVersions(seq).then((l) => setList(Array.isArray(l) ? l : [])).catch(() => setList(null))
+  }, [seq, refreshKey, retryTick])
   useEffect(() => { setCompare([]); setShowCompare(false) }, [seq])   // 切章清空对比集
+  // children 在 JSX 构造期即求值(AsyncState 只是选择性渲染),加载/失败期以空数组兜底防 .map 崩
+  const rows = Array.isArray(list) ? list : []
   const inCompare = (id) => compare.some((c) => c.id === id)
   const toggleCompare = (v) => {
     if (inCompare(v.id)) { setCompare((cs) => cs.filter((c) => c.id !== v.id)); return }
@@ -18,16 +27,21 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
       : [...cs, { id: v.id, label: v.label || (v.kind === 'final' ? '定稿' : '存档'), prose: full?.prose || '' }])).catch(() => {})
   }
   return (
+    <AsyncState
+      state={list === undefined ? 'loading' : list === null ? 'error' : 'ready'}
+      title={list === null ? '存档列表加载失败' : '加载存档'}
+      message={list === null ? '这不代表没有存档点(可能后端/网络异常)。' : undefined}
+      onRetry={() => setRetryTick((t) => t + 1)}>
     <div>
-      {list.length === 0 ? <Empty>还没有存档点。写到满意时点顶部「存档点」。</Empty> : (
+      {rows.length === 0 ? <Empty>还没有存档点。写到满意时点顶部「存档点」。</Empty> : (
         <ul className="space-y-1.5">
-          {list.map((v) => (
+          {rows.map((v) => (
             <li key={v.id} className={`rounded-lg border bg-canvas px-2.5 py-2 ${inCompare(v.id) ? 'border-brand' : 'border-line'}`}>
               <div className="flex items-center gap-2">
                 <span className="text-f12 text-ink font-medium">{v.label || (v.kind === 'final' ? '定稿' : '存档')}</span>
-                {v.kind === 'final' && <span className="text-f10 text-brand">定稿</span>}
-                <button onClick={() => toggleCompare(v)} className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">{inCompare(v.id) ? '✓ 对比中' : '+ 对比'}</button>
-                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="text-f11 text-faint hover:text-ink cursor-pointer">回看</button>
+                {v.kind === 'final' && <span className="text-meta text-brand">定稿</span>}
+                <button onClick={() => toggleCompare(v)} className="ml-auto text-meta text-faint hover:text-ink cursor-pointer">{inCompare(v.id) ? '✓ 对比中' : '+ 对比'}</button>
+                <button onClick={() => api.chapterVersion(v.id).then(setView)} className="text-meta text-faint hover:text-ink cursor-pointer">回看</button>
               </div>
               {(() => {
                 // v.qc.repetition / .purple 可能是检测器数组([{phrase,count}]/[{phrase,kind}])或数字——统一成计数,
@@ -44,8 +58,8 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
                 ].filter(Boolean)
                 return (
                   <>
-                    {bits.length > 0 && <div className="text-f10 text-faint mt-0.5">{bits.join(' · ')}</div>}
-                    {v.summary && <div className="text-f10 text-faint/80 mt-0.5 truncate">{v.summary}</div>}
+                    {bits.length > 0 && <div className="text-meta text-faint mt-0.5">{bits.join(' · ')}</div>}
+                    {v.summary && <div className="text-meta text-faint/80 mt-0.5 truncate">{v.summary}</div>}
                   </>
                 )
               })()}
@@ -86,7 +100,7 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
                 <div key={c.id} className="w-[360px] shrink-0 flex flex-col border border-line rounded-lg overflow-hidden">
                   <div className="px-3 h-8 flex items-center gap-2 border-b border-line bg-canvas shrink-0">
                     <span className="text-f12 text-ink font-medium truncate">{c.label}</span>
-                    <button onClick={() => { onRestore?.(c.prose); setShowCompare(false) }} className="ml-auto text-f11 text-brand hover:underline cursor-pointer shrink-0">选此稿</button>
+                    <button onClick={() => { onRestore?.(c.prose); setShowCompare(false) }} className="ml-auto text-meta text-brand hover:underline cursor-pointer shrink-0">选此稿</button>
                   </div>
                   <div className="manuscript px-3 py-3 overflow-y-auto whitespace-pre-wrap text-f13 leading-[1.8] text-ink">{c.prose}</div>
                 </div>
@@ -96,5 +110,6 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
         </div>
       )}
     </div>
+    </AsyncState>
   )
 }

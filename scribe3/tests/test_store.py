@@ -3,10 +3,52 @@
 纵切片的 knowledge.project_frame 不改一行,直接跑在
 SurrealStore 上(鸭子兼容)。老道帧仍排除焦三私密 → 范式不依赖存储后端。
 """
+import pytest
+
+import scribe3.store as store_module
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.scenario import luanshi_leak_world
 from scribe3.knowledge import project_frame
 from scribe3.verify import causal_complete
+
+
+@pytest.mark.parametrize("bad", [True, 0, -1, 1.5, "1"])
+def test_chapter_range_target_rejects_non_positive_ints(bad):
+    target = getattr(store_module, "_chapter_range_target", None)
+    assert target is not None, "store 应定义章节 record range 目标构造器"
+    with pytest.raises((TypeError, ValueError)):
+        target(start=bad, end=3)
+
+
+def test_chapter_range_target_shapes():
+    target = getattr(store_module, "_chapter_range_target", None)
+    assert target is not None, "store 应定义章节 record range 目标构造器"
+    assert target() == "chapter:.."
+    assert target(end=5, end_inclusive=False) == "chapter:..5"
+    assert target(start=1, end=10) == "chapter:1..=10"
+    with pytest.raises(ValueError):
+        target(start=10, end=1)
+
+
+def test_chapter_range_semantics_preserve_gaps_and_archived_existence(store):
+    store.save_chapter(1, "一章。", title="一")
+    store.save_chapter(2, "二章。", title="二")
+    store.save_chapter(4, "四章。", title="四")
+    store.archive_chapter(2, "测试归档")
+
+    assert hasattr(store, "chapter_seqs_in_range"), "store 应提供闭区间章节存在性读取"
+    assert store.chapter_seqs_in_range(1, 4) == [1, 2, 4]
+    assert [row["seq"] for row in store.list_chapters()] == [1, 4]
+
+
+def test_recent_proses_range_keeps_exclusive_bound_archive_filter_and_order(store):
+    store.save_chapter(1, "一章。", title="一")
+    store.save_chapter(2, "二章。", title="二")
+    store.save_chapter(4, "四章。", title="四")
+    store.archive_chapter(2, "测试归档")
+
+    rows = store.recent_proses(4, k=3)
+    assert [row["seq"] for row in rows] == [1]
 
 
 def test_schema_and_entity_roundtrip(store):
@@ -927,6 +969,27 @@ class TestOutline:
         assert ch5 is not None
         # save_chapter 会写 qc_word_count
         assert ch5.get("word_count") is not None
+
+    def test_chapter_archive_hides_from_visible_outline_and_restore_returns_it(self, store):
+        """归档章默认从手稿目录/统计隐藏,恢复后回到原 seq。"""
+        store.save_chapter(1, "第一章正文。", title="一")
+        store.save_chapter(2, "第二章正文。", title="二")
+
+        assert store.archive_chapter(2, "删掉支线") is True
+
+        outline = store.outline()
+        assert [c["seq"] for c in outline["chapters"]] == [1]
+        assert store.stats()["chapter_count"] == 1
+        archived = store.get_chapter(2)
+        assert archived and archived["archived"] is True
+        assert archived["archive_reason"] == "删掉支线"
+
+        created = store.create_chapter("新第三章")
+        assert created["seq"] == 3, "新增章不得复用已归档的 seq=2"
+
+        assert store.restore_chapter(2) is True
+        outline2 = store.outline()
+        assert [c["seq"] for c in outline2["chapters"]] == [1, 2, 3]
 
 
 class TestReorderChapters:

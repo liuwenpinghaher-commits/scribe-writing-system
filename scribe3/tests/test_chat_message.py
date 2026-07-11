@@ -5,6 +5,8 @@
 台账:D-002(work 由 store 自动填)/ D-003(assistant 存围栏外散文+提案标记,
 不复述提案正文)/ D-004(best-effort,落库失败不断流)/ D-005(GET 版不落库)。
 """
+import json
+
 import pytest
 
 import scribe3.app as A
@@ -34,6 +36,168 @@ def test_store_add_and_list_chat_messages(store):
     assert all(m.get("ts") for m in msgs)
 
 
+def test_store_chat_message_trace_roundtrip(store):
+    trace = {
+        "response_id": "resp_1",
+        "tool_calls": [{"name": "s3_get_chapter", "arguments": "{\"seq\":1}"}],
+        "usage": {"input_tokens": 12},
+    }
+    store.add_chat_message(
+        chapter=3,
+        stage="draft",
+        role="assistant",
+        text="答",
+        trace=trace,
+    )
+    msg = store.list_chat_messages(chapter=3)[0]
+    assert msg["trace"]["response_id"] == "resp_1"
+    assert msg["trace"]["tool_calls"][0]["name"] == "s3_get_chapter"
+    assert msg["trace"]["usage"]["input_tokens"] == 12
+
+
+def test_store_ai_run_trace_roundtrip(store):
+    store.upsert_ai_run_trace(
+        "run_1",
+        status="created",
+        session_key="scribe3|work:test|runs",
+        input_text="请新增角色",
+        instructions="先核实再写入",
+    )
+    store.append_ai_run_trace_event(
+        "run_1",
+        {"type": "tool.started", "call_id": "call_1", "name": "s3_add_character", "arguments": "{}"},
+    )
+    store.append_ai_run_trace_event(
+        "run_1",
+        {"type": "approval.requested", "approval_id": "ap_1", "message": "允许写入?"},
+    )
+    store.append_ai_run_trace_event(
+        "run_1",
+        {"type": "approval.resolved", "approval_id": "ap_1", "decision": "approve"},
+    )
+    store.upsert_ai_run_trace("run_1", status="completed", usage={"total_tokens": 42})
+
+    trace = store.get_ai_run_trace("run_1")
+    assert trace["work"] == "test"
+    assert trace["run_id"] == "run_1"
+    assert trace["status"] == "completed"
+    assert trace["session_key"] == "scribe3|work:test|runs"
+    assert trace["input_text"] == "请新增角色"
+    assert trace["tool_calls"][0]["call_id"] == "call_1"
+    assert trace["approvals"][0]["approval_id"] == "ap_1"
+    assert trace["approvals"][1]["decision"] == "approve"
+    assert trace["usage"]["total_tokens"] == 42
+
+
+def test_ai_run_trace_links_write_tool_approval_and_effect(store):
+    store.upsert_ai_run_trace(
+        "run_write_1",
+        status="created",
+        session_key="scribe3|work:test|runs",
+        input_text="请新增命题",
+        instructions="先核实再写入",
+    )
+    store.append_ai_run_trace_event(
+        "run_write_1",
+        {
+            "kind": "tool.started",
+            "call_id": "call_fact_1",
+            "name": "s3_add_fact",
+            "arguments": (
+                '{"oid":"fact:ai_run_trace_fact","entity":"role:甲",'
+                '"attribute":"状态","value":"已确认","valid_from":1}'
+            ),
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_write_1",
+        {
+            "kind": "approval.requested",
+            "approval_id": "ap_fact_1",
+            "message": "允许写入命题?",
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_write_1",
+        {
+            "kind": "approval.resolved",
+            "approval_id": "ap_fact_1",
+            "decision": "approve",
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_write_1",
+        {
+            "kind": "tool.output",
+            "call_id": "call_fact_1",
+            "output": '{"status":"written","tool":"s3_add_fact"}',
+        },
+    )
+
+    trace = store.get_ai_run_trace("run_write_1")
+    tool_call = trace["tool_calls"][0]
+    tool_output = trace["tool_outputs"][0]
+    requested, resolved = trace["approvals"]
+
+    assert tool_call["approval_id"] == "ap_fact_1"
+    assert requested["call_id"] == "call_fact_1"
+    assert resolved["call_id"] == "call_fact_1"
+    assert tool_output["tool"] == "s3_add_fact"
+    assert tool_output["approval_id"] == "ap_fact_1"
+    assert tool_output["decision"] == "approve"
+    assert tool_output["result_status"] == "written"
+    assert tool_output["write_effect"]["objects"] == [{"type": "fact", "id": "fact:ai_run_trace_fact"}]
+
+
+def test_ai_run_trace_infers_written_effect_from_real_hermes_empty_tool_output(store):
+    store.upsert_ai_run_trace("run_real_shape", status="created")
+    store.append_ai_run_trace_event(
+        "run_real_shape",
+        {
+            "kind": "tool.started",
+            "run_id": "run_real_shape",
+            "name": "s3_add_fact",
+            "arguments": "",
+            "source_type": "tool.started",
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_real_shape",
+        {
+            "kind": "approval.requested",
+            "run_id": "run_real_shape",
+            "message": "批准写入?新增事实 fact:real_empty_output:role:Codex·验收状态=已落库",
+            "source_type": "approval.request",
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_real_shape",
+        {
+            "kind": "approval.resolved",
+            "run_id": "run_real_shape",
+            "decision": "once",
+            "source_type": "approval.responded",
+        },
+    )
+    store.append_ai_run_trace_event(
+        "run_real_shape",
+        {
+            "kind": "tool.output",
+            "run_id": "run_real_shape",
+            "name": "s3_add_fact",
+            "output": "",
+            "source_type": "tool.completed",
+        },
+    )
+
+    trace = store.get_ai_run_trace("run_real_shape")
+    tool_output = trace["tool_outputs"][0]
+    assert tool_output["tool"] == "s3_add_fact"
+    assert tool_output["decision"] == "once"
+    assert tool_output["result_status"] == "written"
+    assert {"type": "fact", "id": "fact:real_empty_output"} in tool_output["write_effect"]["objects"]
+
+
 def test_chat_write_post_persists_user_and_assistant(store, monkeypatch):
     """POST /chat/write 一轮 → user+assistant 各一条,章/阶段(phase→stage)正确。"""
     monkeypatch.setattr(A, "_responses_events", _stub_events("好的,", "开头压着写。"))
@@ -45,6 +209,90 @@ def test_chat_write_post_persists_user_and_assistant(store, monkeypatch):
     assert msgs[0]["text"] == "这章开头怎么写"
     assert msgs[0]["stage"] == "draft"
     assert "开头压着写" in msgs[1]["text"]
+
+
+def test_chat_write_post_persists_hermes_trace(store, monkeypatch):
+    def fake_events(message, instructions, with_tools=True):
+        yield {"type": "response.output_item.added",
+               "item": {"type": "function_call", "name": "s3_get_chapter",
+                        "arguments": "{\"seq\":2}", "call_id": "call_1"}}
+        yield {"type": "response.output_item.done",
+               "item": {"type": "function_call_output", "call_id": "call_1",
+                        "output": "{\"title\":\"第二章\"}"}}
+        yield {"type": "response.output_text.delta", "delta": "已查第二章。"}
+        yield {"type": "response.completed",
+               "response": {"id": "resp_2", "usage": {"input_tokens": 20, "output_tokens": 5}}}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = _client(store).post("/chat/write",
+                            json={"msg": "查第二章", "chapter": 2, "phase": "draft"})
+    assert r.status_code == 200
+    assistant = [m for m in store.list_chat_messages(chapter=2) if m["role"] == "assistant"][0]
+    trace = assistant["trace"]
+    assert trace["status"] == "completed"
+    assert trace["response_id"] == "resp_2"
+    assert trace["tool_calls"][0]["name"] == "s3_get_chapter"
+    assert trace["tool_outputs"][0]["output"] == "{\"title\":\"第二章\"}"
+    assert trace["usage"]["output_tokens"] == 5
+
+
+def test_chat_write_post_trace_context_carries_block_manifest_when_v1(store, monkeypatch):
+    """Caveat 1(Task 17 Step 5b):ASSEMBLER_V1【开】时,assistant chat_message 的
+    trace.context 须落 envelope 块清单(供审计"主编这轮看到了哪些上下文块",Task 14
+    ContextInspector 数据源)。清单绝不含块正文与秘密 value(限知红线)。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:jia", "character", "甲"))
+    store.add_fact(Fact("fact:pub", "role:jia", "位置", "村口", valid_from=1))
+    store.add_fact(Fact("fact:sec", "role:jia", "真身", "甲其实是狐妖",
+                        valid_from=1, secret=True))
+    store.add_knowledge(KnowledgeEdge("role:jia", "fact:sec", since_chapter=1))
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+    monkeypatch.setattr(A, "_responses_events", _stub_events("好。"))
+    r = _client(store).post("/chat/write",
+                            json={"msg": "写第二章", "chapter": 2, "phase": "draft",
+                                  "focalizer": "role:jia"})
+    assert r.status_code == 200
+    assistant = [m for m in store.list_chat_messages(chapter=2) if m["role"] == "assistant"][0]
+    ctx = assistant["trace"].get("context")
+    assert ctx is not None, "v1 路径 assistant trace 必须含 context 块清单"
+    assert isinstance(ctx.get("blocks"), list) and ctx["blocks"], "context 须含非空块清单"
+    names = {b["name"] for b in ctx["blocks"]}
+    assert "canonical" in names, "八块定序合同:canonical 块须在清单里"
+    assert ctx.get("envelope_hash"), "manifest 须带 envelope_hash 供回溯本轮组装"
+    # 限知红线:秘密 value / 块正文 绝不入 trace
+    blob = json.dumps(ctx, ensure_ascii=False)
+    assert "甲其实是狐妖" not in blob, "秘密 value 绝不进 trace.context"
+    assert "村口" not in blob, "正典正文(即便非秘密)也不进 trace.context——只留 source id"
+    assert all("text" not in b for b in ctx["blocks"]), "每块只记 token+source id,不记正文"
+
+
+def test_chat_write_post_trace_omits_context_when_v1_off(store, monkeypatch):
+    """Caveat 1 字节等价:flag 关(默认)→ 旧组装链无 envelope,assistant trace
+    不出现 context 键(零回归)。"""
+    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
+    monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))
+    r = _client(store).post("/chat/write",
+                            json={"msg": "问", "chapter": 3, "phase": "draft"})
+    assert r.status_code == 200
+    assistant = [m for m in store.list_chat_messages(chapter=3) if m["role"] == "assistant"][0]
+    assert "context" not in assistant["trace"], "flag 关时 trace 不应出现 context 键"
+
+
+def test_chat_write_post_streams_approval_events(store, monkeypatch):
+    def fake_events(message, instructions, with_tools=True):
+        yield {"type": "approval.request", "run_id": "run_1", "approval_id": "ap_1",
+               "message": "允许写入设定?"}
+        yield {"type": "approval.resolved", "run_id": "run_1", "approval_id": "ap_1",
+               "decision": "approve"}
+        yield {"type": "response.output_text.delta", "delta": "已继续。"}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = _client(store).post("/chat/write", json={"msg": "登记设定", "chapter": 2, "phase": "draft"})
+    assert r.status_code == 200
+    assert '"approval"' in r.text and "允许写入设定?" in r.text
+    assert '"approval_resolved"' in r.text and "approve" in r.text
+    assistant = [m for m in store.list_chat_messages(chapter=2) if m["role"] == "assistant"][0]
+    assert assistant["trace"]["approvals"][0]["approval_id"] == "ap_1"
 
 
 def test_chat_write_post_proposal_marker_not_fulltext(store, monkeypatch):

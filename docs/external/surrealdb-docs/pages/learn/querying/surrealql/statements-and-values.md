@@ -1,0 +1,210 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values"
+url: "https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values
+
+Source: https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values
+
+SurrealDB has a variety of statements that let you configure and query a database. In this section, we'll look at the different types of statements that are available.
+##  Types of statements[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#types-of-statements)
+SurrealDB has a large variety of statements. They can be divided into three types:
+  * •
+Statements that define and access database resources,
+  * •
+Statements used for control flow and handling manual transactions,
+  * •
+Statements used in the context of queries, usually in CRUD (create, read, update, delete) operations.
+
+###  Database resource statements[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#database-resource-statements)
+These statements pertain to defining, removing, altering, and rebuilding database resources. Some examples are:
+  * •
+[`DEFINE`](https://surrealdb.com/docs/reference/query-language/statements/define/overview) statements to define database resources,
+  * •
+[`ALTER`](https://surrealdb.com/docs/reference/query-language/statements/alter) statements to alter certain resources,
+  * •
+[`REBUILD`](https://surrealdb.com/docs/reference/query-language/statements/rebuild) to rebuild an index.
+
+Some other statements pertain to using defined resources. They are:
+  * •
+[`USE`](https://surrealdb.com/docs/reference/query-language/statements/use) to move from one namespace or database to another,
+  * •
+[`INFO`](https://surrealdb.com/docs/reference/query-language/statements/info) statements to see the definitions for resources.
+
+###  Control flow statements[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#control-flow-statements)
+These statements are used to describe how query execution should progress.
+Some control flow statements only pertain to manual transactions. While all statements in SurrealDB are conducted inside their own transaction, these statements can be used to manually set up a larger transaction composed of multiple statements. They are:
+  * •
+[`BEGIN`](https://surrealdb.com/docs/reference/query-language/statements/begin) to begin a manual transaction,
+  * •
+[`COMMIT`](https://surrealdb.com/docs/reference/query-language/statements/commit) to commit a transaction,
+  * •
+[`CANCEL`](https://surrealdb.com/docs/reference/query-language/statements/cancel) to cancel a transaction.
+
+Other control flow statements are used in the same manner as in other programming languages. Some examples are:
+  * •
+[`FOR`](https://surrealdb.com/docs/reference/query-language/statements/for) to begin a for loop,
+  * •
+[`CONTINUE`](https://surrealdb.com/docs/reference/query-language/statements/continue) to continue to the next iteration of a loop,
+  * •
+[`BREAK`](https://surrealdb.com/docs/reference/query-language/statements/break) to break out of a for loop, internal scope, function, etc.,
+  * •
+[`THROW`](https://surrealdb.com/docs/reference/query-language/statements/throw) to cancel execution and return an error.
+
+###  Query statements[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#query-statements)
+These statements are used to execute queries, most often but not always in the context of a CRUD operation.
+Some examples of query statements are:
+  * •
+[`CREATE`](https://surrealdb.com/docs/reference/query-language/statements/create) to create one or more records of one or more types of tables,
+  * •
+[`INSERT`](https://surrealdb.com/docs/reference/query-language/statements/insert) to create one or more regular records or graph edges,
+  * •
+[`RELATE`](https://surrealdb.com/docs/reference/query-language/statements/relate) to create a single graph edge between two records,
+  * •
+[`LIVE SELECT`](https://surrealdb.com/docs/reference/query-language/statements/live-select) to stream all the changes to a table,
+  * •
+[`DELETE`](https://surrealdb.com/docs/reference/query-language/statements/delete) to delete one or more records.
+
+The following flowchart can be used to get a sense of when it makes sense to use `CREATE`, `INSERT`, `UPDATE`, `UPSERT`, and `RELATE`.
+![A flowchart that explains in which cases to use the statements create, insert, update, insert, and relate.](https://surrealdb.com/docs/learn/querying/surrealql/~/assets/img/surrealql/statements/statement_flowchart.png)
+##  Statement parameters[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#statement-parameters)
+A number of parameters prefixed with `$` are automatically available within a statement that provide access to relevant context inside the statement. These are known as reserved variable names. For example:
+  * •
+[$before](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#before-after) and [$after](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#before-after) can be accessed in statements that mutate values to see the values before and after an update,
+  * •
+[$session](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#session) provides context on the current session,
+  * •
+[$parent](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#parent-this) provides access to the value in a primary query while inside a subquery.
+
+For a full list of these automatically generated parameters, see the [parameters](https://surrealdb.com/docs/reference/query-language/language-primitives/parameters#reserved-variable-names) page.
+##  Values[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#values)
+Each of the types mentioned in the data model is a subset of an all-encompassing type called a value.
+##  Comparing and ordering values[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#comparing-and-ordering-values)
+As every data type a subset of value, any value can be compared with another one.
+
+```surql
+9 > 1;            // Returns true
+null > none;      // Also returns true
+```
+
+Being able to compare a value with any other value is what makes SurrealDB's record range syntax possible.
+
+```surql
+CREATE time_data:[d'2024-07-23T00:00:00.000Z'];
+CREATE time_data:[d'2024-07-24T00:00:00.000Z'];
+CREATE time_data:[d'2024-07-25T00:00:00.000Z'];
+-- Records from the 24th to the 25th
+SELECT * FROM time_data:[d'2024-07-24']..[d'2024-07-25'];
+-- Records from the 24th
+SELECT * FROM time_data:[d'2024-07-24']..;
+-- All records
+SELECT * FROM time_data:[NONE]..;
+```
+
+The `..` open-range syntax also represents an infinite value inside a record range query, making it the greatest possible value and the inverse of `NONE`, the lowest possible value. A part of a record range query that begins with `NONE` and ends with `..` will thus filter out nothing.
+
+```surql
+CREATE temperature:['London', d'2025-02-19T00:00:00.000Z'] SET val = 5.5;
+CREATE temperature:['London', d'2025-02-20T00:00:00.000Z'] SET val = 5.7;
+
+-- Return all records as long as index 0 = 'London'
+SELECT * FROM temperature:['London', NONE]..=['London', ..];
+```
+
+Output
+
+```surql
+[
+	{
+		id: temperature:[
+			'London',
+			d'2025-02-19T00:00:00Z'
+		],
+		val: 5.5f
+	},
+	{
+		id: temperature:[
+			'London',
+			d'2025-02-20T00:00:00Z'
+		],
+		val: 5.7f
+	}
+]
+```
+
+Inside a schema, the keyword `any` is used to denote any possible value.
+
+```surql
+DEFINE FIELD anything ON TABLE person TYPE any;
+```
+
+##  Values and truthiness[](https://surrealdb.com/docs/learn/querying/surrealql/statements-and-values#values-and-truthiness)
+Any value is considered to be truthy if it is not NONE, NULL, or a default value for the data type. A data type at its default value is one that is empty, such as an empty string or array or object, or a number set to 0.
+The following example shows the result of the `array::all()` method, which checks to see if all of the items inside an array are truthy or not.
+
+```surql
+RETURN array::all(["", 1, 2, 3]); // false because of ""
+RETURN array::all([{}, 1, 2, 3]); // false because of {}
+RETURN array::all(["SurrealDB", { is_nice_database: true }, 1, 2, 3]);  // true
+```
+
+As [the ! operator](https://surrealdb.com/docs/reference/query-language/language-primitives/operators) reverses the truthiness of a value, a doubling of this operator can also be used to check for truthiness.
+
+```surql
+RETURN [
+    !!"Has a value", !!"",             // true, false
+    !!true, !!false,                   // true, false
+    !!{ is_nice_database: true }, !!{} // true, false
+    ];
+```
+
+The following example shows how `!!` can be conveniently used along with the [`object::entries()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/object#objectentries) and [`object::from_entries()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/object#objectfrom_entries) function to set fields from one table in another as long as they are not empty, `NULL`, or `NONE`. The filtering itself is done using the [`array::filter()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/array#arrayfilter) function which returns any values that match a pattern such as the `!!` operator.
+
+```surql
+CREATE person:one CONTENT {
+    this: NULL,
+    that: "that",
+    and: "and",
+    the: NONE,
+    other: ""
+};
+
+CREATE person:two CONTENT {
+    this: "this",
+    that: NONE,
+    and: NULL,
+    the: "",
+    other: "other"
+};
+
+FOR $person IN SELECT * FROM person {
+    LET $filtered = $person.*.entries().filter(|$entry| !!$entry[1]);
+    CREATE new_table CONTENT object::from_entries($filtered);
+    
+    // Or all in one line:
+    // CREATE new_table CONTENT object::from_entries($person.*.entries().filter(|$n| !!$n[1]))
+};
+
+SELECT * FROM new_table;
+```
+
+The output shows two new records that only contain fields that were truthy in the original `person` records.
+Output
+
+```surql
+[
+	{
+		and: 'and',
+		id: new_table:one,
+		that: 'that'
+	},
+	{
+		id: new_table:two,
+		other: 'other',
+		this: 'this'
+	}
+]
+```

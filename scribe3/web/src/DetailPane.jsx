@@ -1,13 +1,32 @@
 import { ChapterStudio } from './ChapterStudio'
 import { CodexDetail, PropositionDetail } from './CodexDetail'
 import { CodexNew } from './CodexNew'
-import { MaterialDetail, MaterialList, MaterialNew } from './Materials'
+import { MaterialDetail, MaterialImportPane, MaterialNetworkPane, MaterialNew } from './Materials'
 import { AtlasView } from './views/AtlasView'
 import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
-import { ContainerOutline } from './ContainerOutline'
 import { ErrorBoundary } from './ErrorBoundary'
+import { ContainerOutline } from './ContainerOutline'
+import { NorthStarPanel } from './NorthStarPanel'
+import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
+import { VolumeDetailPane } from './layout/VolumeDetailPane'
+import { ObjectFrame } from './layout/ObjectFrame'
+import { presentationForNode } from './layout/objectRegistry'
+
+// 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
+// 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
+// withFrame 原样返回详情元素——从而「谁套外框」只有一处真相,不散落 if 判断。
+// 注意:内层详情组件的 props 一律不改(外框只是外层壳),写作/设定/素材现有逻辑零回归。
+function withFrame(node, element) {
+  const pres = presentationForNode(node)
+  if (!pres) return element
+  return (
+    <ObjectFrame breadcrumb={pres.breadcrumb} title={pres.title}>
+      {element}
+    </ObjectFrame>
+  )
+}
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -16,13 +35,7 @@ const CAT_LEAF_TYPE = {
 }
 
 const CODEX_LEAF = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif'])
-const CONTAINER = new Set(['manuscript_root', 'codex_root', 'volume', 'codex_category'])
-// 手稿容器(卷/手稿根)→ 章卡片墙/大纲表多模式;其余容器(设定分类)→ 子项列表
-const MANUSCRIPT_CONTAINER = new Set(['manuscript_root', 'volume'])
-
-// 把卡片/行点击的章 → 章 TreeNode(与 WriteLayout.onSeqChange 同形),选中后中间栏切写作台。
-// phase:'outline' —— 单一真相源:从全书大纲点进某章,默认落该章「大纲」阶段(同一 synopsis 字段)。
-const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
+const CONTAINER = new Set(['manuscript_root', 'codex_root', 'codex_category', 'material_root', 'material_category'])
 
 /**
  * 中间栏:按 sel 路由。
@@ -45,16 +58,16 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived }) {
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
     const openView = (vk) => onSelectNode?.({ type: 'view', id: `view:${vk}` })
-    if (k === 'atlas') return <AtlasView key={work} />
-    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} />
-    if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} />
+    if (k === 'atlas') return <AtlasView key={work} onNavigateToObject={onNavigateToObject} />
+    if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
+    if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
-    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} focus="progress" />  // 仪表盘聚焦码字进度面板
+    if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }
 
@@ -67,6 +80,20 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
     )
   }
 
+  if (node.type === 'book_outline') {
+    return <ContainerOutline key="book:outline" node={{ id: 'manuscript_root', type: 'manuscript_root', ref: null, label: '全书大纲' }} onSelect={onSelectNode}
+      onOpenChapter={(c) => onSelectNode?.({ id: `ch:${c.seq}`, type: 'chapter', ref: c.seq, label: `${c.seq} ${c.title || ''}`.trim(), phase: 'outline' })} />
+  }
+  if (node.type === 'book_northstar') return <NorthStarPanel scope="book" />
+  if (node.type === 'volume') return <VolumeDetailPane key={node.id} node={node} onSelectNode={onSelectNode} onChanged={onTreeChanged} />
+
+  if (node.type === 'capability_group') return <CapabilityGroupDetailPane key={node.id} node={node} />
+  if (node.type === 'deduce_view') return <DeduceDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'promise_view') return <PromiseDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'motif_view') return <MotifDetailPane key={node.id} node={node} work={work} />
+  if (node.type === 'recall_result') return <RecallResultDetail key={node.id} node={node} onOpenTarget={onNavigateToObject || onSelectNode} />
+  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} onRecheck={() => {}} />
+
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;
   // 点场景即打开其所属章(正确章,非假跳),并把 idx 透传给 ChapterStudio 供未来定位。
@@ -74,7 +101,9 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
     const seq = node.type === 'scene' ? node.ref?.seq : node.ref
     const sceneIdx = node.type === 'scene' ? node.ref?.idx : null
     return <ChapterStudio key={work} work={work} seq={seq} sceneIdx={sceneIdx} initialPhase={node.phase}
-      onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })} />
+      onSelectNode={onSelectNode}
+      onSeqChange={(s) => onSelectNode?.({ id: `ch:${s}`, type: 'chapter', ref: s, label: `${s}` })}
+      onArchived={onChapterArchived} />
   }
 
   // —— 设定新建 → 新建表单(创建后重载树并选中新条目) ——
@@ -105,19 +134,29 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
         else backToCat()
       }} />
   }
+  if (node.type === 'material_import') {
+    const backToMaterials = () => onSelectNode?.({ id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
+    return <MaterialImportPane key={node.id}
+      onCancel={backToMaterials}
+      onImported={() => {
+        onTreeChanged?.()
+        backToMaterials()
+      }} />
+  }
+  if (node.type === 'material_network') {
+    return <MaterialNetworkPane key={node.id} onSelect={onSelectNode} />
+  }
   if (node.type === 'material') {
-    return <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}
+    return withFrame(node, <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}
       onDeleted={() => {
         onTreeChanged?.()
         const kind = node.meta?.kind
         onSelectNode?.(kind
           ? { id: `matcat:${kind}`, type: 'material_category', ref: kind, label: '素材' }
           : { id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
-      }} />
+      }} />)
   }
-  if (node.type === 'material_root' || node.type === 'material_category') {
-    return <MaterialList key={node.id} node={node} onSelect={onSelectNode} />
-  }
+  if (node.type === 'material_root' || node.type === 'material_category') return <ContainerDetailEmpty node={node} />
 
   // —— 命题叶(批D 件1)→ 独立安全详情块(不走 DetailView 整行 PATCH,防私密值/leak_markers 被有损回写抹掉) ——
   if (node.type === 'proposition') {
@@ -125,23 +164,25 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter })
       onDeleted={() => { onTreeChanged?.(); onSelectNode?.({ id: 'cat:proposition', type: 'codex_category', ref: 'proposition', label: '命题' }) }} />
   }
 
-  // —— 设定叶 → 详情卡 ——
+  // —— 设定叶 → 详情卡(character 套对象外框;faction/item/term/world_rule/promise/motif 暂不套,
+  //    由 withFrame 内 presentationForNode 判定:仅 character 有呈现数据 → 只有它被包)——
   if (CODEX_LEAF.has(node.type)) {
-    return <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />
+    return withFrame(node, <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />)
   }
 
-  // —— 手稿容器(卷/手稿根)→ 卡片墙/大纲表多模式 ——
-  if (MANUSCRIPT_CONTAINER.has(node.type)) {
-    return <ContainerOutline key={node.id} node={node}
-      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))}
-      onSelect={onSelectNode} />
-  }
-
-  // —— 其余容器(设定分类)→ 子项列表 ——
-  if (CONTAINER.has(node.type)) {
-    return <ContainerOutline key={node.id} node={node} onSelect={onSelectNode}
-      onOpenChapter={(c) => onSelectNode?.(chapterNode(c.seq, c.title))} />
-  }
+  // —— 容器只驱动栏2目录;栏3只承载条目详情/横切视图 ——
+  if (CONTAINER.has(node.type)) return <ContainerDetailEmpty node={node} />
 
   return <div className="p-8 text-faint">未知节点类型:{node.type}</div>
+}
+
+function ContainerDetailEmpty({ node }) {
+  return (
+    <div className="h-full grid place-items-center text-center px-6 text-f13 text-faint/60">
+      <div>
+        <div className="text-ink/70 mb-1">{node?.label || '目录'}</div>
+        <div>选择目录条目查看详情。</div>
+      </div>
+    </div>
+  )
 }

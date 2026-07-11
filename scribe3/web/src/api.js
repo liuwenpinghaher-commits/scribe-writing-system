@@ -1,6 +1,9 @@
 // scribe3 后端 API · 多书:每次调用带当前 work(一书一 DB)。
-// 生产经 VITE_API_BASE 注入;开发缺省回退本机 :3321。
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:3321'
+// 生产经 VITE_API_BASE 注入;开发缺省回退同源 '/api'(vite.config server.proxy 转发到 :3321)。
+// 同源缘由:直连跨端口 :3321 时,浏览器扩展/安全策略常在请求发出前拦截 POST(F12 里连
+// 请求都看不到),而 GET 简单请求能过——表现为「GET 正常但选择环等 POST 请求未送达」。
+// 走同源 /api 后浏览器眼里全是本源请求,跨端口/跨源/preflight/扩展拦截整类消失。
+const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 let WORK = 'main'
 const enc = encodeURIComponent
 // work 可选覆盖:缺省读模块全局 WORK;显式传入把 ?work= 钉死到指定书,
@@ -16,7 +19,7 @@ async function handle(res) {
   return res.json()
 }
 
-const j = (p) => fetch(BASE + ww(p)).then(handle)
+const j = (p, work) => fetch(BASE + ww(p, work)).then(handle)
 const jraw = (p) => fetch(BASE + p).then(handle)
 const post = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -59,9 +62,9 @@ export const api = {
   // 消费端经 causalStatus 归一化三态,勿对结果直接 .length(见 WriteLayout / causalStatus.js)。
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
-  promisesLedger: () => j('/promises/ledger'),
-  motifs: () => j('/motifs'),
-  motifInstances: (ch) => j(`/motif-instances?chapter=${ch}`),
+  promisesLedger: (work) => j('/promises/ledger', work),
+  motifs: (work) => j('/motifs', work),
+  motifInstances: (ch, work) => j(`/motif-instances?chapter=${ch}`, work),
   graph: (opts = {}) => {
     const { chapter, focus, limit, hop } = typeof opts === 'object' && opts !== null ? opts : { chapter: opts }
     const qs = []
@@ -83,10 +86,10 @@ export const api = {
   // 设定库增删改
   addChar: (b) => post('/characters', b),
   editChar: (local, b) => patch('/characters/' + enc(local), b),
-  delChar: (local) => del('/characters/' + enc(local)),
+  delChar: (local, token = '') => del('/characters/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   addFact: (b) => post('/facts', b),
   editFact: (local, b) => patch('/facts/' + enc(local), b),
-  delFact: (local) => del('/facts/' + enc(local)),
+  delFact: (local, token = '') => del('/facts/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   // 批D 件1:命题时态演进(限知引擎核心)。supersede=关闭同 entity+attribute 开区间先驱并写新值
   // (改命题值的时态正确路径,保历史);forget=令某 knower(默认 reader)从某章起不再知此命题。
   supersedeFact: (b) => post('/facts/supersede', b),
@@ -134,6 +137,96 @@ export const api = {
   pilotRunStatus: () => j('/pilot/run-status'),
   pilotDismiss: (seq) => post('/pilot/dismiss', { seq }),         // R1-4:pilot 僵尸态退出
   pilotResetStep: (seq) => post('/pilot/reset-step', { seq }),   // R1-4:stalled/parked 解卡重跑当前步
+  // Hermes Runs/Approval:长任务事件流 + 人类审批闭环
+  // H-10 全系统预算:日帽(app+MCP 共享台账)+ token 真实用量(trace 聚合)
+  aiUsage: (days = 7) => j(`/ai/usage?days=${days}`),
+  aiRunCreate: (body) => post('/ai/runs', body),
+  aiRunStatus: (runId) => j('/ai/runs/' + enc(runId)),
+  aiRunTrace: (runId) => j('/ai/runs/' + enc(runId) + '/trace'),
+  aiRunApproval: (runId, body) => post('/ai/runs/' + enc(runId) + '/approval', body),
+  aiRunStop: (runId) => post('/ai/runs/' + enc(runId) + '/stop'),
+  aiRunEvents: (runId, {
+    onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+  } = {}) => {
+    const es = new EventSource(BASE + ww('/ai/runs/' + enc(runId) + '/events'))
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        if (d.delta) onDelta?.(d.delta)
+        else if (d.tool) onTool?.(d.tool, d.tool_args)
+        else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
+        else if (d.approval) onApproval?.(d.approval)
+        else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
+        else if (d.run) onRun?.(d.run)
+        else if (d.done) { es.close(); onDone?.() }
+        else if (d.error) { es.close(); onError?.(d.error) }
+      } catch (_) { /* */ }
+    }
+    es.onerror = () => { es.close(); onError?.('连接中断') }
+    return es
+  },
+  runWrite: (input, {
+    instructions = '', context = null, onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+  } = {}) => {
+    let es = null
+    let runId = null
+    let stopped = false
+    // Task 13:发起时上下文绑定(会话/版本)随创建带上,后端据此快照 origin focus/hash
+    // 供审批重校验;未传 context(存量/非线程)→ body 保持 {input, instructions} 不变。
+    const body = { input, instructions }
+    if (context) {
+      if (context.context_session_id != null) body.context_session_id = context.context_session_id
+      if (context.context_revision != null) body.context_revision = context.context_revision
+    }
+    api.aiRunCreate(body).then((run) => {
+      if (stopped) return
+      runId = run?.run_id || run?.id
+      if (!runId) throw new Error('Hermes Run 未返回 run_id')
+      onRun?.({ ...run, run_id: runId })
+      es = api.aiRunEvents(runId, {
+        onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun,
+        onDone: () => { es = null; onDone?.() },
+        onError,
+      })
+    }).catch((e) => {
+      if (!stopped) onError?.(e?.body?.detail || e?.message || 'Hermes Run 创建失败')
+    })
+    const stop = () => {
+      stopped = true
+      try { es?.close?.() } catch (_) { /* */ }
+      if (runId) api.aiRunStop(runId).catch(() => {})
+    }
+    return { abort: stop, close: stop }
+  },
+  // 统一上下文(Task 4):快照头三件套——与 body 字段(context_session_id/
+  // context_revision/context_hash)**等价的绑定通道**:后端 enforce 逐字段取
+  // body、缺失时回退这些请求头,两通道都缺才 400。后续所有 LLM 调用逐步换用。
+  // 过期时后端 409 {detail:{code:'stale_context', latest}},handle 已把 body 挂上
+  // error,消费端读 error.body.detail.code / .latest 直接对齐,无需再读一次。
+  contextHeaders: (snapshot) => ({
+    'X-Scribe-Context-Session': snapshot.session_id,
+    'X-Scribe-Context-Revision': String(snapshot.revision),
+    'X-Scribe-Context-Hash': snapshot.context_hash,
+  }),
+  createContextSession: (body) => post('/context/sessions', body),
+  contextSession: (id) => j('/context/sessions/' + enc(id)),
+  navigateContext: (id, intent) => post('/context/sessions/' + enc(id) + '/navigate', intent),
+  contextSnapshot: (id, revision) => j('/context/sessions/' + enc(id) + '/snapshots/' + revision),
+  // Task 14:某快照版本的记忆溯源 trace(上下文检查器数据源)。该版本暂无溯源 → 404
+  // memory_trace_not_found(检索生产接线待 Task 16),检查器据此显"未检索到证据"。
+  getMemoryTrace: (id, revision) => j('/context/sessions/' + enc(id) + '/trace/' + revision),
+  // 运行时降级状态(Hermes 离线/只读判定源);全局端点,不带 work。
+  aiRuntimeStatus: () => jraw('/ai/runtime-status'),
+  // Task 16-B 灰度能力下发:前端能力以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
+  // 全局端点,不带 work;回 { flags:{snapshot_v1,editorial_thread_v1,memory_fabric_v1,
+  // context_inspector_v1,spectron_shadow,assembler_v1}, versions:{...} },默认 flags 全 false。
+  fetchCapabilities: () => jraw('/capabilities'),
+  // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
+  // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
+  // forkThread 显式分支(导航路径绝不调此)。
+  threads: () => j('/chat/threads'),
+  threadMessages: (id) => j('/chat/threads/' + enc(id) + '/messages'),
+  forkThread: (id, body) => post('/chat/threads/' + enc(id) + '/fork', body || {}),
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
@@ -142,7 +235,7 @@ export const api = {
   delArcBeat: (id) => del('/arc-beats/' + enc(id)),
   charStates: (id) => j(`/char-states?character_id=${enc(id)}`),
   // 声音演变后半环(P1-11 消费端):列全书 open flags(前端按角色过滤)/ 单条 resolve / 一键折叠进 voice_profile。
-  // ⚠ 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
+  // 注意 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
   // fold 的 character_id 须带本体前缀(如 role:单嫣);后端 _split 依赖冒号,裸名会 500。
   voiceFlags: () => j('/voice-flags'),
   resolveVoiceFlag: (fid) => post('/voice-flags/' + enc(fid) + '/resolve'),
@@ -150,23 +243,58 @@ export const api = {
   // POST 但只读(登记在后端 KNOWN_REST_WRITE_ROUTES);rubric 走 LLM 可能慢,调用方给 loading 态
   tensionCheck: (seq) => post(`/tension-check?seq=${seq}`),
   // 素材库(非正典材料;镜像 motif 方法组)
-  materials: (kind) => j('/materials' + (kind ? `?kind=${enc(kind)}` : '')),
+  materials: (arg) => {
+    const opts = arg && typeof arg === 'object' ? arg : { kind: arg }
+    const qs = []
+    if (opts.kind) qs.push('kind=' + enc(opts.kind))
+    if (opts.limit != null) qs.push('limit=' + enc(opts.limit))
+    if (opts.cursor != null) qs.push('cursor=' + enc(opts.cursor))
+    if (opts.view) qs.push('view=' + enc(opts.view))
+    if (opts.q) qs.push('q=' + enc(opts.q))
+    return j('/materials' + (qs.length ? '?' + qs.join('&') : ''))
+  },
   addMaterial: (b) => post('/materials', b),
   editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
-  delMaterial: (mid) => del('/materials/' + enc(mid)),
+  delMaterial: (mid, token = '') => del('/materials/' + enc(mid) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
+  objectImpact: (type, id) => j('/objects/' + enc(type) + '/' + enc(id) + '/impact'),
+  deleteObject: (type, id, token = '') => del('/objects/' + enc(type) + '/' + enc(id) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
+  archiveObject: (type, id) => post('/objects/' + enc(type) + '/' + enc(id) + '/archive'),
+  // 素材记忆:三通道召回搜索 + 双向溯源 + 多格式导入
+  materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
+  materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
+  materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
+  materialGraph: (opts = {}) => {
+    const qs = []
+    if (opts.focus != null && opts.focus !== '') qs.push('focus=' + enc(opts.focus))
+    if (opts.limit != null) qs.push('limit=' + enc(opts.limit))
+    if (opts.hop != null) qs.push('hop=' + enc(opts.hop))
+    return j('/materials/graph' + (qs.length ? '?' + qs.join('&') : ''))
+  },
+  materialImport: (formData) => fetch(BASE + ww('/materials/import'), { method: 'POST', body: formData }).then(handle),
+  materialImportPreview: (jobId) => j('/materials/import/' + enc(jobId) + '/preview'),
+  materialImportCommit: (jobId, items) => post('/materials/import/' + enc(jobId) + '/commit', { items }),
+  materialImportProgressUrl: (jobId) => BASE + ww('/materials/import/' + enc(jobId) + '/progress'),
+  search: (q) => j('/search?q=' + enc(q)),
+  issues: (chapter) => j('/issues' + (chapter != null ? `?chapter=${enc(chapter)}` : '')),
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
   acceptUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/accept'),
   ignoreUnverified: (id) => api.post('/ingest-unverified/' + enc(id) + '/ignore'),
   ignoreAllUnverified: (status = 'pending') => api.post('/ingest-unverified/ignore-all' + (status ? `?status=${enc(status)}` : '')),   // R2-12:批量清死水
   recall: (text, k = 6) => j(`/recall?q=${enc(text)}&k=${k}`),
   chapters: () => j('/chapters'),
+  archivedChapters: () => j('/chapters/archived'),
+  createChapter: (body = {}) => post('/chapters', body),
+  archiveChapter: (seq, reason = '') => post('/chapters/' + seq + '/archive', { reason }),
+  restoreChapter: (seq) => post('/chapters/' + seq + '/restore'),
+  chapterImpact: (seq) => j('/chapters/' + seq + '/impact'),
+  deleteChapter: (seq, token = '') => del('/chapters/' + seq + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   projectTree: () => j('/project-tree'),
   outline: () => j('/outline'),
   // 拖拽重排:只改 sort_order(及 volume),不动 seq
   reorderChapters: (volume, order) => post('/chapters/reorder', { volume, order }),
   // 卷 CRUD
   listVolumes: () => j('/volumes'),
-  addVolume: (title, sort_order = 0, color = null) => post('/volumes', { title, sort_order, color }),
+  addVolume: (title, sort_order = 0, color = null, intro = null) => post('/volumes', { title, sort_order, color, intro }),
   patchVolume: (vid, fields) => patch('/volumes/' + enc(vid), fields),
   deleteVolume: (vid) => del('/volumes/' + enc(vid)),
   // 改章梗概/卷/标签/标题(不碰正文/embedding/qc)
@@ -178,7 +306,7 @@ export const api = {
   // work 可选:卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书。
   saveDraft: (seq, prose, summary = '', work) => post(`/save-draft?seq=${seq}`, { prose, summary }, work),
   latestDraft: (seq) => j(`/latest-draft?seq=${seq}`),
-  qc: (seq) => j(`/qc?seq=${seq}`),
+  qc: (seq, work) => j(`/qc?seq=${seq}`, work),
   // work 可选:卸载兜底 flush / 切章 persist 传入捕获的 work,钉死目标书,防切书写错书。
   saveChapter: (seq, prose, title, focalizer, work) => post('/save-chapter', { seq, prose, title, focalizer }, work),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
@@ -225,12 +353,15 @@ export const api = {
       },
     }
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onProposalStart, onProposalChunk, onProposal, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', context = null, onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError }) => {
     const ctrl = new AbortController()
+    // Task 6:context 为线程模式下的绑定/焦点(thread_id/context_*/focus),
+    // 逐字段并入请求体(后端 ChatWriteReq 全 optional,不传即现状)。
+    const body = { msg, chapter, focalizer, images, phase, ...(context || {}) }
     fetch(BASE + ww('/chat/write'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msg, chapter, focalizer, images, phase }),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     }).then(async (res) => {
       if (!res.ok) { onError?.(`HTTP ${res.status}`); return }
@@ -252,9 +383,12 @@ export const api = {
               const d = JSON.parse(payload)
               if (d.delta) onDelta?.(d.delta)
               else if (d.tool) onTool?.(d.tool)
+              else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
               else if (d.proposal_start) onProposalStart?.(d.proposal_start)
               else if (d.proposal_chunk) onProposalChunk?.(d.proposal_chunk)
               else if (d.proposal) onProposal?.(d.proposal)
+              else if (d.approval) onApproval?.(d.approval)
+              else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
               else if (d.done) { onDone?.(); return }
               else if (d.error) { onError?.(d.error); return }
             } catch (_) { /* */ }
@@ -269,7 +403,7 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onDone, onError, agentic, seq }) => {
+  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq }) => {
     // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
       + (seq != null ? `&seq=${seq}` : '')
@@ -279,6 +413,9 @@ export const api = {
         const d = JSON.parse(e.data)
         if (d.delta) onDelta(d.delta)
         else if (d.tool) { onTool && onTool(d.tool, d.tool_args) }
+        else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
+        else if (d.approval) onApproval?.(d.approval)
+        else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
         else if (d.done) { es.close(); onDone() }
         else if (d.error) { es.close(); onError(d.error) }
       } catch (_) { /* */ }

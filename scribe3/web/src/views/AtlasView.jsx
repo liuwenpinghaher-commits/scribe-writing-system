@@ -3,7 +3,7 @@ import { MultiDirectedGraph } from 'graphology'
 import { SigmaContainer, useLoadGraph, useRegisterEvents, useSigma } from '@react-sigma/core'
 import '@react-sigma/core/lib/style.css'
 import forceAtlas2 from 'graphology-layout-forceatlas2'
-import { Eye, X, Crosshair, ChevronRight, Loader2 } from 'lucide-react'
+import { Eye, X, Crosshair, ChevronRight, Loader2, Lock, List } from 'lucide-react'
 import { api } from '../api'
 import { REL_LABEL, relColor } from '../lib/relColors'
 import { useSelection } from '../selectionContext'
@@ -60,8 +60,9 @@ function buildGraph(data, focus, theme) {
       y: Math.sin(ang) * 10,
       size: isFocus ? 16 : isChar ? 11 : 7,
       color: nodeColor(n, theme),
-      // 角色显名;命题节点 label 后端已对 secret 屏蔽成「🔒 私密」
-      label: (n.secret ? '🔒 ' : '') + (n.label || n.id),
+      // 角色显名;命题节点 label 后端已对 secret 屏蔽(store.graph 出带锁前缀的私密串),
+      // 此处不再前端重复加锁前缀,避免双锁——secret 语义由后端 label + 节点配色承载
+      label: n.label || n.id,
       _type: n.type,
       _secret: !!n.secret,
       _rawlabel: n.label || n.id,
@@ -148,7 +149,7 @@ function GraphContent({ data, focus, theme, onPickNode, onHoverNode }) {
 }
 
 // 节点详情面板(点击后弹出)
-function NodeDetail({ node, focus, edges, onExpand, onClose }) {
+function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
   if (!node) return null
   // 该节点与 focus 之间的关系(若直连)
   const relToFocus = focus && focus !== node.id
@@ -159,7 +160,7 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
     <div className="absolute top-3 right-3 z-20 w-64 rounded-xl border border-line bg-surface/95 backdrop-blur shadow-lg p-3.5 flex flex-col gap-2.5">
       <div className="flex items-start gap-2">
         <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">
-          {node.secret ? '🔒 私密命题' : node.label}
+          {node.secret ? <span className="inline-flex items-center gap-1"><Lock size={13} />私密命题</span> : node.label}
         </span>
         <button onClick={onClose} className="text-faint hover:text-ink shrink-0 mt-0.5"><X size={14} /></button>
       </div>
@@ -174,8 +175,19 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
         </div>
       )}
       {node.secret && (
-        <div className="text-f11 text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
+        <div className="text-meta text-faint leading-relaxed">该命题为私密内容,图谱中不展示明文。</div>
       )}
+      <button
+        onClick={() => onOpenNode?.({
+          id: node.id,
+          type: node.type === 'character' ? 'character' : 'proposition',
+          label: node.secret ? '私密命题' : node.label,
+          secret: !!node.secret,
+        })}
+        className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:bg-soft"
+      >
+        打开设定
+      </button>
       {node.type === 'character' && (
         <button
           onClick={() => onExpand(node.id)}
@@ -188,7 +200,7 @@ function NodeDetail({ node, focus, edges, onExpand, onClose }) {
   )
 }
 
-export function AtlasView() {
+export function AtlasView({ onNavigateToObject }) {
   const [raw, setRaw] = useState(null)        // 当前子图数据
   const [chars, setChars] = useState([])      // 全部角色(下拉用)— 仅 id/label
   const [focus, setFocus] = useState('')      // 当前中心角色 id
@@ -208,6 +220,16 @@ export function AtlasView() {
       ? { type: 'character', id: n.id, label: n.label, origin: 'atlas' }
       : { type: 'frame_fact', id: n.id, label: n.secret ? '私密命题' : n.label, payload: { secret: !!n.secret }, origin: 'atlas' })
   }, [setBusFocus])
+
+  // 键盘等价路径:图谱对象列表项 → 与图形节点「打开设定」相同的 onNavigateToObject。
+  const navToNode = useCallback((n) => {
+    onNavigateToObject?.({
+      id: n.id,
+      type: n.type === 'character' ? 'character' : 'proposition',
+      label: n.secret ? '私密命题' : (n.label || n.id),
+      secret: !!n.secret,
+    })
+  }, [onNavigateToObject])
 
   // 主题(明暗切换时刷新色板)
   useEffect(() => {
@@ -318,17 +340,40 @@ export function AtlasView() {
             <button
               key={h}
               onClick={() => setHop(h)}
-              className={`w-6 h-6 rounded-md border text-f11 ${hop === h ? 'border-brand text-brand bg-brand/10 font-medium' : 'border-line text-faint hover:text-ink'}`}
+              className={`w-6 h-6 rounded-md border text-meta ${hop === h ? 'border-brand text-brand bg-brand/10 font-medium' : 'border-line text-faint hover:text-ink'}`}
             >{h}</button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-3 text-f11 text-faint">
+        <div className="ml-auto flex items-center gap-3 text-meta text-faint">
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-brand)' }} />角色</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />命题</span>
-          <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-secret)' }} />🔒 私密</span>
+          <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-secret)' }} /><Lock size={11} />私密</span>
         </div>
       </div>
 
+      <div className="flex-1 min-h-0 flex">
+        {/* 键盘/读屏等价路径:与画布同一份 raw.nodes 的命名对象列表(WebGL 图无法聚焦时的可达替代) */}
+        {raw?.nodes?.length > 0 && (
+          <div role="region" aria-label="图谱对象列表"
+            className="w-56 shrink-0 border-r border-line bg-surface overflow-y-auto hidden md:block">
+            <div className="sticky top-0 bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
+              <List size={12} />对象列表 · {raw.nodes.length}
+            </div>
+            <ul className="py-1">
+              {raw.nodes.map((n) => (
+                <li key={n.id}>
+                  <button onClick={() => navToNode(n)}
+                    className="w-full text-left px-3 py-1.5 text-f12 text-ink hover:bg-soft/60 inline-flex items-center gap-1.5 transition-colors">
+                    <i className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: n.type === 'character' ? 'var(--color-brand)' : n.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
+                    {n.secret && <Lock size={11} className="shrink-0 text-faint" />}
+                    <span className="truncate">{n.secret ? '私密命题' : (n.label || n.id)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       <div className="flex-1 min-h-0 relative">
         {err ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-faint">
@@ -376,9 +421,9 @@ export function AtlasView() {
             {/* 角色关系图例 */}
             {present.length > 0 && (
               <div className="absolute bottom-3 left-3 z-10 rounded-lg border border-line bg-surface/90 backdrop-blur px-3 py-2 flex flex-col gap-1 shadow-sm">
-                <span className="text-f11 font-medium text-faint mb-0.5">角色关系</span>
+                <span className="text-meta font-medium text-faint mb-0.5">角色关系</span>
                 {present.map((rel) => (
-                  <span key={rel} className="inline-flex items-center gap-1.5 text-f11 text-ink">
+                  <span key={rel} className="inline-flex items-center gap-1.5 text-meta text-ink">
                     <i className="w-3 h-[2px] rounded-full inline-block" style={{ background: relColor(rel) }} />
                     {REL_LABEL[rel] || rel}
                   </span>
@@ -387,7 +432,7 @@ export function AtlasView() {
             )}
 
             {/* 提示 */}
-            <div className="absolute bottom-3 right-3 z-10 text-f11 text-faint/80 inline-flex items-center gap-1">
+            <div className="absolute bottom-3 right-3 z-10 text-meta text-faint/80 inline-flex items-center gap-1">
               点击节点查看详情 <ChevronRight size={11} /> 角色可「以此为中心展开」
             </div>
 
@@ -396,10 +441,12 @@ export function AtlasView() {
               focus={focus}
               edges={raw?.edges || []}
               onExpand={onExpandTo}
+              onOpenNode={onNavigateToObject}
               onClose={() => pickNode(null)}
             />
           </>
         )}
+        </div>
       </div>
     </div>
   )

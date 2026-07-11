@@ -572,6 +572,28 @@ def test_idea_resolve_and_pilot_dismiss(store):
 
 # ===== T10 连写 =====
 
+def test_run_prefetches_chapter_range_once(store, monkeypatch):
+    calls = []
+
+    def prefetch(start, until):
+        calls.append((start, until))
+        return []
+
+    def parked_step(st, seq, ex, mode="manual", **kw):
+        return {"seq": seq, "state": "idle", "action": None,
+                "gate": "parked", "reason": "预取测试停靠"}
+
+    monkeypatch.setattr(store, "chapter_seqs_in_range", prefetch, raising=False)
+    monkeypatch.setattr(A, "_store_for", lambda work: store)
+    monkeypatch.setattr(A, "_pilot_executor", lambda work: {})
+    monkeypatch.setattr("scribe3.pilot.step", parked_step)
+
+    A._pilot_run_bg("main", 3, 4)
+
+    assert calls == [(3, 4)], "pilot 应在连写前一次预取闭区间"
+    assert store.get_chapter(3) is not None, "范围中缺失章仍应按旧语义创建"
+
+
 def test_run_until_delivers_each_chapter_finalize_waits(store, monkeypatch):
     """连写到 until:每章推到 delivered(交付),finalize(宪法)全部留人。"""
     _wire_llm(monkeypatch)

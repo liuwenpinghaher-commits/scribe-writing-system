@@ -1,0 +1,15 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/language-primitives/statements"
+url: "https://surrealdb.com/docs/reference/query-language/language-primitives/statements"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/language-primitives/statements
+
+Source: https://surrealdb.com/docs/reference/query-language/language-primitives/statements
+
+In SurrealQL, a statement is a complete unit of work you send to the database: something the server can parse, execute, and respond to. For example, you might send statements to define a table, insert a row, or run a `SELECT` that returns rows to your application.
+Statements are not all the same kind of work. Some shape the schema (namespaces, tables, indexes, access rules). Others read or write data in the familiar sense. A third group handles control flow, and are used in transactions, conditionals, returning values from a block, and so on.
+Execution context matters when running a statement. You run statements inside a session scoped to a namespace and database, with permissions that determine what succeeds. If something fails, the error message points at the statement boundary, which is why keeping statements readable is helpful when working on large projects or even just coming back to a statement after a long period of time.
+For a grouped catalogue of every statement and links to full reference pages, see [SurrealQL statements overview](https://surrealdb.com/docs/reference/query-language/statements/overview).

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X, Boxes, Lock, History, EyeOff } from 'lucide-react'
 import { api } from './api'
 import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
+import { AsyncState } from './ui/AsyncState.jsx'
 import { showToast } from './ui/Toast'
 import { Btn, SectionTitle, Empty } from './ui'
 import { isChapterNum } from './lib/utils'
@@ -21,18 +22,32 @@ const TYPE_MAP = {
 // 裸 id:角色行 id 形如 "role:焦三",取冒号后;其余设定多用 name 作主键。
 const localOf = (row) => (row.id || '').includes(':') ? row.id.split(':').slice(1).join(':') : (row.id || row.name || '')
 
+function lifecycleDeleteBody(impact, fallback) {
+  if (!impact) return fallback
+  const refs = (Array.isArray(impact.references) ? impact.references : [])
+    .filter((r) => Number(r?.count || 0) > 0)
+  const refText = refs.length ? refs.map((r) => `${r.kind}: ${r.count}`).join('; ') : '未发现引用'
+  const action = impact.recommended_action === 'archive' ? '归档' : '删除'
+  const suffix = impact.recommended_action === 'archive'
+    ? '确认归档只会从默认列表和召回中隐藏,不会清理相关引用。'
+    : '确认删除会同步清理相关引用。'
+  return `影响范围: ${refText}。建议操作: ${action}。${suffix}`
+}
+
 // 按 type 拉「该分类全部条目」,再按 ref 选中一条(复用 CodexView 的多端点读路径)。
+// 注意不 catch 吞错:请求失败必须冒泡到调用方的 error 态,
+// 否则失败被压成空列表 → 界面谎称「未找到该条目(可能已删除)」。
 async function loadRows(nodeType) {
   if (nodeType === 'character') {
     const es = await api.entities()
     return es.filter((e) => e.kind === 'character')
   }
-  if (nodeType === 'faction') return api.get('/factions').catch(() => [])
-  if (nodeType === 'item') return api.get('/items').catch(() => [])
-  if (nodeType === 'term') return api.get('/terms').catch(() => [])
-  if (nodeType === 'world_rule') return api.get('/world-rules').catch(() => [])
-  if (nodeType === 'promise') return api.promises().catch(() => [])
-  if (nodeType === 'motif') return api.motifs().catch(() => [])
+  if (nodeType === 'faction') return api.get('/factions')
+  if (nodeType === 'item') return api.get('/items')
+  if (nodeType === 'term') return api.get('/terms')
+  if (nodeType === 'world_rule') return api.get('/world-rules')
+  if (nodeType === 'promise') return api.promises()
+  if (nodeType === 'motif') return api.motifs()
   return []
 }
 
@@ -44,7 +59,7 @@ function pickRow(nodeType, rows, ref) {
 }
 
 async function persist(detailType, updated) {
-  // 防线2(API 边界):掩码占位符绝不回写——把值等于 `🔒 私密` 的字段剔除,
+  // 防线2(API 边界):掩码占位符绝不回写——把值等于 SECRET_MASK 掩码的字段剔除,
   // 避免整行回传销毁真实私密(角色 backstory / 势力 private_operation,F-1/F-2)。
   const payload = stripSecretMask(updated)
   if (detailType === 'chars') await api.editChar(localOf(payload), payload)
@@ -107,8 +122,8 @@ function LieBeliefSpark({ states, arcPlan }) {
   return (
     <div className="mt-4">
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-f11 text-faint uppercase tracking-wider">信奉度曲线(Lie belief)</span>
-        <span className="text-f10 text-faint/60">{useActual ? '实测' : '计划轨迹'} · {pts.length} 点</span>
+        <span className="text-meta text-faint uppercase tracking-wider">信奉度曲线(Lie belief)</span>
+        <span className="text-meta text-faint/60">{useActual ? '实测' : '计划轨迹'} · {pts.length} 点</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[280px]" preserveAspectRatio="xMidYMid meet" role="img" aria-label="信奉度曲线">
         {/* 0 / 50 / 100 三条参考线 */}
@@ -131,6 +146,7 @@ function LieBeliefSpark({ states, arcPlan }) {
 }
 
 function CharArcAnchors({ characterId }) {
+  const uid = useId()   // 锚字段 label↔textarea/select 关联(此前 label 只是视觉文本)
   const [anchors, setAnchors] = useState(null)   // null=加载中
   const [arcPlan, setArcPlan] = useState([])
   const [states, setStates] = useState([])
@@ -179,29 +195,30 @@ function CharArcAnchors({ characterId }) {
   }
 
   if (anchors === null) return <div className="mt-6 text-f12 text-faint/50">弧光锚加载中…</div>
-  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
-  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+  // 统一 ui.jsx 标准风格(rounded-lg/h-9/px-3,与 Input/Textarea 一致)
+  const ta = 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y'
+  const inp = 'h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60'
   return (
     <div className="mt-6 pt-4 border-t border-line">
       <SectionTitle icon={GitBranch}>弧光锚 · 角色内核</SectionTitle>
       <div className="space-y-2.5">
         {ANCHOR_TEXT.map(([k, label, ph]) => (
           <div key={k}>
-            <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">{label}</div>
-            <textarea rows={2} value={form?.[k] ?? ''} onChange={(e) => setField(k, e.target.value)} placeholder={ph} className={ta} />
+            <label htmlFor={`${uid}-${k}`} className="block text-meta text-faint uppercase tracking-wider mb-0.5">{label}</label>
+            <textarea id={`${uid}-${k}`} rows={2} value={form?.[k] ?? ''} onChange={(e) => setField(k, e.target.value)} placeholder={ph} className={ta} />
           </div>
         ))}
         <div>
-          <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">弧型(Arc type)</div>
-          <select value={form?.arc_type ?? ''} onChange={(e) => setField('arc_type', e.target.value)}
-            className="w-full h-9 rounded-md border border-line bg-canvas px-2.5 text-f13 text-ink outline-none focus:border-brand cursor-pointer">
+          <label htmlFor={`${uid}-arc-type`} className="block text-meta text-faint uppercase tracking-wider mb-0.5">弧型(Arc type)</label>
+          <select id={`${uid}-arc-type`} value={form?.arc_type ?? ''} onChange={(e) => setField('arc_type', e.target.value)}
+            className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand cursor-pointer">
             <option value="">—</option>
             {ARC_TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
           </select>
         </div>
         <div>
-          <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">私密日程(Private agenda)</div>
-          <textarea rows={2} value={form?.private_agenda ?? ''} onChange={(e) => setField('private_agenda', e.target.value)}
+          <label htmlFor={`${uid}-private-agenda`} className="block text-meta text-faint uppercase tracking-wider mb-0.5">私密日程(Private agenda)</label>
+          <textarea id={`${uid}-private-agenda`} rows={2} value={form?.private_agenda ?? ''} onChange={(e) => setField('private_agenda', e.target.value)}
             placeholder="角色背地里在推进的目标(喂『待激活角色』心跳)" className={ta} />
         </div>
       </div>
@@ -209,16 +226,16 @@ function CharArcAnchors({ characterId }) {
         <Btn variant="primary" size="sm" onClick={save} disabled={!dirty || saving}>
           {saving && <Loader2 size={13} className="animate-spin" />}保存弧光锚
         </Btn>
-        {dirty && <span className="text-f11 text-faint">有未保存改动</span>}
+        {dirty && <span className="text-meta text-faint">有未保存改动</span>}
       </div>
 
       {/* 弧光里程碑(arc_plan):目标章 + 该拍应到达的信奉度 */}
       <div className="mt-5">
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-f11 text-faint uppercase tracking-wider">弧光里程碑</span>
-          <span className="text-f11 text-faint/50">{arcPlan.length} 个节拍</span>
+          <span className="text-meta text-faint uppercase tracking-wider">弧光里程碑</span>
+          <span className="text-meta text-faint/50">{arcPlan.length} 个节拍</span>
           {!beat && <button onClick={() => { setBeat({ beat_name: '', target_chapter: '', lie_belief_target: '', trigger_event: '' }); setBeatErr('') }}
-            className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />加节拍</button>}
+            className="ml-auto text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />加节拍</button>}
         </div>
         {beat && (
           <div className="mb-3 p-2.5 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-1.5">
@@ -230,7 +247,7 @@ function CharArcAnchors({ characterId }) {
               <input type="number" value={beat.lie_belief_target} onChange={(e) => setBeat({ ...beat, lie_belief_target: e.target.value })} placeholder="信奉度目标 0-100(可空)" className={`w-40 ${inp}`} />
               <input value={beat.trigger_event} onChange={(e) => setBeat({ ...beat, trigger_event: e.target.value })} placeholder="触发事件(可空)" className={`flex-1 ${inp}`} />
             </div>
-            {beatErr && <div className="text-f11 text-danger">{beatErr}</div>}
+            {beatErr && <div className="text-meta text-danger">{beatErr}</div>}
             <div className="flex gap-2">
               <Btn variant="primary" size="xs" onClick={addBeat}>保存节拍</Btn>
               <Btn variant="ghost" size="xs" onClick={() => { setBeat(null); setBeatErr('') }}>取消</Btn>
@@ -241,10 +258,10 @@ function CharArcAnchors({ characterId }) {
           <div className="space-y-1">
             {arcPlan.map((b) => (
               <div key={b.id} className="group flex items-center gap-2 py-1 px-1.5 rounded hover:bg-soft/40">
-                <span className="text-f11 text-faint tnum shrink-0">第{b.target_chapter}章</span>
+                <span className="text-meta text-faint tnum shrink-0">第{b.target_chapter}章</span>
                 <span className="text-f13 text-ink min-w-0 truncate">{b.beat_name}</span>
-                {typeof b.lie_belief_target === 'number' && <span className="text-f10 text-brand shrink-0">信奉度→{b.lie_belief_target}</span>}
-                {b.trigger_event && <span className="text-f11 text-faint/60 truncate">· {b.trigger_event}</span>}
+                {typeof b.lie_belief_target === 'number' && <span className="text-meta text-brand shrink-0">信奉度→{b.lie_belief_target}</span>}
+                {b.trigger_event && <span className="text-meta text-faint/60 truncate">· {b.trigger_event}</span>}
                 <button onClick={() => delBeat(b.id)} className="ml-auto opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer transition-opacity" title="删除节拍"><Trash2 size={12} /></button>
               </div>
             ))}
@@ -260,7 +277,7 @@ function CharArcAnchors({ characterId }) {
 // ═══ 声音演变消费端(P1-11 后半环):voice_profile 声线指纹 + open voice_evolution_flag ═══
 // 后端只有三个端点:GET /voice-flags(全书 open,前端按角色过滤)、POST /voice-flags/{id}/resolve、
 // POST /voice-flags/fold(把该角色 open flags 折进 voice_profile,LLM 演化,返回演化后 profile)。
-// ⚠ 无 GET voice_profile 端点——初次加载只能拉 flags;声线指纹在「一键折叠」成功后由 fold 响应展示。
+// 注意 无 GET voice_profile 端点——初次加载只能拉 flags;声线指纹在「一键折叠」成功后由 fold 响应展示。
 // voice_profile 9 节字段(store.set_voice_profile):string 段直出,list 段逐行列。
 const VOICE_FIELDS = [
   ['style_summary', '风格速写'],
@@ -336,12 +353,12 @@ function CharVoice({ characterId, characterName }) {
       {profileFields.length > 0 && (
         <div className="mb-4 p-3 rounded-lg border border-line bg-soft/20 space-y-2" data-testid="voice-profile">
           <div className="flex items-center gap-2">
-            <span className="text-f11 text-brand uppercase tracking-wider">声线指纹</span>
-            {profile?.version != null && <span className="text-f10 text-faint/60">v{profile.version}</span>}
+            <span className="text-meta text-brand uppercase tracking-wider">声线指纹</span>
+            {profile?.version != null && <span className="text-meta text-faint/60">v{profile.version}</span>}
           </div>
           {profileFields.map(([k, label]) => (
             <div key={k}>
-              <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">{label}</div>
+              <div className="text-meta text-faint uppercase tracking-wider mb-0.5">{label}</div>
               {Array.isArray(profile[k])
                 ? <ul className="list-disc pl-4 space-y-0.5">{profile[k].map((v, i) => <li key={i} className="text-f13 text-ink leading-relaxed">{typeof v === 'string' ? v : JSON.stringify(v)}</li>)}</ul>
                 : <div className="text-f13 text-ink leading-relaxed">{profile[k]}</div>}
@@ -355,7 +372,7 @@ function CharVoice({ characterId, characterName }) {
         <div className="space-y-1.5">
           {flags.map((f) => (
             <div key={f.id} className="group flex items-start gap-2 py-1.5 px-2 rounded-lg hover:bg-soft/40">
-              <span className="text-f11 text-faint tnum shrink-0 mt-0.5">第{f.trigger_chapter}章</span>
+              <span className="text-meta text-faint tnum shrink-0 mt-0.5">第{f.trigger_chapter}章</span>
               <span className="text-f13 text-ink min-w-0 flex-1 leading-relaxed">{f.reason}</span>
               <button onClick={() => resolveOne(f.id)} disabled={resolvingId === f.id}
                 className="shrink-0 opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer transition-opacity disabled:opacity-40"
@@ -374,14 +391,14 @@ function CharVoice({ characterId, characterName }) {
           {folding ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
           一键折叠{openCount > 0 ? `(${openCount})` : ''}
         </Btn>
-        {openCount > 0 && <span className="text-f11 text-faint">把待折叠变化演化进声线指纹</span>}
+        {openCount > 0 && <span className="text-meta text-faint">把待折叠变化演化进声线指纹</span>}
       </div>
     </div>
   )
 }
 
 // ═══ 命题详情(批D 件1):限知引擎核心素材的独立详情块 ═══
-// ⚠ GET /facts 有损:私密命题 value 被后端屏蔽为 null(_facts),且不回 valid_from/valid_to/leak_markers,
+// 注意 GET /facts 有损:私密命题 value 被后端屏蔽为 null(_facts),且不回 valid_from/valid_to/leak_markers,
 // 亦无单条 reveal 端点 —— 故此处【不做整行 PATCH 回写】(会把私密值 null 掉/抹掉 leak_markers,同 F-1/F-2 坑),
 // 改为时态正确的三动作:超越(改值·保历史)/ 让 knower 遗忘(知识边)/ 删除。全字段生产在「+ 新建命题」。
 const FACT_SCAN_CHAPTER = 100000
@@ -389,23 +406,27 @@ const FACT_SCAN_CHAPTER = 100000
 export function PropositionDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
   const [panel, setPanel] = useState(null)          // 'supersede' | 'forget' | null
   const [sup, setSup] = useState({ value: '', since_chapter: '', secret: false })
   const [forget, setForget] = useState({ knower_id: 'reader', until_chapter: '' })
   const [busy, setBusy] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
+  const [delLoading, setDelLoading] = useState(false)
+  const [deleteImpact, setDeleteImpact] = useState(null)
 
   const reload = () => {
-    setLoading(true)
+    setLoading(true); setLoadErr('')
     api.facts(FACT_SCAN_CHAPTER)
       .then((rows) => {
         const r = (rows || []).find((x) => x.id === `fact:${node.ref}`
           || String(x.id || '').split(':').pop() === node.ref)
         setRow(r || null); setLoading(false)
       })
-      .catch(() => { setRow(null); setLoading(false) })
+      // 请求失败 ≠ 命题被超越/删除:如实报错并给重试,不复用 not-found 文案
+      .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
-  useEffect(() => { setPanel(null); reload() }, [node?.id])
+  useEffect(() => { setPanel(null); setDeleteImpact(null); reload() }, [node?.id])
 
   const doSupersede = async () => {
     // 批D Minor①:生效章须 ≥1(旧 === '' 守卫漏拦 0/负数;valid_from 语义 1-based)。
@@ -436,27 +457,51 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
     finally { setBusy(false) }
   }
 
+  const openDelete = async () => {
+    if (delLoading) return
+    setDelLoading(true)
+    try {
+      const impact = await api.objectImpact('fact', node.ref)
+      setDeleteImpact(impact || null)
+      setDelOpen(true)
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '读取删除影响失败', { tone: 'danger' })
+    } finally {
+      setDelLoading(false)
+    }
+  }
+
   const doDelete = async () => {
-    try { await api.delFact(node.ref); onDeleted?.() }
-    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+    const shouldArchive = deleteImpact?.recommended_action === 'archive'
+    try {
+      if (shouldArchive) await api.archiveObject('fact', node.ref)
+      else await api.deleteObject('fact', node.ref, deleteImpact?.confirm_impact_token || '')
+      onDeleted?.()
+    } catch (e) { showToast(e?.body?.detail || e?.message || (shouldArchive ? '归档失败' : '删除失败'), { tone: 'danger' }) }
   }
 
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载命题…</div>
+  if (loadErr) return (
+    <div className="p-4">
+      <AsyncState state="error" title="命题加载失败" message={loadErr} onRetry={reload} />
+    </div>
+  )
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该命题(可能已被超越或删除)。项目树只投影仍处开区间的命题。</div>
 
   const entLocal = String(row.entity || '').split(':').pop() || '—'
-  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
-  const ta = 'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-f13 text-ink leading-relaxed outline-none focus:border-brand resize-y'
+  // 统一 ui.jsx 标准风格(rounded-lg/h-9/px-3,与 Input/Textarea 一致)
+  const inp = 'h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60'
+  const ta = 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y'
 
   return (
     <div className="h-full overflow-y-auto" data-testid="proposition-detail">
       <div className="max-w-2xl mx-auto px-6 py-5">
         <SectionTitle icon={Boxes}>命题详情</SectionTitle>
         <div className="space-y-2.5 mt-2">
-          <div><div className="text-f11 text-faint uppercase tracking-wider mb-0.5">主体</div><div className="text-f14 text-ink prose-serif">{entLocal}</div></div>
-          <div><div className="text-f11 text-faint uppercase tracking-wider mb-0.5">属性</div><div className="text-f13 text-ink">{row.attribute || '—'}</div></div>
+          <div><div className="text-meta text-faint uppercase tracking-wider mb-0.5">主体</div><div className="text-f14 text-ink prose-serif">{entLocal}</div></div>
+          <div><div className="text-meta text-faint uppercase tracking-wider mb-0.5">属性</div><div className="text-f13 text-ink">{row.attribute || '—'}</div></div>
           <div>
-            <div className="text-f11 text-faint uppercase tracking-wider mb-0.5">值</div>
+            <div className="text-meta text-faint uppercase tracking-wider mb-0.5">值</div>
             {row.is_secret
               ? <div className="inline-flex items-center gap-1.5 text-f13 text-faint"><Lock size={13} />私密 · 值对读者屏蔽(限知)</div>
               : <div className="text-f13 text-ink leading-relaxed whitespace-pre-wrap">{row.value || '—'}</div>}
@@ -467,12 +512,14 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
         <div className="mt-5 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
           <Btn variant={panel === 'supersede' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'supersede' ? null : 'supersede')}><History size={13} />超越(改值)</Btn>
           <Btn variant={panel === 'forget' ? 'primary' : 'ghost'} size="sm" onClick={() => setPanel(panel === 'forget' ? null : 'forget')}><EyeOff size={13} />让读者遗忘</Btn>
-          <button onClick={() => setDelOpen(true)} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13} />删除命题</button>
+          <button onClick={openDelete} disabled={delLoading} className="ml-auto text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150 disabled:opacity-40">
+            {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除命题
+          </button>
         </div>
 
         {panel === 'supersede' && (
           <div className="mt-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
-            <div className="text-f11 text-faint">超越 = 关闭「{entLocal}·{row.attribute}」现开区间命题,自指定章起写入新值(旧值封存为历史,不破坏时态)。</div>
+            <div className="text-meta text-faint">超越 = 关闭「{entLocal}·{row.attribute}」现开区间命题,自指定章起写入新值(旧值封存为历史,不破坏时态)。</div>
             <textarea value={sup.value} onChange={(e) => setSup({ ...sup, value: e.target.value })} rows={2} placeholder="新值…" className={ta} />
             <div className="flex items-center gap-2 flex-wrap">
               <input type="number" value={sup.since_chapter} onChange={(e) => setSup({ ...sup, since_chapter: e.target.value })} placeholder="自第几章生效" className={`w-32 ${inp}`} />
@@ -486,7 +533,7 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
 
         {panel === 'forget' && (
           <div className="mt-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2">
-            <div className="text-f11 text-faint">令某 knower(默认 reader 读者帧)自指定章起不再知晓此命题(设知识边 until_chapter)。</div>
+            <div className="text-meta text-faint">令某 knower(默认 reader 读者帧)自指定章起不再知晓此命题(设知识边 until_chapter)。</div>
             <div className="flex items-center gap-2 flex-wrap">
               <input value={forget.knower_id} onChange={(e) => setForget({ ...forget, knower_id: e.target.value })} placeholder="knower(reader 或 role:名)" className={`w-56 ${inp}`} />
               <input type="number" value={forget.until_chapter} onChange={(e) => setForget({ ...forget, until_chapter: e.target.value })} placeholder="自第几章失效" className={`w-32 ${inp}`} />
@@ -495,7 +542,15 @@ export function PropositionDetail({ node, onChanged, onDeleted }) {
           </div>
         )}
       </div>
-      <ConfirmDialog open={delOpen} title="确认删除命题?" body={`将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`} danger confirmText="删除" onConfirm={doDelete} onClose={() => setDelOpen(false)} />
+      <ConfirmDialog
+        open={delOpen}
+        title={deleteImpact?.recommended_action === 'archive' ? '确认归档命题?' : '确认删除命题?'}
+        body={lifecycleDeleteBody(deleteImpact, `将删除「${entLocal}·${row.attribute}」,此操作不可撤销。`)}
+        danger={deleteImpact?.recommended_action !== 'archive'}
+        confirmText={deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
+        onConfirm={doDelete}
+        onClose={() => setDelOpen(false)}
+      />
     </div>
   )
 }
@@ -525,7 +580,7 @@ function PromiseLifecycle({ row, onChanged }) {
         {row.status ? `(${row.status})` : ''}</div>
       {row.payoff_chapter == null && (
         <div className="flex items-center gap-2">
-          <input value={payoff} onChange={(e) => setPayoff(e.target.value)} placeholder="回收章号"
+          <input value={payoff} onChange={(e) => setPayoff(e.target.value)} placeholder="回收章号" aria-label="回收章号"
             className="w-24 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
           <button disabled={busy || !/^\d+$/.test(payoff)}
             onClick={() => act(() => api.advancePromise(row.id, Number(payoff)), '已回收(closed)')}
@@ -533,19 +588,19 @@ function PromiseLifecycle({ row, onChanged }) {
         </div>
       )}
       <div className="space-y-1">
-        <div className="text-f11 text-faint">草蛇灰线线索({clues.length})</div>
+        <div className="text-meta text-faint">草蛇灰线线索({clues.length})</div>
         {clues.map((c, i) => (
           <div key={i} className="flex items-center gap-2 text-f12 text-ink">
             <span className="text-faint shrink-0">第{c.chapter ?? '?'}章</span>
             <span className="flex-1 min-w-0 truncate">{c.note || String(c)}</span>
             <button disabled={busy} onClick={() => act(() => api.removePromiseClue(row.id, i), '线索已删')}
-              className="text-f11 text-faint hover:text-ink cursor-pointer shrink-0">删</button>
+              className="text-meta text-faint hover:text-ink cursor-pointer shrink-0">删</button>
           </div>
         ))}
         <div className="flex items-center gap-2">
-          <input value={clue.chapter} onChange={(e) => setClue({ ...clue, chapter: e.target.value })}
+          <input value={clue.chapter} onChange={(e) => setClue({ ...clue, chapter: e.target.value })} aria-label="线索章号"
             placeholder="章" className="w-14 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
-          <input value={clue.note} onChange={(e) => setClue({ ...clue, note: e.target.value })}
+          <input value={clue.note} onChange={(e) => setClue({ ...clue, note: e.target.value })} aria-label="线索内容"
             placeholder="线索内容(不点破的中途暗示)" className="flex-1 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
           <button disabled={busy || !clue.note.trim() || !/^\d+$/.test(clue.chapter)}
             onClick={() => act(async () => { await api.addPromiseClue(row.id, clue.note.trim(), Number(clue.chapter)); setClue({ note: '', chapter: '' }) }, '线索已加')}
@@ -565,13 +620,13 @@ function ItemStateChange({ name, onChanged }) {
     <div className="mt-5 rounded-xl border border-line bg-canvas p-3 space-y-2">
       <div className="text-f12 font-medium text-ink">记录状态变更(入历史链,区别于直接改档案)</div>
       <div className="flex items-center gap-2">
-        <select value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })}
+        <select value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} aria-label="新状态"
           className="h-7 px-1.5 rounded-lg border border-line bg-surface text-f12">
           {['active', 'lost', 'destroyed', 'unknown'].map((s) => <option key={s}>{s}</option>)}
         </select>
-        <input value={f.chapter} onChange={(e) => setF({ ...f, chapter: e.target.value })}
+        <input value={f.chapter} onChange={(e) => setF({ ...f, chapter: e.target.value })} aria-label="发生章"
           placeholder="发生章" className="w-20 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
-        <input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })}
+        <input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} aria-label="缘由"
           placeholder="缘由(如:铜炉在乱岗被夺)" className="flex-1 h-7 px-2 rounded-lg border border-line bg-surface text-f12" />
         <button disabled={busy || !/^\d+$/.test(f.chapter)}
           onClick={async () => {
@@ -591,40 +646,110 @@ function ItemStateChange({ name, onChanged }) {
 export function CodexDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
   const [delOpen, setDelOpen] = useState(false)
+  const [delLoading, setDelLoading] = useState(false)
+  const [deleteImpact, setDeleteImpact] = useState(null)
+  // 保存状态机(saving/saved/error):失焦保存此前只有失败 toast,成功/进行中无反馈
+  const [saveState, setSaveState] = useState('idle')
+  const [saveErr, setSaveErr] = useState('')
+  const lastPayloadRef = useRef(null)
   const detailType = TYPE_MAP[node?.type]
 
-  const reload = () => {
-    if (!node || !detailType) { setLoading(false); return }
-    setLoading(true)
+  // silent=true:后台对账刷新,不翻 loading、不进 error 态,且找不到时不清空 row。
+  // 保存成功走这条(Issue 1):否则 setLoading(true) 会触发 `if (loading) return <spinner>`
+  // 早返回,把整个表单(含 saving/saved 状态条)闪成居中 spinner,每改一字段抖一下。
+  const reload = (silent = false) => {
+    if (!node || !detailType) { if (!silent) setLoading(false); return }
+    if (!silent) { setLoading(true); setLoadErr('') }
     loadRows(node.type)
-      .then((rows) => { setRow(pickRow(node.type, rows, node.ref) || null); setLoading(false) })
-      .catch(() => { setRow(null); setLoading(false) })
+      .then((rows) => {
+        const found = pickRow(node.type, rows, node.ref) || null
+        // 静默刷新只在命中时对账;命中不到不摧毁乐观值(如非角色改名后按旧 ref 查不到)
+        if (silent) { if (found) setRow(found); return }
+        setRow(found); setLoading(false)
+      })
+      // 请求失败 ≠ 条目不存在:进 error 态给真实错误 + 重试,不谎称「可能已删除」(静默刷新则吞掉,不污染已保存视图)
+      .catch((e) => { if (!silent) { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) } })
   }
-  useEffect(() => { reload() }, [node?.id])
+  useEffect(() => { setDeleteImpact(null); setSaveState('idle'); setSaveErr(''); reload() }, [node?.id])
+
+  const doPersist = async (updated) => {
+    lastPayloadRef.current = updated
+    setSaveState('saving'); setSaveErr('')
+    try {
+      await persist(detailType, updated)
+      // 乐观合并:updated 已是整行(DetailView 用 {...row,[k]:v} 上抛,仅剔除掩码字段),
+      // 立即合并到 prev(掩码字段用 prev 值保底)→ 新值即时可见、不经 loading 守卫闪 spinner。
+      setRow((prev) => ({ ...prev, ...updated }))
+      setSaveState('saved')
+      reload(true)   // 静默后台与服务端对账(规范化/触发器),不翻 loading
+      onChanged?.()
+    } catch (e) {
+      setSaveState('error'); setSaveErr(e?.body?.detail || e?.message || '保存失败')
+    }
+  }
 
   if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
+  if (loadErr) return (
+    <div className="p-4">
+      <AsyncState state="error" title="设定加载失败" message={loadErr} onRetry={reload} />
+    </div>
+  )
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已删除)。</div>
 
+  const openDelete = async () => {
+    if (detailType !== 'chars') { setDelOpen(true); return }
+    if (delLoading) return
+    setDelLoading(true)
+    try {
+      const impact = await api.objectImpact('role', localOf(row))
+      setDeleteImpact(impact || null)
+      setDelOpen(true)
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '读取删除影响失败', { tone: 'danger' })
+    } finally {
+      setDelLoading(false)
+    }
+  }
+
   const doDelete = async () => {
-    try { await remove(detailType, row); onDeleted?.() }
-    catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+    try {
+      if (detailType === 'chars') {
+        if (deleteImpact?.recommended_action === 'archive') await api.archiveObject('role', localOf(row))
+        else await api.deleteObject('role', localOf(row), deleteImpact?.confirm_impact_token || '')
+      }
+      else await remove(detailType, row)
+      onDeleted?.()
+    }
+    catch (e) { showToast(e?.body?.detail || e?.message || (deleteImpact?.recommended_action === 'archive' ? '归档失败' : '删除失败'), { tone: 'danger' }) }
   }
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-5">
+        {/* 保存状态行:saving/saved 用 status,error 用 alert + 真实错误 + 重试(重发最后一次 payload) */}
+        {saveState !== 'idle' && (
+          <div role={saveState === 'error' ? 'alert' : 'status'}
+            className={`mb-3 flex items-center gap-2 text-meta ${saveState === 'error' ? 'text-danger' : 'text-faint'}`}>
+            {saveState === 'saving' && <><Loader2 size={13} className="animate-spin" />保存中…</>}
+            {saveState === 'saved' && <><Check size={13} className="text-ok" />已保存</>}
+            {saveState === 'error' && (
+              <>
+                <span>保存失败:{saveErr}</span>
+                <Btn size="xs" variant="soft" onClick={() => doPersist(lastPayloadRef.current)}>重试保存</Btn>
+              </>
+            )}
+          </div>
+        )}
         <DetailView
           type={detailType}
           row={row}
           isNew={false}
           onBack={null}
-          onUpdate={async (updated) => {
-            try { await persist(detailType, updated); reload(); onChanged?.() }
-            catch (e) { showToast(e?.body?.detail || e?.message || '保存失败', { tone: 'danger' }) }
-          }}
-          onDelete={() => setDelOpen(true)}
+          onUpdate={doPersist}
+          onDelete={openDelete}
         />
         {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
         {detailType === 'promises' && row?.id && (
@@ -642,9 +767,11 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
       <ConfirmDialog
         open={delOpen}
         title="确认删除?"
-        body={`将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
-        danger
-        confirmText="删除"
+        body={detailType === 'chars'
+          ? lifecycleDeleteBody(deleteImpact, `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`)
+          : `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
+        danger={detailType !== 'chars' || deleteImpact?.recommended_action !== 'archive'}
+        confirmText={detailType === 'chars' && deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
         onConfirm={doDelete}
         onClose={() => setDelOpen(false)}
       />

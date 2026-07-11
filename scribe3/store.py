@@ -8,14 +8,28 @@ oid 映射:本体 id(role:焦三 / fact:治眼)↔ SurrealDB record(character:�
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
+import websockets.exceptions as _ws_exc
 from surrealdb import RecordID, Surreal
+from surrealdb.errors import ConnectionUnavailableError
 
+from scribe3.context_models import (
+    ContextFocus, ContextSnapshot, NavigationIntent, StaleContextError,
+)
+from scribe3.memory_lifecycle import known_at as _known_at
+from scribe3.memory_lifecycle import resolve_temporal_view as _resolve_view
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
+
+# 连接类异常(触发重连重试的白名单;语法/校验类错误不在内,绝不重试)。
+# OSError 覆盖 ConnectionError/TimeoutError/socket 层错;EOFError 见于半关闭流。
+_CONN_ERRORS = (_ws_exc.WebSocketException, ConnectionUnavailableError, OSError, EOFError)
 
 # 本体 id 前缀 ↔ SurrealDB 表名
 ONT2TBL = {"role": "character", "place": "place", "fact": "proposition", "ev": "event"}
@@ -27,6 +41,29 @@ _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
 _UNSET = object()       # update_chapter_meta 的哨兵:区分"未传 volume"与"传了 None"
 
 
+def _chapter_range_target(start: int | None = None, end: int | None = None,
+                          *, end_inclusive: bool = True) -> str:
+    """构造数值型 chapter record id 范围目标。
+
+    SurrealDB 3.1.5 不接受 ``chapter:$start..=$end`` 这类边界参数绑定,
+    因此只在严格验证为正整数后拼接十进制字面量。
+    """
+    for name, value in (("start", start), ("end", end)):
+        if value is not None and type(value) is not int:
+            raise TypeError(f"{name} must be an int")
+        if value is not None and value < 1:
+            raise ValueError(f"{name} must be >= 1")
+    if start is not None and end is not None and start > end:
+        raise ValueError("start must be <= end")
+    if start is None and end is None:
+        return "chapter:.."
+    if start is None:
+        return f"chapter:..{'=' if end_inclusive else ''}{end}"
+    if end is None:
+        return f"chapter:{start}.."
+    return f"chapter:{start}..{'=' if end_inclusive else ''}{end}"
+
+
 def _split(oid: str) -> tuple[str, str]:
     prefix, local = oid.split(":", 1)
     return ONT2TBL[prefix], local
@@ -34,6 +71,80 @@ def _split(oid: str) -> tuple[str, str]:
 
 def _join(table: str, local: str) -> str:
     return f"{TBL2ONT[table]}:{local}"
+
+
+def _emit_cache_invalidation(table: str, work: str | None) -> None:
+    """Task 16-B:向上下文性能层发一个表级失效事件(正典写入 / 记忆 supersede /
+    素材 archive·pin 的写点调用)。best-effort:context_cache 缺席或任何异常都静默——
+    缓存卫生绝不阻断 store 写主链路(写正确性优先)。"""
+    try:
+        from scribe3 import context_cache
+        context_cache.emit_invalidation(table, work=work)
+    except Exception:
+        pass
+
+
+def _json_obj(value) -> dict | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _oid_effect(oid: str | None) -> dict | None:
+    if not oid or ":" not in oid:
+        return None
+    prefix = oid.split(":", 1)[0]
+    typ = {"role": "character", "fact": "fact", "ev": "event"}.get(prefix, prefix)
+    return {"type": typ, "id": oid}
+
+
+def _write_effect_from_tool(tool: str | None, args: dict | None) -> dict | None:
+    if not tool or not tool.startswith("s3_") or not isinstance(args, dict):
+        return None
+    objects: list[dict] = []
+    if tool in {"s3_add_character", "s3_add_fact", "s3_add_event"}:
+        obj = _oid_effect(args.get("oid"))
+        if obj:
+            objects.append(obj)
+    elif tool == "s3_record_knowledge":
+        proposition = args.get("proposition") or args.get("proposition_id")
+        obj = _oid_effect(proposition)
+        if obj:
+            objects.append(obj)
+    elif tool in {"s3_add_item", "s3_add_term", "s3_add_world_rule", "s3_add_faction"}:
+        name = args.get("name")
+        if name:
+            objects.append({"type": tool.removeprefix("s3_add_"), "name": name})
+    elif tool == "s3_plant_promise":
+        pid = args.get("pid") or args.get("id")
+        if pid:
+            objects.append({"type": "promise", "id": pid})
+    elif tool == "s3_add_clue":
+        pid = args.get("pid") or args.get("promise_id")
+        if pid:
+            objects.append({"type": "promise_clue", "promise_id": pid})
+    if not objects:
+        return None
+    return {"objects": objects}
+
+
+def _write_effect_from_approval_message(message: str | None) -> dict | None:
+    if not message:
+        return None
+    objects: list[dict] = []
+    fact = re.search(r"fact:([^\s:·，,]+)", message)
+    if fact:
+        objects.append({"type": "fact", "id": f"fact:{fact.group(1)}"})
+    role = re.search(r"role:([^\s=·，,]+)", message)
+    if role:
+        objects.append({"type": "character", "id": f"role:{role.group(1)}"})
+    return {"objects": objects} if objects else None
 
 
 def _url() -> str:
@@ -113,23 +224,46 @@ _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instanc
 # id 前缀 EM-/RH-/TR- 自行区分类型,互引用 id 字符串(如 escalation 步骤引用其他卡 id)。
 MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note", "emotion_module")
 
+# 经验性记忆类型(Task 8 migration 078):正典事实不属此列——canonical 永远来自领域表。
+MEMORY_KINDS = ("working", "episodic", "procedural", "reference", "uncertainty")
+MEMORY_RELATIONS = ("supports", "contradicts", "derived_from", "same_topic", "caused_by", "corrects")
+
 # 角色弧光静态锚(Weiland 五要素 + 弧型 + 私密目标),migration 054 落 character 表
 _ANCHOR_KEYS = ("ghost", "lie", "truth", "want", "need", "arc_type", "private_agenda")
 _FIELDS_BY_TABLE: dict[str, frozenset] = {
     "character": frozenset({"name", "aliases", "backstory", "backstory_secret", "importance",
         "appearance", "personality_detail", "abilities", "weaknesses",
         "surface_goal", "deep_need", "internal_conflict", "fear",
-        "first_appearance", "personality_tags"}),
+        "first_appearance", "personality_tags", "archived"}),
     "place": frozenset({"name"}),
     "proposition": frozenset({"entity_id", "attribute", "value", "valid_from",
-                              "valid_to", "secret", "leak_markers", "ingest_seq"}),
+                              "valid_to", "secret", "leak_markers", "ingest_seq",
+                              "archived"}),
     "event": frozenset({"event_type", "story_chapter",
                         "motivated_by_goal", "location", "preconditions"}),
     "promise": frozenset({"text", "setup_chapter", "payoff_chapter", "status", "kind", "clues",
                           "tier", "payoff_min", "payoff_max", "resolution"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
-    "material": frozenset({"title", "body", "kind", "tags", "source"}),
+    "material": frozenset({"title", "body", "kind", "tags", "source", "ref_tags",
+                           "tokens", "embedding", "about_entities", "pinned",
+                           "archived", "recall_count", "last_recalled_at"}),
 }
+
+
+def _memory_known_at(known_from, known_to, chapter: int) -> bool:
+    """检索管线的【读者/发现时间·剧透门】(I-4 限知红线,纯函数)。
+    known_from/known_to 记"这条记忆在第几章被知道/失去";None=无约束(fail-open)。
+    当章 chapter 能知道的条件:known_from<=chapter 且 (known_to 为空或 known_to>chapter)。
+    杜绝"第 20 章才被知道的记忆倒灌进第 5 章"。
+
+    ⚠ I-2 口径守卫:此门用于检索管线(memory_bm25/vector/graph),【恒开、不接受 focalizer】——
+      任何检索都不倒灌未来揭示,这是写作 prompt 的剧透保护。同一对 known_from/to 在
+      memory_lifecycle.resolve_temporal_view / visible 里还承载另一种用途——【可选的角色限知视角】
+      (仅在传 focalizer 时叠加,focalizer=None 是上帝视角不叠门)。两处边界数值口径完全一致,
+      差别只在"门是否恒开";切勿把 resolve_temporal_view(默认全知)误当检索剧透门用。
+    Task 10:边界口径下沉到 memory_lifecycle.known_at 作单一真相源(避免时态语义两处漂移),
+      行为逐位等价。"""
+    return _known_at(known_from, known_to, chapter)
 
 
 def _reciprocal_rank_fusion(*ranked_lists, k: int = 60):
@@ -150,7 +284,8 @@ def _keyword_search_propositions(store, query: str, chapter: int, top_k: int = 1
     rows = store._query(
         "SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
         "secret, leak_markers FROM proposition "
-        "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
+        "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+        "AND (archived = NONE OR archived != true)", {"ch": chapter})
     scored = []
     for r in rows:
         val = r.get("value", "")
@@ -301,7 +436,7 @@ def backfill_scalability_caches(store) -> int:
     之后 outline()/quality() 永不再拉正文。供 apply_schema 后调用或迁移脚本手动跑。
     """
     rows = store._query(
-        "SELECT seq, prose FROM chapter WHERE scene_count IS NONE")
+        "SELECT seq, prose FROM chapter:.. WHERE scene_count IS NONE")
     n = 0
     for r in rows:
         seq = r.get("seq")
@@ -318,6 +453,254 @@ def backfill_scalability_caches(store) -> int:
     return n
 
 
+def backfill_material_memory(store) -> int:
+    """存量素材记忆化回填:补 tokens+embedding + 建联想边。幂等(只补缺 tokens 者)。返回补齐条数。"""
+    rows = store._query("SELECT meta::id(id) AS id, title, body, tokens FROM material")
+    n = 0
+    for r in (rows or []):
+        if r.get("tokens"):
+            continue  # 已补,幂等跳过
+        try:
+            toks, vec = store._material_index_fields(r.get("title"), r.get("body"))
+            store._execute_write(
+                "UPDATE type::record('material',$m) SET tokens=$t, embedding=$v",
+                {"m": r["id"], "t": toks, "v": vec})
+            store.build_material_edges(r["id"])
+            n += 1
+        except Exception:
+            pass  # fail-soft 逐条
+    return n
+
+
+# ===========================================================================
+# 统一上下文与记忆系统 · Task 14:记忆溯源 trace 的映射 + 服务端权威屏蔽
+#
+# 边界(诚实):trace 基础设施(schema / 落库 / 屏蔽 / API / UI)就绪,但当前
+#   【无生产检索调用方】把 RetrievalResult 灌进 trace——检索接进写作 prompt 是
+#   Task 16 envelope 灰度才做。build_memory_trace 是就绪的映射接口,真实 trace
+#   数据待 Task 16 检索生产接线后由检索发生处调用它 + save_memory_trace 落库。
+#   在此之前 memory_trace 表基本为空,GET trace API 多返 404(前端显"未检索到证据")。
+# ===========================================================================
+
+# trace 里私密证据的屏蔽占位:前端 UI 只显此语义,绝不显 value(限知红线)。
+_TRACE_SECRET_MASK = "秘密事实已屏蔽"
+
+
+def _mask_trace_item(item, secret_ids=None):
+    """单条证据屏蔽:secret 为真时抹掉 text/value,只留 masked 标记(不可逆)。
+
+    C1 对齐(宪法级):秘密判定 = provenance/item 自标 secret 【OR】 source_id ∈ store 权威
+    secret 集(secret_ids)。retriever 漏标(item.secret=False)但 source_id 是 store 权威
+    秘密时,一律屏蔽——裁决权归 store,不归 retriever(参照 context_assembler._secret_fact_ids)。
+    权威判定为真时回写 secret=True,使兜底重掩(GET 无 secret_ids 时)与 DB at-rest 都一致。"""
+    if not isinstance(item, dict):
+        return item
+    is_secret = bool(item.get("secret"))
+    if not is_secret and secret_ids and item.get("source_id") in secret_ids:
+        is_secret = True
+    if not is_secret:
+        return item
+    masked = dict(item)
+    masked["secret"] = True        # 回写权威判定(retriever 漏标时补齐),DB/GET 皆一致
+    masked["masked"] = True
+    masked["text"] = ""
+    masked.pop("value", None)      # 任何私密明文字段一并清除
+    return masked
+
+
+# ===========================================================================
+# 统一上下文与记忆系统 · Task 16-A:ai_run_trace 落库前统一 redactor
+#
+# 为什么:ai_run_trace 的 tool_calls/tool_outputs/raw_events/response 承载【不可信】
+#   工具 I/O 与原始 Hermes 事件——HTTP 工具调用可能夹带 Authorization/Bearer/api_key
+#   认证头,秘密事实的真值也可能被工具原样回抛。trace 是可导出/可回放的审计物,
+#   落库前必须过一遍统一 redactor(与 memory_trace 的 mask_memory_trace 同纪律:
+#   屏蔽只发生在服务端,DB at-rest 永不持有认证头/秘密明文)。
+# 边界:只抹 tool/runtime 自由字段;不动作者自撰的 input_text/instructions(那是 run
+#   自身的 prompt,抹秘密 value 会破坏作者真实意图);不动 session_key(是按 work 派生的
+#   Runs 关联键,非泄漏进 trace 的凭据,语义由现有 _run_session_key 拥有,本任务不碰)。
+# ===========================================================================
+
+# 认证类字段名(dict 键命中即整值屏蔽)与令牌形态(字符串内正则替换)。
+_RUN_AUTH_KEY_RE = re.compile(
+    r"authorization|proxy-authorization|api[_-]?key|apikey|x-api-key|"
+    r"access[_-]?token|bearer|cookie|set-cookie|passwo?rd|"
+    r"x-hermes-session-key|session[_-]?key", re.I)
+_RUN_AUTH_MASK = "已屏蔽·认证"
+# 字符串内令牌/凭据的抹除规则。顺序讲究:①/② 先把带头名的整条凭据(方案词+令牌/整值)
+# 一并吞掉,再由 ③④⑤ 兜底裸令牌。C-1 教训:若头规则的 \S+ 只吞方案词("Bearer"),
+# 会把方案词消费掉致后续 bearer 规则匹配不到、真凭据留明文——故 ① 显式吞「方案词 + 凭据」。
+_RUN_AUTH_VALUE_SUBS = (
+    # ① Authorization / Proxy-Authorization: [Bearer|Basic|Digest|Token] <凭据> —— 方案词+凭据一起抹
+    (re.compile(r"(?i)\b(proxy-authorization|authorization)\b\s*[:=]\s*"
+                r"(?:(?:bearer|basic|digest|token)\s+)?\S+"),
+     r"\1: " + _RUN_AUTH_MASK),
+    # ② Cookie / Set-Cookie: <值到行尾>(cookie 常多段;I-2:字符串内嵌形式此前漏抹)
+    (re.compile(r"(?i)\b(set-cookie|cookie)\b\s*[:=]\s*[^\r\n]+"),
+     r"\1: " + _RUN_AUTH_MASK),
+    # ③ 裸 Bearer/Basic 令牌(无 Authorization 前缀的内嵌形式)
+    (re.compile(r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._+/=\-]+"), _RUN_AUTH_MASK),
+    # ④ api_key / access_token / token / password = ... 形式
+    (re.compile(r"(?i)\b(api[_-]?key|apikey|access[_-]?token|token|passwo?rd)\b\s*[:=]\s*\S+"),
+     r"\1=" + _RUN_AUTH_MASK),
+    # ⑤ 高熵密钥令牌裸形态:sk-ant-...(带连字符,C-1:旧 sk-[A-Za-z0-9]{8,} 匹配不到)/ sk-... /
+    #    GitHub ghp_ 等 / JWT eyJ....（M-1:无标签高熵串固有局限,此处覆盖常见带前缀形态)
+    (re.compile(r"\bsk-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*\b"), _RUN_AUTH_MASK),
+    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{8,}\b"), _RUN_AUTH_MASK),
+    (re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{4,}\.[A-Za-z0-9_\-]{4,}\b"),
+     _RUN_AUTH_MASK),
+)
+
+# I-1:单字秘密真值(中文单字名讳/真名极常见)只在【有界上下文】屏蔽——名讳引导词后 /
+# 引号书名号包裹内——而非全文裸单字替换(那会误伤正文里同字的普通用法)。
+_SECRET_NAME_CUE = (
+    r"真名|名讳|本名|表字|名字|名号|名叫|叫做|唤作|名为|名曰|其名|就是|正是|叫|唤|讳|号|名")
+
+
+def _mask_short_secret(s: str, c: str) -> str:
+    """把单字秘密真值 c 在有界上下文里替换为屏蔽占位(保留上下文,只抹该字)。fail-soft。"""
+    esc = re.escape(c)
+    # ① 名讳引导词(可带 是/为/叫/作/曰)+ 可选开引号 + 该字(+ 可选闭引号)
+    s = re.sub(
+        r"((?:" + _SECRET_NAME_CUE + r")(?:是|为|叫|作|曰)?[\s：:]*[「『“\"'（(]?)"
+        + esc + r"([」』”\"'）)]?)",
+        r"\1" + _TRACE_SECRET_MASK + r"\2", s)
+    # ② 显式引号/书名号包裹的单字
+    s = re.sub(r"([「『“])" + esc + r"([」』”])",
+               r"\1" + _TRACE_SECRET_MASK + r"\2", s)
+    return s
+
+
+def _redact_run_trace_secrets(obj, secret_values=None):
+    """递归抹认证头/令牌 + 已知秘密事实真值。幂等(已屏蔽串不再命中)、fail-soft。
+
+    - dict:键命中 _RUN_AUTH_KEY_RE → 整值置屏蔽占位;否则递归其值;
+    - list/tuple:逐项递归;
+    - str:先过令牌形态正则,再抹已知秘密 value(len≥2 全文子串替换;单字走有界屏蔽);
+    - 其它标量:原样返回。"""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if isinstance(k, str) and _RUN_AUTH_KEY_RE.search(k):
+                out[k] = _RUN_AUTH_MASK
+            else:
+                out[k] = _redact_run_trace_secrets(v, secret_values)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [_redact_run_trace_secrets(x, secret_values) for x in obj]
+    if isinstance(obj, str):
+        s = obj
+        for pat, repl in _RUN_AUTH_VALUE_SUBS:
+            s = pat.sub(repl, s)
+        for sv in (secret_values or ()):
+            if not sv:
+                continue
+            if len(sv) >= 2:
+                if sv in s:
+                    s = s.replace(sv, _TRACE_SECRET_MASK)
+            else:
+                s = _mask_short_secret(s, sv)   # 单字:有界屏蔽,不裸替换
+        return s
+    return obj
+
+
+def mask_memory_trace(trace, secret_ids=None):
+    """服务端权威屏蔽(单一真相源):selected/rejected 里私密证据的 value 绝不出服务端。
+
+    幂等:重复屏蔽不误伤非私密证据、不复原私密。落库前(save)与出参前(GET API)
+    都过一遍——参照 Task 7"前端不可信"教训,屏蔽只发生在服务端。
+    secret_ids(可选):store 权威 secret fact id 集;传入时叠加"source_id ∈ 集即屏蔽"的
+    C1 判定,补齐 retriever 漏标弱路径(save_memory_trace 落库前必传,见 _secret_fact_ids)。"""
+    if not isinstance(trace, dict):
+        return trace
+    t = dict(trace)
+    t["selected"] = [_mask_trace_item(x, secret_ids) for x in (trace.get("selected") or [])]
+    t["rejected"] = [_mask_trace_item(x, secret_ids) for x in (trace.get("rejected") or [])]
+    return t
+
+
+def _trace_candidate_secret(cand) -> bool:
+    """候选是否携私密:canonical 事实的 provenance 项带 secret=True 即私密。"""
+    for p in (getattr(cand, "provenance", None) or []):
+        if isinstance(p, dict) and p.get("secret"):
+            return True
+    return False
+
+
+def _trace_candidate_reason(cand) -> str:
+    """选入理由(可解释):正典恒选 / pin 常驻 / 否则按相关性排名选入。"""
+    if getattr(cand, "source_kind", "") == "canonical":
+        return "canonical"
+    if getattr(cand, "pinned", False):
+        return "pinned"
+    return "relevance_rank"
+
+
+def _trace_candidate_item(cand, reason: str) -> dict:
+    """MemoryCandidate → trace 证据 dict(source id / 时态 / 信心 / 理由 + secret 标记)。
+    secret 为真时 text 置空(此处即抹,不依赖后续 mask)。"""
+    secret = _trace_candidate_secret(cand)
+    obs = getattr(cand, "observed_at", None)
+    return {
+        "source_id": getattr(cand, "source_id", ""),
+        "source_kind": getattr(cand, "source_kind", ""),
+        "reason": reason,
+        "confidence": getattr(cand, "confidence", 1.0),
+        "importance": getattr(cand, "importance", 2),
+        # 时态:canonical 恒真无时间戳(None);经验记忆带 observed_at(ISO)
+        "observed_at": obs.isoformat() if hasattr(obs, "isoformat") else obs,
+        "channels": sorted(getattr(cand, "channels", set()) or set()),
+        "final_score": getattr(cand, "final_score", 0.0),
+        "secret": secret,
+        "text": "" if secret else (getattr(cand, "text", "") or ""),
+    }
+
+
+def build_memory_trace(*, trace_id, work, thread_id, context_session_id,
+                       snapshot_revision, result, query="", snapshot_hash="",
+                       envelope_hash="", channels=None, block_tokens=None,
+                       latency_ms=None, response_id=None, run_id=None,
+                       store=None) -> dict:
+    """RetrievalResult(Task 8)→ memory_trace dict(Task 14 溯源)。
+
+    生产接线(Task 16)在检索发生处调用:把当次 RetrievalResult 的 selected/rejected
+    映射成可审计证据(带 reason + 时态 + 信心),secret 由 provenance 判定并屏蔽,
+    再交 save_memory_trace 落库。selected 的 reason 由 _trace_candidate_reason 派生,
+    rejected 的 reason 直接透传 RejectedCandidate.reason(如 conflicts_with_canonical)。
+
+    store(可选):传入时叠加 C1 权威 secret 判定(source_id ∈ 权威 secret 集即屏蔽),
+    补齐 retriever 漏标弱路径——Task 16 接线务必传 store,否则 provenance 漏标即秘密明文
+    残留。即便此处未传,save_memory_trace(有 self=store)仍会在落库前权威兜底(at-rest 保证)。"""
+    selected = [_trace_candidate_item(c, _trace_candidate_reason(c))
+                for c in getattr(result, "selected", [])]
+    rejected = [_trace_candidate_item(r.candidate, r.reason)
+                for r in getattr(result, "rejected", [])]
+    secret_ids = None
+    if store is not None:
+        try:
+            from scribe3.context_assembler import _secret_fact_ids
+            secret_ids = _secret_fact_ids(store)
+        except Exception:
+            secret_ids = None      # fail-soft:退回 provenance 判定,不因取集失败阻断 trace
+    return mask_memory_trace({
+        "trace_id": trace_id,
+        "work": work,
+        "thread_id": thread_id,
+        "context_session_id": context_session_id,
+        "snapshot_revision": int(snapshot_revision),
+        "snapshot_hash": snapshot_hash or "",
+        "envelope_hash": envelope_hash or "",
+        "query": query or "",
+        "channels": channels or {},
+        "selected": selected,
+        "rejected": rejected,
+        "block_tokens": block_tokens or {},
+        "latency_ms": latency_ms or {"total": 0},
+        "response_id": response_id,
+        "run_id": run_id,
+    }, secret_ids=secret_ids)
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -325,11 +708,37 @@ class SurrealStore:
                  user: str | None = None, password: str | None = None):
         self.url = url or os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
         self.db_name = db   # 本库名(=work);chat_message.work 等冗余字段由此自动填(台账 D-002)
-        user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
-        password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+        self._ns = ns
+        self._user = user or os.environ.get("SCRIBE3_SURREAL_USER", "root")
+        self._password = password or os.environ.get("SCRIBE3_SURREAL_PASS", "root")
+        self._connect()
+
+    def _connect(self) -> None:
         self._db = Surreal(self.url)
-        self._db.signin({"username": user, "password": password})
-        self._db.use(ns, db)
+        self._db.signin({"username": self._user, "password": self._password})
+        self._db.use(self._ns, self.db_name)
+
+    def _reconnect(self) -> None:
+        try:
+            self._db.close()
+        except Exception:
+            pass
+        self._connect()
+
+    def _raw_query(self, surql: str, vars: dict | None = None):
+        """S-1 连接韧性单点(2026-07-04 :8001 事故根治):连接类异常 → 重建连接
+        (signin/use 是 WS 连接级状态,SDK 懒重连不会重放)→ 重试一次。
+        本机 WS 不存在"已提交但响应丢失"的分区窗口(服务端死=写未提交),
+        且核心写多为 UPSERT 幂等,故写路径重试一次可接受。
+        语法/校验等非连接错误原样抛,绝不重试。"""
+        try:
+            return self._db.query(surql, vars or {})
+        except _CONN_ERRORS as e:
+            logging.getLogger("scribe3.store").warning(
+                "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                type(e).__name__, str(e)[:120])
+            self._reconnect()
+            return self._db.query(surql, vars or {})
 
     def close(self) -> None:
         try:
@@ -340,8 +749,8 @@ class SurrealStore:
     # --- schema ---
     def apply_schema(self, migrations_dir: str | None = None) -> None:
         d = Path(migrations_dir or Path(__file__).parent / "migrations")
-        self._db.query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
-                       "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
+        self._raw_query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
+                        "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
         try:
             rows = self._query("SELECT meta::id(id) AS id FROM _migration")
             applied = {f"_migration:{r['id']}" for r in (rows or []) if r and r.get("id")}
@@ -357,23 +766,30 @@ class SurrealStore:
             if key in applied:
                 continue
             try:
-                self._db.query(f.read_text(encoding="utf-8"))
+                self._raw_query(f.read_text(encoding="utf-8"))
             except Exception as e:
                 logging.getLogger("scribe3").warning(
                     "迁移 %s 失败,不标记已应用(下次可重试): %s", f.stem, str(e)[:120])
                 failures.append((f.stem, str(e)[:120]))
                 continue  # 真失败:跳过 CREATE _migration 记录
-            self._db.query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
-                           {"name": f.stem})
+            self._raw_query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
+                            {"name": f.stem})
         if failures:
             raise RuntimeError(
                 "apply_schema 迁移失败清单(未标记已应用): "
                 + "; ".join(f"{n}: {e}" for n, e in failures))
+        # Task 6:回填存量对话史进默认主编线程(幂等且代价小——只 UPDATE thread_id IS NONE)。
+        # fail-soft:失败只告警不阻断启动(线程回填非启动关键路径;下次启动可再试)。
+        try:
+            self.backfill_thread_ids()
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "backfill_thread_ids 失败(不阻断启动,下次可重试)", exc_info=True)
 
     # --- 唯一写入点 ---
     def _execute_write(self, surql: str, vars: dict) -> None:
         """改世界状态的唯一落库点。所有 add_* 经此(开发标准不变量1)。"""
-        self._db.query(surql, vars)
+        self._raw_query(surql, vars)
 
     @contextmanager
     def transaction(self):
@@ -413,7 +829,7 @@ class SurrealStore:
         old(surql, all_vars)
 
     def _query(self, surql: str, vars: dict | None = None) -> list[dict]:
-        res = self._db.query(surql, vars or {})
+        res = self._raw_query(surql, vars or {})
         # surrealdb-py 2.0:SELECT 直接返回 rows 列表;兼容包一层 {"result":...} 的旧形态
         if isinstance(res, list):
             if res and isinstance(res[0], dict) and "result" in res[0] and "status" in res[0]:
@@ -455,6 +871,9 @@ class SurrealStore:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "add_fact: embedding 失败,命题 %s 将不可语义召回: %s", f.id, _e)
+        # Task 16-B:正典写入发表级失效(清 global/retrieval 缓存 + bump authority_revision)。
+        # supersede_fact 内部也经此路径,故正典变更两条路都覆盖。best-effort,绝不阻断写。
+        _emit_cache_invalidation("proposition", self.db_name)
         return f
 
     def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
@@ -568,7 +987,7 @@ class SurrealStore:
                 f"SET since_chapter={chapter}, acquired_via='given'")
         if stmts:
             surql = "BEGIN TRANSACTION; " + "; ".join(stmts) + "; COMMIT TRANSACTION;"
-            self._db.query(surql)
+            self._raw_query(surql)
 
     def purge_ingest(self, seq: int) -> None:
         """删除某章 ingest 产出的命题 + knows 边 + reader_knows 边 + char_state(幂等再 ingest 的前置清理)。
@@ -736,7 +1155,8 @@ class SurrealStore:
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "
             "valid_from, valid_to, secret, leak_markers, injection_mode, priority FROM proposition "
-            "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch)", {"ch": chapter})
+            "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+            "AND (archived = NONE OR archived != true)", {"ch": chapter})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"],
                      r["valid_from"], r.get("valid_to"), r.get("secret", False),
@@ -748,7 +1168,8 @@ class SurrealStore:
         rows = self._query(
             "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
             "importance, appearance, personality_detail, abilities, weaknesses, "
-            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character")
+            "first_appearance, surface_goal, deep_need, internal_conflict, fear FROM character "
+            "WHERE archived = NONE OR archived != true")
         return [Entity(f"role:{r['local']}", "character", r["name"],
                        traits={"backstory": r.get("backstory"),
                                "backstory_secret": r.get("backstory_secret", False),
@@ -787,7 +1208,8 @@ class SurrealStore:
         rows = self._query(
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv ORDER BY dist",
+            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
+            f"AND (archived = NONE OR archived != true) ORDER BY dist",
             {"qv": qv})
         return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
                      r["attribute"], r["value"], r["valid_from"],
@@ -835,7 +1257,8 @@ class SurrealStore:
             f"  <-causes<-event->involves->character.name AS co_present, "
             f"  vector::distance::knn() AS dist "
             f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
-            f"  AND valid_from <= $ch ORDER BY dist", {"qv": qv, "ch": chapter})
+            f"  AND valid_from <= $ch AND (archived = NONE OR archived != true) "
+            f"ORDER BY dist", {"qv": qv, "ch": chapter})
         out = []
         for r in rows:
             out.append({
@@ -880,15 +1303,37 @@ class SurrealStore:
 
     # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
     def add_chat_message(self, chapter: int, stage: str, role: str, text: str,
-                         turn: str = "") -> None:
+                         turn: str = "", trace: dict | None = None, *,
+                         thread_id: str | None = None,
+                         context_session_id: str | None = None,
+                         context_revision: int | None = None,
+                         context_hash: str | None = None,
+                         focus: dict | None = None,
+                         response_id: str | None = None) -> None:
         """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。
         turn(P0门审查 P2-6):同一轮 user/assistant 共享的配对 id,防并发会话交错
-        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。"""
+        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。
+
+        Task 6:新增关键字参数(全默认 None,向后兼容——旧调用方一字不改仍生效):
+        thread_id 挂主编线程(一 work 一连续线程);context_* 是本轮的上下文绑定
+        游标(revision/hash/session);focus 是本轮的焦点标签(切焦点不切线程);
+        response_id 是本轮 LLM 响应 id。None 一律落 NONE(option 字段,存量行不受影响)。"""
         self._execute_write(
             "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, "
-            "turn=$turn, ts=time::now()",
+            "turn=$turn, trace=$trace, thread_id=$thread_id, "
+            "context_session_id=$ctx_sid, context_revision=$ctx_rev, "
+            "context_hash=$ctx_hash, focus=$focus, response_id=$resp_id, "
+            "ts=time::now() RETURN NONE",
             {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text,
-             "turn": turn or ""})
+             "turn": turn or "", "trace": trace or {}, "thread_id": thread_id,
+             "ctx_sid": context_session_id, "ctx_rev": context_revision,
+             "ctx_hash": context_hash, "focus": focus, "resp_id": response_id})
+
+    # 线程消息统一取数列(含 Task 6 绑定字段 + meta::id 供前端 keying)。
+    _CHAT_MESSAGE_FIELDS = (
+        "meta::id(id) AS id, work, chapter, stage, role, text, turn, trace, "
+        "thread_id, context_session_id, context_revision, context_hash, focus, "
+        "response_id, <string> ts AS ts")
 
     def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
         """按章(缺省全部)拉取对话留痕,ts 升序返回;limit 取**最新** N 条再反转
@@ -897,10 +1342,450 @@ class SurrealStore:
         n = max(1, min(int(limit), 2000))
         where = "WHERE chapter = $c " if chapter is not None else ""
         rows = self._query(
-            f"SELECT work, chapter, stage, role, text, turn, <string> ts AS ts "
+            f"SELECT {self._CHAT_MESSAGE_FIELDS} "
             f"FROM chat_message {where}ORDER BY ts DESC LIMIT {n}",
             {"c": chapter})
         return list(reversed(rows))
+
+    # == 主编线程(Task 6:一 work 一连续主编线程 + 每轮焦点标签)==
+    # 为什么在此:线程是 chat_message 的归属维度,取数/回填都围绕 chat_message。
+    # 隔离靠 per-work db(与 chat_message 一致):thread_id 全局唯一,别的 work 读不到。
+
+    _EDITORIAL_THREAD_FIELDS = (
+        "thread_id, work, actor_id, parent_thread_id, title, status, "
+        "hermes_conversation_id, previous_response_id, summary, "
+        "<string> created_at AS created_at, <string> updated_at AS updated_at")
+
+    def _get_editorial_thread(self, thread_id: str) -> dict | None:
+        rows = self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE thread_id=$tid LIMIT 1", {"tid": thread_id})
+        return rows[0] if rows else None
+
+    def get_or_create_editorial_thread(self, work: str, actor_id: str) -> dict:
+        """取或建本 work + actor 的活跃主编线程(一 work 一连续线程,幂等)。
+
+        已有 active 线程(最早创建者,稳定不漂)直接返回;无则建默认线程。
+        thread_id 全局唯一(ethread:<work>:<uuid>),隔离仍靠 per-work db。
+
+        actor_id 语义:线程按 (work, actor_id) 定活跃线程——当前单作者场景恒传
+        "author"(见调用方 backfill/create_context_session),即"一 work 一 author 线程"。
+        将来多 actor(协作/多设备各自成线)时,不同 actor_id 各得一条活跃线程,
+        本方法无需改动;届时需上层决定 snapshot 该绑哪个 actor 的线程。"""
+        from uuid import uuid4
+        rows = self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE work=$w AND actor_id=$a AND status='active' "
+            "ORDER BY created_at ASC LIMIT 1", {"w": work, "a": actor_id})
+        if rows:
+            return rows[0]
+        tid = f"ethread:{work}:{uuid4().hex}"
+        self._execute_write(
+            "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
+            "parent_thread_id=NONE, title=$title, status='active', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "updated_at=time::now() RETURN NONE",
+            {"tid": tid, "w": work, "a": actor_id, "title": "主编讨论"})
+        return self._get_editorial_thread(tid)
+
+    def update_thread_response_id(self, thread_id: str, response_id: str | None,
+                                  conversation_id: str | None = None) -> None:
+        """Task 11:一轮 Responses 完成后,把新 response id(可选 conversation id)写回线程。
+
+        为什么:previous_response_id 是下一轮 Hermes 服务端会话续接锚。**设计约束**——
+        Hermes Responses 服务端存储 LRU 100 条,长线程必然掉链;此处只是"尽力续接",掉链后
+        由 list_thread_messages + working summary 重建,不依赖 Hermes 端无限续接。
+
+        幂等/健壮:response_id 为空则不动 previous_response_id(不覆盖已有锚为 NONE);
+        conversation_id 缺省不改。线程不存在时 UPDATE 空操作(不抛),调用方 fail-soft。"""
+        if not response_id and not conversation_id:
+            return
+        sets = []
+        params: dict = {"tid": thread_id}
+        if response_id:
+            sets.append("previous_response_id=$resp")
+            params["resp"] = response_id
+        if conversation_id:
+            sets.append("hermes_conversation_id=$conv")
+            params["conv"] = conversation_id
+        sets.append("updated_at=time::now()")
+        self._execute_write(
+            f"UPDATE editorial_thread SET {', '.join(sets)} "
+            "WHERE thread_id=$tid RETURN NONE", params)
+
+    def list_editorial_threads(self, work: str) -> list[dict]:
+        """列本 work 的全部主编线程(含分支),按创建时间升序。"""
+        return self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE work=$w ORDER BY created_at ASC", {"w": work})
+
+    def list_thread_messages(self, thread_id: str, limit: int = 500) -> list[dict]:
+        """按线程拉取对话留痕,ts 升序返回;limit 取最新 N 条再反转(同 list_chat_messages)。
+        隔离:只读本 store 的 db,别的 work 的 thread_id 在此库无消息 → 返回 []。"""
+        n = max(1, min(int(limit), 2000))
+        rows = self._query(
+            f"SELECT {self._CHAT_MESSAGE_FIELDS} FROM chat_message "
+            f"WHERE thread_id=$tid ORDER BY ts DESC LIMIT {n}", {"tid": thread_id})
+        return list(reversed(rows))
+
+    def fork_editorial_thread(self, parent_thread_id: str,
+                              title: str | None = None) -> dict:
+        """显式分支:以 parent_thread_id 为父建新活跃线程(导航路径绝不调此)。
+        actor_id/work 继承父线程;title 缺省沿用父标题。
+
+        子线程消息从空开始——不继承父线程历史(fork 只写 parent_thread_id 建血缘,
+        list_thread_messages(child) 初始为空;需要父上下文由上层显式携带)。"""
+        from uuid import uuid4
+        parent = self._get_editorial_thread(parent_thread_id)
+        if parent is None:
+            raise ValueError(f"fork_editorial_thread: 父线程 '{parent_thread_id}' 不存在")
+        tid = f"ethread:{parent['work']}:{uuid4().hex}"
+        self._execute_write(
+            "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
+            "parent_thread_id=$parent, title=$title, status='active', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "updated_at=time::now() RETURN NONE",
+            {"tid": tid, "w": parent["work"], "a": parent["actor_id"],
+             "parent": parent_thread_id,
+             "title": title or parent.get("title") or "主编讨论"})
+        return self._get_editorial_thread(tid)
+
+    def backfill_thread_ids(self, actor_id: str = "author") -> int:
+        """把 thread_id 为 NONE 的存量 chat_message 全部归入本 work 默认线程(幂等)。
+
+        升级后旧对话不得从 UI 消失(纸命现网已有真实 chat_message,无 thread_id)。
+        默认线程取 get_or_create_editorial_thread(db_name, actor_id="author")——与
+        create_context_session 同一 ethread id,前端 snapshot.thread_id 读得到这些旧消息。
+        context_revision/focus 留 NONE(存量无从追溯);再跑无变化(NONE 已被清光);
+        回填前后 chat_message 总数不变(只 UPDATE 不增删)。返回本次更新条数。
+
+        后续任务事项:pilot/loop 等写入点当前不带 thread_id,会持续产生 thread_id=NONE
+        的孤儿消息——backfill 只在启动时兜底归档一次,长期应让所有 add_chat_message
+        调用点显式带 thread_id(消除孤儿源头),而非依赖回填清扫。"""
+        thread = self.get_or_create_editorial_thread(self.db_name, actor_id)
+        tid = thread["thread_id"]
+        # 只更新 thread_id 尚未设置(NONE)的行——已归属者不动 → 幂等。
+        rows = self._query(
+            "SELECT count() AS n FROM chat_message WHERE thread_id IS NONE GROUP ALL")
+        n = int(rows[0]["n"]) if rows and rows[0].get("n") is not None else 0
+        if n:
+            self._execute_write(
+                "UPDATE chat_message SET thread_id=$tid "
+                "WHERE thread_id IS NONE RETURN NONE", {"tid": tid})
+        return n
+
+    # --- Hermes Runs/Approval 审计链 ---
+    def _secret_proposition_values(self) -> set[str]:
+        """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。
+        含单字真值(I-1:中文单字名讳常见)——单字由 redactor 走有界屏蔽,不全文裸替换。
+        fail-soft 退回空集(M-3:退空则秘密不抹,但认证正则仍跑;降级态,不阻断落库)。
+        性能:每次落库全表扫 proposition(Task 16-B 缓存,此处先正确后优化)。"""
+        try:
+            # value 是 SurrealDB 保留字,不能作首字段(会被当 SELECT VALUE 修饰符);挪后即可。
+            rows = self._query(
+                "SELECT entity_id, value FROM proposition WHERE secret = true")
+        except Exception:
+            return set()
+        out: set[str] = set()
+        for r in (rows or []):
+            v = r.get("value")
+            if v is not None and len(str(v).strip()) >= 1:
+                out.add(str(v))
+        return out
+
+    def upsert_ai_run_trace(self, run_id: str, *, status: str | None = None,
+                            session_key: str | None = None,
+                            input_text: str | None = None,
+                            instructions: str | None = None,
+                            tool_calls: list[dict] | None = None,
+                            tool_outputs: list[dict] | None = None,
+                            approvals: list[dict] | None = None,
+                            raw_events: list[dict] | None = None,
+                            usage: dict | None = None,
+                            error=None,
+                            response: dict | None = None) -> None:
+        existing = self.get_ai_run_trace(run_id) or {}
+        payload = {
+            "work": self.db_name,
+            "run_id": run_id,
+            "status": status or existing.get("status") or "created",
+            "session_key": session_key if session_key is not None else existing.get("session_key"),
+            "input_text": input_text if input_text is not None else existing.get("input_text"),
+            "instructions": instructions if instructions is not None else existing.get("instructions"),
+            "tool_calls": tool_calls if tool_calls is not None else (existing.get("tool_calls") or []),
+            "tool_outputs": tool_outputs if tool_outputs is not None else (existing.get("tool_outputs") or []),
+            "approvals": approvals if approvals is not None else (existing.get("approvals") or []),
+            "raw_events": raw_events if raw_events is not None else (existing.get("raw_events") or []),
+            "usage": usage if usage is not None else existing.get("usage"),
+            "error": error if error is not None else existing.get("error"),
+            "response": response if response is not None else existing.get("response"),
+        }
+        # Task 16-A:落库前统一 redactor——认证头(Authorization/Bearer/Basic/Proxy/api_key/
+        # cookie…)与秘密事实真值在 at-rest 前抹掉。error(C-2:直取上游 4xx/5xx HTTP 文本,
+        # 常回显出错的认证头)必须纳入。幂等:append_ai_run_trace_event 读回已屏蔽数据再合并
+        # 重掩,已屏蔽串不再命中。
+        _sv = self._secret_proposition_values()
+        for _f in ("tool_calls", "tool_outputs", "raw_events", "approvals",
+                   "response", "error"):
+            payload[_f] = _redact_run_trace_secrets(payload[_f], _sv)
+        self._execute_write(
+            "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
+            "status=$status, session_key=$session_key, input_text=$input_text, "
+            "instructions=$instructions, tool_calls=$tool_calls, tool_outputs=$tool_outputs, "
+            "approvals=$approvals, raw_events=$raw_events, usage=$usage, error=$error, "
+            "response=$response, updated_at=time::now() RETURN NONE",
+            {"run": run_id, **payload},
+        )
+
+    def append_ai_run_trace_event(self, run_id: str, event: dict) -> None:
+        trace = self.get_ai_run_trace(run_id) or {}
+        tool_calls = list(trace.get("tool_calls") or [])
+        tool_outputs = list(trace.get("tool_outputs") or [])
+        approvals = list(trace.get("approvals") or [])
+        raw_events = list(trace.get("raw_events") or [])
+        status = trace.get("status") or "created"
+        usage = trace.get("usage")
+        error = trace.get("error")
+
+        def _find_call(call_id: str | None = None) -> dict | None:
+            if call_id:
+                for call in reversed(tool_calls):
+                    if call.get("call_id") == call_id:
+                        return call
+            completed = {out.get("call_id") for out in tool_outputs if out.get("call_id")}
+            for call in reversed(tool_calls):
+                if call.get("call_id") not in completed:
+                    return call
+            return tool_calls[-1] if tool_calls else None
+
+        def _find_approval(approval_id: str | None = None,
+                           call_id: str | None = None,
+                           approval_status: str | None = None) -> dict | None:
+            for approval in reversed(approvals):
+                if approval_id and approval.get("approval_id") != approval_id:
+                    continue
+                if call_id and approval.get("call_id") != call_id:
+                    continue
+                if approval_status and approval.get("status") != approval_status:
+                    continue
+                return approval
+            return None
+
+        kind = event.get("kind") or event.get("type") or ""
+        source_type = event.get("source_type") or event.get("type") or kind
+        if kind in {"tool.started", "tool.start"}:
+            parsed_args = _json_obj(event.get("arguments"))
+            tool_calls.append({
+                "call_id": event.get("call_id"),
+                "name": event.get("name") or event.get("tool_name") or "",
+                "arguments": event.get("arguments", ""),
+                "parsed_arguments": parsed_args,
+                "approval_id": event.get("approval_id"),
+                "source_type": source_type,
+            })
+        elif kind in {"tool.output", "tool.complete"}:
+            call_id = event.get("call_id")
+            call = _find_call(call_id)
+            parsed_output = _json_obj(event.get("output"))
+            tool = (
+                event.get("name") or event.get("tool_name")
+                or (parsed_output or {}).get("tool")
+                or (call or {}).get("name")
+                or ""
+            )
+            approval_id = event.get("approval_id") or (call or {}).get("approval_id")
+            approval = (
+                _find_approval(approval_id=approval_id, approval_status="resolved")
+                or _find_approval(approval_id=approval_id)
+                or _find_approval(call_id=call_id, approval_status="resolved")
+                or _find_approval(call_id=call_id)
+            )
+            decision = event.get("decision") or (approval or {}).get("decision")
+            if approval and not approval_id:
+                approval_id = approval.get("approval_id")
+            result_status = (parsed_output or {}).get("status") or event.get("status")
+            parsed_args = (call or {}).get("parsed_arguments") or _json_obj((call or {}).get("arguments"))
+            write_effect = (
+                _write_effect_from_tool(tool, parsed_args)
+                or (call or {}).get("write_effect")
+                or (approval or {}).get("write_effect")
+            )
+            if not result_status and tool.startswith("s3_"):
+                if decision in {"approve", "approved", "once", "session", "always", True}:
+                    result_status = "written"
+                elif decision in {"deny", "denied", "reject", "rejected", False}:
+                    result_status = "declined"
+            if call is not None:
+                if approval_id:
+                    call["approval_id"] = approval_id
+                if result_status:
+                    call["result_status"] = result_status
+                if write_effect:
+                    call["write_effect"] = write_effect
+            tool_outputs.append({
+                "call_id": call_id,
+                "tool": tool,
+                "output": event.get("output", ""),
+                "parsed_output": parsed_output,
+                "approval_id": approval_id,
+                "decision": decision,
+                "result_status": result_status,
+                "write_effect": write_effect,
+                "source_type": source_type,
+            })
+        elif kind in {"approval.requested", "approval.request"}:
+            call_id = event.get("call_id") or event.get("tool_call_id")
+            call = _find_call(call_id)
+            if call and not call_id:
+                call_id = call.get("call_id")
+            tool = event.get("name") or event.get("tool_name") or (call or {}).get("name") or ""
+            approval_id = event.get("approval_id")
+            write_effect = _write_effect_from_approval_message(event.get("message", ""))
+            if call and approval_id:
+                call["approval_id"] = approval_id
+            if call and write_effect:
+                call["write_effect"] = write_effect
+            approvals.append({
+                "run_id": event.get("run_id") or run_id,
+                "approval_id": approval_id,
+                "call_id": call_id,
+                "tool": tool,
+                "message": event.get("message", ""),
+                "write_effect": write_effect,
+                "status": "requested",
+                "source": event.get("source") or "runtime",
+                "source_type": source_type,
+            })
+        elif kind == "approval.resolved":
+            approval_id = event.get("approval_id")
+            requested = _find_approval(approval_id=approval_id, approval_status="requested")
+            call_id = event.get("call_id") or event.get("tool_call_id") or (requested or {}).get("call_id")
+            call = _find_call(call_id)
+            if call and not call_id:
+                call_id = call.get("call_id")
+            tool = event.get("name") or event.get("tool_name") or (requested or {}).get("tool") or (call or {}).get("name") or ""
+            if call and approval_id:
+                call["approval_id"] = approval_id
+            write_effect = (requested or {}).get("write_effect") or (call or {}).get("write_effect")
+            approvals.append({
+                "run_id": event.get("run_id") or run_id,
+                "approval_id": approval_id,
+                "call_id": call_id,
+                "tool": tool,
+                "decision": event.get("decision"),
+                "write_effect": write_effect,
+                "status": "resolved",
+                "source": event.get("source") or "runtime",
+                "source_type": source_type,
+            })
+        elif kind == "run.completed":
+            status = "completed"
+            usage = event.get("usage")
+        elif kind == "run.failed":
+            status = "failed"
+            error = event.get("error") or "run failed"
+        else:
+            raw_events.append(event)
+
+        self.upsert_ai_run_trace(
+            run_id,
+            status=status,
+            tool_calls=tool_calls,
+            tool_outputs=tool_outputs,
+            approvals=approvals,
+            raw_events=raw_events,
+            usage=usage,
+            error=error,
+        )
+
+    def get_ai_run_trace(self, run_id: str) -> dict | None:
+        rows = self._query(
+            "SELECT work, run_id, status, session_key, input_text, instructions, "
+            "tool_calls, tool_outputs, approvals, raw_events, usage, error, response, "
+            # Task 13:发起时上下文绑定 + 完成快照(审批重校验/刷新恢复的事实源)
+            "parent_thread_id, context_session_id, origin_context_revision, "
+            "origin_context_hash, envelope_hash, focus, completion_context_revision, "
+            "write_effects, "
+            "<string> created_at AS created_at, <string> updated_at AS updated_at "
+            "FROM type::record('ai_run_trace', $run)",
+            {"run": run_id},
+        )
+        return rows[0] if rows else None
+
+    def update_ai_run_context(self, run_id: str, **fields) -> None:
+        """Task 13:写 run 的上下文绑定/完成快照字段(与既有 upsert_ai_run_trace 主体解耦,
+        避免与 Task 10 的记忆改动在 store.py 撞行)。
+
+        只 SET 传入的白名单字段(None 跳过,但 write_effects 允许显式空列表落库);
+        UPSERT 在 create_run 已建行时纯合并——既有 SET 子句不触碰这些新字段,故审批/流式
+        期间的状态 upsert 不会把绑定冲掉(SCHEMAFULL 下未列字段保持原值)。"""
+        allowed = {
+            "parent_thread_id", "context_session_id", "origin_context_revision",
+            "origin_context_hash", "envelope_hash", "focus",
+            "completion_context_revision", "write_effects",
+        }
+        patch = {k: v for k, v in fields.items()
+                 if k in allowed and (v is not None or k == "write_effects")}
+        if not patch:
+            return
+        sets = ", ".join(f"{k}=${k}" for k in patch)
+        self._execute_write(
+            "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
+            f"{sets}, updated_at=time::now() RETURN NONE",
+            {"run": run_id, "work": self.db_name, "run_id": run_id, **patch},
+        )
+
+    def list_ai_run_traces(self, limit: int = 100) -> list[dict]:
+        n = max(1, min(int(limit), 1000))
+        rows = self._query(
+            f"SELECT work, run_id, status, session_key, input_text, tool_calls, "
+            f"tool_outputs, approvals, usage, error, <string> updated_at AS updated_at "
+            f"FROM ai_run_trace ORDER BY updated_at DESC LIMIT {n}",
+        )
+        return rows
+
+    def usage_summary(self, days: int = 7) -> dict:
+        """H-10:近 N 天 LLM token 真实用量聚合(/ai/usage 数据源)。
+
+        数据源是两条审计链已存的 Hermes usage:chat_message.trace.usage(Responses
+        写作/讨论)+ ai_run_trace.usage(Runs 写入型任务)。行数有限(留痕表按章),
+        取回后在 Python 侧按天聚合——SurrealQL 嵌套字段 group-by 不值得为此冒方言坑。
+        天按 ts 前 10 位(UTC 日界),与日帽台账的本地日界可能差几小时,预算展示可容忍。
+        """
+        n = max(1, min(int(days), 90))
+        import datetime as _dt
+        cutoff = (_dt.date.today() - _dt.timedelta(days=n - 1)).isoformat()
+        zero = lambda: {"calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0}  # noqa: E731
+        acc: dict[str, dict] = {}
+
+        def _add(day: str, channel: str, u) -> None:
+            if not isinstance(u, dict) or not day or day < cutoff:
+                return
+            d = acc.setdefault(day, {"responses": zero(), "runs": zero()})
+            slot = d[channel]
+            slot["calls"] += 1
+            slot["input_tokens"] += int(u.get("input_tokens") or u.get("prompt_tokens") or 0)
+            slot["output_tokens"] += int(u.get("output_tokens") or u.get("completion_tokens") or 0)
+            slot["total_tokens"] += int(u.get("total_tokens") or 0)
+
+        for r in self._query(
+                "SELECT <string> ts AS ts, trace.usage AS usage FROM chat_message "
+                "WHERE trace.usage != NONE ORDER BY ts DESC LIMIT 5000"):
+            _add((r.get("ts") or "")[:10], "responses", r.get("usage"))
+        for r in self._query(
+                "SELECT <string> updated_at AS ts, usage FROM ai_run_trace "
+                "WHERE usage != NONE ORDER BY ts DESC LIMIT 2000"):
+            _add((r.get("ts") or "")[:10], "runs", r.get("usage"))
+
+        days_out = []
+        for day in sorted(acc, reverse=True):
+            d = acc[day]
+            total = zero()
+            for ch in ("responses", "runs"):
+                for k in total:
+                    total[k] += d[ch][k]
+            days_out.append({"day": day, **d, "total": total})
+        return {"days": days_out, "since": cutoff}
 
     # --- 蒸馏幂等标记(P1门审查 P1-1)---
     def get_distill_marker(self, chapter: int) -> dict | None:
@@ -1126,9 +2011,65 @@ class SurrealStore:
             "UPDATE type::record('event',$local) SET narrative_position=$np",
             {"local": local, "np": narrative_position})
 
-    def delete_record(self, oid: str) -> None:
+    def record_lifecycle_impact(self, oid: str) -> dict | None:
+        """对象删除影响计数。返回 None 表示对象不存在。"""
+        if not self.exists(oid):
+            return None
+        table, local = _split(oid)
+        rid = RecordID(table, local)
+        counts: dict[str, int] = {}
+        label = oid
+        if oid.startswith("role:"):
+            ent = self.entity(oid)
+            label = ent.name if ent else oid
+            counts["proposition"] = len(self._query(
+                "SELECT id FROM proposition WHERE entity_id=$oid", {"oid": oid}))
+            try:
+                counts["knowledge_edge"] = len(self._query(
+                    "SELECT id FROM knows WHERE in=$rid", {"rid": rid}))
+            except Exception:
+                counts["knowledge_edge"] = 0
+            try:
+                counts["event_involvement"] = len(self._query(
+                    "SELECT id FROM involves WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["event_involvement"] = 0
+        elif oid.startswith("fact:"):
+            fact = self.fact(oid)
+            label = f"{fact.entity_id}·{fact.attribute}" if fact else oid
+            try:
+                counts["knowledge_edge"] = len(self._query(
+                    "SELECT id FROM knows WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["knowledge_edge"] = 0
+            counts["reader_knowledge"] = len(self._query(
+                "SELECT id FROM reader_knows WHERE proposition=$rid", {"rid": rid}))
+            try:
+                counts["event_effect"] = len(self._query(
+                    "SELECT id FROM causes WHERE out=$rid", {"rid": rid}))
+            except Exception:
+                counts["event_effect"] = 0
+        return {"object": {"id": oid, "label": label}, "counts": counts}
+
+    def _cleanup_record_refs(self, oid: str) -> None:
+        table, local = _split(oid)
+        rid = RecordID(table, local)
+        if oid.startswith("role:"):
+            self._execute_write("DELETE knows WHERE in=$rid", {"rid": rid})
+            self._execute_write("DELETE involves WHERE out=$rid", {"rid": rid})
+        elif oid.startswith("fact:"):
+            self._execute_write("DELETE knows WHERE out=$rid", {"rid": rid})
+            self._execute_write("DELETE reader_knows WHERE proposition=$rid", {"rid": rid})
+            self._execute_write("DELETE causes WHERE out=$rid", {"rid": rid})
+
+    def delete_record(self, oid: str, cleanup_refs: bool = False) -> bool:
+        if not self.exists(oid):
+            return False
+        if cleanup_refs:
+            self._cleanup_record_refs(oid)
         t, l = _split(oid)
         self._delete_by(t, l)
+        return True
 
     def update_promise(self, pid: str, fields: dict) -> bool:
         """更新伏笔字段;返回 True 若存在,False 若不存在。
@@ -1183,30 +2124,41 @@ class SurrealStore:
     # --- 素材库 material(非正典写作材料)---
     # 与设定库(codex=正典)严格分开:不进知识图谱、不被 ingest、不参与限知/伏笔/QC/时间线。
     _MATERIAL_COLS = ("meta::id(id) AS id, title, body, kind, tags, source, "
-                      "created_at, updated_at")
+                      "ref_tags, tokens, about_entities, pinned, archived, "
+                      "recall_count, last_recalled_at, created_at, updated_at")
 
     def add_material(self, title: str, body: str | None = None, kind: str = "note",
-                     tags: list[str] | None = None, source: str | None = None) -> str:
-        """新建素材,返回裸 id(镜像 add_volume 的 CREATE 返回 id 先例)。"""
+                     tags: list[str] | None = None, source: str | None = None,
+                     ref_tags: list[str] | None = None) -> str:
+        """新建素材(记忆化:jieba 切 tokens + 生成 embedding),返回裸 id。"""
         if kind not in MATERIAL_KINDS:
             raise ValueError(f"非法素材分类 kind='{kind}'(合法: {list(MATERIAL_KINDS)})")
+        toks, vec = self._material_index_fields(title, body)
         rows = self._query(
             "CREATE material CONTENT $c",
             {"c": {"title": title, "body": body, "kind": kind,
-                   "tags": list(tags or []), "source": source}})
+                   "tags": list(tags or []), "source": source,
+                   "ref_tags": list(ref_tags or []), "tokens": toks, "embedding": vec}})
         rid = (rows[0] if rows else {}).get("id")
         if rid is None:
             raise RuntimeError("add_material: CREATE 未返回 id")
         return str(rid).split(":")[-1] if ":" in str(rid) else str(rid)
 
-    def list_materials(self, kind: str | None = None) -> list[dict]:
+    def list_materials(self, kind: str | None = None, archived: bool | None = False) -> list[dict]:
         """素材列表(可选 kind 过滤),按 updated_at DESC。"""
+        filters = []
+        vars = {}
         if kind is not None:
-            return self._query(
-                f"SELECT {self._MATERIAL_COLS} FROM material "
-                "WHERE kind=$k ORDER BY updated_at DESC", {"k": kind})
+            filters.append("kind=$k")
+            vars["k"] = kind
+        if archived is True:
+            filters.append("archived = true")
+        elif archived is False:
+            filters.append("(archived = NONE OR archived != true)")
+        where = f" WHERE {' AND '.join(filters)}" if filters else ""
         return self._query(
-            f"SELECT {self._MATERIAL_COLS} FROM material ORDER BY updated_at DESC")
+            f"SELECT {self._MATERIAL_COLS} FROM material{where} ORDER BY updated_at DESC",
+            vars)
 
     def get_material(self, material_id: str) -> dict | None:
         rows = self._query(
@@ -1221,20 +2173,217 @@ class SurrealStore:
         return bool(rows)
 
     def update_material(self, material_id: str, fields: dict) -> bool:
-        """局部更新(updated_at 由 schema VALUE time::now() 自动刷新);返回是否存在。"""
+        """局部更新;title/body 变则重算 tokens+embedding。返回是否存在。"""
         if fields.get("kind") is not None and fields["kind"] not in MATERIAL_KINDS:
             raise ValueError(f"非法素材分类 kind='{fields['kind']}'(合法: {list(MATERIAL_KINDS)})")
         if not self._material_exists(material_id):
             return False
+        if "title" in fields or "body" in fields:
+            cur = self.get_material(material_id) or {}
+            toks, vec = self._material_index_fields(
+                fields.get("title", cur.get("title")), fields.get("body", cur.get("body")))
+            fields = {**fields, "tokens": toks, "embedding": vec}
         self._update_by("material", material_id, fields)
+        # Task 16-B:素材 archive/pin(及正文改动)发表级失效,清检索缓存里的素材召回。
+        if "archived" in fields or "pinned" in fields or "title" in fields or "body" in fields:
+            _emit_cache_invalidation("material", self.db_name)
         return True
 
-    def delete_material(self, material_id: str) -> bool:
+    def material_lifecycle_impact(self, material_id: str) -> dict | None:
+        row = self.get_material(material_id)
+        if not row:
+            return None
+        counts = {
+            "material_reference": len(self.material_refs_by_material(material_id)),
+        }
+        try:
+            rid = RecordID("material", material_id)
+            counts["graph"] = len(self._query(
+                "SELECT id FROM relates WHERE in=$rid OR out=$rid", {"rid": rid}))
+        except Exception:
+            counts["graph"] = 0
+        if row.get("embedding"):
+            counts["semantic_index"] = 1
+        if row.get("about_entities"):
+            counts["about_entities"] = len(row.get("about_entities") or [])
+        return {"object": {"id": material_id, "label": row.get("title") or material_id}, "counts": counts}
+
+    def _cleanup_material_refs(self, material_id: str) -> None:
+        rid = RecordID("material", material_id)
+        self._execute_write("DELETE material_reference WHERE material_id=$m", {"m": material_id})
+        try:
+            self._execute_write("DELETE relates WHERE in=$rid OR out=$rid", {"rid": rid})
+        except Exception:
+            pass
+
+    def delete_material(self, material_id: str, cleanup_refs: bool = False) -> bool:
         """删除素材;返回 True 若存在并删除,False 若不存在。"""
         if not self._material_exists(material_id):
             return False
+        if cleanup_refs:
+            self._cleanup_material_refs(material_id)
         self._delete_by("material", material_id)
         return True
+
+    # --- 素材记忆:向量/溯源/联想边(Phase1)---
+    @staticmethod
+    def _material_index_fields(title, body):
+        """jieba 切词 + embedding(add/update/backfill 共用,DRY)。"""
+        import jieba
+        from scribe3.embed import embed
+        text = f"{title or ''}\n{body or ''}"
+        toks = " ".join(w for w in jieba.cut(text) if w.strip())
+        return toks, embed([text])[0]
+
+    def _material_embedding(self, material_id: str):
+        rows = self._query(
+            "SELECT embedding FROM type::record('material',$m) LIMIT 1", {"m": material_id})
+        return (rows[0].get("embedding") if rows else None)
+
+    def add_material_reference(self, material_id, chapter, dimension=None,
+                               reason=None, via="manual") -> None:
+        """记一次参考(溯源)+ 强化(recall_count++/last_recalled_at)。"""
+        self._execute_write(
+            "CREATE material_reference SET material_id=$m, chapter=$c, "
+            "dimension=$d, reason=$r, via=$v",
+            {"m": material_id, "c": int(chapter), "d": dimension, "r": reason, "v": via})
+        self._execute_write(
+            "UPDATE type::record('material',$m) SET recall_count += 1, "
+            "last_recalled_at = time::now()", {"m": material_id})
+
+    def material_refs_by_material(self, material_id) -> list[dict]:
+        return self._query(
+            "SELECT material_id, chapter, dimension, reason, via FROM material_reference "
+            "WHERE material_id=$m ORDER BY chapter", {"m": material_id})
+
+    def material_refs_by_chapter(self, chapter) -> list[dict]:
+        return self._query(
+            "SELECT material_id, chapter, dimension, reason, via FROM material_reference "
+            "WHERE chapter=$c", {"c": int(chapter)})
+
+    def build_material_edges(self, material_id, top_k: int = 5, threshold: float = 0.3) -> None:
+        """建联想边:relates(语义近邻 top-k,图 RELATE)+ about_entities(提及实体,数组)。
+        threshold=相似度下限(1-距离),低于则不建 relates 边。防爆炸:只保 top-k。"""
+        emb = self._material_embedding(material_id)
+        if not emb:
+            return
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
+            f"WHERE embedding <|{top_k + 1},{max(40, top_k + 1)}|> $qv "
+            f"AND meta::id(id) != $self ORDER BY dist LIMIT {top_k}",
+            {"qv": emb, "self": material_id})
+        for r in rows:
+            sim = 1.0 - float(r.get("dist") or 0.0)
+            if sim < threshold:
+                continue
+            self._execute_write(
+                "RELATE (type::record('material',$a))->relates->(type::record('material',$b)) "
+                "SET weight=$w, reason=$reason",
+                {"a": material_id, "b": r["id"], "w": sim, "reason": "语义近邻"})
+        try:  # about_entities:素材提及的实体 id(图召回按实体关联),富集失败不阻塞
+            from scribe3.brief import detect_mentions
+            ents = [{"id": e.id, "name": e.name,
+                     "aliases": (getattr(e, "traits", None) or {}).get("aliases") or []}
+                    for e in self.all_entities()]
+            row = self.get_material(material_id) or {}
+            mentioned = list(detect_mentions(f"{row.get('title', '')} {row.get('body') or ''}", ents))
+            if mentioned:
+                self._execute_write("UPDATE type::record('material',$m) SET about_entities=$e",
+                                    {"m": material_id, "e": mentioned})
+        except Exception:
+            pass
+
+    def material_relates(self, material_id) -> list[dict]:
+        """查素材的 relates 联想邻居(表未建/无边→空,首次召回空库时鲁棒)。"""
+        try:
+            return self._query(
+                "SELECT meta::id(out) AS id, weight, reason FROM relates "
+                "WHERE in = type::record('material',$m)", {"m": material_id})
+        except Exception:
+            return []
+
+    def material_recall(self, query: str, chapter: int | None = None, k: int = 5,
+                        mentioned_entities=None) -> list[dict]:
+        """素材三通道召回(语义 HNSW + 全文 BM25 + 图 relates/about)→ RRF 融合 → 强度加权。
+        archived 排除。返回按强度排序的 top-k 素材行(含 material_id/score)。"""
+        import jieba
+        from scribe3.embed import embed
+        from scribe3.material_recall import apply_strength
+        if not (query or "").strip():
+            return []
+        k3, ef = k * 3, max(40, k * 3)
+        # 语义路(HNSW,archived 排除)
+        try:
+            vec_ids = [r["id"] for r in self._query(
+                f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
+                f"WHERE embedding <|{k3},{ef}|> $qv AND archived != true ORDER BY dist",
+                {"qv": embed([query])[0]})]
+        except Exception:
+            vec_ids = []
+        # 全文路(jieba 切 query → BM25 search::score)
+        q_toks = " ".join(w for w in jieba.cut(query) if w.strip())
+        fts_ids = []
+        if q_toks:
+            try:
+                fts_ids = [r["id"] for r in self._query(
+                    "SELECT meta::id(id) AS id, search::score(1) AS s FROM material "
+                    "WHERE tokens @1@ $q AND archived != true ORDER BY s DESC LIMIT $lim",
+                    {"q": q_toks, "lim": k * 2})]
+            except Exception:
+                fts_ids = []
+        # 图路:语义种子沿 relates 扩展 + about_entities 匹配本章提及实体
+        graph_ids: list[str] = []
+        for sid in vec_ids[:2]:
+            graph_ids.extend(e["id"] for e in self.material_relates(sid))
+        if mentioned_entities:
+            try:
+                graph_ids.extend(r["id"] for r in self._query(
+                    "SELECT meta::id(id) AS id FROM material "
+                    "WHERE about_entities CONTAINSANY $ents AND archived != true",
+                    {"ents": list(mentioned_entities)}))
+            except Exception:
+                pass
+        # RRF 融合三路 → 位次转分 → 强度加权
+        fused = _reciprocal_rank_fusion(vec_ids, fts_ids, graph_ids, k=60)
+        top_ids = [i for i, _ in fused[:k * 2]]
+        if not top_ids:
+            return []
+        cands = []
+        for i, mid in enumerate(top_ids):
+            row = self.get_material(mid)
+            if not row or row.get("archived"):
+                continue   # 图路邻居可能含 archived,Python 层再兜一次
+            row["material_id"] = mid
+            row["score"] = 1.0 / (i + 1)
+            cands.append(row)
+        return apply_strength(cands)[:k]
+
+    def material_graph(self, focus: str | None = None, limit: int = 200, hop: int = 1) -> dict:
+        """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
+        all_nodes = [{"id": m["id"], "title": m.get("title"), "kind": m.get("kind"),
+                  "recall_count": m.get("recall_count") or 0, "pinned": bool(m.get("pinned")),
+                  "ref_tags": m.get("ref_tags") or []}
+                 for m in self.list_materials()]
+        truncated = len(all_nodes) > limit
+        nodes = all_nodes[:limit]
+        keep = {n["id"] for n in nodes}
+        edges = []
+        degraded_sources = []
+        try:
+            rows = self._query(
+                "SELECT meta::id(in) AS src, meta::id(out) AS dst, weight FROM relates")
+            edges = [{"src": r["src"], "dst": r["dst"], "weight": r.get("weight") or 1.0}
+                     for r in (rows or []) if r.get("src") in keep and r.get("dst") in keep]
+        except Exception as e:
+            edges = []
+            degraded_sources.append({"source": "relates", "reason": str(e)})
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "edges_degraded": bool(degraded_sources),
+            "degraded_sources": degraded_sources,
+            "truncated": truncated,
+        }
 
     # --- 题材层 craft 规则(per-work)---
     def add_craft_rule(self, kind: str, pattern: str, note: str = "") -> None:
@@ -1752,7 +2901,8 @@ class SurrealStore:
         self._execute_write(
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
-            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb",
+            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
+            "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
              "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
@@ -1844,7 +2994,7 @@ class SurrealStore:
         """落/覆盖某章草稿(与定稿 prose 分离;UPSERT 不碰 prose/embedding/qc)。
         刷新恢复读 chapter.draft(最新草稿);留版另走 add_chapter_version(stage='draft')。"""
         self._execute_write(
-            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft",
+            "UPSERT type::record('chapter',$seq) SET seq=$seq, draft=$draft RETURN NONE",
             {"seq": seq, "draft": draft})
 
     def get_chapter(self, seq: int) -> dict | None:
@@ -1853,12 +3003,12 @@ class SurrealStore:
         rows = self._query(
             "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
             "scene_truth,involved_characters,deductions,purpose_text,deltas,"
+            "archived,<string> archived_at AS archived_at,archive_reason,"
             "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见
             "FROM type::record('chapter',$seq)", {"seq": seq})
         if not rows:
             return None
         r = rows[0]
-        import json
         raw_beats = r.get("beats")
         try:
             r["beats"] = json.loads(raw_beats) if raw_beats else []
@@ -1871,17 +3021,28 @@ class SurrealStore:
             except (ValueError, TypeError):
                 r[_k] = []
         r["scene_truth"] = r.get("scene_truth") or ""
+        r["archived"] = bool(r.get("archived"))
+        r["archive_reason"] = r.get("archive_reason") or ""
         return r
 
     def list_chapters(self) -> list[dict]:
-        return self._query("SELECT seq,title FROM chapter ORDER BY seq")
+        return self._query(
+            "SELECT seq,title FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq")
+
+    def chapter_seqs_in_range(self, start_seq: int, end_seq: int) -> list[int]:
+        """闭区间读取已存章节号;不过滤归档章,供 pilot 判定 record 是否存在。"""
+        target = _chapter_range_target(start_seq, end_seq)
+        rows = self._query(f"SELECT seq FROM {target} ORDER BY seq")
+        return [int(row["seq"]) for row in rows if row.get("seq") is not None]
 
     def chapters_lite(self) -> list[dict]:
         """遗留处置 2-D(#5):书级面板窄查询——一次拉草料/目的字段,不拉 prose/embedding
         (north_star_book 原逐章 get_chapter 全行,几百章时既慢又占内存)。缺失字段补 None,
         调用方不必区分"无键"与"空值"。"""
         rows = self._query(
-            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter ORDER BY seq")
+            "SELECT seq, title, synopsis, beats, scene_truth, deltas FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true ORDER BY seq")
         for r in rows:
             for k in ("title", "synopsis", "beats", "scene_truth", "deltas"):
                 r.setdefault(k, None)
@@ -1890,22 +3051,27 @@ class SurrealStore:
     # --- 书级聚合小件(北极星任务7)---
     def total_word_count(self) -> int:
         """全书可见字数合计(qc_word_count 存稿缓存求和,不拉正文)。"""
-        rows = self._query("SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        rows = self._query(
+            "SELECT math::sum(qc_word_count) AS w FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
         return int((rows[0].get("w") if rows else 0) or 0)
 
     def causal_debt_total(self) -> int:
         """因果欠账存量:各章 qc_causal 正值求和(-1 哨兵=无事件数据,不计入)。
         蓝图 §3-②:brief 只催收 top-5,超出部分落面板由此字段承载。"""
-        rows = self._query("SELECT qc_causal FROM chapter")
+        rows = self._query(
+            "SELECT qc_causal FROM chapter:.. WHERE archived = NONE OR archived != true")
         return sum((r.get("qc_causal") or 0) for r in rows
                    if (r.get("qc_causal") or 0) > 0)
 
     def recent_proses(self, before_seq: int, k: int = 5) -> list[dict]:
         """before_seq 之前最近 k 章的 {seq, prose}(按 seq 升序)。
         供跨章复读检测与"前文已用措辞→生成时避免"清单复用。"""
+        target = _chapter_range_target(end=before_seq, end_inclusive=False)
         rows = self._query(
-            "SELECT seq, prose FROM chapter WHERE seq < $s ORDER BY seq DESC LIMIT $k",
-            {"s": before_seq, "k": k})
+            f"SELECT seq, prose FROM {target} "
+            "WHERE archived = NONE OR archived != true "
+            "ORDER BY seq DESC LIMIT $k", {"k": k})
         return list(reversed(rows))
 
     def motif_terms(self) -> set[str]:
@@ -1926,11 +3092,15 @@ class SurrealStore:
 
     def stats(self) -> dict:
         """本书章数 + 字数(读 QC 缓存,不回传全表正文)。"""
-        rows = self._query(
-            "SELECT count() AS chapter_count, math::sum(qc_word_count) AS word_count "
-            "FROM chapter GROUP ALL")
-        r = rows[0] if rows else {"chapter_count": 0, "word_count": 0}
-        return {"chapter_count": r.get("chapter_count", 0), "word_count": r.get("word_count", 0)}
+        count_rows = self._query(
+            "SELECT count() AS chapter_count FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
+        word_rows = self._query(
+            "SELECT math::sum(qc_word_count) AS word_count FROM chapter "
+            "WHERE archived = NONE OR archived != true GROUP ALL")
+        chapter_count = (count_rows[0].get("chapter_count") if count_rows else 0) or 0
+        word_count = (word_rows[0].get("word_count") if word_rows else 0) or 0
+        return {"chapter_count": chapter_count, "word_count": word_count}
 
     # --- 每日码字账 ---
     def _record_daily_progress(self, seq: int, today: str | None = None) -> None:
@@ -2164,7 +3334,7 @@ class SurrealStore:
     def max_chapter(self) -> int:
         """书的最大章号:以 chapter 表实际章节为准(真实范围),并入 event 的 story_chapter 兜底。
         旧实现只数 event 表 → 仅有伏笔/章节而无事件时返回 0,使时间线/体检整体短路为空(真bug)。"""
-        ch_rows = self._query("SELECT seq FROM chapter")
+        ch_rows = self._query("SELECT seq FROM chapter:..")
         seqs = [r["seq"] for r in (ch_rows or []) if r.get("seq") is not None]
         ev_rows = self._query("SELECT story_chapter AS ch FROM event")
         evs = [r["ch"] for r in (ev_rows or []) if r.get("ch") is not None]
@@ -2846,7 +4016,15 @@ class SurrealStore:
              "v": profile.get("version", 1)})
 
     def get_voice_profile(self, character_id: str) -> dict | None:
-        """获取角色声音指纹(9节)。"""
+        """获取角色声音指纹(9节)。
+
+        兜底(Caveat 2):focalizer 可能传【裸名】(如"焦三"而非 role:焦三)。_split 对
+        无冒号入参会抛 ValueError → 旧组装链 _voice_anchor_block(app.py)由此触发 500。
+        voice_profile 的 local id 恒由 set_voice_profile 经 _split 从规范 record id 派生,
+        裸名永远存不进库,故裸名一律安全兜底为"无 profile"返回 None(让上层优雅跳过),
+        绝不抛 ValueError。带冒号的规范 record id 走原路,行为一字不变。"""
+        if ":" not in (character_id or ""):
+            return None
         _, local = _split(character_id)
         rows = self._query(
             "SELECT * FROM type::record('voice_profile', $local)", {"local": local})
@@ -3134,9 +4312,11 @@ class SurrealStore:
         """跨章一致性检测(带指纹缓存壳)。审计 P2-13:每次 /post-check 全书扫太贵,
         以 (章数, Σqc_word_count) 为指纹——正文未变直接回缓存;指纹是弱哈希
         (同字数改动漏检),一致性 hint 是 advisory 级,可接受,存稿即失效重扫。"""
-        fp_rows = self._query(
-            "SELECT count() AS n, math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
-        fp = ((fp_rows[0].get("n") or 0), (fp_rows[0].get("w") or 0)) if fp_rows else (0, 0)
+        count_rows = self._query("SELECT count() AS n FROM chapter GROUP ALL")
+        word_rows = self._query(
+            "SELECT math::sum(qc_word_count) AS w FROM chapter GROUP ALL")
+        fp = (((count_rows[0].get("n") if count_rows else 0) or 0),
+              ((word_rows[0].get("w") if word_rows else 0) or 0))
         cached = getattr(self, "_cc_cache", None)
         if cached and cached[0] == fp:
             return cached[1]
@@ -3158,7 +4338,7 @@ class SurrealStore:
         hints: list[dict] = []
 
         # ── 收集全书章正文 ──────────────────────────────────────────────────
-        chapters = self._query("SELECT seq, prose FROM chapter ORDER BY seq")
+        chapters = self._query("SELECT seq, prose FROM chapter:.. ORDER BY seq")
         chapters = [c for c in chapters if c.get("prose")]
         if not chapters:
             return hints
@@ -3412,6 +4592,152 @@ class SurrealStore:
             {"vid": vid})
         return True
 
+    def create_chapter(self, title: str = "", volume_id: str | None = None) -> dict:
+        """创建一个空章节。
+
+        seq 是故事时间轴主键,永不复用归档章号;volume_id 存在时把新章追加到该卷末尾。
+        """
+        if volume_id is not None:
+            vcheck = self._query(
+                "SELECT id FROM type::record('volume',$vid) LIMIT 1",
+                {"vid": volume_id})
+            if not vcheck:
+                raise ValueError(f"create_chapter: volume '{volume_id}' 不存在")
+        seq = self.max_chapter() + 1
+        if seq < 1:
+            seq = 1
+        title = (title or "").strip() or f"第{seq}章"
+        self.save_chapter(seq, "", title=title, focalizer=None)
+        if volume_id is not None:
+            rows = self._query(
+                "SELECT seq, sort_order FROM chapter:.. "
+                "WHERE archived != true AND volume = type::record('volume', $vid)",
+                {"vid": volume_id})
+            rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
+            order = [r["seq"] for r in rows if r["seq"] != seq] + [seq]
+            self.reorder_chapters(volume_id, order)
+        return {"seq": seq, "title": title, "volume": volume_id}
+
+    def archive_chapter(self, seq: int, reason: str = "") -> bool:
+        """软删除章节:隐藏但保留正文、版本和所有引用。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
+            {"seq": seq, "reason": (reason or "").strip() or None})
+        return True
+
+    def restore_chapter(self, seq: int) -> bool:
+        """恢复已归档章节。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET archived=false, archived_at=NONE, archive_reason=NONE",
+            {"seq": seq})
+        return True
+
+    def archived_chapters(self) -> list[dict]:
+        """列出归档箱中的章节,只返回目录展示需要的轻量字段。"""
+        rows = self._query(
+            "SELECT seq, title, archived_at, archive_reason FROM chapter:.. "
+            "WHERE archived = true ORDER BY seq")
+        out = []
+        for row in rows:
+            seq = row.get("seq")
+            out.append({
+                "seq": seq,
+                "title": row.get("title") or f"第{seq}章",
+                "archived_at": str(row.get("archived_at") or ""),
+                "archive_reason": row.get("archive_reason") or "",
+            })
+        return out
+
+    def _safe_count(self, surql: str, vars: dict) -> int:
+        try:
+            rows = self._query(surql, vars)
+        except Exception:
+            return 0
+        return int((rows[0].get("n") if rows else 0) or 0)
+
+    def _chapter_impact_token(self, seq: int, references: list[dict]) -> str:
+        raw = json.dumps(
+            {"db": self.db_name, "type": "chapter", "seq": seq, "references": references},
+            ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+    def chapter_lifecycle_impact(self, seq: int) -> dict | None:
+        """章节永久删除前的影响清单。"""
+        ch = self.get_chapter(seq)
+        if not ch:
+            return None
+        refs = []
+        prose_chars = len((ch.get("prose") or "").strip())
+        if prose_chars:
+            refs.append({"kind": "正文", "count": prose_chars})
+        count_specs = [
+            ("版本", "SELECT count() AS n FROM chapter_version WHERE seq=$seq GROUP ALL"),
+            ("主编对话", "SELECT count() AS n FROM chat_message WHERE chapter=$seq GROUP ALL"),
+            ("素材引用", "SELECT count() AS n FROM material_reference WHERE chapter=$seq GROUP ALL"),
+            ("伏笔触及", "SELECT count() AS n FROM promise_touch WHERE chapter=$seq GROUP ALL"),
+            ("母题触及", "SELECT count() AS n FROM motif_instance WHERE chapter=$seq GROUP ALL"),
+            ("关系触碰", "SELECT count() AS n FROM relation_touch WHERE chapter=$seq GROUP ALL"),
+            ("事件", "SELECT count() AS n FROM event WHERE story_chapter=$seq OR ingest_seq=$seq GROUP ALL"),
+            ("角色状态", "SELECT count() AS n FROM char_state WHERE chapter=$seq OR ingest_seq=$seq GROUP ALL"),
+            ("章级北极星", "SELECT count() AS n FROM chapter_scorecard WHERE seq=$seq GROUP ALL"),
+        ]
+        for kind, query in count_specs:
+            n = self._safe_count(query, {"seq": seq})
+            if n:
+                refs.append({"kind": kind, "count": n})
+        label = ch.get("title") or f"第{seq}章"
+        return {
+            "object": {"type": "chapter", "id": seq, "label": label},
+            "references": refs,
+            "recommended_action": "archive",
+            "confirm_impact_token": self._chapter_impact_token(seq, refs),
+        }
+
+    def delete_chapter_permanent(self, seq: int) -> bool:
+        """永久删除章节和明确以该章为 owner 的派生记录。危险操作,端点层必须 token 门禁。"""
+        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        if not rows:
+            return False
+        try:
+            self.purge_ingest(seq)
+        except Exception as e:
+            logging.getLogger("scribe3.store").warning(
+                "delete_chapter_permanent purge_ingest(%s) 失败,继续清章节本体: %s", seq, e)
+        ev_ids = self._query(
+            "SELECT VALUE id FROM event WHERE story_chapter=$seq OR ingest_seq=$seq",
+            {"seq": seq})
+        if ev_ids:
+            self._execute_write("DELETE involves WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
+            self._execute_write("DELETE event WHERE id IN $ids", {"ids": ev_ids})
+        for query in [
+            "DELETE chapter_version WHERE seq=$seq",
+            "DELETE chapter_scorecard WHERE seq=$seq",
+            "DELETE chat_message WHERE chapter=$seq",
+            "DELETE material_reference WHERE chapter=$seq",
+            "DELETE promise_touch WHERE chapter=$seq",
+            "DELETE motif_instance WHERE chapter=$seq",
+            "DELETE relation_touch WHERE chapter=$seq",
+            "DELETE char_state WHERE chapter=$seq OR ingest_seq=$seq",
+            "DELETE ingest_unverified WHERE seq=$seq",
+            "DELETE voice_evolution_flag WHERE trigger_chapter=$seq OR ingest_seq=$seq",
+            "DELETE lesson WHERE chapter=$seq",
+            "DELETE distill_marker WHERE chapter=$seq",
+        ]:
+            try:
+                self._execute_write(query, {"seq": seq})
+            except Exception:
+                pass
+        self._execute_write("DELETE type::record('chapter', $seq)", {"seq": seq})
+        return True
+
     # == 大纲聚合 ==
 
     def outline(self) -> dict:
@@ -3428,7 +4754,7 @@ class SurrealStore:
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
             "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, "
             "scene_count, scene_meta "
-            "FROM chapter")
+            "FROM chapter:.. WHERE archived = NONE OR archived != true")
         # Python 侧排序:sort_order 为 None 时回退 seq
         rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
         import json
@@ -3588,14 +4914,15 @@ class SurrealStore:
             _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
         ]
         codex = {
-            "id": "codex_root", "type": "codex_root", "label": "素材",
+            "id": "codex_root", "type": "codex_root", "label": "设定库",
             "children": codex_children,
         }
 
         # —— 素材库支(非正典材料,与设定库正典严格分开):kind 分类 → 素材条目 ——
         all_materials = self.list_materials()
         mat_kind_labels = [("research", "研究"), ("reference", "参考"),
-                           ("snippet", "片段"), ("inspiration", "灵感"), ("note", "笔记")]
+                           ("snippet", "片段"), ("inspiration", "灵感"), ("note", "笔记"),
+                           ("emotion_module", "情绪卡")]
         mat_children = []
         for k, label in mat_kind_labels:
             items = [m for m in all_materials if m.get("kind") == k]
@@ -3708,3 +5035,1084 @@ class SurrealStore:
             f"UPDATE type::record('chapter', $seq) SET {', '.join(set_parts)}",
             params)
         return True
+
+    # == 统一上下文会话(Task 3:context_session / context_snapshot 的 CAS 原子存储)==
+    #
+    # 为什么不用 transaction() contextmanager:CAS 是"读-判-写"三步,必须在同一条
+    # 多语句 SurrealQL 事务里完成(LET/IF/THROW),collect 式的 transaction() 只能拼
+    # 纯写语句,表达不了条件分支——故直接手拼 BEGIN/COMMIT 走 _raw_query
+    # (与 grant_public 同款写法)。
+
+    # 快照统一取数列(<string> captured_at:datetime 序列化为 ISO 串,与 model_dump
+    # mode="json" 的返回形状对齐)。如实说明:写路径(create/advance 的返回值)里的
+    # captured_at 是 Python 墙钟,库内实际存的是 time::now()(READONLY),二者有
+    # 微秒级差——captured_at 不参与 context_hash,指纹不受影响;读路径以库内值为准。
+    _CONTEXT_SNAPSHOT_FIELDS = (
+        "session_id, work, revision, previous_revision, navigation_id, thread_id, "
+        "entry, directory_path, focus, detail_route, chapter, phase, focalizer, "
+        "reason, context_hash, <string> captured_at AS captured_at")
+
+    def _context_tx(self, surql: str, vars: dict) -> None:
+        """执行多语句 CAS 事务并逐语句核对状态。
+
+        为什么不走 _raw_query:surrealdb-py 的 query() 只检查【第一条】语句的
+        status(2026-07-10 实测),事务里的 THROW / 唯一索引冲突全被静默吞掉——
+        而 CAS 的失配/冲突信号正是靠这些错误传递,必须 query_raw 自查全部语句。
+        连接类异常沿用 _raw_query 的"重连重试一次"策略:advance 场景下若首次
+        已提交、响应丢失,重试的事务会先撞 stale THROW(IF 判定在 CREATE 之前)
+        ——由上层"stale → 先按 navigation 读回 → 读不回才是真 stale"机制转为
+        幂等读回;create 场景重试非幂等,见 create_context_session 说明。"""
+        try:
+            resp = self._db.query_raw(surql, vars)
+        except _CONN_ERRORS as e:
+            logging.getLogger("scribe3.store").warning(
+                "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                type(e).__name__, str(e)[:120])
+            self._reconnect()
+            resp = self._db.query_raw(surql, vars)
+        if resp.get("error"):
+            raise RuntimeError(f"context 事务 RPC 错误: {resp['error']}")
+        errs = [str(st.get("result")) for st in (resp.get("result") or [])
+                if isinstance(st, dict) and st.get("status") == "ERR"]
+        if errs:
+            # 过滤连带失败的样板消息("was not executed due to"/"Cannot COMMIT"),
+            # 留下第一现场(THROW 文本 / 索引冲突),供上层按消息分流
+            real = [m for m in errs
+                    if "not executed due to" not in m and "Cannot COMMIT" not in m]
+            raise RuntimeError("; ".join(real or errs))
+
+    @staticmethod
+    def _classify_context_tx_error(msg: str) -> str:
+        """把 CAS 事务错误文案分流为语义类别(单独成函数以便文本注入单测)。
+
+        类别:stale(自家 THROW 的 revision 失配)/ session_missing / session_ended
+        / unique_conflict(快照唯一索引)/ commit_conflict(SurrealDB 提交层
+        读写冲突,乐观事务固有,语义同 CAS 失配请重试)/ unknown(原样上抛)。"""
+        if "stale_revision:" in msg:
+            return "stale"
+        if "context_session_missing" in msg:
+            return "session_missing"
+        if "context_session_ended" in msg:
+            return "session_ended"
+        if "already contains" in msg or "context_snapshot_navigation" in msg \
+                or "context_snapshot_session_revision" in msg:
+            return "unique_conflict"
+        if "read or write conflict" in msg or "write conflict" in msg \
+                or "transaction can be retried" in msg:
+            return "commit_conflict"
+        return "unknown"
+
+    def _warn_context_replay_mismatch(self, replay: dict, it: NavigationIntent) -> None:
+        """M-1:同 navigation_id 视为重放,新 payload 被忽略(以先落库者为准)。
+        payload 不一致说明前端错误复用了 navigation_id——留 warning 便于排查,
+        但仍按幂等重放返回,不打断用户。"""
+        focus_id = (replay.get("focus") or {}).get("id")
+        if replay.get("detail_route") != it.detail_route or focus_id != it.focus.id:
+            logging.getLogger("scribe3.store").warning(
+                "advance_context: navigation_id=%s 重放 payload 与已落库快照不一致"
+                "(route %s→%s / focus %s→%s),忽略新 payload 按重放返回",
+                it.navigation_id, replay.get("detail_route"), it.detail_route,
+                focus_id, it.focus.id)
+
+    def _find_context_snapshot_by_navigation(
+            self, session_id: str, navigation_id: str) -> dict | None:
+        """按 (session_id, navigation_id) 读回快照——幂等重放的读路径,
+        预查与唯一键冲突兜底都走这里。"""
+        rows = self._query(
+            f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+            "WHERE session_id=$sid AND navigation_id=$nav LIMIT 1",
+            {"sid": session_id, "nav": navigation_id})
+        return rows[0] if rows else None
+
+    def create_context_session(self, work: str, actor_id: str, device_id: str) -> dict:
+        """开一个上下文会话并落 revision=0 的初始快照,返回初始快照 dict。
+
+        session 与初始快照在同一条事务里创建:不存在"有 session 无快照"的中间态,
+        get_context_snapshot 对新会话永远有得读。
+
+        Task 6 兑现:thread_id 取自本 work 的正式主编线程(get_or_create_editorial_thread,
+        幂等)——create_context_session / backfill_thread_ids / list_thread_messages 三处
+        共用同一 ethread id,前端 snapshot.thread_id 与 /chat/threads、backfill 归档端到端一致
+        (此前占位 thread:{work}_default 与 ethread 命名空间断裂,旧对话在 UI 上凭空消失)。
+
+        如实说明:本方法非幂等——_context_tx 的连接重试若落在"首次已提交、
+        响应丢失"的窗口,重放会以同 id CREATE 撞库报错(本机 WS 该窗口极小,
+        与 store 既有论断一致,可接受;调用方收到错误重新 create 即可)。"""
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        sid = uuid4().hex
+        snap_id = uuid4().hex
+        thread_id = self.get_or_create_editorial_thread(work, actor_id)["thread_id"]
+        snap = ContextSnapshot(
+            session_id=sid, work=work, revision=0, thread_id=thread_id,
+            entry="manuscript", directory_path=(),
+            focus=ContextFocus(type="entry", id="entry:manuscript", label=""),
+            detail_route="entry:manuscript", chapter=None, phase=None,
+            focalizer=None, previous_revision=None, navigation_id="init",
+            captured_at=datetime.now(timezone.utc), context_hash="",
+        ).with_hash()   # hash 在 Python 侧算好落库,库里存最终值
+        payload = snap.model_dump(mode="json")
+        self._context_tx(
+            "BEGIN TRANSACTION; "
+            "CREATE type::record('context_session', $sid) SET work=$work, "
+            "actor_id=$actor, device_id=$device, thread_id=$thread, status='active', "
+            "revision=0, current_snapshot_id=$snap_id, updated_at=time::now(); "
+            "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+            "work=$work, revision=0, previous_revision=NONE, navigation_id='init', "
+            "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
+            "detail_route=$route, chapter=NONE, phase=NONE, focalizer=NONE, "
+            "reason='restore', context_hash=$hash; "
+            "COMMIT TRANSACTION;",
+            {"sid": sid, "work": work, "actor": actor_id, "device": device_id,
+             "thread": thread_id, "snap_id": snap_id, "entry": payload["entry"],
+             "path": payload["directory_path"], "focus": payload["focus"],
+             "route": payload["detail_route"], "hash": payload["context_hash"]})
+        # reason 不在 ContextSnapshot 模型里(它是导航属性),但落库并随 dict 返回
+        return payload | {"reason": "restore"}
+
+    def advance_context(self, session_id: str, intent: dict) -> dict:
+        """CAS 推进上下文:仅当 session 处于 active 且 revision == expected_revision
+        时创建新快照并推进游标;失配抛 StaleContextError(带 latest),绝不自动覆盖。
+
+        幂等合同:同 navigation_id 一律视为重放——新 payload 被【忽略】,以先落库的
+        快照为准(payload 不一致仅 log warning)。重放路径有三层:
+        ① 预查命中 → 直接返回;注意预查先于 ended 守卫——已 ended 的会话重放
+          已有 navigation_id 仍幂等返回旧快照而非拒绝(只有"推进出新快照"才被拒);
+        ② 并发重放对方已提交时,后到者的事务撞的是 stale THROW(IF 判定在 CREATE
+          之前,轮不到唯一索引)——故 stale/冲突分支都先按 navigation 读回,命中
+          即幂等成功,读不回才是真 stale(实测修正:唯一索引只是极端兜底);
+        ③ UNIQUE(session_id, navigation_id) 索引兜底剩余竞态,冲突同样转读回。"""
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        it = NavigationIntent.model_validate(intent)
+        # 1. 幂等预查:该导航已落库 → 直接返回(顺序重放的快路径)
+        existing = self._find_context_snapshot_by_navigation(session_id, it.navigation_id)
+        if existing is not None:
+            self._warn_context_replay_mismatch(existing, it)
+            return existing
+        # 2. 读会话拿 work/thread_id(不在这里判 revision——判定必须进事务)
+        sess = self._query(
+            "SELECT work, thread_id FROM type::record('context_session', $sid)",
+            {"sid": session_id})
+        if not sess:
+            raise ValueError(f"advance_context: context_session '{session_id}' 不存在")
+        new_rev = it.expected_revision + 1
+        snap_id = uuid4().hex
+        snap = ContextSnapshot(
+            session_id=session_id, work=sess[0]["work"], revision=new_rev,
+            thread_id=sess[0]["thread_id"], entry=it.entry,
+            directory_path=tuple(it.directory_path), focus=it.focus,
+            detail_route=it.detail_route, chapter=it.chapter, phase=it.phase,
+            focalizer=it.focalizer, previous_revision=it.expected_revision,
+            navigation_id=it.navigation_id,
+            captured_at=datetime.now(timezone.utc), context_hash="",
+        ).with_hash()
+        payload = snap.model_dump(mode="json")
+        # 3. 单事务 CAS:读-判-写在同一条多语句 SurrealQL 里完成
+        try:
+            self._context_tx(
+                "BEGIN TRANSACTION; "
+                "LET $cur = (SELECT revision, status "
+                "FROM type::record('context_session', $sid)); "
+                "IF array::len($cur) == 0 { THROW 'context_session_missing' }; "
+                # I-2:ended 守卫——已结束的会话拒绝推进(end 方法由后续任务建)
+                "IF $cur[0].status != 'active' { THROW 'context_session_ended' }; "
+                "IF $cur[0].revision != $expected "
+                "{ THROW 'stale_revision:' + <string>$cur[0].revision }; "
+                "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+                "work=$work, revision=$rev, previous_revision=$prev, navigation_id=$nav, "
+                "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
+                "detail_route=$route, chapter=$chapter, phase=$phase, "
+                "focalizer=$focalizer, reason=$reason, context_hash=$hash; "
+                "UPDATE type::record('context_session', $sid) SET revision=$rev, "
+                "current_snapshot_id=$snap_id, updated_at=time::now(); "
+                "COMMIT TRANSACTION;",
+                {"sid": session_id, "expected": it.expected_revision,
+                 "snap_id": snap_id, "work": payload["work"], "rev": new_rev,
+                 "prev": it.expected_revision, "nav": it.navigation_id,
+                 "thread": payload["thread_id"], "entry": payload["entry"],
+                 "path": payload["directory_path"], "focus": payload["focus"],
+                 "route": payload["detail_route"], "chapter": it.chapter,
+                 "phase": it.phase, "focalizer": it.focalizer,
+                 "reason": it.reason, "hash": payload["context_hash"]})
+        except _CONN_ERRORS:
+            raise   # 连接类异常已在 _context_tx 重试过一次,再失败原样上抛
+        except Exception as e:
+            msg = str(e)
+            kind = self._classify_context_tx_error(msg)
+            if kind in ("stale", "unique_conflict", "commit_conflict"):
+                # I-1:三类都可能是同 navigation 的并发重放——对方已提交时,
+                # 后到者的事务在 IF 处撞 stale THROW(轮不到唯一索引),直接抛
+                # 就是给重放请求喂假 409。先按 navigation 读回,命中即幂等成功。
+                replay = self._find_context_snapshot_by_navigation(
+                    session_id, it.navigation_id)
+                if replay is not None:
+                    self._warn_context_replay_mismatch(replay, it)
+                    return replay
+                # 读不回才是真 CAS 失配(含提交层读写冲突/revision 唯一键被抢):
+                # actual 优先取 THROW 携带的值,否则回读会话
+                m = re.search(r"stale_revision:(\d+)", msg)
+                if m:
+                    actual = int(m.group(1))
+                else:
+                    cur = self._query(
+                        "SELECT revision FROM type::record('context_session', $sid)",
+                        {"sid": session_id})
+                    actual = cur[0]["revision"] if cur else -1
+                # latest 带上服务端最新快照,前端可直接对齐免再读
+                raise StaleContextError(
+                    it.expected_revision, actual,
+                    latest=self.get_context_snapshot(session_id)) from e
+            if kind == "session_missing":
+                raise ValueError(
+                    f"advance_context: context_session '{session_id}' 不存在") from e
+            if kind == "session_ended":
+                raise ValueError(
+                    f"advance_context: context_session '{session_id}' 已结束"
+                    "(status != 'active'),拒绝推进") from e
+            raise
+        return payload | {"reason": it.reason}
+
+    def get_context_snapshot(self, session_id: str, revision: int | None = None) -> dict | None:
+        """读快照:revision=None 返回 current(经 current_snapshot_id,悬空时兜底
+        取最大 revision);指定 revision 返回该历史版;找不到返回 None。"""
+        if revision is not None:
+            rows = self._query(
+                f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+                "WHERE session_id=$sid AND revision=$rev LIMIT 1",
+                {"sid": session_id, "rev": int(revision)})
+            return rows[0] if rows else None
+        sess = self._query(
+            "SELECT current_snapshot_id FROM type::record('context_session', $sid)",
+            {"sid": session_id})
+        if not sess:
+            return None
+        snap_id = sess[0].get("current_snapshot_id")
+        if snap_id:
+            rows = self._query(
+                f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} "
+                "FROM type::record('context_snapshot', $snap)",
+                {"snap": snap_id})
+            if rows:
+                return rows[0]
+        # 兜底:current_snapshot_id 缺失/悬空时取最大 revision
+        # (3.x ORDER BY 必须引用选择列——revision 在选择列里,合规)
+        rows = self._query(
+            f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+            "WHERE session_id=$sid ORDER BY revision DESC LIMIT 1",
+            {"sid": session_id})
+        return rows[0] if rows else None
+
+    # == Task 14:记忆溯源 trace(上下文检查器数据源;context 区,非 Wave B memory 区)==
+    #
+    # 落一次检索的"选/弃解释"。私密屏蔽是硬红线:save 落库前经 mask_memory_trace
+    # 权威屏蔽(secret 证据 text 抹空),get/API 出参再过一遍(防御性),两处同源。
+    # 真实 trace 数据待 Task 16 检索接进生产 prompt 后填充(见 build_memory_trace 注记)。
+
+    _MEMORY_TRACE_COLS = (
+        "trace_id, work, thread_id, context_session_id, snapshot_revision, "
+        "snapshot_hash, envelope_hash, query, channels, selected, rejected, "
+        "block_tokens, latency_ms, response_id, run_id, "
+        "<string> created_at AS created_at")
+
+    def save_memory_trace(self, trace: dict) -> str:
+        """落一条记忆溯源 trace,返回 trace_id。
+
+        服务端权威屏蔽:selected/rejected 里携私密的证据,value/text 在【落库前】就抹掉
+        (mask_memory_trace),DB 永不持有私密明文——不靠前端不显(Task 7 教训)。
+        同 trace_id 重放:先删后建(幂等 upsert 语义,单语句各自 _execute_write,
+        不触多语句 query() 吞错铁律)。"""
+        if not isinstance(trace, dict) or not trace.get("trace_id"):
+            raise ValueError("save_memory_trace: 需要 trace['trace_id']")
+        # C1 权威兜底(at-rest 不变量):落库前叠加 store 权威 secret 集,凡候选 source_id
+        # ∈ 权威 secret 即屏蔽——不信 retriever 自报的 provenance.secret(漏标即秘密明文入 DB)。
+        # 与 context_assembler 的 C1 同款口径(复用 _secret_fact_ids),fail-soft 退回空集。
+        try:
+            from scribe3.context_assembler import _secret_fact_ids
+            secret_ids = _secret_fact_ids(self)
+        except Exception:
+            secret_ids = None
+        t = mask_memory_trace(trace, secret_ids=secret_ids)
+        tid = str(t["trace_id"])
+        doc = {
+            "trace_id": tid,
+            "work": str(t.get("work") or ""),
+            "thread_id": str(t.get("thread_id") or ""),
+            "context_session_id": str(t.get("context_session_id") or ""),
+            "snapshot_revision": int(t.get("snapshot_revision") or 0),
+            "snapshot_hash": str(t.get("snapshot_hash") or ""),
+            "envelope_hash": str(t.get("envelope_hash") or ""),
+            "query": str(t.get("query") or ""),
+            "channels": t.get("channels") or {},
+            "selected": t.get("selected") or [],
+            "rejected": t.get("rejected") or [],
+            "block_tokens": t.get("block_tokens") or {},
+            "latency_ms": t.get("latency_ms") or {},
+            "response_id": t.get("response_id"),
+            "run_id": t.get("run_id"),
+        }
+        self._execute_write("DELETE memory_trace WHERE trace_id=$tid", {"tid": tid})
+        self._execute_write(
+            "CREATE memory_trace SET trace_id=$trace_id, work=$work, thread_id=$thread_id, "
+            "context_session_id=$context_session_id, snapshot_revision=$snapshot_revision, "
+            "snapshot_hash=$snapshot_hash, envelope_hash=$envelope_hash, query=$query, "
+            "channels=$channels, selected=$selected, rejected=$rejected, "
+            "block_tokens=$block_tokens, latency_ms=$latency_ms, "
+            "response_id=$response_id, run_id=$run_id",
+            doc)
+        return tid
+
+    def get_memory_trace(self, trace_id: str) -> dict | None:
+        """按 trace_id 取溯源。出参再过一遍 mask(防御性:任何私密明文绝不出服务端)。"""
+        rows = self._query(
+            f"SELECT {self._MEMORY_TRACE_COLS} FROM memory_trace WHERE trace_id=$tid LIMIT 1",
+            {"tid": trace_id})
+        return mask_memory_trace(rows[0]) if rows else None
+
+    def get_memory_trace_for_snapshot(self, session_id: str, revision: int) -> dict | None:
+        """按 (会话, 快照版本) 取该版本最近一次溯源(GET trace API 的自然键)。"""
+        rows = self._query(
+            f"SELECT {self._MEMORY_TRACE_COLS} FROM memory_trace "
+            "WHERE context_session_id=$sid AND snapshot_revision=$rev "
+            "ORDER BY created_at DESC LIMIT 1",
+            {"sid": session_id, "rev": int(revision)})
+        return mask_memory_trace(rows[0]) if rows else None
+
+    # == 统一记忆底座 memory_item / memory_relation(Task 8:MemoryRetriever 的经验记忆源)==
+    #
+    # ⚠ 只存【经验性】记忆(working/episodic/procedural/reference/uncertainty)。
+    #   正典事实绝不复制进 memory_item——canonical 候选由 MemoryRetriever 从 facts_at /
+    #   open_promises 等领域表即时直查,永远是当下真值,不会与此处经验记忆脱节。
+    # 只增不改:以下方法均为新增,不触碰任何现有方法。
+
+    _MEMORY_COLS = ("meta::id(id) AS id, work, scope_type, scope_id, kind, text, summary, "
+                    "condition, source_type, source_id, source_revision, status, "
+                    "confidence, importance, pinned, valid_from, valid_to, known_from, "
+                    "known_to, recall_count, provenance, linked_ids, "
+                    "<string> observed_at AS observed_at")
+
+    def add_memory_item(self, work: str, kind: str, text: str, *,
+                        scope_type: str = "work", scope_id: str | None = None,
+                        source_type: str = "", source_id: str = "",
+                        summary: str = "", condition: str | None = None,
+                        status: str = "active", confidence: float = 1.0,
+                        importance: int = 2, pinned: bool = False,
+                        observed_at=None, valid_from: int | None = None,
+                        valid_to: int | None = None, known_from: int | None = None,
+                        known_to: int | None = None, source_revision: str | None = None,
+                        provenance: list[dict] | None = None,
+                        linked_ids: list[str] | None = None,
+                        entity: str | None = None, attribute: str | None = None) -> str:
+        """写一条经验记忆(jieba 切 tokens + 生成 embedding),返回裸 id。
+
+        observed_at 用 type::datetime($iso) 显式转型(不依赖 SDK datetime 序列化);
+        缺省取当下墙钟。created_at 由 schema time::now() READONLY 自动落。
+
+        Task 9 活化回填:provenance(array<object>,每项可含 entity/attribute)+ linked_ids
+        (提及实体 id)是 Task 8 已就绪但静默失效的两处机制的判据——
+          · 正典压制(_suppress_by_canonical)读 provenance 的 (entity,attribute);
+          · focus 加权(final_score.focus_bonus)读 linked_ids。
+        便捷参数 entity/attribute:显式给出时自动折进 provenance(若未另传 provenance)
+        并把 entity 计入 linked_ids,免调用方手搓 provenance。"""
+        if kind not in MEMORY_KINDS:
+            raise ValueError(f"非法记忆类型 kind='{kind}'(合法: {list(MEMORY_KINDS)})")
+        # P1 幂等根治:效果幂等——按确定性键 (work, source_type, source_id) 预查去重
+        # (source_id 非空时)。捕获管线崩溃窗口后重放/重复 drain 天然 no-op:add 成功但
+        # mark_complete 失败 → consolidate 认领 failed 再 add,此处预查命中即返回旧 id,不新增。
+        # 与 enqueue 预查同款(单进程同步模型下 TOCTOU 不可达);source_id 空的经验记忆不去重。
+        if source_id:
+            _dup = self._query(
+                "SELECT meta::id(id) AS id FROM memory_item "
+                "WHERE work=$w AND source_type=$st AND source_id=$sid LIMIT 1",
+                {"w": work, "st": source_type or "", "sid": source_id})
+            if _dup:
+                return _dup[0]["id"]
+        import jieba
+        from datetime import datetime as _dt, timezone as _tz
+        from scribe3.embed import embed
+        toks = " ".join(w for w in jieba.cut(text or "") if w.strip())
+        vec = embed([text or ""])[0]
+        obs = observed_at
+        if obs is None:
+            obs = _dt.now(_tz.utc)
+        obs_iso = obs.isoformat() if hasattr(obs, "isoformat") else str(obs)
+        # 活化回填:entity/attribute 折进 provenance;entity 计入 linked_ids(去重保序)。
+        prov = list(provenance) if provenance else []
+        if (entity or attribute) and not any(
+                p.get("entity") == entity and p.get("attribute") == attribute for p in prov):
+            prov.append({"entity": entity or "", "attribute": attribute or ""})
+        links: list[str] = []
+        for lid in list(linked_ids or []) + ([entity] if entity else []):
+            if lid and lid not in links:
+                links.append(lid)
+        rows = self._query(
+            "CREATE memory_item SET "
+            "work=$work, scope_type=$scope_type, scope_id=$scope_id, kind=$kind, "
+            "text=$text, summary=$summary, condition=$condition, "
+            "source_type=$source_type, source_id=$source_id, source_revision=$source_revision, "
+            "status=$status, confidence=$confidence, importance=$importance, pinned=$pinned, "
+            "observed_at=type::datetime($observed_at), "
+            "valid_from=$valid_from, valid_to=$valid_to, known_from=$known_from, known_to=$known_to, "
+            "provenance=$provenance, linked_ids=$linked_ids, "
+            "tokens=$tokens, embedding=$embedding, updated_at=time::now()",
+            {"work": work, "scope_type": scope_type, "scope_id": scope_id or work,
+             "kind": kind, "text": text or "", "summary": summary or "", "condition": condition,
+             "source_type": source_type or "", "source_id": source_id or "",
+             "source_revision": source_revision, "status": status,
+             "confidence": float(confidence), "importance": int(importance), "pinned": bool(pinned),
+             "observed_at": obs_iso, "valid_from": valid_from, "valid_to": valid_to,
+             "known_from": known_from, "known_to": known_to,
+             "provenance": prov, "linked_ids": links, "tokens": toks, "embedding": vec})
+        rid = (rows[0] if rows else {}).get("id")
+        if rid is None:
+            raise RuntimeError("add_memory_item: CREATE 未返回 id")
+        s = str(rid)
+        # M2(Task 16-C):新记忆写入发表级失效,与 supersede/invalidate 对称——清 RETRIEVAL_CACHE
+        #   里同 work 的旧检索结果,消除新记忆 ≤30s TTL 的可见延迟(fail-safe 漏新不泄旧,对称更干净)。
+        #   仅落在真新增路径:上方 (work,source_type,source_id) 幂等预查命中的重放 early-return 不发
+        #   (无写入=无需失效)。best-effort,绝不阻断写主链路。
+        _emit_cache_invalidation("memory_item", work)
+        return s.split(":")[-1] if ":" in s else s
+
+    def add_memory_relation(self, in_id: str, out_id: str, relation: str,
+                            weight: float = 1.0, provenance: dict | None = None) -> None:
+        """记一条记忆间联想边(graph 通道遍历用)。"""
+        if relation not in MEMORY_RELATIONS:
+            raise ValueError(f"非法记忆关系 relation='{relation}'(合法: {list(MEMORY_RELATIONS)})")
+        self._execute_write(
+            "RELATE $a->memory_relation->$b SET relation=$rel, weight=$w, provenance=$prov "
+            "RETURN NONE",
+            {"a": RecordID("memory_item", in_id), "b": RecordID("memory_item", out_id),
+             "rel": relation, "w": float(weight), "prov": provenance or {}})
+
+    def get_memory_items(self, ids: list[str], *, status: str | None = None) -> list[dict]:
+        """按裸 id 批量取经验记忆行(检索候选水合用)。observed_at 以 <string> 回传 ISO。
+
+        M-2 契约:本方法【不】按状态过滤(默认 status=None),会照返 superseded/invalid 行——
+        调用方须保证只喂【已过滤】的 id(现有唯一调用方 memory_retrieval._hydrate_experiential 与
+        memory_graph 只传各通道已按 status='active' 筛过的 id,故无泄漏)。需要状态门时显式传
+        status='active' 作防御性收窄(如未来新增未经通道过滤的调用路径)。"""
+        if not ids:
+            return []
+        recs = [RecordID("memory_item", i) for i in ids]
+        where = ["id IN $recs"]
+        vars: dict = {"recs": recs}
+        if status:
+            where.append("status=$st")
+            vars["st"] = status
+        return self._query(
+            f"SELECT {self._MEMORY_COLS} FROM memory_item WHERE {' AND '.join(where)}", vars)
+
+    # M-5 记账:以下经验通道均过滤 work=$w,而 facts_at 不过滤 work——这是单库多书架构下的
+    #   防御性冗余:facts_at 走本体命题、当前部署一库一书故无需;memory_item 明确带 work 列,
+    #   过滤是为将来同库多书时经验记忆不串书,现在过滤成本近零、语义更严,故保留。
+    # I-4:chapter 非空时加【读者/发现时间】限知门(known_from/to),讨论模式(chapter=None)不过滤。
+
+    def memory_bm25(self, work: str, query: str, k: int = 10, chapter: int | None = None) -> list[str]:
+        """BM25 全文通道:jieba 切 query → tokens @1@ 匹配,按 search::score 降序。返回裸 id。
+        限知门在 SQL 侧(bm25 无 KNN,AND known_from/to 组合安全)。"""
+        import jieba
+        q = " ".join(w for w in jieba.cut(query or "") if w.strip())
+        if not q:
+            return []
+        where = ["work=$w", "status='active'", "tokens @1@ $q"]
+        vars: dict = {"w": work, "q": q, "lim": int(k)}
+        if chapter is not None:
+            where.append("(known_from = NONE OR known_from <= $ch)")
+            where.append("(known_to = NONE OR known_to > $ch)")
+            vars["ch"] = int(chapter)
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, search::score(1) AS s FROM memory_item "
+            f"WHERE {' AND '.join(where)} ORDER BY s DESC LIMIT $lim", vars)
+        return [r["id"] for r in rows]
+
+    def memory_vector(self, work: str, query: str, k: int = 10, chapter: int | None = None) -> list[str]:
+        """HNSW 语义通道:<|K,EF|> 数字形式走 KnnScan(D-022);同 work + active 过滤。返回裸 id。
+        限知门在 Python 侧(post-KNN)——避开本仓已知的 KNN×WHERE 组合坑(lesson.recall 同款规避),
+        红线不赌 KNN 与额外 WHERE 的交互。"""
+        from scribe3.embed import embed
+        if not (query or "").strip():
+            return []
+        qv = embed([query])[0]
+        kk = max(int(k), 1)
+        ef = max(40, kk)
+        rows = self._query(
+            f"SELECT meta::id(id) AS id, known_from, known_to, vector::distance::knn() AS dist "
+            f"FROM memory_item WHERE embedding <|{kk},{ef}|> $qv AND work=$w AND status='active' "
+            f"ORDER BY dist", {"qv": qv, "w": work})
+        out: list[str] = []
+        for r in rows:
+            if chapter is not None and not _memory_known_at(r.get("known_from"), r.get("known_to"), chapter):
+                continue
+            out.append(r["id"])
+        return out
+
+    def memory_graph(self, work: str, seed_ids: list[str], k: int = 10,
+                     chapter: int | None = None) -> list[str]:
+        """联想边通道:从种子 memory_item 沿 memory_relation 一跳,返回邻居裸 id。
+        Task 10:只回 active 邻居——superseded / invalid 记忆被生命周期排除,绝不经 graph
+        绕过 bm25/vector 的 status 门倒灌回检索(supersede/invalidate 的审计留库但不召回)。
+        status 与限知门都在 Python 侧(取邻居行再筛)——避开 RELATION 跨链 WHERE 的不确定性。"""
+        if not seed_ids:
+            return []
+        seeds = [RecordID("memory_item", s) for s in seed_ids]
+        rows = self._query(
+            "SELECT meta::id(out) AS id FROM memory_relation WHERE in IN $seeds LIMIT $lim",
+            {"seeds": seeds, "lim": int(k)})
+        ids = [r["id"] for r in rows if r.get("id")]
+        if not ids:
+            return []
+        items = {m["id"]: m for m in self.get_memory_items(ids)}
+        kept: list[str] = []
+        for i in ids:   # 保原遍历顺序
+            m = items.get(i)
+            if m is None or m.get("status") != "active":
+                continue
+            if chapter is not None and not _memory_known_at(
+                    m.get("known_from"), m.get("known_to"), chapter):
+                continue
+            kept.append(i)
+        return kept
+
+    # == Task 9:捕获管线(memory_event outbox / pending_authority_claim / working_summary)==
+    # 只增不改:以下均为新增。同步 drain 模型(见 memory_capture.py 顶注)——outbox 是幂等 +
+    # 失败留痕 + 可重试的状态机载体,不引后台线程。
+
+    def count_memory_by_source(self, source_type: str, source_id: str,
+                               work: str | None = None) -> int:
+        """按 (source_type, source_id) 计 memory_item 条数(捕获幂等的验收口径)。"""
+        where = ["source_type=$st", "source_id=$sid"]
+        vars: dict = {"st": source_type, "sid": source_id}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        rows = self._query(
+            f"SELECT count() AS n FROM memory_item WHERE {' AND '.join(where)} GROUP ALL", vars)
+        return int(rows[0]["n"]) if rows else 0
+
+    def list_memories(self, kind: str | None = None, work: str | None = None,
+                      scope_type: str | None = None, status: str | None = "active") -> list[dict]:
+        """列经验记忆(默认 active),按 created_at 降序。含 provenance/linked_ids(活化字段)。"""
+        where: list[str] = []
+        vars: dict = {}
+        if kind:
+            where.append("kind=$k")
+            vars["k"] = kind
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if scope_type:
+            where.append("scope_type=$sc")
+            vars["sc"] = scope_type
+        if status:
+            where.append("status=$st")
+            vars["st"] = status
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        # 3.x:ORDER BY 必须引用选择列,故显式把 created_at 纳入投影(_MEMORY_COLS 不含)。
+        return self._query(
+            f"SELECT {self._MEMORY_COLS}, <string> created_at AS created_at "
+            f"FROM memory_item {w}ORDER BY created_at DESC", vars)
+
+    # == Task 10:记忆生命周期(三时态投影 / 更正留审计 / 作废排除 / 安全遗忘)==
+    # 铁律复述:① 正典/领域数据(proposition 等)不受本生命周期管辖——supersede/invalidate/
+    #   forget 只碰经验记忆 memory_item;② supersede/invalidate 保审计(改状态、不删),
+    #   检索靠 status 门自动排除;③ forget 才真删,且分两阶段(先影响清单,确认后才删)。
+
+    def get_memory(self, memory_id: str) -> dict | None:
+        """按裸 id 取单条经验记忆,含审计字段(status / supersedes / invalid_at / 时间戳)。
+        supersedes 以裸 id 回传(None = 非更正产物)。查无返回 None。"""
+        rows = self._query(
+            f"SELECT {self._MEMORY_COLS}, supersedes, "
+            "<string> created_at AS created_at, <string> updated_at AS updated_at, "
+            "<string> invalid_at AS invalid_at "
+            "FROM type::record('memory_item', $id)", {"id": memory_id})
+        if not rows:
+            return None
+        row = rows[0]
+        sup = row.get("supersedes")
+        if sup:
+            s = str(sup)
+            row["supersedes"] = s.split(":")[-1] if ":" in s else s
+        else:
+            row["supersedes"] = None
+        return row
+
+    def add_memory(self, text: str, *, work: str = "main", kind: str = "episodic",
+                   **kw) -> dict:
+        """便捷入口:写一条经验记忆并返回完整行(生命周期各操作的对称返回口径)。
+        底层复用 add_memory_item(jieba tokens + embedding + 幂等预查),仅换成 dict 返回。"""
+        mid = self.add_memory_item(work, kind, text, **kw)
+        return self.get_memory(mid)
+
+    def supersede_memory(self, memory_id: str, *, text: str | None = None,
+                         reason: str = "author_correction",
+                         confidence=_UNSET, importance=_UNSET,
+                         valid_from=_UNSET, valid_to=_UNSET,
+                         known_from=_UNSET, known_to=_UNSET,
+                         provenance: list[dict] | None = None,
+                         linked_ids: list[str] | None = None) -> dict:
+        """更正一条经验记忆:新建取代记录 + corrects 边 + 旧记录 status='superseded'。
+        审计不删——旧记录留库(仅改状态),检索靠 status 门自动排除(supersede 可被作者回溯)。
+        三步(CREATE 新 / RELATE corrects / UPDATE 旧)单事务原子提交,不出现"半更正"中间态。
+
+        时态与信心默认【承接】旧记录;传对应参数即更正之(_UNSET 哨兵区分"未传"与"显式设 None",
+        故 valid_to=None 可表达"改为无界")。corrects 边方向:旧 --corrects--> 新
+        (顺着更正边前向可达"取代它的当前记录",天然构成审计链)。
+
+        幂等(M-1):取代记录用确定性来源键 (work, source_type=reason, source_id='supersede:'+旧id)
+        标识,CREATE 前预查——与 Task 9 给 add_memory_item 的 (work,source_type,source_id) 预查同款。
+        连接重连重试落在"首次已提交、响应丢失"窗口时,预查命中已建的取代记录直接返回(不再撞
+        显式 id 冲突,也不会二次更正);同 (旧id,reason) 的重复 supersede 视为幂等重放。
+        (要对同一条做第二次不同更正,应 supersede 上一次的【新记录】,其 source_id 不同,天然区分。)"""
+        old = self.get_memory(memory_id)
+        if old is None:
+            raise ValueError(f"supersede_memory: memory_item '{memory_id}' 不存在")
+        _reason = reason or "author_correction"
+        _src_id = f"supersede:{memory_id}"
+        _dup = self._query(
+            "SELECT meta::id(id) AS id FROM memory_item "
+            "WHERE work=$w AND source_type=$st AND source_id=$sid LIMIT 1",
+            {"w": old.get("work"), "st": _reason, "sid": _src_id})
+        if _dup:
+            return self.get_memory(_dup[0]["id"])   # 幂等重放:取代记录已建,直接返回
+
+        def _pick(v, key):
+            return old.get(key) if v is _UNSET else v
+
+        import jieba
+        from datetime import datetime as _dt, timezone as _tz
+        from uuid import uuid4
+
+        from scribe3.embed import embed
+        new_text = text if text is not None else (old.get("text") or "")
+        toks = " ".join(w for w in jieba.cut(new_text or "") if w.strip())
+        vec = embed([new_text or ""])[0]
+        new_id = uuid4().hex
+        prov = list(provenance) if provenance is not None else list(old.get("provenance") or [])
+        links = list(linked_ids) if linked_ids is not None else list(old.get("linked_ids") or [])
+        self._context_tx(
+            "BEGIN TRANSACTION; "
+            "CREATE $new_rec SET "
+            "work=$work, scope_type=$scope_type, scope_id=$scope_id, kind=$kind, "
+            "text=$text, summary=$summary, condition=$condition, "
+            "source_type=$source_type, source_id=$source_id, "
+            "status='active', confidence=$confidence, importance=$importance, pinned=$pinned, "
+            "supersedes=$old_rec, observed_at=type::datetime($observed_at), "
+            "valid_from=$valid_from, valid_to=$valid_to, "
+            "known_from=$known_from, known_to=$known_to, "
+            "provenance=$provenance, linked_ids=$linked_ids, "
+            "tokens=$tokens, embedding=$embedding, updated_at=time::now(); "
+            "RELATE $old_rec->memory_relation->$new_rec "
+            "SET relation='corrects', weight=1.0, provenance={reason: $reason}; "
+            "UPDATE $old_rec SET status='superseded', updated_at=time::now(); "
+            "COMMIT TRANSACTION;",
+            {"new_rec": RecordID("memory_item", new_id),
+             "old_rec": RecordID("memory_item", memory_id),
+             "work": old.get("work"), "scope_type": old.get("scope_type") or "work",
+             "scope_id": old.get("scope_id") or old.get("work"),
+             "kind": old.get("kind") or "episodic",
+             "text": new_text, "summary": old.get("summary") or "",
+             "condition": old.get("condition"),
+             "source_type": _reason,
+             "source_id": _src_id,
+             "confidence": float(_pick(confidence, "confidence")),
+             "importance": int(_pick(importance, "importance")),
+             "pinned": bool(old.get("pinned")),
+             "observed_at": _dt.now(_tz.utc).isoformat(),
+             "valid_from": _pick(valid_from, "valid_from"),
+             "valid_to": _pick(valid_to, "valid_to"),
+             "known_from": _pick(known_from, "known_from"),
+             "known_to": _pick(known_to, "known_to"),
+             "provenance": prov, "linked_ids": links,
+             "tokens": toks, "embedding": vec, "reason": _reason})
+        # Task 16-B:记忆 supersede 发表级失效,清检索缓存里被更正/取代的经验记忆。
+        _emit_cache_invalidation("memory_item", old.get("work"))
+        return self.get_memory(new_id)
+
+    def invalidate_memory(self, memory_id: str) -> dict:
+        """作废一条经验记忆:status='invalid' + 记 invalid_at(system_time)。
+        审计留库,检索与 resolve_temporal_view 都靠 status 门自动排除。
+        正典/领域数据不受此管辖。"""
+        _row = self.get_memory(memory_id)
+        if _row is None:
+            raise ValueError(f"invalidate_memory: memory_item '{memory_id}' 不存在")
+        # M-3 记账:重复作废会覆写 invalid_at 为最新墙钟(system_time"最后一次失效"语义,可接受)——
+        #   作废是幂等终态(status 不变),invalid_at 略微前移无害,不额外加 CAS 守卫。
+        self._execute_write(
+            "UPDATE type::record('memory_item', $id) SET status='invalid', "
+            "invalid_at=time::now(), updated_at=time::now() RETURN NONE", {"id": memory_id})
+        # M1(Task 16-C):作废发表级失效,与 supersede 对称——否则已作废记忆在 RETRIEVAL_CACHE
+        #   最长 30s 仍被命中(检索层 status='active' 门只在 miss 重算时生效,缓存命中会漏 status 变更,
+        #   构成"已作废记忆倒灌进写作 prompt"的短窗)。
+        _emit_cache_invalidation("memory_item", _row.get("work"))
+        return self.get_memory(memory_id)
+
+    def _forget_origin_event_id(self, mem: dict) -> str | None:
+        """回溯该记忆的捕获来源 memory_event(可识别原文残留链)。
+        捕获管线落 memory_item 时 source_id=event_id(见 memory_capture._route),故来源事件的
+        event_id == memory_item.source_id。只认真存在的 memory_event(手工 add_memory 无来源事件/
+        supersede 的 source_id='supersede:…' 均查不到 → 返回 None,不误删)。"""
+        sid = (mem.get("source_id") or "").strip()
+        if not sid:
+            return None
+        ev = self.get_memory_event(sid)
+        return sid if ev else None
+
+    def forget_impact(self, memory_id: str) -> dict:
+        """遗忘【第一阶段】:生成影响清单,不删任何东西。
+        如实披露 forget 将清除的【全部】可识别残留(I-1 修:不止 memory_item):
+          · 记忆本体 memory_item(含 embedding/tokens);
+          · 触及它的联想边 memory_relation(in/out 两侧);
+          · 捕获来源事件 memory_event 的 payload 原文(若来自捕获管线)——否则 consolidate
+            会从残留 payload 把被遗忘原文自动重炼进 working_summary、甚至 re-drain 整条复活;
+          · 受影响线程的派生 working_summary(作废,由下次 consolidate 从存活事件重建)。
+        正典/领域数据(proposition 等)不在清单内——forget 只管经验记忆。"""
+        mem = self.get_memory(memory_id)
+        if mem is None:
+            return {"memory_id": memory_id, "exists": False,
+                    "relations": [], "relation_count": 0,
+                    "origin_event_id": None, "working_summary_thread": None,
+                    "note": "记忆不存在,无需遗忘。"}
+        rec = RecordID("memory_item", memory_id)
+        edges = self._query(
+            "SELECT relation, meta::id(in) AS in_id, meta::id(out) AS out_id "
+            "FROM memory_relation WHERE in=$r OR out=$r", {"r": rec})
+        rels: list[dict] = []
+        for e in (edges or []):
+            outgoing = e.get("in_id") == memory_id
+            rels.append({"relation": e.get("relation"),
+                         "direction": "out" if outgoing else "in",
+                         "other_id": e.get("out_id") if outgoing else e.get("in_id")})
+        # embedding/tokens 是否真实存在(M-3:查实,不再恒 True 装饰)
+        pres = self._query(
+            "SELECT (embedding != NONE AND array::len(embedding) > 0) AS has_emb, "
+            "(tokens != NONE AND tokens != '') AS has_tok "
+            "FROM type::record('memory_item', $id)", {"id": memory_id})
+        has_emb = bool(pres[0].get("has_emb")) if pres else False
+        has_tok = bool(pres[0].get("has_tok")) if pres else False
+        origin_event_id = self._forget_origin_event_id(mem)
+        # 受影响 working_summary 线程:thread 域记忆的 scope_id 即 thread_id;否则取来源事件线程。
+        ws_thread = mem.get("scope_id") if mem.get("scope_type") == "thread" else None
+        if not ws_thread and origin_event_id:
+            ev = self.get_memory_event(origin_event_id)
+            ws_thread = (ev or {}).get("thread_id")
+        return {
+            "memory_id": memory_id, "exists": True,
+            "kind": mem.get("kind"), "status": mem.get("status"),
+            "text": mem.get("text"),
+            "relations": rels, "relation_count": len(rels),
+            "has_embedding": has_emb, "has_tokens": has_tok,
+            "origin_event_id": origin_event_id, "working_summary_thread": ws_thread,
+            "note": "确认后将永久删除:经验记忆本体(含 embedding/tokens)、其联想边、"
+                    "捕获来源事件 payload 原文(若有)、并作废受影响线程的 working_summary;"
+                    "正典/领域数据(proposition 等)不受影响。",
+        }
+
+    def forget_memory(self, memory_id: str, *, confirmed: bool = False) -> dict:
+        """遗忘【第二阶段】:仅在 confirmed=True 时真删,且清除【全部可识别残留】(I-1)。
+        未确认 → 只回影响清单并 deleted=False(不删)。确认 → 单事务删:
+          ① 该记忆的 memory_relation 边(in/out 两侧);
+          ② memory_item 本体(embedding/tokens 随记录一并消失);
+          ③ 捕获来源事件 memory_event(若来自捕获管线)——否则 consolidate 会从其残留
+             payload 把被遗忘原文自动重炼进 working_summary,甚至 re-drain 整条复活;
+          ④ 作废受影响线程的 working_summary(下次 consolidate 从存活事件重建,不含被遗忘原文)。
+        只删本记忆的边,不动关联到的其它记忆;正典/领域 object lifecycle 一概不碰。"""
+        impact = self.forget_impact(memory_id)
+        if not impact.get("exists") or not confirmed:
+            return impact | {"deleted": False}
+        rec = RecordID("memory_item", memory_id)
+        origin_event_id = impact.get("origin_event_id")
+        ws_thread = impact.get("working_summary_thread")
+        work = self.get_memory(memory_id).get("work")
+        with self.transaction():
+            self._execute_write(
+                "DELETE memory_relation WHERE in=$r OR out=$r RETURN NONE", {"r": rec})
+            self._execute_write(
+                "DELETE type::record('memory_item', $id) RETURN NONE", {"id": memory_id})
+            if origin_event_id:   # 断复活链:删来源事件,consolidate/re-drain 再无残留原文可取
+                self._execute_write(
+                    "DELETE memory_event WHERE event_id=$e RETURN NONE", {"e": origin_event_id})
+            if ws_thread and work is not None:   # 作废派生工作摘要(下次 consolidate 从存活事件重建)
+                self._execute_write(
+                    "DELETE type::record('working_summary', $rid) RETURN NONE",
+                    {"rid": f"{work}|{ws_thread}"})
+        return {"memory_id": memory_id, "deleted": True,
+                "relations_deleted": impact.get("relation_count", 0),
+                "origin_event_deleted": bool(origin_event_id),
+                "working_summary_invalidated": bool(ws_thread)}
+
+    def resolve_temporal_view(self, work: str, chapter: int | None,
+                              focalizer: str | None = None,
+                              *, kind: str | None = None) -> list[dict]:
+        """把 work 下的 active 经验记忆按 (chapter, focalizer) 投影为可见子集。
+        focalizer=None → 只按 story_time(故事真值 / 全知视角);
+        focalizer 非空 → 在 story_time 之上叠加 knowledge_time 限知门(该聚焦角色此刻能否知道)。
+        投影判定下沉到 memory_lifecycle.resolve_temporal_view(与检索限知门同源)。"""
+        where = ["work=$w", "status='active'"]
+        vars: dict = {"w": work}
+        if kind:
+            where.append("kind=$k")
+            vars["k"] = kind
+        rows = self._query(
+            f"SELECT {self._MEMORY_COLS} FROM memory_item WHERE {' AND '.join(where)}", vars)
+        return _resolve_view(rows or [], chapter, focalizer)
+
+    # --- 正典揭示待审队列(限知红线:canonical 绝不进 memory_item)---
+
+    _PENDING_CLAIM_FIELDS = (
+        "meta::id(id) AS id, work, thread_id, text, entity, attribute, value, "
+        "source_type, source_id, status, <string> created_at AS created_at")
+
+    def add_pending_authority_claim(self, work: str, text: str, *,
+                                    entity: str | None = None, attribute: str | None = None,
+                                    value: str | None = None, source_type: str = "",
+                                    source_id: str = "", thread_id: str | None = None) -> str:
+        """把正典揭示(真实身份等)入【待审】队列——绝不直接进领域表,更不进 memory_item。
+        领域表仍是 fact 唯一真相源,作者审批后再由既有 ingest/命题写入路径落库。"""
+        # P1 幂等根治(对齐 add_memory_item):按确定性键 (work, source_type, source_id) 预查去重。
+        # 崩溃窗口后事件落 failed → consolidate 重 drain,以 source_id=event_id 再路由至此;
+        # 裸 CREATE 会产生重复待审(同 text 两行)。source_id 非空时预查命中即返回旧 id,不新建。
+        if source_id:
+            _dup = self._query(
+                "SELECT meta::id(id) AS id FROM pending_authority_claim "
+                "WHERE work=$w AND source_type=$st AND source_id=$sid LIMIT 1",
+                {"w": work, "st": source_type or "", "sid": source_id})
+            if _dup:
+                return _dup[0]["id"]
+        rows = self._query(
+            "CREATE pending_authority_claim SET work=$w, thread_id=$tid, text=$text, "
+            "entity=$entity, attribute=$attribute, value=$value, "
+            "source_type=$st, source_id=$sid, status='pending'",
+            {"w": work, "tid": thread_id, "text": text or "",
+             "entity": entity, "attribute": attribute, "value": value,
+             "st": source_type or "", "sid": source_id or ""})
+        rid = (rows[0] if rows else {}).get("id")
+        s = str(rid)
+        return s.split(":")[-1] if ":" in s else s
+
+    def list_pending_authority_claims(self, work: str | None = None,
+                                      status: str | None = "pending") -> list[dict]:
+        """列待审正典揭示(默认 pending),按 created_at 升序(先到先审)。"""
+        where: list[str] = []
+        vars: dict = {}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if status:
+            where.append("status=$st")
+            vars["st"] = status
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        return self._query(
+            f"SELECT {self._PENDING_CLAIM_FIELDS} FROM pending_authority_claim {w}"
+            "ORDER BY created_at ASC", vars)
+
+    # --- memory_event outbox(幂等入队 + 同步 drain 状态机)---
+
+    _MEMORY_EVENT_FIELDS = (
+        "meta::id(id) AS id, event_id, work, thread_id, event_type, payload, status, "
+        "attempts, error, <string> created_at AS created_at, <string> processed_at AS processed_at")
+
+    def get_memory_event(self, event_id: str) -> dict | None:
+        rows = self._query(
+            f"SELECT {self._MEMORY_EVENT_FIELDS} FROM memory_event WHERE event_id=$e LIMIT 1",
+            {"e": event_id})
+        return rows[0] if rows else None
+
+    def enqueue_memory_event(self, event_id: str, work: str, event_type: str,
+                             payload: dict, thread_id: str | None = None) -> bool:
+        """幂等入队。返回 True=新建、False=已存在(不覆盖已入队事件的 payload/状态)。
+        幂等靠 event_id UNIQUE:预查存在即返回;并发/竞态下 CREATE 撞唯一索引也当幂等成功。"""
+        if self.get_memory_event(event_id):
+            return False
+        try:
+            self._execute_write(
+                "CREATE memory_event SET event_id=$e, work=$w, thread_id=$tid, "
+                "event_type=$et, payload=$p, status='pending', attempts=0 RETURN NONE",
+                {"e": event_id, "w": work, "tid": thread_id, "et": event_type,
+                 "p": payload or {}})
+        except Exception as ex:
+            msg = str(ex).lower()
+            # 唯一索引冲突 → 幂等成功;乐观事务读写冲突(多 worker 并发入队)→ 视为已入队。
+            if any(s in msg for s in (
+                    "index", "already", "exists",
+                    "write conflict", "transaction conflict", "retry the transaction",
+                    "read or write conflict")):
+                return False
+            raise
+        return True
+
+    def claim_pending_events(self, work: str | None = None, thread_id: str | None = None,
+                             event_type: str | None = None, limit: int = 50) -> list[dict]:
+        """原子认领 pending/failed(可重试)事件:单条 CAS UPDATE 置 processing + attempts+1,
+        仅返回本次【实际翻转】的行(RETURN 投影取更新后值)。
+
+        为什么不 SELECT-then-per-row-UPDATE:那是非原子的——两并发 consolidate 会双认领
+        同一批(实测 30 轮 13 次双认领)。改单语句 UPDATE...WHERE status IN[...] 后,每条记录
+        只被翻一次,双认领消解为"另一方拿到空集"。UPDATE 无 LIMIT 子句(SurrealQL 语义),
+        故 limit 参数仅保留签名兼容、不再截断——掉线残留一次 drain 干净更符合意图。"""
+        where = ["status IN ['pending', 'failed']"]
+        vars: dict = {}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if thread_id:
+            where.append("thread_id=$tid")
+            vars["tid"] = thread_id
+        if event_type:
+            where.append("event_type=$et")
+            vars["et"] = event_type
+        rows = self._query(
+            "UPDATE memory_event SET status='processing', attempts += 1 "
+            f"WHERE {' AND '.join(where)} "
+            "RETURN event_id, work, thread_id, event_type, payload, status, attempts", vars)
+        return rows or []
+
+    def begin_processing_event(self, event_id: str) -> None:
+        """单事件同步 drain:置 processing 并 attempts+1(capture_event 处理前调用)。"""
+        self._execute_write(
+            "UPDATE memory_event SET status='processing', attempts += 1 "
+            "WHERE event_id=$e RETURN NONE", {"e": event_id})
+
+    def mark_event_complete(self, event_id: str) -> None:
+        self._execute_write(
+            "UPDATE memory_event SET status='complete', error=NONE, "
+            "processed_at=time::now() WHERE event_id=$e RETURN NONE", {"e": event_id})
+
+    def mark_event_failed(self, event_id: str, error: str) -> None:
+        """标记失败并留错误文案(attempts 已在 begin_processing/claim 时累加)。"""
+        self._execute_write(
+            "UPDATE memory_event SET status='failed', error=$err, "
+            "processed_at=time::now() WHERE event_id=$e RETURN NONE",
+            {"e": event_id, "err": (error or "")[:500]})
+
+    def reclaim_stale_processing_events(
+            self, work: str | None = None, thread_id: str | None = None,
+            event_type: str | None = None, older_than_seconds: float = 0.0) -> list[dict]:
+        """孤儿回收:把陈旧 'processing' 事件复位为 'failed'(可被 claim_pending_events 重认领)。
+
+        病灶:_drain_one 先 begin_processing_event(status='processing')再跑 jieba+embed+CREATE
+        才 mark_event_complete(非瞬时窗口)。进程在此窗口被 SIGKILL/OOM/部署重启 → 事件永久卡
+        'processing';claim_pending_events 只认领 pending/failed(结构性排除 processing)、无 reaper,
+        该轮经验记忆静默永久丢失,且 count_failed_memory_events 只数 'failed' → 告警不可见。
+        本方法把处于 processing 且 processed_at 为空(从未完成)的孤儿复位 failed:既可被
+        consolidate 的 claim 重 drain 找回,复位期间 count_failed 也让告警可见。
+
+        判据(processed_at IS NONE + 可选时间阈值):
+          · processed_at 为空 → 只碰"从未完成/从未标记"的在处理事件,绝不复原已 complete/failed。
+          · older_than_seconds>0 → 仅复位 created_at 早于该阈值者(跨进程/未来后台 worker 的纵深防御)。
+        同步单进程模型下 consolidate 起手调用(older_than_seconds=0):reaper 先于本 consolidate
+        自身的 drain(见 consolidate_thread 步骤1),此刻任何 processing 皆为上一进程崩溃遗留、
+        非本次在途,故 0 阈值复位安全;capture_event 的 drain 是同步的、返回前已 complete/failed,
+        不会与 consolidate 并发同一线程(见 memory_capture 模块顶注)。attempts 不在此累加
+        (复位非一次新尝试;真正重试由 claim +1)。"""
+        where = ["status = 'processing'", "processed_at IS NONE"]
+        vars: dict = {"err": "reclaimed_stale_processing"}
+        if older_than_seconds and older_than_seconds > 0:
+            from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+            cutoff = _dt.now(_tz.utc) - _td(seconds=float(older_than_seconds))
+            where.append("created_at < type::datetime($cutoff)")
+            vars["cutoff"] = cutoff.isoformat()
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if thread_id:
+            where.append("thread_id=$tid")
+            vars["tid"] = thread_id
+        if event_type:
+            where.append("event_type=$et")
+            vars["et"] = event_type
+        rows = self._query(
+            "UPDATE memory_event SET status='failed', error=$err "
+            f"WHERE {' AND '.join(where)} "
+            "RETURN event_id, work, thread_id, event_type, attempts", vars)
+        return rows or []
+
+    def list_memory_events(self, work: str | None = None, thread_id: str | None = None,
+                           event_type: str | None = None, status: str | None = None,
+                           limit: int = 500) -> list[dict]:
+        where: list[str] = []
+        vars: dict = {"lim": int(limit)}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if thread_id:
+            where.append("thread_id=$tid")
+            vars["tid"] = thread_id
+        if event_type:
+            where.append("event_type=$et")
+            vars["et"] = event_type
+        if status:
+            where.append("status=$st")
+            vars["st"] = status
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        return self._query(
+            f"SELECT {self._MEMORY_EVENT_FIELDS} FROM memory_event {w}"
+            "ORDER BY created_at ASC LIMIT $lim", vars)
+
+    def count_memory_events(self, work: str | None = None, thread_id: str | None = None,
+                            event_type: str | None = None, status: str | None = None) -> int:
+        """轻量计数(不载 payload):_maybe_consolidate 算每 8 轮水位用,长篇不拉全量行。"""
+        where: list[str] = []
+        vars: dict = {}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if thread_id:
+            where.append("thread_id=$tid")
+            vars["tid"] = thread_id
+        if event_type:
+            where.append("event_type=$et")
+            vars["et"] = event_type
+        if status:
+            where.append("status=$st")
+            vars["st"] = status
+        w = ("WHERE " + " AND ".join(where) + " ") if where else ""
+        rows = self._query(
+            f"SELECT count() AS n FROM memory_event {w}GROUP ALL", vars)
+        return int(rows[0]["n"]) if rows else 0
+
+    def count_failed_memory_events(self, work: str | None = None) -> int:
+        """runtime-status 告警口径:仍处 failed 的捕获事件数(工作者失败不阻断对话,但可见)。"""
+        where = ["status='failed'"]
+        vars: dict = {}
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        rows = self._query(
+            f"SELECT count() AS n FROM memory_event WHERE {' AND '.join(where)} GROUP ALL", vars)
+        return int(rows[0]["n"]) if rows else 0
+
+    def count_active_context_sessions(self) -> int:
+        """runtime-status 指标(Task 16-B):本库仍活跃的上下文会话数(轻量计数,不载快照)。"""
+        rows = self._query(
+            "SELECT count() AS n FROM context_session WHERE status='active' GROUP ALL")
+        return int(rows[0]["n"]) if rows else 0
+
+    # --- 短期工作记忆 working_summary(thread 唯一,被下个工作目标 supersede)---
+
+    _WORKING_SUMMARY_FIELDS = (
+        "work, thread_id, through_turn, goals, open_tasks, decisions, assumptions, "
+        "summary, <string> updated_at AS updated_at")
+
+    def upsert_working_summary(self, work: str, thread_id: str, *, through_turn: int = 0,
+                               goals: list[str] | None = None,
+                               open_tasks: list[str] | None = None,
+                               decisions: list[str] | None = None,
+                               assumptions: list[str] | None = None,
+                               summary: str = "") -> None:
+        """落/覆盖某线程的工作摘要(thread 唯一,幂等 UPSERT)。id 用 work|thread 去重。"""
+        rid = f"{work}|{thread_id}"
+        self._execute_write(
+            "UPSERT type::record('working_summary', $rid) SET work=$w, thread_id=$tid, "
+            "through_turn=$tt, goals=$goals, open_tasks=$tasks, decisions=$dec, "
+            "assumptions=$asm, summary=$sum, updated_at=time::now() RETURN NONE",
+            {"rid": rid, "w": work, "tid": thread_id, "tt": int(through_turn),
+             "goals": goals or [], "tasks": open_tasks or [], "dec": decisions or [],
+             "asm": assumptions or [], "sum": summary or ""})
+
+    def get_working_summary(self, work: str, thread_id: str) -> dict | None:
+        rid = f"{work}|{thread_id}"
+        rows = self._query(
+            f"SELECT {self._WORKING_SUMMARY_FIELDS} FROM type::record('working_summary', $rid)",
+            {"rid": rid})
+        return rows[0] if rows else None

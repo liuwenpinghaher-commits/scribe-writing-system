@@ -1,0 +1,22 @@
+---
+title: "https://surrealdb.com/docs/learn/extensions"
+url: "https://surrealdb.com/docs/learn/extensions"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/extensions
+
+Source: https://surrealdb.com/docs/learn/extensions
+
+Available since: v3.0.0
+Note
+Surrealism plugins remain an experimental functionality under active development. This guide assumes the latest version of SurrealDB is being used (3.1.0), which contains [many additions](https://github.com/surrealdb/surrealdb/pull/7082) to Surrealism's core functionality. We look forward to feedback on the plugin system, either via raising an issue or PR on the [SurrealDB repo](https://github.com/surrealdb/surrealdb), or anywhere else in the SurrealDB community such as our [Discord server](https://discord.gg/surrealdb).
+SurrealDB's extension system, known as Surrealism, lets you add custom functionality to the database engine without modifying its core. Extensions are compiled to WebAssembly (WASM) and loaded at runtime, which means they run in a sandboxed environment with predictable performance characteristics.
+This section covers:
+  * •
+[Plugins](https://surrealdb.com/docs/learn/extensions/plugins/overview) — an overview of the plugin architecture, how plugins are discovered and loaded, and the types of extensions you can create.
+  * •
+[Guides](https://surrealdb.com/docs/learn/extensions/guides/creating-custom-modules) — step-by-step walkthroughs for creating custom modules, understanding the module architecture, and working with WASM plugins.
+  * •
+[Attribute reference](https://surrealdb.com/docs/learn/extensions/guides/surrealism-attribute-reference) — options for the `#[surrealism]` attribute used to mark functions as Surrealism functions, such as `writeable`, `comment`, `init`, and namespaced exports.

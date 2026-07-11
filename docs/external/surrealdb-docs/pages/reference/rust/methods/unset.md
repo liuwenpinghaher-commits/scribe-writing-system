@@ -1,0 +1,121 @@
+---
+title: "https://surrealdb.com/docs/reference/rust/methods/unset"
+url: "https://surrealdb.com/docs/reference/rust/methods/unset"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/rust/methods/unset
+
+Source: https://surrealdb.com/docs/reference/rust/methods/unset
+
+3.x2.x
+Removes a parameter from this connection.
+Method Syntax
+
+```rust
+db.unset(key)
+```
+
+###  Example usage[](https://surrealdb.com/docs/reference/rust/methods/unset#example-usage)
+
+```rust
+use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Ws;
+use surrealdb::opt::auth::Root;
+use surrealdb::types::SurrealValue;
+
+#[derive(Debug, SurrealValue)]
+struct Name {
+    first: String,
+    last: String,
+}
+
+#[tokio::main]
+async fn main() -> surrealdb::Result<()> {
+    let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
+
+    db.signin(Root {
+        username: "root".to_string(),
+        password: "secret".to_string(),
+    })
+    .await?;
+
+    db.use_ns("main").use_db("main").await?;
+
+    // Assign the variable on the connection
+    db.set(
+        "name",
+        Name {
+            first: "Tobie".to_string(),
+            last: "Morgan Hitchcock".to_string(),
+        },
+    )
+    .await?;
+    dbg!(db.query("$name").await?);
+
+    db.unset("name").await?;
+    // Aaaand now it's gone
+    dbg!(db.query("$name").await?);
+    Ok(())
+}
+```
+
+###  See also[](https://surrealdb.com/docs/reference/rust/methods/unset#see-also)
+  * •
+[.unset() method on Docs.rs](https://docs.rs/surrealdb/latest/surrealdb/struct.Surreal.html#method.unset)
+
+Removes a parameter from this connection.
+Method Syntax
+
+```rust
+db.unset(key)
+```
+
+###  Example usage[](https://surrealdb.com/docs/reference/rust/methods/unset#example-usage-1)
+
+```rust
+use serde::Serialize;
+use surrealdb::engine::remote::ws::Ws;
+use surrealdb::opt::auth::Root;
+use surrealdb::Surreal;
+
+#[derive(Debug, Serialize)]
+struct Name<'a> {
+    first: &'a str,
+    last: &'a str,
+}
+
+#[tokio::main]
+async fn main() -> surrealdb::Result<()> {
+    let db = Surreal::new::<Ws>("127.0.0.1:8000").await?;
+
+    db.signin(Root {
+        username: "root",
+        password: "secret",
+    })
+    .await?;
+
+    db.use_ns("ns").use_db("db").await?;
+
+    // Assign the variable on the connection
+    db.set(
+        "name",
+        Name {
+            first: "Tobie",
+            last: "Morgan Hitchcock",
+        },
+    )
+    .await?;
+    dbg!(db.query("RETURN $name").await?);
+
+    db.unset("name").await?;
+    // Aaaand now it's gone
+    dbg!(db.query("RETURN $name").await?);
+    Ok(())
+}
+```
+
+###  See also[](https://surrealdb.com/docs/reference/rust/methods/unset#see-also-1)
+  * •
+[.unset() method on Docs.rs](https://docs.rs/surrealdb/latest/surrealdb/struct.Surreal.html#method.unset)

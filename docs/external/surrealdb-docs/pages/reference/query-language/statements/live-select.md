@@ -1,0 +1,97 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/statements/live-select"
+url: "https://surrealdb.com/docs/reference/query-language/statements/live-select"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/statements/live-select
+
+Source: https://surrealdb.com/docs/reference/query-language/statements/live-select
+
+Live Queries is a feature that allows you to listen for creations, updates and deletions to specific records you are interested in or entire tables. 
+The `LIVE SELECT` statement can be used to initiate a real-time selection from a table, including the option to apply filters.
+In practical terms, when you execute a `LIVE SELECT` query, it triggers an ongoing session that captures any subsequent changes to the data in real-time. These changes are then immediately transmitted to the client, ensuring that the client is consistently updated with the latest data modifications.
+Note
+Errors while evaluating a live query's `WHERE` clause or projection (for example a type mismatch) skip that notification; they do not roll back the write that triggered the live query. Live subscriptions are ended when the session is invalidated or its TTL expires, when you [`KILL`](https://surrealdb.com/docs/reference/query-language/statements/kill) the live query, or when the underlying table is removed. Built-in live parameters (`$value`, `$before`, `$after`, `$event`, and related names) always take precedence over user variables captured at registration time.
+Important
+Currently, `LIVE SELECT` is only supported in single-node deployments, with multi-node support being actively developed.
+###  Statement syntax[](https://surrealdb.com/docs/reference/query-language/statements/live-select#statement-syntax)
+SurrealQL SyntaxRailroad Diagram
+SurrealQL Syntax
+
+```syntax
+LIVE SELECT
+	[
+		[ VALUE ] @fields ... [ AS @alias ]
+		| DIFF
+	]
+	FROM @targets
+	[ WHERE @conditions ]
+	[ FETCH @fields ... ]
+;
+```
+
+LIVESELECTVALUE@field,@fieldAS@aliasDIFFFROM@targetsWHERE@conditionsFETCH@fields ...;
+##  Example usage[](https://surrealdb.com/docs/reference/query-language/statements/live-select#example-usage)
+###  Basic usage[](https://surrealdb.com/docs/reference/query-language/statements/live-select#basic-usage)
+By default, SurrealDB will push the entire record over the websocket when created or updated, and just the record's ID when deleted.
+
+```surql
+LIVE SELECT * FROM person;
+
+-- 'b1f1d115-ad0f-460d-8cbf-dbc7ce48851c'
+```
+
+The result of the above query will be a UUID. This UUID is the Live Query Unique ID, and is used to differentate between different Live Queries. You will want to keep track of this ID, so that you can differentiate between different notifications being received after this query. You can also use this UUID to [KILL](https://surrealdb.com/docs/reference/query-language/statements/kill) (stop) the Live Query. The protocol will then send messages that are of a Notification format.
+You can find an example of such a message in the [Live Query WebSocket protocol](https://surrealdb.com/docs/reference/rest-api/rpc-protocol#live-websocket-only) description.
+###  Diff[](https://surrealdb.com/docs/reference/query-language/statements/live-select#diff)
+When using the `DIFF` mode, updates will be sent in the form of an array with [JSON Patch](https://jsonpatch.com/) messages.
+
+```surql
+LIVE SELECT DIFF FROM person;
+
+-- 'b87cbb0d-ca15-4f0a-8f86-caa680672aa5'
+```
+
+###  Filter the live query[](https://surrealdb.com/docs/reference/query-language/statements/live-select#filter-the-live-query)
+You can optionally apply filters with the `WHERE` clause.
+
+```surql
+LIVE SELECT * FROM person WHERE age > 18;
+```
+
+##  Consistency guarantees[](https://surrealdb.com/docs/reference/query-language/statements/live-select#consistency-guarantees)
+When using Live Queries, it is important to understand the ordering of messages and events when many clients and transactions are running in paralllel. Notifications on live queries are only published for committed transactions.
+While a best effort is made to assure ordering is correct, a strict correctness is not yet in place for a full guarantee. As such that some messages may be received out of order from their commit order. However, transactions that are committed from the same client will always be in order.
+Security enforcement is always evaluated per notification and will reflect the value of authorisation at the time of publishing the notification. This means that if a transaction is committed, after which the authorisation immediately changes for the live query receiver, the receiver will get the notification under the new rules.
+##  Fetching inside live queries[](https://surrealdb.com/docs/reference/query-language/statements/live-select#fetching-inside-live-queries)
+Available since: v2.2.0
+The `FETCH` clause can be used inside live queries as well.
+
+```surql
+LIVE SELECT * FROM person WHERE age > 18 FETCH friends;
+```
+
+##  Other notes[](https://surrealdb.com/docs/reference/query-language/statements/live-select#other-notes)
+Currently, it is not possible to use [parameters inside of Live Queries](https://github.com/surrealdb/surrealdb/issues/4026).
+
+```surql
+LIVE SELECT * FROM person WHERE $field > $value;
+```
+
+It is possible to have parameters for the table reference.
+
+```surql
+LIVE SELECT * FROM $table WHERE field > 50;
+```
+
+##  Parameters in `LIVE SELECT` statements[](https://surrealdb.com/docs/reference/query-language/statements/live-select#parameters-in-live-select-statements)
+Available since: v3.0.0
+Parameters can also be used inside a `LIVE SELECT` statement.
+
+```surql
+LET $table = 'measurement';
+LET $location = 'Tallinn';
+LIVE SELECT * FROM type::table($table) WHERE location == $location;
+```

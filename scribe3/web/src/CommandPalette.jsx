@@ -21,7 +21,7 @@ export function CommandPalette({ open, onClose, works, cur, onView, onSelectWork
       <Command label="命令面板" className="w-full max-w-lg rounded-xl border border-line bg-surface shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <Command.Input autoFocus placeholder="跳视图 / 切书 / 作品库…"
           className="w-full h-12 px-4 bg-transparent text-f14 text-ink outline-none border-b border-line placeholder:text-faint/60" />
-        <Command.List className="max-h-[52vh] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-f11 [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
+        <Command.List className="max-h-[52vh] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
           <Command.Empty className="px-3 py-6 text-center text-faint text-f13">无匹配</Command.Empty>
           {cur && (
             <Command.Group heading="视图">

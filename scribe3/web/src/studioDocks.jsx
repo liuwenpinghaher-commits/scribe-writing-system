@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot, BookOpen } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -9,77 +9,143 @@ import { BriefPanel } from './BriefPanel'
 import { NorthStarPanel } from './NorthStarPanel'
 import { SelectionPanel } from './SelectionPanel'
 import { FramePanel } from './FramePanel'
+import { ChapterAuxPanel } from './ChapterAuxPanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
 import { ChiefDock } from './ChiefDock'
 import { ErrorBoundary } from './ErrorBoundary'
 import { usePref } from './lib/usePref'
 import { ConfirmDialog } from './ui/Dialog.jsx'
+import { AsyncState } from './ui/AsyncState.jsx'
 import { useToast, showToast } from './ui/Toast.jsx'
 import { useSelection } from './selectionContext'
+import { useWorkScopedPref } from './hooks/useWorkScopedPref'
+import { SearchDirectory } from './capabilities/search/SearchDirectory'
+import { IssueDirectory } from './capabilities/issues/IssueDirectory'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
-export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, onCollapse }) {
-  const [tab, setTab] = usePref('s3.leftTab', 'tree')
+export function useLeftDockCapabilities({
+  tree, selId, expanded, onToggle, onSelect, treeCbs, seq,
+  includeStageTabs = true, splitProjectRoots = false, renderMaterialRoot, work = 'main',
+}) {
+  const [tab, setTab] = useWorkScopedPref(work, 'leftTab', splitProjectRoots ? 'manuscript' : 'tree')
   const [focalizer, setFocalizer] = useState('')
   const [ledger, setLedger] = useState(undefined)   // undefined=加载中/未知,null=加载失败,object=数据
   const [motifs, setMotifs] = useState([])
   const [qcCount, setQcCount] = useState(0)   // 断头修复#13:校验 tab 红点数据源
 
   useEffect(() => {
+    let cancelled = false
     setLedger(undefined)
-    api.promisesLedger().then((l) => setLedger(l && typeof l === 'object' ? l : {})).catch(() => setLedger(null))
-    api.motifs().then((m) => setMotifs(Array.isArray(m) ? m : [])).catch(() => {})
+    api.promisesLedger(work)
+      .then((l) => { if (!cancelled) setLedger(l && typeof l === 'object' ? l : {}) })
+      .catch(() => { if (!cancelled) setLedger(null) })
+    api.motifs(work)
+      .then((m) => { if (!cancelled) setMotifs(Array.isArray(m) ? m : []) })
+      .catch(() => {})
     // 断头修复#13:QC 命中总数喂校验 tab badge(轻端点,读存稿缓存)
     if (seq != null) {
-      api.qc(seq).then((q) => {
+      api.qc(seq, work).then((q) => {
+        if (cancelled) return
         const cnt = (x) => Array.isArray(x) ? x.length : (typeof x === 'number' ? x : 0)
         setQcCount(q && typeof q === 'object'
           ? Object.values(q).reduce((s, v) => s + cnt(v), 0) : 0)
-      }).catch(() => setQcCount(0))
-    } else setQcCount(0)
-  }, [seq])
+      }).catch(() => { if (!cancelled) setQcCount(0) })
+    } else if (!cancelled) setQcCount(0)
+    return () => { cancelled = true }
+  }, [seq, work])
   useEffect(() => {
     if (seq == null) { setFocalizer(''); return }
-    const pull = () => api.chapter(seq).then((ch) => setFocalizer(ch?.focalizer || '')).catch(() => setFocalizer(''))
+    let cancelled = false
+    const pull = () => api.chapter(seq, work)
+      .then((ch) => { if (!cancelled) setFocalizer(ch?.focalizer || '') })
+      .catch(() => { if (!cancelled) setFocalizer('') })
     pull()
     // 断头修复#14(focalizer 双源):顶栏改视角存稿后 chapter 表变更经 s3-live 推送——
     // 监听重拉,左栏帧面板不再按库中旧视角渲染(文档明令避免的"各自拉取不一致")。
     const onLive = (e) => { if ((e?.detail?.table || e?.detail?.tb) === 'chapter') pull() }
     window.addEventListener('s3-live', onLive)
-    return () => window.removeEventListener('s3-live', onLive)
-  }, [seq])
+    return () => {
+      cancelled = true
+      window.removeEventListener('s3-live', onLive)
+    }
+  }, [seq, work])
 
   const caps = useMemo(() => {
     // bare:true 的面板自带内边距/需边到边(项目树/演绎树),不套统一 p-3;其余数据面板走容器统一 padding。
-    const base = [
-      { key: 'tree', icon: FolderTree, bare: true, label: '项目树', render: () => (
-        <div className="h-full overflow-hidden"><ProjectTree tree={tree} selId={selId} expanded={expanded} onToggle={onToggle} onSelect={onSelect} {...treeCbs} /></div>
+    const projectTree = (subtree) => (
+      <div className="h-full overflow-hidden">
+        <ProjectTree tree={subtree} selId={selId} expanded={expanded} onToggle={onToggle} onSelect={onSelect} {...treeCbs} />
+      </div>
+    )
+    // Task 3 · 入口分组:group 字段驱动左轨的「内容/工艺/检查」三组渲染。
+    //   content=可导航的内容根(手稿/设定库/素材库,拆分前是项目树+简报)
+    //   craft  =工艺构建工具(帧/演绎/伏笔/母题,拆分前含北极星)
+    //   inspect=检查工具(搜索/校验)
+    // 全部入口都标了组:非拆分旧 LeftDock 的 tree/brief/northstar/frame 也各归其组,
+    // 分组渲染后顺序与旧版逐项一致(见 GROUPS 顺序),不因分组丢入口、不乱序。
+    const base = splitProjectRoots ? [
+      { key: 'manuscript', icon: BookOpen, bare: true, group: 'content', label: '手稿', render: () => projectTree({ manuscript: tree?.manuscript }) },
+      { key: 'codex', icon: FolderTree, bare: true, group: 'content', label: '设定库', render: () => projectTree({ codex: tree?.codex }) },
+      { key: 'materials', icon: Archive, bare: true, group: 'content', label: '素材库', render: () => (
+        renderMaterialRoot
+          ? renderMaterialRoot(tree?.materials || { id: 'material_root', type: 'material_root', label: '素材库' })
+          : projectTree({ materials: tree?.materials })
       ) },
+    ] : [
+      { key: 'tree', icon: FolderTree, bare: true, group: 'content', label: '项目树', render: () => projectTree(tree) },
     ]
-    if (seq == null) return base   // 未选章:只给项目树
+    if (includeStageTabs) {
+      base.push(
+        { key: 'brief', icon: ScrollText, group: 'content', label: '简报', render: () => <BriefPanel seq={seq} /> },
+        { key: 'northstar', icon: Compass, group: 'craft', label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
+        { key: 'frame', icon: Eye, group: 'craft', label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
+      )
+    }
     base.push(
-      { key: 'brief', icon: ScrollText, label: '简报', render: () => <BriefPanel seq={seq} /> },
-      { key: 'northstar', icon: Compass, label: '北极星', render: () => <NorthStarPanel seq={seq} /> },   // 任务10:双级 scorecard
-      { key: 'frame', icon: Eye, label: '帧/意图', render: () => <FramePanel focalizer={focalizer} chapter={seq} /> },
-      { key: 'deduce', icon: Sparkles, bare: true, label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
+      { key: 'deduce', icon: Sparkles, bare: true, group: 'craft', label: '演绎 · 角色限知', render: () => <DeduceTree seq={seq} /> },
       // 断头修复#13:badge 两端早已就绪(Rail 渲染✓ 数据✓),此前 caps 不传——红点永不显示
-      { key: 'promise', icon: Bookmark, label: '伏笔',
+      { key: 'promise', icon: Bookmark, group: 'craft', label: '伏笔',
         badge: _promiseBadge(ledger, seq),
         render: () => <PromisesPanel ledger={ledger} seq={seq} onSelect={onSelect} /> },
-      { key: 'motif', icon: LayoutList, label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} /> },
+      { key: 'motif', icon: LayoutList, group: 'craft', label: '母题', render: () => <MotifsPanel motifs={motifs} seq={seq} work={work} onSelect={onSelect} /> },
       // 断头修复(死 leftCaps 回填③):语义召回检索——原 WriteLayout renderRecall 不可达
-      { key: 'recall', icon: Search, label: '检索 · 语义召回', render: () => <RecallPanel /> },
+      { key: 'search', icon: Search, group: 'inspect', label: '搜索',
+        render: () => splitProjectRoots ? <SearchDirectory onSelectItem={onSelect} /> : <RecallPanel /> },
     )
-    base.push({ key: 'review', icon: ShieldCheck, label: '校验 · QC/泄露',
-      badge: qcCount || undefined, render: () => <QCPanel seq={seq} /> })
+    base.push({ key: 'review', icon: ShieldCheck, group: 'inspect', label: '校验',
+      badge: qcCount || undefined,
+      render: () => splitProjectRoots ? <IssueDirectory seq={seq} onSelectItem={onSelect} /> : <QCPanel seq={seq} /> })
     return base
-  }, [tree, selId, expanded, seq, focalizer, ledger, motifs, qcCount, onSelect])
+  }, [tree, selId, expanded, onToggle, treeCbs, seq, includeStageTabs, splitProjectRoots, renderMaterialRoot, focalizer, ledger, motifs, qcCount, onSelect])
 
-  // tab 失效(如切到无正文的章,校验 tab 消失)→ 回退项目树
-  const active = caps.find((c) => c.key === tab) || caps[0]
-  useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('tree') }, [caps, tab, setTab])
+  // tab 失效(如旧版 recall key 或切到无正文的章)→ 回退当前入口组首项
+  const normalizedTab = tab === 'recall' ? 'search' : tab
+  const active = caps.find((c) => c.key === normalizedTab) || caps[0]
+  useEffect(() => {
+    if (tab !== normalizedTab) {
+      setTab(normalizedTab)
+      return
+    }
+    if (!caps.find((c) => c.key === normalizedTab)) setTab(caps[0]?.key || (splitProjectRoots ? 'manuscript' : 'tree'))
+  }, [caps, normalizedTab, setTab, splitProjectRoots, tab])
+
+  useEffect(() => {
+    const onOpenCapability = (e) => {
+      const raw = e?.detail?.capability
+      const key = raw === 'recall' ? 'search' : raw === 'issues' ? 'review' : raw
+      if (key) setTab(key)
+    }
+    window.addEventListener('s3-open-capability', onOpenCapability)
+    return () => window.removeEventListener('s3-open-capability', onOpenCapability)
+  }, [setTab])
+
+  return { caps, active, setTab }
+}
+
+export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, work = 'main', onCollapse }) {
+  const { caps, active, setTab } = useLeftDockCapabilities({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, work })
 
   return (
     <div className="h-full flex min-h-0 bg-surface">
@@ -137,7 +203,8 @@ function InboxPanel({ seq, onCount }) {
   const pullRef = useRef(null)
   useEffect(() => {
     let dead = false, timer = null
-    const pull = () => api.inbox(seq).then((d) => { if (!dead) { setData(d); onCount?.(d.count) } }).catch(() => { if (!dead) setData({ items: [], count: 0, failed: true }) })
+    // Task 8:失败同时向上报 null——Rail badge 与面板同源同真相,不留"面板报错、badge 还挂着旧数"的错位
+    const pull = () => api.inbox(seq).then((d) => { if (!dead) { setData(d); onCount?.(d.count) } }).catch(() => { if (!dead) { setData({ items: [], count: 0, failed: true }); onCount?.(null) } })
     pullRef.current = pull
     pull()
     // R2-5:+idea(#想法待批)+lesson(升格候选)——此前含死过滤 lesson、缺 idea 致 badge 不刷
@@ -146,9 +213,14 @@ function InboxPanel({ seq, onCount }) {
     window.addEventListener('s3-live', onLive)
     return () => { dead = true; clearTimeout(timer); window.removeEventListener('s3-live', onLive) }
   }, [seq])
-  if (!data) return <Skeleton className="w-full" />
+  // Task 8:loading/error 统一走 AsyncState(loading→role=status,error→role=alert+重试),
+  // 重试直接复用既有 pullRef,不改轮询/live 监听。
+  if (!data) return <AsyncState state="loading" title="加载收件箱" message="正在拉取等你决策的事项…" />
   // R1-8:拉取失败绝不渲染成"一切有账"(fail-safe 掩盖器是最危险的假绿——pilot parked/needs_human 的唯一出口)
-  if (data.failed) return <Empty>收件箱拉取失败——这不代表没有事项(可能后端/网络异常)。请稍后切走再切回重试。</Empty>
+  if (data.failed) {
+    return <AsyncState state="error" title="收件箱拉取失败" onRetry={() => pullRef.current?.()}
+      message="这不代表没有事项(可能后端/网络异常)。" />
+  }
   if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
   const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
     pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: 'Pilot 停靠',
@@ -166,26 +238,26 @@ function InboxPanel({ seq, onCount }) {
       <SectionTitle icon={TriangleAlert} right={`${data.count}`}>决策收件箱</SectionTitle>
       {/* R2-18:部分来源失败如实告知,不把残缺清单当完整(对齐 pulse「没查≠没病」) */}
       {degraded.length > 0 && (
-        <div className="text-f10 text-danger bg-danger/8 rounded px-2 py-1 leading-snug">
+        <div className="text-meta text-danger bg-danger/8 rounded px-2 py-1 leading-snug">
           部分来源加载失败({degraded.join(' / ')}):清单可能不全,没查≠没病。
         </div>
       )}
       {data.items.map((it, i) => (
         <div key={i} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
-          <div className="text-f10 text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
+          <div className="text-meta text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
           {/* R2-4:交付卡结构化渲染(埋/收清单+QC+完整拿不准)——此前后端产出前端永不显示 */}
           {it.kind === 'pilot_delivered' && it.card && <DeliveryCard card={it.card} />}
           {/* B-8:大纲提案就地可编辑的可发现性——放行会吃到你的最新大纲(expand_beats 重读库) */}
           {it.kind === 'pilot_outline' && (
-            <div className="text-f10 text-faint mt-0.5 leading-snug">想改?到左栏「项目树/大纲」或中区大纲 tab 编辑后再放行。</div>
+            <div className="text-meta text-faint mt-0.5 leading-snug">想改?到左栏「项目树/大纲」或中区大纲 tab 编辑后再放行。</div>
           )}
           {it.action?.kind === 'pilot_approve' && (
             <button onClick={() => {
               // R1-3:delivered→finalize=宪法级终选背书,二次确认;outline 轻放行直发
               if (it.action.expect_state === 'delivered') setConfirmFinalize({ seq: it.action.payload, expect: it.action.expect_state })
               else approve(it.action.payload, it.action.expect_state)
-            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">
+            }} className="mt-1 text-meta text-brand hover:underline cursor-pointer">
               {it.action.expect_state === 'delivered' ? '终选定稿 →' : '放行 · 继续推进 →'}
             </button>
           )}
@@ -196,12 +268,12 @@ function InboxPanel({ seq, onCount }) {
               try { sessionStorage.setItem('s3.chief.seed', it.action.payload) } catch { /* */ }
               try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: it.action.payload })) } catch { /* */ }
               try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
-            }} className="mt-1 text-f11 text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
+            }} className="mt-1 text-meta text-brand hover:underline cursor-pointer">跟主编聊这个 →</button>
           )}
           {/* R1-5:想法待批 resolve 出口——处理完毕移出收件箱,防 pending_approval 永久积压 */}
           {it.resolve?.kind === 'idea_resolve' && (
             <button onClick={() => doResolve(it.resolve.payload)}
-              className="mt-1 ml-3 text-f11 text-faint hover:text-ink hover:underline cursor-pointer">已处理 · 移出 →</button>
+              className="mt-1 ml-3 text-meta text-faint hover:text-ink hover:underline cursor-pointer">已处理 · 移出 →</button>
           )}
         </div>
       ))}
@@ -222,7 +294,7 @@ function DeliveryCard({ card }) {
   const proms = Array.isArray(card.promises) ? card.promises : []
   const lc = (card.low_confidence || '').trim()
   return (
-    <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-f11">
+    <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-meta">
       <div className="flex gap-3 text-faint">
         <span className="tnum">{card.words ?? '?'} 字</span>
         <span className={card.qc ? 'text-danger' : 'text-ok'}>QC {card.qc || 0} 处</span>
@@ -275,46 +347,46 @@ function PilotDock({ seq }) {
     <div className="space-y-3">
       <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-f11 font-medium">{PILOT_STATE_LABEL[state] || state}</span>
-        {st?.stalled && <span className="px-2 py-0.5 rounded-full bg-danger/10 text-danger text-f10">卡住 · 超 30 分未推进</span>}
-        {st?.next_action && !st?.parked && !running && <span className="text-f10 text-faint">下一步:{st.next_action}</span>}
+        <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-meta font-medium">{PILOT_STATE_LABEL[state] || state}</span>
+        {st?.stalled && <span className="px-2 py-0.5 rounded-full bg-danger/10 text-danger text-meta">卡住 · 超 30 分未推进</span>}
+        {st?.next_action && !st?.parked && !running && <span className="text-meta text-faint">下一步:{st.next_action}</span>}
       </div>
-      {st?.parked && <div className="text-f11 text-danger bg-danger/8 rounded px-2 py-1.5 leading-snug">停靠:{st.parked}</div>}
+      {st?.parked && <div className="text-meta text-danger bg-danger/8 rounded px-2 py-1.5 leading-snug">停靠:{st.parked}</div>}
       <div className="flex gap-2 flex-wrap">
         <button disabled={busy || running || state === 'finalized'}
           onClick={() => act(() => api.pilotStep(seq), '已推进一步')}
-          className="h-7 px-2.5 rounded-lg text-f11 bg-brand text-brandfg disabled:opacity-40 cursor-pointer">推进一步 →</button>
+          className="h-7 px-2.5 rounded-lg text-meta bg-brand text-brandfg disabled:opacity-40 cursor-pointer">推进一步 →</button>
         {(st?.parked || st?.stalled) && (
           <button disabled={busy} onClick={() => act(() => api.pilotResetStep(seq), '已解卡,可重跑当前步')}
-            className="h-7 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink cursor-pointer">解卡</button>
+            className="h-7 px-2.5 rounded-lg text-meta bg-soft border border-line text-ink cursor-pointer">解卡</button>
         )}
         {state !== 'idle' && state !== 'finalized' && (
           <button disabled={busy}
             onClick={() => { if (window.confirm('退出 Pilot 编排?不动正文/草料,想再用从头 step 即可。')) act(() => api.pilotDismiss(seq), '已退出 Pilot') }}
-            className="h-7 px-2.5 rounded-lg text-f11 text-faint hover:text-danger cursor-pointer">退出</button>
+            className="h-7 px-2.5 rounded-lg text-meta text-faint hover:text-danger cursor-pointer">退出</button>
         )}
       </div>
       <div className="border-t border-line pt-2.5">
         {running ? (
           <div className="space-y-1.5">
-            <div className="text-f11 text-brand inline-flex items-center gap-1.5">
+            <div className="text-meta text-brand inline-flex items-center gap-1.5">
               <Loader2 size={12} className="animate-spin" />连写中 · 第 {run.cur_seq ?? '?'} 章(目标第 {run.until ?? '?'} 章)
             </div>
             <button disabled={busy} onClick={() => act(() => api.pilotPause(), '已暂停(步边界生效)')}
-              className="h-7 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink cursor-pointer">暂停连写</button>
+              className="h-7 px-2.5 rounded-lg text-meta bg-soft border border-line text-ink cursor-pointer">暂停连写</button>
           </div>
         ) : (
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-f11 text-faint">连写到第</span>
+            <span className="text-meta text-faint">连写到第</span>
             <input value={until} onChange={(e) => setUntil(e.target.value.replace(/\D/g, ''))} placeholder={String((seq ?? 0) + 3)}
-              className="w-14 h-7 px-2 rounded-lg border border-line bg-canvas text-f11 text-center" />
-            <span className="text-f11 text-faint">章(终选留你,不自动定稿)</span>
+              className="w-14 h-7 px-2 rounded-lg border border-line bg-canvas text-meta text-center" />
+            <span className="text-meta text-faint">章(终选留你,不自动定稿)</span>
             <button disabled={busy || !until || untilN < seq}
               onClick={() => act(() => api.pilotRun(seq, untilN), '连写已启动')}
-              className="h-7 px-2.5 rounded-lg text-f11 bg-brand text-brandfg disabled:opacity-40 cursor-pointer">开始连写</button>
+              className="h-7 px-2.5 rounded-lg text-meta bg-brand text-brandfg disabled:opacity-40 cursor-pointer">开始连写</button>
           </div>
         )}
-        {run?.stopped && !running && <div className="text-f10 text-faint mt-1.5 leading-snug">上次连写:{run.stopped}</div>}
+        {run?.stopped && !running && <div className="text-meta text-faint mt-1.5 leading-snug">上次连写:{run.stopped}</div>}
       </div>
     </div>
   )
@@ -322,12 +394,17 @@ function PilotDock({ seq }) {
 
 export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollapse }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
-  const [inboxCount, setInboxCount] = useState(0)
+  // Task 8:undefined=尚未拉到(未知),null=拉取失败(未知),number=真实待办数。
+  // 此前 useState(0)+静默 catch 把失败谎报成"0 待办"——收件箱是 needs_human 的唯一出口,
+  // 可见状态谎报是信任问题:未知就如实显示未知(Rail 上「?」+ 可访问名),绝不显示 0。
+  const [inboxCount, setInboxCount] = useState(undefined)
   // 审查 P1-9:badge 常驻拉取(此前依赖面板挂载,badge 恒 0 是死指标);
   // live 按表过滤+600ms 防抖(P1-8 同款,防 ingest 期风暴)。
   useEffect(() => {
     let timer = null, dead = false
-    const pull = () => api.inbox(seq).then((d) => { if (!dead) setInboxCount(d.count) }).catch(() => {})
+    const pull = () => api.inbox(seq)
+      .then((d) => { if (!dead) setInboxCount(typeof d?.count === 'number' ? d.count : 0) })
+      .catch(() => { if (!dead) setInboxCount(null) })
     pull()
     const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard', 'idea'])   // R2-5:+idea/lesson
     const onLive = (e) => {
@@ -345,13 +422,22 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
     return () => window.removeEventListener('s3-right-tab', on)
   }, [setTab])
   const caps = useMemo(() => {
-    const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
-    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
-    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
+    // Task 8 · scope 作用域分组(裁决):chief/selection 作用于「当前对象」(随选中变),
+    // context/versions/pilot 作用于「章节」(选中章才有意义),inbox 是「全局」常驻。
+    // key 全部保留不动——s3.rightTab 偏好与 s3-right-tab 事件继续按旧 key 工作。
+    const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
+    // Task 7:章节辅助(简报/关联/北极星)——从章阶段页签移入右栏,选中章才有意义
+    if (seq != null) c.push({ key: 'context', icon: ScrollText, label: '章节辅助', scope: 'chapter', render: () => <ChapterAuxPanel seq={seq} /> })
+    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
+    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
-    if (seq != null) c.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
-    // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision)
-    c.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', badge: inboxCount || undefined,
+    if (seq != null) c.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
+    // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision);
+    // Task 8 三态:数字仅真实拿到且>0 时显示;undefined=首拉悬挂期 badge 留空不显
+    //(有意取舍:防每次挂载先闪「?」再变数字);null=拉取失败,才转 badgeUnknown 显「?」。
+    c.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', scope: 'global',
+      badge: typeof inboxCount === 'number' && inboxCount > 0 ? inboxCount : undefined,
+      badgeUnknown: inboxCount === null ? '收件箱状态未知' : undefined,
       render: () => <div className="p-3"><InboxPanel seq={seq} onCount={setInboxCount} /></div> })
     return c
   }, [sel, chapterSel, seq, onRestored, inboxCount])
@@ -413,7 +499,7 @@ function RightVersionPanel({ seq, onRestored }) {
 function PromiseSpan({ p }) {
   const setup = p.setup_chapter != null ? `第${p.setup_chapter}章` : '第—章'
   const payoff = p.payoff_chapter != null ? `第${p.payoff_chapter}章` : '待收'
-  return <span className="text-f10 text-faint tnum">埋 {setup} → 收 {payoff}</span>
+  return <span className="text-meta text-faint tnum">埋 {setup} → 收 {payoff}</span>
 }
 
 function PromiseRow({ p, danger, tag, onSelect }) {
@@ -452,7 +538,7 @@ function PromiseGroup({ title, icon, tone, items, danger, tag, onSelect }) {
   const Icon = icon
   return (
     <div className="mb-3 last:mb-0">
-      <div className={cn('flex items-center gap-1 text-f11 uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
+      <div className={cn('flex items-center gap-1 text-meta uppercase tracking-wider mb-1.5', tone || 'text-faint')}>
         {Icon && <Icon size={12} className="shrink-0" />}
         {title} · {items.length}
       </div>
@@ -493,7 +579,7 @@ function PromisesPanel({ ledger, seq, onSelect }) {
         {/* 障眼法 / 已了结 / 无关 强折叠(可点开)—— 与本章无关的噪声不占窄栏视野 */}
         {(herring.length + rest.length > 0) && (
           <details className="mt-1">
-            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none hover:text-fore">
+            <summary className="text-meta uppercase tracking-wider text-faint cursor-pointer list-none hover:text-fore">
               其它 · 障眼法 / 已了结 / 无关 · {herring.length + rest.length}
             </summary>
             <div className="mt-2">
@@ -507,14 +593,20 @@ function PromisesPanel({ ledger, seq, onSelect }) {
   )
 }
 
-function MotifRow({ m, evidence, highlight }) {
+function MotifRow({ m, evidence, highlight, onSelect }) {
   // 块三:点行 = 选中该母题 → 发通用 focus(主编聚焦该母题,不跳转)。
-  const { setFocus } = useSelection()
-  const pick = () => setFocus({
-    type: 'motif', id: m.id, label: m.name,
-    payload: { theme: m.theme, evidence: evidence || null },
-    origin: 'panel',
-  })
+  const { setFocus, suppressNextMirror } = useSelection()
+  const pick = () => {
+    setFocus({
+      type: 'motif', id: m.id, label: m.name,
+      payload: { theme: m.theme, evidence: evidence || null },
+      origin: 'panel',
+    })
+    if (onSelect) {
+      suppressNextMirror()
+      onSelect({ id: `motif:${m.id}`, type: 'motif', ref: m.id, label: m.name })
+    }
+  }
   return (
     <button type="button" onClick={pick} title="聚焦此母题"
       className={cn('block w-full text-left mb-2.5 pb-2.5 border-b border-line/50 last:border-0 cursor-pointer rounded hover:bg-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
@@ -527,15 +619,15 @@ function MotifRow({ m, evidence, highlight }) {
   )
 }
 
-function MotifsPanel({ motifs, seq }) {
+function MotifsPanel({ motifs, seq, work, onSelect }) {
   const [inst, setInst] = useState(undefined)   // undefined=加载 / null=失败 / []=空
   useEffect(() => {
     if (seq == null) { setInst([]); return }
     let ignore = false
     setInst(undefined)
-    api.motifInstances(seq).then((r) => { if (!ignore) setInst(Array.isArray(r) ? r : []) }).catch(() => { if (!ignore) setInst(null) })
+    api.motifInstances(seq, work).then((r) => { if (!ignore) setInst(Array.isArray(r) ? r : []) }).catch(() => { if (!ignore) setInst(null) })
     return () => { ignore = true }
-  }, [seq])
+  }, [seq, work])
   const list = Array.isArray(inst) ? inst : []
   const evById = new Map(list.map((i) => [i.motif_id, i.evidence]))
   const touched = motifs.filter((m) => evById.has(m.id))
@@ -544,15 +636,15 @@ function MotifsPanel({ motifs, seq }) {
     <div>
       <SectionTitle icon={LayoutList}>母题 · 设定库</SectionTitle>
       {motifs.length === 0 ? <Empty>暂无母题——在设定库立母题后在此追踪</Empty> : <>
-        <div className="text-f11 uppercase tracking-wider text-brand mb-1.5">本章触及 · {touched.length}</div>
+        <div className="text-meta uppercase tracking-wider text-brand mb-1.5">本章触及 · {touched.length}</div>
         {inst === undefined ? <Skeleton className="w-2/3" />
           : inst === null ? <Empty>本章母题加载失败,切走再切回可重试</Empty>
           : touched.length === 0 ? <Empty>本章暂无触及——写/反哺本章后自动检测</Empty>
-          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight />)}
+          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight onSelect={onSelect} />)}
         {rest.length > 0 && (
           <details className="mt-3">
-            <summary className="text-f11 uppercase tracking-wider text-faint cursor-pointer list-none">全书母题 · {rest.length}</summary>
-            <div className="mt-1.5">{rest.map((m) => <MotifRow key={m.id} m={m} />)}</div>
+            <summary className="text-meta uppercase tracking-wider text-faint cursor-pointer list-none">全书母题 · {rest.length}</summary>
+            <div className="mt-1.5">{rest.map((m) => <MotifRow key={m.id} m={m} onSelect={onSelect} />)}</div>
           </details>
         )}
       </>}
@@ -582,9 +674,9 @@ function QCItem({ label, hits }) {
       {open && phrases.length > 0 && (
         <ul className="pb-1.5 pl-1 space-y-0.5">
           {phrases.slice(0, 12).map((p, i) => (
-            <li key={i} className="text-f11 text-faint leading-snug break-all">· {p}</li>
+            <li key={i} className="text-meta text-faint leading-snug break-all">· {p}</li>
           ))}
-          {phrases.length > 12 && <li className="text-f11 text-faint/60">…共 {phrases.length} 处</li>}
+          {phrases.length > 12 && <li className="text-meta text-faint/60">…共 {phrases.length} 处</li>}
         </ul>
       )}
     </div>
@@ -614,7 +706,7 @@ function TensionCheck({ seq }) {
       <div className="flex items-center justify-between mb-2">
         <div className="text-f12 font-semibold text-ink inline-flex items-center gap-1.5"><Gauge size={13} className="text-faint" />叙事张力检查</div>
         <button onClick={run} disabled={state === 'loading'}
-          className="h-6 px-2.5 rounded-lg text-f11 bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors inline-flex items-center gap-1">
+          className="h-6 px-2.5 rounded-lg text-meta bg-soft border border-line text-ink hover:bg-brand/10 disabled:opacity-40 cursor-pointer transition-colors inline-flex items-center gap-1">
           {state === 'loading' && <Loader2 size={11} className="animate-spin" />}{state === 'loading' ? '检查中…' : '张力检查'}
         </button>
       </div>
@@ -629,10 +721,10 @@ function TensionCheck({ seq }) {
                 <span className="text-ink font-medium">{TENSION_LABEL[it.item] || it.item}</span>
                 <span className="text-faint">{it.detail}</span>
               </div>
-              {!it.pass && it.fix && <div className="text-f11 text-faint/70 leading-snug pl-3 mt-0.5">→ {it.fix}</div>}
+              {!it.pass && it.fix && <div className="text-meta text-faint/70 leading-snug pl-3 mt-0.5">→ {it.fix}</div>}
             </div>
           ))}
-          {res?.rubric_failed && <div className="text-f11 text-faint">⚠ rubric(LLM)判定失败,仅含确定性 3 项</div>}
+          {res?.rubric_failed && <div className="text-meta text-faint inline-flex items-center gap-1"><TriangleAlert size={11} />rubric(LLM)判定失败,仅含确定性 3 项</div>}
         </div>
       )}
     </div>
@@ -641,7 +733,11 @@ function TensionCheck({ seq }) {
 
 function QCPanel({ seq }) {
   const [qc, setQc] = useState(undefined)   // undefined=加载中,null=失败,{}=无正文,object=数据
-  useEffect(() => { setQc(undefined); api.qc(seq).then(setQc).catch(() => setQc(null)) }, [seq])
+  useEffect(() => {
+    if (seq == null) { setQc({}); return }
+    setQc(undefined)
+    api.qc(seq).then(setQc).catch(() => setQc(null))
+  }, [seq])
   const items = [
     ['复读(章内)', qc?.repetition],
     ['跨章复读', qc?.cross_repetition],

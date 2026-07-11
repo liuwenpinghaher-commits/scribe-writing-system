@@ -101,7 +101,7 @@ export function RichEditor({ value, onChange, onBlur, placeholder = '', ariaLabe
         </BubbleMenu>
       )}
       <EditorContent editor={editor} className="rich-content" />
-      {!minimal && <div className="shrink-0 pt-1 text-right text-f11 text-faint tnum">{chars} 字</div>}
+      {!minimal && <div className="shrink-0 pt-1 text-right text-meta text-faint tnum">{chars} 字</div>}
     </div>
   )
 }

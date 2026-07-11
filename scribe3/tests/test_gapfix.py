@@ -144,8 +144,11 @@ def test_purge_clears_ingest_voice_flags_keeps_manual(store):
 
 def test_deduce_phase_injects_scene_truth(store):
     store.save_chapter(9, "", title="九")
-    store._execute_write("UPDATE type::record('chapter',9) SET scene_truth=$t",
-                         {"t": "井底沉着妹妹的骨殖,哑姑每夜数钱。"})
+    store.update_chapter_meta(9, {
+        "scene_truth": "井底沉着妹妹的骨殖,哑姑每夜数钱。",
+        "deductions": [{"character_id": "role:老范", "character_name": "老范",
+                        "prose": "老范只知道井底有水声,不知道骨殖。"}],
+    })
     ins_deduce = A._assemble_write_instructions(
         store, chapter=9, focalizer="role:老范", phase="deduce", with_tools=False,
         seed_words=[], short_mode=False)
@@ -160,6 +163,8 @@ def test_deduce_phase_injects_scene_truth(store):
             seed_words=[], short_mode=False)
         assert "本章演绎" in ins, f"{ph} 相位必须注入演绎块(F-1)"
         assert "井底沉着妹妹的骨殖" in ins, f"{ph} 相位必须收到场景真相原文(F-1)"
+        assert "老范·限知投影" in ins, f"{ph} 相位必须收到角色限知投影(F-1)"
+        assert "老范只知道井底有水声" in ins, f"{ph} 相位必须收到限知投影正文(F-1)"
         assert "唯一事实源" not in ins, f"{ph} 走 _deduction_block 而非 deduce 分支措辞"
 
 

@@ -55,7 +55,7 @@ export function focusTalk(focus) {
     }
     case 'frame_fact': {
       if (p.secret) return {
-        label: '命题 · 🔒 私密',
+        label: '命题 · 私密',
         prefix: '【当前聚焦:一条私密命题(内容不展示明文,讨论时请勿泄露)】\n',
         suggests: ['这条私密命题的知情面现在铺得对吗?', '围绕它的戏剧反讽还能怎么用?'],
       }

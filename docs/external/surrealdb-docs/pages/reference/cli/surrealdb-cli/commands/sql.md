@@ -1,0 +1,395 @@
+---
+title: "https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql"
+url: "https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql
+
+Source: https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql
+
+> !NOTE: BEFORE YOU START  
+>  Make sure you’ve [installed SurrealDB](https://surrealdb.com/docs/running/installation) — it should only take a second!
+##  Command options[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#command-options)  
+| Arguments  | Description  |  
+| --- | --- |  
+| `-e` / `--endpoint` / `--conn`  | Sets the url of the database server to connect to  |  
+| `-u` / `--user`  | Sets master username for the database  |  
+| `-p` / `--pass`  | Sets master password for the database  |  
+| `--allow-experimental`  | Enable experimental capabilities  |  
+| `--ns`  | Sets the desired namespace in which to import data  |  
+| `--db`  | Sets the desired database into which to import data  |  
+| `--auth-level`  | The authentication level to use when connecting to the server.  |  
+| `-t` / `--token`  | Sets the authentication token to use when connecting to the server. Connect to SurrealDB using a JWT instead of user credentials  |  
+| `--pretty`  | Sets whether database responses should be pretty printed  |  
+| `--json`  | Sets whether to emit results in JSON  |  
+| `--multi`  | Sets whether omitting semicolon causes a newline  |  
+| `-h` / `--help`  | Prints help  |  
+##  Using environment variables[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#using-environment-variables)
+Important
+Most of the flags mentioned in the command output above also mention a corresponding [environment variables](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables#command-environment-variables). 
+For example, the `--database` flag can be configured with the `SURREAL_DATABASE` environment variable instead. 
+When using the `surreal sql` command, you can also use environment variables to set the values for the command-line flags. 
+For more on the environment variables available for CLI commands or SurrealDB instances in general, see the [environment variables](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables#command-environment-variables) page.
+##  `--auth-level` option[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#--auth-level-option)
+The `--auth-level` option sets the authentication level to use when connecting to the database. The option has three possible values: `root`, `namespace`, and `database`. The `root` value is the highest level of authentication, while the `namespace` and `database` values are used for authenticating as users defined on a specific namespace or database. 
+There are a few things to keep in mind when using the `--auth-level` option:
+  * •
+The `root` value is used to access the database server as a root user, and if not specified is the default value.
+
+```bash
+surreal sql --endpoint http://localhost:8000 --namespace main --database main --auth-level root --username username --password password
+```
+
+  * •
+The `namespace` value is used for accessing a specific namespace and all databases within that namespace. When this level is specified, a namespace must be provided via `--namespace`.
+
+```bash
+surreal sql --endpoint http://localhost:8000 --namespace main --database main --auth-level namespace --username username --password password
+```
+
+  * •
+The `database` value is used for accessing a specific database within a namespace. When this level is specified, a namespace and a database must be provided via `--namespace` and `--database`.
+
+```bash
+surreal sql --endpoint http://localhost:8000 --namespace main --database main --auth-level database --username username --password password
+```
+
+##  `--token` option[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#--token-option)
+The `--token` option sets the authentication token to use when connecting to the server. This option allows you to connect to SurrealDB using a JWT instead of user credentials. The token is used to authenticate the user and provide access to the database server which means it cannot be provided at the same time as `--username`, `--password` or `--auth-level`.
+
+```bash
+surreal sql --endpoint http://localhost:8000 --namespace main --database main --token <token>
+```
+
+##  Capabilities and remote connections[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#capabilities-and-remote-connections)
+Both `surreal sql` and [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start) accept the same capability flags (`--allow-funcs`, `--allow-eval-query`, `--allow-experimental`, and so on). **Where those flags take effect depends on how you connect.**  
+| Connection  | Examples  | Where capabilities are enforced  |  
+| --- | --- | --- |  
+| **Remote server**  |  `ws://localhost:8000`, `http://…` with sign-in  | On the **server** process started with `surreal start`  |  
+| **Embedded engine**  |  `memory`, `rocksdb://…`, `surrealkv://…` (no separate server)  | On the **`surreal sql`process** itself  |  
+When you use `surreal sql` against a **running instance** , flags on the REPL command do **not** change what the server allows at execution time. Configure [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start) (or the server's environment variables) instead — including for [`eval::*`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval), arbitrary-query gates, and experimental features such as [`gql`](https://surrealdb.com/docs/learn/querying/gql/overview).
+Capability flags on `surreal sql` still matter in two cases:
+  * •
+**Embedded storage** — there is no separate server; pass the flags on `surreal sql` directly.
+  * •
+**REPL syntax validation** — the client uses its capability set when checking whether a line parses before you submit it. That can affect experimental syntax in the prompt; it is **not** the security boundary for remote execution.
+
+##  Experimental capabilities[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#experimental-capabilities)
+Available since: v2.2.1
+Note
+The experimental capability is completely hidden in the CLI help command, and `--allow-all` will not enable the experimental capabilities by default.
+To use experimental capabilities, set the `SURREAL_CAPS_ALLOW_EXPERIMENTAL` [environment variable](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables) to the experimental capability you want to allow.
+For **embedded** `surreal sql` (for example `surreal sql memory`), set the variable or flag on the REPL command. For a **remote** server, set it on [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start#experimental-capabilities) instead — see [Capabilities and remote connections](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#capabilities-and-remote-connections).
+For example, to use [Surrealism](https://surrealdb.com/docs/learn/extensions/plugins/overview) extensions in an embedded session:
+
+```bash
+SURREAL_CAPS_ALLOW_EXPERIMENTAL=surrealism surreal sql ... 
+```
+
+or, using the `--allow-experimental` flag:
+
+```bash
+surreal sql -e [CONNECTION_STRING] --allow-experimental surrealism 
+```
+
+Multiple experimental capabilities can be enabled by separating them with a comma.
+
+```bash
+SURREAL_CAPS_ALLOW_EXPERIMENTAL=surrealism,files surreal sql ...
+
+-- OR
+
+surreal sql -e [CONNECTION_STRING] --allow-experimental surrealism,files
+```
+
+The current experimental targets are `files`, `surrealism`, and `gql`.  
+| Example feature/statement  | Tag  |  
+| --- | --- |  
+| [DEFINE BUCKET](https://surrealdb.com/docs/reference/query-language/statements/define/bucket)  | `files`  |  
+| [DEFINE MODULE](https://surrealdb.com/docs/reference/query-language/statements/define/module)  | `surrealism`  |  
+|  [GQL](https://surrealdb.com/docs/learn/querying/gql/overview)( `POST /gql`)  | `gql`  |  
+Note
+When connecting to a **remote** server (`ws://`, `http://`, …), experimental features are enforced on the server. Enable `gql` with [`surreal start`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start#experimental-capabilities) (or the server's `SURREAL_CAPS_ALLOW_EXPERIMENTAL`). Flags on `surreal sql` only affect [embedded connections](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#capabilities-and-remote-connections) or REPL parse validation — not whether the server runs GQL or `eval::gql`.
+###  Default namespace and database[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#default-namespace-and-database)
+Available since: v3.0.0
+As the `surreal start` command defaults to defining a namespace and database by the name `main` upon starting up, the `surreal sql` command also connects to these two by default. As such, a command like `surreal sql --user root --pass secret` or even just `surreal sql` (for an instance with authentication disabled) is all that is needed to connect and begin using an instance via the CLI.
+##  Example usage[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#example-usage)
+To start a REPL and run or pipe queries to a local or remote SurrealDB database, run the `surreal sql` command in a terminal with the required arguments.
+Once you see the `>` character you can type your SurrealQL query, followed by the `enter` key. The command has support for `↑` and `↓` arrows for selecting previous SQL statements, and stores the statement history in a `history.txt` file. To exit the REPL, use the `ctrl + c` or `ctrl + d` key combinations.
+
+```bash
+surreal sql --endpoint http://localhost:8000 --namespace main --database main --auth-level root --username username --password password
+```
+
+It is also possible to pipe a set of statements to a remote database. This functionality is only designed for submitting a small number of queries to the database server. For a large number of queries, use the [import command](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/import).
+
+```bash
+cat myfile.surql | surreal sql --endpoint http://localhost:8000 --username root --password root --namespace main --database main
+```
+
+##  Command help[](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/sql#command-help)
+To see the help information and usage instructions, in a terminal run the `surreal sql --help` command without any further arguments. This command gives general information on the arguments, inputs, and additional options for the `sql` command.
+
+```bash
+surreal sql --help
+```
+
+The output of the above command:
+
+```
+Start an SQL REPL in your terminal with pipe support
+
+Usage: surreal sql [OPTIONS]
+
+Options:
+  -e, --endpoint <ENDPOINT>
+          Remote database server url to connect to
+
+          [default: ws://localhost:8000]
+
+  -u, --username <USERNAME>
+          Database authentication username to use when connecting
+
+          [env: SURREAL_USER=]
+          [aliases: --user]
+
+  -p, --password <PASSWORD>
+          Database authentication password to use when connecting
+
+          [env: SURREAL_PASS=]
+          [aliases: --pass]
+
+  -t, --token <TOKEN>
+          Authentication token in JWT format to use when connecting
+
+          [env: SURREAL_TOKEN=]
+
+      --auth-level <AUTH_LEVEL>
+          Level on which the authenticating user is defined
+
+          [env: SURREAL_AUTH_LEVEL=]
+          [default: root]
+          [possible values: root, namespace, ns, database, db]
+
+      --namespace <NAMESPACE>
+          The selected namespace
+
+          [env: SURREAL_NAMESPACE=]
+          [aliases: --ns]
+
+      --database <DATABASE>
+          The selected database
+
+          [env: SURREAL_DATABASE=]
+          [aliases: --db]
+
+      --pretty
+          Whether database responses should be pretty printed
+
+      --json
+          Whether to emit results in JSON
+
+      --multi
+          Whether omitting semicolon causes a newline
+
+      --hide-welcome
+          Whether to show welcome message
+
+          [env: SURREAL_HIDE_WELCOME=]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Capabilities:
+  -A, --allow-all
+          Allow all capabilities except for those more specifically denied
+
+          [env: SURREAL_CAPS_ALLOW_ALL=]
+
+      --allow-scripting
+          Allow execution of embedded scripting functions
+
+          [env: SURREAL_CAPS_ALLOW_SCRIPT=]
+
+      --allow-guests
+          Allow guest users to execute queries
+
+          [env: SURREAL_CAPS_ALLOW_GUESTS=]
+
+      --allow-funcs [<ALLOW_FUNCS>...]
+          Allow execution of all functions except for functions that are specifically denied. Alternatively, you can provide a
+          comma-separated list of function names to allow
+          Specifically denied functions and function families prevail over any other allowed function execution.
+          Function names must be in the form <family>[::<name>]. For example:
+           - 'http' or 'http::*' -> Include all functions in the 'http' family
+           - 'http::get' -> Include only the 'get' function in the 'http' family
+
+          [env: SURREAL_CAPS_ALLOW_FUNC=]
+
+      --allow-arbitrary-query [<ALLOW_ARBITRARY_QUERY>...]
+          Allow execution of arbitrary queries by certain user groups except when specifically denied. Alternatively, you can provide a
+          comma-separated list of user groups to allow
+          Specifically denied user groups prevail over any other allowed user group.
+          User groups must be one of "guest", "record" or "system".
+
+          [env: SURREAL_CAPS_ALLOW_ARBITRARY_QUERY=]
+
+      --allow-net [<ALLOW_NET>...]
+          Allow all outbound network connections except for network targets that are specifically denied. Alternatively, you can provide a
+          comma-separated list of network targets to allow
+          Specifically denied network targets prevail over any other allowed outbound network connections.
+          Targets must be in the form of <host>[:<port>], <ipv4|ipv6>[/<mask>]. For example:
+           - 'surrealdb.com', '127.0.0.1' or 'fd00::1' -> Match outbound connections to these hosts on any port
+           - 'surrealdb.com:80', '127.0.0.1:80' or 'fd00::1:80' -> Match outbound connections to these hosts on port 80
+           - '10.0.0.0/8' or 'fd00::/8' -> Match outbound connections to any host in these networks
+
+          [env: SURREAL_CAPS_ALLOW_NET=]
+
+      --allow-rpc [<ALLOW_RPC>...]
+          Allow all RPC methods to be called except for routes that are specifically denied. Alternatively, you can provide a comma-separated
+          list of RPC methods to allow.
+
+          [env: SURREAL_CAPS_ALLOW_RPC=]
+          [default: ]
+
+      --allow-http [<ALLOW_HTTP>...]
+          Allow all HTTP routes to be requested except for routes that are specifically denied. Alternatively, you can provide a
+          comma-separated list of HTTP routes to allow.
+
+          [env: SURREAL_CAPS_ALLOW_HTTP=]
+          [default: ]
+
+  -D, --deny-all
+          Deny all capabilities except for those more specifically allowed
+
+          [env: SURREAL_CAPS_DENY_ALL=]
+
+      --deny-scripting
+          Deny execution of embedded scripting functions
+
+          [env: SURREAL_CAPS_DENY_SCRIPT=]
+
+      --deny-guests
+          Deny guest users to execute queries
+
+          [env: SURREAL_CAPS_DENY_GUESTS=]
+
+      --deny-funcs [<DENY_FUNCS>...]
+          Deny execution of all functions except for functions that are specifically allowed. Alternatively, you can provide a
+          comma-separated list of function names to deny.
+          Specifically allowed functions and function families prevail over a general denial of function execution.
+          Function names must be in the form <family>[::<name>]. For example:
+           - 'http' or 'http::*' -> Include all functions in the 'http' family
+           - 'http::get' -> Include only the 'get' function in the 'http' family
+
+          [env: SURREAL_CAPS_DENY_FUNC=]
+
+      --deny-arbitrary-query [<DENY_ARBITRARY_QUERY>...]
+          Deny execution of arbitrary queries by certain user groups except when specifically allowed. Alternatively, you can provide a
+          comma-separated list of user groups to deny
+          Specifically allowed user groups prevail over a general denial of user group.
+          User groups must be one of "guest", "record" or "system".
+
+          [env: SURREAL_CAPS_DENY_ARBITRARY_QUERY=]
+
+      --deny-net [<DENY_NET>...]
+          Deny all outbound network connections except for network targets that are specifically allowed. Alternatively, you can provide a
+          comma-separated list of network targets to deny.
+          Specifically allowed network targets prevail over a general denial of outbound network connections.
+          Targets must be in the form of <host>[:<port>], <ipv4|ipv6>[/<mask>]. For example:
+           - 'surrealdb.com', '127.0.0.1' or 'fd00::1' -> Match outbound connections to these hosts on any port
+           - 'surrealdb.com:80', '127.0.0.1:80' or 'fd00::1:80' -> Match outbound connections to these hosts on port 80
+           - '10.0.0.0/8' or 'fd00::/8' -> Match outbound connections to any host in these networks
+
+          [env: SURREAL_CAPS_DENY_NET=]
+
+      --deny-rpc [<DENY_RPC>...]
+          Deny all RPC methods from being called except for methods that are specifically allowed. Alternatively, you can provide a
+          comma-separated list of RPC methods to deny.
+
+          [env: SURREAL_CAPS_DENY_RPC=]
+
+      --deny-http [<DENY_HTTP>...]
+          Deny all HTTP routes from being requested except for routes that are specifically allowed. Alternatively, you can provide a
+          comma-separated list of HTTP routes to deny.
+
+          [env: SURREAL_CAPS_DENY_HTTP=]
+
+Logging:
+  -l, --log <LOG>
+          The logging level for the command-line tool
+
+          [env: SURREAL_LOG=]
+          [default: info]
+          [possible values: none, full, error, warn, info, debug, trace]
+
+      --log-format <LOG_FORMAT>
+          The format for terminal log output
+
+          [env: SURREAL_LOG_FORMAT=]
+          [default: text]
+          [possible values: text, json]
+
+      --log-socket <LOG_SOCKET>
+          Send logs to the specified host:port
+
+          [env: SURREAL_LOG_SOCKET=]
+
+      --log-file-level <LOG_FILE_LEVEL>
+          Override the logging level for file output
+
+          [env: SURREAL_LOG_FILE_LEVEL=]
+          [possible values: none, full, error, warn, info, debug, trace]
+
+      --log-otel-level <LOG_OTEL_LEVEL>
+          Override the logging level for OpenTelemetry output
+
+          [env: SURREAL_LOG_OTEL_LEVEL=]
+          [possible values: none, full, error, warn, info, debug, trace]
+
+      --log-socket-level <LOG_SOCKET_LEVEL>
+          Override the logging level for unix socket output
+
+          [env: SURREAL_LOG_SOCKET_LEVEL=]
+          [possible values: none, full, error, warn, info, debug, trace]
+
+      --log-socket-format <LOG_SOCKET_FORMAT>
+          The format for socket output
+
+          [env: SURREAL_LOG_SOCKET_FORMAT=]
+          [default: text]
+          [possible values: text, json]
+
+      --log-file-enabled
+          Whether to enable log file output
+
+          [env: SURREAL_LOG_FILE_ENABLED=]
+
+      --log-file-path <LOG_FILE_PATH>
+          The directory where log files will be stored
+
+          [env: SURREAL_LOG_FILE_PATH=]
+          [default: logs]
+
+      --log-file-name <LOG_FILE_NAME>
+          The name of the log file
+
+          [env: SURREAL_LOG_FILE_NAME=]
+          [default: surrealdb.log]
+
+      --log-file-format <LOG_FILE_FORMAT>
+          The format for log file output
+
+          [env: SURREAL_LOG_FILE_FORMAT=]
+          [default: text]
+          [possible values: text, json]
+
+      --log-file-rotation <LOG_FILE_ROTATION>
+          The log file rotation interval
+
+          [env: SURREAL_LOG_FILE_ROTATION=]
+          [default: daily]
+          [possible values: daily, hourly, never]
+```

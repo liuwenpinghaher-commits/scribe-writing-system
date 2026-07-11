@@ -1,0 +1,108 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling"
+url: "https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling
+
+Source: https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling
+
+Error handling in SurrealQL allows you to stop execution and return a meaningful error when something goes wrong. This is most commonly done using the `THROW` statement.
+##  Throwing an error[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling#throwing-an-error)
+You can use `THROW` to immediately stop a query and return an error to the client:
+
+```surql
+THROW "Something went wrong";
+```
+
+When executed, the query is aborted and the error is returned.
+`THROW` is often used to validate input or guard business logic:
+
+```surql
+IF !$email {
+    THROW "Email is required";
+};
+
+IF $amount <= 0 {
+    THROW "Transfer amount must be greater than zero";
+};
+```
+
+`THROW` is especially useful inside manual transactions.
+
+```surql
+BEGIN TRANSACTION;
+
+UPDATE account:one SET balance -= 150;
+
+IF account:one.balance < 0 {
+    THROW "Insufficient funds";
+};
+
+COMMIT TRANSACTION;
+```
+
+##  Returning custom error messages[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling#returning-custom-error-messages)
+The value passed to THROW is returned to the client.
+
+```surql
+THROW "Invalid username or password";
+```
+
+You can also include dynamic data:
+
+```surql
+THROW "User not found: " + <string>$username;
+```
+
+Or even structured data.
+
+```surql
+THROW {
+    code: 400,
+    message: "Invalid request"
+};
+```
+
+##  Avoiding errors[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling#avoiding-errors)
+Type safety and strict definitions can be used to avoid throwing errors based on custom logic. For example, the `ASSERT` clause in a [DEFINE FIELD](https://surrealdb.com/docs/reference/query-language/statements/define/field) statement can be used to ensure that a statement will fail if the string for the `email` field provided is not a valid email.
+
+```surql
+DEFINE FIELD email ON TABLE user TYPE string
+  ASSERT string::is_email($value);
+```
+
+Working with a schema in this way allows throwing errors to be taken care of by the definitions themselves as opposed to writing custom logic.
+##  Assertions while debugging[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling#assertions-while-debugging)
+When you are iterating on a query in the CLI or Surrealist, it is not always obvious which step in a long [method chain](https://surrealdb.com/docs/reference/query-language/functions/database-functions/#method-syntax) produced an unexpected value. The [`value::expect()`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/value#valueexpect) function (
+Available since: v3.1.0
+) checks a condition on the current value and returns that same value when the closure is `true`, or fails the statement with a clear error (and an optional custom message).
+
+```surql
+CREATE person:one SET name = "Tommy", city = "London";
+CREATE person:two SET name = "Billy", city = "London";
+
+LET $records = SELECT * FROM person WHERE city = "London";
+
+$records
+    .expect(|$n| $n.len() > 0, "Expected at least one person in London")
+    .map(|$person| { name: $person.name + " from London" });
+```
+
+Output
+
+```surql
+[
+    { name: 'Tommy from London' }, 
+    { name: 'Billy from London' }
+];
+```
+
+This can be used for temporary invariants while debugging. For permanent rules, prefer `DEFINE FIELD … ASSERT` on the schema. `.expect()` clones the value it receives, so remove it from hot paths once you are finished debugging.
+##  SDK error handling[](https://surrealdb.com/docs/learn/querying/concepts-and-guides/error-handling#sdk-error-handling)
+SurrealDB uses a [single public API error type](https://github.com/surrealdb/surrealdb/blob/main/surrealdb/types/src/error.rs#L37) that is shared by SDKs. As the repo states, the error type is:
+> Designed to be returned from public APIs (including over the wire). It is wire-friendly and non-lossy: serialization preserves `kind`, `message`, and optional `details`. Use this type whenever an error crosses an API boundary (e.g. server response, SDK method return).
+> The `details` field is flattened into the serialized object, so the wire format contains `kind` (string) and optionally `details` (object) at the same level as `code` and `message`. The optional `cause` field allows error chaining so that SDKs can receive and display full error chains.
+This error will then be handled in a different manner depending on the programming language the SDK is written for.

@@ -1,0 +1,205 @@
+---
+title: "https://surrealdb.com/docs/reference/query-language/statements/remove"
+url: "https://surrealdb.com/docs/reference/query-language/statements/remove"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/reference/query-language/statements/remove
+
+Source: https://surrealdb.com/docs/reference/query-language/statements/remove
+
+The `REMOVE` statement is used to remove resources such as databases, tables, indexes, events and more.  
+Similar to an SQL DROP statement.
+###  Statement syntax[](https://surrealdb.com/docs/reference/query-language/statements/remove#statement-syntax)
+SurrealQL SyntaxRailroad Diagram
+SurrealQL Syntax
+
+```syntax
+REMOVE [
+    ACCESS    [ IF EXISTS ] @name ON [ NAMESPACE | DATABASE ]
+  | ANALYZER  [ IF EXISTS ] @name
+  | API       [ IF EXISTS ] @name
+  | CONFIG    [ IF EXISTS ] [ GRAPHQL | API | DEFAULT ]
+  | DATABASE  [ IF EXISTS ] @name
+  | EVENT     [ IF EXISTS ] @name ON [ TABLE ] @table
+  | FIELD     [ IF EXISTS ] @name ON [ TABLE ] @table
+  | FUNCTION  [ IF EXISTS ] @name
+  | INDEX     [ IF EXISTS ] @name ON [ TABLE ] @table
+  | NAMESPACE [ IF EXISTS ] @name
+  | PARAM     [ IF EXISTS ] @name
+  | TABLE     [ IF EXISTS ] @name
+  | USER      [ IF EXISTS ] @name ON [ ROOT | NAMESPACE | DATABASE ]
+]
+```
+
+export const removeAst = {  
+type: "Diagram",  
+padding: 10, 20, 10, 20,  
+children: [  
+{ type: "Sequence", children: [  
+{ type: "Terminal", text: "REMOVE" },  
+{ type: "Choice", index: 1, children: [
+{ type: "Sequence", children: [ { type: "Terminal", text: "ACCESS" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" }, { type: "Terminal", text: "ON" }, { type: "Choice", index: 1, children: { type: "Terminal", text: "NAMESPACE" }, { type: "Terminal", text: "DATABASE" } } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "ANALYZER" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "API" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "CONFIG" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "Choice", index: 1, children: { type: "Terminal", text: "GRAPHQL" }, { type: "Terminal", text: "API" }, { type: "Terminal", text: "DEFAULT" } } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "DATABASE" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "EVENT" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" }, { type: "Terminal", text: "ON" }, { type: "Optional", child: { type: "Terminal", text: "TABLE" } }, { type: "NonTerminal", text: "@table" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "FIELD" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" }, { type: "Terminal", text: "ON" }, { type: "Optional", child: { type: "Terminal", text: "TABLE" } }, { type: "NonTerminal", text: "@table" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "FUNCTION" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "INDEX" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" }, { type: "Terminal", text: "ON" }, { type: "Optional", child: { type: "Terminal", text: "TABLE" } }, { type: "NonTerminal", text: "@table" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "NAMESPACE" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "PARAM" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "Terminal", text: "$" }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "TABLE" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" } ] },
+{ type: "Sequence", children: [ { type: "Terminal", text: "USER" }, { type: "Optional", child: { type: "Sequence", children: { type: "Terminal", text: "IF" }, { type: "Terminal", text: "EXISTS" } } }, { type: "NonTerminal", text: "@name" }, { type: "Terminal", text: "ON" }, { type: "Choice", index: 1, children: { type: "Terminal", text: "ROOT" }, { type: "Terminal", text: "NAMESPACE" }, { type: "Terminal", text: "DATABASE" } } ] }  
+] }  
+]}  
+]  
+};
+REMOVENAMESPACEIFEXISTS@nameDATABASEIFEXISTS@nameUSERIFEXISTS@nameONROOTNAMESPACEDATABASEACCESSIFEXISTS@nameONNAMESPACEDATABASEEVENTIFEXISTS@nameONTABLE@tableFIELDIFEXISTS@nameONTABLE@tableINDEXIFEXISTS@nameONTABLE@tableANALYZERIFEXISTS@nameFUNCTIONIFEXISTSfn::@namePARAMIFEXISTS$@nameTABLEIFEXISTS@name
+##  Example usage[](https://surrealdb.com/docs/reference/query-language/statements/remove#example-usage)
+###  Basic usage[](https://surrealdb.com/docs/reference/query-language/statements/remove#basic-usage)
+The following queries show an example of how to remove resources.
+
+```surql
+REMOVE NAMESPACE surrealdb;
+
+REMOVE DATABASE blog;
+
+REMOVE USER writer ON NAMESPACE;
+
+REMOVE USER writer ON DATABASE;
+
+REMOVE ACCESS token ON NAMESPACE;
+
+REMOVE ACCESS user ON DATABASE;
+
+REMOVE EVENT new_post ON TABLE article;
+
+-- Only works for Schemafull tables (i.e. tables with a schema)
+REMOVE FIELD tags ON TABLE article;
+
+REMOVE INDEX authors ON TABLE article;
+
+-- Fails if a full-text index still references this analyzer (remove the index first)
+REMOVE ANALYZER example_ascii;
+
+REMOVE FUNCTION fn::update_author;
+
+REMOVE PARAM $author;
+
+REMOVE TABLE article;
+```
+
+###  Using if exists clause[](https://surrealdb.com/docs/reference/query-language/statements/remove#using-if-exists-clause)
+The following queries show an example of how to remove resources using the `IF EXISTS` clause, which will only remove the resource if it exists.
+
+```surql
+REMOVE NAMESPACE IF EXISTS surrealdb;
+
+REMOVE DATABASE IF EXISTS blog;
+
+REMOVE USER IF EXISTS writer ON NAMESPACE;
+
+REMOVE USER IF EXISTS writer ON DATABASE;
+
+REMOVE ACCESS IF EXISTS token ON NAMESPACE;
+
+REMOVE ACCESS IF EXISTS user ON DATABASE;
+
+REMOVE EVENT IF EXISTS new_post ON TABLE article;
+
+REMOVE FIELD IF EXISTS tags ON TABLE article;
+
+REMOVE INDEX IF EXISTS authors ON TABLE article;
+
+REMOVE ANALYZER IF EXISTS example_ascii;
+
+REMOVE FUNCTION IF EXISTS fn::update_author;
+
+REMOVE PARAM IF EXISTS $author;
+
+REMOVE TABLE IF EXISTS article;
+```
+
+###  Usage in table views[](https://surrealdb.com/docs/reference/query-language/statements/remove#usage-in-table-views)
+Available since: v3.0.0
+A table used as a source for a table view cannot be removed until the table view itself has been removed.
+
+```surql
+DEFINE TABLE pc;
+DEFINE TABLE pc_agg AS SELECT count(), class FROM pc GROUP BY class;
+CREATE |pc:3| SET class = "Wizard";
+CREATE |pc:10| SET class = "Warrior";
+SELECT * FROM pc_agg;
+-- Error: pc_agg requires pc to work
+REMOVE TABLE pc;
+REMOVE TABLE pc_agg;
+-- pc_agg is now gone, pc can be removed too
+REMOVE TABLE pc;
+```
+
+The `SELECT * FROM pc_agg` query shows that the table view is pulling data from the `pc` table. As long as the `pc` table exists, `pc_agg` cannot be removed.
+
+```surql
+-------- Query --------
+
+[
+  { 
+    class: 'Warrior', 
+    count: 10, 
+    id: pc_agg:['Warrior'] 
+  }, 
+  { 
+    class: 'Wizard', 
+    count: 3, 
+    id: pc_agg:['Wizard'] 
+  }
+]
+
+-------- Query --------
+
+'Invalid query: Cannot delete table `pc` on which a view is defined, table(s) `pc_agg` are defined as a view on this table.'
+```
+
+###  Behaviour after removal[](https://surrealdb.com/docs/reference/query-language/statements/remove#behaviour-after-removal)
+While all `REMOVE` statements remove the definition for a resource, some resources have additional actions when removed. They are:
+  * •
+REMOVE DATABASE: This effectively deletes the database by removing the index stores, deleting all definitions, and clearing the cache. Since SurrealDB 3.2.0, this definition removes the database from the catalog immediately. This is followed by physical deletion of the underlying keys which is deferred to a background reaper (tune with [`SURREAL_RECLAIM_INTERVAL`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables) and [`SURREAL_RECLAIM_GRACE`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/environment-variables)), allowing `REMOVE DATABASE` returns quickly even for large tenants. Recreating the same database name yields a fresh, empty database.
+  * •
+REMOVE NAMESPACE: Same deferred reclaim as `REMOVE DATABASE` after SurrealDB 3.2.0, in addition to performing a remove on each database inside the namespace.
+  * •
+REMOVE TABLE: Similar to the two previous statements but on a single table, and will fail if a table view depends on it. Removing a table will also send a [KILL](https://surrealdb.com/docs/reference/query-language/statements/kill) notification for each live query defined on it.
+  * •
+REMOVE INDEX: This statement also removes the index store cache and index data. Since 3.2.0, it removes the index definition immediately and thereafter reclaims index data in the background in the same way as namespace and database removal. If you are considering removing an index but want to test the behaviour out first, use an [ALTER INDEX PREPARE REMOVE](https://surrealdb.com/docs/reference/query-language/statements/alter/indexes/#prepare-remove-clause) statement. This will decommission the index, after which you can test out queries to see their behaviour as they would function after the index is removed. If acceptable then the index can then be removed, or the change can be reverted by [rebuilding the index](https://surrealdb.com/docs/reference/query-language/statements/rebuild).
+
+Another `REMOVE` statement to note is `REMOVE FIELD`, as it does not remove any existing data. To remove the existing data, perform an `UPDATE` or `UPSERT` statement that uses `UNSET` on the field or sets the field's value to `NONE`.
+For a schemaless table, the existing data will remain present until unset.
+
+```surql
+DEFINE FIELD name ON person TYPE string;
+CREATE person:one SET name = "Billy";
+REMOVE FIELD name ON person;
+
+SELECT * FROM person; -- 'name' data is still there
+UPDATE person; -- Does nothing
+-- [{ id: person:one, name: 'Billy' }]
+UPDATE person SET name = NONE; -- Must unset to remove 'name' data
+```
+
+For a schemafull table, read operations can be performed on a table that still contains data not defined in the schema. However, any updates will fail unless the field is unset to match the schema.
+
+```surql
+DEFINE TABLE person SCHEMAFULL;
+DEFINE FIELD name ON person TYPE string;
+CREATE person:one SET name = "Billy";
+REMOVE FIELD name ON person;
+
+SELECT * FROM person; -- 'name' data is still there
+UPDATE person; -- Found field 'name', but no such field exists for table 'person'
+DEFINE FIELD created_at ON person TYPE datetime; -- Define a new field
+
+-- Works because values matche schema: 'name' is set to NONE, 'created_at' has a datetime value
+UPDATE person SET name = NONE, created_at = time::now();
+```

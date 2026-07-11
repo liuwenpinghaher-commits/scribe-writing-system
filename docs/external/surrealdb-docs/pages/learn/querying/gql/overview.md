@@ -1,0 +1,101 @@
+---
+title: "https://surrealdb.com/docs/learn/querying/gql/overview"
+url: "https://surrealdb.com/docs/learn/querying/gql/overview"
+source: "SurrealDB Docs"
+crawled_at: "2026-07-09T15:29:02.180962+00:00"
+---
+
+# https://surrealdb.com/docs/learn/querying/gql/overview
+
+Source: https://surrealdb.com/docs/learn/querying/gql/overview
+
+Available since: v3.2.0
+SurrealDB supports **[ISO/IEC 39075 GQL](https://www.iso.org/standard/76120.html)** for **graph pattern matching and data modification** over your existing tables and `RELATE` edges. The surface syntax is closer to **Cypher-style`MATCH … RETURN`** than to SurrealQL `SELECT`, but it runs on the same storage model: node labels map to tables, edge types map to relation tables, and properties map to record fields.
+Warning
+GQL is **experimental** in 3.2. Enable it at server start with `--allow-experimental gql` (or `SURREAL_CAPS_ALLOW_EXPERIMENTAL=gql`). The surface includes read queries (`MATCH … RETURN`) and data-modifying statements (`INSERT`, `SET`, `REMOVE`, `DELETE`) — see [GQL mutations](https://surrealdb.com/docs/learn/querying/gql/mutations).
+##  GQL is not GraphQL[](https://surrealdb.com/docs/learn/querying/gql/overview#gql-is-not-graphql)
+SurrealDB exposes two different graph query languages on **separate** endpoints. Do not abbreviate [GraphQL](https://surrealdb.com/docs/learn/querying/graphql/overview) to `gql` in product identifiers — the short name **`gql`**refers to ISO GQL only.  
+|   |  **GQL** (this guide)  | **[GraphQL](https://surrealdb.com/docs/learn/querying/graphql/overview)**  |  
+| --- | --- | --- |  
+| Standard  | [ISO/IEC 39075 GQL](https://www.iso.org/standard/76120.html)  | [GraphQL](https://graphql.org/)  |  
+| Syntax  | `MATCH (a)-[:knows]->(b) RETURN …`  | `query { people { name } }`  |  
+| HTTP  | [`POST /gql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql)  | [`POST /graphql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#graphql)  |  
+| WebSocket RPC  | `method: "gql"`  | `method: "graphql"`  |  
+| Setup  | Experimental capability `gql`  | [`DEFINE CONFIG GRAPHQL`](https://surrealdb.com/docs/reference/query-language/statements/define/config)  |  
+| Schema  | Tables and `RELATE` edges you already have  | Auto-generated GraphQL schema from your database  |  
+##  When to use GQL[](https://surrealdb.com/docs/learn/querying/gql/overview#when-to-use-gql)
+  * •
+You already think in **graph patterns** such as `(a)-[:knows]->(b)`, `SHORTEST`, and `ALL SHORTEST`, and have yet to learn how to query such paths in SurrealQL.
+  * •
+You are migrating a database from Neo4j to SurrealDB and want to test to ensure that existing Cypher queries map to the same output.
+  * •
+You want a **stable graph query surface** aligned with the ISO GQL standard.
+
+For general-purpose schema changes, bulk load, and full SurrealQL expressiveness, keep using [SurrealQL](https://surrealdb.com/docs/reference/query-language) and the [`/sql`](https://surrealdb.com/docs/reference/rest-api/http-protocol) endpoint. For ISO graph-pattern **writes** (`INSERT`, `SET`, `REMOVE`, `DELETE`), see [GQL mutations](https://surrealdb.com/docs/learn/querying/gql/mutations).
+##  Wire surfaces[](https://surrealdb.com/docs/learn/querying/gql/overview#wire-surfaces)  
+| Surface  | How to call  |  
+| --- | --- |  
+| **HTTP**  |  [`POST /gql`](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql) — raw GQL query in the request body  |  
+| **WebSocket RPC**  |  `{ "method": "gql", "params": ["<query>", { "var": value }] }` — use for typed `$variables`  |  
+| **MCP**  |  `gql` tool (when the server exposes MCP)  |  
+| **SurrealQL**  |  [`eval::gql`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval#evalgql) — nested GQL in the caller's transaction (capability-gated)  |  
+Session headers match `/sql`: `Surreal-NS`, `Surreal-DB`, and authentication. Responses use the same JSON envelope as `/sql` (`status`, `result`, `time`).
+##  Try from SurrealQL (`eval::gql`)[](https://surrealdb.com/docs/learn/querying/gql/overview#try-from-surrealql-evalgql)
+To experiment in the REPL without `curl` or `POST /gql`, wrap a GQL string in [`eval::gql`](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval#evalgql). The function runs the same engine as the HTTP endpoint and participates in the caller's transaction (including [mutations](https://surrealdb.com/docs/learn/querying/gql/mutations)).
+`eval::gql` needs **two** capability gates that `--allow-all` does not enable:
+  1. 1.
+**`gql`**—[`--allow-experimental gql`](https://surrealdb.com/docs/reference/cli/surrealdb-cli/commands/start#experimental-capabilities)
+  2. 2.
+**`eval`**—[`--allow-eval-query`](https://surrealdb.com/docs/learn/security/authorization/capabilities#eval-queries) (denied for every subject by default)
+
+**Embedded REPL** (`surreal sql` against `memory` or a file path — no separate `surreal start`):
+
+```bash
+surreal sql --user root --pass secret \
+  --allow-experimental gql --allow-eval-query
+```
+
+```surql
+eval::gql("MATCH (n:person) RETURN n.name AS name ORDER BY name");
+```
+
+**Remote server** (`surreal start` + `surreal sql -e ws://…`): pass both flags on **`surreal start`**only. The client REPL does not enable`eval` at runtime.
+
+```bash
+surreal start --user root --pass secret \
+  --allow-experimental gql --allow-eval-query
+```
+
+Optional bindings use an object as the second argument: `eval::gql("… WHERE n.age > $min …", { min: 18 })`. Full setup, seed data, and more examples can be found on the [Eval functions](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval#evalgql) page.
+##  Data model mapping[](https://surrealdb.com/docs/learn/querying/gql/overview#data-model-mapping)  
+| GQL  | SurrealDB  |  
+| --- | --- |  
+| `(:person)`  | Rows in table `person`  |  
+| `-[k:knows]->`  | Rows in relation table `knows` (`in` / `out` record IDs)  |  
+| `n.name`  | Field `name` on the bound record  |  
+| `$min`  | Parameter — bind via RPC `params` object (typed JSON values)  |  
+GQL is **not** lowered to SurrealQL text — it compiles to an internal match plan and runs on the streaming engine. The [sample queries](https://surrealdb.com/docs/learn/querying/gql/sample-queries) page shows **SurrealQL that returns the same shape** where a close equivalent exists; some patterns (optional match blocks, path selectors) are much more concise in GQL.
+##  Notable syntax differences from openCypher[](https://surrealdb.com/docs/learn/querying/gql/overview#notable-syntax-differences-from-opencypher)
+  * •
+`--` starts a **line comment** , not an undirected edge.
+  * •
+Inequality is **`<>`**, not`!=`.
+  * •
+Label conjunction uses **`&`**(`:person&employee`), not `:person:employee`.
+  * •
+Variable-length quantifiers are **postfix on the edge** : `-[e:knows]->{1,3}(b)`, not `*1..3` inside the brackets.
+  * •
+No `IN` list membership operator in this subset.
+
+Design notes, the supported subset, and mutation semantics are documented in the SurrealDB source tree under `doc/opengql/` (`REFERENCE.md`, `LOWERING.md`). The parser grammar is vendored from the upstream [opengql/grammar](https://github.com/opengql/grammar) project; that name refers to the grammar repository, not the ISO standard SurrealDB implements.
+##  Next steps[](https://surrealdb.com/docs/learn/querying/gql/overview#next-steps)
+  * •
+[GQL via HTTP](https://surrealdb.com/docs/learn/querying/gql/via-http) — enable GQL, load data, and call `POST /gql` with cURL or `eval::gql` from the REPL
+  * •
+[GQL mutations](https://surrealdb.com/docs/learn/querying/gql/mutations) — `INSERT`, `SET`, `REMOVE`, `DELETE`
+  * •
+[`POST /gql` HTTP reference](https://surrealdb.com/docs/reference/rest-api/http-protocol#gql) — headers, response envelope, and parameters
+  * •
+[Sample GQL and SurrealQL queries](https://surrealdb.com/docs/learn/querying/gql/sample-queries) — side-by-side examples on the seed graph
+  * •
+[Eval functions](https://surrealdb.com/docs/reference/query-language/functions/database-functions/eval) — run GQL from inside SurrealQL with `eval::gql`

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import scribe3.app as A
 from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
+from scribe3.store import MATERIAL_KINDS
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +34,23 @@ def _client(store, complete_fn=None):
 
 def test_health(store):
     assert _client(store).get("/health").json()["ok"] is True
+
+
+def test_stream_write_uses_read_only_mcp_surface(monkeypatch):
+    captured = {}
+
+    def fake_responses_events(message, instructions, **kwargs):
+        captured.update(kwargs)
+        yield {"type": "response.completed", "response": {"id": "resp_1"}}
+
+    monkeypatch.setattr(A, "_responses_events", None)
+    monkeypatch.setattr("scribe3.llm.hermes_responses_events", fake_responses_events)
+
+    out = "".join(A._stream_write("查伏笔", "先核实", with_tools=True))
+
+    assert '"done": true' in out
+    assert captured["server_label"] == "scribe3_read"
+    assert captured["with_tools"] is True
 
 
 def test_entities_and_facts(store):
@@ -154,6 +172,67 @@ def test_chat_agentic_sse(store, monkeypatch):
     assert r.status_code == 200
     body = r.text
     assert "s3_list_promises" in body and '"tool"' in body and "已查" in body and '"done": true' in body
+
+
+def test_agentic_stream_writes_back_response_id_and_reads_it_next_turn_as_anchor(store, monkeypatch):
+    """Task 11:agentic turn 结束把 response id 回写线程,下一轮 _editor_turn_context 读回
+    作 previous_response_id 续接锚;稳定 session key(work+thread)跨轮不变。
+
+    走真 _response_events_iter 路径(_responses_events=None + monkeypatch llm.hermes_responses_events),
+    才能捕获 previous_response_id/session_key 等全量 kwargs(app 层 stub 会过滤掉它们)。"""
+    import scribe3.llm as llm
+
+    monkeypatch.setattr(A, "_responses_events", None)
+    captured = {}
+
+    def turn1(message, instructions, **kw):
+        captured["turn1"] = kw
+        yield {"type": "response.completed", "response": {"id": "resp_turn1"}}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", turn1)
+    client = _client(store)
+    r1 = client.get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "main"})
+    assert r1.status_code == 200 and '"done": true' in r1.text
+
+    # 回写落库:线程 previous_response_id 被更新
+    tid = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    assert store._get_editorial_thread(tid)["previous_response_id"] == "resp_turn1"
+
+    # 首轮无锚(线程刚建),session key 为 work+thread
+    assert captured["turn1"].get("previous_response_id") is None
+    assert captured["turn1"]["session_key"] == f"scribe3|work:main|thread:{tid}"
+
+    def turn2(message, instructions, **kw):
+        captured["turn2"] = kw
+        yield {"type": "response.output_text.delta", "delta": "续"}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", turn2)
+    r2 = client.get("/chat/agentic-stream", params={"msg": "接着说", "work": "main"})
+    assert r2.status_code == 200
+
+    # 下一轮读回上一轮 response id 作续接锚;稳定 session key 跨轮不变
+    assert captured["turn2"]["previous_response_id"] == "resp_turn1"
+    assert captured["turn2"]["session_key"] == captured["turn1"]["session_key"]
+
+
+def test_agentic_stream_writeback_failure_is_fail_soft(store, monkeypatch):
+    """回写抛错不阻断 turn:仍正常吐 delta 与 done(掉链/库故障不能拖垮对话)。"""
+    import scribe3.llm as llm
+
+    monkeypatch.setattr(A, "_responses_events", None)
+
+    def events(message, instructions, **kw):
+        yield {"type": "response.output_text.delta", "delta": "答"}
+        yield {"type": "response.completed", "response": {"id": "resp_x"}}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", events)
+    # 让回写抛错(_store_for("main") 返回同一注入 store 实例)
+    monkeypatch.setattr(store, "update_thread_response_id",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down")))
+
+    r = _client(store).get("/chat/agentic-stream", params={"msg": "查", "work": "main"})
+    assert r.status_code == 200
+    assert "答" in r.text and '"done": true' in r.text
 
 
 def test_chat_write_splits_proposal(store, monkeypatch):
@@ -528,6 +607,27 @@ def test_voice_anchor_block_none_guards(store):
     block = _voice_anchor_block(store, "role:丁")
     assert "None" not in block, "None 字段不应出现在 block 文本里"
     assert "稳重低调" in block, "style_summary 应正常显示"
+
+
+def test_get_voice_profile_bare_name_does_not_crash(store):
+    """Caveat 2:focalizer 传裸名(无冒号,如"焦三")时 get_voice_profile 不得抛
+    ValueError(旧链 _split 期望 role:xxx 冒号格式)——安全兜底为"无 profile"返回 None;
+    规范 record id(role:焦三)仍正常返回。"""
+    store.set_voice_profile("role:焦三", {"style_summary": "话少眼冷"})
+    # 裸名:不崩、返回空(None),让上层优雅跳过
+    assert store.get_voice_profile("焦三") is None
+    # 规范 record id:行为一字不变
+    vp = store.get_voice_profile("role:焦三")
+    assert vp is not None and vp.get("style_summary") == "话少眼冷"
+
+
+def test_voice_anchor_block_bare_name_focalizer_no_crash(store):
+    """Caveat 2 旧组装链:裸名 focalizer 且无 voice_profile → _voice_anchor_block 不 500,
+    优雅跳过焦点者声音锚(此前经 store.get_voice_profile → _split("焦三") 抛 ValueError)。"""
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "焦三")   # 裸名,库里无 role:焦三 的 profile
+    assert isinstance(block, str)
+    assert "焦点者声音锚" not in block, "无 profile 的裸名焦点者不应产出声音锚"
 
 
 # ===== 弧光快照注入续写 prompt =====
@@ -2412,6 +2512,44 @@ def test_patch_chapter_not_found(store):
     assert r.status_code == 404
 
 
+def test_chapter_create_archive_restore_and_delete_token_gate(store):
+    """章节生命周期:新增章、默认归档、恢复、永久删除必须走 impact token。"""
+    store.save_chapter(1, "第一章正文。", title="一")
+    c = _client(store)
+
+    created = c.post("/chapters", json={"title": "第二章"}).json()
+    assert created["status"] == "created"
+    assert created["seq"] == 2
+
+    r_archive = c.post("/chapters/2/archive", json={"reason": "支线暂缓"})
+    assert r_archive.status_code == 200
+    assert r_archive.json()["status"] == "archived"
+    assert [ch["seq"] for ch in c.get("/outline").json()["chapters"]] == [1]
+    archived = c.get("/chapters/archived").json()
+    assert len(archived) == 1
+    assert archived[0]["seq"] == 2
+    assert archived[0]["title"] == "第二章"
+    assert archived[0]["archive_reason"] == "支线暂缓"
+
+    r_restore = c.post("/chapters/2/restore")
+    assert r_restore.status_code == 200
+    assert [ch["seq"] for ch in c.get("/outline").json()["chapters"]] == [1, 2]
+    assert c.get("/chapters/archived").json() == []
+
+    impact = c.get("/chapters/2/impact").json()
+    assert impact["object"] == {"type": "chapter", "id": 2, "label": "第二章"}
+    assert impact["confirm_impact_token"]
+
+    blocked = c.delete("/chapters/2")
+    assert blocked.status_code == 409
+    assert blocked.json()["confirm_impact_token"] == impact["confirm_impact_token"]
+
+    deleted = c.delete("/chapters/2", params={"confirm_impact_token": impact["confirm_impact_token"]})
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+    assert c.get("/chapter", params={"seq": 2}).json() == {}
+
+
 def test_volume_crud(store):
     """POST/GET/PATCH/DELETE /volumes 端到端。"""
     c = _client(store)
@@ -2449,8 +2587,12 @@ def test_write_gate_includes_outline_routes(store):
     """test_consistency 守卫的镜像:确认新路由已在 KNOWN_REST_WRITE_ROUTES 中。"""
     from scribe3.tests.test_consistency import TestWriteGate
     known = TestWriteGate.KNOWN_REST_WRITE_ROUTES
+    assert ("POST", "/chapters") in known
     assert ("POST", "/chapters/reorder") in known
     assert ("PATCH", "/chapters/{seq}") in known
+    assert ("POST", "/chapters/{seq}/archive") in known
+    assert ("POST", "/chapters/{seq}/restore") in known
+    assert ("DELETE", "/chapters/{seq}") in known
     assert ("POST", "/volumes") in known
     assert ("PATCH", "/volumes/{vid}") in known
     assert ("DELETE", "/volumes/{vid}") in known
@@ -3857,7 +3999,7 @@ def test_project_tree_materials_branch(store):
     mats = tree["materials"]
     assert mats["type"] == "material_root" and mats["label"] == "素材库"
     cats = {x["ref"]: x for x in mats["children"]}
-    assert set(cats) == {"research", "reference", "snippet", "inspiration", "note"}
+    assert set(cats) == set(MATERIAL_KINDS)
     res = cats["research"]
     assert res["type"] == "material_category"
     assert any(b["kind"] == "count" and b["value"] == 1 for b in res["badges"])
@@ -4494,7 +4636,7 @@ def test_tension_check_micro_tension_with_deserts(store, monkeypatch):
     assert mt["detail"] == "荒漠段:第2段、第5段"
 
 
-# ===== 批B P0-2:多书下 MCP 工具串书——非 SCRIBE3_WORK 的书禁挂 s3_ 工具 =====
+# ===== 批B P0-2/H-01:多书下 MCP 工具串书——所有 s3_ 工具调用必须显式带 work =====
 def _cap_responses(cap):
     """捕获传给 responses(:8643)的 with_tools 与 instructions 的假 fn。"""
     def fake_events(message, instructions, model=None, with_tools=True, **_kw):
@@ -4504,75 +4646,79 @@ def _cap_responses(cap):
     return fake_events
 
 
-def test_p0_2_get_write_non_current_work_no_tools(store, monkeypatch):
-    """GET /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False),防串到错库。"""
+def _assert_work_scoped_tool_prompt(cap, work: str):
+    assert cap["with_tools"] is True, "work-scoped MCP 后所有作品都应挂 s3_ 工具"
+    ins = cap["instructions"]
+    assert "s3_" in ins, "启用工具时 instructions 应说明可用 s3_ 工具"
+    assert f"work={work}" in ins, "instructions 必须钉死当前作品 work 参数"
+    assert "必须" in ins and "work" in ins, "instructions 必须强制模型调用 s3_ 工具时带 work"
+
+
+def test_p0_2_get_write_non_current_work_uses_work_scoped_tools(store, monkeypatch):
+    """GET /chat/write:work != SCRIBE3_WORK 时仍挂工具,但所有 s3_ 调用必须传 work=目标书。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "book_current")
     A.set_store(store, work="book_other")          # 把测试内存 store 绑到别的书(不连真库)
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "book_other"})
-    assert cap["with_tools"] is False, "非当前书应禁挂 s3_ 工具"
-    assert "s3_" not in cap["instructions"], "非当前书 instructions 不得诱导调用 s3_"
+    _assert_work_scoped_tool_prompt(cap, "book_other")
 
 
 def test_p0_2_get_write_current_work_mounts_tools(store, monkeypatch):
-    """GET /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具(with_tools=True)。"""
+    """GET /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具,并显式传 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "main")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "main"})
-    assert cap["with_tools"] is True, "当前书应挂 s3_ 工具"
+    _assert_work_scoped_tool_prompt(cap, "main")
 
 
-def test_p0_2_post_write_non_current_work_no_tools(store, monkeypatch):
-    """POST /chat/write:work != SCRIBE3_WORK 时禁挂 s3_ 工具(with_tools=False)。"""
+def test_p0_2_post_write_non_current_work_uses_work_scoped_tools(store, monkeypatch):
+    """POST /chat/write:work != SCRIBE3_WORK 时仍挂工具,但所有 s3_ 调用必须传 work=目标书。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "book_current")
     A.set_store(store, work="book_other")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).post("/chat/write?work=book_other", json={"msg": "写本章", "chapter": 1})
-    assert cap["with_tools"] is False
-    assert "s3_" not in cap["instructions"]
+    _assert_work_scoped_tool_prompt(cap, "book_other")
 
 
 def test_p0_2_post_write_current_work_mounts_tools(store, monkeypatch):
-    """POST /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具。"""
+    """POST /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具,并显式传 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "main")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).post("/chat/write?work=main", json={"msg": "写本章", "chapter": 1})
-    assert cap["with_tools"] is True
+    _assert_work_scoped_tool_prompt(cap, "main")
 
 
-def test_p0_2_agentic_non_current_work_no_tools(store, monkeypatch):
-    """agentic-stream:work != SCRIBE3_WORK 时禁挂工具 + instructions 删除 s3_ 联查诱导段。"""
+def test_p0_2_agentic_non_current_work_uses_work_scoped_tools(store, monkeypatch):
+    """agentic-stream:work != SCRIBE3_WORK 时仍挂工具,但所有 s3_ 调用必须传 work=目标书。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "book_current")
     A.set_store(store, work="book_other")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "book_other"})
-    assert cap["with_tools"] is False
-    assert "s3_" not in cap["instructions"], "非当前书 agentic 指令不得含 s3_ 联查诱导"
+    _assert_work_scoped_tool_prompt(cap, "book_other")
 
 
 def test_p0_2_agentic_current_work_mounts_tools(store, monkeypatch):
-    """agentic-stream:work == SCRIBE3_WORK 时挂工具 + instructions 含 s3_ 联查段。"""
+    """agentic-stream:work == SCRIBE3_WORK 时挂工具 + instructions 含 s3_ 联查段,并显式传 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "main")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
     _client(store).get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "main"})
-    assert cap["with_tools"] is True
-    assert "s3_" in cap["instructions"], "当前书 agentic 指令应含 s3_ 联查段"
+    _assert_work_scoped_tool_prompt(cap, "main")
 
 
 def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
-    """llm 层:with_tools=False 的 body 不含 tools;=True 时挂 scribe3 MCP。"""
+    """llm 层:with_tools=False 不含 tools;=True 默认只挂 scribe3_read 只读 MCP 面。"""
     import scribe3.llm as llm
     captured = {}
 
@@ -4590,7 +4736,7 @@ def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
     list(llm.hermes_responses_events("m", "i", with_tools=False))
     assert "tools" not in captured["body"], "with_tools=False 时 body 不得含 tools"
     list(llm.hermes_responses_events("m", "i", with_tools=True))
-    assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3"}]
+    assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3_read"}]
 
 
 # ===== 块四b TDD: /draft-check 草稿轻量确定性分析(不 ingest 不落库) =====

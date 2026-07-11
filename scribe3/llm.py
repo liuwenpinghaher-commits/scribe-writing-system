@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import logging
 import os
-import threading
-import time
 
 import httpx
+
+from scribe3.hermes_runtime import HermesAuth, HermesRuntime
 
 _RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
 _MAX_RETRIES = 3
@@ -20,58 +20,43 @@ _log = logging.getLogger("scribe3.llm")
 
 # 审计 P1-12(方案原文"接线或删除二选一"):原 CircuitBreaker 死类已删(0.18 网关
 # 自带重试/排队,持续故障由其兜);日调用帽在此单点接线——llm.py 是全部 LLM 出口
-# (complete/stream/responses),比散在 app 端点层可靠。进程内计数,重启清零(帽是
-# 成本保险丝不是账本)。
-# R2-15:此帽是**进程级**——mcp.py 是独立 stdio 进程(run_mcp.sh),持有自己的 _daily
-# 计数器;其 s3_dedup/s3_ingest/s3_fold_voice 等工具的 LLM 调用不计入 app(:3321)进程的
-# 帽,反之亦然。系统总预算 = 各进程帽之和;要收紧 mcp 侧,给其进程单独设小
-# SCRIBE3_DAILY_CALL_CAP。另:重试/agentic 网关内多轮/流式断连已耗 token 都只计 1 笔,
-# 帽 ≠ 精确 token 成本,勿拿 500 反推预算。
+# (complete/stream/responses),比散在 app 端点层可靠。
+# H-10(v018 审查):计数升级为跨进程共享 SQLite 台账(scribe3/usage.py)——app 与
+# MCP stdio 进程同记一本账,日帽是真正的系统级保险丝;台账故障 fail-open 回退
+# 进程内计数。另:重试/agentic 网关内多轮/流式断连已耗 token 都只计 1 笔,
+# 帽 ≠ 精确 token 成本;token 真实用量见 store.usage_summary()(/ai/usage)。
 _DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
-_daily_lock = threading.Lock()
-_daily = ["", 0]   # [day, count]
 
 
 def _reset_daily_counter() -> None:
-    with _daily_lock:
-        _daily[0], _daily[1] = "", 0
+    from scribe3 import usage as _usage
+    _usage.reset_today()
 
 
 def _tick_daily() -> None:
-    """每次 LLM 调用前记一笔;超日帽抛错(调用方 fail-soft 链各自兜)。"""
-    today = time.strftime("%Y-%m-%d")
-    with _daily_lock:
-        if _daily[0] != today:
-            _daily[0], _daily[1] = today, 0
-        if _daily[1] >= _DAILY_CALL_CAP:
-            raise RuntimeError(
-                f"LLM 日调用上限已达({_DAILY_CALL_CAP},SCRIBE3_DAILY_CALL_CAP 可调)")
-        _daily[1] += 1
+    """每次 LLM 调用前记一笔(共享台账);超日帽抛错(调用方 fail-soft 链各自兜)。"""
+    from scribe3 import usage as _usage
+    _usage.tick(_DAILY_CALL_CAP)
 
 
 def daily_remaining() -> int:
     """B4:剩余日帽额度(只读,供选择环等多发操作启动前预检)。非今天则视为满额(次日 0 点重置)。"""
-    today = time.strftime("%Y-%m-%d")
-    with _daily_lock:
-        used = _daily[1] if _daily[0] == today else 0
+    from scribe3 import usage as _usage
+    used, _scope = _usage.used_today()
     return max(0, _DAILY_CALL_CAP - used)
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
 HERMES_RESPONSES = os.environ.get("HERMES_RESPONSES_API", "http://127.0.0.1:8643/v1")
+HERMES_RESPONSES_PROFILE = os.environ.get("HERMES_RESPONSES_PROFILE", "scribe3")
+# 会改状态的长任务 Runs 走独立写 profile。Hermes Runs 不支持 per-run tools 裁剪,
+# 工具面必须靠 gateway profile/platform_toolsets 隔离。
+HERMES_RUNS = os.environ.get("HERMES_RUNS_API", "http://127.0.0.1:8644/v1")
+HERMES_RUNS_PROFILE = os.environ.get("HERMES_RUNS_PROFILE", "scribe3_write")
 
 
-def _api_key() -> str:
-    k = os.environ.get("API_SERVER_KEY")
-    if not k:
-        try:
-            for ln in open(os.path.expanduser("~/.hermes/.env"), encoding="utf-8"):
-                if ln.startswith("API_SERVER_KEY="):
-                    k = ln.split("=", 1)[1].strip()
-                    break
-        except Exception as e:
-            logging.getLogger("scribe3.llm").warning("读取 ~/.hermes/.env API_SERVER_KEY 失败: %s", e)
-    return k or "local"
+def _api_key(profile: str | None = None) -> str:
+    return HermesAuth().api_key(profile)
 
 
 def _stream_with_retry(make_stream, max_retries: int = _MAX_RETRIES):
@@ -163,38 +148,40 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
     yield from _stream_with_retry(make_stream)
 
 
-def hermes_responses_events(message: str, instructions: str, model: str | None = None,
-                            timeout: float = 600.0, with_tools: bool = True):
+def hermes_responses_events(message, instructions: str, model: str | None = None,
+                            timeout: float = 600.0, with_tools: bool = True,
+                            conversation: str | None = None,
+                            previous_response_id: str | None = None,
+                            session_key: str | None = None,
+                            store: bool = True,
+                            context_revision: int | None = None,
+                            context_hash: str | None = None,
+                            server_label: str = "scribe3_read"):
     """主编 agentic:POST scribe3 网关(:8643)/v1/responses(可选 tools=scribe3 MCP + stream),逐事件 yield。
-    server_label='scribe3' 引用 profile config 里挂的 scribe3 MCP,主编自动发现并调用 s3_ 工具。
+    默认 server_label='scribe3_read',普通 Responses 写作/讨论只暴露只读 s3_ 工具。
     SSE 为 OpenAI Responses 标准(每条 data: 的 JSON 带 type 字段)。
     建链瞬时错自动重试,已 yield 后不重试。
 
-    with_tools:审计 P0-2 门控。MCP 进程固定连 SCRIBE3_WORK 那本书;仅当当前请求的书 ==
-    SCRIBE3_WORK 时才 with_tools=True 挂 s3_ 工具,否则挂上去会读/写错库(不可逆)。
-    with_tools=False → body 不含 tools,退化为纯对话(无联查/无待批写),绝不串库。"""
-    import json as _j
+    with_tools:H-01 work-scoped MCP 开关。为 True 时 body 挂指定 scribe3 MCP 面;调用方必须在
+    instructions 内钉死当前 work,让所有 s3_ 工具显式传 work 参数。with_tools=False →
+    body 不含 tools,退化为纯对话(无联查/无待批写)。"""
     _tick_daily()
-    body: dict = {"input": message, "instructions": instructions, "stream": True}
-    if with_tools:
-        body["tools"] = [{"type": "mcp", "server_label": "scribe3"}]
-    if model:
-        body["model"] = model
+    runtime = HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE, auth=HermesAuth())
 
     def make_stream():
-        with httpx.stream("POST", f"{HERMES_RESPONSES}/responses", timeout=timeout,
-                          headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
-                          json=body) as r:
-            r.raise_for_status()
-            for raw in r.iter_lines():
-                if not raw or not raw.startswith("data:"):
-                    continue
-                payload = raw[5:].strip()
-                if not payload or payload == "[DONE]":
-                    continue
-                try:
-                    yield _j.loads(payload)
-                except Exception:
-                    continue
+        yield from runtime.responses_events(
+            message,
+            instructions,
+            model=model,
+            timeout=timeout,
+            with_tools=with_tools,
+            conversation=conversation,
+            previous_response_id=previous_response_id,
+            session_key=session_key,
+            store=store,
+            context_revision=context_revision,
+            context_hash=context_hash,
+            server_label=server_label,
+        )
 
     yield from _stream_with_retry(make_stream)

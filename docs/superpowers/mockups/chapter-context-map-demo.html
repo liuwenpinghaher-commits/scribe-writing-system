@@ -1,0 +1,1800 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Scribe3 章节上下文树 Demo</title>
+  <style>
+    :root {
+      --canvas: #f7f6f2;
+      --surface: #fffefb;
+      --surface-2: #f2f0ea;
+      --hover: #ece8dc;
+      --line: #ded8ca;
+      --line-soft: #ebe6db;
+      --ink: #26241f;
+      --faint: #746f64;
+      --muted: #a29a8d;
+      --brand: #3e6b58;
+      --brand-soft: #e8f0eb;
+      --green: #3f875b;
+      --amber: #a9772e;
+      --red: #ad4d3f;
+      --blue: #4c6f9e;
+      --violet: #8a5d85;
+      --orange: #bc6536;
+      --shadow: 0 10px 30px rgba(38, 36, 31, .07);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--canvas);
+      color: var(--ink);
+      font: 13px/1.5 Inter, "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      overflow: hidden;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--brand) 55%, white);
+      outline-offset: 2px;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 48px 1fr;
+      min-width: 1080px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 96%, transparent);
+    }
+    .brand {
+      font-weight: 750;
+      color: var(--brand);
+      letter-spacing: .02em;
+    }
+    .work-title { color: var(--faint); white-space: nowrap; }
+    .phase-tabs {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+      overflow: hidden;
+    }
+    .phase-separator {
+      width: 1px;
+      height: 18px;
+      background: var(--line);
+      margin: 0 4px;
+      flex: 0 0 auto;
+    }
+    .phase-tab {
+      height: 30px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--faint);
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+    .phase-tab.active {
+      color: var(--brand);
+      background: var(--brand-soft);
+      font-weight: 650;
+    }
+
+    .shell {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 56px 224px minmax(0, 1fr) 56px;
+    }
+    .rail, .right-tabs {
+      background: var(--surface);
+      padding: 8px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .rail { border-right: 1px solid var(--line); }
+    .right-tabs { border-left: 1px solid var(--line); }
+    .rail-btn {
+      height: 44px;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--faint);
+      display: grid;
+      place-items: center;
+      gap: 2px;
+      font-size: 10px;
+    }
+    .rail-btn strong {
+      display: block;
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }
+    .rail-btn.active {
+      background: var(--brand-soft);
+      color: var(--brand);
+    }
+
+    .directory {
+      min-width: 0;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+    .dir-head {
+      padding: 14px 12px 10px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .dir-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .dir-title strong { font-size: 14px; }
+    .pill, .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 21px;
+      border-radius: 999px;
+      padding: 0 8px;
+      font-size: 11px;
+      background: var(--surface-2);
+      color: var(--faint);
+      white-space: nowrap;
+    }
+    .badge.brand { background: var(--brand-soft); color: var(--brand); }
+    .badge.ok { background: color-mix(in srgb, var(--green) 13%, white); color: var(--green); }
+    .badge.warn { background: color-mix(in srgb, var(--amber) 14%, white); color: var(--amber); }
+    .badge.danger { background: color-mix(in srgb, var(--red) 12%, white); color: var(--red); }
+    .search {
+      margin-top: 10px;
+      width: 100%;
+      height: 30px;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      background: var(--canvas);
+      color: var(--ink);
+      padding: 0 10px;
+    }
+    .dir-list {
+      min-height: 0;
+      overflow: auto;
+      padding: 10px 8px;
+    }
+    .dir-group { margin-bottom: 14px; }
+    .dir-label {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 4px 6px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .03em;
+    }
+    .dir-item {
+      width: 100%;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--ink);
+      padding: 8px 9px;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 6px;
+      margin-bottom: 2px;
+    }
+    .dir-item:hover, .dir-item.active { background: var(--surface-2); }
+    .dir-item .sub {
+      grid-column: 1 / 3;
+      color: var(--faint);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      background: var(--canvas);
+    }
+    .map-head {
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid var(--line-soft);
+      background: color-mix(in srgb, var(--surface) 68%, var(--canvas));
+    }
+    .breadcrumb {
+      color: var(--faint);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .title-row {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.22;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin-top: 4px;
+      color: var(--faint);
+      max-width: 820px;
+    }
+    .head-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .switcher {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 3px;
+      gap: 3px;
+    }
+    .switcher button {
+      height: 28px;
+      min-width: 72px;
+      border: 0;
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--faint);
+      background: transparent;
+    }
+    .switcher button.active {
+      background: var(--brand);
+      color: white;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 1px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--line-soft);
+    }
+    .stat {
+      min-width: 0;
+      background: color-mix(in srgb, var(--surface) 86%, var(--canvas));
+      padding: 9px 14px;
+    }
+    .stat .label {
+      color: var(--faint);
+      font-size: 11px;
+      margin-bottom: 2px;
+    }
+    .stat .value {
+      font-size: 18px;
+      font-weight: 740;
+      line-height: 1.1;
+    }
+    .tone-ok { color: var(--green); }
+    .tone-warn { color: var(--amber); }
+    .tone-danger { color: var(--red); }
+    .tone-brand { color: var(--brand); }
+
+    .tree-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    .tree-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--surface);
+    }
+    .path-line {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--faint);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .path-current {
+      color: var(--ink);
+      font-weight: 650;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .pov-select {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 34px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--faint);
+      white-space: nowrap;
+    }
+    .pov-select select {
+      height: 28px;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      padding-right: 4px;
+      outline: none;
+    }
+    .view-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 7px;
+      background: var(--surface-2);
+    }
+    .view-toggle button {
+      height: 28px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--faint);
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+    .view-toggle button.active {
+      background: var(--surface);
+      color: var(--brand);
+      box-shadow: 0 1px 2px rgba(38, 36, 31, .06);
+    }
+
+    .tree-board {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 18px 18px;
+    }
+    .tree-columns {
+      min-width: 880px;
+      display: grid;
+      grid-template-columns: 230px 310px minmax(420px, 1fr);
+      align-items: start;
+      gap: 14px;
+    }
+    .tree-column {
+      min-width: 0;
+      background: transparent;
+    }
+    .column-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 24px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .03em;
+      margin-bottom: 6px;
+      padding: 0 2px;
+    }
+    .tree-node, .inline-detail, .full-detail {
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .tree-node .kicker, .detail-kicker {
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .group-list, .item-list {
+      display: grid;
+      gap: 6px;
+    }
+    .tree-node {
+      width: 100%;
+      min-height: 52px;
+      padding: 9px 10px;
+      text-align: left;
+      color: var(--ink);
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
+      position: relative;
+    }
+    .tree-node:hover {
+      background: color-mix(in srgb, var(--surface) 70%, var(--hover));
+      border-color: var(--line-soft);
+    }
+    .tree-node.active {
+      background: var(--brand-soft);
+      border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+    }
+    .tree-node.active::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: -15px;
+      width: 14px;
+      border-top: 1px solid color-mix(in srgb, var(--brand) 50%, var(--line));
+    }
+    .tree-node .name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 2px;
+      font-weight: 650;
+    }
+    .tree-node .meta {
+      color: var(--faint);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+    .tree-node .count {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .tree-node[data-tone="ok"] { border-left: 3px solid var(--green); }
+    .tree-node[data-tone="warn"] { border-left: 3px solid var(--amber); }
+    .tree-node[data-tone="danger"] { border-left: 3px solid var(--red); }
+    .tree-node[data-tone="brand"] { border-left: 3px solid var(--brand); }
+    .tree-node[data-tone="blue"] { border-left: 3px solid var(--blue); }
+    .tree-node[data-tone="violet"] { border-left: 3px solid var(--violet); }
+    .tree-node[data-tone="orange"] { border-left: 3px solid var(--orange); }
+
+    .inline-detail {
+      min-height: 530px;
+      border-color: color-mix(in srgb, var(--brand) 22%, var(--line-soft));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    .detail-head {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--line-soft);
+      background: color-mix(in srgb, var(--surface) 72%, var(--brand-soft));
+    }
+    .detail-title {
+      margin: 3px 0 0;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+    .detail-sub {
+      margin-top: 4px;
+      color: var(--faint);
+    }
+    .detail-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px 16px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+    .section-label {
+      color: var(--faint);
+      font-size: 11px;
+      letter-spacing: .03em;
+      margin-bottom: 4px;
+    }
+    .section-value {
+      color: var(--ink);
+    }
+    .quote {
+      border-left: 3px solid var(--brand);
+      background: var(--canvas);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 8px 10px;
+    }
+    .detail-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--line-soft);
+      background: color-mix(in srgb, var(--surface) 78%, var(--canvas));
+    }
+    .btn {
+      height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--ink);
+      padding: 0 11px;
+    }
+    .btn.primary {
+      border-color: var(--brand);
+      background: var(--brand);
+      color: white;
+    }
+    .btn.ghost {
+      background: transparent;
+      color: var(--faint);
+    }
+
+    .vertical-tree {
+      max-width: 980px;
+      display: grid;
+      gap: 8px;
+    }
+    .vtree-group {
+      display: grid;
+      gap: 6px;
+    }
+    .vtree-items {
+      margin-left: 28px;
+      display: grid;
+      gap: 6px;
+    }
+    .vertical-tree .inline-detail {
+      min-height: 0;
+      margin: 2px 0 8px 28px;
+    }
+
+    .full-mode {
+      min-height: 0;
+      overflow: auto;
+      padding: 14px 18px 22px;
+    }
+    .return-bar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--brand-soft) 70%, var(--surface));
+      color: var(--brand);
+      box-shadow: 0 8px 20px rgba(38, 36, 31, .05);
+    }
+    .full-detail {
+      margin-top: 12px;
+      border-color: var(--line-soft);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 0;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .full-main {
+      padding: 20px 22px;
+      min-width: 0;
+    }
+    .full-aside {
+      border-left: 1px solid var(--line-soft);
+      background: color-mix(in srgb, var(--surface) 78%, var(--canvas));
+      padding: 16px;
+    }
+    .full-title {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 8px 10px;
+    }
+    .kv .k { color: var(--faint); }
+    .related-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .related-row {
+      padding: 8px;
+      border-radius: var(--radius);
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+    }
+    .related-row strong {
+      display: block;
+      font-size: 12px;
+    }
+    .related-row span {
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .hidden { display: none !important; }
+
+    @media (max-width: 1180px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+      .shell { grid-template-columns: 52px 200px minmax(780px, 1fr) 52px; min-height: 760px; }
+      .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .tree-columns { min-width: 820px; grid-template-columns: 210px 270px minmax(340px, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">SCRIBE3</div>
+      <div class="work-title">书稿 · 纸命</div>
+      <nav class="phase-tabs" aria-label="章节阶段">
+        <button class="phase-tab">大纲</button>
+        <button class="phase-tab">节拍</button>
+        <button class="phase-tab">草稿</button>
+        <button class="phase-tab">正文</button>
+        <span class="phase-separator" aria-hidden="true"></span>
+        <button class="phase-tab">简报</button>
+        <button class="phase-tab active">关联</button>
+        <button class="phase-tab">限知帧</button>
+        <button class="phase-tab">北极星</button>
+      </nav>
+    </header>
+
+    <div class="shell">
+      <aside class="rail" aria-label="一级入口">
+        <button class="rail-btn active"><strong>稿</strong>手稿</button>
+        <button class="rail-btn"><strong>设</strong>设定库</button>
+        <button class="rail-btn"><strong>素</strong>素材库</button>
+        <button class="rail-btn"><strong>演</strong>演绎</button>
+        <button class="rail-btn"><strong>伏</strong>伏笔</button>
+        <button class="rail-btn"><strong>母</strong>母题</button>
+      </aside>
+
+      <aside class="directory" aria-label="章节目录">
+        <div class="dir-head">
+          <div class="dir-title"><strong>手稿</strong><span class="pill">卷章</span></div>
+          <input class="search" value="第 1 章" aria-label="搜索章节" />
+        </div>
+        <div class="dir-list">
+          <div class="dir-group">
+            <div class="dir-label"><span>第一卷</span><span>4章</span></div>
+            <button class="dir-item active"><span>1 第1章</span><span class="badge ok">当前</span><span class="sub">纸人挪到门槛,苏纸鸢深夜到访</span></button>
+            <button class="dir-item"><span>2 第2章</span><span class="badge">草稿</span><span class="sub">借命契浮出,沈推官介入</span></button>
+            <button class="dir-item"><span>3 第3章</span><span class="badge warn">待校验</span><span class="sub">纸鸢线索牵出城隍旧账</span></button>
+            <button class="dir-item"><span>4 第4章</span><span class="badge">大纲</span><span class="sub">崔判官差第一次显形</span></button>
+          </div>
+          <div class="dir-group">
+            <div class="dir-label"><span>本章台账</span><span>快捷</span></div>
+            <button class="dir-item"><span>章节关联</span><span class="badge brand">树</span><span class="sub">设定库、素材库、伏笔、母题</span></button>
+            <button class="dir-item"><span>限知帧</span><span class="badge brand">POV</span><span class="sub">可写、禁写、反讽、盲区</span></button>
+            <button class="dir-item"><span>章级风险</span><span class="badge danger">1</span><span class="sub">借命契机制可能提前泄露</span></button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section class="map-head">
+          <div class="breadcrumb" id="breadcrumb"></div>
+          <div class="title-row">
+            <div>
+              <h1 id="mapTitle"></h1>
+              <div class="subtitle" id="mapSubtitle"></div>
+            </div>
+            <div class="head-actions">
+              <div class="switcher" role="tablist" aria-label="地图类型">
+                <button id="relationBtn" type="button">章节关联</button>
+                <button id="frameBtn" type="button">限知帧</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="summary" id="summary" aria-label="本章摘要"></section>
+
+        <section class="tree-shell" id="mapMode">
+          <div class="tree-toolbar">
+            <div class="path-line" id="pathLine"></div>
+            <div class="toolbar-actions">
+              <label class="pov-select hidden" id="povSelector">
+                <span>视角</span>
+                <select id="povSelect" aria-label="选择限知帧视角"></select>
+              </label>
+              <div class="view-toggle" aria-label="树显示方向">
+                <button id="wideViewBtn" type="button">向右延展</button>
+                <button id="downViewBtn" type="button">向下压缩</button>
+              </div>
+            </div>
+          </div>
+          <div class="tree-board" id="treeBoard"></div>
+        </section>
+
+        <section class="full-mode hidden" id="fullMode" aria-label="完整详情"></section>
+      </main>
+
+      <aside class="right-tabs" aria-label="右侧工具">
+        <button class="rail-btn active"><strong>主</strong>主编</button>
+        <button class="rail-btn"><strong>箱</strong>收件箱</button>
+        <button class="rail-btn"><strong>注</strong>批注</button>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const datasets = {
+      relation: {
+        title: '第 1 章上下文树',
+        subtitle: '从分组向右展开本章依赖:先看类型,再看对象,详情就地贴在路径末端。',
+        crumb: '纸命 > 第 1 章 > 关联',
+        root: {
+          kicker: 'chapter',
+          title: '第 1 章',
+          meta: '纸人挪到门槛,苏纸鸢深夜到访',
+          points: [['依赖对象', '22'], ['已确认', '9'], ['需处理', '1']]
+        },
+        stats: [
+          ['设定库', '12', 'brand'],
+          ['素材库', '5', 'warn'],
+          ['伏笔', '3', 'danger'],
+          ['母题', '2', 'blue'],
+          ['正文证据', '4', 'ok'],
+          ['冲突', '1', 'danger']
+        ],
+        defaultGroup: 'materials',
+        defaultItem: 'texture',
+        groups: [
+          {
+            id: 'codex',
+            title: '设定约束',
+            count: '12',
+            meta: '人物、物品、命题',
+            tone: 'brand',
+            items: [
+              {
+                id: 'liuhuaiyu',
+                title: '柳怀玉',
+                kind: '人物设定',
+                meta: 'POV / 纸扎匠',
+                tone: 'ok',
+                detail: {
+                  title: '柳怀玉',
+                  kicker: '设定库 · 人物',
+                  sub: '本章 POV,可直接调用其身体感知与职业经验。',
+                  body: [
+                    ['关联原因', '第 1 章的观察、误判和恐惧都从柳怀玉视角发出。'],
+                    ['正文证据', '左手烫疤发疼,他先检查门槛再回看纸人。'],
+                    ['写作边界', '可以写纸扎经验和身体感知,不能写他尚未知道的借命契机制。']
+                  ],
+                  related: [['限知帧', '左手烫疤疼'], ['正文', '门槛纸人段落']]
+                }
+              },
+              {
+                id: 'paper-doll',
+                title: '丫鬟纸人',
+                kind: '物品设定',
+                meta: '承魂窍 / 异常移动',
+                tone: 'warn',
+                detail: {
+                  title: '丫鬟纸人',
+                  kicker: '设定库 · 物品',
+                  sub: '本章核心异常物,和伏笔“纸人会自己移动”相连。',
+                  body: [
+                    ['关联原因', '纸人被发现从供桌挪到门槛,触发整章事件。'],
+                    ['正文证据', '纸人脚边沾了湿泥,袖口朱砂线断了一根。'],
+                    ['写作边界', '现阶段只能展示异常,不要解释承魂窍完整规则。']
+                  ],
+                  related: [['伏笔', '纸人会自己移动'], ['素材库', '纸人承魂民俗']]
+                }
+              },
+              {
+                id: 'contract',
+                title: '借命契',
+                kind: '命题设定',
+                meta: '高风险 / 不能提前泄露',
+                tone: 'danger',
+                detail: {
+                  title: '借命契',
+                  kicker: '设定库 · 命题',
+                  sub: '当前章节可露出契纸痕迹,不可解释规则。',
+                  body: [
+                    ['关联原因', '大纲和正文都出现契纸残片,但第 1 章不应解释续命机制。'],
+                    ['禁写提醒', '柳怀玉可以看到“续命者”栏为空,不能知道契约如何生效。'],
+                    ['建议', '用视觉异常和不完整字段制造疑问,把机制解释留给后续章节。']
+                  ],
+                  related: [['限知帧', '借命契机制'], ['北极星', '纸命/借寿']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'materials',
+            title: '素材参考',
+            count: '5',
+            meta: '研究资料、质感、民俗',
+            tone: 'orange',
+            items: [
+              {
+                id: 'texture',
+                title: '纸扎铺夜间质感',
+                kind: '素材库',
+                meta: '已参考 / phase:final',
+                tone: 'orange',
+                detail: {
+                  title: '纸扎铺夜间质感',
+                  kicker: '素材库 · 已参考',
+                  sub: '作为场景质感参考进入本章正文,不是故事事实。',
+                  body: [
+                    ['关联原因', '本章正文出现承影斋、麻油灯、纸人、运河夜色,主编召回该素材补足质感。'],
+                    ['命中证据', '“麻油灯结了三朵灯花,噼的一声爆了,火星落在账桌的麻纸上。”'],
+                    ['使用边界', '可以借质感、节奏、细节密度,不能照搬原文或把资料当成设定事实。']
+                  ],
+                  related: [['正文证据', '麻油灯段落'], ['设定库', '承影斋']]
+                }
+              },
+              {
+                id: 'folk',
+                title: '纸人承魂民俗',
+                kind: '研究资料',
+                meta: '候选 / 需作者确认',
+                tone: 'warn',
+                detail: {
+                  title: '纸人承魂民俗',
+                  kicker: '素材库 · 候选',
+                  sub: '可作为民俗感参考,需要和设定库承魂窍区分。',
+                  body: [
+                    ['关联原因', '纸人异常和承魂相关素材相似,系统将其召回为候选参考。'],
+                    ['可用部分', '纸人摆放、供桌、朱砂线、避讳词可以作为氛围材料。'],
+                    ['风险', '资料里的民俗说法不能覆盖故事世界观,应由设定库规则裁决。']
+                  ],
+                  related: [['设定库', '丫鬟纸人'], ['校验', '素材/设定边界']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'ledger',
+            title: '叙事台账',
+            count: '5',
+            meta: '伏笔、母题、命题',
+            tone: 'violet',
+            items: [
+              {
+                id: 'promise',
+                title: '纸人会自己移动',
+                kind: '伏笔',
+                meta: '本章埋设 / 后文回收',
+                tone: 'danger',
+                detail: {
+                  title: '纸人会自己移动',
+                  kicker: '伏笔 · 本章埋设',
+                  sub: '本章只让读者感到异常,不马上给出解释。',
+                  body: [
+                    ['埋设点', '纸人从供桌挪到门槛,但门窗没有被打开。'],
+                    ['回收方向', '后续借命契规则揭示后,纸人的移动变成证据。'],
+                    ['风险', '如果本章解释太足,悬疑张力会提前泄掉。']
+                  ],
+                  related: [['设定库', '丫鬟纸人'], ['限知帧', '误以为是风吹']]
+                }
+              },
+              {
+                id: 'motif',
+                title: '纸命 / 借寿',
+                kind: '母题',
+                meta: '贯穿卷一',
+                tone: 'blue',
+                detail: {
+                  title: '纸命 / 借寿',
+                  kicker: '母题 · 卷级',
+                  sub: '本章通过纸、寿命、代偿三个意象建立母题。',
+                  body: [
+                    ['出现方式', '纸人、契纸、麻纸、朱砂线反复出现。'],
+                    ['章内作用', '让读者感到“纸”不是道具,而是命运转移的媒介。'],
+                    ['延展', '后续章节可把纸命推进到借寿和替死。']
+                  ],
+                  related: [['北极星', '主题约束'], ['伏笔', '纸人会自己移动']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'evidence',
+            title: '正文证据',
+            count: '4',
+            meta: '命中片段、段落来源',
+            tone: 'ok',
+            items: [
+              {
+                id: 'lamp',
+                title: '麻油灯段落',
+                kind: '正文证据',
+                meta: '命中素材 / 已写入',
+                tone: 'ok',
+                detail: {
+                  title: '麻油灯段落',
+                  kicker: '正文证据 · 已写入',
+                  sub: '展示素材被如何使用,也能反查来源。',
+                  body: [
+                    ['文本作用', '用灯花、火星、麻纸建立纸扎铺夜间质感。'],
+                    ['关联来源', '来自素材“纸扎铺夜间质感”,并受设定“承影斋”约束。'],
+                    ['下一步', '点击完整详情后可进入正文片段定位,并从片段反跳素材和设定。']
+                  ],
+                  related: [['素材库', '纸扎铺夜间质感'], ['设定库', '承影斋']]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      frame: {
+        title: '第 1 章限知帧树',
+        subtitle: '从当前 POV 向右展开可写、禁写、反讽和盲区,把“知道什么”和“不能写什么”放在同一条路径上。',
+        crumb: '纸命 > 第 1 章 > 限知帧',
+        root: {
+          kicker: 'pov',
+          title: '柳怀玉',
+          meta: '第 1 章视角持有者',
+          points: [['可写事实', '9'], ['禁写事实', '4'], ['戏剧反讽', '3']]
+        },
+        stats: [
+          ['可写', '9', 'ok'],
+          ['禁写', '4', 'danger'],
+          ['反讽', '3', 'brand'],
+          ['盲区', '2', 'warn'],
+          ['来源', '7', 'blue'],
+          ['风险', '1', 'danger']
+        ],
+        defaultGroup: 'forbidden',
+        defaultItem: 'contract-secret',
+        groups: [
+          {
+            id: 'writable',
+            title: '可写事实',
+            count: '9',
+            meta: 'POV 当前知道',
+            tone: 'ok',
+            items: [
+              {
+                id: 'scar',
+                title: '左手烫疤疼',
+                kind: '身体感知',
+                meta: '可直接入文',
+                tone: 'ok',
+                detail: {
+                  title: '左手烫疤疼',
+                  kicker: '限知帧 · 可写',
+                  sub: '柳怀玉能直接感到,可用来承接危险预感。',
+                  body: [
+                    ['为什么可写', '这是 POV 身体感知,不依赖外部解释。'],
+                    ['写法', '先写疼痛,再让他注意到纸人位置变化。'],
+                    ['边界', '不要把疼痛直接解释为借命契反噬。']
+                  ],
+                  related: [['人物', '柳怀玉'], ['正文', '开场段落']]
+                }
+              },
+              {
+                id: 'paper-move',
+                title: '纸人挪到门槛',
+                kind: '亲眼所见',
+                meta: '可写 / 但不解释',
+                tone: 'ok',
+                detail: {
+                  title: '纸人挪到门槛',
+                  kicker: '限知帧 · 可写',
+                  sub: 'POV 看见结果,但不知道原因。',
+                  body: [
+                    ['为什么可写', '纸人位置变化是现场事实,柳怀玉亲眼确认。'],
+                    ['写法', '写门槛湿泥、袖口朱砂线、供桌空位。'],
+                    ['边界', '不能写纸人“主动避开判官差”,因为 POV 不知道。']
+                  ],
+                  related: [['伏笔', '纸人会自己移动'], ['设定库', '丫鬟纸人']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'forbidden',
+            title: '禁止泄露',
+            count: '4',
+            meta: 'POV 当前不知道',
+            tone: 'danger',
+            items: [
+              {
+                id: 'contract-secret',
+                title: '借命契机制',
+                kind: '核心规则',
+                meta: '禁写 / 只露痕迹',
+                tone: 'danger',
+                detail: {
+                  title: '借命契机制',
+                  kicker: '限知帧 · 禁止泄露',
+                  sub: '第 1 章中柳怀玉只看见契纸残片,尚不能理解续命规则。',
+                  body: [
+                    ['为什么禁写', '该机制属于作者全知和后续揭示,不是当前 POV 信息。'],
+                    ['可写替代', '可以写“续命者那栏空着,朱砂墨迹还润着”,但不要解释契约如何生效。'],
+                    ['戏剧价值', '读者能感到有规则在背后运转,POV 只能把它当作怪事。']
+                  ],
+                  related: [['设定库', '借命契'], ['伏笔', '纸人会自己移动']]
+                }
+              },
+              {
+                id: 'judge-identity',
+                title: '崔判官差身份',
+                kind: '隐藏身份',
+                meta: '禁写 / 可写影子',
+                tone: 'danger',
+                detail: {
+                  title: '崔判官差身份',
+                  kicker: '限知帧 · 禁止泄露',
+                  sub: 'POV 不能识别身份,只能感到有人在场。',
+                  body: [
+                    ['为什么禁写', '崔判官差身份在后文显形前不能明说。'],
+                    ['可写替代', '写墙根靴尖、朱砂笔影、后颈寒意。'],
+                    ['风险', '直接写身份会破坏本章的视角限制和悬疑推进。']
+                  ],
+                  related: [['戏剧反讽', '崔判官差在场'], ['设定库', '阴司官差']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'irony',
+            title: '戏剧反讽',
+            count: '3',
+            meta: '读者知道 / POV 不知道',
+            tone: 'brand',
+            items: [
+              {
+                id: 'judge',
+                title: '崔判官差在场',
+                kind: '读者线索',
+                meta: '反讽 / POV 未察觉',
+                tone: 'brand',
+                detail: {
+                  title: '崔判官差在场',
+                  kicker: '限知帧 · 戏剧反讽',
+                  sub: '作者知道判官差在墙根阴影里,柳怀玉只感到后颈发凉。',
+                  body: [
+                    ['张力', '读者能从影子和朱砂笔猜到有人监视,POV 不能确认。'],
+                    ['写法', '写靴尖、影子、灯焰偏斜,不写身份解释。'],
+                    ['返回路径', '完整详情可跳设定库对象,返回条回到限知帧树。']
+                  ],
+                  related: [['设定库', '崔判官差'], ['禁写', '崔判官差身份']]
+                }
+              }
+            ]
+          },
+          {
+            id: 'blind',
+            title: '误判盲区',
+            count: '2',
+            meta: 'POV 合理自欺',
+            tone: 'warn',
+            items: [
+              {
+                id: 'mistake',
+                title: '误以为是风吹',
+                kind: '错误解释',
+                meta: '盲区 / 可写',
+                tone: 'warn',
+                detail: {
+                  title: '误以为是风吹',
+                  kicker: '限知帧 · 误判盲区',
+                  sub: '这能保护限知,也能制造读者的不安。',
+                  body: [
+                    ['章内作用', '让柳怀玉把异常暂时归因给风,避免过早进入真相。'],
+                    ['写法', '写他去看窗缝和门闩,发现解释并不充分。'],
+                    ['后续', '当纸人第二次移动时,这个误判被推翻。']
+                  ],
+                  related: [['伏笔', '纸人会自己移动'], ['正文', '门窗检查']]
+                }
+              }
+            ]
+          }
+        ],
+        defaultPov: 'liuhuaiyu',
+        povChoices: [
+          { id: 'liuhuaiyu', name: '柳怀玉', meta: '纸扎匠 / 本章主 POV' },
+          { id: 'suzhiyuan', name: '苏纸鸢', meta: '知情者 / 半遮半露' },
+          { id: 'shen', name: '沈推官', meta: '外部调查者' }
+        ],
+        povViews: {
+          suzhiyuan: {
+            root: {
+              kicker: 'pov',
+              title: '苏纸鸢',
+              meta: '第 1 章次级视角影子',
+              points: [['可写事实', '7'], ['禁写事实', '5'], ['戏剧反讽', '4']]
+            },
+            stats: [
+              ['可写', '7', 'ok'],
+              ['禁写', '5', 'danger'],
+              ['反讽', '4', 'brand'],
+              ['盲区', '1', 'warn'],
+              ['来源', '6', 'blue'],
+              ['风险', '2', 'danger']
+            ],
+            defaultGroup: 'writable',
+            defaultItem: 'suzhiyuan-knows',
+            groups: [
+              {
+                id: 'writable',
+                title: '可写事实',
+                count: '7',
+                meta: '苏纸鸢知道',
+                tone: 'ok',
+                items: [
+                  {
+                    id: 'suzhiyuan-knows',
+                    title: '知道纸人异常',
+                    kind: '主动隐瞒',
+                    meta: '可写 / 但要遮住动机',
+                    tone: 'ok',
+                    detail: {
+                      title: '知道纸人异常',
+                      kicker: '限知帧 · 苏纸鸢可写',
+                      sub: '她能知道纸人不是普通物件,但不能一次说破原因。',
+                      body: [
+                        ['为什么可写', '苏纸鸢的反应和试探可以显示她知道异常存在。'],
+                        ['写法', '写她先看纸人袖口,再看柳怀玉左手烫疤。'],
+                        ['边界', '不能让她直接解释借命契机制,否则会抢走后续揭示。']
+                      ],
+                      related: [['设定库', '苏纸鸢'], ['素材库', '纸人承魂民俗']]
+                    }
+                  },
+                  {
+                    id: 'suzhiyuan-warning',
+                    title: '提醒别碰契纸',
+                    kind: '行动线索',
+                    meta: '可写 / 含蓄警告',
+                    tone: 'warn',
+                    detail: {
+                      title: '提醒别碰契纸',
+                      kicker: '限知帧 · 苏纸鸢可写',
+                      sub: '她可以阻止动作,但不解释阻止理由。',
+                      body: [
+                        ['章内作用', '用动作制造她比柳怀玉知道更多的感觉。'],
+                        ['可写替代', '“别碰。”她说得太快,像是早等着这一刻。'],
+                        ['风险', '如果说出“碰了会续命”,就越过本章限知边界。']
+                      ],
+                      related: [['设定库', '借命契'], ['伏笔', '纸人会自己移动']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'forbidden',
+                title: '禁止泄露',
+                count: '5',
+                meta: '她知道但此章不该说',
+                tone: 'danger',
+                items: [
+                  {
+                    id: 'suzhiyuan-motive',
+                    title: '来承影斋的真实目的',
+                    kind: '动机真相',
+                    meta: '禁写 / 只露破绽',
+                    tone: 'danger',
+                    detail: {
+                      title: '来承影斋的真实目的',
+                      kicker: '限知帧 · 苏纸鸢禁写',
+                      sub: '她的目的可以通过动作露出,不能用内心独白解释。',
+                      body: [
+                        ['为什么禁写', '本章主要 POV 不是苏纸鸢,动机真相应保留到后续回收。'],
+                        ['可写替代', '写她避开某个柜格,又在柳怀玉转身时回头看。'],
+                        ['戏剧价值', '读者知道她有隐瞒,但不知道隐瞒的方向。']
+                      ],
+                      related: [['伏笔', '苏纸鸢深夜到访'], ['校验', '视角泄露']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'irony',
+                title: '戏剧反讽',
+                count: '4',
+                meta: '读者能猜 / 柳怀玉不知',
+                tone: 'brand',
+                items: [
+                  {
+                    id: 'suzhiyuan-sees-judge',
+                    title: '察觉墙根有人',
+                    kind: '读者线索',
+                    meta: '反讽 / 她不点破',
+                    tone: 'brand',
+                    detail: {
+                      title: '察觉墙根有人',
+                      kicker: '限知帧 · 戏剧反讽',
+                      sub: '苏纸鸢察觉异样,柳怀玉仍以为只是风声。',
+                      body: [
+                        ['张力', '她停顿半拍,说明她知道房里不只两个人。'],
+                        ['写法', '写她把话咽回去,转而问纸人的袖口。'],
+                        ['边界', '不要直接写她认出崔判官差。']
+                      ],
+                      related: [['限知帧', '崔判官差在场'], ['正文', '墙根阴影']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'blind',
+                title: '误判盲区',
+                count: '1',
+                meta: '她也判断错',
+                tone: 'warn',
+                items: [
+                  {
+                    id: 'suzhiyuan-underestimate',
+                    title: '低估纸人的自主性',
+                    kind: '错误判断',
+                    meta: '盲区 / 后续翻转',
+                    tone: 'warn',
+                    detail: {
+                      title: '低估纸人的自主性',
+                      kicker: '限知帧 · 苏纸鸢盲区',
+                      sub: '她知道纸人异常,但低估它已经能主动移动。',
+                      body: [
+                        ['章内作用', '让她不是全知工具人,保留角色不确定性。'],
+                        ['写法', '她检查朱砂线时第一次露出真正慌乱。'],
+                        ['后续', '纸人第二次移动时,她的判断被推翻。']
+                      ],
+                      related: [['设定库', '丫鬟纸人'], ['伏笔', '纸人会自己移动']]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          shen: {
+            root: {
+              kicker: 'pov',
+              title: '沈推官',
+              meta: '第 1 章外部调查视角',
+              points: [['可写事实', '5'], ['禁写事实', '6'], ['盲区', '3']]
+            },
+            stats: [
+              ['可写', '5', 'ok'],
+              ['禁写', '6', 'danger'],
+              ['反讽', '2', 'brand'],
+              ['盲区', '3', 'warn'],
+              ['来源', '4', 'blue'],
+              ['风险', '2', 'danger']
+            ],
+            defaultGroup: 'blind',
+            defaultItem: 'shen-misread',
+            groups: [
+              {
+                id: 'writable',
+                title: '可写事实',
+                count: '5',
+                meta: '沈推官可查到',
+                tone: 'ok',
+                items: [
+                  {
+                    id: 'shen-ledger',
+                    title: '账册页码异常',
+                    kind: '调查线索',
+                    meta: '可写 / 物证',
+                    tone: 'ok',
+                    detail: {
+                      title: '账册页码异常',
+                      kicker: '限知帧 · 沈推官可写',
+                      sub: '他能查物证,但不知道阴司规则。',
+                      body: [
+                        ['为什么可写', '账册缺页是现场物证,不依赖超自然解释。'],
+                        ['写法', '写他核页码、比笔迹、看墨色新旧。'],
+                        ['边界', '不能让他直接推出借命契。']
+                      ],
+                      related: [['正文证据', '账桌段落'], ['设定库', '承影斋']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'forbidden',
+                title: '禁止泄露',
+                count: '6',
+                meta: '调查者还不到位',
+                tone: 'danger',
+                items: [
+                  {
+                    id: 'shen-underworld',
+                    title: '阴司介入',
+                    kind: '世界观真相',
+                    meta: '禁写 / 只留物证',
+                    tone: 'danger',
+                    detail: {
+                      title: '阴司介入',
+                      kicker: '限知帧 · 沈推官禁写',
+                      sub: '沈推官此时只能把案件当成人间案查。',
+                      body: [
+                        ['为什么禁写', '阴司线对沈推官尚不可见,提前写会破坏调查线升级。'],
+                        ['可写替代', '写他发现证据不合常理,但仍用人间逻辑解释。'],
+                        ['风险', '如果他说出阴司官差,会让案件类型过早定性。']
+                      ],
+                      related: [['设定库', '阴司官差'], ['限知帧', '崔判官差身份']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'irony',
+                title: '戏剧反讽',
+                count: '2',
+                meta: '读者知道他查偏',
+                tone: 'brand',
+                items: [
+                  {
+                    id: 'shen-follow-wrong-thread',
+                    title: '追错人间嫌疑',
+                    kind: '调查反讽',
+                    meta: '反讽 / 合理错误',
+                    tone: 'brand',
+                    detail: {
+                      title: '追错人间嫌疑',
+                      kicker: '限知帧 · 戏剧反讽',
+                      sub: '读者知道纸人线更重要,沈推官先按常规案查。',
+                      body: [
+                        ['张力', '他的专业判断越严密,越显示此案不在人间逻辑内。'],
+                        ['写法', '让证据链表面成立,但留下一个纸人无法解释的缺口。'],
+                        ['回收', '后续他意识到物证无法闭环。']
+                      ],
+                      related: [['校验', '案件逻辑'], ['伏笔', '纸人会自己移动']]
+                    }
+                  }
+                ]
+              },
+              {
+                id: 'blind',
+                title: '误判盲区',
+                count: '3',
+                meta: '调查盲区',
+                tone: 'warn',
+                items: [
+                  {
+                    id: 'shen-misread',
+                    title: '把纸人当伪装道具',
+                    kind: '错误判断',
+                    meta: '盲区 / 人间逻辑',
+                    tone: 'warn',
+                    detail: {
+                      title: '把纸人当伪装道具',
+                      kicker: '限知帧 · 沈推官盲区',
+                      sub: '他暂时把纸人理解为人为布置,不是主动异常物。',
+                      body: [
+                        ['章内作用', '把案件先落到可调查层面,避免一开场就玄学定性。'],
+                        ['写法', '写他寻找搬动纸人的脚印和外力痕迹。'],
+                        ['后续', '当痕迹无法解释时,调查线被迫升级。']
+                      ],
+                      related: [['设定库', '丫鬟纸人'], ['正文证据', '门槛湿泥']]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    };
+
+    let mode = 'relation';
+    let orientation = 'wide';
+    let activePov = datasets.frame.defaultPov;
+    let activeGroup = datasets[mode].defaultGroup;
+    let activeItem = datasets[mode].defaultItem;
+    let fullDetail = false;
+
+    const summary = document.getElementById('summary');
+    const treeBoard = document.getElementById('treeBoard');
+    const relationBtn = document.getElementById('relationBtn');
+    const frameBtn = document.getElementById('frameBtn');
+    const wideViewBtn = document.getElementById('wideViewBtn');
+    const downViewBtn = document.getElementById('downViewBtn');
+    const povSelector = document.getElementById('povSelector');
+    const povSelect = document.getElementById('povSelect');
+    const mapMode = document.getElementById('mapMode');
+    const fullMode = document.getElementById('fullMode');
+
+    function data() {
+      const current = datasets[mode];
+      if (mode !== 'frame') return current;
+      const povView = current.povViews[activePov] || {};
+      return {
+        ...current,
+        ...povView,
+        povChoices: current.povChoices,
+        povViews: current.povViews,
+        defaultPov: current.defaultPov
+      };
+    }
+
+    function group() {
+      return data().groups.find(item => item.id === activeGroup) || data().groups[0];
+    }
+
+    function item() {
+      if (!activeItem) return null;
+      return group().items.find(entry => entry.id === activeItem) || group().items[0];
+    }
+
+    function groupOverview() {
+      const current = data();
+      const currentGroup = group();
+      const selectedPov = mode === 'frame'
+        ? (datasets.frame.povChoices.find(choice => choice.id === activePov)?.name || current.root.title)
+        : current.root.title;
+      const riskCount = currentGroup.items.filter(entry => ['danger', 'warn'].includes(entry.tone)).length;
+      const related = Array.from(new Map(
+        currentGroup.items
+          .flatMap(entry => entry.detail.related || [])
+          .map(([label, value]) => [`${label}:${value}`, [label, value]])
+      ).values()).slice(0, 4);
+      const frameCopy = {
+        writable: ['这类事实可以进入当前 POV 的感知、行动和判断。', '写作时仍要保留角色表达方式,不要替作者解释世界观。'],
+        forbidden: ['这类事实不应进入当前 POV 的内心、判断或直接叙述。', '适合转成痕迹、动作、错觉或后文回收点。'],
+        irony: ['这类信息读者可以察觉,但当前 POV 不能确认。', '重点是制造信息差,不要让角色替读者总结真相。'],
+        blind: ['这类内容是当前 POV 的合理误判。', '盲区要可理解,后续被事实推翻时才有说服力。']
+      };
+      const relationCopy = {
+        codex: ['这类对象是本章必须服从的设定约束。', '素材、正文和主编建议都不能覆盖这些设定事实。'],
+        materials: ['这类对象是本章可借用的参考材料。', '它们只能提供质感和知识来源,不能自动变成故事事实。'],
+        ledger: ['这类对象负责叙事承诺和主题连续性。', '重点检查本章是否埋设、推进或回收得足够清楚。'],
+        evidence: ['这类对象是正文里已经命中的片段。', '它们用于反查设定、素材和台账是否真的进入文本。']
+      };
+      const copy = mode === 'frame'
+        ? (frameCopy[currentGroup.id] || ['该分类汇总当前视角下的一组事实。', '先看总览,再点具体事实进入详情。'])
+        : (relationCopy[currentGroup.id] || ['该分类汇总本章关联对象。', '先看总览,再点具体对象进入详情。']);
+      return {
+        title: currentGroup.title,
+        kicker: mode === 'frame' ? `限知分类 · ${selectedPov}` : `关联分类 · ${current.root.title}`,
+        sub: `${currentGroup.meta} · ${currentGroup.items.length}项 · ${riskCount}项需注意`,
+        body: [
+          ['分类含义', copy[0]],
+          ['写作约束', copy[1]],
+          ['当前范围', mode === 'frame'
+            ? `${selectedPov} 的 ${currentGroup.title} 中有 ${currentGroup.items.length} 条事实,先用于判断本章能不能写、怎么写。`
+            : `${current.root.title} 的 ${currentGroup.title} 中有 ${currentGroup.items.length} 个对象,先用于判断本章依赖关系是否闭环。`]
+        ],
+        related: related.length ? related : [['本章', current.root.title]],
+        actions: mode === 'frame'
+          ? ['查看全部命中正文', '校验本章泄露', '问主编怎么改']
+          : ['查看全部关联对象', '校验本章闭环', '问主编怎么用']
+      };
+    }
+
+    function badgeClass(tone) {
+      if (!tone) return 'badge';
+      if (tone === 'brand') return 'badge brand';
+      if (tone === 'danger') return 'badge danger';
+      if (tone === 'warn') return 'badge warn';
+      if (tone === 'ok') return 'badge ok';
+      return 'badge';
+    }
+
+    function escapeText(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+    }
+
+    function renderHead() {
+      const current = data();
+      document.getElementById('breadcrumb').textContent = current.crumb;
+      document.getElementById('mapTitle').textContent = current.title;
+      document.getElementById('mapSubtitle').textContent = current.subtitle;
+      relationBtn.classList.toggle('active', mode === 'relation');
+      frameBtn.classList.toggle('active', mode === 'frame');
+      wideViewBtn.classList.toggle('active', orientation === 'wide');
+      downViewBtn.classList.toggle('active', orientation === 'down');
+      povSelector.classList.toggle('hidden', mode !== 'frame');
+      if (mode === 'frame') {
+        povSelect.innerHTML = datasets.frame.povChoices.map(choice => `
+          <option value="${escapeText(choice.id)}" ${choice.id === activePov ? 'selected' : ''}>
+            ${escapeText(choice.name)}
+          </option>
+        `).join('');
+      }
+      summary.innerHTML = current.stats.map(([label, value, tone]) => `
+        <div class="stat">
+          <div class="label">${escapeText(label)}</div>
+          <div class="value tone-${escapeText(tone)}">${escapeText(value)}</div>
+        </div>
+      `).join('');
+      const selectedItem = item();
+      document.getElementById('pathLine').innerHTML = selectedItem ? `
+        <span>${escapeText(current.root.title)}</span>
+        <span>/</span>
+        <span>${escapeText(group().title)}</span>
+        <span>/</span>
+        <span class="path-current">${escapeText(selectedItem.title)}</span>
+      ` : `
+        <span>${escapeText(current.root.title)}</span>
+        <span>/</span>
+        <span class="path-current">${escapeText(group().title)}</span>
+      `;
+    }
+
+    function renderGroupButtons() {
+      return data().groups.map(entry => `
+        <button class="tree-node ${entry.id === activeGroup ? 'active' : ''}" data-group="${escapeText(entry.id)}" data-tone="${escapeText(entry.tone)}" type="button">
+          <div class="kicker">${escapeText(entry.meta)}</div>
+          <div class="name"><span>${escapeText(entry.title)}</span><span class="count">${escapeText(entry.count)}</span></div>
+        </button>
+      `).join('');
+    }
+
+    function renderItemButtons() {
+      return group().items.map(entry => `
+        <button class="tree-node ${entry.id === activeItem ? 'active' : ''}" data-item="${escapeText(entry.id)}" data-tone="${escapeText(entry.tone)}" type="button">
+          <div class="kicker">${escapeText(entry.kind)}</div>
+          <div class="name"><span>${escapeText(entry.title)}</span><span class="${badgeClass(entry.tone)}">${escapeText(entry.tone === 'danger' ? '风险' : entry.tone === 'warn' ? '待确认' : '已关联')}</span></div>
+          <div class="meta">${escapeText(entry.meta)}</div>
+        </button>
+      `).join('');
+    }
+
+    function renderInlineDetail(compact = false) {
+      const selected = item();
+      if (!selected) return renderGroupOverview(compact);
+      const detail = selected.detail;
+      return `
+        <article class="inline-detail">
+          <div class="detail-head">
+            <div class="detail-kicker">${escapeText(detail.kicker)}</div>
+            <h2 class="detail-title">${escapeText(detail.title)}</h2>
+            <div class="detail-sub">${escapeText(detail.sub)}</div>
+          </div>
+          <div class="detail-body">
+            ${detail.body.map(([label, value], index) => `
+              <section>
+                <div class="section-label">${escapeText(label)}</div>
+                <div class="section-value ${index === 1 ? 'quote' : ''}">${escapeText(value)}</div>
+              </section>
+            `).join('')}
+            ${compact ? '' : `
+              <section>
+                <div class="section-label">关联跳转</div>
+                <div class="related-list">
+                  ${detail.related.map(([label, value]) => `
+                    <div class="related-row"><strong>${escapeText(label)}</strong><span>${escapeText(value)}</span></div>
+                  `).join('')}
+                </div>
+              </section>
+            `}
+          </div>
+          <div class="detail-actions">
+            <button class="btn primary" id="openFullBtn" type="button">打开完整详情</button>
+            <button class="btn" type="button">固定到本章</button>
+            <button class="btn ghost" type="button">问主编</button>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderGroupOverview(compact = false) {
+      const overview = groupOverview();
+      return `
+        <article class="inline-detail">
+          <div class="detail-head">
+            <div class="detail-kicker">${escapeText(overview.kicker)}</div>
+            <h2 class="detail-title">${escapeText(overview.title)}</h2>
+            <div class="detail-sub">${escapeText(overview.sub)}</div>
+          </div>
+          <div class="detail-body">
+            ${overview.body.map(([label, value], index) => `
+              <section>
+                <div class="section-label">${escapeText(label)}</div>
+                <div class="section-value ${index === 1 ? 'quote' : ''}">${escapeText(value)}</div>
+              </section>
+            `).join('')}
+            ${compact ? '' : `
+              <section>
+                <div class="section-label">关联范围</div>
+                <div class="related-list">
+                  ${overview.related.map(([label, value]) => `
+                    <div class="related-row"><strong>${escapeText(label)}</strong><span>${escapeText(value)}</span></div>
+                  `).join('')}
+                </div>
+              </section>
+            `}
+          </div>
+          <div class="detail-actions">
+            <button class="btn primary" type="button">${escapeText(overview.actions[0])}</button>
+            <button class="btn" type="button">${escapeText(overview.actions[1])}</button>
+            <button class="btn ghost" type="button">${escapeText(overview.actions[2])}</button>
+          </div>
+        </article>
+      `;
+    }
+
+    function bindTreeEvents() {
+      treeBoard.querySelectorAll('[data-group]').forEach(button => {
+        button.addEventListener('click', () => {
+          activeGroup = button.dataset.group;
+          activeItem = null;
+          fullDetail = false;
+          render();
+        });
+      });
+      treeBoard.querySelectorAll('[data-item]').forEach(button => {
+        button.addEventListener('click', () => {
+          activeItem = button.dataset.item;
+          fullDetail = false;
+          render();
+        });
+      });
+      const openFullBtn = document.getElementById('openFullBtn');
+      if (openFullBtn) {
+        openFullBtn.addEventListener('click', () => {
+          fullDetail = true;
+          render();
+        });
+      }
+    }
+
+    function renderWideTree() {
+      treeBoard.innerHTML = `
+        <div class="tree-columns">
+          <section class="tree-column">
+            <div class="column-label"><span>分组</span><span>${data().groups.length}类</span></div>
+            <div class="group-list">${renderGroupButtons()}</div>
+          </section>
+          <section class="tree-column">
+            <div class="column-label"><span>${escapeText(group().title)}</span><span>${group().items.length}项</span></div>
+            <div class="item-list">${renderItemButtons()}</div>
+          </section>
+          <section class="tree-column">
+            <div class="column-label"><span>就地详情</span><span>随路径更新</span></div>
+            ${renderInlineDetail(false)}
+          </section>
+        </div>
+      `;
+      bindTreeEvents();
+    }
+
+    function renderDownTree() {
+      treeBoard.innerHTML = `
+        <div class="vertical-tree">
+          ${data().groups.map(entry => `
+            <section class="vtree-group">
+              <button class="tree-node ${entry.id === activeGroup ? 'active' : ''}" data-group="${escapeText(entry.id)}" data-tone="${escapeText(entry.tone)}" type="button">
+                <div class="kicker">${escapeText(entry.meta)}</div>
+                <div class="name"><span>${escapeText(entry.title)}</span><span class="count">${escapeText(entry.count)}</span></div>
+              </button>
+              <div class="vtree-items ${entry.id === activeGroup ? '' : 'hidden'}">
+                ${entry.items.map(child => `
+                  <button class="tree-node ${child.id === activeItem ? 'active' : ''}" data-item="${escapeText(child.id)}" data-tone="${escapeText(child.tone)}" type="button">
+                    <div class="kicker">${escapeText(child.kind)}</div>
+                    <div class="name"><span>${escapeText(child.title)}</span><span class="${badgeClass(child.tone)}">${escapeText(child.tone === 'danger' ? '风险' : child.tone === 'warn' ? '待确认' : '已关联')}</span></div>
+                    <div class="meta">${escapeText(child.meta)}</div>
+                  </button>
+                  ${child.id === activeItem ? renderInlineDetail(true) : ''}
+                `).join('')}
+                ${activeItem === null && entry.id === activeGroup ? renderInlineDetail(true) : ''}
+              </div>
+            </section>
+          `).join('')}
+        </div>
+      `;
+      bindTreeEvents();
+    }
+
+    function renderFullDetail() {
+      const selected = item();
+      const detail = selected.detail;
+      fullMode.innerHTML = `
+        <div class="return-bar">
+          <button class="btn" id="backToTreeBtn" type="button">返回上下文树</button>
+          <span>${escapeText(data().root.title)} / ${escapeText(group().title)} / ${escapeText(detail.title)}</span>
+        </div>
+        <article class="full-detail">
+          <section class="full-main">
+            <div class="detail-kicker">${escapeText(detail.kicker)}</div>
+            <h2 class="full-title">${escapeText(detail.title)}</h2>
+            <div class="detail-sub">${escapeText(detail.sub)}</div>
+            <div class="detail-body">
+              ${detail.body.map(([label, value], index) => `
+                <section>
+                  <div class="section-label">${escapeText(label)}</div>
+                  <div class="section-value ${index === 1 ? 'quote' : ''}">${escapeText(value)}</div>
+                </section>
+              `).join('')}
+              <section>
+                <div class="section-label">返回机制</div>
+                <div class="kv">
+                  <div class="k">返回</div><div>点击顶部返回条或按 Esc,回到上下文树并保留选中的分组和对象。</div>
+                  <div class="k">跳转</div><div>真实实现中复用设定库、素材库、伏笔或正文的 DetailPane,不复制一套详情 UI。</div>
+                  <div class="k">定位</div><div>返回后路径仍停在“${escapeText(group().title)} / ${escapeText(detail.title)}”。</div>
+                </div>
+              </section>
+            </div>
+          </section>
+          <aside class="full-aside">
+            <div class="section-label">来源路径</div>
+            <div class="kv">
+              <div class="k">${mode === 'frame' ? '视角' : '章节'}</div><div>${escapeText(data().root.title)}</div>
+              <div class="k">分组</div><div>${escapeText(group().title)}</div>
+              <div class="k">对象</div><div>${escapeText(detail.title)}</div>
+            </div>
+            <div class="section-label" style="margin-top:16px;">相关项</div>
+            <div class="related-list">
+              ${detail.related.map(([label, value]) => `
+                <div class="related-row"><strong>${escapeText(label)}</strong><span>${escapeText(value)}</span></div>
+              `).join('')}
+            </div>
+          </aside>
+        </article>
+      `;
+      document.getElementById('backToTreeBtn').addEventListener('click', () => {
+        fullDetail = false;
+        render();
+      });
+    }
+
+    function render() {
+      renderHead();
+      mapMode.classList.toggle('hidden', fullDetail);
+      fullMode.classList.toggle('hidden', !fullDetail);
+      if (fullDetail) {
+        renderFullDetail();
+        return;
+      }
+      if (orientation === 'wide') {
+        renderWideTree();
+      } else {
+        renderDownTree();
+      }
+    }
+
+    function resetMode(nextMode) {
+      mode = nextMode;
+      if (mode === 'frame') activePov = datasets.frame.defaultPov;
+      activeGroup = data().defaultGroup;
+      activeItem = mode === 'frame' ? null : data().defaultItem;
+      fullDetail = false;
+      render();
+    }
+
+    relationBtn.addEventListener('click', () => resetMode('relation'));
+    frameBtn.addEventListener('click', () => resetMode('frame'));
+    povSelect.addEventListener('change', () => {
+      activePov = povSelect.value;
+      activeGroup = data().defaultGroup;
+      activeItem = null;
+      fullDetail = false;
+      render();
+    });
+    wideViewBtn.addEventListener('click', () => {
+      orientation = 'wide';
+      fullDetail = false;
+      render();
+    });
+    downViewBtn.addEventListener('click', () => {
+      orientation = 'down';
+      fullDetail = false;
+      render();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && fullDetail) {
+        fullDetail = false;
+        render();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>
