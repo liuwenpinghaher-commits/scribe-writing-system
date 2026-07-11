@@ -92,7 +92,7 @@ flowchart LR
 | `scribe3/migrations/076_context_session.surql` | context session/snapshot/navigation event |
 | `scribe3/migrations/077_editorial_thread.surql` | 作品级主编线程与 chat_message 关联 |
 | `scribe3/migrations/078_memory_fabric.surql` | working/episodic/procedural/uncertainty 记忆及关系 |
-| `scribe3/migrations/079_memory_trace.surql` | 检索候选、选中、prompt 注入和评测记录 |
+| `scribe3/migrations/082_memory_trace.surql` | 检索候选、选中、prompt 注入和评测记录（号段纠正：原写 079 已被 Task 9 `079_memory_capture.surql` 占用，实际落 082） |
 | `scribe3/web/src/context/contextSnapshot.js` | 前端 intent 归一化、快照签名和乐观状态转换 |
 | `scribe3/web/src/context/ContextSnapshotContext.jsx` | 唯一语义导航 store，向四栏与主编发布同一 snapshot |
 | `scribe3/web/src/context/ContextInspector.jsx` | 展示当前 revision、注入层、来源、不确定性和过期告警 |
@@ -1304,17 +1304,21 @@ Expected: PASS.
 ### Task 14: 增加上下文检查器和记忆溯源 UI
 
 **Files:**
-- Create: `scribe3/migrations/079_memory_trace.surql`
+- Create: `scribe3/migrations/082_memory_trace.surql`（号段纠正：原写 079 已被 Task 9 `079_memory_capture.surql` 占用，当前号段到 081，故落 082；schema 照本节 Step 2）
+- Create: `scribe3/tests/test_memory_trace.py`
 - Create: `scribe3/web/src/context/ContextInspector.jsx`
 - Create: `scribe3/web/src/context/ContextInspector.test.jsx`
 - Modify: `scribe3/store.py`
 - Modify: `scribe3/app.py`
+- Modify: `scribe3/tests/test_security.py`
 - Modify: `scribe3/web/src/ChiefDock.jsx`
 - Modify: `scribe3/web/src/api.js`
 
 **Interfaces:**
 - Consumes: ContextEnvelope and RetrievalResult.
 - Produces: `GET /context/sessions/{id}/trace/{revision}` and an author-visible inspector.
+
+**实施状态（2026-07-11 完成）：** trace 基础设施就绪——082 schema + `store.save_memory_trace`/`get_memory_trace`/`get_memory_trace_for_snapshot` + `build_memory_trace`（RetrievalResult→trace 映射接口）+ `mask_memory_trace`（服务端权威秘密屏蔽）+ `GET /context/sessions/{id}/trace/{revision}` API + 三层 ContextInspector UI（挂 ChiefDock 讨论槽）+ 降级状态（current/optimistic/stale/retrieval_degraded/hermes_read_only/hermes_offline）。**真实 trace 数据待 Task 16 检索接进生产 prompt 后填充**：当前 Task 8 检索器【无生产 prompt 调用方】，故 `build_memory_trace`+`save_memory_trace` 的生产调用点留待 Task 16 在检索发生处接线（见 `store.py` build_memory_trace 注记）；在此之前 memory_trace 表基本为空，GET trace 多返 404，检查器显“未检索到证据”。测试用桩 trace 验证 schema/落库/屏蔽/API/UI，不假装已有真实检索流。后端 `test_memory_trace.py`(8) + `test_security.py`(+1) 绿；前端 `ContextInspector.test.jsx`(12) + `chiefDock-ui.test.jsx`(7) 绿。
 
 - [ ] **Step 1: 写 trace 完整性失败测试**
 
@@ -1463,6 +1467,31 @@ Expected: 包未发布时输出 `enabled=false, reason=sdk_or_integration_missin
 **Interfaces:**
 - Consumes: Tasks 3-15.
 - Produces: feature flags、runtime status、metrics、rate limits、fallbacks、rollout controls.
+
+**审查记账（2026-07-11 全系统深度审查 · 回修与收口项）**
+
+已回修（本轮，非 Task 16）：
+- **必修1 秘密 trace 服务端权威**：`build_memory_trace`/`save_memory_trace` 引入与 assembler C1 同款
+  `_secret_fact_ids(store)` 权威判定，屏蔽条件 = `source_id ∈ store 权威 secret 集 OR provenance.secret`；
+  `save_memory_trace` 落库前必过（at-rest 不变量，`test_memory_trace` 直查 DB 行断言明文不入库）。
+- **必修2 processing 孤儿回收**：`store.reclaim_stale_processing_events`（processed_at 为空 + 可选时间阈值），
+  `consolidate_thread` 起手调用把硬崩溃遗留的 `processing` 复位 `failed` 可回收 + 告警可见。
+- **必修3 canonical_claim 幂等**：`add_pending_authority_claim` 加 (work,source_type,source_id) 预查去重。
+- **必修4 降级契约**：`ContextInspector` 改读 `runtime.summary.degraded`（真端点契约）。
+- **顺手**：consolidate drain 的 `_drain_one(claimed=True)` 免 attempts 双累加；本汇总表 079→082 号段。
+
+**捕获恒开 / 检索未接（Task 16 核心前置，勿当已修）**：`_capture_turn_memory` 每轮恒开同步 embed（有成本）、
+无 toggle；`_get_write_retriever` 恒返 None，记忆永不进写作 prompt（只写不读半空转）。Task 16 须对称接线：
+检索接进生产 envelope + 给捕获加 feature toggle，二者一并放开（见 `memory_capture.py` 模块顶注）。
+
+**潜伏收口项（本轮不改，Task 16 逐条收口）**：
+- `save_memory_trace` 非原子（DELETE+CREATE 两语句无事务/CAS），并发同 trace_id 重放有竞态窗口。
+- graph 检索通道不过滤 work（跨作品记忆边可能被遍历到）。
+- `forget`/lifecycle 清理漏清 `memory_trace`（trace 里的证据快照不随记忆遗忘一并清）。
+- hedged 检索路径的秘密候选可能进 `memory_item`（捕获红线在 canonical 分支,hedged 另算）。
+- assembler 全知章 secret 两分支（候选路径 vs project_frame 路径）口径仍需最终对齐复核。
+- `ai_run_trace` 无 CAS（并发写覆盖风险）。
+- 各性能项：`_secret_fact_ids` 每次 save 全表扫 proposition、检索/embedding 缓存等（见 Step 3）。
 
 - [ ] **Step 1: 写隔离和秘密遮罩失败测试**
 

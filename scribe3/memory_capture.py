@@ -35,6 +35,12 @@
 ── 分类器 MVP ──────────────────────────────────────────────────────
 规则/关键词 + 显式 classification(测试用 classification= 优先);无显式时用轻量启发式。
 不接 LLM 分类(降复杂度 + 省调用);后续可升级为 LLM/embedding 分类器。
+
+── 审查记账(半空转,待 Task 16 收口,勿当已修)──────────────────────
+  · 捕获已【恒开】:_capture_turn_memory 每轮同步 embed(有真实 embedding 成本),无 feature
+    toggle 可关;而检索器【生产未接】——_get_write_retriever 恒返 None,记忆永不进写作 prompt
+    (只写不读的半空转)。Task 16 须对称接线:检索接进生产 envelope + 给捕获加 toggle
+    (成本可控),二者一并放开,避免"只烧 embed 不产出"的长期空转。
 """
 from __future__ import annotations
 
@@ -266,8 +272,11 @@ class MemoryCapture:
 
     # ── 单事件同步 drain(状态机核心)────────────────────────────────
     def _drain_one(self, event_id: str, work: str, event_type: str,
-                   payload: dict, thread_id: str | None) -> dict:
-        self.store.begin_processing_event(event_id)
+                   payload: dict, thread_id: str | None, *, claimed: bool = False) -> dict:
+        # claimed=True:调用方(consolidate 的 claim_pending_events)已 CAS 置 processing +
+        # attempts+1,此处不再 begin_processing_event(否则 attempts 双累加,见顺手修)。
+        if not claimed:
+            self.store.begin_processing_event(event_id)
         try:
             info = self._route(work, event_type, payload or {}, thread_id, event_id)
             self.store.mark_event_complete(event_id)
@@ -347,11 +356,20 @@ class MemoryCapture:
         if not thread_id:
             return {"through_turn": 0}
 
+        # 0) 硬崩溃孤儿回收:进程在 begin_processing→mark_complete 窗口被 SIGKILL/OOM 时,
+        #    事件永久卡 'processing'(claim_pending_events 只认领 pending/failed,结构性排除
+        #    processing),经验记忆静默永久丢失、count_failed 看不见。起手把陈旧 processing 复位
+        #    failed 可回收,再由下面的 claim 重 drain 找回。同步单进程模型:reaper 先于本次自身
+        #    drain,此刻任何 processing 皆为上一进程崩溃遗留(非本次在途),复位安全(见 store 方法注)。
+        self.store.reclaim_stale_processing_events(
+            work=work, thread_id=thread_id, event_type="turn")
+
         # 1) 掉线残留 drain(仅 turn,避免把 compress/session_end 事件卷进死循环)。
+        #    claimed=True:claim 已置 processing + attempts+1,_drain_one 不再重复 begin(防双累加)。
         for ev in self.store.claim_pending_events(
                 work=work, thread_id=thread_id, event_type="turn"):
             self._drain_one(ev["event_id"], ev["work"], ev["event_type"],
-                            ev.get("payload") or {}, ev.get("thread_id"))
+                            ev.get("payload") or {}, ev.get("thread_id"), claimed=True)
 
         # 2) 从已完成 turn 压缩工作摘要。
         events = self.store.list_memory_events(

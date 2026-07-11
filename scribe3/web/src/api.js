@@ -212,6 +212,11 @@ export const api = {
   contextSession: (id) => j('/context/sessions/' + enc(id)),
   navigateContext: (id, intent) => post('/context/sessions/' + enc(id) + '/navigate', intent),
   contextSnapshot: (id, revision) => j('/context/sessions/' + enc(id) + '/snapshots/' + revision),
+  // Task 14:某快照版本的记忆溯源 trace(上下文检查器数据源)。该版本暂无溯源 → 404
+  // memory_trace_not_found(检索生产接线待 Task 16),检查器据此显"未检索到证据"。
+  getMemoryTrace: (id, revision) => j('/context/sessions/' + enc(id) + '/trace/' + revision),
+  // 运行时降级状态(Hermes 离线/只读判定源);全局端点,不带 work。
+  aiRuntimeStatus: () => jraw('/ai/runtime-status'),
   // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
   // forkThread 显式分支(导航路径绝不调此)。

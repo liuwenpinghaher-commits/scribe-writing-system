@@ -271,6 +271,85 @@ def test_p1_replay_after_crash_window_no_duplicate(store, capture, monkeypatch):
         "崩溃窗口后重 drain 不得产生重复记忆"
 
 
+# ---------- 必修2:硬崩溃(SIGKILL/OOM)留 processing 孤儿 → reaper 回收,经验记忆不静默丢失 ----------
+
+def test_p1_hard_crash_processing_orphan_reclaimed_by_consolidate(store, capture):
+    """硬崩溃:进程在 begin_processing→mark_complete 窗口被 SIGKILL(直接残留 'processing',
+    不经 Python 异常,故不落 failed)→ 事件永久卡 processing;claim_pending_events 只认领
+    pending/failed(结构性排除 processing)、无 reaper → 该轮经验记忆静默永久丢失。
+    修后:consolidate 起手 reaper 复位 failed → 重 drain 找回,经验记忆最终入库。"""
+    tid = "ethread:w:hardcrash"
+    store.enqueue_memory_event("turn:hard", "w", "turn",
+                               {"text": "已决定把开场改成雪夜"}, thread_id=tid)
+    store.begin_processing_event("turn:hard")     # 硬崩溃:留 processing,不 mark
+
+    # 修前症状:卡 processing、claim 认领不到、记忆未入库(静默丢失)
+    assert store.get_memory_event("turn:hard")["status"] == "processing"
+    assert store.claim_pending_events(work="w", thread_id=tid, event_type="turn") == []
+    assert store.count_memory_by_source("chat_turn", "turn:hard") == 0
+
+    # consolidate 端到端回收:step0 reaper 复位 failed + step1 claim 重 drain
+    capture.consolidate_thread(tid, work="w")
+    assert store.get_memory_event("turn:hard")["status"] == "complete"
+    assert store.count_memory_by_source("chat_turn", "turn:hard") == 1, \
+        "硬崩溃 processing 孤儿必须被回收,经验记忆不得静默丢失"
+
+
+def test_p1_reaper_makes_processing_orphan_visible_as_failed(store):
+    """reaper 使 processing 孤儿【告警可见】:卡 processing 时 count_failed_memory_events 看不见
+    (只数 failed),复位 failed 后可见。这是"静默丢失"变"可见可回收"的关键。"""
+    tid = "ethread:w:orphanvis"
+    store.enqueue_memory_event("turn:orphan", "w", "turn", {"text": "改了个设定"}, thread_id=tid)
+    store.begin_processing_event("turn:orphan")
+    assert store.count_failed_memory_events(work="w") == 0     # 卡 processing 不可见
+
+    reclaimed = store.reclaim_stale_processing_events(work="w", thread_id=tid, event_type="turn")
+    assert any(r["event_id"] == "turn:orphan" for r in reclaimed)
+    assert store.get_memory_event("turn:orphan")["status"] == "failed"
+    assert store.count_failed_memory_events(work="w") >= 1     # 复位后告警可见
+
+
+def test_reaper_time_threshold_spares_fresh_in_flight(store):
+    """纵深防御:older_than_seconds 大时,刚置的 processing(可能是在途/跨进程)不被误伤。"""
+    tid = "ethread:w:fresh"
+    store.enqueue_memory_event("turn:fresh", "w", "turn", {"text": "在途"}, thread_id=tid)
+    store.begin_processing_event("turn:fresh")
+    reclaimed = store.reclaim_stale_processing_events(
+        work="w", thread_id=tid, event_type="turn", older_than_seconds=3600)
+    assert reclaimed == []
+    assert store.get_memory_event("turn:fresh")["status"] == "processing"
+
+
+# ---------- 必修3:canonical_claim 路由崩溃窗口重放幂等(不产生重复待审) ----------
+
+def test_p1_canonical_claim_crash_window_is_idempotent(store, capture, monkeypatch):
+    """canonical 分支的崩溃窗口重放不得产生重复待审。add_pending_authority_claim 成功但
+    mark_complete 崩(事件 failed)→ consolidate 以同 source_id=event_id 重 drain 回 canonical
+    → 预查去重命中,pending_authority_claim 仍 1 条(此前裸 CREATE 会得两行同 text)。"""
+    tid = "ethread:w:canon-crash"
+    real_complete = store.mark_event_complete
+    calls = {"n": 0}
+
+    def flaky_complete(event_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("mark_complete crashed")   # 崩溃窗口:待审已建,complete 未落
+        return real_complete(event_id)
+
+    monkeypatch.setattr(store, "mark_event_complete", flaky_complete, raising=False)
+
+    capture.capture_event(turn_event(
+        event_id="turn:canon", text="甲的真实身份是前朝遗孤",
+        classification="canonical_claim", work="w", thread_id=tid))
+    assert store.get_memory_event("turn:canon")["status"] == "failed"
+    assert len(store.list_pending_authority_claims(work="w")) == 1
+
+    capture.consolidate_thread(tid, work="w")    # 重 drain 同 source_id
+    assert store.get_memory_event("turn:canon")["status"] == "complete"
+    assert len(store.list_pending_authority_claims(work="w")) == 1, \
+        "canonical 崩溃窗口重放不得产生重复待审"
+
+
 def test_p1_add_memory_item_is_effect_idempotent(store, monkeypatch):
     """add_memory_item 按 (work, source_type, source_id) 效果幂等:重复调用返回同一 id。"""
     _patch_embed(monkeypatch)

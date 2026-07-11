@@ -14,6 +14,7 @@ import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } fr
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
+import { ContextInspector } from './context/ContextInspector'
 import { Btn } from './ui.jsx'
 
 // Task 6:后端线程消息(role/text/focus/context_revision)→ 对话气泡形状(content)。
@@ -665,6 +666,9 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         </div>
         <UsageChip />
       </div>
+
+      {/* Task 14:上下文检查器 —— 主编到底看到了什么、为什么选/弃某条记忆(可折叠,常显第1层) */}
+      <ContextInspector />
 
       {/* 消息列表 */}
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">

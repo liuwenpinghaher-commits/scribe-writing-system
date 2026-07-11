@@ -461,6 +461,139 @@ def backfill_material_memory(store) -> int:
     return n
 
 
+# ===========================================================================
+# 统一上下文与记忆系统 · Task 14:记忆溯源 trace 的映射 + 服务端权威屏蔽
+#
+# 边界(诚实):trace 基础设施(schema / 落库 / 屏蔽 / API / UI)就绪,但当前
+#   【无生产检索调用方】把 RetrievalResult 灌进 trace——检索接进写作 prompt 是
+#   Task 16 envelope 灰度才做。build_memory_trace 是就绪的映射接口,真实 trace
+#   数据待 Task 16 检索生产接线后由检索发生处调用它 + save_memory_trace 落库。
+#   在此之前 memory_trace 表基本为空,GET trace API 多返 404(前端显"未检索到证据")。
+# ===========================================================================
+
+# trace 里私密证据的屏蔽占位:前端 UI 只显此语义,绝不显 value(限知红线)。
+_TRACE_SECRET_MASK = "秘密事实已屏蔽"
+
+
+def _mask_trace_item(item, secret_ids=None):
+    """单条证据屏蔽:secret 为真时抹掉 text/value,只留 masked 标记(不可逆)。
+
+    C1 对齐(宪法级):秘密判定 = provenance/item 自标 secret 【OR】 source_id ∈ store 权威
+    secret 集(secret_ids)。retriever 漏标(item.secret=False)但 source_id 是 store 权威
+    秘密时,一律屏蔽——裁决权归 store,不归 retriever(参照 context_assembler._secret_fact_ids)。
+    权威判定为真时回写 secret=True,使兜底重掩(GET 无 secret_ids 时)与 DB at-rest 都一致。"""
+    if not isinstance(item, dict):
+        return item
+    is_secret = bool(item.get("secret"))
+    if not is_secret and secret_ids and item.get("source_id") in secret_ids:
+        is_secret = True
+    if not is_secret:
+        return item
+    masked = dict(item)
+    masked["secret"] = True        # 回写权威判定(retriever 漏标时补齐),DB/GET 皆一致
+    masked["masked"] = True
+    masked["text"] = ""
+    masked.pop("value", None)      # 任何私密明文字段一并清除
+    return masked
+
+
+def mask_memory_trace(trace, secret_ids=None):
+    """服务端权威屏蔽(单一真相源):selected/rejected 里私密证据的 value 绝不出服务端。
+
+    幂等:重复屏蔽不误伤非私密证据、不复原私密。落库前(save)与出参前(GET API)
+    都过一遍——参照 Task 7"前端不可信"教训,屏蔽只发生在服务端。
+    secret_ids(可选):store 权威 secret fact id 集;传入时叠加"source_id ∈ 集即屏蔽"的
+    C1 判定,补齐 retriever 漏标弱路径(save_memory_trace 落库前必传,见 _secret_fact_ids)。"""
+    if not isinstance(trace, dict):
+        return trace
+    t = dict(trace)
+    t["selected"] = [_mask_trace_item(x, secret_ids) for x in (trace.get("selected") or [])]
+    t["rejected"] = [_mask_trace_item(x, secret_ids) for x in (trace.get("rejected") or [])]
+    return t
+
+
+def _trace_candidate_secret(cand) -> bool:
+    """候选是否携私密:canonical 事实的 provenance 项带 secret=True 即私密。"""
+    for p in (getattr(cand, "provenance", None) or []):
+        if isinstance(p, dict) and p.get("secret"):
+            return True
+    return False
+
+
+def _trace_candidate_reason(cand) -> str:
+    """选入理由(可解释):正典恒选 / pin 常驻 / 否则按相关性排名选入。"""
+    if getattr(cand, "source_kind", "") == "canonical":
+        return "canonical"
+    if getattr(cand, "pinned", False):
+        return "pinned"
+    return "relevance_rank"
+
+
+def _trace_candidate_item(cand, reason: str) -> dict:
+    """MemoryCandidate → trace 证据 dict(source id / 时态 / 信心 / 理由 + secret 标记)。
+    secret 为真时 text 置空(此处即抹,不依赖后续 mask)。"""
+    secret = _trace_candidate_secret(cand)
+    obs = getattr(cand, "observed_at", None)
+    return {
+        "source_id": getattr(cand, "source_id", ""),
+        "source_kind": getattr(cand, "source_kind", ""),
+        "reason": reason,
+        "confidence": getattr(cand, "confidence", 1.0),
+        "importance": getattr(cand, "importance", 2),
+        # 时态:canonical 恒真无时间戳(None);经验记忆带 observed_at(ISO)
+        "observed_at": obs.isoformat() if hasattr(obs, "isoformat") else obs,
+        "channels": sorted(getattr(cand, "channels", set()) or set()),
+        "final_score": getattr(cand, "final_score", 0.0),
+        "secret": secret,
+        "text": "" if secret else (getattr(cand, "text", "") or ""),
+    }
+
+
+def build_memory_trace(*, trace_id, work, thread_id, context_session_id,
+                       snapshot_revision, result, query="", snapshot_hash="",
+                       envelope_hash="", channels=None, block_tokens=None,
+                       latency_ms=None, response_id=None, run_id=None,
+                       store=None) -> dict:
+    """RetrievalResult(Task 8)→ memory_trace dict(Task 14 溯源)。
+
+    生产接线(Task 16)在检索发生处调用:把当次 RetrievalResult 的 selected/rejected
+    映射成可审计证据(带 reason + 时态 + 信心),secret 由 provenance 判定并屏蔽,
+    再交 save_memory_trace 落库。selected 的 reason 由 _trace_candidate_reason 派生,
+    rejected 的 reason 直接透传 RejectedCandidate.reason(如 conflicts_with_canonical)。
+
+    store(可选):传入时叠加 C1 权威 secret 判定(source_id ∈ 权威 secret 集即屏蔽),
+    补齐 retriever 漏标弱路径——Task 16 接线务必传 store,否则 provenance 漏标即秘密明文
+    残留。即便此处未传,save_memory_trace(有 self=store)仍会在落库前权威兜底(at-rest 保证)。"""
+    selected = [_trace_candidate_item(c, _trace_candidate_reason(c))
+                for c in getattr(result, "selected", [])]
+    rejected = [_trace_candidate_item(r.candidate, r.reason)
+                for r in getattr(result, "rejected", [])]
+    secret_ids = None
+    if store is not None:
+        try:
+            from scribe3.context_assembler import _secret_fact_ids
+            secret_ids = _secret_fact_ids(store)
+        except Exception:
+            secret_ids = None      # fail-soft:退回 provenance 判定,不因取集失败阻断 trace
+    return mask_memory_trace({
+        "trace_id": trace_id,
+        "work": work,
+        "thread_id": thread_id,
+        "context_session_id": context_session_id,
+        "snapshot_revision": int(snapshot_revision),
+        "snapshot_hash": snapshot_hash or "",
+        "envelope_hash": envelope_hash or "",
+        "query": query or "",
+        "channels": channels or {},
+        "selected": selected,
+        "rejected": rejected,
+        "block_tokens": block_tokens or {},
+        "latency_ms": latency_ms or {"total": 0},
+        "response_id": response_id,
+        "run_id": run_id,
+    }, secret_ids=secret_ids)
+
+
 class SurrealStore:
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
@@ -5023,6 +5156,81 @@ class SurrealStore:
             {"sid": session_id})
         return rows[0] if rows else None
 
+    # == Task 14:记忆溯源 trace(上下文检查器数据源;context 区,非 Wave B memory 区)==
+    #
+    # 落一次检索的"选/弃解释"。私密屏蔽是硬红线:save 落库前经 mask_memory_trace
+    # 权威屏蔽(secret 证据 text 抹空),get/API 出参再过一遍(防御性),两处同源。
+    # 真实 trace 数据待 Task 16 检索接进生产 prompt 后填充(见 build_memory_trace 注记)。
+
+    _MEMORY_TRACE_COLS = (
+        "trace_id, work, thread_id, context_session_id, snapshot_revision, "
+        "snapshot_hash, envelope_hash, query, channels, selected, rejected, "
+        "block_tokens, latency_ms, response_id, run_id, "
+        "<string> created_at AS created_at")
+
+    def save_memory_trace(self, trace: dict) -> str:
+        """落一条记忆溯源 trace,返回 trace_id。
+
+        服务端权威屏蔽:selected/rejected 里携私密的证据,value/text 在【落库前】就抹掉
+        (mask_memory_trace),DB 永不持有私密明文——不靠前端不显(Task 7 教训)。
+        同 trace_id 重放:先删后建(幂等 upsert 语义,单语句各自 _execute_write,
+        不触多语句 query() 吞错铁律)。"""
+        if not isinstance(trace, dict) or not trace.get("trace_id"):
+            raise ValueError("save_memory_trace: 需要 trace['trace_id']")
+        # C1 权威兜底(at-rest 不变量):落库前叠加 store 权威 secret 集,凡候选 source_id
+        # ∈ 权威 secret 即屏蔽——不信 retriever 自报的 provenance.secret(漏标即秘密明文入 DB)。
+        # 与 context_assembler 的 C1 同款口径(复用 _secret_fact_ids),fail-soft 退回空集。
+        try:
+            from scribe3.context_assembler import _secret_fact_ids
+            secret_ids = _secret_fact_ids(self)
+        except Exception:
+            secret_ids = None
+        t = mask_memory_trace(trace, secret_ids=secret_ids)
+        tid = str(t["trace_id"])
+        doc = {
+            "trace_id": tid,
+            "work": str(t.get("work") or ""),
+            "thread_id": str(t.get("thread_id") or ""),
+            "context_session_id": str(t.get("context_session_id") or ""),
+            "snapshot_revision": int(t.get("snapshot_revision") or 0),
+            "snapshot_hash": str(t.get("snapshot_hash") or ""),
+            "envelope_hash": str(t.get("envelope_hash") or ""),
+            "query": str(t.get("query") or ""),
+            "channels": t.get("channels") or {},
+            "selected": t.get("selected") or [],
+            "rejected": t.get("rejected") or [],
+            "block_tokens": t.get("block_tokens") or {},
+            "latency_ms": t.get("latency_ms") or {},
+            "response_id": t.get("response_id"),
+            "run_id": t.get("run_id"),
+        }
+        self._execute_write("DELETE memory_trace WHERE trace_id=$tid", {"tid": tid})
+        self._execute_write(
+            "CREATE memory_trace SET trace_id=$trace_id, work=$work, thread_id=$thread_id, "
+            "context_session_id=$context_session_id, snapshot_revision=$snapshot_revision, "
+            "snapshot_hash=$snapshot_hash, envelope_hash=$envelope_hash, query=$query, "
+            "channels=$channels, selected=$selected, rejected=$rejected, "
+            "block_tokens=$block_tokens, latency_ms=$latency_ms, "
+            "response_id=$response_id, run_id=$run_id",
+            doc)
+        return tid
+
+    def get_memory_trace(self, trace_id: str) -> dict | None:
+        """按 trace_id 取溯源。出参再过一遍 mask(防御性:任何私密明文绝不出服务端)。"""
+        rows = self._query(
+            f"SELECT {self._MEMORY_TRACE_COLS} FROM memory_trace WHERE trace_id=$tid LIMIT 1",
+            {"tid": trace_id})
+        return mask_memory_trace(rows[0]) if rows else None
+
+    def get_memory_trace_for_snapshot(self, session_id: str, revision: int) -> dict | None:
+        """按 (会话, 快照版本) 取该版本最近一次溯源(GET trace API 的自然键)。"""
+        rows = self._query(
+            f"SELECT {self._MEMORY_TRACE_COLS} FROM memory_trace "
+            "WHERE context_session_id=$sid AND snapshot_revision=$rev "
+            "ORDER BY created_at DESC LIMIT 1",
+            {"sid": session_id, "rev": int(revision)})
+        return mask_memory_trace(rows[0]) if rows else None
+
     # == 统一记忆底座 memory_item / memory_relation(Task 8:MemoryRetriever 的经验记忆源)==
     #
     # ⚠ 只存【经验性】记忆(working/episodic/procedural/reference/uncertainty)。
@@ -5502,6 +5710,16 @@ class SurrealStore:
                                     source_id: str = "", thread_id: str | None = None) -> str:
         """把正典揭示(真实身份等)入【待审】队列——绝不直接进领域表,更不进 memory_item。
         领域表仍是 fact 唯一真相源,作者审批后再由既有 ingest/命题写入路径落库。"""
+        # P1 幂等根治(对齐 add_memory_item):按确定性键 (work, source_type, source_id) 预查去重。
+        # 崩溃窗口后事件落 failed → consolidate 重 drain,以 source_id=event_id 再路由至此;
+        # 裸 CREATE 会产生重复待审(同 text 两行)。source_id 非空时预查命中即返回旧 id,不新建。
+        if source_id:
+            _dup = self._query(
+                "SELECT meta::id(id) AS id FROM pending_authority_claim "
+                "WHERE work=$w AND source_type=$st AND source_id=$sid LIMIT 1",
+                {"w": work, "st": source_type or "", "sid": source_id})
+            if _dup:
+                return _dup[0]["id"]
         rows = self._query(
             "CREATE pending_authority_claim SET work=$w, thread_id=$tid, text=$text, "
             "entity=$entity, attribute=$attribute, value=$value, "
@@ -5607,6 +5825,48 @@ class SurrealStore:
             "UPDATE memory_event SET status='failed', error=$err, "
             "processed_at=time::now() WHERE event_id=$e RETURN NONE",
             {"e": event_id, "err": (error or "")[:500]})
+
+    def reclaim_stale_processing_events(
+            self, work: str | None = None, thread_id: str | None = None,
+            event_type: str | None = None, older_than_seconds: float = 0.0) -> list[dict]:
+        """孤儿回收:把陈旧 'processing' 事件复位为 'failed'(可被 claim_pending_events 重认领)。
+
+        病灶:_drain_one 先 begin_processing_event(status='processing')再跑 jieba+embed+CREATE
+        才 mark_event_complete(非瞬时窗口)。进程在此窗口被 SIGKILL/OOM/部署重启 → 事件永久卡
+        'processing';claim_pending_events 只认领 pending/failed(结构性排除 processing)、无 reaper,
+        该轮经验记忆静默永久丢失,且 count_failed_memory_events 只数 'failed' → 告警不可见。
+        本方法把处于 processing 且 processed_at 为空(从未完成)的孤儿复位 failed:既可被
+        consolidate 的 claim 重 drain 找回,复位期间 count_failed 也让告警可见。
+
+        判据(processed_at IS NONE + 可选时间阈值):
+          · processed_at 为空 → 只碰"从未完成/从未标记"的在处理事件,绝不复原已 complete/failed。
+          · older_than_seconds>0 → 仅复位 created_at 早于该阈值者(跨进程/未来后台 worker 的纵深防御)。
+        同步单进程模型下 consolidate 起手调用(older_than_seconds=0):reaper 先于本 consolidate
+        自身的 drain(见 consolidate_thread 步骤1),此刻任何 processing 皆为上一进程崩溃遗留、
+        非本次在途,故 0 阈值复位安全;capture_event 的 drain 是同步的、返回前已 complete/failed,
+        不会与 consolidate 并发同一线程(见 memory_capture 模块顶注)。attempts 不在此累加
+        (复位非一次新尝试;真正重试由 claim +1)。"""
+        where = ["status = 'processing'", "processed_at IS NONE"]
+        vars: dict = {"err": "reclaimed_stale_processing"}
+        if older_than_seconds and older_than_seconds > 0:
+            from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+            cutoff = _dt.now(_tz.utc) - _td(seconds=float(older_than_seconds))
+            where.append("created_at < type::datetime($cutoff)")
+            vars["cutoff"] = cutoff.isoformat()
+        if work:
+            where.append("work=$w")
+            vars["w"] = work
+        if thread_id:
+            where.append("thread_id=$tid")
+            vars["tid"] = thread_id
+        if event_type:
+            where.append("event_type=$et")
+            vars["et"] = event_type
+        rows = self._query(
+            "UPDATE memory_event SET status='failed', error=$err "
+            f"WHERE {' AND '.join(where)} "
+            "RETURN event_id, work, thread_id, event_type, attempts", vars)
+        return rows or []
 
     def list_memory_events(self, work: str | None = None, thread_id: str | None = None,
                            event_type: str | None = None, status: str | None = None,

@@ -1058,6 +1058,25 @@ def context_snapshot_get(session_id: str, revision: int, work: str = "main"):
         raise _context_http_error(e) from e
 
 
+@app.get("/context/sessions/{session_id}/trace/{revision}")
+def context_trace_get(session_id: str, revision: int, work: str = "main"):
+    """读某快照版本的记忆溯源 trace(Task 14 上下文检查器数据源):主编到底看到了
+    什么、为什么选这条记忆、为什么弃那条。
+
+    限知红线:私密事实的 value 在服务端【权威屏蔽】后才返回(前端不可信,Task 7 教训)——
+    store.get_memory_trace_for_snapshot 落库时已屏蔽,此处再过一遍 mask_memory_trace 兜底。
+
+    诚实边界:真实 trace 数据待 Task 16 检索接进生产 prompt 后填充;在此之前该版本
+    多无溯源 → 404 memory_trace_not_found(前端据此显"未检索到证据",不显"没有相关事实")。"""
+    from scribe3.store import mask_memory_trace
+    trace = _store_for(work).get_memory_trace_for_snapshot(session_id, int(revision))
+    if not trace:
+        raise HTTPException(status_code=404, detail={
+            "code": "memory_trace_not_found",
+            "message": "该快照版本暂无记忆溯源(检索生产接线待 Task 16)"})
+    return mask_memory_trace(trace)
+
+
 # ---------------------------------------------------------------------------
 # 统一上下文与记忆系统 · Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)
 # GET  /chat/threads               本 work 线程列表(含分支)
