@@ -172,7 +172,7 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
       >
         <span className="text-center">{open ? '▾' : '▸'}</span>
         <span className="min-w-0 truncate">归档箱</span>
-        <span className="text-f10">{loading ? '读取中' : (open && rows.length ? `${rows.length}章` : '隐藏章节')}</span>
+        <span className="text-meta">{loading ? '读取中' : (open && rows.length ? `${rows.length}章` : '隐藏章节')}</span>
       </button>
       {open && (
         <div className="mt-1 space-y-1" data-testid="manuscript-archive-list">
@@ -187,7 +187,7 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
               <div key={chapter.seq} className="rounded-md px-2 py-2 hover:bg-hover">
                 <div className="min-w-0">
                   <div className="truncate text-f12 text-ink">{label}</div>
-                  <div className="mt-1 flex flex-wrap gap-1.5 text-f10 text-faint">
+                  <div className="mt-1 flex flex-wrap gap-1.5 text-meta text-faint">
                     {chapter.archive_reason ? <span>{chapter.archive_reason}</span> : <span>无归档说明</span>}
                     {chapter.archived_at ? <span>{String(chapter.archived_at).slice(0, 10)}</span> : null}
                   </div>
@@ -197,7 +197,7 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
                     type="button"
                     aria-label={`恢复${label}`}
                     onClick={() => restoreChapter(chapter)}
-                    className="h-7 rounded-md bg-soft px-2 text-f11 text-ink hover:bg-brand/10 hover:text-brand"
+                    className="h-7 rounded-md bg-soft px-2 text-meta text-ink hover:bg-brand/10 hover:text-brand"
                   >
                     恢复
                   </button>
@@ -205,7 +205,7 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
                     type="button"
                     aria-label={`永久删除${label}`}
                     onClick={() => askDelete(chapter)}
-                    className="h-7 rounded-md px-2 text-f11 text-danger hover:bg-danger/10"
+                    className="h-7 rounded-md px-2 text-meta text-danger hover:bg-danger/10"
                   >
                     永久删除
                   </button>
@@ -237,7 +237,7 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
   return (
     <div data-testid="manuscript-directory" className="h-full min-h-0 flex flex-col">
       <div data-testid="manuscript-volume-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
-        <div className="px-1 py-1 text-f10 font-semibold uppercase tracking-wider text-faint/60">卷章</div>
+        <div className="px-1 py-1 text-meta font-semibold uppercase tracking-wider text-faint/60">卷章</div>
         {rows.length === 0 ? (
           <div className="px-2 py-6 text-center text-f12 text-faint/60">暂无章节。</div>
         ) : rows.map((row) => {
@@ -259,7 +259,7 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
                 >
                   <span className="w-5 text-center text-faint">{marker}</span>
                   <span className="min-w-0 truncate">{row.node.label}</span>
-                  <span className="text-f10 text-faint">{rowMeta(row)}</span>
+                  <span className="text-meta text-faint">{rowMeta(row)}</span>
                 </button>
                 <button
                   type="button"
@@ -269,7 +269,7 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
                     event.stopPropagation()
                     onCreateChapter?.(row.node.ref ?? null)
                   }}
-                  className="h-7 rounded-md border border-line bg-canvas px-2 text-f11 text-faint hover:border-brand/40 hover:text-brand"
+                  className="h-7 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
                 >
                   +章
                 </button>
@@ -286,7 +286,7 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
             >
               <span className="w-5 text-center text-faint">{marker}</span>
               <span className="min-w-0 truncate">{row.node.label}</span>
-              <span className="text-f10 text-faint">{rowMeta(row)}</span>
+              <span className="text-meta text-faint">{rowMeta(row)}</span>
             </button>
           )
         })}

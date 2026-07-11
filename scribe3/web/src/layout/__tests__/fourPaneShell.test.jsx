@@ -4,6 +4,13 @@ import { useState } from 'react'
 import { FourPaneShell } from '../FourPaneShell'
 
 const materialListMount = vi.hoisted(() => ({ count: 0 }))
+// 只替换 useDefaultLayout(断言布局 id 按作品隔离),其余 Group/Panel/Separator/usePanelRef 走真身,
+// 整包 mock 会炸掉四栏渲染。返回 defaultLayout=undefined 让 Group 回退默认布局,不至崩。
+const mockUseDefaultLayout = vi.hoisted(() => vi.fn(() => ({ defaultLayout: undefined, onLayoutChanged: () => {} })))
+vi.mock('react-resizable-panels', async () => {
+  const actual = await vi.importActual('react-resizable-panels')
+  return { ...actual, useDefaultLayout: mockUseDefaultLayout }
+})
 const apiMock = vi.hoisted(() => ({
   promisesLedger: vi.fn(() => Promise.resolve({ open: [], closed: [], red_herring: [] })),
   motifs: vi.fn(() => Promise.resolve([])),
@@ -427,5 +434,25 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('col-directory')).toBeTruthy()
     expect(screen.getByTestId('material-list').getAttribute('data-node')).toBe('material_root')
     expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
+  })
+
+  // Task 3:栏1 八入口按「内容/工艺/检查」三组呈现,分组不得删除任何能力,
+  // 且三个组必须能被辅助技术识别(role=group + aria-label),八入口可访问名逐一保留。
+  it('八个 PC 入口按三组呈现且不丢能力', () => {
+    render(<Harness />)
+
+    expect(screen.getByRole('group', { name: '内容' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '工艺' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '检查' })).toBeTruthy()
+
+    for (const name of ['手稿', '设定库', '素材库', '演绎 · 角色限知', '伏笔', '母题', '搜索', '校验']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy()
+    }
+  })
+
+  // Task 4:面板栏宽布局按作品隔离,换书不串栏宽。id 保留现常量前缀,换名会作废用户既有偏好。
+  it('scopes panel layout by work', () => {
+    render(<Harness work="book-a" />)
+    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({ id: 's3.fourPane.layout.v2:book-a' }))
   })
 })

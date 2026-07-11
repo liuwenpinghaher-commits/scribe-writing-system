@@ -27,12 +27,12 @@ function CandidateCard({ c, revealed, chosen, onChoose }) {
       <div className="flex items-center gap-2 mb-1.5">
         <Tag tone={c.filtered ? 'danger' : 'brand'}>{revealed ? c.strategy : `候选 ${c._label}`}</Tag>
         {c.filtered
-          ? <span className="inline-flex items-center gap-1 text-f11 text-danger"><Shield size={11} />确定性过滤击杀:{c.filter_reason}</span>
-          : <span className="text-f11 text-faint">advisory {c.advisory_count ?? 0} 条</span>}
+          ? <span className="inline-flex items-center gap-1 text-meta text-danger"><Shield size={11} />确定性过滤击杀:{c.filter_reason}</span>
+          : <span className="text-meta text-faint">advisory {c.advisory_count ?? 0} 条</span>}
         {!c.filtered && showRank && c.rubric_rank != null && (
-          <span className="inline-flex items-center gap-1 text-f11 text-faint"><Trophy size={11} />rubric 第 {c.rubric_rank}(仅参考)</span>
+          <span className="inline-flex items-center gap-1 text-meta text-faint"><Trophy size={11} />rubric 第 {c.rubric_rank}(仅参考)</span>
         )}
-        <button className="ml-auto text-f11 text-faint hover:text-ink" onClick={() => setShowRank((v) => !v)}>
+        <button className="ml-auto text-meta text-faint hover:text-ink" onClick={() => setShowRank((v) => !v)}>
           <ChevronDown size={12} className={showRank ? 'rotate-180' : ''} />
         </button>
       </div>
@@ -41,12 +41,12 @@ function CandidateCard({ c, revealed, chosen, onChoose }) {
           终选不再被迫在 300 字头部上做(切走也不毁对比状态:候选正文在版本库) */}
       {c.version_id && (
         <button onClick={toggleFull} disabled={loadingFull}
-          className="text-f11 text-brand hover:underline cursor-pointer mt-1 disabled:opacity-50">
+          className="text-meta text-brand hover:underline cursor-pointer mt-1 disabled:opacity-50">
           {loadingFull ? '加载中…' : full != null ? '收起' : '展开全文'}
         </button>
       )}
       {c.profile && showRank && (
-        <div className="mt-1 text-f11 text-faint">
+        <div className="mt-1 text-meta text-faint">
           句长CV {c.profile.sent_cv} · 对话占比 {Math.round((c.profile.dialogue_ratio || 0) * 100)}%
         </div>
       )}
@@ -54,7 +54,7 @@ function CandidateCard({ c, revealed, chosen, onChoose }) {
         <div className="mt-1.5">
           {c.version_id
             ? <Btn size="sm" variant={chosen ? 'primary' : 'ghost'} onClick={onChoose}>{chosen ? '已选此稿' : '选这稿'}</Btn>
-            : <span className="text-f11 text-danger">留版失败,不可终选(可复制正文手工处理)</span>}
+            : <span className="text-meta text-danger">留版失败,不可终选(可复制正文手工处理)</span>}
         </div>
       )}
     </div>
@@ -129,23 +129,23 @@ export function SelectionPanel({ seq, onFinalized }) {
         <>
           {/* B1:全部生成失败=只显错误(无候选可选);部分失败=提示条,其余候选正常展示 */}
           {res.verdict === 'all_failed' && (
-            <div className="mb-2 flex items-start gap-1.5 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-f11 text-danger leading-snug">
+            <div className="mb-2 flex items-start gap-1.5 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-meta text-danger leading-snug">
               <AlertTriangle size={11} className="shrink-0 mt-0.5" />
               <span>所有候选生成失败(检查 LLM 网关 / 日帽):{(res.gen_errors || []).join('；') || '未知原因'}</span>
             </div>
           )}
           {res.gen_errors?.length > 0 && res.verdict !== 'all_failed' && (
-            <div className="mb-2 text-f11 text-warn leading-snug">
+            <div className="mb-2 text-meta text-warn leading-snug">
               {res.gen_errors.length} 个策略未出稿(其余候选正常):{res.gen_errors.join('；')}
             </div>
           )}
           {res.consensus === false && (
-            <div className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-300/50 bg-amber-500/10 px-2 py-1 text-f11 text-amber-600">
+            <div className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-300/50 bg-amber-500/10 px-2 py-1 text-meta text-amber-600">
               <AlertTriangle size={11} />rubric 评审无共识(循环偏好/位置分歧)——不提供排序,凭你判断
             </div>
           )}
           {res.pseudo_diversity_round && (
-            <div className="mb-2 text-f11 text-faint">检测到伪多样,已换备用策略重生成一路。</div>
+            <div className="mb-2 text-meta text-faint">检测到伪多样,已换备用策略重生成一路。</div>
           )}
           <div className="mb-2">
             <Btn size="sm" variant="ghost" onClick={() => setRevealed((v) => !v)}>
@@ -159,11 +159,11 @@ export function SelectionPanel({ seq, onFinalized }) {
           ))}
           {state !== 'done' && (
             <div className="mt-2 rounded-lg border border-line p-2.5">
-              <div className="text-f11 text-faint mb-1">终选理由(必填,入 lesson 流)</div>
+              <div className="text-meta text-faint mb-1">终选理由(必填,入 lesson 流)</div>
               <div className="flex flex-wrap gap-1.5 mb-1.5">
                 {AXES.map((a) => (
                   <button key={a} onClick={() => setAxis(a)}
-                          className={`rounded px-1.5 py-0.5 text-f11 border ${axis === a ? 'border-brand text-brand bg-brand/10' : 'border-line text-faint'}`}>
+                          className={`rounded px-1.5 py-0.5 text-meta border ${axis === a ? 'border-brand text-brand bg-brand/10' : 'border-line text-faint'}`}>
                     胜在{a}
                   </button>
                 ))}

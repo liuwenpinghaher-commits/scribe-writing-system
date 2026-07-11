@@ -3,16 +3,40 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic, Check, X } from 'lucide-react'
 import { api } from './api'
-import { useChatPersist } from './useChatPersist'
+import { useChatPersist, loadChat } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
 import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import { displayToolName } from './lib/toolName'
+import { scrollBehavior } from './lib/utils'
 import { patchApprovalInMessages, useHermesRunRecovery } from './lib/hermesRunRecovery'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
+import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { Btn } from './ui.jsx'
+
+// Task 6:后端线程消息(role/text/focus/context_revision)→ 对话气泡形状(content)。
+// 焦点标签(focus)与 context_revision 随消息带上,气泡据此打 data-context-revision。
+function normalizeThreadMessages(rows) {
+  return (rows || []).map((m) => ({
+    role: m.role,
+    content: m.text ?? m.content ?? '',
+    tools: m.tools || [],
+    toolOutputs: m.toolOutputs || [],
+    approvals: m.approvals || [],
+    focus: m.focus || null,
+    context_revision: m.context_revision ?? null,
+  }))
+}
+
+// 焦点标签取话术:非线程模式与既有一致(focusTalk(选中总线 focus));
+// 线程模式用快照焦点(无 origin 也能出话术),入口/视图型交回 selContext 兜底。
+function threadFocusTalk(f, threadMode) {
+  if (!threadMode) return focusTalk(f)
+  if (!f || !f.id || f.type === 'entry' || f.type === 'view') return null
+  return focusTalk(f)
+}
 
 // 主编对话气泡(讨论模式:复用 WriteChat 视觉规范,markdown 渲染 + 工具芯片)
 function toolOutputPreview(output) {
@@ -20,10 +44,12 @@ function toolOutputPreview(output) {
   return text.length > 220 ? text.slice(0, 220) + '…' : text
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision }) {
   const me = role === 'user'
+  // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
+  const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
   return (
-    <div className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
+    <div data-context-revision={ctxRev} className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
       <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
         {me ? <User size={14} /> : <MessagesSquare size={14} />}
       </div>
@@ -31,7 +57,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-f11 text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-meta text-faint">
                 <Wrench size={9} className="text-brand" />
                 {displayToolName(t)}
               </span>
@@ -79,7 +105,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                           </button>
                         </>
                       )}
-                      {done && ap.decision && <span className="text-f11 text-faint">{ap.decision}</span>}
+                      {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
                     </div>
                   </div>
                 )
@@ -91,7 +117,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
               {toolOutputs.map((out, i) => (
                 <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
                   <div className="text-f12 font-medium text-ink">工具返回</div>
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-f11 leading-snug text-faint">
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
                     {toolOutputPreview(out.output)}
                   </div>
                 </div>
@@ -180,7 +206,7 @@ function WriteSlot() {
         <PenLine size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
           <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
-          <span className="text-f11 text-faint truncate">提思路让主编写,或改选中段落</span>
+          <span className="text-meta text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
       </div>
       {/* 写作 chat 槽:WriteLayout 的 WriteChat 经 portal 进来填充此处 */}
@@ -218,7 +244,7 @@ function UsageChip() {
   return (
     <span
       data-testid="chief-usage-chip"
-      className="ml-auto shrink-0 text-f11 text-faint tabular-nums whitespace-nowrap"
+      className="ml-auto shrink-0 text-meta text-faint tabular-nums whitespace-nowrap"
       title={`LLM 日帽:今日已用 ${u.cap.used_today}/${u.cap.cap} 发(${scopeLabel});今日 token 合计 ${todayTok}(Hermes 回传 usage 聚合)`}
     >
       {u.cap.used_today}/{u.cap.cap} 发 · {tok} tok
@@ -256,10 +282,10 @@ function ProactiveGreeting({ seq }) {
       <div className="mt-1 flex items-center gap-3">
         {item.action?.kind === 'chat' && (
           <button onClick={() => { try { sessionStorage.setItem('s3.chief.seed', item.action.payload) } catch { /* */ }; try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: item.action.payload })) } catch { /* */ }; setItem(null) }}
-            className="text-f11 text-brand hover:underline cursor-pointer">聊聊 →</button>
+            className="text-meta text-brand hover:underline cursor-pointer">聊聊 →</button>
         )}
         <button onClick={() => { localStorage.setItem(`s3.pulse.mute.${api.getWork()}.${item.dim}`, '1'); setItem(null) }}
-          className="text-f11 text-faint hover:text-ink cursor-pointer">静音此维</button>
+          className="text-meta text-faint hover:text-ink cursor-pointer">静音此维</button>
       </div>
     </div>
   )
@@ -308,9 +334,16 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   // 块三:通用选中总线 focus 优先——任何视图的显式选中(图谱节点/时间线事件/伏笔行/母题行/帧行…)
   // 立即改写主编标题与话术;focus 为空/sel 镜像/演绎目标 → 回退既有视图级/节点级/阶段话术。
   const { focus } = useSelection()
+  const { snapshot } = useContextSnapshot()
+  // Task 6:线程模式——有快照(thread_id)且 api.threadMessages 可用才启用「一 work 一连续线程」;
+  // 否则完全走既有 chatKey 逻辑(旧测试无 snapshot/无 threadMessages → 行为一字不变)。
+  const threadId = snapshot?.thread_id || null
+  const threadMode = !!(threadId && typeof api.threadMessages === 'function')
+  // 上下文标签:线程模式跟随快照焦点(切焦点即改标签但不换线程);否则跟随选中总线 focus。
+  const effectiveFocus = threadMode ? (snapshot?.focus || focus) : focus
   const ctx = useMemo(
-    () => focusTalk(focus) || selContext(sel, phase, phase === 'deduce' ? deduceName : undefined),
-    [focus, sel, phase, deduceName])
+    () => threadFocusTalk(effectiveFocus, threadMode) || selContext(sel, phase, phase === 'deduce' ? deduceName : undefined),
+    [effectiveFocus, threadMode, sel, phase, deduceName])
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -344,17 +377,52 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const chatKey = sel?.mode === 'view'
     ? `${api.getWork()}:view:${sel.viewKey}${fKey}`
     : `${api.getWork()}:node:${sel?.node?.id || 'none'}${phase ? ':' + phase : ''}${fKey}`
-  useChatPersist(chatKey, msgs, setMsgs)
+  // 线程模式:持久键 = work:editorial:thread_id(不含焦点 → 切焦点不换键、不重载);
+  // useChatPersist 降权为草稿缓存(不 load-replace 消息——消息由服务端 threadMessages 供给)。
+  const threadKey = threadMode ? `${snapshot.work}:editorial:${threadId}` : null
+  const persistKey = threadMode ? threadKey : chatKey
+  useChatPersist(persistKey, msgs, setMsgs, threadMode ? { mode: 'thread' } : undefined)
   useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef })
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
+  // 线程模式:一次性从服务端载入线程历史(键为 threadId、不含焦点 → 焦点切换不触发重载)。
+  // I-2:ref 仅在**成功**后置位(失败不置 → 保持可重试);失败置错误态、log,并允许
+  // 依赖变化/用户点重试(reloadTick)再拉,不再"一次抖动即历史凭空消失"。
+  // I-3:失败时读回本地 draft 缓存兜底(断网未同步消息的显示回填),让草稿写入不再是死缓存。
+  const loadedThreadRef = useRef(null)
+  const [threadLoadError, setThreadLoadError] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)
+  useEffect(() => {
+    if (!threadMode) { loadedThreadRef.current = null; return undefined }
+    if (loadedThreadRef.current === threadId) return undefined
+    let dead = false
+    api.threadMessages(threadId)
+      .then((rows) => {
+        if (dead) return
+        loadedThreadRef.current = threadId   // 仅成功后置位:失败不置 → 下次可重试
+        setThreadLoadError(false)
+        setMsgs(normalizeThreadMessages(rows))
+      })
+      .catch((e) => {
+        if (dead) return
+        // 失败不吞:至少 log + 置错误态供重试;不清空已有显示。
+        console.warn('主编线程历史载入失败,可重试:', e)
+        setThreadLoadError(true)
+        // 断网兜底:本地有 draft 缓存且当前空 → 用草稿回填,避免历史凭空空白(I-3)。
+        const draft = loadChat('draft:' + threadKey)
+        if (draft.length) setMsgs((prev) => (prev.length === 0 ? draft : prev))
+      })
+    return () => { dead = true }
+  }, [threadMode, threadId, threadKey, reloadTick])
+  const retryThreadLoad = () => setReloadTick((t) => t + 1)
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: scrollBehavior() }) }, [msgs])
   // 中止在途流:chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort),两者都收。
   const stop = () => { const h = esRef.current; h?.close?.(); h?.abort?.(); esRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) }
   // chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort);卸载时都收掉
   useEffect(() => () => { const h = esRef.current; h?.close?.(); h?.abort?.(); activeRunIdsRef.current.clear() }, [])
-  // 切上下文(chatKey 变=切章/切阶段/切节点/切视图)→ 中止在途流,防旧流 delta 污染新上下文历史(串台)。
-  // 只在 chatKey 真的变了时触发,不误伤正常发送(send 期间 chatKey 不变)。
-  useEffect(() => { const h = esRef.current; if (h) { h.close?.(); h.abort?.(); esRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) } }, [chatKey])
+  // 切上下文(persistKey 变=切章/切阶段/切节点/切视图/切线程)→ 中止在途流,防旧流 delta 污染新历史(串台)。
+  // 只在 persistKey 真的变了时触发,不误伤正常发送;线程模式 persistKey=threadKey(不含焦点)→ 切焦点不断流。
+  useEffect(() => { const h = esRef.current; if (h) { h.close?.(); h.abort?.(); esRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) } }, [persistKey])
 
   useEffect(() => {
     const el = taRef.current
@@ -409,7 +477,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     const finalMsg = ctx.prefix + q
     setInput('')
     if (taRef.current) taRef.current.style.height = 'auto'
-    setMsgs((m) => [...m, { role: 'user', content: q }, { role: 'assistant', content: '', tools: [] }])
+    // Task 6:线程模式捕获本轮 focusAtSend + context 绑定(随请求体带上,并标注气泡)。
+    const bind = threadMode ? {
+      thread_id: threadId,
+      context_session_id: snapshot?.session_id ?? null,
+      context_revision: snapshot?.revision ?? null,
+      context_hash: snapshot?.context_hash ?? null,
+      focus: effectiveFocus || null,
+    } : null
+    setMsgs((m) => [...m,
+      { role: 'user', content: q, focus: bind?.focus || null, context_revision: bind?.context_revision ?? null },
+      { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
     const runPhase = seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || '')
@@ -438,7 +516,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           patchApproval(approval, { ...approval, status })
         },
         onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
-        onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+        onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
       })
       return
     }
@@ -473,6 +551,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         chapter: seq,
         phase: WRITE_PHASE[phase],
         focalizer: phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : '',
+        context: bind,   // Task 6:线程绑定/焦点标签随请求体带上(非线程模式为 null,后端忽略)
         onDelta: (d) => { turnText += d; mut((l) => ({ ...l, content: l.content + d })) },
         onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
         onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
@@ -499,7 +578,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           const fb = fallbackProposalText({ gotProposal, propOpen, propAcc, turnText })
           if (fb != null) publish(fb)
         },
-        onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+        onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
       })
       return
     }
@@ -515,7 +594,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         patchApproval(approval, { ...approval, status })
       },
       onDone: () => setBusy(false),
-      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     })
   }
 
@@ -526,13 +605,20 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         <MessagesSquare size={15} className="text-brand shrink-0" />
         <div className="flex flex-col min-w-0 leading-tight">
           <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
-          <span className="text-f11 text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
+          <span className="text-meta text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
         <UsageChip />
       </div>
 
       {/* 消息列表 */}
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
+        {threadLoadError && (
+          <div data-testid="chief-thread-load-error" className="rounded-lg border border-warn/40 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2">
+            <span className="flex-1">线程历史加载失败{msgs.length ? '(显示本地缓存)' : ''},可重试。</span>
+            <button type="button" data-testid="chief-thread-retry" onClick={retryThreadLoad}
+              className="shrink-0 text-meta text-brand hover:underline cursor-pointer">重试</button>
+          </div>
+        )}
         {msgs.length === 0 ? (
           <div className="pt-2">
             <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>

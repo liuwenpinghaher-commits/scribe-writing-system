@@ -29,7 +29,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
       <div className="flex items-center gap-2 px-3 h-9 border-b border-brand/20 bg-brand/[.06]">
         <Sparkles size={14} className="text-brand" />
         <span className="text-f12 font-medium text-brand">主编提议 · {LABEL[proposal.scope] || '改写'}</span>
-        {streaming && <span className="text-f11 text-faint inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" />书写中…</span>}
+        {streaming && <span className="text-meta text-faint inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" />书写中…</span>}
         <div className="ml-auto flex gap-1.5">
           <button onClick={onReject} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 text-faint hover:bg-soft cursor-pointer transition-colors"><X size={13} />弃用</button>
           <button onClick={onAccept} disabled={streaming} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-opacity"><Check size={13} />接受</button>

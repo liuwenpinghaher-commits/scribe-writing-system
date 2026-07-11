@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ChevronLeft, ChevronRight, Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
+  Save, MessagesSquare, ShieldCheck, ShieldOff, Bookmark,
   Users, AlignCenter, Search, CircleAlert, CircleCheck, CircleDashed, Lock,
   BookText, LayoutList, Flame, Sparkles, Eye, ChevronDown, Check,
-  DatabaseZap, Loader2,
+  DatabaseZap, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { api } from './api'
 import { causalStatus } from './causalStatus.js'
@@ -20,8 +20,6 @@ import { NorthStarBar } from './NorthStarBar'
 import { PulseBar } from './PulseBar'
 import { ChapterMemoryRefs } from './ChapterMemoryRefs'
 import { loadButtons, addButton } from './lib/rewriteButtons.js'
-import { VersionPanel } from './VersionPanel.jsx'
-import { FramePanel } from './FramePanel.jsx'
 import { InputDialog } from './ui/Dialog.jsx'
 import { useToast, dismissToast, showToast } from './ui/Toast.jsx'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -34,9 +32,10 @@ import { useChiefSlot } from './ChiefSlotContext'
 export const RestoreContext = createContext(0)
 
 // 写作台(对话驱动):中区手稿 + 右轨主编对话出草稿卡。限知/校验后台支撑。与推演台共用同一份数据。
-// seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态;
-// onSeqChange: 内部步进器换章时回调,让项目树选中态跟随。
-export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
+// seq: 外部(项目树)驱动的当前章号(F-06)。给定时同步到内部 chapter 状态。
+// (Task 7:内部上一章/下一章步进器已删——章导航唯一真身在 ChapterStudio 的 ObjectFrame,
+//  换章单向走外部 seq prop;onSeqChange 形参已随之删除,唯一调用方 ChapterStudio 不再传。)
+export function WriteLayout({ work, seq, sceneIdx }) {
   api.setWork(work)
   const toast = useToast()
   // 波B Step3:WriteChat 经 portal 渲染进右栏 ChiefDock 的槽。slotEl 为该槽 DOM。
@@ -49,12 +48,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
   const restoreTick = useContext(RestoreContext)
   const proseEditorRef = useRef(null)  // F-05: ref to ProseEditor for focusIssue
   const [chapter, _setChapter] = useState(seq || 1)
-  // 章导航上界(修:「下一章」原 c+1 无上界,能翻过实际章数到空章 → 选择环等对空章 404)。
-  // 允许到 maxSeq+1(写紧邻的下一新章),不能再翻更远。
-  const [maxSeq, setMaxSeq] = useState(null)
-  useEffect(() => {
-    api.chapters().then((cs) => setMaxSeq(Array.isArray(cs) && cs.length ? Math.max(...cs.map((c) => c.seq || 0)) : 1)).catch(() => {})
-  }, [work, chapter])
+  // (Task 7:章导航上界 maxSeq 拉取已上移 ChapterStudio——本组件不再有内部步进器。)
   // 审查 P1-3:保存失败时的本地暂存(localStorage)——自动保存的两条失败路径
   // (切章 fire-and-forget / 卸载兜底 flush)里编辑内容随实例销毁,暂存是唯一找回渠道。
   const stashKey = (w, s) => `s3_unsaved:${w || 'main'}:${s}`
@@ -84,18 +78,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
       })
   }
 
-  // setChapter:改内部状态 + 通知外部(项目树),保持单一真相源同步
-  // 内部步进器(上/下一章按钮)走此路径:切章前先 persist 旧章
-  const setChapter = (next) => {
-    _setChapter((prev) => {
-      const v = typeof next === 'function' ? next(prev) : next
-      if (v !== prev) {
-        persistDirtyOldChapter(v)
-        onSeqChange?.(v)
-      }
-      return v
-    })
-  }
+  // (Task 7:内部步进器 setChapter 包装已删——换章只剩「外部 seq 变化」一条路径,见下 effect。)
   // 外部 seq 变化(树点章)→ 切章前若有未保存内容先 persist 旧章,再同步内部章号
   useEffect(() => {
     if (seq == null || seq === chapter) return
@@ -371,9 +354,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
         <div className="text-f12 font-semibold text-ink">全量体检</div>
         {postChecking && <Loader2 size={13} className="animate-spin text-brand" />}
         <button onClick={() => setPostCheckResult(null)}
-          className="ml-auto text-f11 text-faint hover:text-ink cursor-pointer">关闭</button>
+          className="ml-auto text-meta text-faint hover:text-ink cursor-pointer">关闭</button>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-f11">
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-meta">
         <span className={leaks > 0 ? 'text-danger' : 'text-ok'}>泄露 {leaks}</span>
         <span className={qcN > 0 ? 'text-warn' : 'text-ok'}>QC {qcN}</span>
         <span className={cstat.state === 'violations' ? 'text-danger' : 'text-faint'}>
@@ -394,11 +377,11 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                   </button>
                   {iss.range && (
                     <button onClick={() => sendIssueToChief(iss)} title="让主编改这处"
-                      className="shrink-0 text-f10 text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
+                      className="shrink-0 text-meta text-brand opacity-0 group-hover:opacity-100 hover:underline cursor-pointer transition-opacity">
                       改这处
                     </button>
                   )}
-                  {iss.range && <span className="shrink-0 text-f10 text-brand">跳→</span>}
+                  {iss.range && <span className="shrink-0 text-meta text-brand">跳→</span>}
                 </div>
               ))}
             </div>
@@ -436,17 +419,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               {postCheckResult.cross_consistency.length > 0 ? (
                 <div className="mt-0.5 space-y-0.5">
                   {postCheckResult.cross_consistency.slice(0, 6).map((h, i) => (
-                    <div key={i} className="text-f11 leading-snug">· {h.message || h.note || h.type}</div>
+                    <div key={i} className="text-meta leading-snug">· {h.message || h.note || h.type}</div>
                   ))}
                   {postCheckResult.cross_consistency.length > 6 && (
-                    <div className="text-f11 text-faint">…共 {postCheckResult.cross_consistency.length} 处</div>
+                    <div className="text-meta text-faint">…共 {postCheckResult.cross_consistency.length} 处</div>
                   )}
                 </div>
               ) : ' 无疑点'}
             </div>
           )}
           {(postCheckResult.degraded_stages || []).length > 0 && (
-            <div className="text-f11 text-faint">⚠ 部分检测降级({postCheckResult.degraded_stages.join('、')}):没查≠没病</div>
+            <div className="text-meta text-faint inline-flex items-center gap-1"><AlertTriangle size={11} />部分检测降级({postCheckResult.degraded_stages.join('、')}):没查≠没病</div>
           )}
           <button
             onClick={sendPostCheckToChief}
@@ -635,15 +618,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
 
   const topbarMid = (
     <div className="shrink-0 border-b border-line bg-surface px-3 h-11 flex items-center gap-2 min-w-0">
-      {/* 左:章节导航 — 固定不缩 */}
-      <div className="flex items-center gap-1 shrink-0">
-        <Btn variant="ghost" size="sm" icon onClick={() => setChapter((c) => Math.max(1, c - 1))} aria-label="上一章"><ChevronLeft size={16} /></Btn>
-        <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {chapter} 章</span>
-        <Btn variant="ghost" size="sm" icon disabled={maxSeq != null && chapter >= maxSeq + 1}
-          title={maxSeq != null && chapter >= maxSeq + 1 ? '已到最后一章(再写新章会自动接续)' : '下一章'}
-          onClick={() => setChapter((c) => c + 1)} aria-label="下一章"><ChevronRight size={16} /></Btn>
-      </div>
-
+      {/* (Task 7:章节导航子块已删——单套章导航在 ChapterStudio 的 ObjectFrame。) */}
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <span className="hidden xl:inline text-f12 text-faint shrink-0">本章视角</span>
@@ -673,7 +648,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
               </Chip>
               {guardPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
-                  <div className="text-f11 font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
+                  <div className="text-meta font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
                   {/* F-05: 带 range 的 issues — 可点跳转到正文(过滤已忽略) */}
                   {editorIssues && editorIssues.length > 0 ? (
                     <div className="mb-2">
@@ -685,7 +660,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                             className="w-full text-left flex items-start gap-1.5 px-1.5 py-1 rounded hover:bg-soft cursor-pointer text-f12 leading-snug">
                             <span className={`shrink-0 mt-0.5 w-1.5 h-1.5 rounded-full ${issueDot(iss.type)}`} />
                             <span className="text-ink truncate flex-1">{iss.message}</span>
-                            {iss.range && <span className="shrink-0 text-brand text-f10">跳→</span>}
+                            {iss.range && <span className="shrink-0 text-brand text-meta">跳→</span>}
                           </button>
                         ))}
                       </div>
@@ -724,9 +699,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                   >
                     {guardOn ? <ShieldCheck size={13} className="text-brand shrink-0" /> : <ShieldOff size={13} className="text-faint shrink-0" />}
                     <span>{guardOn ? '护栏开' : '护栏关'}</span>
-                    <span className="ml-auto text-f11 text-faint">{guardOn ? '点击关闭' : '点击开启'}</span>
+                    <span className="ml-auto text-meta text-faint">{guardOn ? '点击关闭' : '点击开启'}</span>
                   </button>
-                  <div className="text-f11 text-faint mt-1.5 leading-snug">关=完全静默,不校验</div>
+                  <div className="text-meta text-faint mt-1.5 leading-snug">关=完全静默,不校验</div>
                 </div>
               )}
             </div>
@@ -747,17 +722,17 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             <div ref={progPopRef} className="relative shrink-0">
               <button onClick={() => setProgPop((v) => !v)} title="写作进度"
                 className="inline-flex items-center gap-1.5 h-7 px-1.5 rounded-lg text-faint hover:bg-soft hover:text-ink cursor-pointer whitespace-nowrap">
-                <span className="text-f11 tnum">{wordCount} 字</span>
+                <span className="text-meta tnum">{wordCount} 字</span>
                 {dailyGoal ? (
-                  <span className="hidden sm:inline text-f11 tnum text-faint">
+                  <span className="hidden sm:inline text-meta tnum text-faint">
                     · 今日 {todayW.toLocaleString()}/{dailyGoal.toLocaleString()}
-                    {streak > 1 && <span className="text-warn"> 🔥{streak}</span>}
+                    {streak > 1 && <span className="text-warn inline-flex items-center gap-0.5 ml-1"><Flame size={11} />{streak}</span>}
                   </span>
                 ) : null}
               </button>
               {progPop && (
                 <div className="absolute right-0 top-full mt-1 z-20 min-w-[220px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
-                  <div className="text-f11 font-semibold uppercase tracking-[.07em] text-faint mb-2">写作进度</div>
+                  <div className="text-meta font-semibold uppercase tracking-[.07em] text-faint mb-2">写作进度</div>
                   <div className="mb-2.5">
                     <div className="flex items-baseline justify-between text-f12">
                       <span className="text-faint">本章</span>
@@ -770,7 +745,7 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
                     <>
                       <div className="mb-2.5">
                         <div className="flex items-baseline justify-between text-f12 mb-1">
-                          <span className="text-faint flex items-center gap-1">今日{streak > 1 && <span className="text-warn text-f11">🔥{streak} 连胜</span>}</span>
+                          <span className="text-faint flex items-center gap-1">今日{streak > 1 && <span className="text-warn text-meta inline-flex items-center gap-0.5"><Flame size={10} />{streak} 连胜</span>}</span>
                           <span className="text-ink tnum">{todayW.toLocaleString()}{dailyGoal ? ` / ${dailyGoal.toLocaleString()}` : ''} 字</span>
                         </div>
                         {dailyPct != null && (
@@ -871,9 +846,9 @@ export function WriteLayout({ work, seq, sceneIdx, onSeqChange }) {
             <button key={b} onClick={() => {
               setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
               setCandidates([]); focusChiefTab()
-            }} className="h-6 px-2 rounded-lg border border-line text-f11 text-ink hover:bg-soft cursor-pointer">{b}</button>
+            }} className="h-6 px-2 rounded-lg border border-line text-meta text-ink hover:bg-soft cursor-pointer">{b}</button>
           ))}
-          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-f11 text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
+          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-meta text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">

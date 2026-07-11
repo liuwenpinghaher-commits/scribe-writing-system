@@ -54,7 +54,7 @@ describe('focusTalk(focus → 话术;null=回退 selContext)', () => {
   })
   it('私密命题不泄明文', () => {
     const t = focusTalk({ type: 'frame_fact', id: 'f1', label: '崔判·真身:阴差', payload: { secret: true }, origin: 'atlas' })
-    expect(t.label).toBe('命题 · 🔒 私密')
+    expect(t.label).toBe('命题 · 私密')
     expect(t.prefix).not.toContain('阴差')
   })
   it('角色(图谱来源)与长名截断', () => {

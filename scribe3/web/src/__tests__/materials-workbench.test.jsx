@@ -185,6 +185,18 @@ describe('MaterialList 素材库工作台', () => {
     expect(screen.queryByRole('button', { name: /加载更多/ })).toBeNull()
   })
 
+  it('素材详情加载失败时给真实错误与重试,不谎称已删除', async () => {
+    apiMock.materials.mockRejectedValue(new Error('materials api down'))
+
+    render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环与雾港边界' }} />)
+
+    expect(await screen.findByText(/materials api down/)).toBeTruthy()
+    expect(screen.queryByText(/可能已删除/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(apiMock.materials).toHaveBeenCalledTimes(2))
+  })
+
   it('删除素材前展示生命周期影响范围,建议归档时默认归档', async () => {
     const onDeleted = vi.fn()
     render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环与雾港边界' }} onDeleted={onDeleted} />)

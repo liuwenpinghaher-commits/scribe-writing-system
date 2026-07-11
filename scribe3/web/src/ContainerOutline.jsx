@@ -341,7 +341,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
         ) : (
           <h2 className="text-f15 font-semibold text-ink">{node.label}</h2>
         )}
-        <span className="text-f11 text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
+        <span className="text-meta text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
 
         <div className="ml-auto flex items-center gap-3 flex-wrap">
           {/* 新建章(手稿根/卷都可)——空书起手必需 */}
@@ -381,7 +381,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
             })}
           </div>
           {mode !== 'list' && (
-            <label className="inline-flex items-center gap-1.5 text-f11 text-faint">
+            <label className="inline-flex items-center gap-1.5 text-meta text-faint">
               色彩
               <select value={colorMode} onChange={(e) => setColorMode(e.target.value)}
                 className="h-7 rounded-md border border-line bg-canvas px-1.5 text-f12 text-ink outline-none cursor-pointer">
@@ -429,14 +429,14 @@ function PlainChapterList({ lanes, onOpen }) {
       {lanes.map((lane) => (
         <div key={lane.volumeId ?? 'null'} className="mb-5">
           <div className="text-f13 font-semibold text-ink mb-1.5">{lane.title}
-            <span className="ml-2 text-f11 font-normal text-faint">{lane.chapters.length} 章</span></div>
+            <span className="ml-2 text-meta font-normal text-faint">{lane.chapters.length} 章</span></div>
           <div className="space-y-1">
             {lane.chapters.map((c) => (
               <button key={c.seq} onClick={() => onOpen?.(c)}
                 className="w-full text-left rounded-lg border border-line bg-surface px-3 py-2 hover:border-brand/30 transition-colors cursor-pointer flex items-center gap-2">
                 <span className="text-f13 text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
-                <span className="ml-auto text-f11 text-faint shrink-0" title={POV_HINT}>{povLabel(c.focalizer)}</span>
-                <span className="text-f11 text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
+                <span className="ml-auto text-meta text-faint shrink-0" title={POV_HINT}>{povLabel(c.focalizer)}</span>
+                <span className="text-meta text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
               </button>
             ))}
           </div>
@@ -571,7 +571,7 @@ function UnverifiedRefs({ onSelect }) {
       <div className="flex items-center justify-between mb-3">
         <span className="text-f13 font-medium text-ink">待确认人物引用 ({items.length})</span>
         {items.length > 3 && (
-          <button onClick={ignoreAll} className="text-f11 text-faint hover:text-ink cursor-pointer">全部忽略 →</button>
+          <button onClick={ignoreAll} className="text-meta text-faint hover:text-ink cursor-pointer">全部忽略 →</button>
         )}
       </div>
       <div className="space-y-2">

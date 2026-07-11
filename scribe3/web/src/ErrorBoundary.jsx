@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component {
           <p className="text-faint text-f13 mb-3">
             本视图渲染异常，你的书稿未受影响。可重试或刷新页面。
           </p>
-          <pre className="text-f11 text-faint/80 whitespace-pre-wrap break-words mb-3">
+          <pre className="text-meta text-faint/80 whitespace-pre-wrap break-words mb-3">
             {String(this.state.error?.message || this.state.error)}
           </pre>
           <button

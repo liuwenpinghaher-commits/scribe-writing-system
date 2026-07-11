@@ -34,8 +34,7 @@ vi.mock('../shell', () => ({ Shell: ({ center }) => <div data-testid="shell">{ce
 vi.mock('../NorthStarBar', () => ({ NorthStarBar: () => <div data-testid="north-star-bar" /> }))
 vi.mock('../PulseBar', () => ({ PulseBar: () => <div data-testid="pulse-bar" /> }))
 vi.mock('../ChapterMemoryRefs', () => ({ ChapterMemoryRefs: () => <div data-testid="chapter-memory-refs" /> }))
-vi.mock('../VersionPanel.jsx', () => ({ VersionPanel: () => <div data-testid="version-panel" /> }))
-vi.mock('../FramePanel.jsx', () => ({ FramePanel: () => <div data-testid="frame-panel" /> }))
+// (M4:WriteLayout 已删 VersionPanel/FramePanel 死 import,对应死 mock 一并移除)
 vi.mock('../ui/Toast.jsx', () => ({
   useToast: () => vi.fn(),
   dismissToast: vi.fn(),
@@ -77,5 +76,15 @@ describe('WriteLayout final phase', () => {
     const captured = await screen.findByTestId('captured-write-chat')
     await waitFor(() => expect(captured.textContent).toContain('phase=final'))
     expect(captured.textContent).toContain('chapter=4')
+  })
+
+  // Task 7:全 DOM 单套章导航归 ChapterStudio(ObjectFrame actions),
+  // WriteLayout 不再自带第二套上一章/下一章。
+  it('WriteLayout 单独渲染时没有章导航按钮', async () => {
+    render(<WriteLayout work="demo" seq={4} />)
+
+    await screen.findByTestId('captured-write-chat')
+    expect(screen.queryByRole('button', { name: '上一章' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '下一章' })).toBeNull()
   })
 })

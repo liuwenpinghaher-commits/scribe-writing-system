@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, FilePlus2, Loader2, Network, Plus, Search, SendToBack, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, FilePlus2, Loader2, Network, Plus, Search, SendToBack, Trash2, Upload, MapPin } from 'lucide-react'
 import { api } from './api'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor'
 import { useChiefSlot } from './ChiefSlotContext'
 import { useSelection } from './selectionContext'
 import { Btn, Input } from './ui.jsx'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
+import { AsyncState } from './ui/AsyncState.jsx'
 import { useToast } from './ui/Toast'
 import { MATERIAL_KINDS } from './materialKinds'
 import { MaterialImport } from './MaterialImport'
@@ -14,19 +15,6 @@ import { MaterialNetwork } from './MaterialNetwork'
 // 素材库:非正典写作材料。MATERIAL_KINDS 抽到 materialKinds.js(破 MaterialImport 循环 import),此处 re-export 兼容既有 from './Materials' 引用。
 export { MATERIAL_KINDS } from './materialKinds'
 const KIND_LABEL = Object.fromEntries(MATERIAL_KINDS.map((k) => [k.key, k.label]))
-
-function ErrorState({ message, onRetry }) {
-  return (
-    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
-      <div>{message}</div>
-      {onRetry && (
-        <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
-          重试
-        </button>
-      )}
-    </div>
-  )
-}
 
 const matLeafNode = (m) => ({ id: `material:${m.id}`, type: 'material', ref: m.id, label: m.title || '—', meta: { kind: m.kind } })
 
@@ -90,7 +78,7 @@ export function MaterialNew({ kind, onCancel, onCreated }) {
       <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
         <div className="flex items-center gap-3 mb-3 shrink-0">
           {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16} />返回</button>}
-          <span className="text-f11 text-faint/50">新建素材{KIND_LABEL[kind] ? ` · ${KIND_LABEL[kind]}` : ''}</span>
+          <span className="text-meta text-faint/50">新建素材{KIND_LABEL[kind] ? ` · ${KIND_LABEL[kind]}` : ''}</span>
         </div>
         <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" />
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2 shrink-0">
@@ -112,6 +100,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState('')
+  const [reloadTick, setReloadTick] = useState(0)
   const [saving, setSaving] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
   const [delLoading, setDelLoading] = useState(false)
@@ -129,7 +119,7 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
+    setLoading(true); setLoadErr('')
     api.materials()
       .then((rows) => {
         if (!alive) return
@@ -140,12 +130,18 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
         // 块三:选中素材 → 通用选中总线显式聚焦,主编按 focusTalk 的 material 分支给聚焦话术
         if (m) setFocus({ type: 'material', id: m.id, label: m.title || '—', payload: { kind: m.kind, source: m.source }, origin: 'panel' })
       })
-      .catch(() => { if (alive) setRow(null) })
+      // 请求失败 ≠ 素材不存在:进 error 态给真实错误 + 重试,不谎称「可能已删除」
+      .catch((e) => { if (alive) { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败') } })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [node?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [node?.id, reloadTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
+  if (loadErr) return (
+    <div className="p-4">
+      <AsyncState state="error" title="素材加载失败" message={loadErr} onRetry={() => setReloadTick((t) => t + 1)} />
+    </div>
+  )
   if (!row || !draft) return <div className="p-6 text-f13 text-faint">未找到该素材(可能已删除)。</div>
 
   const save = async () => {
@@ -208,7 +204,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
         <div className="flex items-center gap-2 mb-3 shrink-0 flex-wrap">
-          <span className="text-f11 text-faint/50">素材 · {KIND_LABEL[draft.kind] || draft.kind}</span>
+          {/* 类型元数据:text-meta(Task 1 语义 token),与列表/引用脚注同一节奏 */}
+          <span className="text-meta text-faint/50">素材 · {KIND_LABEL[draft.kind] || draft.kind}</span>
           <div className="ml-auto flex items-center gap-1.5">
             <Btn variant="soft" size="sm" onClick={() => setInsertOpen(true)} disabled={!(draft.body || '').trim()}
               title="把素材正文发布到某章草稿的提示条(填入/追加),不直写编辑器">
@@ -226,10 +223,11 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
         <div className="text-f12 text-faint mt-2 leading-snug shrink-0">素材是参考记忆:借鉴非照搬,不进知识图谱/不被反哺;正典设定请放「设定库」。</div>
         {refs.length > 0 && (
           <div className="mt-3 pt-3 border-t border-line shrink-0">
-            <div className="text-f11 text-faint mb-1.5">📍 这条记忆被写作参考过 {refs.length} 次(正向溯源)</div>
+            {/* 「用在哪」元数据:text-meta,与来源/类型同一节奏 */}
+            <div className="text-meta text-faint mb-1.5 inline-flex items-center gap-1"><MapPin size={11} />这条记忆被写作参考过 {refs.length} 次(正向溯源)</div>
             <div className="flex flex-wrap gap-1.5">
               {refs.map((r, i) => (
-                <span key={i} className="text-f11 text-ink bg-soft rounded px-2 py-0.5" title={r.reason || ''}>
+                <span key={i} className="text-meta text-ink bg-soft rounded px-2 py-0.5" title={r.reason || ''}>
                   第{r.chapter}章{r.dimension ? `·参考${r.dimension}` : ''}
                 </span>
               ))}
@@ -398,7 +396,8 @@ export function MaterialList({ node, onSelect }) {
 
   if (err) return (
     <div className="p-3">
-      <ErrorState message="素材加载失败" onRetry={retryLoad} />
+      {/* 统一 AsyncState:标题固定、message 透传真实错误(不吞后端 detail) */}
+      <AsyncState state="error" title="素材加载失败" message={err} onRetry={retryLoad} />
     </div>
   )
   if (!rows) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={18} className="animate-spin mr-2" />加载素材…</div>
@@ -441,33 +440,33 @@ export function MaterialList({ node, onSelect }) {
         </div>
 
         <div className="mb-4">
-          <div className="text-f11 font-semibold text-faint mb-1.5">智能视图</div>
+          <div className="text-meta font-semibold text-faint mb-1.5">智能视图</div>
           <div data-testid="material-smart-views" className="grid grid-cols-2 gap-1">
             {smartViews.map((v) => (
               <button key={v.key} onClick={() => setActiveView(v.key)}
                 className={`h-8 px-2 rounded-md text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${activeView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span className="truncate">{v.label}</span>
-                <span className="text-f11 text-faint/80 tabular-nums">{countForView(v.key)}</span>
+                <span className="text-meta text-faint/80 tabular-nums">{countForView(v.key)}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div className="mb-4">
-          <div className="text-f11 font-semibold text-faint mb-1.5">分类</div>
+          <div className="text-meta font-semibold text-faint mb-1.5">分类</div>
           <div data-testid="material-kind-list" className="space-y-0.5">
             {!isCat && (
               <button onClick={() => setActiveKind('all')}
                 className={`w-full h-8 px-2 rounded-md text-left text-f12 flex items-center justify-between transition-colors cursor-pointer ${activeKind === 'all' ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span>全部分类</span>
-                <span className="text-f11 text-faint tabular-nums">{sourceRows.length}</span>
+                <span className="text-meta text-faint tabular-nums">{sourceRows.length}</span>
               </button>
             )}
             {MATERIAL_KINDS.map((k) => (
               <button key={k.key} onClick={() => setActiveKind(k.key)}
                 className={`w-full h-8 px-2 rounded-md text-left text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${(selectedKind || activeKind) === k.key ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span className="truncate">{k.label}</span>
-                <span className="text-f11 text-faint tabular-nums">{countForKind(k.key)}</span>
+                <span className="text-meta text-faint tabular-nums">{countForKind(k.key)}</span>
               </button>
             ))}
           </div>
@@ -479,25 +478,26 @@ export function MaterialList({ node, onSelect }) {
           </div>
         ) : (
           <div className="space-y-1">
-            <div className="text-f11 font-semibold text-faint mb-1.5">素材</div>
+            <div className="text-meta font-semibold text-faint mb-1.5">素材</div>
             {filtered.map((m) => (
               <button key={m.id} onClick={() => onSelect?.(matLeafNode(m))}
                 className="w-full text-left rounded-md bg-transparent px-2.5 py-2 hover:bg-soft transition-colors cursor-pointer">
+                {/* 元数据统一 text-meta 语义 token(Task 1):引用次数/参考标签/标签/类型/来源同一节奏 */}
                 <div className="flex items-center gap-2">
-                  {m.pinned && <span className="shrink-0 text-f10 text-brand bg-brand/10 rounded px-1.5 py-0.5" title="核心记忆(恒高召回)">置顶</span>}
-                  <span className="text-f13 text-ink truncate">{m.title || '—'}</span>
-                  {materialRefCount(m) > 0 && <span className="shrink-0 text-f10 text-faint/70" title="被写作参考的次数">·{materialRefCount(m)}次</span>}
+                  {m.pinned && <span className="shrink-0 text-meta text-brand bg-brand/10 rounded px-1.5 py-0.5" title="核心记忆(恒高召回)">置顶</span>}
+                  <span className="text-helper text-ink truncate">{m.title || '—'}</span>
+                  {materialRefCount(m) > 0 && <span className="shrink-0 text-meta text-faint/70" title="被写作参考的次数">·{materialRefCount(m)}次</span>}
                 </div>
                 {(materialTags(m).length > 0 || m.source || m.kind) && (
                   <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {(m.ref_tags || []).map((t) => (
-                      <span key={'r' + t} className="text-f11 text-brand bg-brand/8 rounded px-1.5 py-0.5">参考·{t}</span>
+                      <span key={'r' + t} className="text-meta text-brand bg-brand/8 rounded px-1.5 py-0.5">参考·{t}</span>
                     ))}
                     {(m.tags || []).map((t) => (
-                      <span key={t} className="text-f11 text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
+                      <span key={t} className="text-meta text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
                     ))}
-                    <span className="text-f11 text-faint/70 bg-soft rounded px-1.5 py-0.5">{KIND_LABEL[m.kind] || m.kind}</span>
-                    {m.source && <span className="text-f11 text-faint/60 truncate">来源:{m.source}</span>}
+                    <span className="text-meta text-faint/70 bg-soft rounded px-1.5 py-0.5">{KIND_LABEL[m.kind] || m.kind}</span>
+                    {m.source && <span className="text-meta text-faint/60 truncate">来源:{m.source}</span>}
                   </div>
                 )}
               </button>

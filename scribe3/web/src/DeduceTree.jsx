@@ -87,7 +87,7 @@ export function DeduceTree({ seq }) {
         <div key={c.id} className="group flex items-center">
           <button onClick={() => pick(c.id, c.name)}
             className={cn('flex-1 flex items-center gap-2 px-2 h-8 rounded-lg text-f13 cursor-pointer', selected === c.id ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
-            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-f10 text-faint/50">未演</span>}
+            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-meta text-faint/50">未演</span>}
           </button>
           <button onClick={() => setInvolved(involved.filter((x) => x !== c.id))} title="移除" className="opacity-0 group-hover:opacity-100 w-5 h-5 grid place-items-center text-faint hover:text-danger cursor-pointer"><X size={11} /></button>
         </div>

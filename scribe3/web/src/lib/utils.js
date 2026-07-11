@@ -8,3 +8,10 @@ export const cn = (...a) => twMerge(clsx(a))
 // 空串 / null / 非数字 / <1 一律非法,统一在此判定,四处生产入口(建/演变关系·超越命题·新建命题)共用。
 export const isChapterNum = (x) =>
   x !== '' && x != null && Number.isFinite(Number(x)) && Number(x) >= 1
+
+// 无障碍:尊重系统「减弱动态效果」。matchMedia 在 jsdom 下可能不存在,做空值防御。
+export const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+// scrollIntoView 的 behavior:reduce 时降级为无动画的 'auto'。
+export const scrollBehavior = () => (prefersReducedMotion() ? 'auto' : 'smooth')

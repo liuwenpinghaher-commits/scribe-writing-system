@@ -4,8 +4,8 @@ export function Btn({ variant = 'ghost', size = 'md', icon = false, className, .
   const base = 'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors duration-150 cursor-pointer select-none active:scale-[.98] motion-reduce:active:scale-100 disabled:opacity-40 disabled:pointer-events-none disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
   // icon-only:方形、无横向 padding、居中图标(调用处务必传 aria-label / title)
   const sizes = icon
-    ? { xs: 'h-6 w-6 rounded-md', sm: 'h-7 w-7', md: 'h-8 w-8' }
-    : { xs: 'h-6 px-2 text-f11', sm: 'h-7 px-2.5 text-f12', md: 'h-8 px-3.5 text-f13' }
+    ? { xs: 'h-8 w-8 rounded-md', sm: 'h-8 w-8', md: 'h-9 w-9' }
+    : { xs: 'h-[30px] px-2.5 text-meta', sm: 'h-[34px] px-3 text-helper', md: 'h-9 px-3.5 text-body' }
   const variants = {
     primary: 'bg-brand text-brandfg hover:brightness-110 shadow-sm',
     soft: 'bg-soft text-ink border border-line hover:border-faint/50',
@@ -17,7 +17,7 @@ export function Btn({ variant = 'ghost', size = 'md', icon = false, className, .
 
 // 统一文本输入原语。h-9 rounded-lg border-line bg-canvas + focus:border-brand(:focus 光环由 index.css 全局提供)。
 export function Input({ size = 'md', className, ...p }) {
-  const sizes = { xs: 'h-6 px-1.5 text-f11', sm: 'h-7 px-2 text-f12', md: 'h-9 px-3 text-f13' }
+  const sizes = { xs: 'h-6 px-1.5 text-meta', sm: 'h-7 px-2 text-f12', md: 'h-9 px-3 text-f13' }
   return <input className={cn('w-full rounded-lg border border-line bg-canvas text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', sizes[size], className)} {...p} />
 }
 
@@ -42,8 +42,8 @@ export function SectionTitle({ icon: Icon, children, right }) {
   return (
     <div className="flex items-center gap-2 mb-2.5 mt-1">
       {Icon && <Icon size={13} className="text-faint shrink-0" />}
-      <span className="text-f11 font-semibold uppercase tracking-[.08em] text-faint">{children}</span>
-      {right != null && <span className="ml-auto text-f11 text-faint tnum">{right}</span>}
+      <span className="text-meta font-semibold uppercase tracking-[.08em] text-faint">{children}</span>
+      {right != null && <span className="ml-auto text-meta text-faint tnum">{right}</span>}
     </div>
   )
 }
@@ -71,5 +71,5 @@ export function Tag({ tone = 'faint', children }) {
     secret: 'bg-secret/12 text-secret', fore: 'bg-fore/12 text-fore', ok: 'bg-ok/12 text-ok',
     danger: 'bg-danger/12 text-danger', faint: 'bg-soft text-faint', brand: 'bg-brand/12 text-brand',
   }[tone]
-  return <span className={cn('inline-flex items-center rounded px-1.5 py-px text-f10 font-medium tracking-wide', bg)}>{children}</span>
+  return <span className={cn('inline-flex items-center rounded px-1.5 py-px text-meta font-medium tracking-wide', bg)}>{children}</span>
 }

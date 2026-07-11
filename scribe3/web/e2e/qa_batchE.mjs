@@ -1,13 +1,20 @@
-// ── e2e · 批E 件1:块四b 塌栏 UX ────────────────────────────────────────────
-// 运行:cd scribe3/web && node e2e/qa_batchE.mjs(需前端 :3311 + 后端 :3321 在跑)
-// 目标书《纸命》work=book_c256380e。纯前端只读交互,零残留。
-//
-// 修复:左栏数据面板改用「上次章 seq」记忆。点伏笔行时 sel 从 chapter 变 promise(curSeq→null),
-//   修前左栏塌回仅项目树(伏笔/母题/帧/演绎/校验 tab 全消失、当前 tab 复位);修后以最近一次章 seq
-//   喂左栏,数据面板不塌 —— 点行浏览详情时台账仍在。
-// 断言:点伏笔行后 ①左栏仍显「伏笔 · 埋/收台账」(未塌回项目树)②「校验」rail tab 仍在(数据 tab 未消失)
-//   非回归:③中区出 CodexDetail 伏笔详情(块四b 导航保留)④主编聚焦该伏笔(块四b focus 保留)。
+// ── e2e · 批E 件1:块四b 塌栏 UX ──【已退役 2026-07-11 · 旧三栏时代只读 e2e】────────
+// ⚠ 退役说明:本脚本建立在【旧三栏 LeftDock】DOM 假设上——单个 data-testid="left" 列
+//   同时承载 rail 页签(大纲/节拍/伏笔/母题/校验,role=button)与其下的数据面板。PC UI 四栏
+//   系统整修后该假设整体失效:① data-testid="left" 已不存在(拆成 栏1 入口轨 left-entry-rail /
+//   栏2 目录 col-directory);② 大纲/节拍 阶段页签上移 ObjectFrame 顶栏并改 role="tab";
+//   ③ 伏笔/校验 成入口轨 caps(aria-label);④ 它所测的"点伏笔行→左栏数据面板塌回项目树"这一
+//   bug 在四栏架构下已无法复现。逐一硬修选择器会连环崩(未分卷 strict-mode → tab('大纲') 角色
+//   不匹配 → getByTestId('left') 空定位 FATAL),故不硬修。
+//   四栏只读验收已由 ../pw_layout.mjs v2 取代且更严:三视口(1280/1440/1600)×双主题 + 全程
+//   POST/PATCH/DELETE 只读拦截 + 0 console error + detail≥600/右栏不重叠 + 目录常驻 + DOM 单套
+//   + 视图往返 + 键盘可自动化项。本脚本待按四栏重写,不阻塞 PC UI 验收(以 pw_layout 为准)。
 import { chromium } from 'playwright'
+
+console.log('[qaE] RETIRED — 旧三栏时代只读 e2e;四栏只读验收已由 pw_layout.mjs v2 取代(更严、覆盖三视口×双主题只读拦截)。此脚本待四栏重写,本次跳过并退出 0。')
+process.exit(0)
+
+// ↓↓↓ 历史断言(旧三栏 DOM,勿在四栏下运行;留档供未来四栏重写参考)↓↓↓
 
 const FRONT = 'http://127.0.0.1:3311'
 

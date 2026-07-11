@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MultiDirectedGraph } from 'graphology'
 import { SigmaContainer, useLoadGraph, useRegisterEvents, useSigma } from '@react-sigma/core'
 import '@react-sigma/core/lib/style.css'
-import { Loader2, Network, Pin, X } from 'lucide-react'
+import { List, Loader2, Network, Pin, X } from 'lucide-react'
 import { api } from './api'
 
 // 记忆网络(素材库=主编联想记忆 · 可视化):照 AtlasView 的 sigma(WebGL)+ graphology 范式。
@@ -133,6 +133,8 @@ export function MaterialNetwork({ onSelect }) {
   const [picked, setPicked] = useState(null)
   const [retryTick, setRetryTick] = useState(0)
   const [degradedSources, setDegradedSources] = useState([])
+  // 图/列表双呈现:WebGL 图不可用或边关系 degraded 时,平铺列表是同一份节点数据的替代路径(不另调 API)
+  const [view, setView] = useState('graph')
 
   // 明暗切换 → 刷新色板(同 AtlasView)
   useEffect(() => {
@@ -186,10 +188,17 @@ export function MaterialNetwork({ onSelect }) {
       <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-3 px-4">
         <Network size={15} className="text-brand" />
         <span className="text-f13 font-medium text-ink">记忆网络</span>
-        {rows && <span className="text-f12 text-faint tnum">{materials.length} 素材 · {pinnedCount} 置顶</span>}
-        <div className="ml-auto flex items-center gap-3 text-f11 text-faint">
+        {rows && <span className="text-meta text-faint tnum">{materials.length} 素材 · {pinnedCount} 置顶</span>}
+        <div className="ml-auto flex items-center gap-3 text-meta text-faint">
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-brand)' }} />置顶</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />素材</span>
+          {/* 图的替代路径:同一份节点数据的平铺列表(WebGL 异常/degraded 时仍可浏览与选中) */}
+          {materials.length > 0 && (
+            <button onClick={() => setView(view === 'graph' ? 'list' : 'graph')} aria-pressed={view === 'list'}
+              className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-line text-meta text-ink hover:border-brand cursor-pointer transition-colors">
+              {view === 'graph' ? <><List size={12} />列表视图</> : <><Network size={12} />图视图</>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -210,6 +219,22 @@ export function MaterialNetwork({ onSelect }) {
             <span className="text-f13 text-ink">还没有素材</span>
             <span className="text-f12">导入或新建素材后,会在这里连成主编的联想记忆网。</span>
           </div>
+        ) : view === 'list' ? (
+          /* 平铺列表:图的替代路径(数据即已拉取的 graph 节点,不另调 API);点击项 = 点击节点同语义 */
+          <div role="region" aria-label="记忆网络素材列表" className="absolute inset-0 overflow-y-auto">
+            <div className="max-w-2xl mx-auto px-4 py-3 space-y-1">
+              {materials.map((m) => (
+                <button key={m.id} onClick={() => onSelect?.(m)}
+                  className="w-full text-left rounded-lg px-3 py-2 hover:bg-soft transition-colors cursor-pointer border border-transparent hover:border-line">
+                  <div className="flex items-center gap-2">
+                    {m.pinned && <span className="shrink-0 inline-flex items-center gap-1 text-meta text-brand"><Pin size={11} />置顶</span>}
+                    <span className="text-helper text-ink truncate">{m.title || '(无题)'}</span>
+                    <span className="ml-auto shrink-0 text-meta text-faint tnum">召回 {Number(m.recall_count) || 0} 次</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <>
             <SigmaContainer
@@ -226,13 +251,18 @@ export function MaterialNetwork({ onSelect }) {
                 <div className="mt-0.5 text-faint leading-snug">
                   {degradedSources.map((s) => `${s.source || 'edges'}: ${s.reason || '加载失败'}`).join('；')}
                 </div>
+                {/* degraded 时的替代路径快捷入口:节点仍在,列表照常浏览/选中 */}
+                <button onClick={() => setView('list')}
+                  className="mt-1.5 inline-flex items-center gap-1 h-7 px-2 rounded-md border border-line text-meta text-ink hover:border-brand cursor-pointer transition-colors">
+                  <List size={12} />改用列表浏览
+                </button>
               </div>
             )}
 
-            <div className="absolute bottom-3 left-3 z-10 text-f11 text-faint/70 max-w-[240px] leading-snug pointer-events-none">
+            <div className="absolute bottom-3 left-3 z-10 text-meta text-faint/70 max-w-[240px] leading-snug pointer-events-none">
               节点=素材(大小随召回次数),边=联想(语义近邻)。
             </div>
-            <div className="absolute bottom-3 right-3 z-10 text-f11 text-faint/80 pointer-events-none">点击节点查看 / 选中素材</div>
+            <div className="absolute bottom-3 right-3 z-10 text-meta text-faint/80 pointer-events-none">点击节点查看 / 选中素材</div>
 
             {picked && <PickedCard m={picked} onOpen={() => onSelect?.(picked)} onClose={() => setPicked(null)} />}
           </>

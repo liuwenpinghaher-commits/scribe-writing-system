@@ -1,65 +1,51 @@
+import { Btn } from '../ui.jsx'
+
+// 受控语义目录头(Task 4 统一版):一个标题 heading + 可选实时数量/状态/搜索/动作。
+// 关键约束——只在传入真实 handler 时才渲染对应控件:没有 onQueryChange 不出搜索框,
+// 没有 primaryAction/secondaryActions 不出按钮,没有 live count 不出数字。这样彻底删掉了旧版
+// "当前:xxx 固定"卡片和无 handler 的"同步/范围"假控件(点了什么都不发生,只是骗眼睛)。
+// 保留 data-testid="directory-sticky-header":能力二级目录仍以它作为目录头锚点。
 export function DirectoryHeader({
   title,
-  badge,
-  current,
-  subtitle,
-  inputPlaceholder = '跳章 / 过滤',
-  primaryAction = '同步',
-  secondaryAction = '范围',
-  chips = [],
-  currentCardTestId,
-  onPrimary,
-  onSecondary,
+  count,
+  query = '',
+  onQueryChange,
+  searchLabel,
+  primaryAction,
+  secondaryActions = [],
+  status,
 }) {
+  // 有无第二行控件决定首行是否留下边距:只传 title 的能力目录不该有 8px 死边距 + 空控件行。
+  const hasControls = onQueryChange || secondaryActions.length > 0 || primaryAction
   return (
-    <div
+    <header
       data-testid="directory-sticky-header"
-      className="shrink-0 border-b border-line bg-surface/95 px-3 py-2"
+      className="shrink-0 border-b border-line bg-surface px-3 py-3"
     >
-      <div className="flex items-center gap-2 mb-2">
-        <div className="min-w-0 flex-1 text-f13 font-semibold text-ink">{title}</div>
-        {badge && <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-f10 text-brand">{badge}</span>}
+      <div className={`flex min-h-8 items-center gap-2${hasControls ? ' mb-2' : ''}`}>
+        <h2 className="min-w-0 flex-1 truncate text-object-title font-semibold text-ink">{title}</h2>
+        {Number.isFinite(count) && <span className="text-meta tabular-nums text-muted">{count}</span>}
+        {status}
       </div>
-      <div data-testid={currentCardTestId} className="rounded-md border border-line bg-canvas px-2.5 py-2 mb-2">
-        <div className="flex items-center justify-between gap-2 text-f12 font-medium text-ink">
-          <span className="truncate">当前:{current || '未选择'}</span>
-          <span className="shrink-0 text-f10 text-faint">固定</span>
-        </div>
-        {subtitle && <div className="mt-0.5 truncate text-f10 text-faint">{subtitle}</div>}
-      </div>
-      <div className="grid grid-cols-[1fr_auto_auto] gap-1.5 mb-2">
-        <input
-          aria-label={`${title}筛选`}
-          className="min-w-0 h-7 rounded-md border border-line bg-canvas px-2 text-f11 text-ink"
-          placeholder={inputPlaceholder}
-        />
-        <button
-          type="button"
-          onClick={onSecondary}
-          className="h-7 rounded-md border border-line bg-canvas px-2 text-f11 text-faint hover:text-ink"
-        >
-          {secondaryAction}
-        </button>
-        <button
-          type="button"
-          onClick={onPrimary}
-          className="h-7 rounded-md bg-brand px-2 text-f11 text-brandfg"
-        >
-          {primaryAction}
-        </button>
-      </div>
-      {chips.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {chips.map((chip, index) => (
-            <span
-              key={chip}
-              className={`rounded-full px-2 py-0.5 text-f10 ${index === 0 ? 'bg-brand/10 text-brand' : 'bg-soft text-faint'}`}
-            >
-              {chip}
-            </span>
+      {hasControls && (
+        <div className="flex items-center gap-2">
+          {onQueryChange && (
+            <input
+              type="search"
+              aria-label={searchLabel || `${title}筛选`}
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 text-helper text-ink"
+            />
+          )}
+          {secondaryActions.map((action) => (
+            <Btn key={action.label} size="xs" onClick={action.onClick}>{action.label}</Btn>
           ))}
+          {primaryAction && (
+            <Btn variant="primary" size="sm" onClick={primaryAction.onClick}>{primaryAction.label}</Btn>
+          )}
         </div>
       )}
-    </div>
+    </header>
   )
 }

@@ -11,7 +11,7 @@ const TIER_OPTS = ['chapter', 'arc', 'book']
 function Block({ icon, title, count, tone, children }) {
   return (
     <div className="mb-3.5 last:mb-0">
-      <div className={`flex items-center gap-1.5 text-f11 uppercase tracking-wider mb-1.5 ${tone || 'text-faint'}`}>
+      <div className={`flex items-center gap-1.5 text-meta uppercase tracking-wider mb-1.5 ${tone || 'text-faint'}`}>
         {icon && (() => { const I = icon; return <I size={12} className="shrink-0" /> })()}
         {title}{count != null ? ` · ${count}` : ''}
       </div>
@@ -39,15 +39,15 @@ function DecisionRow({ p, seq, onActed }) {
       <div className="text-f13 text-ink leading-snug">{p.text}</div>
       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
         <button disabled={busy} onClick={() => run(() => api.advancePromise(p.id, seq), '已在本章兑现')}
-          className="h-6 px-2 rounded-md text-f11 bg-ok/10 text-ok hover:bg-ok/20 disabled:opacity-40 cursor-pointer transition-colors">立即兑现</button>
-        <label className="inline-flex items-center gap-1 text-f10 text-faint">展期
+          className="h-6 px-2 rounded-md text-meta bg-ok/10 text-ok hover:bg-ok/20 disabled:opacity-40 cursor-pointer transition-colors">立即兑现</button>
+        <label className="inline-flex items-center gap-1 text-meta text-faint">展期
           <select disabled={busy} value={p.tier || 'chapter'} onChange={(e) => changeTier(e.target.value)}
-            className="h-6 rounded-md border border-line bg-canvas px-1 text-f11 text-ink outline-none focus:border-brand cursor-pointer">
+            className="h-6 rounded-md border border-line bg-canvas px-1 text-meta text-ink outline-none focus:border-brand cursor-pointer">
             {TIER_OPTS.map((t) => <option key={t} value={t}>{TIER_LABEL[t]}</option>)}
           </select>
         </label>
         <button disabled={busy} onClick={() => run(() => api.markHerring(p.id), '已弃置(标为障眼法)')}
-          className="h-6 px-2 rounded-md text-f11 bg-soft text-faint hover:text-danger disabled:opacity-40 cursor-pointer transition-colors">弃置</button>
+          className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-danger disabled:opacity-40 cursor-pointer transition-colors">弃置</button>
         {busy && <Loader2 size={12} className="animate-spin text-faint" />}
       </div>
     </div>
@@ -147,7 +147,7 @@ export function BriefPanel({ seq }) {
             <Block icon={DatabaseZap} title="设定注入清单" count={chosen.length}>
               <div className="space-y-0.5">
                 {chosen.map((c, i) => <div key={c.id ?? i} className="text-f12 text-faint leading-snug break-all">· {c.text}</div>)}
-                {inj.dropped > 0 && <div className="text-f11 text-faint/60">…另有 {inj.dropped} 条超预算未注入</div>}
+                {inj.dropped > 0 && <div className="text-meta text-faint/60">…另有 {inj.dropped} 条超预算未注入</div>}
               </div>
             </Block>
           )}

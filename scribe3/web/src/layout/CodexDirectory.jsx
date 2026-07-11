@@ -51,7 +51,7 @@ function matchesQuery(node, query) {
 }
 
 function CountBadge({ children }) {
-  return <span className="shrink-0 min-w-[24px] h-5 inline-flex items-center justify-center rounded-full bg-soft px-1.5 text-f11 text-faint tnum">{children}</span>
+  return <span className="shrink-0 min-w-[24px] h-5 inline-flex items-center justify-center rounded-full bg-soft px-1.5 text-meta text-faint tnum">{children}</span>
 }
 
 function Dot({ tone }) {
@@ -62,7 +62,7 @@ function RowText({ title, sub }) {
   return (
     <span className="min-w-0 flex flex-col gap-0.5">
       <span className="min-w-0 truncate text-f13 leading-5">{title}</span>
-      {sub && <span className="min-w-0 truncate text-f11 leading-4 text-faint">{sub}</span>}
+      {sub && <span className="min-w-0 truncate text-meta leading-4 text-faint">{sub}</span>}
     </span>
   )
 }
@@ -149,10 +149,10 @@ function PendingCharacterRefs() {
   return (
     <section className="mb-3">
       <div className="px-2 pb-1.5 flex items-center gap-2">
-        <div className="text-f11 font-semibold uppercase tracking-wide text-faint">待确认人物引用</div>
+        <div className="text-meta font-semibold uppercase tracking-wide text-faint">待确认人物引用</div>
         <CountBadge>{items.length}</CountBadge>
         {items.length > 3 && (
-          <button type="button" onClick={ignoreAll} className="ml-auto h-6 rounded-md px-1.5 text-f11 text-faint hover:bg-soft hover:text-ink cursor-pointer">
+          <button type="button" onClick={ignoreAll} className="ml-auto h-6 rounded-md px-1.5 text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer">
             全部忽略
           </button>
         )}
@@ -179,7 +179,7 @@ function PendingCharacterRefs() {
 }
 
 function SectionLabel({ children }) {
-  return <div className="px-2 pb-1.5 pt-2 text-f11 font-semibold uppercase tracking-wide text-faint">{children}</div>
+  return <div className="px-2 pb-1.5 pt-2 text-meta font-semibold uppercase tracking-wide text-faint">{children}</div>
 }
 
 function EmptyState({ category, query, onNew }) {

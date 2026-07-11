@@ -1,0 +1,369 @@
+[
+  {
+    "id": "global_continuity_001",
+    "category": "global_continuity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:柳怀玉", "chapter": 12, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "柳怀玉右手的旧伤是怎么来的?",
+    "must_include": ["fact:柳怀玉_右手旧伤_源于纸坊大火", "event:纸坊大火_ch2"],
+    "must_exclude": ["fact:柳怀玉_右手旧伤_废弃初稿版"],
+    "expected_source_kinds": ["fact", "event"]
+  },
+  {
+    "id": "global_continuity_002",
+    "category": "global_continuity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:阿素", "chapter": 20, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "纸人阿素第一次开口说话是在什么时候?",
+    "must_include": ["event:阿素初次开口_ch5"],
+    "must_exclude": ["event:阿素初次开口_大纲弃案"],
+    "expected_source_kinds": ["event"]
+  },
+  {
+    "id": "global_continuity_003",
+    "category": "global_continuity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "location", "focus_id": "loc:义庄", "chapter": 18, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "义庄地窖里那张阴契写了什么条款?",
+    "must_include": ["fact:阴契_以命换命条款_ch3", "event:发现阴契_ch3"],
+    "must_exclude": ["work:eval_book_b/fact:铜炉契约"],
+    "expected_source_kinds": ["fact", "event"]
+  },
+  {
+    "id": "focus_switch_001",
+    "category": "focus_switch",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:沈砚青", "chapter": 8, "phase": "draft", "focalizer": "role:沈砚青"},
+    "query": "这个人在当前章能知道什么?",
+    "must_include": ["fact:沈砚青_known_纸人可自行走动_ch6"],
+    "must_exclude": ["fact:沈砚青_secret_future_ch22", "work:eval_book_b"],
+    "expected_source_kinds": ["knowledge_frame", "fact"],
+    "expected_revision": 3
+  },
+  {
+    "id": "focus_switch_002",
+    "category": "focus_switch",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "location", "focus_id": "loc:义庄", "chapter": 10, "phase": "beats", "focalizer": "role:柳怀玉"},
+    "query": "这个地点当前还有哪些未收束的线索?",
+    "must_include": ["foreshadow:地窖第三口棺未开_ch3", "foreshadow:义庄夜半纸灰_ch7"],
+    "must_exclude": ["foreshadow:已收束_阴契来历_ch9"],
+    "expected_source_kinds": ["foreshadow"]
+  },
+  {
+    "id": "focus_switch_003",
+    "category": "focus_switch",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "item", "focus_id": "item:柳家祖传剪刀", "chapter": 14, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "这件东西的来历和禁忌是什么?",
+    "must_include": ["fact:祖传剪刀_柳老斋遗物_ch1", "fact:剪刀禁忌_不可剪活人衣角_ch4"],
+    "must_exclude": ["work:eval_book_b/item:胡不为罗盘"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "cross_work_isolation_001",
+    "category": "cross_work_isolation",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:柳怀玉", "chapter": 6, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "主角的师承是谁?",
+    "must_include": ["fact:柳怀玉_师承_柳老斋"],
+    "must_exclude": ["work:eval_book_b/fact:胡不为_师承", "work:eval_book_b"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "cross_work_isolation_002",
+    "category": "cross_work_isolation",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "worldrule", "focus_id": "rule:纸人禁忌", "chapter": 3, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "本书世界观里纸人术有哪些铁律?",
+    "must_include": ["fact:纸人三禁_不见血不沾泪不过火_ch3"],
+    "must_exclude": ["work:eval_book_b/fact:炼真经法则", "work:eval_book_b"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "cross_work_isolation_003",
+    "category": "cross_work_isolation",
+    "work": "eval_book_b",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:胡不为", "chapter": 2, "phase": "draft", "focalizer": "role:胡不为"},
+    "query": "主角家里藏的那部经书叫什么?",
+    "must_include": ["fact:胡不为_家藏大元炼真经"],
+    "must_exclude": ["work:eval_book_a/fact:柳家剪纸谱", "work:eval_book_a"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "canonical_priority_001",
+    "category": "canonical_priority",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:阿素", "chapter": 9, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "阿素的纸身用的是什么纸?",
+    "must_include": ["fact:阿素纸身_金坛皮纸_canon"],
+    "must_exclude": ["draft:阿素纸身_草纸_旧稿"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "canonical_priority_002",
+    "category": "canonical_priority",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:沈砚青", "chapter": 5, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "沈砚青的官职正典设定是什么?",
+    "must_include": ["fact:沈砚青_县衙刑房书吏_canon"],
+    "must_exclude": ["material:沈砚青_旧设定_捕头"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "canonical_priority_003",
+    "category": "canonical_priority",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "outline", "focus_type": "plotline", "focus_id": "arc:结局线", "chapter": 21, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "结局主伏笔的正典版本是哪一条?",
+    "must_include": ["foreshadow:纸命换真命_canon_ch1"],
+    "must_exclude": ["proposal:结局伏笔_弃案_纸人复仇"],
+    "expected_source_kinds": ["foreshadow"]
+  },
+  {
+    "id": "temporal_validity_001",
+    "category": "temporal_validity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:柳怀玉", "chapter": 4, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "柳怀玉此时住在哪里?",
+    "must_include": ["fact:柳怀玉_居所_城南纸坊_ch1至ch6"],
+    "must_exclude": ["fact:柳怀玉_居所_义庄_ch7起"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "temporal_validity_002",
+    "category": "temporal_validity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:阿素", "chapter": 15, "phase": "draft", "focalizer": "role:沈砚青"},
+    "query": "阿素当前的形态是什么样子?",
+    "must_include": ["fact:阿素形态_焦边纸人_ch9起"],
+    "must_exclude": ["fact:阿素形态_完好纸人_ch9前"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "temporal_validity_003",
+    "category": "temporal_validity",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:沈砚青", "chapter": 9, "phase": "beats", "focalizer": "role:柳怀玉"},
+    "query": "沈砚青此刻的生死状态如何?",
+    "must_include": ["fact:沈砚青_在世_至ch22"],
+    "must_exclude": ["event:沈砚青_殉职_ch22"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "focalizer_knowledge_001",
+    "category": "focalizer_knowledge",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:柳怀玉", "chapter": 8, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "视点人物此刻知道纸人的哪些秘密?",
+    "must_include": ["knowledge_frame:柳怀玉_ch8", "fact:柳怀玉_known_阿素会写字_ch7"],
+    "must_exclude": ["fact:阿素真身_柳母魂魄_读者线索"],
+    "expected_source_kinds": ["knowledge_frame", "fact"]
+  },
+  {
+    "id": "focalizer_knowledge_002",
+    "category": "focalizer_knowledge",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:沈砚青", "chapter": 11, "phase": "draft", "focalizer": "role:沈砚青"},
+    "query": "以当前视点写查案,他掌握了哪些证据?",
+    "must_include": ["knowledge_frame:沈砚青_ch11", "fact:沈砚青_known_纸灰含朱砂_ch10"],
+    "must_exclude": ["fact:柳家秘辛_剪纸续命_柳怀玉独知"],
+    "expected_source_kinds": ["knowledge_frame", "fact"]
+  },
+  {
+    "id": "focalizer_knowledge_003",
+    "category": "focalizer_knowledge",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "manuscript", "focus_type": "character", "focus_id": "role:阿素", "chapter": 16, "phase": "draft", "focalizer": "role:阿素"},
+    "query": "这一章以阿素为视点,她能感知到什么?",
+    "must_include": ["knowledge_frame:阿素_ch16"],
+    "must_exclude": ["fact:官府暗查纸坊计划_沈砚青独知"],
+    "expected_source_kinds": ["knowledge_frame"]
+  },
+  {
+    "id": "decision_recall_001",
+    "category": "decision_recall",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "character", "focus_id": "role:阿素", "chapter": 19, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "作者之前定过阿素结局的处理方向吗?",
+    "must_include": ["decision:D_阿素结局_留白不点破"],
+    "must_exclude": ["proposal:阿素结局_弃案_魂飞魄散"],
+    "expected_source_kinds": ["decision"]
+  },
+  {
+    "id": "decision_recall_002",
+    "category": "decision_recall",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "structure", "focus_id": "arc:双POV", "chapter": 13, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "双视点轮换的规则当初是怎么定的?",
+    "must_include": ["decision:D_双POV_单章单视点不混切"],
+    "must_exclude": ["work:eval_book_b"],
+    "expected_source_kinds": ["decision"]
+  },
+  {
+    "id": "decision_recall_003",
+    "category": "decision_recall",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "location", "focus_id": "loc:青槐镇", "chapter": 2, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "故事发生地的地名定案是哪个?",
+    "must_include": ["decision:D_地名_定为青槐镇"],
+    "must_exclude": ["proposal:地名_候选_白桥驿"],
+    "expected_source_kinds": ["decision"]
+  },
+  {
+    "id": "correction_supersession_001",
+    "category": "correction_supersession",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:柳怀玉", "chapter": 10, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "柳怀玉的年龄设定最新版是多少?",
+    "must_include": ["correction:柳怀玉_年龄_十九_rev3"],
+    "must_exclude": ["fact:柳怀玉_年龄_二十二_rev1"],
+    "expected_source_kinds": ["correction"],
+    "expected_revision": 3
+  },
+  {
+    "id": "correction_supersession_002",
+    "category": "correction_supersession",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "worldrule", "focus_id": "rule:纸人禁忌", "chapter": 12, "phase": "draft", "focalizer": "role:沈砚青"},
+    "query": "纸人过火的后果,修正后的说法是什么?",
+    "must_include": ["correction:纸人过火_魂散非身毁_rev2"],
+    "must_exclude": ["fact:纸人过火_身毁_rev1"],
+    "expected_source_kinds": ["correction"],
+    "expected_revision": 2
+  },
+  {
+    "id": "correction_supersession_003",
+    "category": "correction_supersession",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "event", "focus_id": "event:纸坊大火", "chapter": 17, "phase": "beats", "focalizer": "role:柳怀玉"},
+    "query": "纸坊大火发生在哪个节令?以最新修正为准。",
+    "must_include": ["correction:纸坊大火_中元节_rev4"],
+    "must_exclude": ["fact:纸坊大火_除夕_rev2"],
+    "expected_source_kinds": ["correction"],
+    "expected_revision": 4
+  },
+  {
+    "id": "material_association_001",
+    "category": "material_association",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "material", "focus_type": "location", "focus_id": "loc:义庄", "chapter": 7, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "写义庄夜戏可以参考哪些素材?",
+    "must_include": ["material:清末义庄照片笔记", "material:纸扎行当口述访谈"],
+    "must_exclude": ["work:eval_book_b/material:铜炉考据"],
+    "expected_source_kinds": ["material"]
+  },
+  {
+    "id": "material_association_002",
+    "category": "material_association",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "material", "focus_type": "craft", "focus_id": "rule:剪纸术", "chapter": 5, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "描写剪纸手艺细节有什么素材可用?",
+    "must_include": ["material:南方剪纸技法图谱", "material:老纸匠工序访谈"],
+    "must_exclude": ["material:与本书无关_现代印刷术"],
+    "expected_source_kinds": ["material"]
+  },
+  {
+    "id": "material_association_003",
+    "category": "material_association",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "material", "focus_type": "scene", "focus_id": "scene:地窖开棺", "chapter": 18, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "地窖开棺这场恐怖戏,素材和以往教训里有什么可用的?",
+    "must_include": ["material:志怪笔记_夜半棺声条目", "lesson:恐怖场景_少即是多"],
+    "must_exclude": ["work:eval_book_b"],
+    "expected_source_kinds": ["material", "lesson"]
+  },
+  {
+    "id": "uncertainty_001",
+    "category": "uncertainty",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "character", "focus_id": "role:阿素", "chapter": 14, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "阿素的真实来历定案了吗?",
+    "must_include": ["proposal:阿素来历_候选_柳母魂魄_未定"],
+    "must_exclude": ["fact:阿素来历_柳母魂魄_伪定案"],
+    "expected_source_kinds": ["proposal"]
+  },
+  {
+    "id": "uncertainty_002",
+    "category": "uncertainty",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "plotline", "focus_id": "arc:结局线", "chapter": 20, "phase": "outline", "focalizer": "role:柳怀玉"},
+    "query": "结局走向现在有哪些还没拍板的候选?",
+    "must_include": ["proposal:结局_候选A_焚纸赎命", "proposal:结局_候选B_纸命互换"],
+    "must_exclude": ["fact:结局_已定_伪条目"],
+    "expected_source_kinds": ["proposal"]
+  },
+  {
+    "id": "uncertainty_003",
+    "category": "uncertainty",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "chief", "focus_type": "character", "focus_id": "role:沈砚青", "chapter": 13, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "沈砚青是否早已知情,这个问题有结论吗?",
+    "must_include": ["question:沈砚青知情与否_悬而未决"],
+    "must_exclude": ["fact:沈砚青_早已知情_伪定案"],
+    "expected_source_kinds": ["question"]
+  },
+  {
+    "id": "provenance_001",
+    "category": "provenance",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "worldrule", "focus_id": "rule:纸人禁忌", "chapter": 6, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "纸人三禁这条设定的原文出处在哪?",
+    "must_include": ["fact:纸人三禁_不见血不沾泪不过火_ch3"],
+    "must_exclude": ["fact:纸人三禁_无出处_伪条目"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "provenance_002",
+    "category": "provenance",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "item", "focus_id": "item:阴契", "chapter": 12, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "阴契条文最早出现在哪一章哪一段?",
+    "must_include": ["fact:阴契_以命换命条款_ch3", "event:发现阴契_ch3"],
+    "must_exclude": ["work:eval_book_b"],
+    "expected_source_kinds": ["fact", "event"]
+  },
+  {
+    "id": "provenance_003",
+    "category": "provenance",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:柳老斋", "chapter": 15, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "柳老斋的死因是在哪里交代的?",
+    "must_include": ["fact:柳老斋_死于剪纸反噬_ch1"],
+    "must_exclude": ["draft:柳老斋死因_旧稿_病故"],
+    "expected_source_kinds": ["fact"]
+  },
+  {
+    "id": "stale_revision_001",
+    "category": "stale_revision",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "location", "focus_id": "loc:青槐镇", "chapter": 8, "phase": "draft", "focalizer": "role:柳怀玉"},
+    "query": "青槐镇布局设定的当前版本是什么?",
+    "must_include": ["fact:青槐镇布局_rev5"],
+    "must_exclude": ["fact:青槐镇布局_rev2"],
+    "expected_source_kinds": ["fact"],
+    "expected_revision": 5
+  },
+  {
+    "id": "stale_revision_002",
+    "category": "stale_revision",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "character", "focus_id": "role:阿素", "chapter": 17, "phase": "draft", "focalizer": "role:阿素"},
+    "query": "阿素能力边界的最新版设定是什么?",
+    "must_include": ["fact:阿素能力边界_rev4"],
+    "must_exclude": ["fact:阿素能力边界_rev1"],
+    "expected_source_kinds": ["fact"],
+    "expected_revision": 4
+  },
+  {
+    "id": "stale_revision_003",
+    "category": "stale_revision",
+    "work": "eval_book_a",
+    "snapshot": {"entry": "codex", "focus_type": "item", "focus_id": "item:沈家案卷", "chapter": 11, "phase": "beats", "focalizer": "role:沈砚青"},
+    "query": "沈家案卷内容以哪个版本为准?",
+    "must_include": ["fact:沈家案卷_rev2"],
+    "must_exclude": ["fact:沈家案卷_rev1"],
+    "expected_source_kinds": ["fact"],
+    "expected_revision": 2
+  }
+]

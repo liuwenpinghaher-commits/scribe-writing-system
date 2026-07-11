@@ -29,7 +29,7 @@ export function NorthStarBar() {
         <div className="px-4 py-3 grid sm:grid-cols-3 gap-2.5 bg-canvas/50">
           {FIELDS.map(([k, label]) => (
             <div key={k}>
-              <label className="block text-f11 text-faint mb-1">{label}</label>
+              <label className="block text-meta text-faint mb-1">{label}</label>
               <Textarea value={intent[k] || ''} onChange={(e) => set(k, e.target.value)} rows={2} className="px-2.5 py-1.5" />
             </div>
           ))}

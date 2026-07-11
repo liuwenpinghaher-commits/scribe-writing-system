@@ -91,4 +91,16 @@ describe('素材网络降级反馈', () => {
     expect(screen.getByText(/边关系降级/)).toBeTruthy()
     expect(screen.getByText(/relates 查询失败/)).toBeTruthy()
   })
+
+  it('degraded 时提供平铺列表替代入口,点击项回调素材', async () => {
+    const onSelect = vi.fn()
+    render(<MaterialNetwork onSelect={onSelect} />)
+
+    expect(await screen.findByText(/边关系降级/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '改用列表浏览' }))
+
+    const item = await screen.findByRole('button', { name: /孤立素材/ })
+    fireEvent.click(item)
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }))
+  })
 })

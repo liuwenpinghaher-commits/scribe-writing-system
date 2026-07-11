@@ -133,7 +133,7 @@ export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef }
               setBusy(false)
               setMsgs((items) => patchRunMessage(items, runId, (msg) => ({
                 ...msg,
-                content: `${msg.content || ''}\n\n_⚠ Hermes Run 恢复失败:${errorText(err)}_`,
+                content: `${msg.content || ''}\n\n_出错:Hermes Run 恢复失败:${errorText(err)}_`,
               })))
             },
           })
@@ -144,7 +144,7 @@ export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef }
           streamsRef.current.delete(runId)
           setMsgs((items) => patchRunMessage(items, runId, (msg) => ({
             ...msg,
-            content: `${msg.content || ''}\n\n_⚠ Hermes Run 状态恢复失败:${errorText(error)}_`,
+            content: `${msg.content || ''}\n\n_出错:Hermes Run 状态恢复失败:${errorText(error)}_`,
           })))
         })
     }

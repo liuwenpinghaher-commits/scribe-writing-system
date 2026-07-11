@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { DirectoryPane } from '../DirectoryPane'
 import { DetailPane } from '../../DetailPane'
+import { CapabilityDirectory } from '../CapabilityDirectories'
 
 vi.mock('../../ContainerOutline', () => ({
   ContainerOutline: ({ node }) => <div data-testid="container-outline">{node.id}</div>,
@@ -41,5 +42,17 @@ describe('DirectoryPane 手稿书级工具', () => {
 
     rerender(<DetailPane sel={{ mode: 'node', node: { id: 'book:northstar', type: 'book_northstar', label: '北极星' } }} />)
     expect(screen.getByTestId('northstar-panel').textContent).toBe('book')
+  })
+})
+
+describe('CapabilityDirectory 统一目录头', () => {
+  // 目录头收敛为受控语义头:一个标题 heading + 真实 handler 才渲染的控件。
+  // 旧版塞了"当前:xxx 固定"卡片和无 handler 的"同步/范围"假按钮,这里断言它们消失。
+  it('uses one semantic directory header without fake controls', () => {
+    render(<CapabilityDirectory capability="promise" seq={3} onSelectItem={() => {}} />)
+    expect(screen.getByRole('heading')).toBeTruthy()
+    expect(screen.queryByText('固定')).toBeNull()
+    expect(screen.queryByRole('button', { name: '同步' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '范围' })).toBeNull()
   })
 })

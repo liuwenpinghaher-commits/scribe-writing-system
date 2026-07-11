@@ -22,7 +22,7 @@ export function ChapterMemoryRefs({ chapter }) {
   return (
     <div className="shrink-0 border-b border-line bg-surface/50 px-4 py-1.5">
       <button onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-f11 text-faint hover:text-ink transition-colors cursor-pointer">
+        className="flex items-center gap-1.5 text-meta text-faint hover:text-ink transition-colors cursor-pointer">
         <BookMarked size={12} />
         本章参考了 {refs.length} 条素材记忆
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -30,7 +30,7 @@ export function ChapterMemoryRefs({ chapter }) {
       {open && (
         <div className="mt-1.5 flex flex-col gap-1 pb-1">
           {refs.map((r, i) => (
-            <div key={i} className="text-f11 leading-snug pl-4">
+            <div key={i} className="text-meta leading-snug pl-4">
               <span className="text-ink">{r.dimension ? `参考${r.dimension}` : '参考'}</span>
               {r.reason && <span className="text-faint">:{r.reason}</span>}
               {r.via && <span className="text-faint/50 ml-1">({r.via})</span>}

@@ -212,7 +212,7 @@ export function MaterialImport({ onImported, onCancel }) {
               <ArrowLeft size={16} />返回
             </button>
           )}
-          <span className="text-f11 text-faint/50">导入素材{phaseHint}</span>
+          <span className="text-meta text-faint/50">导入素材{phaseHint}</span>
         </div>
 
         {/* ——— 输入阶段:来源切换 + 对应输入 ——— */}
@@ -243,7 +243,7 @@ export function MaterialImport({ onImported, onCancel }) {
                   {file
                     ? <div className="text-f13 text-ink">已选择:<span className="font-medium">{file.name}</span></div>
                     : <div className="text-f13 text-faint">拖拽文件到此,或 <span className="text-brand">点击选择</span></div>}
-                  <div className="text-f11 text-faint/60">支持 txt / md / pdf / docx</div>
+                  <div className="text-meta text-faint/60">支持 txt / md / pdf / docx</div>
                   <input ref={fileInputRef} type="file" accept={ACCEPT} className="hidden"
                     aria-label="选择要导入的文件"
                     onChange={(e) => pickFiles(e.target.files)} />
@@ -259,7 +259,7 @@ export function MaterialImport({ onImported, onCancel }) {
                   <Input value={url} onChange={(e) => setUrl(e.target.value)}
                     placeholder="https://…" aria-label="要导入的网址"
                     onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
-                  <div className="text-f11 text-faint mt-2 leading-snug">将抓取该网址正文,解析并切分为素材。</div>
+                  <div className="text-meta text-faint mt-2 leading-snug">将抓取该网址正文,解析并切分为素材。</div>
                 </div>
               )}
             </div>
@@ -294,7 +294,7 @@ export function MaterialImport({ onImported, onCancel }) {
                   <div className={`h-full bg-brand transition-[width] duration-300 ${pct == null ? 'animate-pulse' : ''}`}
                     style={{ width: (pct == null ? 35 : pct) + '%' }} />
                 </div>
-                <div className="text-f11 text-faint text-center tnum">
+                <div className="text-meta text-faint text-center tnum">
                   {prog?.total ? `${prog.done}/${prog.total}` : '正在解析…'}
                 </div>
               </div>
@@ -362,9 +362,9 @@ export function MaterialImport({ onImported, onCancel }) {
                     {(it.ref_tags?.length > 0 || it.source) && (
                       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                         {(it.ref_tags || []).map((t, i) => (
-                          <span key={i} className="text-f11 text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
+                          <span key={i} className="text-meta text-faint bg-soft rounded px-1.5 py-0.5">{t}</span>
                         ))}
-                        {it.source && <span className="text-f11 text-faint/60 truncate">来源:{it.source}</span>}
+                        {it.source && <span className="text-meta text-faint/60 truncate">来源:{it.source}</span>}
                       </div>
                     )}
                   </div>

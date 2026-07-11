@@ -45,8 +45,14 @@ export function CapabilityGroupDetailPane({ node }) {
   const group = capabilityGroup(node?.capability, node?.ref?.group)
   const title = group?.label || node?.label || '分类总览'
   const seq = node?.ref?.seq ?? node?.meta?.seq
-  const actions = group?.actions || node?.payload?.actions || ['查看全部命中正文', '校验本章泄露', '问主编怎么改']
-  const related = group?.related || node?.payload?.related || []
+  // Task 10:数量/关联/动作只认 live payload,配置只出结构文案。
+  //   · count:业务数量必须是真实数据;没有就不渲染(旧版拿 rows.length 顶替成"N项")。
+  //   · related:旧配置里的静态关联对是假数据,已删;payload 没给就整段不渲染。
+  //   · actions:必须带真实 onClick handler 才渲染成按钮(旧版三颗写死按钮点了没有任何效果)。
+  const liveCount = node?.payload?.count
+  const related = Array.isArray(node?.payload?.related) ? node.payload.related : []
+  const actions = (Array.isArray(node?.payload?.actions) ? node.payload.actions : [])
+    .filter((a) => a && a.label && typeof a.onClick === 'function')
   return (
     <div className="h-full overflow-auto bg-canvas px-6 py-6">
       <div className="mx-auto max-w-[58rem] space-y-4">
@@ -56,7 +62,7 @@ export function CapabilityGroupDetailPane({ node }) {
           </div>
           <h2 className="text-f22 font-semibold text-ink">{title}</h2>
           <div className="mt-1 text-f13 text-faint">
-            {formatScope(group?.scope || node?.payload?.scope || '当前分类', seq)} · {node?.meta?.count ?? group?.rows?.length ?? 0}项
+            {formatScope(group?.scope || node?.payload?.scope || '当前分类', seq)}{liveCount != null ? ` · ${liveCount}项` : ''}
           </div>
         </div>
 
@@ -72,27 +78,36 @@ export function CapabilityGroupDetailPane({ node }) {
           </p>
         </section>
 
-        <section className="rounded-lg border border-line bg-surface p-4">
-          <div className="mb-3 text-f12 font-medium text-faint">关联范围</div>
-          {related.length === 0 ? (
-            <div className="text-f13 text-faint">暂无关联项。</div>
-          ) : (
+        {related.length > 0 && (
+          <section className="rounded-lg border border-line bg-surface p-4">
+            <div className="mb-3 text-f12 font-medium text-faint">关联范围</div>
             <div className="grid gap-2 sm:grid-cols-2">
               {related.map(([label, value]) => (
                 <div key={`${label}:${value}`} className="rounded-md border border-line bg-canvas px-3 py-2">
                   <div className="text-f12 font-semibold text-ink">{label}</div>
-                  <div className="mt-0.5 text-f11 text-faint">{value}</div>
+                  <div className="mt-0.5 text-meta text-faint">{value}</div>
                 </div>
               ))}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="h-8 rounded-md bg-brand px-3 text-f12 text-brandfg">{actions[0]}</button>
-          <button type="button" className="h-8 rounded-md border border-line bg-surface px-3 text-f12 text-ink">{actions[1]}</button>
-          <button type="button" className="h-8 rounded-md border border-line bg-transparent px-3 text-f12 text-faint">{actions[2]}</button>
-        </div>
+        {actions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {actions.map((action, i) => (
+              <button
+                key={action.label}
+                type="button"
+                onClick={action.onClick}
+                className={i === 0
+                  ? 'h-8 rounded-md bg-brand px-3 text-f12 text-brandfg'
+                  : 'h-8 rounded-md border border-line bg-surface px-3 text-f12 text-ink'}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -141,7 +156,7 @@ export function PromiseDetailPane({ node, work }) {
                 {rows.map((p) => (
                   <div key={p.id || p.text} className="rounded-md border border-line bg-canvas px-3 py-2">
                     <div className="text-f13 font-medium text-ink">{p.text || p.title || p.id}</div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-f11 text-faint">
+                    <div className="mt-1 flex flex-wrap gap-2 text-meta text-faint">
                       {p.setup_chapter != null && <span>埋:第 {p.setup_chapter} 章</span>}
                       {p.payoff_chapter != null && <span>收:第 {p.payoff_chapter} 章</span>}
                       {p.status && <span>状态:{p.status}</span>}

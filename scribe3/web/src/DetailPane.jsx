@@ -11,6 +11,22 @@ import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
 import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
 import { VolumeDetailPane } from './layout/VolumeDetailPane'
+import { ObjectFrame } from './layout/ObjectFrame'
+import { presentationForNode } from './layout/objectRegistry'
+
+// 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
+// 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
+// withFrame 原样返回详情元素——从而「谁套外框」只有一处真相,不散落 if 判断。
+// 注意:内层详情组件的 props 一律不改(外框只是外层壳),写作/设定/素材现有逻辑零回归。
+function withFrame(node, element) {
+  const pres = presentationForNode(node)
+  if (!pres) return element
+  return (
+    <ObjectFrame breadcrumb={pres.breadcrumb} title={pres.title}>
+      {element}
+    </ObjectFrame>
+  )
+}
 
 // 设定分类 ref → 新建条目对应的叶节点 type(用于创建后选中)
 const CAT_LEAF_TYPE = {
@@ -131,14 +147,14 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     return <MaterialNetworkPane key={node.id} onSelect={onSelectNode} />
   }
   if (node.type === 'material') {
-    return <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}
+    return withFrame(node, <MaterialDetail key={node.id} node={node} onChanged={onTreeChanged}
       onDeleted={() => {
         onTreeChanged?.()
         const kind = node.meta?.kind
         onSelectNode?.(kind
           ? { id: `matcat:${kind}`, type: 'material_category', ref: kind, label: '素材' }
           : { id: 'material_root', type: 'material_root', ref: null, label: '素材库' })
-      }} />
+      }} />)
   }
   if (node.type === 'material_root' || node.type === 'material_category') return <ContainerDetailEmpty node={node} />
 
@@ -148,9 +164,10 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
       onDeleted={() => { onTreeChanged?.(); onSelectNode?.({ id: 'cat:proposition', type: 'codex_category', ref: 'proposition', label: '命题' }) }} />
   }
 
-  // —— 设定叶 → 详情卡 ——
+  // —— 设定叶 → 详情卡(character 套对象外框;faction/item/term/world_rule/promise/motif 暂不套,
+  //    由 withFrame 内 presentationForNode 判定:仅 character 有呈现数据 → 只有它被包)——
   if (CODEX_LEAF.has(node.type)) {
-    return <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />
+    return withFrame(node, <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />)
   }
 
   // —— 容器只驱动栏2目录;栏3只承载条目详情/横切视图 ——

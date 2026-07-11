@@ -320,9 +320,9 @@ function FactButton({ fact, icon: Icon, onPick, active }) {
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <div className="truncate text-f12 font-semibold leading-snug">{factTitle(fact)}</div>
-            <span className="shrink-0 rounded-full bg-soft px-2 py-0.5 text-f10 text-faint">{fact.badge}</span>
+            <span className="shrink-0 rounded-full bg-soft px-2 py-0.5 text-meta text-faint">{fact.badge}</span>
           </div>
-          <div className="mt-0.5 truncate text-f11 text-faint leading-snug">{factValue(fact)}</div>
+          <div className="mt-0.5 truncate text-meta text-faint leading-snug">{factValue(fact)}</div>
         </div>
       </div>
     </button>
@@ -335,8 +335,8 @@ function DetailArticle({ model, compact = false, onFull }) {
     <article aria-label={model.kind === 'fact' ? '事实详情' : '分类总览'}
       className="grid min-h-0 overflow-hidden rounded-lg border border-line bg-surface shadow-[0_10px_30px_rgba(38,36,31,.06)]">
       <div className="border-b border-line/70 bg-brand/5 px-4 py-3">
-        <div className="text-f11 font-semibold text-faint">{model.kind === 'fact' ? '事实详情' : '分类总览'}</div>
-        <div className="text-f11 font-semibold text-faint">{model.kicker}</div>
+        <div className="text-meta font-semibold text-faint">{model.kind === 'fact' ? '事实详情' : '分类总览'}</div>
+        <div className="text-meta font-semibold text-faint">{model.kicker}</div>
         <h3 className="mt-1 text-f20 font-semibold leading-tight text-ink">{model.title}</h3>
         <div className="mt-1 text-f12 leading-relaxed text-faint">{model.sub}</div>
         {model.value && <div className="mt-2 inline-flex rounded-md bg-surface px-2 py-1 text-f12 font-medium text-ink">{model.value}</div>}
@@ -345,18 +345,18 @@ function DetailArticle({ model, compact = false, onFull }) {
         <div className="grid gap-3">
           {model.body.map(([label, value], index) => (
             <section key={label}>
-              <div className="mb-1 text-f11 font-semibold tracking-wide text-faint">{label}</div>
+              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
               <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'rounded-r-lg border-l-2 border-brand bg-canvas px-3 py-2' : ''}`}>{value}</div>
             </section>
           ))}
           {!compact && model.kind === 'fact' && (
             <section>
-              <div className="mb-1 text-f11 font-semibold tracking-wide text-faint">关联跳转</div>
+              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">关联跳转</div>
               <div className="grid gap-1.5">
                 {model.related.map(([label, value]) => (
                   <div key={`${label}:${value}`} className="rounded-md border border-line/70 bg-canvas px-2 py-1.5">
                     <div className="text-f12 font-medium text-ink">{label}</div>
-                    <div className="text-f11 text-faint">{value}</div>
+                    <div className="text-meta text-faint">{value}</div>
                   </div>
                 ))}
               </div>
@@ -383,18 +383,18 @@ function FullDetail({ model, path, onBack }) {
       </div>
       <div className="grid overflow-hidden rounded-lg border border-line bg-surface shadow-[0_10px_30px_rgba(38,36,31,.06)] lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 px-5 py-5">
-          <div className="text-f11 font-semibold text-faint">{model.kicker}</div>
+          <div className="text-meta font-semibold text-faint">{model.kicker}</div>
           <h3 className="mt-1 text-f24 font-semibold leading-tight text-ink">{model.title}</h3>
           <div className="mt-2 text-f13 leading-relaxed text-faint">{model.sub}</div>
           <div className="mt-5 grid gap-4">
             {model.body.map(([label, value], index) => (
               <section key={label}>
-                <div className="mb-1 text-f11 font-semibold tracking-wide text-faint">{label}</div>
+                <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
                 <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'rounded-r-lg border-l-2 border-brand bg-canvas px-3 py-2' : ''}`}>{value}</div>
               </section>
             ))}
             <section>
-              <div className="mb-1 text-f11 font-semibold tracking-wide text-faint">返回机制</div>
+              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">返回机制</div>
               <div className="grid grid-cols-[4.5rem_1fr] gap-2 text-f12">
                 <span className="text-faint">返回</span><span>点击顶部返回条,回到上下文树并保留选中的分组和对象。</span>
                 <span className="text-faint">跳转</span><span>后续可复用设定库、素材库、伏笔或正文的详情页,不复制一套详情 UI。</span>
@@ -404,7 +404,7 @@ function FullDetail({ model, path, onBack }) {
           </div>
         </div>
         <aside className="border-t border-line bg-canvas px-4 py-4 lg:border-l lg:border-t-0">
-          <div className="mb-2 text-f11 font-semibold tracking-wide text-faint">来源路径</div>
+          <div className="mb-2 text-meta font-semibold tracking-wide text-faint">来源路径</div>
           <div className="grid gap-2 text-f12">
             {model.related.map(([label, value]) => (
               <div key={`${label}:${value}`} className="rounded-md border border-line/70 bg-surface px-2 py-1.5">
@@ -605,7 +605,7 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
     return (
       <button key={section.key} type="button" aria-label={`${section.label} ${section.items.length}`} onClick={() => pickSection(section.key)}
         className={`relative w-full rounded-lg border border-transparent border-l-4 ${toneBorder(section.tone)} bg-surface px-3 py-2 text-left transition-colors cursor-pointer ${on ? 'border-line bg-brand/10 shadow-sm after:absolute after:right-[-13px] after:top-1/2 after:w-3 after:border-t after:border-brand/40' : 'hover:border-line hover:bg-soft/70'}`}>
-        <div className="text-f11 text-faint">{section.description}</div>
+        <div className="text-meta text-faint">{section.description}</div>
         <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2 text-f13 font-semibold text-ink"><Icon size={14} className={on ? 'text-brand' : 'text-faint'} />{section.label}</span>
           <span className={`text-f12 tnum ${section.countTone}`}>{section.items.length}</span>
@@ -636,19 +636,19 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
   const renderWideBoard = () => (
     <div className="min-w-[720px] grid grid-cols-[minmax(12rem,0.8fr)_minmax(14rem,0.95fr)_minmax(17rem,1.15fr)] items-start gap-4">
       <section className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-f11 tracking-wide text-faint">
+        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
           <span>分组</span><span>{sections.length}类</span>
         </div>
         <div className="grid gap-1.5">{renderGroupButtons()}</div>
       </section>
       <section className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-f11 tracking-wide text-faint">
+        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
           <span>当前分类</span><span>{activeSection.items.length}项</span>
         </div>
         <div className="grid gap-1.5">{renderItemButtons(false)}</div>
       </section>
       <section aria-label="关联详情" className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-f11 tracking-wide text-faint">
+        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
           <span>就地详情</span><span>随路径更新</span>
         </div>
         <DetailArticle model={detailModel} onFull={() => setFullOpen(true)} />
@@ -669,7 +669,7 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
                 <span className="flex min-w-0 items-center gap-2 text-f13 font-semibold text-ink"><Icon size={14} className={expanded ? 'text-brand' : 'text-faint'} />{section.label}</span>
                 <span className={`text-f12 tnum ${section.countTone}`}>{section.items.length}</span>
               </div>
-              <div className="mt-0.5 text-f11 text-faint">{section.description}</div>
+              <div className="mt-0.5 text-meta text-faint">{section.description}</div>
             </button>
             {expanded && (
               <div className="ml-6 grid gap-1.5">
@@ -714,7 +714,7 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
       <div className="grid shrink-0 grid-cols-3 border-b border-line/70 bg-line/40 md:grid-cols-6">
         {summaryStats.map(([label, value, tone]) => (
           <div key={label} className="min-w-0 bg-surface/80 px-4 py-2">
-            <div className="text-f11 text-faint">{label}</div>
+            <div className="text-meta text-faint">{label}</div>
             <div className={`text-f20 font-semibold leading-tight tnum ${toneText(tone)}`}>{value}</div>
           </div>
         ))}

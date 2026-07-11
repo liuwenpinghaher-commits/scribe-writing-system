@@ -149,6 +149,14 @@ class TestWriteGate:
         # 北极星任务11:选择环(写:候选留版本;finalize 落正文+final版+lesson)
         ("POST", "/select/chapter"),
         ("POST", "/select/finalize"),
+        # 统一上下文 Task 4:会话创建(落 revision=0 初始快照)+ CAS 导航推进。
+        # 授权语义:只写 context_session/context_snapshot 两表(导航留痕),
+        # 不碰正典数据;navigate 失配 409 绝不覆盖,同 navigation_id 幂等重放。
+        ("POST", "/context/sessions"),
+        ("POST", "/context/sessions/{session_id}/navigate"),
+        # 统一上下文 Task 6:主编线程显式分支。授权语义:只写 editorial_thread
+        # 一表(建子线程,写 parent_thread_id),不碰正典/对话内容;导航路径绝不调此。
+        ("POST", "/chat/threads/{thread_id}/fork"),
     }
 
     def test_no_unaudited_write_route(self):

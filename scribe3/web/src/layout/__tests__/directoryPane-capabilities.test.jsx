@@ -1,7 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DirectoryPane } from '../DirectoryPane'
+import { CapabilityDirectory } from '../CapabilityDirectories'
+import { CapabilityGroupDetailPane } from '../CapabilityDetailPanes'
 
+// CapabilityDetailPanes 顶层 import DeduceStage(拖 TipTap 编辑器链);
+// 本文件只测 group 详情面板,掐断这条重依赖。
+vi.mock('../../DeduceStage', () => ({ DeduceStage: () => null }))
 vi.mock('../../ContainerOutline', () => ({
   ContainerOutline: ({ node, onSelect }) => (
     <div data-testid="container-outline">
@@ -134,5 +139,44 @@ describe('DirectoryPane 能力二级目录', () => {
       const { api } = await import('../../api')
       expect(api.acceptUnverified).toHaveBeenCalledWith('uv:1')
     })
+  })
+})
+
+// Task 10:工艺目录/分类详情只展示真实状态 —— 配置里的 demo 计数与无 handler 的
+// 动作按钮不得进入 UI;数量与动作一律等 live payload,值不存在就不渲染。
+describe('CapabilityDirectory / CapabilityGroupDetailPane 无假数据', () => {
+  it('不把配置里的 demo 计数当 live 数据渲染', () => {
+    render(<CapabilityDirectory capability="promise" seq={3} onSelectItem={() => {}} />)
+    // 旧配置写死的超期 4 / 仍悬 7 / 已回收 19,一个都不许出现
+    expect(screen.queryByText('4')).toBeNull()
+    expect(screen.queryByText('7')).toBeNull()
+    expect(screen.queryByText('19')).toBeNull()
+  })
+
+  it('不渲染没有 handler 的动作按钮', () => {
+    // 未知 group(落兜底文案)不得长出写死的三颗动作按钮
+    const first = render(<CapabilityGroupDetailPane node={{ capability: 'promise', ref: { group: 'open' }, label: '待回收' }} />)
+    expect(screen.queryByRole('button', { name: '查看全部命中正文' })).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    first.unmount()
+
+    // 真实 group 的配置 actions 同样是无 handler 的假动作,不得渲染
+    render(<CapabilityGroupDetailPane node={{ capability: 'promise', ref: { group: 'risk' }, label: '风险状态' }} />)
+    expect(screen.queryByRole('button', { name: '查看风险伏笔' })).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('payload 提供带 handler 的动作/关联/数量时才渲染', () => {
+    const onAct = vi.fn()
+    render(<CapabilityGroupDetailPane node={{
+      capability: 'promise',
+      ref: { group: 'risk', seq: 3 },
+      label: '风险状态',
+      payload: { count: 5, related: [['超期未收', 'overdue']], actions: [{ label: '查看风险伏笔', onClick: onAct }] },
+    }} />)
+    expect(screen.getByText(/5项/)).toBeTruthy()
+    expect(screen.getByText('超期未收')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '查看风险伏笔' }))
+    expect(onAct).toHaveBeenCalledTimes(1)
   })
 })

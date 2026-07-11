@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BookText, FileText, Bookmark, Users, Shield, Swords, Flame, ArrowRight, Activity, MapPin } from 'lucide-react'
+import { BookText, FileText, Bookmark, Users, Shield, Swords, Flame, ArrowRight, Activity, MapPin, AlertTriangle } from 'lucide-react'
 import { api } from '../api'
 import { chapterLabel } from '../chapterLabel.js'
 
@@ -7,14 +7,23 @@ import { chapterLabel } from '../chapterLabel.js'
 // 复用 /quality + /setting-completeness + /promises/ledger,不新增后端。
 function Stat({ icon: Icon, label, value, sub, tone = 'ink', onClick }) {
   const c = { ink: 'text-ink', brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
-  return (
-    <div onClick={onClick}
-      className={`rounded-xl border border-line bg-surface p-4 ${onClick ? 'cursor-pointer hover:border-brand/30 transition-colors' : ''}`}>
-      <div className="flex items-center gap-1.5 text-faint text-f11 uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
+  const inner = (
+    <>
+      <div className="flex items-center gap-1.5 text-faint text-meta uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
       <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
-      {sub && <div className="text-f11 text-faint mt-0.5">{sub}</div>}
-    </div>
+      {sub && <div className="text-meta text-faint mt-0.5">{sub}</div>}
+    </>
   )
+  // 可点的 Stat 用真正的 button(键盘可达);仅展示时保持 div。
+  if (onClick) {
+    return (
+      <button onClick={onClick}
+        className="w-full text-left rounded-xl border border-line bg-surface p-4 cursor-pointer hover:border-brand/30 transition-colors">
+        {inner}
+      </button>
+    )
+  }
+  return <div className="rounded-xl border border-line bg-surface p-4">{inner}</div>
 }
 
 export function OverviewView({ onJumpChapter, onOpenView }) {
@@ -63,7 +72,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
             <div className="flex items-center gap-2 mb-3">
               <div className="text-f12 font-semibold text-ink">设定库</div>
               {comp.completeness_score != null && (
-                <span className="text-f11 text-faint">完整度 {comp.completeness_score}/100</span>
+                <span className="text-meta text-faint">完整度 {comp.completeness_score}/100</span>
               )}
             </div>
             <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
@@ -75,7 +84,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
                 ['事实/命题', comp.total_facts, BookText],
               ].map(([label, count, Icon]) => (
                 <div key={label} className="rounded-lg border border-line bg-canvas p-2.5">
-                  <div className="flex items-center gap-1.5 text-f11 text-faint mb-1"><Icon size={12} />{label}</div>
+                  <div className="flex items-center gap-1.5 text-meta text-faint mb-1"><Icon size={12} />{label}</div>
                   <div className="text-f18 font-semibold text-ink tnum">{count ?? 0}</div>
                 </div>
               ))}
@@ -92,8 +101,8 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
             <div className="flex items-center flex-wrap gap-2 mb-2">
               <Bookmark size={15} className="text-fore" />
               <div className="text-f13 font-semibold text-ink">伏笔平衡</div>
-              <span className={`text-f11 ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
-                {audit.balanced ? '✓ 已平衡' : '⚠ 未平衡'}
+              <span className={`text-meta inline-flex items-center gap-1 ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
+                {audit.balanced ? '✓ 已平衡' : <><AlertTriangle size={11} />未平衡</>}
               </span>
               <button onClick={() => onOpenView?.('insight')}
                 className="ml-auto inline-flex items-center gap-1 text-f12 text-brand hover:underline cursor-pointer">

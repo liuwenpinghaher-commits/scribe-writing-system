@@ -85,7 +85,8 @@ describe('DetailPane 能力详情路由', () => {
     expect(screen.getByRole('heading', { name: '限知分类' })).toBeTruthy()
     expect(screen.getByText('分类含义')).toBeTruthy()
     expect(screen.getByText('写作约束')).toBeTruthy()
-    expect(screen.getByText('查看全部命中正文')).toBeTruthy()
+    // Task 10:配置里无 handler 的假动作按钮已移除,动作只认 live payload
+    expect(screen.queryByText('查看全部命中正文')).toBeNull()
     expect(screen.queryByText(/未知节点类型/)).toBeNull()
   })
 

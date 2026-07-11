@@ -1,3 +1,11 @@
+export const PC_LAYOUT = Object.freeze({
+  topbar: 44,
+  rail: 56,
+  directory: { min: 240, ideal: 264, max: 320 },
+  detail: { min: 600 },
+  right: { min: 300, ideal: 336, max: 380 },
+})
+
 // 设计 token 单一真源(阶段1a)。值用 var() 引用现有 CSS 变量,不发明新值、不改观感。
 // 目的:把散在各组件里手写的样式收敛到一处,后续新布局/组件统一引用,视觉才一致。
 export const T = {

@@ -21,11 +21,17 @@ import time
 from collections import OrderedDict, deque
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
+from scribe3.context_models import NavigationIntent, StaleContextError
+from scribe3.context_service import (
+    ContextService, ContextServiceError, ContextWorkMismatch,
+)
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
@@ -750,6 +756,109 @@ def ai_run_stop(run_id: str, work: str = "main"):
     result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
     _record_ai_run_trace(work, run_id, status=result.get("status") or "stopped", response=result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 4:Context API(会话/导航/快照)
+# work 约定:?work= 只用于定位 store(全仓约定);校验以 session 落库的 work
+# 为准(Task 16 的 work 绑定校验语义,现在就按此做)——不符 409 context_work_mismatch。
+# ---------------------------------------------------------------------------
+
+def _context_http_error(e: Exception) -> HTTPException:
+    """context 语义异常 → HTTPException(detail 恒带稳定 code,前端读 error.body.detail.code)。"""
+    if isinstance(e, StaleContextError):
+        return HTTPException(status_code=409, detail={
+            "code": e.code, "expected": e.expected, "actual": e.actual, "latest": e.latest})
+    status = {
+        "context_binding_required": 400,
+        "context_session_not_found": 404,
+        "context_snapshot_not_found": 404,
+        "context_session_ended": 409,
+        "context_work_mismatch": 409,
+    }.get(getattr(e, "code", ""), 500)
+    detail = {"code": getattr(e, "code", "context_error"), "message": str(e)}
+    if isinstance(e, ContextWorkMismatch):
+        detail |= {"expected": e.expected, "actual": e.actual}
+    return HTTPException(status_code=status, detail=detail)
+
+
+class ContextSessionCreateReq(BaseModel):
+    actor_id: str = "author"
+    device_id: str = ""
+    # work 可放 body(优先)或 ?work= query;创建后固化进 session 记录
+    work: str | None = None
+
+
+@app.post("/context/sessions")
+def context_session_create(req: ContextSessionCreateReq, work: str = "main"):
+    """开上下文会话:落 revision=0 初始快照并返回(session 与快照同事务,无中间态)。"""
+    w = (req.work or work).strip() or "main"
+    return _store_for(w).create_context_session(w, req.actor_id, req.device_id)
+
+
+@app.get("/context/sessions/{session_id}")
+def context_session_get(session_id: str, work: str = "main"):
+    """读会话当前快照(含 revision/context_hash,前端绑定 LLM 调用的三件套来源)。"""
+    try:
+        return ContextService(_store_for(work)).get(session_id, work)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+@app.post("/context/sessions/{session_id}/navigate")
+def context_session_navigate(session_id: str, intent: NavigationIntent, work: str = "main"):
+    """CAS 推进上下文(body 为 NavigationIntent 形状)。失配 409 stale_context
+    (带 latest 供前端直接对齐);同 navigation_id 幂等重放(store 合同)。"""
+    try:
+        return ContextService(_store_for(work)).navigate(
+            session_id, work, intent.model_dump(mode="json"))
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+@app.get("/context/sessions/{session_id}/snapshots/{revision}")
+def context_snapshot_get(session_id: str, revision: int, work: str = "main"):
+    """读历史版快照(回放/审计);该 revision 不存在 → 404 context_snapshot_not_found。"""
+    try:
+        return ContextService(_store_for(work)).get(session_id, work, revision=revision)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
+
+
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)
+# GET  /chat/threads               本 work 线程列表(含分支)
+# GET  /chat/threads/{id}/messages 该线程全部消息(store.list_thread_messages)
+# POST /chat/threads/{id}/fork     显式分支(写 parent_thread_id 建新线程)
+# 导航路径绝不调 fork——fork 只在作者显式"另起支线"时触发。
+# ---------------------------------------------------------------------------
+
+class ForkThreadReq(BaseModel):
+    title: str | None = None
+
+
+@app.get("/chat/threads")
+def chat_threads(work: str = "main", actor_id: str = "author"):
+    """本 work 线程列表;顺带保证默认线程存在(首次访问即建,幂等)。"""
+    store = _store_for(work)
+    store.get_or_create_editorial_thread(work, actor_id)
+    return {"threads": store.list_editorial_threads(work)}
+
+
+@app.get("/chat/threads/{thread_id}/messages")
+def chat_thread_messages(thread_id: str, work: str = "main", limit: int = 500):
+    """该线程全部消息(ts 升序);别的 work 的 thread_id 在本库无消息 → []。"""
+    return _store_for(work).list_thread_messages(thread_id, limit=limit)
+
+
+@app.post("/chat/threads/{thread_id}/fork")
+def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
+    """显式分支:以 thread_id 为父建新线程(写 parent_thread_id)。父不存在 404。"""
+    try:
+        return _store_for(work).fork_editorial_thread(thread_id, title=req.title)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail={
+            "code": "thread_not_found", "message": str(e)}) from e
 
 
 @app.get("/works")
@@ -2335,8 +2444,23 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
-    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + (
+def _editor_identity_block() -> str:
+    """主编身份 + 硬协议(纯身份,零数据注入)。I1:v1 上下文段由 envelope 独占,故 v1
+    只取本块作身份,避免 _editor_system 的设定/角色/伏笔注入与 envelope 的 canonical/global
+    重复(facts 出现 2 次、promises 最多 3 次的注意力稀释病灶,B-3 同型)。
+    与 _editor_system 共享措辞但独立成函数:_editor_system 保持原样(旧路径字节一致),
+    本块把"上面的世界观与北极星"改指"下方提供的"——v1 里数据段在身份之后由 envelope 给出。"""
+    return (
+        "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
+        "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣下方提供的世界观与北极星,"
+        "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
+    )
+
+
+def _write_protocol_block() -> str:
+    """写作硬协议(讨论 vs 动稿)+ 文风基准(纯静态,零数据)。原 _editor_write_system 内联串
+    原样抽出,供旧 _editor_write_system 与 v1 共用——不改一字,保旧路径字节一致。"""
+    return (
         "\n\n你是这部小说的主编,以**作者视角**帮作者写/改这本书的手稿——作者在写一本书,"
         "不是从某个角色的受限视角做渲染。\n\n"
         "## 核心判断:讨论 vs 动稿\n"
@@ -2363,6 +2487,22 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
         "  「" + _LUANSHI_EXEMPLAR + "」\n"
         "  ——注意它如何用一整段写婚宴的杀猪宰羊、姑嫂蒸糕、打更人讨酒,世界先活,事件才落地。"
     )
+
+
+def _write_revision_block() -> str:
+    """M8 修订纪律(恒注入)。原 _editor_write_system 内联串原样抽出,旧/ v1 共用。"""
+    return (
+        "\n\n## 修订纪律\n"
+        "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
+        "除非作者明确要求整章重写。\n"
+        "- 禁止开放式整章自评重写(critique 放在大纲/节拍层;正文层只做表达增强)——"
+        "自评重写会同质化、越改越平。\n"
+        "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
+
+
+def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
+    # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
+    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + _write_protocol_block()
     # Task7:章前简报注入(chapter 已知才组装;fail-safe——组装异常只 warning 不阻断写作)
     brief_txt = ""
     if chapter is not None:
@@ -2380,13 +2520,7 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
             import logging
             logging.getLogger("scribe3").warning("章前简报组装失败(non-fatal): %s", _bf_e)
     # Task7:M8 修订纪律(恒注入,与是否有简报无关)
-    revision = (
-        "\n\n## 修订纪律\n"
-        "- 改稿默认 **span 级定向**:只重写被指出的最小片段,其余一字不动;"
-        "除非作者明确要求整章重写。\n"
-        "- 禁止开放式整章自评重写(critique 放在大纲/节拍层;正文层只做表达增强)——"
-        "自评重写会同质化、越改越平。\n"
-        "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
+    revision = _write_revision_block()
     return base + revision + (("\n\n" + brief_txt) if brief_txt else "")
 
 
@@ -2854,6 +2988,14 @@ class ChatWriteReq(BaseModel):
     phase: str = ""              # 阶段角色(Phase0-BE2):plan|draft|final;空=现状不变
     short_mode: bool = False     # 方案B任务16:短篇模式——跳过 build_craft_block 的
                                   # ENGINES["restraint"](留白/克制)注入
+    # Task 4:上下文绑定字段一律 optional——契约不硬断存量调用方(1270 项测试/旧前端/
+    # loop/pilot)。强制校验挂 SCRIBE3_CONTEXT_SNAPSHOT_V1:开关开 + 字段缺失/过期 → 4xx;
+    # 开关关(默认)→ 完全忽略,行为不变。见 context_service.ContextService.enforce。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
+    context_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    thread_id: str | None = None   # Task 6:主编线程归属(一 work 一连续线程)
+    focus: dict | None = None      # Task 6:本轮焦点标签(切焦点不切线程,焦点只作每轮标签)
 
     @field_validator("images")
     @classmethod
@@ -3112,6 +3254,98 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         return ""
 
 
+# M1:v1 组装失败回退旧链的累计次数(金丝雀读它判断真机是否真走了 v1,防静默降级)。
+_context_assembler_fallbacks = 0
+
+
+def _context_assembler_enabled() -> bool:
+    """Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1 是否开启(每次调用读,默认关)。
+    关 → _assemble_write_instructions 走旧散点组装链,行为一字不变(1270+ 后端测试
+      与真机写作路径零影响,控制器裁决)。开 → 走 ContextAssembler 组装的 envelope。
+    Task 17 的"写作质量金丝雀门"真机验证通过后才允许默认开启。"""
+    return os.environ.get("SCRIBE3_CONTEXT_ASSEMBLER_V1", "").strip().lower() in {
+        "1", "true", "yes", "on"}
+
+
+# ContextSnapshot.phase 的合法枚举(context_models.PhaseName);写作端点的 phase
+# 串("plan"/"draft"/"final"/...)不在此集合的一律降 None,防合成快照校验失败。
+_ASSEMBLER_PHASES = {"outline", "beats", "deduce", "draft", "final"}
+
+
+def _write_snapshot(st, *, chapter, focalizer, phase, work):
+    """为写作组装合成一份最小 ContextSnapshot(v1 路径喂给 ContextAssembler)。
+    写作端点不像导航那样带完整快照,这里用确定性占位补齐 session/thread/nav——
+    它只作 assembler 的取数坐标(work/chapter/focalizer/phase),不入 CAS 存储。"""
+    from datetime import datetime, timezone
+    from scribe3.context_models import ContextFocus, ContextSnapshot
+    w = _normalize_work(work)
+    ph = (phase or "").strip().lower()
+    ph = ph if ph in _ASSEMBLER_PHASES else None
+    has_ch = chapter is not None
+    snap = ContextSnapshot(
+        session_id="write", work=w, revision=0, thread_id=f"write:{w}",
+        entry="chapter", directory_path=(),
+        focus=ContextFocus(type="chapter" if has_ch else "view",
+                           id=str(chapter) if has_ch else w,
+                           label=focalizer or ""),
+        detail_route=f"chapter:{chapter}" if has_ch else "view:book",
+        chapter=chapter, phase=ph, focalizer=focalizer or None,
+        previous_revision=None, navigation_id=f"write:{w}:{chapter}",
+        captured_at=datetime.now(timezone.utc), context_hash="")
+    return snap.with_hash()
+
+
+def _get_write_retriever(st):
+    """Task 8 的 MemoryRetriever 注入点(现返回 None → assembler 走 store 直查降级,
+    canonical 仍有真数据)。Task 8 落地后在此接真实 retriever。"""
+    return None
+
+
+def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
+                                    short_mode, with_tools=False, work=None):
+    """SCRIBE3_CONTEXT_ASSEMBLER_V1【开】路径:身份/硬协议保持内嵌,上下文段由
+    ContextAssembler 统一组装(可预算/可溯源/正典优先/限知屏蔽);强制纪律仍逐条内嵌
+    (_final_reminder/_revelation_discipline_block/_focalizer_sincerity_block 等是
+    "每请求硬协议",不进 envelope——计划全局约束的稳定层分工)。旧块函数
+    (_frame_block/_recap_block/_material_recall_block)不删不改,其取数语义由 assembler
+    的 store 降级路径承接(source adapter)。⚠ Task 17 金丝雀门真机验证前默认不启用。"""
+    from scribe3.context_assembler import ContextAssembler, render_envelope_text
+    from scribe3.craft import build_craft_block
+    # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
+    # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
+    # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
+    instructions = (_editor_identity_block() + _write_protocol_block()
+                    + _write_revision_block())
+    instructions += f"\n当前第 {chapter} 章。"
+    if with_tools:
+        instructions += _s3_work_scope_block(work)
+    if focalizer:
+        instructions += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
+                         "贴该角色所知所感写,别写他不知道的私密。")
+    else:
+        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
+    snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
+                           phase=phase, work=work)
+    mode = "write" if (phase or "").strip().lower() in ("draft", "final") else "plan"
+    envelope = ContextAssembler(st, _get_write_retriever(st)).assemble(snap, "", mode)
+    env_text = render_envelope_text(envelope)
+    if env_text:
+        instructions += "\n\n" + env_text
+    # 生成模式/情绪种子/工艺块(叠加,非上下文事实)
+    instructions += _soak_block(seed_words)
+    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
+    if craft:
+        instructions += "\n\n" + craft
+    instructions += _phase_role_block(phase)
+    # 每请求硬协议(强制纪律,恒内嵌 prompt,不进 envelope)
+    instructions += _revelation_discipline_block(focalizer)
+    instructions += _focalizer_sincerity_block()
+    instructions += _purpose_workflow_block(st, chapter, with_tools, work)
+    instructions += _final_reminder()
+    return instructions
+
+
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool,
                                  with_tools: bool = False,
@@ -3120,7 +3354,28 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
     (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
-    with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。"""
+    with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。
+
+    Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1【开】→ 委托 _assemble_write_instructions_v1
+      (ContextAssembler 统一组装);组装异常 → 回退下方旧链(fail-safe)。
+      【关】(默认)→ 直接执行下方旧链,行为一字不变(控制器裁决的硬性验收条件)。"""
+    if _context_assembler_enabled():
+        try:
+            return _assemble_write_instructions_v1(
+                st, chapter=chapter, focalizer=focalizer, phase=phase,
+                seed_words=seed_words, short_mode=short_mode,
+                with_tools=with_tools, work=work)
+        except Exception:
+            # M1:回退是【结构化信号】,不能静默——否则 Task 17 金丝雀门会被蒙蔽(v1
+            # 其实全程降级到旧链却以为在测 v1)。累计计数器 + 带阶段/章/书的 warning,
+            # 供金丝雀读 app._context_assembler_fallbacks 判断"这次真机是否真走了 v1"。
+            global _context_assembler_fallbacks
+            _context_assembler_fallbacks += 1
+            logging.getLogger("scribe3").warning(
+                "ContextAssembler v1 组装失败,回退旧组装链(fail-safe) "
+                "stage=assemble_write_instructions chapter=%s focalizer=%s work=%s "
+                "fallbacks=%d",
+                chapter, focalizer, work, _context_assembler_fallbacks, exc_info=True)
     from scribe3.craft import build_craft_block
     instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
     instructions += f"\n当前第 {chapter} 章。"
@@ -3179,9 +3434,17 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
 
 
 @app.post("/chat/write")
-def chat_write_post(req: ChatWriteReq, work: str = "main"):
+def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
+    # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,默认关=零变化)。
+    # 必须在 user 落库与 StreamingResponse 之前完成——流一旦开始,4xx 会退化成流中错误。
+    # 双通道(I-1):body 三件套缺失时逐字段回退请求头 X-Scribe-Context-*
+    # (api.js contextHeaders 产出),两通道都缺才 400。
+    try:
+        ContextService(st).enforce(req, work, headers=request.headers)
+    except (ContextServiceError, StaleContextError) as e:
+        raise _context_http_error(e) from e
     _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
@@ -3201,15 +3464,23 @@ def chat_write_post(req: ChatWriteReq, work: str = "main"):
     import uuid
     turn_id = uuid.uuid4().hex[:12]
     user_text = req.msg + (f"\n[附图{len(req.images)}张]" if req.images else "")
+    # Task 6:线程归属 + 本轮 context 绑定/焦点标签随消息落库(切焦点不切线程);
+    # 全 optional,存量调用方(不传 thread_id)仍走 backfill 的默认线程回看。
+    _bind = dict(thread_id=req.thread_id, context_session_id=req.context_session_id,
+                 context_revision=req.context_revision, context_hash=req.context_hash,
+                 focus=req.focus)
     try:
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="user",
-                            text=user_text, turn=turn_id)
+                            text=user_text, turn=turn_id, **_bind)
     except Exception:
         logging.getLogger("scribe3").warning("chat_message user 落库失败(忽略)", exc_info=True)
 
     def _persist_assistant(text: str, trace: dict | None = None) -> None:
+        # assistant 侧 response_id 取自 Hermes trace(便于按响应回溯本轮)。
+        resp_id = (trace or {}).get("response_id")
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
-                            text=text, turn=turn_id, trace=trace or {})
+                            text=text, turn=turn_id, trace=trace or {},
+                            response_id=resp_id, **_bind)
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),

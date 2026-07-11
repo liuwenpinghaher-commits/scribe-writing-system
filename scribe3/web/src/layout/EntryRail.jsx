@@ -47,7 +47,7 @@ export function EntryRail({ tree, activeId, onEntry }) {
     <div className="h-full overflow-auto py-2" data-testid="entry-rail">
       {CAPABILITY_GROUPS.map((g) => (
         <div key={g.key} className="mb-3">
-          <div className="px-3 py-1 text-f10 uppercase tracking-wider text-faint/60 select-none">{g.label}</div>
+          <div className="px-3 py-1 text-meta uppercase tracking-wider text-faint/60 select-none">{g.label}</div>
           {g.items.map((it) => {
             const entry = entryFor(tree, it)
             const active = entry.id === activeId
@@ -59,7 +59,7 @@ export function EntryRail({ tree, activeId, onEntry }) {
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-f13 text-left transition-colors ${active ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-hover'}`}
               >
                 <span className="truncate flex-1">{entry.label}</span>
-                {n != null && <span className={`text-f11 shrink-0 ${active ? 'text-brand/70' : 'text-faint/70'}`}>{n}</span>}
+                {n != null && <span className={`text-meta shrink-0 ${active ? 'text-brand/70' : 'text-faint/70'}`}>{n}</span>}
               </button>
             )
           })}

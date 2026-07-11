@@ -10,10 +10,11 @@ export function SearchDetail({ node, onOpenTarget }) {
         </div>
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-1 text-f14 font-semibold text-ink">{payload.label || node?.label || '搜索结果'}</div>
-          <div className="mb-3 text-f11 text-faint">{payload.source || '搜索'}{payload.chapter ? ` · 第 ${payload.chapter} 章` : ''}</div>
+          <div className="mb-3 text-meta text-faint">{payload.source || '搜索'}{payload.chapter ? ` · 第 ${payload.chapter} 章` : ''}</div>
           {payload.excerpt && <p className="text-f13 leading-7 text-ink">{payload.excerpt}</p>}
-          {target && (
-            <button type="button" onClick={() => onOpenTarget?.(target)}
+          {/* Task 10:按钮必须同时有真实目标和真实 handler 才渲染,不留点了没反应的假按钮 */}
+          {target && onOpenTarget && (
+            <button type="button" onClick={() => onOpenTarget(target)}
               className="mt-4 rounded-md border border-brand/40 px-3 py-1.5 text-f12 text-brand hover:bg-brand/10">
               打开目标
             </button>

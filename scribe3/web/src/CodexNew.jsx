@@ -83,7 +83,7 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
       <div className="max-w-2xl mx-auto px-6 py-5">
         <div className="flex items-center gap-3 mb-1">
           {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-          <span className="text-f11 text-faint/50">新建{label || ''}</span>
+          <span className="text-meta text-faint/50">新建{label || ''}</span>
         </div>
         {/* DetailView 在 isNew 模式:onUpdate 只改内存草稿,不落库;onDelete 即取消 */}
         <DetailView
@@ -94,7 +94,8 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
           onUpdate={(updated) => setDraft(updated)}
           onDelete={onCancel}
         />
-        {err && <div className="mt-3 text-f12 text-danger">{err}</div>}
+        {/* 校验/创建错误以 alert 语义呈现(屏读即时播报),信息如实来自校验规则或后端 detail */}
+        {err && <div role="alert" className="mt-3 text-f12 text-danger">{err}</div>}
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2">
           <Btn variant="primary" onClick={create} disabled={saving}>
             {saving && <Loader2 size={14} className="animate-spin" />}创建

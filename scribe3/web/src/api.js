@@ -191,6 +191,26 @@ export const api = {
     }
     return { abort: stop, close: stop }
   },
+  // 统一上下文(Task 4):快照头三件套——与 body 字段(context_session_id/
+  // context_revision/context_hash)**等价的绑定通道**:后端 enforce 逐字段取
+  // body、缺失时回退这些请求头,两通道都缺才 400。后续所有 LLM 调用逐步换用。
+  // 过期时后端 409 {detail:{code:'stale_context', latest}},handle 已把 body 挂上
+  // error,消费端读 error.body.detail.code / .latest 直接对齐,无需再读一次。
+  contextHeaders: (snapshot) => ({
+    'X-Scribe-Context-Session': snapshot.session_id,
+    'X-Scribe-Context-Revision': String(snapshot.revision),
+    'X-Scribe-Context-Hash': snapshot.context_hash,
+  }),
+  createContextSession: (body) => post('/context/sessions', body),
+  contextSession: (id) => j('/context/sessions/' + enc(id)),
+  navigateContext: (id, intent) => post('/context/sessions/' + enc(id) + '/navigate', intent),
+  contextSnapshot: (id, revision) => j('/context/sessions/' + enc(id) + '/snapshots/' + revision),
+  // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
+  // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
+  // forkThread 显式分支(导航路径绝不调此)。
+  threads: () => j('/chat/threads'),
+  threadMessages: (id) => j('/chat/threads/' + enc(id) + '/messages'),
+  forkThread: (id, body) => post('/chat/threads/' + enc(id) + '/fork', body || {}),
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
@@ -199,7 +219,7 @@ export const api = {
   delArcBeat: (id) => del('/arc-beats/' + enc(id)),
   charStates: (id) => j(`/char-states?character_id=${enc(id)}`),
   // 声音演变后半环(P1-11 消费端):列全书 open flags(前端按角色过滤)/ 单条 resolve / 一键折叠进 voice_profile。
-  // ⚠ 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
+  // 注意 后端无 GET voice_profile 端点——演化后的声线指纹只在 /voice-flags/fold 的响应里返回(见 CharVoice)。
   // fold 的 character_id 须带本体前缀(如 role:单嫣);后端 _split 依赖冒号,裸名会 500。
   voiceFlags: () => j('/voice-flags'),
   resolveVoiceFlag: (fid) => post('/voice-flags/' + enc(fid) + '/resolve'),
@@ -317,12 +337,15 @@ export const api = {
       },
     }
   },
-  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError }) => {
+  chatWrite: (msg, { chapter = 1, focalizer = '', images = [], phase = '', context = null, onDelta, onTool, onToolOutput, onProposalStart, onProposalChunk, onProposal, onApproval, onApprovalResolved, onDone, onError }) => {
     const ctrl = new AbortController()
+    // Task 6:context 为线程模式下的绑定/焦点(thread_id/context_*/focus),
+    // 逐字段并入请求体(后端 ChatWriteReq 全 optional,不传即现状)。
+    const body = { msg, chapter, focalizer, images, phase, ...(context || {}) }
     fetch(BASE + ww('/chat/write'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msg, chapter, focalizer, images, phase }),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     }).then(async (res) => {
       if (!res.ok) { onError?.(`HTTP ${res.status}`); return }

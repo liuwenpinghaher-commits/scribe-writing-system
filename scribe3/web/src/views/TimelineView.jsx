@@ -27,10 +27,11 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { Timeline } from 'vis-timeline/standalone'
 import { DataSet } from 'vis-data/standalone'
 import 'vis-timeline/styles/vis-timeline-graph2d.css'
-import { Clock, RefreshCw, X, CornerDownRight } from 'lucide-react'
+import { Clock, RefreshCw, X, CornerDownRight, AlertTriangle, List } from 'lucide-react'
 import { api } from '../api'
 import { relColor, relLabel } from '../lib/relColors'
 import { hasNarrativeData } from '../lib/timelineAxis'
+import { prefersReducedMotion } from '../lib/utils'
 import { useSelection } from '../selectionContext'
 
 // ── 章号 ⇄ 合成时间 ─────────────────────────────────────────────────────────
@@ -190,7 +191,7 @@ function buildVis(rawItems, laneMode, maxCh) {
         end: chToDate(Math.max(endChapter, sc + 0.4)),
         type: 'range',
         content: '◇ ' + esc(s.label?.length > 18 ? s.label.slice(0, 17) + '…' : s.label)
-          + (isHerring ? ' (障)' : '') + (pc == null ? (isOverdue ? ' ⚠未收' : ' …待收') : ''),
+          + (isHerring ? ' (障)' : '') + (pc == null ? (isOverdue ? ' 超期未收' : ' …待收') : ''),
         title: `伏笔 ch${sc}${pc != null ? '→ch' + pc + ' 已收' : isOverdue ? ' · 超期未收' : ' · 待收'} · ${esc(s.label)}`,
         style: `background-color:${color}33;border-color:${color};color:#7c5a10;`
           + (isHerring ? 'border-style:dashed;' : '') + (isOverdue ? 'border-color:#ef4444;' : ''),
@@ -444,6 +445,15 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
   const hasContent = items.length > 0 && groups.length > 0
 
+  // 键盘/读屏等价路径:与 vis 画布同一份 data.items 的命名列表(WebGL 时间线不可聚焦时的可达替代)。
+  // 选列表项 = 与画布 select→详情面板跳转相同的 onNavigateToObject(timelineTarget)。
+  const listItems = useMemo(() => {
+    const its = data?.items || []
+    const catOf = (k) => k === 'event' ? 'event' : k === 'arc' ? 'arc'
+      : k === 'promise_setup' ? 'promise' : k === 'relation_start' ? 'relation' : null
+    return its.map((it) => ({ raw: it, cat: catOf(it.kind) })).filter((x) => x.cat)
+  }, [data])
+
   // #74:仅当确有「叙事位 ≠ 故事章」的事件时,「叙事顺序」轴才有意义(否则两轴投影一致=空操作)。
   // 判定与 axis 无关(每事件恒带 story_chapter/narrative_position),默认 story 轴加载即可判。
   const canNarrative = useMemo(() => hasNarrativeData(data?.items || []), [data])
@@ -525,7 +535,8 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
     if (timelineRef.current) { timelineRef.current.destroy(); timelineRef.current = null }
   }, [])
 
-  const fitAll = () => timelineRef.current?.fit({ animation: true })
+  // 无障碍:系统「减弱动态」时全览缩放不做动画。
+  const fitAll = () => timelineRef.current?.fit({ animation: !prefersReducedMotion() })
 
   return (
     <div className="h-full flex flex-col bg-canvas" style={{ minHeight: 0 }}>
@@ -534,7 +545,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         <Clock size={15} className="text-brand shrink-0" />
         <span className="text-f13 font-medium text-ink shrink-0">时间线</span>
         {data && (
-          <span className="text-f11 text-faint tnum shrink-0">
+          <span className="text-meta text-faint tnum shrink-0">
             {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
             {maxCh > 0 && ` · 共${maxCh}章`}
             {data.truncated && <span className="text-amber-600"> · 已截断(缩小区间)</span>}
@@ -543,11 +554,11 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
         {/* 泳道切换 */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-f11 text-faint">泳道:</span>
+          <span className="text-meta text-faint">泳道:</span>
           {[{ v: 'kind', l: '四类' }, { v: 'char', l: '角色' }, { v: 'type', l: '事件类型' }].map(({ v, l }) => (
             <button key={v}
               onClick={() => setLaneMode(v)}
-              className={`h-6 px-2 rounded text-f11 font-medium transition-colors cursor-pointer
+              className={`h-6 px-2 rounded text-meta font-medium transition-colors cursor-pointer
                 ${laneMode === v ? 'bg-brand text-brandfg' : 'bg-soft text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
@@ -555,7 +566,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
         {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」(诚实,不留空操作死切换) */}
         <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-f11 text-faint">轴:</span>
+          <span className="text-meta text-faint">轴:</span>
           {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => {
             const disabled = v === 'narrative' && !canNarrative
             return (
@@ -565,7 +576,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
                 title={disabled
                   ? '暂无倒叙/闪回事件(全部事件叙事位=故事章)——录入含「叙事位」的事件后可切叙事顺序轴'
                   : v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
-                className={`h-6 px-2 rounded text-f11 font-medium transition-colors
+                className={`h-6 px-2 rounded text-meta font-medium transition-colors
                   ${disabled ? 'bg-soft/40 text-faint/40 cursor-not-allowed'
                     : axis === v ? 'bg-indigo-500 text-white cursor-pointer' : 'bg-soft text-faint hover:text-ink cursor-pointer'}`}
               >{l}</button>
@@ -574,7 +585,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         </div>
 
         <button onClick={fitAll}
-          className="ml-2 h-6 px-2 rounded text-f11 font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
+          className="ml-2 h-6 px-2 rounded text-meta font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
           title="缩放至全书概览(滚轮按 Ctrl 缩放,拖动平移)"
         >全览</button>
 
@@ -588,6 +599,29 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
       {/* ── 主体 ── */}
       <div className="flex-1 min-h-0 flex">
+        {listItems.length > 0 && (
+          <div role="region" aria-label="时间线事件列表"
+            className="w-56 shrink-0 border-r border-line bg-surface overflow-y-auto hidden md:block">
+            <div className="sticky top-0 bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
+              <List size={12} />事件列表 · {listItems.length}
+            </div>
+            <ul className="py-1">
+              {listItems.map(({ raw, cat }) => {
+                const ch = raw.story_chapter ?? raw.chapter
+                const label = raw.label || raw.event_type || relLabel(raw.refs?.relation) || raw.id
+                return (
+                  <li key={`${cat}:${raw.id}`}>
+                    <button onClick={() => onNavigateToObject?.(timelineTarget(raw, cat))}
+                      className="w-full text-left px-3 py-1.5 text-f12 text-ink hover:bg-soft/60 flex items-center gap-1.5 transition-colors">
+                      {ch != null && <span className="shrink-0 text-meta text-faint tnum">第{ch}章</span>}
+                      <span className="truncate">{label}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
         <div className="flex-1 min-w-0 relative">
           {error && (
             <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -604,7 +638,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
               <div className="text-center">
                 <Clock size={32} className="mx-auto mb-2 opacity-30" />
                 <div>暂无时间线数据</div>
-                <div className="text-f11 mt-1 opacity-60">先在写作台录入章节事件</div>
+                <div className="text-meta mt-1 opacity-60">先在写作台录入章节事件</div>
               </div>
             </div>
           )}
@@ -630,7 +664,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
       {/* 图例 + 操作提示 */}
       {hasContent && (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-f10 text-faint">
+        <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-meta text-faint">
           <span className="shrink-0 font-medium">图例:</span>
           <span className="shrink-0 inline-flex items-center gap-1">
             <i className="inline-block w-3 h-3 rounded border border-line bg-surface" style={{ boxShadow: 'inset 3px 0 0 #7c3aed' }} />事件
@@ -644,7 +678,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
           <span className="shrink-0 inline-flex items-center gap-1">
             <i className="inline-block w-3 h-2 rounded border border-dashed border-sky-500" />关系条
           </span>
-          <span className="shrink-0 text-red-500">⚠ 超期未收</span>
+          <span className="shrink-0 text-red-500 inline-flex items-center gap-1"><AlertTriangle size={11} />超期未收</span>
           <span className="shrink-0">✗ 失效</span>
           <span className="shrink-0 ml-auto opacity-70">单击看详情 · 双击跳章 · Ctrl+滚轮缩放 · 拖动平移</span>
         </div>

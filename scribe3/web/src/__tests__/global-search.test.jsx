@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SearchDetail } from '../capabilities/search/SearchDetail'
-import { SearchDirectory } from '../capabilities/search/SearchDirectory'
+import { SearchDirectory, __resetSearchFocusLatch } from '../capabilities/search/SearchDirectory'
 
 const apiMock = vi.hoisted(() => ({
   search: vi.fn(),
@@ -46,6 +46,7 @@ const payload = {
 describe('全局搜索能力', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    __resetSearchFocusLatch()   // 清模块级 focus 闩,防用例间残留
     apiMock.search.mockResolvedValue(payload)
   })
 
@@ -85,5 +86,30 @@ describe('全局搜索能力', () => {
     fireEvent.click(screen.getByRole('button', { name: /打开目标/ }))
 
     expect(onOpenTarget).toHaveBeenCalledWith(expect.objectContaining({ type: 'chapter', ref: 4 }))
+  })
+
+  it('没有 onOpenTarget handler 时不渲染打开目标按钮', () => {
+    render(<SearchDetail node={{ ...payload.results[0], type: 'recall_result' }} />)
+    expect(screen.queryByRole('button', { name: /打开目标/ })).toBeNull()
+  })
+
+  // Task 10 Step 4:顶栏搜索 / ⌘K 派发 s3-open-capability{search, focus:true},
+  // 搜索目录聚焦其唯一搜索框 —— 包括"先派发、后挂载"的真实时序(左轨收到事件才切 tab)。
+  it('focus 请求聚焦唯一搜索框(先派发后挂载也生效)', async () => {
+    fireEvent(window, new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } }))
+    render(<SearchDirectory onSelectItem={() => {}} />)
+    const input = screen.getByLabelText('全局搜索')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+
+    // 已挂载时再次请求 → 直接聚焦
+    input.blur()
+    expect(document.activeElement).not.toBe(input)
+    fireEvent(window, new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } }))
+    expect(document.activeElement).toBe(input)
+
+    // 不带 focus 的普通打开事件(左轨图标点击)不抢焦点
+    input.blur()
+    fireEvent(window, new CustomEvent('s3-open-capability', { detail: { capability: 'search' } }))
+    expect(document.activeElement).not.toBe(input)
   })
 })

@@ -35,7 +35,17 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     setErr('')
     return api.outline()
       .then((data) => {
-        setOutline(data || { volumes: [], chapters: [] })
+        const nextOutline = data || { volumes: [], chapters: [] }
+        const nextVolume = (nextOutline.volumes || [])
+          .find((v) => String(v.id) === String(vid)) || null
+        setOutline(nextOutline)
+        setForm(vid == null
+          ? { title: '', intro: '', color: '' }
+          : {
+              title: nextVolume?.title || node?.label || '未命名卷',
+              intro: nextVolume?.intro || '',
+              color: nextVolume?.color || '',
+            })
         setErr('')
       })
       .catch((e) => {
@@ -56,19 +66,6 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     const rows = outline?.chapters || []
     return rows.filter((c) => String(c.volume ?? '') === String(vid ?? ''))
   }, [outline, vid])
-
-  useEffect(() => {
-    if (!outline) return
-    if (vid == null) {
-      setForm({ title: '', intro: '', color: '' })
-      return
-    }
-    setForm({
-      title: volume?.title || node?.label || '未命名卷',
-      intro: volume?.intro || '',
-      color: volume?.color || '',
-    })
-  }, [outline, volume?.id, volume?.title, volume?.intro, volume?.color, node?.label])
 
   const totalWords = chapters.reduce((sum, c) => sum + (c.word_count || 0), 0)
   const statusCounts = chapters.reduce((map, c) => {
@@ -150,11 +147,11 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     return (
       <section data-testid="volume-detail-pane" className="h-full min-h-0 overflow-y-auto bg-canvas">
         <header className="border-b border-line bg-surface/90 px-6 py-4">
-          <div className="text-f11 font-semibold text-faint">手稿 / 未分卷</div>
+          <div className="text-meta font-semibold text-faint">手稿 / 未分卷</div>
           <div className="mt-1 flex min-w-0 items-center gap-3">
             <h2 className="min-w-0 flex-1 truncate text-f24 font-semibold leading-tight text-ink">{node?.label || '未分卷'}</h2>
-            <span className="rounded-full bg-soft px-2.5 py-1 text-f11 text-faint">{chapters.length} 章</span>
-            <span className="rounded-full bg-soft px-2.5 py-1 text-f11 text-faint">{wcLabel(totalWords)} 字</span>
+            <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{chapters.length} 章</span>
+            <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{wcLabel(totalWords)} 字</span>
           </div>
         </header>
         <div className="grid gap-5 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -240,11 +237,11 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   return (
     <section data-testid="volume-detail-pane" className="h-full min-h-0 overflow-y-auto bg-canvas">
       <header className="border-b border-line bg-surface/90 px-6 py-4">
-        <div className="text-f11 font-semibold text-faint">手稿 / 分卷</div>
+        <div className="text-meta font-semibold text-faint">手稿 / 分卷</div>
         <div className="mt-1 flex min-w-0 items-center gap-3">
           <h2 className="min-w-0 flex-1 truncate text-f24 font-semibold leading-tight text-ink">{volume.title || node.label || '未命名卷'}</h2>
-          <span className="rounded-full bg-brand/10 px-2.5 py-1 text-f11 text-brand">{chapters.length} 章</span>
-          <span className="rounded-full bg-soft px-2.5 py-1 text-f11 text-faint">{wcLabel(totalWords)} 字</span>
+          <span className="rounded-full bg-brand/10 px-2.5 py-1 text-meta text-brand">{chapters.length} 章</span>
+          <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{wcLabel(totalWords)} 字</span>
         </div>
       </header>
 
@@ -298,7 +295,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-f13 font-semibold text-ink">本卷章节</div>
               <div className="flex shrink-0 items-center gap-2">
-                <div className="text-f11 text-faint">{chapters.length} 章 · {wcLabel(totalWords)} 字</div>
+                <div className="text-meta text-faint">{chapters.length} 章 · {wcLabel(totalWords)} 字</div>
                 <button
                   type="button"
                   onClick={createChapter}
@@ -320,8 +317,8 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md px-3 py-2 text-left text-f13 hover:bg-hover"
                 >
                   <span className="min-w-0 truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
-                  <span className="text-f11 text-faint">{chapter.label || '未设'}</span>
-                  <span className="text-f11 text-faint">{wcLabel(chapter.word_count)} 字</span>
+                  <span className="text-meta text-faint">{chapter.label || '未设'}</span>
+                  <span className="text-meta text-faint">{wcLabel(chapter.word_count)} 字</span>
                 </button>
               ))}
             </div>

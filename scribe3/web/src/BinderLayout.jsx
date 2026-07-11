@@ -14,8 +14,8 @@ import { SelectionProvider, SelMirror } from './selectionContext'
 import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { FourPaneShell } from './layout/FourPaneShell'
+import { ContextSnapshotProvider } from './context/ContextSnapshotContext'
 import { isFourPaneLayoutEnabled } from './layout/layoutFlag'
-import { TopbarSlotProvider } from './TopbarSlotContext'
 
 // 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
 // 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
@@ -41,7 +41,7 @@ function isChapterSel(sel) {
  * sel 单一真相源:{mode:'node', node} | {mode:'view', viewKey},由父层(App)持有。
  * 栏宽经 useDefaultLayout(id=s3.binder.layout)持久化;左/右 collapsible 折叠+展开(折叠态另存)。
  */
-export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) {
+export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [tree, setTree] = useState(null)
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
   const [leftCollapsed, setLeftCollapsed] = useState(false)
@@ -188,7 +188,6 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) 
   }, [isViewSel])
 
   return (
-    <TopbarSlotProvider onSlot={onTopbarSlot}>
     <SelectionProvider>
     <ChiefSlotProvider>
     <DeduceProvider>
@@ -214,11 +213,15 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) 
     <RestoreContext.Provider value={restoreTick}>
     <div className="h-full bg-canvas min-h-0">
       {V2 ? (
-        <FourPaneShell tree={tree} selId={selId} expanded={expanded} toggle={toggle}
-          onSelectNode={onSelectNode} treeCbs={treeCbs} leftSeq={leftSeq} collapseLeft={collapseLeft}
-          sel={sel} work={work} reload={reload} onJumpChapter={onJumpChapter}
-          chapterSel={chapterSel} curSeq={curSeq} onRestored={() => setRestoreTick((t) => t + 1)}
-          collapseRight={collapseRight} />
+        /* Task 5:统一上下文快照 Provider 挂载点——切书(work 变化)重建会话;
+           会话建不起来时 Provider 内部降级为本地直通,四栏照常工作(fail-soft) */
+        <ContextSnapshotProvider work={work}>
+          <FourPaneShell tree={tree} selId={selId} expanded={expanded} toggle={toggle}
+            onSelectNode={onSelectNode} treeCbs={treeCbs} leftSeq={leftSeq} collapseLeft={collapseLeft}
+            sel={sel} work={work} reload={reload} onJumpChapter={onJumpChapter}
+            chapterSel={chapterSel} curSeq={curSeq} onRestored={() => setRestoreTick((t) => t + 1)}
+            collapseRight={collapseRight} />
+        </ContextSnapshotProvider>
       ) : (
       <Group orientation="horizontal" defaultLayout={savedLayout ?? { left: 22, detail: 52, right: 26 }}
         onLayoutChanged={onLayoutChanged} className="h-full">
@@ -285,7 +288,6 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter, onTopbarSlot }) 
     </DeduceProvider>
     </ChiefSlotProvider>
     </SelectionProvider>
-    </TopbarSlotProvider>
   )
 }
 

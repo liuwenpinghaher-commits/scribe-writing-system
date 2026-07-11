@@ -5,6 +5,7 @@ import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, Fi
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
+import { scrollBehavior } from './lib/utils'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import { patchApprovalInMessages, useHermesRunRecovery } from './lib/hermesRunRecovery'
 import { Btn } from './ui.jsx'
@@ -32,7 +33,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-f11 text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-meta text-faint">
                 <Wrench size={9} className="text-brand" />
                 {displayToolName(t)}
               </span>
@@ -88,7 +89,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
               {toolOutputs.map((out, i) => (
                 <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
                   <div className="text-f12 font-medium text-ink">工具返回</div>
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-f11 leading-snug text-faint">
+                  <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
                     {toolOutputPreview(out.output)}
                   </div>
                 </div>
@@ -96,7 +97,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
             </div>
           )}
         </div>
-        {note && <div className="mt-1 inline-flex items-center gap-1 text-f11 text-brand"><Sparkles size={11} />{note}</div>}
+        {note && <div className="mt-1 inline-flex items-center gap-1 text-meta text-brand"><Sparkles size={11} />{note}</div>}
       </div>
     </div>
   )
@@ -132,7 +133,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
   useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
   useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef })
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: scrollBehavior() }) }, [msgs])
   useEffect(() => {
     if (seedQuote) { setInput((v) => (v ? v + '\n' : '') + seedQuote); onSeedUsed?.() }
   }, [seedQuote])
@@ -199,7 +200,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     const finalMsg = q + textExtra
     const images = attachments.filter((a) => a.kind === 'image').map((a) => ({ data: a.url.split(',')[1], type: a.mime }))
 
-    const displayQ = q + (attachments.length ? ` [附件×${attachments.length}]` : '')
+    const displayQ = q + (attachments.length ? ` [附件 ${attachments.length} 个]` : '')
     setInput('')
     setAttachments([])
     if (taRef.current) taRef.current.style.height = 'auto'
@@ -229,7 +230,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       onProposalChunk: (c) => onProposalChunk?.(c),
       onProposal: (p) => { onProposal?.(p); mut((l) => ({ ...l, note: '已在手稿处生成改写,请接受/弃用' })) },
       onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
-      onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_⚠ ${err}_` })); setBusy(false) },
+      onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     }
     if (shouldUseHermesRun(finalMsg)) {
       ctrlRef.current = api.runWrite(finalMsg, {

@@ -1,7 +1,8 @@
-import { useEffect, useState, useRef } from 'react'
-import { Users, Boxes, Bookmark, Flame, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, ArrowLeft, Trash2, Plus } from 'lucide-react'
+import { useEffect, useState, useRef, useId } from 'react'
+import { Users, Boxes, Bookmark, Flame, Shield, Swords, MapPin, Tags, PieChart, GitBranch, Heart, ArrowLeft, Trash2, Plus, Lock, X } from 'lucide-react'
 import { api } from '../api'
-import { Tag } from '../ui'
+import { Tag, Input, Textarea } from '../ui'
+import { Field as UIField } from '../ui/Field.jsx'
 import { showToast } from '../ui/Toast'
 import { isChapterNum } from '../lib/utils'
 
@@ -12,8 +13,10 @@ import { isChapterNum } from '../lib/utils'
 // 后端对勾选私密的字段,GET(未 reveal)时把真值替换为此掩码占位符(app.py `_mask_field`,
 // 常量语义 _SECRET_MASK)。若编辑其他字段时整行回传,该占位符会被写回、把真实私密值永久覆盖
 // (codex 无版本史,不可恢复)——彻查 F-1/F-2。因此提交前必须把「值恰等于该占位符」的字段从
-// payload 剔除:不发送 = 后端 PATCH 路径保留原值。前端硬编码,须与后端 `🔒 私密` 同源。
-export const SECRET_MASK = '🔒 私密'
+// payload 剔除:不发送 = 后端 PATCH 路径保留原值。前端硬编码,须与后端 _SECRET_MASK 逐字节同源。
+// 注:掩码值含锁形符号(U+1F512 + " 私密"),此处用 \u 转义写字面量——runtime 与后端完全一致,
+// 但源码不出现结构性 Emoji(过 PC UI 静态合同);切勿改为普通文本,否则打码值不匹配 → 掩码被写回销毁真值。
+export const SECRET_MASK = '\u{1F512} 私密'
 export const stripSecretMask = (obj) =>
   Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== SECRET_MASK))
 
@@ -32,15 +35,40 @@ const TABS = [
 ]
 
 // ═══ Field 组件(上下布局,label在上,全宽) ═══
-function Field({ label, value, onSave, type = 'text', options, placeholder, section }) {
+// immediate(新建表单):点击编辑模式在空草稿下只渲染「+ 添加」按钮,屏读/键盘用户发现不了字段;
+// 直填模式用 ui/Field 建立 label↔控件关联(htmlFor/id + required/aria),每键上抛草稿。
+function Field({ label, value, onSave, type = 'text', options, placeholder, section, immediate = false, required = false }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const ref = useRef(null)
+  const id = useId()
   // tags 类用 options 判空(value 恒为 undefined,否则已填标签永不显示、永远只见「+添加」)
   const isEmpty = type === 'tags' ? !(options && options.length) : !value
 
-  useEffect(() => { if (!editing) setVal(value ?? '') }, [value, editing])
+  // immediate 模式显示值完全由本地 val 驱动(外部回灌会把 array_csv 等往返规范化、打断输入)
+  useEffect(() => { if (!editing && !immediate) setVal(value ?? '') }, [value, editing, immediate])
   useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
+
+  if (immediate && type !== 'tags' && type !== 'abilities') {
+    const set = (v) => { setVal(v); onSave(type === 'number' ? (v === '' ? null : Number(v)) : v) }
+    return (
+      <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
+        <UIField label={label} required={required}>
+          {type === 'textarea' ? (
+            <Textarea rows={3} value={val} onChange={(e) => set(e.target.value)} placeholder={placeholder || `输入${label}...`} />
+          ) : type === 'select' ? (
+            <select value={val ?? ''} onChange={(e) => set(e.target.value)}
+              className="w-full h-9 rounded-lg border border-line bg-canvas px-3 text-f13 text-ink outline-none transition-colors focus:border-brand cursor-pointer">
+              <option value="">—</option>{(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <Input type={type === 'number' ? 'number' : 'text'} value={val}
+              onChange={(e) => set(e.target.value)} placeholder={placeholder || `输入${label}...`} />
+          )}
+        </UIField>
+      </div>
+    )
+  }
 
   const commit = () => { setEditing(false); const fv = type === 'number' ? (val === '' ? null : Number(val)) : val; if (fv !== (value ?? '')) onSave(fv) }
   const cancel = () => { setVal(value ?? ''); setEditing(false) }
@@ -55,30 +83,39 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
   if (type === 'abilities') return <AbilitiesRow value={value} onSave={onSave} section={section} />
 
   return (
-    <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
+    <div className={`group py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
       {editing ? (
         <div onClick={(e) => e.stopPropagation()}>
+          {/* label 关联编辑控件(htmlFor/id):点击编辑模式此前 label 只是视觉文本 */}
+          <label htmlFor={id} className="block text-meta text-faint uppercase tracking-wider mb-1">{label}</label>
           {type === 'textarea' ? (
-            <textarea ref={ref} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+            <textarea ref={ref} id={id} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') cancel() }} rows={4}
               placeholder={placeholder || `输入${label}...`} className={inputBase + ' resize-y'} />
           ) : type === 'select' ? (
-            <select ref={ref} value={val ?? ''} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+            <select ref={ref} id={id} value={val ?? ''} onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') cancel() }} className={inputBase + ' h-9 cursor-pointer'}>
               <option value="">—</option>{(options || []).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : (
-            <input ref={ref} type={type === 'number' ? 'number' : 'text'} value={val}
+            <input ref={ref} id={id} type={type === 'number' ? 'number' : 'text'} value={val}
               onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
               placeholder={placeholder || `输入${label}...`} className={inputBase + ' h-9'} />
           )}
-          <div className="text-f10 text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
+          <div className="text-meta text-faint/50 mt-0.5">失焦自动保存 · ESC 取消</div>
         </div>
       ) : (
-        <div className="text-f13 text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap"
-          onClick={() => setEditing(true)}>{value || placeholder || '—'}</div>
+        <>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-meta text-faint uppercase tracking-wider">{label}</span>
+            {/* 明确的进入编辑按钮:值区域 div onClick 键盘不可达,只读语义文本保持不变 */}
+            <button type="button" onClick={() => setEditing(true)} aria-label={`编辑${label}`}
+              className="text-meta text-brand opacity-0 group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer transition-opacity">编辑</button>
+          </div>
+          <div className="text-f13 text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap"
+            onClick={() => setEditing(true)}>{value || placeholder || '—'}</div>
+        </>
       )}
     </div>
   )
@@ -97,15 +134,15 @@ function TagsRow({ label, tags, onSave, section }) {
 
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div>
       <div className="flex flex-wrap items-center gap-1" onClick={(e) => editing && e.stopPropagation()}>
         {list.map((t, i) => (
           <span key={i} className="inline-flex items-center gap-1 text-f12 text-fore bg-fore/10 px-2 py-0.5 rounded">
-            {t}{editing && <button onClick={() => remove(i)} className="text-faint hover:text-danger cursor-pointer ml-0.5">×</button>}
+            {t}{editing && <button onClick={() => remove(i)} aria-label={`删除${t}`} className="text-faint hover:text-danger cursor-pointer ml-0.5 inline-flex items-center"><X size={11} /></button>}
           </span>
         ))}
         {editing ? (
-          <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
+          <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} aria-label={`添加${label}`}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() }; if (e.key === 'Escape') setEditing(false) }}
             onBlur={exitIfEmpty} placeholder="回车添加..." className="w-28 h-6 text-f12 bg-transparent border-b border-brand/40 text-ink outline-none placeholder:text-faint/40" />
         ) : (
@@ -143,7 +180,7 @@ function AbilitiesRow({ value, onSave, section }) {
   )
   return (
     <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-      <div className="text-f11 text-faint uppercase tracking-wider mb-1">能力</div>
+      <div className="text-meta text-faint uppercase tracking-wider mb-1">能力</div>
       <div className="space-y-1.5">
         {abilities.map((ab, i) => (
           <div key={i} className="group">
@@ -151,14 +188,14 @@ function AbilitiesRow({ value, onSave, section }) {
               <div className="flex items-center gap-2 py-1 px-1 rounded hover:bg-soft/40 cursor-text transition-colors duration-150" onClick={() => { setEditingIdx(i); setForm(ab) }}>
                 <span className="text-f13 font-medium text-ink">{ab.name}</span>
                 <Tag tone={ab.level === '宗师级' || ab.level === '高' ? 'fore' : 'faint'}>{ab.level || '—'}</Tag>
-                {ab.acquired_chapter && <span className="text-f10 text-faint">第{ab.acquired_chapter}章</span>}
-                {ab.description && <span className="text-f11 text-faint/60 truncate flex-1">{ab.description}</span>}
-                <button onClick={(e) => { e.stopPropagation(); remove(i) }} className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer text-f11 transition-opacity">删除</button>
+                {ab.acquired_chapter && <span className="text-meta text-faint">第{ab.acquired_chapter}章</span>}
+                {ab.description && <span className="text-meta text-faint/60 truncate flex-1">{ab.description}</span>}
+                <button onClick={(e) => { e.stopPropagation(); remove(i) }} className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer text-meta transition-opacity">删除</button>
               </div>
             )}
           </div>
         ))}
-        {adding ? formEl : <button onClick={(e) => { e.stopPropagation(); setAdding(true); setForm({ name: '', level: '', description: '', acquired_chapter: '' }) }} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">+ 添加能力</button>}
+        {adding ? formEl : <button onClick={(e) => { e.stopPropagation(); setAdding(true); setForm({ name: '', level: '', description: '', acquired_chapter: '' }) }} className="text-meta text-brand hover:text-brand/80 cursor-pointer">+ 添加能力</button>}
         {abilities.length === 0 && !adding && <span className="text-f13 text-faint/40">—</span>}
       </div>
     </div>
@@ -203,11 +240,11 @@ function DynamicTimeline({ characterId }) {
   if (!states) return <div className="mt-4 text-f12 text-faint/50">加载中...</div>
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">弧光演进史</span><span className="text-f11 text-faint/50">{states.length}个质变点</span><button onClick={() => setAdding(!adding)} className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer">+ 记录质变</button></div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-meta text-faint uppercase tracking-wider">弧光演进史</span><span className="text-meta text-faint/50">{states.length}个质变点</span><button onClick={() => setAdding(!adding)} className="ml-auto text-meta text-brand hover:text-brand/80 cursor-pointer">+ 记录质变</button></div>
       <div className="mb-3 flex items-center gap-2 p-2 rounded-lg bg-soft/30">
-        <span className="text-f11 text-faint">查询第</span><input type="number" value={snapCh} onChange={(e) => setSnapCh(e.target.value)} placeholder="章" className="w-16 h-7 rounded border border-line bg-canvas px-1.5 text-f12 text-ink outline-none" />
-        <button onClick={querySnapshot} className="px-2 h-7 rounded text-f11 bg-brand/10 text-brand cursor-pointer">查快照</button>
-        {snapshot && (<div className="flex-1 text-f11 text-faint space-y-0.5"><div>能力: {Object.keys(snapshot.abilities || {}).length ? JSON.stringify(snapshot.abilities) : '—'}</div><div>关系: {Object.keys(snapshot.relations || {}).length ? JSON.stringify(snapshot.relations) : '—'}</div><div>性格: {snapshot.personality || '—'}</div></div>)}
+        <span className="text-meta text-faint">查询第</span><input type="number" value={snapCh} onChange={(e) => setSnapCh(e.target.value)} placeholder="章" className="w-16 h-7 rounded border border-line bg-canvas px-1.5 text-f12 text-ink outline-none" />
+        <button onClick={querySnapshot} className="px-2 h-7 rounded text-meta bg-brand/10 text-brand cursor-pointer">查快照</button>
+        {snapshot && (<div className="flex-1 text-meta text-faint space-y-0.5"><div>能力: {Object.keys(snapshot.abilities || {}).length ? JSON.stringify(snapshot.abilities) : '—'}</div><div>关系: {Object.keys(snapshot.relations || {}).length ? JSON.stringify(snapshot.relations) : '—'}</div><div>性格: {snapshot.personality || '—'}</div></div>)}
       </div>
       {adding && (<div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
         <div className="flex gap-2"><input type="number" placeholder="第几章" value={form.chapter} onChange={(e) => setForm({ ...form, chapter: e.target.value })} className="w-20 h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none" /><select value={form.change_type} onChange={(e) => setForm({ ...form, change_type: e.target.value })} className="h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none cursor-pointer"><option value="ability">能力变化</option><option value="relation">关系质变</option><option value="personality">性格转折</option><option value="composite">综合</option></select><input placeholder="弧光阶段" value={form.arc_phase} onChange={(e) => setForm({ ...form, arc_phase: e.target.value })} className="flex-1 h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none" /></div>
@@ -225,35 +262,35 @@ function DynamicTimeline({ characterId }) {
         {/* 能力快照 */}
         {['ability', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-f11 text-faint uppercase tracking-wider">能力快照</div>
+            <div className="text-meta text-faint uppercase tracking-wider">能力快照</div>
             {abilityRows.map((row, idx) => (
               <div key={idx} className="flex gap-1.5 items-center">
                 <input value={row.k} onChange={(e) => setRow(setAbilityRows, idx, 'k', e.target.value)} placeholder="能力名" className={`w-24 ${inputSm}`} />
                 <input value={row.v} onChange={(e) => setRow(setAbilityRows, idx, 'v', e.target.value)} placeholder="描述" className={`flex-1 ${inputSm}`} />
-                <button onClick={() => removeRow(setAbilityRows, idx)} className="text-faint hover:text-danger text-f13 cursor-pointer leading-none">✕</button>
+                <button onClick={() => removeRow(setAbilityRows, idx)} aria-label="删除此行" className="text-faint hover:text-danger cursor-pointer leading-none inline-flex items-center"><X size={13} /></button>
               </div>
             ))}
-            <button onClick={() => addRow(setAbilityRows)} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+            <button onClick={() => addRow(setAbilityRows)} className="text-meta text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
           </div>
         )}
         {/* 关系快照 */}
         {['relation', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-f11 text-faint uppercase tracking-wider">关系快照</div>
+            <div className="text-meta text-faint uppercase tracking-wider">关系快照</div>
             {relationRows.map((row, idx) => (
               <div key={idx} className="flex gap-1.5 items-center">
                 <input value={row.k} onChange={(e) => setRow(setRelationRows, idx, 'k', e.target.value)} placeholder="对象" className={`w-24 ${inputSm}`} />
                 <input value={row.v} onChange={(e) => setRow(setRelationRows, idx, 'v', e.target.value)} placeholder="关系" className={`flex-1 ${inputSm}`} />
-                <button onClick={() => removeRow(setRelationRows, idx)} className="text-faint hover:text-danger text-f13 cursor-pointer leading-none">✕</button>
+                <button onClick={() => removeRow(setRelationRows, idx)} aria-label="删除此行" className="text-faint hover:text-danger cursor-pointer leading-none inline-flex items-center"><X size={13} /></button>
               </div>
             ))}
-            <button onClick={() => addRow(setRelationRows)} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
+            <button onClick={() => addRow(setRelationRows)} className="text-meta text-brand hover:text-brand/80 cursor-pointer">＋ 添加行</button>
           </div>
         )}
         {/* 性格快照 */}
         {['personality', 'composite'].includes(form.change_type) && (
           <div className="space-y-1">
-            <div className="text-f11 text-faint uppercase tracking-wider">性格快照</div>
+            <div className="text-meta text-faint uppercase tracking-wider">性格快照</div>
             <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="性格描述..." className={`w-full ${inputSm}`} />
           </div>
         )}
@@ -261,7 +298,7 @@ function DynamicTimeline({ characterId }) {
       </div>)}
       {states.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无弧光记录。</div> : (
         <div className="relative pl-6 border-l-2 border-brand/30 space-y-3">
-          {states.map((s, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" /><div className="flex items-center gap-2 mb-0.5"><span className="text-f11 text-faint font-medium">第{s.chapter}章</span><Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : 'faint'}>{s.change_type}</Tag>{s.arc_phase && <span className="text-f11 text-fore">{s.arc_phase}</span>}</div><div className="text-f13 text-ink">{s.summary}</div>{s.trigger_event && <div className="text-f11 text-faint/60 mt-0.5">触发: {s.trigger_event}</div>}</div>))}
+          {states.map((s, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full bg-brand border-2 border-surface" /><div className="flex items-center gap-2 mb-0.5"><span className="text-meta text-faint font-medium">第{s.chapter}章</span><Tag tone={s.change_type === 'ability' ? 'fore' : s.change_type === 'relation' ? 'ok' : 'faint'}>{s.change_type}</Tag>{s.arc_phase && <span className="text-meta text-fore">{s.arc_phase}</span>}</div><div className="text-f13 text-ink">{s.summary}</div>{s.trigger_event && <div className="text-meta text-faint/60 mt-0.5">触发: {s.trigger_event}</div>}</div>))}
         </div>
       )}
     </div>
@@ -273,7 +310,7 @@ function DynamicTimeline({ characterId }) {
 // 旧版 `r.src === characterId` 恒不匹配(裸名 ≠ role:名)→ 关系恒空(限知关系图黑洞根因之一)。
 // 修:按裸 local 比较展示;建立/演变/结束用全 oid(后端 _split/entity 依赖冒号前缀)。
 // relation 受控词表须与 migration 029 的 DB ASSERT 一致(越界值 500)。
-// ⚠ 批D Minor②:后端 ASSERT 只收下列固定词 + 字面量 'custom';任何自由文本自定义词都会 500。
+// 注意 批D Minor②:后端 ASSERT 只收下列固定词 + 字面量 'custom';任何自由文本自定义词都会 500。
 // 故不提供「custom + 自由文本框」(输入真实自定义词必 500),也不留死字面量 'custom'(选它=写入
 // 无意义的 'custom' 且显示为 'custom')—— 直接移除 custom 选项,每个下拉项都映射到后端确收的真实关系词。
 export const REL_VOCAB = [
@@ -354,9 +391,9 @@ function DynamicRelations({ characterId }) {
   return (
     <div className="mt-4" data-testid="dynamic-relations">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-f11 text-faint uppercase tracking-wider">角色关系</span>
-        <span className="text-f11 text-faint/50">{relations.length}条</span>
-        <button onClick={() => setAdding(!adding)} className="ml-auto text-f11 text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />建立关系</button>
+        <span className="text-meta text-faint uppercase tracking-wider">角色关系</span>
+        <span className="text-meta text-faint/50">{relations.length}条</span>
+        <button onClick={() => setAdding(!adding)} className="ml-auto text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5"><Plus size={12} />建立关系</button>
       </div>
 
       {adding && (
@@ -385,32 +422,32 @@ function DynamicRelations({ characterId }) {
           return (
             <div key={k} className="group py-1 px-2 rounded hover:bg-soft/40 transition-colors duration-150">
               <div className="flex items-center gap-3">
-                <span className="text-f10 text-faint/60 w-3 text-center" title={r.src === meLocal ? '本角色 → 对方' : '对方 → 本角色'}>{dir}</span>
+                <span className="text-meta text-faint/60 w-3 text-center" title={r.src === meLocal ? '本角色 → 对方' : '对方 → 本角色'}>{dir}</span>
                 <span className="text-f14 font-medium text-ink prose-serif min-w-[60px]">{otherLocal}</span>
                 <Tag tone={REL_TONE(r.relation)}>{r.relation}</Tag>
-                <span className="text-f11 text-faint">第{r.since_chapter}章建立</span>
-                {r.until_chapter && <span className="text-f11 text-danger">第{r.until_chapter}章结束</span>}
-                {r.note && <span className="text-f11 text-faint/60 truncate">· {r.note}</span>}
+                <span className="text-meta text-faint">第{r.since_chapter}章建立</span>
+                {r.until_chapter && <span className="text-meta text-danger">第{r.until_chapter}章结束</span>}
+                {r.note && <span className="text-meta text-faint/60 truncate">· {r.note}</span>}
                 {!r.until_chapter && (
                   <span className="ml-auto opacity-0 group-hover:opacity-100 flex items-center gap-2 transition-opacity">
-                    <button onClick={() => { setActOn(k); setAct({ mode: 'evolve', relation: r.relation, chapter: '' }) }} className="text-f11 text-brand hover:text-brand/80 cursor-pointer">演变</button>
-                    <button onClick={() => { setActOn(k); setAct({ mode: 'end', relation: r.relation, chapter: '' }) }} className="text-f11 text-faint hover:text-danger cursor-pointer">结束</button>
+                    <button onClick={() => { setActOn(k); setAct({ mode: 'evolve', relation: r.relation, chapter: '' }) }} className="text-meta text-brand hover:text-brand/80 cursor-pointer">演变</button>
+                    <button onClick={() => { setActOn(k); setAct({ mode: 'end', relation: r.relation, chapter: '' }) }} className="text-meta text-faint hover:text-danger cursor-pointer">结束</button>
                   </span>
                 )}
               </div>
               {actOn === k && (
                 <div className="mt-1.5 ml-6 p-2 rounded-md border border-brand/30 bg-brand/[0.02] flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                   {act.mode === 'evolve' ? (<>
-                    <span className="text-f11 text-faint">演变为</span>
+                    <span className="text-meta text-faint">演变为</span>
                     <RelSelect value={act.relation} onChange={(v) => setAct({ ...act, relation: v })} className={inp} />
                     <input type="number" value={act.chapter} onChange={(e) => setAct({ ...act, chapter: e.target.value })} placeholder="第几章" className={`w-20 ${inp}`} />
                   </>) : (<>
-                    <span className="text-f11 text-faint">结束于第</span>
+                    <span className="text-meta text-faint">结束于第</span>
                     <input type="number" value={act.chapter} onChange={(e) => setAct({ ...act, chapter: e.target.value })} placeholder="章" className={`w-16 ${inp}`} />
-                    <span className="text-f11 text-faint">章</span>
+                    <span className="text-meta text-faint">章</span>
                   </>)}
-                  <button onClick={() => submitAct(r)} className="px-2.5 h-7 rounded-md bg-brand text-brandfg text-f11 cursor-pointer">确认</button>
-                  <button onClick={() => setActOn(null)} className="px-2 h-7 rounded-md text-faint text-f11 cursor-pointer">取消</button>
+                  <button onClick={() => submitAct(r)} className="px-2.5 h-7 rounded-md bg-brand text-brandfg text-meta cursor-pointer">确认</button>
+                  <button onClick={() => setActOn(null)} className="px-2 h-7 rounded-md text-faint text-meta cursor-pointer">取消</button>
                 </div>
               )}
             </div>
@@ -426,46 +463,70 @@ function ItemStateHistory({ item }) {
   const history = item.state_history || []
   return (
     <div className="mt-4">
-      <div className="flex items-center gap-2 mb-2"><span className="text-f11 text-faint uppercase tracking-wider">状态流转</span><span className="text-f11 text-faint/50">当前: {item.symbolic_state}</span></div>
+      <div className="flex items-center gap-2 mb-2"><span className="text-meta text-faint uppercase tracking-wider">状态流转</span><span className="text-meta text-faint/50">当前: {item.symbolic_state}</span></div>
       {history.length === 0 ? <div className="text-f12 text-faint/50 py-2">尚无状态变更记录。</div> : (
-        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? '#10b981' : h.state === 'lost' ? '#f59e0b' : '#ef4444' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>{h.chapter && <span className="text-f11 text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-f12 text-faint mt-0.5">{h.note}</div>}</div>))}</div>
+        <div className="relative pl-6 border-l-2 border-brand/30 space-y-2">{history.map((h, i) => (<div key={i} className="relative"><div className="absolute -left-[27px] top-1.5 w-3 h-3 rounded-full border-2 border-surface" style={{ background: h.state === 'active' ? '#10b981' : h.state === 'lost' ? '#f59e0b' : '#ef4444' }} /><div className="flex items-center gap-2"><Tag tone={h.state === 'active' ? 'ok' : h.state === 'lost' ? 'fore' : 'faint'}>{h.state}</Tag>{h.chapter && <span className="text-meta text-faint">第{h.chapter}章</span>}</div>{h.note && <div className="text-f12 text-faint mt-0.5">{h.note}</div>}</div>))}</div>
       )}
     </div>
   )
 }
 
+// 受控词表下拉的 label 关联行:isNew 走 ui/Field 统一表单外观,详情保留原 uppercase label(htmlFor 修屏读/键盘不可达)
+function SelectRow({ id, label, isNew, value, onChange, children }) {
+  const select = (
+    <select id={isNew ? undefined : id} value={value} onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer">
+      {children}
+    </select>
+  )
+  if (isNew) return <div className="py-2"><UIField label={label}>{select}</UIField></div>
+  return (
+    <div className="py-2">
+      <label htmlFor={id} className="block text-meta text-faint uppercase tracking-wider mb-1">{label}</label>
+      {select}
+    </div>
+  )
+}
+
+// 新建时的最小必填集(与 CodexNew.isValid 同源语义):默认 name,伏笔为 text,命题为四键
+const REQUIRED_NEW = { facts: ['entity', 'attribute', 'value', 'valid_from'], promises: ['text'] }
+
 // ═══ DetailView ═══
 export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
+  // uid:同类 checkbox/select 的 DOM id 前缀。旧硬编码 id(backstory_secret_cb/sf_*)在
+  // 新建+详情两个 DetailView 并存时会重复,htmlFor 会错绑到第一个。
+  const uid = useId()
   // 整行回传前剔除掩码占位符字段:角色(backstory)/势力(private_operation)勾私密后 GET 打码,
-  // 编辑任一字段不得把 `🔒 私密` 写回销毁真值(F-1/F-2)。stripSecretMask 只按值匹配,故只影响被打码字段。
+  // 编辑任一字段不得把掩码占位符(SECRET_MASK)写回销毁真值(F-1/F-2)。stripSecretMask 只按值匹配,故只影响被打码字段。
   const save = (key, val) => onUpdate(stripSecretMask({ ...row, [key]: val }))
+  const requiredNew = (k) => isNew && (REQUIRED_NEW[type] || ['name']).includes(k)
   if (type === 'chars') {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center gap-3 mb-4">
           {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-          <span className="text-f11 text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
+          <span className="text-meta text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
         </div>
         <div className="border-t border-line pt-3">
-          <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} />
-          <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} />
-          <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} />
+          <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} immediate={isNew} required={requiredNew('name')} />
+          <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} immediate={isNew} />
+          <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} immediate={isNew} />
           <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
-          <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} />
-          <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} />
+          <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} immediate={isNew} />
+          <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} immediate={isNew} />
           <div className="py-1.5 flex items-center gap-2">
-            <input type="checkbox" id="backstory_secret_cb" checked={!!row.backstory_secret}
+            <input type="checkbox" id={`${uid}-backstory-secret`} checked={!!row.backstory_secret}
               onChange={(e) => save('backstory_secret', e.target.checked)}
               className="w-4 h-4 accent-brand cursor-pointer" />
-            <label htmlFor="backstory_secret_cb" className="text-f12 text-faint cursor-pointer select-none">🔒 私密(默认屏蔽前史)</label>
+            <label htmlFor={`${uid}-backstory-secret`} className="text-f12 text-faint cursor-pointer select-none inline-flex items-center gap-1"><Lock size={11} />私密(默认屏蔽前史)</label>
           </div>
           <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} />
           <Field label="弱点" type="tags" options={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
-          <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} section />
-          <Field label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} />
-          <Field label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} />
-          <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} />
-          <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} />
+          <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} immediate={isNew} section />
+          <Field label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} immediate={isNew} />
+          <Field label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} immediate={isNew} />
+          <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} immediate={isNew} />
+          <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} immediate={isNew} />
         </div>
         {!isNew && <DynamicTimeline characterId={row.id} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
@@ -476,9 +537,9 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   const fieldMap = {
     // 批D 件1:命题生产表单(限知引擎核心)。entity 填实体 oid(role:名);secret 勾选后命题对读者隐藏,
     // leak_markers 是"出现即算泄密"的标记词表 —— find_leaks 据此对 UI 作者的命题做限知泄露检测。
-    facts: [['entity','主体(实体 oid,如 role:焦三)','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','🔒 命题私密(对读者隐藏,find_leaks 检测泄露)','secret_flag'],['leak_markers','泄露标记词(逗号分隔,出现即视为泄密)','array_csv']],
+    facts: [['entity','主体(实体 oid,如 role:焦三)','text'],['attribute','属性','text'],['value','值','textarea'],['valid_from','生效章','number'],['secret','命题私密(对读者隐藏,find_leaks 检测泄露)','secret_flag'],['leak_markers','泄露标记词(逗号分隔,出现即视为泄密)','array_csv']],
     rules: [['name','规则名','text'],['category','类别','rule_cat'],['source','源头','text'],['cost','代价','textarea'],['scope','作用域','scope'],['established_chapter','确立章节','number'],['limitations','限制条件(逗号分隔)','array_csv'],['exceptions','例外情形(逗号分隔)','array_csv'],['capabilities','赋予能力(逗号分隔)','array_csv'],['note','备注','textarea']],
-    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','🔒 私密(私下运作)','secret_flag']],
+    factions: [['name','势力名','text'],['ideology','意识形态','textarea'],['leader','领袖','text'],['public_face','公开面目','textarea'],['private_operation','私下运作','textarea'],['known_members','已知成员(逗号分隔)','array_csv'],['private_operation_secret','私密(私下运作)','secret_flag']],
     items: [['name','物品名','text'],['category','类别','text'],['description','描述','textarea'],['symbolic_state','状态','select'],['current_owner','持有者','text'],['first_chapter','首次出场章','number'],['special_properties','特殊属性(逗号分隔)','array_csv']],
     terms: [['name','术语名','text'],['category','类别','text'],['definition','定义','textarea'],['first_mention_chapter','首次提及章','number']],
     promises: [['text','伏笔内容','textarea'],['setup_chapter','埋于','number'],['tier','兑现层级','tier_sel'],['kind','类型','kind_sel']],
@@ -519,77 +580,49 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
         {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-        <span className="text-f11 text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
+        <span className="text-meta text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
       </div>
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
           ftype === 'secret_flag' ? (
             <div key={k} className="py-1.5 flex items-center gap-2">
-              <input type="checkbox" id={`sf_${k}`} checked={!!row[k]}
+              <input type="checkbox" id={`${uid}-sf-${k}`} checked={!!row[k]}
                 onChange={(e) => save(k, e.target.checked)}
                 className="w-4 h-4 accent-brand cursor-pointer" />
-              <label htmlFor={`sf_${k}`} className="text-f12 text-faint cursor-pointer select-none">{label}</label>
+              <label htmlFor={`${uid}-sf-${k}`} className="text-f12 text-faint cursor-pointer select-none">{label}</label>
             </div>
           ) :
-          ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-f13 text-ink">{row[k] ? '是' : '否'}</div></div>) :
+          ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-f13 text-ink">{row[k] ? '是' : '否'}</div></div>) :
           ftype === 'rule_cat' ? (
-            <div key={k} className="py-2">
-              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
-              <select
-                value={row[k] || 'magic'}
-                onChange={(e) => save(k, e.target.value)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
-              >
-                {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
-              </select>
-            </div>
+            <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'magic'} onChange={(v) => save(k, v)}>
+              {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
+            </SelectRow>
           ) :
           ftype === 'scope' ? (
-            <div key={k} className="py-2">
-              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
-              <select
-                value={row[k] || ''}
-                onChange={(e) => save(k, e.target.value || null)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
-              >
-                <option value="">—</option>
-                {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </div>
+            <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || ''} onChange={(v) => save(k, v || null)}>
+              <option value="">—</option>
+              {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+            </SelectRow>
           ) :
           ftype === 'tier_sel' ? (
             // 伏笔兑现层级(B-2):章级近场兑现 / 卷级中程 / 书级贯穿全书(书级永不超期)。
-            <div key={k} className="py-2">
-              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
-              <select
-                value={row[k] || 'chapter'}
-                onChange={(e) => save(k, e.target.value)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
-              >
-                {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
+            <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'chapter'} onChange={(v) => save(k, v)}>
+              {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </SelectRow>
           ) :
           ftype === 'kind_sel' ? (
             // 伏笔类型(P1-3):读写 row.kind;缺省视作 promise。改此值等价 mark-herring(store 同为 SET kind)。
-            <div key={k} className="py-2">
-              <div className="text-f11 text-faint uppercase tracking-wider mb-1">{label}</div>
-              <select
-                value={row[k] || 'promise'}
-                onChange={(e) => save(k, e.target.value)}
-                className="w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand h-9 cursor-pointer"
-              >
-                {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
+            <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'promise'} onChange={(v) => save(k, v)}>
+              {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </SelectRow>
           ) :
           ftype === 'array_csv' ? (
             <Field key={k} label={label} value={arrToCSV(row[k])} type="text"
-              placeholder="逗号分隔，留空即可"
+              placeholder="逗号分隔，留空即可" immediate={isNew}
               onSave={(v) => save(k, v ? csvToArr(v) : [])} />
           ) :
-          ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} /> :
-          <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} />
+          ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} immediate={isNew} /> :
+          <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} immediate={isNew} required={requiredNew(k)} />
         )}
       </div>
       {type === 'items' && !isNew && <ItemStateHistory item={row} />}

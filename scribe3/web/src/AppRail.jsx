@@ -1,4 +1,5 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search } from 'lucide-react'
+import { PC_LAYOUT } from './layout/tokens'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
 // 顶栏只留「横切视图」入口:概览/图谱/时间线/仪表盘 → 点击切中间栏 view mode。
@@ -8,11 +9,25 @@ export const VIEWS = [
   { key: 'insight', label: '仪表盘', icon: Activity },
 ]
 
-// 应用级顶栏:字标 + 作品切换(回作品库)+ 章内阶段 tab + 横切视图 tab + 主题。
+// 全局栏搜索触发:默认打开左轨「搜索」能力(复用 useLeftDockCapabilities 已监听的
+// s3-open-capability 事件),上层也可用 onSearch 覆写。Task 3:全局栏只负责触发,不自持搜索态。
+// Task 10 Step 4:带 focus:true —— SearchDirectory 收到后聚焦其唯一搜索框,
+// 与 ⌘K(App 层 keydown)派发同一事件,统一搜索入口,不各自持结果 store。
+function triggerSearch(onSearch) {
+  if (onSearch) { onSearch(); return }
+  try { window.dispatchEvent(new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } })) } catch { /* 无窗口环境静默 */ }
+}
+
+// 应用级顶栏(Task 3:高度收敛到 PC_LAYOUT.topbar=44,职责按区域分隔):
+//   作品切换 | 全局视图 | 搜索触发 | 主题 · 系统状态
+// (Task 7:章阶段插槽 extra 已删——章阶段页签归 ChapterStudio 的 ObjectFrame,全局栏不再承载对象级 UI。)
+// 高度取自布局 token(单一真源),不硬编码,与四栏 rail/directory 等尺寸同源。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, extra = null }) {
+// status:系统状态区可注入的实时指示(连接/后台任务…),缺省中性,不谎报「在线」。
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null }) {
   return (
-    <header className="h-12 shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
+    <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
+      className="shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
       <span className="font-semibold tracking-wide text-brand text-sm select-none">SCRIBE3</span>
       <button onClick={onOpenLibrary} title="切换 / 选择作品"
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
@@ -20,10 +35,6 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         <span className="truncate">{current ? current.title : '选择作品'}</span>
         <ChevronDown size={11} className="shrink-0 opacity-50" />
       </button>
-
-      {current && extra && (
-        <div className="min-w-0 flex items-center" data-testid="topbar-work-tabs">{extra}</div>
-      )}
 
       {current && showViews && (
         <>
@@ -42,12 +53,28 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         </>
       )}
 
+      {/* 搜索触发区:紧随全局视图的全局动作。theme 的 ml-auto 把「主题·系统状态」整体推到右缘。 */}
+      {current && (
+        <button data-testid="topbar-search" onClick={() => triggerSearch(onSearch)}
+          title="全局搜索" aria-label="全局搜索"
+          className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-brand">
+          <Search size={15} />
+        </button>
+      )}
+
+      {/* 主题:保留为右簇锚点(ml-auto)。 */}
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
         <button onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
           title={theme === 'dark' ? '切换浅色' : '切换深色'} aria-label="切换深浅色"
           className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer">
           {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
         </button>
+      </div>
+
+      {/* 系统状态区:独立成格,承载注入的实时指示;缺省中性圆点,不谎报状态。 */}
+      <div data-testid="topbar-status" title="系统状态"
+        className="flex items-center gap-1.5 pl-2 border-l border-line text-faint">
+        {status ?? <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-faint/50" />}
       </div>
     </header>
   )

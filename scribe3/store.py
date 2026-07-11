@@ -20,6 +20,9 @@ import websockets.exceptions as _ws_exc
 from surrealdb import RecordID, Surreal
 from surrealdb.errors import ConnectionUnavailableError
 
+from scribe3.context_models import (
+    ContextFocus, ContextSnapshot, NavigationIntent, StaleContextError,
+)
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 
 # 连接类异常(触发重连重试的白名单;语法/校验类错误不在内,绝不重试)。
@@ -513,6 +516,13 @@ class SurrealStore:
             raise RuntimeError(
                 "apply_schema 迁移失败清单(未标记已应用): "
                 + "; ".join(f"{n}: {e}" for n, e in failures))
+        # Task 6:回填存量对话史进默认主编线程(幂等且代价小——只 UPDATE thread_id IS NONE)。
+        # fail-soft:失败只告警不阻断启动(线程回填非启动关键路径;下次启动可再试)。
+        try:
+            self.backfill_thread_ids()
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "backfill_thread_ids 失败(不阻断启动,下次可重试)", exc_info=True)
 
     # --- 唯一写入点 ---
     def _execute_write(self, surql: str, vars: dict) -> None:
@@ -1028,15 +1038,37 @@ class SurrealStore:
 
     # --- 主编对话留痕 chat_message(北极星任务1,蓝图 §4-② 沉淀环第1级)---
     def add_chat_message(self, chapter: int, stage: str, role: str, text: str,
-                         turn: str = "", trace: dict | None = None) -> None:
+                         turn: str = "", trace: dict | None = None, *,
+                         thread_id: str | None = None,
+                         context_session_id: str | None = None,
+                         context_revision: int | None = None,
+                         context_hash: str | None = None,
+                         focus: dict | None = None,
+                         response_id: str | None = None) -> None:
         """追加一条对话留痕;work 用本库名自动填(D-002),ts 由 DB 侧 time::now()。
         turn(P0门审查 P2-6):同一轮 user/assistant 共享的配对 id,防并发会话交错
-        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。"""
+        污染蒸馏原料(任务8);空串=未知轮(兼容旧行/直写调用方)。
+
+        Task 6:新增关键字参数(全默认 None,向后兼容——旧调用方一字不改仍生效):
+        thread_id 挂主编线程(一 work 一连续线程);context_* 是本轮的上下文绑定
+        游标(revision/hash/session);focus 是本轮的焦点标签(切焦点不切线程);
+        response_id 是本轮 LLM 响应 id。None 一律落 NONE(option 字段,存量行不受影响)。"""
         self._execute_write(
             "CREATE chat_message SET work=$w, chapter=$c, stage=$s, role=$r, text=$t, "
-            "turn=$turn, trace=$trace, ts=time::now() RETURN NONE",
+            "turn=$turn, trace=$trace, thread_id=$thread_id, "
+            "context_session_id=$ctx_sid, context_revision=$ctx_rev, "
+            "context_hash=$ctx_hash, focus=$focus, response_id=$resp_id, "
+            "ts=time::now() RETURN NONE",
             {"w": self.db_name, "c": chapter, "s": stage or "", "r": role, "t": text,
-             "turn": turn or "", "trace": trace or {}})
+             "turn": turn or "", "trace": trace or {}, "thread_id": thread_id,
+             "ctx_sid": context_session_id, "ctx_rev": context_revision,
+             "ctx_hash": context_hash, "focus": focus, "resp_id": response_id})
+
+    # 线程消息统一取数列(含 Task 6 绑定字段 + meta::id 供前端 keying)。
+    _CHAT_MESSAGE_FIELDS = (
+        "meta::id(id) AS id, work, chapter, stage, role, text, turn, trace, "
+        "thread_id, context_session_id, context_revision, context_hash, focus, "
+        "response_id, <string> ts AS ts")
 
     def list_chat_messages(self, chapter: int | None = None, limit: int = 500) -> list[dict]:
         """按章(缺省全部)拉取对话留痕,ts 升序返回;limit 取**最新** N 条再反转
@@ -1045,10 +1077,112 @@ class SurrealStore:
         n = max(1, min(int(limit), 2000))
         where = "WHERE chapter = $c " if chapter is not None else ""
         rows = self._query(
-            f"SELECT work, chapter, stage, role, text, turn, trace, <string> ts AS ts "
+            f"SELECT {self._CHAT_MESSAGE_FIELDS} "
             f"FROM chat_message {where}ORDER BY ts DESC LIMIT {n}",
             {"c": chapter})
         return list(reversed(rows))
+
+    # == 主编线程(Task 6:一 work 一连续主编线程 + 每轮焦点标签)==
+    # 为什么在此:线程是 chat_message 的归属维度,取数/回填都围绕 chat_message。
+    # 隔离靠 per-work db(与 chat_message 一致):thread_id 全局唯一,别的 work 读不到。
+
+    _EDITORIAL_THREAD_FIELDS = (
+        "thread_id, work, actor_id, parent_thread_id, title, status, "
+        "hermes_conversation_id, previous_response_id, summary, "
+        "<string> created_at AS created_at, <string> updated_at AS updated_at")
+
+    def _get_editorial_thread(self, thread_id: str) -> dict | None:
+        rows = self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE thread_id=$tid LIMIT 1", {"tid": thread_id})
+        return rows[0] if rows else None
+
+    def get_or_create_editorial_thread(self, work: str, actor_id: str) -> dict:
+        """取或建本 work + actor 的活跃主编线程(一 work 一连续线程,幂等)。
+
+        已有 active 线程(最早创建者,稳定不漂)直接返回;无则建默认线程。
+        thread_id 全局唯一(ethread:<work>:<uuid>),隔离仍靠 per-work db。
+
+        actor_id 语义:线程按 (work, actor_id) 定活跃线程——当前单作者场景恒传
+        "author"(见调用方 backfill/create_context_session),即"一 work 一 author 线程"。
+        将来多 actor(协作/多设备各自成线)时,不同 actor_id 各得一条活跃线程,
+        本方法无需改动;届时需上层决定 snapshot 该绑哪个 actor 的线程。"""
+        from uuid import uuid4
+        rows = self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE work=$w AND actor_id=$a AND status='active' "
+            "ORDER BY created_at ASC LIMIT 1", {"w": work, "a": actor_id})
+        if rows:
+            return rows[0]
+        tid = f"ethread:{work}:{uuid4().hex}"
+        self._execute_write(
+            "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
+            "parent_thread_id=NONE, title=$title, status='active', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "updated_at=time::now() RETURN NONE",
+            {"tid": tid, "w": work, "a": actor_id, "title": "主编讨论"})
+        return self._get_editorial_thread(tid)
+
+    def list_editorial_threads(self, work: str) -> list[dict]:
+        """列本 work 的全部主编线程(含分支),按创建时间升序。"""
+        return self._query(
+            f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
+            "WHERE work=$w ORDER BY created_at ASC", {"w": work})
+
+    def list_thread_messages(self, thread_id: str, limit: int = 500) -> list[dict]:
+        """按线程拉取对话留痕,ts 升序返回;limit 取最新 N 条再反转(同 list_chat_messages)。
+        隔离:只读本 store 的 db,别的 work 的 thread_id 在此库无消息 → 返回 []。"""
+        n = max(1, min(int(limit), 2000))
+        rows = self._query(
+            f"SELECT {self._CHAT_MESSAGE_FIELDS} FROM chat_message "
+            f"WHERE thread_id=$tid ORDER BY ts DESC LIMIT {n}", {"tid": thread_id})
+        return list(reversed(rows))
+
+    def fork_editorial_thread(self, parent_thread_id: str,
+                              title: str | None = None) -> dict:
+        """显式分支:以 parent_thread_id 为父建新活跃线程(导航路径绝不调此)。
+        actor_id/work 继承父线程;title 缺省沿用父标题。
+
+        子线程消息从空开始——不继承父线程历史(fork 只写 parent_thread_id 建血缘,
+        list_thread_messages(child) 初始为空;需要父上下文由上层显式携带)。"""
+        from uuid import uuid4
+        parent = self._get_editorial_thread(parent_thread_id)
+        if parent is None:
+            raise ValueError(f"fork_editorial_thread: 父线程 '{parent_thread_id}' 不存在")
+        tid = f"ethread:{parent['work']}:{uuid4().hex}"
+        self._execute_write(
+            "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
+            "parent_thread_id=$parent, title=$title, status='active', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "updated_at=time::now() RETURN NONE",
+            {"tid": tid, "w": parent["work"], "a": parent["actor_id"],
+             "parent": parent_thread_id,
+             "title": title or parent.get("title") or "主编讨论"})
+        return self._get_editorial_thread(tid)
+
+    def backfill_thread_ids(self, actor_id: str = "author") -> int:
+        """把 thread_id 为 NONE 的存量 chat_message 全部归入本 work 默认线程(幂等)。
+
+        升级后旧对话不得从 UI 消失(纸命现网已有真实 chat_message,无 thread_id)。
+        默认线程取 get_or_create_editorial_thread(db_name, actor_id="author")——与
+        create_context_session 同一 ethread id,前端 snapshot.thread_id 读得到这些旧消息。
+        context_revision/focus 留 NONE(存量无从追溯);再跑无变化(NONE 已被清光);
+        回填前后 chat_message 总数不变(只 UPDATE 不增删)。返回本次更新条数。
+
+        后续任务事项:pilot/loop 等写入点当前不带 thread_id,会持续产生 thread_id=NONE
+        的孤儿消息——backfill 只在启动时兜底归档一次,长期应让所有 add_chat_message
+        调用点显式带 thread_id(消除孤儿源头),而非依赖回填清扫。"""
+        thread = self.get_or_create_editorial_thread(self.db_name, actor_id)
+        tid = thread["thread_id"]
+        # 只更新 thread_id 尚未设置(NONE)的行——已归属者不动 → 幂等。
+        rows = self._query(
+            "SELECT count() AS n FROM chat_message WHERE thread_id IS NONE GROUP ALL")
+        n = int(rows[0]["n"]) if rows and rows[0].get("n") is not None else 0
+        if n:
+            self._execute_write(
+                "UPDATE chat_message SET thread_id=$tid "
+                "WHERE thread_id IS NONE RETURN NONE", {"tid": tid})
+        return n
 
     # --- Hermes Runs/Approval 审计链 ---
     def upsert_ai_run_trace(self, run_id: str, *, status: str | None = None,
@@ -4547,3 +4681,270 @@ class SurrealStore:
             f"UPDATE type::record('chapter', $seq) SET {', '.join(set_parts)}",
             params)
         return True
+
+    # == 统一上下文会话(Task 3:context_session / context_snapshot 的 CAS 原子存储)==
+    #
+    # 为什么不用 transaction() contextmanager:CAS 是"读-判-写"三步,必须在同一条
+    # 多语句 SurrealQL 事务里完成(LET/IF/THROW),collect 式的 transaction() 只能拼
+    # 纯写语句,表达不了条件分支——故直接手拼 BEGIN/COMMIT 走 _raw_query
+    # (与 grant_public 同款写法)。
+
+    # 快照统一取数列(<string> captured_at:datetime 序列化为 ISO 串,与 model_dump
+    # mode="json" 的返回形状对齐)。如实说明:写路径(create/advance 的返回值)里的
+    # captured_at 是 Python 墙钟,库内实际存的是 time::now()(READONLY),二者有
+    # 微秒级差——captured_at 不参与 context_hash,指纹不受影响;读路径以库内值为准。
+    _CONTEXT_SNAPSHOT_FIELDS = (
+        "session_id, work, revision, previous_revision, navigation_id, thread_id, "
+        "entry, directory_path, focus, detail_route, chapter, phase, focalizer, "
+        "reason, context_hash, <string> captured_at AS captured_at")
+
+    def _context_tx(self, surql: str, vars: dict) -> None:
+        """执行多语句 CAS 事务并逐语句核对状态。
+
+        为什么不走 _raw_query:surrealdb-py 的 query() 只检查【第一条】语句的
+        status(2026-07-10 实测),事务里的 THROW / 唯一索引冲突全被静默吞掉——
+        而 CAS 的失配/冲突信号正是靠这些错误传递,必须 query_raw 自查全部语句。
+        连接类异常沿用 _raw_query 的"重连重试一次"策略:advance 场景下若首次
+        已提交、响应丢失,重试的事务会先撞 stale THROW(IF 判定在 CREATE 之前)
+        ——由上层"stale → 先按 navigation 读回 → 读不回才是真 stale"机制转为
+        幂等读回;create 场景重试非幂等,见 create_context_session 说明。"""
+        try:
+            resp = self._db.query_raw(surql, vars)
+        except _CONN_ERRORS as e:
+            logging.getLogger("scribe3.store").warning(
+                "SurrealDB 连接故障,重连后重试一次(%s): %s",
+                type(e).__name__, str(e)[:120])
+            self._reconnect()
+            resp = self._db.query_raw(surql, vars)
+        if resp.get("error"):
+            raise RuntimeError(f"context 事务 RPC 错误: {resp['error']}")
+        errs = [str(st.get("result")) for st in (resp.get("result") or [])
+                if isinstance(st, dict) and st.get("status") == "ERR"]
+        if errs:
+            # 过滤连带失败的样板消息("was not executed due to"/"Cannot COMMIT"),
+            # 留下第一现场(THROW 文本 / 索引冲突),供上层按消息分流
+            real = [m for m in errs
+                    if "not executed due to" not in m and "Cannot COMMIT" not in m]
+            raise RuntimeError("; ".join(real or errs))
+
+    @staticmethod
+    def _classify_context_tx_error(msg: str) -> str:
+        """把 CAS 事务错误文案分流为语义类别(单独成函数以便文本注入单测)。
+
+        类别:stale(自家 THROW 的 revision 失配)/ session_missing / session_ended
+        / unique_conflict(快照唯一索引)/ commit_conflict(SurrealDB 提交层
+        读写冲突,乐观事务固有,语义同 CAS 失配请重试)/ unknown(原样上抛)。"""
+        if "stale_revision:" in msg:
+            return "stale"
+        if "context_session_missing" in msg:
+            return "session_missing"
+        if "context_session_ended" in msg:
+            return "session_ended"
+        if "already contains" in msg or "context_snapshot_navigation" in msg \
+                or "context_snapshot_session_revision" in msg:
+            return "unique_conflict"
+        if "read or write conflict" in msg or "write conflict" in msg \
+                or "transaction can be retried" in msg:
+            return "commit_conflict"
+        return "unknown"
+
+    def _warn_context_replay_mismatch(self, replay: dict, it: NavigationIntent) -> None:
+        """M-1:同 navigation_id 视为重放,新 payload 被忽略(以先落库者为准)。
+        payload 不一致说明前端错误复用了 navigation_id——留 warning 便于排查,
+        但仍按幂等重放返回,不打断用户。"""
+        focus_id = (replay.get("focus") or {}).get("id")
+        if replay.get("detail_route") != it.detail_route or focus_id != it.focus.id:
+            logging.getLogger("scribe3.store").warning(
+                "advance_context: navigation_id=%s 重放 payload 与已落库快照不一致"
+                "(route %s→%s / focus %s→%s),忽略新 payload 按重放返回",
+                it.navigation_id, replay.get("detail_route"), it.detail_route,
+                focus_id, it.focus.id)
+
+    def _find_context_snapshot_by_navigation(
+            self, session_id: str, navigation_id: str) -> dict | None:
+        """按 (session_id, navigation_id) 读回快照——幂等重放的读路径,
+        预查与唯一键冲突兜底都走这里。"""
+        rows = self._query(
+            f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+            "WHERE session_id=$sid AND navigation_id=$nav LIMIT 1",
+            {"sid": session_id, "nav": navigation_id})
+        return rows[0] if rows else None
+
+    def create_context_session(self, work: str, actor_id: str, device_id: str) -> dict:
+        """开一个上下文会话并落 revision=0 的初始快照,返回初始快照 dict。
+
+        session 与初始快照在同一条事务里创建:不存在"有 session 无快照"的中间态,
+        get_context_snapshot 对新会话永远有得读。
+
+        Task 6 兑现:thread_id 取自本 work 的正式主编线程(get_or_create_editorial_thread,
+        幂等)——create_context_session / backfill_thread_ids / list_thread_messages 三处
+        共用同一 ethread id,前端 snapshot.thread_id 与 /chat/threads、backfill 归档端到端一致
+        (此前占位 thread:{work}_default 与 ethread 命名空间断裂,旧对话在 UI 上凭空消失)。
+
+        如实说明:本方法非幂等——_context_tx 的连接重试若落在"首次已提交、
+        响应丢失"的窗口,重放会以同 id CREATE 撞库报错(本机 WS 该窗口极小,
+        与 store 既有论断一致,可接受;调用方收到错误重新 create 即可)。"""
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        sid = uuid4().hex
+        snap_id = uuid4().hex
+        thread_id = self.get_or_create_editorial_thread(work, actor_id)["thread_id"]
+        snap = ContextSnapshot(
+            session_id=sid, work=work, revision=0, thread_id=thread_id,
+            entry="manuscript", directory_path=(),
+            focus=ContextFocus(type="entry", id="entry:manuscript", label=""),
+            detail_route="entry:manuscript", chapter=None, phase=None,
+            focalizer=None, previous_revision=None, navigation_id="init",
+            captured_at=datetime.now(timezone.utc), context_hash="",
+        ).with_hash()   # hash 在 Python 侧算好落库,库里存最终值
+        payload = snap.model_dump(mode="json")
+        self._context_tx(
+            "BEGIN TRANSACTION; "
+            "CREATE type::record('context_session', $sid) SET work=$work, "
+            "actor_id=$actor, device_id=$device, thread_id=$thread, status='active', "
+            "revision=0, current_snapshot_id=$snap_id, updated_at=time::now(); "
+            "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+            "work=$work, revision=0, previous_revision=NONE, navigation_id='init', "
+            "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
+            "detail_route=$route, chapter=NONE, phase=NONE, focalizer=NONE, "
+            "reason='restore', context_hash=$hash; "
+            "COMMIT TRANSACTION;",
+            {"sid": sid, "work": work, "actor": actor_id, "device": device_id,
+             "thread": thread_id, "snap_id": snap_id, "entry": payload["entry"],
+             "path": payload["directory_path"], "focus": payload["focus"],
+             "route": payload["detail_route"], "hash": payload["context_hash"]})
+        # reason 不在 ContextSnapshot 模型里(它是导航属性),但落库并随 dict 返回
+        return payload | {"reason": "restore"}
+
+    def advance_context(self, session_id: str, intent: dict) -> dict:
+        """CAS 推进上下文:仅当 session 处于 active 且 revision == expected_revision
+        时创建新快照并推进游标;失配抛 StaleContextError(带 latest),绝不自动覆盖。
+
+        幂等合同:同 navigation_id 一律视为重放——新 payload 被【忽略】,以先落库的
+        快照为准(payload 不一致仅 log warning)。重放路径有三层:
+        ① 预查命中 → 直接返回;注意预查先于 ended 守卫——已 ended 的会话重放
+          已有 navigation_id 仍幂等返回旧快照而非拒绝(只有"推进出新快照"才被拒);
+        ② 并发重放对方已提交时,后到者的事务撞的是 stale THROW(IF 判定在 CREATE
+          之前,轮不到唯一索引)——故 stale/冲突分支都先按 navigation 读回,命中
+          即幂等成功,读不回才是真 stale(实测修正:唯一索引只是极端兜底);
+        ③ UNIQUE(session_id, navigation_id) 索引兜底剩余竞态,冲突同样转读回。"""
+        from datetime import datetime, timezone
+        from uuid import uuid4
+        it = NavigationIntent.model_validate(intent)
+        # 1. 幂等预查:该导航已落库 → 直接返回(顺序重放的快路径)
+        existing = self._find_context_snapshot_by_navigation(session_id, it.navigation_id)
+        if existing is not None:
+            self._warn_context_replay_mismatch(existing, it)
+            return existing
+        # 2. 读会话拿 work/thread_id(不在这里判 revision——判定必须进事务)
+        sess = self._query(
+            "SELECT work, thread_id FROM type::record('context_session', $sid)",
+            {"sid": session_id})
+        if not sess:
+            raise ValueError(f"advance_context: context_session '{session_id}' 不存在")
+        new_rev = it.expected_revision + 1
+        snap_id = uuid4().hex
+        snap = ContextSnapshot(
+            session_id=session_id, work=sess[0]["work"], revision=new_rev,
+            thread_id=sess[0]["thread_id"], entry=it.entry,
+            directory_path=tuple(it.directory_path), focus=it.focus,
+            detail_route=it.detail_route, chapter=it.chapter, phase=it.phase,
+            focalizer=it.focalizer, previous_revision=it.expected_revision,
+            navigation_id=it.navigation_id,
+            captured_at=datetime.now(timezone.utc), context_hash="",
+        ).with_hash()
+        payload = snap.model_dump(mode="json")
+        # 3. 单事务 CAS:读-判-写在同一条多语句 SurrealQL 里完成
+        try:
+            self._context_tx(
+                "BEGIN TRANSACTION; "
+                "LET $cur = (SELECT revision, status "
+                "FROM type::record('context_session', $sid)); "
+                "IF array::len($cur) == 0 { THROW 'context_session_missing' }; "
+                # I-2:ended 守卫——已结束的会话拒绝推进(end 方法由后续任务建)
+                "IF $cur[0].status != 'active' { THROW 'context_session_ended' }; "
+                "IF $cur[0].revision != $expected "
+                "{ THROW 'stale_revision:' + <string>$cur[0].revision }; "
+                "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+                "work=$work, revision=$rev, previous_revision=$prev, navigation_id=$nav, "
+                "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
+                "detail_route=$route, chapter=$chapter, phase=$phase, "
+                "focalizer=$focalizer, reason=$reason, context_hash=$hash; "
+                "UPDATE type::record('context_session', $sid) SET revision=$rev, "
+                "current_snapshot_id=$snap_id, updated_at=time::now(); "
+                "COMMIT TRANSACTION;",
+                {"sid": session_id, "expected": it.expected_revision,
+                 "snap_id": snap_id, "work": payload["work"], "rev": new_rev,
+                 "prev": it.expected_revision, "nav": it.navigation_id,
+                 "thread": payload["thread_id"], "entry": payload["entry"],
+                 "path": payload["directory_path"], "focus": payload["focus"],
+                 "route": payload["detail_route"], "chapter": it.chapter,
+                 "phase": it.phase, "focalizer": it.focalizer,
+                 "reason": it.reason, "hash": payload["context_hash"]})
+        except _CONN_ERRORS:
+            raise   # 连接类异常已在 _context_tx 重试过一次,再失败原样上抛
+        except Exception as e:
+            msg = str(e)
+            kind = self._classify_context_tx_error(msg)
+            if kind in ("stale", "unique_conflict", "commit_conflict"):
+                # I-1:三类都可能是同 navigation 的并发重放——对方已提交时,
+                # 后到者的事务在 IF 处撞 stale THROW(轮不到唯一索引),直接抛
+                # 就是给重放请求喂假 409。先按 navigation 读回,命中即幂等成功。
+                replay = self._find_context_snapshot_by_navigation(
+                    session_id, it.navigation_id)
+                if replay is not None:
+                    self._warn_context_replay_mismatch(replay, it)
+                    return replay
+                # 读不回才是真 CAS 失配(含提交层读写冲突/revision 唯一键被抢):
+                # actual 优先取 THROW 携带的值,否则回读会话
+                m = re.search(r"stale_revision:(\d+)", msg)
+                if m:
+                    actual = int(m.group(1))
+                else:
+                    cur = self._query(
+                        "SELECT revision FROM type::record('context_session', $sid)",
+                        {"sid": session_id})
+                    actual = cur[0]["revision"] if cur else -1
+                # latest 带上服务端最新快照,前端可直接对齐免再读
+                raise StaleContextError(
+                    it.expected_revision, actual,
+                    latest=self.get_context_snapshot(session_id)) from e
+            if kind == "session_missing":
+                raise ValueError(
+                    f"advance_context: context_session '{session_id}' 不存在") from e
+            if kind == "session_ended":
+                raise ValueError(
+                    f"advance_context: context_session '{session_id}' 已结束"
+                    "(status != 'active'),拒绝推进") from e
+            raise
+        return payload | {"reason": it.reason}
+
+    def get_context_snapshot(self, session_id: str, revision: int | None = None) -> dict | None:
+        """读快照:revision=None 返回 current(经 current_snapshot_id,悬空时兜底
+        取最大 revision);指定 revision 返回该历史版;找不到返回 None。"""
+        if revision is not None:
+            rows = self._query(
+                f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+                "WHERE session_id=$sid AND revision=$rev LIMIT 1",
+                {"sid": session_id, "rev": int(revision)})
+            return rows[0] if rows else None
+        sess = self._query(
+            "SELECT current_snapshot_id FROM type::record('context_session', $sid)",
+            {"sid": session_id})
+        if not sess:
+            return None
+        snap_id = sess[0].get("current_snapshot_id")
+        if snap_id:
+            rows = self._query(
+                f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} "
+                "FROM type::record('context_snapshot', $snap)",
+                {"snap": snap_id})
+            if rows:
+                return rows[0]
+        # 兜底:current_snapshot_id 缺失/悬空时取最大 revision
+        # (3.x ORDER BY 必须引用选择列——revision 在选择列里,合规)
+        rows = self._query(
+            f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} FROM context_snapshot "
+            "WHERE session_id=$sid ORDER BY revision DESC LIMIT 1",
+            {"sid": session_id})
+        return rows[0] if rows else None
