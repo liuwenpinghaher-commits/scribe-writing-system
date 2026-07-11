@@ -5,12 +5,35 @@ Task 16 检索接进生产 prompt 后填充。此处用桩 trace 数据验证 sc
 不假装已有真实检索流。
 """
 import json
+import math
 
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
 from scribe3.memory_models import MemoryCandidate, RejectedCandidate, RetrievalResult
+from scribe3.ontology import Entity, Fact
 from scribe3.store import build_memory_trace, mask_memory_trace
+
+
+def _patch_embed(monkeypatch):
+    """确定性假 embedding(不加载真模型/服务)——检索的 bm25/vector 通道需要。"""
+    def fake(texts):
+        out = []
+        for t in texts:
+            v = [0.0] * 512
+            for ch in (t or ""):
+                if ch.strip():
+                    v[ord(ch) % 512] += 1.0
+            n = math.sqrt(sum(x * x for x in v)) or 1.0
+            out.append([x / n for x in v])
+        return out
+    monkeypatch.setattr("scribe3.embed.embed", fake)
+
+
+def _enable_wiring_flags(monkeypatch):
+    """Task 16 读路径接线需 MEMORY_FABRIC + ASSEMBLER 【同开】(M4 记账:读路径两旗同开)。"""
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
 
 REJECT_REASONS = {
     "token_budget", "duplicate", "superseded",
@@ -196,3 +219,161 @@ def test_trace_api_404_when_absent(store):
     r = c.get("/context/sessions/none/trace/1?work=test")
     assert r.status_code == 404
     assert r.json()["detail"]["code"] == "memory_trace_not_found"
+
+
+# ===========================================================================
+# Task 16 最后一厘米:检索发生(MEMORY_FABRIC+ASSEMBLER 开)时把 RetrievalResult
+# 落 memory_trace,让 ContextInspector 有真数据。以下测试锁死接线契约。
+# ===========================================================================
+
+def _write_ctx(session_id="sess-w", revision=3, thread_id="ethread:test:1"):
+    """模拟前端 WriteChat.runContextBind 发来的真实会话绑定(chat/write body)。"""
+    return {"context_session_id": session_id, "context_revision": revision,
+            "context_hash": "h" * 64, "thread_id": thread_id}
+
+
+def test_write_path_lands_memory_trace_for_inspector(store, monkeypatch):
+    """①flag 开 + 检索发生 → memory_trace 表落库 → GET /context/sessions/{id}/trace/{rev}
+    返真数据(selected/channels/block_tokens)。键用【前端真实会话】,Inspector 查得到。"""
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    A.set_store(store, work="test")
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:loc", "role:甲", "location", "城东", valid_from=1))
+    store.add_memory_item(work="test", kind="episodic", text="甲昨夜在集市买了油纸伞",
+                          scope_type="work", scope_id="test",
+                          source_type="chat", source_id="turn:1")
+
+    instr = A._assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft",
+        seed_words=["集市", "油纸伞"], short_mode=False, work="test",
+        memory_trace_ctx=_write_ctx("sess-w", 3))
+    assert isinstance(instr, str) and instr           # 组装照常产出 prompt
+
+    # store 侧:按 (会话, 版本) 反查到刚落的 trace
+    trace = store.get_memory_trace_for_snapshot("sess-w", 3)
+    assert trace is not None, "检索发生后必须落 memory_trace(Inspector 数据源)"
+    assert trace["work"] == "test"
+    assert trace["selected"], "至少应含 canonical 候选(领域直查)"
+    assert any(s["source_kind"] == "canonical" for s in trace["selected"])
+    assert "structured" in trace["channels"]          # 通道计数落库
+    assert "canonical" in trace["block_tokens"]       # 块 token 落库
+
+    # API 侧(前端 ContextInspector 走这条):同一 session/revision 返 200 真数据
+    c = TestClient(A.app)
+    r = c.get("/context/sessions/sess-w/trace/3?work=test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["selected"] and body["snapshot_revision"] == 3
+
+
+def test_write_path_trace_never_at_rest_secret(store, monkeypatch):
+    """②含秘密候选 → trace 无秘密 value(DB at-rest)。复用 build/save 双重权威屏蔽——
+    即便 retriever 漏标 provenance.secret,source_id ∈ store 权威秘密即抹空。"""
+    _patch_embed(monkeypatch)
+    from scribe3.context_assembler import ContextAssembler
+    store.add_entity(Entity("role:z", "character", "Z"))
+    store.add_fact(Fact("fact:zsec", "role:z", "真身", "Z是刺客头子", valid_from=1, secret=True))
+    # 秘密候选:provenance 缺 secret 标记(模拟 retriever 漏标),但 source_id 是权威秘密
+    cand = MemoryCandidate(
+        source_kind="canonical", source_id="fact:zsec", work="test",
+        text="Z是刺客头子的绝密明文", confidence=1.0, importance=4,
+        channels={"structured"}, provenance=[{"entity": "role:z", "attribute": "真身"}])
+    result = RetrievalResult(selected=[cand], rejected=[])
+    snap = A._write_snapshot(store, chapter=1, focalizer="", phase="draft", work="test")
+    env = ContextAssembler(store, None).assemble(snap, "", "plan")   # 真 envelope(retriever None)
+
+    A._save_write_memory_trace(store, snap=snap, envelope=env, result=result,
+                               query="Z的真身", work="test", ctx=_write_ctx("sess-z", 2))
+
+    # 直查 DB 行(绕过 get 的兜底 mask):秘密明文绝不 at-rest
+    rows = store._query(
+        "SELECT selected FROM memory_trace WHERE context_session_id=$s AND snapshot_revision=$r LIMIT 1",
+        {"s": "sess-z", "r": 2})
+    assert rows, "trace 应已落库"
+    assert "刺客" not in json.dumps(rows[0], ensure_ascii=False), "秘密明文绝不 at-rest 入 DB"
+    item = rows[0]["selected"][0]
+    assert item["secret"] is True and item.get("masked") is True
+    assert item.get("text") in ("", None)
+
+
+def test_write_path_no_trace_when_flags_off_and_byte_equivalent(store, monkeypatch):
+    """③flag 关 → 不落 trace(Inspector 404),且带不带 memory_trace_ctx 组装【字节等价】。"""
+    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
+    store.add_fact(Fact("fact:m", "role:m", "mood", "沉郁", valid_from=1))
+
+    kw = dict(chapter=2, focalizer="", phase="draft", seed_words=["雨"],
+              short_mode=False, work="test")
+    a = A._assemble_write_instructions(store, memory_trace_ctx=None, **kw)
+    b = A._assemble_write_instructions(store, memory_trace_ctx=_write_ctx("sess-off", 1), **kw)
+    assert a == b, "flag 关:memory_trace_ctx 绝不改写作字节(字节等价)"
+    assert store.get_memory_trace_for_snapshot("sess-off", 1) is None, "flag 关不落 trace"
+
+
+def test_write_path_trace_ctx_does_not_change_prompt_bytes(store, monkeypatch):
+    """flag 开时,落 trace 是纯副作用:带/不带 memory_trace_ctx 的 prompt 字节完全一致。"""
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    store.add_fact(Fact("fact:loc2", "role:甲", "location", "城南", valid_from=1))
+
+    kw = dict(chapter=1, focalizer="", phase="draft", seed_words=["城南"],
+              short_mode=False, work="test")
+    a = A._assemble_write_instructions(store, memory_trace_ctx=None, **kw)
+    b = A._assemble_write_instructions(store, memory_trace_ctx=_write_ctx("sess-p", 5), **kw)
+    assert a == b, "落 memory_trace 是纯副作用,绝不改 envelope/prompt 字节"
+
+
+def test_write_path_trace_failure_does_not_block_writing(store, monkeypatch):
+    """④trace 落库失败 → fail-soft,写作照常返回 prompt(与 chat_message 同纪律)。"""
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    store.add_fact(Fact("fact:loc3", "role:甲", "location", "城西", valid_from=1))
+
+    def _boom(_trace):
+        raise RuntimeError("模拟落库故障")
+    monkeypatch.setattr(store, "save_memory_trace", _boom)
+
+    instr = A._assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=["城西"],
+        short_mode=False, work="test", memory_trace_ctx=_write_ctx("sess-fail", 1))
+    assert isinstance(instr, str) and instr, "trace 落库失败绝不阻断写作主链路"
+
+
+def test_write_path_trace_is_idempotent_per_revision(store, monkeypatch):
+    """幂等:同一 (会话, 版本) 反复写只留最新一条(trace_id 确定性 + save 先删后建)。"""
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    store.add_fact(Fact("fact:loc4", "role:甲", "location", "城北", valid_from=1))
+
+    kw = dict(chapter=1, focalizer="", phase="draft", seed_words=["城北"],
+              short_mode=False, work="test", memory_trace_ctx=_write_ctx("sess-idem", 4))
+    A._assemble_write_instructions(store, **kw)
+    A._assemble_write_instructions(store, **kw)
+    rows = store._query(
+        "SELECT trace_id FROM memory_trace WHERE context_session_id=$s AND snapshot_revision=$r",
+        {"s": "sess-idem", "r": 4})
+    assert len(rows) == 1, f"同一快照版本应只留一条 trace,实得 {len(rows)}"
+
+
+def test_assemble_retrieval_out_is_byte_equivalent(store, monkeypatch):
+    """assembler 契约:传/不传 retrieval_out 收集器,envelope 字节【完全一致】——
+    收集只是把已算出的 RetrievalResult(rejected/channels)顺带暴露,绝不改组装。"""
+    _patch_embed(monkeypatch)
+    from scribe3.context_assembler import ContextAssembler, render_envelope_text
+    from scribe3.memory_retrieval import MemoryRetriever
+    store.add_entity(Entity("role:甲", "character", "甲"))
+    store.add_fact(Fact("fact:loc5", "role:甲", "location", "城东", valid_from=1))
+    store.add_memory_item(work="test", kind="episodic", text="甲在集市买伞",
+                          scope_type="work", scope_id="test",
+                          source_type="chat", source_id="turn:9")
+    snap = A._write_snapshot(store, chapter=5, focalizer="", phase="final", work="test")
+    asm = ContextAssembler(store, MemoryRetriever(store))
+
+    env_no = asm.assemble(snap, "集市 伞", "write")
+    out: dict = {}
+    env_yes = asm.assemble(snap, "集市 伞", "write", retrieval_out=out)
+    assert render_envelope_text(env_no) == render_envelope_text(env_yes)
+    assert env_no.envelope_hash == env_yes.envelope_hash
+    assert out.get("result") is not None            # 收集器确实拿到 RetrievalResult
+    assert hasattr(out["result"], "selected") and hasattr(out["result"], "rejected")

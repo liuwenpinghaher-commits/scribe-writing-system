@@ -1272,6 +1272,107 @@ def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
             "code": "thread_not_found", "message": str(e)}) from e
 
 
+# ---------------------------------------------------------------------------
+# 统一上下文与记忆系统 · Task 12:/memory/* REST(可选 scribe3-memory Hermes provider 消费)
+#
+# 把 Task 8/9 的内部检索/捕获/固化能力暴露成 HTTP,仅供【直接用 Hermes 会话】(非 Scribe Web
+# 主路)读写 Scribe 记忆。Scribe Web 的 chat/write 主路【完全不经】这些端点——它在 app 内直调
+# ContextAssembler / MemoryRetriever / MemoryCapture,与本段解耦;关闭 provider(不设
+# SCRIBE3_API_BASE)对主路零影响。
+#
+# work-scoped 硬红线(复用 16-A):?work= 定位 per-work db(物理隔离,跨 work 检索不到彼此);
+# thread_id 内嵌 work(ethread:<work>:<uuid>)时再过 _assert_work_binding,跨 work 声明→409。
+# best-effort:捕获/固化失败只告警不 5xx(与主链路捕获同纪律,不阻断上游会话)。
+# ---------------------------------------------------------------------------
+class MemoryPrefetchReq(BaseModel):
+    thread_id: str | None = None
+    query: str = ""
+    k: int = Field(default=24, ge=1, le=200)
+
+
+@app.post("/memory/prefetch")
+def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
+    """检索本 work 记忆,返回组装好的记忆块文本(供直连 Hermes 会话注入 prompt)。
+
+    讨论模式组装(无章 → 限知门 fail-open,作者全知视角):canonical 命题 + 经验记忆,
+    work 隔离 / 秘密屏蔽在检索·组装链内生效。组装异常降级空块(绝不 5xx 拖垮上游会话)。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.context_assembler import ContextAssembler, render_envelope_text
+    from scribe3.memory_retrieval import MemoryRetriever
+    try:
+        snap = _write_snapshot(store, chapter=None, focalizer=None, phase=None, work=w)
+        envelope = ContextAssembler(store, MemoryRetriever(store)).assemble(
+            snap, req.query or "", "discussion")
+        context = render_envelope_text(envelope)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/prefetch 组装失败(降级空块)", exc_info=True)
+        context = ""
+    return {"context": context, "work": w}
+
+
+class MemoryCaptureTurnReq(BaseModel):
+    thread_id: str | None = None
+    event_id: str | None = None
+    user: str = ""
+    assistant: str = ""
+    messages: list = Field(default_factory=list)
+
+
+@app.post("/memory/capture-turn")
+def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
+    """幂等捕获一轮对话为经验记忆(同步 drain)。event_id 幂等键:同 event_id 二次→idempotent。
+
+    捕获作者意图文本(user 优先,空则退 assistant);分类/正典红线/linked_ids 领域反查在
+    MemoryCapture 内。best-effort:失败只告警,返回 capture_failed 而非 5xx。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.memory_capture import MemoryCapture, turn_event
+    text = (req.user or "").strip() or (req.assistant or "").strip()
+    if not text:
+        return {"status": "skipped", "work": w}
+    ev_id = (req.event_id or "").strip() or None
+    try:
+        result = MemoryCapture(store).capture_event(turn_event(
+            text=text, event_id=ev_id, work=w, thread_id=req.thread_id))
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/capture-turn 捕获失败(忽略,不阻断上游会话)", exc_info=True)
+        return {"status": "capture_failed", "work": w}
+    return {"status": result.get("status"),
+            "idempotent": bool(result.get("idempotent")),
+            "event_id": ev_id, "work": w}
+
+
+class MemoryFlushReq(BaseModel):
+    thread_id: str | None = None
+    reason: str = "manual"
+
+
+@app.post("/memory/flush")
+def memory_flush(req: MemoryFlushReq, work: str = "main"):
+    """固化线程工作摘要 + drain 掉线残留(Hermes on_pre_compress / on_session_end 触发)。
+    幂等:working_summary 按 (work,thread) 唯一 UPSERT。best-effort:失败降级 through_turn=0。"""
+    w = _normalize_work(work)
+    _assert_work_binding(_thread_work(req.thread_id), w,
+                         kind="editorial_thread", ident=req.thread_id or "")
+    store = _store_for(w)
+    from scribe3.memory_capture import MemoryCapture
+    try:
+        result = MemoryCapture(store).consolidate_thread(req.thread_id, work=w)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "/memory/flush 固化失败(忽略)", exc_info=True)
+        result = {"through_turn": 0}
+    return {"status": "flushed", "reason": req.reason, "work": w,
+            "through_turn": result.get("through_turn", 0)}
+
+
 @app.get("/works")
 def works():
     out = []
@@ -3764,9 +3865,78 @@ def _build_write_retrieval_query(st, *, chapter, seed_words) -> str:
     return ""
 
 
+def _write_context_binding(req, headers=None) -> dict:
+    """从 chat/write 请求解析【前端真实上下文会话绑定】(供落 memory_trace 给 ContextInspector)。
+
+    三件套 + thread 优先取 body 字段,缺失回退等价请求头 X-Scribe-Context-*(与
+    ContextService.enforce 同源同形,I-1 双通道)。返回 dict(值可为 None);
+    调用侧只在检索发生【且 session_id/revision 齐备】时消费——即前端确实带了会话绑定
+    (WriteChat.runContextBind 发 context_session_id + context_revision)。不带绑定的
+    调用方(loop / 存量)→ session_id 缺 → 不落 trace(Inspector 诚实 404)。"""
+    from scribe3.context_service import HEADER_HASH, HEADER_REVISION, HEADER_SESSION
+    headers = headers if headers is not None else {}
+    session_id = getattr(req, "context_session_id", None) or headers.get(HEADER_SESSION)
+    context_hash = getattr(req, "context_hash", None) or headers.get(HEADER_HASH)
+    revision = getattr(req, "context_revision", None)
+    if revision is None:
+        raw = headers.get(HEADER_REVISION)
+        try:
+            revision = int(raw) if raw not in (None, "") else None
+        except (TypeError, ValueError):
+            revision = None
+    return {
+        "context_session_id": session_id,
+        "context_revision": revision,
+        "context_hash": context_hash,
+        "thread_id": getattr(req, "thread_id", None),
+    }
+
+
+def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) -> str:
+    """Task 16 最后一厘米:一次写作检索的 RetrievalResult → memory_trace(ContextInspector 数据源)。
+
+    键对齐(命门):context_session_id/snapshot_revision 取【前端真实会话绑定】(ctx,来自
+    chat/write 的 req/请求头)——前端 ContextInspector 正是用同一 snapshot.session_id/revision
+    查 GET /context/sessions/{id}/trace/{rev},键天然对齐,检索发生即显真数据。snapshot_hash/
+    thread_id 前端未必带(WriteChat 只发 session_id+revision)→ 回退写作合成快照 snap。
+
+    幂等:trace_id 用 (work,session,thread,revision) 确定性 hash;同一快照版本反复写只留最新
+    一条(save_memory_trace 先删后建)。
+
+    秘密屏蔽(限知红线):build_memory_trace(store=st) 叠加 _secret_fact_ids 权威判定,
+    save_memory_trace 落库前再 mask_memory_trace 兜底 → DB at-rest 绝无秘密 value。
+
+    调用方 best-effort try/except 兜底:本函数任何异常都不得阻断写作主链路。"""
+    import hashlib
+
+    from scribe3.store import build_memory_trace
+    session_id = str(ctx.get("context_session_id"))
+    revision = int(ctx.get("context_revision"))
+    snap_hash = str(ctx.get("context_hash") or getattr(snap, "context_hash", "") or "")
+    thread_id = str(ctx.get("thread_id") or getattr(snap, "thread_id", "") or "")
+    env_hash = str(getattr(envelope, "envelope_hash", "") or "")
+    block_tokens = {b.name: b.token_estimate
+                    for b in (getattr(envelope, "blocks", None) or [])}
+    # channels:每条选入候选实际命中的通道计数(审计观测;Inspector 主看 block_tokens/证据)。
+    channels: dict = {}
+    for c in (getattr(result, "selected", None) or []):
+        for ch in (getattr(c, "channels", None) or ()):
+            channels[str(ch)] = channels.get(str(ch), 0) + 1
+    key = f"{work or ''}|{session_id}|{thread_id}|{revision}"
+    trace_id = "mt:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+    trace = build_memory_trace(
+        trace_id=trace_id, work=str(work or ""), thread_id=thread_id,
+        context_session_id=session_id, snapshot_revision=revision,
+        result=result, query=query or "", snapshot_hash=snap_hash,
+        envelope_hash=env_hash, channels=channels, block_tokens=block_tokens,
+        store=st)
+    st.save_memory_trace(trace)
+    return trace_id
+
+
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
                                     short_mode, with_tools=False, work=None,
-                                    envelope_trace=None):
+                                    envelope_trace=None, memory_trace_ctx=None):
     """SCRIBE3_CONTEXT_ASSEMBLER_V1【开】路径:身份/硬协议保持内嵌,上下文段由
     ContextAssembler 统一组装(可预算/可溯源/正典优先/限知屏蔽);强制纪律仍逐条内嵌
     (_final_reminder/_revelation_discipline_block/_focalizer_sincerity_block 等是
@@ -3803,7 +3973,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     retriever = _get_write_retriever(st)
     retrieval_query = (_build_write_retrieval_query(st, chapter=chapter, seed_words=seed_words)
                        if retriever is not None else "")
-    envelope = ContextAssembler(st, retriever).assemble(snap, retrieval_query, mode)
+    # Task 16 最后一厘米:检索发生(retriever 非 None = MEMORY_FABRIC 开)时收集本次完整
+    # RetrievalResult,组装后落 memory_trace 给 ContextInspector 真数据。retriever=None
+    # (MEMORY_FABRIC 关)→ 收集器 None → assemble 走协议 retrieve() → 与接线前【字节等价】。
+    _retrieval_out = {} if retriever is not None else None
+    envelope = ContextAssembler(st, retriever).assemble(
+        snap, retrieval_query, mode, retrieval_out=_retrieval_out)
     # M3 记账 + 指标接入:采样本次组装 envelope 的 token 估算(context_tokens_p95 由 0 变真实)。
     # 纯观测副作用,不改 instructions 字节;仅 v1 路径(ASSEMBLER_V1 开)才走到这里——即 MEMORY_FABRIC
     # 关而 ASSEMBLER_V1 开时仍会采样(内存 deque,无秘密、字节无害),这是刻意的观测下限,非泄露。
@@ -3824,6 +3999,23 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             envelope_trace["context"] = envelope_trace_manifest(envelope)
         except Exception:
             pass
+    # Task 16 最后一厘米:检索真发生(retriever 非 None)且前端带了会话绑定
+    # (memory_trace_ctx 有 session_id + revision)时,落 memory_trace 给 ContextInspector。
+    # 键用前端真实会话(前端 Inspector 查同一 session/revision,天然对齐);无绑定的调用方
+    # (loop / 存量)→ 不落(诚实 404)。best-effort:落库失败只告警,绝不阻断写作主链路
+    # (与 chat_message 同纪律);秘密屏蔽复用 _save_write_memory_trace 内 build/save 双重 mask。
+    _mtc = memory_trace_ctx or {}
+    if (_retrieval_out is not None and _mtc.get("context_session_id")
+            and _mtc.get("context_revision") is not None):
+        _result = _retrieval_out.get("result")
+        if _result is not None:
+            try:
+                _save_write_memory_trace(
+                    st, snap=snap, envelope=envelope, result=_result,
+                    query=retrieval_query, work=work, ctx=_mtc)
+            except Exception:
+                logging.getLogger("scribe3").warning(
+                    "memory_trace 落库失败(忽略,不阻断写作)", exc_info=True)
     env_text = render_envelope_text(envelope)
     if env_text:
         instructions += "\n\n" + env_text
@@ -3845,7 +4037,8 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                                  seed_words: list, short_mode: bool,
                                  with_tools: bool = False,
                                  work: str | None = None,
-                                 envelope_trace: dict | None = None) -> str:
+                                 envelope_trace: dict | None = None,
+                                 memory_trace_ctx: dict | None = None) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
@@ -3854,6 +4047,10 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
     envelope_trace(Caveat 1):可选可变收集器;仅 v1 路径成功组装时被回填
       {"context": <安全块清单>}(仅 chat_write_post 传入,供落 chat_message.trace.context)。
       缺省 None → 全部其余调用方与旧路径字节等价。
+    memory_trace_ctx(Task 16 最后一厘米):可选前端会话绑定
+      {context_session_id/context_revision/context_hash/thread_id};仅 v1 路径且检索发生
+      (MEMORY_FABRIC 开)+ 绑定齐备时,把 RetrievalResult 落 memory_trace 给 ContextInspector。
+      缺省 None → 不落 trace,其余调用方(loop/存量)行为不变。
 
     Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1【开】→ 委托 _assemble_write_instructions_v1
       (ContextAssembler 统一组装);组装异常 → 回退下方旧链(fail-safe)。
@@ -3863,7 +4060,8 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
             return _assemble_write_instructions_v1(
                 st, chapter=chapter, focalizer=focalizer, phase=phase,
                 seed_words=seed_words, short_mode=short_mode,
-                with_tools=with_tools, work=work, envelope_trace=envelope_trace)
+                with_tools=with_tools, work=work, envelope_trace=envelope_trace,
+                memory_trace_ctx=memory_trace_ctx)
         except Exception:
             # M1:回退是【结构化信号】,不能静默——否则 Task 17 金丝雀门会被蒙蔽(v1
             # 其实全程降级到旧链却以为在测 v1)。累计计数器 + 带阶段/章/书的 warning,
@@ -3948,10 +4146,14 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
     # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
     # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
     _envelope_trace: dict = {}
+    # Task 16 最后一厘米:前端真实会话绑定(供 v1 检索路径落 memory_trace 给 ContextInspector);
+    # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 v1 + MEMORY_FABRIC 开 + 绑定齐备时
+    # 被消费落 trace——flag 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
+    _memory_trace_ctx = _write_context_binding(req, request.headers)
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
         seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
-        envelope_trace=_envelope_trace)
+        envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]

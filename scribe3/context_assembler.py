@@ -241,9 +241,15 @@ class ContextAssembler:
 
     # --- 对外唯一入口 ---
     def assemble(self, snapshot: ContextSnapshot, user_query: str,
-                 mode: str = "discussion") -> ContextEnvelope:
+                 mode: str = "discussion", *,
+                 retrieval_out: dict | None = None) -> ContextEnvelope:
+        # retrieval_out(Task 16 最后一厘米,可选可变收集器,缺省 None):非 None 时把本次
+        # 检索的【完整 RetrievalResult】(含 rejected/channels)回填 retrieval_out["result"],
+        # 供 _assemble_write_instructions_v1 落 memory_trace 给 ContextInspector 溯源。
+        # 纯观测副作用——收集与否,candidates/envelope【逐字节等价】(见 _retrieve 注记),
+        # 缺省 None → 其余调用方(讨论/导航路径)与接线前完全一致。
         # 1) 拉候选(retriever 可缺失/可抛错——一律降级,绝不让组装崩)
-        candidates = self._retrieve(snapshot, user_query)
+        candidates = self._retrieve(snapshot, user_query, retrieval_out=retrieval_out)
         kept_cands, superseded = _resolve_canonical_conflicts(candidates)
         by_kind: dict[str, list] = defaultdict(list)
         for c in kept_cands:
@@ -287,17 +293,45 @@ class ContextAssembler:
         )
 
     # --- 候选拉取 ---
-    def _retrieve(self, snapshot: ContextSnapshot, user_query: str) -> list:
+    def _retrieve(self, snapshot: ContextSnapshot, user_query: str,
+                  retrieval_out: dict | None = None) -> list:
         if self.retriever is None:
             return []
         try:
-            out = self.retriever.retrieve(
-                snapshot.work, snapshot.canonical_payload(),
-                user_query or "", _MAX_CANDIDATES)
-            return list(out or [])
+            # 默认路径(无收集器):走 Task 7 协议方法 retrieve()——与接线前【逐字节等价】。
+            if retrieval_out is None:
+                out = self.retriever.retrieve(
+                    snapshot.work, snapshot.canonical_payload(),
+                    user_query or "", _MAX_CANDIDATES)
+                return list(out or [])
+            # 收集器路径(Task 16 Inspector 溯源):拿【完整 RetrievalResult】(含 rejected/
+            # channels)回填 retrieval_out,供落 memory_trace。selected 与 retrieve() 逐字节
+            # 相同(retrieve() ≡ retrieve_full_cached(...).candidates[:k],同缓存键、同 k),
+            # 故 envelope 字节不变——收集只是把已算出的 rejected/channels 顺带暴露出来。
+            result = self._retrieve_full(snapshot, user_query)
+            retrieval_out["result"] = result
+            return list((getattr(result, "selected", None) or [])[:_MAX_CANDIDATES])
         except Exception:
             _log.warning("retriever.retrieve 失败,降级为直查 store", exc_info=True)
             return []
+
+    def _retrieve_full(self, snapshot: ContextSnapshot, user_query: str):
+        """拿一次检索的完整 RetrievalResult(含 rejected/channels,Task 16 落 memory_trace 用)。
+
+        retriever 暴露 retrieve_full_cached(生产 MemoryRetriever)则直用——它与协议方法
+        retrieve() 走同一缓存键、同一裁决(剧透门 known_from / 正典压制 / 秘密屏蔽都在其内),
+        故 selected 与 retrieve() 逐字节一致;仅暴露 retrieve() 的精简/桩 retriever 则用其
+        list 包一层 RetrievalResult(rejected 空,best-effort 降级)。"""
+        from scribe3.memory_models import RetrievalQuery, RetrievalResult
+        r = self.retriever
+        full = getattr(r, "retrieve_full_cached", None)
+        if callable(full):
+            return full(RetrievalQuery(
+                work=snapshot.work, snapshot=snapshot.canonical_payload() or {},
+                query=user_query or "", k=_MAX_CANDIDATES))
+        out = r.retrieve(snapshot.work, snapshot.canonical_payload(),
+                         user_query or "", _MAX_CANDIDATES)
+        return RetrievalResult(selected=list(out or []))
 
     # --- 预算分配 ---
     def _allocate(self, items: dict[str, list[_Item]]

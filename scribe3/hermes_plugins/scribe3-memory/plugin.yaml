@@ -1,0 +1,28 @@
+# scribe3-memory · 可选 Hermes MemoryProvider 插件(统一上下文与记忆系统 Task 12)
+#
+# 让【直接用 Hermes 会话】(非 Scribe Web 主路)读写 Scribe 记忆。默认不自动启用——
+# 启用是独立显式命令(见 README.md)。Scribe Web 的写作/主编对话主路不依赖此插件。
+name: scribe3-memory
+version: 0.1.0
+kind: memory-provider
+summary: 把 Scribe 的 /memory/* REST 接进 Hermes 会话的记忆生命周期(prefetch/capture/flush)。
+
+# provider 入口:模块内的 Scribe3MemoryProvider 类(duck-typed,实现 Hermes MemoryProvider 生命周期)。
+entry:
+  module: scribe3-memory
+  provider: Scribe3MemoryProvider
+
+# 运行门控:仅当此环境变量指向可达的 Scribe 后端时,is_available 才为真(默认前端 3310 / 后端 3320)。
+env:
+  required:
+    - SCRIBE3_API_BASE   # 例:http://127.0.0.1:3320
+
+# 只读工具白名单(写入走 Scribe 待批 API,不在 provider 内直写库)。
+tools:
+  read_only:
+    - scribe_memory_search
+    - scribe_memory_trace
+    - scribe_context_current
+
+# 仅标准库,无第三方依赖(插件运行在 Hermes 进程内,不共享 Scribe venv)。
+requirements: []
