@@ -128,6 +128,104 @@ def test_responses_events_sends_conversation_store_session_and_tools(monkeypatch
     assert captured["body"]["tools"] == [{"type": "mcp", "server_label": "scribe3_read"}]
 
 
+def test_responses_carries_conversation_previous_response_and_context_headers(monkeypatch):
+    """Task 11:responses_events 除 conversation/session 外,还须带 previous_response_id
+    续接 + X-Scribe-Context-Revision/Hash 头(动态上下文层的服务端可观测游标)。"""
+    from scribe3.hermes_runtime import HermesAuth, HermesRuntime
+    import scribe3.hermes_runtime as runtime_module
+
+    captured = {}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            return iter([])
+
+    def fake_stream(method, url, **kw):
+        captured["headers"] = kw["headers"]
+        captured["json"] = kw["json"]
+        return FakeResp()
+
+    monkeypatch.setattr(runtime_module.httpx, "stream", fake_stream)
+    runtime = HermesRuntime(
+        api_base="http://127.0.0.1:8643/v1",
+        profile="scribe3",
+        auth=HermesAuth(env={"API_SERVER_KEY": "test-key"}),
+    )
+
+    list(runtime.responses_events(
+        "继续", "dynamic", conversation="conv-1", previous_response_id="resp-9",
+        session_key="scribe3|work:book-a|thread:thread-1",
+        context_revision=7, context_hash="a" * 64,
+    ))
+
+    assert captured["json"]["conversation"] == "conv-1"
+    assert captured["json"]["previous_response_id"] == "resp-9"
+    assert captured["headers"]["X-Hermes-Session-Key"] == "scribe3|work:book-a|thread:thread-1"
+    assert captured["headers"]["X-Scribe-Context-Revision"] == "7"
+    assert captured["headers"]["X-Scribe-Context-Hash"] == "a" * 64
+
+
+def test_responses_omits_context_headers_when_not_provided(monkeypatch):
+    """默认路径(未开 envelope)不发 previous_response_id/context 头——旧行为字节不变。"""
+    from scribe3.hermes_runtime import HermesAuth, HermesRuntime
+    import scribe3.hermes_runtime as runtime_module
+
+    captured = {}
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_lines(self):
+            return iter([])
+
+    def fake_stream(method, url, **kw):
+        captured["headers"] = kw["headers"]
+        captured["json"] = kw["json"]
+        return FakeResp()
+
+    monkeypatch.setattr(runtime_module.httpx, "stream", fake_stream)
+    runtime = HermesRuntime(
+        api_base="http://127.0.0.1:8643/v1",
+        profile="scribe3",
+        auth=HermesAuth(env={"API_SERVER_KEY": "test-key"}),
+    )
+
+    list(runtime.responses_events("m", "i", session_key="scribe3|work:x|thread:t"))
+
+    assert "previous_response_id" not in captured["json"]
+    assert "X-Scribe-Context-Revision" not in captured["headers"]
+    assert "X-Scribe-Context-Hash" not in captured["headers"]
+
+
+def test_hermes_turn_context_exposes_thread_stable_session_key():
+    """HermesTurnContext 把 work+thread 打包为稳定 session key(切章不换)。"""
+    from scribe3.hermes_runtime import HermesTurnContext
+
+    turn = HermesTurnContext(
+        work="book-a", thread_id="thread-1",
+        conversation_id="conv-1", previous_response_id="resp-9",
+        context_session_id="cs-1", context_revision=7, context_hash="a" * 64,
+        envelope_hash="b" * 64,
+    )
+    assert turn.session_key == "scribe3|work:book-a|thread:thread-1"
+
+
 def test_event_adapter_maps_responses_events_to_internal_events():
     from scribe3.hermes_runtime import HermesEventAdapter
 

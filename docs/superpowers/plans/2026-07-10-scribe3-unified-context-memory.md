@@ -906,7 +906,7 @@ Expected: PASS.
 ### Task 9: 建立短期工作记忆、经验记忆和幂等捕获管线
 
 **Files:**
-- Modify: `scribe3/migrations/078_memory_fabric.surql`
+- Create: `scribe3/migrations/079_memory_capture.surql`  ← 迁移只增不改铁律 + runner 按 `_migration:{stem}` 去重永久跳过已应用文件,078 已应用故【改 078 无效】,必须新建 079(memory_item 追加 provenance/linked_ids + memory_event outbox + pending_authority_claim,全 IF NOT EXISTS)
 - Create: `scribe3/memory_capture.py`
 - Modify: `scribe3/store.py`
 - Modify: `scribe3/app.py`
@@ -915,6 +915,21 @@ Expected: PASS.
 **Interfaces:**
 - Consumes: navigation/chat/write/approval/save events and existing `distill_chapter` lessons.
 - Produces: `MemoryEvent`、`capture_event(event)`、`consolidate_thread(thread_id)`、`flush_before_compress(thread_id)`.
+
+**实施状态(诚实边界,与 Task 11 同款记账;勿把待办呈现为已兑现):**
+- ✅ 已兑现:幂等 outbox 状态机 + 同步 drain;P0 限知红线(身份/血缘/生死/秘密/背叛揭示经
+  「登记实体反查 + 高风险断言谓词」强制进 `pending_authority_claim`,绝不进 `memory_item`);
+  `add_memory_item` 效果幂等(按 `(work,source_type,source_id)` 预查去重,崩溃窗口后重放不重复);
+  `claim_pending_events` 单条 CAS 防双认领;`linked_ids` 生产接线(领域反查 → focus 加权对真机
+  记忆生效,`unlinked_count` 降);`known_from` 生产接线(挂点传当前章 → 限知门生效)。
+- 🔶 部分/待后续(不夸大):进 `memory_item` 的经验记忆的**自由文本 (entity,attribute) 精确
+  抽取待后续**——检索层正典压制路径已通(带 provenance 即压制,单测手喂验证),但生产捕获暂不
+  自动抽 attribute,故真机经验记忆 `unconflictable_count` 仍 >0(如实哨兵测试守着,接入后翻绿);
+  `memory_relation` 建边(graph 通道对捕获记忆暂无边)、`session_end`/`on_pre_compress` 真接线
+  (本仓无 Hermes 生命周期挂点,`flush_before_compress` 就绪待接)、procedural「经用户确认」门、
+  material 授权保留、`user_global` scope —— 均记为后续。
+- 挂点:仅主写作路径 `chat_write_post`(turn 捕获,有 turn_id 幂等键 + thread 绑定);
+  navigation/approval/save 未挂(捕获器支持任意 event_type,后续接线零改动)。
 
 - [ ] **Step 1: 写幂等捕获、事实不误存为经验的失败测试**
 
@@ -1115,6 +1130,21 @@ Run: `bash scribe3/scripts/hermes_smoke.sh`
 
 Expected: tests PASS, smoke `PASS=11 FAIL=0`.
 
+**实施状态(2026-07-11)** —— 如实分类,不假装已交付:
+
+*已就绪(本任务落地并验证)*:
+- 稳定/动态层底座:强制纪律三层承载已定型 —— ①恒定纪律在 profile SOUL.md(`~/.hermes/profiles/scribe3/SOUL.md`,**不在本仓**,2026-07-10 已落地);②讨论/动稿围栏协议、限知宪法等强制纪律 prompt 内嵌(`_editor_system`/`_write_protocol_block`,每轮 instructions);③结构性兜底(H-01 网关 work-scoped MCP、只暴露 s3_ 只读工具、写入走 elicitation 待批)。`scribe-novel-v2` SKILL.md 收敛为按需查阅的写作工序参考(去命令式强制纪律,保留工序知识)。
+- 稳定 work+thread session key(`scribe3|work:{work}|thread:{thread_id}`,导航切章不换 Hermes session)+ `HermesTurnContext`(会话连续值对象,`.session_key` 属性)+ 格式单一源 `scribe3_session_key`(防三处漂移)。
+- 锚回写机制:`store.update_thread_response_id`(幂等/fail-soft) + `chat_agentic_stream` turn 结束回写 `editorial_thread.previous_response_id`,下一轮 `_editor_turn_context` 读回作续接锚。有行为测试(store 幂等 + app 回写/读回/fail-soft)。
+- `responses_events`/`hermes_responses_events` 参数管路:`previous_response_id` 进 body + `X-Scribe-Context-Revision/Hash` 头(仅在带值时发,默认路径字节不变)。
+
+*功能就绪待前端启用(非缺陷,产品决策,不在 Task 11 范围)*:
+- agentic 路径(`chat_agentic_stream`)会话连续到模型侧的接线**完整正确**,但前端 ChiefDock 恒 `agentic:false` 未启用该路;启用是独立产品决策。
+
+*后续接线(真正的跨任务依赖,本任务不独立接)*:
+- **掉链后从 Scribe 主动重建**(把 `list_thread_messages` + working summary 重放进 prompt):依赖 Task 8/9 的 working_summary 蒸馏产出(Task 9 owns);本任务只落"Scribe 持久化即真相 + 稳定 key + 锚回写"的重建底座,不在写作质量敏感的 `/chat/write` 上仓促塞重放。
+- **context 头生产发送**:依赖 Task 7 envelope 开启(默认关,Task 16-17 灰度才开);当前 runtime/llm 层管路已就绪并有测试,`chat_agentic_stream` 不构造 envelope 故默认不发 context 头。
+
 ### Task 12: 建立可选 scribe3-memory Hermes provider 适配层
 
 **Files:**
@@ -1199,7 +1229,7 @@ Expected: PASS；provider 未开启时 Scribe Web ContextAssembler 仍完整工�
 **Files:**
 - Modify: `scribe3/app.py:577-753`
 - Modify: `scribe3/hermes_runtime.py:171-236`
-- Modify: `scribe3/migrations/074_ai_run_trace.surql`
+- Create: `scribe3/migrations/081_ai_run_context.surql`（**订正**：迁移只增不改——store.apply_schema 按 f.stem 去重，074 已 apply，改 074 无效；本任务八字段以 `DEFINE FIELD IF NOT EXISTS` 追加到既有 `ai_run_trace`。080 已被 Task 10 占用，本任务用 081）
 - Modify: `scribe3/web/src/ChiefDock.jsx:392-519`
 - Modify: `scribe3/web/src/WriteChat.jsx:179-247`
 - Modify: `scribe3/web/src/lib/hermesRunRecovery.js`
@@ -1265,6 +1295,11 @@ Run: `scribe3/.venv/bin/python -m pytest -q scribe3/tests/test_ai_runs.py scribe
 Run: `cd scribe3/web && npm test -- src/__tests__/chiefDock-run-context.test.jsx src/__tests__/chiefDock-ui.test.jsx src/lib/hermesRunRecovery.test.js`
 
 Expected: PASS.
+
+**实现注记(双审后加固,写入安全边界):**
+- **I-3 fail-closed(写入闸不信任自报值)**：`_recheck_run_origin_context` 在 run 已绑 `origin_context_revision` 但【核实不了当前快照】(未绑 `context_session_id` / `get_context_snapshot` 读不到)时，**保守作废**(409 `run_context_changed`)，绝不回退用审批请求自报的 `context_revision` 放行——`/ai/runs*` 是后端公开面，"能核实才放行"。
+- **I-1(a) 章内 run 同样受闸**：WriteChat(章内写作槽)与 ChiefDock 走同一 `scribe3_write` 写路径；WriteChat 经 `useContextSnapshot()`(四栏共享的统一快照 Provider 在其上层)把发起时 `session/revision` 绑进 `runWrite`，让审批重校验对章内 approval 型 run 也生效，`RunStaleCard` 因此可达(非死代码)。快照缺席(无 Provider / 降级直通)→ 不绑，退回旧版零回归。
+- **I-2 残留风险(如实记账,MVP 判据)**：`_run_focus_affects` 只按焦点 `(kind,key)` 相等判"是否影响当前章/条目"，**未纳入下游爆炸半径**——过期 run 写其原目标、作者已导航到相邻/下游章并 `approve_stale` 放行时，写入可能与作者刚写的当前章矛盾(如 `origin=promise:7` 的伏笔回收牵动其所属章，但焦点停别处则判无关)。有 `approve_stale` 二次确认(作者主动"忽略过期")兜底，故 Important 非 Critical；未收紧到"把写目标所属章纳入判定"是为不伤"切个章就作废"的体验，收紧留后续。
 
 ### Task 14: 增加上下文检查器和记忆溯源 UI
 

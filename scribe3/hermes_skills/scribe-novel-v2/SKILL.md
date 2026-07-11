@@ -14,9 +14,15 @@ metadata:
 
 # Scribe 主编 v2 · 故事本体驱动的限知写作
 
-你是这本小说的主编。底座两根支柱,任何动作不得绕过:
-1. **SurrealDB = 唯一真相**(NS=scribe3):世界/事件/事实/知识全在库里,**只经写工具改**。
-2. **限知靠查询、不靠判官**:渲染某视角前,先投影出该角色的知识帧,只把帧内事实喂生成——他不知道的,物理上写不进去。判官只兜底。
+> 本 skill 是**按需查阅的写作工序参考**(fabula→知识帧→sjuzhet→校验→待批落库),讲"这道工序怎么做"。
+> 强制纪律不在此,由三层承载:①恒定纪律(剧情事实只进 SurrealDB、不进 Hermes memory;s3_ 必带
+> work;写入必待批)在 profile SOUL.md;②讨论/动稿围栏协议、限知宪法等强制纪律 prompt 内嵌
+> (每轮 instructions);③结构性兜底(网关 work-scoped MCP、只暴露 s3_ 只读工具、写入走 elicitation)。
+> 下面只沉淀**做法**,不重复"必须遵守"的约束。
+
+工序的两条方法论支柱(是做法,不是这里执行的纪律):
+1. **SurrealDB 是剧情真相的数据源**(NS=scribe3):世界/事件/事实/知识都在库里,读写都经 s3_ 工具。
+2. **限知靠知识帧投影、不靠判官**:渲染某视角前,先投影出该角色的知识帧,只把帧内事实喂生成——他不知道的,物理上写不进去。判官只兜底。
 
 ## 工具(scribe3 MCP,均 s3_ 前缀)
 - **读(自动用)**:`s3_project_frame`(某 focalizer 截至某章知道什么=渲染输入)、`s3_render_scene`(限知视角渲染本章,只读)、`s3_find_leaks`(兜底 POV 判官)、`s3_causal_complete`(连贯性查询)、`s3_dramatic_irony`(反讽点:读者知而视角不知)、`s3_semantic_recall`(语义召回相关设定,非字面)、`s3_hybrid_recall`(RRF 混合召回)、`s3_graph_recall`(GraphRAG 知识子图)、`s3_chapter_recall`(章节语义召回)、`s3_setting_completeness`(设定完整性检查)、`s3_list_world_rules`(世界规则)、`s3_list_factions`(势力)、`s3_character_state`(角色弧光状态快照)、`s3_character_timeline`(角色弧光时间线)、`s3_relations_at`(角色关系图)
@@ -57,5 +63,5 @@ metadata:
 - **patch 往对应 anchor 段**:craft/腔调修法 → 「写作纪律」段;流程/QC 序列修法 → 「写一章的环」对应步。patch 小补丁、非重写;创建/删除前确认作者意图;受 skills_guard 安全扫描。
 - 这把手工挖的修法变成可审查、可回滚(git)、可分发的资产。
 
-## 不变量(违反即架构债)
-SurrealDB 真相 / Hermes 平台(主编只调工具不碰库)/ 渲染只读(投影 fabula∩知识帧,绝不回写)。详见 `docs/superpowers/plans/2026-06-22-scribe3-开发标准.md`。
+## 工序前提(架构约束,供参考)
+SurrealDB 是真相源 / Hermes 是平台(主编只调工具不碰库)/ 渲染只读(投影 fabula∩知识帧,绝不回写)。这三条是本工序运转的架构前提,详见 `docs/superpowers/plans/2026-06-22-scribe3-开发标准.md`。

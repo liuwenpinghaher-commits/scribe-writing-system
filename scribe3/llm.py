@@ -151,8 +151,11 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
 def hermes_responses_events(message, instructions: str, model: str | None = None,
                             timeout: float = 600.0, with_tools: bool = True,
                             conversation: str | None = None,
+                            previous_response_id: str | None = None,
                             session_key: str | None = None,
                             store: bool = True,
+                            context_revision: int | None = None,
+                            context_hash: str | None = None,
                             server_label: str = "scribe3_read"):
     """主编 agentic:POST scribe3 网关(:8643)/v1/responses(可选 tools=scribe3 MCP + stream),逐事件 yield。
     默认 server_label='scribe3_read',普通 Responses 写作/讨论只暴露只读 s3_ 工具。
@@ -173,8 +176,11 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
             timeout=timeout,
             with_tools=with_tools,
             conversation=conversation,
+            previous_response_id=previous_response_id,
             session_key=session_key,
             store=store,
+            context_revision=context_revision,
+            context_hash=context_hash,
             server_label=server_label,
         )
 

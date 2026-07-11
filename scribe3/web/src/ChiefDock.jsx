@@ -10,7 +10,7 @@ import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
-import { patchApprovalInMessages, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
@@ -44,7 +44,41 @@ function toolOutputPreview(output) {
   return text.length > 220 ? text.slice(0, 220) + '…' : text
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision }) {
+// Task 13:焦点对象 → 展示名(label 优先,回退 id;中性/空 → 破折号)。run 卡片"发起时/当前焦点"用。
+function focusLabel(f) {
+  if (!f || typeof f !== 'object') return '—'
+  return String(f.label || f.id || '—')
+}
+
+// Task 13:run 审批的"发起时上下文已过期"卡片。
+// run_context_changed(voided)= 影响当前章/条目 → 原审批作废,须重新发起;
+// run_context_stale = 无关的过期 run → 二次确认后带 approve_stale=true 放行。
+function RunStaleCard({ ap, onApprovalDecision }) {
+  const rc = ap.runContext
+  if (!rc) return null
+  return (
+    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1.5">
+      <div className="flex items-center gap-1.5 text-f12 font-medium text-warn">
+        <span data-testid="run-context-expired" className="inline-flex items-center rounded bg-warn/15 px-1 py-0.5 text-meta">已过期</span>
+        {rc.voided ? '发起时焦点已推进,原审批作废' : '发起时焦点已变,但与当前焦点无关'}
+      </div>
+      <div className="mt-1 grid grid-cols-1 gap-0.5 text-meta text-faint">
+        <div>发起时焦点:<span data-testid="run-origin-focus" className="text-ink">{focusLabel(rc.originFocus)}</span></div>
+        <div>当前焦点:<span data-testid="run-current-focus" className="text-ink">{focusLabel(rc.currentFocus)}</span></div>
+      </div>
+      {rc.voided ? (
+        <div data-testid="run-context-voided" className="mt-1.5 text-meta text-danger">已作废,请就当前焦点重新发起该任务。</div>
+      ) : (
+        <button type="button" data-testid="run-approve-stale" onClick={() => onApprovalDecision?.(ap, 'approve', { approveStale: true })}
+          className="mt-1.5 inline-flex h-6 items-center gap-1 rounded-md border border-warn/50 bg-surface px-2 text-meta font-medium text-warn">
+          仍要批准(忽略过期)
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects }) {
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
@@ -93,7 +127,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                         <span className="text-f12 text-faint">提交中…</span>
                       ) : ap.status === 'error' ? (
                         <span className="text-f12 text-danger">提交失败</span>
-                      ) : (
+                      ) : ap.runContext ? null : (
                         <>
                           <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
                             className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
@@ -107,9 +141,20 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                       )}
                       {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
                     </div>
+                    <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
                   </div>
                 )
               })}
+            </div>
+          )}
+          {!me && writeEffects?.length > 0 && (
+            <div data-testid="run-write-effects" className="mt-2 border-l-2 border-brand/40 pl-2.5 py-1">
+              <div className="text-f12 font-medium text-ink">写入影响</div>
+              <div className="mt-0.5 text-meta text-faint">
+                {writeEffects.map((e, i) => (
+                  <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
+                ))}
+              </div>
             </div>
           )}
           {!me && toolOutputs?.length > 0 && (
@@ -435,16 +480,26 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     setMsgs((m) => patchApprovalInMessages(m, approval, patch))
   }
 
-  const handleApprovalDecision = async (approval, decision) => {
+  const handleApprovalDecision = async (approval, decision, { approveStale = false } = {}) => {
     patchApproval(approval, { status: 'submitting' })
     try {
-      await api.aiRunApproval(approval.run_id, {
-        approval_id: approval.approval_id,
-        decision,
-      })
-      patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision })
+      // Task 13:approve_stale 二次确认时带上当前快照上下文(后端仍以库内 live 快照为准)。
+      const body = { approval_id: approval.approval_id, decision }
+      if (approveStale) {
+        body.approve_stale = true
+        body.context_session_id = snapshot?.session_id ?? null
+        body.context_revision = snapshot?.revision ?? null
+      }
+      await api.aiRunApproval(approval.run_id, body)
+      patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision, runContext: null })
     } catch (e) {
-      patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
+      // Task 13:409 run_context_changed/stale → 展示"发起时/当前焦点 + 已过期"卡片,不当作提交失败。
+      const rc = runContextFromError(e)
+      if (rc) {
+        patchApproval(approval, { status: 'pending', runContext: rc })
+      } else {
+        patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
+      }
     }
   }
 
@@ -497,6 +552,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         chapter: seq ?? ctxSeq,
         phase: runPhase,
         focalizer: runFocalizer,
+        context: bind,   // Task 13:线程模式带发起时上下文(会话/版本)→ 后端快照 origin focus 供审批重校验
         instructions: hermesRunInstructions({ chapter: seq ?? ctxSeq, phase: runPhase, focalizer: runFocalizer }),
         onRun: (run) => {
           const runId = run?.run_id || run?.id

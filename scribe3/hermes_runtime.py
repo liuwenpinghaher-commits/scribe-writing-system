@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -62,6 +63,49 @@ class HermesAuth:
         return _read_env_key(self.home / ".env") or "local"
 
 
+def scribe3_session_key(work: str, *, thread_id: str | None = None,
+                        scope: str | None = None) -> str:
+    """Hermes X-Hermes-Session-Key 的**唯一格式源**(Minor #6 防三处重复漂移)。
+
+    - thread_id → 主编讨论线程 key(work+thread,导航切章不换,主编历史连续);
+    - scope → 其它会话面(如 runs 写 profile 长任务,work|runs 与讨论线程隔离)。
+    app._hermes_session_key / app._run_session_key / HermesTurnContext.session_key 三处
+    均经此函数拼串,格式改动只此一处。"""
+    if thread_id is not None:
+        return f"scribe3|work:{work}|thread:{thread_id}"
+    return f"scribe3|work:{work}|{scope}"
+
+
+@dataclass(frozen=True)
+class HermesTurnContext:
+    """一轮主编 turn 的会话连续 + 动态上下文游标(Task 11 产出)。
+
+    为什么存在:把"哪条主编线程 / Hermes 会话续到哪 / 本轮动态上下文是哪一版"打包成一个不可变
+    值对象,让 app 组装、llm/runtime 消费时不必散传一堆位置参数。
+
+    - work/thread_id:稳定 session key 的唯一两维(切章/切焦点都不换)。
+    - conversation_id/previous_response_id:Hermes 服务端会话续接锚。**设计约束**:Hermes
+      Responses 服务端存储是 LRU 100 条,长线程这两个锚必然掉链——掉链是常态,不是异常;
+      掉链后由 Scribe 侧 thread messages + working summary 重建,不依赖 Hermes SQLite。
+    - context_session_id/context_revision/context_hash/envelope_hash:每轮动态上下文层
+      (ContextEnvelope,默认关)的可观测游标;开启后随 X-Scribe-Context-* 头上报。
+    """
+
+    work: str
+    thread_id: str
+    conversation_id: str | None = None
+    previous_response_id: str | None = None
+    context_session_id: str = ""
+    context_revision: int = 0
+    context_hash: str = ""
+    envelope_hash: str = ""
+
+    @property
+    def session_key(self) -> str:
+        """稳定 session key 只含 work + thread —— 导航切章不换 Hermes session,主编历史连续。"""
+        return scribe3_session_key(self.work, thread_id=self.thread_id)
+
+
 class HermesRuntime:
     """Thin, testable boundary around Hermes HTTP runtime endpoints."""
 
@@ -72,13 +116,21 @@ class HermesRuntime:
         self.profile = profile
         self.auth = auth or HermesAuth()
 
-    def _headers(self, *, session_key: str | None = None) -> dict[str, str]:
+    def _headers(self, *, session_key: str | None = None,
+                 context_revision: int | None = None,
+                 context_hash: str | None = None) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self.auth.api_key(self.profile)}",
             "Content-Type": "application/json",
         }
         if session_key:
             headers["X-Hermes-Session-Key"] = session_key
+        # 动态上下文层游标(Task 11):仅在本轮真带了 envelope 版本时上报,默认路径不发头,
+        # 旧行为字节不变。revision 可能是 0(合法首版),故用 is not None 判发。
+        if context_revision is not None:
+            headers["X-Scribe-Context-Revision"] = str(context_revision)
+        if context_hash:
+            headers["X-Scribe-Context-Hash"] = context_hash
         return headers
 
     def probe(self, *, timeout: float = 5.0) -> dict[str, Any]:
@@ -142,8 +194,11 @@ class HermesRuntime:
                          timeout: float = 600.0,
                          with_tools: bool = True,
                          conversation: str | None = None,
+                         previous_response_id: str | None = None,
                          session_key: str | None = None,
                          store: bool = True,
+                         context_revision: int | None = None,
+                         context_hash: str | None = None,
                          server_label: str = "scribe3_read"):
         body: dict[str, Any] = {
             "input": message,
@@ -153,6 +208,9 @@ class HermesRuntime:
         }
         if conversation:
             body["conversation"] = conversation
+        # previous_response_id:Hermes 服务端会话续接锚(LRU 100 掉链常态,掉链后由 Scribe 重建)。
+        if previous_response_id:
+            body["previous_response_id"] = previous_response_id
         if with_tools:
             body["tools"] = [{"type": "mcp", "server_label": server_label}]
         if model:
@@ -162,7 +220,11 @@ class HermesRuntime:
             "POST",
             f"{self.api_base}/responses",
             timeout=timeout,
-            headers=self._headers(session_key=session_key),
+            headers=self._headers(
+                session_key=session_key,
+                context_revision=context_revision,
+                context_hash=context_hash,
+            ),
             json=body,
         ) as response:
             response.raise_for_status()

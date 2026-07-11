@@ -166,12 +166,19 @@ export const api = {
     return es
   },
   runWrite: (input, {
-    instructions = '', onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+    instructions = '', context = null, onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
   } = {}) => {
     let es = null
     let runId = null
     let stopped = false
-    api.aiRunCreate({ input, instructions }).then((run) => {
+    // Task 13:发起时上下文绑定(会话/版本)随创建带上,后端据此快照 origin focus/hash
+    // 供审批重校验;未传 context(存量/非线程)→ body 保持 {input, instructions} 不变。
+    const body = { input, instructions }
+    if (context) {
+      if (context.context_session_id != null) body.context_session_id = context.context_session_id
+      if (context.context_revision != null) body.context_revision = context.context_revision
+    }
+    api.aiRunCreate(body).then((run) => {
       if (stopped) return
       runId = run?.run_id || run?.id
       if (!runId) throw new Error('Hermes Run 未返回 run_id')

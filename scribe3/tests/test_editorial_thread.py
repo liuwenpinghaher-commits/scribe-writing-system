@@ -89,6 +89,37 @@ def test_get_or_create_editorial_thread_is_idempotent(store):
     assert a["status"] == "active"
 
 
+def test_update_thread_response_id_is_idempotent_and_safe(store):
+    """Task 11:一轮 Responses 完成后回写续接锚(previous_response_id/conversation)。
+
+    幂等 + fail-soft 契约(掉链是常态,回写不得误伤):
+    - 空 response_id 不覆盖已有锚(不擦成 NONE);缺省 conversation_id 不动;线程不存在 no-op 不抛。
+    """
+    tid = store.get_or_create_editorial_thread(store.db_name, "author")["thread_id"]
+    # 初始锚为空(建线程时 previous_response_id=NONE)
+    assert not store._get_editorial_thread(tid).get("previous_response_id")
+
+    store.update_thread_response_id(tid, "resp-1")
+    assert store._get_editorial_thread(tid)["previous_response_id"] == "resp-1"
+
+    # 空 response_id(None / "")都不覆盖已有锚
+    store.update_thread_response_id(tid, None)
+    store.update_thread_response_id(tid, "")
+    assert store._get_editorial_thread(tid)["previous_response_id"] == "resp-1"
+
+    # 缺省 conversation_id 不动(仍为空)
+    assert not store._get_editorial_thread(tid).get("hermes_conversation_id")
+
+    # 带 conversation_id 才写(与 response id 同轮更新)
+    store.update_thread_response_id(tid, "resp-2", conversation_id="conv-9")
+    row = store._get_editorial_thread(tid)
+    assert row["previous_response_id"] == "resp-2"
+    assert row["hermes_conversation_id"] == "conv-9"
+
+    # 线程不存在 → UPDATE 空操作,不抛(调用方 fail-soft)
+    store.update_thread_response_id("ethread:test:nonexistent", "resp-x")
+
+
 def test_editorial_thread_is_stable_across_focus(store):
     """焦点切换(role→promise)只改每轮的 focus 标签,线程不变、消息累积。"""
     thread = store.get_or_create_editorial_thread(store.db_name, "author")

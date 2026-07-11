@@ -174,6 +174,67 @@ def test_chat_agentic_sse(store, monkeypatch):
     assert "s3_list_promises" in body and '"tool"' in body and "已查" in body and '"done": true' in body
 
 
+def test_agentic_stream_writes_back_response_id_and_reads_it_next_turn_as_anchor(store, monkeypatch):
+    """Task 11:agentic turn 结束把 response id 回写线程,下一轮 _editor_turn_context 读回
+    作 previous_response_id 续接锚;稳定 session key(work+thread)跨轮不变。
+
+    走真 _response_events_iter 路径(_responses_events=None + monkeypatch llm.hermes_responses_events),
+    才能捕获 previous_response_id/session_key 等全量 kwargs(app 层 stub 会过滤掉它们)。"""
+    import scribe3.llm as llm
+
+    monkeypatch.setattr(A, "_responses_events", None)
+    captured = {}
+
+    def turn1(message, instructions, **kw):
+        captured["turn1"] = kw
+        yield {"type": "response.completed", "response": {"id": "resp_turn1"}}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", turn1)
+    client = _client(store)
+    r1 = client.get("/chat/agentic-stream", params={"msg": "查伏笔", "work": "main"})
+    assert r1.status_code == 200 and '"done": true' in r1.text
+
+    # 回写落库:线程 previous_response_id 被更新
+    tid = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    assert store._get_editorial_thread(tid)["previous_response_id"] == "resp_turn1"
+
+    # 首轮无锚(线程刚建),session key 为 work+thread
+    assert captured["turn1"].get("previous_response_id") is None
+    assert captured["turn1"]["session_key"] == f"scribe3|work:main|thread:{tid}"
+
+    def turn2(message, instructions, **kw):
+        captured["turn2"] = kw
+        yield {"type": "response.output_text.delta", "delta": "续"}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", turn2)
+    r2 = client.get("/chat/agentic-stream", params={"msg": "接着说", "work": "main"})
+    assert r2.status_code == 200
+
+    # 下一轮读回上一轮 response id 作续接锚;稳定 session key 跨轮不变
+    assert captured["turn2"]["previous_response_id"] == "resp_turn1"
+    assert captured["turn2"]["session_key"] == captured["turn1"]["session_key"]
+
+
+def test_agentic_stream_writeback_failure_is_fail_soft(store, monkeypatch):
+    """回写抛错不阻断 turn:仍正常吐 delta 与 done(掉链/库故障不能拖垮对话)。"""
+    import scribe3.llm as llm
+
+    monkeypatch.setattr(A, "_responses_events", None)
+
+    def events(message, instructions, **kw):
+        yield {"type": "response.output_text.delta", "delta": "答"}
+        yield {"type": "response.completed", "response": {"id": "resp_x"}}
+
+    monkeypatch.setattr(llm, "hermes_responses_events", events)
+    # 让回写抛错(_store_for("main") 返回同一注入 store 实例)
+    monkeypatch.setattr(store, "update_thread_response_id",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db down")))
+
+    r = _client(store).get("/chat/agentic-stream", params={"msg": "查", "work": "main"})
+    assert r.status_code == 200
+    assert "答" in r.text and '"done": true' in r.text
+
+
 def test_chat_write_splits_proposal(store, monkeypatch):
     import scribe3.app as appmod
 

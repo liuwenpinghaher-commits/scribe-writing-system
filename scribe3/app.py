@@ -225,11 +225,39 @@ def _s3_work_scope_block(work: str | None) -> str:
     )
 
 
-def _hermes_session_key(work: str, scope: str, seq: int | None = None) -> str:
-    parts = ["scribe3", f"work:{work}", scope]
-    if seq is not None:
-        parts.append(f"chapter:{seq}")
-    return "|".join(parts)
+def _hermes_session_key(work: str, thread_id: str, chapter: int | None = None) -> str:
+    """稳定 session key 只含 work + thread —— 导航切章不换 Hermes session,主编历史连续(Task 11)。
+
+    为什么删 chapter:章/阶段/焦点只存 ContextEnvelope.focus,不再用 session key 切断主编历史。
+    LRU 100 掉链是常态,掉链后由 Scribe 侧 thread messages + working summary 重建,不依赖
+    Hermes 端无限续接。chapter 形参保留只为语义显式(调用点可传当前章),函数内丢弃不参与拼 key。
+    格式经 scribe3_session_key 单一源拼串(Minor #6 防漂移)。"""
+    del chapter
+    from scribe3.hermes_runtime import scribe3_session_key
+    return scribe3_session_key(work, thread_id=thread_id)
+
+
+def _editor_turn_context(work: str, actor_id: str = "author"):
+    """组装本轮主编 turn 的会话连续上下文(Task 11 产出 HermesTurnContext)。
+
+    thread_id 取本 work 的稳定主编线程(get_or_create_editorial_thread,一 work 一连续线程);
+    conversation/previous_response 从线程行取(Hermes 会话续接锚,LRU 100 掉链常态);
+    context_* 属动态 envelope 层(默认关),此处留空,开启后由 assembler 填。
+    fail-soft:线程取数异常则退化为 work 兜底线程名,仍给出稳定 session key,不阻断对话。"""
+    from scribe3.hermes_runtime import HermesTurnContext
+    w = _normalize_work(work)
+    try:
+        thread = _store_for(w).get_or_create_editorial_thread(w, actor_id)
+        return HermesTurnContext(
+            work=w,
+            thread_id=thread["thread_id"],
+            conversation_id=thread.get("hermes_conversation_id") or None,
+            previous_response_id=thread.get("previous_response_id") or None,
+        )
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "editorial thread 取数失败,退化为 work 兜底线程", exc_info=True)
+        return HermesTurnContext(work=w, thread_id=w)
 
 
 def _listish(value) -> list[str]:
@@ -470,12 +498,19 @@ def _hermes_runtime_status() -> dict:
     cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
     summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)
     has_error = any(issue.get("severity") == "error" for issue in summary["issues"])
+    # Task 9:捕获管线工作者失败不阻断对话,但对 runtime-status 可见(留 outbox failed 计数)。
+    mem_capture = {"failed_events": 0}
+    try:
+        mem_capture["failed_events"] = _store_for("main").count_failed_memory_events()
+    except Exception:
+        mem_capture["error"] = "count_failed_memory_events 不可用"
     return {
         "ok": all(p.get("ok") for p in profiles) and not has_error,
         "profiles": profiles,
         "profile_configs": profile_configs,
         "cron": cron,
         "summary": summary,
+        "memory_capture": mem_capture,
     }
 
 
@@ -486,7 +521,11 @@ def _hermes_runs_runtime():
 
 
 def _run_session_key(work: str) -> str:
-    return _hermes_session_key(_normalize_work(work), "runs")
+    # Runs(写 profile 长任务)与主编讨论线程隔离:稳定 key = work|runs(不随章/线程漂)。
+    # 不复用 _hermes_session_key(后者 Task 11 起专指 work+thread 讨论线程),但共用
+    # scribe3_session_key 单一格式源(Minor #6 防漂移)。
+    from scribe3.hermes_runtime import scribe3_session_key
+    return scribe3_session_key(_normalize_work(work), scope="runs")
 
 
 def _record_ai_run_trace(work: str, run_id: str | None, **fields) -> None:
@@ -496,6 +535,24 @@ def _record_ai_run_trace(work: str, run_id: str | None, **fields) -> None:
         _store_for(work).upsert_ai_run_trace(run_id, **fields)
     except Exception:
         logging.getLogger("scribe3").warning("ai_run_trace 落库失败(忽略)", exc_info=True)
+
+
+def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
+                         text: str, chapter: int | None = None) -> None:
+    """Task 9:把本轮作者意图幂等捕获成经验记忆(同步 drain)。
+
+    best-effort:任何失败只告警,绝不阻断写作主链路(与 chat_message 落库同纪律 D-004)。
+    幂等:event_id = turn:<turn_id>(同轮重放不重复记)。分类/正典红线/linked_ids 领域反查
+    在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。"""
+    if not (text or "").strip() or not turn_id:
+        return
+    try:
+        from scribe3.memory_capture import MemoryCapture, turn_event
+        MemoryCapture(store).capture_event(turn_event(
+            text=text, event_id=f"turn:{turn_id}", work=store.db_name,
+            thread_id=thread_id, known_from=chapter))
+    except Exception:
+        logging.getLogger("scribe3").warning("记忆捕获失败(忽略,不阻断写作)", exc_info=True)
 
 
 def _record_ai_run_event(work: str, run_id: str, app_ev: dict, *, source: str | None = None) -> None:
@@ -604,12 +661,113 @@ def ai_usage(work: str = "main", days: int = 7):
     }
 
 
+# ---------------------------------------------------------------------------
+# Task 13:Runs 审批前重校验"发起时上下文快照"的判据
+# ---------------------------------------------------------------------------
+
+def _run_focus_target(focus) -> tuple[str, str] | None:
+    """把焦点归一到可比较的写目标 (kind, key):
+    - 章/场景 → ('chapter', <章号>)(id 兼容 '9' / 'chapter:9' / 'scene:9:2');
+    - entry/view 等中性视图 → None(无具体写目标,不与任何 run 的写目标相交);
+    - 其它具名对象(角色/伏笔/事实…) → ('entity', <id>)。
+    MVP 判据,可精化:目前按 focus.type/id 粗匹配,足够拦"旧 run 写当前章/条目"。"""
+    if not isinstance(focus, dict):
+        return None
+    ftype = focus.get("type")
+    fid = str(focus.get("id") or "").strip()
+    if ftype in ("chapter", "scene"):
+        # 场景 id 形如 'scene:9:2' / 章 id 形如 'chapter:9' 或裸 '9' → 取章号维度
+        parts = [p for p in fid.replace("chapter:", "").replace("scene:", "").split(":") if p]
+        return ("chapter", parts[0]) if parts else None
+    if ftype in ("entry", "view") or not fid:
+        return None
+    return ("entity", fid)
+
+
+def _run_focus_affects(origin_focus, current_focus) -> bool:
+    """写目标是否影响当前焦点:同章/同条目 → 影响(True);任一为中性视图或不同目标 → False。
+    影响=原审批作废(409 run_context_changed);不影响=可经 approve_stale 二次确认放行。
+
+    I-2 残留风险(如实记账,MVP 判据):只按 (kind,key) 相等判影响,未纳入"下游爆炸半径"——
+    过期 run 写其原目标、而作者已导航到相邻/下游章并 approve_stale 放行时,写入可能与作者
+    刚写的当前章矛盾(如 origin=promise:7 的伏笔回收会牵动其所属章,但焦点若停在别处则判无关)。
+    有 approve_stale 二次确认(作者主动"忽略过期")兜底,故为 Important 非 Critical。
+    未把写目标所属章/伏笔归属章纳入判定,是为不过度收紧到"切个章就作废"伤体验;收紧留后续。"""
+    o = _run_focus_target(origin_focus)
+    c = _run_focus_target(current_focus)
+    if o is None or c is None:
+        return False
+    return o == c
+
+
+class RunContextChanged(HTTPException):
+    """审批重校验失败:发起时快照与当前快照不一致。code 区分两态:
+    - run_context_changed:影响当前章/条目 → 原审批作废,须新建 run 重新联查;
+    - run_context_stale:无关的过期 run → 前端展示两卡,用户带 approve_stale=true 才执行。"""
+
+    def __init__(self, code: str, *, origin, current, run_id: str):
+        super().__init__(status_code=409, detail={
+            "code": code,
+            "run_id": run_id,
+            "origin_context_revision": origin.get("revision"),
+            "origin_focus": origin.get("focus"),
+            "current_context_revision": current.get("revision"),
+            "current_focus": current.get("focus"),
+        })
+
+
+def _recheck_run_origin_context(store, run_id: str, trace: dict, req: "AIRunApprovalReq",
+                                choice: str) -> int | None:
+    """审批写入前的上下文闸门。返回本次执行绑定的"当前 revision"(供记 completion);
+    无 origin 绑定 / deny 时返回 None(跳过校验,现有行为零回归)。
+
+    三结果(计划 Step 4):
+    - 未变(origin revision == 当前 session revision,且 session 一致)→ 放行;
+    - 已变且影响当前章/条目 → RunContextChanged('run_context_changed');
+    - 已变但写目标与当前焦点无关 → 需 approve_stale=true,否则 RunContextChanged('run_context_stale')。
+
+    I-3 fail-closed:origin 已绑定但【核实不了当前快照】(session 缺失/被删/读不到)时,
+    绝不回退用审批请求自报的 revision 放行——/ai/runs* 是后端公开面,"核实不了就保守作废"。
+    """
+    origin_rev = trace.get("origin_context_revision")
+    origin_session = trace.get("context_session_id")
+    origin_focus = trace.get("focus")
+    # deny 永远安全(不写入);无 origin 绑定的存量 run 不做重校验。
+    if choice == "deny" or origin_rev is None:
+        return None
+    origin_snap = {"revision": origin_rev, "focus": origin_focus}
+    # I-3:能核实才放行,核实不了(无 session / live 读不到)一律作废,不信任自报值。
+    live = store.get_context_snapshot(origin_session) if origin_session else None
+    if live is None:
+        raise RunContextChanged("run_context_changed", origin=origin_snap,
+                                current={"revision": None, "focus": None}, run_id=run_id)
+    current_rev = live.get("revision")
+    current_focus = live.get("focus")
+    # 声明的 session 与发起时不一致 → 按"已变"处理(裁决:对不上按已变,保守作废)。
+    session_mismatch = bool(req.context_session_id) and req.context_session_id != origin_session
+    if not (session_mismatch or current_rev != origin_rev):
+        return current_rev   # 未变
+    current_snap = {"revision": current_rev, "focus": current_focus}
+    # 换了 session 无法确证写目标相交 → 保守按"影响"作废(写入安全不打折)。
+    if session_mismatch or _run_focus_affects(origin_focus, current_focus):
+        raise RunContextChanged("run_context_changed", origin=origin_snap,
+                                current=current_snap, run_id=run_id)
+    if not req.approve_stale:
+        raise RunContextChanged("run_context_stale", origin=origin_snap,
+                                current=current_snap, run_id=run_id)
+    return current_rev
+
+
 class AIRunCreateReq(BaseModel):
     input: str
     instructions: str = ""
     session_id: str | None = None
     conversation_history: list[dict] | None = None
     previous_response_id: str | None = None
+    # Task 13:发起时的上下文绑定(可选)——供审批前重校验"旧 run 拿着过期焦点写入当前章"。
+    # 缺省(存量/旧前端)→ 不记 origin binding,审批不被重校验拦截(现有行为零回归)。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
 
 
 class AIRunApprovalReq(BaseModel):
@@ -618,6 +776,11 @@ class AIRunApprovalReq(BaseModel):
     decision: str | None = None
     message: str | None = None
     approved: bool | None = None
+    # Task 13:审批当刻声明的上下文(前端从当前快照带上);approve_stale=用户看过"发起时/
+    # 当前焦点"两卡后仍决定放行"无关的过期 run"的二次确认令牌。
+    context_session_id: str | None = None
+    context_revision: int | None = Field(default=None, ge=0)
+    approve_stale: bool = False
 
 
 def _hermes_approval_choice(req: AIRunApprovalReq) -> str:
@@ -670,7 +833,48 @@ def ai_run_create(req: AIRunCreateReq, work: str = "main"):
         instructions=ins,
         response=result,
     )
+    # Task 13:把 run 链回作品级主编线程,并快照"发起时的上下文"(session/revision/hash/focus)。
+    # best-effort:绑定失败只告警,绝不阻断 run 创建(与 trace 留痕同纪律)。
+    _bind_run_origin_context(work, run_id, req)
     return result
+
+
+def _bind_run_origin_context(work: str, run_id: str | None, req: AIRunCreateReq) -> None:
+    """记 parent_thread_id(作品级主编线程)+ 发起时上下文快照。
+
+    thread 优先取发起时快照落库的 thread_id(与该会话严格一致),取不到再退化到
+    _editor_turn_context(work) 的稳定主编线程;origin_context_revision/hash/focus 从
+    快照读——审批时以此为准判"是否过期",不信任审批请求自报的值。"""
+    if not run_id:
+        return
+    try:
+        store = _store_for(work)
+        parent_thread_id = _editor_turn_context(work).thread_id
+        origin_session = req.context_session_id
+        origin_rev = req.context_revision
+        origin_hash = None
+        origin_focus = None
+        if origin_session:
+            snap = (store.get_context_snapshot(origin_session, revision=origin_rev)
+                    if origin_rev is not None else None) \
+                or store.get_context_snapshot(origin_session)
+            if snap:
+                # Minor:origin revision/hash/focus 一律以【库内实际读到的快照】为准,不用请求自报值——
+                # 与"不信任自报"一致;自报一个库里不存在的 revision 时,回退当前快照后三者仍是一致对。
+                origin_rev = snap.get("revision")
+                origin_hash = snap.get("context_hash")
+                origin_focus = snap.get("focus")
+                parent_thread_id = snap.get("thread_id") or parent_thread_id
+        store.update_ai_run_context(
+            run_id,
+            parent_thread_id=parent_thread_id,
+            context_session_id=origin_session,
+            origin_context_revision=origin_rev,
+            origin_context_hash=origin_hash,
+            focus=origin_focus,
+        )
+    except Exception:
+        logging.getLogger("scribe3").warning("run origin context 绑定失败(忽略)", exc_info=True)
 
 
 @app.get("/ai/runs/{run_id}")
@@ -729,6 +933,11 @@ def ai_run_events(run_id: str, work: str = "main"):
 def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
     payload = req.model_dump(exclude_none=True)
     choice = _hermes_approval_choice(req)
+    # Task 13:写入前重校验发起时上下文快照(限知写入安全闸)。校验通过后原 approve 流程一字不改;
+    # RunContextChanged(409)在此前抛出,绝不进 Hermes approve——旧 run 的过期写入被物理拦下。
+    store = _store_for(work)
+    trace = store.get_ai_run_trace(run_id) or {}
+    completion_rev = _recheck_run_origin_context(store, run_id, trace, req, choice)
     hermes_payload = {"choice": choice}
     try:
         result = _hermes_runs_runtime().approve_run(
@@ -748,6 +957,30 @@ def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
         "choice": choice,
     }, source="user")
     _record_ai_run_trace(work, run_id, status=result.get("status") or "approval_submitted", response=result)
+    # Task 13:记完成时上下文 revision + write_effects 台账(仅 approve 类且有 origin 绑定时)。
+    # Minor:同一审批重放时按 (approval_id, revision, kind) 去重,不叠重复台账
+    # (读改写非 CAS,能挡幂等重放;真并发双批准极罕见,同 approval_id 亦会命中去重)。
+    if choice != "deny" and completion_rev is not None:
+        try:
+            effects = list(trace.get("write_effects") or [])
+            new_effect = {
+                "kind": "approval",
+                "approval_id": payload.get("approval_id"),
+                "choice": choice,
+                "stale_confirmed": bool(req.approve_stale),
+                "context_revision": completion_rev,
+            }
+            key = (new_effect["approval_id"], new_effect["context_revision"], new_effect["kind"])
+            if not any((e.get("approval_id"), e.get("context_revision"), e.get("kind")) == key
+                       for e in effects):
+                effects.append(new_effect)
+            store.update_ai_run_context(
+                run_id,
+                completion_context_revision=completion_rev,
+                write_effects=effects,
+            )
+        except Exception:
+            logging.getLogger("scribe3").warning("run completion context 记账失败(忽略)", exc_info=True)
     return result
 
 
@@ -2412,14 +2645,21 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
             "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
         )
 
+    # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
+    # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
+    turn = _editor_turn_context(work)
+
     def gen():
+        resp_id = None
         try:
             events = _response_events_iter(
                 fn,
                 msg,
                 instructions,
                 with_tools=with_tools,
-                session_key=_hermes_session_key(work, "agentic", seq),
+                session_key=turn.session_key,
+                conversation=turn.conversation_id,
+                previous_response_id=turn.previous_response_id,
                 store=True,
                 server_label=SCRIBE3_READ_MCP_LABEL,
             )
@@ -2437,8 +2677,19 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
                     yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
                 elif app_ev["kind"] == "approval.resolved":
                     yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+                elif app_ev["kind"] == "run.completed":
+                    # 记新 response id,turn 结束后回写线程,供下一轮 previous_response_id 续接。
+                    resp_id = app_ev.get("response_id") or resp_id
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        if resp_id:
+            try:
+                # 竞态记账(#5):同一线程若并发两 turn,后完成者覆盖 previous_response_id。
+                # 现状不显现——前端 ChiefDock 默认 agentic:false(本路未启用)且 UI busy 期
+                # 串行化发送;重新启用 agentic 或引入并发发送时需加"仅当更晚 turn 才覆盖"的护栏。
+                _store_for(work).update_thread_response_id(turn.thread_id, resp_id)
+            except Exception:
+                logging.getLogger("scribe3").warning("thread response_id 回写失败(忽略)", exc_info=True)
         yield 'data: {"done": true}\n\n'
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -3481,6 +3732,10 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
                             text=text, turn=turn_id, trace=trace or {},
                             response_id=resp_id, **_bind)
+        # Task 9:本轮作者意图捕获成经验记忆(幂等 + 同步 drain;每 8 轮/会话末 consolidate)。
+        # 捕获作者原话(决策/偏好/不确定的真源),不碰正文生成与 prompt 组装(写作路径零改动)。
+        _capture_turn_memory(st, work=work, thread_id=(req.thread_id or f"write:{work}"),
+                             turn_id=turn_id, text=user_text, chapter=req.chapter)
 
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),

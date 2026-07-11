@@ -7,8 +7,49 @@ import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
-import { patchApprovalInMessages, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { Btn } from './ui.jsx'
+
+// Task 13 I-1:章内写作槽发起的 approval 型 run 也要绑发起时上下文,让重校验对它生效
+// (WriteChat 与 ChiefDock 同走 scribe3_write 写路径;不绑=章内 run 永不受闸=假象)。
+// 快照缺席(无 ContextSnapshotProvider / 降级直通)→ 返回 null,行为退回旧版(不绑,零回归)。
+function runContextBind(snapshot) {
+  if (!snapshot?.session_id) return null
+  return { context_session_id: snapshot.session_id, context_revision: snapshot.revision ?? null }
+}
+
+// Task 13:焦点对象 → 展示名(与 ChiefDock 同口径);run 卡片"发起时/当前焦点"用。
+function focusLabel(f) {
+  if (!f || typeof f !== 'object') return '—'
+  return String(f.label || f.id || '—')
+}
+
+// Task 13:run 审批"发起时上下文已过期"卡片(voided=作废;stale=二次确认放行)。
+function RunStaleCard({ ap, onApprovalDecision }) {
+  const rc = ap.runContext
+  if (!rc) return null
+  return (
+    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1.5">
+      <div className="flex items-center gap-1.5 text-f12 font-medium text-warn">
+        <span data-testid="run-context-expired" className="inline-flex items-center rounded bg-warn/15 px-1 py-0.5 text-meta">已过期</span>
+        {rc.voided ? '发起时焦点已推进,原审批作废' : '发起时焦点已变,但与当前焦点无关'}
+      </div>
+      <div className="mt-1 grid grid-cols-1 gap-0.5 text-meta text-faint">
+        <div>发起时焦点:<span data-testid="run-origin-focus" className="text-ink">{focusLabel(rc.originFocus)}</span></div>
+        <div>当前焦点:<span data-testid="run-current-focus" className="text-ink">{focusLabel(rc.currentFocus)}</span></div>
+      </div>
+      {rc.voided ? (
+        <div data-testid="run-context-voided" className="mt-1.5 text-meta text-danger">已作废,请就当前焦点重新发起该任务。</div>
+      ) : (
+        <button type="button" data-testid="run-approve-stale" onClick={() => onApprovalDecision?.(ap, 'approve', { approveStale: true })}
+          className="mt-1.5 inline-flex h-6 items-center gap-1 rounded-md border border-warn/50 bg-surface px-2 text-meta font-medium text-warn">
+          仍要批准(忽略过期)
+        </button>
+      )}
+    </div>
+  )
+}
 
 const SUGGESTS = [
   '本章这样展开:……（提思路,主编写整章）',
@@ -67,7 +108,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                       <span className="text-f12 text-faint">提交中…</span>
                     ) : ap.status === 'error' ? (
                       <span className="text-f12 text-danger">提交失败</span>
-                    ) : (
+                    ) : ap.runContext ? null : (
                       <>
                         <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
                           className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
@@ -80,6 +121,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                       </>
                     )}
                   </div>
+                  <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
                 </div>
               ))}
             </div>
@@ -105,6 +147,8 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
 
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
 export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal }) {
+  // Task 13 I-1:章内 run 绑发起时上下文的来源(四栏共享的统一快照;缺席时降级不绑)。
+  const { snapshot } = useContextSnapshot()
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -150,16 +194,26 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     setMsgs((m) => patchApprovalInMessages(m, approval, patch))
   }
 
-  const handleApprovalDecision = async (approval, decision) => {
+  const handleApprovalDecision = async (approval, decision, { approveStale = false } = {}) => {
     patchApproval(approval, { status: 'submitting' })
     try {
-      await api.aiRunApproval(approval.run_id, {
-        approval_id: approval.approval_id,
-        decision,
-      })
-      patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision })
+      // Task 13:approve_stale 二次确认令牌 + 当前快照上下文(后端仍以库内 live 快照为准)。
+      const body = { approval_id: approval.approval_id, decision }
+      if (approveStale) {
+        body.approve_stale = true
+        body.context_session_id = snapshot?.session_id ?? null
+        body.context_revision = snapshot?.revision ?? null
+      }
+      await api.aiRunApproval(approval.run_id, body)
+      patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision, runContext: null })
     } catch (e) {
-      patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
+      // Task 13:409 run_context_changed/stale → 展示过期焦点卡片,不当作提交失败。
+      const rc = runContextFromError(e)
+      if (rc) {
+        patchApproval(approval, { status: 'pending', runContext: rc })
+      } else {
+        patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
+      }
     }
   }
 
@@ -235,6 +289,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     if (shouldUseHermesRun(finalMsg)) {
       ctrlRef.current = api.runWrite(finalMsg, {
         chapter, focalizer, phase,
+        context: runContextBind(snapshot),   // Task 13 I-1:绑发起时上下文 → 章内 run 也受审批重校验
         instructions: hermesRunInstructions({ chapter, focalizer, phase }),
         ...streamHandlers,
       })

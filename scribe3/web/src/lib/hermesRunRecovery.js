@@ -53,6 +53,37 @@ export function patchRunMessage(messages, runId, updater) {
   return changed ? next : messages
 }
 
+// Task 13:审批 409 → run 过期上下文卡片数据(前端展示"发起时/当前焦点 + 已过期")。
+// run_context_changed = 影响当前章/条目 → 原审批作废,须重新发起(voided);
+// run_context_stale   = 无关的过期 run → 用户二次确认后带 approve_stale=true 可放行。
+export function runContextFromError(error) {
+  const detail = error?.body?.detail
+  if (!detail || typeof detail !== 'object') return null
+  if (detail.code !== 'run_context_changed' && detail.code !== 'run_context_stale') return null
+  return {
+    code: detail.code,
+    voided: detail.code === 'run_context_changed',
+    originFocus: detail.origin_focus ?? null,
+    currentFocus: detail.current_focus ?? null,
+    originRevision: detail.origin_context_revision ?? null,
+    currentRevision: detail.current_context_revision ?? null,
+  }
+}
+
+// Task 13:刷新恢复只依 run_id + parent_thread_id——把 GET /ai/runs/{id}/trace 的
+// 发起时上下文/写入影响回贴到对应 run 消息,不依赖任何进程内 React state。
+export function applyRunTraceToMessages(messages, runId, trace) {
+  if (!runId || !trace) return messages
+  return patchRunMessage(messages, runId, (msg) => ({
+    ...msg,
+    run_id: msg.run_id || runId,
+    parentThreadId: trace.parent_thread_id ?? msg.parentThreadId ?? null,
+    originFocus: trace.focus ?? msg.originFocus ?? null,
+    originRevision: trace.origin_context_revision ?? msg.originRevision ?? null,
+    writeEffects: trace.write_effects ?? msg.writeEffects ?? [],
+  }))
+}
+
 export function upsertApprovalInMessages(messages, runId, approval) {
   const normalized = {
     ...approval,
@@ -90,6 +121,13 @@ export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef }
       if (streamsRef.current.has(runId) || closedRef.current.has(runId)) continue
       const marker = { close: null }
       streamsRef.current.set(runId, marker)
+      // Task 13:先按 run_id 拉 trace,回贴 parent_thread_id/发起时焦点/写入影响
+      // (刷新后卡片据此重建,不依赖内存 state)。best-effort:失败/未 mock 不阻断重连。
+      if (typeof api.aiRunTrace === 'function') {
+        api.aiRunTrace(runId)
+          .then((trace) => setMsgs((items) => applyRunTraceToMessages(items, runId, trace)))
+          .catch(() => {})
+      }
       api.aiRunStatus(runId)
         .then((status) => {
           if (!streamsRef.current.has(runId)) return
