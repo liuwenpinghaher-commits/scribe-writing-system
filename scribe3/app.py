@@ -476,6 +476,64 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
     }
 
 
+def _flag_enabled(name: str) -> bool:
+    """Task 16-B 统一开关判定门面(委托 context_cache.flag_enabled,单一真值来源)。
+    每次读 env,默认关 → 系统行为与开关引入前【字节等价】。"""
+    from scribe3 import context_cache
+    return context_cache.flag_enabled(name)
+
+
+def _context_memory_metrics(work: str = "main") -> dict:
+    """Task 16-B runtime-status 指标块。绝不含原始 prompt / 秘密值——只有计数、
+    分位数与布尔/短标识。诚实区分【当前有真实值】与【采集骨架待 16-C 接线】:
+
+    真实值:cross_work_rejections(16-A)、memory_events_pending/failed(store 计数)、
+      context_sessions_active(store 计数)、spectron_shadow(detect)、hermes_memory_provider。
+    采集骨架(接线后自动填,当前 0/None):retrieval_p50/p95、context_tokens_p95、
+      stale_rejections——依赖 16-C 把检索/组装接进生产读路径与 stale 拒绝路径。"""
+    from scribe3 import context_cache
+    metrics = dict(context_cache.metrics_snapshot())   # 检索/组装侧(当前多为 0/None)
+    # 安全指标(16-A 只读快照,不复算)
+    metrics["cross_work_rejections"] = get_security_metrics().get("cross_work_rejections", 0)
+    # 记忆捕获管线水位(per work,与既有 memory_capture.failed_events 同库口径)
+    pending = failed = 0
+    sessions = 0
+    try:
+        st = _store_for(work)
+        try:
+            pending = st.count_memory_events(status="pending")
+        except Exception:
+            pending = 0
+        try:
+            failed = st.count_failed_memory_events()
+        except Exception:
+            failed = 0
+        try:
+            sessions = st.count_active_context_sessions()
+        except Exception:
+            sessions = 0
+    except Exception:
+        pass
+    metrics["memory_events_pending"] = pending
+    metrics["memory_events_failed"] = failed
+    metrics["context_sessions_active"] = sessions
+    # Spectron 影子:只上报开关 + 可用性 + 原因(全无秘密);包未发布时 available=False 是正确态
+    try:
+        from scribe3.spectron_adapter import detect_spectron
+        det = detect_spectron()
+        metrics["spectron_shadow"] = {
+            "flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+            "available": bool(det.enabled),
+            "reason": det.reason,
+        }
+    except Exception:
+        metrics["spectron_shadow"] = {"flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+                                      "available": False, "reason": "detect_failed"}
+    # 生产记忆提供方:自建多通道检索恒为生产提供方(Spectron 仅影子,永不接管生产读,Task 15)。
+    metrics["hermes_memory_provider"] = "scribe3_builtin"
+    return metrics
+
+
 def _hermes_runtime_status() -> dict:
     from scribe3.hermes_runtime import HermesRuntime
     from scribe3.llm import (
@@ -504,6 +562,11 @@ def _hermes_runtime_status() -> dict:
         mem_capture["failed_events"] = _store_for("main").count_failed_memory_events()
     except Exception:
         mem_capture["error"] = "count_failed_memory_events 不可用"
+    # Task 16-B:统一上下文/记忆运行指标块(真实值 + 待接线骨架,绝不含 prompt/秘密)。
+    try:
+        context_memory = _context_memory_metrics()
+    except Exception:
+        context_memory = {"error": "context_memory 指标不可用"}
     return {
         "ok": all(p.get("ok") for p in profiles) and not has_error,
         "profiles": profiles,
@@ -511,6 +574,7 @@ def _hermes_runtime_status() -> dict:
         "cron": cron,
         "summary": summary,
         "memory_capture": mem_capture,
+        "context_memory": context_memory,
     }
 
 
@@ -543,7 +607,13 @@ def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
 
     best-effort:任何失败只告警,绝不阻断写作主链路(与 chat_message 落库同纪律 D-004)。
     幂等:event_id = turn:<turn_id>(同轮重放不重复记)。分类/正典红线/linked_ids 领域反查
-    在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。"""
+    在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。
+
+    Task 16-C 对称门控:SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ 最前零成本短路,不捕获、
+    不 embed、不写 memory_event/memory_item —— 与检索侧(_get_write_retriever 返 None)
+    同开同关,"记忆织物"关时写作路径【字节等价】,根治"捕获恒开只写不读半空转"。"""
+    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+        return
     if not (text or "").strip() or not turn_id:
         return
     try:
@@ -635,6 +705,31 @@ def ready():
 @app.get("/ai/runtime-status")
 def ai_runtime_status():
     return _hermes_runtime_status()
+
+
+@app.get("/capabilities")
+def capabilities():
+    """Task 16-B 灰度能力下发:只读各 feature flag 的 env 状态(不下发任何秘密)。
+
+    前端能力以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
+    默认全关时各 flag 均 False,系统行为与开关引入前字节等价(capabilities 只上报、不改行为)。
+    回滚顺序:inspector → memory retrieval → editorial thread → context snapshot;数据表保留不删。"""
+    from scribe3 import context_cache, embed
+    return {
+        "flags": {
+            "snapshot_v1": _flag_enabled("SCRIBE3_CONTEXT_SNAPSHOT_V1"),
+            "editorial_thread_v1": _flag_enabled("SCRIBE3_EDITORIAL_THREAD_V1"),
+            "memory_fabric_v1": _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"),
+            "context_inspector_v1": _flag_enabled("SCRIBE3_CONTEXT_INSPECTOR_V1"),
+            "spectron_shadow": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
+            # Task 7 既有开关,一并上报(不改语义)
+            "assembler_v1": _flag_enabled("SCRIBE3_CONTEXT_ASSEMBLER_V1"),
+        },
+        "versions": {
+            "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
+            "embedding_model": embed.model_version(),
+        },
+    }
 
 
 @app.get("/ai/usage")
@@ -886,9 +981,18 @@ def ai_run_status(run_id: str, work: str = "main"):
 
 @app.get("/ai/runs/{run_id}/trace")
 def ai_run_trace(run_id: str, work: str = "main"):
-    trace = _store_for(work).get_ai_run_trace(run_id)
+    store = _store_for(work)
+    trace = store.get_ai_run_trace(run_id)
     if not trace:
         raise HTTPException(status_code=404, detail="ai_run_trace not found")
+    # Task 16-A 纵深(spec 审):对齐其他 surface 的 work 绑定。ai_run_trace.work 存的是
+    # 物理库名(db_name)——生产 db-per-work 下 _store_for(work)→db=work,恒成立故为 tautology
+    # (跨 work 早在 get_ai_run_trace 读不到→404);仅在 store 与请求同库时校验,测试注入
+    # (set_store 使 db_name≠work)下跳过避免误报。真正的逻辑-work 绑定待 Task 13 把逻辑 work
+    # 落进 ai_run_trace(现存 db_name)后随多 work 并库一并加固。
+    if store.db_name == work:
+        _assert_work_binding(trace.get("work"), work,
+                             kind="ai_run_trace", ident=run_id)
     return trace
 
 
@@ -997,6 +1101,50 @@ def ai_run_stop(run_id: str, work: str = "main"):
 # 为准(Task 16 的 work 绑定校验语义,现在就按此做)——不符 409 context_work_mismatch。
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Task 16-A(安全隔离子集):统一 work 绑定校验 + 安全指标。
+# 单机单用户无 claim 体系——?work= 只是前端【声明】,权威 work 以记录落库值为准。
+# 每个 surface(context/thread/memory/trace/run)取记录落库 work 与请求 ?work= 比对,
+# 不符 → 409 context_work_mismatch。隔离底座仍是 per-work db:记录不在本 work 库 → 404。
+# cross_work_rejections 是内存安全指标,供 Task 16-B 的 /ai/runtime-status 消费(不含
+# 任何 prompt / 秘密值)。
+# ---------------------------------------------------------------------------
+_security_metrics = {"cross_work_rejections": 0}
+
+
+def get_security_metrics() -> dict:
+    """安全指标只读快照(Task 16-B runtime-status 用)。绝不含原始 prompt / 秘密值。"""
+    return dict(_security_metrics)
+
+
+def _bump_cross_work_rejection() -> None:
+    _security_metrics["cross_work_rejections"] += 1
+
+
+def _thread_work(thread_id: str | None) -> str | None:
+    """从 ethread:<work>:<uuid> 解出落库 work(work 是无冒号 slug,uuid hex 无冒号)。
+    无法解析(非 ethread 命名/旧格式)→ None:交由端点 not-found 分支给 404,不误判 409。"""
+    if not isinstance(thread_id, str) or not thread_id.startswith("ethread:"):
+        return None
+    work, sep, _tail = thread_id[len("ethread:"):].rpartition(":")
+    return work if (sep and work) else None
+
+
+def _assert_work_binding(record_work: str | None, requested_work: str,
+                         *, kind: str, ident: str) -> None:
+    """统一 work 绑定校验:记录落库 work ≠ 请求声明 work → 409 context_work_mismatch。
+
+    record_work=None(无法判定归属 work)→ 不在此拦,由端点 not-found 分支给 404
+    (计划 Task 16 ① 的 409/404 协调:存在但越权→409;不存在/不可判→404)。"""
+    if record_work is not None and record_work != requested_work:
+        _bump_cross_work_rejection()
+        raise HTTPException(status_code=409, detail={
+            "code": "context_work_mismatch",
+            "message": f"{kind} '{ident}' 属于 work '{record_work}',"
+                       f"请求 work '{requested_work}' 不符",
+            "expected": requested_work, "actual": record_work})
+
+
 def _context_http_error(e: Exception) -> HTTPException:
     """context 语义异常 → HTTPException(detail 恒带稳定 code,前端读 error.body.detail.code)。"""
     if isinstance(e, StaleContextError):
@@ -1012,6 +1160,8 @@ def _context_http_error(e: Exception) -> HTTPException:
     detail = {"code": getattr(e, "code", "context_error"), "message": str(e)}
     if isinstance(e, ContextWorkMismatch):
         detail |= {"expected": e.expected, "actual": e.actual}
+        # ContextService 路径的跨 work 越权也计入统一安全指标(与 _assert_work_binding 同源)。
+        _bump_cross_work_rejection()
     return HTTPException(status_code=status, detail=detail)
 
 
@@ -1074,6 +1224,9 @@ def context_trace_get(session_id: str, revision: int, work: str = "main"):
         raise HTTPException(status_code=404, detail={
             "code": "memory_trace_not_found",
             "message": "该快照版本暂无记忆溯源(检索生产接线待 Task 16)"})
+    # Task 16-A:memory_trace 落库 work 与请求 ?work= 比对(空 work=旧数据→不判,走 mask)。
+    _assert_work_binding(trace.get("work") or None, work,
+                         kind="memory_trace", ident=session_id)
     return mask_memory_trace(trace)
 
 
@@ -1099,13 +1252,19 @@ def chat_threads(work: str = "main", actor_id: str = "author"):
 
 @app.get("/chat/threads/{thread_id}/messages")
 def chat_thread_messages(thread_id: str, work: str = "main", limit: int = 500):
-    """该线程全部消息(ts 升序);别的 work 的 thread_id 在本库无消息 → []。"""
+    """该线程全部消息(ts 升序)。Task 16-A:thread_id 内嵌 work(ethread:<work>:<uuid>)——
+    落库 work 与请求 ?work= 不符 → 409(否则空 [] 会把越权伪装成"无消息")。"""
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
     return _store_for(work).list_thread_messages(thread_id, limit=limit)
 
 
 @app.post("/chat/threads/{thread_id}/fork")
 def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
-    """显式分支:以 thread_id 为父建新线程(写 parent_thread_id)。父不存在 404。"""
+    """显式分支:以 thread_id 为父建新线程(写 parent_thread_id)。父不存在 404。
+    Task 16-A:先校验父线程落库 work 与请求 ?work= 一致(防跨 work fork 出他书子线程)。"""
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
     try:
         return _store_for(work).fork_editorial_thread(thread_id, title=req.title)
     except ValueError as e:
@@ -3566,9 +3725,43 @@ def _write_snapshot(st, *, chapter, focalizer, phase, work):
 
 
 def _get_write_retriever(st):
-    """Task 8 的 MemoryRetriever 注入点(现返回 None → assembler 走 store 直查降级,
-    canonical 仍有真数据)。Task 8 落地后在此接真实 retriever。"""
-    return None
+    """Task 8 MemoryRetriever 注入点(对称门控,Task 16-C)。
+
+    SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ None:assembler 走 store 直查降级(canonical
+      仍有真数据),与 16-C 前【字节等价】——写作 prompt 不读经验记忆、零检索成本。
+    【开】→ MemoryRetriever(st):四通道检索 / RRF / 限知门 / 正典压制接进写作 envelope
+      (剧透门 known_from、秘密屏蔽 C1、work 隔离全在检索/组装链内生效)。
+    注:检索真进 prompt 还需 SCRIBE3_CONTEXT_ASSEMBLER_V1 同开(v1 组装路径消费本 retriever);
+    任一关 = 当前生产行为。捕获侧 _capture_turn_memory 由同一 flag 对称门控(同开同关)。
+    M4 记账:门控不完全对称——读路径需 MEMORY_FABRIC + ASSEMBLER_V1【同开】(assembler 是 envelope
+      注入点),写(捕获)只需 MEMORY_FABRIC。Task 17 金丝雀门须【同开两旗】才真验读路径。"""
+    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+        return None
+    from scribe3.memory_retrieval import MemoryRetriever
+    return MemoryRetriever(st)
+
+
+def _build_write_retrieval_query(st, *, chapter, seed_words) -> str:
+    """I1(Task 16-C):为写作检索拼一个有意义的 query,靶向本章相关经验记忆。
+
+    源优先级(选 seed_words 为主的理由:它是作者给本章的种子词/意象,签名已带、最贴"此刻在写什么",
+    是最自然的检索靶向;章纲作退路补全):
+      ① seed_words —— 本章种子词(_soak_block 同源),空白项剔除后拼接;
+      ② 无种子词 → 章纲 synopsis(get_chapter)截断 200 字,给一个"本章要写什么"的兜底靶向。
+    作者 msg 未透传到本组装函数(_assemble_write_instructions 链只带 seed_words),不为它改签名/注入点
+    (文档1 教训:每新开一个注入点泄露过一次限知);seed_words+章纲已足够靶向,故不硬塞 msg。
+    仅在检索器接上(MEMORY_FABRIC 开)时被调用;返回空串则退化为"只出 canonical"的保守行为(不崩)。"""
+    parts = [w.strip() for w in (seed_words or []) if isinstance(w, str) and w.strip()]
+    if parts:
+        return " ".join(parts)[:200]
+    try:
+        ch = st.get_chapter(chapter) or {}
+        syn = (ch.get("synopsis") or "").strip()
+        if syn:
+            return syn[:200]
+    except Exception:
+        pass
+    return ""
 
 
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
@@ -3598,7 +3791,25 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
                            phase=phase, work=work)
     mode = "write" if (phase or "").strip().lower() in ("draft", "final") else "plan"
-    envelope = ContextAssembler(st, _get_write_retriever(st)).assemble(snap, "", mode)
+    # I1(Task 16-C 核心修复):写作路径必须给 assemble 一个【有意义 query】,否则
+    #   store.memory_bm25/vector 对空串硬返 [](graph 种子亦空)→ episodic/working 三条经验
+    #   通道全归零,只剩 structured/canonical(与 query 无关,retriever=None 降级即可得),
+    #   捕获→memory_item→检索的经验回路在生产仍是"只写不读"。故 fabric 开(retriever 非 None)时
+    #   用本章种子词/章纲作 query 靶向经验记忆;fabric 关(retriever=None)时 query 仍空——
+    #   envelope 与接线前逐字不变(默认关字节等价,连 focus 块"作者此刻问"都不出现)。
+    #   剧透门不受影响:known_from 门在 store SQL/Python 侧恒生效,有意义 query 也挡不掉未来揭示。
+    retriever = _get_write_retriever(st)
+    retrieval_query = (_build_write_retrieval_query(st, chapter=chapter, seed_words=seed_words)
+                       if retriever is not None else "")
+    envelope = ContextAssembler(st, retriever).assemble(snap, retrieval_query, mode)
+    # M3 记账 + 指标接入:采样本次组装 envelope 的 token 估算(context_tokens_p95 由 0 变真实)。
+    # 纯观测副作用,不改 instructions 字节;仅 v1 路径(ASSEMBLER_V1 开)才走到这里——即 MEMORY_FABRIC
+    # 关而 ASSEMBLER_V1 开时仍会采样(内存 deque,无秘密、字节无害),这是刻意的观测下限,非泄露。
+    try:
+        from scribe3 import context_cache as _cc
+        _cc.record_context_tokens(envelope.total_token_estimate)
+    except Exception:
+        pass
     env_text = render_envelope_text(envelope)
     if env_text:
         instructions += "\n\n" + env_text

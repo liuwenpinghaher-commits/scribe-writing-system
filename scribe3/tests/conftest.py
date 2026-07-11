@@ -32,6 +32,18 @@ def _isolated_llm_ledger(tmp_path, monkeypatch):
     monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "llm_ledger.sqlite3"))
 
 
+@pytest.fixture(autouse=True)
+def _clear_context_caches():
+    """Task 16-C:检索接线后 MemoryRetriever.retrieve() 走 module 级单例 RETRIEVAL_CACHE。
+    每测试前清检索/全局卡缓存 + 重置指标直方图,防跨测试(不同临时 store 复用同 work/query)
+    命中彼此陈旧结果或指标累加串扰(每个 store 夹具是独立临时 DB,缓存却是进程共享)。"""
+    from scribe3 import context_cache as cc
+    cc.RETRIEVAL_CACHE.clear()
+    cc.GLOBAL_CARD_CACHE.clear()
+    cc.reset_metrics_for_test()
+    yield
+
+
 @pytest.fixture()
 def store():
     port = _free_port()

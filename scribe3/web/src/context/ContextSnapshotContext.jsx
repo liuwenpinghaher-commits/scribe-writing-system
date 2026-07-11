@@ -21,9 +21,23 @@ import { bootstrapSnapshot, reduceSnapshot, semanticIntent } from './contextSnap
 
 const ContextSnapshotCtx = createContext(null)
 
+// Task 16-B 灰度能力:5 个服务端开关的默认态(全关)。后端 /capabilities 是唯一权威——
+// 前端绝不靠 localStorage 开启未就绪的服务端能力;拉取失败时保持全关(与后端默认一致)。
+export const DEFAULT_CAPABILITIES = {
+  flags: {
+    snapshot_v1: false,
+    editorial_thread_v1: false,
+    memory_fabric_v1: false,
+    context_inspector_v1: false,
+    spectron_shadow: false,
+    assembler_v1: false,
+  },
+  versions: {},
+}
+
 // Provider 缺席(旧测试直渲 FourPaneShell / 旧三栏路径)时的兜底:
 // navigate 为 no-op、snapshot 为 null → 消费端全部回退既有本地投影。
-const NOOP = { snapshot: null, navigate: () => {}, restoring: false, error: null, navigated: false, sessionId: null }
+const NOOP = { snapshot: null, navigate: () => {}, restoring: false, error: null, navigated: false, sessionId: null, capabilities: DEFAULT_CAPABILITIES }
 
 export function ContextSnapshotProvider({ work, children }) {
   const [snapshot, setSnapshot] = useState(() => bootstrapSnapshot(work))
@@ -32,6 +46,9 @@ export function ContextSnapshotProvider({ work, children }) {
   // navigated:本客户端是否已发生过语义导航——投影守卫用(服务端初始快照的
   // 默认 entry 不应抢走用户 leftTab 偏好,导航发生后快照才成为渲染事实源)。
   const [navigated, setNavigated] = useState(false)
+  // Task 16-B:服务端灰度能力(后端 /capabilities 权威下发)。默认全关;拉取失败保持默认,
+  // 消费端据此门控就绪能力,而非读 localStorage。additive:不改任何既有导航/降级行为。
+  const [capabilities, setCapabilities] = useState(DEFAULT_CAPABILITIES)
   const modeRef = useRef('local')          // 'local'(降级直通)| 'server'(乐观+串行确认)
   const snapRef = useRef(snapshot)         // 同步读最新【乐观】快照(事件回调连发时不吃陈旧 state)
   const confirmedRef = useRef(null)        // 服务端最新【已确认】快照 = CAS 基线(session_id/revision 取此)
@@ -180,12 +197,30 @@ export function ContextSnapshotProvider({ work, children }) {
     return () => { cancelled = true }
   }, [work, commit, flush])
 
+  // Task 16-B:挂载时拉一次后端能力(全局、不随 work 变)。fail-soft:api 缺席
+  // (旧测试/精简 api)或请求失败 → 保持默认全关,前端不越权开启未就绪的服务端能力。
+  useEffect(() => {
+    if (typeof api?.fetchCapabilities !== 'function') return undefined
+    let cancelled = false
+    Promise.resolve()
+      .then(() => api.fetchCapabilities())
+      .then((caps) => {
+        if (cancelled || !caps || typeof caps !== 'object') return
+        setCapabilities({
+          flags: { ...DEFAULT_CAPABILITIES.flags, ...(caps.flags || {}) },
+          versions: caps.versions || {},
+        })
+      })
+      .catch(() => { /* 保持默认全关 */ })
+    return () => { cancelled = true }
+  }, [])
+
   // Task 6:显式暴露只读 sessionId(消费端绑定 LLM 调用的会话游标来源;
   // 降级/本地直通模式下快照无 session_id → null)。
   const sessionId = snapshot?.session_id ?? null
   const value = useMemo(
-    () => ({ snapshot, navigate, restoring, error, navigated, sessionId }),
-    [snapshot, navigate, restoring, error, navigated, sessionId],
+    () => ({ snapshot, navigate, restoring, error, navigated, sessionId, capabilities }),
+    [snapshot, navigate, restoring, error, navigated, sessionId, capabilities],
   )
   return <ContextSnapshotCtx.Provider value={value}>{children}</ContextSnapshotCtx.Provider>
 }

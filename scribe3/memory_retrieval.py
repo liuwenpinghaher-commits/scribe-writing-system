@@ -192,9 +192,61 @@ class MemoryRetriever:
 
     # --- Task 7 协议入口 ---
     def retrieve(self, work: str, snapshot_dict: dict, query: str, k: int = 24) -> list[MemoryCandidate]:
-        result = self.retrieve_full(RetrievalQuery(
+        # Task 16-C:统一走【带缓存】完整结果——ContextAssembler 生产读路径经此入口,
+        #   接线后自动吃 30s TTL + 表级失效缓存,并在 miss 分支记 record_retrieval_latency
+        #   (retrieval_p50/p95 从 0 变真实值)。缓存语义透明:同键返回同 RetrievalResult,
+        #   剧透门/正典压制/秘密屏蔽的裁决全在 retrieve_full 内,缓存不改结果只省重算。
+        result = self.retrieve_full_cached(RetrievalQuery(
             work=work, snapshot=snapshot_dict or {}, query=query or "", k=k))
         return result.candidates[:k]   # 协议约定返回 ~k 条(canonical 恒置顶,不会被截掉)
+
+    # --- 带缓存的完整结果(Task 16-B 就绪层)---
+    def retrieve_full_cached(self, rq: RetrievalQuery) -> RetrievalResult:
+        """按 work + 快照维度 + normalized_query + policy_version 缓存 30s 的检索结果,
+        受正典 / 素材 / 记忆表级失效(记忆 supersede、素材 archive·pin、正典写入立即清)。
+
+        Task 16-C 生产接线:ContextAssembler 经 retrieve() → 本方法把检索接进写作 envelope。"""
+        from time import perf_counter
+
+        from scribe3 import context_cache as cc
+        ctx_hash = self._snapshot_cache_dim(rq.snapshot)
+        key = cc.retrieval_key(rq.work, ctx_hash, rq.query)
+        cached = cc.RETRIEVAL_CACHE.get(key)
+        if cached is not None:
+            return cached
+        started = perf_counter()
+        result = self.retrieve_full(rq)
+        cc.record_retrieval_latency((perf_counter() - started) * 1000.0)
+        cc.RETRIEVAL_CACHE.set(key, result, work=rq.work)
+        return result
+
+    @staticmethod
+    def _snapshot_cache_dim(snapshot) -> str:
+        """缓存键的快照维度。
+
+        ⚠ 剧透门红线:写作路径经 ContextAssembler 传的是 snapshot.canonical_payload()
+        (故意 exclude context_hash),若沿用旧写法 snapshot.get("context_hash","") 恒得
+        空串 → 同 work 同 query 下【所有章共用一把键】→ 写第 5 章会命中第 20 章缓存的
+        known_from=20 记忆,剧透门被缓存击穿(store 层 known_from 门反被旁路)。
+        故:context_hash 显式给出时用它(存量直调方语义不变);缺失时对整份快照取稳定
+        sha256——canonical_payload 含 chapter/focalizer/focus/navigation_id/work,天然使
+        每章每焦点者各得一把键,剧透门/work 隔离在缓存层仍成立。
+
+        L2 记账脚枪(Task 16-C):显式 context_hash 分支【信任调用方】——真实 ContextSnapshot 的
+        context_hash 恒由 with_hash() 覆盖 chapter/focalizer/work 全字段(canonical_payload 之
+        SHA-256),故安全;唯有【手搓 dict 传一个与自身内容不符的 context_hash】才会击穿按章隔离
+        (如两章硬塞同一 context_hash)。生产无此路径(assembler 传 canonical_payload,不含 hash 走
+        回退分支);仅测试/未来直调方需自律:要么别传 context_hash,要么保证它随快照内容变化。"""
+        if not isinstance(snapshot, dict):
+            return ""
+        h = snapshot.get("context_hash")
+        if h:
+            return str(h)
+        import hashlib
+        import json
+        raw = json.dumps(snapshot, sort_keys=True, ensure_ascii=False,
+                         separators=(",", ":"), default=str)
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     # --- 完整结果(含 rejected,供审计/测试)---
     def retrieve_full(self, rq: RetrievalQuery) -> RetrievalResult:

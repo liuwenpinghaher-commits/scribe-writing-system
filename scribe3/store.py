@@ -73,6 +73,17 @@ def _join(table: str, local: str) -> str:
     return f"{TBL2ONT[table]}:{local}"
 
 
+def _emit_cache_invalidation(table: str, work: str | None) -> None:
+    """Task 16-B:向上下文性能层发一个表级失效事件(正典写入 / 记忆 supersede /
+    素材 archive·pin 的写点调用)。best-effort:context_cache 缺席或任何异常都静默——
+    缓存卫生绝不阻断 store 写主链路(写正确性优先)。"""
+    try:
+        from scribe3 import context_cache
+        context_cache.emit_invalidation(table, work=work)
+    except Exception:
+        pass
+
+
 def _json_obj(value) -> dict | None:
     if isinstance(value, dict):
         return value
@@ -497,6 +508,102 @@ def _mask_trace_item(item, secret_ids=None):
     return masked
 
 
+# ===========================================================================
+# 统一上下文与记忆系统 · Task 16-A:ai_run_trace 落库前统一 redactor
+#
+# 为什么:ai_run_trace 的 tool_calls/tool_outputs/raw_events/response 承载【不可信】
+#   工具 I/O 与原始 Hermes 事件——HTTP 工具调用可能夹带 Authorization/Bearer/api_key
+#   认证头,秘密事实的真值也可能被工具原样回抛。trace 是可导出/可回放的审计物,
+#   落库前必须过一遍统一 redactor(与 memory_trace 的 mask_memory_trace 同纪律:
+#   屏蔽只发生在服务端,DB at-rest 永不持有认证头/秘密明文)。
+# 边界:只抹 tool/runtime 自由字段;不动作者自撰的 input_text/instructions(那是 run
+#   自身的 prompt,抹秘密 value 会破坏作者真实意图);不动 session_key(是按 work 派生的
+#   Runs 关联键,非泄漏进 trace 的凭据,语义由现有 _run_session_key 拥有,本任务不碰)。
+# ===========================================================================
+
+# 认证类字段名(dict 键命中即整值屏蔽)与令牌形态(字符串内正则替换)。
+_RUN_AUTH_KEY_RE = re.compile(
+    r"authorization|proxy-authorization|api[_-]?key|apikey|x-api-key|"
+    r"access[_-]?token|bearer|cookie|set-cookie|passwo?rd|"
+    r"x-hermes-session-key|session[_-]?key", re.I)
+_RUN_AUTH_MASK = "已屏蔽·认证"
+# 字符串内令牌/凭据的抹除规则。顺序讲究:①/② 先把带头名的整条凭据(方案词+令牌/整值)
+# 一并吞掉,再由 ③④⑤ 兜底裸令牌。C-1 教训:若头规则的 \S+ 只吞方案词("Bearer"),
+# 会把方案词消费掉致后续 bearer 规则匹配不到、真凭据留明文——故 ① 显式吞「方案词 + 凭据」。
+_RUN_AUTH_VALUE_SUBS = (
+    # ① Authorization / Proxy-Authorization: [Bearer|Basic|Digest|Token] <凭据> —— 方案词+凭据一起抹
+    (re.compile(r"(?i)\b(proxy-authorization|authorization)\b\s*[:=]\s*"
+                r"(?:(?:bearer|basic|digest|token)\s+)?\S+"),
+     r"\1: " + _RUN_AUTH_MASK),
+    # ② Cookie / Set-Cookie: <值到行尾>(cookie 常多段;I-2:字符串内嵌形式此前漏抹)
+    (re.compile(r"(?i)\b(set-cookie|cookie)\b\s*[:=]\s*[^\r\n]+"),
+     r"\1: " + _RUN_AUTH_MASK),
+    # ③ 裸 Bearer/Basic 令牌(无 Authorization 前缀的内嵌形式)
+    (re.compile(r"(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._+/=\-]+"), _RUN_AUTH_MASK),
+    # ④ api_key / access_token / token / password = ... 形式
+    (re.compile(r"(?i)\b(api[_-]?key|apikey|access[_-]?token|token|passwo?rd)\b\s*[:=]\s*\S+"),
+     r"\1=" + _RUN_AUTH_MASK),
+    # ⑤ 高熵密钥令牌裸形态:sk-ant-...(带连字符,C-1:旧 sk-[A-Za-z0-9]{8,} 匹配不到)/ sk-... /
+    #    GitHub ghp_ 等 / JWT eyJ....（M-1:无标签高熵串固有局限,此处覆盖常见带前缀形态)
+    (re.compile(r"\bsk-[A-Za-z0-9]{2,}(?:-[A-Za-z0-9]+)*\b"), _RUN_AUTH_MASK),
+    (re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{8,}\b"), _RUN_AUTH_MASK),
+    (re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{4,}\.[A-Za-z0-9_\-]{4,}\b"),
+     _RUN_AUTH_MASK),
+)
+
+# I-1:单字秘密真值(中文单字名讳/真名极常见)只在【有界上下文】屏蔽——名讳引导词后 /
+# 引号书名号包裹内——而非全文裸单字替换(那会误伤正文里同字的普通用法)。
+_SECRET_NAME_CUE = (
+    r"真名|名讳|本名|表字|名字|名号|名叫|叫做|唤作|名为|名曰|其名|就是|正是|叫|唤|讳|号|名")
+
+
+def _mask_short_secret(s: str, c: str) -> str:
+    """把单字秘密真值 c 在有界上下文里替换为屏蔽占位(保留上下文,只抹该字)。fail-soft。"""
+    esc = re.escape(c)
+    # ① 名讳引导词(可带 是/为/叫/作/曰)+ 可选开引号 + 该字(+ 可选闭引号)
+    s = re.sub(
+        r"((?:" + _SECRET_NAME_CUE + r")(?:是|为|叫|作|曰)?[\s：:]*[「『“\"'（(]?)"
+        + esc + r"([」』”\"'）)]?)",
+        r"\1" + _TRACE_SECRET_MASK + r"\2", s)
+    # ② 显式引号/书名号包裹的单字
+    s = re.sub(r"([「『“])" + esc + r"([」』”])",
+               r"\1" + _TRACE_SECRET_MASK + r"\2", s)
+    return s
+
+
+def _redact_run_trace_secrets(obj, secret_values=None):
+    """递归抹认证头/令牌 + 已知秘密事实真值。幂等(已屏蔽串不再命中)、fail-soft。
+
+    - dict:键命中 _RUN_AUTH_KEY_RE → 整值置屏蔽占位;否则递归其值;
+    - list/tuple:逐项递归;
+    - str:先过令牌形态正则,再抹已知秘密 value(len≥2 全文子串替换;单字走有界屏蔽);
+    - 其它标量:原样返回。"""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if isinstance(k, str) and _RUN_AUTH_KEY_RE.search(k):
+                out[k] = _RUN_AUTH_MASK
+            else:
+                out[k] = _redact_run_trace_secrets(v, secret_values)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [_redact_run_trace_secrets(x, secret_values) for x in obj]
+    if isinstance(obj, str):
+        s = obj
+        for pat, repl in _RUN_AUTH_VALUE_SUBS:
+            s = pat.sub(repl, s)
+        for sv in (secret_values or ()):
+            if not sv:
+                continue
+            if len(sv) >= 2:
+                if sv in s:
+                    s = s.replace(sv, _TRACE_SECRET_MASK)
+            else:
+                s = _mask_short_secret(s, sv)   # 单字:有界屏蔽,不裸替换
+        return s
+    return obj
+
+
 def mask_memory_trace(trace, secret_ids=None):
     """服务端权威屏蔽(单一真相源):selected/rejected 里私密证据的 value 绝不出服务端。
 
@@ -764,6 +871,9 @@ class SurrealStore:
         except Exception as _e:
             logging.getLogger("scribe3.store").warning(
                 "add_fact: embedding 失败,命题 %s 将不可语义召回: %s", f.id, _e)
+        # Task 16-B:正典写入发表级失效(清 global/retrieval 缓存 + bump authority_revision)。
+        # supersede_fact 内部也经此路径,故正典变更两条路都覆盖。best-effort,绝不阻断写。
+        _emit_cache_invalidation("proposition", self.db_name)
         return f
 
     def add_knowledge(self, k: KnowledgeEdge, ingest_seq: int | None = None) -> KnowledgeEdge:
@@ -1365,6 +1475,24 @@ class SurrealStore:
         return n
 
     # --- Hermes Runs/Approval 审计链 ---
+    def _secret_proposition_values(self) -> set[str]:
+        """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。
+        含单字真值(I-1:中文单字名讳常见)——单字由 redactor 走有界屏蔽,不全文裸替换。
+        fail-soft 退回空集(M-3:退空则秘密不抹,但认证正则仍跑;降级态,不阻断落库)。
+        性能:每次落库全表扫 proposition(Task 16-B 缓存,此处先正确后优化)。"""
+        try:
+            # value 是 SurrealDB 保留字,不能作首字段(会被当 SELECT VALUE 修饰符);挪后即可。
+            rows = self._query(
+                "SELECT entity_id, value FROM proposition WHERE secret = true")
+        except Exception:
+            return set()
+        out: set[str] = set()
+        for r in (rows or []):
+            v = r.get("value")
+            if v is not None and len(str(v).strip()) >= 1:
+                out.add(str(v))
+        return out
+
     def upsert_ai_run_trace(self, run_id: str, *, status: str | None = None,
                             session_key: str | None = None,
                             input_text: str | None = None,
@@ -1392,6 +1520,14 @@ class SurrealStore:
             "error": error if error is not None else existing.get("error"),
             "response": response if response is not None else existing.get("response"),
         }
+        # Task 16-A:落库前统一 redactor——认证头(Authorization/Bearer/Basic/Proxy/api_key/
+        # cookie…)与秘密事实真值在 at-rest 前抹掉。error(C-2:直取上游 4xx/5xx HTTP 文本,
+        # 常回显出错的认证头)必须纳入。幂等:append_ai_run_trace_event 读回已屏蔽数据再合并
+        # 重掩,已屏蔽串不再命中。
+        _sv = self._secret_proposition_values()
+        for _f in ("tool_calls", "tool_outputs", "raw_events", "approvals",
+                   "response", "error"):
+            payload[_f] = _redact_run_trace_secrets(payload[_f], _sv)
         self._execute_write(
             "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
             "status=$status, session_key=$session_key, input_text=$input_text, "
@@ -2048,6 +2184,9 @@ class SurrealStore:
                 fields.get("title", cur.get("title")), fields.get("body", cur.get("body")))
             fields = {**fields, "tokens": toks, "embedding": vec}
         self._update_by("material", material_id, fields)
+        # Task 16-B:素材 archive/pin(及正文改动)发表级失效,清检索缓存里的素材召回。
+        if "archived" in fields or "pinned" in fields or "title" in fields or "body" in fields:
+            _emit_cache_invalidation("material", self.db_name)
         return True
 
     def material_lifecycle_impact(self, material_id: str) -> dict | None:
@@ -5320,6 +5459,11 @@ class SurrealStore:
         if rid is None:
             raise RuntimeError("add_memory_item: CREATE 未返回 id")
         s = str(rid)
+        # M2(Task 16-C):新记忆写入发表级失效,与 supersede/invalidate 对称——清 RETRIEVAL_CACHE
+        #   里同 work 的旧检索结果,消除新记忆 ≤30s TTL 的可见延迟(fail-safe 漏新不泄旧,对称更干净)。
+        #   仅落在真新增路径:上方 (work,source_type,source_id) 幂等预查命中的重放 early-return 不发
+        #   (无写入=无需失效)。best-effort,绝不阻断写主链路。
+        _emit_cache_invalidation("memory_item", work)
         return s.split(":")[-1] if ":" in s else s
 
     def add_memory_relation(self, in_id: str, out_id: str, relation: str,
@@ -5573,19 +5717,26 @@ class SurrealStore:
              "known_to": _pick(known_to, "known_to"),
              "provenance": prov, "linked_ids": links,
              "tokens": toks, "embedding": vec, "reason": _reason})
+        # Task 16-B:记忆 supersede 发表级失效,清检索缓存里被更正/取代的经验记忆。
+        _emit_cache_invalidation("memory_item", old.get("work"))
         return self.get_memory(new_id)
 
     def invalidate_memory(self, memory_id: str) -> dict:
         """作废一条经验记忆:status='invalid' + 记 invalid_at(system_time)。
         审计留库,检索与 resolve_temporal_view 都靠 status 门自动排除。
         正典/领域数据不受此管辖。"""
-        if self.get_memory(memory_id) is None:
+        _row = self.get_memory(memory_id)
+        if _row is None:
             raise ValueError(f"invalidate_memory: memory_item '{memory_id}' 不存在")
         # M-3 记账:重复作废会覆写 invalid_at 为最新墙钟(system_time"最后一次失效"语义,可接受)——
         #   作废是幂等终态(status 不变),invalid_at 略微前移无害,不额外加 CAS 守卫。
         self._execute_write(
             "UPDATE type::record('memory_item', $id) SET status='invalid', "
             "invalid_at=time::now(), updated_at=time::now() RETURN NONE", {"id": memory_id})
+        # M1(Task 16-C):作废发表级失效,与 supersede 对称——否则已作废记忆在 RETRIEVAL_CACHE
+        #   最长 30s 仍被命中(检索层 status='active' 门只在 miss 重算时生效,缓存命中会漏 status 变更,
+        #   构成"已作废记忆倒灌进写作 prompt"的短窗)。
+        _emit_cache_invalidation("memory_item", _row.get("work"))
         return self.get_memory(memory_id)
 
     def _forget_origin_event_id(self, mem: dict) -> str | None:
@@ -5921,6 +6072,12 @@ class SurrealStore:
             vars["w"] = work
         rows = self._query(
             f"SELECT count() AS n FROM memory_event WHERE {' AND '.join(where)} GROUP ALL", vars)
+        return int(rows[0]["n"]) if rows else 0
+
+    def count_active_context_sessions(self) -> int:
+        """runtime-status 指标(Task 16-B):本库仍活跃的上下文会话数(轻量计数,不载快照)。"""
+        rows = self._query(
+            "SELECT count() AS n FROM context_session WHERE status='active' GROUP ALL")
         return int(rows[0]["n"]) if rows else 0
 
     # --- 短期工作记忆 working_summary(thread 唯一,被下个工作目标 supersede)---
