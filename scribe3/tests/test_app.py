@@ -609,6 +609,27 @@ def test_voice_anchor_block_none_guards(store):
     assert "稳重低调" in block, "style_summary 应正常显示"
 
 
+def test_get_voice_profile_bare_name_does_not_crash(store):
+    """Caveat 2:focalizer 传裸名(无冒号,如"焦三")时 get_voice_profile 不得抛
+    ValueError(旧链 _split 期望 role:xxx 冒号格式)——安全兜底为"无 profile"返回 None;
+    规范 record id(role:焦三)仍正常返回。"""
+    store.set_voice_profile("role:焦三", {"style_summary": "话少眼冷"})
+    # 裸名:不崩、返回空(None),让上层优雅跳过
+    assert store.get_voice_profile("焦三") is None
+    # 规范 record id:行为一字不变
+    vp = store.get_voice_profile("role:焦三")
+    assert vp is not None and vp.get("style_summary") == "话少眼冷"
+
+
+def test_voice_anchor_block_bare_name_focalizer_no_crash(store):
+    """Caveat 2 旧组装链:裸名 focalizer 且无 voice_profile → _voice_anchor_block 不 500,
+    优雅跳过焦点者声音锚(此前经 store.get_voice_profile → _split("焦三") 抛 ValueError)。"""
+    from scribe3.app import _voice_anchor_block
+    block = _voice_anchor_block(store, "焦三")   # 裸名,库里无 role:焦三 的 profile
+    assert isinstance(block, str)
+    assert "焦点者声音锚" not in block, "无 profile 的裸名焦点者不应产出声音锚"
+
+
 # ===== 弧光快照注入续写 prompt =====
 
 def test_arc_state_block_injects_snapshot(store):

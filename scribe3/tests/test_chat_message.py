@@ -5,6 +5,8 @@
 台账:D-002(work 由 store 自动填)/ D-003(assistant 存围栏外散文+提案标记,
 不复述提案正文)/ D-004(best-effort,落库失败不断流)/ D-005(GET 版不落库)。
 """
+import json
+
 import pytest
 
 import scribe3.app as A
@@ -232,6 +234,48 @@ def test_chat_write_post_persists_hermes_trace(store, monkeypatch):
     assert trace["tool_calls"][0]["name"] == "s3_get_chapter"
     assert trace["tool_outputs"][0]["output"] == "{\"title\":\"第二章\"}"
     assert trace["usage"]["output_tokens"] == 5
+
+
+def test_chat_write_post_trace_context_carries_block_manifest_when_v1(store, monkeypatch):
+    """Caveat 1(Task 17 Step 5b):ASSEMBLER_V1【开】时,assistant chat_message 的
+    trace.context 须落 envelope 块清单(供审计"主编这轮看到了哪些上下文块",Task 14
+    ContextInspector 数据源)。清单绝不含块正文与秘密 value(限知红线)。"""
+    from scribe3.ontology import Entity, Fact, KnowledgeEdge
+    store.add_entity(Entity("role:jia", "character", "甲"))
+    store.add_fact(Fact("fact:pub", "role:jia", "位置", "村口", valid_from=1))
+    store.add_fact(Fact("fact:sec", "role:jia", "真身", "甲其实是狐妖",
+                        valid_from=1, secret=True))
+    store.add_knowledge(KnowledgeEdge("role:jia", "fact:sec", since_chapter=1))
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+    monkeypatch.setattr(A, "_responses_events", _stub_events("好。"))
+    r = _client(store).post("/chat/write",
+                            json={"msg": "写第二章", "chapter": 2, "phase": "draft",
+                                  "focalizer": "role:jia"})
+    assert r.status_code == 200
+    assistant = [m for m in store.list_chat_messages(chapter=2) if m["role"] == "assistant"][0]
+    ctx = assistant["trace"].get("context")
+    assert ctx is not None, "v1 路径 assistant trace 必须含 context 块清单"
+    assert isinstance(ctx.get("blocks"), list) and ctx["blocks"], "context 须含非空块清单"
+    names = {b["name"] for b in ctx["blocks"]}
+    assert "canonical" in names, "八块定序合同:canonical 块须在清单里"
+    assert ctx.get("envelope_hash"), "manifest 须带 envelope_hash 供回溯本轮组装"
+    # 限知红线:秘密 value / 块正文 绝不入 trace
+    blob = json.dumps(ctx, ensure_ascii=False)
+    assert "甲其实是狐妖" not in blob, "秘密 value 绝不进 trace.context"
+    assert "村口" not in blob, "正典正文(即便非秘密)也不进 trace.context——只留 source id"
+    assert all("text" not in b for b in ctx["blocks"]), "每块只记 token+source id,不记正文"
+
+
+def test_chat_write_post_trace_omits_context_when_v1_off(store, monkeypatch):
+    """Caveat 1 字节等价:flag 关(默认)→ 旧组装链无 envelope,assistant trace
+    不出现 context 键(零回归)。"""
+    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
+    monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))
+    r = _client(store).post("/chat/write",
+                            json={"msg": "问", "chapter": 3, "phase": "draft"})
+    assert r.status_code == 200
+    assistant = [m for m in store.list_chat_messages(chapter=3) if m["role"] == "assistant"][0]
+    assert "context" not in assistant["trace"], "flag 关时 trace 不应出现 context 键"
 
 
 def test_chat_write_post_streams_approval_events(store, monkeypatch):

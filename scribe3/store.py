@@ -4016,7 +4016,15 @@ class SurrealStore:
              "v": profile.get("version", 1)})
 
     def get_voice_profile(self, character_id: str) -> dict | None:
-        """获取角色声音指纹(9节)。"""
+        """获取角色声音指纹(9节)。
+
+        兜底(Caveat 2):focalizer 可能传【裸名】(如"焦三"而非 role:焦三)。_split 对
+        无冒号入参会抛 ValueError → 旧组装链 _voice_anchor_block(app.py)由此触发 500。
+        voice_profile 的 local id 恒由 set_voice_profile 经 _split 从规范 record id 派生,
+        裸名永远存不进库,故裸名一律安全兜底为"无 profile"返回 None(让上层优雅跳过),
+        绝不抛 ValueError。带冒号的规范 record id 走原路,行为一字不变。"""
+        if ":" not in (character_id or ""):
+            return None
         _, local = _split(character_id)
         rows = self._query(
             "SELECT * FROM type::record('voice_profile', $local)", {"local": local})

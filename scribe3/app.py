@@ -3765,14 +3765,16 @@ def _build_write_retrieval_query(st, *, chapter, seed_words) -> str:
 
 
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
-                                    short_mode, with_tools=False, work=None):
+                                    short_mode, with_tools=False, work=None,
+                                    envelope_trace=None):
     """SCRIBE3_CONTEXT_ASSEMBLER_V1【开】路径:身份/硬协议保持内嵌,上下文段由
     ContextAssembler 统一组装(可预算/可溯源/正典优先/限知屏蔽);强制纪律仍逐条内嵌
     (_final_reminder/_revelation_discipline_block/_focalizer_sincerity_block 等是
     "每请求硬协议",不进 envelope——计划全局约束的稳定层分工)。旧块函数
     (_frame_block/_recap_block/_material_recall_block)不删不改,其取数语义由 assembler
     的 store 降级路径承接(source adapter)。⚠ Task 17 金丝雀门真机验证前默认不启用。"""
-    from scribe3.context_assembler import ContextAssembler, render_envelope_text
+    from scribe3.context_assembler import (
+        ContextAssembler, envelope_trace_manifest, render_envelope_text)
     from scribe3.craft import build_craft_block
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
@@ -3810,6 +3812,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         _cc.record_context_tokens(envelope.total_token_estimate)
     except Exception:
         pass
+    # Caveat 1(Task 17 Step 5b):把 envelope 的【安全块清单】回填 envelope_trace,供
+    # chat/write 落 chat_message.trace.context 审计"主编这轮看到了哪些上下文块"(Task 14
+    # ContextInspector 数据源)。复用 envelope_trace_manifest —— 它本就"给 trace.context 用"
+    # (计划 Step 5):每块只记 name/token/source id/被屏蔽 source id + omitted 原因,
+    # 【绝不含】块正文与秘密 value(限知红线,test_trace_manifest_excludes_secret_values 锁死)。
+    # 纯观测副作用:envelope_trace 缺省 None(仅 chat_write_post 传入)→ 其余调用方字节等价;
+    # 摘要计算异常绝不影响写作主链路。
+    if envelope_trace is not None:
+        try:
+            envelope_trace["context"] = envelope_trace_manifest(envelope)
+        except Exception:
+            pass
     env_text = render_envelope_text(envelope)
     if env_text:
         instructions += "\n\n" + env_text
@@ -3830,12 +3844,16 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
                                  seed_words: list, short_mode: bool,
                                  with_tools: bool = False,
-                                 work: str | None = None) -> str:
+                                 work: str | None = None,
+                                 envelope_trace: dict | None = None) -> str:
     """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
     POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
     "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
     (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
     with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。
+    envelope_trace(Caveat 1):可选可变收集器;仅 v1 路径成功组装时被回填
+      {"context": <安全块清单>}(仅 chat_write_post 传入,供落 chat_message.trace.context)。
+      缺省 None → 全部其余调用方与旧路径字节等价。
 
     Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1【开】→ 委托 _assemble_write_instructions_v1
       (ContextAssembler 统一组装);组装异常 → 回退下方旧链(fail-safe)。
@@ -3845,7 +3863,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
             return _assemble_write_instructions_v1(
                 st, chapter=chapter, focalizer=focalizer, phase=phase,
                 seed_words=seed_words, short_mode=short_mode,
-                with_tools=with_tools, work=work)
+                with_tools=with_tools, work=work, envelope_trace=envelope_trace)
         except Exception:
             # M1:回退是【结构化信号】,不能静默——否则 Task 17 金丝雀门会被蒙蔽(v1
             # 其实全程降级到旧链却以为在测 v1)。累计计数器 + 带阶段/章/书的 warning,
@@ -3927,9 +3945,13 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
     except (ContextServiceError, StaleContextError) as e:
         raise _context_http_error(e) from e
     _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
+    # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
+    # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
+    _envelope_trace: dict = {}
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
-        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work)
+        seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
+        envelope_trace=_envelope_trace)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -3958,9 +3980,17 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
 
     def _persist_assistant(text: str, trace: dict | None = None) -> None:
         # assistant 侧 response_id 取自 Hermes trace(便于按响应回溯本轮)。
-        resp_id = (trace or {}).get("response_id")
+        trace = dict(trace or {})
+        # Caveat 1:v1 组装路径(ASSEMBLER_V1 开且成功)才有 envelope 块清单 →
+        # 并入 trace.context 供审计"主编这轮看到了哪些上下文块"。manifest 每块仅记
+        # name/token/source id/被屏蔽 source id,绝无块正文与秘密 value(限知红线)。
+        # flag 关或回退旧链时 _envelope_trace 为空 → 不加 context 键(字节等价)。
+        _ctx = _envelope_trace.get("context")
+        if _ctx:
+            trace["context"] = _ctx
+        resp_id = trace.get("response_id")
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
-                            text=text, turn=turn_id, trace=trace or {},
+                            text=text, turn=turn_id, trace=trace,
                             response_id=resp_id, **_bind)
         # Task 9:本轮作者意图捕获成经验记忆(幂等 + 同步 drain;每 8 轮/会话末 consolidate)。
         # 捕获作者原话(决策/偏好/不确定的真源),不碰正文生成与 prompt 组装(写作路径零改动)。
