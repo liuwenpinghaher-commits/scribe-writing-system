@@ -842,6 +842,10 @@ def gateway_restart(req: GatewayRestartReq):
         raise HTTPException(422, f"未知 profile: {req.profile}(仅支持 scribe3/scribe3_write)")
     hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
     log = f"/tmp/scribe3-hermes-{req.profile}.log"
+    if not (os.path.isfile(hermes) and os.access(hermes, os.X_OK)):
+        # 预检:注定失败的场景毫秒级如实报错,不空等 30s 轮询、不拉起进程。
+        return {"profile": req.profile, "online": False, "log": log,
+                "message": f"hermes CLI 不存在或不可执行: {hermes}"}
     cmd = f"nohup {hermes} -p {req.profile} gateway run --replace >> {log} 2>&1 &"
     subprocess.Popen(cmd, shell=True)
     base = apis[req.profile].rstrip("/")

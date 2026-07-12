@@ -43,6 +43,8 @@ def test_gateway_status_401_counts_as_online(client, monkeypatch):
 
 def test_gateway_restart_polls(client, monkeypatch):
     ran = {}
+    monkeypatch.setattr("os.path.isfile", lambda p: True)
+    monkeypatch.setattr("os.access", lambda p, m: True)
     monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
     monkeypatch.setattr("httpx.get", lambda url, timeout: type("R", (), {"status_code": 200})())
     monkeypatch.setattr("time.sleep", lambda s: None)
@@ -53,3 +55,33 @@ def test_gateway_restart_polls(client, monkeypatch):
 
 def test_gateway_restart_rejects_unknown_profile(client):
     assert client.post("/gateway/restart", json={"profile": "evil"}).status_code == 422
+
+
+def test_gateway_restart_missing_hermes_bin_fails_fast(client, tmp_path, monkeypatch):
+    # hermes CLI 不存在时预检直接失败(毫秒级),不空等 30s 轮询、不拉起进程。
+    from scribe3 import settings
+    settings.put_setting("gateway.hermes_bin", str(tmp_path / "nope"))
+    ran = {}
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    r = client.post("/gateway/restart", json={"profile": "scribe3"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["online"] is False and "不存在" in body["message"]
+    assert "cmd" not in ran  # 预检失败,绝不拉起进程
+
+
+def test_gateway_restart_poll_timeout_reports_failure(client, monkeypatch):
+    # 钉住"不假成功"铁律:30 轮探活全失败 → online False + 如实报文案。
+    import httpx
+    monkeypatch.setattr("os.path.isfile", lambda p: True)
+    monkeypatch.setattr("os.access", lambda p, m: True)
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: None)
+    def raise_get(url, timeout):
+        raise httpx.ConnectError("down")
+    monkeypatch.setattr("httpx.get", raise_get)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    r = client.post("/gateway/restart", json={"profile": "scribe3"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["online"] is False and "未探活成功" in body["message"]
