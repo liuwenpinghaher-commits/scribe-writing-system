@@ -31,6 +31,17 @@ describe('BookSection', () => {
     await waitFor(() => expect(apiMock.putIntent).toHaveBeenCalledWith(
       expect.objectContaining({ total_word_goal: 120000 })))
   })
+
+  it('数字字段清空失焦:不发 PUT,恢复旧值并提示不支持清空', async () => {
+    render(<BookSection work="demo" />)
+    await waitFor(() => expect(screen.getByLabelText('整稿目标字数').value).toBe('100000'))
+    fireEvent.change(screen.getByLabelText('整稿目标字数'), { target: { value: '' } })
+    fireEvent.blur(screen.getByLabelText('整稿目标字数'))
+    // 后端 set_intent 对 None 视为未传(数字字段清不掉),假装保存成功会误导:不出网+恢复旧值+提示
+    expect(apiMock.putIntent).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('整稿目标字数').value).toBe('100000')
+    expect(screen.getByRole('alert').textContent).toMatch(/不支持清空/)
+  })
 })
 
 describe('PrefsSection', () => {
@@ -51,6 +62,10 @@ describe('PrefsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: /解除静音/ }))
     expect(localStorage.getItem('s3.pulse.mute.demo.promise')).toBeNull()
   })
+  it('guardOn/serif 项带「切书或刷新后生效」提示(消费点是 useState 初始化读取,同书内不热生效)', () => {
+    render(<PrefsSection work="demo" />)
+    expect(screen.getAllByText(/切书或刷新后生效/).length).toBe(2)
+  })
 })
 
 describe('AuditSection', () => {
@@ -58,5 +73,22 @@ describe('AuditSection', () => {
     render(<AuditSection />)
     await waitFor(() => expect(screen.getByText('craft.near_dup_sim')).toBeTruthy())
     expect(screen.getByText(/0\.7/)).toBeTruthy()
+  })
+
+  it('「加载更多」失败后重试:重放失败那次的 offset+append,不回退成首页整替', async () => {
+    const page = (n, off) => Array.from({ length: n }, (_, i) => (
+      { ts: `2026-07-12T10:${String(i).padStart(2, '0')}:00`, key: `k.${off + i}`, old: 'a', new: 'b' }))
+    apiMock.settingsAudit
+      .mockResolvedValueOnce({ rows: page(50, 0) })                       // 首页整页 → 显示加载更多
+      .mockRejectedValueOnce(new Error('network'))                        // 翻页失败
+      .mockResolvedValueOnce({ rows: [{ ts: '2026-07-12T11:00:00', key: 'k.retry', old: 'x', new: 'y' }] })
+    render(<AuditSection />)
+    await waitFor(() => expect(screen.getByText('k.0')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /加载更多/ }))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(screen.getByText('k.retry')).toBeTruthy())
+    expect(apiMock.settingsAudit).toHaveBeenLastCalledWith(50)   // 重放失败请求的 offset
+    expect(screen.getByText('k.0')).toBeTruthy()                 // append 语义:首页行仍在
   })
 })

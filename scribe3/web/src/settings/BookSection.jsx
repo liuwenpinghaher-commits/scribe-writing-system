@@ -63,7 +63,10 @@ export function BookSection({ work }) {
     const raw = intent[k]
     if (raw === '' || raw == null) {
       if ((baseline.current[k] ?? null) === null) return
-      commit(k, null)
+      // 后端 set_intent 对数字字段的 None 视为「未传」(MERGE 直接跳过),清空
+      // 永远落不了库——发 PUT 假装保存成功只会误导用户。恢复旧值 + 如实提示。
+      set(k, baseline.current[k])
+      setErr('数字字段不支持清空,已恢复原值')
       return
     }
     const n = parseInt(raw, 10)

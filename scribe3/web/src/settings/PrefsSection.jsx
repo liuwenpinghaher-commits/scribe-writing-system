@@ -11,9 +11,11 @@ const PREFS = [
     isOn: (v) => v === 'dark', toggle: (on) => (on ? 'dark' : 'light') },
   { key: 's3.layout.v2', label: '四栏布局(关=旧三栏)', hint: '刷新后生效',
     isOn: (v) => v !== '0', toggle: (on) => (on ? '1' : '0') },
-  { key: 'scribe3:guardOn', label: '写作护栏默认开启',
+  // guardOn/serif 消费点(WriteLayout.jsx:129/148)是 useState 惰性初始化读取,
+  // 已挂载的写作台不会热生效——如实标注,别让作者以为开关坏了。
+  { key: 'scribe3:guardOn', label: '写作护栏默认开启', hint: '切书或刷新后生效',
     isOn: (v) => v !== '0', toggle: (on) => (on ? '1' : '0') },
-  { key: 'scribe3:serif', label: '正文衬线字体',
+  { key: 'scribe3:serif', label: '正文衬线字体', hint: '切书或刷新后生效',
     isOn: (v) => v === '1', toggle: (on) => (on ? '1' : '0') },
 ]
 

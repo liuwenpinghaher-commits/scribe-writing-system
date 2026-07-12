@@ -140,6 +140,23 @@ def test_intent_crud(store):
     assert i["reader_feeling"] == "压抑中见微光" and "不洗白" in i["red_lines"]
 
 
+def test_intent_partial_put_keeps_unsent_fields(store):
+    """局部 PUT 只传 total_word_goal,不得把未传的文本字段抹成空串。
+
+    store.set_intent 本身是 MERGE 语义,但 put_intent 若用 model_dump()(不带
+    exclude_unset)会把 IntentIn 的默认空串一并落库,等价整替——设置中心
+    BookSection 失焦单字段保存会静默清空北极星三字段。"""
+    store.set_intent({"reader_feeling": "压抑中见微光", "emotional_arc": "由怯到决",
+                      "red_lines": "不洗白反派", "total_word_goal": 100000})
+    c = _client(store)
+    c.put("/intent", json={"total_word_goal": 120000})
+    i = c.get("/intent").json()
+    assert i["total_word_goal"] == 120000
+    assert i["red_lines"] == "不洗白反派"
+    assert i["reader_feeling"] == "压抑中见微光"
+    assert i["emotional_arc"] == "由怯到决"
+
+
 def test_editor_system_injects_context(store):
     from scribe3.ontology import Entity, Fact
     store.add_entity(Entity("role:焦三", "character", "焦三"))

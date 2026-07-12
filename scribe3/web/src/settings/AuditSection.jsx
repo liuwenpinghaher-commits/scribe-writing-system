@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 
 const PAGE = 50
@@ -11,8 +11,12 @@ export function AuditSection() {
   const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
+  // 最近一次请求(含失败的):重试重放它,保留 append 语义——
+  // 翻页失败后重试若回退成 load(0,false) 会把已加载的前几页整替掉。
+  const lastReq = useRef({ off: 0, append: false })
 
   const load = (off, append) => {
+    lastReq.current = { off, append }
     setLoading(true)
     api.settingsAudit(off).then((r) => {
       const got = r?.rows || []
@@ -30,7 +34,7 @@ export function AuditSection() {
       <div className="text-f13 font-medium text-ink mb-3">设置变更历史</div>
       {error && (
         <div className="text-f13 text-red-500 mb-3" role="alert">
-          {error} <button className="text-brand cursor-pointer" onClick={() => load(offset, false)}>重试</button>
+          {error} <button className="text-brand cursor-pointer" onClick={() => load(lastReq.current.off, lastReq.current.append)}>重试</button>
         </div>
       )}
       {!error && !loading && rows.length === 0 && <div className="text-f13 text-faint">暂无变更记录</div>}

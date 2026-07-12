@@ -2849,7 +2849,10 @@ class IntentIn(BaseModel):
 
 @app.put("/intent")
 def put_intent(i: IntentIn, work: str = "main"):
-    _store_for(work).set_intent(i.model_dump())
+    # exclude_unset:只落客户端真正提交的字段(同 edit_prom/patch_chapter 模式)。
+    # 否则 IntentIn 的默认空串会把未传的 reader_feeling/emotional_arc/red_lines
+    # 一并 MERGE 落库,局部保存(设置中心 BookSection 失焦单字段 PUT)等价静默清空。
+    _store_for(work).set_intent(i.model_dump(exclude_unset=True))
     return {"ok": True}
 
 
