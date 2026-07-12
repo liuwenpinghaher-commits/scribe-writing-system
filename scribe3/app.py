@@ -776,6 +776,27 @@ def settings_reset(key: str):
     return {"key": key, "status": "reset"}
 
 
+@app.get("/gateway/status")
+def gateway_status():
+    """三 Hermes 网关探活(GET {base}/models,1.5s 超时)。只读,不落库。"""
+    import httpx
+    from scribe3.settings import get_setting
+    targets = [
+        ("default", get_setting("HERMES_API"), "(default)"),
+        ("responses", get_setting("HERMES_RESPONSES_API"), get_setting("HERMES_RESPONSES_PROFILE")),
+        ("runs", get_setting("HERMES_RUNS_API"), get_setting("HERMES_RUNS_PROFILE")),
+    ]
+    out = []
+    for name, base, profile in targets:
+        online = False
+        try:
+            online = httpx.get(f"{base.rstrip('/')}/models", timeout=1.5).status_code < 500
+        except Exception:
+            pass
+        out.append({"name": name, "api": base, "profile": profile, "online": online})
+    return {"gateways": out}
+
+
 @app.get("/ai/usage")
 def ai_usage(work: str = "main", days: int = 7):
     """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。
