@@ -78,6 +78,14 @@ docker compose up
   `/gateway/restart` 走 nohup 后台起 + 轮询等就绪,不阻塞请求线程。
 - **入口**:前端顶栏齿轮图标 → 设置中心(七分区:连接与服务/LLM 与用量/工艺阈值/灰度开关/
   Hermes 网关/本书设置/个人偏好,外加变更历史)。
+- **Hermes 深度管理走官方 Dashboard**:模型与服务商(密钥/模型列表/主模型/11 辅助槽)、
+  Skills、MCP、Cron、会话与用量等全部由 Hermes 官方 Web Dashboard 原生管理——它是机器级
+  管理面,一个服务管全部 profile(侧边栏切换器,深链 `?profile=<name>`)。入口在设置中心
+  「Hermes 网关」区顶部的管理台卡:状态灯 + 一键启动(`hermes dashboard --no-open`,
+  nohup+轮询,已在线幂等短路)+ 按域深链;地址默认 `http://127.0.0.1:9119`(设置项
+  `gateway.dashboard_url` 可改);日志 `/tmp/scribe3-hermes-dashboard.log`。网关卡片
+  另显示各网关当前主模型(只读,来自 `GET /gateway/model-summary`,不解析密钥)。
+  注意:网关进程本身 Dashboard 不管,启停仍走设置中心的重启按钮或 `hermes -p <name> gateway run --replace`。
 
 ## CI
 
