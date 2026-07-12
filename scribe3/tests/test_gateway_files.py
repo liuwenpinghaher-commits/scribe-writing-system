@@ -104,6 +104,20 @@ def test_env_export_and_lowercase_masked_and_restored(home):
     assert "db_password=pw-low" in saved
 
 
+def test_masked_line_missing_orig_key_raises_not_allowed(home):
+    # 用户改了键名(或新增一行掩码占位 X=••••)——原文件里没有对应键,
+    # 不能把字面 •••• 静默写进文件,必须 fail-closed。
+    envf = home / "profiles" / "scribe3" / ".env"
+    files = {f["id"]: f for f in gf.list_files()}
+    env = files["scribe3/.env"]
+    edited = env["content"] + "\nNEW_SECRET_TOKEN=••••\n"
+    with pytest.raises(gf.NotAllowedError):
+        gf.write_file("scribe3/.env", edited, base_sha256=env["sha256"])
+    # 未落盘任何改动(fail-closed,原文件不变)
+    saved = envf.read_text(encoding="utf-8")
+    assert "••••" not in saved
+
+
 def test_list_survives_symlink_escape(home):
     d = home / "profiles" / "scribe3_write"
     d.mkdir(parents=True, exist_ok=True)

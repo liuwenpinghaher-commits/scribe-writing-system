@@ -902,6 +902,8 @@ def setup_store(ns: str = "scribe3", db: str | None = None):
 
 
 def main() -> None:
+    from scribe3 import settings as _settings
+    _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env(界面改的 DB 地址等对 MCP 进程同样生效)
     setup_store()
     mcp.run()
 

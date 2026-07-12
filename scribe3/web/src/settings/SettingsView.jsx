@@ -5,6 +5,7 @@ import { GatewaySection } from './GatewaySection'
 import { BookSection } from './BookSection'
 import { PrefsSection } from './PrefsSection'
 import { AuditSection } from './AuditSection'
+import { ConfirmDialog } from '../ui/Dialog.jsx'
 
 // 七分区 + 审计:connection/llm/craft/flags/gateway 由 /settings 元数据驱动;
 // book/prefs/audit 为前端本地分区(Task 15 充实)。
@@ -44,6 +45,40 @@ function UsageCard() {
   )
 }
 
+// 分区级「全部恢复默认」:只在本分区存在 source==='db'(已自定义)项时出现;
+// 串行逐项调 resetSetting,失败即中断并显示哪项失败(不静默、不继续踩后面的项)。
+function SectionResetAll({ items, onChanged }) {
+  const [confirm, setConfirm] = useState(false)
+  const [err, setErr] = useState(null)
+  const dbItems = items.filter((i) => i.source === 'db')
+  if (!dbItems.length) return null
+  const runReset = async () => {
+    setErr(null)
+    for (const it of dbItems) {
+      try {
+        await api.resetSetting(it.key)
+      } catch (e) {
+        setErr(`「${it.label}」恢复失败: ${e?.body?.detail || e.message || '未知错误'}`)
+        return
+      }
+    }
+    onChanged?.()
+  }
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <button onClick={() => setConfirm(true)}
+        className="text-meta text-faint hover:text-ink cursor-pointer">全部恢复默认</button>
+      {err && <div className="text-meta text-red-500" role="alert">{err}</div>}
+      <ConfirmDialog open={confirm}
+        title="全部恢复默认?"
+        body={`将把本分区 ${dbItems.length} 项已自定义设置恢复为默认值:${dbItems.map((i) => i.label).join('、')}`}
+        danger confirmText="确认"
+        onConfirm={runReset}
+        onClose={() => setConfirm(false)} />
+    </div>
+  )
+}
+
 export function SettingsView({ work }) {
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
@@ -74,8 +109,12 @@ export function SettingsView({ work }) {
           {section === 'prefs' && <PrefsSection work={work} />}
           {section === 'audit' && <AuditSection />}
           {section === 'llm' && <UsageCard />}
-          {['connection', 'llm', 'craft', 'flags'].includes(section) &&
-            byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={reload} />)}
+          {['connection', 'llm', 'craft', 'flags'].includes(section) && (
+            <>
+              <SectionResetAll items={byCat(section)} onChanged={reload} />
+              {byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={reload} />)}
+            </>
+          )}
         </div>
       </div>
     </div>

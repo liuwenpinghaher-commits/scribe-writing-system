@@ -5,6 +5,8 @@
 elicitation 本身是生产侧(ctx.elicit);可测核心 = commit_if_approved 门控逻辑。
 """
 import asyncio
+import json
+import os
 
 import pytest
 
@@ -75,6 +77,20 @@ def test_emotion_palette_list_and_query():
     assert isinstance(names, list) and "压抑的悲伤" in names
     one = M.s3_emotion_palette("压抑的悲伤")
     assert one["body"] and one["inner"]
+
+
+def test_main_applies_restart_overrides(monkeypatch, tmp_path):
+    """MCP stdio 进程 main() 首行灌注 restart 类 DB 覆盖(与 app.py 顶部同型):
+    界面改的 DB 地址等设置对 MCP 进程同样生效。不真启 stdio(patch setup_store/mcp.run)。"""
+    from scribe3 import settings, settings_store
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "settings.sqlite3"))
+    monkeypatch.delenv("SCRIBE3_WORK", raising=False)
+    settings_store.set_override("SCRIBE3_WORK", json.dumps("book2"))
+    settings.invalidate_cache()
+    monkeypatch.setattr(M, "setup_store", lambda *a, **kw: None)
+    monkeypatch.setattr(M.mcp, "run", lambda: None)
+    M.main()
+    assert os.environ["SCRIBE3_WORK"] == "book2"
 
 
 def test_craft_rule_gated_in_write_set():

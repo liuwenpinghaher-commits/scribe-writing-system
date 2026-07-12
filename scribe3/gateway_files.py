@@ -84,7 +84,11 @@ def _restore_masked(old: str, content: str, pattern: re.Pattern) -> str:
     restored = []
     for ln in content.split("\n"):
         m = pattern.match(ln)
-        if m and _is_masked_value(ln) and m.group(1) in orig:
+        if m and _is_masked_value(ln):
+            if m.group(1) not in orig:
+                # 键名在原文件里不存在(改了键名/新增了一行掩码占位)——
+                # 绝不能把字面 •••• 静默写进文件,fail-closed 拒绝整次保存。
+                raise NotAllowedError(f"掩码行找不到原键,无法还原: {m.group(1).strip()}")
             restored.append(orig[m.group(1)])
         else:
             restored.append(ln)

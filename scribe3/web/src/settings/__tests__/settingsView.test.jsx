@@ -16,8 +16,12 @@ const ITEMS = [
     value: 500, default: 500, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_SURREAL_URL', category: 'connection', type: 'str', label: 'SurrealDB 地址',
     value: 'ws://x', default: 'ws://127.0.0.1:8001/rpc', source: 'db', effect: 'restart', danger: false, pending_restart: true },
+  { key: 'SCRIBE3_SURREAL_USER', category: 'connection', type: 'str', label: 'SurrealDB 用户名',
+    value: 'admin', default: 'root', source: 'db', effect: 'restart', danger: false, pending_restart: false },
   { key: 'SCRIBE3_MEMORY_FABRIC_V1', category: 'flags', type: 'bool', label: '记忆织网检索 v1',
     value: false, default: false, source: 'default', effect: 'hot', danger: true, pending_restart: false },
+  { key: 'SCRIBE3_API_TOKEN', category: 'flags', type: 'secret', label: '后端 API token',
+    value: null, default: null, source: 'db', is_set: true, effect: 'restart', danger: false, pending_restart: false },
 ]
 
 beforeEach(() => {
@@ -34,7 +38,7 @@ describe('SettingsView', () => {
     expect(screen.getByText('连接与服务')).toBeTruthy()
     fireEvent.click(screen.getByText('连接与服务'))
     expect(screen.getByText('重启后生效')).toBeTruthy()   // pending_restart 黄标
-    expect(screen.getByText('已自定义')).toBeTruthy()      // source=db 徽章
+    expect(screen.getAllByText('已自定义').length).toBeGreaterThanOrEqual(1)   // source=db 徽章
   })
 
   it('danger 项修改需二次确认后才 PUT', async () => {
@@ -74,6 +78,55 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByRole('button', { name: '恢复默认:SurrealDB 地址' }))
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('boom'))
+  })
+
+  it('分区级「全部恢复默认」:该分区有 db 项时才出现,确认后逐项调 resetSetting 并重拉', async () => {
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('连接与服务')).toBeTruthy())
+    fireEvent.click(screen.getByText('连接与服务'))
+    // connection 分区有 SCRIBE3_SURREAL_URL + SCRIBE3_SURREAL_USER 两个 source=db 项
+    const btn = screen.getByRole('button', { name: '全部恢复默认' })
+    fireEvent.click(btn)
+    expect(apiMock.resetSetting).not.toHaveBeenCalled()   // 先确认
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledTimes(2))
+    expect(apiMock.resetSetting).toHaveBeenCalledWith('SCRIBE3_SURREAL_URL')
+    expect(apiMock.resetSetting).toHaveBeenCalledWith('SCRIBE3_SURREAL_USER')
+    await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))   // 初次加载 + 重拉
+  })
+
+  it('分区级「全部恢复默认」:无 db 项的分区不出现按钮', async () => {
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('工艺阈值')).toBeTruthy())
+    fireEvent.click(screen.getByText('工艺阈值'))
+    expect(screen.queryByRole('button', { name: '全部恢复默认' })).toBeNull()
+  })
+
+  it('分区级「全部恢复默认」:串行执行,某项失败即中断并显示是哪项失败', async () => {
+    apiMock.resetSetting
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('db 打不开'))
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('连接与服务')).toBeTruthy())
+    fireEvent.click(screen.getByText('连接与服务'))
+    fireEvent.click(screen.getByRole('button', { name: '全部恢复默认' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('db 打不开'))
+    expect(screen.getByRole('alert').textContent).toContain('SurrealDB 用户名')   // 显示哪项失败
+    expect(apiMock.settings).toHaveBeenCalledTimes(1)   // 中断:不重拉
+  })
+
+  it('secret 项 default 为 None 时,恢复默认提示显示「恢复为未设置」而非 null', async () => {
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('灰度开关')).toBeTruthy())
+    fireEvent.click(screen.getByText('灰度开关'))
+    const btn = screen.getByRole('button', { name: '恢复默认:后端 API token' })
+    expect(btn.title).toBe('恢复为未设置')
+    expect(btn.title).not.toContain('null')
+    fireEvent.click(btn)
+    await waitFor(() => expect(screen.getByText('恢复为未设置')).toBeTruthy())
+    expect(document.body.textContent).not.toContain('null')
   })
 
   it('llm 分区内嵌用量面板', async () => {

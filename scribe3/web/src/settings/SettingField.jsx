@@ -13,6 +13,9 @@ export function SettingField({ item, onChanged }) {
     catch (e) { setErr(e?.body?.detail || e.message || '保存失败') }
   }
   const submit = (value) => item.danger ? setConfirm({ value }) : commit(value)
+  // secret 项 default 为 None(未设置)时,提示不能显示字面 "null"。
+  const secretUnset = item.type === 'secret' && (item.default === null || item.default === undefined)
+  const defaultText = secretUnset ? '未设置' : String(item.default)
   return (
     <div className="flex items-start gap-3 border-b border-line py-3">
       <div className="flex-1 min-w-0">
@@ -54,13 +57,13 @@ export function SettingField({ item, onChanged }) {
         )}
         {item.source === 'db' && (
           <button onClick={() => setConfirm({ reset: true })} aria-label={`恢复默认:${item.label}`}
-            title={`恢复默认(${String(item.default)})`}
+            title={secretUnset ? '恢复为未设置' : `恢复默认(${defaultText})`}
             className="text-meta text-faint hover:text-ink cursor-pointer">恢复默认</button>
         )}
       </div>
       <ConfirmDialog open={!!confirm}
         title={confirm?.reset ? `恢复默认「${item.label}」?` : `修改「${item.label}」?`}
-        body={confirm?.reset ? `将回落为默认值 ${String(item.default)}` : `该项为高危设置,确认改为 ${String(confirm?.value)}`}
+        body={confirm?.reset ? (secretUnset ? '恢复为未设置' : `将回落为默认值 ${defaultText}`) : `该项为高危设置,确认改为 ${String(confirm?.value)}`}
         danger confirmText="确认"
         onConfirm={() => {
           const c = confirm; setConfirm(null)
