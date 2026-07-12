@@ -18,6 +18,7 @@ vi.mock('../editor/RichEditor.jsx', () => ({
 vi.mock('../ChiefSlotContext', () => ({
   ProposalBar: () => <div data-testid="proposal-bar" />,
   useStageProposal: () => ({ pending: null, clear: vi.fn() }),
+  useChiefSlot: () => ({ setChiefIntent: vi.fn() }),
 }))
 
 vi.mock('../ui/Toast.jsx', () => ({

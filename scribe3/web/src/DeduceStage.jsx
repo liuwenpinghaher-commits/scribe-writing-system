@@ -1,17 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, MessagesSquare } from 'lucide-react'
 import { api } from './api'
 import { useDeduceSel } from './deduceContext'
-import { useStageProposal, ProposalBar } from './ChiefSlotContext'
+import { useStageProposal, useChiefSlot, ProposalBar } from './ChiefSlotContext'
 import { useToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
+
+// Task 4:话术引用截断——chiefIntent 只是预填输入框,长演绎全文引用会塞爆(spec §4 要点4)。
+const QUOTE_MAX = 400
+const truncateQuote = (s) => {
+  const t = (s || '').trim()
+  return t.length > QUOTE_MAX ? t.slice(0, QUOTE_MAX) + '…' : t
+}
 
 // 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
 // work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F6,同 F1/F5)。
 export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
+  const { setChiefIntent } = useChiefSlot()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const chars = meta?.chars || []
@@ -123,6 +131,19 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     clear(); toast('已追加,失焦自动存')
   }
 
+  // Task 4:条目级「聊这条/改这条」——当前演绎目标(truth 或角色)话术经 chiefIntent 预填进右栏,
+  // 落地复用既有 fillPending(=替换当前目标 prose,零新落地逻辑,详见 Step 1 核实)。
+  const targetName = selected === 'truth' ? '场景真相' : cur.character_name
+  const notifyChief = () => { try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ } }
+  const chatCur = () => {
+    setChiefIntent({ phase: 'deduce', seq, text: `就本章「${targetName}」的演绎和你聊聊(先不改):「${truncateQuote(text)}」\n` })
+    notifyChief()
+  }
+  const editCur = () => {
+    setChiefIntent({ phase: 'deduce', seq, text: `把本章「${targetName}」这条演绎改一下,直接给出改后的完整演绎:「${truncateQuote(text)}」` })
+    notifyChief()
+  }
+
   const gen = () => {
     setBusy(true); let acc = ''
     const instr = selected === 'truth'
@@ -152,7 +173,13 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     >
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
-        <Btn variant="primary" size="sm" onClick={gen} disabled={busy} className="ml-auto">
+        <Btn variant="ghost" size="sm" onClick={chatCur} title="就这条演绎和主编讨论" aria-label="就这条演绎和主编讨论" className="ml-auto">
+          <MessagesSquare size={13} />聊这条
+        </Btn>
+        <Btn variant="ghost" size="sm" onClick={editCur} title="让主编改这条演绎" aria-label="让主编改这条演绎">
+          <Sparkles size={13} />改这条
+        </Btn>
+        <Btn variant="primary" size="sm" onClick={gen} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
       </div>
