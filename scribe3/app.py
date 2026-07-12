@@ -3873,9 +3873,10 @@ def _context_assembler_enabled() -> bool:
     """Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1 是否开启(每次调用读,默认关)。
     关 → _assemble_write_instructions 走旧散点组装链,行为一字不变(1270+ 后端测试
       与真机写作路径零影响,控制器裁决)。开 → 走 ContextAssembler 组装的 envelope。
-    Task 17 的"写作质量金丝雀门"真机验证通过后才允许默认开启。"""
-    return os.environ.get("SCRIBE3_CONTEXT_ASSEMBLER_V1", "").strip().lower() in {
-        "1", "true", "yes", "on"}
+    Task 17 的"写作质量金丝雀门"真机验证通过后才允许默认开启。
+    统一走 _flag_enabled(设置中心 DB 覆盖→env→默认,热生效),与 /capabilities
+    上报同一判定路径,消除双路径分裂。"""
+    return _flag_enabled("SCRIBE3_CONTEXT_ASSEMBLER_V1")
 
 
 # ContextSnapshot.phase 的合法枚举(context_models.PhaseName);写作端点的 phase

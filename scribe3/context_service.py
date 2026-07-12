@@ -15,8 +15,6 @@ work 绑定校验、快照过期(revision+hash)判定、chat 绑定强制(开关
 """
 from __future__ import annotations
 
-import os
-
 from pydantic import ValidationError
 
 from scribe3.context_models import ContextSnapshot, StaleContextError
@@ -32,8 +30,11 @@ HEADER_HASH = "x-scribe-context-hash"
 
 
 def context_snapshot_flag_enabled() -> bool:
-    """SCRIBE3_CONTEXT_SNAPSHOT_V1 是否开启。默认关:存量调用方行为零变化。"""
-    return os.environ.get(FLAG_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+    """SCRIBE3_CONTEXT_SNAPSHOT_V1 是否开启。默认关:存量调用方行为零变化。
+    统一走 context_cache.flag_enabled(设置中心 DB 覆盖→env→默认,热生效),
+    消除与 capabilities 上报的双路径分裂。延迟 import 防环。"""
+    from scribe3.context_cache import flag_enabled
+    return flag_enabled(FLAG_ENV)
 
 
 class ContextServiceError(Exception):
