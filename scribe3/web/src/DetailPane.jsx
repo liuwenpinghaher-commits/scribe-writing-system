@@ -7,6 +7,7 @@ import { InsightView } from './views/InsightView'
 import { OverviewView } from './views/OverviewView'
 import { TimelineView } from './views/TimelineView'
 import { ErrorBoundary } from './ErrorBoundary'
+import { SettingsView } from './settings/SettingsView'
 import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
 import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
@@ -67,6 +68,7 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+    if (k === 'settings') return <SettingsView key="settings" work={work} />
     if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>
   }

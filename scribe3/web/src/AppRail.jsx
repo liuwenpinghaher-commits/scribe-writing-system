@@ -1,4 +1,4 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
@@ -62,8 +62,14 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
         </button>
       )}
 
-      {/* 主题:保留为右簇锚点(ml-auto)。 */}
+      {/* 主题:保留为右簇锚点(ml-auto)。设置中心入口(Task 12)紧贴主题按钮前,同属右簇。 */}
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
+        <button onClick={() => onView('settings')} aria-current={view === 'settings' ? 'page' : undefined}
+          title="设置" aria-label="设置"
+          className={`h-7 w-7 rounded-md inline-flex items-center justify-center cursor-pointer ${
+            view === 'settings' ? 'bg-soft text-brand' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+          <Settings size={15} />
+        </button>
         <button onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
           title={theme === 'dark' ? '切换浅色' : '切换深色'} aria-label="切换深浅色"
           className="w-8 h-8 rounded-lg text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer">

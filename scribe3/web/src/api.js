@@ -423,4 +423,13 @@ export const api = {
     es.onerror = () => { es.close(); onError('连接中断') }
     return es
   },
+  // ── 统一设置中心 ──
+  settings: () => j('/settings'),
+  putSetting: (key, value) => put('/settings/' + enc(key), { value }),
+  resetSetting: (key) => post('/settings/' + enc(key) + '/reset'),
+  settingsAudit: (offset = 0) => j('/settings/audit?offset=' + offset),
+  gatewayStatus: () => j('/gateway/status'),
+  gatewayFiles: () => j('/gateway/files'),
+  putGatewayFile: (id, content, base_sha256) => put('/gateway/files', { id, content, base_sha256 }),
+  gatewayRestart: (profile) => post('/gateway/restart', { profile }),
 }
