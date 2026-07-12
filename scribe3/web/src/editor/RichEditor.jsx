@@ -4,7 +4,7 @@ import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
-import { Bold, Italic, Strikethrough, Heading3 } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Heading3, Sparkles, MessagesSquare } from 'lucide-react'
 import { mdToHTML, docToMd } from './markdown'
 
 /**
@@ -19,8 +19,10 @@ import { mdToHTML, docToMd } from './markdown'
  * - placeholder / ariaLabel: 占位与无障碍名(playwright getByRole('textbox',{name}) 可选中)
  * - editorKey: 变化时重建编辑器实例(切章/切选中项,清 undo 栈)
  * - minimal: 精简模式(节拍单条):低高度、无字数尾栏、无气泡菜单
+ * - onSelAction({ text, intent }): 可选。传入且非 minimal 时,气泡菜单排版钮后追加「改这段」
+ *   (intent:'edit')/「聊这段」(intent:'discuss')两钮;不传时气泡与现状逐字一致。
  */
-export function RichEditor({ value, onChange, onBlur, placeholder = '', ariaLabel, editorKey, minimal = false, className = '' }) {
+export function RichEditor({ value, onChange, onBlur, placeholder = '', ariaLabel, editorKey, minimal = false, className = '', onSelAction }) {
   const [chars, setChars] = useState(0)
   const lastEmit = useRef(value || '')
 
@@ -97,6 +99,23 @@ export function RichEditor({ value, onChange, onBlur, placeholder = '', ariaLabe
             <Bub on={sel.strike} onClick={() => editor.chain().focus().toggleStrike().run()} title="删除线"><Strikethrough size={14} /></Bub>
             <div className="w-px h-5 bg-line mx-0.5" />
             <Bub on={sel.h3} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} title="小标题"><Heading3 size={14} /></Bub>
+            {onSelAction && (
+              <>
+                <div className="w-px h-5 bg-line mx-0.5" />
+                {/* 选中后两种意图:改这段(单提案落地)/ 聊这段(只讨论不改稿) */}
+                {[
+                  { intent: 'edit', label: '改这段', Icon: Sparkles, title: '让主编改这段' },
+                  { intent: 'discuss', label: '聊这段', Icon: MessagesSquare, title: '就这段和主编讨论(不改稿)' },
+                ].map(({ intent, label, Icon, title }) => (
+                  <button key={intent} onMouseDown={(e) => e.preventDefault()} title={title}
+                    onClick={() => {
+                      const { from, to } = editor.state.selection
+                      onSelAction({ text: editor.state.doc.textBetween(from, to, '\n'), intent })
+                    }}
+                    className="h-7 px-2 inline-flex items-center gap-1 rounded-md text-f12 text-brand hover:bg-soft cursor-pointer transition-colors"><Icon size={13} />{label}</button>
+                ))}
+              </>
+            )}
           </div>
         </BubbleMenu>
       )}
