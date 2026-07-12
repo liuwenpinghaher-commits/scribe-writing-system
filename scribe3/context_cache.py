@@ -44,9 +44,13 @@ ASSEMBLER_FLAG = "SCRIBE3_CONTEXT_ASSEMBLER_V1"
 
 
 def flag_enabled(name: str) -> bool:
-    """统一开关判定:每次读 env(而非 import 固化),便于测试 monkeypatch 与运行时灰度。
-    默认关 → 系统行为与开关引入前【字节等价】。"""
-    return os.environ.get(name, "").strip().lower() in _TRUE
+    """统一开关判定:先读设置中心(DB 覆盖→env→默认,热生效),未登记名
+    回落旧 env 语义(向前兼容)。默认关 → 与开关引入前【字节等价】。"""
+    try:
+        from scribe3.settings import get_setting
+        return bool(get_setting(name))
+    except KeyError:
+        return os.environ.get(name, "").strip().lower() in _TRUE
 
 
 # 检索结果缓存键的策略版本:检索策略/融合口径变更须 bump,使旧缓存键自然失效。
