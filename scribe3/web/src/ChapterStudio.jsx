@@ -54,18 +54,18 @@ const selEditPrompt = (text) => `把这段改一下,直接给出改后的完整�
 // 选区锚点匹配(spec 决策2):①原文唯一命中;②\n→\n\n 兜底——RichEditor 选区跨段落时块间是
 // 单 \n(textBetween(from,to,'\n')),而 md buffer(docToMd)块间是 \n\n,直接 indexOf 不命中。
 // 两级都不唯一/不命中 → null,调用方降级为该阶段既有落地方式(追加/整体填入)。
+// 唯一性用 indexOf === lastIndexOf:天然覆盖自重叠子串(如「轰轰」在「轰轰轰」里重叠两处)——
+// 非重叠扫描(游标跳 needle.length)会漏数重叠命中、误判唯一,String.replace 静默错替第一处。
 function matchSelAnchor(buffer, anchor) {
   if (!anchor) return null
   const buf = buffer || ''
-  const countOf = (hay, needle) => {
-    if (!needle) return 0
-    let n = 0, i = 0
-    while ((i = hay.indexOf(needle, i)) !== -1) { n++; i += needle.length }
-    return n
+  const unique = (needle) => {
+    const first = buf.indexOf(needle)
+    return first !== -1 && first === buf.lastIndexOf(needle)
   }
-  if (countOf(buf, anchor) === 1) return anchor
+  if (unique(anchor)) return anchor
   const alt = anchor.replace(/\n/g, '\n\n')
-  if (alt !== anchor && countOf(buf, alt) === 1) return alt
+  if (alt !== anchor && unique(alt)) return alt
   return null
 }
 

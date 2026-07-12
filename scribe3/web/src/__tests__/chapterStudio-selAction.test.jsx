@@ -160,6 +160,30 @@ describe('ChapterStudio 大纲/草稿选区聊这段/改这段(Task 2)', () => {
     expect(screen.getByText('选中段无法精确定位,按原方式落地')).toBeTruthy()
   })
 
+  it('③b 自重叠子串(anchor「轰轰」在「轰轰轰」里重叠出现两次)→ 判多处走降级,不出「替换选中段」', async () => {
+    // 非重叠扫描(游标跳 needle.length)在「轰轰轰」里只数到 1 处「轰轰」,会误判唯一并
+    // String.replace 替换第一处——用户选的可能是第二处,静默错替。唯一性必须覆盖重叠命中
+    // (indexOf !== lastIndexOf 天然覆盖)。
+    apiMock.chapter.mockResolvedValue({
+      title: '三', synopsis: '前情。\n\n轰轰轰\n\n后续。', beats: [], focalizer: 'role:小翠',
+      prose: '', deductions: [], involved_characters: [],
+    })
+    selActionState.text = '轰轰'
+
+    renderStudio()
+    await screen.findByTestId('chapter-workbench-shell')
+
+    fireEvent.click(screen.getByRole('button', { name: '改这段-3|synopsis' }))
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'outline', seq: 3, target: null, content: '替换内容', ts: 1 } }))
+
+    await screen.findByText(/主编生成了内容/)
+    expect(screen.queryByRole('button', { name: '替换选中段' })).toBeNull()
+    expect(screen.getByRole('button', { name: '填入' })).toBeTruthy()
+    expect(screen.getByText('选中段无法精确定位,按原方式落地')).toBeTruthy()
+  })
+
   it('④草稿 DraftTab 同型:改这段→选区替换后 draftRef.dirty 置真(不强制立即 saveDraft)', async () => {
     renderStudio()
     fireEvent.click(await screen.findByRole('tab', { name: '草稿' }))
