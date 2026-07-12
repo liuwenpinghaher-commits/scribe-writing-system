@@ -103,6 +103,18 @@ export function detailRouteForNode(node) {
   return String(node.id || node.type || 'unknown')
 }
 
+// 语义动作"切横切视图"(顶栏图谱/时间线/仪表盘等)的完整 patch:
+// entry 不动(横切视图不属于任何一级入口),章/phase 清空(视图是全书维度)
+export function viewPatch(viewKey, label = '') {
+  return {
+    focus: { type: 'view', id: `view:${viewKey}`, label },
+    detail_route: `view:${viewKey}`,
+    chapter: null,
+    phase: null,
+    reason: 'view',
+  }
+}
+
 // 语义动作"激活一级入口"的完整 patch
 export function entryPatch(key, label = '') {
   return {

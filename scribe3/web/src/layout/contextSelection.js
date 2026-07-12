@@ -39,7 +39,9 @@ const DELEGATE_TYPE = {
 
 // 把本地 sel 归一成 detail_route 同构的字符串,用于与快照 detail_route 比对是否"同一处"。
 // 章/场景统一 chapter:seq;view 用 view:key;空选为 empty。
-const routeOf = (sel) => {
+// (导出给 FourPaneShell 的 I-2 旁路补记 effect 用——判"本地 sel 这一轮动没动"须与
+//  本投影的路由口径完全一致,否则两边各算各的会漏边沿或误补记。)
+export const routeOf = (sel) => {
   const node = sel?.node
   if (!node) return sel?.mode === 'view' ? `view:${sel.viewKey}` : 'empty'
   if (node.type === 'chapter' || node.type === 'scene') return `chapter:${node.type === 'scene' ? node.ref?.seq : node.ref}`

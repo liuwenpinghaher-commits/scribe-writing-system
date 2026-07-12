@@ -103,6 +103,10 @@ function Harness({ work = 'demo' }) {
   }
   return (
     <ContextSnapshotProvider work={work}>
+      {/* App 层旁路入口(I-2 复现):顶栏横切视图 / 时间线跳章都在 FourPaneShell 之外
+          直改 sel(App.onView / App.handleJumpChapter),不经 handleSelectItem 的 navigate */}
+      <button onClick={() => setSel({ mode: 'view', viewKey: 'atlas' })}>顶栏图谱</button>
+      <button onClick={() => setSel({ mode: 'node', node: { id: 'ch:5', type: 'chapter', ref: 5, label: '5' } })}>跳到第5章</button>
       <FourPaneShell tree={tree} sel={sel} onSelectNode={onSelectNode} work={work} leftSeq={3} reload={() => {}} />
     </ContextSnapshotProvider>
   )
@@ -390,5 +394,42 @@ describe('四栏上下文原子性(单一 ContextSnapshot reducer)', () => {
     // isView 由 effectiveSel 驱动:栏2 目录整体隐藏,栏3 全画布渲染视图
     await waitFor(() => expect(screen.queryByTestId('col-directory')).toBeNull())
     expect(screen.getByTestId('detail-content').textContent).toBe('view:atlas')
+  })
+
+  it('I-2 顶栏切横切视图(App 层旁路):不被章/条目快照投影盖回,并补记一次 view 语义导航', async () => {
+    localStorage.setItem('s3.demo.leftTab', 'codex')
+    await renderReady()
+    // 进入条目(=进手稿后 navigated=true 的等价态):快照 focus 停在 character:甲
+    fireEvent.click(screen.getByRole('button', { name: '甲' }))
+    await waitFor(() => expect(detailEl().getAttribute('data-context-revision')).toBe('4'))
+
+    // 顶栏点图谱:App 层直改 sel,不经 FourPaneShell 回调
+    fireEvent.click(screen.getByRole('button', { name: '顶栏图谱' }))
+
+    // 栏3 必须渲染视图(而不是被投影盖回 character:甲)
+    await waitFor(() => expect(screen.getByTestId('detail-content').textContent).toBe('view:atlas'))
+    // 本地旁路先动 → 补记语义导航进快照(与 I-1 entry 对齐同型),快照保持唯一事实源
+    expect(apiMock.navigateContext).toHaveBeenLastCalledWith('ctx:1', expect.objectContaining({
+      focus: expect.objectContaining({ type: 'view', id: 'view:atlas' }),
+      detail_route: 'view:atlas',
+      reason: 'view',
+    }))
+  })
+
+  it('I-2 时间线跳章(App 层直改 sel):不被旧条目快照投影盖回,补记 item 语义导航', async () => {
+    localStorage.setItem('s3.demo.leftTab', 'codex')
+    await renderReady()
+    fireEvent.click(screen.getByRole('button', { name: '甲' }))
+    await waitFor(() => expect(detailEl().getAttribute('data-context-revision')).toBe('4'))
+
+    fireEvent.click(screen.getByRole('button', { name: '跳到第5章' }))
+
+    await waitFor(() => expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:5'))
+    expect(apiMock.navigateContext).toHaveBeenLastCalledWith('ctx:1', expect.objectContaining({
+      focus: expect.objectContaining({ type: 'chapter', id: 'chapter:5' }),
+      detail_route: 'chapter:5',
+      chapter: 5,
+      reason: 'item',
+    }))
   })
 })

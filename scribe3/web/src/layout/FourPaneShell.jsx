@@ -11,8 +11,8 @@ import { targetNodeToSelection } from './targetNavigation'
 import { api } from '../api'
 import { showToast } from '../ui/Toast'
 import { useContextSnapshot } from '../context/ContextSnapshotContext'
-import { entryPatch, nodePatch } from '../context/contextSnapshot'
-import { selectionFromSnapshot } from './contextSelection'
+import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
+import { routeOf, selectionFromSnapshot } from './contextSelection'
 
 const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
 const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
@@ -138,6 +138,28 @@ export function FourPaneShell({
       navigate(entryPatch(a, caps.find((c) => c.key === a)?.label || ''))
     }
   }, [navigated, active?.key, snapshot?.entry, caps, setTab, navigate])
+  // I-2(同型于 I-1 entry 对齐):sel 的旁路直改也要补记进快照。顶栏横切视图
+  // (App.onView)/ 时间线跳章(App.handleJumpChapter)都在本组件之外直改 sel、
+  // 不经 handleSelectItem 的 navigate——若不补记,navigated 后投影以快照为事实源,
+  // 会把用户刚点的视图/章盖回快照里的旧 focus(实症:进手稿后图谱/时间线/仪表盘
+  // 打不开)。按"这一轮谁先动"判方向:快照侧先动(409 对齐/另窗口)→ 投影已让
+  // UI 跟随,绝不反向补记打成循环;本地侧先动 → 补记一次语义导航。
+  // 路由口径必须用 contextSelection.routeOf(与投影同源),否则漏边沿/误补记。
+  const selSyncRef = useRef({ local: routeOf(sel), snap: snapshot?.detail_route })
+  useEffect(() => {
+    const local = routeOf(sel)
+    const snap = snapshot?.detail_route
+    const prev = selSyncRef.current
+    selSyncRef.current = { local, snap }
+    if (!navigated || !snap || local === snap) return
+    if (snap !== prev.snap) return   // 快照侧先动:UI 跟随投影,不反向补记
+    if (local === prev.local) return // 双方都没动(无关重渲):不动快照
+    if (sel?.mode === 'view' && sel.viewKey) navigate(viewPatch(sel.viewKey))
+    // 旁路只可能带来章跳转(App.handleJumpChapter);其余节点类都走 handleSelectItem,
+    // 空选(node:null,如退出视图)由 handleActive 的 entryPatch 先行收敛,不在此补记
+    else if (sel?.node) navigate(nodePatch(sel.node))
+  }, [navigated, sel, snapshot?.detail_route, navigate])
+
   // 409 对齐后向用户说明(fail-soft:只提示,不打断)
   useEffect(() => {
     if (ctxError?.code === 'stale_context') showToast(ctxError.message, { tone: 'warn' })
