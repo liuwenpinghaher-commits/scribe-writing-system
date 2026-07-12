@@ -384,7 +384,8 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
       {pending && (
         <ProposalBar
           text={beatSelTarget
-            ? '主编给出了这一条的改稿,可替换该条。'
+            // 多条改稿不静默截断(spec 原则):明示只取第 1 条、其余不落地,含条数。
+            ? `主编给出了这一条的改稿,可替换该条。${pendingItems.length > 1 ? `本次改稿解析出 ${pendingItems.length} 条,替换仅取第 1 条,其余不落地。` : ''}`
             : `主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
           actions={beatSelTarget
             ? [{ label: '替换该条', variant: 'primary', onClick: replaceBeat }, { label: '追加为新条目', onClick: appendPending }]

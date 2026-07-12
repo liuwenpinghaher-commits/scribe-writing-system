@@ -342,10 +342,22 @@ describe('ChapterStudio 节拍条目级聊这条/改这条(Task 3)', () => {
     await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
 
     fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '- 第一条改稿\n- 第二条改稿', ts: 1 } }))
-    fireEvent.click(await screen.findByRole('button', { name: '替换该条' }))
+    // 不静默截断(spec 原则):多条时 ProposalBar 文案明示只取第 1 条、其余不落地,含条数。
+    await screen.findByText(/本次改稿解析出 2 条,替换仅取第 1 条,其余不落地/)
+    fireEvent.click(screen.getByRole('button', { name: '替换该条' }))
 
     // 同步读,理由同上一条用例(避开静态 mock 刷新把编辑器冲回原文的测试替身局限)。
     expect(screen.getByRole('textbox', { name: '节拍 1' }).value).toBe('第一条改稿')
+  })
+
+  it('③b 单条改稿不出现截断提示(N>1 才显示)', async () => {
+    await openBeatsTab()
+    fireEvent.click(within(beatRow('节拍 1')).getByRole('button', { name: '让主编改这条节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '唯一一条改稿', ts: 1 } }))
+    await screen.findByRole('button', { name: '替换该条' })
+    expect(screen.queryByText(/其余不落地/)).toBeNull()
   })
 
   it('④未点「改这条」(无 beatSel)时 proposal 到来维持现状「追加为新条目」', async () => {
