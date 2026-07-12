@@ -21,6 +21,14 @@ export default function App() {
     localStorage.setItem('s3-theme', theme)
   }, [theme])
 
+  // 设置中心「个人偏好」切主题走 localStorage 直写(非 setTheme),不经这个 state——
+  // 监听 s3-pref-changed 把外部写入同步回 state,主题才能热切(否则要刷新才生效)。
+  useEffect(() => {
+    const h = (e) => { if (e.detail?.key === 's3-theme') setTheme(localStorage.getItem('s3-theme') || 'light') }
+    window.addEventListener('s3-pref-changed', h)
+    return () => window.removeEventListener('s3-pref-changed', h)
+  }, [])
+
   // 全局键盘层(App 层 window keydown,仓内既有惯例落点;Task 10 Step 4 + 双审收尾):
   //   · ⌘K   作品内 → 与顶栏搜索派发同一 s3-open-capability{search, focus:true},统一触发
   //          左侧搜索工作区并聚焦其唯一搜索框(不另开第二个搜索面,不复制结果 store);
