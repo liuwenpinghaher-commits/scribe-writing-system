@@ -778,7 +778,10 @@ def settings_reset(key: str):
 
 @app.get("/gateway/status")
 def gateway_status():
-    """三 Hermes 网关探活(GET {base}/models,1.5s 超时)。只读,不落库。"""
+    """三 Hermes 网关探活(GET {base}/models,1.5s 超时)。只读,不落库。
+
+    online=端口有 HTTP 响应(<500),不代表鉴权/服务正常。
+    """
     import httpx
     from scribe3.settings import get_setting
     targets = [
