@@ -48,6 +48,27 @@ const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
+// ——— 选区聊/改话术模板(大纲/草稿共用;spec 2026-07-12-selection-actions-design.md §2 决策1)———
+const selDiscussPrompt = (label, text) => `就本章${label}这段和你聊聊(先不改):「${text}」\n`
+const selEditPrompt = (text) => `把这段改一下,直接给出改后的完整段落:「${text}」`
+// 选区锚点匹配(spec 决策2):①原文唯一命中;②\n→\n\n 兜底——RichEditor 选区跨段落时块间是
+// 单 \n(textBetween(from,to,'\n')),而 md buffer(docToMd)块间是 \n\n,直接 indexOf 不命中。
+// 两级都不唯一/不命中 → null,调用方降级为该阶段既有落地方式(追加/整体填入)。
+function matchSelAnchor(buffer, anchor) {
+  if (!anchor) return null
+  const buf = buffer || ''
+  const countOf = (hay, needle) => {
+    if (!needle) return 0
+    let n = 0, i = 0
+    while ((i = hay.indexOf(needle, i)) !== -1) { n++; i += needle.length }
+    return n
+  }
+  if (countOf(buf, anchor) === 1) return anchor
+  const alt = anchor.replace(/\n/g, '\n\n')
+  if (alt !== anchor && countOf(buf, alt) === 1) return alt
+  return null
+}
+
 // ——— 阶段 meta 摘要条(P1):后端已有 focalizer/涉及角色/演绎/字数,在每个阶段顶部只读呈现 ———
 function MetaBar({ meta, wordCount }) {
   if (!meta) return null
@@ -146,11 +167,25 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
   // 块二:接主编 stageProposal(phase/seq 匹配才显示);落进编辑器置 dirty,走上面的健壮保存。
   const { pending, clear } = useStageProposal('outline', seq)
   const { setChiefIntent } = useChiefSlot()
+  // Task 2:选区「改这段」的锚点(阶段级 state,切章/放弃/落地清空);唯一命中 buffer(text)
+  // 才把 pending 卡主按钮升级为「替换选中段」,否则维持现状「填入」+ 降级提示。
+  const [selAnchor, setSelAnchor] = useState(null)
+  useEffect(() => { setSelAnchor(null) }, [seq])
+  const matchedAnchor = selAnchor ? matchSelAnchor(text, selAnchor) : null
+  const onSelAction = ({ text: selText, intent }) => {
+    if (intent === 'discuss') {
+      setChiefIntent({ phase: 'outline', seq, text: selDiscussPrompt('大纲', selText) })
+    } else {
+      setChiefIntent({ phase: 'outline', seq, text: selEditPrompt(selText) })
+      setSelAnchor(selText)
+    }
+    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+  }
   const fillPending = () => {
     if (!pending) return
     setText(pending.content)
     dirtyRef.current = { key: `${seq}|synopsis`, value: pending.content, dirty: true }
-    clear(); toast('已填入大纲')
+    clear(); setSelAnchor(null); toast('已填入大纲')
   }
   const appendPending = () => {
     if (!pending) return
@@ -158,7 +193,16 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
     const next = (base ? base + '\n\n' : '') + pending.content
     setText(next)
     dirtyRef.current = { key: `${seq}|synopsis`, value: next, dirty: true }
-    clear(); toast('已追加到大纲')
+    clear(); setSelAnchor(null); toast('已追加到大纲')
+  }
+  const replaceSelection = () => {
+    if (!pending || !matchedAnchor) return
+    const next = text.replace(matchedAnchor, pending.content)
+    setText(next)
+    dirtyRef.current = { key: `${seq}|synopsis`, value: next, dirty: true }
+    clear(); setSelAnchor(null)
+    flush()
+    toast('已替换选中段')
   }
 
   return (
@@ -179,9 +223,14 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
       {pending && (
         <ProposalBar
           text={`主编生成了内容(${pending.content.replace(/\s/g, '').length} 字),可落进大纲。`}
-          actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
-          onDismiss={clear}
+          actions={matchedAnchor
+            ? [{ label: '替换选中段', variant: 'primary', onClick: replaceSelection }, { label: '追加', onClick: appendPending }]
+            : [{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+          onDismiss={() => { clear(); setSelAnchor(null) }}
         />
+      )}
+      {pending && selAnchor && !matchedAnchor && (
+        <div className="text-f12 text-warn">选中段无法精确定位,按原方式落地</div>
       )}
       <RichEditor
         value={text}
@@ -189,6 +238,7 @@ function OutlineTab({ seq, value, meta, onSaved, work }) {
         ariaLabel="本章大纲"
         onChange={(md) => { setText(md); dirtyRef.current = { key: `${seq}|synopsis`, value: md, dirty: true } }}
         onBlur={flush}
+        onSelAction={onSelAction}
         placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
         className="flex-1 min-h-0"
       />
@@ -362,16 +412,39 @@ function DraftTab({ seq, work, meta, onAdopt }) {
   const [checkRes, setCheckRes] = useState(null)
   // 待落草稿(块二并入通用 stageProposal 通道):phase/seq 匹配且内容非空才提示(防切章/切阶段串台)。
   const { pending, clear } = useStageProposal('draft', seq)
+  // Task 2:选区「改这段」的锚点(阶段级 state,切章/放弃/落地清空)。
+  const [selAnchor, setSelAnchor] = useState(null)
+  useEffect(() => { setSelAnchor(null) }, [seq])
+  const matchedAnchor = selAnchor ? matchSelAnchor(text, selAnchor) : null
+  const onSelAction = ({ text: selText, intent }) => {
+    if (intent === 'discuss') {
+      setChiefIntent({ phase: 'draft', seq, text: selDiscussPrompt('草稿', selText) })
+    } else {
+      setChiefIntent({ phase: 'draft', seq, text: selEditPrompt(selText) })
+      setSelAnchor(selText)
+    }
+    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+  }
   // 落进后置 dirty,靠既有 flush(切章/存草稿)落库;同时清除待落。
   const fillDraft = () => {
     if (!pending) return
     setText(pending.content); draftRef.current.dirty = true
-    clear(); toast('已填入草稿框')
+    clear(); setSelAnchor(null); toast('已填入草稿框')
   }
   const appendDraft = () => {
     if (!pending) return
     setText((prev) => (prev ? prev + '\n\n' : '') + pending.content); draftRef.current.dirty = true
-    clear(); toast('已追加到草稿')
+    clear(); setSelAnchor(null); toast('已追加到草稿')
+  }
+  // 替换选中段:仅置 dirty,不强制立即 saveDraft(草稿区放手写,不上保存节奏)。
+  const replaceSelection = () => {
+    if (!pending || !matchedAnchor) return
+    const next = text.replace(matchedAnchor, pending.content)
+    setText(next)
+    draftRef.current.text = next
+    draftRef.current.dirty = true
+    clear(); setSelAnchor(null)
+    toast('已替换选中段')
   }
   // 换章防丢:draftRef 只持「实时 text/summary/dirty」(渲染时刷新);seq 不放 ref
   // ——因 draftRef.current.seq=seq 会在换章渲染时先变成新 seq,导致 cleanup 拿错章号。
@@ -453,9 +526,14 @@ function DraftTab({ seq, work, meta, onAdopt }) {
       {pending && (
         <ProposalBar
           text={`主编生成了本章草稿(${pending.content.replace(/\s/g, '').length} 字),可直接落进草稿框。`}
-          actions={[{ label: '填入草稿框', variant: 'primary', onClick: fillDraft }, { label: '追加到草稿', onClick: appendDraft }]}
-          onDismiss={clear}
+          actions={matchedAnchor
+            ? [{ label: '替换选中段', variant: 'primary', onClick: replaceSelection }, { label: '追加到草稿', onClick: appendDraft }]
+            : [{ label: '填入草稿框', variant: 'primary', onClick: fillDraft }, { label: '追加到草稿', onClick: appendDraft }]}
+          onDismiss={() => { clear(); setSelAnchor(null) }}
         />
+      )}
+      {pending && selAnchor && !matchedAnchor && (
+        <div className="text-f12 text-warn">选中段无法精确定位,按原方式落地</div>
       )}
       {checkRes && (
         <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12">
@@ -489,6 +567,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
         editorKey={`${seq}|draft`}
         ariaLabel="草稿正文"
         onChange={(md) => { setText(md); draftRef.current.text = md; draftRef.current.dirty = true }}
+        onSelAction={onSelAction}
         placeholder="在此自由起草,或在右栏让主编据大纲/节拍生成草稿。满意后『采用为正文』搬进正文 tab 做护栏/QC 打磨。"
         className="flex-1 min-h-0"
       />
