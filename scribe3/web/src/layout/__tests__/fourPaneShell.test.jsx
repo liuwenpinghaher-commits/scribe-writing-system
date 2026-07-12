@@ -256,9 +256,13 @@ describe('FourPaneShell 四栏钻取', () => {
     fireEvent.click(screen.getByRole('button', { name: '手稿' }))
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
-    expect(screen.getByTestId('directory-restore-button')).toBeTruthy()
+    const restore = screen.getByTestId('directory-restore-button')
+    // 2026-07-12 重叠修复:还原钮=贴栏3 左缘垂直居中的细把手,不再 top-2 left-2 压住头部面包屑
+    expect(restore.className).toContain('left-0')
+    expect(restore.className).toContain('top-1/2')
+    expect(restore.className).not.toContain('top-2 ')
 
-    fireEvent.click(screen.getByTestId('directory-restore-button'))
+    fireEvent.click(restore)
 
     expect(screen.getByTestId('col-directory')).toBeTruthy()
   })
@@ -271,9 +275,12 @@ describe('FourPaneShell 四栏钻取', () => {
     fireEvent.click(screen.getByTestId('right-collapse-button'))
 
     expect(screen.queryByTestId('chief')).toBeNull()
-    expect(screen.getByTestId('right-restore-button')).toBeTruthy()
+    const restore = screen.getByTestId('right-restore-button')
+    // 同款重叠修复:贴栏3 右缘垂直居中,不再 top-2 right-2 压住头部「更多」按钮
+    expect(restore.className).toContain('right-0')
+    expect(restore.className).toContain('top-1/2')
 
-    fireEvent.click(screen.getByTestId('right-restore-button'))
+    fireEvent.click(restore)
 
     expect(screen.getByTestId('chief')).toBeTruthy()
   })

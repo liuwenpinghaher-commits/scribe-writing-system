@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, Archive, MoreHorizontal,
+  ScrollText, Eye, Compass,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -13,17 +14,29 @@ import { beatsFromMarkdown } from './lib/stageProposal'
 import { Btn, Input } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 import { ConfirmDialog } from './ui/Dialog.jsx'
+import { ChapterAuxPanel } from './ChapterAuxPanel'
+import { ErrorBoundary } from './ErrorBoundary'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
 // 正文整体复用 WriteLayout(护栏/QC/帧/伏笔/版本不丢)。
-// 简报/关联/北极星是"读着写"的辅助资料而非写作阶段,移入右栏 ChapterAuxPanel。
+// 简报/关联/北极星是"读着写"的辅助资料而非写作阶段:入口在本工作台头部(章导航旁),
+// 点击在【栏3 内容区】切换渲染 ChapterAuxPanel(2026-07-12 修正:撤全宽层——铺满栏2+3+4
+// 会挤掉栏4 主编,用户没法边看辅助资料边和主编讨论;栏2 目录、栏4 主编全程不动)。
 const PHASES = [
   { key: 'outline', label: '大纲', icon: AlignLeft },
   { key: 'beats', label: '节拍', icon: ListChecks },
   { key: 'deduce', label: '演绎', icon: Sparkles },
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
+]
+// 章节辅助三入口(2026-07-12 裁决):从栏4 RightDock capability 迁到章工作台头部——
+// 点击在栏3 内容区替换阶段内容展现(与点大纲/正文页签同级的内容切换,四栏结构不动)。
+// 图标沿用旧左栏 includeStageTabs 惯例:简报=ScrollText / 关联=Eye / 北极星=Compass。
+const AUX_ENTRIES = [
+  { key: 'brief', label: '简报', icon: ScrollText },
+  { key: 'frame', label: '关联', icon: Eye },
+  { key: 'northstar', label: '北极星', icon: Compass },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
@@ -498,6 +511,13 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   const [refresh, setRefresh] = useState(0)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)   // 「更多」菜单(归档入口)
+  // 章节辅助视图(栏3 内容区切换):null=显示阶段内容,'brief'|'frame'|'northstar'=
+  // 内容区替换为 ChapterAuxPanel 并高亮对应头部入口。受控直连 ChapterAuxPanel 的 tab
+  // (面板内三 tab 互切回写此值,头部高亮永远等于正在看的 tab)。
+  // 返回语义(双通道,均不丢 phase):
+  //   · 点任一阶段页签 → auxView 置 null,回到该阶段内容(phase state 全程保留);
+  //   · 再点当前高亮的辅助入口 → toggle 关闭,回到离开时的阶段。
+  const [auxView, setAuxView] = useState(null)
 
   // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
   // Task 7:演绎已是章内真阶段,删除派发 s3-open-capability 的 deduce 特例,直接就地切换。
@@ -603,10 +623,40 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   }, [moreOpen])
 
   // ObjectFrame actions:全 DOM 唯一一套章导航(Task 7)+ 低频操作(归档)收进「更多」。
+  // 章节辅助三入口放章导航左侧(actions 是 ObjectFrame 头部唯一动作插槽,tabs 行无右插槽,
+  // 不为此改通用外框):轻量 segmented 小钮,选中章(seq 非空)才出现。
+  // 激活态 = auxView 命中(aria-pressed + 与 Tabs 选中态同款高亮):辅助视图开着时
+  // 当前位置必须可见;再点当前高亮入口 = toggle 关闭回阶段内容。
+  // 章导航中间只显位置计数「N / 总数」(tooltip 给全文):标题 <h1> 已是「第 N 章」
+  // (title 空时 fallback),此处再写一遍「第 N 章」即重复信息,压缩后一行放得下。
   const frameActions = (
     <div className="flex items-center gap-1 shrink-0">
+      {seq != null && (
+        <>
+          <div role="group" aria-label="章节辅助" className="flex items-center gap-0.5 rounded-lg bg-soft p-0.5">
+            {AUX_ENTRIES.map((entry) => {
+              const Icon = entry.icon
+              const active = auxView === entry.key
+              return (
+                <button key={entry.key} type="button" aria-pressed={active}
+                  onClick={() => setAuxView(active ? null : entry.key)}
+                  title={active ? `${entry.label} · 再点一次回到写作阶段` : `${entry.label} · 在本栏展开章节辅助`}
+                  className={`inline-flex items-center gap-1 h-7 rounded-md px-2 text-f12 cursor-pointer transition-colors ${
+                    active ? 'bg-surface text-brand ring-1 ring-line' : 'text-faint hover:bg-surface hover:text-ink'
+                  }`}>
+                  <Icon size={13} />{entry.label}
+                </button>
+              )
+            })}
+          </div>
+          <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
+        </>
+      )}
       <Btn variant="ghost" size="sm" icon onClick={() => onSeqChange?.(Math.max(1, (seq || 1) - 1))} title="上一章" aria-label="上一章"><ChevronLeft size={16} /></Btn>
-      <span className="text-f13 text-ink tnum whitespace-nowrap px-1">第 {seq} 章</span>
+      <span className="text-f13 text-ink tnum whitespace-nowrap px-1"
+        title={maxSeq != null ? `第 ${seq} 章 / 共 ${maxSeq} 章` : `第 ${seq} 章`}>
+        {seq}{maxSeq != null ? ` / ${maxSeq}` : ''}
+      </span>
       <Btn variant="ghost" size="sm" icon disabled={maxSeq != null && seq >= maxSeq}
         title={maxSeq != null && seq >= maxSeq ? '已是最后一章' : '下一章'} aria-label="下一章"
         onClick={() => onSeqChange?.((seq || 1) + 1)}><ChevronRight size={16} /></Btn>
@@ -629,16 +679,29 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   // 单一 ObjectFrame 承载(Task 7):面包屑/章标题/章导航/五阶段页签只此一套,阶段只换 children。
   // 正文阶段整体交给 WriteLayout(视角/护栏/保存/存为正文保留;其内部章导航已删,真身在本外框)。
   // DeduceProvider 已上提到 BinderLayout,包住左栏演绎树与中区 DeduceStage,共享选中态。
+  // compact:面包屑+标题合一行「手稿 › 第N章」,头部三行压两行(2026-07-12 空间修正)。
+  // 辅助视图与阶段页签激活态互斥:auxView 开着时 activeTab 传 null——阶段页签整体去激活
+  // (不显"假激活",当前位置由高亮的辅助入口表达);点任一阶段页签即关辅助视图回该阶段。
+  const showAux = auxView != null && seq != null
   return (
     <ObjectFrame
+      compact
       breadcrumb="手稿"
       title={meta?.title || `第 ${seq} 章`}
       tabs={PHASES.map((p) => ({ value: p.key, label: p.label }))}
-      activeTab={phase}
-      onTab={setPhaseP}
+      activeTab={showAux ? null : phase}
+      onTab={(p) => { setAuxView(null); setPhaseP(p) }}
       actions={frameActions}
     >
-      {phase === 'final' ? (
+      {showAux ? (
+        <div className="h-full min-h-0" data-testid="chapter-aux-view">
+          {/* key 只含章号:切章重挂重拉(角色候选等);受控 tab 切换不重挂,不白重拉数据。
+              崩溃只塌辅助视图,头部入口仍在,可切回阶段。 */}
+          <ErrorBoundary key={`aux:${seq}`}>
+            <ChapterAuxPanel seq={seq} tab={auxView} onTabChange={setAuxView} />
+          </ErrorBoundary>
+        </div>
+      ) : phase === 'final' ? (
         <div className="h-full flex flex-col min-h-0">
           <ChapterMaterialRefs seq={seq} onSelectMaterial={onSelectNode} />
           <div className="flex-1 min-h-0">

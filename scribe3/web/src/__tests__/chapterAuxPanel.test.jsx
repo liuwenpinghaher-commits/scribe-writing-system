@@ -20,7 +20,7 @@ vi.mock('../FramePanel', () => ({
   ),
 }))
 
-describe('ChapterAuxPanel 章节辅助(右栏)', () => {
+describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () => {
   beforeEach(() => {
     apiMock.chapter.mockResolvedValue({ title: '三', focalizer: 'role:小翠' })
     apiMock.entities.mockResolvedValue([
@@ -54,6 +54,41 @@ describe('ChapterAuxPanel 章节辅助(右栏)', () => {
     fireEvent.click(screen.getByRole('tab', { name: '北极星' }))
     expect((await screen.findByTestId('northstar-panel')).textContent).toBe('北极星:3')
     expect(screen.queryByTestId('frame-panel')).toBeNull()
+  })
+
+  // initialTab(非受控):以指定 tab 起始,内部三 tab 仍可自切。
+  it('initialTab=frame 时初始即关联页,且仍可切回简报', async () => {
+    render(<ChapterAuxPanel seq={3} initialTab="frame" />)
+
+    expect(await screen.findByTestId('frame-panel')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '关联' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByTestId('brief-panel')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: '简报' }))
+    expect(await screen.findByTestId('brief-panel')).toBeTruthy()
+  })
+
+  // 防御:非法 initialTab 归一到 brief,不渲空内容
+  it('非法 initialTab 归一到简报', async () => {
+    render(<ChapterAuxPanel seq={3} initialTab="bogus" />)
+    expect(await screen.findByTestId('brief-panel')).toBeTruthy()
+  })
+
+  // 受控模式(ChapterStudio 栏3 内容区接线):tab prop 是唯一事实源,内部点击只回调
+  // onTabChange 不自切——头部三入口高亮与面板内 tab 由父级同一 auxView 驱动,永远同步。
+  it('受控模式:tab prop 决定当前页,内部点击回调 onTabChange 而不自切', async () => {
+    const onTabChange = vi.fn()
+    const { rerender } = render(<ChapterAuxPanel seq={3} tab="frame" onTabChange={onTabChange} />)
+
+    expect(await screen.findByTestId('frame-panel')).toBeTruthy()
+    fireEvent.click(screen.getByRole('tab', { name: '简报' }))
+    expect(onTabChange).toHaveBeenCalledWith('brief')
+    // 受控:父级尚未回写 tab,内容不得抢先自切
+    expect(screen.queryByTestId('brief-panel')).toBeNull()
+
+    rerender(<ChapterAuxPanel seq={3} tab="brief" onTabChange={onTabChange} />)
+    expect(await screen.findByTestId('brief-panel')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '简报' }).getAttribute('aria-selected')).toBe('true')
   })
 
   // fail-soft:章 meta / 实体拉取失败 → 关联页降级为全知空态(空 focalizer),面板不崩。

@@ -5,15 +5,29 @@ import { BriefPanel } from './BriefPanel'
 import { FramePanel } from './FramePanel'
 import { NorthStarPanel } from './NorthStarPanel'
 
-// 章节辅助面板(Task 7):简报/关联/北极星是"读着写"的辅助资料,不是章的写作阶段——
-// 从章阶段页签移入右栏,选中章时经 RightDock 的「章节辅助」capability 挂载。
-// 签名只收 { seq }:RightDock 无 work 形参,面板走全局 WORK(与左栏 FramePanel 同惯例,
-// 见 studioDocks 左栏 caps;2026-07-11 裁决:FramePanel 省略 work prop,不碰在途 FourPaneShell)。
-// 点行导航:onSelectNode 不传——RightDock 语境无导航回调通道,FramePanel 内为可选链 no-op
-// (FramePanel.jsx:595 `onSelectNode?.(…)`);接线留待 Task 8 右栏作用域。
-export function ChapterAuxPanel({ seq }) {
-  const [tab, setTab] = useState('brief')
-  // C1:关联页需要本章限知视角——RightDock 不传章 meta,面板自拉(左栏惯例,见 studioDocks:57-72):
+// 章节辅助面板:简报/关联/北极星是"读着写"的辅助资料,不是章的写作阶段——
+// 挂载语境(2026-07-12 修正):章工作台头部入口触发后,在【栏3 内容区】替换阶段内容渲染
+// (与点大纲/正文页签同级的内容切换)。不再是铺满栏2+3+4 的全宽层——那会挤掉栏4 主编,
+// 用户没法边看简报/关联边和主编讨论;栏2 目录、栏4 主编全程不动。
+// tab 受控/非受控双模:
+//   · 受控(ChapterStudio 用法):传 tab + onTabChange——头部三入口与面板内三 tab 是同一
+//     位置状态(auxView)的两个视图,内部互切回写头部高亮,nav-state-active 永远一致;
+//   · 非受控:只传 initialTab(可省),内部自持 tab state(旧直渲用法/测试零改动)。
+// 签名不收 work:面板走全局 WORK(与左栏 FramePanel 同惯例,见 studioDocks 左栏 caps;
+// 2026-07-11 裁决:FramePanel 省略 work prop,不碰在途 FourPaneShell)。
+// 点行导航:onSelectNode 不传——辅助视图语境无导航回调通道,FramePanel 内为可选链 no-op
+// (FramePanel.jsx:595 `onSelectNode?.(…)`)。
+const AUX_TAB_KEYS = new Set(['brief', 'frame', 'northstar'])
+export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange }) {
+  const [tabState, setTabState] = useState(() => (AUX_TAB_KEYS.has(initialTab) ? initialTab : 'brief'))
+  // 受控判定:tab prop 是合法 key 即受控(受控下 initialTab 不参与,内部 state 只为非受控兜底)
+  const controlled = AUX_TAB_KEYS.has(tabProp)
+  const tab = controlled ? tabProp : tabState
+  const setTab = (next) => {
+    if (!controlled) setTabState(next)
+    onTabChange?.(next)
+  }
+  // C1:关联页需要本章限知视角——挂载语境不传章 meta,面板自拉(左栏惯例,见 studioDocks:57-72):
   // api.chapter 取 focalizer,s3-live 的 chapter 变更重拉(顶栏改视角存稿后不按库中旧视角渲);
   // fail-soft:拉不到时降级为空 focalizer(FramePanel 显全知空态),不崩面板。
   const [focalizer, setFocalizer] = useState('')
@@ -33,7 +47,7 @@ export function ChapterAuxPanel({ seq }) {
     }
   }, [seq])
   // 角色候选(FramePanel 的视角切换 options):书级数据,挂载拉一次即可
-  // (RightDock 的 ErrorBoundary key 含 seq,切章重挂本组件时自然重拉)。
+  // (宿主 ErrorBoundary key 含 seq,切章重挂本组件时自然重拉)。
   useEffect(() => {
     let cancelled = false
     api.entities()
@@ -46,13 +60,19 @@ export function ChapterAuxPanel({ seq }) {
     { value: 'frame', label: '关联' },
     { value: 'northstar', label: '北极星' },
   ]
+  // 栏3 内容区适配:内容套一层宽松 max-w 居中(超宽屏不贴边拉满),Tabs 与内容同一约束对齐;
+  // BriefPanel/FramePanel/NorthStarPanel 内部不动,自适应可用宽度。
   return (
-    <div className="flex h-full min-h-0 flex-col p-3">
-      <Tabs ariaLabel="章节辅助" value={tab} onValueChange={setTab} items={items} />
+    <div className="flex h-full min-h-0 flex-col p-4">
+      <div className="mx-auto w-full max-w-[96rem] shrink-0">
+        <Tabs ariaLabel="章节辅助" value={tab} onValueChange={setTab} items={items} />
+      </div>
       <div className="min-h-0 flex-1 overflow-auto pt-3">
-        {tab === 'brief' && <BriefPanel seq={seq} />}
-        {tab === 'frame' && <FramePanel chapter={seq} focalizer={focalizer} focalizerOptions={chars} />}
-        {tab === 'northstar' && <NorthStarPanel seq={seq} />}
+        <div className="mx-auto w-full max-w-[96rem]">
+          {tab === 'brief' && <BriefPanel seq={seq} />}
+          {tab === 'frame' && <FramePanel chapter={seq} focalizer={focalizer} focalizerOptions={chars} />}
+          {tab === 'northstar' && <NorthStarPanel seq={seq} />}
+        </div>
       </div>
     </div>
   )

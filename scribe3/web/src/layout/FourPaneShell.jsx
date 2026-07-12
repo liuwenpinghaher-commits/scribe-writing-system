@@ -4,7 +4,7 @@ import { Rail } from '../shell'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { cn } from '../lib/utils'
 import { useEffect, useRef, useState } from 'react'
-import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { ChevronLeft, ChevronRight, PanelRightClose } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
@@ -19,7 +19,11 @@ const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
 const DIRECTORY_PANEL = { default: 14, min: 10, max: 24 }
 const RIGHT_PANEL = { default: 24, min: 18, max: 36 }
 const RESIZER_CLASS = 'relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line'
-const RESTORE_BUTTON_CLASS = 'absolute top-2 z-20 h-7 w-7 rounded-lg border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
+// 还原按钮 = 贴栏3 左/右缘、垂直居中的细把手(2026-07-12 重叠修复):旧 top-2 left-2/right-2
+// 浮钮压住栏3 头部内容(左压面包屑「手稿」,右压「更多」按钮)。垂直居中远离头部行,
+// 细条(16×64)窄于内容 padding(ObjectFrame children px-4≥16px),不再遮字;
+// 点击区 1024px² ≥ 旧 28×28=784px²,触达不缩水。左右把手由调用处拼方位圆角。
+const RESTORE_BUTTON_CLASS = 'absolute top-1/2 -translate-y-1/2 z-20 h-16 w-4 border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
 
 function collapsedStorageKey(work, side) {
   return `s3.${work || 'default'}.${side}Collapsed`
@@ -291,14 +295,14 @@ export function FourPaneShell({
           >
             {directoryCollapsed && !isView && (
               <button type="button" data-testid="directory-restore-button" aria-label="展开目录" title="展开目录"
-                onClick={expandDirectory} className={`${RESTORE_BUTTON_CLASS} left-2`}>
-                <PanelLeftOpen size={15} />
+                onClick={expandDirectory} className={`${RESTORE_BUTTON_CLASS} left-0 border-l-0 rounded-r-lg`}>
+                <ChevronRight size={14} />
               </button>
             )}
             {rightCollapsed && (
               <button type="button" data-testid="right-restore-button" aria-label="展开主编栏" title="展开主编栏"
-                onClick={expandRightPanel} className={`${RESTORE_BUTTON_CLASS} right-2`}>
-                <PanelRightOpen size={15} />
+                onClick={expandRightPanel} className={`${RESTORE_BUTTON_CLASS} right-0 border-r-0 rounded-l-lg`}>
+                <ChevronLeft size={14} />
               </button>
             )}
             <div className="h-full min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>

@@ -9,6 +9,9 @@ export function Tabs({ value, onValueChange, items, ariaLabel }) {
     tabsRef.current[nextIndex]?.focus()
   }
 
+  // roving tabindex 焦点锚:value 可为 null/无匹配(如章工作台辅助视图开着时阶段页签整体去激活)
+  // ——此时按 WAI-ARIA 惯例让第一个 tab 收 tabIndex=0,tablist 保持键盘可达;有选中值时行为不变。
+  const hasSelected = items.some((item) => item.value === value)
   return (
     <div role="tablist" aria-label={ariaLabel} className="inline-flex items-center gap-1 rounded-lg bg-soft p-1">
       {items.map((item, index) => (
@@ -18,7 +21,7 @@ export function Tabs({ value, onValueChange, items, ariaLabel }) {
           type="button"
           role="tab"
           aria-selected={item.value === value}
-          tabIndex={item.value === value ? 0 : -1}
+          tabIndex={item.value === value || (!hasSelected && index === 0) ? 0 : -1}
           onClick={() => onValueChange(item.value)}
           onKeyDown={(event) => {
             if (event.key === 'ArrowRight') { event.preventDefault(); move(index, 1) }

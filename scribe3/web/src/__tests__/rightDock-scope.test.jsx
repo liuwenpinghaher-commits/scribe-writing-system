@@ -27,7 +27,7 @@ describe('RightDock 作用域与真实 badge(Task 8)', () => {
     // 全局组内含收件箱按钮(不随章/选中变)
     const globalGroup = screen.getByRole('group', { name: '全局' })
     expect(within(globalGroup).getByRole('button', { name: /收件箱/ })).toBeTruthy()
-    // 章节组:章节辅助/存档/Pilot(选中章才有意义)
+    // 章节组:存档/Pilot(选中章才有意义;章节辅助已迁往章工作台全宽层,不在右栏)
     const chapterGroup = screen.getByRole('group', { name: '章节' })
     expect(within(chapterGroup).getByRole('button', { name: '存档' })).toBeTruthy()
     expect(within(chapterGroup).getByRole('button', { name: /Pilot/ })).toBeTruthy()
@@ -76,16 +76,25 @@ describe('RightDock 作用域与真实 badge(Task 8)', () => {
 
   // ── 收尾补测(双审后):scope 归属逐项锁死 + 空组不渲染 + 存量偏好不失效 ──
 
-  it('scopes chief and selection to the object group, context to the chapter group', () => {
+  it('scopes chief and selection to the object group; aux panel is gone from the right dock', () => {
     render(<RightDock sel={{ mode: 'node', node: { type: 'chapter', ref: 1 } }} seq={1} />)
-    // 裁决:chief/selection='object'(随选中对象变),context='chapter'(选中章才有意义)
+    // 裁决:chief/selection='object'(随选中对象变)
     const objectGroup = screen.getByRole('group', { name: '当前对象' })
     expect(within(objectGroup).getByRole('button', { name: '主编' })).toBeTruthy()
     expect(within(objectGroup).getByRole('button', { name: /选择环/ })).toBeTruthy()
-    const chapterGroup = screen.getByRole('group', { name: '章节' })
-    expect(within(chapterGroup).getByRole('button', { name: '章节辅助' })).toBeTruthy()
-    // 归属唯一:章节辅助不得同时落在对象组
-    expect(within(objectGroup).queryByRole('button', { name: '章节辅助' })).toBeNull()
+    // 2026-07-12 裁决:「章节辅助」capability 移出栏4(入口在章工作台头部,点击全宽层)——
+    // 右栏任何分组都不得再出现此入口,栏4 专属主编对话等章节工具。
+    expect(screen.queryByRole('button', { name: '章节辅助' })).toBeNull()
+    // 章节组仍在(存档/Pilot),不因迁出章节辅助而整组消失
+    expect(within(screen.getByRole('group', { name: '章节' })).getByRole('button', { name: '存档' })).toBeTruthy()
+  })
+
+  it('falls back stored s3.rightTab=context preference to chief after the aux capability removal', async () => {
+    // 存量用户偏好停在已移除的 context tab → 失效回退效应收敛到主编,不白屏不悬空
+    localStorage.setItem('s3.rightTab', 'context')
+    render(<RightDock sel={{ mode: 'node', node: { type: 'chapter', ref: 1 } }} seq={1} />)
+    await screen.findByTestId('chief-stub')
+    expect(screen.getByRole('button', { name: '主编' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('renders no chapter group when no chapter is selected', () => {

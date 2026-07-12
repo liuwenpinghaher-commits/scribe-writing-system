@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { ObjectFrame } from '../ObjectFrame'
 import { presentationForNode } from '../objectRegistry'
 
@@ -44,6 +44,22 @@ describe('ObjectFrame 语义对象外框', () => {
     render(<ObjectFrame breadcrumb="手稿" title="第 3 章" tabs={[{ value: 'outline', label: '大纲' }, { value: 'final', label: '正文' }]} activeTab="outline" onTab={() => {}}><div /></ObjectFrame>)
     expect(screen.getByRole('tablist')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '正文' })).toBeInTheDocument()
+  })
+
+  // compact(章工作台紧凑头部):面包屑与标题合一行,头部三行压两行;
+  // 面包屑保持在 <h1> 外,可访问名(aria-labelledby → h1)仍只含对象名。
+  it('compact 时面包屑与标题同处一行,默认模式不受影响', () => {
+    render(<ObjectFrame compact breadcrumb="手稿" title="第 3 章"><div /></ObjectFrame>)
+    const row = screen.getByTestId('object-frame-titlerow-compact')
+    expect(within(row).getByText('手稿')).toBeInTheDocument()
+    const h1 = within(row).getByRole('heading', { name: '第 3 章' })
+    expect(h1.textContent).toBe('第 3 章')   // 面包屑不掺进 h1 可访问名
+  })
+
+  it('默认(非 compact)不渲染紧凑标题行,面包屑仍独立成行', () => {
+    render(<ObjectFrame breadcrumb="素材库" title="铃铛资料"><div /></ObjectFrame>)
+    expect(screen.queryByTestId('object-frame-titlerow-compact')).toBeNull()
+    expect(screen.getByText('素材库')).toBeInTheDocument()
   })
 })
 

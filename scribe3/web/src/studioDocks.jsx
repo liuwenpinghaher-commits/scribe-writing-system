@@ -9,7 +9,6 @@ import { BriefPanel } from './BriefPanel'
 import { NorthStarPanel } from './NorthStarPanel'
 import { SelectionPanel } from './SelectionPanel'
 import { FramePanel } from './FramePanel'
-import { ChapterAuxPanel } from './ChapterAuxPanel'
 import { DeduceTree } from './DeduceTree'
 import { VersionPanel } from './VersionPanel'
 import { ChiefDock } from './ChiefDock'
@@ -426,8 +425,8 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
     // context/versions/pilot 作用于「章节」(选中章才有意义),inbox 是「全局」常驻。
     // key 全部保留不动——s3.rightTab 偏好与 s3-right-tab 事件继续按旧 key 工作。
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
-    // Task 7:章节辅助(简报/关联/北极星)——从章阶段页签移入右栏,选中章才有意义
-    if (seq != null) c.push({ key: 'context', icon: ScrollText, label: '章节辅助', scope: 'chapter', render: () => <ChapterAuxPanel seq={seq} /> })
+    // (2026-07-12 裁决:「章节辅助」capability 已迁出右栏——入口在章工作台头部,点击全宽层展现
+    //  (ChapterStudio.jsx);栏4 还给主编对话。旧 s3.rightTab='context' 偏好由下方失效回退兜底。)
     if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
