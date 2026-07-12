@@ -37,7 +37,11 @@ A 的核心理由:配置获得单一权威源;注册表驱动 UI(界面永不落
 | `secret` | 是否敏感项(DB 存真值供内部使用;GET/审计对外一律掩码,永不回显明文) |
 | `label` / `desc` | 界面显示名与一句话说明(中文) |
 
-**存储**:SurrealDB 新表 `system_setting`(全局,不按书;字段:key、value、updated_at),只存被改过的覆盖值。`setting_audit` 表存审计(时间、key、旧值→新值;secret 项只记"已变更",绝不落明文)。
+**存储**:单文件 SQLite(`~/.scribe2-surreal/scribe3_settings.sqlite3`,env `SCRIBE3_SETTINGS_DB` 可改),表 `setting`(key/value/updated_at)只存被改过的覆盖值,`setting_audit` 存审计(时间、key、旧值→新值;secret 项只记"已变更",绝不落明文)。
+
+> 为什么不用 SurrealDB:①自举悖论——DB 连接参数本身是设置项,却要先连上 DB 才能读到;②设置须跨进程共享(app :3321 与 MCP stdio 进程),仓内 `usage.py` 日帽台账已验证同目录单文件 SQLite 范式,直接沿用;③读侧 fail-soft:SQLite 不可用时告警一次并回落 env/默认值,系统照常工作。
+
+**restart 类项的生效机制**:读点不改(仍读 env);进程启动最早期调用 `settings.apply_restart_overrides()` 把 DB 覆盖值灌进 `os.environ`,随后各模块按原路径读取——DB 是持久层,env 是进程内生效层。`pending_restart` = DB 值 ≠ 当前进程 env 值。
 
 **读取优先级**:`system_setting` 表 → 环境变量 → 注册表 default。env 降级为"初始默认",部署级覆盖仍有效,一旦界面改过则 DB 赢。
 
