@@ -45,11 +45,14 @@ function FileEditor({ file, onSaved, onReload }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(file.content ?? '')
   const [confirm, setConfirm] = useState(false)
+  const [reloadConfirm, setReloadConfirm] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [savedMsg, setSavedMsg] = useState(null)
   const [err, setErr] = useState(null)
 
   useEffect(() => { setDraft(file.content ?? '') }, [file.content, file.sha256])
+
+  const broken = !!file.error // 后端读取失败:禁编辑禁保存,防拿空 sha256 撞写接口
 
   const save = async () => {
     try {
@@ -68,10 +71,20 @@ function FileEditor({ file, onSaved, onReload }) {
     }
   }
 
-  const reload = async () => {
-    await onReload?.()
+  const doReload = async () => {
+    const fresh = await onReload?.()
+    // 重拉后即使服务器内容与本地 props 相同(useEffect 不触发),也显式回填草稿
+    const nf = fresh?.find((x) => x.id === file.id)
+    setDraft((nf ?? file).content ?? '')
     setConflict(false)
     setErr(null)
+    setSavedMsg(null)
+  }
+
+  // 丢稿防护:草稿有未保存改动时,重拉必须先确认,不能静默覆盖
+  const requestReload = () => {
+    if (draft !== (file.content ?? '')) setReloadConfirm(true)
+    else doReload()
   }
 
   const looksMasked = file.id.endsWith('.env') || file.id.endsWith('config.yaml')
@@ -81,21 +94,26 @@ function FileEditor({ file, onSaved, onReload }) {
       <button className="w-full text-left px-4 py-2.5 text-f13 text-ink hover:bg-soft cursor-pointer flex items-center justify-between"
         onClick={() => setOpen((o) => !o)}>
         <span>{file.id}</span>
-        <span className="text-meta text-faint">{file.exists ? '' : '不存在'}</span>
+        <span className={`text-meta ${broken ? 'text-red-500' : 'text-faint'}`}>
+          {broken ? '读取失败' : (file.exists ? '' : '不存在')}
+        </span>
       </button>
       {open && (
         <div className="px-4 pb-4">
           {file.error && <div className="text-f13 text-red-500 mb-2" role="alert">{file.error}</div>}
-          {looksMasked && (
+          {looksMasked && !broken && (
             <div className="text-meta text-faint mb-1.5">••••为掩码密钥,保留原样保存则密钥不变</div>
           )}
-          <textarea rows={16} className="w-full rounded-md border border-line bg-soft px-2 py-1.5 text-f12 font-mono"
+          <textarea rows={16} disabled={broken}
+            className="w-full rounded-md border border-line bg-soft px-2 py-1.5 text-f12 font-mono disabled:opacity-50"
             value={draft} onChange={(e) => setDraft(e.target.value)} />
           <div className="mt-2 flex items-center gap-2">
-            <button className="rounded-md bg-brand text-white px-3 py-1.5 text-f13 cursor-pointer"
-              onClick={() => setConfirm(true)}>保存</button>
+            {!broken && (
+              <button className="rounded-md bg-brand text-white px-3 py-1.5 text-f13 cursor-pointer"
+                onClick={() => setConfirm(true)}>保存</button>
+            )}
             {conflict && (
-              <button className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink cursor-pointer" onClick={reload}>获取最新内容</button>
+              <button className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink cursor-pointer" onClick={requestReload}>获取最新内容</button>
             )}
             {savedMsg && !err && <span className="text-meta text-green-600">{savedMsg}</span>}
           </div>
@@ -108,6 +126,12 @@ function FileEditor({ file, onSaved, onReload }) {
         confirmText="确认"
         onConfirm={() => { setConfirm(false); save() }}
         onClose={() => setConfirm(false)} />
+      <ConfirmDialog open={reloadConfirm}
+        title={`获取「${file.id}」最新内容?`}
+        body="这将丢弃你未保存的修改(如需保留,请先手动复制当前编辑内容)。"
+        danger confirmText="确认"
+        onConfirm={() => { setReloadConfirm(false); doReload() }}
+        onClose={() => setReloadConfirm(false)} />
     </div>
   )
 }
@@ -116,7 +140,9 @@ function FilesArea() {
   const [files, setFiles] = useState(null)
   const [error, setError] = useState(null)
 
-  const load = () => api.gatewayFiles().then((r) => { setFiles(r.files); setError(null) }).catch((e) => setError(e))
+  const load = () => api.gatewayFiles()
+    .then((r) => { setFiles(r.files); setError(null); return r.files })
+    .catch((e) => { setError(e); return null })
   useEffect(() => { load() }, [])
 
   const onSaved = (id, sha256, content) => {
@@ -149,7 +175,7 @@ function RestartArea({ onRestarted }) {
     setResult(null)
     try {
       const r = await api.gatewayRestart(profile)
-      setResult({ profile, online: r.online, message: r.message })
+      setResult({ profile, online: r.online, message: r.message, log: r.log })
     } catch (e) {
       setResult({ profile, online: false, message: e?.body?.detail || e.message || '重启失败' })
     } finally {
@@ -172,7 +198,7 @@ function RestartArea({ onRestarted }) {
       </div>
       {result && (
         <div className={`text-f13 mt-2 ${result.online ? 'text-green-600' : 'text-red-500'}`} role="alert">
-          [{result.profile}] {result.message}
+          [{result.profile}] {result.message}{result.log ? `(日志: ${result.log})` : ''}
         </div>
       )}
       <ConfirmDialog open={!!restartConfirm}
