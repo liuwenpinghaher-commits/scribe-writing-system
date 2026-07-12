@@ -13,11 +13,11 @@ from datetime import datetime, timezone
 
 from scribe3.memory_models import MemoryCandidate, RetrievalQuery, RetrievalResult
 from scribe3.memory_retrieval import (
-    CHANNEL_WEIGHTS,
-    HALF_LIFE_DAYS,
     MemoryRetriever,
+    channel_weights,
     final_score,
     fuse,
+    half_life_days,
     reciprocal_rank_fusion,
 )
 from scribe3.ontology import Entity, Fact
@@ -91,7 +91,7 @@ def test_rrf_weights_structured_channel_higher():
     """structured 通道权重 2.0 > 其余;同 rank 下 structured 命中得分更高。"""
     scores = reciprocal_rank_fusion({"structured": ["x"], "bm25": ["y"]})
     assert scores["x"] > scores["y"]
-    assert CHANNEL_WEIGHTS["structured"] == 2.0
+    assert channel_weights()["structured"] == 2.0
 
 
 # ---------- 分类衰减 / 冲突顺序 ----------
@@ -113,7 +113,7 @@ def test_decay_working_faster_than_procedural():
     p = _cand("mem:p", "procedural", observed_at=old)
     p.rrf_score = 1.0
     assert final_score(p, NOW, set()) > final_score(w, NOW, set())
-    assert HALF_LIFE_DAYS["working"] < HALF_LIFE_DAYS["procedural"]
+    assert half_life_days()["working"] < half_life_days()["procedural"]
 
 
 def test_pinned_skips_decay():

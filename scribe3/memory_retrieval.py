@@ -30,19 +30,27 @@ _log = logging.getLogger("scribe3.memory_retrieval")
 # M-4 记账:"recency" 是【预留死配置】——本检索器四通道不含 recency 路,
 #   时间新鲜度已由 final_score 的 decay(分类半衰期)折进,故此权重当前不被 fuse 引用。
 #   保留是为对齐规格并预留未来"最近对话/最近保存"独立通道;接入前它不影响任何打分。
-CHANNEL_WEIGHTS = {"structured": 2.0, "bm25": 1.0, "vector": 1.0, "graph": 1.2, "recency": 0.8}
+def channel_weights() -> dict[str, float]:
+    from scribe3.settings import get_setting
+    return {c: get_setting(f"memory.weight_{c}")
+            for c in ("structured", "bm25", "vector", "graph", "recency")}
+
 
 # 分类半衰期(天,计划规格第 884 行):working 最易过期,procedural 最持久。
-HALF_LIFE_DAYS = {"working": 3, "episodic": 30, "procedural": 180, "reference": 90, "uncertainty": 14}
+def half_life_days() -> dict[str, int]:
+    from scribe3.settings import get_setting
+    return {c: get_setting(f"memory.half_life_{c}")
+            for c in ("working", "episodic", "procedural", "reference", "uncertainty")}
 
 
 def reciprocal_rank_fusion(rankings: dict[str, list[str]], k: int = 60) -> dict[str, float]:
     """RRF 融合(计划规格第 872-878 行,逐字):
     得分 = Σ_通道 weight / (k + 通道内位次)。同一 id 跨通道命中即累加。"""
     scores: dict[str, float] = {}
+    weights = channel_weights()
     for channel, ids in rankings.items():
         # M-3:fuse 是公开函数,未知通道名不该崩;缺省权重 1.0(中性,不放大不抑制)。
-        weight = CHANNEL_WEIGHTS.get(channel, 1.0)
+        weight = weights.get(channel, 1.0)
         for rank, source_id in enumerate(ids, 1):
             scores[source_id] = scores.get(source_id, 0.0) + weight / (k + rank)
     return scores
@@ -58,7 +66,7 @@ def final_score(candidate: MemoryCandidate, now: datetime, focus_ids: set[str]) 
         age_days = 0.0
     else:
         age_days = max(0.0, (now - candidate.observed_at).total_seconds() / 86400)
-    decay = 1.0 if candidate.pinned else 0.5 ** (age_days / HALF_LIFE_DAYS[candidate.source_kind])
+    decay = 1.0 if candidate.pinned else 0.5 ** (age_days / half_life_days()[candidate.source_kind])
     importance = 0.65 + 0.07 * candidate.importance
     confidence = 0.75 + 0.25 * candidate.confidence
     # I-2 依赖告警:linked_ids 由 Task 9 捕获管线回填(经验记忆提及的实体 id)。

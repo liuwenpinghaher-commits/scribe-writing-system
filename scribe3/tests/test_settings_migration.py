@@ -77,3 +77,12 @@ def test_critique_banned_density_hot():
     from scribe3 import critique
     settings.put_setting("craft.banned_density_per_k", 45.0)   # 注册表 max=50,99 越界
     assert critique._th("craft.banned_density_per_k") == 45.0
+
+
+def test_memory_weights_hot():
+    from scribe3 import memory_retrieval as mr
+    assert mr.channel_weights()["structured"] == 2.0
+    settings.put_setting("memory.weight_structured", 5.0)
+    assert mr.channel_weights()["structured"] == 5.0
+    settings.put_setting("memory.half_life_working", 7)
+    assert mr.half_life_days()["working"] == 7
