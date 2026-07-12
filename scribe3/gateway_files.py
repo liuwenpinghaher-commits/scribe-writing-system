@@ -96,25 +96,39 @@ def _restore_masked(old: str, content: str, pattern: re.Pattern) -> str:
 
 
 _MODEL_SECTION_KEY = re.compile(r"^model:\s*$")
-_TOP_LEVEL_KEY = re.compile(r"^\S")   # 无缩进的行 = 下一个顶级键,model 节到此结束
-_MODEL_FIELD = re.compile(r"^\s+(provider|default)\s*:\s*(.+?)\s*$")
+_TOP_LEVEL_KEY = re.compile(r"^\S")   # 无缩进的非注释行 = 下一个顶级键,model 节到此结束
+_MODEL_FIELD = re.compile(r"^(\s+)(provider|default)\s*:\s*(.+?)\s*$")
 
 
 def _parse_model_section(text: str) -> tuple[str | None, str | None]:
-    """逐行正则提取顶级 model: 节内的 provider/default 标量。
-    绝不解析/返回 api_key 或 base_url。遇到下一个顶级键(无缩进行)即停止。"""
+    """逐行正则提取顶级 model: 节内一级子键 provider/default 标量。
+    绝不解析/返回 api_key 或 base_url。
+
+    - 注释行(strip 后以 # 开头)与空行不参与顶级键判定,顶格注释不截断节;
+    - 层级用"首个一级子键的缩进宽度"动态锚定(兼容 2/4 空格),
+      嵌套块(extra_body 等)里的同名 provider/default 不覆盖顶层值。
+    """
     provider = default_model = None
     in_model = False
+    child_indent: int | None = None   # model 节首个一级子键的缩进宽度(动态锚)
     for ln in text.split("\n"):
+        stripped = ln.strip()
+        if not stripped or stripped.startswith("#"):
+            continue   # 空行/注释行(含顶格注释)不参与任何判定
         if not in_model:
             if _MODEL_SECTION_KEY.match(ln):
                 in_model = True
             continue
         if _TOP_LEVEL_KEY.match(ln):
             break   # 下一个顶级键,model 节结束
+        indent = len(ln) - len(ln.lstrip())
+        if child_indent is None:
+            child_indent = indent   # 首个一级子键定层级锚
+        if indent != child_indent:
+            continue   # 更深缩进 = 嵌套块内部,同名键不覆盖顶层
         m = _MODEL_FIELD.match(ln)
         if m:
-            key, val = m.group(1), m.group(2).strip().strip("'\"")
+            key, val = m.group(2), m.group(3).strip().strip("'\"")
             if key == "provider":
                 provider = val
             elif key == "default":

@@ -177,3 +177,64 @@ def test_root_config_still_not_writable(home):
     import pytest
     with pytest.raises(gf.NotAllowedError):
         gf.write_file("root/config.yaml", "x", base_sha256="")
+
+
+def test_model_summary_survives_toplevel_comment_inside_section(home):
+    # P1 回归:model 节中间夹顶格 # 注释,不得被误判为下一个顶级键提前截断
+    (home / "config.yaml").write_text(
+        "model:\n"
+        "  provider: custom\n"
+        "# 顶格注释不是顶级键\n"
+        "  default: doubao-seed-2.0-pro\n"
+        "server:\n"
+        "  port: 8642\n",
+        encoding="utf-8")
+    from scribe3 import gateway_files as gf
+    by = {r["gateway"]: r for r in gf.model_summary()}
+    assert by["default"]["provider"] == "custom"
+    assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
+
+
+def test_model_summary_nested_same_key_does_not_override(home):
+    # P2 回归:model 节内嵌套块(extra_body 等)的同名 provider/default 不得覆盖顶层值
+    (home / "config.yaml").write_text(
+        "model:\n"
+        "  provider: custom\n"
+        "  extra_body:\n"
+        "    provider: evil\n"
+        "    default: evil-model\n"
+        "  default: doubao-seed-2.0-pro\n",
+        encoding="utf-8")
+    from scribe3 import gateway_files as gf
+    by = {r["gateway"]: r for r in gf.model_summary()}
+    assert by["default"]["provider"] == "custom"
+    assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
+
+
+def test_model_summary_nested_only_key_not_promoted(home):
+    # P2 加固:一级子键里没有 provider,嵌套块里的同名键也不得被当成顶层值
+    (home / "config.yaml").write_text(
+        "model:\n"
+        "  extra_body:\n"
+        "    provider: evil\n"
+        "  default: doubao-seed-2.0-pro\n",
+        encoding="utf-8")
+    from scribe3 import gateway_files as gf
+    by = {r["gateway"]: r for r in gf.model_summary()}
+    assert by["default"]["provider"] is None
+    assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
+
+
+def test_model_summary_four_space_indent(home):
+    # 动态锚:4 空格缩进的 model 节同样正确提取(不硬编码 2 空格)
+    (home / "config.yaml").write_text(
+        "model:\n"
+        "    provider: custom\n"
+        "    extra_body:\n"
+        "        provider: evil\n"
+        "    default: doubao-seed-2.0-pro\n",
+        encoding="utf-8")
+    from scribe3 import gateway_files as gf
+    by = {r["gateway"]: r for r in gf.model_summary()}
+    assert by["default"]["provider"] == "custom"
+    assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
