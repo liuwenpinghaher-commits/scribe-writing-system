@@ -55,6 +55,26 @@ describe('SettingsView', () => {
     await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledWith('SCRIBE3_SURREAL_URL'))
   })
 
+  it('数字输入非法(清空失焦)本地拒绝,不出网', async () => {
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('每日 LLM 调用日帽')).toBeTruthy())
+    const input = screen.getByRole('spinbutton', { name: '每日 LLM 调用日帽' })
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+    expect(apiMock.putSetting).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('请输入有效数字')
+  })
+
+  it('恢复默认失败显示错误反馈而非静默', async () => {
+    apiMock.resetSetting.mockRejectedValueOnce(new Error('boom'))
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('连接与服务')).toBeTruthy())
+    fireEvent.click(screen.getByText('连接与服务'))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认:SurrealDB 地址' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('boom'))
+  })
+
   it('拉取失败显示错误态与重试', async () => {
     apiMock.settings.mockRejectedValueOnce(new Error('boom'))
     render(<SettingsView work="demo" />)

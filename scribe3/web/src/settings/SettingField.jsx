@@ -44,7 +44,12 @@ export function SettingField({ item, onChanged }) {
             value={draft ?? String(item.value ?? '')} onChange={(e) => setDraft(e.target.value)}
             onBlur={() => {
               if (draft === null || draft === String(item.value)) return
-              submit(item.type === 'int' ? parseInt(draft, 10) : item.type === 'float' ? parseFloat(draft) : draft)
+              if (item.type === 'str') { submit(draft); return }
+              // P2:数字本地校验,NaN 不出网(空串/非数字直接拒并提示)
+              const n = item.type === 'int' ? parseInt(draft, 10) : parseFloat(draft)
+              if (!Number.isFinite(n)) { setErr('请输入有效数字'); return }
+              setErr(null)
+              submit(n)
             }} />
         )}
         {item.source === 'db' && (
@@ -57,7 +62,13 @@ export function SettingField({ item, onChanged }) {
         title={confirm?.reset ? `恢复默认「${item.label}」?` : `修改「${item.label}」?`}
         body={confirm?.reset ? `将回落为默认值 ${String(item.default)}` : `该项为高危设置,确认改为 ${String(confirm?.value)}`}
         danger confirmText="确认"
-        onConfirm={() => { const c = confirm; setConfirm(null); c.reset ? api.resetSetting(item.key).then(onChanged) : commit(c.value) }}
+        onConfirm={() => {
+          const c = confirm; setConfirm(null)
+          // P2:恢复默认失败不静默,与 commit 同款错误反馈
+          c.reset
+            ? api.resetSetting(item.key).then(onChanged).catch((e) => setErr(e?.body?.detail || e.message || '恢复失败'))
+            : commit(c.value)
+        }}
         onClose={() => setConfirm(null)} />
     </div>
   )
