@@ -95,6 +95,56 @@ def _restore_masked(old: str, content: str, pattern: re.Pattern) -> str:
     return "\n".join(restored)
 
 
+_MODEL_SECTION_KEY = re.compile(r"^model:\s*$")
+_TOP_LEVEL_KEY = re.compile(r"^\S")   # 无缩进的行 = 下一个顶级键,model 节到此结束
+_MODEL_FIELD = re.compile(r"^\s+(provider|default)\s*:\s*(.+?)\s*$")
+
+
+def _parse_model_section(text: str) -> tuple[str | None, str | None]:
+    """逐行正则提取顶级 model: 节内的 provider/default 标量。
+    绝不解析/返回 api_key 或 base_url。遇到下一个顶级键(无缩进行)即停止。"""
+    provider = default_model = None
+    in_model = False
+    for ln in text.split("\n"):
+        if not in_model:
+            if _MODEL_SECTION_KEY.match(ln):
+                in_model = True
+            continue
+        if _TOP_LEVEL_KEY.match(ln):
+            break   # 下一个顶级键,model 节结束
+        m = _MODEL_FIELD.match(ln)
+        if m:
+            key, val = m.group(1), m.group(2).strip().strip("'\"")
+            if key == "provider":
+                provider = val
+            elif key == "default":
+                default_model = val
+    return provider, default_model
+
+
+def model_summary() -> list[dict]:
+    """三网关主模型只读摘要。独立只读路径,不经写白名单(root config.yaml 仍不可写)。
+
+    fail-soft:文件不存在/无 model 节/读失败 → provider/default_model 为 None,不抛。
+    绝不解析/返回 api_key 或 base_url。
+    """
+    targets = [
+        ("default", _home() / "config.yaml"),
+        ("scribe3", _home() / "profiles" / "scribe3" / "config.yaml"),
+        ("scribe3_write", _home() / "profiles" / "scribe3_write" / "config.yaml"),
+    ]
+    out = []
+    for gateway, path in targets:
+        provider = default_model = None
+        try:
+            if path.exists():
+                provider, default_model = _parse_model_section(path.read_text(encoding="utf-8"))
+        except OSError:
+            pass
+        out.append({"gateway": gateway, "provider": provider, "default_model": default_model})
+    return out
+
+
 def list_files() -> list[dict]:
     out = []
     for prof in _PROFILES:

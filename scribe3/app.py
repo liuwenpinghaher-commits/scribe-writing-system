@@ -914,6 +914,14 @@ def dashboard_start():
             "message": "已启动" if online else "启动后 30s 内未探活成功,请查看日志"}
 
 
+@app.get("/gateway/model-summary")
+def gateway_model_summary():
+    """三网关(default/scribe3/scribe3_write)主模型只读摘要。只读,不登记台账。
+    绝不解析/返回 api_key 或 base_url。"""
+    from scribe3 import gateway_files as gf
+    return {"gateways": gf.model_summary()}
+
+
 @app.get("/ai/usage")
 def ai_usage(work: str = "main", days: int = 7):
     """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。

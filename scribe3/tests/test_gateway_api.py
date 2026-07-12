@@ -136,3 +136,17 @@ def test_dashboard_start_already_online_short_circuits(client, monkeypatch):
     r = client.post("/gateway/dashboard/start")
     assert r.status_code == 200 and r.json()["online"] is True
     assert "cmd" not in ran  # 已在线,绝不拉起进程
+
+
+def test_gateway_model_summary_api_returns_three(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    (tmp_path / "config.yaml").write_text(
+        "model:\n  provider: custom\n  api_key: sk-root\n  default: doubao-seed-2.0-pro\n",
+        encoding="utf-8")
+    r = client.get("/gateway/model-summary")
+    assert r.status_code == 200
+    gateways = r.json()["gateways"]
+    assert len(gateways) == 3
+    assert "sk-root" not in str(gateways)
+    by = {g["gateway"]: g for g in gateways}
+    assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
