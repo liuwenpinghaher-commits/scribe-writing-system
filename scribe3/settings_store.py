@@ -7,11 +7,14 @@
 - fail-soft 边界:读故障回空(系统回落 env/默认值照常工作,告警一次);
   写故障原样抛(修改必须显式失败,不能假装成功)。
 - value 一律 JSON 编码字符串;secret 项审计只记 «secret»,绝不落明文。
+  审计 old 值在同一事务内原子读取,不信任调用方;key 命中敏感词
+  (KEY/TOKEN/PASS/SECRET)时存储层兜底强制掩码。
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -19,6 +22,7 @@ from pathlib import Path
 _log = logging.getLogger("scribe3.settings_store")
 _warned = False
 _MASKED = "«secret»"
+_SENSITIVE = re.compile(r"(KEY|TOKEN|PASS|SECRET)", re.I)
 
 
 def db_path() -> Path:
@@ -51,39 +55,67 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _current_value(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM setting WHERE key=?", (key,)).fetchone()
+    return row[0] if row else None
+
+
 def get_all_overrides() -> dict[str, str]:
     """全部覆盖值 {key: json_str}。读故障回空 dict(fail-soft)。"""
     try:
-        with _connect() as c:
-            return {k: v for k, v in c.execute("SELECT key, value FROM setting")}
+        conn = _connect()
+        try:
+            return {k: v for k, v in conn.execute("SELECT key, value FROM setting")}
+        finally:
+            conn.close()
     except Exception as e:
         _warn_once(e)
         return {}
 
 
-def set_override(key: str, value_json: str, *, old_json: str | None, mask: bool = False) -> None:
-    with _connect() as c:
-        c.execute("INSERT INTO setting(key, value, updated_at) VALUES(?,?,?) "
-                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                  (key, value_json, _now()))
-        c.execute("INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
-                  (_now(), key, _MASKED if (mask and old_json is not None) else old_json,
-                   _MASKED if mask else value_json))
+def set_override(key: str, value_json: str, *, mask: bool = False) -> None:
+    """写覆盖值 + 审计。old 在同一事务内原子读取;敏感 key 强制掩码。写故障原样抛。"""
+    mask = mask or bool(_SENSITIVE.search(key))
+    conn = _connect()
+    try:
+        with conn:  # 事务:异常自动 rollback,正常自动 commit
+            old_json = _current_value(conn, key)
+            conn.execute(
+                "INSERT INTO setting(key, value, updated_at) VALUES(?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                (key, value_json, _now()))
+            conn.execute(
+                "INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
+                (_now(), key, _MASKED if (mask and old_json is not None) else old_json,
+                 _MASKED if mask else value_json))
+    finally:
+        conn.close()
 
 
-def delete_override(key: str, *, old_json: str | None, mask: bool = False) -> None:
-    with _connect() as c:
-        c.execute("DELETE FROM setting WHERE key=?", (key,))
-        c.execute("INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
-                  (_now(), key, _MASKED if (mask and old_json is not None) else old_json, None))
+def delete_override(key: str, *, mask: bool = False) -> None:
+    """删覆盖值 + 审计。old 在同一事务内原子读取;敏感 key 强制掩码。写故障原样抛。"""
+    mask = mask or bool(_SENSITIVE.search(key))
+    conn = _connect()
+    try:
+        with conn:  # 事务:异常自动 rollback,正常自动 commit
+            old_json = _current_value(conn, key)
+            conn.execute("DELETE FROM setting WHERE key=?", (key,))
+            conn.execute(
+                "INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
+                (_now(), key, _MASKED if (mask and old_json is not None) else old_json, None))
+    finally:
+        conn.close()
 
 
 def audit_rows(limit: int = 50, offset: int = 0) -> list[dict]:
     try:
-        with _connect() as c:
-            rows = c.execute("SELECT ts, key, old, new FROM setting_audit "
-                             "ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+        conn = _connect()
+        try:
+            rows = conn.execute("SELECT ts, key, old, new FROM setting_audit "
+                                "ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
             return [{"ts": t, "key": k, "old": o, "new": n} for t, k, o, n in rows]
+        finally:
+            conn.close()
     except Exception as e:
         _warn_once(e)
         return []
