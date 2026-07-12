@@ -49,3 +49,20 @@ def test_audit_endpoint(client):
     client.put("/settings/craft.near_dup_sim", json={"value": 0.8})
     rows = client.get("/settings/audit").json()["rows"]
     assert rows[0]["key"] == "craft.near_dup_sim"
+
+
+def test_audit_limit_clamped_both_sides(client):
+    # 负数 LIMIT 在 SQLite 语义 = 不限量(全表),必须在参数校验层双侧夹紧
+    assert client.get("/settings/audit", params={"limit": -1}).status_code == 422
+    assert client.get("/settings/audit", params={"limit": 500}).status_code == 422
+    assert client.get("/settings/audit", params={"offset": -1}).status_code == 422
+    assert client.get("/settings/audit", params={"limit": 200, "offset": 0}).status_code == 200
+
+
+def test_put_settings_requires_bearer_token(client, monkeypatch):
+    # _auth_middleware 每请求读模块级 A._API_TOKEN(非闭包快照),可直接 patch
+    monkeypatch.setattr(A, "_API_TOKEN", "tok-x")
+    assert client.put("/settings/SCRIBE3_DAILY_CALL_CAP", json={"value": 700}).status_code == 401
+    r = client.put("/settings/SCRIBE3_DAILY_CALL_CAP", json={"value": 700},
+                   headers={"Authorization": "Bearer tok-x"})
+    assert r.status_code == 200

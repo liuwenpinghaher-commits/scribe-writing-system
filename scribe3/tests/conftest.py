@@ -7,9 +7,19 @@ import os
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 
 import pytest
+
+# 设置中心隔离(必须先于任何 scribe3.* import):apply_restart_overrides 在
+# import scribe3.app 时执行,若不先钉住台账路径,开发机生产
+# ~/.scribe2-surreal/scribe3_settings.sqlite3 的值会灌进整个测试进程 env
+# (实测:假库塞 SCRIBE3_API_TOKEN 后 import → 全部请求 401)。pytest 先加载
+# conftest 再收集测试文件,故此处 setdefault 早于一切 import scribe3.app。
+os.environ.setdefault("SCRIBE3_SETTINGS_DB",
+                      os.path.join(tempfile.mkdtemp(prefix="scribe3-settings-test-"),
+                                   "settings.sqlite3"))
 
 from scribe3.store import SurrealStore
 

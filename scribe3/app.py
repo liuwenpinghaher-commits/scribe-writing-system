@@ -749,9 +749,10 @@ def settings_all():
 
 
 @app.get("/settings/audit")
-def settings_audit(limit: int = 50, offset: int = 0):
+def settings_audit(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    # 双侧夹紧在校验层:SQLite 里 LIMIT -1 = 不限量(全表),负数必须 422 而非透传
     from scribe3 import settings_store
-    return {"rows": settings_store.audit_rows(limit=min(limit, 200), offset=offset)}
+    return {"rows": settings_store.audit_rows(limit=limit, offset=offset)}
 
 
 @app.put("/settings/{key}")
