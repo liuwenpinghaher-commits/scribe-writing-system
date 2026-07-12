@@ -824,6 +824,40 @@ def gateway_files_put(req: GatewayFilePutReq):
         raise HTTPException(409, str(e))
 
 
+class GatewayRestartReq(BaseModel):
+    profile: str
+
+
+@app.post("/gateway/restart")
+def gateway_restart(req: GatewayRestartReq):
+    """重启指定 profile 的 Hermes 网关。铁律:nohup 后台拉起 + 轮询探活,
+    绝不前台阻塞;轮询超时如实报失败,不假成功。online 语义同 /gateway/status。"""
+    import subprocess
+    import time
+    import httpx
+    from scribe3.settings import get_setting
+    apis = {"scribe3": get_setting("HERMES_RESPONSES_API"),
+            "scribe3_write": get_setting("HERMES_RUNS_API")}
+    if req.profile not in apis:
+        raise HTTPException(422, f"未知 profile: {req.profile}(仅支持 scribe3/scribe3_write)")
+    hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
+    log = f"/tmp/scribe3-hermes-{req.profile}.log"
+    cmd = f"nohup {hermes} -p {req.profile} gateway run --replace >> {log} 2>&1 &"
+    subprocess.Popen(cmd, shell=True)
+    base = apis[req.profile].rstrip("/")
+    online = False
+    for _ in range(30):   # 轮询至多 ~30s
+        time.sleep(1)
+        try:
+            if httpx.get(f"{base}/models", timeout=1.5).status_code < 500:
+                online = True
+                break
+        except Exception:
+            continue
+    return {"profile": req.profile, "online": online, "log": log,
+            "message": "已重启" if online else "重启后 30s 内未探活成功,请查看日志"}
+
+
 @app.get("/ai/usage")
 def ai_usage(work: str = "main", days: int = 7):
     """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。

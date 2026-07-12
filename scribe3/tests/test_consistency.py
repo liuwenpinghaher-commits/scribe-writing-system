@@ -164,6 +164,9 @@ class TestWriteGate:
         # 设置中心网关区:白名单内 profile 文件写(自动 .bak 备份 + sha 冲突 409;
         # .env 掩码行按原文件还原,密钥不经网络明文往返);重启由独立端点显式触发。
         ("PUT", "/gateway/files"),
+        # 设置中心:一键重启网关(nohup 后台+轮询探活;失败如实报,不假成功;
+        # profile 白名单硬编码 scribe3/scribe3_write,不接受任意命令注入面)
+        ("POST", "/gateway/restart"),
         # 统一上下文记忆 Task 8/10:直连 Hermes 会话的记忆钩子。授权语义:
         # prefetch 只读检索组装(不落库,read-only POST,组装失败降级空块);
         # capture-turn 幂等捕获对话轮进经验记忆(event_id 幂等,分类兜底偏保守

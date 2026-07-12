@@ -39,3 +39,17 @@ def test_gateway_status_401_counts_as_online(client, monkeypatch):
     gateways = r.json()["gateways"]
     assert len(gateways) == 3
     assert all(g["online"] is True for g in gateways)
+
+
+def test_gateway_restart_polls(client, monkeypatch):
+    ran = {}
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    monkeypatch.setattr("httpx.get", lambda url, timeout: type("R", (), {"status_code": 200})())
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    r = client.post("/gateway/restart", json={"profile": "scribe3"})
+    assert r.status_code == 200 and r.json()["online"] is True
+    assert "nohup" in ran["cmd"] and "-p scribe3" in ran["cmd"]
+
+
+def test_gateway_restart_rejects_unknown_profile(client):
+    assert client.post("/gateway/restart", json={"profile": "evil"}).status_code == 422
