@@ -1,0 +1,89 @@
+"""设置中心的跨进程权威源:单文件 SQLite(沿用 usage.py 日帽台账范式)。
+
+- 路径:env SCRIBE3_SETTINGS_DB,缺省 ~/.scribe2-surreal/scribe3_settings.sqlite3
+  (与 SurrealDB 生产数据同目录,备份一起走)。
+- 为什么不是 SurrealDB:DB 连接参数本身是设置项(自举悖论);且 app 与 MCP
+  stdio 进程要共享同一份设置。
+- fail-soft 边界:读故障回空(系统回落 env/默认值照常工作,告警一次);
+  写故障原样抛(修改必须显式失败,不能假装成功)。
+- value 一律 JSON 编码字符串;secret 项审计只记 «secret»,绝不落明文。
+"""
+from __future__ import annotations
+
+import logging
+import os
+import sqlite3
+import time
+from pathlib import Path
+
+_log = logging.getLogger("scribe3.settings_store")
+_warned = False
+_MASKED = "«secret»"
+
+
+def db_path() -> Path:
+    p = os.environ.get("SCRIBE3_SETTINGS_DB")
+    if p:
+        return Path(p).expanduser()
+    return Path.home() / ".scribe2-surreal" / "scribe3_settings.sqlite3"
+
+
+def _connect() -> sqlite3.Connection:
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=2.0)
+    conn.execute("CREATE TABLE IF NOT EXISTS setting ("
+                 "key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS setting_audit ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, "
+                 "key TEXT NOT NULL, old TEXT, new TEXT)")
+    return conn
+
+
+def _warn_once(e: Exception) -> None:
+    global _warned
+    if not _warned:
+        _warned = True
+        _log.warning("设置台账不可用,回落 env/默认值(fail-soft): %s", e)
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def get_all_overrides() -> dict[str, str]:
+    """全部覆盖值 {key: json_str}。读故障回空 dict(fail-soft)。"""
+    try:
+        with _connect() as c:
+            return {k: v for k, v in c.execute("SELECT key, value FROM setting")}
+    except Exception as e:
+        _warn_once(e)
+        return {}
+
+
+def set_override(key: str, value_json: str, *, old_json: str | None, mask: bool = False) -> None:
+    with _connect() as c:
+        c.execute("INSERT INTO setting(key, value, updated_at) VALUES(?,?,?) "
+                  "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                  (key, value_json, _now()))
+        c.execute("INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
+                  (_now(), key, _MASKED if (mask and old_json is not None) else old_json,
+                   _MASKED if mask else value_json))
+
+
+def delete_override(key: str, *, old_json: str | None, mask: bool = False) -> None:
+    with _connect() as c:
+        c.execute("DELETE FROM setting WHERE key=?", (key,))
+        c.execute("INSERT INTO setting_audit(ts, key, old, new) VALUES(?,?,?,?)",
+                  (_now(), key, _MASKED if (mask and old_json is not None) else old_json, None))
+
+
+def audit_rows(limit: int = 50, offset: int = 0) -> list[dict]:
+    try:
+        with _connect() as c:
+            rows = c.execute("SELECT ts, key, old, new FROM setting_audit "
+                             "ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
+            return [{"ts": t, "key": k, "old": o, "new": n} for t, k, o, n in rows]
+    except Exception as e:
+        _warn_once(e)
+        return []
