@@ -311,7 +311,7 @@ class TestAiTicsLexicon:
 
     def test_single_sentence_cluster_stays_advisory(self):
         """单句击穿防护:一句内命中 3+ 词不算"密度现象",升 blocking 须命中分布在
-        ≥_BANNED_MIN_SENTS 个不同句子(按 [。！？\n] 切分)。"""
+        ≥craft.banned_min_sents 个不同句子(按 [。！？\n] 切分)。"""
         # 协调审查锁定用例:「眼中闪过一丝狡黠」句(banned 与 toxic 重叠部分已被去重丢弃)
         t = "她眼中闪过一丝狡黠。" + "这是一段很长的普通叙述。" * 40
         hits = [h for h in find_ai_tics(t) if h["kind"] == "banned_word"]

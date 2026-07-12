@@ -61,3 +61,19 @@ def test_llm_model_default_from_settings():
     settings.put_setting("llm.model", "test-model-x")
     assert llm.default_model() == "test-model-x"
     assert llm.max_retries() == 3
+
+
+def test_critique_thresholds_hot():
+    from scribe3.critique import find_near_duplicate_paragraphs
+    a = "他躺在自己的棺材里,数着头顶的木纹,一直数到天亮才闭眼。"
+    b = "他躺在自己的棺材里,数着头顶的木纹,数到三更便闭了眼。"
+    text = a + "\n" + b
+    assert find_near_duplicate_paragraphs(text) != []          # 默认 0.7 命中
+    settings.put_setting("craft.near_dup_sim", 0.99)
+    assert find_near_duplicate_paragraphs(text) == []          # 调高阈值热生效
+
+
+def test_critique_banned_density_hot():
+    from scribe3 import critique
+    settings.put_setting("craft.banned_density_per_k", 45.0)   # 注册表 max=50,99 越界
+    assert critique._th("craft.banned_density_per_k") == 45.0

@@ -4,7 +4,6 @@
 纯函数(无 DB/无网络),作渲染层质检兜底。语义级违规(双高潮/声音崩)是另一路(LLM 判官,后续)。
 """
 import bisect
-import bisect
 import json
 import logging
 import re
@@ -12,6 +11,12 @@ import re
 _log = logging.getLogger("scribe3.critique")
 
 _PUNCT_ONLY = re.compile(r"^[，。！？、；：「」『』“”‘’…—\-\d\s]+$")
+
+
+def _th(key: str):
+    """工艺阈值取值:设置中心热生效(DB→env→注册表默认)。"""
+    from scribe3.settings import get_setting
+    return get_setting(key)
 
 
 def find_repetitions(text: str, n: int = 8, min_count: int = 3, top: int = 10) -> list[dict]:
@@ -156,7 +161,7 @@ def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
     return {"prose": new, "rewritten": done, "before": before, "after": after}
 
 
-def find_near_duplicate_paragraphs(text: str, sim: float = 0.7, min_len: int = 25,
+def find_near_duplicate_paragraphs(text: str, sim: float | None = None, min_len: int | None = None,
                                    allow: set[str] | None = None) -> list[dict]:
     """近似(非逐字)重复段落/句子检测——补 find_repetitions(精确8gram)/find_duplicate_lines
     (精确整句)之间的盲区。分幕拼接处常把上一幕结尾的画面换几个字重写一遍(逐字检测器全查不到);
@@ -165,6 +170,8 @@ def find_near_duplicate_paragraphs(text: str, sim: float = 0.7, min_len: int = 2
     相同+局部改字'敏感,优于 n-gram Jaccard),超阈值则后一段判为近似;含 allow 母题词的段落对放行。
     返回 [{"paragraph","sim","dup_of"}](后段原文)。"""
     from difflib import SequenceMatcher
+    sim = sim if sim is not None else _th("craft.near_dup_sim")
+    min_len = min_len if min_len is not None else _th("craft.near_dup_min_len")
     paras = [p.strip() for p in re.split(r"\n+", text or "") if len(p.strip()) >= min_len]
     out: list[dict] = []
     flagged: set[int] = set()
@@ -395,8 +402,7 @@ def find_purple_prose(text: str, extra_patterns: list[str] | None = None,
 _STOP_CHARS = set("。！？!?\n")
 _SOFT_SEPARATORS = set("，,、；;：:")
 _HARD_SEPARATORS = set("。.！!？?")
-_MAX_NEGATIVE_SPAN = 80
-_MAX_POSITIVE_SPAN = 80
+# 阈值 craft.max_negative_span / craft.max_positive_span 已接设置中心热生效(见 _th 调用点)
 # either-or「不是A就是B/也是B」里紧贴的"是"是连词的一部分,不是肯定项系动词;
 # 也借此排掉「不是A,也不是B」这种第二个否定段(prev 为"也"时不算翻转)。
 _COMPACT_EITHER_OR_PREV = set("不就也")
@@ -432,7 +438,8 @@ def _find_positive_flip(candidate: str) -> tuple[int, str] | None:
     index = 2  # 跳过"不是"
     scanned = 0
     crossed_separator = False
-    while index < n and scanned <= _MAX_NEGATIVE_SPAN:
+    max_negative_span = _th("craft.max_negative_span")
+    while index < n and scanned <= max_negative_span:
         ch = candidate[index]
 
         if candidate[index:index + 2] == "而是":
@@ -473,7 +480,7 @@ def _find_positive_flip(candidate: str) -> tuple[int, str] | None:
 def _extract_flip_end(candidate: str, marker_end: int) -> int:
     """从翻转点向后扩到下一个 STOP_CHAR 或 MAX_POSITIVE_SPAN 上限(移植 extractFinding)。"""
     end = marker_end
-    limit = min(len(candidate), marker_end + _MAX_POSITIVE_SPAN)
+    limit = min(len(candidate), marker_end + _th("craft.max_positive_span"))
     while end < limit:
         if candidate[end] in _STOP_CHARS:
             break
@@ -549,12 +556,9 @@ _TOXIC_PATTERNS = [   # oh-story ★★★★/★★★ 毒句式(★★★★�
     ("xinzhong_yongqi", re.compile(r"心中涌起一股[^，,。！？\n]{1,8}")),
 ]
 
-# ---- find_ai_tics 分级阈值(模块级命名常量,测试可引用)----
-_BANNED_DENSITY_PER_K = 3.0   # banned_word 升 blocking 的千字密度阈值
-_BANNED_MIN_SENTS = 3         # 升 blocking 还须命中分布在 ≥3 个不同句子(防单句 3+ 词击穿"密度"语义)
-_CONTEXTUAL_PER_K = 1.5       # contextual_word 合计千字密度阈值
-_CONTEXTUAL_MIN_HITS = 2      # contextual_word 至少命中处数(防极短文本分母失真)
-_WANDAI_BLOCK_HITS = 2        # wandai 毒句式命中 ≥2 处时该类升 blocking
+# ---- find_ai_tics 分级阈值:已接设置中心热生效(craft.banned_density_per_k /
+# craft.banned_min_sents / craft.contextual_per_k / craft.contextual_min_hits /
+# craft.wandai_block_hits,见函数体首行 _th() 取值,下方文档串沿用旧常量名描述语义)----
 
 # banned_word 句子簇计数的句切分符(与协调审查口径一致:[。！？\n])
 _AI_TIC_SENT_DELIM = re.compile(r"[。！？\n]")
@@ -613,13 +617,18 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
     - banned_word:一级禁用词表(7类,建表见 _BANNED_LEXICON)命中,allow_words 白名单豁免
       (与其在 allow_words 区间相交的命中放行);命中区间落在任一 toxic_pattern 区间内的
       丢弃(只留更完整的 toxic 一条代表,同 A1 惯例,且不计入密度/句子簇);升 blocking 须
-      同时满足:千字总密度>_BANNED_DENSITY_PER_K 且命中分布在 ≥_BANNED_MIN_SENTS 个
+      同时满足:千字总密度>craft.banned_density_per_k 且命中分布在 ≥craft.banned_min_sents 个
       不同句子,否则 advisory;
-    - contextual_word:二级词(突然/好像/瞬间)合计千字密度>_CONTEXTUAL_PER_K 且
-      ≥_CONTEXTUAL_MIN_HITS 处才报,逐个给 range,advisory;
-    - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥_WANDAI_BLOCK_HITS
+    - contextual_word:二级词(突然/好像/瞬间)合计千字密度>craft.contextual_per_k 且
+      ≥craft.contextual_min_hits 处才报,逐个给 range,advisory;
+    - toxic_pattern:oh-story 毒句式命中即报 advisory;wandai 类命中≥craft.wandai_block_hits
       处时该类全部升 blocking。
     """
+    banned_density_per_k = _th("craft.banned_density_per_k")
+    banned_min_sents = _th("craft.banned_min_sents")
+    contextual_per_k = _th("craft.contextual_per_k")
+    contextual_min_hits = _th("craft.contextual_min_hits")
+    wandai_block_hits = _th("craft.wandai_block_hits")
     s = text or ""
     out: list[dict] = []
     dash = s.count("——")
@@ -660,13 +669,13 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
         density = len(banned_hits) * 1000 / wc
         # 短文本/单句护栏:密度公式对极短片段(如 /check 端点传入的编辑片段)分母过小
         # 恒超阈;且单句连中 3 词(AI 一句堆砌)也不构成跨文本的"密度现象"。
-        # 取舍:升 blocking 须命中分布在 ≥_BANNED_MIN_SENTS 个【不同句子】(按 [。！？\n]
+        # 取舍:升 blocking 须命中分布在 ≥craft.banned_min_sents 个【不同句子】(按 [。！？\n]
         # 切分)——比「命中总数≥3」更贴合意图(不可被单句击穿),比「wc≥500」不漏判
         # 400 字级真高密段落。
         delims = [m.start() for m in _AI_TIC_SENT_DELIM.finditer(s)]
         hit_sents = {bisect.bisect_left(delims, h["range"][0]) for h in banned_hits}
         severity = ("blocking"
-                    if density > _BANNED_DENSITY_PER_K and len(hit_sents) >= _BANNED_MIN_SENTS
+                    if density > banned_density_per_k and len(hit_sents) >= banned_min_sents
                     else "advisory")
         for h in banned_hits:
             h["severity"] = severity
@@ -681,14 +690,14 @@ def find_ai_tics(text: str, allow_words: set[str] | None = None) -> list[dict]:
                 "range": [m.start(), m.end()], "severity": "advisory",
             })
     # 密度公式对极短文本(个位数字数)会因分母过小而失真——单次孤立出现不构成"密度"现象,
-    # 至少要有 _CONTEXTUAL_MIN_HITS 处命中才谈得上密度超阈,防短文本单词误判。
-    if (len(contextual_hits) >= _CONTEXTUAL_MIN_HITS and wc > 0
-            and len(contextual_hits) * 1000 / wc > _CONTEXTUAL_PER_K):
+    # 至少要有 craft.contextual_min_hits 处命中才谈得上密度超阈,防短文本单词误判。
+    if (len(contextual_hits) >= contextual_min_hits and wc > 0
+            and len(contextual_hits) * 1000 / wc > contextual_per_k):
         out.extend(contextual_hits)
 
-    # toxic_pattern 上报:wandai 类 ≥_WANDAI_BLOCK_HITS 处升 blocking
+    # toxic_pattern 上报:wandai 类 ≥craft.wandai_block_hits 处升 blocking
     for name, hits in toxic_by_name.items():
-        if name == "wandai" and len(hits) >= _WANDAI_BLOCK_HITS:
+        if name == "wandai" and len(hits) >= wandai_block_hits:
             for h in hits:
                 h["severity"] = "blocking"
         out.extend(hits)
@@ -703,9 +712,10 @@ _SIMILE_WORDS = ["仿佛", "如同", "宛如", "好似", "犹如"]            # 
 _SIMILE_LIKE = re.compile(r"像[^,，。！？\n]{1,10}(一样|般|似的|似地)")  # "像…一样"精确模式,避开"好像/图像"
 
 
-def find_oversaturation(text: str, per_k_explain: float = 3.0,
+def find_oversaturation(text: str, per_k_explain: float | None = None,
                         per_k_emo: float = 5.0, per_k_simile: float = 6.0) -> list[dict]:
     """过度解释/过度饱和检测(每千字密度超保守阈值)。留白引擎的确定性兜底。"""
+    per_k_explain = per_k_explain if per_k_explain is not None else _th("craft.oversaturation_per_k")
     s = text or ""
     n = len("".join(s.split())) or 1
     k = n / 1000.0
@@ -727,10 +737,11 @@ def find_oversaturation(text: str, per_k_explain: float = 3.0,
 _ADVERB_WORDS = ("微微", "淡淡", "缓缓", "轻轻")   # oh-story anti-ai-writing 模式2
 
 
-def find_adverb_density(text: str, per_k_max: float = 3.0) -> dict | None:
+def find_adverb_density(text: str, per_k_max: float | None = None) -> dict | None:
     """副词密度检测(oh-story anti-ai-writing 模式2)。_strip_quoted 后按可见字数
     (_degen_visible_length,复用 A5 口径)计千字密度——单次出现合法,密度超阈才报;
     未超阈或全文无命中返回 None(report-only,advisory 性质)。"""
+    per_k_max = per_k_max if per_k_max is not None else _th("craft.adverb_per_k_max")
     s = _strip_quoted(text or "")
     wc = _degen_visible_length(s)
     if wc == 0:
@@ -754,7 +765,7 @@ def find_adverb_density(text: str, per_k_max: float = 3.0) -> dict | None:
 # 完整 split("、") 后 len(items)==3 且每项 1-6 字才命中——≥4 项、2 项、超长项都
 # 整体不报,不存在"从列表中间截出伪三连"的起点。
 _RULE_OF_THREE_SEG_RE = re.compile(r"[^。！？\n，,；;]+")   # 句读+逗号/分号界定的候选段
-_RULE_OF_THREE_ITEM_MAX = 6   # 每分项最大字数(超长项是正常叙述,不是排比分项)
+# 阈值 craft.rule_of_three_item_max 已接设置中心热生效(见 find_rule_of_three 首行 _th 调用)
 
 
 def find_rule_of_three(text: str) -> list[dict]:
@@ -764,6 +775,7 @@ def find_rule_of_three(text: str) -> list[dict]:
     quality_issues 聚合处实现,见 _rule_of_three_gated)。"""
     s = text or ""
     quoted = _quoted_ranges(s)
+    item_max = _th("craft.rule_of_three_item_max")
     out: list[dict] = []
     for m in _RULE_OF_THREE_SEG_RE.finditer(s):
         seg = m.group(0)
@@ -773,7 +785,7 @@ def find_rule_of_three(text: str) -> list[dict]:
         items = core.split("、")
         # 恰好三项、每项非空且 1-6 字:≥4 项是铺陈列举,2 项是普通并列,均不报;
         # 任一项超长(如首项带主语状语的长叙述)说明这不是干净的排比分项,也不报。
-        if len(items) != 3 or not all(1 <= len(it) <= _RULE_OF_THREE_ITEM_MAX for it in items):
+        if len(items) != 3 or not all(1 <= len(it) <= item_max for it in items):
             continue
         start = m.start() + seg.find(core)
         end = start + len(core)
@@ -785,19 +797,18 @@ def find_rule_of_three(text: str) -> list[dict]:
 
 # rule_of_three 报告门:单句偶尔三连打比方是正常修辞,只有千字密度超阈才谈得上
 # "句内三段式滥用"这一 AI 腔信号——故聚合层(quality_flags/quality_issues)只有
-# 密度 >_RULE_OF_THREE_GATE_PER_K 才整体上报,否则该章不计入(见 _rule_of_three_gated)。
-_RULE_OF_THREE_GATE_PER_K = 2.0
+# 密度 >craft.rule_of_three_gate_per_k 才整体上报,否则该章不计入(见 _rule_of_three_gated)。
 
 
 def _rule_of_three_gated(text: str) -> list[dict]:
-    """find_rule_of_three 的报告门:命中千字密度(可见字数口径)须 >_RULE_OF_THREE_GATE_PER_K
+    """find_rule_of_three 的报告门:命中千字密度(可见字数口径)须 >craft.rule_of_three_gate_per_k
     才整体上报,否则返回空列表(单次修辞合法,密度才是信号)。"""
     hits = find_rule_of_three(text)
     if not hits:
         return []
     wc = _degen_visible_length(_strip_quoted(text or "")) or 1
     per_k = len(hits) * 1000 / wc
-    return hits if per_k > _RULE_OF_THREE_GATE_PER_K else []
+    return hits if per_k > _th("craft.rule_of_three_gate_per_k") else []
 
 
 # 同义词循环/精致变异(维基 elegant variation):角色被点名后,后文频繁改用"那男人/
@@ -920,7 +931,7 @@ def quality_flags(text: str, extra_patterns: list[str] | None = None,
     取值,未见通配遍历,不受影响;新增消费方引入前先 grep quality_flags 确认)。
 
     "rule_of_three" 键经密度报告门(_rule_of_three_gated):单次三连合法,只有千字密度
-    超 _RULE_OF_THREE_GATE_PER_K 才整体上报,否则该章返回空列表——与其余"命中即入列"
+    超 craft.rule_of_three_gate_per_k 才整体上报,否则该章返回空列表——与其余"命中即入列"
     键的语义略有差异,调用方按空列表=无问题的既有惯例读取即可,无需特殊处理。
 
     "elegant_variation"(同义词循环)因需要角色名单,纯函数层拿不到,不在此聚合——
