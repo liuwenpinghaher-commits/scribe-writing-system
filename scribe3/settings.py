@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -21,6 +22,15 @@ from dataclasses import dataclass
 from scribe3 import settings_store
 
 _TRUE = {"1", "true", "yes", "on"}   # 与 context_cache._TRUE 逐字一致
+
+_log = logging.getLogger("scribe3.settings")
+_warned_keys: set[str] = set()   # 坏值告警按 key 只发一次,防日志风暴
+
+
+def _warn_once(key: str, where: str, e: Exception) -> None:
+    if key not in _warned_keys:
+        _warned_keys.add(key)
+        _log.warning("设置 %s 的值无效(%s),按 fail-soft 回落: %s", key, where, e)
 
 
 @dataclass(frozen=True)
@@ -124,9 +134,18 @@ def _coerce(s: Setting, value):
             value = value.strip().lower() in _TRUE
         value = bool(value)
     elif s.type == "int":
-        value = int(value)
+        # 非整数 float 不许静默截断(bool 是 int 子类,int(True)=1 无损,不受影响)
+        if isinstance(value, float) and not value.is_integer():
+            raise ValueError(f"{s.key} 需要整数,收到 {value!r}")
+        try:
+            value = int(value)
+        except (TypeError, ValueError) as e:   # None 等不可转值统一包成 ValueError
+            raise ValueError(f"{s.key} 无法转换为 int: {value!r}") from e
     elif s.type == "float":
-        value = float(value)
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{s.key} 无法转换为 float: {value!r}") from e
     else:   # str / secret
         value = str(value)
     if s.min is not None and isinstance(value, (int, float)) and value < s.min:
@@ -142,15 +161,15 @@ def get_setting(key: str):
     if raw is not None:
         try:
             return _coerce(s, json.loads(raw))
-        except Exception:
-            pass   # 台账里的坏值不炸系统:回落 env/默认
+        except Exception as e:
+            _warn_once(key, "DB 覆盖", e)   # 台账里的坏值不炸系统:回落 env/默认
     if key.isupper():   # env 只对全大写既有键生效
         env = os.environ.get(key)
         if env is not None and env != "":
             try:
                 return _coerce(s, env)
-            except Exception:
-                pass
+            except Exception as e:
+                _warn_once(key, "env", e)
     return s.default
 
 
@@ -183,7 +202,8 @@ def _pending_restart(s: Setting) -> bool:
         return False
     try:
         db_val = _coerce(s, json.loads(_overrides()[s.key]))
-    except Exception:
+    except Exception as e:
+        _warn_once(s.key, "pending_restart", e)
         return False
     env = os.environ.get(s.key)
     cur = _coerce(s, env) if env not in (None, "") else s.default
@@ -201,7 +221,7 @@ def settings_snapshot() -> list[dict]:
             "label": s.label, "desc": s.desc, "effect": s.effect, "danger": s.danger,
             "default": None if secret else s.default,
             "value": None if secret else val,
-            "is_set": bool(val) if secret else None,
+            "is_set": (_source(s) != "default") if secret else None,
             "source": _source(s), "min": s.min, "max": s.max,
             "pending_restart": _pending_restart(s),
         })
@@ -217,6 +237,7 @@ def apply_restart_overrides() -> None:
             continue
         try:
             v = _coerce(s, json.loads(ov[s.key]))
-        except Exception:
+        except Exception as e:
+            _warn_once(s.key, "restart 灌注", e)
             continue
         os.environ[s.key] = str(v).lower() if s.type == "bool" else str(v)
