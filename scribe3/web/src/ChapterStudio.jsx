@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, Archive, MoreHorizontal,
-  ScrollText, Eye, Compass,
+  ScrollText, Eye, Compass, MessagesSquare,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -260,7 +260,13 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   // dirtyRef:{key:`${seq}|beats`, value:最新条目数组(含_id), dirty}。条目文本编辑只置 dirty,失焦/切换前 flush。
-  const dirtyRef = useRef({ key: `${seq}|beats`, value: withBeatIds(value), dirty: false })
+  // 初值必须复用 beats state 首次求值的同一份数组(而非再调一次 withBeatIds(value))——
+  // withBeatIds 靠模块级自增计数器发 _id,独立调用两次会给同一批条目发出两套不同 _id,
+  // 导致 dirtyRef.current.value 与 beats state 按 _id 对不上号(Task 3「替换该条」按 _id
+  // 定位曾在此踩坑:beatSelTarget 用 beats state 找到,commit 却拿 dirtyRef 的旧 _id 数组
+  // map,永远替换不中)。用 useRef(null) 惰性初始化,首次渲染时直接引用 beats 变量本身。
+  const dirtyRef = useRef(null)
+  if (dirtyRef.current === null) dirtyRef.current = { key: `${seq}|beats`, value: beats, dirty: false }
 
   useEffect(() => {
     const key = `${seq}|beats`
@@ -327,12 +333,37 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
   const { pending, clear } = useStageProposal('beats', seq)
   const { setChiefIntent } = useChiefSlot()
   const pendingItems = pending ? beatsFromMarkdown(pending.content) : []
+  // Task 3:条目级「聊这条/改这条」的落地锚点(_id,而非选区子串——节拍是结构化条目,唯一性
+  // 天然按 _id;条目可能被上下移,_id 稳定)。阶段级 state,切章/落地/放弃清空。
+  const [beatSel, setBeatSel] = useState(null)
+  useEffect(() => { setBeatSel(null) }, [seq])
+  // 目标条目仍在(未被删)才升级为「替换该条」;被删则降级回现状「追加为新条目」+ 提示。
+  const beatSelTarget = beatSel ? beats.find((b) => b._id === beatSel.id) : null
+  const chatBeat = (b, i) => {
+    setChiefIntent({ phase: 'beats', seq, text: `就本章第${i + 1}条节拍和你聊聊(先不改):「${b.text}」\n` })
+    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+  }
+  const editBeat = (b, i) => {
+    setChiefIntent({ phase: 'beats', seq, text: `把本章第${i + 1}条节拍改一下,直接给出改后的这一条:「${b.text}」` })
+    setBeatSel({ id: b._id })
+    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+  }
   const appendPending = () => {
     if (!pending) return
-    if (!pendingItems.length) { clear(); return }
+    if (!pendingItems.length) { clear(); setBeatSel(null); return }
     const base = dirtyRef.current.key === `${seq}|beats` ? dirtyRef.current.value : beats
     commit([...base, ...pendingItems.map((t) => ({ _id: `b${++beatUid}`, text: t, done: false }))])
-    clear(); toast(`已追加 ${pendingItems.length} 条节拍`)
+    clear(); setBeatSel(null); toast(`已追加 ${pendingItems.length} 条节拍`)
+  }
+  // 替换该条:取解析出的第一条文本(与追加同款 beatsFromMarkdown 解析/清洗——常见场景「改
+  // 这条」的回复就是单行/单条,若偶尔解析出多条则取第一条,不整段塞进单条字段);解析空
+  // (如纯代码块/标题)兜底用整段去空白原文,不静默丢弃改动。
+  const replaceBeat = () => {
+    if (!pending || !beatSelTarget) return
+    const newText = pendingItems[0] || (pending.content || '').trim()
+    const base = dirtyRef.current.key === `${seq}|beats` ? dirtyRef.current.value : beats
+    commit(base.map((b) => b._id === beatSel.id ? { ...b, text: newText } : b))
+    clear(); setBeatSel(null); toast('已替换该条节拍')
   }
 
   return (
@@ -352,10 +383,17 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
       {pending && (
         <ProposalBar
-          text={`主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
-          actions={[{ label: '追加为新条目', variant: 'primary', onClick: appendPending }]}
-          onDismiss={clear}
+          text={beatSelTarget
+            ? '主编给出了这一条的改稿,可替换该条。'
+            : `主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
+          actions={beatSelTarget
+            ? [{ label: '替换该条', variant: 'primary', onClick: replaceBeat }, { label: '追加为新条目', onClick: appendPending }]
+            : [{ label: '追加为新条目', variant: 'primary', onClick: appendPending }]}
+          onDismiss={() => { clear(); setBeatSel(null) }}
         />
+      )}
+      {pending && beatSel && !beatSelTarget && (
+        <div className="text-f12 text-warn">该条节拍已被删除,按追加处理</div>
       )}
 
       <div className="flex gap-2">
@@ -386,6 +424,8 @@ function BeatsTab({ seq, value, meta, onSaved, work }) {
                   onChange={(md) => editText(b._id, md)} onBlur={flush} placeholder="节拍内容…" />
               </div>
               <div className={`flex items-center gap-0.5 shrink-0 ${HOVER_ACTIONS}`}>
+                <Btn variant="ghost" size="xs" icon onClick={() => chatBeat(b, i)} title="就这条节拍和主编讨论" aria-label="就这条节拍和主编讨论"><MessagesSquare size={13} /></Btn>
+                <Btn variant="ghost" size="xs" icon onClick={() => editBeat(b, i)} title="让主编改这条节拍" aria-label="让主编改这条节拍"><Sparkles size={13} /></Btn>
                 <Btn variant="ghost" size="xs" icon onClick={() => move(i, -1)} disabled={i === 0} title="上移" aria-label="上移"><ChevronUp size={13} /></Btn>
                 <Btn variant="ghost" size="xs" icon onClick={() => move(i, 1)} disabled={i === beats.length - 1} title="下移" aria-label="下移"><ChevronDown size={13} /></Btn>
                 <Btn variant="ghost" size="xs" icon onClick={() => remove(i)} title="删除" aria-label="删除" className="hover:text-danger"><Trash2 size={13} /></Btn>

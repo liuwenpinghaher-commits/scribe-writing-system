@@ -247,3 +247,147 @@ describe('ChapterStudio 大纲/草稿选区聊这段/改这段(Task 2)', () => {
     expect(screen.getByRole('button', { name: '填入' })).toBeTruthy()
   })
 })
+
+// ——— Task 3:节拍条目级「聊这条/改这条」———
+// 节拍是结构化条目,不是选区;两钮是行内动作(与既有增删/上下移同排的实按钮),不经
+// RichEditor onSelAction。落地锚点是 _id(条目可能被上下移,_id 稳定;唯一性天然成立,
+// 不像大纲/草稿要子串唯一命中兜底)。
+describe('ChapterStudio 节拍条目级聊这条/改这条(Task 3)', () => {
+  const beatsFixture = () => [
+    { text: '焦三第一次见到铜炉', done: false },
+    { text: '铜炉认主的异象', done: false },
+  ]
+
+  beforeEach(() => {
+    localStorage.clear()
+    apiMock.chapter.mockResolvedValue({
+      title: '三', synopsis: '', beats: beatsFixture(), focalizer: 'role:小翠',
+      prose: '', deductions: [], involved_characters: [],
+    })
+    apiMock.chapters.mockResolvedValue([{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }])
+    apiMock.entities.mockResolvedValue([{ id: 'role:小翠', kind: 'character', name: '小翠' }])
+    apiMock.latestDraft.mockResolvedValue({ prose: '', summary: '' })
+    apiMock.materialRefsByChapter.mockResolvedValue([])
+    apiMock.patchChapter.mockResolvedValue({ ok: true })
+    apiMock.saveDraft.mockResolvedValue({ ok: true })
+  })
+
+  async function openBeatsTab() {
+    renderStudio()
+    fireEvent.click(await screen.findByRole('tab', { name: '节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('beats'))
+  }
+
+  // 每条节拍用其精简 RichEditor 的 ariaLabel(`节拍 ${i+1}`)定位所在行容器(.group),
+  // 再在行内 scope 查动作按钮——按钮文案/aria-label 在多行间刻意同名(沿既有上移/删除惯例)。
+  const beatRow = (label) => screen.getByRole('textbox', { name: label }).closest('.group')
+
+  it('①聊这条 → chiefIntent 含该条文本与序号 + 派发 s3-right-tab 聚焦主编', async () => {
+    const onRightTab = vi.fn()
+    window.addEventListener('s3-right-tab', onRightTab)
+    try {
+      await openBeatsTab()
+      fireEvent.click(within(beatRow('节拍 1')).getByRole('button', { name: '就这条节拍和主编讨论' }))
+
+      const raw = await screen.findByTestId('chief-intent-sentinel')
+      await waitFor(() => expect(raw.textContent).not.toBe(''))
+      const intent = JSON.parse(raw.textContent)
+      expect(intent.phase).toBe('beats')
+      expect(intent.seq).toBe(3)
+      expect(intent.text).toContain('焦三第一次见到铜炉')
+      expect(intent.text).toContain('第1条节拍')
+      expect(intent.text).toContain('聊聊')
+
+      expect(onRightTab).toHaveBeenCalledTimes(1)
+      expect(onRightTab.mock.calls[0][0].detail).toBe('chief')
+    } finally {
+      window.removeEventListener('s3-right-tab', onRightTab)
+    }
+  })
+
+  it('②改这条 → chiefIntent 含「改」与该条文本 + 记 beatSel;proposal → 「替换该条」精确替换 + patchChapter(剥 _id)', async () => {
+    await openBeatsTab()
+    fireEvent.click(within(beatRow('节拍 2')).getByRole('button', { name: '让主编改这条节拍' }))
+
+    const raw = await screen.findByTestId('chief-intent-sentinel')
+    await waitFor(() => expect(raw.textContent).not.toBe(''))
+    const intent = JSON.parse(raw.textContent)
+    expect(intent.phase).toBe('beats')
+    expect(intent.text).toContain('改')
+    expect(intent.text).toContain('铜炉认主的异象')
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '铜炉在焦三掌心发烫', ts: 1 } }))
+
+    const replaceBtn = await screen.findByRole('button', { name: '替换该条' })
+    fireEvent.click(replaceBtn)
+
+    // 同步读(不经 waitFor 轮询):commit 的 setBeats 已在 fireEvent 的 act() 内同步落定;
+    // 若改用 waitFor 轮询,onSaved→setRefresh 触发的 api.chapter() 静默刷新会用 apiMock
+    // 的静态 mockResolvedValue(未反映刚落库的改动)把编辑器冲回原文——这是测试替身的局限
+    // (真后端会回读到刚 patch 的新值),沿用 Task 2 outline/draft 用例同款同步读法回避。
+    expect(screen.getByRole('textbox', { name: '节拍 2' }).value).toBe('铜炉在焦三掌心发烫')
+    expect(screen.getByRole('textbox', { name: '节拍 1' }).value).toBe('焦三第一次见到铜炉')
+    await waitFor(() => expect(apiMock.patchChapter).toHaveBeenCalled())
+    expect(apiMock.patchChapter).toHaveBeenCalledWith(3, {
+      beats: [
+        { text: '焦三第一次见到铜炉', done: false },
+        { text: '铜炉在焦三掌心发烫', done: false },
+      ],
+    }, 'demo')
+  })
+
+  it('③proposal 解析出多条时「替换该条」只取第一条文本(不整段塞进单条字段)', async () => {
+    await openBeatsTab()
+    fireEvent.click(within(beatRow('节拍 1')).getByRole('button', { name: '让主编改这条节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '- 第一条改稿\n- 第二条改稿', ts: 1 } }))
+    fireEvent.click(await screen.findByRole('button', { name: '替换该条' }))
+
+    // 同步读,理由同上一条用例(避开静态 mock 刷新把编辑器冲回原文的测试替身局限)。
+    expect(screen.getByRole('textbox', { name: '节拍 1' }).value).toBe('第一条改稿')
+  })
+
+  it('④未点「改这条」(无 beatSel)时 proposal 到来维持现状「追加为新条目」', async () => {
+    await openBeatsTab()
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '- 新节拍甲\n- 新节拍乙', ts: 1 } }))
+    await screen.findByText(/主编生成了 2 条节拍/)
+    expect(screen.queryByRole('button', { name: '替换该条' })).toBeNull()
+    expect(screen.getByRole('button', { name: '追加为新条目' })).toBeTruthy()
+  })
+
+  it('⑤记了 beatSel 后目标条目被删 → proposal 到来降级「追加为新条目」+ 明示提示', async () => {
+    await openBeatsTab()
+    fireEvent.click(within(beatRow('节拍 2')).getByRole('button', { name: '让主编改这条节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
+
+    fireEvent.click(within(beatRow('节拍 2')).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(apiMock.patchChapter).toHaveBeenCalled())
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 3, target: null, content: '改后的内容', ts: 2 } }))
+    await screen.findByText(/主编生成了/)
+    expect(screen.queryByRole('button', { name: '替换该条' })).toBeNull()
+    expect(screen.getByRole('button', { name: '追加为新条目' })).toBeTruthy()
+    expect(screen.getByText('该条节拍已被删除,按追加处理')).toBeTruthy()
+  })
+
+  it('⑥切章清 beatSel:再来 proposal 不出「替换该条」', async () => {
+    await openBeatsTab()
+    fireEvent.click(within(beatRow('节拍 1')).getByRole('button', { name: '让主编改这条节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).not.toBe(''))
+
+    fireEvent.click(screen.getByRole('button', { name: '下一章' }))
+    await waitFor(() => expect(apiMock.chapter).toHaveBeenCalledWith(4))
+    // StudioHost 固定传 initialPhase="outline"(harness 简化;真实调用方 DetailPane 换章后
+    // node 不带 phase,不会强制跳回大纲),换章后 ChapterStudio 的 initialPhase 效应会把
+    // phase 弹回大纲,需要重新点节拍 tab——BeatsTab 因而重挂载,beatSel 无论靠 useEffect(seq)
+    // 清空还是靠重挂载清零,行为都可观测为「不再出现替换该条」,断言本身仍然成立。
+    fireEvent.click(await screen.findByRole('tab', { name: '节拍' }))
+    await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('beats'))
+
+    fireEvent(window, new CustomEvent('s3:stage-proposal', { detail: { phase: 'beats', seq: 4, target: null, content: '第四章节拍改稿', ts: 3 } }))
+    await screen.findByText(/主编生成了/)
+    expect(screen.queryByRole('button', { name: '替换该条' })).toBeNull()
+    expect(screen.getByRole('button', { name: '追加为新条目' })).toBeTruthy()
+  })
+})
