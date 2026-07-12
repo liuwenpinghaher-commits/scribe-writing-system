@@ -75,8 +75,9 @@ describe('ChapterStudio 章节辅助:头部入口 + 栏3 内容区切换', () =>
     // 内容区切换,不是 portal:视图在章工作台 section(ObjectFrame)内部
     expect(view.closest('section')).not.toBeNull()
     expect(view.parentElement).not.toBe(document.body)
-    // 初始 tab=关联,内容挂 FramePanel
-    expect(within(view).getByRole('tab', { name: '关联' }).getAttribute('aria-selected')).toBe('true')
+    // 初始 tab=关联,内容挂 FramePanel;视图内无重复 tab 行(2026-07-12 UX 修正:
+    // 头部三入口是唯一切换器,面板内再画同名 tab 是重复信息且白占一行)
+    expect(within(view).queryByRole('tablist')).toBeNull()
     expect(await within(view).findByTestId('frame-panel')).toBeTruthy()
     expect(within(view).queryByTestId('brief-panel')).toBeNull()
     // 阶段内容被替换(同级切换语义)
@@ -129,19 +130,22 @@ describe('ChapterStudio 章节辅助:头部入口 + 栏3 内容区切换', () =>
     expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('outline')
   })
 
-  it('视图内三 tab 互切(受控),头部入口高亮同步跟随', async () => {
+  it('头部入口互切(唯一切换器):内容跟随,高亮一致,视图不重挂', async () => {
     renderStudio()
     fireEvent.click(await screen.findByRole('button', { name: /关联/ }))
     const view = await screen.findByTestId('chapter-aux-view')
+    await within(view).findByTestId('frame-panel')
 
-    fireEvent.click(within(view).getByRole('tab', { name: '简报' }))
+    // 2026-07-12 UX 修正:面板内不再有重复 tab 行,互切只经头部入口
+    fireEvent.click(screen.getByRole('button', { name: /简报/ }))
 
     expect(await within(view).findByTestId('brief-panel')).toBeTruthy()
     expect(within(view).queryByTestId('frame-panel')).toBeNull()
-    // 受控回写:头部高亮跟着内部互切走,当前位置永远可见且一致
     const group = screen.getByRole('group', { name: '章节辅助' })
     expect(within(group).getByRole('button', { name: /简报/ }).getAttribute('aria-pressed')).toBe('true')
     expect(within(group).getByRole('button', { name: /关联/ }).getAttribute('aria-pressed')).toBe('false')
+    // 受控 tab 切换不重挂视图(ErrorBoundary key 只含章号),角色候选等不白重拉
+    expect(screen.getByTestId('chapter-aux-view')).toBe(view)
   })
 
   it('未选中章(seq 为空)不出现三入口', async () => {

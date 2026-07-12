@@ -10,9 +10,10 @@ import { NorthStarPanel } from './NorthStarPanel'
 // (与点大纲/正文页签同级的内容切换)。不再是铺满栏2+3+4 的全宽层——那会挤掉栏4 主编,
 // 用户没法边看简报/关联边和主编讨论;栏2 目录、栏4 主编全程不动。
 // tab 受控/非受控双模:
-//   · 受控(ChapterStudio 用法):传 tab + onTabChange——头部三入口与面板内三 tab 是同一
-//     位置状态(auxView)的两个视图,内部互切回写头部高亮,nav-state-active 永远一致;
-//   · 非受控:只传 initialTab(可省),内部自持 tab state(旧直渲用法/测试零改动)。
+//   · 受控(ChapterStudio 用法):传 tab + onTabChange——头部三入口是【唯一】切换器,
+//     面板内不再渲染自己的 tab 行(2026-07-12 UX 修正:同名三 tab 画两遍是重复信息
+//     且白占一行,作者实拍反馈),内容区直接顶满;
+//   · 非受控:只传 initialTab(可省),内部自持 tab state 并渲染 tab 行(旧直渲用法)。
 // 签名不收 work:面板走全局 WORK(与左栏 FramePanel 同惯例,见 studioDocks 左栏 caps;
 // 2026-07-11 裁决:FramePanel 省略 work prop,不碰在途 FourPaneShell)。
 // 点行导航:onSelectNode 不传——辅助视图语境无导航回调通道,FramePanel 内为可选链 no-op
@@ -63,10 +64,12 @@ export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange }) 
   // 栏3 内容区适配:内容套一层宽松 max-w 居中(超宽屏不贴边拉满),Tabs 与内容同一约束对齐;
   // BriefPanel/FramePanel/NorthStarPanel 内部不动,自适应可用宽度。
   return (
-    <div className="flex h-full min-h-0 flex-col p-4">
-      <div className="mx-auto w-full max-w-[96rem] shrink-0">
-        <Tabs ariaLabel="章节辅助" value={tab} onValueChange={setTab} items={items} />
-      </div>
+    <div className="flex h-full min-h-0 flex-col px-4 pb-4">
+      {!controlled && (
+        <div className="mx-auto w-full max-w-[96rem] shrink-0 pt-4">
+          <Tabs ariaLabel="章节辅助" value={tab} onValueChange={setTab} items={items} />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-auto pt-3">
         <div className="mx-auto w-full max-w-[96rem]">
           {tab === 'brief' && <BriefPanel seq={seq} />}

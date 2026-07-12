@@ -74,21 +74,18 @@ describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () =>
     expect(await screen.findByTestId('brief-panel')).toBeTruthy()
   })
 
-  // 受控模式(ChapterStudio 栏3 内容区接线):tab prop 是唯一事实源,内部点击只回调
-  // onTabChange 不自切——头部三入口高亮与面板内 tab 由父级同一 auxView 驱动,永远同步。
-  it('受控模式:tab prop 决定当前页,内部点击回调 onTabChange 而不自切', async () => {
-    const onTabChange = vi.fn()
-    const { rerender } = render(<ChapterAuxPanel seq={3} tab="frame" onTabChange={onTabChange} />)
+  // 受控模式(ChapterStudio 栏3 内容区接线):tab prop 是唯一事实源。
+  // 2026-07-12 UX 修正:受控时【不渲染】内部 tab 行——头部三入口是唯一切换器,
+  // 面板内再画一排同名 tab 是重复信息且白占一行(作者实拍反馈)。
+  it('受控模式:不渲染内部 tab 行(头部入口是唯一切换器),内容随 tab prop 切换', async () => {
+    const { rerender } = render(<ChapterAuxPanel seq={3} tab="frame" onTabChange={() => {}} />)
 
     expect(await screen.findByTestId('frame-panel')).toBeTruthy()
-    fireEvent.click(screen.getByRole('tab', { name: '简报' }))
-    expect(onTabChange).toHaveBeenCalledWith('brief')
-    // 受控:父级尚未回写 tab,内容不得抢先自切
-    expect(screen.queryByTestId('brief-panel')).toBeNull()
+    expect(screen.queryByRole('tablist', { name: '章节辅助' })).toBeNull()   // 无重复 tab 行
 
-    rerender(<ChapterAuxPanel seq={3} tab="brief" onTabChange={onTabChange} />)
+    rerender(<ChapterAuxPanel seq={3} tab="brief" onTabChange={() => {}} />)
     expect(await screen.findByTestId('brief-panel')).toBeTruthy()
-    expect(screen.getByRole('tab', { name: '简报' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByTestId('frame-panel')).toBeNull()
   })
 
   // fail-soft:章 meta / 实体拉取失败 → 关联页降级为全知空态(空 focalizer),面板不崩。
