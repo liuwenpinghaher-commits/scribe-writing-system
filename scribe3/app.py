@@ -41,6 +41,9 @@ from scribe3.store import (
 )
 from scribe3.verify import causal_complete
 
+from scribe3 import settings as _settings
+_settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env,必须在 CORS/token 读取前
+
 app = FastAPI(title="scribe3")
 _CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
 
@@ -730,6 +733,46 @@ def capabilities():
             "embedding_model": embed.model_version(),
         },
     }
+
+
+# ── 统一设置中心(spec: docs/superpowers/specs/2026-07-12-settings-center-design.md)──
+class SettingPutReq(BaseModel):
+    value: object = None
+
+
+@app.get("/settings")
+def settings_all():
+    """全量设置:值(secret 掩码)+来源+默认+元数据+pending_restart。只读。"""
+    from scribe3 import settings as S
+    return {"settings": S.settings_snapshot(),
+            "categories": ["connection", "llm", "craft", "flags", "gateway"]}
+
+
+@app.get("/settings/audit")
+def settings_audit(limit: int = 50, offset: int = 0):
+    from scribe3 import settings_store
+    return {"rows": settings_store.audit_rows(limit=min(limit, 200), offset=offset)}
+
+
+@app.put("/settings/{key}")
+def settings_put(key: str, req: SettingPutReq):
+    from scribe3 import settings as S
+    try:
+        return S.put_setting(key, req.value)
+    except KeyError:
+        raise HTTPException(404, f"未登记的设置项: {key}")
+    except (ValueError, TypeError) as e:
+        raise HTTPException(422, str(e))
+
+
+@app.post("/settings/{key}/reset")
+def settings_reset(key: str):
+    from scribe3 import settings as S
+    try:
+        S.reset_setting(key)
+    except KeyError:
+        raise HTTPException(404, f"未登记的设置项: {key}")
+    return {"key": key, "status": "reset"}
 
 
 @app.get("/ai/usage")

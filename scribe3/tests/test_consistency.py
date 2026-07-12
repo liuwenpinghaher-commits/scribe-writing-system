@@ -157,6 +157,10 @@ class TestWriteGate:
         # 统一上下文 Task 6:主编线程显式分支。授权语义:只写 editorial_thread
         # 一表(建子线程,写 parent_thread_id),不碰正典/对话内容;导航路径绝不调此。
         ("POST", "/chat/threads/{thread_id}/fork"),
+        # 统一设置中心:PUT 写 SQLite 设置台账(带校验+审计,secret 掩码);
+        # reset 删覆盖值回落 env/默认。不碰正典数据、不碰 SurrealDB。
+        ("PUT", "/settings/{key}"),
+        ("POST", "/settings/{key}/reset"),
         # 统一上下文记忆 Task 8/10:直连 Hermes 会话的记忆钩子。授权语义:
         # prefetch 只读检索组装(不落库,read-only POST,组装失败降级空块);
         # capture-turn 幂等捕获对话轮进经验记忆(event_id 幂等,分类兜底偏保守
