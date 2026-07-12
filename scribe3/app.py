@@ -2883,12 +2883,22 @@ def _pulse_digest(st, seq: int | None) -> str:
         return ""
 
 
+# S-001:纯讨论(hermes_complete_stream 单遍无续接)对开放式提问,doubao 易回"让我查查"
+# 之类思考开场白然后单轮结束。给纯讨论 sysmsg 加通用作答引导,让开放问题也直接给完整方案,
+# 不必逼作者每次都写"别说让我查查"。只作用于 chat_stream(纯讨论);写作/agentic 路径不受影响。
+_DISCUSSION_DIRECTIVE = (
+    "\n\n【作答方式(纯讨论)】直接、完整、可操作地回答,一次说透。"
+    "不要用『让我查查/让我想想/让我先看看』这类拖延开场——你此刻在纯讨论对话中,"
+    "没有实时查询工具,请直接凭你的编辑学识与上方已有设定作答。"
+    "作者要方案时,当场给出完整选项(含各自代价),不要只起个头就停。")
+
+
 @app.get("/chat/stream")
 def chat_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
     seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。"""
     from scribe3.llm import hermes_complete_stream
-    sysmsg = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
+    sysmsg = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq) + _DISCUSSION_DIRECTIVE
 
     def gen():
         try:
@@ -2987,6 +2997,32 @@ def _editor_identity_block() -> str:
     )
 
 
+def _secret_guard_block(st, chapter: int | None = None) -> str:
+    """S-002:知情主角限知泄露修复。project_frame 只屏蔽【焦点者不知道】的帧外私密,
+    但焦点者是知情主角时,他自己知道的核心悬念秘密(真名/前史/印记)在帧内、且 backstory
+    里也写了 → 写他视角就把该留到揭示章的秘密提前泄露给读者(知情 POV 倒灌)。
+    修复:对本书 secret 命题的破绽词(leak_markers),即便视角人物知情,也硬性约束本章
+    藏匿、禁明写。默认所有 secret 都藏;作者要在某章揭示时,写作指令里明说'本章揭示X'覆盖。
+    无 secret 命题 → 空串(默认行为字节不变,旧书/无私密书零变化)。"""
+    try:
+        facts = st.facts_at(chapter or 99999)
+    except Exception:
+        return ""
+    markers: list[str] = []
+    for f in facts:
+        if getattr(f, "secret", False):
+            markers.extend(getattr(f, "leak_markers", None) or [])
+    markers = list(dict.fromkeys(m for m in markers if m and str(m).strip()))
+    if not markers:
+        return ""
+    banned = "、".join(markers[:40])
+    return (
+        "\n\n【核心悬念·限知纪律(本章须藏·硬约束)】本书有读者尚不该知道的核心伏线。"
+        "即便视角人物自己知情,本章也**绝不明写**这些秘密——只可用身体反应、回避、物件、"
+        "欲言又止来暗示,把重量压住、留到揭示章引爆。**严禁在正文出现以下破绽词**(含其明显变体):"
+        f"{banned}。剧情若逼近,以『藏着不说/一闪而过/避而不答』处理,绝不点破。")
+
+
 def _write_protocol_block() -> str:
     """写作硬协议(讨论 vs 动稿)+ 文风基准(纯静态,零数据)。原 _editor_write_system 内联串
     原样抽出,供旧 _editor_write_system 与 v1 共用——不改一字,保旧路径字节一致。"""
@@ -3032,7 +3068,8 @@ def _write_revision_block() -> str:
 
 def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
     # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
-    base = _editor_system(st, focalizer=focalizer, chapter=chapter) + _write_protocol_block()
+    base = (_editor_system(st, focalizer=focalizer, chapter=chapter)
+            + _write_protocol_block() + _secret_guard_block(st, chapter))
     # Task7:章前简报注入(chapter 已知才组装;fail-safe——组装异常只 warning 不阻断写作)
     brief_txt = ""
     if chapter is not None:
@@ -3950,7 +3987,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     instructions = (_editor_identity_block() + _write_protocol_block()
-                    + _write_revision_block())
+                    + _write_revision_block() + _secret_guard_block(st, chapter))
     instructions += f"\n当前第 {chapter} 章。"
     if with_tools:
         instructions += _s3_work_scope_block(work)
@@ -4026,6 +4063,11 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         instructions += "\n\n" + craft
     instructions += _phase_role_block(phase)
     # 每请求硬协议(强制纪律,恒内嵌 prompt,不进 envelope)
+    # S-007:跨章避免复用是【确定性禁令】(distinctive_phrases→"别逐字复用前文这些措辞"),
+    #   不是上下文信息——envelope 只聚合"前文写了什么",给不出"禁止复用"的禁令。按本函数
+    #   自己的分工原则(强制纪律逐条内嵌、不进 envelope),它本就该内嵌,此前随"替代旧散点"
+    #   一起漏掉,导致 assembler_v1 放量后跨章复读防线失效(实证:某章 cross_repetition=25)。
+    instructions += _avoid_directive(st, chapter)
     instructions += _revelation_discipline_block(focalizer)
     instructions += _focalizer_sincerity_block()
     instructions += _purpose_workflow_block(st, chapter, with_tools, work)
@@ -5049,6 +5091,66 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         _enqueue_ingest(background, work, seq)
     return {"seq": seq, "rewritten": res["rewritten"],
             "cross_repetition_before": res["before"], "cross_repetition_after": res["after"]}
+
+
+@app.post("/polish-chapter")
+def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
+    """章内精修(QC 治层·章内维度):定位本章内 repetition/duplicate_lines/排比 → 定向改写 → 存回。
+
+    与 /dedup-chapter(跨章逐字复读)对称互补:分幕长章在章内自我复读、堆排比,跨章 dedup 完全
+    治不到。同源哲学'确定性扫描+定向改写'——不靠 prompt 记住禁令,只精准改犯规句,改写器强约束
+    保限知(绝不点破未揭示悬念)。幂等:无章内硬伤则原样返回、不调 LLM(不落版、不排 ingest)。
+    三路对称(落 final 版 + 排后台 ingest)与 /save-chapter、/dedup-chapter 一致。"""
+    with _loop_inflight_lock:
+        if (work, seq) in _loop_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {seq} 章生成在途(loop/选择环),完成后再精修"))
+    _guard_pilot_busy(work, seq)
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    from scribe3.critique import rewrite_intra_chapter_issues
+    from scribe3.llm import hermes_complete
+    allow = st.motif_terms() if hasattr(st, "motif_terms") else None
+    res = rewrite_intra_chapter_issues(ch["prose"], hermes_complete, allow=allow)
+    leak_guard = None
+    if res["rewritten"] > 0:
+        # 限知二次门:改写单句无全局 context,可能把原文刻意模糊的表述"具体化点破"未揭示悬念。
+        # 落库前复跑 find_leaks(与 /save-chapter、/check 同一泄露门),泄露增加则整体回退不落库。
+        foc = ch.get("focalizer")
+        if foc:
+            try:
+                from scribe3.verify import find_leaks
+                before_leaks = len(find_leaks(ch["prose"], st, foc, seq))
+                after_leaks = len(find_leaks(res["prose"], st, foc, seq))
+                if after_leaks > before_leaks:
+                    leak_guard = {"before": before_leaks, "after": after_leaks, "action": "rolled_back"}
+                    res = {"rewritten": 0, "before": res["before"], "after": res["before"],
+                           "prose": ch["prose"]}
+            except Exception as e:
+                import logging
+                logging.getLogger("scribe3").warning(
+                    "polish-chapter find_leaks 二次门异常(保守起见回退不落库) work=%s seq=%s: %s",
+                    work, seq, e)
+                leak_guard = {"error": str(e), "action": "rolled_back"}
+                res = {"rewritten": 0, "before": res["before"], "after": res["before"],
+                       "prose": ch["prose"]}
+    if res["rewritten"] > 0:
+        st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
+        try:
+            st.add_chapter_version(seq, res["prose"], label="", kind="final",
+                                   stage="final", stats=_prose_stats(res["prose"]))
+        except Exception as e:
+            import logging
+            logging.getLogger("scribe3").warning(
+                "polish-chapter 自动留 final 版失败(改写已落库) work=%s seq=%s: %s", work, seq, e)
+        _enqueue_ingest(background, work, seq)
+    resp = {"seq": seq, "rewritten": res["rewritten"],
+            "intra_issues_before": res["before"], "intra_issues_after": res["after"]}
+    if leak_guard:
+        resp["leak_guard"] = leak_guard
+    return resp
 
 
 @app.post("/check")

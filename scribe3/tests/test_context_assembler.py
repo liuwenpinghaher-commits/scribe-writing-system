@@ -224,6 +224,27 @@ def test_v1_canonical_fact_appears_once(store, monkeypatch):
     assert out.count("青骡巷尽头的窨井") == 1
 
 
+def test_v1_calls_avoid_directive(store, monkeypatch):
+    """S-007 回归钉:v1 组装链必须调用 _avoid_directive(跨章避免复读禁令)。它是【确定性禁令】、
+    非上下文信息——envelope 只聚合"前文写了什么",给不出"禁止逐字复用"的禁令;此前随
+    "envelope 替代旧 avoid/voice/arc 散点"一起漏掉,致 assembler_v1 放量后跨章复读防线失效
+    (实证某章 cross_repetition=25)。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+    import scribe3.app as appmod
+    called = {}
+    orig = appmod._avoid_directive
+
+    def _spy(st, ch, *a, **k):
+        called["yes"] = True
+        return orig(st, ch, *a, **k)
+
+    monkeypatch.setattr(appmod, "_avoid_directive", _spy)
+    appmod._assemble_write_instructions(
+        store, chapter=2, focalizer="", phase="final", seed_words=[],
+        short_mode=False, with_tools=False, work="main")
+    assert called.get("yes"), "v1 链必须调用 _avoid_directive(S-007 防回归)"
+
+
 # ---------- M1:v1 失败 fail-safe 回退旧链,且留结构化信号(计数器) ----------
 
 def test_v1_failure_falls_back_and_signals(store, monkeypatch):

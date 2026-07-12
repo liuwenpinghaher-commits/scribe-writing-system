@@ -156,6 +156,179 @@ def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
     return {"prose": new, "rewritten": done, "before": before, "after": after}
 
 
+def find_near_duplicate_paragraphs(text: str, sim: float = 0.7, min_len: int = 25,
+                                   allow: set[str] | None = None) -> list[dict]:
+    """近似(非逐字)重复段落/句子检测——补 find_repetitions(精确8gram)/find_duplicate_lines
+    (精确整句)之间的盲区。分幕拼接处常把上一幕结尾的画面换几个字重写一遍(逐字检测器全查不到);
+    min_len=25 兼顾段落级与句子级近似(实证:结局章两相邻句"他躺在自己的棺材里…前半全同后半改几字"
+    落在段落级 40 阈值外,漏检)。切段(按行),对够长的段两两算字符级相似度(difflib,对'大段逐字
+    相同+局部改字'敏感,优于 n-gram Jaccard),超阈值则后一段判为近似;含 allow 母题词的段落对放行。
+    返回 [{"paragraph","sim","dup_of"}](后段原文)。"""
+    from difflib import SequenceMatcher
+    paras = [p.strip() for p in re.split(r"\n+", text or "") if len(p.strip()) >= min_len]
+    out: list[dict] = []
+    flagged: set[int] = set()
+    for j in range(len(paras)):
+        if j in flagged:
+            continue
+        pj = paras[j]
+        for i in range(j):
+            pi = paras[i]
+            r = SequenceMatcher(None, pj, pi).ratio()
+            if r >= sim and not (_is_allowed(pj, allow) or _is_allowed(pi, allow)):
+                out.append({"paragraph": pj, "sim": round(r, 2), "dup_of": pi[:20]})
+                flagged.add(j)
+                break
+    return out
+
+
+# collector/rewriter 统一切句正则(含省略号 …,与 find_duplicate_lines 口径一致,修 review P2-3)
+_INTRA_SENT_SPLIT = re.compile(r"(?<=[。！？…\n])")
+
+
+def intra_repetition_sentences(text: str, allow: set[str] | None = None) -> list[dict]:
+    """定位本章内需定向改写的问题句(章内治层的定位原语,与 cross_repetition_sentences 对称)。
+    覆盖四类章内硬伤,每句附改写提示 hint:
+      · repetition         同一 ≥8 字近字短语出现≥3 次 → 除首现句外,含它的句子标记改写
+      · duplicate_lines    整句一字不差出现≥2 次 → 除首现外,后续标记改写
+      · structural         连续排比开头(anaphora,前3字相同)→ 保留前2句,多余的标记改写打散
+      · near_dup_paragraph 近似(非逐字)重复段落(分幕拼接盲区)→ 后段逐句标记改写
+    统一切句(含 …)、在剥引号后的叙述层匹配(不误改台词)、全分支吃 allow 母题白名单。
+    同一句被多类命中时只保留一条(先命中者优先),按出现顺序返回 [{"sentence","hint"}]。"""
+    if not text:
+        return []
+    sents = [s for s in _INTRA_SENT_SPLIT.split(text) if s.strip()]
+    marked: dict[str, str] = {}
+    order: list[str] = []
+
+    def _mark(sentence: str, hint: str):
+        key = sentence.strip()
+        if key and key not in marked:
+            marked[key] = hint
+            order.append(key)
+
+    # ① 章内近字复读:在剥引号的叙述层匹配复读短语(不误改台词),保首现、改后续
+    for rep in find_repetitions(text):
+        phrase = rep.get("phrase", "")
+        if not phrase or _is_allowed(phrase, allow):
+            continue
+        seen_first = False
+        for s in sents:
+            if phrase in re.sub(r"\s+", "", _strip_quoted(s)):
+                if not seen_first:
+                    seen_first = True
+                    continue
+                _mark(s, f"本句与前文重复了『{phrase}』,请换一种措辞/感官写法,不要逐字复用。")
+
+    # ② 整句一字不差重复:保首现、改后续(过 allow,母题谶语/咒语不动)
+    dup_lines = {d["line"] for d in find_duplicate_lines(text) if not _is_allowed(d["line"], allow)}
+    if dup_lines:
+        first_seen: set[str] = set()
+        for s in sents:
+            key = s.strip()
+            if key in dup_lines:
+                if key not in first_seen:
+                    first_seen.add(key)
+                    continue
+                _mark(s, "本句与前文一字不差地重复了,请彻底改写成不同的表达,保持情节不变。")
+
+    # ③ 排比开头堆砌:保前2、打散其余(op 过 allow,在剥引号的叙述层匹配)
+    for x in (y for y in find_structural_repeats(text) if y.get("kind") == "anaphora"):
+        op = x["phrase"].split("…")[0]
+        if len(op) < 2 or _is_allowed(op, allow):
+            continue
+        kept = 0
+        for s in sents:
+            head = re.sub(r'^[\s"\'“”‘’「」『』,，、:：;；…—]+', "", _strip_quoted(s))[:len(op)]
+            if head == op:
+                if kept < 2:
+                    kept += 1
+                    continue
+                _mark(s, f"本句与前几句都用『{op}』开头形成排比,请改用不同的句子开头打破排比,保持原意。")
+
+    # ④ 近似重复段落(分幕拼接盲区,S-005):后段逐句标记改写
+    for nd in find_near_duplicate_paragraphs(text, allow=allow):
+        for s in _INTRA_SENT_SPLIT.split(nd["paragraph"]):
+            if len(s.strip()) >= 6:
+                _mark(s, "本段与前文某段高度重复(仅换了几个字重写同一画面),请彻底改写成推进叙事的新内容或删繁。")
+
+    return [{"sentence": k, "hint": marked[k]} for k in order]
+
+
+def _valid_rewrite(rw: str, sent: str) -> bool:
+    """LLM 定向改写结果合法性校验:doubao 偶发混入英文占位词(如 someone)或元叙述/拒答前缀。
+    改写不应引入原句没有的 ASCII 字母(中文正文异物);不应是解释/拒答。命中即弃用、保留原句。"""
+    if re.search(r"[A-Za-z]", rw) and not re.search(r"[A-Za-z]", sent):
+        return False
+    if any(bad in rw for bad in ("抱歉", "无法", "作为", "以下是", "改写后", "这句话", "这一句")):
+        return False
+    return True
+
+
+def _replace_whole_sentence(text: str, sent: str, rw: str) -> str:
+    """只替换作为完整句出现的 sent(前为文首/句末标点/换行),避免命中更早长句的同形尾部子串
+    (review P2-2)。仅替换第一处;找不到句界处的 sent 时原样返回,不误替换。"""
+    m = re.search(r"(?:^|(?<=[。！？…\n]))" + re.escape(sent), text)
+    if not m:
+        return text
+    return text[:m.start()] + rw + text[m.start() + len(sent):]
+
+
+def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None = None,
+                                 max_rounds: int = 2) -> dict:
+    """章内治层(与 rewrite_cross_repetitions 对称·章内维度):定位本章内 repetition/
+    duplicate_lines/排比/近似重复段 的问题句 → 逐句定向改写(保意保限知保声音)→ 按句界替换回原文。
+
+    长章(分幕拼接)易在章内自我复读/堆排比/换字重写同一画面,而 rewrite_cross_repetitions 只治
+    跨章,二者互补。改写器强约束限知(绝不点破未揭示悬念)——改写同样可能泄密。迭代至多 max_rounds
+    轮(排比一轮可能打散不尽)。**回滚门**:若改写后问题数未净减少(after≥before)则整体回退,绝不
+    落一个更差的版本(review P1-2)。幂等:无问题原样返回、不调 LLM。返回 {prose,rewritten,before,after}。"""
+    def _count(t: str) -> int:
+        reps = len([r for r in find_repetitions(t) if not _is_allowed(r.get("phrase", ""), allow)])
+        dups = len([d for d in find_duplicate_lines(t) if not _is_allowed(d.get("line", ""), allow)])
+        struct = len([x for x in find_structural_repeats(t) if x.get("kind") == "anaphora"
+                      and not _is_allowed(x["phrase"].split("…")[0], allow)])
+        near = len(find_near_duplicate_paragraphs(t, allow=allow))
+        return reps + dups + struct + near
+
+    before = _count(text)
+    if before == 0:
+        return {"prose": text, "rewritten": 0, "before": 0, "after": 0}
+    sysmsg = ("你是小说定向改写器。只改写给你的这一句:保持原意、情节、人物与上下文衔接完全不变;"
+              "**严守限知视角——绝不添加视角人物此刻不知道的信息,绝不点破尚未向读者揭示的核心悬念/秘密**;"
+              "保持冷笔克制的叙述声音,不堆辞藻、不抒情升华。按要求换措辞或句式。"
+              "只输出改写后的这一句正文,不要引号、不要解释。")
+    new = text
+    done = 0
+    for _ in range(max(1, max_rounds)):
+        targets = intra_repetition_sentences(new, allow=allow)
+        if not targets:
+            break
+        changed = False
+        for t in targets:
+            sent = t["sentence"]
+            if sent not in new:
+                continue
+            prompt = f"{t['hint']}\n\n待改写的句子:{sent}"
+            try:
+                rw = (complete_fn(prompt, sysmsg) or "").strip().strip('"“”')
+            except Exception:
+                rw = ""
+            if rw and rw != sent and len(rw) >= 4 and _valid_rewrite(rw, sent):
+                replaced = _replace_whole_sentence(new, sent, rw)
+                if replaced != new:
+                    new = replaced
+                    done += 1
+                    changed = True
+        if not changed:
+            break
+    after = _count(new)
+    # 回滚门(review P1-2):问题数没有净减少 → 整体回退,绝不落更差的版本
+    if done == 0 or after >= before:
+        return {"prose": text, "rewritten": 0, "before": before, "after": before}
+    return {"prose": new, "rewritten": done, "before": before, "after": after}
+
+
 _EDGE = re.compile(r'^[\s"\'“”‘’「」『』,，、:：;；…—]+|[\s"\'“”‘’「」『』,，、:：;；…—]+$')
 _HAS_CJK = re.compile(r'[一-鿿]')
 

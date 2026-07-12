@@ -66,3 +66,20 @@ def test_skill_defers_enforced_discipline_to_soul_and_prompt():
     """SKILL.md 不再以"任何动作不得绕过"的命令式承载强制纪律——恒定纪律归 SOUL/instructions。"""
     skill = _SKILL.read_text(encoding="utf-8")
     assert "任何动作不得绕过" not in skill
+
+
+def test_secret_guard_block_hides_leak_markers():
+    """S-002:写作prompt对secret命题注入藏匿约束+禁破绽词;无secret则空串(字节不变)。"""
+    from scribe3 import app as A
+    class _F:
+        def __init__(s,secret,lm): s.secret=secret; s.leak_markers=lm
+    class _St:
+        def __init__(s,facts): s._f=facts
+        def facts_at(s,ch): return s._f
+    # 有 secret → 含破绽词 + 藏匿指令
+    b = A._secret_guard_block(_St([_F(True,["沈错","替兄顶罪"]), _F(False,["公开"])]))
+    assert "沈错" in b and "替兄顶罪" in b and "公开" not in b
+    assert "绝不明写" in b and "核心悬念" in b
+    # 无 secret → 空串(默认字节不变)
+    assert A._secret_guard_block(_St([_F(False,["x"])])) == ""
+    assert A._secret_guard_block(_St([])) == ""

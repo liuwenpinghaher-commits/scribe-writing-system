@@ -157,6 +157,109 @@ def test_rewrite_cross_repetitions_noop_when_clean():
     assert res["rewritten"] == 0 and not called
 
 
+# —— 章内精修治层(intra):章内 repetition / duplicate_lines / 排比,与跨章 dedup 对称 ——
+from scribe3.critique import intra_repetition_sentences, rewrite_intra_chapter_issues
+
+
+def test_intra_locates_duplicate_line_keeps_first():
+    """整句一字不差重复 → 首现豁免、只标记后续一处。"""
+    text = "沈砚摆了摆手，没让他说。风从门缝里挤进来。沈砚摆了摆手，没让他说。"
+    marked = [t["sentence"] for t in intra_repetition_sentences(text)]
+    assert sum(m == "沈砚摆了摆手，没让他说。" for m in marked) == 1
+
+
+def test_intra_locates_parallelism_keeps_two():
+    """连续排比开头(前3字相同≥4句)→ 保前2、其余标记打散。"""
+    text = "他抬起手，摸向后颈。他抬起眼，看着来人。他抬起脚，跨过门槛。他抬起头，望了望天。"
+    tgt = intra_repetition_sentences(text)
+    assert len(tgt) == 2 and all("排比" in t["hint"] for t in tgt)
+
+
+def test_rewrite_intra_reduces_intra_repetition_with_fake_llm():
+    """假 LLM 把章内复读句换掉 → 章内硬伤下降。"""
+    text = ("他伸手去摸那道疤，凉丝丝的。风停了。他伸手去摸那道疤，凉丝丝的。"
+            "灯灭了。他伸手去摸那道疤，凉丝丝的。")
+    def fake(prompt, system=None):
+        return "指腹擦过那处旧痕，像触到一片冷铁。"
+    res = rewrite_intra_chapter_issues(text, fake)
+    assert res["before"] > 0 and res["rewritten"] >= 1 and res["after"] < res["before"]
+
+
+def test_rewrite_intra_dedups_duplicate_line():
+    """整句重复被改写消除:不再有一字不差的重复行。"""
+    from scribe3.critique import find_duplicate_lines
+    text = "沈砚摆了摆手，没让他说。别的话在这里说着。沈砚摆了摆手，没让他说。"
+    def fake(prompt, system=None):
+        return "他压下手，把话按了回去。"
+    res = rewrite_intra_chapter_issues(text, fake)
+    assert res["rewritten"] >= 1 and len(find_duplicate_lines(res["prose"])) == 0
+
+
+def test_rewrite_intra_noop_when_clean():
+    """无章内硬伤 → 不调 LLM、原样返回。"""
+    called = []
+    def fake(p, s=None):
+        called.append(1); return "x"
+    res = rewrite_intra_chapter_issues("清爽的一段，各句各表，写得毫不重样。", fake)
+    assert res["rewritten"] == 0 and res["before"] == 0 and not called
+
+
+def test_rewrite_intra_system_prompt_guards_limited_knowledge():
+    """改写器 system 必须含限知/悬念守护——改写同样可能泄密(S-002 延续)。"""
+    text = "沈砚摆了摆手，没让他说。风从门缝里挤进来。沈砚摆了摆手，没让他说。"
+    seen = {}
+    def fake(prompt, system=None):
+        seen["sys"] = system or ""
+        return "他压下手，把话按了回去。"
+    rewrite_intra_chapter_issues(text, fake)
+    assert "限知" in seen["sys"] and ("悬念" in seen["sys"] or "秘密" in seen["sys"])
+
+
+def test_find_near_duplicate_paragraphs_catches_reworded():
+    """近似段落重复(换几字重写同一画面)被检出,补精确检测器盲区(S-005;取材自真实第3章 89/91)。"""
+    from scribe3.critique import find_near_duplicate_paragraphs
+    a = "他坐在那里，看着门缝里的光慢慢移，从棺盖移到灶台，又从灶台移到他的鞋尖，鞋面上沾了点黑泥，是刚才捡纸钱时蹭的，已经干结，布着细碎的裂纹。"
+    b = "他坐在条凳上，看着门缝里的光慢慢移，从棺盖移到灶台，又从灶台移到他的鞋尖。鞋面上沾了点黑泥，是刚才捡纸钱时蹭上的，此刻已经干透，表面绽出细密的裂纹。"
+    text = a + "\n\n中间隔着一段完全不同的内容，讲的是别的人别的事，推动情节往前走了好一阵。\n\n" + b
+    nd = find_near_duplicate_paragraphs(text)
+    assert len(nd) >= 1 and nd[0]["sim"] >= 0.7
+
+
+def test_find_near_duplicate_catches_sentence_level():
+    """句子级近似重复(相邻句前半全同、后半改几字)也被抓——补段落级 40 阈值盲区(S-008,取材结局章)。"""
+    from scribe3.critique import find_near_duplicate_paragraphs
+    a = "他躺在自己的棺材里，手里的纸团硬邦邦的，是他此刻仅有的实在触感。"
+    b = "他躺在自己的棺材里，手里的纸团硬邦邦的，是他还能攥住的唯一东西。"
+    text = a + "\n\n柏木棺盖越来越烫，树脂被烤得渗出来，顺着棺壁的纹路往下淌。\n\n" + b
+    nd = find_near_duplicate_paragraphs(text)
+    assert len(nd) >= 1
+
+
+def test_rewrite_intra_rollback_when_rewrite_worsens():
+    """回滚门:改写消了排比却造出等量新整句重复(after≥before)→ 整体回退,不落更差版本(review P1-2)。"""
+    text = "他抬起手，摸后颈。他抬起眼，看门口。他抬起脚，跨门槛。他抬起头，望天色。"
+    def fake_dup(prompt, system=None):
+        return "外面的天，慢慢亮了起来。"  # 排比句都改成同一句 → 排比消失但造出整句重复
+    res = rewrite_intra_chapter_issues(text, fake_dup)
+    assert res["rewritten"] == 0 and res["prose"] == text
+
+
+def test_rewrite_intra_rejects_english_garbage():
+    """改写混入英文占位词(someone)→ 弃用保留原句,英文异物不进正文(S-004)。"""
+    text = "沈砚摆了摆手，没让他说。别的话在这里说着。沈砚摆了摆手，没让他说。"
+    def fake_eng(prompt, system=None):
+        return "他压下手，把话按回去，someone 在旁边看着。"
+    res = rewrite_intra_chapter_issues(text, fake_eng)
+    assert "someone" not in res["prose"]
+
+
+def test_intra_motif_allow_all_branches():
+    """allow 母题白名单在 duplicate 分支同样生效,不误改刻意复现的谶语(review P2-4)。"""
+    text = "镇煞钉钉住的是命。张三那天走了很远的路。镇煞钉钉住的是命。"
+    tgt = intra_repetition_sentences(text, allow={"镇煞钉"})
+    assert not any("镇煞钉钉住的是命" in t["sentence"] for t in tgt)
+
+
 def test_oversaturation_clean_passes():
     """正常克制文本(含'好像/画像'等非比喻)不误报。"""
     text = ("胡不为把钉子收进怀里。雨砸在乱葬岗的烂泥上,溅起细点。"

@@ -157,6 +157,17 @@ class TestWriteGate:
         # 统一上下文 Task 6:主编线程显式分支。授权语义:只写 editorial_thread
         # 一表(建子线程,写 parent_thread_id),不碰正典/对话内容;导航路径绝不调此。
         ("POST", "/chat/threads/{thread_id}/fork"),
+        # 统一上下文记忆 Task 8/10:直连 Hermes 会话的记忆钩子。授权语义:
+        # prefetch 只读检索组装(不落库,read-only POST,组装失败降级空块);
+        # capture-turn 幂等捕获对话轮进经验记忆(event_id 幂等,分类兜底偏保守
+        # 待审,正典红线在 MemoryCapture 内,失败告警不 5xx);
+        # flush 固化线程工作摘要((work,thread) 唯一 UPSERT,幂等,best-effort)。
+        ("POST", "/memory/prefetch"),
+        ("POST", "/memory/capture-turn"),
+        ("POST", "/memory/flush"),
+        # 章内治层(S-003):确定性事后章内改写并存回(与 /dedup-chapter 对称的
+        # 作者可信通道;含限知二次门+回滚门,改写失败回滚原文)
+        ("POST", "/polish-chapter"),
     }
 
     def test_no_unaudited_write_route(self):

@@ -372,3 +372,14 @@ def test_chat_messages_endpoint(store, monkeypatch):
     data = c.get("/chat/messages", params={"chapter": 7}).json()
     assert [m["role"] for m in data] == ["user", "assistant"]
     assert isinstance(data[0]["ts"], str) and data[0]["ts"]
+
+
+def test_chat_stream_sysmsg_has_discussion_directive():
+    """S-001:纯讨论 sysmsg 必须含"直接完整作答"引导,防主编对开放式提问回半截。"""
+    from scribe3 import app as A
+    assert "让我查查" in A._DISCUSSION_DIRECTIVE  # 明确禁止的拖延开场
+    assert "直接" in A._DISCUSSION_DIRECTIVE and "完整" in A._DISCUSSION_DIRECTIVE
+    # chat_stream 拼装时确实追加了它(字符串包含即可,不发网络)
+    import inspect
+    src = inspect.getsource(A.chat_stream)
+    assert "_DISCUSSION_DIRECTIVE" in src
