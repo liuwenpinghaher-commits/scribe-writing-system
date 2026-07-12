@@ -5,12 +5,101 @@ import { ConfirmDialog } from '../ui/Dialog.jsx'
 
 const RESTART_PROFILES = ['scribe3', 'scribe3_write']
 
+// status.name(default/responses/runs)→ model-summary.gateway(default/scribe3/scribe3_write)。
+// 两端点命名口径不同(status 沿用旧网关角色名,model-summary 沿用 Hermes profile 名),
+// 这里做唯一映射,别的地方别再各写一遍。
+const NAME_TO_SUMMARY_KEY = { default: 'default', responses: 'scribe3', runs: 'scribe3_write' }
+
+function DashboardCard() {
+  const [status, setStatus] = useState(null)
+  const [error, setError] = useState(null)
+  const [confirm, setConfirm] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const load = () => api.dashboardStatus().then((r) => { setStatus(r); setError(null) }).catch((e) => setError(e))
+  useEffect(() => { load() }, [])
+
+  const doStart = async () => {
+    setStarting(true)
+    setResult(null)
+    try {
+      const r = await api.dashboardStart()
+      setResult({ online: r.online, message: r.message })
+    } catch (e) {
+      setResult({ online: false, message: e?.body?.detail || e.message || '启动失败' })
+    } finally {
+      setStarting(false)
+      load()
+    }
+  }
+
+  const url = status?.url || ''
+  const links = [
+    { key: 'models', label: '模型与服务商', href: `${url}/models?profile=scribe3` },
+    { key: 'skills', label: 'Skills', href: `${url}/skills?profile=scribe3` },
+    { key: 'mcp', label: 'MCP', href: `${url}/mcp?profile=scribe3` },
+    { key: 'cron', label: 'Cron', href: `${url}/cron` },
+    { key: 'sessions', label: '会话', href: `${url}/sessions?profile=scribe3` },
+  ]
+
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className={`inline-block h-2 w-2 rounded-full ${status?.online ? 'bg-green-500' : 'bg-line'}`} />
+        <div className="text-f13 font-medium text-ink">Hermes 管理台</div>
+      </div>
+      {error && (
+        <div className="text-f13 text-red-500" role="alert">
+          管理台状态加载失败 <button className="text-brand cursor-pointer" onClick={load}>重试</button>
+        </div>
+      )}
+      {!error && !status && <div className="text-f13 text-faint">加载中…</div>}
+      {!error && status && !status.online && (
+        <button className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink hover:bg-soft cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={starting} onClick={() => setConfirm(true)}>
+          {starting ? '启动中…' : '启动管理台'}
+        </button>
+      )}
+      {!error && status && status.online && (
+        <div className="flex flex-wrap gap-2">
+          {links.map((l) => (
+            <a key={l.key} href={l.href} target="_blank" rel="noreferrer"
+              className="rounded-md border border-line px-3 py-1.5 text-f13 text-brand hover:bg-soft cursor-pointer">
+              {l.label}
+            </a>
+          ))}
+        </div>
+      )}
+      {result && (
+        <div className={`text-f13 mt-2 ${result.online ? 'text-green-600' : 'text-red-500'}`} role="alert">
+          {result.message}
+        </div>
+      )}
+      <div className="text-meta text-faint mt-3">管理台为机器级,页内侧边栏可切 profile;深链默认 scribe3</div>
+      <ConfirmDialog open={confirm}
+        title="启动 Hermes 管理台?"
+        body="将拉起本机 hermes dashboard 进程,约需数秒。"
+        confirmText="确认"
+        onConfirm={() => { setConfirm(false); doStart() }}
+        onClose={() => setConfirm(false)} />
+    </div>
+  )
+}
+
 function StatusCard({ onChanged, refreshKey }) {
   const [gateways, setGateways] = useState(null)
   const [error, setError] = useState(null)
+  const [modelSummary, setModelSummary] = useState(null)
 
   const load = () => api.gatewayStatus().then((r) => { setGateways(r.gateways); setError(null) }).catch((e) => setError(e))
   useEffect(() => { load() }, [refreshKey])
+  // 主模型行独立拉取、独立 fail-soft:summary 拉失败不影响状态卡本体,静默省略整行即可。
+  useEffect(() => {
+    api.gatewayModelSummary()
+      .then((r) => setModelSummary(Object.fromEntries((r.gateways || []).map((g) => [g.gateway, g]))))
+      .catch(() => {})
+  }, [])
 
   return (
     <div className="rounded-lg border border-line bg-surface p-4 mb-4">
@@ -26,14 +115,33 @@ function StatusCard({ onChanged, refreshKey }) {
       {!error && !gateways && <div className="text-f13 text-faint">加载中…</div>}
       {!error && gateways && (
         <div className="space-y-2">
-          {gateways.map((g) => (
-            <div key={g.name} className="flex items-center gap-2 text-f13">
-              <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-green-500' : 'bg-line'}`} />
-              <span className="text-ink">{g.profile}</span>
-              <span className="text-meta text-muted">{g.api}</span>
-              <span className={`text-meta ml-auto ${g.online ? 'text-green-600' : 'text-faint'}`}>{g.online ? '在线' : '离线'}</span>
-            </div>
-          ))}
+          {gateways.map((g) => {
+            const sum = modelSummary?.[NAME_TO_SUMMARY_KEY[g.name]]
+            return (
+              <div key={g.name}>
+                <div className="flex items-center gap-2 text-f13">
+                  <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-green-500' : 'bg-line'}`} />
+                  <span className="text-ink">{g.profile}</span>
+                  <span className="text-meta text-muted">{g.api}</span>
+                  <span className={`text-meta ml-auto ${g.online ? 'text-green-600' : 'text-faint'}`}>{g.online ? '在线' : '离线'}</span>
+                </div>
+                {sum && (
+                  <div className="text-meta text-faint pl-4">
+                    主模型:{sum.provider ?? '未配置'} · {sum.default_model ?? '未配置'}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {/* 兜底:summary 返回的网关键在当前 status 列表里没有对应行(如 status 尚未含 default)
+              时,不静默丢信息——照样把主模型行露出来,只是没有状态灯可挂。 */}
+          {modelSummary && Object.entries(modelSummary)
+            .filter(([key]) => !gateways.some((g) => NAME_TO_SUMMARY_KEY[g.name] === key))
+            .map(([key, sum]) => (
+              <div key={key} className="text-meta text-faint pl-4">
+                {key} 主模型:{sum.provider ?? '未配置'} · {sum.default_model ?? '未配置'}
+              </div>
+            ))}
         </div>
       )}
       <div className="text-meta text-faint mt-3">在线=端口有 HTTP 响应,不代表鉴权/服务正常。</div>
@@ -220,6 +328,7 @@ export function GatewaySection({ items, onChanged }) {
           {items.map((it) => <SettingField key={it.key} item={it} onChanged={onChanged} />)}
         </div>
       )}
+      <DashboardCard />
       <StatusCard refreshKey={statusKey} />
       <FilesArea />
       <RestartArea onRestarted={() => setStatusKey((k) => k + 1)} />

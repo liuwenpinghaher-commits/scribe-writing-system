@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 const apiMock = vi.hoisted(() => ({
   gatewayStatus: vi.fn(), gatewayFiles: vi.fn(), putGatewayFile: vi.fn(), gatewayRestart: vi.fn(),
   putSetting: vi.fn(), resetSetting: vi.fn(),
+  dashboardStatus: vi.fn(), dashboardStart: vi.fn(), gatewayModelSummary: vi.fn(),
 }))
 vi.mock('../../api', () => ({ api: apiMock }))
 import { GatewaySection } from '../GatewaySection'
@@ -19,6 +20,9 @@ beforeEach(() => {
   ] })
   apiMock.putGatewayFile.mockResolvedValue({ sha256: 'h2' })
   apiMock.gatewayRestart.mockResolvedValue({ online: true, message: '已重启' })
+  apiMock.dashboardStatus.mockResolvedValue({ online: false, url: 'http://127.0.0.1:9119' })
+  apiMock.dashboardStart.mockResolvedValue({ online: true, url: 'http://127.0.0.1:9119', message: '已启动' })
+  apiMock.gatewayModelSummary.mockResolvedValue({ gateways: [] })
 })
 
 describe('GatewaySection', () => {
@@ -93,5 +97,30 @@ describe('GatewaySection', () => {
     expect(screen.queryByRole('button', { name: '保存' })).toBeNull()
     const ta = document.querySelector('textarea')
     expect(!ta || ta.disabled).toBe(true)
+  })
+
+  it('管理台卡:未运行→启动按钮走确认;在线→深链按钮组', async () => {
+    apiMock.dashboardStatus.mockResolvedValueOnce({ online: false, url: 'http://127.0.0.1:9119' })
+    render(<GatewaySection items={[]} />)
+    await waitFor(() => expect(screen.getByText('Hermes 管理台')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '启动管理台' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+    await waitFor(() => expect(apiMock.dashboardStart).toHaveBeenCalled())
+  })
+
+  it('在线时渲染五个深链且带 profile 参数', async () => {
+    apiMock.dashboardStatus.mockResolvedValue({ online: true, url: 'http://127.0.0.1:9119' })
+    render(<GatewaySection items={[]} />)
+    await waitFor(() => expect(screen.getByText('模型与服务商')).toBeTruthy())
+    const a = screen.getByRole('link', { name: '模型与服务商' })
+    expect(a.getAttribute('href')).toBe('http://127.0.0.1:9119/models?profile=scribe3')
+    expect(a.getAttribute('target')).toBe('_blank')
+  })
+
+  it('状态卡显示主模型行', async () => {
+    apiMock.gatewayModelSummary.mockResolvedValue({ gateways: [
+      { gateway: 'default', provider: 'custom', default_model: 'doubao-seed-2.0-pro' }] })
+    render(<GatewaySection items={[]} />)
+    await waitFor(() => expect(screen.getByText(/doubao-seed-2.0-pro/)).toBeTruthy())
   })
 })

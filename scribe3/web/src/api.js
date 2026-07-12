@@ -441,4 +441,7 @@ export const api = {
   gatewayFiles: () => jraw('/gateway/files'),
   putGatewayFile: (id, content, base_sha256) => putRaw('/gateway/files', { id, content, base_sha256 }),
   gatewayRestart: (profile) => postRaw('/gateway/restart', { profile }),
+  dashboardStatus: () => jraw('/gateway/dashboard/status'),
+  dashboardStart: () => postRaw('/gateway/dashboard/start', {}),
+  gatewayModelSummary: () => jraw('/gateway/model-summary'),
 }
