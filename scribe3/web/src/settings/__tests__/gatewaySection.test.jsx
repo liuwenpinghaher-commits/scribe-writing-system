@@ -117,6 +117,15 @@ describe('GatewaySection', () => {
     expect(a.getAttribute('target')).toBe('_blank')
   })
 
+  it('status url 带尾斜杠时深链归一,不拼出双斜杠', async () => {
+    apiMock.dashboardStatus.mockResolvedValue({ online: true, url: 'http://127.0.0.1:9119/' })
+    render(<GatewaySection items={[]} />)
+    await waitFor(() => expect(screen.getByText('模型与服务商')).toBeTruthy())
+    const a = screen.getByRole('link', { name: '模型与服务商' })
+    expect(a.getAttribute('href')).toBe('http://127.0.0.1:9119/models?profile=scribe3')
+    expect(a.getAttribute('href')).not.toMatch(/\/\/models/)
+  })
+
   it('状态卡显示主模型行', async () => {
     apiMock.gatewayModelSummary.mockResolvedValue({ gateways: [
       { gateway: 'default', provider: 'custom', default_model: 'doubao-seed-2.0-pro' }] })

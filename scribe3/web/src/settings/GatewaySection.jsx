@@ -34,7 +34,8 @@ function DashboardCard() {
     }
   }
 
-  const url = status?.url || ''
+  // 尾斜杠归一:设置里填 http://…:9119/ 时深链不拼出 //models 这类双斜杠
+  const url = (status?.url || '').replace(/\/+$/, '')
   const links = [
     { key: 'models', label: '模型与服务商', href: `${url}/models?profile=scribe3` },
     { key: 'skills', label: 'Skills', href: `${url}/skills?profile=scribe3` },
