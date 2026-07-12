@@ -6,6 +6,7 @@ const apiMock = vi.hoisted(() => ({
   settingsAudit: vi.fn(() => Promise.resolve({ rows: [] })),
   gatewayStatus: vi.fn(() => Promise.resolve({ gateways: [] })),
   gatewayFiles: vi.fn(() => Promise.resolve({ files: [] })),
+  aiUsage: vi.fn(() => Promise.resolve({ cap: { cap: 0, used_today: 0, remaining: 0, scope: 'shared' } })),
 }))
 vi.mock('../../api', () => ({ api: apiMock }))
 import { SettingsView } from '../SettingsView'
@@ -73,6 +74,24 @@ describe('SettingsView', () => {
     fireEvent.click(screen.getByRole('button', { name: '恢复默认:SurrealDB 地址' }))
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('boom'))
+  })
+
+  it('llm 分区内嵌用量面板', async () => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main', cap: { cap: 500, used_today: 417, remaining: 83, scope: 'shared' },
+      tokens: { days: [], since: '2026-07-06' },
+    }))
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText(/今日已用/)).toBeTruthy())
+    expect(screen.getByText(/417/)).toBeTruthy()
+    expect(screen.getByText(/500/)).toBeTruthy()
+  })
+
+  it('用量拉取失败时静默隐藏用量卡(fail-soft)', async () => {
+    apiMock.aiUsage = vi.fn(() => Promise.reject(new Error('boom')))
+    render(<SettingsView work="demo" />)
+    await waitFor(() => expect(screen.getByText('每日 LLM 调用日帽')).toBeTruthy())
+    expect(screen.queryByText(/今日已用/)).toBeNull()
   })
 
   it('拉取失败显示错误态与重试', async () => {

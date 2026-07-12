@@ -19,6 +19,30 @@ const SECTIONS = [
   { key: 'audit', label: '变更历史' },
 ]
 
+// llm 分区顶部用量卡:今日已用/日帽,拉取失败静默隐藏(用量是辅助信息,不应阻断设置分区)。
+function UsageCard({ work }) {
+  const [usage, setUsage] = useState(null)
+  useEffect(() => {
+    let alive = true
+    api.aiUsage().then((r) => { if (alive) setUsage(r) }).catch(() => { if (alive) setUsage(null) })
+    return () => { alive = false }
+  }, [work])
+  if (!usage?.cap) return null
+  const { cap, used_today } = usage.cap
+  const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
+  return (
+    <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
+      <div className="flex items-center justify-between text-f13 text-ink">
+        <span>今日已用 {used_today} / 日帽 {cap}</span>
+        <span className="text-meta text-muted">{pct}%</span>
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-soft overflow-hidden">
+        <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
 export function SettingsView({ work }) {
   const [items, setItems] = useState(null)
   const [error, setError] = useState(null)
@@ -48,6 +72,7 @@ export function SettingsView({ work }) {
           {section === 'book' && <BookSection work={work} />}
           {section === 'prefs' && <PrefsSection work={work} />}
           {section === 'audit' && <AuditSection />}
+          {section === 'llm' && <UsageCard work={work} />}
           {['connection', 'llm', 'craft', 'flags'].includes(section) &&
             byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={reload} />)}
         </div>
