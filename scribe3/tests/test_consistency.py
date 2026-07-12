@@ -167,6 +167,9 @@ class TestWriteGate:
         # 设置中心:一键重启网关(nohup 后台+轮询探活;失败如实报,不假成功;
         # profile 白名单硬编码 scribe3/scribe3_write,不接受任意命令注入面)
         ("POST", "/gateway/restart"),
+        # Hermes Dashboard 探活与一键启动:拉起本机官方管理台进程,hermes_bin
+        # 预检+nohup+轮询;无请求参数,无注入面。
+        ("POST", "/gateway/dashboard/start"),
         # 统一上下文记忆 Task 8/10:直连 Hermes 会话的记忆钩子。授权语义:
         # prefetch 只读检索组装(不落库,read-only POST,组装失败降级空块);
         # capture-turn 幂等捕获对话轮进经验记忆(event_id 幂等,分类兜底偏保守

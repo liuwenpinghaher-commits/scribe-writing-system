@@ -85,3 +85,31 @@ def test_gateway_restart_poll_timeout_reports_failure(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["online"] is False and "未探活成功" in body["message"]
+
+
+def test_dashboard_status(client, monkeypatch):
+    monkeypatch.setattr("httpx.get", lambda url, timeout: type("R", (), {"status_code": 200})())
+    r = client.get("/gateway/dashboard/status")
+    assert r.status_code == 200 and r.json()["online"] is True
+    assert "9119" in r.json()["url"]
+
+
+def test_dashboard_start_polls_and_reports(client, monkeypatch):
+    ran = {}
+    monkeypatch.setattr("os.path.isfile", lambda p: True)
+    monkeypatch.setattr("os.access", lambda p, m: True)
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    monkeypatch.setattr("httpx.get", lambda url, timeout: type("R", (), {"status_code": 200})())
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    r = client.post("/gateway/dashboard/start")
+    assert r.status_code == 200 and r.json()["online"] is True
+    assert "nohup" in ran["cmd"] and "dashboard --no-open" in ran["cmd"]
+
+
+def test_dashboard_start_missing_bin_fails_fast(client, monkeypatch):
+    ran = {}
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    from scribe3 import settings as S
+    S.put_setting("gateway.hermes_bin", "/nope/hermes")
+    r = client.post("/gateway/dashboard/start")
+    assert r.json()["online"] is False and "cmd" not in ran

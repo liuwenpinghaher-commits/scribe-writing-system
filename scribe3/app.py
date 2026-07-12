@@ -862,6 +862,50 @@ def gateway_restart(req: GatewayRestartReq):
             "message": "已重启" if online else "重启后 30s 内未探活成功,请查看日志"}
 
 
+@app.get("/gateway/dashboard/status")
+def dashboard_status():
+    """Hermes 官方 Dashboard 探活(GET {url},1.5s 超时)。online=有 HTTP 响应(<500)。"""
+    import httpx
+    from scribe3.settings import get_setting
+    url = get_setting("gateway.dashboard_url")
+    online = False
+    try:
+        online = httpx.get(url, timeout=1.5).status_code < 500
+    except Exception:
+        pass
+    return {"online": online, "url": url}
+
+
+@app.post("/gateway/dashboard/start")
+def dashboard_start():
+    """一键拉起本机 Hermes 官方 Dashboard。铁律同 /gateway/restart:nohup 后台 +
+    轮询探活,绝不前台阻塞;轮询超时如实报失败,不假成功。无请求参数,无注入面。"""
+    import subprocess
+    import time
+    import httpx
+    from scribe3.settings import get_setting
+    hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
+    url = get_setting("gateway.dashboard_url")
+    log = "/tmp/scribe3-hermes-dashboard.log"
+    if not (os.path.isfile(hermes) and os.access(hermes, os.X_OK)):
+        # 预检:注定失败的场景毫秒级如实报错,不空等 30s 轮询、不拉起进程。
+        return {"online": False, "url": url, "log": log,
+                "message": f"hermes CLI 不存在或不可执行: {hermes}"}
+    cmd = f"nohup {hermes} dashboard --no-open >> {log} 2>&1 &"
+    subprocess.Popen(cmd, shell=True)
+    online = False
+    for _ in range(30):   # 轮询至多 ~30s
+        time.sleep(1)
+        try:
+            if httpx.get(url, timeout=1.5).status_code < 500:
+                online = True
+                break
+        except Exception:
+            continue
+    return {"online": online, "url": url, "log": log,
+            "message": "已启动" if online else "启动后 30s 内未探活成功,请查看日志"}
+
+
 @app.get("/ai/usage")
 def ai_usage(work: str = "main", days: int = 7):
     """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。
