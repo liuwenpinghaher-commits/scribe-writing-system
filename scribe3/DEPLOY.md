@@ -83,7 +83,11 @@ docker compose up
   管理面,一个服务管全部 profile(侧边栏切换器,深链 `?profile=<name>`)。入口在设置中心
   「Hermes 网关」区顶部的管理台卡:状态灯 + 一键启动(`hermes dashboard --no-open`,
   nohup+轮询,已在线幂等短路)+ 按域深链;地址默认 `http://127.0.0.1:9119`(设置项
-  `gateway.dashboard_url` 可改);日志 `/tmp/scribe3-hermes-dashboard.log`。网关卡片
+  `gateway.dashboard_url` 可改)。**Dashboard 已挂 launchd 常驻**(2026-07-12):
+  `~/Library/LaunchAgents/ai.hermes.dashboard.plist`(与两个网关的 `ai.hermes.gateway*.plist`
+  同惯例,RunAtLoad+KeepAlive,登录自启、崩溃自动拉回,已实测杀进程秒级复活);日志
+  `~/.hermes/logs/dashboard.log`;停用:`launchctl bootout gui/$(id -u)/ai.hermes.dashboard`。
+  设置中心的「启动管理台」按钮仍可用(幂等短路,常驻在线时它只报"已在运行")。网关卡片
   另显示各网关当前主模型(只读,来自 `GET /gateway/model-summary`,不解析密钥)。
   注意:网关进程本身 Dashboard 不管,启停仍走设置中心的重启按钮或 `hermes -p <name> gateway run --replace`。
 
