@@ -25,11 +25,20 @@ const post = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: body ? JSON.stringify(body) : undefined,
 }).then(handle)
+// raw 变体(不挂 ?work=):设置中心/网关这组端点是**全局**配置(不按书隔离),
+// 混入 work= 只是死参数,但会误导排查(看着像分书隔离实则无效)——照 jraw 惯例补齐。
+const postRaw = (p, body) => fetch(BASE + p, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: body ? JSON.stringify(body) : undefined,
+}).then(handle)
 const patch = (p, body, work) => fetch(BASE + ww(p, work), {
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then(handle)
 const del = (p) => fetch(BASE + ww(p), { method: 'DELETE' }).then(handle)
 const put = (p, body) => fetch(BASE + ww(p), {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}).then(handle)
+const putRaw = (p, body) => fetch(BASE + p, {
   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }).then(handle)
 
@@ -423,13 +432,13 @@ export const api = {
     es.onerror = () => { es.close(); onError('连接中断') }
     return es
   },
-  // ── 统一设置中心 ──
-  settings: () => j('/settings'),
-  putSetting: (key, value) => put('/settings/' + enc(key), { value }),
-  resetSetting: (key) => post('/settings/' + enc(key) + '/reset'),
-  settingsAudit: (offset = 0) => j('/settings/audit?offset=' + offset),
-  gatewayStatus: () => j('/gateway/status'),
-  gatewayFiles: () => j('/gateway/files'),
-  putGatewayFile: (id, content, base_sha256) => put('/gateway/files', { id, content, base_sha256 }),
-  gatewayRestart: (profile) => post('/gateway/restart', { profile }),
+  // ── 统一设置中心 ──(全局端点,不按书隔离,一律走 raw 变体,不挂 ?work=)
+  settings: () => jraw('/settings'),
+  putSetting: (key, value) => putRaw('/settings/' + enc(key), { value }),
+  resetSetting: (key) => postRaw('/settings/' + enc(key) + '/reset'),
+  settingsAudit: (offset = 0) => jraw('/settings/audit?offset=' + offset),
+  gatewayStatus: () => jraw('/gateway/status'),
+  gatewayFiles: () => jraw('/gateway/files'),
+  putGatewayFile: (id, content, base_sha256) => putRaw('/gateway/files', { id, content, base_sha256 }),
+  gatewayRestart: (profile) => postRaw('/gateway/restart', { profile }),
 }
