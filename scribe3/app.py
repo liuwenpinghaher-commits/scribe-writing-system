@@ -786,7 +786,7 @@ def ai_usage(work: str = "main", days: int = 7):
       fail-soft:聚合挂了回空列表带 error,帽信息照常返回。
     """
     from scribe3 import usage as usage_mod
-    from scribe3.llm import _DAILY_CALL_CAP, daily_remaining
+    from scribe3 import llm as llm_mod
     used, scope = usage_mod.used_today()
     try:
         tokens = _store_for(work).usage_summary(days=days)
@@ -794,8 +794,8 @@ def ai_usage(work: str = "main", days: int = 7):
         tokens = {"days": [], "error": str(e)}
     return {
         "work": work,
-        "cap": {"cap": _DAILY_CALL_CAP, "used_today": used,
-                "remaining": daily_remaining(), "scope": scope},
+        "cap": {"cap": llm_mod._cap(), "used_today": used,
+                "remaining": llm_mod.daily_remaining(), "scope": scope},
         "tokens": tokens,
     }
 

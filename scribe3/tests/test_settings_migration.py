@@ -45,3 +45,19 @@ def test_assembler_flag_reads_settings_db():
     assert _context_assembler_enabled() is False                       # 字节等价:无覆盖=关
     settings.put_setting("SCRIBE3_CONTEXT_ASSEMBLER_V1", True)
     assert _context_assembler_enabled() is True                        # 热生效
+
+
+def test_llm_daily_cap_hot(monkeypatch):
+    import scribe3.llm as llm
+    calls = {}
+    monkeypatch.setattr("scribe3.usage.tick", lambda cap: calls.setdefault("cap", cap))
+    settings.put_setting("SCRIBE3_DAILY_CALL_CAP", 42)
+    llm._tick_daily()
+    assert calls["cap"] == 42          # 改日帽下一次调用即生效,无需重启
+
+
+def test_llm_model_default_from_settings():
+    import scribe3.llm as llm
+    settings.put_setting("llm.model", "test-model-x")
+    assert llm.default_model() == "test-model-x"
+    assert llm.max_retries() == 3

@@ -68,7 +68,7 @@ def test_save_chapter_survives_embed_failure(store, monkeypatch):
 # ===== 4. LLM 日调用帽真接线(审计 P1-12,方案原文"接线或删除二选一")=====
 
 def test_daily_llm_cap_enforced(monkeypatch):
-    monkeypatch.setattr(L, "_DAILY_CALL_CAP", 2)
+    monkeypatch.setattr(L, "_cap", lambda: 2)
     L._reset_daily_counter()
 
     class FakeResp:

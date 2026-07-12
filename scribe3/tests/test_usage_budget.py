@@ -61,7 +61,7 @@ def test_reset_today_clears_both(tmp_path, monkeypatch):
 def test_llm_cap_shared_across_processes(monkeypatch):
     """llm 层日帽以共享台账为准:清进程计数(模拟另一进程)后第 3 笔仍被拦。
     (SCRIBE3_LLM_LEDGER 已由 conftest autouse 隔离到 tmp)"""
-    monkeypatch.setattr(L, "_DAILY_CALL_CAP", 2)
+    monkeypatch.setattr(L, "_cap", lambda: 2)
     L._reset_daily_counter()
 
     class FakeResp:
@@ -81,7 +81,7 @@ def test_llm_cap_shared_across_processes(monkeypatch):
 
 
 def test_daily_remaining_reflects_shared(monkeypatch):
-    monkeypatch.setattr(L, "_DAILY_CALL_CAP", 10)
+    monkeypatch.setattr(L, "_cap", lambda: 10)
     L._reset_daily_counter()
     U.tick(cap=10)
     U.tick(cap=10)
@@ -120,7 +120,7 @@ def test_usage_summary_empty_store(store):
 def test_ai_usage_endpoint(store, monkeypatch):
     import scribe3.app as A
     A.set_store(store)
-    monkeypatch.setattr(L, "_DAILY_CALL_CAP", 100)
+    monkeypatch.setattr(L, "_cap", lambda: 100)
     L._reset_daily_counter()
     U.tick(cap=100)
     store.add_chat_message(2, "draft", "assistant", "回", trace={

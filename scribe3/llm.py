@@ -14,7 +14,6 @@ import httpx
 from scribe3.hermes_runtime import HermesAuth, HermesRuntime
 
 _RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
-_MAX_RETRIES = 3
 
 _log = logging.getLogger("scribe3.llm")
 
@@ -25,7 +24,27 @@ _log = logging.getLogger("scribe3.llm")
 # MCP stdio 进程同记一本账,日帽是真正的系统级保险丝;台账故障 fail-open 回退
 # 进程内计数。另:重试/agentic 网关内多轮/流式断连已耗 token 都只计 1 笔,
 # 帽 ≠ 精确 token 成本;token 真实用量见 store.usage_summary()(/ai/usage)。
-_DAILY_CALL_CAP = int(os.environ.get("SCRIBE3_DAILY_CALL_CAP", "500"))
+# Phase 2 设置中心迁移:模型/超时/重试/日帽全部改从 settings 读,热生效(无需重启)。
+
+
+def _cap() -> int:
+    from scribe3.settings import get_setting
+    return get_setting("SCRIBE3_DAILY_CALL_CAP")
+
+
+def default_model() -> str:
+    from scribe3.settings import get_setting
+    return get_setting("llm.model")
+
+
+def default_timeout() -> float:
+    from scribe3.settings import get_setting
+    return get_setting("llm.timeout_seconds")
+
+
+def max_retries() -> int:
+    from scribe3.settings import get_setting
+    return get_setting("llm.max_retries")
 
 
 def _reset_daily_counter() -> None:
@@ -36,14 +55,14 @@ def _reset_daily_counter() -> None:
 def _tick_daily() -> None:
     """每次 LLM 调用前记一笔(共享台账);超日帽抛错(调用方 fail-soft 链各自兜)。"""
     from scribe3 import usage as _usage
-    _usage.tick(_DAILY_CALL_CAP)
+    _usage.tick(_cap())
 
 
 def daily_remaining() -> int:
     """B4:剩余日帽额度(只读,供选择环等多发操作启动前预检)。非今天则视为满额(次日 0 点重置)。"""
     from scribe3 import usage as _usage
     used, _scope = _usage.used_today()
-    return max(0, _DAILY_CALL_CAP - used)
+    return max(0, _cap() - used)
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。
@@ -59,10 +78,13 @@ def _api_key(profile: str | None = None) -> str:
     return HermesAuth().api_key(profile)
 
 
-def _stream_with_retry(make_stream, max_retries: int = _MAX_RETRIES):
+def _stream_with_retry(make_stream, max_retries: int | None = None):
     """对'打开流 + 取到首个 yield 前'的瞬时错重试;已 yield 后不重试(避免重发 delta)。
 
     make_stream: () -> generator(每次调用新建一条 httpx.stream 并 yield delta/event)。"""
+    if max_retries is None:
+        from scribe3.settings import get_setting
+        max_retries = get_setting("llm.max_retries")
     last = None
     for attempt in range(max_retries):
         started = False
@@ -88,9 +110,11 @@ def _stream_with_retry(make_stream, max_retries: int = _MAX_RETRIES):
 
 
 def hermes_complete(prompt: str, system: str | None = None,
-                    model: str = "doubao-seed-2.0-pro", timeout: float = 600.0,
+                    model: str | None = None, timeout: float | None = None,
                     max_tokens: int | None = None) -> str:
     """经 Hermes 取一段补全。max_tokens 硬上限控长。错误抛出不静默。"""
+    model = model or default_model()
+    timeout = timeout if timeout is not None else default_timeout()
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
@@ -99,7 +123,8 @@ def hermes_complete(prompt: str, system: str | None = None,
         body["max_tokens"] = max_tokens
     hdr = {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
     last: Exception | None = None
-    for _attempt in range(_MAX_RETRIES):
+    retries = max_retries()
+    for _attempt in range(retries):
         try:
             r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout, headers=hdr, json=body)
             r.raise_for_status()
@@ -107,22 +132,24 @@ def hermes_complete(prompt: str, system: str | None = None,
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
             last = e
             # 审计 #81:非流式重试此前静默 continue,与流式路径日志语义对齐
-            _log.warning("非流式瞬时错,重试 %d/%d: %s", _attempt + 1, _MAX_RETRIES, e)
+            _log.warning("非流式瞬时错,重试 %d/%d: %s", _attempt + 1, retries, e)
             continue
         except httpx.HTTPStatusError as e:
             last = e
             if e.response is not None and e.response.status_code < 500:
                 raise
-            _log.warning("非流式 5xx,重试 %d/%d: %s", _attempt + 1, _MAX_RETRIES, e)
+            _log.warning("非流式 5xx,重试 %d/%d: %s", _attempt + 1, retries, e)
             continue
     raise last if last else RuntimeError("hermes_complete failed")
 
 
 def hermes_complete_stream(prompt: str, system: str | None = None,
-                           model: str = "doubao-seed-2.0-pro", timeout: float = 600.0):
+                           model: str | None = None, timeout: float | None = None):
     """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。主编对话用。
     建链瞬时错自动重试(与非流式重试语义一致),已 yield 后不重试。"""
     import json as _j
+    model = model or default_model()
+    timeout = timeout if timeout is not None else default_timeout()
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
