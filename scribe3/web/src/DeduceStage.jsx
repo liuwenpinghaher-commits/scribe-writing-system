@@ -134,12 +134,16 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   // Task 4:条目级「聊这条/改这条」——当前演绎目标(truth 或角色)话术经 chiefIntent 预填进右栏,
   // 落地复用既有 fillPending(=替换当前目标 prose,零新落地逻辑,详见 Step 1 核实)。
   const targetName = selected === 'truth' ? '场景真相' : cur.character_name
+  // 内容为空(或纯空白)时禁用入口:空引号话术没有讨论/改稿对象,只会让主编猜。
+  const noProse = !text.trim()
   const notifyChief = () => { try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ } }
   const chatCur = () => {
+    if (noProse) return
     setChiefIntent({ phase: 'deduce', seq, text: `就本章「${targetName}」的演绎和你聊聊(先不改):「${truncateQuote(text)}」\n` })
     notifyChief()
   }
   const editCur = () => {
+    if (noProse) return
     setChiefIntent({ phase: 'deduce', seq, text: `把本章「${targetName}」这条演绎改一下,直接给出改后的完整演绎:「${truncateQuote(text)}」` })
     notifyChief()
   }
@@ -173,10 +177,14 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     >
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
-        <Btn variant="ghost" size="sm" onClick={chatCur} title="就这条演绎和主编讨论" aria-label="就这条演绎和主编讨论" className="ml-auto">
+        <Btn variant="ghost" size="sm" onClick={chatCur} disabled={noProse}
+          title={noProse ? '就这条演绎和主编讨论(该演绎还没有内容)' : '就这条演绎和主编讨论'}
+          aria-label="就这条演绎和主编讨论" className="ml-auto">
           <MessagesSquare size={13} />聊这条
         </Btn>
-        <Btn variant="ghost" size="sm" onClick={editCur} title="让主编改这条演绎" aria-label="让主编改这条演绎">
+        <Btn variant="ghost" size="sm" onClick={editCur} disabled={noProse}
+          title={noProse ? '让主编改这条演绎(该演绎还没有内容)' : '让主编改这条演绎'}
+          aria-label="让主编改这条演绎">
           <Sparkles size={13} />改这条
         </Btn>
         <Btn variant="primary" size="sm" onClick={gen} disabled={busy}>

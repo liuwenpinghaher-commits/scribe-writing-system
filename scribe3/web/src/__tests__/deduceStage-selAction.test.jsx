@@ -135,4 +135,23 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     expect(intent.text).toContain('甲'.repeat(400) + '…')
     expect(intent.text).not.toContain(longProse)
   })
+
+  it('⑥当前目标内容为空 → 两钮 disabled 且点击不写 chiefIntent(避免发出空引号话术)', async () => {
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '' } })
+    const chatBtn = await screen.findByRole('button', { name: '就这条演绎和主编讨论' })
+    const editBtn = screen.getByRole('button', { name: '让主编改这条演绎' })
+    expect(chatBtn.disabled).toBe(true)
+    expect(editBtn.disabled).toBe(true)
+
+    fireEvent.click(chatBtn)
+    fireEvent.click(editBtn)
+    expect(screen.getByTestId('chief-intent-sentinel').textContent).toBe('')
+  })
+
+  it('⑥b 纯空白内容(只有空格/换行)同样视为空 → 两钮 disabled', async () => {
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '  \n\n  ' } })
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('  \n\n  '))
+    expect(screen.getByRole('button', { name: '就这条演绎和主编讨论' }).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: '让主编改这条演绎' }).disabled).toBe(true)
+  })
 })
