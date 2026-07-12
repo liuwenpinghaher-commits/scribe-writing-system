@@ -879,7 +879,10 @@ def dashboard_status():
 @app.post("/gateway/dashboard/start")
 def dashboard_start():
     """一键拉起本机 Hermes 官方 Dashboard。铁律同 /gateway/restart:nohup 后台 +
-    轮询探活,绝不前台阻塞;轮询超时如实报失败,不假成功。无请求参数,无注入面。"""
+    轮询探活,绝不前台阻塞;轮询超时如实报失败,不假成功。无请求参数,无注入面。
+
+    「启动」= 幂等的"确保运行"(区别于 restart 的"总是重建"):已在线直接短路返回,
+    不 Popen、不写日志。"""
     import subprocess
     import time
     import httpx
@@ -887,6 +890,11 @@ def dashboard_start():
     hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
     url = get_setting("gateway.dashboard_url")
     log = "/tmp/scribe3-hermes-dashboard.log"
+    try:
+        if httpx.get(url, timeout=1.5).status_code < 500:
+            return {"online": True, "url": url, "log": log, "message": "管理台已在运行"}
+    except Exception:
+        pass   # 探活失败 = 未运行,继续走启动流程
     if not (os.path.isfile(hermes) and os.access(hermes, os.X_OK)):
         # 预检:注定失败的场景毫秒级如实报错,不空等 30s 轮询、不拉起进程。
         return {"online": False, "url": url, "log": log,
