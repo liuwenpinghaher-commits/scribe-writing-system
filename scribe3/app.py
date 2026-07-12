@@ -800,6 +800,30 @@ def gateway_status():
     return {"gateways": out}
 
 
+class GatewayFilePutReq(BaseModel):
+    id: str
+    content: str
+    base_sha256: str
+
+
+@app.get("/gateway/files")
+def gateway_files_list():
+    """白名单内 Hermes profile 文件(config.yaml/SOUL.md/.env);.env 密钥行掩码。只读。"""
+    from scribe3 import gateway_files as gf
+    return {"files": gf.list_files()}
+
+
+@app.put("/gateway/files")
+def gateway_files_put(req: GatewayFilePutReq):
+    from scribe3 import gateway_files as gf
+    try:
+        return gf.write_file(req.id, req.content, base_sha256=req.base_sha256)
+    except gf.NotAllowedError as e:
+        raise HTTPException(403, str(e))
+    except gf.StaleFileError as e:
+        raise HTTPException(409, str(e))
+
+
 @app.get("/ai/usage")
 def ai_usage(work: str = "main", days: int = 7):
     """H-10 全系统预算面板:日帽(跨进程共享台账)+ token 真实用量(trace 聚合)。
