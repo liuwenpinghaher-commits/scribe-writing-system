@@ -20,13 +20,14 @@ const SECTIONS = [
 ]
 
 // llm 分区顶部用量卡:今日已用/日帽,拉取失败静默隐藏(用量是辅助信息,不应阻断设置分区)。
-function UsageCard({ work }) {
+// 日帽为全系统共享台账,与当前书无关,故不接收/不依赖 work。
+function UsageCard() {
   const [usage, setUsage] = useState(null)
   useEffect(() => {
     let alive = true
     api.aiUsage().then((r) => { if (alive) setUsage(r) }).catch(() => { if (alive) setUsage(null) })
     return () => { alive = false }
-  }, [work])
+  }, [])
   if (!usage?.cap) return null
   const { cap, used_today } = usage.cap
   const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
@@ -72,7 +73,7 @@ export function SettingsView({ work }) {
           {section === 'book' && <BookSection work={work} />}
           {section === 'prefs' && <PrefsSection work={work} />}
           {section === 'audit' && <AuditSection />}
-          {section === 'llm' && <UsageCard work={work} />}
+          {section === 'llm' && <UsageCard />}
           {['connection', 'llm', 'craft', 'flags'].includes(section) &&
             byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={reload} />)}
         </div>

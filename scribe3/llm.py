@@ -1,7 +1,8 @@
 """移植自 scribe2/llm.py 的已验证 Hermes 客户端(greenfield 内核复用已验证资产)。
 
 经 Hermes 网关 :8642 OpenAI 兼容端点取补全(由 Hermes 路由到 doubao),不直连火山。
-含已验证的 600s 超时 + 3 次重试(瞬时超时/5xx/连接错重试,4xx 不重试)。
+超时/重试次数经设置中心可调(llm.timeout_seconds / llm.max_retries,默认 600s/3 次);
+重试范围已验证:瞬时超时/5xx/连接错重试,4xx 不重试。
 流式路径同:建链+首字节到达前的瞬时错重试,已开始 yield 后不重试(避免重发 delta)。
 """
 from __future__ import annotations
