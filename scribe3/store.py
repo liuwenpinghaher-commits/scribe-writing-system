@@ -247,10 +247,20 @@ def delete_work(slug: str, url: str | None = None) -> None:
         db.close()
 
 
+def _guard_title(title: str) -> str:
+    """作品名不得为空/纯空白——create_work/rename_work 共用。
+    空名会让 purge 的强确认门失效(库中 '' 与 confirm_title '' strip 后相等即放行),
+    故从源头断绝;purge 端点另有独立空名守卫兜底历史脏数据(双保险)。"""
+    stripped = (title or "").strip()
+    if not stripped:
+        raise ValueError("作品名不能为空")
+    return stripped
+
+
 def rename_work(slug: str, title: str, url: str | None = None) -> None:
+    stripped = _guard_title(title)
     db = _reg_conn(url)
     try:
-        stripped = title.strip()
         active = db.query(f"SELECT * FROM work WHERE ({_ACTIVE_FILTER}) AND slug != $s",
                            {"s": slug})
         if any((r.get("title") or "").strip() == stripped for r in active):
@@ -262,12 +272,12 @@ def rename_work(slug: str, title: str, url: str | None = None) -> None:
 
 def create_work(title: str, slug: str | None = None, url: str | None = None) -> dict:
     """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。
-    活跃作品(未废弃)中重名(strip 后比对)直接拒绝——废弃箱里的书不占名。"""
+    活跃作品(未废弃)中重名(strip 后比对)直接拒绝——废弃箱里的书不占名。空名亦拒收。"""
     import uuid
+    stripped = _guard_title(title)
     slug = slug or ("book_" + uuid.uuid4().hex[:8])
     db = _reg_conn(url)
     try:
-        stripped = title.strip()
         active = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
         if any((r.get("title") or "").strip() == stripped for r in active):
             raise ValueError(f"已有同名作品:{title}")

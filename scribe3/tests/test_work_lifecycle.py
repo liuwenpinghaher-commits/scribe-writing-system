@@ -177,3 +177,49 @@ def test_api_rename_duplicate_409(store, monkeypatch):
     c = _api_client(store, monkeypatch)
     r = c.patch("/works/a8b", json={"title": "接口甲书"})
     assert r.status_code == 409
+
+
+# ===== 空作品名:堵 purge 确认门绕过 =====
+#
+# 病灶(审查 Medium):create_work/rename_work 原先不拒空 title,于是"改名为空 →
+# 废弃 → purge confirm_title='' "两侧 strip 后相等即通过,强确认门形同虚设。
+# 双保险修法:① store 层拒收空名(源头断绝);② purge 端点额外守卫(库中 title
+# 或 confirm_title strip 后为空一律 422),防历史脏数据里已存在的空名书绕过。
+
+
+def test_create_empty_title_rejected(store):
+    for bad in ("", "   ", "\t\n"):
+        with pytest.raises(ValueError):
+            create_work(bad, slug="e1", url=store.url)
+
+
+def test_rename_to_empty_title_rejected(store):
+    create_work("原名尚在", slug="e2", url=store.url)
+    with pytest.raises(ValueError):
+        rename_work("e2", "  ", url=store.url)
+    # 原名未被改坏
+    assert any(w["slug"] == "e2" and w["title"] == "原名尚在"
+               for w in list_works(url=store.url))
+
+
+def test_api_create_empty_title_409(store, monkeypatch):
+    c = _api_client(store, monkeypatch)
+    r = c.post("/works", json={"title": "  "})
+    assert r.status_code == 409
+
+
+def test_api_purge_empty_title_dirty_data_422(store, monkeypatch):
+    """历史脏数据:库里已存在空名书(绕过当下的 store 校验直接构造)。
+    此时 confirm_title='' 与库中 '' strip 后相等——purge 端点必须靠自己的空名守卫拦下。"""
+    from scribe3.store import _reg_conn
+    create_work("将被抹名之书", slug="e3", url=store.url)
+    db = _reg_conn(store.url)
+    try:   # 直接改注册表造脏数据(绕过 rename_work 的新校验)
+        db.query("UPDATE type::record('work',$s) SET title=''", {"s": "e3"})
+    finally:
+        db.close()
+    archive_work("e3", url=store.url)
+    c = _api_client(store, monkeypatch)
+    r = c.request("DELETE", "/works/e3/purge", json={"confirm_title": ""})
+    assert r.status_code == 422
+    assert any(w["slug"] == "e3" for w in archived_works(url=store.url)), "空名书没被删掉"

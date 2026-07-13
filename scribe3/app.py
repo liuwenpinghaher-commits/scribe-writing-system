@@ -1656,8 +1656,13 @@ def purge_work_ep(slug: str, req: WorkPurgeReq):
     """永久删除,唯一真删入口——两道门:必须已在废弃箱 + confirm_title 与库中书名一致。
     书名比对不论该 slug 当前是否已废弃(未废弃时也要能拦 422/409),故活跃+废弃两表都查。"""
     rows = [w for w in list_works() + archived_works() if w["slug"] == slug]
-    title = (rows[0]["title"] if rows else None) or ""
-    if req.confirm_title.strip() != title.strip():
+    title = ((rows[0]["title"] if rows else None) or "").strip()
+    confirm = (req.confirm_title or "").strip()
+    # 空名守卫(与 store._guard_title 双保险):空名会让 ''=='' 恒真、强确认形同虚设。
+    # store 层已从源头拒收空名,此处兜底历史脏数据里可能已存在的空名书。
+    if not title or not confirm:
+        raise HTTPException(422, "书名为空,无法确认永久删除;请先改名后再删")
+    if confirm != title:
         raise HTTPException(422, "书名不匹配,永久删除已取消")
     try:
         delete_work(slug)
