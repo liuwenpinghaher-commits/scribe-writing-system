@@ -127,6 +127,22 @@ describe('ContextInspector · 降级状态', () => {
     expect(screen.getByTestId('context-inspector-status').textContent).toContain('离线')
   })
 
+  // U-001 回归:网关在跑但周边检查降级(磁盘等)→ 黄字 hermes_degraded,不得谎报离线。
+  it('probe degraded 但可用 → hermes_degraded 黄字(不是离线)', async () => {
+    apiMock.aiRuntimeStatus.mockResolvedValue({
+      ok: true,
+      profiles: [{ profile: 'default', ok: true, degraded: true, degraded_reasons: ['disk'] }],
+      summary: { degraded: {} },
+    })
+    render(<ContextInspector />)
+    await waitFor(() =>
+      expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('hermes_degraded'))
+    const txt = screen.getByTestId('context-inspector-status').textContent
+    expect(txt).toContain('降级')
+    expect(txt).not.toContain('离线')
+    expect(txt).not.toContain('记忆检索不可用')
+  })
+
   it('runtime write_runs 降级(chat 正常)→ hermes_read_only', async () => {
     apiMock.aiRuntimeStatus.mockResolvedValue({ ok: false, summary: { degraded: { write_runs: true } } })
     render(<ContextInspector />)

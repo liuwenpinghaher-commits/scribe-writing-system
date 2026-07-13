@@ -36,7 +36,11 @@ const STATUS_META = {
   stale: { label: '上下文已过期 · 请对齐最新', tone: 'warn' },
   retrieval_degraded: { label: '检索降级 · 证据可能不全', tone: 'warn' },
   hermes_read_only: { label: 'Hermes 只读 · 暂不可写入', tone: 'warn' },
-  hermes_offline: { label: 'Hermes 离线 · 记忆检索不可用', tone: 'danger' },
+  // U-001(2026-07-13)文案修正:①旧文案「记忆检索不可用」是错的——记忆检索走 scribe3
+  // 后端 + SurrealDB,与 Hermes 无关,离线只影响主编对话/生成;②新增 hermes_degraded 黄字档,
+  // 承接「网关在跑但周边检查降级(如磁盘)」——旧实现把它一并显示成红字「离线」,纯误报。
+  hermes_degraded: { label: 'Hermes 降级 · 功能可用,建议查看运行状态', tone: 'warn' },
+  hermes_offline: { label: 'Hermes 离线 · 主编对话不可用', tone: 'danger' },
 }
 
 // 降级状态判定(优先级从重到轻)。current/optimistic/stale 复用 Task 5 快照状态;
@@ -50,6 +54,9 @@ function deriveStatus({ runtime, error, restoring, hasSession, traceError }) {
   if (d.write_runs && !d.chat) return 'hermes_read_only'
   if (error && error.code === 'stale_context') return 'stale'
   if (traceError) return 'retrieval_degraded'
+  // U-001:网关在跑但周边检查降级(磁盘/负载等)→ 黄字提示,不再谎报离线。
+  // 任一 profile 的 probe 标了 degraded 即提示(后端 probe.degraded/degraded_reasons)。
+  if ((runtime?.profiles || []).some((p) => p?.ok && p?.degraded)) return 'hermes_degraded'
   if (restoring || !hasSession) return 'optimistic'
   return 'current'
 }

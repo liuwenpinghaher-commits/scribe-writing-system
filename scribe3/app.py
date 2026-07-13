@@ -7243,10 +7243,15 @@ def north_star_book(work: str = "main"):
 
 
 # chapter_scorecard:北极星任务3——scorecard 缓存表入 /live SSE(蓝图附录 A.2,前端面板不轮询)
+# U-002(2026-07-13):faction/item/term/world_rule 四张【设定库分类表】此前漏出清单——
+# 主编经审批写入 15 条世界规则+6 个势力后,前端项目树收不到 live 事件、不重拉,
+# 设定库看着还是空的(数据其实已落库),作者误以为写入失败。铁律:**设定库树里有的分类,
+# 其表必须在此清单里**(门禁 test_live.test_codex_tables_all_in_live_tables 钉死)。
 _LIVE_TABLES = ["character", "place", "proposition", "event", "knows", "reader_knows",
                 "promise", "motif", "chapter", "material", "chapter_scorecard",
-                "idea", "lesson"]   # R2-5:#想法待批/升格候选的表变更也推送,收件箱 badge 实时刷新
+                "idea", "lesson",   # R2-5:#想法待批/升格候选的表变更也推送,收件箱 badge 实时刷新
                                     # (此前前端过滤集含 lesson=死过滤、缺 idea=badge 不动)
+                "faction", "item", "term", "world_rule"]   # U-002:设定库四类,写入即刷新
 
 
 _LIVE_MAX = int(os.environ.get("SCRIBE3_LIVE_MAX", "5"))

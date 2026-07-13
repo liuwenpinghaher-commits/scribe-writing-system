@@ -848,3 +848,91 @@ def test_ai_runs_endpoints_persist_run_trace(store, monkeypatch):
     assert trace_resp.status_code == 200
     assert trace_resp.json()["run_id"] == "run_trace_1"
     assert trace_resp.json()["tool_outputs"][0]["call_id"] == "call_9"
+
+
+def test_probe_degraded_disk_still_ok(monkeypatch):
+    """U-001 回归:health=degraded 但网关本身在跑(gateway running + api_server connected)
+    时 probe 必须判 ok=True,并标 degraded 与原因。
+
+    病史(2026-07-13):Hermes 的 readiness 里 disk 检查报 degraded(实测它测的挂载点与
+    本机 df 对不上),导致整个 health.status='degraded' → 旧实现 ok=(status=='ok') 判 False
+    → /ai/runtime-status 顶层 ok=False → 前端 ContextInspector 常驻红字「Hermes 离线 ·
+    记忆检索不可用」。而主编/写作/记忆检索全部正常——纯误报,且"记忆检索不可用"这句话本身
+    也是错的(记忆检索走 scribe3 后端+SurrealDB,与 Hermes 磁盘无关)。
+    """
+    from scribe3 import hermes_runtime as runtime
+    from scribe3.hermes_runtime import HermesAuth, HermesRuntime
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    # 真机结构(Hermes 0.18.2 实测):api_server 在 platforms 下,不是顶层——
+    # 首版修复读了顶层(照抄既有测试的简化 fixture),真机仍误判离线,靠重启后实测才发现。
+    degraded_health = {
+        "status": "degraded",
+        "gateway_state": "running",
+        "platforms": {"api_server": {"state": "connected"}},
+        "readiness": {"status": "degraded", "checks": {
+            "gateway": {"status": "ok", "state": "running"},
+            "model": {"status": "ok"},
+            "disk": {"status": "degraded", "used_percent": 90.0},
+        }},
+    }
+
+    def fake_get(url, **_kw):
+        if url.endswith("/health/detailed"):
+            return FakeResp(degraded_health)
+        if url.endswith("/v1/capabilities"):
+            return FakeResp({"responses_api": True, "chat_completions": True})
+        if url.endswith("/v1/skills"):
+            return FakeResp({"data": []})
+        if url.endswith("/v1/toolsets"):
+            return FakeResp({"data": []})
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(runtime.httpx, "get", fake_get)
+    rt = HermesRuntime(api_base="http://127.0.0.1:8642/v1", profile="default",
+                       auth=HermesAuth(env={"API_SERVER_KEY": "k"}))
+    status = rt.probe()
+
+    assert status["ok"] is True, "网关在跑就该判可用,degraded≠离线"
+    assert status["degraded"] is True
+    assert "disk" in status["degraded_reasons"]
+
+
+def test_probe_gateway_down_is_not_ok(monkeypatch):
+    """反向:网关真的没起来(gateway_state 非 running / api_server 未连)→ ok=False。"""
+    from scribe3 import hermes_runtime as runtime
+    from scribe3.hermes_runtime import HermesAuth, HermesRuntime
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **_kw):
+        if url.endswith("/health/detailed"):
+            return FakeResp({"status": "degraded", "gateway_state": "stopped",
+                             "api_server": {"state": "disconnected"}})
+        if url.endswith("/v1/capabilities"):
+            return FakeResp({})
+        if url.endswith("/v1/skills") or url.endswith("/v1/toolsets"):
+            return FakeResp({"data": []})
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(runtime.httpx, "get", fake_get)
+    rt = HermesRuntime(api_base="http://127.0.0.1:8642/v1", profile="default",
+                       auth=HermesAuth(env={"API_SERVER_KEY": "k"}))
+    assert rt.probe()["ok"] is False

@@ -133,12 +133,41 @@ class HermesRuntime:
             headers["X-Scribe-Context-Hash"] = context_hash
         return headers
 
+    @staticmethod
+    def _health_ok(health: dict[str, Any]) -> tuple[bool, bool, list[str]]:
+        """(ok, degraded, degraded_reasons) — U-001(2026-07-13):
+        判据是**网关能不能干活**,不是 health.status 字面。Hermes 的 readiness 里
+        磁盘/负载这类周边检查一 degraded,整份 status 就变 'degraded';旧实现
+        `ok = (status == 'ok')` 于是把「磁盘紧张」误判成「Hermes 离线」,前端常驻红字
+        (实测:主编/写作/记忆检索全部正常)。
+        现判据:status=='ok' 直接可用;status=='degraded' 时,只要 gateway 在跑
+        (gateway_state=running 或 readiness.checks.gateway.status=ok)且 api_server 已连,
+        仍算可用,只把降级原因列出来供 UI 显示黄字。其余(gateway 停了/连不上)才是不可用。"""
+        raw = str(health.get("status") or "")
+        checks = ((health.get("readiness") or {}).get("checks") or {})
+        reasons = sorted(k for k, v in checks.items()
+                         if isinstance(v, dict) and v.get("status") not in (None, "ok"))
+        if raw == "ok":
+            return True, False, reasons
+        if raw != "degraded":
+            return False, True, reasons or [raw or "unknown"]
+        gw = checks.get("gateway") or {}
+        gw_running = (health.get("gateway_state") == "running") or (gw.get("status") == "ok")
+        # api_server 状态:真机在 platforms.api_server.state(实测 0.18.2);顶层 api_server
+        # 是既有测试 fixture 的简化形状——两者都认,以真机为准优先。
+        api_node = ((health.get("platforms") or {}).get("api_server")
+                    or health.get("api_server") or {})
+        api_connected = (api_node.get("state") == "connected")
+        return bool(gw_running and api_connected), True, reasons
+
     def probe(self, *, timeout: float = 5.0) -> dict[str, Any]:
         status: dict[str, Any] = {
             "profile": self.profile,
             "api_base": self.api_base,
             "root_url": self.root_url,
             "ok": False,
+            "degraded": False,
+            "degraded_reasons": [],
             "health": {},
             "capabilities": {},
             "features": {},
@@ -184,7 +213,10 @@ class HermesRuntime:
                     optional_errors[key] = str(exc)[:160]
             if optional_errors:
                 status["optional_errors"] = optional_errors
-            status["ok"] = (status["health"].get("status") == "ok")
+            ok, degraded, reasons = self._health_ok(status["health"] or {})
+            status["ok"] = ok
+            status["degraded"] = degraded
+            status["degraded_reasons"] = reasons
         except Exception as exc:
             status["error"] = str(exc)[:200]
         return status
