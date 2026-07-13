@@ -162,28 +162,85 @@ def _reg_conn(url: str | None = None):
     return db
 
 
+# 活跃(未废弃)作品过滤条件:archived 字段缺省 NONE,显式 OR 掉 NONE 情形——
+# SurrealQL 对缺失字段的 `!=` 比较不保证按预期短路,故两种"未废弃"形态都要枚举。
+_ACTIVE_FILTER = "archived = NONE OR archived != true"
+
+
+def _guard_mutable_slug(slug: str) -> None:
+    """main 保护 + slug 合法性——archive_work / delete_work 共用两道校验。"""
+    if slug == "main":
+        raise ValueError("不能删除主书 main")
+    if not all(c.isalnum() or c == "_" for c in slug):
+        raise ValueError("非法 slug")
+
+
 def list_works(url: str | None = None) -> list[dict]:
-    """列所有书。空则自动登记 main=乱世铜炉(现有数据所在 DB)。"""
+    """列所有未废弃的书。注册表全空则自动登记 main=乱世铜炉(现有数据所在 DB)。"""
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM work")
+        rows = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
         if not rows:
-            db.query("CREATE work:main CONTENT { slug:'main', title:'乱世铜炉·设定参照', ord:0 }")
-            return [{"slug": "main", "title": "乱世铜炉·设定参照"}]
+            total = db.query("SELECT * FROM work")
+            if not total:
+                db.query("CREATE work:main CONTENT { slug:'main', title:'乱世铜炉·设定参照', ord:0 }")
+                return [{"slug": "main", "title": "乱世铜炉·设定参照"}]
         rows = sorted(rows, key=lambda r: r.get("ord") or 0)
         return [{"slug": r.get("slug"), "title": r.get("title")} for r in rows]
     finally:
         db.close()
 
 
-def delete_work(slug: str, url: str | None = None) -> None:
-    """删一本书:注册表删除 + 丢弃其独立 DB。主书 main 不可删。"""
-    if slug == "main":
-        raise ValueError("不能删除主书 main")
-    if not all(c.isalnum() or c == "_" for c in slug):
-        raise ValueError("非法 slug")
+def archived_works(url: str | None = None) -> list[dict]:
+    """废弃箱列表:已废弃的作品,按废弃时间倒序。"""
     db = _reg_conn(url)
     try:
+        rows = db.query("SELECT * FROM work WHERE archived = true")
+        rows = sorted(rows, key=lambda r: r.get("archived_at") or "", reverse=True)
+        return [{"slug": r.get("slug"), "title": r.get("title"),
+                  "archived_at": r.get("archived_at")} for r in rows]
+    finally:
+        db.close()
+
+
+def archive_work(slug: str, url: str | None = None) -> None:
+    """废弃一本书(软删):注册表标记 archived=true,独立 DB 一字不动。主书 main 不可废弃。"""
+    _guard_mutable_slug(slug)
+    db = _reg_conn(url)
+    try:
+        db.query("UPDATE type::record('work',$s) SET archived=true, archived_at=time::now()",
+                 {"s": slug})
+    finally:
+        db.close()
+
+
+def restore_work(slug: str, url: str | None = None) -> None:
+    """从废弃箱恢复:若已有同名活跃作品,先抛错提示改名(废弃箱里的书本就不占名)。"""
+    db = _reg_conn(url)
+    try:
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
+        title = (rows[0].get("title") if rows else None) or ""
+        stripped = title.strip()
+        if stripped:
+            active = db.query(f"SELECT * FROM work WHERE ({_ACTIVE_FILTER}) AND slug != $s",
+                               {"s": slug})
+            if any((r.get("title") or "").strip() == stripped for r in active):
+                raise ValueError(f"已有同名作品「{stripped}」,请先改名")
+        db.query("UPDATE type::record('work',$s) SET archived=false, archived_at=NONE",
+                 {"s": slug})
+    finally:
+        db.close()
+
+
+def delete_work(slug: str, url: str | None = None) -> None:
+    """永久删除一本书:注册表删除 + REMOVE DATABASE,不可逆。语义收窄——只允许
+    删除已废弃(archived=true)的书,强制走"先废弃再永久删除"两道门。主书 main 不可删。"""
+    _guard_mutable_slug(slug)
+    db = _reg_conn(url)
+    try:
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
+        if not rows or rows[0].get("archived") is not True:
+            raise ValueError("请先移入废弃箱再永久删除")
         db.query("DELETE type::record('work',$s)", {"s": slug})
         db.query(f"REMOVE DATABASE IF EXISTS {slug}")
     finally:
@@ -193,17 +250,27 @@ def delete_work(slug: str, url: str | None = None) -> None:
 def rename_work(slug: str, title: str, url: str | None = None) -> None:
     db = _reg_conn(url)
     try:
+        stripped = title.strip()
+        active = db.query(f"SELECT * FROM work WHERE ({_ACTIVE_FILTER}) AND slug != $s",
+                           {"s": slug})
+        if any((r.get("title") or "").strip() == stripped for r in active):
+            raise ValueError(f"已有同名作品:{title}")
         db.query("UPDATE type::record('work',$s) SET title=$t", {"s": slug, "t": title})
     finally:
         db.close()
 
 
 def create_work(title: str, slug: str | None = None, url: str | None = None) -> dict:
-    """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。"""
+    """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。
+    活跃作品(未废弃)中重名(strip 后比对)直接拒绝——废弃箱里的书不占名。"""
     import uuid
     slug = slug or ("book_" + uuid.uuid4().hex[:8])
     db = _reg_conn(url)
     try:
+        stripped = title.strip()
+        active = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
+        if any((r.get("title") or "").strip() == stripped for r in active):
+            raise ValueError(f"已有同名作品:{title}")
         db.query("CREATE type::record('work',$s) SET slug=$s, title=$t, created=time::now()",
                  {"s": slug, "t": title})
     finally:

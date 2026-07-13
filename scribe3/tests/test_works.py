@@ -29,8 +29,13 @@ def test_books_are_isolated(store):
 
 def test_delete_and_guard_main(store):
     import pytest
-    from scribe3.store import delete_work
+    from scribe3.store import archive_work, delete_work
     create_work("待删", slug="todel", url=store.url)
+    # delete_work 语义已收窄为永久删除,需先废弃(软删)才能删——两道门防误删
+    # (见 2026-07-13 作品生命周期设计:store.delete_work docstring)。
+    with pytest.raises(ValueError):
+        delete_work("todel", url=store.url)
+    archive_work("todel", url=store.url)
     delete_work("todel", url=store.url)
     assert not any(w["slug"] == "todel" for w in list_works(url=store.url))
     with pytest.raises(ValueError):
