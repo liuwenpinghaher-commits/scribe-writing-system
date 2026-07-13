@@ -71,8 +71,14 @@ class TestWriteGate:
         ("POST", "/promises/{pid}/advance"), ("POST", "/promises/{pid}/mark-herring"),
         ("POST", "/promises/{pid}/clues"), ("DELETE", "/promises/{pid}/clues/{idx}"),
         ("POST", "/motifs-new"), ("PATCH", "/motifs/{mid}"), ("DELETE", "/motifs/{mid}"),
-        ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"), ("DELETE", "/works/{slug}"),
-        ("PATCH", "/works/{slug}"), ("POST", "/save-chapter"), ("POST", "/ingest"),
+        ("POST", "/intent"), ("PUT", "/intent"), ("POST", "/works"),
+        # DELETE /works/{slug}:移入废弃箱(软删,DB 不动)——真删见下方 purge。
+        ("DELETE", "/works/{slug}"),
+        ("PATCH", "/works/{slug}"),
+        # 作品生命周期(2026-07-13):restore 复现;purge 是唯一真删入口,两道门=
+        # 必须已在废弃箱(delete_work 语义收窄校验) + confirm_title 与库中书名一致。
+        ("POST", "/works/{slug}/restore"), ("DELETE", "/works/{slug}/purge"),
+        ("POST", "/save-chapter"), ("POST", "/ingest"),
         ("POST", "/checkpoint"),
         ("POST", "/save-draft"),   # Phase0-BE2 四阶段:写 chapter.draft + 追加 draft 版
         ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST

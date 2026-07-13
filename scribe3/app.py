@@ -36,8 +36,9 @@ from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
 from scribe3.store import (
-    MATERIAL_KINDS, OVERDUE_SLACK, SurrealStore, _overdue_flag, create_work,
-    delete_work, list_works, rename_work,
+    MATERIAL_KINDS, OVERDUE_SLACK, SurrealStore, _overdue_flag, archive_work,
+    archived_works, create_work, delete_work, list_works, rename_work,
+    restore_work,
 )
 from scribe3.verify import causal_complete
 
@@ -1602,22 +1603,68 @@ class WorkIn(BaseModel):
     title: str
 
 
+class WorkPurgeReq(BaseModel):
+    confirm_title: str
+
+
 @app.post("/works")
 def make_work(w: WorkIn):
-    return create_work(w.title)
+    try:
+        return create_work(w.title)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
 
 
 @app.patch("/works/{slug}")
 def rename(slug: str, w: WorkIn):
-    rename_work(slug, w.title)
+    try:
+        rename_work(slug, w.title)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     return {"ok": True}
+
+
+@app.get("/works/archived")
+def works_archived():
+    """废弃箱列表——须先于 GET /works/{slug}(若存在)注册,防动态路由把
+    'archived' 当 slug 吞掉。当前无 GET /works/{slug},此处仅按纪律占位说明。"""
+    return {"works": archived_works()}
 
 
 @app.delete("/works/{slug}")
 def remove_work(slug: str):
-    delete_work(slug)
+    """软删:移入废弃箱(DB 不动,仅注册表标记 archived=true)。真删见 /works/{slug}/purge。"""
+    try:
+        archive_work(slug)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     _stores.pop(slug, None)
+    return {"ok": True, "archived": True}
+
+
+@app.post("/works/{slug}/restore")
+def restore_work_ep(slug: str):
+    try:
+        restore_work(slug)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
     return {"ok": True}
+
+
+@app.delete("/works/{slug}/purge")
+def purge_work_ep(slug: str, req: WorkPurgeReq):
+    """永久删除,唯一真删入口——两道门:必须已在废弃箱 + confirm_title 与库中书名一致。
+    书名比对不论该 slug 当前是否已废弃(未废弃时也要能拦 422/409),故活跃+废弃两表都查。"""
+    rows = [w for w in list_works() + archived_works() if w["slug"] == slug]
+    title = (rows[0]["title"] if rows else None) or ""
+    if req.confirm_title.strip() != title.strip():
+        raise HTTPException(422, "书名不匹配,永久删除已取消")
+    try:
+        delete_work(slug)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    _stores.pop(slug, None)
+    return {"ok": True, "purged": True}
 
 
 # ===== 读(按书)=====
