@@ -61,6 +61,14 @@ export const api = {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
   }).then(handle),
   deleteWork: (slug) => fetch(BASE + '/works/' + enc(slug), { method: 'DELETE' }).then(handle),
+  // 废弃箱(Task 3):/works/{slug} DELETE 已改为软删(移入废弃箱),真删走 purge。
+  archivedWorks: () => jraw('/works/archived'),
+  restoreWork: (slug) => fetch(BASE + '/works/' + enc(slug) + '/restore', { method: 'POST' }).then(handle),
+  // purge 需带 confirm_title 请求体——顶层 del()/内部 del() 均不支持 body,故这里直写 fetch
+  // (与本文件 createWork/renameWork/deleteWork 同款「works 全局端点,不挂 ?work=」写法一致)。
+  purgeWork: (slug, confirm_title) => fetch(BASE + '/works/' + enc(slug) + '/purge', {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm_title }),
+  }).then(handle),
 
   entities: () => j('/entities'),
   facts: (ch) => j(`/facts?chapter=${ch}`),
