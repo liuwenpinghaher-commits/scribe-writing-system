@@ -94,6 +94,21 @@ describe('Library 废弃箱区', () => {
     await waitFor(() => expect(apiMock.archivedWorks).toHaveBeenCalledTimes(2))
   })
 
+  it('永久删除:输入带首尾空格的正确书名仍可确认(与后端 strip 比对对齐)', async () => {
+    apiMock.archivedWorks.mockResolvedValue({ works: [archivedRow] })
+    apiMock.purgeWork.mockResolvedValue({ ok: true, purged: true })
+    render(<Library works={[activeWork]} reload={() => Promise.resolve()} onSelect={() => {}} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /永久删除旧稿/ }))
+    const confirmBtn = await screen.findByRole('button', { name: '永久删除' })
+
+    fireEvent.change(screen.getByRole('textbox', { name: /确认书名/ }), { target: { value: ' 旧稿 ' } })
+    expect(confirmBtn.disabled).toBe(false)
+
+    fireEvent.click(confirmBtn)
+    await waitFor(() => expect(apiMock.purgeWork).toHaveBeenCalledWith('book-b', ' 旧稿 '))
+  })
+
   it('works 全空(所有作品都被废弃)时,空态引导页仍显示废弃箱,不把用户锁死', async () => {
     apiMock.archivedWorks.mockResolvedValue({ works: [archivedRow] })
     render(<Library works={[]} reload={() => Promise.resolve()} onSelect={() => {}} />)

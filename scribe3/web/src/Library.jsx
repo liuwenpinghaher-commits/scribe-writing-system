@@ -72,6 +72,10 @@ export function Library({ works, reload, onSelect }) {
       setRestoreErr((m) => ({ ...m, [w.slug]: e?.body?.detail || e?.message || '恢复失败' }))
     }
   }
+  // 确认门比对须与后端对齐:后端 purge 端点 strip 后比对(title.strip() == confirm.strip()),
+  // 前端若按裸串严比,用户复制书名带首尾空格就会「明明输对却点不了确认」(按钮+Enter 双锁死)。
+  // 强度不降低:空名/纯空白在后端有 422 兜底(且 store 层从源头拒收空名)。
+  const purgeMatch = !!purgeTarget && purgeInput.trim() === (purgeTarget.title || '').trim()
   const closePurge = () => { setPurgeTarget(null); setPurgeInput(''); setPurgeErr('') }
   const doPurge = async () => {
     setPurgeErr('')
@@ -105,11 +109,12 @@ export function Library({ works, reload, onSelect }) {
         </div>
         <Input autoFocus value={purgeInput} onChange={(e) => setPurgeInput(e.target.value)}
           placeholder={purgeTarget?.title ?? ''} aria-label="确认书名"
-          onKeyDown={(e) => { if (e.key === 'Enter' && purgeInput === purgeTarget?.title) doPurge() }} />
+          // IME 守卫:中文输入法候选框里按 Enter 只是选词,不该当成「确认永久删除」提交。
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && purgeMatch) doPurge() }} />
         {purgeErr && <div role="alert" className="mt-2 text-f12 text-danger">{purgeErr}</div>}
         <div className="mt-4 flex justify-end gap-2">
           <Btn variant="ghost" onClick={closePurge}>取消</Btn>
-          <Btn variant="primary" className="!bg-danger !text-white" disabled={!purgeTarget || purgeInput !== purgeTarget.title}
+          <Btn variant="primary" className="!bg-danger !text-white" disabled={!purgeMatch}
             onClick={doPurge}>永久删除</Btn>
         </div>
       </div>
