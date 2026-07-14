@@ -33,11 +33,13 @@ from scribe3.codex_schema import (
     ENTITY_RELATION_TYPES,
     all_storage_keys as codex_all_storage_keys,
     fields_for as codex_fields_for,
+    prompt_keys as codex_prompt_keys,
     schema_for as codex_schema_for,
     secret_capable_keys as codex_secret_capable_keys,
     secret_flag_key as codex_secret_flag_key,
 )
 from scribe3.codex_secret_bridge import sync_faction_secrets
+from scribe3.codex_validate import validate_faction_consistency
 from scribe3.context_models import NavigationIntent, StaleContextError
 from scribe3.context_service import (
     ContextService, ContextServiceError, ContextWorkMismatch,
@@ -2544,6 +2546,13 @@ def get_codex_schema(kind: str):
         raise HTTPException(status_code=404, detail=f"未知设定类型: {kind!r}")
 
 
+@app.get("/faction-consistency")
+def faction_consistency_ep(work: str = "main"):
+    """势力结构化一致性校验(只读,CX-Task 6):关系矛盾/核心圈超编/信物传承章超前/
+    权力占比超100%。不落库,供作者自检;不登记写路由台账(纯 GET,无副作用)。"""
+    return validate_faction_consistency(_store_for(work))
+
+
 @app.get("/setting-completeness")
 def setting_completeness(work: str = "main"):
     return _store_for(work).setting_completeness()
@@ -3142,14 +3151,135 @@ def get_progress(work: str = "main", window: str = "all"):
     return _store_for(work).progress(window=window)
 
 
-def _codex_block(st, reveal: bool = True) -> str:
+_FACTION_PROMPT_CHAR_CAP = 400   # 单势力注入上限(字),超出截断(spec §4 长度预算)
+
+
+def _faction_known_fact_ids(st, focalizer: str, chapter: int) -> set:
+    """focalizer 在 chapter 时刻的知情投影(knowledge.project_frame)里的 fact id 集合。
+
+    focalizer 为空 → 直接返回空集,不发 project_frame 查询——这就是 fail-closed 的
+    落点:没有可验证身份时,一律当作"什么都不知道",宁可少给也不能泄密。"""
+    if not focalizer:
+        return set()
+    try:
+        frame = project_frame(st, focalizer, chapter)
+        return {f.id for f in frame.facts}
+    except Exception:
+        return set()
+
+
+def _faction_bridge_fact_index(st, chapter: int) -> dict:
+    """{(entity_id, attribute): fact_id} 索引,供势力 secret 字段定位自己的桥接命题。
+    直接复用 st.facts_at(与 _secret_guard_block 同款查询),不另立一套查询语义。"""
+    try:
+        return {(f.entity_id, f.attribute): f.id for f in st.facts_at(chapter)}
+    except Exception:
+        return {}
+
+
+def _codex_value_repr(field, value) -> str:
+    """按 CodexField.type 把值转成注入 prompt 的紧凑文本表示。"""
+    if field.type == "array<object>" and isinstance(value, list):
+        items = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            sub = [f"{sf.label}={item[sf.key]}" for sf in (field.item_schema or ())
+                   if item.get(sf.key) not in (None, "", [], {})]
+            if sub:
+                items.append("/".join(sub))
+        return "、".join(items)
+    if field.type == "object" and isinstance(value, dict):
+        sub = [f"{sf.label}={value[sf.key]}" for sf in (field.item_schema or ())
+               if value.get(sf.key) not in (None, "", [], {})]
+        return "/".join(sub)
+    if field.type == "array<string>" and isinstance(value, list):
+        return "、".join(str(v) for v in value)
+    return str(value)
+
+
+def _faction_relation_summary(st, name: str, chapter: int) -> str:
+    """该势力的实体关系摘要:只含 perception_a/b(双方各自认知),truth(主编独知的
+    真相)永不注入——即便 reveal=True 的全知模式也不例外(spec §3/§4 红线:truth
+    不是给生成模型看的,是留给作者/主编自己查的)。"""
+    entity_id = f"faction:{name}"
+    try:
+        rows = (st.entity_relations_at(chapter, entity_id) if chapter is not None
+                else st.list_entity_relations(entity_id))
+    except Exception:
+        rows = []
+    segs = []
+    for r in rows or []:
+        a, b, rt = r.get("a"), r.get("b"), r.get("relation_type")
+        seg = f"{a}↔{b}[{rt}]"
+        pa, pb = r.get("perception_a"), r.get("perception_b")
+        if pa:
+            seg += f"({a}认知:{pa})"
+        if pb:
+            seg += f"({b}认知:{pb})"
+        segs.append(seg)
+    return "；".join(segs)
+
+
+def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
+                          secret_ids: set, fact_index: dict) -> str:
+    """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret 字段
+    经限知门控(project_frame 投影 + _secret_fact_ids 权威判定——既有链路,非另立
+    一套判断),附该势力的关系网摘要,超预算截断。
+
+    secret 字段门控:fid 是该字段桥接命题(codex_secret_bridge.sync_faction_secrets
+    生成)的 fact id——找不到就无法证明安全,不注入;fid 在 secret_ids
+    (context_assembler._secret_fact_ids 的权威 secret 判定)里且不在 known_ids
+    (project_frame 投影)里,说明焦点者不知情,同样不注入。"""
+    name = row.get("name") or ""
+    field_defs = {f.key: f for f in codex_fields_for("faction")}
+    secret_keys = set(codex_secret_capable_keys("faction"))
+    entity_id = f"faction:{name}"
+    parts = []
+    for key in codex_prompt_keys("faction"):
+        if key == "name":
+            continue
+        value = row.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if key in secret_keys and row.get(codex_secret_flag_key(key)):
+            fid = fact_index.get((entity_id, key))
+            if fid is None or (fid in secret_ids and fid not in known_ids):
+                continue   # 未证明焦点者知情 → 不注入(fail-closed)
+        f = field_defs.get(key)
+        if f is None:
+            continue
+        rep = _codex_value_repr(f, value)
+        if rep:
+            parts.append(f"{f.label}:{rep}")
+    rel = _faction_relation_summary(st, name, chapter)
+    if rel:
+        parts.append(f"关系:{rel}")
+    body = "；".join(parts)
+    text = f"{name}（{body}）" if body else name
+    if len(text) > _FACTION_PROMPT_CHAR_CAP:
+        text = text[:_FACTION_PROMPT_CHAR_CAP] + "…(略)"
+    return text
+
+
+def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None) -> str:
     """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
     关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
     此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
     不依赖 MCP(MCP 网关连固定库,会串到别的书)。
 
     reveal=False(限知模式,focalizer 非空):对 backstory_secret 角色隐去 backstory,
-    防 POV 倒灌(F-3——限知章设定圣经明文注入私密前史);reveal=True(全知)保留。"""
+    防 POV 倒灌(F-3——限知章设定圣经明文注入私密前史);reveal=True(全知)保留。
+
+    CX-Task 6:势力段改为注册表驱动(codex_schema.prompt_keys('faction')),不再只有
+    name+ideology[:18]。secret_capable 字段(如 origin/secret_agenda)只有在"能证明
+    当前 focalizer 知情"时才注入——真走既有限知链(knowledge.project_frame 投影 +
+    context_assembler._secret_fact_ids 的权威 secret 判定),不是另建一套规则。
+    **fail-closed**:focalizer 为空(拿不到焦点角色,如 chat_stream 纯讨论、或调用方
+    未传)时,一律不注入任何势力 secret 字段——即便 reveal=True(作者全知)也不例外。
+    这是本函数唯一不受 reveal 影响的分支:reveal 是给【既有】角色 backstory 掩码用的
+    历史开关(其"全知即放行"的承诺早于本次改动,不能破);新引入的势力 secret 字段
+    没有这层历史包袱,直接按 spec 红线实现——宁可少给也不能泄密。"""
     def _safe(fn):
         try:
             return fn() or []
@@ -3168,7 +3298,20 @@ def _codex_block(st, reveal: bool = True) -> str:
         parts.append("〔角色〕\n" + "\n".join(cl))
     facs = _safe(st.list_factions) if hasattr(st, 'list_factions') else []
     if facs:
-        parts.append("〔势力〕" + "；".join(f"{f.get('name')}（{(f.get('ideology') or '')[:18]}）" for f in facs[:10]))
+        eff_chapter = chapter if chapter is not None else 1
+        known_ids = _faction_known_fact_ids(st, focalizer, eff_chapter)
+        try:
+            from scribe3.context_assembler import _secret_fact_ids
+            secret_ids = _secret_fact_ids(st)
+        except Exception:
+            secret_ids = set()
+        fact_index = _faction_bridge_fact_index(st, eff_chapter)
+        facs_blocks = [_faction_prompt_block(st, f, chapter=eff_chapter, known_ids=known_ids,
+                                             secret_ids=secret_ids, fact_index=fact_index)
+                      for f in facs[:10]]
+        facs_blocks = [b for b in facs_blocks if b]
+        if facs_blocks:
+            parts.append("〔势力〕\n" + "\n".join(f"- {b}" for b in facs_blocks))
     items = _safe(st.list_items) if hasattr(st, 'list_items') else []
     if items:
         parts.append("〔物件〕" + "；".join(f"{i.get('name')}" for i in items[:14]))
@@ -3255,7 +3398,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
-        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer) or '(尚无设定)'}\n\n"
+        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem + mat_hint
