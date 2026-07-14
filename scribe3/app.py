@@ -26,8 +26,15 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
+from surrealdb.errors import ServerError as _SurrealServerError
 
+from scribe3.codex_schema import (
+    fields_for as codex_fields_for,
+    schema_for as codex_schema_for,
+    secret_capable_keys as codex_secret_capable_keys,
+    secret_flag_key as codex_secret_flag_key,
+)
 from scribe3.context_models import NavigationIntent, StaleContextError
 from scribe3.context_service import (
     ContextService, ContextServiceError, ContextWorkMismatch,
@@ -2367,57 +2374,109 @@ def del_rule(name: str, work: str = "main"):
     return {"ok": True}
 
 
-class FactionIn(BaseModel):
-    name: str
-    status: str = "active"
-    ideology: str | None = None
-    leader: str | None = None
-    known_members: list = []
-    public_face: str | None = None
-    private_operation: str | None = None
-    private_operation_secret: bool = False
-    first_mention_chapter: int | None = None
+
+# CX-Task 3:FactionIn 由 codex_schema 注册表动态生成(create_model),字段清单的唯一权威源
+# 是 codex_schema.FACTION_FIELDS——不在这里手写第二份字段清单,避免两处漂移(见
+# test_faction_in_fields_match_registry_storage_keys 钉住 "字段集 == all_storage_keys")。
+# extra="allow":未登记字段原样透传进 model_dump(exclude_unset=True),交给
+# store.add_faction 的白名单去拒(ValueError→422,见 add_faction_ep),而不是被 pydantic
+# 静默吞掉——否则前端字段名笔误,查不出为什么没生效。
+_FACTION_TYPE_MAP: dict[str, type] = {
+    "text": str, "textarea": str, "enum": str, "int": int, "bool": bool,
+    "array<string>": list, "array<object>": list, "object": dict,
+}
+
+
+def _build_faction_in() -> type[BaseModel]:
+    field_defs: dict[str, tuple] = {}
+    for f in codex_fields_for("faction"):
+        if f.key == "name":
+            field_defs["name"] = (str, ...)
+            continue
+        py_type = _FACTION_TYPE_MAP.get(f.type, str)
+        field_defs[f.key] = (py_type | None, None)
+        if f.secret_capable:
+            field_defs[codex_secret_flag_key(f.key)] = (bool | None, None)
+    return create_model("FactionIn", __config__=ConfigDict(extra="allow"), **field_defs)
+
+
+FactionIn = _build_faction_in()
+
+
+def _enum_violations(fields, value: dict, prefix: str = "") -> list[str]:
+    """按 codex_schema 字段定义递归校验 enum 字段(顶层 + array<object>/object 内一层
+    子字段),数据驱动、不硬编码字段名——新增枚举字段自动获得校验,无需在此加分支。
+    SurrealDB FLEXIBLE 子字段 DB 层不做类型/取值校验,这是唯一防线(尽力而为:只探
+    一层嵌套,不递归更深)。返回违规描述列表,空即合法。"""
+    errors: list[str] = []
+    for f in fields:
+        if f.key not in value or value[f.key] is None:
+            continue
+        v = value[f.key]
+        path = f"{prefix}{f.key}"
+        if f.type == "enum" and f.enum is not None:
+            if v not in f.enum:
+                errors.append(f"{path}={v!r} 非法(合法值: {list(f.enum)})")
+        elif f.type == "array<object>" and f.item_schema and isinstance(v, list):
+            for i, item in enumerate(v):
+                if isinstance(item, dict):
+                    errors.extend(_enum_violations(f.item_schema, item, prefix=f"{path}[{i}]."))
+        elif f.type == "object" and f.item_schema and isinstance(v, dict):
+            errors.extend(_enum_violations(f.item_schema, v, prefix=f"{path}."))
+    return errors
 
 
 @app.get("/factions")
 def list_factions(work: str = "main", reveal_secret: bool = False):
     rows = _store_for(work).list_factions()
-    return [_mask_field(dict(r), "private_operation", "private_operation_secret", reveal_secret)
-            for r in rows]
+    result = []
+    for r in rows:
+        row = dict(r)
+        for k in codex_secret_capable_keys("faction"):
+            row = _mask_field(row, k, codex_secret_flag_key(k), reveal_secret)
+        result.append(row)
+    return result
 
 
 @app.post("/factions")
 def add_faction_ep(fc: FactionIn, work: str = "main"):
-    """势力 upsert:真 merge 语义(端点层)。
+    """势力 upsert:真 merge 语义(端点层,CX-Task 3 注册表驱动)。
 
-    store.add_faction 是 DELETE+CREATE 整行覆盖——对字段省略脆弱(缺任一字段即销毁),
-    不止 private_operation(public_face/ideology/leader 同理)。此处根治:
-    - 只取客户端「真正提交」的字段(exclude_unset),未提交字段一律保留库中旧值;
-    - 掩码写哨兵:private_operation 收到掩码占位符 → 视为未改(丢弃,保旧真值),
-      覆盖前端 F4 未拦截的 curl/MCP 直传掩码路径。
-    这样编辑任一字段都不销毁未传/掩码字段。store.add_faction 保持覆盖语义供其它调用方。
+    - exclude_unset:客户端未显式提交的字段一律不传给 store;store.add_faction(Task 2)
+      的 `_UNSET` 哨兵保证 MERGE 不触碰旧值,这里不必再像旧版那样手工 pick() 回填全部字段。
+    - 掩码写哨兵通用循环(防数据毁灭):任意 secret_capable 字段整行回传掩码占位符
+      "🔒 私密" → 视为未改,丢弃(不落库为字面掩码)。旧代码只 pop 了 private_operation
+      一个字段——新增 secret 字段若不进这个通用循环,前端整行回传掩码值就会把库里真相
+      永久写死成字面 "🔒 私密"(已用测试实证复现,见 test_codex_faction.py ②)。
+    - enum 校验:非法枚举值(含 array<object>/object 内一层子字段)提前 422,不让非法值
+      走到 DB ASSERT 才报错(那样是未捕获异常 → 裸 500)。
+    - 异常映射:store 白名单拒绝未知字段 → ValueError → 422(否则前端字段名笔误变裸
+      500);并发同名撞 uniq_faction_name UNIQUE 索引 → 409(实测 surrealdb-py 3.2.0
+      对该冲突抛 `surrealdb.errors.InternalError`,message 含 "already contains";
+      按内容匹配而非依赖具体异常子类,避免与 SDK 版本行为绑死)。
     """
-    st = _store_for(work)
     sent = fc.model_dump(exclude_unset=True)          # 仅客户端显式提交的字段
-    if sent.get("private_operation") == _SECRET_MASK:  # 掩码哨兵:显式回传掩码=未改
-        sent.pop("private_operation", None)
-    old = next((f for f in st.list_factions() if f.get("name") == fc.name), {})
+    name = sent.pop("name")
+    for k in codex_secret_capable_keys("faction"):     # 掩码哨兵:通用循环,不逐字段手写
+        if sent.get(k) == _SECRET_MASK:
+            sent.pop(k, None)
 
-    def pick(k, default):
-        # 客户端提交了该字段 → 用提交值(含显式清空 None);否则保留旧值,再退默认。
-        return sent[k] if k in sent else old.get(k, default)
+    violations = _enum_violations(codex_fields_for("faction"), sent)
+    if violations:
+        raise HTTPException(status_code=422,
+                            detail=f"势力字段非法: {'; '.join(violations)}")
 
-    st.add_faction(
-        fc.name,
-        ideology=pick("ideology", None),
-        status=pick("status", "active"),
-        leader=pick("leader", None),
-        known_members=pick("known_members", []),
-        public_face=pick("public_face", None),
-        private_operation=pick("private_operation", None),
-        first_mention_chapter=pick("first_mention_chapter", None),
-        private_operation_secret=pick("private_operation_secret", False),
-    )
+    st = _store_for(work)
+    try:
+        st.add_faction(name, **sent)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except _SurrealServerError as e:
+        if "already contains" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail=f"势力名重复,可能是并发写入冲突: {name!r}") from e
+        raise
     return {"ok": True}
 
 
@@ -2425,6 +2484,15 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
 def del_faction(name: str, work: str = "main"):
     _store_for(work).delete_faction(name)
     return {"ok": True}
+
+
+@app.get("/codex-schema/{kind}")
+def get_codex_schema(kind: str):
+    """设定字段元数据(只读,CX-Task 3):前端按此渲染表单,不再硬编码字段清单。"""
+    try:
+        return codex_schema_for(kind)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"未知设定类型: {kind!r}")
 
 
 @app.get("/setting-completeness")

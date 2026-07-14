@@ -14,6 +14,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
+from scribe3.codex_schema import secret_capable_keys, secret_flag_key
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.verify import causal_complete, find_leaks
@@ -223,18 +224,19 @@ def s3_list_world_rules(category: str | None = None, work: str | None = None) ->
 
 @mcp.tool(annotations=_RO)
 def s3_list_factions(reveal_secret: bool = False, work: str | None = None) -> list[dict]:
-    """列势力/组织(意识形态/领袖/已知成员/公开面目/私下运作)。
+    """列势力/组织(意识形态/领袖/已知成员/公开面目/起源/遗产运作等,CX-Task 3 起含
+    codex_schema 注册的全部字段)。
 
-    默认掩码私密私下运作(显示 '🔒 私密'),private_operation_secret 标志始终保留。
+    通用掩码(不硬编码字段名):按 codex_schema.secret_capable_keys('faction') 遍历,
+    每个 `{key}_secret=True` 的字段默认显示 '🔒 私密',新增 secret 字段自动获得同款保护。
     reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
     rows = _store_for(work).list_factions()
     result = []
     for row in rows:
         row = dict(row)
-        is_secret = bool(row.get("private_operation_secret", False))
-        row["private_operation"] = _mask_value(
-            row.get("private_operation") or "", is_secret, reveal_secret
-        )
+        for k in secret_capable_keys("faction"):
+            is_secret = bool(row.get(secret_flag_key(k), False))
+            row[k] = _mask_value(row.get(k) or "", is_secret, reveal_secret)
         result.append(row)
     return result
 
@@ -590,27 +592,90 @@ async def s3_add_world_rule(ctx: Context, name: str, category: str,
                                   limitations, exceptions, scope, established_chapter, note))
 
 
+_MCP_UNSET = object()  # 未传哨兵(与 store._UNSET 同一思路,模块内自洽即可,两侧不必共享
+                       # 同一对象):区分"调用方未传该关键字实参" vs "显式传值(含 None)"。
+                       # 若不做这区分,每次调用都会把没提到的字段清空——已实测复现:旧实现
+                       # 对全部字段一律用具体默认值(None/"active"/False)而非哨兵,第二次
+                       # 只想改 leader 却把 ideology 等静默清空,known_members 甚至因写 NONE
+                       # 进非 optional 的 array 字段直接 500(见 test_codex_faction.py 回归测试)。
+
+
 @mcp.tool(annotations=_RW)
 async def s3_add_faction(ctx: Context, name: str,
-                          status: str = "active",
-                          ideology: str | None = None,
-                          leader: str | None = None,
-                          known_members: list | None = None,
-                          public_face: str | None = None,
-                          private_operation: str | None = None,
-                          private_operation_secret: bool = False,
-                          first_mention_chapter: int | None = None,
+                          status: str = _MCP_UNSET,
+                          ideology: str | None = _MCP_UNSET,
+                          leader: str | None = _MCP_UNSET,
+                          known_members: list | None = _MCP_UNSET,
+                          public_face: str | None = _MCP_UNSET,
+                          private_operation: str | None = _MCP_UNSET,
+                          private_operation_secret: bool = _MCP_UNSET,
+                          first_mention_chapter: int | None = _MCP_UNSET,
+                          origin: str | None = _MCP_UNSET,
+                          origin_secret: bool = _MCP_UNSET,
+                          artifact_operation: str | None = _MCP_UNSET,
+                          artifact_operation_secret: bool = _MCP_UNSET,
+                          external_manipulation: str | None = _MCP_UNSET,
+                          external_manipulation_secret: bool = _MCP_UNSET,
+                          acceleration_methods: str | None = _MCP_UNSET,
+                          acceleration_methods_secret: bool = _MCP_UNSET,
+                          internal_factions: list | None = _MCP_UNSET,
+                          structure: dict | None = _MCP_UNSET,
+                          key_figures: list | None = _MCP_UNSET,
+                          artifacts: list | None = _MCP_UNSET,
+                          scale: str | None = _MCP_UNSET,
+                          recruitment: str | None = _MCP_UNSET,
+                          symbols: str | None = _MCP_UNSET,
+                          motto: str | None = _MCP_UNSET,
+                          goals: list | None = _MCP_UNSET,
+                          world_rule_affinity: list | None = _MCP_UNSET,
+                          aliases: list | None = _MCP_UNSET,
+                          timeline: list | None = _MCP_UNSET,
+                          headquarters: str | None = _MCP_UNSET,
+                          communication: str | None = _MCP_UNSET,
+                          rituals: str | None = _MCP_UNSET,
+                          secret_agenda: str | None = _MCP_UNSET,
+                          secret_agenda_secret: bool = _MCP_UNSET,
                           work: str | None = None) -> dict:
-    """添加势力/组织(写,待批)。含公开面目和私下运作。
-    status: 势力当前状态,可选 active/dissolved/dormant/reformed,默认 active。
-    private_operation_secret=true 时私下运作默认屏蔽(🔒 私密),需 reveal_secret=true 解锁。
+    """添加/更新势力/组织(写,待批;CX-Task 3 起支持 codex_schema 注册的全部字段,
+    关键字实参)。
+
+    status: 势力当前状态,可选 active/dissolved/dormant/reformed;新建势力不传时按 DB
+    schema 默认落 active。各 `*_secret` 字段=true 时对应内容字段默认屏蔽(🔒 私密),
+    需 reveal_secret=true(见 s3_list_factions)解锁。
+
+    只传入本次要变更的字段——未传的字段保持库中原值不动(store 层 MERGE 部分更新语义,
+    与 REST `POST /factions` 一致),不会被静默清空或重置为默认值。
     """
     ok = await _ask(ctx, f"添加势力 {name}")
+    provided = {
+        "status": status, "ideology": ideology, "leader": leader,
+        "known_members": known_members, "public_face": public_face,
+        "private_operation": private_operation,
+        "private_operation_secret": private_operation_secret,
+        "first_mention_chapter": first_mention_chapter,
+        "origin": origin, "origin_secret": origin_secret,
+        "artifact_operation": artifact_operation,
+        "artifact_operation_secret": artifact_operation_secret,
+        "external_manipulation": external_manipulation,
+        "external_manipulation_secret": external_manipulation_secret,
+        "acceleration_methods": acceleration_methods,
+        "acceleration_methods_secret": acceleration_methods_secret,
+        "internal_factions": internal_factions,
+        "structure": structure,
+        "key_figures": key_figures,
+        "artifacts": artifacts,
+        "scale": scale, "recruitment": recruitment, "symbols": symbols,
+        "motto": motto, "goals": goals,
+        "world_rule_affinity": world_rule_affinity,
+        "aliases": aliases, "timeline": timeline,
+        "headquarters": headquarters, "communication": communication,
+        "rituals": rituals,
+        "secret_agenda": secret_agenda,
+        "secret_agenda_secret": secret_agenda_secret,
+    }
+    kwargs = {k: v for k, v in provided.items() if v is not _MCP_UNSET}
     return commit_if_approved("s3_add_faction", ok,
-                              lambda: _store_for(work).add_faction(
-                                  name, ideology, status, leader, known_members,
-                                  public_face, private_operation, first_mention_chapter,
-                                  private_operation_secret))
+                              lambda: _store_for(work).add_faction(name, **kwargs))
 
 
 @mcp.tool(annotations=_RW)

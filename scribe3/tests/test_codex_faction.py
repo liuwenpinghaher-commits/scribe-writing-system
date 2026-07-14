@@ -235,3 +235,221 @@ def test_all_storage_keys_faction_writable(store):
             store.add_faction("白名单探针", **{k: "占位值"})
     # 全部走完不炸即通过。
     assert store.get_faction("白名单探针") is not None
+
+
+# ============================================================
+# CX-Task 3:faction REST/MCP 按注册表通用化(secret 自动配对,堵掩码回写陷阱)
+# ============================================================
+import asyncio
+import inspect
+
+from fastapi.testclient import TestClient
+
+import scribe3.app as A
+import scribe3.mcp as M
+from scribe3.codex_schema import all_storage_keys as _all_keys
+from scribe3.codex_schema import fields_for as _fields_for
+
+
+def _client(store):
+    A.set_store(store)
+    return TestClient(A.app)
+
+
+class _AcceptCtx:
+    """假 elicitation 上下文:恒批准,供 MCP 写工具测试用(与 test_mcp.py 同款)。"""
+    async def elicit(self, message, schema):
+        return type("_R", (), {"action": "accept"})()
+
+
+# ---- ① GET /factions 通用掩码:全部 secret_capable 字段都应被掩码,不只 private_operation ----
+def test_get_factions_masks_all_secret_capable_fields(store):
+    """现状(修复前)GET /factions 只裹了 private_operation 一个字段的掩码循环;
+    origin/artifact_operation/external_manipulation/acceleration_methods/secret_agenda
+    这五个新 secret 字段标了 *_secret=True 后,GET 默认应一并掩码——逐字段断言。"""
+    store.add_faction(
+        "赤霄盟",
+        origin="秘密起源:前朝余孽", origin_secret=True,
+        artifact_operation="遗产暗中运作", artifact_operation_secret=True,
+        external_manipulation="操纵他人门派", external_manipulation_secret=True,
+        acceleration_methods="加速夺权手段", acceleration_methods_secret=True,
+        secret_agenda="真正野心是颠覆", secret_agenda_secret=True,
+    )
+    c = _client(store)
+    masked = next(f for f in c.get("/factions").json() if f["name"] == "赤霄盟")
+    for key in ("origin", "artifact_operation", "external_manipulation",
+                "acceleration_methods", "secret_agenda"):
+        assert masked[key] == "🔒 私密", f"{key} 应被掩码,实际: {masked[key]!r}"
+
+    revealed = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+                    if f["name"] == "赤霄盟")
+    assert revealed["origin"] == "秘密起源:前朝余孽"
+    assert revealed["artifact_operation"] == "遗产暗中运作"
+    assert revealed["external_manipulation"] == "操纵他人门派"
+    assert revealed["acceleration_methods"] == "加速夺权手段"
+    assert revealed["secret_agenda"] == "真正野心是颠覆"
+
+
+# ---- ②【关键·防数据毁灭】POST /factions 掩码哨兵通用循环 ----
+def test_post_factions_masked_secret_field_not_overwritten(store):
+    """现状(修复前)POST /factions 只 pop 了 private_operation 一个掩码哨兵。
+    前端典型行为:GET 拿到整行(含掩码占位符)→ 只改其中一个无关字段 → 原样 POST 回传。
+    若 origin 没有同款哨兵,掩码字符串 "🔒 私密" 会被当成真值直接落库,永久销毁原文——
+    这条测试证明该陷阱;修复前必须失败(红)。"""
+    store.add_faction("赤火盟", origin="真实起源:前朝余孽复仇", origin_secret=True,
+                      motto="旧格言")
+    c = _client(store)
+    masked = next(f for f in c.get("/factions").json() if f["name"] == "赤火盟")
+    assert masked["origin"] == "🔒 私密"   # 先确认落库真值确实被 GET 掩码
+
+    r = c.post("/factions", json={
+        "name": "赤火盟",
+        "origin": "🔒 私密",        # 前端整行回传,origin 未被作者编辑,仍是掩码占位符
+        "origin_secret": True,
+        "motto": "新格言",          # 这次真正想改的字段
+    })
+    assert r.status_code == 200, r.text
+
+    row = next(f for f in c.get("/factions", params={"reveal_secret": True}).json()
+               if f["name"] == "赤火盟")
+    assert row["origin"] == "真实起源:前朝余孽复仇", (
+        f"掩码字符串不应覆盖真值——现状陷阱复现:实际 {row['origin']!r}")
+    assert row["motto"] == "新格言", "motto 应正常更新"
+
+
+# ---- ③ GET /codex-schema/{kind}:只读元数据端点 ----
+def test_get_codex_schema_faction_returns_metadata(store):
+    c = _client(store)
+    r = c.get("/codex-schema/faction")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert isinstance(data, list) and len(data) == len(_fields_for("faction")), (
+        f"schema_for('faction') 条目数应与注册表字段数一致,实际 {len(data)} 条")
+    by_key = {f["key"]: f for f in data}
+    assert "origin" in by_key and by_key["origin"]["secret_capable"] is True
+    assert "key_figures" in by_key and by_key["key_figures"]["item_schema"], \
+        "array<object> 字段应带非空 item_schema"
+    assert by_key["status"]["enum"] == ["active", "dissolved", "dormant", "reformed"]
+
+
+def test_get_codex_schema_unknown_kind_404(store):
+    c = _client(store)
+    r = c.get("/codex-schema/not_a_real_kind")
+    assert r.status_code == 404, r.text
+
+
+# ---- ④ enum 非法值 → 422 ----
+def test_post_factions_illegal_status_enum_422(store):
+    c = _client(store)
+    r = c.post("/factions", json={"name": "乱序门", "status": "not_a_real_status"})
+    assert r.status_code == 422, f"非法 status 应 422,实际: {r.status_code} {r.text}"
+    assert not any(f["name"] == "乱序门" for f in c.get("/factions").json()), \
+        "非法枚举不应落库"
+
+
+def test_post_factions_illegal_nested_enum_best_effort_422(store):
+    """嵌套子字段 enum(key_figures[].status)尽力而为校验:SurrealDB FLEXIBLE 子字段
+    DB 层不校验,app 层是唯一防线。"""
+    c = _client(store)
+    r = c.post("/factions", json={
+        "name": "乱序门二",
+        "key_figures": [{"name": "甲", "generation": 1, "status": "not_a_real_status"}],
+    })
+    assert r.status_code == 422, f"非法嵌套 status 应 422,实际: {r.status_code} {r.text}"
+
+
+# ---- FactionIn 字段集钉子:防两处漂移 ----
+def test_faction_in_fields_match_registry_storage_keys():
+    assert set(A.FactionIn.model_fields.keys()) == set(_all_keys("faction")), (
+        "FactionIn 字段集应与 codex_schema.all_storage_keys('faction') 完全一致;"
+        f"多余: {set(A.FactionIn.model_fields.keys()) - set(_all_keys('faction'))}; "
+        f"缺失: {set(_all_keys('faction')) - set(A.FactionIn.model_fields.keys())}")
+
+
+# ---- ⑤ MCP s3_list_factions:按 _secret 后缀通用掩码,不硬编码字段名 ----
+def test_mcp_s3_list_factions_masks_by_suffix_generically(store):
+    M.set_store(store)
+    store.add_faction("影卫", origin="来路不明", origin_secret=True)
+    factions = M.s3_list_factions()
+    f = next(x for x in factions if x["name"] == "影卫")
+    assert f["origin"] == "🔒 私密", f"origin 应按 origin_secret 后缀自动掩码,实际: {f['origin']!r}"
+    revealed = next(x for x in M.s3_list_factions(reveal_secret=True) if x["name"] == "影卫")
+    assert revealed["origin"] == "来路不明"
+
+
+# ---- ⑥ MCP s3_add_faction:关键字实参 + 支持新字段 ----
+def test_mcp_s3_add_faction_supports_new_fields_keyword(store):
+    M.set_store(store)
+    res = asyncio.run(M.s3_add_faction(
+        _AcceptCtx(), name="鸿蒙会",
+        origin="创会秘辛", origin_secret=True,
+        key_figures=[{"name": "甲", "generation": 1, "status": "active",
+                      "known_abilities": "御风"}],
+        structure={"type": "扁平", "core_size": 3},
+    ))
+    assert res["status"] == "written"
+    f = store.get_faction("鸿蒙会")
+    assert f["origin"] == "创会秘辛"
+    assert f["origin_secret"] is True
+    assert f["key_figures"][0]["name"] == "甲"
+    assert f["structure"]["type"] == "扁平"
+
+
+def test_mcp_s3_add_faction_signature_covers_all_registry_fields():
+    """签名守卫:s3_add_faction 必须暴露 codex_schema.all_storage_keys('faction') 里
+    的每一个字段(关键字实参),防止注册表新增字段却忘了在 MCP 层同步接住。"""
+    sig = inspect.signature(M.s3_add_faction)
+    missing = set(_all_keys("faction")) - set(sig.parameters.keys())
+    assert not missing, f"s3_add_faction 缺少参数: {missing}"
+
+
+def test_mcp_s3_add_faction_partial_update_does_not_clobber_unset_fields(store):
+    """回归(审查实测复现的现状 bug):第二次调用只传 leader,ideology/known_members 等
+    先前字段不应被静默清空为 None(旧实现:MCP 层新老字段一律用具体默认值而非哨兵,
+    每次调用都会把未传字段重置,known_members 甚至会因写 NONE 进非 optional array 而
+    直接 500)。"""
+    M.set_store(store)
+    res1 = asyncio.run(M.s3_add_faction(_AcceptCtx(), name="探测门",
+                                        ideology="复古", leader="甲",
+                                        known_members=["甲"], public_face="药铺"))
+    assert res1["status"] == "written"
+
+    res2 = asyncio.run(M.s3_add_faction(_AcceptCtx(), name="探测门", leader="乙"))
+    assert res2["status"] == "written"
+
+    f = store.get_faction("探测门")
+    assert f["leader"] == "乙", "leader 应更新"
+    assert f["ideology"] == "复古", "未传字段不应被清空"
+    assert f["known_members"] == ["甲"], "未传字段不应被清空"
+    assert f["public_face"] == "药铺", "未传字段不应被清空"
+
+
+# ---- ⑦(审查追加)未知字段 → 422 不是 500 ----
+def test_post_factions_unknown_field_422_not_500(store):
+    c = _client(store)
+    r = c.post("/factions", json={"name": "笔误门", "nonexistent_field_xyz": "abc"})
+    assert r.status_code == 422, f"未知字段应 422 而非裸 500,实际: {r.status_code} {r.text}"
+
+
+# ---- ⑧(审查追加)并发同名 → 409 不是 500 ----
+def test_post_factions_concurrent_duplicate_name_409_not_500(store, monkeypatch):
+    """确定性复现 TOCTOU 竞态(而非依赖真线程,避免测试 flaky):monkeypatch store._query,
+    让 add_faction 内部"该名字是否已存在"的探测查询恒回空,强迫它走 CREATE 分支——
+    即便该名字已存在——从而真实撞上 uniq_faction_name UNIQUE 索引(migration 038)。
+    实测(surrealdb-py 3.2.0):该冲突抛的是 `surrealdb.errors.InternalError`
+    (message 含 "already contains"),而非 SDK 字面意义的 QueryError。"""
+    c = _client(store)
+    r1 = c.post("/factions", json={"name": "并发门"})
+    assert r1.status_code == 200, r1.text
+
+    orig_query = store._query
+
+    def _fake_query(surql, vars=None):
+        if surql.startswith("SELECT id FROM faction WHERE name=$n"):
+            return []
+        return orig_query(surql, vars)
+
+    monkeypatch.setattr(store, "_query", _fake_query)
+
+    r2 = c.post("/factions", json={"name": "并发门", "motto": "抢建"})
+    assert r2.status_code == 409, f"并发同名应 409 而非裸 500,实际: {r2.status_code} {r2.text}"
