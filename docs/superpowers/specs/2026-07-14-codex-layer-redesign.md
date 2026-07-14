@@ -48,8 +48,11 @@ CodexField(key, label, type, secret_capable, in_prompt, desc, enum=None, item_sc
 - `origin`(textarea, secret_capable)
 - `internal_factions`(array<object>: name/claim/representative/power_share)
 - `structure`(object: type(enum 金字塔/扁平/蜂窝/双头)/core_size/decision_mechanism/succession)
-- `key_figures`(array<object>: name/generation/decay_rate/status(enum)/known_abilities)
-- `artifacts`(array<object>: name/type/power_level/decay_rate/last_transfer_chapter)
+- `key_figures`(array<object>: name/generation/**fragment_decay_rate**/status(enum: active/dissipated/dead)/known_abilities)
+- `artifacts`(array<object>: **artifact_name/artifact_type/current_power_level**/decay_rate/last_transfer_chapter)
+  > 子字段名以**作者原始需求逐字为准**(见本节上方引用);2026-07-14 修正:spec 初稿此处简写成
+  > name/type/power_level/decay_rate,与作者原话及实施计划不符——实现按作者原话落地是对的,
+  > 是 spec 抄写有误,已改回。列名一旦进 SCHEMAFULL migration 就固化,故此处必须与代码逐字一致。
 - 关系网 → **不做字段**,走通用关系表(见 §3)
 
 *第二梯队*:scale、recruitment、symbols、motto、goals(array<object>: phase/target/status)、world_rule_affinity(array<object>: rule_name/affinity_type/note)

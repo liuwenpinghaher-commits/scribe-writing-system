@@ -156,3 +156,22 @@ def test_status_enum_matches_migration_027_assert():
     """status 枚举值须与既有 migration 027 的 ASSERT 同源(回归锚点,勿改)。"""
     status_field = _by_key(FACTION_FIELDS, "status")
     assert set(status_field.enum) == {"active", "dissolved", "dormant", "reformed"}
+
+
+def test_array_object_subfield_names_pinned():
+    """子字段名逐字钉死(2026-07-14):这些名字来自作者原始需求,且一旦进 SCHEMAFULL migration
+    就固化成 DB 列名——改名要付真实数据迁移的代价。spec 初稿曾把它们简写错,靠人工核对才发现。"""
+    from scribe3.codex_schema import FACTION_FIELDS
+    by_key = {f.key: f for f in FACTION_FIELDS}
+    sub = lambda k: tuple(s.key for s in (by_key[k].item_schema or ()))
+
+    assert sub("key_figures") == (
+        "name", "generation", "fragment_decay_rate", "status", "known_abilities")
+    assert sub("artifacts") == (
+        "artifact_name", "artifact_type", "current_power_level", "decay_rate",
+        "last_transfer_chapter")
+    assert sub("internal_factions") == ("name", "claim", "representative", "power_share")
+    assert sub("structure") == ("type", "core_size", "decision_mechanism", "succession")
+    assert sub("goals") == ("phase", "target", "status")
+    assert sub("world_rule_affinity") == ("rule_name", "affinity_type", "note")
+    assert sub("timeline") == ("chapter", "event")
