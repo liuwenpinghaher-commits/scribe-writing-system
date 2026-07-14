@@ -1,11 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X, Boxes, Lock, History, EyeOff } from 'lucide-react'
+import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, X, Boxes, Lock, History, EyeOff, Heart } from 'lucide-react'
 import { api } from './api'
 import { DetailView, stripSecretMask } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { AsyncState } from './ui/AsyncState.jsx'
 import { showToast } from './ui/Toast'
-import { Btn, SectionTitle, Empty } from './ui'
+import { Btn, SectionTitle, Empty, Tag } from './ui'
 import { isChapterNum } from './lib/utils'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
@@ -643,6 +643,139 @@ function ItemStateChange({ name, onChanged }) {
   )
 }
 
+// ═══ FactionRelations(CX-Task 7):势力详情页「关系」区 ═══
+// 通用实体关系表(entity_relation,CX-Task 5)——与角色专属的 DynamicRelations
+// (character_relation,CodexView.jsx)是两套独立后端表,互不影响。核心诉求(作者原话):
+// "秘会看天龙座 vs 天龙座看秘会,而且对方的认知可能是错的"——故双向并排展示
+// perception_a/perception_b,不对哪边"更真实"做任何判断。truth 字段后端默认掩码
+// (GET reveal_secret 缺省 false)——本组件不提供 reveal 入口,原样显示后端返回值
+// (掩码时就是掩码占位符,与其余 secret 字段的既有处理方式一致,不额外发明"解锁"通道)。
+const ENTITY_RELATION_TYPES_FE = ['臣服', '敌对', '渗透', '无视', '共生', '结盟', '利用', '未知']
+// ↑ 与后端 codex_schema.ENTITY_RELATION_TYPES 手抄同源(该常量注释写明:migration 085 的
+// DB 侧 ASSERT 是静态 .surql 文本,没法 import Python 常量,前端更是隔着语言,只能手抄同一份
+// 词表;越界值 422)——与本文件之上 CodexView.jsx 的 REL_VOCAB 对 character_relation
+// 词表的既有写法同款,非本次新发明的模式。
+
+function FactionRelations({ name }) {
+  const myRef = `faction:${name}`
+  const [rows, setRows] = useState(null)   // null=加载中
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ other: '', relation_type: '臣服', perception_a: '', perception_b: '', since_chapter: '' })
+
+  const reload = () => api.entityRelations(myRef)
+    .then((r) => setRows(Array.isArray(r) ? r : []))
+    .catch(() => setRows([]))
+  useEffect(() => { setRows(null); reload() }, [name])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitAdd = async () => {
+    if (!form.other.trim() || !form.relation_type) {
+      showToast('对方实体与关系类型必填(对方实体如 faction:天龙座 / role:某角色)', { tone: 'danger' })
+      return
+    }
+    try {
+      await api.addEntityRelation({
+        a: myRef,
+        b: form.other.trim(),
+        relation_type: form.relation_type,
+        perception_a: form.perception_a || null,
+        perception_b: form.perception_b || null,
+        since_chapter: form.since_chapter === '' ? null : Number(form.since_chapter),
+      })
+      showToast('关系已建立', { tone: 'ok' })
+      setAdding(false)
+      setForm({ other: '', relation_type: '臣服', perception_a: '', perception_b: '', since_chapter: '' })
+      reload()
+    } catch (e) { showToast(e?.body?.detail || e?.message || '建立失败', { tone: 'danger' }) }
+  }
+
+  const removeRelation = async (r) => {
+    try {
+      await api.delEntityRelation(r.a, r.b)
+      showToast('关系已删除', { tone: 'ok' })
+      reload()
+    } catch (e) { showToast(e?.body?.detail || e?.message || '删除失败', { tone: 'danger' }) }
+  }
+
+  const inp = 'h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+
+  if (rows === null) return <div className="mt-6 pt-4 border-t border-line text-f12 text-faint/50">关系加载中…</div>
+
+  return (
+    <div className="mt-6 pt-4 border-t border-line" data-testid="faction-relations">
+      <SectionTitle icon={Heart} right={`${rows.length}条`}>关系 · 双方认知</SectionTitle>
+
+      {adding ? (
+        <div className="mb-3 p-3 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-2" onClick={(e) => e.stopPropagation()}>
+          <div className="flex gap-2 flex-wrap">
+            <input value={form.other} onChange={(e) => setForm({ ...form, other: e.target.value })}
+              placeholder="对方实体(如 faction:天龙座 / role:某角色)" className={`flex-1 min-w-[160px] ${inp}`} />
+            <select value={form.relation_type} onChange={(e) => setForm({ ...form, relation_type: e.target.value })}
+              className={`${inp} cursor-pointer`}>
+              {ENTITY_RELATION_TYPES_FE.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="number" value={form.since_chapter} onChange={(e) => setForm({ ...form, since_chapter: e.target.value })}
+              placeholder="建立章(可选)" className={`w-28 ${inp}`} />
+          </div>
+          <input value={form.perception_a} onChange={(e) => setForm({ ...form, perception_a: e.target.value })}
+            placeholder="我方认知(如:虚与委蛇,视为台阶)" className={`w-full ${inp}`} />
+          <input value={form.perception_b} onChange={(e) => setForm({ ...form, perception_b: e.target.value })}
+            placeholder="对方认知(可能不对称/错误,如:视其为地球代理人)" className={`w-full ${inp}`} />
+          <div className="flex gap-2">
+            <button onClick={submitAdd} className="px-3 h-7 rounded-lg bg-brand text-brandfg text-f12 cursor-pointer">保存</button>
+            <button onClick={() => setAdding(false)} className="px-3 h-7 rounded-lg text-faint text-f12 cursor-pointer">取消</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)} className="mb-2 text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5">
+          <Plus size={12} />新增关系
+        </button>
+      )}
+
+      {rows.length === 0 ? (
+        <Empty>尚无关系记录——势力/角色对彼此的认知可在此登记(允许双方认知不对称甚至相互矛盾)。</Empty>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => {
+            const mine = r.a === myRef
+            const otherRef = mine ? r.b : r.a
+            const myPerception = mine ? r.perception_a : r.perception_b
+            const otherPerception = mine ? r.perception_b : r.perception_a
+            return (
+              <div key={`${r.a}->${r.b}->${r.relation_type}`} className="p-2.5 rounded-lg border border-line">
+                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                  <span className="text-f13 font-medium text-ink">{otherRef}</span>
+                  <Tag tone="brand">{r.relation_type}</Tag>
+                  {r.since_chapter != null && <span className="text-meta text-faint">第{r.since_chapter}章建立</span>}
+                  {r.until_chapter != null && <span className="text-meta text-danger">第{r.until_chapter}章结束</span>}
+                  {/* aria-label 与本页"删除势力"按钮(FactionSchemaView,同为"删除"文案)区分开,
+                      避免两个同名"删除"按钮的可访问名称撞在一起(屏读/测试都无法区分) */}
+                  <button onClick={() => removeRelation(r)} aria-label={`删除与${otherRef}的关系`}
+                    className="ml-auto text-meta text-faint hover:text-danger cursor-pointer">删除</button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-f12">
+                  <div>
+                    <div className="text-meta text-faint uppercase tracking-wider mb-0.5">我方认知</div>
+                    <div className="text-ink leading-relaxed">{myPerception || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-meta text-faint uppercase tracking-wider mb-0.5">对方认知(可能不对称/错误)</div>
+                    <div className="text-ink leading-relaxed">{otherPerception || '—'}</div>
+                  </div>
+                </div>
+                {r.truth && (
+                  <div className="mt-1.5 pt-1.5 border-t border-line/50 text-meta text-faint inline-flex items-center gap-1">
+                    <Lock size={10} />真相(主编独知):{r.truth}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function CodexDetail({ node, onChanged, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -758,6 +891,10 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
         {/* 物品专属(断头修复 P1-9):状态变更入历史链 */}
         {detailType === 'items' && row?.name && (
           <ItemStateChange name={row.name} onChanged={() => { reload(); onChanged?.() }} />
+        )}
+        {/* 势力专属(CX-Task 7):关系区——双方认知并排展示(entity_relation,与角色关系表是两套独立表) */}
+        {detailType === 'factions' && row?.name && (
+          <FactionRelations name={row.name} />
         )}
         {/* 角色专属:弧光锚编辑 + 里程碑 + 信奉度曲线(独立 PATCH /char-anchors,不碰角色档案回写) */}
         {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} />}

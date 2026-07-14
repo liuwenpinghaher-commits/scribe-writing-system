@@ -37,7 +37,7 @@ const TABS = [
 // ═══ Field 组件(上下布局,label在上,全宽) ═══
 // immediate(新建表单):点击编辑模式在空草稿下只渲染「+ 添加」按钮,屏读/键盘用户发现不了字段;
 // 直填模式用 ui/Field 建立 label↔控件关联(htmlFor/id + required/aria),每键上抛草稿。
-function Field({ label, value, onSave, type = 'text', options, placeholder, section, immediate = false, required = false }) {
+function Field({ label, value, onSave, type = 'text', options, placeholder, section, immediate = false, required = false, description }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const ref = useRef(null)
@@ -53,7 +53,7 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
     const set = (v) => { setVal(v); onSave(type === 'number' ? (v === '' ? null : Number(v)) : v) }
     return (
       <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`}>
-        <UIField label={label} required={required}>
+        <UIField label={label} required={required} description={description}>
           {type === 'textarea' ? (
             <Textarea rows={3} value={val} onChange={(e) => set(e.target.value)} placeholder={placeholder || `输入${label}...`} />
           ) : type === 'select' ? (
@@ -88,6 +88,8 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
         <div onClick={(e) => e.stopPropagation()}>
           {/* label 关联编辑控件(htmlFor/id):点击编辑模式此前 label 只是视觉文本 */}
           <label htmlFor={id} className="block text-meta text-faint uppercase tracking-wider mb-1">{label}</label>
+          {/* CX-Task 7:注册表 desc 说明文本(仅编辑态显示,不挤占只读态排版) */}
+          {description && <div className="text-meta text-faint/60 mb-1.5">{description}</div>}
           {type === 'textarea' ? (
             <textarea ref={ref} id={id} value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Escape') cancel() }} rows={4}
@@ -488,6 +490,247 @@ function SelectRow({ id, label, isNew, value, onChange, children }) {
   )
 }
 
+// ═══ CX-Task 7:势力(faction)元数据驱动渲染 ═══
+// 拉 GET /codex-schema/faction 按注册表渲染 28 个字段;拉取失败(网络错误/该 kind 未注册)
+// 时 DetailView 回退到下方旧 fieldMap.factions 路径——spec 风险表「前端元数据渲染重写
+// CodexView」的缓解措施就是"保留旧 fieldMap 作为 fallback"。仅切 faction 一类,
+// character/item/term/world_rule 的渲染路径本次一行不动(阶段2 再迁)。
+
+// 掩码占位符不当真值回填:沿用既有 private_operation/backstory 的处理方式(文件顶
+// SECRET_MASK 注释)——掩码字符串仍走 Field 原样显示,真正防回写的是 save() 里的
+// stripSecretMask(按值过滤、不认字段名,新 secret 字段自动获得防护,无需在此加分支)。
+// 这里只加一枚 Tag 提示"这是打码不是真内容",不改变回填/保存逻辑。
+const isMasked = (v) => v === SECRET_MASK
+
+function SecretMaskHint() {
+  return <Tag tone="secret">已限知 · 当前为打码占位,非真实内容</Tag>
+}
+
+const DEPRECATED_HINT = '已废弃,请分流到 遗产运作/对外操纵/加速手段'
+
+function hasValue(v) {
+  if (v == null) return false
+  if (Array.isArray(v)) return v.length > 0
+  if (typeof v === 'object') return Object.keys(v).length > 0
+  return String(v).trim() !== ''
+}
+
+// secret_capable 字段的伴生旗标键——唯一派生点,与后端 codex_schema.secret_flag_key 同源
+// (前端不 import 后端模块,只能手抄同一条派生规则 `${key}_secret`;两处不一致会导致开关
+// 显示与实际掩码字段错位)。
+const secretKeyOf = (key) => `${key}_secret`
+
+// ═══ MiniFieldInput:object / array<object> 内部子字段的轻量输入控件 ═══
+// 与顶层 Field 组件(点击进入编辑态)不同——嵌套子表单语境下没有"点击编辑"的空间,统一
+// 渲染成始终可见的小号输入控件(参照 AbilitiesRow 表单区的既有写法)。只需覆盖
+// codex_schema.item_schema 实际用到的子字段类型:text/int/enum/bool/textarea(本注册表
+// item_schema 均一层、无 array/object 再嵌套,故不做递归)。
+function MiniFieldInput({ field, value, onChange }) {
+  const base = 'w-full h-8 rounded-md border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand'
+  if (field.type === 'enum') {
+    return (
+      <select aria-label={field.label} title={field.desc || field.label} value={value ?? ''}
+        onChange={(e) => onChange(e.target.value || null)} className={`${base} cursor-pointer`}>
+        <option value="">{field.label}: —</option>
+        {(field.enum || []).map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    )
+  }
+  if (field.type === 'int') {
+    return (
+      <input aria-label={field.label} title={field.desc || field.label} type="number" value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        placeholder={field.label} className={base} />
+    )
+  }
+  if (field.type === 'bool') {
+    return (
+      <label className="flex items-center gap-1.5 text-f12 text-faint cursor-pointer select-none h-8" title={field.desc || field.label}>
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)}
+          className="w-3.5 h-3.5 accent-brand cursor-pointer" />{field.label}
+      </label>
+    )
+  }
+  if (field.type === 'textarea') {
+    return (
+      <textarea aria-label={field.label} title={field.desc || field.label} value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)} placeholder={field.label} rows={2}
+        className="w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-f12 text-ink outline-none focus:border-brand resize-y" />
+    )
+  }
+  return (
+    <input aria-label={field.label} title={field.desc || field.label} value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)} placeholder={field.label} className={base} />
+  )
+}
+
+// ═══ ObjectField:object 类型(如 structure)——嵌套字段组,单个对象、无增删行 ═══
+function ObjectField({ label, fieldKey, value, itemSchema, onSave }) {
+  const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const setSub = (subKey, subVal) => onSave({ ...obj, [subKey]: subVal })
+  return (
+    <div className="py-2 mt-3 pt-3 border-t border-line/60" data-testid={`objfield-${fieldKey}`}>
+      <div className="text-meta text-faint uppercase tracking-wider mb-1.5">{label}</div>
+      <div className="pl-3 border-l-2 border-line/40 grid grid-cols-2 gap-2">
+        {(itemSchema || []).map((sf) => (
+          <div key={sf.key} className={sf.type === 'textarea' ? 'col-span-2' : ''}>
+            <div className="text-meta text-faint/70 mb-0.5">{sf.label}</div>
+            <MiniFieldInput field={sf} value={obj[sf.key]} onChange={(v) => setSub(sf.key, v)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ═══ ArrayObjectField:array<object> 类型——可增删行的子表 ═══
+// 交互参照 AbilitiesRow(行内表单增删改)+ ItemStateHistory(时间线式展示)二者结合:
+// 折叠态显示摘要行,点击/新建展开成按 item_schema 逐子字段渲染的表单。
+function ArrayObjectField({ label, fieldKey, value, itemSchema, onSave }) {
+  const rows = Array.isArray(value) ? value : []
+  const schema = itemSchema || []
+  const emptyRow = () => Object.fromEntries(schema.map((f) => [f.key, f.type === 'bool' ? false : null]))
+  const [editingIdx, setEditingIdx] = useState(null)   // number(既有行下标) | 'new' | null
+  const [form, setForm] = useState(emptyRow)
+
+  const startAdd = () => { setForm(emptyRow()); setEditingIdx('new') }
+  const startEdit = (i) => { setForm({ ...emptyRow(), ...rows[i] }); setEditingIdx(i) }
+  const cancel = () => setEditingIdx(null)
+  const commit = () => {
+    const next = editingIdx === 'new' ? [...rows, form] : rows.map((r, i) => (i === editingIdx ? form : r))
+    onSave(next)
+    setEditingIdx(null)
+  }
+  const removeRow = (i) => onSave(rows.filter((_, idx) => idx !== i))
+  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const summarize = (r) => schema.map((f) => r?.[f.key]).filter((v) => v != null && v !== '')
+    .slice(0, 3).join(' · ') || '(空行)'
+
+  const formEl = (
+    <div className="p-2.5 rounded-lg border border-brand/30 bg-brand/[0.02] space-y-1.5" data-testid={`${fieldKey}-row-form`}>
+      <div className="grid grid-cols-2 gap-1.5">
+        {schema.map((f) => (
+          <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
+            <MiniFieldInput field={f} value={form[f.key]} onChange={(v) => setField(f.key, v)} />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={commit} className="px-3 h-7 rounded bg-brand text-brandfg text-f12 cursor-pointer">保存</button>
+        <button onClick={cancel} className="px-2 h-7 rounded text-faint text-f12 cursor-pointer">取消</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="py-2 mt-3 pt-3 border-t border-line/60" data-testid={`arrfield-${fieldKey}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-meta text-faint uppercase tracking-wider">{label}</span>
+        <span className="text-meta text-faint/50">{rows.length}项</span>
+        {editingIdx === null && (
+          <button onClick={startAdd} className="ml-auto text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-0.5">
+            <Plus size={12} />添加
+          </button>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((r, i) => (
+          <div key={i} className="group">
+            {editingIdx === i ? formEl : (
+              <div className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-soft/40 cursor-text transition-colors duration-150"
+                onClick={() => startEdit(i)}>
+                <span className="text-f13 text-ink flex-1 min-w-0 truncate">{summarize(r)}</span>
+                <button onClick={(e) => { e.stopPropagation(); removeRow(i) }} aria-label={`删除第${i + 1}行`}
+                  className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger cursor-pointer text-meta transition-opacity">
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+        {editingIdx === 'new' && formEl}
+        {rows.length === 0 && editingIdx === null && <span className="text-f13 text-faint/40">—</span>}
+      </div>
+    </div>
+  )
+}
+
+// ═══ FactionField:按元数据 dispatch 单个顶层字段到合适 widget ═══
+// object/array<object> 走上面两个新 widget;标量类型复用既有 Field 组件(text/textarea/
+// number/select/tags),与其余四类实体的既有交互保持一致(点击进入编辑态,immediate=isNew
+// 时新建表单直填)。secret_capable 字段额外渲染限知开关(与 backstory_secret/
+// private_operation_secret 的既有做法对齐)。当前注册表里 secret_capable 字段全是
+// textarea(origin/secret_agenda/artifact_operation/external_manipulation/
+// acceleration_methods/私下运作),object/array<object> 字段均非 secret_capable——
+// 故两个新 widget 内部不必处理掩码;若未来注册表变化引入嵌套 secret 字段,需在此扩展。
+function FactionField({ f, row, isNew, save, uid }) {
+  const value = row[f.key]
+  if (f.type === 'object') {
+    return <ObjectField label={f.label} fieldKey={f.key} value={value} itemSchema={f.item_schema} onSave={(v) => save(f.key, v)} />
+  }
+  if (f.type === 'array<object>') {
+    return <ArrayObjectField label={f.label} fieldKey={f.key} value={value} itemSchema={f.item_schema} onSave={(v) => save(f.key, v)} />
+  }
+  const fType = f.type === 'array<string>' ? 'tags'
+    : f.type === 'enum' ? 'select'
+    : f.type === 'int' ? 'number'
+    : f.type   // 'text' | 'textarea' | 'bool'
+  const body = fType === 'tags' ? (
+    <Field label={f.label} type="tags" options={value} onSave={(v) => save(f.key, v)} />
+  ) : fType === 'bool' ? (
+    <div className="py-2">
+      <div className="flex items-center gap-2">
+        <span className="text-meta text-faint uppercase tracking-wider">{f.label}</span>
+        <input type="checkbox" checked={!!value} onChange={(e) => save(f.key, e.target.checked)}
+          aria-label={f.label} className="w-4 h-4 accent-brand cursor-pointer" />
+      </div>
+      {f.desc && <div className="text-meta text-faint/60 mt-0.5">{f.desc}</div>}
+    </div>
+  ) : (
+    <Field label={f.label} value={value} type={fType} options={f.enum} description={f.desc}
+      onSave={(v) => save(f.key, v)} immediate={isNew} required={isNew && f.key === 'name'} />
+  )
+  return (
+    <div className={f.deprecated ? 'opacity-60' : undefined}>
+      {f.deprecated && <div className="mt-3 pt-3 border-t border-line/60 text-meta text-fore">{DEPRECATED_HINT}</div>}
+      {body}
+      {isMasked(value) && <SecretMaskHint />}
+      {f.secret_capable && (
+        <div className="py-1.5 flex items-center gap-2">
+          <input type="checkbox" id={`${uid}-sf-${f.key}`} checked={!!row[secretKeyOf(f.key)]}
+            onChange={(e) => save(secretKeyOf(f.key), e.target.checked)}
+            className="w-4 h-4 accent-brand cursor-pointer" />
+          <label htmlFor={`${uid}-sf-${f.key}`} className="text-f12 text-faint cursor-pointer select-none inline-flex items-center gap-1">
+            <Lock size={11} />限知(对读者屏蔽此字段,值将打码显示)
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══ FactionSchemaView:GET /codex-schema/faction 拉取成功后的渲染路径 ═══
+function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) {
+  const visible = schema.filter((f) => !f.deprecated || hasValue(row[f.key]))
+  return (
+    <div className="max-w-2xl mx-auto" data-testid="faction-schema-view">
+      <div className="flex items-center gap-3 mb-4">
+        {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
+        <span className="text-meta text-faint/50">{isNew ? '新建势力' : '势力'}</span>
+      </div>
+      <div className="border-t border-line pt-3">
+        {visible.map((f) => <FactionField key={f.key} f={f} row={row} isNew={isNew} save={save} uid={uid} />)}
+      </div>
+      <div className="mt-4 pt-3 border-t border-line">
+        <button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150">
+          <Trash2 size={13}/>删除
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // 新建时的最小必填集(与 CodexNew.isValid 同源语义):默认 name,伏笔为 text,命题为四键
 const REQUIRED_NEW = { facts: ['entity', 'attribute', 'value', 'valid_from'], promises: ['text'] }
 
@@ -500,6 +743,20 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
   // 编辑任一字段不得把掩码占位符(SECRET_MASK)写回销毁真值(F-1/F-2)。stripSecretMask 只按值匹配,故只影响被打码字段。
   const save = (key, val) => onUpdate(stripSecretMask({ ...row, [key]: val }))
   const requiredNew = (k) => isNew && (REQUIRED_NEW[type] || ['name']).includes(k)
+
+  // CX-Task 7:faction 元数据驱动——只切这一类(其余四类仍走下方 legacy fieldMap,阶段2 再迁)。
+  // factionSchema 初值 null:既表示"尚未拉到"也表示"拉取失败",两种情况下面 render 都会落回
+  // legacy fieldMap.factions 分支——不白屏,也不需要额外的 loading 态。
+  const [factionSchema, setFactionSchema] = useState(null)
+  useEffect(() => {
+    if (type !== 'factions') return
+    let alive = true
+    api.get('/codex-schema/faction')
+      .then((s) => { if (alive) setFactionSchema(Array.isArray(s) && s.length ? s : null) })
+      .catch(() => { if (alive) setFactionSchema(null) })
+    return () => { alive = false }
+  }, [type])
+
   if (type === 'chars') {
     return (
       <div className="max-w-2xl mx-auto">
@@ -534,6 +791,15 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
       </div>
     )
   }
+
+  // CX-Task 7:元数据拉取成功 → 走注册表驱动渲染;失败/未就绪则穿透到下面的 legacy fieldMap。
+  if (type === 'factions' && factionSchema) {
+    return (
+      <FactionSchemaView schema={factionSchema} row={row} isNew={isNew} uid={uid}
+        onBack={onBack} save={save} onDelete={onDelete} />
+    )
+  }
+
   const fieldMap = {
     // 批D 件1:命题生产表单(限知引擎核心)。entity 填实体 oid(role:名);secret 勾选后命题对读者隐藏,
     // leak_markers 是"出现即算泄密"的标记词表 —— find_leaks 据此对 UI 作者的命题做限知泄露检测。

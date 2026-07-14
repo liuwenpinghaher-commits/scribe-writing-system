@@ -100,6 +100,17 @@ export const api = {
   putIntent: (b) => put('/intent', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),
 
+  // CX-Task 7:设定字段注册表元数据(只读)——前端据此渲染表单,不再硬编码字段清单。
+  // 目前后端只注册了 'faction' 一个 kind(阶段1);其余四类未注册,调用会 404(调用方自行 fallback)。
+  codexSchema: (kind) => j('/codex-schema/' + enc(kind)),
+  // 通用实体关系(entity_relation,CX-Task 5):entity 传完整前缀 oid(如 faction:秘会);
+  // truth 字段默认掩码(reveal_secret 不传即 false),前端不做 reveal 入口,照掩码原样显示。
+  entityRelations: (entity) => j('/entity-relations' + (entity ? `?entity=${enc(entity)}` : '')),
+  addEntityRelation: (b) => post('/entity-relations', b),
+  delEntityRelation: (a, b) => del(`/entity-relations?a=${enc(a)}&b=${enc(b)}`),
+  // 势力结构化一致性校验(只读,CX-Task 6):关系矛盾/核心圈超编/信物传承章超前/权力占比超100%。
+  factionConsistency: () => j('/faction-consistency'),
+
   // 设定库增删改
   addChar: (b) => post('/characters', b),
   editChar: (local, b) => patch('/characters/' + enc(local), b),
