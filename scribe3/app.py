@@ -3224,13 +3224,22 @@ def _faction_relation_summary(st, name: str, chapter: int) -> str:
 def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
                           secret_ids: set, fact_index: dict) -> str:
     """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret 字段
-    经限知门控(project_frame 投影 + _secret_fact_ids 权威判定——既有链路,非另立
-    一套判断),附该势力的关系网摘要,超预算截断。
+    经限知门控(project_frame 投影),附该势力的关系网摘要,超预算截断。
 
-    secret 字段门控:fid 是该字段桥接命题(codex_secret_bridge.sync_faction_secrets
-    生成)的 fact id——找不到就无法证明安全,不注入;fid 在 secret_ids
-    (context_assembler._secret_fact_ids 的权威 secret 判定)里且不在 known_ids
-    (project_frame 投影)里,说明焦点者不知情,同样不注入。"""
+    secret 字段门控是**正证式**的(白名单,非黑名单):作者勾了 `{key}_secret` 就已经
+    是"此字段是秘密"的权威声明,不需要再向别处求证它是不是秘密——要证的只有一件事:
+    **当前焦点者知道它**。证据 = 该字段桥接命题(codex_secret_bridge.sync_faction_secrets
+    生成)的 fact id 出现在 known_ids(project_frame 在该章的知情投影)里。
+    没有桥接命题(fid is None)、或 fid 不在 known_ids → 拿不出证据 → 不注入。
+
+    ⚠️ 2026-07-14 对抗审查修:此处原先还拿 `_secret_fact_ids` 反证"它是不是秘密"
+    (`fid is None or (fid in secret_ids and fid not in known_ids)`)——那是黑名单式,
+    展开后"注入"的条件含 `fid ∉ secret_ids`。而 _secret_fact_ids 的 docstring 明写
+    "fail-soft:任何查询异常退回空集"(它敢这么退,是因为 context_assembler 里还有
+    第二道帧判据兜底);空集一到,`fid ∉ secret_ids` 恒真 → **不看知不知情直接注入明文**。
+    我这个新消费方没接住那道兜底,把人家的 fail-soft 变成了自己的 fail-open。
+    现改为只认 known_ids 的正证:任何取集失败都只会让 known_ids 更小 → 更保守。
+    (secret_ids 参数保留在签名里供调用方兼容,判定不再使用。)"""
     name = row.get("name") or ""
     field_defs = {f.key: f for f in codex_fields_for("faction")}
     secret_keys = set(codex_secret_capable_keys("faction"))
@@ -3244,8 +3253,8 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
             continue
         if key in secret_keys and row.get(codex_secret_flag_key(key)):
             fid = fact_index.get((entity_id, key))
-            if fid is None or (fid in secret_ids and fid not in known_ids):
-                continue   # 未证明焦点者知情 → 不注入(fail-closed)
+            if fid is None or fid not in known_ids:
+                continue   # 拿不出"焦点者知情"的正面证据 → 不注入(fail-closed)
         f = field_defs.get(key)
         if f is None:
             continue

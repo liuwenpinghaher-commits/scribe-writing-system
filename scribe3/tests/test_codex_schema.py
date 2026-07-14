@@ -145,9 +145,19 @@ def test_deprecated_field_marked_and_excluded_from_prompt():
 
     prompt_field_keys = set(prompt_keys("faction"))
     assert "private_operation" not in prompt_field_keys
-    # 其余非 deprecated 字段应都在 prompt_keys 里(in_prompt 默认 True)
+
+    # in_prompt=False 只有两类,逐一钉死(新增第三类必须显式改这里,防有人顺手关掉某字段
+    # 的注入、或反过来把红线字段打开):
+    #   ① deprecated 的旧垃圾桶字段:private_operation
+    #   ② 主编独知(比"限知"更强一档,连势力核心层都不知道 → 没有任何角色该知道,
+    #      故不靠 knows 边把关而是结构性不进 prompt):secret_agenda
+    #      —— 2026-07-14 对抗审查 P1-1;详见 test_codex_prompt_adversarial 的回归锚。
+    NOT_IN_PROMPT = {"private_operation", "secret_agenda"}
     for f in FACTION_FIELDS:
-        if f.key != "private_operation":
+        if f.key in NOT_IN_PROMPT:
+            assert f.in_prompt is False, f"{f.key} 应结构性不进 prompt"
+            assert f.key not in prompt_field_keys
+        else:
             assert f.in_prompt is True
             assert f.key in prompt_field_keys
 

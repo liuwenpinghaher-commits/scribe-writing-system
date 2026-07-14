@@ -142,8 +142,13 @@ FACTION_FIELDS: tuple[CodexField, ...] = (
     CodexField("headquarters", "总部/据点", "text", desc="势力的主要活动据点或总部所在地。"),
     CodexField("communication", "联络方式", "textarea", desc="势力内部成员之间的联络/传讯方式。"),
     CodexField("rituals", "仪式", "textarea", desc="势力特有的仪式、入会礼或惯例活动。"),
-    CodexField("secret_agenda", "隐秘议程", "textarea", secret_capable=True,
-               desc="连势力核心层都不知道的真相,仅主编可见。"),
+    # in_prompt=False:"仅主编可见"是比"限知"更强的一档——限知字段还能靠 knows 边
+    # 授予某个角色,而它连势力核心层都不知道,**没有任何角色该知道**。若留 in_prompt=True,
+    # 它就和普通 secret 字段共用同一条判据(有 knows 边即放行),一条误建的边就能捅穿。
+    # 与 entity_relation.truth 同级:主编独知的东西不进生成 prompt,只留给作者自己查。
+    # (作者与主编的对话走 focalizer='' 分支,本就拿不到任何 secret 字段,故此处零功能损失。)
+    CodexField("secret_agenda", "隐秘议程", "textarea", secret_capable=True, in_prompt=False,
+               desc="连势力核心层都不知道的真相,仅主编可见(永不进写作 prompt)。"),
 
     # ── deprecated:旧垃圾桶字段,保留读取兼容,不再进 prompt / 新建表单 ──
     CodexField("private_operation", "私下运作(已废弃)", "textarea", secret_capable=True,

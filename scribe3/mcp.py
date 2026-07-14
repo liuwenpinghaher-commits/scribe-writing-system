@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from collections import OrderedDict
 from typing import Callable
@@ -15,6 +16,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
 from scribe3.codex_schema import secret_capable_keys, secret_flag_key
+from scribe3.codex_secret_bridge import sync_faction_secrets
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from scribe3.verify import causal_complete, find_leaks
@@ -675,8 +677,24 @@ async def s3_add_faction(ctx: Context, name: str,
         "secret_agenda_secret": secret_agenda_secret,
     }
     kwargs = {k: v for k, v in provided.items() if v is not _MCP_UNSET}
-    return commit_if_approved("s3_add_faction", ok,
-                              lambda: _store_for(work).add_faction(name, **kwargs))
+
+    def _write():
+        st = _store_for(work)
+        res = st.add_faction(name, **kwargs)
+        # 命题桥同步:与 REST 的 POST /factions(app.py)对称。少了这一步,MCP 建的势力
+        # secret 字段就没有桥接命题 → _faction_prompt_block 找不到 fid → 即便作者给角色
+        # 授了 knows 边也永远注入不进 prompt(方向安全但功能是坏的),且限知投影/泄露检测
+        # /证据链全都看不见这些秘密。同 REST:同步失败只告警,不阻断势力写入本身。
+        try:
+            row = st.get_faction(name)
+            if row is not None:
+                sync_faction_secrets(st, name, row)
+        except Exception:
+            logging.getLogger("scribe3").warning(
+                "sync_faction_secrets 命题桥同步失败,不阻断势力写入: %s", name, exc_info=True)
+        return res
+
+    return commit_if_approved("s3_add_faction", ok, _write)
 
 
 # ===== CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)=====
