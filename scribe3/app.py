@@ -36,6 +36,7 @@ from scribe3.codex_schema import (
     secret_capable_keys as codex_secret_capable_keys,
     secret_flag_key as codex_secret_flag_key,
 )
+from scribe3.codex_secret_bridge import sync_faction_secrets
 from scribe3.context_models import NavigationIntent, StaleContextError
 from scribe3.context_service import (
     ContextService, ContextServiceError, ContextWorkMismatch,
@@ -2509,6 +2510,21 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
                 status_code=409,
                 detail=f"势力名重复,可能是并发写入冲突: {name!r}") from e
         raise
+
+    # CX-Task 4·命题桥:落库成功后把标了 `{key}_secret` 的字段同步成 proposition
+    # (secret=true),真正接入既有限知链(project_frame/_secret_fact_ids/
+    # _secret_guard_block),而不再只是界面掩码。fail-soft:设定字段本身已写入成功是
+    # 第一优先级,桥接失败只告警、不回滚/不阻断本次响应——作者不该因桥接层的 bug
+    # 而存不进势力设定。回读完整行(而非本次 `sent` 增量)传入,防止"这次没提交但
+    # 之前已标 secret 的字段"被误判无值而错删桥接命题。
+    try:
+        bridge_row = st.get_faction(name)
+        if bridge_row is not None:
+            sync_faction_secrets(st, name, bridge_row)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "sync_faction_secrets 命题桥同步失败,不阻断势力写入: %s", name, exc_info=True)
+
     return {"ok": True}
 
 

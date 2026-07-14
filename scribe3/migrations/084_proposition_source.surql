@@ -1,0 +1,21 @@
+-- scribe3 · 084_proposition_source.surql · proposition 表加 source 字段(CX-Task 4 命题桥)
+-- 背景:codex_secret_bridge.py(CX-Task 4)把 faction 的字段级 secret(目前只是界面掩码,
+-- 见 app._mask_field)同步成 proposition(secret=true),从而真正接入既有限知链
+-- (project_frame / _secret_fact_ids / _secret_guard_block / _secret_proposition_values)。
+-- 需要一列标记"这条命题是桥接自动生成的,还是作者/主编手写的",供:
+--   ① 测试/一致性校验按 source 过滤(区分桥接命题与正典手写命题);
+--   ② 未来清理/审计(删桥接命题不影响字段本身,字段是权威源,桥接命题可安全重建)。
+--
+-- 核实结论(先读后写,未自造字段):
+--   - 001_ontology.surql 定义 proposition 的原始 6 个字段(entity/entity_id/attribute/value/
+--     valid_from/valid_to/secret/leak_markers/created);此后 003/012/014/026/056/071 均以
+--     "逐条 DEFINE FIELD IF NOT EXISTS 追加一列"的方式扩展该表(embedding/ingest_seq/
+--     entity_link/injection_mode/priority/archived)——source 字段照此惯例追加,不新建表。
+--   - source 与既有 world_rule.source(migration 006 附近)是两张不同表的同名字段,互不冲突,
+--     且证明 "source" 本就是本 schema 里的常规字段名,非保留字。
+--   - option<string>(不设 DEFAULT):
+--     ① 老行/人写命题该列天然为 NONE,与桥接命题(source='codex_bridge')零迁移成本地区分;
+--     ② 083 号迁移踩过的地雷("非 optional 字段 + DEFAULT 不回填老行 → 整行写入 coercion
+--        报错")只对"非 optional + DEFAULT"字段成立;option<string> 无 DEFAULT,不触发该问题,
+--        故本文件不需要 083 那样的三步老行兼容处理。
+DEFINE FIELD IF NOT EXISTS source ON proposition TYPE option<string>;
