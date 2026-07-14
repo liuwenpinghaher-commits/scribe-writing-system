@@ -20,12 +20,17 @@ import websockets.exceptions as _ws_exc
 from surrealdb import RecordID, Surreal
 from surrealdb.errors import ConnectionUnavailableError
 
+from scribe3.codex_schema import all_storage_keys as _codex_all_storage_keys
 from scribe3.context_models import (
     ContextFocus, ContextSnapshot, NavigationIntent, StaleContextError,
 )
 from scribe3.memory_lifecycle import known_at as _known_at
 from scribe3.memory_lifecycle import resolve_temporal_view as _resolve_view
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
+
+# CX-Task 2:add_faction 用于区分"legacy 参数显式传入 None/False"与"根本没传"的哨兵——
+# 后者不得进入 MERGE 内容,否则会用默认值覆盖库中已有的其它值(违背部分更新语义)。
+_UNSET = object()
 
 # 连接类异常(触发重连重试的白名单;语法/校验类错误不在内,绝不重试)。
 # OSError 覆盖 ConnectionError/TimeoutError/socket 层错;EOFError 见于半关闭流。
@@ -3832,24 +3837,70 @@ class SurrealStore:
     def delete_world_rule(self, name: str) -> None:
         self._execute_write("DELETE world_rule WHERE name=$n", {"n": name})
 
-    # --- 势力/组织(层1)---
-    def add_faction(self, name: str, ideology: str | None = None,
-                    status: str = "active", leader: str | None = None,
-                    known_members: list | None = None,
-                    public_face: str | None = None,
-                    private_operation: str | None = None,
-                    first_mention_chapter: int | None = None,
-                    private_operation_secret: bool = False) -> str:
-        """添加/覆盖势力(同名幂等:先删后建)。返回势力名。"""
-        self._execute_write("DELETE faction WHERE name=$n", {"n": name})
-        self._execute_write(
-            "CREATE faction SET name=$n, ideology=$ideo, status=$st, leader=$ldr, "
-            "known_members=$km, public_face=$pf, private_operation=$po, "
-            "first_mention_chapter=$fmc, private_operation_secret=$pos",
-            {"n": name, "ideo": ideology, "st": status, "ldr": leader,
-             "km": known_members or [], "pf": public_face, "po": private_operation,
-             "fmc": first_mention_chapter, "pos": private_operation_secret})
+    # --- 势力/组织(层1 + codex_schema 阶段1 扩字段,CX-Task 2)---
+    def add_faction(self, name: str,
+                    ideology: str | None = _UNSET,
+                    status: str = _UNSET,
+                    leader: str | None = _UNSET,
+                    known_members: list | None = _UNSET,
+                    public_face: str | None = _UNSET,
+                    private_operation: str | None = _UNSET,
+                    first_mention_chapter: int | None = _UNSET,
+                    private_operation_secret: bool = _UNSET,
+                    **fields) -> str:
+        """Upsert 势力(注册表驱动 MERGE,取代旧 DELETE+CREATE 整行覆盖)。
+
+        legacy 9 个具名参数(ideology/status/leader/known_members/public_face/
+        private_operation/first_mention_chapter/private_operation_secret)保留原有位置
+        签名不变——app.py `POST /factions` 与 mcp.py `s3_add_faction` 历史上总是显式
+        传出全部 9 个值(位置或关键字),此签名保证它们不炸;`**fields` 接住
+        codex_schema.FACTION_FIELDS 里其余 ~19 个新字段(origin/key_figures/structure/
+        artifacts/goals/... 及各自的 `{key}_secret` 旗标)。
+
+        legacy 参数用哨兵 `_UNSET` 区分"显式传入"与"根本没传":未传的字段一律不进
+        MERGE 内容,从而保住库中旧值(部分更新语义,决定 4——store 层直接支持
+        PATCH,不必再靠 app.py 手工 pick() 回填全部字段才敢调用)。
+
+        `**fields` 中出现的键必须在 `codex_schema.all_storage_keys('faction')` 白名单
+        内,否则抛 `ValueError`(未知字段拒收,不静默丢弃——防止调用方拼错字段名却
+        查不出为何没生效)。
+
+        实现注记:`faction.name` 上有 `uniq_faction_name` UNIQUE 索引(migration 038),
+        而现有行(含生产库既有势力)的 record id 是历史 DELETE+CREATE 留下的随机 id,
+        并非 name 派生——若直接 `UPSERT type::record('faction', $name) MERGE ...`,
+        对已存在但 id≠name 的老行会因 UPSERT 走"目标 id 不存在→CREATE"分支,试图新建
+        一条 name 相同但 id 不同的记录,直接撞 UNIQUE 索引报错(已用测试验证复现)。
+        故先按 name 查真实 record id,存在则 MERGE 到该 id 上;不存在才 CREATE 新行——
+        对老随机 id 行和新行都安全,且仍是真部分更新(MERGE),不改变记录 id 语义。
+        """
+        allowed = set(_codex_all_storage_keys("faction"))
+        content: dict = {}
+        for k, v in (("ideology", ideology), ("status", status), ("leader", leader),
+                     ("known_members", known_members), ("public_face", public_face),
+                     ("private_operation", private_operation),
+                     ("first_mention_chapter", first_mention_chapter),
+                     ("private_operation_secret", private_operation_secret)):
+            if v is not _UNSET:
+                content[k] = v
+        for k, v in fields.items():
+            if k not in allowed:
+                raise ValueError(
+                    f"未知势力字段: {k!r}(不在 codex_schema.all_storage_keys('faction') "
+                    "白名单内;如需新增字段,先去 codex_schema.py 注册再补 migration)")
+            content[k] = v
+        content["name"] = name
+        existing = self._query("SELECT id FROM faction WHERE name=$n LIMIT 1", {"n": name})
+        if existing:
+            self._execute_write("UPDATE $rid MERGE $content",
+                                {"rid": existing[0]["id"], "content": content})
+        else:
+            self._execute_write("CREATE faction CONTENT $content", {"content": content})
         return name
+
+    def get_faction(self, name: str) -> dict | None:
+        """按名精确取单个势力(codex_schema 阶段1 新增;供 REST/命题桥/一致性校验用)。"""
+        rows = self._query("SELECT * FROM faction WHERE name=$n", {"n": name})
+        return rows[0] if rows else None
 
     def list_factions(self) -> list[dict]:
         return self._query("SELECT * FROM faction")
