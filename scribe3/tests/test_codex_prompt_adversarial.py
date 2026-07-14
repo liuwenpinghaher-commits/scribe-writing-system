@@ -59,8 +59,10 @@ def test_P0_secret_leaks_when_secret_fact_ids_returns_empty(store, monkeypatch):
     import scribe3.context_assembler as ca
     monkeypatch.setattr(ca, "_secret_fact_ids", lambda st: set())
 
-    # focalizer 明确不知情:没有对应 KnowledgeEdge。
-    block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5)
+    # focalizer 明确不知情:没有对应 KnowledgeEdge。for_generation=True:这是生成/限知
+    # 续写路径的性质(U-003 三档可见性,2026-07-15)——作者/主编对话路径不做此判定。
+    block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5,
+                         for_generation=True)
     assert "源自前朝遗族的复国密谋" not in block, (
         "P0:_secret_fact_ids 返回空集时,已建桥的 secret 字段绕过限知门控直接注入明文"
         f"(实际 block: {block!r})")
@@ -91,7 +93,9 @@ def test_P0_secret_leaks_via_realistic_partial_store_failure(store, monkeypatch)
     monkeypatch.setattr(store, "_query", fake_query)
     monkeypatch.setattr(store, "facts_at", fake_facts_at)
 
-    block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5)
+    # for_generation=True:生成/限知续写路径(U-003 三档可见性)——见上一测试同款注释。
+    block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5,
+                         for_generation=True)
     assert "源自前朝遗族的复国密谋" not in block, (
         "P0:_secret_fact_ids 内部两条宽扫查询失败(而按章查询仍正常)时,"
         f"secret 字段绕过限知门控直接注入明文(实际 block: {block!r})")
@@ -101,17 +105,24 @@ def test_P0_secret_leaks_via_realistic_partial_store_failure(store, monkeypatch)
 # secret_agenda:是否比其他 secret_capable 字段多一层保护?
 # ============================================================
 
-def test_secret_agenda_never_injected_even_with_a_knows_edge(store):
-    """P1-1 回归锚(2026-07-14 对抗审查发现,已修)。
+def test_secret_agenda_never_injected_in_generation_path_even_with_a_knows_edge(store):
+    """P1-1 回归锚(2026-07-14 对抗审查发现,已修;2026-07-15 U-003 三档可见性重构后
+    行为再调整,断言随之更新——别按 commit 里的旧注释办事)。
 
     codex_schema.py 原话:secret_agenda = "连势力核心层都不知道的真相,仅主编可见"。
     这比"限知"更强一档:限知字段还能靠 knows 边授予某个角色,而它**没有任何角色该知道**。
     修前它和 origin/artifact_operation 走同一套 secret_capable + knows 边判据,一条
-    误建的边就能捅穿这条红线;修后 in_prompt=False,它根本不进 prompt_keys('faction'),
-    与 entity_relation.truth 同级(主编独知的东西不进生成 prompt)。
+    误建的边就能捅穿这条红线。
+
+    上一版修复用 in_prompt=False 把它整个关出 prompt_keys('faction')——结果连"仅主编"
+    的"主编"都看不见它了,太钝。现在改为 chief_only=True + in_prompt=True(恢复默认):
+    它确实出现在 prompt_keys('faction') 里(见下方断言),但生成/限知续写路径
+    (for_generation=True)由 app.py `_faction_prompt_block` 按 `chief_only_keys()`
+    结构性名单拦截——不看任何 knows 边、不看 focalizer;作者/主编对话路径
+    (for_generation=False)才注入,这就是"仅主编可见"的字面意思,见下一测试。
 
     本测试构造最恶劣的情形——一条(误建的)KnowledgeEdge 把 secret_agenda 的桥接命题
-    直接挂给某角色,且以该角色为焦点——它仍必须一个字都不进 prompt。"""
+    直接挂给某角色,且以该角色为焦点——**生成路径**仍必须一个字都不进 prompt。"""
     store.add_faction(FACTION, secret_agenda="连核心层都不知道的真相",
                       secret_agenda_secret=True)
     _sync(store, FACTION)
@@ -120,15 +131,34 @@ def test_secret_agenda_never_injected_even_with_a_knows_edge(store):
     store.add_knowledge(KnowledgeEdge("role:意外知情者", fact_id, since_chapter=1))
 
     for reveal in (False, True):   # 全知模式(reveal=True)也不例外
-        block = _codex_block(store, reveal=reveal, focalizer="role:意外知情者", chapter=5)
+        block = _codex_block(store, reveal=reveal, focalizer="role:意外知情者", chapter=5,
+                             for_generation=True)
         assert "连核心层都不知道的真相" not in block, (
-            f"P1-1 回归(reveal={reveal}):secret_agenda 是主编独知,即便存在 knows 边"
-            f"也绝不可进 prompt(实际 block: {block!r})")
+            f"P1-1 回归(reveal={reveal}):secret_agenda 是主编独知,生成路径即便存在"
+            f"knows 边也绝不可进 prompt(实际 block: {block!r})")
 
-    from scribe3.codex_schema import prompt_keys
-    assert "secret_agenda" not in prompt_keys("faction"), (
-        "secret_agenda 必须 in_prompt=False——这是它不进 prompt 的结构性保证,"
-        "别退回成'靠 knows 边把关'")
+    from scribe3.codex_schema import chief_only_keys, prompt_keys
+    assert "secret_agenda" in prompt_keys("faction"), (
+        "secret_agenda 现在 in_prompt=True(恢复默认)——它会出现在作者/主编对话的"
+        "prompt 里,这是'仅主编可见'的字面意思,不是'谁都看不见'")
+    assert "secret_agenda" in chief_only_keys("faction"), (
+        "secret_agenda 必须 chief_only=True——这是它在生成路径结构性不进 prompt 的"
+        "保证,别退回成'靠 knows 边把关'或'靠 in_prompt=False 一关了之'")
+
+
+def test_secret_agenda_visible_in_author_dialogue_even_without_any_knows_edge(store):
+    """U-003 三档可见性的另一半:作者/主编对话(for_generation=False,_codex_block
+    默认值)里,secret_agenda 直接可见——即便**没有**任何 KnowledgeEdge、也没有传
+    focalizer。"仅主编可见"就是"主编看得见",不是"谁都看不见"(旧版 in_prompt=False
+    的失误,详见上一测试的 docstring)。"""
+    store.add_faction(FACTION, secret_agenda="连核心层都不知道的真相",
+                      secret_agenda_secret=True)
+    _sync(store, FACTION)
+    # 特意不建任何 KnowledgeEdge、不传 focalizer——纯作者/主编讨论场景。
+
+    block = _codex_block(store, reveal=True, focalizer="", chapter=5)   # for_generation 默认 False
+    assert "连核心层都不知道的真相" in block, (
+        "作者/主编对话(for_generation=False)应看到 secret_agenda——它不走 knows 边判据")
 
 
 # ============================================================
@@ -181,19 +211,23 @@ def test_unflagging_secret_without_resync_is_still_safe_because_flag_gates_first
 # ============================================================
 
 def test_chapter_default_direction_is_conservative_not_leaky(store):
+    """for_generation=True:章号缺省的保守方向是生成/限知续写路径的性质(U-003 三档
+    可见性)——作者/主编对话路径不做 knows 边时态判定,不受此约束。"""
     store.add_faction(FACTION, origin="迟到的秘密", origin_secret=True)
     _sync(store, FACTION)
     fact_id = _bridge_fact_id(store, ENTITY_ID, "origin")
     store.add_entity(Entity("role:后来知情", "character", "后来知情"))
     store.add_knowledge(KnowledgeEdge("role:后来知情", fact_id, since_chapter=5))
 
-    # 老调用方式:完全不传 chapter(内部 eff_chapter 落到 1)。
-    block_no_chapter = _codex_block(store, reveal=False, focalizer="role:后来知情")
+    # 老调用方式:不传 chapter(内部 eff_chapter 落到 1),但显式钉住生成路径。
+    block_no_chapter = _codex_block(store, reveal=False, focalizer="role:后来知情",
+                                    for_generation=True)
     assert "迟到的秘密" not in block_no_chapter, (
         "eff_chapter 缺省落到 1 < since_chapter=5:应判定为尚不知情——"
         "方向是漏注入(保守),不是泄露")
 
-    block_with_chapter = _codex_block(store, reveal=False, focalizer="role:后来知情", chapter=5)
+    block_with_chapter = _codex_block(store, reveal=False, focalizer="role:后来知情", chapter=5,
+                                      for_generation=True)
     assert "迟到的秘密" in block_with_chapter, "传入真实章号后,该知情的应正常可见"
 
 
@@ -298,8 +332,13 @@ def test_bridge_fact_discoverable_via_keyword_recall_bypassing_codex_gate(store)
 def test_flagged_secret_without_any_bridge_sync_is_fail_closed(store):
     """作者勾了 origin_secret=True 并写入真值,但 sync_faction_secrets 从未被调用过
     (对应 app.py POST /factions 里 sync 被 try/except 吞掉那种场景的最终态:
-    无论是首次同步失败,结果都是"没有桥接命题")。验证:fid 恒为 None → 不注入,
-    即便 reveal=True 也一样——这是 fail-closed 的核心保证,不依赖任何 KnowledgeEdge。"""
+    无论是首次同步失败,结果都是"没有桥接命题")。验证(生成/限知续写路径,
+    for_generation=True):fid 恒为 None → 不注入,即便 reveal=True 也一样——这是
+    fail-closed 的核心保证,不依赖任何 KnowledgeEdge。
+
+    U-003 三档可见性(2026-07-15):这条 fail-closed 保证只对 for_generation=True 生效——
+    作者/主编对话路径(for_generation=False)里,作者标记的 secret_capable 字段本就该
+    直接可见(不必等桥接命题同步),不是本测试要证伪的场景。"""
     store.add_faction(FACTION, origin="从未被同步过的秘密", origin_secret=True)
     # 特意不调用 _sync(store, FACTION)。
 
@@ -309,8 +348,10 @@ def test_flagged_secret_without_any_bridge_sync_is_fail_closed(store):
         {"eid": ENTITY_ID})
     assert rows == [], "前置条件:确认没有桥接命题存在"
 
-    block_reveal_true = _codex_block(store, reveal=True, focalizer="", chapter=5)
+    block_reveal_true = _codex_block(store, reveal=True, focalizer="", chapter=5,
+                                     for_generation=True)
     assert "从未被同步过的秘密" not in block_reveal_true
 
-    block_with_focalizer = _codex_block(store, reveal=False, focalizer="role:任何人", chapter=5)
+    block_with_focalizer = _codex_block(store, reveal=False, focalizer="role:任何人", chapter=5,
+                                        for_generation=True)
     assert "从未被同步过的秘密" not in block_with_focalizer

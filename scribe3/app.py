@@ -32,6 +32,7 @@ from surrealdb.errors import ServerError as _SurrealServerError
 from scribe3.codex_schema import (
     ENTITY_RELATION_TYPES,
     all_storage_keys as codex_all_storage_keys,
+    chief_only_keys as codex_chief_only_keys,
     fields_for as codex_fields_for,
     prompt_keys as codex_prompt_keys,
     schema_for as codex_schema_for,
@@ -449,6 +450,28 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
         issues.append(_issue("error", "write_mcp_tools_missing", "写网关没有启用 scribe3 MCP 工具面"))
     if "scribe3_write" in (read_cfg.get("api_server_toolsets") or []):
         issues.append(_issue("error", "read_gateway_has_write_tools", "只读网关误启用了写工具面"))
+    # U-003 修复(v2,真机实测推翻"CHIEF label 隔离"的上一版方案):Hermes 的
+    # server_label 不做过滤——网关把某 profile 挂载的所有 MCP server 工具一律
+    # 暴露给每个经该网关的请求,不管请求自称哪个 label。真正的不变量因此不是
+    # "某 profile 的顶层 api_server_toolsets 是否等于某个标签",而是:**不管挂在
+    # 哪个 profile、哪个 mcp server,只要 include 白名单里出现一把 s3_*_reveal
+    # 全知孪生工具(mcp.py,能解锁 secret 明文),这个 profile 服务的任何请求——
+    # 包括共用同一网关进程的写作/续写路径——就物理够得着它**。逐 profile、逐
+    # mcp server 扫 tools.include(_hermes_profile_config_summary 已读出该列表),
+    # 不再比较 label 字符串。
+    _reveal_tool_hits = [
+        f"{_profile_name}/{_server_name}/{_tool}"
+        for _profile_name, _cfg in configs.items()
+        for _server_name, _toolset in ((_cfg or {}).get("mcp_toolsets") or {}).items()
+        for _tool in (_toolset or {}).get("tools") or []
+        if str(_tool).endswith("_reveal")
+    ]
+    if _reveal_tool_hits:
+        issues.append(_issue(
+            "error", "gateway_exposes_reveal_tools",
+            "网关 include 白名单挂了 *_reveal 全知孪生工具(" + "; ".join(_reveal_tool_hits[:5])
+            + ("…" if len(_reveal_tool_hits) > 5 else "")
+            + ")——server_label 不做过滤,挂上即等于交给写作/续写路径"))
     if read_cfg.get("api_server_native_toolsets"):
         issues.append(_issue("warning", "read_native_toolsets_enabled", "只读网关启用了非 scribe3 原生工具面"))
     if write_cfg.get("api_server_native_toolsets"):
@@ -652,6 +675,14 @@ def _record_ai_run_event(work: str, run_id: str, app_ev: dict, *, source: str | 
 
 
 SCRIBE3_READ_MCP_LABEL = os.environ.get("SCRIBE3_READ_MCP_LABEL", "scribe3_read")
+# U-003 真机实测推翻的旧方案(勿重加):曾想引入 SCRIBE3_CHIEF_MCP_LABEL 给主编
+# agentic 联查挂 s3_*_reveal 全知孪生工具面,与写作路径"隔离"。真机实测证明
+# server_label 根本不是选择器——Hermes 网关把 platform_toolsets.api_server 里
+# 所有 MCP server 的工具一律暴露给每个走该网关的请求,label 只是个标签,不做过滤。
+# 主编对话(chat_agentic_stream)与限知续写(_stream_write/_collect_write)物理上
+# 共用同一个网关进程(:8643),给前者挂 reveal 工具就等于给了后者。故只留这一个
+# label;6 把 *_reveal 工具(mcp.py)目前不挂在任何网关 profile 上(见
+# _summarize_hermes_runtime 的 gateway_exposes_reveal_tools 自检)。
 
 
 def _response_events_iter(fn, message, instructions: str, **kwargs):
@@ -3198,10 +3229,15 @@ def _codex_value_repr(field, value) -> str:
     return str(value)
 
 
-def _faction_relation_summary(st, name: str, chapter: int) -> str:
-    """该势力的实体关系摘要:只含 perception_a/b(双方各自认知),truth(主编独知的
-    真相)永不注入——即便 reveal=True 的全知模式也不例外(spec §3/§4 红线:truth
-    不是给生成模型看的,是留给作者/主编自己查的)。"""
+def _faction_relation_summary(st, name: str, chapter: int, *, for_generation: bool) -> str:
+    """该势力的实体关系摘要:perception_a/b(双方各自认知)两档都注入。
+
+    truth(主编独知的真相)是三档可见性的第三档:`for_generation=True`(限知续写/生成
+    路径)永不注入——truth 不是给生成模型看的;`for_generation=False`(作者/主编对话)
+    才注入,与 codex_schema.chief_only 字段(如 secret_agenda)同级——"仅主编可见"
+    的字面意思就是主编在对话里看得见,只是不能流进读者最终看到的限知正文。
+    2026-07-15 修订:此前 truth 无论哪种场合都不注入,是"太钝"的旧实现,把主编自己
+    也挡在外面。"""
     entity_id = f"faction:{name}"
     try:
         rows = (st.entity_relations_at(chapter, entity_id) if chapter is not None
@@ -3217,32 +3253,44 @@ def _faction_relation_summary(st, name: str, chapter: int) -> str:
             seg += f"({a}认知:{pa})"
         if pb:
             seg += f"({b}认知:{pb})"
+        if not for_generation:
+            truth = r.get("truth")
+            if truth:
+                seg += f"(真相[仅主编可见]:{truth})"
         segs.append(seg)
     return "；".join(segs)
 
 
 def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
-                          secret_ids: set, fact_index: dict) -> str:
-    """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret 字段
-    经限知门控(project_frame 投影),附该势力的关系网摘要,超预算截断。
+                          secret_ids: set, fact_index: dict, for_generation: bool) -> str:
+    """单个势力的结构化注入块(CX-Task 6):按注册表 in_prompt 字段拼,secret/chief_only
+    字段经三档可见性门控,附该势力的关系网摘要,超预算截断。
 
-    secret 字段门控是**正证式**的(白名单,非黑名单):作者勾了 `{key}_secret` 就已经
-    是"此字段是秘密"的权威声明,不需要再向别处求证它是不是秘密——要证的只有一件事:
-    **当前焦点者知道它**。证据 = 该字段桥接命题(codex_secret_bridge.sync_faction_secrets
-    生成)的 fact id 出现在 known_ids(project_frame 在该章的知情投影)里。
-    没有桥接命题(fid is None)、或 fid 不在 known_ids → 拿不出证据 → 不注入。
+    U-003 三档可见性(2026-07-15):`for_generation` 是本函数的核心门控参数——
+    True=限知续写/生成路径(读者最终会看到的正文),False=作者/主编对话(不流进正文,
+    只是编辑讨论)。三档字段各自的门控规则:
+    ① `chief_only`(如 secret_agenda,codex_chief_only_keys 结构性名单):
+       for_generation=True → 永不注入,不看任何 knows 边/字段标志;
+       for_generation=False → 直接注入(仅主编可见=主编对话看得见)。
+    ② `secret_capable` 且 `{key}_secret=True`(如 origin/artifact_operation):
+       for_generation=True → 保持既有**正证式** fail-closed(白名单,非黑名单):
+       作者勾了 `{key}_secret` 就已经是"此字段是秘密"的权威声明,要证的只有一件事:
+       **当前焦点者知道它**。证据 = 该字段桥接命题(codex_secret_bridge.sync_faction_secrets
+       生成)的 fact id 出现在 known_ids(project_frame 在该章的知情投影)里。没有
+       桥接命题(fid is None)、或 fid 不在 known_ids → 拿不出证据 → 不注入。
+       for_generation=False → 直接注入(作者自己标记的秘密,作者/主编对话当然看得见,
+       不必再向 knows 边求证——这是本次修订相对旧版最大的行为变化:旧版不分场合都走
+       knows 边判据,导致主编在纯讨论里也看不到作者自己写的势力秘密)。
+    ③ 其余字段:两档都注入,不受本函数门控影响。
 
-    ⚠️ 2026-07-14 对抗审查修:此处原先还拿 `_secret_fact_ids` 反证"它是不是秘密"
-    (`fid is None or (fid in secret_ids and fid not in known_ids)`)——那是黑名单式,
-    展开后"注入"的条件含 `fid ∉ secret_ids`。而 _secret_fact_ids 的 docstring 明写
-    "fail-soft:任何查询异常退回空集"(它敢这么退,是因为 context_assembler 里还有
-    第二道帧判据兜底);空集一到,`fid ∉ secret_ids` 恒真 → **不看知不知情直接注入明文**。
-    我这个新消费方没接住那道兜底,把人家的 fail-soft 变成了自己的 fail-open。
-    现改为只认 known_ids 的正证:任何取集失败都只会让 known_ids 更小 → 更保守。
-    (secret_ids 参数保留在签名里供调用方兼容,判定不再使用。)"""
+    ⚠️ 2026-07-14 对抗审查修(仍然有效,别退回去):②的 fail-closed 判定只认 known_ids
+    正证,不再用 `_secret_fact_ids` 反证"它是不是秘密"——那是黑名单式,`_secret_fact_ids`
+    fail-soft 失败退空集会让黑名单式判据变成 fail-open(不看知不知情直接注入明文)。
+    (secret_ids 参数保留在签名里供调用方兼容,判定不使用。)"""
     name = row.get("name") or ""
     field_defs = {f.key: f for f in codex_fields_for("faction")}
     secret_keys = set(codex_secret_capable_keys("faction"))
+    chief_keys = set(codex_chief_only_keys("faction"))
     entity_id = f"faction:{name}"
     parts = []
     for key in codex_prompt_keys("faction"):
@@ -3251,17 +3299,23 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
         value = row.get(key)
         if value in (None, "", [], {}):
             continue
-        if key in secret_keys and row.get(codex_secret_flag_key(key)):
-            fid = fact_index.get((entity_id, key))
-            if fid is None or fid not in known_ids:
-                continue   # 拿不出"焦点者知情"的正面证据 → 不注入(fail-closed)
+        if key in chief_keys:
+            if for_generation:
+                continue   # ① 主编独知:生成/续写路径永不注入,即便字段有值
+            # for_generation=False(作者/主编对话):直接注入,落到下面的拼接
+        elif key in secret_keys and row.get(codex_secret_flag_key(key)):
+            if for_generation:
+                fid = fact_index.get((entity_id, key))
+                if fid is None or fid not in known_ids:
+                    continue   # 拿不出"焦点者知情"的正面证据 → 不注入(fail-closed)
+            # for_generation=False(作者/主编对话):直接注入,作者自己的秘密他看得见
         f = field_defs.get(key)
         if f is None:
             continue
         rep = _codex_value_repr(f, value)
         if rep:
             parts.append(f"{f.label}:{rep}")
-    rel = _faction_relation_summary(st, name, chapter)
+    rel = _faction_relation_summary(st, name, chapter, for_generation=for_generation)
     if rel:
         parts.append(f"关系:{rel}")
     body = "；".join(parts)
@@ -3271,7 +3325,8 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
     return text
 
 
-def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None) -> str:
+def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None,
+                 for_generation: bool = False) -> str:
     """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
     关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
     此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
@@ -3279,16 +3334,22 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
 
     reveal=False(限知模式,focalizer 非空):对 backstory_secret 角色隐去 backstory,
     防 POV 倒灌(F-3——限知章设定圣经明文注入私密前史);reveal=True(全知)保留。
+    (这一路只管角色 backstory,与下面 for_generation 管的势力 secret_capable/chief_only
+    字段是两套独立机制,互不影响——见 F-3 与 U-003 各自的历史沿革。)
 
-    CX-Task 6:势力段改为注册表驱动(codex_schema.prompt_keys('faction')),不再只有
-    name+ideology[:18]。secret_capable 字段(如 origin/secret_agenda)只有在"能证明
-    当前 focalizer 知情"时才注入——真走既有限知链(knowledge.project_frame 投影 +
-    context_assembler._secret_fact_ids 的权威 secret 判定),不是另建一套规则。
-    **fail-closed**:focalizer 为空(拿不到焦点角色,如 chat_stream 纯讨论、或调用方
-    未传)时,一律不注入任何势力 secret 字段——即便 reveal=True(作者全知)也不例外。
-    这是本函数唯一不受 reveal 影响的分支:reveal 是给【既有】角色 backstory 掩码用的
-    历史开关(其"全知即放行"的承诺早于本次改动,不能破);新引入的势力 secret 字段
-    没有这层历史包袱,直接按 spec 红线实现——宁可少给也不能泄密。"""
+    CX-Task 6 + U-003 三档可见性(2026-07-15):势力段改为注册表驱动
+    (codex_schema.prompt_keys('faction')),不再只有 name+ideology[:18]。字段按
+    `for_generation` 分两档門控(详见 `_faction_prompt_block` 的完整规则):
+    - `for_generation=True`(限知续写/生成路径,读者最终会看到的正文——**唯一生成
+      入口是 _editor_write_system**,它调用本函数时恒传 True):`secret_capable`
+      字段只有在"能证明当前 focalizer 知情"时才注入(project_frame 投影 fail-closed);
+      `chief_only` 字段(如 secret_agenda)永不注入,即便 focalizer 知情也不例外。
+    - `for_generation=False`(默认;作者/主编对话,不流进正文):`secret_capable` 与
+      `chief_only` 字段都直接注入——作者自己标记的秘密、连核心层都不知道的隐秘议程,
+      作者/主编讨论创作时当然都看得见,这不是"泄露给读者",是"跟作者商量剧情"。
+    **fail-closed 只在 for_generation=True 时生效**:focalizer 为空(拿不到焦点角色)
+    时,`secret_capable` 字段一律不注入——即便 reveal=True(作者全知)也不例外
+    (对齐既有测试红线,历史上 reveal 从不放行势力 secret 字段)。"""
     def _safe(fn):
         try:
             return fn() or []
@@ -3316,7 +3377,8 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
             secret_ids = set()
         fact_index = _faction_bridge_fact_index(st, eff_chapter)
         facs_blocks = [_faction_prompt_block(st, f, chapter=eff_chapter, known_ids=known_ids,
-                                             secret_ids=secret_ids, fact_index=fact_index)
+                                             secret_ids=secret_ids, fact_index=fact_index,
+                                             for_generation=for_generation)
                       for f in facs[:10]]
         facs_blocks = [b for b in facs_blocks if b]
         if facs_blocks:
@@ -3336,7 +3398,8 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
     return "\n".join(parts)
 
 
-def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
+def _editor_system(st, focalizer: str = "", chapter: int = None,
+                   for_generation: bool = False) -> str:
     """主编对话的系统提示:注入本书北极星 + 角色 + 已确立设定。
 
     focalizer 非空(限知章):设定块只注入焦点者帧内可见事实,secret 明文屏蔽;
@@ -3344,7 +3407,14 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
       等同旧 facts_at(99999)[:28] 全量(含私密标记,行为一字不变);一旦有 fact 显式配了
       injection_mode 则启用门控(None/always→恒注入,detected 挂真实实体→须本章草料提及,
       never→不注入,世界级命题→恒注入)+ 字符预算裁剪。
-    """
+
+    for_generation(U-003 三档可见性,2026-07-15,默认 False=作者/主编对话):单纯
+    透传给 `_codex_block`,门控势力 secret_capable/chief_only 字段是否注入——本函数
+    自己不做判断。**`_editor_write_system`(唯一的生成/限知续写入口)调用本函数时
+    恒传 True**;`chat_stream`/`chat_agentic_stream`(作者与主编对话,不流进正文)
+    不传,吃默认值 False。新增任何调用点前,先想清楚它是不是"生成落进读者看到的
+    正文"——是则必须显式传 True,不传默认值就是泄密(本仓库教训:每新开一个注入点
+    都泄露过一次)。"""
     intent = st.get_intent()
     chars = st.characters()
     ctx_chars = "、".join(c.name for c in chars[:14]) or "(尚无角色)"
@@ -3374,15 +3444,58 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         def _line(f):
             return (f"- {f.entity_id} · {f.attribute}:{f.value}"
                     + ("(私密/伏线)" if f.secret else ""))
+
+        def _is_faction_bridge_mirror(f) -> bool:
+            """这条 Fact 是不是 codex_secret_bridge 造的势力 secret 字段镜像?
+
+            判据与 sync_faction_secrets **创建**它们时用的谓词同源(entity_id=f"faction:{名}"
+            + attribute=注册表里的 secret_capable 字段名),所以是结构性的、精确的——
+            不看渲染出来的字符串长什么样。
+            (Fact 数据类没有 source 字段、facts_at 也没 SELECT 它,否则 source=='codex_bridge'
+             会是更直白的判据;等哪天 Fact 带上 source,这里可以简化。)"""
+            return ((getattr(f, "entity_id", "") or "").startswith("faction:")
+                    and getattr(f, "attribute", "") in codex_secret_capable_keys("faction"))
+
+        # U-003(2026-07-15,端到端接线测试撞出的真实洞,不是假设性风险):
+        # codex_secret_bridge.sync_faction_secrets 把 faction 表的 secret_capable/chief_only
+        # 字段(origin/secret_agenda/...)镜像成一条 proposition(secret=True),目的只是给
+        # project_frame/knowledge 限知链消费——它"该不该被看见"的权威判定已经由上面的
+        # _codex_block/_faction_prompt_block 三档门控负责(带正确的中文字段标签,如"隐秘议程:…")。
+        # 这条通用 Facts 全知转储此前对 for_generation 一无所知:只要 focalizer 为空(省略焦点者的
+        # 全知视角续写章——一种正常写作模式,不是边角场景),同一份内容就会以裸格式
+        # ("- faction:X · secret_agenda:明文(私密/伏线)")二次泄露,完全绕过三档门控。
+        #
+        # 在 **Fact 层**(渲染之前)滤掉这些镜像,而不是事后正则渲染出来的行:lines 有两个来源
+        # (fallback 走 _line,门控态走 brief._fact_inject_line),字符串过滤要赌这两个格式
+        # 永远保持一致——赌不起。不影响其余(非 codex 桥接的)真实故事秘密在全知视角的既有转储
+        # 行为(那是长期支持的"省略焦点者=全知叙事"写法,不在 U-003 修复范围内)。
+        def _keep_fact(f) -> bool:
+            return not (for_generation and _is_faction_bridge_mirror(f))
+
+        def _keep_item(i, by_id) -> bool:
+            """门控态(assemble_injection 已渲染成 text)的同款判定。
+
+            优先用结构判据(按 id 查回 Fact);查不回来时(理论上不该发生)降级到
+            字符串判据兜底——两道判据都放行才注入。宁可多丢一行全知转储,不可漏一条。"""
+            if not for_generation:
+                return True
+            f = by_id.get(i.get("id"))
+            if f is not None:
+                return not _is_faction_bridge_mirror(f)
+            txt = i.get("text") or ""
+            return not ("faction:" in txt
+                        and any(f" · {k}:" in txt for k in codex_secret_capable_keys("faction")))
+
         try:
             from scribe3.brief import assemble_injection
             inj = assemble_injection(st, chapter)
             if inj["fallback"]:
-                lines = [_line(f) for f in inj["facts"][:28]]
+                lines = [_line(f) for f in inj["facts"] if _keep_fact(f)][:28]
             else:
-                lines = [f"- {i['text']}" for i in inj["chosen"]]
+                by_id = {getattr(f, "id", None): f for f in (inj.get("facts") or [])}
+                lines = [f"- {i['text']}" for i in inj["chosen"] if _keep_item(i, by_id)]
         except Exception:
-            lines = [_line(f) for f in st.facts_at(99999)[:28]]
+            lines = [_line(f) for f in st.facts_at(99999) if _keep_fact(f)][:28]
         ctx_set = "\n".join(lines) or "(尚无设定)"
         set_label = "【已确立设定(你全知,含私密伏线)】"
 
@@ -3407,7 +3520,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None) -> str:
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
         f"情感弧:{intent['emotional_arc'] or '—'};绝不背叛的红线:{intent['red_lines'] or '—'}\n"
         f"【主要角色】{ctx_chars}\n{set_label}\n{ctx_set}\n\n"
-        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter) or '(尚无设定)'}\n\n"
+        f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
     ) + rem + mat_hint
@@ -3514,6 +3627,10 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
                 conversation=turn.conversation_id,
                 previous_response_id=turn.previous_response_id,
                 store=True,
+                # U-003 回滚(v2):曾想给主编 agentic 联查挂专属 CHIEF label 隔离
+                # reveal 工具,真机实测证明 server_label 不过滤——挂了等于两条路径
+                # 都拿到。故与写作路径共用同一个 READ label;当前 6 把 *_reveal
+                # 工具不挂在任何网关上(见 SCRIBE3_READ_MCP_LABEL 定义处注释)。
                 server_label=SCRIBE3_READ_MCP_LABEL,
             )
             for ev in events:
@@ -3632,7 +3749,11 @@ def _write_revision_block() -> str:
 
 def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
     # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
-    base = (_editor_system(st, focalizer=focalizer, chapter=chapter)
+    # U-003:这是唯一的"生成"入口——限知章续写(_stream_write/_collect_write 最终都靠
+    # 本函数组装 instructions)。for_generation=True 是本函数存在的意义,别的调用点
+    # (chat_stream/chat_agentic_stream,作者/主编纯讨论)都不该传它,吃 _editor_system
+    # 的默认值 False 即可。
+    base = (_editor_system(st, focalizer=focalizer, chapter=chapter, for_generation=True)
             + _write_protocol_block() + _secret_guard_block(st, chapter))
     # Task7:章前简报注入(chapter 已知才组装;fail-safe——组装异常只 warning 不阻断写作)
     brief_txt = ""
@@ -3716,6 +3837,12 @@ def _is_write_intent(msg) -> bool:
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
                   with_tools: bool = True, on_complete=None,
+                  # U-003:这是限知章续写路径,mcp_server_label 恒 READ,不接受调用方
+                  # 覆盖成别的 label——即便将来 *_reveal 全知孪生工具真挂上了某个网关,
+                  # 这里也绝不能是那个 label(它们能解锁任意 secret 明文写进续写 prompt,
+                  # 台账 U-003 的洞本身)。全仓两个调用点(GET /chat/write、POST
+                  # /chat/write)都不传自定义 label,恒用此默认值;门禁见
+                  # tests/test_reveal_isolation.py。
                   mcp_server_label: str = SCRIBE3_READ_MCP_LABEL):
     """共用的写作 SSE 流生成器(GET/POST 复用,P20 DRY)。
     message: str(纯文本) 或 list(含图片附件)。
@@ -4851,6 +4978,9 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
                 cur["scope"] = None
                 cur["prose"] = []
 
+    # U-003 修复:server_label 硬编码 SCRIBE3_READ_MCP_LABEL,不接受参数、不可被调用方
+    # 覆盖——收集式写作(loop 编排/select 环)与 _stream_write 同规矩,绝不能挂
+    # s3_*_reveal 全知孪生工具面(否则模型能自己解锁任意 secret 明文写进续写文本)。
     for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
                                     server_label=SCRIBE3_READ_MCP_LABEL):
         app_ev = adapter.adapt(ev)

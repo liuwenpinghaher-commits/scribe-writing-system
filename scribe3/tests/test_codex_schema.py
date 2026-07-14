@@ -10,6 +10,7 @@ from scribe3.codex_schema import (
     KINDS,
     CodexField,
     all_storage_keys,
+    chief_only_keys,
     fields_for,
     prompt_keys,
     schema_for,
@@ -89,7 +90,7 @@ def test_schema_for_is_json_serializable_with_full_metadata():
     assert reloaded == schema
 
     required_meta_keys = {"key", "label", "type", "secret_capable", "in_prompt",
-                           "desc", "enum", "item_schema", "deprecated"}
+                           "desc", "enum", "item_schema", "deprecated", "chief_only"}
     for entry in schema:
         assert required_meta_keys <= entry.keys()
         assert isinstance(entry["key"], str) and entry["key"]
@@ -142,17 +143,22 @@ def test_deprecated_field_marked_and_excluded_from_prompt():
     assert legacy.deprecated is True
     assert legacy.in_prompt is False
     assert legacy.secret_capable is True   # 仍受限知掩码,只是不再进 prompt/新表单
+    assert legacy.chief_only is False      # deprecated ≠ chief_only,两个维度互相独立
 
     prompt_field_keys = set(prompt_keys("faction"))
     assert "private_operation" not in prompt_field_keys
 
-    # in_prompt=False 只有两类,逐一钉死(新增第三类必须显式改这里,防有人顺手关掉某字段
-    # 的注入、或反过来把红线字段打开):
-    #   ① deprecated 的旧垃圾桶字段:private_operation
-    #   ② 主编独知(比"限知"更强一档,连势力核心层都不知道 → 没有任何角色该知道,
-    #      故不靠 knows 边把关而是结构性不进 prompt):secret_agenda
-    #      —— 2026-07-14 对抗审查 P1-1;详见 test_codex_prompt_adversarial 的回归锚。
-    NOT_IN_PROMPT = {"private_operation", "secret_agenda"}
+    # in_prompt=False 目前只有一类,逐一钉死(新增第二类必须显式改这里,防有人顺手关掉
+    # 某字段的注入、或反过来把红线字段打开):deprecated 的旧垃圾桶字段 private_operation。
+    #
+    # secret_agenda 不在这里(2026-07-15 U-003 三档可见性重构,推翻上一版做法):
+    # 上一版曾把它也 in_prompt=False 整个关出 prompt——结果连"仅主编可见"的"主编"都
+    # 看不见它了,太钝。现在它 in_prompt=True(恢复默认,照常出现在 prompt_keys 里,
+    # 会注入作者/主编对话),真正的保护改用 chief_only=True——app.py
+    # `_faction_prompt_block` 据此在 for_generation=True(生成/限知续写路径)时结构性
+    # 永不注入,与 in_prompt 完全独立的第二道门。见下一测试 + test_codex_prompt_adversarial.py
+    # 的 test_secret_agenda_never_injected_in_generation_path_even_with_a_knows_edge。
+    NOT_IN_PROMPT = {"private_operation"}
     for f in FACTION_FIELDS:
         if f.key in NOT_IN_PROMPT:
             assert f.in_prompt is False, f"{f.key} 应结构性不进 prompt"
@@ -160,6 +166,31 @@ def test_deprecated_field_marked_and_excluded_from_prompt():
         else:
             assert f.in_prompt is True
             assert f.key in prompt_field_keys
+
+
+def test_chief_only_field_pinned_to_secret_agenda_and_independent_of_deprecated():
+    """U-003 三档可见性(2026-07-15)新增维度:chief_only 是独立于 in_prompt/deprecated
+    的第三个轴,当前只钉死 secret_agenda 一个字段。private_operation 虽然也
+    secret_capable 且 deprecated,但**不是** chief_only——它只是"旧垃圾桶字段不再用",
+    不是"仅主编可见"这个更强的可见性档位,两码事不能混为一谈。"""
+    assert chief_only_keys("faction") == ("secret_agenda",)
+
+    agenda = _by_key(FACTION_FIELDS, "secret_agenda")
+    assert agenda.chief_only is True
+    assert agenda.secret_capable is True
+    assert agenda.in_prompt is True    # 恢复默认:出现在作者/主编对话的 prompt 里
+    assert agenda.deprecated is False
+    assert "secret_agenda" in prompt_keys("faction")
+    assert "secret_agenda" in secret_capable_keys("faction")
+
+    for f in FACTION_FIELDS:
+        if f.key != "secret_agenda":
+            assert f.chief_only is False, f"{f.key} 不应被误标为 chief_only"
+
+    # schema_for() 的 JSON 也要带上 chief_only,供前端渲染"仅主编可见"徽标。
+    schema = {e["key"]: e for e in schema_for("faction")}
+    assert schema["secret_agenda"]["chief_only"] is True
+    assert schema["private_operation"]["chief_only"] is False
 
 
 def test_status_enum_matches_migration_027_assert():

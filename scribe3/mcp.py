@@ -140,6 +140,29 @@ def s3_causal_complete(chapter: int, work: str | None = None) -> list[dict]:
 _SECRET_MASK = "🔒 私密"
 
 
+def _jsonable(obj):
+    """把 store 原始行(SELECT *)转成 FastMCP 能序列化的纯 JSON 值。
+
+    2026-07-15 真机探针撞出的既有 bug:`SELECT *` 的每一行都带 `id`,类型是
+    `surrealdb.data.types.record_id.RecordID`——FastMCP 用 pydantic 严格序列化,
+    直接抛 `Unable to serialize unknown type: RecordID`,**整个工具调用失败**。
+    受害的是 s3_list_factions / s3_list_world_rules / s3_list_items / s3_list_terms
+    (以及 CX-Task 5 新加的 s3_list_entity_relations)——也就是说主编从来就没法
+    通过 MCP 列出势力/世界规则/物件/术语。REST 侧不炸只是因为 FastAPI 的
+    jsonable_encoder 会兜底(它把 RecordID 拆成 dict),掩盖了这个洞。
+
+    修在 MCP 边界而不是 store/REST:store 的返回值被 REST、prompt 组装、检测器
+    等一堆地方消费,改那里会波及全系统;这里只管把要过 MCP 协议的行洗干净。
+    保留 id(转成字符串,对模型仍可用),不做删字段。"""
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+    return str(obj)   # RecordID / datetime / Duration 等 SurrealDB 原生类型
+
+
 def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
     """统一掩码函数:is_secret=True 且 reveal_secret=False → 返回掩码占位符。
     与 store.graph() 使用同一占位符 '🔒 私密'。"""
@@ -148,13 +171,8 @@ def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
     return value
 
 
-@mcp.tool(annotations=_RO)
-def s3_semantic_recall(query: str, k: int = 5, reveal_secret: bool = False,
-                       work: str | None = None) -> list[dict]:
-    """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
-
-    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
-    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
+                          work: str | None) -> list[dict]:
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
             "is_secret": bool(f.secret)}
@@ -162,17 +180,62 @@ def s3_semantic_recall(query: str, k: int = 5, reveal_secret: bool = False,
 
 
 @mcp.tool(annotations=_RO)
-def s3_hybrid_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = False,
-                     work: str | None = None) -> list[dict]:
-    """混合召回:向量语义 + 中文关键词 → RRF 融合排名。
-    比纯向量召回多关键词路(专名/法器名精确匹配),叠加限知时间门。
+def s3_semantic_recall(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+    """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
 
-    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
-    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+    恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
+    reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
+    工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_semantic_recall_reveal。"""
+    return _semantic_recall_impl(query, k, False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_semantic_recall_reveal(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+    """s3_semantic_recall 的全知孪生:返回明文(secret 命题不掩码)。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _semantic_recall_impl(query, k, True, work)
+
+
+def _hybrid_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
+                        work: str | None) -> list[dict]:
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
             "is_secret": bool(f.secret)}
             for f in _store_for(work).hybrid_recall(query, chapter, k)]
+
+
+@mcp.tool(annotations=_RO)
+def s3_hybrid_recall(query: str, chapter: int, k: int = 5,
+                     work: str | None = None) -> list[dict]:
+    """混合召回:向量语义 + 中文关键词 → RRF 融合排名。
+    比纯向量召回多关键词路(专名/法器名精确匹配),叠加限知时间门。
+
+    恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
+    reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
+    工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_hybrid_recall_reveal。"""
+    return _hybrid_recall_impl(query, chapter, k, False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_hybrid_recall_reveal(query: str, chapter: int, k: int = 5,
+                            work: str | None = None) -> list[dict]:
+    """s3_hybrid_recall 的全知孪生:返回明文(secret 命题不掩码)。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _hybrid_recall_impl(query, chapter, k, True, work)
 
 
 @mcp.tool(annotations=_RO)
@@ -182,14 +245,8 @@ def s3_chapter_recall(query: str, k: int = 5, work: str | None = None) -> list[d
     return _store_for(work).chapter_recall(query, k)
 
 
-@mcp.tool(annotations=_RO)
-def s3_graph_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = False,
-                    work: str | None = None) -> list[dict]:
-    """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
-    叠加章时间门(限知)。供主编全知联查,不喂限知渲染。
-
-    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
-    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+def _graph_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
+                       work: str | None) -> list[dict]:
     results = _store_for(work).graph_recall(query, chapter, k)
     for item in results:
         is_secret = bool(item.get("secret", False))
@@ -197,6 +254,33 @@ def s3_graph_recall(query: str, chapter: int, k: int = 5, reveal_secret: bool = 
             item["is_secret"] = is_secret
         item["value"] = _mask_value(item.get("value", ""), is_secret, reveal_secret)
     return results
+
+
+@mcp.tool(annotations=_RO)
+def s3_graph_recall(query: str, chapter: int, k: int = 5,
+                    work: str | None = None) -> list[dict]:
+    """Graph RAG 召回:语义相关命题 + 其知识子图(谁知道/来源事件/同场角色)。
+    叠加章时间门(限知)。不喂限知渲染。
+
+    恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
+    reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
+    工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_graph_recall_reveal。"""
+    return _graph_recall_impl(query, chapter, k, False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_graph_recall_reveal(query: str, chapter: int, k: int = 5,
+                           work: str | None = None) -> list[dict]:
+    """s3_graph_recall 的全知孪生:返回明文(secret 命题不掩码)。供主编全知联查。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _graph_recall_impl(query, chapter, k, True, work)
 
 
 @mcp.tool(annotations=_RO)
@@ -222,17 +306,10 @@ def s3_setting_completeness(work: str | None = None) -> dict:
 def s3_list_world_rules(category: str | None = None, work: str | None = None) -> list[dict]:
     """列世界规则(Sanderson 式:源头/能力/代价/限制/例外)。可按类别过滤。
     类别:magic/technology/social/physical/economic/political"""
-    return _store_for(work).list_world_rules(category)
+    return _jsonable(_store_for(work).list_world_rules(category))
 
 
-@mcp.tool(annotations=_RO)
-def s3_list_factions(reveal_secret: bool = False, work: str | None = None) -> list[dict]:
-    """列势力/组织(意识形态/领袖/已知成员/公开面目/起源/遗产运作等,CX-Task 3 起含
-    codex_schema 注册的全部字段)。
-
-    通用掩码(不硬编码字段名):按 codex_schema.secret_capable_keys('faction') 遍历,
-    每个 `{key}_secret=True` 的字段默认显示 '🔒 私密',新增 secret 字段自动获得同款保护。
-    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+def _list_factions_impl(reveal_secret: bool, work: str | None) -> list[dict]:
     rows = _store_for(work).list_factions()
     result = []
     for row in rows:
@@ -241,7 +318,34 @@ def s3_list_factions(reveal_secret: bool = False, work: str | None = None) -> li
             is_secret = bool(row.get(secret_flag_key(k), False))
             row[k] = _mask_value(row.get(k) or "", is_secret, reveal_secret)
         result.append(row)
-    return result
+    return _jsonable(result)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_factions(work: str | None = None) -> list[dict]:
+    """列势力/组织(意识形态/领袖/已知成员/公开面目/起源/遗产运作等,CX-Task 3 起含
+    codex_schema 注册的全部字段)。
+
+    通用掩码(不硬编码字段名):按 codex_schema.secret_capable_keys('faction') 遍历,
+    每个 `{key}_secret=True` 的字段恒显示 '🔒 私密',新增 secret 字段自动获得同款保护。
+    本工具**没有** reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为
+    "工具的名字",工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具
+    s3_list_factions_reveal。"""
+    return _list_factions_impl(False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_factions_reveal(work: str | None = None) -> list[dict]:
+    """s3_list_factions 的全知孪生:所有 secret_capable 字段返回明文(不掩码)。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _list_factions_impl(True, work)
 
 
 @mcp.tool(annotations=_RO)
@@ -281,13 +385,13 @@ def s3_check_ooc(character_id: str, dialogue: str, work: str | None = None) -> l
 @mcp.tool(annotations=_RO)
 def s3_list_items(state: str | None = None, work: str | None = None) -> list[dict]:
     """列物品/道具(含符号状态 active/lost/destroyed/unknown)。可按状态过滤。"""
-    return _store_for(work).list_items(state)
+    return _jsonable(_store_for(work).list_items(state))
 
 
 @mcp.tool(annotations=_RO)
 def s3_list_terms(work: str | None = None) -> list[dict]:
     """列专有名词/术语(含别名)。"""
-    return _store_for(work).list_terms()
+    return _jsonable(_store_for(work).list_terms())
 
 
 @mcp.tool(annotations=_RO)
@@ -304,18 +408,38 @@ def s3_validate_setting(chapter: int, prose: str, work: str | None = None) -> li
     return _store_for(work).validate_setting(chapter, prose)
 
 
-@mcp.tool(annotations=_RO)
-def s3_dramatic_irony(focalizer: str, chapter: int, reveal_secret: bool = False,
-                      work: str | None = None) -> list[dict]:
-    """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
-    渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。
-
-    默认掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留。
-    reveal_secret=True 解锁明文——**仅供主编全知联查**,其输出严禁进入限知章续写 prompt。"""
+def _dramatic_irony_impl(focalizer: str, chapter: int, reveal_secret: bool,
+                         work: str | None) -> list[dict]:
     return [{"id": f.id,
             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
             "is_secret": bool(f.secret)}
             for f in dramatic_irony(_store_for(work), focalizer, chapter)]
+
+
+@mcp.tool(annotations=_RO)
+def s3_dramatic_irony(focalizer: str, chapter: int, work: str | None = None) -> list[dict]:
+    """戏剧反讽点:读者已知、而视角角色不知的事实(KNOWS(reader,F)∧¬KNOWS(focal,F))。
+    渲染该视角时据此写"角色安心、读者揪心"的张力(但角色台词只能用其帧内信息)。
+
+    恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
+    reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
+    工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_dramatic_irony_reveal。"""
+    return _dramatic_irony_impl(focalizer, chapter, False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_dramatic_irony_reveal(focalizer: str, chapter: int,
+                             work: str | None = None) -> list[dict]:
+    """s3_dramatic_irony 的全知孪生:返回明文(secret 命题不掩码)。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _dramatic_irony_impl(focalizer, chapter, True, work)
 
 
 @mcp.tool(annotations=_RO)
@@ -643,8 +767,9 @@ async def s3_add_faction(ctx: Context, name: str,
     关键字实参)。
 
     status: 势力当前状态,可选 active/dissolved/dormant/reformed;新建势力不传时按 DB
-    schema 默认落 active。各 `*_secret` 字段=true 时对应内容字段默认屏蔽(🔒 私密),
-    需 reveal_secret=true(见 s3_list_factions)解锁。
+    schema 默认落 active。各 `*_secret` 字段=true 时对应内容字段恒屏蔽(🔒 私密),
+    全知明文见孪生工具 s3_list_factions_reveal(仅供主编全知联查专用;U-003:当前不挂
+    载在任何网关,详见该工具自己的 docstring)。
 
     只传入本次要变更的字段——未传的字段保持库中原值不动(store 层 MERGE 部分更新语义,
     与 REST `POST /factions` 一致),不会被静默清空或重置为默认值。
@@ -700,17 +825,8 @@ async def s3_add_faction(ctx: Context, name: str,
 # ===== CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)=====
 # 与 s3_add_character_relation/s3_relations_at(锁死 character↔character)是两套独立
 # 工具,互不影响。entity_relation 的 a/b 不锁实体类型,不做存在性校验。
-@mcp.tool(annotations=_RO)
-def s3_list_entity_relations(entity: str | None = None, chapter: int | None = None,
-                             reveal_secret: bool = False,
-                             work: str | None = None) -> list[dict]:
-    """列通用实体关系(双方认知 perception_a/perception_b + 主编独知 truth,任意实体
-    类型,如 "faction:衔尾蛇秘会"/"role:焦三"/"item:碎片")。entity 给定则只看涉及该
-    实体的关系(a 或 b 命中);chapter 给定则按时态过滤(仿 s3_relations_at)。
-
-    truth 按 truth_secret 掩码(默认 '🔒 私密'),reveal_secret=True 解锁明文——
-    **仅供主编全知联查**,其输出严禁进入限知章续写 prompt(与 s3_list_factions 同规矩)。
-    """
+def _list_entity_relations_impl(entity: str | None, chapter: int | None,
+                                reveal_secret: bool, work: str | None) -> list[dict]:
     st = _store_for(work)
     rows = st.entity_relations_at(chapter, entity) if chapter is not None \
         else st.list_entity_relations(entity)
@@ -720,7 +836,35 @@ def s3_list_entity_relations(entity: str | None = None, chapter: int | None = No
         is_secret = bool(row.get("truth_secret"))
         row["truth"] = _mask_value(row.get("truth") or "", is_secret, reveal_secret)
         result.append(row)
-    return result
+    return _jsonable(result)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_entity_relations(entity: str | None = None, chapter: int | None = None,
+                             work: str | None = None) -> list[dict]:
+    """列通用实体关系(双方认知 perception_a/perception_b + 主编独知 truth,任意实体
+    类型,如 "faction:衔尾蛇秘会"/"role:焦三"/"item:碎片")。entity 给定则只看涉及该
+    实体的关系(a 或 b 命中);chapter 给定则按时态过滤(仿 s3_relations_at)。
+
+    truth 按 truth_secret 恒掩码(显示 '🔒 私密')。本工具**没有** reveal_secret 参数
+    (U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",工具面白名单物理隔离,
+    不再靠模型自律)。全知明文见孪生工具 s3_list_entity_relations_reveal。"""
+    return _list_entity_relations_impl(entity, chapter, False, work)
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_entity_relations_reveal(entity: str | None = None, chapter: int | None = None,
+                                    work: str | None = None) -> list[dict]:
+    """s3_list_entity_relations 的全知孪生:truth 字段返回明文(不掩码)。
+
+    **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
+    "只挂 scribe3_chief server"的旧设想——Hermes 的 server_label 不做过滤,主编对话与
+    限知续写共用同一个网关进程(:8643),挂给任一 profile 就等于挂给了写作路径。
+    **当前不挂载在任何网关**:两条路径的 profile include 白名单都不含这把工具,模型
+    物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
+    钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
+    一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
+    return _list_entity_relations_impl(entity, chapter, True, work)
 
 
 @mcp.tool(annotations=_RW)
@@ -738,7 +882,8 @@ async def s3_add_entity_relation(ctx: Context, a: str, b: str, relation_type: st
     perception_a/perception_b 是 a/b 各自对这段关系的认知,**允许不对称、甚至任一方
     是错的**(如:秘会自认"虚与委蛇的台阶",天龙座却认定秘会是"地球代理人")。
     truth 是仅主编知道的客观真相,默认视为 secret(不传 truth_secret 时新建行按 True
-    处理,宁可误锁不可误放);reveal_secret=true(见 s3_list_entity_relations)才解锁。
+    处理,宁可误锁不可误放);全知明文见孪生工具 s3_list_entity_relations_reveal
+    (仅供主编全知联查专用;U-003:当前不挂载在任何网关,详见该工具自己的 docstring)。
 
     只传本次要变更的字段——未传的 perception_a/perception_b/truth/truth_secret 保持
     库中原值不动(store 层按 (a,b,relation_type,since_chapter) 自然键 MERGE,与

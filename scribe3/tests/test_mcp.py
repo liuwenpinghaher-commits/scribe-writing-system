@@ -162,7 +162,8 @@ def test_tools_discoverable_and_annotated():
 def test_mcp_recall_tools_expose_is_secret(store):
     """P0·限知边界:五路召回工具返回的每条命题项必须带 is_secret 标志。
     secret=True 的私密命题 is_secret 须为 True,供下游限知渲染层据此跳过私密。
-    默认(reveal_secret=False)打码 value;reveal_secret=True 保留明文(仅主编全知联查用)。"""
+    恒掩码工具打码 value;全知孪生工具(_reveal 后缀,U-003 起独立成工具而非参数)
+    保留明文(仅主编全知联查用)。"""
     from scribe3.ontology import KnowledgeEdge
     luanshi_leak_world(store)
     # 语义召回需要 embedding 索引;在 add_fact 后手动建立(生产侧由 s3_add_fact 调用)
@@ -195,11 +196,11 @@ def test_mcp_recall_tools_expose_is_secret(store):
         "s3_semantic_recall 默认不应泄露 secret 明文"
     )
 
-    # --- s3_semantic_recall reveal_secret=True 解锁 ---
-    sem_reveal = M.s3_semantic_recall("治眼", k=5, reveal_secret=True)
+    # --- s3_semantic_recall_reveal 解锁(U-003:全知孪生工具,不再是参数) ---
+    sem_reveal = M.s3_semantic_recall_reveal("治眼", k=5)
     secret_sem_reveal = [x for x in sem_reveal if x.get("is_secret") is True]
     assert any("治眼" in str(x.get("value", "")) for x in secret_sem_reveal), (
-        "s3_semantic_recall reveal_secret=True 应保留 secret 明文"
+        "s3_semantic_recall_reveal 应保留 secret 明文"
     )
 
     # --- s3_dramatic_irony 默认打码 ---
@@ -214,16 +215,16 @@ def test_mcp_recall_tools_expose_is_secret(store):
         "s3_dramatic_irony 默认不应泄露 secret 明文"
     )
 
-    # --- s3_dramatic_irony reveal_secret=True 解锁 ---
-    irony_reveal = M.s3_dramatic_irony("role:老道", 1, reveal_secret=True)
+    # --- s3_dramatic_irony_reveal 解锁(U-003:全知孪生工具,不再是参数) ---
+    irony_reveal = M.s3_dramatic_irony_reveal("role:老道", 1)
     secret_irony_reveal = [x for x in irony_reveal if x.get("is_secret") is True]
     assert any("治眼" in str(x.get("value", "")) for x in secret_irony_reveal), (
-        "s3_dramatic_irony reveal_secret=True 应保留 secret 明文"
+        "s3_dramatic_irony_reveal 应保留 secret 明文"
     )
 
 
 def test_mcp_hybrid_recall_masks_secret_by_default(store):
-    """P0·A2: s3_hybrid_recall 默认打码 secret value;reveal_secret=True 解锁。"""
+    """P0·A2: s3_hybrid_recall 恒打码 secret value;全知明文见孪生工具 s3_hybrid_recall_reveal。"""
     from scribe3.ontology import Fact
     luanshi_leak_world(store)
     store.semantic_index("fact:治眼", "攒钱给老娘治眼")
@@ -239,15 +240,15 @@ def test_mcp_hybrid_recall_masks_secret_by_default(store):
         "s3_hybrid_recall 默认不应泄露 secret 明文"
     )
 
-    results_reveal = M.s3_hybrid_recall("治眼", chapter=5, k=5, reveal_secret=True)
+    results_reveal = M.s3_hybrid_recall_reveal("治眼", chapter=5, k=5)
     secret_reveal = [x for x in results_reveal if x.get("is_secret")]
     assert any("治眼" in str(x.get("value", "")) for x in secret_reveal), (
-        "s3_hybrid_recall reveal_secret=True 应保留 secret 明文"
+        "s3_hybrid_recall_reveal 应保留 secret 明文"
     )
 
 
 def test_mcp_graph_recall_masks_secret_by_default(store):
-    """P0·A2: s3_graph_recall 默认打码 secret value;reveal_secret=True 解锁。"""
+    """P0·A2: s3_graph_recall 恒打码 secret value;全知明文见孪生工具 s3_graph_recall_reveal。"""
     luanshi_leak_world(store)
     store.semantic_index("fact:治眼", "攒钱给老娘治眼")
     M.set_store(store)
@@ -262,10 +263,10 @@ def test_mcp_graph_recall_masks_secret_by_default(store):
         "s3_graph_recall 默认不应泄露 secret 明文"
     )
 
-    results_reveal = M.s3_graph_recall("治眼", chapter=5, k=5, reveal_secret=True)
+    results_reveal = M.s3_graph_recall_reveal("治眼", chapter=5, k=5)
     secret_reveal = [x for x in results_reveal if x.get("is_secret")]
     assert any("治眼" in str(x.get("value", "")) for x in secret_reveal), (
-        "s3_graph_recall reveal_secret=True 应保留 secret 明文"
+        "s3_graph_recall_reveal 应保留 secret 明文"
     )
 
 
@@ -406,7 +407,8 @@ def test_s3_add_clue_signature():
 def test_s3_list_factions_masks_private_operation_by_default(store):
     """s3_list_factions 默认应掩码 private_operation_secret=True 的势力私下运作。
     修复前:直接 return _store.list_factions()——SELECT * 泄露明文 private_operation。
-    修复后:对每条 faction 套 _mask_value,默认显示 '🔒 私密',reveal_secret=True 解锁。
+    修复后:对每条 faction 套 _mask_value,恒显示 '🔒 私密',全知孪生工具
+    s3_list_factions_reveal(U-003 起独立成工具而非参数)解锁。
     """
     M.set_store(store)
     # 添加一个 private_operation_secret=True 的势力
@@ -431,7 +433,7 @@ def test_s3_list_factions_masks_private_operation_by_default(store):
         private_operation_secret=False,
     )
 
-    factions = M.s3_list_factions()  # 默认 reveal_secret=False
+    factions = M.s3_list_factions()  # 恒掩码,无 reveal_secret 参数
 
     # 找到秘密势力
     secret_fac = next((f for f in factions if f.get("name") == "测试邪教"), None)
@@ -447,12 +449,12 @@ def test_s3_list_factions_masks_private_operation_by_default(store):
     assert public_fac["private_operation"] == "开门收徒", \
         "非秘密势力的 private_operation 应保持明文"
 
-    # reveal_secret=True 解锁
-    factions_reveal = M.s3_list_factions(reveal_secret=True)
+    # s3_list_factions_reveal 解锁
+    factions_reveal = M.s3_list_factions_reveal()
     secret_fac_reveal = next((f for f in factions_reveal if f.get("name") == "测试邪教"), None)
     assert secret_fac_reveal is not None
     assert "杀人灭口" in str(secret_fac_reveal.get("private_operation", "")), \
-        "reveal_secret=True 应返回 private_operation 明文"
+        "s3_list_factions_reveal 应返回 private_operation 明文"
 
 
 # ===== 彻查 B-2: s3_plant_promise tier 三档透传(MCP 生产入口)=====

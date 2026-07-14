@@ -373,7 +373,7 @@ def test_mcp_s3_list_factions_masks_by_suffix_generically(store):
     factions = M.s3_list_factions()
     f = next(x for x in factions if x["name"] == "影卫")
     assert f["origin"] == "🔒 私密", f"origin 应按 origin_secret 后缀自动掩码,实际: {f['origin']!r}"
-    revealed = next(x for x in M.s3_list_factions(reveal_secret=True) if x["name"] == "影卫")
+    revealed = next(x for x in M.s3_list_factions_reveal() if x["name"] == "影卫")
     assert revealed["origin"] == "来路不明"
 
 

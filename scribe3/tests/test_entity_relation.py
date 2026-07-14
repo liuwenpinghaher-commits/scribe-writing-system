@@ -275,7 +275,6 @@ def test_mcp_s3_list_entity_relations_masks_truth_by_default(store):
     row = next(r for r in rows if r["b"] == "faction:MCP显")
     assert row["truth"] == "🔒 私密"
 
-    revealed = next(r for r in M.s3_list_entity_relations(entity="faction:MCP密",
-                                                          reveal_secret=True)
+    revealed = next(r for r in M.s3_list_entity_relations_reveal(entity="faction:MCP密")
                     if r["b"] == "faction:MCP显")
     assert revealed["truth"] == "MCP真相"

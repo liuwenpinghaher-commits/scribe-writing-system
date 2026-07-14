@@ -33,6 +33,13 @@ class CodexField:
     enum: tuple[str, ...] | None = None
     item_schema: tuple["CodexField", ...] | None = None
     deprecated: bool = False
+    # U-003 三档可见性(2026-07-15,推翻"in_prompt=False 关掉 secret_agenda"的上一版):
+    # chief_only=True 表示"仅主编可见"——比 secret_capable 更强一档,连势力核心层
+    # 都不知道,没有任何角色该知道,故不走 knows 边判据。它仍 in_prompt=True(要进
+    # 作者与主编对话的 prompt——"仅主编可见"字面意思就是主编看得见),但生成/限知
+    # 续写路径(app._codex_block 等的 for_generation=True)必须把它当**永不注入**处理,
+    # 与 entity_relation.truth 同级。见 app.py `_faction_prompt_block` 的三档门控。
+    chief_only: bool = False
 
 
 def secret_flag_key(key: str) -> str:
@@ -142,13 +149,18 @@ FACTION_FIELDS: tuple[CodexField, ...] = (
     CodexField("headquarters", "总部/据点", "text", desc="势力的主要活动据点或总部所在地。"),
     CodexField("communication", "联络方式", "textarea", desc="势力内部成员之间的联络/传讯方式。"),
     CodexField("rituals", "仪式", "textarea", desc="势力特有的仪式、入会礼或惯例活动。"),
-    # in_prompt=False:"仅主编可见"是比"限知"更强的一档——限知字段还能靠 knows 边
-    # 授予某个角色,而它连势力核心层都不知道,**没有任何角色该知道**。若留 in_prompt=True,
-    # 它就和普通 secret 字段共用同一条判据(有 knows 边即放行),一条误建的边就能捅穿。
-    # 与 entity_relation.truth 同级:主编独知的东西不进生成 prompt,只留给作者自己查。
-    # (作者与主编的对话走 focalizer='' 分支,本就拿不到任何 secret 字段,故此处零功能损失。)
-    CodexField("secret_agenda", "隐秘议程", "textarea", secret_capable=True, in_prompt=False,
-               desc="连势力核心层都不知道的真相,仅主编可见(永不进写作 prompt)。"),
+    # chief_only=True(2026-07-15 修订,推翻上一版 in_prompt=False 的做法):"仅主编可见"
+    # 是比"限知"更强的一档——限知字段还能靠 knows 边授予某个角色,而它连势力核心层都
+    # 不知道,**没有任何角色该知道**,故不走 knows 边判据。上一版用 in_prompt=False 把它
+    # 整个关出 prompt_keys,结果连"仅主编"的"主编"都看不见它了——过钝:secret_agenda
+    # 的定义恰恰是"仅主编可见",不是"谁都看不见"。现改为 in_prompt=True(恢复默认)+
+    # chief_only=True:作者/主编对话(for_generation=False)正常注入;生成/限知续写路径
+    # (for_generation=True)永不注入,与 entity_relation.truth 同级——由 app.py
+    # `_faction_prompt_block` 按 chief_only_keys() 结构性拦截,不依赖 knows 边、不依赖
+    # 任何字段级判定,防一条误建的边或黑名单反查捅穿。
+    CodexField("secret_agenda", "隐秘议程", "textarea", secret_capable=True, chief_only=True,
+               desc="连势力核心层都不知道的真相,仅主编可见(永不进写作/续写生成 prompt,"
+                    "但会出现在作者与主编的对话中)。"),
 
     # ── deprecated:旧垃圾桶字段,保留读取兼容,不再进 prompt / 新建表单 ──
     CodexField("private_operation", "私下运作(已废弃)", "textarea", secret_capable=True,
@@ -191,6 +203,7 @@ def _field_to_dict(f: CodexField) -> dict:
         "enum": list(f.enum) if f.enum else None,
         "item_schema": [_field_to_dict(c) for c in f.item_schema] if f.item_schema else None,
         "deprecated": f.deprecated,
+        "chief_only": f.chief_only,   # U-003:前端据此可显示"仅主编可见"徽标
     }
 
 
@@ -202,6 +215,15 @@ def schema_for(kind: str) -> list[dict]:
 def secret_capable_keys(kind: str) -> tuple[str, ...]:
     """该实体类型下所有可标记限知的字段 key(供 REST/MCP 掩码通用循环使用)。"""
     return tuple(f.key for f in fields_for(kind) if f.secret_capable)
+
+
+def chief_only_keys(kind: str) -> tuple[str, ...]:
+    """该实体类型下"仅主编可见"的字段 key(U-003 三档可见性)。
+
+    这些字段 in_prompt=True(会出现在作者/主编对话的 prompt 里),但生成/限知续写
+    路径必须结构性排除——不看 knows 边、不看任何字段级标志,只看 for_generation。
+    供 app.py `_faction_prompt_block` 按名单拦截,供前端渲染"仅主编可见"徽标。"""
+    return tuple(f.key for f in fields_for(kind) if f.chief_only)
 
 
 def prompt_keys(kind: str) -> tuple[str, ...]:
