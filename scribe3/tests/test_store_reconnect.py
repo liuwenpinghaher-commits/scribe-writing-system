@@ -91,15 +91,19 @@ def test_store_heals_after_server_restart():
 
 
 def test_non_connection_errors_do_not_retry(store, monkeypatch):
-    """语法/校验类错误不属连接故障:原样抛,不得触发重连重试(防坏 SQL 双发)。"""
+    """语法/校验类错误不属连接故障:原样抛,不得触发重连重试(防坏 SQL 双发)。
+
+    打桩点是 query_raw:2026-07-14 起 `_raw_query` 改走它(逐条校验多语句结果,堵死
+    "migration 后续语句失败被静默吞掉"的 P0;见 store._query_all_checked),不再经 SDK 裸 query。
+    测试意图不变——变的只是被计数的那道接缝。"""
     calls = {"n": 0}
-    original = store._db.query
+    original = store._db.query_raw
 
     def counting(surql, vars=None, **kw):
         calls["n"] += 1
         return original(surql, vars or {})
 
-    monkeypatch.setattr(store._db, "query", counting)
+    monkeypatch.setattr(store._db, "query_raw", counting)
     with pytest.raises(Exception):
         store._query("SELECT FROM WHERE 语法错误")
     assert calls["n"] == 1, "非连接错误绝不能重试"

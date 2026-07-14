@@ -28,10 +28,6 @@ from scribe3.memory_lifecycle import known_at as _known_at
 from scribe3.memory_lifecycle import resolve_temporal_view as _resolve_view
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 
-# CX-Task 2:add_faction 用于区分"legacy 参数显式传入 None/False"与"根本没传"的哨兵——
-# 后者不得进入 MERGE 内容,否则会用默认值覆盖库中已有的其它值(违背部分更新语义)。
-_UNSET = object()
-
 # 连接类异常(触发重连重试的白名单;语法/校验类错误不在内,绝不重试)。
 # OSError 覆盖 ConnectionError/TimeoutError/socket 层错;EOFError 见于半关闭流。
 _CONN_ERRORS = (_ws_exc.WebSocketException, ConnectionUnavailableError, OSError, EOFError)
@@ -43,7 +39,10 @@ TBL2KIND = {"character": "character", "place": "place"}
 
 _OPEN_CHAPTER = 9999    # graph()/无界查询的"到当前为止"哨兵
 _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
-_UNSET = object()       # update_chapter_meta 的哨兵:区分"未传 volume"与"传了 None"
+# 通用"未传参"哨兵:区分"调用方显式传了 None/False"与"根本没传"。
+# 用处:update_chapter_meta(未传 volume vs 传了 None)、add_faction(未传字段不进 MERGE 内容,
+# 否则会用默认值覆盖库中已有值,违背部分更新语义)。
+_UNSET = object()
 
 
 def _chapter_range_target(start: int | None = None, end: int | None = None,
@@ -807,20 +806,42 @@ class SurrealStore:
             pass
         self._connect()
 
+    def _query_all_checked(self, surql: str, vars: dict):
+        """执行 surql 并**逐条**校验全部语句结果,任一语句 ERR 即抛。
+
+        P0(2026-07-14 实证):surrealdb-py 的 `query()` 对多语句脚本只检查/返回
+        `result[0]`——后续语句报错会被**静默吞掉**。migration 是"整个文件一次 query"
+        的多语句调用,于是只要第 1 条 DEFINE 成功,后面任何一条(含数据迁移 UPDATE)
+        失败都不会抛异常,`apply_schema` 照样把该 migration 标记为已应用 → schema/数据
+        半成功而无人知晓,且永久不再重放。083 就是这样静默失败的(数据迁移 UPDATE 因老行
+        bool 字段为 NONE 而 coercion 报错,但 query() 一声不吭)。
+
+        故此处改走 `query_raw` 并遍历全部语句状态。返回值与 SDK `query()` 保持一致
+        (`result[0]['result']`),不改变任何既有调用方的语义。"""
+        resp = self._db.query_raw(surql, vars)
+        self._db.check_response_for_error(resp, "query")
+        self._db.check_response_for_result(resp, "query")
+        stmts = resp["result"]
+        for stmt in stmts:
+            self._db._check_query_result(stmt)   # 任一 ERR → parse_query_error 抛出
+        return stmts[0]["result"] if stmts else None
+
     def _raw_query(self, surql: str, vars: dict | None = None):
         """S-1 连接韧性单点(2026-07-04 :8001 事故根治):连接类异常 → 重建连接
         (signin/use 是 WS 连接级状态,SDK 懒重连不会重放)→ 重试一次。
         本机 WS 不存在"已提交但响应丢失"的分区窗口(服务端死=写未提交),
         且核心写多为 UPSERT 幂等,故写路径重试一次可接受。
-        语法/校验等非连接错误原样抛,绝不重试。"""
+        语法/校验等非连接错误原样抛,绝不重试。
+
+        多语句脚本的逐条校验见 `_query_all_checked`(不能用 SDK 裸 query——它只看第一条)。"""
         try:
-            return self._db.query(surql, vars or {})
+            return self._query_all_checked(surql, vars or {})
         except _CONN_ERRORS as e:
             logging.getLogger("scribe3.store").warning(
                 "SurrealDB 连接故障,重连后重试一次(%s): %s",
                 type(e).__name__, str(e)[:120])
             self._reconnect()
-            return self._db.query(surql, vars or {})
+            return self._query_all_checked(surql, vars or {})
 
     def close(self) -> None:
         try:

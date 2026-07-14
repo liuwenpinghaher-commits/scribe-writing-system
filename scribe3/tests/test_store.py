@@ -166,6 +166,36 @@ def test_graph_recall_returns_secret_flag(store):
     assert secret_items, "应有至少一条 secret=True 的召回命题(fact:治眼)"
 
 
+# --- P0(2026-07-14):多语句脚本静默失败 ---
+
+def test_raw_query_raises_on_any_failing_statement(store):
+    """【P0】多语句脚本里**任何一条**语句失败都必须抛,不能只看第一条。
+
+    surrealdb-py 的 `query()` 对多语句脚本只检查/返回 `result[0]`——后续语句报错被静默吞掉。
+    migration 是"整个文件一次 query"的多语句调用,于是第 1 条 DEFINE 成功就足以让
+    apply_schema 把整个 migration 标记为已应用,哪怕后面的数据迁移 UPDATE 全炸了,
+    且此后永不重放。083 正是这样静默半成功的(实证)。所有历史 migration 都受此影响。
+    """
+    # 第 1 条必成功(DEFINE 一张 SCHEMAFULL 空表),第 2 条必失败(写一个未定义的字段)。
+    script = ("DEFINE TABLE IF NOT EXISTS _silent_fail_probe SCHEMAFULL; "
+              "CREATE _silent_fail_probe SET nonexistent_field = 1;")
+    with pytest.raises(Exception) as ei:
+        store._raw_query(script)
+    assert "nonexistent_field" in str(ei.value), \
+        f"应把第 2 条语句的真实错误抛出来,实际: {ei.value}"
+    # 且失败语句确实没落库(不是"报错了但数据还是写进去了")
+    assert store._query("SELECT * FROM _silent_fail_probe") == []
+
+
+def test_raw_query_still_returns_first_statement_result(store):
+    """回归护栏:逐条校验不得改变正常查询的返回形状(仍是第 1 条语句的 result)。"""
+    # 单语句
+    assert store._raw_query("RETURN 1 + 1") == 2
+    # 正常多语句:返回值仍取第一条,后续语句照常执行(不因新校验而中断)
+    out = store._raw_query("RETURN 'first'; DEFINE TABLE IF NOT EXISTS _ok_probe SCHEMALESS;")
+    assert out == "first"
+
+
 # --- P0 Task 7: 设定 CRUD 幂等(add_* 同名覆盖)---
 
 def test_add_faction_idempotent_by_name(store):
@@ -1803,7 +1833,9 @@ def test_apply_schema_failed_migration_not_marked_and_retryable(store, tmp_path)
         "DEFINE TABLE IF NOT EXISTS _mig_cgood SCHEMALESS;", encoding="utf-8")
     (tmp_path / "002_cbad.surql").write_text(
         "DEFINE TABLE IF NOT EXISTS _mig_cbad SCHEMALESS;", encoding="utf-8")
-    orig = store._db.query
+    # 打桩点是 query_raw:_raw_query 已改走它(逐条校验多语句结果,见
+    # test_raw_query_raises_on_any_failing_statement),不再经 SDK 裸 query。
+    orig = store._db.query_raw
     fail = {"on": True}
 
     def flaky(surql, *a, **k):
@@ -1811,7 +1843,7 @@ def test_apply_schema_failed_migration_not_marked_and_retryable(store, tmp_path)
             raise RuntimeError("模拟迁移失败(连接抖动/语法错)")
         return orig(surql, *a, **k)
 
-    store._db.query = flaky
+    store._db.query_raw = flaky
     try:
         with pytest.raises(RuntimeError):
             store.apply_schema(migrations_dir=str(tmp_path))
@@ -1824,7 +1856,7 @@ def test_apply_schema_failed_migration_not_marked_and_retryable(store, tmp_path)
         ids2 = {r["id"] for r in store._query("SELECT meta::id(id) AS id FROM _migration")}
         assert "002_cbad" in ids2, "修复后重试应成功应用并标记"
     finally:
-        store._db.query = orig
+        store._db.query_raw = orig
 
 
 def test_apply_schema_normal_migrations_unaffected(store):

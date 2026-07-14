@@ -54,8 +54,8 @@ def _clear_context_caches():
     yield
 
 
-@pytest.fixture()
-def store():
+def _boot_store():
+    """起一个临时内存 SurrealDB 子进程 + 连上的 SurrealStore(schema 尚未应用)。"""
     port = _free_port()
     clean_env = {"PATH": "/usr/bin:/bin:/usr/local/bin",
                  "HOME": os.path.expanduser("~"), "PWD": "/tmp"}
@@ -74,7 +74,29 @@ def store():
         except OSError:
             time.sleep(0.2)
     st = SurrealStore(url=f"ws://127.0.0.1:{port}/rpc", ns="scribe3", db="test")
+    return st, proc
+
+
+@pytest.fixture()
+def store():
+    st, proc = _boot_store()
     st.apply_schema()
+    try:
+        yield st
+    finally:
+        st.close()
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+@pytest.fixture()
+def unmigrated_store():
+    """schema **未应用**的裸 store——供 migration 层测试自己控制"应用到哪一版"。
+
+    真实生产库是"跑到 082、从未见过 083"的状态;用 `store` 夹具(已应用全部 migration)
+    再 CREATE 一行来冒充老行是**假老行**——CREATE 会自动填 DEFAULT,恰好绕开了
+    "老行字段为 NONE"这个触发条件,测试会假绿。要复现真事故必须从未应用 083 的表开始。"""
+    st, proc = _boot_store()
     try:
         yield st
     finally:
