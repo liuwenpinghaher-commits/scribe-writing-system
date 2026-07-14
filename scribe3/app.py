@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 from surrealdb.errors import ServerError as _SurrealServerError
 
 from scribe3.codex_schema import (
+    all_storage_keys as codex_all_storage_keys,
     fields_for as codex_fields_for,
     schema_for as codex_schema_for,
     secret_capable_keys as codex_secret_capable_keys,
@@ -2403,11 +2404,22 @@ def _build_faction_in() -> type[BaseModel]:
 FactionIn = _build_faction_in()
 
 
-def _enum_violations(fields, value: dict, prefix: str = "") -> list[str]:
-    """按 codex_schema 字段定义递归校验 enum 字段(顶层 + array<object>/object 内一层
-    子字段),数据驱动、不硬编码字段名——新增枚举字段自动获得校验,无需在此加分支。
-    SurrealDB FLEXIBLE 子字段 DB 层不做类型/取值校验,这是唯一防线(尽力而为:只探
-    一层嵌套,不递归更深)。返回违规描述列表,空即合法。"""
+_FACTION_STORAGE_KEYS = frozenset(codex_all_storage_keys("faction"))
+
+
+def _field_violations(fields, value: dict, prefix: str = "") -> list[str]:
+    """按 codex_schema 字段定义校验取值合法性(enum 取值 + 数组元素类型),数据驱动、
+    不硬编码字段名——注册表新增字段自动获得校验,无需在此加分支。返回违规描述列表,
+    空即合法。app 层是唯一防线,漏掉的畸形值会一路走到 DB 炸成裸 500:
+
+    - enum:顶层 + array<object>/object 内一层子字段(SurrealDB 对 FLEXIBLE 子字段不做
+      取值校验,尽力而为:只探一层,不递归更深);
+    - array<object> 的元素必须是对象:migration 083 把这些字段的 `.*` 定义为
+      `TYPE object FLEXIBLE`,传字符串元素会 coercion 失败(Expected `object`);
+    - array<string> 的元素必须是字符串:DB 类型是 `array<string>`,传 dict/int 同样
+      coercion 失败。
+    这两类元素类型错误 pydantic 拦不住——FactionIn 里它们只是裸 `list`,元素不带类型。
+    """
     errors: list[str] = []
     for f in fields:
         if f.key not in value or value[f.key] is None:
@@ -2417,12 +2429,20 @@ def _enum_violations(fields, value: dict, prefix: str = "") -> list[str]:
         if f.type == "enum" and f.enum is not None:
             if v not in f.enum:
                 errors.append(f"{path}={v!r} 非法(合法值: {list(f.enum)})")
-        elif f.type == "array<object>" and f.item_schema and isinstance(v, list):
+        elif f.type == "array<object>" and isinstance(v, list):
             for i, item in enumerate(v):
-                if isinstance(item, dict):
-                    errors.extend(_enum_violations(f.item_schema, item, prefix=f"{path}[{i}]."))
+                if not isinstance(item, dict):
+                    errors.append(
+                        f"{path}[{i}] 应为对象,实际是 {type(item).__name__}: {item!r}")
+                elif f.item_schema:
+                    errors.extend(_field_violations(f.item_schema, item, prefix=f"{path}[{i}]."))
+        elif f.type == "array<string>" and isinstance(v, list):
+            for i, item in enumerate(v):
+                if not isinstance(item, str):
+                    errors.append(
+                        f"{path}[{i}] 应为字符串,实际是 {type(item).__name__}: {item!r}")
         elif f.type == "object" and f.item_schema and isinstance(v, dict):
-            errors.extend(_enum_violations(f.item_schema, v, prefix=f"{path}."))
+            errors.extend(_field_violations(f.item_schema, v, prefix=f"{path}."))
     return errors
 
 
@@ -2448,12 +2468,17 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
       "🔒 私密" → 视为未改,丢弃(不落库为字面掩码)。旧代码只 pop 了 private_operation
       一个字段——新增 secret 字段若不进这个通用循环,前端整行回传掩码值就会把库里真相
       永久写死成字面 "🔒 私密"(已用测试实证复现,见 test_codex_faction.py ②)。
-    - enum 校验:非法枚举值(含 array<object>/object 内一层子字段)提前 422,不让非法值
-      走到 DB ASSERT 才报错(那样是未捕获异常 → 裸 500)。
-    - 异常映射:store 白名单拒绝未知字段 → ValueError → 422(否则前端字段名笔误变裸
-      500);并发同名撞 uniq_faction_name UNIQUE 索引 → 409(实测 surrealdb-py 3.2.0
-      对该冲突抛 `surrealdb.errors.InternalError`,message 含 "already contains";
-      按内容匹配而非依赖具体异常子类,避免与 SDK 版本行为绑死)。
+    - 白名单前置(未知字段 → 422):sent 先按 codex_schema.all_storage_keys('faction')
+      过滤,未注册的键当场 422 并列出键名。不能指望 `**sent` 展开后由 store 的白名单去拒:
+      键名若撞上方法签名的保留字(实测 `"self"`)会先抛 `TypeError`——不是 ValueError,
+      躲过下面的异常映射 → 裸 500。前置过滤同时也免疫未来 store 签名变化引入的新保留字。
+    - 取值校验(_field_violations):非法枚举值、array<object> 元素非对象、array<string>
+      元素非字符串 → 422。这些 pydantic 拦不住(元素不带类型),漏过去就会在 DB 层
+      coercion 失败炸成裸 500。
+    - 异常映射(纵深防御,前置校验之后的兜底):store 白名单 ValueError → 422;并发同名
+      撞 uniq_faction_name UNIQUE 索引 → 409(实测本仓 surrealdb Python SDK 2.0.0 +
+      surreal 服务端 3.2.0:该冲突抛 `surrealdb.errors.InternalError`,message 含
+      "already contains";按 message 内容匹配而非绑定具体异常子类,避免与 SDK 版本行为绑死)。
     """
     sent = fc.model_dump(exclude_unset=True)          # 仅客户端显式提交的字段
     name = sent.pop("name")
@@ -2461,7 +2486,14 @@ def add_faction_ep(fc: FactionIn, work: str = "main"):
         if sent.get(k) == _SECRET_MASK:
             sent.pop(k, None)
 
-    violations = _enum_violations(codex_fields_for("faction"), sent)
+    unknown = sorted(k for k in sent if k not in _FACTION_STORAGE_KEYS)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"未知势力字段: {unknown}(不在 codex_schema 注册表内;"
+                   "如需新增字段,先去 codex_schema.py 注册再补 migration)")
+
+    violations = _field_violations(codex_fields_for("faction"), sent)
     if violations:
         raise HTTPException(status_code=422,
                             detail=f"势力字段非法: {'; '.join(violations)}")

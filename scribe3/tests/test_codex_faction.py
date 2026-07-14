@@ -436,8 +436,8 @@ def test_post_factions_concurrent_duplicate_name_409_not_500(store, monkeypatch)
     """确定性复现 TOCTOU 竞态(而非依赖真线程,避免测试 flaky):monkeypatch store._query,
     让 add_faction 内部"该名字是否已存在"的探测查询恒回空,强迫它走 CREATE 分支——
     即便该名字已存在——从而真实撞上 uniq_faction_name UNIQUE 索引(migration 038)。
-    实测(surrealdb-py 3.2.0):该冲突抛的是 `surrealdb.errors.InternalError`
-    (message 含 "already contains"),而非 SDK 字面意义的 QueryError。"""
+    实测(本仓 surrealdb Python SDK 2.0.0 + surreal 服务端 3.2.0):该冲突抛的是
+    `surrealdb.errors.InternalError`(message 含 "already contains"),而非 QueryError。"""
     c = _client(store)
     r1 = c.post("/factions", json={"name": "并发门"})
     assert r1.status_code == 200, r1.text
@@ -453,3 +453,50 @@ def test_post_factions_concurrent_duplicate_name_409_not_500(store, monkeypatch)
 
     r2 = c.post("/factions", json={"name": "并发门", "motto": "抢建"})
     assert r2.status_code == 409, f"并发同名应 409 而非裸 500,实际: {r2.status_code} {r2.text}"
+
+
+# ============================================================
+# CX-Task 3 追修(审查 P2×2):畸形输入必须转干净 4xx,不得裸 500。
+# 上面 ⑦ 只覆盖了"普通未知字段名";还有两类畸形输入会绕过校验一路走到底层炸成 500。
+# ============================================================
+
+# ---- P2-1:字段名撞 Python 保留字 "self" → 曾裸 500(TypeError,不被 except ValueError 接住)----
+def test_post_factions_field_named_self_422_not_500(store):
+    """`st.add_faction(name, **sent)` 里若 sent 含键 "self",展开后与绑定方法的隐式 self
+    实参打架 → TypeError(不是 ValueError,躲过异常映射)→ 裸 500。
+    根治:app 层前置白名单过滤,未知键(含 "self")当场 422 并列出键名,压根不让它进
+    `**sent` 展开——顺带也堵住未来 store 方法签名变化引入的新保留字冲突。"""
+    c = _client(store)
+    r = c.post("/factions", json={"name": "保留字门", "self": "x"})
+    assert r.status_code == 422, f"字段名 'self' 应 422 而非裸 500,实际: {r.status_code} {r.text}"
+    assert "self" in r.text, f"detail 应列出未知键名,实际: {r.text}"
+
+
+# ---- P2-2:array<object> 字段传非 dict 元素 → 曾裸 500(6 个字段全中)----
+@pytest.mark.parametrize("field", ["internal_factions", "key_figures", "artifacts",
+                                   "goals", "world_rule_affinity", "timeline"])
+def test_post_factions_array_object_non_dict_element_422_not_500(store, field):
+    """校验器(当时叫 _enum_violations,现 _field_violations)原来对非 dict 元素静默
+    continue,畸形数据(如 goals=["纯字符串"])
+    一路走到 DB:migration 083 把这些字段的 `.*` 子字段定义为 `TYPE object FLEXIBLE`,
+    字符串元素无法 coerce 成 object → InternalError(message 不含 "already contains",
+    躲过 409 分支)→ 原样 re-raise → 裸 500。全部 6 个 array<object> 字段逐个钉。"""
+    c = _client(store)
+    r = c.post("/factions", json={"name": f"畸形门_{field}", field: ["我不是对象"]})
+    assert r.status_code == 422, (
+        f"{field} 传非 dict 元素应 422 而非裸 500,实际: {r.status_code} {r.text}")
+    assert field in r.text, f"detail 应指出是哪个字段,实际: {r.text}"
+
+
+# ---- P2-2 同类洞(本次追查发现):array<string> 字段传非字符串元素 → 曾同样裸 500 ----
+@pytest.mark.parametrize("field", ["known_members", "aliases"])
+@pytest.mark.parametrize("bad_element", [{"a": 1}, 123])
+def test_post_factions_array_string_non_str_element_422_not_500(store, field, bad_element):
+    """与 array<object> 完全同型:DB 类型是 `array<string>`,传 dict/int 元素 coercion
+    失败 → 裸 500(已实测复现)。pydantic 拦不住(FactionIn 里是裸 `list`,元素不带类型),
+    app 层同样是唯一防线。"""
+    c = _client(store)
+    r = c.post("/factions", json={"name": f"畸形串门_{field}", field: [bad_element]})
+    assert r.status_code == 422, (
+        f"{field} 传非字符串元素应 422 而非裸 500,实际: {r.status_code} {r.text}")
+    assert field in r.text, f"detail 应指出是哪个字段,实际: {r.text}"
