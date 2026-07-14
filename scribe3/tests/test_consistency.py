@@ -115,6 +115,9 @@ class TestWriteGate:
         ("POST", "/character-relations"),
         ("POST", "/character-relations/evolve"),
         ("POST", "/character-relations/end"),
+        # CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)。作者可信通道,
+        # 全权(含 truth);掩码哨兵见 app.add_entity_relation_ep 的 truth==_SECRET_MASK pop。
+        ("POST", "/entity-relations"), ("DELETE", "/entity-relations"),
         ("POST", "/voice-flags/{fid}/resolve"),
         ("POST", "/voice-flags/fold"),
         # F-01 大纲/卷章树手稿支

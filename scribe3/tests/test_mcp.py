@@ -21,13 +21,15 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                           "s3_supersede_fact", "s3_forget_knowledge",
                           "s3_evolve_relation", "s3_resolve_voice_flag",
-                          "s3_fold_voice_flags", "s3_add_clue"}
+                          "s3_fold_voice_flags", "s3_add_clue",
+                          "s3_add_entity_relation"}   # CX-Task 5:通用实体关系表写工具
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
                  "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
-                 "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags"}
+                 "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",
+                 "s3_list_entity_relations"}   # CX-Task 5:通用实体关系表读工具
 
 
 def test_write_gated_set_no_drift():

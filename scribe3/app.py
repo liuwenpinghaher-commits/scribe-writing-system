@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 from surrealdb.errors import ServerError as _SurrealServerError
 
 from scribe3.codex_schema import (
+    ENTITY_RELATION_TYPES,
     all_storage_keys as codex_all_storage_keys,
     fields_for as codex_fields_for,
     schema_for as codex_schema_for,
@@ -2680,6 +2681,56 @@ def end_relation_endpoint(req: dict, work: str = "main"):
         st.end_relation(src, dst, until_chapter)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
+# ===== CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)=====
+# 与上面 /character-relations(锁死 character↔character)是两套独立端点,互不影响。
+# entity_relation 的 a/b 是不锁类型的自由字符串实体引用,不走 codex_schema 注册表驱动
+# (那是给「一个实体类型的一整份字段表单」用的;本表字段少且固定,直接手写字段清单
+# 更直接,与 /character-relations 走 dict body 的既有风格一致)。
+@app.get("/entity-relations")
+def entity_relations_ep(entity: str | None = None, chapter: int | None = None,
+                        reveal_secret: bool = False, work: str = "main"):
+    st = _store_for(work)
+    rows = st.entity_relations_at(chapter, entity) if chapter is not None \
+        else st.list_entity_relations(entity)
+    return [_mask_field(dict(r), "truth", "truth_secret", reveal_secret) for r in rows]
+
+
+@app.post("/entity-relations")
+def add_entity_relation_ep(req: dict, work: str = "main"):
+    a = req.get("a")
+    b = req.get("b")
+    relation_type = req.get("relation_type")
+    if not a or not b or not relation_type:
+        raise HTTPException(status_code=422, detail="缺少必填字段: a/b/relation_type")
+    if relation_type not in ENTITY_RELATION_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"relation_type={relation_type!r} 非法(合法值: {list(ENTITY_RELATION_TYPES)})")
+
+    sent = dict(req)
+    # 掩码哨兵(Task 3 的血泪教训在此表复现):前端整行回传时 truth 若仍是掩码占位符
+    # (未被作者真正编辑),绝不能把它当真值落库——那会把库里的真相永久覆盖成字面
+    # "🔒 私密"。pop 掉即可:store.add_entity_relation 对未传字段走 MERGE 保留旧值。
+    if sent.get("truth") == _SECRET_MASK:
+        sent.pop("truth", None)
+
+    kwargs = {k: sent[k] for k in
+              ("perception_a", "perception_b", "truth", "truth_secret", "since_chapter")
+              if k in sent}
+    st = _store_for(work)
+    try:
+        st.add_entity_relation(a, b, relation_type, **kwargs)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    return {"ok": True}
+
+
+@app.delete("/entity-relations")
+def del_entity_relation_ep(a: str, b: str, work: str = "main"):
+    _store_for(work).delete_entity_relation(a, b)
     return {"ok": True}
 
 

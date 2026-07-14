@@ -76,7 +76,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_set_voice_profile", "s3_add_item", "s3_add_term",
                 "s3_supersede_fact", "s3_forget_knowledge",
                 "s3_evolve_relation", "s3_resolve_voice_flag",
-                "s3_fold_voice_flags", "s3_add_clue"}
+                "s3_fold_voice_flags", "s3_add_clue",
+                "s3_add_entity_relation"}   # CX-Task 5:通用实体关系表写工具
 
 
 def requires_approval(name: str) -> bool:
@@ -676,6 +677,69 @@ async def s3_add_faction(ctx: Context, name: str,
     kwargs = {k: v for k, v in provided.items() if v is not _MCP_UNSET}
     return commit_if_approved("s3_add_faction", ok,
                               lambda: _store_for(work).add_faction(name, **kwargs))
+
+
+# ===== CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)=====
+# 与 s3_add_character_relation/s3_relations_at(锁死 character↔character)是两套独立
+# 工具,互不影响。entity_relation 的 a/b 不锁实体类型,不做存在性校验。
+@mcp.tool(annotations=_RO)
+def s3_list_entity_relations(entity: str | None = None, chapter: int | None = None,
+                             reveal_secret: bool = False,
+                             work: str | None = None) -> list[dict]:
+    """列通用实体关系(双方认知 perception_a/perception_b + 主编独知 truth,任意实体
+    类型,如 "faction:衔尾蛇秘会"/"role:焦三"/"item:碎片")。entity 给定则只看涉及该
+    实体的关系(a 或 b 命中);chapter 给定则按时态过滤(仿 s3_relations_at)。
+
+    truth 按 truth_secret 掩码(默认 '🔒 私密'),reveal_secret=True 解锁明文——
+    **仅供主编全知联查**,其输出严禁进入限知章续写 prompt(与 s3_list_factions 同规矩)。
+    """
+    st = _store_for(work)
+    rows = st.entity_relations_at(chapter, entity) if chapter is not None \
+        else st.list_entity_relations(entity)
+    result = []
+    for row in rows:
+        row = dict(row)
+        is_secret = bool(row.get("truth_secret"))
+        row["truth"] = _mask_value(row.get("truth") or "", is_secret, reveal_secret)
+        result.append(row)
+    return result
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_entity_relation(ctx: Context, a: str, b: str, relation_type: str,
+                                 perception_a: str | None = None,
+                                 perception_b: str | None = None,
+                                 truth: str | None = None,
+                                 truth_secret: bool | None = None,
+                                 since_chapter: int | None = None,
+                                 work: str | None = None) -> dict:
+    """添加/更新通用实体关系(写,待批)。不锁实体类型——faction/character/item 等
+    任意组合皆可,a/b 为「前缀:本地id」引用字符串(如 "faction:衔尾蛇秘会"/"role:焦三")。
+
+    relation_type 受控词表:臣服/敌对/渗透/无视/共生/结盟/利用/未知。
+    perception_a/perception_b 是 a/b 各自对这段关系的认知,**允许不对称、甚至任一方
+    是错的**(如:秘会自认"虚与委蛇的台阶",天龙座却认定秘会是"地球代理人")。
+    truth 是仅主编知道的客观真相,默认视为 secret(不传 truth_secret 时新建行按 True
+    处理,宁可误锁不可误放);reveal_secret=true(见 s3_list_entity_relations)才解锁。
+
+    只传本次要变更的字段——未传的 perception_a/perception_b/truth/truth_secret 保持
+    库中原值不动(store 层按 (a,b,relation_type,since_chapter) 自然键 MERGE,与
+    REST `POST /entity-relations` 一致);a/b/relation_type/since_chapter 是定位关系
+    用的键,每次调用都需显式给出。
+    """
+    ok = await _ask(ctx, f"添加实体关系 {a}→{b} [{relation_type}]")
+    kwargs: dict = {}
+    if perception_a is not None:
+        kwargs["perception_a"] = perception_a
+    if perception_b is not None:
+        kwargs["perception_b"] = perception_b
+    if truth is not None:
+        kwargs["truth"] = truth
+    if truth_secret is not None:
+        kwargs["truth_secret"] = truth_secret
+    return commit_if_approved("s3_add_entity_relation", ok,
+                              lambda: _store_for(work).add_entity_relation(
+                                  a, b, relation_type, since_chapter=since_chapter, **kwargs))
 
 
 @mcp.tool(annotations=_RW)

@@ -20,6 +20,7 @@ import websockets.exceptions as _ws_exc
 from surrealdb import RecordID, Surreal
 from surrealdb.errors import ConnectionUnavailableError
 
+from scribe3.codex_schema import ENTITY_RELATION_TYPES as _ENTITY_RELATION_TYPES
 from scribe3.codex_schema import all_storage_keys as _codex_all_storage_keys
 from scribe3.context_models import (
     ContextFocus, ContextSnapshot, NavigationIntent, StaleContextError,
@@ -3831,6 +3832,99 @@ class SurrealStore:
             {"uc": until_chapter,
              "s": RecordID("character", sl),
              "d": RecordID("character", dl)})
+
+    # --- 通用实体关系表(CX-Task 5:双向认知 + 主编独知 truth + 时态)---
+    # 与上面的 character_relation(TYPE RELATION,锁死 character→character、RELATE 要求
+    # 两端记录真实存在)是两张独立的表,彼此零影响。entity_relation 是普通 SCHEMAFULL 表,
+    # a/b 是自由字符串实体引用(前缀+本地 id,如 "faction:衔尾蛇秘会"/"role:焦三"),
+    # 不做存在性校验、不锁实体类型——faction↔character、character↔item……任意组合皆可存。
+    def add_entity_relation(self, a: str, b: str, relation_type: str,
+                            perception_a: str | None = _UNSET,
+                            perception_b: str | None = _UNSET,
+                            truth: str | None = _UNSET,
+                            truth_secret: bool = _UNSET,
+                            since_chapter: int | None = None) -> None:
+        """Upsert 通用实体关系。
+
+        自然键 = (a, b, relation_type, since_chapter, 仍开着即 until_chapter IS NONE):
+        命中则 MERGE,未命中才 CREATE——与 store.add_faction 的 upsert 思路一致。这是
+        app.py `POST /entity-relations` 的掩码哨兵(truth==_SECRET_MASK 时 pop)能够
+        真正"不覆盖真值"的前提:若每次都无条件新插一行,旧行虽不会被掩码字符串污染,
+        但也没法就地更正 perception_a/perception_b 等字段——那不是真的"防回写毁数据",
+        只是"从不修改"。`perception_a`/`perception_b`/`truth`/`truth_secret` 用模块级
+        `_UNSET` 哨兵区分"调用方未传"(MERGE 不碰旧值)与"显式传 None/False"(写空/
+        取消 secret),与 add_faction 同一思路。`a`/`b`/`relation_type`/`since_chapter`
+        是定位关系用的自然键,不支持"部分更新"语义——每次调用都必须显式给出(与
+        add_faction 的 `name` 地位相同:它是键,不是可合并字段)。
+
+        relation_type 必须在 `codex_schema.ENTITY_RELATION_TYPES` 词表内,否则
+        `ValueError`(app.py 映射 422;migration 085 的 DB 侧 ASSERT 是最后一道防线)。
+        """
+        if relation_type not in _ENTITY_RELATION_TYPES:
+            raise ValueError(
+                f"add_entity_relation: relation_type {relation_type!r} 非法"
+                f"(合法值: {list(_ENTITY_RELATION_TYPES)})")
+
+        content: dict = {}
+        for k, v in (("perception_a", perception_a), ("perception_b", perception_b),
+                     ("truth", truth), ("truth_secret", truth_secret)):
+            if v is not _UNSET:
+                content[k] = v
+        content["a"] = a
+        content["b"] = b
+        content["relation_type"] = relation_type
+        content["since_chapter"] = since_chapter
+
+        if since_chapter is None:
+            existing = self._query(
+                "SELECT id FROM entity_relation WHERE a=$a AND b=$b AND relation_type=$rt "
+                "AND until_chapter IS NONE AND since_chapter IS NONE LIMIT 1",
+                {"a": a, "b": b, "rt": relation_type})
+        else:
+            existing = self._query(
+                "SELECT id FROM entity_relation WHERE a=$a AND b=$b AND relation_type=$rt "
+                "AND until_chapter IS NONE AND since_chapter=$sc LIMIT 1",
+                {"a": a, "b": b, "rt": relation_type, "sc": since_chapter})
+
+        if existing:
+            self._execute_write("UPDATE $rid MERGE $content",
+                                {"rid": existing[0]["id"], "content": content})
+        else:
+            if truth_secret is _UNSET:
+                content["truth_secret"] = True   # 新行安全默认:未标注一律先当作主编独知
+            self._execute_write("CREATE entity_relation CONTENT $content", {"content": content})
+
+    def list_entity_relations(self, entity: str | None = None) -> list[dict]:
+        """列全部实体关系(不做时态过滤);entity 给定则只看 a 或 b 命中该引用的关系。"""
+        if entity:
+            return self._query(
+                "SELECT * FROM entity_relation WHERE a=$e OR b=$e", {"e": entity})
+        return self._query("SELECT * FROM entity_relation")
+
+    def entity_relations_at(self, chapter: int, entity: str | None = None) -> list[dict]:
+        """某章仍生效的实体关系(限知时间门,仿 relations_at):
+        since_chapter 为空或 <= chapter,且 until_chapter 为空或 > chapter。"""
+        where = ("(since_chapter IS NONE OR since_chapter <= $ch) AND "
+                 "(until_chapter IS NONE OR until_chapter > $ch)")
+        if entity:
+            return self._query(
+                f"SELECT * FROM entity_relation WHERE ({where}) AND (a=$e OR b=$e)",
+                {"ch": chapter, "e": entity})
+        return self._query(f"SELECT * FROM entity_relation WHERE {where}", {"ch": chapter})
+
+    def end_entity_relation(self, a: str, b: str, until_chapter: int) -> None:
+        """终止关系:设置 until_chapter,不新建替代关系(仿 end_relation)。
+        关闭 a→b 方向全部仍开着的关系(不分 relation_type,与 end_relation 对 character
+        的语义一致)。"""
+        self._execute_write(
+            "UPDATE entity_relation SET until_chapter=$uc "
+            "WHERE a=$a AND b=$b AND until_chapter IS NONE",
+            {"uc": until_chapter, "a": a, "b": b})
+
+    def delete_entity_relation(self, a: str, b: str) -> None:
+        """硬删 a→b 方向全部关系(REST DELETE /entity-relations 用;不分 relation_type)。"""
+        self._execute_write(
+            "DELETE entity_relation WHERE a=$a AND b=$b", {"a": a, "b": b})
 
     # --- 世界规则(层1 设定完整性)---
     def add_world_rule(self, name: str, category: str, source: str | None = None,

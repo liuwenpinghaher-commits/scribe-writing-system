@@ -159,6 +159,17 @@ KINDS: dict[str, tuple[CodexField, ...]] = {
 }
 
 
+#: 通用实体关系表(entity_relation,CX-Task 5)relation_type 的合法词表——单一权威源:
+#: migration 085 的 DB 侧 ASSERT、store.add_entity_relation 的 ValueError、app.py
+#: POST /entity-relations 的 422 校验都从这里取值,不在三处分别手写(同一教训见
+#: FACTION_FIELDS 里 status 字段 "枚举值与 migration 027 的 ASSERT 同源" 的注释——
+#: SurrealDB migration 是静态 .surql 文本,没法 import Python 常量,DB 侧 ASSERT 必然是
+#: 一份手写镜像,但 Python 侧的 store/app 两处校验必须共享这同一个元组,不允许各自抄一份)。
+ENTITY_RELATION_TYPES: tuple[str, ...] = (
+    "臣服", "敌对", "渗透", "无视", "共生", "结盟", "利用", "未知",
+)
+
+
 def fields_for(kind: str) -> tuple[CodexField, ...]:
     """按实体类型取字段元组;未登记的 kind 抛 KeyError(不 fail-soft——这是配置错误)。"""
     return KINDS[kind]
