@@ -145,15 +145,23 @@ def hermes_complete(prompt: str, system: str | None = None,
 
 
 def hermes_complete_stream(prompt: str, system: str | None = None,
-                           model: str | None = None, timeout: float | None = None):
+                           model: str | None = None, timeout: float | None = None,
+                           history: list[dict] | None = None):
     """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。主编对话用。
-    建链瞬时错自动重试(与非流式重试语义一致),已 yield 后不重试。"""
+    建链瞬时错自动重试(与非流式重试语义一致),已 yield 后不重试。
+
+    history(U-009 主编速答失忆修复):按序插在 system 与本轮 user 之间的既往轮次
+    ([{"role": "user"|"assistant", "content": str}, ...])。None/[] = 旧行为(单轮)。
+    此前 msgs 恒为 [system, 当前一句]——模型从未见过自己上一轮说了什么,作者选了主编
+    自己给的"方向C",主编反问"方向C是什么"。预算截断是调用方的责任,这里只拼接。"""
     import json as _j
     model = model or default_model()
     timeout = timeout if timeout is not None else default_timeout()
     _tick_daily()
-    msgs = ([{"role": "system", "content": system}] if system else []) + \
-        [{"role": "user", "content": prompt}]
+    msgs = ([{"role": "system", "content": system}] if system else []) \
+        + [m for m in (history or [])
+           if m.get("role") in ("user", "assistant") and m.get("content")] \
+        + [{"role": "user", "content": prompt}]
 
     def make_stream():
         with httpx.stream("POST", f"{HERMES}/chat/completions", timeout=timeout,

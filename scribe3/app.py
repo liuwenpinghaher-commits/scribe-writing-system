@@ -3716,21 +3716,55 @@ class _ChatTurnLog:
         return False   # 不吞异常
 
 
+def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
+                               max_chars_each: int = 600) -> list[dict]:
+    """U-009:主编速答的对话记忆——把本线程最近几轮 user/assistant 留痕变成 chat messages。
+
+    根因:hermes_complete_stream 此前每轮只发 [system, 当前一句],模型从未见过自己
+    上一轮说了什么(S-001 注释自认"单遍无续接")——作者选了主编自己给的"方向C",
+    主编反问"方向C是什么"。U-005 已把讨论留痕进 editorial thread,这里让**同一份留痕**
+    成为模型的上下文(单一事实源:界面显示的历史 = 模型看到的历史;前端零改动)。
+
+    预算:最近 max_msgs 条(≈6 轮),每条截 max_chars_each 字(线程里有《印迹》回填的
+    整篇世界观全案那种长消息,不截会撑爆 prompt)。**必须在落本轮 user 留痕之前调用**,
+    否则当前这句会在 history 里出现第二遍。fail-soft:任何异常回 [](连续性是增强,
+    绝不因取历史失败断对话)。"""
+    if not thread_id:
+        return []
+    try:
+        rows = st.list_thread_messages(thread_id, limit=max_msgs)
+        out = []
+        for r in rows:
+            role = r.get("role")
+            text = (r.get("text") or "").strip()
+            if role not in ("user", "assistant") or not text:
+                continue
+            if len(text) > max_chars_each:
+                text = text[:max_chars_each] + "…(前文截断)"
+            out.append({"role": role, "content": text})
+        return out
+    except Exception:
+        logging.getLogger("scribe3").warning("载入主编讨论历史失败(忽略,本轮无记忆)", exc_info=True)
+        return []
+
+
 @app.get("/chat/stream")
 def chat_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
     seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。
-    U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。"""
+    U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。
+    U-009:留痕反哺为对话记忆(history 注入)——此前单遍无续接,主编每轮失忆。"""
     from scribe3.llm import hermes_complete_stream
     st = _store_for(work)
     sysmsg = _editor_system(st) + _pulse_digest(st, seq) + _DISCUSSION_DIRECTIVE
     thread_id = _editor_turn_context(work).thread_id
+    history = _thread_history_for_prompt(st, thread_id)   # 必须先于 _ChatTurnLog 落本轮 user
 
     def gen():
         with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
                           thread_id=thread_id) as clog:
             try:
-                for delta in hermes_complete_stream(msg, system=sysmsg):
+                for delta in hermes_complete_stream(msg, system=sysmsg, history=history):
                     clog.feed(delta)
                     yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
             except Exception as e:  # 失败如实回流,不静默

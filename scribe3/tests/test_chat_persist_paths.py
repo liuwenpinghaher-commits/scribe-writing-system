@@ -109,7 +109,7 @@ def _consume(resp):
 def test_chat_stream_endpoint_persists_discussion(client, store, monkeypatch):
     """GET /chat/stream:修前 0 条留痕(bug),修后 user+assistant 落到主编线程。"""
     monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
-                        lambda msg, system=None: iter(["主编", "回复", "内容"]))
+                        lambda msg, system=None, **_kw: iter(["主编", "回复", "内容"]))
     r = client.get("/chat/stream", params={"msg": "讨论一下秘会", "work": "main", "seq": 2})
     assert r.status_code == 200
     _consume(r)
@@ -185,3 +185,66 @@ def test_all_chat_sse_endpoints_persist_or_are_exempt():
         assert ("add_chat_message" in src) or ("_ChatTurnLog" in src), (
             f"/chat SSE 端点 {name} 既不留痕也不在 EXEMPT——主编对话会凭空消失(U-005)。"
             f"要么接 _ChatTurnLog,要么显式加入 EXEMPT 并注明原因。")
+
+
+# ============================================================
+# ⑥ U-009 对话连续性:留痕反哺为模型的对话记忆(修"主编每轮失忆")
+# ============================================================
+
+def _fake_stream_factory(captured, reply):
+    def fake(msg, system=None, history=None, **_kw):
+        captured.append({"msg": msg, "history": list(history or [])})
+        yield from reply
+    return fake
+
+
+def test_chat_stream_two_turns_model_sees_its_own_prior_options(client, store, monkeypatch):
+    """两轮端到端:主编第一轮给出方向A/B/C,第二轮作者说"选方向C"——模型的 history
+    里必须有第一轮的 user 与 assistant 原文(修前 history 概念不存在,主编反问
+    "方向C是什么")。"""
+    captured = []
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        _fake_stream_factory(captured, ["方向A:守火人线;方向B:天穹线;", "方向C:烛照碎片线"]))
+    _consume(client.get("/chat/stream", params={"msg": "给我三个展开方向", "work": "main"}))
+    assert captured[0]["history"] == [], "第一轮之前无历史"
+
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        _fake_stream_factory(captured, ["好,方向C展开如下…"]))
+    _consume(client.get("/chat/stream", params={"msg": "选方向C", "work": "main"}))
+
+    h = captured[1]["history"]
+    assert {"role": "user", "content": "给我三个展开方向"} in h
+    assert any(m["role"] == "assistant" and "方向C:烛照碎片线" in m["content"] for m in h), (
+        f"模型没看到自己上一轮给的选项,history={h}")
+    # 当前这句只在 prompt 里,不得在 history 里重复出现
+    assert captured[1]["msg"] == "选方向C"
+    assert not any(m["content"] == "选方向C" for m in h), "本轮消息在 history 里重复"
+
+
+def test_chat_history_budget_truncates_long_and_caps_count(store):
+    """预算:超长消息截断(印迹回填里有整篇世界观全案)、条数封顶最近 max_msgs。"""
+    tid = _thread_id(store)
+    store.add_chat_message(chapter=0, stage="discuss", role="user",
+                           text="超长设定" * 500, thread_id=tid)   # 2000 字
+    for i in range(20):
+        store.add_chat_message(chapter=0, stage="discuss",
+                               role="assistant" if i % 2 else "user",
+                               text=f"第{i}条", thread_id=tid)
+    h = A._thread_history_for_prompt(store, tid, max_msgs=12, max_chars_each=600)
+    assert len(h) <= 12
+    assert all(len(m["content"]) <= 600 + 12 for m in h)   # +截断标记
+    assert h[-1]["content"] == "第19条", "应取【最近】的 N 条(旧的被挤出)"
+
+
+def test_chat_history_fail_soft_keeps_stream_alive(client, store, monkeypatch):
+    """取历史失败(DB 抖动)→ history=[],对话照常流式,不 500。"""
+    def boom(*a, **k):
+        raise RuntimeError("DB 掉线")
+    monkeypatch.setattr(store, "list_thread_messages", boom)
+    captured = []
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        _fake_stream_factory(captured, ["ok"]))
+    r = client.get("/chat/stream", params={"msg": "hi", "work": "main"})
+    assert r.status_code == 200
+    _consume(r)
+    assert captured[0]["history"] == []
