@@ -3314,7 +3314,7 @@ def _faction_relation_summary(st, name: str, chapter: int, *, for_generation: bo
         rows = (st.entity_relations_at(chapter, entity_id) if chapter is not None
                 else st.list_entity_relations(entity_id))
     except Exception:
-        rows = []
+        raise   # U-011 fail-loud: _faction_relation_summary 关系摘要
     segs = []
     for r in rows or []:
         a, b, rt = r.get("a"), r.get("b"), r.get("relation_type")
@@ -3422,10 +3422,10 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
     时,`secret_capable` 字段一律不注入——即便 reveal=True(作者全知)也不例外
     (对齐既有测试红线,历史上 reveal 从不放行势力 secret 字段)。"""
     def _safe(fn):
-        try:
-            return fn() or []
-        except Exception:
-            return []
+        # U-011: 删静默降级(作者要 fail-loud)。此前 6 类设定(角色/势力/物件/术语/世界规则/
+        # 母题)任一取数异常→返 []→主编看到"本书无此设定",与真没有无区别,把真 bug 悄悄躲过。
+        # 现在直接抛→崩到 SSE error 帧、前端亮红,作者当场看见"设定读取失败"。名字保留兼容调用点。
+        return fn() or []
     parts = []
     chars = _safe(st.characters)
     if chars:
@@ -3445,7 +3445,7 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
             from scribe3.context_assembler import _secret_fact_ids
             secret_ids = _secret_fact_ids(st)
         except Exception:
-            secret_ids = set()
+            raise   # U-011 fail-loud: ⚠撤销批次1的fail-open:secret判据失败必须抛,不退空集
         fact_index = _faction_bridge_fact_index(st, eff_chapter)
         facs_blocks = [_faction_prompt_block(st, f, chapter=eff_chapter, known_ids=known_ids,
                                              secret_ids=secret_ids, fact_index=fact_index,
@@ -3503,7 +3503,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
                 for d in visible[:28]
             ]
         except Exception:
-            lines = []
+            raise   # U-011 fail-loud: _editor_system 限知帧可见设定
         ctx_set = "\n".join(lines) or "(焦点者帧内暂无可见设定)"
         set_label = f"【焦点者({focalizer})帧内可见设定(限知基座,帧外私密已屏蔽)】"
     else:
@@ -3570,7 +3570,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
                 by_id = {getattr(f, "id", None): f for f in (inj.get("facts") or [])}
                 lines = [f"- {i['text']}" for i in inj["chosen"] if _keep_item(i, by_id)]
         except Exception:
-            lines = [_line(f) for f in st.facts_at(99999) if _keep_fact(f)][:28]
+            raise   # U-011 fail-loud: M6全知转储:assemble_injection崩不退裸转储
         ctx_set = "\n".join(lines) or "(尚无设定)"
         set_label = "【已确立设定(你全知,含私密伏线)】"
 
@@ -3589,7 +3589,7 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
                         "可经 s3_material_recall(query) 按当前话题唤起相关素材借鉴(借鉴非照搬),"
                         "并向作者说明为什么参考。")
     except Exception:
-        pass
+        raise   # U-011 fail-loud: _editor_system 素材提示块
     return (
         "你是这部长篇小说的资深主编(责编),与作者面对面讨论创作。\n"
         f"【北极星·作品意图】读者感受:{intent['reader_feeling'] or '—'};"
@@ -4203,7 +4203,7 @@ def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
                 "同一个意思换感官/换喻体/换节奏另写(专有名词与刻意母题可保留,忌的是动作描写与句式的偷懒重打):\n"
                 + "、".join(f"「{a}」" for a in avoid[:top]))
     except Exception:
-        return ""
+        raise   # U-011: fail-loud,取块失败上抛(_avoid_directive 防复读)
 
 
 def _arc_state_block(st, focalizer: str, chapter: int) -> str:
@@ -4352,7 +4352,7 @@ def _frame_block(st, focalizer: str, chapter: int) -> str:
             + "\n".join(lines)
         )
     except Exception:
-        return ""
+        raise   # U-011: fail-loud(_frame_block 限知帧)
 
 
 def _recap_block(st, chapter: int) -> str:
@@ -4378,7 +4378,7 @@ def _recap_block(st, chapter: int) -> str:
             return ""
         return "\n\n## 前情(接着往下写,别重复已发生的)\n" + "\n\n".join(parts)
     except Exception:
-        return ""
+        raise   # U-011: fail-loud(_recap_block 前情)
 
 
 def _current_tail_block(st, chapter: int) -> str:
@@ -4396,7 +4396,7 @@ def _current_tail_block(st, chapter: int) -> str:
             "\n\n## 本章已写到这里(若续写,从此处自然接上,别另起炉灶/别重复)\n" + tail
         )
     except Exception:
-        return ""
+        raise   # U-011: fail-loud(_current_tail_block 续写衔接)
 
 
 @app.get("/chat/write")
@@ -4561,7 +4561,7 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     try:
         ch = st.get_chapter(chapter) or {}
     except Exception:
-        return ""
+        raise   # U-011: fail-loud(_outline_block 大纲/节拍)
     synopsis = (ch.get("synopsis") or "").strip()
     beat_texts = []
     for b in ch.get("beats") or []:
@@ -4669,7 +4669,7 @@ def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
         from scribe3.purpose import parse_deltas
         ds = parse_deltas((st.get_chapter(chapter) or {}).get("deltas"))
     except Exception:
-        ds = []
+        raise   # U-011: fail-loud(_purpose_workflow_block 目的合同)
     if ds:
         return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
                 "验收验的是「状态变化发生没发生」,不是好不好。")

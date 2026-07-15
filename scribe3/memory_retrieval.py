@@ -306,15 +306,16 @@ class MemoryRetriever:
     # --- 通道1:structured(领域表 → canonical 候选)---
     def _channel_structured(self, rq: RetrievalQuery, candidates: dict) -> list[str]:
         """facts_at / open_promises 直查作 canonical 候选。
-        ⚠ 正典不复制进 memory_item:每次即时从权威领域表取,永远是当下真值。"""
+        ⚠ 正典不复制进 memory_item:每次即时从权威领域表取,永远是当下真值。
+
+        U-011(2026-07-15,作者要 fail-loud):删掉 facts_at/open_promises 两段
+        try/except→降级空——四通道任一悄悄失效都会让"以为主编有全套记忆,其实这轮
+        悄悄只有正典"这类假象发生,查询失败必须让整次检索炸出来,不能悄悄少一路。"""
         ids: list[str] = []
         chapter = rq.snapshot.get("chapter") if isinstance(rq.snapshot, dict) else None
         cap = max(rq.k * 2, 40)
-        try:
-            facts = self.store.facts_at(chapter if chapter is not None else 99999)
-        except Exception:
-            _log.debug("structured 通道 facts_at 失败,降级空", exc_info=True)
-            facts = []
+        # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+        facts = self.store.facts_at(chapter if chapter is not None else 99999)
         for f in (facts or [])[:cap]:
             sid = getattr(f, "id", None)
             if not sid or sid in candidates:
@@ -327,11 +328,7 @@ class MemoryRetriever:
                              "secret": bool(getattr(f, "secret", False))}],
             )
             ids.append(sid)
-        try:
-            promises = self.store.open_promises()
-        except Exception:
-            _log.debug("structured 通道 open_promises 失败,降级空", exc_info=True)
-            promises = []
+        promises = self.store.open_promises()
         for p in (promises or [])[:cap]:
             pid = p.get("id")
             sid = f"promise:{pid}"
@@ -354,20 +351,14 @@ class MemoryRetriever:
 
     # --- 通道2:bm25(memory_item 全文)---
     def _channel_bm25(self, rq: RetrievalQuery, candidates: dict, chapter: int | None) -> list[str]:
-        try:
-            raw = self.store.memory_bm25(rq.work, rq.query, k=rq.k, chapter=chapter)
-        except Exception:
-            _log.debug("bm25 通道失败,降级空", exc_info=True)
-            return []
+        # U-011(2026-07-15,作者要 fail-loud): 删静默降级,失败上抛
+        raw = self.store.memory_bm25(rq.work, rq.query, k=rq.k, chapter=chapter)
         return self._hydrate_experiential(rq, candidates, raw or [])
 
     # --- 通道3:vector(memory_item HNSW)---
     def _channel_vector(self, rq: RetrievalQuery, candidates: dict, chapter: int | None) -> list[str]:
-        try:
-            raw = self.store.memory_vector(rq.work, rq.query, k=rq.k, chapter=chapter)
-        except Exception:
-            _log.debug("vector 通道失败,降级空", exc_info=True)
-            return []
+        # U-011(2026-07-15,作者要 fail-loud): 删静默降级,失败上抛
+        raw = self.store.memory_vector(rq.work, rq.query, k=rq.k, chapter=chapter)
         return self._hydrate_experiential(rq, candidates, raw or [])
 
     # --- 通道4:graph(memory_relation 一跳扩展)---
@@ -375,31 +366,27 @@ class MemoryRetriever:
                        chapter: int | None) -> list[str]:
         if not seed_raw:
             return []
-        try:
-            raw = self.store.memory_graph(rq.work, seed_raw[:3], k=rq.k, chapter=chapter)
-        except Exception:
-            _log.debug("graph 通道失败,降级空", exc_info=True)
-            return []
+        # U-011(2026-07-15,作者要 fail-loud): 删静默降级,失败上抛
+        raw = self.store.memory_graph(rq.work, seed_raw[:3], k=rq.k, chapter=chapter)
         return self._hydrate_experiential(rq, candidates, raw or [])
 
     # --- 经验候选水合(memory_item 裸 id → MemoryCandidate,统一 source_id="mem:<id>")---
+    # U-011(2026-07-15,作者要 fail-loud):删掉 get_memory_items 失败静默退化为空
+    # rows(等价于"这批记忆全拉不到"却不吭声)——查询失败必须抛。
     def _hydrate_experiential(self, rq: RetrievalQuery, candidates: dict, mem_ids: list[str]) -> list[str]:
         missing = [m for m in mem_ids if f"mem:{m}" not in candidates]
         rows: dict[str, dict] = {}
         if missing:
-            try:
-                for r in (self.store.get_memory_items(missing) or []):
-                    rows[r["id"]] = r
-            except Exception:
-                _log.debug("get_memory_items 失败,该通道该批降级空", exc_info=True)
-                rows = {}
+            # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+            for r in (self.store.get_memory_items(missing) or []):
+                rows[r["id"]] = r
         ordered: list[str] = []
         for m in mem_ids:
             sid = f"mem:{m}"
             if sid not in candidates:
                 row = rows.get(m)
                 if row is None:
-                    continue   # 拉不到行 → 跳过(fail-soft)
+                    continue   # 拉不到行 → 跳过(fail-soft;非异常,只是这条 id 批量查询没命中)
                 candidates[sid] = self._experiential_candidate(rq, sid, row)
             ordered.append(sid)
         return ordered

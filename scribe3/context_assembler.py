@@ -261,7 +261,8 @@ class ContextAssembler:
         # 供 _assemble_write_instructions_v1 落 memory_trace 给 ContextInspector 溯源。
         # 纯观测副作用——收集与否,candidates/envelope【逐字节等价】(见 _retrieve 注记),
         # 缺省 None → 其余调用方(讨论/导航路径)与接线前完全一致。
-        # 1) 拉候选(retriever 可缺失/可抛错——一律降级,绝不让组装崩)
+        # 1) 拉候选(retriever 缺失→合法降级空;retriever 存在但检索抛错→异常上抛,
+        #    不再静默降级,见 _retrieve。U-011,2026-07-15,作者要 fail-loud)
         candidates = self._retrieve(snapshot, user_query, retrieval_out=retrieval_out)
         kept_cands, superseded = _resolve_canonical_conflicts(candidates)
         by_kind: dict[str, list] = defaultdict(list)
@@ -308,25 +309,26 @@ class ContextAssembler:
     # --- 候选拉取 ---
     def _retrieve(self, snapshot: ContextSnapshot, user_query: str,
                   retrieval_out: dict | None = None) -> list:
+        # U-011(2026-07-15,作者要 fail-loud):retriever=None 是合法设计态(fabric 关时,
+        # 见模块 docstring 不变量3),此分支保留不动。但此前"retriever 存在、retrieve()
+        # 抛异常"也被同一 try/except 悄悄吞成 []——这正是"以为主编有全套记忆,其实这轮
+        # 悄悄只有正典"的字面实现:调用方拿到的空候选列表,与"这本书真没有可检索记忆"
+        # 完全无法区分。已删除该 try/except:检索失败必须【抛】,不能和"设计态空"混同。
         if self.retriever is None:
             return []
-        try:
-            # 默认路径(无收集器):走 Task 7 协议方法 retrieve()——与接线前【逐字节等价】。
-            if retrieval_out is None:
-                out = self.retriever.retrieve(
-                    snapshot.work, snapshot.canonical_payload(),
-                    user_query or "", _MAX_CANDIDATES)
-                return list(out or [])
-            # 收集器路径(Task 16 Inspector 溯源):拿【完整 RetrievalResult】(含 rejected/
-            # channels)回填 retrieval_out,供落 memory_trace。selected 与 retrieve() 逐字节
-            # 相同(retrieve() ≡ retrieve_full_cached(...).candidates[:k],同缓存键、同 k),
-            # 故 envelope 字节不变——收集只是把已算出的 rejected/channels 顺带暴露出来。
-            result = self._retrieve_full(snapshot, user_query)
-            retrieval_out["result"] = result
-            return list((getattr(result, "selected", None) or [])[:_MAX_CANDIDATES])
-        except Exception:
-            _log.warning("retriever.retrieve 失败,降级为直查 store", exc_info=True)
-            return []
+        # 默认路径(无收集器):走 Task 7 协议方法 retrieve()——与接线前【逐字节等价】。
+        if retrieval_out is None:
+            out = self.retriever.retrieve(
+                snapshot.work, snapshot.canonical_payload(),
+                user_query or "", _MAX_CANDIDATES)
+            return list(out or [])
+        # 收集器路径(Task 16 Inspector 溯源):拿【完整 RetrievalResult】(含 rejected/
+        # channels)回填 retrieval_out,供落 memory_trace。selected 与 retrieve() 逐字节
+        # 相同(retrieve() ≡ retrieve_full_cached(...).candidates[:k],同缓存键、同 k),
+        # 故 envelope 字节不变——收集只是把已算出的 rejected/channels 顺带暴露出来。
+        result = self._retrieve_full(snapshot, user_query)
+        retrieval_out["result"] = result
+        return list((getattr(result, "selected", None) or [])[:_MAX_CANDIDATES])
 
     def _retrieve_full(self, snapshot: ContextSnapshot, user_query: str):
         """拿一次检索的完整 RetrievalResult(含 rejected/channels,Task 16 落 memory_trace 用)。
@@ -403,31 +405,27 @@ class ContextAssembler:
         return ""
 
     def _global_items(self, snapshot: ContextSnapshot) -> list[_Item]:
-        """global:北极星 + 开放伏笔 + 主要角色(全书稳定层,fail-soft 逐项)。"""
+        """global:北极星 + 开放伏笔 + 主要角色(全书稳定层)。
+
+        U-011(2026-07-15,作者要 fail-loud):删掉三段 try/except→静默空值——这是
+        "主编是否记得全书稳定层"的字面实现,取数失败必须让作者看见,不能悄悄退化成
+        "看着像没北极星/没伏笔/没主要角色"(与真没有无区别)。"""
         out: list[_Item] = []
-        try:
-            intent = self.store.get_intent() or {}
-        except Exception:
-            intent = {}
+        # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+        intent = self.store.get_intent() or {}
         star = (f"北极星:读者感受={intent.get('reader_feeling') or '—'};"
                 f"情感弧={intent.get('emotional_arc') or '—'};"
                 f"红线={intent.get('red_lines') or '—'}")
         out.append(_Item("- " + star, ContextSource(
             source_id="intent:main", source_kind="global", work=snapshot.work)))
-        try:
-            promises = self.store.open_promises() or []
-        except Exception:
-            promises = []
+        promises = self.store.open_promises() or []
         if promises:
             txt = ";".join(
                 f"第{p.get('setup_chapter')}章埋:{(p.get('text') or '')[:24]}"
                 for p in promises[:6])
             out.append(_Item("- 开放伏笔:" + txt, ContextSource(
                 source_id="promises:open", source_kind="global", work=snapshot.work)))
-        try:
-            chars = self.store.characters() or []
-        except Exception:
-            chars = []
+        chars = self.store.characters() or []
         if chars:
             names = "、".join(c.name for c in chars[:14])
             out.append(_Item("- 主要角色:" + names, ContextSource(
@@ -475,7 +473,11 @@ class ContextAssembler:
 
     def _canonical_from_store(self, snapshot: ContextSnapshot) -> list[_Item]:
         """无 retriever 降级:直查 facts/promises/events(canonical 必须有真数据)。
-        限知章走 project_frame 投影 + secret 屏蔽(复用 _editor_system 的既有做法)。"""
+        限知章走 project_frame 投影 + secret 屏蔽(复用 _editor_system 的既有做法)。
+
+        U-011(2026-07-15,作者要 fail-loud):删掉承诺/事件两段裸 except:pass——
+        canonical 是"必须有真数据"的核心块,查询失败必须抛,不能静默返回残缺的
+        权威事实集(残缺却不报错,比整块空更危险:看着像完整正典,实际漏项)。"""
         out: list[_Item] = []
         ch = snapshot.chapter if snapshot.chapter is not None else 99999
         if snapshot.focalizer:
@@ -483,26 +485,21 @@ class ContextAssembler:
         else:
             out.extend(self._canonical_all_facts(snapshot, ch))
         # 承诺 + 事件(两条路径都补;它们不携私密 value)
-        try:
-            for p in (self.store.open_promises() or [])[:8]:
-                pid = p.get("id") or f"promise:{p.get('setup_chapter')}"
-                out.append(_Item(
-                    f"- 承诺:第{p.get('setup_chapter')}章埋 {(p.get('text') or '')[:40]}",
-                    ContextSource(source_id=str(pid), source_kind="canonical",
-                                  work=snapshot.work)))
-        except Exception:
-            pass
-        try:
-            evs = self.store.events_at(ch - 1) if ch and ch > 1 else []
-            for e in (evs or [])[:6]:
-                if not e:
-                    continue
-                out.append(_Item(
-                    f"- 近事件:{str(e.type or e.motivated_by_goal or '')}",
-                    ContextSource(source_id=str(getattr(e, 'id', '') or 'event'),
-                                  source_kind="canonical", work=snapshot.work)))
-        except Exception:
-            pass
+        # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+        for p in (self.store.open_promises() or [])[:8]:
+            pid = p.get("id") or f"promise:{p.get('setup_chapter')}"
+            out.append(_Item(
+                f"- 承诺:第{p.get('setup_chapter')}章埋 {(p.get('text') or '')[:40]}",
+                ContextSource(source_id=str(pid), source_kind="canonical",
+                              work=snapshot.work)))
+        evs = self.store.events_at(ch - 1) if ch and ch > 1 else []
+        for e in (evs or [])[:6]:
+            if not e:
+                continue
+            out.append(_Item(
+                f"- 近事件:{str(e.type or e.motivated_by_goal or '')}",
+                ContextSource(source_id=str(getattr(e, 'id', '') or 'event'),
+                              source_kind="canonical", work=snapshot.work)))
         return out
 
     def _canonical_frame_facts(self, snapshot: ContextSnapshot,
@@ -541,10 +538,9 @@ class ContextAssembler:
         canonical 不是它们的授权注入通道(那是 app._codex_block 的职责)。真实故事秘密
         (非桥接)不受影响,仍保持"私密标注但作者全知视角可见"的既有语义。"""
         out: list[_Item] = []
-        try:
-            facts = self.store.facts_at(ch) or []
-        except Exception:
-            facts = []
+        # U-011(2026-07-15,作者要 fail-loud): 删静默降级,失败上抛——canonical 必须
+        # 有真数据,facts_at 查询失败不能悄悄假装"这本书没有事实"。
+        facts = self.store.facts_at(ch) or []
         for f in facts[:40]:
             if _is_bridge_mirror(f.entity_id, f.attribute):
                 continue
@@ -569,7 +565,11 @@ class ContextAssembler:
         return {f.id for f in frame.facts}
 
     def _recent_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
-        """recent:工作摘要 + 近期 episodic/decision。有候选走候选;否则降级取上一章结尾。"""
+        """recent:工作摘要 + 近期 episodic/decision。有候选走候选;否则降级取上一章结尾。
+
+        U-011(2026-07-15,作者要 fail-loud):"无候选→取上一章结尾"是正常业务降级
+        分支(保留);但降级分支内部包 recent_proses 的裸 except:pass 已删——查询
+        本身失败必须抛,不能悄悄假装"上一章没有结尾"。"""
         if cands:
             return [_Item(f"- {c.text}", ContextSource(
                 source_id=c.source_id, source_kind="recent", work=snapshot.work,
@@ -577,39 +577,41 @@ class ContextAssembler:
         out: list[_Item] = []
         ch = snapshot.chapter
         if ch and ch > 1:
-            try:
-                prev = self.store.recent_proses(ch, k=1) or []
-                if prev:
-                    tail = (prev[0].get("prose") or "")[-240:].strip()
-                    if tail:
-                        out.append(_Item("- 上一章结尾:" + tail, ContextSource(
-                            source_id=f"prose:{prev[0].get('seq')}",
-                            source_kind="recent", work=snapshot.work)))
-            except Exception:
-                pass
+            # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+            prev = self.store.recent_proses(ch, k=1) or []
+            if prev:
+                tail = (prev[0].get("prose") or "")[-240:].strip()
+                if tail:
+                    out.append(_Item("- 上一章结尾:" + tail, ContextSource(
+                        source_id=f"prose:{prev[0].get('seq')}",
+                        source_kind="recent", work=snapshot.work)))
         return out
 
     def _procedural_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
-        """procedural:已采纳的写作方法/教训。有候选走候选;否则降级取题材工艺规则。"""
+        """procedural:已采纳的写作方法/教训。有候选走候选;否则降级取题材工艺规则。
+
+        U-011(2026-07-15,作者要 fail-loud):降级分支内部包 list_craft_rules 的
+        裸 except:pass 已删——查询失败必须抛,不能悄悄假装"没有工艺规则"。"""
         if cands:
             return [_Item(f"- {c.text}", ContextSource(
                 source_id=c.source_id, source_kind="procedural", work=snapshot.work))
                 for c in cands]
         out: list[_Item] = []
-        try:
-            rules = self.store.list_craft_rules() or []
-            for r in rules[:8]:
-                txt = (r.get("rule") or r.get("text") or r.get("name") or "").strip()
-                if txt:
-                    out.append(_Item("- 工艺:" + txt[:80], ContextSource(
-                        source_id=str(r.get("id") or "craft"),
-                        source_kind="procedural", work=snapshot.work)))
-        except Exception:
-            pass
+        # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+        rules = self.store.list_craft_rules() or []
+        for r in rules[:8]:
+            txt = (r.get("rule") or r.get("text") or r.get("name") or "").strip()
+            if txt:
+                out.append(_Item("- 工艺:" + txt[:80], ContextSource(
+                    source_id=str(r.get("id") or "craft"),
+                    source_kind="procedural", work=snapshot.work)))
         return out
 
     def _reference_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
-        """reference:素材召回,始终带"借鉴非事实"免责。首行恒为免责声明(留痕独立源)。"""
+        """reference:素材召回,始终带"借鉴非事实"免责。首行恒为免责声明(留痕独立源)。
+
+        U-011(2026-07-15,作者要 fail-loud):降级分支内部包 list_materials 的裸
+        except:pass 已删——查询失败必须抛,不能悄悄假装"没有素材"。"""
         out: list[_Item] = [_Item(
             _REFERENCE_DISCLAIMER,
             ContextSource(source_id="reference:disclaimer", source_kind="reference",
@@ -621,17 +623,15 @@ class ContextAssembler:
                     work=snapshot.work, reason="borrow_not_fact")))
             return out
         # 降级:直查素材库(仅列标题,不当事实)
-        try:
-            mats = self.store.list_materials() or []
-            for m in mats[:6]:
-                title = (m.get("title") or m.get("name") or "").strip()
-                if title:
-                    out.append(_Item("- 素材:" + title[:60], ContextSource(
-                        source_id=str(m.get("id") or "material"),
-                        source_kind="reference", work=snapshot.work,
-                        reason="borrow_not_fact")))
-        except Exception:
-            pass
+        # U-011: 删静默降级,失败上抛(作者要 fail-loud)
+        mats = self.store.list_materials() or []
+        for m in mats[:6]:
+            title = (m.get("title") or m.get("name") or "").strip()
+            if title:
+                out.append(_Item("- 素材:" + title[:60], ContextSource(
+                    source_id=str(m.get("id") or "material"),
+                    source_kind="reference", work=snapshot.work,
+                    reason="borrow_not_fact")))
         # 只有免责声明、没有任何素材 → 视作空块(免责本身无信息量,不占块)
         return out if len(out) > 1 else []
 

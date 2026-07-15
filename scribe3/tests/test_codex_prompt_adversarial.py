@@ -9,6 +9,8 @@
 """
 import json
 
+import pytest
+
 from scribe3.app import _codex_block
 from scribe3.codex_secret_bridge import sync_faction_secrets
 from scribe3.codex_validate import validate_faction_consistency
@@ -68,37 +70,31 @@ def test_P0_secret_leaks_when_secret_fact_ids_returns_empty(store, monkeypatch):
         f"(实际 block: {block!r})")
 
 
-def test_P0_secret_leaks_via_realistic_partial_store_failure(store, monkeypatch):
-    """同一个洞,但不 mock 安全函数本身——只让 store 里"宽扫"两条查询失败
-    (_secret_fact_ids 内部用的 `WHERE secret = true` 裸查询 + `facts_at(99999)`
-    全量哨兵扫描),而 _faction_bridge_fact_index 用的正常按章查询
-    (`facts_at(eff_chapter)`)照常成功——这是真实环境下合理的差异化失败
-    (宽扫无时间窗过滤,代价/超时风险天然高于按章查询)。"""
+def test_P0_secret_store_failure_now_fails_loud_not_silent(store, monkeypatch):
+    """U-011(2026-07-15,作者要 fail-loud)行为变更:store 的秘密判定查询失败时,
+    此前 `_secret_fact_ids` 退空集(fail-soft)、靠下游门 fail-closed 兜住不泄露——
+    现在改为**直接抛**(fail-loud)。安全属性反而更强:崩了就啥都不产出,定义上更
+    不可能泄露,而且作者能在前端看见"限知判定失败,本章生成中止",不会被静默降级躲过。
+
+    本测试:让 `WHERE secret = true` 宽扫查询失败 → _codex_block 必须【抛】,而不是
+    静默返回一个碰巧没泄露的块。"""
     store.add_faction(FACTION, origin="源自前朝遗族的复国密谋", origin_secret=True)
     _sync(store, FACTION)
 
     real_query = store._query
-    real_facts_at = store.facts_at
 
     def fake_query(surql, vars=None):
         if "secret = true" in surql:
-            raise RuntimeError("模拟:无时间窗的宽扫查询超时/失败")
+            raise RuntimeError("模拟:秘密判定宽扫查询超时/失败")
         return real_query(surql, vars)
 
-    def fake_facts_at(chapter):
-        if chapter == 99999:
-            raise RuntimeError("模拟:全量哨兵扫描(chapter=99999)超时/失败")
-        return real_facts_at(chapter)
-
     monkeypatch.setattr(store, "_query", fake_query)
-    monkeypatch.setattr(store, "facts_at", fake_facts_at)
 
-    # for_generation=True:生成/限知续写路径(U-003 三档可见性)——见上一测试同款注释。
-    block = _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5,
-                         for_generation=True)
-    assert "源自前朝遗族的复国密谋" not in block, (
-        "P0:_secret_fact_ids 内部两条宽扫查询失败(而按章查询仍正常)时,"
-        f"secret 字段绕过限知门控直接注入明文(实际 block: {block!r})")
+    # for_generation=True:生成/限知续写路径。秘密判据查询失败 → 直接抛(fail-loud),
+    # 不再静默退空集把泄密风险躲过去。
+    with pytest.raises(Exception):
+        _codex_block(store, reveal=False, focalizer="role:不知情的旁观者", chapter=5,
+                     for_generation=True)
 
 
 # ============================================================

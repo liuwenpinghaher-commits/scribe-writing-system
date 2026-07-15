@@ -696,21 +696,20 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
         _log.warning("assemble_chapter_brief causal 段组装失败(fail-soft 跳过): %s", e)
         sections["causal"] = {"directives": [], "overflow": 0, "total": 0}
     # Task8:M6 设定注入清单回显(与 _editor_system 全知分支同源 assemble_injection)
-    try:
-        inj = assemble_injection(st, seq)
-        sections["injection"] = {
-            "chosen": [{"id": i.get("id"), "text": (i.get("text") or "")[:80]}
-                       for i in inj["chosen"]],
-            "dropped": inj["dropped"],
-            "fallback": inj["fallback"],
-        }
-    except Exception:
-        sections["injection"] = {"chosen": [], "dropped": 0, "fallback": True}
-    # 方案B任务15:EM/RH/TR 情绪模式库——有 target_emotion 才召回,取数 fail-soft
-    # (素材库故障不应影响简报其余部分组装)。
-    try:
-        mats = st.list_materials(kind="emotion_module") if target_emotion else []
-        sections["emotion_module"] = emotion_module_recall(mats, target_emotion)
-    except Exception:
-        sections["emotion_module"] = {"text": "", "items": []}
+    # U-011(2026-07-15,作者要 fail-loud):删掉"注入异常复用 fallback=True"——
+    # fallback=True 的合法语义是"本书从未配置 injection_mode"(assemble_injection
+    # 内部已实现的正常业务分支,向后兼容);把真崩溃也标成 fallback=True 会让"系统
+    # 故障"和"没配置"在响应里长得一模一样,作者无从分辨。查询/组装失败现在直接上抛。
+    inj = assemble_injection(st, seq)
+    sections["injection"] = {
+        "chosen": [{"id": i.get("id"), "text": (i.get("text") or "")[:80]}
+                   for i in inj["chosen"]],
+        "dropped": inj["dropped"],
+        "fallback": inj["fallback"],
+    }
+    # 方案B任务15:EM/RH/TR 情绪模式库——有 target_emotion 才召回。
+    # U-011(2026-07-15,作者要 fail-loud):删掉"素材库故障静默转空"——召回失败必须
+    # 让作者看见,不能悄悄变成"这轮没有情绪模块卡"(与真没有无区别)。
+    mats = st.list_materials(kind="emotion_module") if target_emotion else []
+    sections["emotion_module"] = emotion_module_recall(mats, target_emotion)
     return {"sections": sections, "text": render_brief(sections)}
