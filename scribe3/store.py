@@ -759,11 +759,10 @@ def build_memory_trace(*, trace_id, work, thread_id, context_session_id,
                 for r in getattr(result, "rejected", [])]
     secret_ids = None
     if store is not None:
-        try:
-            from scribe3.context_assembler import _secret_fact_ids
-            secret_ids = _secret_fact_ids(store)
-        except Exception:
-            secret_ids = None      # fail-soft:退回 provenance 判定,不因取集失败阻断 trace
+        from scribe3.context_assembler import _secret_fact_ids
+        # U-011(作者要 fail-loud):删"失败退None"——None=退回更弱的 provenance 判定=秘密
+        # 可能漏抹(fail-open)。_secret_fact_ids 失败直接抛,不静默降级。
+        secret_ids = _secret_fact_ids(store)
     return mask_memory_trace({
         "trace_id": trace_id,
         "work": work,
@@ -1582,14 +1581,12 @@ class SurrealStore:
     def _secret_proposition_values(self) -> set[str]:
         """本 work 权威 secret 命题的真值集(供 ai_run_trace redactor 抹工具回抛的秘密明文)。
         含单字真值(I-1:中文单字名讳常见)——单字由 redactor 走有界屏蔽,不全文裸替换。
-        fail-soft 退回空集(M-3:退空则秘密不抹,但认证正则仍跑;降级态,不阻断落库)。
+        U-011(作者要 fail-loud):删"失败退空集"——空集=秘密真值不抹→泄进 ai_run_trace
+        (fail-open 泄密方向)。查询失败直接【抛】,不静默漏抹把泄密躲过去。
         性能:每次落库全表扫 proposition(Task 16-B 缓存,此处先正确后优化)。"""
-        try:
-            # value 是 SurrealDB 保留字,不能作首字段(会被当 SELECT VALUE 修饰符);挪后即可。
-            rows = self._query(
-                "SELECT entity_id, value FROM proposition WHERE secret = true")
-        except Exception:
-            return set()
+        # value 是 SurrealDB 保留字,不能作首字段(会被当 SELECT VALUE 修饰符);挪后即可。
+        rows = self._query(
+            "SELECT entity_id, value FROM proposition WHERE secret = true")
         out: set[str] = set()
         for r in (rows or []):
             v = r.get("value")
@@ -4898,10 +4895,10 @@ class SurrealStore:
         return out
 
     def _safe_count(self, surql: str, vars: dict) -> int:
-        try:
-            rows = self._query(surql, vars)
-        except Exception:
-            return 0
+        # U-011(作者要 fail-loud):删"查询失败返0"。它供删除影响预览 9 项计数复用——
+        # 查询炸了返0=作者看到"0引用,可安全删除"→误删有引用的角色/事实/素材。现在
+        # 查询失败直接【抛】→删除流程拿到错误(500→前端红字),不是假0。名字保留兼容调用点。
+        rows = self._query(surql, vars)
         return int((rows[0].get("n") if rows else 0) or 0)
 
     def _chapter_impact_token(self, seq: int, references: list[dict]) -> str:
@@ -5569,12 +5566,10 @@ class SurrealStore:
             raise ValueError("save_memory_trace: 需要 trace['trace_id']")
         # C1 权威兜底(at-rest 不变量):落库前叠加 store 权威 secret 集,凡候选 source_id
         # ∈ 权威 secret 即屏蔽——不信 retriever 自报的 provenance.secret(漏标即秘密明文入 DB)。
-        # 与 context_assembler 的 C1 同款口径(复用 _secret_fact_ids),fail-soft 退回空集。
-        try:
-            from scribe3.context_assembler import _secret_fact_ids
-            secret_ids = _secret_fact_ids(self)
-        except Exception:
-            secret_ids = None
+        # U-011(作者要 fail-loud):删"失败退空集"——这正是 docstring 自称"at-rest 保证"的
+        # 权威兜底本尊,它自己失败退空=秘密明文入 DB(fail-open)。失败直接【抛】,拒绝落库。
+        from scribe3.context_assembler import _secret_fact_ids
+        secret_ids = _secret_fact_ids(self)
         t = mask_memory_trace(trace, secret_ids=secret_ids)
         tid = str(t["trace_id"])
         doc = {
