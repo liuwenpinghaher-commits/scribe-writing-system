@@ -553,28 +553,19 @@ def _context_memory_metrics(work: str = "main") -> dict:
     metrics = dict(context_cache.metrics_snapshot())   # 检索/组装侧(当前多为 0/None)
     # 安全指标(16-A 只读快照,不复算)
     metrics["cross_work_rejections"] = get_security_metrics().get("cross_work_rejections", 0)
-    # 记忆捕获管线水位(per work,与既有 memory_capture.failed_events 同库口径)
-    pending = failed = 0
-    sessions = 0
+    # 记忆捕获管线水位(per work,与既有 memory_capture.failed_events 同库口径)。
+    # U-011(作者要 fail-loud):删掉"查询失败伪装成 0"——那是把"查询挂了"喂成"0个失败事件"
+    # 塞进运维仪表盘(最迷惑的假绿,恰恰发生在用来发现问题的诊断路径上)。查询失败在指标块
+    # 标 memory_metrics_error(仪表盘显"查询失败"而非假0),但不 500 整个 runtime-status
+    # (否则连诊断面板都没了)。
     try:
         st = _store_for(work)
-        try:
-            pending = st.count_memory_events(status="pending")
-        except Exception:
-            pending = 0
-        try:
-            failed = st.count_failed_memory_events()
-        except Exception:
-            failed = 0
-        try:
-            sessions = st.count_active_context_sessions()
-        except Exception:
-            sessions = 0
-    except Exception:
-        pass
-    metrics["memory_events_pending"] = pending
-    metrics["memory_events_failed"] = failed
-    metrics["context_sessions_active"] = sessions
+        metrics["memory_events_pending"] = st.count_memory_events(status="pending")
+        metrics["memory_events_failed"] = st.count_failed_memory_events()
+        metrics["context_sessions_active"] = st.count_active_context_sessions()
+    except Exception as e:
+        logging.getLogger("scribe3").error("_context_memory_metrics 查询失败", exc_info=True)
+        metrics["memory_metrics_error"] = str(e)[:120]
     # Spectron 影子:只上报开关 + 可用性 + 原因(全无秘密);包未发布时 available=False 是正确态
     try:
         from scribe3.spectron_adapter import detect_spectron
@@ -1662,18 +1653,15 @@ class MemoryFlushReq(BaseModel):
 @app.post("/memory/flush")
 def memory_flush(req: MemoryFlushReq, work: str = "main"):
     """固化线程工作摘要 + drain 掉线残留(Hermes on_pre_compress / on_session_end 触发)。
-    幂等:working_summary 按 (work,thread) 唯一 UPSERT。best-effort:失败降级 through_turn=0。"""
+    幂等:working_summary 按 (work,thread) 唯一 UPSERT。
+    U-011(作者要 fail-loud):删"失败降级 through_turn=0 却仍返 status=flushed"——那是响应体
+    主动撒谎(Hermes 钩子据此以为摘要已安全落库,实际可能丢)。固化失败直接抛(500),诚实。"""
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
                          kind="editorial_thread", ident=req.thread_id or "")
     store = _store_for(w)
     from scribe3.memory_capture import MemoryCapture
-    try:
-        result = MemoryCapture(store).consolidate_thread(req.thread_id, work=w)
-    except Exception:
-        logging.getLogger("scribe3").warning(
-            "/memory/flush 固化失败(忽略)", exc_info=True)
-        result = {"through_turn": 0}
+    result = MemoryCapture(store).consolidate_thread(req.thread_id, work=w)
     return {"status": "flushed", "reason": req.reason, "work": w,
             "through_turn": result.get("through_turn", 0)}
 
@@ -1690,7 +1678,12 @@ def works():
             if intent.get("total_word_goal") is not None:
                 st["total_word_goal"] = intent["total_word_goal"]
         except Exception:
-            st = {"chapter_count": 0, "word_count": 0}
+            # U-011(作者要 fail-loud):删"假0"——查询失败返 chapter_count=0/word_count=0,
+            # 作者会误读成"稿子丢了"。改为标 stats_error 让前端显"统计查询失败"(而非假0),
+            # 且【每书隔离】——单书查询失败不拖垮整个书列表(否则一本坏书全列表 500 更糟)。
+            logging.getLogger("scribe3").error(
+                "/works stats 查询失败: %s", w.get("slug"), exc_info=True)
+            st = {"stats_error": True}
         out.append({**w, **st})
     return out
 

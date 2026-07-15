@@ -168,7 +168,12 @@ export function Library({ works, reload, onSelect }) {
                           <BookText size={16} className="text-brand shrink-0 mt-0.5" />
                           <span className="prose-serif text-f15 font-semibold text-ink leading-snug min-w-0 break-words">{w.title}</span>
                         </div>
-                        <div className="text-f12 text-faint tnum">{w.chapter_count ?? 0} 章 · {words.toLocaleString()} 字</div>
+                        {/* U-011: 后端 stats 查询失败标 stats_error → 显红字,不再假 0(作者会误读"稿子丢了") */}
+                        <div className="text-f12 tnum">
+                          {w.stats_error
+                            ? <span className="text-danger">⚠ 统计查询失败(见后端日志)</span>
+                            : <span className="text-faint">{w.chapter_count ?? 0} 章 · {words.toLocaleString()} 字</span>}
+                        </div>
                         <div className="mt-auto">
                           <div className="h-1.5 rounded-full bg-soft overflow-hidden">
                             <div className="h-full bg-brand rounded-full transition-all" style={{ width: pct + '%' }} />
