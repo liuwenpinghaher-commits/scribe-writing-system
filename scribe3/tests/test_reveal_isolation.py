@@ -323,6 +323,54 @@ def test_gateway_exposes_reveal_tools_is_clean_when_no_profile_includes_reveal_t
     )
 
 
+# ============================================================
+# ⑤ U-006:速答网关(默认 profile)工具面必须为空——防主编速答借终端/git 做系统外动作
+# ============================================================
+
+def test_default_gateway_has_tools_when_api_server_toolsets_nonempty():
+    """默认 profile 的 api_server 挂了任何 toolset(如 hermes-cli 终端)→ 必须报 error。
+    真机根因:2026-07-15 主编速答(打 :8642 /v1/chat/completions)借默认 profile 继承的
+    hermes-cli 终端执行了跨仓库 git 提交/push。"""
+    configs = _clean_configs()
+    configs["default"] = {"ok": True, "api_server_toolsets": ["hermes-cli"],
+                          "api_server_mcp_tool_count": 0, "api_server_native_toolsets": ["hermes-cli"],
+                          "mcp_toolsets": {}}
+    summary = A._summarize_hermes_runtime(_runtime_profiles(), profile_configs=configs, cron=None)
+    issue = next((i for i in summary["issues"]
+                 if i["code"] == "default_gateway_has_tools"), None)
+    assert issue is not None, "速答网关暴露工具面时必须报 error"
+    assert issue["severity"] == "error"
+    assert "hermes-cli" in issue["message"]
+
+
+def test_default_gateway_clean_when_api_server_toolsets_empty():
+    """默认 profile 显式 platform_toolsets.api_server: [](U-006 修法)→ 不报。"""
+    configs = _clean_configs()
+    configs["default"] = {"ok": True, "api_server_toolsets": [],
+                          "api_server_mcp_tool_count": 0, "api_server_native_toolsets": [],
+                          "mcp_toolsets": {}}
+    summary = A._summarize_hermes_runtime(_runtime_profiles(), profile_configs=configs, cron=None)
+    codes = {i["code"] for i in summary["issues"]}
+    assert "default_gateway_has_tools" not in codes
+
+
+def test_default_gateway_gate_silent_when_default_config_unavailable():
+    """default config 探针失败(ok=False,如 config 读不到)时不误报——装载不可用已由
+    default_gateway_unavailable 覆盖,本门禁只在能确认工具面非空时才发声(fail-open 于探测
+    失败,fail-closed 于确有工具)。也覆盖 _clean_configs 根本没有 default 键的情形。"""
+    # 情形1:configs 无 default 键
+    summary = A._summarize_hermes_runtime(_runtime_profiles(), profile_configs=_clean_configs(),
+                                          cron=None)
+    assert "default_gateway_has_tools" not in {i["code"] for i in summary["issues"]}
+    # 情形2:default 探针失败(ok=False)但 api_server_toolsets 恰好残留
+    configs = _clean_configs()
+    configs["default"] = {"ok": False, "error": "config parse failed",
+                          "api_server_toolsets": ["hermes-cli"], "mcp_toolsets": {}}
+    summary = A._summarize_hermes_runtime(_runtime_profiles(), profile_configs=configs, cron=None)
+    assert "default_gateway_has_tools" not in {i["code"] for i in summary["issues"]}, (
+        "探针失败(ok=False)时不应据不可信的 toolsets 残值报警")
+
+
 def test_gateway_exposes_reveal_tools_survives_missing_mcp_toolsets_key():
     """profile_configs 里某 profile 缺 mcp_toolsets 键(如探针失败时的降级返回)不应让
     自检本身崩溃——那个 profile 只是贡献不出命中,不代表可以跳过别的 profile。"""

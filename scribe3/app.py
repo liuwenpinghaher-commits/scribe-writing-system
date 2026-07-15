@@ -292,7 +292,13 @@ def _hermes_profile_config_summary(profile: str, home=None) -> dict:
     from pathlib import Path
 
     root = Path(home) if home is not None else Path(os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes")))
-    config_path = root / "profiles" / profile / "config.yaml"
+    # default profile 的 config 是【根】 config.yaml,不在 profiles/default/ 下(Hermes 约定:
+    # 根 = 默认 profile,profiles/<name>/ = 具名 profile)。不回落的话 default 恒 ok=False
+    # →U-006 的 default_gateway_has_tools 门禁会变成永不触发的假门(2026-07-15 实测踩到)。
+    if profile == "default":
+        config_path = root / "config.yaml"
+    else:
+        config_path = root / "profiles" / profile / "config.yaml"
     summary = {
         "profile": profile,
         "config_path": str(config_path),
@@ -476,6 +482,19 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
         issues.append(_issue("warning", "read_native_toolsets_enabled", "只读网关启用了非 scribe3 原生工具面"))
     if write_cfg.get("api_server_native_toolsets"):
         issues.append(_issue("warning", "write_native_toolsets_enabled", "写网关启用了非 scribe3 原生工具面"))
+    # U-006(2026-07-15):速答/渲染/判官全打默认网关的 /v1/chat/completions。默认 profile
+    # 若不显式 platform_toolsets.api_server: [] 就继承全部 toolsets(含 hermes-cli 终端)——
+    # 主编速答借此执行了跨仓库 git 提交/push。速答该是纯补全:api_server 工具面必须为空。
+    # (Dashboard/CLI 等其他 platform 不经此网关,不受影响。)与上面 native/reveal 门禁同层,
+    # 防配置漂回去。default_cfg 缺失/未加载时不误报(装载探测失败已由 default_gateway_unavailable 覆盖)。
+    default_profile = default.get("profile") or "default"
+    default_cfg = configs.get(default_profile) or {}
+    if default_cfg.get("ok") and (default_cfg.get("api_server_toolsets") or []):
+        issues.append(_issue(
+            "error", "default_gateway_has_tools",
+            "速答网关(默认 profile)暴露了工具面(" + "; ".join(
+                str(t) for t in (default_cfg.get("api_server_toolsets") or [])[:5])
+            + ")——速答应是纯补全;主编可借此执行终端/git 等系统外动作(U-006)"))
     if not (read_skill_loaded or write_skill_loaded):
         issues.append(_issue("warning", "scribe_skill_missing", "scribe-novel-v2 skill 未加载"))
     if cron and cron.get("checked") and not (cron.get("scribe3_qc") or {}).get("present"):
@@ -589,6 +608,7 @@ def _hermes_runtime_status() -> dict:
         HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE).probe(),
     ]
     profile_configs = {
+        "default": _hermes_profile_config_summary("default"),   # U-006:速答网关工具面自检需要
         HERMES_RESPONSES_PROFILE: _hermes_profile_config_summary(HERMES_RESPONSES_PROFILE),
         HERMES_RUNS_PROFILE: _hermes_profile_config_summary(HERMES_RUNS_PROFILE),
     }
@@ -3563,6 +3583,10 @@ def _pulse_digest(st, seq: int | None) -> str:
 # S-001:纯讨论(hermes_complete_stream 单遍无续接)对开放式提问,doubao 易回"让我查查"
 # 之类思考开场白然后单轮结束。给纯讨论 sysmsg 加通用作答引导,让开放问题也直接给完整方案,
 # 不必逼作者每次都写"别说让我查查"。只作用于 chat_stream(纯讨论);写作/agentic 路径不受影响。
+# “没有实时查询工具”是【真话】,由机制保障:U-006 起默认 profile
+# platform_toolsets.api_server=[](速答网关零工具面),自检门禁 default_gateway_has_tools
+# 盯着它别漂回去。此前默认 profile 继承全部 toolsets(含 hermes-cli 终端),这句是谎——
+# 主编速答借此真的执行过跨仓库 git 提交/push。对模型断言的每件事都必须机制上为真。
 _DISCUSSION_DIRECTIVE = (
     "\n\n【作答方式(纯讨论)】直接、完整、可操作地回答,一次说透。"
     "不要用『让我查查/让我想想/让我先看看』这类拖延开场——你此刻在纯讨论对话中,"
