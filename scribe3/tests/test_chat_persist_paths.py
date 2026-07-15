@@ -1,0 +1,187 @@
+"""U-005:主编【讨论 / agentic】对话留痕补齐 + 防复发门禁。
+
+真机实证(2026-07-15):三条 SSE 对话路径此前只有 POST /chat/write(动稿)留痕;
+chat_stream(速答讨论)/ chat_agentic_stream(agentic 联查/审批)从不落库——《印迹》
+批准写入 15 世界规则 + 6 势力的整场讨论凭空消失。本文件:
+  ① _ChatTurnLog 单元行为(user 开流前落 / assistant 流尽落 / 流断落部分 / 全空不落);
+  ② 两条 SSE 端点经真实路由落库(红→绿:修前 0 条,修后 user+assistant);
+  ③ 门禁——枚举所有 /chat SSE 端点,每个要么留痕要么显式豁免(防"每新开一条路就漏")。
+
+只用 conftest 临时 SurrealDB,绝不碰生产库 ~/.scribe2-surreal/data.db。
+"""
+import inspect
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from scribe3 import app as A
+
+
+# store fixture 用 conftest 的(已 apply_schema;端点会读 intent/editorial_thread 等多表)
+
+
+@pytest.fixture
+def client(store):
+    A.set_store(store)   # work=main 注入活 store(否则命中别的测试遗留死连接)
+    return TestClient(A.app)
+
+
+def _thread_id(store):
+    return store.get_or_create_editorial_thread("main", "author")["thread_id"]
+
+
+# ============================================================
+# ① _ChatTurnLog 单元行为
+# ============================================================
+
+def test_chatturnlog_persists_user_and_assistant_paired(store):
+    tid = _thread_id(store)
+    with A._ChatTurnLog(store, user_text="秘会跟天龙座什么关系?", chapter=3,
+                        stage="discuss", thread_id=tid) as clog:
+        clog.feed("秘会")
+        clog.feed("表面臣服")
+        clog.set_response_id("resp_abc")
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["text"] == "秘会跟天龙座什么关系?"
+    assert msgs[1]["text"] == "秘会表面臣服"            # feed 累积拼接
+    assert msgs[0]["turn"] == msgs[1]["turn"] != ""     # 同轮配对
+    assert msgs[1]["response_id"] == "resp_abc"
+
+
+def test_chatturnlog_user_persisted_before_stream_even_if_body_never_runs(store):
+    """开流前即落 user:哪怕 with 体一个字都没产出(流开头就崩),问话也已在库。"""
+    tid = _thread_id(store)
+    with pytest.raises(RuntimeError):
+        with A._ChatTurnLog(store, user_text="问了但会崩", chapter=1,
+                            stage="discuss", thread_id=tid):
+            raise RuntimeError("模拟流开头即崩")
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user"]        # user 在;assistant 因全空未落
+    assert msgs[0]["text"] == "问了但会崩"
+
+
+def test_chatturnlog_persists_partial_assistant_on_midstream_break(store):
+    """流中断(已产出部分):assistant 落已累积的部分——有一个字也比凭空消失强。"""
+    tid = _thread_id(store)
+    with pytest.raises(RuntimeError):
+        with A._ChatTurnLog(store, user_text="q", chapter=1,
+                            stage="discuss", thread_id=tid) as clog:
+            clog.feed("已经说了一半")
+            raise RuntimeError("模拟流中途断")
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["text"] == "已经说了一半"
+
+
+def test_chatturnlog_skips_empty_assistant(store):
+    """assistant 完全空(连一个字都没产出且正常退出)→ 不落 assistant 噪声。"""
+    tid = _thread_id(store)
+    with A._ChatTurnLog(store, user_text="q", chapter=1,
+                        stage="discuss", thread_id=tid):
+        pass   # 没有 feed
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user"]
+
+
+def test_chatturnlog_persist_failure_is_best_effort(store, monkeypatch):
+    """落库失败只告警,绝不抛(对话主链路 SSE 已在飞,不能因留痕副作用崩)。"""
+    tid = _thread_id(store)
+
+    def boom(*a, **k):
+        raise RuntimeError("DB 掉线")
+    monkeypatch.setattr(store, "add_chat_message", boom)
+    # 不抛即通过
+    with A._ChatTurnLog(store, user_text="q", chapter=1,
+                        stage="discuss", thread_id=tid) as clog:
+        clog.feed("x")
+
+
+# ============================================================
+# ② 两条 SSE 端点经真实路由落库(红→绿)
+# ============================================================
+
+def _consume(resp):
+    b"".join(resp.iter_bytes())
+
+
+def test_chat_stream_endpoint_persists_discussion(client, store, monkeypatch):
+    """GET /chat/stream:修前 0 条留痕(bug),修后 user+assistant 落到主编线程。"""
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        lambda msg, system=None: iter(["主编", "回复", "内容"]))
+    r = client.get("/chat/stream", params={"msg": "讨论一下秘会", "work": "main", "seq": 2})
+    assert r.status_code == 200
+    _consume(r)
+    tid = _thread_id(store)
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["text"] == "讨论一下秘会"
+    assert msgs[1]["text"] == "主编回复内容"
+    assert msgs[0]["stage"] == "discuss"
+
+
+def test_chat_agentic_stream_endpoint_persists_discussion(client, store, monkeypatch):
+    """GET /chat/agentic-stream:同样落库,且工具/审批帧不进对话留痕(只留最终文本)。"""
+    def fake_events(message, instructions, model=None, **_kw):
+        # 模拟 Hermes 事件流:工具调用 + 文本 + 完成(签名/事件形状同 test_app.py 既有 agentic 测试)
+        yield {"type": "response.output_item.added",
+               "item": {"type": "function_call", "name": "s3_list_factions", "arguments": "{}"}}
+        yield {"type": "response.output_text.delta", "delta": "根据"}
+        yield {"type": "response.output_text.delta", "delta": "工具查询"}
+        yield {"type": "response.completed", "response": {"id": "resp_xyz"}}
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = client.get("/chat/agentic-stream", params={"msg": "秘会有哪些人?", "work": "main", "seq": 2})
+    assert r.status_code == 200
+    _consume(r)
+    tid = _thread_id(store)
+    msgs = store.list_thread_messages(tid)
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["text"] == "秘会有哪些人?"
+    assert "工具查询" in msgs[1]["text"]
+    # 工具/审批不该混进对话文本
+    assert "tool" not in msgs[1]["text"].lower()
+
+
+# ============================================================
+# ③ 门禁:所有 /chat SSE 端点必须留痕或显式豁免(防复发)
+# ============================================================
+
+def test_all_chat_sse_endpoints_persist_or_are_exempt():
+    """自动发现所有 /chat SSE 端点,逐个断言:源码里含留痕(add_chat_message /
+    _ChatTurnLog),否则必须在 EXEMPT 集并注明原因。
+
+    这是本仓既有纪律模式(KNOWN_REST_WRITE_ROUTES 台账 / _LIVE_TABLES 门禁)的同款:
+    U-002(漏订阅表)/ U-003(漏注入点)/ U-005(漏留痕)是同一类病——"每新开一条路
+    就漏一个横切关注点"。以后再加第四条对话路径,忘了留痕就过不了这条测试。
+    """
+    # 显式豁免:名字 → 原因(不留痕是有意的,必须写清楚为什么)
+    EXEMPT = {
+        # GET /chat/write:D-005 兼容端点,无生产调用方,POST 版才是真写作留痕路径。
+        "chat_write": "D-005 兼容端点,无生产调用方,不落库(POST 版才留痕)",
+    }
+    sse = []
+    for route in A.app.routes:
+        path = getattr(route, "path", "")
+        fn = getattr(route, "endpoint", None)
+        if not path.startswith("/chat/") or fn is None:
+            continue
+        try:
+            src = inspect.getsource(fn)
+        except OSError:
+            continue
+        if "text/event-stream" in src:
+            sse.append((fn.__name__, src))
+
+    assert sse, "没发现任何 /chat SSE 端点——枚举逻辑坏了(路由结构变了?)"
+    names = {n for n, _ in sse}
+    # 至少覆盖当前已知的三条(防有人把端点删了导致门禁空转)
+    assert {"chat_stream", "chat_agentic_stream", "chat_write_post"} <= names, (
+        f"已知 SSE 对话端点缺失,实际发现: {names}")
+
+    for name, src in sse:
+        if name in EXEMPT:
+            continue
+        assert ("add_chat_message" in src) or ("_ChatTurnLog" in src), (
+            f"/chat SSE 端点 {name} 既不留痕也不在 EXEMPT——主编对话会凭空消失(U-005)。"
+            f"要么接 _ChatTurnLog,要么显式加入 EXEMPT 并注明原因。")

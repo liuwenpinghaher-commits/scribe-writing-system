@@ -3570,19 +3570,96 @@ _DISCUSSION_DIRECTIVE = (
     "作者要方案时,当场给出完整选项(含各自代价),不要只起个头就停。")
 
 
+class _ChatTurnLog:
+    """主编【讨论 / agentic】对话留痕的统一咽喉点(北极星任务1 沉淀环第1级;U-005 补齐)。
+
+    背景(2026-07-15 真机实证):三条 SSE 对话路径此前只有 POST /chat/write(动稿)留痕;
+    chat_stream(速答讨论)与 chat_agentic_stream(agentic 联查/审批)**从不落库**——作者
+    与主编讨论设定、推敲情节、拍板决策的全过程凭空消失(《印迹》一条讨论都没留下,尽管
+    当时批准写入了 15 世界规则 + 6 势力)。此类补齐,两条路共用同一个咽喉点,行为一致:
+
+    - `__enter__`(开流前)即落 user:哪怕流中途崩,你的问话已留痕(与 chat_write 同序)。
+    - `.feed(delta)` 累积 assistant 文本;`.set_response_id(rid)` 记本轮响应 id。
+    - `__exit__`(正常 done / 异常 / 客户端断开触发的 GeneratorExit 都会调)落 assistant 全文;
+      流断则落已累积的部分(有一个字也比凭空消失强);完全空则不落(user 已足证"问过")。
+
+    全程 best-effort(D-004):任何一步落库失败只告警,绝不影响对话主链路(SSE 已在飞)。
+    留痕存的是【主编回作者的话】——作者对话语境(主编对作者全知),不引入新泄密面,故
+    **不做 for_generation 门控**(那是喂正文生成 prompt 的事,与回看历史无关)。也**不做**
+    chat_write 的意图捕获(_capture_turn_memory 只该挂动稿路径:讨论不是写作意图)。
+    """
+
+    def __init__(self, st, *, user_text: str, chapter: int, stage: str,
+                 thread_id: str | None, focus: dict | None = None):
+        import uuid
+        self._st = st
+        self._user_text = user_text
+        self._chapter = chapter
+        self._stage = stage
+        self._thread_id = thread_id
+        self._focus = focus
+        self.turn_id = uuid.uuid4().hex[:12]   # 串本轮 user/assistant,防并发交错污染蒸馏
+        self._buf: list[str] = []
+        self._response_id = None
+        self._log = logging.getLogger("scribe3")
+
+    def feed(self, delta: str) -> None:
+        if delta:
+            self._buf.append(delta)
+
+    def set_response_id(self, rid) -> None:
+        if rid:
+            self._response_id = rid
+
+    def _persist_user(self) -> None:
+        try:
+            self._st.add_chat_message(
+                chapter=self._chapter, stage=self._stage, role="user",
+                text=self._user_text, turn=self.turn_id,
+                thread_id=self._thread_id, focus=self._focus)
+        except Exception:
+            self._log.warning("chat_message user 落库失败(忽略)", exc_info=True)
+
+    def _persist_assistant(self) -> None:
+        text = "".join(self._buf)
+        if not text.strip():
+            return   # 完全空(流开头即崩)→ 不落噪声;user 已足证"问过"
+        try:
+            self._st.add_chat_message(
+                chapter=self._chapter, stage=self._stage, role="assistant",
+                text=text, turn=self.turn_id, thread_id=self._thread_id,
+                focus=self._focus, response_id=self._response_id)
+        except Exception:
+            self._log.warning("chat_message assistant 落库失败(忽略)", exc_info=True)
+
+    def __enter__(self):
+        self._persist_user()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._persist_assistant()
+        return False   # 不吞异常
+
+
 @app.get("/chat/stream")
 def chat_stream(msg: str, work: str = "main", seq: int | None = None):
     """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
-    seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。"""
+    seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。
+    U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。"""
     from scribe3.llm import hermes_complete_stream
-    sysmsg = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq) + _DISCUSSION_DIRECTIVE
+    st = _store_for(work)
+    sysmsg = _editor_system(st) + _pulse_digest(st, seq) + _DISCUSSION_DIRECTIVE
+    thread_id = _editor_turn_context(work).thread_id
 
     def gen():
-        try:
-            for delta in hermes_complete_stream(msg, system=sysmsg):
-                yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
-        except Exception as e:  # 失败如实回流,不静默
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+        with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
+                          thread_id=thread_id) as clog:
+            try:
+                for delta in hermes_complete_stream(msg, system=sysmsg):
+                    clog.feed(delta)
+                    yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            except Exception as e:  # 失败如实回流,不静默
+                yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -3614,44 +3691,52 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
     # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
     turn = _editor_turn_context(work)
+    st = _store_for(work)
 
     def gen():
         resp_id = None
-        try:
-            events = _response_events_iter(
-                fn,
-                msg,
-                instructions,
-                with_tools=with_tools,
-                session_key=turn.session_key,
-                conversation=turn.conversation_id,
-                previous_response_id=turn.previous_response_id,
-                store=True,
-                # U-003 回滚(v2):曾想给主编 agentic 联查挂专属 CHIEF label 隔离
-                # reveal 工具,真机实测证明 server_label 不过滤——挂了等于两条路径
-                # 都拿到。故与写作路径共用同一个 READ label;当前 6 把 *_reveal
-                # 工具不挂在任何网关上(见 SCRIBE3_READ_MCP_LABEL 定义处注释)。
-                server_label=SCRIBE3_READ_MCP_LABEL,
-            )
-            for ev in events:
-                app_ev = adapter.adapt(ev)
-                if app_ev["kind"] == "text.delta":
-                    d = app_ev.get("delta", "")
-                    if d:
-                        yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
-                elif app_ev["kind"] == "tool.started":
-                    yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
-                elif app_ev["kind"] == "tool.output":
-                    yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
-                elif app_ev["kind"] == "approval.requested":
-                    yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
-                elif app_ev["kind"] == "approval.resolved":
-                    yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
-                elif app_ev["kind"] == "run.completed":
-                    # 记新 response id,turn 结束后回写线程,供下一轮 previous_response_id 续接。
-                    resp_id = app_ev.get("response_id") or resp_id
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
+        # U-005:agentic 讨论/审批也留痕(此前从不落库——《印迹》批准写入 15 世界规则 +
+        # 6 势力的整场对话凭空消失)。工具调用/审批帧【不】进对话留痕(它们已在 ai_run_trace
+        # 有账;灌进历史会把对话淹没),只留 user + assistant 最终文本。
+        with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
+                          thread_id=turn.thread_id) as clog:
+            try:
+                events = _response_events_iter(
+                    fn,
+                    msg,
+                    instructions,
+                    with_tools=with_tools,
+                    session_key=turn.session_key,
+                    conversation=turn.conversation_id,
+                    previous_response_id=turn.previous_response_id,
+                    store=True,
+                    # U-003 回滚(v2):曾想给主编 agentic 联查挂专属 CHIEF label 隔离
+                    # reveal 工具,真机实测证明 server_label 不过滤——挂了等于两条路径
+                    # 都拿到。故与写作路径共用同一个 READ label;当前 6 把 *_reveal
+                    # 工具不挂在任何网关上(见 SCRIBE3_READ_MCP_LABEL 定义处注释)。
+                    server_label=SCRIBE3_READ_MCP_LABEL,
+                )
+                for ev in events:
+                    app_ev = adapter.adapt(ev)
+                    if app_ev["kind"] == "text.delta":
+                        d = app_ev.get("delta", "")
+                        if d:
+                            clog.feed(d)
+                            yield f"data: {json.dumps({'delta': d}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "tool.started":
+                        yield f"data: {json.dumps({'tool': app_ev.get('name', ''), 'tool_args': app_ev.get('arguments', '')}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "tool.output":
+                        yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "approval.requested":
+                        yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "approval.resolved":
+                        yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
+                    elif app_ev["kind"] == "run.completed":
+                        # 记新 response id,turn 结束后回写线程,供下一轮 previous_response_id 续接。
+                        resp_id = app_ev.get("response_id") or resp_id
+                        clog.set_response_id(resp_id)
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         if resp_id:
             try:
                 # 竞态记账(#5):同一线程若并发两 turn,后完成者覆盖 previous_response_id。
