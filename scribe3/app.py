@@ -3717,7 +3717,9 @@ class _ChatTurnLog:
 
 
 def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
-                               max_chars_each: int = 600) -> list[dict]:
+                               max_chars_each: int = 600,
+                               last_assistant_chars: int = 2400,
+                               max_total_chars: int = 8000) -> list[dict]:
     """U-009:主编速答的对话记忆——把本线程最近几轮 user/assistant 留痕变成 chat messages。
 
     根因:hermes_complete_stream 此前每轮只发 [system, 当前一句],模型从未见过自己
@@ -3725,23 +3727,34 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
     主编反问"方向C是什么"。U-005 已把讨论留痕进 editorial thread,这里让**同一份留痕**
     成为模型的上下文(单一事实源:界面显示的历史 = 模型看到的历史;前端零改动)。
 
-    预算:最近 max_msgs 条(≈6 轮),每条截 max_chars_each 字(线程里有《印迹》回填的
-    整篇世界观全案那种长消息,不截会撑爆 prompt)。**必须在落本轮 user 留痕之前调用**,
-    否则当前这句会在 history 里出现第二遍。fail-soft:任何异常回 [](连续性是增强,
-    绝不因取历史失败断对话)。"""
+    预算(业界 L1 近窗原文层;字符≈token 的中文近似,刻意不引 tokenizer):
+    - 普通消息截头部 max_chars_each 字(线程里有《印迹》回填的整篇世界观全案,不截撑爆 prompt);
+    - **最后一条 assistant 拿大预算 last_assistant_chars,且超长时头尾各留**(P1 修正:
+      作者短回复"选C"的指代对象几乎总在上一条主编消息里,而"方向C:…"这类选项/结论
+      惯常在消息**尾部**——砍尾留头恰好丢掉被指代的那段,失忆复发);
+    - 总预算 max_total_chars,超了从最旧开始丢。
+    **必须在落本轮 user 留痕之前调用**,否则当前这句会在 history 里出现第二遍。
+    fail-soft:任何异常回 [](连续性是增强,绝不因取历史失败断对话)。
+    L2(旧轮 rolling summary 进 editorial_thread.summary 字段)暂缺,见台账 U-009。"""
     if not thread_id:
         return []
     try:
         rows = st.list_thread_messages(thread_id, limit=max_msgs)
+        kept = [(r.get("role"), (r.get("text") or "").strip()) for r in rows
+                if r.get("role") in ("user", "assistant") and (r.get("text") or "").strip()]
+        last_asst = max((i for i, (role, _) in enumerate(kept) if role == "assistant"),
+                        default=None)
         out = []
-        for r in rows:
-            role = r.get("role")
-            text = (r.get("text") or "").strip()
-            if role not in ("user", "assistant") or not text:
-                continue
-            if len(text) > max_chars_each:
-                text = text[:max_chars_each] + "…(前文截断)"
+        for i, (role, text) in enumerate(kept):
+            if i == last_asst and len(text) > last_assistant_chars:
+                head = text[: last_assistant_chars * 2 // 3]
+                tail = text[-(last_assistant_chars // 3):]
+                text = head + "\n…(中段截断)…\n" + tail
+            elif i != last_asst and len(text) > max_chars_each:
+                text = text[:max_chars_each] + "…(后文截断)"
             out.append({"role": role, "content": text})
+        while out and sum(len(m["content"]) for m in out) > max_total_chars:
+            out.pop(0)   # 从最旧开始丢,近轮优先
         return out
     except Exception:
         logging.getLogger("scribe3").warning("载入主编讨论历史失败(忽略,本轮无记忆)", exc_info=True)

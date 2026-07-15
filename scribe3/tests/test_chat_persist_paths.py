@@ -248,3 +248,37 @@ def test_chat_history_fail_soft_keeps_stream_alive(client, store, monkeypatch):
     assert r.status_code == 200
     _consume(r)
     assert captured[0]["history"] == []
+
+
+def test_chat_history_last_assistant_keeps_tail_where_options_live(store):
+    """P1 修正(U-009 补):作者短回复"选C"的指代对象在上一条主编消息的【尾部】
+    ("方向C:…"惯常收尾)。修前砍尾留头,超 600 字的选项消息会把方向C 的定义截掉,
+    失忆复发。修后最后一条 assistant 拿大预算(2400)且超长时头尾各留。"""
+    tid = _thread_id(store)
+    store.add_chat_message(chapter=0, stage="discuss", role="user",
+                           text="给我三个展开方向", thread_id=tid)
+    long_options = ("方案铺垫论证。" * 400) + "方向C:烛照碎片线,代价是誊抄人暴露。"   # ~2800字,C 在最尾
+    store.add_chat_message(chapter=0, stage="discuss", role="assistant",
+                           text=long_options, thread_id=tid)
+
+    h = A._thread_history_for_prompt(store, tid)
+    asst = [m for m in h if m["role"] == "assistant"][-1]
+    assert "烛照碎片线" in asst["content"], "最后一条 assistant 的尾部(被指代的选项)必须保住"
+    assert "中段截断" in asst["content"], "超长时应头尾各留而非砍尾"
+    assert len(asst["content"]) <= 2400 + 30
+
+
+def test_chat_history_non_last_assistant_still_head_truncated(store):
+    """非最后的 assistant 仍走小预算头部截断(大预算只给最可能被指代的那一条)。"""
+    tid = _thread_id(store)
+    store.add_chat_message(chapter=0, stage="discuss", role="assistant",
+                           text="旧方案" * 500, thread_id=tid)      # 1500字,非最后
+    store.add_chat_message(chapter=0, stage="discuss", role="user",
+                           text="换个思路", thread_id=tid)
+    store.add_chat_message(chapter=0, stage="discuss", role="assistant",
+                           text="新方案很短", thread_id=tid)         # 最后一条 assistant
+    h = A._thread_history_for_prompt(store, tid)
+    old = h[0]
+    assert old["role"] == "assistant" and "后文截断" in old["content"]
+    assert len(old["content"]) <= 600 + 12
+    assert h[-1]["content"] == "新方案很短"
