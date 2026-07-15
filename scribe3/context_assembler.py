@@ -174,24 +174,23 @@ def _secret_fact_ids(store) -> set[str]:
       · 全知章(focalizer=None)→ 帧判据失效,retriever 漏标即秘密真值原文入 prompt;
       · 限知章但秘密在焦点者帧【内】且 retriever 漏标 → 同样漏。
     修法:凡候选 source_id ∈ 本集,一律屏蔽,不论 focalizer 是否为空、不论 retriever 怎么标。
-    fail-soft:任何查询异常退回空集(退化为原有 provenance/帧判据,不因取集失败放大风险)。
+
+    U-011(2026-07-15,作者要 fail-loud):此前"查询异常退回空集"是**反向不安全**——
+    空集=秘密判据失效=真值可能入 prompt(fail-open 泄密方向)。已删除吞异常:查询失败
+    直接【抛】,让 assemble 崩到 SSE error 帧、前端报"限知判定失败,本章生成中止",
+    而不是悄悄漏防。宁可当场炸给作者看,也不要静默降级把泄密躲过去。
     """
     ids: set[str] = set()
     # SurrealStore:宽扫所有 secret 命题(含带 valid_to 窗口的历史秘密),最完整。
+    # 有 _query = 权威路径,失败不吞(WHERE secret=true 炸了 → 往上抛)。
     q = getattr(store, "_query", None)
     if callable(q):
-        try:
-            rows = q("SELECT meta::id(id) AS local FROM proposition WHERE secret = true")
-            ids |= {f"fact:{r['local']}" for r in (rows or [])}
-        except Exception:
-            _log.debug("_secret_fact_ids: _query 失败,退回 facts_at 扫描", exc_info=True)
-    # 公共 API 兜底(兼容内存 World 及 _query 不可用):当前有效的 secret。
-    try:
-        for f in (store.facts_at(99999) or []):
-            if getattr(f, "secret", False):
-                ids.add(f.id)
-    except Exception:
-        pass
+        rows = q("SELECT meta::id(id) AS local FROM proposition WHERE secret = true")
+        ids |= {f"fact:{r['local']}" for r in (rows or [])}
+    # 公共 API(兼容内存 World 及 _query 不可用):当前有效的 secret。同样不吞异常。
+    for f in (store.facts_at(99999) or []):
+        if getattr(f, "secret", False):
+            ids.add(f.id)
     return ids
 
 
@@ -557,16 +556,17 @@ class ContextAssembler:
         return out
 
     def _frame_fact_ids(self, snapshot: ContextSnapshot) -> set[str] | None:
-        """限知章焦点者帧内 fact id 集(供候选路径判可见);全知章返回 None(不过滤)。"""
+        """限知章焦点者帧内 fact id 集(供候选路径判可见);全知章返回 None(不过滤)。
+
+        U-011(2026-07-15,作者要 fail-loud):删掉了"project_frame 异常返 set()"——空集
+        会把该章【所有】候选误判帧外→全量掩蔽,渲染成跟真秘密同款,系统故障伪装成"这里真有
+        秘密"且无人知道。现在计算失败直接【抛】,让作者看见"限知帧计算失败",而非静默伪装。"""
         if not snapshot.focalizer:
             return None
-        try:
-            from scribe3.knowledge import project_frame
-            ch = snapshot.chapter if snapshot.chapter is not None else 1
-            frame = project_frame(self.store, snapshot.focalizer, ch)
-            return {f.id for f in frame.facts}
-        except Exception:
-            return set()
+        from scribe3.knowledge import project_frame
+        ch = snapshot.chapter if snapshot.chapter is not None else 1
+        frame = project_frame(self.store, snapshot.focalizer, ch)
+        return {f.id for f in frame.facts}
 
     def _recent_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
         """recent:工作摘要 + 近期 episodic/decision。有候选走候选;否则降级取上一章结尾。"""

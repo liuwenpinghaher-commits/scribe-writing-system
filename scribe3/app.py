@@ -3895,11 +3895,12 @@ def _secret_guard_block(st, chapter: int | None = None) -> str:
     里也写了 → 写他视角就把该留到揭示章的秘密提前泄露给读者(知情 POV 倒灌)。
     修复:对本书 secret 命题的破绽词(leak_markers),即便视角人物知情,也硬性约束本章
     藏匿、禁明写。默认所有 secret 都藏;作者要在某章揭示时,写作指令里明说'本章揭示X'覆盖。
-    无 secret 命题 → 空串(默认行为字节不变,旧书/无私密书零变化)。"""
-    try:
-        facts = st.facts_at(chapter or 99999)
-    except Exception:
-        return ""
+    无 secret 命题 → 空串(默认行为字节不变,旧书/无私密书零变化)。
+
+    U-011(2026-07-15,作者要 fail-loud):删掉了"facts_at 异常即返空串"——那是把反剧透
+    护栏悄悄整体撤除(fail-open),稿子照写、无人知道核心悬念已失防。现在查询失败直接【抛】,
+    崩到 SSE error 帧让作者看见,而不是静默拆防线。"""
+    facts = st.facts_at(chapter or 99999)
     markers: list[str] = []
     for f in facts:
         if getattr(f, "secret", False):
