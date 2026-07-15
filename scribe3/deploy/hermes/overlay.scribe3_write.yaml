@@ -1,0 +1,16 @@
+# 写 profile(:8644 Runs/审批写入)——scribe3 拥有的键(overlay)。
+# mcp_servers 由 provision 从共享 mcp_servers.yaml 注入。
+# 激活 read + write 两个工具面(写作 Runs 既要读设定又要落库)。
+#
+# 端口 8644:与 canonical 拓扑(settings.py REGISTRY / DEPLOY.md)一致。
+# ⚠ 现网这台机器的 scribe3_write/config.yaml 端口是 8643(与读 profile 撞)——因为写网关
+# 目前没有 launchd 常驻服务、从未真正在 8644 起过,那个 8643 是拷贝残留。provision 会把它
+# 校正为 8644(见 provision 的 dry-run 输出)。
+platform_toolsets:
+  api_server:
+    - scribe3_read
+    - scribe3_write
+platforms:
+  api_server:
+    port: 8644
+    host: 127.0.0.1

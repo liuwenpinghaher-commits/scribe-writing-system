@@ -19,11 +19,22 @@ cd scribe3 && .venv/bin/uvicorn scribe3.app:app --port 3321
 # 3. 启动前端(:3311)
 cd scribe3/web && npm install && npm run dev
 
-# 4. Hermes 网关(已由 launchd/screen 常驻)
-#    default: :8642(速答/渲染/判官)
-#    scribe3 read profile: :8643(只读 MCP)
-#    scribe3_write profile: :8644(读 + 写 MCP,用于 Runs/Approval)
+# 4. Hermes 网关配置(可复现,U-007)——换机器/重装/新部署都靠这步,别再手配
+#    a. 装 Hermes,用官方 Dashboard 配好 providers/模型(密钥+机器相关,Hermes 的事)
+#    b. 叠加 scribe3 拥有的网关配置(工具白名单/platform_toolsets 安全不变量/端口/主编身份):
+cd "$REPO" && scribe3/.venv/bin/python -m scribe3.scripts.provision_hermes          # dry-run 先看
+                scribe3/.venv/bin/python -m scribe3.scripts.provision_hermes --commit  # 真写(自动备份)
+#       幂等、深合并(保 providers 密钥与 Dashboard 键)、机器路径自动替换;详见 scribe3/deploy/hermes/README.md
+#    c. 起三个网关(launchd/systemd/docker,OS 相关):
+#       default: :8642(速答/渲染/判官,零工具面)/ scribe3: :8643(只读 MCP)/ scribe3_write: :8644(读+写 MCP)
+#    d. 后端启动守卫自动复核安全不变量;生产可设 SCRIBE3_STRICT_GATEWAY_GUARD=1 让配置违规直接拒绝启动
 ```
+
+> ⚠️ **为什么必须跑 provision(U-006/U-007 教训)**:Hermes 默认 profile 是库存人格,api_server
+> 继承全部 toolsets(含 hermes-cli 终端)——不显式清空,主编"速答"就能执行 git/终端等**系统外动作**
+> (真机实证:主编跨仓库 git 提交+push)。此前三个 profile 的全部网关配置手配在部署机、一行不在 git,
+> 换环境必复现。provision 把 scribe3 拥有的那部分纳入 git,一键落地。**密钥不进 git**——由 Dashboard/
+> 环境单独管,provision 深合并时原样保留。
 
 ## Docker 部署
 
@@ -33,7 +44,7 @@ docker compose up
 
 # 前端: http://127.0.0.1:3311
 # 后端: http://127.0.0.1:3321
-# Hermes 网关用宿主已跑的 :8642/:8643/:8644
+# Hermes 网关用宿主已跑的 :8642/:8643/:8644(其配置同样先跑 provision_hermes,见上「本地开发」第4步)
 ```
 
 ## 环境变量

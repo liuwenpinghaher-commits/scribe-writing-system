@@ -1,0 +1,85 @@
+# 两个 scribe3 profile 共享的 MCP server 定义(工具白名单单一真相源)。
+# provision 把它注入 scribe3(读)与 scribe3_write(写)两个 profile 的 config.yaml。
+# 两 profile 都【定义】这两个 server,但各自【激活】哪个由 platform_toolsets 决定
+# (读 profile 只激活 scribe3_read,写 profile 激活 read+write)。
+#
+# {{RUN_MCP}}:provision 时按本 repo 位置替换成 <repo>/scribe3/run_mcp.sh 绝对路径
+# (机器相关,不能硬编码进 git)。
+#
+# 白名单安全不变量(test_provision_hermes 交叉校验 + 启动守卫复核):
+#   · include 里【绝无】 s3_*_reveal 全知孪生工具(U-003:server_label 不过滤,挂上=写作路径也够得着)
+#   · scribe3_read.include 全是 readOnly 工具;scribe3_write.include 全是 WRITE_GATED 工具
+#   · 每个工具名在 mcp.py 里真实存在
+# 加/删工具 = 改这里一行 + 重跑 provision;新工具不写进来就不暴露(fail-closed)。
+scribe3_read:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_project_frame
+      - s3_find_leaks
+      - s3_causal_complete
+      - s3_semantic_recall
+      - s3_hybrid_recall
+      - s3_chapter_recall
+      - s3_graph_recall
+      - s3_material_recall
+      - s3_setting_completeness
+      - s3_list_world_rules
+      - s3_list_factions
+      - s3_character_state
+      - s3_character_timeline
+      - s3_relations_at
+      - s3_list_entity_relations
+      - s3_get_voice_profile
+      - s3_check_ooc
+      - s3_list_items
+      - s3_list_terms
+      - s3_resolve_entities
+      - s3_validate_setting
+      - s3_dramatic_irony
+      - s3_list_promises
+      - s3_list_motifs
+      - s3_get_chapter
+      - s3_qc_chapter
+      - s3_recent_phrases
+      - s3_cross_repetition
+      - s3_dedup_cross
+      - s3_emotion_palette
+      - s3_craft_rule_list
+      - s3_discipline_check
+      - s3_list_voice_flags
+    prompts: false
+    resources: false
+scribe3_write:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_save_chapter
+      - s3_add_character
+      - s3_add_fact
+      - s3_add_event
+      - s3_add_character_relation
+      - s3_add_entity_relation
+      - s3_evolve_relation
+      - s3_add_world_rule
+      - s3_add_faction
+      - s3_add_char_state
+      - s3_set_voice_profile
+      - s3_add_item
+      - s3_add_term
+      - s3_plant_promise
+      - s3_register_purpose
+      - s3_advance_promise
+      - s3_add_clue
+      - s3_resolve_voice_flag
+      - s3_fold_voice_flags
+      - s3_ingest_chapter
+      - s3_record_knowledge
+      - s3_supersede_fact
+      - s3_forget_knowledge
+      - s3_craft_rule_add
+      - s3_craft_rule_remove
+    prompts: false
+    resources: false

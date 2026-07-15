@@ -748,6 +748,57 @@ def _mask_field(row: dict, field: str, secret_field: str, reveal: bool) -> dict:
     return row
 
 
+def _gateway_security_violations(home=None) -> list[str]:
+    """启动守卫的判据:纯读 Hermes profile config 文件(不走网络),检查安全不变量。
+
+    与 _summarize_hermes_runtime 的运行时门禁同源,但轻量(无探针)、可在启动早期跑:
+      ① 默认 profile(:8642 速答/渲染/判官)api_server 工具面必须为空(U-006)。
+      ② 任何 profile 的任何 mcp server include 里绝无 *_reveal 全知工具(U-003)。
+    config 读不到(如全新机器还没 provision)→ 不报 violation(交给部署流程/运行时门禁),
+    这里只对【确凿能读到且确实违规】的配置发声,避免 dev/test 环境误伤。
+    """
+    violations = []
+    default_cfg = _hermes_profile_config_summary("default", home=home)
+    if default_cfg.get("ok") and (default_cfg.get("api_server_toolsets") or []):
+        violations.append(
+            "默认网关(:8642 速答)暴露了工具面 "
+            f"{default_cfg.get('api_server_toolsets')} —— 主编速答可借此执行终端/git 等系统外动作"
+            "(U-006)。跑 `python -m scribe3.scripts.provision_hermes --commit` 修复。")
+    for prof in ("default", "scribe3", "scribe3_write"):
+        cfg = _hermes_profile_config_summary(prof, home=home)
+        if not cfg.get("ok"):
+            continue
+        for sname, toolset in (cfg.get("mcp_toolsets") or {}).items():
+            reveal = [t for t in (toolset or {}).get("tools") or [] if str(t).endswith("_reveal")]
+            if reveal:
+                violations.append(
+                    f"{prof}/{sname} 挂了 *_reveal 全知工具 {reveal} —— server_label 不过滤,"
+                    "挂网关即等于交给写作/续写路径(U-003)。")
+    return violations
+
+
+@app.on_event("startup")
+def _startup_gateway_guard():
+    """部署到任何地方的最后一道防线:即便有人跳过 provision 或配置漂了,后端一启动就发现。
+    只在真 uvicorn 启动时触发(不在 import/测试时)。默认响亮 CRITICAL 日志;
+    生产可设 SCRIBE3_STRICT_GATEWAY_GUARD=1 让配置违规直接 fail-fast(拒绝起服务)。"""
+    try:
+        violations = _gateway_security_violations()
+    except Exception:
+        logging.getLogger("scribe3").warning("网关安全守卫自检异常(忽略,不阻断启动)", exc_info=True)
+        return
+    if not violations:
+        return
+    log = logging.getLogger("scribe3")
+    for v in violations:
+        log.critical("🚨 网关安全不变量违规:%s", v)
+    strict = os.environ.get("SCRIBE3_STRICT_GATEWAY_GUARD", "").strip().lower() in ("1", "true", "yes", "on")
+    if strict:
+        raise RuntimeError(
+            "SCRIBE3_STRICT_GATEWAY_GUARD=1 且网关安全不变量违规,拒绝启动。违规:\n- "
+            + "\n- ".join(violations))
+
+
 # ===== 书 =====
 @app.get("/health")
 def health():

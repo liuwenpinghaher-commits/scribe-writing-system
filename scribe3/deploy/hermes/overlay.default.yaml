@@ -1,0 +1,6 @@
+# 默认 profile(:8642 速答/渲染/判官)——scribe3 拥有的键(overlay,深合并进根 config.yaml)。
+# 唯一强制项:api_server 零工具面。速答/渲染/判官都是纯补全,不需要任何工具;若继承 Hermes
+# 库存 toolsets(含 hermes-cli 终端),主编速答就能执行 git/终端等系统外动作(U-006 真机实证)。
+# 这里不含 mcp_servers/platforms——默认网关不挂 scribe3 MCP,端口由 Hermes 自身默认(8642)。
+platform_toolsets:
+  api_server: []

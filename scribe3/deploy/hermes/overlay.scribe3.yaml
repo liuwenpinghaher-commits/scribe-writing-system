@@ -1,0 +1,10 @@
+# 读 profile(:8643 主编 agentic 只读联查)——scribe3 拥有的键(overlay)。
+# mcp_servers 由 provision 从共享 mcp_servers.yaml 注入(此处不写,避免白名单两份漂移)。
+# 只激活 scribe3_read(只读工具面);写工具虽被定义但不激活,agentic 联查够不着写。
+platform_toolsets:
+  api_server:
+    - scribe3_read
+platforms:
+  api_server:
+    port: 8643
+    host: 127.0.0.1

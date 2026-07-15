@@ -104,6 +104,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("HERMES_RUNS_API", "gateway", "str", "http://127.0.0.1:8644/v1", "restart", "写入 Runs 网关"),
     Setting("HERMES_RUNS_PROFILE", "gateway", "str", "scribe3_write", "restart", "写网关 profile"),
     Setting("HERMES_HOME", "gateway", "str", "", "restart", "Hermes 根目录", "空 = ~/.hermes"),
+    Setting("SCRIBE3_STRICT_GATEWAY_GUARD", "gateway", "bool", False, "restart", "网关安全守卫 fail-fast",
+            "开=启动时网关安全不变量违规(默认网关有工具面/挂 *_reveal)直接拒绝启动;关=只 CRITICAL 日志(U-007)"),
     Setting("gateway.hermes_bin", "gateway", "str", "~/.local/bin/hermes", "restart", "hermes CLI 路径", "一键重启用"),
     Setting("gateway.dashboard_url", "gateway", "str", "http://127.0.0.1:9119", "hot", "Dashboard 地址", "官方管理台,hermes dashboard 默认端口"),
 )
