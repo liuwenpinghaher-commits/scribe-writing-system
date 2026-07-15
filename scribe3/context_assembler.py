@@ -195,6 +195,20 @@ def _secret_fact_ids(store) -> set[str]:
     return ids
 
 
+def _is_bridge_mirror(entity_id: str, attribute: str) -> bool:
+    """结构性判断 (entity_id, attribute) 是否 codex_secret_bridge 造的势力 secret 字段镜像。
+
+    委托 `codex_secret_bridge.is_faction_bridge_mirror`(单一真相源,与
+    `app._is_faction_bridge_mirror` 同判据同源,防两处漂移)——canonical 不是这些镜像的
+    授权注入通道,那是 `app._codex_block`/`_faction_prompt_block` 的职责(已带三档可见性、
+    正确的中文字段标签);canonical 是通用"权威事实"直查/检索通道,分不清楚这些字段的
+    三档语义,故无条件把它们从 canonical 候选/事实里剔除,不论 focalizer 有无、不论
+    知情与否(与旧链 M6 转储泄露修复对称)。局部 import:每次调用都从源模块取最新绑定,
+    不缓存旧引用(供测试 monkeypatch 源函数验证委托关系)。"""
+    from scribe3.codex_secret_bridge import is_faction_bridge_mirror
+    return is_faction_bridge_mirror(entity_id, attribute)
+
+
 def _resolve_canonical_conflicts(candidates) -> tuple[list, list]:
     """正典优先裁决:返回 (保留候选, 被正典取代的 episodic 候选)。
 
@@ -436,6 +450,13 @@ class ContextAssembler:
         # ∈ 此集一律屏蔽,不论 focalizer 是否为空、不论 retriever 是否标 secret。
         secret_ids = _secret_fact_ids(self.store)
         for c in cands:
+            # Gap-B(2026-07-15):codex_secret_bridge 造的势力 secret 字段镜像结构性剔除
+            # ——不进入下面的 secret_ids/prov_secret 掩码判定(那两条信号可能失效,见
+            # test_gap_b_candidate_path_survives_secret_signal_degradation),直接跳过
+            # 候选本身,canonical 完全不承载(见 _is_bridge_mirror 注释)。
+            if any(_is_bridge_mirror(p.get("entity") or "", p.get("attribute") or "")
+                   for p in (getattr(c, "provenance", None) or [])):
+                continue
             prov_secret = any(p.get("secret") for p in (getattr(c, "provenance", None) or []))
             # ① store 权威判定为 secret → 恒屏蔽(全知/限知章一致,补齐候选路径漏洞)
             # ② retriever 自标 secret → 屏蔽(信号叠加,不覆盖 store 判定)
@@ -497,6 +518,8 @@ class ContextAssembler:
             _log.debug("canonical: project_frame 失败,限知块降级为空", exc_info=True)
             frame_facts = []
         for f in frame_facts[:40]:
+            if _is_bridge_mirror(f.entity_id, f.attribute):
+                continue   # Gap-B:桥镜像结构性剔除(即便 secret=True 已掩码 value,属性名本身仍不该出现)
             mask = bool(f.secret)   # secret=True:即便焦点者知,渲染层也屏蔽,防 leak marker 穿帮
             src = ContextSource(
                 source_id=f.id, source_kind="canonical", work=snapshot.work,
@@ -509,13 +532,23 @@ class ContextAssembler:
 
     def _canonical_all_facts(self, snapshot: ContextSnapshot,
                              ch: int) -> list[_Item]:
-        """全知章:facts_at 全量(私密标注但作者视角可见,对齐 _editor_system 旧行为)。"""
+        """全知章:facts_at 全量(私密标注但作者视角可见,对齐 _editor_system 旧行为)。
+
+        Gap-B(2026-07-15):此前这里对 codex_secret_bridge 造的势力 secret 字段镜像
+        (如 secret_agenda/origin)毫无过滤——focalizer 空(全知写作,"正常模式")时
+        直接把镜像命题当"全知视角可见的私密标注事实"裸值转储,与旧链 M6 全知转储泄露
+        同型(app._is_faction_bridge_mirror 当年修的那个洞,这里此前一直没同步修)。
+        修法:与 app._editor_system 的 `_keep_fact` 同型,Fact 层结构性剔除桥镜像——
+        canonical 不是它们的授权注入通道(那是 app._codex_block 的职责)。真实故事秘密
+        (非桥接)不受影响,仍保持"私密标注但作者全知视角可见"的既有语义。"""
         out: list[_Item] = []
         try:
             facts = self.store.facts_at(ch) or []
         except Exception:
             facts = []
         for f in facts[:40]:
+            if _is_bridge_mirror(f.entity_id, f.attribute):
+                continue
             note = "(私密/伏线)" if f.secret else ""
             out.append(_Item(
                 f"- {f.entity_id} · {f.attribute}:{f.value}{note}",

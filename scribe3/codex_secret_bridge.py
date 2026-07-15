@@ -137,3 +137,21 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                 "DELETE type::record('proposition', $local)", {"local": existing_local})
             counts["deleted"] += 1
     return counts
+
+
+def is_faction_bridge_mirror(entity_id: str, attribute: str) -> bool:
+    """此 (entity_id, attribute) 是否本模块 `sync_faction_secrets` 造的势力 secret 字段镜像?
+
+    判据与 `sync_faction_secrets` **创建**它们时用的谓词同源(entity_id 是
+    `f"faction:{名}"` 前缀形态 + attribute ∈ `secret_capable_keys('faction')`),是结构性
+    的、精确的——不看渲染出来的字符串长什么样,也不依赖 `proposition.secret`/`source`
+    等字段是否可靠(那些信号可能因 store 抖动/查询失败而退化,见
+    test_codex_prompt_adversarial.py 的 P0 对抗用例)。
+
+    领域归属单一真相源:本模块创建这些镜像,判据必须与创建谓词同源,故放在这里而非
+    app.py/context_assembler.py 各自实现——供 app.py `_editor_system` 的 M6 全知转储过滤、
+    context_assembler.py canonical 候选/store 降级两条取数路径共用,防三处判据各自
+    实现、渐行渐远(2026-07-15 之前 app.py 独立内嵌过一份同款逻辑,即本次改为委托的
+    由来)。本函数不 import app/context_assembler,无循环依赖。"""
+    return bool(entity_id) and str(entity_id).startswith("faction:") \
+        and attribute in secret_capable_keys("faction")

@@ -3519,13 +3519,17 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
         def _is_faction_bridge_mirror(f) -> bool:
             """这条 Fact 是不是 codex_secret_bridge 造的势力 secret 字段镜像?
 
-            判据与 sync_faction_secrets **创建**它们时用的谓词同源(entity_id=f"faction:{名}"
-            + attribute=注册表里的 secret_capable 字段名),所以是结构性的、精确的——
-            不看渲染出来的字符串长什么样。
+            薄委托(2026-07-15,parity 修补):判据本体已下沉到
+            `codex_secret_bridge.is_faction_bridge_mirror`(单一真相源)——本函数只做
+            Fact→(entity_id, attribute) 的取值适配,不再自己重复"entity_id 前缀 +
+            secret_capable 字段名"这条逻辑。context_assembler.py 的 canonical 候选/store
+            降级两条取数路径(Gap-B 修补)现在调用的是同一个领域函数,防止此处与那里各自
+            实现、渐行渐远(2026-07-15 之前两处确实各写了一份)。
             (Fact 数据类没有 source 字段、facts_at 也没 SELECT 它,否则 source=='codex_bridge'
              会是更直白的判据;等哪天 Fact 带上 source,这里可以简化。)"""
-            return ((getattr(f, "entity_id", "") or "").startswith("faction:")
-                    and getattr(f, "attribute", "") in codex_secret_capable_keys("faction"))
+            from scribe3.codex_secret_bridge import is_faction_bridge_mirror
+            return is_faction_bridge_mirror(getattr(f, "entity_id", "") or "",
+                                            getattr(f, "attribute", "") or "")
 
         # U-003(2026-07-15,端到端接线测试撞出的真实洞,不是假设性风险):
         # codex_secret_bridge.sync_faction_secrets 把 faction 表的 secret_capable/chief_only
@@ -4895,6 +4899,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                          "贴该角色所知所感写,别写他不知道的私密。")
     else:
         instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+    # parity 修补(2026-07-15):v1 身份层刻意不走 _editor_system(见上方 I1 注释,防
+    # facts/promises 与 envelope 重复),但代价是设定圣经(codex:faction 28 字段/世界
+    # 规则/术语/物件/母题)在 v1 完全缺席——CX-Task 6 后这是旗舰能力,不能因为切到 v1
+    # 就消失(否则"开旗即回归")。逐字复用旧链同一函数、同一 for_generation=True 语义
+    # (对照 _editor_system 内 app.py:3594 的调用形状;_editor_write_system 恒传
+    # for_generation=True,唯一生成入口——v1 同样是生成路径,必须同传,漏传就是泄密)。
+    # 阶段2可把这块迁入 envelope 的专属 source(参与预算/溯源);现阶段用 instructions
+    # 块保证与旧链字节级同语义,不额外造轮子。
+    instructions += ("\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
+                     + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
+                                     chapter=chapter, for_generation=True) or "(尚无设定)") + "\n")
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
                            phase=phase, work=work)
