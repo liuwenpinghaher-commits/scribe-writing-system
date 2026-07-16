@@ -461,6 +461,14 @@ def s3_get_chapter(seq: int, work: str | None = None) -> dict:
 
 
 @mcp.tool(annotations=_RO)
+def s3_skill_read(slug: str, work: str | None = None) -> str:
+    """读一篇通用写作技法全文(P1 渐进披露:instructions 只带索引行,触及才取全文)。
+    slug 见 instructions 的「写作技法库」索引;未知 slug 抛错并列出可用清单(fail-loud)。"""
+    from scribe3.craft_skills import read_skill
+    return read_skill(slug)
+
+
+@mcp.tool(annotations=_RO)
 def s3_qc_chapter(seq: int, work: str | None = None) -> dict:
     """对某章正文跑确定性 QC(复读/排比/升华/AI腔)——渲染层兜底。
     升华检测叠加本书题材正则(craft_rule purple_regex)。"""

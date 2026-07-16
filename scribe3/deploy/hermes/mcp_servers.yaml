@@ -17,6 +17,7 @@ scribe3_read:
   tools:
     include:
       - s3_project_frame
+      - s3_skill_read
       - s3_find_leaks
       - s3_causal_complete
       - s3_semantic_recall

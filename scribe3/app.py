@@ -4047,6 +4047,8 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                 "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
                 "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
             )
+            from scribe3.craft_skills import skills_index_block
+            ins += skills_index_block()   # P1 定案B:技法索引(渐进披露,全文靠 s3_skill_read)
         return ins
 
     def gen():
@@ -5132,6 +5134,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     instructions += f"\n当前第 {chapter} 章。"
     if with_tools:
         instructions += _s3_work_scope_block(work)
+        from scribe3.craft_skills import skills_index_block
+        instructions += skills_index_block()   # P1 定案B:技法索引(渐进披露)
     if focalizer:
         instructions += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
                          "贴该角色所知所感写,别写他不知道的私密。")
@@ -5272,6 +5276,8 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
     instructions += f"\n当前第 {chapter} 章。"
     if with_tools:
         instructions += _s3_work_scope_block(work)
+        from scribe3.craft_skills import skills_index_block
+        instructions += skills_index_block()   # P1 定案B:技法索引(渐进披露)
     if focalizer:
         instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
     else:
