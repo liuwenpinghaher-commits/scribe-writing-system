@@ -166,6 +166,11 @@ class TestWriteGate:
         # 统一上下文 Task 6:主编线程显式分支。授权语义:只写 editorial_thread
         # 一表(建子线程,写 parent_thread_id),不碰正典/对话内容;导航路径绝不调此。
         ("POST", "/chat/threads/{thread_id}/fork"),
+        # P0a 多会话(2026-07-16):显式新建会话 + 改名/归档。授权语义:只写
+        # editorial_thread 一表(title/status 元数据),不碰正典/对话内容;
+        # PATCH 零降级门(不存在 404/跨 work 409/非法 status 422),归档可逆(status 回 active)。
+        ("POST", "/chat/threads"),
+        ("PATCH", "/chat/threads/{thread_id}"),
         # 统一设置中心:PUT 写 SQLite 设置台账(带校验+审计,secret 掩码);
         # reset 删覆盖值回落 env/默认。不碰正典数据、不碰 SurrealDB。
         ("PUT", "/settings/{key}"),
