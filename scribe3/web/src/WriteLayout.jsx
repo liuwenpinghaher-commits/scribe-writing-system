@@ -367,7 +367,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
         <span className={qcN > 0 ? 'text-warn' : 'text-ok'}>QC {qcN}</span>
         {qcErrNames.length > 0 && (
           <span className="text-danger" title={`失败检测器:${qcErrNames.join('、')}`}>
-            ⚠ 检测器故障·本次未检({qcErrNames.join('、')})
+            检测器故障·本次未检({qcErrNames.join('、')})
           </span>
         )}
         <span className={cstat.state === 'violations' ? 'text-danger' : 'text-faint'}>
@@ -683,7 +683,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                     <div className="text-f12 text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
                     {/* U-011:检测器炸了(leaks_error)必须红字区分——"无泄露"可能是真干净,也可能是没检 */}
                     {guard.leaks_error
-                      ? <div className="text-f12 text-danger leading-snug">⚠ 泄露检测器故障·本次未检:{guard.leaks_error}</div>
+                      ? <div className="text-f12 text-danger leading-snug">泄露检测器故障·本次未检:{guard.leaks_error}</div>
                       : focalizer && guard.leaks.length > 0
                         ? <div className="text-f12 text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
                         : <div className="text-f12 text-ok">无泄露</div>
