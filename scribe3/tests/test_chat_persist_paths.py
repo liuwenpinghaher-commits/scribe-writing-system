@@ -287,3 +287,72 @@ def test_chat_history_non_last_assistant_still_head_truncated(store):
     assert old["role"] == "assistant" and "后文截断" in old["content"]
     assert len(old["content"]) <= 600 + 12
     assert h[-1]["content"] == "新方案很短"
+
+
+# ---- P0a 多会话:thread 参数贯通(零降级:无效 404 / 归档 409 / 跨 work 409,绝不回落)----
+
+def test_chat_stream_thread_param_routes_messages(client, store, monkeypatch):
+    """P0a 核心:传 thread → 消息落指定线程,不落 active 线程。
+    注意顺序:先建 default(get_or_create 取最早 active),再建 t2——否则 default==t2 恒真。"""
+    default = store.get_or_create_editorial_thread("main", "author")
+    t2 = store.create_editorial_thread("main", "author")
+    assert t2["thread_id"] != default["thread_id"]
+    captured = []
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        _fake_stream_factory(captured, ["好"]))
+    r = client.get("/chat/stream", params={"msg": "落到新会话", "work": "main",
+                                           "thread": t2["thread_id"]})
+    assert r.status_code == 200
+    b"".join(r.iter_bytes())
+    msgs = store.list_thread_messages(t2["thread_id"])
+    assert any("落到新会话" in (m.get("text") or "") for m in msgs)
+    assert not any("落到新会话" in (m.get("text") or "")
+                   for m in store.list_thread_messages(default["thread_id"]))
+
+
+def test_chat_stream_invalid_thread_404_archived_409_no_fallback(client, store, monkeypatch):
+    """零降级:无效/已归档/跨 work thread 绝不静默回落 active——404/409 抛。"""
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        lambda *a, **k: iter(["x"]))
+    r = client.get("/chat/stream", params={"msg": "hi", "work": "main",
+                                           "thread": "ethread:main:nope"})
+    assert r.status_code == 404
+    t = store.create_editorial_thread("main", "author")
+    store.update_editorial_thread_meta(t["thread_id"], status="archived")
+    r2 = client.get("/chat/stream", params={"msg": "hi", "work": "main",
+                                            "thread": t["thread_id"]})
+    assert r2.status_code == 409   # 已归档:存在但不可写
+    r3 = client.get("/chat/stream", params={"msg": "hi", "work": "other",
+                                            "thread": t["thread_id"]})
+    assert r3.status_code == 409   # 跨 work
+
+
+def test_chat_agentic_thread_param_routes_messages(client, store, monkeypatch):
+    """agentic 同样贯通:传 thread → 留痕落指定线程(先建 default 防 t2 即最早 active 的恒真)。"""
+    import scribe3.app as A
+    default = store.get_or_create_editorial_thread("main", "author")
+    t2 = store.create_editorial_thread("main", "author")
+    monkeypatch.setattr(A, "_responses_events",
+                        lambda *a, **k: iter([{"type": "response.output_text.delta", "delta": "答"},
+                                              {"type": "response.completed", "response": {"id": "r1"}}]))
+    r = client.get("/chat/agentic-stream", params={"msg": "agentic落新会话", "work": "main",
+                                                   "thread": t2["thread_id"]})
+    assert r.status_code == 200
+    b"".join(r.iter_bytes())
+    msgs = store.list_thread_messages(t2["thread_id"])
+    assert any("agentic落新会话" in (m.get("text") or "") for m in msgs)
+    assert not any("agentic落新会话" in (m.get("text") or "")
+                   for m in store.list_thread_messages(default["thread_id"]))
+
+
+def test_chat_stream_no_thread_param_byte_compatible(client, store, monkeypatch):
+    """不传 thread=文档化默认(active 线程)——旧调用方行为字节不变。"""
+    captured = []
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        _fake_stream_factory(captured, ["好"]))
+    r = client.get("/chat/stream", params={"msg": "旧调用", "work": "main"})
+    assert r.status_code == 200
+    b"".join(r.iter_bytes())
+    default = store.get_or_create_editorial_thread("main", "author")
+    assert any("旧调用" in (m.get("text") or "")
+               for m in store.list_thread_messages(default["thread_id"]))

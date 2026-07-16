@@ -254,17 +254,38 @@ def _hermes_session_key(work: str, thread_id: str, chapter: int | None = None) -
     return scribe3_session_key(work, thread_id=thread_id)
 
 
-def _editor_turn_context(work: str, actor_id: str = "author"):
+def _resolve_thread_or_raise(work: str, thread: str | None):
+    """P0a 零降级:thread 传了必须有效——不存在 404 / 已归档 409 / 跨 work 409。
+    绝不静默回落 active(回落=串台掩盖器,作者定案「不要降级逻辑」)。
+    返回线程行;未传返回 None(调用方走 active 默认,文档化参数默认非降级)。"""
+    if not thread:
+        return None
+    _assert_work_binding(_thread_work(thread), work,
+                         kind="editorial_thread", ident=thread)
+    row = _store_for(work)._get_editorial_thread(thread)
+    if row is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "thread_not_found", "message": f"线程 '{thread}' 不存在"})
+    if row.get("status") == "archived":
+        raise HTTPException(status_code=409, detail={
+            "code": "thread_archived",
+            "message": "会话已归档,恢复(PATCH status=active)后再用"})
+    return row
+
+
+def _editor_turn_context(work: str, actor_id: str = "author",
+                         thread_row: dict | None = None):
     """组装本轮主编 turn 的会话连续上下文(Task 11 产出 HermesTurnContext)。
 
     thread_id 取本 work 的稳定主编线程(get_or_create_editorial_thread,一 work 一连续线程);
+    P0a:thread_row 给定(作者在下拉选了会话)时用该线程,跳过 get_or_create。
     conversation/previous_response 从线程行取(Hermes 会话续接锚,LRU 100 掉链常态);
     context_* 属动态 envelope 层(默认关),此处留空,开启后由 assembler 填。
     U-011:线程取数异常直接抛(fail-loud)——退化线程会让留痕落错处+历史读不到=静默失忆。"""
     from scribe3.hermes_runtime import HermesTurnContext
     w = _normalize_work(work)
     try:
-        thread = _store_for(w).get_or_create_editorial_thread(w, actor_id)
+        thread = thread_row or _store_for(w).get_or_create_editorial_thread(w, actor_id)
         return HermesTurnContext(
             work=w,
             thread_id=thread["thread_id"],
@@ -3797,14 +3818,16 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
 
 
 @app.get("/chat/stream")
-def chat_stream(msg: str, work: str = "main", seq: int | None = None):
+def chat_stream(msg: str, work: str = "main", seq: int | None = None,
+                thread: str | None = None):
     """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
     seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。
     U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。
     U-009:留痕反哺为对话记忆(history 注入)——此前单遍无续接,主编每轮失忆。"""
     from scribe3.llm import hermes_complete_stream
     st = _store_for(work)
-    thread_id = _editor_turn_context(work).thread_id
+    thread_id = _editor_turn_context(
+        work, thread_row=_resolve_thread_or_raise(work, thread)).thread_id
 
     def gen():
         # U-011:上下文组装(设定圣经/脉搏/历史)挪进流内——组装崩时 error 帧携带【异常原文】
@@ -3834,7 +3857,8 @@ _responses_events = None  # 测试可 monkeypatch
 
 
 @app.get("/chat/agentic-stream")
-def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
+def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None,
+                        thread: str | None = None):
     """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
     事件:tool(工具调用提示)/delta(回复片段)/done。"""
     from scribe3.hermes_runtime import HermesEventAdapter
@@ -3846,7 +3870,7 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
 
     # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
     # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
-    turn = _editor_turn_context(work)
+    turn = _editor_turn_context(work, thread_row=_resolve_thread_or_raise(work, thread))
     st = _store_for(work)
 
     def _build_instructions() -> str:
