@@ -27,3 +27,6 @@ jobs:
       - run: npm ci
       - run: npm run test
       - run: npm run build
+      - run: curl -sSf https://install.surrealdb.com | sh   # e2e_ci.sh 起独立临时 surreal 需二进制
+      - run: npx playwright install --with-deps chromium
+      - run: ../../scripts/e2e_ci.sh          # L2 前端最后一厘米:独立临时后端,验证链路通+零 console 崩

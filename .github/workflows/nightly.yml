@@ -1,0 +1,25 @@
+name: nightly-e2e-real
+# 真调档(真 Hermes 网关):公共 GitHub runner 无凭证 → 跳过;接 self-hosted runner 或配
+# secrets.HERMES_GATEWAY_URL 后 real 步骤才实跑。本地随时可 `make e2e-real`。
+on:
+  schedule: [{ cron: '0 18 * * *' }]   # 每日 UTC 18:00
+  workflow_dispatch: {}
+
+jobs:
+  real:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # secrets 上下文在 job-level if 不可用,故在 step 内判断凭证是否存在
+      - name: 检查 Hermes 凭证
+        id: cred
+        env:
+          HERMES_GATEWAY_URL: ${{ secrets.HERMES_GATEWAY_URL }}
+        run: |
+          if [ -z "$HERMES_GATEWAY_URL" ]; then
+            echo "无 Hermes 凭证(公共 runner 预期)→ 跳过真调档。接 self-hosted runner 或配 secrets 后实跑。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 真调档完整旅程
+        if: steps.cred.outputs.skip != 'true'
+        run: scripts/e2e_real.sh
