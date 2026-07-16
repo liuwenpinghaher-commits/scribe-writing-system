@@ -1488,13 +1488,18 @@ class ContextSessionCreateReq(BaseModel):
     device_id: str = ""
     # work 可放 body(优先)或 ?work= query;创建后固化进 session 记录
     work: str | None = None
+    # P0a:显式绑定某会话线程(切会话=重建 session 绑新线程);缺省=active 默认线程
+    thread_id: str | None = None
 
 
 @app.post("/context/sessions")
 def context_session_create(req: ContextSessionCreateReq, work: str = "main"):
-    """开上下文会话:落 revision=0 初始快照并返回(session 与快照同事务,无中间态)。"""
+    """开上下文会话:落 revision=0 初始快照并返回(session 与快照同事务,无中间态)。
+    P0a:body 带 thread_id 时快照绑该会话线程(零降级:无效 404 / 归档 409,不回落)。"""
     w = (req.work or work).strip() or "main"
-    return _store_for(w).create_context_session(w, req.actor_id, req.device_id)
+    _resolve_thread_or_raise(w, req.thread_id)
+    return _store_for(w).create_context_session(w, req.actor_id, req.device_id,
+                                                thread_id=req.thread_id)
 
 
 @app.get("/context/sessions/{session_id}")

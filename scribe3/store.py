@@ -5401,7 +5401,8 @@ class SurrealStore:
             {"sid": session_id, "nav": navigation_id})
         return rows[0] if rows else None
 
-    def create_context_session(self, work: str, actor_id: str, device_id: str) -> dict:
+    def create_context_session(self, work: str, actor_id: str, device_id: str,
+                               thread_id: str | None = None) -> dict:
         """开一个上下文会话并落 revision=0 的初始快照,返回初始快照 dict。
 
         session 与初始快照在同一条事务里创建:不存在"有 session 无快照"的中间态,
@@ -5419,7 +5420,9 @@ class SurrealStore:
         from uuid import uuid4
         sid = uuid4().hex
         snap_id = uuid4().hex
-        thread_id = self.get_or_create_editorial_thread(work, actor_id)["thread_id"]
+        # P0a:thread_id 给定(作者选了会话)→ 快照绑该线程;未给=既有行为(active 默认线程)。
+        # 有效性由端点层 _resolve_thread_or_raise 把关(零降级:无效 404/409,不静默回落)。
+        thread_id = thread_id or self.get_or_create_editorial_thread(work, actor_id)["thread_id"]
         snap = ContextSnapshot(
             session_id=sid, work=work, revision=0, thread_id=thread_id,
             entry="manuscript", directory_path=(),

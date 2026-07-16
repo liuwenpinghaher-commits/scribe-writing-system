@@ -329,3 +329,30 @@ def test_context_write_routes_registered_in_write_gate():
     known = TestWriteGate.KNOWN_REST_WRITE_ROUTES
     assert ("POST", "/context/sessions") in known
     assert ("POST", "/context/sessions/{session_id}/navigate") in known
+
+
+# ---- P0a 多会话:context session 绑指定线程(切会话=重建 session)----
+
+def test_context_session_create_binds_explicit_thread(store):
+    t2 = store.create_editorial_thread("main", "author")
+    r = _client(store).post("/context/sessions", json={"thread_id": t2["thread_id"]})
+    assert r.status_code == 200
+    assert r.json()["thread_id"] == t2["thread_id"]
+
+
+def test_context_session_create_invalid_thread_404_archived_409(store):
+    c = _client(store)
+    r = c.post("/context/sessions", json={"thread_id": "ethread:main:nope"})
+    assert r.status_code == 404   # 零降级:绝不静默回落 active
+    t = store.create_editorial_thread("main", "author")
+    store.update_editorial_thread_meta(t["thread_id"], status="archived")
+    assert c.post("/context/sessions",
+                  json={"thread_id": t["thread_id"]}).status_code == 409
+
+
+def test_context_session_create_without_thread_unchanged(store):
+    """不带 thread_id=既有行为(active 默认线程)——字节兼容。"""
+    default = store.get_or_create_editorial_thread("main", "author")
+    r = _client(store).post("/context/sessions", json={})
+    assert r.status_code == 200
+    assert r.json()["thread_id"] == default["thread_id"]
