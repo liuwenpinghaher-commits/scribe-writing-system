@@ -1605,7 +1605,23 @@ def _maybe_summarize_thread(work: str, thread_id: str, threshold: int = 40) -> d
     → 新 summary(≤1500 字;优先保留:①未决决策 ②作者偏好/否决表态 ③伏笔/设定承诺)。
     成功:set_thread_summary(+游标,清 summary_error);失败:log.error + summary_error
     (前端摘要卡红字——失败不许只躺日志,零降级可见性);旧 summary 保留,下轮重试。
-    每轮流结束后由 BackgroundTasks 触发(阈值内秒退,零 LLM 成本);/maintenance 夜间兜底。"""
+    每轮流结束后由 BackgroundTasks 触发(阈值内秒退,零 LLM 成本);/maintenance 夜间兜底。
+    整体防线:store 读失败也走 error 路径(log.error + summary_error 尽力标红)——摘要是
+    后台增强,绝不允许它把刚结束的对话请求崩掉(BackgroundTasks 异常会炸给 TestClient/日志)。"""
+    try:
+        return _summarize_thread_inner(work, thread_id, threshold)
+    except Exception as e:
+        logging.getLogger("scribe3").error("线程摘要失败(store 层)thread=%s", thread_id,
+                                           exc_info=True)
+        try:
+            _store_for(work).set_thread_summary_error(thread_id, str(e)[:200])
+        except Exception:
+            logging.getLogger("scribe3").error("summary_error 落库也失败 thread=%s", thread_id,
+                                               exc_info=True)
+        return {"status": "error", "error": str(e)[:200]}
+
+
+def _summarize_thread_inner(work: str, thread_id: str, threshold: int) -> dict:
     st = _store_for(work)
     row = st._get_editorial_thread(thread_id)
     if row is None:
