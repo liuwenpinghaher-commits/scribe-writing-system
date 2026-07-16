@@ -1574,12 +1574,15 @@ def chat_threads(work: str = "main", actor_id: str = "author"):
 
 
 @app.get("/chat/threads/{thread_id}/messages")
-def chat_thread_messages(thread_id: str, work: str = "main", limit: int = 500):
-    """该线程全部消息(ts 升序)。Task 16-A:thread_id 内嵌 work(ethread:<work>:<uuid>)——
+def chat_thread_messages(thread_id: str, work: str = "main", limit: int = 500,
+                         before_ts: str | None = None):
+    """该线程消息(ts 升序)。P0b:before_ts 给定=只取更早(「载入更早」分页游标)。
+    Task 16-A:thread_id 内嵌 work(ethread:<work>:<uuid>)——
     落库 work 与请求 ?work= 不符 → 409(否则空 [] 会把越权伪装成"无消息")。"""
     _assert_work_binding(_thread_work(thread_id), work,
                          kind="editorial_thread", ident=thread_id)
-    return _store_for(work).list_thread_messages(thread_id, limit=limit)
+    return _store_for(work).list_thread_messages(thread_id, limit=limit,
+                                                 before_ts=before_ts)
 
 
 @app.post("/chat/threads/{thread_id}/fork")

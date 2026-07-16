@@ -253,7 +253,14 @@ export const api = {
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
   // forkThread 显式分支(导航路径绝不调此)。
   threads: () => j('/chat/threads'),
-  threadMessages: (id) => j('/chat/threads/' + enc(id) + '/messages'),
+  // P0b:opts={limit, before}——懒加载近窗 + 「载入更早」分页(before=最早一条的 ts)
+  threadMessages: (id, opts = {}) => {
+    const q = []
+    if (opts.limit) q.push('limit=' + opts.limit)
+    if (opts.before) q.push('before_ts=' + enc(opts.before))
+    return j('/chat/threads/' + enc(id) + '/messages' + (q.length ? '?' + q.join('&') : ''))
+  },
+  exportThreadUrl: (id, format = 'md') => BASE + ww('/chat/threads/' + enc(id) + '/export?format=' + format),
   forkThread: (id, body) => post('/chat/threads/' + enc(id) + '/fork', body || {}),
   createThread: (title) => post('/chat/threads', title ? { title } : {}),          // P0a:显式新建会话
   patchThread: (id, fields) => patch('/chat/threads/' + enc(id), fields),          // P0a:{title}|{status}

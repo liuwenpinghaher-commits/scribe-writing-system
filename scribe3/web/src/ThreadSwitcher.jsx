@@ -2,7 +2,7 @@
 // 自门控:非线程模式(无 snapshot.thread_id,flag 关/快照缺席)渲染 null,行为回旧版。
 // 零降级:列表加载失败显式红字「不代表没有会话」;所有操作失败 danger toast,绝不装没事。
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Plus, Pencil, Archive, GitBranch } from 'lucide-react'
+import { ChevronDown, Plus, Pencil, Archive, GitBranch, Download } from 'lucide-react'
 import { api } from './api'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { showToast } from './ui/Toast.jsx'
@@ -97,6 +97,9 @@ export function ThreadSwitcher({ busy = false }) {
               className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-brand hover:bg-soft rounded cursor-pointer"><Plus size={12} />新建会话</button>
             <button onClick={doFork} title="带早期摘要,消息从空开始"
               className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><GitBranch size={12} />从当前分支</button>
+            {/* P0b:导出当前会话(md;只含对话文本与时间,不含工具输出) */}
+            <a href={api.exportThreadUrl(current, 'md')} download
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><Download size={12} />导出会话(.md)</a>
           </div>
           {archived.length > 0 && (
             <div className="border-t border-line/60 mt-1 pt-1">

@@ -8,6 +8,7 @@ const apiMock = vi.hoisted(() => ({
   createThread: vi.fn(),
   patchThread: vi.fn(() => Promise.resolve({})),
   forkThread: vi.fn(() => Promise.resolve({ thread_id: 't4' })),
+  exportThreadUrl: vi.fn(() => '#export'),   // P0b:导出链接
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../context/ContextSnapshotContext', () => ({

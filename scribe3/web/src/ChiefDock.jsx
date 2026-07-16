@@ -16,6 +16,7 @@ import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { ContextInspector } from './context/ContextInspector'
 import { ThreadSwitcher } from './ThreadSwitcher'
+import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 
 // Task 6:后端线程消息(role/text/focus/context_revision)→ 对话气泡形状(content)。
@@ -29,7 +30,31 @@ function normalizeThreadMessages(rows) {
     approvals: m.approvals || [],
     focus: m.focus || null,
     context_revision: m.context_revision ?? null,
+    ts: m.ts ?? null,   // P0b:「载入更早」分页游标
   }))
+}
+
+// P0b:早期摘要卡(折叠可展开)——近窗之外的更早讨论压缩在此;summary_error 红字如实示警。
+function ThreadSummaryCard({ meta }) {
+  const [open, setOpen] = useState(false)
+  if (!meta) return null
+  const err = (meta.summary_error || '').trim()
+  const summ = (meta.summary || '').trim()
+  if (!err && !summ) return null
+  return (
+    <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 leading-snug">
+      {err && (
+        <div className="text-danger mb-1">早期摘要未更新(上次生成失败:{err})——以下为旧摘要。</div>
+      )}
+      {summ && (
+        <button onClick={() => setOpen((v) => !v)} className="w-full text-left cursor-pointer">
+          <span className="text-faint">【早期摘要】</span>
+          <span className="text-ink">{open ? summ : summ.slice(0, 72) + (summ.length > 72 ? '…' : '')}</span>
+          {summ.length > 72 && <span className="text-brand ml-1">{open ? '收起' : '展开'}</span>}
+        </button>
+      )}
+    </div>
+  )
 }
 
 // 焦点标签取话术:非线程模式与既有一致(focusTalk(选中总线 focus));
@@ -441,16 +466,27 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const loadedThreadRef = useRef(null)
   const [threadLoadError, setThreadLoadError] = useState(false)
   const [reloadTick, setReloadTick] = useState(0)
+  // P0b:懒加载近窗(30 条)+「载入更早」游标 + 线程摘要卡数据
+  const RECENT_N = 30
+  const [earlier, setEarlier] = useState({ cursor: null, hasMore: false })
+  const [threadMeta, setThreadMeta] = useState(null)
   useEffect(() => {
     if (!threadMode) { loadedThreadRef.current = null; return undefined }
     if (loadedThreadRef.current === threadId) return undefined
     let dead = false
-    api.threadMessages(threadId)
+    api.threadMessages(threadId, { limit: RECENT_N })
       .then((rows) => {
         if (dead) return
         loadedThreadRef.current = threadId   // 仅成功后置位:失败不置 → 下次可重试
         setThreadLoadError(false)
         setMsgs(normalizeThreadMessages(rows))
+        setEarlier({ cursor: rows[0]?.ts || null, hasMore: rows.length === RECENT_N })
+        // 摘要卡数据(summary/summary_error);旧测试精简 api 无 threads → 跳过(行为回旧版)
+        if (typeof api.threads === 'function') {
+          api.threads()
+            .then((d) => { if (!dead) setThreadMeta((d.threads || []).find((t) => t.thread_id === threadId) || null) })
+            .catch(() => { if (!dead) setThreadMeta(null) })
+        }
       })
       .catch((e) => {
         if (dead) return
@@ -679,6 +715,22 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
 
       {/* 消息列表 */}
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
+        {/* P0b:载入更早(分页游标)+ 早期摘要卡(折叠) */}
+        {threadMode && earlier.hasMore && (
+          <button
+            onClick={() => {
+              api.threadMessages(threadId, { limit: RECENT_N, before: earlier.cursor })
+                .then((rows) => {
+                  setMsgs((prev) => [...normalizeThreadMessages(rows), ...prev])
+                  setEarlier({ cursor: rows[0]?.ts || earlier.cursor, hasMore: rows.length === RECENT_N })
+                })
+                .catch((e) => showToast(`载入更早失败:${e?.body?.detail || e?.message || e}`, { tone: 'danger' }))
+            }}
+            className="w-full text-center text-f12 text-brand hover:underline cursor-pointer py-0.5">
+            载入更早…
+          </button>
+        )}
+        {threadMode && <ThreadSummaryCard meta={threadMeta} />}
         {threadLoadError && (
           <div data-testid="chief-thread-load-error" className="rounded-lg border border-warn/40 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2">
             <span className="flex-1">线程历史加载失败{msgs.length ? '(显示本地缓存)' : ''},可重试。</span>
