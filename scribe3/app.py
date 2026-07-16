@@ -3768,6 +3768,10 @@ class _ChatTurnLog:
 
     def __enter__(self):
         self._persist_user()
+        # P0a:首条 user 消息给默认标题的线程自动命名(store 侧幂等判默认标题;
+        # 纯库内小查询,失败上抛不静默——同 U-011 纪律,留痕 best-effort 豁免不适用于它)。
+        if self._thread_id:
+            self._st.maybe_autotitle_thread(self._thread_id, self._user_text)
         return self
 
     def __exit__(self, exc_type, exc, tb):

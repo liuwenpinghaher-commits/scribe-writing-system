@@ -299,3 +299,29 @@ def test_patch_chat_thread_rename_archive_and_guards(store):
     # 跨 work → 409(_assert_work_binding 既有语义)
     assert c.patch(f"/chat/threads/{tid}", params={"work": "other"},
                    json={"title": "x"}).status_code == 409
+
+
+# ---- P0a:首条消息自动命名 ----
+
+def test_autotitle_on_first_user_message(store):
+    t = store.create_editorial_thread(store.db_name, "author")            # title=新会话
+    store.maybe_autotitle_thread(t["thread_id"], "帮我把门派体系理一遍,从青叶门开始梳理脉络")
+    assert store._get_editorial_thread(t["thread_id"])["title"] == \
+        "帮我把门派体系理一遍,从青叶门开始梳理脉络"[:24]
+    # 已非默认标题 → 不再改(幂等)
+    store.maybe_autotitle_thread(t["thread_id"], "第二句话")
+    assert store._get_editorial_thread(t["thread_id"])["title"] != "第二句话"
+
+
+def test_autotitle_via_chat_stream_endpoint(store, monkeypatch):
+    """端点整合:新会话发首条消息 → 线程标题自动变成消息前 24 字。"""
+    from .test_app import _client
+    c = _client(store)
+    monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
+                        lambda msg, system=None, **_kw: iter(["回"]))
+    tid = c.post("/chat/threads", json={}).json()["thread_id"]            # title=新会话
+    r = c.get("/chat/stream", params={"msg": "给主角起个带金属感的名字", "work": "main",
+                                      "thread": tid})
+    assert r.status_code == 200
+    b"".join(r.iter_bytes())
+    assert store._get_editorial_thread(tid)["title"] == "给主角起个带金属感的名字"

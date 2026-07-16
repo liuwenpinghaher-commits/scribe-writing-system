@@ -1561,6 +1561,18 @@ class SurrealStore:
             f"UPDATE editorial_thread SET {', '.join(sets)} "
             "WHERE thread_id=$tid RETURN NONE", params)
 
+    _AUTOTITLE_DEFAULTS = ("主编讨论", "新会话")
+
+    def maybe_autotitle_thread(self, thread_id: str, first_user_text: str) -> None:
+        """P0a:首条 user 消息自动命名(截 24 字)。仅当标题仍是默认值时改——
+        改过名/自动命名过的线程不再动(幂等,零 LLM,零降级:纯库内两条小查询,失败上抛)。"""
+        row = self._get_editorial_thread(thread_id)
+        if row is None or (row.get("title") or "") not in self._AUTOTITLE_DEFAULTS:
+            return
+        text = (first_user_text or "").strip().replace("\n", " ")[:24]
+        if text:
+            self.update_editorial_thread_meta(thread_id, title=text)
+
     def fork_editorial_thread(self, parent_thread_id: str,
                               title: str | None = None) -> dict:
         """显式分支:以 parent_thread_id 为父建新活跃线程(导航路径绝不调此)。
