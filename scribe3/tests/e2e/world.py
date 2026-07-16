@@ -21,9 +21,12 @@ def populate(st):
     # 势力
     st.add_faction("青叶门", ideology="夺妖兽还丹", status="active",
                    public_face="仙子门派", private_operation="掠夺妖兽内丹", first_mention_chapter=2)
-    # 秘密事实(限知泄露测试③要用:focalizer 胡不为【不知情】的秘密)
+    # 秘密事实(限知泄露测试③要用:focalizer 胡不为【不知情】的秘密)。
+    # leak_markers 是系统为限知泄露设计的"破绽词":出现在非持有者视角散文里=穿帮
+    # (find_leaks 用 leak_markers or [value] 逐个 re 匹配,故 marker 必须是 prose 里的精确子串)。
     st.add_fact(Fact("fact:secret1", "role:老乌头", "隐情",
-                     "老乌头是乌家末代守墓人,四百年封印将破", valid_from=1, secret=True))
+                     "老乌头是乌家末代守墓人,四百年封印将破", valid_from=1, secret=True,
+                     leak_markers=["末代守墓人"]))
     st.semantic_index("fact:secret1", "老乌头是乌家末代守墓人,四百年封印将破")
 
 
