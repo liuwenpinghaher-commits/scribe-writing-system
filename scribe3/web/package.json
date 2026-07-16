@@ -8,9 +8,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "e2e:ci": "node e2e/frontend_smoke.mjs",
-    "e2e:readonly": "node e2e/qa_batchE.mjs",
-    "e2e:writes-with-snapshot": "node e2e/snapshot_ch4.mjs b2 && node e2e/qa_b2.mjs; node e2e/qa_b2_restore.mjs",
-    "e2e:destructive-manual": "node -e \"console.error('destructive e2e requires an explicit script name and manual snapshot/restore note'); process.exit(2)\""
+    "e2e:real": "node e2e/full_journey.mjs"
   },
   "dependencies": {
     "@assistant-ui/react": "^0.14.26",

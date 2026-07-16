@@ -1,53 +1,39 @@
-# Scribe3 Web E2E 分档
+# Scribe3 E2E 测试
 
-本目录里的 Playwright 脚本按副作用分成三档。默认 `npm test` 只运行 Vitest,不运行任何会写真实作品的 e2e。
+两档结构(设计见 `docs/superpowers/specs/2026-07-16-e2e骨架重建-design.md`)。
 
-## e2e:readonly
+## 确定性档(每次 PR / CI 自动)
 
-只允许打开、切换、查看、搜索、读取 network payload。不得创建、编辑、删除、导入提交或保存真实作品。
-
-运行命令:
+六类失效模式的负路径回归,真打端点/SSE/组装/检测器/store,只 mock LLM 边界。秒级、不烧网关。
 
 ```bash
-npm run e2e:readonly
+scribe3/.venv/bin/python -m pytest scribe3/tests/e2e -q   # 或 make e2e-det
 ```
 
-当前脚本:
+覆盖:①静默降级 / ②写了读不到 / ③限知泄露 / ④工具面越界 / ⑤集成断裂 / ⑥失忆。
 
-- `e2e/qa_batchE.mjs`
+## 前端 L2 冒烟(CI 自动 / 本地 `make e2e-frontend`)
 
-## e2e:writes-with-snapshot
-
-允许写入 `book_c256380e` 第 4 章,但必须先拍快照,脚本结束后恢复,并复核章正文、草稿和测试数据零残留。
-
-运行命令:
+独立临时后端(临时 surreal,绝不碰生产),验证前端真机链路通 + 零 console 崩。
 
 ```bash
-npm run e2e:writes-with-snapshot
+make e2e-frontend        # = scripts/e2e_ci.sh
 ```
 
-当前顺序:
+**生产保护**:3311/3321 被占用时 fail-loud 拒绝运行(防误连本机生产后端把测试书写进生产库)。
+
+## 真调档(nightly / 本地 `make e2e-real`)
+
+真起前后端 + 真 Hermes 网关,走完整写作旅程。断言结构/链路/护栏到界面/字数,不钉正文内容。
 
 ```bash
-node e2e/snapshot_ch4.mjs b2
-node e2e/qa_b2.mjs
-node e2e/qa_b2_restore.mjs
+make e2e-real            # 需本机 Hermes 网关(:8643/:8644)+ 端口 3311/3321 空闲
 ```
 
-如果中间脚本失败,也要单独运行恢复命令:
+公共 CI 无凭证跑不了真调,见 `.github/workflows/nightly.yml`(留 self-hosted 接口)。
 
-```bash
-node e2e/qa_b2_restore.mjs
-```
+## 文件
 
-## e2e:destructive-manual
-
-删除、导入提交、迁移、真实张力写入、会影响多对象引用的脚本只允许人工单独运行。运行前必须记录目标 work、快照文件、恢复命令和复核命令。
-
-运行命令:
-
-```bash
-npm run e2e:destructive-manual
-```
-
-该命令默认拒绝执行,用于防止破坏性脚本被误放进自动回归。需要运行具体脚本时,直接写明脚本名、目标作品和恢复方案。
+- `lib.mjs` — Playwright 真机操作(从 `pw.mjs` 提炼,两档共用)
+- `frontend_smoke.mjs` — L2 前端冒烟(确定性,不调 LLM)
+- `full_journey.mjs` — 真调档完整旅程(真网关)
