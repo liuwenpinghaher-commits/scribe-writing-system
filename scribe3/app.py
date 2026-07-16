@@ -5174,6 +5174,9 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
         ContextService(st).enforce(req, work, headers=request.headers)
     except (ContextServiceError, StaleContextError) as e:
         raise _context_http_error(e) from e
+    # P0a 零降级:前端带了 thread_id 就必须有效(404/409),绝不静默回落——
+    # 同 chat_stream 的 _resolve_thread_or_raise 口径;必须在开流前抛(流中 4xx 会退化)。
+    _resolve_thread_or_raise(work, req.thread_id)
     _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
     # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。

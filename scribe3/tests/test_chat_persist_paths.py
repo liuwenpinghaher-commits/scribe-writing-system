@@ -356,3 +356,14 @@ def test_chat_stream_no_thread_param_byte_compatible(client, store, monkeypatch)
     default = store.get_or_create_editorial_thread("main", "author")
     assert any("旧调用" in (m.get("text") or "")
                for m in store.list_thread_messages(default["thread_id"]))
+
+
+def test_chat_write_post_invalid_thread_404_archived_409(client, store):
+    """P0a 分支A:POST /chat/write 已消费 req.thread_id 留痕——带了就必须有效,
+    无效 404 / 已归档 409,绝不静默回落(校验在开流前,不退化成流中错误)。"""
+    r = client.post("/chat/write", json={"msg": "hi", "thread_id": "ethread:main:nope"})
+    assert r.status_code == 404
+    t = store.create_editorial_thread("main", "author")
+    store.update_editorial_thread_meta(t["thread_id"], status="archived")
+    r2 = client.post("/chat/write", json={"msg": "hi", "thread_id": t["thread_id"]})
+    assert r2.status_code == 409
