@@ -3796,7 +3796,14 @@ def _editor_system(st, focalizer: str = "", chapter: int = None,
         f"【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n{_codex_block(st, reveal=not focalizer, focalizer=focalizer, chapter=chapter, for_generation=for_generation) or '(尚无设定)'}\n\n"
         "要求:用简体中文,像真正的资深文学编辑那样具体、犀利、可操作;紧扣上面的世界观与北极星,"
         "不空泛、不正确的废话;给剧情/人物建议时给出 2-3 个选项与各自代价;护住限知叙事(别让角色知道其知识帧外的私密)。"
-    ) + rem + mat_hint
+    ) + rem + mat_hint + _author_prefs_block_safe()
+
+
+def _author_prefs_block_safe() -> str:
+    """P3:跨书作者偏好注入(单点——_editor_system 被讨论/agentic/写作全路径复用)。
+    语义在 scribe3.author_prefs:文件不存在=空(合法初始态);存在但读失败=抛(fail-loud)。"""
+    from scribe3.author_prefs import author_prefs_block
+    return author_prefs_block()
 
 
 def _pulse_digest(st, seq: int | None) -> str:

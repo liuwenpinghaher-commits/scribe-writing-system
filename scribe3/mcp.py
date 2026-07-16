@@ -1180,6 +1180,16 @@ async def s3_craft_rule_add(ctx: Context, kind: str, pattern: str, note: str = "
 
 
 @mcp.tool(annotations=_RW)
+async def s3_author_pref_add(ctx: Context, text: str, work: str | None = None) -> dict:
+    """记一条【作者跨书偏好】到 USER.md(写,待批)。只收人级风格倾向(如"偏短句""不煽情"
+    "叙事距离偏远");**书内设定/人物/世界观/情节一律禁止**(那是正典,走设定工具)——
+    拿不准算不算偏好就不要调用本工具(红线:偏好≠正典,兜底保守)。≤200字。"""
+    ok = await _ask(ctx, f"记跨书作者偏好:{text[:80]}")
+    from scribe3.author_prefs import append_pref
+    return commit_if_approved("s3_author_pref_add", ok, lambda: append_pref(text))
+
+
+@mcp.tool(annotations=_RW)
 async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = None) -> dict:
     """删一条本书题材 craft 规则(写,待批)。"""
     ok = await _ask(ctx, f"删题材规则 {rule_id}")

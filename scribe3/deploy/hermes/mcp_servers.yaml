@@ -58,6 +58,7 @@ scribe3_write:
   tools:
     include:
       - s3_save_chapter
+      - s3_author_pref_add
       - s3_add_character
       - s3_add_fact
       - s3_add_event
