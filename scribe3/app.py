@@ -1569,6 +1569,41 @@ def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
             "code": "thread_not_found", "message": str(e)}) from e
 
 
+class ThreadCreateReq(BaseModel):
+    title: str | None = None
+
+
+class ThreadPatchReq(BaseModel):
+    title: str | None = None
+    status: str | None = None
+
+
+@app.post("/chat/threads")
+def chat_thread_create(req: ThreadCreateReq, work: str = "main", actor_id: str = "author"):
+    """P0a:显式新建会话(与 GET /chat/threads 的幂等取默认不同,每次都建新线程)。"""
+    if req.title is not None and len(req.title) > 60:
+        raise HTTPException(status_code=422, detail="标题过长(≤60 字)")
+    return _store_for(work).create_editorial_thread(work, actor_id, title=req.title)
+
+
+@app.patch("/chat/threads/{thread_id}")
+def chat_thread_patch(thread_id: str, req: ThreadPatchReq, work: str = "main"):
+    """P0a:改名/归档。零降级:线程不存在 404、跨 work 409、非法 status 422。"""
+    if req.status is not None and req.status not in ("active", "archived"):
+        raise HTTPException(status_code=422,
+                            detail=f"非法 status={req.status!r}(active|archived)")
+    if req.title is not None and len(req.title) > 60:
+        raise HTTPException(status_code=422, detail="标题过长(≤60 字)")
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
+    st = _store_for(work)
+    if st._get_editorial_thread(thread_id) is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "thread_not_found", "message": f"线程 '{thread_id}' 不存在"})
+    st.update_editorial_thread_meta(thread_id, title=req.title, status=req.status)
+    return st._get_editorial_thread(thread_id)
+
+
 # ---------------------------------------------------------------------------
 # 统一上下文与记忆系统 · Task 12:/memory/* REST(可选 scribe3-memory Hermes provider 消费)
 #

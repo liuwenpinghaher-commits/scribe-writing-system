@@ -267,3 +267,35 @@ def test_fork_inherits_parent_summary(store):
         {"s": "早期讨论:主角设定为风水师。", "tid": parent["thread_id"]})
     child = store.fork_editorial_thread(parent["thread_id"], title="支线")
     assert child["summary"] == "早期讨论:主角设定为风水师。"
+
+
+# ---- P0a 多会话:POST /chat/threads(新建)+ PATCH /chat/threads/{id}(改名/归档)----
+
+def test_post_chat_threads_creates_new(store):
+    from .test_app import _client
+    c = _client(store)
+    r = c.post("/chat/threads", json={"title": "新支线"})
+    assert r.status_code == 200
+    row = r.json()
+    assert row["title"] == "新支线" and row["status"] == "active"
+    r2 = c.post("/chat/threads", json={})
+    assert r2.status_code == 200
+    assert r2.json()["thread_id"] != row["thread_id"]   # 每次都新建
+    assert r2.json()["title"] == "新会话"
+
+
+def test_patch_chat_thread_rename_archive_and_guards(store):
+    from .test_app import _client
+    c = _client(store)
+    tid = c.post("/chat/threads", json={}).json()["thread_id"]
+    assert c.patch(f"/chat/threads/{tid}", json={"title": "改名"}).status_code == 200
+    r = c.patch(f"/chat/threads/{tid}", json={"status": "archived"})
+    assert r.status_code == 200 and r.json()["status"] == "archived"
+    assert r.json()["title"] == "改名"
+    # 非法 status → 422
+    assert c.patch(f"/chat/threads/{tid}", json={"status": "deleted"}).status_code == 422
+    # 不存在 → 404
+    assert c.patch("/chat/threads/ethread:main:nope", json={"title": "x"}).status_code == 404
+    # 跨 work → 409(_assert_work_binding 既有语义)
+    assert c.patch(f"/chat/threads/{tid}", params={"work": "other"},
+                   json={"title": "x"}).status_code == 409
