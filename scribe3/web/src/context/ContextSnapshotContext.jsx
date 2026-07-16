@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
+import { showToast } from '../ui/Toast.jsx'
 import { bootstrapSnapshot, reduceSnapshot, semanticIntent } from './contextSnapshot'
 
 // 统一上下文快照 Provider(Task 5)。
@@ -37,7 +38,7 @@ export const DEFAULT_CAPABILITIES = {
 
 // Provider 缺席(旧测试直渲 FourPaneShell / 旧三栏路径)时的兜底:
 // navigate 为 no-op、snapshot 为 null → 消费端全部回退既有本地投影。
-const NOOP = { snapshot: null, navigate: () => {}, restoring: false, error: null, navigated: false, sessionId: null, capabilities: DEFAULT_CAPABILITIES }
+const NOOP = { snapshot: null, navigate: () => {}, switchThread: () => {}, restoring: false, error: null, navigated: false, sessionId: null, capabilities: DEFAULT_CAPABILITIES }
 
 export function ContextSnapshotProvider({ work, children }) {
   const [snapshot, setSnapshot] = useState(() => bootstrapSnapshot(work))
@@ -172,8 +173,25 @@ export function ContextSnapshotProvider({ work, children }) {
     // → 静默进入本地直通模式,统一上下文的存在不应被感知。
     if (typeof api?.createContextSession !== 'function') { setRestoring(false); return undefined }
     setRestoring(true)
+    // P0a 当前线程解析链:localStorage 偏好 → 后端 active 默认。**每次向下切换必须可见**:
+    // 偏好线程已归档/删除(404/409)→ toast 明示 + 清键 + 回默认重建一次;二次失败走既有
+    // error 路径(context_session_failed 显式报错)。绝不静默换线程(零降级)。
+    const wKey = work ?? api?.getWork?.() ?? 'main'
+    const preferredKey = 's3.thread.current.' + wKey
+    let preferred = null
+    try { preferred = localStorage.getItem(preferredKey) || null } catch { /* */ }
+    const create = (tid) => api.createContextSession({
+      work: wKey, ...(tid ? { thread_id: tid } : {}) })
     Promise.resolve()
-      .then(() => api.createContextSession({ work: work ?? api?.getWork?.() }))
+      .then(() => create(preferred))
+      .catch((e) => {
+        if (preferred && (e?.status === 404 || e?.status === 409)) {
+          try { localStorage.removeItem(preferredKey) } catch { /* */ }
+          showToast('原会话已归档/删除,已切到默认会话', { tone: 'info' })
+          return create(null)
+        }
+        throw e
+      })
       .then((snap) => {
         if (cancelled) return
         if (!snap || typeof snap !== 'object' || typeof snap.revision !== 'number') return
@@ -215,12 +233,40 @@ export function ContextSnapshotProvider({ work, children }) {
     return () => { cancelled = true }
   }, [])
 
+  // P0a:切换主编会话=重建 context session 绑新线程(snapshot.thread_id 是前端线程唯一
+  // 事实源,不裂)。成功:换绑 + localStorage 记偏好;失败:danger toast + **当前状态不变**
+  // (零降级:绝不半切/静默回落)。
+  const switchThread = useCallback((threadId) => {
+    if (!threadId || typeof api?.createContextSession !== 'function') return Promise.resolve()
+    const wKey = work ?? api?.getWork?.() ?? 'main'
+    return Promise.resolve()
+      .then(() => api.createContextSession({ work: wKey, thread_id: threadId }))
+      .then((snap) => {
+        if (!snap || typeof snap !== 'object' || typeof snap.revision !== 'number') {
+          throw new Error('会话快照无效')
+        }
+        epochRef.current += 1            // 旧线程会话的在途确认整体作废(同切书语义)
+        navSeqRef.current += 1
+        inflightRef.current = false
+        pendingRef.current = null
+        modeRef.current = 'server'
+        confirmedRef.current = snap
+        commit(snap)
+        setError(null)
+        try { localStorage.setItem('s3.thread.current.' + wKey, threadId) } catch { /* */ }
+      })
+      .catch((e) => {
+        showToast(`切换会话失败:${e?.body?.detail?.message || e?.body?.detail || e?.message || ''}`,
+                  { tone: 'danger' })
+      })
+  }, [work, commit])
+
   // Task 6:显式暴露只读 sessionId(消费端绑定 LLM 调用的会话游标来源;
   // 降级/本地直通模式下快照无 session_id → null)。
   const sessionId = snapshot?.session_id ?? null
   const value = useMemo(
-    () => ({ snapshot, navigate, restoring, error, navigated, sessionId, capabilities }),
-    [snapshot, navigate, restoring, error, navigated, sessionId, capabilities],
+    () => ({ snapshot, navigate, switchThread, restoring, error, navigated, sessionId, capabilities }),
+    [snapshot, navigate, switchThread, restoring, error, navigated, sessionId, capabilities],
   )
   return <ContextSnapshotCtx.Provider value={value}>{children}</ContextSnapshotCtx.Provider>
 }

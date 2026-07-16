@@ -255,6 +255,8 @@ export const api = {
   threads: () => j('/chat/threads'),
   threadMessages: (id) => j('/chat/threads/' + enc(id) + '/messages'),
   forkThread: (id, body) => post('/chat/threads/' + enc(id) + '/fork', body || {}),
+  createThread: (title) => post('/chat/threads', title ? { title } : {}),          // P0a:显式新建会话
+  patchThread: (id, fields) => patch('/chat/threads/' + enc(id), fields),          // P0a:{title}|{status}
   resolveIdea: (id) => post('/ideas/resolve', { id }),           // R1-5:想法待批处理完出收件箱
   addIdea: (text) => post('/ideas', { text }),
   charAnchors: (id) => j(`/char-anchors?character_id=${enc(id)}`),
@@ -431,10 +433,12 @@ export const api = {
     })
     return ctrl
   },
-  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq }) => {
+  chatStream: (msg, { onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onDone, onError, agentic, seq, thread }) => {
     // seq(时机C):讨论章号,后端据此注入脉搏速览,主编讨论时主动带出确定性信号
+    // thread(P0a 多会话):显式会话线程;缺省=后端 active 默认线程(文档化默认,非降级)
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
       + (seq != null ? `&seq=${seq}` : '')
+      + (thread ? `&thread=${enc(thread)}` : '')
     const es = new EventSource(BASE + ww(path))
     es.onmessage = (e) => {
       try {
