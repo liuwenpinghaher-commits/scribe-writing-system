@@ -1531,13 +1531,43 @@ class SurrealStore:
             f"WHERE thread_id=$tid ORDER BY ts DESC LIMIT {n}", {"tid": thread_id})
         return list(reversed(rows))
 
+    def create_editorial_thread(self, work: str, actor_id: str,
+                                title: str | None = None) -> dict:
+        """显式新建主编线程(P0a 多会话):与 get_or_create 不同,每次都建新的。
+        默认标题「新会话」——首条 user 消息落库时由 maybe_autotitle_thread 自动改名。"""
+        from uuid import uuid4
+        tid = f"ethread:{work}:{uuid4().hex}"
+        self._execute_write(
+            "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
+            "parent_thread_id=NONE, title=$title, status='active', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "updated_at=time::now() RETURN NONE",
+            {"tid": tid, "w": work, "a": actor_id,
+             "title": (title or "").strip() or "新会话"})
+        return self._get_editorial_thread(tid)
+
+    def update_editorial_thread_meta(self, thread_id: str, *,
+                                     title: str | None = None,
+                                     status: str | None = None) -> None:
+        """改名/归档(P0a):只改传入字段。status 合法值 active|archived(调用方校验)。"""
+        sets, params = ["updated_at=time::now()"], {"tid": thread_id}
+        if title is not None:
+            sets.append("title=$title")
+            params["title"] = title
+        if status is not None:
+            sets.append("status=$status")
+            params["status"] = status
+        self._execute_write(
+            f"UPDATE editorial_thread SET {', '.join(sets)} "
+            "WHERE thread_id=$tid RETURN NONE", params)
+
     def fork_editorial_thread(self, parent_thread_id: str,
                               title: str | None = None) -> dict:
         """显式分支:以 parent_thread_id 为父建新活跃线程(导航路径绝不调此)。
         actor_id/work 继承父线程;title 缺省沿用父标题。
 
-        子线程消息从空开始——不继承父线程历史(fork 只写 parent_thread_id 建血缘,
-        list_thread_messages(child) 初始为空;需要父上下文由上层显式携带)。"""
+        子线程消息从空开始,但 **summary 继承父线程**(P0a:分支不失忆——
+        prompt 注入层能带上父线程的早期上下文);需要逐条父历史由上层显式携带。"""
         from uuid import uuid4
         parent = self._get_editorial_thread(parent_thread_id)
         if parent is None:
@@ -1546,11 +1576,12 @@ class SurrealStore:
         self._execute_write(
             "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
             "parent_thread_id=$parent, title=$title, status='active', "
-            "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
+            "hermes_conversation_id=NONE, previous_response_id=NONE, summary=$sum, "
             "updated_at=time::now() RETURN NONE",
             {"tid": tid, "w": parent["work"], "a": parent["actor_id"],
              "parent": parent_thread_id,
-             "title": title or parent.get("title") or "主编讨论"})
+             "title": title or parent.get("title") or "主编讨论",
+             "sum": parent.get("summary") or ""})
         return self._get_editorial_thread(tid)
 
     def backfill_thread_ids(self, actor_id: str = "author") -> int:

@@ -235,3 +235,35 @@ def test_fork_missing_parent_returns_404(store):
     r = _client(store).post("/chat/threads/ethread:nope/fork", json={})
     assert r.status_code == 404
     assert r.json()["detail"]["code"] == "thread_not_found"
+
+
+# ---- P0a 多会话:显式新建 / 改名归档 / fork 继承 summary(store 层)----
+
+def test_create_editorial_thread_explicit(store):
+    """显式新建:不复用 active 线程,每次新建一条;默认标题「新会话」。"""
+    w = store.db_name
+    t1 = store.get_or_create_editorial_thread(w, "author")
+    t2 = store.create_editorial_thread(w, "author")
+    t3 = store.create_editorial_thread(w, "author", title="门派设定讨论")
+    assert t2["thread_id"] != t1["thread_id"] and t3["thread_id"] != t2["thread_id"]
+    assert t2["title"] == "新会话" and t3["title"] == "门派设定讨论"
+    assert t2["status"] == "active"
+
+
+def test_update_editorial_thread_meta_rename_archive(store):
+    t = store.create_editorial_thread(store.db_name, "author")
+    store.update_editorial_thread_meta(t["thread_id"], title="改个名")
+    assert store._get_editorial_thread(t["thread_id"])["title"] == "改个名"
+    store.update_editorial_thread_meta(t["thread_id"], status="archived")
+    row = store._get_editorial_thread(t["thread_id"])
+    assert row["status"] == "archived" and row["title"] == "改个名"   # 只改传入字段
+
+
+def test_fork_inherits_parent_summary(store):
+    """P0a(spec 审核修正#4):fork 继承父 summary,分支不失忆。"""
+    parent = store.get_or_create_editorial_thread(store.db_name, "author")
+    store._execute_write(
+        "UPDATE editorial_thread SET summary=$s WHERE thread_id=$tid RETURN NONE",
+        {"s": "早期讨论:主角设定为风水师。", "tid": parent["thread_id"]})
+    child = store.fork_editorial_thread(parent["thread_id"], title="支线")
+    assert child["summary"] == "早期讨论:主角设定为风水师。"
