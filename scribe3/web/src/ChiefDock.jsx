@@ -15,6 +15,7 @@ import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { ContextInspector } from './context/ContextInspector'
+import { ThreadSwitcher } from './ThreadSwitcher'
 import { Btn } from './ui.jsx'
 
 // Task 6:后端线程消息(role/text/focus/context_revision)→ 对话气泡形状(content)。
@@ -351,6 +352,9 @@ export function ChiefDock({ sel, chapterSel, lastSeq }) {
     }
     return (<div className="h-full flex flex-col min-h-0">
       <ProactiveGreeting seq={seq} />
+      {/* P0a:正文写作槽也可换会话(busy 状态在 WriteChat 内部拿不到,切换保护由
+          bind 发送时捕获 + _ChatTurnLog 部分留痕兜底,不弹确认) */}
+      <div className="shrink-0 px-3 py-1 border-b border-line/60 flex justify-end"><ThreadSwitcher /></div>
       <div className="flex-1 min-h-0"><WriteSlot /></div>
     </div>)
   }
@@ -642,6 +646,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     // 非章前置阶段(素材/视图等):走 /chat/stream(绑当前书 + 注入该书设定圣经),不走 MCP 网关(网关连固定库会串到别的书)
     esRef.current = api.chatStream(finalMsg, {
       agentic: false, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
+      thread: threadMode ? threadId : undefined,   // P0a:消息落当前选中会话(非线程模式不传=旧行为)
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
       onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
       onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
@@ -664,6 +669,8 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
           <span className="text-meta text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
+        {/* P0a:会话下拉(历史/新建/切换/管理)——自门控,非线程模式渲染 null */}
+        <ThreadSwitcher busy={busy} />
         <UsageChip />
       </div>
 
@@ -681,6 +688,10 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         )}
         {msgs.length === 0 ? (
           <div className="pt-2">
+            {/* P0a spec§11:新会话空态明示"不带历史",防作者误报主编失忆 */}
+            {threadMode && (
+              <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+            )}
             <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
