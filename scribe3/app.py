@@ -1595,6 +1595,108 @@ def chat_thread_fork(thread_id: str, req: ForkThreadReq, work: str = "main"):
             "code": "thread_not_found", "message": str(e)}) from e
 
 
+def _maybe_summarize_thread(work: str, thread_id: str, threshold: int = 40) -> dict:
+    """P0b L2:线程增量摘要(补 _thread_history_for_prompt 挂账的 L2)。
+
+    未摘要消息(ts > summarized_upto_ts)≥ threshold 才压缩:旧 summary + 新增轮次
+    → 新 summary(≤1500 字;优先保留:①未决决策 ②作者偏好/否决表态 ③伏笔/设定承诺)。
+    成功:set_thread_summary(+游标,清 summary_error);失败:log.error + summary_error
+    (前端摘要卡红字——失败不许只躺日志,零降级可见性);旧 summary 保留,下轮重试。
+    每轮流结束后由 BackgroundTasks 触发(阈值内秒退,零 LLM 成本);/maintenance 夜间兜底。"""
+    st = _store_for(work)
+    row = st._get_editorial_thread(thread_id)
+    if row is None:
+        return {"status": "missing"}
+    upto = str(row.get("summarized_upto_ts") or "")
+    msgs = st.list_thread_messages(thread_id, limit=1000)
+    fresh = [m for m in msgs
+             if m.get("role") in ("user", "assistant")
+             and (m.get("text") or "").strip()
+             and str(m.get("ts") or "") > upto]
+    if len(fresh) < max(2, int(threshold)):
+        return {"status": "skipped", "new_count": len(fresh)}
+    lines, total = [], 0
+    for m in fresh:
+        t = (m.get("text") or "").strip().replace("\n", " ")[:300]
+        line = f"{'作者' if m['role'] == 'user' else '主编'}:{t}"
+        if total + len(line) > 9000:
+            break
+        lines.append(line)
+        total += len(line)
+    prev = (row.get("summary") or "").strip()
+    prompt = (
+        "你是写作系统的会话压缩器。把主编与作者的讨论增量压缩为持续摘要,供后续对话作早期记忆。\n"
+        "硬要求:≤1200字;优先保留三类信息:①未决决策(选项与倾向)②作者的偏好/否决表态"
+        "③伏笔/设定承诺;去客套与过程性废话;第三人称陈述;绝不虚构未出现的内容。\n"
+        f"【既有摘要(为空则忽略,否则融合)】\n{prev or '(无)'}\n\n"
+        "【新增讨论】\n" + "\n".join(lines) + "\n\n只输出新摘要正文,不加任何前后缀。")
+    complete_fn = _complete_fn
+    if complete_fn is None:
+        from scribe3.llm import hermes_complete
+        complete_fn = hermes_complete
+    last_ts = str(fresh[-1].get("ts") or "")
+    try:
+        out = (complete_fn(prompt) or "").strip()
+        if not out:
+            raise RuntimeError("摘要输出为空")
+        st.set_thread_summary(thread_id, out[:1500], last_ts)
+        return {"status": "summarized", "new_count": len(fresh)}
+    except Exception as e:
+        logging.getLogger("scribe3").error("线程摘要失败 thread=%s", thread_id, exc_info=True)
+        st.set_thread_summary_error(thread_id, str(e)[:200])
+        return {"status": "error", "error": str(e)[:200]}
+
+
+@app.post("/maintenance/summarize-threads")
+def maintenance_summarize_threads(work: str = "main", threshold: int = 40):
+    """P0b/P2:摘要兜底(夜间 cron 调;幂等——阈值内的线程秒过)。逐 active 线程跑
+    _maybe_summarize_thread,失败线程如实列在 errors(收件箱/调用方可见,不静默)。"""
+    st = _store_for(work)
+    results: dict[str, dict] = {}
+    for t in st.list_editorial_threads(work):
+        if t.get("status") != "active":
+            continue
+        results[t["thread_id"]] = _maybe_summarize_thread(work, t["thread_id"],
+                                                          threshold=threshold)
+    return {"threads": len(results),
+            "summarized": sum(1 for v in results.values() if v.get("status") == "summarized"),
+            "errors": {k: v for k, v in results.items() if v.get("status") == "error"}}
+
+
+@app.get("/chat/threads/{thread_id}/export")
+def chat_thread_export(thread_id: str, format: str = "md", work: str = "main"):
+    """P0b:会话导出(借鉴 hermes sessions export 范式)。只含 role/text/ts
+    (spec 审核修正#9:不带工具输出,泄密面最小)。"""
+    from fastapi.responses import PlainTextResponse
+    if format not in ("md", "jsonl"):
+        raise HTTPException(status_code=422, detail=f"format 只支持 md|jsonl,收到 {format!r}")
+    _assert_work_binding(_thread_work(thread_id), work,
+                         kind="editorial_thread", ident=thread_id)
+    st = _store_for(work)
+    row = st._get_editorial_thread(thread_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail={
+            "code": "thread_not_found", "message": f"线程 '{thread_id}' 不存在"})
+    msgs = st.list_thread_messages(thread_id, limit=2000)
+    kept = [(m.get("role"), (m.get("text") or "").strip(), str(m.get("ts") or ""))
+            for m in msgs if m.get("role") in ("user", "assistant") and (m.get("text") or "").strip()]
+    if format == "jsonl":
+        body = "\n".join(json.dumps({"role": r, "text": t, "ts": ts}, ensure_ascii=False)
+                         for r, t, ts in kept)
+        media, ext = "application/jsonl", "jsonl"
+    else:
+        parts = [f"# {row.get('title') or '主编讨论'}\n"]
+        if (row.get("summary") or "").strip():
+            parts.append(f"> 早期摘要:{row['summary'].strip()}\n")
+        for r, t, ts in kept:
+            parts.append(f"**{'作者' if r == 'user' else '主编'}** · {ts}\n\n{t}\n\n---\n")
+        body = "\n".join(parts)
+        media, ext = "text/markdown", "md"
+    fname = f"thread_{thread_id.rsplit(':', 1)[-1][:8]}.{ext}"
+    return PlainTextResponse(body, media_type=f"{media}; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 class ThreadCreateReq(BaseModel):
     title: str | None = None
 
@@ -3797,11 +3899,13 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
       惯常在消息**尾部**——砍尾留头恰好丢掉被指代的那段,失忆复发);
     - 总预算 max_total_chars,超了从最旧开始丢。
     **必须在落本轮 user 留痕之前调用**,否则当前这句会在 history 里出现第二遍。
-    fail-soft:任何异常回 [](连续性是增强,绝不因取历史失败断对话)。
-    L2(旧轮 rolling summary 进 editorial_thread.summary 字段)暂缺,见台账 U-009。"""
+    U-011:取历史失败直接抛(fail-loud),不再静默回 []——那等于失忆降级悄悄复发。
+    P0b:L2 已补——线程 summary(增量压缩的更早轮次)作为首条 assistant 记忆块注入,
+    近窗(L1)之外的早期讨论不再彻底失忆;summary 由 _maybe_summarize_thread 后台增量生成。"""
     if not thread_id:
         return []
     try:
+        thread_row = st._get_editorial_thread(thread_id) or {}
         rows = st.list_thread_messages(thread_id, limit=max_msgs)
         kept = [(r.get("role"), (r.get("text") or "").strip()) for r in rows
                 if r.get("role") in ("user", "assistant") and (r.get("text") or "").strip()]
@@ -3818,6 +3922,11 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
             out.append({"role": role, "content": text})
         while out and sum(len(m["content"]) for m in out) > max_total_chars:
             out.pop(0)   # 从最旧开始丢,近轮优先
+        # P0b L2:早期摘要块置顶(不参与近窗预算裁剪——它本身就是预算的解法)
+        summ = (thread_row.get("summary") or "").strip()
+        if summ:
+            out.insert(0, {"role": "assistant",
+                           "content": "【主编讨论早期摘要(系统压缩,更早轮次的要点)】\n" + summ[:1600]})
         return out
     except Exception:
         # U-011(作者要 fail-loud):此前"取历史失败→本轮无记忆"是静默失忆(恰是 U-009 作者
@@ -3827,8 +3936,8 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
 
 
 @app.get("/chat/stream")
-def chat_stream(msg: str, work: str = "main", seq: int | None = None,
-                thread: str | None = None):
+def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
+                seq: int | None = None, thread: str | None = None):
     """主编对话(SSE 流式)。注入本书设定上下文,经 Hermes 逐字回流。
     seq(时机C):当前讨论章号,注入脉搏速览——主编讨论时能主动带出超期伏笔等信号。
     U-005:讨论也留痕(挂本 work 稳定主编线程,与写作时间线连续)——此前讨论从不落库。
@@ -3837,6 +3946,8 @@ def chat_stream(msg: str, work: str = "main", seq: int | None = None,
     st = _store_for(work)
     thread_id = _editor_turn_context(
         work, thread_row=_resolve_thread_or_raise(work, thread)).thread_id
+    # P0b:流结束后增量摘要(阈值内秒退零成本;失败 summary_error 前端红字)
+    background.add_task(_maybe_summarize_thread, work, thread_id)
 
     def gen():
         # U-011:上下文组装(设定圣经/脉搏/历史)挪进流内——组装崩时 error 帧携带【异常原文】
@@ -3866,8 +3977,8 @@ _responses_events = None  # 测试可 monkeypatch
 
 
 @app.get("/chat/agentic-stream")
-def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None,
-                        thread: str | None = None):
+def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main",
+                        seq: int | None = None, thread: str | None = None):
     """主编 agentic 对话(SSE):经 scribe3 网关 /v1/responses,主编自调 s3_ 工具查 SurrealDB 真实数据。
     事件:tool(工具调用提示)/delta(回复片段)/done。"""
     from scribe3.hermes_runtime import HermesEventAdapter
@@ -3881,6 +3992,7 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None,
     # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
     turn = _editor_turn_context(work, thread_row=_resolve_thread_or_raise(work, thread))
     st = _store_for(work)
+    background.add_task(_maybe_summarize_thread, work, turn.thread_id)   # P0b 增量摘要
 
     def _build_instructions() -> str:
         # U-011:组装挪进流内(经 gen 的 try)——设定/脉搏取数崩时 error 帧带异常原文到前端,
@@ -5172,7 +5284,8 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
 
 
 @app.post("/chat/write")
-def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
+def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
+                    work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
     st = _store_for(work)
     # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,默认关=零变化)。
@@ -5186,6 +5299,8 @@ def chat_write_post(req: ChatWriteReq, request: Request, work: str = "main"):
     # P0a 零降级:前端带了 thread_id 就必须有效(404/409),绝不静默回落——
     # 同 chat_stream 的 _resolve_thread_or_raise 口径;必须在开流前抛(流中 4xx 会退化)。
     _resolve_thread_or_raise(work, req.thread_id)
+    if req.thread_id:
+        background.add_task(_maybe_summarize_thread, work, req.thread_id)   # P0b 增量摘要
     _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
     # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
     # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。

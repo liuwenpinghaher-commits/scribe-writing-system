@@ -1457,6 +1457,7 @@ class SurrealStore:
     _EDITORIAL_THREAD_FIELDS = (
         "thread_id, work, actor_id, parent_thread_id, title, status, "
         "hermes_conversation_id, previous_response_id, summary, "
+        "summarized_upto_ts, summary_error, "
         "<string> created_at AS created_at, <string> updated_at AS updated_at")
 
     def _get_editorial_thread(self, thread_id: str) -> dict | None:
@@ -1522,14 +1523,35 @@ class SurrealStore:
             f"SELECT {self._EDITORIAL_THREAD_FIELDS} FROM editorial_thread "
             "WHERE work=$w ORDER BY created_at ASC", {"w": work})
 
-    def list_thread_messages(self, thread_id: str, limit: int = 500) -> list[dict]:
+    def list_thread_messages(self, thread_id: str, limit: int = 500,
+                             before_ts: str | None = None) -> list[dict]:
         """按线程拉取对话留痕,ts 升序返回;limit 取最新 N 条再反转(同 list_chat_messages)。
+        P0b:before_ts(ISO 字符串)给定时只取更早的消息——前端「载入更早」分页游标。
         隔离:只读本 store 的 db,别的 work 的 thread_id 在此库无消息 → 返回 []。"""
         n = max(1, min(int(limit), 2000))
-        rows = self._query(
-            f"SELECT {self._CHAT_MESSAGE_FIELDS} FROM chat_message "
-            f"WHERE thread_id=$tid ORDER BY ts DESC LIMIT {n}", {"tid": thread_id})
+        if before_ts:
+            rows = self._query(
+                f"SELECT {self._CHAT_MESSAGE_FIELDS} FROM chat_message "
+                f"WHERE thread_id=$tid AND ts < type::datetime($before) "
+                f"ORDER BY ts DESC LIMIT {n}", {"tid": thread_id, "before": before_ts})
+        else:
+            rows = self._query(
+                f"SELECT {self._CHAT_MESSAGE_FIELDS} FROM chat_message "
+                f"WHERE thread_id=$tid ORDER BY ts DESC LIMIT {n}", {"tid": thread_id})
         return list(reversed(rows))
+
+    def set_thread_summary(self, thread_id: str, summary: str, upto_ts: str) -> None:
+        """P0b:写线程增量摘要 + 覆盖游标,并清 summary_error(成功即清,防红字常驻)。"""
+        self._execute_write(
+            "UPDATE editorial_thread SET summary=$s, summarized_upto_ts=$u, "
+            "summary_error=NONE, updated_at=time::now() WHERE thread_id=$tid RETURN NONE",
+            {"s": summary, "u": upto_ts, "tid": thread_id})
+
+    def set_thread_summary_error(self, thread_id: str, error: str) -> None:
+        """P0b:摘要生成失败标记(前端摘要卡红字)。旧 summary 保留,下轮重试。"""
+        self._execute_write(
+            "UPDATE editorial_thread SET summary_error=$e, updated_at=time::now() "
+            "WHERE thread_id=$tid RETURN NONE", {"e": error, "tid": thread_id})
 
     def create_editorial_thread(self, work: str, actor_id: str,
                                 title: str | None = None) -> dict:

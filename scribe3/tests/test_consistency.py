@@ -171,6 +171,10 @@ class TestWriteGate:
         # PATCH 零降级门(不存在 404/跨 work 409/非法 status 422),归档可逆(status 回 active)。
         ("POST", "/chat/threads"),
         ("PATCH", "/chat/threads/{thread_id}"),
+        # P0b(2026-07-16):摘要兜底(夜间 cron 调)。授权语义:只写 editorial_thread 的
+        # summary/summarized_upto_ts/summary_error 三字段(LLM 压缩讨论历史),不碰正典/消息;
+        # 幂等(阈值内秒过);失败线程如实列 errors 不静默。
+        ("POST", "/maintenance/summarize-threads"),
         # 统一设置中心:PUT 写 SQLite 设置台账(带校验+审计,secret 掩码);
         # reset 删覆盖值回落 env/默认。不碰正典数据、不碰 SurrealDB。
         ("PUT", "/settings/{key}"),

@@ -325,3 +325,94 @@ def test_autotitle_via_chat_stream_endpoint(store, monkeypatch):
     assert r.status_code == 200
     b"".join(r.iter_bytes())
     assert store._get_editorial_thread(tid)["title"] == "给主角起个带金属感的名字"
+
+
+# ---- P0b:分页 / 增量摘要 / 注入 L2 / 导出 / maintenance ----
+
+def test_list_thread_messages_before_ts_pagination(store):
+    tid = store.get_or_create_editorial_thread(store.db_name, "author")["thread_id"]
+    for i in range(5):
+        store.add_chat_message(1, "discuss", "user", f"m{i}", thread_id=tid)
+    recent = store.list_thread_messages(tid, limit=2)
+    assert [m["text"] for m in recent] == ["m3", "m4"]
+    earlier = store.list_thread_messages(tid, limit=2, before_ts=recent[0]["ts"])
+    assert [m["text"] for m in earlier] == ["m1", "m2"]
+    earliest = store.list_thread_messages(tid, limit=10, before_ts=earlier[0]["ts"])
+    assert [m["text"] for m in earliest] == ["m0"]
+
+
+def test_set_thread_summary_and_error_roundtrip(store):
+    tid = store.create_editorial_thread(store.db_name, "author")["thread_id"]
+    store.set_thread_summary(tid, "早期要点", "2026-07-16T00:00:00Z")
+    row = store._get_editorial_thread(tid)
+    assert row["summary"] == "早期要点" and row["summarized_upto_ts"] == "2026-07-16T00:00:00Z"
+    assert not row.get("summary_error")
+    store.set_thread_summary_error(tid, "LLM 超时")
+    row = store._get_editorial_thread(tid)
+    assert row["summary_error"] == "LLM 超时" and row["summary"] == "早期要点"   # 旧摘要保留
+    store.set_thread_summary(tid, "新要点", "2026-07-16T01:00:00Z")
+    assert not store._get_editorial_thread(tid).get("summary_error")   # 成功即清红字
+
+
+def test_maybe_summarize_thread_and_history_injection(store, monkeypatch):
+    """增量摘要:阈值触发→summary 落库+游标推进;二次调用 skipped;
+    _thread_history_for_prompt 把 summary 作首条记忆块注入(L2)。"""
+    import scribe3.app as A
+    A.set_store(store)
+    tid = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    for i in range(4):
+        store.add_chat_message(1, "discuss", "user" if i % 2 == 0 else "assistant",
+                               f"讨论内容{i}", thread_id=tid)
+    monkeypatch.setattr(A, "_complete_fn", lambda p: "压缩摘要:主角定为风水师;伏笔待收。")
+    r = A._maybe_summarize_thread("main", tid, threshold=3)
+    assert r["status"] == "summarized" and r["new_count"] == 4
+    row = store._get_editorial_thread(tid)
+    assert "风水师" in row["summary"] and row["summarized_upto_ts"]
+    # 幂等:游标之后无新消息 → skipped
+    assert A._maybe_summarize_thread("main", tid, threshold=3)["status"] == "skipped"
+    # L2 注入:history 首条=摘要块
+    hist = A._thread_history_for_prompt(store, tid)
+    assert hist and "早期摘要" in hist[0]["content"] and "风水师" in hist[0]["content"]
+    # 失败路径:error 落 summary_error,旧摘要保留
+    def boom(p):
+        raise RuntimeError("网关超时")
+    monkeypatch.setattr(A, "_complete_fn", boom)
+    store.add_chat_message(1, "discuss", "user", "又来了几条", thread_id=tid)
+    store.add_chat_message(1, "discuss", "assistant", "回复", thread_id=tid)
+    store.add_chat_message(1, "discuss", "user", "再来", thread_id=tid)
+    r2 = A._maybe_summarize_thread("main", tid, threshold=3)
+    assert r2["status"] == "error"
+    row2 = store._get_editorial_thread(tid)
+    assert "网关超时" in (row2.get("summary_error") or "") and "风水师" in row2["summary"]
+
+
+def test_thread_export_md_jsonl_and_guards(store):
+    from .test_app import _client
+    import json as _j
+    c = _client(store)
+    tid = c.post("/chat/threads", json={"title": "导出测试"}).json()["thread_id"]
+    store.add_chat_message(1, "discuss", "user", "问一句", thread_id=tid)
+    store.add_chat_message(1, "discuss", "assistant", "答一句", thread_id=tid)
+    md = c.get(f"/chat/threads/{tid}/export?format=md")
+    assert md.status_code == 200 and "问一句" in md.text and "答一句" in md.text
+    assert "attachment" in md.headers.get("content-disposition", "")
+    jl = c.get(f"/chat/threads/{tid}/export?format=jsonl")
+    rows = [_j.loads(x) for x in jl.text.splitlines() if x.strip()]
+    assert [r["role"] for r in rows] == ["user", "assistant"]
+    assert set(rows[0].keys()) == {"role", "text", "ts"}   # 泄密面最小:无工具输出
+    assert c.get(f"/chat/threads/{tid}/export?format=pdf").status_code == 422
+    assert c.get("/chat/threads/ethread:main:nope/export").status_code == 404
+
+
+def test_maintenance_summarize_threads_endpoint(store, monkeypatch):
+    from .test_app import _client
+    import scribe3.app as A
+    c = _client(store)
+    tid = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    for i in range(3):
+        store.add_chat_message(1, "discuss", "user", f"x{i}", thread_id=tid)
+    monkeypatch.setattr(A, "_complete_fn", lambda p: "兜底摘要")
+    r = c.post("/maintenance/summarize-threads?threshold=2")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["summarized"] >= 1 and d["errors"] == {}
