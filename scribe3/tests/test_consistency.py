@@ -175,6 +175,10 @@ class TestWriteGate:
         # summary/summarized_upto_ts/summary_error 三字段(LLM 压缩讨论历史),不碰正典/消息;
         # 幂等(阈值内秒过);失败线程如实列 errors 不静默。
         ("POST", "/maintenance/summarize-threads"),
+        # P2(2026-07-16):每日创作摘报(cron 晨间调)。授权语义:只写 chief_digest 一表
+        # (一天一行,重跑覆盖),汇总只读源(progress/inbox/promises);任一源失败如实进
+        # error 字段进收件箱红字,绝不产出假完整摘报。
+        ("POST", "/maintenance/daily-digest"),
         # 统一设置中心:PUT 写 SQLite 设置台账(带校验+审计,secret 掩码);
         # reset 删覆盖值回落 env/默认。不碰正典数据、不碰 SurrealDB。
         ("PUT", "/settings/{key}"),

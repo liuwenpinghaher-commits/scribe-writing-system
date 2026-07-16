@@ -1666,6 +1666,44 @@ def maintenance_summarize_threads(work: str = "main", threshold: int = 40):
             "errors": {k: v for k, v in results.items() if v.get("status") == "error"}}
 
 
+@app.post("/maintenance/daily-digest")
+def maintenance_daily_digest(work: str = "main"):
+    """P2:每日创作摘报(cron 晨间调)——昨日字数 vs 目标 / 待批积压 / 伏笔健康,
+    写 chief_digest 一天一行,决策收件箱消费。零降级:任何一源失败如实进 error 字段
+    (收件箱红字),绝不产出"看着完整其实缺项"的假摘报。"""
+    from datetime import date
+    st = _store_for(work)
+    lines: list[str] = []
+    errs: list[str] = []
+    try:
+        p = st.progress(window="30") or {}
+        tw, goal = p.get("today_words"), p.get("daily_word_goal")
+        streak = p.get("current_streak")
+        lines.append(f"字数:今日 {tw if tw is not None else '?'}"
+                     + (f" / 目标 {goal}" if goal else "")
+                     + (f";连续 {streak} 天" if streak else ""))
+    except Exception as e:
+        errs.append(f"progress: {str(e)[:80]}")
+    try:
+        inbox = decision_inbox(work)
+        lines.append(f"等你决策:{inbox['count']} 项"
+                     + (f"(来源失败:{'/'.join(inbox['degraded_sources'])})" if inbox.get("degraded_sources") else ""))
+    except Exception as e:
+        errs.append(f"inbox: {str(e)[:80]}")
+    try:
+        led = promises_ledger(work)
+        open_rows = led.get("open") or []
+        overdue = sum(1 for r in open_rows if r.get("overdue"))
+        lines.append(f"伏笔:未收 {len(open_rows)} 条" + (f",超期 {overdue} 条" if overdue else ""))
+    except Exception as e:
+        errs.append(f"promises: {str(e)[:80]}")
+    body = ";".join(lines) if lines else "(全部来源失败,无可汇总)"
+    err = " | ".join(errs) or None
+    day = date.today().isoformat()
+    st.upsert_chief_digest(day, body, err)
+    return {"day": day, "body": body, "error": err}
+
+
 @app.get("/chat/threads/{thread_id}/export")
 def chat_thread_export(thread_id: str, format: str = "md", work: str = "main"):
     """P0b:会话导出(借鉴 hermes sessions export 范式)。只含 role/text/ts
@@ -8056,6 +8094,19 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         except Exception as e:
             logging.getLogger("scribe3").warning("inbox pulse 失败(忽略): %s", e)
             degraded.append("pulse")
+    # ⑥ 每日创作摘报(P2 cron 产出)——只显最新一天;error 非空如实拼进 message(不静默)
+    try:
+        dg = st.latest_chief_digest()
+        if dg:
+            msg = f"[{dg['day']}] {dg['body']}"
+            if dg.get("error"):
+                msg += f"(部分来源失败:{dg['error']})"
+            items.append({"kind": "daily_digest", "message": msg,
+                          "action": {"kind": "chat",
+                                     "payload": f"这是今日摘报:{dg['body']}——帮我把最该处理的一件事挑出来,给具体下一步"}})
+    except Exception as e:
+        logging.getLogger("scribe3").warning("inbox digest 失败(忽略): %s", e)
+        degraded.append("digest")
     return {"items": items, "count": len(items), "degraded_sources": degraded}
 
 

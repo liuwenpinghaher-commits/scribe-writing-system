@@ -1553,6 +1553,19 @@ class SurrealStore:
             "UPDATE editorial_thread SET summary_error=$e, updated_at=time::now() "
             "WHERE thread_id=$tid RETURN NONE", {"e": error, "tid": thread_id})
 
+    def upsert_chief_digest(self, day: str, body: str, error: str | None = None) -> None:
+        """P2:每日创作摘报一天一行(重跑覆盖);error 非空=部分失败源,收件箱如实显示。"""
+        self._execute_write(
+            "DELETE chief_digest WHERE day=$d; "
+            "CREATE chief_digest SET work=$w, day=$d, body=$b, error=$e RETURN NONE",
+            {"d": day, "w": self.db_name, "b": body, "e": error})
+
+    def latest_chief_digest(self) -> dict | None:
+        rows = self._query(
+            "SELECT work, day, body, error, <string> created_at AS created_at "
+            "FROM chief_digest ORDER BY day DESC LIMIT 1")
+        return rows[0] if rows else None
+
     def create_editorial_thread(self, work: str, actor_id: str,
                                 title: str | None = None) -> dict:
         """显式新建主编线程(P0a 多会话):与 get_or_create 不同,每次都建新的。

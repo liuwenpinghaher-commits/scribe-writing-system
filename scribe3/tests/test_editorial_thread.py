@@ -416,3 +416,35 @@ def test_maintenance_summarize_threads_endpoint(store, monkeypatch):
     assert r.status_code == 200
     d = r.json()
     assert d["summarized"] >= 1 and d["errors"] == {}
+
+
+# ---- P2:每日摘报 ----
+
+def test_daily_digest_writes_row_and_inbox_shows_it(store):
+    from .test_app import _client
+    c = _client(store)
+    r = c.post("/maintenance/daily-digest")
+    assert r.status_code == 200
+    d = r.json()
+    assert "字数" in d["body"] and "等你决策" in d["body"] and "伏笔" in d["body"]
+    row = store.latest_chief_digest()
+    assert row and row["day"] == d["day"] and row["body"] == d["body"]
+    # 重跑覆盖(一天一行)
+    c.post("/maintenance/daily-digest")
+    assert store.latest_chief_digest()["day"] == d["day"]
+    # 收件箱消费
+    inbox = c.get("/inbox").json()
+    dg = [it for it in inbox["items"] if it["kind"] == "daily_digest"]
+    assert dg and d["day"] in dg[0]["message"]
+
+
+def test_daily_digest_partial_source_failure_is_loud(store, monkeypatch):
+    """零降级:某源失败 → error 字段如实带出(收件箱红字),不产假完整摘报。"""
+    from .test_app import _client
+    monkeypatch.setattr(store, "progress",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("progress 表崩")))
+    r = _client(store).post("/maintenance/daily-digest")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["error"] and "progress" in d["error"]
+    assert "等你决策" in d["body"]   # 其余源仍产出

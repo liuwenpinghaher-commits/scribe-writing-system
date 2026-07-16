@@ -1,0 +1,14 @@
+# P2:scribe3 定时任务(provision_hermes --commit 声明式同步;按 name 幂等,已存在不动,
+# 绝不覆盖用户手工建的任务)。两个 job 都是 --no-agent 哨兵脚本:不经 LLM,
+# 空 stdout=静默成功,失败才送达提醒(哨兵模式,同 hermes cron 官方 watchdog 范式)。
+jobs:
+  - name: scribe3-summarize-threads
+    schedule: "0 3 * * *"        # 每夜 03:00:线程摘要兜底(幂等,阈值内秒过)
+    script: scribe3_summarize_threads.sh
+    no_agent: true
+    deliver: local
+  - name: scribe3-daily-digest
+    schedule: "0 8 * * *"        # 每晨 08:00:创作摘报 → 决策收件箱
+    script: scribe3_daily_digest.sh
+    no_agent: true
+    deliver: local

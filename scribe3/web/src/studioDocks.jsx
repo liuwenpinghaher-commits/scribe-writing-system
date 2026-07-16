@@ -223,7 +223,7 @@ function InboxPanel({ seq, onCount }) {
   if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
   const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
     pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: 'Pilot 停靠',
-    idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章' }
+    idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章', daily_digest: '每日摘报' }
   const approve = (seqP, expectState) =>
     api.pilotApprove(seqP, expectState)
       .then((r) => { showToast(`第 ${seqP} 章已放行 → ${r.state}`, { tone: 'ok' }); pullRef.current?.() })

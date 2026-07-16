@@ -25,6 +25,7 @@ import argparse
 import copy
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -174,6 +175,8 @@ def provision(hermes_home: Path, repo: Path, *, commit: bool) -> dict:
             _write_soul_if_missing(hermes_home, rel, soul_tpl)
             print("    ✅ 已写入")
 
+    _sync_crons(hermes_home, commit=commit)
+
     print("  " + "=" * 60)
     if not all_ok:
         print("  ⛔ 存在安全不变量违规,未全部写入。修模板后重跑。")
@@ -183,6 +186,55 @@ def provision(hermes_home: Path, repo: Path, *, commit: bool) -> dict:
     else:
         print(f"  DRY-RUN:共 {total_changes} 处将变更。加 --commit 真写。")
     return {"ok": True, "changes": total_changes}
+
+
+def _sync_crons(hermes_home: Path, *, commit: bool) -> None:
+    """P2:cron 任务声明式同步(deploy/hermes/crons.yaml + scripts/)。
+
+    幂等纪律:按 name 匹配——`hermes cron list` 里已存在的任务绝不动(可能有用户手工调优);
+    只创建缺失的。脚本拷到 ~/.hermes/scripts/(--no-agent 哨兵:空 stdout=静默,失败才响)。
+    dry-run 零副作用(不 subprocess、不写文件),测试可安全跑。"""
+    cfg = _load_yaml(_DEPLOY_DIR / "crons.yaml")
+    jobs = (cfg or {}).get("jobs") or []
+    if not jobs:
+        return
+    scripts_src = _DEPLOY_DIR / "scripts"
+    if not commit:
+        for j in jobs:
+            print(f"  · [cron] 计划(dry-run):{j['name']} @ {j['schedule']} script={j['script']}")
+        return
+    # 1) 脚本落位(内容一致即跳过)
+    sdir = hermes_home / "scripts"
+    for f in sorted(scripts_src.glob("*.sh")):
+        tgt = sdir / f.name
+        if tgt.exists() and tgt.read_text(encoding="utf-8") == f.read_text(encoding="utf-8"):
+            print(f"  ✅ [cron脚本] {f.name} 已同步")
+            continue
+        sdir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, tgt)
+        tgt.chmod(0o755)
+        print(f"  ✅ [cron脚本] {f.name} 已写入")
+    # 2) 任务注册(name 幂等;list 失败如实报,不静默跳过)
+    try:
+        existing = subprocess.run(["hermes", "cron", "list"], capture_output=True,
+                                  text=True, timeout=30).stdout
+    except Exception as e:
+        print(f"  ❌ hermes cron list 失败({e})——脚本已就位,任务需手动 create(命令见 crons.yaml)")
+        return
+    for j in jobs:
+        name = j["name"]
+        if name in existing:
+            print(f"  ✅ [cron] {name} 已存在(幂等跳过,不覆盖)")
+            continue
+        cmd = ["hermes", "cron", "create", j["schedule"], "--name", name,
+               "--script", j["script"], "--deliver", j.get("deliver", "local")]
+        if j.get("no_agent", True):
+            cmd.append("--no-agent")
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            print(f"  ❌ [cron] {name} 创建失败:{(r.stderr or r.stdout).strip()[:200]}")
+        else:
+            print(f"  ✅ [cron] {name} 已创建({j['schedule']})")
 
 
 def _soul_dir(hermes_home: Path, rel: str) -> Path:
