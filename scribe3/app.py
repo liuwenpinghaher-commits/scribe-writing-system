@@ -260,7 +260,7 @@ def _editor_turn_context(work: str, actor_id: str = "author"):
     thread_id 取本 work 的稳定主编线程(get_or_create_editorial_thread,一 work 一连续线程);
     conversation/previous_response 从线程行取(Hermes 会话续接锚,LRU 100 掉链常态);
     context_* 属动态 envelope 层(默认关),此处留空,开启后由 assembler 填。
-    fail-soft:线程取数异常则退化为 work 兜底线程名,仍给出稳定 session key,不阻断对话。"""
+    U-011:线程取数异常直接抛(fail-loud)——退化线程会让留痕落错处+历史读不到=静默失忆。"""
     from scribe3.hermes_runtime import HermesTurnContext
     w = _normalize_work(work)
     try:
@@ -272,9 +272,10 @@ def _editor_turn_context(work: str, actor_id: str = "author"):
             previous_response_id=thread.get("previous_response_id") or None,
         )
     except Exception:
-        logging.getLogger("scribe3").warning(
-            "editorial thread 取数失败,退化为 work 兜底线程", exc_info=True)
-        return HermesTurnContext(work=w, thread_id=w)
+        # U-011(作者要 fail-loud):删"退化为 work 兜底线程"——退化后留痕落错线程、历史读不到,
+        # 主编静默失忆且对话记录漂移。线程取数失败直接抛(端点 500/SSE error,前端报错)。
+        logging.getLogger("scribe3").error("editorial thread 取数失败", exc_info=True)
+        raise
 
 
 def _listish(value) -> list[str]:
@@ -3754,8 +3755,10 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
             out.pop(0)   # 从最旧开始丢,近轮优先
         return out
     except Exception:
-        logging.getLogger("scribe3").warning("载入主编讨论历史失败(忽略,本轮无记忆)", exc_info=True)
-        return []
+        # U-011(作者要 fail-loud):此前"取历史失败→本轮无记忆"是静默失忆(恰是 U-009 作者
+        # 投诉的症状,由降级悄悄复发)。改抛→SSE error 帧→前端内联报错,作者当场看见。
+        logging.getLogger("scribe3").error("载入主编讨论历史失败", exc_info=True)
+        raise
 
 
 @app.get("/chat/stream")
@@ -3766,11 +3769,19 @@ def chat_stream(msg: str, work: str = "main", seq: int | None = None):
     U-009:留痕反哺为对话记忆(history 注入)——此前单遍无续接,主编每轮失忆。"""
     from scribe3.llm import hermes_complete_stream
     st = _store_for(work)
-    sysmsg = _editor_system(st) + _pulse_digest(st, seq) + _DISCUSSION_DIRECTIVE
     thread_id = _editor_turn_context(work).thread_id
-    history = _thread_history_for_prompt(st, thread_id)   # 必须先于 _ChatTurnLog 落本轮 user
 
     def gen():
+        # U-011:上下文组装(设定圣经/脉搏/历史)挪进流内——组装崩时 error 帧携带【异常原文】
+        # 到前端内联显示(作者能看见真实原因),而不是开流前 500 → 前端只见笼统"连接中断"。
+        try:
+            sysmsg = _editor_system(st) + _pulse_digest(st, seq) + _DISCUSSION_DIRECTIVE
+            history = _thread_history_for_prompt(st, thread_id)   # 先于 _ChatTurnLog 落本轮 user
+        except Exception as e:
+            logging.getLogger("scribe3").error("chat_stream 上下文组装失败", exc_info=True)
+            yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
+            yield 'data: {"done": true}\n\n'
+            return
         with _ChatTurnLog(st, user_text=msg, chapter=seq or 0, stage="discuss",
                           thread_id=thread_id) as clog:
             try:
@@ -3797,23 +3808,35 @@ def chat_agentic_stream(msg: str, work: str = "main", seq: int | None = None):
     adapter = HermesEventAdapter()
     # H-01:工具 work-scoped,所有作品都可挂工具;提示必须钉死当前 work,防跨书读写。
     with_tools = _work_has_tools(work)
-    instructions = _editor_system(_store_for(work)) + _pulse_digest(_store_for(work), seq)
-    if with_tools:
-        instructions += _s3_work_scope_block(work) + (
-            "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
-            "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
-            "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
-            "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
-            "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
-        )
 
     # Task 11:稳定 session key = work+thread(切章不换 Hermes session,主编历史连续);
     # 会话续接锚 conversation/previous_response 从线程行取(掉链常态,由 Scribe 侧重建兜底)。
     turn = _editor_turn_context(work)
     st = _store_for(work)
 
+    def _build_instructions() -> str:
+        # U-011:组装挪进流内(经 gen 的 try)——设定/脉搏取数崩时 error 帧带异常原文到前端,
+        # 而不是开流前 500 只显"连接中断"。
+        ins = _editor_system(st) + _pulse_digest(st, seq)
+        if with_tools:
+            ins += _s3_work_scope_block(work) + (
+                "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"
+                "伏笔 s3_list_promises、母题 s3_list_motifs、章节 s3_get_chapter、确定性QC s3_qc_chapter、纪律判官 "
+                "s3_discipline_check、语义召回 s3_semantic_recall、因果 s3_causal_complete 等)。"
+                "回答前先用只读工具核实真实数据,不臆测;引用数据时说明来自哪个工具。"
+                "写操作(加角色/事实/伏笔等)会进入待批,不会立即生效。"
+            )
+        return ins
+
     def gen():
         resp_id = None
+        try:
+            instructions = _build_instructions()
+        except Exception as e:
+            logging.getLogger("scribe3").error("chat_agentic_stream 上下文组装失败", exc_info=True)
+            yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
+            yield 'data: {"done": true}\n\n'
+            return
         # U-005:agentic 讨论/审批也留痕(此前从不落库——《印迹》批准写入 15 世界规则 +
         # 6 势力的整场对话凭空消失)。工具调用/审批帧【不】进对话留痕(它们已在 ai_run_trace
         # 有账;灌进历史会把对话淹没),只留 user + assistant 最终文本。
@@ -5343,6 +5366,7 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
             # 北极星任务8:loop 章 ingest 后复盘蒸馏(loop 自动轮不写 chat_message,
             # 该章无人工对话时蒸馏自动 no_messages 跳过;有过讨论则照常沉淀)。
             # P1门审查 P2-5:与 /ingest 一致认 _complete_fn(测试可注入)。
+            lesson_err = None
             try:
                 from scribe3.lesson import distill_chapter
                 _dfn2 = _complete_fn
@@ -5350,10 +5374,13 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                     _dfn2 = hermes_complete
                 distill_chapter(st, req.chapter, _dfn2)
             except Exception as de:
-                logging.getLogger("scribe3").warning("loop 复盘蒸馏失败(忽略): %s", de)
+                # U-011:教训蒸馏失败此前只 log"忽略"——作者以为经验在积累,某轮悄悄没记住。
+                # 不 raise(正文已落库,蒸馏是存后沉淀),但把失败放进响应 lesson_error 让作者看见。
+                logging.getLogger("scribe3").error("loop 复盘蒸馏失败", exc_info=True)
+                lesson_err = str(de)[:120]
             # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后——fulfillment 读结算态)。
             _refresh_scorecard_after_ingest(st, req.chapter)
-            return {"ok": True, "parse_failed": bool(r.get("parse_failed"))}
+            return {"ok": True, "parse_failed": bool(r.get("parse_failed")), "lesson_error": lesson_err}
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
             return {"ok": False, "error": str(e)[:160]}
@@ -5618,6 +5645,10 @@ def qc(seq: int, work: str = "main"):
         return {}
     prose = ch["prose"]
     out = dict(quality_flags(prose))   # 五项:各为命中列表
+    # U-011(作者要 fail-loud):检测器失败此前静默归空([]),与"真没问题"无区别=质控假绿。
+    # 改成把失败记进 detector_errors 字段(照抄 leak_error 范式),前端据此显红字"检测器故障·
+    # 本次未检"——既 fail-loud 又不 500 掉整个 QC 面板(其余检测器结果仍返回)。
+    det_errs: dict[str, str] = {}
     # 跨章复读(比对前文最近 8 章逐字 ≥8 字重叠,母题白名单放行)
     cross_rep: list[dict] = []
     try:
@@ -5625,21 +5656,26 @@ def qc(seq: int, work: str = "main"):
         allow = st.motif_terms() if hasattr(st, "motif_terms") else None
         cross_rep = find_cross_chapter_repetitions(prose, priors, n=8, allow=allow)
     except Exception as e:
-        logging.getLogger("scribe3").warning("qc cross_repetition 失败 work=%s seq=%s: %s", work, seq, e)
+        logging.getLogger("scribe3").error("qc cross_repetition 失败 work=%s seq=%s", work, seq, exc_info=True)
+        det_errs["cross_repetition"] = str(e)[:120]
     out["cross_repetition"] = cross_rep
     out["cross_repetition_phrases"] = [h.get("phrase") for h in cross_rep[:12]]
     # 整行复读
     try:
         out["duplicate_lines"] = find_duplicate_lines(prose)
     except Exception as e:
-        logging.getLogger("scribe3").warning("qc duplicate_lines 失败 work=%s seq=%s: %s", work, seq, e)
+        logging.getLogger("scribe3").error("qc duplicate_lines 失败 work=%s seq=%s", work, seq, exc_info=True)
         out["duplicate_lines"] = []
+        det_errs["duplicate_lines"] = str(e)[:120]
     # 情感直说
     try:
         out["emotion_telling"] = find_emotion_telling(prose)
     except Exception as e:
-        logging.getLogger("scribe3").warning("qc emotion_telling 失败 work=%s seq=%s: %s", work, seq, e)
+        logging.getLogger("scribe3").error("qc emotion_telling 失败 work=%s seq=%s", work, seq, exc_info=True)
         out["emotion_telling"] = []
+        det_errs["emotion_telling"] = str(e)[:120]
+    if det_errs:
+        out["detector_errors"] = det_errs
     return out
 
 
@@ -5866,10 +5902,9 @@ def _bg_ingest(work: str, seq: int) -> None:
             from scribe3.lesson import distill_chapter
             distill_chapter(st, seq, hermes_complete)
         except Exception as e:
-            logging.getLogger("scribe3").warning("后台 ingest 复盘蒸馏失败(忽略) %s 第%s章: %s",
-                                                 work, seq, e)
+            logging.getLogger("scribe3").error("后台 ingest 复盘蒸馏失败 %s 第%s章", work, seq, exc_info=True)   # U-011: 教训静默没记,后台无响应面→至少 error 级日志
     except Exception as e:
-        logging.getLogger("scribe3").warning("后台 ingest %s 第%s章失败: %s", work, seq, e)
+        logging.getLogger("scribe3").error("后台 ingest %s 第%s章失败", work, seq, exc_info=True)   # U-011
         if st is not None:
             _mark(st, "failed", str(e))
     finally:
@@ -5923,35 +5958,39 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     qf = quality_flags(req.prose)
     # 跨章复读:逐章 QC 查不到的"单遍长程生成典型病"(模型跨章复用偏爱措辞)。
     # 比对前文最近 5 章逐字 ≥8 字重叠——把"重复"从'事后逐章删'升级为'跨章可度量'。
+    # U-011(作者要 fail-loud):检测器失败此前静默归 0/[],与"真没问题"无区别=存稿后质控假绿。
+    # 改成记进 qc_errors(照抄同函数已有的 leak_error 范式),前端红字"检测器故障·本次未检"。
+    # 这里【不 raise】——存稿已成功落库,检测是存后软校验,不该因检测器炸 500 掉一次成功存稿。
+    import logging as _lg
+    qc_errs: dict[str, str] = {}
     cross_rep: list[dict] = []
     try:
         priors = [c["prose"] for c in st.recent_proses(req.seq, k=8) if c.get("prose")]
         allow = st.motif_terms() if hasattr(st, "motif_terms") else None
         cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=8, allow=allow)
     except Exception as e:
-        import logging
-        logging.getLogger("scribe3").warning("cross_repetition 失败 work=%s seq=%s: %s", work, req.seq, e)
-    # M2-①: 整行复读 + 情感直说计数(fail-soft)
+        _lg.getLogger("scribe3").error("cross_repetition 失败 work=%s seq=%s", work, req.seq, exc_info=True)
+        qc_errs["cross_repetition"] = str(e)[:120]
+    # M2-①: 整行复读 + 情感直说计数
     dup_lines_count = 0
     try:
         dup_lines_count = len(find_duplicate_lines(req.prose))
     except Exception as e:
-        import logging
-        logging.getLogger("scribe3").warning("find_duplicate_lines 失败 work=%s seq=%s: %s", work, req.seq, e)
+        _lg.getLogger("scribe3").error("find_duplicate_lines 失败 work=%s seq=%s", work, req.seq, exc_info=True)
+        qc_errs["duplicate_lines"] = str(e)[:120]
     emotion_telling_count = 0
     try:
         emotion_telling_count = len(find_emotion_telling(req.prose))
     except Exception as e:
-        import logging
-        logging.getLogger("scribe3").warning("find_emotion_telling 失败 work=%s seq=%s: %s", work, req.seq, e)
+        _lg.getLogger("scribe3").error("find_emotion_telling 失败 work=%s seq=%s", work, req.seq, exc_info=True)
+        qc_errs["emotion_telling"] = str(e)[:120]
     leaks, leak_error = None, None
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
             leaks = len(find_leaks(req.prose, st, req.focalizer, req.seq))
         except Exception as e:
-            import logging
-            logging.getLogger("scribe3").warning("find_leaks 失败 work=%s seq=%s: %s", work, req.seq, e)
+            _lg.getLogger("scribe3").error("find_leaks 失败 work=%s seq=%s", work, req.seq, exc_info=True)
             leak_error = str(e)[:160]
     _enqueue_ingest(background, work, req.seq)
     return {"status": "saved", "seq": req.seq,
@@ -5959,7 +5998,8 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
                    "purple": len(qf["purple"]), "cross_repetition": len(cross_rep),
                    "duplicate_lines": dup_lines_count, "emotion_telling": emotion_telling_count},
             "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
-            "leaks": leaks, "leak_error": leak_error, "ingesting": True}
+            "leaks": leaks, "leak_error": leak_error,
+            "qc_errors": qc_errs or None, "ingesting": True}
 
 
 @app.post("/dedup-chapter")
@@ -6081,7 +6121,12 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("check 取 craft 豁免失败: %s", e)
     qf = quality_flags(req.prose, extra, allow_words, allow_pats)
+    # U-011(作者要 fail-loud):find_leaks/quality_issues 失败此前静默返空——停笔静默检查面板
+    # 显示"零泄露/零问题",与真干净的稿子无法区分=招牌能力(限知泄露检测)静默失效。
+    # 改标 leaks_error/issues_error(同 /save-chapter 的 leak_error 范式),前端护栏面板显红。
+    # 不 raise:这是停笔高频轻检查,raise 会把每次静默刷新变 500 噪声,error 字段已足够响。
     leaks = []
+    leaks_error = None
     if req.focalizer:
         try:
             from scribe3.verify import find_leaks
@@ -6089,14 +6134,17 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
                       "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
         except Exception as e:
-            logging.getLogger("scribe3").warning("check find_leaks 失败: %s", e)
+            logging.getLogger("scribe3").error("check find_leaks 失败", exc_info=True)
+            leaks_error = str(e)[:120]
 
     # F-05: 组装带 range 的 issues(白送类 QC + leaks)
     issues: list[dict] = []
+    issues_error = None
     try:
         issues = quality_issues(req.prose, extra, allow_words, allow_pats)
     except Exception as e:
-        logging.getLogger("scribe3").warning("check quality_issues 失败: %s", e)
+        logging.getLogger("scribe3").error("check quality_issues 失败", exc_info=True)
+        issues_error = str(e)[:120]
     # 追加 leak issues
     for lk in leaks:
         issues.append({
@@ -6112,8 +6160,8 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
                    "purple": len(qf["purple"]),
                    "ai_tics": len(qf["ai_tics"]),
                    "oversaturation": len(qf["oversaturation"])},
-            "leaks": leaks,
-            "issues": issues}
+            "leaks": leaks, "leaks_error": leaks_error,
+            "issues": issues, "issues_error": issues_error}
     # 方案A任务8:整章 AI 味定档聚合,fail-soft(异常时不给该字段,不 500)。
     try:
         from scribe3.critique import aggregate_ai_grade
@@ -6161,6 +6209,10 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     # 开放项",供下面 LLM 纪律判读作背景(未处理的坑要在 findings 里指出)。
     # fail-soft:取不到不影响本次体检其余字段。
     from scribe3.brief import inherited_open_block
+    # U-011:degraded_stages 提前初始化,让下方 inherited_open 失败也能记进去(此前它在
+    # degraded_stages 定义之前、失败只 log 不进 degraded=同函数其余检测器的假绿盲区)。
+    degraded = False
+    degraded_stages: list[str] = []
     inherited_open_promises: list[dict] = []
     inherited_text = ""
     try:
@@ -6168,7 +6220,9 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         inherited_open_promises = inherited["items"]
         inherited_text = inherited["text"]
     except Exception as e:
-        logging.getLogger("scribe3").warning("post_check inherited_open_block 失败: %s", e)
+        logging.getLogger("scribe3").error("post_check inherited_open_block 失败", exc_info=True)
+        degraded = True
+        degraded_stages.append("inherited_open")
 
     # 1. 确定性五类 QC
     qf = quality_flags(req.prose, extra, allow_words, allow_pats)
@@ -6196,8 +6250,8 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
 
     # 3. LLM 语义纪律判(fail-open)
     discipline: dict = {}
-    degraded = False
-    degraded_stages: list[str] = []
+    # U-011:degraded/degraded_stages 已在上方(inherited 之前)初始化,此处不再重置,
+    # 让 inherited_open 的失败也累积进最终 degraded_stages。
     try:
         # 优先用测试注入的 _complete_fn,否则走真实 hermes_complete
         complete_fn = _complete_fn
@@ -6317,7 +6371,9 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
                 "meta": {"aliases": hit["aliases"]},
             })
     except Exception as e:
-        logging.getLogger("scribe3").warning("post_check find_elegant_variation 失败: %s", e)
+        logging.getLogger("scribe3").error("post_check find_elegant_variation 失败", exc_info=True)
+        degraded = True
+        degraded_stages.append("elegant_variation")
 
     # M2-②: 接线 B/C 检测器 + 跨章矛盾(fail-soft;异常不阻断,记 degraded_stages)
     dup_lines: list[dict] = []
@@ -6678,7 +6734,11 @@ def latest_draft(seq: int, work: str = "main"):
     try:
         v["stats"] = json.loads(raw) if raw else {}
     except (ValueError, TypeError):
+        # U-011:stats JSON 损坏≠没数据(add_chapter_version 必写它)——损坏被当空=序列化侧
+        # 真 bug 被藏。log.error 让损坏可见 + 标 stats_corrupt,不静默当 {}。
+        logging.getLogger("scribe3").error("latest_draft stats JSON 损坏 seq=%s: %r", seq, raw, exc_info=True)
         v["stats"] = {}
+        v["stats_corrupt"] = True
     return v
 
 
@@ -6734,7 +6794,10 @@ def ingest(seq: int, work: str = "main"):
                 from scribe3.llm import hermes_complete as _dfn
             distill_chapter(st, seq, _dfn)
         except Exception as e:
-            logging.getLogger("scribe3").warning("/ingest 复盘蒸馏失败(忽略): %s", e)
+            # U-011:蒸馏失败不 raise(正文已落),但放进响应 lesson_error 让作者看见"这章教训没记住"。
+            logging.getLogger("scribe3").error("/ingest 复盘蒸馏失败 seq=%s", seq, exc_info=True)
+            if isinstance(r, dict):
+                r["lesson_error"] = str(e)[:120]
         return r
     finally:
         with _pending_ingest_lock:
@@ -7171,14 +7234,19 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
                                kind="final", stage="final", stats=_prose_stats(prose))
     except Exception as e:
         logging.getLogger("scribe3").warning("终选留 final 版失败(正文已落库): %s", e)
+    lesson_saved, lesson_error = True, None
     try:
         st.add_lesson(req.chapter, "decision",
                       f"第{req.chapter}章关键章终选胜在{(req.reason_axis or '其他')[:12]}:"
                       f"{req.reason_text.strip()[:160]}",
                       condition="关键章多候选终选")
     except Exception as e:
-        logging.getLogger("scribe3").warning("终选理由入 lesson 失败(定稿不受影响): %s", e)
+        # U-011:终选理由是"沉淀环最贵的输入"(docstring 原话)——失败此前只 warning,作者
+        # 以为理由存了。不 raise(定稿已落库),但响应带 lesson_saved=false 让前端可提示重试。
+        logging.getLogger("scribe3").error("终选理由入 lesson 失败(定稿不受影响)", exc_info=True)
+        lesson_saved, lesson_error = False, str(e)[:120]
     return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
+            "lesson_saved": lesson_saved, "lesson_error": lesson_error,
             "note": "正文已落库;已排后台反哺(ingest)更新知识账本"}
 
 
@@ -7700,7 +7768,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
             if s_ not in latest or ns_ > latest[s_][0]:
                 latest[s_] = (ns_, fp)
         except Exception:
-            continue
+            degraded.append("needs_human"); continue   # U-011: 解析失败不静默丢章
     seen_nh: set[int] = set()
     # P2-9:pilot parked 的章由⑤源承载(带更准 reason),journal 源跳过防同章双挂
     _pilot_parked_seqs: set[int] = set()
@@ -7709,7 +7777,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
             if (rr.get("pilot_parked") or "").strip():
                 _pilot_parked_seqs.add(rr.get("seq"))
     except Exception:
-        pass
+        degraded.append("needs_human")   # U-011: 查询失败标 degraded,不静默
     for s_, (_ns, fp) in latest.items():
         if s_ in _pilot_parked_seqs:
             continue
@@ -7719,7 +7787,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
             if any("_needs_human" in x for x in stages):
                 seen_nh.add(s_)
         except Exception:
-            continue
+            degraded.append("needs_human"); continue   # U-011: journal损坏不静默吞待裁决章
     for s in sorted(seen_nh):
         items.append({"kind": "needs_human", "seq": s,
                       "message": f"第 {s} 章 loop 三稿全被拦(needs_human):三稿在版本库,请裁决——真不行还是检测器过严?",
@@ -7891,8 +7959,12 @@ def north_star_book(work: str = "main"):
         out["fulfillment"] = {"no_data": True, "degraded": True}
     try:   # 附加信息位:因果欠账存量(非四维,§3-② brief top-5 溢出的面板承载)
         out["causal_debt_total"] = st.causal_debt_total()
-    except Exception:
+    except Exception as e:
+        # U-011:与同函数其余维度(fulfillment 等)一致,失败标 degraded + log.error,
+        # 不再零日志零标记(None 与"真 0 欠账"不可分)。
+        logging.getLogger("scribe3").error("north_star causal_debt_total 失败", exc_info=True)
         out["causal_debt_total"] = None
+        out["causal_debt_degraded"] = True
     try:   # ⑤ QD 文体多样性档案(北极星任务9):分布单调告警,只进面板不进任何门禁
         from scribe3.qd import CV_FLAT_RUN, style_drift_alerts
         profs = st.list_style_profiles()

@@ -252,11 +252,14 @@ export function WriteLayout({ work, seq, sceneIdx }) {
         .then((r) => {
           if (alive) setGuard({
             leaks: r.leaks || [],
+            leaks_error: r.leaks_error || null,     // U-011: 检测器故障红字显示
+            issues_error: r.issues_error || null,
             qc: r.qc || { repetition: 0, structural: 0, purple: 0 },
             issues: r.issues || [],  // F-05: 带 range 的 issues 列表
           })
         })
-        .catch(() => {})
+        // U-011: /check 整个失败此前被静默吞(护栏面板悄悄保持旧状态=假绿)——标故障红字
+        .catch((e) => { if (alive) setGuard((g) => ({ ...g, leaks_error: `护栏检查失败:${e?.message || e}` })) })
     }, 3000)
     return () => { alive = false; clearTimeout(t) }
   }, [prose, chapter, focalizer, guardOn])
@@ -342,6 +345,9 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const focName = (chars.find((c) => c.id === focalizer) || {}).name || '—'
   const wordCount = prose.replace(/\s/g, '').length
   const qcN = qc ? (qc.repetition?.length || qc.repetition || 0) + (qc.structural?.length || qc.structural || 0) + (qc.purple?.length || qc.purple || 0) : 0
+  // U-011:检测器故障(后端 detector_errors)——"QC 0"可能是真没问题、也可能是检测器炸了没检。
+  // 有 detector_errors 就红字标出"本次未检",不让假绿蒙混。
+  const qcErrNames = qc?.detector_errors ? Object.keys(qc.detector_errors) : []
   // /causal 三态派生:状态条(renderVerify)与校验徽章(reviewBadge)同源,防「因果完整✅」假绿。
   const cstat = causalStatus(causal)
 
@@ -359,6 +365,11 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-meta">
         <span className={leaks > 0 ? 'text-danger' : 'text-ok'}>泄露 {leaks}</span>
         <span className={qcN > 0 ? 'text-warn' : 'text-ok'}>QC {qcN}</span>
+        {qcErrNames.length > 0 && (
+          <span className="text-danger" title={`失败检测器:${qcErrNames.join('、')}`}>
+            ⚠ 检测器故障·本次未检({qcErrNames.join('、')})
+          </span>
+        )}
         <span className={cstat.state === 'violations' ? 'text-danger' : 'text-faint'}>
           因果 {cstat.state === 'violations' ? `${cstat.count} 违规` : cstat.state === 'no-data' ? '无数据' : '完整'}
         </span>
@@ -670,9 +681,12 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                   {/* 限知泄露 */}
                   <div className="mb-2">
                     <div className="text-f12 text-faint mb-0.5 flex items-center gap-1"><Lock size={11} />限知泄露词</div>
-                    {focalizer && guard.leaks.length > 0
-                      ? <div className="text-f12 text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
-                      : <div className="text-f12 text-ok">无泄露</div>
+                    {/* U-011:检测器炸了(leaks_error)必须红字区分——"无泄露"可能是真干净,也可能是没检 */}
+                    {guard.leaks_error
+                      ? <div className="text-f12 text-danger leading-snug">⚠ 泄露检测器故障·本次未检:{guard.leaks_error}</div>
+                      : focalizer && guard.leaks.length > 0
+                        ? <div className="text-f12 text-danger leading-snug">{guard.leaks.map((l) => l.marker).join('、')}</div>
+                        : <div className="text-f12 text-ok">无泄露</div>
                     }
                   </div>
                   {/* 五类 QC */}

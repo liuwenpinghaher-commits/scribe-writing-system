@@ -1918,6 +1918,9 @@ class SurrealStore:
             try:
                 p = json.loads(r.get("profile") or "{}")
             except Exception:
+                # U-011:JSON 损坏≠没数据(序列化侧真 bug)。log.error 让损坏可见,不静默当空。
+                logging.getLogger("scribe3").error(
+                    "style_profile JSON 损坏 seq=%s: %r", r.get("seq"), r.get("profile"), exc_info=True)
                 p = {}
             out.append({"seq": r.get("seq"), **p})
         return out
@@ -1980,6 +1983,7 @@ class SurrealStore:
             try:
                 r["evidence_turns"] = _json.loads(r.get("evidence_turns") or "[]")
             except Exception:
+                logging.getLogger("scribe3").error("lesson evidence_turns JSON 损坏: %r", r.get("evidence_turns"), exc_info=True)   # U-011
                 r["evidence_turns"] = []
         return rows
 
@@ -2420,6 +2424,7 @@ class SurrealStore:
                 f"WHERE embedding <|{k3},{ef}|> $qv AND archived != true ORDER BY dist",
                 {"qv": embed([query])[0]})]
         except Exception:
+            logging.getLogger("scribe3").error("material_recall 语义路失败(该路清零)", exc_info=True)   # U-011: RRF静默丢一路
             vec_ids = []
         # 全文路(jieba 切 query → BM25 search::score)
         q_toks = " ".join(w for w in jieba.cut(query) if w.strip())
@@ -2431,6 +2436,7 @@ class SurrealStore:
                     "WHERE tokens @1@ $q AND archived != true ORDER BY s DESC LIMIT $lim",
                     {"q": q_toks, "lim": k * 2})]
             except Exception:
+                logging.getLogger("scribe3").error("material_recall 全文路失败(该路清零)", exc_info=True)   # U-011
                 fts_ids = []
         # 图路:语义种子沿 relates 扩展 + about_entities 匹配本章提及实体
         graph_ids: list[str] = []

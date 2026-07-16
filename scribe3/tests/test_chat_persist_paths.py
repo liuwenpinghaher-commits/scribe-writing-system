@@ -236,8 +236,10 @@ def test_chat_history_budget_truncates_long_and_caps_count(store):
     assert h[-1]["content"] == "第19条", "应取【最近】的 N 条(旧的被挤出)"
 
 
-def test_chat_history_fail_soft_keeps_stream_alive(client, store, monkeypatch):
-    """取历史失败(DB 抖动)→ history=[],对话照常流式,不 500。"""
+def test_chat_history_failure_now_fails_loud_with_real_cause(client, store, monkeypatch):
+    """U-011 行为变更(推翻本测试旧断言):取历史失败此前静默回 []——那是主编无声失忆
+    (U-009 症状借降级复发)。现在 fail-loud:SSE error 帧携带【异常原文】给前端内联显示,
+    LLM 不被调用(不带残缺上下文继续),流以 done 优雅收尾(非 500 裸断)。"""
     def boom(*a, **k):
         raise RuntimeError("DB 掉线")
     monkeypatch.setattr(store, "list_thread_messages", boom)
@@ -245,9 +247,12 @@ def test_chat_history_fail_soft_keeps_stream_alive(client, store, monkeypatch):
     monkeypatch.setattr("scribe3.llm.hermes_complete_stream",
                         _fake_stream_factory(captured, ["ok"]))
     r = client.get("/chat/stream", params={"msg": "hi", "work": "main"})
-    assert r.status_code == 200
-    _consume(r)
-    assert captured[0]["history"] == []
+    assert r.status_code == 200            # SSE 已开流,错误经 error 帧而非 HTTP 码
+    body = b"".join(r.iter_bytes()).decode()
+    assert '"error"' in body and "DB 掉线" in body, (
+        f"取历史失败必须以 error 帧携带真实原因,而非静默空历史(body={body!r})")
+    assert '"done": true' in body          # 流优雅收尾
+    assert captured == [], "上下文组装失败后不得再调 LLM(不带残缺上下文继续)"
 
 
 def test_chat_history_last_assistant_keeps_tail_where_options_live(store):
