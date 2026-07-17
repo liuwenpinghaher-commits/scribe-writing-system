@@ -5,7 +5,7 @@
 // 零降级:列表加载失败显式红字「不代表没有会话」;所有操作失败 danger toast,绝不装没事。
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Plus, Pencil, Archive, GitBranch, Download } from 'lucide-react'
+import { ChevronDown, History, Plus, Pencil, Archive, Sparkles, Download } from 'lucide-react'
 import { api } from './api'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { showToast } from './ui/Toast.jsx'
@@ -52,10 +52,19 @@ export function ThreadSwitcher({ busy = false }) {
   const guardBusy = () => !busy
     || window.confirm('主编正在生成:切换会话将中止本轮(已生成部分已留痕)。继续?')
   const doSwitch = (tid) => { if (tid === current || !guardBusy()) return; setOpen(false); switchThread(tid) }
-  const doNew = async () => {
+  // 新建会话(默认=延续):作者语义纠正——新建是为界面清洁/分类,不是失忆。
+  // 走 fork(带 parent):后端拷父 summary + 近窗回溯父会话原文,主编无缝记得之前聊的;
+  // title 传"新会话"(autotitle 默认集)→ 首条消息自动命名,不与父同名。
+  const doNewContinue = async () => {
+    if (!guardBusy()) return
+    try { const t = await api.forkThread(current, { title: '新会话' }); setOpen(false); switchThread(t.thread_id) }
+    catch (e) { showToast(`新建会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
+  }
+  // 全新会话(手动通道):不带任何对话历史(无 parent,注入层不回溯)。
+  const doNewFresh = async () => {
     if (!guardBusy()) return
     try { const t = await api.createThread(); setOpen(false); switchThread(t.thread_id) }
-    catch (e) { showToast(`新建会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
+    catch (e) { showToast(`全新会话失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
   }
   const doRename = async (t) => {
     const name = window.prompt('会话改名', t.title || '')
@@ -74,10 +83,6 @@ export function ThreadSwitcher({ busy = false }) {
       }
       pull()
     } catch (e) { showToast(`归档失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
-  }
-  const doFork = async () => {
-    try { const t = await api.forkThread(current, {}); setOpen(false); switchThread(t.thread_id) }
-    catch (e) { showToast(`分支失败:${e?.body?.detail || e?.message || ''}`, { tone: 'danger' }) }
   }
   const doRestore = async (t) => {
     try { await api.patchThread(t.thread_id, { status: 'active' }); pull() }
@@ -113,10 +118,10 @@ export function ThreadSwitcher({ busy = false }) {
         </div>
       ))}
       <div className="border-t border-line/60 mt-1 pt-1 space-y-0.5">
-        <button onClick={doNew}
-          className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-brand hover:bg-soft rounded cursor-pointer"><Plus size={12} />新建会话</button>
-        <button onClick={doFork} title="带早期摘要,消息从空开始"
-          className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><GitBranch size={12} />从当前分支</button>
+        <button onClick={doNewContinue} title="主编无缝记得当前会话聊的(近窗+摘要);新会话只是界面归档分组"
+          className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-brand hover:bg-soft rounded cursor-pointer"><Plus size={12} />新建会话(延续当前上下文)</button>
+        <button onClick={doNewFresh} title="不带任何对话历史,从零开始"
+          className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><Sparkles size={12} />全新会话(不带历史)</button>
         {/* P0b:导出当前会话(md;只含对话文本与时间,不含工具输出) */}
         <a href={api.exportThreadUrl(current, 'md')} download
           className="w-full flex items-center gap-1.5 px-2 py-1.5 text-f12 text-faint hover:bg-soft rounded cursor-pointer"><Download size={12} />导出会话(.md)</a>
@@ -136,8 +141,9 @@ export function ThreadSwitcher({ busy = false }) {
   )
   return (
     <div className="relative shrink-0" data-testid="thread-switcher">
-      <button ref={btnRef} onClick={toggle} title="会话(历史/新建/管理)"
-        className="flex items-center gap-1 text-f12 text-faint hover:text-brand cursor-pointer max-w-[180px]">
+      <button ref={btnRef} onClick={toggle} title="会话(历史列表/新建/切换/管理都在这)"
+        className="flex items-center gap-1 text-f12 text-faint hover:text-brand cursor-pointer max-w-[200px]">
+        <History size={12} className="shrink-0" />
         <span className="truncate">{curTitle}</span><ChevronDown size={12} />
       </button>
       {open && createPortal(renderMenu(), document.body)}

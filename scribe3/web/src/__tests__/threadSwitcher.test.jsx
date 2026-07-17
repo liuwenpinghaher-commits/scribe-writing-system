@@ -41,13 +41,25 @@ describe('ThreadSwitcher', () => {
     expect(switchThread).toHaveBeenCalledWith('t2')
   })
 
-  it('新建会话:createThread 后 switchThread 到新线程', async () => {
+  it('新建会话(默认延续):走 fork(带 parent+title=新会话)后切换——不是失忆', async () => {
+    apiMock.threads.mockResolvedValue(LIST)
+    apiMock.forkThread.mockResolvedValue({ thread_id: 't8', title: '新会话', status: 'active' })
+    render(<ThreadSwitcher busy={false} />)
+    fireEvent.click(screen.getByText('主编讨论'))
+    await waitFor(() => screen.getByText('新建会话(延续当前上下文)'))
+    fireEvent.click(screen.getByText('新建会话(延续当前上下文)'))
+    await waitFor(() => expect(apiMock.forkThread).toHaveBeenCalledWith('t1', { title: '新会话' }))
+    await waitFor(() => expect(switchThread).toHaveBeenCalledWith('t8'))
+    expect(apiMock.createThread).not.toHaveBeenCalled()
+  })
+
+  it('全新会话(手动不带历史):走 createThread', async () => {
     apiMock.threads.mockResolvedValue(LIST)
     apiMock.createThread.mockResolvedValue({ thread_id: 't9', title: '新会话', status: 'active' })
     render(<ThreadSwitcher busy={false} />)
     fireEvent.click(screen.getByText('主编讨论'))
-    await waitFor(() => screen.getByText('新建会话'))
-    fireEvent.click(screen.getByText('新建会话'))
+    await waitFor(() => screen.getByText('全新会话(不带历史)'))
+    fireEvent.click(screen.getByText('全新会话(不带历史)'))
     await waitFor(() => expect(apiMock.createThread).toHaveBeenCalled())
     await waitFor(() => expect(switchThread).toHaveBeenCalledWith('t9'))
   })

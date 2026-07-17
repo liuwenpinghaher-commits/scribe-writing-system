@@ -3973,6 +3973,16 @@ def _thread_history_for_prompt(st, thread_id: str | None, *, max_msgs: int = 12,
         rows = st.list_thread_messages(thread_id, limit=max_msgs)
         kept = [(r.get("role"), (r.get("text") or "").strip()) for r in rows
                 if r.get("role") in ("user", "assistant") and (r.get("text") or "").strip()]
+        # 会话延续(作者定义纠正 2026-07-17):新建会话是为了**界面清洁/分类,不是失忆**。
+        # 有 parent 的会话(新建默认=fork 延续)在本会话消息不足近窗时,用直接父会话的
+        # 尾部原文补齐——主编无缝记得上一会话聊到哪(零 LLM、无损;fork 已拷父 summary 兜早期)。
+        # 全新会话(无 parent,手动"不带历史"通道)不回溯;只回溯一层,父的父由父 summary 承载。
+        parent_id = (thread_row.get("parent_thread_id") or "").strip()
+        if parent_id and len(kept) < max_msgs:
+            prows = st.list_thread_messages(parent_id, limit=max_msgs - len(kept))
+            pkept = [(r.get("role"), (r.get("text") or "").strip()) for r in prows
+                     if r.get("role") in ("user", "assistant") and (r.get("text") or "").strip()]
+            kept = pkept + kept
         last_asst = max((i for i, (role, _) in enumerate(kept) if role == "assistant"),
                         default=None)
         out = []

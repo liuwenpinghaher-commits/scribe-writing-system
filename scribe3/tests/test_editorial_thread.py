@@ -448,3 +448,34 @@ def test_daily_digest_partial_source_failure_is_loud(store, monkeypatch):
     d = r.json()
     assert d["error"] and "progress" in d["error"]
     assert "等你决策" in d["body"]   # 其余源仍产出
+
+
+# ---- 会话延续(作者语义:新建=界面清洁,不是失忆;默认无缝延续,手动才"全新")----
+
+def test_forked_thread_history_backfills_from_parent(store, monkeypatch):
+    """延续会话(fork)首轮:近窗回溯父会话尾部原文——主编无缝记得上一会话。"""
+    import scribe3.app as A
+    A.set_store(store)
+    parent = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    store.add_chat_message(1, "discuss", "user", "父会话:主角定为守灯人", thread_id=parent)
+    store.add_chat_message(1, "discuss", "assistant", "好,守灯人线我记下了", thread_id=parent)
+    child = store.fork_editorial_thread(parent, title="新会话")
+    hist = A._thread_history_for_prompt(store, child["thread_id"])
+    joined = " ".join(m["content"] for m in hist)
+    assert "守灯人" in joined, f"延续会话必须带父会话近窗,实际={hist!r}"
+    # 子会话自己有消息后,父内容仍在前、子在后(时序正确)
+    store.add_chat_message(1, "discuss", "user", "子会话新话题", thread_id=child["thread_id"])
+    hist2 = A._thread_history_for_prompt(store, child["thread_id"])
+    texts = [m["content"] for m in hist2]
+    assert any("守灯人" in t for t in texts) and texts[-1] == "子会话新话题"
+
+
+def test_fresh_thread_history_stays_empty(store):
+    """全新会话(无 parent,手动'不带历史'):绝不回溯——与线程隔离对抗测试同一约束。"""
+    import scribe3.app as A
+    A.set_store(store)
+    default = store.get_or_create_editorial_thread("main", "author")["thread_id"]
+    store.add_chat_message(1, "discuss", "user", "旧会话机密", thread_id=default)
+    fresh = store.create_editorial_thread("main", "author")
+    hist = A._thread_history_for_prompt(store, fresh["thread_id"])
+    assert all("旧会话机密" not in m["content"] for m in hist)

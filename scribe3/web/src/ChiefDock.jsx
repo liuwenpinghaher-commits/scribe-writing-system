@@ -740,9 +740,14 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         )}
         {msgs.length === 0 ? (
           <div className="pt-2">
-            {/* P0a spec§11:新会话空态明示"不带历史",防作者误报主编失忆 */}
-            {threadMode && (
-              <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+            {/* 空态按会话类型分文案(作者语义:新建=界面清洁不是失忆):
+                有 parent=延续会话(近窗+摘要都带着);无 parent=手动全新会话 */}
+            {threadMode && threadMeta && (
+              threadMeta.parent_thread_id ? (
+                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
+              ) : (
+                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+              )
             )}
             <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
