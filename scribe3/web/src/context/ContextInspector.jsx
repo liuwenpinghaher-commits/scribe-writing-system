@@ -146,6 +146,16 @@ export function ContextInspector() {
 
   const status = deriveStatus({ runtime, error, restoring, hasSession: !!sessionId, traceError })
   const meta = STATUS_META[status] || STATUS_META.current
+  // hermes_degraded 带出具体原因(真机 UX 反馈:笼统"建议查看运行状态"看不懂)——
+  // 后端 probe 的 degraded_reasons(如 disk)映射成人话;功能本身可用,别吓人。
+  let statusLabel = meta.label
+  if (status === 'hermes_degraded') {
+    const REASON_CN = { disk: '磁盘空间紧张', load: '系统负载高', memory: '内存紧张' }
+    const reasons = [...new Set((runtime?.profiles || []).flatMap((p) => p?.degraded_reasons || []))]
+    if (reasons.length) {
+      statusLabel = `Hermes 周边降级(${reasons.map((r) => REASON_CN[r] || r).join('、')})· 对话/写作不受影响`
+    }
+  }
   const toneClass = { ok: 'text-ok', warn: 'text-warn', danger: 'text-danger', faint: 'text-faint' }[meta.tone]
   const selected = (trace && trace.selected) || []
   const rejected = (trace && trace.rejected) || []
@@ -162,11 +172,14 @@ export function ContextInspector() {
         className="w-full flex items-center gap-1.5 px-3 py-1.5 text-meta text-left hover:bg-soft/40 transition-colors"
       >
         <Eye size={12} className="text-brand shrink-0" />
-        <span data-testid="context-inspector-focus" className="text-ink font-medium truncate max-w-[40%]">{focusLabel(focus)}</span>
+        {/* 真机 UX 反馈:这条不自我介绍,作者不知道它是什么——补身份标签 */}
+        <span className="text-faint shrink-0">上下文</span>
+        <span data-testid="context-inspector-focus" className="text-ink font-medium truncate max-w-[36%]">{focusLabel(focus)}</span>
         {revision != null && (
           <span data-testid="context-inspector-revision" className="text-faint tabular-nums">rev {revision}</span>
         )}
-        <span data-testid="context-inspector-status" data-status={status} className={`ml-auto truncate ${toneClass}`}>{meta.label}</span>
+        <span data-testid="context-inspector-status" data-status={status} title={statusLabel}
+          className={`ml-auto truncate ${toneClass}`}>{statusLabel}</span>
         <ChevronRight size={12} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
 
@@ -192,8 +205,10 @@ export function ContextInspector() {
 
           {/* 第3层:证据。无溯源 → "未检索到证据"(不显"没有相关事实") */}
           {!hasEvidence ? (
-            <div data-testid="context-inspector-no-evidence" className="rounded-md border border-line bg-canvas px-2 py-2 text-meta text-faint">
-              未检索到证据{status === 'retrieval_degraded' ? '(检索降级)' : ''}
+            <div data-testid="context-inspector-no-evidence" className="rounded-md border border-line bg-canvas px-2 py-2 text-meta text-faint leading-snug">
+              这里是【上下文检查器】:显示主编本轮看到了什么(六块预算)、哪些记忆被选入/弃用及理由。
+              当前版本暂无检索溯源{status === 'retrieval_degraded' ? '(检索降级)' : ''}——
+              发一条写作/讨论消息后再展开查看。
             </div>
           ) : (
             <div data-testid="context-inspector-evidence" className="space-y-1">

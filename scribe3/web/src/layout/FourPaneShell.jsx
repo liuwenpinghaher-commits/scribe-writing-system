@@ -17,7 +17,8 @@ import { routeOf, selectionFromSnapshot } from './contextSelection'
 const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
 const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
 const DIRECTORY_PANEL = { default: 14, min: 10, max: 24 }
-const RIGHT_PANEL = { default: 24, min: 18, max: 36 }
+// max 58(原 36):作者要能把主编对话拉很宽读长回复;中区 minSize 兜底,不会被挤没
+const RIGHT_PANEL = { default: 24, min: 18, max: 58 }
 const RESIZER_CLASS = 'relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line'
 // 还原按钮 = 贴栏3 左/右缘、垂直居中的细把手(2026-07-12 重叠修复):旧 top-2 left-2/right-2
 // 浮钮压住栏3 头部内容(左压面包屑「手稿」,右压「更多」按钮)。垂直居中远离头部行,

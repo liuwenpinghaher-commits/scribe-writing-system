@@ -99,13 +99,15 @@ describe('ContextInspector · 第3层证据', () => {
     expect(screen.queryByText(/绝密身份明文/)).toBeNull()
   })
 
-  it('无溯源(404)时显"未检索到证据",不显"没有相关事实"', async () => {
+  it('无溯源(404)时显"暂无检索溯源"引导,不显"没有相关事实"', async () => {
+    // 真机 UX 反馈后空态改为自我介绍+引导文案;硬约束不变:绝不能说"没有相关事实"
+    // (没检索≠没有相关事实)。
     apiMock.getMemoryTrace.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404 }))
     render(<ContextInspector />)
     await screen.findByTestId('context-inspector-focus')
     fireEvent.click(screen.getByTestId('context-inspector-toggle'))
     await waitFor(() => expect(screen.getByTestId('context-inspector-no-evidence')).toBeTruthy())
-    expect(screen.getByTestId('context-inspector-no-evidence').textContent).toContain('未检索到证据')
+    expect(screen.getByTestId('context-inspector-no-evidence').textContent).toContain('暂无检索溯源')
     expect(screen.queryByText(/没有相关事实/)).toBeNull()
   })
 })

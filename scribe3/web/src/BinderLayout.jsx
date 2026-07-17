@@ -268,7 +268,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
         <Panel
           id="right"
           panelRef={rightRef}
-          defaultSize="26%" minSize="18%" maxSize="44%"
+          defaultSize="26%" minSize="18%" maxSize="58%"
           collapsible collapsedSize="0%"
           onResize={(size) => {
             const c = size.asPercentage < 5
