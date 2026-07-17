@@ -67,8 +67,17 @@ check_gateway() {
   fi
 
   local st
+  # U-001 判据(与 hermes_runtime._health_ok 同源):看"网关能不能干活",不看 status 字面。
+  # 周边检查(disk/负载)degraded 但 gateway running + api_server connected → 可用(绿,附原因);
+  # 其余(gateway 停了/连不上)才是真红。
   st="$(jget "$base/health/detailed" "$key" "d.get('status','?')")"
-  [ "$st" = "ok" ] && ok "/health/detailed status=ok" || bad "/health/detailed status=$st"
+  if [ "$st" = "ok" ]; then ok "/health/detailed status=ok"
+  else
+    usable="$(jget "$base/health/detailed" "$key" "'yes' if (d.get('status')=='degraded' and ((d.get('gateway_state')=='running') or (((((d.get('readiness') or {}).get('checks')) or {}).get('gateway') or {}).get('status')=='ok')) and ((((d.get('platforms') or {}).get('api_server')) or d.get('api_server') or {}).get('state')=='connected')) else 'no'")"
+    reasons="$(jget "$base/health/detailed" "$key" "','.join(sorted(k for k,v in ((((d.get('readiness') or {}).get('checks')) or {}).items()) if isinstance(v,dict) and v.get('status') not in (None,'ok')))")"
+    if [ "$usable" = "yes" ]; then ok "/health/detailed degraded 但网关可用(原因:${reasons:-未知},U-001 判据)"
+    else bad "/health/detailed status=$st(原因:${reasons:-未知})"; fi
+  fi
 
   local caps
   caps="$(jget "$base/v1/capabilities" "$key" "','.join(sorted(k for k,v in d.get('features',d).items() if v is True))")"
@@ -127,6 +136,19 @@ print(''.join(c.get('text','') for it in d.get('output',[]) if it.get('type')=='
     bad "Responses 无输出"
   fi
 fi
+
+# ---- P4(hermes 能力审查):模型兜底链配置存在性(三 profile;主模型单点=红)----
+echo "— fallback 兜底链 —"
+for cfg in "$HOME/.hermes/config.yaml" "$HOME/.hermes/profiles/scribe3/config.yaml" "$HOME/.hermes/profiles/scribe3_write/config.yaml"; do
+  # 不依赖 python yaml(系统 python3 可能没装)——数顶层 fallback_providers 的 "- provider" 项;
+  # n 必须是数字,取不出=红(防解析失败假绿,零降级)
+  n=$(awk '/^fallback_providers:/{f=1;next} f&&/^[A-Za-z_]/{f=0} f&&/^[[:space:]]*- provider:/{c++} END{print c+0}' "$cfg" 2>/dev/null)
+  label=$(basename "$(dirname "$cfg")")
+  case "$n" in (''|*[!0-9]*) bad "$label: fallback 配置读取失败";; 
+    (0) bad "$label: fallback 未配置(主模型单点)";; 
+    (*) ok "$label: fallback 链 $n 级";; esac
+done
+
 
 echo
 echo "结果:PASS=$PASS FAIL=$FAIL"

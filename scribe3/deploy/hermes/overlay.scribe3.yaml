@@ -8,3 +8,15 @@ platforms:
   api_server:
     port: 8643
     host: 127.0.0.1
+
+# P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(deepseek-v4-pro,coding plan)故障时
+# agent loop(conversation_loop 消费 get_fallback_chain)自动切换,三网关同配。
+# 两个兜底模型均经真机探针实证可用(同一 ark coding key;kimi 中文长文优先)。
+# 这是基础设施韧性(同 DB 重连 S-1,U-011 豁免类),切换在 hermes 侧有日志,非静默降级。
+fallback_providers:
+  - provider: custom
+    model: kimi-k2-thinking
+    base_url: https://ark.cn-beijing.volces.com/api/coding/v3
+  - provider: custom
+    model: MiniMax-M2.5
+    base_url: https://ark.cn-beijing.volces.com/api/coding/v3

@@ -12,3 +12,8 @@ jobs:
     script: scribe3_daily_digest.sh
     no_agent: true
     deliver: local
+  - name: scribe3-security-audit
+    schedule: "30 4 * * 1"       # 每周一 04:30:供应链 OSV 扫描(P4;干净=静默)
+    script: scribe3_security_audit.sh
+    no_agent: true
+    deliver: local

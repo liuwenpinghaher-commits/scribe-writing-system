@@ -51,6 +51,27 @@ done <<< "$DBS"
 
 echo "备份完成:$n 本书 → $OUT"
 
+# P4(hermes 能力审查 2026-07-17):Hermes 配置资产随备份——USER.md 现承载跨书作者偏好
+# (P3 数据),cron/ 是定时任务定义,profiles config 是三网关工具面/兜底链,scripts/ 是
+# 哨兵脚本。**绝不打包 .env(密钥)**:恢复时密钥由作者自持,配置经 provision 重建。
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+if [ -d "$HERMES_HOME" ]; then
+  assets=()
+  for f in USER.md config.yaml SOUL.md cron scripts; do
+    [ -e "$HERMES_HOME/$f" ] && assets+=("$f")
+  done
+  for f in "$HERMES_HOME"/profiles/*/config.yaml "$HERMES_HOME"/profiles/*/SOUL.md; do
+    [ -e "$f" ] && assets+=("${f#"$HERMES_HOME"/}")
+  done
+  if [ ${#assets[@]} -gt 0 ]; then
+    if tar -czf "$OUT/hermes_assets.tgz" -C "$HERMES_HOME" --exclude='*.env' --exclude='*.bak.*' "${assets[@]}" 2>/dev/null; then
+      echo "  ✅ hermes 资产 → $OUT/hermes_assets.tgz(${#assets[@]} 项,不含 .env 密钥)"
+    else
+      echo "  ⚠ hermes 资产备份失败(不影响书稿备份,请检查 $HERMES_HOME)"
+    fi
+  fi
+fi
+
 # 轮转:只保留最近 KEEP 份(按目录名时间戳倒序,跳过最新 KEEP 份删其余;
 # 不用 head -n -N——BSD/macOS head 不支持负数)
 cd "$OUT_ROOT"

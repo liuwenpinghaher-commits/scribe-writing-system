@@ -102,7 +102,7 @@ def _assert_invariants(profile: str, merged: dict) -> list[str]:
 def _diff_keys(before: dict, after: dict, prefix="") -> list[str]:
     """只报 scribe3 关心的键的变化(平铺路径),不刷屏整份 config。"""
     changes = []
-    owned = ("platform_toolsets", "platforms", "mcp_servers")
+    owned = ("platform_toolsets", "platforms", "mcp_servers", "fallback_providers")
     keys = owned if prefix == "" else sorted(set(before) | set(after))
     for k in keys:
         b, a = before.get(k), after.get(k)
