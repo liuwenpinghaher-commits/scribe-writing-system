@@ -5989,7 +5989,7 @@ def qc(seq: int, work: str = "main"):
     try:
         priors = [c["prose"] for c in st.recent_proses(seq, k=8) if c.get("prose")]
         allow = st.motif_terms() if hasattr(st, "motif_terms") else None
-        cross_rep = find_cross_chapter_repetitions(prose, priors, n=8, allow=allow)
+        cross_rep = find_cross_chapter_repetitions(prose, priors, n=12, allow=allow)
     except Exception as e:
         logging.getLogger("scribe3").error("qc cross_repetition 失败 work=%s seq=%s", work, seq, exc_info=True)
         det_errs["cross_repetition"] = str(e)[:120]
@@ -6302,7 +6302,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     try:
         priors = [c["prose"] for c in st.recent_proses(req.seq, k=8) if c.get("prose")]
         allow = st.motif_terms() if hasattr(st, "motif_terms") else None
-        cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=8, allow=allow)
+        cross_rep = find_cross_chapter_repetitions(req.prose, priors, n=12, allow=allow)
     except Exception as e:
         _lg.getLogger("scribe3").error("cross_repetition 失败 work=%s seq=%s", work, req.seq, exc_info=True)
         qc_errs["cross_repetition"] = str(e)[:120]
@@ -6359,10 +6359,16 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     if not ch or not ch.get("prose"):
         raise HTTPException(status_code=404, detail="chapter not found")
     from scribe3.critique import rewrite_cross_repetitions
-    from scribe3.llm import hermes_complete
+    from scribe3.llm import default_timeout, hermes_complete
     priors = [c["prose"] for c in st.recent_proses(seq, k=8) if c.get("prose")]
     allow = st.motif_terms() if hasattr(st, "motif_terms") else None
-    res = rewrite_cross_repetitions(ch["prose"], priors, hermes_complete, n=8, allow=allow)
+    # dedup 同样会按句调用模型；必须沿用精修的短超时、单次尝试边界，避免一个坏响应
+    # 把整章请求放大为生成级的多轮长阻塞。
+    def _dedup_complete(prompt: str, system: str) -> str:
+        return hermes_complete(prompt, system, timeout=min(float(default_timeout()), 30.0),
+                               max_tokens=360, retries_override=1)
+
+    res = rewrite_cross_repetitions(ch["prose"], priors, _dedup_complete, n=12, allow=allow)
     if res["rewritten"] > 0:
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
         # 落 final 版(与 /save-chapter 对称;fail-soft:留版失败不阻断改写落库)
@@ -6397,7 +6403,7 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     if not ch or not ch.get("prose"):
         raise HTTPException(status_code=404, detail="chapter not found")
     from scribe3.critique import repair_nested_dialogue_opens, rewrite_intra_chapter_issues
-    from scribe3.llm import hermes_complete
+    from scribe3.llm import default_timeout, hermes_complete
     allow = st.motif_terms() if hasattr(st, "motif_terms") else None
     # 章内 AI 词精修同样尊重作者白名单：motif_terms 用于复读豁免，allow_words
     # 用于 find_ai_tics 的禁词豁免；合并后沿用 rewrite_intra 的单一 allow 入参。
@@ -6407,7 +6413,13 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         allow = set(allow or ()) or None
     quote_fixed = repair_nested_dialogue_opens(ch["prose"])
     quote_repairs = max(0, quote_fixed.count("”") - ch["prose"].count("”"))
-    res = rewrite_intra_chapter_issues(quote_fixed, hermes_complete, allow=allow)
+    # 精修一轮可能有数十句；不能让单句沿用生成级 600s 超时而拖死整章。超时会被
+    # rewrite_intra 的逐句 fail-soft 保留原句，最后仍须通过净减少门才会落库。
+    def _polish_complete(prompt: str, system: str) -> str:
+        return hermes_complete(prompt, system, timeout=min(float(default_timeout()), 30.0),
+                               max_tokens=360, retries_override=1)
+
+    res = rewrite_intra_chapter_issues(quote_fixed, _polish_complete, allow=allow)
     changed = bool(res["rewritten"] or quote_repairs)
     leak_guard = None
     if changed:

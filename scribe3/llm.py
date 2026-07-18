@@ -112,7 +112,8 @@ def _stream_with_retry(make_stream, max_retries: int | None = None):
 
 def hermes_complete(prompt: str, system: str | None = None,
                     model: str | None = None, timeout: float | None = None,
-                    max_tokens: int | None = None) -> str:
+                    max_tokens: int | None = None,
+                    retries_override: int | None = None) -> str:
     """经 Hermes 取一段补全。max_tokens 硬上限控长。错误抛出不静默。"""
     model = model or default_model()
     timeout = timeout if timeout is not None else default_timeout()
@@ -124,7 +125,7 @@ def hermes_complete(prompt: str, system: str | None = None,
         body["max_tokens"] = max_tokens
     hdr = {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
     last: Exception | None = None
-    retries = max_retries()
+    retries = max(1, int(retries_override)) if retries_override is not None else max_retries()
     for _attempt in range(retries):
         try:
             r = httpx.post(f"{HERMES}/chat/completions", timeout=timeout, headers=hdr, json=body)

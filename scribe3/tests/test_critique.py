@@ -106,6 +106,14 @@ def test_cross_chapter_repetition_empty_priors():
     assert find_cross_chapter_repetitions("任意正文一段话。", [], n=8) == []
 
 
+def test_cross_chapter_repetition_ignores_dialogue_boundary_fragments():
+    """台词结束符与说话人标签拼出的 n-gram 没有可读的复读语义。"""
+    ch1 = "“走吧。”沈砚说。季棠跟在后面。"
+    ch2 = "“停下。”沈砚说。季棠站在门边。"
+    hits = find_cross_chapter_repetitions(ch2, [ch1], n=8)
+    assert not any("”" in hit["phrase"] for hit in hits)
+
+
 def test_distinctive_phrases_extracts_avoid_list():
     """抽独特措辞供'避免清单':返回若干 ≥8 字、含中文短语,且都是原文的逐字片段。"""
     text = "七月正午的阳光泼在地上，像熔化的铜汁，唯独这棵三百年的老槐撑开一团浓绿。"
@@ -155,6 +163,20 @@ def test_rewrite_cross_repetitions_noop_when_clean():
         called.append(1); return "x"
     res = rewrite_cross_repetitions("全新的一段话，毫无雷同。", ["前文完全不同的内容。"], fake, n=8)
     assert res["rewritten"] == 0 and not called
+
+
+def test_rewrite_cross_repetitions_rolls_back_when_rewrite_does_not_reduce_hits():
+    """跨章改写若没有降低命中，不能把未验证的改写正文写回。"""
+    ch1 = "胡不为惨叫一声，钉尾露在外面，像一截白骨。"
+    ch2 = "天黑了。胡不为惨叫一声，钉尾露在外面，他踉跄后退。"
+
+    def unchanged(_prompt, _system=None):
+        return "胡不为惨叫一声，钉尾露在外面，他踉跄着后退。"
+
+    res = rewrite_cross_repetitions(ch2, [ch1], unchanged, n=8)
+    assert res["prose"] == ch2
+    assert res["rewritten"] == 0
+    assert res["after"] == res["before"]
 
 
 # —— 章内精修治层(intra):章内 repetition / duplicate_lines / 排比,与跨章 dedup 对称 ——
@@ -1790,3 +1812,13 @@ class TestFillerSignals:
         assert filler_issues
         assert filler_issues[0]["range"] is None
         assert "水字数" in filler_issues[0]["message"]
+
+
+class TestIntraPolishAiTics:
+    def test_hard_sentence_break_negation_flip_is_a_single_rewrite_target(self):
+        from scribe3.critique import intra_repetition_sentences
+
+        text = "潮声压在闸门外。他忽然明白那并不是在喊名。是闸在等一个名字。"
+        targets = intra_repetition_sentences(text)
+
+        assert any(t["sentence"] == "他忽然明白那并不是在喊名。是闸在等一个名字。" for t in targets)

@@ -42,7 +42,10 @@ def _cjk_ngrams(text: str, n: int) -> set[str]:
     """正文去空白后所有含中文的 n-gram 集合(用于跨文本逐字比对)。"""
     s = re.sub(r"\s+", "", text or "")
     return {s[i:i + n] for i in range(len(s) - n + 1)
-            if re.search(r"[一-鿿]", s[i:i + n]) and not _PUNCT_ONLY.match(s[i:i + n])}
+            if re.search(r"[一-鿿]", s[i:i + n]) and not _PUNCT_ONLY.match(s[i:i + n])
+            # 说话人标签跨越引号边界（如 “。”沈砚说。季棠）不是可读复读，
+            # 真正的台词内容仍会由完全落在引号内部的 n-gram 参与比对。
+            and not any(q in s[i:i + n] for q in '“”"')}
 
 
 def _is_allowed(phrase: str, allow: set[str] | None) -> bool:
@@ -158,6 +161,9 @@ def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
             new = new.replace(sent, rw, 1)
             done += 1
     after = len(find_cross_chapter_repetitions(new, prior_texts, n=n, allow=allow))
+    # 与章内精修同一质量门：未净减少时整体回退，不能把只改了表面措辞的正文写回。
+    if done == 0 or after >= before:
+        return {"prose": text, "rewritten": 0, "before": before, "after": before}
     return {"prose": new, "rewritten": done, "before": before, "after": after}
 
 
@@ -234,6 +240,17 @@ def _ai_tic_rewrite_sentences(text: str, allow: set[str] | None = None) -> list[
         if not bad and hit.get("kind") == "em_dash":
             bad = "——"
         if not bad:
+            continue
+        # hard_sep_shi（“不是……。是……”）的命中横跨两个句界，不能从逐句列表里
+        # 找到完整 bad。把紧随命中的末句标点一并作为一个可替换单元，既保留两句关系，
+        # 也满足 _replace_whole_sentence 的句界护栏。
+        if hit.get("kind") == "not_a_but_b" and "。" in bad:
+            for m in re.finditer(re.escape(bad), text or ""):
+                start = max((text or "").rfind(mark, 0, m.start()) for mark in "。！？…\n") + 1
+                end = m.end()
+                if end < len(text) and text[end] in "。！？…":
+                    end += 1
+                marked.setdefault(text[start:end].strip(), bad)
             continue
         for s in sents:
             if bad in s:

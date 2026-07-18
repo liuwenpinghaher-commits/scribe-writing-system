@@ -114,3 +114,26 @@ class TestStreamWithRetry:
 
         with pytest.raises(httpx.RemoteProtocolError):
             list(_stream_with_retry(factory, max_retries=3))
+
+
+class TestHermesCompleteRetryOverride:
+    """章内精修可以把单句调用限制为一次，避免把超时放大成整章阻塞。"""
+
+    def test_override_limits_transient_failure_to_one_attempt(self, monkeypatch):
+        from scribe3 import llm
+
+        calls = []
+
+        def fail_once(*_args, **_kwargs):
+            calls.append(1)
+            raise httpx.ReadTimeout("simulated timeout")
+
+        monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+        monkeypatch.setattr(llm, "_api_key", lambda: "test-key")
+        monkeypatch.setattr(llm, "max_retries", lambda: 3)
+        monkeypatch.setattr(llm.httpx, "post", fail_once)
+
+        with pytest.raises(httpx.ReadTimeout):
+            llm.hermes_complete("只试一次", model="test-model", retries_override=1)
+
+        assert len(calls) == 1
