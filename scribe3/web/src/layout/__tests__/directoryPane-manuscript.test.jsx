@@ -72,7 +72,6 @@ describe('DirectoryPane 手稿目录', () => {
     expect(screen.queryByTestId('manuscript-current-card')).toBeNull()
     expect(screen.queryByTestId('manuscript-book-tools')).toBeNull()
     expect(screen.queryByText('书级')).toBeNull()
-    expect(screen.queryByRole('button', { name: '新建章' })).toBeNull()
     expect(screen.queryByRole('button', { name: '全书大纲' })).toBeNull()
     expect(screen.queryByRole('button', { name: '北极星' })).toBeNull()
     expect(screen.getByText('卷章')).toBeTruthy()
@@ -80,6 +79,30 @@ describe('DirectoryPane 手稿目录', () => {
     expect(screen.getByText('第一卷').closest('button')).toBeTruthy()
     expect(screen.getByRole('button', { name: /第 2 章/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /场景 1 炉灰/ })).toBeTruthy()
+  })
+
+  it('空手稿提供新建第一章和新建卷入口', () => {
+    const onCreateChapter = vi.fn()
+    const onAddVolume = vi.fn()
+    const emptyEntry = {
+      ...entry,
+      source: { ...manuscript, children: [] },
+    }
+
+    render(
+      <DirectoryPane
+        entry={emptyEntry}
+        onSelectItem={() => {}}
+        onCreateChapter={onCreateChapter}
+        onAddVolume={onAddVolume}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '新建未分卷章节' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建卷' }))
+
+    expect(onCreateChapter).toHaveBeenCalledWith(null)
+    expect(onAddVolume).toHaveBeenCalledTimes(1)
   })
 
   it('点击章只传出章节节点,并保留卷章列表', () => {

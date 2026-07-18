@@ -131,7 +131,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
       const vols = tree?.manuscript?.children || []
       const maxOrder = vols.reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
       await api.addVolume(title.trim(), maxOrder + 1)
-      reload()
+      await reload()
     } catch (e) { console.error(e) }
     finally { addVolInflight.current = false }
   }

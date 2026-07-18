@@ -28,7 +28,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ title: '', intro: '', color: '' })
+  const [form, setForm] = useState({ title: '', intro: '', color: '', sort_order: 0 })
 
   const reload = () => {
     setLoading(true)
@@ -40,11 +40,12 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
           .find((v) => String(v.id) === String(vid)) || null
         setOutline(nextOutline)
         setForm(vid == null
-          ? { title: '', intro: '', color: '' }
+          ? { title: '', intro: '', color: '', sort_order: 0 }
           : {
               title: nextVolume?.title || node?.label || '未命名卷',
               intro: nextVolume?.intro || '',
               color: nextVolume?.color || '',
+              sort_order: nextVolume?.sort_order ?? 0,
             })
         setErr('')
       })
@@ -79,7 +80,12 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     const title = form.title.trim() || volume?.title || node?.label || '未命名卷'
     setSaving(true)
     try {
-      await api.patchVolume(vid, { title, intro: form.intro, color: form.color || null })
+      await api.patchVolume(vid, {
+        title,
+        intro: form.intro,
+        color: form.color || null,
+        sort_order: Math.max(0, Number(form.sort_order) || 0),
+      })
       showToast('卷信息已保存', { tone: 'ok' })
       onChanged?.()
       await reload()
@@ -181,6 +187,18 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                 />
               </label>
               <label className="grid gap-1 text-f12 text-faint">
+                卷排序
+                <input
+                  aria-label="卷排序"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.sort_order}
+                  onChange={(e) => setForm((f) => ({ ...f, sort_order: e.target.value }))}
+                  className="h-9 rounded-md border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand"
+                />
+              </label>
+              <label className="grid gap-1 text-f12 text-faint">
                 新卷卷纲
                 <textarea
                   aria-label="新卷卷纲"
@@ -264,6 +282,18 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   value={form.color}
                   onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
                   placeholder="#2f7563"
+                  className="h-9 rounded-md border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand"
+                />
+              </label>
+              <label className="grid gap-1 text-f12 text-faint">
+                卷排序
+                <input
+                  aria-label="卷排序"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.sort_order}
+                  onChange={(e) => setForm((f) => ({ ...f, sort_order: e.target.value }))}
                   className="h-9 rounded-md border border-line bg-canvas px-3 text-f13 text-ink outline-none focus:border-brand"
                 />
               </label>

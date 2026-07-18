@@ -383,7 +383,8 @@ def apply_delta(store, delta: dict, seq: int,
                 "belief 写入失败(non-fatal),角色 %s 章 %s: %s", who, seq, _b_e)
     # 批D P1-5:从本章正文抽关键事件 → event 表(事件图随 ingest 自然长出,
     # 因果 QC/时间线事件泳道有真数据)。与 arc/motif 同范式:
-    #   · 参与者复用 _resolve_char 解析,解析不到的槽位跳过(不建幻觉角色,登记待确认);
+    #   · 参与者只解析既有角色；事件抽取的槽位常会误填器物/地点，未知值直接跳过，
+    #     绝不登记为待确认人物（真正的新角色由 learned/did 等人物语义字段登记）；
     #   · caused_by 指向本章更早事件序号 → causal_in 图边(causal_complete 据此判连贯);
     #   · 事件 id 用 ev:i{seq}-{k} 确定式命名 + ingest_seq=seq → purge_ingest 幂等清理;
     #   · 逐条 non-fatal 兜底,单条写库失败不阻断其余事件与整个 ingest。
@@ -396,15 +397,17 @@ def apply_delta(store, delta: dict, seq: int,
         etype = (it.get("type") or "").strip()
         if not etype:
             continue   # 无类型标签的事件跳过(fail-safe)——不落库=幽灵,后续引用它不建边
-        # 参与者 name→role 解析:只认合法槽位,解析不到的角色不入 involves(登记待确认)
+        # 参与者 name→role 解析:只认合法槽位和已确认角色。这里不能调用
+        # _resolve_char——LLM 很容易把“半截鱼骨”“闸底刻字”等非人物填到 OBJ，
+        # 若登记 pending 会把物体送进“待确认人物”队列，污染角色库。
         participants: dict = {}
         raw_parts = it.get("participants")
         if isinstance(raw_parts, dict):
             for slot, who in raw_parts.items():
                 if slot not in ("SUBJ", "OBJ", "WITNESS") or not who:
                     continue
-                poid = _resolve_char(store, who, seq, f"event_{slot}")
-                if poid is not None:
+                poid = f"role:{who}"
+                if store.entity(poid) is not None:
                     participants[slot] = poid
         # caused_by → causal_in:只取指向本章更早事件的合法回指(防前指/自环/越界)
         causal_in: list = []

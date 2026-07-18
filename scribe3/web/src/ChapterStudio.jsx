@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, Archive, MoreHorizontal,
-  ScrollText, Eye, Compass, MessagesSquare,
+  ScrollText, Eye, Compass, MessagesSquare, Settings2,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout } from './WriteLayout'
@@ -15,6 +15,7 @@ import { Btn, Input } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { ChapterAuxPanel } from './ChapterAuxPanel'
+import { ChapterMetaPane } from './ChapterMetaPane'
 import { ErrorBoundary } from './ErrorBoundary'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
@@ -467,14 +468,24 @@ function DraftTab({ seq, work, meta, onAdopt }) {
     try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
   }
   // 落进后置 dirty,靠既有 flush(切章/存草稿)落库;同时清除待落。
+  const recordManualMaterialReference = (p) => {
+    if (!p?.materialId) return
+    api.addMaterialReference(p.materialId, {
+      chapter: seq,
+      dimension: 'manual_insert',
+      reason: '作者采纳素材插稿',
+    }).catch((e) => toast('素材溯源记录失败:' + (e?.message || ''), { tone: 'danger' }))
+  }
   const fillDraft = () => {
     if (!pending) return
     setText(pending.content); draftRef.current.dirty = true
+    recordManualMaterialReference(pending)
     clear(); setSelAnchor(null); toast('已填入草稿框')
   }
   const appendDraft = () => {
     if (!pending) return
     setText((prev) => (prev ? prev + '\n\n' : '') + pending.content); draftRef.current.dirty = true
+    recordManualMaterialReference(pending)
     clear(); setSelAnchor(null); toast('已追加到草稿')
   }
   // 替换选中段:仅置 dirty,不强制立即 saveDraft(草稿区放手写,不上保存节奏)。
@@ -484,6 +495,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
     setText(next)
     draftRef.current.text = next
     draftRef.current.dirty = true
+    recordManualMaterialReference(pending)
     clear(); setSelAnchor(null)
     toast('已替换选中段')
   }
@@ -638,6 +650,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   //   · 点任一阶段页签 → auxView 置 null,回到该阶段内容(phase state 全程保留);
   //   · 再点当前高亮的辅助入口 → toggle 关闭,回到离开时的阶段。
   const [auxView, setAuxView] = useState(null)
+  const [chapterMetaOpen, setChapterMetaOpen] = useState(false)
 
   // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
   // Task 7:演绎已是章内真阶段,删除派发 s3-open-capability 的 deduce 特例,直接就地切换。
@@ -759,7 +772,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
               const active = auxView === entry.key
               return (
                 <button key={entry.key} type="button" aria-pressed={active}
-                  onClick={() => setAuxView(active ? null : entry.key)}
+                  onClick={() => { setChapterMetaOpen(false); setAuxView(active ? null : entry.key) }}
                   title={active ? `${entry.label} · 再点一次回到写作阶段` : `${entry.label} · 在本栏展开章节辅助`}
                   className={`inline-flex items-center gap-1 h-7 rounded-md px-2 text-f12 cursor-pointer transition-colors ${
                     active ? 'bg-surface text-brand ring-1 ring-line' : 'text-faint hover:bg-surface hover:text-ink'
@@ -769,6 +782,9 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
               )
             })}
           </div>
+          <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
+          <Btn variant="ghost" size="sm" onClick={() => { setAuxView(null); setChapterMetaOpen(true) }}
+            title="编辑章节标题、标签和所属卷" aria-label="章节信息"><Settings2 size={14} />章节信息</Btn>
           <span className="w-px h-4 bg-line mx-0.5" aria-hidden="true" />
         </>
       )}
@@ -803,17 +819,28 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   // 辅助视图与阶段页签激活态互斥:auxView 开着时 activeTab 传 null——阶段页签整体去激活
   // (不显"假激活",当前位置由高亮的辅助入口表达);点任一阶段页签即关辅助视图回该阶段。
   const showAux = auxView != null && seq != null
+  const showChapterMeta = chapterMetaOpen && seq != null
   return (
     <ObjectFrame
       compact
       breadcrumb="手稿"
       title={meta?.title || `第 ${seq} 章`}
       tabs={PHASES.map((p) => ({ value: p.key, label: p.label }))}
-      activeTab={showAux ? null : phase}
-      onTab={(p) => { setAuxView(null); setPhaseP(p) }}
+      activeTab={showAux || showChapterMeta ? null : phase}
+      onTab={(p) => { setAuxView(null); setChapterMetaOpen(false); setPhaseP(p) }}
       actions={frameActions}
     >
-      {showAux ? (
+      {showChapterMeta ? (
+        <div className="h-full min-h-0 overflow-y-auto bg-canvas">
+          <ChapterMetaPane seq={seq} work={work}
+            onClose={() => setChapterMetaOpen(false)}
+            onSaved={(next) => {
+              setMeta((current) => ({ ...(current || {}), title: next.title }))
+              setRefresh((r) => r + 1)
+              setChapterMetaOpen(false)
+            }} />
+        </div>
+      ) : showAux ? (
         <div className="h-full min-h-0" data-testid="chapter-aux-view">
           {/* key 只含章号:切章重挂重拉(角色候选等);受控 tab 切换不重挂,不白重拉数据。
               崩溃只塌辅助视图,头部入口仍在,可切回阶段。 */}

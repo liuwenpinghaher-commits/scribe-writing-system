@@ -299,6 +299,7 @@ export function FourPaneShell({
                           seq={leftSeq}
                           onJumpChapter={onJumpChapter}
                           onCreateChapter={handleCreateChapter}
+                          onAddVolume={treeCbs?.onAddVolume}
                           onArchivedChanged={handleTreeChanged}
                         />
                       </ErrorBoundary>

@@ -196,7 +196,7 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
     if (!Number.isInteger(seq) || seq < 1) { toast('请输入有效章号(正整数)', { tone: 'danger' }); return }
     const content = (draft.body || '').trim()
     if (!content) { toast('素材正文为空,无可插入内容', { tone: 'danger' }); return }
-    setStageProposal({ phase: 'draft', seq, target: null, content, ts: Date.now() })
+    setStageProposal({ phase: 'draft', seq, target: null, content, materialId: row.id, ts: Date.now() })
     toast(`已发布到第 ${seq} 章草稿:打开该章「草稿」tab,用提示条填入/追加`)
   }
 

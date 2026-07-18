@@ -4,6 +4,8 @@ import { DirectoryPane } from '../DirectoryPane'
 import { CapabilityDirectory } from '../CapabilityDirectories'
 import { CapabilityGroupDetailPane } from '../CapabilityDetailPanes'
 
+const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }))
+
 // CapabilityDetailPanes 顶层 import DeduceStage(拖 TipTap 编辑器链);
 // 本文件只测 group 详情面板,掐断这条重依赖。
 vi.mock('../../DeduceStage', () => ({ DeduceStage: () => null }))
@@ -34,7 +36,7 @@ vi.mock('../../api', () => ({
   },
 }))
 vi.mock('../../ui/Toast', () => ({
-  useToast: () => vi.fn(),
+  useToast: () => toastSpy,
 }))
 
 function entry(capability, label) {
@@ -44,6 +46,7 @@ function entry(capability, label) {
 describe('DirectoryPane 能力二级目录', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    toastSpy.mockClear()
   })
 
   it.each([
@@ -139,6 +142,47 @@ describe('DirectoryPane 能力二级目录', () => {
       const { api } = await import('../../api')
       expect(api.acceptUnverified).toHaveBeenCalledWith('uv:1')
     })
+  })
+
+  it('接受待确认人物回放期间禁用该条操作，防止重复提交', async () => {
+    const { api } = await import('../../api')
+    let finishAccept
+    api.acceptUnverified.mockImplementationOnce(() => new Promise((resolve) => { finishAccept = resolve }))
+    const characterCat = {
+      id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色', children: [],
+    }
+    const codexEntry = {
+      id: 'entry:codex', type: 'entry_capability', capability: 'codex', label: '设定库',
+      source: { id: 'codex_root', type: 'codex_root', label: '设定库', children: [characterCat] },
+    }
+    render(<DirectoryPane entry={codexEntry} sel={{ node: characterCat }} onSelectItem={() => {}} />)
+
+    const accept = await screen.findByRole('button', { name: '接受为角色' })
+    fireEvent.click(accept)
+    fireEvent.click(accept)
+
+    expect(api.acceptUnverified).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '接受中' }).disabled).toBe(true)
+
+    finishAccept({ ok: true })
+    await waitFor(() => expect(screen.queryByText('神秘人')).toBeNull())
+  })
+
+  it('接受后明确告知章节关联正在后台回填', async () => {
+    const { api } = await import('../../api')
+    api.acceptUnverified.mockResolvedValueOnce({ ok: true, replay_queued: true })
+    const characterCat = {
+      id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色', children: [],
+    }
+    const codexEntry = {
+      id: 'entry:codex', type: 'entry_capability', capability: 'codex', label: '设定库',
+      source: { id: 'codex_root', type: 'codex_root', label: '设定库', children: [characterCat] },
+    }
+    render(<DirectoryPane entry={codexEntry} sel={{ node: characterCat }} onSelectItem={() => {}} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '接受为角色' }))
+
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith('已接受「神秘人」为角色，正在后台回填第1章关联'))
   })
 })
 

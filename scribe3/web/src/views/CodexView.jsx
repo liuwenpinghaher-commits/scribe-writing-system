@@ -205,7 +205,7 @@ function AbilitiesRow({ value, onSave, section }) {
 }
 
 // ═══ DynamicTimeline ═══
-function DynamicTimeline({ characterId }) {
+function DynamicTimeline({ characterId, onStateAdded }) {
   const [states, setStates] = useState(null)
   const [adding, setAdding] = useState(false)
   const [snapCh, setSnapCh] = useState('')
@@ -232,6 +232,7 @@ function DynamicTimeline({ characterId }) {
     setForm({ chapter: '', change_type: 'ability', summary: '', arc_phase: '', trigger_event: '', confidence: 'confirmed', affects_voice: false })
     resetSnapFields()
     reload()
+    onStateAdded?.()
   }
   const querySnapshot = async () => { if (!snapCh) return; const data = await api.get(`/char-state-at?character_id=${encodeURIComponent(characterId)}&chapter=${snapCh}`); setSnapshot(data) }
   // helper: update a row field in an array
@@ -735,7 +736,7 @@ function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) 
 const REQUIRED_NEW = { facts: ['entity', 'attribute', 'value', 'valid_from'], promises: ['text'] }
 
 // ═══ DetailView ═══
-export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
+export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCharStateAdded }) {
   // uid:同类 checkbox/select 的 DOM id 前缀。旧硬编码 id(backstory_secret_cb/sf_*)在
   // 新建+详情两个 DetailView 并存时会重复,htmlFor 会错绑到第一个。
   const uid = useId()
@@ -785,7 +786,7 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete }) {
           <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} immediate={isNew} />
           <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} immediate={isNew} />
         </div>
-        {!isNew && <DynamicTimeline characterId={row.id} />}
+        {!isNew && <DynamicTimeline characterId={row.id} onStateAdded={onCharStateAdded} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
         <div className="mt-4 pt-3 border-t border-line"><button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150"><Trash2 size={13}/>删除角色</button></div>
       </div>

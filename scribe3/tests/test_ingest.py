@@ -130,7 +130,12 @@ def test_apply_delta_event_missing_goal_flags_violation(store):
 
 
 def test_apply_delta_event_unresolved_participant_skipped(store):
-    """不建幻觉角色:参与者解析不到则跳过该槽位(登记待确认),事件本体仍落库。"""
+    """事件参与者只连接已确认角色，未知值不得污染角色确认队列。
+
+    事件抽取常会把器物、地点或自然现象错填进 OBJ/WITNESS；它们不应以
+    ``event_OBJ`` 的来源进入“待确认人物”。真正的新角色仍由 learned/did 等
+    人物语义字段登记，事件本身则可在没有参与者边时正常落库。
+    """
     delta = {"learned": [], "did": [],
              "events": [{"type": "神秘事件", "participants": {"SUBJ": "查无此人"},
                          "goal": "?", "caused_by": []}]}
@@ -138,7 +143,7 @@ def test_apply_delta_event_unresolved_participant_skipped(store):
     evs = store.events_at(4)
     assert len(evs) == 1, "解析不到参与者不阻断事件落库"
     assert evs[0].participants == {}, "未解析角色不进 involves 图边"
-    assert any(u["name"] == "查无此人" for u in store.list_unverified()), "登记为待确认"
+    assert not store.list_unverified(), "事件中的未知值不得登记为待确认角色"
 
 
 def test_apply_delta_events_idempotent(store):

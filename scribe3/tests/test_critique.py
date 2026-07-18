@@ -383,6 +383,7 @@ def test_parse_voice_shift():
 def test_extract_prompt_has_events():
     p = build_knowledge_extract_prompt("正文")
     assert "events" in p
+    assert "具体人物姓名" in p
 
 
 def test_parse_events():

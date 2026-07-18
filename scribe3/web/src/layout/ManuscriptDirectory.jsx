@@ -228,7 +228,7 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
   )
 }
 
-export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateChapter, onArchivedChanged }) {
+export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateChapter, onAddVolume, onArchivedChanged }) {
   const root = entry?.source || entry
   const rows = collectRows(root)
   const currentSeq = currentSeqOf(sel, seq)
@@ -290,6 +290,26 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
             </button>
           )
         })}
+      </div>
+      <div className="shrink-0 border-t border-line/60 px-2 py-2" data-testid="manuscript-create-actions">
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            aria-label="新建未分卷章节"
+            onClick={() => onCreateChapter?.(null)}
+            className="h-8 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
+          >
+            + 章节
+          </button>
+          <button
+            type="button"
+            aria-label="新建卷"
+            onClick={() => onAddVolume?.()}
+            className="h-8 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
+          >
+            + 卷
+          </button>
+        </div>
       </div>
       <ArchiveBox onSelectItem={onSelectItem} onArchivedChanged={onArchivedChanged} />
     </div>

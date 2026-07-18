@@ -211,6 +211,26 @@ def test_chat_write_post_persists_user_and_assistant(store, monkeypatch):
     assert "开头压着写" in msgs[1]["text"]
 
 
+def test_chat_write_post_disables_mcp_tools_for_prose_generation(store, monkeypatch):
+    """真正动稿已有完整上下文，不应挂 MCP 让模型输出未执行的工具调用文本。"""
+    captured = {}
+
+    def fake_events(message, instructions, with_tools=True):
+        captured["with_tools"] = with_tools
+        yield {"type": "response.output_text.delta",
+               "delta": "⟦PROPOSAL scope=chapter⟧雨落在闸板上。⟦/PROPOSAL⟧"}
+        yield {"type": "response.completed", "response": {"id": "resp_prose"}}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = _client(store).post("/chat/write", json={
+        "msg": "直接写本章完整正文", "chapter": 2, "phase": "final",
+    })
+
+    assert r.status_code == 200
+    assert captured["with_tools"] is False
+    assert '"proposal"' in r.text
+
+
 def test_chat_write_post_persists_hermes_trace(store, monkeypatch):
     def fake_events(message, instructions, with_tools=True):
         yield {"type": "response.output_item.added",

@@ -19,6 +19,15 @@ function runContextBind(snapshot) {
   return { context_session_id: snapshot.session_id, context_revision: snapshot.revision ?? null }
 }
 
+function chatWriteContextBind(snapshot) {
+  if (!snapshot?.session_id) return null
+  return {
+    context_session_id: snapshot.session_id,
+    context_revision: snapshot.revision ?? null,
+    context_hash: snapshot.context_hash ?? null,
+  }
+}
+
 // Task 13:焦点对象 → 展示名(与 ChiefDock 同口径);run 卡片"发起时/当前焦点"用。
 function focusLabel(f) {
   if (!f || typeof f !== 'object') return '—'
@@ -298,6 +307,9 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
     // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
     ctrlRef.current = api.chatWrite(finalMsg, {
       chapter, focalizer, images, phase,
+      // 与审批型 Run 同样绑定发起时快照；ContextSnapshot 门开启时，普通动稿
+      // 不能因缺少 session/revision 被后端 400 拒绝。
+      context: chatWriteContextBind(snapshot),
       ...streamHandlers,
     })
   }

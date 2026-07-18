@@ -35,3 +35,20 @@ def test_material_refs_by_chapter_enriches_material_rows(store):
     assert refs[0]["material_id"] == mid
     assert refs[0]["title"] == "借命仪式资料"
     assert refs[0]["kind"] == "research"
+
+
+def test_author_can_record_manual_material_reference_after_accepting_insert(store):
+    mid = store.add_material("盐港勘察", "盐层与潮闸", "research")
+    c = _client(store)
+
+    created = c.post(f"/materials/{mid}/refs", json={
+        "chapter": 3,
+        "dimension": "manual_insert",
+        "reason": "作者采纳素材插稿",
+    })
+
+    assert created.status_code == 200
+    refs = c.get("/materials/refs-by-chapter", params={"chapter": 3}).json()
+    assert [(r["material_id"], r["via"], r["dimension"]) for r in refs] == [
+        (mid, "manual_insert", "manual_insert")
+    ]

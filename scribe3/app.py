@@ -1408,7 +1408,20 @@ def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
 
 @app.post("/ai/runs/{run_id}/stop")
 def ai_run_stop(run_id: str, work: str = "main"):
-    result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
+    # 前端可能在 run.completed 已到达、组件随后卸载的极窄窗口再发 stop。
+    # Hermes 此时已回收该 run 并返回 404；本地审计链已有终态时，停止应幂等成功，
+    # 不能把正常清理路径放大为 Scribe 500。
+    trace = _store_for(work).get_ai_run_trace(run_id) or {}
+    try:
+        result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
+    except httpx.HTTPStatusError as exc:
+        status = trace.get("status")
+        response_status = exc.response.status_code if exc.response is not None else None
+        if response_status == 404 and status in {"completed", "stopped", "failed", "cancelled", "canceled"}:
+            return {"run_id": run_id, "status": status, "already_finished": True}
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        _record_ai_run_trace(work, run_id, status="stop_failed", error=detail)
+        raise HTTPException(status_code=502, detail=f"Hermes stop failed: {detail}") from exc
     _record_ai_run_trace(work, run_id, status=result.get("status") or "stopped", response=result)
     return result
 
@@ -3344,6 +3357,22 @@ def material_refs_by_chapter_ep(chapter: int, work: str = "main"):
     return out
 
 
+class MaterialReferenceIn(BaseModel):
+    chapter: int = Field(ge=1)
+    dimension: str | None = None
+    reason: str | None = None
+
+
+@app.post("/materials/{mid}/refs")
+def add_material_reference_ep(mid: str, req: MaterialReferenceIn, work: str = "main"):
+    """作者采纳手动插入的素材后，显式写入双向溯源。"""
+    st = _store_for(work)
+    if st.get_material(mid) is None:
+        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
+    st.add_material_reference(mid, req.chapter, req.dimension, req.reason, via="manual_insert")
+    return {"ok": True}
+
+
 @app.get("/materials/{mid}/refs")
 def material_refs_ep(mid: str, work: str = "main"):
     """正向溯源:这条素材用在了哪些章。"""
@@ -4681,12 +4710,16 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
+    # 动稿所需的章纲、设定与限知上下文已在本端完整组装；继续挂 MCP 会让不支持
+    # Responses 工具事件的运行时把模型的 <function_calls> 文本原样流给作者。
+    # 联查仍走主编 agentic 端点；这里仅让非动稿讨论保留只读工具。
+    _write_intent = _is_write_intent(msg)
+    _wt = _work_has_tools(work) and not _write_intent
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=[], short_mode=short_mode, with_tools=_wt, work=work)
     return StreamingResponse(
-        _stream_write(msg, instructions, expect_proposal=_is_write_intent(msg),
+        _stream_write(msg, instructions, expect_proposal=_write_intent,
                       with_tools=_wt),
         media_type="text/event-stream",
     )
@@ -5381,7 +5414,10 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     _resolve_thread_or_raise(work, req.thread_id)
     if req.thread_id:
         background.add_task(_maybe_summarize_thread, work, req.thread_id)   # P0b 增量摘要
-    _wt = _work_has_tools(work)   # H-01:工具已 work-scoped,组装链提示必须同频钉 work
+    # 与 GET /chat/write 同一纪律：真正动稿使用已组装上下文直接生成，避免 MCP
+    # 不被运行时执行时把原始 <function_calls> 泄漏到作者可见对话。
+    _write_intent = _is_write_intent(req.msg)
+    _wt = _work_has_tools(work) and not _write_intent
     # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
     # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
     _envelope_trace: dict = {}
@@ -5439,7 +5475,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
                              turn_id=turn_id, text=user_text, chapter=req.chapter)
 
     return StreamingResponse(
-        _stream_write(message, instructions, expect_proposal=_is_write_intent(req.msg),
+        _stream_write(message, instructions, expect_proposal=_write_intent,
                       with_tools=_wt,
                       on_complete=_persist_assistant),
         media_type="text/event-stream",
@@ -5795,6 +5831,16 @@ class ChapterMetaReq(BaseModel):
     deductions: list | None = None          # [{character_id, character_name, prose}]
     purpose_text: str | None = None         # 北极星任务6:一句话章节目的
     deltas: list | None = None              # 北极星任务6:delta 清单(登记时校验+预演)
+
+    @field_validator("label")
+    @classmethod
+    def _validate_label(cls, value):
+        if value is None:
+            return value
+        allowed = {"draft", "revise", "done", "idea", "beat"}
+        if value not in allowed:
+            raise ValueError("label 必须是 draft、revise、done、idea 或 beat")
+        return value
 
 
 @app.patch("/chapters/{seq}")
@@ -7168,9 +7214,20 @@ def ingest_unverified(status: str = "pending", work: str = "main"):
 
 
 @app.post("/ingest-unverified/{uid}/accept")
-def accept_unverified_ep(uid: str, work: str = "main"):
-    from scribe3.llm import hermes_complete
-    return _store_for(work).accept_unverified(uid, complete_fn=hermes_complete)
+def accept_unverified_ep(uid: str, background: BackgroundTasks, work: str = "main"):
+    """接受待确认角色后立即返回；重放本章知识抽取由既有后台队列完成。
+
+    角色建立与人工裁决是作者当前操作，必须在本次请求内完成；`ingest_chapter` 会请求
+    LLM，若同步执行会让“接受”按钮长时间卡住，还会把网络/模型故障伪装成裁决失败。
+    先记下 pending 行对应章节，再无 LLM 地接受，最后复用 `_enqueue_ingest` 的同章去重
+    护栏安排异步回填。`replay_queued=False` 代表该条不存在、无章节或该章已有回填在途。
+    """
+    st = _store_for(work)
+    row = next((item for item in st.list_unverified("pending") if item.get("id") == uid), None)
+    result = st.accept_unverified(uid)
+    seq = (row or {}).get("seq")
+    replay_queued = _enqueue_ingest(background, work, int(seq)) if seq is not None else False
+    return {**result, "replay_queued": replay_queued}
 
 
 @app.post("/ingest-unverified/{uid}/ignore")

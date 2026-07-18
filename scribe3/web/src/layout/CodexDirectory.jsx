@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, MoreHorizontal, Plus, Search, X } from 'lucide-react'
+import { Check, Loader2, MoreHorizontal, Plus, Search, X } from 'lucide-react'
 import { api } from '../api'
 import { useToast } from '../ui/Toast'
 
@@ -107,6 +107,7 @@ function ItemRow({ node, selected, tone, onSelect }) {
 
 function PendingCharacterRefs() {
   const [items, setItems] = useState(null)
+  const [acceptingIds, setAcceptingIds] = useState(() => new Set())
   const toast = useToast()
 
   useEffect(() => {
@@ -119,12 +120,22 @@ function PendingCharacterRefs() {
 
   const remove = (id) => setItems((prev) => (prev || []).filter((item) => item.id !== id))
   const accept = async (item) => {
+    if (acceptingIds.has(item.id)) return
+    setAcceptingIds((prev) => new Set(prev).add(item.id))
     try {
-      await api.acceptUnverified(item.id)
+      const result = await api.acceptUnverified(item.id)
       remove(item.id)
-      toast?.(`已接受「${item.name}」为角色`)
+      toast?.(result?.replay_queued
+        ? `已接受「${item.name}」为角色，正在后台回填第${item.seq ?? '?'}章关联`
+        : `已接受「${item.name}」为角色`)
     } catch (e) {
       toast?.(e?.body?.detail || '接受失败', { tone: 'danger' })
+    } finally {
+      setAcceptingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(item.id)
+        return next
+      })
     }
   }
   const ignore = async (item) => {
@@ -162,10 +173,15 @@ function PendingCharacterRefs() {
           <div key={item.id} className="rounded-lg bg-warn/[.05] px-2 py-1.5">
             <div className="min-w-0 flex items-center gap-2">
               <RowText title={item.name} sub={`第${item.seq ?? '?'}章 / ${item.role || '待确认'}`} />
-              <button type="button" aria-label="接受为角色" onClick={() => accept(item)}
-                className="shrink-0 h-7 w-7 grid place-items-center rounded-md text-brand hover:bg-brand/10 cursor-pointer">
-                <Check size={14} />
+              {(() => {
+                const accepting = acceptingIds.has(item.id)
+                return (
+              <button type="button" aria-label={accepting ? '接受中' : '接受为角色'} onClick={() => accept(item)} disabled={accepting}
+                className="shrink-0 h-7 w-7 grid place-items-center rounded-md text-brand hover:bg-brand/10 disabled:cursor-wait disabled:opacity-60 cursor-pointer">
+                {accepting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
               </button>
+                )
+              })()}
               <button type="button" aria-label="忽略" onClick={() => ignore(item)}
                 className="shrink-0 h-7 w-7 grid place-items-center rounded-md text-faint hover:bg-soft hover:text-ink cursor-pointer">
                 <X size={14} />

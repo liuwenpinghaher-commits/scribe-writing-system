@@ -300,6 +300,7 @@ export const api = {
   materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
   materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
   materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
+  addMaterialReference: (mid, body) => post('/materials/' + enc(mid) + '/refs', body),
   materialGraph: (opts = {}) => {
     const qs = []
     if (opts.focus != null && opts.focus !== '') qs.push('focus=' + enc(opts.focus))

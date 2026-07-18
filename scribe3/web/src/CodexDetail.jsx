@@ -293,7 +293,7 @@ const hasVoiceVal = (v) => Array.isArray(v) ? v.length > 0 : (v != null && Strin
 
 // characterId=row.id(带前缀 role:xxx,fold 用它,后端 _split 依赖冒号);
 // characterName=row.name(裸名,主书历史 flag 的 character 存的是裸名,过滤兼容两种约定)。
-function CharVoice({ characterId, characterName }) {
+function CharVoice({ characterId, characterName, refreshKey = 0 }) {
   const [flags, setFlags] = useState(null)   // null=加载中
   const [profile, setProfile] = useState(null)   // fold 后展示;无 GET 端点故初次为 null
   const [folding, setFolding] = useState(false)
@@ -308,7 +308,7 @@ function CharVoice({ characterId, characterName }) {
   const loadFlags = () => api.voiceFlags()
     .then((all) => setFlags((Array.isArray(all) ? all : []).filter(mine)))
     .catch(() => setFlags([]))
-  useEffect(() => { setFlags(null); setProfile(null); loadFlags() }, [characterId])
+  useEffect(() => { setFlags(null); setProfile(null); loadFlags() }, [characterId, refreshKey])
 
   const resolveOne = async (fid) => {
     setResolvingId(fid)
@@ -786,6 +786,7 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
   // 保存状态机(saving/saved/error):失焦保存此前只有失败 toast,成功/进行中无反馈
   const [saveState, setSaveState] = useState('idle')
   const [saveErr, setSaveErr] = useState('')
+  const [voiceRefresh, setVoiceRefresh] = useState(0)
   const lastPayloadRef = useRef(null)
   const detailType = TYPE_MAP[node?.type]
 
@@ -883,6 +884,7 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
           onBack={null}
           onUpdate={doPersist}
           onDelete={openDelete}
+          onCharStateAdded={() => setVoiceRefresh((n) => n + 1)}
         />
         {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
         {detailType === 'promises' && row?.id && (
@@ -899,7 +901,7 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
         {/* 角色专属:弧光锚编辑 + 里程碑 + 信奉度曲线(独立 PATCH /char-anchors,不碰角色档案回写) */}
         {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} />}
         {/* 角色专属:声音演变后半环(P1-11)——voice flags 列表 + 一键折叠 + 折叠后声线指纹(独立 /voice-flags/*,不碰角色档案) */}
-        {detailType === 'chars' && row?.id && <CharVoice characterId={row.id} characterName={row.name} />}
+        {detailType === 'chars' && row?.id && <CharVoice characterId={row.id} characterName={row.name} refreshKey={voiceRefresh} />}
       </div>
       <ConfirmDialog
         open={delOpen}

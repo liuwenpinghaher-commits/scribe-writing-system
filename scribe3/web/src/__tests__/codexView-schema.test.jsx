@@ -22,6 +22,8 @@ const apiMock = vi.hoisted(() => ({
   entityRelations: vi.fn(),
   addEntityRelation: vi.fn(),
   delEntityRelation: vi.fn(),
+  characterRelations: vi.fn(),
+  entities: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -152,6 +154,33 @@ describe('CodexView DetailView(factions) 元数据驱动渲染', () => {
     expect(screen.getByText('意识形态')).toBeTruthy()
     // 新字段(起源等)不在旧 fieldMap 里,自然不出现
     expect(screen.queryByText('起源')).toBeNull()
+  })
+})
+
+describe('角色质变与详情外层联动', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.get.mockImplementation((url) =>
+      url.startsWith('/char-states?') ? Promise.resolve([]) : Promise.resolve([]))
+    apiMock.post.mockResolvedValue({ ok: true })
+    apiMock.characterRelations.mockResolvedValue([])
+    apiMock.entities.mockResolvedValue([])
+  })
+
+  it('保存角色质变后通知外层刷新声音演变区', async () => {
+    const onCharStateAdded = vi.fn()
+    render(<DetailView type="chars" row={{ id: 'role:季棠', name: '季棠' }} isNew={false}
+      onUpdate={vi.fn()} onDelete={vi.fn()} onCharStateAdded={onCharStateAdded} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '+ 记录质变' }))
+    fireEvent.change(screen.getByPlaceholderText('第几章'), { target: { value: '4' } })
+    fireEvent.change(screen.getByPlaceholderText('发生了什么变化...'), { target: { value: '季棠公开盐纹辨读方法。' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/char-states', expect.objectContaining({
+      character_id: 'role:季棠', chapter: 4, summary: '季棠公开盐纹辨读方法。',
+    })))
+    expect(onCharStateAdded).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -783,6 +783,36 @@ def test_ingest_unverified_accept_creates_character(store):
     assert not any(p["name"] == "无名客" for p in c.get("/ingest-unverified").json())
 
 
+def test_ingest_unverified_accept_queues_replay_without_blocking_request(store, monkeypatch):
+    """接受角色先立即落裁决，章回填交给既有后台队列，不能把 LLM 留在 HTTP 请求内。"""
+    import scribe3.app as A
+
+    c = _client(store)
+    store.add_unverified_ref("后台回填者", 6, "learned_who")
+    uid = next(p["id"] for p in c.get("/ingest-unverified").json() if p["name"] == "后台回填者")
+    seen_complete_fns = []
+    original_accept = store.accept_unverified
+
+    def capture_accept(uid, complete_fn=None):
+        seen_complete_fns.append(complete_fn)
+        return original_accept(uid, complete_fn=complete_fn)
+
+    queued = []
+    monkeypatch.setattr(store, "accept_unverified", capture_accept)
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: queued.append((work, seq)))
+    try:
+        r = c.post(f"/ingest-unverified/{uid}/accept")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert seen_complete_fns == [None], "同步 accept 不得直接触发 LLM 回填"
+        assert body["replayed"] is False
+        assert body["replay_queued"] is True
+        assert queued == [("main", 6)]
+    finally:
+        # 测试中的 fake _bg_ingest 不会像真实任务一样清理在途标记。
+        A._pending_ingest.discard(("main", 6))
+
+
 def test_ingest_unverified_accept_idempotent(store):
     """同一行接受两次:第二次 created=False,角色只建一次。"""
     c = _client(store)
@@ -2504,6 +2534,34 @@ def test_chapters_reorder_changes_sort_order_not_seq(store):
         assert ch.get("seq") == s, f"chapter seq={s} 应仍存在"
 
 
+def test_outline_orders_chapters_by_volume_then_chapter_order(store):
+    """全书大纲不得把不同卷的同序章节交错在一起。"""
+    for seq in (1, 2, 3):
+        store.save_chapter(seq, f"第{seq}章", title=f"第{seq}章")
+    first = store.add_volume("第一卷", sort_order=1)
+    second = store.add_volume("第二卷", sort_order=2)
+    store.reorder_chapters(first, [1, 3])
+    store.reorder_chapters(second, [2])
+
+    seqs = [row["seq"] for row in _client(store).get("/outline").json()["chapters"]]
+
+    assert seqs == [1, 3, 2]
+
+
+def test_outline_keeps_story_sequence_when_chapters_are_created_per_volume(store):
+    """从各卷交替创建章节后，全书大纲仍应按故事章序显示。"""
+    c = _client(store)
+    first = c.post("/volumes", json={"title": "第一卷", "sort_order": 1}).json()["id"]
+    second = c.post("/volumes", json={"title": "第二卷", "sort_order": 2}).json()["id"]
+    third = c.post("/volumes", json={"title": "第三卷", "sort_order": 3}).json()["id"]
+    for volume in [first, first, first, first, second, second, second, third, third, third]:
+        assert c.post("/chapters", json={"volume": volume}).status_code == 200
+
+    seqs = [row["seq"] for row in c.get("/outline").json()["chapters"]]
+
+    assert seqs == list(range(1, 11))
+
+
 def test_patch_chapter_synopsis(store):
     """PATCH /chapters/{seq} 改梗概,不碰正文。"""
     store.save_chapter(5, "原始正文", title="五")
@@ -2520,6 +2578,16 @@ def test_patch_chapter_synopsis(store):
     outline = c.get("/outline").json()
     ch5 = next(ch for ch in outline["chapters"] if ch["seq"] == 5)
     assert ch5["synopsis"] == "五章梗概"
+
+
+def test_patch_chapter_rejects_unknown_label_as_422(store):
+    """章节 label 是受控工作流状态；非法值必须是输入错误，不能让 Surreal 异常变成 500。"""
+    store.save_chapter(6, "原始正文", title="六")
+
+    r = _client(store).patch("/chapters/6", json={"label": "开局·伏笔"})
+
+    assert r.status_code == 422
+    assert "label" in r.text
 
 
 def test_patch_chapter_not_found(store):
@@ -3226,6 +3294,19 @@ def test_patch_chapter_clear_volume(store):
     # volume 应清空(None 或不含 volume 键)
     vol_val = ch_after.get("volume") if ch_after else "NOKEY"
     assert vol_val is None, f"volume 应已清空,实际: {vol_val}"
+
+
+def test_get_chapter_returns_editable_metadata(store):
+    """章节编辑面板重开时必须读回 title/label/volume，不能把未返回字段误写成 null。"""
+    store.save_chapter(7, "正文乙", "标题乙")
+    vid = store.add_volume(title="第二卷", sort_order=2)
+    store.update_chapter_meta(7, {"label": "draft", "volume": vid})
+
+    row = _client(store).get("/chapter", params={"seq": 7}).json()
+
+    assert row["title"] == "标题乙"
+    assert row["label"] == "draft"
+    assert row["volume"] == vid
 
 
 # --- R2.4: add_promise_clue 章号范围校验 ---

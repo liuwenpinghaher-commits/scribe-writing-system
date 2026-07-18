@@ -3186,7 +3186,8 @@ class SurrealStore:
         """单章身份 + 四阶段内容(synopsis/beats/draft/prose)。
         beats 存为 JSON 串,读时解析为 list;缺失降级为 []。"""
         rows = self._query(
-            "SELECT seq,title,focalizer,prose,synopsis,beats,draft,"
+            "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
+            "focalizer,prose,synopsis,beats,draft,"
             "scene_truth,involved_characters,deductions,purpose_text,deltas,"
             "archived,<string> archived_at AS archived_at,archive_reason,"
             "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见

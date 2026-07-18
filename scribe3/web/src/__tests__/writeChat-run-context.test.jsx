@@ -28,6 +28,7 @@ vi.mock('../context/ContextSnapshotContext', () => ({
     snapshot: {
       session_id: 'sess-ctx-1',
       revision: 8,
+      context_hash: 'a'.repeat(64),
       thread_id: 'ethread:book-a',
       focus: { type: 'chapter', id: 'chapter:9', label: '第 9 章' },
     },
@@ -53,6 +54,23 @@ describe('WriteChat 章内 run 绑发起时上下文(I-1a)', () => {
     expect(api.runWrite.mock.calls[0][1].context).toEqual({
       context_session_id: 'sess-ctx-1',
       context_revision: 8,
+    })
+  })
+
+  it('直接写正文即使提到人物推进也走写作流，而不是世界状态 Run', async () => {
+    render(<WriteChat chapter={9} focalizer="崔判" phase="final" />)
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, {
+      target: { value: '直接写本章完整正文，以具体动作、感官和对话推进人物关系。' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => expect(api.chatWrite).toHaveBeenCalled())
+    expect(api.runWrite).not.toHaveBeenCalled()
+    expect(api.chatWrite.mock.calls[0][1].context).toEqual({
+      context_session_id: 'sess-ctx-1',
+      context_revision: 8,
+      context_hash: 'a'.repeat(64),
     })
   })
 

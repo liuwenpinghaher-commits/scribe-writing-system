@@ -15,6 +15,7 @@
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -35,6 +36,15 @@ class _FakeRuntime:
 
     def stop_run(self, run_id, **kwargs):
         return {"run_id": run_id, "status": "stopped"}
+
+
+class _CompletedRunStopRuntime(_FakeRuntime):
+    """模拟 Hermes 已清理完成 run 后，stop 返回 404 的真实网关语义。"""
+
+    def stop_run(self, run_id, **kwargs):
+        request = httpx.Request("POST", f"http://hermes.test/runs/{run_id}/stop")
+        response = httpx.Response(404, request=request, text="run not found")
+        raise httpx.HTTPStatusError("run not found", request=request, response=response)
 
 
 def _navigate(store, session_id, expected_rev, *, chapter, focus_id=None):
@@ -223,3 +233,21 @@ def test_run_without_context_binding_keeps_legacy_approval(store, monkeypatch):
         "decision": "approve",
     })
     assert approval.status_code == 200
+
+
+def test_stop_completed_run_is_idempotent_when_hermes_has_pruned_it(ctx_env, monkeypatch):
+    """前端卸载晚于 run 完成时，stop 不能把 Hermes 404 误报成系统 500。"""
+    import scribe3.app as appmod
+
+    run_id = "run_completed_pruned"
+    ctx_env.store.upsert_ai_run_trace(run_id, status="completed")
+    monkeypatch.setattr(appmod, "_hermes_runs_runtime", lambda: _CompletedRunStopRuntime())
+
+    response = ctx_env.client.post(f"/ai/runs/{run_id}/stop?work={WORK}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": run_id,
+        "status": "completed",
+        "already_finished": True,
+    }
