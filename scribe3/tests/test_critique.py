@@ -1822,3 +1822,17 @@ class TestIntraPolishAiTics:
         targets = intra_repetition_sentences(text)
 
         assert any(t["sentence"] == "他忽然明白那并不是在喊名。是闸在等一个名字。" for t in targets)
+
+    def test_rewrite_intra_caps_targets_per_run_for_resumable_repairs(self):
+        from scribe3.critique import rewrite_intra_chapter_issues
+
+        text = "不是甲。是乙。不是丙。是丁。不是戊。是己。"
+        calls = []
+
+        def rewrite(_prompt, _system):
+            calls.append(1)
+            return "风声压过了屋檐。"
+
+        res = rewrite_intra_chapter_issues(text, rewrite, max_targets=1)
+        assert len(calls) == 1
+        assert res["rewritten"] == 1

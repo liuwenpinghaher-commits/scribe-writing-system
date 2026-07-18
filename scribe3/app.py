@@ -6419,7 +6419,9 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         return hermes_complete(prompt, system, timeout=min(float(default_timeout()), 30.0),
                                max_tokens=360, retries_override=1)
 
-    res = rewrite_intra_chapter_issues(quote_fixed, _polish_complete, allow=allow)
+    # 一次至多改六个目标，调用方可安全重复请求续跑；避免高问题密度章把同步端点拖成
+    # 数十分钟的串行任务。每批仍走净减少回滚门，绝不为赶进度写坏稿。
+    res = rewrite_intra_chapter_issues(quote_fixed, _polish_complete, allow=allow, max_targets=6)
     changed = bool(res["rewritten"] or quote_repairs)
     leak_guard = None
     if changed:

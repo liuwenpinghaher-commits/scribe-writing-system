@@ -354,7 +354,7 @@ def _replace_whole_sentence(text: str, sent: str, rw: str) -> str:
 
 
 def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None = None,
-                                 max_rounds: int = 2) -> dict:
+                                 max_rounds: int = 2, max_targets: int | None = None) -> dict:
     """章内治层(与 rewrite_cross_repetitions 对称·章内维度):定位本章内 repetition/
     duplicate_lines/排比/近似重复段 的问题句 → 逐句定向改写(保意保限知保声音)→ 按句界替换回原文。
 
@@ -380,10 +380,13 @@ def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None 
               "只输出改写后的这一句正文,不要引号、不要解释。")
     new = text
     done = 0
+    remaining_targets = max(1, int(max_targets)) if max_targets is not None else None
     for _ in range(max(1, max_rounds)):
         targets = intra_repetition_sentences(new, allow=allow)
         if not targets:
             break
+        if remaining_targets is not None:
+            targets = targets[:remaining_targets]
         changed = False
         for t in targets:
             sent = t["sentence"]
@@ -400,6 +403,10 @@ def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None 
                     new = replaced
                     done += 1
                     changed = True
+        if remaining_targets is not None:
+            remaining_targets -= len(targets)
+            if remaining_targets <= 0:
+                break
         if not changed:
             break
     after = _count(new)
