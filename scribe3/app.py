@@ -228,6 +228,11 @@ def _work_has_tools(work: str) -> bool:
     return True
 
 
+def _write_phase_allows_tools(phase: str) -> bool:
+    """正文定稿阶段只产出散文，不能把尚未执行的 MCP 调用混进提案。"""
+    return (phase or "").strip().lower() != "final"
+
+
 def _normalize_work(work: str | None) -> str:
     return (work or os.environ.get("SCRIBE3_WORK", "main")).strip() or "main"
 
@@ -4710,11 +4715,10 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    # 所有作品的写作与讨论都需挂 work 作用域 MCP：生成可按需联查设定、限知与伏笔，
-    # 而 _stream_write 会把工具事件结构化转发。禁用动稿工具会让“写作系统”退化成
-    # 只读提示词，且破坏多作品 work= 的工具隔离契约。
+    # 讨论/规划/草稿都保留 work 作用域 MCP；final 是纯正文生产边界，不能让模型把
+    # 尚未执行的工具调用混进提案。多书时仍由提示层强制每次联查显式带 work。
     _write_intent = _is_write_intent(msg)
-    _wt = _work_has_tools(work)
+    _wt = _work_has_tools(work) and _write_phase_allows_tools(phase)
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=[], short_mode=short_mode, with_tools=_wt, work=work)
@@ -5414,10 +5418,10 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     _resolve_thread_or_raise(work, req.thread_id)
     if req.thread_id:
         background.add_task(_maybe_summarize_thread, work, req.thread_id)   # P0b 增量摘要
-    # 与 GET /chat/write 同一纪律：所有作品均挂 work 作用域工具，不能因是动稿而
-    # 静默丢失设定/限知/伏笔联查能力。
+    # 与 GET /chat/write 同一纪律：非 final 阶段均挂 work 作用域工具；final 正文
+    # 已收到完整上下文，必须纯散文输出，不能夹带尚未执行的工具调用。
     _write_intent = _is_write_intent(req.msg)
-    _wt = _work_has_tools(work)
+    _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
     # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
     # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
     _envelope_trace: dict = {}
