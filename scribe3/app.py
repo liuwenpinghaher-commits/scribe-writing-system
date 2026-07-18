@@ -5588,15 +5588,16 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
         raise
 
     def _generate(attempt: int, constraints: str) -> str:
+        with_tools = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
             seed_words=[], short_mode=req.short_mode,
-            with_tools=_work_has_tools(work), work=work)
+            with_tools=with_tools, work=work)
         if constraints:
             instructions += "\n\n" + constraints
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
                           f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
-        text, proposals = _collect_write(msg, instructions, with_tools=_work_has_tools(work))
+        text, proposals = _collect_write(msg, instructions, with_tools=with_tools)
         # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
         # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通
         # pass,把既有整章正文静默覆盖掉。

@@ -28,14 +28,27 @@ def _fenced(prose: str) -> str:
 
 def _stub_rounds(*texts):
     """每次调用消费一个 text;记录每轮 instructions 供断言。"""
-    state = {"n": 0, "instructions": []}
+    state = {"n": 0, "instructions": [], "with_tools": []}
 
     def fn(message, instructions, with_tools=True):
         state["instructions"].append(instructions)
+        state["with_tools"].append(with_tools)
         t = texts[min(state["n"], len(texts) - 1)]
         state["n"] += 1
         yield {"type": "response.output_text.delta", "delta": t}
     return fn, state
+
+
+def test_loop_chapter_final_prose_disables_mcp_tools(store, monkeypatch):
+    """回炉的完整正文与普通 final 写作同样不得挂 MCP 工具。"""
+    fn, state = _stub_rounds(_fenced(_CLEAN))
+    monkeypatch.setattr(A, "_responses_events", fn)
+    _stub_ingest_llm(monkeypatch)
+
+    response = _client(store).post("/loop/chapter", json={"chapter": 1, "phase": "final"})
+
+    assert response.status_code == 200
+    assert state["with_tools"] == [False]
 
 
 @pytest.fixture(autouse=True)
