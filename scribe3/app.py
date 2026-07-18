@@ -6658,8 +6658,13 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         # 优先用测试注入的 _complete_fn,否则走真实 hermes_complete
         complete_fn = _complete_fn
         if complete_fn is None:
-            from scribe3.llm import hermes_complete
-            complete_fn = hermes_complete
+            from scribe3.llm import default_timeout, hermes_complete
+            # /post-check 是作者交互式只读体检，不应继承生成级超时/多轮重试；失败会
+            # 如实写入 degraded_stages，而不是长时间占住 UI 后再静默放行。
+            def complete_fn(prompt: str, system: str | None = None) -> str:
+                return hermes_complete(prompt, system,
+                                       timeout=min(float(default_timeout()), 30.0),
+                                       retries_override=1)
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
         # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,
         # 收尾清理批 Minor:消除手写字面量副本的漂移风险),再拼继承项,

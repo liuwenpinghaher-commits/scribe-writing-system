@@ -1467,6 +1467,25 @@ def test_post_check_returns_assembled_structure(store):
     assert isinstance(r["degraded"], bool)
 
 
+def test_post_check_real_discipline_call_is_bounded(store, monkeypatch):
+    """作者点击全量体检不能继承生成级 600 秒重试，需在可交互时间内降级返回。"""
+    import scribe3.llm as llm
+    seen = {}
+
+    def fake_complete(prompt, system=None, **kw):
+        seen.update(kw)
+        return '{"ok": true, "violations": [], "cut_after": ""}'
+
+    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(llm, "default_timeout", lambda: 600.0)
+    store.save_chapter(1, "一段志怪正文，无异常。", title="测试")
+    c = _client(store)
+    monkeypatch.setattr(A, "_complete_fn", None)
+    r = c.post("/post-check?seq=1", json={"prose": "一段志怪正文，无异常。"})
+    assert r.status_code == 200, r.text
+    assert seen["timeout"] == 30.0 and seen["retries_override"] == 1
+
+
 def test_post_check_discipline_mocked(store):
     """/post-check:LLM 回调返回违规时,discipline 字段含 violations 列表。"""
     def fake_complete(prompt, **kw):
