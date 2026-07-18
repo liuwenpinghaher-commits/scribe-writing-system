@@ -194,7 +194,18 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
       onDone: () => {
         setBusy(false); const v = acc.trim()
-        if (v) { persistFor(selected, seq, v); workRef.current = { selected, seq, text: v, dirty: false } }
+        if (v) {
+          setText(v)
+          // 场景真相可直接由作者使用；角色投射在 P1-020 事实门禁完成前仅作为待审稿，
+          // 绝不在流结束时静默写成正典，作者需主动编辑/失焦确认后才落库。
+          if (selected === 'truth') {
+            persistFor(selected, seq, v)
+            workRef.current = { selected, seq, text: v, dirty: false }
+          } else {
+            workRef.current = { selected, seq, text: v, dirty: true }
+            toast('投射已生成，含待核事实；请核对场景真相后失焦确认保存。', { tone: 'warn', duration: 6000 })
+          }
+        }
       },
       onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
     })
