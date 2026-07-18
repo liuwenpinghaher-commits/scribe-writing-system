@@ -1467,8 +1467,8 @@ def test_post_check_returns_assembled_structure(store):
     assert isinstance(r["degraded"], bool)
 
 
-def test_post_check_real_discipline_call_is_bounded(store, monkeypatch):
-    """作者点击全量体检不能继承生成级 600 秒重试，需在可交互时间内降级返回。"""
+def test_post_check_real_discipline_call_uses_full_chapter_budget(store, monkeypatch):
+    """完整章节纪律判需要足够预算，同时不能继承生成级 600 秒重试。"""
     import scribe3.llm as llm
     seen = {}
 
@@ -1483,7 +1483,7 @@ def test_post_check_real_discipline_call_is_bounded(store, monkeypatch):
     monkeypatch.setattr(A, "_complete_fn", None)
     r = c.post("/post-check?seq=1", json={"prose": "一段志怪正文，无异常。"})
     assert r.status_code == 200, r.text
-    assert (seen["timeout"] == 30.0 and seen["retries_override"] == 1
+    assert (seen["timeout"] == 180.0 and seen["retries_override"] == 1
             and seen["max_tokens"] == 480)
 
 

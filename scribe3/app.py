@@ -6659,11 +6659,12 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
         complete_fn = _complete_fn
         if complete_fn is None:
             from scribe3.llm import default_timeout, hermes_complete
-            # /post-check 是作者交互式只读体检，须限制单次尝试和输出预算；未设
-            # max_tokens 时真实模型会继续长篇生成，导致完整章节检查在超时前无结果。
+            # /post-check 是作者交互式只读体检，须限制单次尝试和输出预算；完整章节的
+            # 纪律判在官方模型实测约 49 秒，高负载章节可超过 90 秒；30/90 秒都会把
+            # 已连通的模型误判为降级。180 秒仍远低于生成级 600 秒，保留可控上界。
             def complete_fn(prompt: str, system: str | None = None) -> str:
                 return hermes_complete(prompt, system,
-                                       timeout=min(float(default_timeout()), 30.0),
+                                       timeout=min(float(default_timeout()), 180.0),
                                        max_tokens=480, retries_override=1)
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
         # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,
