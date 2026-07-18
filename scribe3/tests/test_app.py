@@ -1484,7 +1484,8 @@ def test_post_check_real_discipline_call_uses_full_chapter_budget(store, monkeyp
     r = c.post("/post-check?seq=1", json={"prose": "一段志怪正文，无异常。"})
     assert r.status_code == 200, r.text
     assert (seen["timeout"] == 180.0 and seen["retries_override"] == 1
-            and seen["max_tokens"] == 480)
+            and seen["max_tokens"] == 480 and seen["thinking"] == "disabled"
+            and seen["temperature"] == 0 and seen["official_api"] is True)
 
 
 def test_post_check_discipline_mocked(store):
@@ -1511,6 +1512,84 @@ def test_post_check_degraded_on_llm_failure(store):
     data = r.json()
     assert data["degraded"] is True
     assert "quality" in data and "total" in data["quality"]
+
+
+def test_semantic_repair_rejects_failed_gate_without_overwriting(store, monkeypatch):
+    """候选稿任一质量门失败时，语义修复不得改动原章。"""
+    import scribe3.llm as llm
+    original = "她不知道的是，桥下的水早已改了道。" * 5
+    store.save_chapter(1, original, title="测试")
+
+    def fake_complete(prompt, system=None, **_kw):
+        if "纪律判官" in prompt:
+            return '{"ok": false, "violations": ["god_view"], "cut_after": ""}'
+        return "乙" * 50
+
+    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    c = _client(store)
+    monkeypatch.setattr(A, "_complete_fn", None)
+    r = c.post("/semantic-repair?seq=1")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "rejected"
+    assert "length" in r.json()["gate"]["reasons"]
+    assert store.get_chapter(1)["prose"] == original
+
+
+def test_semantic_repair_saves_version_and_requeues_ingest(store, monkeypatch):
+    """候选稿通过全部门禁后，才允许覆盖正文、留专属版本并更新知识账本。"""
+    import scribe3.llm as llm
+    original = "她不知道的是，桥下的水早已改了道。" * 5
+    candidate = "乙" * 100
+    store.save_chapter(1, original, title="测试")
+    called = {}
+    repair_kwargs = {}
+
+    def fake_complete(prompt, system=None, **_kw):
+        if "纪律判官" in prompt:
+            return ('{"ok": true, "violations": [], "cut_after": ""}'
+                    if candidate in prompt
+                    else '{"ok": false, "violations": ["god_view"], "cut_after": ""}')
+        repair_kwargs.update(_kw)
+        return candidate
+
+    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
+    c = _client(store)
+    monkeypatch.setattr(A, "_complete_fn", None)
+    before = len(store.list_chapter_versions(1))
+    r = c.post("/semantic-repair?seq=1")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "repaired"
+    assert r.json()["ingesting"] is True
+    assert store.get_chapter(1)["prose"] == candidate
+    versions = store.list_chapter_versions(1)
+    assert len(versions) == before + 1
+    assert versions[0]["stage"] == "semantic_repair"
+    assert called.get("args") == ("main", 1)
+    assert repair_kwargs["official_api"] is True
+    assert repair_kwargs["thinking"] == "disabled"
+
+
+def test_semantic_repair_leaves_unconfirmed_llm_label_for_human_review(store, monkeypatch):
+    """无确定性共振的单次 LLM 标签只能做建议，不能触发整章自动覆写。"""
+    import scribe3.llm as llm
+    original = "灯芯爆了个花。他伸手拢住风。" * 8
+    store.save_chapter(1, original, title="测试")
+
+    def fake_complete(prompt, system=None, **_kw):
+        if "纪律判官" in prompt:
+            return '{"ok": false, "violations": ["god_view"], "cut_after": ""}'
+        raise AssertionError("未获证实的标签不应调用整章改写")
+
+    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    c = _client(store)
+    monkeypatch.setattr(A, "_complete_fn", None)
+    r = c.post("/semantic-repair?seq=1")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "noop"
+    assert r.json()["advisory_violations"] == ["god_view"]
+    assert store.get_chapter(1)["prose"] == original
 
 
 def test_post_check_short_mode_suppresses_emotion_telling(store):

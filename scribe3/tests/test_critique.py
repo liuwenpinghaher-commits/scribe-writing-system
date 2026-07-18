@@ -1889,3 +1889,26 @@ class TestIntraPolishAiTics:
         res = rewrite_intra_chapter_issues(text, rewrite, max_targets=1)
         assert len(calls) == 1
         assert res["rewritten"] == 1
+
+
+def test_semantic_repair_gate_rejects_each_failed_invariant():
+    from scribe3.critique import semantic_repair_gate
+
+    clean = {"repetition": [], "structural": [], "purple": [], "ai_tics": [], "oversaturation": []}
+    short = semantic_repair_gate("甲" * 100, "乙" * 84, clean, clean, [], [], {"violations": []})
+    worse_qc = semantic_repair_gate("甲" * 100, "乙" * 100, clean, {**clean, "purple": [1]}, [], [], {"violations": []})
+    leaked = semantic_repair_gate("甲" * 100, "乙" * 100, clean, clean, [], [{"fact_id": "x"}], {"violations": []})
+    bad_discipline = semantic_repair_gate("甲" * 100, "乙" * 100, clean, clean, [], [], {"violations": ["god_view"]})
+
+    assert short["reasons"] == ["length"]
+    assert worse_qc["reasons"] == ["quality"]
+    assert leaked["reasons"] == ["leaks"]
+    assert bad_discipline["reasons"] == ["discipline"]
+
+
+def test_discipline_prompt_limits_god_view_to_verifiable_omniscience():
+    """感官描写与焦点人物的当下推断不应被主观的“上帝腔”定义误伤。"""
+    from scribe3.critique import build_discipline_prompt
+    prompt = build_discipline_prompt("灯芯爆了个花。他伸手拢住风。")
+    assert "他人内心/秘密" in prompt
+    assert "感官描写、比喻、焦点人物的当下推断均不算" in prompt

@@ -1528,8 +1528,9 @@ def build_discipline_prompt(text: str, brief: str = "", known: dict | None = Non
         "② voice_collapse:声细如蚊/半截就断的 terse 角色崩成大段流畅独白、系统结算音、或与主角同温;\n"
         "③ exposition_dump:大段身世/前史/规则的集中倾泻(本该零星渗出);\n"
         "④ knowledge_leak:某角色说出或表现出知晓【其视角不可能知道】的他人私密信息;\n"
-        "⑤ god_view:评判性副词补语(如“关切得恰到好处”)、剧透点破潜台词(如“谁都看得出他在撒谎”)、"
-        "定性盖棺比喻——属上帝腔,标记之(这些无标志词的隐蔽层交你语义判断,不做正则)。\n"
+        "⑤ god_view:只有叙述者断言焦点人物无法观察到的他人内心/秘密、未来结果，或替读者盖棺定论"
+        "（如“谁都看得出他在撒谎”）才标记。感官描写、比喻、焦点人物的当下推断均不算 god_view；"
+        "没有可逐字指出的全知断言就判守纪。\n"
         "若违规,找出正文里【复发/穿帮开始的前一句】(从这句之后整段都该砍掉),逐字填入 cut_after。\n"
         '只输出一行 JSON:{"ok": true/false, "violations": ["double_climax"...], "cut_after": "复发前最后一句的原文逐字,守纪则空"}。'
         + kb + "\n\n【正文】\n" + text)
@@ -1579,6 +1580,26 @@ def discipline_truncate(text: str, brief: str, complete_fn, known: dict | None =
         return {"text": text, "violations": v["violations"], "extra": extra,
                 "changed": False, "cut_after": v["cut_after"]}
     return {"text": cut, "violations": v["violations"], "extra": extra, "changed": True}
+
+
+def semantic_repair_gate(original: str, candidate: str, original_qc: dict, candidate_qc: dict,
+                         original_leaks: list, candidate_leaks: list, discipline: dict) -> dict:
+    """语义修复落库门：任何质量退化均拒绝候选，原稿由调用方保留。"""
+    def total(flags: dict) -> int:
+        return sum(len(v) if isinstance(v, (list, tuple, set)) else int(v or 0)
+                   for v in (flags or {}).values())
+
+    reasons = []
+    if len(candidate or "") < len(original or "") * 0.85:
+        reasons.append("length")
+    if total(candidate_qc) > total(original_qc):
+        reasons.append("quality")
+    if len(candidate_leaks or []) > len(original_leaks or []):
+        reasons.append("leaks")
+    if discipline.get("degraded") or discipline.get("violations") or discipline.get("parse_failed"):
+        reasons.append("discipline")
+    return {"ok": not reasons, "reasons": reasons,
+            "original_chars": len(original or ""), "candidate_chars": len(candidate or "")}
 
 
 # ==== 声音演变折叠(fold_voice_flags:LLM 把开放 flag 折进 voice_profile)====

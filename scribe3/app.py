@@ -6583,6 +6583,72 @@ class PostCheckReq(BaseModel):
                               # emotion_telling 检出归零、psych_ratio/Gate C 不触发
 
 
+def _semantic_repair_violations(prose: str, quality: dict, leaks: list, discipline: dict) -> list[str]:
+    """仅让与确定性证据共振的纪律标签触发整章覆写。
+
+    LLM 单判是建议而非可逆性很低的写稿命令：这与 /post-check 的 S1 共振规则保持一致。
+    无确定性对应物的 double_climax/voice_collapse 保留给作者审阅，不能据此自动改写整章。
+    """
+    from scribe3.critique import find_god_view
+    raw = discipline.get("violations") or []
+    god_kinds = {h.get("kind") for h in find_god_view(prose)}
+    actionable: list[str] = []
+    for violation in raw:
+        if violation == "knowledge_leak" and leaks:
+            actionable.append(violation)
+        elif violation == "god_view" and god_kinds & {"god_spoiler", "explain_causality"}:
+            actionable.append(violation)
+        elif violation == "exposition_dump" and (quality.get("oversaturation") or 0) > 0:
+            actionable.append(violation)
+    return actionable
+
+
+@app.post("/semantic-repair")
+@_exclusive_chapter_repair
+def semantic_repair(seq: int, background: BackgroundTasks, work: str = "main"):
+    """完整候选稿的语义纪律修复；任一质量门失败均不落库。"""
+    from scribe3.critique import semantic_repair_gate
+    from scribe3.llm import hermes_complete
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
+    if not ch or not ch.get("prose"):
+        raise HTTPException(404, f"chapter {seq} not found or empty")
+    original = ch["prose"]
+    before = post_check(PostCheckReq(prose=original, focalizer=ch.get("focalizer") or "",
+                                     brief=ch.get("summary") or ch.get("title") or ""), seq, work)
+    raw_violations = (before.get("discipline") or {}).get("violations") or []
+    violations = _semantic_repair_violations(original, before.get("quality") or {},
+                                             before.get("leaks") or [], before.get("discipline") or {})
+    if not violations:
+        return {"status": "noop", "seq": seq, "discipline": before.get("discipline") or {},
+                "advisory_violations": raw_violations}
+    prompt = ("你是小说语义修复器。只修复下列纪律问题，保留全部事件顺序、人物关系、已知事实、"
+              "叙述视角与章节结尾；不得删减到原文85%以下，不得解释。\n"
+              f"违规类型:{'、'.join(violations)}\n\n【原文】\n{original}")
+    candidate = (hermes_complete(prompt, max_tokens=max(2048, min(8192, len(original) * 2)),
+                                 retries_override=1, thinking="disabled",
+                                 temperature=0,
+                                 official_api=True) or "").strip()
+    after = post_check(PostCheckReq(prose=candidate, focalizer=ch.get("focalizer") or "",
+                                    brief=ch.get("summary") or ch.get("title") or ""), seq, work)
+    after_actionable = _semantic_repair_violations(candidate, after.get("quality") or {},
+                                                    after.get("leaks") or [], after.get("discipline") or {})
+    gate = semantic_repair_gate(original, candidate, before.get("quality") or {}, after.get("quality") or {},
+                                before.get("leaks") or [], after.get("leaks") or [],
+                                {"violations": after_actionable,
+                                 "degraded": bool(after.get("degraded")),
+                                 "parse_failed": bool((after.get("discipline") or {}).get("parse_failed"))})
+    if not gate["ok"]:
+        return {"status": "rejected", "seq": seq, "gate": gate, "discipline": after.get("discipline") or {}}
+    st.save_chapter(seq, candidate, title=ch.get("title") or "", focalizer=ch.get("focalizer") or "")
+    st.add_chapter_version(seq, candidate, label="semantic repair", kind="final", stage="semantic_repair",
+                           stats=_prose_stats(candidate))
+    # 正文已变化，必须与手动存稿/去重改写保持同一账本更新语义；队列去重会避免双跑。
+    _enqueue_ingest(background, work, seq)
+    return {"status": "repaired", "seq": seq, "gate": gate,
+            "discipline": after.get("discipline") or {}, "ingesting": True}
+
+
 @app.post("/post-check")
 def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     """生成后全量体检:五类确定性 QC + 限知泄露 + LLM 语义纪律判(fail-open)。
@@ -6665,7 +6731,9 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
             def complete_fn(prompt: str, system: str | None = None) -> str:
                 return hermes_complete(prompt, system,
                                        timeout=min(float(default_timeout()), 180.0),
-                                       max_tokens=480, retries_override=1)
+                                       max_tokens=480, retries_override=1,
+                                       thinking="disabled", temperature=0,
+                                       official_api=True)
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
         # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,
         # 收尾清理批 Minor:消除手写字面量副本的漂移风险),再拼继承项,
