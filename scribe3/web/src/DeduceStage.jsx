@@ -6,6 +6,7 @@ import { useStageProposal, useChiefSlot, ProposalBar } from './ChiefSlotContext'
 import { useToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
+import { useContextSnapshot } from './context/ContextSnapshotContext'
 
 // Task 4:话术引用截断——chiefIntent 只是预填输入框,长演绎全文引用会塞爆(spec §4 要点4)。
 const QUOTE_MAX = 400
@@ -20,8 +21,11 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
   const { setChiefIntent } = useChiefSlot()
+  const { snapshot } = useContextSnapshot()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [roleToAdd, setRoleToAdd] = useState('')
+  const [addingRole, setAddingRole] = useState(false)
   const chars = meta?.chars || []
   const cur = selected === 'truth'
     ? { name: '场景真相', prose: meta?.scene_truth || '' }
@@ -148,16 +152,42 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     notifyChief()
   }
 
+  // 四栏版没有旧 DeduceTree 的角色树，故在实际演绎工作台保留同一条显式写入通道。
+  // 先读章再合并，避免另一个窗口/面板刚加入的角色被本地过期 meta 覆盖。
+  const addAndSelectRole = async () => {
+    if (!roleToAdd || addingRole) return
+    setAddingRole(true)
+    try {
+      const latest = await api.chapter(seq, work)
+      const involved = latest?.involved_characters || meta?.involved_characters || []
+      if (!involved.includes(roleToAdd)) {
+        await api.patchChapter(seq, { involved_characters: [...involved, roleToAdd] }, work)
+        onSaved?.()
+      }
+      setSelected(roleToAdd)
+      setRoleToAdd('')
+    } catch (e) {
+      toast(e?.body?.detail || '加入涉及角色失败,请重试', { tone: 'danger' })
+    } finally {
+      setAddingRole(false)
+    }
+  }
+
   const gen = () => {
     setBusy(true); let acc = ''
     const instr = selected === 'truth'
       ? `写第${seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,含角色们察觉不到的隐藏机制。据本章大纲/节拍/设定(含私密)。只输出真相正文。`
-      : `以「${cur.character_name}」截至第${seq}章的限知,写他这一场的限知投影,分五个小标题:看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 markdown 三级标题(### 标题)独立起行。据场景真相与他的限知帧,只含他所知所感。`
+      : `以「${cur.character_name}」截至第${seq}章的限知,写该角色这一场的限知投影,分五个小标题:看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 markdown 三级标题(### 标题)独立起行。据场景真相与该角色的限知帧,只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。`
     // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
     // 兼容纯 delta 流。全部累进到 acc，完成后落库。
     api.chatWrite(instr, {
       // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
       chapter: seq, phase: 'deduce', focalizer: selected === 'truth' ? '' : selected,
+      context: snapshot ? {
+        context_session_id: snapshot.session_id,
+        context_revision: snapshot.revision,
+        context_hash: snapshot.context_hash,
+      } : null,
       onProposalStart: () => { acc = ''; setText('') },
       onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
       onDelta: (d) => { acc += d; setText(acc) },
@@ -187,9 +217,21 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     >
       <div className="flex items-center gap-2 mb-3">
         <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
+        {chars.length > 0 && (
+          <div className="flex items-center gap-1 ml-auto">
+            <select aria-label="投射角色" value={roleToAdd} onChange={(e) => setRoleToAdd(e.target.value)}
+              className="h-[34px] max-w-32 rounded-lg border border-line bg-canvas px-2 text-f12 text-ink outline-none focus:border-brand cursor-pointer">
+              <option value="">加入角色…</option>
+              {chars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <Btn variant="ghost" size="sm" onClick={addAndSelectRole} disabled={!roleToAdd || addingRole}>
+              {addingRole ? '加入中…' : '加入并切换角色'}
+            </Btn>
+          </div>
+        )}
         <Btn variant="ghost" size="sm" onClick={chatCur} disabled={noProse}
           title={noProse ? '就这条演绎和主编讨论(该演绎还没有内容)' : '就这条演绎和主编讨论'}
-          aria-label="就这条演绎和主编讨论" className="ml-auto">
+          aria-label="就这条演绎和主编讨论" className={chars.length > 0 ? '' : 'ml-auto'}>
           <MessagesSquare size={13} />聊这条
         </Btn>
         <Btn variant="ghost" size="sm" onClick={editCur} disabled={noProse}

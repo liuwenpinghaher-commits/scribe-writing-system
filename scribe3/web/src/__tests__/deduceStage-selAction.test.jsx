@@ -10,17 +10,22 @@ import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
 // 演绎当前选中目标(truth/character_id)由 deduceContext 的 DeduceProvider 持有,固定初值
 // 'truth' 且不接受外部初值,故本文件直接打桩该 hook 以覆盖角色目标场景。
-const deduceSelState = vi.hoisted(() => ({ selected: 'truth' }))
+const deduceSelState = vi.hoisted(() => ({ selected: 'truth', setSelected: vi.fn() }))
 vi.mock('../deduceContext', () => ({
-  useDeduceSel: () => ({ selected: deduceSelState.selected, setSelected: () => {} }),
+  useDeduceSel: () => ({ selected: deduceSelState.selected, setSelected: deduceSelState.setSelected }),
 }))
 
-vi.mock('../api', () => ({
-  api: {
-    patchChapter: vi.fn(() => Promise.resolve({})),
-    chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
-    chatWrite: vi.fn(),
-  },
+const apiMock = vi.hoisted(() => ({
+  patchChapter: vi.fn(() => Promise.resolve({})),
+  chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
+  chatWrite: vi.fn(),
+}))
+vi.mock('../api', () => ({ api: apiMock }))
+
+vi.mock('../context/ContextSnapshotContext', () => ({
+  useContextSnapshot: () => ({ snapshot: {
+    session_id: 'ctx-deduce', revision: 7, context_hash: 'a'.repeat(64),
+  } }),
 }))
 
 // RichEditor 打桩为受控 textarea,暴露 value 供断言当前 prose 是否已载入(与 chapterStudio-selAction
@@ -54,6 +59,8 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
   beforeEach(() => {
     localStorage.clear()
     deduceSelState.selected = 'truth'
+    deduceSelState.setSelected.mockClear()
+    vi.clearAllMocks()
   })
 
   it('①truth 目标工具条渲染「聊这条」「改这条」两钮', async () => {
@@ -153,5 +160,51 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('  \n\n  '))
     expect(screen.getByRole('button', { name: '就这条演绎和主编讨论' }).disabled).toBe(true)
     expect(screen.getByRole('button', { name: '让主编改这条演绎' }).disabled).toBe(true)
+  })
+
+  it('⑦生成演绎时携带当前上下文快照，避免开启快照门后被后端静默拒绝', async () => {
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '已有真相' } })
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('已有真相'))
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    expect(apiMock.chatWrite).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      chapter: 3,
+      phase: 'deduce',
+      context: { context_session_id: 'ctx-deduce', context_revision: 7, context_hash: 'a'.repeat(64) },
+    }))
+  })
+
+  it('⑧四栏工作台可把角色显式加入本章再切换到该角色投射，且不覆盖已有涉及角色', async () => {
+    apiMock.chapter.mockResolvedValue({ involved_characters: ['role:沈砚'], deductions: [] })
+    renderDeduce({
+      meta: {
+        chars: [{ id: 'role:沈砚', name: '沈砚' }, { id: 'role:季棠', name: '季棠' }],
+        deductions: [], involved_characters: ['role:沈砚'], scene_truth: '已有场景真相',
+      },
+    })
+    await screen.findByRole('combobox', { name: '投射角色' })
+
+    fireEvent.change(screen.getByRole('combobox', { name: '投射角色' }), { target: { value: 'role:季棠' } })
+    fireEvent.click(screen.getByRole('button', { name: '加入并切换角色' }))
+
+    await waitFor(() => expect(apiMock.patchChapter).toHaveBeenCalledWith(3, {
+      involved_characters: ['role:沈砚', 'role:季棠'],
+    }, 'demo'))
+    expect(deduceSelState.setSelected).toHaveBeenCalledWith('role:季棠')
+  })
+
+  it('⑨角色投射提示不预设男性代词，并要求遵循角色档案称谓', async () => {
+    deduceSelState.selected = 'role:季棠'
+    renderDeduce({ meta: { chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '已有场景真相' } })
+    await screen.findByRole('button', { name: '生成' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    const [instruction] = apiMock.chatWrite.mock.calls[0]
+    expect(instruction).toContain('严格遵循角色档案已有的称谓和代词')
+    expect(instruction).toContain('不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史')
+    expect(instruction).not.toContain('写他这一场')
+    expect(instruction).not.toContain('只含他所知所感')
   })
 })

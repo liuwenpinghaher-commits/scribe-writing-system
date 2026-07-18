@@ -7670,9 +7670,10 @@ def _pilot_executor(work: str) -> dict:
             name = str(cid).split(":")[-1]
             prose = _pilot_llm_gen(
                 st, work, seq, "deduce",
-                f"以「{name}」截至第{seq}章的限知,写他这一场的限知投影,分五个小标题:"
+                f"以「{name}」截至第{seq}章的限知,写该角色这一场的限知投影,分五个小标题:"
                 f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
-                f"只含他所知所感。", focalizer=str(cid))
+                f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
+                f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。", focalizer=str(cid))
             deds.append({"character_id": str(cid), "character_name": name, "prose": prose})
             made += 1
         if made or not have_deds:
