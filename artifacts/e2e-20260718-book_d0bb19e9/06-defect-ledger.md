@@ -109,8 +109,17 @@
 
 # P1-014 · 人工插入素材后没有反向溯源
 
-- 状态：已修复，待浏览器发布→采纳回归。
+- 状态：已修复并完成浏览器发布→采纳回归。
 - 复现：在素材《盐港闸底勘察笔记》中点击“插入到草稿”、发布到第 3 章后，`GET /materials/recall` 能命中该素材，但 `GET /materials/refs-by-chapter?chapter=3` 返回空数组。
 - 根因：`MaterialDetail.publishToDraft()` 只发布正文；`stageProposal` 不携带素材 ID。草稿页接受候选后没有任何路径调用已有的 `SurrealStore.add_material_reference()`，仅自动写作召回会创建引用。
 - 修复：候选追加 `materialId`；作者点击“填入/追加/替换”时调用新增 `POST /materials/{mid}/refs`，写入 `via=manual_insert`、章节和人工插稿维度。
 - 验证：新增 endpoint 回归先红（405）后绿；`test_material_refs_and_paging.py` 4/4 通过。运行态新端点真实返回 `ok:true`，并已为第 3 章先前采纳的素材补写审计引用。
+
+# P1-015 · 卷级/书级伏笔缺少必填的真实答案输入
+
+- 状态：已修复并完成浏览器回归。
+- 复现：在“设定库 → 伏笔”新建一条第 3 章卷级伏笔，前端仅能填写内容、埋设章、层级、类型；点击创建后端返回 422：长期悬念必须有文档记录的真实答案。
+- 根因：后端 `PromIn.resolution` 已是 `arc/book` 长期伏笔的强制契约，但 `CodexNew.emptyDraft` 与 `DetailView` 的 `promises` 字段表漏掉 `resolution`，形成 UI 无法提交的字段断裂。
+- 修复：新增“真实答案（作者存档，读者不可见）”文本字段；卷级/书级在前端提交前也校验该字段，章级保持原有豁免；创建请求原样透传 `resolution`。
+- 验证：新增 Vitest 回归先红（找不到真实答案字段）后绿，`library-accessibility` 与 `promise-kind` 共 11/11 通过。刷新后真实 UI 创建卷级伏笔成功；后端读回 `setup=3`、`tier=arc`、`payoff_min=8`、`payoff_max=18`、答案长度 39；随后在 UI 追加第 3 章线索，得到“线索已加”。
+- 影响：修复前，作者面对一个合规的长期伏笔只能收到后端错误，无法通过产品界面补齐设计要求的答案存档。

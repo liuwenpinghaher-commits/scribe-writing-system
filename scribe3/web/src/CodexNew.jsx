@@ -25,7 +25,7 @@ function emptyDraft(catType) {
     case 'item': return { name: '', symbolic_state: 'active' }
     case 'term': return { name: '' }
     case 'world_rule': return { name: '', category: 'magic' }
-    case 'promise': return { text: '', setup_chapter: 1, tier: 'chapter' }
+    case 'promise': return { text: '', setup_chapter: 1, tier: 'chapter', resolution: '' }
     case 'motif': return { name: '' }
     case 'proposition': return { entity: '', attribute: '', value: '', valid_from: 1, secret: false, leak_markers: [] }
     default: return { name: '' }
@@ -34,7 +34,10 @@ function emptyDraft(catType) {
 
 // 校验:创建前最小必填
 function isValid(catType, d) {
-  if (catType === 'promise') return !!(d.text && d.text.trim())
+  if (catType === 'promise') {
+    const requiresResolution = d.tier === 'arc' || d.tier === 'book'
+    return !!(d.text && d.text.trim() && (!requiresResolution || (d.resolution && d.resolution.trim())))
+  }
   // 命题:主体 + 属性 + 值三者必填(对齐后端 FactIn 无默认的 entity/attribute/value)。
   // 批D Minor①:生效章须 ≥1(默认 1;用户在 DetailView 数字框可清空/输 0,valid_from 语义 1-based)。
   if (catType === 'proposition') return !!(d.entity && d.entity.trim() && d.attribute && d.attribute.trim() && d.value && d.value.trim() && isChapterNum(d.valid_from))
@@ -67,7 +70,12 @@ export function CodexNew({ catType, label, onCancel, onCreated }) {
   if (!type) return <div className="p-6 text-f13 text-faint">未知设定类型:{catType}</div>
 
   const create = async () => {
-    if (!isValid(catType, draft)) { setErr(catType === 'promise' ? '请填写伏笔内容' : catType === 'proposition' ? '请填写主体、属性、值,生效章须为 ≥1 的章号' : '请填写名称'); return }
+    if (!isValid(catType, draft)) {
+      setErr(catType === 'promise'
+        ? ((draft.tier === 'arc' || draft.tier === 'book') ? '卷级和书级伏笔必须填写作者存档的真实答案' : '请填写伏笔内容')
+        : catType === 'proposition' ? '请填写主体、属性、值,生效章须为 ≥1 的章号' : '请填写名称')
+      return
+    }
     setSaving(true); setErr('')
     try {
       const ref = await createRecord(catType, draft)
