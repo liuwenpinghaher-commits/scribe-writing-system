@@ -326,11 +326,26 @@ def intra_repetition_sentences(text: str, allow: set[str] | None = None) -> list
                     continue
                 _mark(s, f"本句与前几句都用『{op}』开头形成排比,请改用不同的句子开头打破排比,保持原意。")
 
+    # ③b 短断句滥用：只有检测器已同时满足数量与密度阈值时才处理，避免干预正常节奏。
+    if any(x.get("kind") == "short" for x in find_structural_repeats(text)):
+        for s in sents:
+            core = re.sub(r"[。！？…\s]+$", "", _EDGE.sub("", _strip_quoted(s)))
+            if 1 <= len(core) <= 2 and _HAS_CJK.search(core):
+                _mark(s, "本章短断句过密，请把这个动作/说话标签改成自然完整的叙述，保持情节不变。")
+
     # ④ 近似重复段落(分幕拼接盲区,S-005):后段逐句标记改写
     for nd in find_near_duplicate_paragraphs(text, allow=allow):
         for s in _INTRA_SENT_SPLIT.split(nd["paragraph"]):
             if len(s.strip()) >= 6:
                 _mark(s, "本段与前文某段高度重复(仅换了几个字重写同一画面),请彻底改写成推进叙事的新内容或删繁。")
+
+    # ④b 文风提示可定位到完整句，交给同一限知和净减少门改写，不能只报警不治理。
+    for hit in find_purple_prose(text):
+        phrase = str(hit.get("phrase") or "")
+        for s in sents:
+            if phrase and phrase in s:
+                _mark(s, f"本句有过度修辞的文风提示「{phrase}」，请改得具体、克制，不新增事实。")
+                break
 
     # ⑤ AI 腔:检测器给的是问题短语/符号，精修必须提升到完整句，才能在不改情节的
     # 前提下替换掉否定翻转、密集破折号等模式，而不是只在质检面板里报警。
@@ -373,9 +388,11 @@ def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None 
         dups = len([d for d in find_duplicate_lines(t) if not _is_allowed(d.get("line", ""), allow)])
         struct = len([x for x in find_structural_repeats(t) if x.get("kind") == "anaphora"
                       and not _is_allowed(x["phrase"].split("…")[0], allow)])
+        short = len([x for x in find_structural_repeats(t) if x.get("kind") == "short"])
         near = len(find_near_duplicate_paragraphs(t, allow=allow))
+        purple = len(find_purple_prose(t))
         ai_tics = len(_ai_tic_rewrite_sentences(t, allow=allow))
-        return reps + dups + struct + near + ai_tics
+        return reps + dups + struct + short + near + purple + ai_tics
 
     before = _count(text)
     if before == 0:

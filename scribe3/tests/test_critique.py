@@ -222,6 +222,16 @@ def test_intra_rewrite_prioritizes_ai_tics_over_anaphora_when_batch_is_limited()
     assert res["rewritten"] == 1 and res["after"] < res["before"]
 
 
+def test_intra_rewrite_collects_purple_and_excess_short_sentence_targets():
+    """质检已明确命中的文风句和短断句必须进入精修治层。"""
+    from scribe3.critique import intra_repetition_sentences
+    text = ("她问。她说。他答。她笑。她走。"
+            "两个人的影子被拉得很长，映在侧墙上，模模糊糊的，像一层雾。")
+    hints = [item["hint"] for item in intra_repetition_sentences(text)]
+    assert any("短断句" in hint for hint in hints)
+    assert any("文风" in hint for hint in hints)
+
+
 # —— 章内精修治层(intra):章内 repetition / duplicate_lines / 排比,与跨章 dedup 对称 ——
 from scribe3.critique import intra_repetition_sentences, rewrite_intra_chapter_issues
 
