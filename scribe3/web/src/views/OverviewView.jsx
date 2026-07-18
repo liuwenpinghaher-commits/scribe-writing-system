@@ -40,10 +40,11 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
   if (!q) return <div className="p-8 text-faint">加载概览…</div>
 
   const chs = q.chapters || []
+  const cacheStale = (q.cache_stale_chapters || []).length > 0
   const totalWords = q.total_words || 0
   const chCount = chs.length
-  const qcTotal = chs.reduce((s, c) => s + (c.qc_issues || 0) + (c.causal || 0), 0)
-  const weak = [...chs].filter((c) => (c.qc_issues || 0) + (c.causal || 0) > 0)
+  const qcTotal = cacheStale ? null : chs.reduce((s, c) => s + (c.qc_issues || 0) + (c.causal || 0), 0)
+  const weak = cacheStale ? [] : [...chs].filter((c) => (c.qc_issues || 0) + (c.causal || 0) > 0)
     .sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal)).slice(0, 6)
   const fs = q.foreshadow || {}
   const audit = led?.audit || {}
@@ -61,7 +62,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
           <Stat icon={FileText} label="规模" value={totalWords.toLocaleString()} sub={`${chCount} 章`} tone="brand" />
           <Stat icon={Bookmark} label="伏笔" value={fs.open ?? 0} sub={`未回收 · 已收 ${fs.closed ?? 0}`} tone="fore"
             onClick={() => onOpenView?.('insight')} />
-          <Stat icon={Activity} label="质检问题" value={qcTotal} sub="QC + 因果" tone={qcTotal ? 'danger' : 'ok'}
+          <Stat icon={Activity} label="质检问题" value={cacheStale ? '待刷新' : qcTotal} sub={cacheStale ? '缓存已过期' : 'QC + 因果'} tone={cacheStale || qcTotal ? 'danger' : 'ok'}
             onClick={() => onOpenView?.('insight')} />
           <Stat icon={Bookmark} label="伏笔超期" value={fs.overdue ?? 0} sub="埋下 >3 章未回收" tone={fs.overdue ? 'danger' : 'ok'} />
         </div>
@@ -119,7 +120,9 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
         {/* 弱章诊断 */}
         <div className="rounded-xl border border-line bg-surface p-4">
           <div className="text-f12 font-semibold text-ink mb-2">最需关注的章</div>
-          {weak.length === 0 ? (
+          {cacheStale ? (
+            <div className="text-f13 text-fore">质量缓存已过期，请到质量仪表盘刷新后查看诊断。</div>
+          ) : weak.length === 0 ? (
             <div className="text-f13 text-ok">✓ 各章质检干净</div>
           ) : weak.map((c) => (
             <button key={c.seq} onClick={() => onJumpChapter?.(c.seq)}

@@ -74,6 +74,19 @@ def test_apply_delta_event_causal_link_clean(store):
     assert causal_complete(store, 2) == [], "都有目标+非首有因果入边→因果完整"
 
 
+def test_apply_delta_persists_explicit_independent_scene_root(store):
+    """抽取器可把同章新场景写成具理由的因果根，避免硬接到无关事件。"""
+    _ensure_chars(store, "焦三")
+    apply_delta(store, {"learned": [], "did": [], "events": [
+        {"type": "起因", "participants": {"SUBJ": "焦三"}, "goal": "处理眼前危机", "caused_by": []},
+        {"type": "支线", "participants": {"SUBJ": "焦三"}, "goal": "追查另一条线索", "caused_by": [],
+         "causal_root_reason": "切换到另一地点的独立场景"},
+    ]}, seq=2)
+    roots = {e.type: e for e in store.events_at(2)}
+    assert roots["支线"].causal_root_reason == "切换到另一地点的独立场景"
+    assert causal_complete(store, 2) == []
+
+
 def test_apply_delta_caused_by_ghost_event_no_dangling_edge(store):
     """批E-A2(P1-5 M1):caused_by 引用一个因空 type 被跳过的幽灵事件序号 →
     不建指向未落库事件的悬挂 causal 边。

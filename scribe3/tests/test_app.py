@@ -92,6 +92,30 @@ def test_causal_no_event_data_marker(store):
     assert resp["violations"] == []
 
 
+def test_event_causal_root_endpoint_is_auditable_and_rejects_linked_event(store):
+    """作者可为同章独立场景登记根理由，已有因果边的事件不得同时伪装为根。"""
+    from scribe3.ontology import Event
+    store.save_chapter(1, "第一章正文。", title="一")
+    store.add_event(Event("ev:i1-0", "起", story_time=1, motivated_by_goal="开始"))
+    store.add_event(Event("ev:i1-1", "支", story_time=1, motivated_by_goal="转场"))
+    store.add_event(Event("ev:i1-2", "续", story_time=1, motivated_by_goal="承接",
+                          causal_in=[("ev:i1-0", "enables")]))
+    c = _client(store)
+    assert c.get("/quality").json()["cache_stale_chapters"] == [1]
+    assert c.post("/quality/refresh").status_code == 200
+    ok = c.patch("/events/i1-1/causal-root", json={"reason": "切换到另一地点的独立场景"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["causal_root_reason"] == "切换到另一地点的独立场景"
+    assert c.get("/quality").json()["cache_stale_chapters"] == [1]
+    assert c.get("/causal", params={"chapter": 1}).json()["violations"] == []
+    linked = c.patch("/events/i1-2/causal-root", json={"reason": "不应允许"})
+    assert linked.status_code == 422
+    # 对确有前因的事件，应登记真实边而不是塞一条“独立根”理由。
+    added = c.patch("/events/i1-2/causal", json={"source_event": "ev:i1-1", "ctype": "enables"})
+    assert added.status_code == 200, added.text
+    assert added.json()["source_event"] == "ev:i1-1"
+
+
 def test_graph_endpoint(store):
     from scribe3.ontology import Entity, Fact, KnowledgeEdge
     store.add_entity(Entity("role:甲", "character", "甲"))
@@ -107,6 +131,30 @@ def test_quality_endpoint(store):
     store.save_chapter(1, "一段正常的志怪内容。", title="一")
     q = _client(store).get("/quality").json()
     assert q["chapters"][0]["seq"] == 1 and "foreshadow" in q and "total_words" in q
+
+
+def test_quality_refresh_replaces_stale_cache_and_marks_fresh(store):
+    """质量面板不得把旧缓存伪装成当前检测结果；作者刷新后应得到实时派生值。"""
+    c = _client(store)
+    store.save_chapter(1, "一段正常的志怪内容。", title="一")
+    # 模拟事件回写/检测器升级后遗留的旧派生值，正文与正典数据均不应被改动。
+    store._execute_write(
+        "UPDATE type::record('chapter', 1) SET qc_issues=99, qc_causal=88, qc_cache_revision=0", {})
+
+    before = c.get("/quality").json()
+    assert before["cache_stale_chapters"] == [1]
+    assert before["chapters"][0]["cache_stale"] is True
+    assert before["chapters"][0]["qc_issues"] == 99
+
+    refreshed = c.post("/quality/refresh")
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["refreshed_chapters"] == [1]
+
+    after = c.get("/quality").json()
+    assert after["cache_stale_chapters"] == []
+    assert after["chapters"][0]["cache_stale"] is False
+    assert after["chapters"][0]["qc_issues"] == 0
+    assert after["chapters"][0]["causal"] == -1
 
 
 def test_character_crud(store):

@@ -43,3 +43,12 @@ def test_causal_complete_flags_missing_goal_and_cause():
     assert "ev:逃" in [v.event_id for v in viols]
     reasons = " ".join(v.reason for v in viols if v.event_id == "ev:逃")
     assert "goal" in reasons and "causal_in" in reasons
+
+
+def test_causal_complete_allows_explicit_independent_scene_root():
+    """同章切换人物/场景的新根事件可免责，但必须留下可审计的因果根理由。"""
+    w = luanshi_leak_world()
+    w.add_event(Event("ev:支线", "支线", participants={"SUBJ": "role:焦三"},
+                      location="place:乱岗", story_time=1, motivated_by_goal="追查另一条线索",
+                      causal_root_reason="切换到另一人物视角的独立场景"))
+    assert not any(v.event_id == "ev:支线" for v in causal_complete(w, 1))

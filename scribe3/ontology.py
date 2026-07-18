@@ -68,6 +68,9 @@ class Event:
     preconditions: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)   # Fact ids
     causal_in: list = field(default_factory=list)      # [(event_id, type)]
+    # 同章可有多个独立场景根事件。非首且没有 causal_in 时必须写明为什么另起一条链，
+    # 否则 causal_complete 仍按断链处理。
+    causal_root_reason: str | None = None
     motivated_by_goal: str | None = None
     is_executed: bool = True
     narrative_position: int | None = None              # 叙事位(可空):事件在叙事顺序里的位置;
@@ -132,4 +135,3 @@ class World:
     def list_craft_rules(self) -> list[dict]:
         """内存 World 无题材层;真库由 SurrealStore 覆盖。"""
         return []
-

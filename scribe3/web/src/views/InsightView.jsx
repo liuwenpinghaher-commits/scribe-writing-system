@@ -778,6 +778,7 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   const [goalOpen, setGoalOpen] = useState(false)
   const [progressKey, setProgressKey] = useState(0)
   const [qualityKey, setQualityKey] = useState(0)
+  const [qualityRefreshing, setQualityRefreshing] = useState(false)
   const progressRef = useRef(null)
 
   useEffect(() => {
@@ -811,7 +812,20 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
   if (!q) return <div className="p-8 text-faint">加载中…</div>
 
   const chs = q.chapters || []
-  const weak = [...chs].filter((c) => c.qc_issues > 0 || c.causal > 0).sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal))
+  const cacheStale = (q.cache_stale_chapters || []).length > 0
+  const weak = cacheStale ? [] : [...chs].filter((c) => c.qc_issues > 0 || c.causal > 0).sort((a, b) => (b.qc_issues + b.causal) - (a.qc_issues + a.causal))
+  const refreshQuality = async () => {
+    setQualityRefreshing(true)
+    try {
+      const r = await api.refreshQuality()
+      showToast(r.refreshed_chapters?.length ? `已刷新 ${r.refreshed_chapters.length} 章质量缓存` : '质量缓存已是最新', { tone: 'ok' })
+      setQualityKey((k) => k + 1)
+    } catch (e) {
+      showToast(e?.body?.detail || e?.message || '质量缓存刷新失败', { tone: 'danger' })
+    } finally {
+      setQualityRefreshing(false)
+    }
+  }
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
   const totalGoal = intent?.total_word_goal ?? 100000
 
@@ -820,13 +834,24 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
       <div className="max-w-5xl mx-auto px-8 py-8">
         <div className="flex items-center gap-2 mb-6"><Activity size={18} className="text-brand" /><h1 className="text-f22 font-semibold prose-serif text-ink">质量仪表盘</h1></div>
 
+        {cacheStale && (
+          <section role="alert" className="mb-6 rounded-xl border border-fore/30 bg-fore/5 px-4 py-3 text-f13 text-ink flex items-center gap-3">
+            <AlertTriangle size={16} className="text-fore shrink-0" />
+            <div className="flex-1">第 {q.cache_stale_chapters.join('、')} 章的质量缓存已过期；当前问题数不可作为验收结论。</div>
+            <button type="button" onClick={refreshQuality} disabled={qualityRefreshing}
+              className="shrink-0 rounded-md border border-fore/30 px-2.5 py-1 text-f12 text-fore hover:bg-fore/10 disabled:opacity-50 cursor-pointer">
+              {qualityRefreshing ? '刷新中…' : '刷新质量缓存'}
+            </button>
+          </section>
+        )}
+
         {/* 读屏/键盘等价路径:图表与热力图靠颜色传达的关键数据,这里给一份纯文本摘要(与图表同源数据数组) */}
         <section role="region" aria-label="洞察数据摘要" className="mb-6 rounded-xl border border-line bg-surface p-4">
           <div className="text-f12 font-semibold text-ink mb-2">数据摘要</div>
           <div className="text-f13 text-faint leading-relaxed">
             全书 {chs.length} 章,共 {q.total_words?.toLocaleString() || 0} 字(目标 {totalGoal.toLocaleString()} 字)。
             伏笔未回收 {q.foreshadow?.open ?? 0} 条、已回收 {q.foreshadow?.closed ?? 0} 条、超期 {q.foreshadow?.overdue ?? 0} 条。
-            质检问题合计 {chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} 项;其中 {weak.length} 章问题较多需优先关注
+            {cacheStale ? '质量缓存待刷新，暂不展示问题合计与弱章结论。' : `质检问题合计 ${chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} 项;其中 ${weak.length} 章问题较多需优先关注`}
             {weak.length > 0 ? `:${weak.slice(0, 3).map((c) => chapterLabel(c.seq, c.title)).join('、')}${weak.length > 3 ? ' 等' : ''}` : ''}。
           </div>
         </section>
@@ -850,7 +875,7 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
             sub={`${chs.length} 章 · 目标 ${totalGoal.toLocaleString()} 字`} />
           <Metric icon={Bookmark} label="伏笔" value={q.foreshadow?.open ?? 0} sub={`未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
           <Metric icon={ShieldAlert} label="伏笔超期" value={q.foreshadow?.overdue ?? 0} sub="埋下 >3 章未回收" tone={q.foreshadow?.overdue ? 'danger' : 'ok'} />
-          <Metric icon={Activity} label="质检问题" value={chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub="确定性 QC + 因果" tone="danger" />
+          <Metric icon={Activity} label="质检问题" value={cacheStale ? '待刷新' : chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub={cacheStale ? '缓存已过期' : '确定性 QC + 因果'} tone={cacheStale ? 'fore' : 'danger'} />
         </div>
 
         <PromiseLedger onJumpChapter={onJumpChapter} />
@@ -885,7 +910,8 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
 
         <div className="rounded-xl border border-line bg-surface p-4">
           <div className="text-f12 font-semibold text-ink mb-2">弱章诊断(问题最多的章)</div>
-          {weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
+          {cacheStale ? <div className="text-f13 text-fore">请先刷新质量缓存，再查看弱章诊断。</div>
+            : weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
             : weak.slice(0, 8).map((c) => {
               const title = chapterLabel(c.seq, c.title)
               return (

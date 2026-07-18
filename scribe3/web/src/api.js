@@ -96,6 +96,8 @@ export const api = {
     + (to != null ? '&ch_to=' + to : '')
     + (axis ? '&axis=' + enc(axis) : '')),
   quality: () => j('/quality'),
+  // 质量缓存由正文保存/回写时维护；规则升级或历史缓存过期时作者可显式刷新。
+  refreshQuality: () => post('/quality/refresh', {}),
   intent: () => j('/intent'),
   putIntent: (b) => put('/intent', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),

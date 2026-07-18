@@ -1709,7 +1709,8 @@ def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = N
         "各槽只能填写具体人物姓名，器物、地点、刻字、自然现象和抽象事物不得填入；"
         "只填有的槽位,没有人物的槽位省略)、该事件为何发生的动机/目标(goal,一句话)、"
         "因果来由(caused_by:本章前面第几个事件直接导致了它,填其序号数组(从0起,只能指向本章更早的事件);"
-        "本章第一个或无明确前因的事件填空数组[])。"
+        "本章第一个填空数组[]。若后续事件是切换人物/地点/时间后的独立场景根,caused_by 填[]并给"
+        "causal_root_reason(明确写出为何另起场景链);其他后续事件不得空[])。"
         "按事件在本章的发生先后顺序输出;没有明确事件时 events 输出空列表。\n"
         + motif_seg + promise_seg + belief_seg +
         '只输出一行 JSON:{"learned":[{"who":角色名,"fact":新知道的事(短句)}],'
@@ -1718,7 +1719,7 @@ def build_knowledge_extract_prompt(prose: str, motif_names: list[str] | None = N
         '"arc":[{"who":角色名,"change_type":"ability|relation|personality",'
         '"summary":一句话摘要,"snapshot":{...}}],'
         '"events":[{"type":类型标签,"participants":{"SUBJ":角色名,"OBJ":角色名,"WITNESS":角色名},'
-        '"goal":动机目标,"caused_by":[前序事件序号]}]'
+        '"goal":动机目标,"caused_by":[前序事件序号],"causal_root_reason":独立场景理由(仅无前因时)}]'
         + motif_schema + promise_schema + belief_schema + '}。\n\n'
         "【正文】\n" + prose)
 

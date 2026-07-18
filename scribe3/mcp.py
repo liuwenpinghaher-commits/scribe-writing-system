@@ -616,6 +616,7 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        participants: list[dict] | None = None,
                        effects: list[dict] | None = None,
                        causal_in: list[dict] | None = None,
+                       causal_root_reason: str | None = None,
                        narrative_position: int | None = None,
                        work: str | None = None) -> dict:
     """新增事件(写,待批)。
@@ -631,6 +632,7 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
       供"看见即知道"据此给在场者发知识边;缺少则 knowledge 传播不工作。
     causal_in: 因果前驱事件列表,每项 {"event": "ev:xxx", "ctype": "causes|enables|..."}。
       causal_complete 验证会检查此链;建议填写以保证连贯性验证通过。
+    causal_root_reason: 仅当该事件是同章切换人物/地点/时间后的独立场景根且没有 causal_in 时填写。
     """
     # 将 dict 格式转为 Event 构造器期待的格式
     parts: dict[str, str] = {}
@@ -668,6 +670,7 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                                         participants=parts,
                                         effects=effs,
                                         causal_in=causal,
+                                        causal_root_reason=causal_root_reason,
                                         narrative_position=narrative_position)))
 
 

@@ -49,12 +49,12 @@ def find_leaks(prose: str, world: World, focalizer: str, chapter: int) -> list[L
 
 
 def causal_complete(world: World, chapter: int) -> list[CausalViolation]:
-    """每事件须 motivated_by_goal 非空;非首事件须 causal_in 非空。返回违规列表(空=干净)。"""
+    """每事件须 motivated_by_goal 非空；非首事件须有因果入边，或有可审计的新场景根理由。"""
     evs = sorted(world.events_at(chapter), key=lambda e: e.id)
     viols: list[CausalViolation] = []
     for i, ev in enumerate(evs):
         if not ev.motivated_by_goal:
             viols.append(CausalViolation(ev.id, "missing motivated_by_goal"))
-        if not ev.causal_in and i > 0:
+        if not ev.causal_in and i > 0 and not (ev.causal_root_reason or "").strip():
             viols.append(CausalViolation(ev.id, "missing causal_in (非首事件须有因果入边)"))
     return viols

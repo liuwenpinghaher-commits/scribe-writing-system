@@ -385,7 +385,7 @@ def apply_delta(store, delta: dict, seq: int,
     # 因果 QC/时间线事件泳道有真数据)。与 arc/motif 同范式:
     #   · 参与者只解析既有角色；事件抽取的槽位常会误填器物/地点，未知值直接跳过，
     #     绝不登记为待确认人物（真正的新角色由 learned/did 等人物语义字段登记）；
-    #   · caused_by 指向本章更早事件序号 → causal_in 图边(causal_complete 据此判连贯);
+    #   · caused_by 指向本章更早事件序号 → causal_in 图边；独立场景以 causal_root_reason 留痕;
     #   · 事件 id 用 ev:i{seq}-{k} 确定式命名 + ingest_seq=seq → purge_ingest 幂等清理;
     #   · 逐条 non-fatal 兜底,单条写库失败不阻断其余事件与整个 ingest。
     ev_specs = delta.get("events") or []
@@ -418,11 +418,16 @@ def apply_delta(store, delta: dict, seq: int,
             # 引用被跳过(空 type)的幽灵序号不建边,防指向未落库事件的悬挂 causal 边。
             if isinstance(c, int) and 0 <= c < k and c in persisted_idx:
                 causal_in.append((ev_ids[c], "enables"))
+        root_reason = (it.get("causal_root_reason") or "").strip() or None
+        # 第一事件天然是本章根；后续事件只有在没有因果入边时才保留独立场景理由，
+        # 防止模型同时给出边和“另起根”造成不可解释的双重语义。
+        if causal_in or k == 0:
+            root_reason = None
         try:
             store.add_event(
                 Event(ev_ids[k], etype, participants=participants, story_time=seq,
                       motivated_by_goal=(it.get("goal") or "").strip() or None,
-                      causal_in=causal_in),
+                      causal_in=causal_in, causal_root_reason=root_reason),
                 ingest_seq=seq)
             persisted_idx.add(k)   # 落库成功才登记,供后续事件 caused_by 校验(防悬挂边)
         except Exception as _ev_e:

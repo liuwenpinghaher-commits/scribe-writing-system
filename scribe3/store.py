@@ -40,6 +40,9 @@ TBL2KIND = {"character": "character", "place": "place"}
 
 _OPEN_CHAPTER = 9999    # graph()/无界查询的"到当前为止"哨兵
 _ALL_CHAPTERS = 99999   # _editor_system 取全部已确立事实
+# 质量缓存的算法版本。每次改变 quality_flags/因果判定口径时递增；旧章不会被
+# 静默当作当前结果，而是由质量面板明确提示作者刷新派生缓存。
+QUALITY_CACHE_REVISION = 1
 # 通用"未传参"哨兵:区分"调用方显式传了 None/False"与"根本没传"。
 # 用处:update_chapter_meta(未传 volume vs 传了 None)、add_faction(未传字段不进 MERGE 内容,
 # 否则会用默认值覆盖库中已有值,违背部分更新语义)。
@@ -510,29 +513,12 @@ def _split_scenes(prose: str) -> list[dict]:
 
 
 def backfill_scalability_caches(store) -> int:
-    """存量章回填(Phase0-BE1):对缓存为空的现有 chapter 重算 scene_count/scene_meta/
-    qc_issues/qc_causal 并写列。返回回填的章数。
+    """回填缺失或旧版的章级派生缓存，返回实际重算章数。
 
-    幂等:只回填 scene_count IS NONE 的章(已写过缓存的 save_chapter 章跳过)。
-    一次性拉这些章的 prose(仅未回填章,非全书),算完写列即丢——迁移期一次成本,
-    之后 outline()/quality() 永不再拉正文。供 apply_schema 后调用或迁移脚本手动跑。
+    缓存版本戳确保检测规则或事件图口径升级后不会继续展示旧结果；只在显式
+    回填/作者刷新时读取待更新章的正文，常规 outline()/quality() 仍然不读正文。
     """
-    rows = store._query(
-        "SELECT seq, prose FROM chapter:.. WHERE scene_count IS NONE")
-    n = 0
-    for r in rows:
-        seq = r.get("seq")
-        if seq is None:
-            continue
-        prose = r.get("prose") or ""
-        cache = store._compute_chapter_caches(seq, prose)
-        store._execute_write(
-            "UPDATE type::record('chapter', $seq) SET "
-            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb",
-            {"seq": seq, "scn": cache["scene_count"], "scm": cache["scene_meta"],
-             "qc": cache["qc_issues"], "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
-        n += 1
-    return n
+    return len(store.refresh_quality_caches())
 
 
 def backfill_material_memory(store) -> int:
@@ -1048,9 +1034,10 @@ class SurrealStore:
         self._execute_write(
             "CREATE type::record('event', $local) SET event_type=$t, "
             "story_chapter=$vf, narrative_position=$np, "
-            "motivated_by_goal=$g, location=$loc, preconditions=$pre"
+            "motivated_by_goal=$g, causal_root_reason=$crr, location=$loc, preconditions=$pre"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
             {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
+             "crr": ev.causal_root_reason,
              "np": ev.narrative_position,  # 完整期:可空叙事位;null 回退 story_chapter(向后兼容)
              "loc": RecordID("place", loc_local) if loc_local else None,
              "pre": ev.preconditions,
@@ -1077,6 +1064,7 @@ class SurrealStore:
             self._execute_write(
                 "RELATE $e->causal->$src SET ctype=$ct",
                 {"e": ev_rid, "src": RecordID("event", slocal), "ct": ctype})
+        self._invalidate_chapter_quality_cache(ev.story_time)
         return ev
 
     def grant_public(self, fact_id: str, chapter: int) -> None:
@@ -1159,6 +1147,7 @@ class SurrealStore:
             self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
             self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
             self._execute_write("DELETE event WHERE ingest_seq = $seq", {"seq": seq})
+            self._invalidate_chapter_quality_cache(seq)
 
     def add_unverified_ref(self, name: str, seq: int, role: str) -> None:
         """登记 ingest 抽到的库外角色名→待确认(不建实体、不发边)。
@@ -2210,6 +2199,59 @@ class SurrealStore:
             "UPDATE type::record('event',$local) SET narrative_position=$np",
             {"local": local, "np": narrative_position})
 
+    def _invalidate_chapter_quality_cache(self, seq: int | None) -> None:
+        """事件图变动后令对应章节的派生质量缓存失效；正文与正典数据不受影响。"""
+        if seq is None:
+            return
+        self._execute_write(
+            "UPDATE type::record('chapter',$seq) SET qc_cache_revision=NONE",
+            {"seq": int(seq)})
+
+    def set_event_causal_root(self, event_oid: str, reason: str) -> None:
+        """将既有事件标为同章独立场景根；已有因果入边的事件不可同时声明为根。"""
+        _, local = _split(event_oid)
+        event_rows = self._query(
+            "SELECT story_chapter FROM type::record('event',$local)", {"local": local})
+        linked = self._query(
+            "SELECT count() AS n FROM causal WHERE in = type::record('event',$local)",
+            {"local": local})
+        if linked and (linked[0].get("n") or 0) > 0:
+            raise ValueError("已有因果入边的事件不能登记为独立场景根")
+        self._execute_write(
+            "UPDATE type::record('event',$local) SET causal_root_reason=$reason",
+            {"local": local, "reason": reason})
+        self._invalidate_chapter_quality_cache(
+            event_rows[0].get("story_chapter") if event_rows else None)
+
+    def add_event_causal_link(self, event_oid: str, source_event_oid: str, ctype: str) -> None:
+        """为既有同章事件补一条因果边；成功后清除目标事件的根理由，避免双重语义。"""
+        _, local = _split(event_oid)
+        _, source_local = _split(source_event_oid)
+        if local == source_local:
+            raise ValueError("事件不能以自身作为因果前驱")
+        rows = self._query(
+            "SELECT meta::id(id) AS local, story_chapter FROM event "
+            "WHERE id IN [type::record('event',$target), type::record('event',$source)]",
+            {"target": local, "source": source_local})
+        chapters = {r.get("local"): r.get("story_chapter") for r in rows}
+        if set(chapters) != {local, source_local}:
+            raise ValueError("目标事件或前驱事件不存在")
+        if chapters[local] != chapters[source_local]:
+            raise ValueError("因果边只能连接同一章的事件")
+        exists = self._query(
+            "SELECT id FROM causal WHERE in=type::record('event',$target) "
+            "AND out=type::record('event',$source) LIMIT 1",
+            {"target": local, "source": source_local})
+        if not exists:
+            self._execute_write(
+                "RELATE $target->causal->$source SET ctype=$ctype",
+                {"target": RecordID("event", local), "source": RecordID("event", source_local),
+                 "ctype": ctype})
+        self._execute_write(
+            "UPDATE type::record('event',$target) SET causal_root_reason=NONE",
+            {"target": local})
+        self._invalidate_chapter_quality_cache(chapters[local])
+
     def record_lifecycle_impact(self, oid: str) -> dict | None:
         """对象删除影响计数。返回 None 表示对象不存在。"""
         if not self.exists(oid):
@@ -2923,7 +2965,7 @@ class SurrealStore:
         - 场景:_split_scenes(prose) → scene_count + [{title, char_count}, ...](序列化为 JSON 串)。
         - QC问题:critique.quality_flags(prose) 五类计数之和(纯文本,无需图);拆分存 qc_breakdown JSON。
         - 因果违规:verify.causal_complete(self, seq) 违规条数(查该章事件图,O(本章事件))。
-          注意:这是写时快照——若事件图在不重存本章的情况下变更,qc_causal 会陈旧(可接受降级)。
+          事件图变更后由 refresh_chapter_cache() 重算；质量面板用版本戳标识未刷新缓存。
         """
         import json
         scenes = _split_scenes(prose)
@@ -2957,6 +2999,37 @@ class SurrealStore:
                 "qc_breakdown": json.dumps(breakdown, ensure_ascii=False),
                 # 内存透传(不落章表):scorecard 复用同一份 quality_flags,免重算(北极星任务3)
                 "_quality_flags": qf}
+
+    def refresh_chapter_cache(self, seq: int) -> bool:
+        """只刷新一章的派生缓存，不改正文、版本或任何正典/事件数据。"""
+        rows = self._query(
+            "SELECT prose FROM type::record('chapter', $seq)", {"seq": seq})
+        prose = (rows[0].get("prose") if rows else "") or ""
+        if not prose.strip():
+            return False
+        cache = self._compute_chapter_caches(seq, prose)
+        self._execute_write(
+            "UPDATE type::record('chapter', $seq) SET "
+            "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, "
+            "qc_breakdown=$qcb, qc_cache_revision=$qcr RETURN NONE",
+            {"seq": seq, "scn": cache["scene_count"], "scm": cache["scene_meta"],
+             "qc": cache["qc_issues"], "qcc": cache["qc_causal"],
+             "qcb": cache["qc_breakdown"], "qcr": QUALITY_CACHE_REVISION})
+        return True
+
+    def refresh_quality_caches(self) -> list[int]:
+        """重算所有缺失或过期的质量缓存，返回实际刷新章节号。"""
+        rows = self._query(
+            "SELECT seq, qc_cache_revision FROM chapter:.. "
+            "WHERE archived = NONE OR archived != true")
+        refreshed: list[int] = []
+        for row in rows:
+            seq = row.get("seq")
+            if seq is None or row.get("qc_cache_revision") == QUALITY_CACHE_REVISION:
+                continue
+            if self.refresh_chapter_cache(int(seq)):
+                refreshed.append(int(seq))
+        return sorted(refreshed)
 
     def _compute_scorecard(self, seq: int, prose: str, focalizer: str | None,
                            precomputed_flags: dict | None = None) -> dict:
@@ -3103,10 +3176,12 @@ class SurrealStore:
             "UPSERT type::record('chapter',$seq) SET seq=$seq, title=$title, "
             "focalizer=$foc, prose=$prose, embedding=$v, qc_word_count=$wc, "
             "scene_count=$scn, scene_meta=$scm, qc_issues=$qc, qc_causal=$qcc, qc_breakdown=$qcb, "
+            "qc_cache_revision=$qcr, "
             "archived=false, archived_at=NONE, archive_reason=NONE RETURN NONE",
             {"seq": seq, "title": title, "foc": focalizer, "prose": prose, "v": vec, "wc": wc,
              "scn": cache["scene_count"], "scm": cache["scene_meta"], "qc": cache["qc_issues"],
-             "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"]})
+             "qcc": cache["qc_causal"], "qcb": cache["qc_breakdown"],
+             "qcr": QUALITY_CACHE_REVISION})
         # 北极星任务3:章级 scorecard 存稿即算(独立缓存表,D-008)——fail-soft,
         # scorecard 是面板不是命门,失败只告警绝不阻断存稿。
         try:
@@ -3548,7 +3623,7 @@ class SurrealStore:
         P3-e1 Fix 3: 读回 location / preconditions(之前写入后不回传,write-into-the-void)。"""
         rows = self._query(
             "SELECT meta::id(id) AS local, event_type, story_chapter, narrative_position, "
-            "  motivated_by_goal, location, preconditions, "
+            "  motivated_by_goal, causal_root_reason, location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
@@ -3573,6 +3648,7 @@ class SurrealStore:
                              preconditions=r.get("preconditions") or [],
                              effects=effects,
                              causal_in=causal_in,
+                             causal_root_reason=r.get("causal_root_reason"),
                              motivated_by_goal=r.get("motivated_by_goal"),
                              narrative_position=r.get("narrative_position")))
         return out
@@ -3598,7 +3674,7 @@ class SurrealStore:
         返回结构与 events_at 完全一致(Event dataclass),调用方按章过滤/分组。"""
         rows = self._query(
             "SELECT meta::id(id) AS local, event_type, story_chapter, narrative_position, "
-            "  motivated_by_goal, location, preconditions, "
+            "  motivated_by_goal, causal_root_reason, location, preconditions, "
             "  (SELECT meta::id(out) AS clocal, role FROM ->involves) AS parts, "
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
@@ -3619,6 +3695,7 @@ class SurrealStore:
                              preconditions=r.get("preconditions") or [],
                              effects=effects,
                              causal_in=causal_in,
+                             causal_root_reason=r.get("causal_root_reason"),
                              motivated_by_goal=r.get("motivated_by_goal"),
                              narrative_position=r.get("narrative_position")))
         return out
@@ -5093,7 +5170,7 @@ class SurrealStore:
         rows = self._query(
             "SELECT seq, sort_order, title, synopsis, focalizer, "
             "(IF volume THEN meta::id(volume) ELSE NONE END) AS volume, label, "
-            "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, "
+            "qc_word_count AS word_count, qc_issues, qc_causal, qc_breakdown, qc_cache_revision, "
             "scene_count, scene_meta "
             "FROM chapter:.. WHERE archived = NONE OR archived != true")
         # Python 侧排序:sort_order 为 None 时回退 seq

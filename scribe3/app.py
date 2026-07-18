@@ -50,7 +50,7 @@ from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.live import live_stream
 from scribe3.ontology import Entity, Fact
 from scribe3.store import (
-    MATERIAL_KINDS, OVERDUE_SLACK, SurrealStore, _overdue_flag, archive_work,
+    MATERIAL_KINDS, OVERDUE_SLACK, QUALITY_CACHE_REVISION, SurrealStore, _overdue_flag, archive_work,
     archived_works, create_work, delete_work, list_works, rename_work,
     restore_work,
 )
@@ -2099,12 +2099,22 @@ def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
 
 @app.get("/events")
 def events(chapter: int = Query(ge=1), work: str = "main"):
-    return [{"id": ev.id, "type": ev.type, "chapter": ev.story_time, "goal": ev.motivated_by_goal}
+    return [{"id": ev.id, "type": ev.type, "chapter": ev.story_time,
+             "goal": ev.motivated_by_goal, "causal_root_reason": ev.causal_root_reason}
             for ev in _store_for(work).events_at(chapter)]
 
 
 class NarrativeIn(BaseModel):
     narrative_position: int | None = None
+
+
+class CausalRootIn(BaseModel):
+    reason: str
+
+
+class CausalLinkIn(BaseModel):
+    source_event: str
+    ctype: str = "enables"
 
 
 @app.patch("/events/{eid}/narrative")
@@ -2120,6 +2130,40 @@ def patch_event_narrative(eid: str, body: NarrativeIn, work: str = "main"):
         raise HTTPException(status_code=404, detail=f"事件 {event_oid} 不存在")
     st.update_event_narrative(event_oid, body.narrative_position)
     return {"ok": True, "event": event_oid, "narrative_position": body.narrative_position}
+
+
+@app.patch("/events/{eid}/causal-root")
+def patch_event_causal_root(eid: str, body: CausalRootIn, work: str = "main"):
+    """登记同章独立场景的因果根理由；有入边的事件不可兼作根。"""
+    reason = (body.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="独立场景根理由不能为空")
+    st = _store_for(work)
+    event_oid = eid if eid.startswith("ev:") else f"ev:{eid}"
+    if not st.exists(event_oid):
+        raise HTTPException(status_code=404, detail=f"事件 {event_oid} 不存在")
+    try:
+        st.set_event_causal_root(event_oid, reason)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True, "event": event_oid, "causal_root_reason": reason}
+
+
+@app.patch("/events/{eid}/causal")
+def patch_event_causal(eid: str, body: CausalLinkIn, work: str = "main"):
+    """为既有事件补同章因果前驱；成功后自动清除其独立场景根理由。"""
+    st = _store_for(work)
+    event_oid = eid if eid.startswith("ev:") else f"ev:{eid}"
+    source_oid = (body.source_event or "").strip()
+    source_oid = source_oid if source_oid.startswith("ev:") else f"ev:{source_oid}"
+    ctype = (body.ctype or "enables").strip() or "enables"
+    if not st.exists(event_oid) or not st.exists(source_oid):
+        raise HTTPException(status_code=404, detail="目标事件或前驱事件不存在")
+    try:
+        st.add_event_causal_link(event_oid, source_oid, ctype)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True, "event": event_oid, "source_event": source_oid, "ctype": ctype}
 
 
 @app.get("/timeline")
@@ -3465,11 +3509,15 @@ def quality(work: str = "main"):
 
     Phase0-BE1(千万字基座):**改读 outline() 章级缓存列**(qc_word_count/qc_issues/qc_causal/
     qc_breakdown),不再逐章 get_chapter 全文 + quality_flags 重算 + 逐章查因果图(数千章=分钟级)。
-    缓存由 save_chapter 写时落库;返回字段(seq/title/word_count/qc_issues/qc_breakdown/causal)口径不变。"""
+    缓存由 save_chapter 写时落库;若版本戳过期，响应明确标注而不把旧值伪装为当前结论。"""
     st = _store_for(work)
     out = st.outline()
     per = []
+    stale_chapters = []
     for c in out["chapters"]:
+        cache_stale = c.get("qc_cache_revision") != QUALITY_CACHE_REVISION
+        if cache_stale:
+            stale_chapters.append(c["seq"])
         per.append({
             "seq": c["seq"], "title": c.get("title", ""),
             "word_count": c.get("word_count") or 0,
@@ -3478,6 +3526,7 @@ def quality(work: str = "main"):
                 "repetition": 0, "structural": 0, "purple": 0,
                 "ai_tics": 0, "oversaturation": 0},
             "causal": c.get("qc_causal") or 0,
+            "cache_stale": cache_stale,
         })
     # 缓存稳定章序按 seq 升序返回(与旧 list_chapters ORDER BY seq 口径一致)
     per.sort(key=lambda x: x["seq"])
@@ -3501,7 +3550,17 @@ def quality(work: str = "main"):
         "overdue": sum(1 for p in prom_list if p["overdue"]),
         "promises": prom_list,
     }
-    return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per)}
+    return {"chapters": per, "foreshadow": fore, "total_words": sum(c["word_count"] for c in per),
+            "cache_stale_chapters": sorted(stale_chapters),
+            "cache_revision": QUALITY_CACHE_REVISION}
+
+
+@app.post("/quality/refresh")
+def refresh_quality(work: str = "main"):
+    """作者显式刷新本书过期质量缓存；仅更新派生列，不触碰正文和正典数据。"""
+    refreshed = _store_for(work).refresh_quality_caches()
+    return {"ok": True, "refreshed_chapters": refreshed,
+            "cache_revision": QUALITY_CACHE_REVISION}
 
 
 @app.get("/intent")
@@ -6223,10 +6282,11 @@ class CheckReq(BaseModel):
 
 
 def _refresh_scorecard_after_ingest(st, seq: int) -> None:
-    """ingest 后刷新章 scorecard(P0门审查 P2-3,单源供 /ingest、_bg_ingest、loop 共用):
+    """ingest 后刷新章 scorecard 与质量缓存(P0门审查 P2-3,单源供 /ingest、_bg_ingest、loop 共用):
     存稿时快照没有本章事件,qc_causal 停在 -1 哨兵;反哺落库后重算出真值。
     fail-soft:刷新失败只告警,不影响 ingest 结果。"""
     try:
+        st.refresh_chapter_cache(seq)
         ch = st.get_chapter(seq) or {}
         prose = ch.get("prose") or ""
         if prose.strip():
