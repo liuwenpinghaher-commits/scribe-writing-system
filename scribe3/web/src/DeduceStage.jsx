@@ -170,6 +170,16 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     })
   }
 
+  // 全局「演绎」入口在尚未从手稿选定章节时也可被打开。该状态没有合法的
+  // chapter seq，绝不能呈现可编辑/可生成的工作台，否则失焦保存会请求
+  // /chapters/undefined，既无写入目标也会把后端校验对象传入提示组件。
+  const hasChapter = Number.isInteger(Number(seq)) && Number(seq) >= 1
+  if (!hasChapter) return (
+    <div data-testid="deduce-stage-missing-chapter" className="p-6 text-f13 text-faint">
+      请先在「手稿」中选择一个章节，再进行场景真相和角色限知演绎。
+    </div>
+  )
+
   return (
     <div
       data-testid="deduce-stage"

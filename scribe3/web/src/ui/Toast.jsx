@@ -11,7 +11,23 @@ import { Toaster as SonnerToaster, toast as sonnerToast } from 'sonner'
 //   'warn'   → warning(风险提示)
 //   'info'   → info   (中性信息)
 //   其它/缺省 → 默认(无语义中性 toast)
+export function toastText(msg) {
+  if (typeof msg === 'string') return msg
+  if (typeof msg === 'number' || typeof msg === 'boolean') return String(msg)
+  if (Array.isArray(msg)) return msg.map(toastText).filter(Boolean).join('; ') || '操作失败'
+  if (msg && typeof msg === 'object') {
+    if (typeof msg.msg === 'string') {
+      const loc = Array.isArray(msg.loc) && msg.loc.length ? ` (${msg.loc.join('.')})` : ''
+      return msg.msg + loc
+    }
+    if (typeof msg.detail === 'string') return msg.detail
+    try { return JSON.stringify(msg) } catch { return '操作失败' }
+  }
+  return msg == null ? '操作失败' : String(msg)
+}
+
 export function showToast(msg, opts = {}) {
+  const safeMsg = toastText(msg)
   const tone = opts.tone || 'ink'
   // action {label, onClick}:可点动作(断头修复#8:软门"去补"此前只有文案无入口)
   const o = (opts.duration || opts.action || opts.cancel)
@@ -19,11 +35,11 @@ export function showToast(msg, opts = {}) {
         ...(opts.action ? { action: opts.action } : {}),
         ...(opts.cancel ? { cancel: opts.cancel } : {}) }   // R2-10:第二动作(如「不再提醒」静音)
     : undefined
-  if (tone === 'danger') return sonnerToast.error(msg, o)
-  if (tone === 'ok') return sonnerToast.success(msg, o)
-  if (tone === 'warn') return sonnerToast.warning(msg, o)
-  if (tone === 'info') return sonnerToast.info(msg, o)
-  return sonnerToast(msg, o)
+  if (tone === 'danger') return sonnerToast.error(safeMsg, o)
+  if (tone === 'ok') return sonnerToast.success(safeMsg, o)
+  if (tone === 'warn') return sonnerToast.warning(safeMsg, o)
+  if (tone === 'info') return sonnerToast.info(safeMsg, o)
+  return sonnerToast(safeMsg, o)
 }
 
 // 主动关闭某条 toast(showToast 返回的 id);用于把「进行中」提示替换成结果提示。

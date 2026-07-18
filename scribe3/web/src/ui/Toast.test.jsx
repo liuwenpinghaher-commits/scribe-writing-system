@@ -45,4 +45,8 @@ describe('showToast', () => {
     showToast('x', { duration: 1000 })
     expect(calls.default[0][1]).toEqual({ duration: 1000 })
   })
+  it('把结构化错误安全转换为文本，避免 Toast 自身触发 React 渲染异常', () => {
+    showToast([{ type: 'int_parsing', loc: ['path', 'seq'], msg: 'Input should be a valid integer', input: 'undefined' }], { tone: 'danger' })
+    expect(calls.error[0][0]).toBe('Input should be a valid integer (path.seq)')
+  })
 })

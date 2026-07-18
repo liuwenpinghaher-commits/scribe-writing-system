@@ -35,4 +35,11 @@ describe('DeduceStage 布局', () => {
     expect(stage.className).not.toContain('max-w-[48rem]')
     expect(screen.getByTestId('rich-editor').className).toContain('w-full')
   })
+
+  it('未绑定章节时不渲染可写编辑器，避免把内容保存到 /chapters/undefined', () => {
+    render(<DeduceStage seq={undefined} meta={{ chars: [], deductions: [] }} work="demo" />)
+
+    expect(screen.getByTestId('deduce-stage-missing-chapter')).toBeTruthy()
+    expect(screen.queryByTestId('rich-editor')).toBeNull()
+  })
 })
