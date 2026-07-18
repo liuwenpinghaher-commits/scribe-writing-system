@@ -1483,7 +1483,8 @@ def test_post_check_real_discipline_call_is_bounded(store, monkeypatch):
     monkeypatch.setattr(A, "_complete_fn", None)
     r = c.post("/post-check?seq=1", json={"prose": "一段志怪正文，无异常。"})
     assert r.status_code == 200, r.text
-    assert seen["timeout"] == 30.0 and seen["retries_override"] == 1
+    assert (seen["timeout"] == 30.0 and seen["retries_override"] == 1
+            and seen["max_tokens"] == 480)
 
 
 def test_post_check_discipline_mocked(store):
