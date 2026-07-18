@@ -114,6 +114,14 @@ def test_cross_chapter_repetition_ignores_dialogue_boundary_fragments():
     assert not any("”" in hit["phrase"] for hit in hits)
 
 
+def test_cross_chapter_repetition_ignores_sentence_boundary_fragments():
+    """句号与下一句开头拼出的 n-gram 无法对应可改写的单句，不能报为跨章复读。"""
+    ch1 = "风停了。季棠从袖中摸出潮骨灯，照向门槛。"
+    ch2 = "雨歇了。季棠从袖中摸出潮骨灯，照向巷口。"
+    hits = find_cross_chapter_repetitions(ch2, [ch1], n=12)
+    assert not any(hit["phrase"].startswith("。") for hit in hits)
+
+
 def test_distinctive_phrases_extracts_avoid_list():
     """抽独特措辞供'避免清单':返回若干 ≥8 字、含中文短语,且都是原文的逐字片段。"""
     text = "七月正午的阳光泼在地上，像熔化的铜汁，唯独这棵三百年的老槐撑开一团浓绿。"
@@ -177,6 +185,41 @@ def test_rewrite_cross_repetitions_rolls_back_when_rewrite_does_not_reduce_hits(
     assert res["prose"] == ch2
     assert res["rewritten"] == 0
     assert res["after"] == res["before"]
+
+
+def test_rewrite_cross_repetitions_limits_targets_per_run():
+    """高命中章节应分批改写，单次不能无界地占用模型请求。"""
+    prior = "胡不为惨叫一声，钉尾露在外面，像一截白骨。沈砚握紧了潮骨灯，灯芯微微发亮。"
+    text = ("胡不为惨叫一声，钉尾露在外面，他踉跄后退。"
+            "沈砚握紧了潮骨灯，灯芯微微发亮，照向门槛。")
+    calls = []
+
+    def fake_complete(prompt, system=None):
+        calls.append(prompt)
+        return "他闷哼着缩起手，那截铁器从血肉里探出，森森发白。"
+
+    res = rewrite_cross_repetitions(text, [prior], fake_complete, n=8, max_targets=1)
+
+    assert len(calls) == 1
+    assert res["rewritten"] == 1
+    assert 0 < res["after"] < res["before"]
+
+
+def test_intra_rewrite_prioritizes_ai_tics_over_anaphora_when_batch_is_limited():
+    """有限批次先消除可明确改写的 AI 腔，不能被前置排比目标挤掉。"""
+    from scribe3.critique import rewrite_intra_chapter_issues
+    text = ("他看向门口。\n他看向窗外。\n他看向屋内。\n他看向阶下。\n"
+            "这不是恐惧而是愤怒，他攥紧了拳。")
+    prompts = []
+
+    def fake_complete(prompt, system=None):
+        prompts.append(prompt)
+        return "怒意压在他攥紧的拳头里。"
+
+    res = rewrite_intra_chapter_issues(text, fake_complete, max_targets=1)
+
+    assert prompts and "AI腔模式" in prompts[0]
+    assert res["rewritten"] == 1 and res["after"] < res["before"]
 
 
 # —— 章内精修治层(intra):章内 repetition / duplicate_lines / 排比,与跨章 dedup 对称 ——

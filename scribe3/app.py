@@ -18,6 +18,7 @@ import os
 import re
 import threading
 import time
+from functools import wraps
 from collections import OrderedDict, deque
 
 import httpx
@@ -97,6 +98,38 @@ _pending_ingest_lock = threading.Lock()
 # P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
 _loop_inflight: set[tuple[str, int]] = set()
 _loop_inflight_lock = threading.Lock()
+# 精修与跨章去重都会读取整章、调用模型、再覆写正文；若同章并发，后完成者会把先完成者
+# 的修复覆盖掉。和 loop 一样以 (work, seq) 为粒度互斥，客户端可明确收到 409 后重试。
+_chapter_repair_inflight: set[tuple[str, int]] = set()
+_chapter_repair_lock = threading.Lock()
+
+
+def _acquire_chapter_repair(work: str, seq: int) -> None:
+    key = (work, seq)
+    with _chapter_repair_lock:
+        if key in _chapter_repair_inflight:
+            raise HTTPException(status_code=409, detail=(
+                f"第 {seq} 章正在执行质量修复，完成后请重新检查再操作"))
+        _chapter_repair_inflight.add(key)
+
+
+def _release_chapter_repair(work: str, seq: int) -> None:
+    with _chapter_repair_lock:
+        _chapter_repair_inflight.discard((work, seq))
+
+
+def _exclusive_chapter_repair(handler):
+    """为整章读-改-写端点加 finally 释放的同章互斥，不依赖客户端连接是否仍在。"""
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        seq = kwargs.get("seq", args[0] if args else None)
+        work = kwargs.get("work", "main")
+        _acquire_chapter_repair(work, int(seq))
+        try:
+            return handler(*args, **kwargs)
+        finally:
+            _release_chapter_repair(work, int(seq))
+    return wrapped
 
 # 遗留处置 1-A:S1 熔断(三重防误杀之三)——最近 10 次 loop 中由 S1(findings_schema)
 # 触发 blocking 的比例 >30%(样本≥5)→ 暂停共振升格并在响应标注(宁可漏不可磨;
@@ -6338,6 +6371,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
 
 
 @app.post("/dedup-chapter")
+@_exclusive_chapter_repair
 def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     """确定性事后跨章改写(QC 的'治'层):定位本章含跨章逐字复读的句子→定向 LLM 改写→存回。
 
@@ -6368,7 +6402,10 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         return hermes_complete(prompt, system, timeout=min(float(default_timeout()), 30.0),
                                max_tokens=360, retries_override=1)
 
-    res = rewrite_cross_repetitions(ch["prose"], priors, _dedup_complete, n=12, allow=allow)
+    # 与章内精修同样分批：一次最多处理六句，避免高命中章节把一次 HTTP 请求放大为
+    # 无界的串行模型调用；下一次调用会从最新正文继续收敛。
+    res = rewrite_cross_repetitions(ch["prose"], priors, _dedup_complete,
+                                    n=12, allow=allow, max_targets=6)
     if res["rewritten"] > 0:
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
         # 落 final 版(与 /save-chapter 对称;fail-soft:留版失败不阻断改写落库)
@@ -6386,6 +6423,7 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
 
 
 @app.post("/polish-chapter")
+@_exclusive_chapter_repair
 def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     """章内精修(QC 治层·章内维度):定位本章内 repetition/duplicate_lines/排比 → 定向改写 → 存回。
 

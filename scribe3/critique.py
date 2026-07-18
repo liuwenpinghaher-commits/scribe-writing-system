@@ -43,6 +43,9 @@ def _cjk_ngrams(text: str, n: int) -> set[str]:
     s = re.sub(r"\s+", "", text or "")
     return {s[i:i + n] for i in range(len(s) - n + 1)
             if re.search(r"[一-鿿]", s[i:i + n]) and not _PUNCT_ONLY.match(s[i:i + n])
+            # 跨越句末标点的拼接片段（如“。季棠从袖中摸出”）既不是完整可读短语，
+            # 也无法映射回 cross_repetition_sentences 的单句改写目标。
+            and not any(p in s[i:i + n] for p in "。！？\n")
             # 说话人标签跨越引号边界（如 “。”沈砚说。季棠）不是可读复读，
             # 真正的台词内容仍会由完全落在引号内部的 n-gram 参与比对。
             and not any(q in s[i:i + n] for q in '“”"')}
@@ -134,7 +137,8 @@ def cross_repetition_sentences(text: str, prior_texts: list[str], n: int = 8,
 
 
 def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
-                              n: int = 8, allow: set[str] | None = None) -> dict:
+                              n: int = 8, allow: set[str] | None = None,
+                              max_targets: int | None = None) -> dict:
     """确定性事后跨章改写——系统哲学:'prompt 规则治不了已生成文本,确定性扫描+定向[改]才拦得住'。
 
     1) 确定性定位含跨章复读的句子;2) 逐句调 complete_fn 定向改写(换措辞/感官/句式,保意保限知);
@@ -143,6 +147,8 @@ def rewrite_cross_repetitions(text: str, prior_texts: list[str], complete_fn,
     """
     before = len(find_cross_chapter_repetitions(text, prior_texts, n=n, allow=allow))
     targets = cross_repetition_sentences(text, prior_texts, n=n, allow=allow)
+    if max_targets is not None:
+        targets = targets[:max(0, int(max_targets))]
     if not targets:
         return {"prose": text, "rewritten": 0, "before": before, "after": before}
     new = text
@@ -385,6 +391,9 @@ def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None 
         targets = intra_repetition_sentences(new, allow=allow)
         if not targets:
             break
+        # HTTP 端点按批次上限执行时，明确可保义改写的 AI 腔应优先于“排比开头”这类
+        # 可能在台词/引号边界上无法安全替换的目标，确保每批都先产生可验证的净改善。
+        targets.sort(key=lambda target: 0 if "AI腔模式" in target["hint"] else 1)
         if remaining_targets is not None:
             targets = targets[:remaining_targets]
         changed = False

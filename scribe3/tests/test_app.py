@@ -570,6 +570,19 @@ def test_dedup_chapter_no_rewrite_no_version_no_ingest(store, monkeypatch):
     assert "args" not in called, "无改写不应排 ingest"
 
 
+def test_chapter_repair_lock_rejects_same_chapter_parallel_write():
+    """精修与跨章去重不能用各自读到的旧正文相互覆盖。"""
+    key = ("repair-lock-test", 42)
+    A._release_chapter_repair(*key)
+    A._acquire_chapter_repair(*key)
+    try:
+        with pytest.raises(A.HTTPException) as exc:
+            A._acquire_chapter_repair(*key)
+        assert exc.value.status_code == 409
+    finally:
+        A._release_chapter_repair(*key)
+
+
 def test_term_first_mention_chapter_roundtrip(store):
     """POST /terms 携带 first_mention_chapter 应写入并可从 GET /terms 读回。"""
     c = _client(store)
