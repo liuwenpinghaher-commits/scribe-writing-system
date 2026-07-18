@@ -340,6 +340,9 @@ export const api = {
   patchChapter: (seq, b, work) => patch('/chapters/' + seq, b, work),
   // work 可选:演绎卸载兜底 flush 读现状(合并 deductions)时钉住目标书,防切书读错书(F6,同 patchChapter 钉书)。
   chapter: (seq, work) => fetch(BASE + ww(`/chapter?seq=${seq}`, work)).then(handle),
+  // 角色投影只能以服务端场景真相为证据审查；客户端不传 source，避免伪造事实来源。
+  validateDeduction: (seq, candidate, characterId = '', work) => post(
+    `/chapters/${seq}/deductions/grounding`, { candidate, character_id: characterId }, work),
   // 四阶段草稿:存草稿(留 draft 版 + 写 chapter.draft)/ 取最新草稿(刷新恢复)
   // work 可选:卸载兜底 flush 传入捕获的 work,钉死目标书,防切书写错书。
   saveDraft: (seq, prose, summary = '', work) => post(`/save-draft?seq=${seq}`, { prose, summary }, work),

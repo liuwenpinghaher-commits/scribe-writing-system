@@ -96,6 +96,8 @@ class TestWriteGate:
         ("POST", "/tension-check"),   # M2a张力检查:确定性3项+LLM rubric,只读不落库,read-only POST
         ("POST", "/dedup-chapter"),   # QC治层:确定性事后跨章改写并存回(作者可信通道)
         ("POST", "/chat/write"),
+        # 演绎事实对齐:只读 chapter.scene_truth + LLM 审查,绝不写入正典。
+        ("POST", "/chapters/{seq}/deductions/grounding"),
         # Hermes Runs/Approval:写入型 agentic 任务入口。create/approval/stop 都走
         # scribe3_write gateway + work-scoped session key,并 best-effort 写 ai_run_trace。
         ("POST", "/ai/runs"),
@@ -144,6 +146,8 @@ class TestWriteGate:
         # commit 才批量落素材且逐条返回 failed/warnings。
         ("POST", "/materials/import"),
         ("POST", "/materials/import/{job_id}/commit"),
+        # 人工采纳素材后登记章级溯源引用(作者显式操作)。
+        ("POST", "/materials/{mid}/refs"),
         # 审查修复:统一对象 lifecycle 删除,必须先经过 impact/token;
         # 有引用时无 token 返回 409,不会静默删除。
         ("DELETE", "/objects/{object_type}/{object_id}"),

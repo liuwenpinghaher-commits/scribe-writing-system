@@ -3935,6 +3935,28 @@ def test_patch_chapter_deduction_fields(store):
     assert ch["deductions"][0]["prose"] == "看到:X"
 
 
+def test_deduction_grounding_endpoint_reads_server_truth_not_client_evidence(store, monkeypatch):
+    """投影审查只能拿章节权威真相作证据，客户端不能另塞一份来源绕过。"""
+    import scribe3.app as A
+    store.save_chapter(23, "", title="第23章")
+    store.update_chapter_meta(23, {"scene_truth": "沈砚站在潮闸前，闸板震颤。"})
+    seen = {}
+
+    def review(source, candidate, *, mode):
+        seen.update(source=source, candidate=candidate, mode=mode)
+        return {"ok": False, "issues": [{"claim": "黑水", "reason": "无来源", "evidence": ""}]}
+
+    monkeypatch.setattr(A, "_grounding_review", review)
+    r = _client(store).post("/chapters/23/deductions/grounding", json={
+        "candidate": "黑水从闸底涌出。", "character_id": "role:季棠",
+        "source": "客户端伪造的黑水证据",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    assert seen == {"source": "沈砚站在潮闸前，闸板震颤。", "candidate": "黑水从闸底涌出。", "mode": "deduction"}
+
+
 def test_deduction_block_injects_truth_and_projections(store):
     from scribe3.app import _deduction_block
     store.save_chapter(3, "", title="第3章")

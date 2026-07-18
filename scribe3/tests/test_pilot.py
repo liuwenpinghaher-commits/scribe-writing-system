@@ -123,6 +123,11 @@ def _wire_llm(monkeypatch):
         # 不能看 system:写作组装链 system 必含"纪律"字样,会误吞一切生成调用。
         if "cut_after" in prompt or "violations" in prompt:
             return json.dumps({"ok": True, "violations": [], "cut_after": ""})
+        if "事实对齐审计器" in prompt:
+            source = prompt.split("<SOURCE>\n", 1)[1].split("\n</SOURCE>", 1)[0].strip()
+            return json.dumps({"verdict": "pass", "claims": [{
+                "claim": "测试替身主张", "supported": True, "evidence": source[:12],
+            }], "issues": []}, ensure_ascii=False)
         if "拿不准" in prompt:
             return "无"
         if "节拍" in prompt:
@@ -350,6 +355,41 @@ def test_deduce_merges_manual_deductions_by_character(store, monkeypatch):
     assert by_id["role:哑姑"]["prose"] == "作者手写投影,勿动。", "已有角色投影不被覆盖"
     assert "role:老范" in by_id, "缺失角色投影被补齐"
     assert (ch.get("scene_truth") or "").strip(), "缺失的真相被生成"
+
+
+def test_pilot_beats_grounding_failure_parks_before_persist(store, monkeypatch):
+    """真实生成若凭空新增世界规则，Pilot 必须停在原状态且不污染 beats。"""
+    store.save_chapter(13, "", title="十三")
+    store.update_chapter_meta(13, {"synopsis": "沈砚在潮闸前拒绝报出名字。"})
+    monkeypatch.setattr(A, "_pilot_llm_gen", lambda *a, **kw:
+                        "沈砚发现：每报出一个名字，持灯者就会遗忘一个亲人。")
+    monkeypatch.setattr(A, "_grounding_review", lambda *a, **kw: {
+        "ok": False,
+        "issues": [{"claim": "持灯者会遗忘亲人", "reason": "证据未包含该规则", "evidence": ""}],
+    })
+
+    result = A._pilot_executor("main")["expand_beats"](store, 13)
+
+    assert result["pilot_park"].startswith("事实对齐失败")
+    assert store.get_chapter(13)["beats"] == [], "不合格节拍不得写入权威章节字段"
+
+
+def test_grounding_reviewer_fails_closed_when_evidence_is_not_in_source(monkeypatch):
+    """审查模型给出的证据不在事实源中，也不能把幻觉判成通过。"""
+    monkeypatch.setattr(A, "_grounding_llm", lambda prompt: json.dumps({
+        "verdict": "pass",
+        "claims": [{"claim": "黑水从闸底涌出", "supported": True, "evidence": "黑水涌出"}],
+        "issues": [],
+    }, ensure_ascii=False))
+
+    result = A._grounding_review(
+        source="沈砚站在潮闸前，闸板震颤。",
+        candidate="黑水从闸底涌出。",
+        mode="deduction",
+    )
+
+    assert result["ok"] is False
+    assert result["issues"] and "证据" in result["issues"][0]["reason"]
 
 
 def test_steer_reaches_outline_prompt(store, monkeypatch):

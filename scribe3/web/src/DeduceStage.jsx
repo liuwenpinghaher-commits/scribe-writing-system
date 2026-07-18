@@ -24,6 +24,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const { snapshot } = useContextSnapshot()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [grounding, setGrounding] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
   const [addingRole, setAddingRole] = useState(false)
   const chars = meta?.chars || []
@@ -42,6 +43,16 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
         // 传 work:切书卸载 flush 走全局 WORK 会把本书场景真相写进别的书(F6,同 OutlineTab/BeatsTab 钉书)
         await api.patchChapter(sq, { scene_truth: val }, work)
       } else {
+        // 投影的唯一事实源是服务端场景真相。这里不能信任前端 meta，也不能把
+        // "生成结束"当成可写入：先审查，再合并进入 deductions。
+        const review = await api.validateDeduction(sq, val, sel, work)
+        if (!review?.ok) {
+          const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
+          setGrounding({ ok: false, reason })
+          toast(`投射未保存：${reason}`, { tone: 'danger', duration: 7000 })
+          return false
+        }
+        setGrounding({ ok: true })
         const ch = await api.chapter(sq, work)                 // 读最新且钉住目标书,避免 meta 过期覆盖别的角色/读错书
         const others = (ch?.deductions || []).filter((d) => d.character_id !== sel)
         const name = (meta?.chars?.find((c) => c.id === sel) || {}).name
@@ -174,15 +185,16 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   }
 
   const gen = () => {
-    setBusy(true); let acc = ''
-    const instr = selected === 'truth'
+    const target = selected
+    setBusy(true); setGrounding(null); let acc = ''
+    const instr = target === 'truth'
       ? `写第${seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,含角色们察觉不到的隐藏机制。据本章大纲/节拍/设定(含私密)。只输出真相正文。`
       : `以「${cur.character_name}」截至第${seq}章的限知,写该角色这一场的限知投影,分五个小标题:看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 markdown 三级标题(### 标题)独立起行。据场景真相与该角色的限知帧,只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。`
     // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
     // 兼容纯 delta 流。全部累进到 acc，完成后落库。
     api.chatWrite(instr, {
       // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
-      chapter: seq, phase: 'deduce', focalizer: selected === 'truth' ? '' : selected,
+      chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
       context: snapshot ? {
         context_session_id: snapshot.session_id,
         context_revision: snapshot.revision,
@@ -192,18 +204,33 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
       onDelta: (d) => { acc += d; setText(acc) },
       onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
-      onDone: () => {
+      onDone: async () => {
         setBusy(false); const v = acc.trim()
         if (v) {
           setText(v)
-          // 场景真相可直接由作者使用；角色投射在 P1-020 事实门禁完成前仅作为待审稿，
-          // 绝不在流结束时静默写成正典，作者需主动编辑/失焦确认后才落库。
-          if (selected === 'truth') {
-            persistFor(selected, seq, v)
-            workRef.current = { selected, seq, text: v, dirty: false }
+          // 场景真相可直接由作者使用；角色投射先拿服务端权威真相做事实对齐。
+          // 通过后仍保持待作者确认状态；失败稿不置 dirty，因而失焦/切换也不会偷写入。
+          if (target === 'truth') {
+            persistFor(target, seq, v)
+            workRef.current = { selected: target, seq, text: v, dirty: false }
           } else {
-            workRef.current = { selected, seq, text: v, dirty: true }
-            toast('投射已生成，含待核事实；请核对场景真相后失焦确认保存。', { tone: 'warn', duration: 6000 })
+            try {
+              const review = await api.validateDeduction(seq, v, target, work)
+              if (review?.ok) {
+                setGrounding({ ok: true })
+                workRef.current = { selected: target, seq, text: v, dirty: true }
+                toast('事实对齐通过；请核对场景真相后失焦确认保存。', { tone: 'warn', duration: 6000 })
+              } else {
+                const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
+                setGrounding({ ok: false, reason })
+                workRef.current = { selected: target, seq, text: v, dirty: false }
+                toast(`投射未保存：${reason}`, { tone: 'danger', duration: 7000 })
+              }
+            } catch (e) {
+              setGrounding({ ok: false, reason: '事实对齐服务不可用' })
+              workRef.current = { selected: target, seq, text: v, dirty: false }
+              toast('投射未保存：事实对齐服务不可用，请稍后重试。', { tone: 'danger', duration: 7000 })
+            }
           }
         }
       },
@@ -266,6 +293,11 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
         onChange={(md) => { setText(md); workRef.current.text = md; workRef.current.dirty = true }} onBlur={blur}
         placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
         className="flex-1 min-h-0 w-full" />
+      {selected !== 'truth' && grounding && (
+        <div role="status" className={`text-f12 mt-2 ${grounding.ok ? 'text-ok' : 'text-danger'}`}>
+          {grounding.ok ? '事实对齐通过：仍需作者失焦确认后保存。' : `事实对齐未通过：${grounding.reason}`}
+        </div>
+      )}
       <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
     </div>
   )

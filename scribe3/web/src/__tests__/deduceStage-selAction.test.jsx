@@ -19,6 +19,7 @@ const apiMock = vi.hoisted(() => ({
   patchChapter: vi.fn(() => Promise.resolve({})),
   chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
   chatWrite: vi.fn(),
+  validateDeduction: vi.fn(() => Promise.resolve({ ok: false, issues: [{ reason: '无来源' }] })),
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 
@@ -206,5 +207,26 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     expect(instruction).toContain('不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史')
     expect(instruction).not.toContain('写他这一场')
     expect(instruction).not.toContain('只含他所知所感')
+  })
+
+  it('⑩角色投射生成后先做服务端事实对齐，失败时不得自动写入 deductions', async () => {
+    deduceSelState.selected = 'role:季棠'
+    apiMock.chatWrite.mockImplementation((_instruction, handlers) => {
+      handlers.onProposalStart?.()
+      handlers.onProposal?.({ prose: '黑水从闸底涌出。' })
+      handlers.onDone?.()
+    })
+    renderDeduce({ meta: {
+      chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
+    } })
+    await screen.findByRole('textbox', { name: '限知投影' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenCalledWith(
+      3, '黑水从闸底涌出。', 'role:季棠', 'demo',
+    ))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
   })
 })
