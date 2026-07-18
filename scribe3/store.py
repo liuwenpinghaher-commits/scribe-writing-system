@@ -1296,11 +1296,27 @@ class SurrealStore:
 
     # --- 语义 RAG ---
     def semantic_index(self, oid: str, text: str) -> None:
-        """给某命题写入 embedding(语义召回用;经 execute_write 单点)。"""
+        """给某命题写入 embedding(语义召回用;经 execute_write 单点)。
+
+        反哺会并发写命题与向量字段；SurrealDB 的事务冲突是可重试的瞬态失败。向量
+        已在循环外生成，重试只重放幂等 UPDATE，避免一条已落库命题永久不可语义召回。
+        """
         from scribe3.embed import embed
+        import time
         _, local = _split(oid)
-        self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
-                            {"local": local, "v": embed([text])[0]})
+        vector = embed([text])[0]
+        for attempt in range(3):
+            try:
+                self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
+                                    {"local": local, "v": vector})
+                return
+            except Exception as e:
+                transient = "transaction" in str(e).lower() and "conflict" in str(e).lower()
+                if not transient or attempt == 2:
+                    raise
+                logging.getLogger("scribe3.store").warning(
+                    "semantic_index 事务冲突，重试 %s/2 命题 %s: %s", attempt + 1, oid, str(e)[:120])
+                time.sleep(0.05 * (attempt + 1))
 
     def semantic_recall(self, query: str, k: int = 5) -> list[Fact]:
         """语义召回最相关命题(HNSW <|K,EF|>,按距离升序)。

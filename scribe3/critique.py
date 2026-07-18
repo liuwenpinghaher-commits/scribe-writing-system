@@ -191,6 +191,56 @@ def find_near_duplicate_paragraphs(text: str, sim: float | None = None, min_len:
 
 # collector/rewriter 统一切句正则(含省略号 …,与 find_duplicate_lines 口径一致,修 review P2-3)
 _INTRA_SENT_SPLIT = re.compile(r"(?<=[。！？…\n])")
+_AUTO_REWRITE_AI_TIC_KINDS = {"em_dash", "not_a_but_b", "toxic_pattern", "banned_word"}
+
+
+def repair_nested_dialogue_opens(text: str) -> str:
+    """修正明确的中文对白右引号缺失。
+
+    双引号尚未闭合又出现新的开引号不是合法嵌套（内层应使用单引号）。若旧开引号
+    后已有句末标点，便在第一处句末标点后补右引号；没有句末标点时保守地不动。
+    该函数不处理 EOF 悬挂引号，避免猜测作者尚未完成的长对白。
+    """
+    out: list[str] = []
+    open_at: int | None = None
+    for ch in text or "":
+        if ch == "“":
+            if open_at is not None:
+                segment = "".join(out[open_at + 1:])
+                terminal = re.search(r"[。！？]", segment)
+                if terminal:
+                    insert_at = open_at + 1 + terminal.end()
+                    out.insert(insert_at, "”")
+            open_at = len(out)
+        elif ch == "”":
+            open_at = None
+        out.append(ch)
+    return "".join(out)
+
+
+def _ai_tic_rewrite_sentences(text: str, allow: set[str] | None = None) -> list[tuple[str, str]]:
+    """把可保义自动处理的 AI 腔命中提升为完整句。
+
+    语境词仍只报告；一级禁词已是质量规则的显式命中，按句交给模型保义改写，但会尊重
+    作者白名单。这里处理否定翻转、破折号密集、完整毒句式和一级禁词，且同一句只返回
+    一次，供定位器和回滚门共用。
+    """
+    sents = [s for s in _INTRA_SENT_SPLIT.split(text or "") if s.strip()]
+    marked: dict[str, str] = {}
+    for hit in find_ai_tics(text, allow_words=allow):
+        if hit.get("kind") not in _AUTO_REWRITE_AI_TIC_KINDS:
+            continue
+        bad = str(hit.get("text") or hit.get("phrase") or "").strip()
+        if not bad and hit.get("kind") == "em_dash":
+            bad = "——"
+        if not bad:
+            continue
+        for s in sents:
+            if bad in s:
+                marked.setdefault(s.strip(), bad)
+                if hit.get("kind") != "em_dash":
+                    break
+    return list(marked.items())
 
 
 def intra_repetition_sentences(text: str, allow: set[str] | None = None) -> list[dict]:
@@ -259,6 +309,11 @@ def intra_repetition_sentences(text: str, allow: set[str] | None = None) -> list
             if len(s.strip()) >= 6:
                 _mark(s, "本段与前文某段高度重复(仅换了几个字重写同一画面),请彻底改写成推进叙事的新内容或删繁。")
 
+    # ⑤ AI 腔:检测器给的是问题短语/符号，精修必须提升到完整句，才能在不改情节的
+    # 前提下替换掉否定翻转、密集破折号等模式，而不是只在质检面板里报警。
+    for sentence, bad in _ai_tic_rewrite_sentences(text, allow=allow):
+        _mark(sentence, f"本句含AI腔模式「{bad}」,请改成直接、具体的叙述，保留情节与限知，不用否定翻转、破折号堆砌或公式化强调。")
+
     return [{"sentence": k, "hint": marked[k]} for k in order]
 
 
@@ -296,7 +351,8 @@ def rewrite_intra_chapter_issues(text: str, complete_fn, allow: set[str] | None 
         struct = len([x for x in find_structural_repeats(t) if x.get("kind") == "anaphora"
                       and not _is_allowed(x["phrase"].split("…")[0], allow)])
         near = len(find_near_duplicate_paragraphs(t, allow=allow))
-        return reps + dups + struct + near
+        ai_tics = len(_ai_tic_rewrite_sentences(t, allow=allow))
+        return reps + dups + struct + near + ai_tics
 
     before = _count(text)
     if before == 0:
@@ -353,7 +409,10 @@ def find_structural_repeats(text: str, min_anaphora: int = 4, max_short: int = 4
         if c >= min_anaphora:
             out.append({"phrase": f"{op}…(排比开头)", "count": c, "kind": "anaphora"})
     short = [s for s in sents if 1 <= len(s) <= 2 and _HAS_CJK.search(s)]
-    if len(short) > max_short:
+    # 短句要同时满足数量与密度才算滥用：长章里零星的姓名/应答是正常节奏，
+    # 不能和几十字内连续碎句同等处罚。2‰ 保留原有短文本高密拦截，放行长章稀疏短句。
+    short_per_k = len(short) * 1000 / max(1, len("".join(text.split())))
+    if len(short) > max_short and short_per_k > 2:
         out.append({"phrase": "单字/极短断句(如 " + "/".join(short[:5]) + ")", "count": len(short), "kind": "short"})
     return sorted(out, key=lambda x: -x["count"])[:8]
 

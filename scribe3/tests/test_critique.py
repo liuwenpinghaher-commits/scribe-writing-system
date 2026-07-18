@@ -175,6 +175,59 @@ def test_intra_locates_parallelism_keeps_two():
     assert len(tgt) == 2 and all("排比" in t["hint"] for t in tgt)
 
 
+def test_intra_locates_ai_tic_sentence_for_preserving_rewrite():
+    """AI 腔也须定位到完整句，才能保义改写而非只做事后报警。"""
+    text = "闸板底下传来响动。那不是恐惧——是渴望。季棠把灯收进袖里。"
+    targets = intra_repetition_sentences(text)
+    hit = next((item for item in targets if "不是恐惧" in item["sentence"]), None)
+    assert hit is not None
+    assert "AI腔" in hit["hint"]
+
+
+def test_intra_rewrites_ai_tic_and_reduces_count():
+    """命中的 AI 腔必须参与回滚门计数，改写后才会真正落盘。"""
+    text = "闸板底下传来响动。那不是恐惧——是渴望。季棠把灯收进袖里。"
+
+    def complete_fn(_prompt, _sysmsg):
+        return "胸口那股念头忽然沉了下去。"
+
+    result = rewrite_intra_chapter_issues(text, complete_fn)
+
+    assert result["rewritten"] == 1
+    assert result["before"] > result["after"]
+    assert not any(hit["kind"] in {"not_a_but_b", "em_dash"}
+                   for hit in find_ai_tics(result["prose"]))
+
+
+def test_intra_rewrites_banned_ai_word_and_reduces_count():
+    """质量面板已报出的 AI 词汇也必须能进入受控精修闭环。"""
+    text = "雾里隐约传来木鱼声。季棠停在门槛外。"
+
+    def complete_fn(_prompt, _sysmsg):
+        return "雾里传来断续的木鱼声。"
+
+    result = rewrite_intra_chapter_issues(text, complete_fn)
+
+    assert result["rewritten"] == 1
+    assert result["before"] > result["after"]
+    assert not any(hit["kind"] == "banned_word" and hit.get("phrase") == "隐约"
+                   for hit in find_ai_tics(result["prose"]))
+
+
+def test_intra_keeps_allowed_ai_word_out_of_auto_rewrite():
+    """作者显式放行的词不应被自动精修器改掉。"""
+    text = "雾里隐约传来木鱼声。季棠停在门槛外。"
+    assert intra_repetition_sentences(text, allow={"隐约"}) == []
+
+
+def test_repair_nested_dialogue_open_closes_previous_line():
+    """再次遇到开引号前仍未闭合，说明上一句对白缺右引号。"""
+    from scribe3.critique import repair_nested_dialogue_opens
+    text = "“别动。季棠的声音在身后响起。\n\n“这是什么？”沈砚问。"
+    result = repair_nested_dialogue_opens(text)
+    assert result == "“别动。”季棠的声音在身后响起。\n\n“这是什么？”沈砚问。"
+
+
 def test_rewrite_intra_reduces_intra_repetition_with_fake_llm():
     """假 LLM 把章内复读句换掉 → 章内硬伤下降。"""
     text = ("他伸手去摸那道疤，凉丝丝的。风停了。他伸手去摸那道疤，凉丝丝的。"
@@ -525,6 +578,13 @@ def test_quality_issues_structural_short_range():
         s, e = iss["range"]
         assert prose[s:e] == iss["text"]
         assert 1 <= len("".join(iss["text"].split())) <= 2
+
+
+def test_structural_short_not_flagged_when_sparse_in_long_chapter():
+    """零星短句是叙事节奏，不应与连续碎句滥用混为一谈。"""
+    prose = ("这是完整的叙述句，用来拉开章节长度。" * 260
+             + "季棠。沈砚。她说。她问。停。")
+    assert not any(item["kind"] == "short" for item in find_structural_repeats(prose))
 
 
 def test_quality_issues_oversaturation_range():

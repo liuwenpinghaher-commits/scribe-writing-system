@@ -244,6 +244,21 @@ def test_add_term_idempotent_by_name(store):
 
 # --- P1 Task 3: add_fact 写入后自动建 embedding ---
 
+def test_semantic_index_retries_transient_transaction_conflict(store, monkeypatch):
+    """向量 UPDATE 遇到 SurrealDB 短暂写冲突时，不能永久丢失语义召回。"""
+    import scribe3.embed as embed_module
+    monkeypatch.setattr(embed_module, "embed", lambda _texts: [[0.1, 0.2]])
+    calls = []
+
+    def write(_surql, _vars):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("Transaction write conflict")
+
+    monkeypatch.setattr(store, "_execute_write", write)
+    store.semantic_index("fact:retry", "可被召回的命题")
+    assert len(calls) == 2
+
 def test_add_fact_is_semantically_recallable(store):
     """P1 回归:store.add_fact 写入后命题应可被 semantic_recall 召回。
     修复前:add_fact 不建 embedding → semantic_recall 永远找不到该命题。

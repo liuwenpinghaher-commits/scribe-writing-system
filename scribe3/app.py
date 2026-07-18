@@ -6396,12 +6396,21 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     ch = st.get_chapter(seq)
     if not ch or not ch.get("prose"):
         raise HTTPException(status_code=404, detail="chapter not found")
-    from scribe3.critique import rewrite_intra_chapter_issues
+    from scribe3.critique import repair_nested_dialogue_opens, rewrite_intra_chapter_issues
     from scribe3.llm import hermes_complete
     allow = st.motif_terms() if hasattr(st, "motif_terms") else None
-    res = rewrite_intra_chapter_issues(ch["prose"], hermes_complete, allow=allow)
+    # 章内 AI 词精修同样尊重作者白名单：motif_terms 用于复读豁免，allow_words
+    # 用于 find_ai_tics 的禁词豁免；合并后沿用 rewrite_intra 的单一 allow 入参。
+    try:
+        allow = set(allow or ()) | set(st.allow_words() if hasattr(st, "allow_words") else ())
+    except Exception:
+        allow = set(allow or ()) or None
+    quote_fixed = repair_nested_dialogue_opens(ch["prose"])
+    quote_repairs = max(0, quote_fixed.count("”") - ch["prose"].count("”"))
+    res = rewrite_intra_chapter_issues(quote_fixed, hermes_complete, allow=allow)
+    changed = bool(res["rewritten"] or quote_repairs)
     leak_guard = None
-    if res["rewritten"] > 0:
+    if changed:
         # 限知二次门:改写单句无全局 context,可能把原文刻意模糊的表述"具体化点破"未揭示悬念。
         # 落库前复跑 find_leaks(与 /save-chapter、/check 同一泄露门),泄露增加则整体回退不落库。
         foc = ch.get("focalizer")
@@ -6414,6 +6423,8 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
                     leak_guard = {"before": before_leaks, "after": after_leaks, "action": "rolled_back"}
                     res = {"rewritten": 0, "before": res["before"], "after": res["before"],
                            "prose": ch["prose"]}
+                    quote_repairs = 0
+                    changed = False
             except Exception as e:
                 import logging
                 logging.getLogger("scribe3").warning(
@@ -6422,7 +6433,9 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
                 leak_guard = {"error": str(e), "action": "rolled_back"}
                 res = {"rewritten": 0, "before": res["before"], "after": res["before"],
                        "prose": ch["prose"]}
-    if res["rewritten"] > 0:
+                quote_repairs = 0
+                changed = False
+    if changed:
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
         try:
             st.add_chapter_version(seq, res["prose"], label="", kind="final",
@@ -6434,6 +6447,8 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         _enqueue_ingest(background, work, seq)
     resp = {"seq": seq, "rewritten": res["rewritten"],
             "intra_issues_before": res["before"], "intra_issues_after": res["after"]}
+    if quote_repairs:
+        resp["quote_repairs"] = quote_repairs
     if leak_guard:
         resp["leak_guard"] = leak_guard
     return resp
