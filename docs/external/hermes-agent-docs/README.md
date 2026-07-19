@@ -26,6 +26,17 @@
 
 ## 刷新命令
 
+官网抓取依赖 `scribe3/requirements.txt` 锁定的 `Crawl4AI 0.9.2`。首次安装或重建 venv 后，先安装 Python 依赖和 Chromium，再运行官方 doctor：
+
+```bash
+scribe3/.venv/bin/pip install -r scribe3/requirements.txt
+scribe3/.venv/bin/crawl4ai-setup
+scribe3/.venv/bin/crawl4ai-doctor
+scribe3/.venv/bin/pip show crawl4ai
+```
+
+`crawl4ai-setup` 安装 Crawl4AI 使用的 Playwright/Patchright Chromium。`pip show crawl4ai` 应报告 `Version: 0.9.2`，doctor 必须完成真实浏览器抓取后才能把本机 runtime 记为可用。Crawl4AI 未安装时，`website` 和包含 website 层的 `all` 都返回退出码 2；`discover`、repository 快照与已有缓存的完整性检查不依赖 Crawl4AI 浏览器。
+
 在仓库根目录执行：
 
 ```bash

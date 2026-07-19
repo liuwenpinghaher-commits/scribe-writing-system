@@ -47,7 +47,8 @@ def _fake_crawl4ai_runtime(result_sets, calls):
         BYPASS = "bypass"
 
     class SemaphoreDispatcher:
-        def __init__(self, *, max_session_permit):
+        def __init__(self, semaphore_count=5, max_session_permit=20):
+            self.semaphore_count = semaphore_count
             self.max_session_permit = max_session_permit
 
     class AsyncWebCrawler:
@@ -65,7 +66,8 @@ def _fake_crawl4ai_runtime(result_sets, calls):
                 {
                     "urls": list(urls),
                     "selector": config.css_selector,
-                    "max_concurrency": dispatcher.max_session_permit,
+                    "max_concurrency": dispatcher.semaphore_count,
+                    "verbose": config.options.get("verbose"),
                 }
             )
             result = result_sets[config.css_selector]
@@ -136,7 +138,7 @@ def test_crawl4ai_adapter_binds_returned_urls_and_falls_back_for_short_page(
         raising=False,
     )
 
-    pages = asyncio.run(cli.crawl4ai_fetch_many(urls))
+    pages = asyncio.run(cli.crawl4ai_fetch_many(urls, max_concurrency=2))
 
     assert [(page.url, page.final_url, page.title) for page in pages] == [
         (urls[1], urls[1], "B"),
@@ -148,14 +150,55 @@ def test_crawl4ai_adapter_binds_returned_urls_and_falls_back_for_short_page(
         {
             "urls": urls,
             "selector": ".theme-doc-markdown",
-            "max_concurrency": 5,
+            "max_concurrency": 2,
+            "verbose": False,
         },
         {
             "urls": [urls[1]],
             "selector": "main",
-            "max_concurrency": 5,
+            "max_concurrency": 2,
+            "verbose": False,
         },
     ]
+
+
+def test_crawl4ai_adapter_uses_markdown_h1_when_selector_metadata_has_no_title(
+    monkeypatch,
+):
+    from scribe3.hermes_evidence import cli
+
+    url = "https://hermes-agent.nousresearch.com/docs/"
+    body = "# Hermes Agent\n" + ("official documentation " * 30)
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "_load_crawl4ai",
+        lambda: _fake_crawl4ai_runtime(
+            {
+                ".theme-doc-markdown": [
+                    SimpleNamespace(
+                        url=url,
+                        redirected_url=url,
+                        status_code=200,
+                        success=True,
+                        markdown=SimpleNamespace(raw_markdown=body),
+                        metadata={},
+                        error_message="",
+                    )
+                ],
+                "main": [],
+            },
+            calls,
+        ),
+    )
+
+    pages = asyncio.run(cli.crawl4ai_fetch_many([url]))
+
+    assert len(pages) == 1
+    assert pages[0].success is True
+    assert pages[0].title == "Hermes Agent"
+    assert pages[0].markdown == body
+    assert len(calls) == 1
 
 
 def test_crawl4ai_adapter_returns_fixed_failures_without_error_or_body_leaks(
@@ -208,6 +251,7 @@ def test_crawl4ai_adapter_returns_fixed_failures_without_error_or_body_leaks(
             "urls": [url],
             "selector": ".theme-doc-markdown",
             "max_concurrency": 5,
+            "verbose": False,
         }
     ]
 
@@ -264,6 +308,12 @@ def test_crawl4ai_adapter_does_not_fallback_unexpected_or_cross_origin_results(
 def _patch_cli_sitemap(cli, monkeypatch):
     fixture = Path("scribe3/tests/fixtures/hermes_evidence/sitemap.xml").read_bytes()
     monkeypatch.setattr(cli, "fetch_bytes", lambda url: fixture)
+    monkeypatch.setattr(
+        cli,
+        "_preflight_crawl4ai_runtime",
+        lambda runtime: None,
+        raising=False,
+    )
     return cli.discover_sitemap_snapshot(fixture)
 
 
@@ -327,30 +377,270 @@ def test_cli_website_fake_crawl_writes_manifest_and_integrity_uses_snapshot_root
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
-def test_cli_website_integrity_failure_returns_2_and_preserves_current(
+def test_cli_manifest_is_written_atomically_relative_to_cache_root(
     tmp_path, monkeypatch
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import sha256_bytes, stable_json_bytes
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    _patch_cli_sitemap(cli, monkeypatch)
+    monkeypatch.setattr(cli, "crawl4ai_fetch_many", _fake_cli_website_fetch)
+    monkeypatch.setattr(
+        cli, "_utc_now", lambda: "2026-07-20T00:00:00+00:00", raising=False
+    )
+    writes = []
+    real_atomic_write = cli._atomic_write
+
+    def capture_atomic_write(root, relative_path, data, **kwargs):
+        writes.append((Path(root), Path(relative_path), data))
+        real_atomic_write(root, relative_path, data, **kwargs)
+
+    monkeypatch.setattr(cli, "_atomic_write", capture_atomic_write)
+
+    assert cli.main(["website"]) == 0
+
+    manifest_writes = [
+        item for item in writes if item[1].parts[:1] == ("manifests",)
+    ]
+    assert len(manifest_writes) == 1
+    root, relative_path, data = manifest_writes[0]
+    assert root == tmp_path
+    assert relative_path == Path("manifests/website-20260720T000000Z.json")
+    payload = json.loads(data)
+    digest = payload.pop("manifest_sha256")
+    assert digest == sha256_bytes(stable_json_bytes(payload))
+
+
+def test_cli_manifest_atomic_write_never_replaces_an_existing_target(
+    tmp_path, monkeypatch
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import SnapshotManifest
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    relative_path = Path("manifests/existing.json")
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"immutable-manifest-sentinel")
+    before = target.read_bytes()
+    manifest = SnapshotManifest(
+        snapshot_id="main-" + ("a" * 40),
+        source_kind="main",
+        source_origin="https://github.com/NousResearch/hermes-agent",
+        requested_ref="main",
+        resolved_sha="a" * 40,
+        release_tag=None,
+        fetched_at="2026-07-20T00:00:00+00:00",
+        crawler_version="1",
+    )
+
+    with pytest.raises(cli._UnsafeOutputPath):
+        cli._write_cache_manifest(relative_path, manifest)
+
+    assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "command,unsafe_relative",
+    [
+        (("website",), "."),
+        (("website",), "cache-ancestor"),
+        (("website",), "snapshots"),
+        (("website",), "snapshots/website"),
+        (("website",), "manifests"),
+        (("website",), "file:manifests"),
+        (("repository", "--ref", "main"), "."),
+        (("repository", "--ref", "main"), "cache-ancestor"),
+        (("repository", "--ref", "main"), "snapshots"),
+        (("repository", "--ref", "main"), "snapshots/upstream"),
+        (("repository", "--ref", "main"), "manifests"),
+        (("repository", "--ref", "main"), "file:snapshots/upstream"),
+    ],
+)
+def test_cli_rejects_unsafe_cache_directories_before_source_adapters(
+    tmp_path, monkeypatch, command, unsafe_relative
+):
+    from scribe3.hermes_evidence import cli
+
+    cache_parent = tmp_path / "cache-parent"
+    cache_root = cache_parent / "cache"
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_bytes(b"outside-must-not-change")
+    before = {path.name: path.read_bytes() for path in external.iterdir()}
+
+    if unsafe_relative == "cache-ancestor":
+        cache_parent.symlink_to(external, target_is_directory=True)
+    elif unsafe_relative == ".":
+        cache_parent.mkdir()
+        cache_root.symlink_to(external, target_is_directory=True)
+    elif unsafe_relative.startswith("file:"):
+        cache_parent.mkdir()
+        cache_root.mkdir()
+        unsafe_path = cache_root / unsafe_relative.removeprefix("file:")
+        unsafe_path.parent.mkdir(parents=True, exist_ok=True)
+        unsafe_path.write_bytes(b"not-a-directory")
+    else:
+        cache_parent.mkdir()
+        cache_root.mkdir()
+        unsafe_path = cache_root / unsafe_relative
+        unsafe_path.parent.mkdir(parents=True, exist_ok=True)
+        unsafe_path.symlink_to(external, target_is_directory=True)
+
+    calls = []
+
+    def must_not_fetch(url):
+        calls.append(("sitemap", url))
+        pytest.fail("unsafe cache root reached website discovery")
+
+    async def must_not_crawl(urls, *, max_concurrency=5):
+        calls.append(("crawl", tuple(urls)))
+        pytest.fail("unsafe cache root reached Crawl4AI adapter")
+
+    class MustNotCreateClient:
+        def __init__(self):
+            calls.append(("github",))
+            pytest.fail("unsafe cache root reached GitHub client")
+
+    def must_not_snapshot(*args, **kwargs):
+        calls.append(("repository",))
+        pytest.fail("unsafe cache root reached repository adapter")
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", cache_root)
+    monkeypatch.setattr(
+        cli, "_preflight_crawl4ai_runtime", lambda runtime: None
+    )
+    monkeypatch.setattr(cli, "fetch_bytes", must_not_fetch)
+    monkeypatch.setattr(cli, "crawl4ai_fetch_many", must_not_crawl)
+    monkeypatch.setattr(cli, "GitHubClient", MustNotCreateClient)
+    monkeypatch.setattr(cli, "snapshot_repository", must_not_snapshot)
+
+    assert cli.main(list(command)) == 2
+    assert calls == []
+    assert {path.name: path.read_bytes() for path in external.iterdir()} == before
+
+
+def test_cli_website_integrity_failure_returns_2_and_preserves_current(
+    tmp_path, monkeypatch, capsys
 ):
     from scribe3.hermes_evidence import cli
     from scribe3.hermes_evidence.models import IntegrityReport
 
     monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
     _patch_cli_sitemap(cli, monkeypatch)
-    monkeypatch.setattr(cli, "crawl4ai_fetch_many", _fake_cli_website_fetch)
+    crawl_calls = []
+
+    async def capture_crawl(urls, *, max_concurrency=5):
+        crawl_calls.append((tuple(urls), max_concurrency))
+        return await _fake_cli_website_fetch(
+            urls, max_concurrency=max_concurrency
+        )
+
+    monkeypatch.setattr(cli, "crawl4ai_fetch_many", capture_crawl)
     monkeypatch.setattr(cli, "_utc_now", lambda: "2026-07-20T00:00:01+00:00", raising=False)
     tmp_path.mkdir(exist_ok=True)
     current_path = tmp_path / "current.json"
-    current_path.write_text('{"sentinel":"old"}\n', encoding="utf-8")
+    current_path.write_text('{"schema_version":1}\n', encoding="utf-8")
     before = current_path.read_bytes()
+    integrity_calls = []
+
+    def fail_integrity(manifest, root, expected, **kwargs):
+        integrity_calls.append(manifest.source_kind)
+        return IntegrityReport(manifest.snapshot_id, False, ("forced_failure",))
+
+    monkeypatch.setattr(
+        cli,
+        "validate_snapshot",
+        fail_integrity,
+    )
+
+    assert cli.main(["website"]) == 2
+    assert crawl_calls
+    assert integrity_calls == ["website"]
+    assert current_path.read_bytes() == before
+    assert [json.loads(line) for line in capsys.readouterr().out.splitlines()] == [
+        {
+            "error": "integrity_failed",
+            "ok": False,
+            "source_kind": "website",
+            "stage": "integrity",
+        }
+    ]
+
+
+@pytest.mark.parametrize("failure_stage", ["missing_package", "browser_start"])
+def test_cli_website_runtime_preflight_writes_nothing_and_retry_can_start(
+    tmp_path, monkeypatch, capsys, failure_stage
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import IntegrityReport
+
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    current_path = cache_root / "current.json"
+    current_path.write_text('{"schema_version":1}\n', encoding="utf-8")
+    current_before = current_path.read_bytes()
+    _patch_cli_sitemap(cli, monkeypatch)
+    monkeypatch.setattr(cli, "CACHE_ROOT", cache_root)
+    monkeypatch.setattr(
+        cli, "_utc_now", lambda: "2026-07-20T00:00:07+00:00", raising=False
+    )
+    available = False
+    runtime_calls = []
+
+    def primary(requested):
+        return [
+            SimpleNamespace(
+                url=url,
+                redirected_url=url,
+                status_code=200,
+                success=True,
+                markdown=f"# Installed {index}\n"
+                + (f"official documentation {index} " * 30),
+                metadata={},
+                error_message="",
+            )
+            for index, url in enumerate(requested)
+        ]
+
+    runtime = _fake_crawl4ai_runtime(
+        {".theme-doc-markdown": primary, "main": []}, runtime_calls
+    )
+
+    def load_runtime():
+        if failure_stage == "missing_package" and not available:
+            raise RuntimeError("Crawl4AI is not installed")
+        return runtime
+
+    def preflight_runtime(loaded_runtime):
+        assert loaded_runtime is runtime
+        if failure_stage == "browser_start" and not available:
+            raise RuntimeError("Crawl4AI browser could not start")
+
+    monkeypatch.setattr(cli, "_load_crawl4ai", load_runtime)
+    monkeypatch.setattr(
+        cli, "_preflight_crawl4ai_runtime", preflight_runtime, raising=False
+    )
     monkeypatch.setattr(
         cli,
         "validate_snapshot",
         lambda manifest, root, expected, **kwargs: IntegrityReport(
-            manifest.snapshot_id, False, ("forced_failure",)
+            manifest.snapshot_id, True
         ),
     )
 
     assert cli.main(["website"]) == 2
-    assert current_path.read_bytes() == before
+    capsys.readouterr()
+    assert current_path.read_bytes() == current_before
+    assert sorted(path.name for path in cache_root.iterdir()) == ["current.json"]
+
+    available = True
+    assert cli.main(["website"]) == 0
+    assert runtime_calls
+    current = json.loads(current_path.read_bytes())
+    assert current["website"]["snapshot_id"] == "website-20260720T000007Z"
 
 
 @pytest.mark.parametrize(
@@ -567,6 +857,209 @@ def test_cli_repository_reuses_only_integrity_passing_immutable_snapshot(
     assert (tmp_path / "current.json").read_bytes() == current_before
 
 
+def test_cli_repository_rejects_existing_snapshot_when_integrity_fails(
+    tmp_path, monkeypatch, capsys
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import IntegrityReport
+
+    sha = "d" * 40
+    snapshot_calls = []
+    integrity_ok = True
+
+    class Client:
+        def __init__(self):
+            self.retry_events = []
+
+        def resolve_ref(self, ref):
+            return sha
+
+    def validate(manifest, root, expected, **kwargs):
+        return IntegrityReport(
+            manifest.snapshot_id,
+            integrity_ok,
+            (() if integrity_ok else ("forced_integrity_failure",)),
+        )
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "GitHubClient", Client)
+    monkeypatch.setattr(
+        cli,
+        "snapshot_repository",
+        _fake_repository_snapshot(sha, snapshot_calls),
+    )
+    monkeypatch.setattr(cli, "validate_snapshot", validate)
+
+    assert cli.main(["repository", "--ref", "main"]) == 0
+    capsys.readouterr()
+    current_before = (tmp_path / "current.json").read_bytes()
+    integrity_ok = False
+
+    assert cli.main(["repository", "--ref", "main"]) == 2
+    assert len(snapshot_calls) == 1
+    assert (tmp_path / "current.json").read_bytes() == current_before
+    assert [json.loads(line) for line in capsys.readouterr().out.splitlines()] == [
+        {
+            "error": "integrity_failed",
+            "ok": False,
+            "source_kind": "main",
+            "stage": "integrity",
+        }
+    ]
+
+
+@pytest.mark.parametrize("existing_part", ["snapshot", "manifest"])
+def test_cli_repository_rejects_incomplete_existing_snapshot_pair(
+    tmp_path, monkeypatch, existing_part
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import SnapshotManifest, write_manifest
+
+    sha = "e" * 40
+    snapshot_id = f"main-{sha}"
+    snapshot_root = tmp_path / "snapshots/upstream" / snapshot_id
+    manifest_path = tmp_path / "manifests" / f"upstream-{snapshot_id}.json"
+    if existing_part == "snapshot":
+        snapshot_root.mkdir(parents=True)
+    else:
+        write_manifest(
+            manifest_path,
+            SnapshotManifest(
+                snapshot_id=snapshot_id,
+                source_kind="main",
+                source_origin="https://github.com/NousResearch/hermes-agent",
+                requested_ref="main",
+                resolved_sha=sha,
+                release_tag=None,
+                fetched_at="2026-07-20T00:00:00+00:00",
+                crawler_version="1",
+                expected_document_count=0,
+                tree_truncated=False,
+            ),
+        )
+    tmp_path.mkdir(exist_ok=True)
+    current_path = tmp_path / "current.json"
+    current_path.write_text('{"schema_version":1}\n', encoding="utf-8")
+    current_before = current_path.read_bytes()
+    snapshot_calls = []
+
+    class Client:
+        def __init__(self):
+            self.retry_events = []
+
+        def resolve_ref(self, ref):
+            return sha
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "GitHubClient", Client)
+    monkeypatch.setattr(
+        cli,
+        "snapshot_repository",
+        _fake_repository_snapshot(sha, snapshot_calls),
+    )
+
+    assert cli.main(["repository", "--ref", "main"]) == 2
+    assert snapshot_calls == []
+    assert current_path.read_bytes() == current_before
+    assert snapshot_root.exists() == (existing_part == "snapshot")
+    assert manifest_path.exists() == (existing_part == "manifest")
+
+
+def test_cli_repository_requires_exclusive_new_snapshot_directory_creation(
+    tmp_path, monkeypatch
+):
+    from scribe3.hermes_evidence import cli
+
+    sha = "f" * 40
+    snapshot_root = tmp_path / "snapshots/upstream" / f"main-{sha}"
+    snapshot_root.mkdir(parents=True)
+    snapshot_calls = []
+
+    class Client:
+        def __init__(self):
+            self.retry_events = []
+
+        def resolve_ref(self, ref):
+            return sha
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "GitHubClient", Client)
+    monkeypatch.setattr(cli, "_safe_directory_exists", lambda root, path: False)
+    monkeypatch.setattr(
+        cli,
+        "snapshot_repository",
+        _fake_repository_snapshot(sha, snapshot_calls),
+    )
+
+    assert cli.main(["repository", "--ref", "main"]) == 2
+    assert snapshot_calls == []
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("source_kind", "release"),
+        ("snapshot_id", "main-" + ("f" * 40)),
+        ("requested_ref", "v2026.7.7.2"),
+        ("resolved_sha", "f" * 40),
+        ("release_tag", "v2026.7.7.2"),
+    ],
+)
+def test_cli_repository_rejects_existing_snapshot_identity_drift(
+    tmp_path, monkeypatch, field, bad_value, capsys
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import (
+        IntegrityReport,
+        sha256_bytes,
+        stable_json_bytes,
+    )
+
+    sha = "a" * 40
+    snapshot_calls = []
+
+    class Client:
+        def __init__(self):
+            self.retry_events = []
+
+        def resolve_ref(self, ref):
+            return sha
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    monkeypatch.setattr(cli, "GitHubClient", Client)
+    monkeypatch.setattr(
+        cli,
+        "snapshot_repository",
+        _fake_repository_snapshot(sha, snapshot_calls),
+    )
+    monkeypatch.setattr(
+        cli,
+        "validate_snapshot",
+        lambda manifest, root, expected, **kwargs: IntegrityReport(
+            manifest.snapshot_id, True
+        ),
+    )
+
+    assert cli.main(["repository", "--ref", "main"]) == 0
+    capsys.readouterr()
+    current_before = (tmp_path / "current.json").read_bytes()
+    manifest_path = tmp_path / "manifests" / f"upstream-main-{sha}.json"
+    payload = json.loads(manifest_path.read_bytes())
+    payload[field] = bad_value
+    payload.pop("manifest_sha256")
+    payload["manifest_sha256"] = sha256_bytes(stable_json_bytes(payload))
+    manifest_path.write_bytes(stable_json_bytes(payload))
+
+    def must_not_validate(*args, **kwargs):
+        pytest.fail("identity drift reached integrity validation")
+
+    monkeypatch.setattr(cli, "validate_snapshot", must_not_validate)
+
+    assert cli.main(["repository", "--ref", "main"]) == 2
+    assert len(snapshot_calls) == 1
+    assert (tmp_path / "current.json").read_bytes() == current_before
+
+
 def _patch_cli_all_repositories(cli, monkeypatch, calls):
     shas = {
         "v2026.7.7.2": "b" * 40,
@@ -594,7 +1087,7 @@ def _patch_cli_all_repositories(cli, monkeypatch, calls):
 
 
 def test_cli_all_updates_three_current_pointers_only_after_all_integrity_passes(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ):
     from scribe3.hermes_evidence import cli
     from scribe3.hermes_evidence.models import IntegrityReport
@@ -614,6 +1107,11 @@ def test_cli_all_updates_three_current_pointers_only_after_all_integrity_passes(
     )
 
     assert cli.main(["all"]) == 0
+    all_output = capsys.readouterr()
+    all_lines = all_output.out.splitlines()
+    assert len(all_lines) == 1
+    assert json.loads(all_lines[0])["ok"] is True
+    assert all_output.err == ""
     current_path = tmp_path / "current.json"
     current = json.loads(current_path.read_text(encoding="utf-8"))
     assert set(current) == {"schema_version", "website", "release", "main"}
@@ -623,7 +1121,7 @@ def test_cli_all_updates_three_current_pointers_only_after_all_integrity_passes(
 
 
 def test_cli_all_failure_leaves_prior_current_pointer_untouched(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ):
     from scribe3.hermes_evidence import cli
     from scribe3.hermes_evidence.models import IntegrityReport
@@ -636,7 +1134,7 @@ def test_cli_all_failure_leaves_prior_current_pointer_untouched(
     _patch_cli_all_repositories(cli, monkeypatch, calls)
     tmp_path.mkdir(exist_ok=True)
     current_path = tmp_path / "current.json"
-    current_path.write_text('{"sentinel":"old"}\n', encoding="utf-8")
+    current_path.write_text('{"schema_version":1}\n', encoding="utf-8")
     before = current_path.read_bytes()
 
     def validate(manifest, root, expected, **kwargs):
@@ -649,7 +1147,96 @@ def test_cli_all_failure_leaves_prior_current_pointer_untouched(
     monkeypatch.setattr(cli, "validate_snapshot", validate)
 
     assert cli.main(["all"]) == 2
+    assert any(call[:2] == ("snapshot", "main") for call in calls)
     assert current_path.read_bytes() == before
+    output = capsys.readouterr()
+    assert [json.loads(line) for line in output.out.splitlines()] == [
+        {"error": "integrity_failed", "ok": False, "stage": "main"}
+    ]
+    assert output.err == ""
+
+
+def test_cli_all_auto_resumes_one_compatible_interrupted_website_snapshot(
+    tmp_path, monkeypatch, capsys
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import IntegrityReport
+
+    calls = []
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    _patch_cli_sitemap(cli, monkeypatch)
+    monkeypatch.setattr(
+        cli, "_utc_now", lambda: "2026-07-20T00:00:08+00:00", raising=False
+    )
+    _patch_cli_all_repositories(cli, monkeypatch, calls)
+    monkeypatch.setattr(
+        cli,
+        "validate_snapshot",
+        lambda manifest, root, expected, **kwargs: IntegrityReport(
+            manifest.snapshot_id, True
+        ),
+    )
+    tmp_path.mkdir(exist_ok=True)
+    current_path = tmp_path / "current.json"
+    current_path.write_text('{"schema_version":1}\n', encoding="utf-8")
+    current_before = current_path.read_bytes()
+    crawl_calls = []
+
+    async def interrupt_once(urls, *, max_concurrency=5):
+        crawl_calls.append(list(urls))
+        if len(crawl_calls) == 1:
+            raise RuntimeError("simulated browser interruption")
+        return await _fake_cli_website_fetch(
+            urls, max_concurrency=max_concurrency
+        )
+
+    monkeypatch.setattr(cli, "crawl4ai_fetch_many", interrupt_once)
+
+    assert cli.main(["all"]) == 2
+    first_output = capsys.readouterr()
+    assert [json.loads(line) for line in first_output.out.splitlines()] == [
+        {"error": "operation_failed", "ok": False, "stage": "website"}
+    ]
+    assert current_path.read_bytes() == current_before
+    incomplete = list((tmp_path / "snapshots/website").iterdir())
+    assert [path.name for path in incomplete] == ["website-20260720T000008Z"]
+
+    assert cli.main(["all"]) == 0
+    second_output = capsys.readouterr()
+    assert len(second_output.out.splitlines()) == 1
+    assert json.loads(second_output.out)["ok"] is True
+    assert len(crawl_calls) == 2
+    current = json.loads(current_path.read_bytes())
+    assert current["website"]["snapshot_id"] == "website-20260720T000008Z"
+
+
+def test_cli_all_exception_emits_one_fixed_failure_json_without_error_body(
+    tmp_path, monkeypatch, capsys
+):
+    from scribe3.hermes_evidence import cli
+
+    monkeypatch.setattr(cli, "CACHE_ROOT", tmp_path)
+    discovery_calls = []
+
+    def missing_runtime():
+        raise RuntimeError("Crawl4AI is not installed")
+
+    def must_not_discover(url):
+        discovery_calls.append(url)
+        raise RuntimeError("website discovery must not run before runtime preflight")
+
+    monkeypatch.setattr(cli, "_load_crawl4ai", missing_runtime)
+    monkeypatch.setattr(cli, "fetch_bytes", must_not_discover)
+
+    assert cli.main(["all"]) == 2
+    output = capsys.readouterr()
+    assert [json.loads(line) for line in output.out.splitlines()] == [
+        {"error": "operation_failed", "ok": False, "stage": "website"}
+    ]
+    assert output.err == ""
+    assert discovery_calls == []
+    assert not (tmp_path / "snapshots").exists()
+    assert not (tmp_path / "manifests").exists()
 
 
 def test_legacy_crawler_wrapper_forwards_to_new_cli(monkeypatch):
@@ -782,6 +1369,7 @@ def test_website_crawl_reverifies_manifest_files_before_completion(tmp_path):
             tmp_path,
             "2026-07-20T00:00:00+00:00",
             policy=RetryPolicy(
+                batch_size=1,
                 max_concurrency=1,
                 sleep=lambda delay: None,
             ),
@@ -1399,6 +1987,7 @@ def test_website_checkpoint_resumes_only_hash_and_size_verified_pages(tmp_path):
         return [page(url) for url in reversed(batch)]
 
     policy = RetryPolicy(
+        batch_size=1,
         max_concurrency=1,
         sleep=lambda delay: None,
         jitter=lambda delay: 0,
@@ -1665,7 +2254,9 @@ def test_website_resume_removes_rejected_old_page_when_refetch_fails(tmp_path):
     assert not page_path.exists()
 
 
-def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
+def test_website_crawl_honors_batch_size_independently_and_integrates_retry(
+    tmp_path,
+):
     from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
 
     urls = [
@@ -1677,7 +2268,7 @@ def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
 
     async def fake_fetch(batch):
         batches.append(list(batch))
-        assert len(batch) <= 2
+        assert len(batch) <= 3
         pages = []
         for url in reversed(batch):
             attempts[url] += 1
@@ -1703,6 +2294,7 @@ def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
             tmp_path,
             "2026-07-19T00:00:00+00:00",
             policy=RetryPolicy(
+                batch_size=3,
                 max_concurrency=2,
                 sleep=lambda delay: None,
                 jitter=lambda delay: 0,
@@ -1714,7 +2306,57 @@ def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
     assert all(attempts[url] == 1 for url in urls[1:])
     assert len(manifest.documents) == 6
     assert len(manifest.retry_events) == 1
-    assert all(len(batch) <= 2 for batch in batches)
+    assert [len(batch) for batch in batches] == [3, 1, 3]
+
+
+def test_website_default_batch_40_uses_crawl4ai_dispatcher_concurrency_5(
+    tmp_path, monkeypatch
+):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.website import crawl_website
+
+    urls = [
+        f"https://hermes-agent.nousresearch.com/docs/default-{index}"
+        for index in range(45)
+    ]
+    calls = []
+
+    def primary(requested):
+        return [
+            SimpleNamespace(
+                url=url,
+                redirected_url=url,
+                status_code=200,
+                success=True,
+                markdown=f"# Default {index}\n"
+                + (f"documentation default {index} " * 20),
+                metadata={"title": f"Default {index}"},
+                error_message="",
+            )
+            for index, url in enumerate(requested)
+        ]
+
+    monkeypatch.setattr(
+        cli,
+        "_load_crawl4ai",
+        lambda: _fake_crawl4ai_runtime(
+            {".theme-doc-markdown": primary, "main": []}, calls
+        ),
+    )
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            cli.crawl4ai_fetch_many,
+            "default-40",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert len(manifest.documents) == 45
+    assert [len(call["urls"]) for call in calls] == [40, 5]
+    assert {call["max_concurrency"] for call in calls} == {5}
 
 
 def test_website_crawl_rejects_redirect_secret_short_and_duplicate_results(tmp_path):
@@ -1939,6 +2581,45 @@ def test_website_atomic_write_resists_parent_symlink_swap_race(
     assert manifest.failures == [
         {"requested_url": url, "error": "unsafe_output_path"}
     ]
+
+
+@pytest.mark.parametrize(
+    "replace_existing,publish_function",
+    [(True, "replace"), (False, "link")],
+)
+def test_website_atomic_write_rejects_final_name_inode_swap(
+    tmp_path, monkeypatch, replace_existing, publish_function
+):
+    import scribe3.hermes_evidence.website as website
+
+    out_root = tmp_path / "evidence"
+    out_root.mkdir()
+    relative_path = Path("current.json" if replace_existing else "manifest.json")
+    target = out_root / relative_path
+    sentinel = b"old-published-name"
+    if replace_existing:
+        target.write_bytes(sentinel)
+    published = out_root / ".published-new-inode"
+    real_publish = getattr(website.os, publish_function)
+
+    def swapping_publish(*args, **kwargs):
+        result = real_publish(*args, **kwargs)
+        target.rename(published)
+        target.write_bytes(sentinel)
+        return result
+
+    monkeypatch.setattr(website.os, publish_function, swapping_publish)
+
+    with pytest.raises(website._UnsafeOutputPath, match="identity"):
+        website._atomic_write(
+            out_root,
+            relative_path,
+            b"new-content",
+            replace_existing=replace_existing,
+        )
+
+    assert target.read_bytes() == sentinel
+    assert published.read_bytes() == b"new-content"
 
 
 def test_website_atomic_write_closes_root_fd_when_parent_open_fails(tmp_path):
@@ -2619,6 +3300,136 @@ def test_repository_snapshot_resolves_fixed_ref_and_preserves_selected_paths(tmp
     assert (tmp_path / "README.md").read_text() == "# H\n"
     assert (tmp_path / "skills/x/SKILL.md").read_text() == "# S\n"
     _assert_selected_partition(manifest, {"README.md", "skills/x/SKILL.md"})
+
+
+def test_repository_snapshot_rejects_parent_symlink_created_during_blob_fetch(
+    tmp_path, monkeypatch
+):
+    import scribe3.hermes_evidence.website as website
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    out_root = tmp_path / "snapshot"
+    out_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "guide.md"
+    sentinel.write_bytes(b"outside-sentinel")
+    opened_fds = set()
+    real_open = website.os.open
+    real_dup = website.os.dup
+    real_close = website.os.close
+
+    def tracking_open(*args, **kwargs):
+        descriptor = real_open(*args, **kwargs)
+        opened_fds.add(descriptor)
+        return descriptor
+
+    def tracking_dup(*args, **kwargs):
+        descriptor = real_dup(*args, **kwargs)
+        opened_fds.add(descriptor)
+        return descriptor
+
+    def tracking_close(descriptor):
+        opened_fds.discard(descriptor)
+        return real_close(descriptor)
+
+    monkeypatch.setattr(website.os, "open", tracking_open)
+    monkeypatch.setattr(website.os, "dup", tracking_dup)
+    monkeypatch.setattr(website.os, "close", tracking_close)
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {
+                        "path": "docs/guide.md",
+                        "type": "blob",
+                        "sha": "blob",
+                        "size": 12,
+                    }
+                ],
+            }
+
+        def blob(self, sha):
+            (out_root / "docs").symlink_to(outside, target_is_directory=True)
+            return b"# New guide\n"
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-safe-write",
+        out_root,
+        "2026-07-20T00:00:00+00:00",
+    )
+
+    assert sentinel.read_bytes() == b"outside-sentinel"
+    assert manifest.documents == []
+    assert len(manifest.failures) == 1
+    assert manifest.failures[0]["repo_path"] == "docs/guide.md"
+    assert opened_fds == set()
+
+
+def test_repository_snapshot_stages_pdf_extraction_before_secure_sidecar_write(
+    tmp_path,
+):
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    out_root = tmp_path / "snapshot"
+    out_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "guide.pdf.txt"
+    sentinel.write_bytes(b"outside-sidecar-sentinel")
+    pdf = b"%PDF-1.7\nexact-original-bytes"
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return "b" * 40
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {
+                        "path": "docs/guide.pdf",
+                        "type": "blob",
+                        "sha": "pdf",
+                        "size": len(pdf),
+                    }
+                ],
+            }
+
+        def blob(self, sha):
+            return pdf
+
+    def swapping_extractor(source, target):
+        unsafe_parent = out_root / "_extracted/docs"
+        unsafe_parent.parent.mkdir(parents=True, exist_ok=True)
+        unsafe_parent.symlink_to(outside, target_is_directory=True)
+        assert source.read_bytes() == pdf
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"Extracted text\n")
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-safe-pdf",
+        out_root,
+        "2026-07-20T00:00:00+00:00",
+        pdf_extractor=swapping_extractor,
+    )
+
+    assert sentinel.read_bytes() == b"outside-sidecar-sentinel"
+    assert (out_root / "docs/guide.pdf").read_bytes() == pdf
+    assert len(manifest.documents) == 1
+    assert manifest.documents[0].semantic_status == "binary_attachment"
+    assert manifest.documents[0].error == "pdf_text_extraction_failed"
+    assert len(manifest.failures) == 1
+    assert manifest.failures[0]["error"] == "pdf_text_extraction_failed"
 
 
 def test_repository_snapshot_rejects_recursive_tree_without_explicit_complete_flag(

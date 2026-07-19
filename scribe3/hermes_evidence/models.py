@@ -10,6 +10,7 @@ from typing import Literal
 from urllib.parse import parse_qsl, urlsplit
 
 SourceKind = Literal["website", "release", "main", "runtime"]
+FILTER_POLICY_VERSION = "1"
 
 _SENSITIVE_LABELS = frozenset(
     {
@@ -206,7 +207,7 @@ class SnapshotManifest:
     discovery_sha256: str | None = None
     expected_document_count: int | None = None
     tree_truncated: bool | None = None
-    filter_policy_version: str = "1"
+    filter_policy_version: str = FILTER_POLICY_VERSION
     retry_events: list[dict] = field(default_factory=list)
 
     def payload(self) -> dict:

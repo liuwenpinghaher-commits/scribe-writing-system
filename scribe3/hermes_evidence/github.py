@@ -5,6 +5,7 @@ import binascii
 import json
 import re
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.error
@@ -27,6 +28,7 @@ from .policy import (
     is_official_url,
     select_repo_document,
 )
+from .website import _atomic_write
 
 API = "https://api.github.com/repos/NousResearch/hermes-agent"
 MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
@@ -134,7 +136,7 @@ def _default_pdf_extractor(source: Path, target: Path) -> None:
     )
 
 
-def _safe_output_path(root: Path, repo_path: str, *, extracted: bool = False) -> Path:
+def _safe_output_relative(repo_path: str, *, extracted: bool = False) -> Path:
     candidate = PurePosixPath(repo_path)
     if (
         not repo_path
@@ -145,17 +147,11 @@ def _safe_output_path(root: Path, repo_path: str, *, extracted: bool = False) ->
         or "\x00" in repo_path
     ):
         raise ValueError("repository path is not canonical")
-    relative = Path("_extracted") / f"{repo_path}.txt" if extracted else Path(repo_path)
-    resolved_root = root.resolve()
-    intended_target = resolved_root / relative
-    target = intended_target.resolve()
-    try:
-        target.relative_to(resolved_root)
-    except ValueError as exc:
-        raise ValueError("repository path escapes output root") from exc
-    if target != intended_target:
-        raise ValueError("repository path traverses a symlink")
-    return target
+    return (
+        Path("_extracted") / f"{repo_path}.txt"
+        if extracted
+        else Path(repo_path)
+    )
 
 
 def _source_layer(
@@ -480,7 +476,7 @@ def _snapshot_repository_call(
 
         body: bytes | None = None
         try:
-            target = _safe_output_path(Path(out_root), repo_path)
+            target_relative = _safe_output_relative(repo_path)
             blob_sha = source_blob_sha
             if not blob_sha:
                 raise ValueError("tree entry is missing blob SHA")
@@ -506,9 +502,13 @@ def _snapshot_repository_call(
                 )
                 continue
 
-            target.parent.mkdir(parents=True, exist_ok=True)
             if repo_path.lower().endswith(".pdf"):
-                target.write_bytes(body)
+                _atomic_write(
+                    Path(out_root),
+                    target_relative,
+                    body,
+                    replace_existing=False,
+                )
                 if not body.startswith(b"%PDF-"):
                     failures.append(
                         {
@@ -519,20 +519,34 @@ def _snapshot_repository_call(
                     )
                     continue
 
-                sidecar = _safe_output_path(Path(out_root), repo_path, extracted=True)
+                sidecar_relative = _safe_output_relative(repo_path, extracted=True)
                 try:
-                    extractor(target, sidecar)
-                    if _safe_output_path(
-                        Path(out_root), repo_path, extracted=True
-                    ) != sidecar:
-                        raise ValueError("PDF sidecar path changed during extraction")
-                    extracted_bytes = sidecar.read_bytes()
+                    with tempfile.TemporaryDirectory(
+                        prefix="scribe3-hermes-pdf-"
+                    ) as temporary_directory:
+                        temporary_root = Path(temporary_directory)
+                        temporary_source = temporary_root / "source.pdf"
+                        temporary_sidecar = temporary_root / "sidecar.txt"
+                        temporary_source.write_bytes(body)
+                        extractor(temporary_source, temporary_sidecar)
+                        if (
+                            temporary_sidecar.is_symlink()
+                            or not temporary_sidecar.is_file()
+                        ):
+                            raise ValueError(
+                                "PDF extraction did not produce a regular file"
+                            )
+                        extracted_bytes = temporary_sidecar.read_bytes()
                     extracted_text = extracted_bytes.decode("utf-8")
                     if not extracted_text.strip():
                         raise ValueError("PDF extraction produced no text")
+                    _atomic_write(
+                        Path(out_root),
+                        sidecar_relative,
+                        extracted_bytes,
+                        replace_existing=False,
+                    )
                 except Exception:
-                    if sidecar.is_file() or sidecar.is_symlink():
-                        sidecar.unlink()
                     documents.append(
                         _document_record(
                             source_kind=resolved_source_kind,
@@ -554,7 +568,6 @@ def _snapshot_repository_call(
                     )
                     continue
 
-                relative_sidecar = sidecar.relative_to(Path(out_root).resolve()).as_posix()
                 documents.append(
                     _document_record(
                         source_kind=resolved_source_kind,
@@ -564,7 +577,7 @@ def _snapshot_repository_call(
                         semantic_status="content",
                         source_commit=resolved_sha,
                         source_blob_sha=blob_sha,
-                        extracted_text_path=relative_sidecar,
+                        extracted_text_path=sidecar_relative.as_posix(),
                         extracted_text_sha256=sha256_bytes(extracted_bytes),
                     )
                 )
@@ -580,7 +593,12 @@ def _snapshot_repository_call(
                     }
                 )
                 continue
-            target.write_bytes(body)
+            _atomic_write(
+                Path(out_root),
+                target_relative,
+                body,
+                replace_existing=False,
+            )
             documents.append(
                 _document_record(
                     source_kind=resolved_source_kind,

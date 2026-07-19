@@ -466,21 +466,98 @@ def _relative_parts(relative_path: Path) -> tuple[str, ...]:
 
 def _open_root_fd(root: Path, *, create: bool) -> int:
     root = Path(root)
-    if create:
-        if root.is_symlink():
-            raise _UnsafeOutputPath("output root must not be a symlink")
-        try:
-            root.mkdir(parents=True, exist_ok=True)
-        except OSError as error:
-            raise _UnsafeOutputPath("cannot create output root") from error
+    if ".." in root.parts:
+        raise _UnsafeOutputPath("output root must not escape through a parent")
+    if root.is_absolute():
+        current = os.open(root.anchor, _DIRECTORY_OPEN_FLAGS)
+        parts = root.parts[1:]
+    else:
+        current = os.open(Path.cwd(), _DIRECTORY_OPEN_FLAGS)
+        parts = root.parts
     try:
-        descriptor = os.open(root, _DIRECTORY_OPEN_FLAGS)
-    except OSError as error:
-        raise _UnsafeOutputPath("cannot safely open output root") from error
-    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
-        os.close(descriptor)
-        raise _UnsafeOutputPath("output root is not a directory")
-    return descriptor
+        for part in parts:
+            if not part or part == "." or "/" in part or "\x00" in part:
+                raise _UnsafeOutputPath("unsafe output root component")
+            if create:
+                try:
+                    os.mkdir(part, mode=0o755, dir_fd=current)
+                except FileExistsError:
+                    pass
+            try:
+                following = os.open(part, _DIRECTORY_OPEN_FLAGS, dir_fd=current)
+            except OSError as error:
+                raise _UnsafeOutputPath(
+                    "output root component cannot be opened safely"
+                ) from error
+            os.close(current)
+            current = following
+        if not stat.S_ISDIR(os.fstat(current).st_mode):
+            raise _UnsafeOutputPath("output root is not a directory")
+        return current
+    except BaseException:
+        os.close(current)
+        raise
+
+
+def _safe_directory_exists(root: Path, relative_path: Path) -> bool:
+    parts = _relative_parts(relative_path)
+    root_fd = _open_root_fd(root, create=False)
+    parent_fd: int | None = None
+    target_fd: int | None = None
+    try:
+        try:
+            parent_fd = _open_parent_fd(root_fd, parts[:-1], create=False)
+        except _UnsafeOutputPath as error:
+            if isinstance(error.__cause__, FileNotFoundError):
+                return False
+            raise
+        try:
+            target_fd = os.open(parts[-1], _DIRECTORY_OPEN_FLAGS, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise _UnsafeOutputPath("output directory cannot be opened safely") from error
+        if not _directory_identity_is_current(
+            Path(root), root_fd, parts, target_fd
+        ):
+            raise _UnsafeOutputPath("output directory identity changed")
+        return True
+    finally:
+        if target_fd is not None:
+            os.close(target_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+        os.close(root_fd)
+
+
+def _ensure_safe_directory(
+    root: Path, relative_path: Path, *, exist_ok: bool = True
+) -> None:
+    parts = _relative_parts(relative_path)
+    root_fd = _open_root_fd(root, create=True)
+    parent_fd: int | None = None
+    target_fd: int | None = None
+    try:
+        parent_fd = _open_parent_fd(root_fd, parts[:-1], create=True)
+        try:
+            os.mkdir(parts[-1], mode=0o755, dir_fd=parent_fd)
+        except FileExistsError:
+            if not exist_ok:
+                raise _UnsafeOutputPath("output directory already exists")
+        try:
+            target_fd = os.open(parts[-1], _DIRECTORY_OPEN_FLAGS, dir_fd=parent_fd)
+        except OSError as error:
+            raise _UnsafeOutputPath("output directory cannot be opened safely") from error
+        if not _directory_identity_is_current(
+            Path(root), root_fd, parts, target_fd
+        ):
+            raise _UnsafeOutputPath("output directory identity changed")
+    finally:
+        if target_fd is not None:
+            os.close(target_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+        os.close(root_fd)
 
 
 def _open_parent_fd(
@@ -584,7 +661,13 @@ def _secure_read(
         os.close(root_fd)
 
 
-def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
+def _atomic_write(
+    root: Path,
+    relative_path: Path,
+    data: bytes,
+    *,
+    replace_existing: bool = True,
+) -> None:
     parts = _relative_parts(relative_path)
     root_fd = _open_root_fd(root, create=True)
     parent_fd: int | None = None
@@ -599,6 +682,8 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
             existing = None
         if existing is not None and not stat.S_ISREG(existing.st_mode):
             raise _UnsafeOutputPath("output target is not a regular file")
+        if existing is not None and not replace_existing:
+            raise _UnsafeOutputPath("output target already exists")
 
         flags = (
             os.O_RDWR
@@ -623,12 +708,27 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
             if sha256_bytes(stored) != sha256_bytes(data):
                 raise OSError("atomic write verification failed")
 
-            os.replace(
-                temporary_name,
-                parts[-1],
-                src_dir_fd=parent_fd,
-                dst_dir_fd=parent_fd,
-            )
+            if replace_existing:
+                os.replace(
+                    temporary_name,
+                    parts[-1],
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                )
+            else:
+                try:
+                    os.link(
+                        temporary_name,
+                        parts[-1],
+                        src_dir_fd=parent_fd,
+                        dst_dir_fd=parent_fd,
+                        follow_symlinks=False,
+                    )
+                except OSError as error:
+                    raise _UnsafeOutputPath(
+                        "output target appeared during atomic write"
+                    ) from error
+                os.unlink(temporary_name, dir_fd=parent_fd)
             temporary_exists = False
             os.fsync(parent_fd)
             if not _directory_identity_is_current(
@@ -651,6 +751,19 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
                 os.ftruncate(descriptor, 0)
                 os.fsync(descriptor)
                 raise _StoredContentMismatch("stored content mismatch")
+            try:
+                named_stat = os.stat(
+                    parts[-1], dir_fd=parent_fd, follow_symlinks=False
+                )
+            except OSError as error:
+                raise _UnsafeOutputPath(
+                    "output target identity cannot be verified"
+                ) from error
+            if (
+                not stat.S_ISREG(named_stat.st_mode)
+                or not _same_inode(final_stat, named_stat)
+            ):
+                raise _UnsafeOutputPath("output target identity changed")
         finally:
             os.close(descriptor)
     finally:
@@ -898,7 +1011,7 @@ async def crawl_website(
             checkpoint.completed.pop(url, None)
 
     pending = [url for url in expected if url not in documents_by_url]
-    fetch_batch_size = min(active_policy.batch_size, active_policy.max_concurrency)
+    fetch_batch_size = active_policy.batch_size
     try:
         for offset in range(0, len(pending), fetch_batch_size):
             batch = pending[offset : offset + fetch_batch_size]

@@ -17,16 +17,19 @@ from .github import GitHubClient, snapshot_repository
 from .integrity import validate_snapshot
 from .models import (
     DocumentRecord,
+    FILTER_POLICY_VERSION,
     SnapshotManifest,
     contains_sensitive_data,
+    sha256_bytes,
     stable_json_bytes,
-    write_manifest,
 )
 from .website import (
     CrawlPage,
     RetryPolicy,
     _UnsafeOutputPath,
     _atomic_write,
+    _ensure_safe_directory,
+    _safe_directory_exists,
     _secure_read,
     crawl_website,
     discover_sitemap_snapshot,
@@ -39,7 +42,6 @@ CACHE_ROOT = (
 )
 SOURCE_SITEMAP = "https://hermes-agent.nousresearch.com/docs/sitemap.xml"
 DEFAULT_RELEASE_REF = "v2026.7.7.2"
-FILTER_POLICY_VERSION = "1"
 _RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 _TAG_PATTERN = re.compile(r"v[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -83,6 +85,15 @@ def _load_crawl4ai() -> SimpleNamespace:
     )
 
 
+def _preflight_crawl4ai_runtime(runtime: SimpleNamespace) -> None:
+    async def launch_browser() -> None:
+        browser_config = runtime.BrowserConfig(headless=True, verbose=False)
+        async with runtime.AsyncWebCrawler(config=browser_config):
+            pass
+
+    asyncio.run(launch_browser())
+
+
 def _markdown_text(value: object) -> str | None:
     if isinstance(value, str):
         return value
@@ -93,6 +104,13 @@ def _markdown_text(value: object) -> str | None:
             return None
         if isinstance(candidate, str):
             return candidate
+    return None
+
+
+def _markdown_h1(value: str) -> str | None:
+    for line in value.splitlines():
+        if line.startswith("# ") and line[2:].strip():
+            return line[2:].strip()
     return None
 
 
@@ -144,7 +162,11 @@ def _result_page(result: object) -> CrawlPage:
         if not isinstance(metadata, Mapping):
             return _fixed_crawl_failure("invalid_result", url=url)
         title = metadata.get("title")
-        if not isinstance(title, str) or markdown is None:
+        if markdown is None:
+            return _fixed_crawl_failure("invalid_result", url=url)
+        if not isinstance(title, str) or not title.strip():
+            title = _markdown_h1(markdown)
+        if not isinstance(title, str):
             return _fixed_crawl_failure("invalid_result", url=url)
         if contains_sensitive_data({"title": title}):
             return _fixed_crawl_failure("invalid_result", url=url)
@@ -187,9 +209,17 @@ async def _arun_many(crawler, urls, config, runtime, max_concurrency):
     if "dispatcher" in parameters:
         if runtime.SemaphoreDispatcher is None:
             raise RuntimeError("Crawl4AI dispatcher is unavailable")
-        dispatcher = runtime.SemaphoreDispatcher(
-            max_session_permit=max_concurrency
-        )
+        dispatcher_parameters = inspect.signature(
+            runtime.SemaphoreDispatcher
+        ).parameters
+        dispatcher_options = {}
+        if "semaphore_count" in dispatcher_parameters:
+            dispatcher_options["semaphore_count"] = max_concurrency
+        if "max_session_permit" in dispatcher_parameters:
+            dispatcher_options["max_session_permit"] = max_concurrency
+        if not dispatcher_options:
+            raise RuntimeError("unsupported Crawl4AI dispatcher signature")
+        dispatcher = runtime.SemaphoreDispatcher(**dispatcher_options)
         return await crawler.arun_many(
             urls=urls,
             config=config,
@@ -220,6 +250,7 @@ async def crawl4ai_fetch_many(
         page_timeout=30000,
         css_selector=".theme-doc-markdown",
         screenshot=False,
+        verbose=False,
     )
     fallback_config = runtime.CrawlerRunConfig(
         cache_mode=cache_mode,
@@ -229,6 +260,7 @@ async def crawl4ai_fetch_many(
         page_timeout=30000,
         css_selector="main",
         screenshot=False,
+        verbose=False,
     )
     async with runtime.AsyncWebCrawler(config=browser_config) as crawler:
         primary_results = await _arun_many(
@@ -279,6 +311,7 @@ async def crawl4ai_fetch_many(
 class _OperationResult:
     status: int
     pointer: dict | None = None
+    error: str | None = None
 
 
 class _PinnedGitHubClient:
@@ -366,6 +399,29 @@ def _write_current(current: dict) -> None:
     if current.get("schema_version") != 1 or contains_sensitive_data(current):
         raise RuntimeError("refusing invalid current pointer")
     _atomic_write(CACHE_ROOT, Path("current.json"), stable_json_bytes(current))
+
+
+def _prepare_cache_directories(*relative_paths: Path) -> None:
+    try:
+        for relative_path in relative_paths:
+            _ensure_safe_directory(CACHE_ROOT, relative_path)
+    except _UnsafeOutputPath as error:
+        raise RuntimeError("cache output path is unsafe") from error
+
+
+def _write_cache_manifest(relative_path: Path, manifest: SnapshotManifest) -> str:
+    payload = manifest.payload()
+    if contains_sensitive_data(payload):
+        raise ValueError("Manifest contains sensitive data and cannot be persisted")
+    digest = sha256_bytes(stable_json_bytes(payload))
+    payload["manifest_sha256"] = digest
+    _atomic_write(
+        CACHE_ROOT,
+        relative_path,
+        stable_json_bytes(payload),
+        replace_existing=False,
+    )
+    return digest
 
 
 def _replace_current_layers(pointers: Mapping[str, dict]) -> None:
@@ -584,27 +640,42 @@ def _current_layer_manifest(layer: str) -> SnapshotManifest | None:
 
 
 def _website_operation(
-    *, concurrency: int, batch_size: int, resume: bool, update_current: bool
+    *,
+    concurrency: int,
+    batch_size: int,
+    resume: bool | None,
+    update_current: bool,
+    emit: bool = True,
 ) -> _OperationResult:
+    runtime = _load_crawl4ai()
+    _preflight_crawl4ai_runtime(runtime)
+    _prepare_cache_directories(Path("snapshots/website"), Path("manifests"))
     discovery = discover_sitemap_snapshot(fetch_bytes(SOURCE_SITEMAP))
-    if resume:
+    incomplete = _incomplete_website_snapshots()
+    if resume is True or (resume is None and incomplete):
         snapshot_root, snapshot_id = _website_resume_root(discovery)
         fetched_at = _utc_now()
     else:
-        if _incomplete_website_snapshots():
+        if incomplete:
             raise RuntimeError("an incomplete website snapshot requires --resume")
         fetched_at = _utc_now()
         snapshot_id = f"website-{_timestamp_token(fetched_at)}"
         snapshot_root = CACHE_ROOT / "snapshots/website" / snapshot_id
-        if snapshot_root.exists():
+        snapshot_relative = Path("snapshots/website") / snapshot_id
+        if _safe_directory_exists(CACHE_ROOT, snapshot_relative):
             raise RuntimeError("website snapshot already exists")
+        _ensure_safe_directory(CACHE_ROOT, snapshot_relative, exist_ok=False)
         state = {
             "source_origin": SOURCE_SITEMAP,
             "filter_policy_version": FILTER_POLICY_VERSION,
             "discovery_sha256": discovery.raw_sha256,
             "snapshot_id": snapshot_id,
         }
-        _atomic_write(snapshot_root, Path("resume.json"), stable_json_bytes(state))
+        _atomic_write(
+            CACHE_ROOT,
+            snapshot_relative / "resume.json",
+            stable_json_bytes(state),
+        )
 
     previous = _current_layer_manifest("website")
 
@@ -628,10 +699,11 @@ def _website_operation(
             ),
         )
     )
-    manifest_path = CACHE_ROOT / "manifests" / f"{snapshot_id}.json"
-    if manifest_path.exists():
+    manifest_relative = Path("manifests") / f"{snapshot_id}.json"
+    manifest_path = CACHE_ROOT / manifest_relative
+    if _secure_read(CACHE_ROOT, manifest_relative, missing_ok=True) is not None:
         raise RuntimeError("website manifest already exists")
-    digest = write_manifest(manifest_path, manifest)
+    digest = _write_cache_manifest(manifest_relative, manifest)
     report = validate_snapshot(
         manifest,
         snapshot_root,
@@ -639,25 +711,41 @@ def _website_operation(
         manifest_path=manifest_path,
     )
     if not report.ok:
-        return _OperationResult(2)
+        if emit:
+            print(
+                json.dumps(
+                    {
+                        "error": "integrity_failed",
+                        "ok": False,
+                        "source_kind": "website",
+                        "stage": "integrity",
+                    },
+                    sort_keys=True,
+                )
+            )
+        return _OperationResult(2, error="integrity_failed")
     pointer = _pointer_for(manifest, manifest_path, snapshot_root, digest)
     if update_current:
         _replace_current_layers({"website": pointer})
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "source_kind": "website",
-                "snapshot_id": snapshot_id,
-                "document_count": len(manifest.documents),
-            },
-            sort_keys=True,
+    if emit:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "source_kind": "website",
+                    "snapshot_id": snapshot_id,
+                    "document_count": len(manifest.documents),
+                },
+                sort_keys=True,
+            )
         )
-    )
     return _OperationResult(0, pointer)
 
 
-def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult:
+def _repository_operation(
+    ref: str, *, update_current: bool, emit: bool = True
+) -> _OperationResult:
+    _prepare_cache_directories(Path("snapshots/upstream"), Path("manifests"))
     if ref == "main":
         source_kind = "main"
         release_tag = None
@@ -680,10 +768,14 @@ def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult
         snapshot_id = f"release-{ref}-{resolved_sha}"
         directory_name = ref
         manifest_name = f"upstream-{ref}.json"
-    snapshot_root = CACHE_ROOT / "snapshots/upstream" / directory_name
-    manifest_path = CACHE_ROOT / "manifests" / manifest_name
-    root_exists = snapshot_root.exists()
-    manifest_exists = manifest_path.exists()
+    snapshot_relative = Path("snapshots/upstream") / directory_name
+    manifest_relative = Path("manifests") / manifest_name
+    snapshot_root = CACHE_ROOT / snapshot_relative
+    manifest_path = CACHE_ROOT / manifest_relative
+    root_exists = _safe_directory_exists(CACHE_ROOT, snapshot_relative)
+    manifest_exists = (
+        _secure_read(CACHE_ROOT, manifest_relative, missing_ok=True) is not None
+    )
     if root_exists != manifest_exists:
         raise RuntimeError("repository snapshot is incomplete")
     if root_exists:
@@ -704,7 +796,19 @@ def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult
             manifest_path=manifest_path,
         )
         if not report.ok:
-            return _OperationResult(2)
+            if emit:
+                print(
+                    json.dumps(
+                        {
+                            "error": "integrity_failed",
+                            "ok": False,
+                            "source_kind": source_kind,
+                            "stage": "integrity",
+                        },
+                        sort_keys=True,
+                    )
+                )
+            return _OperationResult(2, error="integrity_failed")
         pointer = _pointer_for(
             manifest,
             manifest_path,
@@ -713,20 +817,21 @@ def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult
         )
         if update_current:
             _replace_current_layers({source_kind: pointer})
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "reused": True,
-                    "source_kind": source_kind,
-                    "snapshot_id": snapshot_id,
-                    "resolved_sha": resolved_sha,
-                },
-                sort_keys=True,
+        if emit:
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "reused": True,
+                        "source_kind": source_kind,
+                        "snapshot_id": snapshot_id,
+                        "resolved_sha": resolved_sha,
+                    },
+                    sort_keys=True,
+                )
             )
-        )
         return _OperationResult(0, pointer)
-    snapshot_root.mkdir(parents=True, exist_ok=False)
+    _ensure_safe_directory(CACHE_ROOT, snapshot_relative, exist_ok=False)
     manifest = snapshot_repository(
         pinned,
         ref,
@@ -736,7 +841,7 @@ def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult
         source_kind=source_kind,
         release_tag=release_tag,
     )
-    digest = write_manifest(manifest_path, manifest)
+    digest = _write_cache_manifest(manifest_relative, manifest)
     report = validate_snapshot(
         manifest,
         snapshot_root,
@@ -744,21 +849,34 @@ def _repository_operation(ref: str, *, update_current: bool) -> _OperationResult
         manifest_path=manifest_path,
     )
     if not report.ok:
-        return _OperationResult(2)
+        if emit:
+            print(
+                json.dumps(
+                    {
+                        "error": "integrity_failed",
+                        "ok": False,
+                        "source_kind": source_kind,
+                        "stage": "integrity",
+                    },
+                    sort_keys=True,
+                )
+            )
+        return _OperationResult(2, error="integrity_failed")
     pointer = _pointer_for(manifest, manifest_path, snapshot_root, digest)
     if update_current:
         _replace_current_layers({source_kind: pointer})
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "source_kind": source_kind,
-                "snapshot_id": snapshot_id,
-                "resolved_sha": resolved_sha,
-            },
-            sort_keys=True,
+    if emit:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "source_kind": source_kind,
+                    "snapshot_id": snapshot_id,
+                    "resolved_sha": resolved_sha,
+                },
+                sort_keys=True,
+            )
         )
-    )
     return _OperationResult(0, pointer)
 
 
@@ -781,38 +899,65 @@ def _integrity_all() -> int:
 
 
 def _all_operation() -> int:
-    website = _website_operation(
-        concurrency=5,
-        batch_size=40,
-        resume=False,
-        update_current=False,
-    )
-    if website.status != 0:
-        return 2
-    release = _repository_operation(DEFAULT_RELEASE_REF, update_current=False)
-    if release.status != 0:
-        return 2
-    main_result = _repository_operation("main", update_current=False)
-    if main_result.status != 0:
-        return 2
-    pointers = {
-        "website": website.pointer,
-        "release": release.pointer,
-        "main": main_result.pointer,
-    }
-    for pointer in pointers.values():
-        if not isinstance(pointer, Mapping):
-            raise RuntimeError("completed operation did not produce a pointer")
-        manifest_path = CACHE_ROOT / _safe_relative_path(
-            pointer.get("manifest_path")
+    stage = "website"
+    try:
+        website = _website_operation(
+            concurrency=5,
+            batch_size=40,
+            resume=None,
+            update_current=False,
+            emit=False,
         )
-        if not _integrity_manifest(
-            manifest_path, pointer=pointer, emit=False
-        ).ok:
-            return 2
-    _replace_current_layers(pointers)
+        if website.status != 0:
+            return _emit_all_failure(stage, website.error)
+        stage = "release"
+        release = _repository_operation(
+            DEFAULT_RELEASE_REF, update_current=False, emit=False
+        )
+        if release.status != 0:
+            return _emit_all_failure(stage, release.error)
+        stage = "main"
+        main_result = _repository_operation(
+            "main", update_current=False, emit=False
+        )
+        if main_result.status != 0:
+            return _emit_all_failure(stage, main_result.error)
+        pointers = {
+            "website": website.pointer,
+            "release": release.pointer,
+            "main": main_result.pointer,
+        }
+        stage = "final_integrity"
+        for pointer in pointers.values():
+            if not isinstance(pointer, Mapping):
+                raise RuntimeError("completed operation did not produce a pointer")
+            manifest_path = CACHE_ROOT / _safe_relative_path(
+                pointer.get("manifest_path")
+            )
+            if not _integrity_manifest(
+                manifest_path, pointer=pointer, emit=False
+            ).ok:
+                return _emit_all_failure(stage, "integrity_failed")
+        stage = "current"
+        _replace_current_layers(pointers)
+    except Exception:
+        return _emit_all_failure(stage, "operation_failed")
     print(json.dumps({"ok": True, "current": pointers}, sort_keys=True))
     return 0
+
+
+def _emit_all_failure(stage: str, error: str | None) -> int:
+    print(
+        json.dumps(
+            {
+                "error": error or "operation_failed",
+                "ok": False,
+                "stage": stage,
+            },
+            sort_keys=True,
+        )
+    )
+    return 2
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import inspect
 
 import pytest
 
@@ -39,6 +40,16 @@ def test_manifest_is_stable_and_hashes_exact_bytes(tmp_path: Path):
     assert first == second
     assert (tmp_path / "m1.json").read_bytes() == (tmp_path / "m2.json").read_bytes()
     assert doc.content_sha256 == sha256_bytes(b"abc")
+
+
+def test_filter_policy_version_has_one_models_authority():
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.models import FILTER_POLICY_VERSION
+
+    manifest = _manifest_with()
+    assert manifest.filter_policy_version == FILTER_POLICY_VERSION
+    assert cli.FILTER_POLICY_VERSION == FILTER_POLICY_VERSION
+    assert "FILTER_POLICY_VERSION =" not in inspect.getsource(cli)
 
 
 def _manifest_with(**changes: object) -> SnapshotManifest:
