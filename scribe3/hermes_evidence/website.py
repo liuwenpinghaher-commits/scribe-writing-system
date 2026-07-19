@@ -32,10 +32,8 @@ def discover_sitemap(xml_bytes: bytes) -> list[str]:
     url_nodes = []
     for child in root:
         namespace, name = _tag_parts(child.tag)
-        if name != "url":
-            continue
-        if namespace != root_namespace:
-            raise ValueError("Sitemap URL element has an invalid namespace")
+        if name != "url" or namespace != root_namespace:
+            raise ValueError("Sitemap root must contain only direct URL elements")
         url_nodes.append(child)
     if not url_nodes:
         raise ValueError("Sitemap must contain direct URL elements")

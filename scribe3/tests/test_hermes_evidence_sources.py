@@ -142,6 +142,23 @@ def test_sitemap_ignores_standard_fields_and_non_url_extensions():
     assert discover_sitemap(xml) == ["https://hermes-agent.nousresearch.com/docs/a"]
 
 
+@pytest.mark.parametrize(
+    "xml",
+    [
+        b"<urlset><url><loc>https://hermes-agent.nousresearch.com/docs/a</loc></url><unexpected /></urlset>",
+        b"<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"
+        b"<url><loc>https://hermes-agent.nousresearch.com/docs/a</loc></url><unexpected />"
+        b"</urlset>",
+        b"<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:bad=\"https://example.test/bad\">"
+        b"<url><loc>https://hermes-agent.nousresearch.com/docs/a</loc></url><bad:unexpected />"
+        b"</urlset>",
+    ],
+)
+def test_sitemap_rejects_non_url_root_children_in_any_namespace(xml: bytes):
+    with pytest.raises(ValueError):
+        discover_sitemap(xml)
+
+
 def test_repo_policy_keeps_docs_and_classifies_skills():
     assert select_repo_document("website/docs/user-guide/features/hooks.md")
     assert select_repo_document("optional-skills/creative/creative-ideation/SKILL.md")
