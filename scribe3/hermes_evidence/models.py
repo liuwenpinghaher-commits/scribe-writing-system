@@ -20,8 +20,14 @@ _SENSITIVE_KEY_PARTS = (
     "secret",
     "token",
 )
-_SENSITIVE_VALUE_PATTERN = re.compile(
-    r"(?i)\b(?:bearer\s+(?!\$\{[A-Z_][A-Z0-9_]*\})\S+|sk-[a-z0-9_-]{8,})"
+_SECRET_SHAPED_VALUE_PATTERN = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}")
+_BEARER_VALUE_PATTERN = re.compile(r"(?i)\bbearer\s+(?P<value>\S+)")
+_AUTHORIZATION_HEADER_PATTERN = re.compile(
+    r"(?im)\bauthorization\s*:\s*(?:basic|bearer)\s+(?P<value>\S+)"
+)
+_COOKIE_HEADER_PATTERN = re.compile(r"(?im)\bcookie\s*:\s*(?P<value>[^\r\n]+)")
+_SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(?:api[_-]?key|secret|token|password|credential)\s*=\s*(?P<value>[^\s#;]+)"
 )
 
 
@@ -41,6 +47,20 @@ def _is_sensitive_key(value: str) -> bool:
     return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
 
 
+def _is_placeholder(value: str) -> bool:
+    candidate = value.strip().strip("\"'")
+    return bool(
+        re.fullmatch(r"\$\{[A-Z_][A-Z0-9_]*\}", candidate)
+        or re.fullmatch(r"\$[A-Z_][A-Z0-9_]*", candidate)
+        or re.fullmatch(r"YOUR_[A-Z0-9_]+", candidate)
+        or candidate.lower() in {"[redacted]", "<redacted>"}
+    )
+
+
+def _contains_credential_value(pattern: re.Pattern[str], value: str) -> bool:
+    return any(not _is_placeholder(match["value"]) for match in pattern.finditer(value))
+
+
 def contains_sensitive_data(value: object) -> bool:
     """Return whether a manifest value appears to contain credentials or secrets."""
     if isinstance(value, Mapping):
@@ -58,7 +78,13 @@ def contains_sensitive_data(value: object) -> bool:
     parsed = urlsplit(value)
     if parsed.query and any(_is_sensitive_key(key) for key, _ in parse_qsl(parsed.query)):
         return True
-    return bool(_SENSITIVE_VALUE_PATTERN.search(value))
+    return bool(
+        _SECRET_SHAPED_VALUE_PATTERN.search(value)
+        or _contains_credential_value(_BEARER_VALUE_PATTERN, value)
+        or _contains_credential_value(_AUTHORIZATION_HEADER_PATTERN, value)
+        or _contains_credential_value(_COOKIE_HEADER_PATTERN, value)
+        or _contains_credential_value(_SENSITIVE_ASSIGNMENT_PATTERN, value)
+    )
 
 
 @dataclass(frozen=True)

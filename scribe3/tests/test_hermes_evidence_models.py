@@ -97,10 +97,80 @@ def test_write_manifest_rejects_suspicious_sensitive_data_before_writing(
     assert "not-a-real" not in str(error.value)
 
 
-def test_official_environment_variable_placeholder_is_allowed(tmp_path: Path):
-    manifest = _manifest_with(notes=["Set HERMES_API_KEY=${API_KEY} before running."])
+@pytest.mark.parametrize(
+    "example",
+    [
+        "Set HERMES_API_KEY=${API_KEY} before running.",
+        "Set HERMES_API_KEY=$API_KEY before running.",
+        "Set HERMES_API_KEY=YOUR_API_KEY before running.",
+        "Set HERMES_API_KEY=[REDACTED] before running.",
+        "Set HERMES_API_KEY=<redacted> before running.",
+        "Set API_KEY in environment before running.",
+    ],
+)
+def test_official_environment_variable_placeholder_is_allowed(
+    tmp_path: Path, example: str
+):
+    manifest = _manifest_with(notes=[example])
     path = tmp_path / "manifest.json"
 
     assert not contains_sensitive_data(manifest.payload())
     write_manifest(path, manifest)
     assert path.exists()
+
+
+@pytest.mark.parametrize(
+    ("case", "manifest", "private_fragment"),
+    [
+        (
+            "basic authorization in document error",
+            _manifest_with(
+                documents=[
+                    DocumentRecord(
+                        document_id="website:abc",
+                        source_kind="website",
+                        output_path="pages/a.md",
+                        content_sha256=sha256_bytes(b"abc"),
+                        byte_length=3,
+                        text_length=3,
+                        semantic_status="content",
+                        error="Authorization: Basic aW52YWxpZC1leGFtcGxl",
+                    )
+                ]
+            ),
+            "aW52YWxpZC",
+        ),
+        (
+            "cookie header in note",
+            _manifest_with(notes=["Cookie: session=not-a-real-session"]),
+            "not-a-real-session",
+        ),
+        (
+            "credential assignments in note",
+            _manifest_with(
+                notes=[
+                    "API_KEY=not-a-real-api-key SECRET=not-a-real-secret "
+                    "TOKEN=not-a-real-token PASSWORD=not-a-real-password "
+                    "CREDENTIAL=not-a-real-credential"
+                ]
+            ),
+            "not-a-real-api-key",
+        ),
+        (
+            "dotenv content in note",
+            _manifest_with(notes=["# .env\nAPI_KEY=not-a-real-dotenv-value\nMODE=test"]),
+            "not-a-real-dotenv-value",
+        ),
+    ],
+)
+def test_write_manifest_rejects_sensitive_free_strings_before_creating_parent(
+    tmp_path: Path, case: str, manifest: SnapshotManifest, private_fragment: str
+):
+    path = tmp_path / case.replace(" ", "-") / "manifest.json"
+
+    assert not path.parent.exists()
+    with pytest.raises(ValueError, match="sensitive data") as error:
+        write_manifest(path, manifest)
+
+    assert not path.parent.exists()
+    assert private_fragment not in str(error.value)
