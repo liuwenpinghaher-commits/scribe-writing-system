@@ -109,8 +109,10 @@ def test_website_crawl_reverifies_manifest_files_before_completion(tmp_path):
         calls += 1
         if calls == 2:
             saved = tmp_path / "pages/a.md"
-            original = saved.read_bytes()
-            saved.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+            saved.write_text(
+                "Authorization: Bearer " + ("x" * 40) + (" hidden" * 30),
+                encoding="utf-8",
+            )
         return [page(url) for url in batch]
 
     manifest = asyncio.run(
@@ -131,6 +133,58 @@ def test_website_crawl_reverifies_manifest_files_before_completion(tmp_path):
     assert manifest.failures == [
         {"requested_url": urls[0], "error": "stored_content_mismatch"}
     ]
+    assert not (tmp_path / "pages/a.md").exists()
+
+
+def test_website_crawl_removes_immediate_mismatch_pollution(tmp_path, monkeypatch):
+    import scribe3.hermes_evidence.website as website
+
+    url = "https://hermes-agent.nousresearch.com/docs/immediate-mismatch"
+    relative_path = Path("pages/immediate-mismatch.md")
+    real_secure_read = website._secure_read
+    corrupted = False
+
+    def corrupting_read(root, candidate, *, missing_ok=False):
+        nonlocal corrupted
+        if candidate == relative_path and not corrupted:
+            corrupted = True
+            (Path(root) / candidate).write_text(
+                "Cookie: session=" + ("x" * 40) + (" hidden" * 30),
+                encoding="utf-8",
+            )
+        return real_secure_read(root, candidate, missing_ok=missing_ok)
+
+    monkeypatch.setattr(website, "_secure_read", corrupting_read)
+
+    async def fake_fetch(urls):
+        return [
+            website.CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Safe\n" + ("public documentation " * 20),
+                title="Safe",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        website.crawl_website(
+            [url],
+            fake_fetch,
+            "immediate-mismatch",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert corrupted
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "stored_content_mismatch"}
+    ]
+    assert not (tmp_path / relative_path).exists()
 
 
 def test_website_retry_after_wins_and_events_are_sanitized():
@@ -1039,6 +1093,26 @@ def test_website_atomic_write_resists_parent_symlink_swap_race(
     ]
 
 
+def test_website_atomic_write_closes_root_fd_when_parent_open_fails(tmp_path):
+    import os
+
+    import scribe3.hermes_evidence.website as website
+
+    out_root = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    out_root.mkdir()
+    outside.mkdir()
+    (out_root / "pages").symlink_to(outside, target_is_directory=True)
+
+    baseline = len(os.listdir("/dev/fd"))
+    for _ in range(40):
+        with pytest.raises(website._UnsafeOutputPath):
+            website._atomic_write(out_root, Path("pages/a.md"), b"safe")
+    after_failures = len(os.listdir("/dev/fd"))
+
+    assert after_failures <= baseline + 2
+
+
 def test_website_crawl_rejects_sensitive_response_metadata_before_writing(tmp_path):
     from scribe3.hermes_evidence.models import contains_sensitive_data
     from scribe3.hermes_evidence.website import CrawlPage, crawl_website
@@ -1218,6 +1292,70 @@ def test_website_crawl_does_not_misclassify_normal_error_documentation(tmp_path)
             [url],
             fake_fetch,
             "normal-error-doc",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert [document.logical_key for document in manifest.documents] == [url]
+    assert not manifest.failures
+
+
+@pytest.mark.parametrize(
+    ("slug", "title", "heading", "detail"),
+    [
+        (
+            "404-tutorial",
+            "404 - Page Not Found",
+            "# 404 - Page Not Found",
+            "This guide explains how to recover when a page or resource could not be found in an API response.",
+        ),
+        (
+            "login-tutorial",
+            "Sign in",
+            "# Sign in",
+            "This tutorial explains how users sign in to continue and when to enter your password safely.",
+        ),
+        (
+            "anti-bot-tutorial",
+            "Just a moment...",
+            "# Verify you are human",
+            "This documentation explains how Cloudflare uses checking your browser and verify you are human pages.",
+        ),
+        (
+            "server-error-tutorial",
+            "Service Unavailable",
+            "# Service Unavailable",
+            "This troubleshooting guide explains how a server can be unavailable and why clients should try again later.",
+        ),
+    ],
+)
+def test_website_soft_error_exact_heading_does_not_override_tutorial_structure(
+    tmp_path, slug, title, heading, detail
+):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = f"https://hermes-agent.nousresearch.com/docs/{slug}"
+    body = f"{heading}\n{detail}\n" + ("Documented examples and recovery steps. " * 12)
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown=body,
+                title=title,
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            f"tutorial-{slug}",
             tmp_path,
             "2026-07-20T00:00:00+00:00",
         )

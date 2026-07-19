@@ -359,9 +359,26 @@ def _soft_error_marker(value: object) -> str:
     return re.sub(r"\s+", " ", value.strip().lower()).strip(" .!|:-")
 
 
+def _has_documentation_lead(body: str) -> bool:
+    lines = body.splitlines()
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    lead = " ".join(lines)[:800].lower()
+    return bool(
+        re.search(
+            r"\bthis\s+(?:[a-z-]+\s+){0,2}"
+            r"(?:guide|tutorial|documentation|article|section)\s+"
+            r"(?:explains?|documents?|describes?|shows?|covers?|walks?)\b",
+            lead,
+        )
+    )
+
+
 def _semantic_soft_error(title: object, body: str) -> str | None:
     markers = {_soft_error_marker(title), _soft_error_marker(_h1(body))}
     sample = body[:2000].lower()
+    if _has_documentation_lead(body):
+        return None
 
     soft_404_markers = {
         "404",
@@ -557,10 +574,11 @@ def _secure_read(
 def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
     parts = _relative_parts(relative_path)
     root_fd = _open_root_fd(root, create=True)
-    parent_fd = _open_parent_fd(root_fd, parts[:-1], create=True)
+    parent_fd: int | None = None
     temporary_name = f".{parts[-1]}.{secrets.token_hex(8)}.tmp"
     temporary_exists = False
     try:
+        parent_fd = _open_parent_fd(root_fd, parts[:-1], create=True)
         try:
             existing = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
         except FileNotFoundError:
@@ -626,12 +644,13 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
         finally:
             os.close(final_descriptor)
     finally:
-        if temporary_exists:
+        if temporary_exists and parent_fd is not None:
             try:
                 os.unlink(temporary_name, dir_fd=parent_fd)
             except FileNotFoundError:
                 pass
-        os.close(parent_fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
         os.close(root_fd)
 
 
@@ -937,6 +956,7 @@ async def crawl_website(
                     or len(stored) != len(raw)
                     or sha256_bytes(stored) != sha256_bytes(raw)
                 ):
+                    _remove_rejected_output(Path(out_root), relative_path)
                     failures.append(
                         {"requested_url": url, "error": "stored_content_mismatch"}
                     )
@@ -973,6 +993,7 @@ async def crawl_website(
         if matches:
             verified_documents[url] = document
         else:
+            _remove_rejected_output(Path(out_root), output_paths[url])
             checkpoint.completed.pop(url, None)
             if not any(row.get("requested_url") == url for row in failures):
                 failures.append(
