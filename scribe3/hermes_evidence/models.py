@@ -31,6 +31,31 @@ _SENSITIVE_LABELS = frozenset(
 _AUTHORIZATION_LABELS = frozenset({"authorization", "proxy authorization"})
 _COOKIE_LABELS = frozenset({"cookie", "set cookie"})
 _SECRET_SHAPED_VALUE_PATTERN = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}")
+_SENSITIVE_LABEL_OCCURRENCE_PATTERN = re.compile(
+    r'''(?ix)
+    (?<![a-z0-9_-])
+    (?P<quote>["']?)
+    (?P<label>
+        proxy[\s_-]+authorization
+        | access[\s_-]+token
+        | client[\s_-]+secret
+        | set[\s_-]+cookie
+        | x[\s_-]+api[\s_-]+key
+        | x[\s_-]+auth[\s_-]+token
+        | api[\s_-]+key
+        | authorization
+        | credential
+        | password
+        | secret
+        | token
+        | cookie
+    )
+    (?P=quote)
+    (?![a-z0-9_-])
+    \s*[:=]\s*
+    (?P<value>[^\r\n;]+)
+    '''
+)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -88,18 +113,20 @@ def _cookie_has_actual_value(label: str, value: str) -> bool:
 
 
 def _line_contains_sensitive_value(line: str) -> bool:
-    delimiters = [position for position in (line.find(":"), line.find("=")) if position >= 0]
-    if not delimiters:
-        return False
-
-    delimiter = min(delimiters)
-    label = _normalize_label(line[:delimiter])
-    value = line[delimiter + 1 :].strip()
-    if label in _AUTHORIZATION_LABELS:
-        return _authorization_has_actual_credential(value)
-    if label in _COOKIE_LABELS:
-        return _cookie_has_actual_value(label, value)
-    return label in _SENSITIVE_LABELS and _has_actual_value(value)
+    for match in _SENSITIVE_LABEL_OCCURRENCE_PATTERN.finditer(line):
+        label = _normalize_label(match["label"])
+        value = match["value"].strip()
+        if label in _AUTHORIZATION_LABELS:
+            if _authorization_has_actual_credential(value):
+                return True
+            continue
+        if label in _COOKIE_LABELS:
+            if _cookie_has_actual_value(label, value):
+                return True
+            continue
+        if label in _SENSITIVE_LABELS and _has_actual_value(value):
+            return True
+    return False
 
 
 def contains_sensitive_data(value: object) -> bool:

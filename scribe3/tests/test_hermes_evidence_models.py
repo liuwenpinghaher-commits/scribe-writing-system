@@ -270,3 +270,42 @@ def test_contains_sensitive_data_allows_telemetry_and_nonsecret_sensitive_fields
 )
 def test_contains_sensitive_data_rejects_actual_sensitive_mapping_values(value: object):
     assert contains_sensitive_data(value)
+
+
+@pytest.mark.parametrize(
+    "free_string",
+    [
+        "HTTP 401 response: Authorization: Bearer actual-secret",
+        "response headers; Cookie: session=actual-secret",
+        "status=ok; API Key: actual-secret",
+        'context: {"Access_Token": "actual-secret"}',
+        "prefix: CLIENT-secret = actual-secret",
+    ],
+)
+def test_write_manifest_rejects_embedded_sensitive_label_values(
+    tmp_path: Path, free_string: str
+):
+    path = tmp_path / "nested" / "manifest.json"
+
+    with pytest.raises(ValueError, match="sensitive data"):
+        write_manifest(path, _manifest_with(notes=[free_string]))
+
+    assert not path.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "free_string",
+    [
+        "HTTP 401: Authorization required",
+        "Example: Authorization: Bearer ${API_KEY}",
+        "headers; Cookie: session=${SESSION_TOKEN}",
+    ],
+)
+def test_write_manifest_allows_embedded_documentation_and_placeholders(
+    tmp_path: Path, free_string: str
+):
+    path = tmp_path / "manifest.json"
+
+    write_manifest(path, _manifest_with(notes=[free_string]))
+
+    assert path.exists()
