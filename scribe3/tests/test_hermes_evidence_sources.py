@@ -187,6 +187,76 @@ def test_website_crawl_removes_immediate_mismatch_pollution(tmp_path, monkeypatc
     assert not (tmp_path / relative_path).exists()
 
 
+def test_website_atomic_final_mismatch_removes_committed_pollution(
+    tmp_path, monkeypatch
+):
+    import os
+
+    import scribe3.hermes_evidence.website as website
+
+    url = "https://hermes-agent.nousresearch.com/docs/internal-final-mismatch"
+    relative_path = Path("pages/internal-final-mismatch.md")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_page = outside / relative_path.name
+    outside_page.write_text("outside sentinel", encoding="utf-8")
+    pollution = (
+        "Authorization: Bearer " + ("x" * 40) + (" hidden" * 30)
+    ).encode()
+    real_replace = website.os.replace
+    injected = False
+
+    def corrupting_replace(source, destination, *args, **kwargs):
+        nonlocal injected
+        result = real_replace(source, destination, *args, **kwargs)
+        if destination == relative_path.name and not injected:
+            injected = True
+            descriptor = os.open(
+                destination,
+                os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=kwargs["dst_dir_fd"],
+            )
+            try:
+                os.write(descriptor, pollution)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        return result
+
+    monkeypatch.setattr(website.os, "replace", corrupting_replace)
+
+    async def fake_fetch(urls):
+        return [
+            website.CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Safe\n" + ("public documentation " * 20),
+                title="Safe",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        website.crawl_website(
+            [url],
+            fake_fetch,
+            "internal-final-mismatch",
+            tmp_path / "evidence",
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert injected
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "stored_content_mismatch"}
+    ]
+    assert not (tmp_path / "evidence" / relative_path).exists()
+    assert outside_page.read_text(encoding="utf-8") == "outside sentinel"
+
+
 def test_website_retry_after_wins_and_events_are_sanitized():
     from scribe3.hermes_evidence.models import contains_sensitive_data
     from scribe3.hermes_evidence.website import (
@@ -1113,6 +1183,30 @@ def test_website_atomic_write_closes_root_fd_when_parent_open_fails(tmp_path):
     assert after_failures <= baseline + 2
 
 
+def test_website_atomic_write_closes_root_fd_when_token_generation_fails(
+    tmp_path, monkeypatch
+):
+    import os
+
+    import scribe3.hermes_evidence.website as website
+
+    out_root = tmp_path / "evidence"
+    out_root.mkdir()
+
+    def fail_token_generation(length):
+        raise OSError("deterministic token generation failure")
+
+    monkeypatch.setattr(website.secrets, "token_hex", fail_token_generation)
+
+    baseline = len(os.listdir("/dev/fd"))
+    for _ in range(40):
+        with pytest.raises(OSError, match="token generation"):
+            website._atomic_write(out_root, Path("pages/a.md"), b"safe")
+    after_failures = len(os.listdir("/dev/fd"))
+
+    assert after_failures <= baseline + 2
+
+
 def test_website_crawl_rejects_sensitive_response_metadata_before_writing(tmp_path):
     from scribe3.hermes_evidence.models import contains_sensitive_data
     from scribe3.hermes_evidence.website import CrawlPage, crawl_website
@@ -1363,6 +1457,80 @@ def test_website_soft_error_exact_heading_does_not_override_tutorial_structure(
 
     assert [document.logical_key for document in manifest.documents] == [url]
     assert not manifest.failures
+
+
+@pytest.mark.parametrize(
+    ("slug", "title", "heading", "detail", "expected_error"),
+    [
+        (
+            "late-help-404",
+            "404 - Page Not Found",
+            "# 404 - Page Not Found",
+            "The page you requested could not be found.",
+            "soft_404",
+        ),
+        (
+            "late-help-login",
+            "Sign in",
+            "# Sign in",
+            "Sign in to continue. Enter your password to access this page.",
+            "soft_login",
+        ),
+        (
+            "late-help-anti-bot",
+            "Just a moment...",
+            "# Verify you are human",
+            "Checking your browser before accessing this Cloudflare protected site.",
+            "soft_anti_bot",
+        ),
+        (
+            "late-help-server",
+            "Service Unavailable",
+            "# Service Unavailable",
+            "The server is temporarily unavailable. Please try again later.",
+            "soft_server_error",
+        ),
+    ],
+)
+def test_website_soft_error_evidence_before_late_documentation_is_not_overridden(
+    tmp_path, slug, title, heading, detail, expected_error
+):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = f"https://hermes-agent.nousresearch.com/docs/{slug}"
+    body = (
+        f"{heading}\n{detail}\n\n"
+        "This documentation section explains how to troubleshoot this response.\n"
+        + ("Additional help and recovery information. " * 12)
+    )
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown=body,
+                title=title,
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            f"late-help-{slug}",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": expected_error}
+    ]
 
 
 def test_website_content_identity_is_timestamp_independent_and_supersedes(tmp_path):

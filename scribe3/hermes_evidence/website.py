@@ -361,12 +361,21 @@ def _soft_error_marker(value: object) -> str:
 
 def _has_documentation_lead(body: str) -> bool:
     lines = body.splitlines()
-    if lines and lines[0].startswith("# "):
-        lines = lines[1:]
-    lead = " ".join(lines)[:800].lower()
+    index = 0
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines) and lines[index].startswith("# "):
+        index += 1
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    paragraph: list[str] = []
+    while index < len(lines) and lines[index].strip():
+        paragraph.append(lines[index].strip())
+        index += 1
+    lead = " ".join(paragraph)[:800].lower()
     return bool(
-        re.search(
-            r"\bthis\s+(?:[a-z-]+\s+){0,2}"
+        re.match(
+            r"^this\s+(?:[a-z-]+\s+){0,2}"
             r"(?:guide|tutorial|documentation|article|section)\s+"
             r"(?:explains?|documents?|describes?|shows?|covers?|walks?)\b",
             lead,
@@ -425,6 +434,10 @@ def _semantic_soft_error(title: object, body: str) -> str | None:
 
 
 class _UnsafeOutputPath(RuntimeError):
+    pass
+
+
+class _StoredContentMismatch(OSError):
     pass
 
 
@@ -575,9 +588,10 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
     parts = _relative_parts(relative_path)
     root_fd = _open_root_fd(root, create=True)
     parent_fd: int | None = None
-    temporary_name = f".{parts[-1]}.{secrets.token_hex(8)}.tmp"
+    temporary_name: str | None = None
     temporary_exists = False
     try:
+        temporary_name = f".{parts[-1]}.{secrets.token_hex(8)}.tmp"
         parent_fd = _open_parent_fd(root_fd, parts[:-1], create=True)
         try:
             existing = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
@@ -632,6 +646,7 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
         final_descriptor = os.open(
             parts[-1], _FILE_READ_FLAGS, dir_fd=parent_fd
         )
+        final_mismatch = False
         try:
             final_stat = os.fstat(final_descriptor)
             if not stat.S_ISREG(final_stat.st_mode):
@@ -640,11 +655,30 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
             if len(final_data) != len(data) or sha256_bytes(
                 final_data
             ) != sha256_bytes(data):
-                raise OSError("stored content mismatch")
+                final_mismatch = True
         finally:
             os.close(final_descriptor)
+        if final_mismatch:
+            try:
+                current_stat = os.stat(
+                    parts[-1], dir_fd=parent_fd, follow_symlinks=False
+                )
+            except FileNotFoundError:
+                current_stat = None
+            if current_stat is not None:
+                if not _same_inode(final_stat, current_stat):
+                    raise _UnsafeOutputPath(
+                        "output target identity changed during mismatch cleanup"
+                    )
+                os.unlink(parts[-1], dir_fd=parent_fd)
+                os.fsync(parent_fd)
+            raise _StoredContentMismatch("stored content mismatch")
     finally:
-        if temporary_exists and parent_fd is not None:
+        if (
+            temporary_exists
+            and parent_fd is not None
+            and temporary_name is not None
+        ):
             try:
                 os.unlink(temporary_name, dir_fd=parent_fd)
             except FileNotFoundError:
@@ -946,6 +980,11 @@ async def crawl_website(
                 try:
                     _atomic_write(Path(out_root), relative_path, raw)
                     stored = _secure_read(Path(out_root), relative_path)
+                except _StoredContentMismatch:
+                    failures.append(
+                        {"requested_url": url, "error": "stored_content_mismatch"}
+                    )
+                    continue
                 except _UnsafeOutputPath:
                     failures.append(
                         {"requested_url": url, "error": "unsafe_output_path"}
