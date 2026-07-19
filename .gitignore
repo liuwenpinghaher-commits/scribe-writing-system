@@ -33,6 +33,7 @@ scribe/out/
 .DS_Store
 .superpowers/
 .claude/worktrees/
+.worktrees/
 
 # e2e 数据快照(本机运行产物,可重建)
 scribe3/web/e2e/.snapshots/
