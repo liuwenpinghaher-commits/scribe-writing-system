@@ -11,30 +11,26 @@ from urllib.parse import parse_qsl, urlsplit
 
 SourceKind = Literal["website", "release", "main", "runtime"]
 
-_SENSITIVE_KEY_PARTS = (
-    "apikey",
-    "authorization",
-    "cookie",
-    "credential",
-    "password",
-    "secret",
-    "token",
+_SENSITIVE_LABELS = frozenset(
+    {
+        "access token",
+        "api key",
+        "authorization",
+        "client secret",
+        "cookie",
+        "credential",
+        "password",
+        "proxy authorization",
+        "secret",
+        "set cookie",
+        "token",
+        "x api key",
+        "x auth token",
+    }
 )
+_AUTHORIZATION_LABELS = frozenset({"authorization", "proxy authorization"})
+_COOKIE_LABELS = frozenset({"cookie", "set cookie"})
 _SECRET_SHAPED_VALUE_PATTERN = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}")
-_NAMED_VALUE_PATTERN = re.compile(
-    r'''(?ix)
-    (?<![a-z0-9_-])
-    (?P<quote>["']?)
-    (?P<name>[a-z][a-z0-9_-]*)
-    (?P=quote)
-    \s*[:=]\s*
-    (?P<value>
-        "(?:[^"\\]|\\.)*"
-        | '(?:[^'\\]|\\.)*'
-        | [^\s,;#\r\n]+
-    )
-    '''
-)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -48,13 +44,17 @@ def stable_json_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
-def _is_sensitive_key(value: str) -> bool:
-    normalized = re.sub(r"[^a-z0-9]", "", value.lower())
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+def _normalize_label(value: str) -> str:
+    label = value.strip().lstrip("{[(").strip().strip("\"'")
+    return re.sub(r"[\s_-]+", " ", label.lower()).strip()
+
+
+def _is_sensitive_label(value: str) -> bool:
+    return _normalize_label(value) in _SENSITIVE_LABELS
 
 
 def _is_placeholder(value: str) -> bool:
-    candidate = value.strip().strip("\"'")
+    candidate = value.strip().rstrip(".,;").strip("\"'").rstrip(".,;")
     return bool(
         re.fullmatch(r"\$\{[A-Z_][A-Z0-9_]*\}", candidate)
         or re.fullmatch(r"\$[A-Z_][A-Z0-9_]*", candidate)
@@ -63,18 +63,50 @@ def _is_placeholder(value: str) -> bool:
     )
 
 
-def _contains_named_sensitive_value(value: str) -> bool:
-    return any(
-        _is_sensitive_key(match["name"]) and not _is_placeholder(match["value"])
-        for match in _NAMED_VALUE_PATTERN.finditer(value)
-    )
+def _has_actual_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip()) and not _is_placeholder(value)
+    return True
+
+
+def _authorization_has_actual_credential(value: str) -> bool:
+    parts = value.strip().split(maxsplit=1)
+    return len(parts) == 2 and _has_actual_value(parts[1])
+
+
+def _cookie_has_actual_value(label: str, value: str) -> bool:
+    pairs = value.split(";")
+    if label == "set cookie":
+        pairs = pairs[:1]
+    for pair in pairs:
+        candidate = pair.split("=", maxsplit=1)[-1].strip()
+        if _has_actual_value(candidate):
+            return True
+    return False
+
+
+def _line_contains_sensitive_value(line: str) -> bool:
+    delimiters = [position for position in (line.find(":"), line.find("=")) if position >= 0]
+    if not delimiters:
+        return False
+
+    delimiter = min(delimiters)
+    label = _normalize_label(line[:delimiter])
+    value = line[delimiter + 1 :].strip()
+    if label in _AUTHORIZATION_LABELS:
+        return _authorization_has_actual_credential(value)
+    if label in _COOKIE_LABELS:
+        return _cookie_has_actual_value(label, value)
+    return label in _SENSITIVE_LABELS and _has_actual_value(value)
 
 
 def contains_sensitive_data(value: object) -> bool:
     """Return whether a manifest value appears to contain credentials or secrets."""
     if isinstance(value, Mapping):
         for key, item in value.items():
-            if isinstance(key, str) and _is_sensitive_key(key):
+            if isinstance(key, str) and _is_sensitive_label(key) and _has_actual_value(item):
                 return True
             if contains_sensitive_data(item):
                 return True
@@ -85,11 +117,11 @@ def contains_sensitive_data(value: object) -> bool:
         return False
 
     parsed = urlsplit(value)
-    if parsed.query and any(_is_sensitive_key(key) for key, _ in parse_qsl(parsed.query)):
+    if parsed.query and any(_is_sensitive_label(key) for key, _ in parse_qsl(parsed.query)):
         return True
     return bool(
         _SECRET_SHAPED_VALUE_PATTERN.search(value)
-        or _contains_named_sensitive_value(value)
+        or any(_line_contains_sensitive_value(line) for line in value.splitlines())
     )
 
 

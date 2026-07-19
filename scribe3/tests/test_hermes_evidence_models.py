@@ -207,3 +207,66 @@ def test_write_manifest_rejects_generic_sensitive_name_value_strings(
 
     assert not path.parent.exists()
     assert private_fragment not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "free_string",
+    [
+        "API Key: actual-secret",
+        "Access Token: actual-secret",
+        "Client Secret = actual-secret",
+    ],
+)
+def test_write_manifest_rejects_space_separated_sensitive_labels(
+    tmp_path: Path, free_string: str
+):
+    path = tmp_path / "nested" / "manifest.json"
+
+    with pytest.raises(ValueError, match="sensitive data"):
+        write_manifest(path, _manifest_with(notes=[free_string]))
+
+    assert not path.parent.exists()
+
+
+@pytest.mark.parametrize(
+    "free_string",
+    [
+        "Authorization: Bearer ${API_KEY}",
+        "Proxy-Authorization: Custom $API_KEY",
+        "Cookie: session=YOUR_API_KEY",
+        "Set-Cookie: session=[REDACTED]",
+    ],
+)
+def test_write_manifest_allows_placeholder_credentials_in_headers_and_cookies(
+    tmp_path: Path, free_string: str
+):
+    path = tmp_path / "manifest.json"
+
+    write_manifest(path, _manifest_with(notes=[free_string]))
+
+    assert path.exists()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"token_count": 12, "usage_tokens": 7},
+        {"credential_configured": True, "api_key_present": True},
+        {"token": "${API_KEY}", "api key": None},
+    ],
+)
+def test_contains_sensitive_data_allows_telemetry_and_nonsecret_sensitive_fields(
+    value: object,
+):
+    assert not contains_sensitive_data(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"token": "actual-secret"},
+        {"api key": "actual-secret"},
+    ],
+)
+def test_contains_sensitive_data_rejects_actual_sensitive_mapping_values(value: object):
+    assert contains_sensitive_data(value)
