@@ -21,13 +21,19 @@ _SENSITIVE_KEY_PARTS = (
     "token",
 )
 _SECRET_SHAPED_VALUE_PATTERN = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}")
-_BEARER_VALUE_PATTERN = re.compile(r"(?i)\bbearer\s+(?P<value>\S+)")
-_AUTHORIZATION_HEADER_PATTERN = re.compile(
-    r"(?im)\bauthorization\s*:\s*(?:basic|bearer)\s+(?P<value>\S+)"
-)
-_COOKIE_HEADER_PATTERN = re.compile(r"(?im)\bcookie\s*:\s*(?P<value>[^\r\n]+)")
-_SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
-    r"(?i)\b(?:api[_-]?key|secret|token|password|credential)\s*=\s*(?P<value>[^\s#;]+)"
+_NAMED_VALUE_PATTERN = re.compile(
+    r'''(?ix)
+    (?<![a-z0-9_-])
+    (?P<quote>["']?)
+    (?P<name>[a-z][a-z0-9_-]*)
+    (?P=quote)
+    \s*[:=]\s*
+    (?P<value>
+        "(?:[^"\\]|\\.)*"
+        | '(?:[^'\\]|\\.)*'
+        | [^\s,;#\r\n]+
+    )
+    '''
 )
 
 
@@ -57,8 +63,11 @@ def _is_placeholder(value: str) -> bool:
     )
 
 
-def _contains_credential_value(pattern: re.Pattern[str], value: str) -> bool:
-    return any(not _is_placeholder(match["value"]) for match in pattern.finditer(value))
+def _contains_named_sensitive_value(value: str) -> bool:
+    return any(
+        _is_sensitive_key(match["name"]) and not _is_placeholder(match["value"])
+        for match in _NAMED_VALUE_PATTERN.finditer(value)
+    )
 
 
 def contains_sensitive_data(value: object) -> bool:
@@ -80,10 +89,7 @@ def contains_sensitive_data(value: object) -> bool:
         return True
     return bool(
         _SECRET_SHAPED_VALUE_PATTERN.search(value)
-        or _contains_credential_value(_BEARER_VALUE_PATTERN, value)
-        or _contains_credential_value(_AUTHORIZATION_HEADER_PATTERN, value)
-        or _contains_credential_value(_COOKIE_HEADER_PATTERN, value)
-        or _contains_credential_value(_SENSITIVE_ASSIGNMENT_PATTERN, value)
+        or _contains_named_sensitive_value(value)
     )
 
 

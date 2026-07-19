@@ -174,3 +174,36 @@ def test_write_manifest_rejects_sensitive_free_strings_before_creating_parent(
 
     assert not path.parent.exists()
     assert private_fragment not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("case", "free_string", "private_fragment"),
+    [
+        ("authorization token", "Authorization: Token actual-secret", "actual-secret"),
+        (
+            "proxy authorization digest",
+            "Proxy-Authorization: Digest actual-secret",
+            "actual-secret",
+        ),
+        ("x api key", "X-API-Key: actual-secret", "actual-secret"),
+        ("x auth token", "x_auth_token = actual-secret", "actual-secret"),
+        ("client secret", "client-secret : actual-secret", "actual-secret"),
+        ("password", "PASSWORD=actual-secret", "actual-secret"),
+        ("credential", "credential : actual-secret", "actual-secret"),
+        ("cookie", "Cookie: session=actual-secret", "actual-secret"),
+        ("set cookie", "Set-Cookie: session=actual-secret", "actual-secret"),
+        ("jsonish token", '{"token": "actual-secret"}', "actual-secret"),
+    ],
+)
+def test_write_manifest_rejects_generic_sensitive_name_value_strings(
+    tmp_path: Path, case: str, free_string: str, private_fragment: str
+):
+    path = tmp_path / case.replace(" ", "-") / "manifest.json"
+    manifest = _manifest_with(notes=[free_string])
+
+    assert not path.parent.exists()
+    with pytest.raises(ValueError, match="sensitive data") as error:
+        write_manifest(path, manifest)
+
+    assert not path.parent.exists()
+    assert private_fragment not in str(error.value)
