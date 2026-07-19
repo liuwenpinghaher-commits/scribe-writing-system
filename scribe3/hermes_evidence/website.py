@@ -43,11 +43,12 @@ def discover_sitemap(xml_bytes: bytes) -> list[str]:
         loc_nodes = []
         for child in url_node:
             namespace, name = _tag_parts(child.tag)
-            if name != "loc":
-                continue
             if namespace != root_namespace:
-                raise ValueError("Sitemap loc element has an invalid namespace")
-            loc_nodes.append(child)
+                continue
+            if name not in {"loc", "lastmod", "changefreq", "priority"}:
+                raise ValueError("Sitemap URL contains an unexpected standard element")
+            if name == "loc":
+                loc_nodes.append(child)
         if len(loc_nodes) != 1 or len(loc_nodes[0]) or not loc_nodes[0].text or not loc_nodes[0].text.strip():
             raise ValueError("Sitemap URL must contain exactly one non-empty loc")
         urls.add(loc_nodes[0].text.strip())

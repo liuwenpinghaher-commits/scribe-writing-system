@@ -159,6 +159,20 @@ def test_sitemap_rejects_non_url_root_children_in_any_namespace(xml: bytes):
         discover_sitemap(xml)
 
 
+@pytest.mark.parametrize(
+    "xml",
+    [
+        b"<urlset><url><loc>https://hermes-agent.nousresearch.com/docs/a</loc><unexpected /></url></urlset>",
+        b"<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"
+        b"<url><loc>https://hermes-agent.nousresearch.com/docs/a</loc><unexpected /></url>"
+        b"</urlset>",
+    ],
+)
+def test_sitemap_rejects_unknown_same_namespace_url_children(xml: bytes):
+    with pytest.raises(ValueError):
+        discover_sitemap(xml)
+
+
 def test_repo_policy_keeps_docs_and_classifies_skills():
     assert select_repo_document("website/docs/user-guide/features/hooks.md")
     assert select_repo_document("optional-skills/creative/creative-ideation/SKILL.md")
