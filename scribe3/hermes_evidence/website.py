@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import math
 import os
 import re
-import tempfile
+import secrets
+import stat
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
@@ -118,6 +120,30 @@ def output_path_for_url(url: str) -> Path:
     return Path("pages", *(_slug(part) for part in parts[:-1]), f"{_slug(parts[-1])}.md")
 
 
+def _is_official_website_url(url: object) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        output_path_for_url(url)
+    except ValueError:
+        return False
+    return True
+
+
+def _output_paths_for_urls(urls: list[str]) -> dict[str, Path]:
+    paths: dict[str, Path] = {}
+    owners: dict[str, str] = {}
+    for url in urls:
+        relative_path = output_path_for_url(url)
+        key = relative_path.as_posix()
+        owner = owners.get(key)
+        if owner is not None and owner != url:
+            raise ValueError("website output path collision")
+        owners[key] = url
+        paths[url] = relative_path
+    return paths
+
+
 @dataclass(frozen=True)
 class CrawlPage:
     url: str
@@ -136,6 +162,7 @@ class RetryPolicy:
     max_attempts: int = 3
     base_delay: float = 1.0
     max_delay: float = 30.0
+    max_retry_after: float = 300.0
     batch_size: int = 40
     max_concurrency: int = 5
     jitter: Callable[[float], float] = lambda delay: 0.0
@@ -144,8 +171,15 @@ class RetryPolicy:
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be at least one")
-        if self.base_delay < 0 or self.max_delay < 0:
+        if (
+            not math.isfinite(self.base_delay)
+            or not math.isfinite(self.max_delay)
+            or self.base_delay < 0
+            or self.max_delay < 0
+        ):
             raise ValueError("retry delays must be non-negative")
+        if not math.isfinite(self.max_retry_after) or self.max_retry_after < 0:
+            raise ValueError("max_retry_after must be finite and non-negative")
         if not 1 <= self.batch_size <= 40:
             raise ValueError("batch_size must be between one and 40")
         if not 1 <= self.max_concurrency <= 5:
@@ -177,14 +211,16 @@ def _retry_after_seconds(value: object, maximum: float) -> float | None:
         seconds = float(value.strip())
     except ValueError:
         return None
-    if seconds < 0 or not seconds < float("inf"):
+    if not math.isfinite(seconds) or seconds < 0 or seconds > maximum:
         return None
-    return min(seconds, maximum)
+    return seconds
 
 
 def _retry_delay(page: CrawlPage | None, attempt: int, policy: RetryPolicy) -> float:
     if page is not None:
-        server_delay = _retry_after_seconds(page.retry_after, policy.max_delay)
+        server_delay = _retry_after_seconds(
+            page.retry_after, policy.max_retry_after
+        )
         if server_delay is not None:
             return server_delay
     exponential = min(policy.base_delay * (2 ** (attempt - 1)), policy.max_delay)
@@ -317,72 +353,311 @@ def _h1(text: str) -> str | None:
     return None
 
 
+def _soft_error_marker(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", " ", value.strip().lower()).strip(" .!|:-")
+
+
+def _semantic_soft_error(title: object, body: str) -> str | None:
+    markers = {_soft_error_marker(title), _soft_error_marker(_h1(body))}
+    sample = body[:2000].lower()
+
+    soft_404_markers = {
+        "404",
+        "404 page not found",
+        "404 - page not found",
+        "error 404",
+        "page not found",
+        "not found",
+    }
+    if markers & soft_404_markers and re.search(
+        r"(?:page|resource).{0,40}(?:could not be found|does not exist|not found)",
+        sample,
+    ):
+        return "soft_404"
+
+    if markers & {"sign in", "log in", "login", "authentication required"} and re.search(
+        r"(?:sign in|log in).{0,60}(?:continue|access)|enter your password",
+        sample,
+    ):
+        return "soft_login"
+
+    if markers & {
+        "just a moment",
+        "verify you are human",
+        "attention required",
+    } and re.search(
+        r"checking your browser|verify you are human|cloudflare|captcha",
+        sample,
+    ):
+        return "soft_anti_bot"
+
+    if markers & {
+        "500",
+        "500 internal server error",
+        "internal server error",
+        "bad gateway",
+        "service unavailable",
+    } and re.search(
+        r"server.{0,40}(?:error|unavailable)|bad gateway|try again later",
+        sample,
+    ):
+        return "soft_server_error"
+    return None
+
+
 class _UnsafeOutputPath(RuntimeError):
     pass
 
 
-def _safe_output_target(root: Path, relative_path: Path) -> Path:
-    root = Path(root)
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
+_FILE_READ_FLAGS = (
+    os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+)
+
+
+def _relative_parts(relative_path: Path) -> tuple[str, ...]:
     if (
         relative_path.is_absolute()
         or not relative_path.parts
         or ".." in relative_path.parts
+        or "." in relative_path.parts
+        or any("/" in part or "\x00" in part for part in relative_path.parts)
     ):
         raise _UnsafeOutputPath("unsafe relative output path")
-    if root.is_symlink():
-        raise _UnsafeOutputPath("output root must not be a symlink")
-    root.mkdir(parents=True, exist_ok=True)
-    resolved_root = root.resolve(strict=True)
-    current = root
-    for part in relative_path.parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise _UnsafeOutputPath("output directory must not be a symlink")
-        if current.exists() and not current.is_dir():
-            raise _UnsafeOutputPath("output directory is not a directory")
-        current.mkdir(exist_ok=True)
+    return tuple(relative_path.parts)
+
+
+def _open_root_fd(root: Path, *, create: bool) -> int:
+    root = Path(root)
+    if create:
+        if root.is_symlink():
+            raise _UnsafeOutputPath("output root must not be a symlink")
         try:
-            current.resolve(strict=True).relative_to(resolved_root)
-        except ValueError as error:
-            raise _UnsafeOutputPath("output path escaped root") from error
-    target = root / relative_path
-    if target.is_symlink() or (target.exists() and not target.is_file()):
-        raise _UnsafeOutputPath("output target is not a regular file")
+            root.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise _UnsafeOutputPath("cannot create output root") from error
     try:
-        target.parent.resolve(strict=True).relative_to(resolved_root)
-    except ValueError as error:
-        raise _UnsafeOutputPath("output target escaped root") from error
-    return target
-
-
-def _fsync_directory(path: Path) -> None:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_DIRECTORY"):
-        flags |= os.O_DIRECTORY
-    descriptor = os.open(path, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
+        descriptor = os.open(root, _DIRECTORY_OPEN_FLAGS)
+    except OSError as error:
+        raise _UnsafeOutputPath("cannot safely open output root") from error
+    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
         os.close(descriptor)
+        raise _UnsafeOutputPath("output root is not a directory")
+    return descriptor
 
 
-def _atomic_write(target: Path, data: bytes) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
-    )
-    temporary = Path(temporary_name)
+def _open_parent_fd(
+    root_fd: int, parent_parts: tuple[str, ...], *, create: bool
+) -> int:
+    current = os.dup(root_fd)
     try:
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        if sha256_bytes(temporary.read_bytes()) != sha256_bytes(data):
-            raise OSError("atomic write verification failed")
-        os.replace(temporary, target)
-        _fsync_directory(target.parent)
+        for part in parent_parts:
+            if create:
+                try:
+                    os.mkdir(part, mode=0o755, dir_fd=current)
+                except FileExistsError:
+                    pass
+            try:
+                following = os.open(part, _DIRECTORY_OPEN_FLAGS, dir_fd=current)
+            except OSError as error:
+                raise _UnsafeOutputPath(
+                    "output directory cannot be opened without following symlinks"
+                ) from error
+            os.close(current)
+            current = following
+        return current
+    except BaseException:
+        os.close(current)
+        raise
+
+
+def _same_inode(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _directory_identity_is_current(
+    root: Path,
+    root_fd: int,
+    parent_parts: tuple[str, ...],
+    parent_fd: int,
+) -> bool:
+    try:
+        current_root = _open_root_fd(root, create=False)
+        try:
+            if not _same_inode(os.fstat(root_fd), os.fstat(current_root)):
+                return False
+            current_parent = _open_parent_fd(
+                current_root, parent_parts, create=False
+            )
+            try:
+                return _same_inode(os.fstat(parent_fd), os.fstat(current_parent))
+            finally:
+                os.close(current_parent)
+        finally:
+            os.close(current_root)
+    except _UnsafeOutputPath:
+        return False
+
+
+def _read_fd(descriptor: int) -> bytes:
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
+def _secure_read(
+    root: Path, relative_path: Path, *, missing_ok: bool = False
+) -> bytes | None:
+    parts = _relative_parts(relative_path)
+    root_fd = _open_root_fd(root, create=True)
+    try:
+        try:
+            parent_fd = _open_parent_fd(root_fd, parts[:-1], create=False)
+        except _UnsafeOutputPath:
+            if missing_ok:
+                return None
+            raise
+        try:
+            try:
+                descriptor = os.open(parts[-1], _FILE_READ_FLAGS, dir_fd=parent_fd)
+            except FileNotFoundError:
+                if missing_ok:
+                    return None
+                raise
+            except OSError as error:
+                raise _UnsafeOutputPath("output file cannot be opened safely") from error
+            try:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    raise _UnsafeOutputPath("output target is not a regular file")
+                data = _read_fd(descriptor)
+            finally:
+                os.close(descriptor)
+            if not _directory_identity_is_current(
+                Path(root), root_fd, parts[:-1], parent_fd
+            ):
+                raise _UnsafeOutputPath("output directory identity changed")
+            return data
+        finally:
+            os.close(parent_fd)
     finally:
-        if temporary.exists() or temporary.is_symlink():
-            temporary.unlink()
+        os.close(root_fd)
+
+
+def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
+    parts = _relative_parts(relative_path)
+    root_fd = _open_root_fd(root, create=True)
+    parent_fd = _open_parent_fd(root_fd, parts[:-1], create=True)
+    temporary_name = f".{parts[-1]}.{secrets.token_hex(8)}.tmp"
+    temporary_exists = False
+    try:
+        try:
+            existing = os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and not stat.S_ISREG(existing.st_mode):
+            raise _UnsafeOutputPath("output target is not a regular file")
+
+        flags = (
+            os.O_RDWR
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(
+            temporary_name, flags, 0o600, dir_fd=parent_fd
+        )
+        temporary_exists = True
+        try:
+            remaining = memoryview(data)
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("short atomic write")
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+            stored = _read_fd(descriptor)
+            if sha256_bytes(stored) != sha256_bytes(data):
+                raise OSError("atomic write verification failed")
+        finally:
+            os.close(descriptor)
+
+        os.replace(
+            temporary_name,
+            parts[-1],
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        temporary_exists = False
+        os.fsync(parent_fd)
+        if not _directory_identity_is_current(
+            Path(root), root_fd, parts[:-1], parent_fd
+        ):
+            try:
+                os.unlink(parts[-1], dir_fd=parent_fd)
+                os.fsync(parent_fd)
+            except FileNotFoundError:
+                pass
+            raise _UnsafeOutputPath("output directory identity changed")
+
+        final_descriptor = os.open(
+            parts[-1], _FILE_READ_FLAGS, dir_fd=parent_fd
+        )
+        try:
+            final_stat = os.fstat(final_descriptor)
+            if not stat.S_ISREG(final_stat.st_mode):
+                raise _UnsafeOutputPath("output target is not a regular file")
+            final_data = _read_fd(final_descriptor)
+            if len(final_data) != len(data) or sha256_bytes(
+                final_data
+            ) != sha256_bytes(data):
+                raise OSError("stored content mismatch")
+        finally:
+            os.close(final_descriptor)
+    finally:
+        if temporary_exists:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+        os.close(parent_fd)
+        os.close(root_fd)
+
+
+def _secure_unlink(root: Path, relative_path: Path) -> None:
+    parts = _relative_parts(relative_path)
+    root_fd = _open_root_fd(root, create=True)
+    try:
+        try:
+            parent_fd = _open_parent_fd(root_fd, parts[:-1], create=False)
+        except _UnsafeOutputPath:
+            return
+        try:
+            try:
+                target = os.stat(
+                    parts[-1], dir_fd=parent_fd, follow_symlinks=False
+                )
+            except FileNotFoundError:
+                return
+            if stat.S_ISDIR(target.st_mode):
+                raise _UnsafeOutputPath("refusing to remove output directory")
+            os.unlink(parts[-1], dir_fd=parent_fd)
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+    finally:
+        os.close(root_fd)
 
 
 def _checkpoint_payload(checkpoint: CrawlCheckpoint) -> dict:
@@ -399,21 +674,22 @@ def _write_checkpoint(root: Path, checkpoint: CrawlCheckpoint) -> None:
     if contains_sensitive_data(payload):
         raise RuntimeError("checkpoint contains sensitive data")
     try:
-        target = _safe_output_target(Path(root), Path("checkpoint.json"))
+        _atomic_write(Path(root), Path("checkpoint.json"), stable_json_bytes(payload))
     except _UnsafeOutputPath as error:
         raise RuntimeError("unsafe checkpoint path") from error
-    _atomic_write(target, stable_json_bytes(payload))
 
 
 def _load_checkpoint(root: Path, snapshot_id: str) -> CrawlCheckpoint:
     try:
-        target = _safe_output_target(Path(root), Path("checkpoint.json"))
+        raw = _secure_read(
+            Path(root), Path("checkpoint.json"), missing_ok=True
+        )
     except _UnsafeOutputPath as error:
         raise RuntimeError("unsafe checkpoint path") from error
-    if not target.exists():
+    if raw is None:
         return CrawlCheckpoint(snapshot_id=snapshot_id)
     try:
-        payload = json.loads(target.read_text(encoding="utf-8"))
+        payload = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise RuntimeError("invalid checkpoint") from error
     if contains_sensitive_data(payload):
@@ -456,17 +732,15 @@ def _verified_checkpoint_document(
             or document.output_path != expected_path.as_posix()
             or document.source_kind != "website"
             or document.website_snapshot_id != snapshot_id
-            or not isinstance(document.final_url, str)
-            or not is_official_url(document.final_url)
+            or not _is_official_website_url(document.final_url)
             or document.http_status != 200
             or document.document_id
             != document_id_for("website", url, document.content_sha256)
         ):
             return None
-        target = _safe_output_target(root, expected_path)
-        if not target.is_file() or target.is_symlink():
+        body = _secure_read(root, expected_path, missing_ok=True)
+        if body is None:
             return None
-        body = target.read_bytes()
         if len(body) != document.byte_length:
             return None
         if sha256_bytes(body) != document.content_sha256:
@@ -481,6 +755,7 @@ def _verified_checkpoint_document(
             )
             or document.text_length != len(text)
             or (len(text.strip()) < 200 and not navigation_only)
+            or _semantic_soft_error(document.title, text) is not None
             or document.semantic_status
             != ("navigation_only" if navigation_only else "content")
             or document.h1 != _h1(text)
@@ -499,6 +774,13 @@ def _safe_failure_error(page: CrawlPage) -> str:
     ):
         return page.error
     return f"http_{page.status}"
+
+
+def _remove_rejected_output(root: Path, relative_path: Path) -> None:
+    try:
+        _secure_unlink(root, relative_path)
+    except _UnsafeOutputPath:
+        return
 
 
 def _document_for_page(
@@ -559,8 +841,7 @@ async def crawl_website(
 ) -> SnapshotManifest:
     if len(urls) != len(set(urls)):
         raise ValueError("website URLs must be unique")
-    for url in urls:
-        output_path_for_url(url)
+    output_paths = _output_paths_for_urls(urls)
     expected = list(urls)
     active_policy = policy or RetryPolicy()
     checkpoint = _load_checkpoint(Path(out_root), snapshot_id)
@@ -572,12 +853,15 @@ async def crawl_website(
     documents_by_url: dict[str, DocumentRecord] = {}
     failures: list[dict] = []
     for url in expected:
+        checkpoint_entry = checkpoint.completed.get(url)
         resumed = _verified_checkpoint_document(
-            Path(out_root), url, snapshot_id, checkpoint.completed.get(url)
+            Path(out_root), url, snapshot_id, checkpoint_entry
         )
         if resumed is not None:
             documents_by_url[url] = resumed
         else:
+            if checkpoint_entry is not None:
+                _remove_rejected_output(Path(out_root), output_paths[url])
             checkpoint.completed.pop(url, None)
 
     pending = [url for url in expected if url not in documents_by_url]
@@ -602,7 +886,7 @@ async def crawl_website(
                 if page is None:
                     failures.append({"requested_url": url, "error": "missing_result"})
                     continue
-                if not is_official_url(page.final_url):
+                if not _is_official_website_url(page.final_url):
                     failures.append(
                         {"requested_url": url, "error": "cross_origin_redirect"}
                     )
@@ -628,23 +912,30 @@ async def crawl_website(
                 if contains_secret(body):
                     failures.append({"requested_url": url, "error": "suspected_secret"})
                     continue
+                semantic_error = _semantic_soft_error(page.title, body)
+                if semantic_error is not None:
+                    failures.append(
+                        {"requested_url": url, "error": semantic_error}
+                    )
+                    continue
                 if len(body.strip()) < 200 and not navigation_only:
                     failures.append({"requested_url": url, "error": "short_content"})
                     continue
 
-                relative_path = output_path_for_url(url)
+                relative_path = output_paths[url]
                 raw = body.encode("utf-8")
                 try:
-                    target = _safe_output_target(Path(out_root), relative_path)
+                    _atomic_write(Path(out_root), relative_path, raw)
+                    stored = _secure_read(Path(out_root), relative_path)
                 except _UnsafeOutputPath:
                     failures.append(
                         {"requested_url": url, "error": "unsafe_output_path"}
                     )
                     continue
-                _atomic_write(target, raw)
                 if (
-                    target.stat().st_size != len(raw)
-                    or sha256_bytes(target.read_bytes()) != sha256_bytes(raw)
+                    stored is None
+                    or len(stored) != len(raw)
+                    or sha256_bytes(stored) != sha256_bytes(raw)
                 ):
                     failures.append(
                         {"requested_url": url, "error": "stored_content_mismatch"}
@@ -666,9 +957,33 @@ async def crawl_website(
         _write_checkpoint(Path(out_root), checkpoint)
         raise
 
+    verified_documents: dict[str, DocumentRecord] = {}
+    for url, document in documents_by_url.items():
+        try:
+            body = _secure_read(
+                Path(out_root), output_paths[url], missing_ok=True
+            )
+            matches = (
+                body is not None
+                and len(body) == document.byte_length
+                and sha256_bytes(body) == document.content_sha256
+            )
+        except (OSError, _UnsafeOutputPath):
+            matches = False
+        if matches:
+            verified_documents[url] = document
+        else:
+            checkpoint.completed.pop(url, None)
+            if not any(row.get("requested_url") == url for row in failures):
+                failures.append(
+                    {"requested_url": url, "error": "stored_content_mismatch"}
+                )
+
     checkpoint.complete = True
     _write_checkpoint(Path(out_root), checkpoint)
-    documents = [documents_by_url[url] for url in expected if url in documents_by_url]
+    documents = [
+        verified_documents[url] for url in expected if url in verified_documents
+    ]
     return SnapshotManifest(
         snapshot_id=snapshot_id,
         source_kind="website",

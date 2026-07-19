@@ -59,6 +59,80 @@ def test_website_batch_uses_returned_url_not_request_order(tmp_path):
     assert not manifest.failures
 
 
+def test_website_crawl_rejects_output_path_collision_before_fetch(tmp_path):
+    from scribe3.hermes_evidence.website import RetryPolicy, crawl_website
+
+    urls = [
+        "https://hermes-agent.nousresearch.com/docs/a?lang=en",
+        "https://hermes-agent.nousresearch.com/docs/a?lang=zh",
+    ]
+
+    async def must_not_fetch(batch):
+        pytest.fail("colliding output paths reached the fetch adapter")
+
+    with pytest.raises(ValueError, match="output path collision"):
+        asyncio.run(
+            crawl_website(
+                urls,
+                must_not_fetch,
+                "collision-test",
+                tmp_path,
+                "2026-07-20T00:00:00+00:00",
+                policy=RetryPolicy(sleep=lambda delay: None),
+            )
+        )
+    assert not any(tmp_path.iterdir())
+
+
+def test_website_crawl_reverifies_manifest_files_before_completion(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
+
+    urls = [
+        "https://hermes-agent.nousresearch.com/docs/a",
+        "https://hermes-agent.nousresearch.com/docs/b",
+    ]
+    calls = 0
+
+    def page(url):
+        return CrawlPage(
+            url=url,
+            final_url=url,
+            status=200,
+            success=True,
+            markdown="# Page\n" + ("public documentation " * 20),
+            title="Page",
+            mime_type="text/html",
+        )
+
+    async def mutating_fetch(batch):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            saved = tmp_path / "pages/a.md"
+            original = saved.read_bytes()
+            saved.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+        return [page(url) for url in batch]
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            mutating_fetch,
+            "manifest-reverify",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+            policy=RetryPolicy(
+                max_concurrency=1,
+                sleep=lambda delay: None,
+            ),
+        )
+    )
+
+    assert [document.logical_key for document in manifest.documents] == [urls[1]]
+    assert manifest.failures == [
+        {"requested_url": urls[0], "error": "stored_content_mismatch"}
+    ]
+
+
 def test_website_retry_after_wins_and_events_are_sanitized():
     from scribe3.hermes_evidence.models import contains_sensitive_data
     from scribe3.hermes_evidence.website import (
@@ -123,6 +197,80 @@ def test_website_retry_after_wins_and_events_are_sanitized():
         },
     )
     assert not contains_sensitive_data(result.retry_events)
+
+
+@pytest.mark.parametrize("unsafe_retry_after", ["31", "inf", "nan"])
+def test_website_retry_after_has_independent_server_limit(unsafe_retry_after):
+    from scribe3.hermes_evidence.website import (
+        CrawlCheckpoint,
+        CrawlPage,
+        RetryPolicy,
+        fetch_with_bounded_retry,
+    )
+
+    url = "https://hermes-agent.nousresearch.com/docs/server-retry-limit"
+
+    def page(status, retry_after):
+        return CrawlPage(
+            url=url,
+            final_url=url,
+            status=status,
+            success=status == 200,
+            markdown="# Ready\n" + ("public documentation " * 20),
+            title="Ready",
+            mime_type="text/html",
+            retry_after=retry_after,
+        )
+
+    honored_sleeps = []
+    honored_calls = 0
+
+    async def honored_fetch(urls):
+        nonlocal honored_calls
+        honored_calls += 1
+        return [page(429, "20") if honored_calls == 1 else page(200, None)]
+
+    policy = RetryPolicy(
+        base_delay=1,
+        max_delay=2,
+        max_retry_after=30,
+        jitter=lambda delay: 0,
+        sleep=honored_sleeps.append,
+    )
+    asyncio.run(
+        fetch_with_bounded_retry(
+            [url], honored_fetch, policy, CrawlCheckpoint(snapshot_id="honored")
+        )
+    )
+    assert honored_sleeps == [20.0]
+
+    bounded_sleeps = []
+    bounded_calls = 0
+
+    async def bounded_fetch(urls):
+        nonlocal bounded_calls
+        bounded_calls += 1
+        return [
+            page(429, unsafe_retry_after)
+            if bounded_calls == 1
+            else page(200, None)
+        ]
+
+    asyncio.run(
+        fetch_with_bounded_retry(
+            [url],
+            bounded_fetch,
+            RetryPolicy(
+                base_delay=1,
+                max_delay=2,
+                max_retry_after=30,
+                jitter=lambda delay: 0,
+                sleep=bounded_sleeps.append,
+            ),
+            CrawlCheckpoint(snapshot_id="bounded"),
+        )
+    )
+    assert bounded_sleeps == [1.0]
 
 
 def test_website_retry_is_bounded_for_503_timeout_and_skips_404():
@@ -548,6 +696,73 @@ def test_website_resume_revalidates_final_url_and_stored_body_policy(tmp_path):
     assert not contains_sensitive_data(secret_path.read_text(encoding="utf-8"))
 
 
+def test_website_resume_removes_rejected_old_page_when_refetch_fails(tmp_path):
+    import json
+
+    from scribe3.hermes_evidence.models import document_id_for, sha256_bytes
+    from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/rejected-old-page"
+
+    async def initial_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Safe\n" + ("public documentation " * 20),
+                title="Safe",
+                mime_type="text/html",
+            )
+        ]
+
+    asyncio.run(
+        crawl_website(
+            [url],
+            initial_fetch,
+            "remove-rejected",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    entry = checkpoint["completed"][url]
+    page_path = tmp_path / entry["output_path"]
+    secret_body = ("API_KEY=" + ("x" * 32) + (" hidden" * 30) + "\n").encode()
+    page_path.write_bytes(secret_body)
+    secret_hash = sha256_bytes(secret_body)
+    entry["content_sha256"] = secret_hash
+    entry["byte_length"] = len(secret_body)
+    entry["text_length"] = len(secret_body.decode())
+    entry["document_id"] = document_id_for("website", url, secret_hash)
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    async def timeout_fetch(urls):
+        raise TimeoutError("must not be persisted")
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            timeout_fetch,
+            "remove-rejected",
+            tmp_path,
+            "2026-07-20T00:00:01+00:00",
+            policy=RetryPolicy(
+                max_attempts=1,
+                sleep=lambda delay: None,
+            ),
+        )
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "TimeoutError"}
+    ]
+    assert not page_path.exists()
+
+
 def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
     from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
 
@@ -671,6 +886,41 @@ def test_website_crawl_rejects_redirect_secret_short_and_duplicate_results(tmp_p
     assert not list((tmp_path / "pages").glob("*.md"))
 
 
+def test_website_crawl_rejects_redirect_to_official_github_source(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/github-redirect"
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url="https://github.com/NousResearch/hermes-agent",
+                status=200,
+                success=True,
+                markdown="# Repository\n" + ("public documentation " * 20),
+                title="Repository",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            "website-github-redirect",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "cross_origin_redirect"}
+    ]
+    assert not (tmp_path / "pages/github-redirect.md").exists()
+
+
 def test_website_crawl_refuses_symlink_output_and_checkpoint_paths(tmp_path):
     from scribe3.hermes_evidence.website import CrawlPage, crawl_website
 
@@ -726,6 +976,67 @@ def test_website_crawl_refuses_symlink_output_and_checkpoint_paths(tmp_path):
             )
         )
     assert outside_checkpoint.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_website_atomic_write_resists_parent_symlink_swap_race(
+    tmp_path, monkeypatch
+):
+    import scribe3.hermes_evidence.website as website
+
+    url = "https://hermes-agent.nousresearch.com/docs/race"
+    out_root = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_page = outside / "race.md"
+    outside_page.write_text("outside sentinel", encoding="utf-8")
+    real_replace = website.os.replace
+    swapped = False
+
+    def swapping_replace(source, destination, *args, **kwargs):
+        nonlocal swapped
+        destination_name = website.os.fspath(destination)
+        if not swapped and destination_name.endswith("race.md"):
+            swapped = True
+            pages = out_root / "pages"
+            pages.rename(out_root / "pages-before-swap")
+            pages.symlink_to(outside, target_is_directory=True)
+            moved_temporary = out_root / "pages-before-swap" / website.os.path.basename(
+                website.os.fspath(source)
+            )
+            (outside / moved_temporary.name).write_bytes(moved_temporary.read_bytes())
+        return real_replace(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(website.os, "replace", swapping_replace)
+
+    async def fake_fetch(urls):
+        return [
+            website.CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Race\n" + ("public documentation " * 20),
+                title="Race",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        website.crawl_website(
+            [url],
+            fake_fetch,
+            "symlink-swap-race",
+            out_root,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert swapped
+    assert outside_page.read_text(encoding="utf-8") == "outside sentinel"
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "unsafe_output_path"}
+    ]
 
 
 def test_website_crawl_rejects_sensitive_response_metadata_before_writing(tmp_path):
@@ -811,6 +1122,109 @@ def test_website_crawl_keeps_navigation_but_rejects_soft_error_without_leak(tmp_
         {"requested_url": soft_url, "error": "http_200"}
     ]
     assert not contains_sensitive_data(manifest.payload())
+
+
+@pytest.mark.parametrize(
+    ("title", "heading", "detail", "expected_error"),
+    [
+        (
+            "404 - Page Not Found",
+            "# 404 - Page Not Found",
+            "The page you requested could not be found.",
+            "soft_404",
+        ),
+        (
+            "Sign in",
+            "# Sign in",
+            "Sign in to continue. Enter your password to access this page.",
+            "soft_login",
+        ),
+        (
+            "Just a moment...",
+            "# Verify you are human",
+            "Checking your browser before accessing this Cloudflare protected site.",
+            "soft_anti_bot",
+        ),
+        (
+            "Service Unavailable",
+            "# Service Unavailable",
+            "The server is temporarily unavailable. Please try again later.",
+            "soft_server_error",
+        ),
+    ],
+)
+def test_website_crawl_rejects_semantic_soft_error_pages(
+    tmp_path, title, heading, detail, expected_error
+):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/semantic-error"
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown=f"{heading}\n{detail}\n" + ("diagnostic page text " * 20),
+                title=title,
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            f"semantic-{expected_error}",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": expected_error}
+    ]
+    assert not (tmp_path / "pages/semantic-error.md").exists()
+
+
+def test_website_crawl_does_not_misclassify_normal_error_documentation(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/handling-404-errors"
+    body = (
+        "# Handling 404 errors\n"
+        "This guide explains how applications should handle an HTTP 404 response.\n"
+        + ("Documented recovery behavior and examples. " * 12)
+    )
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown=body,
+                title="Handling 404 errors",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            "normal-error-doc",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    assert [document.logical_key for document in manifest.documents] == [url]
+    assert not manifest.failures
 
 
 def test_website_content_identity_is_timestamp_independent_and_supersedes(tmp_path):
