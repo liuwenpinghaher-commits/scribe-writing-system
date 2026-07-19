@@ -191,8 +191,35 @@ def test_secret_scanner_rejects_secret_shapes_without_echoing_values():
     assert not contains_secret("Use ${API_KEY} from the environment")
 
 
+def _assert_selected_partition(manifest, expected_logical_keys):
+    payload = manifest.payload()
+    success_keys = {
+        document.logical_key for document in manifest.documents if not document.error
+    }
+    failure_keys = {row["logical_key"] for row in manifest.failures}
+    exclusion_keys = {row["logical_key"] for row in manifest.exclusions}
+
+    assert manifest.expected_document_count == (
+        payload["success_count"] + payload["failed_count"] + payload["excluded_count"]
+    )
+    assert success_keys | failure_keys | exclusion_keys == set(expected_logical_keys)
+    assert not (
+        success_keys & failure_keys
+        or success_keys & exclusion_keys
+        or failure_keys & exclusion_keys
+    )
+
+
 def test_repository_snapshot_resolves_fixed_ref_and_preserves_selected_paths(tmp_path):
+    import json
+
     from scribe3.hermes_evidence.github import snapshot_repository
+
+    fixture = json.loads(
+        Path("scribe3/tests/fixtures/hermes_evidence/tree.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     class FakeClient:
         def resolve_ref(self, ref):
@@ -201,22 +228,13 @@ def test_repository_snapshot_resolves_fixed_ref_and_preserves_selected_paths(tmp
 
         def tree_payload(self, sha):
             assert sha == "a" * 40
-            return {
-                "truncated": False,
-                "tree": [
-                    {"path": "README.md", "type": "blob", "sha": "b1", "size": 4},
-                    {"path": "agent.py", "type": "blob", "sha": "b2", "size": 4},
-                    {
-                        "path": "skills/x/SKILL.md",
-                        "type": "blob",
-                        "sha": "b3",
-                        "size": 4,
-                    },
-                ],
-            }
+            return fixture
 
         def blob(self, sha):
-            return {"b1": b"# H\n", "b3": b"# S\n"}[sha]
+            return {
+                "b" * 40: b"# H\n",
+                "d" * 40: b"# S\n",
+            }[sha]
 
     manifest = snapshot_repository(
         FakeClient(),
@@ -232,9 +250,13 @@ def test_repository_snapshot_resolves_fixed_ref_and_preserves_selected_paths(tmp
         "README.md",
         "skills/x/SKILL.md",
     ]
-    assert [document.source_blob_sha for document in manifest.documents] == ["b1", "b3"]
+    assert [document.source_blob_sha for document in manifest.documents] == [
+        "b" * 40,
+        "d" * 40,
+    ]
     assert (tmp_path / "README.md").read_text() == "# H\n"
     assert (tmp_path / "skills/x/SKILL.md").read_text() == "# S\n"
+    _assert_selected_partition(manifest, {"README.md", "skills/x/SKILL.md"})
 
 
 def test_repository_snapshot_rejects_recursive_tree_without_explicit_complete_flag(
@@ -343,7 +365,34 @@ def test_repository_snapshot_classifies_selected_special_entries_before_download
         "docs/link.md": "git_symlink",
         "docs/selected-submodule.md": "git_submodule",
     }
-    assert manifest.failures == [{"repo_path": "docs/failed.md", "error": "OSError"}]
+    assert manifest.failures == [
+        {
+            "logical_key": "docs/failed.md",
+            "repo_path": "docs/failed.md",
+            "source_blob_sha": "failed",
+            "error": "OSError",
+        }
+    ]
+    assert all(row["logical_key"] == row["repo_path"] for row in manifest.exclusions)
+    assert {row["source_blob_sha"] for row in manifest.exclusions} == {
+        "large",
+        "lfs",
+        "link",
+        "sub-selected",
+    }
+    lfs = next(row for row in manifest.exclusions if row["reason"] == "git_lfs_pointer")
+    assert len(lfs["content_sha256"]) == 64
+    _assert_selected_partition(
+        manifest,
+        {
+            "docs/failed.md",
+            "docs/large.pdf",
+            "docs/lfs.pdf",
+            "docs/link.md",
+            "docs/saved.md",
+            "docs/selected-submodule.md",
+        },
+    )
     assert "repository_submodule:vendor/runtime" in manifest.notes
     assert client.requested_blobs == ["failed", "lfs", "saved"]
     assert not (tmp_path / "docs/lfs.pdf").exists()
@@ -362,11 +411,23 @@ def test_repository_snapshot_is_deterministic_for_the_same_fixed_ref(tmp_path):
                 "tree": [
                     {"path": "docs/b.md", "type": "blob", "sha": "blob-b", "size": 3},
                     {"path": "docs/a.md", "type": "blob", "sha": "blob-a", "size": 3},
+                    {"path": "docs/c.md", "type": "blob", "sha": "blob-c", "size": 3},
+                    {
+                        "path": "docs/d.md",
+                        "type": "blob",
+                        "mode": "120000",
+                        "sha": "blob-d",
+                        "size": 3,
+                    },
                 ],
             }
 
         def blob(self, sha):
-            return {"blob-a": b"A\n", "blob-b": b"B\n"}[sha]
+            if sha == "blob-b":
+                return b"version https://git-lfs.github.com/spec/v1\n"
+            if sha == "blob-c":
+                raise OSError("must not be persisted")
+            return b"A\n"
 
     manifests = [
         snapshot_repository(
@@ -375,17 +436,47 @@ def test_repository_snapshot_is_deterministic_for_the_same_fixed_ref(tmp_path):
             f"fixed-{index}",
             tmp_path / str(index),
             "2026-07-19T00:00:00+00:00",
+            source_kind="main",
         )
         for index in range(2)
     ]
 
     def identity(manifest):
-        return [
-            (document.logical_key, document.source_blob_sha, document.content_sha256)
+        successes = [
+            (
+                "success",
+                document.logical_key,
+                document.source_blob_sha,
+                document.content_sha256,
+            )
             for document in manifest.documents
+            if not document.error
         ]
+        failures = [
+            (
+                "failure",
+                row["logical_key"],
+                row["source_blob_sha"],
+                row.get("content_sha256"),
+            )
+            for row in manifest.failures
+        ]
+        exclusions = [
+            (
+                "exclusion",
+                row["logical_key"],
+                row["source_blob_sha"],
+                row.get("content_sha256"),
+            )
+            for row in manifest.exclusions
+        ]
+        return sorted(successes + failures + exclusions)
 
     assert identity(manifests[0]) == identity(manifests[1])
+    for manifest in manifests:
+        _assert_selected_partition(
+            manifest, {"docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md"}
+        )
 
 
 def test_repository_snapshot_preserves_pdf_and_writes_extracted_sidecar(tmp_path):
@@ -429,6 +520,7 @@ def test_repository_snapshot_preserves_pdf_and_writes_extracted_sidecar(tmp_path
     assert len(document.extracted_text_sha256) == 64
     assert document.text_length == len("Extracted text\n")
     assert document.semantic_status == "content"
+    _assert_selected_partition(manifest, {"docs/guide.pdf"})
 
 
 def test_repository_snapshot_keeps_pdf_binary_when_extraction_fails(tmp_path):
@@ -468,12 +560,150 @@ def test_repository_snapshot_keeps_pdf_binary_when_extraction_fails(tmp_path):
     assert (tmp_path / "docs/guide.pdf").read_bytes() == pdf
     assert not (tmp_path / "_extracted/docs/guide.pdf.txt").exists()
     assert manifest.documents[0].semantic_status == "binary_attachment"
-    assert manifest.exclusions == [
-        {"repo_path": "docs/guide.pdf", "reason": "binary_attachment"}
-    ]
+    assert manifest.documents[0].error == "pdf_text_extraction_failed"
+    assert manifest.exclusions == []
     assert manifest.failures == [
-        {"repo_path": "docs/guide.pdf", "error": "pdf_extraction_failed"}
+        {
+            "logical_key": "docs/guide.pdf",
+            "repo_path": "docs/guide.pdf",
+            "source_blob_sha": "pdf",
+            "content_sha256": manifest.documents[0].content_sha256,
+            "error": "pdf_text_extraction_failed",
+        }
     ]
+    payload = manifest.payload()
+    assert payload["success_count"] == 0
+    assert payload["failed_count"] == 1
+    assert payload["excluded_count"] == 0
+    assert manifest.expected_document_count == 1
+    _assert_selected_partition(manifest, {"docs/guide.pdf"})
+
+
+def test_repository_snapshot_keeps_invalid_pdf_only_as_failure(tmp_path):
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    body = b"not-a-pdf"
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {"path": "docs/bad.pdf", "type": "blob", "sha": "bad", "size": len(body)}
+                ],
+            }
+
+        def blob(self, sha):
+            return body
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-invalid-pdf",
+        tmp_path,
+        "2026-07-19T00:00:00+00:00",
+    )
+
+    assert (tmp_path / "docs/bad.pdf").read_bytes() == body
+    assert manifest.documents == []
+    assert manifest.exclusions == []
+    assert manifest.failures == [
+        {
+            "logical_key": "docs/bad.pdf",
+            "repo_path": "docs/bad.pdf",
+            "source_blob_sha": "bad",
+            "content_sha256": manifest.failures[0]["content_sha256"],
+            "error": "invalid_pdf_signature",
+        }
+    ]
+    assert len(manifest.failures[0]["content_sha256"]) == 64
+    _assert_selected_partition(manifest, {"docs/bad.pdf"})
+
+
+def test_repository_snapshot_requires_explicit_source_layer_for_fixed_sha(tmp_path):
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    sha = "a" * 40
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return sha
+
+        def tree_payload(self, resolved_sha):
+            return {"truncated": False, "tree": []}
+
+    args = (
+        FakeClient(),
+        sha,
+        "fixed-source-layer",
+        tmp_path,
+        "2026-07-19T00:00:00+00:00",
+    )
+    with pytest.raises(ValueError, match="source_kind"):
+        snapshot_repository(*args)
+    with pytest.raises(ValueError, match="release_tag"):
+        snapshot_repository(*args, source_kind="release")
+    with pytest.raises(ValueError, match="release_tag"):
+        snapshot_repository(*args, source_kind="main", release_tag="v1.0.0")
+
+    release = snapshot_repository(
+        *args, source_kind="release", release_tag="v1.0.0"
+    )
+    main = snapshot_repository(*args, source_kind="main")
+    assert (release.source_kind, release.release_tag, release.resolved_sha) == (
+        "release",
+        "v1.0.0",
+        sha,
+    )
+    assert (main.source_kind, main.release_tag, main.resolved_sha) == (
+        "main",
+        None,
+        sha,
+    )
+    _assert_selected_partition(release, set())
+    _assert_selected_partition(main, set())
+
+
+def test_repository_snapshot_records_non_bytes_blob_without_persisting_value(tmp_path):
+    from scribe3.hermes_evidence.github import snapshot_repository
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {"path": "docs/bad.md", "type": "blob", "sha": "bad", "size": 3}
+                ],
+            }
+
+        def blob(self, sha):
+            return "Authorization: Bearer must-not-be-persisted"
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-invalid-blob",
+        tmp_path,
+        "2026-07-19T00:00:00+00:00",
+    )
+
+    assert manifest.failures == [
+        {
+            "logical_key": "docs/bad.md",
+            "repo_path": "docs/bad.md",
+            "source_blob_sha": "bad",
+            "error": "TypeError",
+        }
+    ]
+    assert not contains_sensitive_data(manifest.failures)
+    _assert_selected_partition(manifest, {"docs/bad.md"})
 
 
 def test_github_client_uses_only_fixed_official_git_endpoints(monkeypatch):
@@ -576,8 +806,68 @@ def test_github_client_preserves_only_safe_rate_limit_and_retry_metadata(tmp_pat
         "fixed-rate-metadata",
         tmp_path,
         "2026-07-19T00:00:00+00:00",
+        source_kind="main",
     )
 
     assert slept == [2]
     assert any(event.get("x-ratelimit-remaining") == 41 for event in manifest.retry_events)
     assert not contains_sensitive_data(manifest.retry_events)
+    _assert_selected_partition(manifest, set())
+
+
+def test_github_redirect_handler_rejects_unsafe_location_before_following():
+    import urllib.request
+
+    from scribe3.hermes_evidence.github import API, OfficialGitHubRedirectHandler
+
+    sha = "a" * 40
+    handler = OfficialGitHubRedirectHandler()
+    original = urllib.request.Request(f"{API}/commits/main")
+    unsafe_locations = [
+        "https://example.test/repos/NousResearch/hermes-agent/commits/main",
+        "https://api.github.com/repos/Other/hermes-agent/commits/main",
+        f"https://user:pass@api.github.com/repos/NousResearch/hermes-agent/git/blobs/{sha}",
+        f"{API}/git/blobs/{sha}?token=must-not-be-persisted",
+        f"{API}/git/trees/../blobs/{sha}",
+    ]
+
+    for location in unsafe_locations:
+        with pytest.raises(RuntimeError) as caught:
+            handler.redirect_request(original, None, 302, "Found", {}, location)
+        assert str(caught.value) == "refusing unsafe GitHub redirect"
+
+    safe_location = f"{API}/git/blobs/{sha}"
+    redirected = handler.redirect_request(
+        original, None, 302, "Found", {}, safe_location
+    )
+    assert redirected.full_url == safe_location
+
+
+def test_github_client_revalidates_final_response_url_before_reading_body():
+    import io
+
+    from scribe3.hermes_evidence.github import API, GitHubClient
+
+    sha = "a" * 40
+
+    def response(final_url):
+        stream = io.BytesIO((f'{{"sha":"{sha}"}}').encode("ascii"))
+        stream.headers = {}
+        stream.geturl = lambda: final_url
+        return stream
+
+    unsafe = GitHubClient(
+        opener=lambda request, timeout: response(
+            "https://example.test/repos/NousResearch/hermes-agent/commits/main"
+        ),
+        max_retries=0,
+    )
+    with pytest.raises(RuntimeError) as caught:
+        unsafe.resolve_ref("main")
+    assert str(caught.value) == "GitHub API response left the official repository"
+
+    safe = GitHubClient(
+        opener=lambda request, timeout: response(f"{API}/commits/main"),
+        max_retries=0,
+    )
+    assert safe.resolve_ref("main") == sha
