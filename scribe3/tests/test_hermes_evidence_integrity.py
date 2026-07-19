@@ -21,6 +21,7 @@ from scribe3.hermes_evidence.models import (
     stable_json_bytes,
     write_manifest,
 )
+from scribe3.hermes_evidence.policy import classify_repo_path
 from scribe3.hermes_evidence.website import output_path_for_url
 
 
@@ -183,6 +184,72 @@ def test_semantic_classifier_rejects_soft_error_pages(
     )
 
     assert expected in classify_semantic_document(record, body.encode())
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("Please sign in to continue and access this page.", "soft_login"),
+        ("You must sign in to continue to access this page.", "soft_login"),
+        ("The requested page could not be found. Try another location.", "soft_404"),
+        ("Browser verification is required before you continue.", "soft_anti_bot"),
+        ("Access denied. You are not authorized to view this page.", "soft_access_denied"),
+        ("Service temporarily unavailable. Please try again later.", "soft_server_error"),
+    ],
+)
+def test_semantic_classifier_rejects_soft_error_opening_variants(
+    body: str, expected: str
+):
+    text = body + "\n\n" + ("Generic response content. " * 15)
+    record = _semantic_record(
+        title="Hermes Agent",
+        h1=None,
+        byte_length=len(text.encode()),
+        text_length=len(text),
+    )
+
+    assert expected in classify_semantic_document(record, text.encode())
+
+
+@pytest.mark.parametrize(
+    "lead",
+    [
+        "This documentation describes how sign in errors are handled.",
+        "This tutorial shows how browser verification failures are diagnosed.",
+        "This troubleshooting guide explains service unavailable responses.",
+    ],
+)
+def test_semantic_classifier_keeps_documentation_lead_false_positive_guard(lead: str):
+    text = lead + "\n\n" + ("Detailed public procedure and examples. " * 12)
+    record = _semantic_record(
+        title="Troubleshooting",
+        h1=None,
+        byte_length=len(text.encode()),
+        text_length=len(text),
+    )
+
+    assert not set(classify_semantic_document(record, text.encode())) & {
+        "soft_login",
+        "soft_404",
+        "soft_anti_bot",
+        "soft_access_denied",
+        "soft_server_error",
+    }
+
+
+def test_semantic_classifier_does_not_treat_setup_instruction_as_login_wall():
+    text = (
+        "Please sign in to continue with the setup steps below.\n\n"
+        + ("Detailed public procedure and examples. " * 12)
+    )
+    record = _semantic_record(
+        title="Authentication setup",
+        h1=None,
+        byte_length=len(text.encode()),
+        text_length=len(text),
+    )
+
+    assert "soft_login" not in classify_semantic_document(record, text.encode())
 
 
 def test_semantic_classifier_rejects_empty_link_only_and_navigation_heavy_content():
@@ -360,6 +427,48 @@ def _persisted_explanations(*groups: frozenset[str]) -> list[str]:
 def _git_blob_sha(body: bytes) -> str:
     header = f"blob {len(body)}\0".encode("ascii")
     return hashlib.sha1(header + body, usedforsecurity=False).hexdigest()
+
+
+def _write_release_document(root: Path, repo_path: str, body: str) -> DocumentRecord:
+    raw = body.encode()
+    target = root / repo_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(raw)
+    digest = sha256_bytes(raw)
+    language, category, is_skill, is_runtime_contract = classify_repo_path(repo_path)
+    return DocumentRecord(
+        document_id_for("release", repo_path, digest),
+        "release",
+        repo_path,
+        digest,
+        len(raw),
+        len(body),
+        "content",
+        repo_path=repo_path,
+        language=language,
+        category=category,
+        source_commit="a" * 40,
+        source_blob_sha=_git_blob_sha(raw),
+        logical_key=repo_path,
+        is_skill=is_skill,
+        is_runtime_contract=is_runtime_contract,
+    )
+
+
+def _release_snapshot(documents: list[DocumentRecord]) -> SnapshotManifest:
+    return SnapshotManifest(
+        "release-s",
+        "release",
+        "https://github.com/NousResearch/hermes-agent",
+        "v2026.7.7.2",
+        "a" * 40,
+        "v2026.7.7.2",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        documents=documents,
+        expected_document_count=len(documents),
+        tree_truncated=False,
+    )
 
 
 def test_validate_snapshot_accepts_complete_articles_and_explained_search_shell(
@@ -1257,6 +1366,104 @@ def test_internal_link_canonicalization_supports_shortcuts_html_and_directories(
     ) == {"docs/guide/README.md"}
 
 
+def test_repository_absolute_links_accept_same_release_ref_and_commit(tmp_path: Path):
+    links = (
+        "\n[Guide](https://github.com/NousResearch/hermes-agent/blob/v2026.7.7.2/docs/guide.md)"
+        "\n[Reference](https://raw.githubusercontent.com/NousResearch/hermes-agent/"
+        + ("a" * 40)
+        + "/docs/reference.md)"
+    )
+    start = _write_release_document(tmp_path, "docs/start.md", _article("Start", links))
+    guide = _write_release_document(tmp_path, "docs/guide.md", _article("Guide"))
+    reference = _write_release_document(
+        tmp_path, "docs/reference.md", _article("Reference")
+    )
+    manifest = _release_snapshot([start, guide, reference])
+    _persist_manifest(tmp_path, manifest)
+    available = {document.logical_key for document in manifest.documents}
+
+    assert extract_internal_doc_links(
+        start,
+        (tmp_path / start.output_path).read_text(),
+        allowed_repository_refs={manifest.requested_ref, manifest.resolved_sha},
+        available_logical_keys=available,
+    ) == {"docs/guide.md", "docs/reference.md"}
+    report = validate_snapshot(manifest, tmp_path, available)
+    assert report.ok, report.errors
+
+
+def test_repository_absolute_document_link_missing_from_cache_fails(tmp_path: Path):
+    links = (
+        "\n[Missing](https://github.com/NousResearch/hermes-agent/blob/"
+        "v2026.7.7.2/docs/missing.md)"
+    )
+    start = _write_release_document(tmp_path, "docs/start.md", _article("Start", links))
+    manifest = _release_snapshot([start])
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {start.logical_key})
+
+    assert any("unresolved internal link" in error for error in report.errors)
+
+
+def test_repository_absolute_document_link_rejects_cross_ref(tmp_path: Path):
+    links = (
+        "\n[Wrong ref](https://github.com/NousResearch/hermes-agent/blob/"
+        "main/docs/guide.md)"
+    )
+    start = _write_release_document(tmp_path, "docs/start.md", _article("Start", links))
+    guide = _write_release_document(tmp_path, "docs/guide.md", _article("Guide"))
+    manifest = _release_snapshot([start, guide])
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(
+        manifest, tmp_path, {start.logical_key, guide.logical_key}
+    )
+
+    assert any("invalid internal link" in error for error in report.errors)
+
+
+def test_repository_absolute_asset_links_are_not_invalid_documents(tmp_path: Path):
+    links = "".join(
+        f"\n[Asset {index}](https://github.com/NousResearch/hermes-agent/blob/"
+        f"v2026.7.7.2/assets/example{suffix})"
+        for index, suffix in enumerate((".py", ".png", ".svg", ".json"))
+    )
+    start = _write_release_document(tmp_path, "docs/start.md", _article("Start", links))
+    manifest = _release_snapshot([start])
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {start.logical_key})
+
+    assert report.ok, report.errors
+
+
+def test_repository_tree_links_resolve_to_cached_readme_or_index(tmp_path: Path):
+    links = (
+        "\n[Guide](https://github.com/NousResearch/hermes-agent/tree/v2026.7.7.2/docs/guide)"
+        "\n[Tutorial](https://github.com/NousResearch/hermes-agent/tree/v2026.7.7.2/docs/tutorial)"
+    )
+    start = _write_release_document(tmp_path, "docs/start.md", _article("Start", links))
+    readme = _write_release_document(
+        tmp_path, "docs/guide/README.md", _article("README")
+    )
+    index = _write_release_document(
+        tmp_path, "docs/tutorial/index.md", _article("Index")
+    )
+    manifest = _release_snapshot([start, readme, index])
+    _persist_manifest(tmp_path, manifest)
+    available = {document.logical_key for document in manifest.documents}
+
+    assert extract_internal_doc_links(
+        start,
+        (tmp_path / start.output_path).read_text(),
+        allowed_repository_refs={manifest.release_tag},
+        available_logical_keys=available,
+    ) == {"docs/guide/README.md", "docs/tutorial/index.md"}
+    report = validate_snapshot(manifest, tmp_path, available)
+    assert report.ok, report.errors
+
+
 def test_validate_snapshot_rejects_illegal_official_links_but_ignores_external(
     tmp_path: Path,
 ):
@@ -1372,6 +1579,85 @@ def test_semantic_classifier_rejects_noncanonical_website_urls(url: str):
     assert "invalid_website_url" in classify_semantic_document(record, body)
 
 
+def test_validate_snapshot_enforces_website_identity_and_output_path(tmp_path: Path):
+    root = tmp_path / "website"
+    document = _write_website_document(root, "hooks", _article("Hooks"))
+
+    requested_mismatch = replace(
+        document,
+        requested_url="https://hermes-agent.nousresearch.com/docs/tools",
+    )
+    manifest = _website_snapshot([requested_mismatch])
+    _persist_manifest(root, manifest)
+    report = validate_snapshot(manifest, root, {document.logical_key})
+    assert any("website logical key mismatch" in error for error in report.errors)
+
+    wrong_output = output_path_for_url(
+        "https://hermes-agent.nousresearch.com/docs/tools"
+    ).as_posix()
+    (root / wrong_output).parent.mkdir(parents=True, exist_ok=True)
+    (root / wrong_output).write_bytes((root / document.output_path).read_bytes())
+    output_mismatch = replace(document, output_path=wrong_output)
+    manifest = _website_snapshot([output_mismatch])
+    _persist_manifest(root, manifest)
+    report = validate_snapshot(manifest, root, {document.logical_key})
+    assert any("website output path mismatch" in error for error in report.errors)
+
+
+def test_validate_snapshot_enforces_all_website_source_boundaries(tmp_path: Path):
+    root = tmp_path / "website"
+    document = _write_website_document(root, "hooks", _article("Hooks"))
+    invalid = replace(
+        document,
+        source_kind="release",
+        website_snapshot_id="another-snapshot",
+        source_commit="a" * 40,
+        source_blob_sha="b" * 40,
+        repo_path="docs/hooks.md",
+    )
+    manifest = _website_snapshot([invalid])
+    _persist_manifest(root, manifest)
+
+    report = validate_snapshot(manifest, root, {document.logical_key})
+
+    assert any("source kind mismatch" in error for error in report.errors)
+    assert any("website snapshot mismatch" in error for error in report.errors)
+    assert any("website document contains repository identity" in error for error in report.errors)
+    assert any("website document contains repository path" in error for error in report.errors)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://[::1/docs/hooks",
+        "https://user@hermes-agent.nousresearch.com/docs/hooks",
+        "https://hermes-agent.nousresearch.com:443/docs/hooks",
+        "https://hermes-agent.nousresearch.com/docs/hooks?view=all",
+        "https://hermes-agent.nousresearch.com/docs/hooks?token=private-value",
+    ],
+)
+def test_validate_snapshot_reports_invalid_website_urls_without_raising(
+    tmp_path: Path, url: str
+):
+    root = tmp_path / "website"
+    document = _write_website_document(root, "hooks", _article("Hooks"))
+    invalid = replace(
+        document,
+        document_id=document_id_for("website", url, document.content_sha256),
+        requested_url=url,
+        final_url=url,
+        logical_key=url,
+    )
+    manifest = _website_snapshot([invalid])
+    payload = manifest.payload()
+    payload["manifest_sha256"] = sha256_bytes(stable_json_bytes(payload))
+    (root / "manifest.json").write_bytes(stable_json_bytes(payload))
+
+    report = validate_snapshot(manifest, root, {url})
+
+    assert any("invalid website URL" in error for error in report.errors)
+
+
 def test_integrity_report_redacts_every_field_when_manifest_contains_secret(
     tmp_path: Path,
 ):
@@ -1414,6 +1700,123 @@ def test_integrity_report_redacts_every_field_when_manifest_contains_secret(
     assert private not in repr(report)
     assert report.snapshot_id == "[redacted]"
     assert any("invalid website URL" in error for error in report.errors)
+
+
+def _valid_release_pdf_fixture(root: Path):
+    pdf = b"%PDF-1.7\npublic-binary"
+    pdf_path = root / "docs/guide.pdf"
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(pdf)
+    sidecar_text = _article("PDF Guide")
+    sidecar_bytes = sidecar_text.encode()
+    sidecar_path = root / "_extracted/docs/guide.pdf.txt"
+    sidecar_path.parent.mkdir(parents=True)
+    sidecar_path.write_bytes(sidecar_bytes)
+    logical_key = "docs/guide.pdf"
+    digest = sha256_bytes(pdf)
+    document = DocumentRecord(
+        document_id_for("release", logical_key, digest),
+        "release",
+        logical_key,
+        digest,
+        len(pdf),
+        len(sidecar_text),
+        "content",
+        repo_path=logical_key,
+        category="core-doc",
+        source_commit="a" * 40,
+        source_blob_sha=_git_blob_sha(pdf),
+        logical_key=logical_key,
+        mime_type="application/pdf",
+        is_runtime_contract=True,
+        extracted_text_path="_extracted/docs/guide.pdf.txt",
+        extracted_text_sha256=sha256_bytes(sidecar_bytes),
+    )
+    manifest = SnapshotManifest(
+        "release-pdf-valid",
+        "release",
+        "https://github.com/NousResearch/hermes-agent",
+        "v2026.7.7.2",
+        "a" * 40,
+        "v2026.7.7.2",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        documents=[document],
+        expected_document_count=1,
+        tree_truncated=False,
+    )
+    return document, manifest, logical_key
+
+
+def test_validate_snapshot_requires_complete_sidecar_for_every_successful_pdf(
+    tmp_path: Path,
+):
+    root = tmp_path / "snapshot"
+    document, manifest, logical_key = _valid_release_pdf_fixture(root)
+    valid_path = tmp_path / "manifests/valid.json"
+    write_manifest(valid_path, manifest)
+    valid = validate_snapshot(
+        manifest, root, {logical_key}, manifest_path=valid_path
+    )
+    assert valid.ok, valid.errors
+
+    cases = [
+        replace(
+            document,
+            text_length=0,
+            extracted_text_path=None,
+            extracted_text_sha256=None,
+        ),
+        replace(document, extracted_text_path=None),
+        replace(document, extracted_text_sha256=None),
+    ]
+    for index, invalid_document in enumerate(cases):
+        invalid_manifest = replace(manifest, documents=[invalid_document])
+        manifest_path = tmp_path / f"manifests/invalid-{index}.json"
+        write_manifest(manifest_path, invalid_manifest)
+        report = validate_snapshot(
+            invalid_manifest,
+            root,
+            {logical_key},
+            manifest_path=manifest_path,
+        )
+        assert any("PDF sidecar required" in error for error in report.errors)
+
+
+@pytest.mark.parametrize("same_length", [True, False])
+def test_secure_read_rejects_in_place_rewrite_after_read(
+    tmp_path: Path, monkeypatch, same_length: bool
+):
+    import scribe3.hermes_evidence.integrity as integrity
+
+    document = _write_website_document(tmp_path, "hooks", _article("Hooks"))
+    manifest = _website_snapshot([document])
+    _persist_manifest(tmp_path, manifest)
+    expected = tmp_path / document.output_path
+    real_read = integrity._read_fd
+    calls = 0
+
+    def rewriting_read(descriptor):
+        nonlocal calls
+        data = real_read(descriptor)
+        calls += 1
+        if calls == 2:
+            replacement = b"z" * (len(data) if same_length else max(1, len(data) // 2))
+            with expected.open("r+b") as stream:
+                stream.seek(0)
+                stream.write(replacement)
+                stream.truncate()
+                stream.flush()
+                os.fsync(stream.fileno())
+        return data
+
+    monkeypatch.setattr(integrity, "_read_fd", rewriting_read)
+    baseline_fds = len(os.listdir("/dev/fd"))
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+    final_fds = len(os.listdir("/dev/fd"))
+
+    assert any("unsafe file" in error for error in report.errors)
+    assert final_fds <= baseline_fds + 1
 
 
 def test_validate_snapshot_checks_actual_h1_and_empty_manifest_version_identity(

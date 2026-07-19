@@ -143,8 +143,13 @@ def contains_sensitive_data(value: object) -> bool:
     if not isinstance(value, str):
         return False
 
-    parsed = urlsplit(value)
-    if parsed.query and any(_is_sensitive_label(key) for key, _ in parse_qsl(parsed.query)):
+    try:
+        parsed = urlsplit(value)
+    except (UnicodeError, ValueError):
+        parsed = None
+    if parsed is not None and parsed.query and any(
+        _is_sensitive_label(key) for key, _ in parse_qsl(parsed.query)
+    ):
         return True
     return bool(
         _SECRET_SHAPED_VALUE_PATTERN.search(value)

@@ -272,6 +272,15 @@ def test_contains_sensitive_data_rejects_actual_sensitive_mapping_values(value: 
     assert contains_sensitive_data(value)
 
 
+def test_contains_sensitive_data_continues_after_malformed_url():
+    value = [
+        "https://[::1/docs/hooks",
+        {"token": "actual-secret"},
+    ]
+
+    assert contains_sensitive_data(value)
+
+
 @pytest.mark.parametrize(
     "free_string",
     [

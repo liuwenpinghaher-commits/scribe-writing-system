@@ -22,6 +22,7 @@ from .models import (
     stable_json_bytes,
 )
 from .policy import (
+    DOC_EXTENSIONS,
     OFFICIAL_WEBSITE_HOST,
     classify_repo_path,
     contains_secret,
@@ -38,8 +39,8 @@ from .website import (
     _open_root_fd,
     _read_fd,
     _relative_parts,
-    _same_inode,
     _semantic_soft_error,
+    output_path_for_url,
     normalize_markdown,
 )
 
@@ -68,6 +69,22 @@ _TEXT_MIME_BY_SUFFIX = {
 ALLOWED_SOURCE_KINDS = frozenset({"website", "release", "main", "runtime"})
 RUNTIME_SOURCE_ORIGIN = "hermes-runtime"
 RUNTIME_REQUESTED_REF = "runtime"
+
+
+def _is_canonical_website_url(value: object) -> bool:
+    if not isinstance(value, str) or not _is_official_website_url(value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except (UnicodeError, ValueError):
+        return False
+    return (
+        not parsed.query
+        and not parsed.fragment
+        and value
+        == urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    )
 
 
 def _mime_matches(record: DocumentRecord) -> bool:
@@ -127,7 +144,10 @@ def _identity_terms(value: str | None) -> set[str]:
 
 def _path_terms(record: DocumentRecord) -> set[str]:
     if record.source_kind == "website":
-        path = urlsplit(record.requested_url or record.logical_key).path
+        try:
+            path = urlsplit(record.requested_url or record.logical_key).path
+        except (UnicodeError, ValueError):
+            return set()
         value = PurePosixPath(path).name
     else:
         value = PurePosixPath(record.repo_path or record.output_path).stem
@@ -166,13 +186,30 @@ def _wrong_page_identity(record: DocumentRecord, body: str) -> bool:
 def _strong_body_soft_error(body: str) -> str | None:
     if _has_documentation_lead(body):
         return None
-    opening = re.sub(r"\s+", " ", body.lstrip()[:800].casefold())
+    lines = body.splitlines()
+    index = 0
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines) and lines[index].startswith("# "):
+        index += 1
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    paragraph: list[str] = []
+    while index < len(lines) and lines[index].strip():
+        paragraph.append(lines[index].strip())
+        index += 1
+    opening = re.sub(r"\s+", " ", " ".join(paragraph)[:800].casefold())
     patterns = (
-        ("soft_login", r"^(?:sign in|log in) to continue\b.*\baccess\b"),
-        ("soft_404", r"^(?:404\b.{0,40})?page not found\b.*\b(?:resource|page).{0,60}(?:does not exist|not found)"),
-        ("soft_anti_bot", r"^checking your browser\b.*\bverify you are human\b"),
+        (
+            "soft_login",
+            r"^(?:(?:please|you must)\s+)?(?:sign in|log in)\b"
+            r".{0,80}\b(?:access|view)\s+(?:this|the)\s+"
+            r"(?:page|content|resource)\b",
+        ),
+        ("soft_404", r"^(?:(?:404\b.{0,40})?page not found\b|the requested page could not be found\b)"),
+        ("soft_anti_bot", r"^(?:browser verification\b|checking your browser\b|verify you are human\b)"),
         ("soft_access_denied", r"^access denied\b.*\b(?:permission|authorized)\b"),
-        ("soft_server_error", r"^(?:service unavailable|internal server error|bad gateway)\b.*\b(?:server|try again later|unavailable)\b"),
+        ("soft_server_error", r"^(?:service(?: temporarily)? unavailable|internal server error|bad gateway)\b.*\b(?:server|try again later|unavailable)\b"),
     )
     for error, pattern in patterns:
         if re.search(pattern, opening):
@@ -203,15 +240,18 @@ def classify_semantic_document(
     if not _mime_matches(record):
         errors.add("mime_extension_mismatch")
     if record.source_kind == "website":
-        valid_urls = _is_official_website_url(
-            record.requested_url
-        ) and _is_official_website_url(record.final_url)
+        try:
+            valid_urls = _is_canonical_website_url(
+                record.requested_url
+            ) and _is_canonical_website_url(record.final_url)
+        except (UnicodeError, ValueError):
+            valid_urls = False
         try:
             requested = urlsplit(record.requested_url or "")
             final = urlsplit(record.final_url or "")
             requested_port = requested.port
             final_port = final.port
-        except ValueError:
+        except (UnicodeError, ValueError):
             requested = urlsplit("")
             final = urlsplit("")
             requested_port = final_port = None
@@ -248,8 +288,106 @@ class _ParsedInternalLinks:
     invalid_count: int = 0
 
 
+_OFFICIAL_REPOSITORY_HOSTS = frozenset(
+    {"github.com", "raw.githubusercontent.com"}
+)
+_OFFICIAL_REPOSITORY_PARTS = ("NousResearch", "hermes-agent")
+
+
+def _normalize_repository_target(
+    path: str,
+    *,
+    directory: bool,
+    available_logical_keys: frozenset[str],
+) -> tuple[str, str | None]:
+    decoded_path = path
+    if not decoded_path or decoded_path.startswith("/"):
+        return "invalid_internal", None
+    candidate = PurePosixPath(decoded_path)
+    normalized_parts: list[str] = []
+    for part in candidate.parts:
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not normalized_parts:
+                return "invalid_internal", None
+            normalized_parts.pop()
+        else:
+            normalized_parts.append(part)
+    normalized = "/".join(normalized_parts)
+    if not normalized:
+        return "invalid_internal", None
+    if directory:
+        candidates = (
+            f"{normalized.rstrip('/')}/README.md",
+            f"{normalized.rstrip('/')}/index.md",
+        )
+        for directory_index in candidates:
+            if directory_index in available_logical_keys:
+                return "internal", directory_index
+        return "internal", candidates[0]
+    if select_repo_document(normalized):
+        return "internal", normalized
+    if PurePosixPath(normalized).suffix.lower() in DOC_EXTENSIONS:
+        return "invalid_internal", None
+    return "external", None
+
+
+def _absolute_repository_target(
+    parsed_target,
+    *,
+    allowed_repository_refs: frozenset[str],
+    available_logical_keys: frozenset[str],
+) -> tuple[str, str | None]:
+    host = parsed_target.hostname
+    if host not in _OFFICIAL_REPOSITORY_HOSTS:
+        return "external", None
+    try:
+        explicit_port = parsed_target.port is not None
+    except (UnicodeError, ValueError):
+        return "invalid_internal", None
+    if (
+        parsed_target.scheme != "https"
+        or explicit_port
+        or parsed_target.username is not None
+        or parsed_target.password is not None
+        or contains_sensitive_data(parsed_target.geturl())
+    ):
+        return "invalid_internal", None
+    decoded_path = unquote(parsed_target.path)
+    if decoded_path.count("/") != parsed_target.path.count("/"):
+        return "invalid_internal", None
+    parts = tuple(part for part in decoded_path.split("/") if part)
+    if parts[:2] != _OFFICIAL_REPOSITORY_PARTS:
+        return "external", None
+    if host == "github.com":
+        if len(parts) < 5 or parts[2] not in {"blob", "tree"}:
+            return "external", None
+        action = parts[2]
+        ref = parts[3]
+        repo_path = "/".join(parts[4:])
+        directory = action == "tree"
+    else:
+        if len(parts) < 4:
+            return "invalid_internal", None
+        ref = parts[2]
+        repo_path = "/".join(parts[3:])
+        directory = False
+    if not ref or ref not in allowed_repository_refs:
+        return "invalid_internal", None
+    return _normalize_repository_target(
+        repo_path,
+        directory=directory,
+        available_logical_keys=available_logical_keys,
+    )
+
+
 def _classify_link_target(
-    record: DocumentRecord, raw_target: str
+    record: DocumentRecord,
+    raw_target: str,
+    *,
+    allowed_repository_refs: frozenset[str] = frozenset(),
+    available_logical_keys: frozenset[str] = frozenset(),
 ) -> tuple[str, str | None]:
     target = html.unescape(raw_target).strip().strip("<>")
     if not target or target.startswith("#"):
@@ -257,10 +395,13 @@ def _classify_link_target(
     try:
         parsed_target = urlsplit(target)
         _ = parsed_target.port
-    except ValueError:
+    except (UnicodeError, ValueError):
         return "invalid_internal", None
     if parsed_target.scheme not in {"", "https"}:
-        if parsed_target.hostname == OFFICIAL_WEBSITE_HOST:
+        if parsed_target.hostname in {
+            OFFICIAL_WEBSITE_HOST,
+            *_OFFICIAL_REPOSITORY_HOSTS,
+        }:
             return "invalid_internal", None
         return "external", None
 
@@ -270,7 +411,7 @@ def _classify_link_target(
             resolved_url = urljoin(base, target)
             resolved = urlsplit(resolved_url)
             _ = resolved.port
-        except ValueError:
+        except (UnicodeError, ValueError):
             return "invalid_internal", None
         if resolved.hostname != OFFICIAL_WEBSITE_HOST:
             return "external", None
@@ -297,8 +438,14 @@ def _classify_link_target(
         )
         return "internal", normalized
 
-    if record.source_kind not in {"release", "main"} or parsed_target.netloc:
+    if record.source_kind not in {"release", "main"}:
         return "external", None
+    if parsed_target.netloc:
+        return _absolute_repository_target(
+            parsed_target,
+            allowed_repository_refs=allowed_repository_refs,
+            available_logical_keys=available_logical_keys,
+        )
     decoded_path = unquote(parsed_target.path)
     if not decoded_path:
         return "external", None
@@ -307,26 +454,19 @@ def _classify_link_target(
     else:
         base_path = PurePosixPath(record.repo_path or record.logical_key)
         candidate = base_path.parent / decoded_path
-    normalized_parts: list[str] = []
-    for part in candidate.parts:
-        if part in {"", "."}:
-            continue
-        if part == "..":
-            if not normalized_parts:
-                return "invalid_internal", None
-            normalized_parts.pop()
-        else:
-            normalized_parts.append(part)
-    normalized = "/".join(normalized_parts)
-    if decoded_path.endswith("/") or not PurePosixPath(normalized).suffix:
-        normalized = f"{normalized.rstrip('/')}/README.md"
-    if select_repo_document(normalized):
-        return "internal", normalized
-    return "invalid_internal", None
+    return _normalize_repository_target(
+        candidate.as_posix(),
+        directory=decoded_path.endswith("/") or not candidate.suffix,
+        available_logical_keys=available_logical_keys,
+    )
 
 
 def _parse_internal_doc_links(
-    record: DocumentRecord, body: str
+    record: DocumentRecord,
+    body: str,
+    *,
+    allowed_repository_refs: frozenset[str] = frozenset(),
+    available_logical_keys: frozenset[str] = frozenset(),
 ) -> _ParsedInternalLinks:
     definitions = {
         match.group(1).strip().casefold(): match.group(2)
@@ -349,7 +489,12 @@ def _parse_internal_doc_links(
     internal: set[str] = set()
     invalid_count = 0
     for target in targets:
-        state, normalized = _classify_link_target(record, target)
+        state, normalized = _classify_link_target(
+            record,
+            target,
+            allowed_repository_refs=allowed_repository_refs,
+            available_logical_keys=available_logical_keys,
+        )
         if state == "internal" and normalized is not None:
             internal.add(normalized)
         elif state == "invalid_internal":
@@ -357,9 +502,27 @@ def _parse_internal_doc_links(
     return _ParsedInternalLinks(frozenset(internal), invalid_count)
 
 
-def extract_internal_doc_links(record: DocumentRecord, body: str) -> set[str]:
+def extract_internal_doc_links(
+    record: DocumentRecord,
+    body: str,
+    *,
+    allowed_repository_refs: set[str | None] | None = None,
+    available_logical_keys: set[str] | None = None,
+) -> set[str]:
     """Extract same-tier official documentation links as normalized logical keys."""
-    return set(_parse_internal_doc_links(record, body).internal)
+    refs = allowed_repository_refs
+    if refs is None:
+        refs = {record.source_commit}
+    return set(
+        _parse_internal_doc_links(
+            record,
+            body,
+            allowed_repository_refs=frozenset(
+                ref for ref in refs if isinstance(ref, str) and ref
+            ),
+            available_logical_keys=frozenset(available_logical_keys or set()),
+        ).internal
+    )
 
 
 def _secure_regular_read(
@@ -402,10 +565,28 @@ def _secure_regular_read(
                     raise _UnsafeOutputPath(
                         "evidence target identity changed"
                     ) from error
+                stable_fields = (
+                    "st_dev",
+                    "st_ino",
+                    "st_mode",
+                    "st_size",
+                    "st_mtime_ns",
+                    "st_ctime_ns",
+                )
+                descriptor_changed = any(
+                    getattr(opened_stat, field)
+                    != getattr(final_descriptor_stat, field)
+                    for field in stable_fields
+                )
+                name_changed = any(
+                    getattr(final_descriptor_stat, field)
+                    != getattr(final_name_stat, field)
+                    for field in stable_fields
+                )
                 if (
                     not stat.S_ISREG(final_name_stat.st_mode)
-                    or not _same_inode(opened_stat, final_descriptor_stat)
-                    or not _same_inode(final_descriptor_stat, final_name_stat)
+                    or descriptor_changed
+                    or name_changed
                     or not _directory_identity_is_current(
                         root, root_fd, parts[:-1], parent_fd
                     )
@@ -503,10 +684,28 @@ def _source_layer_errors(
         errors.append("document identity mismatch")
 
     if manifest.source_kind == "website":
-        if not _is_official_website_url(
-            document.requested_url
-        ) or not _is_official_website_url(document.final_url):
+        requested_url = document.requested_url
+        logical_key_valid = (
+            isinstance(document.logical_key, str)
+            and bool(document.logical_key)
+            and document.logical_key == requested_url
+        )
+        if not logical_key_valid:
+            errors.append("website logical key mismatch")
+        try:
+            valid_urls = _is_canonical_website_url(
+                requested_url
+            ) and _is_canonical_website_url(document.final_url)
+        except (UnicodeError, ValueError):
+            valid_urls = False
+        if not valid_urls:
             errors.append("invalid website URL")
+        try:
+            expected_output_path = output_path_for_url(document.logical_key).as_posix()
+        except (AttributeError, TypeError, UnicodeError, ValueError):
+            expected_output_path = None
+        if expected_output_path is None or document.output_path != expected_output_path:
+            errors.append("website output path mismatch")
         if document.website_snapshot_id != manifest.snapshot_id:
             errors.append("website snapshot mismatch")
         if document.source_commit is not None or document.source_blob_sha is not None:
@@ -616,7 +815,10 @@ def _manifest_layer_errors(manifest: SnapshotManifest) -> list[str]:
 def _closure_key(source_kind: str, logical_key: str) -> str:
     if source_kind != "website":
         return logical_key
-    parsed = urlsplit(logical_key)
+    try:
+        parsed = urlsplit(logical_key)
+    except (UnicodeError, ValueError):
+        return logical_key
     if parsed.scheme == "https" and parsed.hostname == OFFICIAL_WEBSITE_HOST:
         path = parsed.path.rstrip("/") or "/docs"
         return urlunsplit(("https", OFFICIAL_WEBSITE_HOST, path, "", ""))
@@ -688,6 +890,8 @@ def _document_text(
 
     has_path = document.extracted_text_path is not None
     has_hash = document.extracted_text_sha256 is not None
+    if not (has_path and has_hash) or document.text_length <= 0:
+        errors.append("PDF sidecar required")
     if has_path != has_hash:
         errors.append("incomplete extracted text identity")
         return None
@@ -907,9 +1111,24 @@ def validate_snapshot(
         document.logical_key or document.document_id: document
         for document in manifest.documents
     }
+    allowed_repository_refs = frozenset(
+        ref
+        for ref in (
+            manifest.requested_ref,
+            manifest.release_tag,
+            manifest.resolved_sha,
+        )
+        if isinstance(ref, str) and ref
+    )
+    available_logical_keys = frozenset(successes | excluded)
     for logical_key, text in texts.items():
         document = documents_by_key[logical_key]
-        parsed_links = _parse_internal_doc_links(document, text)
+        parsed_links = _parse_internal_doc_links(
+            document,
+            text,
+            allowed_repository_refs=allowed_repository_refs,
+            available_logical_keys=available_logical_keys,
+        )
         invalid_internal_links += parsed_links.invalid_count
         for link in parsed_links.internal:
             if _closure_key(manifest.source_kind, link) not in closure:
