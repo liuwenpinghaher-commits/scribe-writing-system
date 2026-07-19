@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .models import SnapshotManifest
+from .integrity import _manifest_layer_errors
 
 
 def _content_by_logical_key(manifest: SnapshotManifest) -> dict[str, str]:
@@ -20,6 +21,8 @@ def diff_manifests(
 ) -> dict[str, list[str]]:
     if old.source_kind != new.source_kind:
         raise ValueError("cannot diff manifests from different source kinds")
+    if _manifest_layer_errors(old) or _manifest_layer_errors(new):
+        raise ValueError("manifest source identity is invalid")
     before = _content_by_logical_key(old)
     after = _content_by_logical_key(new)
     return {

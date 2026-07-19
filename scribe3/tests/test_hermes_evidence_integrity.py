@@ -11,7 +11,7 @@ from scribe3.hermes_evidence.diffing import diff_manifests
 from scribe3.hermes_evidence.integrity import (
     classify_semantic_document,
     extract_internal_doc_links,
-    validate_snapshot,
+    validate_snapshot as _production_validate_snapshot,
 )
 from scribe3.hermes_evidence.models import (
     DocumentRecord,
@@ -24,11 +24,28 @@ from scribe3.hermes_evidence.models import (
 from scribe3.hermes_evidence.website import output_path_for_url
 
 
+def validate_snapshot(
+    manifest,
+    root,
+    expected_logical_keys,
+    duplicate_explanations=None,
+    *,
+    manifest_path=None,
+):
+    return _production_validate_snapshot(
+        manifest,
+        root,
+        expected_logical_keys,
+        duplicate_explanations,
+        manifest_path=manifest_path or Path(root) / "manifest.json",
+    )
+
+
 def _manifest(documents):
     return SnapshotManifest(
         "s",
         "website",
-        "official",
+        "https://hermes-agent.nousresearch.com/docs/sitemap.xml",
         "sitemap",
         None,
         None,
@@ -324,9 +341,16 @@ def _persist_manifest(root: Path, manifest: SnapshotManifest) -> None:
     write_manifest(root / "manifest.json", manifest)
 
 
-def _explanation_note(group: frozenset[str]) -> str:
-    digest = sha256_bytes(stable_json_bytes(sorted(group)))
-    return f"integrity_explanation_sha256:{digest}"
+def _explanation_note(
+    group: frozenset[str], *, kind: str | None = None, reason: str = "intentional"
+) -> str:
+    payload = {
+        "version": 1,
+        "kind": kind or ("navigation" if len(group) == 1 else "duplicate"),
+        "logical_keys": sorted(group),
+        "reason": reason,
+    }
+    return "integrity_explanation:v1:" + stable_json_bytes(payload).decode().strip()
 
 
 def _persisted_explanations(*groups: frozenset[str]) -> list[str]:
@@ -401,7 +425,7 @@ def test_validate_snapshot_requires_exact_persisted_navigation_explanation(
     )
 
     assert any("navigation explanation" in error for error in missing.errors)
-    assert any("stale duplicate explanation" in error for error in stale.errors)
+    assert any("explanation cross-check mismatch" in error for error in stale.errors)
 
 
 def test_validate_snapshot_rechecks_sizes_text_semantics_and_secret_residual(
@@ -545,11 +569,12 @@ def test_validate_snapshot_requires_exact_duplicate_explanation(tmp_path: Path):
     first = _write_website_document(tmp_path, "first", body)
     second = _write_website_document(tmp_path, "second", body)
     manifest = _website_snapshot([first, second])
-    manifest.notes = _persisted_explanations(frozenset({first.logical_key, second.logical_key}))
     _persist_manifest(tmp_path, manifest)
     expected = {first.logical_key, second.logical_key}
 
     unexplained = validate_snapshot(manifest, tmp_path, expected)
+    manifest.notes = _persisted_explanations(frozenset(expected))
+    _persist_manifest(tmp_path, manifest)
     explained = validate_snapshot(
         manifest,
         tmp_path,
@@ -616,7 +641,7 @@ def test_diff_refuses_cross_tier_comparison_and_duplicate_logical_keys():
     release = SnapshotManifest(
         "release",
         "release",
-        "official",
+        "https://github.com/NousResearch/hermes-agent",
         "v2026.7.7.2",
         "a" * 40,
         "v2026.7.7.2",
@@ -634,6 +659,7 @@ def test_diff_refuses_cross_tier_comparison_and_duplicate_logical_keys():
                 logical_key="hooks",
             )
         ],
+        tree_truncated=False,
     )
     main = replace(
         release,
@@ -818,7 +844,7 @@ def test_validate_snapshot_requires_explanations_to_be_manifest_hashed(tmp_path:
     _persist_manifest(tmp_path, manifest)
 
     unpersisted = validate_snapshot(manifest, tmp_path, set(group), {group})
-    assert any("unpersisted explanation" in error for error in unpersisted.errors)
+    assert any("explanation cross-check mismatch" in error for error in unpersisted.errors)
 
     manifest.notes = _persisted_explanations(group)
     _persist_manifest(tmp_path, manifest)
@@ -904,6 +930,490 @@ def test_validate_snapshot_rejects_fifo_without_blocking(tmp_path: Path):
 
     assert not worker.is_alive(), "FIFO validation blocked"
     assert any("unsafe file" in error for error in reports[0].errors)
+
+
+def test_validate_snapshot_uses_explicit_manifest_path_separate_from_snapshot_root(
+    tmp_path: Path,
+):
+    snapshot_root = tmp_path / "snapshots/website-s"
+    manifest_path = tmp_path / "manifests/website-s.json"
+    document = _write_website_document(snapshot_root, "hooks", _article("Hooks"))
+    manifest = _website_snapshot([document])
+    write_manifest(manifest_path, manifest)
+
+    report = validate_snapshot(
+        manifest,
+        snapshot_root,
+        {document.logical_key},
+        manifest_path=manifest_path,
+    )
+    missing_path = _production_validate_snapshot(
+        manifest, snapshot_root, {document.logical_key}
+    )
+
+    assert report.ok, report.errors
+    assert any("manifest path required" in error for error in missing_path.errors)
+
+
+def test_validate_snapshot_rejects_duplicate_and_conflicting_partition_rows(
+    tmp_path: Path,
+):
+    root = tmp_path / "snapshot"
+    root.mkdir()
+    key = "https://hermes-agent.nousresearch.com/docs/excluded"
+    conflict = "https://hermes-agent.nousresearch.com/docs/other"
+    manifest = _website_snapshot(
+        [],
+        exclusions=[
+            {"logical_key": key, "requested_url": key, "reason": "not selected"},
+            {"logical_key": key, "requested_url": conflict, "reason": "conflict"},
+        ],
+        expected_document_count=1,
+    )
+    manifest_path = tmp_path / "manifests/partition.json"
+    write_manifest(manifest_path, manifest)
+
+    report = validate_snapshot(
+        manifest, root, {key}, manifest_path=manifest_path
+    )
+
+    assert any("duplicate exclusion identity" in error for error in report.errors)
+    assert any("conflicting row identity" in error for error in report.errors)
+
+
+def test_validate_snapshot_rejects_unknown_runtime_masquerade_and_truncated_repo(
+    tmp_path: Path,
+):
+    root = tmp_path / "snapshot"
+    root.mkdir()
+
+    unknown = SnapshotManifest(
+        "unknown",
+        "mystery",  # type: ignore[arg-type]
+        "mystery",
+        "mystery",
+        None,
+        None,
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        expected_document_count=0,
+    )
+    unknown_path = tmp_path / "manifests/unknown.json"
+    write_manifest(unknown_path, unknown)
+    unknown_report = validate_snapshot(
+        unknown, root, set(), manifest_path=unknown_path
+    )
+
+    runtime = SnapshotManifest(
+        "runtime",
+        "runtime",
+        "https://github.com/NousResearch/hermes-agent",
+        "main",
+        "a" * 40,
+        None,
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        expected_document_count=0,
+        tree_truncated=False,
+    )
+    runtime_path = tmp_path / "manifests/runtime.json"
+    write_manifest(runtime_path, runtime)
+    runtime_report = validate_snapshot(
+        runtime, root, set(), manifest_path=runtime_path
+    )
+
+    release = SnapshotManifest(
+        "release",
+        "release",
+        "https://github.com/NousResearch/hermes-agent",
+        "v2026.7.7.2",
+        "a" * 40,
+        "v2026.7.7.2",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        expected_document_count=0,
+        tree_truncated=True,
+    )
+    release_path = tmp_path / "manifests/release.json"
+    write_manifest(release_path, release)
+    release_report = validate_snapshot(
+        release, root, set(), manifest_path=release_path
+    )
+
+    assert any("unknown source kind" in error for error in unknown_report.errors)
+    assert any("invalid runtime source identity" in error for error in runtime_report.errors)
+    assert any("repository tree incomplete" in error for error in release_report.errors)
+
+
+def test_validate_snapshot_rejects_repository_path_and_skill_classification_drift(
+    tmp_path: Path,
+):
+    body = _article("Skill").encode()
+    output = tmp_path / "skills/x/SKILL.md"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(body)
+    logical_key = "skills/x/SKILL.md"
+    digest = sha256_bytes(body)
+    document = DocumentRecord(
+        document_id_for("release", logical_key, digest),
+        "release",
+        "wrong/output.md",
+        digest,
+        len(body),
+        len(body.decode()),
+        "content",
+        repo_path=logical_key,
+        source_commit="a" * 40,
+        source_blob_sha=_git_blob_sha(body),
+        logical_key=logical_key,
+        is_skill=False,
+    )
+    manifest = SnapshotManifest(
+        "release",
+        "release",
+        "https://github.com/NousResearch/hermes-agent",
+        "v2026.7.7.2",
+        "a" * 40,
+        "v2026.7.7.2",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        documents=[document],
+        expected_document_count=1,
+        tree_truncated=False,
+    )
+    manifest_path = tmp_path / "manifests/skill.json"
+    write_manifest(manifest_path, manifest)
+
+    report = validate_snapshot(
+        manifest, tmp_path, {logical_key}, manifest_path=manifest_path
+    )
+
+    assert any("repository path identity mismatch" in error for error in report.errors)
+    assert any("repository classification mismatch" in error for error in report.errors)
+
+
+def test_diff_rejects_unknown_and_internally_inconsistent_source_identity():
+    unknown = SnapshotManifest(
+        "unknown",
+        "mystery",  # type: ignore[arg-type]
+        "mystery",
+        "mystery",
+        None,
+        None,
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        tree_truncated=None,
+    )
+    with pytest.raises(ValueError, match="source identity"):
+        diff_manifests(unknown, unknown)
+
+    malformed_main = SnapshotManifest(
+        "main",
+        "main",
+        "https://github.com/NousResearch/hermes-agent",
+        "main",
+        "a" * 40,
+        "v-wrong",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        tree_truncated=False,
+    )
+    with pytest.raises(ValueError, match="source identity"):
+        diff_manifests(malformed_main, malformed_main)
+
+
+def test_validate_snapshot_applies_text_semantics_to_pdf_sidecar(tmp_path: Path):
+    root = tmp_path / "snapshot"
+    pdf = b"%PDF-1.7\npublic-binary"
+    pdf_path = root / "docs/guide.pdf"
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(pdf)
+    sidecar = root / "_extracted/docs/guide.pdf.txt"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text("x", encoding="utf-8")
+    logical_key = "docs/guide.pdf"
+    digest = sha256_bytes(pdf)
+    document = DocumentRecord(
+        document_id_for("release", logical_key, digest),
+        "release",
+        logical_key,
+        digest,
+        len(pdf),
+        1,
+        "content",
+        repo_path=logical_key,
+        source_commit="a" * 40,
+        source_blob_sha=_git_blob_sha(pdf),
+        logical_key=logical_key,
+        mime_type="application/pdf",
+        extracted_text_path="_extracted/docs/guide.pdf.txt",
+        extracted_text_sha256=sha256_bytes(b"x"),
+    )
+    manifest = SnapshotManifest(
+        "release-pdf",
+        "release",
+        "https://github.com/NousResearch/hermes-agent",
+        "v2026.7.7.2",
+        "a" * 40,
+        "v2026.7.7.2",
+        "2026-07-20T00:00:00+00:00",
+        "1",
+        documents=[document],
+        expected_document_count=1,
+        tree_truncated=False,
+    )
+    manifest_path = tmp_path / "manifests/pdf.json"
+    write_manifest(manifest_path, manifest)
+
+    report = validate_snapshot(
+        manifest, root, {logical_key}, manifest_path=manifest_path
+    )
+    assert any("unexpected_short_content" in error for error in report.errors)
+
+    noncanonical = replace(document, extracted_text_path="sidecar.txt")
+    (root / "sidecar.txt").write_text("x", encoding="utf-8")
+    noncanonical_manifest = replace(manifest, documents=[noncanonical])
+    noncanonical_path = tmp_path / "manifests/pdf-noncanonical.json"
+    write_manifest(noncanonical_path, noncanonical_manifest)
+    noncanonical_report = validate_snapshot(
+        noncanonical_manifest,
+        root,
+        {logical_key},
+        manifest_path=noncanonical_path,
+    )
+    assert any("noncanonical extracted text path" in error for error in noncanonical_report.errors)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("Sign in to continue and access this page. " + "x" * 220, "soft_login"),
+        ("Page not found. The requested resource does not exist. " + "x" * 220, "soft_404"),
+        ("Checking your browser. Verify you are human. " + "x" * 220, "soft_anti_bot"),
+        ("Access denied. You do not have permission to view this page. " + "x" * 220, "soft_access_denied"),
+        ("Service unavailable. The server is unavailable; try again later. " + "x" * 220, "soft_server_error"),
+    ],
+)
+def test_semantic_classifier_rejects_strong_body_errors_without_metadata(
+    body: str, expected: str
+):
+    record = _semantic_record(
+        title=None,
+        h1=None,
+        byte_length=len(body.encode()),
+        text_length=len(body),
+    )
+    assert expected in classify_semantic_document(record, body.encode())
+
+
+def test_semantic_classifier_does_not_misread_metadata_free_troubleshooting():
+    body = (
+        "This guide explains how to troubleshoot sign in to continue, page not found, "
+        "access denied, and service unavailable responses.\n\n" + "Procedure details. " * 20
+    )
+    record = _semantic_record(
+        title=None,
+        h1=None,
+        byte_length=len(body.encode()),
+        text_length=len(body),
+    )
+    assert not {
+        "soft_login",
+        "soft_404",
+        "soft_access_denied",
+        "soft_server_error",
+    } & set(classify_semantic_document(record, body.encode()))
+
+
+def test_internal_link_canonicalization_supports_shortcuts_html_and_directories():
+    website = _semantic_record()
+    website_body = """
+[Hooks][]
+[Tools]
+[hooks]: /docs/hooks/
+[tools]: /docs/tools/index.html?view=all#usage
+<a href=/docs/html/>HTML</a>
+"""
+    assert extract_internal_doc_links(website, website_body) == {
+        "https://hermes-agent.nousresearch.com/docs/hooks",
+        "https://hermes-agent.nousresearch.com/docs/html",
+        "https://hermes-agent.nousresearch.com/docs/tools",
+    }
+
+    repository = DocumentRecord(
+        "release:start",
+        "release",
+        "docs/start.md",
+        "0" * 64,
+        0,
+        0,
+        "content",
+        repo_path="docs/start.md",
+        logical_key="docs/start.md",
+    )
+    assert extract_internal_doc_links(
+        repository,
+        "[Guide](guide/)\n[Readme](guide/README.md?x=1#top)\n",
+    ) == {"docs/guide/README.md"}
+
+
+def test_validate_snapshot_rejects_illegal_official_links_but_ignores_external(
+    tmp_path: Path,
+):
+    body = _article(
+        "Hooks",
+        "\n[HTTP official](http://hermes-agent.nousresearch.com/docs/tools)"
+        "\n[Traversal](/docs/../private)"
+        "\n[External](https://example.test/docs/outside)",
+    )
+    document = _write_website_document(tmp_path, "hooks", body)
+    manifest = _website_snapshot([document])
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+    assert any("invalid internal link" in error for error in report.errors)
+
+
+def test_validate_snapshot_rejects_digest_only_explanation_and_detects_reason_tamper(
+    tmp_path: Path,
+):
+    body = _article("Shared")
+    first = _write_website_document(tmp_path, "first", body)
+    second = _write_website_document(tmp_path, "second", body)
+    group = frozenset({first.logical_key, second.logical_key})
+    digest = sha256_bytes(stable_json_bytes(sorted(group)))
+    manifest = _website_snapshot(
+        [first, second],
+        notes=[f"integrity_explanation_sha256:{digest}"],
+    )
+    _persist_manifest(tmp_path, manifest)
+
+    digest_only = validate_snapshot(manifest, tmp_path, set(group), {group})
+    assert any("invalid persisted explanation" in error for error in digest_only.errors)
+
+    manifest.notes = [_explanation_note(group, reason="same upstream body")]
+    _persist_manifest(tmp_path, manifest)
+    path = tmp_path / "manifest.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["notes"] = [payload["notes"][0].replace("same upstream body", "tampered")]
+    path.write_bytes(stable_json_bytes(payload))
+    tampered = validate_snapshot(manifest, tmp_path, set(group))
+    assert any("manifest hash mismatch" in error for error in tampered.errors)
+
+
+def test_validate_snapshot_reads_explanation_from_manifest_without_external_override(
+    tmp_path: Path,
+):
+    body = _article("Shared")
+    first = _write_website_document(tmp_path, "first", body)
+    second = _write_website_document(tmp_path, "second", body)
+    group = frozenset({first.logical_key, second.logical_key})
+    manifest = _website_snapshot(
+        [first, second],
+        notes=[_explanation_note(group, reason="intentional mirrored page")],
+    )
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, set(group))
+    assert report.ok, report.errors
+
+
+def test_secure_read_rejects_name_swap_after_read_before_descriptor_close(
+    tmp_path: Path, monkeypatch
+):
+    import scribe3.hermes_evidence.integrity as integrity
+
+    document = _write_website_document(tmp_path, "hooks", _article("Hooks"))
+    manifest = _website_snapshot([document])
+    _persist_manifest(tmp_path, manifest)
+    expected = tmp_path / document.output_path
+    moved = expected.with_name("hooks-old.md")
+    real_read = integrity._read_fd
+    calls = 0
+
+    def swapping_read(descriptor):
+        nonlocal calls
+        data = real_read(descriptor)
+        calls += 1
+        if calls == 2:
+            expected.rename(moved)
+            expected.write_bytes(data)
+        return data
+
+    monkeypatch.setattr(integrity, "_read_fd", swapping_read)
+    baseline_fds = len(os.listdir("/dev/fd"))
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+    final_fds = len(os.listdir("/dev/fd"))
+
+    assert any("unsafe file" in error for error in report.errors)
+    assert final_fds <= baseline_fds + 1
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@hermes-agent.nousresearch.com/docs/hooks",
+        "https://hermes-agent.nousresearch.com:443/docs/hooks",
+        "https://hermes-agent.nousresearch.com:bad/docs/hooks",
+        "https://hermes-agent.nousresearch.com/docs/hooks?api_key=private-value",
+        "https://hermes-agent.nousresearch.com/not-docs/hooks",
+        "https://github.com/NousResearch/hermes-agent/docs/hooks",
+    ],
+)
+def test_semantic_classifier_rejects_noncanonical_website_urls(url: str):
+    body = _article("Hooks").encode()
+    record = _semantic_record(
+        requested_url=url,
+        final_url=url,
+        logical_key=url,
+        byte_length=len(body),
+        text_length=len(body.decode()),
+    )
+    assert "invalid_website_url" in classify_semantic_document(record, body)
+
+
+def test_integrity_report_redacts_every_field_when_manifest_contains_secret(
+    tmp_path: Path,
+):
+    private = "must-not-appear-anywhere"
+    root = tmp_path / "snapshot"
+    root.mkdir()
+    secret_key = f"https://hermes-agent.nousresearch.com/docs/hooks?token={private}"
+    document = DocumentRecord(
+        f"token={private}",
+        "website",
+        f"pages/token={private}.md",
+        "0" * 64,
+        1,
+        1,
+        "content",
+        requested_url=secret_key,
+        final_url=secret_key,
+        http_status=200,
+        website_snapshot_id=f"token={private}",
+        logical_key=secret_key,
+    )
+    manifest = _website_snapshot(
+        [document],
+        snapshot_id=f"token={private}",
+        notes=[f"token={private}"],
+    )
+    manifest_path = tmp_path / "manifests/secret.json"
+    payload = manifest.payload()
+    digest = sha256_bytes(stable_json_bytes(payload))
+    payload["manifest_sha256"] = digest
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_bytes(stable_json_bytes(payload))
+
+    report = validate_snapshot(
+        manifest,
+        root,
+        {secret_key},
+        manifest_path=manifest_path,
+    )
+    assert private not in repr(report)
+    assert report.snapshot_id == "[redacted]"
+    assert any("invalid website URL" in error for error in report.errors)
 
 
 def test_validate_snapshot_checks_actual_h1_and_empty_manifest_version_identity(

@@ -7,6 +7,7 @@ import os
 import re
 import stat
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
@@ -20,27 +21,38 @@ from .models import (
     sha256_bytes,
     stable_json_bytes,
 )
-from .policy import OFFICIAL_WEBSITE_HOST, contains_secret, select_repo_document
+from .policy import (
+    OFFICIAL_WEBSITE_HOST,
+    classify_repo_path,
+    contains_secret,
+    select_repo_document,
+)
 from .website import (
     _FILE_READ_FLAGS,
     _UnsafeOutputPath,
     _directory_identity_is_current,
     _h1,
+    _has_documentation_lead,
+    _is_official_website_url,
     _open_parent_fd,
     _open_root_fd,
     _read_fd,
     _relative_parts,
+    _same_inode,
     _semantic_soft_error,
     normalize_markdown,
 )
 
 _MARKDOWN_LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)")
 _REFERENCE_DEFINITION_PATTERN = re.compile(
-    r"(?m)^\s*\[([^\]]+)\]:\s*<?([^>\s]+)>?(?:\s+.*)?$"
+    r"(?m)^[ \t]*\[([^\]]+)\]:[ \t]*<?([^>\s]+)>?(?:[ \t]+.*)?$"
 )
-_REFERENCE_LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\[([^\]]+)\]")
+_REFERENCE_LINK_WITH_LABEL_PATTERN = re.compile(
+    r"(?<!!)\[([^\]]+)\]\[([^\]]*)\]"
+)
+_SHORTCUT_REFERENCE_PATTERN = re.compile(r"(?<!!)\[([^\]]+)\](?![\[(])")
 _HTML_LINK_PATTERN = re.compile(
-    r"(?i)<a\s+[^>]*href\s*=\s*([\"'])(.*?)\1[^>]*>"
+    r'''(?ix)<a\s+[^>]*href\s*=\s*(?:(["'])(.*?)\1|([^\s>]+))[^>]*>'''
 )
 _AUTOLINK_PATTERN = re.compile(r"<(https://[^>\s]+)>")
 _HEADING_PATTERN = re.compile(r"^#{1,6}\s+")
@@ -53,6 +65,9 @@ _TEXT_MIME_BY_SUFFIX = {
     ".mdx": frozenset({"text/markdown", "text/plain"}),
     ".rst": frozenset({"text/x-rst", "text/plain"}),
 }
+ALLOWED_SOURCE_KINDS = frozenset({"website", "release", "main", "runtime"})
+RUNTIME_SOURCE_ORIGIN = "hermes-runtime"
+RUNTIME_REQUESTED_REF = "runtime"
 
 
 def _mime_matches(record: DocumentRecord) -> bool:
@@ -148,6 +163,38 @@ def _wrong_page_identity(record: DocumentRecord, body: str) -> bool:
     )
 
 
+def _strong_body_soft_error(body: str) -> str | None:
+    if _has_documentation_lead(body):
+        return None
+    opening = re.sub(r"\s+", " ", body.lstrip()[:800].casefold())
+    patterns = (
+        ("soft_login", r"^(?:sign in|log in) to continue\b.*\baccess\b"),
+        ("soft_404", r"^(?:404\b.{0,40})?page not found\b.*\b(?:resource|page).{0,60}(?:does not exist|not found)"),
+        ("soft_anti_bot", r"^checking your browser\b.*\bverify you are human\b"),
+        ("soft_access_denied", r"^access denied\b.*\b(?:permission|authorized)\b"),
+        ("soft_server_error", r"^(?:service unavailable|internal server error|bad gateway)\b.*\b(?:server|try again later|unavailable)\b"),
+    )
+    for error, pattern in patterns:
+        if re.search(pattern, opening):
+            return error
+    return None
+
+
+def _semantic_text_errors(record: DocumentRecord, text: str) -> set[str]:
+    errors: set[str] = set()
+    if contains_secret(text):
+        errors.add("suspected_secret")
+    semantic_error = _semantic_soft_error(record.title, text)
+    if semantic_error is None:
+        semantic_error = _strong_body_soft_error(text)
+    if semantic_error is not None:
+        errors.add(semantic_error)
+    if _wrong_page_identity(record, text):
+        errors.add("wrong_page_identity")
+    errors.update(_content_shape_errors(record, text))
+    return errors
+
+
 def classify_semantic_document(
     record: DocumentRecord, body: bytes
 ) -> tuple[str, ...]:
@@ -156,14 +203,27 @@ def classify_semantic_document(
     if not _mime_matches(record):
         errors.add("mime_extension_mismatch")
     if record.source_kind == "website":
-        requested = urlsplit(record.requested_url or "")
-        final = urlsplit(record.final_url or "")
+        valid_urls = _is_official_website_url(
+            record.requested_url
+        ) and _is_official_website_url(record.final_url)
+        try:
+            requested = urlsplit(record.requested_url or "")
+            final = urlsplit(record.final_url or "")
+            requested_port = requested.port
+            final_port = final.port
+        except ValueError:
+            requested = urlsplit("")
+            final = urlsplit("")
+            requested_port = final_port = None
+            valid_urls = False
+        if not valid_urls:
+            errors.add("invalid_website_url")
         if (
             final.scheme != "https"
             or final.hostname != OFFICIAL_WEBSITE_HOST
-            or final.port is not None
-            or (requested.scheme, requested.hostname, requested.port)
-            != (final.scheme, final.hostname, final.port)
+            or final_port is not None
+            or (requested.scheme, requested.hostname, requested_port)
+            != (final.scheme, final.hostname, final_port)
         ):
             errors.add("cross_origin_redirect")
 
@@ -178,96 +238,128 @@ def classify_semantic_document(
         errors.add("invalid_utf8")
         return tuple(sorted(errors))
 
-    if contains_secret(text):
-        errors.add("suspected_secret")
-    semantic_error = _semantic_soft_error(record.title, text)
-    if semantic_error is not None:
-        errors.add(semantic_error)
-    if _wrong_page_identity(record, text):
-        errors.add("wrong_page_identity")
-    errors.update(_content_shape_errors(record, text))
+    errors.update(_semantic_text_errors(record, text))
     return tuple(sorted(errors))
 
 
-def _normalized_internal_link(
+@dataclass(frozen=True)
+class _ParsedInternalLinks:
+    internal: frozenset[str]
+    invalid_count: int = 0
+
+
+def _classify_link_target(
     record: DocumentRecord, raw_target: str
-) -> str | None:
+) -> tuple[str, str | None]:
     target = html.unescape(raw_target).strip().strip("<>")
     if not target or target.startswith("#"):
-        return None
-    parsed_target = urlsplit(target)
+        return "external", None
+    try:
+        parsed_target = urlsplit(target)
+        _ = parsed_target.port
+    except ValueError:
+        return "invalid_internal", None
     if parsed_target.scheme not in {"", "https"}:
-        return None
+        if parsed_target.hostname == OFFICIAL_WEBSITE_HOST:
+            return "invalid_internal", None
+        return "external", None
 
     if record.source_kind == "website":
         base = record.final_url or record.requested_url or record.logical_key
-        resolved = urlsplit(urljoin(base, target))
+        try:
+            resolved_url = urljoin(base, target)
+            resolved = urlsplit(resolved_url)
+            _ = resolved.port
+        except ValueError:
+            return "invalid_internal", None
+        if resolved.hostname != OFFICIAL_WEBSITE_HOST:
+            return "external", None
+        clean_url = urlunsplit(
+            (resolved.scheme, resolved.netloc, resolved.path, "", "")
+        )
         if (
-            resolved.scheme != "https"
-            or resolved.hostname != OFFICIAL_WEBSITE_HOST
-            or resolved.port is not None
-            or not (
-                resolved.path == "/docs" or resolved.path.startswith("/docs/")
-            )
+            not _is_official_website_url(clean_url)
+            or resolved.username is not None
+            or resolved.password is not None
+            or contains_sensitive_data(resolved_url)
         ):
-            return None
-        return urlunsplit(
+            return "invalid_internal", None
+        path = resolved.path.rstrip("/") or "/docs"
+        path = re.sub(r"/(?:index(?:\.html?)?)$", "", path, flags=re.IGNORECASE)
+        normalized = urlunsplit(
             (
                 "https",
                 OFFICIAL_WEBSITE_HOST,
-                resolved.path.rstrip("/") or "/docs",
+                path or "/docs",
                 "",
                 "",
             )
         )
+        return "internal", normalized
 
     if record.source_kind not in {"release", "main"} or parsed_target.netloc:
-        return None
+        return "external", None
     decoded_path = unquote(parsed_target.path)
     if not decoded_path:
-        return None
+        return "external", None
     if decoded_path.startswith("/"):
         candidate = PurePosixPath(decoded_path.lstrip("/"))
     else:
         base_path = PurePosixPath(record.repo_path or record.logical_key)
         candidate = base_path.parent / decoded_path
     normalized_parts: list[str] = []
-    escaped = False
     for part in candidate.parts:
         if part in {"", "."}:
             continue
         if part == "..":
             if not normalized_parts:
-                escaped = True
-                break
+                return "invalid_internal", None
             normalized_parts.pop()
         else:
             normalized_parts.append(part)
     normalized = "/".join(normalized_parts)
-    if not escaped and select_repo_document(normalized):
-        return normalized
-    return None
+    if decoded_path.endswith("/") or not PurePosixPath(normalized).suffix:
+        normalized = f"{normalized.rstrip('/')}/README.md"
+    if select_repo_document(normalized):
+        return "internal", normalized
+    return "invalid_internal", None
 
 
-def extract_internal_doc_links(record: DocumentRecord, body: str) -> set[str]:
-    """Extract same-tier official documentation links as normalized logical keys."""
+def _parse_internal_doc_links(
+    record: DocumentRecord, body: str
+) -> _ParsedInternalLinks:
     definitions = {
         match.group(1).strip().casefold(): match.group(2)
         for match in _REFERENCE_DEFINITION_PATTERN.finditer(body)
     }
     targets = [match.group(1) for match in _MARKDOWN_LINK_PATTERN.finditer(body)]
-    for match in _REFERENCE_LINK_PATTERN.finditer(body):
+    for match in _REFERENCE_LINK_WITH_LABEL_PATTERN.finditer(body):
+        reference = (match.group(2) or match.group(1)).strip().casefold()
+        target = definitions.get(reference)
+        if target:
+            targets.append(target)
+    for match in _SHORTCUT_REFERENCE_PATTERN.finditer(body):
         target = definitions.get(match.group(1).strip().casefold())
         if target:
             targets.append(target)
-    targets.extend(match.group(2) for match in _HTML_LINK_PATTERN.finditer(body))
+    targets.extend(
+        match.group(2) or match.group(3) for match in _HTML_LINK_PATTERN.finditer(body)
+    )
     targets.extend(match.group(1) for match in _AUTOLINK_PATTERN.finditer(body))
-    links = {
-        normalized
-        for target in targets
-        if (normalized := _normalized_internal_link(record, target)) is not None
-    }
-    return links
+    internal: set[str] = set()
+    invalid_count = 0
+    for target in targets:
+        state, normalized = _classify_link_target(record, target)
+        if state == "internal" and normalized is not None:
+            internal.add(normalized)
+        elif state == "invalid_internal":
+            invalid_count += 1
+    return _ParsedInternalLinks(frozenset(internal), invalid_count)
+
+
+def extract_internal_doc_links(record: DocumentRecord, body: str) -> set[str]:
+    """Extract same-tier official documentation links as normalized logical keys."""
+    return set(_parse_internal_doc_links(record, body).internal)
 
 
 def _secure_regular_read(
@@ -297,14 +389,31 @@ def _secure_regular_read(
             except OSError as error:
                 raise _UnsafeOutputPath("evidence file cannot be opened safely") from error
             try:
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                opened_stat = os.fstat(descriptor)
+                if not stat.S_ISREG(opened_stat.st_mode):
                     raise _UnsafeOutputPath("evidence target is not a regular file")
                 data = _read_fd(descriptor)
+                final_descriptor_stat = os.fstat(descriptor)
+                try:
+                    final_name_stat = os.stat(
+                        parts[-1], dir_fd=parent_fd, follow_symlinks=False
+                    )
+                except OSError as error:
+                    raise _UnsafeOutputPath(
+                        "evidence target identity changed"
+                    ) from error
+                if (
+                    not stat.S_ISREG(final_name_stat.st_mode)
+                    or not _same_inode(opened_stat, final_descriptor_stat)
+                    or not _same_inode(final_descriptor_stat, final_name_stat)
+                    or not _directory_identity_is_current(
+                        root, root_fd, parts[:-1], parent_fd
+                    )
+                ):
+                    raise _UnsafeOutputPath("evidence target identity changed")
+                return data
             finally:
                 os.close(descriptor)
-            if not _directory_identity_is_current(root, root_fd, parts[:-1], parent_fd):
-                raise _UnsafeOutputPath("evidence directory identity changed")
-            return data
         finally:
             os.close(parent_fd)
     finally:
@@ -321,10 +430,36 @@ def _row_identity(row: object) -> str | None:
     return None
 
 
-def _serialized_manifest_errors(manifest: SnapshotManifest, root: Path) -> list[str]:
+def _row_identity_errors(row: object) -> list[str]:
+    if not isinstance(row, dict):
+        return ["empty row identity"]
+    identities = [
+        row.get(field)
+        for field in ("logical_key", "requested_url", "repo_path")
+        if field in row
+    ]
+    nonempty = [value for value in identities if isinstance(value, str) and value]
     errors: list[str] = []
+    if not nonempty:
+        errors.append("empty row identity")
+    if len(set(nonempty)) > 1:
+        errors.append("conflicting row identity")
+    if any(not isinstance(value, str) or not value for value in identities):
+        errors.append("empty row identity")
+    return errors
+
+
+def _serialized_manifest_errors(
+    manifest: SnapshotManifest, manifest_path: Path | None
+) -> list[str]:
+    errors: list[str] = []
+    if manifest_path is None:
+        return ["manifest path required"]
+    path = Path(manifest_path)
+    if not path.name or path.name in {".", ".."}:
+        return ["invalid manifest path"]
     try:
-        raw = _secure_regular_read(Path(root), Path("manifest.json"), missing_ok=True)
+        raw = _secure_regular_read(path.parent, Path(path.name), missing_ok=True)
     except (OSError, _UnsafeOutputPath):
         return ["unsafe serialized manifest"]
     if raw is None:
@@ -368,10 +503,16 @@ def _source_layer_errors(
         errors.append("document identity mismatch")
 
     if manifest.source_kind == "website":
+        if not _is_official_website_url(
+            document.requested_url
+        ) or not _is_official_website_url(document.final_url):
+            errors.append("invalid website URL")
         if document.website_snapshot_id != manifest.snapshot_id:
             errors.append("website snapshot mismatch")
         if document.source_commit is not None or document.source_blob_sha is not None:
             errors.append("website document contains repository identity")
+        if document.repo_path is not None:
+            errors.append("website document contains repository path")
         if document.http_status != 200:
             errors.append("website status mismatch")
     elif manifest.source_kind in {"release", "main"}:
@@ -384,6 +525,21 @@ def _source_layer_errors(
             or re.fullmatch(r"[0-9a-f]{40}", document.source_blob_sha) is None
         ):
             errors.append("invalid source blob identity")
+        path_identity_valid = (
+            bool(document.repo_path)
+            and document.repo_path == logical_key
+            and document.output_path == document.repo_path
+            and select_repo_document(document.repo_path)
+        )
+        if not path_identity_valid:
+            errors.append("repository path identity mismatch")
+        if document.repo_path and (
+            document.language,
+            document.category,
+            document.is_skill,
+            document.is_runtime_contract,
+        ) != classify_repo_path(document.repo_path):
+            errors.append("repository classification mismatch")
     elif manifest.source_kind == "runtime":
         if (
             document.source_commit is not None
@@ -393,6 +549,8 @@ def _source_layer_errors(
             errors.append("runtime document contains snapshot identity")
         if not document.is_runtime_contract:
             errors.append("runtime evidence not marked runtime contract")
+        if document.repo_path is not None:
+            errors.append("runtime document contains repository path")
     return errors
 
 
@@ -400,11 +558,15 @@ def _manifest_layer_errors(manifest: SnapshotManifest) -> list[str]:
     errors: list[str] = []
     github_origin = "https://github.com/NousResearch/hermes-agent"
     website_origin = "https://hermes-agent.nousresearch.com/docs/sitemap.xml"
+    if manifest.source_kind not in ALLOWED_SOURCE_KINDS:
+        return ["unknown source kind"]
     if manifest.source_kind == "website":
         if manifest.source_origin != website_origin or manifest.requested_ref != "sitemap":
             errors.append("invalid website source identity")
         if manifest.resolved_sha is not None or manifest.release_tag is not None:
             errors.append("website manifest contains repository version identity")
+        if manifest.tree_truncated is not None:
+            errors.append("invalid website tree identity")
     elif manifest.source_kind in {"release", "main"}:
         if manifest.source_origin != github_origin:
             errors.append("invalid repository source identity")
@@ -413,6 +575,8 @@ def _manifest_layer_errors(manifest: SnapshotManifest) -> list[str]:
             or re.fullmatch(r"[0-9a-f]{40}", manifest.resolved_sha) is None
         ):
             errors.append("invalid resolved source commit")
+        if manifest.tree_truncated is not False:
+            errors.append("repository tree incomplete")
         if manifest.source_kind == "release":
             if (
                 not isinstance(manifest.release_tag, str)
@@ -437,8 +601,15 @@ def _manifest_layer_errors(manifest: SnapshotManifest) -> list[str]:
             if manifest.requested_ref not in {"main", manifest.resolved_sha}:
                 errors.append("main ref mismatch")
     elif manifest.source_kind == "runtime":
+        if (
+            manifest.source_origin != RUNTIME_SOURCE_ORIGIN
+            or manifest.requested_ref != RUNTIME_REQUESTED_REF
+        ):
+            errors.append("invalid runtime source identity")
         if manifest.resolved_sha is not None or manifest.release_tag is not None:
             errors.append("runtime manifest contains repository version identity")
+        if manifest.tree_truncated is not None:
+            errors.append("invalid runtime tree identity")
     return errors
 
 
@@ -450,6 +621,57 @@ def _closure_key(source_kind: str, logical_key: str) -> str:
         path = parsed.path.rstrip("/") or "/docs"
         return urlunsplit(("https", OFFICIAL_WEBSITE_HOST, path, "", ""))
     return logical_key
+
+
+def _persisted_explanations(
+    notes: list[str], errors: list[str]
+) -> dict[frozenset[str], str]:
+    prefix = "integrity_explanation:v1:"
+    legacy_prefix = "integrity_explanation_sha256:"
+    parsed: dict[frozenset[str], str] = {}
+    for note in notes:
+        if note.startswith(legacy_prefix):
+            errors.append("invalid persisted explanation")
+            continue
+        if not note.startswith("integrity_explanation:"):
+            continue
+        if not note.startswith(prefix):
+            errors.append("invalid persisted explanation")
+            continue
+        try:
+            payload = json.loads(note.removeprefix(prefix))
+        except json.JSONDecodeError:
+            errors.append("invalid persisted explanation")
+            continue
+        if not isinstance(payload, dict):
+            errors.append("invalid persisted explanation")
+            continue
+        kind = payload.get("kind")
+        logical_keys = payload.get("logical_keys")
+        reason = payload.get("reason")
+        canonical = prefix + stable_json_bytes(payload).decode("utf-8").strip()
+        valid_keys = (
+            isinstance(logical_keys, list)
+            and bool(logical_keys)
+            and all(isinstance(key, str) and key for key in logical_keys)
+            and logical_keys == sorted(set(logical_keys))
+        )
+        if (
+            payload.get("version") != 1
+            or kind not in {"duplicate", "navigation"}
+            or not valid_keys
+            or not isinstance(reason, str)
+            or not reason.strip()
+            or note != canonical
+        ):
+            errors.append("invalid persisted explanation")
+            continue
+        group = frozenset(logical_keys)
+        if group in parsed:
+            errors.append("duplicate persisted explanation")
+            continue
+        parsed[group] = kind
+    return parsed
 
 
 def _document_text(
@@ -473,6 +695,9 @@ def _document_text(
         if document.text_length != 0:
             errors.append("text length mismatch")
         return None
+    expected_sidecar = f"_extracted/{document.repo_path}.txt"
+    if document.extracted_text_path != expected_sidecar:
+        errors.append("noncanonical extracted text path")
     try:
         extracted = _secure_regular_read(
             root, Path(document.extracted_text_path or ""), missing_ok=True
@@ -494,6 +719,7 @@ def _document_text(
         errors.append("text length mismatch")
     if contains_secret(text):
         errors.append("suspected_secret")
+    errors.extend(sorted(_semantic_text_errors(document, text)))
     return text
 
 
@@ -502,17 +728,20 @@ def validate_snapshot(
     root: Path,
     expected_logical_keys: set[str],
     duplicate_explanations: set[frozenset[str]] | None = None,
+    *,
+    manifest_path: Path | None = None,
 ) -> IntegrityReport:
     errors: list[str] = []
     warnings: list[str] = []
     hashes: dict[str, list[str]] = {}
     texts: dict[str, str] = {}
     root = Path(root)
-    explanations = duplicate_explanations or set()
+    supplied_explanations = duplicate_explanations
 
-    if contains_sensitive_data(manifest.payload()):
+    manifest_sensitive = contains_sensitive_data(manifest.payload())
+    if manifest_sensitive:
         errors.append("manifest contains suspected secret")
-    errors.extend(_serialized_manifest_errors(manifest, root))
+    errors.extend(_serialized_manifest_errors(manifest, manifest_path))
     errors.extend(_manifest_layer_errors(manifest))
 
     document_keys = [
@@ -529,8 +758,21 @@ def validate_snapshot(
         for document in manifest.documents
         if not document.error
     }
-    failed = {_row_identity(row) for row in manifest.failures}
-    excluded = {_row_identity(row) for row in manifest.exclusions}
+    for row in (*manifest.failures, *manifest.exclusions):
+        errors.extend(_row_identity_errors(row))
+    failed_rows = [_row_identity(row) for row in manifest.failures]
+    excluded_rows = [_row_identity(row) for row in manifest.exclusions]
+    failed_counts = Counter(failed_rows)
+    excluded_counts = Counter(excluded_rows)
+    if any(identity is not None and count > 1 for identity, count in failed_counts.items()):
+        errors.append("duplicate failure identity")
+    if any(
+        identity is not None and count > 1
+        for identity, count in excluded_counts.items()
+    ):
+        errors.append("duplicate exclusion identity")
+    failed = set(failed_rows)
+    excluded = set(excluded_rows)
     if any(
         not isinstance(row, dict)
         or not isinstance(row.get("error"), str)
@@ -624,7 +866,13 @@ def validate_snapshot(
         for document in manifest.documents
         if document.semantic_status == "navigation_only"
     )
-    missing_explanations = required_explanations - explanations
+    persisted = _persisted_explanations(manifest.notes, errors)
+    persisted_groups = set(persisted)
+    for group, kind in persisted.items():
+        expected_kind = "navigation" if len(group) == 1 else "duplicate"
+        if kind != expected_kind:
+            errors.append("persisted explanation kind mismatch")
+    missing_explanations = required_explanations - persisted_groups
     unexplained_duplicates = [
         group
         for group in duplicates
@@ -641,43 +889,40 @@ def validate_snapshot(
         errors.append(
             f"missing navigation explanation(s): {len(missing_navigation)}"
         )
-    stale_explanations = explanations - required_explanations
+    stale_explanations = persisted_groups - required_explanations
     if stale_explanations:
-        errors.append(f"stale duplicate explanation(s): {len(stale_explanations)}")
-    explanation_prefix = "integrity_explanation_sha256:"
-    persisted_explanation_hashes = {
-        note.removeprefix(explanation_prefix)
-        for note in manifest.notes
-        if note.startswith(explanation_prefix)
-    }
-    supplied_explanation_hashes = {
-        sha256_bytes(stable_json_bytes(sorted(group))) for group in explanations
-    }
-    if supplied_explanation_hashes - persisted_explanation_hashes:
-        errors.append("unpersisted explanation(s)")
-    if persisted_explanation_hashes - supplied_explanation_hashes:
-        errors.append("unused persisted explanation(s)")
+        errors.append(f"stale persisted explanation(s): {len(stale_explanations)}")
+    if (
+        supplied_explanations is not None
+        and supplied_explanations != persisted_groups
+    ):
+        errors.append("explanation cross-check mismatch")
 
     closure = {
         _closure_key(manifest.source_kind, key) for key in successes | excluded
     }
     unresolved: set[str] = set()
+    invalid_internal_links = 0
     documents_by_key = {
         document.logical_key or document.document_id: document
         for document in manifest.documents
     }
     for logical_key, text in texts.items():
         document = documents_by_key[logical_key]
-        for link in extract_internal_doc_links(document, text):
+        parsed_links = _parse_internal_doc_links(document, text)
+        invalid_internal_links += parsed_links.invalid_count
+        for link in parsed_links.internal:
             if _closure_key(manifest.source_kind, link) not in closure:
                 unresolved.add(link)
+    if invalid_internal_links:
+        errors.append(f"invalid internal link(s): {invalid_internal_links}")
     if unresolved:
         errors.append(f"unresolved internal link(s): {len(unresolved)}")
     reported_duplicates = duplicates
     if contains_sensitive_data(duplicates):
         reported_duplicates = (("[redacted]",),)
     return IntegrityReport(
-        manifest.snapshot_id,
+        "[redacted]" if manifest_sensitive else manifest.snapshot_id,
         not errors,
         tuple(errors),
         tuple(warnings),
