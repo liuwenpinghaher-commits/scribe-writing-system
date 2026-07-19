@@ -5,6 +5,7 @@ import binascii
 import json
 import re
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -43,6 +44,8 @@ _RATE_INTEGER_HEADERS = (
 )
 _RATE_RESOURCE_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,32}")
 _LFS_HEADER = b"version https://git-lfs.github.com/spec/v1"
+_ACTIVE_SNAPSHOT_CLIENTS: set[int] = set()
+_ACTIVE_SNAPSHOT_CLIENTS_LOCK = threading.Lock()
 
 PdfExtractor = Callable[[Path, Path], None]
 
@@ -396,7 +399,7 @@ def _document_record(
     )
 
 
-def snapshot_repository(
+def _snapshot_repository_call(
     client: object,
     ref: str,
     snapshot_id: str,
@@ -406,6 +409,7 @@ def snapshot_repository(
     pdf_extractor: PdfExtractor | None = None,
     source_kind: str | None = None,
     release_tag: str | None = None,
+    event_start: int,
 ) -> SnapshotManifest:
     resolved_source_kind, resolved_release_tag = _source_layer(
         ref, source_kind, release_tag
@@ -594,7 +598,7 @@ def snapshot_repository(
                 failure["content_sha256"] = sha256_bytes(body)
             failures.append(failure)
 
-    retry_events = list(getattr(client, "retry_events", ()))
+    retry_events = list(getattr(client, "retry_events", ()))[event_start:]
     return SnapshotManifest(
         snapshot_id=snapshot_id,
         source_kind=resolved_source_kind,
@@ -613,3 +617,49 @@ def snapshot_repository(
         tree_truncated=False,
         retry_events=retry_events,
     )
+
+
+def snapshot_repository(
+    client: object,
+    ref: str,
+    snapshot_id: str,
+    out_root: Path,
+    fetched_at: str,
+    *,
+    pdf_extractor: PdfExtractor | None = None,
+    source_kind: str | None = None,
+    release_tag: str | None = None,
+) -> SnapshotManifest:
+    """Snapshot one ref while requiring exclusive, serial use of *client*.
+
+    Concurrent snapshots for the same client are rejected. Callers must also avoid
+    direct client operations until this call returns so the event slice stays local.
+    """
+    client_identity = id(client)
+    with _ACTIVE_SNAPSHOT_CLIENTS_LOCK:
+        if client_identity in _ACTIVE_SNAPSHOT_CLIENTS:
+            raise RuntimeError(
+                "concurrent snapshot calls for one client are not supported"
+            )
+        _ACTIVE_SNAPSHOT_CLIENTS.add(client_identity)
+        try:
+            event_start = len(getattr(client, "retry_events", ()))
+        except TypeError:
+            _ACTIVE_SNAPSHOT_CLIENTS.remove(client_identity)
+            raise TypeError("client retry_events history must be a sequence") from None
+
+    try:
+        return _snapshot_repository_call(
+            client,
+            ref,
+            snapshot_id,
+            out_root,
+            fetched_at,
+            pdf_extractor=pdf_extractor,
+            source_kind=source_kind,
+            release_tag=release_tag,
+            event_start=event_start,
+        )
+    finally:
+        with _ACTIVE_SNAPSHOT_CLIENTS_LOCK:
+            _ACTIVE_SNAPSHOT_CLIENTS.discard(client_identity)

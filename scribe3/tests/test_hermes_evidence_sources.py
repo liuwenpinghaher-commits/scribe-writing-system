@@ -766,6 +766,8 @@ def test_github_client_preserves_only_safe_rate_limit_and_retry_metadata(tmp_pat
         "X-RateLimit-Remaining": "41",
         "Authorization": "Bearer must-not-be-persisted",
     }
+    tree_body = io.BytesIO(b'{"truncated":false,"tree":[]}')
+    tree_body.headers = {}
     responses = [
         urllib.error.HTTPError(
             f"{API}/commits/main",
@@ -779,6 +781,7 @@ def test_github_client_preserves_only_safe_rate_limit_and_retry_metadata(tmp_pat
             io.BytesIO(b"must-not-be-persisted"),
         ),
         response_body,
+        tree_body,
     ]
     slept = []
 
@@ -789,24 +792,12 @@ def test_github_client_preserves_only_safe_rate_limit_and_retry_metadata(tmp_pat
         return response
 
     client = GitHubClient(opener=opener, sleep=slept.append, max_retries=1)
-    assert client.resolve_ref("main") == commit_sha
-
-    class SnapshotClient:
-        retry_events = client.retry_events
-
-        def resolve_ref(self, ref):
-            return commit_sha
-
-        def tree_payload(self, sha):
-            return {"truncated": False, "tree": []}
-
     manifest = snapshot_repository(
-        SnapshotClient(),
-        commit_sha,
+        client,
+        "main",
         "fixed-rate-metadata",
         tmp_path,
         "2026-07-19T00:00:00+00:00",
-        source_kind="main",
     )
 
     assert slept == [2]
@@ -871,3 +862,117 @@ def test_github_client_revalidates_final_response_url_before_reading_body():
         max_retries=0,
     )
     assert safe.resolve_ref("main") == sha
+
+
+def test_repository_snapshot_slices_retry_events_per_call_when_client_is_reused(
+    tmp_path,
+):
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    class FakeClient:
+        def __init__(self):
+            self.retry_events = [{"event": "old-history"}]
+            self.current_ref = None
+
+        def resolve_ref(self, ref):
+            self.current_ref = ref
+            self.retry_events.append({"event": "resolve", "ref": ref})
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            self.retry_events.append({"event": "tree", "ref": self.current_ref})
+            return {
+                "truncated": False,
+                "tree": [
+                    {
+                        "path": "README.md",
+                        "type": "blob",
+                        "sha": "blob",
+                        "size": 4,
+                    }
+                ],
+            }
+
+        def blob(self, sha):
+            self.retry_events.append({"event": "blob", "ref": self.current_ref})
+            return b"# H\n"
+
+    client = FakeClient()
+    release = snapshot_repository(
+        client,
+        "v1.0.0",
+        "release-events",
+        tmp_path / "release",
+        "2026-07-20T00:00:00+00:00",
+    )
+    main = snapshot_repository(
+        client,
+        "main",
+        "main-events",
+        tmp_path / "main",
+        "2026-07-20T00:00:01+00:00",
+    )
+
+    assert release.retry_events == [
+        {"event": "resolve", "ref": "v1.0.0"},
+        {"event": "tree", "ref": "v1.0.0"},
+        {"event": "blob", "ref": "v1.0.0"},
+    ]
+    assert main.retry_events == [
+        {"event": "resolve", "ref": "main"},
+        {"event": "tree", "ref": "main"},
+        {"event": "blob", "ref": "main"},
+    ]
+    assert client.retry_events == [
+        {"event": "old-history"},
+        *release.retry_events,
+        *main.retry_events,
+    ]
+
+
+def test_repository_snapshot_rejects_concurrent_calls_for_the_same_client(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    class BlockingClient:
+        def __init__(self):
+            self.retry_events = []
+            self.entered = threading.Event()
+            self.release = threading.Event()
+
+        def resolve_ref(self, ref):
+            self.entered.set()
+            assert self.release.wait(timeout=2)
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            return {"truncated": False, "tree": []}
+
+    client = BlockingClient()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        running = executor.submit(
+            snapshot_repository,
+            client,
+            "main",
+            "main-running",
+            tmp_path / "running",
+            "2026-07-20T00:00:00+00:00",
+        )
+        assert client.entered.wait(timeout=2)
+        try:
+            with pytest.raises(RuntimeError) as caught:
+                snapshot_repository(
+                    client,
+                    "main",
+                    "main-concurrent",
+                    tmp_path / "concurrent",
+                    "2026-07-20T00:00:01+00:00",
+                )
+            assert str(caught.value) == (
+                "concurrent snapshot calls for one client are not supported"
+            )
+        finally:
+            client.release.set()
+        running.result(timeout=2)
