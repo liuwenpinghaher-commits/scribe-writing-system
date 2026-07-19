@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import base64
-import binascii
+import hashlib
 import json
 import re
 import subprocess
@@ -31,6 +30,7 @@ from .policy import (
 from .website import _atomic_write
 
 API = "https://api.github.com/repos/NousResearch/hermes-agent"
+RAW = "https://raw.githubusercontent.com/NousResearch/hermes-agent"
 MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
 PDFTOTEXT = "/opt/homebrew/bin/pdftotext"
 
@@ -82,7 +82,6 @@ def _safe_api_url(url: str) -> bool:
         or re.fullmatch(r"git/ref/tags/v[A-Za-z0-9][A-Za-z0-9._-]*", endpoint)
         or re.fullmatch(r"git/tags/[0-9a-fA-F]{40}", endpoint)
         or re.fullmatch(r"git/trees/[0-9a-fA-F]{40}", endpoint)
-        or re.fullmatch(r"git/blobs/[0-9a-fA-F]{40}", endpoint)
     )
     if not allowed_path:
         return False
@@ -202,6 +201,17 @@ def _mime_type(path: str) -> str:
         ".pdf": "application/pdf",
         ".rst": "text/x-rst",
     }[suffix]
+
+
+def _raw_blob_url(source_commit: str, repo_path: str) -> str:
+    commit_sha = _commit_sha(source_commit)
+    _safe_output_relative(repo_path)
+    return f"{RAW}/{commit_sha}/{quote(repo_path, safe='/')}"
+
+
+def _git_blob_sha(body: bytes) -> str:
+    header = b"blob " + str(len(body)).encode("ascii") + b"\0"
+    return hashlib.sha1(header + body, usedforsecurity=False).hexdigest()
 
 
 class GitHubClient:
@@ -343,18 +353,73 @@ class GitHubClient:
             raise RuntimeError("GitHub recursive tree is truncated")
         return payload["tree"]
 
-    def blob(self, sha: str) -> bytes:
-        blob_sha = _commit_sha(sha)
-        payload = self._json(f"{API}/git/blobs/{blob_sha}")
-        if payload.get("encoding") != "base64" or not isinstance(
-            payload.get("content"), str
-        ):
-            raise ValueError("unsupported GitHub blob encoding")
-        encoded = "".join(payload["content"].split())
-        try:
-            return base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValueError("invalid GitHub blob content") from exc
+    def blob_at(
+        self,
+        source_commit: str,
+        repo_path: str,
+        expected_blob_sha: str,
+    ) -> bytes:
+        url = _raw_blob_url(source_commit, repo_path)
+        blob_sha = _commit_sha(expected_blob_sha)
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Accept": "application/octet-stream",
+                "User-Agent": "scribe3-hermes-evidence/1",
+            },
+        )
+        for attempt in range(self._max_retries + 1):
+            try:
+                with self._opener(request, timeout=60) as response:
+                    geturl = getattr(response, "geturl", None)
+                    final_url = geturl() if callable(geturl) else url
+                    if final_url != url:
+                        raise RuntimeError(
+                            "GitHub raw response left the pinned raw document"
+                        )
+                    declared_length = _header_value(
+                        getattr(response, "headers", {}), "content-length"
+                    )
+                    if declared_length is not None:
+                        if not declared_length.isascii() or not declared_length.isdigit():
+                            raise ValueError("invalid GitHub raw content length")
+                        if int(declared_length) > MAX_DOCUMENT_BYTES:
+                            raise ValueError("GitHub raw response exceeds size limit")
+                    body = response.read(MAX_DOCUMENT_BYTES + 1)
+                if len(body) > MAX_DOCUMENT_BYTES:
+                    raise ValueError("GitHub raw response exceeds size limit")
+                if declared_length is not None and int(declared_length) != len(body):
+                    raise ValueError("GitHub raw response length mismatch")
+                if _git_blob_sha(body) != blob_sha:
+                    raise ValueError("GitHub raw blob SHA mismatch")
+                return body
+            except urllib.error.HTTPError as exc:
+                retryable = exc.code in _RETRYABLE_HTTP_STATUSES
+                if not retryable or attempt >= self._max_retries:
+                    raise RuntimeError("GitHub raw request failed") from None
+                retry_after = _header_value(exc.headers, "retry-after")
+                delay = (
+                    min(int(retry_after), 60)
+                    if retry_after and retry_after.isdigit()
+                    else 0
+                )
+                self._record_retry(
+                    endpoint="raw_document",
+                    attempt=attempt + 1,
+                    status=exc.code,
+                    delay_seconds=delay,
+                )
+                if delay:
+                    self._sleep(delay)
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                if attempt >= self._max_retries:
+                    raise RuntimeError("GitHub raw request failed") from None
+                self._record_retry(
+                    endpoint="raw_document",
+                    attempt=attempt + 1,
+                    error=type(exc).__name__,
+                )
+        raise RuntimeError("GitHub raw request failed")
 
 
 def _document_record(
@@ -480,9 +545,15 @@ def _snapshot_repository_call(
             blob_sha = source_blob_sha
             if not blob_sha:
                 raise ValueError("tree entry is missing blob SHA")
-            body = client.blob(blob_sha)
+            blob_at = getattr(client, "blob_at", None)
+            if callable(blob_at):
+                body = blob_at(resolved_sha, repo_path, blob_sha)
+            else:
+                body = client.blob(blob_sha)
             if not isinstance(body, bytes):
                 raise TypeError("GitHub blob must be bytes")
+            if len(body) != size:
+                raise ValueError("GitHub blob size does not match recursive tree")
             if body.startswith(_LFS_HEADER):
                 exclusions.append(
                     {

@@ -7,7 +7,7 @@
 只接受下列来源：
 
 - 官网 Sitemap：`https://hermes-agent.nousresearch.com/docs/sitemap.xml`，以及它列出的同源 `/docs` 页面。
-- 官方仓库：`NousResearch/hermes-agent`。仓库发现只使用官方 GitHub API，文件按固定 commit SHA 下载。
+- 官方仓库：`NousResearch/hermes-agent`。ref 解析和 recursive tree 发现只使用官方 GitHub API；正文从 `raw.githubusercontent.com/NousResearch/hermes-agent/<full_sha>/<path>` 按固定 commit SHA 下载，并逐文件核对 tree 声明的大小与 Git blob SHA。这样不受匿名 GitHub Core API 每小时 60 次的逐 blob 限额影响，也不放宽来源或版本边界。
 
 跨域重定向、带凭据的 URL、非官方镜像和 GitHub HTML 展示页都不是允许的证据来源。
 

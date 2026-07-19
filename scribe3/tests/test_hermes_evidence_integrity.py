@@ -1481,6 +1481,74 @@ def test_validate_snapshot_rejects_illegal_official_links_but_ignores_external(
     assert any("invalid internal link" in error for error in report.errors)
 
 
+def test_website_link_closure_ignores_safe_same_host_non_document_resources(
+    tmp_path: Path,
+):
+    body = _article(
+        "Hooks",
+        "\n[Home](https://hermes-agent.nousresearch.com/)"
+        "\n[Installer](https://hermes-agent.nousresearch.com/install.sh)"
+        "\n[Text asset](/docs/assets/files/llms.txt)"
+        "\n[Image asset](/docs/img/logo.png)",
+    )
+    document = _write_website_document(tmp_path, "hooks", body)
+    manifest = _website_snapshot([document])
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+
+    assert report.ok, report.errors
+
+
+def test_validate_snapshot_accepts_audited_website_link_exclusions(
+    tmp_path: Path,
+):
+    missing = "https://hermes-agent.nousresearch.com/docs/integrations/mcp"
+    locale = "https://hermes-agent.nousresearch.com/docs/zh-Hans/search"
+    body = _article("Hooks", f"\n[Missing]({missing})\n[Locale]({locale})")
+    document = _write_website_document(tmp_path, "hooks", body)
+    manifest = _website_snapshot(
+        [document],
+        exclusions=[
+            {
+                "logical_key": missing,
+                "scope": "internal_link",
+                "reason": "not_in_sitemap",
+            },
+            {
+                "logical_key": locale,
+                "scope": "internal_link",
+                "reason": "not_in_sitemap",
+            },
+        ],
+    )
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+
+    assert report.ok, report.errors
+
+
+def test_validate_snapshot_rejects_stale_website_link_exclusion(tmp_path: Path):
+    stale = "https://hermes-agent.nousresearch.com/docs/stale"
+    document = _write_website_document(tmp_path, "hooks", _article("Hooks"))
+    manifest = _website_snapshot(
+        [document],
+        exclusions=[
+            {
+                "logical_key": stale,
+                "scope": "internal_link",
+                "reason": "not_in_sitemap",
+            }
+        ],
+    )
+    _persist_manifest(tmp_path, manifest)
+
+    report = validate_snapshot(manifest, tmp_path, {document.logical_key})
+
+    assert any("stale link exclusion" in error for error in report.errors)
+
+
 def test_validate_snapshot_rejects_digest_only_explanation_and_detects_reason_tamper(
     tmp_path: Path,
 ):

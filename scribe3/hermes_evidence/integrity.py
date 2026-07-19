@@ -415,14 +415,33 @@ def _classify_link_target(
             return "invalid_internal", None
         if resolved.hostname != OFFICIAL_WEBSITE_HOST:
             return "external", None
+        decoded_target_path = unquote(parsed_target.path)
+        if (
+            decoded_target_path.count("/") != parsed_target.path.count("/")
+            or (
+                ".." in PurePosixPath(decoded_target_path).parts
+                and not resolved.path.startswith("/docs")
+            )
+        ):
+            return "invalid_internal", None
+        if (
+            resolved.scheme != "https"
+            or resolved.port is not None
+            or resolved.username is not None
+            or resolved.password is not None
+            or contains_sensitive_data(resolved_url)
+        ):
+            return "invalid_internal", None
+        if not resolved.path.startswith("/docs"):
+            return "external", None
+        suffix = PurePosixPath(resolved.path).suffix.lower()
+        if suffix and suffix not in DOC_EXTENSIONS | {".htm", ".html"}:
+            return "external", None
         clean_url = urlunsplit(
             (resolved.scheme, resolved.netloc, resolved.path, "", "")
         )
         if (
             not _is_official_website_url(clean_url)
-            or resolved.username is not None
-            or resolved.password is not None
-            or contains_sensitive_data(resolved_url)
         ):
             return "invalid_internal", None
         path = resolved.path.rstrip("/") or "/docs"
@@ -962,12 +981,23 @@ def validate_snapshot(
         for document in manifest.documents
         if not document.error
     }
+    link_exclusion_rows = [
+        row
+        for row in manifest.exclusions
+        if isinstance(row, dict) and row.get("scope") == "internal_link"
+    ]
+    document_exclusion_rows = [
+        row for row in manifest.exclusions if row not in link_exclusion_rows
+    ]
     for row in (*manifest.failures, *manifest.exclusions):
         errors.extend(_row_identity_errors(row))
     failed_rows = [_row_identity(row) for row in manifest.failures]
-    excluded_rows = [_row_identity(row) for row in manifest.exclusions]
+    excluded_rows = [_row_identity(row) for row in document_exclusion_rows]
+    link_excluded_rows = [_row_identity(row) for row in link_exclusion_rows]
     failed_counts = Counter(failed_rows)
-    excluded_counts = Counter(excluded_rows)
+    excluded_counts = Counter(
+        _row_identity(row) for row in manifest.exclusions
+    )
     if any(identity is not None and count > 1 for identity, count in failed_counts.items()):
         errors.append("duplicate failure identity")
     if any(
@@ -977,6 +1007,7 @@ def validate_snapshot(
         errors.append("duplicate exclusion identity")
     failed = set(failed_rows)
     excluded = set(excluded_rows)
+    link_excluded = set(link_excluded_rows)
     if any(
         not isinstance(row, dict)
         or not isinstance(row.get("error"), str)
@@ -995,8 +1026,20 @@ def validate_snapshot(
         errors.append("manifest failure missing logical key")
     if None in excluded:
         errors.append("manifest exclusion missing logical key")
+    if None in link_excluded:
+        errors.append("manifest link exclusion missing logical key")
     failed.discard(None)
     excluded.discard(None)
+    link_excluded.discard(None)
+    for row in link_exclusion_rows:
+        logical_key = _row_identity(row)
+        if (
+            set(row) != {"logical_key", "scope", "reason"}
+            or row.get("reason") != "not_in_sitemap"
+            or not _is_canonical_website_url(logical_key)
+            or manifest.source_kind != "website"
+        ):
+            errors.append("invalid internal link exclusion")
     overlaps = (successes & failed) | (successes & excluded) | (failed & excluded)
     if overlaps:
         errors.append(f"expected partition overlap: {len(overlaps)}")
@@ -1009,6 +1052,8 @@ def validate_snapshot(
         errors.append(f"unexpected document(s): {len(extra)}")
     if manifest.expected_document_count != len(expected_logical_keys):
         errors.append("expected document count mismatch")
+    if link_excluded & (expected_logical_keys | classified):
+        errors.append("internal link exclusion overlaps discovery scope")
     if manifest.failures:
         errors.append(f"manifest failures: {len(manifest.failures)}")
 
@@ -1106,6 +1151,7 @@ def validate_snapshot(
         _closure_key(manifest.source_kind, key) for key in successes | excluded
     }
     unresolved: set[str] = set()
+    observed_internal_links: set[str] = set()
     invalid_internal_links = 0
     documents_by_key = {
         document.logical_key or document.document_id: document
@@ -1131,8 +1177,15 @@ def validate_snapshot(
         )
         invalid_internal_links += parsed_links.invalid_count
         for link in parsed_links.internal:
-            if _closure_key(manifest.source_kind, link) not in closure:
+            closure_link = _closure_key(manifest.source_kind, link)
+            observed_internal_links.add(closure_link)
+            if closure_link not in closure and closure_link not in link_excluded:
                 unresolved.add(link)
+    stale_link_exclusions = link_excluded - observed_internal_links
+    if stale_link_exclusions:
+        errors.append(
+            f"stale link exclusion(s): {len(stale_link_exclusions)}"
+        )
     if invalid_internal_links:
         errors.append(f"invalid internal link(s): {invalid_internal_links}")
     if unresolved:

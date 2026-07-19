@@ -1137,6 +1137,20 @@ async def crawl_website(
     documents = [
         verified_documents[url] for url in expected if url in verified_documents
     ]
+    notes = []
+    for document in documents:
+        if document.semantic_status != "navigation_only":
+            continue
+        payload = {
+            "version": 1,
+            "kind": "navigation",
+            "logical_keys": [document.logical_key],
+            "reason": "sitemap_navigation_only",
+        }
+        notes.append(
+            "integrity_explanation:v1:"
+            + stable_json_bytes(payload).decode("utf-8").strip()
+        )
     return SnapshotManifest(
         snapshot_id=snapshot_id,
         source_kind="website",
@@ -1148,6 +1162,7 @@ async def crawl_website(
         crawler_version="1",
         documents=documents,
         failures=failures,
+        notes=notes,
         previous_snapshot_id=previous.snapshot_id if previous else None,
         discovery_sha256=discovery_sha256,
         expected_document_count=len(expected),

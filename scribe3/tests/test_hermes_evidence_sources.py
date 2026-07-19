@@ -2807,7 +2807,83 @@ def test_website_crawl_keeps_navigation_but_rejects_soft_error_without_leak(tmp_
     assert manifest.failures == [
         {"requested_url": soft_url, "error": "http_200"}
     ]
+    assert [
+        json.loads(note.removeprefix("integrity_explanation:v1:"))
+        for note in manifest.notes
+    ] == [
+        {
+            "version": 1,
+            "kind": "navigation",
+            "logical_keys": [search_url],
+            "reason": "sitemap_navigation_only",
+        }
+    ]
     assert not contains_sensitive_data(manifest.payload())
+
+
+def test_cli_collects_audited_out_of_sitemap_link_exclusions(tmp_path):
+    from scribe3.hermes_evidence import cli
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    start_url = "https://hermes-agent.nousresearch.com/docs/start"
+    missing_url = "https://hermes-agent.nousresearch.com/docs/integrations/mcp"
+    locale_url = "https://hermes-agent.nousresearch.com/docs/zh-Hans/search"
+    active_url = "https://hermes-agent.nousresearch.com/docs/active"
+    body = (
+        "# Start\n\n"
+        + ("official documentation " * 20)
+        + f"\n[Missing]({missing_url})"
+        + f"\n[Locale]({locale_url})"
+        + f"\n[Active]({active_url})"
+    )
+
+    async def fetch_start(urls):
+        assert urls == [start_url]
+        return [
+            CrawlPage(
+                url=start_url,
+                final_url=start_url,
+                status=200,
+                success=True,
+                markdown=body,
+                title="Start",
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [start_url],
+            fetch_start,
+            "link-exclusions",
+            tmp_path,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+
+    exclusions = cli._website_link_exclusions(
+        manifest,
+        tmp_path,
+        {start_url},
+    )
+
+    assert exclusions == [
+        {
+            "logical_key": active_url,
+            "scope": "internal_link",
+            "reason": "not_in_sitemap",
+        },
+        {
+            "logical_key": missing_url,
+            "scope": "internal_link",
+            "reason": "not_in_sitemap",
+        },
+        {
+            "logical_key": locale_url,
+            "scope": "internal_link",
+            "reason": "not_in_sitemap",
+        },
+    ]
 
 
 @pytest.mark.parametrize(
@@ -3295,6 +3371,24 @@ def test_secret_scanner_rejects_secret_shapes_without_echoing_values():
     assert contains_secret("sk-" + "x" * 24)
     assert contains_secret("sk-" + ("x_" * 12))
     assert not contains_secret("Use ${API_KEY} from the environment")
+    assert not contains_secret("API_KEY=sk-NOUS_PLACEHOLDER_VALUE")
+
+
+@pytest.mark.parametrize(
+    "documentation_placeholder",
+    [
+        "sk-ab-your-key",
+        "sk-" + "x" * 32 + "-your-api-key",
+    ],
+)
+def test_document_secret_scanner_scrubs_embedded_placeholders_without_false_positives(
+    documentation_placeholder: str,
+):
+    assert not contains_secret(documentation_placeholder)
+
+
+def test_document_secret_scanner_rejects_long_opaque_token_without_placeholder():
+    assert contains_secret("sk-" + "x" * 32 + "-opaque-value")
 
 
 def test_document_secret_scanner_allows_code_references_but_manifest_scanner_is_strict():
@@ -3379,6 +3473,101 @@ def test_repository_snapshot_resolves_fixed_ref_and_preserves_selected_paths(tmp
     assert (tmp_path / "README.md").read_text() == "# H\n"
     assert (tmp_path / "skills/x/SKILL.md").read_text() == "# S\n"
     _assert_selected_partition(manifest, {"README.md", "skills/x/SKILL.md"})
+
+
+def test_repository_snapshot_prefers_fixed_raw_blob_contract(tmp_path):
+    import hashlib
+
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    source_commit = "a" * 40
+    body = b"# Fixed source\n"
+    blob_sha = hashlib.sha1(
+        b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+    ).hexdigest()
+    calls = []
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return source_commit
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {
+                        "path": "docs/fixed source.md",
+                        "type": "blob",
+                        "sha": blob_sha,
+                        "size": len(body),
+                    }
+                ],
+            }
+
+        def blob_at(self, commit, repo_path, expected_blob_sha):
+            calls.append((commit, repo_path, expected_blob_sha))
+            return body
+
+        def blob(self, sha):
+            raise AssertionError("GitHub blob API must not be used")
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-fixed-raw",
+        tmp_path,
+        "2026-07-20T00:00:00+00:00",
+    )
+
+    assert calls == [(source_commit, "docs/fixed source.md", blob_sha)]
+    assert [document.repo_path for document in manifest.documents] == [
+        "docs/fixed source.md"
+    ]
+    assert (tmp_path / "docs/fixed source.md").read_bytes() == body
+
+
+def test_repository_snapshot_rejects_raw_body_size_mismatch_before_write(tmp_path):
+    from scribe3.hermes_evidence.github import snapshot_repository
+
+    class FakeClient:
+        def resolve_ref(self, ref):
+            return "a" * 40
+
+        def tree_payload(self, sha):
+            return {
+                "truncated": False,
+                "tree": [
+                    {
+                        "path": "docs/mismatch.md",
+                        "type": "blob",
+                        "sha": "b" * 40,
+                        "size": 5,
+                    }
+                ],
+            }
+
+        def blob_at(self, commit, repo_path, expected_blob_sha):
+            return b"too long"
+
+    manifest = snapshot_repository(
+        FakeClient(),
+        "main",
+        "main-size-mismatch",
+        tmp_path,
+        "2026-07-20T00:00:00+00:00",
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {
+            "logical_key": "docs/mismatch.md",
+            "repo_path": "docs/mismatch.md",
+            "source_blob_sha": "b" * 40,
+            "content_sha256": manifest.failures[0]["content_sha256"],
+            "error": "ValueError",
+        }
+    ]
+    assert not (tmp_path / "docs/mismatch.md").exists()
 
 
 def test_repository_snapshot_rejects_parent_symlink_created_during_blob_fetch(
@@ -3538,6 +3727,11 @@ def test_repository_snapshot_classifies_selected_special_entries_before_download
 ):
     from scribe3.hermes_evidence.github import MAX_DOCUMENT_BYTES, snapshot_repository
 
+    lfs_body = (
+        b"version https://git-lfs.github.com/spec/v1\n"
+        b"oid sha256:" + b"c" * 64 + b"\nsize 200\n"
+    )
+
     class FakeClient:
         def __init__(self):
             self.requested_blobs = []
@@ -3572,7 +3766,7 @@ def test_repository_snapshot_classifies_selected_special_entries_before_download
                         "path": "docs/lfs.pdf",
                         "type": "blob",
                         "sha": "lfs",
-                        "size": 130,
+                        "size": len(lfs_body),
                     },
                     {
                         "path": "docs/failed.md",
@@ -3584,7 +3778,7 @@ def test_repository_snapshot_classifies_selected_special_entries_before_download
                         "path": "docs/saved.md",
                         "type": "blob",
                         "sha": "saved",
-                        "size": 7,
+                        "size": len(b"# saved\n"),
                     },
                 ],
             }
@@ -3592,10 +3786,7 @@ def test_repository_snapshot_classifies_selected_special_entries_before_download
         def blob(self, sha):
             self.requested_blobs.append(sha)
             if sha == "lfs":
-                return (
-                    b"version https://git-lfs.github.com/spec/v1\n"
-                    b"oid sha256:" + b"c" * 64 + b"\nsize 200\n"
-                )
+                return lfs_body
             if sha == "failed":
                 raise OSError("response body must not be copied into the manifest")
             return b"# saved\n"
@@ -3958,9 +4149,7 @@ def test_repository_snapshot_records_non_bytes_blob_without_persisting_value(tmp
     _assert_selected_partition(manifest, {"docs/bad.md"})
 
 
-def test_github_client_uses_only_fixed_official_git_endpoints(monkeypatch):
-    import base64
-
+def test_github_client_uses_only_fixed_official_ref_and_tree_api_endpoints(monkeypatch):
     from scribe3.hermes_evidence.github import API, GitHubClient
 
     commit_sha = "a" * 40
@@ -3979,10 +4168,6 @@ def test_github_client_uses_only_fixed_official_git_endpoints(monkeypatch):
             "truncated": False,
             "tree": [{"path": "README.md", "type": "blob", "sha": blob_sha}],
         },
-        f"{API}/git/blobs/{blob_sha}": {
-            "encoding": "base64",
-            "content": base64.b64encode(b"# README\n").decode("ascii"),
-        },
     }
 
     def fake_json(url):
@@ -3998,10 +4183,165 @@ def test_github_client_uses_only_fixed_official_git_endpoints(monkeypatch):
     assert client.tree(commit_sha) == responses[
         f"{API}/git/trees/{commit_sha}?recursive=1"
     ]["tree"]
-    assert client.blob(blob_sha) == b"# README\n"
     assert all(url.startswith(f"{API}/") for url in requested)
+    assert not any("/git/blobs/" in url for url in requested)
     with pytest.raises(ValueError):
         client.resolve_ref("../../other-repository")
+
+
+def test_github_client_downloads_fixed_raw_blob_and_verifies_git_identity():
+    import hashlib
+    import io
+
+    from scribe3.hermes_evidence.github import GitHubClient
+
+    commit_sha = "a" * 40
+    repo_path = "docs/Fixed source.md"
+    body = b"# README\n"
+    blob_sha = hashlib.sha1(
+        b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+    ).hexdigest()
+    requests = []
+
+    def opener(request, timeout):
+        requests.append((request.full_url, timeout))
+        response = io.BytesIO(body)
+        response.headers = {"Content-Length": str(len(body))}
+        response.geturl = lambda: request.full_url
+        return response
+
+    client = GitHubClient(opener=opener, max_retries=0)
+
+    assert client.blob_at(commit_sha, repo_path, blob_sha) == body
+    assert requests == [
+        (
+            "https://raw.githubusercontent.com/NousResearch/hermes-agent/"
+            + commit_sha
+            + "/docs/Fixed%20source.md",
+            60,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("final_url_kind", "content_length_delta", "blob_sha_kind", "expected_error"),
+    [
+        ("other_commit", 0, "valid", "left the pinned raw document"),
+        ("requested", 1, "valid", "raw response length mismatch"),
+        ("requested", 0, "mismatch", "raw blob SHA mismatch"),
+    ],
+)
+def test_github_client_rejects_unpinned_or_mismatched_raw_blob(
+    final_url_kind,
+    content_length_delta,
+    blob_sha_kind,
+    expected_error,
+):
+    import hashlib
+    import io
+
+    from scribe3.hermes_evidence.github import GitHubClient
+
+    commit_sha = "a" * 40
+    body = b"# README\n"
+    valid_blob_sha = hashlib.sha1(
+        b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+    ).hexdigest()
+
+    def opener(request, timeout):
+        response = io.BytesIO(body)
+        response.headers = {
+            "Content-Length": str(len(body) + content_length_delta)
+        }
+        if final_url_kind == "other_commit":
+            response.geturl = lambda: request.full_url.replace(
+                commit_sha, "b" * 40, 1
+            )
+        else:
+            response.geturl = lambda: request.full_url
+        return response
+
+    client = GitHubClient(opener=opener, max_retries=0)
+    expected_blob_sha = (
+        valid_blob_sha if blob_sha_kind == "valid" else "c" * 40
+    )
+
+    with pytest.raises((RuntimeError, ValueError), match=expected_error):
+        client.blob_at(
+            commit_sha,
+            "docs/README.md",
+            expected_blob_sha,
+        )
+
+
+def test_github_client_bounds_raw_stream_and_rejects_noncanonical_path(monkeypatch):
+    import hashlib
+
+    import scribe3.hermes_evidence.github as github
+
+    body = b"x" * 9
+    blob_sha = hashlib.sha1(b"blob 9\0" + body).hexdigest()
+
+    class Response:
+        headers = {}
+
+        def __init__(self, url):
+            self.url = url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def geturl(self):
+            return self.url
+
+        def read(self, limit):
+            assert limit == 9
+            return body
+
+    monkeypatch.setattr(github, "MAX_DOCUMENT_BYTES", 8)
+    client = github.GitHubClient(
+        opener=lambda request, timeout: Response(request.full_url),
+        max_retries=0,
+    )
+
+    with pytest.raises(ValueError, match="exceeds size limit"):
+        client.blob_at("a" * 40, "docs/README.md", blob_sha)
+    with pytest.raises(ValueError, match="canonical"):
+        client.blob_at("a" * 40, "../README.md", blob_sha)
+
+
+def test_github_client_rejects_oversized_raw_content_length_before_read(monkeypatch):
+    import scribe3.hermes_evidence.github as github
+
+    class Response:
+        headers = {"Content-Length": "9"}
+
+        def __init__(self, url):
+            self.url = url
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def geturl(self):
+            return self.url
+
+        def read(self, limit):
+            raise AssertionError("oversized response body must not be read")
+
+    monkeypatch.setattr(github, "MAX_DOCUMENT_BYTES", 8)
+    client = github.GitHubClient(
+        opener=lambda request, timeout: Response(request.full_url),
+        max_retries=0,
+    )
+
+    with pytest.raises(ValueError, match="exceeds size limit"):
+        client.blob_at("a" * 40, "docs/README.md", "b" * 40)
 
 
 def test_github_client_preserves_only_safe_rate_limit_and_retry_metadata(tmp_path):
@@ -4072,6 +4412,8 @@ def test_github_redirect_handler_rejects_unsafe_location_before_following():
         f"https://user:pass@api.github.com/repos/NousResearch/hermes-agent/git/blobs/{sha}",
         f"{API}/git/blobs/{sha}?token=must-not-be-persisted",
         f"{API}/git/trees/../blobs/{sha}",
+        "https://raw.githubusercontent.com/NousResearch/hermes-agent/"
+        f"{sha}/README.md",
     ]
 
     for location in unsafe_locations:
@@ -4079,7 +4421,7 @@ def test_github_redirect_handler_rejects_unsafe_location_before_following():
             handler.redirect_request(original, None, 302, "Found", {}, location)
         assert str(caught.value) == "refusing unsafe GitHub redirect"
 
-    safe_location = f"{API}/git/blobs/{sha}"
+    safe_location = f"{API}/git/trees/{sha}?recursive=1"
     redirected = handler.redirect_request(
         original, None, 302, "Found", {}, safe_location
     )

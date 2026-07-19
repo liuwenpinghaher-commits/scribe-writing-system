@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .github import GitHubClient, snapshot_repository
-from .integrity import validate_snapshot
+from .integrity import _closure_key, extract_internal_doc_links, validate_snapshot
 from .models import (
     DocumentRecord,
     FILTER_POLICY_VERSION,
@@ -676,6 +676,45 @@ def _current_layer_manifest(layer: str) -> SnapshotManifest | None:
     return manifest
 
 
+def _website_link_exclusions(
+    manifest: SnapshotManifest,
+    snapshot_root: Path,
+    expected_urls: set[str],
+) -> list[dict]:
+    if manifest.source_kind != "website":
+        raise ValueError("link exclusions require a website manifest")
+    expected_closure = {
+        _closure_key("website", url) for url in expected_urls
+    }
+    linked: set[str] = set()
+    for document in manifest.documents:
+        body = _secure_read(
+            Path(snapshot_root), Path(document.output_path), missing_ok=True
+        )
+        if body is None:
+            raise RuntimeError("website link source is missing")
+        try:
+            text = body.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise RuntimeError("website link source is not UTF-8") from error
+        linked.update(
+            extract_internal_doc_links(
+                document,
+                text,
+                available_logical_keys=expected_urls,
+            )
+        )
+    return [
+        {
+            "logical_key": logical_key,
+            "scope": "internal_link",
+            "reason": "not_in_sitemap",
+        }
+        for logical_key in sorted(linked)
+        if _closure_key("website", logical_key) not in expected_closure
+    ]
+
+
 def _website_operation(
     *,
     concurrency: int,
@@ -734,6 +773,13 @@ def _website_operation(
                 batch_size=batch_size,
                 max_concurrency=concurrency,
             ),
+        )
+    )
+    manifest.exclusions.extend(
+        _website_link_exclusions(
+            manifest,
+            snapshot_root,
+            set(discovery.urls),
         )
     )
     manifest_relative = Path("manifests") / f"{snapshot_id}.json"

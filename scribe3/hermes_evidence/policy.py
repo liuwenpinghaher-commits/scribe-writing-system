@@ -16,6 +16,9 @@ _DOCUMENT_PLACEHOLDER_PATTERN = re.compile(
     r"(?ix)"
     r"\$\{[A-Z_][A-Z0-9_]*\}"
     r"|\$[A-Z_][A-Z0-9_]*"
+    r"|(?<![A-Z0-9_-])sk-(?:[A-Z0-9]+[_-])*"
+    r"(?:(?:YOUR|EXAMPLE|SAMPLE|REDACTED)[_-][A-Z0-9_-]+"
+    r"|(?:PLACEHOLDER|REPLACE|CHANGEME)(?:[_-][A-Z0-9_-]+)?)"
     r"|\bYOUR_[A-Z0-9_]+\b"
     r"|\b(?:your|example|sample|placeholder|redacted)[_-][A-Z0-9_.-]+\b"
     r"|\[(?:redacted|placeholder)\]"
@@ -101,7 +104,7 @@ def is_official_url(url: str) -> bool:
 
 def contains_secret(text: str) -> bool:
     """Return whether official document text contains a high-confidence secret."""
-    scrubbed = _DOCUMENT_PLACEHOLDER_PATTERN.sub("DOCUMENT_PLACEHOLDER", text)
+    scrubbed = _DOCUMENT_PLACEHOLDER_PATTERN.sub("SAFE", text)
     return any(pattern.search(scrubbed) for pattern in _DOCUMENT_SECRET_PATTERNS)
 
 
