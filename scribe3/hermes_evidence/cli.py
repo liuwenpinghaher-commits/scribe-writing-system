@@ -244,7 +244,7 @@ async def crawl4ai_fetch_many(
     cache_mode = getattr(runtime.CacheMode, "BYPASS", None)
     primary_config = runtime.CrawlerRunConfig(
         cache_mode=cache_mode,
-        remove_overlay_elements=True,
+        remove_overlay_elements=False,
         wait_until="domcontentloaded",
         delay_before_return_html=1.0,
         page_timeout=30000,
@@ -254,11 +254,20 @@ async def crawl4ai_fetch_many(
     )
     fallback_config = runtime.CrawlerRunConfig(
         cache_mode=cache_mode,
-        remove_overlay_elements=True,
+        remove_overlay_elements=False,
         wait_until="domcontentloaded",
         delay_before_return_html=1.0,
         page_timeout=30000,
         css_selector="main",
+        screenshot=False,
+        verbose=False,
+    )
+    unscoped_config = runtime.CrawlerRunConfig(
+        cache_mode=cache_mode,
+        remove_overlay_elements=False,
+        wait_until="domcontentloaded",
+        delay_before_return_html=1.0,
+        page_timeout=30000,
         screenshot=False,
         verbose=False,
     )
@@ -276,10 +285,16 @@ async def crawl4ai_fetch_many(
                 output_path_for_url(page.final_url)
             except (TypeError, ValueError):
                 return False
+            navigation_only = page.url.rstrip("/").endswith("/search")
             return bool(
-                not page.url.rstrip("/").endswith("/search")
-                and page.status not in _RETRYABLE_STATUS_CODES
-                and (not page.success or len(page.markdown.strip()) < 200)
+                page.status not in _RETRYABLE_STATUS_CODES
+                and (
+                    not page.success
+                    or (
+                        len(page.markdown.strip()) < 200
+                        and not navigation_only
+                    )
+                )
             )
 
         fallback_urls = list(
@@ -304,7 +319,29 @@ async def crawl4ai_fetch_many(
         replaced.extend(
             page for page in fallback_pages if page.url not in fallback_urls
         )
-        return replaced
+        unscoped_urls = list(
+            dict.fromkeys(
+                page.url
+                for page in replaced
+                if eligible_for_fallback(page)
+            )
+        )
+        if not unscoped_urls:
+            return replaced
+        unscoped_results = await _arun_many(
+            crawler, unscoped_urls, unscoped_config, runtime, max_concurrency
+        )
+        unscoped_pages = [_result_page(result) for result in unscoped_results]
+        unscoped_replacements = {
+            page.url: page
+            for page in unscoped_pages
+            if page.url in unscoped_urls
+        }
+        final = [unscoped_replacements.get(page.url, page) for page in replaced]
+        final.extend(
+            page for page in unscoped_pages if page.url not in unscoped_urls
+        )
+        return final
 
 
 @dataclass(frozen=True)

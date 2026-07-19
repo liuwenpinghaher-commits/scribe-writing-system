@@ -68,6 +68,9 @@ def _fake_crawl4ai_runtime(result_sets, calls):
                     "selector": config.css_selector,
                     "max_concurrency": dispatcher.semaphore_count,
                     "verbose": config.options.get("verbose"),
+                    "remove_overlay_elements": config.options.get(
+                        "remove_overlay_elements"
+                    ),
                 }
             )
             result = result_sets[config.css_selector]
@@ -152,12 +155,14 @@ def test_crawl4ai_adapter_binds_returned_urls_and_falls_back_for_short_page(
             "selector": ".theme-doc-markdown",
             "max_concurrency": 2,
             "verbose": False,
+            "remove_overlay_elements": False,
         },
         {
             "urls": [urls[1]],
             "selector": "main",
             "max_concurrency": 2,
             "verbose": False,
+            "remove_overlay_elements": False,
         },
     ]
 
@@ -199,6 +204,59 @@ def test_crawl4ai_adapter_uses_markdown_h1_when_selector_metadata_has_no_title(
     assert pages[0].title == "Hermes Agent"
     assert pages[0].markdown == body
     assert len(calls) == 1
+
+
+def test_crawl4ai_adapter_uses_unscoped_fallback_after_empty_selectors(
+    monkeypatch,
+):
+    from scribe3.hermes_evidence import cli
+
+    url = "https://hermes-agent.nousresearch.com/docs/skills/"
+    empty = SimpleNamespace(
+        url=url,
+        redirected_url=url,
+        status_code=200,
+        success=True,
+        markdown="\n",
+        metadata={},
+        error_message="",
+    )
+    body = "# Skills Hub\n" + ("official skill documentation " * 30)
+    complete = SimpleNamespace(
+        url=url,
+        redirected_url=url,
+        status_code=200,
+        success=True,
+        markdown=body,
+        metadata={"title": "Skills Hub"},
+        error_message="",
+    )
+    calls = []
+    monkeypatch.setattr(
+        cli,
+        "_load_crawl4ai",
+        lambda: _fake_crawl4ai_runtime(
+            {
+                ".theme-doc-markdown": [empty],
+                "main": [empty],
+                None: [complete],
+            },
+            calls,
+        ),
+    )
+
+    pages = asyncio.run(cli.crawl4ai_fetch_many([url]))
+
+    assert len(pages) == 1
+    assert pages[0].success is True
+    assert pages[0].title == "Skills Hub"
+    assert pages[0].markdown == body
+    assert [call["selector"] for call in calls] == [
+        ".theme-doc-markdown",
+        "main",
+        None,
+    ]
+    assert all(call["remove_overlay_elements"] is False for call in calls)
 
 
 def test_crawl4ai_adapter_returns_fixed_failures_without_error_or_body_leaks(
@@ -252,6 +310,7 @@ def test_crawl4ai_adapter_returns_fixed_failures_without_error_or_body_leaks(
             "selector": ".theme-doc-markdown",
             "max_concurrency": 5,
             "verbose": False,
+            "remove_overlay_elements": False,
         }
     ]
 
@@ -3231,7 +3290,27 @@ def test_repo_policy_keeps_docs_and_classifies_skills():
 def test_secret_scanner_rejects_secret_shapes_without_echoing_values():
     assert contains_secret("API_KEY=" + "x" * 32)
     assert contains_secret("Authorization: Bearer " + "x" * 32)
+    assert contains_secret("Cookie: session=" + "x" * 32)
+    assert contains_secret("credential=" + "x" * 32)
+    assert contains_secret("sk-" + "x" * 24)
+    assert contains_secret("sk-" + ("x_" * 12))
     assert not contains_secret("Use ${API_KEY} from the environment")
+
+
+def test_document_secret_scanner_allows_code_references_but_manifest_scanner_is_strict():
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+
+    documentation = "\n".join(
+        [
+            "api_key = settings.api_key",
+            "token: str | None = None",
+            'Authorization: f"Bearer {token}"',
+            "client_secret = os.environ[\"CLIENT_SECRET\"]",
+        ]
+    )
+
+    assert not contains_secret(documentation)
+    assert contains_sensitive_data(documentation)
 
 
 def _assert_selected_partition(manifest, expected_logical_keys):

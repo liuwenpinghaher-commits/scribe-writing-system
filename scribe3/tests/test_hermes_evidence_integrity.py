@@ -294,7 +294,7 @@ def test_semantic_classifier_rejects_cross_origin_mime_mismatch_and_secret_resid
     assert "cross_origin_redirect" in errors
     assert "mime_extension_mismatch" in errors
 
-    secret_body = body + b"\nAuthorization: Bearer actual-secret-value"
+    secret_body = body + b"\nAuthorization: Bearer " + (b"x" * 32)
     assert "suspected_secret" in classify_semantic_document(record, secret_body)
 
 
@@ -540,7 +540,7 @@ def test_validate_snapshot_requires_exact_persisted_navigation_explanation(
 def test_validate_snapshot_rechecks_sizes_text_semantics_and_secret_residual(
     tmp_path: Path,
 ):
-    body = _article("Hooks") + "Authorization: Bearer actual-secret-value\n"
+    body = _article("Hooks") + "Authorization: Bearer " + ("x" * 32) + "\n"
     document = _write_website_document(tmp_path, "hooks", body)
     document = replace(
         document,
