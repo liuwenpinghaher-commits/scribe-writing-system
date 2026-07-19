@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from .models import contains_sensitive_data
 
@@ -10,6 +10,7 @@ OFFICIAL_GITHUB_ORGANIZATION = "NousResearch"
 OFFICIAL_GITHUB_REPOSITORY = "hermes-agent"
 DOC_EXTENSIONS = frozenset({".md", ".mdx", ".rst", ".adoc", ".pdf"})
 _BLOCKED_REPOSITORY_PARTS = frozenset({"node_modules", "venv", ".git", "dist", "build"})
+_MAX_PATH_DECODE_PASSES = 8
 
 
 def _has_path_prefix(path: str, prefix: str) -> bool:
@@ -21,14 +22,43 @@ def _is_github_repository_path(path: str, prefix: str) -> bool:
     return _has_path_prefix(path, repository_path)
 
 
+def _decoded_path_is_safe(path: str) -> bool:
+    decoded = path
+    for _ in range(_MAX_PATH_DECODE_PASSES):
+        next_value = unquote(decoded)
+        if next_value == decoded:
+            break
+        decoded = next_value
+    else:
+        return False
+
+    if (
+        decoded.count("/") != path.count("/")
+        or "\\" in decoded
+        or any(ord(character) < 32 or ord(character) == 127 for character in decoded)
+    ):
+        return False
+    return all(segment not in {".", ".."} for segment in decoded.split("/"))
+
+
 def is_official_url(url: str) -> bool:
     """Return whether *url* is a permitted official Hermes evidence location."""
-    parsed = urlparse(url)
+    if any(ord(character) < 32 or ord(character) == 127 for character in url):
+        return False
     try:
+        parsed = urlparse(url)
         has_explicit_port = parsed.port is not None
     except ValueError:
         return False
-    if parsed.scheme != "https" or has_explicit_port:
+    if (
+        parsed.scheme != "https"
+        or has_explicit_port
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or contains_sensitive_data(url)
+        or not _decoded_path_is_safe(parsed.path)
+    ):
         return False
 
     if parsed.hostname == OFFICIAL_WEBSITE_HOST:
