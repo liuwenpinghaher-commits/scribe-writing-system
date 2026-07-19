@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,869 @@ from scribe3.hermes_evidence.policy import (
     select_repo_document,
 )
 from scribe3.hermes_evidence.website import discover_sitemap, output_path_for_url
+
+
+def test_website_batch_uses_returned_url_not_request_order(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    body_a = "# A\n" + ("body a " * 40)
+    body_b = "# B\n" + ("body b " * 40)
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=urls[1],
+                final_url=urls[1],
+                status=200,
+                success=True,
+                markdown=body_b,
+                title="B",
+                mime_type="text/html",
+            ),
+            CrawlPage(
+                url=urls[0],
+                final_url=urls[0],
+                status=200,
+                success=True,
+                markdown=body_a,
+                title="A",
+                mime_type="text/html",
+            ),
+        ]
+
+    urls = [
+        "https://hermes-agent.nousresearch.com/docs/a",
+        "https://hermes-agent.nousresearch.com/docs/b",
+    ]
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            fake_fetch,
+            "website-test",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+
+    assert (tmp_path / "pages/a.md").read_text() == body_a.strip() + "\n"
+    assert (tmp_path / "pages/b.md").read_text() == body_b.strip() + "\n"
+    assert not manifest.failures
+
+
+def test_website_retry_after_wins_and_events_are_sanitized():
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+    from scribe3.hermes_evidence.website import (
+        CrawlCheckpoint,
+        CrawlPage,
+        RetryPolicy,
+        fetch_with_bounded_retry,
+    )
+
+    url = "https://hermes-agent.nousresearch.com/docs/retry-after"
+    calls = []
+    slept = []
+
+    async def fake_fetch(urls):
+        calls.append(list(urls))
+        if len(calls) == 1:
+            return [
+                CrawlPage(
+                    url=url,
+                    final_url=url,
+                    status=429,
+                    success=False,
+                    markdown="Authorization: Bearer must-not-be-persisted",
+                    title="",
+                    mime_type="text/html",
+                    error="response body must-not-be-persisted",
+                    retry_after="2",
+                )
+            ]
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Ready\n" + ("content " * 40),
+                title="Ready",
+                mime_type="text/html",
+            )
+        ]
+
+    checkpoint = CrawlCheckpoint(snapshot_id="retry")
+    result = asyncio.run(
+        fetch_with_bounded_retry(
+            [url],
+            fake_fetch,
+            RetryPolicy(sleep=slept.append, jitter=lambda delay: 999),
+            checkpoint,
+        )
+    )
+
+    assert [page.status for page in result.pages] == [200]
+    assert calls == [[url], [url]]
+    assert slept == [2.0]
+    assert checkpoint.retry_events == list(result.retry_events)
+    assert result.retry_events == (
+        {
+            "requested_url": url,
+            "attempt": 1,
+            "status": 429,
+            "delay_seconds": 2.0,
+        },
+    )
+    assert not contains_sensitive_data(result.retry_events)
+
+
+def test_website_retry_is_bounded_for_503_timeout_and_skips_404():
+    from scribe3.hermes_evidence.website import (
+        CrawlCheckpoint,
+        CrawlPage,
+        RetryPolicy,
+        fetch_with_bounded_retry,
+    )
+
+    retry_url = "https://hermes-agent.nousresearch.com/docs/retry-503"
+    timeout_url = "https://hermes-agent.nousresearch.com/docs/timeout"
+    missing_url = "https://hermes-agent.nousresearch.com/docs/missing"
+    slept = []
+    calls_503 = 0
+
+    async def retry_503(urls):
+        nonlocal calls_503
+        calls_503 += 1
+        if calls_503 == 1:
+            return [
+                CrawlPage(
+                    url=retry_url,
+                    final_url=retry_url,
+                    status=503,
+                    success=False,
+                    markdown="secret response body",
+                    title="",
+                    mime_type="text/html",
+                )
+            ]
+        return [
+            CrawlPage(
+                url=retry_url,
+                final_url=retry_url,
+                status=200,
+                success=True,
+                markdown="# Ready\n" + ("content " * 40),
+                title="Ready",
+                mime_type="text/html",
+            )
+        ]
+
+    policy = RetryPolicy(
+        base_delay=2,
+        max_delay=2.25,
+        jitter=lambda delay: 0.25,
+        sleep=slept.append,
+    )
+    retried = asyncio.run(
+        fetch_with_bounded_retry(
+            [retry_url], retry_503, policy, CrawlCheckpoint(snapshot_id="503")
+        )
+    )
+    assert calls_503 == 2
+    assert slept == [2.25]
+    assert [page.status for page in retried.pages] == [200]
+
+    timeout_calls = 0
+
+    async def always_timeout(urls):
+        nonlocal timeout_calls
+        timeout_calls += 1
+        raise TimeoutError("secret timeout detail")
+
+    timeout = asyncio.run(
+        fetch_with_bounded_retry(
+            [timeout_url],
+            always_timeout,
+            RetryPolicy(sleep=lambda delay: None, jitter=lambda delay: 0),
+            CrawlCheckpoint(snapshot_id="timeout"),
+        )
+    )
+    assert timeout_calls == 3
+    assert timeout.pages == ()
+    assert timeout.failures == (
+        {"requested_url": timeout_url, "error": "TimeoutError"},
+    )
+    assert len(timeout.retry_events) == 2
+
+    not_found_calls = 0
+
+    async def not_found(urls):
+        nonlocal not_found_calls
+        not_found_calls += 1
+        return [
+            CrawlPage(
+                url=missing_url,
+                final_url=missing_url,
+                status=404,
+                success=False,
+                markdown="secret response body",
+                title="",
+                mime_type="text/html",
+                error="secret error detail",
+            )
+        ]
+
+    not_found_result = asyncio.run(
+        fetch_with_bounded_retry(
+            [missing_url],
+            not_found,
+            RetryPolicy(sleep=lambda delay: None),
+            CrawlCheckpoint(snapshot_id="404"),
+        )
+    )
+    assert not_found_calls == 1
+    assert [page.status for page in not_found_result.pages] == [404]
+    assert not not_found_result.retry_events
+
+
+def test_website_exponential_backoff_stays_capped_on_every_retry():
+    from scribe3.hermes_evidence.website import (
+        CrawlCheckpoint,
+        CrawlPage,
+        RetryPolicy,
+        fetch_with_bounded_retry,
+    )
+
+    url = "https://hermes-agent.nousresearch.com/docs/capped"
+    slept = []
+
+    async def unavailable(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=503,
+                success=False,
+                markdown="response body must not be recorded",
+                title="",
+                mime_type="text/html",
+            )
+        ]
+
+    result = asyncio.run(
+        fetch_with_bounded_retry(
+            [url],
+            unavailable,
+            RetryPolicy(
+                base_delay=2,
+                max_delay=2.5,
+                jitter=lambda delay: 1,
+                sleep=slept.append,
+            ),
+            CrawlCheckpoint(snapshot_id="capped"),
+        )
+    )
+
+    assert slept == [2.5, 2.5]
+    assert [event["delay_seconds"] for event in result.retry_events] == [2.5, 2.5]
+    assert [page.status for page in result.pages] == [503]
+
+
+def test_website_retry_policy_caps_batch_and_concurrency():
+    from scribe3.hermes_evidence.website import RetryPolicy
+
+    policy = RetryPolicy()
+    assert policy.max_attempts == 3
+    assert policy.batch_size == 40
+    assert policy.max_concurrency == 5
+    assert RetryPolicy(max_concurrency=2).max_concurrency == 2
+    with pytest.raises(ValueError, match="max_concurrency"):
+        RetryPolicy(max_concurrency=6)
+    with pytest.raises(ValueError, match="batch_size"):
+        RetryPolicy(batch_size=41)
+
+
+def test_website_retry_rejects_sensitive_url_before_fetch_or_event_recording():
+    from scribe3.hermes_evidence.website import (
+        CrawlCheckpoint,
+        RetryPolicy,
+        fetch_with_bounded_retry,
+    )
+
+    checkpoint = CrawlCheckpoint(snapshot_id="unsafe-url")
+
+    async def must_not_fetch(urls):
+        pytest.fail("unsafe URL reached fetch adapter")
+
+    with pytest.raises(ValueError, match="official website URL"):
+        asyncio.run(
+            fetch_with_bounded_retry(
+                [
+                    "https://hermes-agent.nousresearch.com/docs/a"
+                    "?token=must-not-be-persisted"
+                ],
+                must_not_fetch,
+                RetryPolicy(sleep=lambda delay: None),
+                checkpoint,
+            )
+        )
+    assert checkpoint.retry_events == []
+
+
+def test_website_checkpoint_resumes_only_hash_and_size_verified_pages(tmp_path):
+    import json
+
+    from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
+
+    urls = [
+        f"https://hermes-agent.nousresearch.com/docs/{name}"
+        for name in ("a", "b", "c")
+    ]
+
+    def page(url):
+        name = url.rsplit("/", 1)[-1]
+        return CrawlPage(
+            url=url,
+            final_url=url,
+            status=200,
+            success=True,
+            markdown=f"# {name.upper()}\n" + (f"content {name} " * 30),
+            title=name.upper(),
+            mime_type="text/html",
+        )
+
+    first_calls = []
+
+    async def interrupted_fetch(batch):
+        first_calls.append(list(batch))
+        if batch == [urls[2]]:
+            raise KeyboardInterrupt
+        return [page(url) for url in reversed(batch)]
+
+    policy = RetryPolicy(
+        max_concurrency=1,
+        sleep=lambda delay: None,
+        jitter=lambda delay: 0,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        asyncio.run(
+            crawl_website(
+                urls,
+                interrupted_fetch,
+                "resume-test",
+                tmp_path,
+                "2026-07-19T00:00:00+00:00",
+                policy=policy,
+            )
+        )
+
+    checkpoint_path = tmp_path / "checkpoint.json"
+    interrupted = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert first_calls == [[urls[0]], [urls[1]], [urls[2]]]
+    assert set(interrupted["completed"]) == set(urls[:2])
+    assert interrupted["complete"] is False
+    assert not list(tmp_path.rglob("*.tmp"))
+
+    a_path = tmp_path / "pages/a.md"
+    original_a = a_path.read_bytes()
+    a_path.write_bytes(bytes([original_a[0] ^ 1]) + original_a[1:])
+    assert a_path.stat().st_size == interrupted["completed"][urls[0]]["byte_length"]
+
+    resumed_calls = []
+
+    async def resumed_fetch(batch):
+        resumed_calls.append(list(batch))
+        assert len(batch) <= 1
+        return [page(url) for url in reversed(batch)]
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            resumed_fetch,
+            "resume-test",
+            tmp_path,
+            "2026-07-19T00:00:01+00:00",
+            policy=policy,
+        )
+    )
+
+    assert resumed_calls == [[urls[0]], [urls[2]]]
+    assert [document.logical_key for document in manifest.documents] == urls
+    completed = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert completed["complete"] is True
+    for url, entry in completed["completed"].items():
+        body = (tmp_path / entry["output_path"]).read_bytes()
+        assert len(body) == entry["byte_length"]
+        from scribe3.hermes_evidence.models import sha256_bytes
+
+        assert sha256_bytes(body) == entry["content_sha256"]
+
+
+def test_website_resume_requires_path_size_and_hash_to_all_match(tmp_path):
+    import json
+
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    urls = [
+        f"https://hermes-agent.nousresearch.com/docs/{name}"
+        for name in ("path", "size", "hash", "verified")
+    ]
+
+    def page(url):
+        name = url.rsplit("/", 1)[-1]
+        return CrawlPage(
+            url=url,
+            final_url=url,
+            status=200,
+            success=True,
+            markdown=f"# {name}\n" + (f"public {name} content " * 20),
+            title=name,
+            mime_type="text/html",
+        )
+
+    async def initial_fetch(batch):
+        return [page(url) for url in reversed(batch)]
+
+    asyncio.run(
+        crawl_website(
+            urls,
+            initial_fetch,
+            "triple-check",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint["completed"][urls[0]]["output_path"] = "pages/not-the-recorded-path.md"
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    size_path = tmp_path / checkpoint["completed"][urls[1]]["output_path"]
+    size_path.write_bytes(size_path.read_bytes() + b"x")
+    hash_path = tmp_path / checkpoint["completed"][urls[2]]["output_path"]
+    original = hash_path.read_bytes()
+    hash_path.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+
+    resumed_batches = []
+
+    async def resumed_fetch(batch):
+        resumed_batches.append(list(batch))
+        return [page(url) for url in reversed(batch)]
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            resumed_fetch,
+            "triple-check",
+            tmp_path,
+            "2026-07-19T00:00:01+00:00",
+        )
+    )
+
+    assert resumed_batches == [urls[:3]]
+    assert [document.logical_key for document in manifest.documents] == urls
+
+
+def test_website_resume_revalidates_final_url_and_stored_body_policy(tmp_path):
+    import json
+
+    from scribe3.hermes_evidence.models import (
+        contains_sensitive_data,
+        document_id_for,
+        sha256_bytes,
+    )
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    redirect_url = "https://hermes-agent.nousresearch.com/docs/resume-redirect"
+    secret_url = "https://hermes-agent.nousresearch.com/docs/resume-secret"
+    urls = [redirect_url, secret_url]
+
+    def safe_page(url):
+        return CrawlPage(
+            url=url,
+            final_url=url,
+            status=200,
+            success=True,
+            markdown="# Safe\n" + ("public documentation " * 20),
+            title="Safe",
+            mime_type="text/html",
+        )
+
+    async def initial_fetch(batch):
+        return [safe_page(url) for url in reversed(batch)]
+
+    asyncio.run(
+        crawl_website(
+            urls,
+            initial_fetch,
+            "resume-policy",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    checkpoint["completed"][redirect_url]["final_url"] = (
+        "https://example.test/cross-origin"
+    )
+
+    secret_entry = checkpoint["completed"][secret_url]
+    secret_body = ("API_KEY=" + ("x" * 32) + (" hidden" * 30) + "\n").encode()
+    secret_path = tmp_path / secret_entry["output_path"]
+    secret_path.write_bytes(secret_body)
+    secret_hash = sha256_bytes(secret_body)
+    secret_entry["content_sha256"] = secret_hash
+    secret_entry["byte_length"] = len(secret_body)
+    secret_entry["text_length"] = len(secret_body.decode())
+    secret_entry["document_id"] = document_id_for("website", secret_url, secret_hash)
+    checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+
+    resumed_batches = []
+
+    async def resumed_fetch(batch):
+        resumed_batches.append(list(batch))
+        return [safe_page(url) for url in reversed(batch)]
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            resumed_fetch,
+            "resume-policy",
+            tmp_path,
+            "2026-07-19T00:00:01+00:00",
+        )
+    )
+
+    assert resumed_batches == [urls]
+    assert [document.logical_key for document in manifest.documents] == urls
+    assert not contains_sensitive_data(manifest.payload())
+    assert not contains_sensitive_data(secret_path.read_text(encoding="utf-8"))
+
+
+def test_website_crawl_honors_lower_concurrency_and_integrates_retry(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, RetryPolicy, crawl_website
+
+    urls = [
+        f"https://hermes-agent.nousresearch.com/docs/page-{index}"
+        for index in range(6)
+    ]
+    attempts = {url: 0 for url in urls}
+    batches = []
+
+    async def fake_fetch(batch):
+        batches.append(list(batch))
+        assert len(batch) <= 2
+        pages = []
+        for url in reversed(batch):
+            attempts[url] += 1
+            status = 503 if url == urls[0] and attempts[url] == 1 else 200
+            pages.append(
+                CrawlPage(
+                    url=url,
+                    final_url=url,
+                    status=status,
+                    success=status == 200,
+                    markdown="# Page\n" + ("substantive content " * 20),
+                    title="Page",
+                    mime_type="text/html",
+                )
+            )
+        return pages
+
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            fake_fetch,
+            "concurrency-test",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+            policy=RetryPolicy(
+                max_concurrency=2,
+                sleep=lambda delay: None,
+                jitter=lambda delay: 0,
+            ),
+        )
+    )
+
+    assert attempts[urls[0]] == 2
+    assert all(attempts[url] == 1 for url in urls[1:])
+    assert len(manifest.documents) == 6
+    assert len(manifest.retry_events) == 1
+    assert all(len(batch) <= 2 for batch in batches)
+
+
+def test_website_crawl_rejects_redirect_secret_short_and_duplicate_results(tmp_path):
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    redirect_url = "https://hermes-agent.nousresearch.com/docs/redirect"
+    secret_url = "https://hermes-agent.nousresearch.com/docs/secret"
+    short_url = "https://hermes-agent.nousresearch.com/docs/short"
+    duplicate_url = "https://hermes-agent.nousresearch.com/docs/duplicate"
+
+    async def fake_fetch(urls):
+        common = {
+            "status": 200,
+            "success": True,
+            "title": "Page",
+            "mime_type": "text/html",
+        }
+        return [
+            CrawlPage(
+                url=redirect_url,
+                final_url="https://example.test/stolen",
+                markdown="# Redirect\n" + ("content " * 30),
+                **common,
+            ),
+            CrawlPage(
+                url=secret_url,
+                final_url=secret_url,
+                markdown="API_KEY=" + ("x" * 32) + (" content" * 30),
+                **common,
+            ),
+            CrawlPage(
+                url=short_url,
+                final_url=short_url,
+                markdown="# Short\nerror",
+                **common,
+            ),
+            CrawlPage(
+                url=duplicate_url,
+                final_url=duplicate_url,
+                markdown="# First\n" + ("content " * 30),
+                **common,
+            ),
+            CrawlPage(
+                url=duplicate_url,
+                final_url=duplicate_url,
+                markdown="# Second\n" + ("other " * 40),
+                **common,
+            ),
+        ]
+
+    urls = [redirect_url, secret_url, short_url, duplicate_url]
+    manifest = asyncio.run(
+        crawl_website(
+            urls,
+            fake_fetch,
+            "fail-closed-test",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+
+    assert manifest.documents == []
+    assert {row["requested_url"]: row["error"] for row in manifest.failures} == {
+        redirect_url: "cross_origin_redirect",
+        secret_url: "suspected_secret",
+        short_url: "short_content",
+        duplicate_url: "duplicate_result",
+    }
+    assert not contains_sensitive_data(manifest.failures)
+    assert not list((tmp_path / "pages").glob("*.md"))
+
+
+def test_website_crawl_refuses_symlink_output_and_checkpoint_paths(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/a"
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# A\n" + ("content " * 40),
+                title="A",
+                mime_type="text/html",
+            )
+        ]
+
+    outside_page = tmp_path / "outside-page.md"
+    outside_page.write_text("do not overwrite", encoding="utf-8")
+    page_root = tmp_path / "page-root"
+    (page_root / "pages").mkdir(parents=True)
+    (page_root / "pages/a.md").symlink_to(outside_page)
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            "symlink-page",
+            page_root,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+    assert outside_page.read_text(encoding="utf-8") == "do not overwrite"
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "unsafe_output_path"}
+    ]
+
+    outside_checkpoint = tmp_path / "outside-checkpoint.json"
+    outside_checkpoint.write_text("do not overwrite", encoding="utf-8")
+    checkpoint_root = tmp_path / "checkpoint-root"
+    checkpoint_root.mkdir()
+    (checkpoint_root / "checkpoint.json").symlink_to(outside_checkpoint)
+    with pytest.raises(RuntimeError, match="unsafe checkpoint path"):
+        asyncio.run(
+            crawl_website(
+                [url],
+                fake_fetch,
+                "symlink-checkpoint",
+                checkpoint_root,
+                "2026-07-19T00:00:00+00:00",
+            )
+        )
+    assert outside_checkpoint.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_website_crawl_rejects_sensitive_response_metadata_before_writing(tmp_path):
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/metadata"
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Safe body\n" + ("public documentation " * 20),
+                title="API_KEY=" + ("x" * 32),
+                mime_type="text/html",
+            )
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [url],
+            fake_fetch,
+            "sensitive-metadata",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "suspected_secret_metadata"}
+    ]
+    assert not contains_sensitive_data(manifest.payload())
+    assert not (tmp_path / "pages/metadata.md").exists()
+
+
+def test_website_crawl_keeps_navigation_but_rejects_soft_error_without_leak(tmp_path):
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    soft_url = "https://hermes-agent.nousresearch.com/docs/soft-error"
+    search_url = "https://hermes-agent.nousresearch.com/docs/search"
+
+    async def fake_fetch(urls):
+        return [
+            CrawlPage(
+                url=soft_url,
+                final_url=soft_url,
+                status=200,
+                success=False,
+                markdown="# Error\n" + ("misleading long body " * 20),
+                title="Error",
+                mime_type="text/html",
+                error="Authorization: Bearer must-not-be-persisted",
+            ),
+            CrawlPage(
+                url=search_url,
+                final_url=search_url,
+                status=200,
+                success=True,
+                markdown="# Search\nnavigation",
+                title="Search",
+                mime_type="text/html",
+            ),
+        ]
+
+    manifest = asyncio.run(
+        crawl_website(
+            [soft_url, search_url],
+            fake_fetch,
+            "soft-error",
+            tmp_path,
+            "2026-07-19T00:00:00+00:00",
+        )
+    )
+
+    assert [document.logical_key for document in manifest.documents] == [search_url]
+    assert manifest.documents[0].semantic_status == "navigation_only"
+    assert manifest.failures == [
+        {"requested_url": soft_url, "error": "http_200"}
+    ]
+    assert not contains_sensitive_data(manifest.payload())
+
+
+def test_website_content_identity_is_timestamp_independent_and_supersedes(tmp_path):
+    from scribe3.hermes_evidence.website import CrawlPage, crawl_website
+
+    url = "https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks"
+    fixture = Path(
+        "scribe3/tests/fixtures/hermes_evidence/pages/hooks.md"
+    ).read_text(encoding="utf-8")
+
+    def fetcher(markdown):
+        async def fake_fetch(urls):
+            return [
+                CrawlPage(
+                    url=url,
+                    final_url=url,
+                    status=200,
+                    success=True,
+                    markdown=markdown,
+                    title="Hooks",
+                    mime_type="text/html",
+                )
+            ]
+
+        return fake_fetch
+
+    first = asyncio.run(
+        crawl_website(
+            [url], fetcher(fixture), "first", tmp_path / "first", "2026-07-19T00:00:00Z"
+        )
+    )
+    identical = asyncio.run(
+        crawl_website(
+            [url],
+            fetcher("\n" + fixture + "\n\n"),
+            "second",
+            tmp_path / "second",
+            "2026-07-20T00:00:00Z",
+            previous=first,
+        )
+    )
+    changed = asyncio.run(
+        crawl_website(
+            [url],
+            fetcher(fixture + "\nChanged public documentation paragraph."),
+            "third",
+            tmp_path / "third",
+            "2026-07-21T00:00:00Z",
+            previous=identical,
+        )
+    )
+
+    first_document = first.documents[0]
+    identical_document = identical.documents[0]
+    changed_document = changed.documents[0]
+    assert first_document.document_id == identical_document.document_id
+    assert identical_document.supersedes_document_id is None
+    assert changed_document.document_id != identical_document.document_id
+    assert changed_document.supersedes_document_id == identical_document.document_id
+    saved = tmp_path / "second" / identical_document.output_path
+    assert saved.read_text(encoding="utf-8") == fixture.strip() + "\n"
+    assert "2026-07-20" not in saved.read_text(encoding="utf-8")
 
 
 def test_sitemap_is_unique_sorted_and_official():
