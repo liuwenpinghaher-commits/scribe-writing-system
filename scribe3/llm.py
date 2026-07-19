@@ -216,8 +216,47 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
 
     with_tools:H-01 work-scoped MCP 开关。为 True 时 body 挂指定 scribe3 MCP 面;调用方必须在
     instructions 内钉死当前 work,让所有 s3_ 工具显式传 work 参数。with_tools=False →
-    body 不含 tools,退化为纯对话(无联查/无待批写)。"""
+    直连官方 DeepSeek 的 chat completions 流。Hermes Responses 网关会按 profile 默认
+    挂载 MCP,仅省略 body.tools 不能真正禁用工具，纯生成必须物理绕开该代理层。"""
     _tick_daily()
+    if not with_tools:
+        from scribe3.settings import get_setting
+        import json as _j
+
+        api_key = get_setting("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise RuntimeError("未配置 DEEPSEEK_API_KEY，无法直连官方 DeepSeek 接口")
+        direct_model = model or default_model()
+        messages = [{"role": "system", "content": instructions}]
+        if isinstance(message, list):
+            messages.extend(message)
+        else:
+            messages.append({"role": "user", "content": message})
+
+        def make_official_stream():
+            with httpx.stream(
+                "POST", "https://api.deepseek.com/chat/completions", timeout=timeout,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": direct_model, "messages": messages, "stream": True},
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        delta = _j.loads(payload)["choices"][0]["delta"].get("content")
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        continue
+                    if delta:
+                        yield {"type": "response.output_text.delta", "delta": delta}
+            yield {"type": "response.completed", "response": {"id": None}}
+
+        yield from _stream_with_retry(make_official_stream)
+        return
+
     runtime = HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE, auth=HermesAuth())
 
     def make_stream():

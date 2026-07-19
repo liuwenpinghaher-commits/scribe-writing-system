@@ -20,6 +20,7 @@ const apiMock = vi.hoisted(() => ({
   chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
   chatWrite: vi.fn(),
   validateDeduction: vi.fn(() => Promise.resolve({ ok: false, issues: [{ reason: '无来源' }] })),
+  groundedDeductionFallback: vi.fn(() => Promise.resolve({ candidate: '### 看到/听到\n未能从场景真相确认。' })),
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 
@@ -261,6 +262,27 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
       3, '### 看到/听到\n季棠看见闸门震颤。', 'role:季棠', 'demo',
     ))
     expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
+    expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
+  })
+
+  it('⑪b 两次自由稿都未过事实门时切换服务端可追溯摘录，并只在摘录复核通过后待保存', async () => {
+    deduceSelState.selected = 'role:季棠'
+    const safe = '### 看到/听到\n季棠用潮骨灯照出黑盐纹。\n\n### 知道\n季棠看出潮闸在主动索名。'
+    apiMock.validateDeduction
+      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '首稿无来源' }] })
+      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '返修稿无来源' }] })
+      .mockResolvedValueOnce({ ok: true })
+    apiMock.groundedDeductionFallback.mockResolvedValueOnce({ candidate: safe, mode: 'verbatim_fallback' })
+    apiMock.chatWrite
+      .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '首稿越界。' }); handlers.onDone?.() })
+      .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '返修仍越界。' }); handlers.onDone?.() })
+    renderDeduce({ meta: { chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '已有场景真相' } })
+    await screen.findByRole('textbox', { name: '限知投影' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    await waitFor(() => expect(apiMock.groundedDeductionFallback).toHaveBeenCalledWith(3, 'role:季棠', 'demo'))
+    await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenLastCalledWith(3, safe, 'role:季棠', 'demo'))
     expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
   })
 

@@ -508,13 +508,13 @@ def test_llm_responses_events_exposes_store_conversation_and_session(monkeypatch
         conversation="conv_456",
         session_key="work:main",
         store=True,
-        with_tools=False,
+        with_tools=True,
     ))
 
     assert captured["headers"]["X-Hermes-Session-Key"] == "work:main"
     assert captured["body"]["conversation"] == "conv_456"
     assert captured["body"]["store"] is True
-    assert "tools" not in captured["body"]
+    assert captured["body"]["tools"] == [{"type": "mcp", "server_label": "scribe3_read"}]
 
 
 def test_llm_responses_events_defaults_to_read_only_mcp_surface(monkeypatch):

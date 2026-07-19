@@ -4998,7 +4998,7 @@ def test_p0_2_agentic_current_work_mounts_tools(store, monkeypatch):
 
 
 def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
-    """llm 层:with_tools=False 不含 tools;=True 默认只挂 scribe3_read 只读 MCP 面。"""
+    """llm 层:工具阶段默认只挂 scribe3_read 只读 MCP 面。"""
     import scribe3.llm as llm
     captured = {}
 
@@ -5013,10 +5013,26 @@ def test_p0_2_hermes_responses_events_tools_gated_by_flag(monkeypatch):
         return _FakeResp()
 
     monkeypatch.setattr(llm.httpx, "stream", fake_stream)
-    list(llm.hermes_responses_events("m", "i", with_tools=False))
-    assert "tools" not in captured["body"], "with_tools=False 时 body 不得含 tools"
     list(llm.hermes_responses_events("m", "i", with_tools=True))
     assert captured["body"].get("tools") == [{"type": "mcp", "server_label": "scribe3_read"}]
+
+
+def test_grounded_deduction_fallback_returns_verbatim_safe_projection(store):
+    """自由稿两次未过事实门时，作者仍能取得可保存的五栏可追溯投影。"""
+    store.save_chapter(23, "", title="二十三")
+    source = "季棠用潮骨灯照出黑盐纹。黑盐纹认得掰糕的人，因为季棠身上有潮骨灯。季棠从残契里看出的，不是这件事。她看出的是：潮闸在主动索名。"
+    store.update_chapter_meta(23, {"scene_truth": source})
+
+    r = _client(store).get("/chapters/23/deductions/grounded-fallback", params={
+        "character_id": "role:季棠",
+    })
+
+    assert r.status_code == 200
+    candidate = r.json()["candidate"]
+    assert all(h in candidate for h in ("### 看到/听到", "### 知道", "### 以为(误读)", "### 做了/说了", "### 没察觉的"))
+    assert "黑盐纹认得掰糕的人" not in candidate, "不是角色的认知，不能混入角色限知投影"
+    assert "她看出的是：潮闸在主动索名。" in candidate, "相邻的角色续句应与前句一并保留，不能截成无意义半句"
+    assert A._grounding_review(source, candidate, mode="deduction")["ok"] is True
 
 
 # ===== 块四b TDD: /draft-check 草稿轻量确定性分析(不 ingest 不落库) =====

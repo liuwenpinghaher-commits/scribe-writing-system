@@ -392,6 +392,44 @@ def test_grounding_reviewer_fails_closed_when_evidence_is_not_in_source(monkeypa
     assert result["issues"] and "证据" in result["issues"][0]["reason"]
 
 
+def test_grounding_llm_uses_official_deepseek(monkeypatch):
+    """事实门也是纯文本审查，必须使用作者配置的官方 DeepSeek 通道。"""
+    import scribe3.llm as llm
+
+    captured = {}
+
+    def fake_complete(prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured["kwargs"] = kwargs
+        return "{}"
+
+    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+
+    assert A._grounding_llm("核验候选事实") == "{}"
+    assert captured == {
+        "prompt": "核验候选事实",
+        "kwargs": {"max_tokens": 4096, "official_api": True, "thinking": "disabled"},
+    }
+
+
+def test_grounding_reviewer_accepts_verbatim_projection_extract_without_llm(monkeypatch):
+    """逐字摘录是可机械证明的安全投影，不应再受审查模型格式波动影响。"""
+    source = "季棠用潮骨灯照出黑盐纹。她看出潮闸在主动索名。"
+    candidate = (
+        "### 看到/听到\n季棠用潮骨灯照出黑盐纹。\n\n"
+        "### 知道\n她看出潮闸在主动索名。\n\n"
+        "### 以为(误读)\n未能从场景真相确认。\n\n"
+        "### 做了/说了\n季棠用潮骨灯照出黑盐纹。\n\n"
+        "### 没察觉的\n未能从场景真相确认。"
+    )
+    monkeypatch.setattr(A, "_grounding_llm", lambda _prompt: (_ for _ in ()).throw(AssertionError("不应调用 LLM")))
+
+    result = A._grounding_review(source, candidate, mode="deduction")
+
+    assert result["ok"] is True
+    assert len(result["claims"]) == 3
+
+
 def test_steer_reaches_outline_prompt(store, monkeypatch):
     """B-3 同型防(审查 G):想法 steer 必须真进大纲提案 prompt。"""
     store.save_chapter(6, "", title="六")

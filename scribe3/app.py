@@ -262,8 +262,8 @@ def _work_has_tools(work: str) -> bool:
 
 
 def _write_phase_allows_tools(phase: str) -> bool:
-    """正文定稿阶段只产出散文，不能把尚未执行的 MCP 调用混进提案。"""
-    return (phase or "").strip().lower() != "final"
+    """纯生成相位已有完整事实输入，不能让代理式联查抢占输出回合。"""
+    return (phase or "").strip().lower() not in {"final", "deduce"}
 
 
 def _normalize_work(work: str | None) -> str:
@@ -5390,6 +5390,18 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     instructions += _focalizer_sincerity_block()
     instructions += _purpose_workflow_block(st, chapter, with_tools, work)
     instructions += _final_reminder()
+    if (phase or "").strip().lower() == "deduce":
+        # v1 的 envelope 是通用写作上下文，不保证包含场景真相；演绎必须单独钉住
+        # 服务端权威源，并将其置于最后，避免长上下文/文风块把它稀释掉。
+        truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
+        instructions += (
+            "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
+            + (truth or "(尚未填写场景真相；只能说明未能确认。)")
+            + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
+              "每个标题下只写真相中明确出现、且该角色可感知的内容；"
+              "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
+              "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
+        )
     return instructions
 
 
@@ -5489,6 +5501,15 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                                "部分派生;真相里没有的事不得出现在任何投影里。")
     instructions += _purpose_workflow_block(st, chapter, with_tools, work)   # 北极星任务6:目的合同工序
     instructions += _final_reminder()
+    if _ph_lower == "deduce":
+        # 演绎会经过逐项事实门；把合同放在全部风格/素材提示之后，避免外围创作指令
+        # 稀释唯一事实源。宁可留白，也不能为连贯性补造动作、物件或人物前史。
+        instructions += (
+            "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
+            "每个标题下只写真相中明确出现、且该角色可感知的内容；"
+            "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
+            "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
+        )
     return instructions
 
 
@@ -5943,6 +5964,59 @@ class ChapterMetaReq(BaseModel):
 class DeductionGroundingReq(BaseModel):
     candidate: str
     character_id: str = ""
+
+
+_DEDUCTION_HEADINGS = ("看到/听到", "知道", "以为(误读)", "做了/说了", "没察觉的")
+_DEDUCTION_BLANK = "未能从场景真相确认。"
+
+
+def _verbatim_deduction_fallback(source: str, character_id: str) -> str:
+    """把角色在场景真相中被明确提及的句子编排成可机械验真的五栏投影。
+
+    这是自由生成两次未通过事实门时的安全兜底：不伪造角色限知，也不让失败稿
+    留在编辑器里诱导误存。来源不足时明确留白，不能拿全知叙述补齐。
+    """
+    import re
+
+    name = (character_id or "").split(":", 1)[-1].strip()
+    sentences = [s.strip() for s in re.findall(r"[^。！？]+[。！？]?", source or "") if s.strip()]
+    def subject_tail(sentence: str) -> str:
+        pos = sentence.find(name)
+        return sentence[pos + len(name):pos + len(name) + 48] if pos >= 0 else ""
+
+    # 仅接受角色自身紧随其名的感知/认知/行动，不能因句子在谈论该角色就把
+    # 旁白或他者的认知搬进限知栏(如“黑盐纹认得……季棠”)。
+    owned = [(idx, s) for idx, s in enumerate(sentences) if name and s.find(name) >= 0]
+    if not owned:
+        return ""
+    def with_continuation(idx: int, sentence: str) -> str:
+        # “季棠……。她……”是同一角色连续表述时，合并为一个仍可逐字定位的来源片段。
+        if idx + 1 < len(sentences) and sentences[idx + 1].startswith("她"):
+            return sentence + sentences[idx + 1]
+        return sentence
+
+    seen = next((s for _idx, s in owned if any(k in subject_tail(s) for k in ("看", "听", "照", "触"))), owned[0][1])
+    known = next((with_continuation(idx, s) for idx, s in owned if "不知道" not in subject_tail(s)
+                  and any(k in subject_tail(s) for k in ("知道", "看出", "认得", "明白"))), seen)
+    action = next((s for _idx, s in owned if any(k in subject_tail(s) for k in ("用", "拿", "照", "说", "做"))), seen)
+    sections = (seen, known, _DEDUCTION_BLANK, action, _DEDUCTION_BLANK)
+    return "\n\n".join(f"### {heading}\n{content}" for heading, content in zip(_DEDUCTION_HEADINGS, sections))
+
+
+@app.get("/chapters/{seq}/deductions/grounded-fallback")
+def grounded_deduction_fallback(seq: int, character_id: str, work: str = "main"):
+    """返回可逐字追溯的角色投影兜底稿；只读，不写章节。"""
+    ch = _store_for(work).get_chapter(seq)
+    if not ch:
+        raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
+    truth = (ch.get("scene_truth") or "").strip()
+    if not truth:
+        raise HTTPException(status_code=422, detail="请先填写场景真相，才能生成可追溯投影")
+    candidate = _verbatim_deduction_fallback(truth, character_id)
+    if not candidate:
+        raise HTTPException(status_code=422, detail="场景真相未包含该角色可安全摘录的事实，不能伪造投影")
+    return {"seq": seq, "character_id": character_id, "candidate": candidate,
+            "mode": "verbatim_fallback"}
 
 
 @app.post("/chapters/{seq}/deductions/grounding")
@@ -7812,9 +7886,10 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
 
 
 def _grounding_llm(prompt: str) -> str:
-    """事实对齐审查的单一 LLM 边界，便于测试替身且不混入生成调用。"""
+    """事实对齐审查走官方 DeepSeek，并关闭思考以保留 JSON 输出预算。"""
     from scribe3.llm import hermes_complete
-    return (hermes_complete(prompt, max_tokens=1200) or "").strip()
+    return (hermes_complete(prompt, max_tokens=4096, official_api=True,
+                            thinking="disabled") or "").strip()
 
 
 def _grounding_review(source: str, candidate: str, *, mode: str) -> dict:
@@ -7832,6 +7907,22 @@ def _grounding_review(source: str, candidate: str, *, mode: str) -> dict:
             "reason": "事实源或候选内容为空，无法完成对齐审查",
             "evidence": "",
         }]}
+    # 逐字摘录不含任何需要推断的主张：在服务端做确定性包含校验即可证明其来源，
+    # 不再把安全回退交给可能改写引号/耗尽输出预算的审查模型。标题和明确留白
+    # 不是故事事实，故不参与来源匹配；其余每一行必须是 SOURCE 的原文子串。
+    if mode == "deduction":
+        verbatim_claims = []
+        all_verbatim = True
+        for raw_line in candidate.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("###") or line == "未能从场景真相确认。":
+                continue
+            if line not in source:
+                all_verbatim = False
+                break
+            verbatim_claims.append({"claim": line, "supported": True, "evidence": line})
+        if all_verbatim and verbatim_claims:
+            return {"ok": True, "issues": [], "claims": verbatim_claims}
     policy = (
         "这是角色限知投影。候选中的每个可验证人物、物件、动作、时间、因果、"
         "物理现象、人物前史和规则，都必须由场景真相逐字支持；不能以常识或设定补全。"

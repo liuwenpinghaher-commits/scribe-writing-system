@@ -264,10 +264,26 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
                   runPass(repair, 1)
                   return
                 }
-                setBusy(false)
-                setGrounding({ ok: false, reason })
-                workRef.current = { selected: target, seq, text: v, dirty: false }
-                toast(`投射未保存：${reason}`, { tone: 'danger', duration: 7000 })
+                // 自由生成和一次返修都没有通过时，不能继续让模型换词碰运气。
+                // 改取服务端从场景真相逐字编排的五栏稿，并再走同一事实门。
+                try {
+                  const fallback = await api.groundedDeductionFallback(seq, target, work)
+                  const safe = (fallback?.candidate || '').trim()
+                  if (!safe) throw new Error('服务端未返回可追溯投影')
+                  setText(safe)
+                  const safeReview = await api.validateDeduction(seq, safe, target, work)
+                  if (!safeReview?.ok) throw new Error(safeReview?.issues?.[0]?.reason || '可追溯投影复核失败')
+                  setBusy(false)
+                  setGrounding({ ok: true })
+                  workRef.current = { selected: target, seq, text: safe, dirty: true }
+                  toast('自由稿未通过事实门，已切换为可追溯摘录；请核对后失焦确认保存。', { tone: 'warn', duration: 7000 })
+                } catch (fallbackError) {
+                  setBusy(false)
+                  const fallbackReason = fallbackError?.body?.detail || fallbackError?.message || reason
+                  setGrounding({ ok: false, reason: fallbackReason })
+                  workRef.current = { selected: target, seq, text: v, dirty: false }
+                  toast(`投射未保存：${fallbackReason}`, { tone: 'danger', duration: 7000 })
+                }
               }
             } catch (e) {
               setBusy(false)

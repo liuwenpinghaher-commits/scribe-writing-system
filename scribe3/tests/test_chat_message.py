@@ -231,6 +231,49 @@ def test_chat_write_post_disables_mcp_tools_for_prose_generation(store, monkeypa
     assert '"proposal"' in r.text
 
 
+def test_chat_write_post_disables_mcp_tools_for_deduction_projection(store, monkeypatch):
+    """演绎已注入场景真相与限知帧，不能进入无界的代理式联查循环。"""
+    captured = {}
+
+    def fake_events(message, instructions, with_tools=True):
+        captured["with_tools"] = with_tools
+        captured["instructions"] = instructions
+        yield {"type": "response.output_text.delta", "delta": "### 看到/听到\n雨声。"}
+        yield {"type": "response.completed", "response": {"id": "resp_deduce"}}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = _client(store).post("/chat/write", json={
+        "msg": "以甲的限知写本场投影", "chapter": 2,
+        "focalizer": "role:甲", "phase": "deduce",
+    })
+
+    assert r.status_code == 200
+    assert captured["with_tools"] is False
+    assert "逐字可追溯" in captured["instructions"]
+
+
+def test_context_assembler_deduction_keeps_scene_truth_terminal(store, monkeypatch):
+    """v1 组装也必须把场景真相放在演绎提示的末尾，不能被通用上下文覆盖。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+    store.save_chapter(2, "", title="第二章")
+    store.update_chapter_meta(2, {"scene_truth": "潮闸的周字在青石里发亮。"})
+    captured = {}
+
+    def fake_events(message, instructions, with_tools=True):
+        captured["instructions"] = instructions
+        yield {"type": "response.output_text.delta", "delta": "### 看到/听到\n周字发亮。"}
+        yield {"type": "response.completed", "response": {"id": "resp_v1_deduce"}}
+
+    monkeypatch.setattr(A, "_responses_events", fake_events)
+    r = _client(store).post("/chat/write", json={
+        "msg": "写投影", "chapter": 2, "focalizer": "role:甲", "phase": "deduce",
+    })
+
+    assert r.status_code == 200
+    assert "潮闸的周字在青石里发亮。" in captured["instructions"]
+    assert "逐字可追溯" in captured["instructions"]
+
+
 def test_chat_write_post_persists_hermes_trace(store, monkeypatch):
     def fake_events(message, instructions, with_tools=True):
         yield {"type": "response.output_item.added",
