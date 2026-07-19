@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { DeduceStage } from '../DeduceStage'
 import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
@@ -262,5 +262,30 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     ))
     expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
     expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
+  })
+
+  it('⑫生成流超过作者等待上限时中止请求并恢复生成入口，且不把半成品标为待保存投影', async () => {
+    const abort = vi.fn()
+    apiMock.chatWrite.mockReturnValue({ abort })
+    deduceSelState.selected = 'role:季棠'
+    renderDeduce({ meta: {
+      chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
+    } })
+    await screen.findByRole('button', { name: '生成' })
+
+    vi.useFakeTimers()
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '生成' }))
+      expect(screen.getByRole('button', { name: '演绎中…' })).toBeTruthy()
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+
+      expect(abort).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: '生成' })).toBeTruthy()
+      expect(apiMock.validateDeduction).not.toHaveBeenCalled()
+      expect(screen.getByRole('status').textContent).toContain('未完成内容不会自动保存为投影')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

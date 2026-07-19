@@ -10,6 +10,8 @@ import { useContextSnapshot } from './context/ContextSnapshotContext'
 
 // Task 4:话术引用截断——chiefIntent 只是预填输入框,长演绎全文引用会塞爆(spec §4 要点4)。
 const QUOTE_MAX = 400
+const GENERATE_TIMEOUT_MS = 120000
+const GENERATE_TIMEOUT_TEXT = '生成等待超过 2 分钟，已停止等待；未完成内容不会自动保存为投影。'
 const truncateQuote = (s) => {
   const t = (s || '').trim()
   return t.length > QUOTE_MAX ? t.slice(0, QUOTE_MAX) + '…' : t
@@ -27,6 +29,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const [grounding, setGrounding] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
   const [addingRole, setAddingRole] = useState(false)
+  const generationRef = useRef(null)
   const chars = meta?.chars || []
   const cur = selected === 'truth'
     ? { name: '场景真相', prose: meta?.scene_truth || '' }
@@ -184,6 +187,20 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     }
   }
 
+  // 写作流可能因上游工具/模型长时间不返回而一直占住编辑器。中止只撤销浏览器请求，
+  // 绝不把当前预览标为 dirty 或写入章节；作者可保留可见预览自行判断后再编辑。
+  const stopGeneration = (message = '已停止生成；未完成内容不会自动保存为投影。') => {
+    const run = generationRef.current
+    if (!run) return
+    run.stopped = true
+    clearTimeout(run.timer)
+    generationRef.current = null
+    try { run.abort?.() } catch (_) { /* */ }
+    setBusy(false)
+    if (selected !== 'truth') setGrounding({ ok: false, reason: message })
+    toast(message, { tone: 'warn', duration: 7000 })
+  }
+
   const gen = () => {
     const target = selected
     setBusy(true); setGrounding(null)
@@ -194,9 +211,15 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     // 第二次仍不通过就明确拦截，绝不把“看似可用”的未对齐稿设为待保存。
     const runPass = (instruction, attempt = 0) => {
       let acc = ''
+      const run = { abort: null, timer: null, stopped: false }
+      generationRef.current = run
+      const finish = () => {
+        clearTimeout(run.timer)
+        if (generationRef.current === run) generationRef.current = null
+      }
       // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
       // 兼容纯 delta 流。全部累进到 acc，完成后落库。
-      api.chatWrite(instruction, {
+      const request = api.chatWrite(instruction, {
         // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
         chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
         context: snapshot ? {
@@ -204,11 +227,13 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           context_revision: snapshot.revision,
           context_hash: snapshot.context_hash,
         } : null,
-        onProposalStart: () => { acc = ''; setText('') },
-        onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
-        onDelta: (d) => { acc += d; setText(acc) },
-        onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
+        onProposalStart: () => { if (!run.stopped) { acc = ''; setText('') } },
+        onProposalChunk: (c) => { if (!run.stopped) { acc += (c?.text ?? c ?? ''); setText(acc) } },
+        onDelta: (d) => { if (!run.stopped) { acc += d; setText(acc) } },
+        onProposal: (p) => { if (!run.stopped) { acc = p.prose ?? p.text ?? acc; setText(acc) } },
         onDone: async () => {
+          if (run.stopped) return
+          finish()
           const v = acc.trim()
           if (!v) {
             setBusy(false)
@@ -253,8 +278,23 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           }
         }
         },
-        onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
+        onError: (e) => {
+          if (run.stopped) return
+          finish()
+          setBusy(false); toast('演绎失败:' + e, { tone: 'danger' })
+        },  // 不动 text,保留已有内容
       })
+      run.abort = () => request?.abort?.()
+      run.timer = setTimeout(() => {
+        if (run.stopped || generationRef.current !== run) return
+        run.stopped = true
+        clearTimeout(run.timer)
+        generationRef.current = null
+        try { run.abort?.() } catch (_) { /* */ }
+        setBusy(false)
+        if (target !== 'truth') setGrounding({ ok: false, reason: GENERATE_TIMEOUT_TEXT })
+        toast(GENERATE_TIMEOUT_TEXT, { tone: 'warn', duration: 7000 })
+      }, GENERATE_TIMEOUT_MS)
     }
     runPass(instr)
   }
@@ -298,6 +338,7 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           aria-label="让主编改这条演绎">
           <Sparkles size={13} />改这条
         </Btn>
+        {busy && <Btn variant="ghost" size="sm" onClick={() => stopGeneration()}>停止</Btn>}
         <Btn variant="primary" size="sm" onClick={gen} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
