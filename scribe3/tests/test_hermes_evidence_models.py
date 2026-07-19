@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from scribe3.hermes_evidence import contains_sensitive_data
 from scribe3.hermes_evidence.models import (
     DocumentRecord,
     SnapshotManifest,
@@ -36,3 +39,68 @@ def test_manifest_is_stable_and_hashes_exact_bytes(tmp_path: Path):
     assert first == second
     assert (tmp_path / "m1.json").read_bytes() == (tmp_path / "m2.json").read_bytes()
     assert doc.content_sha256 == sha256_bytes(b"abc")
+
+
+def _manifest_with(**changes: object) -> SnapshotManifest:
+    values: dict[str, object] = {
+        "snapshot_id": "website-20260719T000000Z",
+        "source_kind": "website",
+        "source_origin": "https://hermes-agent.nousresearch.com/docs/sitemap.xml",
+        "requested_ref": "sitemap",
+        "resolved_sha": None,
+        "release_tag": None,
+        "fetched_at": "2026-07-19T00:00:00+00:00",
+        "crawler_version": "1",
+    }
+    values.update(changes)
+    return SnapshotManifest(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("case", "manifest"),
+    [
+        (
+            "sensitive query key",
+            _manifest_with(
+                documents=[
+                    DocumentRecord(
+                        document_id="website:abc",
+                        source_kind="website",
+                        output_path="pages/a.md",
+                        content_sha256=sha256_bytes(b"abc"),
+                        byte_length=3,
+                        text_length=3,
+                        semantic_status="content",
+                        requested_url="https://example.test/a?api_key=not-a-real-key",
+                    )
+                ]
+            ),
+        ),
+        (
+            "nested authorization",
+            _manifest_with(
+                failures=[{"request": {"Authorization": "Bearer not-a-real-token"}}]
+            ),
+        ),
+        ("secret-shaped note", _manifest_with(notes=["sk-test_abcdef1234567890"])),
+    ],
+)
+def test_write_manifest_rejects_suspicious_sensitive_data_before_writing(
+    tmp_path: Path, case: str, manifest: SnapshotManifest
+):
+    path = tmp_path / f"{case}.json"
+
+    with pytest.raises(ValueError, match="sensitive data") as error:
+        write_manifest(path, manifest)
+
+    assert not path.exists()
+    assert "not-a-real" not in str(error.value)
+
+
+def test_official_environment_variable_placeholder_is_allowed(tmp_path: Path):
+    manifest = _manifest_with(notes=["Set HERMES_API_KEY=${API_KEY} before running."])
+    path = tmp_path / "manifest.json"
+
+    assert not contains_sensitive_data(manifest.payload())
+    write_manifest(path, manifest)
+    assert path.exists()

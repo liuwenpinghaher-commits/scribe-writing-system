@@ -2,11 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
+from urllib.parse import parse_qsl, urlsplit
 
 SourceKind = Literal["website", "release", "main", "runtime"]
+
+_SENSITIVE_KEY_PARTS = (
+    "apikey",
+    "authorization",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "token",
+)
+_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?i)\b(?:bearer\s+(?!\$\{[A-Z_][A-Z0-9_]*\})\S+|sk-[a-z0-9_-]{8,})"
+)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -18,6 +34,31 @@ def stable_json_bytes(value: object) -> bytes:
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         + "\n"
     ).encode("utf-8")
+
+
+def _is_sensitive_key(value: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", value.lower())
+    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+
+
+def contains_sensitive_data(value: object) -> bool:
+    """Return whether a manifest value appears to contain credentials or secrets."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str) and _is_sensitive_key(key):
+                return True
+            if contains_sensitive_data(item):
+                return True
+        return False
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(contains_sensitive_data(item) for item in value)
+    if not isinstance(value, str):
+        return False
+
+    parsed = urlsplit(value)
+    if parsed.query and any(_is_sensitive_key(key) for key, _ in parse_qsl(parsed.query)):
+        return True
+    return bool(_SENSITIVE_VALUE_PATTERN.search(value))
 
 
 @dataclass(frozen=True)
@@ -117,8 +158,11 @@ class CapabilityRecord:
 
 
 def write_manifest(path: Path, manifest: SnapshotManifest) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = manifest.payload()
+    if contains_sensitive_data(payload):
+        raise ValueError("Manifest contains sensitive data and cannot be persisted")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
     digest = sha256_bytes(stable_json_bytes(payload))
     payload["manifest_sha256"] = digest
     path.write_bytes(stable_json_bytes(payload))
