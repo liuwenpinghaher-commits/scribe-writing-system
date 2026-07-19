@@ -6,6 +6,7 @@ P18: apply_delta 要求角色已存在(不再自动建,防幻觉角色污染)。
 from scribe3.ingest import apply_delta, ingest_chapter
 from scribe3.knowledge import project_frame
 from scribe3.ontology import Entity
+from scribe3.verify import causal_complete
 
 
 def _ensure_chars(store, *names):
@@ -63,7 +64,6 @@ def test_apply_delta_extracts_event(store):
 
 def test_apply_delta_event_causal_link_clean(store):
     """caused_by 引用本章前序事件序号 → causal_in 图边;都有目标+因果 → causal_complete 无违规。"""
-    from scribe3.verify import causal_complete
     _ensure_chars(store, "焦三")
     delta = {"learned": [], "did": [],
              "events": [{"type": "取丹", "participants": {"SUBJ": "焦三"}, "goal": "救母", "caused_by": []},

@@ -229,4 +229,38 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
   })
+
+  it('⑪首稿越过事实边界时带着校验反馈自动返修一次，返修合格后才进入待确认保存态', async () => {
+    deduceSelState.selected = 'role:季棠'
+    apiMock.validateDeduction
+      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '黑水无场景真相来源' }] })
+      .mockResolvedValueOnce({ ok: true })
+    apiMock.chatWrite
+      .mockImplementationOnce((_instruction, handlers) => {
+        handlers.onProposalStart?.()
+        handlers.onProposal?.({ prose: '黑水从闸底涌出。' })
+        handlers.onDone?.()
+      })
+      .mockImplementationOnce((_instruction, handlers) => {
+        handlers.onProposalStart?.()
+        handlers.onProposal?.({ prose: '### 看到/听到\n季棠看见闸门震颤。' })
+        handlers.onDone?.()
+      })
+    renderDeduce({ meta: {
+      chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
+    } })
+    await screen.findByRole('textbox', { name: '限知投影' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    await waitFor(() => expect(apiMock.chatWrite).toHaveBeenCalledTimes(2))
+    const [repairInstruction] = apiMock.chatWrite.mock.calls[1]
+    expect(repairInstruction).toContain('黑水无场景真相来源')
+    expect(repairInstruction).toContain('只保留能够由场景真相直接支持的主张')
+    await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenLastCalledWith(
+      3, '### 看到/听到\n季棠看见闸门震颤。', 'role:季棠', 'demo',
+    ))
+    expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
+    expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
+  })
 })

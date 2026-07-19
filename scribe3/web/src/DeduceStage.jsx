@@ -186,26 +186,36 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
 
   const gen = () => {
     const target = selected
-    setBusy(true); setGrounding(null); let acc = ''
+    setBusy(true); setGrounding(null)
     const instr = target === 'truth'
       ? `写第${seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,含角色们察觉不到的隐藏机制。据本章大纲/节拍/设定(含私密)。只输出真相正文。`
       : `以「${cur.character_name}」截至第${seq}章的限知,写该角色这一场的限知投影,分五个小标题:看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 markdown 三级标题(### 标题)独立起行。据场景真相与该角色的限知帧,只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。`
-    // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
-    // 兼容纯 delta 流。全部累进到 acc，完成后落库。
-    api.chatWrite(instr, {
-      // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
-      chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
-      context: snapshot ? {
-        context_session_id: snapshot.session_id,
-        context_revision: snapshot.revision,
-        context_hash: snapshot.context_hash,
-      } : null,
-      onProposalStart: () => { acc = ''; setText('') },
-      onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
-      onDelta: (d) => { acc += d; setText(acc) },
-      onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
-      onDone: async () => {
-        setBusy(false); const v = acc.trim()
+    // 服务端事实门是唯一裁决。首稿越界时，带回具体失败原因自动返修一次；
+    // 第二次仍不通过就明确拦截，绝不把“看似可用”的未对齐稿设为待保存。
+    const runPass = (instruction, attempt = 0) => {
+      let acc = ''
+      // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
+      // 兼容纯 delta 流。全部累进到 acc，完成后落库。
+      api.chatWrite(instruction, {
+        // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
+        chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
+        context: snapshot ? {
+          context_session_id: snapshot.session_id,
+          context_revision: snapshot.revision,
+          context_hash: snapshot.context_hash,
+        } : null,
+        onProposalStart: () => { acc = ''; setText('') },
+        onProposalChunk: (c) => { acc += (c?.text ?? c ?? ''); setText(acc) },
+        onDelta: (d) => { acc += d; setText(acc) },
+        onProposal: (p) => { acc = p.prose ?? p.text ?? acc; setText(acc) },
+        onDone: async () => {
+          const v = acc.trim()
+          if (!v) {
+            setBusy(false)
+            toast('演绎未返回可用内容，请重试。', { tone: 'danger' })
+            return
+          }
+          if (attempt === 0 && target === 'truth') setBusy(false)
         if (v) {
           setText(v)
           // 场景真相可直接由作者使用；角色投射先拿服务端权威真相做事实对齐。
@@ -217,25 +227,36 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
             try {
               const review = await api.validateDeduction(seq, v, target, work)
               if (review?.ok) {
+                setBusy(false)
                 setGrounding({ ok: true })
                 workRef.current = { selected: target, seq, text: v, dirty: true }
                 toast('事实对齐通过；请核对场景真相后失焦确认保存。', { tone: 'warn', duration: 6000 })
               } else {
                 const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
+                if (attempt === 0) {
+                  toast(`首稿未通过事实对齐，正按校验反馈返修：${reason}`, { tone: 'warn', duration: 7000 })
+                  const repair = `上一稿未通过场景真相事实对齐，原因：${reason}。请重写完整的角色限知投影，只保留能够由场景真相直接支持的主张；不要补充人物、物件、动作、时间、物理现象或前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。\n\n【待修稿】\n${v.slice(0, 6000)}`
+                  runPass(repair, 1)
+                  return
+                }
+                setBusy(false)
                 setGrounding({ ok: false, reason })
                 workRef.current = { selected: target, seq, text: v, dirty: false }
                 toast(`投射未保存：${reason}`, { tone: 'danger', duration: 7000 })
               }
             } catch (e) {
+              setBusy(false)
               setGrounding({ ok: false, reason: '事实对齐服务不可用' })
               workRef.current = { selected: target, seq, text: v, dirty: false }
               toast('投射未保存：事实对齐服务不可用，请稍后重试。', { tone: 'danger', duration: 7000 })
             }
           }
         }
-      },
-      onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
-    })
+        },
+        onError: (e) => { setBusy(false); toast('演绎失败:' + e, { tone: 'danger' }) },  // 不动 text,保留已有内容
+      })
+    }
+    runPass(instr)
   }
 
   // 全局「演绎」入口在尚未从手稿选定章节时也可被打开。该状态没有合法的

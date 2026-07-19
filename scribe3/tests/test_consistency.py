@@ -83,6 +83,10 @@ class TestWriteGate:
         ("POST", "/save-draft"),   # Phase0-BE2 四阶段:写 chapter.draft + 追加 draft 版
         ("POST", "/check"),   # 护栏轻检查:不落库,read-only POST
         ("POST", "/post-check"),   # 生成后全量体检:QC+泄露+纪律LLM,不落库,read-only POST
+        # 语义纪律修复：通过既有章节修复锁产出候选稿；质量门失败绝不落正文。
+        ("POST", "/semantic-repair"),
+        # 作者显式重算派生质量缓存；不改正文、版本或正典数据。
+        ("POST", "/quality/refresh"),
         ("POST", "/draft-check"),   # 块四b 草稿轻量确定性分析:确定性检测器+泄露预览,只读不落库,read-only POST
         # 主编主动化(D-030/031):想法收件箱+Chapter Pilot。授权语义:
         # ideas 只写 idea 表/pilot_steer(setting/revise 永远 pending_approval,宪法);
@@ -134,6 +138,9 @@ class TestWriteGate:
         ("DELETE", "/volumes/{vid}"),
         # 作者工具尾项:事件叙事位编辑(尾1)
         ("PATCH", "/events/{eid}/narrative"),
+        # 事件因果作者直编：独立场景必须给出可审计根理由；建立因果边会清除根理由。
+        ("PATCH", "/events/{eid}/causal-root"),
+        ("PATCH", "/events/{eid}/causal"),
         # 工艺引擎P0 Task4:角色弧光锚(作者直编,局部更新)+ arc_plan 里程碑增删
         ("PATCH", "/char-anchors"),
         ("POST", "/arc-beats"),
