@@ -1,0 +1,27 @@
+{
+  "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "truncated": false,
+  "tree": [
+    {
+      "mode": "100644",
+      "path": "README.md",
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size": 4,
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": "agent.py",
+      "sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "size": 4,
+      "type": "blob"
+    },
+    {
+      "mode": "100644",
+      "path": "skills/x/SKILL.md",
+      "sha": "dddddddddddddddddddddddddddddddddddddddd",
+      "size": 4,
+      "type": "blob"
+    }
+  ]
+}
