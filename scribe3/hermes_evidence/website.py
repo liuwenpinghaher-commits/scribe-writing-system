@@ -622,57 +622,37 @@ def _atomic_write(root: Path, relative_path: Path, data: bytes) -> None:
             stored = _read_fd(descriptor)
             if sha256_bytes(stored) != sha256_bytes(data):
                 raise OSError("atomic write verification failed")
-        finally:
-            os.close(descriptor)
 
-        os.replace(
-            temporary_name,
-            parts[-1],
-            src_dir_fd=parent_fd,
-            dst_dir_fd=parent_fd,
-        )
-        temporary_exists = False
-        os.fsync(parent_fd)
-        if not _directory_identity_is_current(
-            Path(root), root_fd, parts[:-1], parent_fd
-        ):
-            try:
-                os.unlink(parts[-1], dir_fd=parent_fd)
-                os.fsync(parent_fd)
-            except FileNotFoundError:
-                pass
-            raise _UnsafeOutputPath("output directory identity changed")
+            os.replace(
+                temporary_name,
+                parts[-1],
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+            temporary_exists = False
+            os.fsync(parent_fd)
+            if not _directory_identity_is_current(
+                Path(root), root_fd, parts[:-1], parent_fd
+            ):
+                try:
+                    os.unlink(parts[-1], dir_fd=parent_fd)
+                    os.fsync(parent_fd)
+                except FileNotFoundError:
+                    pass
+                raise _UnsafeOutputPath("output directory identity changed")
 
-        final_descriptor = os.open(
-            parts[-1], _FILE_READ_FLAGS, dir_fd=parent_fd
-        )
-        final_mismatch = False
-        try:
-            final_stat = os.fstat(final_descriptor)
+            final_stat = os.fstat(descriptor)
             if not stat.S_ISREG(final_stat.st_mode):
                 raise _UnsafeOutputPath("output target is not a regular file")
-            final_data = _read_fd(final_descriptor)
+            final_data = _read_fd(descriptor)
             if len(final_data) != len(data) or sha256_bytes(
                 final_data
             ) != sha256_bytes(data):
-                final_mismatch = True
+                os.ftruncate(descriptor, 0)
+                os.fsync(descriptor)
+                raise _StoredContentMismatch("stored content mismatch")
         finally:
-            os.close(final_descriptor)
-        if final_mismatch:
-            try:
-                current_stat = os.stat(
-                    parts[-1], dir_fd=parent_fd, follow_symlinks=False
-                )
-            except FileNotFoundError:
-                current_stat = None
-            if current_stat is not None:
-                if not _same_inode(final_stat, current_stat):
-                    raise _UnsafeOutputPath(
-                        "output target identity changed during mismatch cleanup"
-                    )
-                os.unlink(parts[-1], dir_fd=parent_fd)
-                os.fsync(parent_fd)
-            raise _StoredContentMismatch("stored content mismatch")
+            os.close(descriptor)
     finally:
         if (
             temporary_exists

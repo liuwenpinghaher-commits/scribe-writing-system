@@ -253,8 +253,127 @@ def test_website_atomic_final_mismatch_removes_committed_pollution(
     assert manifest.failures == [
         {"requested_url": url, "error": "stored_content_mismatch"}
     ]
-    assert not (tmp_path / "evidence" / relative_path).exists()
+    assert (tmp_path / "evidence" / relative_path).read_bytes() == b""
     assert outside_page.read_text(encoding="utf-8") == "outside sentinel"
+
+
+def test_website_atomic_mismatch_neutralizes_original_inode_after_name_swap(
+    tmp_path, monkeypatch
+):
+    import os
+
+    import scribe3.hermes_evidence.website as website
+    from scribe3.hermes_evidence.models import contains_sensitive_data
+
+    url = "https://hermes-agent.nousresearch.com/docs/mismatch-name-swap"
+    relative_path = Path("pages/mismatch-name-swap.md")
+    polluted_old_name = ".polluted-old"
+    out_root = tmp_path / "evidence"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    outside_page = outside / relative_path.name
+    outside_page.write_text("outside sentinel", encoding="utf-8")
+    sentinel = b"replacement sentinel"
+    pollution = (
+        "Authorization: Bearer " + ("x" * 40) + (" hidden" * 30)
+    ).encode()
+
+    real_replace = website.os.replace
+    mismatch_injected = False
+    swapped = False
+
+    def inject_name_swap(directory_fd):
+        nonlocal swapped
+        if swapped:
+            return
+        swapped = True
+        os.rename(
+            relative_path.name,
+            polluted_old_name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        descriptor = os.open(
+            relative_path.name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        try:
+            os.write(descriptor, sentinel)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def corrupting_replace(source, destination, *args, **kwargs):
+        nonlocal mismatch_injected
+        result = real_replace(source, destination, *args, **kwargs)
+        if destination == relative_path.name and not mismatch_injected:
+            mismatch_injected = True
+            parent_fd = kwargs["dst_dir_fd"]
+            descriptor = os.open(
+                destination,
+                os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=parent_fd,
+            )
+            try:
+                os.write(descriptor, pollution)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            inject_name_swap(parent_fd)
+        return result
+
+    monkeypatch.setattr(website.os, "replace", corrupting_replace)
+
+    async def fake_fetch(urls):
+        return [
+            website.CrawlPage(
+                url=url,
+                final_url=url,
+                status=200,
+                success=True,
+                markdown="# Safe\n" + ("public documentation " * 20),
+                title="Safe",
+                mime_type="text/html",
+            )
+        ]
+
+    baseline_fds = len(os.listdir("/dev/fd"))
+    manifest = asyncio.run(
+        website.crawl_website(
+            [url],
+            fake_fetch,
+            "mismatch-name-swap",
+            out_root,
+            "2026-07-20T00:00:00+00:00",
+        )
+    )
+    final_fds = len(os.listdir("/dev/fd"))
+
+    expected_path = out_root / relative_path
+    polluted_old = expected_path.parent / polluted_old_name
+    assert mismatch_injected and swapped
+    assert manifest.documents == []
+    assert manifest.failures == [
+        {"requested_url": url, "error": "stored_content_mismatch"}
+    ]
+    actual_state = {
+        "swapped": swapped,
+        "sentinel": expected_path.read_bytes() if expected_path.exists() else None,
+        "old_pollution": (
+            contains_sensitive_data(polluted_old.read_text(encoding="utf-8"))
+            if polluted_old.exists()
+            else None
+        ),
+    }
+    assert actual_state == {
+        "swapped": True,
+        "sentinel": sentinel,
+        "old_pollution": False,
+    }
+    assert outside_page.read_text(encoding="utf-8") == "outside sentinel"
+    assert final_fds <= baseline_fds + 2
 
 
 def test_website_retry_after_wins_and_events_are_sanitized():
