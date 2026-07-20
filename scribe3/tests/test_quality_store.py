@@ -268,6 +268,7 @@ def test_contract_revisions_are_append_only_and_approval_is_one_way_cas(store):
         original.contract_id, original.revision, expected_approved=False,
     )
     assert approved.approved is True
+    assert quality.save_contract_revision(original) == approved
     with pytest.raises(ValueError, match="CAS|已批准|状态"):
         quality.approve_contract(
             original.contract_id, original.revision, expected_approved=False,
@@ -299,6 +300,26 @@ def test_reference_work_and_fingerprint_round_trip_without_raw_text_copy(store):
     assert "prose" not in row and "source_text" not in row
     with pytest.raises(ValueError, match="reference work.*冲突|参考作品.*冲突"):
         quality.save_reference_work(work.model_copy(update={"status": "archived"}))
+
+
+def test_fingerprint_can_bind_older_import_after_new_reference_revision_exists(store):
+    quality = QualityStore(store)
+    old = _reference_work()
+    new = old.model_copy(update={
+        "source_hash": _sha("参考作品原文第二版"),
+        "import_revision": 2,
+    })
+    quality.save_reference_work(old)
+    quality.save_reference_work(new)
+
+    fingerprint = quality.save_reference_fingerprint(_fingerprint())
+
+    row = store._query(
+        "SELECT reference_work.import_revision AS import_revision "
+        "FROM reference_fingerprint WHERE fingerprint_id=$fingerprint_id LIMIT 1",
+        {"fingerprint_id": fingerprint.fingerprint_id},
+    )[0]
+    assert row["import_revision"] == 1
 
 
 def test_snapshot_references_frozen_chapter_versions_and_never_copies_prose(store):

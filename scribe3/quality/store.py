@@ -172,7 +172,7 @@ class QualityStore:
             )
             if existing is None:
                 raise conflict
-            if existing != expected:
+            if existing.model_copy(update={"approved": False}) != expected:
                 raise ValueError("合同修订与既有 append-only 当前真相冲突") from conflict
             return existing
         return expected
@@ -252,8 +252,10 @@ class QualityStore:
     ) -> ReferenceFingerprintRecord:
         works = self._store._query(
             "SELECT id, source_hash, import_revision FROM reference_work WHERE "
-            "reference_work_id=$reference_work_id ORDER BY import_revision DESC LIMIT 1",
-            {"reference_work_id": fingerprint.reference_work_id},
+            "reference_work_id=$reference_work_id AND source_hash=$source_hash "
+            "ORDER BY import_revision DESC LIMIT 1",
+            {"reference_work_id": fingerprint.reference_work_id,
+             "source_hash": fingerprint.source_hash},
         )
         if not works or works[0]["source_hash"] != fingerprint.source_hash:
             raise ValueError("参考指纹必须绑定 source_hash 一致的参考作品修订")
