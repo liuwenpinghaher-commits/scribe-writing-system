@@ -98,6 +98,13 @@ export const api = {
   quality: () => j('/quality'),
   // 质量缓存由正文保存/回写时维护；规则升级或历史缓存过期时作者可显式刷新。
   refreshQuality: () => post('/quality/refresh', {}),
+  // 质量决策纵向链:参考作品导入/指纹、章节评价与作者评分。
+  referenceImport: (b) => post('/references/import', b),
+  referenceFingerprints: (id) => j(`/references/${enc(id)}/fingerprints`),
+  referenceGenerateFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints`, b),
+  referenceApproveFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints/approve`, b),
+  qualityEvaluation: (seq) => j(`/quality/evaluation?seq=${enc(seq)}`),
+  qualityAuthorJudgment: (b) => post('/quality/author-judgment', b),
   intent: () => j('/intent'),
   putIntent: (b) => put('/intent', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),

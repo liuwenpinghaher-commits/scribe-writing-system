@@ -31,6 +31,8 @@ vi.mock('../views/TimelineView', () => ({ TimelineView: () => <div data-testid="
 vi.mock('../ContainerOutline', () => ({ ContainerOutline: () => <div data-testid="container-outline" /> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: () => <div data-testid="northstar-panel" /> }))
 vi.mock('../DeduceStage', () => ({ DeduceStage: ({ seq, meta }) => <div>演绎工作台:{seq}:{meta?.scene_truth || ''}</div> }))
+vi.mock('../quality/ReferenceWorks', () => ({ ReferenceWorks: ({ work }) => <div data-testid="reference-works">参考作品:{work}</div> }))
+vi.mock('../quality/QualityReview', () => ({ QualityReview: ({ work, seq }) => <div data-testid="quality-review">质量审阅:{work}:{seq}</div> }))
 
 describe('DetailPane 能力详情路由', () => {
   beforeEach(() => {
@@ -97,6 +99,18 @@ describe('DetailPane 能力详情路由', () => {
     render(<DetailPane sel={{ mode: 'node', node }} work="demo" onSelectNode={() => {}} />)
 
     expect(screen.getByTestId(testId)).toBeTruthy()
+  })
+
+  it('references 节点渲染参考作品工作台', () => {
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'references', type: 'references', label: '参考作品' } }} work="demo" onSelectNode={() => {}} />)
+    expect(screen.getByTestId('reference-works')).toBeTruthy()
+    expect(screen.getByText('参考作品:demo')).toBeTruthy()
+  })
+
+  it('quality_review 节点渲染质量审阅并带章号', () => {
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'quality:7', type: 'quality_review', label: '质量审阅', ref: { seq: 7 } } }} work="demo" onSelectNode={() => {}} />)
+    expect(screen.getByTestId('quality-review')).toBeTruthy()
+    expect(screen.getByText('质量审阅:demo:7')).toBeTruthy()
   })
 
   it('promise_view 渲染真实伏笔台账,不是占位说明', async () => {

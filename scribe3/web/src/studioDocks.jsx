@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot, BookOpen } from 'lucide-react'
+import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot, BookOpen, Library } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
 import { api } from './api'
@@ -21,6 +21,7 @@ import { useSelection } from './selectionContext'
 import { useWorkScopedPref } from './hooks/useWorkScopedPref'
 import { SearchDirectory } from './capabilities/search/SearchDirectory'
 import { IssueDirectory } from './capabilities/issues/IssueDirectory'
+import { ReferenceWorks } from './quality/ReferenceWorks'
 
 // 三栏写作台的「左栏」:VSCode 式竖图标轨 + 一个面板。图标切换:项目树/帧/演绎/伏笔/母题/校验。
 // 项目树是第一个 tab(默认),数据面板并列其后 —— 消灭独立第4栏,导航与数据同栏。
@@ -95,6 +96,7 @@ export function useLeftDockCapabilities({
     ] : [
       { key: 'tree', icon: FolderTree, bare: true, group: 'content', label: '项目树', render: () => projectTree(tree) },
     ]
+    base.push({ key: 'references', icon: Library, bare: true, group: 'content', label: '参考作品', render: () => <ReferenceWorks work={work} /> })
     if (includeStageTabs) {
       base.push(
         { key: 'brief', icon: ScrollText, group: 'content', label: '简报', render: () => <BriefPanel seq={seq} /> },

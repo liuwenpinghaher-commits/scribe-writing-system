@@ -14,6 +14,8 @@ import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDe
 import { VolumeDetailPane } from './layout/VolumeDetailPane'
 import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
+import { ReferenceWorks } from './quality/ReferenceWorks'
+import { QualityReview } from './quality/QualityReview'
 
 // 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
 // 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
@@ -95,6 +97,8 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   if (node.type === 'motif_view') return <MotifDetailPane key={node.id} node={node} work={work} />
   if (node.type === 'recall_result') return <RecallResultDetail key={node.id} node={node} onOpenTarget={onNavigateToObject || onSelectNode} />
   if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} onRecheck={() => {}} />
+  if (node.type === 'references') return <ReferenceWorks key={node.id} work={work} />
+  if (node.type === 'quality_review') return <QualityReview key={node.id} work={work} seq={node.ref?.seq ?? node.meta?.seq} onLocateEvidence={onNavigateToObject} />
 
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;
