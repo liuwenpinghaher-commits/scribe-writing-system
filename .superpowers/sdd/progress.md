@@ -32,7 +32,7 @@
 
 - 计划：`docs/superpowers/plans/2026-07-20-scribe3-quality-p0-runtime-foundation.md`
 - Quality Runtime Task 1: complete（commits 4346d01..069d2ed，复审 Approved；冻结过度证据抓取并重排进度）
-- Quality Runtime Task 2: pending（实现 `0 = unlimited` 后端契约）
+- Quality Runtime Task 2: complete（commits 37c2879..43fe328，复审 Approved；51 passed，`0 = unlimited` 且一致快照）
 - Quality Runtime Task 3: pending（让前端正确呈现无限用量）
 - Quality Runtime Task 4: pending（建立唯一的官方 DeepSeek 无工具客户端）
 - Quality Runtime Task 5: pending（将所有无工具补全统一路由到官方 DeepSeek）
