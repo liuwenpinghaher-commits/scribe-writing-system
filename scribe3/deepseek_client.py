@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Mapping
+from typing import Any, Mapping
 
 import httpx
 
@@ -13,11 +14,33 @@ from scribe3 import settings
 
 OFFICIAL_API_BASE = "https://api.deepseek.com"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
-_RETRYABLE_TRANSPORT_ERRORS = (
+_RETRYABLE_REQUEST_ERRORS = (
     httpx.TimeoutException,
     httpx.NetworkError,
+    httpx.ProxyError,
     httpx.RemoteProtocolError,
 )
+
+
+def _iter_sse_data(lines: Iterable[str]) -> Iterator[str]:
+    """按 SSE 空行组帧，同一帧的多个 data 字段以换行连接。"""
+    data_lines: list[str] = []
+    for line in lines:
+        if line == "":
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines.clear()
+            continue
+        if line.startswith(":"):
+            continue
+        field, separator, value = line.partition(":")
+        if field != "data":
+            continue
+        if separator and value.startswith(" "):
+            value = value[1:]
+        data_lines.append(value)
+    if data_lines:
+        yield "\n".join(data_lines)
 
 
 @dataclass(frozen=True)
@@ -80,7 +103,7 @@ class DeepSeekClient:
         self._client = client
 
     @contextmanager
-    def _client_scope(self):
+    def _client_scope(self) -> Iterator[httpx.Client]:
         if self._client is not None:
             yield self._client
             return
@@ -138,20 +161,38 @@ class DeepSeekClient:
         )
 
     @staticmethod
-    def _safe_transport_error(identity: ProviderIdentity) -> DeepSeekTransportError:
+    def _safe_transport_error(
+        identity: ProviderIdentity,
+        *,
+        retryable: bool,
+    ) -> DeepSeekTransportError:
         return DeepSeekTransportError(
             "连接 DeepSeek 官方接口失败",
             identity=identity,
             status="transport_error",
-            retryable=True,
+            retryable=retryable,
         )
 
     @staticmethod
-    def _safe_response_error(identity: ProviderIdentity) -> DeepSeekResponseError:
+    def _safe_request_error(
+        error: httpx.RequestError,
+        identity: ProviderIdentity,
+    ) -> DeepSeekTransportError:
+        return DeepSeekClient._safe_transport_error(
+            identity,
+            retryable=isinstance(error, _RETRYABLE_REQUEST_ERRORS),
+        )
+
+    @staticmethod
+    def _safe_response_error(
+        identity: ProviderIdentity,
+        *,
+        status: str = "invalid_response",
+    ) -> DeepSeekResponseError:
         return DeepSeekResponseError(
             "DeepSeek 官方接口返回无效补全结构",
             identity=identity,
-            status="invalid_response",
+            status=status,
         )
 
     def complete(
@@ -182,11 +223,10 @@ class DeepSeekClient:
         timeout = self._timeout()
         headers = self._headers(api_key)
         response: httpx.Response | None = None
-        transport_exhausted = False
+        failure: DeepSeekError | None = None
 
         with self._client_scope() as client:
             for attempt in range(retries + 1):
-                transport_failed = False
                 try:
                     response = client.post(
                         _CHAT_COMPLETIONS_URL,
@@ -194,34 +234,31 @@ class DeepSeekClient:
                         json=body,
                         timeout=timeout,
                     )
-                except _RETRYABLE_TRANSPORT_ERRORS:
-                    transport_failed = True
+                except httpx.RequestError as error:
+                    failure = self._safe_request_error(error, identity)
+                else:
+                    if response.status_code >= 400:
+                        failure = self._safe_http_error(response.status_code, identity)
+                    else:
+                        failure = None
+                        break
 
-                if transport_failed:
-                    if attempt < retries:
-                        continue
-                    transport_exhausted = True
-                    break
-
-                assert response is not None
-                if response.status_code >= 500 and attempt < retries:
+                if failure.retryable and attempt < retries:
+                    response = None
                     continue
-                if response.status_code >= 400:
-                    raise self._safe_http_error(response.status_code, identity)
+                response = None
                 break
 
-        if transport_exhausted:
-            raise self._safe_transport_error(identity)
+        if failure is not None:
+            raise failure
         if response is None:
-            raise self._safe_transport_error(identity)
+            raise self._safe_transport_error(identity, retryable=False)
 
-        invalid_json = False
         try:
             payload = response.json()
-        except (TypeError, ValueError, json.JSONDecodeError):
-            invalid_json = True
+        except (TypeError, ValueError):
             payload = None
-        if invalid_json or not isinstance(payload, Mapping):
+        if not isinstance(payload, Mapping):
             raise self._safe_response_error(identity)
 
         choices = payload.get("choices")
@@ -269,12 +306,14 @@ class DeepSeekClient:
         headers = self._headers(api_key)
         retries = self._retry_count()
         timeout = self._timeout()
-        transport_exhausted = False
+        final_failure: DeepSeekError | None = None
 
         with self._client_scope() as client:
             for attempt in range(retries + 1):
-                emitted = False
-                transport_failed = False
+                sent_delta = False
+                done = False
+                pending_usage: dict[str, Any] | None = None
+                attempt_failure: DeepSeekError | None = None
                 try:
                     with client.stream(
                         "POST",
@@ -283,66 +322,93 @@ class DeepSeekClient:
                         json=body,
                         timeout=timeout,
                     ) as response:
-                        if response.status_code >= 500:
-                            if attempt < retries:
-                                continue
-                            raise self._safe_http_error(response.status_code, identity)
                         if response.status_code >= 400:
-                            raise self._safe_http_error(response.status_code, identity)
+                            attempt_failure = self._safe_http_error(
+                                response.status_code,
+                                identity,
+                            )
+                        else:
+                            for raw in _iter_sse_data(response.iter_lines()):
+                                if raw.strip() == "[DONE]":
+                                    done = True
+                                    break
 
-                        for line in response.iter_lines():
-                            if not line or not line.startswith("data:"):
-                                continue
-                            raw = line[5:].strip()
-                            if raw == "[DONE]":
-                                return
-                            malformed = False
-                            try:
-                                payload = json.loads(raw)
-                            except (TypeError, ValueError, json.JSONDecodeError):
-                                malformed = True
-                                payload = None
-                            if malformed or not isinstance(payload, Mapping):
-                                raise self._safe_response_error(identity)
+                                try:
+                                    payload = json.loads(raw)
+                                except (TypeError, ValueError):
+                                    payload = None
+                                if not isinstance(payload, Mapping):
+                                    attempt_failure = self._safe_response_error(identity)
+                                    break
+                                if payload.get("error") is not None:
+                                    attempt_failure = self._safe_response_error(
+                                        identity,
+                                        status="provider_error",
+                                    )
+                                    break
 
-                            event_model = payload.get("model")
-                            if not isinstance(event_model, str) or not event_model:
-                                event_model = requested_model
-                            event_identity = self._identity(event_model)
-                            choices = payload.get("choices")
-                            if isinstance(choices, list) and choices:
-                                choice = choices[0]
-                                delta = choice.get("delta") if isinstance(choice, Mapping) else None
-                                content = delta.get("content") if isinstance(delta, Mapping) else None
-                                if isinstance(content, str) and content:
-                                    emitted = True
-                                    yield {
-                                        "type": "delta",
-                                        "delta": content,
+                                event_model = payload.get("model")
+                                if not isinstance(event_model, str) or not event_model:
+                                    event_model = requested_model
+                                event_identity = self._identity(event_model)
+                                recognized = False
+                                choices = payload.get("choices")
+                                if isinstance(choices, list):
+                                    recognized = True
+                                    if choices:
+                                        choice = choices[0]
+                                        delta = choice.get("delta") if isinstance(choice, Mapping) else None
+                                        if not isinstance(delta, Mapping):
+                                            attempt_failure = self._safe_response_error(identity)
+                                            break
+                                        content = delta.get("content")
+                                        if content is not None and not isinstance(content, str):
+                                            attempt_failure = self._safe_response_error(identity)
+                                            break
+                                        if content:
+                                            sent_delta = True
+                                            yield {
+                                                "type": "delta",
+                                                "delta": content,
+                                                "model": event_model,
+                                                "identity": event_identity,
+                                            }
+
+                                usage = payload.get("usage")
+                                if isinstance(usage, Mapping):
+                                    recognized = True
+                                    pending_usage = {
+                                        "type": "usage",
+                                        "usage": dict(usage),
                                         "model": event_model,
                                         "identity": event_identity,
                                     }
-                            usage = payload.get("usage")
-                            if isinstance(usage, Mapping):
-                                emitted = True
-                                yield {
-                                    "type": "usage",
-                                    "usage": dict(usage),
-                                    "model": event_model,
-                                    "identity": event_identity,
-                                }
-                        return
-                except _RETRYABLE_TRANSPORT_ERRORS:
-                    transport_failed = True
+                                if not recognized:
+                                    attempt_failure = self._safe_response_error(identity)
+                                    break
+                except httpx.RequestError as error:
+                    attempt_failure = self._safe_request_error(error, identity)
 
-                if transport_failed:
-                    if emitted or attempt >= retries:
-                        transport_exhausted = True
-                        break
-                    continue
+                if attempt_failure is not None:
+                    if attempt_failure.retryable and not sent_delta and attempt < retries:
+                        continue
+                    final_failure = attempt_failure
+                    break
+                if not done:
+                    final_failure = self._safe_response_error(
+                        identity,
+                        status="incomplete_stream",
+                    )
+                    break
+                if not sent_delta:
+                    final_failure = self._safe_response_error(identity)
+                    break
+                if pending_usage is not None:
+                    yield pending_usage
+                return
 
-        if transport_exhausted:
-            raise self._safe_transport_error(identity)
+        if final_failure is not None:
+            raise final_failure
 
 
 __all__ = [

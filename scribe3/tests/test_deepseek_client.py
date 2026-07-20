@@ -26,6 +26,37 @@ def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
+def _safe_exception(error):
+    assert isinstance(error, deepseek.DeepSeekError)
+    assert FAKE_API_KEY not in str(error)
+    assert FAKE_API_KEY not in repr(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert {"request", "response", "header", "headers", "cause"}.isdisjoint(vars(error))
+
+
+def _successful_response(operation):
+    if operation == "complete":
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "recovered"}}], "usage": {}},
+        )
+    return httpx.Response(
+        200,
+        text=(
+            'data: {"model":"deepseek-chat","choices":[{"delta":{"content":"恢复"}}]}\n\n'
+            "data: [DONE]\n\n"
+        ),
+    )
+
+
+def _invoke(client, operation):
+    messages = [{"role": "user", "content": "hello"}]
+    if operation == "complete":
+        return client.complete(messages)
+    return list(client.stream(messages))
+
+
 def test_registered_default_model_is_deepseek_chat():
     model_setting = next(item for item in deepseek.settings.REGISTRY if item.key == "llm.model")
     assert model_setting.default == "deepseek-chat"
@@ -212,6 +243,51 @@ def test_connection_errors_retry_according_to_setting_then_succeed():
     assert result.content == "connected"
 
 
+@pytest.mark.parametrize("operation", ["complete", "stream"])
+def test_proxy_error_is_safely_retried_for_both_outbound_paths(operation):
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise httpx.ProxyError(
+                f"proxy rejected {FAKE_API_KEY}",
+                request=request,
+            )
+        return _successful_response(operation)
+
+    with _client(handler) as transport:
+        result = _invoke(deepseek.DeepSeekClient(client=transport), operation)
+
+    assert calls == 3
+    if operation == "complete":
+        assert result.content == "recovered"
+    else:
+        assert [event["delta"] for event in result if event["type"] == "delta"] == ["恢复"]
+
+
+@pytest.mark.parametrize("operation", ["complete", "stream"])
+def test_decoding_error_is_sanitized_without_retry(operation):
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        calls += 1
+        raise httpx.DecodingError(
+            f"cannot decode {FAKE_API_KEY}",
+            request=request,
+        )
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekTransportError) as raised:
+            _invoke(deepseek.DeepSeekClient(client=transport), operation)
+
+    assert calls == 1
+    assert raised.value.retryable is False
+    _safe_exception(raised.value)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -240,8 +316,11 @@ def test_stream_parses_deltas_and_final_usage():
     stream_body = "\n".join(
         [
             'data: {"model":"deepseek-chat","choices":[{"delta":{"content":"你"}}]}',
+            "",
             'data: {"model":"deepseek-chat","choices":[{"delta":{"content":"好"}}]}',
+            "",
             'data: {"model":"deepseek-chat","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"prompt_cache_hit_tokens":3,"prompt_cache_miss_tokens":1}}',
+            "",
             "data: [DONE]",
             "",
         ]
@@ -298,6 +377,104 @@ def test_stream_parses_deltas_and_final_usage():
     ]
     assert FAKE_API_KEY not in repr(events)
     assert "tools" not in observed["body"]
+
+
+def test_stream_200_empty_sse_fails_loud_without_retry():
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, text="")
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+            list(
+                deepseek.DeepSeekClient(client=transport).stream(
+                    [{"role": "user", "content": "hello"}]
+                )
+            )
+
+    assert calls == 1
+    assert raised.value.status == "incomplete_stream"
+    _safe_exception(raised.value)
+
+
+def test_stream_error_payload_fails_loud_and_is_sanitized():
+    body = (
+        f'data: {{"error":{{"message":"provider leaked {FAKE_API_KEY}"}}}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+            list(
+                deepseek.DeepSeekClient(client=transport).stream(
+                    [{"role": "user", "content": "hello"}]
+                )
+            )
+
+    assert raised.value.status == "provider_error"
+    _safe_exception(raised.value)
+
+
+def test_stream_eof_after_first_delta_fails_without_retry():
+    calls = 0
+    body = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        events = deepseek.DeepSeekClient(client=transport).stream(
+            [{"role": "user", "content": "hello"}]
+        )
+        first = next(events)
+        with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+            next(events)
+
+    assert first["delta"] == "partial"
+    assert calls == 1
+    assert raised.value.status == "incomplete_stream"
+    _safe_exception(raised.value)
+
+
+def test_stream_parses_multiline_data_as_one_sse_frame():
+    body = "\n".join(
+        [
+            'data: {"model":"deepseek-chat",',
+            'data: "choices":[{"delta":{"content":"多行"}}]}',
+            "",
+            'data: {"model":"deepseek-chat","choices":[],',
+            'data: "usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}',
+            "",
+            "data: [DONE]",
+            "",
+        ]
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        events = list(
+            deepseek.DeepSeekClient(client=transport).stream(
+                [{"role": "user", "content": "hello"}]
+            )
+        )
+
+    assert [event["type"] for event in events] == ["delta", "usage"]
+    assert events[0]["delta"] == "多行"
+    assert events[1]["usage"] == {
+        "prompt_tokens": 2,
+        "completion_tokens": 1,
+        "total_tokens": 3,
+    }
 
 
 def test_public_dataclasses_have_no_secret_or_header_fields():
