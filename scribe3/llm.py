@@ -245,6 +245,9 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
     client = DeepSeekClient()
     identity = _provider_identity_for_usage(model, client=client)
     ledger_finalized = False
+    terminal_seen = False
+    usage: dict = {}
+    usage_received = False
     try:
         for event in client.stream(
             msgs,
@@ -256,14 +259,19 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
             if isinstance(event_identity, ProviderIdentity):
                 identity = event_identity
             if event.get("type") == "usage" and isinstance(event.get("usage"), dict):
-                if not ledger_finalized:
-                    ledger_finalized = True
-                    _record_provider_usage(
-                        identity,
-                        status="completed",
-                        http_status=200,
-                        usage=dict(event["usage"]),
-                    )
+                if not usage_received:
+                    usage = dict(event["usage"])
+                    usage_received = True
+            elif event.get("type") == "done":
+                terminal_seen = True
+                ledger_finalized = True
+                _record_provider_usage(
+                    identity,
+                    status="completed",
+                    http_status=200,
+                    usage=usage,
+                )
+                break
             elif event.get("type") == "delta" and event.get("delta"):
                 yield event["delta"]
     except GeneratorExit:
@@ -276,7 +284,7 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
             ledger_finalized = True
             _record_provider_failure(error, model=model, client=client)
         raise
-    if not ledger_finalized:
+    if not terminal_seen:
         ledger_finalized = True
         _record_provider_usage(identity, status="incomplete_stream")
         raise DeepSeekResponseError(
@@ -312,9 +320,11 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         else:
             messages.append({"role": "user", "content": message})
         usage: dict = {}
+        usage_received = False
         client = DeepSeekClient()
         identity = _provider_identity_for_usage(model, client=client)
         ledger_finalized = False
+        terminal_seen = False
         event_model = model
         try:
             for event in client.stream(
@@ -331,15 +341,19 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
                 if event.get("type") == "delta" and event.get("delta"):
                     yield {"type": "response.output_text.delta", "delta": event["delta"]}
                 elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
-                    usage = dict(event["usage"])
-                    if not ledger_finalized:
-                        ledger_finalized = True
-                        _record_provider_usage(
-                            identity,
-                            status="completed",
-                            http_status=200,
-                            usage=usage,
-                        )
+                    if not usage_received:
+                        usage = dict(event["usage"])
+                        usage_received = True
+                elif event.get("type") == "done":
+                    terminal_seen = True
+                    ledger_finalized = True
+                    _record_provider_usage(
+                        identity,
+                        status="completed",
+                        http_status=200,
+                        usage=usage,
+                    )
+                    break
         except GeneratorExit:
             if not ledger_finalized:
                 ledger_finalized = True
@@ -350,7 +364,7 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
                 ledger_finalized = True
                 _record_provider_failure(error, model=model, client=client)
             raise
-        if not ledger_finalized:
+        if not terminal_seen:
             ledger_finalized = True
             _record_provider_usage(identity, status="incomplete_stream")
             raise DeepSeekResponseError(

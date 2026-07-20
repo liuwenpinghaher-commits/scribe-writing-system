@@ -103,8 +103,19 @@ export function SettingsView({ work }) {
   const [usage, setUsage] = useState(null)
   const [error, setError] = useState(null)
   const [section, setSection] = useState('llm')
+  const settingsRequest = useRef(0)
   const usageRequest = useRef(0)
-  const reload = () => api.settings().then((r) => { setItems(r.settings); setError(null) }).catch((e) => setError(e))
+  const reload = () => {
+    const revision = ++settingsRequest.current
+    return api.settings()
+      .then((r) => {
+        if (revision === settingsRequest.current) {
+          setItems(r.settings)
+          setError(null)
+        }
+      })
+      .catch((e) => { if (revision === settingsRequest.current) setError(e) })
+  }
   const reloadUsage = () => {
     const revision = ++usageRequest.current
     return api.aiUsage()
@@ -122,7 +133,10 @@ export function SettingsView({ work }) {
   useEffect(() => {
     reload()
     reloadUsage()
-    return () => { usageRequest.current += 1 }
+    return () => {
+      settingsRequest.current += 1
+      usageRequest.current += 1
+    }
   }, [])
   if (error) return (
     <div className="h-full grid place-items-center text-f13 text-faint" data-testid="settings-view">

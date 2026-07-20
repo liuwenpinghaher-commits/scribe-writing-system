@@ -253,6 +253,10 @@ def _sel_events(texts):
         state["n"] += 1
         yield {"type": "response.output_text.delta",
                "delta": f"{_FENCE[0]}{t}{_FENCE[1]}"}
+        yield {
+            "type": "response.completed",
+            "response": {"id": None, "usage": {}},
+        }
     return fn, state
 
 

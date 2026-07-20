@@ -299,7 +299,8 @@ function WriteSlot() {
 // 只说一条(防烦协议:每章每维最多一次;显示即记账,刷新不重复)。
 // 每条自带依据(pulse message 本身就是"因为…"),按钮:聊(seed 预填)/静音此维。
 function UsageChip() {
-  // H-10 全系统预算:日帽(app+MCP 共享 SQLite 台账)+ 今日 token 真实用量。
+  // H-10 全系统预算:日帽(app+MCP 共享 SQLite 台账)+ 分渠道 token 证据。
+  // 官方直连台账与 trace 聚合口径可能覆盖同一次调用，必须并列展示、绝不相加。
   // fail-soft:接口挂/后端旧版无此端点 → 不渲染,绝不拖垮主编区。
   const [u, setU] = useState(null)
   useEffect(() => {
@@ -310,8 +311,15 @@ function UsageChip() {
     return () => { alive = false; clearInterval(t) }
   }, [])
   if (!u?.cap) return null
-  const todayTok = u.tokens?.days?.[0]?.total?.total_tokens ?? 0
-  const tok = todayTok >= 1000 ? `${Math.round(todayTok / 1000)}k` : String(todayTok)
+  const traceTok = u.tokens?.days?.[0]?.total?.total_tokens ?? 0
+  const hasProviderUsage = u.provider_usage != null
+  const providerTok = (u.provider_usage?.days?.[0]?.groups || [])
+    .reduce((sum, group) => sum + (Number(group?.total_tokens) || 0), 0)
+  const formatTok = (value) => value >= 1000 ? `${Math.round(value / 1000)}k` : String(value)
+  const channelLabel = [
+    hasProviderUsage ? `官方直连 ${formatTok(providerTok)} tok` : null,
+    `trace ${formatTok(traceTok)} tok`,
+  ].filter(Boolean).join(' · ')
   const scopeLabel = u.cap.scope === 'shared' ? 'app+MCP 共享台账' : '台账故障,进程内计数(下限)'
   const unlimited = u.cap.unlimited === true
   const usageLabel = unlimited
@@ -321,9 +329,9 @@ function UsageChip() {
     <span
       data-testid="chief-usage-chip"
       className="ml-auto shrink-0 text-meta text-faint tabular-nums whitespace-nowrap"
-      title={`LLM ${unlimited ? '用量' : '日帽'}:${usageLabel}(${scopeLabel});今日 token 合计 ${todayTok}(Hermes 回传 usage 聚合)`}
+      title={`LLM ${unlimited ? '用量' : '日帽'}:${usageLabel}(${scopeLabel});${hasProviderUsage ? `官方直连 ${providerTok} token；` : ''}trace ${traceTok} token${hasProviderUsage ? '；两个渠道可能重叠，不相加' : ''}`}
     >
-      {usageLabel} · {tok} tok
+      {usageLabel} · {channelLabel}
     </span>
   )
 }

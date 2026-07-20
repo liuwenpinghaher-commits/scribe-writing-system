@@ -4603,10 +4603,14 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         yield from drain(parser.flush())
         if not terminal_seen:
             trace["status"] = "incomplete_stream"
+        if trace["status"] == "failed":
+            yield f"data: {_j.dumps({'error': '写作流失败，请重试'}, ensure_ascii=False)}\n\n"
+        elif trace["status"] != "completed":
+            yield f"data: {_j.dumps({'error': '写作流未完整结束，请重试'}, ensure_ascii=False)}\n\n"
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
         # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
         # 只把散文主体包进 proposal,避免对话话术混入手稿。
-        if expect_proposal and not saw_proposal:
+        if trace["status"] == "completed" and expect_proposal and not saw_proposal:
             accumulated = "".join(delta_acc)
             prose_body = _strip_preamble(accumulated)
             if len(prose_body.strip()) >= _FALLBACK_MIN_CHARS:

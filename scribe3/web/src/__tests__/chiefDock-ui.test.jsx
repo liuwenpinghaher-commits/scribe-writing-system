@@ -23,6 +23,15 @@ const apiMock = vi.hoisted(() => ({
   aiUsage: vi.fn(() => Promise.resolve({
     cap: { cap: 500, used_today: 12, remaining: 488, scope: 'shared' },
     tokens: { days: [{ day: '2026-07-10', total: { total_tokens: 34567 } }] },
+    provider_usage: {
+      days: [{
+        day: '2026-07-10',
+        groups: [
+          { provider: 'deepseek', model: 'deepseek-chat', total_tokens: 4000 },
+          { provider: 'deepseek', model: 'deepseek-reasoner', total_tokens: 321 },
+        ],
+      }],
+    },
   })),
 }))
 
@@ -211,12 +220,19 @@ describe('ChiefDock UI', () => {
     expect(screen.getByText('get_chapter')).toBeTruthy()
   })
 
-  it('头部显示全系统预算 chip(日帽笔数 + 今日 token)', async () => {
+  it('头部分渠道显示官方直连与 trace token且明确可能重叠', async () => {
     render(<Harness phase="outline" />)
 
     const chip = await screen.findByTestId('chief-usage-chip')
     expect(chip.textContent).toContain('12/500 发')
-    expect(chip.textContent).toContain('35k tok')   // 34567 → 四舍五入 35k
+    expect(chip.textContent).toContain('官方直连 4k tok')
+    expect(chip.textContent).toContain('trace 35k tok')
+    expect(chip.textContent).not.toContain('39k tok')
+    expect(chip.title).toContain('官方直连 4321 token')
+    expect(chip.title).toContain('trace 34567 token')
+    expect(chip.title).toContain('可能重叠')
+    expect(chip.title).toContain('不相加')
+    expect(chip.title).not.toContain('Hermes')
     expect(apiMock.aiUsage).toHaveBeenCalled()
   })
 

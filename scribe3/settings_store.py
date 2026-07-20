@@ -6,7 +6,8 @@
   stdio 进程要共享同一份设置。
 - fail-soft 边界:读故障回空(系统回落 env/默认值照常工作,告警一次);
   写故障原样抛(修改必须显式失败,不能假装成功)。
-- 本地权限边界:数据库直接父目录收紧为 0700,数据库文件收紧为 0600;
+- 本地权限边界:仅本次调用新建的数据库直接父目录设为 0700；已有自定义父目录
+  保持原权限，数据库文件仍收紧为 0600;
   当前不宣称静态加密。只读窄探针不创建文件、不 chmod。
 - value 一律 JSON 编码字符串;secret 项审计只记 «secret»,绝不落明文。
   审计 old 值在同一事务内原子读取,不信任调用方;key 命中敏感词
@@ -36,8 +37,12 @@ def db_path() -> Path:
 
 def _connect() -> sqlite3.Connection:
     path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o700)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        pass
+    else:
+        os.chmod(path.parent, 0o700)
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(str(path), timeout=2.0)

@@ -496,6 +496,7 @@ def test_stream_parses_deltas_and_final_usage():
             "model": "deepseek-chat",
             "identity": identity,
         },
+        {"type": "done", "model": "deepseek-chat", "identity": identity},
     ]
     assert FAKE_API_KEY not in repr(events)
     assert "tools" not in observed["body"]
@@ -590,7 +591,7 @@ def test_stream_parses_multiline_data_as_one_sse_frame():
             )
         )
 
-    assert [event["type"] for event in events] == ["delta", "usage"]
+    assert [event["type"] for event in events] == ["delta", "usage", "done"]
     assert events[0]["delta"] == "多行"
     assert events[1]["usage"] == {
         "prompt_tokens": 2,
@@ -616,6 +617,36 @@ def test_stream_ignores_one_utf8_bom_on_first_line():
         )
 
     assert [event["delta"] for event in events if event["type"] == "delta"] == ["含BOM"]
+
+
+def test_stream_done_without_usage_emits_explicit_done_event():
+    body = (
+        'data: {"model":"deepseek-chat","choices":[{"delta":{"content":"完成"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        events = list(
+            deepseek.DeepSeekClient(client=transport).stream(
+                [{"role": "user", "content": "hello"}]
+            )
+        )
+
+    assert [event["type"] for event in events] == ["delta", "done"]
+    assert events[-1] == {
+        "type": "done",
+        "model": "deepseek-chat",
+        "identity": deepseek.ProviderIdentity(
+            provider="deepseek",
+            api_base="https://api.deepseek.com",
+            model="deepseek-chat",
+            official=True,
+            transport="httpx",
+        ),
+    }
 
 
 def test_public_dataclasses_have_no_secret_or_header_fields():

@@ -334,6 +334,36 @@ describe('SettingsView', () => {
     })
   })
 
+  it('较旧 settings 请求晚返回时不得覆盖保存后的新 revision', async () => {
+    let resolveOld
+    let resolveNew
+    const settingsPayload = (model) => ({
+      settings: ITEMS.map((item) => (
+        item.key === 'llm.model' ? { ...item, value: model } : item
+      )),
+      categories: ['connection', 'llm', 'craft', 'flags', 'gateway'],
+    })
+    apiMock.settings
+      .mockResolvedValueOnce(settingsPayload('deepseek-chat'))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve }))
+    render(<SettingsView work="demo" />)
+
+    const input = await screen.findByRole('textbox', { name: '补全模型名' })
+    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
+
+    fireEvent.change(input, { target: { value: 'deepseek-newest' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(3))
+
+    await act(async () => { resolveNew(settingsPayload('deepseek-newest')) })
+    await waitFor(() => expect(input.value).toBe('deepseek-newest'))
+    await act(async () => { resolveOld(settingsPayload('deepseek-reasoner')) })
+    await waitFor(() => expect(input.value).toBe('deepseek-newest'))
+  })
+
   it('拉取失败显示错误态与重试', async () => {
     apiMock.settings.mockRejectedValueOnce(new Error('boom'))
     render(<SettingsView work="demo" />)

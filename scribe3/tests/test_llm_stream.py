@@ -448,6 +448,7 @@ class TestToolFreeOfficialRouting:
                     "model": "deepseek-chat",
                     "identity": identity,
                 }
+                yield {"type": "done", "model": "deepseek-chat", "identity": identity}
 
         monkeypatch.setattr(llm, "DeepSeekClient", FakeClient, raising=False)
         monkeypatch.setattr(llm, "_tick_daily", lambda: None)
@@ -659,6 +660,53 @@ class TestToolFreeOfficialRouting:
             "transport": "hermes",
         }
 
+    @pytest.mark.parametrize("failure_mode", ["failed_event", "eof"])
+    def test_write_stream_non_completed_sends_safe_error_then_done_without_fallback(
+        self,
+        monkeypatch,
+        failure_mode,
+    ):
+        from scribe3 import app as appmod
+
+        secret_sentinel = "upstream-private-sentinel"
+        partial = "未完成正文" * 30
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": partial}
+            if failure_mode == "failed_event":
+                yield {
+                    "type": "response.failed",
+                    "response": {
+                        "id": "resp_failed",
+                        "error": f"Authorization: Bearer {secret_sentinel}",
+                    },
+                }
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        frames = list(appmod._stream_write(
+            "写场景",
+            "只据事实",
+            expect_proposal=True,
+            with_tools=True,
+            on_complete=lambda _text, trace: persisted.append(trace),
+        ))
+        payloads = [json.loads(frame.removeprefix("data: ")) for frame in frames]
+
+        assert payloads[0] == {"delta": partial}
+        assert list(payloads[1]) == ["error"]
+        assert payloads[1]["error"] in {
+            "写作流失败，请重试",
+            "写作流未完整结束，请重试",
+        }
+        assert secret_sentinel not in payloads[1]["error"]
+        assert payloads[2] == {"done": True}
+        assert len(payloads) == 3
+        assert all("proposal" not in payload for payload in payloads)
+        assert persisted[0]["status"] == (
+            "failed" if failure_mode == "failed_event" else "incomplete_stream"
+        )
+
     def test_write_stream_client_cancel_persists_partial_text_and_cancelled_trace(
         self,
         monkeypatch,
@@ -762,6 +810,7 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
                 "model": "deepseek-chat",
                 "identity": identity,
             }
+            yield {"type": "done", "model": "deepseek-chat", "identity": identity}
 
     monkeypatch.setattr(llm, "_tick_daily", lambda: None)
     monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
@@ -977,6 +1026,8 @@ def test_streaming_facades_record_only_first_final_usage_event(monkeypatch, oper
                 "model": "deepseek-chat",
                 "identity": identity,
             }
+            yield {"type": "done", "model": "deepseek-chat", "identity": identity}
+            yield {"type": "done", "model": "deepseek-chat", "identity": identity}
 
     records = []
     monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
@@ -999,6 +1050,81 @@ def test_streaming_facades_record_only_first_final_usage_event(monkeypatch, oper
         "http_status": 200,
         "usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5},
     }]
+
+
+@pytest.mark.parametrize("operation", ["stream", "responses"])
+def test_streaming_facades_done_without_usage_records_zero_token_success(
+    monkeypatch,
+    operation,
+):
+    from scribe3 import llm, usage
+
+    identity = _provider_identity()
+
+    class FakeClient:
+        def stream(self, _messages, **_kwargs):
+            yield {"type": "delta", "delta": "完成", "model": "deepseek-chat", "identity": identity}
+            yield {"type": "done", "model": "deepseek-chat", "identity": identity}
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    if operation == "stream":
+        assert list(llm.hermes_complete_stream("写", model="deepseek-chat")) == ["完成"]
+    else:
+        events = list(llm.hermes_responses_events(
+            "写", "只输出正文", model="deepseek-chat", with_tools=False,
+        ))
+        assert events[-1]["type"] == "response.completed"
+        assert events[-1]["response"]["usage"] == {}
+
+    assert records == [{
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "transport": "httpx",
+        "status": "completed",
+        "http_status": 200,
+        "usage": {},
+    }]
+
+
+@pytest.mark.parametrize("operation", ["stream", "responses"])
+def test_streaming_facades_usage_without_done_is_incomplete(monkeypatch, operation):
+    from scribe3 import llm, usage
+
+    identity = _provider_identity()
+
+    class FakeClient:
+        def stream(self, _messages, **_kwargs):
+            yield {"type": "delta", "delta": "半截", "model": "deepseek-chat", "identity": identity}
+            yield {
+                "type": "usage",
+                "usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5},
+                "model": "deepseek-chat",
+                "identity": identity,
+            }
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    if operation == "stream":
+        invoke = lambda: list(llm.hermes_complete_stream("写", model="deepseek-chat"))
+    else:
+        invoke = lambda: list(llm.hermes_responses_events(
+            "写", "只输出正文", model="deepseek-chat", with_tools=False,
+        ))
+
+    with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+        invoke()
+
+    assert raised.value.status == "incomplete_stream"
+    assert len(records) == 1
+    assert records[0]["status"] == "incomplete_stream"
+    assert records[0]["usage"] is None
 
 
 @pytest.mark.parametrize("operation", ["stream", "responses"])

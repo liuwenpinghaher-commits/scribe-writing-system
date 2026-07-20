@@ -336,7 +336,7 @@ def test_settings_db_new_parent_and_file_permissions_are_restricted(tmp_path, mo
     assert stat.S_IMODE(db.stat().st_mode) == 0o600
 
 
-def test_settings_db_existing_wide_permissions_are_tightened_without_touching_ancestor(
+def test_settings_db_existing_parent_permissions_are_preserved_while_file_is_tightened(
     tmp_path,
     monkeypatch,
 ):
@@ -353,8 +353,42 @@ def test_settings_db_existing_wide_permissions_are_tightened_without_touching_an
     settings_store.set_override("llm.model", json.dumps("deepseek-chat"))
 
     assert stat.S_IMODE(ancestor.stat().st_mode) == 0o755
-    assert stat.S_IMODE(parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(parent.stat().st_mode) == 0o777
     assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+
+def test_settings_readers_preserve_existing_parent_permissions(tmp_path, monkeypatch):
+    parent = tmp_path / "custom-settings-home"
+    parent.mkdir()
+    db = parent / "settings.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE setting_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "ts TEXT NOT NULL, key TEXT NOT NULL, old TEXT, new TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO setting(key, value, updated_at) VALUES(?,?,?)",
+            ("llm.model", json.dumps("deepseek-chat"), "2026-07-20T00:00:00"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    os.chmod(parent, 0o751)
+    os.chmod(db, 0o644)
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+
+    assert settings_store.get_all_overrides()["llm.model"] == json.dumps("deepseek-chat")
+    assert stat.S_IMODE(parent.stat().st_mode) == 0o751
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+    os.chmod(db, 0o644)
+    assert settings_store.get_override("llm.model") == json.dumps("deepseek-chat")
+    assert stat.S_IMODE(parent.stat().st_mode) == 0o751
+    assert stat.S_IMODE(db.stat().st_mode) == 0o644
 
 
 def test_settings_write_fails_loud_when_permission_tightening_fails(tmp_path, monkeypatch):

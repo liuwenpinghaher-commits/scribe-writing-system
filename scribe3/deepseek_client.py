@@ -334,6 +334,8 @@ class DeepSeekClient:
                 sent_delta = False
                 done = False
                 pending_usage: dict[str, Any] | None = None
+                terminal_model = requested_model
+                terminal_identity = identity
                 attempt_failure: DeepSeekError | None = None
                 try:
                     with client.stream(
@@ -372,6 +374,8 @@ class DeepSeekClient:
                                 if not isinstance(event_model, str) or not event_model:
                                     event_model = requested_model
                                 event_identity = self._identity(event_model)
+                                terminal_model = event_model
+                                terminal_identity = event_identity
                                 recognized = False
                                 choices = payload.get("choices")
                                 if isinstance(choices, list):
@@ -426,6 +430,11 @@ class DeepSeekClient:
                     break
                 if pending_usage is not None:
                     yield pending_usage
+                yield {
+                    "type": "done",
+                    "model": terminal_model,
+                    "identity": terminal_identity,
+                }
                 return
 
         if final_failure is not None:
