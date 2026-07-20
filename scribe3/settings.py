@@ -188,6 +188,25 @@ def is_explicitly_configured(key: str) -> bool:
     return settings_store.has_override(key)
 
 
+def get_public_setting(key: str):
+    """窄读取单个非 secret 设置；不触发全量覆盖值缓存。"""
+    setting = _BY_KEY[key]
+    if setting.type == "secret":
+        raise ValueError(f"{key} 是 secret 设置")
+    raw = settings_store.get_override(key)
+    if raw is not None:
+        try:
+            return _coerce(setting, json.loads(raw))
+        except Exception as e:
+            _warn_once(key, "DB 覆盖", e)
+    if key.isupper() and key in os.environ and os.environ[key] != "":
+        try:
+            return _coerce(setting, os.environ[key])
+        except Exception as e:
+            _warn_once(key, "env", e)
+    return setting.default
+
+
 def put_setting(key: str, value) -> dict:
     s = _BY_KEY[key]   # 未登记 → KeyError,调用方转 404
     coerced = _coerce(s, value)

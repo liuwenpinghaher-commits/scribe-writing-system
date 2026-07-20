@@ -40,6 +40,7 @@ function UsageCard() {
     && provider?.transport === 'direct'
     && provider?.api_base === 'https://api.deepseek.com'
     && providerModel.length > 0
+    && typeof provider?.key_configured === 'boolean'
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
       {officialDeepSeek && (

@@ -171,6 +171,78 @@ def test_explicit_configuration_probe_uses_read_only_select_one(tmp_path, monkey
     assert "value" not in selects[0].lower()
 
 
+def test_public_setting_rejects_unknown_and_secret_keys():
+    with pytest.raises(KeyError):
+        settings.get_public_setting("no.such.key")
+    with pytest.raises(ValueError, match="secret"):
+        settings.get_public_setting("DEEPSEEK_API_KEY")
+
+
+def test_get_override_cold_path_does_not_create_database(tmp_path, monkeypatch):
+    cold_db = tmp_path / "not-created-public" / "settings.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(cold_db))
+    assert cold_db.parent.exists() is False
+    assert cold_db.exists() is False
+
+    assert settings_store.get_override("llm.model") is None
+    assert cold_db.parent.exists() is False
+    assert cold_db.exists() is False
+
+
+def test_public_setting_reads_only_target_db_value(tmp_path, monkeypatch):
+    db = tmp_path / "public-probe.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO setting(key, value, updated_at) VALUES(?,?,?)",
+            [
+                ("llm.model", json.dumps("deepseek-reasoner"), "2026-07-20T00:00:00"),
+                ("DEEPSEEK_API_KEY", json.dumps("neighbor-private-value"), "2026-07-20T00:00:00"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+    queries = []
+    real_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        assert kwargs.get("uri") is True
+        assert "mode=ro" in str(args[0])
+        traced = real_connect(*args, **kwargs)
+        traced.set_trace_callback(queries.append)
+        return traced
+
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("public setting reached a broad setting reader")
+    )
+    monkeypatch.setattr(settings_store.sqlite3, "connect", traced_connect)
+    monkeypatch.setattr(settings_store, "get_all_overrides", forbidden)
+    monkeypatch.setattr(settings, "get_setting", forbidden)
+    monkeypatch.setattr(settings, "settings_snapshot", forbidden)
+
+    assert settings.get_public_setting("llm.model") == "deepseek-reasoner"
+    selects = [query for query in queries if query.lstrip().upper().startswith("SELECT")]
+    assert len(selects) == 1
+    assert "SELECT value FROM setting" in selects[0]
+    assert "llm.model" in selects[0]
+    assert "DEEPSEEK_API_KEY" not in selects[0]
+    assert "neighbor-private-value" not in selects[0]
+
+
+def test_public_setting_coerces_target_env_and_uses_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "missing.sqlite3"))
+    monkeypatch.setenv("SCRIBE3_DAILY_CALL_CAP", "123")
+
+    assert settings.get_public_setting("SCRIBE3_DAILY_CALL_CAP") == 123
+    assert settings.get_public_setting("llm.model") == "deepseek-chat"
+
+
 def test_coerce_int_rejects_fractional_float():
     # int 键收到非整数 float 不许静默截断
     with pytest.raises(ValueError):

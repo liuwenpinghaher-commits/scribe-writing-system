@@ -93,6 +93,26 @@ def has_override(key: str) -> bool:
         return False
 
 
+def get_override(key: str) -> str | None:
+    """只读返回某 key 的 JSON 值；不创建目录/数据库/表。"""
+    path = db_path()
+    if not path.is_file():
+        return None
+    try:
+        uri = f"{path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        try:
+            row = conn.execute(
+                "SELECT value FROM setting WHERE key=? LIMIT 1",
+                (key,),
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
 def set_override(key: str, value_json: str, *, mask: bool = False) -> None:
     """写覆盖值 + 审计。old 在同一事务内原子读取;敏感 key 强制掩码。写故障原样抛。"""
     mask = mask or bool(_SENSITIVE.search(key))

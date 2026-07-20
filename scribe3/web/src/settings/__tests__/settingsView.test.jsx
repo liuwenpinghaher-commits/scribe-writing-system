@@ -177,6 +177,26 @@ describe('SettingsView', () => {
     expect(screen.queryByText(/官方 DeepSeek/)).toBeNull()
   })
 
+  it.each([
+    ['key_configured 缺失', {}],
+    ['key_configured 为 null', { key_configured: null }],
+    ['key_configured 为字符串', { key_configured: 'true' }],
+  ])('密钥状态非布尔时隐藏官方行：%s', async (_label, keyState) => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main',
+      cap: { cap: 0, used_today: 1, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [] },
+      provider: {
+        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        official: true, transport: 'direct', ...keyState,
+      },
+    }))
+    render(<SettingsView work="demo" />)
+
+    await screen.findByText(/今日已用 1 发/)
+    expect(screen.queryByText(/官方 DeepSeek/)).toBeNull()
+  })
+
   it('未显式配置 DeepSeek 密钥时如实显示未配置', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',

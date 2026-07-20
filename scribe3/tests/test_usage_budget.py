@@ -166,8 +166,11 @@ def test_usage_summary_empty_store(store):
 
 def test_ai_usage_endpoint(store, monkeypatch):
     import scribe3.app as A
+    from scribe3 import settings as S
+
     A.set_store(store)
-    monkeypatch.setattr(L, "_cap", lambda: 100)
+    public = {"llm.model": "deepseek-chat", "SCRIBE3_DAILY_CALL_CAP": 100}
+    monkeypatch.setattr(S, "get_public_setting", public.__getitem__, raising=False)
     L._reset_daily_counter()
     U.tick(cap=100)
     store.add_chat_message(2, "draft", "assistant", "回", trace={
@@ -182,27 +185,20 @@ def test_ai_usage_endpoint(store, monkeypatch):
     L._reset_daily_counter()
 
 
-def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(store, monkeypatch):
-    """provider 只调窄存在性探针，不得触发任何设置值/快照读取。"""
+def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
+    store, tmp_path, monkeypatch
+):
+    """identity/model/cap/key 均走窄接口，冷缓存下禁用宽读取仍可成功。"""
     import scribe3.app as A
     from scribe3 import settings as S, settings_store
 
     A.set_store(store)
-    calls = []
-    monkeypatch.setattr(L, "_cap", lambda: 0)
-    monkeypatch.setattr(L, "official_deepseek_provider_identity", lambda: {
-        "provider": "deepseek",
-        "api_base": "https://api.deepseek.com",
-        "model": "deepseek-chat",
-        "official": True,
-        "transport": "httpx",
-    })
-    monkeypatch.setattr(
-        S,
-        "is_explicitly_configured",
-        lambda key: calls.append(key) or True,
-        raising=False,
-    )
+    cold_db = tmp_path / "provider-public-settings.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(cold_db))
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    monkeypatch.delenv("SCRIBE3_DAILY_CALL_CAP", raising=False)
+    S.invalidate_cache()
+    assert cold_db.exists() is False
     forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         AssertionError("provider evidence attempted to read setting values")
     )
@@ -222,7 +218,8 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(store, m
         "key_configured": True,
     }
     assert type(provider["key_configured"]) is bool
-    assert calls == ["DEEPSEEK_API_KEY"]
+    assert response.json()["cap"]["cap"] == 0
+    assert cold_db.exists() is False
 
 
 def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypatch):
@@ -250,8 +247,11 @@ def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypa
 
 def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):
     import scribe3.app as A
+    from scribe3 import settings as S
+
     A.set_store(store)
-    monkeypatch.setattr(L, "_cap", lambda: 0)
+    public = {"llm.model": "deepseek-chat", "SCRIBE3_DAILY_CALL_CAP": 0}
+    monkeypatch.setattr(S, "get_public_setting", public.__getitem__, raising=False)
     L._reset_daily_counter()
     U.tick(cap=0)
     cap = TestClient(A.app).get("/ai/usage").json()["cap"]
@@ -268,20 +268,27 @@ def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):
 def test_ai_usage_endpoint_reads_one_consistent_cap_snapshot(store, monkeypatch):
     """热设置/并发变化时，cap 对象只能由同一次 cap 与 used 快照计算。"""
     import scribe3.app as A
+    from scribe3 import settings as S
+
     A.set_store(store)
     cap_values = iter((100, 200))
     used_values = iter(((4, "shared"), (90, "process")))
-    calls = {"cap": 0, "used": 0}
+    calls = {"model": 0, "cap": 0, "used": 0}
 
-    def varying_cap():
-        calls["cap"] += 1
-        return next(cap_values)
+    def varying_public(key):
+        if key == "llm.model":
+            calls["model"] += 1
+            return "deepseek-chat"
+        if key == "SCRIBE3_DAILY_CALL_CAP":
+            calls["cap"] += 1
+            return next(cap_values)
+        raise AssertionError(f"unexpected public setting: {key}")
 
     def varying_used():
         calls["used"] += 1
         return next(used_values)
 
-    monkeypatch.setattr(L, "_cap", varying_cap)
+    monkeypatch.setattr(S, "get_public_setting", varying_public, raising=False)
     monkeypatch.setattr(U, "used_today", varying_used)
     cap = TestClient(A.app).get("/ai/usage").json()["cap"]
     assert cap == {
@@ -291,7 +298,7 @@ def test_ai_usage_endpoint_reads_one_consistent_cap_snapshot(store, monkeypatch)
         "unlimited": False,
         "scope": "shared",
     }
-    assert calls == {"cap": 1, "used": 1}
+    assert calls == {"model": 1, "cap": 1, "used": 1}
 
 
 def test_ai_usage_endpoint_store_failure_failsoft(store, monkeypatch):

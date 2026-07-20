@@ -1101,7 +1101,8 @@ def ai_usage(work: str = "main", days: int = 7):
     from scribe3 import llm as llm_mod
     from scribe3 import settings as settings_mod
 
-    identity = llm_mod.official_deepseek_provider_identity()
+    model = settings_mod.get_public_setting("llm.model")
+    identity = llm_mod.official_deepseek_provider_identity(model)
     key_configured = settings_mod.is_explicitly_configured("DEEPSEEK_API_KEY")
     # 严格 allowlist：不返回 identity/设置对象本身，更不读取 key 内容。
     provider = {
@@ -1113,7 +1114,7 @@ def ai_usage(work: str = "main", days: int = 7):
         "transport": "direct",
         "key_configured": key_configured,
     }
-    cap_value = llm_mod._cap()
+    cap_value = settings_mod.get_public_setting("SCRIBE3_DAILY_CALL_CAP")
     used, scope = usage_mod.used_today()
     unlimited = cap_value == 0
     remaining = None if unlimited else max(0, cap_value - used)
