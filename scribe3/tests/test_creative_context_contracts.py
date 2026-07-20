@@ -137,7 +137,7 @@ def test_manifest_rejects_same_version_forged_policy_that_allows_reference_canon
 
 
 def test_manifest_never_serializes_free_form_secret_reason():
-    secret = "绝不能进入 Manifest 的秘密正文:甲是狐妖"
+    secret = "untrusted_reason_payload"
     source = ContextSource(
         source_id="fact:1", source_kind="canonical", work="book-a",
         reason=secret,
