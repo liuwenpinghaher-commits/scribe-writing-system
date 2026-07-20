@@ -94,6 +94,22 @@ def test_public_identity_resolves_model_without_key_or_transport(
     )
 
 
+def test_public_identity_preserves_explicit_empty_model_without_fallback(monkeypatch):
+    class ForbiddenTransport:
+        def __getattribute__(self, name):
+            raise AssertionError(f"identity touched transport attribute: {name}")
+
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("identity used a forbidden fallback")
+    )
+    monkeypatch.setattr(deepseek.settings, "get_setting", forbidden)
+    monkeypatch.setattr(deepseek.DeepSeekClient, "_api_key", forbidden)
+    client = deepseek.DeepSeekClient(client=ForbiddenTransport())
+
+    identity = client.identity("")
+    assert identity.model == ""
+
+
 def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
     observed = {}
 

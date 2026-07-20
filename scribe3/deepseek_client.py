@@ -131,7 +131,7 @@ class DeepSeekClient:
 
     @staticmethod
     def _model(model: str | None) -> str:
-        return model or str(settings.get_setting("llm.model"))
+        return str(settings.get_setting("llm.model")) if model is None else model
 
     @staticmethod
     def _api_key(identity: ProviderIdentity) -> str:

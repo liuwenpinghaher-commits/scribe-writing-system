@@ -222,6 +222,32 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
     assert cold_db.exists() is False
 
 
+def test_ai_usage_endpoint_preserves_empty_sqlite_model_without_broad_read(
+    store, tmp_path, monkeypatch
+):
+    import scribe3.app as A
+    from scribe3 import settings as S, settings_store
+
+    A.set_store(store)
+    db = tmp_path / "provider-empty-model.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    settings_store.set_override("llm.model", json.dumps(""))
+    settings_store.set_override("SCRIBE3_DAILY_CALL_CAP", json.dumps(0))
+    S.invalidate_cache()
+
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("empty explicit model fell back to a broad setting reader")
+    )
+    monkeypatch.setattr(S, "get_setting", forbidden)
+    monkeypatch.setattr(S, "settings_snapshot", forbidden)
+    monkeypatch.setattr(settings_store, "get_all_overrides", forbidden)
+
+    response = TestClient(A.app).get("/ai/usage")
+    assert response.status_code == 200
+    assert response.json()["provider"]["model"] == ""
+
+
 def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypatch):
     import scribe3.app as A
     from scribe3 import settings as S
