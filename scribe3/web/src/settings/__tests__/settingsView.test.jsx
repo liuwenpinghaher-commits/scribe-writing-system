@@ -155,6 +155,28 @@ describe('SettingsView', () => {
     expect(await screen.findByText('官方 DeepSeek · deepseek-chat · 直连')).toBeTruthy()
   })
 
+  it.each([
+    ['provider 非 deepseek', { provider: 'proxy', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: true, transport: 'direct' }],
+    ['official 非 true', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: false, transport: 'direct' }],
+    ['transport 非 direct', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: true, transport: 'httpx' }],
+    ['api_base 非官方精确值', { provider: 'deepseek', api_base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', official: true, transport: 'direct' }],
+    ['api_base 缺失', { provider: 'deepseek', model: 'deepseek-chat', official: true, transport: 'direct' }],
+    ['model 为空字符串', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: '', official: true, transport: 'direct' }],
+    ['model 仅空白', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: '   ', official: true, transport: 'direct' }],
+    ['model 非字符串', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 42, official: true, transport: 'direct' }],
+  ])('非严格官方直连身份时隐藏官方行：%s', async (_label, provider) => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main',
+      cap: { cap: 0, used_today: 1, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [] },
+      provider: { ...provider, key_configured: true },
+    }))
+    render(<SettingsView work="demo" />)
+
+    await screen.findByText(/今日已用 1 发/)
+    expect(screen.queryByText(/官方 DeepSeek/)).toBeNull()
+  })
+
   it('未显式配置 DeepSeek 密钥时如实显示未配置', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',

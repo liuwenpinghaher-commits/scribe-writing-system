@@ -183,23 +183,32 @@ def test_ai_usage_endpoint(store, monkeypatch):
 
 
 def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(store, monkeypatch):
-    """provider 只允许公开字段；设置对象、密钥和异常不得被透传。"""
+    """provider 只调窄存在性探针，不得触发任何设置值/快照读取。"""
     import scribe3.app as A
-    from scribe3 import settings as S
+    from scribe3 import settings as S, settings_store
 
     A.set_store(store)
-    credential_sentinel = "provider-credential-must-stay-private"
-    monkeypatch.setattr(S, "settings_snapshot", lambda: [
-        {
-            "key": "DEEPSEEK_API_KEY",
-            "type": "secret",
-            "is_set": True,
-            "value": credential_sentinel,
-            "Authorization": f"Bearer {credential_sentinel}",
-            "error": RuntimeError("provider-internal-error"),
-        },
-        {"key": "unrelated.setting", "value": {"private": credential_sentinel}},
-    ])
+    calls = []
+    monkeypatch.setattr(L, "_cap", lambda: 0)
+    monkeypatch.setattr(L, "official_deepseek_provider_identity", lambda: {
+        "provider": "deepseek",
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-chat",
+        "official": True,
+        "transport": "httpx",
+    })
+    monkeypatch.setattr(
+        S,
+        "is_explicitly_configured",
+        lambda key: calls.append(key) or True,
+        raising=False,
+    )
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("provider evidence attempted to read setting values")
+    )
+    monkeypatch.setattr(S, "get_setting", forbidden)
+    monkeypatch.setattr(S, "settings_snapshot", forbidden)
+    monkeypatch.setattr(settings_store, "get_all_overrides", forbidden)
 
     response = TestClient(A.app).get("/ai/usage")
     assert response.status_code == 200
@@ -213,16 +222,7 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(store, m
         "key_configured": True,
     }
     assert type(provider["key_configured"]) is bool
-
-    serialized = json.dumps(response.json(), ensure_ascii=False)
-    for forbidden in (
-        credential_sentinel,
-        "Authorization",
-        "DEEPSEEK_API_KEY",
-        "provider-internal-error",
-        "unrelated.setting",
-    ):
-        assert forbidden not in serialized
+    assert calls == ["DEEPSEEK_API_KEY"]
 
 
 def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypatch):
@@ -230,12 +230,22 @@ def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypa
     from scribe3 import settings as S
 
     A.set_store(store)
-    monkeypatch.setattr(S, "settings_snapshot", lambda: [
-        {"key": "DEEPSEEK_API_KEY", "type": "secret", "is_set": False, "value": None},
-    ])
+    calls = []
+    monkeypatch.setattr(
+        S,
+        "is_explicitly_configured",
+        lambda key: calls.append(key) or False,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        S,
+        "settings_snapshot",
+        lambda: (_ for _ in ()).throw(AssertionError("usage endpoint must not load settings snapshot")),
+    )
 
     provider = TestClient(A.app).get("/ai/usage").json()["provider"]
     assert provider["key_configured"] is False
+    assert calls == ["DEEPSEEK_API_KEY"]
 
 
 def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):
@@ -285,12 +295,18 @@ def test_ai_usage_endpoint_reads_one_consistent_cap_snapshot(store, monkeypatch)
 
 
 def test_ai_usage_endpoint_store_failure_failsoft(store, monkeypatch):
-    """store 聚合挂 → 端点仍回帽信息,tokens 带 error 不 500(fail-soft)。"""
+    """store 聚合挂 → 只回稳定错误码，底层异常/secret 不序列化。"""
     import scribe3.app as A
     A.set_store(store)
+    secret_sentinel = "usage-summary-private-sentinel"
     monkeypatch.setattr(type(store), "usage_summary",
-                        lambda self, days=7: (_ for _ in ()).throw(RuntimeError("db挂了")))
+                        lambda self, days=7: (_ for _ in ()).throw(RuntimeError(
+                            f"Authorization: Bearer {secret_sentinel}"
+                        )))
     r = TestClient(A.app).get("/ai/usage")
     assert r.status_code == 200
-    assert r.json()["tokens"]["days"] == []
-    assert "db挂了" in r.json()["tokens"]["error"]
+    assert r.json()["tokens"] == {"days": [], "error": "usage_summary_unavailable"}
+    serialized = json.dumps(r.json(), ensure_ascii=False)
+    assert secret_sentinel not in serialized
+    assert "Authorization" not in serialized
+    assert "Bearer" not in serialized

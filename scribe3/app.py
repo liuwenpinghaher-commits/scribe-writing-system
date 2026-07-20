@@ -1102,11 +1102,7 @@ def ai_usage(work: str = "main", days: int = 7):
     from scribe3 import settings as settings_mod
 
     identity = llm_mod.official_deepseek_provider_identity()
-    key_configured = False
-    for item in settings_mod.settings_snapshot():
-        if item.get("key") == "DEEPSEEK_API_KEY":
-            key_configured = item.get("is_set") is True
-            break
+    key_configured = settings_mod.is_explicitly_configured("DEEPSEEK_API_KEY")
     # 严格 allowlist：不返回 identity/设置对象本身，更不读取 key 内容。
     provider = {
         "provider": identity["provider"],
@@ -1123,8 +1119,8 @@ def ai_usage(work: str = "main", days: int = 7):
     remaining = None if unlimited else max(0, cap_value - used)
     try:
         tokens = _store_for(work).usage_summary(days=days)
-    except Exception as e:
-        tokens = {"days": [], "error": str(e)}
+    except Exception:
+        tokens = {"days": [], "error": "usage_summary_unavailable"}
     return {
         "work": work,
         "cap": {"cap": cap_value, "used_today": used,

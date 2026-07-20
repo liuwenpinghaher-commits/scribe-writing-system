@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 
 import pytest
 from scribe3 import settings, settings_store
@@ -80,6 +81,94 @@ def test_is_set_semantics_for_nonempty_default_secret(monkeypatch):
     snap = {s["key"]: s for s in settings.settings_snapshot()}
     assert snap["SCRIBE3_SURREAL_PASS"]["is_set"] is True
     assert snap["SCRIBE3_SURREAL_PASS"]["value"] is None  # 仍然掩码
+
+
+def test_explicit_configuration_probe_rejects_unknown_and_non_secret_keys():
+    with pytest.raises(KeyError):
+        settings.is_explicitly_configured("no.such.key")
+    with pytest.raises(ValueError, match="secret"):
+        settings.is_explicitly_configured("llm.model")
+
+
+def test_explicit_configuration_probe_counts_empty_env_by_presence(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    monkeypatch.setattr(
+        os.environ,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("explicit probe must not read env values")
+        ),
+    )
+    monkeypatch.setattr(
+        settings_store,
+        "get_all_overrides",
+        lambda: (_ for _ in ()).throw(AssertionError("explicit probe must not load overrides")),
+    )
+
+    assert settings.is_explicitly_configured("DEEPSEEK_API_KEY") is True
+
+
+def test_explicit_configuration_probe_cold_path_does_not_create_database(tmp_path, monkeypatch):
+    cold_db = tmp_path / "not-created" / "settings.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(cold_db))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    assert cold_db.parent.exists() is False
+    assert cold_db.exists() is False
+
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("explicit probe reached a broad/value-reading API")
+    )
+    monkeypatch.setattr(settings, "get_setting", forbidden)
+    monkeypatch.setattr(settings, "settings_snapshot", forbidden)
+    monkeypatch.setattr(settings_store, "get_all_overrides", forbidden)
+    monkeypatch.setattr(os.environ, "get", forbidden)
+
+    assert settings.is_explicitly_configured("DEEPSEEK_API_KEY") is False
+    assert cold_db.parent.exists() is False
+    assert cold_db.exists() is False
+
+
+def test_explicit_configuration_probe_uses_read_only_select_one(tmp_path, monkeypatch):
+    db = tmp_path / "probe.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO setting(key, value, updated_at) VALUES(?,?,?)",
+            ("DEEPSEEK_API_KEY", json.dumps("opaque-test-credential"), "2026-07-20T00:00:00"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    queries = []
+    real_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        assert kwargs.get("uri") is True
+        assert "mode=ro" in str(args[0])
+        traced = real_connect(*args, **kwargs)
+        traced.set_trace_callback(queries.append)
+        return traced
+
+    forbidden = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("explicit probe reached a broad/value-reading API")
+    )
+    monkeypatch.setattr(settings_store.sqlite3, "connect", traced_connect)
+    monkeypatch.setattr(settings, "get_setting", forbidden)
+    monkeypatch.setattr(settings, "settings_snapshot", forbidden)
+    monkeypatch.setattr(settings_store, "get_all_overrides", forbidden)
+    monkeypatch.setattr(os.environ, "get", forbidden)
+
+    assert settings.is_explicitly_configured("DEEPSEEK_API_KEY") is True
+    selects = [query for query in queries if query.lstrip().upper().startswith("SELECT")]
+    assert len(selects) == 1
+    assert "SELECT 1 FROM setting" in selects[0]
+    assert "value" not in selects[0].lower()
 
 
 def test_coerce_int_rejects_fractional_float():

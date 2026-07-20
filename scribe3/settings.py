@@ -178,6 +178,16 @@ def get_setting(key: str):
     return s.default
 
 
+def is_explicitly_configured(key: str) -> bool:
+    """secret 是否有显式 env/DB 配置；仅查存在性，绝不读值。"""
+    setting = _BY_KEY[key]
+    if setting.type != "secret":
+        raise ValueError(f"{key} 不是 secret 设置")
+    if key in os.environ:
+        return True
+    return settings_store.has_override(key)
+
+
 def put_setting(key: str, value) -> dict:
     s = _BY_KEY[key]   # 未登记 → KeyError,调用方转 404
     coerced = _coerce(s, value)

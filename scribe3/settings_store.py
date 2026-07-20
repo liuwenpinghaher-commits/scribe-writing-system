@@ -26,7 +26,7 @@ _SENSITIVE = re.compile(r"(KEY|TOKEN|PASS|SECRET)", re.I)
 
 
 def db_path() -> Path:
-    p = os.environ.get("SCRIBE3_SETTINGS_DB")
+    p = os.environ["SCRIBE3_SETTINGS_DB"] if "SCRIBE3_SETTINGS_DB" in os.environ else None
     if p:
         return Path(p).expanduser()
     return Path.home() / ".scribe2-surreal" / "scribe3_settings.sqlite3"
@@ -71,6 +71,26 @@ def get_all_overrides() -> dict[str, str]:
     except Exception as e:
         _warn_once(e)
         return {}
+
+
+def has_override(key: str) -> bool:
+    """只读检查某 key 是否存在；不创建目录/数据库/表，不加载 value。"""
+    path = db_path()
+    if not path.is_file():
+        return False
+    try:
+        uri = f"{path.resolve().as_uri()}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=2.0)
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM setting WHERE key=? LIMIT 1",
+                (key,),
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+    except Exception:
+        return False
 
 
 def set_override(key: str, value_json: str, *, mask: bool = False) -> None:

@@ -34,14 +34,17 @@ function UsageCard() {
   const unlimited = usage.cap.unlimited === true
   const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
   const provider = usage.provider
+  const providerModel = typeof provider?.model === 'string' ? provider.model.trim() : ''
   const officialDeepSeek = provider?.provider === 'deepseek'
     && provider?.official === true
     && provider?.transport === 'direct'
+    && provider?.api_base === 'https://api.deepseek.com'
+    && providerModel.length > 0
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
       {officialDeepSeek && (
         <div className="mb-2 flex items-center justify-between gap-3 text-f13 text-ink">
-          <span>官方 DeepSeek · {provider.model} · 直连</span>
+          <span>官方 DeepSeek · {providerModel} · 直连</span>
           <span className={provider.key_configured === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
             {provider.key_configured === true ? '密钥已配置' : '未配置密钥'}
           </span>
