@@ -38,7 +38,10 @@ FocusType = Literal[
 
 # 与前端四阶段 tab + 演绎阶段对齐(见 ChapterStudio 的 phase 命名)。
 PhaseName = Literal["outline", "beats", "deduce", "draft", "final"]
-ContextTaskKind = Literal["draft", "final", "grounding", "quality_chapter"]
+ContextTaskKind = Literal[
+    "draft", "final", "grounding", "quality_chapter",
+    "reference_fingerprint", "reference_compare",
+]
 
 
 class ContextRequest(BaseModel):

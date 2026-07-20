@@ -23,7 +23,10 @@ class ContextPolicy(BaseModel):
     policy_key: str
     version: str
     task_kinds: tuple[
-        Literal["draft", "final", "grounding", "quality_chapter"], ...
+        Literal[
+            "draft", "final", "grounding", "quality_chapter",
+            "reference_fingerprint", "reference_compare",
+        ], ...
     ]
     canonical_source_kinds: tuple[str, ...] = ("canonical",)
     forbidden_source_kinds: tuple[str, ...] = ()
@@ -108,14 +111,40 @@ QUALITY_CHAPTER_V1 = ContextPolicy(
     task_kinds=("quality_chapter",),
     forbidden_source_kinds=(
         "reference_work_text", "raw_reference_text", "model_inference",
+        "generation_prompt", "generation_reasoning",
     ),
     protocol_versions=(("quality_protocol", "scribe3-discipline-review.v1"),),
+)
+
+REFERENCE_FINGERPRINT_V1 = ContextPolicy(
+    policy_key="reference_fingerprint",
+    version="reference-fingerprint.v1",
+    task_kinds=("reference_fingerprint",),
+    canonical_source_kinds=(),
+    forbidden_source_kinds=(
+        "chapter_prose", "canonical", "generation_prompt",
+        "generation_reasoning", "model_inference",
+    ),
+    protocol_versions=(("fingerprint_protocol", "scribe3-reference-fingerprint.v1"),),
+)
+
+REFERENCE_COMPARE_V1 = ContextPolicy(
+    policy_key="reference_compare",
+    version="reference-compare.v1",
+    task_kinds=("reference_compare",),
+    forbidden_source_kinds=(
+        "reference_work_text", "raw_reference_text",
+        "generation_prompt", "generation_reasoning", "model_inference",
+    ),
+    protocol_versions=(("compare_protocol", "scribe3-reference-compare.v1"),),
 )
 
 _POLICY_VERSION_REGISTRY: dict[str, ContextPolicy] = {
     GENERATION_V1.version: GENERATION_V1,
     GROUNDING_V1.version: GROUNDING_V1,
     QUALITY_CHAPTER_V1.version: QUALITY_CHAPTER_V1,
+    REFERENCE_FINGERPRINT_V1.version: REFERENCE_FINGERPRINT_V1,
+    REFERENCE_COMPARE_V1.version: REFERENCE_COMPARE_V1,
 }
 _TASK_POLICY_REGISTRY: dict[str, ContextPolicy] = {}
 for _policy in _POLICY_VERSION_REGISTRY.values():
