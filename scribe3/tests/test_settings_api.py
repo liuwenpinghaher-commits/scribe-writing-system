@@ -28,8 +28,9 @@ def test_get_settings_metadata(client):
     r = client.get("/settings")
     assert r.status_code == 200
     items = {i["key"]: i for i in r.json()["settings"]}
-    assert items["SCRIBE3_DAILY_CALL_CAP"]["value"] == 500
+    assert items["SCRIBE3_DAILY_CALL_CAP"]["value"] == 0
     assert items["SCRIBE3_DAILY_CALL_CAP"]["category"] == "llm"
+    assert items["SCRIBE3_DAILY_CALL_CAP"]["desc"] == "0=无限，正整数=成本保险丝"
     assert items["SCRIBE3_SURREAL_PASS"]["value"] is None   # secret 永不回显
 
 
@@ -42,7 +43,7 @@ def test_put_validate_and_reset(client):
     assert client.put("/settings/no.such.key", json={"value": 1}).status_code == 404
     assert client.post("/settings/SCRIBE3_DAILY_CALL_CAP/reset").status_code == 200
     items = {i["key"]: i for i in client.get("/settings").json()["settings"]}
-    assert items["SCRIBE3_DAILY_CALL_CAP"]["value"] == 500
+    assert items["SCRIBE3_DAILY_CALL_CAP"]["value"] == 0
 
 
 def test_audit_endpoint(client):

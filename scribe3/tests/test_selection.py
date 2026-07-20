@@ -190,6 +190,24 @@ def test_select_chapter_daily_cap_precheck(store, monkeypatch):
     assert r.status_code == 429 and "日帽" in r.text, f"帽不足须 429,实际 {r.status_code}"
 
 
+def test_select_chapter_unlimited_cap_skips_precheck(store, monkeypatch):
+    """无限模式 remaining=None，不得被选择环成本预检误判为 429。"""
+    import scribe3.app as A
+    import scribe3.llm as L
+    import scribe3.selection as S
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(L, "daily_remaining", lambda: None)
+    monkeypatch.setattr(S, "run_selection", lambda **kwargs: {
+        "candidates": [], "verdict": "awaiting_human",
+    })
+    store.save_chapter(8, "正文", title="八")
+    _client(store)  # 注入隔离 store 与本地 complete_fn
+    r = TestClient(A.app, raise_server_exceptions=False).post(
+        "/select/chapter?work=main", json={"chapter": 8, "force": True})
+    assert r.status_code == 200, f"无限模式不得阻断选择环，实际 {r.status_code}:{r.text[:120]}"
+
+
 def test_select_finalize_enqueues_ingest(store, monkeypatch):
     """C3(D-13):终选定稿后排后台 ingest 反哺知识账本(不再停在旧稿)。"""
     import scribe3.app as A

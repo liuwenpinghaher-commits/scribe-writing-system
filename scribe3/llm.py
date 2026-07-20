@@ -59,11 +59,14 @@ def _tick_daily() -> None:
     _usage.tick(_cap())
 
 
-def daily_remaining() -> int:
-    """B4:剩余日帽额度(只读,供选择环等多发操作启动前预检)。非今天则视为满额(次日 0 点重置)。"""
+def daily_remaining() -> int | None:
+    """B4:剩余日帽额度；cap=0(无限)返回 None，供多发操作跳过预检。"""
     from scribe3 import usage as _usage
+    cap = _cap()
+    if cap == 0:
+        return None
     used, _scope = _usage.used_today()
-    return max(0, _cap() - used)
+    return max(0, cap - used)
 
 HERMES = os.environ.get("HERMES_API", "http://127.0.0.1:8642/v1")
 # 主编 agentic 走 scribe3 profile 专属网关 :8643(挂 scribe3 MCP);与 default :8642 隔离。

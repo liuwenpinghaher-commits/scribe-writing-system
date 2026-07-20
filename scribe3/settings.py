@@ -64,7 +64,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("llm.model", "llm", "str", "doubao-seed-2.0-pro", "hot", "补全模型名"),
     Setting("llm.timeout_seconds", "llm", "float", 600.0, "hot", "LLM 请求超时(秒)", min=30, max=3600),
     Setting("llm.max_retries", "llm", "int", 3, "hot", "瞬时错误重试次数", min=0, max=10),
-    Setting("SCRIBE3_DAILY_CALL_CAP", "llm", "int", 500, "hot", "每日 LLM 调用日帽", "系统级成本保险丝(计笔数非 token)", min=0, max=100000, danger=True),
+    Setting("SCRIBE3_DAILY_CALL_CAP", "llm", "int", 0, "hot", "每日 LLM 调用日帽", "0=无限，正整数=成本保险丝", min=0, max=100000, danger=True),
     # ── craft(工艺阈值;全热,对应 critique.py 常量)──
     Setting("craft.banned_density_per_k", "craft", "float", 3.0, "hot", "禁词密度/千字", min=0, max=50),
     Setting("craft.banned_min_sents", "craft", "int", 3, "hot", "禁词判定最少句数", min=1, max=20),

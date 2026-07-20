@@ -15,7 +15,7 @@ def _iso(tmp_path, monkeypatch):
 
 def test_priority_default_env_db(monkeypatch):
     # 默认值
-    assert settings.get_setting("SCRIBE3_DAILY_CALL_CAP") == 500
+    assert settings.get_setting("SCRIBE3_DAILY_CALL_CAP") == 0
     # env 覆盖默认
     monkeypatch.setenv("SCRIBE3_DAILY_CALL_CAP", "600")
     settings.invalidate_cache()

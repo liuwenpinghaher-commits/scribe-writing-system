@@ -36,6 +36,14 @@ def test_used_today_reads_shared(tmp_path, monkeypatch):
     assert used == 2 and scope == "shared"
 
 
+def test_tick_zero_cap_is_unlimited_but_still_records_usage(tmp_path, monkeypatch):
+    """cap=0 只关闭阻断，调用账仍须逐笔递增。"""
+    monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "l.sqlite3"))
+    for _ in range(3):
+        assert U.tick(cap=0) == "shared"
+    assert U.used_today() == (3, "shared")
+
+
 def test_tick_fail_open_on_ledger_error(tmp_path, monkeypatch):
     """台账路径不可写 → 回退进程内计数,不拦正常调用(fail-open),但进程帽仍生效。"""
     bad = tmp_path / "not_a_dir_file"
@@ -89,6 +97,11 @@ def test_daily_remaining_reflects_shared(monkeypatch):
     L._reset_daily_counter()
 
 
+def test_daily_remaining_is_none_when_cap_is_unlimited(monkeypatch):
+    monkeypatch.setattr(L, "_cap", lambda: 0)
+    assert L.daily_remaining() is None
+
+
 # ===== 3. store.usage_summary:trace 表 token 聚合 =====
 
 def test_usage_summary_aggregates_traces(store):
@@ -129,8 +142,26 @@ def test_ai_usage_endpoint(store, monkeypatch):
     assert r["cap"]["cap"] == 100
     assert r["cap"]["used_today"] == 1
     assert r["cap"]["remaining"] == 99
+    assert r["cap"]["unlimited"] is False
     assert r["cap"]["scope"] == "shared"
     assert r["tokens"]["days"][0]["total"]["total_tokens"] == 12
+    L._reset_daily_counter()
+
+
+def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):
+    import scribe3.app as A
+    A.set_store(store)
+    monkeypatch.setattr(L, "_cap", lambda: 0)
+    L._reset_daily_counter()
+    U.tick(cap=0)
+    cap = TestClient(A.app).get("/ai/usage").json()["cap"]
+    assert cap == {
+        "cap": 0,
+        "used_today": 1,
+        "remaining": None,
+        "unlimited": True,
+        "scope": "shared",
+    }
     L._reset_daily_counter()
 
 

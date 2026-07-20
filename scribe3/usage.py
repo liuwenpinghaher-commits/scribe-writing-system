@@ -58,7 +58,7 @@ def _cap_error(cap: int) -> RuntimeError:
 
 
 def tick(cap: int) -> str:
-    """记一笔今日 LLM 调用;达帽抛 RuntimeError(与旧 llm._tick_daily 同款文案)。
+    """记一笔今日 LLM 调用；cap=0 仅记账，cap>0 达帽时抛 RuntimeError。
     返回生效计数域:'shared'(共享台账)| 'process'(SQLite 故障回退)。"""
     today = time.strftime("%Y-%m-%d")
     with _lock:
@@ -71,7 +71,7 @@ def tick(cap: int) -> str:
                 conn.execute("BEGIN IMMEDIATE")
                 row = conn.execute(
                     "SELECT n FROM llm_calls WHERE day=?", (today,)).fetchone()
-                if (row[0] if row else 0) >= cap:
+                if cap > 0 and (row[0] if row else 0) >= cap:
                     conn.rollback()
                     raise _cap_error(cap)
                 conn.execute(
@@ -85,7 +85,7 @@ def tick(cap: int) -> str:
             raise
         except Exception as e:
             _warn_once(e)
-        if not shared_ok and _proc_daily[1] >= cap:
+        if not shared_ok and cap > 0 and _proc_daily[1] >= cap:
             raise _cap_error(cap)
         _proc_daily[1] += 1   # 进程内恒记(shared 故障时的下限账本)
         return "shared" if shared_ok else "process"

@@ -1104,10 +1104,12 @@ def ai_usage(work: str = "main", days: int = 7):
         tokens = _store_for(work).usage_summary(days=days)
     except Exception as e:
         tokens = {"days": [], "error": str(e)}
+    cap = llm_mod._cap()
     return {
         "work": work,
-        "cap": {"cap": llm_mod._cap(), "used_today": used,
-                "remaining": llm_mod.daily_remaining(), "scope": scope},
+        "cap": {"cap": cap, "used_today": used,
+                "remaining": llm_mod.daily_remaining(), "unlimited": cap == 0,
+                "scope": scope},
         "tokens": tokens,
     }
 
@@ -7722,9 +7724,10 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
     # B4:选择环单次 ~10 发 LLM,启动前预检剩余日帽——撞帽半途炸不如提前如实拦
     from scribe3.llm import daily_remaining
     _sel_est = 10
-    if daily_remaining() < _sel_est:
+    _remaining = daily_remaining()
+    if _remaining is not None and _remaining < _sel_est:
         raise HTTPException(status_code=429, detail=(
-            f"LLM 日帽剩余不足:选择环约需 {_sel_est} 发,当前剩 {daily_remaining()} 发。"
+            f"LLM 日帽剩余不足:选择环约需 {_sel_est} 发,当前剩 {_remaining} 发。"
             f"次日 0 点重置,或调大 SCRIBE3_DAILY_CALL_CAP"))
     _skey = (work, req.chapter)
     with _loop_inflight_lock:   # 与修复环共用同章互斥(同章不得同时 loop 与选择)
