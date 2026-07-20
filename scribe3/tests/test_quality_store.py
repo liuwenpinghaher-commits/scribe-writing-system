@@ -149,6 +149,7 @@ def _judgment(
 
 def _bound_judgment(
     store, judgment: QualityJudgment, *, suffix: str,
+    outcome_status: str = "succeeded",
 ) -> BoundQualityJudgment:
     request = ContextRequest(
         request_id=f"quality-request-{suffix}",
@@ -206,7 +207,7 @@ def _bound_judgment(
         request_id=request.request_id,
         manifest_id=manifest.manifest_hash,
         actual_input_hash=manifest.actual_input_hash,
-        status="succeeded",
+        status=outcome_status,
         provider="deepseek",
         model="deepseek-chat",
         provider_request_id=f"provider-request-{suffix}",
@@ -416,6 +417,134 @@ def test_evidence_must_match_snapshot_member_hash_range_and_authoritative_prose(
             job.job_id, unit=version_id, judgments=(bound_forged,),
         )
     assert store._query("SELECT id FROM quality_judgment") == []
+
+
+@pytest.mark.parametrize("status", ["failed", "incomplete_stream", "cancelled"])
+def test_machine_judgment_rejects_non_succeeded_context_outcome(store, status):
+    job, snapshot, prose = _seed_job(store)
+    version_id = snapshot.members[0].chapter_version_id
+    judgment = _judgment(
+        evaluator_kind="system",
+        version_id=version_id.split(":", 1)[1],
+        prose=prose,
+    )
+    bound = _bound_judgment(
+        store, judgment, suffix=f"terminal-{status}", outcome_status=status,
+    )
+
+    with pytest.raises(ValueError, match="succeeded|成功"):
+        QualityStore(store).save_judgments(
+            job.job_id, unit=version_id, judgments=(bound,),
+        )
+    assert store._query("SELECT id FROM quality_judgment") == []
+
+
+def test_snapshot_drift_blocks_job_and_evidence_free_judgment_writes(store):
+    _approved_contract(store)
+    quality = QualityStore(store)
+    prose = "原始冻结正文。"
+    snapshot = _snapshot(store, prose)
+    unit = snapshot.members[0].chapter_version_id
+    bare = unit.split(":", 1)[1]
+
+    store._raw_query(
+        "UPDATE type::record('chapter_version', $version_id) SET prose='漂移正文'",
+        {"version_id": bare},
+    )
+    with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
+        quality.create_job(
+            work="book-quality",
+            snapshot_id=snapshot.snapshot_id,
+            contract_id="contract:book-quality",
+            contract_revision=1,
+            rubric_revision="quality-rubric.v1",
+            reference_fingerprint_ids=(),
+            model_config={"provider": "deepseek", "model": "deepseek-chat"},
+            actual_input_hash=_sha("drift-job"),
+            idempotency_key="quality-job:drift",
+        )
+
+    # 先恢复、建 job，再次制造漂移；无证据的 insufficient 也必须被快照门拒绝。
+    store._raw_query(
+        "UPDATE type::record('chapter_version', $version_id) SET prose=$prose",
+        {"version_id": bare, "prose": prose},
+    )
+    job = quality.create_job(
+        work="book-quality",
+        snapshot_id=snapshot.snapshot_id,
+        contract_id="contract:book-quality",
+        contract_revision=1,
+        rubric_revision="quality-rubric.v1",
+        reference_fingerprint_ids=(),
+        model_config={"provider": "deepseek", "model": "deepseek-chat"},
+        actual_input_hash=_sha("drift-job-restored"),
+        idempotency_key="quality-job:drift-restored",
+    )
+    store._raw_query(
+        "UPDATE type::record('chapter_version', $version_id) SET prose='再次漂移'",
+        {"version_id": bare},
+    )
+    insufficient = QualityJudgment(
+        dimension="coherence_causality",
+        evaluator_kind="system",
+        state=JudgmentState.INSUFFICIENT,
+        confidence_components=_confidence(),
+    )
+    bound = _bound_judgment(store, insufficient, suffix="drift-insufficient")
+    with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
+        quality.save_judgments(job.job_id, unit=unit, judgments=(bound,))
+    with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
+        quality.save_author_judgment(
+            job.job_id,
+            unit=unit,
+            judgment=insufficient.model_copy(update={"evaluator_kind": "author"}),
+        )
+
+
+def test_job_transaction_rechecks_snapshot_hash_after_preflight(store, monkeypatch):
+    _approved_contract(store)
+    quality = QualityStore(store)
+    snapshot = _snapshot(store, "事务前冻结正文。")
+    bare = snapshot.members[0].chapter_version_id.split(":", 1)[1]
+    # 模拟 preflight 通过后、事务开始前的并发漂移：强制公开预检返回旧快照，
+    # 只有同一 SurrealDB 写事务内的 hash guard 能阻止 CREATE。
+    monkeypatch.setattr(quality, "get_snapshot", lambda _snapshot_id: snapshot)
+    store._raw_query(
+        "UPDATE type::record('chapter_version', $version_id) SET prose='并发漂移'",
+        {"version_id": bare},
+    )
+
+    with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
+        quality.create_job(
+            work="book-quality",
+            snapshot_id=snapshot.snapshot_id,
+            contract_id="contract:book-quality",
+            contract_revision=1,
+            rubric_revision="quality-rubric.v1",
+            reference_fingerprint_ids=(),
+            model_config={"provider": "deepseek", "model": "deepseek-chat"},
+            actual_input_hash=_sha("transaction-race"),
+            idempotency_key="quality-job:transaction-race",
+        )
+    assert store._query(
+        "SELECT id FROM quality_job WHERE idempotency_key='quality-job:transaction-race'"
+    ) == []
+
+
+def test_permanent_chapter_delete_is_blocked_while_quality_snapshot_references_version(store):
+    store.save_chapter(7, "章节当前正文。", title="第七章")
+    version_id = store.add_chapter_version(7, "章节冻结正文。", stage="final")
+    snapshot = QualityStore(store).create_chapter_snapshot(
+        work=store.db_name, chapter_version_ids=(version_id,),
+    )
+
+    impact = store.chapter_lifecycle_impact(7)
+    assert {item["kind"] for item in impact["references"]} >= {"版本", "质量快照"}
+    with pytest.raises(ValueError, match="质量快照|冻结"):
+        store.delete_chapter_permanent(7)
+
+    assert store.get_chapter_version(version_id) is not None
+    assert QualityStore(store).get_snapshot(snapshot.snapshot_id) == snapshot
 
 
 def test_concurrent_same_job_idempotency_key_creates_one_truth_and_conflicts_fail(store):

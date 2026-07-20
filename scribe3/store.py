@@ -5096,6 +5096,9 @@ class SurrealStore:
             refs.append({"kind": "正文", "count": prose_chars})
         count_specs = [
             ("版本", "SELECT count() AS n FROM chapter_version WHERE seq=$seq GROUP ALL"),
+            ("质量快照", "SELECT count() AS n FROM quality_snapshot_member "
+             "WHERE chapter_version IN (SELECT VALUE id FROM chapter_version "
+             "WHERE seq=$seq) GROUP ALL"),
             ("主编对话", "SELECT count() AS n FROM chat_message WHERE chapter=$seq GROUP ALL"),
             ("素材引用", "SELECT count() AS n FROM material_reference WHERE chapter=$seq GROUP ALL"),
             ("伏笔触及", "SELECT count() AS n FROM promise_touch WHERE chapter=$seq GROUP ALL"),
@@ -5122,6 +5125,17 @@ class SurrealStore:
         rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
+        quality_refs = self._safe_count(
+            "SELECT count() AS n FROM quality_snapshot_member "
+            "WHERE chapter_version IN (SELECT VALUE id FROM chapter_version "
+            "WHERE seq=$seq) GROUP ALL",
+            {"seq": seq},
+        )
+        if quality_refs:
+            raise ValueError(
+                "章节版本仍被质量快照冻结引用，拒绝永久删除；"
+                "请保留章节或先走显式质量图处置流程"
+            )
         try:
             self.purge_ingest(seq)
         except Exception as e:
