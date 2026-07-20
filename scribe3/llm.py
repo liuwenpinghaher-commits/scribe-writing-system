@@ -49,6 +49,12 @@ def max_retries() -> int:
     return get_setting("llm.max_retries")
 
 
+def _compat_retry_count(total_attempts: int | None = None) -> int:
+    """旧设置/门面表示总尝试次数，DeepSeekClient 表示首次之后的重试次数。"""
+    attempts = max_retries() if total_attempts is None else total_attempts
+    return max(0, int(attempts) - 1)
+
+
 def _reset_daily_counter() -> None:
     from scribe3 import usage as _usage
     _usage.reset_today()
@@ -121,10 +127,7 @@ def hermes_complete(prompt: str, system: str | None = None,
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
-    retry_count = (
-        None if retries_override is None
-        else max(0, int(retries_override) - 1)
-    )
+    retry_count = _compat_retry_count(retries_override)
     result = DeepSeekClient().complete(
         msgs,
         model=model,
@@ -157,6 +160,7 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
         msgs,
         model=model,
         timeout_seconds=timeout,
+        retry_count=_compat_retry_count(),
     ):
         if event.get("type") == "delta" and event.get("delta"):
             yield event["delta"]
@@ -194,6 +198,7 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
             messages,
             model=model,
             timeout_seconds=timeout,
+            retry_count=_compat_retry_count(),
         ):
             event_identity = event.get("identity")
             if isinstance(event_identity, ProviderIdentity):

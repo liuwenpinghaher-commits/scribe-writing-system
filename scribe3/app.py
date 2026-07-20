@@ -4480,6 +4480,25 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     trace = {"status": "streaming", "tool_calls": [], "tool_outputs": [],
              "response_id": None, "usage": None}
 
+    def provider_trace_for_persistence(event: dict) -> dict:
+        """只持久安全已知的 provider identity，不信任供应商事件的任意 trace。"""
+        if with_tools:
+            return {
+                "provider": "hermes_gateway",
+                "official": False,
+                "transport": "hermes",
+            }
+        raw = event.get("trace")
+        if not isinstance(raw, dict):
+            return {}
+        safe: dict = {}
+        for key in ("provider", "api_base", "model", "transport"):
+            if isinstance(raw.get(key), str):
+                safe[key] = raw[key]
+        if isinstance(raw.get("official"), bool):
+            safe["official"] = raw["official"]
+        return safe
+
     def drain(events):
         nonlocal saw_proposal
         for kind, val in events:
@@ -4538,9 +4557,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 trace["status"] = "completed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["usage"] = app_ev.get("usage")
-                provider_trace = ev.get("trace")
-                if isinstance(provider_trace, dict):
-                    trace["provider"] = dict(provider_trace)
+                trace["provider"] = provider_trace_for_persistence(ev)
             elif app_ev["kind"] == "run.failed":
                 trace["status"] = "failed"
                 trace["response_id"] = app_ev.get("response_id")

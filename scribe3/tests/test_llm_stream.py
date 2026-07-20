@@ -5,6 +5,7 @@
 n次 不重试,与 hermes_complete 重试语义一致。
 """
 import json
+import socket
 
 import httpx
 import pytest
@@ -13,6 +14,36 @@ from scribe3 import deepseek_client as deepseek
 
 
 _FAKE_DEEPSEEK_KEY = "unit-test-deepseek-key"
+
+
+@pytest.fixture(autouse=True)
+def _deny_real_ip_socket_connect(monkeypatch):
+    """本模块的 LLM 路由测试必须 fail-closed：允许进程内 TestClient /
+    MockTransport，但任何真实 IPv4/IPv6 socket 建链都立即失败。"""
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def deny_connect(sock, address):
+        if sock.family in {socket.AF_INET, socket.AF_INET6}:
+            raise AssertionError(f"real IP socket connect forbidden in LLM tests: {address!r}")
+        return original_connect(sock, address)
+
+    def deny_connect_ex(sock, address):
+        if sock.family in {socket.AF_INET, socket.AF_INET6}:
+            raise AssertionError(f"real IP socket connect_ex forbidden in LLM tests: {address!r}")
+        return original_connect_ex(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", deny_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", deny_connect_ex)
+
+
+def test_real_ip_socket_guard_fails_closed():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        with pytest.raises(AssertionError, match="real IP socket connect forbidden"):
+            sock.connect(("127.0.0.1", 9))
+    finally:
+        sock.close()
 
 
 def _install_official_settings(monkeypatch, *, key=_FAKE_DEEPSEEK_KEY, retries=1):
@@ -270,7 +301,7 @@ class TestToolFreeOfficialRouting:
     def test_complete_counts_once_when_official_client_retries(self, monkeypatch):
         from scribe3 import llm
 
-        _install_official_settings(monkeypatch, retries=1)
+        _install_official_settings(monkeypatch, retries=2)
         _forbid_legacy_transport(monkeypatch, llm)
         requests = []
         ticks = []
@@ -296,6 +327,43 @@ class TestToolFreeOfficialRouting:
 
         assert requests == [1, 1]
         assert ticks == [1]
+
+    @pytest.mark.parametrize("operation", ["complete", "stream", "responses"])
+    def test_default_retry_setting_is_total_attempt_count(
+        self,
+        monkeypatch,
+        operation,
+    ):
+        from scribe3 import llm
+
+        _install_official_settings(monkeypatch, retries=3)
+        _forbid_legacy_transport(monkeypatch, llm)
+        attempts = []
+
+        def handler(_request):
+            attempts.append(1)
+            return httpx.Response(503, json={"error": {"message": "busy"}})
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+            monkeypatch.setattr(
+                llm,
+                "DeepSeekClient",
+                lambda: deepseek.DeepSeekClient(client=transport),
+            )
+            monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+            with pytest.raises(deepseek.DeepSeekHTTPError):
+                if operation == "complete":
+                    llm.hermes_complete("默认尝试次数")
+                elif operation == "stream":
+                    list(llm.hermes_complete_stream("默认尝试次数"))
+                else:
+                    list(llm.hermes_responses_events(
+                        "默认尝试次数",
+                        "只据事实",
+                        with_tools=False,
+                    ))
+
+        assert len(attempts) == 3
 
     def test_stream_yields_only_text_and_preserves_history(self, monkeypatch):
         from scribe3 import llm
@@ -368,7 +436,11 @@ class TestToolFreeOfficialRouting:
                     {"role": "system", "content": "只据事实"},
                     {"role": "user", "content": "写场景"},
                 ]
-                assert kwargs == {"model": "deepseek-chat", "timeout_seconds": 9.0}
+                assert kwargs == {
+                    "model": "deepseek-chat",
+                    "timeout_seconds": 9.0,
+                    "retry_count": 0,
+                }
                 yield {"type": "delta", "delta": "雨", "model": "deepseek-chat", "identity": identity}
                 yield {
                     "type": "usage",
@@ -447,6 +519,7 @@ class TestToolFreeOfficialRouting:
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
+            "extra": {"must_not_persist": True},
         }
 
         def fake_events(*_args, **_kwargs):
@@ -466,7 +539,48 @@ class TestToolFreeOfficialRouting:
             on_complete=lambda _text, trace: persisted.append(trace),
         ))
 
-        assert persisted[0]["provider"] == provider_trace
+        assert persisted[0]["provider"] == {
+            "provider": "deepseek",
+            "api_base": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+            "official": True,
+            "transport": "httpx",
+        }
+
+    def test_write_stream_tools_trace_uses_safe_hermes_identity(self, monkeypatch):
+        from scribe3 import app as appmod
+
+        forged_trace = {
+            "provider": "deepseek",
+            "api_base": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+            "official": True,
+            "transport": "httpx",
+            "extra": {"must_not_persist": True},
+        }
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": "工具结果。"}
+            yield {
+                "type": "response.completed",
+                "response": {"id": "resp_hermes", "usage": {"total_tokens": 8}},
+                "trace": forged_trace,
+            }
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        list(appmod._stream_write(
+            "查询设定",
+            "先用工具核实",
+            with_tools=True,
+            on_complete=lambda _text, trace: persisted.append(trace),
+        ))
+
+        assert persisted[0]["provider"] == {
+            "provider": "hermes_gateway",
+            "official": False,
+            "transport": "hermes",
+        }
 
 
 def test_responses_events_without_tools_uses_official_deepseek_completion_stream(monkeypatch):
@@ -525,5 +639,9 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
             {"role": "system", "content": "只据事实输出"},
             {"role": "user", "content": "写一段场景投影"},
         ],
-        "kwargs": {"model": "deepseek-chat", "timeout_seconds": 600.0},
+        "kwargs": {
+            "model": "deepseek-chat",
+            "timeout_seconds": 600.0,
+            "retry_count": 2,
+        },
     }
