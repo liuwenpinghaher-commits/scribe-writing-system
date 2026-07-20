@@ -1,0 +1,126 @@
+-- 质量决策纵向链：合同、参考、冻结快照、作业与三轴判断。
+-- 正文仍只存在 chapter_version.prose；质量表只保存 record ref 与摘要。
+
+DEFINE TABLE IF NOT EXISTS quality_contract_revision SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS contract_key ON quality_contract_revision TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS contract_id ON quality_contract_revision TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS work ON quality_contract_revision TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS revision ON quality_contract_revision TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS payload ON quality_contract_revision TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS approved ON quality_contract_revision TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS approval_version ON quality_contract_revision TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS approved_at ON quality_contract_revision TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_contract_revision TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_contract_revision_key_idx ON quality_contract_revision FIELDS contract_key UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_contract_revision_identity_idx ON quality_contract_revision FIELDS contract_id, revision UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS reference_work SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS reference_key ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS reference_work_id ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS work ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS title ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS source_hash ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS import_revision ON reference_work TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS status ON reference_work TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON reference_work TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS reference_work_key_idx ON reference_work FIELDS reference_key UNIQUE;
+DEFINE INDEX IF NOT EXISTS reference_work_revision_idx ON reference_work FIELDS reference_work_id, import_revision UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS reference_fingerprint SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS fingerprint_id ON reference_fingerprint TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS reference_work ON reference_fingerprint TYPE record<reference_work> READONLY;
+DEFINE FIELD IF NOT EXISTS reference_work_id ON reference_fingerprint TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS revision ON reference_fingerprint TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS source_hash ON reference_fingerprint TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS status ON reference_fingerprint TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS fingerprint ON reference_fingerprint TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON reference_fingerprint TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS reference_fingerprint_id_idx ON reference_fingerprint FIELDS fingerprint_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS reference_fingerprint_revision_idx ON reference_fingerprint FIELDS reference_work, revision UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS reference_target SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS target_key ON reference_target TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS contract_revision ON reference_target TYPE record<quality_contract_revision> READONLY;
+DEFINE FIELD IF NOT EXISTS ordinal ON reference_target TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS payload ON reference_target TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON reference_target TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS reference_target_key_idx ON reference_target FIELDS target_key UNIQUE;
+DEFINE INDEX IF NOT EXISTS reference_target_order_idx ON reference_target FIELDS contract_revision, ordinal UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS quality_snapshot SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS snapshot_id ON quality_snapshot TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS work ON quality_snapshot TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS snapshot_hash ON quality_snapshot TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS member_count ON quality_snapshot TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_snapshot TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_snapshot_id_idx ON quality_snapshot FIELDS snapshot_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_snapshot_hash_idx ON quality_snapshot FIELDS snapshot_hash UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS quality_snapshot_member SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS member_key ON quality_snapshot_member TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS snapshot ON quality_snapshot_member TYPE record<quality_snapshot> READONLY;
+DEFINE FIELD IF NOT EXISTS ordinal ON quality_snapshot_member TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS chapter_version ON quality_snapshot_member TYPE record<chapter_version> READONLY;
+DEFINE FIELD IF NOT EXISTS content_hash ON quality_snapshot_member TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_snapshot_member TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_snapshot_member_key_idx ON quality_snapshot_member FIELDS member_key UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_snapshot_member_order_idx ON quality_snapshot_member FIELDS snapshot, ordinal UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_snapshot_member_version_idx ON quality_snapshot_member FIELDS snapshot, chapter_version UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS quality_job SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS job_id ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS idempotency_key ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS work ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS snapshot ON quality_job TYPE record<quality_snapshot> READONLY;
+DEFINE FIELD IF NOT EXISTS snapshot_id ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS contract_revision ON quality_job TYPE record<quality_contract_revision> READONLY;
+DEFINE FIELD IF NOT EXISTS contract_id ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS contract_revision_number ON quality_job TYPE int READONLY;
+DEFINE FIELD IF NOT EXISTS rubric_revision ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS reference_fingerprints ON quality_job TYPE array<record<reference_fingerprint>> READONLY;
+DEFINE FIELD IF NOT EXISTS reference_fingerprint_ids ON quality_job TYPE array<string> READONLY;
+DEFINE FIELD IF NOT EXISTS model_config ON quality_job TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS actual_input_hash ON quality_job TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS request_id ON quality_job TYPE option<string> READONLY;
+DEFINE FIELD IF NOT EXISTS manifest_id ON quality_job TYPE option<string> READONLY;
+DEFINE FIELD IF NOT EXISTS provider_request_id ON quality_job TYPE option<string> READONLY;
+DEFINE FIELD IF NOT EXISTS provider_model ON quality_job TYPE option<string> READONLY;
+DEFINE FIELD IF NOT EXISTS provider_usage ON quality_job TYPE option<object> FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_job TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_job_id_idx ON quality_job FIELDS job_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_job_idempotency_idx ON quality_job FIELDS idempotency_key UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS quality_judgment SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS judgment_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS job ON quality_judgment TYPE record<quality_job> READONLY;
+DEFINE FIELD IF NOT EXISTS job_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS unit ON quality_judgment TYPE record<chapter_version> READONLY;
+DEFINE FIELD IF NOT EXISTS unit_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS dimension ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS evaluator_kind ON quality_judgment TYPE string ASSERT $value IN ['system', 'reference'] READONLY;
+DEFINE FIELD IF NOT EXISTS payload ON quality_judgment TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS context_outcome ON quality_judgment TYPE record<context_outcome_trace> READONLY;
+DEFINE FIELD IF NOT EXISTS outcome_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS request_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS manifest_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS actual_input_hash ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS provider ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS model ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS provider_request_id ON quality_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS usage ON quality_judgment TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_judgment TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_judgment_id_idx ON quality_judgment FIELDS judgment_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_judgment_axis_idx ON quality_judgment FIELDS job, unit, dimension, evaluator_kind UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS quality_author_judgment SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS judgment_id ON quality_author_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS job ON quality_author_judgment TYPE record<quality_job> READONLY;
+DEFINE FIELD IF NOT EXISTS job_id ON quality_author_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS unit ON quality_author_judgment TYPE record<chapter_version> READONLY;
+DEFINE FIELD IF NOT EXISTS unit_id ON quality_author_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS dimension ON quality_author_judgment TYPE string READONLY;
+DEFINE FIELD IF NOT EXISTS evaluator_kind ON quality_author_judgment TYPE string ASSERT $value = 'author' READONLY;
+DEFINE FIELD IF NOT EXISTS payload ON quality_author_judgment TYPE object FLEXIBLE READONLY;
+DEFINE FIELD IF NOT EXISTS created_at ON quality_author_judgment TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS quality_author_judgment_id_idx ON quality_author_judgment FIELDS judgment_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS quality_author_judgment_axis_idx ON quality_author_judgment FIELDS job, unit, dimension, evaluator_kind UNIQUE;
