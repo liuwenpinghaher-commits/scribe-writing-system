@@ -209,10 +209,9 @@ def test_candidate_masked_from_store_secret_even_if_unflagged(store):
 
 # ---------- I1(ON 路径,B-3 同型):envelope 独占事实注入,不与身份块重复 ----------
 
-def test_v1_canonical_fact_appears_once(store, monkeypatch):
-    """SCRIBE3_CONTEXT_ASSEMBLER_V1 开:v1 用纯身份块 + envelope,某条 fact 的真值
+def test_unified_context_canonical_fact_appears_once(store):
+    """统一内核用纯身份块 + envelope，某条 fact 的真值
     只应出现 1 次(此前 _editor_write_system 的设定块 + envelope canonical → 2 次)。"""
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     import scribe3.app as appmod
     store.add_entity(Entity("role:jia", "character", "甲"))
     # 用一个绝不会撞车的独特串,避免和身份块/纪律块里的固定措辞混淆
@@ -224,12 +223,11 @@ def test_v1_canonical_fact_appears_once(store, monkeypatch):
     assert out.count("青骡巷尽头的窨井") == 1
 
 
-def test_v1_calls_avoid_directive(store, monkeypatch):
-    """S-007 回归钉:v1 组装链必须调用 _avoid_directive(跨章避免复读禁令)。它是【确定性禁令】、
+def test_unified_context_calls_avoid_directive(store, monkeypatch):
+    """S-007 回归钉:统一组装链必须调用 _avoid_directive(跨章避免复读禁令)。它是【确定性禁令】、
     非上下文信息——envelope 只聚合"前文写了什么",给不出"禁止逐字复用"的禁令;此前随
-    "envelope 替代旧 avoid/voice/arc 散点"一起漏掉,致 assembler_v1 放量后跨章复读防线失效
+    "envelope 替代旧 avoid/voice/arc 散点"一起漏掉,曾导致跨章复读防线失效
     (实证某章 cross_repetition=25)。"""
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     import scribe3.app as appmod
     called = {}
     orig = appmod._avoid_directive
@@ -245,10 +243,10 @@ def test_v1_calls_avoid_directive(store, monkeypatch):
     assert called.get("yes"), "v1 链必须调用 _avoid_directive(S-007 防回归)"
 
 
-# ---------- M1:v1 失败 fail-safe 回退旧链,且留结构化信号(计数器) ----------
+# ---------- Creative Context Engine 失败必须 fail-loud，不回退旧链 ----------
 
-def test_v1_failure_falls_back_and_signals(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+def test_unified_context_failure_propagates_without_legacy_fallback(store, monkeypatch):
+    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
     import scribe3.app as appmod
 
     def _boom(*a, **k):
@@ -256,11 +254,11 @@ def test_v1_failure_falls_back_and_signals(store, monkeypatch):
 
     before = appmod._context_assembler_fallbacks
     monkeypatch.setattr(appmod, "_assemble_write_instructions_v1", _boom)
-    out = appmod._assemble_write_instructions(
-        store, chapter=1, focalizer="", phase="draft", seed_words=[],
-        short_mode=False, with_tools=False, work="main")
-    assert appmod._context_assembler_fallbacks == before + 1   # 结构化信号:金丝雀可读
-    assert "再次强调" in out                                     # fail-safe:回退到旧链
+    with pytest.raises(RuntimeError, match="boom"):
+        appmod._assemble_write_instructions(
+            store, chapter=1, focalizer="", phase="draft", seed_words=[],
+            short_mode=False, with_tools=False, work="main")
+    assert appmod._context_assembler_fallbacks == before
 
 
 # ---------- envelope_hash / trace manifest:不含正文秘密 ----------

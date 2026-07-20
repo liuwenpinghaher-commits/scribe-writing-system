@@ -2,7 +2,8 @@
 
 覆盖(诚实区分做实 vs 就绪):
 - 【做实】embedding sha256 缓存命中 + model_version 失效(捕获恒开,生产有效)。
-- 【做实】GET /capabilities 只读上报 5 个灰度开关 + assembler_v1(默认全关)。
+- 【做实】GET /capabilities 只读上报 5 个灰度开关；兼容键 assembler_v1
+  如实表示统一内核已启用，不再受旧环境变量控制。
 - 【做实】runtime-status 指标块:cross_work / memory pending·failed / spectron / 会话数,不含秘密。
 - 【就绪】RetrievalResult 缓存 30s TTL + 表级失效(待 16-C 检索接进生产才有生产命中)。
 - 【就绪】GlobalContextCard 缓存 work+authority_revision 60s + 正典写入失效。
@@ -32,18 +33,26 @@ def test_flag_enabled_reads_env(monkeypatch):
 
 
 def test_capabilities_endpoint_reports_flags(monkeypatch):
-    """capabilities 只读各 flag env 状态,默认全关;开一个应翻真(后端下发的权威)。"""
+    """灰度 flag 默认全关；兼容 assembler_v1 恒真表示统一内核已启用。"""
     for f in cc.FLAGS + ("SCRIBE3_CONTEXT_ASSEMBLER_V1",):
         monkeypatch.delenv(f, raising=False)
+    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "0")
     client = TestClient(A.app)
     data = client.get("/capabilities").json()
     flags = data["flags"]
-    # 5 个独立开关 + Task 7 既有 assembler_v1 一并上报
+    # 5 个独立灰度开关 + 兼容 assembler_v1 一并上报。
     assert set(flags) >= {
         "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
         "context_inspector_v1", "spectron_shadow", "assembler_v1",
     }
-    assert all(v is False for v in flags.values())      # 默认全关
+    assert flags["assembler_v1"] is True
+    assert all(
+        flags[name] is False
+        for name in (
+            "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
+            "context_inspector_v1", "spectron_shadow",
+        )
+    )
     assert "versions" in data
     # 开启一个服务端开关 → capabilities 立即翻真(前端以此为准,不靠 localStorage)
     monkeypatch.setenv("SCRIBE3_CONTEXT_INSPECTOR_V1", "true")
@@ -137,7 +146,7 @@ def test_ttl_cache_table_invalidation_is_work_scoped():
 
 def test_retrieval_result_cache_hit_and_table_invalidation(store, monkeypatch):
     """就绪层:同键 30s 内命中缓存;memory_item/正典表级失效后重算。
-    诚实边界:当前无生产读路径(assembler v1 默认关 / 写检索器恒 None),故无生产命中。"""
+    生产统一内核只在 MEMORY_FABRIC 开启时注入检索器；本测试直接锁定缓存语义。"""
     cc.RETRIEVAL_CACHE.clear()
     r = MemoryRetriever(store)
     calls = {"n": 0}
@@ -298,7 +307,7 @@ def test_capture_writes_nothing_to_db_when_fabric_off(store, monkeypatch):
 
 
 def test_memory_absent_from_write_envelope_when_fabric_off(store, monkeypatch):
-    """字节等价:即便 ASSEMBLER_V1 开,fabric 关 → 检索器 None → 经验记忆不进 envelope。"""
+    """MEMORY_FABRIC 关 → 检索器 None → 经验记忆不进统一 envelope。"""
     _patch_embed(monkeypatch)
     monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
     store.add_memory_item(work="w", kind="episodic",
@@ -413,19 +422,16 @@ def test_retrieve_wires_cache_and_latency_metric(store, monkeypatch):
     assert cc.metrics_snapshot()["retrieval_samples"] >= 1, "miss 分支须记检索延迟"
 
 
-def test_context_tokens_recorded_on_v1_assembly(store, monkeypatch):
-    """v1 组装接线 record_context_tokens:context_tokens_p95/samples 由 0 变真实。"""
+def test_context_tokens_recorded_on_unified_assembly(store, monkeypatch):
+    """统一内核接线 record_context_tokens:context_tokens_p95/samples 由 0 变真实。"""
     _patch_embed(monkeypatch)
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
-    A._context_assembler_fallbacks = 0     # 模块累积状态,本测试前归零
     instr = A._assemble_write_instructions(
         store, chapter=6, focalizer="", phase="draft",
         seed_words=[], short_mode=False, work="w")
-    assert instr and A._context_assembler_fallbacks == 0, \
-        "v1 组装须成功(未回退旧链),否则未走接线点"
+    assert instr
     assert cc.metrics_snapshot()["context_tokens_samples"] >= 1, \
-        "v1 组装应采样 envelope token 估算"
+        "统一内核应采样 envelope token 估算"
 
 
 # ═════ I1 哨兵:半空转真修复 —— 真生产组装函数(seed_words 作 query)读通经验回路 ═════
@@ -434,12 +440,10 @@ def test_context_tokens_recorded_on_v1_assembly(store, monkeypatch):
 # 只 canonical(retriever=None 降级即可得)浮现;I1 用 seed_words/章纲作 query 把经验回路读通。
 
 def test_experiential_memory_read_into_prompt_via_production_path(store, monkeypatch):
-    """半空转真修复哨兵:flag 开 + seed_words → episodic 经验记忆【真进】生产写作 prompt。
+    """半空转真修复哨兵:MEMORY_FABRIC 开 + seed_words → episodic 记忆真进生产 prompt。
     断言整句(非种子词碎片,soak 块只回显种子词)——证明记忆经检索进入,而非种子回声。"""
     _patch_embed(monkeypatch)
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
-    A._context_assembler_fallbacks = 0
     store.add_memory_item(work="w", kind="episodic",
                           text="甲在城西暗巷向盐帮递了口信", known_from=1,
                           scope_type="work", scope_id="w",
@@ -447,7 +451,6 @@ def test_experiential_memory_read_into_prompt_via_production_path(store, monkeyp
     instr = A._assemble_write_instructions(
         store, chapter=6, focalizer="", phase="draft",
         seed_words=["城西", "盐帮", "口信"], short_mode=False, work="w")
-    assert A._context_assembler_fallbacks == 0, "须真走 v1(未回退旧链)"
     assert "甲在城西暗巷向盐帮递了口信" in instr, \
         "经验回路读通:seed_words 作 query,episodic 记忆经检索进入生产写作 prompt(不只 canonical)"
 
@@ -456,7 +459,6 @@ def test_spoiler_gate_holds_under_meaningful_query_production_path(store, monkey
     """有意义 query 也不得绕过 known_from 门:known_from=20 记忆写 ch5 仍被剧透门挡在 prompt 外。"""
     _patch_embed(monkeypatch)
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_memory_item(work="w", kind="episodic",
                           text="盐帮总舵真正藏在城北枯井之下", known_from=20,
                           scope_type="work", scope_id="w",
@@ -475,10 +477,9 @@ def test_spoiler_gate_holds_under_meaningful_query_production_path(store, monkey
 
 
 def test_production_path_byte_equivalent_when_fabric_off(store, monkeypatch):
-    """默认关字节等价(I1 后仍成立):ASSEMBLER_V1 开但 FABRIC 关 → retriever None → query 仍空,
-    经验记忆不进 prompt 且 focus 块不出现"作者此刻问"(query 空 = 与接线前逐字一致)。"""
+    """MEMORY_FABRIC 关时 retriever=None、query 为空，经验记忆不进 prompt，
+    且 focus 块不出现"作者此刻问"(query 空 = 与接线前逐字一致)。"""
     _patch_embed(monkeypatch)
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
     store.add_memory_item(work="w", kind="episodic",
                           text="甲在城西暗巷向盐帮递了口信", known_from=1,

@@ -851,6 +851,42 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
     }
 
 
+def test_responses_events_real_official_sse_preserves_provider_response_id(monkeypatch):
+    """从 DeepSeek 真实形状 SSE payload 到 Responses 终态不丢 provider id。"""
+    from scribe3 import llm
+
+    _install_official_settings(monkeypatch)
+    _forbid_legacy_transport(monkeypatch, llm)
+    provider_response_id = "chatcmpl-real-shape-456"
+    stream_body = "\n".join([
+        f'data: {{"id":"{provider_response_id}","model":"deepseek-chat",'
+        '"choices":[{"delta":{"content":"雨落"}}]}',
+        "",
+        f'data: {{"id":"{provider_response_id}","model":"deepseek-chat",'
+        '"choices":[],"usage":{"total_tokens":5}}',
+        "",
+        "data: [DONE]",
+        "",
+    ])
+
+    def handler(_request):
+        return httpx.Response(200, text=stream_body)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+        monkeypatch.setattr(
+            llm,
+            "DeepSeekClient",
+            lambda: deepseek.DeepSeekClient(client=transport),
+        )
+        monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+        events = list(llm.hermes_responses_events(
+            "写", "只据事实", model="deepseek-chat", with_tools=False,
+        ))
+
+    assert events[-1]["type"] == "response.completed"
+    assert events[-1]["response"]["id"] == provider_response_id
+
+
 def test_collect_write_returns_only_after_explicit_completed(monkeypatch):
     from scribe3 import app as appmod
 

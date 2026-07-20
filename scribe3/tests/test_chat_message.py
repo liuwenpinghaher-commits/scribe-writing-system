@@ -252,9 +252,8 @@ def test_chat_write_post_disables_mcp_tools_for_deduction_projection(store, monk
     assert "逐字可追溯" in captured["instructions"]
 
 
-def test_context_assembler_deduction_keeps_scene_truth_terminal(store, monkeypatch):
-    """v1 组装也必须把场景真相放在演绎提示的末尾，不能被通用上下文覆盖。"""
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
+def test_unified_context_deduction_keeps_scene_truth_terminal(store, monkeypatch):
+    """统一内核必须把场景真相放在演绎提示末尾，不能被通用上下文覆盖。"""
     store.save_chapter(2, "", title="第二章")
     store.update_chapter_meta(2, {"scene_truth": "潮闸的周字在青石里发亮。"})
     captured = {}
@@ -299,8 +298,8 @@ def test_chat_write_post_persists_hermes_trace(store, monkeypatch):
     assert trace["usage"]["output_tokens"] == 5
 
 
-def test_chat_write_post_trace_context_carries_block_manifest_when_v1(store, monkeypatch):
-    """Caveat 1(Task 17 Step 5b):ASSEMBLER_V1【开】时,assistant chat_message 的
+def test_chat_write_post_trace_context_carries_unified_manifest(store, monkeypatch):
+    """统一内核成功时，assistant chat_message 的
     trace.context 须落 envelope 块清单(供审计"主编这轮看到了哪些上下文块",Task 14
     ContextInspector 数据源)。清单绝不含块正文与秘密 value(限知红线)。"""
     from scribe3.ontology import Entity, Fact, KnowledgeEdge
@@ -309,7 +308,6 @@ def test_chat_write_post_trace_context_carries_block_manifest_when_v1(store, mon
     store.add_fact(Fact("fact:sec", "role:jia", "真身", "甲其实是狐妖",
                         valid_from=1, secret=True))
     store.add_knowledge(KnowledgeEdge("role:jia", "fact:sec", since_chapter=1))
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     monkeypatch.setattr(A, "_responses_events", _stub_events("好。"))
     r = _client(store).post("/chat/write",
                             json={"msg": "写第二章", "chapter": 2, "phase": "draft",
@@ -329,16 +327,19 @@ def test_chat_write_post_trace_context_carries_block_manifest_when_v1(store, mon
     assert all("text" not in b for b in ctx["blocks"]), "每块只记 token+source id,不记正文"
 
 
-def test_chat_write_post_trace_omits_context_when_v1_off(store, monkeypatch):
-    """Caveat 1 字节等价:flag 关(默认)→ 旧组装链无 envelope,assistant trace
-    不出现 context 键(零回归)。"""
+def test_chat_write_post_trace_includes_context_when_legacy_flag_off(store, monkeypatch):
+    """旧 assembler flag 关闭也必须走统一内核并留下安全 context trace。"""
     monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
     monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))
     r = _client(store).post("/chat/write",
                             json={"msg": "问", "chapter": 3, "phase": "draft"})
     assert r.status_code == 200
     assistant = [m for m in store.list_chat_messages(chapter=3) if m["role"] == "assistant"][0]
-    assert "context" not in assistant["trace"], "flag 关时 trace 不应出现 context 键"
+    ctx = assistant["trace"].get("context")
+    assert ctx is not None, "旧 flag 关闭也必须留下统一内核 context trace"
+    assert ctx.get("manifest_id")
+    assert ctx.get("actual_input_hash")
+    assert isinstance(ctx.get("blocks"), list) and ctx["blocks"]
 
 
 def test_chat_write_post_streams_approval_events(store, monkeypatch):

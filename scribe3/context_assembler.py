@@ -261,7 +261,8 @@ class ContextAssembler:
     # --- 对外唯一入口 ---
     def assemble(self, snapshot: ContextSnapshot, user_query: str,
                  mode: str = "discussion", *,
-                 retrieval_out: dict | None = None) -> ContextEnvelope:
+                 retrieval_out: dict | None = None,
+                 forbidden_source_kinds: tuple[str, ...] = ()) -> ContextEnvelope:
         # retrieval_out(Task 16 最后一厘米,可选可变收集器,缺省 None):非 None 时把本次
         # 检索的【完整 RetrievalResult】(含 rejected/channels)回填 retrieval_out["result"],
         # 供 _assemble_write_instructions_v1 落 memory_trace 给 ContextInspector 溯源。
@@ -270,6 +271,29 @@ class ContextAssembler:
         # 1) 拉候选(retriever 缺失→合法降级空;retriever 存在但检索抛错→异常上抛,
         #    不再静默降级,见 _retrieve。U-011,2026-07-15,作者要 fail-loud)
         candidates = self._retrieve(snapshot, user_query, retrieval_out=retrieval_out)
+        policy_omitted: list[dict] = []
+        forbidden = set(forbidden_source_kinds)
+        if forbidden:
+            # 必须在 source adapter 改名前按候选的原始 kind 过滤：
+            # episodic/working 稍后都会映射为 recent，若只看最终
+            # ContextSource，请求对原始 kind 的禁用会被绕过。
+            allowed_candidates = []
+            source_blocks = {
+                "working": "recent",
+                "episodic": "recent",
+            }
+            for candidate in candidates:
+                source_kind = str(getattr(candidate, "source_kind", "") or "")
+                if source_kind in forbidden:
+                    policy_omitted.append({
+                        "source_id": str(getattr(candidate, "source_id", "") or ""),
+                        "source_kind": source_kind,
+                        "block": source_blocks.get(source_kind, source_kind),
+                        "reason": "forbidden_source_kind",
+                    })
+                else:
+                    allowed_candidates.append(candidate)
+            candidates = allowed_candidates
         kept_cands, superseded = _resolve_canonical_conflicts(candidates)
         by_kind: dict[str, list] = defaultdict(list)
         for c in kept_cands:
@@ -286,11 +310,33 @@ class ContextAssembler:
         items["reference"] = self._reference_items(snapshot, by_kind.get("reference"))
         items["uncertainty"] = self._uncertainty_items(
             snapshot, by_kind.get("uncertainty"), superseded)
+        # Creative Context Policy 的禁用来源必须在 render/provenance 之前
+        # 移除；ContextBlock 只保留摘要，组装后已无法无损删掉对应正文。
+        # 被禁用项只留不含正文的 omitted 审计记录。
+        def filter_forbidden_items() -> None:
+            if not forbidden:
+                return
+            for block_name, block_items in items.items():
+                kept: list[_Item] = []
+                for item in block_items:
+                    if item.source.source_kind in forbidden:
+                        policy_omitted.append(_omit(
+                            item, block_name, "forbidden_source_kind"))
+                    else:
+                        kept.append(item)
+                items[block_name] = kept
+
+        filter_forbidden_items()
+
         # provenance 汇总前七块的来源(裁剪前的全量视图,作为清单更完整)
         items["provenance"] = self._provenance_items(items)
+        # provenance 是上一步新生成的派生 item；再过一次同一禁用门，
+        # 确保 forbidden_source_kinds=("provenance",) 也真正不进模型输入。
+        filter_forbidden_items()
 
         # 3) 预算分配:每块先裁到自身上限,再受总预算门控(靠后块可能被整块挤掉)
         blocks, omitted, _used = self._allocate(items)
+        omitted = policy_omitted + omitted
 
         # 4) 正典取代的 episodic 记入 omitted(宪法级审计:为什么没进 canonical)
         for c in superseded:

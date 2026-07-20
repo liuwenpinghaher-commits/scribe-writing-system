@@ -336,6 +336,7 @@ class DeepSeekClient:
                 pending_usage: dict[str, Any] | None = None
                 terminal_model = requested_model
                 terminal_identity = identity
+                terminal_response_id: str | None = None
                 attempt_failure: DeepSeekError | None = None
                 try:
                     with client.stream(
@@ -369,6 +370,20 @@ class DeepSeekClient:
                                         status="provider_error",
                                     )
                                     break
+
+                                payload_response_id = payload.get("id")
+                                if payload_response_id is not None:
+                                    if (not isinstance(payload_response_id, str)
+                                            or not payload_response_id):
+                                        attempt_failure = self._safe_response_error(identity)
+                                        break
+                                    if terminal_response_id is None:
+                                        terminal_response_id = payload_response_id
+                                    elif terminal_response_id != payload_response_id:
+                                        # 单条供应商流中 id 漂移表示响应被混线，不得
+                                        # 任选一个冒充可审计 provider_request_id。
+                                        attempt_failure = self._safe_response_error(identity)
+                                        break
 
                                 event_model = payload.get("model")
                                 if not isinstance(event_model, str) or not event_model:
@@ -430,11 +445,15 @@ class DeepSeekClient:
                     break
                 if pending_usage is not None:
                     yield pending_usage
-                yield {
+                done_event = {
                     "type": "done",
                     "model": terminal_model,
                     "identity": terminal_identity,
                 }
+                # 供应商 payload 没有 id 时不生成本地替代值；保持旧事件形状。
+                if terminal_response_id is not None:
+                    done_event["response_id"] = terminal_response_id
+                yield done_event
                 return
 
         if final_failure is not None:

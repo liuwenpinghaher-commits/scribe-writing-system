@@ -326,6 +326,7 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         ledger_finalized = False
         terminal_seen = False
         event_model = model
+        provider_response_id: str | None = None
         try:
             for event in client.stream(
                 messages,
@@ -345,6 +346,8 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
                         usage = dict(event["usage"])
                         usage_received = True
                 elif event.get("type") == "done":
+                    if isinstance(event.get("response_id"), str) and event["response_id"]:
+                        provider_response_id = event["response_id"]
                     terminal_seen = True
                     ledger_finalized = True
                     _record_provider_usage(
@@ -374,7 +377,11 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
             )
         yield {
             "type": "response.completed",
-            "response": {"id": None, "model": event_model, "usage": usage},
+            "response": {
+                "id": provider_response_id,
+                "model": event_model,
+                "usage": usage,
+            },
             "trace": asdict(identity),
         }
         return

@@ -502,6 +502,31 @@ def test_stream_parses_deltas_and_final_usage():
     assert "tools" not in observed["body"]
 
 
+def test_stream_done_preserves_real_provider_response_id_from_sse_payload():
+    provider_response_id = "chatcmpl-provider-123"
+    stream_body = "\n".join([
+        f'data: {{"id":"{provider_response_id}","model":"deepseek-chat",'
+        '"choices":[{"delta":{"content":"完成"}}]}',
+        "",
+        f'data: {{"id":"{provider_response_id}","model":"deepseek-chat",'
+        '"choices":[],"usage":{"total_tokens":3}}',
+        "",
+        "data: [DONE]",
+        "",
+    ])
+
+    def handler(_request):
+        return httpx.Response(200, text=stream_body)
+
+    with _client(handler) as transport:
+        events = list(deepseek.DeepSeekClient(client=transport).stream(
+            [{"role": "user", "content": "写"}],
+        ))
+
+    assert events[-1]["type"] == "done"
+    assert events[-1]["response_id"] == provider_response_id
+
+
 def test_stream_200_empty_sse_fails_loud_without_retry():
     calls = 0
 

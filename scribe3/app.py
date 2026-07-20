@@ -881,7 +881,8 @@ def capabilities():
     """Task 16-B 灰度能力下发:只读各 feature flag 的 env 状态(不下发任何秘密)。
 
     前端能力以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
-    默认全关时各 flag 均 False,系统行为与开关引入前字节等价(capabilities 只上报、不改行为)。
+    五个灰度 flag 默认均 False；兼容键 assembler_v1 恒 True，表示统一内核已启用。
+    capabilities 只上报运行时事实，不改变生产路由。
     回滚顺序:inspector → memory retrieval → editorial thread → context snapshot;数据表保留不删。"""
     from scribe3 import context_cache, embed
     return {
@@ -891,8 +892,9 @@ def capabilities():
             "memory_fabric_v1": _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"),
             "context_inspector_v1": _flag_enabled("SCRIBE3_CONTEXT_INSPECTOR_V1"),
             "spectron_shadow": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
-            # Task 7 既有开关,一并上报(不改语义)
-            "assembler_v1": _flag_enabled("SCRIBE3_CONTEXT_ASSEMBLER_V1"),
+            # 兼容旧前端字段名；Creative Context Engine 已是唯一生产写作内核，
+            # 不再受 SCRIBE3_CONTEXT_ASSEMBLER_V1 控制。
+            "assembler_v1": _context_assembler_enabled(),
         },
         "versions": {
             "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
@@ -4490,8 +4492,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
     with_tools:H-01 work-scoped MCP 开关;为 True 时 instructions 必须已钉死当前 work。
-    on_complete:北极星任务1——流尽后以 assistant 落库文本回调一次(围栏外散文+提案标记,
-    不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
+    on_complete:任何终态都回调一次 ``(ui_text, trace)``；即使无文本也必须
+    回调，以留下 failed/incomplete/cancelled Outcome。一参旧回调继续兼容。"""
     import json as _j
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
@@ -4505,7 +4507,8 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
 
     # 兜底追踪状态
     saw_proposal = False
-    delta_acc: list[str] = []   # 累积全部 delta 文本,用于兜底长散文
+    delta_acc: list[str] = []   # UI/对话摘要口径：围栏外文本
+    raw_delta_acc: list[str] = []  # 供应商原始 delta：只用于 output_hash，不持久正文
     initial_provider = (
         {"provider": "hermes_gateway", "official": False, "transport": "hermes"}
         if with_tools else official_deepseek_provider_identity()
@@ -4554,9 +4557,40 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     try:
         for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
                                         server_label=mcp_server_label):
+            source_type = (
+                ev.get("type") or ev.get("event")
+                if isinstance(ev, dict) else None
+            )
+            if source_type in {"response.incomplete", "response.cancelled"}:
+                # Hermes/OpenAI Responses 会显式发送非成功终态；旧 adapter
+                # 尚未映射这两类，在 Outcome 咽喉点直接提取真实元数据。
+                terminal_seen = True
+                response = ev.get("response") if isinstance(ev.get("response"), dict) else {}
+                trace["status"] = (
+                    "incomplete_stream"
+                    if source_type == "response.incomplete"
+                    else "cancelled"
+                )
+                trace["response_id"] = response.get("id")
+                trace["usage"] = response.get("usage")
+                if isinstance(response.get("model"), str):
+                    trace["model"] = response["model"]
+                trace["error"] = (
+                    response.get("incomplete_details")
+                    or response.get("error")
+                    or ev.get("error")
+                )
+                terminal_provider = provider_trace_for_persistence(ev)
+                if not with_tools and terminal_provider:
+                    trace["provider"].update(terminal_provider)
+                continue
             app_ev = adapter.adapt(ev)
             if app_ev["kind"] == "text.delta":
-                yield from drain(parser.feed(app_ev.get("delta", "")))
+                raw_delta = app_ev.get("delta", "")
+                if not isinstance(raw_delta, str):
+                    raw_delta = str(raw_delta)
+                raw_delta_acc.append(raw_delta)
+                yield from drain(parser.feed(raw_delta))
             elif app_ev["kind"] == "tool.started":
                 trace["tool_calls"].append({
                     "name": app_ev.get("name", ""),
@@ -4592,6 +4626,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                     trace["status"] = "completed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["usage"] = app_ev.get("usage")
+                response = ev.get("response") if isinstance(ev, dict) else None
+                if isinstance(response, dict) and isinstance(response.get("model"), str):
+                    trace["model"] = response["model"]
                 completed_provider = provider_trace_for_persistence(ev)
                 if not with_tools and completed_provider:
                     trace["provider"].update(completed_provider)
@@ -4600,6 +4637,14 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 trace["status"] = "failed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["error"] = app_ev.get("error")
+                response = ev.get("response") if isinstance(ev, dict) else None
+                if isinstance(response, dict):
+                    trace["usage"] = response.get("usage")
+                    if isinstance(response.get("model"), str):
+                        trace["model"] = response["model"]
+                failed_provider = provider_trace_for_persistence(ev)
+                if not with_tools and failed_provider:
+                    trace["provider"].update(failed_provider)
         yield from drain(parser.flush())
         if not terminal_seen:
             trace["status"] = "incomplete_stream"
@@ -4620,10 +4665,20 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 )
         yield 'data: {"done": true}\n\n'
     except GeneratorExit:
-        trace["status"] = "cancelled"
+        # 只有供应商终态尚未到达时，客户端断开才是 cancelled。
+        # response.completed/failed 已到达后在 SSE done 帧处 close，不得
+        # 反向篡改已确定的供应商真实终态。
+        if not terminal_seen:
+            trace["status"] = "cancelled"
         raise
     except Exception as e:
-        trace["status"] = "failed"
+        # 官方 DeepSeek 客户端在未见 done 时以带 status 的异常
+        # fail-loud；不能因为 Python 出口是 exception 就把真实终态改写为 failed。
+        trace["status"] = (
+            "incomplete_stream"
+            if getattr(e, "status", None) == "incomplete_stream"
+            else "failed"
+        )
         trace["error"] = str(e)[:160]
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
@@ -4633,16 +4688,25 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         # 半截对话也要留痕;本块纯副作用不 yield,GeneratorExit 语义安全(D-004)。
         if on_complete is not None:
             try:
+                # 哈希精确覆盖供应商原始文本流（含 proposal 正文），
+                # 不用 UI 摘要，也不把原文放进 trace/Outcome。
+                trace["output_hash"] = hashlib.sha256(
+                    "".join(raw_delta_acc).encode("utf-8")
+                ).hexdigest()
                 txt = "".join(delta_acc).strip()
                 if prop_marks:
                     txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
-                if txt:
-                    try:
-                        on_complete(txt, trace)
-                    except TypeError:
-                        on_complete(txt)
+                import inspect
+                try:
+                    signature = inspect.signature(on_complete)
+                    signature.bind(txt, trace)
+                except (TypeError, ValueError):
+                    on_complete(txt)
+                else:
+                    # 先 bind 再调用，避免把回调内部 TypeError 误判为旧签名而重放。
+                    on_complete(txt, trace)
             except Exception:
-                logging.getLogger("scribe3").warning("chat_message assistant 落库失败(忽略)", exc_info=True)
+                logging.getLogger("scribe3").warning("写作完成回调失败(忽略)", exc_info=True)
 
 
 def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
@@ -5194,18 +5258,13 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         return ""
 
 
-# M1:v1 组装失败回退旧链的累计次数(金丝雀读它判断真机是否真走了 v1,防静默降级)。
+# 已废弃的历史观测字段；统一内核不再回退，因此必须恒为 0。
 _context_assembler_fallbacks = 0
 
 
 def _context_assembler_enabled() -> bool:
-    """Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1 是否开启(每次调用读,默认关)。
-    关 → _assemble_write_instructions 走旧散点组装链,行为一字不变(1270+ 后端测试
-      与真机写作路径零影响,控制器裁决)。开 → 走 ContextAssembler 组装的 envelope。
-    Task 17 的"写作质量金丝雀门"真机验证通过后才允许默认开启。
-    统一走 _flag_enabled(设置中心 DB 覆盖→env→默认,热生效),与 /capabilities
-    上报同一判定路径,消除双路径分裂。"""
-    return _flag_enabled("SCRIBE3_CONTEXT_ASSEMBLER_V1")
+    """兼容旧调用方：统一内核已启用，旧环境变量不再控制生产路由。"""
+    return True
 
 
 # ContextSnapshot.phase 的合法枚举(context_models.PhaseName);写作端点的 phase
@@ -5243,10 +5302,9 @@ def _get_write_retriever(st):
       仍有真数据),与 16-C 前【字节等价】——写作 prompt 不读经验记忆、零检索成本。
     【开】→ MemoryRetriever(st):四通道检索 / RRF / 限知门 / 正典压制接进写作 envelope
       (剧透门 known_from、秘密屏蔽 C1、work 隔离全在检索/组装链内生效)。
-    注:检索真进 prompt 还需 SCRIBE3_CONTEXT_ASSEMBLER_V1 同开(v1 组装路径消费本 retriever);
-    任一关 = 当前生产行为。捕获侧 _capture_turn_memory 由同一 flag 对称门控(同开同关)。
-    M4 记账:门控不完全对称——读路径需 MEMORY_FABRIC + ASSEMBLER_V1【同开】(assembler 是 envelope
-      注入点),写(捕获)只需 MEMORY_FABRIC。Task 17 金丝雀门须【同开两旗】才真验读路径。"""
+    Creative Context Engine 始终消费本 retriever，不再需要旧
+    SCRIBE3_CONTEXT_ASSEMBLER_V1 同开。捕获侧 _capture_turn_memory 仍由
+    MEMORY_FABRIC 同一 flag 对称门控。"""
     if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
         return None
     from scribe3.memory_retrieval import MemoryRetriever
@@ -5348,30 +5406,26 @@ def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) ->
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
                                     short_mode, with_tools=False, work=None,
                                     envelope_trace=None, memory_trace_ctx=None):
-    """SCRIBE3_CONTEXT_ASSEMBLER_V1【开】路径:身份/硬协议保持内嵌,上下文段由
-    ContextAssembler 统一组装(可预算/可溯源/正典优先/限知屏蔽);强制纪律仍逐条内嵌
-    (_final_reminder/_revelation_discipline_block/_focalizer_sincerity_block 等是
-    "每请求硬协议",不进 envelope——计划全局约束的稳定层分工)。旧块函数
-    (_frame_block/_recap_block/_material_recall_block)不删不改,其取数语义由 assembler
-    的 store 降级路径承接(source adapter)。⚠ Task 17 金丝雀门真机验证前默认不启用。"""
-    from scribe3.context_assembler import (
-        ContextAssembler, envelope_trace_manifest, render_envelope_text)
+    """统一写作编译路径：Envelope 与最终 system instructions 一次绑定。"""
+    from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
+    from scribe3.context_engine import CreativeContextEngine
+    from scribe3.context_models import ContextRequest
     from scribe3.craft import build_craft_block
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
-    instructions = (_editor_identity_block() + _write_protocol_block()
-                    + _write_revision_block() + _secret_guard_block(st, chapter))
-    instructions += f"\n当前第 {chapter} 章。"
+    prefix = (_editor_identity_block() + _write_protocol_block()
+              + _write_revision_block() + _secret_guard_block(st, chapter))
+    prefix += f"\n当前第 {chapter} 章。"
     if with_tools:
-        instructions += _s3_work_scope_block(work)
+        prefix += _s3_work_scope_block(work)
         from scribe3.craft_skills import skills_index_block
-        instructions += skills_index_block()   # P1 定案B:技法索引(渐进披露)
+        prefix += skills_index_block()   # P1 定案B:技法索引(渐进披露)
     if focalizer:
-        instructions += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
-                         "贴该角色所知所感写,别写他不知道的私密。")
+        prefix += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
+                   "贴该角色所知所感写,别写他不知道的私密。")
     else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
+        prefix += "本章未指定限知焦点者 → 作者视角(可全知)。"
     # parity 修补(2026-07-15):v1 身份层刻意不走 _editor_system(见上方 I1 注释,防
     # facts/promises 与 envelope 重复),但代价是设定圣经(codex:faction 28 字段/世界
     # 规则/术语/物件/母题)在 v1 完全缺席——CX-Task 6 后这是旗舰能力,不能因为切到 v1
@@ -5380,9 +5434,9 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # for_generation=True,唯一生成入口——v1 同样是生成路径,必须同传,漏传就是泄密)。
     # 阶段2可把这块迁入 envelope 的专属 source(参与预算/溯源);现阶段用 instructions
     # 块保证与旧链字节级同语义,不额外造轮子。
-    instructions += ("\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
-                     + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
-                                     chapter=chapter, for_generation=True) or "(尚无设定)") + "\n")
+    prefix += ("\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
+               + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
+                               chapter=chapter, for_generation=True) or "(尚无设定)") + "\n")
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
                            phase=phase, work=work)
@@ -5401,11 +5455,61 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # RetrievalResult,组装后落 memory_trace 给 ContextInspector 真数据。retriever=None
     # (MEMORY_FABRIC 关)→ 收集器 None → assemble 走协议 retrieve() → 与接线前【字节等价】。
     _retrieval_out = {} if retriever is not None else None
-    envelope = ContextAssembler(st, retriever).assemble(
-        snap, retrieval_query, mode, retrieval_out=_retrieval_out)
+
+    def _render_final_input(envelope):
+        # Manifest 必须 hash 真正交给 Hermes/官方 DeepSeek 的全部字节。
+        # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
+        # 完成，编译返回后不再追加任何 instructions。
+        rendered = prefix
+        env_text = render_envelope_text(envelope)
+        if env_text:
+            rendered += "\n\n" + env_text
+        rendered += _soak_block(seed_words)
+        craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
+        if craft:
+            rendered += "\n\n" + craft
+        rendered += _phase_role_block(phase)
+        rendered += _avoid_directive(st, chapter)
+        rendered += _revelation_discipline_block(focalizer)
+        rendered += _focalizer_sincerity_block()
+        rendered += _purpose_workflow_block(st, chapter, with_tools, work)
+        rendered += _final_reminder()
+        if (phase or "").strip().lower() == "deduce":
+            truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
+            rendered += (
+                "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
+                + (truth or "(尚未填写场景真相；只能说明未能确认。)")
+                + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
+                  "每个标题下只写真相中明确出现、且该角色可感知的内容；"
+                  "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
+                  "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
+            )
+        return rendered
+
+    import uuid
+    context_request = ContextRequest(
+        request_id=uuid.uuid4().hex,
+        task_kind="final" if (phase or "").strip().lower() == "final" else "draft",
+        target_ref=f"chapter:{chapter}",
+        navigation_snapshot_id=snap.navigation_id,
+        work=snap.work,
+        chapter=chapter,
+        phase=snap.phase,
+        actor_role="writer",
+        pov_character=focalizer or None,
+        required_slots=("focus", "global"),
+        forbidden_source_kinds=(),
+        policy_version="generation.v1",
+    )
+    compiled = CreativeContextEngine(
+        st, retriever=retriever, retrieval_out=_retrieval_out,
+    ).compile(
+        context_request, snap, retrieval_query, mode, _render_final_input,
+    )
+    envelope = compiled.envelope
     # M3 记账 + 指标接入:采样本次组装 envelope 的 token 估算(context_tokens_p95 由 0 变真实)。
-    # 纯观测副作用,不改 instructions 字节;仅 v1 路径(ASSEMBLER_V1 开)才走到这里——即 MEMORY_FABRIC
-    # 关而 ASSEMBLER_V1 开时仍会采样(内存 deque,无秘密、字节无害),这是刻意的观测下限,非泄露。
+    # 纯观测副作用，不改 instructions 字节；统一内核每次成功编译都会采样，
+    # 与 MEMORY_FABRIC 是否启用无关（内存 deque、无秘密、字节无害）。
     try:
         from scribe3 import context_cache as _cc
         _cc.record_context_tokens(envelope.total_token_estimate)
@@ -5419,10 +5523,16 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # 纯观测副作用:envelope_trace 缺省 None(仅 chat_write_post 传入)→ 其余调用方字节等价;
     # 摘要计算异常绝不影响写作主链路。
     if envelope_trace is not None:
-        try:
-            envelope_trace["context"] = envelope_trace_manifest(envelope)
-        except Exception:
-            pass
+        binding = {
+            "request_id": compiled.request.request_id,
+            "manifest_id": compiled.manifest.manifest_hash,
+            "policy_version": compiled.manifest.policy_version,
+            "actual_input_hash": compiled.manifest.actual_input_hash,
+        }
+        context_trace = envelope_trace_manifest(envelope)
+        context_trace.update(binding)
+        envelope_trace["context"] = context_trace
+        envelope_trace.update(binding)
     # Task 16 最后一厘米:检索真发生(retriever 非 None)且前端带了会话绑定
     # (memory_trace_ctx 有 session_id + revision)时,落 memory_trace 给 ContextInspector。
     # 键用前端真实会话(前端 Inspector 查同一 session/revision,天然对齐);无绑定的调用方
@@ -5440,38 +5550,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             except Exception:
                 logging.getLogger("scribe3").warning(
                     "memory_trace 落库失败(忽略,不阻断写作)", exc_info=True)
-    env_text = render_envelope_text(envelope)
-    if env_text:
-        instructions += "\n\n" + env_text
-    # 生成模式/情绪种子/工艺块(叠加,非上下文事实)
-    instructions += _soak_block(seed_words)
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(phase)
-    # 每请求硬协议(强制纪律,恒内嵌 prompt,不进 envelope)
-    # S-007:跨章避免复用是【确定性禁令】(distinctive_phrases→"别逐字复用前文这些措辞"),
-    #   不是上下文信息——envelope 只聚合"前文写了什么",给不出"禁止复用"的禁令。按本函数
-    #   自己的分工原则(强制纪律逐条内嵌、不进 envelope),它本就该内嵌,此前随"替代旧散点"
-    #   一起漏掉,导致 assembler_v1 放量后跨章复读防线失效(实证:某章 cross_repetition=25)。
-    instructions += _avoid_directive(st, chapter)
-    instructions += _revelation_discipline_block(focalizer)
-    instructions += _focalizer_sincerity_block()
-    instructions += _purpose_workflow_block(st, chapter, with_tools, work)
-    instructions += _final_reminder()
-    if (phase or "").strip().lower() == "deduce":
-        # v1 的 envelope 是通用写作上下文，不保证包含场景真相；演绎必须单独钉住
-        # 服务端权威源，并将其置于最后，避免长上下文/文风块把它稀释掉。
-        truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
-        instructions += (
-            "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
-            + (truth or "(尚未填写场景真相；只能说明未能确认。)")
-            + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
-              "每个标题下只写真相中明确出现、且该角色可感知的内容；"
-              "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
-              "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
-        )
-    return instructions
+    return compiled.rendered_input
 
 
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,
@@ -5480,106 +5559,78 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                                  work: str | None = None,
                                  envelope_trace: dict | None = None,
                                  memory_trace_ctx: dict | None = None) -> str:
-    """chat_write 完整组装链单源(北极星任务4 提炼,原 chat_write_post 内联段)。
-    POST /chat/write 与 POST /loop/chapter 共用**同一个函数**——宪法条款
-    "regenerate 复用完整组装链"的物理保证:loop 回炉不存在第二套注入点
-    (文档1 发现3 教训:历史上每新开一个注入点都泄露过一次)。
-    with_tools:透传给工序提示段;启用时所有 s3_ 调用必须带 work。
-    envelope_trace(Caveat 1):可选可变收集器;仅 v1 路径成功组装时被回填
-      {"context": <安全块清单>}(仅 chat_write_post 传入,供落 chat_message.trace.context)。
-      缺省 None → 全部其余调用方与旧路径字节等价。
-    memory_trace_ctx(Task 16 最后一厘米):可选前端会话绑定
-      {context_session_id/context_revision/context_hash/thread_id};仅 v1 路径且检索发生
-      (MEMORY_FABRIC 开)+ 绑定齐备时,把 RetrievalResult 落 memory_trace 给 ContextInspector。
-      缺省 None → 不落 trace,其余调用方(loop/存量)行为不变。
+    """chat_write 完整组装链单源；生产无条件走 Creative Context Engine。
 
-    Task 7:SCRIBE3_CONTEXT_ASSEMBLER_V1【开】→ 委托 _assemble_write_instructions_v1
-      (ContextAssembler 统一组装);组装异常 → 回退下方旧链(fail-safe)。
-      【关】(默认)→ 直接执行下方旧链,行为一字不变(控制器裁决的硬性验收条件)。"""
-    if _context_assembler_enabled():
-        try:
-            return _assemble_write_instructions_v1(
-                st, chapter=chapter, focalizer=focalizer, phase=phase,
-                seed_words=seed_words, short_mode=short_mode,
-                with_tools=with_tools, work=work, envelope_trace=envelope_trace,
-                memory_trace_ctx=memory_trace_ctx)
-        except Exception:
-            # M1:回退是【结构化信号】,不能静默——否则 Task 17 金丝雀门会被蒙蔽(v1
-            # 其实全程降级到旧链却以为在测 v1)。累计计数器 + 带阶段/章/书的 warning,
-            # 供金丝雀读 app._context_assembler_fallbacks 判断"这次真机是否真走了 v1"。
-            global _context_assembler_fallbacks
-            _context_assembler_fallbacks += 1
-            logging.getLogger("scribe3").warning(
-                "ContextAssembler v1 组装失败,回退旧组装链(fail-safe) "
-                "stage=assemble_write_instructions chapter=%s focalizer=%s work=%s "
-                "fallbacks=%d",
-                chapter, focalizer, work, _context_assembler_fallbacks, exc_info=True)
-    from scribe3.craft import build_craft_block
-    instructions = _editor_write_system(st, focalizer=focalizer, chapter=chapter)
-    instructions += f"\n当前第 {chapter} 章。"
-    if with_tools:
-        instructions += _s3_work_scope_block(work)
-        from scribe3.craft_skills import skills_index_block
-        instructions += skills_index_block()   # P1 定案B:技法索引(渐进披露)
-    if focalizer:
-        instructions += f"作者指定本章跟随焦点者 {focalizer} 的限知视角:贴该角色所知所感写,别写他不知道的私密。"
+    ``SCRIBE3_CONTEXT_ASSEMBLER_V1`` 不再决定生产写作路由。统一内核失败
+    直接上抛，不得回退旧散点链伪装成“没有上下文”。"""
+    return _assemble_write_instructions_v1(
+        st, chapter=chapter, focalizer=focalizer, phase=phase,
+        seed_words=seed_words, short_mode=short_mode,
+        with_tools=with_tools, work=work, envelope_trace=envelope_trace,
+        memory_trace_ctx=memory_trace_ctx,
+    )
+
+
+
+def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
+    """将写作供应商终态绑定到已持久化 Manifest，不保存输出正文。"""
+    from scribe3.context_outcome import ContextOutcomeTrace
+    from scribe3.context_store import ContextStore
+
+    required = ("request_id", "manifest_id", "actual_input_hash")
+    missing = [key for key in required if not envelope_trace.get(key)]
+    if missing:
+        raise ValueError(f"Outcome 缺少 Manifest 绑定: {', '.join(missing)}")
+
+    raw_status = trace.get("status")
+    status = {
+        "completed": "succeeded",
+        "failed": "failed",
+        "incomplete_stream": "incomplete_stream",
+        "cancelled": "cancelled",
+    }.get(raw_status)
+    if status is None:
+        raise ValueError(f"未知写作终态: {raw_status!r}")
+
+    provider_identity = trace.get("provider")
+    if isinstance(provider_identity, dict):
+        provider = provider_identity.get("provider")
+        model = trace.get("model") or provider_identity.get("model")
     else:
-        instructions += "本章未指定限知焦点者 → 作者视角(可全知)。"
-    instructions += _avoid_directive(st, chapter)
-    instructions += _voice_anchor_block(st, focalizer)
-    instructions += _arc_state_block(st, focalizer, chapter)
-    instructions += _motif_block(st)
-    instructions += _frame_block(st, focalizer, chapter)
-    instructions += _revelation_discipline_block(focalizer)
-    instructions += _recap_block(st, chapter)
-    instructions += _current_tail_block(st, chapter)
-    instructions += _soak_block(seed_words)
-    craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
-    if craft:
-        instructions += "\n\n" + craft
-    instructions += _phase_role_block(phase)
-    instructions += _outline_block(st, chapter, focalizer)   # B-3:五阶段 synopsis/beats 注入(限知护栏随 focalizer)
-    instructions += _material_recall_block(st, chapter, phase, focalizer)  # 素材联想记忆(借鉴参考,覆盖全生成相位)
-    instructions += _focalizer_sincerity_block()   # 方案B任务13b:叙述者真诚视角硬约束
-    _ph_lower = (phase or "").strip().lower()
-    if _ph_lower in ("draft", "final"):
-        # F-1 修复(B-3 同型第四次):正文相位——draft(四阶段草稿)与 final(loop/pilot/
-        # 选择环一步到正文的默认相位)——都必须注入演绎块。此前只 draft 注入,而 loop/pilot/
-        # 选择环全走 final → deduce 步烧的 1+N 发 LLM 产物(场景真相+限知投影)物理漏在
-        # prompt 外,驱动语"按简报与演绎写"沦为空指令。演绎字段空→_deduction_block 返空串→
-        # 不注入(默认行为不变)。回归钉:test_gapfix.test_deduce_phase_injects_scene_truth。
-        ded = _deduction_block(st, chapter)
-        if ded:
-            instructions += "\n\n" + ded
-            logging.getLogger("scribe3").debug(
-                "chat/write 组装 phase=%s chapter=%s → 注入演绎块 %s 字(命中 _deduction_block)",
-                _ph_lower, chapter, len(ded))
-    elif _ph_lower == "deduce":
-        # 断头修复(演绎多棱镜 #5):投影必须从同一场景真相物理派生——此前指令说
-        # "据场景真相"但真相从不进 prompt(B-3 同型坑:被指令据 X 却没收到 X),
-        # "多投影天然一致"沦为对模型的口头要求。真相非空即注入;生成真相本身时
-        # 它可作重写参照,无害。
-        try:
-            _truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
-        except Exception:
-            _truth = ""
-        if _truth:
-            instructions += ("\n\n## 本场「场景真相」(全知,各角色投影派生的唯一事实源)\n"
-                             + _truth
-                             + "\n\n生成角色限知投影时:只从上述真相中该角色能感知/推知的"
-                               "部分派生;真相里没有的事不得出现在任何投影里。")
-    instructions += _purpose_workflow_block(st, chapter, with_tools, work)   # 北极星任务6:目的合同工序
-    instructions += _final_reminder()
-    if _ph_lower == "deduce":
-        # 演绎会经过逐项事实门；把合同放在全部风格/素材提示之后，避免外围创作指令
-        # 稀释唯一事实源。宁可留白，也不能为连贯性补造动作、物件或人物前史。
-        instructions += (
-            "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
-            "每个标题下只写真相中明确出现、且该角色可感知的内容；"
-            "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
-            "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
-        )
-    return instructions
+        provider = provider_identity if isinstance(provider_identity, str) else None
+        model = trace.get("model")
+    error = trace.get("error")
+    if error is not None and not isinstance(error, str):
+        error = json.dumps(error, ensure_ascii=False, sort_keys=True)[:500]
+    raw_usage = trace.get("usage")
+    usage = None
+    if isinstance(raw_usage, dict):
+        # ContextOutcomeTrace 是窄合同：保留供应商顶层数值计量，
+        # 不把不定形的嵌套明细整包灌入审计表。
+        usage = {
+            str(key): value for key, value in raw_usage.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        }
+
+    request_id = str(envelope_trace["request_id"])
+    manifest_id = str(envelope_trace["manifest_id"])
+    actual_input_hash = str(envelope_trace["actual_input_hash"])
+    identity = f"{request_id}\0{manifest_id}\0{actual_input_hash}"
+    outcome = ContextOutcomeTrace(
+        outcome_id=hashlib.sha256(identity.encode("utf-8")).hexdigest(),
+        request_id=request_id,
+        manifest_id=manifest_id,
+        actual_input_hash=actual_input_hash,
+        status=status,
+        provider=provider,
+        model=model if isinstance(model, str) else None,
+        provider_request_id=(str(trace["response_id"])
+                             if trace.get("response_id") is not None else None),
+        usage=usage,
+        output_hash=trace.get("output_hash"),
+        error=error,
+    )
+    return ContextStore(st).save_outcome(outcome)
 
 
 @app.post("/chat/write")
@@ -5604,12 +5655,12 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     # 已收到完整上下文，必须纯散文输出，不能夹带尚未执行的工具调用。
     _write_intent = _is_write_intent(req.msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
-    # Caveat 1:v1 组装路径把 envelope 安全块清单回填这里,随 assistant 落 trace.context;
-    # flag 关/回退旧链时保持空 → trace 不含 context 键(字节等价,零回归)。
+    # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
+    # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
     _envelope_trace: dict = {}
     # Task 16 最后一厘米:前端真实会话绑定(供 v1 检索路径落 memory_trace 给 ContextInspector);
-    # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 v1 + MEMORY_FABRIC 开 + 绑定齐备时
-    # 被消费落 trace——flag 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
+    # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 MEMORY_FABRIC 开 + 绑定齐备时
+    # 被消费落 trace；fabric 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
     _memory_trace_ctx = _write_context_binding(req, request.headers)
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
@@ -5644,13 +5695,24 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     def _persist_assistant(text: str, trace: dict | None = None) -> None:
         # assistant 侧 response_id 取自 Hermes trace(便于按响应回溯本轮)。
         trace = dict(trace or {})
-        # Caveat 1:v1 组装路径(ASSEMBLER_V1 开且成功)才有 envelope 块清单 →
-        # 并入 trace.context 供审计"主编这轮看到了哪些上下文块"。manifest 每块仅记
+        # 统一内核成功编译后必有 envelope 安全块清单，随后并入 trace.context，
+        # 供审计"主编这轮看到了哪些上下文块"。manifest 每块仅记
         # name/token/source id/被屏蔽 source id,绝无块正文与秘密 value(限知红线)。
-        # flag 关或回退旧链时 _envelope_trace 为空 → 不加 context 键(字节等价)。
+        # 编译失败直接上抛，不会以旧链空 trace 伪装成功。
         _ctx = _envelope_trace.get("context")
         if _ctx:
             trace["context"] = _ctx
+        # Outcome 与 chat_message 是两个独立的留痕副作用：先写 Outcome，
+        # 写失败必须记错，但不得阻断既有 chat_message best-effort 语义。
+        try:
+            _save_write_context_outcome(st, _envelope_trace, trace)
+        except Exception:
+            logging.getLogger("scribe3").error(
+                "Context Outcome 落库失败，未伪造 succeeded 记录", exc_info=True)
+        # 无文本失败/取消只落 Outcome，不改变原有“无空 assistant
+        # 消息”口径。on_complete 仍已被调用，所以不会漏 Outcome。
+        if not text:
+            return
         resp_id = trace.get("response_id")
         st.add_chat_message(chapter=req.chapter, stage=req.phase, role="assistant",
                             text=text, turn=turn_id, trace=trace,
