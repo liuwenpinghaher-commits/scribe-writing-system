@@ -1099,16 +1099,18 @@ def ai_usage(work: str = "main", days: int = 7):
     """
     from scribe3 import usage as usage_mod
     from scribe3 import llm as llm_mod
+    cap_value = llm_mod._cap()
     used, scope = usage_mod.used_today()
+    unlimited = cap_value == 0
+    remaining = None if unlimited else max(0, cap_value - used)
     try:
         tokens = _store_for(work).usage_summary(days=days)
     except Exception as e:
         tokens = {"days": [], "error": str(e)}
-    cap = llm_mod._cap()
     return {
         "work": work,
-        "cap": {"cap": cap, "used_today": used,
-                "remaining": llm_mod.daily_remaining(), "unlimited": cap == 0,
+        "cap": {"cap": cap_value, "used_today": used,
+                "remaining": remaining, "unlimited": unlimited,
                 "scope": scope},
         "tokens": tokens,
     }

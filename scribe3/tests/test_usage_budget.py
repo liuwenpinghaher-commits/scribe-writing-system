@@ -56,6 +56,17 @@ def test_tick_fail_open_on_ledger_error(tmp_path, monkeypatch):
         U.tick(cap=2)
 
 
+def test_tick_zero_cap_fail_open_still_records_usage(tmp_path, monkeypatch):
+    """共享台账故障时，cap=0 仍不阻断，并在进程账中逐笔递增。"""
+    bad = tmp_path / "not_a_dir_file"
+    bad.write_text("x")
+    monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(bad / "l.sqlite3"))
+    U._proc_daily[0], U._proc_daily[1] = "", 0
+    for _ in range(3):
+        assert U.tick(cap=0) == "process"
+    assert U.used_today() == (3, "process")
+
+
 def test_reset_today_clears_both(tmp_path, monkeypatch):
     monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "l.sqlite3"))
     U.tick(cap=5)
@@ -163,6 +174,35 @@ def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):
         "scope": "shared",
     }
     L._reset_daily_counter()
+
+
+def test_ai_usage_endpoint_reads_one_consistent_cap_snapshot(store, monkeypatch):
+    """热设置/并发变化时，cap 对象只能由同一次 cap 与 used 快照计算。"""
+    import scribe3.app as A
+    A.set_store(store)
+    cap_values = iter((100, 200))
+    used_values = iter(((4, "shared"), (90, "process")))
+    calls = {"cap": 0, "used": 0}
+
+    def varying_cap():
+        calls["cap"] += 1
+        return next(cap_values)
+
+    def varying_used():
+        calls["used"] += 1
+        return next(used_values)
+
+    monkeypatch.setattr(L, "_cap", varying_cap)
+    monkeypatch.setattr(U, "used_today", varying_used)
+    cap = TestClient(A.app).get("/ai/usage").json()["cap"]
+    assert cap == {
+        "cap": 100,
+        "used_today": 4,
+        "remaining": 96,
+        "unlimited": False,
+        "scope": "shared",
+    }
+    assert calls == {"cap": 1, "used": 1}
 
 
 def test_ai_usage_endpoint_store_failure_failsoft(store, monkeypatch):
