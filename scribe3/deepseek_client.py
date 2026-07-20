@@ -250,6 +250,7 @@ class DeepSeekClient:
         thinking: str | None = None,
         timeout_seconds: float | None = None,
         retry_count: int | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> CompletionResult:
         requested_model = self._model(model)
         identity = self._identity(requested_model)
@@ -265,6 +266,8 @@ class DeepSeekClient:
             body["temperature"] = temperature
         if thinking is not None:
             body["thinking"] = {"type": thinking}
+        if response_format is not None:
+            body["response_format"] = response_format
 
         retries = self._retry_count(retry_count)
         timeout = self._timeout(timeout_seconds)
@@ -336,6 +339,80 @@ class DeepSeekClient:
             identity=result_identity,
             response_id=(response_id if isinstance(response_id, str) and response_id else None),
         )
+
+    def _complete_raw(self, messages: list[dict[str, Any]], **kwargs) -> CompletionResult:
+        return self.complete(messages, **kwargs)
+
+    def complete_json(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        schema: type,
+        model: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        max_repairs: int = 2,
+    ):
+        import json as _json
+        from pydantic import ValidationError as _ValidationError
+
+        result = self._complete_raw(
+            messages,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+        content = (result.content or "").strip()
+        if not content:
+            raise ValueError("LLM 返回空响应，无法解析 JSON")
+
+        for attempt in range(max_repairs + 1):
+            try:
+                start = content.find("{")
+                end = content.rfind("}") + 1
+                if start < 0 or end <= start:
+                    raise ValueError("响应中未找到 JSON 对象")
+                payload = _json.loads(content[start:end])
+            except (ValueError, _json.JSONDecodeError) as exc:
+                if attempt >= max_repairs:
+                    raise ValueError(f"JSON 格式修复 {max_repairs} 次后仍失败: {exc}") from exc
+                repair_result = self._complete_raw(
+                    messages + [
+                        {"role": "assistant", "content": content},
+                        {"role": "user", "content": "上面的回复不是有效 JSON。请只返回有效 JSON 对象，不要其他文字。"},
+                    ],
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                )
+                content = (repair_result.content or "").strip()
+                if not content:
+                    raise ValueError("LLM 修复请求返回空响应")
+                continue
+
+            try:
+                return schema.model_validate(payload)
+            except _ValidationError as exc:
+                if attempt >= max_repairs:
+                    raise ValueError(f"JSON schema 校验失败: {exc}") from exc
+                repair_result = self._complete_raw(
+                    messages + [
+                        {"role": "assistant", "content": content},
+                        {"role": "user", "content": f"JSON 字段不符合要求: {exc.errors()[:3]}。请修正后只返回有效 JSON。"},
+                    ],
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                )
+                content = (repair_result.content or "").strip()
+                if not content:
+                    raise ValueError("LLM 修复请求返回空响应")
+                continue
+
+        raise ValueError("JSON 格式修复次数耗尽")
 
     def stream(
         self,
