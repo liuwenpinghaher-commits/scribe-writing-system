@@ -6,6 +6,8 @@
   stdio 进程要共享同一份设置。
 - fail-soft 边界:读故障回空(系统回落 env/默认值照常工作,告警一次);
   写故障原样抛(修改必须显式失败,不能假装成功)。
+- 本地权限边界:数据库直接父目录收紧为 0700,数据库文件收紧为 0600;
+  当前不宣称静态加密。只读窄探针不创建文件、不 chmod。
 - value 一律 JSON 编码字符串;secret 项审计只记 «secret»,绝不落明文。
   审计 old 值在同一事务内原子读取,不信任调用方;key 命中敏感词
   (KEY/TOKEN/PASS/SECRET)时存储层兜底强制掩码。
@@ -35,13 +37,21 @@ def db_path() -> Path:
 def _connect() -> sqlite3.Connection:
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=2.0)
-    conn.execute("CREATE TABLE IF NOT EXISTS setting ("
-                 "key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
-    conn.execute("CREATE TABLE IF NOT EXISTS setting_audit ("
-                 "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, "
-                 "key TEXT NOT NULL, old TEXT, new TEXT)")
-    return conn
+    os.chmod(path.parent, 0o700)
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = sqlite3.connect(str(path), timeout=2.0)
+        os.chmod(path, 0o600)
+        conn.execute("CREATE TABLE IF NOT EXISTS setting ("
+                     "key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS setting_audit ("
+                     "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, "
+                     "key TEXT NOT NULL, old TEXT, new TEXT)")
+        return conn
+    except Exception:
+        if conn is not None:
+            conn.close()
+        raise
 
 
 def _warn_once(e: Exception) -> None:

@@ -1,17 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const apiMock = vi.hoisted(() => ({
   settings: vi.fn(), putSetting: vi.fn(), resetSetting: vi.fn(),
   settingsAudit: vi.fn(() => Promise.resolve({ rows: [] })),
   gatewayStatus: vi.fn(() => Promise.resolve({ gateways: [] })),
   gatewayFiles: vi.fn(() => Promise.resolve({ files: [] })),
+  gatewayModelSummary: vi.fn(() => Promise.resolve({ gateways: [] })),
+  dashboardStatus: vi.fn(() => Promise.resolve({ online: false, url: 'http://127.0.0.1:9119' })),
+  dashboardStart: vi.fn(() => Promise.resolve({ online: true, message: 'ok' })),
+  gatewayRestart: vi.fn(() => Promise.resolve({ online: true, profile: 'scribe3', message: 'ok' })),
+  putGatewayFile: vi.fn(() => Promise.resolve({ sha256: 'new' })),
   aiUsage: vi.fn(() => Promise.resolve({ cap: { cap: 0, used_today: 0, remaining: 0, scope: 'shared' } })),
 }))
 vi.mock('../../api', () => ({ api: apiMock }))
 import { SettingsView } from '../SettingsView'
 
 const ITEMS = [
+  { key: 'llm.model', category: 'llm', type: 'str', label: '补全模型名',
+    value: 'deepseek-chat', default: 'deepseek-chat', source: 'default', effect: 'hot', danger: false, pending_restart: false },
   { key: 'SCRIBE3_DAILY_CALL_CAP', category: 'llm', type: 'int', label: '每日 LLM 调用日帽',
     value: 500, default: 500, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_SURREAL_URL', category: 'connection', type: 'str', label: 'SurrealDB 地址',
@@ -22,13 +29,32 @@ const ITEMS = [
     value: false, default: false, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_API_TOKEN', category: 'flags', type: 'secret', label: '后端 API token',
     value: null, default: null, source: 'db', is_set: true, effect: 'restart', danger: false, pending_restart: false },
+  { key: 'DEEPSEEK_API_KEY', category: 'gateway', type: 'secret', label: 'DeepSeek 官方密钥',
+    value: null, default: null, source: 'db', is_set: true, effect: 'hot', danger: false, pending_restart: false },
 ]
+
+const usagePayload = ({ model = 'deepseek-chat', cap = 0, used = 0, key = true } = {}) => ({
+  work: 'main',
+  cap: {
+    cap,
+    used_today: used,
+    remaining: cap === 0 ? null : Math.max(0, cap - used),
+    scope: 'shared',
+    unlimited: cap === 0,
+  },
+  tokens: { days: [] },
+  provider: {
+    provider: 'deepseek', api_base: 'https://api.deepseek.com', model,
+    official: true, transport: 'direct', key_present: key,
+  },
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
   apiMock.settings.mockResolvedValue({ settings: ITEMS, categories: ['connection', 'llm', 'craft', 'flags', 'gateway'] })
   apiMock.putSetting.mockResolvedValue({})
   apiMock.resetSetting.mockResolvedValue({})
+  apiMock.aiUsage = vi.fn(() => Promise.resolve(usagePayload()))
 })
 
 describe('SettingsView', () => {
@@ -147,7 +173,7 @@ describe('SettingsView', () => {
       tokens: { days: [] },
       provider: {
         provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
-        official: true, transport: 'direct', key_configured: true,
+        official: true, transport: 'direct', key_present: true,
       },
     }))
     render(<SettingsView work="demo" />)
@@ -169,7 +195,7 @@ describe('SettingsView', () => {
       work: 'main',
       cap: { cap: 0, used_today: 1, remaining: null, scope: 'shared', unlimited: true },
       tokens: { days: [] },
-      provider: { ...provider, key_configured: true },
+      provider: { ...provider, key_present: true },
     }))
     render(<SettingsView work="demo" />)
 
@@ -178,9 +204,9 @@ describe('SettingsView', () => {
   })
 
   it.each([
-    ['key_configured 缺失', {}],
-    ['key_configured 为 null', { key_configured: null }],
-    ['key_configured 为字符串', { key_configured: 'true' }],
+    ['key_present 缺失', {}],
+    ['key_present 为 null', { key_present: null }],
+    ['key_present 为字符串', { key_present: 'true' }],
   ])('密钥状态非布尔时隐藏官方行：%s', async (_label, keyState) => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',
@@ -204,13 +230,13 @@ describe('SettingsView', () => {
       tokens: { days: [] },
       provider: {
         provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
-        official: true, transport: 'direct', key_configured: false,
+        official: true, transport: 'direct', key_present: false,
       },
     }))
     render(<SettingsView work="demo" />)
 
-    expect(await screen.findByText('未配置密钥')).toBeTruthy()
-    expect(screen.queryByText(/ready|已就绪/i)).toBeNull()
+    expect(await screen.findByText('未保存密钥')).toBeTruthy()
+    expect(screen.queryByText(/ready|已就绪|已配置/i)).toBeNull()
   })
 
   it('无限用量时展示今日已用和不限次数', async () => {
@@ -231,6 +257,81 @@ describe('SettingsView', () => {
     render(<SettingsView work="demo" />)
     await waitFor(() => expect(screen.getByText('每日 LLM 调用日帽')).toBeTruthy())
     expect(screen.queryByText(/今日已用/)).toBeNull()
+  })
+
+  it('保存 llm.model 后同时重拉 settings 与 usage 并立即更新模型', async () => {
+    apiMock.aiUsage
+      .mockResolvedValueOnce(usagePayload({ model: 'deepseek-chat' }))
+      .mockResolvedValueOnce(usagePayload({ model: 'deepseek-reasoner' }))
+    render(<SettingsView work="demo" />)
+    expect(await screen.findByText('官方 DeepSeek · deepseek-chat · 直连')).toBeTruthy()
+
+    const input = screen.getByRole('textbox', { name: '补全模型名' })
+    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(apiMock.putSetting).toHaveBeenCalledWith('llm.model', 'deepseek-reasoner'))
+    await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
+  })
+
+  it('保存日帽后 usage 卡立即更新', async () => {
+    apiMock.aiUsage
+      .mockResolvedValueOnce(usagePayload({ cap: 500, used: 25 }))
+      .mockResolvedValueOnce(usagePayload({ cap: 100, used: 25 }))
+    render(<SettingsView work="demo" />)
+    expect(await screen.findByText('今日已用 25 / 日帽 500')).toBeTruthy()
+
+    const input = screen.getByRole('spinbutton', { name: '每日 LLM 调用日帽' })
+    fireEvent.change(input, { target: { value: '100' } })
+    fireEvent.blur(input)
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(apiMock.putSetting).toHaveBeenCalledWith('SCRIBE3_DAILY_CALL_CAP', 100))
+    expect(await screen.findByText('今日已用 25 / 日帽 100')).toBeTruthy()
+  })
+
+  it('重置 DeepSeek secret 后立即重拉 usage 并更新密钥状态', async () => {
+    apiMock.aiUsage
+      .mockResolvedValueOnce(usagePayload({ key: true }))
+      .mockResolvedValueOnce(usagePayload({ key: false }))
+    render(<SettingsView work="demo" />)
+    expect(await screen.findByText('密钥记录存在（未验证）')).toBeTruthy()
+    expect(screen.queryByText(/已配置|已就绪/)).toBeNull()
+
+    fireEvent.click(screen.getByText('Hermes 网关'))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认:DeepSeek 官方密钥' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认' }))
+
+    await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledWith('DEEPSEEK_API_KEY'))
+    await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByText('LLM 与用量'))
+    expect(await screen.findByText('未保存密钥')).toBeTruthy()
+  })
+
+  it('较旧 usage 请求晚返回时不得覆盖新 revision', async () => {
+    let resolveOld
+    let resolveNew
+    apiMock.aiUsage
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve }))
+    render(<SettingsView work="demo" />)
+    await screen.findByText('补全模型名')
+
+    const input = screen.getByRole('textbox', { name: '补全模型名' })
+    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
+
+    await act(async () => { resolveNew(usagePayload({ model: 'deepseek-reasoner' })) })
+    expect(await screen.findByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
+    await act(async () => { resolveOld(usagePayload({ model: 'deepseek-chat' })) })
+    await waitFor(() => {
+      expect(screen.getByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
+      expect(screen.queryByText('官方 DeepSeek · deepseek-chat · 直连')).toBeNull()
+    })
   })
 
   it('拉取失败显示错误态与重试', async () => {

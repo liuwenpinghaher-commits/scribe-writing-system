@@ -8,10 +8,10 @@
 - 台账路径:env `SCRIBE3_LLM_LEDGER`,缺省 `~/.scribe2-surreal/scribe3_llm_ledger.sqlite3`
   (与 SurrealDB 生产数据同目录,备份/迁移一起走)。
 - 并发:BEGIN IMMEDIATE + busy timeout,app 与 MCP 两写方安全。
-- fail-open:SQLite 任何故障回退进程内计数并 warning 一次——帽是保险丝
-  不是账本,台账挂了绝不能阻断写作主链路。
+- fail-open/fail-soft:日帽写故障回退进程内计数；provider usage 写故障丢弃该条
+  旁路证据并 warning 一次。两者都不得阻断写作主链路。
 - 帽语义:计"发起的 LLM 调用笔数",非 token;token 真实用量见
-  store.usage_summary()(聚合 Hermes 返回的 usage)。
+  store.usage_summary()(Hermes trace)与 provider_usage_summary()(官方直连)，两者分账。
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import os
 import sqlite3
 import threading
 import time
+from datetime import date, timedelta
 from pathlib import Path
 
 _log = logging.getLogger("scribe3.usage")
@@ -40,8 +41,22 @@ def _connect() -> sqlite3.Connection:
     path = ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=2.0)
+    conn.execute("PRAGMA busy_timeout=2000")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS llm_calls (day TEXT PRIMARY KEY, n INTEGER NOT NULL)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS provider_usage ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "day TEXT NOT NULL, ts TEXT NOT NULL, provider TEXT NOT NULL, "
+        "model TEXT NOT NULL, transport TEXT NOT NULL, status TEXT NOT NULL, "
+        "http_status INTEGER, input_tokens INTEGER NOT NULL DEFAULT 0, "
+        "output_tokens INTEGER NOT NULL DEFAULT 0, total_tokens INTEGER NOT NULL DEFAULT 0, "
+        "prompt_cache_hit_tokens INTEGER NOT NULL DEFAULT 0, "
+        "prompt_cache_miss_tokens INTEGER NOT NULL DEFAULT 0)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_provider_usage_day ON provider_usage(day)"
+    )
     return conn
 
 
@@ -49,7 +64,124 @@ def _warn_once(e: Exception) -> None:
     global _warned_ledger_error
     if not _warned_ledger_error:
         _warned_ledger_error = True
-        _log.warning("共享日帽台账不可用,回退进程内计数(fail-open): %s", e)
+        _log.warning(
+            "共享 LLM 台账不可用,按调用类型 fail-soft/fail-open: %s",
+            type(e).__name__,
+        )
+
+
+def _token_value(usage: dict | None, primary: str, fallback: str | None = None) -> int:
+    raw = (usage or {}).get(primary)
+    if raw is None and fallback is not None:
+        raw = (usage or {}).get(fallback)
+    try:
+        value = int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value)
+
+
+def record_provider_usage(
+    *,
+    provider: str,
+    model: str,
+    transport: str,
+    status: str,
+    http_status: int | None = None,
+    usage: dict | None = None,
+) -> bool:
+    """记录一次逻辑官方供应商调用；SQLite 故障返回 False，不阻断调用方。"""
+    now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    day = now[:10]
+    values = (
+        day,
+        now,
+        str(provider),
+        str(model),
+        str(transport),
+        str(status),
+        int(http_status) if http_status is not None else None,
+        _token_value(usage, "input_tokens", "prompt_tokens"),
+        _token_value(usage, "output_tokens", "completion_tokens"),
+        _token_value(usage, "total_tokens"),
+        _token_value(usage, "prompt_cache_hit_tokens"),
+        _token_value(usage, "prompt_cache_miss_tokens"),
+    )
+    try:
+        with _lock:
+            conn = _connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "INSERT INTO provider_usage("
+                    "day, ts, provider, model, transport, status, http_status, "
+                    "input_tokens, output_tokens, total_tokens, "
+                    "prompt_cache_hit_tokens, prompt_cache_miss_tokens"
+                    ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    values,
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        return True
+    except Exception as e:
+        _warn_once(e)
+        return False
+
+
+def provider_usage_summary(days: int = 7) -> dict:
+    """按天/供应商/模型/transport/状态聚合官方调用，不与 trace token 混算。"""
+    base = {
+        "days": [],
+        "cost_amount": None,
+        "pricing_status": "not_configured",
+    }
+    try:
+        window = max(1, min(int(days), 3650))
+    except (TypeError, ValueError):
+        window = 7
+    cutoff = (date.today() - timedelta(days=window - 1)).isoformat()
+    try:
+        conn = _connect()
+        try:
+            rows = conn.execute(
+                "SELECT day, provider, model, transport, status, http_status, "
+                "COUNT(*), COALESCE(SUM(input_tokens), 0), "
+                "COALESCE(SUM(output_tokens), 0), COALESCE(SUM(total_tokens), 0), "
+                "COALESCE(SUM(prompt_cache_hit_tokens), 0), "
+                "COALESCE(SUM(prompt_cache_miss_tokens), 0) "
+                "FROM provider_usage WHERE day >= ? "
+                "GROUP BY day, provider, model, transport, status, http_status "
+                "ORDER BY day DESC, provider, model, transport, status, http_status",
+                (cutoff,),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        _warn_once(e)
+        return {**base, "error": "provider_usage_unavailable"}
+
+    by_day: dict[str, list[dict]] = {}
+    for row in rows:
+        day_value = row[0]
+        by_day.setdefault(day_value, []).append({
+            "provider": row[1],
+            "model": row[2],
+            "transport": row[3],
+            "status": row[4],
+            "http_status": row[5],
+            "calls": row[6],
+            "input_tokens": row[7],
+            "output_tokens": row[8],
+            "total_tokens": row[9],
+            "prompt_cache_hit_tokens": row[10],
+            "prompt_cache_miss_tokens": row[11],
+        })
+    base["days"] = [
+        {"day": day_value, "groups": groups}
+        for day_value, groups in by_day.items()
+    ]
+    return base
 
 
 def _cap_error(cap: int) -> RuntimeError:

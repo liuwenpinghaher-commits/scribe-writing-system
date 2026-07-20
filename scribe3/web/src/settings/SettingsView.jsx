@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { SettingField } from './SettingField'
 import { GatewaySection } from './GatewaySection'
@@ -22,13 +22,7 @@ const SECTIONS = [
 
 // llm 分区顶部用量卡:今日已用/日帽,拉取失败静默隐藏(用量是辅助信息,不应阻断设置分区)。
 // 日帽为全系统共享台账,与当前书无关,故不接收/不依赖 work。
-function UsageCard() {
-  const [usage, setUsage] = useState(null)
-  useEffect(() => {
-    let alive = true
-    api.aiUsage().then((r) => { if (alive) setUsage(r) }).catch(() => { if (alive) setUsage(null) })
-    return () => { alive = false }
-  }, [])
+function UsageCard({ usage }) {
   if (!usage?.cap) return null
   const { cap, used_today } = usage.cap
   const unlimited = usage.cap.unlimited === true
@@ -40,14 +34,14 @@ function UsageCard() {
     && provider?.transport === 'direct'
     && provider?.api_base === 'https://api.deepseek.com'
     && providerModel.length > 0
-    && typeof provider?.key_configured === 'boolean'
+    && typeof provider?.key_present === 'boolean'
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
       {officialDeepSeek && (
         <div className="mb-2 flex items-center justify-between gap-3 text-f13 text-ink">
           <span>官方 DeepSeek · {providerModel} · 直连</span>
-          <span className={provider.key_configured === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
-            {provider.key_configured === true ? '密钥已配置' : '未配置密钥'}
+          <span className={provider.key_present === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
+            {provider.key_present === true ? '密钥记录存在（未验证）' : '未保存密钥'}
           </span>
         </div>
       )}
@@ -87,7 +81,7 @@ function SectionResetAll({ items, onChanged }) {
         return
       }
     }
-    onChanged?.()
+    onChanged?.(dbItems.map((it) => it.key))
   }
   return (
     <div className="mb-3 flex items-center justify-between">
@@ -106,10 +100,30 @@ function SectionResetAll({ items, onChanged }) {
 
 export function SettingsView({ work }) {
   const [items, setItems] = useState(null)
+  const [usage, setUsage] = useState(null)
   const [error, setError] = useState(null)
   const [section, setSection] = useState('llm')
+  const usageRequest = useRef(0)
   const reload = () => api.settings().then((r) => { setItems(r.settings); setError(null) }).catch((e) => setError(e))
-  useEffect(() => { reload() }, [])
+  const reloadUsage = () => {
+    const revision = ++usageRequest.current
+    return api.aiUsage()
+      .then((r) => { if (revision === usageRequest.current) setUsage(r) })
+      .catch(() => { if (revision === usageRequest.current) setUsage(null) })
+  }
+  const onChanged = (changed) => {
+    const settingsRequest = reload()
+    const keys = Array.isArray(changed) ? changed : [changed]
+    if (keys.some((key) => ['llm.model', 'SCRIBE3_DAILY_CALL_CAP', 'DEEPSEEK_API_KEY'].includes(key))) {
+      reloadUsage()
+    }
+    return settingsRequest
+  }
+  useEffect(() => {
+    reload()
+    reloadUsage()
+    return () => { usageRequest.current += 1 }
+  }, [])
   if (error) return (
     <div className="h-full grid place-items-center text-f13 text-faint" data-testid="settings-view">
       <div>设置加载失败 <button className="text-brand cursor-pointer" onClick={reload}>重试</button></div>
@@ -129,15 +143,15 @@ export function SettingsView({ work }) {
       </nav>
       <div className="flex-1 min-w-0 overflow-auto p-6">
         <div className="mx-auto max-w-3xl">
-          {section === 'gateway' && <GatewaySection items={byCat('gateway')} onChanged={reload} />}
+          {section === 'gateway' && <GatewaySection items={byCat('gateway')} onChanged={onChanged} />}
           {section === 'book' && <BookSection work={work} />}
           {section === 'prefs' && <PrefsSection work={work} />}
           {section === 'audit' && <AuditSection />}
-          {section === 'llm' && <UsageCard />}
+          {section === 'llm' && <UsageCard usage={usage} />}
           {['connection', 'llm', 'craft', 'flags'].includes(section) && (
             <>
-              <SectionResetAll items={byCat(section)} onChanged={reload} />
-              {byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={reload} />)}
+              <SectionResetAll items={byCat(section)} onChanged={onChanged} />
+              {byCat(section).map((it) => <SettingField key={it.key} item={it} onChanged={onChanged} />)}
             </>
           )}
         </div>

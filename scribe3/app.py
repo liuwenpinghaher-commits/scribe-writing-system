@@ -1096,6 +1096,8 @@ def ai_usage(work: str = "main", days: int = 7):
       SQLite 台账(SCRIBE3_LLM_LEDGER);=process 表示台账故障已回退进程内计数。
     - tokens:Hermes 各响应体回传的真实 usage,按天聚合(Responses/Runs 分列)。
       fail-soft:聚合挂了回空列表带 error,帽信息照常返回。
+    - provider_usage:官方 DeepSeek 直连逻辑调用的独立聚合；不与 tokens 相加，
+      未配置价格时显式返回 cost_amount=null/pricing_status=not_configured。
     """
     from scribe3 import usage as usage_mod
     from scribe3 import llm as llm_mod
@@ -1103,7 +1105,7 @@ def ai_usage(work: str = "main", days: int = 7):
 
     model = settings_mod.get_public_setting("llm.model")
     identity = llm_mod.official_deepseek_provider_identity(model)
-    key_configured = settings_mod.is_explicitly_configured("DEEPSEEK_API_KEY")
+    key_present = settings_mod.is_explicitly_configured("DEEPSEEK_API_KEY")
     # 严格 allowlist：不返回 identity/设置对象本身，更不读取 key 内容。
     provider = {
         "provider": identity["provider"],
@@ -1112,7 +1114,7 @@ def ai_usage(work: str = "main", days: int = 7):
         "official": identity["official"],
         # identity 里的 httpx 是实现细节；此 API 稳定暴露产品路由语义。
         "transport": "direct",
-        "key_configured": key_configured,
+        "key_present": key_present,
     }
     cap_value = settings_mod.get_public_setting("SCRIBE3_DAILY_CALL_CAP")
     used, scope = usage_mod.used_today()
@@ -1122,12 +1124,22 @@ def ai_usage(work: str = "main", days: int = 7):
         tokens = _store_for(work).usage_summary(days=days)
     except Exception:
         tokens = {"days": [], "error": "usage_summary_unavailable"}
+    try:
+        provider_usage = usage_mod.provider_usage_summary(days=days)
+    except Exception:
+        provider_usage = {
+            "days": [],
+            "cost_amount": None,
+            "pricing_status": "not_configured",
+            "error": "provider_usage_unavailable",
+        }
     return {
         "work": work,
         "cap": {"cap": cap_value, "used_today": used,
                 "remaining": remaining, "unlimited": unlimited,
                 "scope": scope},
         "tokens": tokens,
+        "provider_usage": provider_usage,
         "provider": provider,
     }
 
@@ -4489,6 +4501,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     parser = ProposalParser()
     prop = {"scope": None, "prose": []}
     prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
+    terminal_seen = False
 
     # 兜底追踪状态
     saw_proposal = False
@@ -4574,19 +4587,22 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 })
                 yield f"data: {_j.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
             elif app_ev["kind"] == "run.completed":
-                trace["status"] = "completed"
+                terminal_seen = True
+                if trace["status"] != "failed":
+                    trace["status"] = "completed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["usage"] = app_ev.get("usage")
                 completed_provider = provider_trace_for_persistence(ev)
                 if not with_tools and completed_provider:
                     trace["provider"].update(completed_provider)
             elif app_ev["kind"] == "run.failed":
+                terminal_seen = True
                 trace["status"] = "failed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["error"] = app_ev.get("error")
         yield from drain(parser.flush())
-        if trace["status"] == "streaming":
-            trace["status"] = "completed"
+        if not terminal_seen:
+            trace["status"] = "incomplete_stream"
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
         # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
         # 只把散文主体包进 proposal,避免对话话术混入手稿。
@@ -4599,6 +4615,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                     f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
         yield 'data: {"done": true}\n\n'
+    except GeneratorExit:
+        trace["status"] = "cancelled"
+        raise
     except Exception as e:
         trace["status"] = "failed"
         trace["error"] = str(e)[:160]
@@ -5667,6 +5686,7 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
     outside: list[str] = []
     proposals: list[dict] = []
     cur = {"scope": None, "prose": []}
+    terminal_status: str | None = None
 
     def drain(events):
         for kind, val in events:
@@ -5685,12 +5705,23 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
     # U-003 修复:server_label 硬编码 SCRIBE3_READ_MCP_LABEL,不接受参数、不可被调用方
     # 覆盖——收集式写作(loop 编排/select 环)与 _stream_write 同规矩,绝不能挂
     # s3_*_reveal 全知孪生工具面(否则模型能自己解锁任意 secret 明文写进续写文本)。
-    for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
-                                    server_label=SCRIBE3_READ_MCP_LABEL):
-        app_ev = adapter.adapt(ev)
-        if app_ev["kind"] == "text.delta":
-            drain(parser.feed(app_ev.get("delta", "")))
+    try:
+        for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
+                                        server_label=SCRIBE3_READ_MCP_LABEL):
+            app_ev = adapter.adapt(ev)
+            if app_ev["kind"] == "text.delta":
+                drain(parser.feed(app_ev.get("delta", "")))
+            elif app_ev["kind"] == "run.failed":
+                terminal_status = "failed"
+            elif app_ev["kind"] == "run.completed" and terminal_status is None:
+                terminal_status = "completed"
+    except Exception:
+        raise RuntimeError("LLM 写作流异常，未生成完整候选稿") from None
     drain(parser.flush())
+    if terminal_status == "failed":
+        raise RuntimeError("LLM 写作流失败，未生成完整候选稿")
+    if terminal_status != "completed":
+        raise RuntimeError("LLM 写作流未完整结束，未生成完整候选稿")
     return "".join(outside), proposals
 
 

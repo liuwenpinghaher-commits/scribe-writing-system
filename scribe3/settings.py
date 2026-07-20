@@ -105,7 +105,7 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("HERMES_RUNS_PROFILE", "gateway", "str", "scribe3_write", "restart", "写网关 profile"),
     Setting("HERMES_HOME", "gateway", "str", "", "restart", "Hermes 根目录", "空 = ~/.hermes"),
     Setting("DEEPSEEK_API_KEY", "gateway", "secret", "", "hot", "DeepSeek 官方密钥",
-            "无工具补全/纪律审校直连官方接口；仅本地加密设置存储"),
+            "无工具补全/纪律审校直连官方接口；本地受限权限设置存储；审计掩码；当前不宣称静态加密"),
     Setting("SCRIBE3_STRICT_GATEWAY_GUARD", "gateway", "bool", False, "restart", "网关安全守卫 fail-fast",
             "开=启动时网关安全不变量违规(默认网关有工具面/挂 *_reveal)直接拒绝启动;关=只 CRITICAL 日志(U-007)"),
     Setting("gateway.hermes_bin", "gateway", "str", "~/.local/bin/hermes", "restart", "hermes CLI 路径", "一键重启用"),
@@ -179,7 +179,7 @@ def get_setting(key: str):
 
 
 def is_explicitly_configured(key: str) -> bool:
-    """secret 是否有显式 env/DB 配置；仅查存在性，绝不读值。"""
+    """secret 的 env/DB 记录是否存在；不读取值，也不声称语法有效或可用。"""
     setting = _BY_KEY[key]
     if setting.type != "secret":
         raise ValueError(f"{key} 不是 secret 设置")

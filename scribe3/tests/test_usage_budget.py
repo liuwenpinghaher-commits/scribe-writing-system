@@ -7,6 +7,7 @@ SQLite 故障 fail-open 回退进程内计数(帽是成本保险丝,不因台账
 """
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -74,6 +75,101 @@ def test_reset_today_clears_both(tmp_path, monkeypatch):
     U.reset_today()
     used, _ = U.used_today()
     assert used == 0
+
+
+def test_provider_usage_records_and_aggregates_tokens_separately(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "l.sqlite3"))
+
+    assert U.record_provider_usage(
+        provider="deepseek",
+        model="deepseek-chat",
+        transport="httpx",
+        status="completed",
+        http_status=200,
+        usage={
+            "prompt_tokens": 11,
+            "completion_tokens": 5,
+            "total_tokens": 16,
+            "prompt_cache_hit_tokens": 7,
+            "prompt_cache_miss_tokens": 4,
+        },
+    ) is True
+    assert U.record_provider_usage(
+        provider="deepseek",
+        model="deepseek-chat",
+        transport="httpx",
+        status="http_error",
+        http_status=429,
+    ) is True
+
+    summary = U.provider_usage_summary(days=7)
+    assert summary["cost_amount"] is None
+    assert summary["pricing_status"] == "not_configured"
+    groups = summary["days"][0]["groups"]
+    completed = next(group for group in groups if group["status"] == "completed")
+    failed = next(group for group in groups if group["status"] == "http_error")
+    assert completed == {
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "transport": "httpx",
+        "status": "completed",
+        "http_status": 200,
+        "calls": 1,
+        "input_tokens": 11,
+        "output_tokens": 5,
+        "total_tokens": 16,
+        "prompt_cache_hit_tokens": 7,
+        "prompt_cache_miss_tokens": 4,
+    }
+    assert failed["calls"] == 1
+    assert failed["http_status"] == 429
+    assert failed["total_tokens"] == 0
+
+
+def test_provider_usage_concurrent_writes_are_atomic(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_LLM_LEDGER", str(tmp_path / "l.sqlite3"))
+
+    def record(_index):
+        return U.record_provider_usage(
+            provider="deepseek",
+            model="deepseek-chat",
+            transport="httpx",
+            status="completed",
+            http_status=200,
+            usage={"input_tokens": 2, "output_tokens": 1, "total_tokens": 3},
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(record, range(32)))
+
+    assert results == [True] * 32
+    group = U.provider_usage_summary(days=1)["days"][0]["groups"][0]
+    assert group["calls"] == 32
+    assert group["input_tokens"] == 64
+    assert group["output_tokens"] == 32
+    assert group["total_tokens"] == 96
+
+
+def test_provider_usage_sqlite_failure_is_fail_soft(monkeypatch):
+    secret_sentinel = "provider-ledger-private-sentinel"
+
+    def broken_connect():
+        raise sqlite3.OperationalError(f"ledger unavailable {secret_sentinel}")
+
+    monkeypatch.setattr(U, "_connect", broken_connect)
+    assert U.record_provider_usage(
+        provider="deepseek",
+        model="deepseek-chat",
+        transport="httpx",
+        status="completed",
+        usage={"total_tokens": 3},
+    ) is False
+    assert U.provider_usage_summary(days=7) == {
+        "days": [],
+        "cost_amount": None,
+        "pricing_status": "not_configured",
+        "error": "provider_usage_unavailable",
+    }
 
 
 # ===== 2. llm.py 接线(_tick_daily/daily_remaining 走共享台账)=====
@@ -182,7 +278,50 @@ def test_ai_usage_endpoint(store, monkeypatch):
     assert r["cap"]["unlimited"] is False
     assert r["cap"]["scope"] == "shared"
     assert r["tokens"]["days"][0]["total"]["total_tokens"] == 12
+    assert r["provider_usage"] == {
+        "days": [],
+        "cost_amount": None,
+        "pricing_status": "not_configured",
+    }
     L._reset_daily_counter()
+
+
+def test_ai_usage_endpoint_keeps_provider_usage_separate_from_trace_tokens(
+    store,
+    monkeypatch,
+):
+    import scribe3.app as A
+
+    A.set_store(store)
+    provider_usage = {
+        "days": [{
+            "day": "2026-07-20",
+            "groups": [{
+                "provider": "deepseek",
+                "model": "deepseek-chat",
+                "transport": "httpx",
+                "status": "completed",
+                "http_status": 200,
+                "calls": 1,
+                "input_tokens": 8,
+                "output_tokens": 2,
+                "total_tokens": 10,
+                "prompt_cache_hit_tokens": 6,
+                "prompt_cache_miss_tokens": 2,
+            }],
+        }],
+        "cost_amount": None,
+        "pricing_status": "not_configured",
+    }
+    monkeypatch.setattr(U, "provider_usage_summary", lambda days: provider_usage)
+    store.add_chat_message(2, "draft", "assistant", "回", trace={
+        "usage": {"input_tokens": 3, "output_tokens": 1, "total_tokens": 4}})
+
+    payload = TestClient(A.app).get("/ai/usage").json()
+
+    assert payload["provider_usage"] == provider_usage
+    assert payload["tokens"]["days"][0]["total"]["total_tokens"] == 4
+    assert payload["provider_usage"]["days"][0]["groups"][0]["total_tokens"] == 10
 
 
 def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
@@ -215,9 +354,10 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
         "model": "deepseek-chat",
         "official": True,
         "transport": "direct",
-        "key_configured": True,
+        "key_present": True,
     }
-    assert type(provider["key_configured"]) is bool
+    assert type(provider["key_present"]) is bool
+    assert "key_configured" not in provider
     assert response.json()["cap"]["cap"] == 0
     assert cold_db.exists() is False
 
@@ -267,7 +407,8 @@ def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypa
     )
 
     provider = TestClient(A.app).get("/ai/usage").json()["provider"]
-    assert provider["key_configured"] is False
+    assert provider["key_present"] is False
+    assert "key_configured" not in provider
     assert calls == ["DEEPSEEK_API_KEY"]
 
 

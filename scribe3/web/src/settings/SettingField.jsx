@@ -9,7 +9,7 @@ export function SettingField({ item, onChanged }) {
   const [confirm, setConfirm] = useState(null)      // {value} 或 {reset:true}
   const [err, setErr] = useState(null)
   const commit = async (value) => {
-    try { await api.putSetting(item.key, value); setDraft(null); setErr(null); onChanged?.() }
+    try { await api.putSetting(item.key, value); setDraft(null); setErr(null); onChanged?.(item.key) }
     catch (e) { setErr(e?.body?.detail || e.message || '保存失败') }
   }
   const submit = (value) => item.danger ? setConfirm({ value }) : commit(value)
@@ -69,7 +69,7 @@ export function SettingField({ item, onChanged }) {
           const c = confirm; setConfirm(null)
           // P2:恢复默认失败不静默,与 commit 同款错误反馈
           c.reset
-            ? api.resetSetting(item.key).then(onChanged).catch((e) => setErr(e?.body?.detail || e.message || '恢复失败'))
+            ? api.resetSetting(item.key).then(() => onChanged?.(item.key)).catch((e) => setErr(e?.body?.detail || e.message || '恢复失败'))
             : commit(c.value)
         }}
         onClose={() => setConfirm(null)} />

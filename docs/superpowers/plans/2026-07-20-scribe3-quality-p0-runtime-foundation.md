@@ -13,7 +13,7 @@
 - SurrealDB 与现有 Scribe3 领域模型是唯一业务权威；Hermes 证据缓存不得进入小说业务召回。
 - 不升级 SurrealDB 或 Hermes Agent；不执行 `hermes update`。
 - 不接入、不预留 Spectron；不新增可视化伴侣。
-- 不读取、打印、写入测试报告或提交任何真实 secret；DeepSeek key 只从现有加密设置边界读取。
+- 不读取、打印、写入测试报告或提交任何真实 secret；DeepSeek key 使用本地受限权限设置存储（父目录 0700、数据库文件 0600）与审计掩码，当前不宣称静态加密。
 - `SCRIBE3_DAILY_CALL_CAP=0` 表示产品调用次数无限；仍记录 calls、tokens、供应商限流与费用证据。
 - 所有无工具核心生成、参考分析和质量评价必须走 `https://api.deepseek.com`，默认模型为 `deepseek-chat`；缺 key 时 fail loud，不允许静默回退到 Doubao 或 Hermes 默认供应商。
 - Hermes 只保留给确实需要 MCP 工具、审批或 Runs 的路径；这些路径必须标记为 `hermes_gateway`，不得冒充官方 DeepSeek。
@@ -252,8 +252,8 @@ git commit -m "refactor: route tool-free generation through DeepSeek"
 - Modify: `scribe3/web/src/settings/__tests__/settingsView.test.jsx`
 
 **Interfaces:**
-- Produces: `/ai/usage.provider = {provider, api_base, model, official, transport, key_configured}`。
-- Security: `key_configured`仅为布尔值；响应序列化结果不得匹配secret模式。
+- Produces: `/ai/usage.provider = {provider, api_base, model, official, transport, key_present}`。
+- Security: `key_present`仅为布尔值，只表示 DB/env 中存在密钥记录，不表示语法有效或服务可用；响应序列化结果不得匹配secret模式。
 
 - [ ] **Step 1: 写失败测试**
 

@@ -652,11 +652,53 @@ class TestToolFreeOfficialRouting:
             on_complete=lambda _text, trace: persisted.append(trace),
         ))
 
-        assert persisted[0]["status"] == "completed"
+        assert persisted[0]["status"] == "incomplete_stream"
         assert persisted[0]["provider"] == {
             "provider": "hermes_gateway",
             "official": False,
             "transport": "hermes",
+        }
+
+    def test_write_stream_client_cancel_persists_partial_text_and_cancelled_trace(
+        self,
+        monkeypatch,
+    ):
+        from scribe3 import app as appmod
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": "只收到半段。"}
+            yield {
+                "type": "response.completed",
+                "response": {"id": None, "usage": {"total_tokens": 6}},
+                "trace": {
+                    "provider": "deepseek",
+                    "api_base": "https://api.deepseek.com",
+                    "model": "deepseek-chat",
+                    "official": True,
+                    "transport": "httpx",
+                },
+            }
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        stream = appmod._stream_write(
+            "写场景",
+            "只据事实",
+            with_tools=False,
+            on_complete=lambda text, trace: persisted.append((text, trace)),
+        )
+
+        assert "只收到半段" in next(stream)
+        stream.close()
+
+        assert persisted[0][0] == "只收到半段。"
+        assert persisted[0][1]["status"] == "cancelled"
+        assert persisted[0][1]["provider"] == {
+            "provider": "deepseek",
+            "api_base": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+            "official": True,
+            "transport": "httpx",
         }
 
     @pytest.mark.parametrize("failure_mode", ["failed_event", "exception"])
@@ -758,3 +800,278 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
             "retry_count": 2,
         },
     }
+
+
+def test_collect_write_returns_only_after_explicit_completed(monkeypatch):
+    from scribe3 import app as appmod
+
+    def fake_events(*_args, **_kwargs):
+        yield {"type": "response.output_text.delta", "delta": "正文"}
+        yield {
+            "type": "response.completed",
+            "response": {"id": "resp_complete", "usage": {"total_tokens": 2}},
+        }
+
+    monkeypatch.setattr(appmod, "_responses_events", fake_events)
+
+    assert appmod._collect_write("写", "只输出正文", with_tools=True) == ("正文", [])
+
+
+@pytest.mark.parametrize("failure_mode", ["failed", "eof", "exception"])
+def test_collect_write_rejects_non_completed_stream_with_safe_error(
+    monkeypatch,
+    failure_mode,
+):
+    from scribe3 import app as appmod
+
+    secret_sentinel = "collect-write-private-sentinel"
+
+    def fake_events(*_args, **_kwargs):
+        yield {"type": "response.output_text.delta", "delta": "只有半截"}
+        if failure_mode == "failed":
+            yield {
+                "type": "response.failed",
+                "response": {
+                    "id": "resp_failed",
+                    "error": f"Authorization: Bearer {secret_sentinel}",
+                },
+            }
+        elif failure_mode == "exception":
+            raise RuntimeError(f"Authorization: Bearer {secret_sentinel}")
+
+    monkeypatch.setattr(appmod, "_responses_events", fake_events)
+
+    with pytest.raises(RuntimeError) as raised:
+        appmod._collect_write("写", "只输出正文", with_tools=True)
+
+    assert "写作流" in str(raised.value)
+    assert secret_sentinel not in str(raised.value)
+    assert "Authorization" not in str(raised.value)
+    assert "Bearer" not in str(raised.value)
+
+
+def _provider_identity():
+    return deepseek.ProviderIdentity(
+        provider="deepseek",
+        api_base=deepseek.OFFICIAL_API_BASE,
+        model="deepseek-chat",
+        official=True,
+        transport="httpx",
+    )
+
+
+def test_complete_records_official_provider_usage_once(monkeypatch):
+    from scribe3 import llm, usage
+
+    class FakeClient:
+        def complete(self, _messages, **_kwargs):
+            return deepseek.CompletionResult(
+                content="完成",
+                model="deepseek-chat",
+                usage={
+                    "prompt_tokens": 8,
+                    "completion_tokens": 2,
+                    "total_tokens": 10,
+                    "prompt_cache_hit_tokens": 6,
+                    "prompt_cache_miss_tokens": 2,
+                },
+                finish_reason="stop",
+                identity=_provider_identity(),
+            )
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    assert llm.hermes_complete("写") == "完成"
+    assert records == [{
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "transport": "httpx",
+        "status": "completed",
+        "http_status": 200,
+        "usage": {
+            "prompt_tokens": 8,
+            "completion_tokens": 2,
+            "total_tokens": 10,
+            "prompt_cache_hit_tokens": 6,
+            "prompt_cache_miss_tokens": 2,
+        },
+    }]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_http_status"),
+    [
+        (
+            deepseek.DeepSeekHTTPError(
+                "HTTP 429",
+                identity=_provider_identity(),
+                status="http_error",
+                status_code=429,
+            ),
+            "http_error",
+            429,
+        ),
+        (
+            deepseek.DeepSeekTransportError(
+                "connect failed",
+                identity=_provider_identity(),
+                status="transport_error",
+            ),
+            "transport_error",
+            None,
+        ),
+    ],
+)
+def test_complete_records_safe_provider_failure_once(
+    monkeypatch,
+    error,
+    expected_status,
+    expected_http_status,
+):
+    from scribe3 import llm, usage
+
+    class FakeClient:
+        def complete(self, _messages, **_kwargs):
+            raise error
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    with pytest.raises(type(error)) as raised:
+        llm.hermes_complete("写", model="deepseek-chat")
+
+    assert raised.value is error
+    assert records == [{
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "transport": "httpx",
+        "status": expected_status,
+        "http_status": expected_http_status,
+        "usage": None,
+    }]
+
+
+@pytest.mark.parametrize("operation", ["stream", "responses"])
+def test_streaming_facades_record_only_first_final_usage_event(monkeypatch, operation):
+    from scribe3 import llm, usage
+
+    identity = _provider_identity()
+
+    class FakeClient:
+        def stream(self, _messages, **_kwargs):
+            yield {"type": "delta", "delta": "雨", "model": "deepseek-chat", "identity": identity}
+            yield {
+                "type": "usage",
+                "usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5},
+                "model": "deepseek-chat",
+                "identity": identity,
+            }
+            yield {
+                "type": "usage",
+                "usage": {"prompt_tokens": 99, "completion_tokens": 99, "total_tokens": 198},
+                "model": "deepseek-chat",
+                "identity": identity,
+            }
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    if operation == "stream":
+        assert list(llm.hermes_complete_stream("写", model="deepseek-chat")) == ["雨"]
+    else:
+        events = list(llm.hermes_responses_events(
+            "写", "只输出正文", model="deepseek-chat", with_tools=False,
+        ))
+        assert events[-1]["type"] == "response.completed"
+
+    assert records == [{
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "transport": "httpx",
+        "status": "completed",
+        "http_status": 200,
+        "usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5},
+    }]
+
+
+@pytest.mark.parametrize("operation", ["stream", "responses"])
+@pytest.mark.parametrize("failure_mode", ["eof", "exception"])
+def test_streaming_facades_record_failure_once_without_final_usage(
+    monkeypatch,
+    operation,
+    failure_mode,
+):
+    from scribe3 import llm, usage
+
+    error = deepseek.DeepSeekTransportError(
+        "connect failed",
+        identity=_provider_identity(),
+        status="transport_error",
+    )
+
+    class FakeClient:
+        def stream(self, _messages, **_kwargs):
+            yield {
+                "type": "delta",
+                "delta": "半截",
+                "model": "deepseek-chat",
+                "identity": _provider_identity(),
+            }
+            if failure_mode == "exception":
+                raise error
+
+    records = []
+    monkeypatch.setattr(llm, "DeepSeekClient", FakeClient)
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(usage, "record_provider_usage", lambda **row: records.append(row) or True)
+
+    if operation == "stream":
+        invoke = lambda: list(llm.hermes_complete_stream("写", model="deepseek-chat"))
+    else:
+        invoke = lambda: list(llm.hermes_responses_events(
+            "写", "只输出正文", model="deepseek-chat", with_tools=False,
+        ))
+    with pytest.raises(deepseek.DeepSeekError) as raised:
+        invoke()
+
+    assert raised.value.status == (
+        "transport_error" if failure_mode == "exception" else "incomplete_stream"
+    )
+
+    assert len(records) == 1
+    assert records[0]["status"] == (
+        "transport_error" if failure_mode == "exception" else "incomplete_stream"
+    )
+    assert records[0]["http_status"] is None
+    assert records[0]["usage"] is None
+
+
+def test_responses_with_tools_never_records_direct_provider_usage(monkeypatch):
+    from scribe3 import llm, usage
+
+    class FakeRuntime:
+        def __init__(self, **_kwargs):
+            pass
+
+        def responses_events(self, *_args, **_kwargs):
+            yield {"type": "response.completed", "response": {"id": "hermes"}}
+
+    monkeypatch.setattr(llm, "HermesRuntime", FakeRuntime)
+    monkeypatch.setattr(llm, "HermesAuth", lambda: object())
+    monkeypatch.setattr(llm, "_tick_daily", lambda: None)
+    monkeypatch.setattr(
+        usage,
+        "record_provider_usage",
+        lambda **_row: (_ for _ in ()).throw(
+            AssertionError("with_tools=True must not record direct DeepSeek usage")
+        ),
+    )
+
+    assert list(llm.hermes_responses_events("查", "先用工具", with_tools=True))[-1]["type"] == "response.completed"

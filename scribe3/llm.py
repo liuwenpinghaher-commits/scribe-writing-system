@@ -12,7 +12,13 @@ from dataclasses import asdict
 
 import httpx
 
-from scribe3.deepseek_client import DeepSeekClient, ProviderIdentity
+from scribe3.deepseek_client import (
+    OFFICIAL_API_BASE,
+    DeepSeekClient,
+    DeepSeekError,
+    DeepSeekResponseError,
+    ProviderIdentity,
+)
 from scribe3.hermes_runtime import HermesAuth, HermesRuntime
 
 _RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
@@ -52,6 +58,70 @@ def max_retries() -> int:
 def official_deepseek_provider_identity(model: str | None = None) -> dict:
     """返回无工具路由的安全官方身份；只确定模型，不读取 API key。"""
     return asdict(DeepSeekClient().identity(model))
+
+
+def _provider_identity_for_usage(
+    model: str | None,
+    *,
+    client=None,
+    error: Exception | None = None,
+) -> ProviderIdentity:
+    if isinstance(error, DeepSeekError):
+        return error.identity
+    if client is not None:
+        try:
+            identity = client.identity(model)
+            if isinstance(identity, ProviderIdentity):
+                return identity
+        except Exception:
+            pass
+    resolved_model = model if model is not None else default_model()
+    return ProviderIdentity(
+        provider="deepseek",
+        api_base=OFFICIAL_API_BASE,
+        model=str(resolved_model),
+        official=True,
+        transport="httpx",
+    )
+
+
+def _record_provider_usage(
+    identity: ProviderIdentity,
+    *,
+    status: str,
+    http_status: int | None = None,
+    usage: dict | None = None,
+) -> None:
+    """台账是旁路证据；任何写账故障都不能改变 LLM 主调用结果。"""
+    try:
+        from scribe3 import usage as usage_mod
+        usage_mod.record_provider_usage(
+            provider=identity.provider,
+            model=identity.model,
+            transport=identity.transport,
+            status=status,
+            http_status=http_status,
+            usage=usage,
+        )
+    except Exception as error:
+        _log.warning("官方供应商 usage 写账失败(忽略): %s", type(error).__name__)
+
+
+def _record_provider_failure(
+    error: Exception,
+    *,
+    model: str | None,
+    client=None,
+) -> None:
+    identity = _provider_identity_for_usage(model, client=client, error=error)
+    status = error.status if isinstance(error, DeepSeekError) else "failed"
+    http_status = error.status_code if isinstance(error, DeepSeekError) else None
+    _record_provider_usage(
+        identity,
+        status=status,
+        http_status=http_status,
+        usage=None,
+    )
 
 
 def _compat_retry_count(total_attempts: int | None = None) -> int:
@@ -133,14 +203,25 @@ def hermes_complete(prompt: str, system: str | None = None,
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
     retry_count = _compat_retry_count(retries_override)
-    result = DeepSeekClient().complete(
-        msgs,
-        model=model,
-        max_tokens=max_tokens if max_tokens else None,
-        temperature=temperature,
-        thinking=thinking,
-        timeout_seconds=timeout,
-        retry_count=retry_count,
+    client = DeepSeekClient()
+    try:
+        result = client.complete(
+            msgs,
+            model=model,
+            max_tokens=max_tokens if max_tokens else None,
+            temperature=temperature,
+            thinking=thinking,
+            timeout_seconds=timeout,
+            retry_count=retry_count,
+        )
+    except Exception as error:
+        _record_provider_failure(error, model=model, client=client)
+        raise
+    _record_provider_usage(
+        result.identity,
+        status="completed",
+        http_status=200,
+        usage=result.usage,
     )
     return result.content
 
@@ -161,14 +242,48 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
            if m.get("role") in ("user", "assistant") and m.get("content")] \
         + [{"role": "user", "content": prompt}]
 
-    for event in DeepSeekClient().stream(
-        msgs,
-        model=model,
-        timeout_seconds=timeout,
-        retry_count=_compat_retry_count(),
-    ):
-        if event.get("type") == "delta" and event.get("delta"):
-            yield event["delta"]
+    client = DeepSeekClient()
+    identity = _provider_identity_for_usage(model, client=client)
+    ledger_finalized = False
+    try:
+        for event in client.stream(
+            msgs,
+            model=model,
+            timeout_seconds=timeout,
+            retry_count=_compat_retry_count(),
+        ):
+            event_identity = event.get("identity")
+            if isinstance(event_identity, ProviderIdentity):
+                identity = event_identity
+            if event.get("type") == "usage" and isinstance(event.get("usage"), dict):
+                if not ledger_finalized:
+                    ledger_finalized = True
+                    _record_provider_usage(
+                        identity,
+                        status="completed",
+                        http_status=200,
+                        usage=dict(event["usage"]),
+                    )
+            elif event.get("type") == "delta" and event.get("delta"):
+                yield event["delta"]
+    except GeneratorExit:
+        if not ledger_finalized:
+            ledger_finalized = True
+            _record_provider_usage(identity, status="cancelled")
+        raise
+    except Exception as error:
+        if not ledger_finalized:
+            ledger_finalized = True
+            _record_provider_failure(error, model=model, client=client)
+        raise
+    if not ledger_finalized:
+        ledger_finalized = True
+        _record_provider_usage(identity, status="incomplete_stream")
+        raise DeepSeekResponseError(
+            "DeepSeek 官方流未完整结束",
+            identity=identity,
+            status="incomplete_stream",
+        )
 
 
 def hermes_responses_events(message, instructions: str, model: str | None = None,
@@ -197,25 +312,52 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         else:
             messages.append({"role": "user", "content": message})
         usage: dict = {}
-        identity: ProviderIdentity | None = None
+        client = DeepSeekClient()
+        identity = _provider_identity_for_usage(model, client=client)
+        ledger_finalized = False
         event_model = model
-        for event in DeepSeekClient().stream(
-            messages,
-            model=model,
-            timeout_seconds=timeout,
-            retry_count=_compat_retry_count(),
-        ):
-            event_identity = event.get("identity")
-            if isinstance(event_identity, ProviderIdentity):
-                identity = event_identity
-            if isinstance(event.get("model"), str) and event["model"]:
-                event_model = event["model"]
-            if event.get("type") == "delta" and event.get("delta"):
-                yield {"type": "response.output_text.delta", "delta": event["delta"]}
-            elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
-                usage = dict(event["usage"])
-        if identity is None:
-            raise RuntimeError("DeepSeekClient 流缺少官方供应商身份")
+        try:
+            for event in client.stream(
+                messages,
+                model=model,
+                timeout_seconds=timeout,
+                retry_count=_compat_retry_count(),
+            ):
+                event_identity = event.get("identity")
+                if isinstance(event_identity, ProviderIdentity):
+                    identity = event_identity
+                if isinstance(event.get("model"), str) and event["model"]:
+                    event_model = event["model"]
+                if event.get("type") == "delta" and event.get("delta"):
+                    yield {"type": "response.output_text.delta", "delta": event["delta"]}
+                elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
+                    usage = dict(event["usage"])
+                    if not ledger_finalized:
+                        ledger_finalized = True
+                        _record_provider_usage(
+                            identity,
+                            status="completed",
+                            http_status=200,
+                            usage=usage,
+                        )
+        except GeneratorExit:
+            if not ledger_finalized:
+                ledger_finalized = True
+                _record_provider_usage(identity, status="cancelled")
+            raise
+        except Exception as error:
+            if not ledger_finalized:
+                ledger_finalized = True
+                _record_provider_failure(error, model=model, client=client)
+            raise
+        if not ledger_finalized:
+            ledger_finalized = True
+            _record_provider_usage(identity, status="incomplete_stream")
+            raise DeepSeekResponseError(
+                "DeepSeek 官方流未完整结束",
+                identity=identity,
+                status="incomplete_stream",
+            )
         yield {
             "type": "response.completed",
             "response": {"id": None, "model": event_model, "usage": usage},

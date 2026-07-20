@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import stat
 
 import pytest
 from scribe3 import settings, settings_store
@@ -323,3 +324,92 @@ def test_bad_override_warns_once_per_key(caplog):
         assert settings.get_setting("craft.near_dup_sim") == 0.7
     hits = [r for r in caplog.records if "craft.near_dup_sim" in r.getMessage()]
     assert len(hits) == 1   # 按 key 只告警一次,防日志风暴
+
+
+def test_settings_db_new_parent_and_file_permissions_are_restricted(tmp_path, monkeypatch):
+    db = tmp_path / "settings-home" / "settings.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+
+    settings_store.set_override("DEEPSEEK_API_KEY", json.dumps("unit-test-sentinel"), mask=True)
+
+    assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+
+def test_settings_db_existing_wide_permissions_are_tightened_without_touching_ancestor(
+    tmp_path,
+    monkeypatch,
+):
+    ancestor = tmp_path / "ancestor"
+    parent = ancestor / "settings-home"
+    parent.mkdir(parents=True)
+    db = parent / "settings.sqlite3"
+    sqlite3.connect(db).close()
+    os.chmod(ancestor, 0o755)
+    os.chmod(parent, 0o777)
+    os.chmod(db, 0o666)
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+
+    settings_store.set_override("llm.model", json.dumps("deepseek-chat"))
+
+    assert stat.S_IMODE(ancestor.stat().st_mode) == 0o755
+    assert stat.S_IMODE(parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+
+def test_settings_write_fails_loud_when_permission_tightening_fails(tmp_path, monkeypatch):
+    db = tmp_path / "settings-home" / "settings.sqlite3"
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+    real_chmod = os.chmod
+
+    def fail_file_chmod(path, mode, *args, **kwargs):
+        if os.fspath(path) == os.fspath(db) and mode == 0o600:
+            raise PermissionError("permission tightening denied")
+        return real_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(settings_store.os, "chmod", fail_file_chmod)
+
+    with pytest.raises(PermissionError, match="permission tightening denied"):
+        settings_store.set_override("DEEPSEEK_API_KEY", json.dumps("unit-test-sentinel"), mask=True)
+
+
+def test_read_only_narrow_probes_never_chmod_existing_database(tmp_path, monkeypatch):
+    parent = tmp_path / "settings-home"
+    parent.mkdir()
+    db = parent / "settings.sqlite3"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE setting (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO setting(key, value, updated_at) VALUES(?,?,?)",
+            ("DEEPSEEK_API_KEY", json.dumps("unit-test-sentinel"), "2026-07-20T00:00:00"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    os.chmod(parent, 0o755)
+    os.chmod(db, 0o644)
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(db))
+    monkeypatch.setattr(
+        settings_store.os,
+        "chmod",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("read-only narrow probe attempted chmod")
+        ),
+    )
+
+    assert settings_store.has_override("DEEPSEEK_API_KEY") is True
+    assert settings_store.get_override("DEEPSEEK_API_KEY") == json.dumps("unit-test-sentinel")
+    assert stat.S_IMODE(parent.stat().st_mode) == 0o755
+    assert stat.S_IMODE(db.stat().st_mode) == 0o644
+
+
+def test_deepseek_secret_description_does_not_claim_encryption_at_rest():
+    item = settings._BY_KEY["DEEPSEEK_API_KEY"]
+
+    assert "本地受限权限设置存储" in item.desc
+    assert "审计掩码" in item.desc
+    assert "当前不宣称静态加密" in item.desc
+    assert "本地加密" not in item.desc
