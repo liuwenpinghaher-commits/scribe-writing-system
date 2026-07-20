@@ -4466,7 +4466,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     不含提案正文,台账 D-003);回调异常吞掉(best-effort,D-004),绝不影响 SSE 收尾。"""
     import json as _j
     from scribe3.hermes_runtime import HermesEventAdapter
-    from scribe3.llm import hermes_responses_events
+    from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
     adapter = HermesEventAdapter()
@@ -4477,8 +4477,12 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     # 兜底追踪状态
     saw_proposal = False
     delta_acc: list[str] = []   # 累积全部 delta 文本,用于兜底长散文
+    initial_provider = (
+        {"provider": "hermes_gateway", "official": False, "transport": "hermes"}
+        if with_tools else official_deepseek_provider_identity()
+    )
     trace = {"status": "streaming", "tool_calls": [], "tool_outputs": [],
-             "response_id": None, "usage": None}
+             "response_id": None, "usage": None, "provider": initial_provider}
 
     def provider_trace_for_persistence(event: dict) -> dict:
         """只持久安全已知的 provider identity，不信任供应商事件的任意 trace。"""
@@ -4557,7 +4561,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 trace["status"] = "completed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["usage"] = app_ev.get("usage")
-                trace["provider"] = provider_trace_for_persistence(ev)
+                completed_provider = provider_trace_for_persistence(ev)
+                if not with_tools and completed_provider:
+                    trace["provider"].update(completed_provider)
             elif app_ev["kind"] == "run.failed":
                 trace["status"] = "failed"
                 trace["response_id"] = app_ev.get("response_id")

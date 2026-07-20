@@ -510,6 +510,35 @@ class TestToolFreeOfficialRouting:
             "auth": auth,
         }
 
+    def test_official_provider_identity_helper_does_not_read_api_key(self, monkeypatch):
+        from scribe3 import llm
+
+        settings_reads = []
+
+        def get_setting(key):
+            settings_reads.append(key)
+            if key == "llm.model":
+                return "deepseek-chat"
+            raise AssertionError(f"provider identity helper read forbidden setting: {key}")
+
+        monkeypatch.setattr(deepseek.settings, "get_setting", get_setting)
+        monkeypatch.setattr(
+            deepseek.DeepSeekClient,
+            "_api_key",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("provider identity helper read API key")
+            ),
+        )
+
+        assert llm.official_deepseek_provider_identity() == {
+            "provider": "deepseek",
+            "api_base": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+            "official": True,
+            "transport": "httpx",
+        }
+        assert settings_reads == ["llm.model"]
+
     def test_write_stream_persists_official_provider_identity_in_trace(self, monkeypatch):
         from scribe3 import app as appmod
 
@@ -580,6 +609,90 @@ class TestToolFreeOfficialRouting:
             "provider": "hermes_gateway",
             "official": False,
             "transport": "hermes",
+        }
+
+    def test_write_stream_tools_failed_event_keeps_safe_provider(self, monkeypatch):
+        from scribe3 import app as appmod
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": "已查询。"}
+            yield {
+                "type": "response.failed",
+                "response": {"id": "resp_failed", "error": "tool failed"},
+            }
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        list(appmod._stream_write(
+            "查询设定",
+            "先用工具核实",
+            with_tools=True,
+            on_complete=lambda _text, trace: persisted.append(trace),
+        ))
+
+        assert persisted[0]["status"] == "failed"
+        assert persisted[0]["provider"] == {
+            "provider": "hermes_gateway",
+            "official": False,
+            "transport": "hermes",
+        }
+
+    def test_write_stream_tools_delta_then_eof_keeps_safe_provider(self, monkeypatch):
+        from scribe3 import app as appmod
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": "只有半段。"}
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        list(appmod._stream_write(
+            "查询设定",
+            "先用工具核实",
+            with_tools=True,
+            on_complete=lambda _text, trace: persisted.append(trace),
+        ))
+
+        assert persisted[0]["status"] == "completed"
+        assert persisted[0]["provider"] == {
+            "provider": "hermes_gateway",
+            "official": False,
+            "transport": "hermes",
+        }
+
+    @pytest.mark.parametrize("failure_mode", ["failed_event", "exception"])
+    def test_write_stream_without_tools_failure_keeps_official_provider(
+        self,
+        monkeypatch,
+        failure_mode,
+    ):
+        from scribe3 import app as appmod
+
+        def fake_events(*_args, **_kwargs):
+            yield {"type": "response.output_text.delta", "delta": "已输出。"}
+            if failure_mode == "failed_event":
+                yield {
+                    "type": "response.failed",
+                    "response": {"id": None, "error": "provider failed"},
+                }
+            else:
+                raise RuntimeError("stream exploded")
+
+        persisted = []
+        monkeypatch.setattr(appmod, "_responses_events", fake_events)
+        list(appmod._stream_write(
+            "写场景",
+            "只据事实",
+            with_tools=False,
+            on_complete=lambda _text, trace: persisted.append(trace),
+        ))
+
+        assert persisted[0]["status"] == "failed"
+        assert persisted[0]["provider"] == {
+            "provider": "deepseek",
+            "api_base": "https://api.deepseek.com",
+            "model": "deepseek-chat",
+            "official": True,
+            "transport": "httpx",
         }
 
 

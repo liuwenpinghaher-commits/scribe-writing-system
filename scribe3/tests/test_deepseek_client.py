@@ -62,6 +62,38 @@ def test_registered_default_model_is_deepseek_chat():
     assert model_setting.default == "deepseek-chat"
 
 
+@pytest.mark.parametrize(
+    ("model", "expected_model"),
+    [(None, "deepseek-chat"), ("deepseek-reasoner", "deepseek-reasoner")],
+    ids=["default-model", "explicit-model"],
+)
+def test_public_identity_resolves_model_without_key_or_transport(
+    monkeypatch,
+    model,
+    expected_model,
+):
+    class ForbiddenTransport:
+        def __getattribute__(self, name):
+            raise AssertionError(f"identity touched transport attribute: {name}")
+
+    monkeypatch.setattr(
+        deepseek.DeepSeekClient,
+        "_api_key",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("identity read API key")
+        ),
+    )
+    client = deepseek.DeepSeekClient(client=ForbiddenTransport())
+
+    assert client.identity(model) == deepseek.ProviderIdentity(
+        provider="deepseek",
+        api_base="https://api.deepseek.com",
+        model=expected_model,
+        official=True,
+        transport="httpx",
+    )
+
+
 def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
     observed = {}
 

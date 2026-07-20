@@ -125,6 +125,10 @@ class DeepSeekClient:
             transport="httpx",
         )
 
+    def identity(self, model: str | None = None) -> ProviderIdentity:
+        """解析并返回官方供应商身份；不读取 key，不创建 transport。"""
+        return self._identity(self._model(model))
+
     @staticmethod
     def _model(model: str | None) -> str:
         return model or str(settings.get_setting("llm.model"))

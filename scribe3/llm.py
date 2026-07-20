@@ -49,6 +49,11 @@ def max_retries() -> int:
     return get_setting("llm.max_retries")
 
 
+def official_deepseek_provider_identity(model: str | None = None) -> dict:
+    """返回无工具路由的安全官方身份；只确定模型，不读取 API key。"""
+    return asdict(DeepSeekClient().identity(model))
+
+
 def _compat_retry_count(total_attempts: int | None = None) -> int:
     """旧设置/门面表示总尝试次数，DeepSeekClient 表示首次之后的重试次数。"""
     attempts = max_retries() if total_attempts is None else total_attempts
