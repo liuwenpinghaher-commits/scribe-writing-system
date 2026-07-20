@@ -47,7 +47,7 @@ DEFINE FIELD IF NOT EXISTS outcome_id ON context_outcome_trace TYPE string;
 DEFINE FIELD IF NOT EXISTS request_id ON context_outcome_trace TYPE string;
 DEFINE FIELD IF NOT EXISTS manifest_id ON context_outcome_trace TYPE string;
 DEFINE FIELD IF NOT EXISTS actual_input_hash ON context_outcome_trace TYPE string;
-DEFINE FIELD IF NOT EXISTS status ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON context_outcome_trace TYPE string ASSERT $value IN ['succeeded', 'failed', 'incomplete_stream', 'cancelled'];
 DEFINE FIELD IF NOT EXISTS provider ON context_outcome_trace TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS model ON context_outcome_trace TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS provider_request_id ON context_outcome_trace TYPE option<string>;

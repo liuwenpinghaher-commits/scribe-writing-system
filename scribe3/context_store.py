@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from scribe3.context_manifest import ContextManifest, ContextManifestSource
 from scribe3.context_outcome import ContextOutcomeTrace
+from scribe3.store import _redact_run_trace_secrets
 
 if TYPE_CHECKING:
     from scribe3.store import SurrealStore
@@ -40,13 +41,19 @@ class ContextStore:
 
         policy_snapshot_id = self._policy_snapshot_id(manifest.policy_version)
         payload = manifest.model_dump(mode="json")
+        policy_exists = bool(self._store._query(
+            "SELECT policy_snapshot_id FROM context_policy_snapshot "
+            "WHERE policy_snapshot_id=$policy_snapshot_id LIMIT 1",
+            {"policy_snapshot_id": policy_snapshot_id},
+        ))
         with self._store.transaction():
-            self._store._execute_write(
-                "UPSERT type::record('context_policy_snapshot', $policy_snapshot_id) "
-                "SET policy_snapshot_id=$policy_snapshot_id, policy_version=$policy_version",
-                {"policy_snapshot_id": policy_snapshot_id,
-                 "policy_version": manifest.policy_version},
-            )
+            if not policy_exists:
+                self._store._execute_write(
+                    "CREATE type::record('context_policy_snapshot', $policy_snapshot_id) "
+                    "SET policy_snapshot_id=$policy_snapshot_id, policy_version=$policy_version",
+                    {"policy_snapshot_id": policy_snapshot_id,
+                     "policy_version": manifest.policy_version},
+                )
             self._store._execute_write(
                 "CREATE type::record('context_manifest', $manifest_id) SET "
                 "manifest_id=$manifest_id, manifest_version=$manifest_version, "
@@ -106,16 +113,22 @@ class ContextStore:
         ):
             raise ValueError("Outcome 三元组未绑定到既有 Manifest")
 
+        # Outcome error 是不可信上游文本：先查本库权威 secret 值，再用 ai_run_trace
+        # 同一 redactor 清除认证头/cookie/api_key 与故事秘密。查询失败必须向上抛，不能
+        # 以空集合降级到 fail-open；任何 DB 写入都发生在这一步之后。
+        secret_values = self._store._secret_proposition_values()
+        persisted = outcome.model_copy(update={
+            "error": _redact_run_trace_secrets(outcome.error, secret_values),
+        })
         existing = self.get_outcome(
-            outcome.request_id, outcome.manifest_id, outcome.actual_input_hash)
+            persisted.request_id, persisted.manifest_id, persisted.actual_input_hash)
         if existing is not None:
-            if existing.model_dump(exclude={"created_at"}) != outcome.model_dump(
+            if existing.model_dump(exclude={"created_at"}) != persisted.model_dump(
                 exclude={"created_at"}
             ):
                 raise ValueError("Outcome 三元组与既有当前真相冲突")
             return existing
-
-        payload = outcome.model_dump(mode="json")
+        payload = persisted.model_dump(mode="json")
         with self._store.transaction():
             self._store._execute_write(
                 "CREATE type::record('context_outcome_trace', $outcome_id) SET "
@@ -125,7 +138,7 @@ class ContextStore:
                 "output_hash=$output_hash, error=$error, created_at=type::datetime($created_at)",
                 payload,
             )
-        return outcome
+        return persisted
 
     def get_outcome(self, request_id: str, manifest_id: str,
                     actual_input_hash: str) -> ContextOutcomeTrace | None:

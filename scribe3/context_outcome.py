@@ -3,8 +3,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# DB migration 091/092 的 status ASSERT 必须与这个公开合同逐项一致。
+OUTCOME_STATUSES = ("succeeded", "failed", "incomplete_stream", "cancelled")
+OutcomeStatus = Literal["succeeded", "failed", "incomplete_stream", "cancelled"]
 
 
 class ContextOutcomeTrace(BaseModel):
@@ -16,7 +22,7 @@ class ContextOutcomeTrace(BaseModel):
     request_id: str
     manifest_id: str
     actual_input_hash: str
-    status: str
+    status: OutcomeStatus
     provider: str | None = None
     model: str | None = None
     provider_request_id: str | None = None
