@@ -1,132 +1,154 @@
-# Creative Context Task 3 独立复审修复报告
+# Creative Context Task 3 总复审修复报告
 
-状态：`Ready`。首轮复审真实发现已完成 TDD 修复，最新全量回归与最终独立只读复审通过；修复与本报告已在同一追加提交中交付，不 push。
+状态：`Ready`。Critical / Important 已经修复、受影响完整回归已通过，最终只读复审未发现新的 Critical / Important。
 
-基线提交：`50a1f1d feat: route writing through creative context engine`
+基线：`511a44e fix: close creative context outcome traces`。
 
-本报告只记录 Creative Context Task 3；原文件误混入的“无限 LLM 用量”任务已整体移除。
+范围：只修复 Creative Context Task 3 总复审的 Critical / Important。不扩大到新质量域包，不修改 Hermes 外部文档镜像，不 push。
 
-## 复审结论与根因
+## 问题与修复
 
-对基线提交的独立复审结论为 `Not Ready`：
+### C1 动态 system instructions 没有来源清单
 
-- repair loop 与 selection 在 `CreativeContextEngine.compile()` 之后继续追加 system instructions，导致 Manifest 的 `actual_input_hash` 与 provider 实际收到的字节不一致；两条多轮路径也没有为每次真实调用建立独立 Manifest / Outcome。
-- GET `/chat/write`、repair、selection、Pilot 已经生成 Manifest，但没有完整 Outcome；同步 `_collect_write()` 不累计原始 delta，也不保存 failed / incomplete 等终态。
-- 官方 DeepSeek 半截流已经观察到的 response id、model、usage 没有随异常穿过 client、LLM facade 和 app，Outcome 与用量台账会丢失真实元数据。
-- `SCRIBE3_CONTEXT_ASSEMBLER_V1` 已不控制任何生产路由，`SCRIBE3_SPECTRON_SHADOW` 也没有真实影子执行路径，但两者仍作为可写 danger setting / capability 暴露。
-- 报告混入无关任务。收尾全量 `test_app.py` 还暴露了统一引擎迁移时遗失当前章尾段与 beats 的连续性回归。
+根因：写作 renderer 只返回最终字符串，prefix 和 envelope 后追加的设定、工艺、场景真相、请求约束等动态字节没有 `ContextSource`。
 
-后续只读复审提出“`actual_input_hash` 应包含 message / images / max_tokens”的扩张建议，controller 不采纳：Task 3 brief 的冻结退出门明确是
-`sha256(官方 DeepSeek 实际收到的完整 system instructions UTF-8 字节)`，Task 1 Context Manifest 也以 renderer 最终字节为权威；它不是整个 HTTP body 的指纹。若未来需要请求整体身份，应新增独立 `model_request_hash`，不能在本任务偷改既有字段语义。
+修复：
 
-该轮复审另发现两个真实缺口并纳入本轮修复：DeepSeek 流取消时尚未把已观察 id/model/usage 传播到 Outcome/ledger；明确 completed/failed/incomplete/cancelled 终态后，晚到 transport exception 会反向覆盖终态。
+- renderer 支持 `str` 或 `(str, tuple[ContextSource, ...])`。
+- secret guard、chapter position、tool scope、craft skills、focalizer、codex、seed words、craft、phase role、avoid、revelation discipline、purpose、scene truth 和 request constraint 均以稳定 `source_id/source_kind` 登记。
+- 每个 digest 针对真正追加到 provider 输入的 UTF-8 字节，不保存正文。
+- included source 缺 revision 时统一回退为 `content-sha256:<digest>`。
 
-## 修复内容
+### C2 Pilot grounding / quality 绕过统一引擎
 
-### 1. 实际输入哈希与每次调用独立绑定
+根因：`_grounding_llm` 和 Pilot `full_check -> post_check -> discipline_truncate` 直调 `hermes_complete`，没有 `ContextRequest / Manifest / Outcome`。
 
-- `_assemble_write_instructions_v1()` / `_assemble_write_instructions()` 增加受控 `extra_instructions`，repair constraints 与 selection strategy 在 renderer 内追加；编译返回后不再修改 instructions。
-- renderer 生成的完整字节是 Manifest `actual_input_hash` 的唯一输入，因此 repair / selection 的动态指令也被精确覆盖。
-- GET、POST、每轮 repair、每个 selection strategy、Pilot 都创建请求局部 `_WriteOutcomeBinding`，每次调用独立持有 Manifest trace，不共享可变全局状态。
+修复：
 
-### 2. Outcome 作为硬终态
+- 新增 `grounding.v1` 与 `quality-chapter.v1` 代码内策略。
+- 两条生产审查路径统一经 `_contextual_review_complete` 编译，实际输入建 Manifest，官方 DeepSeek 成功、失败或不完整都写 Outcome。
+- `hermes_complete_result` 保留安全的 provider identity、model、usage 与 response id；旧 `hermes_complete` 继续只返回文本，保持兼容。
 
-- `_stream_write()` 把 `on_terminal` 与 best-effort `on_complete` 分离：先持久化 Outcome，成功后才做 chat 留痕；Outcome 写入失败直接上抛，不被 SSE error 或 chat callback 吞掉。
-- 正常流在客户端看到 `done` 前写 Outcome；failed、incomplete、cancelled、异常和 `GeneratorExit` 也只执行一次终态回调。
-- `_collect_write()` 统一处理 completed / failed / incomplete / cancelled / exception，累计供应商原始 delta 计算 `output_hash`，并在返回或抛错前写 Outcome。
-- Pilot 不再绕过事件源调用 `hermes_complete`，而是复用 `_collect_write(text_mode=True)`；repair、selection、Pilot 均进入同一 Manifest / Outcome 链。
+### C3 error 先截断后脱敏
 
-### 3. DeepSeek 半截流与 Pilot 预算
+根因：app 对非字符串 error 先 `json.dumps(... )[:500]`，再交给存储脱敏，存在嵌套认证字段逃逸与被截断秘密片段无法识别的风险。
 
-- `DeepSeekError` 只携带安全的 `response_id`、`model`、`usage` 与 `ProviderIdentity`；不保存 request、response、headers 或正文。
-- EOF、provider error、invalid response 保留已经观察到的元数据；同一 provider error SSE 帧里的 id/model/usage 也不会丢失。
-- 两个 LLM 流 facade 在客户端异常和无终态 EOF 两条路径都保留 metadata，并用半截 usage 结算 provider failure 台账。
-- `max_tokens` 从 Pilot 贯通 `_collect_write → hermes_responses_events → DeepSeekClient.stream`；仅非 `None` 时向旧测试替身传递，保持兼容。
-- DeepSeek client 解析完同一 SSE 帧的 id/model/usage 后，先向上游发 usage 观察事件，再发带 response id/model/identity 的 delta；usage 事件只代表“已观察”，不冒充成功终态。
-- 两个 LLM facade 的 GeneratorExit/cancelled 台账保留取消前已积累 usage；Responses delta 同时携安全 id/model/provider trace/已知 usage，让 app 不必等终态才第一次获得元数据。
-- app stream / collect 从每个原始事件累积元数据。provider 已给出明确终态后，晚到 transport/迭代器异常只告警，不再覆盖 status、id、model、usage 或 error。
+修复：`ContextStore.save_outcome()` 先用权威故事秘密集合对 dict/list/string 递归脱敏，再序列化，最后安全截断到 500 字符；查秘密失败继续 fail-loud，任何 DB 写入都在其后。
 
-### 4. 删除无效用户设置，保留真实运行事实
+### C4 运行时仍预留第二套记忆适配器
 
-- 从 `settings.REGISTRY` 删除 `SCRIBE3_CONTEXT_ASSEMBLER_V1` 与 `SCRIBE3_SPECTRON_SHADOW`，并从 `context_cache.FLAGS` 删除 Spectron 假开关。
-- `/capabilities.flags` 不再返回 `spectron_shadow`；兼容键 `assembler_v1` 恒为 `true`，只表达统一内核已经启用。
-- runtime status 仍保留 Spectron availability / reason 检测，但指标不再伪造 `flag`。
-- 前端默认 capability 与 API 注释同步：四个真实灰度开关默认关闭，`assembler_v1: true`。
+根因：仓库仍保留 Spectron 适配器、影子评估 CLI、对应测试、runtime metric 探测与依赖预留，与“SurrealDB 唯一权威、不接入不预留”相冲突。
 
-### 5. 统一上下文连续性 parity
+修复：
 
-- chapter focus 现在把 synopsis 与 beats 一起放入有预算、有来源摘要的 focus block，来源标识为 `chapter:{seq}:outline`。
-- recent block 把当前章最后约 400 字作为优先续写锚点，来源标识为 `chapter:{seq}:tail`；即使 Memory Fabric 返回 working / episodic candidates，也不会让当前章尾段消失。
-- 这两项内容经 ContextEnvelope renderer 进入 provider 实际输入，因此自动受 Manifest 精确哈希覆盖，没有恢复旧散点拼接链。
+- 删除 `scribe3/spectron_adapter.py`、`scribe3/tools/spectron_shadow_eval.py`、`scribe3/tests/test_spectron_adapter.py`。
+- 删除 app runtime 探测 / metric、`requirements-dev.txt` 依赖预留与生产注释引用。
+- 增加运行树零适配器/零预留静态门禁。
+
+### I1 不可变审计表并发非原子幂等
+
+根因：Manifest / Outcome / Policy snapshot 的旧路径先查后建，并发时相同内容会直接冲突，异内容同 ID 也没有稳定显式错误。
+
+修复：全部改为 `CREATE ONLY` 先行，唯一冲突后有限读回并逐字段比较；同内容幂等返回，异内容显式 `ValueError`。测试使用多个独立 `SurrealStore` 连接真实并发，不是 mock。
+
+### I2 首个 provider 终态未冻结
+
+根因：`terminal_seen=True` 后事件循环仍观察供应商元数据并应用后续终态，状态/id/model/usage/error 都可被覆盖。
+
+修复：第一个 completed / failed / incomplete / cancelled 成为不可变事实；后续终态忽略，迭代器/transport 异常只告警，不反向改写。
+
+### I3 omitted 决策未持久，Policy 禁用源未真正生效
+
+修复：Manifest v2 每条来源带 `included/reason_code`，omitted 以 `included=false` 进表；Policy 与 request 的 forbidden kinds 合并后传入 assembler，在 render/provenance 前就排除受控原始源。
+
+### I4 Policy snapshot 无法证明规则未漂移
+
+修复：快照持久 `policy_key/version/schema_hash/safe payload`；payload 只含规则和协议版本，不含提示词、故事正文或秘密。同 key/version 但 schema/payload 改变显式冲突。
+
+### I5 `project_frame` 异常被伪装成空帧
+
+根因：`_canonical_frame_facts()` 与 `_faction_known_fact_ids()` catch-all 后返空，使查询/投影故障伪装成“焦点者什么都不知道”。
+
+修复：删除两处 catch-all，查询或投影失败直接中止编译。
+
+### I6 Hermes 网关与实际推理 provider 混为一层
+
+修复：Outcome 在保留旧 `provider/model/provider_request_id` 兼容字段的同时，新增：
+
+- `transport_provider/transport_request_id`
+- `reasoning_provider/reasoning_model/reasoning_request_id`
+
+官方直连记录 `httpx + deepseek`；Hermes 路由恒记 transport 为 `hermes_gateway`，只有事件 trace 真实提供下游 provider 时才填 reasoning 层，无证据时保持 `NONE`，不猜测。
+
+### I7 included source revision 可为空
+
+修复：Manifest 纯合同强制 included source revision 非空，无业务 revision 时用内容摘要版本；093 会对 091/092 真旧行回填，并重新收紧 READONLY。
+
+### 最终复审追加修复
+
+- Policy snapshot 恢复 091 已发布的稳定 ID `sha256(policy_version)`；093 真升级测试在回填后立即执行首次 `save_manifest()`，证明复用旧快照且不触发 `policy_version` 唯一索引冲突。
+- renderer 返回的 supplemental sources 同样执行 Policy / request 合并后的 forbidden kinds，在 Manifest、Policy snapshot 或其他 DB 写入前 fail-loud。
+- `final/draft` 的演绎块不再伪装成一条 scene truth；场景真相、每条 deduction、header/footer protocol 分别登记，digest 各自对应真正追加到 system instructions 的字节块。
+- `ContextStore.save_manifest()` 在任何 Policy / Manifest 写入前重算规范载荷的 `manifest_hash`，拒绝 `model_copy()` 造出的 hash/内容脱节对象，伪造对象无法抢先落库。
+- `actual_input_hash` 的已批准合同未改：它仅是 renderer 返回的最终完整 system instructions UTF-8 SHA-256，不包含 user message、images 或 `max_tokens`。复审中一度建议扩张该语义，经对照已批准合同后判为非缺陷。
+
+## 迁移
+
+新增 `093_creative_context_audit_closure.surql`，不修改已发布的 091/092。升级顺序：
+
+1. 添加并回填 Policy / Manifest 新字段。
+2. 对 092 已锁为 READONLY 的 optional revision 临时解锁。
+3. 回填 included 与 `content-sha256:<digest>` revision。
+4. 对所有新字段重新定义 READONLY。
+5. 添加 Outcome transport / reasoning 分层字段并收紧不可变。
+
+真实升级测试只先应用 091/092，插入 `revision=NONE` 的旧行，再应用 093；该测试曾真实揭示 092 READONLY 阻断回填，修复迁移顺序后转绿。
 
 ## TDD 证据
 
-本轮实际观察到的 RED 包括：
+本修复波实际观察到的 RED：
 
-- GET `/chat/write` 没有 Outcome；repair / selection 多轮 Outcome 数量为 0；Pilot 绕过事件收集器并触发真实 key 配置错误。
-- `_stream_write` 不支持硬 `on_terminal`；Outcome 保存失败被 best-effort chat callback 语义吞掉。
-- `DeepSeekError` 没有 response id / model / usage；LLM incomplete 用量台账为 `None`；app Outcome 丢失半截元数据；`max_tokens` 两层签名缺失。
-- 两个无效设置仍在注册表，capability 仍返回 Spectron 假开关，runtime metric 仍含 `flag`。
-- provider error 同一 SSE 帧里的元数据丢失。
-- 首轮全量 `test_app.py` 为 `333 passed, 3 failed, 2 warnings`；三个失败分别证明 GET / POST 当前章尾段未进入 instructions、beats 未进入统一 focus。
-- 新增 assembler 聚焦合同在生产修复前为 `2 failed`：beats 缺失；开启 memory candidate 后当前章 tail 缺失。
-- 后续复审补充的取消传播与终态保护合同首次运行是 `12 failed`：client usage/delta 顺序与 delta id 不满足；两个 facade 取消台账 usage 为 `None`；真实 SSE 取消 Outcome id 为空；stream/collect 的四种明确终态均被晚到异常覆盖。
+- Manifest / Policy / 并发原子性：`7 failed, 12 passed`。
+- 动态领域来源：`8 failed`。
+- 093 真实旧形状升级：`1 failed`，原因为 092 已把 revision 锁为 READONLY。
+- B 批聚焦合同：`7 failed`，直接命中首终态覆盖、嵌套 error、provider 分层、非流式 response id 与两条审查绕路。
+- C 批：`3 failed`，命中适配器/运行指标/依赖预留与 `project_frame` 静默退空。
 
-对应生产修复后，尾段 / beats 的五项聚焦测试结果为：
+已完成的对应 GREEN：
 
-```text
-5 passed, 2 warnings in 4.55s
-```
+- A 批联合：`29 passed`。
+- B 批：Outcome `39 passed`；Pilot 拆分为 `38 passed + 9 passed`；Store `15 passed`；DeepSeek/LLM `92 passed`；provider 三形态与失败终态补充 `5 passed`。
+- C 批：聚焦 `3 passed`；相关回归 `46 passed + 47 passed`。
 
-取消传播与终态保护的同一组测试修复后为：
+## 最终验证与复审
 
-```text
-12 passed, 2 warnings in 4.30s
-```
-
-随后三文件聚焦回归首次暴露两条旧的精确事件断言仍冻结在修复前 delta 形状：
-`118 passed, 2 failed`。生产合同要求 Responses delta 携安全 `model/trace`，且新增取消回归依赖该元数据；因此没有回退生产实现，只同步两条旧断言。重跑结果为：
+后端全量首轮（排除父任务 `test_quality_contracts.py`）：
 
 ```text
-120 passed, 2 warnings in 18.63s
+21 failed, 2335 passed, 3 warnings in 1025.16s
 ```
 
-## 最终只读复审
+该轮 21 项已全部逐组复现并修复：`test_app` 5 项、loop/S1 9 项、其余 7 项的节点回归均通过。按最终执行裁决，没有再次运行耗时约 17 分钟的全后端；不把首轮全量写成全绿。替代的完整受影响文件组合证据为：
 
-最终裁决为 `Ready`，未发现新的可执行问题：
+- app / loop / S1 / gapfix / pulse / purpose / context contracts / persist / Hermes runtime：`451 passed, 3 warnings in 349.02s`。
+- Pilot / Outcome / Creative Context Store + Engine / DeepSeek / LLM / Context Assembler + Performance：`248 passed, 2 warnings in 109.54s`。
+- 复审追加问题的 RED：三项原 finding 组合 `3 failed`；伪造 manifest hash 单项 `1 failed`。
+- 追加修复聚焦 GREEN：`6 passed, 2 warnings`；相关完整文件再回归 `78 passed, 2 warnings in 56.04s`。
 
-- `actual_input_hash` 仍严格等于 renderer 返回的完整 system instructions UTF-8 字节哈希，没有扩张成 message / images / max_tokens 或整个 HTTP body 的身份。
-- DeepSeek 同帧 usage 先被上游观察，delta 携安全 response id / model / provider identity；取消、EOF 与客户端异常均保留已观察元数据和 usage。
-- `_stream_write()` / `_collect_write()` 在 provider 已给出 completed / failed / incomplete / cancelled 后只告警晚到异常，不覆盖既定 status、id、model、usage 或 error。
-- GET / POST、每轮 repair、每个 selection strategy 与 Pilot 都使用请求局部 Manifest / Outcome 绑定；硬 Outcome 仍先于 best-effort chat 留痕。
+前端与静态门：
 
-## 最终验证
+- `npm run test`：`80` 个 test files、`513` 个 tests 全部通过，耗时 `15.68s`。
+- `npm run build`：Vite production build 成功，`2997 modules transformed`，耗时 `633ms`；仅有既有的 `>500 kB` chunk 警告。
+- 所有本批变更 Python 文件 `py_compile` 通过。
+- `git diff --check` 通过。
+- Spectron 运行树零适配器/零依赖预留门禁：`1 passed, 2 warnings`。
 
-### 后端
+内部只读复审首轮发现 1 Critical + 3 Important（其中 `actual_input_hash` 扩张建议经合同核对判为非缺陷），随后又补充 1 Important manifest hash 完整性问题。修复后同一 reviewer 复审结论：无新 Critical / Important，`Ready`。仅余 1 个非阻断 Minor：deduction `source_id` 的位置序号在列表重排时会降低跨 Manifest 稳定性；它不影响当前安全、写入原子性或来源内容真值，本批范围只要求修复 Critical / Important，故记录而不扩大修改。
 
-- `scribe3/tests/test_app.py` 全文件：`336 passed, 2 warnings in 285.96s`。
-- Outcome、DeepSeek/LLM、loop、selection、Pilot、proposal、reveal isolation、assembler、settings/capability、memory trace、chat 留痕共 14 个受影响文件：`338 passed, 3 warnings in 129.52s`。
-- `py_compile` 覆盖 `app.py`、`context_assembler.py`、`context_cache.py`、`deepseek_client.py`、`llm.py`、`settings.py`：退出码 0，无输出。
+## 边界
 
-### 前端
-
-- capability 聚焦测试已包含在完整 Vitest 中；该文件 `5 tests passed`。
-- 最新完整 Vitest：`80 files passed / 513 tests passed`。
-- Vite production build：成功；2997 modules transformed。构建仍报告既有大 chunk 警告，不是构建失败。
-
-### 静态门禁
-
-- `git diff --check`：退出码 0，无输出。
-- 两个已删除设置名只存在于 `test_settings_migration.py` 的“注册表中不存在 / 不可写”负向断言。
-- 其余 `spectron_shadow` 命中仅为 runtime availability 指标、对应测试和独立评估工具名，不是用户开关。
-
-## Concerns / 边界
-
-- 本批没有调用外部 DeepSeek / Hermes 在线服务；验证覆盖真实事件合同、`httpx.MockTransport`、本地真实 SurrealDB 夹具与完整 app 路由，但不冒充在线供应商验收。
-- FastAPI `on_event` 弃用警告与一条既有 Pydantic schema 警告仍存在；前端构建仍有大 chunk 警告，均未导致失败。
-- 本批不宣称十维质量引擎、参考作品比较或五万字真人验收完成。
-- `.superpowers/sdd/progress.md` 和 Hermes 文档 manifests/snapshots 是用户的无关脏状态，本次不修改、不暂存。
-
-## Commit
-
-本报告随本轮追加修复提交一起交付；Git commit 无法在自身内容中稳定自指 SHA，准确 SHA 以父代理交接为准。不 push。
+- 不修改、不暂存 `.superpowers/sdd/progress.md`。
+- 不修改、不暂存 `docs/external/hermes-agent-docs/manifests/` 与 `snapshots/`。
+- 不纳入父任务的质量计划、`scribe3/quality/**` 和 `test_quality_contracts.py`。
+- 本批不访问真实外部 DeepSeek / Hermes；未把 mock transport / 本地 SurrealDB 验证冒充在线真人验收。
+- 不 push。

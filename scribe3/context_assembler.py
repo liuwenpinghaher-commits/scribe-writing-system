@@ -140,11 +140,18 @@ def _render_block(name: str, kept: list[_Item]) -> ContextBlock:
 
 def _omit(item: _Item, block_name: str, reason: str) -> dict:
     """被省略项的审计记录:只记来源身份 + 原因,不记正文(正文可能含秘密)。"""
+    digest = item.source.content_digest or hashlib.sha256(
+        item.text.encode("utf-8")
+    ).hexdigest()
     return {
         "source_id": item.source.source_id,
         "source_kind": item.source.source_kind,
         "block": block_name,
         "reason": reason,
+        "work": item.source.work,
+        "revision": item.source.revision,
+        "masked": item.source.masked,
+        "content_digest": digest,
     }
 
 
@@ -290,6 +297,12 @@ class ContextAssembler:
                         "source_kind": source_kind,
                         "block": source_blocks.get(source_kind, source_kind),
                         "reason": "forbidden_source_kind",
+                        "work": str(getattr(candidate, "work", "") or snapshot.work),
+                        "revision": getattr(candidate, "revision", None),
+                        "masked": bool(getattr(candidate, "masked", False)),
+                        "content_digest": hashlib.sha256(
+                            str(getattr(candidate, "text", "") or "").encode("utf-8")
+                        ).hexdigest(),
                     })
                 else:
                     allowed_candidates.append(candidate)
@@ -345,6 +358,12 @@ class ContextAssembler:
                 "source_kind": c.source_kind,
                 "block": "canonical",
                 "reason": "superseded_by_canonical",
+                "work": str(getattr(c, "work", "") or snapshot.work),
+                "revision": getattr(c, "revision", None),
+                "masked": bool(getattr(c, "masked", False)),
+                "content_digest": hashlib.sha256(
+                    str(getattr(c, "text", "") or "").encode("utf-8")
+                ).hexdigest(),
             })
 
         total = sum(b.token_estimate for b in blocks)
@@ -585,13 +604,9 @@ class ContextAssembler:
                                ch: int) -> list[_Item]:
         """限知章:焦点者知识帧内事实;secret value 物理屏蔽,被屏蔽源 masked=True 留痕。"""
         out: list[_Item] = []
-        try:
-            from scribe3.knowledge import project_frame
-            frame = project_frame(self.store, snapshot.focalizer, ch or 1)
-            frame_facts = frame.facts
-        except Exception:
-            _log.debug("canonical: project_frame 失败,限知块降级为空", exc_info=True)
-            frame_facts = []
+        from scribe3.knowledge import project_frame
+        frame = project_frame(self.store, snapshot.focalizer, ch or 1)
+        frame_facts = frame.facts
         for f in frame_facts[:40]:
             if _is_bridge_mirror(f.entity_id, f.attribute):
                 continue   # Gap-B:桥镜像结构性剔除(即便 secret=True 已掩码 value,属性名本身仍不该出现)

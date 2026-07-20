@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import json
 from pathlib import Path
 import shutil
 from typing import get_args
@@ -111,6 +113,8 @@ def test_save_manifest_writes_main_and_sources_in_one_real_transaction(store, mo
         {"manifest_id": manifest.manifest_hash},
     )
     assert len(rows) == len(manifest.sources)
+    assert all(row["included"] is source.included for row, source in zip(rows, manifest.sources))
+    assert all(row["revision"] for row in rows if row["included"])
     assert [
         (row["block"], row["source_id"], row["source_kind"], row["content_digest"])
         for row in rows
@@ -144,6 +148,145 @@ def test_new_manifests_reuse_the_readonly_policy_snapshot(store):
 
     rows = store._query("SELECT * FROM context_policy_snapshot")
     assert len(rows) == 1
+    row = rows[0]
+    policy = ContextPolicy.for_task("draft")
+    assert row["policy_key"] == policy.policy_key
+    assert row["policy_version"] == policy.version
+    assert row["schema_hash"] == policy.schema_hash
+    assert row["payload"] == policy.safe_payload()
+
+
+def test_policy_snapshot_payload_never_contains_story_or_prompt_content(store):
+    from scribe3.context_store import ContextStore
+
+    story_secret = "fixture-policy-story-secret-keepout"
+    prompt_sentinel = "fixture-policy-prompt-body-keepout"
+    store.add_entity(Entity("role:policy-secret", "character", "受控角色"))
+    store.add_fact(Fact(
+        "fact:policy-secret", "role:policy-secret", "真名", story_secret,
+        valid_from=1, secret=True,
+    ))
+    ContextStore(store).save_manifest(_manifest(prompt_sentinel))
+
+    row = store._query("SELECT payload FROM context_policy_snapshot")[0]
+    serialized = json.dumps(row["payload"], ensure_ascii=False, sort_keys=True)
+    assert story_secret not in serialized
+    assert prompt_sentinel not in serialized
+
+
+def _parallel_context_stores(store, count):
+    from scribe3.context_store import ContextStore
+    from scribe3.store import SurrealStore
+
+    connections = [
+        SurrealStore(url=store.url, ns="scribe3", db=store.db_name)
+        for _ in range(count)
+    ]
+    return connections, [ContextStore(connection) for connection in connections]
+
+
+def test_concurrent_identical_manifest_creates_are_atomic_and_idempotent(store):
+    manifest = _manifest("并发相同 Manifest")
+    connections, context_stores = _parallel_context_stores(store, 8)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda cs: cs.save_manifest(manifest), context_stores))
+    finally:
+        for connection in connections:
+            connection.close()
+
+    assert results == [manifest] * 8
+    assert len(store._query(
+        "SELECT * FROM context_manifest WHERE manifest_id=$id",
+        {"id": manifest.manifest_hash},
+    )) == 1
+    assert len(store._query(
+        "SELECT * FROM context_manifest_source WHERE manifest_id=$id",
+        {"id": manifest.manifest_hash},
+    )) == len(manifest.sources)
+
+
+def test_concurrent_different_manifest_with_same_id_fails_explicitly(store):
+    manifest = _manifest("并发冲突 Manifest")
+    conflicting = manifest.model_copy(update={
+        "actual_input_bytes": manifest.actual_input_bytes + 1,
+    })
+    connections, context_stores = _parallel_context_stores(store, 2)
+
+    def save(args):
+        context_store, value = args
+        try:
+            return context_store.save_manifest(value)
+        except Exception as error:
+            return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(save, zip(context_stores, (manifest, conflicting))))
+    finally:
+        for connection in connections:
+            connection.close()
+
+    assert results[0] == manifest
+    assert isinstance(results[1], ValueError)
+    from scribe3.context_store import ContextStore
+    assert ContextStore(store).get_manifest(manifest.manifest_hash) == manifest
+
+
+def test_save_manifest_rejects_forged_hash_before_any_write(store):
+    from scribe3.context_store import ContextStore
+
+    manifest = _manifest("forged manifest hash")
+    forged = manifest.model_copy(update={
+        "actual_input_bytes": manifest.actual_input_bytes + 1,
+    })
+
+    with pytest.raises(ValueError, match="manifest_hash"):
+        ContextStore(store).save_manifest(forged)
+
+    assert store._query("SELECT manifest_id FROM context_manifest") == []
+    assert store._query("SELECT policy_snapshot_id FROM context_policy_snapshot") == []
+
+
+def test_concurrent_identical_outcome_creates_are_atomic_and_idempotent(store):
+    from scribe3.context_store import ContextStore
+
+    manifest = _manifest("并发相同 Outcome")
+    ContextStore(store).save_manifest(manifest)
+    outcome = _outcome(manifest, outcome_id="outcome-concurrent-identical")
+    connections, context_stores = _parallel_context_stores(store, 8)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda cs: cs.save_outcome(outcome), context_stores))
+    finally:
+        for connection in connections:
+            connection.close()
+
+    assert results == [outcome] * 8
+    assert len(store._query(
+        "SELECT * FROM context_outcome_trace WHERE outcome_id=$id",
+        {"id": outcome.outcome_id},
+    )) == 1
+
+
+def test_policy_snapshot_rejects_same_key_version_with_changed_schema(store, monkeypatch):
+    import scribe3.context_policy as policy_mod
+    from scribe3.context_store import ContextStore
+
+    context_store = ContextStore(store)
+    context_store.save_manifest(_manifest("原始 policy schema"))
+    changed = ContextPolicy(
+        policy_key="generation",
+        version="generation.v1",
+        task_kinds=("draft", "final"),
+        forbidden_source_kinds=("raw_reference_text", "model_inference", "new_rule"),
+        protocol_versions=(("system", "generation-protocol.v1"),),
+    )
+    monkeypatch.setitem(policy_mod._POLICY_VERSION_REGISTRY, changed.version, changed)
+    monkeypatch.setitem(policy_mod._TASK_POLICY_REGISTRY, "draft", changed)
+
+    with pytest.raises(ValueError, match="policy snapshot.*冲突|策略快照.*冲突"):
+        context_store.save_manifest(_manifest("变更后的 policy schema"))
 
 
 def test_outcome_requires_existing_manifest_triple_and_round_trips_pydantic_contract(store):
@@ -240,6 +383,40 @@ def test_outcome_error_is_redacted_before_at_rest_and_secret_lookup_fails_loud(s
     assert not store._query(
         "SELECT * FROM context_outcome_trace WHERE outcome_id='outcome-fail-loud'"
     )
+
+
+def test_nested_outcome_error_is_recursively_redacted_before_safe_truncation(store):
+    from scribe3.context_store import ContextStore
+
+    story_secret = "fixture-nested-story-secret-keepout"
+    token_secret = "fixture-nested-token-keepout"
+    store.add_entity(Entity("role:nested-secret", "character", "受控角色"))
+    store.add_fact(Fact(
+        "fact:nested-secret", "role:nested-secret", "真名", story_secret,
+        valid_from=1, secret=True,
+    ))
+    manifest = _manifest("递归脱敏")
+    context_store = ContextStore(store)
+    context_store.save_manifest(manifest)
+    nested_error = {
+        "message": "x" * 800 + story_secret,
+        "details": [{"api_key": token_secret}, {"story": story_secret}],
+    }
+
+    persisted = context_store.save_outcome(_outcome(
+        manifest, outcome_id="outcome-nested-redaction", error=nested_error,
+    ))
+
+    assert isinstance(persisted.error, str)
+    assert len(persisted.error) <= 500
+    assert story_secret not in persisted.error
+    assert token_secret not in persisted.error
+    row = store._query(
+        "SELECT error FROM context_outcome_trace "
+        "WHERE outcome_id='outcome-nested-redaction'"
+    )[0]
+    assert story_secret not in row["error"]
+    assert token_secret not in row["error"]
 
 
 def test_creative_context_core_rows_are_readonly_after_create(store):
@@ -349,3 +526,92 @@ DEFINE FIELD created_at ON context_outcome_trace TYPE datetime;
                     f"SET {field}=$replacement",
                     {"outcome_id": outcome_id, "replacement": replacement},
                 )
+
+
+def test_093_upgrades_091_092_rows_before_tightening_new_contracts(
+    unmigrated_store, tmp_path,
+):
+    """093 必须能升级已被 092 锁为 READONLY 但 revision 仍为 NONE 的真旧行。"""
+    migrations = Path(__file__).parents[1] / "migrations"
+    for name in (
+        "091_creative_context_core.surql",
+        "092_creative_context_core_immutability.surql",
+    ):
+        shutil.copy(migrations / name, tmp_path / name)
+    unmigrated_store.apply_schema(str(tmp_path))
+
+    digest = hashlib.sha256(b"legacy-source-without-revision").hexdigest()
+    legacy_policy_id = hashlib.sha256(b"generation.v1").hexdigest()
+    unmigrated_store._raw_query(
+        "CREATE type::record('context_policy_snapshot', $policy_id) SET "
+        "policy_snapshot_id=$policy_id, policy_version='generation.v1'",
+        {"policy_id": legacy_policy_id},
+    )
+    unmigrated_store._raw_query(
+        "CREATE type::record('context_manifest', 'legacy-manifest') SET "
+        "manifest_id='legacy-manifest', manifest_version='creative-context-manifest.v1', "
+        "request_id='legacy-request', task_kind='draft', policy_version='generation.v1', "
+        "navigation_snapshot_id='legacy-navigation', snapshot_hash=$digest, "
+        "envelope_hash=$digest, actual_input_hash=$digest, actual_input_bytes=1, "
+        "manifest_hash='legacy-manifest'",
+        {"digest": digest},
+    )
+    unmigrated_store._raw_query(
+        "CREATE type::record('context_manifest_source', 'legacy-source') SET "
+        "manifest_id='legacy-manifest', source_ref='legacy-source', block='canonical', "
+        "source_id='legacy-source', source_kind='canonical', work='legacy-work', "
+        "revision=NONE, masked=false, reason_code='unspecified', content_digest=$digest",
+        {"digest": digest},
+    )
+
+    shutil.copy(
+        migrations / "093_creative_context_audit_closure.surql",
+        tmp_path / "093_creative_context_audit_closure.surql",
+    )
+    unmigrated_store.apply_schema(str(tmp_path))
+
+    policy = unmigrated_store._query(
+        "SELECT policy_key, policy_version, schema_hash, payload "
+        "FROM context_policy_snapshot WHERE policy_snapshot_id=$policy_id",
+        {"policy_id": legacy_policy_id},
+    )[0]
+    assert policy == {
+        "policy_key": "generation",
+        "policy_version": "generation.v1",
+        "schema_hash": ContextPolicy.for_task("draft").schema_hash,
+        "payload": ContextPolicy.for_task("draft").safe_payload(),
+    }
+    manifest = unmigrated_store._query(
+        "SELECT policy_key, policy_schema_hash FROM context_manifest "
+        "WHERE manifest_id='legacy-manifest'"
+    )[0]
+    assert manifest == {
+        "policy_key": "generation",
+        "policy_schema_hash": ContextPolicy.for_task("draft").schema_hash,
+    }
+    source = unmigrated_store._query(
+        "SELECT included, revision FROM context_manifest_source "
+        "WHERE source_ref='legacy-source'"
+    )[0]
+    assert source == {
+        "included": True,
+        "revision": f"content-sha256:{digest}",
+    }
+    from scribe3.context_store import ContextStore
+    context_store = ContextStore(unmigrated_store)
+    assert context_store.save_manifest(_manifest("post-093-first-write"))
+    snapshots = unmigrated_store._query(
+        "SELECT policy_snapshot_id FROM context_policy_snapshot"
+    )
+    assert snapshots == [{"policy_snapshot_id": legacy_policy_id}]
+    for table, record_id, field, replacement in (
+        ("context_policy_snapshot", legacy_policy_id, "schema_hash", "tampered"),
+        ("context_manifest", "legacy-manifest", "policy_key", "tampered"),
+        ("context_manifest_source", "legacy-source", "included", False),
+        ("context_manifest_source", "legacy-source", "revision", "tampered"),
+    ):
+        with pytest.raises(Exception, match="readonly|read-only|READONLY"):
+            unmigrated_store._raw_query(
+                f"UPDATE type::record('{table}', $record_id) SET {field}=$replacement",
+                {"record_id": record_id, "replacement": replacement},
+            )

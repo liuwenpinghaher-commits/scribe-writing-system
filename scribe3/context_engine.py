@@ -64,10 +64,23 @@ class CreativeContextEngine:
         snapshot: ContextSnapshot,
         query: str,
         mode: str,
-        render: Callable[[ContextEnvelope], str],
+        render: Callable[
+            [ContextEnvelope],
+            str | tuple[str, tuple["ContextSource", ...]],
+        ],
     ) -> CreativeContextCompilation:
         """组装、裁决、渲染最终输入，然后一次性建立并持久 Manifest。"""
+        from scribe3.context_models import ContextSource
+
         policy = ContextPolicy.for_task(request.task_kind)
+        if request.policy_version != policy.version:
+            raise ValueError("请求任务类型与策略版本不匹配")
+        merged_forbidden = tuple(dict.fromkeys(
+            policy.forbidden_source_kinds + request.forbidden_source_kinds
+        ))
+        request = request.model_copy(update={
+            "forbidden_source_kinds": merged_forbidden,
+        })
         envelope = self._assembler.assemble(
             snapshot,
             query,
@@ -78,10 +91,34 @@ class CreativeContextEngine:
         self._validate_request(request, snapshot, envelope)
         policy.validate_envelope(envelope)
 
-        rendered_input = render(envelope)
+        rendered = render(envelope)
+        supplemental_sources: tuple[ContextSource, ...] = ()
+        if (
+            isinstance(rendered, tuple) and len(rendered) == 2
+            and isinstance(rendered[0], str)
+            and isinstance(rendered[1], tuple)
+        ):
+            rendered_input, supplemental_sources = rendered
+        else:
+            rendered_input = rendered
         if not isinstance(rendered_input, str):
-            raise TypeError("render 必须返回最终 system instructions 字符串")
-        manifest = build_context_manifest(request, policy, envelope, rendered_input)
+            raise TypeError("render 必须返回字符串或 (字符串, supplemental_sources)")
+        if not all(isinstance(source, ContextSource) for source in supplemental_sources):
+            raise TypeError("supplemental_sources 必须全部是 ContextSource")
+        if any(source.work != request.work for source in supplemental_sources):
+            raise ValueError("supplemental source work 与请求不一致")
+        forbidden_supplemental = sorted({
+            source.source_kind for source in supplemental_sources
+            if source.source_kind in request.forbidden_source_kinds
+        })
+        if forbidden_supplemental:
+            raise ValueError(
+                "supplemental source kind 被 Policy forbidden: "
+                + ", ".join(forbidden_supplemental)
+            )
+        manifest = build_context_manifest(
+            request, policy, envelope, rendered_input, supplemental_sources,
+        )
         self._context_store.save_manifest(manifest)
         return CreativeContextCompilation(
             request=request,

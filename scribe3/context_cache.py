@@ -6,7 +6,7 @@ embed),与 context_models / memory_models 同层,任何一端都能安全引用�
 
 诚实边界(做实 vs 就绪):
 - 【做实】feature flags 门面 + GET /capabilities 上报;embedding sha256 缓存在 embed.py。
-- 【做实】cross_work / memory pending·failed / spectron / 会话数 等指标当前有真实值。
+- 【做实】cross_work / memory pending·failed / 会话数 等指标当前有真实值。
 - 【做实】RETRIEVAL_CACHE 已在 MEMORY_FABRIC 开启时进入统一写作 envelope 读路径，
   并以 TTL + 表级失效约束；关闭时明确不实例化 retriever。GLOBAL_CARD_CACHE 仍只有
   helper/测试消费，尚无生产调用方。

@@ -123,6 +123,7 @@ def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
         return httpx.Response(
             200,
             json={
+                "id": "chatcmpl-complete-1",
                 "model": "deepseek-chat",
                 "choices": [
                     {"message": {"content": "完成文本"}, "finish_reason": "stop"}
@@ -152,6 +153,7 @@ def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
         },
     }
     assert result.content == "完成文本"
+    assert result.response_id == "chatcmpl-complete-1"
     assert result.model == "deepseek-chat"
     assert result.finish_reason == "stop"
     assert result.identity == deepseek.ProviderIdentity(
@@ -799,4 +801,5 @@ def test_public_dataclasses_have_no_secret_or_header_fields():
         "usage",
         "finish_reason",
         "identity",
+        "response_id",
     }

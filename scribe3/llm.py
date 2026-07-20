@@ -191,14 +191,14 @@ def _stream_with_retry(make_stream, max_retries: int | None = None):
     raise last if last else RuntimeError("stream failed after retries")
 
 
-def hermes_complete(prompt: str, system: str | None = None,
-                    model: str | None = None, timeout: float | None = None,
-                    max_tokens: int | None = None,
-                    retries_override: int | None = None,
-                    thinking: str | None = None,
-                    temperature: float | None = None,
-                    official_api: bool = False) -> str:
-    """官方 DeepSeek 无工具补全；旧名与 ``official_api`` 仅作兼容。"""
+def hermes_complete_result(prompt: str, system: str | None = None,
+                           model: str | None = None, timeout: float | None = None,
+                           max_tokens: int | None = None,
+                           retries_override: int | None = None,
+                           thinking: str | None = None,
+                           temperature: float | None = None,
+                           official_api: bool = False):
+    """官方 DeepSeek 无工具补全，返回带安全 provider 证据的完整结果。"""
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
@@ -223,7 +223,22 @@ def hermes_complete(prompt: str, system: str | None = None,
         http_status=200,
         usage=result.usage,
     )
-    return result.content
+    return result
+
+
+def hermes_complete(prompt: str, system: str | None = None,
+                    model: str | None = None, timeout: float | None = None,
+                    max_tokens: int | None = None,
+                    retries_override: int | None = None,
+                    thinking: str | None = None,
+                    temperature: float | None = None,
+                    official_api: bool = False) -> str:
+    """官方 DeepSeek 无工具补全；旧名与 ``official_api`` 仅作兼容。"""
+    return hermes_complete_result(
+        prompt, system, model=model, timeout=timeout, max_tokens=max_tokens,
+        retries_override=retries_override, thinking=thinking,
+        temperature=temperature, official_api=official_api,
+    ).content
 
 
 def hermes_complete_stream(prompt: str, system: str | None = None,

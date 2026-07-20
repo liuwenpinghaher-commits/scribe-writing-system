@@ -155,6 +155,14 @@ def test_loop_records_s1_history(store, monkeypatch):
 
     def fn(message, instructions, with_tools=True):
         yield {"type": "response.output_text.delta", "delta": f"{fence}{clean}{fence2}"}
+        yield {
+            "type": "response.completed",
+            "response": {
+                "id": "s1-loop-test-response",
+                "model": "deepseek-chat",
+                "usage": {},
+            },
+        }
 
     monkeypatch.setattr(A, "_responses_events", fn)
     r = _client(store).post("/loop/chapter", json={"chapter": 1})

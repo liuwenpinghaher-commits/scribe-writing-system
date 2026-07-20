@@ -606,7 +606,7 @@ def _context_memory_metrics(work: str = "main") -> dict:
     分位数与布尔/短标识。诚实区分【当前有真实值】与【采集骨架待 16-C 接线】:
 
     真实值:cross_work_rejections(16-A)、memory_events_pending/failed(store 计数)、
-      context_sessions_active(store 计数)、spectron 可用性检测、hermes_memory_provider。
+      context_sessions_active(store 计数)、hermes_memory_provider。
     采样指标:retrieval_p50/p95、context_tokens_p95、stale_rejections；相关事件尚无
       样本时如实为 0/None，不表示统一内核或采集接线关闭。"""
     from scribe3 import context_cache
@@ -626,17 +626,7 @@ def _context_memory_metrics(work: str = "main") -> dict:
     except Exception as e:
         logging.getLogger("scribe3").error("_context_memory_metrics 查询失败", exc_info=True)
         metrics["memory_metrics_error"] = str(e)[:120]
-    # Spectron 只上报可用性 + 原因(全无秘密)；没有可切换的影子执行路径。
-    try:
-        from scribe3.spectron_adapter import detect_spectron
-        det = detect_spectron()
-        metrics["spectron_shadow"] = {
-            "available": bool(det.enabled),
-            "reason": det.reason,
-        }
-    except Exception:
-        metrics["spectron_shadow"] = {"available": False, "reason": "detect_failed"}
-    # 生产记忆提供方:自建多通道检索恒为生产提供方(Spectron 仅影子,永不接管生产读,Task 15)。
+    # 生产记忆提供方：SurrealDB 内的自建多通道检索是唯一运行时实现。
     metrics["hermes_memory_provider"] = "scribe3_builtin"
     return metrics
 
@@ -3637,11 +3627,8 @@ def _faction_known_fact_ids(st, focalizer: str, chapter: int) -> set:
     落点:没有可验证身份时,一律当作"什么都不知道",宁可少给也不能泄密。"""
     if not focalizer:
         return set()
-    try:
-        frame = project_frame(st, focalizer, chapter)
-        return {f.id for f in frame.facts}
-    except Exception:
-        return set()
+    frame = project_frame(st, focalizer, chapter)
+    return {f.id for f in frame.facts}
 
 
 def _faction_bridge_fact_index(st, chapter: int) -> dict:
@@ -4585,6 +4572,15 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         provider = provider_trace_for_persistence(event)
         if not with_tools and provider:
             trace["provider"].update(provider)
+        raw_trace = event.get("trace")
+        if with_tools and isinstance(raw_trace, dict):
+            reasoning: dict = {}
+            for key in ("provider", "model", "provider_request_id", "response_id"):
+                if isinstance(raw_trace.get(key), str) and raw_trace[key]:
+                    reasoning[key] = raw_trace[key]
+            # Hermes 自身只是网关；只有下游推理供应商证据才进 reasoning 层。
+            if reasoning.get("provider") not in (None, "hermes", "hermes_gateway"):
+                trace["reasoning_provider"] = reasoning
 
     def drain(events):
         nonlocal saw_proposal
@@ -4608,6 +4604,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     try:
         for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
                                         server_label=mcp_server_label):
+            if terminal_seen:
+                # 第一个 provider 终态是不可变事实；继续排空迭代器，但忽略迟到事件。
+                continue
             observe_provider_metadata(ev)
             source_type = (
                 ev.get("type") or ev.get("event")
@@ -5199,24 +5198,48 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
     return "\n\n" + "\n".join(parts)
 
 
+def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
+    """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。"""
+    ch = st.get_chapter(seq) or {}
+    truth = (ch.get("scene_truth") or "").strip()
+    deductions = ch.get("deductions") or []
+    if not truth and not deductions:
+        return []
+    segments = [(
+        "protocol:scribe3-deduction-context:v1:header",
+        "deduction_protocol",
+        "## 本章演绎(据此以作者视角写限知初稿)",
+    )]
+    if truth:
+        segments.append((
+            f"chapter:{seq}:scene-truth",
+            "scene_truth",
+            f"\n〔场景真相·全知〕{truth}",
+        ))
+    for ordinal, deduction in enumerate(deductions):
+        name = deduction.get("character_name") or deduction.get("character_id") or "?"
+        prose = (deduction.get("prose") or "").strip()
+        if not prose:
+            continue
+        identity = deduction.get("id") or deduction.get("character_id") or "unknown"
+        segments.append((
+            f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
+            "deduction",
+            f"\n〔{name}·限知投影〕{prose}",
+        ))
+    segments.append((
+        "protocol:scribe3-deduction-context:v1:footer",
+        "deduction_protocol",
+        "\n要求:以场景真相为事实骨架;焦点者投影当 POV、他人投影约束其言行并埋反讽;"
+        "不写角色不知道的私密。",
+    ))
+    return segments
+
+
 def _deduction_block(st, seq: int) -> str:
     """草稿期把本章「场景真相 + 各角色限知投影」注入 instructions。
     空(无真相且无投影)→ 返回空串(默认行为不变)。"""
-    ch = st.get_chapter(seq) or {}
-    truth = (ch.get("scene_truth") or "").strip()
-    deds = ch.get("deductions") or []
-    if not truth and not deds:
-        return ""
-    parts = ["## 本章演绎(据此以作者视角写限知初稿)"]
-    if truth:
-        parts.append(f"〔场景真相·全知〕{truth}")
-    for d in deds:
-        nm = d.get("character_name") or d.get("character_id") or "?"
-        pr = (d.get("prose") or "").strip()
-        if pr:
-            parts.append(f"〔{nm}·限知投影〕{pr}")
-    parts.append("要求:以场景真相为事实骨架;焦点者投影当 POV、他人投影约束其言行并埋反讽;不写角色不知道的私密。")
-    return "\n".join(parts)
+    return "".join(text for _, _, text in _deduction_context_segments(st, seq))
 
 
 def _final_reminder() -> str:
@@ -5469,23 +5492,57 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     """统一写作编译路径：Envelope 与最终 system instructions 一次绑定。"""
     from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
     from scribe3.context_engine import CreativeContextEngine
-    from scribe3.context_models import ContextRequest
+    from scribe3.context_models import ContextRequest, ContextSource
     from scribe3.craft import build_craft_block
+    import hashlib
+
+    supplemental_sources: list[ContextSource] = []
+
+    def _domain_input(source_id: str, source_kind: str, text: str) -> str:
+        """登记 renderer 实际追加的动态领域字节；正文只进输入，Manifest 只存摘要。"""
+        if not text:
+            return ""
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        supplemental_sources.append(ContextSource(
+            source_id=source_id,
+            source_kind=source_kind,
+            work=str(work or "main"),
+            content_digest=digest,
+        ))
+        return text
+
     # I1:身份用【纯身份块】而非 _editor_write_system——后者经 _editor_system 注入设定/角色/
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     prefix = (_editor_identity_block() + _write_protocol_block()
-              + _write_revision_block() + _secret_guard_block(st, chapter))
-    prefix += f"\n当前第 {chapter} 章。"
+              + _write_revision_block())
+    prefix += _domain_input(
+        f"chapter:{chapter}:secret-guard", "secret_guard",
+        _secret_guard_block(st, chapter),
+    )
+    prefix += _domain_input(
+        f"chapter:{chapter}:request-position", "request_position",
+        f"\n当前第 {chapter} 章。",
+    )
     if with_tools:
-        prefix += _s3_work_scope_block(work)
+        prefix += _domain_input(
+            f"work:{work or 'main'}:tool-scope", "tool_scope",
+            _s3_work_scope_block(work),
+        )
         from scribe3.craft_skills import skills_index_block
-        prefix += skills_index_block()   # P1 定案B:技法索引(渐进披露)
+        prefix += _domain_input(
+            f"work:{work or 'main'}:craft-skills-index", "craft_skills_index",
+            skills_index_block(),
+        )   # P1 定案B:技法索引(渐进披露)
     if focalizer:
-        prefix += (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
-                   "贴该角色所知所感写,别写他不知道的私密。")
+        focalizer_input = (f"作者指定本章跟随焦点者 {focalizer} 的限知视角:"
+                           "贴该角色所知所感写,别写他不知道的私密。")
     else:
-        prefix += "本章未指定限知焦点者 → 作者视角(可全知)。"
+        focalizer_input = "本章未指定限知焦点者 → 作者视角(可全知)。"
+    prefix += _domain_input(
+        f"chapter:{chapter}:focalizer", "focalizer",
+        focalizer_input,
+    )
     # parity 修补(2026-07-15):v1 身份层刻意不走 _editor_system(见上方 I1 注释,防
     # facts/promises 与 envelope 重复),但代价是设定圣经(codex:faction 28 字段/世界
     # 规则/术语/物件/母题)在 v1 完全缺席——CX-Task 6 后这是旗舰能力,不能因为切到 v1
@@ -5494,9 +5551,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # for_generation=True,唯一生成入口——v1 同样是生成路径,必须同传,漏传就是泄密)。
     # 阶段2可把这块迁入 envelope 的专属 source(参与预算/溯源);现阶段用 instructions
     # 块保证与旧链字节级同语义,不额外造轮子。
-    prefix += ("\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
-               + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
-                               chapter=chapter, for_generation=True) or "(尚无设定)") + "\n")
+    codex_input = (
+        "\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
+        + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
+                        chapter=chapter, for_generation=True) or "(尚无设定)")
+        + "\n"
+    )
+    prefix += _domain_input(
+        f"work:{work or 'main'}:codex", "codex", codex_input,
+    )
     # 统一上下文段(替代旧 avoid/voice/arc/motif/frame/recap/tail/outline/material 散点拼装)
     snap = _write_snapshot(st, chapter=chapter, focalizer=focalizer,
                            phase=phase, work=work)
@@ -5524,19 +5587,45 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         env_text = render_envelope_text(envelope)
         if env_text:
             rendered += "\n\n" + env_text
-        rendered += _soak_block(seed_words)
+        rendered += _domain_input(
+            f"chapter:{chapter}:seed-words", "seed_words",
+            _soak_block(seed_words),
+        )
         craft = build_craft_block(st.list_craft_rules() or None, short_mode=short_mode)
         if craft:
-            rendered += "\n\n" + craft
-        rendered += _phase_role_block(phase)
-        rendered += _avoid_directive(st, chapter)
-        rendered += _revelation_discipline_block(focalizer)
+            rendered += _domain_input(
+                f"work:{work or 'main'}:craft", "craft", "\n\n" + craft,
+            )
+        rendered += _domain_input(
+            f"chapter:{chapter}:phase-role", "phase_role",
+            _phase_role_block(phase),
+        )
+        rendered += _domain_input(
+            f"chapter:{chapter}:avoid", "avoid",
+            _avoid_directive(st, chapter),
+        )
+        rendered += _domain_input(
+            f"chapter:{chapter}:revelation-discipline", "revelation_discipline",
+            _revelation_discipline_block(focalizer),
+        )
         rendered += _focalizer_sincerity_block()
-        rendered += _purpose_workflow_block(st, chapter, with_tools, work)
+        rendered += _domain_input(
+            f"chapter:{chapter}:purpose", "purpose",
+            _purpose_workflow_block(st, chapter, with_tools, work),
+        )
+        normalized_phase = (phase or "").strip().lower()
+        if normalized_phase in ("draft", "final"):
+            for ordinal, (source_id, source_kind, text) in enumerate(
+                _deduction_context_segments(st, chapter)
+            ):
+                rendered += _domain_input(
+                    source_id, source_kind,
+                    ("\n\n" if ordinal == 0 else "") + text,
+                )
         rendered += _final_reminder()
-        if (phase or "").strip().lower() == "deduce":
+        if normalized_phase == "deduce":
             truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()
-            rendered += (
+            scene_truth_input = (
                 "\n\n## 本场「场景真相」(角色投影的唯一事实源)\n"
                 + (truth or "(尚未填写场景真相；只能说明未能确认。)")
                 + "\n\n【演绎终检合同】输出必须逐字可追溯到本场「场景真相」。"
@@ -5544,9 +5633,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                   "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
                   "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
             )
+            rendered += _domain_input(
+                f"chapter:{chapter}:scene-truth", "scene_truth", scene_truth_input,
+            )
         if extra_instructions:
-            rendered += "\n\n" + extra_instructions
-        return rendered
+            rendered += _domain_input(
+                f"chapter:{chapter}:request-constraint", "request_constraint",
+                "\n\n" + extra_instructions,
+            )
+        return rendered, tuple(supplemental_sources)
 
     import uuid
     context_request = ContextRequest(
@@ -5664,8 +5759,6 @@ def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
         provider = provider_identity if isinstance(provider_identity, str) else None
         model = trace.get("model")
     error = trace.get("error")
-    if error is not None and not isinstance(error, str):
-        error = json.dumps(error, ensure_ascii=False, sort_keys=True)[:500]
     raw_usage = trace.get("usage")
     usage = None
     if isinstance(raw_usage, dict):
@@ -5680,6 +5773,28 @@ def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
     manifest_id = str(envelope_trace["manifest_id"])
     actual_input_hash = str(envelope_trace["actual_input_hash"])
     identity = f"{request_id}\0{manifest_id}\0{actual_input_hash}"
+    if provider == "hermes_gateway":
+        transport_provider = "hermes_gateway"
+        reasoning_identity = trace.get("reasoning_provider")
+    else:
+        transport_provider = (
+            provider_identity.get("transport")
+            if isinstance(provider_identity, dict) else None
+        )
+        reasoning_identity = provider_identity
+    if isinstance(reasoning_identity, dict):
+        reasoning_provider = reasoning_identity.get("provider")
+        reasoning_model = reasoning_identity.get("model") or model
+        reasoning_request_id = (
+            reasoning_identity.get("provider_request_id")
+            or reasoning_identity.get("response_id")
+        )
+    else:
+        reasoning_provider = None
+        reasoning_model = None
+        reasoning_request_id = None
+    if provider != "hermes_gateway":
+        reasoning_request_id = reasoning_request_id or trace.get("response_id")
     outcome = ContextOutcomeTrace(
         outcome_id=hashlib.sha256(identity.encode("utf-8")).hexdigest(),
         request_id=request_id,
@@ -5690,6 +5805,12 @@ def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
         model=model if isinstance(model, str) else None,
         provider_request_id=(str(trace["response_id"])
                              if trace.get("response_id") is not None else None),
+        transport_provider=(str(transport_provider) if transport_provider else None),
+        transport_request_id=(str(trace["response_id"])
+                              if trace.get("response_id") is not None else None),
+        reasoning_provider=(str(reasoning_provider) if reasoning_provider else None),
+        reasoning_model=(str(reasoning_model) if reasoning_model else None),
+        reasoning_request_id=(str(reasoning_request_id) if reasoning_request_id else None),
         usage=usage,
         output_hash=trace.get("output_hash"),
         error=error,
@@ -5871,6 +5992,15 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
                 value = ev["trace"].get(key)
                 if isinstance(value, str) or (key == "official" and isinstance(value, bool)):
                     trace["provider"][key] = value
+        if with_tools and isinstance(ev.get("trace"), dict):
+            raw_trace = ev["trace"]
+            reasoning = {
+                key: raw_trace[key]
+                for key in ("provider", "model", "provider_request_id", "response_id")
+                if isinstance(raw_trace.get(key), str) and raw_trace[key]
+            }
+            if reasoning.get("provider") not in (None, "hermes", "hermes_gateway"):
+                trace["reasoning_provider"] = reasoning
 
     def drain(events):
         for kind, val in events:
@@ -5898,6 +6028,8 @@ def _collect_write(message, instructions: str, with_tools: bool = True,
         response_kwargs["max_tokens"] = max_tokens
     try:
         for ev in _response_events_iter(fn, message, instructions, **response_kwargs):
+            if terminal_seen:
+                continue
             observe_provider_metadata(ev)
             source_type = (
                 ev.get("type") or ev.get("event")
@@ -6346,13 +6478,16 @@ def grounded_deduction_fallback(seq: int, character_id: str, work: str = "main")
 @app.post("/chapters/{seq}/deductions/grounding")
 def review_deduction_grounding(seq: int, req: DeductionGroundingReq, work: str = "main"):
     """审查角色投影；证据始终从服务端本章场景真相读取，客户端不能替换来源。"""
-    ch = _store_for(work).get_chapter(seq)
+    st = _store_for(work)
+    ch = st.get_chapter(seq)
     if not ch:
         raise HTTPException(status_code=404, detail=f"chapter {seq} not found")
     truth = (ch.get("scene_truth") or "").strip()
     if not truth:
         raise HTTPException(status_code=422, detail="请先填写场景真相，角色投影才能进行事实对齐")
-    result = _grounding_review(truth, req.candidate, mode="deduction")
+    result = _grounding_review(
+        truth, req.candidate, mode="deduction", st=st, work=work, chapter=seq,
+    )
     return {"seq": seq, "character_id": req.character_id, **result}
 
 
@@ -7179,19 +7314,20 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     # U-011:degraded/degraded_stages 已在上方(inherited 之前)初始化,此处不再重置,
     # 让 inherited_open 的失败也累积进最终 degraded_stages。
     try:
-        # 优先用测试注入的 _complete_fn,否则走真实 hermes_complete
+        # 测试注入出口保持兼容；真实 Pilot quality 必须经统一上下文链。
         complete_fn = _complete_fn
         if complete_fn is None:
-            from scribe3.llm import default_timeout, hermes_complete
+            from scribe3.llm import default_timeout
             # /post-check 是作者交互式只读体检，须限制单次尝试和输出预算；完整章节的
             # 纪律判在官方模型实测约 49 秒，高负载章节可超过 90 秒；30/90 秒都会把
             # 已连通的模型误判为降级。180 秒仍远低于生成级 600 秒，保留可控上界。
             def complete_fn(prompt: str, system: str | None = None) -> str:
-                return hermes_complete(prompt, system,
-                                       timeout=min(float(default_timeout()), 180.0),
-                                       max_tokens=480, retries_override=1,
-                                       thinking="disabled", temperature=0,
-                                       official_api=True)
+                return _contextual_review_complete(
+                    st, work, seq, "quality_chapter", prompt, system=system,
+                    timeout=min(float(default_timeout()), 180.0),
+                    max_tokens=480, retries_override=1,
+                    thinking="disabled", temperature=0,
+                )
         # 任务19:有到期继承开放项时拼进 brief——若调用方未传 brief,先补回
         # build_discipline_prompt 的默认纪律文案(DEFAULT_DISCIPLINE_BRIEF 单一来源,
         # 收尾清理批 Minor:消除手写字面量副本的漂移风险),再拼继承项,
@@ -8222,14 +8358,95 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     )
 
 
-def _grounding_llm(prompt: str) -> str:
-    """事实对齐审查走官方 DeepSeek，并关闭思考以保留 JSON 输出预算。"""
-    from scribe3.llm import hermes_complete
-    return (hermes_complete(prompt, max_tokens=4096, official_api=True,
-                            thinking="disabled") or "").strip()
+def _contextual_review_complete(
+    st, work: str, chapter: int, task_kind: str, prompt: str, *,
+    system: str | None = None, **completion_kwargs,
+) -> str:
+    """非流式审查的统一 Manifest → 官方 DeepSeek → Outcome 咽喉点。"""
+    from dataclasses import asdict
+    import uuid
+    from scribe3.context_assembler import render_envelope_text
+    from scribe3.context_engine import CreativeContextEngine
+    from scribe3.context_models import ContextRequest, ContextSource
+    from scribe3.context_policy import ContextPolicy
+    from scribe3.llm import hermes_complete_result
+
+    policy = ContextPolicy.for_task(task_kind)
+    snap = _write_snapshot(
+        st, chapter=chapter, focalizer="", phase="final", work=work,
+    )
+    request = ContextRequest(
+        request_id=uuid.uuid4().hex,
+        task_kind=task_kind,
+        target_ref=f"chapter:{chapter}",
+        navigation_snapshot_id=snap.navigation_id,
+        work=snap.work,
+        chapter=chapter,
+        phase="final",
+        actor_role="reviewer",
+        policy_version=policy.version,
+    )
+    system_part = f"【SYSTEM】\n{system}\n\n" if system else ""
+    review_input = system_part + prompt
+    source = ContextSource(
+        source_id=f"chapter:{chapter}:{task_kind}:review-input",
+        source_kind=f"{task_kind}_review_input",
+        work=snap.work,
+        content_digest=hashlib.sha256(review_input.encode("utf-8")).hexdigest(),
+    )
+
+    def render(envelope):
+        envelope_text = render_envelope_text(envelope)
+        rendered = (envelope_text + "\n\n" if envelope_text else "") + review_input
+        return rendered, (source,)
+
+    compiled = CreativeContextEngine(st).compile(
+        request, snap, prompt[:500], "plan", render,
+    )
+    binding = {
+        "request_id": compiled.request.request_id,
+        "manifest_id": compiled.manifest.manifest_hash,
+        "actual_input_hash": compiled.manifest.actual_input_hash,
+    }
+    try:
+        result = hermes_complete_result(compiled.rendered_input, **completion_kwargs)
+    except Exception as error:
+        identity = getattr(error, "identity", None)
+        _save_write_context_outcome(st, binding, {
+            "status": ("incomplete_stream"
+                       if getattr(error, "status", None) == "incomplete_stream"
+                       else "failed"),
+            "provider": asdict(identity) if identity is not None else None,
+            "model": getattr(identity, "model", None),
+            "response_id": getattr(error, "response_id", None),
+            "usage": getattr(error, "usage", None),
+            "error": str(error),
+            "output_hash": hashlib.sha256(b"").hexdigest(),
+        })
+        raise
+    _save_write_context_outcome(st, binding, {
+        "status": "completed",
+        "provider": asdict(result.identity),
+        "model": result.model,
+        "response_id": result.response_id,
+        "usage": result.usage,
+        "output_hash": hashlib.sha256(result.content.encode("utf-8")).hexdigest(),
+    })
+    return result.content.strip()
 
 
-def _grounding_review(source: str, candidate: str, *, mode: str) -> dict:
+def _grounding_llm(st, work: str, chapter: int, prompt: str) -> str:
+    """事实对齐审查经统一上下文引擎走官方 DeepSeek，并持久化 Outcome。"""
+    return _contextual_review_complete(
+        st, work, chapter, "grounding", prompt,
+        max_tokens=4096, official_api=True, thinking="disabled",
+    )
+
+
+def _grounding_review(
+    source: str, candidate: str, *, mode: str,
+    st=None, work: str = "main", chapter: int | None = None,
+) -> dict:
     """把每个候选事实钉回唯一证据源；任何解析/证据失败均拒绝通过。
 
     生成提示只能降低幻觉概率，不能形成写入约束。这里要求审查模型逐条给出
@@ -8283,7 +8500,11 @@ def _grounding_review(source: str, candidate: str, *, mode: str) -> dict:
 {{"verdict":"pass"或"revise","claims":[{{"claim":"主张","supported":true或false,"evidence":"SOURCE 中能逐字找到的最短证据；不支持则空串"}}],"issues":[{{"claim":"不支持的主张","reason":"为什么不能由来源推出","evidence":""}}]}}
 规则：候选非空时 claims 不得为空；只有所有 claims.supported=true 且 evidence 为 SOURCE 的原文子串时 verdict 才能为 pass。"""
     try:
-        raw = _grounding_llm(prompt)
+        raw = (
+            _grounding_llm(st, work, int(chapter), prompt)
+            if st is not None and chapter is not None
+            else _grounding_llm(prompt)
+        )
         payload = json.loads(raw)
     except Exception as exc:
         return {"ok": False, "issues": [{
@@ -8366,7 +8587,10 @@ def _pilot_executor(work: str) -> dict:
         steer = _pilot_steer(st, seq)
         if steer:
             source += "\n\n作者意图:\n" + steer
-        review = _grounding_review(source, "\n".join(b["text"] for b in beats), mode="beats")
+        review = _grounding_review(
+            source, "\n".join(b["text"] for b in beats), mode="beats",
+            st=st, work=work, chapter=seq,
+        )
         if not review["ok"]:
             return {"pilot_park": "事实对齐失败:节拍含无来源主张，请修订后再推进",
                     "grounding": review, "candidate_beats": beats}
@@ -8410,7 +8634,9 @@ def _pilot_executor(work: str) -> dict:
                 f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
                 f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
                 f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。", focalizer=str(cid))
-            review = _grounding_review(truth, prose, mode="deduction")
+            review = _grounding_review(
+                truth, prose, mode="deduction", st=st, work=work, chapter=seq,
+            )
             if not review["ok"]:
                 return {"pilot_park": f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
                         "grounding": review, "character_id": str(cid), "candidate": prose}

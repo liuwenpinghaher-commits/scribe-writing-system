@@ -64,6 +64,7 @@ class CompletionResult:
     usage: dict[str, Any]
     finish_reason: str | None
     identity: ProviderIdentity
+    response_id: str | None = None
 
 
 class DeepSeekError(RuntimeError):
@@ -326,12 +327,14 @@ class DeepSeekClient:
         usage = payload.get("usage")
         preserved_usage = dict(usage) if isinstance(usage, Mapping) else {}
         finish_reason = first.get("finish_reason")
+        response_id = payload.get("id")
         return CompletionResult(
             content=content,
             model=result_model,
             usage=preserved_usage,
             finish_reason=finish_reason if isinstance(finish_reason, str) else None,
             identity=result_identity,
+            response_id=(response_id if isinstance(response_id, str) and response_id else None),
         )
 
     def stream(

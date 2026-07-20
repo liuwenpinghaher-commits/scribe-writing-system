@@ -207,8 +207,7 @@ def test_context_memory_metrics_has_real_counters_no_secrets(store):
     assert isinstance(m["memory_events_pending"], int)
     assert isinstance(m["memory_events_failed"], int)
     assert isinstance(m["context_sessions_active"], int)
-    assert "spectron_shadow" in m
-    assert "flag" not in m["spectron_shadow"]
+    assert "spectron_shadow" not in m
     assert "hermes_memory_provider" in m
     # 采集骨架(待 16-C 接线):键在,当前为 0/None
     assert "retrieval_p50" in m and "retrieval_p95" in m
@@ -219,6 +218,28 @@ def test_context_memory_metrics_has_real_counters_no_secrets(store):
     assert "prompt" not in blob.lower()
     for v in m.values():
         assert isinstance(v, (int, float, bool, str, dict, type(None)))
+
+
+def test_runtime_tree_has_no_spectron_adapter_or_reserved_dependency():
+    """当前 SurrealDB 是唯一记忆权威；运行时不得保留第二套适配器入口。"""
+    from pathlib import Path
+
+    root = Path(__file__).parents[1]
+    forbidden_paths = (
+        root / "spectron_adapter.py",
+        root / "tools" / "spectron_shadow_eval.py",
+        root / "tests" / "test_spectron_adapter.py",
+    )
+    assert not any(path.exists() for path in forbidden_paths)
+    runtime_files = [
+        path for path in root.rglob("*.py")
+        if "tests" not in path.parts and "docs" not in path.parts
+    ] + [root / "requirements-dev.txt"]
+    offenders = [
+        str(path.relative_to(root)) for path in runtime_files
+        if "spectron" in path.read_text(encoding="utf-8").lower()
+    ]
+    assert offenders == []
 
 
 def test_runtime_status_includes_context_memory_block(store, monkeypatch):

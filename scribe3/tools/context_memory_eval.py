@@ -6,7 +6,7 @@
   retrieve(work, snapshot, query, k) -> list[hit],hit 需带
   source_id / work / provenance(list) / revision(int|None) / source_kind。
 - 本模块只依赖标准库:评测器必须能脱离 store/LLM 独立运行,
-  这样 CI 门禁和影子对比(Spectron)都能秒级跑完。
+  这样 CI 门禁能秒级跑完。
 - 真实 retriever 由后续任务往 RETRIEVERS 注册,今天 CLI 先用内置
   FakeRetriever 端到端把门禁链路跑通。
 - RETRIEVERS 注册契约:值必须是工厂 factory(cases) -> retriever,接受

@@ -94,6 +94,23 @@ def _snapshot(*, focus_id="role:jia", focus_type="character", focus_label="甲",
     return snap.with_hash()
 
 
+def test_focalized_project_frame_failure_is_fail_loud(store, monkeypatch):
+    import scribe3.knowledge as knowledge
+
+    monkeypatch.setattr(
+        knowledge, "project_frame",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("project-frame-query-failed")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="project-frame-query-failed"):
+        ContextAssembler(store).assemble(
+            _snapshot(work=store.db_name, focalizer="role:jia"),
+            "本章事实", "write",
+        )
+
+
 @pytest.fixture()
 def snapshot():
     return _snapshot()

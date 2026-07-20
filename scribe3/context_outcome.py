@@ -26,9 +26,16 @@ class ContextOutcomeTrace(BaseModel):
     provider: str | None = None
     model: str | None = None
     provider_request_id: str | None = None
+    # 兼容三字段上方的明确分层：Hermes 只是 transport/gateway，
+    # 实际推理 provider 只在供应商证据存在时记录，绝不猜测。
+    transport_provider: str | None = None
+    transport_request_id: str | None = None
+    reasoning_provider: str | None = None
+    reasoning_model: str | None = None
+    reasoning_request_id: str | None = None
     usage: dict[str, int | float] | None = None
     output_hash: str | None = None
-    error: str | None = None
+    error: str | dict | list | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("manifest_id", "actual_input_hash", "output_hash")

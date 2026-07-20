@@ -107,7 +107,14 @@ def test_compile_filters_forbidden_source_kinds_before_render_and_manifest(store
         for block in result.envelope.blocks
         for source in block.sources
     )
-    assert all(source.source_kind != "reference" for source in result.manifest.sources)
+    assert not any(
+        source.source_kind == "reference" and source.included
+        for source in result.manifest.sources
+    )
+    assert any(
+        source.source_kind == "reference" and not source.included
+        for source in result.manifest.sources
+    )
 
 
 def test_compile_filters_original_kind_before_assembler_remaps_it(store):
@@ -130,7 +137,14 @@ def test_compile_filters_original_kind_before_assembler_remaps_it(store):
     )
 
     assert marker not in result.rendered_input
-    assert all(source.source_id != "episode:forbidden" for source in result.manifest.sources)
+    assert not any(
+        source.source_id == "episode:forbidden" and source.included
+        for source in result.manifest.sources
+    )
+    assert any(
+        source.source_id == "episode:forbidden" and not source.included
+        for source in result.manifest.sources
+    )
     assert any(
         omitted.get("source_id") == "episode:forbidden"
         and omitted.get("reason") == "forbidden_source_kind"
@@ -147,4 +161,102 @@ def test_compile_filters_provenance_created_after_primary_blocks(store):
     provenance = next(block for block in result.envelope.blocks if block.name == "provenance")
     assert provenance.text == ""
     assert provenance.sources == []
-    assert all(source.source_kind != "provenance" for source in result.manifest.sources)
+    assert not any(
+        source.source_kind == "provenance" and source.included
+        for source in result.manifest.sources
+    )
+    assert any(
+        source.source_kind == "provenance" and not source.included
+        for source in result.manifest.sources
+    )
+
+
+def test_compile_registers_supplemental_render_contributions_with_content_revision(store):
+    from scribe3.context_models import ContextSource
+
+    dynamic = "【动态领域块】只允许登记后的内容进入最终输入"
+    digest = hashlib.sha256(dynamic.encode("utf-8")).hexdigest()
+
+    def render(envelope):
+        return (
+            render_envelope_text(envelope) + "\n\n" + dynamic,
+            (
+                ContextSource(
+                    source_id="chapter:1:dynamic",
+                    source_kind="scene_truth",
+                    work="book-a",
+                    content_digest=digest,
+                ),
+            ),
+        )
+
+    result = CreativeContextEngine(store).compile(
+        _request(), _snapshot(), "", "write", render,
+    )
+
+    source = next(
+        source for source in result.manifest.sources
+        if source.source_id == "chapter:1:dynamic"
+    )
+    assert source.included is True
+    assert source.block == "supplemental"
+    assert source.content_digest == digest
+    assert source.revision == f"content-sha256:{digest}"
+    assert dynamic in result.rendered_input
+
+
+def test_compile_rejects_forbidden_supplemental_render_source(store):
+    from scribe3.context_models import ContextSource
+
+    marker = "raw-reference-renderer-bypass"
+
+    def render(_envelope):
+        return (
+            marker,
+            (
+                ContextSource(
+                    source_id="reference:raw:renderer",
+                    source_kind="raw_reference_text",
+                    work="book-a",
+                    content_digest=hashlib.sha256(marker.encode("utf-8")).hexdigest(),
+                ),
+            ),
+        )
+
+    with pytest.raises(ValueError, match="forbidden"):
+        CreativeContextEngine(store).compile(
+            _request(), _snapshot(), "", "write", render,
+        )
+
+    assert store._query("SELECT manifest_id FROM context_manifest", {}) == []
+
+
+def test_compile_inherits_policy_forbidden_kinds_and_persists_omitted_proof(store):
+    marker = "raw-reference-must-never-reach-model"
+
+    class Candidate:
+        source_kind = "raw_reference_text"
+        source_id = "reference:raw:1"
+        text = marker
+        work = "book-a"
+        revision = "reference-rev-7"
+        provenance = []
+
+    class Retriever:
+        def retrieve(self, work, snapshot, query, k):
+            return [Candidate()]
+
+    result = CreativeContextEngine(store, retriever=Retriever()).compile(
+        _request(), _snapshot(), "参考原文", "write", render_envelope_text,
+    )
+
+    assert "raw_reference_text" in result.request.forbidden_source_kinds
+    assert marker not in result.rendered_input
+    omitted = next(
+        source for source in result.manifest.sources
+        if source.source_id == "reference:raw:1"
+    )
+    assert omitted.included is False
+    assert omitted.reason_code == "forbidden_source_kind"
+    assert omitted.revision == "reference-rev-7"
+    assert omitted.content_digest == hashlib.sha256(marker.encode("utf-8")).hexdigest()

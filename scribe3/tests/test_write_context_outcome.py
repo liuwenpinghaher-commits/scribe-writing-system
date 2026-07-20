@@ -15,7 +15,9 @@ from .test_app import _client
 def _outcomes(store):
     return store._query(
         "SELECT outcome_id, request_id, manifest_id, actual_input_hash, status, "
-        "provider, model, provider_request_id, usage, output_hash, error "
+        "provider, model, provider_request_id, transport_provider, transport_request_id, "
+        "reasoning_provider, reasoning_model, reasoning_request_id, "
+        "usage, output_hash, error "
         "FROM context_outcome_trace",
         {},
     )
@@ -38,6 +40,126 @@ def test_unified_engine_failure_never_runs_legacy_scattered_chain(store, monkeyp
             store, chapter=1, focalizer="", phase="final", seed_words=[],
             short_mode=False, with_tools=False, work="main",
         )
+
+
+@pytest.mark.parametrize(
+    ("changed_key", "source_kind"),
+    [
+        ("secret_guard", "secret_guard"),
+        ("codex", "codex"),
+        ("craft", "craft"),
+        ("avoid", "avoid"),
+        ("purpose", "purpose"),
+        ("scene_truth", "scene_truth"),
+        ("extra", "request_constraint"),
+        ("seed", "seed_words"),
+    ],
+)
+def test_dynamic_domain_input_changes_its_registered_manifest_source(
+    store, monkeypatch, changed_key, source_kind,
+):
+    from scribe3 import craft as craft_mod
+
+    holder = {
+        "secret_guard": "\n【秘密纪律·甲】",
+        "codex": "设定甲",
+        "craft": "【工艺甲】",
+        "avoid": "\n【避用甲】",
+        "purpose": "\n【目的甲】",
+        "scene_truth": "场景真相甲",
+        "extra": "额外约束甲",
+        "seed": "种子甲",
+    }
+    monkeypatch.setattr(A, "_secret_guard_block", lambda *_: holder["secret_guard"])
+    monkeypatch.setattr(A, "_codex_block", lambda *args, **kwargs: holder["codex"])
+    monkeypatch.setattr(A, "_avoid_directive", lambda *_: holder["avoid"])
+    monkeypatch.setattr(A, "_purpose_workflow_block", lambda *args, **kwargs: holder["purpose"])
+    monkeypatch.setattr(
+        craft_mod, "build_craft_block", lambda *args, **kwargs: holder["craft"],
+    )
+    original_get_chapter = store.get_chapter
+
+    def get_chapter(seq):
+        row = dict(original_get_chapter(seq) or {})
+        if seq == 9:
+            row["scene_truth"] = holder["scene_truth"]
+        return row
+
+    monkeypatch.setattr(store, "get_chapter", get_chapter)
+
+    def compile_once():
+        trace = {}
+        A._assemble_write_instructions(
+            store, chapter=9, focalizer="", phase="deduce",
+            seed_words=[holder["seed"]], short_mode=False,
+            with_tools=False, work="main", envelope_trace=trace,
+            extra_instructions=holder["extra"],
+        )
+        manifest = ContextStore(store).get_manifest(trace["manifest_id"])
+        assert manifest is not None
+        sources = {
+            source.source_kind: source
+            for source in manifest.sources
+            if source.included and source.block == "supplemental"
+        }
+        assert source_kind in sources
+        assert all(source.revision for source in manifest.sources if source.included)
+        return sources[source_kind]
+
+    before = compile_once()
+    holder[changed_key] += "·变更"
+    after = compile_once()
+
+    assert before.source_id == after.source_id
+    assert before.content_digest != after.content_digest
+    assert before.revision != after.revision
+
+
+def test_final_manifest_separates_scene_truth_deductions_and_protocol(store):
+    truth = "井底沉着妹妹的骨殖。"
+    deductions = [
+        {
+            "character_id": "role:old-fan",
+            "character_name": "老范",
+            "prose": "老范只听见井底水声。",
+        },
+        {
+            "character_id": "role:mute-aunt",
+            "character_name": "哑姑",
+            "prose": "哑姑知道井底埋着骨殖。",
+        },
+    ]
+    store.save_chapter(9, "", title="九")
+    store.update_chapter_meta(9, {
+        "scene_truth": truth,
+        "deductions": deductions,
+    })
+    trace = {}
+
+    rendered = A._assemble_write_instructions(
+        store, chapter=9, focalizer="role:old-fan", phase="final",
+        seed_words=[], short_mode=False, with_tools=False, work="main",
+        envelope_trace=trace,
+    )
+
+    manifest = ContextStore(store).get_manifest(trace["manifest_id"])
+    assert manifest is not None
+    supplemental = [
+        source for source in manifest.sources
+        if source.included and source.block == "supplemental"
+    ]
+    scene_sources = [source for source in supplemental if source.source_kind == "scene_truth"]
+    deduction_sources = [source for source in supplemental if source.source_kind == "deduction"]
+    protocol_sources = [
+        source for source in supplemental if source.source_kind == "deduction_protocol"
+    ]
+    assert len(scene_sources) == 1
+    assert len(deduction_sources) == 2
+    assert len(protocol_sources) == 2
+    assert len({source.source_id for source in scene_sources + deduction_sources}) == 3
+    assert all(source.revision.startswith("content-sha256:") for source in supplemental)
+    assert "本章演绎" in rendered and truth in rendered
+    assert all(item["prose"] in rendered for item in deductions)
 
 
 def test_chat_write_completed_persists_exact_input_and_raw_provider_output_hash(
@@ -83,6 +205,11 @@ def test_chat_write_completed_persists_exact_input_and_raw_provider_output_hash(
     assert outcome["provider"] == "deepseek"
     assert outcome["model"] == "deepseek-chat"
     assert outcome["provider_request_id"] == "deepseek-response-1"
+    assert outcome["transport_provider"] == "httpx"
+    assert outcome["transport_request_id"] == "deepseek-response-1"
+    assert outcome["reasoning_provider"] == "deepseek"
+    assert outcome["reasoning_model"] == "deepseek-chat"
+    assert outcome["reasoning_request_id"] == "deepseek-response-1"
     assert outcome["usage"] == {"prompt_tokens": 31, "completion_tokens": 7}
     assert outcome["output_hash"] == hashlib.sha256(raw_delta.encode("utf-8")).hexdigest()
 
@@ -283,6 +410,91 @@ def test_collect_provider_terminal_survives_late_transport_error(
     assert traces[0]["usage"] == terminal_event["response"]["usage"]
 
 
+@pytest.mark.parametrize("collector", ["stream", "collect"])
+def test_first_provider_terminal_freezes_status_and_metadata(store, monkeypatch, collector):
+    first = {
+        "type": "response.completed",
+        "response": {
+            "id": "first-terminal", "model": "first-model",
+            "usage": {"total_tokens": 11},
+        },
+        "trace": {
+            "provider": "deepseek", "model": "first-model",
+            "transport": "httpx", "provider_request_id": "reasoning-first",
+        },
+    }
+    later = {
+        "type": "response.failed",
+        "response": {
+            "id": "later-terminal", "model": "later-model",
+            "usage": {"total_tokens": 99}, "error": "must-not-win",
+        },
+        "trace": {
+            "provider": "other-provider", "model": "later-model",
+            "transport": "other-transport", "provider_request_id": "reasoning-later",
+        },
+    }
+
+    def events(*_args, **_kwargs):
+        yield {"type": "response.output_text.delta", "delta": "正文"}
+        yield first
+        yield later
+        raise RuntimeError("late-transport-error")
+
+    monkeypatch.setattr(A, "_responses_events", events)
+    if collector == "stream":
+        response = _client(store).post("/chat/write", json={
+            "msg": "查询后给建议", "chapter": 18, "phase": "draft",
+        })
+        assert response.status_code == 200
+        outcome = _outcomes(store)[0]
+        assert outcome["status"] == "succeeded"
+        assert outcome["provider_request_id"] == "first-terminal"
+        assert outcome["model"] == "first-model"
+        assert outcome["usage"] == {"total_tokens": 11}
+    else:
+        traces = []
+        A._collect_write(
+            "写", "instructions", with_tools=True,
+            on_terminal=lambda trace: traces.append(dict(trace)),
+        )
+        assert traces[0]["status"] == "completed"
+        assert traces[0]["response_id"] == "first-terminal"
+        assert traces[0]["model"] == "first-model"
+        assert traces[0]["usage"] == {"total_tokens": 11}
+
+
+def test_hermes_outcome_separates_gateway_transport_from_reasoning_provider(
+    store, monkeypatch,
+):
+    def events(*_args, **_kwargs):
+        yield {
+            "type": "response.completed",
+            "response": {
+                "id": "gateway-response", "model": "reasoning-model",
+                "usage": {"total_tokens": 8},
+            },
+            "trace": {
+                "provider": "reasoning-provider", "model": "reasoning-model",
+                "provider_request_id": "reasoning-response", "transport": "provider-http",
+            },
+        }
+
+    monkeypatch.setattr(A, "_responses_events", events)
+    response = _client(store).post("/chat/write", json={
+        "msg": "查询后给建议", "chapter": 19, "phase": "draft",
+    })
+
+    assert response.status_code == 200
+    outcome = _outcomes(store)[0]
+    assert outcome["provider"] == "hermes_gateway"  # 兼容字段
+    assert outcome["transport_provider"] == "hermes_gateway"
+    assert outcome["transport_request_id"] == "gateway-response"
+    assert outcome["reasoning_provider"] == "reasoning-provider"
+    assert outcome["reasoning_model"] == "reasoning-model"
+    assert outcome["reasoning_request_id"] == "reasoning-response"
+
+
 def test_tool_route_records_hermes_provider_and_safely_narrows_nested_usage(
     store, monkeypatch,
 ):
@@ -314,6 +526,10 @@ def test_tool_route_records_hermes_provider_and_safely_narrows_nested_usage(
     assert rows[0]["provider"] == "hermes_gateway"
     assert rows[0]["model"] == "gateway-model"
     assert rows[0]["provider_request_id"] == "hermes-response-1"
+    assert rows[0]["transport_provider"] == "hermes_gateway"
+    assert rows[0]["transport_request_id"] == "hermes-response-1"
+    assert rows[0]["reasoning_provider"] is None
+    assert rows[0]["reasoning_request_id"] is None
     assert rows[0]["usage"] == {"input_tokens": 19, "output_tokens": 4}
 
 

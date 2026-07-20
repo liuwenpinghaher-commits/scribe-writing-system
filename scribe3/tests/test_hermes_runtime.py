@@ -712,7 +712,7 @@ def test_ai_runs_runtime_uses_dedicated_write_gateway(monkeypatch):
     assert rt.profile == "scribe3_write"
 
 
-def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(monkeypatch):
+def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(store, monkeypatch):
     import scribe3.app as appmod
 
     calls = []
@@ -743,6 +743,7 @@ def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(monkeypatch):
             return {"run_id": run_id, "status": "stopped"}
 
     monkeypatch.setattr(appmod, "_hermes_runs_runtime", lambda: FakeRuntime())
+    monkeypatch.setitem(appmod._stores, "book_x", store)
     client = TestClient(appmod.app)
 
     created = client.post("/ai/runs?work=book_x", json={

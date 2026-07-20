@@ -125,7 +125,7 @@ def test_manifest_json_contains_no_source_body_and_rejects_reference_as_canon():
 def test_manifest_rejects_same_version_forged_policy_that_allows_reference_canon():
     request = _request()
     forged = ContextPolicy(
-        version="generation.v1", task_kinds=("draft",),
+        policy_key="generation", version="generation.v1", task_kinds=("draft",),
         canonical_source_kinds=("canonical", "reference"),
     )
     reference = ContextSource(

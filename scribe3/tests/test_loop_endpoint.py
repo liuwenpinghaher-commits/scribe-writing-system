@@ -36,6 +36,14 @@ def _stub_rounds(*texts):
         t = texts[min(state["n"], len(texts) - 1)]
         state["n"] += 1
         yield {"type": "response.output_text.delta", "delta": t}
+        yield {
+            "type": "response.completed",
+            "response": {
+                "id": f"loop-test-response-{state['n']}",
+                "model": "deepseek-chat",
+                "usage": {},
+            },
+        }
     return fn, state
 
 

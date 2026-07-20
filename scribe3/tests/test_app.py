@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
+from scribe3.deepseek_client import CompletionResult, ProviderIdentity
 from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
 from scribe3.store import MATERIAL_KINDS
@@ -30,6 +31,23 @@ def _client(store, complete_fn=None):
     A.set_store(store)
     A.set_complete_fn(complete_fn or (lambda prompt, **kw: "渲染的散文。"))
     return TestClient(A.app)
+
+
+def _completion_result(content: str, *, response_id: str = "test-app-response") -> CompletionResult:
+    return CompletionResult(
+        content=content,
+        model="deepseek-chat",
+        usage={},
+        finish_reason="stop",
+        identity=ProviderIdentity(
+            provider="deepseek",
+            api_base="https://api.deepseek.com",
+            model="deepseek-chat",
+            official=True,
+            transport="httpx",
+        ),
+        response_id=response_id,
+    )
 
 
 def test_health(store):
@@ -1524,7 +1542,13 @@ def test_post_check_real_discipline_call_uses_full_chapter_budget(store, monkeyp
         seen.update(kw)
         return '{"ok": true, "violations": [], "cut_after": ""}'
 
-    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(
+        llm,
+        "hermes_complete_result",
+        lambda prompt, system=None, **kw: _completion_result(
+            fake_complete(prompt, system=system, **kw)
+        ),
+    )
     monkeypatch.setattr(llm, "default_timeout", lambda: 600.0)
     store.save_chapter(1, "一段志怪正文，无异常。", title="测试")
     c = _client(store)
@@ -1533,7 +1557,7 @@ def test_post_check_real_discipline_call_uses_full_chapter_budget(store, monkeyp
     assert r.status_code == 200, r.text
     assert (seen["timeout"] == 180.0 and seen["retries_override"] == 1
             and seen["max_tokens"] == 480 and seen["thinking"] == "disabled"
-            and seen["temperature"] == 0 and seen["official_api"] is True)
+            and seen["temperature"] == 0)
 
 
 def test_post_check_discipline_mocked(store):
@@ -1573,7 +1597,13 @@ def test_semantic_repair_rejects_failed_gate_without_overwriting(store, monkeypa
             return '{"ok": false, "violations": ["god_view"], "cut_after": ""}'
         return "乙" * 50
 
-    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(
+        llm,
+        "hermes_complete_result",
+        lambda prompt, system=None, **kw: _completion_result(
+            fake_complete(prompt, system=system, **kw)
+        ),
+    )
     c = _client(store)
     monkeypatch.setattr(A, "_complete_fn", None)
     r = c.post("/semantic-repair?seq=1")
@@ -1600,7 +1630,13 @@ def test_semantic_repair_saves_version_and_requeues_ingest(store, monkeypatch):
         repair_kwargs.update(_kw)
         return candidate
 
-    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(
+        llm,
+        "hermes_complete_result",
+        lambda prompt, system=None, **kw: _completion_result(
+            fake_complete(prompt, system=system, **kw)
+        ),
+    )
     monkeypatch.setattr(A, "_bg_ingest", lambda work, seq: called.setdefault("args", (work, seq)))
     c = _client(store)
     monkeypatch.setattr(A, "_complete_fn", None)
@@ -1630,7 +1666,13 @@ def test_semantic_repair_leaves_unconfirmed_llm_label_for_human_review(store, mo
             return '{"ok": false, "violations": ["god_view"], "cut_after": ""}'
         raise AssertionError("未获证实的标签不应调用整章改写")
 
-    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(
+        llm,
+        "hermes_complete_result",
+        lambda prompt, system=None, **kw: _completion_result(
+            fake_complete(prompt, system=system, **kw)
+        ),
+    )
     c = _client(store)
     monkeypatch.setattr(A, "_complete_fn", None)
     r = c.post("/semantic-repair?seq=1")
@@ -4102,7 +4144,7 @@ def test_deduction_grounding_endpoint_reads_server_truth_not_client_evidence(sto
     store.update_chapter_meta(23, {"scene_truth": "沈砚站在潮闸前，闸板震颤。"})
     seen = {}
 
-    def review(source, candidate, *, mode):
+    def review(source, candidate, *, mode, **_context):
         seen.update(source=source, candidate=candidate, mode=mode)
         return {"ok": False, "issues": [{"claim": "黑水", "reason": "无来源", "evidence": ""}]}
 

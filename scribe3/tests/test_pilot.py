@@ -137,6 +137,17 @@ def _wire_llm(monkeypatch):
     # grounding/纪律等非 Pilot 生成路径仍使用 complete。
     import scribe3.llm as L
     monkeypatch.setattr(L, "hermes_complete", fake_complete)
+    from scribe3.deepseek_client import CompletionResult, ProviderIdentity
+    monkeypatch.setattr(L, "hermes_complete_result", lambda prompt, system=None, **kw:
+        CompletionResult(
+            content=fake_complete(prompt, system=system, **kw),
+            model="deepseek-chat", usage={}, finish_reason="stop",
+            identity=ProviderIdentity(
+                provider="deepseek", api_base="https://api.deepseek.com",
+                model="deepseek-chat", official=True, transport="httpx",
+            ),
+            response_id="pilot-review-response",
+        ))
     import scribe3.ingest as I
     monkeypatch.setattr(I, "ingest_chapter", lambda st, seq, llm: {})
 
@@ -400,24 +411,119 @@ def test_grounding_reviewer_fails_closed_when_evidence_is_not_in_source(monkeypa
     assert result["issues"] and "证据" in result["issues"][0]["reason"]
 
 
-def test_grounding_llm_uses_official_deepseek(monkeypatch):
-    """事实门也是纯文本审查，必须使用作者配置的官方 DeepSeek 通道。"""
+def test_grounding_llm_compiles_manifest_and_persists_official_outcome(store, monkeypatch):
+    """事实门必须经统一上下文编译，并保留官方 DeepSeek 终态。"""
     import scribe3.llm as llm
+    from scribe3.deepseek_client import CompletionResult, ProviderIdentity
 
     captured = {}
 
-    def fake_complete(prompt, **kwargs):
+    def fake_complete_result(prompt, **kwargs):
         captured["prompt"] = prompt
         captured["kwargs"] = kwargs
-        return "{}"
+        return CompletionResult(
+            content="{}", model="deepseek-reasoner", usage={"total_tokens": 7},
+            finish_reason="stop",
+            identity=ProviderIdentity(
+                provider="deepseek", api_base="https://api.deepseek.com",
+                model="deepseek-reasoner", official=True, transport="httpx",
+            ),
+            response_id="grounding-response",
+        )
 
-    monkeypatch.setattr(llm, "hermes_complete", fake_complete)
+    monkeypatch.setattr(llm, "hermes_complete", lambda *_a, **_kw: pytest.fail(
+        "grounding 不得直调 hermes_complete"))
+    monkeypatch.setattr(llm, "hermes_complete_result", fake_complete_result)
 
-    assert A._grounding_llm("核验候选事实") == "{}"
-    assert captured == {
-        "prompt": "核验候选事实",
-        "kwargs": {"max_tokens": 4096, "official_api": True, "thinking": "disabled"},
-    }
+    assert A._grounding_llm(
+        store, "main", 20, "核验候选事实",
+    ) == "{}"
+    assert "核验候选事实" in captured["prompt"]
+    manifests = store._query("SELECT task_kind FROM context_manifest")
+    assert manifests == [{"task_kind": "grounding"}]
+    outcomes = store._query(
+        "SELECT status, transport_provider, reasoning_provider, reasoning_model, "
+        "reasoning_request_id FROM context_outcome_trace"
+    )
+    assert outcomes == [{
+        "status": "succeeded", "transport_provider": "httpx",
+        "reasoning_provider": "deepseek", "reasoning_model": "deepseek-reasoner",
+        "reasoning_request_id": "grounding-response",
+    }]
+
+
+@pytest.mark.parametrize(
+    ("provider_status", "expected_status"),
+    [("failed", "failed"), ("incomplete_stream", "incomplete_stream")],
+)
+def test_grounding_llm_failure_and_incomplete_both_persist_outcome(
+    store, monkeypatch, provider_status, expected_status,
+):
+    from scribe3.deepseek_client import ProviderIdentity
+    import scribe3.llm as llm
+
+    class ReviewError(RuntimeError):
+        status = provider_status
+        response_id = "grounding-error-response"
+        usage = {"total_tokens": 3}
+        identity = ProviderIdentity(
+            provider="deepseek", api_base="https://api.deepseek.com",
+            model="deepseek-reasoner", official=True, transport="httpx",
+        )
+
+    monkeypatch.setattr(
+        llm, "hermes_complete_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ReviewError("review stopped")),
+    )
+
+    with pytest.raises(ReviewError, match="review stopped"):
+        A._grounding_llm(store, "main", 22, "核验失败路径")
+
+    rows = store._query(
+        "SELECT status, transport_provider, reasoning_provider, reasoning_model, "
+        "reasoning_request_id, error FROM context_outcome_trace"
+    )
+    assert len(rows) == 1
+    assert rows[0]["status"] == expected_status
+    assert rows[0]["transport_provider"] == "httpx"
+    assert rows[0]["reasoning_provider"] == "deepseek"
+    assert rows[0]["reasoning_model"] == "deepseek-reasoner"
+    assert rows[0]["reasoning_request_id"] == "grounding-error-response"
+    assert rows[0]["error"] == "review stopped"
+
+
+def test_pilot_full_check_discipline_compiles_quality_context(store, monkeypatch):
+    from scribe3.deepseek_client import CompletionResult, ProviderIdentity
+    import scribe3.llm as llm
+
+    A.set_store(store)
+    monkeypatch.setattr(A, "_complete_fn", None)
+    store.save_chapter(21, "他在雨中停下。", title="二十一")
+
+    def fake_complete_result(*_args, **_kwargs):
+        return CompletionResult(
+            content='{"violations":[],"cut_after":"","findings":[]}',
+            model="deepseek-chat", usage={"total_tokens": 5}, finish_reason="stop",
+            identity=ProviderIdentity(
+                provider="deepseek", api_base="https://api.deepseek.com",
+                model="deepseek-chat", official=True, transport="httpx",
+            ),
+            response_id="quality-response",
+        )
+
+    monkeypatch.setattr(llm, "hermes_complete", lambda *_a, **_kw: pytest.fail(
+        "Pilot quality 不得直调 hermes_complete"))
+    monkeypatch.setattr(llm, "hermes_complete_result", fake_complete_result)
+
+    result = A._pilot_executor("main")["full_check"](store, 21)
+
+    assert "pilot_park" not in result
+    assert {row["task_kind"] for row in store._query(
+        "SELECT task_kind FROM context_manifest"
+    )} == {"quality_chapter"}
+    assert store._query("SELECT status FROM context_outcome_trace") == [
+        {"status": "succeeded"}
+    ]
 
 
 def test_grounding_reviewer_accepts_verbatim_projection_extract_without_llm(monkeypatch):

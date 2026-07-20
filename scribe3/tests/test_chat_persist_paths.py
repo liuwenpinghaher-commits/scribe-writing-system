@@ -322,6 +322,7 @@ def test_chat_stream_invalid_thread_404_archived_409_no_fallback(client, store, 
     r2 = client.get("/chat/stream", params={"msg": "hi", "work": "main",
                                             "thread": t["thread_id"]})
     assert r2.status_code == 409   # 已归档:存在但不可写
+    monkeypatch.setitem(A._stores, "other", store)
     r3 = client.get("/chat/stream", params={"msg": "hi", "work": "other",
                                             "thread": t["thread_id"]})
     assert r3.status_code == 409   # 跨 work
