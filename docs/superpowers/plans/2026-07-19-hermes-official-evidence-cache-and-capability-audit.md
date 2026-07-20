@@ -1090,6 +1090,10 @@ git commit -m "feat: add reproducible Hermes evidence cache CLI"
 
 ### Task 7: Generate and Validate All Official Snapshots
 
+> **历史步骤，已由 2026-07-20 Scope Adjustment 替代，不得执行。** 本节仅保留审计历史；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
+
+> **历史执行入口，仅保留审计历史。** 不得执行 `scribe3.hermes_evidence.cli all`，也不得生成或更新 `current.json`；官网365篇零失败快照是当前足够证据。
+
 **Files:**
 - Generate: `docs/external/hermes-agent-docs/manifests/**`
 - Generate: `docs/external/hermes-agent-docs/snapshots/**`
@@ -1166,6 +1170,8 @@ git commit -m "docs: cache complete versioned Hermes evidence"
 Before committing, verify `git status --short` does not include `cache_surrealdb_docs.py` or `surrealdb-docs-cache/` in the staged set.
 
 ### Task 8: Redacted Runtime Snapshot
+
+> **历史步骤，已由 2026-07-20 Scope Adjustment 替代，不得执行。** 本节仅保留审计历史；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
 
 **Files:**
 - Create: `scribe3/hermes_evidence/runtime_snapshot.py`
@@ -1247,6 +1253,8 @@ git commit -m "docs: capture redacted Hermes runtime evidence"
 
 ### Task 9: Full Capability Matrix and First-Principles Audit
 
+> **历史步骤，已由 2026-07-20 Scope Adjustment 替代，不得执行。** 本节仅保留审计历史；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
+
 **Files:**
 - Create: `scribe3/hermes_evidence/capability_audit.py`
 - Create: `scribe3/hermes_evidence/capabilities.yaml`
@@ -1303,6 +1311,8 @@ Allowed decisions: `adopt`, `optimize`, `borrow_design`, `defer`, `reject`.
 
 - [ ] **Step 4: Populate every capability domain**
 
+> **历史步骤，仅保留审计历史。** 不再执行全域能力矩阵填充或审计；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
+
 The YAML must contain explicit records for at least:
 
 ```text
@@ -1345,6 +1355,8 @@ git commit -m "docs: audit all Hermes capabilities against Scribe3"
 
 ### Task 10: Deepen Creative Context OS with Accepted Findings
 
+> **历史步骤，已由 2026-07-20 Scope Adjustment 替代，不得执行。** 本节仅保留审计历史；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
+
 **Files:**
 - Modify: `docs/superpowers/specs/2026-07-19-scribe3-creative-quality-os-design.md`
 - Modify: `docs/superpowers/2026-07-19-hermes官方证据与能力审计报告.md`
@@ -1354,6 +1366,8 @@ git commit -m "docs: audit all Hermes capabilities against Scribe3"
 - Produces: evidence-linked Hermes adoption boundaries in Creative Context OS
 
 - [ ] **Step 1: Add only evidence-approved deltas**
+
+> **历史步骤，仅保留审计历史。** 不再执行旧的 Creative Context OS 深化；当前有效范围仅五项按需审计：Runs、approval、Memory Provider lifecycle、context boundary、provider identity。
 
 The spec update must explicitly record decisions for Context Engine Plugin, Memory Provider lifecycle observability, compression boundaries, hooks/trajectory, Tool Search experiment, batch/goals/delegation/MoA, skills and provider/fallback proof. Every adopted item cites the capability ID and cached evidence path. Rejected items retain reasons.
 
