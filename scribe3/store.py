@@ -5149,8 +5149,17 @@ class SurrealStore:
             self._execute_write("DELETE causes WHERE in IN $ids", {"ids": ev_ids})
             self._execute_write("DELETE causal WHERE in IN $ids OR out IN $ids", {"ids": ev_ids})
             self._execute_write("DELETE event WHERE id IN $ids", {"ids": ev_ids})
+        self._context_tx(
+            "BEGIN TRANSACTION; "
+            "LET $violations = (SELECT id FROM chapter_version WHERE seq=$seq "
+            "AND quality_snapshot_ref_count > 0); "
+            "IF array::len($violations) > 0 { "
+            "THROW '章节版本仍被质量快照冻结引用，拒绝永久删除' }; "
+            "DELETE chapter_version WHERE seq=$seq; "
+            "COMMIT TRANSACTION;",
+            {"seq": seq},
+        )
         for query in [
-            "DELETE chapter_version WHERE seq=$seq",
             "DELETE chapter_scorecard WHERE seq=$seq",
             "DELETE chat_message WHERE chapter=$seq",
             "DELETE material_reference WHERE chapter=$seq",

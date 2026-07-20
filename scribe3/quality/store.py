@@ -322,6 +322,7 @@ class QualityStore:
                 )
                 for member in members:
                     member_id = _digest(f"{snapshot.snapshot_id}:{member.ordinal}")
+                    bare_vid = _bare(member.chapter_version_id, "chapter_version")
                     self._store._execute_write(
                         "CREATE ONLY type::record('quality_snapshot_member',$record_id) SET "
                         "member_key=$member_key, snapshot=$snapshot, ordinal=$ordinal, "
@@ -330,10 +331,13 @@ class QualityStore:
                          "member_key": f"{snapshot.snapshot_id}:{member.ordinal}",
                          "snapshot": RecordID("quality_snapshot", snapshot.snapshot_id),
                          "ordinal": member.ordinal,
-                         "chapter_version": RecordID(
-                             "chapter_version", _bare(member.chapter_version_id, "chapter_version")
-                         ),
+                         "chapter_version": RecordID("chapter_version", bare_vid),
                          "content_hash": member.content_hash},
+                    )
+                    self._store._execute_write(
+                        "UPDATE type::record('chapter_version',$vid) SET "
+                        "quality_snapshot_ref_count += 1",
+                        {"vid": bare_vid},
                     )
         except Exception as conflict:
             existing = self._retry_read(lambda: self._get_snapshot(snapshot.snapshot_id))

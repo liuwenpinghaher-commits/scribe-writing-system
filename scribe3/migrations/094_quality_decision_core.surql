@@ -47,6 +47,8 @@ DEFINE FIELD IF NOT EXISTS created_at ON reference_target TYPE datetime VALUE ti
 DEFINE INDEX IF NOT EXISTS reference_target_key_idx ON reference_target FIELDS target_key UNIQUE;
 DEFINE INDEX IF NOT EXISTS reference_target_order_idx ON reference_target FIELDS contract_revision, ordinal UNIQUE;
 
+DEFINE FIELD IF NOT EXISTS quality_snapshot_ref_count ON chapter_version TYPE int DEFAULT 0 ASSERT $value >= 0;
+
 DEFINE TABLE IF NOT EXISTS quality_snapshot SCHEMAFULL;
 DEFINE FIELD IF NOT EXISTS snapshot_id ON quality_snapshot TYPE string READONLY;
 DEFINE FIELD IF NOT EXISTS work ON quality_snapshot TYPE string READONLY;

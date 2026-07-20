@@ -558,6 +558,11 @@ def test_permanent_chapter_delete_is_blocked_while_quality_snapshot_references_v
     snapshot = QualityStore(store).create_chapter_snapshot(
         work=store.db_name, chapter_version_ids=(version_id,),
     )
+    version_row = store._query(
+        "SELECT quality_snapshot_ref_count FROM type::record('chapter_version',$version_id)",
+        {"version_id": version_id},
+    )[0]
+    assert version_row["quality_snapshot_ref_count"] == 1
 
     impact = store.chapter_lifecycle_impact(7)
     assert {item["kind"] for item in impact["references"]} >= {"版本", "质量快照"}
@@ -566,6 +571,49 @@ def test_permanent_chapter_delete_is_blocked_while_quality_snapshot_references_v
 
     assert store.get_chapter_version(version_id) is not None
     assert QualityStore(store).get_snapshot(snapshot.snapshot_id) == snapshot
+
+
+def test_snapshot_create_and_permanent_delete_cannot_both_commit(store):
+    from scribe3.store import SurrealStore
+
+    store.save_chapter(8, "并发章节正文。", title="第八章")
+    version_id = store.add_chapter_version(8, "并发冻结正文。", stage="final")
+    snapshot_store = SurrealStore(url=store.url, ns="scribe3", db=store.db_name)
+    delete_store = SurrealStore(url=store.url, ns="scribe3", db=store.db_name)
+    barrier = __import__("threading").Barrier(2)
+
+    def create_snapshot():
+        barrier.wait()
+        return QualityStore(snapshot_store).create_chapter_snapshot(
+            work=store.db_name, chapter_version_ids=(version_id,),
+        )
+
+    def delete_chapter():
+        barrier.wait()
+        return delete_store.delete_chapter_permanent(8)
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            create_future = pool.submit(create_snapshot)
+            delete_future = pool.submit(delete_chapter)
+            outcomes = []
+            for future in (create_future, delete_future):
+                try:
+                    outcomes.append(("ok", future.result()))
+                except Exception as exc:  # 两个合法串行化结果中必有一侧显式失败
+                    outcomes.append(("error", exc))
+    finally:
+        snapshot_store.close()
+        delete_store.close()
+
+    assert [kind for kind, _ in outcomes].count("ok") == 1
+    snapshots = store._query("SELECT snapshot_id FROM quality_snapshot")
+    version = store.get_chapter_version(version_id)
+    if snapshots:
+        assert version is not None
+        assert QualityStore(store).get_snapshot(snapshots[0]["snapshot_id"])
+    else:
+        assert version is None
 
 
 def test_concurrent_same_job_idempotency_key_creates_one_truth_and_conflicts_fail(store):
