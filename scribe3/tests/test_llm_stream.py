@@ -224,7 +224,7 @@ class TestToolFreeOfficialRouting:
 
         assert result == "完成"
         assert observed == {
-            "url": "https://api.deepseek.com/chat/completions",
+            "url": deepseek._CHAT_COMPLETIONS_URL,
             "body": {
                 "model": "deepseek-chat",
                 "messages": [
@@ -406,7 +406,7 @@ class TestToolFreeOfficialRouting:
 
         assert pieces == ["雨落"]
         assert all(isinstance(piece, str) for piece in pieces)
-        assert observed["url"] == "https://api.deepseek.com/chat/completions"
+        assert observed["url"] == deepseek._CHAT_COMPLETIONS_URL
         assert observed["body"]["messages"] == [
             {"role": "system", "content": "只据事实"},
             {"role": "assistant", "content": "前文"},
@@ -466,7 +466,7 @@ class TestToolFreeOfficialRouting:
                 "delta": "雨",
                 "trace": {
                     "provider": "deepseek",
-                    "api_base": "https://api.deepseek.com",
+                    "api_base": deepseek.OFFICIAL_API_BASE,
                     "model": "deepseek-chat",
                     "official": True,
                     "transport": "httpx",
@@ -482,7 +482,7 @@ class TestToolFreeOfficialRouting:
                 },
                 "trace": {
                     "provider": "deepseek",
-                    "api_base": "https://api.deepseek.com",
+                    "api_base": deepseek.OFFICIAL_API_BASE,
                     "model": "deepseek-chat",
                     "official": True,
                     "transport": "httpx",
@@ -544,7 +544,7 @@ class TestToolFreeOfficialRouting:
 
         assert llm.official_deepseek_provider_identity() == {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -556,7 +556,7 @@ class TestToolFreeOfficialRouting:
 
         provider_trace = {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -582,7 +582,7 @@ class TestToolFreeOfficialRouting:
 
         assert persisted[0]["provider"] == {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -593,7 +593,7 @@ class TestToolFreeOfficialRouting:
 
         forged_trace = {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -731,7 +731,7 @@ class TestToolFreeOfficialRouting:
                 "response": {"id": None, "usage": {"total_tokens": 6}},
                 "trace": {
                     "provider": "deepseek",
-                    "api_base": "https://api.deepseek.com",
+                    "api_base": deepseek.OFFICIAL_API_BASE,
                     "model": "deepseek-chat",
                     "official": True,
                     "transport": "httpx",
@@ -754,7 +754,7 @@ class TestToolFreeOfficialRouting:
         assert persisted[0][1]["status"] == "cancelled"
         assert persisted[0][1]["provider"] == {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -790,7 +790,7 @@ class TestToolFreeOfficialRouting:
         assert persisted[0]["status"] == "failed"
         assert persisted[0]["provider"] == {
             "provider": "deepseek",
-            "api_base": "https://api.deepseek.com",
+            "api_base": deepseek.OFFICIAL_API_BASE,
             "model": "deepseek-chat",
             "official": True,
             "transport": "httpx",
@@ -836,7 +836,7 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
             "delta": "雨落",
             "trace": {
                 "provider": "deepseek",
-                "api_base": "https://api.deepseek.com",
+                "api_base": deepseek.OFFICIAL_API_BASE,
                 "model": "deepseek-chat",
                 "official": True,
                 "transport": "httpx",
@@ -848,7 +848,7 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
             "delta": "闸板。",
             "trace": {
                 "provider": "deepseek",
-                "api_base": "https://api.deepseek.com",
+                "api_base": deepseek.OFFICIAL_API_BASE,
                 "model": "deepseek-chat",
                 "official": True,
                 "transport": "httpx",
@@ -864,7 +864,7 @@ def test_responses_events_without_tools_uses_official_deepseek_completion_stream
             },
             "trace": {
                 "provider": "deepseek",
-                "api_base": "https://api.deepseek.com",
+                "api_base": deepseek.OFFICIAL_API_BASE,
                 "model": "deepseek-chat",
                 "official": True,
                 "transport": "httpx",

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
-from scribe3.deepseek_client import CompletionResult, ProviderIdentity
+from scribe3.deepseek_client import CompletionResult, ProviderIdentity, OFFICIAL_API_BASE
 from scribe3.ontology import Entity, Event
 from scribe3.scenario import luanshi_leak_world
 from scribe3.store import MATERIAL_KINDS
@@ -41,7 +41,7 @@ def _completion_result(content: str, *, response_id: str = "test-app-response") 
         finish_reason="stop",
         identity=ProviderIdentity(
             provider="deepseek",
-            api_base="https://api.deepseek.com",
+            api_base=OFFICIAL_API_BASE,
             model="deepseek-chat",
             official=True,
             transport="httpx",

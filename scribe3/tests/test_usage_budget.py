@@ -182,7 +182,7 @@ def test_llm_cap_shared_across_processes(monkeypatch):
 
     class FakeClient:
         def complete(self, _messages, **_kwargs):
-            from scribe3.deepseek_client import CompletionResult, ProviderIdentity
+            from scribe3.deepseek_client import CompletionResult, ProviderIdentity, OFFICIAL_API_BASE
             return CompletionResult(
                 content="ok",
                 model="deepseek-chat",
@@ -190,7 +190,7 @@ def test_llm_cap_shared_across_processes(monkeypatch):
                 finish_reason="stop",
                 identity=ProviderIdentity(
                     provider="deepseek",
-                    api_base="https://api.deepseek.com",
+                    api_base=OFFICIAL_API_BASE,
                     model="deepseek-chat",
                     official=True,
                     transport="httpx",
@@ -330,6 +330,7 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
     """identity/model/cap/key 均走窄接口，冷缓存下禁用宽读取仍可成功。"""
     import scribe3.app as A
     from scribe3 import settings as S, settings_store
+    from scribe3.deepseek_client import OFFICIAL_API_BASE
 
     A.set_store(store)
     cold_db = tmp_path / "provider-public-settings.sqlite3"
@@ -350,7 +351,7 @@ def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(
     provider = response.json()["provider"]
     assert provider == {
         "provider": "deepseek",
-        "api_base": "https://api.deepseek.com",
+        "api_base": OFFICIAL_API_BASE,
         "model": "deepseek-chat",
         "official": True,
         "transport": "direct",

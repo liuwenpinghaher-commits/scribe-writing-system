@@ -87,7 +87,7 @@ def test_public_identity_resolves_model_without_key_or_transport(
 
     assert client.identity(model) == deepseek.ProviderIdentity(
         provider="deepseek",
-        api_base="https://api.deepseek.com",
+        api_base=deepseek.OFFICIAL_API_BASE,
         model=expected_model,
         official=True,
         transport="httpx",
@@ -144,7 +144,7 @@ def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
         )
 
     assert observed == {
-        "url": "https://api.deepseek.com/chat/completions",
+        "url": deepseek._CHAT_COMPLETIONS_URL,
         "authorized": True,
         "body": {
             "model": "deepseek-chat",
@@ -158,7 +158,7 @@ def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
     assert result.finish_reason == "stop"
     assert result.identity == deepseek.ProviderIdentity(
         provider="deepseek",
-        api_base="https://api.deepseek.com",
+        api_base=deepseek.OFFICIAL_API_BASE,
         model="deepseek-chat",
         official=True,
         transport="httpx",
@@ -468,13 +468,13 @@ def test_stream_parses_deltas_and_final_usage():
 
     identity = deepseek.ProviderIdentity(
         provider="deepseek",
-        api_base="https://api.deepseek.com",
+        api_base=deepseek.OFFICIAL_API_BASE,
         model="deepseek-chat",
         official=True,
         transport="httpx",
     )
     assert observed == {
-        "url": "https://api.deepseek.com/chat/completions",
+        "url": deepseek._CHAT_COMPLETIONS_URL,
         "authorized": True,
         "body": {
             "model": "deepseek-chat",
@@ -779,7 +779,7 @@ def test_stream_done_without_usage_emits_explicit_done_event():
         "model": "deepseek-chat",
         "identity": deepseek.ProviderIdentity(
             provider="deepseek",
-            api_base="https://api.deepseek.com",
+            api_base=deepseek.OFFICIAL_API_BASE,
             model="deepseek-chat",
             official=True,
             transport="httpx",

@@ -12,7 +12,7 @@ import httpx
 from scribe3 import settings
 
 
-OFFICIAL_API_BASE = "https://api.deepseek.com"
+OFFICIAL_API_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
 _RETRYABLE_REQUEST_ERRORS = (
     httpx.TimeoutException,
