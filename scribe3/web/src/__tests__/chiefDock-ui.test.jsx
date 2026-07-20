@@ -232,5 +232,8 @@ describe('ChiefDock UI', () => {
     expect(chip.textContent).toContain('不限次数')
     expect(chip.textContent).not.toMatch(/\/\s*0/)
     expect(chip.textContent).not.toContain('日帽 0')
+    expect(chip.title).toContain('不限次数')
+    expect(chip.title).not.toMatch(/\/\s*0/)
+    expect(chip.title).not.toContain('日帽 0')
   })
 })

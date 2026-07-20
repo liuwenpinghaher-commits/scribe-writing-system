@@ -135,9 +135,9 @@ describe('SettingsView', () => {
       tokens: { days: [], since: '2026-07-06' },
     }))
     render(<SettingsView work="demo" />)
-    await waitFor(() => expect(screen.getByText(/今日已用/)).toBeTruthy())
-    expect(screen.getByText(/417/)).toBeTruthy()
-    expect(screen.getByText(/500/)).toBeTruthy()
+    const usageText = await screen.findByText('今日已用 417 / 日帽 500')
+    expect(screen.getByText('83%')).toBeTruthy()
+    expect(usageText.parentElement?.parentElement?.querySelector('[style="width: 83%;"]')).toBeTruthy()
   })
 
   it('无限用量时展示今日已用和不限次数', async () => {
