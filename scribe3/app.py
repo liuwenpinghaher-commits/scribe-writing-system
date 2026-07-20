@@ -4538,6 +4538,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 trace["status"] = "completed"
                 trace["response_id"] = app_ev.get("response_id")
                 trace["usage"] = app_ev.get("usage")
+                provider_trace = ev.get("trace")
+                if isinstance(provider_trace, dict):
+                    trace["provider"] = dict(provider_trace)
             elif app_ev["kind"] == "run.failed":
                 trace["status"] = "failed"
                 trace["response_id"] = app_ev.get("response_id")

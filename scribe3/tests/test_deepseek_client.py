@@ -157,6 +157,52 @@ def test_complete_forwards_supported_optional_parameters():
     assert result.identity.model == "deepseek-reasoner"
 
 
+@pytest.mark.parametrize("operation", ["complete", "stream"])
+def test_call_timeout_overrides_setting_for_each_outbound_path(operation):
+    observed_timeout = None
+
+    def handler(request):
+        nonlocal observed_timeout
+        observed_timeout = request.extensions.get("timeout")
+        return _successful_response(operation)
+
+    with _client(handler) as transport:
+        client = deepseek.DeepSeekClient(client=transport)
+        messages = [{"role": "user", "content": "hello"}]
+        if operation == "complete":
+            client.complete(messages, timeout_seconds=7.25)
+        else:
+            list(client.stream(messages, timeout_seconds=7.25))
+
+    assert observed_timeout == {
+        "connect": 7.25,
+        "read": 7.25,
+        "write": 7.25,
+        "pool": 7.25,
+    }
+
+
+@pytest.mark.parametrize("operation", ["complete", "stream"])
+def test_call_retry_count_zero_disables_retries(operation):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503, json={"error": {"message": "busy"}})
+
+    with _client(handler) as transport:
+        client = deepseek.DeepSeekClient(client=transport)
+        messages = [{"role": "user", "content": "hello"}]
+        with pytest.raises(deepseek.DeepSeekHTTPError):
+            if operation == "complete":
+                client.complete(messages, retry_count=0)
+            else:
+                list(client.stream(messages, retry_count=0))
+
+    assert calls == 1
+
+
 def test_missing_key_fails_before_transport(_settings):
     _settings["DEEPSEEK_API_KEY"] = ""
     calls = 0

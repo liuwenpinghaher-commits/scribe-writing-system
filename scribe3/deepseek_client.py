@@ -154,12 +154,14 @@ class DeepSeekClient:
         }
 
     @staticmethod
-    def _retry_count() -> int:
-        return max(0, int(settings.get_setting("llm.max_retries")))
+    def _retry_count(retry_count: int | None = None) -> int:
+        value = settings.get_setting("llm.max_retries") if retry_count is None else retry_count
+        return max(0, int(value))
 
     @staticmethod
-    def _timeout() -> float:
-        return float(settings.get_setting("llm.timeout_seconds"))
+    def _timeout(timeout_seconds: float | None = None) -> float:
+        value = settings.get_setting("llm.timeout_seconds") if timeout_seconds is None else timeout_seconds
+        return float(value)
 
     @staticmethod
     def _safe_http_error(status_code: int, identity: ProviderIdentity) -> DeepSeekHTTPError:
@@ -214,6 +216,8 @@ class DeepSeekClient:
         max_tokens: int | None = None,
         temperature: float | None = None,
         thinking: str | None = None,
+        timeout_seconds: float | None = None,
+        retry_count: int | None = None,
     ) -> CompletionResult:
         requested_model = self._model(model)
         identity = self._identity(requested_model)
@@ -230,8 +234,8 @@ class DeepSeekClient:
         if thinking is not None:
             body["thinking"] = {"type": thinking}
 
-        retries = self._retry_count()
-        timeout = self._timeout()
+        retries = self._retry_count(retry_count)
+        timeout = self._timeout(timeout_seconds)
         headers = self._headers(api_key)
         response: httpx.Response | None = None
         failure: DeepSeekError | None = None
@@ -304,6 +308,8 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         *,
         model: str | None = None,
+        timeout_seconds: float | None = None,
+        retry_count: int | None = None,
     ) -> Iterator[dict[str, Any]]:
         requested_model = self._model(model)
         identity = self._identity(requested_model)
@@ -315,8 +321,8 @@ class DeepSeekClient:
             "stream_options": {"include_usage": True},
         }
         headers = self._headers(api_key)
-        retries = self._retry_count()
-        timeout = self._timeout()
+        retries = self._retry_count(retry_count)
+        timeout = self._timeout(timeout_seconds)
         final_failure: DeepSeekError | None = None
 
         with self._client_scope() as client:

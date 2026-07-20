@@ -1,17 +1,18 @@
-"""移植自 scribe2/llm.py 的已验证 Hermes 客户端(greenfield 内核复用已验证资产)。
+"""Scribe LLM 路由门面。
 
-经 Hermes 网关 :8642 OpenAI 兼容端点取补全(由 Hermes 路由到 doubao),不直连火山。
-超时/重试次数经设置中心可调(llm.timeout_seconds / llm.max_retries,默认 600s/3 次);
-重试范围已验证:瞬时超时/5xx/连接错重试,4xx 不重试。
-流式路径同:建链+首字节到达前的瞬时错重试,已开始 yield 后不重试(避免重发 delta)。
+无工具 Chat Completions 统一委托已审查的官方 ``DeepSeekClient``；
+Hermes 只保留 Responses 工具面与 Runs 边界。超时、重试、流式首 delta 后不重试及
+安全错误由官方客户端实现；本门面保留旧签名和调用计数语义。
 """
 from __future__ import annotations
 
 import logging
 import os
+from dataclasses import asdict
 
 import httpx
 
+from scribe3.deepseek_client import DeepSeekClient, ProviderIdentity
 from scribe3.hermes_runtime import HermesAuth, HermesRuntime
 
 _RETRYABLE = (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError)
@@ -78,10 +79,6 @@ HERMES_RUNS = os.environ.get("HERMES_RUNS_API", "http://127.0.0.1:8644/v1")
 HERMES_RUNS_PROFILE = os.environ.get("HERMES_RUNS_PROFILE", "scribe3_write")
 
 
-def _api_key(profile: str | None = None) -> str:
-    return HermesAuth().api_key(profile)
-
-
 def _stream_with_retry(make_stream, max_retries: int | None = None):
     """对'打开流 + 取到首个 yield 前'的瞬时错重试;已 yield 后不重试(避免重发 delta)。
 
@@ -120,87 +117,49 @@ def hermes_complete(prompt: str, system: str | None = None,
                     thinking: str | None = None,
                     temperature: float | None = None,
                     official_api: bool = False) -> str:
-    """经 Hermes 取一段补全。max_tokens 硬上限控长。错误抛出不静默。"""
-    model = model or default_model()
-    timeout = timeout if timeout is not None else default_timeout()
+    """官方 DeepSeek 无工具补全；旧名与 ``official_api`` 仅作兼容。"""
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
-    body: dict = {"model": model, "messages": msgs, "stream": False}
-    if max_tokens:
-        body["max_tokens"] = max_tokens
-    if thinking:
-        body["thinking"] = {"type": thinking}
-    if temperature is not None:
-        body["temperature"] = temperature
-    api_base = HERMES
-    api_key = _api_key()
-    if official_api:
-        from scribe3.settings import get_setting
-        api_key = get_setting("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise RuntimeError("未配置 DEEPSEEK_API_KEY，无法直连官方 DeepSeek 接口")
-        api_base = "https://api.deepseek.com"
-    hdr = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    last: Exception | None = None
-    retries = max(1, int(retries_override)) if retries_override is not None else max_retries()
-    for _attempt in range(retries):
-        try:
-            r = httpx.post(f"{api_base}/chat/completions", timeout=timeout, headers=hdr, json=body)
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last = e
-            # 审计 #81:非流式重试此前静默 continue,与流式路径日志语义对齐
-            _log.warning("非流式瞬时错,重试 %d/%d: %s", _attempt + 1, retries, e)
-            continue
-        except httpx.HTTPStatusError as e:
-            last = e
-            if e.response is not None and e.response.status_code < 500:
-                raise
-            _log.warning("非流式 5xx,重试 %d/%d: %s", _attempt + 1, retries, e)
-            continue
-    raise last if last else RuntimeError("hermes_complete failed")
+    retry_count = (
+        None if retries_override is None
+        else max(0, int(retries_override) - 1)
+    )
+    result = DeepSeekClient().complete(
+        msgs,
+        model=model,
+        max_tokens=max_tokens if max_tokens else None,
+        temperature=temperature,
+        thinking=thinking,
+        timeout_seconds=timeout,
+        retry_count=retry_count,
+    )
+    return result.content
 
 
 def hermes_complete_stream(prompt: str, system: str | None = None,
                            model: str | None = None, timeout: float | None = None,
                            history: list[dict] | None = None):
-    """流式逐字补全:yield 每个 delta 文本片段(Hermes SSE)。主编对话用。
-    建链瞬时错自动重试(与非流式重试语义一致),已 yield 后不重试。
+    """官方 DeepSeek 流式补全；对旧消费者仅 yield delta 文本。
+客户端的 usage 事件不会被当作文本 yield；已 yield 后断流由客户端直接上抛。
 
     history(U-009 主编速答失忆修复):按序插在 system 与本轮 user 之间的既往轮次
     ([{"role": "user"|"assistant", "content": str}, ...])。None/[] = 旧行为(单轮)。
     此前 msgs 恒为 [system, 当前一句]——模型从未见过自己上一轮说了什么,作者选了主编
     自己给的"方向C",主编反问"方向C是什么"。预算截断是调用方的责任,这里只拼接。"""
-    import json as _j
-    model = model or default_model()
-    timeout = timeout if timeout is not None else default_timeout()
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) \
         + [m for m in (history or [])
            if m.get("role") in ("user", "assistant") and m.get("content")] \
         + [{"role": "user", "content": prompt}]
 
-    def make_stream():
-        with httpx.stream("POST", f"{HERMES}/chat/completions", timeout=timeout,
-                          headers={"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"},
-                          json={"model": model, "messages": msgs, "stream": True}) as r:
-            r.raise_for_status()
-            for line in r.iter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-                payload = line[5:].strip()
-                if payload == "[DONE]":
-                    break
-                try:
-                    delta = _j.loads(payload)["choices"][0]["delta"].get("content")
-                    if delta:
-                        yield delta
-                except Exception:
-                    continue
-
-    yield from _stream_with_retry(make_stream)
+    for event in DeepSeekClient().stream(
+        msgs,
+        model=model,
+        timeout_seconds=timeout,
+    ):
+        if event.get("type") == "delta" and event.get("delta"):
+            yield event["delta"]
 
 
 def hermes_responses_events(message, instructions: str, model: str | None = None,
@@ -223,41 +182,35 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
     挂载 MCP,仅省略 body.tools 不能真正禁用工具，纯生成必须物理绕开该代理层。"""
     _tick_daily()
     if not with_tools:
-        from scribe3.settings import get_setting
-        import json as _j
-
-        api_key = get_setting("DEEPSEEK_API_KEY")
-        if not api_key:
-            raise RuntimeError("未配置 DEEPSEEK_API_KEY，无法直连官方 DeepSeek 接口")
-        direct_model = model or default_model()
         messages = [{"role": "system", "content": instructions}]
         if isinstance(message, list):
             messages.extend(message)
         else:
             messages.append({"role": "user", "content": message})
-
-        def make_official_stream():
-            with httpx.stream(
-                "POST", "https://api.deepseek.com/chat/completions", timeout=timeout,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": direct_model, "messages": messages, "stream": True},
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line or not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        delta = _j.loads(payload)["choices"][0]["delta"].get("content")
-                    except (KeyError, IndexError, TypeError, ValueError):
-                        continue
-                    if delta:
-                        yield {"type": "response.output_text.delta", "delta": delta}
-            yield {"type": "response.completed", "response": {"id": None}}
-
-        yield from _stream_with_retry(make_official_stream)
+        usage: dict = {}
+        identity: ProviderIdentity | None = None
+        event_model = model
+        for event in DeepSeekClient().stream(
+            messages,
+            model=model,
+            timeout_seconds=timeout,
+        ):
+            event_identity = event.get("identity")
+            if isinstance(event_identity, ProviderIdentity):
+                identity = event_identity
+            if isinstance(event.get("model"), str) and event["model"]:
+                event_model = event["model"]
+            if event.get("type") == "delta" and event.get("delta"):
+                yield {"type": "response.output_text.delta", "delta": event["delta"]}
+            elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
+                usage = dict(event["usage"])
+        if identity is None:
+            raise RuntimeError("DeepSeekClient 流缺少官方供应商身份")
+        yield {
+            "type": "response.completed",
+            "response": {"id": None, "model": event_model, "usage": usage},
+            "trace": asdict(identity),
+        }
         return
 
     runtime = HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE, auth=HermesAuth())

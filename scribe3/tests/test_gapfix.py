@@ -71,13 +71,24 @@ def test_daily_llm_cap_enforced(monkeypatch):
     monkeypatch.setattr(L, "_cap", lambda: 2)
     L._reset_daily_counter()
 
-    class FakeResp:
-        def raise_for_status(self):
-            pass
+    class FakeClient:
+        def complete(self, _messages, **_kwargs):
+            from scribe3.deepseek_client import CompletionResult, ProviderIdentity
+            return CompletionResult(
+                content="ok",
+                model="deepseek-chat",
+                usage={},
+                finish_reason="stop",
+                identity=ProviderIdentity(
+                    provider="deepseek",
+                    api_base="https://api.deepseek.com",
+                    model="deepseek-chat",
+                    official=True,
+                    transport="httpx",
+                ),
+            )
 
-        def json(self):
-            return {"choices": [{"message": {"content": "ok"}}]}
-    monkeypatch.setattr(L.httpx, "post", lambda *a, **kw: FakeResp())
+    monkeypatch.setattr(L, "DeepSeekClient", FakeClient)
     assert L.hermes_complete("a") == "ok"
     assert L.hermes_complete("b") == "ok"
     with pytest.raises(RuntimeError, match="日调用上限"):
