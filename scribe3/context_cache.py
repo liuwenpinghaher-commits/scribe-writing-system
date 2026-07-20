@@ -7,11 +7,11 @@ embed),与 context_models / memory_models 同层,任何一端都能安全引用�
 诚实边界(做实 vs 就绪):
 - 【做实】feature flags 门面 + GET /capabilities 上报;embedding sha256 缓存在 embed.py。
 - 【做实】cross_work / memory pending·failed / spectron / 会话数 等指标当前有真实值。
-- 【就绪】GLOBAL_CARD_CACHE / RETRIEVAL_CACHE 键结构 + TTL + 表级失效已就绪,但当前
-  【无生产读路径】(assembler v1 默认关、写检索器恒 None,只写不读半空转),要待 Task 16-C
-  把检索接进生产 envelope 才有生产命中。测试直接调缓存 helper / 检索器验证行为。
-- 【就绪】retrieval 延迟 / 上下文 token / stale 拒绝为采集骨架(record_* + 内存直方图),
-  接线后自动填,当前上报 0 / None 并如实标注。
+- 【做实】RETRIEVAL_CACHE 已在 MEMORY_FABRIC 开启时进入统一写作 envelope 读路径，
+  并以 TTL + 表级失效约束；关闭时明确不实例化 retriever。GLOBAL_CARD_CACHE 仍只有
+  helper/测试消费，尚无生产调用方。
+- 【做实】retrieval 延迟 / 上下文 token / stale 拒绝均已接入 record_*；没有样本时
+  如实上报 0 / None，不代表统一 assembler 未启用。
 
 铁律:失效永远优先于命中——任何可能致「限知泄露 / 正典过期 / 秘密」错乱的缓存,失效必须
 及时(正典写入 / 记忆 supersede / 素材 archive·pin 立即清 + 正典 bump authority_revision)。
@@ -30,17 +30,13 @@ from collections import OrderedDict, deque
 
 _TRUE = {"1", "true", "yes", "on"}
 
-# Task 16 Step 5 的 5 个独立灰度开关(默认全关;经后端 capabilities 下发)。
+# 四个有真实执行语义的灰度开关(默认全关;经后端 capabilities 下发)。
 FLAGS = (
     "SCRIBE3_CONTEXT_SNAPSHOT_V1",     # 已存在(context_service),纳入统一上报
     "SCRIBE3_EDITORIAL_THREAD_V1",
     "SCRIBE3_MEMORY_FABRIC_V1",
     "SCRIBE3_CONTEXT_INSPECTOR_V1",
-    "SCRIBE3_SPECTRON_SHADOW",
 )
-
-# Task 7 既有开关:不改语义,只一并纳入 capabilities 上报(前端可见就绪态)。
-ASSEMBLER_FLAG = "SCRIBE3_CONTEXT_ASSEMBLER_V1"
 
 
 def flag_enabled(name: str) -> bool:

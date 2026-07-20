@@ -1,9 +1,9 @@
-"""统一上下文记忆系统灰度 · SCRIBE3_CONTEXT_ASSEMBLER_V1 开时的两处 parity 缺口。
+"""统一生产上下文引擎的设定圣经与限知 parity 合同。
 
 背景:该系统 7-12 验收后 flag 全关沉睡;7-14/15 在【旧链】(_editor_system/
 _editor_write_system/_codex_block)上加了 CX-Task 6(faction 28 字段设定进 prompt)与
-三档限知门控(U-003)。开 SCRIBE3_CONTEXT_ASSEMBLER_V1 会把写作链切到 v1
-(app._assemble_write_instructions_v1),v1 有两个缺口,不修就是"开旗即回归/泄密":
+三档限知门控(U-003)。统一写作链(app._assemble_write_instructions_v1)必须持续覆盖
+以下两个历史缺口，否则唯一生产路径会发生功能回归/泄密:
 
 缺口A(功能回归):v1 身份层刻意不走 _editor_system(防 facts/promises 重复),故完全
   不含设定圣经(faction 28 字段/世界规则/术语/物件/母题)——CX-6 后是旗舰能力,v1 一个
@@ -19,8 +19,7 @@ _editor_write_system/_codex_block)上加了 CX-Task 6(faction 28 字段设定进
   而非 _editor_system。修法:codex_secret_bridge.is_faction_bridge_mirror 领域谓词(单一
   真相源)+ context_assembler 两条路径无条件剔除 + app 嵌套谓词改薄委托。
 
-不真调 LLM;真实 SurrealDB(conftest.py `store` 夹具,临时内存子进程);flag 只
-monkeypatch env,绝不碰全局 settings/生产库。
+不真调 LLM；真实 SurrealDB(conftest.py `store` 夹具,临时内存子进程)。
 """
 import pytest
 
@@ -68,9 +67,7 @@ def _patch_embed(monkeypatch):
 
 
 def _v1(store, *, chapter=1, focalizer="", phase="draft", seed_words=None):
-    """便捷包装:调用 chat_write 完整组装链单源入口(测试前须已 monkeypatch
-    SCRIBE3_CONTEXT_ASSEMBLER_V1=1,否则走旧链——公共入口,不直接碰 _v1 私有函数,
-    与用户任务描述的验收方式一致)。"""
+    """便捷包装:调用 chat_write 唯一完整组装链，不直接碰 _v1 私有函数。"""
     return _assemble_write_instructions(
         store, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=seed_words or [], short_mode=False, with_tools=False, work="main")
@@ -81,7 +78,6 @@ def _v1(store, *, chapter=1, focalizer="", phase="draft", seed_words=None):
 # ============================================================
 
 def test_v1_instructions_include_codex_bible_block(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_faction(
         FACTION, ideology="尾衔其首,生生不息", leader="老祖",
         structure={"type": "金字塔", "core_size": 7,
@@ -97,7 +93,6 @@ def test_v1_instructions_include_codex_bible_block(store, monkeypatch):
 def test_v1_codex_block_placeholder_when_no_codex_data(store, monkeypatch):
     """无设定数据时:仍出现"设定圣经"标签 + 占位文案,不是静默消失
     (与旧链 _editor_system 的 `or '(尚无设定)'` 兜底同语义)。"""
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     out = _v1(store, chapter=1)
     assert "设定圣经" in out
     assert "尚无设定" in out
@@ -108,7 +103,6 @@ def test_v1_codex_block_placeholder_when_no_codex_data(store, monkeypatch):
 # ============================================================
 
 def test_v1_secret_field_hidden_without_knows_edge(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_faction(FACTION, origin="源自前朝遗族的复国密谋", origin_secret=True,
                       motto="公开的格言明文")
     _sync(store, FACTION)
@@ -118,7 +112,6 @@ def test_v1_secret_field_hidden_without_knows_edge(store, monkeypatch):
 
 
 def test_v1_secret_field_shown_when_focalizer_knows(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_faction(FACTION, origin="源自前朝遗族的复国密谋", origin_secret=True)
     _sync(store, FACTION)
     fact_id = _bridge_fact_id(store, ENTITY_ID, "origin")
@@ -130,7 +123,6 @@ def test_v1_secret_field_shown_when_focalizer_knows(store, monkeypatch):
 
 
 def test_v1_secret_agenda_never_appears_even_with_knows_edge(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_faction(FACTION, secret_agenda="连核心层都不知道的真相",
                       secret_agenda_secret=True)
     _sync(store, FACTION)
@@ -144,7 +136,6 @@ def test_v1_secret_agenda_never_appears_even_with_knows_edge(store, monkeypatch)
 
 
 def test_v1_public_field_unaffected_by_gating(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     store.add_faction(FACTION, motto="尾衔其首,生生不息")
     out = _v1(store, chapter=1, focalizer="role:任何人")
     assert "尾衔其首,生生不息" in out, "非 secret 字段不应被限知门控误伤"
@@ -265,10 +256,9 @@ def test_gap_b_candidate_path_structurally_excludes_not_just_masks(store, monkey
 
 @pytest.mark.parametrize("fabric_on", [False, True])
 def test_v1_omniscient_end_to_end_never_leaks_bridge_mirror(store, monkeypatch, fabric_on):
-    """端到端:全知写作(focalizer 空,"正常模式")下 SCRIBE3_CONTEXT_ASSEMBLER_V1 开
-    (+ SCRIBE3_MEMORY_FABRIC_V1 开/关两态)组装出的最终 instructions,不得出现
+    """端到端:全知写作(focalizer 空,"正常模式")下，MEMORY_FABRIC 开/关两态
+    组装出的最终 instructions 都不得出现
     secret_agenda/origin 的明文——两条 canonical 取数路径都须过滤(与旧链 M6 修复对称)。"""
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
     if fabric_on:
         monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
         _patch_embed(monkeypatch)

@@ -82,12 +82,12 @@ class FakeRetriever:
 
 # ---------- 夹具 ----------
 
-def _snapshot(*, focus_id="role:jia", work="book-a", chapter=3,
-              focalizer=None):
+def _snapshot(*, focus_id="role:jia", focus_type="character", focus_label="甲",
+              work="book-a", chapter=3, focalizer=None):
     snap = ContextSnapshot(
         session_id="ctx-1", work=work, revision=2, thread_id="thread-a",
         entry="codex", directory_path=["codex", "characters"],
-        focus=ContextFocus(type="character", id=focus_id, label="甲"),
+        focus=ContextFocus(type=focus_type, id=focus_id, label=focus_label),
         detail_route=f"character:{focus_id}", chapter=chapter, phase="draft",
         focalizer=focalizer, previous_revision=1, navigation_id="nav-1",
         captured_at=datetime.now(timezone.utc), context_hash="")
@@ -156,6 +156,47 @@ def test_degrades_to_store_when_retriever_none(store, snapshot):
     # 八块齐全,不因无 retriever 崩
     assert [b.name for b in env.blocks][:3] == ["focus", "global", "canonical"]
     assert "村口" in block(env, "canonical").text
+
+
+def test_chapter_focus_includes_synopsis_and_beats(store):
+    """章焦点必须把大纲和节拍一起纳入有预算、有溯源的 focus 块。"""
+    store.save_chapter(3, "", title="第三章")
+    store.update_chapter_meta(3, {
+        "synopsis": "柳怀玉赴义庄验尸",
+        "beats": [{"text": "抵达义庄"}, {"text": "发现异样"}],
+    })
+    snap = _snapshot(
+        focus_id="3", focus_type="chapter", focus_label="第三章", chapter=3,
+    )
+
+    env = ContextAssembler(store, None).assemble(snap, "写本章", "write")
+
+    focus = block(env, "focus")
+    assert "柳怀玉赴义庄验尸" in focus.text
+    assert "抵达义庄" in focus.text and "发现异样" in focus.text
+    assert any(source.source_id == "chapter:3:outline" for source in focus.sources)
+
+
+def test_recent_prioritizes_current_chapter_tail_with_memory_candidates(store):
+    """开启经验检索后也不能让 memory candidate 挤掉当前章续写锚点。"""
+    store.save_chapter(
+        3,
+        "这一段开头不应保留。" * 80 + "当前章结尾：老道把灯芯挑亮。",
+        title="第三章",
+    )
+    snap = _snapshot(
+        focus_id="3", focus_type="chapter", focus_label="第三章", chapter=3,
+    )
+    retriever = FakeRetriever([
+        FakeCandidate("working", "sum:recent", "经验摘要：此处应放慢节奏。"),
+    ])
+
+    env = ContextAssembler(store, retriever).assemble(snap, "续写", "write")
+
+    recent = block(env, "recent")
+    assert "当前章结尾：老道把灯芯挑亮" in recent.text
+    assert "经验摘要：此处应放慢节奏" in recent.text
+    assert any(source.source_id == "chapter:3:tail" for source in recent.sources)
 
 
 # ---------- 宪法级:限知章 secret value 物理屏蔽 + 留痕 ----------
@@ -246,7 +287,6 @@ def test_unified_context_calls_avoid_directive(store, monkeypatch):
 # ---------- Creative Context Engine 失败必须 fail-loud，不回退旧链 ----------
 
 def test_unified_context_failure_propagates_without_legacy_fallback(store, monkeypatch):
-    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
     import scribe3.app as appmod
 
     def _boom(*a, **k):

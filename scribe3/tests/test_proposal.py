@@ -47,6 +47,7 @@ def test_stream_write_fallback_wraps_fenceless_prose(monkeypatch):
 
     def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": prose}
+        yield {"type": "response.completed", "response": {"id": "fallback-ok"}}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     events = list(A._stream_write("帮我写本章", "instr", expect_proposal=True))
@@ -63,6 +64,7 @@ def test_stream_write_no_fallback_when_fence_present(monkeypatch):
     def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta",
                "delta": "思路：⟦PROPOSAL scope=chapter⟧正文正文正文⟦/PROPOSAL⟧"}
+        yield {"type": "response.completed", "response": {"id": "fenced-ok"}}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     events = list(A._stream_write("写", "instr", expect_proposal=True))
@@ -76,6 +78,7 @@ def test_stream_write_no_fallback_for_short_discussion(monkeypatch):
     """短回复(讨论句式,<120字) + expect_proposal=False → 不应产生任何 proposal 事件。"""
     def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "我觉得可以。"}
+        yield {"type": "response.completed", "response": {"id": "discussion-ok"}}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     events = list(A._stream_write("你觉得呢", "instr", expect_proposal=False))
@@ -87,6 +90,7 @@ def test_stream_write_no_fallback_short_prose_with_write_intent(monkeypatch):
     """即使 expect_proposal=True,若散文 <120 字,也不应触发兜底(防把短确认误包成草稿)。"""
     def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "好的,我来写。"}
+        yield {"type": "response.completed", "response": {"id": "short-ok"}}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     events = list(A._stream_write("帮我写", "instr", expect_proposal=True))
@@ -110,6 +114,7 @@ def test_stream_write_streams_proposal_progressively(monkeypatch):
     def fake_events(msg, instructions, model=None, **_kw):
         yield {"type": "response.output_text.delta", "delta": "思路。⟦PROPOSAL scope=chapter⟧前半"}
         yield {"type": "response.output_text.delta", "delta": "后半⟦/PROPOSAL⟧"}
+        yield {"type": "response.completed", "response": {"id": "progressive-ok"}}
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     blob = "".join(A._stream_write("写", "i", expect_proposal=True))

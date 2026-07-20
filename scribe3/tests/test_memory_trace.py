@@ -31,9 +31,8 @@ def _patch_embed(monkeypatch):
 
 
 def _enable_wiring_flags(monkeypatch):
-    """Task 16 读路径接线需 MEMORY_FABRIC + ASSEMBLER 【同开】(M4 记账:读路径两旗同开)。"""
+    """统一 assembler 恒启用；测试只需打开 MEMORY_FABRIC 检索开关。"""
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "1")
 
 REJECT_REASONS = {
     "token_budget", "duplicate", "superseded",
@@ -297,10 +296,9 @@ def test_write_path_trace_never_at_rest_secret(store, monkeypatch):
     assert item.get("text") in ("", None)
 
 
-def test_write_path_no_trace_when_flags_off_and_byte_equivalent(store, monkeypatch):
-    """③flag 关 → 不落 trace(Inspector 404),且带不带 memory_trace_ctx 组装【字节等价】。"""
+def test_write_path_no_trace_when_memory_fabric_off_and_byte_equivalent(store, monkeypatch):
+    """③检索关 → 不落 trace(Inspector 404),且带不带 memory_trace_ctx 组装【字节等价】。"""
     monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
-    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
     store.add_fact(Fact("fact:m", "role:m", "mood", "沉郁", valid_from=1))
 
     kw = dict(chapter=2, focalizer="", phase="draft", seed_words=["雨"],

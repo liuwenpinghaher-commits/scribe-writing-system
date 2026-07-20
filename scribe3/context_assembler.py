@@ -437,9 +437,20 @@ class ContextAssembler:
             lines.append(f"- 作者此刻问:{user_query.strip()[:200]}")
         # 焦点条目直接查(fail-soft:查不到不影响 focus 块)
         detail = self._focus_detail(snapshot)
-        if detail:
+        if detail and f.type != "chapter":
             lines.append(f"- {detail}")
-        return [_Item("\n".join(lines), src)]
+        out = [_Item("\n".join(lines), src)]
+        if detail and f.type == "chapter" and snapshot.chapter is not None:
+            out.append(_Item(
+                detail,
+                ContextSource(
+                    source_id=f"chapter:{snapshot.chapter}:outline",
+                    source_kind="focus",
+                    work=snapshot.work,
+                    revision=f.source_revision,
+                ),
+            ))
+        return out
 
     def _focus_detail(self, snapshot: ContextSnapshot) -> str:
         f = snapshot.focus
@@ -447,7 +458,23 @@ class ContextAssembler:
             if f.type == "chapter" and snapshot.chapter is not None:
                 ch = self.store.get_chapter(snapshot.chapter) or {}
                 syn = (ch.get("synopsis") or "").strip()
-                return f"本章大纲:{syn[:120]}" if syn else ""
+                beats = []
+                for beat in ch.get("beats") or []:
+                    text = (
+                        beat.get("text") if isinstance(beat, dict) else str(beat)
+                    )
+                    text = (text or "").strip()
+                    if text:
+                        beats.append(text)
+                parts = []
+                if syn:
+                    parts.append("- 本章大纲:" + syn[:220])
+                if beats:
+                    numbered = "；".join(
+                        f"{index}.{text}" for index, text in enumerate(beats, 1)
+                    )
+                    parts.append("- 本章节拍:" + numbered[:220])
+                return "\n".join(parts)
             if f.type == "character":
                 for c in (self.store.characters() or []):
                     if c.id == f.id or c.name == f.label:
@@ -617,17 +644,31 @@ class ContextAssembler:
         return {f.id for f in frame.facts}
 
     def _recent_items(self, snapshot: ContextSnapshot, cands) -> list[_Item]:
-        """recent:工作摘要 + 近期 episodic/decision。有候选走候选;否则降级取上一章结尾。
+        """recent:当前章续写锚点 + 近期 episodic/decision；无候选再补上一章结尾。
 
-        U-011(2026-07-15,作者要 fail-loud):"无候选→取上一章结尾"是正常业务降级
+        当前章尾段是续写硬上下文，必须排在经验候选之前，不能因开启 Memory
+        Fabric 而消失。U-011(2026-07-15,作者要 fail-loud):"无候选→取上一章结尾"是正常业务降级
         分支(保留);但降级分支内部包 recent_proses 的裸 except:pass 已删——查询
         本身失败必须抛,不能悄悄假装"上一章没有结尾"。"""
-        if cands:
-            return [_Item(f"- {c.text}", ContextSource(
-                source_id=c.source_id, source_kind="recent", work=snapshot.work,
-                revision=getattr(c, "revision", None))) for c in cands]
         out: list[_Item] = []
         ch = snapshot.chapter
+        if ch is not None:
+            current = self.store.get_chapter(ch) or {}
+            tail = (current.get("prose") or "")[-400:].strip()
+            if tail:
+                out.append(_Item(
+                    "- 本章已写结尾(续写须自然接上,勿重复):" + tail,
+                    ContextSource(
+                        source_id=f"chapter:{ch}:tail",
+                        source_kind="recent",
+                        work=snapshot.work,
+                    ),
+                ))
+        if cands:
+            out.extend(_Item(f"- {c.text}", ContextSource(
+                source_id=c.source_id, source_kind="recent", work=snapshot.work,
+                revision=getattr(c, "revision", None))) for c in cands)
+            return out
         if ch and ch > 1:
             # U-011: 删静默降级,失败上抛(作者要 fail-loud)
             prev = self.store.recent_proses(ch, k=1) or []
@@ -776,6 +817,6 @@ def envelope_trace_manifest(envelope: ContextEnvelope) -> dict:
 
 def render_envelope_text(envelope: ContextEnvelope) -> str:
     """把 envelope 渲染成可注入 prompt 的正文(仅非空块,按固定顺序拼接)。
-    供 app.py 的 SCRIBE3_CONTEXT_ASSEMBLER_V1 开关【开】时替换旧散点上下文段。"""
+    供 Creative Context Engine 的唯一生产写作路径渲染统一上下文段。"""
     parts = [b.text for b in envelope.blocks if b.text]
     return "\n\n".join(parts)

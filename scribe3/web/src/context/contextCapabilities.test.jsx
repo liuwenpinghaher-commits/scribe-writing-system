@@ -16,7 +16,7 @@ function Probe() {
 }
 
 describe('ContextSnapshotProvider capabilities', () => {
-  it('后端开启的开关下发到前端,未列出的保持默认全关', async () => {
+  it('后端开启的开关下发到前端,未列出的保持安全默认', async () => {
     apiMock.fetchCapabilities.mockResolvedValueOnce({
       flags: { context_inspector_v1: true },   // 只列一个开的
       versions: { retrieval_policy: '1' },
@@ -27,10 +27,11 @@ describe('ContextSnapshotProvider capabilities', () => {
       expect(flags.context_inspector_v1).toBe(true)
       expect(flags.memory_fabric_v1).toBe(false)      // 未列出 → 默认全关
       expect(flags.snapshot_v1).toBe(false)
+      expect(flags.assembler_v1).toBe(true)           // 兼容键表达统一内核事实
     })
   })
 
-  it('拉取失败时保持默认全关(fail-soft,前端不越权开启)', async () => {
+  it('拉取失败时保持安全默认(fail-soft,前端不越权开启灰度能力)', async () => {
     apiMock.fetchCapabilities.mockRejectedValueOnce(new Error('网络错误'))
     render(<ContextSnapshotProvider work="demo"><Probe /></ContextSnapshotProvider>)
     await waitFor(() => {

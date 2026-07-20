@@ -527,6 +527,59 @@ def test_stream_done_preserves_real_provider_response_id_from_sse_payload():
     assert events[-1]["response_id"] == provider_response_id
 
 
+def test_stream_delta_exposes_observed_metadata_and_usage_before_cancel():
+    """同一 SSE 帧的安全 metadata/usage 必须先于可取消 delta 向上游可见。"""
+    response_id = "chatcmpl-seen-before-cancel"
+    body = (
+        f'data: {{"id":"{response_id}","model":"deepseek-reasoner",'
+        '"choices":[{"delta":{"content":"半截正文"}}],'
+        '"usage":{"prompt_tokens":7,"completion_tokens":1,"total_tokens":8}}\n\n'
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        stream = deepseek.DeepSeekClient(client=transport).stream(
+            [{"role": "user", "content": "写"}],
+        )
+        usage = next(stream)
+        delta = next(stream)
+        stream.close()
+
+    assert usage == {
+        "type": "usage",
+        "usage": {"prompt_tokens": 7, "completion_tokens": 1, "total_tokens": 8},
+        "model": "deepseek-reasoner",
+        "identity": delta["identity"],
+    }
+    assert delta["delta"] == "半截正文"
+    assert delta["response_id"] == response_id
+    assert delta["model"] == "deepseek-reasoner"
+
+
+def test_stream_forwards_max_tokens_to_official_request():
+    observed = {}
+
+    def handler(request):
+        observed.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            text=(
+                'data: {"model":"deepseek-chat",'
+                '"choices":[{"delta":{"content":"完成"}}]}\n\n'
+                "data: [DONE]\n\n"
+            ),
+        )
+
+    with _client(handler) as transport:
+        list(deepseek.DeepSeekClient(client=transport).stream(
+            [{"role": "user", "content": "写"}], max_tokens=777,
+        ))
+
+    assert observed["max_tokens"] == 777
+
+
 def test_stream_200_empty_sse_fails_loud_without_retry():
     calls = 0
 
@@ -569,6 +622,32 @@ def test_stream_error_payload_fails_loud_and_is_sanitized():
     _safe_exception(raised.value)
 
 
+def test_provider_error_payload_preserves_safe_metadata_from_same_event():
+    response_id = "chatcmpl-provider-error-1"
+    body = (
+        f'data: {{"id":"{response_id}","model":"deepseek-reasoner",'
+        '"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6},'
+        '"error":{"message":"provider rejected"}}\n\n'
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+            list(deepseek.DeepSeekClient(client=transport).stream(
+                [{"role": "user", "content": "写"}],
+            ))
+
+    assert raised.value.status == "provider_error"
+    assert raised.value.response_id == response_id
+    assert raised.value.model == "deepseek-reasoner"
+    assert raised.value.usage == {
+        "prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
+    }
+    _safe_exception(raised.value)
+
+
 def test_stream_eof_after_first_delta_fails_without_retry():
     calls = 0
     body = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
@@ -589,6 +668,38 @@ def test_stream_eof_after_first_delta_fails_without_retry():
     assert first["delta"] == "partial"
     assert calls == 1
     assert raised.value.status == "incomplete_stream"
+    _safe_exception(raised.value)
+
+
+def test_incomplete_stream_error_preserves_observed_provider_metadata():
+    response_id = "chatcmpl-partial-456"
+    body = "\n".join([
+        f'data: {{"id":"{response_id}","model":"deepseek-reasoner",'
+        '"choices":[{"delta":{"content":"半截正文"}}]}',
+        "",
+        f'data: {{"id":"{response_id}","model":"deepseek-reasoner",'
+        '"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":2,'
+        '"total_tokens":10}}',
+        "",
+    ])
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekResponseError) as raised:
+            list(deepseek.DeepSeekClient(client=transport).stream(
+                [{"role": "user", "content": "写"}],
+            ))
+
+    assert raised.value.status == "incomplete_stream"
+    assert raised.value.response_id == response_id
+    assert raised.value.model == "deepseek-reasoner"
+    assert raised.value.usage == {
+        "prompt_tokens": 8,
+        "completion_tokens": 2,
+        "total_tokens": 10,
+    }
     _safe_exception(raised.value)
 
 

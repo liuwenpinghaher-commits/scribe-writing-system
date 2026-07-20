@@ -22,7 +22,7 @@ import { bootstrapSnapshot, reduceSnapshot, semanticIntent } from './contextSnap
 
 const ContextSnapshotCtx = createContext(null)
 
-// Task 16-B 灰度能力:5 个服务端开关的默认态(全关)。后端 /capabilities 是唯一权威——
+// Task 16-B 灰度能力:4 个服务端开关的默认态(全关)。后端 /capabilities 是唯一权威——
 // 前端绝不靠 localStorage 开启未就绪的服务端能力;拉取失败时保持全关(与后端默认一致)。
 export const DEFAULT_CAPABILITIES = {
   flags: {
@@ -30,8 +30,7 @@ export const DEFAULT_CAPABILITIES = {
     editorial_thread_v1: false,
     memory_fabric_v1: false,
     context_inspector_v1: false,
-    spectron_shadow: false,
-    assembler_v1: false,
+    assembler_v1: true,
   },
   versions: {},
 }

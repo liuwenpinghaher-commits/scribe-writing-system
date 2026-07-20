@@ -77,12 +77,33 @@ class DeepSeekError(RuntimeError):
         status: str,
         status_code: int | None = None,
         retryable: bool = False,
+        response_id: str | None = None,
+        usage: Mapping[str, Any] | None = None,
+        model: str | None = None,
     ) -> None:
         super().__init__(message)
         self.identity = identity
         self.status = status
         self.status_code = status_code
         self.retryable = retryable
+        self.response_id = response_id
+        self.usage = dict(usage) if isinstance(usage, Mapping) else None
+        self.model = model
+
+    def with_observed_metadata(
+        self,
+        *,
+        identity: ProviderIdentity,
+        response_id: str | None,
+        usage: Mapping[str, Any] | None,
+        model: str | None,
+    ):
+        """只补安全供应商元数据；绝不挂原始 response/request。"""
+        self.identity = identity
+        self.response_id = response_id
+        self.usage = dict(usage) if isinstance(usage, Mapping) else None
+        self.model = model
+        return self
 
 
 class DeepSeekConfigurationError(DeepSeekError):
@@ -205,11 +226,17 @@ class DeepSeekClient:
         identity: ProviderIdentity,
         *,
         status: str = "invalid_response",
+        response_id: str | None = None,
+        usage: Mapping[str, Any] | None = None,
+        model: str | None = None,
     ) -> DeepSeekResponseError:
         return DeepSeekResponseError(
             "DeepSeek 官方接口返回无效补全结构",
             identity=identity,
             status=status,
+            response_id=response_id,
+            usage=usage,
+            model=model,
         )
 
     def complete(
@@ -312,6 +339,7 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         *,
         model: str | None = None,
+        max_tokens: int | None = None,
         timeout_seconds: float | None = None,
         retry_count: int | None = None,
     ) -> Iterator[dict[str, Any]]:
@@ -324,6 +352,8 @@ class DeepSeekClient:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
         headers = self._headers(api_key)
         retries = self._retry_count(retry_count)
         timeout = self._timeout(timeout_seconds)
@@ -332,8 +362,9 @@ class DeepSeekClient:
         with self._client_scope() as client:
             for attempt in range(retries + 1):
                 sent_delta = False
+                emitted_event = False
                 done = False
-                pending_usage: dict[str, Any] | None = None
+                observed_usage: dict[str, Any] | None = None
                 terminal_model = requested_model
                 terminal_identity = identity
                 terminal_response_id: str | None = None
@@ -364,13 +395,6 @@ class DeepSeekClient:
                                 if not isinstance(payload, Mapping):
                                     attempt_failure = self._safe_response_error(identity)
                                     break
-                                if payload.get("error") is not None:
-                                    attempt_failure = self._safe_response_error(
-                                        identity,
-                                        status="provider_error",
-                                    )
-                                    break
-
                                 payload_response_id = payload.get("id")
                                 if payload_response_id is not None:
                                     if (not isinstance(payload_response_id, str)
@@ -392,6 +416,7 @@ class DeepSeekClient:
                                 terminal_model = event_model
                                 terminal_identity = event_identity
                                 recognized = False
+                                delta_event: dict[str, Any] | None = None
                                 choices = payload.get("choices")
                                 if isinstance(choices, list):
                                     recognized = True
@@ -406,45 +431,70 @@ class DeepSeekClient:
                                             attempt_failure = self._safe_response_error(identity)
                                             break
                                         if content:
-                                            sent_delta = True
-                                            yield {
+                                            delta_event = {
                                                 "type": "delta",
                                                 "delta": content,
                                                 "model": event_model,
                                                 "identity": event_identity,
                                             }
+                                            if terminal_response_id is not None:
+                                                delta_event["response_id"] = terminal_response_id
 
                                 usage = payload.get("usage")
                                 if isinstance(usage, Mapping):
                                     recognized = True
-                                    pending_usage = {
+                                    observed_usage = dict(usage)
+                                    emitted_event = True
+                                    yield {
                                         "type": "usage",
-                                        "usage": dict(usage),
+                                        "usage": observed_usage,
                                         "model": event_model,
                                         "identity": event_identity,
                                     }
+                                if payload.get("error") is not None:
+                                    attempt_failure = self._safe_response_error(
+                                        terminal_identity,
+                                        status="provider_error",
+                                    )
+                                    break
                                 if not recognized:
                                     attempt_failure = self._safe_response_error(identity)
                                     break
+                                if delta_event is not None:
+                                    sent_delta = True
+                                    emitted_event = True
+                                    yield delta_event
                 except httpx.RequestError as error:
                     attempt_failure = self._safe_request_error(error, identity)
 
                 if attempt_failure is not None:
-                    if attempt_failure.retryable and not sent_delta and attempt < retries:
+                    attempt_failure.with_observed_metadata(
+                        identity=terminal_identity,
+                        response_id=terminal_response_id,
+                        usage=observed_usage,
+                        model=terminal_model,
+                    )
+                    if attempt_failure.retryable and not emitted_event and attempt < retries:
                         continue
                     final_failure = attempt_failure
                     break
                 if not done:
                     final_failure = self._safe_response_error(
-                        identity,
+                        terminal_identity,
                         status="incomplete_stream",
+                        response_id=terminal_response_id,
+                        usage=observed_usage,
+                        model=terminal_model,
                     )
                     break
                 if not sent_delta:
-                    final_failure = self._safe_response_error(identity)
+                    final_failure = self._safe_response_error(
+                        terminal_identity,
+                        response_id=terminal_response_id,
+                        usage=observed_usage,
+                        model=terminal_model,
+                    )
                     break
-                if pending_usage is not None:
-                    yield pending_usage
                 done_event = {
                     "type": "done",
                     "model": terminal_model,

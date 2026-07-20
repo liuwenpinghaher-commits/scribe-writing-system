@@ -120,7 +120,7 @@ def _record_provider_failure(
         identity,
         status=status,
         http_status=http_status,
-        usage=None,
+        usage=(error.usage if isinstance(error, DeepSeekError) else None),
     )
 
 
@@ -248,6 +248,8 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
     terminal_seen = False
     usage: dict = {}
     usage_received = False
+    provider_response_id: str | None = None
+    event_model = model
     try:
         for event in client.stream(
             msgs,
@@ -258,6 +260,10 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
             event_identity = event.get("identity")
             if isinstance(event_identity, ProviderIdentity):
                 identity = event_identity
+            if isinstance(event.get("model"), str) and event["model"]:
+                event_model = event["model"]
+            if isinstance(event.get("response_id"), str) and event["response_id"]:
+                provider_response_id = event["response_id"]
             if event.get("type") == "usage" and isinstance(event.get("usage"), dict):
                 if not usage_received:
                     usage = dict(event["usage"])
@@ -277,7 +283,11 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
     except GeneratorExit:
         if not ledger_finalized:
             ledger_finalized = True
-            _record_provider_usage(identity, status="cancelled")
+            _record_provider_usage(
+                identity,
+                status="cancelled",
+                usage=usage if usage_received else None,
+            )
         raise
     except Exception as error:
         if not ledger_finalized:
@@ -286,16 +296,21 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
         raise
     if not terminal_seen:
         ledger_finalized = True
-        _record_provider_usage(identity, status="incomplete_stream")
-        raise DeepSeekResponseError(
+        error = DeepSeekResponseError(
             "DeepSeek 官方流未完整结束",
             identity=identity,
             status="incomplete_stream",
+            response_id=provider_response_id,
+            usage=usage if usage_received else None,
+            model=event_model or identity.model,
         )
+        _record_provider_failure(error, model=model, client=client)
+        raise error
 
 
 def hermes_responses_events(message, instructions: str, model: str | None = None,
                             timeout: float = 600.0, with_tools: bool = True,
+                            max_tokens: int | None = None,
                             conversation: str | None = None,
                             previous_response_id: str | None = None,
                             session_key: str | None = None,
@@ -327,20 +342,38 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         terminal_seen = False
         event_model = model
         provider_response_id: str | None = None
+        stream_kwargs = {
+            "model": model,
+            "timeout_seconds": timeout,
+            "retry_count": _compat_retry_count(),
+        }
+        if max_tokens is not None:
+            stream_kwargs["max_tokens"] = max_tokens
         try:
             for event in client.stream(
                 messages,
-                model=model,
-                timeout_seconds=timeout,
-                retry_count=_compat_retry_count(),
+                **stream_kwargs,
             ):
                 event_identity = event.get("identity")
                 if isinstance(event_identity, ProviderIdentity):
                     identity = event_identity
                 if isinstance(event.get("model"), str) and event["model"]:
                     event_model = event["model"]
+                if isinstance(event.get("response_id"), str) and event["response_id"]:
+                    provider_response_id = event["response_id"]
                 if event.get("type") == "delta" and event.get("delta"):
-                    yield {"type": "response.output_text.delta", "delta": event["delta"]}
+                    delta_event = {
+                        "type": "response.output_text.delta",
+                        "delta": event["delta"],
+                        "trace": asdict(identity),
+                    }
+                    if provider_response_id is not None:
+                        delta_event["response_id"] = provider_response_id
+                    if event_model is not None:
+                        delta_event["model"] = event_model
+                    if usage_received:
+                        delta_event["usage"] = dict(usage)
+                    yield delta_event
                 elif event.get("type") == "usage" and isinstance(event.get("usage"), dict):
                     if not usage_received:
                         usage = dict(event["usage"])
@@ -360,7 +393,11 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         except GeneratorExit:
             if not ledger_finalized:
                 ledger_finalized = True
-                _record_provider_usage(identity, status="cancelled")
+                _record_provider_usage(
+                    identity,
+                    status="cancelled",
+                    usage=usage if usage_received else None,
+                )
             raise
         except Exception as error:
             if not ledger_finalized:
@@ -369,12 +406,16 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
             raise
         if not terminal_seen:
             ledger_finalized = True
-            _record_provider_usage(identity, status="incomplete_stream")
-            raise DeepSeekResponseError(
+            error = DeepSeekResponseError(
                 "DeepSeek 官方流未完整结束",
                 identity=identity,
                 status="incomplete_stream",
+                response_id=provider_response_id,
+                usage=usage if usage_received else None,
+                model=event_model or identity.model,
             )
+            _record_provider_failure(error, model=model, client=client)
+            raise error
         yield {
             "type": "response.completed",
             "response": {

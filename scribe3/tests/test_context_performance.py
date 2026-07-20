@@ -2,7 +2,7 @@
 
 覆盖(诚实区分做实 vs 就绪):
 - 【做实】embedding sha256 缓存命中 + model_version 失效(捕获恒开,生产有效)。
-- 【做实】GET /capabilities 只读上报 5 个灰度开关；兼容键 assembler_v1
+- 【做实】GET /capabilities 只读上报 4 个真实灰度开关；兼容键 assembler_v1
   如实表示统一内核已启用，不再受旧环境变量控制。
 - 【做实】runtime-status 指标块:cross_work / memory pending·failed / spectron / 会话数,不含秘密。
 - 【就绪】RetrievalResult 缓存 30s TTL + 表级失效(待 16-C 检索接进生产才有生产命中)。
@@ -34,23 +34,23 @@ def test_flag_enabled_reads_env(monkeypatch):
 
 def test_capabilities_endpoint_reports_flags(monkeypatch):
     """灰度 flag 默认全关；兼容 assembler_v1 恒真表示统一内核已启用。"""
-    for f in cc.FLAGS + ("SCRIBE3_CONTEXT_ASSEMBLER_V1",):
+    for f in cc.FLAGS:
         monkeypatch.delenv(f, raising=False)
-    monkeypatch.setenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", "0")
     client = TestClient(A.app)
     data = client.get("/capabilities").json()
     flags = data["flags"]
-    # 5 个独立灰度开关 + 兼容 assembler_v1 一并上报。
+    # 4 个真实灰度开关 + 兼容 assembler_v1 一并上报；无 Spectron 假开关。
     assert set(flags) >= {
         "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
-        "context_inspector_v1", "spectron_shadow", "assembler_v1",
+        "context_inspector_v1", "assembler_v1",
     }
+    assert "spectron_shadow" not in flags
     assert flags["assembler_v1"] is True
     assert all(
         flags[name] is False
         for name in (
             "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
-            "context_inspector_v1", "spectron_shadow",
+            "context_inspector_v1",
         )
     )
     assert "versions" in data
@@ -208,6 +208,7 @@ def test_context_memory_metrics_has_real_counters_no_secrets(store):
     assert isinstance(m["memory_events_failed"], int)
     assert isinstance(m["context_sessions_active"], int)
     assert "spectron_shadow" in m
+    assert "flag" not in m["spectron_shadow"]
     assert "hermes_memory_provider" in m
     # 采集骨架(待 16-C 接线):键在,当前为 0/None
     assert "retrieval_p50" in m and "retrieval_p95" in m

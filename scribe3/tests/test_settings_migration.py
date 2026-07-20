@@ -18,11 +18,14 @@ def test_flag_enabled_reads_settings_db():
     assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True    # 热生效,无需重启
 
 
-def test_flag_enabled_env_still_works(monkeypatch):
-    from scribe3.context_cache import flag_enabled
-    monkeypatch.setenv("SCRIBE3_SPECTRON_SHADOW", "on")
-    settings.invalidate_cache()
-    assert flag_enabled("SCRIBE3_SPECTRON_SHADOW") is True     # env 路径不破坏
+def test_removed_nonfunctional_flags_are_not_user_settings():
+    keys = {item.key for item in settings.REGISTRY}
+    assert "SCRIBE3_SPECTRON_SHADOW" not in keys
+    assert "SCRIBE3_CONTEXT_ASSEMBLER_V1" not in keys
+    with pytest.raises(KeyError):
+        settings.put_setting("SCRIBE3_SPECTRON_SHADOW", True)
+    with pytest.raises(KeyError):
+        settings.put_setting("SCRIBE3_CONTEXT_ASSEMBLER_V1", True)
 
 
 def test_flag_enabled_unknown_name_falls_back_env(monkeypatch):
@@ -39,12 +42,10 @@ def test_context_snapshot_flag_reads_settings_db():
     assert context_service.context_snapshot_flag_enabled() is True    # 热生效
 
 
-def test_assembler_flag_reads_settings_db():
-    """消除双路径分裂:app 写作链的 assembler 判定也必须吃到 DB 覆盖。"""
+def test_assembler_compatibility_capability_is_always_enabled():
+    """旧能力键只表达统一内核事实，不再是用户可切换设置。"""
     from scribe3.app import _context_assembler_enabled
-    assert _context_assembler_enabled() is False                       # 字节等价:无覆盖=关
-    settings.put_setting("SCRIBE3_CONTEXT_ASSEMBLER_V1", True)
-    assert _context_assembler_enabled() is True                        # 热生效
+    assert _context_assembler_enabled() is True
 
 
 def test_llm_daily_cap_hot(monkeypatch):

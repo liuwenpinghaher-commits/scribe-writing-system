@@ -327,9 +327,8 @@ def test_chat_write_post_trace_context_carries_unified_manifest(store, monkeypat
     assert all("text" not in b for b in ctx["blocks"]), "每块只记 token+source id,不记正文"
 
 
-def test_chat_write_post_trace_includes_context_when_legacy_flag_off(store, monkeypatch):
-    """旧 assembler flag 关闭也必须走统一内核并留下安全 context trace。"""
-    monkeypatch.delenv("SCRIBE3_CONTEXT_ASSEMBLER_V1", raising=False)
+def test_chat_write_post_trace_includes_unified_context(store, monkeypatch):
+    """唯一生产写作内核必须留下安全 context trace。"""
     monkeypatch.setattr(A, "_responses_events", _stub_events("答。"))
     r = _client(store).post("/chat/write",
                             json={"msg": "问", "chapter": 3, "phase": "draft"})

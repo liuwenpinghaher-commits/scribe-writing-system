@@ -249,7 +249,7 @@ export const api = {
   aiRuntimeStatus: () => jraw('/ai/runtime-status'),
   // Task 16-B 灰度能力下发:前端能力以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
   // 全局端点,不带 work;回 { flags:{snapshot_v1,editorial_thread_v1,memory_fabric_v1,
-  // context_inspector_v1,spectron_shadow,assembler_v1}, versions:{...} },默认 flags 全 false。
+  // context_inspector_v1,assembler_v1}, versions:{...} }；assembler_v1 恒 true。
   fetchCapabilities: () => jraw('/capabilities'),
   // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);

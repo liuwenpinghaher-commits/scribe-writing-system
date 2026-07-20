@@ -606,9 +606,9 @@ def _context_memory_metrics(work: str = "main") -> dict:
     分位数与布尔/短标识。诚实区分【当前有真实值】与【采集骨架待 16-C 接线】:
 
     真实值:cross_work_rejections(16-A)、memory_events_pending/failed(store 计数)、
-      context_sessions_active(store 计数)、spectron_shadow(detect)、hermes_memory_provider。
-    采集骨架(接线后自动填,当前 0/None):retrieval_p50/p95、context_tokens_p95、
-      stale_rejections——依赖 16-C 把检索/组装接进生产读路径与 stale 拒绝路径。"""
+      context_sessions_active(store 计数)、spectron 可用性检测、hermes_memory_provider。
+    采样指标:retrieval_p50/p95、context_tokens_p95、stale_rejections；相关事件尚无
+      样本时如实为 0/None，不表示统一内核或采集接线关闭。"""
     from scribe3 import context_cache
     metrics = dict(context_cache.metrics_snapshot())   # 检索/组装侧(当前多为 0/None)
     # 安全指标(16-A 只读快照,不复算)
@@ -626,18 +626,16 @@ def _context_memory_metrics(work: str = "main") -> dict:
     except Exception as e:
         logging.getLogger("scribe3").error("_context_memory_metrics 查询失败", exc_info=True)
         metrics["memory_metrics_error"] = str(e)[:120]
-    # Spectron 影子:只上报开关 + 可用性 + 原因(全无秘密);包未发布时 available=False 是正确态
+    # Spectron 只上报可用性 + 原因(全无秘密)；没有可切换的影子执行路径。
     try:
         from scribe3.spectron_adapter import detect_spectron
         det = detect_spectron()
         metrics["spectron_shadow"] = {
-            "flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
             "available": bool(det.enabled),
             "reason": det.reason,
         }
     except Exception:
-        metrics["spectron_shadow"] = {"flag": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
-                                      "available": False, "reason": "detect_failed"}
+        metrics["spectron_shadow"] = {"available": False, "reason": "detect_failed"}
     # 生产记忆提供方:自建多通道检索恒为生产提供方(Spectron 仅影子,永不接管生产读,Task 15)。
     metrics["hermes_memory_provider"] = "scribe3_builtin"
     return metrics
@@ -760,7 +758,11 @@ def _response_events_iter(fn, message, instructions: str, **kwargs):
     """Call real Hermes with full runtime kwargs while preserving old test stubs."""
     if _responses_events is None:
         return fn(message, instructions, **kwargs)
-    safe = {k: v for k, v in kwargs.items() if k in {"model", "with_tools"}}
+    safe = {
+        k: v for k, v in kwargs.items()
+        if k in {"model", "with_tools", "max_tokens"}
+        and (k != "max_tokens" or v is not None)
+    }
     return fn(message, instructions, **safe)
 
 
@@ -881,7 +883,7 @@ def capabilities():
     """Task 16-B 灰度能力下发:只读各 feature flag 的 env 状态(不下发任何秘密)。
 
     前端能力以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
-    五个灰度 flag 默认均 False；兼容键 assembler_v1 恒 True，表示统一内核已启用。
+    四个灰度 flag 默认均 False；兼容键 assembler_v1 恒 True，表示统一内核已启用。
     capabilities 只上报运行时事实，不改变生产路由。
     回滚顺序:inspector → memory retrieval → editorial thread → context snapshot;数据表保留不删。"""
     from scribe3 import context_cache, embed
@@ -891,10 +893,8 @@ def capabilities():
             "editorial_thread_v1": _flag_enabled("SCRIBE3_EDITORIAL_THREAD_V1"),
             "memory_fabric_v1": _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"),
             "context_inspector_v1": _flag_enabled("SCRIBE3_CONTEXT_INSPECTOR_V1"),
-            "spectron_shadow": _flag_enabled("SCRIBE3_SPECTRON_SHADOW"),
-            # 兼容旧前端字段名；Creative Context Engine 已是唯一生产写作内核，
-            # 不再受 SCRIBE3_CONTEXT_ASSEMBLER_V1 控制。
-            "assembler_v1": _context_assembler_enabled(),
+            # 兼容旧前端字段名；Creative Context Engine 已是唯一生产写作内核。
+            "assembler_v1": True,
         },
         "versions": {
             "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
@@ -4480,7 +4480,7 @@ def _is_write_intent(msg) -> bool:
 
 
 def _stream_write(message, instructions: str, expect_proposal: bool = False,
-                  with_tools: bool = True, on_complete=None,
+                  with_tools: bool = True, on_complete=None, on_terminal=None,
                   # U-003:这是限知章续写路径,mcp_server_label 恒 READ,不接受调用方
                   # 覆盖成别的 label——即便将来 *_reveal 全知孪生工具真挂上了某个网关,
                   # 这里也绝不能是那个 label(它们能解锁任意 secret 明文写进续写 prompt,
@@ -4492,8 +4492,9 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     message: str(纯文本) 或 list(含图片附件)。
     expect_proposal: 若为 True 且模型未输出围栏但散文足够长,在流末尾追加兜底 proposal 事件。
     with_tools:H-01 work-scoped MCP 开关;为 True 时 instructions 必须已钉死当前 work。
-    on_complete:任何终态都回调一次 ``(ui_text, trace)``；即使无文本也必须
-    回调，以留下 failed/incomplete/cancelled Outcome。一参旧回调继续兼容。"""
+    on_terminal:任何终态都硬回调一次 ``(trace)``，用于 Outcome；失败必须上抛。
+    on_complete:Outcome 成功后的 best-effort UI/chat 回调 ``(ui_text, trace)``；
+    一参旧回调继续兼容。"""
     import json as _j
     from scribe3.hermes_runtime import HermesEventAdapter
     from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
@@ -4504,6 +4505,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     prop = {"scope": None, "prose": []}
     prop_marks: list[str] = []   # 本轮出过的提案标记(scope+字数),落库口径 D-003
     terminal_seen = False
+    terminal_callback_started = False
 
     # 兜底追踪状态
     saw_proposal = False
@@ -4515,6 +4517,35 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     )
     trace = {"status": "streaming", "tool_calls": [], "tool_outputs": [],
              "response_id": None, "usage": None, "provider": initial_provider}
+
+    def run_terminal_callbacks() -> None:
+        """固定先写硬 Outcome，再做既有 best-effort chat 留痕；全程只执行一次。"""
+        nonlocal terminal_callback_started
+        if terminal_callback_started:
+            return
+        terminal_callback_started = True
+        trace["output_hash"] = hashlib.sha256(
+            "".join(raw_delta_acc).encode("utf-8")
+        ).hexdigest()
+        txt = "".join(delta_acc).strip()
+        if prop_marks:
+            txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
+        if on_terminal is not None:
+            on_terminal(trace)
+        if on_complete is None:
+            return
+        try:
+            import inspect
+            try:
+                signature = inspect.signature(on_complete)
+                signature.bind(txt, trace)
+            except (TypeError, ValueError):
+                on_complete(txt)
+            else:
+                # 先 bind 再调用，避免把回调内部 TypeError 误判为旧签名而重放。
+                on_complete(txt, trace)
+        except Exception:
+            logging.getLogger("scribe3").warning("写作完成回调失败(忽略)", exc_info=True)
 
     def provider_trace_for_persistence(event: dict) -> dict:
         """只持久安全已知的 provider identity，不信任供应商事件的任意 trace。"""
@@ -4534,6 +4565,26 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
         if isinstance(raw.get("official"), bool):
             safe["official"] = raw["official"]
         return safe
+
+    def observe_provider_metadata(event) -> None:
+        """从每个原始事件累积安全元数据，不能等到终态才第一次看。"""
+        if not isinstance(event, dict):
+            return
+        response = event.get("response") if isinstance(event.get("response"), dict) else {}
+        response_id = event.get("response_id") or response.get("id")
+        if isinstance(response_id, str) and response_id:
+            trace["response_id"] = response_id
+        model = event.get("model") or response.get("model")
+        if isinstance(model, str) and model:
+            trace["model"] = model
+        usage = event.get("usage")
+        if not isinstance(usage, dict):
+            usage = response.get("usage")
+        if isinstance(usage, dict):
+            trace["usage"] = usage
+        provider = provider_trace_for_persistence(event)
+        if not with_tools and provider:
+            trace["provider"].update(provider)
 
     def drain(events):
         nonlocal saw_proposal
@@ -4557,6 +4608,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
     try:
         for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
                                         server_label=mcp_server_label):
+            observe_provider_metadata(ev)
             source_type = (
                 ev.get("type") or ev.get("event")
                 if isinstance(ev, dict) else None
@@ -4571,18 +4623,11 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                     if source_type == "response.incomplete"
                     else "cancelled"
                 )
-                trace["response_id"] = response.get("id")
-                trace["usage"] = response.get("usage")
-                if isinstance(response.get("model"), str):
-                    trace["model"] = response["model"]
                 trace["error"] = (
                     response.get("incomplete_details")
                     or response.get("error")
                     or ev.get("error")
                 )
-                terminal_provider = provider_trace_for_persistence(ev)
-                if not with_tools and terminal_provider:
-                    trace["provider"].update(terminal_provider)
                 continue
             app_ev = adapter.adapt(ev)
             if app_ev["kind"] == "text.delta":
@@ -4624,34 +4669,27 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 terminal_seen = True
                 if trace["status"] != "failed":
                     trace["status"] = "completed"
-                trace["response_id"] = app_ev.get("response_id")
-                trace["usage"] = app_ev.get("usage")
+                if isinstance(app_ev.get("response_id"), str) and app_ev["response_id"]:
+                    trace["response_id"] = app_ev["response_id"]
+                if isinstance(app_ev.get("usage"), dict):
+                    trace["usage"] = app_ev["usage"]
                 response = ev.get("response") if isinstance(ev, dict) else None
                 if isinstance(response, dict) and isinstance(response.get("model"), str):
                     trace["model"] = response["model"]
-                completed_provider = provider_trace_for_persistence(ev)
-                if not with_tools and completed_provider:
-                    trace["provider"].update(completed_provider)
             elif app_ev["kind"] == "run.failed":
                 terminal_seen = True
                 trace["status"] = "failed"
-                trace["response_id"] = app_ev.get("response_id")
+                if isinstance(app_ev.get("response_id"), str) and app_ev["response_id"]:
+                    trace["response_id"] = app_ev["response_id"]
                 trace["error"] = app_ev.get("error")
                 response = ev.get("response") if isinstance(ev, dict) else None
                 if isinstance(response, dict):
                     trace["usage"] = response.get("usage")
                     if isinstance(response.get("model"), str):
                         trace["model"] = response["model"]
-                failed_provider = provider_trace_for_persistence(ev)
-                if not with_tools and failed_provider:
-                    trace["provider"].update(failed_provider)
         yield from drain(parser.flush())
         if not terminal_seen:
             trace["status"] = "incomplete_stream"
-        if trace["status"] == "failed":
-            yield f"data: {_j.dumps({'error': '写作流失败，请重试'}, ensure_ascii=False)}\n\n"
-        elif trace["status"] != "completed":
-            yield f"data: {_j.dumps({'error': '写作流未完整结束，请重试'}, ensure_ascii=False)}\n\n"
         # 兜底:模型忘写围栏 → 把累积散文包成 chapter 提案末尾推送
         # P2-a Fix6: 剥离首段主编开场白("我的处理思路"/"思路:"/"建议:"等解说),
         # 只把散文主体包进 proposal,避免对话话术混入手稿。
@@ -4663,6 +4701,12 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 yield (
                     f"data: {_j.dumps({'proposal': {'scope': 'chapter', 'prose': prose_body, 'fallback': True}}, ensure_ascii=False)}\n\n"
                 )
+        # 正常路径必须在 done 对客户端可见之前先形成不可变 Outcome。
+        run_terminal_callbacks()
+        if trace["status"] == "failed":
+            yield f"data: {_j.dumps({'error': '写作流失败，请重试'}, ensure_ascii=False)}\n\n"
+        elif trace["status"] != "completed":
+            yield f"data: {_j.dumps({'error': '写作流未完整结束，请重试'}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
     except GeneratorExit:
         # 只有供应商终态尚未到达时，客户端断开才是 cancelled。
@@ -4672,6 +4716,22 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             trace["status"] = "cancelled"
         raise
     except Exception as e:
+        # 硬 Outcome 回调失败不得被转写成一条普通 SSE error 后吞掉。
+        if terminal_callback_started:
+            raise
+        # provider 明确终态是权威；终态后的 transport/迭代器异常只能告警，
+        # 不得反向改写 status/id/usage。随后仍按既定终态形成 Outcome 与 done。
+        if terminal_seen:
+            logging.getLogger("scribe3").warning(
+                "provider 终态后的流异常已忽略: %s", str(e)[:120],
+            )
+            run_terminal_callbacks()
+            if trace["status"] == "failed":
+                yield f"data: {_j.dumps({'error': '写作流失败，请重试'}, ensure_ascii=False)}\n\n"
+            elif trace["status"] != "completed":
+                yield f"data: {_j.dumps({'error': '写作流未完整结束，请重试'}, ensure_ascii=False)}\n\n"
+            yield 'data: {"done": true}\n\n'
+            return
         # 官方 DeepSeek 客户端在未见 done 时以带 status 的异常
         # fail-loud；不能因为 Python 出口是 exception 就把真实终态改写为 failed。
         trace["status"] = (
@@ -4679,34 +4739,31 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
             if getattr(e, "status", None) == "incomplete_stream"
             else "failed"
         )
+        response_id = getattr(e, "response_id", None)
+        if isinstance(response_id, str) and response_id:
+            trace["response_id"] = response_id
+        usage = getattr(e, "usage", None)
+        if isinstance(usage, dict):
+            trace["usage"] = usage
+        if isinstance(getattr(e, "model", None), str):
+            trace["model"] = e.model
+        identity = getattr(e, "identity", None)
+        if identity is not None:
+            try:
+                from dataclasses import asdict
+                trace["provider"] = asdict(identity)
+            except (TypeError, ValueError):
+                pass
         trace["error"] = str(e)[:160]
+        run_terminal_callbacks()
         yield f"data: {_j.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
     finally:
         # 北极星任务1 + P0门审查 P1-6:落库必须在 finally——客户端断流时 Starlette
         # 在 yield 点抛 GeneratorExit(BaseException,except Exception 接不住),
         # 半截对话也要留痕;本块纯副作用不 yield,GeneratorExit 语义安全(D-004)。
-        if on_complete is not None:
-            try:
-                # 哈希精确覆盖供应商原始文本流（含 proposal 正文），
-                # 不用 UI 摘要，也不把原文放进 trace/Outcome。
-                trace["output_hash"] = hashlib.sha256(
-                    "".join(raw_delta_acc).encode("utf-8")
-                ).hexdigest()
-                txt = "".join(delta_acc).strip()
-                if prop_marks:
-                    txt = (txt + "\n" if txt else "") + " ".join(prop_marks)
-                import inspect
-                try:
-                    signature = inspect.signature(on_complete)
-                    signature.bind(txt, trace)
-                except (TypeError, ValueError):
-                    on_complete(txt)
-                else:
-                    # 先 bind 再调用，避免把回调内部 TypeError 误判为旧签名而重放。
-                    on_complete(txt, trace)
-            except Exception:
-                logging.getLogger("scribe3").warning("写作完成回调失败(忽略)", exc_info=True)
+        if not terminal_callback_started:
+            run_terminal_callbacks()
 
 
 def _avoid_directive(st, chapter: int, lookback: int = 8, top: int = 40) -> str:
@@ -4944,12 +5001,14 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     # 尚未执行的工具调用混进提案。多书时仍由提示层强制每次联查显式带 work。
     _write_intent = _is_write_intent(msg)
     _wt = _work_has_tools(work) and _write_phase_allows_tools(phase)
+    outcome_binding = _WriteOutcomeBinding(st)
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
-        seed_words=[], short_mode=short_mode, with_tools=_wt, work=work)
+        seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
+        envelope_trace=outcome_binding.manifest_trace)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_write_intent,
-                      with_tools=_wt),
+                      with_tools=_wt, on_terminal=outcome_binding.persist),
         media_type="text/event-stream",
     )
 
@@ -5263,7 +5322,7 @@ _context_assembler_fallbacks = 0
 
 
 def _context_assembler_enabled() -> bool:
-    """兼容旧调用方：统一内核已启用，旧环境变量不再控制生产路由。"""
+    """兼容旧调用方：统一内核已启用；这不是用户设置。"""
     return True
 
 
@@ -5302,9 +5361,9 @@ def _get_write_retriever(st):
       仍有真数据),与 16-C 前【字节等价】——写作 prompt 不读经验记忆、零检索成本。
     【开】→ MemoryRetriever(st):四通道检索 / RRF / 限知门 / 正典压制接进写作 envelope
       (剧透门 known_from、秘密屏蔽 C1、work 隔离全在检索/组装链内生效)。
-    Creative Context Engine 始终消费本 retriever，不再需要旧
-    SCRIBE3_CONTEXT_ASSEMBLER_V1 同开。捕获侧 _capture_turn_memory 仍由
-    MEMORY_FABRIC 同一 flag 对称门控。"""
+    Creative Context Engine 始终消费本注入点的结果；是否实例化 retriever
+    只由 MEMORY_FABRIC 控制。捕获侧 _capture_turn_memory 仍由同一 flag
+    对称门控。"""
     if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
         return None
     from scribe3.memory_retrieval import MemoryRetriever
@@ -5405,7 +5464,8 @@ def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) ->
 
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
                                     short_mode, with_tools=False, work=None,
-                                    envelope_trace=None, memory_trace_ctx=None):
+                                    envelope_trace=None, memory_trace_ctx=None,
+                                    extra_instructions: str = ""):
     """统一写作编译路径：Envelope 与最终 system instructions 一次绑定。"""
     from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
     from scribe3.context_engine import CreativeContextEngine
@@ -5484,6 +5544,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                   "不得补写环境细节、动作过程、人物关系、历史、心理原因或后续结果。"
                   "真相未写明时用“未能从场景真相确认。”留白，而不是推测。"
             )
+        if extra_instructions:
+            rendered += "\n\n" + extra_instructions
         return rendered
 
     import uuid
@@ -5558,16 +5620,18 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                                  with_tools: bool = False,
                                  work: str | None = None,
                                  envelope_trace: dict | None = None,
-                                 memory_trace_ctx: dict | None = None) -> str:
+                                 memory_trace_ctx: dict | None = None,
+                                 extra_instructions: str = "") -> str:
     """chat_write 完整组装链单源；生产无条件走 Creative Context Engine。
 
-    ``SCRIBE3_CONTEXT_ASSEMBLER_V1`` 不再决定生产写作路由。统一内核失败
-    直接上抛，不得回退旧散点链伪装成“没有上下文”。"""
+    统一内核是唯一生产写作路由。编译失败直接上抛，不得回退旧散点链
+    伪装成“没有上下文”。"""
     return _assemble_write_instructions_v1(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=seed_words, short_mode=short_mode,
         with_tools=with_tools, work=work, envelope_trace=envelope_trace,
         memory_trace_ctx=memory_trace_ctx,
+        extra_instructions=extra_instructions,
     )
 
 
@@ -5633,6 +5697,23 @@ def _save_write_context_outcome(st, envelope_trace: dict, trace: dict):
     return ContextStore(st).save_outcome(outcome)
 
 
+class _WriteOutcomeBinding:
+    """一次生成请求的 Manifest 绑定；Outcome 失败属于主链错误，禁止吞掉。"""
+
+    def __init__(self, st):
+        self._store = st
+        self.manifest_trace: dict = {}
+
+    def persist(self, trace: dict) -> None:
+        try:
+            _save_write_context_outcome(self._store, self.manifest_trace, trace)
+        except Exception:
+            logging.getLogger("scribe3").error(
+                "Context Outcome 落库失败，终止本次生成", exc_info=True,
+            )
+            raise
+
+
 @app.post("/chat/write")
 def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
                     work: str = "main"):
@@ -5657,7 +5738,8 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
     # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
     # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
-    _envelope_trace: dict = {}
+    outcome_binding = _WriteOutcomeBinding(st)
+    _envelope_trace = outcome_binding.manifest_trace
     # Task 16 最后一厘米:前端真实会话绑定(供 v1 检索路径落 memory_trace 给 ContextInspector);
     # 三件套优先 body,缺失回退请求头 X-Scribe-Context-*。仅 MEMORY_FABRIC 开 + 绑定齐备时
     # 被消费落 trace；fabric 关/无绑定时不影响写作字节(纯落库副作用,与 chat_message 同 best-effort)。
@@ -5702,15 +5784,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
         _ctx = _envelope_trace.get("context")
         if _ctx:
             trace["context"] = _ctx
-        # Outcome 与 chat_message 是两个独立的留痕副作用：先写 Outcome，
-        # 写失败必须记错，但不得阻断既有 chat_message best-effort 语义。
-        try:
-            _save_write_context_outcome(st, _envelope_trace, trace)
-        except Exception:
-            logging.getLogger("scribe3").error(
-                "Context Outcome 落库失败，未伪造 succeeded 记录", exc_info=True)
-        # 无文本失败/取消只落 Outcome，不改变原有“无空 assistant
-        # 消息”口径。on_complete 仍已被调用，所以不会漏 Outcome。
+        # 无文本失败/取消只落硬 Outcome，不改变原有“无空 assistant 消息”口径。
         if not text:
             return
         resp_id = trace.get("response_id")
@@ -5725,6 +5799,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     return StreamingResponse(
         _stream_write(message, instructions, expect_proposal=_write_intent,
                       with_tools=_wt,
+                      on_terminal=outcome_binding.persist,
                       on_complete=_persist_assistant),
         media_type="text/event-stream",
     )
@@ -5734,25 +5809,68 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
 def chat_messages(chapter: int | None = None, limit: int = 500, work: str = "main"):
     """会话留痕回看(北极星任务1):按章拉 chat_message,ts 升序。
     复盘蒸馏(任务8)与「当初为什么这么定」的翻账都从这里读。
-    GET /chat/write(兼容端点,无生产调用方)不落库——台账 D-005。"""
+    GET /chat/write(兼容端点,无生产调用方)不落 chat_message，但会落 Manifest/Outcome。"""
     return _store_for(work).list_chat_messages(chapter=chapter, limit=limit)
 
 
-def _collect_write(message, instructions: str, with_tools: bool = True):
+def _collect_write(message, instructions: str, with_tools: bool = True,
+                   on_terminal=None, text_mode: bool = False,
+                   max_tokens: int | None = None):
     """同步(非 SSE)写作收集器,loop 编排(北极星任务4)用。与 _stream_write 同一事件源
     (_responses_events 可 monkeypatch)与同一 ProposalParser 语义,只是不产 SSE 帧。
-    返回 (围栏外散文, proposals=[{scope, prose}, ...]);LLM 异常向上抛(journal 的
-    in_progress 会停在 generate stage,resume/审计可见,不吞错)。"""
+    返回 (围栏外散文, proposals=[{scope, prose}, ...])；text_mode=True 时返回
+    供应商完整文本。任何 completed/failed/incomplete/异常均先硬写 Outcome，再返回或抛。"""
     from scribe3.hermes_runtime import HermesEventAdapter
-    from scribe3.llm import hermes_responses_events
+    from scribe3.llm import hermes_responses_events, official_deepseek_provider_identity
     from scribe3.proposal import ProposalParser
     fn = _responses_events or hermes_responses_events
     adapter = HermesEventAdapter()
     parser = ProposalParser()
     outside: list[str] = []
+    raw_delta_acc: list[str] = []
     proposals: list[dict] = []
     cur = {"scope": None, "prose": []}
-    terminal_status: str | None = None
+    initial_provider = (
+        {"provider": "hermes_gateway", "official": False, "transport": "hermes"}
+        if with_tools else official_deepseek_provider_identity()
+    )
+    trace = {"status": "streaming", "response_id": None, "usage": None,
+             "provider": initial_provider}
+    terminal_seen = False
+    stream_error: Exception | None = None
+
+    def apply_terminal_metadata(ev: dict, status: str) -> None:
+        nonlocal terminal_seen
+        terminal_seen = True
+        trace["status"] = status
+        response = ev.get("response") if isinstance(ev.get("response"), dict) else {}
+        if status != "completed":
+            trace["error"] = (
+                response.get("incomplete_details")
+                or response.get("error")
+                or ev.get("error")
+            )
+
+    def observe_provider_metadata(ev) -> None:
+        if not isinstance(ev, dict):
+            return
+        response = ev.get("response") if isinstance(ev.get("response"), dict) else {}
+        response_id = ev.get("response_id") or response.get("id")
+        if isinstance(response_id, str) and response_id:
+            trace["response_id"] = response_id
+        model = ev.get("model") or response.get("model")
+        if isinstance(model, str) and model:
+            trace["model"] = model
+        usage = ev.get("usage")
+        if not isinstance(usage, dict):
+            usage = response.get("usage")
+        if isinstance(usage, dict):
+            trace["usage"] = usage
+        if not with_tools and isinstance(ev.get("trace"), dict):
+            for key in ("provider", "api_base", "model", "transport", "official"):
+                value = ev["trace"].get(key)
+                if isinstance(value, str) or (key == "official" and isinstance(value, bool)):
+                    trace["provider"][key] = value
 
     def drain(events):
         for kind, val in events:
@@ -5771,23 +5889,82 @@ def _collect_write(message, instructions: str, with_tools: bool = True):
     # U-003 修复:server_label 硬编码 SCRIBE3_READ_MCP_LABEL,不接受参数、不可被调用方
     # 覆盖——收集式写作(loop 编排/select 环)与 _stream_write 同规矩,绝不能挂
     # s3_*_reveal 全知孪生工具面(否则模型能自己解锁任意 secret 明文写进续写文本)。
+    response_kwargs = {
+        "with_tools": with_tools,
+        "store": True,
+        "server_label": SCRIBE3_READ_MCP_LABEL,
+    }
+    if max_tokens is not None:
+        response_kwargs["max_tokens"] = max_tokens
     try:
-        for ev in _response_events_iter(fn, message, instructions, with_tools=with_tools, store=True,
-                                        server_label=SCRIBE3_READ_MCP_LABEL):
+        for ev in _response_events_iter(fn, message, instructions, **response_kwargs):
+            observe_provider_metadata(ev)
+            source_type = (
+                ev.get("type") or ev.get("event")
+                if isinstance(ev, dict) else None
+            )
+            if source_type == "response.incomplete":
+                apply_terminal_metadata(ev, "incomplete_stream")
+                continue
+            if source_type == "response.cancelled":
+                apply_terminal_metadata(ev, "cancelled")
+                continue
             app_ev = adapter.adapt(ev)
             if app_ev["kind"] == "text.delta":
-                drain(parser.feed(app_ev.get("delta", "")))
+                raw_delta = app_ev.get("delta", "")
+                if not isinstance(raw_delta, str):
+                    raw_delta = str(raw_delta)
+                raw_delta_acc.append(raw_delta)
+                drain(parser.feed(raw_delta))
             elif app_ev["kind"] == "run.failed":
-                terminal_status = "failed"
-            elif app_ev["kind"] == "run.completed" and terminal_status is None:
-                terminal_status = "completed"
-    except Exception:
-        raise RuntimeError("LLM 写作流异常，未生成完整候选稿") from None
+                apply_terminal_metadata(ev, "failed")
+            elif app_ev["kind"] == "run.completed" and trace["status"] != "failed":
+                apply_terminal_metadata(ev, "completed")
+    except Exception as error:
+        if terminal_seen:
+            logging.getLogger("scribe3").warning(
+                "provider 终态后的收集异常已忽略: %s", str(error)[:120],
+            )
+        else:
+            stream_error = error
+            trace["status"] = (
+                "incomplete_stream"
+                if getattr(error, "status", None) == "incomplete_stream"
+                else "failed"
+            )
+            response_id = getattr(error, "response_id", None)
+            if isinstance(response_id, str) and response_id:
+                trace["response_id"] = response_id
+            usage = getattr(error, "usage", None)
+            if isinstance(usage, dict):
+                trace["usage"] = usage
+            if isinstance(getattr(error, "model", None), str):
+                trace["model"] = error.model
+            identity = getattr(error, "identity", None)
+            if identity is not None:
+                try:
+                    from dataclasses import asdict
+                    trace["provider"] = asdict(identity)
+                except (TypeError, ValueError):
+                    pass
+            trace["error"] = str(error)[:160]
     drain(parser.flush())
-    if terminal_status == "failed":
+    if not terminal_seen and stream_error is None:
+        trace["status"] = "incomplete_stream"
+        trace["error"] = "LLM 写作流未完整结束"
+    trace["output_hash"] = hashlib.sha256(
+        "".join(raw_delta_acc).encode("utf-8")
+    ).hexdigest()
+    if on_terminal is not None:
+        on_terminal(trace)
+    if stream_error is not None:
+        raise RuntimeError("LLM 写作流异常，未生成完整候选稿") from None
+    if trace["status"] == "failed":
         raise RuntimeError("LLM 写作流失败，未生成完整候选稿")
-    if terminal_status != "completed":
+    if trace["status"] != "completed":
         raise RuntimeError("LLM 写作流未完整结束，未生成完整候选稿")
+    if text_mode:
+        return "".join(raw_delta_acc).strip()
     return "".join(outside), proposals
 
 
@@ -5845,15 +6022,19 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
 
     def _generate(attempt: int, constraints: str) -> str:
         with_tools = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
+        outcome_binding = _WriteOutcomeBinding(st)
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
             seed_words=[], short_mode=req.short_mode,
-            with_tools=with_tools, work=work)
-        if constraints:
-            instructions += "\n\n" + constraints
+            with_tools=with_tools, work=work,
+            envelope_trace=outcome_binding.manifest_trace,
+            extra_instructions=constraints)
         msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
                           f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
-        text, proposals = _collect_write(msg, instructions, with_tools=with_tools)
+        text, proposals = _collect_write(
+            msg, instructions, with_tools=with_tools,
+            on_terminal=outcome_binding.persist,
+        )
         # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
         # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通
         # pass,把既有整章正文静默覆盖掉。
@@ -7887,14 +8068,22 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         raise
 
     def _generate(strategy: dict) -> str:
+        outcome_binding = _WriteOutcomeBinding(st)
+        strategy_instructions = (
+            "【选择环候选策略(本候选必须执行)】" + strategy["directive"]
+        )
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
-            seed_words=[], short_mode=False, with_tools=False, work=work)   # 候选生成不挂工具(纯写作)
-        instructions += "\n\n【选择环候选策略(本候选必须执行)】" + strategy["directive"]
+            seed_words=[], short_mode=False, with_tools=False, work=work,
+            envelope_trace=outcome_binding.manifest_trace,
+            extra_instructions=strategy_instructions)   # 候选生成不挂工具(纯写作)
         msg = ((req.msg + "\n") if req.msg else "") + (
             f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
             f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
-        text, proposals = _collect_write(msg, instructions, with_tools=False)
+        text, proposals = _collect_write(
+            msg, instructions, with_tools=False,
+            on_terminal=outcome_binding.persist,
+        )
         chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
         if chapter_props:
             return chapter_props[-1]["prose"]
@@ -8022,11 +8211,15 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
 def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str = "",
                    max_tokens: int | None = 1600) -> str:
     """pilot 生成通道:同一 _assemble_write_instructions 组装链(宪法:不另起简化 prompt)。"""
-    from scribe3.llm import hermes_complete
+    outcome_binding = _WriteOutcomeBinding(st)
     ins = _assemble_write_instructions(
         st, chapter=seq, focalizer=focalizer, phase=phase,
-        with_tools=False, seed_words=[], short_mode=False, work=work)
-    return (hermes_complete(ask, system=ins, max_tokens=max_tokens) or "").strip()
+        with_tools=False, seed_words=[], short_mode=False, work=work,
+        envelope_trace=outcome_binding.manifest_trace)
+    return _collect_write(
+        ask, ins, with_tools=False, on_terminal=outcome_binding.persist,
+        text_mode=True, max_tokens=max_tokens,
+    )
 
 
 def _grounding_llm(prompt: str) -> str:

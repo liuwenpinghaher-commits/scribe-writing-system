@@ -117,7 +117,7 @@ _CLEAN = ("院门虚掩着,他把伞立在阶下,听见里头有人翻动纸页�
 
 
 def _wire_llm(monkeypatch):
-    """stub 两条 LLM 通道:complete(大纲/节拍/演绎/纪律/自审)+ responses 流(loop 草稿)。"""
+    """stub 事件生成通道(Pilot/loop)及剩余 complete 审校通道。"""
     def fake_complete(prompt, system=None, **kw):
         # 纪律判据看 prompt 自身特征(要求输出 violations/cut_after JSON)——
         # 不能看 system:写作组装链 system 必含"纪律"字样,会误吞一切生成调用。
@@ -134,15 +134,23 @@ def _wire_llm(monkeypatch):
             return "- 老范开门\n- 哑姑递布包\n- 井边对峙\n- 章末钩子:布包里是半张纸人脸"
         return "第2章大纲提案:哑姑在井边第一次开口。压力级:3。钩子:布包。"
     A.set_complete_fn(fake_complete)
-    # pilot 生成通道(_pilot_llm_gen)函数内 from scribe3.llm import hermes_complete——
-    # 必须 patch 模块属性,否则测试烧真网关(首跑实证:真 LLM 生成了整章演绎)。
+    # grounding/纪律等非 Pilot 生成路径仍使用 complete。
     import scribe3.llm as L
     monkeypatch.setattr(L, "hermes_complete", fake_complete)
     import scribe3.ingest as I
     monkeypatch.setattr(I, "ingest_chapter", lambda st, seq, llm: {})
 
-    def fn(message, instructions, with_tools=True):
-        yield {"type": "response.output_text.delta", "delta": f"{_FENCE}{_CLEAN}{_FENCE2}"}
+    def fn(message, instructions, with_tools=True, max_tokens=None):
+        text = (
+            f"{_FENCE}{_CLEAN}{_FENCE2}"
+            if "章正文" in str(message) or "围栏交稿" in str(message)
+            else fake_complete(str(message), system=instructions, max_tokens=max_tokens)
+        )
+        yield {"type": "response.output_text.delta", "delta": text}
+        yield {
+            "type": "response.completed",
+            "response": {"id": "pilot-test-response", "model": "deepseek-chat", "usage": {}},
+        }
     monkeypatch.setattr(A, "_responses_events", fn)
 
 
@@ -440,8 +448,13 @@ def test_steer_reaches_outline_prompt(store, monkeypatch):
             seen["prompt"] = prompt
         return "提案。压力级:2。"
     _wire_llm(monkeypatch)
-    import scribe3.llm as L
-    monkeypatch.setattr(L, "hermes_complete", spy)
+
+    def spy_events(message, instructions, with_tools=True, max_tokens=None):
+        yield {"type": "response.output_text.delta",
+               "delta": spy(str(message), system=instructions, max_tokens=max_tokens)}
+        yield {"type": "response.completed", "response": {"id": "steer-test"}}
+
+    monkeypatch.setattr(A, "_responses_events", spy_events)
     c = _client(store)
     A.set_complete_fn(lambda p, **kw: json.dumps(
         {"kind": "steer", "target_seq": 6, "note": "ok", "question": ""}, ensure_ascii=False))
