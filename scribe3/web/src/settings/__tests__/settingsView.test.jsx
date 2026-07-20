@@ -140,6 +140,19 @@ describe('SettingsView', () => {
     expect(screen.getByText(/500/)).toBeTruthy()
   })
 
+  it('无限用量时展示今日已用和不限次数', async () => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main', cap: { cap: 0, used_today: 12, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [], since: '2026-07-06' },
+    }))
+    render(<SettingsView work="demo" />)
+
+    const usage = await screen.findByText(/今日已用 12 发/)
+    expect(usage.parentElement?.textContent).toContain('不限次数')
+    expect(usage.parentElement?.textContent).not.toMatch(/\/\s*0/)
+    expect(usage.parentElement?.textContent).not.toContain('日帽 0')
+  })
+
   it('用量拉取失败时静默隐藏用量卡(fail-soft)', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.reject(new Error('boom')))
     render(<SettingsView work="demo" />)

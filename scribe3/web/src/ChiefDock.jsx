@@ -313,13 +313,17 @@ function UsageChip() {
   const todayTok = u.tokens?.days?.[0]?.total?.total_tokens ?? 0
   const tok = todayTok >= 1000 ? `${Math.round(todayTok / 1000)}k` : String(todayTok)
   const scopeLabel = u.cap.scope === 'shared' ? 'app+MCP 共享台账' : '台账故障,进程内计数(下限)'
+  const unlimited = u.cap.unlimited === true
+  const usageLabel = unlimited
+    ? `今日已用 ${u.cap.used_today} 发 · 不限次数`
+    : `${u.cap.used_today}/${u.cap.cap} 发`
   return (
     <span
       data-testid="chief-usage-chip"
       className="ml-auto shrink-0 text-meta text-faint tabular-nums whitespace-nowrap"
-      title={`LLM 日帽:今日已用 ${u.cap.used_today}/${u.cap.cap} 发(${scopeLabel});今日 token 合计 ${todayTok}(Hermes 回传 usage 聚合)`}
+      title={`LLM ${unlimited ? '用量' : '日帽'}:${usageLabel}(${scopeLabel});今日 token 合计 ${todayTok}(Hermes 回传 usage 聚合)`}
     >
-      {u.cap.used_today}/{u.cap.cap} 发 · {tok} tok
+      {usageLabel} · {tok} tok
     </span>
   )
 }

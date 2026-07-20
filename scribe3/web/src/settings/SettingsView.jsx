@@ -31,16 +31,25 @@ function UsageCard() {
   }, [])
   if (!usage?.cap) return null
   const { cap, used_today } = usage.cap
+  const unlimited = usage.cap.unlimited === true
   const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
       <div className="flex items-center justify-between text-f13 text-ink">
-        <span>今日已用 {used_today} / 日帽 {cap}</span>
-        <span className="text-meta text-muted">{pct}%</span>
+        {unlimited ? (
+          <span>今日已用 {used_today} 发 · 不限次数</span>
+        ) : (
+          <>
+            <span>今日已用 {used_today} / 日帽 {cap}</span>
+            <span className="text-meta text-muted">{pct}%</span>
+          </>
+        )}
       </div>
-      <div className="mt-2 h-1.5 rounded-full bg-soft overflow-hidden">
-        <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
-      </div>
+      {!unlimited && (
+        <div className="mt-2 h-1.5 rounded-full bg-soft overflow-hidden">
+          <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
+        </div>
+      )}
     </div>
   )
 }

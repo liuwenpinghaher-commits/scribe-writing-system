@@ -219,4 +219,18 @@ describe('ChiefDock UI', () => {
     expect(chip.textContent).toContain('35k tok')   // 34567 → 四舍五入 35k
     expect(apiMock.aiUsage).toHaveBeenCalled()
   })
+
+  it('无限用量时只显示今日已用和不限次数', async () => {
+    apiMock.aiUsage.mockResolvedValueOnce({
+      cap: { cap: 0, used_today: 12, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [{ day: '2026-07-10', total: { total_tokens: 34567 } }] },
+    })
+    render(<Harness phase="outline" />)
+
+    const chip = await screen.findByTestId('chief-usage-chip')
+    expect(chip.textContent).toContain('今日已用 12 发')
+    expect(chip.textContent).toContain('不限次数')
+    expect(chip.textContent).not.toMatch(/\/\s*0/)
+    expect(chip.textContent).not.toContain('日帽 0')
+  })
 })
