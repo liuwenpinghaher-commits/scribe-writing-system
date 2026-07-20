@@ -25,7 +25,12 @@ _RETRYABLE_REQUEST_ERRORS = (
 def _iter_sse_data(lines: Iterable[str]) -> Iterator[str]:
     """按 SSE 空行组帧，同一帧的多个 data 字段以换行连接。"""
     data_lines: list[str] = []
+    first_line = True
     for line in lines:
+        if first_line:
+            first_line = False
+            if line.startswith("\ufeff"):
+                line = line[1:]
         if line == "":
             if data_lines:
                 yield "\n".join(data_lines)
@@ -127,13 +132,19 @@ class DeepSeekClient:
     @staticmethod
     def _api_key(identity: ProviderIdentity) -> str:
         value = settings.get_setting("DEEPSEEK_API_KEY")
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str) or not value:
             raise DeepSeekConfigurationError(
                 "未配置 DEEPSEEK_API_KEY，无法调用 DeepSeek 官方接口",
                 identity=identity,
                 status="missing_api_key",
             )
-        return value.strip()
+        if any(not 0x21 <= ord(char) <= 0x7E for char in value):
+            raise DeepSeekConfigurationError(
+                "DEEPSEEK_API_KEY 包含 HTTP header 不允许的字符",
+                identity=identity,
+                status="invalid_api_key",
+            )
+        return value
 
     @staticmethod
     def _headers(api_key: str) -> dict[str, str]:

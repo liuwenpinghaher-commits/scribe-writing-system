@@ -26,10 +26,10 @@ def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
 
 
-def _safe_exception(error):
+def _safe_exception(error, secret=FAKE_API_KEY):
     assert isinstance(error, deepseek.DeepSeekError)
-    assert FAKE_API_KEY not in str(error)
-    assert FAKE_API_KEY not in repr(error)
+    assert secret not in str(error)
+    assert secret not in repr(error)
     assert error.__cause__ is None
     assert error.__context__ is None
     assert {"request", "response", "header", "headers", "cause"}.isdisjoint(vars(error))
@@ -175,6 +175,34 @@ def test_missing_key_fails_before_transport(_settings):
     assert calls == 0
     assert "DEEPSEEK_API_KEY" in str(raised.value)
     assert FAKE_API_KEY not in repr(raised.value)
+
+
+@pytest.mark.parametrize("operation", ["complete", "stream"])
+@pytest.mark.parametrize(
+    "invalid_key",
+    ["测试-key", "unit-test\nkey"],
+    ids=["non-ascii", "control-character"],
+)
+def test_invalid_header_key_fails_safely_before_transport(
+    _settings,
+    operation,
+    invalid_key,
+):
+    _settings["DEEPSEEK_API_KEY"] = invalid_key
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return _successful_response(operation)
+
+    with _client(handler) as transport:
+        with pytest.raises(deepseek.DeepSeekConfigurationError) as raised:
+            _invoke(deepseek.DeepSeekClient(client=transport), operation)
+
+    assert calls == 0
+    assert raised.value.status == "invalid_api_key"
+    _safe_exception(raised.value, invalid_key)
 
 
 def test_4xx_is_not_retried_and_exception_never_contains_key():
@@ -475,6 +503,25 @@ def test_stream_parses_multiline_data_as_one_sse_frame():
         "completion_tokens": 1,
         "total_tokens": 3,
     }
+
+
+def test_stream_ignores_one_utf8_bom_on_first_line():
+    body = (
+        '\ufeffdata: {"choices":[{"delta":{"content":"含BOM"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    def handler(_request):
+        return httpx.Response(200, text=body)
+
+    with _client(handler) as transport:
+        events = list(
+            deepseek.DeepSeekClient(client=transport).stream(
+                [{"role": "user", "content": "hello"}]
+            )
+        )
+
+    assert [event["delta"] for event in events if event["type"] == "delta"] == ["含BOM"]
 
 
 def test_public_dataclasses_have_no_secret_or_header_fields():
