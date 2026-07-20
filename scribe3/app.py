@@ -1099,6 +1099,24 @@ def ai_usage(work: str = "main", days: int = 7):
     """
     from scribe3 import usage as usage_mod
     from scribe3 import llm as llm_mod
+    from scribe3 import settings as settings_mod
+
+    identity = llm_mod.official_deepseek_provider_identity()
+    key_configured = False
+    for item in settings_mod.settings_snapshot():
+        if item.get("key") == "DEEPSEEK_API_KEY":
+            key_configured = item.get("is_set") is True
+            break
+    # 严格 allowlist：不返回 identity/设置对象本身，更不读取 key 内容。
+    provider = {
+        "provider": identity["provider"],
+        "api_base": identity["api_base"],
+        "model": identity["model"],
+        "official": identity["official"],
+        # identity 里的 httpx 是实现细节；此 API 稳定暴露产品路由语义。
+        "transport": "direct",
+        "key_configured": key_configured,
+    }
     cap_value = llm_mod._cap()
     used, scope = usage_mod.used_today()
     unlimited = cap_value == 0
@@ -1113,6 +1131,7 @@ def ai_usage(work: str = "main", days: int = 7):
                 "remaining": remaining, "unlimited": unlimited,
                 "scope": scope},
         "tokens": tokens,
+        "provider": provider,
     }
 
 

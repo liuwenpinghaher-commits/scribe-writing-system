@@ -140,6 +140,37 @@ describe('SettingsView', () => {
     expect(usageText.parentElement?.parentElement?.querySelector('[style="width: 83%;"]')).toBeTruthy()
   })
 
+  it('用量面板显示官方 DeepSeek 模型与直连证据', async () => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main',
+      cap: { cap: 0, used_today: 3, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [] },
+      provider: {
+        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        official: true, transport: 'direct', key_configured: true,
+      },
+    }))
+    render(<SettingsView work="demo" />)
+
+    expect(await screen.findByText('官方 DeepSeek · deepseek-chat · 直连')).toBeTruthy()
+  })
+
+  it('未显式配置 DeepSeek 密钥时如实显示未配置', async () => {
+    apiMock.aiUsage = vi.fn(() => Promise.resolve({
+      work: 'main',
+      cap: { cap: 0, used_today: 0, remaining: null, scope: 'shared', unlimited: true },
+      tokens: { days: [] },
+      provider: {
+        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        official: true, transport: 'direct', key_configured: false,
+      },
+    }))
+    render(<SettingsView work="demo" />)
+
+    expect(await screen.findByText('未配置密钥')).toBeTruthy()
+    expect(screen.queryByText(/ready|已就绪/i)).toBeNull()
+  })
+
   it('无限用量时展示今日已用和不限次数', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main', cap: { cap: 0, used_today: 12, remaining: null, scope: 'shared', unlimited: true },

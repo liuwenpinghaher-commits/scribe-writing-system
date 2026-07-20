@@ -5,6 +5,7 @@
 SQLite 共享台账(SCRIBE3_LLM_LEDGER 指路径,测试经 conftest 隔离到 tmp),
 SQLite 故障 fail-open 回退进程内计数(帽是成本保险丝,不因台账故障阻断写作)。
 """
+import json
 import sqlite3
 
 import pytest
@@ -179,6 +180,62 @@ def test_ai_usage_endpoint(store, monkeypatch):
     assert r["cap"]["scope"] == "shared"
     assert r["tokens"]["days"][0]["total"]["total_tokens"] == 12
     L._reset_daily_counter()
+
+
+def test_ai_usage_endpoint_exposes_only_safe_official_provider_evidence(store, monkeypatch):
+    """provider 只允许公开字段；设置对象、密钥和异常不得被透传。"""
+    import scribe3.app as A
+    from scribe3 import settings as S
+
+    A.set_store(store)
+    credential_sentinel = "provider-credential-must-stay-private"
+    monkeypatch.setattr(S, "settings_snapshot", lambda: [
+        {
+            "key": "DEEPSEEK_API_KEY",
+            "type": "secret",
+            "is_set": True,
+            "value": credential_sentinel,
+            "Authorization": f"Bearer {credential_sentinel}",
+            "error": RuntimeError("provider-internal-error"),
+        },
+        {"key": "unrelated.setting", "value": {"private": credential_sentinel}},
+    ])
+
+    response = TestClient(A.app).get("/ai/usage")
+    assert response.status_code == 200
+    provider = response.json()["provider"]
+    assert provider == {
+        "provider": "deepseek",
+        "api_base": "https://api.deepseek.com",
+        "model": "deepseek-chat",
+        "official": True,
+        "transport": "direct",
+        "key_configured": True,
+    }
+    assert type(provider["key_configured"]) is bool
+
+    serialized = json.dumps(response.json(), ensure_ascii=False)
+    for forbidden in (
+        credential_sentinel,
+        "Authorization",
+        "DEEPSEEK_API_KEY",
+        "provider-internal-error",
+        "unrelated.setting",
+    ):
+        assert forbidden not in serialized
+
+
+def test_ai_usage_endpoint_reports_missing_explicit_provider_key(store, monkeypatch):
+    import scribe3.app as A
+    from scribe3 import settings as S
+
+    A.set_store(store)
+    monkeypatch.setattr(S, "settings_snapshot", lambda: [
+        {"key": "DEEPSEEK_API_KEY", "type": "secret", "is_set": False, "value": None},
+    ])
+
+    provider = TestClient(A.app).get("/ai/usage").json()["provider"]
+    assert provider["key_configured"] is False
 
 
 def test_ai_usage_endpoint_reports_unlimited_cap(store, monkeypatch):

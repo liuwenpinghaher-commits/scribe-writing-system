@@ -33,8 +33,20 @@ function UsageCard() {
   const { cap, used_today } = usage.cap
   const unlimited = usage.cap.unlimited === true
   const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
+  const provider = usage.provider
+  const officialDeepSeek = provider?.provider === 'deepseek'
+    && provider?.official === true
+    && provider?.transport === 'direct'
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
+      {officialDeepSeek && (
+        <div className="mb-2 flex items-center justify-between gap-3 text-f13 text-ink">
+          <span>官方 DeepSeek · {provider.model} · 直连</span>
+          <span className={provider.key_configured === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
+            {provider.key_configured === true ? '密钥已配置' : '未配置密钥'}
+          </span>
+        </div>
+      )}
       <div className="flex items-center justify-between text-f13 text-ink">
         {unlimited ? (
           <span>今日已用 {used_today} 发 · 不限次数</span>
