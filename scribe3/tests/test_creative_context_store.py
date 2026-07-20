@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
+import shutil
 from typing import get_args
 
 import pytest
@@ -262,6 +263,7 @@ def test_creative_context_core_rows_are_readonly_after_create(store):
          "f" * 64),
         ("context_outcome_trace", outcome.outcome_id, "outcome_id", "tampered-outcome-id"),
         ("context_outcome_trace", outcome.outcome_id, "status", "failed"),
+        ("context_outcome_trace", outcome.outcome_id, "created_at", "2026-07-20T00:00:00Z"),
     ]
     for table, record_id, field, replacement in updates:
         before = store._query(
@@ -278,3 +280,72 @@ def test_creative_context_core_rows_are_readonly_after_create(store):
             {"record_id": record_id},
         )[0][field]
         assert after == before
+
+
+def test_092_upgrades_legacy_091_outcomes_before_contract_tightening(unmigrated_store, tmp_path):
+    """历史 091 没有 status ASSERT/READONLY；092 必须先安全清洗旧行再收紧。"""
+    from scribe3.context_store import ContextStore
+
+    # 不能用当前 091 文件冒充历史版：它已含新 status ASSERT。此处只构造 092 所需的
+    # 最小旧形状，且所有 error 都是受控的非真实不可信载荷。
+    legacy = tmp_path / "091_creative_context_core.surql"
+    legacy.write_text("""
+DEFINE TABLE context_policy_snapshot SCHEMAFULL;
+DEFINE TABLE context_manifest SCHEMAFULL;
+DEFINE TABLE context_manifest_source SCHEMAFULL;
+DEFINE TABLE context_outcome_trace SCHEMAFULL;
+DEFINE FIELD outcome_id ON context_outcome_trace TYPE string;
+DEFINE FIELD request_id ON context_outcome_trace TYPE string;
+DEFINE FIELD manifest_id ON context_outcome_trace TYPE string;
+DEFINE FIELD actual_input_hash ON context_outcome_trace TYPE string;
+DEFINE FIELD status ON context_outcome_trace TYPE string;
+DEFINE FIELD error ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD created_at ON context_outcome_trace TYPE datetime;
+""", encoding="utf-8")
+    unmigrated_store.apply_schema(str(tmp_path))
+
+    statuses = {
+        "legacy-completed": ("completed", "succeeded", "fixture-untrusted-legacy-error"),
+        "legacy-unknown": ("legacy_random", "failed", None),
+        "legacy-succeeded": ("succeeded", "succeeded", None),
+        "legacy-failed": ("failed", "failed", None),
+        "legacy-incomplete": ("incomplete_stream", "incomplete_stream", None),
+        "legacy-cancelled": ("cancelled", "cancelled", None),
+    }
+    for ordinal, (outcome_id, (old_status, _expected, error)) in enumerate(statuses.items()):
+        unmigrated_store._raw_query(
+            "CREATE type::record('context_outcome_trace', $outcome_id) SET "
+            "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
+            "actual_input_hash=$actual_input_hash, status=$status, error=$error, "
+            "created_at=time::now()",
+            {"outcome_id": outcome_id, "request_id": f"legacy-request-{ordinal}",
+             "manifest_id": f"{ordinal + 1:064x}",
+             "actual_input_hash": f"{ordinal + 11:064x}", "status": old_status,
+             "error": error},
+        )
+
+    shutil.copy(
+        Path(__file__).parents[1] / "migrations" / "092_creative_context_core_immutability.surql",
+        tmp_path / "092_creative_context_core_immutability.surql",
+    )
+    unmigrated_store.apply_schema(str(tmp_path))
+
+    context_store = ContextStore(unmigrated_store)
+    for ordinal, (outcome_id, (_old_status, expected_status, old_error)) in enumerate(statuses.items()):
+        row = unmigrated_store._query(
+            "SELECT status, error, created_at FROM type::record('context_outcome_trace', $outcome_id)",
+            {"outcome_id": outcome_id},
+        )[0]
+        assert row["status"] == expected_status
+        assert row.get("error") == ("[redacted_legacy_error]" if old_error is not None else None)
+        loaded = context_store.get_outcome(
+            f"legacy-request-{ordinal}", f"{ordinal + 1:064x}", f"{ordinal + 11:064x}",
+        )
+        assert loaded is not None and loaded.status == expected_status
+        for field, replacement in (("error", "tampered"), ("created_at", "2026-07-20T00:00:00Z")):
+            with pytest.raises(Exception, match="readonly|read-only|READONLY"):
+                unmigrated_store._raw_query(
+                    f"UPDATE type::record('context_outcome_trace', $outcome_id) "
+                    f"SET {field}=$replacement",
+                    {"outcome_id": outcome_id, "replacement": replacement},
+                )
