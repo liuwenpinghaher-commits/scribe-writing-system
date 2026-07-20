@@ -35,7 +35,7 @@
 - Quality Runtime Task 2: complete（commits 37c2879..43fe328，复审 Approved；51 passed，`0 = unlimited` 且一致快照）
 - Quality Runtime Task 3: complete（commits c069441..ee35187，复审 Approved；2 files / 23 tests passed）
 - Quality Runtime Task 4: complete（commits 7611a4d..451753f，三轮复审 Approved；25 client + 14 settings tests passed）
-- Quality Runtime Task 5: pending（将所有无工具补全统一路由到官方 DeepSeek）
+- Quality Runtime Task 5: complete（commits 0b55d69..b5b8f02，三轮复审 Approved；87 route + 3 Hermes boundary tests passed）
 - Quality Runtime Task 6: pending（暴露不含密钥的供应商真实性证据）
 
 ## Hermes main / SurrealDB 3.2.0 安全升级
