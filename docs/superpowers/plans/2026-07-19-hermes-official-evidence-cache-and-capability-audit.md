@@ -1082,6 +1082,12 @@ git add scribe3/hermes_evidence/cli.py docs/external/hermes-agent-docs/_crawl_he
 git commit -m "feat: add reproducible Hermes evidence cache CLI"
 ```
 
+## 2026-07-20 Scope Adjustment
+
+官网365篇零失败快照作为按需能力审计的足够证据；不再要求 release/main/website 三套全量快照共同生成 `current.json`；Tasks 8–10只审计 Runs、approval、Memory Provider lifecycle、context boundary、provider identity；Task 11不再把全量镜像完整性作为业务实施前置门。
+
+执行边界：不再运行 `scribe3.hermes_evidence.cli all`。全量镜像只作为已冻结的历史证据，后续工作转向小说质量运行时。
+
 ### Task 7: Generate and Validate All Official Snapshots
 
 **Files:**
