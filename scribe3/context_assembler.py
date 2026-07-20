@@ -126,6 +126,12 @@ def _render_block(name: str, kept: list[_Item]) -> ContextBlock:
     但块本身仍在 envelope 里(八块定序合同要求块必现,哪怕为空)。"""
     if not kept:
         return ContextBlock(name=name, text="", token_estimate=0, sources=[])
+    # digest 的对象是实际选入的 _Item.text，而非原始候选或带 header 的 block 文本。
+    # 这样 manifest 可证明每一个来源参与了哪一段最终输入，却不保存任何正文。
+    for item in kept:
+        item.source.content_digest = hashlib.sha256(
+            item.text.encode("utf-8")
+        ).hexdigest()
     body = "\n".join(it.text for it in kept)
     text = f"{_HEADERS[name]}\n{body}"
     return ContextBlock(name=name, text=text, token_estimate=estimate_tokens(text),

@@ -37,6 +37,38 @@ FocusType = Literal[
 
 # 与前端四阶段 tab + 演绎阶段对齐(见 ChapterStudio 的 phase 命名)。
 PhaseName = Literal["outline", "beats", "deduce", "draft", "final"]
+ContextTaskKind = Literal["draft", "final"]
+
+
+class ContextRequest(BaseModel):
+    """一次创作上下文请求的纯意图合同。
+
+    ``navigation_snapshot_id`` 只是产生请求时所见导航状态的身份引用；它绝不
+    承载或复制导航快照正文。内容状态由后续组装器按 request 重新取数，避免把
+    已过期的 UI 快照误当作可注入的故事事实。
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    request_id: str
+    task_kind: ContextTaskKind
+    target_ref: str
+    navigation_snapshot_id: str
+    work: str
+    chapter: int | None = None
+    scene_key: str | None = None
+    phase: PhaseName | None = None
+    actor_role: str | None = None
+    pov_character: str | None = None
+    story_time_window: str | None = None
+    knowledge_cutoff: str | None = None
+    author_intent_ref: str | None = None
+    quality_contract_revision: str | None = None
+    required_slots: tuple[str, ...] = ()
+    forbidden_source_kinds: tuple[str, ...] = ()
+    budget_profile: str | None = None
+    freshness_requirement: str | None = None
+    policy_version: str = "generation.v1"
 
 
 class ContextFocus(BaseModel):
@@ -126,6 +158,9 @@ class ContextSource(BaseModel):
     masked: bool = False
     reason: str = ""
     revision: str | None = None
+    # 仅记录实际选入该 block 的 _Item.text 的 SHA-256，不存正文；用于 manifest
+    # 验证来源与实际提示词输入是否一致。None 表示尚未被 renderer 选入。
+    content_digest: str | None = None
 
 
 class ContextBlock(BaseModel):
