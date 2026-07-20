@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # 焦点类型与前端 DirectoryPane/DetailPane 现有 node/view 命名对齐,
 # 新增类型必须同时评估 detail_route 路由与 assembler 的取数路径。
@@ -151,6 +152,10 @@ class ContextSource(BaseModel):
     """块级溯源的最小单元:envelope 里每一段文本都能回答"从哪来、
     有没有被限知遮蔽、为什么"。Task 7(assembler)/Task 8/14 消费。"""
 
+    # renderer 必须在选入后回写 digest，故不能 frozen；开启赋值校验防止写回后被
+    # 任意字符串篡改成伪造摘要。
+    model_config = ConfigDict(validate_assignment=True)
+
     source_id: str
     source_kind: str
     work: str
@@ -161,6 +166,15 @@ class ContextSource(BaseModel):
     # 仅记录实际选入该 block 的 _Item.text 的 SHA-256，不存正文；用于 manifest
     # 验证来源与实际提示词输入是否一致。None 表示尚未被 renderer 选入。
     content_digest: str | None = None
+
+    @field_validator("content_digest")
+    @classmethod
+    def validate_content_digest(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+            raise ValueError("content_digest 必须是 64 位 SHA-256 十六进制摘要")
+        return value.lower()
 
 
 class ContextBlock(BaseModel):

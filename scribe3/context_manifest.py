@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -21,7 +22,9 @@ class ContextManifestSource(BaseModel):
     work: str
     revision: str | None = None
     masked: bool = False
-    reason: str = ""
+    reason_code: Literal[
+        "unspecified", "secret_masked", "borrow_not_fact", "superseded_by_canonical",
+    ] = "unspecified"
     content_digest: str
 
     @classmethod
@@ -35,7 +38,7 @@ class ContextManifestSource(BaseModel):
             work=source.work,
             revision=source.revision,
             masked=source.masked,
-            reason=source.reason,
+            reason_code=_reason_code(source.reason),
             content_digest=source.content_digest,
         )
 
@@ -62,6 +65,10 @@ def _input_bytes(rendered_input: str | bytes) -> bytes:
     if isinstance(rendered_input, str):
         return rendered_input.encode("utf-8")
     if isinstance(rendered_input, bytes):
+        try:
+            rendered_input.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("rendered_input bytes 必须是有效 UTF-8") from exc
         return rendered_input
     raise TypeError("rendered_input 必须是 str 或 UTF-8 bytes")
 
@@ -69,6 +76,14 @@ def _input_bytes(rendered_input: str | bytes) -> bytes:
 def _manifest_hash(payload: dict) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _reason_code(reason: str) -> Literal[
+    "unspecified", "secret_masked", "borrow_not_fact", "superseded_by_canonical",
+]:
+    """将来源自由说明降为允许公开的稳定审计码。"""
+    known = {"secret_masked", "borrow_not_fact", "superseded_by_canonical"}
+    return reason if reason in known else "unspecified"
 
 
 def build_context_manifest(
@@ -79,9 +94,10 @@ def build_context_manifest(
 ) -> ContextManifest:
     """从已组装 envelope 与最终输入字节构建不含正文的 immutable manifest。"""
     resolved = ContextPolicy.for_task(request.task_kind)
-    if policy.version != resolved.version or request.policy_version != policy.version:
+    if policy != resolved or request.policy_version != resolved.version:
         raise ValueError("请求任务类型与策略版本不匹配")
-    policy.validate_envelope(envelope)
+    # 注册表对象是唯一策略权威；绝不让同 version 的调用方对象替代其裁决。
+    resolved.validate_envelope(envelope)
 
     sources = tuple(
         ContextManifestSource.from_source(block.name, source)

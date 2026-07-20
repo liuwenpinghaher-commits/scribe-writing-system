@@ -120,3 +120,54 @@ def test_manifest_json_contains_no_source_body_and_rejects_reference_as_canon():
     )
     with pytest.raises(ValueError, match="reference"):
         build_context_manifest(request, policy, _envelope(source=reference), "甲在城里")
+
+
+def test_manifest_rejects_same_version_forged_policy_that_allows_reference_canon():
+    request = _request()
+    forged = ContextPolicy(
+        version="generation.v1", task_kinds=("draft",),
+        canonical_source_kinds=("canonical", "reference"),
+    )
+    reference = ContextSource(
+        source_id="material:1", source_kind="reference", work="book-a",
+        content_digest="f" * 64,
+    )
+    with pytest.raises(ValueError):
+        build_context_manifest(request, forged, _envelope(source=reference), "甲在城里")
+
+
+def test_manifest_never_serializes_free_form_secret_reason():
+    secret = "绝不能进入 Manifest 的秘密正文:甲是狐妖"
+    source = ContextSource(
+        source_id="fact:1", source_kind="canonical", work="book-a",
+        reason=secret,
+        content_digest=hashlib.sha256("甲在城里".encode("utf-8")).hexdigest(),
+    )
+    manifest = build_context_manifest(
+        _request(), ContextPolicy.for_task("draft"), _envelope(source=source), "甲在城里"
+    )
+    blob = json.dumps(manifest.model_dump(mode="json"), ensure_ascii=False)
+    assert secret not in blob
+    assert manifest.sources[0].reason_code == "unspecified"
+
+
+def test_manifest_rejects_bytes_that_are_not_valid_utf8():
+    with pytest.raises(ValueError, match="UTF-8"):
+        build_context_manifest(
+            _request(), ContextPolicy.for_task("draft"), _envelope(), b"\xff"
+        )
+
+
+def test_content_digest_rejects_forged_non_sha256_value_and_normalizes_case():
+    with pytest.raises(ValidationError, match="SHA-256"):
+        ContextSource(
+            source_id="fact:1", source_kind="canonical", work="book-a",
+            content_digest="forged",
+        )
+    source = ContextSource(
+        source_id="fact:1", source_kind="canonical", work="book-a",
+        content_digest="A" * 64,
+    )
+    assert source.content_digest == "a" * 64
+    with pytest.raises(ValidationError, match="SHA-256"):
+        source.content_digest = "forged-after-construction"
