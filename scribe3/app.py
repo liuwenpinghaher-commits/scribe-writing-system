@@ -68,8 +68,9 @@ app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in _CORS.split
                    allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "DELETE"],
                    allow_headers=["Authorization", "Content-Type"])
 
-from scribe3.quality.api import quality_router
+from scribe3.quality.api import quality_router, quality_eval_router
 app.include_router(quality_router)
+app.include_router(quality_eval_router)
 
 # P01: 可选 bearer token 认证(本地不设 env=放行;暴露=设 SCRIBE3_API_TOKEN 强制)
 _API_TOKEN = os.environ.get("SCRIBE3_API_TOKEN")
