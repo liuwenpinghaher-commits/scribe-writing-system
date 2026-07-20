@@ -1,0 +1,64 @@
+-- Creative Context OS 的 Manifest / Outcome 窄存储。
+-- 只存可审计的标识、摘要和提供方元数据；提示词与模型输出正文永不入这四张表。
+DEFINE TABLE IF NOT EXISTS context_policy_snapshot SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS policy_snapshot_id ON context_policy_snapshot TYPE string;
+DEFINE FIELD IF NOT EXISTS policy_version ON context_policy_snapshot TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON context_policy_snapshot TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS context_policy_snapshot_id_idx ON context_policy_snapshot FIELDS policy_snapshot_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_policy_snapshot_version_idx ON context_policy_snapshot FIELDS policy_version UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_policy_snapshot_created_at_idx ON context_policy_snapshot FIELDS created_at;
+
+DEFINE TABLE IF NOT EXISTS context_manifest SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS manifest_id ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS manifest_version ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS request_id ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS task_kind ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS policy_version ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS navigation_snapshot_id ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS snapshot_hash ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS envelope_hash ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS actual_input_hash ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS actual_input_bytes ON context_manifest TYPE int;
+DEFINE FIELD IF NOT EXISTS manifest_hash ON context_manifest TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON context_manifest TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS context_manifest_id_idx ON context_manifest FIELDS manifest_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_manifest_request_idx ON context_manifest FIELDS request_id;
+DEFINE INDEX IF NOT EXISTS context_manifest_input_hash_idx ON context_manifest FIELDS actual_input_hash;
+DEFINE INDEX IF NOT EXISTS context_manifest_created_at_idx ON context_manifest FIELDS created_at;
+
+DEFINE TABLE IF NOT EXISTS context_manifest_source SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS manifest_id ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS source_ref ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS block ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS source_id ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS source_kind ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS work ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS revision ON context_manifest_source TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS masked ON context_manifest_source TYPE bool;
+DEFINE FIELD IF NOT EXISTS reason_code ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS content_digest ON context_manifest_source TYPE string;
+DEFINE FIELD IF NOT EXISTS created_at ON context_manifest_source TYPE datetime VALUE time::now() READONLY;
+DEFINE INDEX IF NOT EXISTS context_manifest_source_ref_idx ON context_manifest_source FIELDS source_ref UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_manifest_source_manifest_idx ON context_manifest_source FIELDS manifest_id, source_ref;
+DEFINE INDEX IF NOT EXISTS context_manifest_source_created_at_idx ON context_manifest_source FIELDS created_at;
+
+DEFINE TABLE IF NOT EXISTS context_outcome_trace SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS outcome_id ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS request_id ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS manifest_id ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS actual_input_hash ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON context_outcome_trace TYPE string;
+DEFINE FIELD IF NOT EXISTS provider ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS model ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS provider_request_id ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS usage ON context_outcome_trace TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS usage.* ON context_outcome_trace TYPE number;
+DEFINE FIELD IF NOT EXISTS output_hash ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS error ON context_outcome_trace TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created_at ON context_outcome_trace TYPE datetime;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_id_idx ON context_outcome_trace FIELDS outcome_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_binding_idx ON context_outcome_trace FIELDS request_id, manifest_id, actual_input_hash UNIQUE;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_manifest_idx ON context_outcome_trace FIELDS manifest_id;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_request_idx ON context_outcome_trace FIELDS request_id;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_input_hash_idx ON context_outcome_trace FIELDS actual_input_hash;
+DEFINE INDEX IF NOT EXISTS context_outcome_trace_created_at_idx ON context_outcome_trace FIELDS created_at;
