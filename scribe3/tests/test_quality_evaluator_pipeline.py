@@ -74,6 +74,10 @@ def test_evaluate_chapter_produces_ten_anchored_system_judgments(store, evaluato
     )
 
     system = evaluation.system_reference_judgments
+    assert evaluation.job.model_settings == {
+        "provider": "qwen",
+        "model": "qwen3.8-max-preview",
+    }
     assert len(system) == len(CORE_DIMENSIONS)
     dims = {bound.judgment.dimension for bound in system}
     assert dims == {d.key for d in CORE_DIMENSIONS}
@@ -90,7 +94,19 @@ def test_evaluate_chapter_produces_ten_anchored_system_judgments(store, evaluato
         located = raw[anchor.start_utf16 * 2:anchor.end_utf16 * 2].decode("utf-16-le")
         assert located == QUOTE
         assert bound.trace.outcome_id, "判断必须绑定真实 ContextOutcome"
-        assert bound.trace.provider == "deepseek"
+        assert bound.trace.provider == "qwen"
+        assert bound.trace.model == "qwen3.8-max-preview"
+        rows = store._query(
+            "SELECT provider, model, reasoning_provider, reasoning_model "
+            "FROM context_outcome_trace WHERE outcome_id=$outcome_id",
+            {"outcome_id": bound.trace.outcome_id},
+        )
+        assert rows == [{
+            "provider": "qwen",
+            "model": "qwen3.8-max-preview",
+            "reasoning_provider": "qwen",
+            "reasoning_model": "qwen3.8-max-preview",
+        }]
 
 
 def test_evaluate_chapter_reads_back_through_get_evaluation(store, evaluator):

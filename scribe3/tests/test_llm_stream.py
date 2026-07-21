@@ -530,7 +530,7 @@ class TestToolFreeOfficialRouting:
         def get_setting(key):
             settings_reads.append(key)
             if key == "llm.model":
-                return "deepseek-chat"
+                return "qwen3.8-max-preview"
             raise AssertionError(f"provider identity helper read forbidden setting: {key}")
 
         monkeypatch.setattr(deepseek.settings, "get_setting", get_setting)
@@ -542,14 +542,17 @@ class TestToolFreeOfficialRouting:
             ),
         )
 
-        assert llm.official_deepseek_provider_identity() == {
-            "provider": "deepseek",
-            "api_base": deepseek.OFFICIAL_API_BASE,
-            "model": "deepseek-chat",
+        assert hasattr(llm, "official_qwen_provider_identity")
+        expected = {
+            "provider": "qwen",
+            "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen3.8-max-preview",
             "official": True,
             "transport": "httpx",
         }
-        assert settings_reads == ["llm.model"]
+        assert llm.official_qwen_provider_identity() == expected
+        assert llm.official_deepseek_provider_identity() == expected
+        assert settings_reads == ["llm.model", "llm.model"]
 
     def test_write_stream_persists_official_provider_identity_in_trace(self, monkeypatch):
         from scribe3 import app as appmod
@@ -753,9 +756,9 @@ class TestToolFreeOfficialRouting:
         assert persisted[0][0] == "只收到半段。"
         assert persisted[0][1]["status"] == "cancelled"
         assert persisted[0][1]["provider"] == {
-            "provider": "deepseek",
-            "api_base": deepseek.OFFICIAL_API_BASE,
-            "model": "deepseek-chat",
+            "provider": "qwen",
+            "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen3.8-max-preview",
             "official": True,
             "transport": "httpx",
         }
@@ -789,9 +792,9 @@ class TestToolFreeOfficialRouting:
 
         assert persisted[0]["status"] == "failed"
         assert persisted[0]["provider"] == {
-            "provider": "deepseek",
-            "api_base": deepseek.OFFICIAL_API_BASE,
-            "model": "deepseek-chat",
+            "provider": "qwen",
+            "api_base": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen3.8-max-preview",
             "official": True,
             "transport": "httpx",
         }

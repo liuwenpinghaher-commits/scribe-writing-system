@@ -57,9 +57,21 @@ def _invoke(client, operation):
     return list(client.stream(messages))
 
 
-def test_registered_default_model_is_deepseek_chat():
+def test_registered_default_model_is_qwen38_max_preview():
     model_setting = next(item for item in deepseek.settings.REGISTRY if item.key == "llm.model")
-    assert model_setting.default == "deepseek-chat"
+    assert model_setting.default == "qwen3.8-max-preview"
+
+
+def test_token_plan_route_exposes_literal_qwen_provider_contract():
+    identity = deepseek.DeepSeekClient(client=None).identity("qwen3.8-max-preview")
+
+    assert identity == deepseek.ProviderIdentity(
+        provider="qwen",
+        api_base="https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        model="qwen3.8-max-preview",
+        official=True,
+        transport="httpx",
+    )
 
 
 @pytest.mark.parametrize(
@@ -86,7 +98,7 @@ def test_public_identity_resolves_model_without_key_or_transport(
     client = deepseek.DeepSeekClient(client=ForbiddenTransport())
 
     assert client.identity(model) == deepseek.ProviderIdentity(
-        provider="deepseek",
+        provider="qwen",
         api_base=deepseek.OFFICIAL_API_BASE,
         model=expected_model,
         official=True,
@@ -157,7 +169,7 @@ def test_complete_uses_only_official_endpoint_and_preserves_usage(_settings):
     assert result.model == "deepseek-chat"
     assert result.finish_reason == "stop"
     assert result.identity == deepseek.ProviderIdentity(
-        provider="deepseek",
+        provider="qwen",
         api_base=deepseek.OFFICIAL_API_BASE,
         model="deepseek-chat",
         official=True,
@@ -270,6 +282,8 @@ def test_missing_key_fails_before_transport(_settings):
 
     assert calls == 0
     assert "DEEPSEEK_API_KEY" in str(raised.value)
+    assert "Qwen" in str(raised.value)
+    assert "DeepSeek 官方接口" not in str(raised.value)
     assert FAKE_API_KEY not in repr(raised.value)
 
 
@@ -467,7 +481,7 @@ def test_stream_parses_deltas_and_final_usage():
         )
 
     identity = deepseek.ProviderIdentity(
-        provider="deepseek",
+        provider="qwen",
         api_base=deepseek.OFFICIAL_API_BASE,
         model="deepseek-chat",
         official=True,
@@ -778,7 +792,7 @@ def test_stream_done_without_usage_emits_explicit_done_event():
         "type": "done",
         "model": "deepseek-chat",
         "identity": deepseek.ProviderIdentity(
-            provider="deepseek",
+            provider="qwen",
             api_base=deepseek.OFFICIAL_API_BASE,
             model="deepseek-chat",
             official=True,

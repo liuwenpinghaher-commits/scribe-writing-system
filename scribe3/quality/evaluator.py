@@ -19,6 +19,7 @@ from scribe3.context_models import (
 from scribe3.context_outcome import ContextOutcomeTrace
 from scribe3.context_policy import ContextPolicy
 from scribe3.context_store import ContextStore
+from scribe3.deepseek_client import DEFAULT_MODEL, OFFICIAL_PROVIDER
 from scribe3.quality.confidence import compute_confidence
 from scribe3.quality.models import (
     ConfidenceComponents,
@@ -72,7 +73,7 @@ def _anchor_quote(
 
 
 class QualityEvaluator:
-    """复用 QualityStore 与 Creative Context 留痕,直连官方 DeepSeek。"""
+    """复用 QualityStore 与 Creative Context 留痕，直连 Qwen 官方服务。"""
 
     def __init__(self, store: "SurrealStore", llm: Any):
         self._store = store
@@ -91,7 +92,10 @@ class QualityEvaluator:
         reference_fingerprint_ids: tuple[str, ...] = (),
         model_config: dict[str, Any] | None = None,
     ):
-        model_config = model_config or {"provider": "deepseek", "model": "deepseek-chat"}
+        model_config = model_config or {
+            "provider": OFFICIAL_PROVIDER,
+            "model": DEFAULT_MODEL,
+        }
         snapshot = self._quality.create_chapter_snapshot(
             work=work, chapter_version_ids=tuple(chapter_version_ids),
         )
@@ -229,8 +233,8 @@ class QualityEvaluator:
             request, ContextPolicy.for_task("quality_chapter"), envelope, rendered_input,
         )
         self._context_store.save_manifest(manifest)
-        provider = model_config.get("provider", "deepseek")
-        model = model_config.get("model", "deepseek-chat")
+        provider = model_config.get("provider", OFFICIAL_PROVIDER)
+        model = model_config.get("model", DEFAULT_MODEL)
         outcome = ContextOutcomeTrace(
             outcome_id=f"quality-eval-outcome-{suffix}",
             request_id=request.request_id,

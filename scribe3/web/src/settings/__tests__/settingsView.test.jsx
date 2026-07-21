@@ -18,7 +18,7 @@ import { SettingsView } from '../SettingsView'
 
 const ITEMS = [
   { key: 'llm.model', category: 'llm', type: 'str', label: '补全模型名',
-    value: 'deepseek-chat', default: 'deepseek-chat', source: 'default', effect: 'hot', danger: false, pending_restart: false },
+    value: 'qwen3.8-max-preview', default: 'qwen3.8-max-preview', source: 'default', effect: 'hot', danger: false, pending_restart: false },
   { key: 'SCRIBE3_DAILY_CALL_CAP', category: 'llm', type: 'int', label: '每日 LLM 调用日帽',
     value: 500, default: 500, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_SURREAL_URL', category: 'connection', type: 'str', label: 'SurrealDB 地址',
@@ -29,11 +29,11 @@ const ITEMS = [
     value: false, default: false, source: 'default', effect: 'hot', danger: true, pending_restart: false },
   { key: 'SCRIBE3_API_TOKEN', category: 'flags', type: 'secret', label: '后端 API token',
     value: null, default: null, source: 'db', is_set: true, effect: 'restart', danger: false, pending_restart: false },
-  { key: 'DEEPSEEK_API_KEY', category: 'gateway', type: 'secret', label: 'DeepSeek 官方密钥',
+  { key: 'DEEPSEEK_API_KEY', category: 'gateway', type: 'secret', label: 'Qwen API 密钥（兼容键）',
     value: null, default: null, source: 'db', is_set: true, effect: 'hot', danger: false, pending_restart: false },
 ]
 
-const usagePayload = ({ model = 'deepseek-chat', cap = 0, used = 0, key = true } = {}) => ({
+const usagePayload = ({ model = 'qwen3.8-max-preview', cap = 0, used = 0, key = true } = {}) => ({
   work: 'main',
   cap: {
     cap,
@@ -44,7 +44,7 @@ const usagePayload = ({ model = 'deepseek-chat', cap = 0, used = 0, key = true }
   },
   tokens: { days: [] },
   provider: {
-    provider: 'deepseek', api_base: 'https://api.deepseek.com', model,
+    provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model,
     official: true, transport: 'direct', key_present: key,
   },
 })
@@ -166,30 +166,30 @@ describe('SettingsView', () => {
     expect(usageText.parentElement?.parentElement?.querySelector('[style="width: 83%;"]')).toBeTruthy()
   })
 
-  it('用量面板显示官方 DeepSeek 模型与直连证据', async () => {
+  it('用量面板显示官方 Qwen 模型与 token-plan 直连证据', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',
       cap: { cap: 0, used_today: 3, remaining: null, scope: 'shared', unlimited: true },
       tokens: { days: [] },
       provider: {
-        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview',
         official: true, transport: 'direct', key_present: true,
       },
     }))
     render(<SettingsView work="demo" />)
 
-    expect(await screen.findByText('官方 DeepSeek · deepseek-chat · 直连')).toBeTruthy()
+    expect(await screen.findByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeTruthy()
   })
 
   it.each([
-    ['provider 非 deepseek', { provider: 'proxy', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: true, transport: 'direct' }],
-    ['official 非 true', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: false, transport: 'direct' }],
-    ['transport 非 direct', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat', official: true, transport: 'httpx' }],
-    ['api_base 非官方精确值', { provider: 'deepseek', api_base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', official: true, transport: 'direct' }],
-    ['api_base 缺失', { provider: 'deepseek', model: 'deepseek-chat', official: true, transport: 'direct' }],
-    ['model 为空字符串', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: '', official: true, transport: 'direct' }],
-    ['model 仅空白', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: '   ', official: true, transport: 'direct' }],
-    ['model 非字符串', { provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 42, official: true, transport: 'direct' }],
+    ['provider 非 qwen', { provider: 'proxy', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview', official: true, transport: 'direct' }],
+    ['official 非 true', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview', official: false, transport: 'direct' }],
+    ['transport 非 direct', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview', official: true, transport: 'httpx' }],
+    ['api_base 非官方精确值', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/extra', model: 'qwen3.8-max-preview', official: true, transport: 'direct' }],
+    ['api_base 缺失', { provider: 'qwen', model: 'qwen3.8-max-preview', official: true, transport: 'direct' }],
+    ['model 为空字符串', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: '', official: true, transport: 'direct' }],
+    ['model 仅空白', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: '   ', official: true, transport: 'direct' }],
+    ['model 非字符串', { provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 42, official: true, transport: 'direct' }],
   ])('非严格官方直连身份时隐藏官方行：%s', async (_label, provider) => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',
@@ -200,7 +200,7 @@ describe('SettingsView', () => {
     render(<SettingsView work="demo" />)
 
     await screen.findByText(/今日已用 1 发/)
-    expect(screen.queryByText(/官方 DeepSeek/)).toBeNull()
+    expect(screen.queryByText(/官方 Qwen/)).toBeNull()
   })
 
   it.each([
@@ -213,23 +213,23 @@ describe('SettingsView', () => {
       cap: { cap: 0, used_today: 1, remaining: null, scope: 'shared', unlimited: true },
       tokens: { days: [] },
       provider: {
-        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview',
         official: true, transport: 'direct', ...keyState,
       },
     }))
     render(<SettingsView work="demo" />)
 
     await screen.findByText(/今日已用 1 发/)
-    expect(screen.queryByText(/官方 DeepSeek/)).toBeNull()
+    expect(screen.queryByText(/官方 Qwen/)).toBeNull()
   })
 
-  it('未显式配置 DeepSeek 密钥时如实显示未配置', async () => {
+  it('未显式配置 Qwen 兼容键时如实显示未配置', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',
       cap: { cap: 0, used_today: 0, remaining: null, scope: 'shared', unlimited: true },
       tokens: { days: [] },
       provider: {
-        provider: 'deepseek', api_base: 'https://api.deepseek.com', model: 'deepseek-chat',
+        provider: 'qwen', api_base: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max-preview',
         official: true, transport: 'direct', key_present: false,
       },
     }))
@@ -261,19 +261,19 @@ describe('SettingsView', () => {
 
   it('保存 llm.model 后同时重拉 settings 与 usage 并立即更新模型', async () => {
     apiMock.aiUsage
-      .mockResolvedValueOnce(usagePayload({ model: 'deepseek-chat' }))
-      .mockResolvedValueOnce(usagePayload({ model: 'deepseek-reasoner' }))
+      .mockResolvedValueOnce(usagePayload({ model: 'qwen3.8-max-preview' }))
+      .mockResolvedValueOnce(usagePayload({ model: 'qwen-plus' }))
     render(<SettingsView work="demo" />)
-    expect(await screen.findByText('官方 DeepSeek · deepseek-chat · 直连')).toBeTruthy()
+    expect(await screen.findByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeTruthy()
 
     const input = screen.getByRole('textbox', { name: '补全模型名' })
-    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.change(input, { target: { value: 'qwen-plus' } })
     fireEvent.blur(input)
 
-    await waitFor(() => expect(apiMock.putSetting).toHaveBeenCalledWith('llm.model', 'deepseek-reasoner'))
+    await waitFor(() => expect(apiMock.putSetting).toHaveBeenCalledWith('llm.model', 'qwen-plus'))
     await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
+    expect(await screen.findByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
   })
 
   it('保存日帽后 usage 卡立即更新', async () => {
@@ -292,7 +292,7 @@ describe('SettingsView', () => {
     expect(await screen.findByText('今日已用 25 / 日帽 100')).toBeTruthy()
   })
 
-  it('重置 DeepSeek secret 后立即重拉 usage 并更新密钥状态', async () => {
+  it('重置 Qwen 兼容 secret 后立即重拉 usage 并更新密钥状态', async () => {
     apiMock.aiUsage
       .mockResolvedValueOnce(usagePayload({ key: true }))
       .mockResolvedValueOnce(usagePayload({ key: false }))
@@ -301,7 +301,7 @@ describe('SettingsView', () => {
     expect(screen.queryByText(/已配置|已就绪/)).toBeNull()
 
     fireEvent.click(screen.getByText('Hermes 网关'))
-    fireEvent.click(screen.getByRole('button', { name: '恢复默认:DeepSeek 官方密钥' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认:Qwen API 密钥（兼容键）' }))
     fireEvent.click(screen.getByRole('button', { name: '确认' }))
 
     await waitFor(() => expect(apiMock.resetSetting).toHaveBeenCalledWith('DEEPSEEK_API_KEY'))
@@ -321,16 +321,16 @@ describe('SettingsView', () => {
     await screen.findByText('补全模型名')
 
     const input = screen.getByRole('textbox', { name: '补全模型名' })
-    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.change(input, { target: { value: 'qwen-plus' } })
     fireEvent.blur(input)
     await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
 
-    await act(async () => { resolveNew(usagePayload({ model: 'deepseek-reasoner' })) })
-    expect(await screen.findByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
-    await act(async () => { resolveOld(usagePayload({ model: 'deepseek-chat' })) })
+    await act(async () => { resolveNew(usagePayload({ model: 'qwen-plus' })) })
+    expect(await screen.findByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
+    await act(async () => { resolveOld(usagePayload({ model: 'qwen3.8-max-preview' })) })
     await waitFor(() => {
-      expect(screen.getByText('官方 DeepSeek · deepseek-reasoner · 直连')).toBeTruthy()
-      expect(screen.queryByText('官方 DeepSeek · deepseek-chat · 直连')).toBeNull()
+      expect(screen.getByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
+      expect(screen.queryByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeNull()
     })
   })
 
@@ -344,24 +344,24 @@ describe('SettingsView', () => {
       categories: ['connection', 'llm', 'craft', 'flags', 'gateway'],
     })
     apiMock.settings
-      .mockResolvedValueOnce(settingsPayload('deepseek-chat'))
+      .mockResolvedValueOnce(settingsPayload('qwen3.8-max-preview'))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve }))
     render(<SettingsView work="demo" />)
 
     const input = await screen.findByRole('textbox', { name: '补全模型名' })
-    fireEvent.change(input, { target: { value: 'deepseek-reasoner' } })
+    fireEvent.change(input, { target: { value: 'qwen-plus' } })
     fireEvent.blur(input)
     await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
 
-    fireEvent.change(input, { target: { value: 'deepseek-newest' } })
+    fireEvent.change(input, { target: { value: 'qwen-newest' } })
     fireEvent.blur(input)
     await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(3))
 
-    await act(async () => { resolveNew(settingsPayload('deepseek-newest')) })
-    await waitFor(() => expect(input.value).toBe('deepseek-newest'))
-    await act(async () => { resolveOld(settingsPayload('deepseek-reasoner')) })
-    await waitFor(() => expect(input.value).toBe('deepseek-newest'))
+    await act(async () => { resolveNew(settingsPayload('qwen-newest')) })
+    await waitFor(() => expect(input.value).toBe('qwen-newest'))
+    await act(async () => { resolveOld(settingsPayload('qwen-plus')) })
+    await waitFor(() => expect(input.value).toBe('qwen-newest'))
   })
 
   it('拉取失败显示错误态与重试', async () => {

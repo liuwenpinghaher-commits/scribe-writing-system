@@ -1,6 +1,6 @@
 """Scribe LLM 路由门面。
 
-无工具 Chat Completions 统一委托已审查的官方 ``DeepSeekClient``；
+无工具 Chat Completions 统一委托已审查的 Qwen 官方服务客户端；
 Hermes 只保留 Responses 工具面与 Runs 边界。超时、重试、流式首 delta 后不重试及
 安全错误由官方客户端实现；本门面保留旧签名和调用计数语义。
 """
@@ -13,7 +13,9 @@ from dataclasses import asdict
 import httpx
 
 from scribe3.deepseek_client import (
+    DEFAULT_MODEL,
     OFFICIAL_API_BASE,
+    OFFICIAL_PROVIDER,
     DeepSeekClient,
     DeepSeekError,
     DeepSeekResponseError,
@@ -55,9 +57,14 @@ def max_retries() -> int:
     return get_setting("llm.max_retries")
 
 
-def official_deepseek_provider_identity(model: str | None = None) -> dict:
-    """返回无工具路由的安全官方身份；只确定模型，不读取 API key。"""
+def official_qwen_provider_identity(model: str | None = None) -> dict:
+    """返回无工具 Qwen 路由的安全官方身份；只确定模型，不读取 API key。"""
     return asdict(DeepSeekClient().identity(model))
+
+
+def official_deepseek_provider_identity(model: str | None = None) -> dict:
+    """旧函数名兼容层；返回的真实供应商身份始终是 Qwen。"""
+    return official_qwen_provider_identity(model)
 
 
 def _provider_identity_for_usage(
@@ -77,9 +84,9 @@ def _provider_identity_for_usage(
             pass
     resolved_model = model if model is not None else default_model()
     return ProviderIdentity(
-        provider="deepseek",
+        provider=OFFICIAL_PROVIDER,
         api_base=OFFICIAL_API_BASE,
-        model=str(resolved_model),
+        model=str(resolved_model if resolved_model is not None else DEFAULT_MODEL),
         official=True,
         transport="httpx",
     )
@@ -125,7 +132,7 @@ def _record_provider_failure(
 
 
 def _compat_retry_count(total_attempts: int | None = None) -> int:
-    """旧设置/门面表示总尝试次数，DeepSeekClient 表示首次之后的重试次数。"""
+    """旧设置/门面表示总尝试次数，兼容客户端表示首次之后的重试次数。"""
     attempts = max_retries() if total_attempts is None else total_attempts
     return max(0, int(attempts) - 1)
 
@@ -198,7 +205,7 @@ def hermes_complete_result(prompt: str, system: str | None = None,
                            thinking: str | None = None,
                            temperature: float | None = None,
                            official_api: bool = False):
-    """官方 DeepSeek 无工具补全，返回带安全 provider 证据的完整结果。"""
+    """Qwen 官方无工具补全，返回带安全 provider 证据的完整结果。"""
     _tick_daily()
     msgs = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
@@ -233,7 +240,7 @@ def hermes_complete(prompt: str, system: str | None = None,
                     thinking: str | None = None,
                     temperature: float | None = None,
                     official_api: bool = False) -> str:
-    """官方 DeepSeek 无工具补全；旧名与 ``official_api`` 仅作兼容。"""
+    """Qwen 官方无工具补全；旧名与 ``official_api`` 仅作兼容。"""
     return hermes_complete_result(
         prompt, system, model=model, timeout=timeout, max_tokens=max_tokens,
         retries_override=retries_override, thinking=thinking,
@@ -244,7 +251,7 @@ def hermes_complete(prompt: str, system: str | None = None,
 def hermes_complete_stream(prompt: str, system: str | None = None,
                            model: str | None = None, timeout: float | None = None,
                            history: list[dict] | None = None):
-    """官方 DeepSeek 流式补全；对旧消费者仅 yield delta 文本。
+    """Qwen 官方流式补全；对旧消费者仅 yield delta 文本。
 客户端的 usage 事件不会被当作文本 yield；已 yield 后断流由客户端直接上抛。
 
     history(U-009 主编速答失忆修复):按序插在 system 与本轮 user 之间的既往轮次
@@ -312,7 +319,7 @@ def hermes_complete_stream(prompt: str, system: str | None = None,
     if not terminal_seen:
         ledger_finalized = True
         error = DeepSeekResponseError(
-            "DeepSeek 官方流未完整结束",
+            "Qwen 官方服务流未完整结束",
             identity=identity,
             status="incomplete_stream",
             response_id=provider_response_id,
@@ -340,7 +347,7 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
 
     with_tools:H-01 work-scoped MCP 开关。为 True 时 body 挂指定 scribe3 MCP 面;调用方必须在
     instructions 内钉死当前 work,让所有 s3_ 工具显式传 work 参数。with_tools=False →
-    直连官方 DeepSeek 的 chat completions 流。Hermes Responses 网关会按 profile 默认
+    直连 Qwen 官方服务的 chat completions 流。Hermes Responses 网关会按 profile 默认
     挂载 MCP,仅省略 body.tools 不能真正禁用工具，纯生成必须物理绕开该代理层。"""
     _tick_daily()
     if not with_tools:
@@ -422,7 +429,7 @@ def hermes_responses_events(message, instructions: str, model: str | None = None
         if not terminal_seen:
             ledger_finalized = True
             error = DeepSeekResponseError(
-                "DeepSeek 官方流未完整结束",
+                "Qwen 官方服务流未完整结束",
                 identity=identity,
                 status="incomplete_stream",
                 response_id=provider_response_id,

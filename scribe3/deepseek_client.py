@@ -1,4 +1,7 @@
-"""DeepSeek 官方无工具 Chat Completions 客户端。"""
+"""Qwen 官方无工具 Chat Completions 客户端。
+
+模块名、``DeepSeekClient`` 和异常类名暂作兼容导出；运行时供应商身份以 Qwen 为准。
+"""
 from __future__ import annotations
 
 import json
@@ -12,6 +15,8 @@ import httpx
 from scribe3 import settings
 
 
+OFFICIAL_PROVIDER = "qwen"
+DEFAULT_MODEL = "qwen3.8-max-preview"
 OFFICIAL_API_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
 _RETRYABLE_REQUEST_ERRORS = (
@@ -124,7 +129,7 @@ class DeepSeekResponseError(DeepSeekError):
 
 
 class DeepSeekClient:
-    """固定连接 DeepSeek 官方 API；注入 client 时由调用方管理其生命周期。"""
+    """固定连接 Qwen 官方服务；类名仅为旧调用方保留兼容。"""
 
     def __init__(self, *, client: httpx.Client | None = None) -> None:
         self._client = client
@@ -140,7 +145,7 @@ class DeepSeekClient:
     @staticmethod
     def _identity(model: str) -> ProviderIdentity:
         return ProviderIdentity(
-            provider="deepseek",
+            provider=OFFICIAL_PROVIDER,
             api_base=OFFICIAL_API_BASE,
             model=model,
             official=True,
@@ -160,13 +165,13 @@ class DeepSeekClient:
         value = settings.get_setting("DEEPSEEK_API_KEY")
         if not isinstance(value, str) or not value:
             raise DeepSeekConfigurationError(
-                "未配置 DEEPSEEK_API_KEY，无法调用 DeepSeek 官方接口",
+                "未配置 Qwen API 密钥（兼容设置键 DEEPSEEK_API_KEY），无法调用 Qwen 官方服务",
                 identity=identity,
                 status="missing_api_key",
             )
         if any(not 0x21 <= ord(char) <= 0x7E for char in value):
             raise DeepSeekConfigurationError(
-                "DEEPSEEK_API_KEY 包含 HTTP header 不允许的字符",
+                "Qwen API 密钥（兼容设置键 DEEPSEEK_API_KEY）包含 HTTP header 不允许的字符",
                 identity=identity,
                 status="invalid_api_key",
             )
@@ -192,7 +197,7 @@ class DeepSeekClient:
     @staticmethod
     def _safe_http_error(status_code: int, identity: ProviderIdentity) -> DeepSeekHTTPError:
         return DeepSeekHTTPError(
-            f"DeepSeek 官方接口返回 HTTP {status_code}",
+            f"Qwen 官方服务接口返回 HTTP {status_code}",
             identity=identity,
             status="http_error",
             status_code=status_code,
@@ -206,7 +211,7 @@ class DeepSeekClient:
         retryable: bool,
     ) -> DeepSeekTransportError:
         return DeepSeekTransportError(
-            "连接 DeepSeek 官方接口失败",
+            "连接 Qwen 官方服务接口失败",
             identity=identity,
             status="transport_error",
             retryable=retryable,
@@ -232,7 +237,7 @@ class DeepSeekClient:
         model: str | None = None,
     ) -> DeepSeekResponseError:
         return DeepSeekResponseError(
-            "DeepSeek 官方接口返回无效补全结构",
+            "Qwen 官方服务接口返回无效补全结构",
             identity=identity,
             status=status,
             response_id=response_id,
@@ -598,6 +603,8 @@ __all__ = [
     "DeepSeekHTTPError",
     "DeepSeekResponseError",
     "DeepSeekTransportError",
+    "DEFAULT_MODEL",
     "OFFICIAL_API_BASE",
+    "OFFICIAL_PROVIDER",
     "ProviderIdentity",
 ]

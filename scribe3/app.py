@@ -1092,7 +1092,7 @@ def ai_usage(work: str = "main", days: int = 7):
       SQLite 台账(SCRIBE3_LLM_LEDGER);=process 表示台账故障已回退进程内计数。
     - tokens:Hermes 各响应体回传的真实 usage,按天聚合(Responses/Runs 分列)。
       fail-soft:聚合挂了回空列表带 error,帽信息照常返回。
-    - provider_usage:官方 DeepSeek 直连逻辑调用的独立聚合；不与 tokens 相加，
+    - provider_usage:Qwen 官方服务直连逻辑调用的独立聚合；不与 tokens 相加，
       未配置价格时显式返回 cost_amount=null/pricing_status=not_configured。
     """
     from scribe3 import usage as usage_mod
@@ -1100,7 +1100,7 @@ def ai_usage(work: str = "main", days: int = 7):
     from scribe3 import settings as settings_mod
 
     model = settings_mod.get_public_setting("llm.model")
-    identity = llm_mod.official_deepseek_provider_identity(model)
+    identity = llm_mod.official_qwen_provider_identity(model)
     key_present = settings_mod.is_explicitly_configured("DEEPSEEK_API_KEY")
     # 严格 allowlist：不返回 identity/设置对象本身，更不读取 key 内容。
     provider = {
@@ -4735,7 +4735,7 @@ def _stream_write(message, instructions: str, expect_proposal: bool = False,
                 yield f"data: {_j.dumps({'error': '写作流未完整结束，请重试'}, ensure_ascii=False)}\n\n"
             yield 'data: {"done": true}\n\n'
             return
-        # 官方 DeepSeek 客户端在未见 done 时以带 status 的异常
+        # Qwen 官方服务客户端在未见 done 时以带 status 的异常
         # fail-loud；不能因为 Python 出口是 exception 就把真实终态改写为 failed。
         trace["status"] = (
             "incomplete_stream"
@@ -5584,7 +5584,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     _retrieval_out = {} if retriever is not None else None
 
     def _render_final_input(envelope):
-        # Manifest 必须 hash 真正交给 Hermes/官方 DeepSeek 的全部字节。
+        # Manifest 必须 hash 真正交给 Hermes/Qwen 官方服务的全部字节。
         # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
         # 完成，编译返回后不再追加任何 instructions。
         rendered = prefix
@@ -8366,7 +8366,7 @@ def _contextual_review_complete(
     st, work: str, chapter: int, task_kind: str, prompt: str, *,
     system: str | None = None, **completion_kwargs,
 ) -> str:
-    """非流式审查的统一 Manifest → 官方 DeepSeek → Outcome 咽喉点。"""
+    """非流式审查的统一 Manifest → Qwen 官方服务 → Outcome 咽喉点。"""
     from dataclasses import asdict
     import uuid
     from scribe3.context_assembler import render_envelope_text
@@ -8440,7 +8440,7 @@ def _contextual_review_complete(
 
 
 def _grounding_llm(st, work: str, chapter: int, prompt: str) -> str:
-    """事实对齐审查经统一上下文引擎走官方 DeepSeek，并持久化 Outcome。"""
+    """事实对齐审查经统一上下文引擎走 Qwen 官方服务，并持久化 Outcome。"""
     return _contextual_review_complete(
         st, work, chapter, "grounding", prompt,
         max_tokens=4096, official_api=True, thinking="disabled",

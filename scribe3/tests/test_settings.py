@@ -241,7 +241,7 @@ def test_public_setting_coerces_target_env_and_uses_default(tmp_path, monkeypatc
     monkeypatch.setenv("SCRIBE3_DAILY_CALL_CAP", "123")
 
     assert settings.get_public_setting("SCRIBE3_DAILY_CALL_CAP") == 123
-    assert settings.get_public_setting("llm.model") == "deepseek-chat"
+    assert settings.get_public_setting("llm.model") == "qwen3.8-max-preview"
 
 
 def test_coerce_int_rejects_fractional_float():

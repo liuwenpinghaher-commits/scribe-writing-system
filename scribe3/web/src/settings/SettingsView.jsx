@@ -29,17 +29,17 @@ function UsageCard({ usage }) {
   const pct = cap > 0 ? Math.min(100, Math.round((used_today / cap) * 100)) : 0
   const provider = usage.provider
   const providerModel = typeof provider?.model === 'string' ? provider.model.trim() : ''
-  const officialDeepSeek = provider?.provider === 'deepseek'
+  const officialQwen = provider?.provider === 'qwen'
     && provider?.official === true
     && provider?.transport === 'direct'
-    && provider?.api_base === 'https://api.deepseek.com'
+    && provider?.api_base === 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
     && providerModel.length > 0
     && typeof provider?.key_present === 'boolean'
   return (
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
-      {officialDeepSeek && (
+      {officialQwen && (
         <div className="mb-2 flex items-center justify-between gap-3 text-f13 text-ink">
-          <span>官方 DeepSeek · {providerModel} · 直连</span>
+          <span>官方 Qwen · {providerModel} · 直连</span>
           <span className={provider.key_present === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
             {provider.key_present === true ? '密钥记录存在（未验证）' : '未保存密钥'}
           </span>
