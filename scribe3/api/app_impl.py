@@ -2357,13 +2357,15 @@ def global_search(q: str, limit: int = Query(default=30, ge=1, le=100), work: st
             })
 
     for ev in st._all_events_bulk():
+        from scribe3.knowledge import iter_participants
+        _p_oids = [oid for _, oid in iter_participants(ev.participants)]
         text = "\n".join([
             ev.id or "",
             ev.type or "",
             ev.motivated_by_goal or "",
             ev.location or "",
             " ".join(ev.preconditions or []),
-            " ".join(ev.participants.values() or []),
+            " ".join(_p_oids),
         ])
         if _search_hit(query, text):
             seq = int(ev.story_time or 0)

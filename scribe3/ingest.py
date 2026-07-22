@@ -257,14 +257,15 @@ def apply_delta(store, delta: dict, seq: int,
         # 结构路径:合成 did 事件,挂 effects=[fid],participants=当事人+目击者;
         # add_event 末尾自动 see_event → 在场者 knows(acquired_via=saw)。
         # 不再手写 knows 边——与 events 轨同一生产路径,purge_ingest 靠 ingest_seq 幂等。
-        participants: dict = {"SUBJ": actor}
-        for wi, wname in enumerate(it.get("seen_by") or []):
+        witnesses: list[str] = []
+        for wname in (it.get("seen_by") or []):
             woid = _resolve_char(store, wname, seq, "seen_by")
-            if woid is None:
-                continue
-            # 多目击者:首个 WITNESS,其余 WITNESS1/WITNESS2…(witnesses_of 取全部 values)
-            slot = "WITNESS" if wi == 0 else f"WITNESS{wi}"
-            participants[slot] = woid
+            if woid is not None and woid not in witnesses:
+                witnesses.append(woid)
+        # 同槽多人:WITNESS 值为 list(knowledge.iter_participants / see_event 全覆盖)
+        participants: dict = {"SUBJ": actor}
+        if witnesses:
+            participants["WITNESS"] = witnesses if len(witnesses) > 1 else witnesses[0]
         try:
             store.add_event(
                 Event(f"ev:d{seq}-{j}", "行动",
@@ -273,9 +274,10 @@ def apply_delta(store, delta: dict, seq: int,
         except Exception as _ev_e:
             # 事件落库失败时回退直写 knows,保证 did 知识不丢(non-fatal,与 events 轨同范式)
             import logging
+            from scribe3.knowledge import iter_participants
             logging.getLogger("scribe3.ingest").warning(
                 "did→event 写入失败,回退直写 knows,命题 %s: %s", fid, _ev_e)
-            for woid in participants.values():
+            for _, woid in iter_participants(participants):
                 try:
                     store.add_knowledge(
                         KnowledgeEdge(woid, fid, since_chapter=seq, acquired_via="saw"),

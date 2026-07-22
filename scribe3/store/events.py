@@ -27,10 +27,9 @@ class EventsMixin:
                  "loc": RecordID("place", loc_local) if loc_local else None,
                  "pre": ev.preconditions,
                  **({"iseq": ingest_seq} if ingest_seq is not None else {})})
-            # participants → involves 图边
-            for slot, ent_oid in ev.participants.items():
-                if not ent_oid:
-                    continue
+            # participants → involves 图边(支持同槽多人:list 值或 list[tuple])
+            from scribe3.knowledge import iter_participants
+            for slot, ent_oid in iter_participants(ev.participants):
                 ctbl, clocal = _split(ent_oid)
                 if ctbl != "character":
                     continue
@@ -290,9 +289,10 @@ class EventsMixin:
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
             "FROM event WHERE story_chapter = $ch", {"ch": chapter})
+        from scribe3.knowledge import rebuild_participants_from_parts
         out = []
         for r in rows:
-            participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
+            participants = rebuild_participants_from_parts(r.get("parts") or [])
             effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
             causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
             etype = r.get("event_type") or ""
@@ -326,9 +326,10 @@ class EventsMixin:
             "  (SELECT meta::id(out) AS plocal FROM ->causes) AS effs, "
             "  (SELECT meta::id(out) AS slocal, ctype FROM ->causal) AS causals "
             "FROM event")
+        from scribe3.knowledge import rebuild_participants_from_parts
         out = []
         for r in rows:
-            participants = {p["role"]: f"role:{p['clocal']}" for p in (r.get("parts") or [])}
+            participants = rebuild_participants_from_parts(r.get("parts") or [])
             effects = [f"fact:{e['plocal']}" for e in (r.get("effs") or [])]
             causal_in = [(f"ev:{c['slocal']}", c["ctype"]) for c in (r.get("causals") or [])]
             etype = r.get("event_type") or ""
@@ -389,9 +390,11 @@ class EventsMixin:
             plot_ch = (np if np is not None else ev.story_time) if narrative else ev.story_time
             if not (ch_from <= plot_ch <= hi):
                 continue
-            subj = [v for k, v in ev.participants.items() if k == "SUBJ"]
-            obj_ = [v for k, v in ev.participants.items() if k == "OBJ"]
-            wit  = [v for k, v in ev.participants.items() if k == "WITNESS"]
+            from scribe3.knowledge import iter_participants
+            _pairs = list(iter_participants(ev.participants))
+            subj = [oid for role, oid in _pairs if role == "SUBJ"]
+            obj_ = [oid for role, oid in _pairs if role == "OBJ"]
+            wit  = [oid for role, oid in _pairs if role == "WITNESS" or role.startswith("WITNESS")]
             # causal_in 带章号:前端 SVG 弧线需知道两端 x=章号(用 story_chapter,稳定真源)
             causal_in_rich = [
                 {"id": c[0], "chapter": ev_ch_map.get(c[0])}
