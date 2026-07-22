@@ -4,6 +4,12 @@
 > 本目录已**按第一性原理重构**(非功能堆叠):系统不是"18 个平级模块",而是**一个协作回路**。
 > 设计基线 2026 年 6 月。
 
+> **【实现路由 · 必读】** 本目录是设计蓝图，**不等于当前代码树**。  
+> - 现行实现入口：[`docs/CURRENT_ARCHITECTURE.md`](../docs/CURRENT_ARCHITECTURE.md) + [`scribe3/README.md`](../scribe3/README.md)  
+> - 巨石拆分路线：[`docs/ARCHITECTURE_SPLIT_ROADMAP.md`](../docs/ARCHITECTURE_SPLIT_ROADMAP.md)  
+> - 早期 SQLite/`scribe/` 交付叙事：根目录 [`交付说明.md`](../交付说明.md)（**已归档**）  
+> 与实现冲突时：**以 CURRENT + `scribe3/` 代码为准**。
+
 ---
 
 ## 一句话:系统是什么

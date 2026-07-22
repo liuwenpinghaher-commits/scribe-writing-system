@@ -119,11 +119,11 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                       <span className="text-f12 text-danger">提交失败</span>
                     ) : ap.runContext ? null : (
                       <>
-                        <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
+                        <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
                           className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
                           <Check size={12} />批准
                         </button>
-                        <button type="button" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
+                        <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
                           className="inline-flex h-7 items-center gap-1 rounded-md border border-line bg-surface px-2 text-f12 font-medium text-ink">
                           <X size={12} />拒绝
                         </button>

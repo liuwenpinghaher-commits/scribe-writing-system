@@ -34,10 +34,45 @@ const TABS = [
   { key: 'relations', label: '关系', icon: Heart },
 ]
 
+// 把当前设定对象的补全/更正意图种子到主编对话(禁止表单直填 → 对话审批写)。
+export function seedChiefCodexWrite(type, row = {}) {
+  const name = row.name || row.text || row.id || type
+  const lines = type === 'chars'
+    ? [
+      `请更新/更正角色「${name}」的档案并写入落库(需我审批):`,
+      '可补全或修正:外貌/性格/前史/目标/恐惧/首次出场等。',
+      '必须先用只读工具核实,再用 s3_patch_character(或对应写工具)写入。',
+      '未获批准不得声称已落库。',
+    ]
+    : [
+      `请根据本书上下文补全/更正设定「${name}」(类型:${type})并提交写入提案供我批准。`,
+      '先只读核实当前库内事实,再调用对应 s3_ 写工具;未获批准不得声称已落库。',
+    ]
+  const text = lines.join('\n')
+  try { sessionStorage.setItem('s3.chief.seed', text) } catch { /* */ }
+  try { window.dispatchEvent(new CustomEvent('s3-chief-seed', { detail: text })) } catch { /* */ }
+  return text
+}
+
+function ReadOnlyField({ label, value, section, testId }) {
+  const display = Array.isArray(value)
+    ? value.join('、')
+    : (value == null || value === '' ? null : String(value))
+  return (
+    <div className={`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`} data-testid={testId || undefined}>
+      <div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-f13 text-ink leading-relaxed whitespace-pre-wrap rounded-lg border border-line bg-surface px-2.5 py-1.5 min-h-[2rem]">
+        {display || <span className="text-faint">（空 · 由主编审批写入）</span>}
+      </div>
+    </div>
+  )
+}
+
 // ═══ Field 组件(上下布局,label在上,全宽) ═══
 // immediate(新建表单):点击编辑模式在空草稿下只渲染「+ 添加」按钮,屏读/键盘用户发现不了字段;
 // 直填模式用 ui/Field 建立 label↔控件关联(htmlFor/id + required/aria),每键上抛草稿。
-function Field({ label, value, onSave, type = 'text', options, placeholder, section, immediate = false, required = false, description }) {
+// readOnly:已存在设定只读检视,禁止失焦保存(产品铁律:对话审批写)。
+function Field({ label, value, onSave, type = 'text', options, placeholder, section, immediate = false, required = false, description, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const ref = useRef(null)
@@ -48,6 +83,21 @@ function Field({ label, value, onSave, type = 'text', options, placeholder, sect
   // immediate 模式显示值完全由本地 val 驱动(外部回灌会把 array_csv 等往返规范化、打断输入)
   useEffect(() => { if (!editing && !immediate) setVal(value ?? '') }, [value, editing, immediate])
   useEffect(() => { if (editing && ref.current) ref.current.focus() }, [editing])
+
+  if (readOnly) {
+    if (type === 'tags') {
+      return <ReadOnlyField label={label} value={options} section={section} />
+    }
+    if (type === 'abilities') {
+      let ab = value
+      try { if (typeof ab === 'string' && ab.trim()) ab = JSON.parse(ab) } catch { /* */ }
+      const text = Array.isArray(ab)
+        ? ab.map((a) => (typeof a === 'string' ? a : (a?.name || JSON.stringify(a)))).join('、')
+        : (value || '')
+      return <ReadOnlyField label={label} value={text} section={section} />
+    }
+    return <ReadOnlyField label={label} value={value} section={section} />
+  }
 
   if (immediate && type !== 'tags' && type !== 'abilities') {
     const set = (v) => { setVal(v); onSave(type === 'number' ? (v === '' ? null : Number(v)) : v) }
@@ -665,8 +715,11 @@ function ArrayObjectField({ label, fieldKey, value, itemSchema, onSave }) {
 // textarea(origin/secret_agenda/artifact_operation/external_manipulation/
 // acceleration_methods/私下运作),object/array<object> 字段均非 secret_capable——
 // 故两个新 widget 内部不必处理掩码;若未来注册表变化引入嵌套 secret 字段,需在此扩展。
-function FactionField({ f, row, isNew, save, uid }) {
+function FactionField({ f, row, isNew, save, uid, readOnly = false }) {
   const value = row[f.key]
+  if (readOnly && (f.type === 'object' || f.type === 'array<object>')) {
+    return <ReadOnlyField label={f.label} value={typeof value === 'string' ? value : JSON.stringify(value || {}, null, 0)} />
+  }
   if (f.type === 'object') {
     return <ObjectField label={f.label} fieldKey={f.key} value={value} itemSchema={f.item_schema} onSave={(v) => save(f.key, v)} />
   }
@@ -678,8 +731,9 @@ function FactionField({ f, row, isNew, save, uid }) {
     : f.type === 'int' ? 'number'
     : f.type   // 'text' | 'textarea' | 'bool'
   const body = fType === 'tags' ? (
-    <Field label={f.label} type="tags" options={value} onSave={(v) => save(f.key, v)} />
+    <Field label={f.label} type="tags" options={value} onSave={(v) => save(f.key, v)} readOnly={readOnly} />
   ) : fType === 'bool' ? (
+    readOnly ? <ReadOnlyField label={f.label} value={value ? '是' : '否'} /> : (
     <div className="py-2">
       <div className="flex items-center gap-2">
         <span className="text-meta text-faint uppercase tracking-wider">{f.label}</span>
@@ -688,16 +742,17 @@ function FactionField({ f, row, isNew, save, uid }) {
       </div>
       {f.desc && <div className="text-meta text-faint/60 mt-0.5">{f.desc}</div>}
     </div>
+    )
   ) : (
     <Field label={f.label} value={value} type={fType} options={f.enum} description={f.desc}
-      onSave={(v) => save(f.key, v)} immediate={isNew} required={isNew && f.key === 'name'} />
+      onSave={(v) => save(f.key, v)} immediate={isNew} required={isNew && f.key === 'name'} readOnly={readOnly} />
   )
   return (
     <div className={f.deprecated ? 'opacity-60' : undefined}>
       {f.deprecated && <div className="mt-3 pt-3 border-t border-line/60 text-meta text-fore">{DEPRECATED_HINT}</div>}
       {body}
       {isMasked(value) && <SecretMaskHint />}
-      {f.secret_capable && (
+      {f.secret_capable && !readOnly && (
         <div className="py-1.5 flex items-center gap-2">
           <input type="checkbox" id={`${uid}-sf-${f.key}`} checked={!!row[secretKeyOf(f.key)]}
             onChange={(e) => save(secretKeyOf(f.key), e.target.checked)}
@@ -714,14 +769,25 @@ function FactionField({ f, row, isNew, save, uid }) {
 // ═══ FactionSchemaView:GET /codex-schema/faction 拉取成功后的渲染路径 ═══
 function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) {
   const visible = schema.filter((f) => !f.deprecated || hasValue(row[f.key]))
+  const ro = !isNew
   return (
     <div className="max-w-2xl mx-auto" data-testid="faction-schema-view">
       <div className="flex items-center gap-3 mb-4">
         {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
         <span className="text-meta text-faint/50">{isNew ? '新建势力' : '势力'}</span>
       </div>
+      {ro && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-canvas/50 px-3 py-2" data-testid="codex-readonly-banner">
+          <span className="text-meta text-faint">只读检视 · 禁止表单直填 · 写入走主编对话审批</span>
+          <button type="button" data-testid="codex-ask-chief"
+            onClick={() => seedChiefCodexWrite('factions', row)}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+            让主编写入
+          </button>
+        </div>
+      )}
       <div className="border-t border-line pt-3">
-        {visible.map((f) => <FactionField key={f.key} f={f} row={row} isNew={isNew} save={save} uid={uid} />)}
+        {visible.map((f) => <FactionField key={f.key} f={f} row={row} isNew={isNew} save={save} uid={uid} readOnly={ro} />)}
       </div>
       <div className="mt-4 pt-3 border-t border-line">
         <button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150">
@@ -759,32 +825,47 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   }, [type])
 
   if (type === 'chars') {
+    const ro = !isNew
     return (
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-auto" data-testid="codex-detail-chars">
         <div className="flex items-center gap-3 mb-4">
           {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
           <span className="text-meta text-faint/50">{isNew ? '新建角色' : '角色档案'}</span>
         </div>
-        <div className="border-t border-line pt-3">
-          <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} immediate={isNew} required={requiredNew('name')} />
-          <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} immediate={isNew} />
-          <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} immediate={isNew} />
-          <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} />
-          <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} immediate={isNew} />
-          <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} immediate={isNew} />
-          <div className="py-1.5 flex items-center gap-2">
-            <input type="checkbox" id={`${uid}-backstory-secret`} checked={!!row.backstory_secret}
-              onChange={(e) => save('backstory_secret', e.target.checked)}
-              className="w-4 h-4 accent-brand cursor-pointer" />
-            <label htmlFor={`${uid}-backstory-secret`} className="text-f12 text-faint cursor-pointer select-none inline-flex items-center gap-1"><Lock size={11} />私密(默认屏蔽前史)</label>
+        {ro && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-canvas/50 px-3 py-2" data-testid="codex-readonly-banner">
+            <span className="text-meta text-faint">只读检视 · 禁止表单直填 · 写入走主编 s3_patch_character + 审批</span>
+            <button type="button" data-testid="codex-ask-chief"
+              onClick={() => seedChiefCodexWrite('chars', row)}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+              让主编写入
+            </button>
           </div>
-          <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} />
-          <Field label="弱点" type="tags" options={row.weaknesses} onSave={(v) => save('weaknesses', v)} />
-          <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} immediate={isNew} section />
-          <Field label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} immediate={isNew} />
-          <Field label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} immediate={isNew} />
-          <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} immediate={isNew} />
-          <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} immediate={isNew} />
+        )}
+        <div className="border-t border-line pt-3">
+          <Field label="名字" value={row.name} placeholder="输入角色名" onSave={(v) => save('name', v)} immediate={isNew} required={requiredNew('name')} readOnly={ro} />
+          <Field label="重要度" value={row.importance} type="select" options={['protagonist','major','minor','background']} onSave={(v) => save('importance', v)} immediate={isNew} readOnly={ro} />
+          <Field label="外貌" value={row.appearance} type="textarea" placeholder="描述外貌特征" onSave={(v) => save('appearance', v)} immediate={isNew} readOnly={ro} />
+          <Field label="性格标签" type="tags" options={row.personality_tags} onSave={(v) => save('personality_tags', v)} readOnly={ro} />
+          <Field label="性格深描" value={row.personality_detail} type="textarea" placeholder="深入描述性格" onSave={(v) => save('personality_detail', v)} immediate={isNew} readOnly={ro} />
+          <Field label="前史" value={row.backstory} type="textarea" placeholder="角色背景故事" onSave={(v) => save('backstory', v)} immediate={isNew} readOnly={ro} />
+          {isNew ? (
+            <div className="py-1.5 flex items-center gap-2">
+              <input type="checkbox" id={`${uid}-backstory-secret`} checked={!!row.backstory_secret}
+                onChange={(e) => save('backstory_secret', e.target.checked)}
+                className="w-4 h-4 accent-brand cursor-pointer" />
+              <label htmlFor={`${uid}-backstory-secret`} className="text-f12 text-faint cursor-pointer select-none inline-flex items-center gap-1"><Lock size={11} />私密(默认屏蔽前史)</label>
+            </div>
+          ) : (
+            <ReadOnlyField label="前史私密" value={row.backstory_secret ? '是' : '否'} />
+          )}
+          <Field label="能力" type="abilities" value={row.abilities} onSave={(v) => save('abilities', v)} readOnly={ro} />
+          <Field label="弱点" type="tags" options={row.weaknesses} onSave={(v) => save('weaknesses', v)} readOnly={ro} />
+          <Field label="表面目标" value={row.surface_goal} placeholder="角色想要什么" onSave={(v) => save('surface_goal', v)} immediate={isNew} section readOnly={ro} />
+          <Field label="深层需求" value={row.deep_need} placeholder="角色真正需要什么" onSave={(v) => save('deep_need', v)} immediate={isNew} readOnly={ro} />
+          <Field label="内在冲突" value={row.internal_conflict} placeholder="目标与需求的矛盾" onSave={(v) => save('internal_conflict', v)} immediate={isNew} readOnly={ro} />
+          <Field label="恐惧" value={row.fear} placeholder="角色最怕什么" onSave={(v) => save('fear', v)} immediate={isNew} readOnly={ro} />
+          <Field label="首次出场" value={row.first_appearance} type="number" onSave={(v) => save('first_appearance', v)} immediate={isNew} readOnly={ro} />
         </div>
         {!isNew && <DynamicTimeline characterId={row.id} onStateAdded={onCharStateAdded} />}
         {!isNew && <DynamicRelations characterId={row.id} />}
@@ -843,53 +924,76 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   // Helper: array ↔ comma-separated string
   const arrToCSV = (v) => Array.isArray(v) ? v.join(', ') : (v || '')
   const csvToArr = (s) => s.split(',').map((x) => x.trim()).filter(Boolean)
+  const ro = !isNew
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto" data-testid={`codex-detail-${type}`}>
       <div className="flex items-center gap-3 mb-4">
         {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
         <span className="text-meta text-faint/50">{isNew ? `新建${tabLabel}` : tabLabel}</span>
       </div>
+      {ro && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-canvas/50 px-3 py-2" data-testid="codex-readonly-banner">
+          <span className="text-meta text-faint">只读检视 · 禁止表单直填 · 写入走主编对话审批</span>
+          <button type="button" data-testid="codex-ask-chief"
+            onClick={() => seedChiefCodexWrite(type, row)}
+            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+            让主编写入
+          </button>
+        </div>
+      )}
       <div className="border-t border-line pt-3">
         {fields.map(([k, label, ftype]) =>
           ftype === 'secret_flag' ? (
+            ro ? (
+              <ReadOnlyField key={k} label={label} value={row[k] ? '是' : '否'} />
+            ) : (
             <div key={k} className="py-1.5 flex items-center gap-2">
               <input type="checkbox" id={`${uid}-sf-${k}`} checked={!!row[k]}
                 onChange={(e) => save(k, e.target.checked)}
                 className="w-4 h-4 accent-brand cursor-pointer" />
               <label htmlFor={`${uid}-sf-${k}`} className="text-f12 text-faint cursor-pointer select-none">{label}</label>
             </div>
+            )
           ) :
           ftype === 'bool' ? (<div key={k} className="py-2"><div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div><div className="text-f13 text-ink">{row[k] ? '是' : '否'}</div></div>) :
           ftype === 'rule_cat' ? (
+            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'magic'} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'magic'} onChange={(v) => save(k, v)}>
               {ruleCatOptions.map((o) => <option key={o.value} value={o.value}>{o.label}（{o.value}）</option>)}
             </SelectRow>
+            )
           ) :
           ftype === 'scope' ? (
+            ro ? <ReadOnlyField key={k} label={label} value={row[k] || '—'} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || ''} onChange={(v) => save(k, v || null)}>
               <option value="">—</option>
               {scopeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
             </SelectRow>
+            )
           ) :
           ftype === 'tier_sel' ? (
             // 伏笔兑现层级(B-2):章级近场兑现 / 卷级中程 / 书级贯穿全书(书级永不超期)。
+            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'chapter'} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'chapter'} onChange={(v) => save(k, v)}>
               {tierOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>
+            )
           ) :
           ftype === 'kind_sel' ? (
             // 伏笔类型(P1-3):读写 row.kind;缺省视作 promise。改此值等价 mark-herring(store 同为 SET kind)。
+            ro ? <ReadOnlyField key={k} label={label} value={row[k] || 'promise'} /> : (
             <SelectRow key={k} id={`${uid}-${k}`} label={label} isNew={isNew} value={row[k] || 'promise'} onChange={(v) => save(k, v)}>
               {kindOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </SelectRow>
+            )
           ) :
           ftype === 'array_csv' ? (
             <Field key={k} label={label} value={arrToCSV(row[k])} type="text"
-              placeholder="逗号分隔，留空即可" immediate={isNew}
+              placeholder="逗号分隔，留空即可" immediate={isNew} readOnly={ro}
               onSave={(v) => save(k, v ? csvToArr(v) : [])} />
           ) :
-          ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} immediate={isNew} /> :
-          <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} immediate={isNew} required={requiredNew(k)} />
+          ftype === 'select' ? <Field key={k} label={label} value={row[k]} type="select" options={stateOptions} onSave={(v) => save(k, v)} immediate={isNew} readOnly={ro} /> :
+          <Field key={k} label={label} value={row[k]} type={ftype === 'textarea' ? 'textarea' : ftype === 'number' ? 'number' : 'text'} onSave={(v) => save(k, v)} immediate={isNew} required={requiredNew(k)} readOnly={ro} />
         )}
       </div>
       {type === 'items' && !isNew && <ItemStateHistory item={row} />}

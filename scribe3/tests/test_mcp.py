@@ -15,6 +15,8 @@ from scribe3.scenario import luanshi_leak_world
 
 EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
                           "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批)
+                          "s3_set_intent",         # G-001:书级北极星
+                          "s3_patch_character",    # G-004:角色更正
                           "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                           "s3_craft_rule_remove", "s3_add_character_relation",
                           "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
@@ -29,7 +31,8 @@ EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
                  "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
                  "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",
-                 "s3_list_entity_relations"}   # CX-Task 5:通用实体关系表读工具
+                 "s3_list_entity_relations",
+                 "s3_get_intent"}   # G-001:北极星只读
 
 
 def test_write_gated_set_no_drift():
@@ -55,6 +58,32 @@ def test_commit_if_approved_decline_blocks():
     out = M.commit_if_approved("s3_add_fact", False, lambda: calls.append("did"))
     assert calls == [], "拒绝→不写(fail-closed)"
     assert out["status"] == "declined"
+
+
+def test_commit_if_approved_exception_is_error_not_written():
+    """do_write 抛异常不得回报 written(假绿)。"""
+    def _boom():
+        raise ValueError("promise 'x' 不存在")
+
+    out = M.commit_if_approved("s3_advance_promise", True, _boom)
+    assert out["status"] == "error", out
+    assert "不存在" in out.get("error", "")
+    assert out.get("tool") == "s3_advance_promise"
+
+
+def test_commit_if_approved_false_return_is_error_not_written():
+    """do_write 返回 False → error(典型零更新/缺目标)。"""
+    out = M.commit_if_approved("s3_register_purpose", True, lambda: False)
+    assert out["status"] == "error", out
+    assert "false" in out.get("error", "").lower()
+
+
+def test_commit_if_approved_error_dict_passthrough():
+    out = M.commit_if_approved(
+        "s3_add_fact", True,
+        lambda: {"error": "chapter 9 不存在,未登记"})
+    assert out["status"] == "error", out
+    assert "不存在" in out.get("error", "")
 
 
 def test_read_tool_project_frame_excludes_secret(store):
@@ -402,6 +431,103 @@ def test_s3_add_clue_signature():
             f"s3_add_clue 缺少参数 {param},当前参数: {list(sig.parameters)}"
 
 
+# ===== G-001 / G-004: 北极星 + 角色对话审批写 =====
+
+def test_s3_set_intent_in_write_gated():
+    assert "s3_set_intent" in M.WRITE_GATED
+    assert M.requires_approval("s3_set_intent") is True
+
+
+def test_s3_set_intent_decline_blocks(store):
+    """拒绝审批 → intent 不写。"""
+    M.set_store(store)
+    before = store.get_intent()
+    calls = []
+    out = M.commit_if_approved(
+        "s3_set_intent", False,
+        lambda: (calls.append(1), store.set_intent({
+            "reader_feeling": "应被拒绝",
+            "emotional_arc": "x",
+            "red_lines": "y",
+        })))
+    assert out["status"] == "declined"
+    assert calls == []
+    after = store.get_intent()
+    assert after.get("reader_feeling") == before.get("reader_feeling")
+
+
+def test_s3_set_intent_accept_persists_and_readback(store):
+    """批准 → set_intent 落库,get_intent / s3_get_intent 读回非空。"""
+    M.set_store(store)
+    payload = {
+        "reader_feeling": "压抑中见微光",
+        "emotional_arc": "由怯到决",
+        "red_lines": "不写超自然明机制;不洗白加害",
+    }
+    out = M.commit_if_approved(
+        "s3_set_intent", True,
+        lambda: store.set_intent(payload))
+    assert out["status"] == "written"
+    got = store.get_intent()
+    assert got["reader_feeling"] == payload["reader_feeling"]
+    assert got["emotional_arc"] == payload["emotional_arc"]
+    assert "不写超自然" in got["red_lines"]
+    # 只读工具同源
+    via_tool = M.s3_get_intent()
+    assert via_tool["reader_feeling"] == payload["reader_feeling"]
+    assert via_tool["emotional_arc"] == payload["emotional_arc"]
+
+
+def test_s3_patch_character_in_write_gated():
+    assert "s3_patch_character" in M.WRITE_GATED
+    assert M.requires_approval("s3_patch_character") is True
+
+
+def _char_appearance(store, local: str) -> str:
+    for e in store.characters():
+        if e.id == f"role:{local}" or e.name == local:
+            return (e.traits or {}).get("appearance") or ""
+    return ""
+
+
+def test_s3_patch_character_decline_blocks(store):
+    from scribe3.ontology import Entity
+    M.set_store(store)
+    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
+    store.update_record("role:沈砚", {"appearance": "左手食指有握笔老茧"})
+    out = M.commit_if_approved(
+        "s3_patch_character", False,
+        lambda: store.update_record("role:沈砚", {"appearance": "右手茧"}))
+    assert out["status"] == "declined"
+    assert "左手" in _char_appearance(store, "沈砚")
+    assert "右手茧" not in _char_appearance(store, "沈砚")
+
+
+def test_s3_patch_character_accept_persists_readback(store):
+    """批准后角色字段更新可读回。"""
+    from scribe3.ontology import Entity
+    M.set_store(store)
+    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
+    store.update_record("role:沈砚", {"appearance": "左手食指有握笔老茧"})
+
+    def _write():
+        store.update_record("role:沈砚", {"appearance": "右手食指有握笔老茧,遇冷便僵"})
+
+    out = M.commit_if_approved("s3_patch_character", True, _write)
+    assert out["status"] == "written"
+    app = _char_appearance(store, "沈砚")
+    assert "右手" in app, f"批准后应读回右手茧,实际: {app!r}"
+
+def test_s3_set_intent_and_patch_character_signatures():
+    import inspect
+    sig_i = inspect.signature(M.s3_set_intent)
+    for p in ("reader_feeling", "emotional_arc", "red_lines", "work"):
+        assert p in sig_i.parameters
+    sig_c = inspect.signature(M.s3_patch_character)
+    for p in ("character_id", "appearance", "work"):
+        assert p in sig_c.parameters
+
+
 # ===== R4: s3_list_factions private_operation 屏蔽(第三轮 P1-b) =====
 
 def test_s3_list_factions_masks_private_operation_by_default(store):
@@ -518,14 +644,15 @@ def test_s3_record_knowledge_doc_no_invalid_enum():
 # 批E · C(B-2 审查 Minor):s3_plant_promise 非法 tier 无测试 → 补测
 # ============================================================
 def test_s3_plant_promise_illegal_tier_raises_no_write(store):
-    """批E-C:s3_plant_promise 非法 tier → store 层 plant_promise raise ValueError,
-    且抛错前不落库(commit_if_approved 批准路径下 do_write 异常冒泡,库中无残留伏笔)。"""
+    """批E-C:s3_plant_promise 非法 tier → store raise ValueError;
+    commit_if_approved 捕获为 status=error(不假绿 written),且库中无残留伏笔。"""
     M.set_store(store)
-    with pytest.raises(ValueError):
-        M.commit_if_approved(
-            "s3_plant_promise", True,
-            lambda: store.plant_promise("非法层级伏笔", 1, tier="galaxy"))
-    assert store.list_promises() == [], "非法 tier 抛错前不应有伏笔落库"
+    out = M.commit_if_approved(
+        "s3_plant_promise", True,
+        lambda: store.plant_promise("非法层级伏笔", 1, tier="galaxy"))
+    assert out["status"] == "error", out
+    assert "非法" in out.get("error", "") or "tier" in out.get("error", "")
+    assert store.list_promises() == [], "非法 tier 失败路径不应有伏笔落库"
 
 
 def test_s3_plant_promise_legal_tier_writes(store):

@@ -72,6 +72,8 @@ def _store_for(work: str | None = None):
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
                 "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
+                "s3_set_intent",         # G-001:书级北极星 intent 结构化写入
+                "s3_patch_character",    # G-004:角色字段更正(对话审批落库)
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
@@ -86,13 +88,48 @@ def requires_approval(name: str) -> bool:
     return name in WRITE_GATED
 
 
-def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], None]) -> dict:
+def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], object]) -> dict:
     """写门控单一落库点:WRITE_GATED 的工具须 accepted=True 才执行 do_write
-    (do_write 内部走 store.execute_write 单点)。拒绝=fail-closed 不写。"""
+    (do_write 内部走 store 单点落库)。拒绝=fail-closed 不写。
+
+    防假绿:
+    - do_write 抛异常 → status=error(不谎称 written)
+    - do_write 返回 False → status=error(典型:目标行不存在/零更新)
+    - do_write 返回带 error 的 dict → 透传为 error
+    - do_write 返回其它 dict → 与 written 合并(保留业务字段)
+    - do_write 返回 None/其它真值 → status=written
+    """
     if name in WRITE_GATED and not accepted:
         return {"status": "declined", "tool": name}
-    do_write()
-    return {"status": "written", "tool": name}
+    try:
+        result = do_write()
+    except Exception as e:
+        logging.exception("commit_if_approved write failed tool=%s", name)
+        return {"status": "error", "tool": name, "error": str(e)}
+    if result is False:
+        return {
+            "status": "error",
+            "tool": name,
+            "error": "write returned false (no-op or missing target)",
+        }
+    if isinstance(result, dict):
+        if result.get("error") and result.get("status") not in ("written", "ok"):
+            out = {"status": "error", "tool": name}
+            out.update(result)
+            out["status"] = "error"
+            return out
+        out = {"status": "written", "tool": name}
+        out.update(result)
+        # 业务 dict 若未显式给 status,保持 written;若显式 declined/error 则尊重
+        if result.get("status") in ("declined", "error"):
+            out["status"] = result["status"]
+        else:
+            out["status"] = "written"
+        return out
+    out: dict = {"status": "written", "tool": name}
+    if result is not None:
+        out["result"] = result
+    return out
 
 
 class _Approve(BaseModel):
@@ -594,6 +631,91 @@ async def s3_add_character(ctx: Context, oid: str, name: str, work: str | None =
     ok = await _ask(ctx, f"新增角色 {oid}={name}")
     return commit_if_approved("s3_add_character", ok,
                               lambda: _store_for(work).add_entity(Entity(oid, "character", name)))
+
+
+@mcp.tool(annotations=_RO)
+def s3_get_intent(work: str | None = None) -> dict:
+    """读取本书北极星意图(读者感受/情感弧/红线/字数目标)。只读。"""
+    return _store_for(work).get_intent()
+
+
+@mcp.tool(annotations=_RW)
+async def s3_set_intent(ctx: Context,
+                        reader_feeling: str | None = None,
+                        emotional_arc: str | None = None,
+                        red_lines: str | None = None,
+                        overdue_threshold: int | None = None,
+                        total_word_goal: int | None = None,
+                        daily_word_goal: int | None = None,
+                        work: str | None = None) -> dict:
+    """写入/合并本书北极星意图(写,待批)。
+
+    只传需要更新的字段;未传字段保留库中旧值(与 store.set_intent MERGE 语义一致)。
+    作者对话驱动落库的正道——禁止要求作者去北极星表单失焦保存。"""
+    fields: dict = {}
+    if reader_feeling is not None:
+        fields["reader_feeling"] = reader_feeling
+    if emotional_arc is not None:
+        fields["emotional_arc"] = emotional_arc
+    if red_lines is not None:
+        fields["red_lines"] = red_lines
+    if overdue_threshold is not None:
+        fields["overdue_threshold"] = overdue_threshold
+    if total_word_goal is not None:
+        fields["total_word_goal"] = total_word_goal
+    if daily_word_goal is not None:
+        fields["daily_word_goal"] = daily_word_goal
+    if not fields:
+        return {"status": "noop", "tool": "s3_set_intent", "reason": "no fields"}
+    summary = " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
+    ok = await _ask(ctx, f"写入北极星意图:{summary}")
+    return commit_if_approved("s3_set_intent", ok,
+                              lambda: _store_for(work).set_intent(fields))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_character(ctx: Context, character_id: str,
+                             appearance: str | None = None,
+                             personality_detail: str | None = None,
+                             surface_goal: str | None = None,
+                             deep_need: str | None = None,
+                             fear: str | None = None,
+                             importance: str | None = None,
+                             name: str | None = None,
+                             work: str | None = None) -> dict:
+    """更正已有角色字段(写,待批)。
+
+    character_id: 裸名或 role:前缀(如「沈砚」或 role:沈砚)。
+    只传要改的字段;None 表示不改。用于对话驱动设定返工(G-004),禁止表单失焦直填。"""
+    local = character_id.split(":", 1)[-1] if character_id else ""
+    if not local:
+        return {"status": "error", "tool": "s3_patch_character", "reason": "empty character_id"}
+    oid = f"role:{local}"
+    fields: dict = {}
+    for k, v in (
+        ("name", name),
+        ("appearance", appearance),
+        ("personality_detail", personality_detail),
+        ("surface_goal", surface_goal),
+        ("deep_need", deep_need),
+        ("fear", fear),
+        ("importance", importance),
+    ):
+        if v is not None:
+            fields[k] = v
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_character", "reason": "no fields"}
+    summary = f"{oid} " + " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
+    ok = await _ask(ctx, f"更正角色:{summary}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.exists(oid):
+            # 角色不存在时先建最小实体再补字段,避免悬挂更正
+            st.add_entity(Entity(oid, "character", local))
+        st.update_record(oid, fields)
+
+    return commit_if_approved("s3_patch_character", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

@@ -77,9 +77,10 @@ export function ProposalBar({ text, actions, onDismiss }) {
       <span className="text-f13 flex-1 min-w-0">{text}</span>
       <div className="flex items-center gap-1.5 shrink-0">
         {actions.map((a) => (
-          <Btn key={a.label} variant={a.variant || 'soft'} size="sm" onClick={a.onClick}>{a.label}</Btn>
+          <Btn key={a.label} data-testid={a.label === '填入' ? 'stage-fill' : a.label === '追加' ? 'stage-append' : undefined}
+            variant={a.variant || 'soft'} size="sm" onClick={a.onClick}>{a.label}</Btn>
         ))}
-        {onDismiss && <Btn variant="ghost" size="sm" onClick={onDismiss} aria-label="忽略">忽略</Btn>}
+        {onDismiss && <Btn variant="ghost" size="sm" onClick={onDismiss} aria-label="忽略" data-testid="stage-dismiss">忽略</Btn>}
       </div>
     </div>
   )
