@@ -214,8 +214,10 @@ describe('FourPaneShell 四栏钻取', () => {
     })
   })
 
-  it('二栏新建章会调用后端并在三栏选中新章', async () => {
+  it('二栏新建章走主编种子,不调用 createChapter REST', async () => {
     const reload = vi.fn()
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     function CreateHarness() {
       const [sel, setSel] = useState({ mode: 'node', node: null })
       const onSelectNode = (node) => {
@@ -230,9 +232,11 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.queryByRole('button', { name: '新建章' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '在第一卷中新建章' }))
 
-    await waitFor(() => expect(apiMock.createChapter).toHaveBeenCalledWith({ volume: '1' }))
-    expect(reload).toHaveBeenCalled()
-    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:8')
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds.join('\n')).toMatch(/s3_add_chapter/)
+    expect(seeds.join('\n')).toMatch(/volume_id=1/)
+    expect(apiMock.createChapter).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('二栏使用可拖拽面板且默认更窄,不再写死 288px', () => {

@@ -8,8 +8,7 @@ import { ChevronLeft, ChevronRight, PanelRightClose } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
-import { api } from '../api'
-import { showToast } from '../ui/Toast'
+import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
 import { useContextSnapshot } from '../context/ContextSnapshotContext'
 import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
 import { routeOf, selectionFromSnapshot } from './contextSelection'
@@ -245,21 +244,16 @@ export function FourPaneShell({
     reload?.()
     setDirectoryRefresh((v) => v + 1)
   }
-  const handleCreateChapter = async (volume) => {
-    try {
-      const created = await api.createChapter({ volume })
-      reload?.()
-      setDirectoryRefresh((v) => v + 1)
-      const seq = created?.seq
-      if (seq != null) {
-        const title = created?.title || `第${seq}章`
-        // 新建即选中也是一次语义导航,走 intent 化通道
-        handleSelectItem({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
-      }
-      showToast('章节已创建', { tone: 'ok' })
-    } catch (e) {
-      showToast(e?.body?.detail || e?.message || '新建章节失败', { tone: 'danger' })
-    }
+  // 禁止 api.createChapter REST 直写;主编 s3_add_chapter 审批落库
+  const handleCreateChapter = (volume) => {
+    const volHint = volume != null && volume !== ''
+      ? `请归属 volume_id=${volume}。`
+      : '可不指定卷(未分卷)。'
+    seedChiefNarrativeWrite(
+      'chapter',
+      '新建章节',
+      `请用 s3_add_chapter 新建一章。${volHint}未获批准不得声称已落库。`,
+    )
   }
   const handleChapterArchived = (seq) => {
     reload?.()
@@ -347,7 +341,7 @@ return (
                 <ChevronLeft size={14} />
               </button>
             )}
-            <div className="h-full min-h-0 min-w-[16rem] overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
+            <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
               <DetailPane sel={effectiveSel} work={work} onSelectNode={handleSelectItem}
                 onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
                 onNavigateToObject={handleNavigateToObject}
@@ -373,7 +367,7 @@ return (
             data-testid="right-panel"
           >
             {!rightCollapsed && (
-              <div className="relative h-full min-h-0 min-w-[16rem] max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
+              <div className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
                 <button type="button" data-testid="right-collapse-button" aria-label="收起主编栏" title="收起主编栏"
                   onClick={collapseRightPanel}
                   className="absolute right-2 top-2 z-20 h-7 w-7 rounded-xl bg-soft/80 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
