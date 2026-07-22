@@ -81,7 +81,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_supersede_fact", "s3_forget_knowledge",
                 "s3_evolve_relation", "s3_resolve_voice_flag",
                 "s3_fold_voice_flags", "s3_add_clue",
-                "s3_add_entity_relation"}   # CX-Task 5:通用实体关系表写工具
+                "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
+                "s3_author_pref_add"}      # 跨书作者偏好(USER.md)待批写入
 
 
 def requires_approval(name: str) -> bool:
@@ -1221,10 +1222,10 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
     返回 {"folded": n, "profile": {...}} 或 {"folded": 0, "degraded": true}(LLM/解析失败时 fail-soft)。
     无开放 flag 时直接返回 {"folded": 0}(不调 LLM)。"""
     ok = await _ask(ctx, f"折叠声音演变 flag → profile [{character_id}]")
-    if not ok:
-        return {"status": "declined", "tool": "s3_fold_voice_flags"}
     from scribe3.llm import hermes_complete
-    return _store_for(work).fold_voice_flags(character_id, hermes_complete)
+    return commit_if_approved(
+        "s3_fold_voice_flags", ok,
+        lambda: _store_for(work).fold_voice_flags(character_id, hermes_complete))
 
 
 @mcp.tool(annotations=_RW)

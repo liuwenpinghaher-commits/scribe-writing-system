@@ -51,3 +51,16 @@ def test_mcp_pref_tool_is_write_gated():
     # FastMCP 包装差异兜底:至少函数在 write server 白名单里(provision 交叉校验兜真)
     if ann is not None:
         assert ann.readOnlyHint is False
+    assert "s3_author_pref_add" in M.WRITE_GATED
+    assert M.requires_approval("s3_author_pref_add") is True
+
+
+def test_s3_author_pref_add_decline_blocks_write():
+    """accepted=False 时 do_write 零调用(fail-closed,不落 USER.md)。"""
+    from scribe3 import mcp as M
+    calls: list[str] = []
+    out = M.commit_if_approved(
+        "s3_author_pref_add", False, lambda: calls.append("did") or "x")
+    assert calls == [], "拒绝→不执行 do_write"
+    assert out["status"] == "declined"
+    assert out.get("tool") == "s3_author_pref_add"

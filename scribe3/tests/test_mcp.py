@@ -24,7 +24,8 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_supersede_fact", "s3_forget_knowledge",
                           "s3_evolve_relation", "s3_resolve_voice_flag",
                           "s3_fold_voice_flags", "s3_add_clue",
-                          "s3_add_entity_relation"}   # CX-Task 5:通用实体关系表写工具
+                          "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
+                          "s3_author_pref_add"}      # 跨书作者偏好(USER.md)待批写入
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
