@@ -82,7 +82,11 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_evolve_relation", "s3_resolve_voice_flag",
                 "s3_fold_voice_flags", "s3_add_clue",
                 "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
-                "s3_author_pref_add"}      # 跨书作者偏好(USER.md)待批写入
+                "s3_author_pref_add",      # 跨书作者偏好(USER.md)待批写入
+                # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
+                "s3_add_volume", "s3_patch_volume",
+                "s3_add_chapter", "s3_patch_chapter_meta",
+                "s3_patch_chapter_plan", "s3_set_char_anchors"}
 
 
 def requires_approval(name: str) -> bool:
@@ -1321,6 +1325,162 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = No
     ok = await _ask(ctx, f"删题材规则 {rule_id}")
     return commit_if_approved("s3_craft_rule_remove", ok,
                               lambda: _store_for(work).delete_craft_rule(rule_id))
+
+
+# ===== 结构写:卷 / 章 meta / 章 plan / 弧光锚(Task 3–6)=====
+
+@mcp.tool(annotations=_RW)
+async def s3_add_volume(ctx: Context, title: str, sort_order: int = 0,
+                        intro: str | None = None, color: str | None = None,
+                        work: str | None = None) -> dict:
+    """新建卷(写,待批)。返回 volume 裸 id。"""
+    ok = await _ask(ctx, f"新建卷《{title}》sort={sort_order}")
+
+    def _write():
+        vid = _store_for(work).add_volume(
+            title, sort_order=sort_order, intro=intro, color=color)
+        return {"volume_id": vid, "title": title}
+
+    return commit_if_approved("s3_add_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_volume(ctx: Context, volume_id: str,
+                          title: str | None = None,
+                          sort_order: int | None = None,
+                          intro: str | None = None,
+                          color: str | None = None,
+                          work: str | None = None) -> dict:
+    """改卷元数据(写,待批)。仅提交非 None 字段;无字段→noop;卷不存在→error。"""
+    fields = {k: v for k, v in {
+        "title": title, "sort_order": sort_order,
+        "intro": intro, "color": color,
+    }.items() if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_volume", "reason": "no fields"}
+    ok = await _ask(ctx, f"改卷 {volume_id}: {list(fields)}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.update_volume(volume_id, fields):
+            return False
+        return {"volume_id": volume_id, "fields": list(fields)}
+
+    return commit_if_approved("s3_patch_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_chapter(ctx: Context, title: str = "",
+                         volume_id: str | None = None,
+                         work: str | None = None) -> dict:
+    """新建空章(写,待批)。seq=历史最大章号+1;可选挂到 volume_id。"""
+    ok = await _ask(ctx, f"新建章《{title or '未命名'}》vol={volume_id}")
+
+    def _write():
+        return _store_for(work).create_chapter(title=title, volume_id=volume_id)
+
+    return commit_if_approved("s3_add_chapter", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_chapter_meta(
+    ctx: Context, seq: int,
+    title: str | None = None,
+    label: str | None = None,
+    volume_id: str | None = None,
+    clear_volume: bool = False,
+    work: str | None = None,
+) -> dict:
+    """改章身份元数据(标题/标签/卷归属;写,待批)。不改 synopsis/beats/prose。
+
+    clear_volume=True 时清空卷归属(volume=None);否则 volume_id 非 None 时设归属。
+    章不存在 → status=error。"""
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = title
+    if label is not None:
+        fields["label"] = label
+    if clear_volume:
+        fields["volume"] = None
+    elif volume_id is not None:
+        fields["volume"] = volume_id
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_chapter_meta", "reason": "no fields"}
+    ok = await _ask(ctx, f"改第{seq}章 meta {list(fields)}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.update_chapter_meta(seq, fields):
+            return False
+        return {"seq": seq, "fields": list(fields)}
+
+    return commit_if_approved("s3_patch_chapter_meta", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_chapter_plan(
+    ctx: Context, seq: int,
+    synopsis: str | None = None,
+    beats: list | None = None,
+    scene_truth: str | None = None,
+    deductions: list | None = None,
+    involved_characters: list | None = None,
+    work: str | None = None,
+) -> dict:
+    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色(写,待批)。不改 prose/身份 meta。
+
+    章不存在 → status=error。"""
+    fields: dict = {}
+    if synopsis is not None:
+        fields["synopsis"] = synopsis
+    if beats is not None:
+        fields["beats"] = beats
+    if scene_truth is not None:
+        fields["scene_truth"] = scene_truth
+    if deductions is not None:
+        fields["deductions"] = deductions
+    if involved_characters is not None:
+        fields["involved_characters"] = involved_characters
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_chapter_plan", "reason": "no fields"}
+    ok = await _ask(ctx, f"改第{seq}章 plan {list(fields.keys())}")
+
+    def _write():
+        if not _store_for(work).update_chapter_meta(seq, fields):
+            return False
+        return {"seq": seq, "fields": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_chapter_plan", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_set_char_anchors(
+    ctx: Context, character_id: str,
+    want: str | None = None,
+    need: str | None = None,
+    lie: str | None = None,
+    ghost: str | None = None,
+    truth: str | None = None,
+    arc_type: str | None = None,
+    private_agenda: str | None = None,
+    work: str | None = None,
+) -> dict:
+    """写角色弧光锚(写,待批)。局部更新;键限 store _ANCHOR_KEYS 白名单。
+
+    character_id: 裸名或 role:前缀。只传要改的字段。"""
+    anchors = {k: v for k, v in {
+        "want": want, "need": need, "lie": lie, "ghost": ghost,
+        "truth": truth, "arc_type": arc_type, "private_agenda": private_agenda,
+    }.items() if v is not None}
+    if not anchors:
+        return {"status": "noop", "tool": "s3_set_char_anchors", "reason": "no fields"}
+    ok = await _ask(ctx, f"设弧光锚 {character_id}: {list(anchors)}")
+
+    def _write():
+        _store_for(work).set_char_anchors(character_id, anchors)
+        return {"character_id": character_id, "keys": list(anchors)}
+
+    return commit_if_approved("s3_set_char_anchors", ok, _write)
 
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
