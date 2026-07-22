@@ -68,7 +68,7 @@ export function ChapterMetaPane({ seq, work, onSaved, onClose }) {
       </div>
       <div className="space-y-4">
         <label className="block text-f13 text-ink">章节标题
-          <Input aria-label="章节标题" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例：闸底刻名" className="mt-1" />
+          <Input variant="bordered" aria-label="章节标题" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例：闸底刻名" className="mt-1" />
         </label>
         <label className="block text-f13 text-ink">章节标签
           <select aria-label="章节标签" value={label} onChange={(e) => setLabel(e.target.value)}

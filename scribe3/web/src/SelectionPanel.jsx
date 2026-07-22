@@ -168,7 +168,7 @@ export function SelectionPanel({ seq, onFinalized }) {
                   </button>
                 ))}
               </div>
-              <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
+              <Textarea variant="bordered" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
                         placeholder="一句话:为什么选它、弃掉的差在哪" className="px-2.5 py-1.5" />
               <div className="mt-1.5 flex justify-end">
                 <Btn size="sm" variant="primary" disabled={!pick || state === 'finalizing'} onClick={finalize}>

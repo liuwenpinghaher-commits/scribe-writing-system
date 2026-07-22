@@ -333,28 +333,28 @@ function DetailArticle({ model, compact = false, onFull }) {
   if (!model) return null
   return (
     <article aria-label={model.kind === 'fact' ? '事实详情' : '分类总览'}
-      className="grid min-h-0 overflow-hidden rounded-lg border border-line bg-surface shadow-[0_10px_30px_rgba(38,36,31,.06)]">
-      <div className="border-b border-line/70 bg-brand/5 px-4 py-3">
-        <div className="text-meta font-semibold text-faint">{model.kind === 'fact' ? '事实详情' : '分类总览'}</div>
-        <div className="text-meta font-semibold text-faint">{model.kicker}</div>
-        <h3 className="mt-1 text-f20 font-semibold leading-tight text-ink">{model.title}</h3>
+      className="grid min-h-0 overflow-hidden border-t border-line/60">
+      <div className="px-1 py-2">
+        <div className="text-meta font-semibold uppercase tracking-wider text-faint">{model.kind === 'fact' ? '事实详情' : '分类总览'}</div>
+        <div className="text-meta text-faint">{model.kicker}</div>
+        <h3 className="mt-1 text-f18 font-semibold leading-tight text-ink">{model.title}</h3>
         <div className="mt-1 text-f12 leading-relaxed text-faint">{model.sub}</div>
-        {model.value && <div className="mt-2 inline-flex rounded-md bg-surface px-2 py-1 text-f12 font-medium text-ink">{model.value}</div>}
+        {model.value && <div className="mt-2 text-f13 font-medium text-ink">{model.value}</div>}
       </div>
-      <div className="min-h-0 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 overflow-y-auto px-1 py-2">
         <div className="grid gap-3">
           {model.body.map(([label, value], index) => (
             <section key={label}>
               <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
-              <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'rounded-r-lg border-l-2 border-brand bg-canvas px-3 py-2' : ''}`}>{value}</div>
+              <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'border-l-2 border-brand/40 pl-2.5' : ''}`}>{value}</div>
             </section>
           ))}
           {!compact && model.kind === 'fact' && (
             <section>
               <div className="mb-1 text-meta font-semibold tracking-wide text-faint">关联跳转</div>
-              <div className="grid gap-1.5">
+              <div className="grid gap-1">
                 {model.related.map(([label, value]) => (
-                  <div key={`${label}:${value}`} className="rounded-md border border-line/70 bg-canvas px-2 py-1.5">
+                  <div key={`${label}:${value}`} className="py-1.5 border-b border-line/40 last:border-0">
                     <div className="text-f12 font-medium text-ink">{label}</div>
                     <div className="text-meta text-faint">{value}</div>
                   </div>
@@ -364,10 +364,10 @@ function DetailArticle({ model, compact = false, onFull }) {
           )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-line/70 bg-canvas/70 px-4 py-3">
-        {model.kind === 'fact' && <button type="button" onClick={onFull} className="h-8 rounded-md bg-brand px-3 text-f12 font-medium text-brandfg">打开完整详情</button>}
-        <button type="button" className="h-8 rounded-md border border-line bg-surface px-3 text-f12 text-ink">固定到本章</button>
-        <button type="button" className="h-8 rounded-md px-3 text-f12 text-faint hover:bg-soft">问主编</button>
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-line/50 px-1 py-2">
+        {model.kind === 'fact' && <button type="button" onClick={onFull} className="h-8 rounded-lg bg-brand px-3 text-f12 font-medium text-brandfg cursor-pointer">打开完整详情</button>}
+        <button type="button" className="h-8 rounded-lg px-3 text-f12 text-ink hover:bg-soft cursor-pointer">固定到本章</button>
+        <button type="button" className="h-8 rounded-lg px-3 text-f12 text-faint hover:bg-soft cursor-pointer">问主编</button>
       </div>
     </article>
   )
@@ -376,21 +376,21 @@ function DetailArticle({ model, compact = false, onFull }) {
 function FullDetail({ model, path, onBack }) {
   if (!model) return null
   return (
-    <section aria-label="完整限知详情" className="min-h-0 overflow-y-auto px-4 py-4">
-      <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand/10 px-3 py-2 text-brand shadow-sm">
-        <button type="button" onClick={onBack} className="h-8 rounded-md border border-line bg-surface px-3 text-f12 text-ink">返回上下文树</button>
-        <span className="min-w-0 truncate text-f12">{path}</span>
+    <section aria-label="完整限知详情" className="min-h-0 overflow-y-auto px-3 py-3">
+      <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 border-b border-line bg-canvas/95 backdrop-blur px-1 py-2">
+        <button type="button" onClick={onBack} className="h-8 rounded-lg px-3 text-f12 text-ink hover:bg-soft cursor-pointer">返回上下文树</button>
+        <span className="min-w-0 truncate text-f12 text-faint">{path}</span>
       </div>
-      <div className="grid overflow-hidden rounded-lg border border-line bg-surface shadow-[0_10px_30px_rgba(38,36,31,.06)] lg:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="min-w-0 px-5 py-5">
-          <div className="text-meta font-semibold text-faint">{model.kicker}</div>
-          <h3 className="mt-1 text-f24 font-semibold leading-tight text-ink">{model.title}</h3>
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_14rem] gap-4">
+        <div className="min-w-0">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint">{model.kicker}</div>
+          <h3 className="mt-1 text-f22 font-semibold leading-tight text-ink">{model.title}</h3>
           <div className="mt-2 text-f13 leading-relaxed text-faint">{model.sub}</div>
           <div className="mt-5 grid gap-4">
             {model.body.map(([label, value], index) => (
               <section key={label}>
                 <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
-                <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'rounded-r-lg border-l-2 border-brand bg-canvas px-3 py-2' : ''}`}>{value}</div>
+                <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'border-l-2 border-brand/40 pl-2.5' : ''}`}>{value}</div>
               </section>
             ))}
             <section>
@@ -403,11 +403,11 @@ function FullDetail({ model, path, onBack }) {
             </section>
           </div>
         </div>
-        <aside className="border-t border-line bg-canvas px-4 py-4 lg:border-l lg:border-t-0">
+        <aside className="border-t border-line pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
           <div className="mb-2 text-meta font-semibold tracking-wide text-faint">来源路径</div>
-          <div className="grid gap-2 text-f12">
+          <div className="grid gap-1 text-f12">
             {model.related.map(([label, value]) => (
-              <div key={`${label}:${value}`} className="rounded-md border border-line/70 bg-surface px-2 py-1.5">
+              <div key={`${label}:${value}`} className="py-1.5 border-b border-line/40 last:border-0">
                 <div className="font-medium text-ink">{label}</div>
                 <div className="text-faint">{value}</div>
               </div>
@@ -695,7 +695,7 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
             </div>
           </div>
           {options.length > 1 ? (
-            <label className="flex h-9 items-center gap-2 rounded-lg border border-line bg-surface px-2 text-f12 text-faint">
+            <label className="flex h-9 items-center gap-2 rounded-lg bg-soft/50 hover:bg-soft px-2 text-f12 text-faint transition-colors">
               <span>视角</span>
               <select
                 aria-label="限知视角"

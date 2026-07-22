@@ -23,18 +23,18 @@ function resolveColor(c, theme) {
   // relColor 可能返回 'var(--color-line)';统一成真色
   if (typeof c === 'string' && c.startsWith('var(')) {
     const m = c.match(/var\((--[a-z-]+)\)/)
-    return m ? (theme[m[1]] || '#94a3b8') : '#94a3b8'
+    return m ? (theme[m[1]] || theme['--color-faint'] || '#65706a') : (theme['--color-faint'] || '#65706a')
   }
   return c
 }
 function readTheme() {
   return {
-    '--color-brand': cssVar('--color-brand', '#3f6b58'),
+    '--color-brand': cssVar('--color-brand', '#2f6b5d'),
     '--color-irony': cssVar('--color-irony', '#4f76a3'),
     '--color-secret': cssVar('--color-secret', '#9c5f86'),
-    '--color-line': cssVar('--color-line', '#e6e2d8'),
-    '--color-faint': cssVar('--color-faint', '#84817a'),
-    '--color-ink': cssVar('--color-ink', '#37352f'),
+    '--color-line': cssVar('--color-line', '#d8d4cb'),
+    '--color-faint': cssVar('--color-faint', '#65706a'),
+    '--color-ink': cssVar('--color-ink', '#1d2420'),
   }
 }
 
@@ -157,7 +157,7 @@ function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
         (e.src === node.id && e.dst === focus) || (e.src === focus && e.dst === node.id))
     : null
   return (
-    <div className="absolute top-3 right-3 z-20 w-64 rounded-xl border border-line bg-surface/95 backdrop-blur shadow-lg p-3.5 flex flex-col gap-2.5">
+    <div className="absolute top-3 right-3 z-20 w-64 rounded-xl border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]">
       <div className="flex items-start gap-2">
         <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">
           {node.secret ? <span className="inline-flex items-center gap-1"><Lock size={13} />私密命题</span> : node.label}
@@ -184,7 +184,7 @@ function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
           label: node.secret ? '私密命题' : node.label,
           secret: !!node.secret,
         })}
-        className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg border border-line text-f13 text-ink hover:bg-soft"
+        className="mt-0.5 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg text-f13 text-ink hover:bg-soft cursor-pointer"
       >
         打开设定
       </button>
@@ -205,6 +205,9 @@ export function AtlasView({ onNavigateToObject }) {
   const [chars, setChars] = useState([])      // 全部角色(下拉用)— 仅 id/label
   const [focus, setFocus] = useState('')      // 当前中心角色 id
   const [hop, setHop] = useState(1)
+  // 章切片:null=全书(不传 chapter);number=截至该章的时间门(后端 graph 已支持)
+  const [sliceChapter, setSliceChapter] = useState(null)
+  const [maxChapter, setMaxChapter] = useState(0)
   const [picked, setPicked] = useState(null)  // 点击的节点
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState(null)
@@ -240,9 +243,21 @@ export function AtlasView({ onNavigateToObject }) {
 
   // 首屏:取一份角色清单(用于下拉 + 选首个角色作默认 focus)。
   // 用一个小子图请求拿到角色列表:不带 focus 取 top-limit,从中筛角色。
+  // 角色清单始终全书(便于选中后按切片看邻域);章上限并行取 /chapters。
   useEffect(() => {
     let alive = true
     setLoading(true); setErr(null)
+    const chPromise = typeof api.chapters === 'function'
+      ? api.chapters()
+      : Promise.resolve([])
+    chPromise.then((chs) => {
+      if (!alive) return
+      const rows = Array.isArray(chs) ? chs : []
+      const max = rows.reduce((m, c) => Math.max(m, Number(c?.seq) || 0), 0)
+      setMaxChapter(max)
+      // 若先前切片超出新上限(换书/重试),钳回全书
+      setSliceChapter((prev) => (prev != null && max > 0 && prev > max ? null : prev))
+    }).catch(() => { if (alive) setMaxChapter(0) })
     api.graph({ limit: 600 }).then((g) => {
       if (!alive) return
       const cs = (g.nodes || []).filter((n) => n.type === 'character')
@@ -266,13 +281,15 @@ export function AtlasView({ onNavigateToObject }) {
     return () => { alive = false }
   }, [retryTick])
 
-  // focus / hop / 重试触发 → 拉 ego 子图(默认不全量)
+  // focus / hop / 章切片 / 重试 → 拉 ego 子图(默认不全量)
   useEffect(() => {
     if (!focus) return
     let alive = true
     const myReq = ++reqId.current
     setLoading(true); setErr(null); setPicked(null)
-    api.graph({ focus, hop, limit: 300 }).then((g) => {
+    const opts = { focus, hop, limit: 300 }
+    if (sliceChapter != null) opts.chapter = sliceChapter
+    api.graph(opts).then((g) => {
       if (!alive || myReq !== reqId.current) return
       setRaw(g); setLoading(false)
     }).catch((e) => {
@@ -280,7 +297,7 @@ export function AtlasView({ onNavigateToObject }) {
       setErr(e.message || '加载失败'); setLoading(false)
     })
     return () => { alive = false }
-  }, [focus, hop, retryTick])
+  }, [focus, hop, sliceChapter, retryTick])
 
   const stat = useMemo(() => {
     const ns = raw?.nodes || []
@@ -316,35 +333,56 @@ export function AtlasView({ onNavigateToObject }) {
 
   return (
     <div className="h-full flex flex-col bg-canvas">
-      <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-3 px-4">
-        <Eye size={15} className="text-brand" />
-        <span className="text-f13 font-medium text-ink">知识图谱</span>
+      <div className="h-11 shrink-0 border-b border-line/60 bg-surface/95 backdrop-blur-sm flex items-center gap-2.5 px-4 overflow-x-auto">
+        <Eye size={15} className="text-brand shrink-0" />
+        <span className="text-f13 font-semibold tracking-tight text-ink shrink-0">知识图谱</span>
         {focusLabel && (
-          <span className="text-f12 text-faint tnum inline-flex items-center gap-1">
-            <Crosshair size={12} className="text-brand" />{focusLabel} 邻域 · {stat.c} 角色 · {stat.p} 命题 · {stat.e} 边
+          <span className="text-f12 text-faint tnum inline-flex items-center gap-1 shrink-0">
+            <Crosshair size={12} className="text-brand" />{focusLabel} · {stat.c}角 · {stat.p}题 · {stat.e}边
           </span>
         )}
         <select
           value={focus}
           onChange={(e) => { setHop(1); setFocus(e.target.value) }}
-          className="h-7 rounded-lg border border-line bg-canvas px-2 text-f13"
+          className="h-7 rounded-xl border-0 bg-soft/80 px-2.5 text-f13 outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
         >
           {chars.map((c) => (
             <option key={c.id} value={c.id}>{c.label}</option>
           ))}
         </select>
-        {/* hop 展开:1→2→3 跳邻域 */}
-        <div className="inline-flex items-center gap-1 text-f12 text-faint">
-          <span>跳数</span>
+        {/* hop 展开:1→2→3 跳邻域 — 胶囊切换 */}
+        <div className="inline-flex items-center gap-0.5 rounded-xl bg-soft/80 p-0.5 text-f12 shrink-0">
+          <span className="px-1.5 text-meta text-faint">跳数</span>
           {[1, 2, 3].map((h) => (
             <button
               key={h}
               onClick={() => setHop(h)}
-              className={`w-6 h-6 rounded-md border text-meta ${hop === h ? 'border-brand text-brand bg-brand/10 font-medium' : 'border-line text-faint hover:text-ink'}`}
+              className={`min-w-7 h-6 px-1.5 rounded-lg text-meta transition-colors cursor-pointer ${hop === h ? 'bg-surface text-brand font-medium shadow-sm' : 'text-faint hover:text-ink'}`}
             >{h}</button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-3 text-meta text-faint">
+        {/* 章切片:时间门截至第 N 章(复用后端 /graph?chapter=);默认全书 */}
+        {maxChapter > 0 && (
+          <div className="inline-flex items-center gap-1.5 text-f12 text-faint shrink-0">
+            <label htmlFor="atlas-chapter-slice" className="shrink-0">章切片</label>
+            <select
+              id="atlas-chapter-slice"
+              aria-label="章切片"
+              value={sliceChapter == null ? '' : String(sliceChapter)}
+              onChange={(e) => {
+                const v = e.target.value
+                setSliceChapter(v === '' ? null : Number(v))
+              }}
+              className="h-7 rounded-xl border-0 bg-soft/80 px-2.5 text-f13 tnum outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
+            >
+              <option value="">全书</option>
+              {Array.from({ length: maxChapter }, (_, i) => i + 1).map((ch) => (
+                <option key={ch} value={String(ch)}>截至第{ch}章</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-3 text-meta text-faint shrink-0">
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-brand)' }} />角色</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-irony)' }} />命题</span>
           <span className="inline-flex items-center gap-1.5"><i className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--color-secret)' }} /><Lock size={11} />私密</span>
@@ -355,15 +393,15 @@ export function AtlasView({ onNavigateToObject }) {
         {/* 键盘/读屏等价路径:与画布同一份 raw.nodes 的命名对象列表(WebGL 图无法聚焦时的可达替代) */}
         {raw?.nodes?.length > 0 && (
           <div role="region" aria-label="图谱对象列表"
-            className="w-56 shrink-0 border-r border-line bg-surface overflow-y-auto hidden md:block">
-            <div className="sticky top-0 bg-surface/95 backdrop-blur px-3 py-2 border-b border-line flex items-center gap-1.5 text-meta font-medium text-faint">
+            className="w-56 shrink-0 border-r border-line/50 bg-surface overflow-y-auto hidden md:block">
+            <div className="sticky top-0 bg-surface/95 backdrop-blur px-3 py-2 border-b border-line/50 flex items-center gap-1.5 text-meta font-medium text-faint">
               <List size={12} />对象列表 · {raw.nodes.length}
             </div>
-            <ul className="py-1">
+            <ul className="py-1 px-1">
               {raw.nodes.map((n) => (
                 <li key={n.id}>
                   <button onClick={() => navToNode(n)}
-                    className="w-full text-left px-3 py-1.5 text-f12 text-ink hover:bg-soft/60 inline-flex items-center gap-1.5 transition-colors">
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-f12 text-ink hover:bg-soft inline-flex items-center gap-1.5 transition-colors">
                     <i className="w-2 h-2 rounded-full shrink-0"
                       style={{ background: n.type === 'character' ? 'var(--color-brand)' : n.secret ? 'var(--color-secret)' : 'var(--color-irony)' }} />
                     {n.secret && <Lock size={11} className="shrink-0 text-faint" />}

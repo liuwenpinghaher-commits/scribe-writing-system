@@ -149,10 +149,12 @@ export function LeftDock({ tree, selId, expanded, onToggle, onSelect, treeCbs, s
   const { caps, active, setTab } = useLeftDockCapabilities({ tree, selId, expanded, onToggle, onSelect, treeCbs, seq, work })
 
   return (
-    <div className="h-full flex min-h-0 bg-surface">
+    <div className="h-full flex min-h-0 min-w-0 bg-surface overflow-hidden">
       {/* Rail 点当前高亮项发空串=折叠信号(设计:点当前项收起该栏)——此前被
           `k || active.key` 吞掉,折叠从未接通;现空串走 onCollapse 收起整栏。 */}
-      <Rail side="left" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
+      <div className="shrink-0">
+        <Rail side="left" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
+      </div>
       {/* 崩溃隔离:左栏面板(项目树/帧/演绎/伏笔/母题/校验)包一层边界,单栏崩溃不拖垮中区/右栏。
           key=tab+章 → 切 tab / 切章时重建复位,用户切走再切回可自恢复。 */}
       <div className={cn('flex-1 min-w-0 min-h-0 overflow-y-auto border-l border-line', active.bare ? '' : 'p-3')}>
@@ -444,15 +446,18 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
   }, [sel, chapterSel, seq, onRestored, inboxCount])
   const active = caps.find((c) => c.key === tab) || caps[0]
   useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('chief') }, [caps, tab, setTab])
-  return (
-    <div className="h-full flex min-h-0 bg-surface">
+return (
+    <div className="h-full flex min-h-0 min-w-0 bg-surface overflow-hidden">
       {/* 崩溃隔离:右栏面板(主编对话/存档)包一层边界,右栏崩溃不影响中区书稿与左栏。
-          key=tab+章 → 切 tab / 切章时重建复位。 */}
-      <div className={cn('flex-1 min-w-0 min-h-0', active.bare ? '' : 'overflow-y-auto')}>
+          key=tab+章 → 切 tab / 切章时重建复位。
+          min-w 保证内容区不会被压成「一列汉字竖排」的死条。 */}
+      <div className={cn('flex-1 min-w-0 min-h-0 overflow-hidden', active.bare ? '' : 'overflow-y-auto bg-canvas/30')}>
         <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
       </div>
-      {/* 同左栏:点当前项=折叠信号 → 收起右栏 */}
-      <Rail side="right" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
+      {/* 同左栏:点当前项=折叠信号 → 收起右栏 · 固定宽轨,不参与挤压 */}
+      <div className="shrink-0 shadow-[-1px_0_0_0_color-mix(in_srgb,var(--color-line)_60%,transparent)]">
+        <Rail side="right" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
+      </div>
     </div>
   )
 }

@@ -224,7 +224,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
         </ContextSnapshotProvider>
       ) : (
       <Group orientation="horizontal" defaultLayout={savedLayout ?? { left: 22, detail: 52, right: 26 }}
-        onLayoutChanged={onLayoutChanged} className="h-full">
+        onLayoutChanged={onLayoutChanged} className="h-full min-h-0 min-w-0 overflow-hidden">
         {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}
         <Panel
           id="left"
@@ -232,19 +232,19 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           defaultSize="22%" minSize="15%" maxSize="40%"
           collapsible collapsedSize="0%"
           onResize={(size) => {
-            const c = size.asPercentage < 1
+            const c = size.asPercentage < 7.5
             setLeftCollapsed(c)
             try { localStorage.setItem('s3.leftCollapsed', c ? '1' : '0') } catch { /* */ }
           }}
-          className="bg-surface"
+          className="bg-surface min-h-0 min-w-0 overflow-hidden"
         >
           <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
             treeCbs={treeCbs} seq={leftSeq} onCollapse={collapseLeft} />
         </Panel>
-        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
+        <Separator className="w-1.5 shrink-0 bg-transparent cursor-col-resize hover:bg-brand/25 active:bg-brand/35 transition-colors" />
 
         {/* 中栏:编辑器(章导航 + 四阶段 tab + 阶段编辑器) */}
-        <Panel id="detail" minSize="34%" className="relative min-w-0">
+        <Panel id="detail" defaultSize="52%" minSize="34%" className="relative min-w-0 min-h-0 overflow-hidden">
           {leftCollapsed && (
             <button onClick={expandLeft} title="展开左栏"
               className="absolute left-2 top-2 z-10 w-7 h-7 rounded-lg bg-surface border border-line text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shadow-sm">
@@ -262,7 +262,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
               onTreeChanged={reload} onJumpChapter={onJumpChapter} />
           </main>
         </Panel>
-        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
+        <Separator className="w-1.5 shrink-0 bg-transparent cursor-col-resize hover:bg-brand/25 active:bg-brand/35 transition-colors" />
 
         {/* 右栏:面板(主编/存档)+ 竖图标轨(镜像) */}
         <Panel
@@ -271,11 +271,11 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           defaultSize="26%" minSize="18%" maxSize="58%"
           collapsible collapsedSize="0%"
           onResize={(size) => {
-            const c = size.asPercentage < 5
+            const c = size.asPercentage < 9
             setRightCollapsed(c)
             try { localStorage.setItem('s3.rightCollapsed', c ? '1' : '0') } catch { /* */ }
           }}
-          className="bg-surface border-l border-line"
+          className="bg-surface border-l border-line min-h-0 min-w-0 overflow-hidden"
         >
           {/* 审查 P0-1:lastSeq=最近章记忆——非章上下文讨论也有"当前章",时机C 注入不再死线 */}
           <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}

@@ -433,7 +433,7 @@ function PlainChapterList({ lanes, onOpen }) {
           <div className="space-y-1">
             {lane.chapters.map((c) => (
               <button key={c.seq} onClick={() => onOpen?.(c)}
-                className="w-full text-left rounded-lg border border-line bg-surface px-3 py-2 hover:border-brand/30 transition-colors cursor-pointer flex items-center gap-2">
+                className="w-full text-left rounded-lg px-2 py-2 hover:bg-soft transition-colors cursor-pointer flex items-center gap-2">
                 <span className="text-f13 text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
                 <span className="ml-auto text-meta text-faint shrink-0" title={POV_HINT}>{povLabel(c.focalizer)}</span>
                 <span className="text-meta text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
@@ -471,7 +471,7 @@ function VirtualItemList({ kids, onSelect }) {
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
               className="pb-1.5">
               <button onClick={() => onSelect?.(c)}
-                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                className="w-full text-left rounded-lg px-3 py-2.5 hover:bg-soft transition-colors cursor-pointer">
                 <span className="text-f14 text-ink">{c.label}</span>
               </button>
             </div>
@@ -532,7 +532,7 @@ function PlainList({ node, onSelect }) {
               <div className="space-y-1.5">
                 {kids.map((c) => (
                   <button key={c.id} onClick={() => onSelect?.(c)}
-                    className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                    className="w-full text-left rounded-lg px-3 py-2.5 hover:bg-soft transition-colors cursor-pointer">
                     <span className="text-f14 text-ink">{c.label}</span>
                   </button>
                 ))}
@@ -567,24 +567,24 @@ function UnverifiedRefs({ onSelect }) {
   }
   if (!items || items.length === 0) return null
   return (
-    <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-f13 font-medium text-ink">待确认人物引用 ({items.length})</span>
+    <div className="rounded-xl border border-warn/25 bg-warn/[0.04] p-3.5 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-meta font-semibold uppercase tracking-wider text-faint">待确认人物引用 ({items.length})</span>
         {items.length > 3 && (
           <button onClick={ignoreAll} className="text-meta text-faint hover:text-ink cursor-pointer">全部忽略 →</button>
         )}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-0.5">
         {items.map((p) => (
-          <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+          <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-soft/60">
             <span className="text-f13 text-ink flex-1 min-w-0 truncate">
               {p.name} <span className="text-faint">· 第{p.seq}章 · {p.role}</span>
             </span>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button onClick={() => accept(p)}
-                className="text-f12 px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
+                className="text-f12 px-2 py-1 rounded-lg text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
               <button onClick={() => ignore(p)}
-                className="text-f12 px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors cursor-pointer">忽略</button>
+                className="text-f12 px-2 py-1 rounded-lg text-faint hover:bg-soft hover:text-ink transition-colors cursor-pointer">忽略</button>
             </div>
           </div>
         ))}

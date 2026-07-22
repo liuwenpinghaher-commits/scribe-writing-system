@@ -82,7 +82,7 @@ export function BookSection({ work }) {
         {TEXT_FIELDS.map(([k, label]) => (
           <div key={k}>
             <label htmlFor={`book-${k}`} className="block text-meta text-faint mb-1">{label}</label>
-            <Textarea id={`book-${k}`} rows={2} value={intent[k] || ''}
+            <Textarea variant="bordered" id={`book-${k}`} rows={2} value={intent[k] || ''}
               onChange={(e) => set(k, e.target.value)} onBlur={() => blurText(k)} />
           </div>
         ))}

@@ -66,7 +66,7 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     expect(shell.getAttribute('data-phase')).toBe('outline')
     expect(within(shell).getByTestId('chapter-stage-heading').textContent).toBe('大纲')
     expect(within(shell).getByTestId('chapter-stage-meta')).toBeTruthy()
-    expect(shell.className).toContain('bg-canvas')
+    expect(shell.className).toContain('panel-elevated')
 
     fireEvent.click(screen.getByRole('tab', { name: '节拍' }))
     await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('beats'))

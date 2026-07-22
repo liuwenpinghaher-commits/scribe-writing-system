@@ -46,7 +46,7 @@ function VolumeLane({ lane, colorMode, onOpen, onPatchSynopsis, onPatchLabel, ac
         <span className="text-meta text-faint">{lane.chapters.length} 章 · 总 {wcLabel(totalWc)} 字</span>
       </div>
       <SortableContext items={seqs.map((s) => `card-${s}`)} strategy={rectSortingStrategy}>
-        <div className="grid gap-3 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+        <div className="grid gap-2.5 min-h-[64px]" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
           {lane.chapters.map((c) => (
             <ChapterCard key={c.seq} chapter={c} colorMode={colorMode}
               onOpen={onOpen} onPatchSynopsis={onPatchSynopsis} onPatchLabel={onPatchLabel} />

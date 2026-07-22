@@ -10,6 +10,7 @@ import { TimelineView } from '../views/TimelineView'
 
 const apiMock = vi.hoisted(() => ({
   graph: vi.fn(),
+  chapters: vi.fn(),
   timeline: vi.fn(),
   quality: vi.fn(),
   intent: vi.fn(),
@@ -107,6 +108,7 @@ describe('全局视图键盘等价路径', () => {
     sigmaMock.events = null
     timelineMock.instances = []
     apiMock.graph.mockResolvedValue(graphPayload)
+    apiMock.chapters.mockResolvedValue([{ seq: 5 }])
     apiMock.timeline.mockResolvedValue(timelinePayload)
     apiMock.quality.mockResolvedValue(qualityPayload)
     apiMock.intent.mockResolvedValue({})

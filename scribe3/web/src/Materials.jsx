@@ -27,7 +27,7 @@ function MaterialForm({ draft, onDraft, editorKey }) {
   const set = (k, v) => onDraft({ ...draft, [k]: v })
   return (
     <div className="flex flex-col gap-2.5 flex-1 min-h-0">
-      <Input value={draft.title} onChange={(e) => set('title', e.target.value)}
+      <Input variant="bordered" value={draft.title} onChange={(e) => set('title', e.target.value)}
         placeholder="素材标题…" aria-label="素材标题" className="text-f15 font-medium" />
       <div className="flex items-center gap-2 flex-wrap">
         <label className="inline-flex items-center gap-1.5 text-f12 text-faint">
@@ -37,9 +37,9 @@ function MaterialForm({ draft, onDraft, editorKey }) {
             {MATERIAL_KINDS.map((k) => <option key={k.key} value={k.key}>{k.label}</option>)}
           </select>
         </label>
-        <Input value={draft.tagsText} onChange={(e) => set('tagsText', e.target.value)}
+        <Input variant="bordered" value={draft.tagsText} onChange={(e) => set('tagsText', e.target.value)}
           placeholder="标签(逗号分隔)" aria-label="素材标签" className="flex-1 min-w-32" />
-        <Input value={draft.source} onChange={(e) => set('source', e.target.value)}
+        <Input variant="bordered" value={draft.source} onChange={(e) => set('source', e.target.value)}
           placeholder="来源(出处/链接,可空)" aria-label="素材来源" className="flex-1 min-w-32" />
       </div>
       <RichEditor
@@ -415,25 +415,25 @@ export function MaterialList({ node, onSelect }) {
       <div className="px-3 py-3">
         <div data-testid="material-workbench-header" className="mb-3">
           <div className="flex items-center gap-2 mb-2">
-            <h2 className="text-f16 font-semibold text-ink truncate">{title}</h2>
+            <h2 className="text-f16 font-semibold tracking-tight text-ink truncate">{title}</h2>
             <span className="ml-auto text-f12 text-faint tabular-nums">{filtered.length}/{pageInfo.total ?? sourceRows.length}</span>
           </div>
           <div data-testid="material-search-row" className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} aria-label="搜索素材"
-              placeholder="标题 / 正文 / 标签" className="pl-8 w-full border-0 bg-soft" />
+              placeholder="标题 / 正文 / 标签" className="pl-8 w-full !rounded-xl border-0 bg-soft/80" />
           </div>
           <div data-testid="material-action-row" className="grid grid-cols-[1.1fr_1fr_1fr] gap-1.5">
             <button onClick={newNode}
-              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-md bg-brand/10 text-brand text-f12 font-medium hover:bg-brand/15 transition-colors cursor-pointer">
+              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand/10 text-brand text-f12 font-medium hover:bg-brand/15 transition-colors cursor-pointer">
               <Plus size={13} />新建
             </button>
             <button onClick={importNode}
-              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-md bg-soft text-faint hover:text-ink hover:bg-soft/80 text-f12 transition-colors cursor-pointer">
+              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-xl bg-soft text-faint hover:text-ink hover:bg-soft/80 text-f12 transition-colors cursor-pointer">
               <Upload size={13} />导入
             </button>
             <button onClick={networkNode}
-              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-md bg-soft text-faint hover:text-ink hover:bg-soft/80 text-f12 transition-colors cursor-pointer">
+              className="h-8 inline-flex items-center justify-center gap-1.5 rounded-xl bg-soft text-faint hover:text-ink hover:bg-soft/80 text-f12 transition-colors cursor-pointer">
               <Network size={13} />网络
             </button>
           </div>
@@ -444,7 +444,7 @@ export function MaterialList({ node, onSelect }) {
           <div data-testid="material-smart-views" className="grid grid-cols-2 gap-1">
             {smartViews.map((v) => (
               <button key={v.key} onClick={() => setActiveView(v.key)}
-                className={`h-8 px-2 rounded-md text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${activeView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+                className={`h-8 px-2 rounded-xl text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${activeView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span className="truncate">{v.label}</span>
                 <span className="text-meta text-faint/80 tabular-nums">{countForView(v.key)}</span>
               </button>
@@ -457,14 +457,14 @@ export function MaterialList({ node, onSelect }) {
           <div data-testid="material-kind-list" className="space-y-0.5">
             {!isCat && (
               <button onClick={() => setActiveKind('all')}
-                className={`w-full h-8 px-2 rounded-md text-left text-f12 flex items-center justify-between transition-colors cursor-pointer ${activeKind === 'all' ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+                className={`w-full h-8 px-2 rounded-xl text-left text-f12 flex items-center justify-between transition-colors cursor-pointer ${activeKind === 'all' ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span>全部分类</span>
                 <span className="text-meta text-faint tabular-nums">{sourceRows.length}</span>
               </button>
             )}
             {MATERIAL_KINDS.map((k) => (
               <button key={k.key} onClick={() => setActiveKind(k.key)}
-                className={`w-full h-8 px-2 rounded-md text-left text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${(selectedKind || activeKind) === k.key ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+                className={`w-full h-8 px-2 rounded-xl text-left text-f12 flex items-center justify-between gap-2 transition-colors cursor-pointer ${(selectedKind || activeKind) === k.key ? 'bg-soft text-ink font-medium' : 'text-faint hover:text-ink hover:bg-soft'}`}>
                 <span className="truncate">{k.label}</span>
                 <span className="text-meta text-faint tabular-nums">{countForKind(k.key)}</span>
               </button>
@@ -481,7 +481,7 @@ export function MaterialList({ node, onSelect }) {
             <div className="text-meta font-semibold text-faint mb-1.5">素材</div>
             {filtered.map((m) => (
               <button key={m.id} onClick={() => onSelect?.(matLeafNode(m))}
-                className="w-full text-left rounded-md bg-transparent px-2.5 py-2 hover:bg-soft transition-colors cursor-pointer">
+                className="w-full text-left rounded-xl bg-transparent px-2.5 py-2 hover:bg-soft transition-colors cursor-pointer">
                 {/* 元数据统一 text-meta 语义 token(Task 1):引用次数/参考标签/标签/类型/来源同一节奏 */}
                 <div className="flex items-center gap-2">
                   {m.pinned && <span className="shrink-0 text-meta text-brand bg-brand/10 rounded px-1.5 py-0.5" title="核心记忆(恒高召回)">置顶</span>}
@@ -504,7 +504,7 @@ export function MaterialList({ node, onSelect }) {
             ))}
             {hasMore && (
               <button onClick={loadMore} disabled={loadingMore}
-                className="mt-2 w-full h-8 rounded-md border border-line bg-canvas text-f12 text-faint hover:border-brand/40 hover:text-brand disabled:opacity-50 transition-colors cursor-pointer">
+                className="mt-2 w-full h-8 rounded-xl bg-soft text-f12 text-faint hover:bg-brand/10 hover:text-brand disabled:opacity-50 transition-colors cursor-pointer">
                 {loadingMore ? '加载中…' : `加载更多 (${sourceRows.length}/${pageInfo.total ?? '?'})`}
               </button>
             )}

@@ -41,16 +41,37 @@ const DAY = 86400000
 const chToDate = (ch) => new Date(EPOCH + (ch - 1) * DAY)
 const dateToCh = (d) => Math.round((d.getTime() - EPOCH) / DAY) + 1
 
-// ── 配色 ─────────────────────────────────────────────────────────────────────
-const EVENT_TYPE_COLOR = {
-  炼器: '#7c3aed', 战斗: '#dc2626', 拜师: '#0ea5e9',
-  对话: '#16a34a', 决策: '#d97706', 失去: '#be185d', 获得: '#15803d',
+// ── 配色(对齐产品 token 家族:brand / irony / secret / fore / ok / danger / faint) ──
+// vis-timeline 要可序列化的色值;运行时从 CSS 变量读,缺省回落到 light 真源。
+function tok(name, fallback) {
+  if (typeof window === 'undefined') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
 }
-const evColor = (t) => EVENT_TYPE_COLOR[t] || '#64748b'
-const ARC_COLORS = { ability: '#7c3aed', relation: '#0ea5e9', personality: '#ec4899', composite: '#f97316' }
-const arcColor = (ct) => ARC_COLORS[ct] || '#64748b'
-const PROMISE_COLOR = '#f59e0b'
-const PROMISE_HERRING = '#94a3b8'
+const palette = () => ({
+  brand: tok('--color-brand', '#2f6b5d'),
+  irony: tok('--color-irony', '#4f76a3'),
+  secret: tok('--color-secret', '#9c5f86'),
+  fore: tok('--color-fore', '#c2683a'),
+  ok: tok('--color-ok', '#2f6b4f'),
+  danger: tok('--color-danger', '#9d3838'),
+  faint: tok('--color-faint', '#65706a'),
+})
+const EVENT_TYPE_COLOR = () => {
+  const p = palette()
+  return {
+    炼器: p.secret, 战斗: p.danger, 拜师: p.irony,
+    对话: p.ok, 决策: p.fore, 失去: p.secret, 获得: p.ok,
+  }
+}
+const evColor = (t) => EVENT_TYPE_COLOR()[t] || palette().faint
+const ARC_COLORS = () => {
+  const p = palette()
+  return { ability: p.secret, relation: p.irony, personality: p.secret, composite: p.fore }
+}
+const arcColor = (ct) => ARC_COLORS()[ct] || palette().faint
+const PROMISE_COLOR = () => palette().fore
+const PROMISE_HERRING = () => palette().faint
 
 const stripRole = (id) => (id || '').replace(/^role:/, '')
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
@@ -179,7 +200,7 @@ function buildVis(rawItems, laneMode, maxCh) {
     const payoff = payoffById.get(s.id)
     const isHerring = s.refs?.promise_kind === 'red_herring'
     const isOverdue = s.refs?.overdue && !payoff
-    const color = isHerring ? PROMISE_HERRING : PROMISE_COLOR
+    const color = isHerring ? PROMISE_HERRING() : PROMISE_COLOR()
     const sc = s.chapter
     const pc = payoff?.chapter ?? null
     const endChapter = pc != null ? pc : endCh
@@ -194,7 +215,7 @@ function buildVis(rawItems, laneMode, maxCh) {
           + (isHerring ? ' (障)' : '') + (pc == null ? (isOverdue ? ' 超期未收' : ' …待收') : ''),
         title: `伏笔 ch${sc}${pc != null ? '→ch' + pc + ' 已收' : isOverdue ? ' · 超期未收' : ' · 待收'} · ${esc(s.label)}`,
         style: `background-color:${color}33;border-color:${color};color:#7c5a10;`
-          + (isHerring ? 'border-style:dashed;' : '') + (isOverdue ? 'border-color:#ef4444;' : ''),
+          + (isHerring ? 'border-style:dashed;' : '') + (isOverdue ? 'border-color:var(--color-danger);' : ''),
         _raw: { ...s, _payoff: payoff }, _jump: sc, _cat: 'promise',
       })
     }
@@ -303,7 +324,7 @@ function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
   const r = raw.refs || {}
   const sc = raw.story_chapter ?? raw.chapter
   const np = raw.narrative_position
-  let title = '', headColor = '#64748b', body = null
+  let title = '', headColor = palette().faint, body = null
 
   if (cat === 'event') {
     title = raw.label || raw.event_type; headColor = evColor(raw.event_type)
@@ -334,7 +355,7 @@ function DetailPanel({ raw, cat, onJump, onNavigate, onClose }) {
       </>
     )
   } else if (cat === 'promise') {
-    title = raw.label || '伏笔'; headColor = r.promise_kind === 'red_herring' ? PROMISE_HERRING : PROMISE_COLOR
+    title = raw.label || '伏笔'; headColor = r.promise_kind === 'red_herring' ? PROMISE_HERRING() : PROMISE_COLOR()
     const payoff = raw._payoff
     body = (
       <>
@@ -540,33 +561,33 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
 
   return (
     <div className="h-full flex flex-col bg-canvas" style={{ minHeight: 0 }}>
-      {/* ── 顶栏 ── */}
-      <div className="h-11 shrink-0 border-b border-line bg-surface flex items-center gap-2 px-4 overflow-x-auto">
+      {/* ── 顶栏:Upstream 胶囊切换 ── */}
+      <div className="h-11 shrink-0 border-b border-line/60 bg-surface/95 backdrop-blur-sm flex items-center gap-2 px-4 overflow-x-auto">
         <Clock size={15} className="text-brand shrink-0" />
-        <span className="text-f13 font-medium text-ink shrink-0">时间线</span>
+        <span className="text-f13 font-semibold tracking-tight text-ink shrink-0">时间线</span>
         {data && (
           <span className="text-meta text-faint tnum shrink-0">
             {counts.events}事件·{counts.promises}伏笔·{counts.arcs}弧光·{counts.relations}关系
             {maxCh > 0 && ` · 共${maxCh}章`}
-            {data.truncated && <span className="text-amber-600"> · 已截断(缩小区间)</span>}
+            {data.truncated && <span className="text-warn"> · 已截断(缩小区间)</span>}
           </span>
         )}
 
-        {/* 泳道切换 */}
-        <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-meta text-faint">泳道:</span>
+        {/* 泳道切换 — 胶囊组 */}
+        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-xl bg-soft/80 p-0.5">
+          <span className="text-meta text-faint px-1.5">泳道</span>
           {[{ v: 'kind', l: '四类' }, { v: 'char', l: '角色' }, { v: 'type', l: '事件类型' }].map(({ v, l }) => (
             <button key={v}
               onClick={() => setLaneMode(v)}
-              className={`h-6 px-2 rounded text-meta font-medium transition-colors cursor-pointer
-                ${laneMode === v ? 'bg-brand text-brandfg' : 'bg-soft text-faint hover:text-ink'}`}
+              className={`h-6 px-2 rounded-lg text-meta font-medium transition-colors cursor-pointer
+                ${laneMode === v ? 'bg-surface text-brand shadow-sm' : 'text-faint hover:text-ink'}`}
             >{l}</button>
           ))}
         </div>
 
-        {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」(诚实,不留空操作死切换) */}
-        <div className="flex items-center gap-1 ml-2 shrink-0">
-          <span className="text-meta text-faint">轴:</span>
+        {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」 */}
+        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-xl bg-soft/80 p-0.5">
+          <span className="text-meta text-faint px-1.5">轴</span>
           {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => {
             const disabled = v === 'narrative' && !canNarrative
             return (
@@ -576,22 +597,22 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
                 title={disabled
                   ? '暂无倒叙/闪回事件(全部事件叙事位=故事章)——录入含「叙事位」的事件后可切叙事顺序轴'
                   : v === 'narrative' ? '叙事顺序:事件按被讲述的位置横铺,倒叙/闪回落到叙事位' : '故事编年:事件按实际发生章号横铺'}
-                className={`h-6 px-2 rounded text-meta font-medium transition-colors
-                  ${disabled ? 'bg-soft/40 text-faint/40 cursor-not-allowed'
-                    : axis === v ? 'bg-indigo-500 text-white cursor-pointer' : 'bg-soft text-faint hover:text-ink cursor-pointer'}`}
+                className={`h-6 px-2 rounded-lg text-meta font-medium transition-colors
+                  ${disabled ? 'text-faint/40 cursor-not-allowed'
+                    : axis === v ? 'bg-surface text-brand shadow-sm cursor-pointer' : 'text-faint hover:text-ink cursor-pointer'}`}
               >{l}</button>
             )
           })}
         </div>
 
         <button onClick={fitAll}
-          className="ml-2 h-6 px-2 rounded text-meta font-medium bg-soft text-faint hover:text-ink transition-colors cursor-pointer shrink-0"
+          className="ml-1 h-6 px-2.5 rounded-xl text-meta font-medium bg-soft/80 text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer shrink-0"
           title="缩放至全书概览(滚轮按 Ctrl 缩放,拖动平移)"
         >全览</button>
 
         <div className="ml-auto shrink-0">
           <button onClick={() => load()} disabled={loading}
-            className="w-7 h-7 grid place-items-center rounded-lg text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
+            className="w-7 h-7 grid place-items-center rounded-xl text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
@@ -667,7 +688,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-line bg-surface/50 overflow-x-auto text-meta text-faint">
           <span className="shrink-0 font-medium">图例:</span>
           <span className="shrink-0 inline-flex items-center gap-1">
-            <i className="inline-block w-3 h-3 rounded border border-line bg-surface" style={{ boxShadow: 'inset 3px 0 0 #7c3aed' }} />事件
+            <i className="inline-block w-3 h-3 rounded border border-line bg-surface" style={{ boxShadow: `inset 3px 0 0 ${palette().secret}` }} />事件
           </span>
           <span className="shrink-0 inline-flex items-center gap-1">
             <i className="inline-block w-2.5 h-2.5 bg-purple-600" style={{ transform: 'rotate(45deg)' }} />弧光◆

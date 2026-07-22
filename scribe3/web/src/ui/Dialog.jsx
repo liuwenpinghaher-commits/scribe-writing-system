@@ -46,7 +46,7 @@ export function InputDialog({ open, title, placeholder = '', defaultValue = '', 
     <Dialog open={open} onClose={onClose} labelledBy="dlg-title">
       <div className="p-4">
         <div id="dlg-title" className="text-f14 font-medium text-ink mb-3">{title}</div>
-        <Input autoFocus value={v} placeholder={placeholder}
+        <Input variant="bordered" autoFocus value={v} placeholder={placeholder}
           onChange={(e) => setV(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
         <div className="mt-4 flex justify-end gap-2">

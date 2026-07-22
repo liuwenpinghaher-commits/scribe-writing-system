@@ -1,37 +1,48 @@
 import { cn } from './lib/utils'
 
 export function Btn({ variant = 'ghost', size = 'md', icon = false, className, ...p }) {
-  const base = 'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors duration-150 cursor-pointer select-none active:scale-[.98] motion-reduce:active:scale-100 disabled:opacity-40 disabled:pointer-events-none disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
+  const base = 'inline-flex items-center justify-center gap-1.5 rounded-xl font-medium transition-all duration-150 cursor-pointer select-none active:scale-[.98] motion-reduce:active:scale-100 disabled:opacity-40 disabled:pointer-events-none disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
   // icon-only:方形、无横向 padding、居中图标(调用处务必传 aria-label / title)
   const sizes = icon
-    ? { xs: 'h-8 w-8 rounded-md', sm: 'h-8 w-8', md: 'h-9 w-9' }
+    ? { xs: 'h-8 w-8 rounded-lg', sm: 'h-8 w-8 rounded-lg', md: 'h-9 w-9 rounded-xl' }
     : { xs: 'h-[30px] px-2.5 text-meta', sm: 'h-[34px] px-3 text-helper', md: 'h-9 px-3.5 text-body' }
   const variants = {
     primary: 'bg-brand text-brandfg hover:brightness-110 shadow-sm',
-    soft: 'bg-soft text-ink border border-line hover:border-faint/50',
+    soft: 'bg-soft text-ink hover:bg-soft/80',
     ghost: 'text-faint hover:bg-soft hover:text-ink',
     danger: 'bg-danger text-white hover:brightness-110',
   }
   return <button className={cn(base, sizes[size], variants[variant], className)} {...p} />
 }
 
-// 统一文本输入原语。h-9 rounded-lg border-line bg-canvas + focus:border-brand(:focus 光环由 index.css 全局提供)。
-export function Input({ size = 'md', className, ...p }) {
+// 统一文本输入原语。
+// variant=ghost(默认,Notion):无常驻重框,hover/focus 才显边；bordered:表单/新建等必须常显场景。
+export function Input({ size = 'md', variant = 'ghost', className, ...p }) {
   const sizes = { xs: 'h-6 px-1.5 text-meta', sm: 'h-7 px-2 text-f12', md: 'h-9 px-3 text-f13' }
-  return <input className={cn('w-full rounded-lg border border-line bg-canvas text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', sizes[size], className)} {...p} />
+  const variants = {
+    ghost: 'border border-transparent bg-transparent hover:bg-soft/60 focus:border-brand/40 focus:bg-surface',
+    bordered: 'border border-line/80 bg-soft/40 focus:border-brand/50 focus:bg-surface',
+  }
+  return <input className={cn('w-full rounded-xl text-ink outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', sizes[size], variants[variant] || variants.ghost, className)} {...p} />
 }
 
-// 统一多行输入原语。min-h + resize-y,可选 auto-resize(随内容增高,受 maxRows 约束由样式承担)。
-export function Textarea({ className, autoResize = false, ...p }) {
+// 统一多行输入原语。min-h + resize-y,可选 auto-resize。variant 语义同 Input。
+export function Textarea({ className, autoResize = false, variant = 'ghost', ...p }) {
   const onInput = autoResize
     ? (e) => { const el = e.target; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; p.onInput?.(e) }
     : p.onInput
-  return <textarea {...p} onInput={onInput} className={cn('w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', autoResize ? 'resize-none overflow-hidden' : 'resize-y', className)} />
+  const variants = {
+    ghost: 'border border-transparent bg-transparent hover:bg-soft/60 focus:border-brand/40 focus:bg-surface',
+    bordered: 'border border-line/80 bg-soft/40 focus:border-brand/50 focus:bg-surface',
+  }
+  return <textarea {...p} onInput={onInput} className={cn('w-full rounded-xl px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', variants[variant] || variants.ghost, autoResize ? 'resize-none overflow-hidden' : 'resize-y', className)} />
 }
 
-export function Card({ className, clickable, ...p }) {
-  return <div className={cn('rounded-xl border border-line bg-surface',
-    clickable && 'cursor-pointer transition-all duration-150 ease-out hover:border-brand/50 hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]', className)} {...p} />
+// Card:Upstream 默认白面;elevated 用软阴影抬升(少硬边)。clickable 轻上浮。
+export function Card({ className, clickable, elevated = false, ...p }) {
+  return <div className={cn('rounded-[var(--radius-pane)] bg-surface',
+    elevated ? '[box-shadow:var(--shadow-panel)]' : '',
+    clickable && 'cursor-pointer transition-all duration-150 ease-out hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]', className)} {...p} />
 }
 
 export function Skeleton({ className }) {
@@ -43,7 +54,8 @@ export function SectionTitle({ icon: Icon, children, right }) {
     <div className="flex items-center gap-2 mb-2.5 mt-1">
       {Icon && <Icon size={13} className="text-faint shrink-0" />}
       <span className="text-meta font-semibold uppercase tracking-[.08em] text-faint">{children}</span>
-      {right != null && <span className="ml-auto text-meta text-faint tnum">{right}</span>}
+      {/* right 区不强制 text-faint:可放计数或「让主编…」CTA */}
+      {right != null && <span className="ml-auto text-meta tnum shrink-0">{right}</span>}
     </div>
   )
 }

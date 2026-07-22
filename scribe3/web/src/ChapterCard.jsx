@@ -36,10 +36,10 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, onPat
 
   return (
     <div ref={setNodeRef} style={style}
-      className="relative rounded-xl border border-line bg-surface overflow-hidden flex flex-col hover:border-brand/30 transition-colors">
-      {/* 顶部色条(label/POV) */}
-      <div className="h-1 w-full shrink-0" style={{ background: cardColorVar(chapter, colorMode) }} />
-      <div className="p-3 flex flex-col gap-2 flex-1 min-h-0">
+      className="relative rounded-xl bg-surface/90 overflow-hidden flex flex-col shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-line)_55%,transparent)] hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-brand)_40%,transparent)] transition-shadow">
+      {/* 顶部色条(label/POV) — 薄一点 */}
+      <div className="h-0.5 w-full shrink-0" style={{ background: cardColorVar(chapter, colorMode) }} />
+      <div className="p-2.5 flex flex-col gap-1.5 flex-1 min-h-0">
         {/* 标题行 + 拖拽手柄 */}
         <div className="flex items-start gap-1.5">
           {dragHandle && (
@@ -62,15 +62,15 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchSynopsis, onPat
             onBlur={commit}
             onKeyDown={(e) => { if (e.key === 'Escape') cancel(); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commit() }}
             placeholder="写本章梗概…(⌘/Ctrl+Enter 保存,Esc 取消)"
-            className="w-full rounded-md border border-brand/40 bg-canvas px-2 py-1.5 text-f12 text-ink leading-relaxed outline-none focus:border-brand resize-y" />
+            className="w-full rounded-lg border border-brand/40 bg-canvas px-2 py-1.5 text-f12 text-ink leading-relaxed outline-none focus:border-brand resize-y" />
         ) : chapter.synopsis ? (
           <button type="button" onClick={() => setEditing(true)} title="点击编辑 · 即章级大纲,处处同步"
-            className="w-full text-left text-f12 text-faint leading-relaxed line-clamp-3 break-words cursor-text hover:text-ink/80 transition-colors">
+            className="w-full text-left text-f12 text-faint leading-relaxed line-clamp-3 break-words cursor-text hover:bg-soft/40 hover:text-ink rounded-md px-1 -mx-1 py-0.5 transition-colors">
             {chapter.synopsis}
           </button>
         ) : (
           <button onClick={() => setEditing(true)}
-            className="text-left text-f12 text-faint/40 hover:text-brand cursor-text transition-colors">
+            className="text-left text-f12 text-faint/40 hover:text-brand cursor-text transition-colors px-1 -mx-1">
             + 写梗概
           </button>
         )}

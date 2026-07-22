@@ -27,10 +27,10 @@ function triggerSearch(onSearch) {
 export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null }) {
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
-      className="shrink-0 flex items-center border-b border-line bg-surface px-3 gap-3">
-      <span className="font-semibold tracking-wide text-brand text-sm select-none">SCRIBE3</span>
+      className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
+      <span className="font-semibold tracking-tight text-brand text-sm select-none">SCRIBE3</span>
       <button onClick={onOpenLibrary} title="切换 / 选择作品"
-        className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
         <BookOpen size={14} className="shrink-0" />
         <span className="truncate">{current ? current.title : '选择作品'}</span>
         <ChevronDown size={11} className="shrink-0 opacity-50" />
@@ -38,13 +38,13 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
 
       {current && showViews && (
         <>
-          <div className="w-px h-5 bg-line shrink-0" data-testid="topbar-view-separator" />
-          <nav className="flex items-center gap-1" data-testid="topbar-global-views">
+          <div className="w-px h-5 bg-line/80 shrink-0" data-testid="topbar-view-separator" />
+          <nav className="flex items-center gap-0.5 rounded-xl bg-soft/70 p-0.5" data-testid="topbar-global-views">
             {VIEWS.map(({ key, label, icon: Icon }) => {
               const on = view === key
               return (
                 <button key={key} onClick={() => onView(key)} aria-current={on ? 'page' : undefined}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-f13 transition-colors relative shrink-0 cursor-pointer ${on ? 'text-brand font-medium after:absolute after:-bottom-[7px] after:left-1 after:right-1 after:h-0.5 after:bg-brand after:rounded-full' : 'text-faint hover:text-ink hover:bg-soft'}`}>
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-f13 transition-colors shrink-0 cursor-pointer ${on ? 'bg-surface text-brand font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
                   <Icon size={14} /><span className="hidden sm:inline">{label}</span>
                 </button>
               )

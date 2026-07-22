@@ -27,41 +27,47 @@
   --text-page-title: 24px;
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
-  /* 层叠柔和阴影(取代生硬单层)*/
-  --shadow-card: 0 1px 2px rgba(40,38,32,.04), 0 2px 6px rgba(40,38,32,.05), 0 8px 18px rgba(40,38,32,.05);
-  --shadow-pop: 0 2px 6px rgba(40,38,32,.08), 0 8px 24px rgba(40,38,32,.10), 0 16px 40px rgba(40,38,32,.08);
-  --color-canvas: #f3f1ec;     /* 页面底 */
-  --color-surface: #fbfaf7;    /* 卡片/面板 */
-  --color-raised: #ffffff;     /* 抬升容器 */
-  --color-soft: #f1efe9;       /* 次级底/hover */
-  --color-ink: #1d2420;        /* 主文字 */
-  --color-muted: #5f6963;      /* 次级文字 */
-  --color-faint: #65706a;      /* 弱化文字 */
-  --color-line: #d8d4cb;       /* 描边 */
-  --color-brand: #2f6b5d;      /* 黛绿主色 */
-  --color-brandfg: #ffffff;
-  --color-ok: #2f6b4f;
-  --color-warn: #825615;
-  --color-danger: #9d3838;
-  --color-fore: #c2683a;       /* 伏笔橙 */
-  --color-irony: #4f76a3;      /* 反讽蓝 */
-  --color-secret: #9c5f86;     /* 私密紫 */
-  --radius-pane: 12px;
-}
-
-:root {
-  --color-canvas: #f3f1ec;
-  --color-surface: #fbfaf7;
+  /* Upstream 式多层柔影:画布上浮白卡,少硬描边 */
+  --shadow-card: 0 1px 2px rgba(28, 32, 36, 0.04), 0 4px 12px rgba(28, 32, 36, 0.04), 0 12px 28px rgba(28, 32, 36, 0.03);
+  --shadow-pop: 0 4px 12px rgba(28, 32, 36, 0.08), 0 16px 40px rgba(28, 32, 36, 0.08);
+  --shadow-panel: 0 0 0 1px rgba(28, 32, 36, 0.04), 0 1px 2px rgba(28, 32, 36, 0.03), 0 8px 24px rgba(28, 32, 36, 0.04);
+  /* 画布浅灰 · 面板纯白(SaaS Upstream) · 保留黛绿品牌 */
+  --color-canvas: #eef0f2;
+  --color-surface: #ffffff;
   --color-raised: #ffffff;
-  --color-ink: #1d2420;
-  --color-muted: #5f6963;
-  --color-faint: #65706a;
-  --color-line: #d8d4cb;
+  --color-soft: #f3f4f6;
+  --color-ink: #1a1f24;
+  --color-muted: #545d68;
+  --color-faint: #5a636e;
+  --color-line: #e2e5e9;
   --color-brand: #2f6b5d;
   --color-brandfg: #ffffff;
   --color-ok: #2f6b4f;
   --color-warn: #825615;
   --color-danger: #9d3838;
+  --color-fore: #c2683a;
+  --color-irony: #4f76a3;
+  --color-secret: #9c5f86;
+  --radius-pane: 14px;
+}
+
+:root {
+  --color-canvas: #eef0f2;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-soft: #f3f4f6;
+  --color-ink: #1a1f24;
+  --color-muted: #545d68;
+  --color-faint: #5a636e;
+  --color-line: #e2e5e9;
+  --color-brand: #2f6b5d;
+  --color-brandfg: #ffffff;
+  --color-ok: #2f6b4f;
+  --color-warn: #825615;
+  --color-danger: #9d3838;
+  --shadow-card: 0 1px 2px rgba(28, 32, 36, 0.04), 0 4px 12px rgba(28, 32, 36, 0.04), 0 12px 28px rgba(28, 32, 36, 0.03);
+  --shadow-pop: 0 4px 12px rgba(28, 32, 36, 0.08), 0 16px 40px rgba(28, 32, 36, 0.08);
+  --shadow-panel: 0 0 0 1px rgba(28, 32, 36, 0.04), 0 1px 2px rgba(28, 32, 36, 0.03), 0 8px 24px rgba(28, 32, 36, 0.04);
   --text-meta: 12px;
   --text-helper: 13px;
   --text-body: 14px;
@@ -71,14 +77,14 @@
 }
 
 .dark {
-  --color-canvas: #141816;
-  --color-surface: #1b211e;
-  --color-raised: #222925;
-  --color-soft: #26241d;
-  --color-ink: #eef1ed;
-  --color-muted: #b7c0ba;
-  --color-faint: #8f9a93;
-  --color-line: #38423d;
+  --color-canvas: #0f1214;
+  --color-surface: #171b1e;
+  --color-raised: #1e2428;
+  --color-soft: #22282d;
+  --color-ink: #eef1f3;
+  --color-muted: #a8b0b8;
+  --color-faint: #8a939c;
+  --color-line: #2c343a;
   --color-brand: #74b29e;
   --color-brandfg: #102019;
   --color-ok: #78c49b;
@@ -87,15 +93,30 @@
   --color-fore: #d4885a;
   --color-irony: #7fa3cc;
   --color-secret: #c08aab;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 8px 24px rgba(0, 0, 0, 0.2);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-panel: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+/* 应用壳锁高:防窗口缩放/拖栏时 body 滚动把四栏拆散 */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
 body {
+  min-width: 0;
   background: var(--color-canvas);
   color: var(--color-ink);
   font: 14px/1.6 var(--font-ui);
   -webkit-font-smoothing: antialiased;
+}
+/* 可调栏内子树默认裁切,避免拖拽时子项撑破邻栏 */
+[data-panel],
+[data-panel-group] {
+  min-width: 0;
+  min-height: 0;
 }
 .prose-serif { font-family: var(--font-prose); }
 
@@ -135,16 +156,24 @@ body {
 ::selection { background: color-mix(in srgb, var(--color-brand) 20%, transparent); color: inherit; }
 /* 输入聚焦:黛绿边 + 18% 光晕 */
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 16%, transparent); }
-/* 主编输入器是整体 composer: 焦点画在外层面板, textarea 本身不再变成独立大框 */
+/* 主编输入器:Upstream 式白卡浮层,焦点品牌环 */
 .chief-composer-panel {
-  border: 1px solid color-mix(in srgb, var(--color-line) 72%, transparent);
-  background: color-mix(in srgb, var(--color-canvas) 78%, var(--color-surface));
+  border: 1px solid transparent;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+  border-radius: 12px;
   transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
 }
 .chief-composer-panel:focus-within {
-  border-color: color-mix(in srgb, var(--color-brand) 46%, var(--color-line));
+  border-color: color-mix(in srgb, var(--color-brand) 35%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 12%, transparent), var(--shadow-panel);
+}
+
+/* 可复用面板抬升(侧栏内容块 / 仪表盘段) */
+.panel-elevated {
   background: var(--color-surface);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand) 10%, transparent);
+  border-radius: var(--radius-pane);
+  box-shadow: var(--shadow-panel);
 }
 [data-chief-composer="true"] textarea:focus {
   outline: none;

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import { ConfirmDialog } from '../ui/Dialog.jsx'
+import { Input } from '../ui.jsx'
 
 const SOURCE_LABEL = { db: '已自定义', env: 'env', default: '默认' }
 
@@ -22,11 +23,11 @@ export function SettingField({ item, onChanged }) {
         <div className="flex items-center gap-2">
           <span className="text-f13 text-ink">{item.label}</span>
           <span className="text-meta text-muted rounded bg-soft px-1.5">{SOURCE_LABEL[item.source] || item.source}</span>
-          {item.pending_restart && <span className="text-meta rounded bg-amber-500/15 text-amber-600 px-1.5">重启后生效</span>}
+          {item.pending_restart && <span className="text-meta rounded bg-warn/15 text-warn px-1.5">重启后生效</span>}
           {item.effect === 'restart' && !item.pending_restart && <span className="text-meta text-faint">重启生效项</span>}
         </div>
         {item.desc && <div className="text-meta text-muted mt-0.5">{item.desc}</div>}
-        {err && <div className="text-meta text-red-500 mt-0.5" role="alert">{String(err)}</div>}
+        {err && <div className="text-meta text-danger mt-0.5" role="alert">{String(err)}</div>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {item.type === 'bool' ? (
@@ -36,15 +37,15 @@ export function SettingField({ item, onChanged }) {
             <span className={`block h-4 w-4 rounded-full bg-surface transition-transform ${item.value ? 'translate-x-4' : 'translate-x-0.5'}`} />
           </button>
         ) : item.type === 'secret' ? (
-          <input type="password" placeholder={item.is_set ? '已设置(输入以更换)' : '未设置'} aria-label={item.label}
-            className="w-48 rounded-md border border-line bg-surface px-2 py-1 text-f13"
-            value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
+          <Input type="password" variant="bordered" size="sm" placeholder={item.is_set ? '已设置(输入以更换)' : '未设置'} aria-label={item.label}
+            className="w-48" value={draft ?? ''} onChange={(e) => setDraft(e.target.value)}
             onBlur={() => draft && submit(draft)} />
         ) : (
-          <input type={item.type === 'str' ? 'text' : 'number'} step={item.type === 'float' ? '0.1' : '1'} aria-label={item.label}
+          <Input type={item.type === 'str' ? 'text' : 'number'} variant="bordered" size="sm"
+            step={item.type === 'float' ? '0.1' : '1'} aria-label={item.label}
             min={item.min ?? undefined} max={item.max ?? undefined}
-            className="w-48 rounded-md border border-line bg-surface px-2 py-1 text-f13 tnum"
-            value={draft ?? String(item.value ?? '')} onChange={(e) => setDraft(e.target.value)}
+            className="w-48 tnum" value={draft ?? String(item.value ?? '')}
+            onChange={(e) => setDraft(e.target.value)}
             onBlur={() => {
               if (draft === null || draft === String(item.value)) return
               if (item.type === 'str') { submit(draft); return }

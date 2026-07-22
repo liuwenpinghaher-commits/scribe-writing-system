@@ -72,18 +72,18 @@ describe('CodexView DetailView(factions) 元数据驱动渲染', () => {
     expect(screen.getByText('组织结构')).toBeTruthy()
     expect(screen.getByText('关键人物')).toBeTruthy()
 
-    // object 字段:嵌套子字段组已按 item_schema 回填当前值
-    expect(screen.getByDisplayValue('3')).toBeTruthy()      // structure.core_size
-    expect(screen.getByDisplayValue('禅让')).toBeTruthy()    // structure.succession
+    // 已存在设定只读:object/array 以纯文本展示(非输入框)
+    expect(screen.getByText(/core_size/, { exact: false })).toBeTruthy()
+    expect(screen.getByText(/禅让/, { exact: false })).toBeTruthy()
 
     // deprecated 字段(private_operation)本行无值 → 不显示(hasValue 判空)
     expect(screen.queryByText(/私下运作/)).toBeNull()
   })
 
-  it('② array<object> 字段(关键人物)可增删行', async () => {
+  it('② array<object> 字段(关键人物)可增删行(仅新建可写)', async () => {
     const onUpdate = vi.fn()
     const row = { name: '衔尾蛇秘会', key_figures: [{ name: '甲', generation: 1 }] }
-    render(<DetailView type="factions" row={row} isNew={false} onUpdate={onUpdate} onDelete={vi.fn()} />)
+    render(<DetailView type="factions" row={row} isNew onUpdate={onUpdate} onDelete={vi.fn()} />)
 
     // 折叠态先能看到既有行的摘要
     expect(await screen.findByText(/甲/)).toBeTruthy()
@@ -104,10 +104,10 @@ describe('CodexView DetailView(factions) 元数据驱动渲染', () => {
     expect(onUpdate.mock.calls[1][0].key_figures).toEqual([])
   })
 
-  it('③ secret_capable 字段(起源)渲染限知开关,反映当前状态且可切换', async () => {
+  it('③ secret_capable 字段(起源)渲染限知开关,反映当前状态且可切换(仅新建可写)', async () => {
     const onUpdate = vi.fn()
     const row = { name: '衔尾蛇秘会', origin: '真实起源文本', origin_secret: true, key_figures: [] }
-    render(<DetailView type="factions" row={row} isNew={false} onUpdate={onUpdate} onDelete={vi.fn()} />)
+    render(<DetailView type="factions" row={row} isNew onUpdate={onUpdate} onDelete={vi.fn()} />)
 
     const toggle = await screen.findByLabelText(/限知/)
     expect(toggle.checked).toBe(true)
@@ -117,20 +117,18 @@ describe('CodexView DetailView(factions) 元数据驱动渲染', () => {
     expect(onUpdate.mock.calls.at(-1)[0].origin_secret).toBe(false)
   })
 
-  it('④ 关键陷阱回归:掩码哨兵不会在编辑其它字段时被当真值回写', async () => {
+  it('④ 关键陷阱回归:掩码哨兵不会在编辑其它字段时被当真值回写(新建/可写路径)', async () => {
     const onUpdate = vi.fn()
     // 后端 GET(未 reveal)对已标 secret 的字段回传掩码哨兵(app.py _SECRET_MASK),非真值——
     // 前端拿到的 row.origin 此刻字面就是这个占位符。
     const row = { name: '衔尾蛇秘会', origin: SECRET_MASK, origin_secret: true, key_figures: [] }
-    render(<DetailView type="factions" row={row} isNew={false} onUpdate={onUpdate} onDelete={vi.fn()} />)
+    render(<DetailView type="factions" row={row} isNew onUpdate={onUpdate} onDelete={vi.fn()} />)
 
     await screen.findByLabelText(/限知/)
 
-    // 编辑一个【不相关】字段(势力名),触发整行回传
-    fireEvent.click(screen.getByRole('button', { name: '编辑势力名' }))
+    // immediate 新建:改势力名每键 onSave
     const nameInput = screen.getByDisplayValue('衔尾蛇秘会')
     fireEvent.change(nameInput, { target: { value: '衔尾蛇秘会(改名)' } })
-    fireEvent.blur(nameInput)
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalled())
     const payload = onUpdate.mock.calls.at(-1)[0]
@@ -167,20 +165,15 @@ describe('角色质变与详情外层联动', () => {
     apiMock.entities.mockResolvedValue([])
   })
 
-  it('保存角色质变后通知外层刷新声音演变区', async () => {
-    const onCharStateAdded = vi.fn()
+  it('已存在角色弧光区只读,引导主编写入(不直填质变表单)', async () => {
+    sessionStorage.clear()
     render(<DetailView type="chars" row={{ id: 'role:季棠', name: '季棠' }} isNew={false}
-      onUpdate={vi.fn()} onDelete={vi.fn()} onCharStateAdded={onCharStateAdded} />)
+      onUpdate={vi.fn()} onDelete={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '+ 记录质变' }))
-    fireEvent.change(screen.getByPlaceholderText('第几章'), { target: { value: '4' } })
-    fireEvent.change(screen.getByPlaceholderText('发生了什么变化...'), { target: { value: '季棠公开盐纹辨读方法。' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-
-    await waitFor(() => expect(apiMock.post).toHaveBeenCalledWith('/char-states', expect.objectContaining({
-      character_id: 'role:季棠', chapter: 4, summary: '季棠公开盐纹辨读方法。',
-    })))
-    expect(onCharStateAdded).toHaveBeenCalledTimes(1)
+    fireEvent.click(await screen.findByTestId('timeline-ask-chief'))
+    const seed = sessionStorage.getItem('s3.chief.seed') || ''
+    expect(seed).toMatch(/弧光质变/)
+    expect(apiMock.post).not.toHaveBeenCalled()
   })
 })
 
@@ -223,35 +216,21 @@ describe('CodexDetail 势力「关系」区(entity_relation,CX-Task 5)', () => {
     expect(screen.getByText('认为对方是可靠盟友')).toBeTruthy() // 对方(某旧盟)认知
   })
 
-  it('关系区支持新增与删除(POST/DELETE /entity-relations)', async () => {
+  it('关系区只读 + 让主编维护(不再直填 POST/DELETE)', async () => {
+    sessionStorage.clear()
     apiMock.get.mockImplementation((url) => {
       if (url === '/factions') return Promise.resolve([{ name: '衔尾蛇秘会', key_figures: [] }])
       return schemaOnlyGet(url)
     })
-    apiMock.entityRelations
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([{
-        a: 'faction:衔尾蛇秘会', b: 'faction:天龙座', relation_type: '臣服',
-        perception_a: '虚与委蛇', perception_b: '视为代理人', since_chapter: 1, until_chapter: null,
-      }])
-    apiMock.addEntityRelation.mockResolvedValue({ ok: true })
-    apiMock.delEntityRelation.mockResolvedValue({ ok: true })
+    apiMock.entityRelations.mockResolvedValue([])
 
     render(<CodexDetail node={{ id: 'faction:衔尾蛇秘会', type: 'faction', ref: '衔尾蛇秘会', label: '衔尾蛇秘会' }} />)
     await screen.findByTestId('faction-relations')
 
-    fireEvent.click(screen.getByRole('button', { name: '新增关系' }))
-    fireEvent.change(screen.getByPlaceholderText(/对方实体/), { target: { value: 'faction:天龙座' } })
-    fireEvent.change(screen.getByPlaceholderText(/我方认知/), { target: { value: '虚与委蛇' } })
-    fireEvent.change(screen.getByPlaceholderText(/对方认知/), { target: { value: '视为代理人' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
-
-    await waitFor(() => expect(apiMock.addEntityRelation).toHaveBeenCalledWith(
-      expect.objectContaining({ a: 'faction:衔尾蛇秘会', b: 'faction:天龙座', relation_type: '臣服' }),
-    ))
-
-    const delBtn = await screen.findByRole('button', { name: '删除与faction:天龙座的关系' })
-    fireEvent.click(delBtn)
-    await waitFor(() => expect(apiMock.delEntityRelation).toHaveBeenCalledWith('faction:衔尾蛇秘会', 'faction:天龙座'))
+    fireEvent.click(screen.getByTestId('faction-rel-ask-chief'))
+    const seed = sessionStorage.getItem('s3.chief.seed') || ''
+    expect(seed).toMatch(/势力关系|entity_relation/)
+    expect(apiMock.addEntityRelation).not.toHaveBeenCalled()
+    expect(screen.queryByPlaceholderText(/对方实体/)).toBeNull()
   })
 })

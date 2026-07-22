@@ -42,7 +42,7 @@ function ThreadSummaryCard({ meta }) {
   const summ = (meta.summary || '').trim()
   if (!err && !summ) return null
   return (
-    <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 leading-snug">
+    <div className="rounded-xl bg-soft/50 px-2.5 py-2 text-f12 leading-snug">
       {err && (
         <div className="text-danger mb-1">早期摘要未更新(上次生成失败:{err})——以下为旧摘要。</div>
       )}
@@ -84,9 +84,9 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   const rc = ap.runContext
   if (!rc) return null
   return (
-    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1.5">
+    <div data-testid="run-context-stale" className="mt-2 rounded-xl border border-warn/30 bg-warn/5 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-f12 font-medium text-warn">
-        <span data-testid="run-context-expired" className="inline-flex items-center rounded bg-warn/15 px-1 py-0.5 text-meta">已过期</span>
+        <span data-testid="run-context-expired" className="inline-flex items-center rounded-lg bg-warn/15 px-1.5 py-0.5 text-meta">已过期</span>
         {rc.voided ? '发起时焦点已推进,原审批作废' : '发起时焦点已变,但与当前焦点无关'}
       </div>
       <div className="mt-1 grid grid-cols-1 gap-0.5 text-meta text-faint">
@@ -97,7 +97,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
         <div data-testid="run-context-voided" className="mt-1.5 text-meta text-danger">已作废,请就当前焦点重新发起该任务。</div>
       ) : (
         <button type="button" data-testid="run-approve-stale" onClick={() => onApprovalDecision?.(ap, 'approve', { approveStale: true })}
-          className="mt-1.5 inline-flex h-6 items-center gap-1 rounded-md border border-warn/50 bg-surface px-2 text-meta font-medium text-warn">
+          className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-xl bg-warn/10 px-2.5 text-meta font-medium text-warn hover:bg-warn/15 cursor-pointer">
           仍要批准(忽略过期)
         </button>
       )}
@@ -109,23 +109,45 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
+  // 无气泡:主编靠左 / 你靠右,色条+底色+分割线区分,省掉头像与圆角底
   return (
-    <div data-context-revision={ctxRev} className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
-        {me ? <User size={14} /> : <MessagesSquare size={14} />}
-      </div>
-      <div className={`max-w-[85%] ${me ? '' : 'flex-1 min-w-0'}`}>
+    <div
+      data-context-revision={ctxRev}
+      data-testid="chat-turn"
+      data-role={me ? 'user' : 'assistant'}
+      className={`flex min-w-0 border-b border-line/70 py-2 last:border-b-0 ${me ? 'justify-end' : 'justify-start'}`}
+    >
+      <div
+        className={`min-w-0 max-w-[94%] text-f13 leading-relaxed ${
+          me
+            ? 'border-r-2 border-brand/50 pr-2 bg-brand/[0.04] pl-2 py-1'
+            : 'border-l-2 border-line pl-2 pr-1 py-1'
+        }`}
+      >
+        <div className={`flex items-center gap-1.5 mb-1 ${me ? 'justify-end text-brand' : 'justify-start text-faint'}`}>
+          {me ? (
+            <>
+              <span className="text-meta font-medium whitespace-nowrap">你</span>
+              <User size={12} className="shrink-0" />
+            </>
+          ) : (
+            <>
+              <MessagesSquare size={12} className="shrink-0 text-brand" />
+              <span className="text-meta font-medium whitespace-nowrap">主编</span>
+            </>
+          )}
+        </div>
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-meta text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-soft/80 px-1.5 py-0.5 text-meta text-faint">
                 <Wrench size={9} className="text-brand" />
                 {displayToolName(t)}
               </span>
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-soft/60 text-ink'}`}>
+        <div className="min-w-0 text-left text-ink">
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -157,11 +179,11 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                       ) : ap.runContext ? null : (
                         <>
                           <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
+                            className="inline-flex h-7 items-center gap-1 rounded-xl bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
                             <Check size={12} />批准
                           </button>
                           <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md border border-line bg-surface px-2 text-f12 font-medium text-ink">
+                            className="inline-flex h-7 items-center gap-1 rounded-xl bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
                             <X size={12} />拒绝
                           </button>
                         </>
@@ -272,12 +294,12 @@ function WriteSlot() {
   const { setSlotEl } = useChiefSlot()
 
   return (
-    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 */}
-      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
+    <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">
+      {/* 头部:标题 · nowrap 防窄栏逐字竖排 */}
+      <div className="shrink-0 px-3.5 py-3 flex items-center gap-2 border-b border-line/60 min-w-0 overflow-hidden bg-surface/95 backdrop-blur-sm">
         <PenLine size={15} className="text-brand shrink-0" />
-        <div className="flex flex-col min-w-0 leading-tight">
-          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
+        <div className="flex flex-col min-w-0 flex-1 leading-tight overflow-hidden">
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold tracking-tight text-ink whitespace-nowrap truncate">主编上下文</span>
           <span className="text-meta text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
       </div>
@@ -325,10 +347,10 @@ function UsageChip() {
   const usageLabel = unlimited
     ? `今日已用 ${u.cap.used_today} 发 · 不限次数`
     : `${u.cap.used_today}/${u.cap.cap} 发`
-  return (
+return (
     <span
       data-testid="chief-usage-chip"
-      className="ml-auto shrink-0 text-meta text-faint tabular-nums whitespace-nowrap"
+      className="ml-auto max-w-[42%] shrink-0 truncate text-meta text-faint tabular-nums whitespace-nowrap"
       title={`LLM ${unlimited ? '用量' : '日帽'}:${usageLabel}(${scopeLabel});${hasProviderUsage ? `官方直连 ${providerTok} token；` : ''}trace ${traceTok} token${hasProviderUsage ? '；两个渠道可能重叠，不相加' : ''}`}
     >
       {usageLabel} · {channelLabel}
@@ -709,16 +731,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   }
 
   return (
-    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI) */}
-      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
+    <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">
+      {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI)
+          min-w-0 + nowrap/truncate:窄栏时禁止「主编上下文」逐字折成竖排 */}
+      <div className="shrink-0 px-3.5 py-3 flex items-center gap-2 border-b border-line/60 min-w-0 overflow-hidden bg-surface/95 backdrop-blur-sm">
         <MessagesSquare size={15} className="text-brand shrink-0" />
-        <div className="flex flex-col min-w-0 leading-tight">
-          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
+        <div className="flex flex-col min-w-0 flex-1 leading-tight overflow-hidden">
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold tracking-tight text-ink whitespace-nowrap truncate">主编上下文</span>
           <span className="text-meta text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
         {/* P0a:会话下拉(历史/新建/切换/管理)——自门控,非线程模式渲染 null */}
-        <ThreadSwitcher busy={busy} />
+        <div className="shrink-0"><ThreadSwitcher busy={busy} /></div>
         <UsageChip />
       </div>
 
@@ -726,7 +749,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       <ContextInspector />
 
       {/* 消息列表 */}
-      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
+      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
         {/* P0b:载入更早(分页游标)+ 早期摘要卡(折叠) */}
         {threadMode && earlier.hasMore && (
           <button
@@ -738,34 +761,34 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
                 })
                 .catch((e) => showToast(`载入更早失败:${e?.body?.detail || e?.message || e}`, { tone: 'danger' }))
             }}
-            className="w-full text-center text-f12 text-brand hover:underline cursor-pointer py-0.5">
+            className="w-full text-center text-f12 text-brand hover:underline cursor-pointer py-1">
             载入更早…
           </button>
         )}
         {threadMode && <ThreadSummaryCard meta={threadMeta} />}
         {threadLoadError && (
-          <div data-testid="chief-thread-load-error" className="rounded-lg border border-warn/40 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2">
+          <div data-testid="chief-thread-load-error" className="rounded-xl border border-warn/30 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2 mb-2">
             <span className="flex-1">线程历史加载失败{msgs.length ? '(显示本地缓存)' : ''},可重试。</span>
             <button type="button" data-testid="chief-thread-retry" onClick={retryThreadLoad}
               className="shrink-0 text-meta text-brand hover:underline cursor-pointer">重试</button>
           </div>
         )}
         {msgs.length === 0 ? (
-          <div className="pt-2">
+          <div className="pt-1 space-y-2">
             {/* 空态按会话类型分文案(作者语义:新建=界面清洁不是失忆):
                 有 parent=延续会话(近窗+摘要都带着);无 parent=手动全新会话 */}
             {threadMode && threadMeta && (
               threadMeta.parent_thread_id ? (
-                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
+                <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
               ) : (
-                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+                <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
               )
             )}
-            <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
+            <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
-                  className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
+                  className="w-full text-left rounded-xl bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
               ))}
             </div>
           </div>
@@ -776,7 +799,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       </div>
 
       {/* 输入区 */}
-      <div className="shrink-0 border-t border-line bg-surface px-3 py-2">
+      <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"

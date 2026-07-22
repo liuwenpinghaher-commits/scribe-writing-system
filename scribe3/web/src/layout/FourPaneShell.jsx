@@ -13,18 +13,27 @@ import { showToast } from '../ui/Toast'
 import { useContextSnapshot } from '../context/ContextSnapshotContext'
 import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
 import { routeOf, selectionFromSnapshot } from './contextSelection'
+import {
+  FOUR_PANE_BOUNDS, FOUR_PANE_DEFAULT, sanitizeLayout,
+} from './sanitizeLayout'
 
 const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
-const FOUR_PANE_DEFAULT_LAYOUT = { directory: 14, detail: 62, right: 24 }
-const DIRECTORY_PANEL = { default: 14, min: 10, max: 24 }
+const FOUR_PANE_DEFAULT_LAYOUT = FOUR_PANE_DEFAULT
+const DIRECTORY_PANEL = {
+  default: FOUR_PANE_DEFAULT.directory,
+  min: FOUR_PANE_BOUNDS.directory.min,
+  max: FOUR_PANE_BOUNDS.directory.max,
+}
 // max 58(原 36):作者要能把主编对话拉很宽读长回复;中区 minSize 兜底,不会被挤没
-const RIGHT_PANEL = { default: 24, min: 18, max: 58 }
-const RESIZER_CLASS = 'relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line'
-// 还原按钮 = 贴栏3 左/右缘、垂直居中的细把手(2026-07-12 重叠修复):旧 top-2 left-2/right-2
-// 浮钮压住栏3 头部内容(左压面包屑「手稿」,右压「更多」按钮)。垂直居中远离头部行,
-// 细条(16×64)窄于内容 padding(ObjectFrame children px-4≥16px),不再遮字;
-// 点击区 1024px² ≥ 旧 28×28=784px²,触达不缩水。左右把手由调用处拼方位圆角。
-const RESTORE_BUTTON_CLASS = 'absolute top-1/2 -translate-y-1/2 z-20 h-16 w-4 border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
+const RIGHT_PANEL = {
+  default: FOUR_PANE_DEFAULT.right,
+  min: FOUR_PANE_BOUNDS.right.min,
+  max: FOUR_PANE_BOUNDS.right.max,
+}
+// 拖拽把手:不用负 margin 叠层(旧 -mx 会在窄窗/拖拽时挤乱相邻栏命中区)
+const RESIZER_CLASS = 'w-1 shrink-0 bg-transparent cursor-col-resize hover:bg-brand/20 active:bg-brand/30 transition-colors data-[separator]:bg-line/30'
+// 还原按钮 = 贴栏3 左/右缘、垂直居中的细把手。Upstream 式软面 + 轻阴影。
+const RESTORE_BUTTON_CLASS = 'absolute top-1/2 -translate-y-1/2 z-20 h-14 w-3.5 border-0 bg-surface text-faint shadow-[var(--shadow-panel)] hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
 
 function collapsedStorageKey(work, side) {
   return `s3.${work || 'default'}.${side}Collapsed`
@@ -85,7 +94,14 @@ export function FourPaneShell({
   const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(work, 'right'))
   // 栏宽布局按作品隔离:换书不串栏宽偏好(与 readCollapsed/writeCollapsed 的作品级 key 同粒度)。
   // 保留 FOUR_PANE_LAYOUT_ID 前缀,换常量名会作废用户已保存的栏宽。
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: `${FOUR_PANE_LAYOUT_ID}:${work || 'main'}` })
+  // sanitize:纠偏 localStorage 损坏/缺键/和≠100 的布局,防拖拽后整页错乱。
+  const { defaultLayout: rawLayout, onLayoutChanged: persistLayout } = useDefaultLayout({
+    id: `${FOUR_PANE_LAYOUT_ID}:${work || 'main'}`,
+  })
+  const defaultLayout = sanitizeLayout(rawLayout)
+  const onLayoutChanged = (layout, meta) => {
+    persistLayout?.(sanitizeLayout(layout), meta)
+  }
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
     selId,
@@ -251,18 +267,18 @@ export function FourPaneShell({
     if (sel?.node?.type === 'chapter' && Number(sel.node.ref) === Number(seq)) onSelectNode?.(null)
   }
 
-  return (
-    <div className="h-full flex flex-col bg-canvas" data-testid="four-col">
-      <div className="flex-1 min-h-0 flex">
-        {/* 栏1 · 小 tab 轨,与旧左右栏 Rail 同构 */}
-        <div className="shrink-0 bg-surface overflow-hidden" data-testid="left-entry-rail">
+return (
+    <div className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden" data-testid="four-col">
+      <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">
+        {/* 栏1 · 小 tab 轨,与旧左右栏 Rail 同构 · 固定宽,绝不参与拖拽百分比 */}
+        <div className="w-14 shrink-0 bg-surface overflow-hidden shadow-[1px_0_0_0_color-mix(in_srgb,var(--color-line)_70%,transparent)]" data-testid="left-entry-rail">
           <Rail side="left" caps={caps} active={activeCap?.key} onActive={handleActive} />
         </div>
         <Group
           orientation="horizontal"
           defaultLayout={defaultLayout ?? FOUR_PANE_DEFAULT_LAYOUT}
           onLayoutChanged={onLayoutChanged}
-          className="flex-1 min-w-0 h-full"
+          className="flex-1 min-w-0 min-h-0 h-full overflow-hidden"
         >
           {/* 栏2 · DirectoryPane 生产路由(视图态隐藏),常驻不被栏3详情替换 */}
           {!isView && (
@@ -276,21 +292,22 @@ export function FourPaneShell({
                 collapsible
                 collapsedSize="0%"
                 onResize={(size) => {
-                  const collapsed = size.asPercentage < 1
+                  // 低于 min 的一半即视为折叠,避免「半开半关」窄条把中文挤成竖排
+                  const collapsed = size.asPercentage < DIRECTORY_PANEL.min * 0.5
                   setDirectoryCollapsed(collapsed)
                   writeCollapsed(work, 'directory', collapsed)
                 }}
-                className={cn('border-r border-line bg-surface/60 min-h-0 overflow-hidden')}
+                className={cn('border-r border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden')}
               >
                 <div
-                  className="h-full min-w-0"
+                  className="h-full min-h-0 min-w-[10rem] max-w-full overflow-hidden"
                   data-testid="col-directory-panel"
                   data-default-size={String(DIRECTORY_PANEL.default)}
                   data-min-size={String(DIRECTORY_PANEL.min)}
                   data-max-size={String(DIRECTORY_PANEL.max)}
                 >
                   {!directoryCollapsed && (
-                    <div className="h-full min-w-0" data-testid="col-directory">
+                    <div className="h-full min-h-0 min-w-0 overflow-hidden" data-testid="col-directory">
                       <ErrorBoundary key={`${activeCap?.key}:${leftSeq ?? ''}:${directoryRefresh}`}>
                         <DirectoryPane
                           entry={activeEntry}
@@ -313,8 +330,9 @@ export function FourPaneShell({
           {/* 栏3 · 详情(复用 DetailPane,仅喂条目/视图) */}
           <Panel
             id="detail"
-            minSize={isView ? '56%' : '34%'}
-            className="relative min-w-0 overflow-hidden flex flex-col"
+            defaultSize={`${FOUR_PANE_DEFAULT.detail}%`}
+            minSize={isView ? '56%' : `${FOUR_PANE_BOUNDS.detail.min}%`}
+            className="relative min-w-0 min-h-0 overflow-hidden flex flex-col"
             data-testid="detail-panel"
           >
             {directoryCollapsed && !isView && (
@@ -329,7 +347,7 @@ export function FourPaneShell({
                 <ChevronLeft size={14} />
               </button>
             )}
-            <div className="h-full min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
+            <div className="h-full min-h-0 min-w-[16rem] overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
               <DetailPane sel={effectiveSel} work={work} onSelectNode={handleSelectItem}
                 onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
                 onNavigateToObject={handleNavigateToObject}
@@ -347,18 +365,18 @@ export function FourPaneShell({
             collapsible
             collapsedSize="0%"
             onResize={(size) => {
-              const collapsed = size.asPercentage < 5
+              const collapsed = size.asPercentage < RIGHT_PANEL.min * 0.5
               setRightCollapsed(collapsed)
               writeCollapsed(work, 'right', collapsed)
             }}
-            className="border-l border-line bg-surface overflow-hidden"
+            className="border-l border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden"
             data-testid="right-panel"
           >
             {!rightCollapsed && (
-              <div className="relative h-full min-h-0" data-testid="right-dock" data-context-revision={ctxRevision}>
+              <div className="relative h-full min-h-0 min-w-[16rem] max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
                 <button type="button" data-testid="right-collapse-button" aria-label="收起主编栏" title="收起主编栏"
                   onClick={collapseRightPanel}
-                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-lg border border-line bg-surface text-faint shadow-sm hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
+                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-xl bg-soft/80 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
                   <PanelRightClose size={15} />
                 </button>
                 <RightDock sel={effectiveSel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}

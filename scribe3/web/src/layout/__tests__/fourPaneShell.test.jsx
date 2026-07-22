@@ -245,7 +245,16 @@ describe('FourPaneShell 四栏钻取', () => {
     const handles = screen.getAllByRole('separator')
     expect(handles).toHaveLength(2)
     expect(handles[0].className).toContain('cursor-col-resize')
+    // 负 margin 把手会在拖拽时叠层错乱,应已移除
+    expect(handles[0].className).not.toContain('-mx-')
     expect(screen.getByTestId('col-directory').className).not.toContain('w-[288px]')
+  })
+
+  it('四栏根与右坞使用 overflow/min-w 裁切,防拖窄后整页散架', () => {
+    render(<Harness />)
+    expect(screen.getByTestId('four-col').className).toContain('overflow-hidden')
+    expect(screen.getByTestId('right-dock').className).toMatch(/min-w-/)
+    expect(screen.getByTestId('col-directory-panel').className).toMatch(/min-w-/)
   })
 
   it('点击当前栏1入口可以折叠栏2,并从详情栏恢复', () => {

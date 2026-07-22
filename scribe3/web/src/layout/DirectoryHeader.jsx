@@ -20,10 +20,10 @@ export function DirectoryHeader({
   return (
     <header
       data-testid="directory-sticky-header"
-      className="shrink-0 border-b border-line bg-surface px-3 py-3"
+      className="shrink-0 border-b border-line/60 bg-surface px-3.5 py-3"
     >
       <div className={`flex min-h-8 items-center gap-2${hasControls ? ' mb-2' : ''}`}>
-        <h2 className="min-w-0 flex-1 truncate text-object-title font-semibold text-ink">{title}</h2>
+        <h2 className="min-w-0 flex-1 truncate text-object-title font-semibold tracking-tight text-ink">{title}</h2>
         {Number.isFinite(count) && <span className="text-meta tabular-nums text-muted">{count}</span>}
         {status}
       </div>
@@ -35,7 +35,7 @@ export function DirectoryHeader({
               aria-label={searchLabel || `${title}筛选`}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 text-helper text-ink"
+              className="h-9 min-w-0 flex-1 rounded-xl border border-transparent bg-soft/80 px-3 text-helper text-ink outline-none transition-colors focus:border-brand/40 focus:bg-surface focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-brand)_12%,transparent)]"
             />
           )}
           {secondaryActions.map((action) => (

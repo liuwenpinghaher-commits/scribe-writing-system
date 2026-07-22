@@ -628,14 +628,14 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   }
 
   const topbarMid = (
-    <div className="shrink-0 border-b border-line bg-surface px-3 h-11 flex items-center gap-2 min-w-0">
+    <div className="shrink-0 border-b border-line/60 bg-surface/95 px-3 h-11 flex items-center gap-2 min-w-0 backdrop-blur-sm">
       {/* (Task 7:章节导航子块已删——单套章导航在 ChapterStudio 的 ObjectFrame。) */}
       {/* 中:视角 — 可伸缩并截断,绝不把别人挤掉 */}
       <div className="flex items-center gap-1.5 min-w-0 flex-1">
         <span className="hidden xl:inline text-f12 text-faint shrink-0">本章视角</span>
         <select value={focalizer} onChange={(e) => { setFocalizer(e.target.value); dirtyRef.current.focalizer = e.target.value }}
           title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
-          className="h-7 min-w-0 max-w-[180px] rounded-lg border border-line bg-canvas px-2 text-f13 text-ink outline-none focus:border-brand cursor-pointer truncate">
+          className="h-7 min-w-0 max-w-[180px] rounded-xl border-0 bg-soft/80 px-2.5 text-f13 text-ink outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer truncate">
           <option value="">作者视角(全知)</option>
           {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
         </select>
@@ -658,7 +658,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                 护栏{guardOn && guardTone !== 'ok' ? ` ${issueCount}` : ''}
               </Chip>
               {guardPop && (
-                <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-lg border border-line bg-surface shadow-lg py-2 px-3">
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-xl bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-2 px-3">
                   <div className="text-meta font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
                   {/* F-05: 带 range 的 issues — 可点跳转到正文(过滤已忽略) */}
                   {editorIssues && editorIssues.length > 0 ? (
@@ -708,7 +708,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                   )}
                   {/* 开/关 toggle */}
                   <button
-                    className="w-full flex items-center gap-2 rounded-lg px-2 h-8 text-f13 text-ink hover:bg-soft cursor-pointer border border-line"
+                    className="w-full flex items-center gap-2 rounded-xl px-2 h-8 text-f13 text-ink hover:bg-soft cursor-pointer bg-soft/50"
                     onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
                   >
                     {guardOn ? <ShieldCheck size={13} className="text-brand shrink-0" /> : <ShieldOff size={13} className="text-faint shrink-0" />}
@@ -791,18 +791,18 @@ export function WriteLayout({ work, seq, sceneIdx }) {
 
         {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
         <div ref={saveMenuRef} className="relative shrink-0">
-          <div className="inline-flex items-center rounded-lg overflow-hidden ring-1 ring-line">
+          <div className="inline-flex items-center rounded-xl overflow-hidden bg-soft/80">
             <button onClick={save} title="保存本章"
               className={`inline-flex items-center gap-1 h-7 px-2.5 text-f12 cursor-pointer whitespace-nowrap hover:bg-soft ${saved ? 'text-ok' : 'text-ink'}`}>
               <Save size={14} />{saved ? '已存' : '保存'}
             </button>
             <button onClick={() => setSaveMenu((v) => !v)} aria-label="更多保存选项" aria-expanded={saveMenu}
-              className="h-7 px-1 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer border-l border-line">
+              className="h-7 px-1.5 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer border-l border-line/50">
               <ChevronDown size={13} />
             </button>
           </div>
           {saveMenu && (
-            <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-lg border border-line bg-surface shadow-lg py-1">
+            <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-xl bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-1">
               <button onClick={() => { setSaveMenu(false); setDlg({ kind: 'checkpoint' }) }}
                 className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <Bookmark size={13} className="text-faint shrink-0" />存档点
@@ -847,7 +847,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
 
   const center = (
     <div className="flex flex-col h-full">
-      <div className="flex items-center border-b border-line bg-surface">
+      <div className="flex items-center border-b border-line/50 bg-surface/95">
         <NorthStarBar />
         {/* 主编主动化 T2:六维脉搏条——信号自动可见,「聊这个」预填右栏写作对话 */}
         <PulseBar seq={chapter} onChat={(p) => { setSeedQuote(p); focusChiefTab() }} />
@@ -855,31 +855,33 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       </div>
       {topbarMid}
       {lastSel && (
-        <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line bg-surface">
+        <div className="flex flex-wrap gap-1.5 px-3 py-2 border-b border-line/50 bg-surface/95">
           {btns.map((b) => (
             <button key={b} onClick={() => {
               setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
               setCandidates([]); focusChiefTab()
-            }} className="h-6 px-2 rounded-lg border border-line text-meta text-ink hover:bg-soft cursor-pointer">{b}</button>
+            }} className="h-7 px-2.5 rounded-xl text-meta text-ink hover:bg-soft cursor-pointer transition-colors">{b}</button>
           ))}
-          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-6 px-2 rounded-lg border border-dashed border-line text-meta text-faint hover:bg-soft cursor-pointer">+ 存为按钮</button>
+          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-7 px-2.5 rounded-xl text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer transition-colors">+ 存为按钮</button>
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
-        <div className="max-w-[48rem] mx-auto px-6 py-8">
+        {/* 正文阅读岛:两侧留白更大,中间白卡承载稿纸感 */}
+        <div className="max-w-[48rem] mx-auto px-5 sm:px-8 py-8 md:py-10">
+          <div className="panel-elevated px-5 sm:px-8 py-7 md:py-9 min-h-[52vh]">
           {stash && stash.seq === chapter && (
-            <div className="mb-4 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-f12 text-ink flex items-center gap-3">
+            <div className="mb-4 px-3 py-2 rounded-xl border border-warn/30 bg-warn/10 text-f12 text-ink flex items-center gap-3">
               <span className="flex-1">检测到本章未保存的暂存稿({(stash.prose || '').length} 字,{new Date(stash.ts).toLocaleTimeString()}),与当前正文不一致。</span>
               <button onClick={() => {
                 setProse(stash.prose || ''); dirtyRef.current.prose = stash.prose || ''
                 dirtyRef.current.dirty = true; setSaved(false)
                 try { localStorage.removeItem(stashKey(work, chapter)) } catch { /* */ }
                 setStash(null)
-              }} className="h-6 px-2 rounded-lg border border-amber-400 hover:bg-amber-100 cursor-pointer shrink-0">恢复到编辑器</button>
+              }} className="h-7 px-2.5 rounded-lg bg-warn/15 text-warn hover:bg-warn/25 cursor-pointer shrink-0 transition-colors">恢复到编辑器</button>
               <button onClick={() => {
                 try { localStorage.removeItem(stashKey(work, chapter)) } catch { /* */ }
                 setStash(null)
-              }} className="h-6 px-2 rounded-lg border border-line text-faint hover:bg-soft cursor-pointer shrink-0">丢弃</button>
+              }} className="h-7 px-2.5 rounded-lg text-faint hover:bg-soft cursor-pointer shrink-0 transition-colors">丢弃</button>
             </div>
           )}
           {renderCheckupCard()}
@@ -889,6 +891,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
               chapterKey={`${work}-${chapter}`} focusMode={focusMode} onDiscuss={discussSel}
               issues={editorIssues} onIssueClick={onUnderlineClick}
               placeholder="右侧跟主编提思路让它写,或直接在此落笔。" />
+          </div>
           </div>
         </div>
       </div>

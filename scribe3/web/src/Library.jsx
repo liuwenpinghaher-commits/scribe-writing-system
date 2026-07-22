@@ -107,7 +107,7 @@ export function Library({ works, reload, onSelect }) {
         <div className="text-f13 text-faint leading-relaxed mb-3">
           该书的正文、设定、伏笔、对话将被彻底销毁,无法恢复。请输入完整书名以确认:
         </div>
-        <Input autoFocus value={purgeInput} onChange={(e) => setPurgeInput(e.target.value)}
+        <Input variant="bordered" autoFocus value={purgeInput} onChange={(e) => setPurgeInput(e.target.value)}
           placeholder={purgeTarget?.title ?? ''} aria-label="确认书名"
           // IME 守卫:中文输入法候选框里按 Enter 只是选词,不该当成「确认永久删除」提交。
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && purgeMatch) doPurge() }} />
@@ -120,8 +120,8 @@ export function Library({ works, reload, onSelect }) {
       </div>
     </Dialog>
     <div className="h-full overflow-y-auto bg-canvas">
-      <div className="max-w-6xl mx-auto px-8 py-10">
-        <h1 className="prose-serif text-f26 font-semibold text-ink mb-1">作品库</h1>
+      <div className="max-w-6xl mx-auto px-6 py-8 md:px-8 md:py-10">
+        <h1 className="prose-serif text-f26 font-semibold tracking-tight text-ink mb-1">作品库</h1>
         <p className="text-faint text-f13 mb-6">每本书独立一库,角色/设定/章节/伏笔互不干扰。</p>
 
         <AsyncState
@@ -133,12 +133,12 @@ export function Library({ works, reload, onSelect }) {
         >
           {isEmpty ? (
             /* 空库引导:第一部作品的显式起点(带书名输入 + 新建按钮),不是一个静默的空网格 */
-            <div className="max-w-md mt-10 rounded-xl border border-line bg-surface p-6">
+            <div className="panel-elevated max-w-md mt-6 p-6">
               <BookText size={26} className="text-brand mb-3" />
               <div className="text-body font-semibold text-ink mb-1">还没有作品</div>
               <p className="text-helper text-faint mb-4">新建第一部作品,开始限知写作。</p>
               <Field label="书名" required>
-                <Input value={title} onChange={(e) => { setTitle(e.target.value); setCreateErr('') }} placeholder="如:纸命"
+                <Input variant="bordered" value={title} onChange={(e) => { setTitle(e.target.value); setCreateErr('') }} placeholder="如:纸命"
                   onKeyDown={(e) => { if (e.key === 'Enter') create() }} />
               </Field>
               {createErr && <div role="alert" className="mt-1.5 text-f12 text-danger">{createErr}</div>}
@@ -146,14 +146,14 @@ export function Library({ works, reload, onSelect }) {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-2 h-10 rounded-xl border border-line bg-surface px-3 mb-5 max-w-md">
+              <div className="flex items-center gap-2 h-10 rounded-xl bg-surface px-3 mb-5 max-w-md shadow-[var(--shadow-panel)]">
                 <Search size={15} className="text-faint shrink-0" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索作品…" aria-label="搜索作品"
                   className="flex-1 bg-transparent text-f14 text-ink outline-none placeholder:text-faint/60" />
               </div>
 
               {/* 1280/1440/1600 稳定网格:sm2 / lg3 / xl4 列,配 max-w-6xl 铺满而不缩在窄列 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
                 {list.map((w) => {
                   const words = w.word_count ?? 0
                   const goal = w.total_word_goal ?? 100000  // /works 携带真目标;无则回退默认值
@@ -161,9 +161,9 @@ export function Library({ works, reload, onSelect }) {
                   return (
                     /* 作品卡:主「打开」按钮与独立「删除」按钮是兄弟节点——
                        删除嵌在打开按钮内(旧 span onClick)是 a11y 违规且键盘不可达 */
-                    <div key={w.slug} className="group relative rounded-xl border border-line bg-surface hover:border-brand/50 hover:shadow-sm transition-all min-h-[124px]">
+                    <div key={w.slug} className="group relative panel-elevated min-h-[124px] transition-all hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]">
                       <button onClick={() => onSelect(w)} aria-label={`打开${w.title}`}
-                        className="w-full h-full text-left p-4 rounded-xl cursor-pointer flex flex-col gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+                        className="w-full h-full text-left p-4 rounded-[var(--radius-pane)] cursor-pointer flex flex-col gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
                         <div className="flex items-start gap-2 pr-6">
                           <BookText size={16} className="text-brand shrink-0 mt-0.5" />
                           <span className="prose-serif text-f15 font-semibold text-ink leading-snug min-w-0 break-words">{w.title}</span>
@@ -192,12 +192,12 @@ export function Library({ works, reload, onSelect }) {
                 })}
               </div>
 
-              <div className="mt-7 max-w-md">
+              <div className="panel-elevated mt-7 max-w-md p-4">
                 <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">新建作品</div>
                 <div className="flex gap-2">
-                  <input value={title} onChange={(e) => { setTitle(e.target.value); setCreateErr('') }} placeholder="书名…" aria-label="书名"
+                  <Input variant="bordered" value={title} onChange={(e) => { setTitle(e.target.value); setCreateErr('') }} placeholder="书名…" aria-label="书名"
                     onKeyDown={(e) => { if (e.key === 'Enter') create() }}
-                    className="flex-1 h-10 rounded-xl border border-line bg-surface px-3 text-f14 text-ink outline-none focus:border-brand placeholder:text-faint/60" />
+                    className="flex-1 h-10 text-f14" />
                   <Btn variant="primary" size="md" className="h-10 px-4" onClick={create}><Plus size={15} />建</Btn>
                 </div>
                 {createErr && <div role="alert" className="mt-1.5 text-f12 text-danger">{createErr}</div>}
@@ -209,11 +209,11 @@ export function Library({ works, reload, onSelect }) {
         {/* 废弃箱:即便 works 全空(所有作品都被废弃)也必须渲染在这里——否则用户被 UI 锁死,
             无法恢复任何书(WL-Task 3 审查明确点名的可达性风险)。为 0 时整体不显示。 */}
         {trash.length > 0 && (
-          <details open className="mt-8 max-w-6xl rounded-xl border border-line bg-surface">
+          <details open className="panel-elevated mt-8 max-w-6xl overflow-hidden">
             <summary className="cursor-pointer select-none px-4 py-3 text-f13 font-semibold text-ink">
               废弃箱({trash.length})
             </summary>
-            <div className="border-t border-line divide-y divide-line">
+            <div className="border-t border-line/60 divide-y divide-line/50">
               {trash.map((w) => (
                 <div key={w.slug} className="flex items-center gap-3 px-4 py-3">
                   <BookText size={15} className="text-faint shrink-0" />

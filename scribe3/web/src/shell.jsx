@@ -14,8 +14,8 @@ function RailBtn({ cap, label, badge, on, onClick }) {
   const Icon = cap.icon
   return (
     <button onClick={onClick} aria-label={cap.label} aria-pressed={on} title={cap.label}
-      className={cn('group relative w-full flex flex-col items-center gap-0.5 py-1.5 rounded-lg transition-colors cursor-pointer',
-        on ? 'bg-soft text-brand ring-1 ring-line' : 'text-faint hover:bg-soft hover:text-ink')}>
+      className={cn('group relative w-full flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition-colors cursor-pointer',
+        on ? 'bg-brand/10 text-brand' : 'text-faint hover:bg-soft hover:text-ink')}>
       <span className="relative inline-flex items-center justify-center">
         {Icon && <Icon size={18} />}
         {!!badge && badge > 0 && (
@@ -65,19 +65,19 @@ export function Rail({ side, caps, active, onActive }) {
   if (side === 'right') {
     const unscoped = caps.filter((c) => !RIGHT_GROUPS.some((g) => g.key === c.scope))
     return (
-      <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2 gap-2 border-l border-line">
+      <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2.5 gap-2.5 border-l border-line/60">
         {RIGHT_GROUPS.map((group) => {
           const items = caps.filter((c) => c.scope === group.key)
           if (items.length === 0) return null
           return (
             <div key={group.key} role="group" aria-label={group.label}
-              className="flex flex-col gap-1 border-b border-line pb-2 last:border-0 last:pb-0">
+              className="flex flex-col gap-0.5 border-b border-line/50 pb-2.5 last:border-0 last:pb-0">
               {items.map(btn)}
             </div>
           )
         })}
         {unscoped.length > 0 && (
-          <div className="flex flex-col gap-1">{unscoped.map(btn)}</div>
+          <div className="flex flex-col gap-0.5">{unscoped.map(btn)}</div>
         )}
       </div>
     )
@@ -86,13 +86,13 @@ export function Rail({ side, caps, active, onActive }) {
   // 兜底:万一有未归组的能力(未来新增/漏标),照旧扁平补渲在末尾,绝不因分组而丢入口。
   const ungrouped = caps.filter((c) => !GROUPS.some((g) => g.key === c.group))
   return (
-    <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2 gap-2 border-r border-line">
+    <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2.5 gap-2.5 border-r border-line/60">
       {GROUPS.map((group) => {
         const items = caps.filter((c) => c.group === group.key)
         if (items.length === 0) return null
         return (
           <div key={group.key} role="group" aria-label={group.label}
-            className="flex flex-col gap-1 border-b border-line pb-2 last:border-0 last:pb-0">
+            className="flex flex-col gap-0.5 border-b border-line/50 pb-2.5 last:border-0 last:pb-0">
             {items.map(btn)}
           </div>
         )

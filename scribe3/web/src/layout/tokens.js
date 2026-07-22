@@ -20,8 +20,11 @@ export const T = {
   h: { input: '36px', bar: '46px', rail: '56px' },
 }
 
-// 字段类统一 className(承接已修的 CodexDetail 字段统一,推广全局:rounded-lg/h-9/px-3)
+// 字段类统一 className(与 ui.jsx Input/Textarea variant 对齐)
+// ghost=Notion 默认;bordered=新建/设置等常显表单
 export const CX = {
-  input: 'w-full rounded-lg border border-line bg-canvas px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60',
-  textarea: 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y',
+  input: 'w-full rounded-lg border border-transparent bg-transparent hover:bg-soft/50 px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60',
+  inputBordered: 'w-full rounded-lg border border-line bg-canvas px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60',
+  textarea: 'w-full rounded-lg border border-transparent bg-transparent hover:bg-soft/50 px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60 resize-y',
+  textareaBordered: 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y',
 }

@@ -7,11 +7,11 @@ import { showToast } from '../ui/Toast'
 import { useSelection } from '../selectionContext'
 import { scrollBehavior } from '../lib/utils'
 
-// ── 通用 Metric 卡 ──────────────────────────────────────────────────────────
+// ── 通用 Metric(轻量,无重框套娃) ──────────────────────────────────────────
 function Metric({ icon: Icon, label, value, sub, tone = 'brand' }) {
   const c = { brand: 'text-brand', fore: 'text-fore', danger: 'text-danger', ok: 'text-ok' }[tone]
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
+    <div className="panel-elevated px-3.5 py-3.5">
       <div className="flex items-center gap-1.5 text-faint text-meta uppercase tracking-wider mb-1.5"><Icon size={13} />{label}</div>
       <div className={`text-2xl font-semibold tnum ${c}`}>{value}</div>
       {sub && <div className="text-meta text-faint mt-0.5">{sub}</div>}
@@ -176,7 +176,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
 
   return (
     <div onClick={focusMe} title="聚焦此伏笔"
-      className={`rounded-lg border p-2.5 text-f12 cursor-pointer ${overdue ? 'border-danger/60 bg-danger/5' : 'border-line bg-canvas'}`}>
+      className={`rounded-lg p-2.5 text-f12 cursor-pointer transition-colors ${overdue ? 'bg-danger/5 hover:bg-danger/10' : 'hover:bg-soft/50'}`}>
       <div className="flex items-start gap-1.5">
         <span className={`mt-[3px] w-1.5 h-1.5 rounded-full shrink-0 ${overdue ? 'bg-danger' : p.status === 'closed' ? 'bg-ok' : 'bg-faint'}`} />
         <span className="text-ink flex-1 leading-snug">{p.text || '(无描述)'}</span>
@@ -242,7 +242,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
           <input
             type="number" min={1} value={clueChapter}
             onChange={(e) => setClueChapter(e.target.value)}
-            className="w-10 h-5 rounded border border-line bg-surface px-1 text-meta text-ink outline-none focus:border-fore"
+            className="w-10 h-5 rounded bg-soft/60 px-1 text-meta text-ink outline-none focus:ring-1 focus:ring-fore/40"
             placeholder="章"
             autoFocus
           />
@@ -251,7 +251,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
             type="text" value={clueNote}
             onChange={(e) => setClueNote(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && doAddClue()}
-            className="flex-1 min-w-[80px] h-5 rounded border border-line bg-surface px-1 text-meta text-ink outline-none focus:border-fore"
+            className="flex-1 min-w-[80px] h-5 rounded bg-soft/60 px-1 text-meta text-ink outline-none focus:ring-1 focus:ring-fore/40"
             placeholder="线索描述"
           />
           <button onClick={doAddClue} disabled={busy}
@@ -291,7 +291,7 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
                 type="number" min={1} value={payoffInput}
                 onChange={(e) => setPayoffInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && doAdvance()}
-                className="w-12 h-5 rounded border border-line bg-surface px-1 text-meta text-ink outline-none focus:border-ok"
+                className="w-12 h-5 rounded bg-soft/60 px-1 text-meta text-ink outline-none focus:ring-1 focus:ring-ok/40"
                 placeholder="章"
                 autoFocus
               />
@@ -321,9 +321,9 @@ function PromiseCard({ p, maxChapter, onJumpChapter, onRefresh }) {
 function LedgerColumn({ icon: Icon, label, tone, rows, maxChapter, onJumpChapter, onRefresh }) {
   const c = { fore: 'text-fore', ok: 'text-ok', faint: 'text-faint' }[tone]
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <div className={`flex items-center gap-1.5 text-f12 font-semibold mb-3 ${c}`}>
-        <Icon size={14} />{label} <span className="text-faint font-normal">({rows.length})</span>
+    <div className="min-w-0">
+      <div className={`flex items-center gap-1.5 text-meta font-semibold uppercase tracking-wider mb-3 ${c}`}>
+        <Icon size={14} />{label} <span className="text-faint font-normal normal-case tracking-normal">({rows.length})</span>
       </div>
       <div className="space-y-2">
         {rows.length === 0 ? <div className="text-faint text-f12">—</div>
@@ -350,7 +350,7 @@ function PromiseLedger({ onJumpChapter }) {
   const pws = (a.payoff_without_setup || []).length + (a.closed_without_setup || []).length
   const balanced = a.balanced
   return (
-    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+    <div className="mb-6 pb-5 border-b border-line/60">
       <div className="flex items-center flex-wrap gap-2 mb-3">
         <div className="flex items-center gap-2"><Bookmark size={16} className="text-fore" /><h2 className="text-f15 font-semibold text-ink">伏笔台账</h2></div>
         <span className="text-meta text-faint">阈值 {led.threshold} 章 · 现在第 {led.max_chapter} 章</span>
@@ -411,7 +411,7 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-surface border border-line rounded-2xl p-6 w-80 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface rounded-2xl p-6 w-80 shadow-[var(--shadow-pop)] ring-1 ring-line/50" onClick={(e) => e.stopPropagation()}>
         <div className="text-f15 font-semibold text-ink mb-4">编辑写作目标</div>
         <div className="space-y-3">
           <div>
@@ -459,13 +459,13 @@ function ProgressPanel({ onGoalEdit }) {
   const tooltipStyle = { background: 'var(--color-surface)', border: '1px solid var(--color-line)', borderRadius: 8, fontSize: 12, color: 'var(--color-ink)' }
 
   if (err) return (
-    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+    <div className="mb-6 pb-5 border-b border-line/60">
       <ErrorState message="进度数据加载失败" onRetry={() => setRetryKey((k) => k + 1)} />
     </div>
   )
 
   if (!prog) return (
-    <div className="rounded-xl border border-line bg-surface p-4 mb-6">
+    <div className="mb-6 pb-5 border-b border-line/60">
       <div className="text-f12 text-faint">进度数据加载中…</div>
     </div>
   )
@@ -478,9 +478,9 @@ function ProgressPanel({ onGoalEdit }) {
   const dailyPct = dailyGoal ? Math.min(120, Math.round((todayWords / dailyGoal) * 100)) : null
   const dailyMet = dailyGoal ? todayWords >= dailyGoal : null
 
-  // 整稿进度条颜色:< 50% 品牌蓝,< 100% 黛绿,>= 100% 金
-  const totalBarColor = totalPct >= 100 ? '#f59e0b' : totalPct >= 50 ? '#16a34a' : 'var(--color-brand)'
-  const dailyBarColor = dailyMet ? '#16a34a' : 'var(--color-brand)'
+  // 整稿进度条颜色:语义 token(跟明暗主题)
+  const totalBarColor = totalPct >= 100 ? 'var(--color-fore)' : totalPct >= 50 ? 'var(--color-ok)' : 'var(--color-brand)'
+  const dailyBarColor = dailyMet ? 'var(--color-ok)' : 'var(--color-brand)'
 
   const daily = prog.daily || []
   const weekdayHist = prog.weekday_histogram || []
@@ -490,17 +490,17 @@ function ProgressPanel({ onGoalEdit }) {
   const WIN_OPTS = [{ v: '30', label: '近30天' }, { v: '90', label: '近90天' }, { v: 'all', label: '全程' }]
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-5 mb-6">
+    <div className="mb-6 pb-5 border-b border-line/60">
       {/* 标题行 + 趋势窗口切换 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <TrendingUp size={15} className="text-brand" />
-          <span className="text-f14 font-semibold text-ink">码字进度</span>
+          <span className="text-meta font-semibold uppercase tracking-wider text-faint">码字进度</span>
           {/* 窗口切换按钮组 */}
           <div className="flex gap-0.5 ml-2 bg-soft rounded-lg p-0.5">
             {WIN_OPTS.map(({ v, label }) => (
               <button key={v} onClick={() => setWin(v)}
-                className={`px-2 py-0.5 rounded text-meta transition-colors ${win === v ? 'bg-surface text-ink font-medium shadow-sm' : 'text-faint hover:text-ink'}`}>
+                className={`px-2 py-0.5 rounded text-meta transition-colors ${win === v ? 'bg-surface text-ink font-medium' : 'text-faint hover:text-ink'}`}>
                 {label}
               </button>
             ))}
@@ -514,7 +514,7 @@ function ProgressPanel({ onGoalEdit }) {
 
       {/* 荣誉位:今日 + streak */}
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+        <div className="rounded-lg bg-soft/40 p-3 text-center">
           <div className="text-meta text-faint mb-0.5">今日码字</div>
           <div className={`text-f22 font-semibold tnum ${dailyMet ? 'text-ok' : 'text-ink'}`}>
             +{todayWords.toLocaleString()}
@@ -525,14 +525,14 @@ function ProgressPanel({ onGoalEdit }) {
             </div>
           )}
         </div>
-        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+        <div className="rounded-lg bg-soft/40 p-3 text-center">
           <div className="flex items-center justify-center gap-1 text-meta text-faint mb-0.5">
             <Flame size={11} />当前连胜
           </div>
           <div className="text-f22 font-semibold tnum text-fore">{prog.current_streak}</div>
           <div className="text-meta text-faint mt-0.5">天</div>
         </div>
-        <div className="rounded-lg bg-canvas border border-line p-3 text-center">
+        <div className="rounded-lg bg-soft/40 p-3 text-center">
           <div className="flex items-center justify-center gap-1 text-meta text-faint mb-0.5">
             <Trophy size={11} />最长连胜
           </div>
@@ -550,7 +550,7 @@ function ProgressPanel({ onGoalEdit }) {
         <div className="h-2 rounded-full bg-soft overflow-hidden">
           <div className="h-full rounded-full transition-all" style={{ width: Math.min(100, totalPct) + '%', background: totalBarColor }} />
         </div>
-        {totalPct >= 100 && <div className="text-meta text-[#f59e0b] mt-1">整稿目标达成！</div>}
+        {totalPct >= 100 && <div className="text-meta text-fore mt-1">整稿目标达成！</div>}
       </div>
 
       {/* 每日目标进度条(设了才显示) */}
@@ -580,7 +580,7 @@ function ProgressPanel({ onGoalEdit }) {
                   tickFormatter={(d) => d.slice(5)} />
                 <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString() + ' 字', '当日']} />
-                {dailyGoal && <ReferenceLine y={dailyGoal} stroke="#16a34a" strokeDasharray="3 3" strokeWidth={1} />}
+                {dailyGoal && <ReferenceLine y={dailyGoal} stroke="var(--color-ok)" strokeDasharray="3 3" strokeWidth={1} />}
                 <Bar dataKey="words" name="字数" radius={[3, 3, 0, 0]} fill="var(--color-brand)" />
               </BarChart>
             </ResponsiveContainer>
@@ -594,7 +594,7 @@ function ProgressPanel({ onGoalEdit }) {
               </span>
               {daily.some(d => d.ideal_cumulative != null) && (
                 <span className="flex items-center gap-1 text-meta text-faint">
-                  <span style={{ display:'inline-block', width:16, height:2, background:'#f59e0b', borderTop:'2px dashed #f59e0b', verticalAlign:'middle' }} />理想
+                  <span style={{ display:'inline-block', width:16, height:2, background:'var(--color-fore)', borderTop:'2px dashed var(--color-fore)', verticalAlign:'middle' }} />理想
                 </span>
               )}
             </div>
@@ -606,13 +606,13 @@ function ProgressPanel({ onGoalEdit }) {
                 <YAxis tick={{ fontSize: 9, fill: 'var(--color-faint)' }} />
                 <Tooltip contentStyle={tooltipStyle}
                   formatter={(v, name) => [v != null ? v.toLocaleString() + ' 字' : '-', name === 'ideal_cumulative' ? '理想' : '累计']} />
-                {totalGoal && <ReferenceLine y={totalGoal} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1} />}
+                {totalGoal && <ReferenceLine y={totalGoal} stroke="var(--color-fore)" strokeDasharray="4 4" strokeWidth={1} />}
                 <Area type="monotone" dataKey="cumulative" name="累计" stroke="var(--color-brand)"
                   fill="var(--color-brand)" fillOpacity={0.15} strokeWidth={2} />
                 {/* 理想匀速线:虚线,叠加实际曲线上 */}
                 {daily.some(d => d.ideal_cumulative != null) && (
                   <Area type="monotone" dataKey="ideal_cumulative" name="理想"
-                    stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="5 4"
+                    stroke="var(--color-fore)" strokeWidth={1.5} strokeDasharray="5 4"
                     fill="none" dot={false} activeDot={false} />
                 )}
               </AreaChart>
@@ -684,22 +684,20 @@ function WordHeatmap({ heatmap, dailyGoal }) {
     })
   )
 
-  // 色阶计算
+  // 色阶:用 ok 主色的 opacity 档,跟主题,避免硬编码绿
   const cellColor = (words, isFuture) => {
     if (isFuture || words === null) return 'var(--color-soft)'
     if (words <= 0) return 'var(--color-soft)'
     if (dailyGoal) {
-      if (words >= dailyGoal * 1.2) return '#15803d'   // 超额:深绿
-      if (words >= dailyGoal) return '#22c55e'          // 达标:绿
-      if (words >= dailyGoal * 0.5) return '#86efac'   // 过半:浅绿
-      return '#bbf7d0'                                   // 有写但不足一半:很浅绿
-    } else {
-      // 无目标:按字数绝对值分档
-      if (words >= 2000) return '#15803d'
-      if (words >= 1000) return '#22c55e'
-      if (words >= 300) return '#86efac'
-      return '#bbf7d0'
+      if (words >= dailyGoal * 1.2) return 'color-mix(in srgb, var(--color-ok) 92%, transparent)'
+      if (words >= dailyGoal) return 'color-mix(in srgb, var(--color-ok) 72%, transparent)'
+      if (words >= dailyGoal * 0.5) return 'color-mix(in srgb, var(--color-ok) 42%, transparent)'
+      return 'color-mix(in srgb, var(--color-ok) 22%, transparent)'
     }
+    if (words >= 2000) return 'color-mix(in srgb, var(--color-ok) 92%, transparent)'
+    if (words >= 1000) return 'color-mix(in srgb, var(--color-ok) 72%, transparent)'
+    if (words >= 300) return 'color-mix(in srgb, var(--color-ok) 42%, transparent)'
+    return 'color-mix(in srgb, var(--color-ok) 22%, transparent)'
   }
 
   // 热力图文本摘要:颜色深浅之外给读屏/键盘用户等价信息(活跃天数 + 最高单日)
@@ -725,7 +723,12 @@ function WordHeatmap({ heatmap, dailyGoal }) {
         </div>
         <div className="flex items-center gap-1.5 text-meta text-faint">
           <span>少</span>
-          {['var(--color-soft)', '#bbf7d0', '#86efac', '#22c55e', '#15803d'].map((c, i) => (
+          {['var(--color-soft)',
+            'color-mix(in srgb, var(--color-ok) 22%, transparent)',
+            'color-mix(in srgb, var(--color-ok) 42%, transparent)',
+            'color-mix(in srgb, var(--color-ok) 72%, transparent)',
+            'color-mix(in srgb, var(--color-ok) 92%, transparent)',
+          ].map((c, i) => (
             <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c }} />
           ))}
           <span>多</span>
@@ -831,11 +834,11 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
-      <div className="max-w-5xl mx-auto px-8 py-8">
-        <div className="flex items-center gap-2 mb-6"><Activity size={18} className="text-brand" /><h1 className="text-f22 font-semibold prose-serif text-ink">质量仪表盘</h1></div>
+      <div className="max-w-5xl mx-auto px-6 py-6 md:px-8 md:py-8">
+        <div className="flex items-center gap-2 mb-5"><Activity size={18} className="text-brand" /><h1 className="text-f22 font-semibold tracking-tight prose-serif text-ink">质量仪表盘</h1></div>
 
         {cacheStale && (
-          <section role="alert" className="mb-6 rounded-xl border border-fore/30 bg-fore/5 px-4 py-3 text-f13 text-ink flex items-center gap-3">
+          <section role="alert" className="mb-6 rounded-lg border border-fore/25 bg-fore/5 px-4 py-3 text-f13 text-ink flex items-center gap-3">
             <AlertTriangle size={16} className="text-fore shrink-0" />
             <div className="flex-1">第 {q.cache_stale_chapters.join('、')} 章的质量缓存已过期；当前问题数不可作为验收结论。</div>
             <button type="button" onClick={refreshQuality} disabled={qualityRefreshing}
@@ -846,7 +849,7 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
         )}
 
         {/* 读屏/键盘等价路径:图表与热力图靠颜色传达的关键数据,这里给一份纯文本摘要(与图表同源数据数组) */}
-        <section role="region" aria-label="洞察数据摘要" className="mb-6 rounded-xl border border-line bg-surface p-4">
+        <section role="region" aria-label="洞察数据摘要" className="mb-6 pb-4 border-b border-line/60">
           <div className="text-f12 font-semibold text-ink mb-2">数据摘要</div>
           <div className="text-f13 text-faint leading-relaxed">
             全书 {chs.length} 章,共 {q.total_words?.toLocaleString() || 0} 字(目标 {totalGoal.toLocaleString()} 字)。
@@ -870,7 +873,7 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
           <ProgressPanel key={progressKey} onGoalEdit={() => setGoalOpen(true)} />
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Metric icon={FileText} label="规模" value={q.total_words?.toLocaleString() || 0}
             sub={`${chs.length} 章 · 目标 ${totalGoal.toLocaleString()} 字`} />
           <Metric icon={Bookmark} label="伏笔" value={q.foreshadow?.open ?? 0} sub={`未回收 · 已收 ${q.foreshadow?.closed ?? 0}`} tone="fore" />
@@ -878,11 +881,13 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
           <Metric icon={Activity} label="质检问题" value={cacheStale ? '待刷新' : chs.reduce((s, c) => s + c.qc_issues + c.causal, 0)} sub={cacheStale ? '缓存已过期' : '确定性 QC + 因果'} tone={cacheStale ? 'fore' : 'danger'} />
         </div>
 
-        <PromiseLedger onJumpChapter={onJumpChapter} />
+        <div className="panel-elevated p-5 md:p-6 mb-4">
+          <PromiseLedger onJumpChapter={onJumpChapter} />
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
-          <div className="rounded-xl border border-line bg-surface p-4">
-            <div className="text-f12 font-semibold text-ink mb-3">各章字数</div>
+        <div className="panel-elevated p-5 md:p-6 mb-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章字数</div>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
@@ -893,8 +898,8 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <div className="rounded-xl border border-line bg-surface p-4">
-            <div className="text-f12 font-semibold text-ink mb-3">各章质检问题(QC + 因果)</div>
+          <div>
+            <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-3">各章质检问题(QC + 因果)</div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chs} margin={{ left: -18, right: 8, top: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-line)" />
@@ -908,8 +913,8 @@ export function InsightView({ onJumpChapter, focus, onNavigateToObject }) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-line bg-surface p-4">
-          <div className="text-f12 font-semibold text-ink mb-2">弱章诊断(问题最多的章)</div>
+        <div className="panel-elevated p-5 md:p-6">
+          <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">弱章诊断(问题最多的章)</div>
           {cacheStale ? <div className="text-f13 text-fore">请先刷新质量缓存，再查看弱章诊断。</div>
             : weak.length === 0 ? <div className="text-f13 text-ok">✓ 各章质检干净</div>
             : weak.slice(0, 8).map((c) => {

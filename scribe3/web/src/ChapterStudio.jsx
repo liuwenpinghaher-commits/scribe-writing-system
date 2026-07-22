@@ -44,7 +44,8 @@ const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
 // 中区各阶段统一章工作台骨架:同一 max-w / padding / header / meta 节奏,阶段只换内容。
-const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-5 h-full flex flex-col min-h-0 gap-3 bg-canvas'
+// Upstream 内容岛:浅灰画布上白卡抬升;外层 scroll 仍由章工作台 canvas 承担
+const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto my-4 px-5 py-5 flex flex-col min-h-0 gap-3 panel-elevated'
 const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
