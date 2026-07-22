@@ -254,13 +254,35 @@ def apply_delta(store, delta: dict, seq: int,
             continue
         fid = f"fact:d{seq}-{j}"
         store.add_fact(Fact(fid, actor, "行动", action, valid_from=seq), ingest_seq=seq)
-        for w in [who] + list(it.get("seen_by") or []):
-            woid = _resolve_char(store, w, seq, "seen_by")
+        # 结构路径:合成 did 事件,挂 effects=[fid],participants=当事人+目击者;
+        # add_event 末尾自动 see_event → 在场者 knows(acquired_via=saw)。
+        # 不再手写 knows 边——与 events 轨同一生产路径,purge_ingest 靠 ingest_seq 幂等。
+        participants: dict = {"SUBJ": actor}
+        for wi, wname in enumerate(it.get("seen_by") or []):
+            woid = _resolve_char(store, wname, seq, "seen_by")
             if woid is None:
                 continue
-            store.add_knowledge(KnowledgeEdge(woid, fid,
-                                              since_chapter=seq, acquired_via="saw"),
-                                ingest_seq=seq)
+            # 多目击者:首个 WITNESS,其余 WITNESS1/WITNESS2…(witnesses_of 取全部 values)
+            slot = "WITNESS" if wi == 0 else f"WITNESS{wi}"
+            participants[slot] = woid
+        try:
+            store.add_event(
+                Event(f"ev:d{seq}-{j}", "行动",
+                      participants=participants, story_time=seq, effects=[fid]),
+                ingest_seq=seq)
+        except Exception as _ev_e:
+            # 事件落库失败时回退直写 knows,保证 did 知识不丢(non-fatal,与 events 轨同范式)
+            import logging
+            logging.getLogger("scribe3.ingest").warning(
+                "did→event 写入失败,回退直写 knows,命题 %s: %s", fid, _ev_e)
+            for woid in participants.values():
+                try:
+                    store.add_knowledge(
+                        KnowledgeEdge(woid, fid, since_chapter=seq, acquired_via="saw"),
+                        ingest_seq=seq)
+                except Exception as _k_e:
+                    logging.getLogger("scribe3.ingest").warning(
+                        "did 回退 knows 失败 %s→%s: %s", woid, fid, _k_e)
         # 叙述揭示即读者已知:did 类事件读者也知道
         try:
             store.add_knowledge(KnowledgeEdge("reader", fid, since_chapter=seq,

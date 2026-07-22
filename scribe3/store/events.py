@@ -6,45 +6,53 @@ from scribe3.store.core_preamble import *  # noqa: F403
 class EventsMixin:
 
     def add_event(self, ev: Event, ingest_seq: int | None = None) -> Event:
-        """落事件 + 图边(involves/causes/causal)。
+        """落事件 + 图边(involves/causes/causal)+ 有 effects 时自动 see_event。
         ingest_seq:由 ingest 抽取路径传入(批D P1-5),供 purge_ingest 幂等清理;
-        手动种 / MCP s3_add_event 不传 → ingest_seq=NONE,不受 purge 影响(向后兼容)。"""
+        手动种 / MCP s3_add_event 不传 → ingest_seq=NONE,不受 purge 影响(向后兼容)。
+
+        生产路径不变量:带 effects 的事件落库后,在场参与者自动获得 knows(acquired_via=saw);
+        调用方禁止再手调 see_event。"""
         _, local = _split(ev.id)
         ev_rid = RecordID("event", local)
         loc_local = _split(ev.location)[1] if ev.location else None
-        self._execute_write(
-            "CREATE type::record('event', $local) SET event_type=$t, "
-            "story_chapter=$vf, narrative_position=$np, "
-            "motivated_by_goal=$g, causal_root_reason=$crr, location=$loc, preconditions=$pre"
-            + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
-            {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
-             "crr": ev.causal_root_reason,
-             "np": ev.narrative_position,  # 完整期:可空叙事位;null 回退 story_chapter(向后兼容)
-             "loc": RecordID("place", loc_local) if loc_local else None,
-             "pre": ev.preconditions,
-             **({"iseq": ingest_seq} if ingest_seq is not None else {})})
-        # participants → involves 图边
-        for slot, ent_oid in ev.participants.items():
-            if not ent_oid:
-                continue
-            ctbl, clocal = _split(ent_oid)
-            if ctbl != "character":
-                continue
+        with self.transaction():
             self._execute_write(
-                "RELATE $e->involves->$c SET role=$role",
-                {"e": ev_rid, "c": RecordID("character", clocal), "role": slot})
-        # effects → causes 图边(供 see_event 给在场者发知识边)
-        for fid in ev.effects:
-            _, flocal = _split(fid)
-            self._execute_write(
-                "RELATE $e->causes->$p",
-                {"e": ev_rid, "p": RecordID("proposition", flocal)})
-        # causal_in → causal 图边
-        for src_oid, ctype in ev.causal_in:
-            _, slocal = _split(src_oid)
-            self._execute_write(
-                "RELATE $e->causal->$src SET ctype=$ct",
-                {"e": ev_rid, "src": RecordID("event", slocal), "ct": ctype})
+                "CREATE type::record('event', $local) SET event_type=$t, "
+                "story_chapter=$vf, narrative_position=$np, "
+                "motivated_by_goal=$g, causal_root_reason=$crr, location=$loc, preconditions=$pre"
+                + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
+                {"local": local, "t": ev.type, "vf": ev.story_time, "g": ev.motivated_by_goal,
+                 "crr": ev.causal_root_reason,
+                 "np": ev.narrative_position,  # 完整期:可空叙事位;null 回退 story_chapter(向后兼容)
+                 "loc": RecordID("place", loc_local) if loc_local else None,
+                 "pre": ev.preconditions,
+                 **({"iseq": ingest_seq} if ingest_seq is not None else {})})
+            # participants → involves 图边
+            for slot, ent_oid in ev.participants.items():
+                if not ent_oid:
+                    continue
+                ctbl, clocal = _split(ent_oid)
+                if ctbl != "character":
+                    continue
+                self._execute_write(
+                    "RELATE $e->involves->$c SET role=$role",
+                    {"e": ev_rid, "c": RecordID("character", clocal), "role": slot})
+            # effects → causes 图边(供 see_event 给在场者发知识边)
+            for fid in ev.effects:
+                _, flocal = _split(fid)
+                self._execute_write(
+                    "RELATE $e->causes->$p",
+                    {"e": ev_rid, "p": RecordID("proposition", flocal)})
+            # causal_in → causal 图边
+            for src_oid, ctype in ev.causal_in:
+                _, slocal = _split(src_oid)
+                self._execute_write(
+                    "RELATE $e->causal->$src SET ctype=$ct",
+                    {"e": ev_rid, "src": RecordID("event", slocal), "ct": ctype})
+            # 看见即知道:有 effects 时给全部在场参与者发 knows(与 memory World 行为对齐)
+            if ev.effects:
+                from scribe3.knowledge import see_event
+                see_event(self, ev, ingest_seq=ingest_seq)
         self._invalidate_chapter_quality_cache(ev.story_time)
         return ev
 

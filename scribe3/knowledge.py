@@ -54,12 +54,24 @@ def witnesses_of(event: Event) -> set[str]:
     return {v for v in event.participants.values() if v}
 
 
-def see_event(world: World, event: Event) -> list[KnowledgeEdge]:
-    """看见即知道:在场目击者获知本事件每条 effect;不在场者不获知(无知是默认)。"""
+def see_event(world: World, event: Event,
+              ingest_seq: int | None = None) -> list[KnowledgeEdge]:
+    """看见即知道:在场目击者获知本事件每条 effect;不在场者不获知(无知是默认)。
+
+    ingest_seq:由 store.add_event(ingest 路径)透传,供 purge_ingest 幂等清理;
+    手动/MCP 不传 → 边的 ingest_seq=NONE,不受 purge 影响。
+    """
     new_edges: list[KnowledgeEdge] = []
     for fid in event.effects:
         for w in witnesses_of(event):
             edge = KnowledgeEdge(w, fid, since_chapter=event.story_time, acquired_via="saw")
-            world.add_knowledge(edge)
+            # SurrealStore.add_knowledge 接受 ingest_seq;内存 World 不接受 → TypeError 回退
+            if ingest_seq is not None:
+                try:
+                    world.add_knowledge(edge, ingest_seq=ingest_seq)
+                except TypeError:
+                    world.add_knowledge(edge)
+            else:
+                world.add_knowledge(edge)
             new_edges.append(edge)
     return new_edges
