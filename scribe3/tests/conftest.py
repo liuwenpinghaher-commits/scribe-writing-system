@@ -43,6 +43,13 @@ def _isolated_llm_ledger(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _emergency_rest_write_on_for_tests(monkeypatch):
+    """生产默认关 REST 世界写;单测/存量 test_app 写路径需显式开。
+    需要测 403 关闸的用例自行 monkeypatch.setenv('SCRIBE3_EMERGENCY_REST_WRITE','0')。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "1")
+
+
+@pytest.fixture(autouse=True)
 def _clear_context_caches():
     """Task 16-C:检索接线后 MemoryRetriever.retrieve() 走 module 级单例 RETRIEVAL_CACHE。
     每测试前清检索/全局卡缓存 + 重置指标直方图,防跨测试(不同临时 store 复用同 work/query)

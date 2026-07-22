@@ -95,6 +95,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("SCRIBE3_EDITORIAL_THREAD_V1", "flags", "bool", False, "hot", "主编讨论线程 v1", danger=True),
     Setting("SCRIBE3_MEMORY_FABRIC_V1", "flags", "bool", False, "hot", "记忆织网检索 v1", danger=True),
     Setting("SCRIBE3_CONTEXT_INSPECTOR_V1", "flags", "bool", False, "hot", "上下文检查器 v1", danger=True),
+    Setting("SCRIBE3_EMERGENCY_REST_WRITE", "flags", "bool", False, "hot",
+            "紧急 REST 世界写", "默认关；仅自动化测试/紧急运维显式开启", danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),

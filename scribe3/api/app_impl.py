@@ -100,6 +100,60 @@ async def _auth_middleware(request, call_next):
             return JSONResponse(status_code=401, content={"detail": "invalid token"})
     return await call_next(request)
 
+
+# 世界状态 REST 写路径前缀(精确相等或 prefix + "/…"；避免 /charactersX 误伤)。
+# 放行:全部 GET；/health /settings /gateway /ai/ /chat/ /context/ /memory/ /quality/
+# /works /live /capabilities；正文存盘 /save-chapter 等手稿路径不在此清单。
+_REST_WORLD_WRITE_PREFIXES = (
+    "/characters",
+    "/facts",
+    "/knowledge",
+    "/promises",
+    "/promises-new",
+    "/world-rules",
+    "/factions",
+    "/items",
+    "/terms",
+    "/character-relations",
+    "/entity-relations",
+    "/char-states",
+    "/char-anchors",
+    "/motifs-new",
+    "/motifs",
+    "/intent",
+    "/volumes",
+    "/chapters",
+    "/arc-beats",
+    "/events",
+    "/materials",
+    "/objects",
+)
+_REST_WORLD_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _is_rest_world_write_path(path: str) -> bool:
+    """path 命中世界写前缀:精确相等,或以 prefix + '/' 开头。"""
+    for p in _REST_WORLD_WRITE_PREFIXES:
+        if path == p or path.startswith(p + "/"):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def _emergency_rest_write_middleware(request, call_next):
+    """SCRIBE3_EMERGENCY_REST_WRITE 默认关:拦截世界状态 REST 写,逼走对话+MCP 审批。
+
+    仅自动化测试/紧急运维显式开启;conftest autouse 钉 '1' 保存量写测不炸。
+    """
+    if request.method in _REST_WORLD_WRITE_METHODS and _is_rest_world_write_path(request.url.path):
+        if not _flag_enabled("SCRIBE3_EMERGENCY_REST_WRITE"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "REST world write disabled; use dialogue + MCP approval"},
+            )
+    return await call_next(request)
+
 _STORE_CACHE_MAX = 8
 _stores: OrderedDict[str, SurrealStore] = OrderedDict()
 _complete_fn = None
@@ -903,6 +957,8 @@ def capabilities():
             "context_inspector_v1": _flag_enabled("SCRIBE3_CONTEXT_INSPECTOR_V1"),
             # 兼容旧前端字段名；Creative Context Engine 已是唯一生产写作内核。
             "assembler_v1": True,
+            # 紧急 REST 世界写后门(默认关;测试/运维显式开)。
+            "emergency_rest_write": _flag_enabled("SCRIBE3_EMERGENCY_REST_WRITE"),
         },
         "versions": {
             "retrieval_policy": context_cache.RETRIEVAL_POLICY_VERSION,
