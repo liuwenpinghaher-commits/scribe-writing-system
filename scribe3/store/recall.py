@@ -28,26 +28,39 @@ class RecallMixin:
                     "semantic_index 事务冲突，重试 %s/2 命题 %s: %s", attempt + 1, oid, str(e)[:120])
                 time.sleep(0.05 * (attempt + 1))
 
-    def semantic_recall(self, query: str, k: int = 5) -> list[Fact]:
+    def semantic_recall(self, query: str, k: int = 5, chapter: int | None = None) -> list[Fact]:
         """语义召回最相关命题(HNSW <|K,EF|>,按距离升序)。
         D-022:<|K,COSINE|> 显式距离形式经 EXPLAIN 实锤为 KnnTopK+TableScan 暴力扫描,
-        <|K,EF数字|> 才走 HNSW 索引(KnnScan);EF=max(40,K) 召回富余,14 组对拍一致。"""
+        <|K,EF数字|> 才走 HNSW 索引(KnnScan);EF=max(40,K) 召回富余,14 组对拍一致。
+
+        chapter 非空时做限知时间门:保留 valid_from <= chapter 且
+        (valid_to 为空或 valid_to > chapter) 的命题。后过滤,避免 KNN×WHERE 组合坑。
+        """
         from scribe3.embed import embed
+        # chapter 门后过滤可能裁掉若干条,多取一些 HNSW 候选再截到 k
+        knn_k = int(k) if chapter is None else min(max(int(k) * 3, int(k)), 40)
         qv = embed([query])[0]
         rows = self._query(
             f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, "
             f"secret, leak_markers, vector::distance::knn() AS dist "
-            f"FROM proposition WHERE embedding <|{int(k)},{max(40, int(k))}|> $qv "
+            f"FROM proposition WHERE embedding <|{knn_k},{max(40, knn_k)}|> $qv "
             f"AND (archived = NONE OR archived != true) ORDER BY dist",
             {"qv": qv})
-        return [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
-                     r["attribute"], r["value"], r["valid_from"],
-                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", [])) for r in rows]
+        facts = [Fact(f"fact:{r['local']}", r.get("entity_id") or "",
+                      r["attribute"], r["value"], r["valid_from"],
+                      r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
+                 for r in rows]
+        if chapter is not None:
+            ch = int(chapter)
+            facts = [f for f in facts
+                     if f.valid_from <= ch
+                     and (f.valid_to is None or f.valid_to > ch)]
+        return facts[:k]
 
     def hybrid_recall(self, query: str, chapter: int, k: int = 5) -> list[Fact]:
         """混合召回:向量路 + 关键词路 → RRF 融合排名(未来加图遍历路)。
         限知时间门(chapter)过滤未来事实。"""
-        vector_results = self.semantic_recall(query, k=min(k * 3, 20))
+        vector_results = self.semantic_recall(query, k=min(k * 3, 20), chapter=chapter)
         keyword_results = _keyword_search_propositions(self, query, chapter, top_k=k * 2)
 
         vec_ids = [f.id for f in vector_results]
@@ -57,19 +70,31 @@ class RecallMixin:
         top_ids = [item_id for item_id, _ in fused[:k]]
 
         all_facts = {f.id: f for f in vector_results + keyword_results}
-        return [all_facts[fid] for fid in top_ids if fid in all_facts]
+        # 双保险:融合结果再过一遍 chapter 时间门(防某一路漏滤)
+        ch = int(chapter)
+        out = []
+        for fid in top_ids:
+            f = all_facts.get(fid)
+            if f is None:
+                continue
+            if f.valid_from > ch:
+                continue
+            if f.valid_to is not None and f.valid_to <= ch:
+                continue
+            out.append(f)
+        return out
 
     def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
         """Graph RAG:向量召回种子命题 + 沿图边拼知识子图(B枢纽)。
         返回每条种子事实 + {主体, 知情角色, 来源事件, 同场角色}。
-        限知时间门(chapter)过滤未来事实。"""
+        限知时间门(chapter)过滤未来事实与已失效命题(valid_to)。"""
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
             # entity_link:疑似死(P2-15)——migration 026 定义字段+索引但"数据迁移后切换"从未落地,
             #   全仓无写入方,此处 entity_link.name 恒 null,subject 回退 entity_id(下方 or 兜底)。
             #   保留待确认(移除牵动 live 召回查询+idx_prop_entity_link 索引)。
-            f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, secret, "
+            f"SELECT meta::id(id) AS local, entity_id, attribute, value, valid_from, valid_to, secret, "
             f"  entity_link.name AS subject, "
             f"  <-knows<-character.name AS knowers, "
             f"  <-causes<-event.event_type AS source_events, "
@@ -79,7 +104,12 @@ class RecallMixin:
             f"  AND valid_from <= $ch AND (archived = NONE OR archived != true) "
             f"ORDER BY dist", {"qv": qv, "ch": chapter})
         out = []
+        ch = int(chapter)
         for r in rows:
+            vt = r.get("valid_to")
+            # SQL 侧暂只滤 valid_from(KNN×复杂 WHERE 历史坑);valid_to 在 Python 后滤
+            if vt is not None and vt <= ch:
+                continue
             out.append({
                 "id": f"fact:{r['local']}",
                 "value": r["value"],
@@ -92,6 +122,8 @@ class RecallMixin:
                 "co_present": r.get("co_present") or [],
                 "distance": r.get("dist", 0),
             })
+            if len(out) >= k:
+                break
         return out
 
     def recall_lessons(self, query: str, k: int = 3, min_sim: float | None = None) -> list[dict]:
