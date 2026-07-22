@@ -2,7 +2,7 @@
 
 > **本文是当前实现的唯一入口说明。**  
 > 若与 `交付说明.md`、早期 `scribe/` 叙事、部分设计文档冲突，**以本文 + `scribe3/` 代码为准**。  
-> 更新：2026-07-22
+> 更新：2026-07-22（对话驱动写 + 限知闭环 + emergency REST）
 
 ## 1. 产品是什么
 
@@ -20,13 +20,15 @@
 | `scribe3/` | **主产品**（greenfield 故事本体 v2 + 写作台） |
 | `scribe3/app.py` | FastAPI 薄入口（实现见 `api/app_impl.py`） |
 | `scribe3/api/app_impl.py` | FastAPI 路由与共享辅助 |
-| `scribe3/store/` | `SurrealStore` 包（原 `store.py` 拆分） |
-| `scribe3/store.py` | `SurrealStore`（SurrealDB） |
-| `scribe3/mcp.py` | 领域 MCP（`s3_*` 工具） |
+| `scribe3/store/` | **`SurrealStore` 包**（mixin 门面：`connection` / `events` / `recall` / `chapters` / …） |
+| `scribe3/mcp.py` | 领域 MCP（`s3_*` 工具 + `WRITE_GATED` + `commit_if_approved`） |
+| `scribe3/live.py` | Surreal LIVE → SSE（凭证与 store 同源 env/settings） |
 | `scribe3/web/` | React + Vite 写作台前端 |
 | `scribe3/hermes_skills/` | Hermes 技能 |
 | `设计文档/` | 第一性原理与历史设计（部分可能过期，见索引） |
 | `交付说明.md` | **归档向**早期 `scribe/` + SQLite 批次叙事，勿当现行运维手册 |
+
+**已不存在** 运行时单文件 `scribe3/store.py` 巨石；持久层以 `scribe3/store/` 包为准。
 
 历史/旁路（非主线运行时）：`scribe/`（若仍存在）、`oh-story-claudecode-main/`、各类 zip/缓存。
 
@@ -35,22 +37,23 @@
 ```text
 浏览器 (scribe3/web, dev 常见 :3311)
     → FastAPI scribe3.app (常见 :3321)
-        → SurrealDB (ns=scribe3, db=work_id)
-        → Hermes / doubao（写作与主编对话，环境相关）
+        → SurrealDB (ns=scribe3, db=work_id)   ← 世界正典唯一真相源
+        → Hermes / 配置的 LLM（写作与主编对话）
     → MCP server "scribe3"（主编工具 s3_*）
 ```
 
-- **存储：SurrealDB**，不是交付说明里的 SQLite 主路径。  
-- **端口：** 以 `scribe3/README.md` 为准（示例 API `:3321`、前端 `:3311`）；旧文 `:8801`/`:5174` 属早期 `scribe/` 叙事。  
-- **书隔离：** `work` / Surreal `db` 名；MCP `_store_for(work)`。
+- **存储：SurrealDB**（一书一 `db=<work slug>`）。**不是** GBrain / 外挂第二真相库；过程记忆若开启走仓内 `memory_fabric`（默认关），不得替代正典。  
+- **端口：** 以 `scribe3/README.md` 为准（示例 API `:3321`、前端 `:3311`）。  
+- **DB 凭证：** `SCRIBE3_SURREAL_URL` / `SCRIBE3_SURREAL_USER` / `SCRIBE3_SURREAL_PASS`（store 与 live 同源）。
 
-## 4. 写路径（现状摘要）
+## 4. 写路径（现行产品铁律）
 
 | 通道 | 用途 | 门控 |
 |------|------|------|
-| MCP `s3_*` 写工具 | 主编/Agent 改世界状态 | `WRITE_GATED` + elicitation + `commit_if_approved` |
-| REST 写 | 仍存在于 `app.py`（测试/兼容/部分 UI 历史路径） | **未在本文强制关闭**；产品策略见 `scribe3/AGENTIC_BOUNDARY_DECISION.md`（若有未提交修订以代码审查为准） |
-| 前端 | 写作台、Codex、北极星条等 | WIP 方向：已有记录只读 +「让主编写入」种子；新建条目仍可能本地表单 |
+| **MCP `s3_*` 写工具（作者主路径）** | 主编改世界状态 / 结构 / 意图 | `WRITE_GATED` + elicitation + `commit_if_approved` |
+| **前端创作 UI** | 设定/大纲/卷章 meta / 节拍等 | **只读检视 +「让主编…」种子**（`s3-chief-seed`）；禁止表单失焦直写世界语义 |
+| **REST 世界写** | 测试夹具 / 紧急运维 | **`SCRIBE3_EMERGENCY_REST_WRITE` 默认关** → 403；测试 conftest 默认开 |
+| 正文 | `/chat/write` 提案卡接受 | 与世界写分离 |
 
 `commit_if_approved` 约定：
 
@@ -58,7 +61,18 @@
 - 批准且写入成功 → `status=written`  
 - 写入抛错 / 返回 `False` / 返回 `{error: ...}` → `status=error`（**不得假绿 written**）
 
-## 5. 怎么跑（最小）
+结构写 MCP（示例，均待批）：`s3_add_volume` / `s3_patch_volume` / `s3_add_chapter` / `s3_patch_chapter_meta` / `s3_patch_chapter_plan` / `s3_set_char_anchors` / `s3_set_intent` 等。
+
+决策全文：`scribe3/AGENTIC_BOUNDARY_DECISION.md`、`设计文档/2026-07-22-对话驱动写入-禁表单直填-决策与改造方案.md`。
+
+## 5. 限知与图（摘要）
+
+- 投影：`project_frame` / `dramatic_irony`（真库可跑）  
+- 生产：`add_event` 带 `effects` 时自动 `see_event`（目击者 `knows`）；ingest `did` 合成事件挂 effects  
+- 召回：`hybrid_recall` / `semantic_recall(chapter=…)` 时间门；`graph()` 尊重 `until_chapter`  
+- 多目击者：`participants` 同槽可 `list[str]`
+
+## 6. 怎么跑（最小）
 
 见 `scribe3/README.md`。摘要：
 
@@ -78,16 +92,18 @@ Makefile 根目录提供：
 - `make test-baseline` — PR 默认（`test-mcp` + `test-web-readonly`）
 - `make e2e-det` / `e2e-frontend` / `e2e-real` — 更重的 e2e（需环境就绪）
 
-## 6. 文档优先级
+## 7. 文档优先级
 
 1. **本文** + `scribe3/README.md` + 根目录 `AGENTS.md`  
 2. `scribe3/AGENTIC_BOUNDARY_DECISION.md`（协作边界决策）  
 3. [`PR_TEST_BASELINE.md`](./PR_TEST_BASELINE.md)（验证门禁）  
-4. 仍有效的 `设计文档/` 条目（需带日期；冲突时以代码为准）  
-5. `交付说明.md` → 历史交付快照（已标归档）
+4. 计划：`docs/superpowers/plans/2026-07-22-phase2-dialogue-write-phase3-limited-knowledge-tdd.md`  
+5. 仍有效的 `设计文档/` 条目（需带日期；冲突时以代码为准）  
+6. `交付说明.md` → 历史交付快照（已标归档）
 
-## 7. 已知结构性债（非完整列表）
+## 8. 已知结构性债（非完整列表）
 
-- `app.py` / `store.py` 体量过大 → 见 `docs/ARCHITECTURE_SPLIT_ROADMAP.md`  
-- 设计文档与实现多世代并存 → 依赖本文做路由  
+- `api/app_impl.py` 仍偏巨石 → 见 `docs/ARCHITECTURE_SPLIT_ROADMAP.md`  
+- 部分拖拽排序/删卷仍走 REST（运维操作）；世界语义新建/改文案以对话审批为主  
+- 批量 WriteProposal 服务端卡未做（仍 per-tool elicit）  
 - 工作区易堆积 e2e 产物/缓存 → 见根目录 `.gitignore`

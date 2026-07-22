@@ -3,6 +3,8 @@ import { api } from '../api'
 import { wcLabel } from '../outlineColors'
 import { showToast } from '../ui/Toast'
 import { Btn, Input, Textarea, SectionTitle } from '../ui.jsx'
+import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
+import { ReadOnlyText } from '../ui/EditableText.jsx'
 
 function volumeIdOf(node) {
   if (node?.ref != null) return node.ref
@@ -79,27 +81,15 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     return map
   }, {})
 
-  const save = async () => {
-    if (!vid || saving) return
-    const title = form.title.trim() || volume?.title || node?.label || '未命名卷'
-    setSaving(true)
-    try {
-      await api.patchVolume(vid, {
-        title,
-        intro: form.intro,
-        color: form.color || null,
-        sort_order: Math.max(0, Number(form.sort_order) || 0),
-      })
-      showToast('卷信息已保存', { tone: 'ok' })
-      onChanged?.()
-      await reload()
-    } catch (e) {
-      showToast(e?.body?.detail || e?.message || '卷信息保存失败', { tone: 'danger' })
-    } finally {
-      setSaving(false)
-    }
+  const askChiefVolume = () => {
+    seedChiefNarrativeWrite(
+      'volume',
+      `分卷「${volume?.title || form.title || vid}」`,
+      `请更新卷 ${vid} 的 title/intro/color/sort_order。当前: title=${form.title}; color=${form.color}; sort_order=${form.sort_order}; intro:\n${form.intro || '（空）'}`,
+    )
   }
 
+  // 结构壳：新建章/从「未分卷」建卷仍 REST(验收允许 structure-only create)
   const createChapter = async () => {
     if (saving) return
     setSaving(true)
@@ -194,7 +184,8 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
                   placeholder="写这个新分卷的主冲突、角色弧线、伏笔收束。" className="min-h-40" />
               </FieldLabel>
               <div className="flex justify-end">
-                <Btn variant="primary" onClick={createFromUnassigned} disabled={saving}>
+                <Btn variant="primary" data-testid="volume-create-from-unassigned"
+                  onClick={createFromUnassigned} disabled={saving}>
                   {saving ? '创建中…' : '创建分卷'}
                 </Btn>
               </div>
@@ -244,33 +235,16 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
 
       <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-4">
-          <section className="panel-elevated p-5">
+          <section className="panel-elevated p-5" data-testid="volume-meta-readonly">
             <SectionTitle>卷信息</SectionTitle>
             <div className="grid gap-3">
-              <FieldLabel>
-                卷名
-                <Input variant="bordered" value={form.title}
-                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} />
-              </FieldLabel>
-              <FieldLabel>
-                标识色
-                <Input variant="bordered" value={form.color}
-                  onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))} placeholder="#2f7563" />
-              </FieldLabel>
-              <FieldLabel>
-                卷排序
-                <Input variant="bordered" aria-label="卷排序" type="number" min="0" step="1" value={form.sort_order}
-                  onChange={(e) => setForm((f) => ({ ...f, sort_order: e.target.value }))} />
-              </FieldLabel>
-              <FieldLabel>
-                卷纲
-                <Textarea variant="bordered" aria-label="卷纲" value={form.intro}
-                  onChange={(e) => setForm((f) => ({ ...f, intro: e.target.value }))} rows={9}
-                  placeholder="写本卷的主冲突、角色弧线、伏笔收束、情绪走向。" className="min-h-44" />
-              </FieldLabel>
+              <ReadOnlyText label="卷名" value={form.title} />
+              <ReadOnlyText label="标识色" value={form.color} emptyHint="—" />
+              <ReadOnlyText label="卷排序" value={form.sort_order} />
+              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入）" />
               <div className="flex justify-end">
-                <Btn variant="primary" onClick={save} disabled={saving}>
-                  {saving ? '保存中…' : '保存卷信息'}
+                <Btn variant="primary" data-testid="volume-ask-chief" onClick={askChiefVolume}>
+                  让主编写入卷信息
                 </Btn>
               </div>
             </div>
@@ -280,7 +254,8 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
             <SectionTitle right={
               <span className="inline-flex items-center gap-2 normal-case tracking-normal font-normal">
                 <span className="text-meta text-faint">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
-                <Btn variant="primary" size="xs" onClick={createChapter} disabled={saving}>新建章</Btn>
+                <Btn variant="primary" size="xs" data-testid="volume-create-chapter"
+                  onClick={createChapter} disabled={saving}>新建章</Btn>
               </span>
             }>本卷章节</SectionTitle>
             <div className="grid gap-0.5">

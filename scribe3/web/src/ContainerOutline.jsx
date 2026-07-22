@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LayoutGrid, Table2, List, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { api } from './api'
+import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
@@ -134,44 +135,41 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   const lanes = useMemo(() => buildLanes(outline, node), [outline, node])
 
-  // 新建章:空书/任意手稿容器都能起新章(原本只有「新建卷」,无建章入口→空书没法开写)。
-  // 算最大 seq+1,存空章(seq 是故事时间轴主键),reload 后打开进四阶段写作。
+  // 新建章:禁止 saveChapter/createChapter REST 直写;种子主编走 s3_add_chapter 审批。
   const [addingCh, setAddingCh] = useState(false)
-  const addChapter = async () => {
+  const addChapter = () => {
     if (addingCh) return
     setAddingCh(true)
-    const maxSeq = (outline?.chapters || []).reduce((m, c) => Math.max(m, c.seq || 0), 0)
-    const seq = maxSeq + 1
     try {
-      await api.saveChapter(seq, '', `第${seq}章`, '')
-      // 若当前在某卷视图,把新章归入该卷(否则进未分卷)
-      if (node?.type === 'volume' && node.ref != null) {
-        const volSeqs = (outline?.chapters || []).filter((c) => String(c.volume) === String(node.ref)).map((c) => c.seq)
-        await api.reorderChapters(node.ref, [...volSeqs, seq]).catch(() => {})
-      }
-      await reload()
-      onOpenChapter?.({ seq, title: `第${seq}章` })
-    } catch (e) { toast?.(e?.body?.detail || '新建章失败', { tone: 'danger' }) }
-    finally { setAddingCh(false) }
+      const volHint = node?.type === 'volume' && node.ref != null
+        ? `请归属 volume_id=${node.ref}（卷「${node.label || node.ref}」）。`
+        : '可不指定卷(未分卷)。'
+      seedChiefNarrativeWrite(
+        'chapter',
+        '新建章节',
+        `请用 s3_add_chapter 新建一章(可给简短 title)。${volHint}未获批准不得声称已落库。`,
+      )
+    } finally {
+      setAddingCh(false)
+    }
   }
 
-  // synopsis inline 编辑:乐观更新 + 失败回滚
+  // synopsis: 乐观本地展示 + 主编种子(禁止 patchChapter synopsis 直写)
   const patchSynopsis = (seq, synopsis) => {
     setOutline((prev) => prev && ({
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, synopsis } : c),
     }))
-    api.patchChapter(seq, { synopsis }).catch((e) => { reload(); toast?.(e?.body?.detail || '梗概保存失败', { tone: 'danger' }) })
+    seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, `请更新 synopsis:\n${synopsis || '（空）'}`)
   }
 
-  // 章状态(label)编辑:乐观更新 + 失败回滚(#70 卡片墙「按状态」色源生产入口)。
-  // label=null 清空(未设);后端 ASSERT NONE 或五枚举,空串会 500,故清空必发 null。
+  // 章状态(label): 乐观本地展示 + 主编种子
   const patchLabel = (seq, label) => {
     setOutline((prev) => prev && ({
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, label } : c),
     }))
-    api.patchChapter(seq, { label }).catch((e) => { reload(); toast?.(e?.body?.detail || '状态保存失败', { tone: 'danger' }) })
+    seedChiefNarrativeWrite('chapter-meta', `第 ${seq} 章标签`, `请更新 label 为: ${label || '（空）'}`)
   }
 
   // 卷内拖拽重排:乐观重排该卷章序 + 失败回滚
@@ -224,7 +222,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       .catch((e) => { reload(); toast?.(e?.body?.detail || '跨卷移动失败', { tone: 'danger' }) })
   }
 
-  // 新建卷
+  // 新建卷壳:结构 create 允许 REST(验收允许 structure-only shell);卷叙事元数据另走种子。
   const commitAddVolume = async (titleOverride = null) => {
     const t = String(titleOverride ?? newTitle).trim()
     if (!t) { setAdding(false); setNewTitle(''); return }
@@ -236,7 +234,6 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       setAdding(false)
       await reload()
     } catch (err) {
-      setAdding(false)
       const detail = err?.body?.detail || err?.message
       setActionErr({
         message: detail ? `新建卷失败: ${detail}` : '新建卷失败',
@@ -245,19 +242,10 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     }
   }
 
-  // 重命名卷
+  // 重命名卷 → 主编种子(禁止 patchVolume title 作者直写)
   const renameVolume = async (vid, title) => {
     setActionErr(null)
-    try {
-      await api.patchVolume(vid, { title })
-      await reload()
-    } catch (err) {
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `重命名卷失败: ${detail}` : '重命名卷失败',
-        retry: () => renameVolume(vid, title),
-      })
-    }
+    seedChiefNarrativeWrite('volume', `分卷 ${vid}`, `请将卷名更新为: ${title}`)
   }
 
   // 删除卷(确认 → 章不删,volume 置空)

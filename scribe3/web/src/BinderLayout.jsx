@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { api } from './api'
+import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
 import { buildPropositionCategory } from './codexTree'
 import { DetailPane } from './DetailPane'
@@ -101,9 +102,9 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     onSel({ mode: 'node', node })
   }
 
-  // 卷 CRUD 回调(ProjectTree 发起 → BinderLayout 执行 → 树重载)
+  // 卷重命名:叙事 title 走主编种子(禁止 patchVolume 作者直写)
   const handleVolumeRename = async (vid, newTitle) => {
-    try { await api.patchVolume(vid, { title: newTitle }); reload() } catch (e) { console.error(e) }
+    seedChiefNarrativeWrite('volume', `分卷 ${vid}`, `请将卷名更新为: ${newTitle}`)
   }
 
   const handleVolumeDelete = (vid, label) => {
@@ -124,16 +125,21 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const handleAddVolume = () => setAddingVol(true)
 
   const addVolInflight = useRef(false)   // 断头修复#84:确认对话框双击/双触发 → 建两个同名卷
-  const doAddVolume = async (title) => {
+  const doAddVolume = (title) => {
     if (!title?.trim() || addVolInflight.current) return
     addVolInflight.current = true
     try {
       const vols = tree?.manuscript?.children || []
       const maxOrder = vols.reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
-      await api.addVolume(title.trim(), maxOrder + 1)
-      await reload()
-    } catch (e) { console.error(e) }
-    finally { addVolInflight.current = false }
+      // 禁止 api.addVolume REST 直写;主编 s3_add_volume 审批落库
+      seedChiefNarrativeWrite(
+        'volume',
+        `新建分卷「${title.trim()}」`,
+        `请用 s3_add_volume 创建卷 title=${title.trim()}, sort_order=${maxOrder + 1}。未获批准不得声称已落库。`,
+      )
+    } finally {
+      addVolInflight.current = false
+    }
   }
 
   // 拖拽重排:章跨卷/卷内排序 → 走 sort_order(及 volume),绝不动 seq。

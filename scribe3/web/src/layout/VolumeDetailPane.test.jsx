@@ -12,22 +12,38 @@ const { api } = await import('../api')
 describe('VolumeDetailPane', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     api.outline.mockResolvedValue({
-      volumes: [{ id: 'vol-2', title: '第二卷', intro: '卷纲', color: '#123456', sort_order: 2 }],
+      volumes: [{ id: 'vol-2', title: '第二卷', intro: '卷纲正文', color: '#123456', sort_order: 2 }],
       chapters: [],
     })
-    api.patchVolume.mockResolvedValue({ status: 'updated' })
   })
 
-  it('让作者编辑卷排序并随卷信息一起保存', async () => {
+  it('卷叙事字段只读,让主编写入不调用 patchVolume', async () => {
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
+
     render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
 
-    await screen.findByDisplayValue('第二卷')
-    fireEvent.change(screen.getByLabelText('卷排序'), { target: { value: '5' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存卷信息' }))
+    expect(await screen.findByTestId('volume-meta-readonly')).toBeTruthy()
+    expect(screen.getByText('卷纲正文')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('volume-ask-chief'))
 
-    await waitFor(() => expect(api.patchVolume).toHaveBeenCalledWith('vol-2', {
-      title: '第二卷', intro: '卷纲', color: '#123456', sort_order: 5,
-    }))
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(tabs).toContain('chief')
+    expect(api.patchVolume).not.toHaveBeenCalled()
+  })
+
+  it('新建章走主编种子,不调用 createChapter REST', async () => {
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    render(<VolumeDetailPane node={{ id: 'vol:vol-2', type: 'volume', ref: 'vol-2', label: '第二卷' }} />)
+    expect(await screen.findByTestId('volume-create-chapter')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('volume-create-chapter'))
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds[0]).toMatch(/s3_add_chapter/)
+    expect(api.createChapter).not.toHaveBeenCalled()
   })
 })
