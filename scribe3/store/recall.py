@@ -84,10 +84,35 @@ class RecallMixin:
             out.append(f)
         return out
 
+    def knowers_at_chapter(self, prop_local: str, chapter: int) -> list[str]:
+        """命题在 chapter 的知情角色名列表。
+        与 project_frame / graph() 同谓词: since_chapter<=ch 且 (until is None 或 until>ch)。
+        纯库查询,不依赖 KNN——单测可确定性断言。"""
+        ch = int(chapter)
+        knower_rows = self._query(
+            "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
+            "WHERE out = type::record('proposition', $p)",
+            {"p": prop_local})
+        knowers: list[str] = []
+        for kr in knower_rows or []:
+            sc = kr.get("since_chapter")
+            if sc is None:
+                sc = 0
+            if int(sc) > ch:
+                continue
+            uc = kr.get("until_chapter")
+            if uc is not None and int(uc) <= ch:
+                continue
+            nm = kr.get("name")
+            if nm:
+                knowers.append(nm)
+        return knowers
+
     def graph_recall(self, query: str, chapter: int, k: int = 5) -> list[dict]:
         """Graph RAG:向量召回种子命题 + 沿图边拼知识子图(B枢纽)。
         返回每条种子事实 + {主体, 知情角色, 来源事件, 同场角色}。
-        限知时间门(chapter)过滤未来事实与已失效命题(valid_to)。"""
+        限知时间门(chapter)过滤未来事实与已失效命题(valid_to)。
+        knowers 经 knowers_at_chapter 过滤(不依赖图边 SQL 无时间门的默认 FETCH)。"""
         from scribe3.embed import embed
         qv = embed([query])[0]
         rows = self._query(
@@ -110,24 +135,6 @@ class RecallMixin:
             # SQL 侧暂只滤 valid_from(KNN×复杂 WHERE 历史坑);valid_to 在 Python 后滤
             if vt is not None and vt <= ch:
                 continue
-            # knowers 时间门:与 project_frame / graph() 同谓词(since<=ch 且 until 开区间)
-            knower_rows = self._query(
-                "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
-                "WHERE out = type::record('proposition', $p)",
-                {"p": r["local"]})
-            knowers = []
-            for kr in knower_rows or []:
-                sc = kr.get("since_chapter")
-                if sc is None:
-                    sc = 0
-                if int(sc) > ch:
-                    continue
-                uc = kr.get("until_chapter")
-                if uc is not None and int(uc) <= ch:
-                    continue
-                nm = kr.get("name")
-                if nm:
-                    knowers.append(nm)
             out.append({
                 "id": f"fact:{r['local']}",
                 "value": r["value"],
@@ -135,7 +142,7 @@ class RecallMixin:
                 "valid_from": r.get("valid_from", 0),
                 "secret": bool(r.get("secret", False)),
                 "subject": r.get("subject") or r.get("entity_id") or "",
-                "knowers": knowers,
+                "knowers": self.knowers_at_chapter(r["local"], ch),
                 "source_events": r.get("source_events") or [],
                 "co_present": r.get("co_present") or [],
                 "distance": r.get("dist", 0),

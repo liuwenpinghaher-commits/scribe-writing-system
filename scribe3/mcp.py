@@ -743,6 +743,61 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
     return commit_if_approved("s3_add_fact", ok, _write)
 
 
+def aggregate_event_participants(participants: list[dict] | None) -> dict:
+    """MCP s3_add_event 参与者聚合:同 role 多人升 list,禁止后写覆盖。
+    纯函数,供工具与单测共用——禁止测试侧重写此循环。"""
+    parts: dict = {}
+    if not participants:
+        return parts
+    for p in participants:
+        if not isinstance(p, dict):
+            continue
+        role = p.get("role", "") or ""
+        entity = p.get("entity", "") or ""
+        if not role or not entity:
+            continue
+        if role not in parts:
+            parts[role] = entity
+        else:
+            cur = parts[role]
+            if isinstance(cur, list):
+                if entity not in cur:
+                    cur.append(entity)
+            elif cur != entity:
+                parts[role] = [cur, entity]
+    return parts
+
+
+def aggregate_event_effects(effects: list | None) -> list[str]:
+    """MCP s3_add_event effects 归一化为 fact oid 列表。"""
+    effs: list[str] = []
+    if not effects:
+        return effs
+    for e in effects:
+        if isinstance(e, str):
+            effs.append(e)
+        elif isinstance(e, dict):
+            fid = e.get("id") or e.get("fact_id")
+            if fid:
+                effs.append(fid)
+    return effs
+
+
+def aggregate_event_causal_in(causal_in: list[dict] | None) -> list:
+    """MCP s3_add_event causal_in 归一化为 (event_id, ctype) 列表。"""
+    causal: list = []
+    if not causal_in:
+        return causal
+    for c in causal_in:
+        if not isinstance(c, dict):
+            continue
+        ev_id = c.get("event", "")
+        ctype = c.get("ctype", "causes")
+        if ev_id:
+            causal.append((ev_id, ctype))
+    return causal
+
+
 @mcp.tool(annotations=_RW)
 async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        motivated_by_goal: str | None = None,
@@ -767,42 +822,9 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
       causal_complete 验证会检查此链;建议填写以保证连贯性验证通过。
     causal_root_reason: 仅当该事件是同章切换人物/地点/时间后的独立场景根且没有 causal_in 时填写。
     """
-    # 同 role 多人:值升 list(与 store iter_participants / multi-witness 对齐),禁止后写覆盖
-    parts: dict = {}
-    if participants:
-        for p in participants:
-            role = p.get("role", "")
-            entity = p.get("entity", "")
-            if not role or not entity:
-                continue
-            if role not in parts:
-                parts[role] = entity
-            else:
-                cur = parts[role]
-                if isinstance(cur, list):
-                    if entity not in cur:
-                        cur.append(entity)
-                elif cur != entity:
-                    parts[role] = [cur, entity]
-
-    effs: list[str] = []
-    if effects:
-        for e in effects:
-            if isinstance(e, str):
-                effs.append(e)
-            elif isinstance(e, dict):
-                # 支持 {"id": "fact:xxx"} 或 {"entity": "role:x", "attribute": "...", "value": "..."}
-                fid = e.get("id") or e.get("fact_id")
-                if fid:
-                    effs.append(fid)
-
-    causal: list = []
-    if causal_in:
-        for c in causal_in:
-            ev_id = c.get("event", "")
-            ctype = c.get("ctype", "causes")
-            if ev_id:
-                causal.append((ev_id, ctype))
+    parts = aggregate_event_participants(participants)
+    effs = aggregate_event_effects(effects)
+    causal = aggregate_event_causal_in(causal_in)
 
     ok = await _ask(ctx, f"新增事件 {oid}:{etype}")
     return commit_if_approved("s3_add_event", ok,

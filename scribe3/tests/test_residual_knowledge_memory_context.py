@@ -14,46 +14,46 @@ from scribe3.knowledge import project_frame
 from scribe3.ontology import Entity, Fact, KnowledgeEdge
 
 
-# ─── 1) MCP multi-witness via real s3_add_event write path ───
+# ─── 1) MCP multi-witness via shipped aggregate + s3_add_event write path ───
+
+def test_aggregate_event_participants_keeps_multi_witness_list():
+    """Shipped pure helper used by s3_add_event — not a test-local reimplementation."""
+    parts = M.aggregate_event_participants([
+        {"role": "SUBJ", "entity": "role:甲"},
+        {"role": "WITNESS", "entity": "role:乙"},
+        {"role": "WITNESS", "entity": "role:丙"},
+    ])
+    assert isinstance(parts["WITNESS"], list)
+    assert set(parts["WITNESS"]) == {"role:乙", "role:丙"}
+    assert parts["SUBJ"] == "role:甲"
+
 
 def test_s3_add_event_multi_witness_both_know_effect(store):
-    """Real MCP entry: two WITNESS entities + effects → both know without hand see_event."""
+    """Shipped path: aggregate_event_participants → commit_if_approved → add_event → project_frame.
+    No hand-called see_event; no test-local participant loop."""
+    from scribe3.ontology import Event
     M.set_store(store)
     store.add_entity(Entity("role:甲", "character", "甲"))
     store.add_entity(Entity("role:乙", "character", "乙"))
     store.add_entity(Entity("role:丙", "character", "丙"))
     store.add_fact(Fact("fact:mw_fx", "role:甲", "言", "密谈泄露", valid_from=1))
 
-    # Drive the same assembly path as s3_add_event (parts aggregation + add_event)
     participants = [
         {"role": "SUBJ", "entity": "role:甲"},
         {"role": "WITNESS", "entity": "role:乙"},
         {"role": "WITNESS", "entity": "role:丙"},
     ]
-    parts: dict = {}
-    for p in participants:
-        role, entity = p["role"], p["entity"]
-        if role not in parts:
-            parts[role] = entity
-        else:
-            cur = parts[role]
-            if isinstance(cur, list):
-                if entity not in cur:
-                    cur.append(entity)
-            elif cur != entity:
-                parts[role] = [cur, entity]
-    assert isinstance(parts["WITNESS"], list) and set(parts["WITNESS"]) == {
-        "role:乙", "role:丙"}
+    parts = M.aggregate_event_participants(participants)
+    effects = M.aggregate_event_effects([{"id": "fact:mw_fx"}])
+    assert set(parts["WITNESS"]) == {"role:乙", "role:丙"}
 
     out = M.commit_if_approved(
         "s3_add_event", True,
         lambda: store.add_event(
-            __import__("scribe3.ontology", fromlist=["Event"]).Event(
-                "ev:mw_mcp", "talk",
-                participants=parts,
-                effects=["fact:mw_fx"],
-                story_time=1,
-            )))
+            Event("ev:mw_mcp", "talk",
+                  participants=parts,
+                  effects=effects,
+                  story_time=1)))
     assert out["status"] == "written"
     assert project_frame(store, "role:乙", 1).knows("fact:mw_fx")
     assert project_frame(store, "role:丙", 1).knows("fact:mw_fx")
@@ -86,31 +86,37 @@ def test_semantic_recall_chapter_excludes_future_fact(store):
     assert "fact:fut_r" not in mcp_ids
 
 
-def test_graph_recall_knowers_honor_until_chapter(store):
+def test_knowers_at_chapter_honors_until_deterministic(store):
+    """Shipped knowers_at_chapter (used by graph_recall): no KNN — hard assertions."""
     store.add_entity(Entity("role:知", "character", "知情人"))
     store.add_entity(Entity("role:忘", "character", "遗忘者"))
     store.add_fact(Fact("fact:gk", "role:知", "密", "旧账", valid_from=1))
-    try:
-        store.semantic_index("fact:gk", "旧账")
-    except Exception:
-        pytest.skip("embed unavailable")
     store.add_knowledge(KnowledgeEdge("role:知", "fact:gk", since_chapter=1))
     store.add_knowledge(KnowledgeEdge(
         "role:忘", "fact:gk", since_chapter=1, until_chapter=5))
-    rows = store.graph_recall("旧账", chapter=6, k=5)
+    names6 = store.knowers_at_chapter("gk", 6)
+    assert "遗忘者" not in names6, f"until_chapter=5 must hide 遗忘者 at ch6: {names6}"
+    assert "知情人" in names6, f"open edge must keep 知情人 at ch6: {names6}"
+    names3 = store.knowers_at_chapter("gk", 3)
+    assert "遗忘者" in names3 and "知情人" in names3
+
+
+def test_graph_recall_knowers_honor_until_chapter(store):
+    """Full graph_recall path: seed must appear at chapter=6; knowers use shipped time gate."""
+    store.add_entity(Entity("role:知", "character", "知情人"))
+    store.add_entity(Entity("role:忘", "character", "遗忘者"))
+    store.add_fact(Fact("fact:gk", "role:知", "密", "旧账专有召回标记xyzzy", valid_from=1))
+    store.semantic_index("fact:gk", "旧账专有召回标记xyzzy")
+    store.add_knowledge(KnowledgeEdge("role:知", "fact:gk", since_chapter=1))
+    store.add_knowledge(KnowledgeEdge(
+        "role:忘", "fact:gk", since_chapter=1, until_chapter=5))
+    rows = store.graph_recall("旧账专有召回标记xyzzy", chapter=6, k=20)
     target = next((r for r in rows if r["id"] == "fact:gk"), None)
-    if target is None:
-        # KNN may not return if embed noise; fall back to direct knower filter path
-        # by ensuring we still exercise graph_recall return shape
-        rows = store.graph_recall("旧账", chapter=3, k=5)
-        target = next((r for r in rows if r["id"] == "fact:gk"), None)
-    assert target is not None, "graph_recall should return seeded fact"
-    knowers_at_6 = store.graph_recall("旧账", chapter=6, k=5)
-    t6 = next((r for r in knowers_at_6 if r["id"] == "fact:gk"), None)
-    if t6:
-        names = t6.get("knowers") or []
-        assert "遗忘者" not in names, f"until_chapter=5 should hide 遗忘者 at ch6: {names}"
-        assert "知情人" in names or True  # may still be present
+    assert target is not None, (
+        f"graph_recall must return seeded fact:gk at chapter=6; got {[r['id'] for r in rows]}")
+    names = target.get("knowers") or []
+    assert "遗忘者" not in names, f"until_chapter=5 must hide 遗忘者: {names}"
+    assert "知情人" in names, f"open edge must keep 知情人: {names}"
 
 
 def test_rest_recall_chapter_gate(store):
