@@ -86,5 +86,11 @@ scribe3_write:
       - s3_forget_knowledge
       - s3_craft_rule_add
       - s3_craft_rule_remove
+      - s3_add_volume
+      - s3_patch_volume
+      - s3_add_chapter
+      - s3_patch_chapter_meta
+      - s3_patch_chapter_plan
+      - s3_set_char_anchors
     prompts: false
     resources: false
