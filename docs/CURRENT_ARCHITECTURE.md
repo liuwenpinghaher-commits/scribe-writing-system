@@ -69,8 +69,19 @@
 
 - 投影：`project_frame` / `dramatic_irony`（真库可跑）  
 - 生产：`add_event` 带 `effects` 时自动 `see_event`（目击者 `knows`）；ingest `did` 合成事件挂 effects  
-- 召回：`hybrid_recall` / `semantic_recall(chapter=…)` 时间门；`graph()` 尊重 `until_chapter`  
-- 多目击者：`participants` 同槽可 `list[str]`
+- 召回：`hybrid_recall` / `semantic_recall(chapter=…)` 时间门；`graph_recall` knowers 同样尊重 `knows.since/until`；`graph()` 尊重 `until_chapter`  
+- 多目击者：`participants` 同槽可 `list[str]`（MCP `s3_add_event` 同 role 多人保留 list）
+
+## 5b. 讨论 vs 写作 · 上下文与记忆
+
+| 路径 | 上下文 | 限知 |
+|------|--------|------|
+| **写作** `/chat/write` | `CreativeContextEngine` + 八块 envelope；目的合同/教训**内联**注入写 prompt | 有 `focalizer` 时 `project_frame` 硬裁 |
+| **讨论** `/chat/stream` 等 | 仍 `_editor_system` 散点栈，**不是**写作 envelope | 默认作者全知联查面；**不得**当成限知渲染已统一 |
+
+- **`SCRIBE3_MEMORY_FABRIC_V1` 默认关**：写作 capture/retrieve 与 HTTP `/memory/*` **同 flag**（关 → 403，无经验记忆写读）。  
+- **pending 正典待审**：`GET/POST /memory/pending-claims…`；`approve` → `proposition` 正典，`reject` → 关队列。  
+- 过程记忆**不得**替代 Surreal 正典；非 GBrain。
 
 ## 6. 怎么跑（最小）
 

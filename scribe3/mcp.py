@@ -214,25 +214,31 @@ def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
 
 
 def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
-                          work: str | None) -> list[dict]:
+                          work: str | None, chapter: int | None = None) -> list[dict]:
+    """chapter 非空时走 store 时间门(valid_from/valid_to),与 hybrid 一致。"""
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
-            "is_secret": bool(f.secret)}
-            for f in _store_for(work).semantic_recall(query, k)]
+            "is_secret": bool(f.secret),
+            "valid_from": f.valid_from,
+            "valid_to": f.valid_to}
+            for f in _store_for(work).semantic_recall(query, k, chapter=chapter)]
 
 
 @mcp.tool(annotations=_RO)
-def s3_semantic_recall(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+def s3_semantic_recall(query: str, k: int = 5, chapter: int | None = None,
+                       work: str | None = None) -> list[dict]:
     """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
 
+    chapter: 可选故事章时间门——只返回 valid_from<=chapter 且仍有效的命题;省略=不按章过滤。
     恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
     reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
     工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_semantic_recall_reveal。"""
-    return _semantic_recall_impl(query, k, False, work)
+    return _semantic_recall_impl(query, k, False, work, chapter=chapter)
 
 
 @mcp.tool(annotations=_RO)
-def s3_semantic_recall_reveal(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+def s3_semantic_recall_reveal(query: str, k: int = 5, chapter: int | None = None,
+                              work: str | None = None) -> list[dict]:
     """s3_semantic_recall 的全知孪生:返回明文(secret 命题不掩码)。
 
     **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
@@ -242,7 +248,7 @@ def s3_semantic_recall_reveal(query: str, k: int = 5, work: str | None = None) -
     物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
     钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
     一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
-    return _semantic_recall_impl(query, k, True, work)
+    return _semantic_recall_impl(query, k, True, work, chapter=chapter)
 
 
 def _hybrid_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
@@ -761,14 +767,23 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
       causal_complete 验证会检查此链;建议填写以保证连贯性验证通过。
     causal_root_reason: 仅当该事件是同章切换人物/地点/时间后的独立场景根且没有 causal_in 时填写。
     """
-    # 将 dict 格式转为 Event 构造器期待的格式
-    parts: dict[str, str] = {}
+    # 同 role 多人:值升 list(与 store iter_participants / multi-witness 对齐),禁止后写覆盖
+    parts: dict = {}
     if participants:
         for p in participants:
             role = p.get("role", "")
             entity = p.get("entity", "")
-            if role and entity:
+            if not role or not entity:
+                continue
+            if role not in parts:
                 parts[role] = entity
+            else:
+                cur = parts[role]
+                if isinstance(cur, list):
+                    if entity not in cur:
+                        cur.append(entity)
+                elif cur != entity:
+                    parts[role] = [cur, entity]
 
     effs: list[str] = []
     if effects:

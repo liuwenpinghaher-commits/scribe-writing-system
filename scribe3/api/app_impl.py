@@ -1956,12 +1956,23 @@ class MemoryPrefetchReq(BaseModel):
     k: int = Field(default=24, ge=1, le=200)
 
 
+def _require_memory_fabric():
+    """与写作主路对称:MEMORY_FABRIC 关时 /memory/* 不得当经验记忆已开。"""
+    if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
+        raise HTTPException(
+            status_code=403,
+            detail="MEMORY_FABRIC disabled; set SCRIBE3_MEMORY_FABRIC_V1=1 for experience memory",
+        )
+
+
 @app.post("/memory/prefetch")
 def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
     """检索本 work 记忆,返回组装好的记忆块文本(供直连 Hermes 会话注入 prompt)。
 
     讨论模式组装(无章 → 限知门 fail-open,作者全知视角):canonical 命题 + 经验记忆,
-    work 隔离 / 秘密屏蔽在检索·组装链内生效。组装异常降级空块(绝不 5xx 拖垮上游会话)。"""
+    work 隔离 / 秘密屏蔽在检索·组装链内生效。组装异常降级空块(绝不 5xx 拖垮上游会话)。
+    与写作主路同 flag:MEMORY_FABRIC 关 → 403,禁止旁路当经验记忆已开。"""
+    _require_memory_fabric()
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
                          kind="editorial_thread", ident=req.thread_id or "")
@@ -1993,7 +2004,9 @@ def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
     """幂等捕获一轮对话为经验记忆(同步 drain)。event_id 幂等键:同 event_id 二次→idempotent。
 
     捕获作者意图文本(user 优先,空则退 assistant);分类/正典红线/linked_ids 领域反查在
-    MemoryCapture 内。best-effort:失败只告警,返回 capture_failed 而非 5xx。"""
+    MemoryCapture 内。best-effort:失败只告警,返回 capture_failed 而非 5xx。
+    MEMORY_FABRIC 关 → 403,不写 memory_item(与写作 capture 对称)。"""
+    _require_memory_fabric()
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
                          kind="editorial_thread", ident=req.thread_id or "")
@@ -2025,7 +2038,9 @@ def memory_flush(req: MemoryFlushReq, work: str = "main"):
     """固化线程工作摘要 + drain 掉线残留(Hermes on_pre_compress / on_session_end 触发)。
     幂等:working_summary 按 (work,thread) 唯一 UPSERT。
     U-011(作者要 fail-loud):删"失败降级 through_turn=0 却仍返 status=flushed"——那是响应体
-    主动撒谎(Hermes 钩子据此以为摘要已安全落库,实际可能丢)。固化失败直接抛(500),诚实。"""
+    主动撒谎(Hermes 钩子据此以为摘要已安全落库,实际可能丢)。固化失败直接抛(500),诚实。
+    MEMORY_FABRIC 关 → 403。"""
+    _require_memory_fabric()
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
                          kind="editorial_thread", ident=req.thread_id or "")
@@ -2034,6 +2049,39 @@ def memory_flush(req: MemoryFlushReq, work: str = "main"):
     result = MemoryCapture(store).consolidate_thread(req.thread_id, work=w)
     return {"status": "flushed", "reason": req.reason, "work": w,
             "through_turn": result.get("through_turn", 0)}
+
+
+@app.get("/memory/pending-claims")
+def memory_list_pending_claims(work: str = "main", status: str = "pending"):
+    """列待审正典揭示(默认 pending)。不写经验记忆,但属 fabric 产品面 → 同 flag。"""
+    _require_memory_fabric()
+    w = _normalize_work(work)
+    return {"claims": _store_for(w).list_pending_authority_claims(work=w, status=status or None),
+            "work": w}
+
+
+class PendingClaimResolveReq(BaseModel):
+    decision: str   # approve | reject
+    valid_from: int = 1
+    secret: bool = False
+
+
+@app.post("/memory/pending-claims/{claim_id}/resolve")
+def memory_resolve_pending_claim(claim_id: str, req: PendingClaimResolveReq,
+                                 work: str = "main"):
+    """关闭待审:approve 写入 proposition 正典;reject 仅改 status。
+    MEMORY_FABRIC 关 → 403。approve 走 store.add_fact 正典路径。"""
+    _require_memory_fabric()
+    w = _normalize_work(work)
+    st = _store_for(w)
+    try:
+        out = st.resolve_pending_authority_claim(
+            claim_id, req.decision,
+            valid_from=req.valid_from, secret=req.secret)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    out["work"] = w
+    return out
 
 
 @app.get("/works")
@@ -2358,8 +2406,11 @@ def causal(chapter: int = Query(ge=1), work: str = "main"):
 
 
 @app.get("/recall")
-def recall(q: str, k: int = Query(default=5, ge=1, le=50), work: str = "main"):
-    return _facts(_store_for(work).semantic_recall(q, k))
+def recall(q: str, k: int = Query(default=5, ge=1, le=50),
+           chapter: int | None = Query(default=None, ge=1),
+           work: str = "main"):
+    """语义召回。chapter 非空时时间门(valid_from/valid_to),与 store/MCP 一致。"""
+    return _facts(_store_for(work).semantic_recall(q, k, chapter=chapter))
 
 
 def _search_excerpt(text: str, q: str, limit: int = 96) -> str:
@@ -5388,27 +5439,61 @@ def _final_reminder() -> str:
     )
 
 
+def _purpose_and_lessons_write_block(st, chapter: int, with_tools: bool = False,
+                                    work: str | None = None) -> str:
+    """生产写 prompt 注入:目的合同清单(真数据) + 教训召回(真数据)。
+    不再谎称「见简报必达清单」——v1 写路径不走章前简报,清单必须内联。"""
+    parts: list[str] = []
+    try:
+        from scribe3.purpose import parse_deltas, render_purpose_section
+        cur = parse_deltas((st.get_chapter(chapter) or {}).get("deltas"))
+        prev_ch = chapter - 1 if chapter and chapter > 1 else None
+        prev = parse_deltas((st.get_chapter(prev_ch) or {}).get("deltas")) if prev_ch else []
+        cur_keys = {(d.get("kind"), d.get("predicate")) for d in cur}
+        pu = render_purpose_section(
+            cur,
+            [d for d in prev if d.get("status") == "carried"
+             and (d.get("kind"), d.get("predicate")) not in cur_keys],
+        )
+        if pu.get("text"):
+            parts.append("\n\n" + pu["text"])
+        elif not cur:
+            w = _normalize_work(work)
+            register_hint = (
+                f"有 s3_register_purpose 工具就调用它走待批登记;调用时必须传 work=\"{w}\"。"
+                if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
+            parts.append(
+                "\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,可列 "
+                "delta 草单(≤7 条)。" + register_hint + "空合同也可正常写作。")
+    except Exception:
+        raise
+    try:
+        from scribe3.lesson import render_lessons_section
+        max_ch = max(0, int(chapter) - 1)
+        last_ls = (st.list_lessons(chapter=max_ch) if max_ch else [])[-3:]
+        ch_meta = st.get_chapter(chapter) or {}
+        qtxt = " ".join(filter(None, [
+            (ch_meta.get("synopsis") or "").strip(),
+            " ".join(
+                ((b.get("text") if isinstance(b, dict) else str(b)) or "")
+                for b in (ch_meta.get("beats") or [])),
+        ])).strip()
+        recalled = st.recall_lessons(qtxt, k=3) if qtxt else []
+        seen = {l.get("id") for l in last_ls}
+        recalled = [r for r in recalled if r.get("id") not in seen]
+        ls = render_lessons_section(last_ls, recalled)
+        if ls.get("text"):
+            parts.append("\n\n" + ls["text"])
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 lessons 注入失败(fail-soft): %s", e)
+    return "".join(parts)
+
+
 def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
                             work: str | None = None) -> str:
-    """北极星任务6:目的合同工序提示(底座对表 Q5 裁决:prompt 内嵌是唯一确定性
-    生效通道,工序长在对话流程里——skill 自选加载纪律必失守)。已登记合同 → 简报段
-    (单源)已带必达清单,只提醒验收;未登记 → 提示聊定目的后列草单走待批。
-    with_tools:H-01 work-scoped MCP;启用工具时必须提醒模型所有 s3_ 调用带当前 work。
-    空合同照常可写(渐进采纳,不设硬门槛)。fail-soft。"""
-    try:
-        from scribe3.purpose import parse_deltas
-        ds = parse_deltas((st.get_chapter(chapter) or {}).get("deltas"))
-    except Exception:
-        raise   # U-011: fail-loud(_purpose_workflow_block 目的合同)
-    if ds:
-        return ("\n\n【目的合同工序】本章已登记 delta 合同(见简报「必达清单」):写作时逐条兑现;"
-                "验收验的是「状态变化发生没发生」,不是好不好。")
-    w = _normalize_work(work)
-    register_hint = (f"有 s3_register_purpose 工具就调用它走待批登记;调用时必须传 work=\"{w}\"。"
-                     if with_tools else "请作者在章面板登记(本对话未挂联查工具)。")
-    return ("\n\n【目的合同工序】本章尚未登记目的合同:与作者聊定本章目的后,自动列出 "
-            "delta 草单(四类:认知/承诺/事实/关系增量,≤7 条,每条一个可验收的状态变化),"
-            + register_hint + "空合同也可正常写作,此工序不阻塞。")
+    """兼容旧名:生产写路径目的合同 + 教训内联注入。"""
+    return _purpose_and_lessons_write_block(st, chapter, with_tools, work)
 
 
 def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None) -> str:

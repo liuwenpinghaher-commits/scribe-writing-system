@@ -110,6 +110,24 @@ class RecallMixin:
             # SQL 侧暂只滤 valid_from(KNN×复杂 WHERE 历史坑);valid_to 在 Python 后滤
             if vt is not None and vt <= ch:
                 continue
+            # knowers 时间门:与 project_frame / graph() 同谓词(since<=ch 且 until 开区间)
+            knower_rows = self._query(
+                "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
+                "WHERE out = type::record('proposition', $p)",
+                {"p": r["local"]})
+            knowers = []
+            for kr in knower_rows or []:
+                sc = kr.get("since_chapter")
+                if sc is None:
+                    sc = 0
+                if int(sc) > ch:
+                    continue
+                uc = kr.get("until_chapter")
+                if uc is not None and int(uc) <= ch:
+                    continue
+                nm = kr.get("name")
+                if nm:
+                    knowers.append(nm)
             out.append({
                 "id": f"fact:{r['local']}",
                 "value": r["value"],
@@ -117,7 +135,7 @@ class RecallMixin:
                 "valid_from": r.get("valid_from", 0),
                 "secret": bool(r.get("secret", False)),
                 "subject": r.get("subject") or r.get("entity_id") or "",
-                "knowers": r.get("knowers") or [],
+                "knowers": knowers,
                 "source_events": r.get("source_events") or [],
                 "co_present": r.get("co_present") or [],
                 "distance": r.get("dist", 0),

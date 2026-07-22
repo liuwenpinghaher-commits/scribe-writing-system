@@ -954,6 +954,47 @@ class MiscMixin:
             f"SELECT {self._PENDING_CLAIM_FIELDS} FROM pending_authority_claim {w}"
             "ORDER BY created_at ASC", vars)
 
+    def resolve_pending_authority_claim(
+            self, claim_id: str, decision: str, *,
+            valid_from: int = 1, secret: bool = False) -> dict:
+        """关闭待审队列:approve → 写入 proposition 正典;reject → 仅改 status。
+        decision 受控:approve|reject。仅 status=pending 可解析;已关闭返回 no-op 信息。"""
+        decision = (decision or "").strip().lower()
+        if decision not in ("approve", "reject"):
+            raise ValueError("decision must be approve or reject")
+        cid = (claim_id or "").strip()
+        if ":" in cid:
+            cid = cid.split(":")[-1]
+        rows = self._query(
+            f"SELECT {self._PENDING_CLAIM_FIELDS} FROM type::record('pending_authority_claim', $id)",
+            {"id": cid})
+        if not rows:
+            raise ValueError(f"pending claim not found: {claim_id}")
+        row = rows[0]
+        if (row.get("status") or "pending") != "pending":
+            return {"status": row.get("status"), "claim_id": cid, "noop": True}
+        if decision == "reject":
+            self._execute_write(
+                "UPDATE type::record('pending_authority_claim', $id) SET status='rejected'",
+                {"id": cid})
+            return {"status": "rejected", "claim_id": cid, "fact_id": None}
+        # approve → 需要 entity/attribute/value 才能落命题
+        entity = (row.get("entity") or "").strip()
+        attribute = (row.get("attribute") or "").strip() or "揭示"
+        value = (row.get("value") or row.get("text") or "").strip()
+        if not entity or not value:
+            raise ValueError(
+                "approve requires entity and value/text on the pending claim")
+        import uuid
+        from scribe3.ontology import Fact
+        fact_id = f"fact:pa-{uuid.uuid4().hex[:10]}"
+        self.add_fact(Fact(fact_id, entity, attribute, value,
+                           valid_from=int(valid_from), secret=bool(secret)))
+        self._execute_write(
+            "UPDATE type::record('pending_authority_claim', $id) SET status='approved'",
+            {"id": cid})
+        return {"status": "approved", "claim_id": cid, "fact_id": fact_id}
+
     def count_active_context_sessions(self) -> int:
         """runtime-status 指标(Task 16-B):本库仍活跃的上下文会话数(轻量计数,不载快照)。"""
         rows = self._query(
