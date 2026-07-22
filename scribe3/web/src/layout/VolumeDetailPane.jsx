@@ -89,24 +89,20 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
     )
   }
 
-  // 结构壳：新建章/从「未分卷」建卷仍 REST(验收允许 structure-only create)
-  const createChapter = async () => {
+  // 结构创建禁止 REST 直写;主编 s3_add_chapter / s3_add_volume 审批
+  const createChapter = () => {
     if (saving) return
-    setSaving(true)
-    try {
-      const res = await api.createChapter({ volume: vid ?? null })
-      showToast('章节已创建', { tone: 'ok' })
-      onChanged?.()
-      if (res?.seq != null) onSelectNode?.(chapterNode(res))
-      else await reload()
-    } catch (e) {
-      showToast(e?.body?.detail || e?.message || '新建章节失败', { tone: 'danger' })
-    } finally {
-      setSaving(false)
-    }
+    const volHint = vid != null
+      ? `请归属 volume_id=${vid}（卷「${volume?.title || form.title || vid}」）。`
+      : '可不指定卷。'
+    seedChiefNarrativeWrite(
+      'chapter',
+      '新建章节',
+      `请用 s3_add_chapter 新建一章。${volHint}未获批准不得声称已落库。`,
+    )
   }
 
-  const createFromUnassigned = async () => {
+  const createFromUnassigned = () => {
     if (vid != null || saving) return
     const title = form.title.trim()
     if (!title) {
@@ -114,22 +110,20 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
       return
     }
     const maxOrder = (outline?.volumes || []).reduce((max, v) => Math.max(max, v.sort_order ?? 0), 0)
-    setSaving(true)
-    try {
-      const res = await api.addVolume(title, maxOrder + 1, form.color || null, form.intro)
-      const newId = res?.id
-      if (newId && chapters.length > 0) {
-        await api.reorderChapters(newId, chapters.map((c) => c.seq))
-      }
-      showToast('分卷已创建', { tone: 'ok' })
-      onChanged?.()
-      if (newId) onSelectNode?.({ id: `vol:${newId}`, type: 'volume', ref: newId, label: title })
-      else await reload()
-    } catch (e) {
-      showToast(e?.body?.detail || e?.message || '创建分卷失败', { tone: 'danger' })
-    } finally {
-      setSaving(false)
-    }
+    const chSeqs = chapters.map((c) => c.seq).join(', ')
+    seedChiefNarrativeWrite(
+      'volume',
+      `从「未分卷」创建正式分卷「${title}」`,
+      [
+        `请用 s3_add_volume 创建卷 title=${title}, sort_order=${maxOrder + 1}`
+        + (form.color ? `, color=${form.color}` : '')
+        + (form.intro ? `, intro 如下:\n${form.intro}` : '。'),
+        chSeqs
+          ? `创建后请将未分卷章节 [${chSeqs}] 归入该卷(可用 s3_patch_chapter_meta)。`
+          : '',
+        '未获批准不得声称已落库。',
+      ].filter(Boolean).join('\n'),
+    )
   }
 
   if (loading) return <div className="p-8 text-f13 text-faint/60">加载卷信息…</div>
@@ -186,7 +180,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               <div className="flex justify-end">
                 <Btn variant="primary" data-testid="volume-create-from-unassigned"
                   onClick={createFromUnassigned} disabled={saving}>
-                  {saving ? '创建中…' : '创建分卷'}
+                  让主编创建分卷
                 </Btn>
               </div>
             </div>
@@ -255,7 +249,7 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
               <span className="inline-flex items-center gap-2 normal-case tracking-normal font-normal">
                 <span className="text-meta text-faint">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
                 <Btn variant="primary" size="xs" data-testid="volume-create-chapter"
-                  onClick={createChapter} disabled={saving}>新建章</Btn>
+                  onClick={createChapter} disabled={saving}>让主编新建章</Btn>
               </span>
             }>本卷章节</SectionTitle>
             <div className="grid gap-0.5">

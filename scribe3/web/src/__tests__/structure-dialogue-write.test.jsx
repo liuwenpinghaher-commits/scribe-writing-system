@@ -29,7 +29,7 @@ describe('structure dialogue-write (volume/chapter)', () => {
     })
   })
 
-  it('未分卷「创建分卷」不调用 addVolume,只种子主编', async () => {
+  it('未分卷创建分卷不调用 addVolume,只种子主编', async () => {
     const seeds = []
     window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     render(

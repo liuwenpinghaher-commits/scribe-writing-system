@@ -222,24 +222,19 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       .catch((e) => { reload(); toast?.(e?.body?.detail || '跨卷移动失败', { tone: 'danger' }) })
   }
 
-  // 新建卷壳:结构 create 允许 REST(验收允许 structure-only shell);卷叙事元数据另走种子。
-  const commitAddVolume = async (titleOverride = null) => {
+  // 新建卷:禁止 api.addVolume REST;种子主编 s3_add_volume
+  const commitAddVolume = (titleOverride = null) => {
     const t = String(titleOverride ?? newTitle).trim()
     if (!t) { setAdding(false); setNewTitle(''); return }
     const maxOrder = (outline?.volumes || []).reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
     setActionErr(null)
-    try {
-      await api.addVolume(t, maxOrder + 1)
-      setNewTitle('')
-      setAdding(false)
-      await reload()
-    } catch (err) {
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `新建卷失败: ${detail}` : '新建卷失败',
-        retry: () => commitAddVolume(t),
-      })
-    }
+    seedChiefNarrativeWrite(
+      'volume',
+      `新建分卷「${t}」`,
+      `请用 s3_add_volume 创建卷 title=${t}, sort_order=${maxOrder + 1}。未获批准不得声称已落库。`,
+    )
+    setNewTitle('')
+    setAdding(false)
   }
 
   // 重命名卷 → 主编种子(禁止 patchVolume title 作者直写)
