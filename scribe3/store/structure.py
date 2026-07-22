@@ -39,7 +39,10 @@ class StructureMixin:
         # 全量边(限知门控后),供子图/全图共同筛选
         all_edges = []
         for k in self.knowledge:
+            # 与 project_frame 同谓词: since<=ch 且 (until is None 或 until>ch)
             if k.knower_id == "reader" or k.since_chapter > ch:
+                continue
+            if k.until_chapter is not None and k.until_chapter <= ch:
                 continue
             all_edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
         for r in self.relations_at(ch):
