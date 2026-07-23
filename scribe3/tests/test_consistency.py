@@ -149,6 +149,10 @@ class TestWriteGate:
         ("POST", "/materials"),
         ("PATCH", "/materials/{mid}"),
         ("DELETE", "/materials/{mid}"),
+        # 作者选区/会话私人剪藏(非正典 snippet|note；路径在世界写闸外,免主编审批)
+        ("POST", "/author/session-clips"),
+        # 待审正典揭示:作者 resolve approve/reject
+        ("POST", "/memory/pending-claims/{claim_id}/resolve"),
         # 审查修复:素材导入是作者显式提交路径;import 只建后台预览 job,
         # commit 才批量落素材且逐条返回 failed/warnings。
         ("POST", "/materials/import"),

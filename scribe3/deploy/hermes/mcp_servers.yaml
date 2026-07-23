@@ -92,5 +92,9 @@ scribe3_write:
       - s3_patch_chapter_meta
       - s3_patch_chapter_plan
       - s3_set_char_anchors
+      - s3_reorder_chapters
+      - s3_delete_volume
+      - s3_add_material
+      - s3_add_motif
     prompts: false
     resources: false

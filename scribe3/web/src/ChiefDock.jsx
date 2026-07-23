@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic, Check, X } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic, Check, X, AtSign } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist, loadChat } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -11,6 +11,9 @@ import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
 import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
+import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
+import { useMaterialAt } from './lib/useMaterialAt.js'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
@@ -106,10 +109,11 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   )
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq }) {
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
+  // 存/引入/聊：只在划选浮窗(SelectionQuoteActions)，不在每条消息头挂冗余「存」
   // 无气泡:主编靠左 / 你靠右,色条+底色+分割线区分,省掉头像与圆角底
   return (
     <div
@@ -148,7 +152,13 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
             ))}
           </div>
         )}
-        <div className="min-w-0 text-left text-ink">
+        <SelectionQuoteActions
+          scopeLabel={me ? '你的消息' : '主编回复'}
+          chapterSeq={chapterSeq}
+          originLabel="主编会话"
+          disabled={streaming}
+          className="min-w-0 text-left text-ink"
+        >
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -160,66 +170,66 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
               </div>
             )
           }
-          {!me && approvals?.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {approvals.map((ap) => {
-                const done = ap.status === 'approved' || ap.status === 'denied'
-                return (
-                  <div key={`${ap.run_id || ''}:${ap.approval_id || ''}`} className="border-l-2 border-brand/50 pl-2.5 py-1">
-                    <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
-                    <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
-                    <div className="mt-2 flex items-center gap-2">
-                      {ap.status === 'approved' ? (
-                        <span className="text-f12 text-ok">已批准</span>
-                      ) : ap.status === 'denied' ? (
-                        <span className="text-f12 text-danger">已拒绝</span>
-                      ) : ap.status === 'submitting' ? (
-                        <span className="text-f12 text-faint">提交中…</span>
-                      ) : ap.status === 'error' ? (
-                        <span className="text-f12 text-danger">提交失败</span>
-                      ) : ap.runContext ? null : (
-                        <>
-                          <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
-                            <Check size={12} />批准
-                          </button>
-                          <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
-                            <X size={12} />拒绝
-                          </button>
-                        </>
-                      )}
-                      {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
-                    </div>
-                    <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
+        </SelectionQuoteActions>
+        {!me && approvals?.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {approvals.map((ap) => {
+              const done = ap.status === 'approved' || ap.status === 'denied'
+              return (
+                <div key={`${ap.run_id || ''}:${ap.approval_id || ''}`} className="border-l-2 border-brand/50 pl-2.5 py-1">
+                  <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
+                  <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    {ap.status === 'approved' ? (
+                      <span className="text-f12 text-ok">已批准</span>
+                    ) : ap.status === 'denied' ? (
+                      <span className="text-f12 text-danger">已拒绝</span>
+                    ) : ap.status === 'submitting' ? (
+                      <span className="text-f12 text-faint">提交中…</span>
+                    ) : ap.status === 'error' ? (
+                      <span className="text-f12 text-danger">提交失败</span>
+                    ) : ap.runContext ? null : (
+                      <>
+                        <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
+                          <Check size={12} />批准
+                        </button>
+                        <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
+                          <X size={12} />拒绝
+                        </button>
+                      </>
+                    )}
+                    {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
                   </div>
-                )
-              })}
-            </div>
-          )}
-          {!me && writeEffects?.length > 0 && (
-            <div data-testid="run-write-effects" className="mt-2 border-l-2 border-brand/40 pl-2.5 py-1">
-              <div className="text-f12 font-medium text-ink">写入影响</div>
-              <div className="mt-0.5 text-meta text-faint">
-                {writeEffects.map((e, i) => (
-                  <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          {!me && toolOutputs?.length > 0 && (
-            <div className="mt-2 space-y-1.5">
-              {toolOutputs.map((out, i) => (
-                <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
-                  <div className="text-f12 font-medium text-ink">工具返回</div>
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
-                    {toolOutputPreview(out.output)}
-                  </div>
+                  <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
                 </div>
+              )
+            })}
+          </div>
+        )}
+        {!me && writeEffects?.length > 0 && (
+          <div data-testid="run-write-effects" className="mt-2 border-l-2 border-brand/40 pl-2.5 py-1">
+            <div className="text-f12 font-medium text-ink">写入影响</div>
+            <div className="mt-0.5 text-meta text-faint">
+              {writeEffects.map((e, i) => (
+                <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!me && toolOutputs?.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {toolOutputs.map((out, i) => (
+              <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
+                <div className="text-f12 font-medium text-ink">工具返回</div>
+                <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
+                  {toolOutputPreview(out.output)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -459,6 +469,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
   const taRef = useRef(null)
+  const materialAt = useMaterialAt({ input, setInput, taRef })
   const esRef = useRef(null)
   const activeRunIdsRef = useRef(new Set())
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
@@ -796,7 +807,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} />
+          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} chapterSeq={seq ?? ctxSeq} />
         ))}
         <div ref={endRef} />
       </div>
@@ -806,18 +817,45 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
-          className="chief-composer-panel rounded-md px-2.5 py-2"
+          className="chief-composer-panel relative rounded-md px-2.5 py-2"
         >
+          <MaterialAtPicker
+            open={materialAt.open}
+            query={materialAt.query}
+            items={materialAt.items}
+            loading={materialAt.loading}
+            error={materialAt.error}
+            activeIndex={materialAt.activeIndex}
+            onActiveIndexChange={materialAt.setActiveIndex}
+            onPick={materialAt.pick}
+          />
           <textarea
             ref={taRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setInput(v)
+              materialAt.syncFromValue(v, e.target.selectionStart ?? v.length)
+            }}
+            onSelect={(e) => {
+              materialAt.syncFromValue(e.target.value, e.target.selectionStart ?? 0)
+            }}
             rows={1}
-            placeholder="就当前内容问主编…"
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="就当前内容问主编… 输入 @ 引用章/设定/事件/素材…"
+            onKeyDown={(e) => materialAt.onKeyDown(e, { onEnterSend: () => send() })}
             className="block w-full min-h-[36px] max-h-28 resize-none border-0 bg-transparent px-0 py-0.5 text-f13 leading-relaxed text-ink outline-none shadow-none ring-0 placeholder:text-faint/70 focus:border-transparent focus:outline-none focus:ring-0 focus:shadow-none focus-visible:outline-none"
           />
           <div data-testid="chief-chat-toolbar" className="mt-1.5 flex items-center gap-1.5">
+            <Btn
+              variant="ghost"
+              icon
+              title="引用全书对象(@)：章节/设定/事件/命题/素材"
+              aria-label="引用全书对象"
+              data-testid="chief-at-material"
+              onClick={() => materialAt.openManual()}
+            >
+              <AtSign size={15} />
+            </Btn>
             <Btn variant="ghost" icon title="附件功能待接入讨论模式" aria-label="添加附件" disabled>
               <Paperclip size={15} />
             </Btn>

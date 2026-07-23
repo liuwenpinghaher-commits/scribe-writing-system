@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, FilePlus2, Loader2, Network, Plus, Search, SendToBack, Trash2, Upload, MapPin } from 'lucide-react'
+import { ArrowLeft, FilePlus2, Loader2, MessagesSquare, Network, Plus, Quote, Search, SendToBack, Trash2, Upload, MapPin } from 'lucide-react'
 import { api } from './api'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -14,6 +14,8 @@ import { MaterialNetwork } from './MaterialNetwork'
 import { DirectoryHeader } from './layout/DirectoryHeader'
 import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './layout/DirectoryRow'
 import { handleSelAction } from './lib/selAction'
+import { seedChiefAddMaterial } from './lib/chiefSeed.js'
+import { seedCiteMaterial, seedDiscussMaterial } from './lib/sessionClip.js'
 
 // 素材库:非正典写作材料。MATERIAL_KINDS 抽到 materialKinds.js(破 MaterialImport 循环 import),此处 re-export 兼容既有 from './Materials' 引用。
 export { MATERIAL_KINDS } from './materialKinds'
@@ -60,38 +62,38 @@ function MaterialForm({ draft, onDraft, editorKey }) {
   )
 }
 
-// ——— 新建(material_new 节点):草稿留内存,「创建」时才落库 ———
+// ——— 新建(material_new 节点):草稿内存;「让主编写入」→ s3_add_material 待批(禁 REST 直写) ———
 export function MaterialNew({ kind, onCancel, onCreated }) {
   const toast = useToast()
   const [draft, setDraft] = useState({ title: '', body: '', kind: KIND_LABEL[kind] ? kind : 'note', tagsText: '', source: '' })
-  const [saving, setSaving] = useState(false)
-  const create = async () => {
+  const create = () => {
     if (!draft.title.trim()) { toast('请填写素材标题', { tone: 'danger' }); return }
-    setSaving(true)
-    try {
-      const r = await api.addMaterial({
-        title: draft.title.trim(), body: draft.body, kind: draft.kind,
-        tags: parseTags(draft.tagsText), source: draft.source.trim() || null,
-      })
-      onCreated?.(r?.id || null, draft.title.trim())
-    } catch (e) {
-      toast(e?.body?.detail || e?.message || '创建失败', { tone: 'danger' })
-      setSaving(false)
-    }
+    seedChiefAddMaterial({
+      title: draft.title.trim(),
+      body: draft.body,
+      kind: draft.kind,
+      tags: parseTags(draft.tagsText),
+      source: draft.source.trim() || '',
+    })
+    toast('已交给主编写入素材,请在右栏批准', { tone: 'ok' })
+    onCreated?.(null, draft.title.trim())
   }
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto" data-testid="material-new">
       <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
         <div className="flex items-center gap-3 mb-3 shrink-0">
           {onCancel && <button onClick={onCancel} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16} />返回</button>}
           <span className="text-meta text-faint/50">新建素材{KIND_LABEL[kind] ? ` · ${KIND_LABEL[kind]}` : ''}</span>
         </div>
+        <p className="text-meta text-faint mb-2" data-testid="material-new-dialogue-hint">
+          素材写入须经主编 s3_add_material 待批,不直连 REST。
+        </p>
         <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" />
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2 shrink-0">
-          <Btn variant="primary" onClick={create} disabled={saving}>
-            {saving && <Loader2 size={14} className="animate-spin" />}创建
+          <Btn variant="primary" onClick={create} data-testid="material-new-submit-chief">
+            让主编写入(待批)
           </Btn>
-          {onCancel && <Btn variant="ghost" onClick={onCancel} disabled={saving}>取消</Btn>}
+          {onCancel && <Btn variant="ghost" onClick={onCancel}>取消</Btn>}
         </div>
       </div>
     </div>
@@ -214,7 +216,40 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
         <div className="flex items-center gap-2 mb-3 shrink-0 flex-wrap">
           {/* 类型元数据:text-meta(Task 1 语义 token),与列表/引用脚注同一节奏 */}
           <span className="text-meta text-faint/50">素材 · {KIND_LABEL[draft.kind] || draft.kind}</span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+            <Btn
+              variant="soft"
+              size="sm"
+              data-testid="material-discuss-chief"
+              onClick={() => {
+                seedDiscussMaterial({
+                  id: row.id,
+                  title: draft.title || row.title,
+                  kind: draft.kind || row.kind,
+                  source: draft.source || row.source,
+                })
+                toast('已聚焦主编讨论本条素材', { tone: 'ok' })
+              }}
+              title="打开主编并以稳定素材 id 讨论本条"
+            >
+              <MessagesSquare size={13} />聊聊这条
+            </Btn>
+            <Btn
+              variant="soft"
+              size="sm"
+              data-testid="material-cite-chief"
+              onClick={() => {
+                seedCiteMaterial({
+                  id: row.id,
+                  title: draft.title || row.title,
+                  kind: draft.kind || row.kind,
+                })
+                toast('已引用素材到主编输入(含 ref=material:id)', { tone: 'ok' })
+              }}
+              title="引用本素材到主编会话(显式 material id,非纯粘贴)"
+            >
+              <Quote size={13} />引用到会话
+            </Btn>
             <Btn variant="soft" size="sm" onClick={() => setInsertOpen(true)} disabled={!(draft.body || '').trim()}
               title="把素材正文发布到某章草稿的提示条(填入/追加),不直写编辑器">
               <SendToBack size={13} />插入到草稿

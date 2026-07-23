@@ -9,10 +9,10 @@ describe('sanitizeLayout', () => {
 
   it('clamps and renormalizes valid-ish layouts', () => {
     const out = sanitizeLayout({ directory: 5, detail: 90, right: 5 })
-    // 5 is below min → lifted to min (10 / 18)
+    // 低于 min → 抬到 min（目录 10 / 主编·详情 28）
     expect(out.directory).toBeGreaterThanOrEqual(10)
-    expect(out.right).toBeGreaterThanOrEqual(18)
-    expect(out.detail).toBeGreaterThanOrEqual(34)
+    expect(out.right).toBeGreaterThanOrEqual(28)
+    expect(out.detail).toBeGreaterThanOrEqual(28)
     const sum = out.directory + out.detail + out.right
     expect(sum).toBeGreaterThan(95)
     expect(sum).toBeLessThan(105)
@@ -23,13 +23,28 @@ describe('sanitizeLayout', () => {
   })
 
   it('preserves collapsed zero for collapsible sides when near-zero', () => {
-    const out = sanitizeLayout({ directory: 0, detail: 76, right: 24 })
+    const out = sanitizeLayout({ directory: 0, detail: 57, right: 43 })
     expect(out.directory).toBe(0)
-    expect(out.right).toBe(24)
+    expect(out.right).toBe(43)
+  })
+
+  it('right collapsed: detail may exceed old dual max and fill ~100 (no wipe to defaults)', () => {
+    const out = sanitizeLayout({ directory: 14, detail: 43, right: 0 })
+    expect(out.right).toBe(0)
+    expect(out.detail).toBeGreaterThan(60)
+    expect(out.directory + out.detail).toBeGreaterThan(95)
+    expect(out.directory + out.detail).toBeLessThan(105)
+  })
+
+  it('right collapsed with detail already large: keep near-full layout', () => {
+    const out = sanitizeLayout({ directory: 14, detail: 86, right: 0 })
+    expect(out.right).toBe(0)
+    expect(out.detail).toBeGreaterThanOrEqual(78)
+    expect(Math.abs(out.directory + out.detail - 100)).toBeLessThan(3)
   })
 
   it('ignores NaN keys', () => {
-    const out = sanitizeLayout({ directory: 'x', detail: 62, right: 24 })
+    const out = sanitizeLayout({ directory: 'x', detail: 43, right: 43 })
     expect(out.directory).toBe(FOUR_PANE_DEFAULT.directory)
   })
 

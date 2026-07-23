@@ -4,12 +4,14 @@
  * 拖拽时栏宽跳变、中文逐字折行、整页错乱。
  */
 
-export const FOUR_PANE_DEFAULT = { directory: 14, detail: 62, right: 24 }
+// 兼容导出:与 layoutMode 共用默认（目录次要，主编=详情）。阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
+export const FOUR_PANE_DEFAULT = { directory: 14, detail: 43, right: 43 }
 
+// max=100：折叠一侧后剩余栏可铺满；双栏同开时对侧 min 仍限制有效上限（见 layoutMode）
 export const FOUR_PANE_BOUNDS = {
-  directory: { min: 10, max: 24 },
-  detail: { min: 34, max: 80 },
-  right: { min: 18, max: 58 },
+  directory: { min: 10, max: 22 },
+  detail: { min: 28, max: 100 },
+  right: { min: 28, max: 100 },
 }
 
 /**
@@ -50,16 +52,22 @@ export function sanitizeLayout(layout, opts = {}) {
   // 非折叠栏之和应 ≈ 100(允许折叠栏为 0)
   const active = keys.filter((k) => next[k] > 0.5)
   const sum = active.reduce((s, k) => s + next[k], 0)
-  if (active.length === 0 || !Number.isFinite(sum) || sum < 90 || sum > 110) {
+  const hasCollapsed = keys.some((k) => next[k] <= 0.5)
+  if (active.length === 0 || !Number.isFinite(sum) || sum <= 0) {
+    return { ...defaults }
+  }
+  // 三栏全开时总和离谱 → 回默认；有折叠栏时低总和只表示未吃满空位，应放大而非 wipe
+  if (!hasCollapsed && (sum < 90 || sum > 110)) {
     return { ...defaults }
   }
   if (Math.abs(sum - 100) > 0.5) {
     const scale = 100 / sum
     for (const k of active) next[k] = Math.round(next[k] * scale * 10) / 10
-    // 归一化舍入误差归到 detail
+    // 归一化舍入误差归到 detail（若已折叠则归到第一个活动栏）
     const sum2 = active.reduce((s, k) => s + next[k], 0)
-    if (next.detail != null && next.detail > 0) {
-      next.detail = Math.round((next.detail + (100 - sum2)) * 10) / 10
+    const anchor = next.detail != null && next.detail > 0.5 ? 'detail' : active[0]
+    if (anchor) {
+      next[anchor] = Math.round((next[anchor] + (100 - sum2)) * 10) / 10
     }
   }
 

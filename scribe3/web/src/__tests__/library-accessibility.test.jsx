@@ -57,13 +57,14 @@ describe('Codex 表单字段语义', () => {
 
   it('必填校验错误以 alert 语义呈现', async () => {
     render(<CodexNew catType="character" label="角色" />)
-    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    fireEvent.click(screen.getByRole('button', { name: /让主编写入/ }))
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.getByRole('alert').textContent).toMatch(/请填写名称/)
   })
 
-  it('卷级伏笔能填写作者存档答案并随创建请求提交', async () => {
-    apiMock.addPromiseNew.mockResolvedValue({ id: 'promise:arc-answer' })
+  it('卷级伏笔提交主编种子,不直写 REST', async () => {
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     const onCreated = vi.fn()
     render(<CodexNew catType="promise" label="伏笔" onCreated={onCreated} />)
 
@@ -71,13 +72,13 @@ describe('Codex 表单字段语义', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: '埋于' }), { target: { value: '3' } })
     fireEvent.change(screen.getByRole('combobox', { name: '兑现层级' }), { target: { value: 'arc' } })
     fireEvent.change(screen.getByRole('textbox', { name: '真实答案（作者存档，读者不可见）' }), { target: { value: '季棠会用自己的旧名换回被夺走的动作' } })
-    fireEvent.click(screen.getByRole('button', { name: '创建' }))
+    fireEvent.click(screen.getByRole('button', { name: /让主编写入/ }))
 
-    await waitFor(() => expect(apiMock.addPromiseNew).toHaveBeenCalledWith(expect.objectContaining({
-      text: '潮骨灯会拿走持灯人的记忆', setup_chapter: 3, tier: 'arc',
-      resolution: '季棠会用自己的旧名换回被夺走的动作',
-    })))
-    expect(onCreated).toHaveBeenCalledWith('promise', 'promise:arc-answer')
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds[0]).toMatch(/s3_plant_promise/)
+    expect(seeds[0]).toMatch(/潮骨灯/)
+    expect(apiMock.addPromiseNew).not.toHaveBeenCalled()
+    expect(onCreated).toHaveBeenCalledWith('promise', null)
   })
 })
 

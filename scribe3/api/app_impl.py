@@ -139,11 +139,17 @@ def _is_rest_world_write_path(path: str) -> bool:
     return False
 
 
+# 作者私人非正典摘录：不在世界写闸内(路径本身不在 _REST_WORLD_WRITE_PREFIXES)。
+# 见 POST /author/session-clips —— 作者剪藏 ≠ AI/表单写正典。
+_SESSION_CLIP_KINDS = frozenset({"snippet", "note"})
+
+
 @app.middleware("http")
 async def _emergency_rest_write_middleware(request, call_next):
     """SCRIBE3_EMERGENCY_REST_WRITE 默认关:拦截世界状态 REST 写,逼走对话+MCP 审批。
 
     仅自动化测试/紧急运维显式开启;conftest autouse 钉 '1' 保存量写测不炸。
+    不拦 /author/session-clips(作者私人素材剪藏,非正典)。
     """
     if request.method in _REST_WORLD_WRITE_METHODS and _is_rest_world_write_path(request.url.path):
         if not _flag_enabled("SCRIBE3_EMERGENCY_REST_WRITE"):
@@ -3469,6 +3475,46 @@ def add_material_ep(m: MaterialIn, work: str = "main"):
     _check_material_kind(m.kind)
     mid = _store_for(work).add_material(m.title, m.body, m.kind, m.tags, m.source)
     return {"ok": True, "id": mid}
+
+
+class SessionClipIn(BaseModel):
+    """作者选区/会话摘录。仅 snippet|note；source 可空(服务端补会话来源)。"""
+    body: str
+    title: str | None = None
+    kind: str = "snippet"
+    source: str | None = None
+    scope_label: str | None = None
+    chapter_seq: int | None = None
+    origin_label: str | None = None
+
+
+@app.post("/author/session-clips")
+def author_session_clip_ep(m: SessionClipIn, work: str = "main"):
+    """作者私人剪藏 → 非正典素材。
+
+    不经 REST 世界写闸(路径不在前缀清单)、不经主编 MCP 审批。
+    仅允许 kind∈{snippet,note}；禁止伪装 inbox decision 语义。
+    """
+    body = (m.body or "").strip()
+    if not body:
+        raise HTTPException(status_code=422, detail="body required")
+    if len(body) > 4000:
+        body = body[:4000] + "…"
+    kind = (m.kind or "snippet").strip()
+    if kind not in _SESSION_CLIP_KINDS:
+        kind = "snippet"
+    title = (m.title or "").strip()
+    if not title:
+        one = " ".join(body.split())
+        title = one if len(one) <= 48 else one[:47] + "…"
+    source = (m.source or "").strip()
+    if not source:
+        origin = (m.origin_label or "选区摘录").strip() or "选区摘录"
+        ch = f" · 第{m.chapter_seq}章" if m.chapter_seq is not None else ""
+        scope = f" · {m.scope_label.strip()}" if (m.scope_label or "").strip() else ""
+        source = f"会话摘录 · {origin}{ch}{scope}"
+    mid = _store_for(work).add_material(title, body, kind, [], source)
+    return {"ok": True, "id": mid, "title": title, "kind": kind, "source": source}
 
 
 @app.patch("/materials/{mid}")
@@ -7184,9 +7230,15 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     except HTTPException:
         raise
     except Exception as e:
+        # fail-loud:门闩评估抛错不得静默放行实质正文(防门闩故障=无门)
         import logging
-        logging.getLogger("scribe3").warning(
-            "craft gate 评估失败(放行存稿) work=%s seq=%s: %s", work, req.seq, e)
+        logging.getLogger("scribe3").error(
+            "craft gate 评估失败(阻断存稿) work=%s seq=%s: %s", work, req.seq, e,
+            exc_info=True)
+        raise HTTPException(status_code=503, detail={
+            "code": "craft_gate_error",
+            "message": f"工艺门闩评估失败,已阻断存稿: {e}",
+        }) from e
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
     # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。

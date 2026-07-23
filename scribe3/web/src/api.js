@@ -306,6 +306,8 @@ export const api = {
     return j('/materials' + (qs.length ? '?' + qs.join('&') : ''))
   },
   addMaterial: (b) => post('/materials', b),
+  /** 作者选区/会话私人剪藏(闸外 POST /author/session-clips；不经主编审批) */
+  addSessionClip: (b) => post('/author/session-clips', b),
   editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
   delMaterial: (mid, token = '') => del('/materials/' + enc(mid) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   objectImpact: (type, id) => j('/objects/' + enc(type) + '/' + enc(id) + '/impact'),

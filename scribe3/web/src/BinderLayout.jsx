@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
+import {
+  seedChiefNarrativeWrite,
+  seedChiefReorderChapters,
+  seedChiefDeleteVolume,
+} from './lib/chiefSeed.js'
 import { CONTAINER_TYPES } from './ProjectTree'
 import { buildPropositionCategory } from './codexTree'
 import { RestoreContext } from './WriteLayout'
@@ -106,7 +110,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
 
   const doVolumeDelete = async () => {
     if (!delVol) return
-    try { await api.deleteVolume(delVol.vid); reload() } catch (e) { console.error(e) }
+    seedChiefDeleteVolume(delVol.vid, delVol.label)
   }
 
   const handleAddVolume = () => setAddingVol(true)
@@ -132,7 +136,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   // 拖拽重排:章跨卷/卷内排序 → 走 sort_order(及 volume),绝不动 seq。
   // volume = 目标卷裸 id 或 null(未分卷);order = 该卷内章 seq 的全量新序。
   const handleReorder = async (volume, order) => {
-    try { await api.reorderChapters(volume, order); reload() } catch (e) { console.error(e) }
+    seedChiefReorderChapters(volume, order)
   }
 
   const selId = sel?.mode === 'node' ? sel.node?.id : null

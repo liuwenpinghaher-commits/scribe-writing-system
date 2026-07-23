@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LayoutGrid, Table2, List, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { api } from './api'
-import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
+import {
+  seedChiefNarrativeWrite,
+  seedChiefReorderChapters,
+  seedChiefDeleteVolume,
+} from './lib/chiefSeed.js'
 import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
@@ -184,7 +188,9 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       const next = prev.chapters.map((c) => inLane.has(c.seq) ? laneChs[li++] : c)
       return { ...prev, chapters: next }
     })
-    api.reorderChapters(volumeId, newSeqs).catch((e) => { reload(); toast?.(e?.body?.detail || '排序保存失败', { tone: 'danger' }) })
+    // 禁止 REST reorder(emergency 默认关 → 403);主编 s3_reorder_chapters 待批
+    seedChiefReorderChapters(volumeId, newSeqs)
+    toast?.('已交给主编重排章节,请在右栏批准', { tone: 'ok' })
   }
 
   // 跨卷拖拽:把章从一个卷移到另一个卷(落到 overSeq 的位置前)
@@ -217,9 +223,8 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       return { ...prev, chapters: next }
     })
 
-    // 后端:更新 volume + sort_order
-    api.reorderChapters(toVolumeId, newOrder)
-      .catch((e) => { reload(); toast?.(e?.body?.detail || '跨卷移动失败', { tone: 'danger' }) })
+    seedChiefReorderChapters(toVolumeId, newOrder)
+    toast?.('已交给主编跨卷重排,请在右栏批准', { tone: 'ok' })
   }
 
   // 新建卷:禁止 api.addVolume REST;种子主编 s3_add_volume
@@ -256,33 +261,16 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     if (!delVol) return
     const target = delVol
     setActionErr(null)
-    try {
-      await api.deleteVolume(target.vid)
-      setDelVol(null)
-      await reload()
-    } catch (err) {
-      setDelVol(null)
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
-        retry: () => doDeleteVolumeFor(target),
-      })
-    }
+    setDelVol(null)
+    seedChiefDeleteVolume(target.vid, target.title)
+    toast?.('已交给主编删卷,请在右栏批准(章正文保留)', { tone: 'ok' })
   }
 
   const doDeleteVolumeFor = async (target) => {
     if (!target) return
     setActionErr(null)
-    try {
-      await api.deleteVolume(target.vid)
-      await reload()
-    } catch (err) {
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
-        retry: () => doDeleteVolumeFor(target),
-      })
-    }
+    seedChiefDeleteVolume(target.vid, target.title)
+    toast?.('已交给主编删卷,请在右栏批准', { tone: 'ok' })
   }
 
   // 非手稿容器(素材分类等)→ 立即退化为子项列表(不拉 /outline)

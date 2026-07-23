@@ -76,3 +76,48 @@ def test_capabilities_reports_emergency_rest_write(store, monkeypatch):
     S.invalidate_cache()
     flags = c.get("/capabilities").json()["flags"]
     assert flags["emergency_rest_write"] is True
+
+
+def test_author_session_clip_allowed_when_rest_world_write_off(store, monkeypatch):
+    """作者私人剪藏不经世界写闸；POST /materials 仍 403。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    c = _client(store)
+
+    blocked = c.post("/materials?work=main", json={
+        "title": "应被闸", "body": "x", "kind": "snippet",
+    })
+    assert blocked.status_code == 403, blocked.text
+
+    r = c.post("/author/session-clips?work=main", json={
+        "body": "城墙上霜白如骨",
+        "kind": "snippet",
+        "origin_label": "主编会话",
+        "scope_label": "选区",
+        "chapter_seq": 3,
+    })
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data.get("ok") is True
+    assert data.get("id")
+    assert data.get("kind") == "snippet"
+    assert "会话摘录" in (data.get("source") or "")
+
+    mats = c.get("/materials?work=main&kind=snippet").json()
+    rows = mats if isinstance(mats, list) else (mats.get("items") or [])
+    ids = {str(m.get("id")) for m in rows}
+    assert str(data["id"]) in ids
+
+
+def test_author_session_clip_rejects_empty_and_coerces_kind(store, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    c = _client(store)
+    empty = c.post("/author/session-clips?work=main", json={"body": "  "})
+    assert empty.status_code == 422, empty.text
+    # inbox-looking kind → coerced to snippet
+    r = c.post("/author/session-clips?work=main", json={
+        "body": "备忘一句", "kind": "needs_human",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "snippet"

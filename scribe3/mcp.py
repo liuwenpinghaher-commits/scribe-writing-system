@@ -86,7 +86,10 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
                 "s3_add_volume", "s3_patch_volume",
                 "s3_add_chapter", "s3_patch_chapter_meta",
-                "s3_patch_chapter_plan", "s3_set_char_anchors"}
+                "s3_patch_chapter_plan", "s3_set_char_anchors",
+                # P0:结构运维 + 素材(默认 emergency REST 关时的作者主路径)
+                "s3_reorder_chapters", "s3_delete_volume",
+                "s3_add_material", "s3_add_motif"}
 
 
 def requires_approval(name: str) -> bool:
@@ -1518,6 +1521,85 @@ async def s3_set_char_anchors(
         return {"character_id": character_id, "keys": list(anchors)}
 
     return commit_if_approved("s3_set_char_anchors", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_reorder_chapters(ctx: Context, volume_id: str | None = None,
+                              order: list[int] | None = None,
+                              work: str | None = None) -> dict:
+    """重排某卷(或未分卷)内章节顺序(写,待批)。只改 sort_order/volume,不动 seq。
+
+    order: 章号 seq 列表,顺序即新序。volume_id 空=未分卷基址。"""
+    seqs = list(order or [])
+    if not seqs:
+        return {"status": "noop", "tool": "s3_reorder_chapters", "reason": "empty order"}
+    ok = await _ask(ctx, f"重排章节 vol={volume_id or '未分卷'} order={seqs}")
+
+    def _write():
+        n = _store_for(work).reorder_chapters(volume_id, seqs)
+        return {"volume_id": volume_id, "count": n, "order": seqs}
+
+    return commit_if_approved("s3_reorder_chapters", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_volume(ctx: Context, volume_id: str,
+                           work: str | None = None) -> dict:
+    """删除卷(写,待批)。该卷下章 volume 置空,不删章正文。"""
+    vid = (volume_id or "").strip()
+    if not vid:
+        return {"status": "error", "tool": "s3_delete_volume", "error": "volume_id required"}
+    ok = await _ask(ctx, f"删除卷 {vid}(章保留,仅清卷归属)")
+
+    def _write():
+        if not _store_for(work).delete_volume(vid):
+            return False
+        return {"volume_id": vid, "deleted": True}
+
+    return commit_if_approved("s3_delete_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_material(ctx: Context, title: str, body: str = "",
+                          kind: str = "note",
+                          tags: list[str] | None = None,
+                          ref_tags: list[str] | None = None,
+                          source: str | None = None,
+                          work: str | None = None) -> dict:
+    """新建素材记忆(写,待批)。kind∈snippet/note/research/inspiration/…;借鉴非正典事实。
+
+    source: 可选出处/来源(与旧 REST MaterialNew 字段同源,不得静默丢弃)。"""
+    t = (title or "").strip()
+    if not t:
+        return {"status": "error", "tool": "s3_add_material", "error": "title required"}
+    src = (source or "").strip() or None
+    ok = await _ask(ctx, f"新建素材《{t}》kind={kind}" + (f" source={src}" if src else ""))
+
+    def _write():
+        mid = _store_for(work).add_material(
+            t, body=body or None, kind=kind or "note",
+            tags=list(tags or []), source=src, ref_tags=list(ref_tags or []))
+        return {"material_id": mid, "title": t, "kind": kind or "note", "source": src}
+
+    return commit_if_approved("s3_add_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_motif(ctx: Context, name: str, theme: str = "",
+                       echoes: str = "", unfolding: str = "",
+                       work: str | None = None) -> dict:
+    """新建母题(写,待批)。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_add_motif", "error": "name required"}
+    ok = await _ask(ctx, f"新建母题「{n}」")
+
+    def _write():
+        _store_for(work).add_motif(n, theme=theme or "", echoes=echoes or "",
+                                   unfolding=unfolding or "")
+        return {"name": n, "theme": theme or ""}
+
+    return commit_if_approved("s3_add_motif", ok, _write)
 
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====

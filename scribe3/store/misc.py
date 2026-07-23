@@ -978,13 +978,16 @@ class MiscMixin:
                 "UPDATE type::record('pending_authority_claim', $id) SET status='rejected'",
                 {"id": cid})
             return {"status": "rejected", "claim_id": cid, "fact_id": None}
-        # approve → 需要 entity/attribute/value 才能落命题
+        # approve → 落命题。产品 capture 常只带 text、entity 空:
+        # 用可解析回落(world:待审揭示 + text 作 value),避免队列黑洞。
         entity = (row.get("entity") or "").strip()
         attribute = (row.get("attribute") or "").strip() or "揭示"
         value = (row.get("value") or row.get("text") or "").strip()
-        if not entity or not value:
+        if not entity:
+            entity = "world:待审揭示"
+        if not value:
             raise ValueError(
-                "approve requires entity and value/text on the pending claim")
+                "approve requires value or text on the pending claim")
         import uuid
         from scribe3.ontology import Fact
         fact_id = f"fact:pa-{uuid.uuid4().hex[:10]}"

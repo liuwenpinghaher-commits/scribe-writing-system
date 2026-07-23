@@ -3,8 +3,8 @@ import { DetailPane } from '../DetailPane'
 import { Rail } from '../shell'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { cn } from '../lib/utils'
-import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, PanelRightClose } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
@@ -13,28 +13,27 @@ import { showToast } from '../ui/Toast'
 import { useContextSnapshot } from '../context/ContextSnapshotContext'
 import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
 import { routeOf, selectionFromSnapshot } from './contextSelection'
-import {
-  FOUR_PANE_BOUNDS, FOUR_PANE_DEFAULT, sanitizeLayout,
-} from './sanitizeLayout'
+import { sanitizeLayout } from './sanitizeLayout'
 import { planEntryChange } from './entrySelection'
-
-const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
-const FOUR_PANE_DEFAULT_LAYOUT = FOUR_PANE_DEFAULT
-const DIRECTORY_PANEL = {
-  default: FOUR_PANE_DEFAULT.directory,
-  min: FOUR_PANE_BOUNDS.directory.min,
-  max: FOUR_PANE_BOUNDS.directory.max,
-}
-// max 58(原 36):作者要能把主编对话拉很宽读长回复;中区 minSize 兜底,不会被挤没
-const RIGHT_PANEL = {
-  default: FOUR_PANE_DEFAULT.right,
-  min: FOUR_PANE_BOUNDS.right.min,
-  max: FOUR_PANE_BOUNDS.right.max,
-}
+import { useChiefSlot } from '../ChiefSlotContext'
+import {
+  LAYOUT_BOUNDS_BY_MODE,
+  LAYOUT_DEFAULTS_BY_MODE,
+  layoutStorageId,
+  panelOrderForMode,
+  resolveLayoutMode,
+  restoreSlotsForOrder,
+} from './layoutMode'
 // 拖拽把手:不用负 margin 叠层(旧 -mx 会在窄窗/拖拽时挤乱相邻栏命中区)
 const RESIZER_CLASS = 'w-1 shrink-0 bg-transparent cursor-col-resize hover:bg-brand/20 active:bg-brand/30 transition-colors data-[separator]:bg-line/30'
-// 还原按钮 = 贴栏3 左/右缘、垂直居中的细把手。Upstream 式软面 + 轻阴影。
+// 还原按钮 = 贴相邻栏缘、垂直居中的细把手（宿主随 panelOrder 变化，不写死 detail）。
 const RESTORE_BUTTON_CLASS = 'absolute top-1/2 -translate-y-1/2 z-20 h-14 w-3.5 border-0 bg-surface text-faint shadow-[var(--shadow-panel)] hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer'
+
+function restoreEdgeClass(edge) {
+  return edge === 'right'
+    ? 'right-0 border-r-0 rounded-l-lg'
+    : 'left-0 border-l-0 rounded-r-lg'
+}
 
 function collapsedStorageKey(work, side) {
   return `s3.${work || 'default'}.${side}Collapsed`
@@ -70,20 +69,11 @@ function entryForActive(tree, active) {
   }
 }
 
-// 四栏钻取壳(阶段3-2):栏1 一级入口 | 栏2 目录(常驻) | 栏3 详情 | 栏4 主编。
-//
-// 两级选中,互不干扰:
-//   · entry(本壳内部 state)—— 选中的"一级入口/分类",驱动栏2 目录列表。
-//   · sel  (BinderLayout 共享 state)—— 选中的"条目",驱动栏3 详情 + 栏4 主编上下文。
-// 点入口 → 只改 entry(换栏2);点目录条目 → 走 onSelectNode 改共享 sel(只换栏3),栏2 保持挂载。
-// 这就是对旧"一柱擎天"(目录/详情路由到同一列互相替换)的根治。
-//
-// Task 5(统一上下文):上述两级选中的"语义事实"统一记录进 ContextSnapshot——
-// 每个语义动作(入口/条目/对象定位)只发一个完整 NavigationIntent,快照 revision
-// 盖在栏3/栏4容器上,四栏同帧共享同一 revision;子组件 props 合同不变。
-//
-// 视图入口(type==='view')直接进共享 sel 的 view 模式:栏3 全画布、栏2 隐藏。
-// 唯一布局壳（旧三栏 + s3.layout.v2 回退已删除）。
+// 四栏钻取壳:栏1 入口 | 栏2 目录 | 详情 + 主编(顺序/宽度随 layoutMode)。
+// 模式 phase-auto:大纲/节拍/演绎/草稿/非章 → collaboration(会话主);
+// 正文 final / 全画布 view → reading(详情主)。
+// 两级选中: entry→栏2; sel→详情 + 主编上下文。
+// 唯一布局壳（旧三栏已删除）。
 export function FourPaneShell({
   tree, selId, expanded, toggle, onSelectNode, treeCbs, sel, work, reload, onJumpChapter,
   chapterSel, curSeq, leftSeq, onRestored,
@@ -93,16 +83,7 @@ export function FourPaneShell({
   const rightRef = usePanelRef()
   const [directoryCollapsed, setDirectoryCollapsed] = useState(() => readCollapsed(work, 'directory'))
   const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(work, 'right'))
-  // 栏宽布局按作品隔离:换书不串栏宽偏好(与 readCollapsed/writeCollapsed 的作品级 key 同粒度)。
-  // 保留 FOUR_PANE_LAYOUT_ID 前缀,换常量名会作废用户已保存的栏宽。
-  // sanitize:纠偏 localStorage 损坏/缺键/和≠100 的布局,防拖拽后整页错乱。
-  const { defaultLayout: rawLayout, onLayoutChanged: persistLayout } = useDefaultLayout({
-    id: `${FOUR_PANE_LAYOUT_ID}:${work || 'main'}`,
-  })
-  const defaultLayout = sanitizeLayout(rawLayout)
-  const onLayoutChanged = (layout, meta) => {
-    persistLayout?.(sanitizeLayout(layout), meta)
-  }
+  const { chapterPhase } = useChiefSlot()
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
     selId,
@@ -134,6 +115,30 @@ export function FourPaneShell({
   // effect 全由它驱动,内容也读 effectiveSel——两者同源才不会在跨 view 边界对齐时
   // 布局与内容自相矛盾。降级(navigated=false)时 effectiveSel===sel,行为不变。
   const isView = effectiveSel?.mode === 'view'
+  // 单一 layoutMode:storage id / defaults / bounds / panel order 全部同源,禁止 early/late 双路径。
+  const layoutMode = resolveLayoutMode({
+    phase: chapterPhase,
+    isView,
+    isChapterContext: chapterPhase != null
+      || effectiveSel?.node?.type === 'chapter'
+      || effectiveSel?.node?.type === 'scene',
+  })
+  const layoutDefaults = LAYOUT_DEFAULTS_BY_MODE[layoutMode]
+  const layoutBounds = LAYOUT_BOUNDS_BY_MODE[layoutMode]
+  const panelOrder = panelOrderForMode(layoutMode)
+  // 栏宽按 work + mode 隔离(v3);协作/阅读各记一份,旧 v2 detail-primary 不污染协作默认
+  const { defaultLayout: rawLayout, onLayoutChanged: persistLayout } = useDefaultLayout({
+    id: layoutStorageId(work, layoutMode),
+  })
+  const defaultLayout = sanitizeLayout(rawLayout, { defaults: layoutDefaults, bounds: layoutBounds })
+  const onLayoutChanged = (layout, meta) => {
+    persistLayout?.(sanitizeLayout(layout, { defaults: layoutDefaults, bounds: layoutBounds }), meta)
+  }
+  const restoreSlots = restoreSlotsForOrder(panelOrder, {
+    directoryCollapsed,
+    rightCollapsed,
+    isView,
+  })
   // entry 双向对齐(I-1),按"这一轮是谁先动"判方向,防止两侧互相覆盖打成请求循环:
   //   · 快照侧变化(409 对齐 latest / 另一窗口推进)→ 服务端赢,本窗口 leftTab 跟随(setTab);
   //     跟随引起的 active 变化在下一轮里两侧已相等,绝不反向发 intent;
@@ -288,124 +293,200 @@ export function FourPaneShell({
     if (sel?.node?.type === 'chapter' && Number(sel.node.ref) === Number(seq)) onSelectNode?.(null)
   }
 
-return (
-    <div className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden" data-testid="four-col">
+  const renderRestoreButtons = (hostId) => {
+    const nodes = []
+    if (restoreSlots.directory?.hostId === hostId) {
+      const edge = restoreSlots.directory.edge
+      nodes.push(
+        <button
+          key="directory-restore"
+          type="button"
+          data-testid="directory-restore-button"
+          data-restore-host={hostId}
+          data-restore-edge={edge}
+          aria-label="展开目录"
+          title="展开目录"
+          onClick={expandDirectory}
+          className={`${RESTORE_BUTTON_CLASS} ${restoreEdgeClass(edge)}`}
+        >
+          {edge === 'right' ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+        </button>,
+      )
+    }
+    if (restoreSlots.right?.hostId === hostId) {
+      const edge = restoreSlots.right.edge
+      nodes.push(
+        <button
+          key="right-restore"
+          type="button"
+          data-testid="right-restore-button"
+          data-restore-host={hostId}
+          data-restore-edge={edge}
+          aria-label="展开主编栏"
+          title="展开主编栏"
+          onClick={expandRightPanel}
+          className={`${RESTORE_BUTTON_CLASS} ${restoreEdgeClass(edge)}`}
+        >
+          {edge === 'right' ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+        </button>,
+      )
+    }
+    return nodes
+  }
+
+  const renderDirectoryPanel = () => (
+    <Panel
+      id="directory"
+      panelRef={directoryRef}
+      defaultSize={`${layoutDefaults.directory}%`}
+      minSize={`${layoutBounds.directory.min}%`}
+      maxSize={`${layoutBounds.directory.max}%`}
+      collapsible
+      collapsedSize="0%"
+      onResize={(size) => {
+        const collapsed = size.asPercentage < layoutBounds.directory.min * 0.5
+        setDirectoryCollapsed(collapsed)
+        writeCollapsed(work, 'directory', collapsed)
+      }}
+      className={cn('border-r border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden')}
+    >
+      <div
+        className="relative h-full min-h-0 min-w-[10rem] max-w-full overflow-hidden"
+        data-testid="col-directory-panel"
+        data-default-size={String(layoutDefaults.directory)}
+        data-min-size={String(layoutBounds.directory.min)}
+        data-max-size={String(layoutBounds.directory.max)}
+        data-layout-mode={layoutMode}
+      >
+        {renderRestoreButtons('directory')}
+        {!directoryCollapsed && (
+          <div className="h-full min-h-0 min-w-0 overflow-hidden" data-testid="col-directory">
+            <ErrorBoundary key={`${activeCap?.key}:${leftSeq ?? ''}:${directoryRefresh}`}>
+              <DirectoryPane
+                entry={activeEntry}
+                onSelectItem={handleSelectItem}
+                sel={effectiveSel}
+                seq={leftSeq}
+                onJumpChapter={onJumpChapter}
+                onCreateChapter={handleCreateChapter}
+                onAddVolume={treeCbs?.onAddVolume}
+                onArchivedChanged={handleTreeChanged}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+      </div>
+    </Panel>
+  )
+
+  const renderDetailPanel = () => (
+    <Panel
+      id="detail"
+      defaultSize={`${layoutDefaults.detail}%`}
+      minSize={isView ? '56%' : `${layoutBounds.detail.min}%`}
+      maxSize={`${layoutBounds.detail.max}%`}
+      className="relative min-w-0 min-h-0 overflow-hidden flex flex-col"
+    >
+      <div
+        className="relative h-full min-h-0 min-w-0 overflow-hidden flex flex-col"
+        data-testid="detail-panel"
+        data-layout-mode={layoutMode}
+        data-default-size={String(layoutDefaults.detail)}
+        data-min-size={String(isView ? 56 : layoutBounds.detail.min)}
+        data-max-size={String(layoutBounds.detail.max)}
+      >
+        {renderRestoreButtons('detail')}
+        <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
+          <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey}
+            onSelectNode={handleSelectItem}
+            onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
+            onNavigateToObject={handleNavigateToObject}
+            onChapterArchived={handleChapterArchived} />
+        </div>
+      </div>
+    </Panel>
+  )
+
+  const renderRightPanel = () => (
+    <Panel
+      id="right"
+      panelRef={rightRef}
+      defaultSize={`${layoutDefaults.right}%`}
+      minSize={`${layoutBounds.right.min}%`}
+      maxSize={`${layoutBounds.right.max}%`}
+      collapsible
+      collapsedSize="0%"
+      onResize={(size) => {
+        const collapsed = size.asPercentage < layoutBounds.right.min * 0.5
+        setRightCollapsed(collapsed)
+        writeCollapsed(work, 'right', collapsed)
+      }}
+      className="border-l border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden"
+    >
+      <div
+        className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden"
+        data-testid="right-panel"
+        data-layout-mode={layoutMode}
+        data-default-size={String(layoutDefaults.right)}
+        data-min-size={String(layoutBounds.right.min)}
+        data-max-size={String(layoutBounds.right.max)}
+        data-collapsed={rightCollapsed ? '1' : '0'}
+      >
+        {renderRestoreButtons('right')}
+        {!rightCollapsed && (
+          <div className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
+            {/* 收起唯一入口：右轨再点当前 tab（主编等）→ onCollapse；不叠右上角浮钮 */}
+            <RightDock sel={effectiveSel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
+              onRestored={onRestored} onCollapse={collapseRightPanel} />
+          </div>
+        )}
+      </div>
+    </Panel>
+  )
+
+  const panelRenderers = {
+    directory: renderDirectoryPanel,
+    detail: renderDetailPanel,
+    right: renderRightPanel,
+  }
+
+  // view 模式隐藏目录;顺序仍按 mode(协作:主编|详情, 阅读:详情|主编)
+  const visibleOrder = isView
+    ? panelOrder.filter((id) => id !== 'directory')
+    : panelOrder
+
+  return (
+    <div
+      className="h-full min-h-0 flex flex-col bg-canvas overflow-hidden"
+      data-testid="four-col"
+      data-layout-mode={layoutMode}
+    >
       <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">
-        {/* 栏1 · 小 tab 轨,与旧左右栏 Rail 同构 · 固定宽,绝不参与拖拽百分比 */}
         <div className="w-14 shrink-0 bg-surface overflow-hidden shadow-[1px_0_0_0_color-mix(in_srgb,var(--color-line)_70%,transparent)]" data-testid="left-entry-rail">
           <Rail side="left" caps={caps} active={activeCap?.key} onActive={handleActive} />
         </div>
+        {/* key=mode:切换协作/阅读时重挂 Group,应用该 mode 的 defaultLayout */}
         <Group
+          key={`layout-${layoutMode}-${work || 'main'}`}
           orientation="horizontal"
-          defaultLayout={defaultLayout ?? FOUR_PANE_DEFAULT_LAYOUT}
+          defaultLayout={defaultLayout ?? layoutDefaults}
           onLayoutChanged={onLayoutChanged}
           className="flex-1 min-w-0 min-h-0 h-full overflow-hidden"
         >
-          {/* 栏2 · DirectoryPane 生产路由(视图态隐藏),常驻不被栏3详情替换 */}
-          {!isView && (
-            <>
-              <Panel
-                id="directory"
-                panelRef={directoryRef}
-                defaultSize={`${DIRECTORY_PANEL.default}%`}
-                minSize={`${DIRECTORY_PANEL.min}%`}
-                maxSize={`${DIRECTORY_PANEL.max}%`}
-                collapsible
-                collapsedSize="0%"
-                onResize={(size) => {
-                  // 低于 min 的一半即视为折叠,避免「半开半关」窄条把中文挤成竖排
-                  const collapsed = size.asPercentage < DIRECTORY_PANEL.min * 0.5
-                  setDirectoryCollapsed(collapsed)
-                  writeCollapsed(work, 'directory', collapsed)
-                }}
-                className={cn('border-r border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden')}
-              >
-                <div
-                  className="h-full min-h-0 min-w-[10rem] max-w-full overflow-hidden"
-                  data-testid="col-directory-panel"
-                  data-default-size={String(DIRECTORY_PANEL.default)}
-                  data-min-size={String(DIRECTORY_PANEL.min)}
-                  data-max-size={String(DIRECTORY_PANEL.max)}
-                >
-                  {!directoryCollapsed && (
-                    <div className="h-full min-h-0 min-w-0 overflow-hidden" data-testid="col-directory">
-                      <ErrorBoundary key={`${activeCap?.key}:${leftSeq ?? ''}:${directoryRefresh}`}>
-                        <DirectoryPane
-                          entry={activeEntry}
-                          onSelectItem={handleSelectItem}
-                          sel={effectiveSel}
-                          seq={leftSeq}
-                          onJumpChapter={onJumpChapter}
-                          onCreateChapter={handleCreateChapter}
-                          onAddVolume={treeCbs?.onAddVolume}
-                          onArchivedChanged={handleTreeChanged}
-                        />
-                      </ErrorBoundary>
-                    </div>
-                  )}
-                </div>
-              </Panel>
-              <Separator className={RESIZER_CLASS} data-testid="directory-resize-handle" />
-            </>
-          )}
-          {/* 栏3 · 详情(复用 DetailPane,仅喂条目/视图) */}
-          <Panel
-            id="detail"
-            defaultSize={`${FOUR_PANE_DEFAULT.detail}%`}
-            minSize={isView ? '56%' : `${FOUR_PANE_BOUNDS.detail.min}%`}
-            className="relative min-w-0 min-h-0 overflow-hidden flex flex-col"
-            data-testid="detail-panel"
-          >
-            {directoryCollapsed && !isView && (
-              <button type="button" data-testid="directory-restore-button" aria-label="展开目录" title="展开目录"
-                onClick={expandDirectory} className={`${RESTORE_BUTTON_CLASS} left-0 border-l-0 rounded-r-lg`}>
-                <ChevronRight size={14} />
-              </button>
-            )}
-            {rightCollapsed && (
-              <button type="button" data-testid="right-restore-button" aria-label="展开主编栏" title="展开主编栏"
-                onClick={expandRightPanel} className={`${RESTORE_BUTTON_CLASS} right-0 border-r-0 rounded-l-lg`}>
-                <ChevronLeft size={14} />
-              </button>
-            )}
-            <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
-              <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey}
-                onSelectNode={handleSelectItem}
-                onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
-                onNavigateToObject={handleNavigateToObject}
-                onChapterArchived={handleChapterArchived} />
-            </div>
-          </Panel>
-          <Separator className={RESIZER_CLASS} data-testid="right-resize-handle" />
-          {/* 栏4 · 主编(复用 RightDock,随共享 sel 切上下文) */}
-          <Panel
-            id="right"
-            panelRef={rightRef}
-            defaultSize={`${RIGHT_PANEL.default}%`}
-            minSize={`${RIGHT_PANEL.min}%`}
-            maxSize={`${RIGHT_PANEL.max}%`}
-            collapsible
-            collapsedSize="0%"
-            onResize={(size) => {
-              const collapsed = size.asPercentage < RIGHT_PANEL.min * 0.5
-              setRightCollapsed(collapsed)
-              writeCollapsed(work, 'right', collapsed)
-            }}
-            className="border-l border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden"
-            data-testid="right-panel"
-          >
-            {!rightCollapsed && (
-              <div className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
-                <button type="button" data-testid="right-collapse-button" aria-label="收起主编栏" title="收起主编栏"
-                  onClick={collapseRightPanel}
-                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-md bg-soft/80 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
-                  <PanelRightClose size={15} />
-                </button>
-                <RightDock sel={effectiveSel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
-                  onRestored={onRestored} onCollapse={collapseRightPanel} />
-              </div>
-            )}
-          </Panel>
+          {visibleOrder.map((id, i) => (
+            <Fragment key={id}>
+              {i > 0 && (
+                <Separator
+                  className={RESIZER_CLASS}
+                  data-testid={
+                    // 目录后的第一条分隔 = directory-resize; 其余 = right-resize(主编相关)
+                    visibleOrder[i - 1] === 'directory' ? 'directory-resize-handle' : 'right-resize-handle'
+                  }
+                />
+              )}
+              {panelRenderers[id]()}
+            </Fragment>
+          ))}
         </Group>
       </div>
     </div>
