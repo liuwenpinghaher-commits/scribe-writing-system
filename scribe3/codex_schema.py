@@ -170,9 +170,69 @@ FACTION_FIELDS: tuple[CodexField, ...] = (
 )
 
 
+# 阶段 2:角色档案字段元数据(驱动 GET /codex-schema/character + 前端 schema 路径)
+CHARACTER_FIELDS: tuple[CodexField, ...] = (
+    CodexField("name", "姓名", "text", desc="角色正式名,主键 role:{name}。"),
+    CodexField("aliases", "别名", "array<string>", desc="外号/曾用名。"),
+    CodexField("appearance", "外貌", "textarea", desc="体貌与辨识特征。"),
+    CodexField("personality_detail", "性格", "textarea", desc="性格细节与行为倾向。"),
+    CodexField("personality_tags", "性格标签", "array<string>", desc="短标签。"),
+    CodexField("backstory", "前史", "textarea", secret_capable=True, desc="背景故事;可标限知。"),
+    CodexField("surface_goal", "表层目标", "textarea", desc="Want/外在目标。"),
+    CodexField("deep_need", "深层需求", "textarea", desc="Need/内在需求。"),
+    CodexField("fear", "恐惧", "textarea", desc="核心恐惧。"),
+    CodexField("internal_conflict", "内在冲突", "textarea", desc="内外拉扯。"),
+    CodexField("abilities", "能力", "array<string>", desc="已知能力。"),
+    CodexField("weaknesses", "弱点", "array<string>", desc="弱点。"),
+    CodexField("importance", "重要度", "text", desc="主配角等重要度标记。"),
+    CodexField("first_appearance", "首次出场", "int", desc="首次出场章号。"),
+)
+
+# 阶段 3:物件 / 术语 / 世界规则 — 与 store patch 白名单 + 旧 fieldMap 对齐
+ITEM_FIELDS: tuple[CodexField, ...] = (
+    CodexField("name", "物品名", "text", desc="物件正式名,主键。"),
+    CodexField("category", "类别", "text", desc="物件分类(如兵器/信物/日常)。"),
+    CodexField("description", "描述", "textarea", desc="外观、用途与叙事功能。"),
+    CodexField("symbolic_state", "状态", "enum",
+               enum=("active", "lost", "destroyed", "unknown"),
+               desc="符号状态:在场/遗失/毁坏/未知。"),
+    CodexField("current_owner", "持有者", "text", desc="当前持有者(角色名或 role:…)。"),
+    CodexField("first_chapter", "首次出场章", "int", desc="正文首次出场章节号。"),
+    CodexField("special_properties", "特殊属性", "array<string>", desc="特殊属性标签。"),
+)
+
+TERM_FIELDS: tuple[CodexField, ...] = (
+    CodexField("name", "术语名", "text", desc="术语正式名,主键。"),
+    CodexField("category", "类别", "text", desc="术语分类。"),
+    CodexField("definition", "定义", "textarea", desc="术语释义。"),
+    CodexField("aliases", "别名", "array<string>", desc="别称/异写。"),
+    CodexField("first_mention_chapter", "首次提及章", "int", desc="正文首次提及章节号。"),
+)
+
+WORLD_RULE_FIELDS: tuple[CodexField, ...] = (
+    CodexField("name", "规则名", "text", desc="世界规则正式名,主键。"),
+    CodexField("category", "类别", "enum",
+               enum=("magic", "technology", "social", "physical", "economic", "political"),
+               desc="规则类别(与 DB ASSERT 同源)。"),
+    CodexField("source", "源头", "text", desc="规则来源或颁布者。"),
+    CodexField("cost", "代价", "textarea", desc="使用/触犯规则的代价。"),
+    CodexField("scope", "作用域", "enum",
+               enum=("global", "regional", "faction_specific"),
+               desc="作用范围。"),
+    CodexField("established_chapter", "确立章节", "int", desc="规则在叙事中确立的章节。"),
+    CodexField("limitations", "限制条件", "array<string>", desc="限制条件列表。"),
+    CodexField("exceptions", "例外情形", "array<string>", desc="例外情形列表。"),
+    CodexField("capabilities", "赋予能力", "array<string>", desc="规则赋予的能力。"),
+    CodexField("note", "备注", "textarea", desc="补充说明。"),
+)
+
+
 KINDS: dict[str, tuple[CodexField, ...]] = {
     "faction": FACTION_FIELDS,
-    # 阶段 2:character / item / term / world_rule 迁入后在此加键。
+    "character": CHARACTER_FIELDS,
+    "item": ITEM_FIELDS,
+    "term": TERM_FIELDS,
+    "world_rule": WORLD_RULE_FIELDS,
 }
 
 

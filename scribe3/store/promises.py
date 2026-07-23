@@ -81,25 +81,42 @@ class PromisesMixin:
              "tier": tier, "pmin": pmin, "pmax": pmax,
              "resolution": resolution or None})
 
+    def _normalize_promise_row(self, r: dict) -> dict:
+        """list/get 共用:clues/tier/窗口兼容补全。"""
+        if r.get("clues") is None:
+            r["clues"] = []
+        # 兼容旧行(未跑 052 迁移前创建):tier 回退 chapter,窗口按 setup 补算。
+        # book 层 payoff_max 合法为 None,不补;setup_chapter 为 None 时不补。
+        if r.get("tier") is None:
+            r["tier"] = "chapter"
+        if r["tier"] == "chapter" and r.get("setup_chapter") is not None:
+            lo, hi = _TIER_WINDOW["chapter"]
+            if r.get("payoff_min") is None:
+                r["payoff_min"] = r["setup_chapter"] + lo
+            if r.get("payoff_max") is None:
+                r["payoff_max"] = r["setup_chapter"] + hi
+        return r
+
+    def get_promise(self, promise_id: str) -> dict | None:
+        """单条伏笔 O(1) 读(type::record),禁止全表扫描。"""
+        pid = (promise_id or "").strip()
+        if not pid:
+            return None
+        rows = self._query(
+            "SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
+            "status, kind, clues, tier, payoff_min, payoff_max, resolution "
+            "FROM type::record('promise',$pid) LIMIT 1",
+            {"pid": pid}) or []
+        if not rows:
+            return None
+        return self._normalize_promise_row(rows[0])
+
     def list_promises(self) -> list[dict]:
         rows = self._query("SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
                            "status, kind, clues, tier, payoff_min, payoff_max, resolution "
                            "FROM promise ORDER BY setup_chapter")
         # 兼容旧库(未跑 045 迁移时 clues 字段为 None):安全回退为 []
-        for r in rows:
-            if r.get("clues") is None:
-                r["clues"] = []
-            # 兼容旧行(未跑 052 迁移前创建):tier 回退 chapter,窗口按 setup 补算。
-            # book 层 payoff_max 合法为 None,不补;setup_chapter 为 None 时不补。
-            if r.get("tier") is None:
-                r["tier"] = "chapter"
-            if r["tier"] == "chapter" and r.get("setup_chapter") is not None:
-                lo, hi = _TIER_WINDOW["chapter"]
-                if r.get("payoff_min") is None:
-                    r["payoff_min"] = r["setup_chapter"] + lo
-                if r.get("payoff_max") is None:
-                    r["payoff_max"] = r["setup_chapter"] + hi
-        return rows
+        return [self._normalize_promise_row(r) for r in (rows or [])]
 
     def open_promises(self) -> list[dict]:
         return [p for p in self.list_promises() if p["status"] == "open"]

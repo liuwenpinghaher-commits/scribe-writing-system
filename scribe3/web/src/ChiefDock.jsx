@@ -593,6 +593,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       }
       await api.aiRunApproval(approval.run_id, body)
       patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision, runContext: null })
+      // 批准落库后通知设定详情轮询:删除/归档对象消失再退回分类
+      if (decision === 'approve') {
+        try {
+          const { notifyWorldWriteApproved } = await import('./lib/codexLifecycle.js')
+          notifyWorldWriteApproved({
+            decision,
+            message: approval?.message || '',
+            run_id: approval?.run_id,
+          })
+        } catch { /* */ }
+      }
     } catch (e) {
       // Task 13:409 run_context_changed/stale → 展示"发起时/当前焦点 + 已过期"卡片,不当作提交失败。
       const rc = runContextFromError(e)

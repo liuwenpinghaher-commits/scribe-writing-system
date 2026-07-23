@@ -7,6 +7,12 @@ import { AsyncState } from './ui/AsyncState.jsx'
 import { showToast } from './ui/Toast'
 import { Btn, SectionTitle, Empty, Tag } from './ui'
 import { ReadOnlyText } from './ui/EditableText.jsx'
+import { seedChiefDeleteCodex } from './lib/chiefSeed.js'
+import { atlasFocusId } from './lib/atlasFocus.js'
+import {
+  registerPendingCodexDelete, clearPendingCodexDelete,
+  watchCodexObjectGone, notifyCodexTreeRefresh,
+} from './lib/codexLifecycle.js'
 
 // 项目树「素材叶」类型 → CodexView DetailView 的 type 值。
 const TYPE_MAP = {
@@ -34,38 +40,27 @@ function lifecycleDeleteBody(impact, fallback) {
   return `影响范围: ${refText}。建议操作: ${action}。${suffix}`
 }
 
-// 按 type 拉「该分类全部条目」,再按 ref 选中一条(复用 CodexView 的多端点读路径)。
-// 注意不 catch 吞错:请求失败必须冒泡到调用方的 error 态,
-// 否则失败被压成空列表 → 界面谎称「未找到该条目(可能已删除)」。
-async function loadRows(nodeType) {
-  if (nodeType === 'character') {
-    const es = await api.entities()
-    return es.filter((e) => e.kind === 'character')
-  }
-  if (nodeType === 'faction') return api.get('/factions')
-  if (nodeType === 'item') return api.get('/items')
-  if (nodeType === 'term') return api.get('/terms')
-  if (nodeType === 'world_rule') return api.get('/world-rules')
-  if (nodeType === 'promise') return api.promises()
-  if (nodeType === 'motif') return api.motifs()
-  return []
+/** 单条加载(O(1));禁止全表 list 再 find。 */
+async function loadOne(nodeType, ref) {
+  if (nodeType === 'character') return api.getChar(ref)
+  if (nodeType === 'faction') return api.getFaction(ref)
+  if (nodeType === 'item') return api.getItem(ref)
+  if (nodeType === 'term') return api.getTerm(ref)
+  if (nodeType === 'world_rule') return api.getWorldRule(ref)
+  if (nodeType === 'promise') return api.getPromise(ref)
+  if (nodeType === 'motif') return api.getMotif(ref)
+  return null
 }
 
-// 选中条目:角色用裸 id(local)匹配,其余用 name 匹配(与 /project-tree 的 ref 约定一致)。
-function pickRow(nodeType, rows, ref) {
-  if (nodeType === 'character') return rows.find((r) => localOf(r) === ref || r.id === `role:${ref}`)
-  if (nodeType === 'promise' || nodeType === 'motif') return rows.find((r) => r.id === ref)
-  return rows.find((r) => r.name === ref)
-}
-
-async function remove(detailType, row) {
-  if (detailType === 'chars') await api.delChar(localOf(row))
-  else if (detailType === 'rules') await api.del(`/world-rules?name=${encodeURIComponent(row.name)}`)
-  else if (detailType === 'factions') await api.del(`/factions?name=${encodeURIComponent(row.name)}`)
-  else if (detailType === 'items') await api.del(`/items?name=${encodeURIComponent(row.name)}`)
-  else if (detailType === 'terms') await api.del(`/terms?name=${encodeURIComponent(row.name)}`)
-  else if (detailType === 'promises') await api.delPromise(row.id)
-  else if (detailType === 'motifs') await api.delMotif(row.id)
+/** DetailView type → s3_delete_codex object_type */
+const DELETE_OBJECT_TYPE = {
+  chars: 'role',
+  factions: 'faction',
+  items: 'item',
+  terms: 'term',
+  rules: 'world_rule',
+  promises: 'promise',
+  motifs: 'motif',
 }
 
 // ═══ 弧光锚编辑(M3):ghost/lie/truth/want/need + arc_type + private_agenda ═══
@@ -255,10 +250,8 @@ function CharVoice({ characterId, characterName, refreshKey = 0 }) {
 // 注意 GET /facts 有损:私密命题 value 被后端屏蔽为 null(_facts),且不回 valid_from/valid_to/leak_markers,
 // 亦无单条 reveal 端点 —— 故此处【不做整行 PATCH 回写】(会把私密值 null 掉/抹掉 leak_markers,同 F-1/F-2 坑),
 // 改为时态正确的三动作:超越(改值·保历史)/ 让 knower 遗忘(知识边)/ 删除。全字段生产在「+ 新建命题」。
-const FACT_SCAN_CHAPTER = 100000
-
-// 命题详情:只读展示 + 写入走主编(与设定档案政策一致)。删除仍可本地确认(生命周期门控)。
-export function PropositionDetail({ node, onDeleted }) {
+// 命题详情:只读展示 + 写入走主编(与设定档案政策一致)。删除走 s3_delete_codex 待批。
+export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
@@ -268,12 +261,9 @@ export function PropositionDetail({ node, onDeleted }) {
 
   const reload = () => {
     setLoading(true); setLoadErr('')
-    api.facts(FACT_SCAN_CHAPTER)
-      .then((rows) => {
-        const r = (rows || []).find((x) => x.id === `fact:${node.ref}`
-          || String(x.id || '').split(':').pop() === node.ref)
-        setRow(r || null); setLoading(false)
-      })
+    // 单条 GET /facts/{local},禁止 facts(100000) 全量扫
+    api.getFact(node.ref)
+      .then((r) => { setRow(r || null); setLoading(false) })
       .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
   useEffect(() => { setDeleteImpact(null); reload() }, [node?.id])
@@ -292,13 +282,39 @@ export function PropositionDetail({ node, onDeleted }) {
     }
   }
 
-  const doDelete = async () => {
+  const doDelete = () => {
     const shouldArchive = deleteImpact?.recommended_action === 'archive'
-    try {
-      if (shouldArchive) await api.archiveObject('fact', node.ref)
-      else await api.deleteObject('fact', node.ref, deleteImpact?.confirm_impact_token || '')
-      onDeleted?.()
-    } catch (e) { showToast(e?.body?.detail || e?.message || (shouldArchive ? '归档失败' : '删除失败'), { tone: 'danger' }) }
+    // 禁 REST 世界写:走主编 s3_delete_codex
+    seedChiefDeleteCodex('fact', node.ref, {
+      label: `${String(row?.entity || '').split(':').pop() || ''}·${row?.attribute || node.ref}`,
+      archive: shouldArchive,
+    })
+    registerPendingCodexDelete({ objectType: 'fact', objectId: node.ref, label: node.ref })
+    showToast(shouldArchive
+      ? '已交给主编归档命题,请在右栏批准(批准后自动刷新目录)'
+      : '已交给主编删除命题,请在右栏批准(批准后自动刷新目录)', { tone: 'ok' })
+    setDelOpen(false)
+    watchCodexObjectGone(api, { objectType: 'fact', objectId: node.ref })
+      .then((r) => {
+        if (r !== 'gone') return
+        clearPendingCodexDelete()
+        notifyCodexTreeRefresh({ objectType: 'fact', objectId: node.ref })
+        onDeleted?.()
+      })
+  }
+
+  const graphFocus = () => {
+    const focus = atlasFocusId({ kind: 'proposition', row, ref: node.ref })
+    if (!focus) {
+      showToast('该命题暂无图谱焦点', { tone: 'warn' })
+      return
+    }
+    try { sessionStorage.setItem('s3.atlas.focus', focus) } catch { /* */ }
+    if (onNavigateToObject) {
+      onNavigateToObject({ type: 'view', id: 'view:atlas', viewKey: 'atlas', focus, meta: { focus } })
+    } else {
+      showToast(`图谱焦点已记下: ${focus}(请打开顶栏「图谱」)`, { tone: 'ok' })
+    }
   }
 
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载命题…</div>
@@ -311,18 +327,27 @@ export function PropositionDetail({ node, onDeleted }) {
 
   const entLocal = String(row.entity || '').split(':').pop() || '—'
   const seedBase = { name: `${entLocal}·${row.attribute || ''}`, id: row.id, text: row.value }
+  const propAtlasFocus = atlasFocusId({ kind: 'proposition', row, ref: node.ref })
 
   return (
     <div className="h-full overflow-y-auto bg-canvas" data-testid="proposition-detail">
       <div className="max-w-2xl mx-auto px-5 py-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 py-1" data-testid="proposition-readonly-banner">
           <span className="text-meta text-faint">只读检视 · 超越/遗忘走主编审批写</span>
-          <button type="button" data-testid="proposition-ask-chief"
-            onClick={() => seedChiefCodexWrite('facts', seedBase,
-              `请处理命题「${entLocal}·${row.attribute || ''}」:可超越改值(保历史)或设置 knower 遗忘;用 s3_ 写工具提交审批。`)}
-            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
-            让主编写入
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {propAtlasFocus && (
+              <button type="button" data-testid="codex-open-graph" onClick={graphFocus}
+                className="text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-1">
+                <GitBranch size={13} />在图谱中打开
+              </button>
+            )}
+            <button type="button" data-testid="proposition-ask-chief"
+              onClick={() => seedChiefCodexWrite('facts', seedBase,
+                `请处理命题「${entLocal}·${row.attribute || ''}」:可超越改值(保历史)或设置 knower 遗忘;用 s3_ 写工具提交审批。`)}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
+              让主编写入
+            </button>
+          </div>
         </div>
 
         <SectionTitle icon={Boxes}>命题详情</SectionTitle>
@@ -512,7 +537,7 @@ function FactionRelations({ name }) {
   )
 }
 
-export function CodexDetail({ node, onDeleted }) {
+export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
@@ -525,9 +550,15 @@ export function CodexDetail({ node, onDeleted }) {
   const reload = () => {
     if (!node || !detailType) { setLoading(false); return }
     setLoading(true); setLoadErr('')
-    loadRows(node.type)
-      .then((rows) => {
-        setRow(pickRow(node.type, rows, node.ref) || null)
+    loadOne(node.type, node.ref)
+      .then((r) => {
+        // 角色 GET 可能缺 kind/id 前缀,补齐
+        if (r && node.type === 'character') {
+          const local = r.id?.includes?.(':') ? r.id.split(':').slice(1).join(':') : (r.id || node.ref)
+          setRow({ ...r, id: r.id?.startsWith?.('role:') ? r.id : `role:${local}`, kind: r.kind || 'character' })
+        } else {
+          setRow(r || null)
+        }
         setLoading(false)
       })
       .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
@@ -544,35 +575,86 @@ export function CodexDetail({ node, onDeleted }) {
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已删除)。</div>
 
   const openDelete = async () => {
-    if (detailType !== 'chars') { setDelOpen(true); return }
     if (delLoading) return
     setDelLoading(true)
     try {
-      const impact = await api.objectImpact('role', localOf(row))
-      setDeleteImpact(impact || null)
+      const ot = DELETE_OBJECT_TYPE[detailType]
+      if (ot === 'role') {
+        const impact = await api.objectImpact('role', localOf(row))
+        setDeleteImpact(impact || null)
+      } else if (ot === 'fact') {
+        const impact = await api.objectImpact('fact', node.ref)
+        setDeleteImpact(impact || null)
+      } else {
+        setDeleteImpact(null)
+      }
       setDelOpen(true)
     } catch (e) {
-      showToast(e?.body?.detail || e?.message || '读取删除影响失败', { tone: 'danger' })
+      // impact 失败仍允许打开对话框(走主编种子)
+      setDeleteImpact(null)
+      setDelOpen(true)
+      showToast(e?.body?.detail || e?.message || '影响范围不可用,将交给主编处理', { tone: 'warn' })
     } finally {
       setDelLoading(false)
     }
   }
 
-  const doDelete = async () => {
-    try {
-      if (detailType === 'chars') {
-        if (deleteImpact?.recommended_action === 'archive') await api.archiveObject('role', localOf(row))
-        else await api.deleteObject('role', localOf(row), deleteImpact?.confirm_impact_token || '')
-      }
-      else await remove(detailType, row)
-      onDeleted?.()
+  const doDelete = () => {
+    const ot = DELETE_OBJECT_TYPE[detailType]
+    const archive = deleteImpact?.recommended_action === 'archive'
+    const objectId = ot === 'role' ? localOf(row)
+      : (ot === 'promise' || ot === 'motif') ? (row.id || node.ref)
+        : (row.name || node.ref)
+    seedChiefDeleteCodex(ot, objectId, {
+      label: row.name || row.text || node.ref,
+      archive: ot === 'role' || ot === 'fact' ? archive : false,
+    })
+    registerPendingCodexDelete({ objectType: ot, objectId, label: row.name || row.text || node.ref })
+    showToast(archive
+      ? '已交给主编归档,请在右栏批准(批准后自动刷新目录)'
+      : '已交给主编删除,请在右栏批准(批准后自动刷新目录)', { tone: 'ok' })
+    setDelOpen(false)
+    // 审批落库后对象 404 → 再 onDeleted 退回分类并刷树
+    const ac = new AbortController()
+    watchCodexObjectGone(api, { objectType: ot, objectId }, { signal: ac.signal })
+      .then((r) => {
+        if (r !== 'gone') return
+        clearPendingCodexDelete()
+        notifyCodexTreeRefresh({ objectType: ot, objectId })
+        onDeleted?.()
+      })
+  }
+
+  // store.graph 节点:role:/fact:/faction:/item:
+  const entityAtlasFocus = atlasFocusId({ detailType, row, ref: node.ref })
+
+  const graphFocus = () => {
+    const focus = atlasFocusId({ detailType, row, ref: node.ref })
+    if (!focus) {
+      showToast('该类型暂无图谱焦点映射', { tone: 'warn' })
+      return
     }
-    catch (e) { showToast(e?.body?.detail || e?.message || (deleteImpact?.recommended_action === 'archive' ? '归档失败' : '删除失败'), { tone: 'danger' }) }
+    // 先写 session,再经 onNavigateToObject → targetNodeToSelection(view) → 切 atlas;
+    // AtlasView 挂载时消费 s3.atlas.focus 作为 ego 中心。
+    try { sessionStorage.setItem('s3.atlas.focus', focus) } catch { /* */ }
+    if (onNavigateToObject) {
+      onNavigateToObject({ type: 'view', id: 'view:atlas', viewKey: 'atlas', focus, meta: { focus } })
+    } else {
+      showToast(`图谱焦点已记下: ${focus}(请打开顶栏「图谱」)`, { tone: 'ok' })
+    }
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-canvas">
+    <div className="h-full overflow-y-auto bg-canvas" data-testid="codex-detail">
       <div className="max-w-2xl mx-auto px-5 py-4">
+        {entityAtlasFocus && (
+          <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="codex-detail-toolbar">
+            <button type="button" data-testid="codex-open-graph" onClick={graphFocus}
+              className="text-meta text-brand hover:text-brand/80 cursor-pointer inline-flex items-center gap-1">
+              <GitBranch size={13} />在图谱中打开
+            </button>
+          </div>
+        )}
         <DetailView
           type={detailType}
           row={row}
@@ -590,12 +672,10 @@ export function CodexDetail({ node, onDeleted }) {
       </div>
       <ConfirmDialog
         open={delOpen}
-        title="确认删除?"
-        body={detailType === 'chars'
-          ? lifecycleDeleteBody(deleteImpact, `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`)
-          : `将删除「${row.name || row.text || node.ref}」,此操作不可撤销。`}
-        danger={detailType !== 'chars' || deleteImpact?.recommended_action !== 'archive'}
-        confirmText={detailType === 'chars' && deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}
+        title={deleteImpact?.recommended_action === 'archive' ? '确认归档?' : '确认删除?'}
+        body={lifecycleDeleteBody(deleteImpact, `将${deleteImpact?.recommended_action === 'archive' ? '归档' : '删除'}「${row.name || row.text || node.ref}」(经主编审批)。`)}
+        danger={deleteImpact?.recommended_action !== 'archive'}
+        confirmText={deleteImpact?.recommended_action === 'archive' ? '交给主编归档' : '交给主编删除'}
         onConfirm={doDelete}
         onClose={() => setDelOpen(false)}
       />

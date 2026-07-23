@@ -40,7 +40,22 @@ function readTheme() {
 
 function nodeColor(n, theme) {
   if (n.type === 'character') return theme['--color-brand']
+  if (n.type === 'faction') return theme['--color-secret'] || '#9c5f86'
+  if (n.type === 'item') return theme['--color-line'] || '#8a8070'
   return n.secret ? theme['--color-secret'] : theme['--color-irony']
+}
+
+function atlasNavType(n) {
+  if (n?.type === 'character') return 'character'
+  if (n?.type === 'faction') return 'faction'
+  if (n?.type === 'item') return 'item'
+  if (n?.type === 'proposition') return 'proposition'
+  // 兼容 id 前缀
+  const id = String(n?.id || '')
+  if (id.startsWith('role:')) return 'character'
+  if (id.startsWith('faction:')) return 'faction'
+  if (id.startsWith('item:')) return 'item'
+  return 'proposition'
 }
 
 // —— graphology 构建 + forceAtlas2 布局,挂进 sigma(在数据加载后跑有限迭代) ——
@@ -53,12 +68,13 @@ function buildGraph(data, focus, theme) {
   nodes.forEach((n, i) => {
     if (g.hasNode(n.id)) return
     const isChar = n.type === 'character'
+    const isEntity = n.type === 'faction' || n.type === 'item'
     const isFocus = focus && n.id === focus
     const ang = (i / N) * Math.PI * 2
     g.addNode(n.id, {
       x: Math.cos(ang) * 10 + (isFocus ? 0 : 0),
       y: Math.sin(ang) * 10,
-      size: isFocus ? 16 : isChar ? 11 : 7,
+      size: isFocus ? 16 : isChar ? 11 : isEntity ? 9 : 7,
       color: nodeColor(n, theme),
       // 角色显名;命题节点 label 后端已对 secret 屏蔽(store.graph 出带锁前缀的私密串),
       // 此处不再前端重复加锁前缀,避免双锁——secret 语义由后端 label + 节点配色承载
@@ -219,16 +235,21 @@ export function AtlasView({ onNavigateToObject }) {
   const pickNode = useCallback((n) => {
     setPicked(n)
     if (!n) { setBusFocus(null); return }
-    setBusFocus(n.type === 'character'
-      ? { type: 'character', id: n.id, label: n.label, origin: 'atlas' }
-      : { type: 'frame_fact', id: n.id, label: n.secret ? '私密命题' : n.label, payload: { secret: !!n.secret }, origin: 'atlas' })
+    const t = atlasNavType(n)
+    if (t === 'character') {
+      setBusFocus({ type: 'character', id: n.id, label: n.label, origin: 'atlas' })
+    } else if (t === 'faction' || t === 'item') {
+      setBusFocus({ type: t, id: n.id, label: n.label, origin: 'atlas' })
+    } else {
+      setBusFocus({ type: 'frame_fact', id: n.id, label: n.secret ? '私密命题' : n.label, payload: { secret: !!n.secret }, origin: 'atlas' })
+    }
   }, [setBusFocus])
 
   // 键盘等价路径:图谱对象列表项 → 与图形节点「打开设定」相同的 onNavigateToObject。
   const navToNode = useCallback((n) => {
     onNavigateToObject?.({
       id: n.id,
-      type: n.type === 'character' ? 'character' : 'proposition',
+      type: atlasNavType(n),
       label: n.secret ? '私密命题' : (n.label || n.id),
       secret: !!n.secret,
     })
@@ -263,6 +284,16 @@ export function AtlasView({ onNavigateToObject }) {
       const cs = (g.nodes || []).filter((n) => n.type === 'character')
         .map((n) => ({ id: n.id, label: n.label || n.id }))
       setChars(cs)
+      // 设定详情「在图谱中打开」:消费 session 焦点(role:… / fact:…),用完即清
+      let pendingFocus = ''
+      try {
+        pendingFocus = sessionStorage.getItem('s3.atlas.focus') || ''
+        if (pendingFocus) sessionStorage.removeItem('s3.atlas.focus')
+      } catch { /* */ }
+      if (pendingFocus) {
+        setFocus(pendingFocus) // 触发 ego 子图加载
+        return
+      }
       if (cs.length) {
         // 默认聚焦「最中心」角色(边数最多,通常是主角)→ 一进来就看到主关系网,而非随机首个稀疏角色。
         const charIds = new Set(cs.map((c) => c.id))

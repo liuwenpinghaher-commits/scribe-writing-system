@@ -97,6 +97,18 @@ class FactsKnowledgeMixin:
         return Fact(oid, eid, r["attribute"], r["value"], r["valid_from"],
                     r.get("valid_to"), r.get("secret", False), r.get("leak_markers", []))
 
+    def list_open_propositions(self, chapter: int = 99999) -> list[dict]:
+        """开区间命题列表(设定树投影用)。返回 [{id, entity_id, attribute, value, valid_from, valid_to, secret}]。"""
+        ch = int(chapter)
+        rows = self._query(
+            "SELECT meta::id(id) AS id, entity_id, attribute, value, "
+            "valid_from, valid_to, secret FROM proposition "
+            "WHERE valid_from <= $ch AND (valid_to = NONE OR valid_to > $ch) "
+            "AND (archived = NONE OR archived != true) "
+            "ORDER BY valid_from DESC",
+            {"ch": ch}) or []
+        return rows
+
     def facts_at(self, chapter: int) -> list[Fact]:
         rows = self._query(
             "SELECT meta::id(id) AS local, entity_id, attribute, value, "

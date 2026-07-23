@@ -704,21 +704,25 @@ function FactionField({ f, row, isNew, save, uid, readOnly = false }) {
   )
 }
 
-// ═══ FactionSchemaView:GET /codex-schema/faction 拉取成功后的渲染路径 ═══
-function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) {
+// ═══ SchemaView:GET /codex-schema/{kind} 成功后的通用渲染(势力/角色) ═══
+// 字段控件复用 FactionField(按元数据 type dispatch);角色另挂弧光/关系只读区。
+function SchemaDrivenView({
+  schema, row, isNew, onBack, save, onDelete, uid,
+  kindLabel, seedType, testId, deleteLabel, extras = null,
+}) {
   const visible = schema.filter((f) => !f.deprecated || hasValue(row[f.key]))
   const ro = !isNew
   return (
-    <div className="max-w-2xl mx-auto" data-testid="faction-schema-view">
+    <div className="max-w-2xl mx-auto" data-testid={testId}>
       <div className="flex items-center gap-3 mb-4">
         {onBack && <button onClick={onBack} className="inline-flex items-center gap-1 text-f13 text-faint hover:text-ink cursor-pointer transition-colors duration-150"><ArrowLeft size={16}/>返回</button>}
-        <span className="text-meta text-faint/50">{isNew ? '新建势力' : '势力'}</span>
+        <span className="text-meta text-faint/50">{isNew ? `新建${kindLabel}` : kindLabel}</span>
       </div>
       {ro && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 py-1" data-testid="codex-readonly-banner">
           <span className="text-meta text-faint">只读检视 · 禁止表单直填 · 写入走主编对话审批</span>
           <button type="button" data-testid="codex-ask-chief"
-            onClick={() => seedChiefCodexWrite('factions', row)}
+            onClick={() => seedChiefCodexWrite(seedType, row)}
             className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 cursor-pointer">
             让主编写入
           </button>
@@ -727,12 +731,38 @@ function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) 
       <div className="border-t border-line pt-3">
         {visible.map((f) => <FactionField key={f.key} f={f} row={row} isNew={isNew} save={save} uid={uid} readOnly={ro} />)}
       </div>
+      {extras}
       <div className="mt-4 pt-3 border-t border-line">
         <button onClick={onDelete} className="text-f12 text-faint hover:text-danger cursor-pointer inline-flex items-center gap-1 transition-colors duration-150">
-          <Trash2 size={13}/>删除
+          <Trash2 size={13}/>{deleteLabel || '删除'}
         </button>
       </div>
     </div>
+  )
+}
+
+function FactionSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) {
+  return (
+    <SchemaDrivenView
+      schema={schema} row={row} isNew={isNew} onBack={onBack} save={save} onDelete={onDelete} uid={uid}
+      kindLabel="势力" seedType="factions" testId="faction-schema-view" deleteLabel="删除"
+    />
+  )
+}
+
+function CharacterSchemaView({ schema, row, isNew, onBack, save, onDelete, uid }) {
+  return (
+    <SchemaDrivenView
+      schema={schema} row={row} isNew={isNew} onBack={onBack} save={save} onDelete={onDelete} uid={uid}
+      kindLabel={isNew ? '角色' : '角色档案'} seedType="chars" testId="character-schema-view"
+      deleteLabel="删除角色"
+      extras={!isNew ? (
+        <>
+          <DynamicTimeline characterId={row.id} characterName={row.name} />
+          <DynamicRelations characterId={row.id} characterName={row.name} />
+        </>
+      ) : null}
+    />
   )
 }
 
@@ -749,18 +779,34 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
   const save = (key, val) => onUpdate(stripSecretMask({ ...row, [key]: val }))
   const requiredNew = (k) => isNew && (REQUIRED_NEW[type] || ['name']).includes(k)
 
-  // CX-Task 7:faction 元数据驱动——只切这一类(其余四类仍走下方 legacy fieldMap,阶段2 再迁)。
-  // factionSchema 初值 null:既表示"尚未拉到"也表示"拉取失败",两种情况下面 render 都会落回
-  // legacy fieldMap.factions 分支——不白屏,也不需要额外的 loading 态。
-  const [factionSchema, setFactionSchema] = useState(null)
+  // 元数据驱动 kinds: DetailView type → GET /codex-schema/{kind}
+  // schema 初值 null=未拉到/失败 → 落回 legacy fieldMap / 硬编码,不白屏。
+  const SCHEMA_KIND_BY_TYPE = {
+    factions: 'faction',
+    chars: 'character',
+    items: 'item',
+    terms: 'term',
+    rules: 'world_rule',
+  }
+  const schemaKind = SCHEMA_KIND_BY_TYPE[type] || null
+  const [kindSchema, setKindSchema] = useState(null)
   useEffect(() => {
-    if (type !== 'factions') return
+    if (!schemaKind) { setKindSchema(null); return }
     let alive = true
-    api.get('/codex-schema/faction')
-      .then((s) => { if (alive) setFactionSchema(Array.isArray(s) && s.length ? s : null) })
-      .catch(() => { if (alive) setFactionSchema(null) })
+    setKindSchema(null)
+    api.get(`/codex-schema/${schemaKind}`)
+      .then((s) => { if (alive) setKindSchema(Array.isArray(s) && s.length ? s : null) })
+      .catch(() => { if (alive) setKindSchema(null) })
     return () => { alive = false }
-  }, [type])
+  }, [type, schemaKind])
+
+  // 角色 schema 成功 → 注册表渲染;失败/未就绪 → 下方 legacy 硬编码字段表。
+  if (type === 'chars' && kindSchema) {
+    return (
+      <CharacterSchemaView schema={kindSchema} row={row} isNew={isNew} uid={uid}
+        onBack={onBack} save={save} onDelete={onDelete} />
+    )
+  }
 
   if (type === 'chars') {
     const ro = !isNew
@@ -821,11 +867,36 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
     )
   }
 
-  // CX-Task 7:元数据拉取成功 → 走注册表驱动渲染;失败/未就绪则穿透到下面的 legacy fieldMap。
-  if (type === 'factions' && factionSchema) {
+  // 势力 / 物件 / 术语 / 世界规则 schema 成功 → 注册表;失败 → legacy fieldMap。
+  if (type === 'factions' && kindSchema) {
     return (
-      <FactionSchemaView schema={factionSchema} row={row} isNew={isNew} uid={uid}
+      <FactionSchemaView schema={kindSchema} row={row} isNew={isNew} uid={uid}
         onBack={onBack} save={save} onDelete={onDelete} />
+    )
+  }
+  if (type === 'items' && kindSchema) {
+    return (
+      <SchemaDrivenView
+        schema={kindSchema} row={row} isNew={isNew} onBack={onBack} save={save} onDelete={onDelete} uid={uid}
+        kindLabel="物品" seedType="items" testId="item-schema-view" deleteLabel="删除"
+        extras={!isNew ? <ItemStateHistory item={row} /> : null}
+      />
+    )
+  }
+  if (type === 'terms' && kindSchema) {
+    return (
+      <SchemaDrivenView
+        schema={kindSchema} row={row} isNew={isNew} onBack={onBack} save={save} onDelete={onDelete} uid={uid}
+        kindLabel="术语" seedType="terms" testId="term-schema-view" deleteLabel="删除"
+      />
+    )
+  }
+  if (type === 'rules' && kindSchema) {
+    return (
+      <SchemaDrivenView
+        schema={kindSchema} row={row} isNew={isNew} onBack={onBack} save={save} onDelete={onDelete} uid={uid}
+        kindLabel="世界规则" seedType="rules" testId="world-rule-schema-view" deleteLabel="删除"
+      />
     )
   }
 

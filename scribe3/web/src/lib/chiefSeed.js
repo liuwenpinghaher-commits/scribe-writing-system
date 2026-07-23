@@ -12,19 +12,34 @@ export function focusChiefWithSeed(text) {
   return payload
 }
 
-/** 设定库档案补全/更正（Codex 主路径） */
+/** DetailView type → 具名 MCP patch 工具 */
+const CODEX_PATCH_TOOL = {
+  chars: 's3_patch_character',
+  factions: 's3_patch_faction',
+  items: 's3_patch_item',
+  terms: 's3_patch_term',
+  rules: 's3_patch_world_rule',
+  promises: 's3_patch_promise',
+  motifs: 's3_patch_motif',
+  facts: 's3_supersede_fact',
+}
+
+/** 设定库档案补全/更正（Codex 主路径）——种子必须点名真实写工具 */
 export function seedChiefCodexWrite(type, row = {}, hint = '') {
   const name = row.name || row.text || row.id || type
+  const tool = CODEX_PATCH_TOOL[type] || 's3_patch_character'
+  const idHint = row.id || row.name || name
   const lines = type === 'chars'
     ? [
       `请更新/更正角色「${name}」的档案并写入落库(需我审批):`,
       '可补全或修正:外貌/性格/前史/目标/恐惧/首次出场等。',
-      '必须先用只读工具核实,再用 s3_patch_character(或对应写工具)写入。',
+      `必须先用只读工具核实,再用 ${tool}(character_id=…) 写入。`,
       '未获批准不得声称已落库。',
     ]
     : [
       `请根据本书上下文补全/更正设定「${name}」(类型:${type})并提交写入提案供我批准。`,
-      '先只读核实当前库内事实,再调用对应 s3_ 写工具;未获批准不得声称已落库。',
+      `先只读核实当前库内事实,再调用 ${tool}(目标 id/name=${JSON.stringify(String(idHint))}) 写入。`,
+      '未获批准不得声称已落库。',
     ]
   if (hint) lines.push(String(hint))
   return focusChiefWithSeed(lines.join('\n'))
@@ -55,6 +70,23 @@ export function seedChiefCodexCreate(catType, fields = {}) {
     '先只读核实是否已有同名实体,再写入;未获批准不得声称已落库。',
   ]
   return focusChiefWithSeed(lines.join('\n'))
+}
+
+/**
+ * 归档/删除设定对象 → s3_delete_codex
+ * @param {string} objectType role|fact|faction|item|term|world_rule|promise|motif
+ * @param {string} objectId 裸 id 或 name
+ * @param {{ label?: string, archive?: boolean }} [opts]
+ */
+export function seedChiefDeleteCodex(objectType, objectId, { label = '', archive = true } = {}) {
+  const ot = String(objectType || '').trim()
+  const oid = String(objectId || '').trim()
+  const mode = archive ? '归档' : '删除'
+  return focusChiefWithSeed([
+    `请${mode}设定 ${ot}:${label || oid} 并写入落库(需我审批)。`,
+    `使用工具 s3_delete_codex(object_type=${JSON.stringify(ot)}, object_id=${JSON.stringify(oid)}, archive=${archive ? 'true' : 'false'})。`,
+    '未获批准不得声称已落库。',
+  ].join('\n'))
 }
 
 /**

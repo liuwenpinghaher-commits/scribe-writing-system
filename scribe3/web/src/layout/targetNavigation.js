@@ -142,5 +142,19 @@ export function targetNodeToSelection(raw) {
     return { entry: 'codex', node: codexNode(target) }
   }
 
+  // 横切视图(图谱等):从设定详情「在图谱中打开」等入口进入
+  if (type === 'view' || type === 'atlas' || id.startsWith('view:')) {
+    const viewKey = target.viewKey
+      || (type === 'atlas' ? 'atlas' : '')
+      || id.replace(/^view:/, '')
+      || 'atlas'
+    const atlasFocus = target.focus || target.meta?.focus || null
+    return {
+      viewKey,
+      atlasFocus,
+      node: { type: 'view', id: `view:${viewKey}`, viewKey },
+    }
+  }
+
   return null
 }

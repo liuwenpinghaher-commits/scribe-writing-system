@@ -195,6 +195,9 @@ function EmptyState({ category, query, onNew }) {
 
 export function CodexDirectory({ root, selected, onSelectItem }) {
   const [query, setQuery] = useState('')
+  const [serverHits, setServerHits] = useState(null) // null=未搜 / []|items=服务端结果
+  const [health, setHealth] = useState(null)
+  const [smartView, setSmartView] = useState('all') // all|secret|sparse
   const category = findCategory(root, selected)
   const categories = root?.children || []
   const isRoot = !category
@@ -208,7 +211,43 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
     onSelectItem?.({ id: `new:${category.ref}`, type: 'codex_new', ref: category.ref, label: category.label })
   }
 
-  useEffect(() => { setQuery('') }, [category?.id])
+  useEffect(() => { setQuery(''); setServerHits(null) }, [category?.id])
+
+  useEffect(() => {
+    let alive = true
+    api.codexHealth()
+      .then((h) => { if (alive) setHealth(h) })
+      .catch(() => { if (alive) setHealth(null) })
+    return () => { alive = false }
+  }, [root?.id])
+
+  // 跨类型服务端搜索(debounce):有 query 时优先用 /codex/search
+  useEffect(() => {
+    const needle = query.trim()
+    if (!needle || needle.length < 1) {
+      setServerHits(null)
+      return undefined
+    }
+    let alive = true
+    const t = setTimeout(() => {
+      api.codexSearch(needle, 40)
+        .then((r) => {
+          if (!alive) return
+          const items = Array.isArray(r?.items) ? r.items : []
+          setServerHits(items.map((it) => ({
+            id: it.id || `${it.type}:${it.ref}`,
+            type: it.type,
+            ref: it.ref,
+            label: it.label,
+            meta: { subtitle: it.subtitle },
+          })))
+        })
+        .catch(() => { if (alive) setServerHits([]) })
+    }, 280)
+    return () => { alive = false; clearTimeout(t) }
+  }, [query])
+
+  const showServerSearch = serverHits != null && query.trim()
 
   return (
     <div className={DIR_SHELL} data-testid="codex-directory">
@@ -226,15 +265,58 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
         primaryAction={canCreate ? { label: '新建设定', onClick: createNode } : undefined}
       />
       <div data-testid="codex-directory-title" className="sr-only">{category?.label || root?.label || '设定库'}</div>
+      {health && (
+        <div data-testid="codex-health" className="px-3 py-1.5 text-meta text-faint border-b border-line/30 bg-surface/80">
+          健康度: 角色 {health.characters ?? 0} · 命题 {health.propositions_open ?? 0}
+          · 稀疏档案 {health.sparse_dossiers ?? 0} · 无关系角色 {health.isolated_characters ?? 0}
+        </div>
+      )}
+      {isRoot && (
+        <div data-testid="codex-smart-views" className="flex flex-wrap gap-1 px-3 py-1.5 border-b border-line/40 bg-surface">
+          {[
+            { key: 'all', label: '全部分类' },
+            { key: 'secret', label: '含私密' },
+            { key: 'sparse', label: '稀疏档案' },
+          ].map((v) => (
+            <button key={v.key} type="button" onClick={() => setSmartView(v.key)}
+              className={`h-6 px-2 rounded-md text-meta cursor-pointer ${smartView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:bg-soft'}`}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
-        {isRoot ? (
+        {showServerSearch ? (
+          <>
+            <DirectorySectionLabel>搜索结果</DirectorySectionLabel>
+            {serverHits.length === 0 ? (
+              <div className="px-3 py-8 text-center text-f13 text-faint">没有匹配设定</div>
+            ) : (
+              <div className="space-y-1" data-testid="codex-search-results">
+                {serverHits.map((node) => (
+                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : isRoot ? (
           <>
             <DirectorySectionLabel>分类</DirectorySectionLabel>
             <div className="space-y-1">
-              {categories.filter((cat) => matchesQuery(cat, query)).map((cat) => (
-                <CategoryRow key={cat.id} category={cat} selected={sameNode(cat, selected)} onSelect={onSelectItem} />
-              ))}
+              {categories
+                .filter((cat) => matchesQuery(cat, query))
+                .filter((cat) => {
+                  if (smartView === 'secret') {
+                    return (cat.children || []).some((c) => (c.badges || []).some((b) => b?.kind === 'secret'))
+                      || cat.ref === 'proposition' || cat.ref === 'character'
+                  }
+                  if (smartView === 'sparse') return cat.ref === 'character'
+                  return true
+                })
+                .map((cat) => (
+                  <CategoryRow key={cat.id} category={cat} selected={sameNode(cat, selected)} onSelect={onSelectItem} />
+                ))}
             </div>
           </>
         ) : (
@@ -245,9 +327,16 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
               <EmptyState category={category} query={query} onNew={createNode} />
             ) : (
               <div className="space-y-1">
-                {items.map((node) => (
-                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
-                ))}
+                {items
+                  .filter((node) => {
+                    if (smartView === 'secret') {
+                      return (node.badges || []).some((b) => b?.kind === 'secret')
+                    }
+                    return true
+                  })
+                  .map((node) => (
+                    <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
+                  ))}
               </div>
             )}
           </>

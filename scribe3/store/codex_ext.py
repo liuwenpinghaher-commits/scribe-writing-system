@@ -125,6 +125,24 @@ class CodexExtMixin:
             return self._query("SELECT * FROM world_rule WHERE category=$cat", {"cat": category})
         return self._query("SELECT * FROM world_rule")
 
+    def get_world_rule(self, name: str) -> dict | None:
+        rows = self._query("SELECT * FROM world_rule WHERE name=$n LIMIT 1", {"n": name}) or []
+        return rows[0] if rows else None
+
+    def patch_world_rule(self, name: str, fields: dict) -> bool:
+        """局部更新世界规则;不存在返回 False。"""
+        if not self.get_world_rule(name):
+            return False
+        allowed = {k: v for k, v in (fields or {}).items()
+                   if k in ("category", "source", "capabilities", "cost", "limitations",
+                            "exceptions", "scope", "established_chapter", "note", "name")}
+        if not allowed:
+            return True
+        sets = ", ".join(f"{k}=${k}" for k in allowed)
+        self._execute_write(f"UPDATE world_rule SET {sets} WHERE name=$__n",
+                            {**allowed, "__n": name})
+        return True
+
     def delete_world_rule(self, name: str) -> None:
         self._execute_write("DELETE world_rule WHERE name=$n", {"n": name})
 
@@ -151,6 +169,23 @@ class CodexExtMixin:
         if state:
             return self._query("SELECT * FROM item WHERE symbolic_state=$st", {"st": state})
         return self._query("SELECT * FROM item")
+
+    def get_item(self, name: str) -> dict | None:
+        rows = self._query("SELECT * FROM item WHERE name=$n LIMIT 1", {"n": name}) or []
+        return rows[0] if rows else None
+
+    def patch_item(self, name: str, fields: dict) -> bool:
+        if not self.get_item(name):
+            return False
+        allowed = {k: v for k, v in (fields or {}).items()
+                   if k in ("category", "description", "current_owner", "symbolic_state",
+                            "special_properties", "first_chapter", "name")}
+        if not allowed:
+            return True
+        sets = ", ".join(f"{k}=${k}" for k in allowed)
+        self._execute_write(f"UPDATE item SET {sets} WHERE name=$__n",
+                            {**allowed, "__n": name})
+        return True
 
     def update_item_state(self, name: str, new_state: str, chapter: int,
                           note: str = "") -> None:
@@ -179,5 +214,165 @@ class CodexExtMixin:
     def list_terms(self) -> list[dict]:
         return self._query("SELECT * FROM term")
 
+    def get_term(self, name: str) -> dict | None:
+        rows = self._query("SELECT * FROM term WHERE name=$n LIMIT 1", {"n": name}) or []
+        return rows[0] if rows else None
+
+    def patch_term(self, name: str, fields: dict) -> bool:
+        if not self.get_term(name):
+            return False
+        allowed = {k: v for k, v in (fields or {}).items()
+                   if k in ("category", "definition", "aliases", "first_mention_chapter", "name")}
+        if not allowed:
+            return True
+        sets = ", ".join(f"{k}=${k}" for k in allowed)
+        self._execute_write(f"UPDATE term SET {sets} WHERE name=$__n",
+                            {**allowed, "__n": name})
+        return True
+
     def delete_term(self, name: str) -> None:
         self._execute_write("DELETE term WHERE name=$n", {"n": name})
+
+    def get_motif(self, motif_id: str) -> dict | None:
+        mid = (motif_id or "").strip()
+        if not mid:
+            return None
+        rows = self._query(
+            "SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM "
+            "type::record('motif',$m) LIMIT 1", {"m": mid}) or []
+        if rows:
+            return rows[0]
+        # 兼容 name 查找
+        rows = self._query(
+            "SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM motif "
+            "WHERE name=$n LIMIT 1", {"n": mid}) or []
+        return rows[0] if rows else None
+
+    def patch_motif(self, motif_id: str, fields: dict) -> bool:
+        row = self.get_motif(motif_id)
+        if not row:
+            return False
+        mid = row["id"]
+        allowed = {k: v for k, v in (fields or {}).items()
+                   if k in ("name", "theme", "echoes", "unfolding")}
+        if not allowed:
+            return True
+        self._update_by("motif", mid, allowed)
+        return True
+
+    # ── 设定库发现:搜索 + 健康度 ──
+
+    def codex_search(self, q: str, limit: int = 40) -> list[dict]:
+        """跨设定类型子串检索(name/alias/text/attribute)。返回 [{type, id, label, ref, subtitle}]。"""
+        needle = (q or "").strip().lower()
+        if not needle:
+            return []
+        lim = max(1, min(int(limit or 40), 100))
+        out: list[dict] = []
+
+        def _hit(kind, ref, label, subtitle=""):
+            out.append({
+                "type": kind, "id": f"{kind}:{ref}", "ref": ref,
+                "label": label or str(ref), "subtitle": subtitle or "",
+            })
+
+        for e in self.characters():
+            local = e.id.split(":", 1)[-1]
+            aliases = " ".join((e.traits or {}).get("aliases") or [])
+            hay = f"{e.name} {aliases} {local}".lower()
+            if needle in hay:
+                _hit("character", local, e.name, "角色")
+            if len(out) >= lim:
+                return out[:lim]
+        for f in self.list_factions() or []:
+            aliases = " ".join(f.get("aliases") or []) if isinstance(f.get("aliases"), list) else ""
+            hay = f"{f.get('name') or ''} {aliases} {f.get('leader') or ''}".lower()
+            if needle in hay:
+                _hit("faction", f.get("name"), f.get("name"), "势力")
+            if len(out) >= lim:
+                return out[:lim]
+        for it in self.list_items() or []:
+            hay = f"{it.get('name') or ''} {it.get('description') or ''}".lower()
+            if needle in hay:
+                _hit("item", it.get("name"), it.get("name"), "物件")
+            if len(out) >= lim:
+                return out[:lim]
+        for t in self.list_terms() or []:
+            aliases = " ".join(t.get("aliases") or []) if isinstance(t.get("aliases"), list) else ""
+            hay = f"{t.get('name') or ''} {aliases} {t.get('definition') or ''}".lower()
+            if needle in hay:
+                _hit("term", t.get("name"), t.get("name"), "术语")
+            if len(out) >= lim:
+                return out[:lim]
+        for w in self.list_world_rules() or []:
+            hay = f"{w.get('name') or ''} {w.get('category') or ''} {w.get('note') or ''}".lower()
+            if needle in hay:
+                _hit("world_rule", w.get("name"), w.get("name"), "世界规则")
+            if len(out) >= lim:
+                return out[:lim]
+        for p in self.list_promises() or []:
+            hay = f"{p.get('text') or ''} {p.get('id') or ''}".lower()
+            if needle in hay:
+                _hit("promise", p.get("id"), (p.get("text") or "")[:40], "伏笔")
+            if len(out) >= lim:
+                return out[:lim]
+        for m in self.list_motifs() or []:
+            hay = f"{m.get('name') or ''} {m.get('theme') or ''}".lower()
+            if needle in hay:
+                _hit("motif", m.get("id"), m.get("name"), "母题")
+            if len(out) >= lim:
+                return out[:lim]
+        try:
+            for r in self.list_open_propositions():
+                eid = str(r.get("entity_id") or "").split(":")[-1]
+                attr = str(r.get("attribute") or "")
+                hay = f"{eid} {attr} {r.get('value') or ''}".lower()
+                if needle in hay:
+                    _hit("proposition", r.get("id"), f"{eid}·{attr}", "命题")
+                if len(out) >= lim:
+                    return out[:lim]
+        except Exception:
+            pass
+        return out[:lim]
+
+    def codex_health(self) -> dict:
+        """设定库健康度:条目计数 + 稀疏档案 + 无关系角色 + 开区间命题。"""
+        chars = self.characters()
+        sparse = 0
+        for e in chars:
+            tr = e.traits or {}
+            if not (tr.get("appearance") or tr.get("personality_detail") or tr.get("surface_goal")):
+                sparse += 1
+        isolated = 0
+        try:
+            rel_rows = self._all_relations() or []
+            linked = set()
+            for r in rel_rows:
+                if r.get("src"):
+                    linked.add(str(r["src"]).split(":")[-1] if ":" in str(r["src"]) else str(r["src"]))
+                if r.get("dst"):
+                    linked.add(str(r["dst"]).split(":")[-1] if ":" in str(r["dst"]) else str(r["dst"]))
+            for e in chars:
+                local = e.id.split(":", 1)[-1]
+                if local not in linked and e.name not in linked:
+                    isolated += 1
+        except Exception:
+            isolated = 0
+        props = 0
+        try:
+            props = len(self.list_open_propositions())
+        except Exception:
+            props = 0
+        return {
+            "characters": len(chars),
+            "factions": len(self.list_factions() or []),
+            "items": len(self.list_items() or []),
+            "terms": len(self.list_terms() or []),
+            "world_rules": len(self.list_world_rules() or []),
+            "promises": len(self.list_promises() or []),
+            "motifs": len(self.list_motifs() or []),
+            "propositions_open": props,
+            "sparse_dossiers": sparse,
+            "isolated_characters": isolated,
+        }
+

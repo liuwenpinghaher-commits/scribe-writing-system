@@ -39,10 +39,33 @@ const graphPayload = {
 describe('AtlasView 章切片', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     sigmaMock.currentGraph = null
     sigmaMock.events = null
     apiMock.graph.mockResolvedValue(graphPayload)
     apiMock.chapters.mockResolvedValue([{ seq: 1 }, { seq: 3 }, { seq: 5 }])
+  })
+
+  it('挂载时消费 s3.atlas.focus 作为 ego 中心并清除 session', async () => {
+    sessionStorage.setItem('s3.atlas.focus', 'role:小翠')
+    render(<AtlasView onNavigateToObject={vi.fn()} />)
+
+    await waitFor(() => {
+      const egoCalls = apiMock.graph.mock.calls.filter(
+        ([opts]) => opts && opts.focus === 'role:小翠',
+      )
+      expect(egoCalls.length).toBeGreaterThan(0)
+    })
+    expect(sessionStorage.getItem('s3.atlas.focus')).toBeNull()
+  })
+
+  it('可消费 fact: 命题焦点', async () => {
+    sessionStorage.setItem('s3.atlas.focus', 'fact:井底有骨')
+    render(<AtlasView onNavigateToObject={vi.fn()} />)
+    await waitFor(() => {
+      expect(apiMock.graph.mock.calls.some(([o]) => o?.focus === 'fact:井底有骨')).toBe(true)
+    })
+    expect(sessionStorage.getItem('s3.atlas.focus')).toBeNull()
   })
 
   it('默认全书:ego 请求不带 chapter', async () => {

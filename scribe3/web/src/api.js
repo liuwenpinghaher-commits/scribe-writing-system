@@ -112,9 +112,10 @@ export const api = {
   putIntentGoals: (b) => put('/intent-goals', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),
 
-  // CX-Task 7:设定字段注册表元数据(只读)——前端据此渲染表单,不再硬编码字段清单。
-  // 目前后端只注册了 'faction' 一个 kind(阶段1);其余四类未注册,调用会 404(调用方自行 fallback)。
+  // CX-Task 7:设定字段注册表元数据(只读)——faction + character 已注册;其余 kind 404 时 UI fallback。
   codexSchema: (kind) => j('/codex-schema/' + enc(kind)),
+  codexSearch: (q, limit = 40) => j('/codex/search?q=' + enc(q) + '&limit=' + enc(limit)),
+  codexHealth: () => j('/codex/health'),
   // 通用实体关系(entity_relation,CX-Task 5):entity 传完整前缀 oid(如 faction:秘会);
   // truth 字段默认掩码(reveal_secret 不传即 false),前端不做 reveal 入口,照掩码原样显示。
   entityRelations: (entity) => j('/entity-relations' + (entity ? `?entity=${enc(entity)}` : '')),
@@ -123,7 +124,17 @@ export const api = {
   // 势力结构化一致性校验(只读,CX-Task 6):关系矛盾/核心圈超编/信物传承章超前/权力占比超100%。
   factionConsistency: () => j('/faction-consistency'),
 
-  // 设定库增删改
+  // 设定库单条读(详情 O(1),禁止全表扫)
+  getChar: (local) => j('/characters/' + enc(local)),
+  getFaction: (name) => j('/factions/' + enc(name)),
+  getItem: (name) => j('/items/' + enc(name)),
+  getTerm: (name) => j('/terms/' + enc(name)),
+  getWorldRule: (name) => j('/world-rules/' + enc(name)),
+  getPromise: (pid) => j('/promises/' + enc(pid)),
+  getMotif: (mid) => j('/motifs/' + enc(mid)),
+  getFact: (local) => j('/facts/' + enc(local)),
+
+  // 设定库增删改(正式写 emergency 关时 403;作者主路径走主编 MCP)
   addChar: (b) => post('/characters', b),
   editChar: (local, b) => patch('/characters/' + enc(local), b),
   delChar: (local, token = '') => del('/characters/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),

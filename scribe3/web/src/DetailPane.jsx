@@ -63,6 +63,7 @@ export function DetailPane(props) {
 }
 
 function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey }) {
+  // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
@@ -173,13 +174,22 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   // —— 命题叶(批D 件1)→ 独立安全详情块(不走 DetailView 整行 PATCH,防私密值/leak_markers 被有损回写抹掉) ——
   if (node.type === 'proposition') {
     return <PropositionDetail key={node.id} node={node} onChanged={onTreeChanged}
+      onNavigateToObject={onNavigateToObject}
       onDeleted={() => { onTreeChanged?.(); onSelectNode?.({ id: 'cat:proposition', type: 'codex_category', ref: 'proposition', label: '命题' }) }} />
   }
 
   // —— 设定叶 → 详情卡(character 套对象外框;faction/item/term/world_rule/promise/motif 暂不套,
   //    由 withFrame 内 presentationForNode 判定:仅 character 有呈现数据 → 只有它被包)——
   if (CODEX_LEAF.has(node.type)) {
-    return withFrame(node, <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />)
+    return withFrame(node, (
+      <CodexDetail
+        key={node.id}
+        node={node}
+        onChanged={onTreeChanged}
+        onDeleted={onTreeChanged}
+        onNavigateToObject={onNavigateToObject}
+      />
+    ))
   }
 
   // —— 容器只驱动栏2目录;栏3只承载条目详情/横切视图 ——

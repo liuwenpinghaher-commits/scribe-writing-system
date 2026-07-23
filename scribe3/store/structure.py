@@ -21,21 +21,38 @@ class StructureMixin:
 
     def graph(self, chapter: int | None = None, focus: str | None = None,
               limit: int = 300, hop: int = 1) -> dict:
-        """知识图谱:角色/命题节点 + knows/关系 边(Atlas 视图)。
+        """知识图谱:角色/命题/势力/物件节点 + knows/关系/归属 边(Atlas 视图)。
         千万字基座(Phase0-BE1):不再无上限全图返回。
 
         - focus 给定 → 只返回该实体的 ego 子图:focus + hop 跳邻居 + 它们之间的边。
         - focus 为 None → 返回"按 secret(密)优先、再按 valid_from 倒序"排序的 top-limit
-          命题节点 + 相关角色 + 这些节点间的边,**硬上限 limit**(节点总数 ≤ limit)。
+          命题节点 + 相关角色/势力/物件 + 这些节点间的边,**硬上限 limit**(节点总数 ≤ limit)。
         - chapter 时间门保留(截至该章;None=全书)。
 
+        节点 id 约定:role:… / fact:… / faction:{name} / item:{name}。
         向后兼容:无新参数调用(graph()/graph(ch))仍返回 {nodes, edges},结构不变。
         """
         ch = chapter if chapter is not None else 9999
         chars = [{"id": e.id, "type": "character", "label": e.name} for e in self.characters()]
+        char_ids = {c["id"] for c in chars}
         props = [{"id": f.id, "type": "proposition",
                   "label": ("🔒 私密" if f.secret else (f.value or "")[:18]),
                   "secret": f.secret, "_vf": f.valid_from} for f in self.facts_at(ch)]
+        facs = []
+        for f in (self.list_factions() or []):
+            name = f.get("name")
+            if not name:
+                continue
+            facs.append({"id": f"faction:{name}", "type": "faction", "label": name})
+        items = []
+        for it in (self.list_items() or []):
+            name = it.get("name")
+            if not name:
+                continue
+            items.append({
+                "id": f"item:{name}", "type": "item", "label": name,
+                "_owner": it.get("current_owner"),
+            })
         # 全量边(限知门控后),供子图/全图共同筛选
         all_edges = []
         for k in self.knowledge:
@@ -47,11 +64,44 @@ class StructureMixin:
             all_edges.append({"src": k.knower_id, "dst": k.proposition_id, "rel": "knows"})
         for r in self.relations_at(ch):
             all_edges.append({"src": f"role:{r['src']}", "dst": f"role:{r['dst']}", "rel": r["relation"]})
+        # 通用实体关系(势力↔势力/角色等,两端已是 role:/faction: 本体 id)
+        try:
+            erels = self.entity_relations_at(ch) if hasattr(self, "entity_relations_at") else []
+        except Exception:
+            erels = []
+        for r in erels or []:
+            a, b = r.get("a"), r.get("b")
+            if not a or not b:
+                continue
+            all_edges.append({"src": a, "dst": b, "rel": r.get("relation_type") or "related"})
+        # 势力已知成员 → 角色
+        for f in (self.list_factions() or []):
+            fname = f.get("name")
+            if not fname:
+                continue
+            fid = f"faction:{fname}"
+            for m in (f.get("known_members") or []):
+                if not m:
+                    continue
+                rid = m if str(m).startswith("role:") else f"role:{m}"
+                if rid in char_ids:
+                    all_edges.append({"src": fid, "dst": rid, "rel": "member"})
+        # 物件持有者 → 角色
+        for n in items:
+            owner = n.pop("_owner", None)
+            if not owner:
+                continue
+            rid = owner if str(owner).startswith("role:") else f"role:{owner}"
+            if rid in char_ids:
+                all_edges.append({"src": n["id"], "dst": rid, "rel": "held_by"})
 
         def _strip(nodes):
             for n in nodes:
                 n.pop("_vf", None)
+                n.pop("_owner", None)
             return nodes
+
+        all_nodes = chars + facs + items + props
 
         if focus:
             # —— ego 子图:从 focus 起 BFS hop 跳 ——
@@ -69,7 +119,16 @@ class StructureMixin:
                 frontier = new
                 if not frontier:
                     break
-            nodes = [n for n in (chars + props) if n["id"] in keep]
+            nodes = [n for n in all_nodes if n["id"] in keep]
+            # focus 孤立时仍返回焦点节点(若它在全量节点表中)
+            if focus not in {n["id"] for n in nodes}:
+                for n in all_nodes:
+                    if n["id"] == focus:
+                        nodes.append(n)
+                        break
+                if focus not in {n["id"] for n in nodes}:
+                    # 未知 focus 仍回空邻域占位,便于 Atlas 显示焦点 id
+                    nodes.append({"id": focus, "type": "unknown", "label": focus})
             edges = [e for e in all_edges if e["src"] in keep and e["dst"] in keep]
             return {"nodes": _strip(nodes), "edges": edges}
 
@@ -77,10 +136,13 @@ class StructureMixin:
         # 命题排序:secret 优先(密谋更值得看),再按 valid_from 倒序(近事在前)。
         props_sorted = sorted(
             props, key=lambda p: (0 if p.get("secret") else 1, -(p.get("_vf") or 0)))
-        # 角色先占额(图骨架),命题填满到 limit。
+        # 角色 → 势力/物件 → 命题,依次占预算(图骨架优先)。
         budget = max(0, limit)
         nodes = chars[:budget]
         remaining = budget - len(nodes)
+        if remaining > 0:
+            nodes += (facs + items)[:remaining]
+            remaining = budget - len(nodes)
         if remaining > 0:
             nodes += props_sorted[:remaining]
         keep = {n["id"] for n in nodes}
@@ -247,6 +309,26 @@ class StructureMixin:
         def _char_badge(c):
             return [{"kind": "secret", "tone": "faint"}] if c.get("secret") else None
 
+        # 命题(正典事实):开区间投影,ref=裸 id,与 PropositionDetail / GET /facts/{local} 对齐
+        prop_items = []
+        try:
+            for r in self.list_open_propositions():
+                eid = str(r.get("entity_id") or "")
+                attr = str(r.get("attribute") or "")
+                local = str(r.get("id") or "")
+                prop_items.append({
+                    "id": local,
+                    "text": f"{eid.split(':')[-1] or '—'}·{attr or '—'}",
+                    "entity_id": eid,
+                    "attribute": attr,
+                    "secret": bool(r.get("secret")),
+                })
+        except Exception:
+            prop_items = []
+
+        def _prop_badge(p):
+            return [{"kind": "secret", "tone": "faint"}] if p.get("secret") else None
+
         codex_children = [
             _cat("character", "角色", char_items, "character", ref_key="local",
                  meta_fn=_char_meta, badge_fn=_char_badge),
@@ -257,6 +339,8 @@ class StructureMixin:
             _cat("promise", "伏笔", self.list_promises(), "promise",
                  name_key="text", ref_key="id"),
             _cat("motif", "母题", self.list_motifs(), "motif", ref_key="id"),
+            _cat("proposition", "命题", prop_items, "proposition",
+                 name_key="text", ref_key="id", badge_fn=_prop_badge),
         ]
         codex = {
             "id": "codex_root", "type": "codex_root", "label": "设定库",

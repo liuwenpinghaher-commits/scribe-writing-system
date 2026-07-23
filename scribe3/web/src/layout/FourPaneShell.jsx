@@ -82,10 +82,13 @@ export function FourPaneShell({
   const directoryRef = usePanelRef()
   const rightRef = usePanelRef()
   const [directoryCollapsed, setDirectoryCollapsed] = useState(() => readCollapsed(work, 'directory'))
-  const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(work, 'right'))
-  // 布局 Group 在 key 重挂/进书时会连发 onResize(含瞬时 ~0%)；未就绪时忽略，
-  // 否则会把主编误折叠并卸掉 RightDock（e2e: data-collapsed=1、无 textarea）。
+  // 主编默认展开。不从 localStorage 恢复 rightCollapsed——历史 onResize 误折叠已污染
+  // 多书 key，进书若恢复折叠会卸掉 RightDock，作者/e2e 都找不到输入框。
+  const [rightCollapsed, setRightCollapsed] = useState(false)
+  // 布局 Group 在 key 重挂/进书时会连发 onResize(含瞬时 ~0%)；未就绪时忽略。
   const layoutResizeReadyRef = useRef(false)
+  // expand 动画中 size 会短暂 <0.5%；此窗口内禁止 onResize 再写折叠。
+  const ignoreRightCollapseUntilRef = useRef(0)
   const { chapterPhase } = useChiefSlot()
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
@@ -190,12 +193,17 @@ export function FourPaneShell({
   }, [ctxError])
   useEffect(() => {
     setDirectoryCollapsed(readCollapsed(work, 'directory'))
-    setRightCollapsed(readCollapsed(work, 'right'))
+    // 切书：主编强制展开，并清掉该书被污染的折叠位
+    ignoreRightCollapseUntilRef.current = Date.now() + 900
+    setRightCollapsed(false)
+    writeCollapsed(work, 'right', false)
   }, [work])
   // work/mode 切换后短暂关闭 onResize 折叠判定，等 Group 布局稳定
   useEffect(() => {
     layoutResizeReadyRef.current = false
-    const t = window.setTimeout(() => { layoutResizeReadyRef.current = true }, 400)
+    ignoreRightCollapseUntilRef.current = Date.now() + 900
+    setRightCollapsed(false)
+    const t = window.setTimeout(() => { layoutResizeReadyRef.current = true }, 600)
     return () => window.clearTimeout(t)
   }, [work, layoutMode])
   useEffect(() => {
@@ -205,7 +213,10 @@ export function FourPaneShell({
   }, [directoryCollapsed, directoryRef, isView])
   useEffect(() => {
     if (rightCollapsed) callPanel(rightRef.current, 'collapse')
-    else callPanel(rightRef.current, 'expand')
+    else {
+      ignoreRightCollapseUntilRef.current = Date.now() + 900
+      callPanel(rightRef.current, 'expand')
+    }
   }, [rightCollapsed, rightRef])
   const collapseDirectory = () => {
     setDirectoryCollapsed(true)
@@ -227,10 +238,19 @@ export function FourPaneShell({
     callPanel(rightRef.current, 'collapse')
   }
   const expandRightPanel = () => {
+    ignoreRightCollapseUntilRef.current = Date.now() + 900
     setRightCollapsed(false)
     writeCollapsed(work, 'right', false)
     callPanel(rightRef.current, 'expand')
   }
+  // e2e / 外部：s3-expand-right 强制展开主编（避免仅靠 DOM 点把手失败）
+  const expandRightPanelRef = useRef(() => {})
+  expandRightPanelRef.current = expandRightPanel
+  useEffect(() => {
+    const onExpand = () => expandRightPanelRef.current?.()
+    window.addEventListener('s3-expand-right', onExpand)
+    return () => window.removeEventListener('s3-expand-right', onExpand)
+  }, [])
   // rail 点击与 s3-open-capability 共用：一次 plan → 一次 navigate + 可选 onSelectNode
   const applyEntryKey = (nextKey) => {
     if (!nextKey) return
@@ -294,6 +314,12 @@ export function FourPaneShell({
     reload?.()
     setDirectoryRefresh((v) => v + 1)
   }
+  // 设定删/归档批准落库后:CodexDetail 广播 → 刷树(即使仍在当前详情)
+  useEffect(() => {
+    const onRefresh = () => handleTreeChanged()
+    window.addEventListener('s3-codex-tree-refresh', onRefresh)
+    return () => window.removeEventListener('s3-codex-tree-refresh', onRefresh)
+  }, [reload])
   // 禁止 api.createChapter REST 直写;主编 s3_add_chapter 审批落库
   const handleCreateChapter = (volume) => {
     const volHint = volume != null && volume !== ''
@@ -443,12 +469,16 @@ export function FourPaneShell({
       onResize={(size) => {
         if (!layoutResizeReadyRef.current) return
         // 同目录：滞后判定，防 expand 过程瞬时小值再次 setRightCollapsed(true)
-        if (size.asPercentage < 0.5) {
-          setRightCollapsed(true)
-          writeCollapsed(work, 'right', true)
-        } else if (size.asPercentage > 2) {
+        if (size.asPercentage > 2) {
           setRightCollapsed(false)
           writeCollapsed(work, 'right', false)
+          return
+        }
+        if (size.asPercentage < 0.5) {
+          // expand 守卫窗内禁止误折叠（动画途中 size 会短暂贴近 0）
+          if (Date.now() < ignoreRightCollapseUntilRef.current) return
+          setRightCollapsed(true)
+          writeCollapsed(work, 'right', true)
         }
       }}
       className="border-l border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden"

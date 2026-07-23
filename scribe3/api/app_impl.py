@@ -2272,10 +2272,20 @@ def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
     """单条命题全字段读回(批E-A1②)。含 valid_from/valid_to/leak_markers/is_secret,
     让在库 leak_markers 等私密字段可安全编辑(reveal_secret=true 解锁真 value/leak_markers)。
     不存在 → 404。"""
-    f = _store_for(work).fact(f"fact:{local}")
+    st = _store_for(work)
+    f = st.fact(f"fact:{local}")
     if f is None:
         raise HTTPException(status_code=404, detail=f"命题 fact:{local} 不存在")
-    return _fact_item(f, reveal_secret=reveal_secret)
+    item = _fact_item(f, reveal_secret=reveal_secret)
+    # 软归档旗标:前端删批后轮询据此视为「已撤下」
+    try:
+        rows = st._query(
+            "SELECT archived FROM type::record('proposition',$local) LIMIT 1",
+            {"local": local}) or []
+        item["archived"] = bool(rows and rows[0].get("archived"))
+    except Exception:
+        item["archived"] = False
+    return item
 
 
 @app.get("/events")
@@ -2628,9 +2638,26 @@ def promises_ledger(work: str = "main"):
     return st.promise_ledger(slack)
 
 
+@app.get("/promises/{pid}")
+def get_promise_ep(pid: str, work: str = "main"):
+    """单条伏笔(type::record O(1),禁止 list_promises 全表扫)。"""
+    row = _store_for(work).get_promise(pid)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
+    return row
+
+
 @app.get("/motifs")
 def motifs(work: str = "main"):
     return _store_for(work).list_motifs()
+
+
+@app.get("/motifs/{mid}")
+def get_motif_ep(mid: str, work: str = "main"):
+    row = _store_for(work).get_motif(mid)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
+    return row
 
 
 @app.get("/motif-instances")
@@ -2728,6 +2755,42 @@ def add_char(c: CharIn, work: str = "main"):
         traits={"backstory": backstory, "backstory_secret": c.backstory_secret,
                 "personality_tags": c.personality_tags, "aliases": c.aliases}))
     return {"ok": True, "oid": f"role:{c.name}"}
+
+
+@app.get("/characters/{local}")
+def get_char(local: str, work: str = "main", reveal_secret: bool = False):
+    """单条角色档案(设定详情禁止全表扫 entities)。不存在 → 404。"""
+    st = _store_for(work)
+    # 直接 SELECT 全字段(entity() 只回 name,不够档案详情)
+    rows = st._query(
+        "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
+        "importance, appearance, personality_detail, abilities, weaknesses, "
+        "first_appearance, surface_goal, deep_need, internal_conflict, fear, archived FROM "
+        "type::record('character',$local) LIMIT 1",
+        {"local": local}) or []
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"character '{local}' 不存在")
+    r = rows[0]
+    d = {
+        "id": f"role:{r.get('local') or local}", "kind": "character", "name": r.get("name"),
+        "backstory": r.get("backstory"),
+        "backstory_secret": r.get("backstory_secret", False),
+        "importance": r.get("importance"),
+        "appearance": r.get("appearance"),
+        "personality_tags": r.get("personality_tags"),
+        "aliases": r.get("aliases") or [],
+        "personality_detail": r.get("personality_detail"),
+        "abilities": r.get("abilities"),
+        "weaknesses": r.get("weaknesses"),
+        "first_appearance": r.get("first_appearance"),
+        "surface_goal": r.get("surface_goal"),
+        "deep_need": r.get("deep_need"),
+        "internal_conflict": r.get("internal_conflict"),
+        "fear": r.get("fear"),
+        "archived": bool(r.get("archived")),
+    }
+    d = _mask_field(d, "backstory", "backstory_secret", reveal_secret)
+    return d
 
 
 @app.patch("/characters/{local}")
@@ -2992,6 +3055,14 @@ def list_rules(category: str | None = None, work: str = "main"):
     return _store_for(work).list_world_rules(category)
 
 
+@app.get("/world-rules/{name}")
+def get_rule(name: str, work: str = "main"):
+    row = _store_for(work).get_world_rule(name)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"world_rule '{name}' 不存在")
+    return row
+
+
 # P1-8:world_rule.scope 合法枚举(对齐 migration 027 的 DB ASSERT);应用层提前 422,
 # 不再让非法值走到落库层 ASSERT 才 500。
 _WORLD_RULE_SCOPES = {"global", "regional", "faction_specific"}
@@ -3083,6 +3154,20 @@ def _field_violations(fields, value: dict, prefix: str = "") -> list[str]:
         elif f.type == "object" and f.item_schema and isinstance(v, dict):
             errors.extend(_field_violations(f.item_schema, v, prefix=f"{path}."))
     return errors
+
+
+@app.get("/factions/{name}")
+def get_faction_ep(name: str, work: str = "main", reveal_secret: bool = False):
+    """单条势力(设定详情 O(1))。"""
+    row = _store_for(work).get_faction(name)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"faction '{name}' 不存在")
+    out = dict(row)
+    for k in codex_secret_capable_keys("faction"):
+        out = _mask_field(out, k, codex_secret_flag_key(k), reveal_secret)
+    if "name" not in out:
+        out["name"] = name
+    return out
 
 
 @app.get("/factions")
@@ -3181,6 +3266,19 @@ def get_codex_schema(kind: str):
         raise HTTPException(status_code=404, detail=f"未知设定类型: {kind!r}")
 
 
+@app.get("/codex/search")
+def codex_search_ep(q: str = "", limit: int = Query(default=40, ge=1, le=100),
+                    work: str = "main"):
+    """设定库跨类型搜索(name/alias/text)。"""
+    return {"items": _store_for(work).codex_search(q, limit=limit), "q": q}
+
+
+@app.get("/codex/health")
+def codex_health_ep(work: str = "main"):
+    """设定库健康度:计数 + 稀疏档案 + 孤立角色。"""
+    return _store_for(work).codex_health()
+
+
 @app.get("/faction-consistency")
 def faction_consistency_ep(work: str = "main"):
     """势力结构化一致性校验(只读,CX-Task 6):关系矛盾/核心圈超编/信物传承章超前/
@@ -3197,6 +3295,14 @@ def setting_completeness(work: str = "main"):
 @app.get("/items")
 def list_items_endpoint(state: str | None = None, work: str = "main"):
     return _store_for(work).list_items(state)
+
+
+@app.get("/items/{name}")
+def get_item_endpoint(name: str, work: str = "main"):
+    row = _store_for(work).get_item(name)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"item '{name}' 不存在")
+    return row
 
 
 @app.post("/items")
@@ -3253,6 +3359,14 @@ def delete_item_endpoint(name: str, work: str = "main"):
 @app.get("/terms")
 def list_terms_endpoint(work: str = "main"):
     return _store_for(work).list_terms()
+
+
+@app.get("/terms/{name}")
+def get_term_endpoint(name: str, work: str = "main"):
+    row = _store_for(work).get_term(name)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"term '{name}' 不存在")
+    return row
 
 
 @app.post("/terms")
