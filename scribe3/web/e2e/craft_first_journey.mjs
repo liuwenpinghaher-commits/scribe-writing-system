@@ -97,10 +97,10 @@ const out = await withPage(async (p) => {
   }
   L('four-col present')
   const { ensureChiefVisible, chiefSay: _probe } = await import('./author_decisions.mjs')
-  // 新书进台后右坞可能折叠/晚挂载；多轮 ensure + 诊断
+  // 新书进台后右坞可能折叠/晚挂载；先 probe 再 ensure（ensure 不得再点已激活主编轨）
+  await sleep(800)
   let ready = false
   for (let i = 0; i < 8; i++) {
-    await ensureChiefVisible(p)
     const diag = await p.evaluate(() => ({
       right: document.querySelector('[data-testid="right-panel"]')?.getAttribute('data-collapsed'),
       shell: !!document.querySelector('[data-testid="chief-chat-shell"]'),
@@ -111,19 +111,14 @@ const out = await withPage(async (p) => {
       })),
     }))
     L(`open-probe i=${i} ${JSON.stringify(diag)}`)
-    if ((diag.tas || []).some((t) => t.w > 20 && t.h > 10)) {
+    if ((diag.tas || []).some((t) => t.w > 20 && t.h > 10) && diag.right !== '1') {
       ready = true
       break
     }
-    // 强制点所有 restore（含不可见的 absolute 把手）
-    await p.locator('[data-testid="right-restore-button"]').evaluateAll((nodes) => {
-      nodes.forEach((n) => n.click())
-    }).catch(() => {})
-    await sleep(900)
+    await ensureChiefVisible(p)
+    await sleep(700)
   }
   if (!ready) {
-    // 最后手段：点右栏区域内任何还原/展开
-    await p.locator('[data-testid="right-panel"]').click({ force: true }).catch(() => {})
     await ensureChiefVisible(p)
     await sleep(1000)
   }

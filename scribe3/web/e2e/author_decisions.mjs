@@ -147,46 +147,70 @@ export async function acceptDraftProposal(page, { timeoutMs = 300000, pollMs = 2
 /**
  * 主编栏被折叠/被其它 tab 盖住时，恢复可见再找输入框。
  * r6 失败根因：resolveComposer 找不到 textarea（栏折叠或未切到主编）。
+ *
+ * 铁律：禁止再点已激活的「主编」轨。Rail 对 active tab 再点会传空串 → onCollapse，
+ * 会把右坞整栏收起（r14: ensure 一进来就把 right=0 打成 right=1）。
  */
 export async function ensureChiefVisible(page) {
   // 关掉可能挡输入的 dialog
   await page.keyboard.press('Escape').catch(() => {})
-  // 1) 折叠还原（可能多个 host）
-  const restores = page.locator('[data-testid="right-restore-button"]')
-  const n = await restores.count().catch(() => 0)
-  for (let i = 0; i < n; i++) {
-    const btn = restores.nth(i)
-    if (await btn.isVisible().catch(() => false)) {
-      await btn.click({ force: true }).catch(() => {})
-      await sleep(400)
-    }
-  }
-  // 2) 清 localStorage 折叠位并派发展开意图
-  await page.evaluate(() => {
-    try {
-      for (const k of Object.keys(localStorage)) {
-        if (k.endsWith('.rightCollapsed')) localStorage.setItem(k, '0')
+
+  const usableComposer = async () => page.evaluate(() => {
+    const okPh = (ph) => /问主编|提思路/.test(ph || '')
+    return [...document.querySelectorAll('textarea')].some(
+      (t) => okPh(t.placeholder) && t.offsetWidth > 20 && t.offsetHeight > 10,
+    )
+  }).catch(() => false)
+
+  // 已有可用输入框：什么都别点（尤其别点主编轨）
+  if (await usableComposer()) return
+
+  // 最多两轮强制展开（长会话后 onResize 误折叠 / 把手点不中）
+  for (let round = 0; round < 2 && !(await usableComposer()); round++) {
+    await page.evaluate(() => {
+      try {
+        for (const k of Object.keys(localStorage)) {
+          if (k.endsWith('.rightCollapsed')) localStorage.setItem(k, '0')
+        }
+      } catch { /* */ }
+      try {
+        document.querySelectorAll('[data-testid="right-restore-button"]').forEach((n) => n.click())
+      } catch { /* */ }
+      try { window.dispatchEvent(new CustomEvent('s3-expand-right')) } catch { /* */ }
+      try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+    }).catch(() => {})
+    // Playwright 再点一遍可见把手 / aria
+    const restores = page.locator('[data-testid="right-restore-button"], button[aria-label="展开主编栏"]')
+    const n = await restores.count().catch(() => 0)
+    for (let i = 0; i < n; i++) {
+      const btn = restores.nth(i)
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click({ force: true }).catch(() => {})
+        await sleep(350)
       }
-    } catch { /* */ }
-    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
-  }).catch(() => {})
-  // 3) 右坞「主编」轨
-  const chiefTab = page.getByRole('button', { name: '主编', exact: true })
-  const tc = await chiefTab.count().catch(() => 0)
-  for (let i = 0; i < tc; i++) {
-    const btn = chiefTab.nth(i)
-    if (await btn.isVisible().catch(() => false)) {
-      await btn.click({ force: true }).catch(() => {})
-      await sleep(350)
     }
+    // 仅当右坞在、主编壳不在、且轨按钮未 pressed 时才点「主编」
+    const hasShell = await page.locator('[data-testid="chief-chat-shell"], [data-testid="chief-write-chat"]')
+      .count().catch(() => 0)
+    if (!hasShell) {
+      const chiefTab = page.getByRole('button', { name: '主编', exact: true })
+      const tc = await chiefTab.count().catch(() => 0)
+      for (let i = 0; i < tc; i++) {
+        const btn = chiefTab.nth(i)
+        if (!(await btn.isVisible().catch(() => false))) continue
+        const pressed = await btn.getAttribute('aria-pressed').catch(() => null)
+        if (pressed === 'true') continue
+        await btn.click({ force: true }).catch(() => {})
+        await sleep(350)
+      }
+    }
+    await page.locator('[data-testid="chief-chat-shell"], [data-testid="chief-write-chat"], [data-testid="right-dock"]')
+      .first().waitFor({ state: 'attached', timeout: 6000 }).catch(() => {})
+    await sleep(400 + round * 300)
   }
-  // 4) 等 shell 挂上
-  await page.locator('[data-testid="chief-chat-shell"], [data-testid="chief-write-chat"], [data-testid="right-dock"]')
-    .first().waitFor({ state: 'attached', timeout: 8000 }).catch(() => {})
-  await sleep(300)
 }
 
-async function resolveComposer(page, preferWrite, { retries = 5 } = {}) {
+async function resolveComposer(page, preferWrite, { retries = 8 } = {}) {
   const order = preferWrite
     ? [DECISION_SELECTORS.writeComposer, DECISION_SELECTORS.chiefComposer, 'textarea[placeholder^="提思路"]', 'textarea[placeholder^="就当前内容问主编"]', '[data-testid="chief-write-chat"] textarea', '[data-testid="chief-chat-shell"] textarea']
     : [DECISION_SELECTORS.chiefComposer, DECISION_SELECTORS.writeComposer, 'textarea[placeholder^="就当前内容问主编"]', 'textarea[placeholder^="提思路"]', '[data-testid="chief-chat-shell"] textarea', '[data-testid="chief-write-chat"] textarea']
@@ -224,11 +248,18 @@ async function resolveComposer(page, preferWrite, { retries = 5 } = {}) {
       await sleep(700 + attempt * 200)
     }
   }
-  // 诊断：页面上有哪些 textarea
-  const diag = await page.evaluate(() => [...document.querySelectorAll('textarea')].map((t) => ({
-    ph: t.placeholder, w: t.offsetWidth, h: t.offsetHeight, vis: !!(t.offsetParent),
-  }))).catch(() => [])
-  throw new Error(`resolveComposer: no chief/write textarea visible diag=${JSON.stringify(diag).slice(0, 400)}`)
+  // 诊断：折叠态 + textarea，便于分清「栏收了」还是「壳挂了没输入」
+  const diag = await page.evaluate(() => ({
+    right: document.querySelector('[data-testid="right-panel"]')?.getAttribute('data-collapsed'),
+    four: !!document.querySelector('[data-testid="four-col"]'),
+    dock: !!document.querySelector('[data-testid="right-dock"]'),
+    shell: !!document.querySelector('[data-testid="chief-chat-shell"]'),
+    restore: document.querySelectorAll('[data-testid="right-restore-button"]').length,
+    tas: [...document.querySelectorAll('textarea')].map((t) => ({
+      ph: t.placeholder, w: t.offsetWidth, h: t.offsetHeight, vis: !!(t.offsetParent),
+    })),
+  })).catch(() => ({}))
+  throw new Error(`resolveComposer: no chief/write textarea visible diag=${JSON.stringify(diag).slice(0, 600)}`)
 }
 
 /**

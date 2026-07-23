@@ -205,8 +205,10 @@ def test_material_recall_degraded_out(store, monkeypatch):
         store.material_recall("密室", k=3, degraded_out=degraded)
     except Exception:
         pytest.fail("material_recall 不应因单通道失败抛出")
-    # 可能 fts 仍工作;至少不崩
+    # 语义路强制失败时 degraded 必须非空(验收:通道失败可观测)
     assert isinstance(degraded, list)
+    assert degraded, f'expected degraded_sources non-empty, got {degraded!r}'
+    assert any(d.get("source") == "semantic" for d in degraded), degraded
 
 
 def test_emotion_module_target_helper():

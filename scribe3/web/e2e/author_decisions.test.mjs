@@ -42,4 +42,11 @@ describe('DECISION_SELECTORS contract', () => {
   it('exports ensureChiefVisible for collapsed-dock recovery', () => {
     assert.equal(typeof ensureChiefVisible, 'function')
   })
+
+  it('ensureChiefVisible must not re-click pressed 主编 (Rail re-click = collapse)', () => {
+    const src = readFileSync(join(root, 'e2e/author_decisions.mjs'), 'utf8')
+    assert.match(src, /aria-pressed/)
+    assert.match(src, /pressed === 'true'/)
+    assert.match(src, /禁止再点已激活/)
+  })
 })

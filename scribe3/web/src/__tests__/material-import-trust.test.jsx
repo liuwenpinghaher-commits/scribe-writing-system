@@ -103,4 +103,17 @@ describe('素材网络降级反馈', () => {
     fireEvent.click(item)
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'm1' }))
   })
+
+  it('truncated 时提示图已截断', async () => {
+    apiMock.materialGraph.mockResolvedValue({
+      nodes: [{ id: 'm1', title: '节点A', kind: 'note', recall_count: 0, pinned: false }],
+      edges: [],
+      edges_degraded: false,
+      degraded_sources: [],
+      truncated: true,
+    })
+    render(<MaterialNetwork />)
+    const el = await screen.findByTestId('material-network-truncated')
+    expect(el.textContent || '').toMatch(/截断/)
+  })
 })
