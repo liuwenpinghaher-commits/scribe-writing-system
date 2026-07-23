@@ -31,7 +31,12 @@ PIDS+=($!)
 export SCRIBE3_SURREAL_URL="ws://127.0.0.1:$SPORT/rpc"
 export SCRIBE3_SETTINGS_DB="$(mktemp -d)/settings.sqlite3"
 export SCRIBE3_LLM_LEDGER="$(mktemp -d)/ledger.sqlite3"
-"$ROOT/scribe3/.venv/bin/python" -m uvicorn scribe3.app:app --host 127.0.0.1 --port 3321 &
+# 优先本仓 venv;CI 若只装了系统 Python 则回落 python3 -m uvicorn
+PY="${ROOT}/scribe3/.venv/bin/python"
+if [[ ! -x "$PY" ]]; then
+  PY="$(command -v python3 || command -v python)"
+fi
+"$PY" -m uvicorn scribe3.app:app --host 127.0.0.1 --port 3321 &
 PIDS+=($!)
 
 # 3) 前端 dev :3311(proxy /api → :3321,跨端口 POST 经同源代理不被拦)

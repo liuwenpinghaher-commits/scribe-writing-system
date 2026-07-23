@@ -14,7 +14,9 @@ jobs:
         run: |
           curl -sSf https://install.surrealdb.com | sh
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
-      - run: pip install -r scribe3/requirements.txt
+      - run: |
+          pip install -r scribe3/requirements.txt
+          pip install -r scribe3/requirements-dev.txt
       - run: python -m pytest scribe3/tests -q
         env:
           SCRIBE3_SURREAL_URL: ws://127.0.0.1:8001/rpc
@@ -26,6 +28,8 @@ jobs:
     defaults: { run: { working-directory: scribe3/web } }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
       - uses: actions/setup-node@v4
         with: { node-version: '20', cache: 'npm', cache-dependency-path: scribe3/web/package-lock.json }
       - run: npm ci
@@ -35,5 +39,11 @@ jobs:
         run: |
           curl -sSf https://install.surrealdb.com | sh
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+      # e2e_ci.sh 用 scribe3/.venv/bin/python 起临时后端——CI 建同路径 venv
+      - name: Backend venv for e2e
+        run: |
+          python -m venv scribe3/.venv
+          scribe3/.venv/bin/pip install -r scribe3/requirements.txt
+        working-directory: ${{ github.workspace }}
       - run: npx playwright install --with-deps chromium
       - run: ../../scripts/e2e_ci.sh          # L2 前端最后一厘米:独立临时后端,验证链路通+零 console 崩
