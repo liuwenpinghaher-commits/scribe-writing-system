@@ -83,6 +83,9 @@ export function FourPaneShell({
   const rightRef = usePanelRef()
   const [directoryCollapsed, setDirectoryCollapsed] = useState(() => readCollapsed(work, 'directory'))
   const [rightCollapsed, setRightCollapsed] = useState(() => readCollapsed(work, 'right'))
+  // 布局 Group 在 key 重挂/进书时会连发 onResize(含瞬时 ~0%)；未就绪时忽略，
+  // 否则会把主编误折叠并卸掉 RightDock（e2e: data-collapsed=1、无 textarea）。
+  const layoutResizeReadyRef = useRef(false)
   const { chapterPhase } = useChiefSlot()
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
@@ -189,6 +192,12 @@ export function FourPaneShell({
     setDirectoryCollapsed(readCollapsed(work, 'directory'))
     setRightCollapsed(readCollapsed(work, 'right'))
   }, [work])
+  // work/mode 切换后短暂关闭 onResize 折叠判定，等 Group 布局稳定
+  useEffect(() => {
+    layoutResizeReadyRef.current = false
+    const t = window.setTimeout(() => { layoutResizeReadyRef.current = true }, 400)
+    return () => window.clearTimeout(t)
+  }, [work, layoutMode])
   useEffect(() => {
     if (isView) return
     if (directoryCollapsed) callPanel(directoryRef.current, 'collapse')
@@ -353,10 +362,15 @@ export function FourPaneShell({
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
-        // 仅近 0% 视为折叠；勿用 min*0.5——布局重算瞬间会短暂 <min，误折叠并卸掉内容
-        const collapsed = size.asPercentage < 1
-        setDirectoryCollapsed(collapsed)
-        writeCollapsed(work, 'directory', collapsed)
+        if (!layoutResizeReadyRef.current) return
+        // 滞后：<0.5% 才折；>2% 才展。避免 expand 过程中瞬时小值又被压回折叠。
+        if (size.asPercentage < 0.5) {
+          setDirectoryCollapsed(true)
+          writeCollapsed(work, 'directory', true)
+        } else if (size.asPercentage > 2) {
+          setDirectoryCollapsed(false)
+          writeCollapsed(work, 'directory', false)
+        }
       }}
       className={cn('border-r border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden')}
     >
@@ -427,11 +441,15 @@ export function FourPaneShell({
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
-        // 仅近 0% 视为折叠（同目录栏）。min*0.5 会在进书/切 mode 布局重算时误折叠主编，
-        // 卸掉 RightDock → e2e/作者找不到输入框（data-collapsed=1 且 restore 点了又被 onResize 压回）。
-        const collapsed = size.asPercentage < 1
-        setRightCollapsed(collapsed)
-        writeCollapsed(work, 'right', collapsed)
+        if (!layoutResizeReadyRef.current) return
+        // 同目录：滞后判定，防 expand 过程瞬时小值再次 setRightCollapsed(true)
+        if (size.asPercentage < 0.5) {
+          setRightCollapsed(true)
+          writeCollapsed(work, 'right', true)
+        } else if (size.asPercentage > 2) {
+          setRightCollapsed(false)
+          writeCollapsed(work, 'right', false)
+        }
       }}
       className="border-l border-line/50 bg-surface min-h-0 min-w-0 overflow-hidden"
     >
