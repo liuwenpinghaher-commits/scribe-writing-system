@@ -4,18 +4,22 @@ on: { push: { branches: [main] }, pull_request: {} }
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      surreal:
-        image: surrealdb/surrealdb:latest
-        ports: ["8001:8001"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
+      # 单测 conftest 自起临时 memory Surreal(随机端口);GHA service 容器无法传 start 子命令,
+      # latest 镜像无默认 CMD 会 unhealthy,导致 job 在 pytest 前失败——只装 CLI 即可。
+      - name: Install SurrealDB CLI
+        run: |
+          curl -sSf https://install.surrealdb.com | sh
+          echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
       - run: pip install -r scribe3/requirements.txt
       - run: pytest scribe3/tests -q
         env:
           SCRIBE3_SURREAL_URL: ws://127.0.0.1:8001/rpc
+          SCRIBE3_SURREAL_USER: root
+          SCRIBE3_SURREAL_PASS: root
 
   frontend:
     runs-on: ubuntu-latest
@@ -27,6 +31,9 @@ jobs:
       - run: npm ci
       - run: npm run test
       - run: npm run build
-      - run: curl -sSf https://install.surrealdb.com | sh   # e2e_ci.sh 起独立临时 surreal 需二进制
+      - name: Install SurrealDB CLI
+        run: |
+          curl -sSf https://install.surrealdb.com | sh
+          echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
       - run: npx playwright install --with-deps chromium
       - run: ../../scripts/e2e_ci.sh          # L2 前端最后一厘米:独立临时后端,验证链路通+零 console 崩
