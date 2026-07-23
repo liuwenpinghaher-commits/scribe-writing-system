@@ -64,6 +64,28 @@ def _context_snapshot_off_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fake_embed_512(monkeypatch):
+    """测试默认假 embedding(512 维),避免 CI 真模型/维度漂移炸 Surreal vector 索引。
+    需要真 embed 的用例自行 monkeypatch 覆盖。"""
+    def _fake(texts):
+        out = []
+        for t in texts or [""]:
+            v = [0.0] * 512
+            for ch in str(t):
+                v[ord(ch) % 512] += 1.0
+            out.append(v)
+        return out
+    try:
+        monkeypatch.setattr("scribe3.embed.embed", _fake)
+    except Exception:
+        pass
+    try:
+        monkeypatch.setattr("scribe3.store.core_preamble.embed", _fake)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _clear_context_caches():
     """Task 16-C:检索接线后 MemoryRetriever.retrieve() 走 module 级单例 RETRIEVAL_CACHE。
     每测试前清检索/全局卡缓存 + 重置指标直方图,防跨测试(不同临时 store 复用同 work/query)

@@ -6038,6 +6038,10 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     from scribe3.craft import build_craft_block
     import hashlib
 
+    # 未显式传 work 时与当前 store 库名对齐(测试夹具 db=test;生产=一书一库)
+    if work in (None, ""):
+        work = getattr(st, "db_name", None) or "main"
+
     supplemental_sources: list[ContextSource] = []
 
     def _domain_input(source_id: str, source_kind: str, text: str) -> str:
