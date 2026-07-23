@@ -6,6 +6,10 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import tempfile
+from urllib.parse import urlparse
 
 from scribe3.store import MATERIAL_KINDS
 
@@ -16,6 +20,66 @@ def parse_to_markdown(src, converter=None) -> str:
         from markitdown import MarkItDown
         converter = MarkItDown()
     return converter.convert(src).text_content
+
+
+def _is_private_host(host: str) -> bool:
+    """基础 SSRF 防护:拦 loopback / 明显内网 host。"""
+    h = (host or "").strip().lower().rstrip(".")
+    if not h:
+        return True
+    if h in ("localhost", "metadata.google.internal"):
+        return True
+    if h.endswith(".local") or h.endswith(".internal"):
+        return True
+    # 裸 IP 粗判
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", h):
+        parts = [int(x) for x in h.split(".")]
+        a, b = parts[0], parts[1]
+        if a == 10 or a == 127 or a == 0:
+            return True
+        if a == 192 and b == 168:
+            return True
+        if a == 172 and 16 <= b <= 31:
+            return True
+        if a == 169 and b == 254:
+            return True
+    return False
+
+
+def parse_url_to_markdown(url: str, fetcher=None, converter=None) -> str:
+    """抓取 URL 正文并经 markitdown 转 markdown(避免 raw HTML 直接入切分)。
+
+    fetcher(url)->bytes|str 可注入;默认 httpx。内网 host 拒绝。
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"不支持的 URL scheme: {parsed.scheme!r}")
+    if _is_private_host(parsed.hostname or ""):
+        raise ValueError("拒绝访问内网/本地地址")
+    if fetcher is None:
+        import httpx
+        def fetcher(u):
+            r = httpx.get(u, timeout=30, follow_redirects=True)
+            r.raise_for_status()
+            return r.content
+    raw = fetcher(url)
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8", errors="replace")
+    # 根据 path 猜后缀;默认 .html 让 markitdown 走 HTML 路径
+    path = parsed.path or ""
+    suffix = os.path.splitext(path)[1] or ".html"
+    if suffix.lower() not in (".html", ".htm", ".md", ".markdown", ".txt", ".pdf", ".docx"):
+        suffix = ".html"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
+        tmp.write(raw)
+        tmp.close()
+        return parse_to_markdown(tmp.name, converter=converter)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 def split_and_tag(markdown: str, llm, source: str | None = None) -> list[dict]:
@@ -50,3 +114,18 @@ def split_and_tag(markdown: str, llm, source: str | None = None) -> list[dict]:
                     "kind": kind, "ref_tags": it.get("ref_tags") or [],
                     "summary": it.get("summary") or "", "source": source})
     return out
+
+
+def near_dup_warning_payload(dups: list[dict], index: int, title: str) -> dict | None:
+    """把 find_near_duplicate 结果压成 commit warning 形状;无候选则 None。"""
+    if not dups:
+        return None
+    top = dups[0]
+    return {
+        "index": index,
+        "title": title,
+        "stage": "near_duplicate",
+        "reason": f"疑似与已有素材重复: {top.get('title') or top.get('id')} "
+                  f"(sim={top.get('sim')}, {top.get('reason')})",
+        "matches": dups,
+    }

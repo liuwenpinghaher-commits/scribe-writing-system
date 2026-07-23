@@ -2,6 +2,9 @@ import { useCallback, useState } from 'react'
 import { api } from '../api'
 import { ConfirmDialog } from '../ui/Dialog'
 import { showToast } from '../ui/Toast'
+import { DirectoryHeader } from './DirectoryHeader'
+import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
+import { Btn } from '../ui.jsx'
 
 export function chapterNodeFrom(row) {
   if (row?.type === 'scene') {
@@ -70,7 +73,7 @@ function chapterCount(node) {
 function rowMeta(row) {
   if (row.kind === 'volume') return `${chapterCount(row.node)}章`
   if (row.kind === 'scene') return '场景'
-  return row.node.phase || ''
+  return row.node.phase || row.node.label?.includes(' ') ? (row.node.phase || '') : ''
 }
 
 function archivedChapterLabel(chapter) {
@@ -162,13 +165,13 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
   }
 
   return (
-    <div className="shrink-0 border-t border-line/60 px-2 py-2" data-testid="manuscript-archive-box">
+    <div className="shrink-0 border-t border-line/40 px-2 py-2" data-testid="manuscript-archive-box">
       <button
         type="button"
         aria-expanded={open}
         data-testid="manuscript-archive-toggle"
         onClick={toggleOpen}
-        className="grid min-h-8 w-full grid-cols-[18px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-f12 text-faint hover:bg-hover hover:text-ink"
+        className="grid min-h-8 w-full grid-cols-[18px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-f12 text-faint hover:bg-soft/70 hover:text-ink"
       >
         <span className="text-center">{open ? '▾' : '▸'}</span>
         <span className="min-w-0 truncate">归档箱</span>
@@ -184,23 +187,14 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
           {!error && rows.map((chapter) => {
             const label = archivedChapterLabel(chapter)
             return (
-              <div key={chapter.seq} className="rounded-md px-2 py-2 hover:bg-hover">
-                <div className="min-w-0">
-                  <div className="truncate text-f12 text-ink">{label}</div>
-                  <div className="mt-1 flex flex-wrap gap-1.5 text-meta text-faint">
-                    {chapter.archive_reason ? <span>{chapter.archive_reason}</span> : <span>无归档说明</span>}
-                    {chapter.archived_at ? <span>{String(chapter.archived_at).slice(0, 10)}</span> : null}
-                  </div>
+              <div key={chapter.seq} className="rounded-md px-2 py-2 hover:bg-soft/70">
+                <div className="min-w-0 truncate text-f12 text-ink">{label}</div>
+                <div className="mt-1 flex flex-wrap gap-1.5 text-meta text-faint">
+                  {chapter.archive_reason ? <span>{chapter.archive_reason}</span> : <span>无归档说明</span>}
+                  {chapter.archived_at ? <span>{String(chapter.archived_at).slice(0, 10)}</span> : null}
                 </div>
                 <div className="mt-2 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    aria-label={`恢复${label}`}
-                    onClick={() => restoreChapter(chapter)}
-                    className="h-7 rounded-md bg-soft px-2 text-meta text-ink hover:bg-brand/10 hover:text-brand"
-                  >
-                    恢复
-                  </button>
+                  <Btn size="xs" onClick={() => restoreChapter(chapter)} aria-label={`恢复${label}`}>恢复</Btn>
                   <button
                     type="button"
                     aria-label={`永久删除${label}`}
@@ -233,71 +227,73 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
   const rows = collectRows(root)
   const currentSeq = currentSeqOf(sel, seq)
   const currentVolume = currentVolumeOf(sel, rows)
+  const chapterTotal = rows.filter((r) => r.kind === 'chapter').length
 
   return (
-    <div data-testid="manuscript-directory" className="h-full min-h-0 flex flex-col">
+    <div data-testid="manuscript-directory" className={DIR_SHELL}>
+      <DirectoryHeader
+        title={entry?.label || root?.label || '手稿'}
+        count={chapterTotal}
+        primaryAction={onCreateChapter ? { label: '+ 章节', onClick: () => onCreateChapter?.(null) } : undefined}
+        secondaryActions={onAddVolume ? [{ label: '+ 卷', onClick: () => onAddVolume?.() }] : []}
+      />
       <div data-testid="manuscript-volume-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
-        <div className="px-1 py-1 text-meta font-semibold uppercase tracking-wider text-faint/60">卷章</div>
+        <DirectorySectionLabel>卷章</DirectorySectionLabel>
         {rows.length === 0 ? (
           <div className="px-2 py-6 text-center text-f12 text-faint/60">暂无章节。</div>
         ) : rows.map((row) => {
           const active = row.kind === 'volume'
             ? !!currentVolume && String(row.node.ref ?? '') === String(currentVolume.ref ?? '')
             : row.kind === 'chapter' && row.node.ref === currentSeq
-          const marker = row.kind === 'volume' ? '▾' : row.kind === 'scene' ? '·' : ''
-          const rowClass = `my-0.5 grid min-h-8 w-full grid-cols-[18px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-left text-f12 ${
-            active ? 'bg-brand/10 text-brand font-semibold' : 'text-ink hover:bg-hover'
-          } ${row.kind === 'volume' && !active ? 'text-faint' : ''}`
+          const pad = { paddingLeft: `${8 + row.depth * 14}px` }
           if (row.kind === 'volume') {
             return (
-              <div key={row.node.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
-                <button
-                  type="button"
+              <div key={row.node.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-0.5">
+                <DirectoryRow
+                  title={row.node.label}
+                  meta={rowMeta(row)}
+                  active={active}
+                  style={pad}
                   onClick={() => onSelectItem?.(manuscriptNodeFrom(row))}
-                  className={rowClass}
-                  style={{ paddingLeft: `${8 + row.depth * 16}px` }}
-                >
-                  <span className="w-5 text-center text-faint">{marker}</span>
-                  <span className="min-w-0 truncate">{row.node.label}</span>
-                  <span className="text-meta text-faint">{rowMeta(row)}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-label={`在${row.node.label}中新建章`}
-                  title="新建章"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onCreateChapter?.(row.node.ref ?? null)
-                  }}
-                  className="h-7 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
-                >
-                  +章
-                </button>
+                  leading={<span className="w-3 text-center text-faint text-meta">▾</span>}
+                />
+                {onCreateChapter && (
+                  <button
+                    type="button"
+                    aria-label={`在${row.node.label}中新建章`}
+                    title="新建章"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCreateChapter?.(row.node.ref ?? null)
+                    }}
+                    className="h-7 rounded-md px-1.5 text-meta text-faint hover:bg-soft hover:text-brand"
+                  >
+                    +章
+                  </button>
+                )}
               </div>
             )
           }
           return (
-            <button
+            <DirectoryRow
               key={row.node.id}
-              type="button"
+              title={row.node.label}
+              meta={rowMeta(row)}
+              active={active}
+              style={pad}
               onClick={() => onSelectItem?.(manuscriptNodeFrom(row))}
-              className={rowClass}
-              style={{ paddingLeft: `${8 + row.depth * 16}px` }}
-            >
-              <span className="w-5 text-center text-faint">{marker}</span>
-              <span className="min-w-0 truncate">{row.node.label}</span>
-              <span className="text-meta text-faint">{rowMeta(row)}</span>
-            </button>
+              leading={row.kind === 'scene' ? <span className="w-3 text-center text-faint">·</span> : null}
+            />
           )
         })}
       </div>
-      <div className="shrink-0 border-t border-line/60 px-2 py-2" data-testid="manuscript-create-actions">
+      <div className="shrink-0 border-t border-line/40 px-2 py-2" data-testid="manuscript-create-actions">
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
             aria-label="新建未分卷章节"
             onClick={() => onCreateChapter?.(null)}
-            className="h-8 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
+            className="h-8 rounded-md bg-soft px-2 text-meta text-faint hover:text-brand"
           >
             + 章节
           </button>
@@ -305,7 +301,7 @@ export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateCha
             type="button"
             aria-label="新建卷"
             onClick={() => onAddVolume?.()}
-            className="h-8 rounded-md border border-line bg-canvas px-2 text-meta text-faint hover:border-brand/40 hover:text-brand"
+            className="h-8 rounded-md bg-soft px-2 text-meta text-faint hover:text-brand"
           >
             + 卷
           </button>

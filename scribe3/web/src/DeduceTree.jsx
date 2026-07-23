@@ -5,6 +5,7 @@ import { cn } from './lib/utils'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { Empty, SectionTitle } from './ui'
+import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 
 // 演绎树:根「场景真相」+ 涉及角色(已演打勾/未演)。选中驱动中区 DeduceStage。
 export function DeduceTree({ seq }) {
@@ -45,21 +46,18 @@ export function DeduceTree({ seq }) {
   const involvedChars = chars.filter((c) => involved.includes(c.id))
   const addable = chars.filter((c) => !involved.includes(c.id))
   const nameOf = (id) => chars.find((c) => c.id === id)?.name || id
-  const setInvolved = async (ids) => { await api.patchChapter(seq, { involved_characters: ids }); api.chapter(seq).then(setCh) }
+  const nameOfId = (id) => chars.find((c) => c.id === id)?.name || id
+  const setInvolved = async (ids) => {
+    const names = ids.map((id) => nameOfId(id)).join('、')
+    seedChiefNarrativeWrite('deduce', `第 ${seq} 章涉及角色`, `请将 involved_characters 更新为: ${names || '（空）'} (${ids.join(',')})`)
+  }
   const syncInferred = async () => {
     if (!inferredInvolved.length || syncingInferred) return
-    setSyncingInferred(true)
-    setSyncError('')
-    try {
-      await api.patchChapter(seq, { involved_characters: inferredInvolved })
-      const next = await api.chapter(seq)
-      setCh(next)
-      setInferredInvolved([])
-    } catch (e) {
-      setSyncError(e?.body?.detail || e?.message || '同步失败')
-    } finally {
-      setSyncingInferred(false)
-    }
+    seedChiefNarrativeWrite(
+      'deduce',
+      `第 ${seq} 章涉及角色`,
+      `请同步建议角色到本章: ${inferredInvolved.map(nameOfId).join('、')} (${inferredInvolved.join(',')})`,
+    )
   }
   return (
     <div className="p-2">
@@ -72,13 +70,13 @@ export function DeduceTree({ seq }) {
       {inferredInvolved.length > 0 && (
         <div role="status" className="mx-2 mb-2 rounded-lg border border-brand/20 bg-brand/5 px-2.5 py-2 text-f12 text-ink">
           <div className="font-medium text-brand">检测到可能涉及角色: {inferredInvolved.map(nameOf).join('、')}</div>
-          <div className="mt-0.5 text-faint">确认后会写入第 {seq} 章;打开面板本身不会改数据。</div>
+          <div className="mt-0.5 text-faint">确认后由主编审批写入;打开面板本身不会改数据。</div>
           <button
             onClick={syncInferred}
             disabled={syncingInferred}
             className="mt-1.5 h-7 rounded-lg border border-brand/40 bg-canvas px-2 text-f12 text-brand hover:bg-brand/10 disabled:opacity-50 cursor-pointer"
           >
-            {syncingInferred ? '同步中…' : '同步到本章'}
+            '让主编同步'
           </button>
           {syncError && <div role="alert" className="mt-1 text-danger">{syncError}</div>}
         </div>

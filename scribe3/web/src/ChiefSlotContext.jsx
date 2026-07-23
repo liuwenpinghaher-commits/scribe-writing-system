@@ -72,14 +72,15 @@ export function useStageProposal(phase, seq, target = null) {
  *  onDismiss:「忽略」——纯讨论轮也会经兜底发布出提示条,给一条不落地的退路(调 clear)。 */
 export function ProposalBar({ text, actions, onDismiss }) {
   return (
-    <div className="mb-2 rounded-xl border border-brand/20 bg-brand/10 text-brand px-3 py-2 flex items-center gap-2 flex-wrap">
+    <div className="mb-2 rounded-md border border-brand/20 bg-brand/10 text-brand px-3 py-2 flex items-center gap-2 flex-wrap">
       <Sparkles size={14} className="shrink-0" />
       <span className="text-f13 flex-1 min-w-0">{text}</span>
       <div className="flex items-center gap-1.5 shrink-0">
         {actions.map((a) => (
-          <Btn key={a.label} variant={a.variant || 'soft'} size="sm" onClick={a.onClick}>{a.label}</Btn>
+          <Btn key={a.label} data-testid={a.label === '填入' ? 'stage-fill' : a.label === '追加' ? 'stage-append' : undefined}
+            variant={a.variant || 'soft'} size="sm" onClick={a.onClick}>{a.label}</Btn>
         ))}
-        {onDismiss && <Btn variant="ghost" size="sm" onClick={onDismiss} aria-label="忽略">忽略</Btn>}
+        {onDismiss && <Btn variant="ghost" size="sm" onClick={onDismiss} aria-label="忽略" data-testid="stage-dismiss">忽略</Btn>}
       </div>
     </div>
   )

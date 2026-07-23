@@ -24,7 +24,8 @@ from scribe3.memory_retrieval import MemoryRetriever
 
 def test_flag_enabled_reads_env(monkeypatch):
     monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
-    assert cc.flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is False
+    # 产品默认开
+    assert cc.flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True
     for truthy in ("1", "true", "YES", "On"):
         monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", truthy)
         assert cc.flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True
@@ -33,32 +34,28 @@ def test_flag_enabled_reads_env(monkeypatch):
 
 
 def test_capabilities_endpoint_reports_flags(monkeypatch):
-    """灰度 flag 默认全关；兼容 assembler_v1 恒真表示统一内核已启用。"""
+    """上下文产品三件套默认开；assembler_v1 恒真；editorial 仍默认关。"""
     for f in cc.FLAGS:
         monkeypatch.delenv(f, raising=False)
     client = TestClient(A.app)
     data = client.get("/capabilities").json()
     flags = data["flags"]
-    # 4 个真实灰度开关 + 兼容 assembler_v1 一并上报；无 Spectron 假开关。
     assert set(flags) >= {
         "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
         "context_inspector_v1", "assembler_v1",
     }
     assert "spectron_shadow" not in flags
     assert flags["assembler_v1"] is True
-    assert all(
-        flags[name] is False
-        for name in (
-            "snapshot_v1", "editorial_thread_v1", "memory_fabric_v1",
-            "context_inspector_v1",
-        )
-    )
+    assert flags["snapshot_v1"] is True
+    assert flags["memory_fabric_v1"] is True
+    assert flags["context_inspector_v1"] is True
+    assert flags["editorial_thread_v1"] is False
     assert "versions" in data
-    # 开启一个服务端开关 → capabilities 立即翻真(前端以此为准,不靠 localStorage)
-    monkeypatch.setenv("SCRIBE3_CONTEXT_INSPECTOR_V1", "true")
+    # 显式关 → capabilities 立即翻假(测试隔离/运维关闸)
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     flags2 = client.get("/capabilities").json()["flags"]
-    assert flags2["context_inspector_v1"] is True
     assert flags2["memory_fabric_v1"] is False
+    assert flags2["context_inspector_v1"] is True
 
 
 def test_capabilities_never_leaks_secret_values(monkeypatch):
@@ -255,9 +252,8 @@ def test_runtime_status_includes_context_memory_block(store, monkeypatch):
 
 
 # ═════════════════ Task 16-C:MEMORY_FABRIC_V1 对称门控检索接线 ═════════════════
-# 解决"整个统一记忆系统只写不读半空转":同一 flag 对称门控 capture(写)+ retrieval(读)。
-# 默认关 = 不写不读 = 零 embed 成本 = 字节等价;开 = 捕获写入 + 检索接进写作 envelope
-# (过剧透门 known_from / 秘密屏蔽 C1 / work 隔离三道闸)。
+# 同一 flag 对称门控 capture(写)+ retrieval(读)。
+# 产品默认开 = 捕获 + 检索进写作 envelope;显式关(env=0)= 不写不读(测试隔离)。
 import math                                                    # noqa: E402
 
 from scribe3.context_assembler import (                        # noqa: E402
@@ -293,14 +289,22 @@ def _write_envelope_text(store, *, chapter, query, focalizer=None, work="w"):
 
 # ---- ① flag 关:检索器 None + 捕获短路 = 零变化(字节等价证据)----
 
-def test_get_write_retriever_none_when_fabric_off(store, monkeypatch):
+def test_get_write_retriever_attached_by_default(store, monkeypatch):
+    """产品默认 fabric 开 → 写路径恒挂 MemoryRetriever(无灰度休眠)。"""
     monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    r = A._get_write_retriever(store)
+    assert r is not None, "default-on:写检索器必须挂上"
+    assert type(r).__name__ == "MemoryRetriever"
+
+
+def test_get_write_retriever_none_when_fabric_explicitly_off(store, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     assert A._get_write_retriever(store) is None, \
-        "fabric 关:写检索器必须恒 None(与 16-C 前生产行为字节等价)"
+        "显式关:写检索器 None(仅测试/运维隔离)"
 
 
 def test_capture_symmetric_flag_gate(store, monkeypatch):
-    """对称门控:capture_event 仅在 fabric 开时被调用;关时最前短路(零 embed/零写入)。"""
+    """对称门控:默认开时 capture 放行;显式关时最前短路。"""
     import scribe3.memory_capture as mc
     calls = {"n": 0}
 
@@ -309,10 +313,10 @@ def test_capture_symmetric_flag_gate(store, monkeypatch):
         return {"skipped": True}      # 只证门控是否放行,不真跑 drain/embed
 
     monkeypatch.setattr(mc.MemoryCapture, "capture_event", spy)
-    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     A._capture_turn_memory(store, work="w", thread_id="t", turn_id="c1",
                            text="作者:甲其实是暗桩,先埋着别揭穿", chapter=3)
-    assert calls["n"] == 0, "fabric 关:捕获必须最前短路(零成本)"
+    assert calls["n"] == 0, "显式关:捕获必须最前短路"
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
     A._capture_turn_memory(store, work="w", thread_id="t", turn_id="c1",
                            text="作者:甲其实是暗桩,先埋着别揭穿", chapter=3)
@@ -320,18 +324,18 @@ def test_capture_symmetric_flag_gate(store, monkeypatch):
 
 
 def test_capture_writes_nothing_to_db_when_fabric_off(store, monkeypatch):
-    """flag 关端到端零写:连 memory_event 都不落库(真机 embed 成本亦为零)。"""
+    """显式关端到端零写:连 memory_event 都不落库。"""
     _patch_embed(monkeypatch)
-    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     A._capture_turn_memory(store, work="w", thread_id="t", turn_id="z1",
                            text="作者:甲其实是暗桩,先埋着", chapter=3)
     assert store.count_memory_events() == 0, "fabric 关:不得写入任何记忆事件"
 
 
 def test_memory_absent_from_write_envelope_when_fabric_off(store, monkeypatch):
-    """MEMORY_FABRIC 关 → 检索器 None → 经验记忆不进统一 envelope。"""
+    """MEMORY_FABRIC 显式关 → 检索器 None → 经验记忆不进统一 envelope。"""
     _patch_embed(monkeypatch)
-    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     store.add_memory_item(work="w", kind="episodic",
                           text="甲在城西暗巷向盐帮递了口信", known_from=1,
                           scope_type="work", scope_id="w",
@@ -499,10 +503,9 @@ def test_spoiler_gate_holds_under_meaningful_query_production_path(store, monkey
 
 
 def test_production_path_byte_equivalent_when_fabric_off(store, monkeypatch):
-    """MEMORY_FABRIC 关时 retriever=None、query 为空，经验记忆不进 prompt，
-    且 focus 块不出现"作者此刻问"(query 空 = 与接线前逐字一致)。"""
+    """MEMORY_FABRIC 显式关时 retriever=None、query 为空，经验记忆不进 prompt。"""
     _patch_embed(monkeypatch)
-    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     store.add_memory_item(work="w", kind="episodic",
                           text="甲在城西暗巷向盐帮递了口信", known_from=1,
                           scope_type="work", scope_id="w",

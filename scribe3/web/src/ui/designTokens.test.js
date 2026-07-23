@@ -32,11 +32,26 @@ describe('PC UI color tokens', () => {
   })
 
   it('defines semantic type roles and never maps them below 12px', () => {
-    for (const name of ['meta', 'helper', 'body', 'object-title', 'section-title', 'page-title']) {
+    for (const name of ['meta', 'helper', 'body', 'stage', 'object-title', 'section-title', 'page-title', 'prose']) {
       const match = css.match(new RegExp(`--text-${name}:\\s*([0-9.]+)px`))
       expect(match, name).not.toBeNull()
       expect(Number(match[1]), name).toBeGreaterThanOrEqual(12)
     }
+  })
+
+  it('type ladder is strictly non-decreasing: meta ≤ helper ≤ body ≤ stage ≤ section ≤ page and prose ≈ stage+', () => {
+    const px = (name) => {
+      const m = css.match(new RegExp(`--text-${name}:\\s*([0-9.]+)px`))
+      return Number(m[1])
+    }
+    expect(px('meta')).toBeLessThanOrEqual(px('helper'))
+    expect(px('helper')).toBeLessThanOrEqual(px('body'))
+    expect(px('body')).toBeLessThanOrEqual(px('stage'))
+    expect(px('stage')).toBeLessThanOrEqual(px('section-title'))
+    expect(px('section-title')).toBeLessThanOrEqual(px('page-title'))
+    expect(px('prose')).toBeGreaterThanOrEqual(px('stage'))
+    // 详情标题不得大于页标题（消除「栏3 比页还大」）
+    expect(px('section-title')).toBeLessThanOrEqual(px('page-title'))
   })
 })
 
@@ -56,7 +71,21 @@ describe('PC UI layout tokens', () => {
     expect(T.color.brand).toBe('var(--color-brand)')
     expect(T.h.rail).toBe('56px')
     expect(CX).toBeDefined()
-    expect(CX.input).toBe('w-full rounded-lg border border-line bg-canvas px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60')
-    expect(CX.textarea).toBe('w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y')
+    // Notion 默认 ghost:无常驻重框
+    expect(CX.input).toContain('border-transparent')
+    expect(CX.input).toContain('h-9')
+    expect(CX.textarea).toContain('border-transparent')
+    // 表单场景仍提供 bordered 变体
+    expect(CX.inputBordered).toContain('border-line')
+    expect(CX.textareaBordered).toContain('border-line')
+  })
+
+  it('keeps control/pane radii tight (no oversized capsule UI)', () => {
+    const pane = css.match(/--radius-pane:\s*([0-9.]+)px/)
+    expect(pane, 'radius-pane').not.toBeNull()
+    expect(Number(pane[1])).toBeLessThanOrEqual(10)
+    const control = css.match(/--radius-control:\s*([0-9.]+)px/)
+    expect(control, 'radius-control').not.toBeNull()
+    expect(Number(control[1])).toBeLessThanOrEqual(8)
   })
 })

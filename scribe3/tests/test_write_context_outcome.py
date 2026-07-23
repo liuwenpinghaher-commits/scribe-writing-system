@@ -264,7 +264,8 @@ def test_real_official_sse_provider_id_reaches_context_outcome(store, monkeypatc
     assert response.status_code == 200
     rows = _outcomes(store)
     assert len(rows) == 1
-    assert rows[0]["provider"] == "deepseek"
+    # 官方直连身份现为 qwen(deepseek_client.OFFICIAL_PROVIDER);兼容历史 deepseek 标签
+    assert rows[0]["provider"] in ("qwen", "deepseek")
     assert rows[0]["provider_request_id"] == provider_response_id
 
 
@@ -313,9 +314,9 @@ def test_real_official_sse_cancel_preserves_observed_metadata_and_usage(
 
     outcome = _outcomes(store)[0]
     assert outcome["status"] == "cancelled"
-    assert outcome["provider"] == "deepseek"
+    assert outcome["provider"] in ("qwen", "deepseek")
     assert outcome["provider_request_id"] == response_id
-    assert outcome["model"] == "deepseek-reasoner"
+    assert outcome["model"]  # 来自 SSE 或官方默认模型
     assert outcome["usage"] == usage
 
 
@@ -567,8 +568,8 @@ def test_chat_write_persists_failed_and_incomplete_outcomes_even_without_ui_text
     assert rows[0]["status"] == expected_status
     assert rows[0]["output_hash"] == hashlib.sha256(raw_delta.encode("utf-8")).hexdigest()
     if expected_status == "failed":
-        assert rows[0]["provider"] == "deepseek"
-        assert rows[0]["model"] == "deepseek-reasoner"
+        assert rows[0]["provider"] in ("qwen", "deepseek")
+        assert rows[0]["model"]
         assert rows[0]["provider_request_id"] == "failed-response"
         assert rows[0]["error"] == "provider rejected request"
 

@@ -30,10 +30,19 @@ from collections import OrderedDict, deque
 
 _TRUE = {"1", "true", "yes", "on"}
 
-# 四个有真实执行语义的灰度开关(默认全关;经后端 capabilities 下发)。
+# 四个有真实执行语义的运行时开关(经后端 /capabilities 下发)。
+# 产品默认:SNAPSHOT / MEMORY_FABRIC / CONTEXT_INSPECTOR = 开(见 settings 默认);
+# EDITORIAL_THREAD 仍默认关。显式 env/DB=0 可关,供测试隔离——不是产品灰度休眠。
 FLAGS = (
-    "SCRIBE3_CONTEXT_SNAPSHOT_V1",     # 已存在(context_service),纳入统一上报
+    "SCRIBE3_CONTEXT_SNAPSHOT_V1",
     "SCRIBE3_EDITORIAL_THREAD_V1",
+    "SCRIBE3_MEMORY_FABRIC_V1",
+    "SCRIBE3_CONTEXT_INSPECTOR_V1",
+)
+
+# 上下文产品 always-on 三件套(验收合同;与 settings 默认对齐)。
+PRODUCT_ALWAYS_ON_FLAGS = (
+    "SCRIBE3_CONTEXT_SNAPSHOT_V1",
     "SCRIBE3_MEMORY_FABRIC_V1",
     "SCRIBE3_CONTEXT_INSPECTOR_V1",
 )
@@ -41,7 +50,7 @@ FLAGS = (
 
 def flag_enabled(name: str) -> bool:
     """统一开关判定:先读设置中心(DB 覆盖→env→默认,热生效),未登记名
-    回落旧 env 语义(向前兼容)。默认关 → 与开关引入前【字节等价】。"""
+    回落旧 env 语义(向前兼容)。产品默认见 settings.REGISTRY。"""
     try:
         from scribe3.settings import get_setting
         return bool(get_setting(name))

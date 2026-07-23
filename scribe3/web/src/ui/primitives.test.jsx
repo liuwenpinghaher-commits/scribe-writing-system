@@ -60,4 +60,30 @@ describe('PC UI primitives', () => {
     expect([...sm.classList]).toEqual(expect.arrayContaining(['h-8', 'w-8']))
     expect([...md.classList]).toEqual(expect.arrayContaining(['h-9', 'w-9']))
   })
+
+  it('Input defaults to ghost and supports bordered', async () => {
+    const { Input } = await import('../ui.jsx')
+    const { rerender } = render(<Input aria-label="g" />)
+    const g = screen.getByLabelText('g')
+    expect([...g.classList]).toEqual(expect.arrayContaining(['border-transparent']))
+    rerender(<Input aria-label="b" variant="bordered" />)
+    const b = screen.getByLabelText('b')
+    expect([...b.classList].some((c) => c.startsWith('border-line'))).toBe(true)
+  })
+
+  it('Btn/Input use compact rounded-md and never wrap label text', async () => {
+    const { Input } = await import('../ui.jsx')
+    render(
+      <>
+        <Btn>导入</Btn>
+        <Input aria-label="title" />
+      </>,
+    )
+    const btn = screen.getByRole('button', { name: '导入' })
+    expect(btn.className).toMatch(/rounded-md/)
+    expect(btn.className).toMatch(/whitespace-nowrap/)
+    expect(btn.className).not.toMatch(/rounded-xl/)
+    expect(screen.getByLabelText('title').className).toMatch(/rounded-md/)
+  })
 })
+

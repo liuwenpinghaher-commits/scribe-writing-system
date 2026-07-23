@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic, Check, X } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Square, PenLine, Paperclip, Mic, Check, X, AtSign } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist, loadChat } from './useChatPersist'
 import { useChiefSlot } from './ChiefSlotContext'
@@ -11,10 +11,14 @@ import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
 import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
+import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
+import { useMaterialAt } from './lib/useMaterialAt.js'
 import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { ContextInspector } from './context/ContextInspector'
+import { PendingClaimsPanel } from './context/PendingClaimsPanel'
 import { ThreadSwitcher } from './ThreadSwitcher'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
@@ -42,7 +46,7 @@ function ThreadSummaryCard({ meta }) {
   const summ = (meta.summary || '').trim()
   if (!err && !summ) return null
   return (
-    <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 leading-snug">
+    <div className="rounded-md bg-soft/50 px-2.5 py-2 text-f12 leading-snug">
       {err && (
         <div className="text-danger mb-1">早期摘要未更新(上次生成失败:{err})——以下为旧摘要。</div>
       )}
@@ -84,9 +88,9 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   const rc = ap.runContext
   if (!rc) return null
   return (
-    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/40 bg-warn/5 px-2 py-1.5">
+    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-f12 font-medium text-warn">
-        <span data-testid="run-context-expired" className="inline-flex items-center rounded bg-warn/15 px-1 py-0.5 text-meta">已过期</span>
+        <span data-testid="run-context-expired" className="inline-flex items-center rounded-lg bg-warn/15 px-1.5 py-0.5 text-meta">已过期</span>
         {rc.voided ? '发起时焦点已推进,原审批作废' : '发起时焦点已变,但与当前焦点无关'}
       </div>
       <div className="mt-1 grid grid-cols-1 gap-0.5 text-meta text-faint">
@@ -97,7 +101,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
         <div data-testid="run-context-voided" className="mt-1.5 text-meta text-danger">已作废,请就当前焦点重新发起该任务。</div>
       ) : (
         <button type="button" data-testid="run-approve-stale" onClick={() => onApprovalDecision?.(ap, 'approve', { approveStale: true })}
-          className="mt-1.5 inline-flex h-6 items-center gap-1 rounded-md border border-warn/50 bg-surface px-2 text-meta font-medium text-warn">
+          className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-md bg-warn/10 px-2.5 text-meta font-medium text-warn hover:bg-warn/15 cursor-pointer">
           仍要批准(忽略过期)
         </button>
       )}
@@ -105,27 +109,56 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   )
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq }) {
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
+  // 存/引入/聊：只在划选浮窗(SelectionQuoteActions)，不在每条消息头挂冗余「存」
+  // 无气泡:主编靠左 / 你靠右,色条+底色+分割线区分,省掉头像与圆角底
   return (
-    <div data-context-revision={ctxRev} className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
-        {me ? <User size={14} /> : <MessagesSquare size={14} />}
-      </div>
-      <div className={`max-w-[85%] ${me ? '' : 'flex-1 min-w-0'}`}>
+    <div
+      data-context-revision={ctxRev}
+      data-testid="chat-turn"
+      data-role={me ? 'user' : 'assistant'}
+      className={`flex min-w-0 border-b border-line/70 py-2 last:border-b-0 ${me ? 'justify-end' : 'justify-start'}`}
+    >
+      <div
+        className={`min-w-0 max-w-[94%] text-f13 leading-relaxed ${
+          me
+            ? 'border-r-2 border-brand/50 pr-2 bg-brand/[0.04] pl-2 py-1'
+            : 'border-l-2 border-line pl-2 pr-1 py-1'
+        }`}
+      >
+        <div className={`flex items-center gap-1.5 mb-1 ${me ? 'justify-end text-brand' : 'justify-start text-faint'}`}>
+          {me ? (
+            <>
+              <span className="text-meta font-medium whitespace-nowrap">你</span>
+              <User size={12} className="shrink-0" />
+            </>
+          ) : (
+            <>
+              <MessagesSquare size={12} className="shrink-0 text-brand" />
+              <span className="text-meta font-medium whitespace-nowrap">主编</span>
+            </>
+          )}
+        </div>
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded-md bg-soft/70 border border-line px-1.5 py-0.5 text-meta text-faint">
+              <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-soft/80 px-1.5 py-0.5 text-meta text-faint">
                 <Wrench size={9} className="text-brand" />
                 {displayToolName(t)}
               </span>
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-soft/60 text-ink'}`}>
+        <SelectionQuoteActions
+          scopeLabel={me ? '你的消息' : '主编回复'}
+          chapterSeq={chapterSeq}
+          originLabel="主编会话"
+          disabled={streaming}
+          className="min-w-0 text-left text-ink"
+        >
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -137,66 +170,68 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
               </div>
             )
           }
-          {!me && approvals?.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {approvals.map((ap) => {
-                const done = ap.status === 'approved' || ap.status === 'denied'
-                return (
-                  <div key={`${ap.run_id || ''}:${ap.approval_id || ''}`} className="border-l-2 border-brand/50 pl-2.5 py-1">
-                    <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
-                    <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
-                    <div className="mt-2 flex items-center gap-2">
-                      {ap.status === 'approved' ? (
-                        <span className="text-f12 text-ok">已批准</span>
-                      ) : ap.status === 'denied' ? (
-                        <span className="text-f12 text-danger">已拒绝</span>
-                      ) : ap.status === 'submitting' ? (
-                        <span className="text-f12 text-faint">提交中…</span>
-                      ) : ap.status === 'error' ? (
-                        <span className="text-f12 text-danger">提交失败</span>
-                      ) : ap.runContext ? null : (
-                        <>
-                          <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
-                            <Check size={12} />批准
-                          </button>
-                          <button type="button" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                            className="inline-flex h-7 items-center gap-1 rounded-md border border-line bg-surface px-2 text-f12 font-medium text-ink">
-                            <X size={12} />拒绝
-                          </button>
-                        </>
-                      )}
-                      {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
-                    </div>
-                    <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
+        </SelectionQuoteActions>
+        {!me && approvals?.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {approvals.map((ap, apIdx) => {
+              const done = ap.status === 'approved' || ap.status === 'denied'
+              // Hermes MCP elicitation 常不带 approval_id;用 message+idx 防 React 同 key 刷屏
+              const apKey = `${ap.run_id || ''}:${ap.approval_id || ap.message || ''}:${apIdx}`
+              return (
+                <div key={apKey} className="border-l-2 border-brand/50 pl-2.5 py-1">
+                  <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
+                  <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    {ap.status === 'approved' ? (
+                      <span className="text-f12 text-ok">已批准</span>
+                    ) : ap.status === 'denied' ? (
+                      <span className="text-f12 text-danger">已拒绝</span>
+                    ) : ap.status === 'submitting' ? (
+                      <span className="text-f12 text-faint">提交中…</span>
+                    ) : ap.status === 'error' ? (
+                      <span className="text-f12 text-danger">提交失败</span>
+                    ) : ap.runContext ? null : (
+                      <>
+                        <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
+                          <Check size={12} />批准
+                        </button>
+                        <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
+                          <X size={12} />拒绝
+                        </button>
+                      </>
+                    )}
+                    {done && ap.decision && <span className="text-meta text-faint">{ap.decision}</span>}
                   </div>
-                )
-              })}
-            </div>
-          )}
-          {!me && writeEffects?.length > 0 && (
-            <div data-testid="run-write-effects" className="mt-2 border-l-2 border-brand/40 pl-2.5 py-1">
-              <div className="text-f12 font-medium text-ink">写入影响</div>
-              <div className="mt-0.5 text-meta text-faint">
-                {writeEffects.map((e, i) => (
-                  <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          {!me && toolOutputs?.length > 0 && (
-            <div className="mt-2 space-y-1.5">
-              {toolOutputs.map((out, i) => (
-                <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
-                  <div className="text-f12 font-medium text-ink">工具返回</div>
-                  <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
-                    {toolOutputPreview(out.output)}
-                  </div>
+                  <RunStaleCard ap={ap} onApprovalDecision={onApprovalDecision} />
                 </div>
+              )
+            })}
+          </div>
+        )}
+        {!me && writeEffects?.length > 0 && (
+          <div data-testid="run-write-effects" className="mt-2 border-l-2 border-brand/40 pl-2.5 py-1">
+            <div className="text-f12 font-medium text-ink">写入影响</div>
+            <div className="mt-0.5 text-meta text-faint">
+              {writeEffects.map((e, i) => (
+                <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!me && toolOutputs?.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {toolOutputs.map((out, i) => (
+              <div key={out.call_id || i} className="border-l-2 border-line pl-2.5 py-1">
+                <div className="text-f12 font-medium text-ink">工具返回</div>
+                <div className="mt-0.5 whitespace-pre-wrap break-words text-meta leading-snug text-faint">
+                  {toolOutputPreview(out.output)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -272,12 +307,12 @@ function WriteSlot() {
   const { setSlotEl } = useChiefSlot()
 
   return (
-    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 */}
-      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
+    <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">
+      {/* 头部:标题 · nowrap 防窄栏逐字竖排 */}
+      <div className="shrink-0 px-3.5 py-3 flex items-center gap-2 border-b border-line/60 min-w-0 overflow-hidden bg-surface/95 backdrop-blur-sm">
         <PenLine size={15} className="text-brand shrink-0" />
-        <div className="flex flex-col min-w-0 leading-tight">
-          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
+        <div className="flex flex-col min-w-0 flex-1 leading-tight overflow-hidden">
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold tracking-tight text-ink whitespace-nowrap truncate">主编上下文</span>
           <span className="text-meta text-faint truncate">提思路让主编写,或改选中段落</span>
         </div>
       </div>
@@ -325,10 +360,10 @@ function UsageChip() {
   const usageLabel = unlimited
     ? `今日已用 ${u.cap.used_today} 发 · 不限次数`
     : `${u.cap.used_today}/${u.cap.cap} 发`
-  return (
+return (
     <span
       data-testid="chief-usage-chip"
-      className="ml-auto shrink-0 text-meta text-faint tabular-nums whitespace-nowrap"
+      className="ml-auto max-w-[42%] shrink-0 truncate text-meta text-faint tabular-nums whitespace-nowrap"
       title={`LLM ${unlimited ? '用量' : '日帽'}:${usageLabel}(${scopeLabel});${hasProviderUsage ? `官方直连 ${providerTok} token；` : ''}trace ${traceTok} token${hasProviderUsage ? '；两个渠道可能重叠，不相加' : ''}`}
     >
       {usageLabel} · {channelLabel}
@@ -436,12 +471,25 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const [busy, setBusy] = useState(false)
   const endRef = useRef(null)
   const taRef = useRef(null)
+  const materialAt = useMaterialAt({ input, setInput, taRef })
   const esRef = useRef(null)
   const activeRunIdsRef = useRef(new Set())
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
   // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨——挂载时消费 sessionStorage pending
   // (点按钮时监听者可能未挂载),事件给已挂载者;预填=追加不整替(不吞作者半句)。
-  const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
+  // 世界写种子(s3_* / 需我审批):自动发送——否则「让主编写入」只填框不提交,作者/e2e 点了等于没点。
+  const sendRef = useRef((/** @type {string|undefined} */ _t) => {})
+  const seedIn = (v) => {
+    const text = String(v ?? '')
+    if (!text.trim()) return
+    setInput((prev) => (prev ? prev + '\n' : '') + text)
+    taRef.current?.focus()
+    const auto = /s3_[a-z_]+|需我审批|写入落库|提交写入提案/.test(text)
+    if (auto) {
+      // 下一帧再发:等 input 提交路径与 focus 就绪;send 读显式 text 不依赖 state
+      setTimeout(() => sendRef.current(text), 80)
+    }
+  }
   useEffect(() => {
     try {
       const pending = sessionStorage.getItem('s3.chief.seed')
@@ -545,6 +593,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       }
       await api.aiRunApproval(approval.run_id, body)
       patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision, runContext: null })
+      // 批准落库后通知设定详情轮询:删除/归档对象消失再退回分类
+      if (decision === 'approve') {
+        try {
+          const { notifyWorldWriteApproved } = await import('./lib/codexLifecycle.js')
+          notifyWorldWriteApproved({
+            decision,
+            message: approval?.message || '',
+            run_id: approval?.run_id,
+          })
+        } catch { /* */ }
+      }
     } catch (e) {
       // Task 13:409 run_context_changed/stale → 展示"发起时/当前焦点 + 已过期"卡片,不当作提交失败。
       const rc = runContextFromError(e)
@@ -568,6 +627,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const send = (text) => {
     const q = (text ?? input).trim()
     if (!q || busy) return
+    // 见上方 seedIn auto-send
     // 主编主动化 T8:「#想法 」→ 想法收件箱
     if (q.startsWith('#想法')) {
       const idea = q.replace(/^#想法\s*/, '')
@@ -707,26 +767,30 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     })
   }
+  sendRef.current = send
 
   return (
-    <div data-testid="chief-chat-shell" className="h-full w-full bg-surface flex flex-col min-h-0">
-      {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI) */}
-      <div className="shrink-0 px-3 py-3 flex items-start gap-2 border-b border-line">
+    <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">
+      {/* 头部:标题 + 上下文(折叠由外层 resizable Panel 负责,此处不再自带折叠 UI)
+          min-w-0 + nowrap/truncate:窄栏时禁止「主编上下文」逐字折成竖排 */}
+      <div className="shrink-0 px-3.5 py-3 flex items-center gap-2 border-b border-line/60 min-w-0 overflow-hidden bg-surface/95 backdrop-blur-sm">
         <MessagesSquare size={15} className="text-brand shrink-0" />
-        <div className="flex flex-col min-w-0 leading-tight">
-          <span data-testid="chief-chat-title" className="text-f13 font-semibold text-ink">主编上下文</span>
+        <div className="flex flex-col min-w-0 flex-1 leading-tight overflow-hidden">
+          <span data-testid="chief-chat-title" className="text-f13 font-semibold tracking-tight text-ink whitespace-nowrap truncate">主编上下文</span>
           <span className="text-meta text-faint truncate" data-testid="chief-ctx">{ctx.label}</span>
         </div>
         {/* P0a:会话下拉(历史/新建/切换/管理)——自门控,非线程模式渲染 null */}
-        <ThreadSwitcher busy={busy} />
+        <div className="shrink-0"><ThreadSwitcher busy={busy} /></div>
         <UsageChip />
       </div>
 
       {/* Task 14:上下文检查器 —— 主编到底看到了什么、为什么选/弃某条记忆(可折叠,常显第1层) */}
       <ContextInspector />
+      {/* 待审正典揭示:作者面 list+approve/reject → /memory/pending-claims */}
+      <PendingClaimsPanel />
 
       {/* 消息列表 */}
-      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
+      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
         {/* P0b:载入更早(分页游标)+ 早期摘要卡(折叠) */}
         {threadMode && earlier.hasMore && (
           <button
@@ -738,60 +802,87 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
                 })
                 .catch((e) => showToast(`载入更早失败:${e?.body?.detail || e?.message || e}`, { tone: 'danger' }))
             }}
-            className="w-full text-center text-f12 text-brand hover:underline cursor-pointer py-0.5">
+            className="w-full text-center text-f12 text-brand hover:underline cursor-pointer py-1">
             载入更早…
           </button>
         )}
         {threadMode && <ThreadSummaryCard meta={threadMeta} />}
         {threadLoadError && (
-          <div data-testid="chief-thread-load-error" className="rounded-lg border border-warn/40 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2">
+          <div data-testid="chief-thread-load-error" className="rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2 mb-2">
             <span className="flex-1">线程历史加载失败{msgs.length ? '(显示本地缓存)' : ''},可重试。</span>
             <button type="button" data-testid="chief-thread-retry" onClick={retryThreadLoad}
               className="shrink-0 text-meta text-brand hover:underline cursor-pointer">重试</button>
           </div>
         )}
         {msgs.length === 0 ? (
-          <div className="pt-2">
+          <div className="pt-1 space-y-2">
             {/* 空态按会话类型分文案(作者语义:新建=界面清洁不是失忆):
                 有 parent=延续会话(近窗+摘要都带着);无 parent=手动全新会话 */}
             {threadMode && threadMeta && (
               threadMeta.parent_thread_id ? (
-                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
+                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
               ) : (
-                <div className="rounded-lg border border-line bg-canvas px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
               )
             )}
-            <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
-                  className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
+                  className="w-full text-left rounded-md bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
               ))}
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} />
+          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} chapterSeq={seq ?? ctxSeq} />
         ))}
         <div ref={endRef} />
       </div>
 
       {/* 输入区 */}
-      <div className="shrink-0 border-t border-line bg-surface px-3 py-2">
+      <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
-          className="chief-composer-panel rounded-xl px-2.5 py-2"
+          className="chief-composer-panel relative rounded-md px-2.5 py-2"
         >
+          <MaterialAtPicker
+            open={materialAt.open}
+            query={materialAt.query}
+            items={materialAt.items}
+            loading={materialAt.loading}
+            error={materialAt.error}
+            activeIndex={materialAt.activeIndex}
+            onActiveIndexChange={materialAt.setActiveIndex}
+            onPick={materialAt.pick}
+          />
           <textarea
             ref={taRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setInput(v)
+              materialAt.syncFromValue(v, e.target.selectionStart ?? v.length)
+            }}
+            onSelect={(e) => {
+              materialAt.syncFromValue(e.target.value, e.target.selectionStart ?? 0)
+            }}
             rows={1}
-            placeholder="就当前内容问主编…"
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="就当前内容问主编… 输入 @ 引用章/设定/事件/素材…"
+            onKeyDown={(e) => materialAt.onKeyDown(e, { onEnterSend: () => send() })}
             className="block w-full min-h-[36px] max-h-28 resize-none border-0 bg-transparent px-0 py-0.5 text-f13 leading-relaxed text-ink outline-none shadow-none ring-0 placeholder:text-faint/70 focus:border-transparent focus:outline-none focus:ring-0 focus:shadow-none focus-visible:outline-none"
           />
           <div data-testid="chief-chat-toolbar" className="mt-1.5 flex items-center gap-1.5">
+            <Btn
+              variant="ghost"
+              icon
+              title="引用全书对象(@)：章节/设定/事件/命题/素材"
+              aria-label="引用全书对象"
+              data-testid="chief-at-material"
+              onClick={() => materialAt.openManual()}
+            >
+              <AtSign size={15} />
+            </Btn>
             <Btn variant="ghost" icon title="附件功能待接入讨论模式" aria-label="添加附件" disabled>
               <Paperclip size={15} />
             </Btn>

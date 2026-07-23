@@ -66,4 +66,22 @@ describe('targetNodeToSelection', () => {
       node: { id: 'motif:m1', type: 'motif_view', ref: 'book', label: '借命回环', meta: { seq: 6 } },
     })
   })
+
+  it('maps view/atlas open-in-graph targets with atlasFocus (not codex entry)', () => {
+    expect(targetNodeToSelection({
+      type: 'view',
+      id: 'view:atlas',
+      viewKey: 'atlas',
+      focus: 'role:小翠',
+      meta: { focus: 'role:小翠' },
+    })).toMatchObject({
+      viewKey: 'atlas',
+      atlasFocus: 'role:小翠',
+      node: { type: 'view', id: 'view:atlas', viewKey: 'atlas' },
+    })
+    expect(targetNodeToSelection({ type: 'atlas', focus: 'faction:秘会' })).toMatchObject({
+      viewKey: 'atlas',
+      atlasFocus: 'faction:秘会',
+    })
+  })
 })

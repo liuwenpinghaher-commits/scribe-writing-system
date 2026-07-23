@@ -300,8 +300,8 @@ def test_chat_write_current_binding_passes(store, context_session, monkeypatch):
 
 
 def test_chat_write_legacy_request_unaffected_when_flag_off(store, monkeypatch):
-    """开关关(默认):不带 context 字段的旧请求完全不受影响——现有调用方零变化。"""
-    monkeypatch.delenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", raising=False)
+    """SNAPSHOT 显式关:不带 context 字段的旧请求不受强制绑定影响。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", "0")
     monkeypatch.setattr(A, "_responses_events", _stub_events("旧调用方", "照常工作。"))
     r = _client(store).post("/chat/write?work=main",
                             json={"msg": "续写", "chapter": 2, "phase": "draft"})
@@ -310,8 +310,8 @@ def test_chat_write_legacy_request_unaffected_when_flag_off(store, monkeypatch):
 
 
 def test_chat_write_flag_off_ignores_stale_fields(store, context_session, monkeypatch):
-    """开关关时即便带了过期 context 字段也不校验(门控语义:关=完全不碰)。"""
-    monkeypatch.delenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", raising=False)
+    """SNAPSHOT 显式关时即便带了过期 context 字段也不校验。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", "0")
     monkeypatch.setattr(A, "_responses_events", _stub_events("不校验,", "照常写。"))
     r = _client(store).post("/chat/write?work=main", json={
         "msg": "续写", "chapter": 3,

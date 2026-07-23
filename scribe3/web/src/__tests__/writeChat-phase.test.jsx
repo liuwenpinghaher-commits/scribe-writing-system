@@ -73,7 +73,7 @@ describe('WriteChat phase', () => {
     const textarea = screen.getByPlaceholderText(/提思路/)
     expect(composer.getAttribute('data-chief-composer')).toBe('true')
     expect(composer.className).toContain('chief-composer-panel')
-    expect(composer.className).toContain('rounded-xl')
+    expect(composer.className).toContain('rounded-md')
     expect(composer.className).not.toContain('space-y-2')
     expect(textarea.className).toContain('border-0')
     expect(textarea.className).toContain('shadow-none')

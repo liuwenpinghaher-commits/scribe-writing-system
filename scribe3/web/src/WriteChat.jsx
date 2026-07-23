@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check } from 'lucide-react'
+import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check, AtSign } from 'lucide-react'
 import { api } from './api'
 import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
@@ -9,6 +9,8 @@ import { scrollBehavior } from './lib/utils'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
+import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
+import { useMaterialAt } from './lib/useMaterialAt.js'
 import { Btn } from './ui.jsx'
 
 // Task 13 I-1:章内写作槽发起的 approval 型 run 也要绑发起时上下文,让重校验对它生效
@@ -74,12 +76,33 @@ function toolOutputPreview(output) {
 
 function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming, onApprovalDecision }) {
   const me = role === 'user'
+  // 无气泡:主编靠左 / 你靠右,色条+底色+分割线区分,省掉头像与圆角底
   return (
-    <div className={`flex gap-2.5 ${me ? 'flex-row-reverse' : ''}`}>
-      <div className={`w-7 h-7 rounded-lg shrink-0 grid place-items-center ${me ? 'bg-brand text-brandfg' : 'bg-soft text-brand'}`}>
-        {me ? <User size={14} /> : <MessagesSquare size={14} />}
-      </div>
-      <div className={`max-w-[85%] ${me ? '' : 'flex-1 min-w-0'}`}>
+    <div
+      data-testid="chat-turn"
+      data-role={me ? 'user' : 'assistant'}
+      className={`flex min-w-0 border-b border-line/70 py-2 last:border-b-0 ${me ? 'justify-end' : 'justify-start'}`}
+    >
+      <div
+        className={`min-w-0 max-w-[94%] text-f13 leading-relaxed ${
+          me
+            ? 'border-r-2 border-brand/50 pr-2 bg-brand/[0.04] pl-2 py-1'
+            : 'border-l-2 border-line pl-2 pr-1 py-1'
+        }`}
+      >
+        <div className={`flex items-center gap-1.5 mb-1 ${me ? 'justify-end text-brand' : 'justify-start text-faint'}`}>
+          {me ? (
+            <>
+              <span className="text-meta font-medium whitespace-nowrap">你</span>
+              <User size={12} className="shrink-0" />
+            </>
+          ) : (
+            <>
+              <MessagesSquare size={12} className="shrink-0 text-brand" />
+              <span className="text-meta font-medium whitespace-nowrap">主编</span>
+            </>
+          )}
+        </div>
         {!me && tools?.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {tools.map((t, i) => (
@@ -90,7 +113,7 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
             ))}
           </div>
         )}
-        <div className={`rounded-2xl px-3.5 py-2.5 text-f14 leading-relaxed ${me ? 'bg-brand text-brandfg' : 'bg-surface border border-line text-ink'}`}>
+        <div className="min-w-0 text-left text-ink">
           {me
             ? <span className="whitespace-pre-wrap">{content}</span>
             : (
@@ -119,12 +142,12 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                       <span className="text-f12 text-danger">提交失败</span>
                     ) : ap.runContext ? null : (
                       <>
-                        <button type="button" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2 text-f12 font-medium text-brandfg">
+                        <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
                           <Check size={12} />批准
                         </button>
-                        <button type="button" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                          className="inline-flex h-7 items-center gap-1 rounded-md border border-line bg-surface px-2 text-f12 font-medium text-ink">
+                        <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
                           <X size={12} />拒绝
                         </button>
                       </>
@@ -166,6 +189,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
   const endRef = useRef(null)
   const taRef = useRef(null)
   const fileRef = useRef(null)
+  const materialAt = useMaterialAt({ input, setInput, taRef })
   const ctrlRef = useRef(null)   // 断头修复#83:在途写作流的 AbortController(停止/卸载中止)
   const activeRunIdsRef = useRef(new Set())
   const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current?.close?.(); ctrlRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) }
@@ -323,19 +347,19 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles([...e.dataTransfer.files]) }}
     >
       {dragging && (
-        <div className="absolute inset-0 z-20 bg-brand/10 border-2 border-dashed border-brand rounded-lg flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 z-20 bg-brand/10 border-2 border-dashed border-brand/50 rounded-md flex items-center justify-center pointer-events-none">
           <span className="text-brand text-f13 font-medium">拖入附件</span>
         </div>
       )}
 
       {/* 消息列表 */}
-      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-3 bg-canvas/60">
+      <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
         {msgs.length === 0 ? (
-          <div className="pt-2">
-            <div className="rounded-lg border border-line bg-surface px-2.5 py-2 text-f12 text-faint mb-2.5 leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
+          <div className="pt-1 space-y-2">
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
             <div className="space-y-1.5">
               {SUGGESTS.map((s) => (
-                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-lg border border-line bg-canvas hover:border-brand hover:bg-soft/40 px-2.5 py-1.5 text-f12 text-ink transition-colors cursor-pointer">{s}</button>
+                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-md bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
               ))}
             </div>
           </div>
@@ -349,7 +373,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       {attachments.length > 0 && (
         <div className="shrink-0 px-2.5 pb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((a) => (
-            <div key={a.id} className="relative flex items-center gap-1.5 rounded-lg border border-line bg-soft px-2 py-1 text-f12 text-ink max-w-[130px]">
+            <div key={a.id} className="relative flex items-center gap-1.5 rounded-md bg-soft px-2 py-1 text-f12 text-ink max-w-[130px]">
               {a.kind === 'image'
                 ? <img src={a.url} alt={a.name} className="w-5 h-5 rounded object-cover shrink-0" />
                 : <FileText size={12} className="text-brand shrink-0" />}
@@ -363,22 +387,49 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       )}
 
       {/* 输入区 */}
-      <div className="shrink-0 border-t border-line bg-surface px-3 py-2">
+      <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
-          className="chief-composer-panel rounded-xl px-2.5 py-2"
+          className="chief-composer-panel relative rounded-md px-2.5 py-2"
         >
+          <MaterialAtPicker
+            open={materialAt.open}
+            query={materialAt.query}
+            items={materialAt.items}
+            loading={materialAt.loading}
+            error={materialAt.error}
+            activeIndex={materialAt.activeIndex}
+            onActiveIndexChange={materialAt.setActiveIndex}
+            onPick={materialAt.pick}
+          />
           <textarea
             ref={taRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setInput(v)
+              materialAt.syncFromValue(v, e.target.selectionStart ?? v.length)
+            }}
+            onSelect={(e) => {
+              materialAt.syncFromValue(e.target.value, e.target.selectionStart ?? 0)
+            }}
             rows={1}
-            placeholder="提思路 / 提要求…"
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+            placeholder="提思路 / 提要求… 输入 @ 引用章/设定/事件/素材…"
+            onKeyDown={(e) => materialAt.onKeyDown(e, { onEnterSend: () => send() })}
             className="block w-full min-h-[36px] max-h-28 resize-none border-0 bg-transparent px-0 py-0.5 text-f13 leading-relaxed text-ink outline-none shadow-none ring-0 placeholder:text-faint/70 focus:border-transparent focus:outline-none focus:ring-0 focus:shadow-none focus-visible:outline-none"
           />
           <div data-testid="chief-chat-toolbar" className="mt-1.5 flex items-center gap-1.5">
+            <Btn
+              variant="ghost"
+              icon
+              title="引用全书对象(@)：章节/设定/事件/命题/素材"
+              aria-label="引用全书对象"
+              data-testid="chief-at-material"
+              onClick={() => materialAt.openManual()}
+            >
+              <AtSign size={15} />
+            </Btn>
             <Btn variant="ghost" icon
               onClick={() => fileRef.current?.click()}
               title="添加图片或文本文件" aria-label="添加附件"

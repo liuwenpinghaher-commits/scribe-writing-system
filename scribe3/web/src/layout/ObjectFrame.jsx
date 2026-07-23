@@ -18,20 +18,24 @@ export function ObjectFrame({ breadcrumb, title, status, tabs = [], activeTab, o
   const titleId = useId()
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas" aria-labelledby={titleId}>
-      <header className="shrink-0 border-b border-line bg-surface px-4 py-3">
-        {!compact && breadcrumb && <div className="mb-1 truncate text-meta text-muted">{breadcrumb}</div>}
-        <div className="flex min-h-9 items-center gap-3" data-testid={compact ? 'object-frame-titlerow-compact' : undefined}>
+      <header className="shrink-0 border-b border-line/40 px-5 py-2.5">
+        {!compact && breadcrumb && <div className="mb-0.5 truncate text-meta text-muted">{breadcrumb}</div>}
+        <div className="flex min-h-8 items-center gap-3" data-testid={compact ? 'object-frame-titlerow-compact' : undefined}>
           {compact && breadcrumb && (
             <span className="shrink-0 inline-flex items-center gap-1.5 text-meta text-muted">
               {breadcrumb}
               <span aria-hidden="true">›</span>
             </span>
           )}
-          <h1 id={titleId} className="min-w-0 flex-1 truncate text-object-title font-semibold text-ink">{title}</h1>
+          <h1 id={titleId} className="min-w-0 flex-1 truncate text-object-title font-semibold tracking-tight text-ink">{title}</h1>
           {status && <span role="status" className="text-meta text-muted">{status}</span>}
           {actions}
         </div>
-        {tabs.length > 0 && <Tabs ariaLabel={`${title}页签`} value={activeTab} onValueChange={onTab} items={tabs} />}
+        {tabs.length > 0 && (
+          <div className="mt-2.5">
+            <Tabs ariaLabel={`${title}页签`} value={activeTab} onValueChange={onTab} items={tabs} />
+          </div>
+        )}
       </header>
       <div className="min-h-0 flex-1 overflow-auto">{children}</div>
     </section>

@@ -1,4 +1,5 @@
 import { targetNodeToSelection } from './targetNavigation'
+import { nodeCompatibleWithEntry } from './entrySelection'
 
 // ContextSnapshot → 四栏选中态(sel)的纯投影层(Task 5)。
 //
@@ -61,6 +62,13 @@ export function selectionFromSnapshot(snapshot, fallbackSel) {
   if (focus.type === 'view') {
     const viewKey = String(focus.id || '').replace(/^view:/, '')
     return viewKey && viewKey !== 'empty' ? { mode: 'view', viewKey } : fallbackSel
+  }
+  // 一级入口-only(entryPatch):不得把异域旧条目(伏笔详情等)继续投影到栏3。
+  // 粘性章/本域节点可保留;否则落到空选,由用户在栏2 再点。
+  if (focus.type === 'entry') {
+    const entryKey = snapshot.entry || String(focus.id || '').replace(/^entry:/, '')
+    if (nodeCompatibleWithEntry(fallbackSel?.node, entryKey)) return fallbackSel
+    return { mode: 'node', node: null }
   }
   // ③ 章/场景:判据以 focus.type 为准(I-3)。绝不用 `snapshot.chapter != null`,否则
   // 一个带 ambient chapter 的角色 focus 会被误投成章节(角色 label 挂到章上)。

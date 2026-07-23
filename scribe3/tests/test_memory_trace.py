@@ -297,8 +297,8 @@ def test_write_path_trace_never_at_rest_secret(store, monkeypatch):
 
 
 def test_write_path_no_trace_when_memory_fabric_off_and_byte_equivalent(store, monkeypatch):
-    """③检索关 → 不落 trace(Inspector 404),且带不带 memory_trace_ctx 组装【字节等价】。"""
-    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+    """③检索显式关 → 不落 trace,且带不带 memory_trace_ctx 组装【字节等价】。"""
+    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
     store.add_fact(Fact("fact:m", "role:m", "mood", "沉郁", valid_from=1))
 
     kw = dict(chapter=2, focalizer="", phase="draft", seed_words=["雨"],

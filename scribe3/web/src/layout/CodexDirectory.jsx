@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, MoreHorizontal, Plus, Search, X } from 'lucide-react'
+import { Check, Loader2, Plus, X } from 'lucide-react'
 import { api } from '../api'
 import { useToast } from '../ui/Toast'
+import { DirectoryHeader } from './DirectoryHeader'
+import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
 
 const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif', 'proposition'])
 
@@ -54,10 +56,6 @@ function CountBadge({ children }) {
   return <span className="shrink-0 min-w-[24px] h-5 inline-flex items-center justify-center rounded-full bg-soft px-1.5 text-meta text-faint tnum">{children}</span>
 }
 
-function Dot({ tone }) {
-  return <span className={`shrink-0 w-2 h-2 rounded-full ${TONE[tone] || TONE.brand}`} />
-}
-
 function RowText({ title, sub }) {
   return (
     <span className="min-w-0 flex flex-col gap-0.5">
@@ -68,40 +66,28 @@ function RowText({ title, sub }) {
 }
 
 function CategoryRow({ category, selected, onSelect }) {
-  const meta = CATEGORY_META[category.ref] || { desc: '设定分类', tone: 'brand' }
   const count = category.children?.length ?? 0
   return (
-    <button
-      type="button"
+    <DirectoryRow
+      title={category.label}
+      meta={count}
+      active={selected}
       aria-label={category.label}
       onClick={() => onSelect?.(category)}
-      className={`w-full min-h-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${selected ? 'bg-soft text-brand' : 'text-ink hover:bg-soft/70'}`}
-    >
-      <span className="min-w-0 flex items-center gap-2">
-        <Dot tone={meta.tone} />
-        <RowText title={category.label} sub={meta.desc} />
-      </span>
-      <CountBadge>{count}</CountBadge>
-    </button>
+    />
   )
 }
 
-function ItemRow({ node, selected, tone, onSelect }) {
+function ItemRow({ node, selected, onSelect }) {
   const chapter = node?.meta?.chapter ?? node?.meta?.first_chapter ?? node?.meta?.seq
-  const sub = node?.meta?.summary || node?.meta?.kind || node?.meta?.status || ''
   return (
-    <button
-      type="button"
+    <DirectoryRow
+      title={node.label}
+      meta={chapter != null ? `第 ${chapter} 章` : undefined}
+      active={selected}
       aria-label={node.label}
       onClick={() => onSelect?.(node)}
-      className={`w-full min-h-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${selected ? 'bg-soft text-brand' : 'text-ink hover:bg-soft/70'}`}
-    >
-      <span className="min-w-0 flex items-center gap-2">
-        <Dot tone={tone} />
-        <RowText title={node.label} sub={sub} />
-      </span>
-      {chapter != null ? <CountBadge>第 {chapter} 章</CountBadge> : <span />}
-    </button>
+    />
   )
 }
 
@@ -194,10 +180,6 @@ function PendingCharacterRefs() {
   )
 }
 
-function SectionLabel({ children }) {
-  return <div className="px-2 pb-1.5 pt-2 text-meta font-semibold uppercase tracking-wide text-faint">{children}</div>
-}
-
 function EmptyState({ category, query, onNew }) {
   return (
     <div className="px-3 py-10 text-center text-f13 text-faint">
@@ -213,9 +195,11 @@ function EmptyState({ category, query, onNew }) {
 
 export function CodexDirectory({ root, selected, onSelectItem }) {
   const [query, setQuery] = useState('')
+  const [serverHits, setServerHits] = useState(null) // null=未搜 / []|items=服务端结果
+  const [health, setHealth] = useState(null)
+  const [smartView, setSmartView] = useState('all') // all|secret|sparse
   const category = findCategory(root, selected)
   const categories = root?.children || []
-  const activeMeta = CATEGORY_META[category?.ref] || { desc: '设定分类', tone: 'brand' }
   const isRoot = !category
   const items = useMemo(() => {
     const children = category?.children || []
@@ -227,66 +211,141 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
     onSelectItem?.({ id: `new:${category.ref}`, type: 'codex_new', ref: category.ref, label: category.label })
   }
 
-  useEffect(() => { setQuery('') }, [category?.id])
+  useEffect(() => { setQuery(''); setServerHits(null) }, [category?.id])
+
+  useEffect(() => {
+    let alive = true
+    // 测试 mock 可能未挂 codexHealth:缺省跳过,不炸渲染
+    if (typeof api.codexHealth !== 'function') {
+      setHealth(null)
+      return () => { alive = false }
+    }
+    api.codexHealth()
+      .then((h) => { if (alive) setHealth(h) })
+      .catch(() => { if (alive) setHealth(null) })
+    return () => { alive = false }
+  }, [root?.id])
+
+  // 跨类型服务端搜索(debounce):有 query 时优先用 /codex/search
+  useEffect(() => {
+    const needle = query.trim()
+    if (!needle || needle.length < 1) {
+      setServerHits(null)
+      return undefined
+    }
+    if (typeof api.codexSearch !== 'function') {
+      setServerHits(null)
+      return undefined
+    }
+    let alive = true
+    const t = setTimeout(() => {
+      api.codexSearch(needle, 40)
+        .then((r) => {
+          if (!alive) return
+          const items = Array.isArray(r?.items) ? r.items : []
+          setServerHits(items.map((it) => ({
+            id: it.id || `${it.type}:${it.ref}`,
+            type: it.type,
+            ref: it.ref,
+            label: it.label,
+            meta: { subtitle: it.subtitle },
+          })))
+        })
+        .catch(() => { if (alive) setServerHits([]) })
+    }, 280)
+    return () => { alive = false; clearTimeout(t) }
+  }, [query])
+
+  const showServerSearch = serverHits != null && query.trim()
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-surface/75" data-testid="codex-directory">
-      <div className="shrink-0 border-b border-line/70 bg-surface/90 px-3.5 py-3">
-        <div className="mb-2 flex items-center gap-1.5 text-f12 text-faint">
+    <div className={DIR_SHELL} data-testid="codex-directory">
+      <DirectoryHeader
+        title={category?.label || root?.label || '设定库'}
+        count={isRoot ? categories.length : (category?.children?.length || 0)}
+        query={query}
+        onQueryChange={setQuery}
+        searchLabel="搜设定、别名、标签"
+        searchPlaceholder="搜设定、别名、标签"
+        status={!isRoot ? (
           <button type="button" aria-label="返回设定库分类" onClick={() => onSelectItem?.(root)}
-            className="rounded-md px-1 -ml-1 text-faint hover:bg-soft hover:text-brand cursor-pointer">
-            设定库
-          </button>
-          {category && <span>/ {category.label}</span>}
+            className="text-meta text-faint hover:text-brand cursor-pointer">← 分类</button>
+        ) : null}
+        primaryAction={canCreate ? { label: '新建设定', onClick: createNode } : undefined}
+      />
+      <div data-testid="codex-directory-title" className="sr-only">{category?.label || root?.label || '设定库'}</div>
+      {health && (
+        <div data-testid="codex-health" className="px-3 py-1.5 text-meta text-faint border-b border-line/30 bg-surface/80">
+          健康度: 角色 {health.characters ?? 0} · 命题 {health.propositions_open ?? 0}
+          · 稀疏档案 {health.sparse_dossiers ?? 0} · 无关系角色 {health.isolated_characters ?? 0}
         </div>
-        <div className="flex items-center gap-2 min-w-0">
-          <h2 className="min-w-0 flex-1 truncate text-f17 font-semibold text-ink" data-testid="codex-directory-title">
-            {category?.label || root?.label || '设定库'}
-          </h2>
-          <span className="shrink-0 text-f12 text-faint">{isRoot ? `${categories.length} 类` : `${category.children?.length || 0} 项`}</span>
+      )}
+      {isRoot && (
+        <div data-testid="codex-smart-views" className="flex flex-wrap gap-1 px-3 py-1.5 border-b border-line/40 bg-surface">
+          {[
+            { key: 'all', label: '全部分类' },
+            { key: 'secret', label: '含私密' },
+            { key: 'sparse', label: '稀疏档案' },
+          ].map((v) => (
+            <button key={v.key} type="button" onClick={() => setSmartView(v.key)}
+              className={`h-6 px-2 rounded-md text-meta cursor-pointer ${smartView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:bg-soft'}`}>
+              {v.label}
+            </button>
+          ))}
         </div>
-        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
-          <label className="relative min-w-0">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜设定、别名、标签"
-              className="w-full h-8 rounded-lg border border-line bg-canvas pl-8 pr-2 text-f13 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
-          </label>
-          <button type="button" aria-label="新建设定" title="新建设定" disabled={!canCreate} onClick={createNode}
-            className="h-8 w-8 grid place-items-center rounded-lg bg-soft text-faint hover:text-brand disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer">
-            <Plus size={15} />
-          </button>
-          <button type="button" aria-label="更多操作" title="更多操作"
-            className="h-8 w-8 grid place-items-center rounded-lg bg-soft text-faint hover:text-ink cursor-pointer">
-            <MoreHorizontal size={15} />
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
-        {isRoot ? (
+        {showServerSearch ? (
           <>
-            <SectionLabel>分类</SectionLabel>
+            <DirectorySectionLabel>搜索结果</DirectorySectionLabel>
+            {serverHits.length === 0 ? (
+              <div className="px-3 py-8 text-center text-f13 text-faint">没有匹配设定</div>
+            ) : (
+              <div className="space-y-1" data-testid="codex-search-results">
+                {serverHits.map((node) => (
+                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : isRoot ? (
+          <>
+            <DirectorySectionLabel>分类</DirectorySectionLabel>
             <div className="space-y-1">
-              {categories.filter((cat) => matchesQuery(cat, query)).map((cat) => (
-                <CategoryRow key={cat.id} category={cat} selected={sameNode(cat, selected)} onSelect={onSelectItem} />
-              ))}
+              {categories
+                .filter((cat) => matchesQuery(cat, query))
+                .filter((cat) => {
+                  if (smartView === 'secret') {
+                    return (cat.children || []).some((c) => (c.badges || []).some((b) => b?.kind === 'secret'))
+                      || cat.ref === 'proposition' || cat.ref === 'character'
+                  }
+                  if (smartView === 'sparse') return cat.ref === 'character'
+                  return true
+                })
+                .map((cat) => (
+                  <CategoryRow key={cat.id} category={cat} selected={sameNode(cat, selected)} onSelect={onSelectItem} />
+                ))}
             </div>
           </>
         ) : (
           <>
             {category.ref === 'character' && <PendingCharacterRefs />}
-            <SectionLabel>条目</SectionLabel>
+            <DirectorySectionLabel>条目</DirectorySectionLabel>
             {items.length === 0 ? (
               <EmptyState category={category} query={query} onNew={createNode} />
             ) : (
               <div className="space-y-1">
-                {items.map((node) => (
-                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} tone={activeMeta.tone} onSelect={onSelectItem} />
-                ))}
+                {items
+                  .filter((node) => {
+                    if (smartView === 'secret') {
+                      return (node.badges || []).some((b) => b?.kind === 'secret')
+                    }
+                    return true
+                  })
+                  .map((node) => (
+                    <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
+                  ))}
               </div>
             )}
           </>

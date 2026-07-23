@@ -53,7 +53,6 @@ describe('DirectoryPane 能力二级目录', () => {
     ['deduce', '演绎', '场景真相', 'deduce_view'],
     ['promise', '伏笔', '本章要收', 'promise_view'],
     ['motif', '母题', '本章触及', 'motif_view'],
-    ['search', '搜索', '语义召回', 'recall_result'],
     ['review', '校验', '本章总览', 'review_issue'],
   ])('%s 渲染二级目录并传出详情节点', (capability, label, rowLabel, type) => {
     const onSelectItem = vi.fn()
@@ -63,6 +62,13 @@ describe('DirectoryPane 能力二级目录', () => {
     fireEvent.click(screen.getByRole('button', { name: new RegExp(rowLabel) }))
 
     expect(onSelectItem).toHaveBeenCalledWith(expect.objectContaining({ type }))
+  })
+
+  it('搜索目录只提供真实搜索框,不挂无 payload 的语义召回占位', () => {
+    render(<DirectoryPane entry={entry('search', '搜索')} seq={23} onSelectItem={vi.fn()} />)
+    expect(screen.getByTestId('directory-sticky-header').textContent).toContain('搜索')
+    expect(screen.getByRole('searchbox', { name: /全局/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '语义召回' })).toBeNull()
   })
 
   it('演绎二栏按上下文树先选分类总览,再选具体项', () => {

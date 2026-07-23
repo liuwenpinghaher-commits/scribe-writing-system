@@ -70,7 +70,8 @@ def test_stream_write_no_fallback_when_fence_present(monkeypatch):
     events = list(A._stream_write("写", "instr", expect_proposal=True))
     blob = "".join(events)
     # 正好 1 个 proposal,不能有兜底第 2 个
-    assert blob.count('"proposal"') == 1, f"应只有 1 个 proposal,实际: {blob.count('\"proposal\"')}"
+    n_prop = blob.count('"proposal"')
+    assert n_prop == 1, f"应只有 1 个 proposal,实际: {n_prop}"
     assert '"fallback"' not in blob, "真围栏路径不应含 fallback 字段"
 
 

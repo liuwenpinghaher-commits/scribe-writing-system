@@ -20,8 +20,8 @@ function Constraint({ label, value, naText }) {
       <span className="text-ink">{label}</span>
       {na
         ? <span className="text-faint">{naText || 'N/A'}</span>
-        : <span className={`inline-flex items-center gap-1.5 ${bad ? 'text-red-500' : 'text-emerald-600'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${bad ? 'bg-red-500' : 'bg-emerald-500'}`} />
+        : <span className={`inline-flex items-center gap-1.5 ${bad ? 'text-danger' : 'text-ok'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${bad ? 'bg-danger' : 'bg-ok'}`} />
             {value}
           </span>}
     </div>
@@ -30,7 +30,7 @@ function Constraint({ label, value, naText }) {
 
 function Pane({ icon: I, title, tone, children }) {
   return (
-    <div className="rounded-lg border border-line bg-surface p-2.5 mb-2.5 last:mb-0">
+    <div className="mb-3.5 last:mb-0 pb-2.5 border-b border-line/50 last:border-0">
       <div className={`flex items-center gap-1.5 text-meta uppercase tracking-wider mb-1.5 ${tone || 'text-faint'}`}>
         <I size={12} className="shrink-0" />{title}
       </div>
@@ -43,7 +43,7 @@ function Dim({ label, main, sub, warn }) {
   return (
     <div className="py-1 text-f12 flex items-start justify-between gap-2">
       <span className="text-ink shrink-0">{label}</span>
-      <span className={`text-right ${warn ? 'text-amber-600' : 'text-faint'}`}>{main}{sub && <div className="text-meta text-faint">{sub}</div>}</span>
+      <span className={`text-right ${warn ? 'text-warn' : 'text-faint'}`}>{main}{sub && <div className="text-meta text-faint">{sub}</div>}</span>
     </div>
   )
 }
@@ -85,7 +85,7 @@ export function NorthStarPanel({ seq, scope }) {
         ) : (
           <>
             {degraded.length > 0 && (
-              <div className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-300/50 bg-amber-500/10 px-2 py-1 text-meta text-amber-600">
+              <div className="mb-2 flex items-center gap-1.5 rounded-md border border-warn/30 bg-warn/10 px-2 py-1 text-meta text-warn">
                 <AlertTriangle size={11} className="shrink-0" />
                 检测降级:{degraded.join('、')}(没查≠没病,人工过目)
               </div>

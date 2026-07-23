@@ -49,17 +49,77 @@ def dramatic_irony(world, focalizer: str, chapter: int) -> list[Fact]:
     return [f for f in reader.facts if f.id not in foc_ids]
 
 
+def iter_participants(participants) -> list[tuple[str, str]]:
+    """展开 participants 为 (role, oid) 列表。
+
+    兼容三种形态:
+    - dict[str, str]: 单槽单人(历史)
+    - dict[str, str | list[str]]: 同槽多人(多 WITNESS)
+    - list[tuple[str, str]]: 显式边列表
+    """
+    if not participants:
+        return []
+    out: list[tuple[str, str]] = []
+    if isinstance(participants, list):
+        for item in participants:
+            if isinstance(item, (list, tuple)) and len(item) >= 2 and item[0] and item[1]:
+                out.append((str(item[0]), str(item[1])))
+        return out
+    if isinstance(participants, dict):
+        for role, val in participants.items():
+            if isinstance(val, (list, tuple, set)):
+                for oid in val:
+                    if oid:
+                        out.append((str(role), str(oid)))
+            elif val:
+                out.append((str(role), str(val)))
+    return out
+
+
+def rebuild_participants_from_parts(parts) -> dict:
+    """从 involves 边行重建 participants:同 role 多人时值为 list。"""
+    out: dict = {}
+    for p in parts or []:
+        role = p.get("role") or "PART"
+        clocal = p.get("clocal")
+        if clocal is None:
+            continue
+        oid = f"role:{clocal}"
+        if role not in out:
+            out[role] = oid
+            continue
+        cur = out[role]
+        if isinstance(cur, list):
+            if oid not in cur:
+                cur.append(oid)
+        elif cur != oid:
+            out[role] = [cur, oid]
+    return out
+
+
 def witnesses_of(event: Event) -> set[str]:
-    """在场者 = 事件的全部参与者(切片:participants 的 entity 值;含 WITNESS 角色槽)。"""
-    return {v for v in event.participants.values() if v}
+    """在场者 = 事件的全部参与者 oid(含同槽多 WITNESS)。"""
+    return {oid for _, oid in iter_participants(event.participants)}
 
 
-def see_event(world: World, event: Event) -> list[KnowledgeEdge]:
-    """看见即知道:在场目击者获知本事件每条 effect;不在场者不获知(无知是默认)。"""
+def see_event(world: World, event: Event,
+              ingest_seq: int | None = None) -> list[KnowledgeEdge]:
+    """看见即知道:在场目击者获知本事件每条 effect;不在场者不获知(无知是默认)。
+
+    ingest_seq:由 store.add_event(ingest 路径)透传,供 purge_ingest 幂等清理;
+    手动/MCP 不传 → 边的 ingest_seq=NONE,不受 purge 影响。
+    """
     new_edges: list[KnowledgeEdge] = []
     for fid in event.effects:
         for w in witnesses_of(event):
             edge = KnowledgeEdge(w, fid, since_chapter=event.story_time, acquired_via="saw")
-            world.add_knowledge(edge)
+            # SurrealStore.add_knowledge 接受 ingest_seq;内存 World 不接受 → TypeError 回退
+            if ingest_seq is not None:
+                try:
+                    world.add_knowledge(edge, ingest_seq=ingest_seq)
+                except TypeError:
+                    world.add_knowledge(edge)
+            else:
+                world.add_knowledge(edge)
             new_edges.append(edge)
     return new_edges

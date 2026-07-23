@@ -2,6 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { LayoutGrid, Table2, List, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { api } from './api'
+import {
+  seedChiefNarrativeWrite,
+  seedChiefReorderChapters,
+  seedChiefDeleteVolume,
+} from './lib/chiefSeed.js'
 import { Corkboard } from './Corkboard'
 import { Outliner } from './Outliner'
 import { chapterLabel } from './chapterLabel'
@@ -26,7 +31,7 @@ const SEG = [
 
 function ErrorState({ message, onRetry }) {
   return (
-    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
+    <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
       <div>{message}</div>
       {onRetry && (
         <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
@@ -96,7 +101,7 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
   }
   return (
     <span className="inline-flex items-center gap-1 group/vol">
-      <span className="text-f15 font-semibold text-ink">{title}</span>
+      <span className="text-object-title font-semibold text-ink">{title}</span>
       <button onClick={() => setEditing(true)} title="重命名卷"
         className="opacity-0 group-hover/vol:opacity-100 ml-1 text-faint hover:text-ink cursor-pointer transition-opacity">
         <Pencil size={12} />
@@ -134,44 +139,41 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
 
   const lanes = useMemo(() => buildLanes(outline, node), [outline, node])
 
-  // 新建章:空书/任意手稿容器都能起新章(原本只有「新建卷」,无建章入口→空书没法开写)。
-  // 算最大 seq+1,存空章(seq 是故事时间轴主键),reload 后打开进四阶段写作。
+  // 新建章:禁止 saveChapter/createChapter REST 直写;种子主编走 s3_add_chapter 审批。
   const [addingCh, setAddingCh] = useState(false)
-  const addChapter = async () => {
+  const addChapter = () => {
     if (addingCh) return
     setAddingCh(true)
-    const maxSeq = (outline?.chapters || []).reduce((m, c) => Math.max(m, c.seq || 0), 0)
-    const seq = maxSeq + 1
     try {
-      await api.saveChapter(seq, '', `第${seq}章`, '')
-      // 若当前在某卷视图,把新章归入该卷(否则进未分卷)
-      if (node?.type === 'volume' && node.ref != null) {
-        const volSeqs = (outline?.chapters || []).filter((c) => String(c.volume) === String(node.ref)).map((c) => c.seq)
-        await api.reorderChapters(node.ref, [...volSeqs, seq]).catch(() => {})
-      }
-      await reload()
-      onOpenChapter?.({ seq, title: `第${seq}章` })
-    } catch (e) { toast?.(e?.body?.detail || '新建章失败', { tone: 'danger' }) }
-    finally { setAddingCh(false) }
+      const volHint = node?.type === 'volume' && node.ref != null
+        ? `请归属 volume_id=${node.ref}（卷「${node.label || node.ref}」）。`
+        : '可不指定卷(未分卷)。'
+      seedChiefNarrativeWrite(
+        'chapter',
+        '新建章节',
+        `请用 s3_add_chapter 新建一章(可给简短 title)。${volHint}未获批准不得声称已落库。`,
+      )
+    } finally {
+      setAddingCh(false)
+    }
   }
 
-  // synopsis inline 编辑:乐观更新 + 失败回滚
+  // synopsis: 乐观本地展示 + 主编种子(禁止 patchChapter synopsis 直写)
   const patchSynopsis = (seq, synopsis) => {
     setOutline((prev) => prev && ({
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, synopsis } : c),
     }))
-    api.patchChapter(seq, { synopsis }).catch((e) => { reload(); toast?.(e?.body?.detail || '梗概保存失败', { tone: 'danger' }) })
+    seedChiefNarrativeWrite('outline', `第 ${seq} 章大纲`, `请更新 synopsis:\n${synopsis || '（空）'}`)
   }
 
-  // 章状态(label)编辑:乐观更新 + 失败回滚(#70 卡片墙「按状态」色源生产入口)。
-  // label=null 清空(未设);后端 ASSERT NONE 或五枚举,空串会 500,故清空必发 null。
+  // 章状态(label): 乐观本地展示 + 主编种子
   const patchLabel = (seq, label) => {
     setOutline((prev) => prev && ({
       ...prev,
       chapters: prev.chapters.map((c) => c.seq === seq ? { ...c, label } : c),
     }))
-    api.patchChapter(seq, { label }).catch((e) => { reload(); toast?.(e?.body?.detail || '状态保存失败', { tone: 'danger' }) })
+    seedChiefNarrativeWrite('chapter-meta', `第 ${seq} 章标签`, `请更新 label 为: ${label || '（空）'}`)
   }
 
   // 卷内拖拽重排:乐观重排该卷章序 + 失败回滚
@@ -186,7 +188,9 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       const next = prev.chapters.map((c) => inLane.has(c.seq) ? laneChs[li++] : c)
       return { ...prev, chapters: next }
     })
-    api.reorderChapters(volumeId, newSeqs).catch((e) => { reload(); toast?.(e?.body?.detail || '排序保存失败', { tone: 'danger' }) })
+    // 禁止 REST reorder(emergency 默认关 → 403);主编 s3_reorder_chapters 待批
+    seedChiefReorderChapters(volumeId, newSeqs)
+    toast?.('已交给主编重排章节,请在右栏批准', { tone: 'ok' })
   }
 
   // 跨卷拖拽:把章从一个卷移到另一个卷(落到 overSeq 的位置前)
@@ -219,45 +223,29 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
       return { ...prev, chapters: next }
     })
 
-    // 后端:更新 volume + sort_order
-    api.reorderChapters(toVolumeId, newOrder)
-      .catch((e) => { reload(); toast?.(e?.body?.detail || '跨卷移动失败', { tone: 'danger' }) })
+    seedChiefReorderChapters(toVolumeId, newOrder)
+    toast?.('已交给主编跨卷重排,请在右栏批准', { tone: 'ok' })
   }
 
-  // 新建卷
-  const commitAddVolume = async (titleOverride = null) => {
+  // 新建卷:禁止 api.addVolume REST;种子主编 s3_add_volume
+  const commitAddVolume = (titleOverride = null) => {
     const t = String(titleOverride ?? newTitle).trim()
     if (!t) { setAdding(false); setNewTitle(''); return }
     const maxOrder = (outline?.volumes || []).reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
     setActionErr(null)
-    try {
-      await api.addVolume(t, maxOrder + 1)
-      setNewTitle('')
-      setAdding(false)
-      await reload()
-    } catch (err) {
-      setAdding(false)
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `新建卷失败: ${detail}` : '新建卷失败',
-        retry: () => commitAddVolume(t),
-      })
-    }
+    seedChiefNarrativeWrite(
+      'volume',
+      `新建分卷「${t}」`,
+      `请用 s3_add_volume 创建卷 title=${t}, sort_order=${maxOrder + 1}。未获批准不得声称已落库。`,
+    )
+    setNewTitle('')
+    setAdding(false)
   }
 
-  // 重命名卷
+  // 重命名卷 → 主编种子(禁止 patchVolume title 作者直写)
   const renameVolume = async (vid, title) => {
     setActionErr(null)
-    try {
-      await api.patchVolume(vid, { title })
-      await reload()
-    } catch (err) {
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `重命名卷失败: ${detail}` : '重命名卷失败',
-        retry: () => renameVolume(vid, title),
-      })
-    }
+    seedChiefNarrativeWrite('volume', `分卷 ${vid}`, `请将卷名更新为: ${title}`)
   }
 
   // 删除卷(确认 → 章不删,volume 置空)
@@ -273,33 +261,16 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
     if (!delVol) return
     const target = delVol
     setActionErr(null)
-    try {
-      await api.deleteVolume(target.vid)
-      setDelVol(null)
-      await reload()
-    } catch (err) {
-      setDelVol(null)
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
-        retry: () => doDeleteVolumeFor(target),
-      })
-    }
+    setDelVol(null)
+    seedChiefDeleteVolume(target.vid, target.title)
+    toast?.('已交给主编删卷,请在右栏批准(章正文保留)', { tone: 'ok' })
   }
 
   const doDeleteVolumeFor = async (target) => {
     if (!target) return
     setActionErr(null)
-    try {
-      await api.deleteVolume(target.vid)
-      await reload()
-    } catch (err) {
-      const detail = err?.body?.detail || err?.message
-      setActionErr({
-        message: detail ? `删除卷失败: ${detail}` : '删除卷失败',
-        retry: () => doDeleteVolumeFor(target),
-      })
-    }
+    seedChiefDeleteVolume(target.vid, target.title)
+    toast?.('已交给主编删卷,请在右栏批准', { tone: 'ok' })
   }
 
   // 非手稿容器(素材分类等)→ 立即退化为子项列表(不拉 /outline)
@@ -339,7 +310,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
           <VolumeTitle vid={currentVol.id} title={currentVol.title || '未命名卷'}
             onRename={renameVolume} onDelete={deleteVolume} />
         ) : (
-          <h2 className="text-f15 font-semibold text-ink">{node.label}</h2>
+          <h2 className="text-object-title font-semibold text-ink">{node.label}</h2>
         )}
         <span className="text-meta text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
 
@@ -433,7 +404,7 @@ function PlainChapterList({ lanes, onOpen }) {
           <div className="space-y-1">
             {lane.chapters.map((c) => (
               <button key={c.seq} onClick={() => onOpen?.(c)}
-                className="w-full text-left rounded-lg border border-line bg-surface px-3 py-2 hover:border-brand/30 transition-colors cursor-pointer flex items-center gap-2">
+                className="w-full text-left rounded-lg px-2 py-2 hover:bg-soft transition-colors cursor-pointer flex items-center gap-2">
                 <span className="text-f13 text-ink truncate">{chapterLabel(c.seq, c.title || '')}</span>
                 <span className="ml-auto text-meta text-faint shrink-0" title={POV_HINT}>{povLabel(c.focalizer)}</span>
                 <span className="text-meta text-faint tnum shrink-0">{wcLabel(c.word_count)}</span>
@@ -471,7 +442,7 @@ function VirtualItemList({ kids, onSelect }) {
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
               className="pb-1.5">
               <button onClick={() => onSelect?.(c)}
-                className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                className="w-full text-left rounded-lg px-3 py-2.5 hover:bg-soft transition-colors cursor-pointer">
                 <span className="text-f14 text-ink">{c.label}</span>
               </button>
             </div>
@@ -495,7 +466,7 @@ function PlainList({ node, onSelect }) {
       <div className={`shrink-0 ${virtualize ? 'px-6 pt-6 pb-2' : 'hidden'}`}>
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
+            <h2 className="type-section text-ink">{node?.label}</h2>
             {canCreate && (
               <button onClick={newNode}
                 className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
@@ -514,7 +485,7 @@ function PlainList({ node, onSelect }) {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-6 py-6">
             <div className="flex items-center gap-3 mb-1">
-              <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
+              <h2 className="type-section text-ink">{node?.label}</h2>
               {canCreate && (
                 <button onClick={newNode}
                   className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
@@ -532,7 +503,7 @@ function PlainList({ node, onSelect }) {
               <div className="space-y-1.5">
                 {kids.map((c) => (
                   <button key={c.id} onClick={() => onSelect?.(c)}
-                    className="w-full text-left rounded-xl border border-line bg-surface px-4 py-3 hover:border-brand/30 transition-colors cursor-pointer">
+                    className="w-full text-left rounded-lg px-3 py-2.5 hover:bg-soft transition-colors cursor-pointer">
                     <span className="text-f14 text-ink">{c.label}</span>
                   </button>
                 ))}
@@ -567,24 +538,24 @@ function UnverifiedRefs({ onSelect }) {
   }
   if (!items || items.length === 0) return null
   return (
-    <div className="rounded-2xl border border-warn/30 bg-warn/[0.04] p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-f13 font-medium text-ink">待确认人物引用 ({items.length})</span>
+    <div className="rounded-md border border-warn/25 bg-warn/[0.04] p-3.5 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-meta font-semibold uppercase tracking-wider text-faint">待确认人物引用 ({items.length})</span>
         {items.length > 3 && (
           <button onClick={ignoreAll} className="text-meta text-faint hover:text-ink cursor-pointer">全部忽略 →</button>
         )}
       </div>
-      <div className="space-y-2">
+      <div className="space-y-0.5">
         {items.map((p) => (
-          <div key={p.id} className="flex items-center justify-between gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+          <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-soft/60">
             <span className="text-f13 text-ink flex-1 min-w-0 truncate">
               {p.name} <span className="text-faint">· 第{p.seq}章 · {p.role}</span>
             </span>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button onClick={() => accept(p)}
-                className="text-f12 px-2.5 py-1 rounded-lg border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
+                className="text-f12 px-2 py-1 rounded-lg text-brand hover:bg-brand/10 transition-colors cursor-pointer">接受为角色</button>
               <button onClick={() => ignore(p)}
-                className="text-f12 px-2.5 py-1 rounded-lg border border-line text-faint hover:bg-surface hover:text-ink transition-colors cursor-pointer">忽略</button>
+                className="text-f12 px-2 py-1 rounded-lg text-faint hover:bg-soft hover:text-ink transition-colors cursor-pointer">忽略</button>
             </div>
           </div>
         ))}

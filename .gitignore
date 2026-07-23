@@ -40,3 +40,35 @@ scribe3/web/e2e/.snapshots/
 
 # PC UI 只读验收截图(pw_layout.mjs 运行产物,可重建)
 scribe3/web/artifacts/
+
+# 根级/会话 e2e 与运行产物(可重建,勿 git add .)
+artifacts/
+**/artifacts/
+
+# 本地文档缓存与第三方解压参考树(可重建/非主线)
+surrealdb-docs-cache/
+oh-story-claudecode-main/
+oh-story-claudecode-main.zip
+Humanizer-zh-main.zip
+
+# 编辑器/本机工具状态
+.vscode/
+.idea/
+*.swp
+
+# Python/测试缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 日志与临时
+*.log
+tmp/
+.tmp/
+history.txt
+
+# split backups (local only)
+**/*.monolith.bak
+

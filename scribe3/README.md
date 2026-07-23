@@ -1,5 +1,9 @@
 # scribe3 — 故事本体 v2 内核(greenfield)
 
+> **现行主线代码。** 全仓架构入口见 [`docs/CURRENT_ARCHITECTURE.md`](../docs/CURRENT_ARCHITECTURE.md)。  
+> 拆分巨石模块路线图：[`docs/ARCHITECTURE_SPLIT_ROADMAP.md`](../docs/ARCHITECTURE_SPLIT_ROADMAP.md)。  
+> 根目录 `交付说明.md` 为早期 `scribe/`/SQLite 归档叙事，勿与本文混用。
+
 彻底重构的 greenfield 项目。落地《故事本体 v2》+《写作台 v2》两份规划文档:
 - [`docs/superpowers/plans/2026-06-22-scribe-故事本体v2-全局重构方案.md`](../docs/superpowers/plans/2026-06-22-scribe-故事本体v2-全局重构方案.md)
 - [`docs/superpowers/plans/2026-06-22-scribe-写作台v2-重构规划.md`](../docs/superpowers/plans/2026-06-22-scribe-写作台v2-重构规划.md)

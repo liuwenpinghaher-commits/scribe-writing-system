@@ -1,48 +1,73 @@
 import { Btn } from '../ui.jsx'
 
-// 受控语义目录头(Task 4 统一版):一个标题 heading + 可选实时数量/状态/搜索/动作。
-// 关键约束——只在传入真实 handler 时才渲染对应控件:没有 onQueryChange 不出搜索框,
-// 没有 primaryAction/secondaryActions 不出按钮,没有 live count 不出数字。这样彻底删掉了旧版
-// "当前:xxx 固定"卡片和无 handler 的"同步/范围"假控件(点了什么都不发生,只是骗眼睛)。
-// 保留 data-testid="directory-sticky-header":能力二级目录仍以它作为目录头锚点。
+// 受控语义目录头:标题 + 可选数量/状态/搜索/动作。
+// 只在传入真实 handler 时渲染对应控件(无 onQueryChange 不出搜索框)。
+// 窄栏(≈240–264px)下：搜索独占一行，动作另起一行且 nowrap，避免中文竖排成「导/入」。
 export function DirectoryHeader({
   title,
   count,
   query = '',
   onQueryChange,
   searchLabel,
+  searchPlaceholder,
+  searchInputRef,
   primaryAction,
   secondaryActions = [],
   status,
 }) {
-  // 有无第二行控件决定首行是否留下边距:只传 title 的能力目录不该有 8px 死边距 + 空控件行。
-  const hasControls = onQueryChange || secondaryActions.length > 0 || primaryAction
+  const hasSearch = Boolean(onQueryChange)
+  const hasActions = secondaryActions.length > 0 || Boolean(primaryAction)
+  const hasControls = hasSearch || hasActions
   return (
     <header
       data-testid="directory-sticky-header"
-      className="shrink-0 border-b border-line bg-surface px-3 py-3"
+      className="shrink-0 border-b border-line/60 bg-surface px-3 py-2.5"
     >
-      <div className={`flex min-h-8 items-center gap-2${hasControls ? ' mb-2' : ''}`}>
-        <h2 className="min-w-0 flex-1 truncate text-object-title font-semibold text-ink">{title}</h2>
-        {Number.isFinite(count) && <span className="text-meta tabular-nums text-muted">{count}</span>}
+      <div className={`flex min-h-7 items-center gap-2${hasControls ? ' mb-2' : ''}`}>
+        <h2 className="min-w-0 flex-1 truncate text-object-title font-semibold tracking-tight text-ink">{title}</h2>
+        {Number.isFinite(count) && <span className="text-meta tabular-nums text-muted shrink-0">{count}</span>}
         {status}
       </div>
-      {hasControls && (
-        <div className="flex items-center gap-2">
-          {onQueryChange && (
-            <input
-              type="search"
-              aria-label={searchLabel || `${title}筛选`}
-              value={query}
-              onChange={(event) => onQueryChange(event.target.value)}
-              className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 text-helper text-ink"
-            />
-          )}
+      {hasSearch && (
+        <div className={hasActions ? 'mb-2' : ''}>
+          <input
+            ref={searchInputRef}
+            type="search"
+            aria-label={searchLabel || `${title}筛选`}
+            placeholder={searchPlaceholder || searchLabel || undefined}
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            className="h-8 w-full min-w-0 rounded-md border border-transparent bg-soft/80 px-2.5 text-helper text-ink outline-none transition-colors focus:border-brand/40 focus:bg-surface focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-brand)_12%,transparent)]"
+          />
+        </div>
+      )}
+      {hasActions && (
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="directory-header-actions">
           {secondaryActions.map((action) => (
-            <Btn key={action.label} size="xs" onClick={action.onClick}>{action.label}</Btn>
+            // 默认 type=button：嵌在 <form> 内时不会误提交（语义召回等次要动作）
+            <Btn
+              key={action.label}
+              type={action.type || 'button'}
+              size="xs"
+              onClick={action.onClick}
+              disabled={action.disabled}
+              className="shrink-0 whitespace-nowrap"
+            >
+              {action.label}
+            </Btn>
           ))}
           {primaryAction && (
-            <Btn variant="primary" size="sm" onClick={primaryAction.onClick}>{primaryAction.label}</Btn>
+            // 默认 type=button；需要表单提交语义时由调用方传 type:'submit'
+            <Btn
+              type={primaryAction.type || 'button'}
+              variant="primary"
+              size="sm"
+              onClick={primaryAction.onClick}
+              disabled={primaryAction.disabled}
+              className="shrink-0 whitespace-nowrap"
+            >
+              {primaryAction.label}
+            </Btn>
           )}
         </div>
       )}

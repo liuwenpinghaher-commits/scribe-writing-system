@@ -43,6 +43,49 @@ def _isolated_llm_ledger(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _craft_gate_off_by_default(monkeypatch):
+    """工艺门闩默认生产开启;单测/存量 API 用例无脚手架,默认关。
+    需要测 409 门闩的用例自行 monkeypatch.setenv('SCRIBE3_CRAFT_GATE','1')。"""
+    monkeypatch.setenv("SCRIBE3_CRAFT_GATE", "0")
+
+
+@pytest.fixture(autouse=True)
+def _emergency_rest_write_on_for_tests(monkeypatch):
+    """生产默认关 REST 世界写;单测/存量 test_app 写路径需显式开。
+    需要测 403 关闸的用例自行 monkeypatch.setenv('SCRIBE3_EMERGENCY_REST_WRITE','0')。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "1")
+
+
+@pytest.fixture(autouse=True)
+def _context_snapshot_off_for_tests(monkeypatch):
+    """生产默认开 context 快照绑定;存量 chat 单测未带三件套会 400。
+    需要测强制绑定的用例(test_context_api)自行 monkeypatch 为 1。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", "0")
+
+
+@pytest.fixture(autouse=True)
+def _fake_embed_512(request, monkeypatch):
+    """测试默认假 embedding 前向(512 维),保留 embed() 缓存层。
+    避免 CI 加载 fastembed/真模型或维度漂移炸 Surreal vector 索引。
+    课例语义召回依赖真中文相似度,跳过假向量。"""
+    node = getattr(request.node, "nodeid", "") or ""
+    if "test_lesson.py" in node:
+        return
+    def _fake_compute(texts):
+        out = []
+        for t in texts or [""]:
+            v = [0.0] * 512
+            for ch in str(t):
+                v[ord(ch) % 512] += 1.0
+            out.append(v)
+        return out
+    try:
+        monkeypatch.setattr("scribe3.embed._compute", _fake_compute)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def _clear_context_caches():
     """Task 16-C:检索接线后 MemoryRetriever.retrieve() 走 module 级单例 RETRIEVAL_CACHE。
     每测试前清检索/全局卡缓存 + 重置指标直方图,防跨测试(不同临时 store 复用同 work/query)

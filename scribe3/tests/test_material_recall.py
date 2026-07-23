@@ -28,14 +28,29 @@ def test_gate_empty():
     assert gate([]) == []
 
 
+def test_gate_budget_keeps_top_score():
+    """有预算时按强度裁剪,保留高分。"""
+    cands = [
+        {"material_id": "a", "score": 1.0, "title": "A", "summary": "x" * 80},
+        {"material_id": "b", "score": 0.2, "title": "B", "summary": "y" * 80},
+        {"material_id": "c", "score": 0.1, "title": "C", "summary": "z" * 80},
+    ]
+    out = gate(cands, budget_chars=100)
+    assert out[0]["material_id"] == "a"
+    assert len(out) <= 2
+
+
 def test_render_block():
-    """渲染:反照搬头 + reason + 维度化借鉴指令 + 预算裁剪。"""
-    cands = [{"material_id": "a", "title": "密室白描", "body": "冷硬的文字",
+    """渲染:反照搬头 + reason + 维度化借鉴指令 + 预算裁剪;优先 summary。"""
+    cands = [{"material_id": "a", "title": "密室白描", "body": "不应优先的正文",
+              "summary": "冷硬的文字",
               "ref_tags": ["手法"], "reason": "冷硬白描适合刑讯"}]
     block = render_material_block(cands, budget_chars=800)
     assert "借鉴" in block and "照搬" in block
     assert "冷硬白描适合刑讯" in block
     assert "技法" in block  # 手法维度的差异化指令
+    assert "冷硬的文字" in block
+    assert "不应优先的正文" not in block
 
 
 def test_rerank_mock_llm():

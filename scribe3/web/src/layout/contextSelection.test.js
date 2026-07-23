@@ -65,4 +65,25 @@ describe('selectionFromSnapshot', () => {
     expect(sel.node.type).toBe('character')   // 不是 'chapter'
     expect(sel.node.ref).toBe('甲')
   })
+
+  it('entry-only focus clears foreign domain detail but keeps sticky chapter', () => {
+    const foreign = {
+      mode: 'node',
+      node: { id: 'promise:overdue', type: 'promise_view', capability: 'promise', label: '超期未收' },
+    }
+    const cleared = selectionFromSnapshot({
+      entry: 'materials',
+      detail_route: 'entry:materials',
+      focus: { type: 'entry', id: 'entry:materials', label: '素材库' },
+    }, foreign)
+    expect(cleared).toEqual({ mode: 'node', node: null })
+
+    const chapter = { mode: 'node', node: { id: 'ch:4', type: 'chapter', ref: 4, label: '4' } }
+    const kept = selectionFromSnapshot({
+      entry: 'search',
+      detail_route: 'entry:search',
+      focus: { type: 'entry', id: 'entry:search', label: '搜索' },
+    }, chapter)
+    expect(kept).toBe(chapter)
+  })
 })

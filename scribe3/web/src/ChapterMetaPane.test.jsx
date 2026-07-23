@@ -12,24 +12,25 @@ const { api } = await import('./api')
 describe('ChapterMetaPane', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     api.chapter.mockResolvedValue({ title: '第1章', label: '', volume: null })
     api.listVolumes.mockResolvedValue([{ id: 'vol:one', title: '第一卷·退潮之名' }])
-    api.patchChapter.mockResolvedValue({ ok: true })
   })
 
-  it('让作者从界面编辑章节标题、标签和所属卷', async () => {
-    const onSaved = vi.fn()
-    render(<ChapterMetaPane seq={1} work="book-test" onSaved={onSaved} />)
+  it('章节信息只读,让主编写入不调用 patchChapter', async () => {
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
 
-    await screen.findByDisplayValue('第1章')
-    fireEvent.change(screen.getByLabelText('章节标题'), { target: { value: '闸底刻名' } })
-    fireEvent.change(screen.getByLabelText('章节标签'), { target: { value: 'draft' } })
-    fireEvent.change(screen.getByLabelText('所属卷'), { target: { value: 'vol:one' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存章节信息' }))
+    render(<ChapterMetaPane seq={1} work="book-test" onClose={vi.fn()} />)
 
-    await waitFor(() => expect(api.patchChapter).toHaveBeenCalledWith(1, {
-      title: '闸底刻名', label: 'draft', volume: 'vol:one',
-    }, 'book-test'))
-    expect(onSaved).toHaveBeenCalledWith({ title: '闸底刻名', label: 'draft', volume: 'vol:one' })
+    expect(await screen.findByTestId('chapter-meta-pane')).toBeTruthy()
+    expect(screen.getByText('第1章')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('chapter-meta-ask-chief'))
+
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(tabs).toContain('chief')
+    expect(api.patchChapter).not.toHaveBeenCalled()
   })
 })

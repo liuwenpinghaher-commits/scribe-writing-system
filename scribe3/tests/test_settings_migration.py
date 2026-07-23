@@ -13,9 +13,11 @@ def _iso(tmp_path, monkeypatch):
 
 def test_flag_enabled_reads_settings_db():
     from scribe3.context_cache import flag_enabled
-    assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is False   # 字节等价:无覆盖=关
+    assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True    # 产品默认开
+    settings.put_setting("SCRIBE3_MEMORY_FABRIC_V1", False)
+    assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is False   # DB 覆盖热生效
     settings.put_setting("SCRIBE3_MEMORY_FABRIC_V1", True)
-    assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True    # 热生效,无需重启
+    assert flag_enabled("SCRIBE3_MEMORY_FABRIC_V1") is True
 
 
 def test_removed_nonfunctional_flags_are_not_user_settings():
@@ -34,12 +36,17 @@ def test_flag_enabled_unknown_name_falls_back_env(monkeypatch):
     assert flag_enabled("SOME_FUTURE_FLAG") is True            # 未登记名回落旧 env 语义
 
 
-def test_context_snapshot_flag_reads_settings_db():
+def test_context_snapshot_flag_reads_settings_db(monkeypatch):
     """消除双路径分裂:context_service 的判定也必须吃到 DB 覆盖。"""
     from scribe3 import context_service
-    assert context_service.context_snapshot_flag_enabled() is False   # 字节等价:无覆盖=关
+    # 全局 conftest 为存量 chat 测钉了 env=0;本测验证「产品默认 + DB 热覆盖」须清 env
+    monkeypatch.delenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", raising=False)
+    settings.invalidate_cache()
+    assert context_service.context_snapshot_flag_enabled() is True   # 产品默认开
+    settings.put_setting("SCRIBE3_CONTEXT_SNAPSHOT_V1", False)
+    assert context_service.context_snapshot_flag_enabled() is False  # DB 覆盖热生效
     settings.put_setting("SCRIBE3_CONTEXT_SNAPSHOT_V1", True)
-    assert context_service.context_snapshot_flag_enabled() is True    # 热生效
+    assert context_service.context_snapshot_flag_enabled() is True
 
 
 def test_assembler_compatibility_capability_is_always_enabled():

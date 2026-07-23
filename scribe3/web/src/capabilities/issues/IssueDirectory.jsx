@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
 import { useIssueLedger } from '../../hooks/useIssueLedger'
+import { DirectoryHeader } from '../../layout/DirectoryHeader'
+import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from '../../layout/DirectoryRow'
 
 function toNode(issue) {
   return {
@@ -25,19 +27,26 @@ export function IssueDirectory({ seq, onSelectItem }) {
   }, [issues])
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-surface">
-        <div data-testid="directory-sticky-header" className="shrink-0 border-b border-line px-3 py-3">
-          <div className="mb-1 text-f16 font-semibold text-ink">校验</div>
-        <div className="text-f12 text-faint">{seq != null ? `第 ${seq} 章` : '全书'} · {issues.length} 项</div>
-        <button
-          type="button"
-          onClick={() => onSelectItem?.({ id: 'review:summary', type: 'review_issue', label: '本章总览', payload: { title: '本章总览', chapter: seq, reason: '查看本章全部校验命中。' } })}
-          className="mt-2 text-f12 text-faint hover:text-ink"
-        >
-          本章总览
-        </button>
-      </div>
-      <div data-testid="issue-list" className="flex-1 min-h-0 overflow-auto px-3 py-2">
+    <div className={DIR_SHELL}>
+      <DirectoryHeader
+        title="校验"
+        count={issues.length}
+        status={
+          <span className="text-meta text-faint">{seq != null ? `第 ${seq} 章` : '全书'}</span>
+        }
+        secondaryActions={[
+          {
+            label: '本章总览',
+            onClick: () => onSelectItem?.({
+              id: 'review:summary',
+              type: 'review_issue',
+              label: '本章总览',
+              payload: { title: '本章总览', chapter: seq, reason: '查看本章全部校验命中。' },
+            }),
+          },
+        ]}
+      />
+      <div data-testid="issue-list" className="flex-1 min-h-0 overflow-auto px-2 py-2">
         {err && (
           <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-2 py-1.5 text-f12 text-danger">
             <div>{err}</div>
@@ -59,15 +68,17 @@ export function IssueDirectory({ seq, onSelectItem }) {
         )}
         {!loading && !err && issues.length === 0 && <div className="py-6 text-center text-f12 text-faint">暂无校验命中。</div>}
         {groups.map(([severity, items]) => (
-          <div key={severity} className="mb-3">
-            <div className="mb-1 text-meta font-semibold text-faint">{severity}</div>
-            <div className="space-y-1">
+          <div key={severity} className="mb-2">
+            <DirectorySectionLabel>{severity}</DirectorySectionLabel>
+            <div className="space-y-0.5">
               {items.map((issue) => (
-                <button key={issue.id} type="button" onClick={() => onSelectItem?.(toNode(issue))}
-                  className="w-full rounded-md px-2 py-2 text-left hover:bg-soft">
-                  <div className="truncate text-f13 text-ink">{issue.title || issue.id}</div>
-                  <div className="mt-0.5 text-meta text-faint">第 {issue.chapter} 章 · {issue.source}</div>
-                </button>
+                <DirectoryRow
+                  key={issue.id}
+                  title={issue.title || issue.id}
+                  meta={`第 ${issue.chapter} 章 · ${issue.source}`}
+                  onClick={() => onSelectItem?.(toNode(issue))}
+                  aria-label={issue.title || issue.id}
+                />
               ))}
             </div>
           </div>

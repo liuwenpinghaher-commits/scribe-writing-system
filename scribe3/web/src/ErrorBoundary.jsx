@@ -19,8 +19,8 @@ export class ErrorBoundary extends Component {
   render() {
     if (this.state.error) {
       return (
-        <div role="alert" className="m-3 rounded-xl border border-danger/40 bg-danger/5 p-4 max-w-full">
-          <h2 className="text-ink text-f15 font-semibold mb-1">界面出错了</h2>
+        <div role="alert" className="m-3 rounded-md border border-danger/40 bg-danger/5 p-4 max-w-full">
+          <h2 className="text-ink type-section mb-1">界面出错了</h2>
           <p className="text-faint text-f13 mb-3">
             本视图渲染异常，你的书稿未受影响。可重试或刷新页面。
           </p>

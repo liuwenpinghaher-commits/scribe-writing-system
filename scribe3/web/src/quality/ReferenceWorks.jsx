@@ -105,11 +105,11 @@ export function ReferenceWorks({ work, initialReferences = null }) {
           <div className="space-y-2.5">
             <label className="block">
               <span className="block text-helper font-medium text-ink mb-1">标题</span>
-              <Input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="作品名…" aria-label="参考作品标题" data-field-path="reference.title" />
+              <Input variant="bordered" ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="作品名…" aria-label="参考作品标题" data-field-path="reference.title" />
             </label>
             <label className="block">
               <span className="block text-helper font-medium text-ink mb-1">正文</span>
-              <Textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴参考文本…" aria-label="参考作品正文" rows={4} data-field-path="reference.text" />
+              <Textarea variant="bordered" value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴参考文本…" aria-label="参考作品正文" rows={4} data-field-path="reference.text" />
             </label>
             {importErr && <div role="alert" className="text-meta text-danger">{importErr}</div>}
             <Btn variant="primary" onClick={doImport} disabled={importing || !title.trim() || !text.trim()}>

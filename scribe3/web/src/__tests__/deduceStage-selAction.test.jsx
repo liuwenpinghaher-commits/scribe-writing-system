@@ -76,7 +76,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     window.addEventListener('s3-right-tab', onRightTab)
     try {
       renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '真相正文内容' } })
-      await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('真相正文内容'))
+      await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain('真相正文内容'))
 
       fireEvent.click(screen.getByRole('button', { name: '就这条演绎和主编讨论' }))
 
@@ -98,7 +98,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
 
   it('③truth「改这条」→ chiefIntent 话术含「改」与目标名与当前 prose', async () => {
     renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '真相正文内容' } })
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('真相正文内容'))
+    await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain('真相正文内容'))
 
     fireEvent.click(screen.getByRole('button', { name: '让主编改这条演绎' }))
 
@@ -119,7 +119,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
         deductions: [{ character_id: 'c1', character_name: '焦三', prose: '焦三的限知内容' }],
       },
     })
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '限知投影' }).value).toBe('焦三的限知内容'))
+    await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain('焦三的限知内容'))
 
     fireEvent.click(screen.getByRole('button', { name: '就这条演绎和主编讨论' }))
 
@@ -134,7 +134,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
   it('⑤prose 超过 400 字 → 话术引用截断到 400 字 + 省略号,不把全文塞进 chiefIntent', async () => {
     const longProse = '甲'.repeat(450)
     renderDeduce({ meta: { chars: [], deductions: [], scene_truth: longProse } })
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe(longProse))
+    await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain(longProse))
 
     fireEvent.click(screen.getByRole('button', { name: '就这条演绎和主编讨论' }))
 
@@ -159,14 +159,15 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
 
   it('⑥b 纯空白内容(只有空格/换行)同样视为空 → 两钮 disabled', async () => {
     renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '  \n\n  ' } })
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('  \n\n  '))
+    await screen.findByTestId('deduce-readonly')
+    // 只读空态把纯空白视为无内容(与 noProse 一致)
     expect(screen.getByRole('button', { name: '就这条演绎和主编讨论' }).disabled).toBe(true)
     expect(screen.getByRole('button', { name: '让主编改这条演绎' }).disabled).toBe(true)
   })
 
   it('⑦生成演绎时携带当前上下文快照，避免开启快照门后被后端静默拒绝', async () => {
     renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '已有真相' } })
-    await waitFor(() => expect(screen.getByRole('textbox', { name: '场景真相' }).value).toBe('已有真相'))
+    await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain('已有真相'))
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
@@ -177,23 +178,26 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     }))
   })
 
-  it('⑧四栏工作台可把角色显式加入本章再切换到该角色投射，且不覆盖已有涉及角色', async () => {
-    apiMock.chapter.mockResolvedValue({ involved_characters: ['role:沈砚'], deductions: [] })
+  it('⑧四栏工作台加入角色走主编种子,不 patchChapter involved', async () => {
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     renderDeduce({
       meta: {
-        chars: [{ id: 'role:沈砚', name: '沈砚' }, { id: 'role:季棠', name: '季棠' }],
-        deductions: [], involved_characters: ['role:沈砚'], scene_truth: '已有场景真相',
+        chars: [
+          { id: 'role:沈砚', name: '沈砚' },
+          { id: 'role:季棠', name: '季棠' },
+        ],
+        deductions: [],
+        scene_truth: '真相',
+        involved_characters: ['role:季棠'],
       },
     })
-    await screen.findByRole('combobox', { name: '投射角色' })
-
-    fireEvent.change(screen.getByRole('combobox', { name: '投射角色' }), { target: { value: 'role:季棠' } })
-    fireEvent.click(screen.getByRole('button', { name: '加入并切换角色' }))
-
-    await waitFor(() => expect(apiMock.patchChapter).toHaveBeenCalledWith(3, {
-      involved_characters: ['role:沈砚', 'role:季棠'],
-    }, 'demo'))
-    expect(deduceSelState.setSelected).toHaveBeenCalledWith('role:季棠')
+    const select = await screen.findByLabelText('投射角色')
+    fireEvent.change(select, { target: { value: 'role:沈砚' } })
+    fireEvent.click(screen.getByRole('button', { name: /加入并切换角色/ }))
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds[0]).toMatch(/沈砚/)
+    expect(apiMock.patchChapter).not.toHaveBeenCalled()
   })
 
   it('⑨角色投射提示不预设男性代词，并要求遵循角色档案称谓', async () => {
@@ -220,7 +224,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     renderDeduce({ meta: {
       chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
     } })
-    await screen.findByRole('textbox', { name: '限知投影' })
+    await screen.findByTestId('deduce-readonly')
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
@@ -250,7 +254,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     renderDeduce({ meta: {
       chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
     } })
-    await screen.findByRole('textbox', { name: '限知投影' })
+    await screen.findByTestId('deduce-readonly')
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
@@ -277,7 +281,7 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
       .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '首稿越界。' }); handlers.onDone?.() })
       .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '返修仍越界。' }); handlers.onDone?.() })
     renderDeduce({ meta: { chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '已有场景真相' } })
-    await screen.findByRole('textbox', { name: '限知投影' })
+    await screen.findByTestId('deduce-readonly')
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 

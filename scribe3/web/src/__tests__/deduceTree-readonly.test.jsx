@@ -26,11 +26,6 @@ const baseChapter = {
   deductions: [],
 }
 
-const syncedChapter = {
-  ...baseChapter,
-  involved_characters: ['role:崔判'],
-}
-
 const characters = [
   { id: 'role:崔判', kind: 'character', name: '崔判' },
   { id: 'role:苏纸鸢', kind: 'character', name: '苏纸鸢' },
@@ -41,6 +36,7 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 describe('DeduceTree read-only inference', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     apiMock.chapter.mockResolvedValue(baseChapter)
     apiMock.entities.mockResolvedValue(characters)
     apiMock.patchChapter.mockResolvedValue({})
@@ -59,18 +55,18 @@ describe('DeduceTree read-only inference', () => {
     expect(within(suggestion).getByText(/崔判/)).toBeTruthy()
   })
 
-  it('点击同步到本章后才写 involved_characters', async () => {
-    apiMock.chapter
-      .mockResolvedValueOnce(baseChapter)
-      .mockResolvedValueOnce(syncedChapter)
+  it('点击让主编同步后种子聚焦,不直写 involved_characters', async () => {
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
 
     render(<DeduceTree seq={4} />)
+    fireEvent.click(await screen.findByRole('button', { name: /让主编同步/ }))
 
-    fireEvent.click(await screen.findByRole('button', { name: /同步到本章/ }))
-
-    await waitFor(() => expect(api.patchChapter).toHaveBeenCalledWith(4, {
-      involved_characters: ['role:崔判'],
-    }))
-    await waitFor(() => expect(api.chapter).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds[0]).toMatch(/崔判|role:崔判/)
+    expect(tabs).toContain('chief')
+    expect(api.patchChapter).not.toHaveBeenCalled()
   })
 })

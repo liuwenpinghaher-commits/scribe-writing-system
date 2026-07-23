@@ -12,11 +12,14 @@ import { useToast } from './ui/Toast.jsx'
 import { useChiefSlot, useStageProposal, ProposalBar } from './ChiefSlotContext'
 import { beatsFromMarkdown } from './lib/stageProposal'
 import { Btn, Input } from './ui.jsx'
+import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { ChapterAuxPanel } from './ChapterAuxPanel'
 import { ChapterMetaPane } from './ChapterMetaPane'
 import { ErrorBoundary } from './ErrorBoundary'
+import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
+import { openChiefForEmptyField } from './lib/selAction.js'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
@@ -44,8 +47,12 @@ const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
 // 中区各阶段统一章工作台骨架:同一 max-w / padding / header / meta 节奏,阶段只换内容。
-const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-5 h-full flex flex-col min-h-0 gap-3 bg-canvas'
+// Upstream 内容岛:浅灰画布上白卡抬升;外层 scroll 仍由章工作台 canvas 承担
+// 第三栏内容流:无套娃 elevated 卡,画布上直接排信息,多给字少给框。
+const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-4 flex flex-col min-h-0 gap-3'
 const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
+/** 大纲/节拍/草稿只读与编辑共用 stage 字号，避免阶段间忽大忽小 */
+const STAGE_BODY = 'type-stage'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
@@ -79,10 +86,10 @@ function MetaBar({ meta, wordCount }) {
   const done = (meta.deductions || []).filter((d) => (d.prose || '').trim()).length
   const wc = wordCount != null ? wordCount : (meta.synopsis ? null : null)
   return (
-    <div data-testid="chapter-stage-meta" className="flex items-center gap-1.5 flex-wrap pb-3 border-b border-line">
-      <span className="inline-flex items-center h-6 rounded-full border border-brand/20 bg-brand/10 px-2.5 text-meta text-brand">视角 · {focName}</span>
-      <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-meta text-faint">涉及角色 {done}/{involved.length} 已演绎</span>
-      {wc != null && <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-meta text-faint tnum">字数 {wc}</span>}
+    <div data-testid="chapter-stage-meta" className="flex items-center gap-2 flex-wrap pb-2 text-meta text-faint">
+      <span className="text-brand">视角 · {focName}</span>
+      <span>· 涉及角色 {done}/{involved.length} 已演绎</span>
+      {wc != null && <span className="tnum">· 字数 {wc}</span>}
     </div>
   )
 }
@@ -91,8 +98,8 @@ function StageTitle({ title, subtitle, actions }) {
   return (
     <div className="flex items-start justify-between gap-4 min-w-0">
       <div className="min-w-0">
-        <h3 data-testid="chapter-stage-heading" className="text-f20 leading-tight font-semibold text-ink">{title}</h3>
-        <div className="mt-1 text-f13 text-faint leading-snug">{subtitle}</div>
+        <h3 data-testid="chapter-stage-heading" className="type-section text-ink">{title}</h3>
+        <div className="mt-1 text-helper text-faint leading-snug">{subtitle}</div>
       </div>
       {actions && <div className={STAGE_ACTIONS}>{actions}</div>}
     </div>
@@ -129,315 +136,117 @@ export function ChapterMaterialRefs({ seq, onSelectMaterial }) {
   )
 }
 
-// ——— 大纲:RichEditor(markdown),失焦/切章/切阶段前 flush patchChapter({synopsis}) ———
-// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F5)。
-function OutlineTab({ seq, value, meta, onSaved, work }) {
-  const toast = useToast()
-  const [text, setText] = useState(value || '')
-  const [saving, setSaving] = useState(false)
-  // 正文同款范式:dirtyRef 持实时 {key, value, dirty},完全脱离 state 闭包
-  const dirtyRef = useRef({ key: `${seq}|synopsis`, value: value || '', dirty: false })
-
-  // 载入/静默刷新:同 key 且 dirty(正在编辑)→ 不被服务端回读冲掉
-  useEffect(() => {
-    const key = `${seq}|synopsis`
-    if (dirtyRef.current.key === key && dirtyRef.current.dirty) return
-    setText(value || '')
-    dirtyRef.current = { key, value: value || '', dirty: false }
-  }, [seq, value])
-
-  // persistFor:只用捕获的 key/value 落库,不读可能已变的 state
-  const persistFor = async (key, val) => {
-    const sq = Number(key.split('|')[0])
-    setSaving(true)
-    // 传 work:切书时卸载 flush 走全局 WORK 会把本书大纲写进别的书(F5,同 DraftTab 钉书)
-    try { await api.patchChapter(sq, { synopsis: val }, work); onSaved?.() }
-    catch (e) {
-      if (dirtyRef.current.key === key) dirtyRef.current.dirty = true   // 保留 dirty 可重试
-      toast(e?.body?.detail || '大纲保存失败', { tone: 'danger' })
-    } finally { setSaving(false) }
-  }
-  const flush = () => {
-    const w = dirtyRef.current
-    if (w.dirty) { w.dirty = false; persistFor(w.key, w.value) }
-  }
-  // 切章(seq 变)/切阶段(卸载)前 flush:cleanup 时 dirtyRef 仍持旧 key 与旧值
-  useEffect(() => flush, [seq])  // eslint-disable-line
-  useUnsavedGuard(() => dirtyRef.current.dirty)
-
-  // 块二:接主编 stageProposal(phase/seq 匹配才显示);落进编辑器置 dirty,走上面的健壮保存。
-  const { pending, clear } = useStageProposal('outline', seq)
+// ——— 大纲:只读 + 主编种子(禁止 patchChapter synopsis 作者直写) ———
+function OutlineTab({ seq, value, meta }) {
   const { setChiefIntent } = useChiefSlot()
-  // Task 2:选区「改这段」的锚点(阶段级 state,切章/放弃/落地清空);唯一命中 buffer(text)
-  // 才把 pending 卡主按钮升级为「替换选中段」,否则维持现状「填入」+ 降级提示。
-  const [selAnchor, setSelAnchor] = useState(null)
-  useEffect(() => { setSelAnchor(null) }, [seq])
-  const matchedAnchor = selAnchor ? matchSelAnchor(text, selAnchor) : null
-  const onSelAction = ({ text: selText, intent }) => {
-    if (intent === 'discuss') {
-      setChiefIntent({ phase: 'outline', seq, text: selDiscussPrompt('大纲', selText) })
-    } else {
-      setChiefIntent({ phase: 'outline', seq, text: selEditPrompt(selText) })
-      setSelAnchor(selText)
-    }
-    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
-  }
-  const fillPending = () => {
-    if (!pending) return
-    setText(pending.content)
-    dirtyRef.current = { key: `${seq}|synopsis`, value: pending.content, dirty: true }
-    clear(); setSelAnchor(null); toast('已填入大纲')
-  }
-  const appendPending = () => {
-    if (!pending) return
-    const base = dirtyRef.current.key === `${seq}|synopsis` ? dirtyRef.current.value : text
-    const next = (base ? base + '\n\n' : '') + pending.content
-    setText(next)
-    dirtyRef.current = { key: `${seq}|synopsis`, value: next, dirty: true }
-    clear(); setSelAnchor(null); toast('已追加到大纲')
-  }
-  const replaceSelection = () => {
-    if (!pending || !matchedAnchor) return
-    const next = text.replace(matchedAnchor, pending.content)
-    setText(next)
-    dirtyRef.current = { key: `${seq}|synopsis`, value: next, dirty: true }
-    clear(); setSelAnchor(null)
-    flush()
-    toast('已替换选中段')
-  }
-
+  const text = value || ''
+  const askChief = (hint) => seedChiefNarrativeWrite(
+    'outline',
+    `第 ${seq} 章大纲`,
+    hint || `请更新第 ${seq} 章大纲(synopsis)。当前内容:\n${text || '（空）'}`,
+  )
   return (
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="outline">
       <StageTitle
         title="大纲"
-        subtitle="本章要发生什么、读者应带走什么、哪些伏笔需要埋下。"
+        subtitle="本章要发生什么、读者应带走什么、哪些伏笔需要埋下。字段只读,由主编审批写入。"
         actions={(
           <>
-            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'outline', seq, text: `帮我把第 ${seq} 章大纲展开成 3-5 句` })} title="把话术带到右栏主编,生成后可一键填入">
+            <Btn variant="ghost" size="sm" onClick={() => {
+              setChiefIntent({ phase: 'outline', seq, text: `帮我把第 ${seq} 章大纲展开成 3-5 句` })
+              try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+            }} title="把话术带到右栏主编">
               <Sparkles size={13} />让主编生成
             </Btn>
-            <span className="text-meta text-faint">{saving ? '保存中…' : '失焦自动保存'}</span>
+            <Btn variant="primary" size="sm" data-testid="outline-ask-chief" onClick={() => askChief()}>
+              让主编写入大纲
+            </Btn>
           </>
         )}
       />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      {pending && (
-        <ProposalBar
-          text={`主编生成了内容(${pending.content.replace(/\s/g, '').length} 字),可落进大纲。`}
-          actions={matchedAnchor
-            ? [{ label: '替换选中段', variant: 'primary', onClick: replaceSelection }, { label: '追加', onClick: appendPending }]
-            : [{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
-          onDismiss={() => { clear(); setSelAnchor(null) }}
-        />
+      {text.trim() ? (
+        <SelectionQuoteActions
+          scopeLabel={`第 ${seq} 章大纲`}
+          className={`flex-1 min-h-0 overflow-y-auto ${STAGE_BODY} whitespace-pre-wrap`}
+          data-testid="outline-readonly"
+        >
+          {text}
+        </SelectionQuoteActions>
+      ) : (
+        <div className={`flex-1 min-h-0 ${STAGE_BODY}`} data-testid="outline-readonly">
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-faint flex-1">（空 · 由主编审批写入）</span>
+            <button
+              type="button"
+              data-testid="outline-empty-ask"
+              className="shrink-0 h-7 px-2 rounded-md text-f12 text-brand hover:bg-brand/10 cursor-pointer"
+              onClick={() => openChiefForEmptyField({
+                entityLabel: `第 ${seq} 章`,
+                fieldLabel: '大纲',
+                fieldKey: 'synopsis',
+              })}
+            >
+              聊聊怎么写
+            </button>
+          </div>
+        </div>
       )}
-      {pending && selAnchor && !matchedAnchor && (
-        <div className="text-f12 text-warn">选中段无法精确定位,按原方式落地</div>
-      )}
-      <RichEditor
-        value={text}
-        editorKey={`${seq}|synopsis`}
-        ariaLabel="本章大纲"
-        onChange={(md) => { setText(md); dirtyRef.current = { key: `${seq}|synopsis`, value: md, dirty: true } }}
-        onBlur={flush}
-        onSelAction={onSelAction}
-        placeholder="例:焦三被请进炉坊,第一次见到铜炉——他还不知道这炉子认主。本章建立悬念,埋『炉认主』伏笔。"
-        className="flex-1 min-h-0"
-      />
-      <div className="text-f12 text-faint leading-snug">大纲喂给主编当本章写作纲领;在右栏可与主编讨论怎么展开。</div>
+      <div className="text-meta text-faint leading-snug">大纲只读；有文划选聊/改，空字段点「聊聊怎么写」。写入仍须审批。</div>
     </div>
   )
 }
 
-// ——— 节拍:有序条目列表(增/删/打勾/上下移保留),每条 text 用精简 RichEditor,patchChapter({beats}) ———
-// 本地稳定 id:仅供 React key / 编辑器实例复用,落库前剥掉。
-let beatUid = 0
-const withBeatIds = (arr) => (Array.isArray(arr) ? arr : []).map((b) => ({ ...b, _id: `b${++beatUid}` }))
-const stripBeatIds = (arr) => arr.map(({ _id, ...b }) => b)
-
-// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F5)。
-function BeatsTab({ seq, value, meta, onSaved, work }) {
-  const toast = useToast()
-  const [beats, setBeats] = useState(() => withBeatIds(value))
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  // dirtyRef:{key:`${seq}|beats`, value:最新条目数组(含_id), dirty}。条目文本编辑只置 dirty,失焦/切换前 flush。
-  // 初值必须复用 beats state 首次求值的同一份数组(而非再调一次 withBeatIds(value))——
-  // withBeatIds 靠模块级自增计数器发 _id,独立调用两次会给同一批条目发出两套不同 _id,
-  // 导致 dirtyRef.current.value 与 beats state 按 _id 对不上号(Task 3「替换该条」按 _id
-  // 定位曾在此踩坑:beatSelTarget 用 beats state 找到,commit 却拿 dirtyRef 的旧 _id 数组
-  // map,永远替换不中)。用 useRef(null) 惰性初始化,首次渲染时直接引用 beats 变量本身。
-  const dirtyRef = useRef(null)
-  if (dirtyRef.current === null) dirtyRef.current = { key: `${seq}|beats`, value: beats, dirty: false }
-
-  useEffect(() => {
-    const key = `${seq}|beats`
-    const w = dirtyRef.current
-    if (w.key === key && w.dirty) return   // 正在编辑,不被静默刷新冲掉
-    const incoming = Array.isArray(value) ? value : []
-    // 内容未变(常见于 onSaved 回读)→ 不重置,避免编辑器整列重挂丢焦点
-    if (w.key === key && JSON.stringify(incoming) === JSON.stringify(stripBeatIds(w.value))) return
-    const next = withBeatIds(incoming)
-    setBeats(next)
-    dirtyRef.current = { key, value: next, dirty: false }
-  }, [seq, value])
-
-  // persistFor:只用捕获的 key/条目落库(剥 _id),不读可能已变的 state
-  const persistFor = async (key, arr) => {
-    const sq = Number(key.split('|')[0])
-    setSaving(true)
-    // 传 work:切书时卸载 flush 走全局 WORK 会把本书节拍写进别的书(F5,同 DraftTab 钉书)
-    try { await api.patchChapter(sq, { beats: stripBeatIds(arr) }, work); onSaved?.() }
-    catch (e) {
-      if (dirtyRef.current.key === key) dirtyRef.current.dirty = true
-      toast(e?.body?.detail || '节拍保存失败', { tone: 'danger' })
-    } finally { setSaving(false) }
-  }
-  const flush = () => {
-    const w = dirtyRef.current
-    if (w.dirty) { w.dirty = false; persistFor(w.key, w.value) }
-  }
-  useEffect(() => flush, [seq])  // eslint-disable-line
-  useUnsavedGuard(() => dirtyRef.current.dirty)
-
-  // 结构操作(增/删/勾/移):立即落库(含未失焦的文本改动,state 里已是最新)
-  const commit = (next) => {
-    setBeats(next)
-    dirtyRef.current = { key: `${seq}|beats`, value: next, dirty: false }
-    persistFor(`${seq}|beats`, next)
-  }
-  // 条目文本编辑:只更新 state + 置 dirty,失焦/切换时 flush
-  const editText = (id, md) => {
-    setBeats((prev) => {
-      const next = prev.map((b) => b._id === id ? { ...b, text: md } : b)
-      dirtyRef.current = { key: `${seq}|beats`, value: next, dirty: true }
-      return next
-    })
-  }
-  const add = () => {
-    const t = draft.trim()
-    if (!t) return
-    setDraft('')
-    commit([...beats, { _id: `b${++beatUid}`, text: t, done: false }])
-  }
-  const toggle = (i) => commit(beats.map((b, idx) => idx === i ? { ...b, done: !b.done } : b))
-  const remove = (i) => commit(beats.filter((_, idx) => idx !== i))
-  const move = (i, dir) => {
-    const j = i + dir
-    if (j < 0 || j >= beats.length) return
-    const next = [...beats]
-    ;[next[i], next[j]] = [next[j], next[i]]
-    commit(next)
-  }
-
-  // 块二:接主编 stageProposal(phase/seq 匹配才显示);解析成条目「追加为新条目」,
-  // 走 commit(结构操作既有健壮路径,立即落库)。基于 dirtyRef 最新条目追加,不吞未 flush 的文本编辑。
-  const { pending, clear } = useStageProposal('beats', seq)
-  const { setChiefIntent } = useChiefSlot()
-  const pendingItems = pending ? beatsFromMarkdown(pending.content) : []
-  // Task 3:条目级「聊这条/改这条」的落地锚点(_id,而非选区子串——节拍是结构化条目,唯一性
-  // 天然按 _id;条目可能被上下移,_id 稳定)。阶段级 state,切章/落地/放弃清空。
-  const [beatSel, setBeatSel] = useState(null)
-  useEffect(() => { setBeatSel(null) }, [seq])
-  // 目标条目仍在(未被删)才升级为「替换该条」;被删则降级回现状「追加为新条目」+ 提示。
-  const beatSelTarget = beatSel ? beats.find((b) => b._id === beatSel.id) : null
-  const chatBeat = (b, i) => {
-    setChiefIntent({ phase: 'beats', seq, text: `就本章第${i + 1}条节拍和你聊聊(先不改):「${b.text}」\n` })
-    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
-  }
-  const editBeat = (b, i) => {
-    setChiefIntent({ phase: 'beats', seq, text: `把本章第${i + 1}条节拍改一下,直接给出改后的这一条:「${b.text}」` })
-    setBeatSel({ id: b._id })
-    try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
-  }
-  const appendPending = () => {
-    if (!pending) return
-    if (!pendingItems.length) { clear(); setBeatSel(null); return }
-    const base = dirtyRef.current.key === `${seq}|beats` ? dirtyRef.current.value : beats
-    commit([...base, ...pendingItems.map((t) => ({ _id: `b${++beatUid}`, text: t, done: false }))])
-    clear(); setBeatSel(null); toast(`已追加 ${pendingItems.length} 条节拍`)
-  }
-  // 替换该条:取解析出的第一条文本(与追加同款 beatsFromMarkdown 解析/清洗——常见场景「改
-  // 这条」的回复就是单行/单条,若偶尔解析出多条则取第一条,不整段塞进单条字段);解析空
-  // (如纯代码块/标题)兜底用整段去空白原文,不静默丢弃改动。
-  const replaceBeat = () => {
-    if (!pending || !beatSelTarget) return
-    const newText = pendingItems[0] || (pending.content || '').trim()
-    const base = dirtyRef.current.key === `${seq}|beats` ? dirtyRef.current.value : beats
-    commit(base.map((b) => b._id === beatSel.id ? { ...b, text: newText } : b))
-    clear(); setBeatSel(null); toast('已替换该条节拍')
-  }
-
+// ——— 节拍:只读 + 主编种子(禁止 patchChapter beats 作者直写) ———
+function BeatsTab({ seq, value, meta }) {
+  const beats = Array.isArray(value) ? value : []
+  const askChief = () => seedChiefNarrativeWrite(
+    'beats',
+    `第 ${seq} 章节拍`,
+    `请更新第 ${seq} 章节拍列表(beats)。当前 ${beats.length} 条:\n` + beats.map((b, i) => `${i + 1}. ${b.text || b || ''}${b.done ? ' [已完成]' : ''}`).join('\n'),
+  )
   return (
     <div className={STAGE_WRAP} data-testid="chapter-workbench-shell" data-phase="beats">
       <StageTitle
         title="节拍"
-        subtitle="把大纲拆成有序小节点,保持因果顺序和信息释放节奏。"
+        subtitle="场景节拍只读;增删改勾选由主编审批写入。"
         actions={(
-          <>
-            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'beats', seq, text: `据大纲把第 ${seq} 章拆成有序节拍,一行一条` })} title="把话术带到右栏主编,生成后可一键追加">
-              <Sparkles size={13} />让主编生成
-            </Btn>
-            <span className="text-meta text-faint">{saving ? '保存中…' : `${beats.filter((b) => b.done).length}/${beats.length} 完成`}</span>
-          </>
+          <Btn variant="primary" size="sm" data-testid="beats-ask-chief" onClick={askChief}>
+            让主编写入节拍
+          </Btn>
         )}
       />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      {pending && (
-        <ProposalBar
-          text={beatSelTarget
-            // 多条改稿不静默截断(spec 原则):明示只取第 1 条、其余不落地,含条数。
-            ? `主编给出了这一条的改稿,可替换该条。${pendingItems.length > 1 ? `本次改稿解析出 ${pendingItems.length} 条,替换仅取第 1 条,其余不落地。` : ''}`
-            : `主编生成了 ${pendingItems.length} 条节拍,可追加到列表。`}
-          actions={beatSelTarget
-            ? [{ label: '替换该条', variant: 'primary', onClick: replaceBeat }, { label: '追加为新条目', onClick: appendPending }]
-            : [{ label: '追加为新条目', variant: 'primary', onClick: appendPending }]}
-          onDismiss={() => { clear(); setBeatSel(null) }}
-        />
-      )}
-      {pending && beatSel && !beatSelTarget && (
-        <div className="text-f12 text-warn">该条节拍已被删除,按追加处理</div>
-      )}
-
-      <div className="flex gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
-          placeholder="加一个节拍…(Enter 添加)"
-        />
-        <Btn variant="primary" onClick={add} className="h-9 shrink-0">
-          <Plus size={15} />加
-        </Btn>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto">
-      {beats.length === 0 ? (
-        <div className="text-f13 text-faint text-center py-10 rounded-lg border border-dashed border-line bg-surface">还没有节拍。把这章想发生的事一条条列出来。</div>
-      ) : (
-        <div className="space-y-1.5">
-          {beats.map((b, i) => (
-            <div key={b._id} className="group flex items-start gap-2 rounded-lg border border-line bg-surface px-2.5 py-2">
-              <button onClick={() => toggle(i)}
-                className={`w-5 h-5 mt-0.5 rounded-md border shrink-0 inline-flex items-center justify-center cursor-pointer transition-colors ${b.done ? 'bg-brand border-brand text-brandfg' : 'border-line hover:border-brand'}`}>
-                {b.done && <Check size={13} />}
-              </button>
-              <div className={`flex-1 min-w-0 ${b.done ? 'opacity-55 line-through' : ''}`}>
-                <RichEditor minimal value={b.text} editorKey={`${seq}|beat:${b._id}`} ariaLabel={`节拍 ${i + 1}`}
-                  onChange={(md) => editText(b._id, md)} onBlur={flush} placeholder="节拍内容…" />
-              </div>
-              <div className={`flex items-center gap-0.5 shrink-0 ${HOVER_ACTIONS}`}>
-                <Btn variant="ghost" size="xs" icon onClick={() => chatBeat(b, i)} title="就这条节拍和主编讨论" aria-label="就这条节拍和主编讨论"><MessagesSquare size={13} /></Btn>
-                <Btn variant="ghost" size="xs" icon onClick={() => editBeat(b, i)} title="让主编改这条节拍" aria-label="让主编改这条节拍"><Sparkles size={13} /></Btn>
-                <Btn variant="ghost" size="xs" icon onClick={() => move(i, -1)} disabled={i === 0} title="上移" aria-label="上移"><ChevronUp size={13} /></Btn>
-                <Btn variant="ghost" size="xs" icon onClick={() => move(i, 1)} disabled={i === beats.length - 1} title="下移" aria-label="下移"><ChevronDown size={13} /></Btn>
-                <Btn variant="ghost" size="xs" icon onClick={() => remove(i)} title="删除" aria-label="删除" className="hover:text-danger"><Trash2 size={13} /></Btn>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="text-f12 text-faint mt-4 leading-snug">节拍是草稿的骨架;右栏可让主编据节拍生成草稿。</div>
-      </div>
+      <SelectionQuoteActions
+        scopeLabel={`第 ${seq} 章节拍`}
+        className="flex-1 min-h-0 overflow-y-auto space-y-2"
+        data-testid="beats-readonly"
+      >
+        {beats.length === 0 ? (
+          <div className={`${STAGE_BODY} flex items-start gap-2 flex-wrap`}>
+            <span className="text-faint flex-1">（空 · 由主编审批写入）</span>
+            <button
+              type="button"
+              data-testid="beats-empty-ask"
+              className="shrink-0 h-7 px-2 rounded-md text-f12 text-brand hover:bg-brand/10 cursor-pointer"
+              onClick={() => openChiefForEmptyField({
+                entityLabel: `第 ${seq} 章`,
+                fieldLabel: '节拍',
+                fieldKey: 'beats',
+              })}
+            >
+              聊聊怎么写
+            </button>
+          </div>
+        ) : beats.map((b, i) => (
+          <div key={i} className={`flex gap-2 py-1.5 ${STAGE_BODY} border-b border-line/30 last:border-0`}>
+            <span className="text-meta text-faint shrink-0 tnum w-5">{i + 1}.</span>
+            {b.done ? <span className="text-ok shrink-0">✓</span> : null}
+            <span className="whitespace-pre-wrap min-w-0">{b.text || b || ''}</span>
+          </div>
+        ))}
+      </SelectionQuoteActions>
+      <div className="text-f12 text-faint leading-snug">节拍只读；划选一段可「聊这段/改这段」送主编。</div>
     </div>
   )
 }
@@ -845,7 +654,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           {/* key 只含章号:切章重挂重拉(角色候选等);受控 tab 切换不重挂,不白重拉数据。
               崩溃只塌辅助视图,头部入口仍在,可切回阶段。 */}
           <ErrorBoundary key={`aux:${seq}`}>
-            <ChapterAuxPanel seq={seq} tab={auxView} onTabChange={setAuxView} />
+            <ChapterAuxPanel seq={seq} tab={auxView} onTabChange={setAuxView} onSelectNode={onSelectNode} />
           </ErrorBoundary>
         </div>
       ) : phase === 'final' ? (

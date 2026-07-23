@@ -7,6 +7,7 @@ import { TimelineView } from '../views/TimelineView'
 
 const apiMock = vi.hoisted(() => ({
   graph: vi.fn(),
+  chapters: vi.fn(),
   timeline: vi.fn(),
   quality: vi.fn(),
   intent: vi.fn(),
@@ -155,6 +156,7 @@ describe('横切视图真实组件对象回流', () => {
     apiMock.intent.mockResolvedValue({})
     apiMock.progress.mockResolvedValue(progressPayload)
     apiMock.promisesLedger.mockResolvedValue({ open: [], closed: [], red_herring: [] })
+    apiMock.chapters.mockResolvedValue([{ seq: 5 }])
   })
 
   it('仪表盘弱章按钮发出可进入校验台账的 weak_chapter target', async () => {

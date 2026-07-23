@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels'
-import { PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { api } from './api'
-import { ProjectTree, CONTAINER_TYPES } from './ProjectTree'
+import {
+  seedChiefNarrativeWrite,
+  seedChiefReorderChapters,
+  seedChiefDeleteVolume,
+} from './lib/chiefSeed.js'
+import { CONTAINER_TYPES } from './ProjectTree'
 import { buildPropositionCategory } from './codexTree'
-import { DetailPane } from './DetailPane'
-import { LeftDock, RightDock } from './studioDocks'
 import { RestoreContext } from './WriteLayout'
-import { ChiefDock } from './ChiefDock'
 import { ChiefSlotProvider } from './ChiefSlotContext'
 import { DeduceProvider } from './deduceContext'
 import { SelectionProvider, SelMirror } from './selectionContext'
@@ -15,7 +15,6 @@ import { showToast } from './ui/Toast'
 import { ConfirmDialog, InputDialog } from './ui/Dialog.jsx'
 import { FourPaneShell } from './layout/FourPaneShell'
 import { ContextSnapshotProvider } from './context/ContextSnapshotContext'
-import { isFourPaneLayoutEnabled } from './layout/layoutFlag'
 
 // 批D 件1:命题分类扫描章。命题(proposition)是章级时态数据(valid_from/valid_to),
 // 用大哨兵章拉「当前仍开区间」的全部命题投影进项目树(与 DynamicRelations 的 chapter=9999 同范式)。
@@ -36,26 +35,19 @@ function isChapterSel(sel) {
 }
 
 /**
- * 统一三栏布局(react-resizable-panels v4):
- *   [左 ProjectTree(可折叠)] | [中 DetailPane] | [右 ChiefDock 主编常驻(可折叠,默认开)]
+ * 作品写作台壳：唯一布局为四栏（入口轨 | 目录 | 详情 | 主编）。
+ * 旧三栏（LeftDock + DetailPane + RightDock + s3.layout.v2 flag）已移除。
  * sel 单一真相源:{mode:'node', node} | {mode:'view', viewKey},由父层(App)持有。
- * 栏宽经 useDefaultLayout(id=s3.binder.layout)持久化;左/右 collapsible 折叠+展开(折叠态另存)。
  */
 export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   const [tree, setTree] = useState(null)
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
-  const [leftCollapsed, setLeftCollapsed] = useState(false)
-  const [rightCollapsed, setRightCollapsed] = useState(false)
   // F3:右坞「恢复到此版本」→ bump → 经 RestoreContext 通知中区 WriteLayout 重拉本章正文,
   // 恢复即同步编辑器(否则续编辑会用旧内容覆盖刚恢复的版本)。
   const [restoreTick, setRestoreTick] = useState(0)
   const [delVol, setDelVol] = useState(null)   // {vid,label,body} 删卷确认
   const [addingVol, setAddingVol] = useState(false)  // 新建卷输入
   const initedRef = useRef(false)
-  const leftRef = usePanelRef()
-  const rightRef = usePanelRef()
-  // 断头修复#16:栏宽持久化(设计承诺;此前注释宣称 useDefaultLayout 实为静态默认)。
-  const { defaultLayout: savedLayout, onLayoutChanged } = useDefaultLayout({ id: 's3.binder.layout' })
 
   const reload = useCallback(() => Promise.all([
     api.projectTree(),
@@ -101,9 +93,9 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     onSel({ mode: 'node', node })
   }
 
-  // 卷 CRUD 回调(ProjectTree 发起 → BinderLayout 执行 → 树重载)
+  // 卷重命名:叙事 title 走主编种子(禁止 patchVolume 作者直写)
   const handleVolumeRename = async (vid, newTitle) => {
-    try { await api.patchVolume(vid, { title: newTitle }); reload() } catch (e) { console.error(e) }
+    seedChiefNarrativeWrite('volume', `分卷 ${vid}`, `请将卷名更新为: ${newTitle}`)
   }
 
   const handleVolumeDelete = (vid, label) => {
@@ -118,28 +110,33 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
 
   const doVolumeDelete = async () => {
     if (!delVol) return
-    try { await api.deleteVolume(delVol.vid); reload() } catch (e) { console.error(e) }
+    seedChiefDeleteVolume(delVol.vid, delVol.label)
   }
 
   const handleAddVolume = () => setAddingVol(true)
 
   const addVolInflight = useRef(false)   // 断头修复#84:确认对话框双击/双触发 → 建两个同名卷
-  const doAddVolume = async (title) => {
+  const doAddVolume = (title) => {
     if (!title?.trim() || addVolInflight.current) return
     addVolInflight.current = true
     try {
       const vols = tree?.manuscript?.children || []
       const maxOrder = vols.reduce((m, v) => Math.max(m, v.sort_order ?? 0), 0)
-      await api.addVolume(title.trim(), maxOrder + 1)
-      await reload()
-    } catch (e) { console.error(e) }
-    finally { addVolInflight.current = false }
+      // 禁止 api.addVolume REST 直写;主编 s3_add_volume 审批落库
+      seedChiefNarrativeWrite(
+        'volume',
+        `新建分卷「${title.trim()}」`,
+        `请用 s3_add_volume 创建卷 title=${title.trim()}, sort_order=${maxOrder + 1}。未获批准不得声称已落库。`,
+      )
+    } finally {
+      addVolInflight.current = false
+    }
   }
 
   // 拖拽重排:章跨卷/卷内排序 → 走 sort_order(及 volume),绝不动 seq。
   // volume = 目标卷裸 id 或 null(未分卷);order = 该卷内章 seq 的全量新序。
   const handleReorder = async (volume, order) => {
-    try { await api.reorderChapters(volume, order); reload() } catch (e) { console.error(e) }
+    seedChiefReorderChapters(volume, order)
   }
 
   const selId = sel?.mode === 'node' ? sel.node?.id : null
@@ -153,40 +150,6 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
   if (curSeq != null) lastChapterSeqRef.current = curSeq
   const leftSeq = curSeq != null ? curSeq : lastChapterSeqRef.current
   const treeCbs = { onVolumeRename: handleVolumeRename, onVolumeDelete: handleVolumeDelete, onAddVolume: handleAddVolume, onReorder: handleReorder }
-  // 波B Step3:右栏常驻。章节点 → 右栏=写作槽(WriteLayout 的 WriteChat 经 portal 进来);
-  // 非章节点 → 右栏=讨论 chat(现状)。ChiefDock 据 chapterSel 切换内容。
-  const showChief = true
-  const V2 = isFourPaneLayoutEnabled()   // 默认四栏;localStorage.s3.layout.v2='0' 时回旧三栏
-
-  const collapseLeft = () => { leftRef.current?.collapse() }
-  const collapseRight = () => { rightRef.current?.collapse() }
-  const expandLeft = () => { leftRef.current?.expand() }
-  const expandRight = () => { rightRef.current?.expand() }
-
-  // 折叠态持久化(设计承诺):刷新后左右栏保持上次收起/展开。
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('s3.leftCollapsed') === '1') leftRef.current?.collapse()
-      if (localStorage.getItem('s3.rightCollapsed') === '1') rightRef.current?.collapse()
-    } catch { /* */ }
-  }, [])
-
-  // 全屏视图联动:图谱/时间线/仪表盘等(sel.mode==='view')要整幅画布,进入时自动收起
-  // 左栏;回到节点(写章/看设定)时,仅当是本联动收起的才自动展开——用户在视图里
-  // 手动展开过则尊重其选择(effect 只在 view↔node 边沿触发,视图间互切不重复强收)。
-  const isViewSel = sel?.mode === 'view'
-  const autoCollapsedRef = useRef(false)
-  useEffect(() => {
-    const p = leftRef.current
-    if (!p) return
-    if (isViewSel) {
-      if (!p.isCollapsed()) { autoCollapsedRef.current = true; p.collapse() }
-    } else if (autoCollapsedRef.current) {
-      autoCollapsedRef.current = false
-      if (p.isCollapsed()) p.expand()
-    }
-  }, [isViewSel])
-
   return (
     <SelectionProvider>
     <ChiefSlotProvider>
@@ -212,77 +175,25 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
     />
     <RestoreContext.Provider value={restoreTick}>
     <div className="h-full bg-canvas min-h-0">
-      {V2 ? (
-        /* Task 5:统一上下文快照 Provider 挂载点——切书(work 变化)重建会话;
-           会话建不起来时 Provider 内部降级为本地直通,四栏照常工作(fail-soft) */
-        <ContextSnapshotProvider work={work}>
-          <FourPaneShell tree={tree} selId={selId} expanded={expanded} toggle={toggle}
-            onSelectNode={onSelectNode} treeCbs={treeCbs} leftSeq={leftSeq} collapseLeft={collapseLeft}
-            sel={sel} work={work} reload={reload} onJumpChapter={onJumpChapter}
-            chapterSel={chapterSel} curSeq={curSeq} onRestored={() => setRestoreTick((t) => t + 1)}
-            collapseRight={collapseRight} />
-        </ContextSnapshotProvider>
-      ) : (
-      <Group orientation="horizontal" defaultLayout={savedLayout ?? { left: 22, detail: 52, right: 26 }}
-        onLayoutChanged={onLayoutChanged} className="h-full">
-        {/* 左栏:竖图标轨(项目树/帧/演绎/伏笔/素材/校验)+ 面板 —— 项目树与数据面板同栏,消灭独立第4栏 */}
-        <Panel
-          id="left"
-          panelRef={leftRef}
-          defaultSize="22%" minSize="15%" maxSize="40%"
-          collapsible collapsedSize="0%"
-          onResize={(size) => {
-            const c = size.asPercentage < 1
-            setLeftCollapsed(c)
-            try { localStorage.setItem('s3.leftCollapsed', c ? '1' : '0') } catch { /* */ }
-          }}
-          className="bg-surface"
-        >
-          <LeftDock tree={tree} selId={selId} expanded={expanded} onToggle={toggle} onSelect={onSelectNode}
-            treeCbs={treeCbs} seq={leftSeq} onCollapse={collapseLeft} />
-        </Panel>
-        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
-
-        {/* 中栏:编辑器(章导航 + 四阶段 tab + 阶段编辑器) */}
-        <Panel id="detail" minSize="34%" className="relative min-w-0">
-          {leftCollapsed && (
-            <button onClick={expandLeft} title="展开左栏"
-              className="absolute left-2 top-2 z-10 w-7 h-7 rounded-lg bg-surface border border-line text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shadow-sm">
-              <PanelLeftOpen size={15} />
-            </button>
-          )}
-          {rightCollapsed && (
-            <button onClick={expandRight} title="展开右栏"
-              className="absolute right-2 top-2 z-10 w-7 h-7 rounded-lg bg-surface border border-line text-faint hover:text-ink hover:bg-soft inline-flex items-center justify-center cursor-pointer shadow-sm">
-              <PanelRightOpen size={15} />
-            </button>
-          )}
-          <main className="h-full min-w-0 overflow-hidden flex flex-col">
-            <DetailPane sel={sel} work={work} onSelectNode={onSelectNode}
-              onTreeChanged={reload} onJumpChapter={onJumpChapter} />
-          </main>
-        </Panel>
-        <Separator className="relative w-2 -mx-[3.5px] bg-transparent cursor-col-resize data-[separator]:hover:bg-brand/20 transition-colors after:absolute after:inset-y-0 after:left-1/2 after:-translate-x-1/2 after:w-px after:bg-line" />
-
-        {/* 右栏:面板(主编/存档)+ 竖图标轨(镜像) */}
-        <Panel
-          id="right"
-          panelRef={rightRef}
-          defaultSize="26%" minSize="18%" maxSize="58%"
-          collapsible collapsedSize="0%"
-          onResize={(size) => {
-            const c = size.asPercentage < 5
-            setRightCollapsed(c)
-            try { localStorage.setItem('s3.rightCollapsed', c ? '1' : '0') } catch { /* */ }
-          }}
-          className="bg-surface border-l border-line"
-        >
-          {/* 审查 P0-1:lastSeq=最近章记忆——非章上下文讨论也有"当前章",时机C 注入不再死线 */}
-          <RightDock sel={sel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
-            onRestored={() => setRestoreTick((t) => t + 1)} onCollapse={collapseRight} />
-        </Panel>
-      </Group>
-      )}
+      {/* 统一上下文快照：切书(work)重建会话；建不起来时 Provider 降级本地直通 */}
+      <ContextSnapshotProvider work={work}>
+        <FourPaneShell
+          tree={tree}
+          selId={selId}
+          expanded={expanded}
+          toggle={toggle}
+          onSelectNode={onSelectNode}
+          treeCbs={treeCbs}
+          leftSeq={leftSeq}
+          sel={sel}
+          work={work}
+          reload={reload}
+          onJumpChapter={onJumpChapter}
+          chapterSel={chapterSel}
+          curSeq={curSeq}
+          onRestored={() => setRestoreTick((t) => t + 1)}
+        />
+      </ContextSnapshotProvider>
     </div>
     </RestoreContext.Provider>
     </DeduceProvider>

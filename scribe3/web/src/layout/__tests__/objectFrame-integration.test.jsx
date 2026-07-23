@@ -10,10 +10,19 @@ import { DetailPane } from '../../DetailPane'
 const apiMock = vi.hoisted(() => ({
   entities: vi.fn(),
   materials: vi.fn(),
+  material: vi.fn(),
   materialRefs: vi.fn(),
   get: vi.fn(),
+  getChar: vi.fn(),
+  getFact: vi.fn(),
+  getFaction: vi.fn(),
   promises: vi.fn(),
   motifs: vi.fn(),
+  objectImpact: vi.fn(),
+  charAnchors: vi.fn(),
+  charStates: vi.fn(),
+  voiceFlags: vi.fn(),
+  characterRelations: vi.fn(),
 }))
 vi.mock('../../api', () => ({ api: apiMock }))
 
@@ -44,10 +53,17 @@ describe('ObjectFrame 生产详情接入', () => {
     vi.clearAllMocks()
     apiMock.entities.mockResolvedValue([])
     apiMock.materials.mockResolvedValue([])
+    apiMock.material.mockResolvedValue({ id: 'a', title: '铃铛资料', kind: 'research', body: '' })
     apiMock.materialRefs.mockResolvedValue([])
     apiMock.get.mockResolvedValue([])
+    apiMock.getChar.mockResolvedValue({ id: 'role:a', name: '柳三更', kind: 'character' })
     apiMock.promises.mockResolvedValue([])
     apiMock.motifs.mockResolvedValue([])
+    apiMock.objectImpact.mockResolvedValue({ recommended_action: 'archive', references: [] })
+    apiMock.charAnchors.mockResolvedValue({ anchors: {}, arc_plan: [] })
+    apiMock.charStates.mockResolvedValue([])
+    apiMock.voiceFlags.mockResolvedValue([])
+    apiMock.characterRelations.mockResolvedValue([])
   })
 
   // ⚠ ref 用去前缀本地 id('a'),node.id 才带类型前缀(见 targetNavigation.js:codexNode/targetNodeToSelection,

@@ -16,6 +16,7 @@ import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
 import { ReferenceWorks } from './quality/ReferenceWorks'
 import { QualityReview } from './quality/QualityReview'
+import { emptyDetailCopy } from './layout/entrySelection'
 
 // 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
 // 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
@@ -61,7 +62,8 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey }) {
+  // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
@@ -77,9 +79,13 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
 
   const node = sel?.node
   if (!node) {
+    const copy = emptyDetailCopy(entryKey)
     return (
-      <div className="h-full grid place-items-center text-f13 text-faint/60">
-        从左侧项目树选一个章开始写,或选一个设定项查看详情。
+      <div className="h-full grid place-items-center text-center px-6 text-f13 text-faint/60" data-testid="detail-empty">
+        <div>
+          <div className="text-ink/70 mb-1">{copy.title}</div>
+          <div>{copy.hint}</div>
+        </div>
       </div>
     )
   }
@@ -96,7 +102,8 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   if (node.type === 'promise_view') return <PromiseDetailPane key={node.id} node={node} work={work} />
   if (node.type === 'motif_view') return <MotifDetailPane key={node.id} node={node} work={work} />
   if (node.type === 'recall_result') return <RecallResultDetail key={node.id} node={node} onOpenTarget={onNavigateToObject || onSelectNode} />
-  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} onRecheck={() => {}} />
+  // 无真实 recheck 实现时不传 handler，IssueDetail 不渲染假「重新检查」按钮
+  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} />
   if (node.type === 'references') return <ReferenceWorks key={node.id} work={work} />
   if (node.type === 'quality_review') return <QualityReview key={node.id} work={work} seq={node.ref?.seq ?? node.meta?.seq} onLocateEvidence={onNavigateToObject} />
 
@@ -167,13 +174,22 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   // —— 命题叶(批D 件1)→ 独立安全详情块(不走 DetailView 整行 PATCH,防私密值/leak_markers 被有损回写抹掉) ——
   if (node.type === 'proposition') {
     return <PropositionDetail key={node.id} node={node} onChanged={onTreeChanged}
+      onNavigateToObject={onNavigateToObject}
       onDeleted={() => { onTreeChanged?.(); onSelectNode?.({ id: 'cat:proposition', type: 'codex_category', ref: 'proposition', label: '命题' }) }} />
   }
 
   // —— 设定叶 → 详情卡(character 套对象外框;faction/item/term/world_rule/promise/motif 暂不套,
   //    由 withFrame 内 presentationForNode 判定:仅 character 有呈现数据 → 只有它被包)——
   if (CODEX_LEAF.has(node.type)) {
-    return withFrame(node, <CodexDetail key={node.id} node={node} onChanged={onTreeChanged} onDeleted={onTreeChanged} />)
+    return withFrame(node, (
+      <CodexDetail
+        key={node.id}
+        node={node}
+        onChanged={onTreeChanged}
+        onDeleted={onTreeChanged}
+        onNavigateToObject={onNavigateToObject}
+      />
+    ))
   }
 
   // —— 容器只驱动栏2目录;栏3只承载条目详情/横切视图 ——

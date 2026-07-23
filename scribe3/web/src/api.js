@@ -106,12 +106,16 @@ export const api = {
   qualityEvaluation: (seq) => j(`/quality/evaluation?seq=${enc(seq)}`),
   qualityAuthorJudgment: (b) => post('/quality/author-judgment', b),
   intent: () => j('/intent'),
+  /** 全量 intent(含叙事北极星)——emergency 关时 403;作者叙事请走主编 s3_set_intent */
   putIntent: (b) => put('/intent', b),
+  /** 工程配额-only(字数目标/逾期);不经世界写闸 */
+  putIntentGoals: (b) => put('/intent-goals', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),
 
-  // CX-Task 7:设定字段注册表元数据(只读)——前端据此渲染表单,不再硬编码字段清单。
-  // 目前后端只注册了 'faction' 一个 kind(阶段1);其余四类未注册,调用会 404(调用方自行 fallback)。
+  // CX-Task 7:设定字段注册表元数据(只读)——faction + character 已注册;其余 kind 404 时 UI fallback。
   codexSchema: (kind) => j('/codex-schema/' + enc(kind)),
+  codexSearch: (q, limit = 40) => j('/codex/search?q=' + enc(q) + '&limit=' + enc(limit)),
+  codexHealth: () => j('/codex/health'),
   // 通用实体关系(entity_relation,CX-Task 5):entity 传完整前缀 oid(如 faction:秘会);
   // truth 字段默认掩码(reveal_secret 不传即 false),前端不做 reveal 入口,照掩码原样显示。
   entityRelations: (entity) => j('/entity-relations' + (entity ? `?entity=${enc(entity)}` : '')),
@@ -120,7 +124,17 @@ export const api = {
   // 势力结构化一致性校验(只读,CX-Task 6):关系矛盾/核心圈超编/信物传承章超前/权力占比超100%。
   factionConsistency: () => j('/faction-consistency'),
 
-  // 设定库增删改
+  // 设定库单条读(详情 O(1),禁止全表扫)
+  getChar: (local) => j('/characters/' + enc(local)),
+  getFaction: (name) => j('/factions/' + enc(name)),
+  getItem: (name) => j('/items/' + enc(name)),
+  getTerm: (name) => j('/terms/' + enc(name)),
+  getWorldRule: (name) => j('/world-rules/' + enc(name)),
+  getPromise: (pid) => j('/promises/' + enc(pid)),
+  getMotif: (mid) => j('/motifs/' + enc(mid)),
+  getFact: (local) => j('/facts/' + enc(local)),
+
+  // 设定库增删改(正式写 emergency 关时 403;作者主路径走主编 MCP)
   addChar: (b) => post('/characters', b),
   editChar: (local, b) => patch('/characters/' + enc(local), b),
   delChar: (local, token = '') => del('/characters/' + enc(local) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
@@ -254,10 +268,16 @@ export const api = {
   getMemoryTrace: (id, revision) => j('/context/sessions/' + enc(id) + '/trace/' + revision),
   // 运行时降级状态(Hermes 离线/只读判定源);全局端点,不带 work。
   aiRuntimeStatus: () => jraw('/ai/runtime-status'),
-  // Task 16-B 灰度能力下发:前端能力以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
+  // 能力下发:前端以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
   // 全局端点,不带 work;回 { flags:{snapshot_v1,editorial_thread_v1,memory_fabric_v1,
   // context_inspector_v1,assembler_v1}, versions:{...} }；assembler_v1 恒 true。
+  // 产品默认:snapshot/fabric/inspector 开。
   fetchCapabilities: () => jraw('/capabilities'),
+  // 待审正典揭示(memory fabric 产品面):列队 + 批准/拒绝。
+  listPendingClaims: (status = 'pending') =>
+    j('/memory/pending-claims?status=' + enc(status || 'pending')),
+  resolvePendingClaim: (claimId, body) =>
+    post('/memory/pending-claims/' + enc(claimId) + '/resolve', body || {}),
   // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
   // forkThread 显式分支(导航路径绝不调此)。
@@ -297,16 +317,24 @@ export const api = {
     if (opts.cursor != null) qs.push('cursor=' + enc(opts.cursor))
     if (opts.view) qs.push('view=' + enc(opts.view))
     if (opts.q) qs.push('q=' + enc(opts.q))
+    if (opts.origin) qs.push('origin=' + enc(opts.origin))
     return j('/materials' + (qs.length ? '?' + qs.join('&') : ''))
   },
+  material: (mid) => j('/materials/' + enc(mid)),
+  materialsHealth: () => j('/materials/health'),
   addMaterial: (b) => post('/materials', b),
+  /** 作者选区/会话私人剪藏(闸外 POST /author/session-clips；不经主编审批) */
+  addSessionClip: (b) => post('/author/session-clips', b),
   editMaterial: (mid, b) => patch('/materials/' + enc(mid), b),
   delMaterial: (mid, token = '') => del('/materials/' + enc(mid) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   objectImpact: (type, id) => j('/objects/' + enc(type) + '/' + enc(id) + '/impact'),
   deleteObject: (type, id, token = '') => del('/objects/' + enc(type) + '/' + enc(id) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   archiveObject: (type, id) => post('/objects/' + enc(type) + '/' + enc(id) + '/archive'),
   // 素材记忆:三通道召回搜索 + 双向溯源 + 多格式导入
-  materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
+  materialRecall: (q, chapter, withMeta = false) => j(
+    '/materials/recall?q=' + enc(q)
+    + (chapter != null ? '&chapter=' + chapter : '')
+    + (withMeta ? '&with_meta=true' : '')),
   materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
   materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
   addMaterialReference: (mid, body) => post('/materials/' + enc(mid) + '/refs', body),

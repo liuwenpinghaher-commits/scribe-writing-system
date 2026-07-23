@@ -14,16 +14,16 @@ function Stat({ icon: Icon, label, value, sub, tone = 'ink', onClick }) {
       {sub && <div className="text-meta text-faint mt-0.5">{sub}</div>}
     </>
   )
-  // 可点的 Stat 用真正的 button(键盘可达);仅展示时保持 div。
+  // 第三栏精简:无抬升卡框,只留数字与可点态
   if (onClick) {
     return (
       <button onClick={onClick}
-        className="w-full text-left rounded-xl border border-line bg-surface p-4 cursor-pointer hover:border-brand/30 transition-colors">
+        className="w-full text-left py-2 pr-2 cursor-pointer rounded-lg hover:bg-soft/50 transition-colors">
         {inner}
       </button>
     )
   }
-  return <div className="rounded-xl border border-line bg-surface p-4">{inner}</div>
+  return <div className="py-2 pr-2">{inner}</div>
 }
 
 export function OverviewView({ onJumpChapter, onOpenView }) {
@@ -51,14 +51,14 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
-      <div className="max-w-5xl mx-auto px-8 py-8">
-        <div className="flex items-center gap-2 mb-6">
+      <div className="max-w-5xl mx-auto px-6 py-6 md:px-8 md:py-8">
+        <div className="flex items-center gap-2 mb-5">
           <BookText size={18} className="text-brand" />
-          <h1 className="text-f22 font-semibold prose-serif text-ink">概览</h1>
+          <h1 className="type-page prose-serif text-ink">概览</h1>
         </div>
 
         {/* 规模 */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <Stat icon={FileText} label="规模" value={totalWords.toLocaleString()} sub={`${chCount} 章`} tone="brand" />
           <Stat icon={Bookmark} label="伏笔" value={fs.open ?? 0} sub={`未回收 · 已收 ${fs.closed ?? 0}`} tone="fore"
             onClick={() => onOpenView?.('insight')} />
@@ -67,71 +67,73 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
           <Stat icon={Bookmark} label="伏笔超期" value={fs.overdue ?? 0} sub="埋下 >3 章未回收" tone={fs.overdue ? 'danger' : 'ok'} />
         </div>
 
-        {/* 设定统计 */}
-        {comp && (
-          <div className="rounded-xl border border-line bg-surface p-4 mb-6">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="text-f12 font-semibold text-ink">设定库</div>
-              {comp.completeness_score != null && (
-                <span className="text-meta text-faint">完整度 {comp.completeness_score}/100</span>
+        <div className="space-y-6">
+          {/* 设定统计 */}
+          {comp && (
+            <div className="pb-5 border-b border-line/40">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-meta font-semibold uppercase tracking-wider text-faint">设定库</div>
+                {comp.completeness_score != null && (
+                  <span className="text-meta text-faint">完整度 {comp.completeness_score}/100</span>
+                )}
+              </div>
+              <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  ['角色', comp.total_chars, Users],
+                  ['世界规则', comp.total_rules, Shield],
+                  ['势力', comp.total_factions, Swords],
+                  ['地点', comp.total_places, MapPin],
+                  ['事实/命题', comp.total_facts, BookText],
+                ].map(([label, count, Icon]) => (
+                  <div key={label} className="py-1">
+                    <div className="flex items-center gap-1.5 text-meta text-faint mb-1"><Icon size={12} />{label}</div>
+                    <div className="type-section text-ink tnum">{count ?? 0}</div>
+                  </div>
+                ))}
+              </div>
+              {comp.missing_dimensions?.length > 0 && (
+                <div className="mt-3 text-f12 text-danger">缺失维度:{comp.missing_dimensions.join('、')}</div>
               )}
             </div>
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
-              {[
-                ['角色', comp.total_chars, Users],
-                ['世界规则', comp.total_rules, Shield],
-                ['势力', comp.total_factions, Swords],
-                ['地点', comp.total_places, MapPin],
-                ['事实/命题', comp.total_facts, BookText],
-              ].map(([label, count, Icon]) => (
-                <div key={label} className="rounded-lg border border-line bg-canvas p-2.5">
-                  <div className="flex items-center gap-1.5 text-meta text-faint mb-1"><Icon size={12} />{label}</div>
-                  <div className="text-f18 font-semibold text-ink tnum">{count ?? 0}</div>
-                </div>
-              ))}
-            </div>
-            {comp.missing_dimensions?.length > 0 && (
-              <div className="mt-3 text-f12 text-danger">缺失维度:{comp.missing_dimensions.join('、')}</div>
-            )}
-          </div>
-        )}
+          )}
 
-        {/* 伏笔平衡速览 */}
-        {led && (
-          <div className="rounded-xl border border-line bg-surface p-4 mb-6">
-            <div className="flex items-center flex-wrap gap-2 mb-2">
-              <Bookmark size={15} className="text-fore" />
-              <div className="text-f13 font-semibold text-ink">伏笔平衡</div>
-              <span className={`text-meta inline-flex items-center gap-1 ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
-                {audit.balanced ? '✓ 已平衡' : <><AlertTriangle size={11} />未平衡</>}
-              </span>
-              <button onClick={() => onOpenView?.('insight')}
-                className="ml-auto inline-flex items-center gap-1 text-f12 text-brand hover:underline cursor-pointer">
-                打开伏笔台账 <ArrowRight size={12} />
+          {/* 伏笔平衡速览 */}
+          {led && (
+            <div className="pb-5 border-b border-line/50">
+              <div className="flex items-center flex-wrap gap-2 mb-2">
+                <Bookmark size={15} className="text-fore" />
+                <div className="text-meta font-semibold uppercase tracking-wider text-faint">伏笔平衡</div>
+                <span className={`text-meta inline-flex items-center gap-1 ${audit.balanced ? 'text-ok' : 'text-danger'}`}>
+                  {audit.balanced ? '✓ 已平衡' : <><AlertTriangle size={11} />未平衡</>}
+                </span>
+                <button onClick={() => onOpenView?.('insight')}
+                  className="ml-auto inline-flex items-center gap-1 text-f12 text-brand hover:underline cursor-pointer">
+                  打开伏笔台账 <ArrowRight size={12} />
+                </button>
+              </div>
+              <div className="text-f12 text-faint">
+                已埋未收 {(led.open || []).length} · 已回收 {(led.closed || []).length} · 障眼法 {(led.red_herring || []).length}
+                · 超期 {audit.overdue_count ?? 0} · 契诃夫 {audit.never_paid ?? 0} 把枪没响
+              </div>
+            </div>
+          )}
+
+          {/* 弱章诊断 */}
+          <div>
+            <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">最需关注的章</div>
+            {cacheStale ? (
+              <div className="text-f13 text-fore">质量缓存已过期，请到质量仪表盘刷新后查看诊断。</div>
+            ) : weak.length === 0 ? (
+              <div className="text-f13 text-ok">✓ 各章质检干净</div>
+            ) : weak.map((c) => (
+              <button key={c.seq} onClick={() => onJumpChapter?.(c.seq)}
+                className="w-full flex items-center gap-2 py-1.5 border-b border-line/40 last:border-0 text-f13 text-left hover:bg-soft/60 rounded-lg px-1.5 -mx-1 transition-colors cursor-pointer">
+                <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
+                {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
+                {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
               </button>
-            </div>
-            <div className="text-f12 text-faint">
-              已埋未收 {(led.open || []).length} · 已回收 {(led.closed || []).length} · 障眼法 {(led.red_herring || []).length}
-              · 超期 {audit.overdue_count ?? 0} · 契诃夫 {audit.never_paid ?? 0} 把枪没响
-            </div>
+            ))}
           </div>
-        )}
-
-        {/* 弱章诊断 */}
-        <div className="rounded-xl border border-line bg-surface p-4">
-          <div className="text-f12 font-semibold text-ink mb-2">最需关注的章</div>
-          {cacheStale ? (
-            <div className="text-f13 text-fore">质量缓存已过期，请到质量仪表盘刷新后查看诊断。</div>
-          ) : weak.length === 0 ? (
-            <div className="text-f13 text-ok">✓ 各章质检干净</div>
-          ) : weak.map((c) => (
-            <button key={c.seq} onClick={() => onJumpChapter?.(c.seq)}
-              className="w-full flex items-center gap-2 py-1.5 border-b border-line/50 last:border-0 text-f13 text-left hover:bg-soft/40 rounded px-1 -mx-1 transition-colors cursor-pointer">
-              <span className="text-ink flex-1 truncate">{chapterLabel(c.seq, c.title)}</span>
-              {c.qc_issues > 0 && <span className="text-danger text-f12">QC {c.qc_issues}</span>}
-              {c.causal > 0 && <span className="text-fore text-f12">因果 {c.causal}</span>}
-            </button>
-          ))}
         </div>
       </div>
     </div>

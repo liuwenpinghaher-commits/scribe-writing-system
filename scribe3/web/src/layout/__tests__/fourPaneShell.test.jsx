@@ -1,7 +1,8 @@
 import { beforeAll, beforeEach, describe, it, expect, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { FourPaneShell } from '../FourPaneShell'
+import { ChiefSlotProvider, useChiefSlot } from '../../ChiefSlotContext'
 
 const materialListMount = vi.hoisted(() => ({ count: 0 }))
 // 只替换 useDefaultLayout(断言布局 id 按作品隔离),其余 Group/Panel/Separator/usePanelRef 走真身,
@@ -62,8 +63,14 @@ vi.mock('../../studioDocks', async () => {
   const actual = await vi.importActual('../../studioDocks')
   return {
     ...actual,
-    RightDock: ({ sel, lastSeq }) => (
-    <aside data-testid="chief">{`${sel?.mode || 'none'}:${lastSeq ?? ''}`}</aside>
+    // 模拟右轨「再点当前 tab = 收起」：不另挂浮层收起钮
+    RightDock: ({ sel, lastSeq, onCollapse }) => (
+      <div>
+        <aside data-testid="chief">{`${sel?.mode || 'none'}:${lastSeq ?? ''}`}</aside>
+        <button type="button" aria-label="主编" aria-pressed="true" onClick={() => onCollapse?.()}>
+          主编
+        </button>
+      </div>
     ),
   }
 })
@@ -201,6 +208,73 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('detail-content').textContent).toBe('node:material:1')
   })
 
+  it('从伏笔详情切到素材库时,栏3 收敛到素材根(不再残留伏笔详情)', () => {
+    localStorage.setItem('s3.demo.leftTab', 'promise')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: {
+            id: 'promise:overdue',
+            type: 'promise_view',
+            capability: 'promise',
+            label: '超期未收',
+            ref: { view: 'overdue', seq: 3 },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:promise:overdue')
+
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }))
+
+    expect(screen.getByTestId('material-list')).toBeTruthy()
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:material_root')
+  })
+
+  it('s3-open-capability 打开搜索时栏3 不残留伏笔详情', async () => {
+    localStorage.setItem('s3.demo.leftTab', 'promise')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: {
+            id: 'promise:overdue',
+            type: 'promise_view',
+            capability: 'promise',
+            label: '超期未收',
+          },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:promise:overdue')
+
+    fireEvent(window, new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('col-directory').textContent).toMatch(/搜索|全局/)
+    })
+    // 搜索入口无着陆节点 → 清空栏3
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
+  })
+
+  it('切入口时保留章选中(写作粘性),不强制清空栏3', () => {
+    localStorage.setItem('s3.demo.leftTab', 'manuscript')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: { id: 'ch:1', type: 'chapter', ref: 1, label: '第 1 章 入城' },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:1')
+
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }))
+    expect(screen.getByTestId('material-list')).toBeTruthy()
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:1')
+  })
+
   it('三栏详情触发树刷新后会重挂载素材目录,重新读取活跃列表', async () => {
     localStorage.setItem('s3.demo.leftTab', 'materials')
     materialListMount.count = 0
@@ -214,8 +288,10 @@ describe('FourPaneShell 四栏钻取', () => {
     })
   })
 
-  it('二栏新建章会调用后端并在三栏选中新章', async () => {
+  it('二栏新建章走主编种子,不调用 createChapter REST', async () => {
     const reload = vi.fn()
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     function CreateHarness() {
       const [sel, setSel] = useState({ mode: 'node', node: null })
       const onSelectNode = (node) => {
@@ -230,34 +306,64 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.queryByRole('button', { name: '新建章' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '在第一卷中新建章' }))
 
-    await waitFor(() => expect(apiMock.createChapter).toHaveBeenCalledWith({ volume: '1' }))
-    expect(reload).toHaveBeenCalled()
-    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:8')
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds.join('\n')).toMatch(/s3_add_chapter/)
+    expect(seeds.join('\n')).toMatch(/volume_id=1/)
+    expect(apiMock.createChapter).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('二栏使用可拖拽面板且默认更窄,不再写死 288px', () => {
     render(<Harness />)
 
     const panel = screen.getByTestId('col-directory-panel')
+    // 无章 phase → collaboration；默认栏宽与阅读共用（目录次要，主编=详情）
     expect(panel.getAttribute('data-default-size')).toBe('14')
     expect(panel.getAttribute('data-min-size')).toBe('10')
-    expect(panel.getAttribute('data-max-size')).toBe('24')
+    expect(panel.getAttribute('data-max-size')).toBe('22')
+    expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('collaboration')
+    expect(Number(screen.getByTestId('right-panel').getAttribute('data-default-size')))
+      .toBe(Number(screen.getByTestId('detail-panel').getAttribute('data-default-size')))
+    // 详情/主编 max=100：折叠一侧后另一侧可铺满，避免锁在 60% 留下大空白
+    expect(screen.getByTestId('detail-panel').getAttribute('data-max-size')).toBe('100')
+    expect(screen.getByTestId('right-panel').getAttribute('data-max-size')).toBe('100')
     const handles = screen.getAllByRole('separator')
     expect(handles).toHaveLength(2)
     expect(handles[0].className).toContain('cursor-col-resize')
+    // 负 margin 把手会在拖拽时叠层错乱,应已移除
+    expect(handles[0].className).not.toContain('-mx-')
     expect(screen.getByTestId('col-directory').className).not.toContain('w-[288px]')
   })
 
-  it('点击当前栏1入口可以折叠栏2,并从详情栏恢复', () => {
+  it('折叠主编后 right 标记 collapsed，详情 max 允许铺满', () => {
+    render(<Harness />)
+    expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('0')
+    fireEvent.click(screen.getByRole('button', { name: '主编' }))
+    expect(screen.queryByTestId('chief')).toBeNull()
+    expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('1')
+    expect(Number(screen.getByTestId('detail-panel').getAttribute('data-max-size'))).toBe(100)
+  })
+
+  it('四栏根与右坞使用 overflow/min-w 裁切,防拖窄后整页散架', () => {
+    render(<Harness />)
+    expect(screen.getByTestId('four-col').className).toContain('overflow-hidden')
+    expect(screen.getByTestId('right-dock').className).toMatch(/min-w-/)
+    expect(screen.getByTestId('col-directory-panel').className).toMatch(/min-w-/)
+  })
+
+  it('协作模式:折叠栏2后从主编(右)左缘恢复,不误贴 detail', () => {
     render(<Harness />)
 
     expect(screen.getByTestId('col-directory')).toBeTruthy()
+    expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('collaboration')
 
     fireEvent.click(screen.getByRole('button', { name: '手稿' }))
 
     expect(screen.queryByTestId('col-directory')).toBeNull()
     const restore = screen.getByTestId('directory-restore-button')
-    // 2026-07-12 重叠修复:还原钮=贴栏3 左缘垂直居中的细把手,不再 top-2 left-2 压住头部面包屑
+    // 协作 order=directory|right|detail → 目录还原贴主编左缘
+    expect(restore.getAttribute('data-restore-host')).toBe('right')
+    expect(restore.getAttribute('data-restore-edge')).toBe('left')
     expect(restore.className).toContain('left-0')
     expect(restore.className).toContain('top-1/2')
     expect(restore.className).not.toContain('top-2 ')
@@ -267,22 +373,84 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('col-directory')).toBeTruthy()
   })
 
-  it('右侧主编栏可以折叠并从详情栏恢复', () => {
+  it('协作模式:再点主编轨折叠后从目录右缘恢复(不误贴 detail 右缘)', () => {
     render(<Harness />)
 
     expect(screen.getByTestId('chief')).toBeTruthy()
+    expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('collaboration')
+    // 无右上角浮层收起钮；唯一入口=再点当前右轨 tab
+    expect(screen.queryByTestId('right-collapse-button')).toBeNull()
 
-    fireEvent.click(screen.getByTestId('right-collapse-button'))
+    fireEvent.click(screen.getByRole('button', { name: '主编' }))
 
     expect(screen.queryByTestId('chief')).toBeNull()
     const restore = screen.getByTestId('right-restore-button')
-    // 同款重叠修复:贴栏3 右缘垂直居中,不再 top-2 right-2 压住头部「更多」按钮
+    // 协作:主编在目录与详情之间 → 还原贴目录右缘
+    expect(restore.getAttribute('data-restore-host')).toBe('directory')
+    expect(restore.getAttribute('data-restore-edge')).toBe('right')
     expect(restore.className).toContain('right-0')
     expect(restore.className).toContain('top-1/2')
 
     fireEvent.click(restore)
 
     expect(screen.getByTestId('chief')).toBeTruthy()
+  })
+
+  it('阅读模式:折叠还原仍贴 detail 中间舞台左右缘', async () => {
+    function PhaseFinal({ children }) {
+      const { setChapterPhase } = useChiefSlot()
+      useEffect(() => { setChapterPhase('final') }, [setChapterPhase])
+      return children
+    }
+    function ReadingHarness() {
+      const [sel, setSel] = useState({
+        mode: 'node',
+        node: { id: 'ch:1', type: 'chapter', ref: 1, label: '第1章' },
+      })
+      return (
+        <ChiefSlotProvider>
+          <PhaseFinal>
+            <FourPaneShell
+              tree={tree}
+              sel={sel}
+              onSelectNode={(node) => {
+                if (!node) setSel({ mode: 'node', node: null })
+                else setSel({ mode: 'node', node })
+              }}
+              work="demo"
+              leftSeq={1}
+              reload={() => {}}
+            />
+          </PhaseFinal>
+        </ChiefSlotProvider>
+      )
+    }
+    render(<ReadingHarness />)
+    await waitFor(() => {
+      expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('reading')
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '手稿' }))
+    const dirRestore = screen.getByTestId('directory-restore-button')
+    expect(dirRestore.getAttribute('data-restore-host')).toBe('detail')
+    expect(dirRestore.getAttribute('data-restore-edge')).toBe('left')
+    fireEvent.click(dirRestore)
+
+    fireEvent.click(screen.getByRole('button', { name: '主编' }))
+    const rightRestore = screen.getByTestId('right-restore-button')
+    expect(rightRestore.getAttribute('data-restore-host')).toBe('detail')
+    expect(rightRestore.getAttribute('data-restore-edge')).toBe('right')
+  })
+
+  it('storage id 与 data-layout-mode 同源(单 mode 路径)', () => {
+    render(<Harness work="book-sync" />)
+    const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
+    expect(mode).toBe('collaboration')
+    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
+      id: `s3.fourPane.layout.v3:${mode}:book-sync`,
+    }))
+    expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
+    expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
   })
 
   it('左栏能力切换进入栏2,右侧主编栏保持常驻', () => {
@@ -457,9 +625,53 @@ describe('FourPaneShell 四栏钻取', () => {
     }
   })
 
-  // Task 4:面板栏宽布局按作品隔离,换书不串栏宽。id 保留现常量前缀,换名会作废用户既有偏好。
-  it('scopes panel layout by work', () => {
+  // Task 4 / v3:栏宽按 work + layoutMode 隔离
+  it('scopes panel layout by work and mode (v3)', () => {
     render(<Harness work="book-a" />)
-    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({ id: 's3.fourPane.layout.v2:book-a' }))
+    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
+      id: 's3.fourPane.layout.v3:collaboration:book-a',
+    }))
+  })
+
+  it('正文 final 阶段默认 reading:栏序变、默认宽与协作相同', async () => {
+    function PhaseFinal({ children }) {
+      const { setChapterPhase } = useChiefSlot()
+      useEffect(() => { setChapterPhase('final') }, [setChapterPhase])
+      return children
+    }
+    function ReadingHarness() {
+      const [sel, setSel] = useState({
+        mode: 'node',
+        node: { id: 'ch:1', type: 'chapter', ref: 1, label: '第1章' },
+      })
+      return (
+        <ChiefSlotProvider>
+          <PhaseFinal>
+            <FourPaneShell
+              tree={tree}
+              sel={sel}
+              onSelectNode={(node) => {
+                if (!node) setSel({ mode: 'node', node: null })
+                else setSel({ mode: 'node', node })
+              }}
+              work="demo"
+              leftSeq={1}
+              reload={() => {}}
+            />
+          </PhaseFinal>
+        </ChiefSlotProvider>
+      )
+    }
+    render(<ReadingHarness />)
+    await waitFor(() => {
+      expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('reading')
+    })
+    const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
+    const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
+    expect(detailW).toBe(rightW)
+    expect(detailW).toBe(43)
+    expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
+      id: 's3.fourPane.layout.v3:reading:demo',
+    }))
   })
 })

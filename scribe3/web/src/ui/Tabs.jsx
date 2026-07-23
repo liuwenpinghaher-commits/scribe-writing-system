@@ -13,7 +13,7 @@ export function Tabs({ value, onValueChange, items, ariaLabel }) {
   // ——此时按 WAI-ARIA 惯例让第一个 tab 收 tabIndex=0,tablist 保持键盘可达;有选中值时行为不变。
   const hasSelected = items.some((item) => item.value === value)
   return (
-    <div role="tablist" aria-label={ariaLabel} className="inline-flex items-center gap-1 rounded-lg bg-soft p-1">
+    <div role="tablist" aria-label={ariaLabel} className="inline-flex items-center gap-0.5 rounded-md bg-soft/80 p-1">
       {items.map((item, index) => (
         <button
           key={item.value}
@@ -27,7 +27,7 @@ export function Tabs({ value, onValueChange, items, ariaLabel }) {
             if (event.key === 'ArrowRight') { event.preventDefault(); move(index, 1) }
             if (event.key === 'ArrowLeft') { event.preventDefault(); move(index, -1) }
           }}
-          className="h-8 rounded-md px-3 text-helper text-faint aria-selected:bg-surface aria-selected:text-brand aria-selected:ring-1 aria-selected:ring-line"
+          className="h-8 rounded-lg px-3 text-helper text-faint transition-colors aria-selected:bg-surface aria-selected:text-brand aria-selected:shadow-sm"
         >
           {item.label}
         </button>

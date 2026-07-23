@@ -238,7 +238,7 @@ export function MaterialImport({ onImported, onCancel }) {
                   onDragLeave={() => setDragOver(false)}
                   onDrop={onDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`rounded-xl border border-dashed px-6 py-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${dragOver ? 'border-brand bg-brand/5' : 'border-line hover:border-brand/40'}`}>
+                  className={`rounded-md border border-dashed px-6 py-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${dragOver ? 'border-brand bg-brand/5' : 'border-line hover:border-brand/40'}`}>
                   <Upload size={22} className="text-faint" />
                   {file
                     ? <div className="text-f13 text-ink">已选择:<span className="font-medium">{file.name}</span></div>
@@ -250,13 +250,13 @@ export function MaterialImport({ onImported, onCancel }) {
                 </div>
               )}
               {tab === 'text' && (
-                <Textarea value={text} onChange={(e) => setText(e.target.value)}
+                <Textarea variant="bordered" value={text} onChange={(e) => setText(e.target.value)}
                   placeholder="把要导入的文本粘贴到这里…(会自动切分为若干素材)"
                   aria-label="粘贴要导入的文本" className="min-h-[240px] h-full" />
               )}
               {tab === 'url' && (
                 <div>
-                  <Input value={url} onChange={(e) => setUrl(e.target.value)}
+                  <Input variant="bordered" value={url} onChange={(e) => setUrl(e.target.value)}
                     placeholder="https://…" aria-label="要导入的网址"
                     onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
                   <div className="text-meta text-faint mt-2 leading-snug">将抓取该网址正文,解析并切分为素材。</div>
@@ -342,9 +342,9 @@ export function MaterialImport({ onImported, onCancel }) {
             ) : (
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
                 {items.map((it) => (
-                  <div key={it._key} className="rounded-xl border border-line bg-surface px-4 py-3">
+                  <div key={it._key} className="rounded-md border border-line bg-surface px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Input value={it.title} onChange={(e) => patchItem(it._key, { title: e.target.value })}
+                      <Input variant="bordered" value={it.title} onChange={(e) => patchItem(it._key, { title: e.target.value })}
                         placeholder="素材标题…" aria-label="素材标题" size="sm" className="flex-1 text-f14 font-medium" />
                       <select value={it.kind} onChange={(e) => patchItem(it._key, { kind: e.target.value })}
                         aria-label="素材分类"

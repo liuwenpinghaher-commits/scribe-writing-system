@@ -50,6 +50,7 @@ scribe3_read:
       - s3_craft_rule_list
       - s3_discipline_check
       - s3_list_voice_flags
+      - s3_get_intent
     prompts: false
     resources: false
 scribe3_write:
@@ -60,6 +61,7 @@ scribe3_write:
       - s3_save_chapter
       - s3_author_pref_add
       - s3_add_character
+      - s3_patch_character
       - s3_add_fact
       - s3_add_event
       - s3_add_character_relation
@@ -73,6 +75,7 @@ scribe3_write:
       - s3_add_term
       - s3_plant_promise
       - s3_register_purpose
+      - s3_set_intent
       - s3_advance_promise
       - s3_add_clue
       - s3_resolve_voice_flag
@@ -83,5 +86,24 @@ scribe3_write:
       - s3_forget_knowledge
       - s3_craft_rule_add
       - s3_craft_rule_remove
+      - s3_add_volume
+      - s3_patch_volume
+      - s3_add_chapter
+      - s3_patch_chapter_meta
+      - s3_patch_chapter_plan
+      - s3_set_char_anchors
+      - s3_reorder_chapters
+      - s3_delete_volume
+      - s3_add_material
+      - s3_patch_material
+      - s3_delete_material
+      - s3_add_motif
+      - s3_patch_motif
+      - s3_patch_faction
+      - s3_patch_item
+      - s3_patch_term
+      - s3_patch_world_rule
+      - s3_patch_promise
+      - s3_delete_codex
     prompts: false
     resources: false

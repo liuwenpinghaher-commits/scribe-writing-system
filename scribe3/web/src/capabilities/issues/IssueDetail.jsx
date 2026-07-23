@@ -78,7 +78,7 @@ export function IssueDetail({ node, onLocate, onFix, onRecheck }) {
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="text-f20 font-semibold text-ink">校验详情</h2>
+          <h2 className="type-section text-ink">校验详情</h2>
         </div>
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-1 text-f14 font-semibold text-ink">{issue.title || node?.label || '校验命中'}</div>

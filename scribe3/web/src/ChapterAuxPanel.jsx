@@ -16,10 +16,9 @@ import { NorthStarPanel } from './NorthStarPanel'
 //   · 非受控:只传 initialTab(可省),内部自持 tab state 并渲染 tab 行(旧直渲用法)。
 // 签名不收 work:面板走全局 WORK(与左栏 FramePanel 同惯例,见 studioDocks 左栏 caps;
 // 2026-07-11 裁决:FramePanel 省略 work prop,不碰在途 FourPaneShell)。
-// 点行导航:onSelectNode 不传——辅助视图语境无导航回调通道,FramePanel 内为可选链 no-op
-// (FramePanel.jsx:595 `onSelectNode?.(…)`)。
+// onSelectNode:章工作台透传,关联 tab 点击带 targetNode 的条目可跳设定/素材详情。
 const AUX_TAB_KEYS = new Set(['brief', 'frame', 'northstar'])
-export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange }) {
+export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange, onSelectNode }) {
   const [tabState, setTabState] = useState(() => (AUX_TAB_KEYS.has(initialTab) ? initialTab : 'brief'))
   // 受控判定:tab prop 是合法 key 即受控(受控下 initialTab 不参与,内部 state 只为非受控兜底)
   const controlled = AUX_TAB_KEYS.has(tabProp)
@@ -73,7 +72,14 @@ export function ChapterAuxPanel({ seq, initialTab, tab: tabProp, onTabChange }) 
       <div className="min-h-0 flex-1 overflow-auto pt-3">
         <div className="mx-auto w-full max-w-[96rem]">
           {tab === 'brief' && <BriefPanel seq={seq} />}
-          {tab === 'frame' && <FramePanel chapter={seq} focalizer={focalizer} focalizerOptions={chars} />}
+          {tab === 'frame' && (
+            <FramePanel
+              chapter={seq}
+              focalizer={focalizer}
+              focalizerOptions={chars}
+              onSelectNode={onSelectNode}
+            />
+          )}
           {tab === 'northstar' && <NorthStarPanel seq={seq} />}
         </div>
       </div>

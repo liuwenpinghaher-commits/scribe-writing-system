@@ -72,27 +72,77 @@ def _store_for(work: str | None = None):
 # ===== 写门控 =====
 WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
                 "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
+                "s3_set_intent",         # G-001:书级北极星 intent 结构化写入
+                "s3_patch_character",    # G-004:角色字段更正(对话审批落库)
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
-                "s3_add_world_rule", "s3_add_faction", "s3_add_char_state",
-                "s3_set_voice_profile", "s3_add_item", "s3_add_term",
+                "s3_add_world_rule", "s3_patch_world_rule", "s3_add_faction",
+                "s3_patch_faction", "s3_add_char_state",
+                "s3_set_voice_profile", "s3_add_item", "s3_patch_item",
+                "s3_add_term", "s3_patch_term",
                 "s3_supersede_fact", "s3_forget_knowledge",
                 "s3_evolve_relation", "s3_resolve_voice_flag",
                 "s3_fold_voice_flags", "s3_add_clue",
-                "s3_add_entity_relation"}   # CX-Task 5:通用实体关系表写工具
+                "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
+                "s3_author_pref_add",      # 跨书作者偏好(USER.md)待批写入
+                # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
+                "s3_add_volume", "s3_patch_volume",
+                "s3_add_chapter", "s3_patch_chapter_meta",
+                "s3_patch_chapter_plan", "s3_set_char_anchors",
+                # P0:结构运维 + 素材(默认 emergency REST 关时的作者主路径)
+                "s3_reorder_chapters", "s3_delete_volume",
+                "s3_add_material", "s3_patch_material", "s3_delete_material",
+                "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
+                # 设定库生命周期(archive/delete,与 objects/* 同口径)
+                "s3_delete_codex"}
 
 
 def requires_approval(name: str) -> bool:
     return name in WRITE_GATED
 
 
-def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], None]) -> dict:
+def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], object]) -> dict:
     """写门控单一落库点:WRITE_GATED 的工具须 accepted=True 才执行 do_write
-    (do_write 内部走 store.execute_write 单点)。拒绝=fail-closed 不写。"""
+    (do_write 内部走 store 单点落库)。拒绝=fail-closed 不写。
+
+    防假绿:
+    - do_write 抛异常 → status=error(不谎称 written)
+    - do_write 返回 False → status=error(典型:目标行不存在/零更新)
+    - do_write 返回带 error 的 dict → 透传为 error
+    - do_write 返回其它 dict → 与 written 合并(保留业务字段)
+    - do_write 返回 None/其它真值 → status=written
+    """
     if name in WRITE_GATED and not accepted:
         return {"status": "declined", "tool": name}
-    do_write()
-    return {"status": "written", "tool": name}
+    try:
+        result = do_write()
+    except Exception as e:
+        logging.exception("commit_if_approved write failed tool=%s", name)
+        return {"status": "error", "tool": name, "error": str(e)}
+    if result is False:
+        return {
+            "status": "error",
+            "tool": name,
+            "error": "write returned false (no-op or missing target)",
+        }
+    if isinstance(result, dict):
+        if result.get("error") and result.get("status") not in ("written", "ok"):
+            out = {"status": "error", "tool": name}
+            out.update(result)
+            out["status"] = "error"
+            return out
+        out = {"status": "written", "tool": name}
+        out.update(result)
+        # 业务 dict 若未显式给 status,保持 written;若显式 declined/error 则尊重
+        if result.get("status") in ("declined", "error"):
+            out["status"] = result["status"]
+        else:
+            out["status"] = "written"
+        return out
+    out: dict = {"status": "written", "tool": name}
+    if result is not None:
+        out["result"] = result
+    return out
 
 
 class _Approve(BaseModel):
@@ -172,25 +222,31 @@ def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
 
 
 def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
-                          work: str | None) -> list[dict]:
+                          work: str | None, chapter: int | None = None) -> list[dict]:
+    """chapter 非空时走 store 时间门(valid_from/valid_to),与 hybrid 一致。"""
     return [{"id": f.id, "entity": f.entity_id, "attribute": f.attribute,
             "value": _mask_value(f.value, bool(f.secret), reveal_secret),
-            "is_secret": bool(f.secret)}
-            for f in _store_for(work).semantic_recall(query, k)]
+            "is_secret": bool(f.secret),
+            "valid_from": f.valid_from,
+            "valid_to": f.valid_to}
+            for f in _store_for(work).semantic_recall(query, k, chapter=chapter)]
 
 
 @mcp.tool(annotations=_RO)
-def s3_semantic_recall(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+def s3_semantic_recall(query: str, k: int = 5, chapter: int | None = None,
+                       work: str | None = None) -> list[dict]:
     """语义召回最相关的设定/命题(向量 RAG,非字面匹配;头部工具仍多用字面,这是差异化)。
 
+    chapter: 可选故事章时间门——只返回 valid_from<=chapter 且仍有效的命题;省略=不按章过滤。
     恒掩码私密命题的 value(显示 '🔒 私密'),is_secret 标志始终保留——本工具**没有**
     reveal_secret 参数(U-003 修复:能否解锁明文从"模型的参数"降格为"工具的名字",
     工具面白名单物理隔离,不再靠模型自律)。全知明文见孪生工具 s3_semantic_recall_reveal。"""
-    return _semantic_recall_impl(query, k, False, work)
+    return _semantic_recall_impl(query, k, False, work, chapter=chapter)
 
 
 @mcp.tool(annotations=_RO)
-def s3_semantic_recall_reveal(query: str, k: int = 5, work: str | None = None) -> list[dict]:
+def s3_semantic_recall_reveal(query: str, k: int = 5, chapter: int | None = None,
+                              work: str | None = None) -> list[dict]:
     """s3_semantic_recall 的全知孪生:返回明文(secret 命题不掩码)。
 
     **仅供主编全知联查专用**,其输出严禁进入限知章续写 prompt。U-003 真机实测推翻了
@@ -200,7 +256,7 @@ def s3_semantic_recall_reveal(query: str, k: int = 5, work: str | None = None) -
     物理调不到(见 `_summarize_hermes_runtime` 的 `gateway_exposes_reveal_tools` 自检,
     钉死"任何 profile 的 include 都不得出现 *_reveal 工具"这条不变量)。要启用须另起
     一个**绝不服务写作/续写路径**的专用网关,而不是靠 label 隔离。"""
-    return _semantic_recall_impl(query, k, True, work)
+    return _semantic_recall_impl(query, k, True, work, chapter=chapter)
 
 
 def _hybrid_recall_impl(query: str, chapter: int, k: int, reveal_secret: bool,
@@ -596,6 +652,91 @@ async def s3_add_character(ctx: Context, oid: str, name: str, work: str | None =
                               lambda: _store_for(work).add_entity(Entity(oid, "character", name)))
 
 
+@mcp.tool(annotations=_RO)
+def s3_get_intent(work: str | None = None) -> dict:
+    """读取本书北极星意图(读者感受/情感弧/红线/字数目标)。只读。"""
+    return _store_for(work).get_intent()
+
+
+@mcp.tool(annotations=_RW)
+async def s3_set_intent(ctx: Context,
+                        reader_feeling: str | None = None,
+                        emotional_arc: str | None = None,
+                        red_lines: str | None = None,
+                        overdue_threshold: int | None = None,
+                        total_word_goal: int | None = None,
+                        daily_word_goal: int | None = None,
+                        work: str | None = None) -> dict:
+    """写入/合并本书北极星意图(写,待批)。
+
+    只传需要更新的字段;未传字段保留库中旧值(与 store.set_intent MERGE 语义一致)。
+    作者对话驱动落库的正道——禁止要求作者去北极星表单失焦保存。"""
+    fields: dict = {}
+    if reader_feeling is not None:
+        fields["reader_feeling"] = reader_feeling
+    if emotional_arc is not None:
+        fields["emotional_arc"] = emotional_arc
+    if red_lines is not None:
+        fields["red_lines"] = red_lines
+    if overdue_threshold is not None:
+        fields["overdue_threshold"] = overdue_threshold
+    if total_word_goal is not None:
+        fields["total_word_goal"] = total_word_goal
+    if daily_word_goal is not None:
+        fields["daily_word_goal"] = daily_word_goal
+    if not fields:
+        return {"status": "noop", "tool": "s3_set_intent", "reason": "no fields"}
+    summary = " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
+    ok = await _ask(ctx, f"写入北极星意图:{summary}")
+    return commit_if_approved("s3_set_intent", ok,
+                              lambda: _store_for(work).set_intent(fields))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_character(ctx: Context, character_id: str,
+                             appearance: str | None = None,
+                             personality_detail: str | None = None,
+                             surface_goal: str | None = None,
+                             deep_need: str | None = None,
+                             fear: str | None = None,
+                             importance: str | None = None,
+                             name: str | None = None,
+                             work: str | None = None) -> dict:
+    """更正已有角色字段(写,待批)。
+
+    character_id: 裸名或 role:前缀(如「沈砚」或 role:沈砚)。
+    只传要改的字段;None 表示不改。用于对话驱动设定返工(G-004),禁止表单失焦直填。"""
+    local = character_id.split(":", 1)[-1] if character_id else ""
+    if not local:
+        return {"status": "error", "tool": "s3_patch_character", "reason": "empty character_id"}
+    oid = f"role:{local}"
+    fields: dict = {}
+    for k, v in (
+        ("name", name),
+        ("appearance", appearance),
+        ("personality_detail", personality_detail),
+        ("surface_goal", surface_goal),
+        ("deep_need", deep_need),
+        ("fear", fear),
+        ("importance", importance),
+    ):
+        if v is not None:
+            fields[k] = v
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_character", "reason": "no fields"}
+    summary = f"{oid} " + " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
+    ok = await _ask(ctx, f"更正角色:{summary}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.exists(oid):
+            # 角色不存在时先建最小实体再补字段,避免悬挂更正
+            st.add_entity(Entity(oid, "character", local))
+        st.update_record(oid, fields)
+
+    return commit_if_approved("s3_patch_character", ok, _write)
+
+
 @mcp.tool(annotations=_RW)
 async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value: str,
                       valid_from: int, secret: bool = False,
@@ -608,6 +749,61 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
         st.add_fact(Fact(oid, entity, attribute, value, valid_from, secret=secret))
         st.semantic_index(oid, value)   # 写时建语义索引(设定即写即可召回)
     return commit_if_approved("s3_add_fact", ok, _write)
+
+
+def aggregate_event_participants(participants: list[dict] | None) -> dict:
+    """MCP s3_add_event 参与者聚合:同 role 多人升 list,禁止后写覆盖。
+    纯函数,供工具与单测共用——禁止测试侧重写此循环。"""
+    parts: dict = {}
+    if not participants:
+        return parts
+    for p in participants:
+        if not isinstance(p, dict):
+            continue
+        role = p.get("role", "") or ""
+        entity = p.get("entity", "") or ""
+        if not role or not entity:
+            continue
+        if role not in parts:
+            parts[role] = entity
+        else:
+            cur = parts[role]
+            if isinstance(cur, list):
+                if entity not in cur:
+                    cur.append(entity)
+            elif cur != entity:
+                parts[role] = [cur, entity]
+    return parts
+
+
+def aggregate_event_effects(effects: list | None) -> list[str]:
+    """MCP s3_add_event effects 归一化为 fact oid 列表。"""
+    effs: list[str] = []
+    if not effects:
+        return effs
+    for e in effects:
+        if isinstance(e, str):
+            effs.append(e)
+        elif isinstance(e, dict):
+            fid = e.get("id") or e.get("fact_id")
+            if fid:
+                effs.append(fid)
+    return effs
+
+
+def aggregate_event_causal_in(causal_in: list[dict] | None) -> list:
+    """MCP s3_add_event causal_in 归一化为 (event_id, ctype) 列表。"""
+    causal: list = []
+    if not causal_in:
+        return causal
+    for c in causal_in:
+        if not isinstance(c, dict):
+            continue
+        ev_id = c.get("event", "")
+        ctype = c.get("ctype", "causes")
+        if ev_id:
+            causal.append((ev_id, ctype))
+    return causal
 
 
 @mcp.tool(annotations=_RW)
@@ -634,33 +830,9 @@ async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
       causal_complete 验证会检查此链;建议填写以保证连贯性验证通过。
     causal_root_reason: 仅当该事件是同章切换人物/地点/时间后的独立场景根且没有 causal_in 时填写。
     """
-    # 将 dict 格式转为 Event 构造器期待的格式
-    parts: dict[str, str] = {}
-    if participants:
-        for p in participants:
-            role = p.get("role", "")
-            entity = p.get("entity", "")
-            if role and entity:
-                parts[role] = entity
-
-    effs: list[str] = []
-    if effects:
-        for e in effects:
-            if isinstance(e, str):
-                effs.append(e)
-            elif isinstance(e, dict):
-                # 支持 {"id": "fact:xxx"} 或 {"entity": "role:x", "attribute": "...", "value": "..."}
-                fid = e.get("id") or e.get("fact_id")
-                if fid:
-                    effs.append(fid)
-
-    causal: list = []
-    if causal_in:
-        for c in causal_in:
-            ev_id = c.get("event", "")
-            ctype = c.get("ctype", "causes")
-            if ev_id:
-                causal.append((ev_id, ctype))
+    parts = aggregate_event_participants(participants)
+    effs = aggregate_event_effects(effects)
+    causal = aggregate_event_causal_in(causal_in)
 
     ok = await _ask(ctx, f"新增事件 {oid}:{etype}")
     return commit_if_approved("s3_add_event", ok,
@@ -1039,17 +1211,20 @@ async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
         if rerr:
             return {"error": rerr}
     ok = await _ask(ctx, f"登记第{chapter}章目的合同:{purpose_text}({len(ds)}条delta)")
-    if not ok:
-        return {"status": "declined", "tool": "s3_register_purpose"}
-    # P1门审查 P1-2:update_chapter_meta 对不存在章返回 False 必须透传——
-    # commit_if_approved 会吞返回值,LLM 传错章号也回 "written" 假绿(实际零写入)。
-    if not st.update_chapter_meta(chapter, {"purpose_text": (purpose_text or "")[:200],
-                                            "deltas": ds}):
-        return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
-    out = {"status": "written", "tool": "s3_register_purpose"}
-    if rehearse_degraded:
-        out["rehearse_degraded"] = True   # P2-2:预演基础设施故障放行须可见,不静默
-    return out
+    # 统一走 commit_if_approved:False → status=error(不假绿 written);
+    # 预演降级标志经 dict 合并保留可见。
+    def _write():
+        if not st.update_chapter_meta(chapter, {
+            "purpose_text": (purpose_text or "")[:200],
+            "deltas": ds,
+        }):
+            return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
+        out = {"chapter": chapter, "deltas": len(ds)}
+        if rehearse_degraded:
+            out["rehearse_degraded"] = True
+        return out
+
+    return commit_if_approved("s3_register_purpose", ok, _write)
 
 
 @mcp.tool(annotations=_RW)
@@ -1099,10 +1274,10 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
     返回 {"folded": n, "profile": {...}} 或 {"folded": 0, "degraded": true}(LLM/解析失败时 fail-soft)。
     无开放 flag 时直接返回 {"folded": 0}(不调 LLM)。"""
     ok = await _ask(ctx, f"折叠声音演变 flag → profile [{character_id}]")
-    if not ok:
-        return {"status": "declined", "tool": "s3_fold_voice_flags"}
     from scribe3.llm import hermes_complete
-    return _store_for(work).fold_voice_flags(character_id, hermes_complete)
+    return commit_if_approved(
+        "s3_fold_voice_flags", ok,
+        lambda: _store_for(work).fold_voice_flags(character_id, hermes_complete))
 
 
 @mcp.tool(annotations=_RW)
@@ -1198,6 +1373,551 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = No
     ok = await _ask(ctx, f"删题材规则 {rule_id}")
     return commit_if_approved("s3_craft_rule_remove", ok,
                               lambda: _store_for(work).delete_craft_rule(rule_id))
+
+
+# ===== 结构写:卷 / 章 meta / 章 plan / 弧光锚(Task 3–6)=====
+
+@mcp.tool(annotations=_RW)
+async def s3_add_volume(ctx: Context, title: str, sort_order: int = 0,
+                        intro: str | None = None, color: str | None = None,
+                        work: str | None = None) -> dict:
+    """新建卷(写,待批)。返回 volume 裸 id。"""
+    ok = await _ask(ctx, f"新建卷《{title}》sort={sort_order}")
+
+    def _write():
+        vid = _store_for(work).add_volume(
+            title, sort_order=sort_order, intro=intro, color=color)
+        return {"volume_id": vid, "title": title}
+
+    return commit_if_approved("s3_add_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_volume(ctx: Context, volume_id: str,
+                          title: str | None = None,
+                          sort_order: int | None = None,
+                          intro: str | None = None,
+                          color: str | None = None,
+                          work: str | None = None) -> dict:
+    """改卷元数据(写,待批)。仅提交非 None 字段;无字段→noop;卷不存在→error。"""
+    fields = {k: v for k, v in {
+        "title": title, "sort_order": sort_order,
+        "intro": intro, "color": color,
+    }.items() if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_volume", "reason": "no fields"}
+    ok = await _ask(ctx, f"改卷 {volume_id}: {list(fields)}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.update_volume(volume_id, fields):
+            return False
+        return {"volume_id": volume_id, "fields": list(fields)}
+
+    return commit_if_approved("s3_patch_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_chapter(ctx: Context, title: str = "",
+                         volume_id: str | None = None,
+                         work: str | None = None) -> dict:
+    """新建空章(写,待批)。seq=历史最大章号+1;可选挂到 volume_id。"""
+    ok = await _ask(ctx, f"新建章《{title or '未命名'}》vol={volume_id}")
+
+    def _write():
+        return _store_for(work).create_chapter(title=title, volume_id=volume_id)
+
+    return commit_if_approved("s3_add_chapter", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_chapter_meta(
+    ctx: Context, seq: int,
+    title: str | None = None,
+    label: str | None = None,
+    volume_id: str | None = None,
+    clear_volume: bool = False,
+    work: str | None = None,
+) -> dict:
+    """改章身份元数据(标题/标签/卷归属;写,待批)。不改 synopsis/beats/prose。
+
+    clear_volume=True 时清空卷归属(volume=None);否则 volume_id 非 None 时设归属。
+    章不存在 → status=error。"""
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = title
+    if label is not None:
+        fields["label"] = label
+    if clear_volume:
+        fields["volume"] = None
+    elif volume_id is not None:
+        fields["volume"] = volume_id
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_chapter_meta", "reason": "no fields"}
+    ok = await _ask(ctx, f"改第{seq}章 meta {list(fields)}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.update_chapter_meta(seq, fields):
+            return False
+        return {"seq": seq, "fields": list(fields)}
+
+    return commit_if_approved("s3_patch_chapter_meta", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_chapter_plan(
+    ctx: Context, seq: int,
+    synopsis: str | None = None,
+    beats: list | None = None,
+    scene_truth: str | None = None,
+    deductions: list | None = None,
+    involved_characters: list | None = None,
+    work: str | None = None,
+) -> dict:
+    """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色(写,待批)。不改 prose/身份 meta。
+
+    章不存在 → status=error。"""
+    fields: dict = {}
+    if synopsis is not None:
+        fields["synopsis"] = synopsis
+    if beats is not None:
+        fields["beats"] = beats
+    if scene_truth is not None:
+        fields["scene_truth"] = scene_truth
+    if deductions is not None:
+        fields["deductions"] = deductions
+    if involved_characters is not None:
+        fields["involved_characters"] = involved_characters
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_chapter_plan", "reason": "no fields"}
+    ok = await _ask(ctx, f"改第{seq}章 plan {list(fields.keys())}")
+
+    def _write():
+        if not _store_for(work).update_chapter_meta(seq, fields):
+            return False
+        return {"seq": seq, "fields": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_chapter_plan", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_set_char_anchors(
+    ctx: Context, character_id: str,
+    want: str | None = None,
+    need: str | None = None,
+    lie: str | None = None,
+    ghost: str | None = None,
+    truth: str | None = None,
+    arc_type: str | None = None,
+    private_agenda: str | None = None,
+    work: str | None = None,
+) -> dict:
+    """写角色弧光锚(写,待批)。局部更新;键限 store _ANCHOR_KEYS 白名单。
+
+    character_id: 裸名或 role:前缀。只传要改的字段。"""
+    anchors = {k: v for k, v in {
+        "want": want, "need": need, "lie": lie, "ghost": ghost,
+        "truth": truth, "arc_type": arc_type, "private_agenda": private_agenda,
+    }.items() if v is not None}
+    if not anchors:
+        return {"status": "noop", "tool": "s3_set_char_anchors", "reason": "no fields"}
+    ok = await _ask(ctx, f"设弧光锚 {character_id}: {list(anchors)}")
+
+    def _write():
+        _store_for(work).set_char_anchors(character_id, anchors)
+        return {"character_id": character_id, "keys": list(anchors)}
+
+    return commit_if_approved("s3_set_char_anchors", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_reorder_chapters(ctx: Context, volume_id: str | None = None,
+                              order: list[int] | None = None,
+                              work: str | None = None) -> dict:
+    """重排某卷(或未分卷)内章节顺序(写,待批)。只改 sort_order/volume,不动 seq。
+
+    order: 章号 seq 列表,顺序即新序。volume_id 空=未分卷基址。"""
+    seqs = list(order or [])
+    if not seqs:
+        return {"status": "noop", "tool": "s3_reorder_chapters", "reason": "empty order"}
+    ok = await _ask(ctx, f"重排章节 vol={volume_id or '未分卷'} order={seqs}")
+
+    def _write():
+        n = _store_for(work).reorder_chapters(volume_id, seqs)
+        return {"volume_id": volume_id, "count": n, "order": seqs}
+
+    return commit_if_approved("s3_reorder_chapters", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_volume(ctx: Context, volume_id: str,
+                           work: str | None = None) -> dict:
+    """删除卷(写,待批)。该卷下章 volume 置空,不删章正文。"""
+    vid = (volume_id or "").strip()
+    if not vid:
+        return {"status": "error", "tool": "s3_delete_volume", "error": "volume_id required"}
+    ok = await _ask(ctx, f"删除卷 {vid}(章保留,仅清卷归属)")
+
+    def _write():
+        if not _store_for(work).delete_volume(vid):
+            return False
+        return {"volume_id": vid, "deleted": True}
+
+    return commit_if_approved("s3_delete_volume", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_material(ctx: Context, title: str, body: str = "",
+                          kind: str = "note",
+                          tags: list[str] | None = None,
+                          ref_tags: list[str] | None = None,
+                          source: str | None = None,
+                          summary: str | None = None,
+                          pinned: bool = False,
+                          work: str | None = None) -> dict:
+    """新建素材记忆(写,待批)。kind∈snippet/note/research/inspiration/…;借鉴非正典事实。
+
+    source: 可选出处;summary: 手法摘要(召回优先);pinned: 核心记忆。origin 固定 chief。"""
+    t = (title or "").strip()
+    if not t:
+        return {"status": "error", "tool": "s3_add_material", "error": "title required"}
+    src = (source or "").strip() or None
+    ok = await _ask(ctx, f"新建素材《{t}》kind={kind}" + (f" source={src}" if src else ""))
+
+    def _write():
+        mid = _store_for(work).add_material(
+            t, body=body or None, kind=kind or "note",
+            tags=list(tags or []), source=src, ref_tags=list(ref_tags or []),
+            summary=summary, pinned=bool(pinned), origin="chief")
+        return {"material_id": mid, "title": t, "kind": kind or "note", "source": src,
+                "origin": "chief"}
+
+    return commit_if_approved("s3_add_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_material(ctx: Context, material_id: str,
+                            title: str | None = None,
+                            body: str | None = None,
+                            kind: str | None = None,
+                            tags: list[str] | None = None,
+                            ref_tags: list[str] | None = None,
+                            source: str | None = None,
+                            summary: str | None = None,
+                            pinned: bool | None = None,
+                            archived: bool | None = None,
+                            work: str | None = None) -> dict:
+    """更新素材记忆(写,待批)。仅提交需要改的字段;空串 source 表示清空出处。origin 不可改。"""
+    mid = (material_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_patch_material", "error": "material_id required"}
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = title
+    if body is not None:
+        fields["body"] = body
+    if kind is not None:
+        fields["kind"] = kind
+    if tags is not None:
+        fields["tags"] = list(tags)
+    if ref_tags is not None:
+        fields["ref_tags"] = list(ref_tags)
+    if source is not None:
+        fields["source"] = (source or "").strip() or None
+    if summary is not None:
+        fields["summary"] = (summary or "").strip() or None
+    if pinned is not None:
+        fields["pinned"] = bool(pinned)
+    if archived is not None:
+        fields["archived"] = bool(archived)
+    if not fields:
+        return {"status": "error", "tool": "s3_patch_material", "error": "no fields to patch"}
+    ok = await _ask(ctx, f"更新素材 {mid} 字段:{','.join(fields.keys())}")
+
+    def _write():
+        if not _store_for(work).update_material(mid, fields):
+            return False
+        return {"material_id": mid, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_material", ok, _write)
+
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_material(ctx: Context, material_id: str,
+                             archive: bool = True,
+                             work: str | None = None) -> dict:
+    """删除或归档素材(写,待批)。默认 archive=True 软归档;archive=False 硬删并清理引用。"""
+    mid = (material_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_delete_material", "error": "material_id required"}
+    mode = "归档" if archive else "删除"
+    ok = await _ask(ctx, f"{mode}素材 {mid}")
+
+    def _write():
+        st = _store_for(work)
+        if archive:
+            if not st.update_material(mid, {"archived": True}):
+                return False
+            return {"material_id": mid, "action": "archive"}
+        if not st.delete_material(mid, cleanup_refs=True):
+            return False
+        return {"material_id": mid, "action": "delete"}
+
+    return commit_if_approved("s3_delete_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_add_motif(ctx: Context, name: str, theme: str = "",
+                       echoes: str = "", unfolding: str = "",
+                       work: str | None = None) -> dict:
+    """新建母题(写,待批)。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_add_motif", "error": "name required"}
+    ok = await _ask(ctx, f"新建母题「{n}」")
+
+    def _write():
+        _store_for(work).add_motif(n, theme=theme or "", echoes=echoes or "",
+                                   unfolding=unfolding or "")
+        return {"name": n, "theme": theme or ""}
+
+    return commit_if_approved("s3_add_motif", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_faction(ctx: Context, name: str,
+                           ideology: str | None = None,
+                           leader: str | None = None,
+                           public_face: str | None = None,
+                           status: str | None = None,
+                           work: str | None = None) -> dict:
+    """更正势力字段(写,待批)。只传要改的字段;底层 add_faction MERGE。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_patch_faction", "error": "name required"}
+    fields = {k: v for k, v in (
+        ("ideology", ideology), ("leader", leader),
+        ("public_face", public_face), ("status", status),
+    ) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_faction", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正势力「{n}」:{','.join(fields)}")
+
+    def _write():
+        st = _store_for(work)
+        if not st.get_faction(n):
+            return False
+        st.add_faction(n, **fields)
+        return {"name": n, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_faction", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_item(ctx: Context, name: str,
+                        description: str | None = None,
+                        category: str | None = None,
+                        current_owner: str | None = None,
+                        symbolic_state: str | None = None,
+                        work: str | None = None) -> dict:
+    """更正物品字段(写,待批)。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_patch_item", "error": "name required"}
+    fields = {k: v for k, v in (
+        ("description", description), ("category", category),
+        ("current_owner", current_owner), ("symbolic_state", symbolic_state),
+    ) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_item", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正物品「{n}」")
+
+    def _write():
+        if not _store_for(work).patch_item(n, fields):
+            return False
+        return {"name": n, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_item", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_term(ctx: Context, name: str,
+                        definition: str | None = None,
+                        category: str | None = None,
+                        work: str | None = None) -> dict:
+    """更正术语字段(写,待批)。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_patch_term", "error": "name required"}
+    fields = {k: v for k, v in (("definition", definition), ("category", category)) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_term", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正术语「{n}」")
+
+    def _write():
+        if not _store_for(work).patch_term(n, fields):
+            return False
+        return {"name": n, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_term", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_world_rule(ctx: Context, name: str,
+                              category: str | None = None,
+                              cost: str | None = None,
+                              note: str | None = None,
+                              source: str | None = None,
+                              work: str | None = None) -> dict:
+    """更正世界规则(写,待批)。"""
+    n = (name or "").strip()
+    if not n:
+        return {"status": "error", "tool": "s3_patch_world_rule", "error": "name required"}
+    fields = {k: v for k, v in (
+        ("category", category), ("cost", cost), ("note", note), ("source", source),
+    ) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_world_rule", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正世界规则「{n}」")
+
+    def _write():
+        if not _store_for(work).patch_world_rule(n, fields):
+            return False
+        return {"name": n, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_world_rule", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_motif(ctx: Context, motif_id: str,
+                         name: str | None = None,
+                         theme: str | None = None,
+                         echoes: str | None = None,
+                         unfolding: str | None = None,
+                         work: str | None = None) -> dict:
+    """更正母题(写,待批)。motif_id 为裸 id 或名称。"""
+    mid = (motif_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_patch_motif", "error": "motif_id required"}
+    fields = {k: v for k, v in (
+        ("name", name), ("theme", theme), ("echoes", echoes), ("unfolding", unfolding),
+    ) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_motif", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正母题 {mid}")
+
+    def _write():
+        if not _store_for(work).patch_motif(mid, fields):
+            return False
+        return {"motif_id": mid, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_motif", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_promise(ctx: Context, promise_id: str,
+                           text: str | None = None,
+                           resolution: str | None = None,
+                           work: str | None = None) -> dict:
+    """更正伏笔文案/答案(写,待批)。回收请用 s3_advance_promise。"""
+    pid = (promise_id or "").strip()
+    if not pid:
+        return {"status": "error", "tool": "s3_patch_promise", "error": "promise_id required"}
+    fields = {k: v for k, v in (("text", text), ("resolution", resolution)) if v is not None}
+    if not fields:
+        return {"status": "noop", "tool": "s3_patch_promise", "reason": "no fields"}
+    ok = await _ask(ctx, f"更正伏笔 {pid}")
+
+    def _write():
+        st = _store_for(work)
+        rows = st._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": pid})
+        if not rows:
+            return False
+        st._update_by("promise", pid, fields)
+        return {"promise_id": pid, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_promise", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
+                          archive: bool = True,
+                          work: str | None = None) -> dict:
+    """归档或删除设定对象(写,待批)。
+
+    object_type: role|fact|material|faction|item|term|world_rule|promise|motif
+    object_id: 裸 id 或 name(势力/物件/术语/规则用 name)。
+    archive=True 优先软归档(role/fact/material);无 archive 能力的类型走硬删。
+    """
+    ot = (object_type or "").strip()
+    oid = (object_id or "").strip()
+    if not ot or not oid:
+        return {"status": "error", "tool": "s3_delete_codex",
+                "error": "object_type and object_id required"}
+    mode = "归档" if archive else "删除"
+    ok = await _ask(ctx, f"{mode}设定 {ot}:{oid}")
+
+    def _write():
+        st = _store_for(work)
+        if ot == "material":
+            if archive:
+                if not st.update_material(oid, {"archived": True}):
+                    return False
+                return {"object_type": ot, "object_id": oid, "action": "archive"}
+            if not st.delete_material(oid, cleanup_refs=True):
+                return False
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot in ("role", "fact"):
+            full = oid if ":" in oid else f"{ot}:{oid}"
+            if ot == "role" and not full.startswith("role:"):
+                full = f"role:{oid}"
+            if ot == "fact" and not full.startswith("fact:"):
+                full = f"fact:{oid}"
+            if archive:
+                if not st.exists(full):
+                    return False
+                st.update_record(full, {"archived": True})
+                return {"object_type": ot, "object_id": full, "action": "archive"}
+            if not st.delete_record(full, cleanup_refs=True):
+                return False
+            return {"object_type": ot, "object_id": full, "action": "delete"}
+        if ot == "faction":
+            if not st.get_faction(oid):
+                return False
+            st.delete_faction(oid)
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot == "item":
+            if not st.get_item(oid):
+                return False
+            st.delete_item(oid)
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot == "term":
+            if not st.get_term(oid):
+                return False
+            st.delete_term(oid)
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot == "world_rule":
+            if not st.get_world_rule(oid):
+                return False
+            st.delete_world_rule(oid)
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot == "promise":
+            rows = st._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": oid})
+            if not rows:
+                return False
+            st._execute_write("DELETE type::record('promise',$pid)", {"pid": oid})
+            return {"object_type": ot, "object_id": oid, "action": "delete"}
+        if ot == "motif":
+            row = st.get_motif(oid)
+            if not row:
+                return False
+            st.delete_motif(row["id"])
+            return {"object_type": ot, "object_id": row["id"], "action": "delete"}
+        return {"error": f"unsupported object_type {ot!r}"}
+
+    return commit_if_approved("s3_delete_codex", ok, _write)
 
 
 # ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====

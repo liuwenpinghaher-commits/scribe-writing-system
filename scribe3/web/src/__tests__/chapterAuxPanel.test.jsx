@@ -13,9 +13,16 @@ vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-tes
 // mock FramePanel 复刻真身分派逻辑的关键面:空 focalizer → 全知空态文案(FramePanel.jsx:724),
 // 便于断言「C1:限知章不得落全知空态」;同时回显收到的 props 供断言。
 vi.mock('../FramePanel', () => ({
-  FramePanel: ({ focalizer, chapter, focalizerOptions = [] }) => (
+  FramePanel: ({ focalizer, chapter, focalizerOptions = [], onSelectNode }) => (
     <div data-testid="frame-panel">
       {focalizer ? `限知:${focalizer}` : '作者全知视角——暂无限知约束'}:{chapter}:{focalizerOptions.length}
+      <button
+        type="button"
+        data-testid="frame-mock-jump"
+        onClick={() => onSelectNode?.({ id: 'character:甲', type: 'character', ref: '甲', label: '甲' })}
+      >
+        mock-jump
+      </button>
     </div>
   ),
 }))
@@ -37,7 +44,7 @@ describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () =>
 
     fireEvent.click(screen.getByRole('tab', { name: '关联' }))
 
-    await waitFor(() => expect(screen.getByTestId('frame-panel').textContent).toBe('限知:role:小翠:3:2'))
+    await waitFor(() => expect(screen.getByTestId('frame-panel').textContent).toMatch(/^限知:role:小翠:3:2/))
     expect(screen.queryByText(/作者全知视角/)).toBeNull()
     expect(apiMock.chapter).toHaveBeenCalledWith(3)
   })
@@ -98,5 +105,13 @@ describe('ChapterAuxPanel 章节辅助(章工作台栏3 内容区视图)', () =>
 
     await waitFor(() => expect(screen.getByTestId('frame-panel').textContent).toContain('作者全知视角'))
     expect(screen.getByTestId('frame-panel').textContent).toContain(':3:0')
+  })
+
+  it('透传 onSelectNode 到 FramePanel,关联跳转可回调', async () => {
+    const onSelectNode = vi.fn()
+    render(<ChapterAuxPanel seq={3} tab="frame" onTabChange={() => {}} onSelectNode={onSelectNode} />)
+    expect(await screen.findByTestId('frame-panel')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('frame-mock-jump'))
+    expect(onSelectNode).toHaveBeenCalledWith(expect.objectContaining({ type: 'character', ref: '甲' }))
   })
 })

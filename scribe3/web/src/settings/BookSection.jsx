@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { Textarea } from '../ui.jsx'
+import { Input } from '../ui.jsx'
+import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
+import { ReadOnlyText } from '../ui/EditableText.jsx'
 
 // 与 NorthStarBar.jsx 的 FIELDS 保持同一套字段/标签,顶栏北极星条与设置中心「本书设置」
 // 两处编辑同一份 /intent,标签不一致会让作者以为是两份数据。
@@ -15,8 +17,7 @@ const NUM_FIELDS = [
   ['overdue_threshold', '逾期阈值(天)'],
 ]
 
-// 本书设置:挂载拉 /intent,失焦逐字段 PUT(后端 MERGE 语义,只传变更字段——不把
-// 整份 intent 回传,防止多个编辑入口(此处/NorthStarBar)并发编辑时互相覆盖对方字段)。
+// 本书设置:叙事意图只读 + 主编种子;数字配额仍可表单 PUT(工程配额例外)。
 export function BookSection({ work }) {
   const [intent, setIntent] = useState(null)
   const [err, setErr] = useState(null)
@@ -35,7 +36,7 @@ export function BookSection({ work }) {
     return (
       <div data-testid="book-section">
         {err
-          ? <div className="text-f13 text-red-500" role="alert">{err} <button className="text-brand cursor-pointer" onClick={load}>重试</button></div>
+          ? <div className="text-f13 text-danger" role="alert">{err} <button type="button" className="text-brand cursor-pointer" onClick={load}>重试</button></div>
           : <div className="text-f13 text-faint">加载中…</div>}
       </div>
     )
@@ -43,9 +44,10 @@ export function BookSection({ work }) {
 
   const set = (k, v) => setIntent((i) => ({ ...i, [k]: v }))
 
-  const commit = async (k, v) => {
+  const commitNum = async (k, v) => {
     try {
-      await api.putIntent({ [k]: v })
+      // 工程配额走 /intent-goals(不经世界闸);禁止 putIntent 整包叙事字段
+      await api.putIntentGoals({ [k]: v })
       baseline.current = { ...baseline.current, [k]: v }
       setErr(null)
     } catch (e) {
@@ -53,18 +55,10 @@ export function BookSection({ work }) {
     }
   }
 
-  const blurText = (k) => {
-    const v = intent[k] || ''
-    if (v === (baseline.current[k] || '')) return
-    commit(k, v)
-  }
-
   const blurNum = (k) => {
     const raw = intent[k]
     if (raw === '' || raw == null) {
       if ((baseline.current[k] ?? null) === null) return
-      // 后端 set_intent 对数字字段的 None 视为「未传」(MERGE 直接跳过),清空
-      // 永远落不了库——发 PUT 假装保存成功只会误导用户。恢复旧值 + 如实提示。
       set(k, baseline.current[k])
       setErr('数字字段不支持清空,已恢复原值')
       return
@@ -72,18 +66,37 @@ export function BookSection({ work }) {
     const n = parseInt(raw, 10)
     if (!Number.isFinite(n)) { setErr('请输入有效数字'); return }
     if (n === (baseline.current[k] ?? null)) return
-    commit(k, n)
+    commitNum(k, n)
   }
 
   return (
     <div data-testid="book-section">
-      {err && <div className="text-f13 text-red-500 mb-3" role="alert">{err}</div>}
+      {err && <div className="text-f13 text-danger mb-3" role="alert">{err}</div>}
       <div className="grid gap-3 mb-5">
+        <div className="text-f12 text-faint rounded-lg bg-soft/50 px-3 py-2">
+          读者感受 / 情感弧 / 红线与写作台「北极星」同一份意图,禁止表单直填——请用主编审批写入。
+        </div>
         {TEXT_FIELDS.map(([k, label]) => (
-          <div key={k}>
-            <label htmlFor={`book-${k}`} className="block text-meta text-faint mb-1">{label}</label>
-            <Textarea id={`book-${k}`} rows={2} value={intent[k] || ''}
-              onChange={(e) => set(k, e.target.value)} onBlur={() => blurText(k)} />
+          <div key={k} data-testid={`book-narrative-${k}`}>
+            <ReadOnlyText
+              label={label}
+              value={intent[k] || ''}
+              emptyHint="（空 · 由主编审批写入）"
+              entityLabel="作品意图"
+              fieldKey={k}
+              emptyAskLabel="聊聊怎么写"
+            />
+            <button
+              type="button"
+              className="mt-1 text-meta text-brand hover:underline cursor-pointer"
+              onClick={() => seedChiefNarrativeWrite(
+                'intent',
+                `作品意图·${label}`,
+                `请更新 intent.${k}（${label}）。当前值: ${intent[k] || '（空）'}。用 s3_set_intent 等写工具提交提案。`,
+              )}
+            >
+              让主编写入{label}
+            </button>
           </div>
         ))}
       </div>
@@ -91,8 +104,7 @@ export function BookSection({ work }) {
         {NUM_FIELDS.map(([k, label]) => (
           <div key={k}>
             <label htmlFor={`book-${k}`} className="block text-meta text-faint mb-1">{label}</label>
-            <input id={`book-${k}`} type="number"
-              className="w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-f13 tnum"
+            <Input variant="bordered" id={`book-${k}`} type="number" aria-label={label}
               value={intent[k] ?? ''} onChange={(e) => set(k, e.target.value)} onBlur={() => blurNum(k)} />
           </div>
         ))}

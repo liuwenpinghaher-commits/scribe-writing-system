@@ -18,7 +18,7 @@ export function CommandPalette({ open, onClose, works, cur, onView, onSelectWork
   const act = (fn) => { fn(); onClose() }
   return (
     <div className={`${OVERLAY_CLASS} flex items-start justify-center pt-[16vh]`} onClick={onClose}>
-      <Command label="命令面板" className="w-full max-w-lg rounded-xl border border-line bg-surface shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <Command label="命令面板" className="w-full max-w-lg rounded-md border border-line bg-surface shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <Command.Input autoFocus placeholder="跳视图 / 切书 / 作品库…"
           className="w-full h-12 px-4 bg-transparent text-f14 text-ink outline-none border-b border-line placeholder:text-faint/60" />
         <Command.List className="max-h-[52vh] overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-meta [&_[cmdk-group-heading]]:text-faint [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">

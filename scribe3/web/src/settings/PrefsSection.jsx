@@ -1,17 +1,15 @@
 import { useState } from 'react'
 
-// 各偏好键的真实判定语义以消费点为准(核对表见 Task 15 交付报告):
-//   s3-theme      App.jsx:14        `localStorage.getItem('s3-theme') || 'light'` 后 `theme === 'dark'` 才挂 dark class
-//   s3.layout.v2  layoutFlag.js:3   `storage.getItem('s3.layout.v2') !== '0'`(未设=开,四栏默认)
-//   scribe3:guardOn WriteLayout.jsx:129 `localStorage.getItem('scribe3:guardOn') !== '0'`(未设=开)
-//   scribe3:serif   WriteLayout.jsx:148 `localStorage.getItem('scribe3:serif') === '1'`(未设=关)
+// 各偏好键的真实判定语义以消费点为准:
+//   s3-theme      App.jsx         `localStorage.getItem('s3-theme') || 'light'` 后 dark class
+//   scribe3:guardOn WriteLayout  `!== '0'`(未设=开)
+//   scribe3:serif   WriteLayout  `=== '1'`(未设=关)
+// 旧 s3.layout.v2（四栏/旧三栏开关）已删除：布局仅四栏。
 // isOn 直接照搬各消费点的判定表达式,switch 初始态与实际生效状态保证一致。
 const PREFS = [
   { key: 's3-theme', label: '深色主题',
     isOn: (v) => v === 'dark', toggle: (on) => (on ? 'dark' : 'light') },
-  { key: 's3.layout.v2', label: '四栏布局(关=旧三栏)', hint: '刷新后生效',
-    isOn: (v) => v !== '0', toggle: (on) => (on ? '1' : '0') },
-  // guardOn/serif 消费点(WriteLayout.jsx:129/148)是 useState 惰性初始化读取,
+  // guardOn/serif 消费点是 useState 惰性初始化读取,
   // 已挂载的写作台不会热生效——如实标注,别让作者以为开关坏了。
   { key: 'scribe3:guardOn', label: '写作护栏默认开启', hint: '切书或刷新后生效',
     isOn: (v) => v !== '0', toggle: (on) => (on ? '1' : '0') },

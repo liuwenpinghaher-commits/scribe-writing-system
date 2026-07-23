@@ -45,19 +45,19 @@ function DashboardCard() {
   ]
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4 mb-4">
+    <div className="mb-5 pb-4 border-b border-line/60">
       <div className="flex items-center gap-2 mb-3">
-        <span className={`inline-block h-2 w-2 rounded-full ${status?.online ? 'bg-green-500' : 'bg-line'}`} />
+        <span className={`inline-block h-2 w-2 rounded-full ${status?.online ? 'bg-ok' : 'bg-line'}`} />
         <div className="text-f13 font-medium text-ink">Hermes 管理台</div>
       </div>
       {error && (
-        <div className="text-f13 text-red-500" role="alert">
+        <div className="text-f13 text-danger" role="alert">
           管理台状态加载失败 <button className="text-brand cursor-pointer" onClick={load}>重试</button>
         </div>
       )}
       {!error && !status && <div className="text-f13 text-faint">加载中…</div>}
       {!error && status && !status.online && (
-        <button className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink hover:bg-soft cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        <button className="rounded-lg px-3 py-1.5 text-f13 text-ink hover:bg-soft cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ring-1 ring-line/50"
           disabled={starting} onClick={() => setConfirm(true)}>
           {starting ? '启动中…' : '启动管理台'}
         </button>
@@ -66,14 +66,14 @@ function DashboardCard() {
         <div className="flex flex-wrap gap-2">
           {links.map((l) => (
             <a key={l.key} href={l.href} target="_blank" rel="noreferrer"
-              className="rounded-md border border-line px-3 py-1.5 text-f13 text-brand hover:bg-soft cursor-pointer">
+              className="rounded-lg px-3 py-1.5 text-f13 text-brand hover:bg-soft cursor-pointer">
               {l.label}
             </a>
           ))}
         </div>
       )}
       {result && (
-        <div className={`text-f13 mt-2 ${result.online ? 'text-green-600' : 'text-red-500'}`} role="alert">
+        <div className={`text-f13 mt-2 ${result.online ? 'text-ok' : 'text-danger'}`} role="alert">
           {result.message}
         </div>
       )}
@@ -103,13 +103,13 @@ function StatusCard({ onChanged, refreshKey }) {
   }, [])
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4 mb-4">
+    <div className="mb-5 pb-4 border-b border-line/60">
       <div className="flex items-center justify-between mb-3">
         <div className="text-f13 font-medium text-ink">网关状态</div>
         <button className="text-meta text-brand cursor-pointer" onClick={load}>刷新</button>
       </div>
       {error && (
-        <div className="text-f13 text-red-500" role="alert">
+        <div className="text-f13 text-danger" role="alert">
           网关状态加载失败 <button className="text-brand cursor-pointer" onClick={load}>重试</button>
         </div>
       )}
@@ -121,10 +121,10 @@ function StatusCard({ onChanged, refreshKey }) {
             return (
               <div key={g.name}>
                 <div className="flex items-center gap-2 text-f13">
-                  <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-green-500' : 'bg-line'}`} />
+                  <span className={`inline-block h-2 w-2 rounded-full ${g.online ? 'bg-ok' : 'bg-line'}`} />
                   <span className="text-ink">{g.profile}</span>
                   <span className="text-meta text-muted">{g.api}</span>
-                  <span className={`text-meta ml-auto ${g.online ? 'text-green-600' : 'text-faint'}`}>{g.online ? '在线' : '离线'}</span>
+                  <span className={`text-meta ml-auto ${g.online ? 'text-ok' : 'text-faint'}`}>{g.online ? '在线' : '离线'}</span>
                 </div>
                 {sum && (
                   <div className="text-meta text-faint pl-4">
@@ -199,22 +199,22 @@ function FileEditor({ file, onSaved, onReload }) {
   const looksMasked = file.id.endsWith('.env') || file.id.endsWith('config.yaml')
 
   return (
-    <div className="rounded-lg border border-line bg-surface mb-2 overflow-hidden">
+    <div className="mb-2 rounded-lg ring-1 ring-line/50 overflow-hidden bg-surface/40">
       <button className="w-full text-left px-4 py-2.5 text-f13 text-ink hover:bg-soft cursor-pointer flex items-center justify-between"
         onClick={() => setOpen((o) => !o)}>
         <span>{file.id}</span>
-        <span className={`text-meta ${broken ? 'text-red-500' : 'text-faint'}`}>
+        <span className={`text-meta ${broken ? 'text-danger' : 'text-faint'}`}>
           {broken ? '读取失败' : (file.exists ? '' : '不存在')}
         </span>
       </button>
       {open && (
         <div className="px-4 pb-4">
-          {file.error && <div className="text-f13 text-red-500 mb-2" role="alert">{file.error}</div>}
+          {file.error && <div className="text-f13 text-danger mb-2" role="alert">{file.error}</div>}
           {looksMasked && !broken && (
             <div className="text-meta text-faint mb-1.5">••••为掩码密钥,保留原样保存则密钥不变</div>
           )}
           <textarea rows={16} disabled={broken}
-            className="w-full rounded-md border border-line bg-soft px-2 py-1.5 text-f12 font-mono disabled:opacity-50"
+            className="w-full rounded-lg border border-line bg-canvas px-2 py-1.5 text-f12 font-mono disabled:opacity-50"
             value={draft} onChange={(e) => setDraft(e.target.value)} />
           <div className="mt-2 flex items-center gap-2">
             {!broken && (
@@ -224,9 +224,9 @@ function FileEditor({ file, onSaved, onReload }) {
             {conflict && (
               <button className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink cursor-pointer" onClick={requestReload}>获取最新内容</button>
             )}
-            {savedMsg && !err && <span className="text-meta text-green-600">{savedMsg}</span>}
+            {savedMsg && !err && <span className="text-meta text-ok">{savedMsg}</span>}
           </div>
-          {err && <div className="text-f13 text-red-500 mt-1.5" role="alert">{err}</div>}
+          {err && <div className="text-f13 text-danger mt-1.5" role="alert">{err}</div>}
         </div>
       )}
       <ConfirmDialog open={confirm}
@@ -262,7 +262,7 @@ function FilesArea() {
     <div className="mb-4">
       <div className="text-f13 font-medium text-ink mb-3">网关文件</div>
       {error && (
-        <div className="text-f13 text-red-500" role="alert">
+        <div className="text-f13 text-danger" role="alert">
           文件列表加载失败 <button className="text-brand cursor-pointer" onClick={load}>重试</button>
         </div>
       )}
@@ -294,19 +294,19 @@ function RestartArea({ onRestarted }) {
   }
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
+    <div className="pt-1">
       <div className="text-f13 font-medium text-ink mb-3">网关重启</div>
       <div className="flex flex-wrap gap-2">
         {RESTART_PROFILES.map((p) => (
           <button key={p} disabled={restarting === p}
-            className="rounded-md border border-line px-3 py-1.5 text-f13 text-ink hover:bg-soft cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg px-3 py-1.5 text-f13 text-ink hover:bg-soft cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ring-1 ring-line/50"
             onClick={() => setRestartConfirm(p)}>
             {restarting === p ? '重启中…' : `重启 ${p}`}
           </button>
         ))}
       </div>
       {result && (
-        <div className={`text-f13 mt-2 ${result.online ? 'text-green-600' : 'text-red-500'}`} role="alert">
+        <div className={`text-f13 mt-2 ${result.online ? 'text-ok' : 'text-danger'}`} role="alert">
           [{result.profile}] {result.message}{result.log ? `(日志: ${result.log})` : ''}
         </div>
       )}
