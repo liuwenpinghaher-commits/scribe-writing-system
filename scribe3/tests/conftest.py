@@ -64,10 +64,14 @@ def _context_snapshot_off_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _fake_embed_512(monkeypatch):
-    """测试默认假 embedding(512 维),避免 CI 真模型/维度漂移炸 Surreal vector 索引。
-    需要真 embed 的用例自行 monkeypatch 覆盖。"""
-    def _fake(texts):
+def _fake_embed_512(request, monkeypatch):
+    """测试默认假 embedding 前向(512 维),保留 embed() 缓存层。
+    避免 CI 加载 fastembed/真模型或维度漂移炸 Surreal vector 索引。
+    课例语义召回依赖真中文相似度,跳过假向量。"""
+    node = getattr(request.node, "nodeid", "") or ""
+    if "test_lesson.py" in node:
+        return
+    def _fake_compute(texts):
         out = []
         for t in texts or [""]:
             v = [0.0] * 512
@@ -76,11 +80,7 @@ def _fake_embed_512(monkeypatch):
             out.append(v)
         return out
     try:
-        monkeypatch.setattr("scribe3.embed.embed", _fake)
-    except Exception:
-        pass
-    try:
-        monkeypatch.setattr("scribe3.store.core_preamble.embed", _fake)
+        monkeypatch.setattr("scribe3.embed._compute", _fake_compute)
     except Exception:
         pass
 
