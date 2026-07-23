@@ -215,6 +215,11 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
 
   useEffect(() => {
     let alive = true
+    // 测试 mock 可能未挂 codexHealth:缺省跳过,不炸渲染
+    if (typeof api.codexHealth !== 'function') {
+      setHealth(null)
+      return () => { alive = false }
+    }
     api.codexHealth()
       .then((h) => { if (alive) setHealth(h) })
       .catch(() => { if (alive) setHealth(null) })
@@ -225,6 +230,10 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
   useEffect(() => {
     const needle = query.trim()
     if (!needle || needle.length < 1) {
+      setServerHits(null)
+      return undefined
+    }
+    if (typeof api.codexSearch !== 'function') {
       setServerHits(null)
       return undefined
     }

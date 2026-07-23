@@ -794,7 +794,12 @@ export function DetailView({ type, row, isNew, onBack, onUpdate, onDelete, onCha
     if (!schemaKind) { setKindSchema(null); return }
     let alive = true
     setKindSchema(null)
-    api.get(`/codex-schema/${schemaKind}`)
+    // 优先 codexSchema;否则 api.get;测试 mock 缺一则走 legacy 字段表
+    const load = typeof api.codexSchema === 'function'
+      ? api.codexSchema(schemaKind)
+      : (typeof api.get === 'function' ? api.get(`/codex-schema/${schemaKind}`) : null)
+    if (!load) return () => { alive = false }
+    Promise.resolve(load)
       .then((s) => { if (alive) setKindSchema(Array.isArray(s) && s.length ? s : null) })
       .catch(() => { if (alive) setKindSchema(null) })
     return () => { alive = false }

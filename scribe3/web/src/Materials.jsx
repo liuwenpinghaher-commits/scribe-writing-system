@@ -422,6 +422,11 @@ export function MaterialList({ node, onSelect }) {
 
   useEffect(() => {
     let alive = true
+    // 测试 mock 可能未挂 materialsHealth:跳过不炸
+    if (typeof api.materialsHealth !== 'function') {
+      setHealth(null)
+      return () => { alive = false }
+    }
     api.materialsHealth()
       .then((h) => { if (alive) setHealth(h) })
       .catch(() => { if (alive) setHealth(null) })
