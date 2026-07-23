@@ -68,7 +68,8 @@ describe('DirectoryPane 手稿目录', () => {
     render(<DirectoryPane entry={entry} seq={2} sel={{ node: { type: 'chapter', ref: 2 } }} onSelectItem={() => {}} />)
 
     expect(screen.getByTestId('manuscript-directory')).toBeTruthy()
-    expect(screen.queryByTestId('directory-sticky-header')).toBeNull()
+    // 统一目录头（共享 chrome），不再有「当前卡片/书级工具」假导航
+    expect(screen.getByTestId('directory-sticky-header')).toBeTruthy()
     expect(screen.queryByTestId('manuscript-current-card')).toBeNull()
     expect(screen.queryByTestId('manuscript-book-tools')).toBeNull()
     expect(screen.queryByText('书级')).toBeNull()
@@ -116,7 +117,8 @@ describe('DirectoryPane 手稿目录', () => {
       type: 'chapter',
       ref: 1,
     }))
-    expect(screen.queryByTestId('directory-sticky-header')).toBeNull()
+    // 统一目录壳:手稿也走 directory-sticky-header
+    expect(screen.getByTestId('directory-sticky-header')).toBeTruthy()
     expect(screen.getByTestId('manuscript-volume-list')).toBeTruthy()
   })
 

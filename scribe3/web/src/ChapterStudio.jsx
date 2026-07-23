@@ -18,6 +18,8 @@ import { ConfirmDialog } from './ui/Dialog.jsx'
 import { ChapterAuxPanel } from './ChapterAuxPanel'
 import { ChapterMetaPane } from './ChapterMetaPane'
 import { ErrorBoundary } from './ErrorBoundary'
+import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
+import { openChiefForEmptyField } from './lib/selAction.js'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
@@ -46,8 +48,11 @@ const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
 
 // 中区各阶段统一章工作台骨架:同一 max-w / padding / header / meta 节奏,阶段只换内容。
 // Upstream 内容岛:浅灰画布上白卡抬升;外层 scroll 仍由章工作台 canvas 承担
-const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto my-4 px-5 py-5 flex flex-col min-h-0 gap-3 panel-elevated'
+// 第三栏内容流:无套娃 elevated 卡,画布上直接排信息,多给字少给框。
+const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-4 flex flex-col min-h-0 gap-3'
 const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
+/** 大纲/节拍/草稿只读与编辑共用 stage 字号，避免阶段间忽大忽小 */
+const STAGE_BODY = 'type-stage'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
 const HOVER_ACTIONS = 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
@@ -81,10 +86,10 @@ function MetaBar({ meta, wordCount }) {
   const done = (meta.deductions || []).filter((d) => (d.prose || '').trim()).length
   const wc = wordCount != null ? wordCount : (meta.synopsis ? null : null)
   return (
-    <div data-testid="chapter-stage-meta" className="flex items-center gap-1.5 flex-wrap pb-3 border-b border-line">
-      <span className="inline-flex items-center h-6 rounded-full border border-brand/20 bg-brand/10 px-2.5 text-meta text-brand">视角 · {focName}</span>
-      <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-meta text-faint">涉及角色 {done}/{involved.length} 已演绎</span>
-      {wc != null && <span className="inline-flex items-center h-6 rounded-full border border-line bg-surface px-2.5 text-meta text-faint tnum">字数 {wc}</span>}
+    <div data-testid="chapter-stage-meta" className="flex items-center gap-2 flex-wrap pb-2 text-meta text-faint">
+      <span className="text-brand">视角 · {focName}</span>
+      <span>· 涉及角色 {done}/{involved.length} 已演绎</span>
+      {wc != null && <span className="tnum">· 字数 {wc}</span>}
     </div>
   )
 }
@@ -93,8 +98,8 @@ function StageTitle({ title, subtitle, actions }) {
   return (
     <div className="flex items-start justify-between gap-4 min-w-0">
       <div className="min-w-0">
-        <h3 data-testid="chapter-stage-heading" className="text-f20 leading-tight font-semibold text-ink">{title}</h3>
-        <div className="mt-1 text-f13 text-faint leading-snug">{subtitle}</div>
+        <h3 data-testid="chapter-stage-heading" className="type-section text-ink">{title}</h3>
+        <div className="mt-1 text-helper text-faint leading-snug">{subtitle}</div>
       </div>
       {actions && <div className={STAGE_ACTIONS}>{actions}</div>}
     </div>
@@ -160,11 +165,34 @@ function OutlineTab({ seq, value, meta }) {
         )}
       />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-surface/80 border border-line/40 px-4 py-3 text-f13 text-ink leading-relaxed whitespace-pre-wrap"
-        data-testid="outline-readonly">
-        {text.trim() ? text : <span className="text-faint">（空 · 由主编审批写入）</span>}
-      </div>
-      <div className="text-f12 text-faint leading-snug">大纲由主编经审批写入;可在右栏讨论展开方式。</div>
+      {text.trim() ? (
+        <SelectionQuoteActions
+          scopeLabel={`第 ${seq} 章大纲`}
+          className={`flex-1 min-h-0 overflow-y-auto ${STAGE_BODY} whitespace-pre-wrap`}
+          data-testid="outline-readonly"
+        >
+          {text}
+        </SelectionQuoteActions>
+      ) : (
+        <div className={`flex-1 min-h-0 ${STAGE_BODY}`} data-testid="outline-readonly">
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-faint flex-1">（空 · 由主编审批写入）</span>
+            <button
+              type="button"
+              data-testid="outline-empty-ask"
+              className="shrink-0 h-7 px-2 rounded-md text-f12 text-brand hover:bg-brand/10 cursor-pointer"
+              onClick={() => openChiefForEmptyField({
+                entityLabel: `第 ${seq} 章`,
+                fieldLabel: '大纲',
+                fieldKey: 'synopsis',
+              })}
+            >
+              聊聊怎么写
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="text-meta text-faint leading-snug">大纲只读；有文划选聊/改，空字段点「聊聊怎么写」。写入仍须审批。</div>
     </div>
   )
 }
@@ -189,17 +217,36 @@ function BeatsTab({ seq, value, meta }) {
         )}
       />
       <MetaBar meta={meta} wordCount={meta?.proseWords} />
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-2" data-testid="beats-readonly">
+      <SelectionQuoteActions
+        scopeLabel={`第 ${seq} 章节拍`}
+        className="flex-1 min-h-0 overflow-y-auto space-y-2"
+        data-testid="beats-readonly"
+      >
         {beats.length === 0 ? (
-          <div className="text-f13 text-faint">（空 · 由主编审批写入）</div>
+          <div className={`${STAGE_BODY} flex items-start gap-2 flex-wrap`}>
+            <span className="text-faint flex-1">（空 · 由主编审批写入）</span>
+            <button
+              type="button"
+              data-testid="beats-empty-ask"
+              className="shrink-0 h-7 px-2 rounded-md text-f12 text-brand hover:bg-brand/10 cursor-pointer"
+              onClick={() => openChiefForEmptyField({
+                entityLabel: `第 ${seq} 章`,
+                fieldLabel: '节拍',
+                fieldKey: 'beats',
+              })}
+            >
+              聊聊怎么写
+            </button>
+          </div>
         ) : beats.map((b, i) => (
-          <div key={i} className="rounded-lg border border-line/40 bg-surface/80 px-3 py-2 text-f13 text-ink">
-            <span className="text-meta text-faint mr-2">{i + 1}.</span>
-            {b.done ? <span className="text-ok mr-1">✓</span> : null}
-            <span className="whitespace-pre-wrap">{b.text || b || ''}</span>
+          <div key={i} className={`flex gap-2 py-1.5 ${STAGE_BODY} border-b border-line/30 last:border-0`}>
+            <span className="text-meta text-faint shrink-0 tnum w-5">{i + 1}.</span>
+            {b.done ? <span className="text-ok shrink-0">✓</span> : null}
+            <span className="whitespace-pre-wrap min-w-0">{b.text || b || ''}</span>
           </div>
         ))}
-      </div>
+      </SelectionQuoteActions>
+      <div className="text-f12 text-faint leading-snug">节拍只读；划选一段可「聊这段/改这段」送主编。</div>
     </div>
   )
 }
@@ -607,7 +654,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
           {/* key 只含章号:切章重挂重拉(角色候选等);受控 tab 切换不重挂,不白重拉数据。
               崩溃只塌辅助视图,头部入口仍在,可切回阶段。 */}
           <ErrorBoundary key={`aux:${seq}`}>
-            <ChapterAuxPanel seq={seq} tab={auxView} onTabChange={setAuxView} />
+            <ChapterAuxPanel seq={seq} tab={auxView} onTabChange={setAuxView} onSelectNode={onSelectNode} />
           </ErrorBoundary>
         </div>
       ) : phase === 'final' ? (

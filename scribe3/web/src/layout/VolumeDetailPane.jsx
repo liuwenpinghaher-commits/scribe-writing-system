@@ -141,15 +141,14 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
   if (vid == null) {
     return (
       <section data-testid="volume-detail-pane" className="h-full min-h-0 overflow-y-auto bg-canvas">
-        <header className="border-b border-line/60 bg-surface/95 px-6 py-4 backdrop-blur-sm">
-          <div className="text-meta font-semibold text-faint">手稿 / 未分卷</div>
-          <div className="mt-1 flex min-w-0 items-center gap-3">
-            <h2 className="min-w-0 flex-1 truncate text-f24 font-semibold tracking-tight leading-tight text-ink">{node?.label || '未分卷'}</h2>
-            <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{chapters.length} 章</span>
-            <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{wcLabel(totalWords)} 字</span>
+        <header className="border-b border-line/40 px-5 py-2.5">
+          <div className="text-meta text-faint">手稿 / 未分卷</div>
+          <div className="mt-0.5 flex min-w-0 items-baseline gap-3">
+            <h2 className="min-w-0 flex-1 truncate type-section text-ink">{node?.label || '未分卷'}</h2>
+            <span className="text-meta text-faint shrink-0">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
           </div>
         </header>
-        <div className="grid gap-8 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="grid gap-8 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_14rem]">
           <section>
             <SectionTitle>创建正式分卷</SectionTitle>
             <div className="mb-4 text-f12 leading-relaxed text-faint">
@@ -218,49 +217,47 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
 
   return (
     <section data-testid="volume-detail-pane" className="h-full min-h-0 overflow-y-auto bg-canvas">
-      <header className="border-b border-line/60 bg-surface/95 px-6 py-4 backdrop-blur-sm">
-        <div className="text-meta font-semibold text-faint">手稿 / 分卷</div>
-        <div className="mt-1 flex min-w-0 items-center gap-3">
-          <h2 className="min-w-0 flex-1 truncate text-f24 font-semibold tracking-tight leading-tight text-ink">{volume.title || node.label || '未命名卷'}</h2>
-          <span className="rounded-full bg-brand/10 px-2.5 py-1 text-meta text-brand">{chapters.length} 章</span>
-          <span className="rounded-full bg-soft px-2.5 py-1 text-meta text-faint">{wcLabel(totalWords)} 字</span>
+      <header className="border-b border-line/40 px-5 py-2.5">
+        <div className="text-meta text-faint">手稿 / 分卷</div>
+        <div className="mt-0.5 flex min-w-0 items-baseline gap-3">
+          <h2 className="min-w-0 flex-1 truncate type-section text-ink">{volume.title || node.label || '未命名卷'}</h2>
+          <span className="text-meta text-faint shrink-0">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
         </div>
       </header>
 
-      <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="min-w-0 space-y-4">
-          <section className="panel-elevated p-5" data-testid="volume-meta-readonly">
-            <SectionTitle>卷信息</SectionTitle>
-            <div className="grid gap-3">
-              <ReadOnlyText label="卷名" value={form.title} />
-              <ReadOnlyText label="标识色" value={form.color} emptyHint="—" />
-              <ReadOnlyText label="卷排序" value={form.sort_order} />
-              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入）" />
-              <div className="flex justify-end">
-                <Btn variant="primary" data-testid="volume-ask-chief" onClick={askChiefVolume}>
-                  让主编写入卷信息
-                </Btn>
-              </div>
+      <div className="grid gap-8 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_14rem]">
+        <div className="min-w-0 space-y-6">
+          <section data-testid="volume-meta-readonly">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <SectionTitle>卷信息</SectionTitle>
+              <Btn variant="ghost" size="sm" data-testid="volume-ask-chief" onClick={askChiefVolume}>
+                让主编写入
+              </Btn>
+            </div>
+            <div className="grid gap-1">
+              <ReadOnlyText label="卷名" value={form.title} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="title" emptyHint="（空 · 由主编审批写入）" />
+              <ReadOnlyText label="标识色" value={form.color} emptyHint="—" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="color" />
+              <ReadOnlyText label="卷排序" value={form.sort_order} entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="sort_order" emptyHint="—" />
+              <ReadOnlyText label="卷纲" value={form.intro} emptyHint="（空 · 由主编审批写入）" entityLabel={form.title || volume.title || node.label || '卷'} fieldKey="intro" />
             </div>
           </section>
 
-          <section className="panel-elevated p-5">
+          <section>
             <SectionTitle right={
               <span className="inline-flex items-center gap-2 normal-case tracking-normal font-normal">
-                <span className="text-meta text-faint">{chapters.length} 章 · {wcLabel(totalWords)} 字</span>
-                <Btn variant="primary" size="xs" data-testid="volume-create-chapter"
+                <Btn variant="ghost" size="xs" data-testid="volume-create-chapter"
                   onClick={createChapter} disabled={saving}>让主编新建章</Btn>
               </span>
             }>本卷章节</SectionTitle>
-            <div className="grid gap-0.5">
+            <div className="divide-y divide-line/40">
               {chapters.length === 0 ? (
-                <div className="py-8 text-center text-f13 text-faint/60">本卷暂无章节。</div>
+                <div className="py-6 text-f13 text-faint">本卷暂无章节。</div>
               ) : chapters.map((chapter) => (
                 <button
                   key={chapter.seq}
                   type="button"
                   onClick={() => onSelectNode?.(chapterNode(chapter))}
-                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-2 py-2 text-left text-f13 hover:bg-soft cursor-pointer"
+                  className="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 py-2 text-left text-f13 hover:bg-soft/50 cursor-pointer"
                 >
                   <span className="min-w-0 truncate font-medium text-ink">{`${chapter.seq} ${chapter.title || ''}`.trim()}</span>
                   <span className="text-meta text-faint">{chapter.label || '未设'}</span>
@@ -271,24 +268,24 @@ export function VolumeDetailPane({ node, onSelectNode, onChanged }) {
           </section>
         </div>
 
-        <aside className="min-w-0 space-y-4">
-          <section className="panel-elevated p-4">
-            <SectionTitle>卷概览</SectionTitle>
-            <div className="grid gap-2 text-f12">
-              <div className="flex justify-between gap-3 py-1 border-b border-line/40"><span className="text-faint">章节</span><span className="text-ink">{chapters.length}</span></div>
-              <div className="flex justify-between gap-3 py-1 border-b border-line/40"><span className="text-faint">字数</span><span className="text-ink">{wcLabel(totalWords)} 字</span></div>
-              <div className="flex justify-between gap-3 py-1"><span className="text-faint">排序</span><span className="text-ink">{volume.sort_order ?? '未设'}</span></div>
+        <aside className="min-w-0 space-y-5 text-f12">
+          <section>
+            <div className="text-meta text-faint uppercase tracking-wider mb-2">卷概览</div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between gap-3"><span className="text-faint">章节</span><span className="text-ink tnum">{chapters.length}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-faint">字数</span><span className="text-ink">{wcLabel(totalWords)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-faint">排序</span><span className="text-ink tnum">{volume.sort_order ?? '—'}</span></div>
             </div>
           </section>
-          <section className="panel-elevated p-4">
-            <SectionTitle>状态分布</SectionTitle>
-            <div className="grid gap-1 text-f12">
+          <section>
+            <div className="text-meta text-faint uppercase tracking-wider mb-2">状态</div>
+            <div className="space-y-1.5">
               {Object.keys(statusCounts).length === 0 ? (
-                <div className="text-faint">暂无章节状态。</div>
+                <div className="text-faint">—</div>
               ) : Object.entries(statusCounts).map(([label, count]) => (
-                <div key={label} className="flex justify-between gap-3 py-1 border-b border-line/40 last:border-0">
+                <div key={label} className="flex justify-between gap-3">
                   <span className="text-faint">{label}</span>
-                  <span className="text-ink">{count}</span>
+                  <span className="text-ink tnum">{count}</span>
                 </div>
               ))}
             </div>

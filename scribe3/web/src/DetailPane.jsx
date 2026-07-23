@@ -16,6 +16,7 @@ import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
 import { ReferenceWorks } from './quality/ReferenceWorks'
 import { QualityReview } from './quality/QualityReview'
+import { emptyDetailCopy } from './layout/entrySelection'
 
 // 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
 // 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
@@ -61,7 +62,7 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey }) {
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
     const k = sel.viewKey
@@ -77,9 +78,13 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
 
   const node = sel?.node
   if (!node) {
+    const copy = emptyDetailCopy(entryKey)
     return (
-      <div className="h-full grid place-items-center text-f13 text-faint/60">
-        从左侧项目树选一个章开始写,或选一个设定项查看详情。
+      <div className="h-full grid place-items-center text-center px-6 text-f13 text-faint/60" data-testid="detail-empty">
+        <div>
+          <div className="text-ink/70 mb-1">{copy.title}</div>
+          <div>{copy.hint}</div>
+        </div>
       </div>
     )
   }
@@ -96,7 +101,8 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   if (node.type === 'promise_view') return <PromiseDetailPane key={node.id} node={node} work={work} />
   if (node.type === 'motif_view') return <MotifDetailPane key={node.id} node={node} work={work} />
   if (node.type === 'recall_result') return <RecallResultDetail key={node.id} node={node} onOpenTarget={onNavigateToObject || onSelectNode} />
-  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} onRecheck={() => {}} />
+  // 无真实 recheck 实现时不传 handler，IssueDetail 不渲染假「重新检查」按钮
+  if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} />
   if (node.type === 'references') return <ReferenceWorks key={node.id} work={work} />
   if (node.type === 'quality_review') return <QualityReview key={node.id} work={work} seq={node.ref?.seq ?? node.meta?.seq} onLocateEvidence={onNavigateToObject} />
 

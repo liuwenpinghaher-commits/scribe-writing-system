@@ -77,10 +77,17 @@ export function BookSection({ work }) {
         </div>
         {TEXT_FIELDS.map(([k, label]) => (
           <div key={k} data-testid={`book-narrative-${k}`}>
-            <ReadOnlyText label={label} value={intent[k] || ''} emptyHint="（空 · 由主编审批写入）" />
+            <ReadOnlyText
+              label={label}
+              value={intent[k] || ''}
+              emptyHint="（空 · 由主编审批写入）"
+              entityLabel="作品意图"
+              fieldKey={k}
+              emptyAskLabel="聊聊怎么写"
+            />
             <button
               type="button"
-              className="mt-1 text-f12 text-brand hover:underline cursor-pointer"
+              className="mt-1 text-meta text-brand hover:underline cursor-pointer"
               onClick={() => seedChiefNarrativeWrite(
                 'intent',
                 `作品意图·${label}`,

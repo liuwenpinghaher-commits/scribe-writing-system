@@ -40,7 +40,7 @@ export function DeducePanel({ chars, chapter, onToChief }) {
       </div>
       {busy && <div className="text-f12 text-faint inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" />演绎中(走 Hermes,限知渲染)…</div>}
       {!draft && !busy ? <Empty>选角色 → 演绎他这一场的限知草稿</Empty> : draft && (
-        <div className="rounded-xl border border-line bg-canvas overflow-hidden">
+        <div className="rounded-md border border-line bg-canvas overflow-hidden">
           <div className="flex items-center gap-2 px-2.5 h-8 border-b border-line bg-soft/40">
             <Sparkles size={12} className="text-brand" />
             <span className="text-f12 font-medium text-ink">{name} · 演绎草稿</span>

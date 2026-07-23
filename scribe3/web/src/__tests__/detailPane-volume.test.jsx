@@ -62,8 +62,7 @@ describe('DetailPane 卷工作台', () => {
     )
 
     expect(await screen.findByRole('heading', { name: '第一卷' })).toBeTruthy()
-    expect(screen.getByText('2 章')).toBeTruthy()
-    expect(screen.getAllByText('3.0k 字').length).toBeGreaterThan(0)
+    expect(screen.getByText(/2 章 · 3\.0k 字/)).toBeTruthy()
     expect(screen.getByTestId('volume-meta-readonly')).toBeTruthy()
     expect(screen.getByText('旧卷纲')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '保存卷信息' })).toBeNull()

@@ -62,7 +62,7 @@ export function ToastHost() {
           background: 'var(--color-surface)',
           color: 'var(--color-ink)',
           border: '1px solid var(--color-line)',
-          fontSize: '12.5px',
+          fontSize: 'var(--text-meta)',
         },
       }}
     />

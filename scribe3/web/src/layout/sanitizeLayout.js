@@ -63,14 +63,27 @@ export function sanitizeLayout(layout, opts = {}) {
     }
   }
 
-  // 最终再夹一次 min/max(缩放后可能越界)
+  // 最终再夹一次 min/max(缩放后可能越界),然后二次比例归一化——禁止整表 wipe 用户偏好。
   for (const k of keys) {
     const b = bounds[k]
     if (!b || next[k] <= 0.5) continue
     next[k] = Math.min(b.max, Math.max(b.min, next[k]))
   }
-  const sum3 = keys.reduce((s, k) => s + (next[k] || 0), 0)
-  if (Math.abs(sum3 - 100) > 2) return { ...defaults }
+  const active2 = keys.filter((k) => next[k] > 0.5)
+  const sum3 = active2.reduce((s, k) => s + next[k], 0)
+  if (active2.length && Number.isFinite(sum3) && sum3 > 0 && Math.abs(sum3 - 100) > 0.5) {
+    const scale = 100 / sum3
+    for (const k of active2) next[k] = Math.round(next[k] * scale * 10) / 10
+    const sum4 = active2.reduce((s, k) => s + next[k], 0)
+    const anchor = active2.includes('detail') ? 'detail' : active2[0]
+    next[anchor] = Math.round((next[anchor] + (100 - sum4)) * 10) / 10
+    // 归一化后再夹一次,避免 anchor 越 max
+    for (const k of active2) {
+      const b = bounds[k]
+      if (!b) continue
+      next[k] = Math.min(b.max, Math.max(b.min, next[k]))
+    }
+  }
   if (!valid && Object.keys(raw).length === 0) return { ...defaults }
   return next
 }

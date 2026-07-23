@@ -23,8 +23,8 @@ const emptyOutline = { volumes: [], chapters: [] }
 describe('ContainerOutline 错误态', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     apiMock.outline.mockResolvedValue(emptyOutline)
-    apiMock.addVolume.mockResolvedValue({ ok: true })
   })
 
   it('大纲加载失败时显示错误和重试', async () => {
@@ -41,10 +41,11 @@ describe('ContainerOutline 错误态', () => {
     expect(await screen.findByText('手稿')).toBeTruthy()
   })
 
-  it('新建卷失败时显示可重试错误', async () => {
-    apiMock.addVolume
-      .mockRejectedValueOnce(new Error('add volume down'))
-      .mockResolvedValueOnce({ ok: true })
+  it('新建卷走主编种子,不 REST addVolume', async () => {
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
 
     render(<ContainerOutline node={{ type: 'manuscript_root', label: '手稿' }} />)
 
@@ -53,9 +54,9 @@ describe('ContainerOutline 错误态', () => {
     fireEvent.change(screen.getByPlaceholderText('卷标题'), { target: { value: '第一卷' } })
     fireEvent.keyDown(screen.getByPlaceholderText('卷标题'), { key: 'Enter' })
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/新建卷失败/)
-    fireEvent.click(screen.getByRole('button', { name: /重试/ }))
-
-    await waitFor(() => expect(apiMock.addVolume).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
+    expect(seeds.join('\n')).toMatch(/s3_add_volume|第一卷/)
+    expect(tabs).toContain('chief')
+    expect(apiMock.addVolume).not.toHaveBeenCalled()
   })
 })

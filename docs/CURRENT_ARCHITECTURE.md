@@ -76,12 +76,15 @@
 
 | 路径 | 上下文 | 限知 |
 |------|--------|------|
-| **写作** `/chat/write` | `CreativeContextEngine` + 八块 envelope；目的合同/教训**内联**注入写 prompt | 有 `focalizer` 时 `project_frame` 硬裁 |
+| **写作** `/chat/write` | `CreativeContextEngine` + 八块 envelope；目的合同/教训**内联**；章前简报操作必达段（伏笔/开环/心跳/弧光/因果）、作者偏好、声音锚；draft/final **门控素材参考**（借鉴非事实，确定性排序）；**默认挂 MemoryRetriever** | 有 `focalizer` 时 `project_frame` 硬裁 |
 | **讨论** `/chat/stream` 等 | 仍 `_editor_system` 散点栈，**不是**写作 envelope | 默认作者全知联查面；**不得**当成限知渲染已统一 |
 
-- **`SCRIBE3_MEMORY_FABRIC_V1` 默认关**：写作 capture/retrieve 与 HTTP `/memory/*` **同 flag**（关 → 403，无经验记忆写读）。  
-- **pending 正典待审**：`GET/POST /memory/pending-claims…`；`approve` → `proposition` 正典，`reject` → 关队列。  
-- 过程记忆**不得**替代 Surreal 正典；非 GBrain。
+- **上下文产品默认开（非灰度休眠）**：`SCRIBE3_CONTEXT_SNAPSHOT_V1` / `SCRIBE3_MEMORY_FABRIC_V1` / `SCRIBE3_CONTEXT_INSPECTOR_V1` **默认 true**；`GET /capabilities` 在默认 env 下报对应 flags true。仅显式 env/DB=0 可关（测试隔离），不是产品 fallback。  
+- **MEMORY_FABRIC 开时**：写作 capture/retrieve 与 HTTP `/memory/*` 可用；组装/捕获故障 **fail-loud**（HTTP 500），不得空串假「无数据」。显式关 → 403。  
+- **`context_inspector_v1` 默认开**：前端 ContextInspector 默认渲染；capabilities 报关才隐藏。  
+- **pending 正典待审**：`GET/POST /memory/pending-claims…` + 主编区 **PendingClaimsPanel**（批准入正典 / 拒绝）。  
+- 过程记忆**不得**替代 Surreal 正典；非 GBrain。  
+- `SCRIBE3_EMERGENCY_REST_WRITE` **仍默认关**（与上下文产品无关）。
 
 ## 6. 怎么跑（最小）
 

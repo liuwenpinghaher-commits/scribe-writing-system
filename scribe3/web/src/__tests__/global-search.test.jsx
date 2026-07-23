@@ -77,6 +77,12 @@ describe('全局搜索能力', () => {
     }))
   })
 
+  it('搜索目录不再提供无 payload 的语义召回占位按钮', () => {
+    render(<SearchDirectory onSelectItem={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: '语义召回' })).toBeNull()
+    expect(screen.getByRole('button', { name: '搜索' })).toBeTruthy()
+  })
+
   it('栏3展示命中详情并可打开真实目标', () => {
     const onOpenTarget = vi.fn()
     render(<SearchDetail node={{ ...payload.results[0], type: 'recall_result' }} onOpenTarget={onOpenTarget} />)

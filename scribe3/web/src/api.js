@@ -254,10 +254,16 @@ export const api = {
   getMemoryTrace: (id, revision) => j('/context/sessions/' + enc(id) + '/trace/' + revision),
   // 运行时降级状态(Hermes 离线/只读判定源);全局端点,不带 work。
   aiRuntimeStatus: () => jraw('/ai/runtime-status'),
-  // Task 16-B 灰度能力下发:前端能力以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
+  // 能力下发:前端以后端 capabilities 为准(不靠 localStorage 开服务端能力)。
   // 全局端点,不带 work;回 { flags:{snapshot_v1,editorial_thread_v1,memory_fabric_v1,
   // context_inspector_v1,assembler_v1}, versions:{...} }；assembler_v1 恒 true。
+  // 产品默认:snapshot/fabric/inspector 开。
   fetchCapabilities: () => jraw('/capabilities'),
+  // 待审正典揭示(memory fabric 产品面):列队 + 批准/拒绝。
+  listPendingClaims: (status = 'pending') =>
+    j('/memory/pending-claims?status=' + enc(status || 'pending')),
+  resolvePendingClaim: (claimId, body) =>
+    post('/memory/pending-claims/' + enc(claimId) + '/resolve', body || {}),
   // Task 6:主编线程(一 work 一连续线程 + 每轮焦点标签)。
   // threads 列本 work 线程;threadMessages 拉某线程全部消息(切焦点不重载,由 ChiefDock 只调一次);
   // forkThread 显式分支(导航路径绝不调此)。

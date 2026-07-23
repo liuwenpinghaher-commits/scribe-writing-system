@@ -5,6 +5,8 @@ import { CapabilityDirectory } from './CapabilityDirectories'
 import { SearchDirectory } from '../capabilities/search/SearchDirectory'
 import { IssueDirectory } from '../capabilities/issues/IssueDirectory'
 import { CodexDirectory } from './CodexDirectory'
+import { DirectoryHeader } from './DirectoryHeader'
+import { DirectoryRow, DIR_SHELL } from './DirectoryRow'
 
 // 栏2 · 目录:据入口类型分发到现成列表组件。**常驻不被替换**——点条目走 onSelectItem
 // (更新共享 sel → 只刷新栏3详情),本栏由 entry 驱动、entry 不变则保持挂载。这正是四栏钻取
@@ -15,6 +17,27 @@ import { CodexDirectory } from './CodexDirectory'
 //   MaterialList({ node, onSelect })                     —— 素材库(自带搜索/召回/记忆网络)
 
 const chapterNode = (seq, title = '') => ({ id: `ch:${seq}`, type: 'chapter', ref: seq, label: `${seq} ${title}`.trim(), phase: 'outline' })
+
+function ReferencesDirectory({ onSelectItem }) {
+  return (
+    <div className={DIR_SHELL} data-testid="references-directory">
+      <DirectoryHeader title="参考作品" />
+      <div className="flex-1 min-h-0 overflow-auto px-2 py-2 space-y-0.5">
+        <DirectoryRow
+          title="参考作品工作台"
+          meta="打开"
+          onClick={() => onSelectItem?.({ id: 'references', type: 'references', ref: null, label: '参考作品' })}
+          aria-label="参考作品工作台"
+        />
+        <DirectoryRow
+          title="质量审阅"
+          onClick={() => onSelectItem?.({ id: 'quality_review', type: 'quality_review', ref: null, label: '质量审阅' })}
+          aria-label="质量审阅"
+        />
+      </div>
+    </div>
+  )
+}
 
 export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter, onCreateChapter, onAddVolume, onArchivedChanged }) {
   if (!entry) {
@@ -39,6 +62,9 @@ export function DirectoryPane({ entry, onSelectItem, sel, seq, onJumpChapter, on
   }
   if (capability === 'review') {
     return <IssueDirectory seq={seq} onSelectItem={onSelectItem} />
+  }
+  if (capability === 'references') {
+    return <ReferencesDirectory onSelectItem={onSelectItem} />
   }
   if (['deduce', 'promise', 'motif'].includes(capability)) {
     return <CapabilityDirectory capability={capability} seq={seq} onSelectItem={onSelectItem} />

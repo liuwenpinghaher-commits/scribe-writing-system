@@ -25,5 +25,7 @@ export default defineConfig({
     globals: true,
     environmentOptions: { jsdom: { url: 'http://localhost' } },
     setupFiles: ['./src/lib/vitest.setup.js'],
+    // e2e/*.mjs 是 Playwright/脚本旅程,不是 vitest suite;纳入会「No test suite found」。
+    exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**'],
   },
 })

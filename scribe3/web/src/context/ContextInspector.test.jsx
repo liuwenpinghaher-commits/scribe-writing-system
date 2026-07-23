@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // 上下文快照 hook 桩:各测试改写 ctx.value 注入 focus/revision/降级态。
 const ctx = vi.hoisted(() => ({
-  value: { snapshot: null, restoring: false, error: null },
+  value: { snapshot: null, restoring: false, error: null, capabilities: null },
 }))
 vi.mock('./ContextSnapshotContext', () => ({
   useContextSnapshot: () => ctx.value,
@@ -23,6 +23,17 @@ const SNAPSHOT = {
   focus: { type: 'chapter', id: '7', label: '铜炉认主' },
 }
 
+const CAPS_ON = {
+  flags: {
+    snapshot_v1: true,
+    editorial_thread_v1: false,
+    memory_fabric_v1: true,
+    context_inspector_v1: true,
+    assembler_v1: true,
+  },
+  versions: {},
+}
+
 const TRACE = {
   trace_id: 'trace-1', snapshot_revision: 7,
   channels: { structured: 2, bm25: 3 },
@@ -39,9 +50,27 @@ const TRACE = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  ctx.value = { snapshot: SNAPSHOT, restoring: false, error: null }
+  ctx.value = { snapshot: SNAPSHOT, restoring: false, error: null, capabilities: CAPS_ON }
   apiMock.getMemoryTrace.mockResolvedValue(TRACE)
   apiMock.aiRuntimeStatus.mockResolvedValue({ ok: true, summary: { degraded: {} } })
+})
+
+describe('ContextInspector · capabilities 诚实门控', () => {
+  it('context_inspector_v1 关时不渲染(不暗示检查器已就绪)', () => {
+    ctx.value = {
+      snapshot: SNAPSHOT, restoring: false, error: null,
+      capabilities: { flags: { ...CAPS_ON.flags, context_inspector_v1: false }, versions: {} },
+    }
+    render(<ContextInspector />)
+    expect(screen.queryByTestId('context-inspector')).toBeNull()
+    expect(apiMock.getMemoryTrace).not.toHaveBeenCalled()
+  })
+
+  it('capabilities 缺席时不渲染(安全默认=关)', () => {
+    ctx.value = { snapshot: SNAPSHOT, restoring: false, error: null }
+    render(<ContextInspector />)
+    expect(screen.queryByTestId('context-inspector')).toBeNull()
+  })
 })
 
 describe('ContextInspector · 第1层常显', () => {
@@ -114,7 +143,10 @@ describe('ContextInspector · 第3层证据', () => {
 
 describe('ContextInspector · 降级状态', () => {
   it('stale_context 错误 → 显示"上下文已过期"', async () => {
-    ctx.value = { snapshot: SNAPSHOT, restoring: false, error: { code: 'stale_context' } }
+    ctx.value = {
+      snapshot: SNAPSHOT, restoring: false, error: { code: 'stale_context' },
+      capabilities: CAPS_ON,
+    }
     render(<ContextInspector />)
     await waitFor(() =>
       expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('stale'))
@@ -160,7 +192,7 @@ describe('ContextInspector · 降级状态', () => {
   })
 
   it('无会话(降级直通)→ optimistic,不崩', () => {
-    ctx.value = { snapshot: null, restoring: false, error: null }
+    ctx.value = { snapshot: null, restoring: false, error: null, capabilities: CAPS_ON }
     render(<ContextInspector />)
     expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('optimistic')
     expect(screen.getByTestId('context-inspector-focus').textContent).toBe('未选中')

@@ -355,7 +355,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   // 检索/伏笔列表已由左栏各 tab 承载,「在场选视角」与顶栏视角下拉重复故删,
   // 其余死渲染函数与 leftCaps 数组一并移除,见台账 D-029)———
   const renderCheckupCard = () => ((postCheckResult || postChecking) ? (
-    <div className="mb-4 rounded-xl border border-line bg-surface p-3 space-y-1.5">
+    <div className="mb-4 rounded-md border border-line bg-surface p-3 space-y-1.5">
       <div className="flex items-center gap-2">
         <div className="text-f12 font-semibold text-ink">全量体检</div>
         {postChecking && <Loader2 size={13} className="animate-spin text-brand" />}
@@ -635,7 +635,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
         <span className="hidden xl:inline text-f12 text-faint shrink-0">本章视角</span>
         <select value={focalizer} onChange={(e) => { setFocalizer(e.target.value); dirtyRef.current.focalizer = e.target.value }}
           title="默认作者视角(全知);选某角色=本章限知该角色,开启穿帮校验"
-          className="h-7 min-w-0 max-w-[180px] rounded-xl border-0 bg-soft/80 px-2.5 text-f13 text-ink outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer truncate">
+          className="h-7 min-w-0 max-w-[180px] rounded-md border-0 bg-soft/80 px-2.5 text-f13 text-ink outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer truncate">
           <option value="">作者视角(全知)</option>
           {chars.map((c) => <option key={c.id} value={c.id}>限知:{c.name}</option>)}
         </select>
@@ -658,7 +658,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                 护栏{guardOn && guardTone !== 'ok' ? ` ${issueCount}` : ''}
               </Chip>
               {guardPop && (
-                <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-xl bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-2 px-3">
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[200px] rounded-md bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-2 px-3">
                   <div className="text-meta font-semibold uppercase tracking-[.07em] text-faint mb-2">护栏状态</div>
                   {/* F-05: 带 range 的 issues — 可点跳转到正文(过滤已忽略) */}
                   {editorIssues && editorIssues.length > 0 ? (
@@ -708,7 +708,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
                   )}
                   {/* 开/关 toggle */}
                   <button
-                    className="w-full flex items-center gap-2 rounded-xl px-2 h-8 text-f13 text-ink hover:bg-soft cursor-pointer bg-soft/50"
+                    className="w-full flex items-center gap-2 rounded-md px-2 h-8 text-f13 text-ink hover:bg-soft cursor-pointer bg-soft/50"
                     onClick={() => { const v = !guardOn; setGuardOn(v); localStorage.setItem('scribe3:guardOn', v ? '1' : '0') }}
                   >
                     {guardOn ? <ShieldCheck size={13} className="text-brand shrink-0" /> : <ShieldOff size={13} className="text-faint shrink-0" />}
@@ -791,7 +791,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
 
         {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
         <div ref={saveMenuRef} className="relative shrink-0">
-          <div className="inline-flex items-center rounded-xl overflow-hidden bg-soft/80">
+          <div className="inline-flex items-center rounded-md overflow-hidden bg-soft/80">
             <button onClick={save} title="保存本章"
               className={`inline-flex items-center gap-1 h-7 px-2.5 text-f12 cursor-pointer whitespace-nowrap hover:bg-soft ${saved ? 'text-ok' : 'text-ink'}`}>
               <Save size={14} />{saved ? '已存' : '保存'}
@@ -802,7 +802,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
             </button>
           </div>
           {saveMenu && (
-            <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-xl bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-1">
+            <div className="absolute right-0 top-full mt-1 z-20 min-w-[168px] rounded-md bg-surface shadow-[var(--shadow-pop)] ring-1 ring-line/40 py-1">
               <button onClick={() => { setSaveMenu(false); setDlg({ kind: 'checkpoint' }) }}
                 className="w-full flex items-center gap-2 px-3 h-8 text-f13 text-ink hover:bg-soft cursor-pointer whitespace-nowrap">
                 <Bookmark size={13} className="text-faint shrink-0" />存档点
@@ -860,17 +860,17 @@ export function WriteLayout({ work, seq, sceneIdx }) {
             <button key={b} onClick={() => {
               setSeedQuote(`把这段按「${b}」改,给我 2-3 个候选:「${lastSel.text}」`)
               setCandidates([]); focusChiefTab()
-            }} className="h-7 px-2.5 rounded-xl text-meta text-ink hover:bg-soft cursor-pointer transition-colors">{b}</button>
+            }} className="h-7 px-2.5 rounded-md text-meta text-ink hover:bg-soft cursor-pointer transition-colors">{b}</button>
           ))}
-          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-7 px-2.5 rounded-xl text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer transition-colors">+ 存为按钮</button>
+          <button onClick={() => setDlg({ kind: 'rewrite' })} className="h-7 px-2.5 rounded-md text-meta text-faint hover:bg-soft hover:text-ink cursor-pointer transition-colors">+ 存为按钮</button>
         </div>
       )}
       <div className="flex-1 min-h-0 overflow-y-auto bg-canvas">
         {/* 正文阅读岛:两侧留白更大,中间白卡承载稿纸感 */}
         <div className="max-w-[48rem] mx-auto px-5 sm:px-8 py-8 md:py-10">
-          <div className="panel-elevated px-5 sm:px-8 py-7 md:py-9 min-h-[52vh]">
+          <div className="px-1 sm:px-2 py-2 md:py-3 min-h-[52vh]">
           {stash && stash.seq === chapter && (
-            <div className="mb-4 px-3 py-2 rounded-xl border border-warn/30 bg-warn/10 text-f12 text-ink flex items-center gap-3">
+            <div className="mb-4 px-3 py-2 rounded-md border border-warn/30 bg-warn/10 text-f12 text-ink flex items-center gap-3">
               <span className="flex-1">检测到本章未保存的暂存稿({(stash.prose || '').length} 字,{new Date(stash.ts).toLocaleTimeString()}),与当前正文不一致。</span>
               <button onClick={() => {
                 setProse(stash.prose || ''); dirtyRef.current.prose = stash.prose || ''
@@ -934,7 +934,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       {issueCard && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIssueCard(null)} />
-          <div className="fixed z-50 w-[260px] rounded-xl border border-line bg-surface shadow-xl p-3"
+          <div className="fixed z-50 w-[260px] rounded-md border border-line bg-surface shadow-xl p-3"
             style={{
               left: Math.min(Math.max(8, issueCard.x), window.innerWidth - 272),
               top: Math.min(issueCard.y, window.innerHeight - 140),

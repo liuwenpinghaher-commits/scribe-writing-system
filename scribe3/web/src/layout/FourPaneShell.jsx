@@ -9,12 +9,14 @@ import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-re
 import { DirectoryPane } from './DirectoryPane'
 import { targetNodeToSelection } from './targetNavigation'
 import { seedChiefNarrativeWrite } from '../lib/chiefSeed.js'
+import { showToast } from '../ui/Toast'
 import { useContextSnapshot } from '../context/ContextSnapshotContext'
 import { entryPatch, nodePatch, viewPatch } from '../context/contextSnapshot'
 import { routeOf, selectionFromSnapshot } from './contextSelection'
 import {
   FOUR_PANE_BOUNDS, FOUR_PANE_DEFAULT, sanitizeLayout,
 } from './sanitizeLayout'
+import { planEntryChange } from './entrySelection'
 
 const FOUR_PANE_LAYOUT_ID = 's3.fourPane.layout.v2'
 const FOUR_PANE_DEFAULT_LAYOUT = FOUR_PANE_DEFAULT
@@ -81,10 +83,10 @@ function entryForActive(tree, active) {
 // 盖在栏3/栏4容器上,四栏同帧共享同一 revision;子组件 props 合同不变。
 //
 // 视图入口(type==='view')直接进共享 sel 的 view 模式:栏3 全画布、栏2 隐藏。
-// 全程在 V2 flag 后,BinderLayout 旧三栏(flag 关)一行不改、永远可回退。
+// 唯一布局壳（旧三栏 + s3.layout.v2 回退已删除）。
 export function FourPaneShell({
   tree, selId, expanded, toggle, onSelectNode, treeCbs, sel, work, reload, onJumpChapter,
-  chapterSel, curSeq, leftSeq, onRestored, collapseLeft, collapseRight,
+  chapterSel, curSeq, leftSeq, onRestored,
 }) {
   const [directoryRefresh, setDirectoryRefresh] = useState(0)
   const directoryRef = usePanelRef()
@@ -149,11 +151,9 @@ export function FourPaneShell({
       if (caps.some((c) => c.key === s)) setTab(s)
       return
     }
-    if (a !== prev.active) {
-      // 本地旁路先动 → 补记为语义导航
-      navigate(entryPatch(a, caps.find((c) => c.key === a)?.label || ''))
-    }
-  }, [navigated, active?.key, snapshot?.entry, caps, setTab, navigate])
+    // 本地 tab 旁路(s3-open-capability)的 navigate+栏3 收敛改由下方 open-capability
+    // 监听与 handleActive 统一走 planEntryChange，此处不再裸 entryPatch，避免双发 revision。
+  }, [navigated, active?.key, snapshot?.entry, caps, setTab])
   // I-2(同型于 I-1 entry 对齐):sel 的旁路直改也要补记进快照。顶栏横切视图
   // (App.onView)/ 时间线跳章(App.handleJumpChapter)都在本组件之外直改 sel、
   // 不经 handleSelectItem 的 navigate——若不补记,navigated 后投影以快照为事实源,
@@ -217,15 +217,42 @@ export function FourPaneShell({
     writeCollapsed(work, 'right', false)
     callPanel(rightRef.current, 'expand')
   }
+  // rail 点击与 s3-open-capability 共用：一次 plan → 一次 navigate + 可选 onSelectNode
+  const applyEntryKey = (nextKey) => {
+    if (!nextKey) return
+    const label = caps.find((c) => c.key === nextKey)?.label || ''
+    if (isView) {
+      navigate(entryPatch(nextKey, label))
+      onSelectNode?.(null)
+      return
+    }
+    const plan = planEntryChange(nextKey, sel?.node, tree, label)
+    navigate(plan.patch)
+    if (plan.select !== undefined) onSelectNode?.(plan.select)
+  }
   const handleActive = (key) => {
     const nextKey = key || (isView ? activeCap?.key : '')
     if (!nextKey) { toggleDirectory(); return }
-    // 语义动作"激活入口"= 一个完整 intent(快照)+ 本地投影执行(leftTab 持久化)
-    navigate(entryPatch(nextKey, caps.find((c) => c.key === nextKey)?.label || ''))
     setTab(nextKey)
     if (directoryCollapsed) expandDirectory()
-    if (isView) onSelectNode?.(null)
+    applyEntryKey(nextKey)
   }
+  // 顶栏搜索 / ⌘K 只 setTab 的旁路：同样收敛栏3，消除「搜索目录 + 伏笔详情」
+  // 用 ref 读最新 plan 输入，避免把 sel/tree 放进 effect 依赖导致频繁重绑
+  const entryApplyRef = useRef({ applyEntryKey, directoryCollapsed, expandDirectory, caps })
+  entryApplyRef.current = { applyEntryKey, directoryCollapsed, expandDirectory, caps }
+  useEffect(() => {
+    const onOpenCapability = (e) => {
+      const raw = e?.detail?.capability
+      const key = raw === 'recall' ? 'search' : raw === 'issues' ? 'review' : raw
+      const { applyEntryKey: apply, directoryCollapsed: collapsed, expandDirectory: expand, caps: capList } = entryApplyRef.current
+      if (!key || !capList.some((c) => c.key === key)) return
+      if (collapsed) expand()
+      apply(key)
+    }
+    window.addEventListener('s3-open-capability', onOpenCapability)
+    return () => window.removeEventListener('s3-open-capability', onOpenCapability)
+  }, [])
   // 语义动作"选中条目"(栏2目录 / 栏3详情内跳转共用):一个 intent + 既有 sel 链路
   const handleSelectItem = (node) => {
     if (node) navigate(nodePatch(node, projectedEntryKey))
@@ -342,7 +369,8 @@ return (
               </button>
             )}
             <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
-              <DetailPane sel={effectiveSel} work={work} onSelectNode={handleSelectItem}
+              <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey}
+                onSelectNode={handleSelectItem}
                 onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
                 onNavigateToObject={handleNavigateToObject}
                 onChapterArchived={handleChapterArchived} />
@@ -370,7 +398,7 @@ return (
               <div className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
                 <button type="button" data-testid="right-collapse-button" aria-label="收起主编栏" title="收起主编栏"
                   onClick={collapseRightPanel}
-                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-xl bg-soft/80 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
+                  className="absolute right-2 top-2 z-20 h-7 w-7 rounded-md bg-soft/80 text-faint hover:bg-soft hover:text-ink inline-flex items-center justify-center cursor-pointer">
                   <PanelRightClose size={15} />
                 </button>
                 <RightDock sel={effectiveSel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}

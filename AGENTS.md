@@ -32,7 +32,6 @@ scribe3/.venv/bin/python -m scribe3.app
 
 - 不要提交 `artifacts/`、`surrealdb-docs-cache/`、`.codegraph/`、密钥、本地 DB。
 - 大文件拆分按 [`docs/ARCHITECTURE_SPLIT_ROADMAP.md`](docs/ARCHITECTURE_SPLIT_ROADMAP.md)，禁止无测试的巨型搬家 PR。
-- 专家团入口 skill：`.agents/skills/expert-team/` 与 `~/.agents/skills/expert-team/`。
 
 ## 多书
 

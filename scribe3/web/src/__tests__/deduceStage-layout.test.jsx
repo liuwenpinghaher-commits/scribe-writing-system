@@ -10,9 +10,12 @@ vi.mock('../api', () => ({
   },
 }))
 
-vi.mock('../editor/RichEditor.jsx', () => ({
-  RichEditor: ({ className }) => <div data-testid="rich-editor" className={className} />,
-  useUnsavedGuard: vi.fn(),
+vi.mock('../deduceContext', () => ({
+  useDeduceSel: () => ({ selected: 'truth', setSelected: vi.fn() }),
+}))
+
+vi.mock('../context/ContextSnapshotContext', () => ({
+  useContextSnapshot: () => ({ snapshot: null }),
 }))
 
 vi.mock('../ChiefSlotContext', () => ({
@@ -33,13 +36,14 @@ describe('DeduceStage 布局', () => {
     expect(stage.className).toContain('w-full')
     expect(stage.className).toContain('max-w-[min(1120px,calc(100%-48px))]')
     expect(stage.className).not.toContain('max-w-[48rem]')
-    expect(screen.getByTestId('rich-editor').className).toContain('w-full')
+    expect(screen.getByTestId('deduce-readonly').className).toContain('flex-1')
   })
 
   it('未绑定章节时不渲染可写编辑器，避免把内容保存到 /chapters/undefined', () => {
     render(<DeduceStage seq={undefined} meta={{ chars: [], deductions: [] }} work="demo" />)
 
     expect(screen.getByTestId('deduce-stage-missing-chapter')).toBeTruthy()
-    expect(screen.queryByTestId('rich-editor')).toBeNull()
+    expect(screen.queryByTestId('deduce-readonly')).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
   })
 })

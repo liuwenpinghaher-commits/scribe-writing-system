@@ -27,7 +27,7 @@ const SEG = [
 
 function ErrorState({ message, onRetry }) {
   return (
-    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
+    <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-f13 text-danger">
       <div>{message}</div>
       {onRetry && (
         <button onClick={onRetry} className="mt-2 inline-flex rounded-md border border-danger/30 px-2.5 py-1 text-f12 hover:bg-danger/10 transition-colors cursor-pointer">
@@ -97,7 +97,7 @@ function VolumeTitle({ vid, title, onRename, onDelete }) {
   }
   return (
     <span className="inline-flex items-center gap-1 group/vol">
-      <span className="text-f15 font-semibold text-ink">{title}</span>
+      <span className="text-object-title font-semibold text-ink">{title}</span>
       <button onClick={() => setEditing(true)} title="重命名卷"
         className="opacity-0 group-hover/vol:opacity-100 ml-1 text-faint hover:text-ink cursor-pointer transition-opacity">
         <Pencil size={12} />
@@ -322,7 +322,7 @@ export function ContainerOutline({ node, onOpenChapter, onSelect }) {
           <VolumeTitle vid={currentVol.id} title={currentVol.title || '未命名卷'}
             onRename={renameVolume} onDelete={deleteVolume} />
         ) : (
-          <h2 className="text-f15 font-semibold text-ink">{node.label}</h2>
+          <h2 className="text-object-title font-semibold text-ink">{node.label}</h2>
         )}
         <span className="text-meta text-faint">{totalCh} 章 · {wcLabel(totalWc)} 字</span>
 
@@ -478,7 +478,7 @@ function PlainList({ node, onSelect }) {
       <div className={`shrink-0 ${virtualize ? 'px-6 pt-6 pb-2' : 'hidden'}`}>
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
+            <h2 className="type-section text-ink">{node?.label}</h2>
             {canCreate && (
               <button onClick={newNode}
                 className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
@@ -497,7 +497,7 @@ function PlainList({ node, onSelect }) {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-6 py-6">
             <div className="flex items-center gap-3 mb-1">
-              <h2 className="text-f18 font-semibold text-ink">{node?.label}</h2>
+              <h2 className="type-section text-ink">{node?.label}</h2>
               {canCreate && (
                 <button onClick={newNode}
                   className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-f12 border border-brand/40 text-brand hover:bg-brand/10 transition-colors cursor-pointer">
@@ -550,7 +550,7 @@ function UnverifiedRefs({ onSelect }) {
   }
   if (!items || items.length === 0) return null
   return (
-    <div className="rounded-xl border border-warn/25 bg-warn/[0.04] p-3.5 mb-4">
+    <div className="rounded-md border border-warn/25 bg-warn/[0.04] p-3.5 mb-4">
       <div className="flex items-center justify-between mb-2">
         <span className="text-meta font-semibold uppercase tracking-wider text-faint">待确认人物引用 ({items.length})</span>
         {items.length > 3 && (

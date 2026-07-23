@@ -56,7 +56,7 @@ export function EntryRail({ tree, activeId, onEntry }) {
               <button
                 key={entry.id}
                 onClick={() => onEntry(entry)}
-                className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-f13 text-left transition-colors ${active ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft'}`}
+                className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-f13 text-left transition-colors ${active ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft'}`}
               >
                 <span className="truncate flex-1">{entry.label}</span>
                 {n != null && <span className={`text-meta shrink-0 ${active ? 'text-brand/70' : 'text-faint/70'}`}>{n}</span>}

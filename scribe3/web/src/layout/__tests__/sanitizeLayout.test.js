@@ -32,4 +32,13 @@ describe('sanitizeLayout', () => {
     const out = sanitizeLayout({ directory: 'x', detail: 62, right: 24 })
     expect(out.directory).toBe(FOUR_PANE_DEFAULT.directory)
   })
+
+  it('clamp edge does not wipe to full defaults when sum can renormalize', () => {
+    // after min clamp each side would overshoot 100; must scale, not return bare defaults
+    const out = sanitizeLayout({ directory: 40, detail: 40, right: 40 })
+    const sum = out.directory + out.detail + out.right
+    expect(Math.abs(sum - 100)).toBeLessThan(3)
+    // not a silent full wipe unless absurd
+    expect(out).not.toEqual(FOUR_PANE_DEFAULT)
+  })
 })

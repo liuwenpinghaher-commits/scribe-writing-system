@@ -322,6 +322,8 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
                  {"s": slug, "t": title})
     finally:
         db.close()
+    # 延迟导入:core_preamble 被 store 包加载时 SurrealStore 尚未挂到本模块命名空间
+    from scribe3.store.surreal import SurrealStore
     st = SurrealStore(url=url, ns="scribe3", db=slug)
     st.apply_schema()
     st.close()

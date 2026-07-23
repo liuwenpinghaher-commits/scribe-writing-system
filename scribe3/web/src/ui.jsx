@@ -1,11 +1,12 @@
 import { cn } from './lib/utils'
 
 export function Btn({ variant = 'ghost', size = 'md', icon = false, className, ...p }) {
-  const base = 'inline-flex items-center justify-center gap-1.5 rounded-xl font-medium transition-all duration-150 cursor-pointer select-none active:scale-[.98] motion-reduce:active:scale-100 disabled:opacity-40 disabled:pointer-events-none disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
+  // 全局圆角收紧：md(6px) 替代原 xl(12px)；whitespace-nowrap 防窄栏中文竖排
+  const base = 'inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-all duration-150 cursor-pointer select-none active:scale-[.98] motion-reduce:active:scale-100 disabled:opacity-40 disabled:pointer-events-none disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'
   // icon-only:方形、无横向 padding、居中图标(调用处务必传 aria-label / title)
   const sizes = icon
-    ? { xs: 'h-8 w-8 rounded-lg', sm: 'h-8 w-8 rounded-lg', md: 'h-9 w-9 rounded-xl' }
-    : { xs: 'h-[30px] px-2.5 text-meta', sm: 'h-[34px] px-3 text-helper', md: 'h-9 px-3.5 text-body' }
+    ? { xs: 'h-8 w-8 rounded-md', sm: 'h-8 w-8 rounded-md', md: 'h-9 w-9 rounded-md' }
+    : { xs: 'h-[28px] px-2 text-meta', sm: 'h-8 px-2.5 text-helper', md: 'h-9 px-3 text-body font-medium' }
   const variants = {
     primary: 'bg-brand text-brandfg hover:brightness-110 shadow-sm',
     soft: 'bg-soft text-ink hover:bg-soft/80',
@@ -23,7 +24,7 @@ export function Input({ size = 'md', variant = 'ghost', className, ...p }) {
     ghost: 'border border-transparent bg-transparent hover:bg-soft/60 focus:border-brand/40 focus:bg-surface',
     bordered: 'border border-line/80 bg-soft/40 focus:border-brand/50 focus:bg-surface',
   }
-  return <input className={cn('w-full rounded-xl text-ink outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', sizes[size], variants[variant] || variants.ghost, className)} {...p} />
+  return <input className={cn('w-full rounded-md text-ink outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', sizes[size], variants[variant] || variants.ghost, className)} {...p} />
 }
 
 // 统一多行输入原语。min-h + resize-y,可选 auto-resize。variant 语义同 Input。
@@ -35,7 +36,7 @@ export function Textarea({ className, autoResize = false, variant = 'ghost', ...
     ghost: 'border border-transparent bg-transparent hover:bg-soft/60 focus:border-brand/40 focus:bg-surface',
     bordered: 'border border-line/80 bg-soft/40 focus:border-brand/50 focus:bg-surface',
   }
-  return <textarea {...p} onInput={onInput} className={cn('w-full rounded-xl px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', variants[variant] || variants.ghost, autoResize ? 'resize-none overflow-hidden' : 'resize-y', className)} />
+  return <textarea {...p} onInput={onInput} className={cn('w-full rounded-md px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors placeholder:text-faint/60 disabled:opacity-40 disabled:cursor-default', variants[variant] || variants.ghost, autoResize ? 'resize-none overflow-hidden' : 'resize-y', className)} />
 }
 
 // Card:Upstream 默认白面;elevated 用软阴影抬升(少硬边)。clickable 轻上浮。

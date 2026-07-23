@@ -30,7 +30,7 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
       className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
       <span className="font-semibold tracking-tight text-brand text-sm select-none">SCRIBE3</span>
       <button onClick={onOpenLibrary} title="切换 / 选择作品"
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-f13 max-w-[200px] text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-brand">
         <BookOpen size={14} className="shrink-0" />
         <span className="truncate">{current ? current.title : '选择作品'}</span>
         <ChevronDown size={11} className="shrink-0 opacity-50" />
@@ -39,7 +39,7 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
       {current && showViews && (
         <>
           <div className="w-px h-5 bg-line/80 shrink-0" data-testid="topbar-view-separator" />
-          <nav className="flex items-center gap-0.5 rounded-xl bg-soft/70 p-0.5" data-testid="topbar-global-views">
+          <nav className="flex items-center gap-0.5 rounded-md bg-soft/70 p-0.5" data-testid="topbar-global-views">
             {VIEWS.map(({ key, label, icon: Icon }) => {
               const on = view === key
               return (

@@ -23,13 +23,20 @@ beforeEach(() => {
 })
 
 describe('BookSection', () => {
-  it('渲染 intent 并失焦保存变更字段', async () => {
+  it('数字配额失焦可 putIntent;叙事字段只读走主编种子', async () => {
+    const seeds = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     render(<BookSection work="demo" />)
     await waitFor(() => expect(screen.getByLabelText('整稿目标字数').value).toBe('100000'))
     fireEvent.change(screen.getByLabelText('整稿目标字数'), { target: { value: '120000' } })
     fireEvent.blur(screen.getByLabelText('整稿目标字数'))
     await waitFor(() => expect(apiMock.putIntent).toHaveBeenCalledWith(
       expect.objectContaining({ total_word_goal: 120000 })))
+
+    apiMock.putIntent.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /让主编写入红线/ }))
+    expect(seeds.some((s) => /红线|red_lines/.test(s))).toBe(true)
+    expect(apiMock.putIntent).not.toHaveBeenCalled()
   })
 
   it('数字字段清空失焦:不发 PUT,恢复旧值并提示不支持清空', async () => {
@@ -37,7 +44,6 @@ describe('BookSection', () => {
     await waitFor(() => expect(screen.getByLabelText('整稿目标字数').value).toBe('100000'))
     fireEvent.change(screen.getByLabelText('整稿目标字数'), { target: { value: '' } })
     fireEvent.blur(screen.getByLabelText('整稿目标字数'))
-    // 后端 set_intent 对 None 视为未传(数字字段清不掉),假装保存成功会误导:不出网+恢复旧值+提示
     expect(apiMock.putIntent).not.toHaveBeenCalled()
     expect(screen.getByLabelText('整稿目标字数').value).toBe('100000')
     expect(screen.getByRole('alert').textContent).toMatch(/不支持清空/)

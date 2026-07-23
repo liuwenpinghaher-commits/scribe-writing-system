@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, MoreHorizontal, Plus, Search, X } from 'lucide-react'
+import { Check, Loader2, Plus, X } from 'lucide-react'
 import { api } from '../api'
 import { useToast } from '../ui/Toast'
+import { DirectoryHeader } from './DirectoryHeader'
+import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './DirectoryRow'
 
 const CODEX_CATS = new Set(['character', 'faction', 'item', 'term', 'world_rule', 'promise', 'motif', 'proposition'])
 
@@ -54,10 +56,6 @@ function CountBadge({ children }) {
   return <span className="shrink-0 min-w-[24px] h-5 inline-flex items-center justify-center rounded-full bg-soft px-1.5 text-meta text-faint tnum">{children}</span>
 }
 
-function Dot({ tone }) {
-  return <span className={`shrink-0 w-2 h-2 rounded-full ${TONE[tone] || TONE.brand}`} />
-}
-
 function RowText({ title, sub }) {
   return (
     <span className="min-w-0 flex flex-col gap-0.5">
@@ -68,40 +66,28 @@ function RowText({ title, sub }) {
 }
 
 function CategoryRow({ category, selected, onSelect }) {
-  const meta = CATEGORY_META[category.ref] || { desc: '设定分类', tone: 'brand' }
   const count = category.children?.length ?? 0
   return (
-    <button
-      type="button"
+    <DirectoryRow
+      title={category.label}
+      meta={count}
+      active={selected}
       aria-label={category.label}
       onClick={() => onSelect?.(category)}
-      className={`w-full min-h-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${selected ? 'bg-soft text-brand' : 'text-ink hover:bg-soft/70'}`}
-    >
-      <span className="min-w-0 flex items-center gap-2">
-        <Dot tone={meta.tone} />
-        <RowText title={category.label} sub={meta.desc} />
-      </span>
-      <CountBadge>{count}</CountBadge>
-    </button>
+    />
   )
 }
 
-function ItemRow({ node, selected, tone, onSelect }) {
+function ItemRow({ node, selected, onSelect }) {
   const chapter = node?.meta?.chapter ?? node?.meta?.first_chapter ?? node?.meta?.seq
-  const sub = node?.meta?.summary || node?.meta?.kind || node?.meta?.status || ''
   return (
-    <button
-      type="button"
+    <DirectoryRow
+      title={node.label}
+      meta={chapter != null ? `第 ${chapter} 章` : undefined}
+      active={selected}
       aria-label={node.label}
       onClick={() => onSelect?.(node)}
-      className={`w-full min-h-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors cursor-pointer ${selected ? 'bg-soft text-brand' : 'text-ink hover:bg-soft/70'}`}
-    >
-      <span className="min-w-0 flex items-center gap-2">
-        <Dot tone={tone} />
-        <RowText title={node.label} sub={sub} />
-      </span>
-      {chapter != null ? <CountBadge>第 {chapter} 章</CountBadge> : <span />}
-    </button>
+    />
   )
 }
 
@@ -194,10 +180,6 @@ function PendingCharacterRefs() {
   )
 }
 
-function SectionLabel({ children }) {
-  return <div className="px-2 pb-1.5 pt-2 text-meta font-semibold uppercase tracking-wide text-faint">{children}</div>
-}
-
 function EmptyState({ category, query, onNew }) {
   return (
     <div className="px-3 py-10 text-center text-f13 text-faint">
@@ -215,7 +197,6 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
   const [query, setQuery] = useState('')
   const category = findCategory(root, selected)
   const categories = root?.children || []
-  const activeMeta = CATEGORY_META[category?.ref] || { desc: '设定分类', tone: 'brand' }
   const isRoot = !category
   const items = useMemo(() => {
     const children = category?.children || []
@@ -230,46 +211,26 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
   useEffect(() => { setQuery('') }, [category?.id])
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-surface/75" data-testid="codex-directory">
-      <div className="shrink-0 border-b border-line/70 bg-surface/90 px-3.5 py-3">
-        <div className="mb-2 flex items-center gap-1.5 text-f12 text-faint">
+    <div className={DIR_SHELL} data-testid="codex-directory">
+      <DirectoryHeader
+        title={category?.label || root?.label || '设定库'}
+        count={isRoot ? categories.length : (category?.children?.length || 0)}
+        query={query}
+        onQueryChange={setQuery}
+        searchLabel="搜设定、别名、标签"
+        searchPlaceholder="搜设定、别名、标签"
+        status={!isRoot ? (
           <button type="button" aria-label="返回设定库分类" onClick={() => onSelectItem?.(root)}
-            className="rounded-md px-1 -ml-1 text-faint hover:bg-soft hover:text-brand cursor-pointer">
-            设定库
-          </button>
-          {category && <span>/ {category.label}</span>}
-        </div>
-        <div className="flex items-center gap-2 min-w-0">
-          <h2 className="min-w-0 flex-1 truncate text-f17 font-semibold text-ink" data-testid="codex-directory-title">
-            {category?.label || root?.label || '设定库'}
-          </h2>
-          <span className="shrink-0 text-f12 text-faint">{isRoot ? `${categories.length} 类` : `${category.children?.length || 0} 项`}</span>
-        </div>
-        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-1.5">
-          <label className="relative min-w-0">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜设定、别名、标签"
-              className="w-full h-8 rounded-lg border border-line bg-canvas pl-8 pr-2 text-f13 text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
-          </label>
-          <button type="button" aria-label="新建设定" title="新建设定" disabled={!canCreate} onClick={createNode}
-            className="h-8 w-8 grid place-items-center rounded-lg bg-soft text-faint hover:text-brand disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer">
-            <Plus size={15} />
-          </button>
-          <button type="button" aria-label="更多操作" title="更多操作"
-            className="h-8 w-8 grid place-items-center rounded-lg bg-soft text-faint hover:text-ink cursor-pointer">
-            <MoreHorizontal size={15} />
-          </button>
-        </div>
-      </div>
+            className="text-meta text-faint hover:text-brand cursor-pointer">← 分类</button>
+        ) : null}
+        primaryAction={canCreate ? { label: '新建设定', onClick: createNode } : undefined}
+      />
+      <div data-testid="codex-directory-title" className="sr-only">{category?.label || root?.label || '设定库'}</div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
         {isRoot ? (
           <>
-            <SectionLabel>分类</SectionLabel>
+            <DirectorySectionLabel>分类</DirectorySectionLabel>
             <div className="space-y-1">
               {categories.filter((cat) => matchesQuery(cat, query)).map((cat) => (
                 <CategoryRow key={cat.id} category={cat} selected={sameNode(cat, selected)} onSelect={onSelectItem} />
@@ -279,13 +240,13 @@ export function CodexDirectory({ root, selected, onSelectItem }) {
         ) : (
           <>
             {category.ref === 'character' && <PendingCharacterRefs />}
-            <SectionLabel>条目</SectionLabel>
+            <DirectorySectionLabel>条目</DirectorySectionLabel>
             {items.length === 0 ? (
               <EmptyState category={category} query={query} onNew={createNode} />
             ) : (
               <div className="space-y-1">
                 {items.map((node) => (
-                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} tone={activeMeta.tone} onSelect={onSelectItem} />
+                  <ItemRow key={node.id} node={node} selected={sameNode(node, selected)} onSelect={onSelectItem} />
                 ))}
               </div>
             )}

@@ -141,11 +141,11 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                     ) : ap.runContext ? null : (
                       <>
                         <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                          className="inline-flex h-7 items-center gap-1 rounded-xl bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
                           <Check size={12} />批准
                         </button>
                         <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                          className="inline-flex h-7 items-center gap-1 rounded-xl bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
+                          className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
                           <X size={12} />拒绝
                         </button>
                       </>
@@ -344,7 +344,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles([...e.dataTransfer.files]) }}
     >
       {dragging && (
-        <div className="absolute inset-0 z-20 bg-brand/10 border-2 border-dashed border-brand/50 rounded-xl flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 z-20 bg-brand/10 border-2 border-dashed border-brand/50 rounded-md flex items-center justify-center pointer-events-none">
           <span className="text-brand text-f13 font-medium">拖入附件</span>
         </div>
       )}
@@ -353,10 +353,10 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
         {msgs.length === 0 ? (
           <div className="pt-1 space-y-2">
-            <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">提思路,主编帮你写/改本章手稿。改写以草稿卡出现在中间,你接受/弃用。</div>
             <div className="space-y-1.5">
               {SUGGESTS.map((s) => (
-                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-xl bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
+                <button key={s} onClick={() => send(s)} className="w-full text-left rounded-md bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
               ))}
             </div>
           </div>
@@ -370,7 +370,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       {attachments.length > 0 && (
         <div className="shrink-0 px-2.5 pb-1.5 flex flex-wrap gap-1.5">
           {attachments.map((a) => (
-            <div key={a.id} className="relative flex items-center gap-1.5 rounded-xl bg-soft px-2 py-1 text-f12 text-ink max-w-[130px]">
+            <div key={a.id} className="relative flex items-center gap-1.5 rounded-md bg-soft px-2 py-1 text-f12 text-ink max-w-[130px]">
               {a.kind === 'image'
                 ? <img src={a.url} alt={a.name} className="w-5 h-5 rounded object-cover shrink-0" />
                 : <FileText size={12} className="text-brand shrink-0" />}
@@ -388,7 +388,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
-          className="chief-composer-panel rounded-xl px-2.5 py-2"
+          className="chief-composer-panel rounded-md px-2.5 py-2"
         >
           <textarea
             ref={taRef}

@@ -76,34 +76,34 @@ describe('MaterialList 素材库工作台', () => {
     apiMock.materialRefsByChapter.mockResolvedValue([])
   })
 
-  it('用窄目录工作台布局保留搜索第一行和动作第二行', async () => {
+  it('用统一目录壳:sticky header + 搜索 + 动作(新建/导入/网络)', async () => {
     render(<MaterialList node={{ id: 'material_root', type: 'material_root', label: '素材库' }} />)
 
     expect(await screen.findByTestId('material-workbench')).toBeTruthy()
-    const header = screen.getByTestId('material-workbench-header')
-    const searchRow = screen.getByTestId('material-search-row')
-    const actionRow = screen.getByTestId('material-action-row')
-
+    const header = screen.getByTestId('directory-sticky-header')
     expect(within(header).getByText('素材库')).toBeTruthy()
-    expect(within(searchRow).getByLabelText('搜索素材')).toBeTruthy()
-    expect(Boolean(searchRow.compareDocumentPosition(actionRow) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-    expect(within(actionRow).getByRole('button', { name: '新建' })).toBeTruthy()
-    expect(within(actionRow).getByRole('button', { name: '导入' })).toBeTruthy()
-    expect(within(actionRow).getByRole('button', { name: '网络' })).toBeTruthy()
+    expect(within(header).getByLabelText('搜索素材')).toBeTruthy()
+    expect(within(header).getByRole('button', { name: '新建' })).toBeTruthy()
+    expect(within(header).getByRole('button', { name: '导入' })).toBeTruthy()
+    expect(within(header).getByRole('button', { name: '网络' })).toBeTruthy()
+    // chips 一行,非 2×2 大格墙
+    expect(screen.getByTestId('material-smart-views').className).toMatch(/flex/)
   })
 
-  it('提供智能视图、分类筛选和素材点击详情联动', async () => {
+  it('提供智能视图 chips、分类筛选和素材点击详情联动', async () => {
     const onSelect = vi.fn()
     render(<MaterialList node={{ id: 'material_root', type: 'material_root', label: '素材库' }} onSelect={onSelect} />)
 
-    expect(await screen.findByText('智能视图')).toBeTruthy()
-    const smartViews = within(screen.getByTestId('material-smart-views'))
+    const smartViews = within(await screen.findByTestId('material-smart-views'))
     const kinds = within(screen.getByTestId('material-kind-list'))
+    // chips 横排，不占 2×2 大格墙
+    expect(screen.getByTestId('material-smart-views').className).toMatch(/flex/)
     expect(smartViews.getByRole('button', { name: /核心记忆/ })).toBeTruthy()
     expect(smartViews.getByRole('button', { name: /已引用/ })).toBeTruthy()
     expect(smartViews.getByRole('button', { name: /无标签/ })).toBeTruthy()
     expect(kinds.getByRole('button', { name: /研究/ })).toBeTruthy()
     expect(kinds.getByRole('button', { name: /片段/ })).toBeTruthy()
+    expect(screen.getByTestId('material-item-list')).toBeTruthy()
 
     fireEvent.click(smartViews.getByRole('button', { name: /核心记忆/ }))
     expect(screen.getByRole('button', { name: /城墙外环与雾港边界/ })).toBeTruthy()

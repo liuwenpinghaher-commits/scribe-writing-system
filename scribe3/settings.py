@@ -90,11 +90,16 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("memory.half_life_procedural", "craft", "int", 180, "hot", "半衰期(天):procedural", min=1, max=3650),
     Setting("memory.half_life_reference", "craft", "int", 90, "hot", "半衰期(天):reference", min=1, max=3650),
     Setting("memory.half_life_uncertainty", "craft", "int", 14, "hot", "半衰期(天):uncertainty", min=1, max=3650),
-    # ── flags(灰度开关;全热,danger)──
-    Setting("SCRIBE3_CONTEXT_SNAPSHOT_V1", "flags", "bool", False, "hot", "统一上下文快照 v1", danger=True),
-    Setting("SCRIBE3_EDITORIAL_THREAD_V1", "flags", "bool", False, "hot", "主编讨论线程 v1", danger=True),
-    Setting("SCRIBE3_MEMORY_FABRIC_V1", "flags", "bool", False, "hot", "记忆织网检索 v1", danger=True),
-    Setting("SCRIBE3_CONTEXT_INSPECTOR_V1", "flags", "bool", False, "hot", "上下文检查器 v1", danger=True),
+    # ── flags(运行时开关;全热)──
+    # 上下文产品三件套默认**开**(非灰度休眠);仅显式 env/DB 覆盖可关(测试/运维隔离)。
+    Setting("SCRIBE3_CONTEXT_SNAPSHOT_V1", "flags", "bool", True, "hot", "统一上下文快照 v1",
+            "默认开;关=前端可降级本地投影", danger=True),
+    Setting("SCRIBE3_EDITORIAL_THREAD_V1", "flags", "bool", False, "hot", "主编讨论线程 v1",
+            "可选增强,默认关", danger=True),
+    Setting("SCRIBE3_MEMORY_FABRIC_V1", "flags", "bool", True, "hot", "记忆织网检索 v1",
+            "默认开:写路径检索+捕获+/memory/*;显式关仅用于隔离", danger=True),
+    Setting("SCRIBE3_CONTEXT_INSPECTOR_V1", "flags", "bool", True, "hot", "上下文检查器 v1",
+            "默认开:主编区 ContextInspector 可见", danger=True),
     Setting("SCRIBE3_EMERGENCY_REST_WRITE", "flags", "bool", False, "hot",
             "紧急 REST 世界写", "默认关；仅自动化测试/紧急运维显式开启", danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──

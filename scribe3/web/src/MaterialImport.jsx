@@ -238,7 +238,7 @@ export function MaterialImport({ onImported, onCancel }) {
                   onDragLeave={() => setDragOver(false)}
                   onDrop={onDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`rounded-xl border border-dashed px-6 py-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${dragOver ? 'border-brand bg-brand/5' : 'border-line hover:border-brand/40'}`}>
+                  className={`rounded-md border border-dashed px-6 py-12 flex flex-col items-center justify-center gap-2 text-center cursor-pointer transition-colors ${dragOver ? 'border-brand bg-brand/5' : 'border-line hover:border-brand/40'}`}>
                   <Upload size={22} className="text-faint" />
                   {file
                     ? <div className="text-f13 text-ink">已选择:<span className="font-medium">{file.name}</span></div>
@@ -342,7 +342,7 @@ export function MaterialImport({ onImported, onCancel }) {
             ) : (
               <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
                 {items.map((it) => (
-                  <div key={it._key} className="rounded-xl border border-line bg-surface px-4 py-3">
+                  <div key={it._key} className="rounded-md border border-line bg-surface px-4 py-3">
                     <div className="flex items-center gap-2">
                       <Input variant="bordered" value={it.title} onChange={(e) => patchItem(it._key, { title: e.target.value })}
                         placeholder="素材标题…" aria-label="素材标题" size="sm" className="flex-1 text-f14 font-medium" />

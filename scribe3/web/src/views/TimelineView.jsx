@@ -574,7 +574,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         )}
 
         {/* 泳道切换 — 胶囊组 */}
-        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-xl bg-soft/80 p-0.5">
+        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-md bg-soft/80 p-0.5">
           <span className="text-meta text-faint px-1.5">泳道</span>
           {[{ v: 'kind', l: '四类' }, { v: 'char', l: '角色' }, { v: 'type', l: '事件类型' }].map(({ v, l }) => (
             <button key={v}
@@ -586,7 +586,7 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         </div>
 
         {/* 故事/叙事双轴 —— #74:无「叙事位≠故事章」事件时禁用「叙事顺序」 */}
-        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-xl bg-soft/80 p-0.5">
+        <div className="flex items-center gap-0.5 ml-1 shrink-0 rounded-md bg-soft/80 p-0.5">
           <span className="text-meta text-faint px-1.5">轴</span>
           {[{ v: 'story', l: '故事编年' }, { v: 'narrative', l: '叙事顺序' }].map(({ v, l }) => {
             const disabled = v === 'narrative' && !canNarrative
@@ -606,13 +606,13 @@ export function TimelineView({ onJumpChapter, onNavigateToObject }) {
         </div>
 
         <button onClick={fitAll}
-          className="ml-1 h-6 px-2.5 rounded-xl text-meta font-medium bg-soft/80 text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer shrink-0"
+          className="ml-1 h-6 px-2.5 rounded-md text-meta font-medium bg-soft/80 text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer shrink-0"
           title="缩放至全书概览(滚轮按 Ctrl 缩放,拖动平移)"
         >全览</button>
 
         <div className="ml-auto shrink-0">
           <button onClick={() => load()} disabled={loading}
-            className="w-7 h-7 grid place-items-center rounded-xl text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
+            className="w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-soft transition-colors cursor-pointer disabled:opacity-40">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>

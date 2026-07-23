@@ -43,6 +43,13 @@ def _isolated_llm_ledger(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _craft_gate_off_by_default(monkeypatch):
+    """工艺门闩默认生产开启;单测/存量 API 用例无脚手架,默认关。
+    需要测 409 门闩的用例自行 monkeypatch.setenv('SCRIBE3_CRAFT_GATE','1')。"""
+    monkeypatch.setenv("SCRIBE3_CRAFT_GATE", "0")
+
+
+@pytest.fixture(autouse=True)
 def _emergency_rest_write_on_for_tests(monkeypatch):
     """生产默认关 REST 世界写;单测/存量 test_app 写路径需显式开。
     需要测 403 关闸的用例自行 monkeypatch.setenv('SCRIBE3_EMERGENCY_REST_WRITE','0')。"""

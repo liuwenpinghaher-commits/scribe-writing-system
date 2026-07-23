@@ -15,6 +15,7 @@ import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { ContextInspector } from './context/ContextInspector'
+import { PendingClaimsPanel } from './context/PendingClaimsPanel'
 import { ThreadSwitcher } from './ThreadSwitcher'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
@@ -42,7 +43,7 @@ function ThreadSummaryCard({ meta }) {
   const summ = (meta.summary || '').trim()
   if (!err && !summ) return null
   return (
-    <div className="rounded-xl bg-soft/50 px-2.5 py-2 text-f12 leading-snug">
+    <div className="rounded-md bg-soft/50 px-2.5 py-2 text-f12 leading-snug">
       {err && (
         <div className="text-danger mb-1">早期摘要未更新(上次生成失败:{err})——以下为旧摘要。</div>
       )}
@@ -84,7 +85,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   const rc = ap.runContext
   if (!rc) return null
   return (
-    <div data-testid="run-context-stale" className="mt-2 rounded-xl border border-warn/30 bg-warn/5 px-2.5 py-2">
+    <div data-testid="run-context-stale" className="mt-2 rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2">
       <div className="flex items-center gap-1.5 text-f12 font-medium text-warn">
         <span data-testid="run-context-expired" className="inline-flex items-center rounded-lg bg-warn/15 px-1.5 py-0.5 text-meta">已过期</span>
         {rc.voided ? '发起时焦点已推进,原审批作废' : '发起时焦点已变,但与当前焦点无关'}
@@ -97,7 +98,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
         <div data-testid="run-context-voided" className="mt-1.5 text-meta text-danger">已作废,请就当前焦点重新发起该任务。</div>
       ) : (
         <button type="button" data-testid="run-approve-stale" onClick={() => onApprovalDecision?.(ap, 'approve', { approveStale: true })}
-          className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-xl bg-warn/10 px-2.5 text-meta font-medium text-warn hover:bg-warn/15 cursor-pointer">
+          className="mt-1.5 inline-flex h-7 items-center gap-1 rounded-md bg-warn/10 px-2.5 text-meta font-medium text-warn hover:bg-warn/15 cursor-pointer">
           仍要批准(忽略过期)
         </button>
       )}
@@ -179,11 +180,11 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                       ) : ap.runContext ? null : (
                         <>
                           <button type="button" data-testid="run-approve" aria-label="批准" onClick={() => onApprovalDecision?.(ap, 'approve')}
-                            className="inline-flex h-7 items-center gap-1 rounded-xl bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
+                            className="inline-flex h-7 items-center gap-1 rounded-md bg-brand px-2.5 text-f12 font-medium text-brandfg cursor-pointer">
                             <Check size={12} />批准
                           </button>
                           <button type="button" data-testid="run-deny" aria-label="拒绝" onClick={() => onApprovalDecision?.(ap, 'deny')}
-                            className="inline-flex h-7 items-center gap-1 rounded-xl bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
+                            className="inline-flex h-7 items-center gap-1 rounded-md bg-soft px-2.5 text-f12 font-medium text-ink hover:bg-soft/80 cursor-pointer">
                             <X size={12} />拒绝
                           </button>
                         </>
@@ -747,6 +748,8 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
 
       {/* Task 14:上下文检查器 —— 主编到底看到了什么、为什么选/弃某条记忆(可折叠,常显第1层) */}
       <ContextInspector />
+      {/* 待审正典揭示:作者面 list+approve/reject → /memory/pending-claims */}
+      <PendingClaimsPanel />
 
       {/* 消息列表 */}
       <div data-testid="chief-chat-messages" className="flex-1 min-h-0 overflow-y-auto px-3 py-2 bg-canvas/50">
@@ -767,7 +770,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         )}
         {threadMode && <ThreadSummaryCard meta={threadMeta} />}
         {threadLoadError && (
-          <div data-testid="chief-thread-load-error" className="rounded-xl border border-warn/30 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2 mb-2">
+          <div data-testid="chief-thread-load-error" className="rounded-md border border-warn/30 bg-warn/5 px-2.5 py-2 text-f12 leading-snug text-ink flex items-center gap-2 mb-2">
             <span className="flex-1">线程历史加载失败{msgs.length ? '(显示本地缓存)' : ''},可重试。</span>
             <button type="button" data-testid="chief-thread-retry" onClick={retryThreadLoad}
               className="shrink-0 text-meta text-brand hover:underline cursor-pointer">重试</button>
@@ -779,16 +782,16 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
                 有 parent=延续会话(近窗+摘要都带着);无 parent=手动全新会话 */}
             {threadMode && threadMeta && (
               threadMeta.parent_thread_id ? (
-                <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
+                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">已延续上一会话的上下文(近窗对话+早期摘要)——主编记得之前聊的,这个新会话只是界面归档分组。</div>
               ) : (
-                <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
+                <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">全新会话,不带对话历史——主编的长期记忆(设定圣经/伏笔/正典)仍然在。</div>
               )
             )}
-            <div className="rounded-xl bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
+            <div className="rounded-md bg-soft/40 px-3 py-2 text-f12 text-faint leading-snug">就当前选中的内容与主编讨论(纯对话)。要主编联查书内实证(角色/伏笔/事件/设定),请到章内写作槽——主编在那挂书内工具。</div>
             <div className="space-y-1.5">
               {ctx.suggests.map((s) => (
                 <button key={s} onClick={() => send(s)}
-                  className="w-full text-left rounded-xl bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
+                  className="w-full text-left rounded-md bg-surface hover:bg-soft px-3 py-2 text-f12 text-ink transition-colors cursor-pointer shadow-[var(--shadow-panel)]">{s}</button>
               ))}
             </div>
           </div>
@@ -803,7 +806,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
-          className="chief-composer-panel rounded-xl px-2.5 py-2"
+          className="chief-composer-panel rounded-md px-2.5 py-2"
         >
           <textarea
             ref={taRef}

@@ -42,13 +42,17 @@ make e2e-frontend     # 前端 L2 冒烟（脚本拉临时后端）
 旧 `artifacts/e2e-20260722-book_b4e72480` 结案 PASS 已作废，仅作反面对照。
 
 ```bash
-# 工艺门闩单测（不依赖 Hermes）
+# 工艺卫生门闩（不依赖 Hermes）
 scribe3/.venv/bin/python -m pytest scribe3/tests/test_craft_compliance_gates.py -q
+
+# 内容质量轨（闸绿 ≠ quality_pass）
+scribe3/.venv/bin/python -m pytest scribe3/tests/test_content_quality.py -q
 
 # 对运行中的书跑门闩（反面书应 --expect-fail）
 scribe3/.venv/bin/python -m scribe3.tools.craft_gate_cli --work book_b4e72480 --expect-fail
 ```
 
+**注意**：`craft gates` 绿只证明工艺卫生；章级验收还须 `verify_content_quality` + 内容评审（见 `docs/craft-first-verification-scheme-v3.md` §0.3）。
 ## 文档改动
 
 若改栈/端口/主路径：同步 [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md)。

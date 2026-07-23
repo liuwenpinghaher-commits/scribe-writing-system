@@ -29,7 +29,7 @@ def test_priority_default_env_db(monkeypatch):
 
 def test_bool_flag_env_semantics(monkeypatch):
     # 与 context_cache._TRUE 口径逐字一致:'1'/'true'/'yes'/'on' 为真
-    assert settings.get_setting("SCRIBE3_MEMORY_FABRIC_V1") is False
+    assert settings.get_setting("SCRIBE3_MEMORY_FABRIC_V1") is True  # 产品默认开
     monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "on")
     settings.invalidate_cache()
     assert settings.get_setting("SCRIBE3_MEMORY_FABRIC_V1") is True

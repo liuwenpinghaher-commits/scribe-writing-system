@@ -18,9 +18,9 @@ export function ObjectFrame({ breadcrumb, title, status, tabs = [], activeTab, o
   const titleId = useId()
   return (
     <section className="flex h-full min-h-0 flex-col bg-canvas" aria-labelledby={titleId}>
-      <header className="shrink-0 border-b border-line/70 bg-surface/95 px-5 py-3.5 backdrop-blur-sm">
-        {!compact && breadcrumb && <div className="mb-1 truncate text-meta text-muted">{breadcrumb}</div>}
-        <div className="flex min-h-9 items-center gap-3" data-testid={compact ? 'object-frame-titlerow-compact' : undefined}>
+      <header className="shrink-0 border-b border-line/40 px-5 py-2.5">
+        {!compact && breadcrumb && <div className="mb-0.5 truncate text-meta text-muted">{breadcrumb}</div>}
+        <div className="flex min-h-8 items-center gap-3" data-testid={compact ? 'object-frame-titlerow-compact' : undefined}>
           {compact && breadcrumb && (
             <span className="shrink-0 inline-flex items-center gap-1.5 text-meta text-muted">
               {breadcrumb}

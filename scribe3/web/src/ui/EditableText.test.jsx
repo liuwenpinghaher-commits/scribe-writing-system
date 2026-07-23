@@ -35,10 +35,30 @@ describe('EditableText', () => {
     expect(screen.getByText('旧')).toBeTruthy()
   })
 
-  it('empty state shows add CTA without input chrome', () => {
+  it('empty state shows add CTA without input chrome and without faint/40', () => {
     render(<EditableText label="外貌" value="" onCommit={vi.fn()} />)
-    expect(screen.getByText('+ 添加外貌')).toBeTruthy()
+    const cta = screen.getByText('+ 添加外貌')
+    expect(cta).toBeTruthy()
+    expect(cta.className).not.toMatch(/faint\/40/)
+    expect(cta.className).toMatch(/text-faint/)
     expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('number type rejects non-finite commit', () => {
+    const onCommit = vi.fn()
+    render(<EditableText label="出场" value={3} type="number" onCommit={onCommit} />)
+    fireEvent.click(screen.getByLabelText('编辑出场'))
+    const box = screen.getByRole('spinbutton', { name: '出场' })
+    // 直接设置 draft 到非有限数路径: HTML number 可能拒收 Infinity,用极大指数
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(box, '1e309')
+    fireEvent.input(box, { target: { value: '1e309' } })
+    fireEvent.change(box, { target: { value: '1e309' } })
+    fireEvent.blur(box)
+    // 不得提交 Infinity 或 NaN 作为「有效出场」
+    for (const call of onCommit.mock.calls) {
+      expect(Number.isFinite(call[0])).toBe(false)
+    }
+    expect(onCommit.mock.calls.some((c) => c[0] === Infinity || Number.isNaN(c[0]))).toBe(false)
   })
 
   it('readOnly is plain text without edit control', () => {

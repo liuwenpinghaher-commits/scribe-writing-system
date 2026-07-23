@@ -87,7 +87,7 @@ describe('ChiefDock UI', () => {
 
     expect(composer.getAttribute('data-chief-composer')).toBe('true')
     expect(composer.className).toContain('chief-composer-panel')
-    expect(composer.className).toContain('rounded-xl')
+    expect(composer.className).toContain('rounded-md')
     expect(composer.className).not.toContain('space-y-2')
     expect(textarea.className).toContain('w-full')
     expect(textarea.className).toContain('border-0')

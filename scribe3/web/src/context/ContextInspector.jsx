@@ -109,10 +109,13 @@ function EvidenceRow({ item, kind }) {
 }
 
 export function ContextInspector() {
-  const { snapshot, restoring, error } = useContextSnapshot()
+  const { snapshot, restoring, error, capabilities } = useContextSnapshot()
   const sessionId = snapshot?.session_id || null
   const revision = snapshot?.revision ?? null
   const focus = snapshot?.focus || null
+  // 诚实门控:context_inspector_v1 关(默认)时不渲染——不得暗示记忆检查器已就绪。
+  // 后端 /capabilities 是唯一权威;Provider 缺席/拉取失败 → flags 安全默认全关。
+  const inspectorOn = !!(capabilities?.flags?.context_inspector_v1)
 
   const [open, setOpen] = useState(false)
   const [trace, setTrace] = useState(null)
@@ -121,15 +124,19 @@ export function ContextInspector() {
 
   // 运行时降级状态(可选;api 无 aiRuntimeStatus / 拉取失败 → 跳过,fail-soft,绝不拖垮主编区)。
   useEffect(() => {
+    if (!inspectorOn) return undefined
     if (typeof api?.aiRuntimeStatus !== 'function') return undefined
     let alive = true
     api.aiRuntimeStatus().then((r) => { if (alive) setRuntime(r) }).catch(() => {})
     return () => { alive = false }
-  }, [])
+  }, [inspectorOn])
 
   // 拉当前快照版本的记忆溯源(会话/版本齐备且有 getMemoryTrace 才拉)。
   // 404 = 该版本暂无溯源(检索接线待 Task 16)→ 非降级,只是"未检索到证据"。
   useEffect(() => {
+    if (!inspectorOn) {
+      setTrace(null); setTraceError(false); return undefined
+    }
     if (!sessionId || revision == null || typeof api?.getMemoryTrace !== 'function') {
       setTrace(null); setTraceError(false); return undefined
     }
@@ -142,7 +149,11 @@ export function ContextInspector() {
         setTraceError(!!(e && e.status && e.status !== 404))
       })
     return () => { alive = false }
-  }, [sessionId, revision])
+  }, [inspectorOn, sessionId, revision])
+
+  if (!inspectorOn) {
+    return null
+  }
 
   const status = deriveStatus({ runtime, error, restoring, hasSession: !!sessionId, traceError })
   const meta = STATUS_META[status] || STATUS_META.current

@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ScrollText, GitBranch, Bookmark, TriangleAlert, Layers, Activity, DatabaseZap, Loader2 } from 'lucide-react'
+import { ScrollText, GitBranch, Bookmark, TriangleAlert, Layers, Activity, DatabaseZap } from 'lucide-react'
 import { api } from './api'
 import { SectionTitle, Empty, Skeleton, Tag } from './ui'
-import { showToast } from './ui/Toast'
-
-const TIER_LABEL = { chapter: '章级', arc: '卷级', book: '书级' }
-const TIER_OPTS = ['chapter', 'arc', 'book']
+import { seedChiefCodexWrite } from './lib/chiefSeed.js'
 
 // 小节容器:标题 + 内容;items 为空不渲染(判空看各桶,与后端 T7「text 恒含标题行」解耦)。
 function Block({ icon, title, count, tone, children }) {
@@ -20,35 +17,28 @@ function Block({ icon, title, count, tone, children }) {
   )
 }
 
-// 一条超期伏笔的「三选一」决策行:立即兑现 / 展期(改窗口 tier)/ 弃置(标障眼法)。
-// 均写真库 → 操作后回调父层重拉简报+伏笔,决策项随之消失(反馈闭环)。
-function DecisionRow({ p, seq, onActed }) {
-  const [busy, setBusy] = useState(false)
-  const run = async (fn, okMsg) => {
-    if (busy) return
-    setBusy(true)
-    try { await fn(); showToast(okMsg, { tone: 'ok' }); onActed?.() }
-    catch (e) { showToast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' }) }
-    finally { setBusy(false) }
-  }
-  const changeTier = (tier) => run(
-    () => api.editPromise(p.id, { text: p.text, setup_chapter: p.setup_chapter, promise_kind: p.kind || 'promise', tier }),
-    `已展期为${TIER_LABEL[tier] || tier}`)
+// 超期伏笔决策:只读展示 + 主编种子(禁止 advance/editPromise/markHerring 作者直写)。
+function DecisionRow({ p, seq }) {
+  const seed = (hint) => seedChiefCodexWrite('promises', p, hint)
   return (
-    <div className="mb-2 pb-2 border-b border-line/50 last:border-0">
+    <div className="mb-2 pb-2 border-b border-line/50 last:border-0" data-testid="brief-promise-decision">
       <div className="text-f13 text-ink leading-snug">{p.text}</div>
       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-        <button disabled={busy} onClick={() => run(() => api.advancePromise(p.id, seq), '已在本章兑现')}
-          className="h-6 px-2 rounded-md text-meta bg-ok/10 text-ok hover:bg-ok/20 disabled:opacity-40 cursor-pointer transition-colors">立即兑现</button>
-        <label className="inline-flex items-center gap-1 text-meta text-faint">展期
-          <select disabled={busy} value={p.tier || 'chapter'} onChange={(e) => changeTier(e.target.value)}
-            className="h-6 rounded-md border border-line bg-canvas px-1 text-meta text-ink outline-none focus:border-brand cursor-pointer">
-            {TIER_OPTS.map((t) => <option key={t} value={t}>{TIER_LABEL[t]}</option>)}
-          </select>
-        </label>
-        <button disabled={busy} onClick={() => run(() => api.markHerring(p.id), '已弃置(标为障眼法)')}
-          className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-danger disabled:opacity-40 cursor-pointer transition-colors">弃置</button>
-        {busy && <Loader2 size={12} className="animate-spin text-faint" />}
+        <button type="button"
+          onClick={() => seed(`请在第 ${seq} 章兑现/回收此伏笔,提交写入提案。`)}
+          className="h-6 px-2 rounded-md text-meta bg-ok/10 text-ok hover:bg-ok/20 cursor-pointer transition-colors">
+          让主编兑现
+        </button>
+        <button type="button"
+          onClick={() => seed(`请展期此伏笔(调整 tier/窗口),提交写入提案。当前 tier=${p.tier || 'chapter'}。`)}
+          className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-ink cursor-pointer transition-colors">
+          让主编展期
+        </button>
+        <button type="button"
+          onClick={() => seed('请将此伏笔标为障眼法(弃置),提交写入提案。')}
+          className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-danger cursor-pointer transition-colors">
+          让主编弃置
+        </button>
       </div>
     </div>
   )
@@ -60,13 +50,10 @@ const Lines = ({ items }) => (
   </div>
 )
 
-// 章前创作简报(左栏 tab):GET /chapter-brief 渲染各 section;超期伏笔挂三选一决策按钮。
-// 判空:看 sections 各桶(arcs/directives/reminders/overdue/heartbeat/loops/injection),
-// 不看 text(后端 T7:text 恒含「## 本章创作简报」标题行,据此判空会永远非空)。
+// 章前创作简报(左栏 tab):GET /chapter-brief 渲染各 section;超期伏笔挂主编决策种子。
 export function BriefPanel({ seq }) {
   const [brief, setBrief] = useState(undefined)   // undefined=加载 / null=失败 / object
   const [proms, setProms] = useState([])
-  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (seq == null) { setBrief(null); return }
@@ -75,7 +62,7 @@ export function BriefPanel({ seq }) {
     api.chapterBrief(seq).then((b) => { if (!ignore) setBrief(b && typeof b === 'object' ? b : null) }).catch(() => { if (!ignore) setBrief(null) })
     api.promises().then((p) => { if (!ignore) setProms(Array.isArray(p) ? p : []) }).catch(() => { if (!ignore) setProms([]) })
     return () => { ignore = true }
-  }, [seq, tick])
+  }, [seq])
 
   if (seq == null) return <div><SectionTitle icon={ScrollText}>章前简报</SectionTitle><Empty>选一章查看本章创作简报</Empty></div>
   if (brief === undefined) return <div><SectionTitle icon={ScrollText}>章前简报</SectionTitle><Skeleton className="w-2/3" /><Skeleton className="w-full mt-2" /><Skeleton className="w-3/4 mt-2" /></div>
@@ -90,7 +77,6 @@ export function BriefPanel({ seq }) {
   const heartbeat = s.heartbeat || []
   const inj = s.injection || {}
   const chosen = inj.chosen || []
-  // 超期决策项:后端 decisions 是文案(无 pid),用 /promises 的 overdue+open 行(带 pid/tier)驱动可操作按钮。
   const overdue = proms.filter((p) => p.overdue && p.status === 'open')
 
   const empty = arcs.length === 0 && directives.length === 0 && reminders.length === 0
@@ -115,7 +101,7 @@ export function BriefPanel({ seq }) {
           )}
           {overdue.length > 0 && (
             <Block icon={TriangleAlert} title="伏笔 · 待决策(超期)" count={overdue.length} tone="text-danger font-semibold">
-              {overdue.map((p) => <DecisionRow key={p.id} p={p} seq={seq} onActed={() => setTick((t) => t + 1)} />)}
+              {overdue.map((p) => <DecisionRow key={p.id} p={p} seq={seq} />)}
             </Block>
           )}
           {reminders.length > 0 && (

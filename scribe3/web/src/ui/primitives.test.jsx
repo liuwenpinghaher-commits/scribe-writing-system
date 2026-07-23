@@ -70,4 +70,20 @@ describe('PC UI primitives', () => {
     const b = screen.getByLabelText('b')
     expect([...b.classList].some((c) => c.startsWith('border-line'))).toBe(true)
   })
+
+  it('Btn/Input use compact rounded-md and never wrap label text', async () => {
+    const { Input } = await import('../ui.jsx')
+    render(
+      <>
+        <Btn>导入</Btn>
+        <Input aria-label="title" />
+      </>,
+    )
+    const btn = screen.getByRole('button', { name: '导入' })
+    expect(btn.className).toMatch(/rounded-md/)
+    expect(btn.className).toMatch(/whitespace-nowrap/)
+    expect(btn.className).not.toMatch(/rounded-xl/)
+    expect(screen.getByLabelText('title').className).toMatch(/rounded-md/)
+  })
 })
+

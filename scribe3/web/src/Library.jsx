@@ -121,7 +121,7 @@ export function Library({ works, reload, onSelect }) {
     </Dialog>
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-6xl mx-auto px-6 py-8 md:px-8 md:py-10">
-        <h1 className="prose-serif text-f26 font-semibold tracking-tight text-ink mb-1">作品库</h1>
+        <h1 className="type-page prose-serif text-ink mb-1">作品库</h1>
         <p className="text-faint text-f13 mb-6">每本书独立一库,角色/设定/章节/伏笔互不干扰。</p>
 
         <AsyncState
@@ -146,7 +146,7 @@ export function Library({ works, reload, onSelect }) {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-2 h-10 rounded-xl bg-surface px-3 mb-5 max-w-md shadow-[var(--shadow-panel)]">
+              <div className="flex items-center gap-2 h-10 rounded-md bg-surface px-3 mb-5 max-w-md shadow-[var(--shadow-panel)]">
                 <Search size={15} className="text-faint shrink-0" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索作品…" aria-label="搜索作品"
                   className="flex-1 bg-transparent text-f14 text-ink outline-none placeholder:text-faint/60" />
@@ -166,7 +166,7 @@ export function Library({ works, reload, onSelect }) {
                         className="w-full h-full text-left p-4 rounded-[var(--radius-pane)] cursor-pointer flex flex-col gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
                         <div className="flex items-start gap-2 pr-6">
                           <BookText size={16} className="text-brand shrink-0 mt-0.5" />
-                          <span className="prose-serif text-f15 font-semibold text-ink leading-snug min-w-0 break-words">{w.title}</span>
+                          <span className="prose-serif text-object-title font-semibold text-ink leading-snug min-w-0 break-words">{w.title}</span>
                         </div>
                         {/* U-011: 后端 stats 查询失败标 stats_error → 显红字,不再假 0(作者会误读"稿子丢了") */}
                         <div className="text-f12 tnum">

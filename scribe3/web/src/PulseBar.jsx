@@ -81,7 +81,7 @@ export function PulseBar({ seq, onChat }) {
         )
       })()}
       {cur && (
-        <div className="absolute left-0 top-full mt-1 z-30 w-[340px] max-h-72 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg p-2.5 space-y-1.5">
+        <div className="absolute left-0 top-full mt-1 z-30 w-[340px] max-h-72 overflow-y-auto rounded-md border border-line bg-surface shadow-lg p-2.5 space-y-1.5">
           <div className="text-f12 font-medium text-ink">{DIM_LABEL[cur.dimension]}{cur.degraded ? '(该维降级:没查≠没病)' : ''}</div>
           {cur.items.map((it, i) => (
             <div key={i} className="text-f12 leading-snug border-b border-line/40 last:border-0 pb-1.5 last:pb-0">

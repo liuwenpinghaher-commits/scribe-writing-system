@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { cn } from '../lib/utils'
+import { SelectionQuoteActions } from './SelectionQuoteActions.jsx'
+import { openChiefForEmptyField } from '../lib/selAction.js'
 
 /**
  * Notion 式 click-to-edit 文本原语。
@@ -42,7 +44,7 @@ export function EditableText({
     return (
       <div className={cn(label ? 'py-2' : '', className)} data-testid={testId}>
         {label && <div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div>}
-        <div className={cn('text-f13 text-ink leading-relaxed whitespace-pre-wrap', displayClassName)}>
+        <div className={cn('type-stage whitespace-pre-wrap', displayClassName)}>
           {display || <span className="text-faint">{placeholder || '—'}</span>}
         </div>
       </div>
@@ -52,7 +54,20 @@ export function EditableText({
   const commit = () => {
     setEditing(false)
     let next = draft
-    if (type === 'number') next = draft === '' ? null : Number(draft)
+    if (type === 'number') {
+      const raw = String(draft ?? '').trim()
+      if (raw === '') {
+        next = null
+      } else {
+        const n = Number(raw)
+        // 拒绝 NaN / ±Infinity;jsdom 对 number 输入非法串可能清空为 ''(见测试)
+        if (!Number.isFinite(n)) {
+          setDraft(value ?? '')
+          return
+        }
+        next = n
+      }
+    }
     const prev = type === 'number'
       ? (value === '' || value == null ? null : Number(value))
       : (value ?? '')
@@ -70,7 +85,7 @@ export function EditableText({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="text-f12 text-faint/40 hover:text-brand cursor-pointer transition-colors duration-150"
+          className="text-f12 text-faint hover:text-brand cursor-pointer transition-colors duration-150"
         >
           {emptyLabel || (label ? `+ 添加${label}` : '+ 添加')}
         </button>
@@ -80,7 +95,7 @@ export function EditableText({
 
   if (editing) {
     const editChrome = cn(
-      'w-full rounded-lg border border-brand/40 bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none focus:border-brand',
+      'w-full rounded-lg border border-brand/40 bg-canvas px-3 py-2 type-stage outline-none focus:border-brand',
       inputClassName,
     )
     return (
@@ -143,7 +158,7 @@ export function EditableText({
         role="button"
         tabIndex={0}
         className={cn(
-          'text-f13 text-ink leading-relaxed cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap',
+          'type-stage cursor-text hover:bg-soft/30 rounded-md px-2 py-1.5 -mx-1 transition-colors duration-150 whitespace-pre-wrap',
           displayClassName,
         )}
         onClick={() => setEditing(true)}
@@ -170,19 +185,73 @@ export function EditableField({ section, children, className, ...p }) {
 }
 
 /** 只读展示：纯文本，无边框假输入盒 */
-export function ReadOnlyText({ label, value, section, placeholder = '—', emptyHint, testId, className }) {
+export function ReadOnlyText({
+  label,
+  value,
+  section,
+  placeholder = '—',
+  emptyHint,
+  testId,
+  className,
+  scopeLabel,
+  /** 空字段「聊聊」时的条目名（角色名等） */
+  entityLabel,
+  /** 空字段写入时的字段键（可选，进主编话术） */
+  fieldKey,
+  /** 覆盖默认空字段动作；false 关闭空字段按钮 */
+  emptyAsk = true,
+  emptyAskLabel = '聊聊怎么写',
+  onEmptyAsk,
+}) {
   const display = Array.isArray(value)
-    ? value.join('、')
+    ? (value.length ? value.join('、') : null)
     : (value == null || value === '' ? null : String(value))
+  const body = (
+    <div className="type-stage whitespace-pre-wrap min-h-[1.25rem]">
+      {display || <span className="text-faint">{emptyHint || placeholder}</span>}
+    </div>
+  )
+  const askEmpty = () => {
+    if (typeof onEmptyAsk === 'function') {
+      onEmptyAsk({ label, fieldKey, entityLabel })
+      return
+    }
+    openChiefForEmptyField({
+      entityLabel: entityLabel || scopeLabel || '当前条目',
+      fieldLabel: label || fieldKey || '该字段',
+      fieldKey,
+    })
+  }
+  const showEmptyAsk = !display && emptyAsk !== false && (onEmptyAsk || label || fieldKey)
   return (
     <div
       className={cn(`py-2 ${section ? 'mt-3 pt-3 border-t border-line/60' : ''}`, className)}
       data-testid={testId || undefined}
     >
       {label && <div className="text-meta text-faint uppercase tracking-wider mb-1">{label}</div>}
-      <div className="text-f13 text-ink leading-relaxed whitespace-pre-wrap min-h-[1.25rem]">
-        {display || <span className="text-faint">{emptyHint || placeholder}</span>}
-      </div>
+      {/* 有正文：划选聊/改；空字段：显式「聊聊怎么写」指定这一项进主编 */}
+      {display
+        ? (
+          <SelectionQuoteActions scopeLabel={scopeLabel || label || '设定字段'}>
+            {body}
+          </SelectionQuoteActions>
+        )
+        : (
+          <div className="flex items-start gap-2 flex-wrap min-w-0">
+            <div className="min-w-0 flex-1">{body}</div>
+            {showEmptyAsk && (
+              <button
+                type="button"
+                data-testid={testId ? `${testId}-empty-ask` : 'readonly-empty-ask'}
+                onClick={askEmpty}
+                className="shrink-0 h-7 px-2 rounded-md text-f12 text-brand hover:bg-brand/10 cursor-pointer whitespace-nowrap"
+                title={`指定「${label || fieldKey || '该字段'}」到主编对话`}
+              >
+                {emptyAskLabel}
+              </button>
+            )}
+          </div>
+        )}
     </div>
   )
 }

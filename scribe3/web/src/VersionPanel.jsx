@@ -77,20 +77,20 @@ export function VersionPanel({ seq, refreshKey, onRestore }) {
       )}
       {view && (
         <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setView(null)}>
-          <div className="bg-surface rounded-xl max-w-[680px] w-[90vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-surface rounded-md max-w-[680px] w-[90vw] max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-4 h-11 border-b border-line">
               <span className="text-f13 text-ink">{view.label || '存档'}</span>
               <button onClick={() => { onRestore?.(view.prose); setView(null) }} className="ml-auto text-f12 text-brand hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">恢复到此版本</button>
               <button onClick={() => setView(null)} className="text-f12 text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>
             </div>
-            <div className="manuscript px-5 py-4 overflow-y-auto whitespace-pre-wrap text-f15 leading-[1.85] text-ink">{view.prose}</div>
+            <div className="manuscript type-stage px-5 py-4 overflow-y-auto whitespace-pre-wrap text-ink">{view.prose}</div>
           </div>
         </div>
       )}
       {/* R1-6:三稿横向并排(每稿一列可滚动),裁决时同屏读全文,「选此稿」直接恢复 */}
       {showCompare && (
         <div className="fixed inset-0 bg-black/40 grid place-items-center z-50" onClick={() => setShowCompare(false)}>
-          <div className="bg-surface rounded-xl max-w-[95vw] w-[95vw] max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-surface rounded-md max-w-[95vw] w-[95vw] max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 px-4 h-11 border-b border-line shrink-0">
               <span className="text-f13 text-ink">并排对比 · {compare.length} 稿</span>
               <button onClick={() => setShowCompare(false)} className="ml-auto text-f12 text-faint hover:bg-soft px-2 h-7 rounded-lg cursor-pointer">关闭</button>

@@ -14,7 +14,7 @@ function RailBtn({ cap, label, badge, on, onClick }) {
   const Icon = cap.icon
   return (
     <button onClick={onClick} aria-label={cap.label} aria-pressed={on} title={cap.label}
-      className={cn('group relative w-full flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition-colors cursor-pointer',
+      className={cn('group relative w-full flex flex-col items-center gap-0.5 py-1.5 rounded-md transition-colors cursor-pointer',
         on ? 'bg-brand/10 text-brand' : 'text-faint hover:bg-soft hover:text-ink')}>
       <span className="relative inline-flex items-center justify-center">
         {Icon && <Icon size={18} />}

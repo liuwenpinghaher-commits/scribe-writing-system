@@ -5,7 +5,8 @@ import { useDeduceSel } from './deduceContext'
 import { useStageProposal, useChiefSlot, ProposalBar } from './ChiefSlotContext'
 import { useToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
-import { RichEditor, useUnsavedGuard } from './editor/RichEditor.jsx'
+import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
+import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 
 // Task 4:话术引用截断——chiefIntent 只是预填输入框,长演绎全文引用会塞爆(spec §4 要点4)。
@@ -17,178 +18,81 @@ const truncateQuote = (s) => {
   return t.length > QUOTE_MAX ? t.slice(0, QUOTE_MAX) + '…' : t
 }
 
-// 演绎中区:据当前选中(truth 或 character_id)显示/编辑/生成并失焦落库。
-// work 由 ChapterStudio 透传(实例 key=work,值稳定):卸载兜底 flush 钉死目标书,防切书写错书(F6,同 F1/F5)。
+// 演绎中区:只读展示 + 主编种子(禁止作者 REST / 表单失焦直写 scene_truth·deductions)。
+// 生成结果经种子送主编审批,不本地 dirty 落库。
 export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
   const { setChiefIntent } = useChiefSlot()
   const { snapshot } = useContextSnapshot()
-  const [text, setText] = useState('')
+  const [preview, setPreview] = useState('') // 生成预览(只读,不直写)
   const [busy, setBusy] = useState(false)
   const [grounding, setGrounding] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
-  const [addingRole, setAddingRole] = useState(false)
   const generationRef = useRef(null)
   const chars = meta?.chars || []
   const cur = selected === 'truth'
     ? { name: '场景真相', prose: meta?.scene_truth || '' }
     : (meta?.deductions || []).find((d) => d.character_id === selected)
       || { character_id: selected, character_name: (chars.find((c) => c.id === selected) || {}).name || selected, prose: '' }
-  // 工作态 ref:持当前 selected/seq/text/dirty,完全脱离 state 闭包,切换/落库时机都拿最新值。
-  const workRef = useRef({ selected, seq, text: '', dirty: false })
 
-  // persistFor:用捕获的旧 sel/sq/val 落库,不读可能已变的 state/props。返回是否成功,供调用方恢复 dirty 重试。
-  // 角色分支读最新 chapter 再合并 deductions,避免用过期 meta 覆盖其他角色投影。
-  const persistFor = async (sel, sq, val) => {
-    try {
-      if (sel === 'truth') {
-        // 传 work:切书卸载 flush 走全局 WORK 会把本书场景真相写进别的书(F6,同 OutlineTab/BeatsTab 钉书)
-        await api.patchChapter(sq, { scene_truth: val }, work)
-      } else {
-        // 投影的唯一事实源是服务端场景真相。这里不能信任前端 meta，也不能把
-        // "生成结束"当成可写入：先审查，再合并进入 deductions。
-        const review = await api.validateDeduction(sq, val, sel, work)
-        if (!review?.ok) {
-          const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
-          setGrounding({ ok: false, reason })
-          toast(`投射未保存：${reason}`, { tone: 'danger', duration: 7000 })
-          return false
-        }
-        setGrounding({ ok: true })
-        const ch = await api.chapter(sq, work)                 // 读最新且钉住目标书,避免 meta 过期覆盖别的角色/读错书
-        const others = (ch?.deductions || []).filter((d) => d.character_id !== sel)
-        const name = (meta?.chars?.find((c) => c.id === sel) || {}).name
-          || (ch?.deductions || []).find((d) => d.character_id === sel)?.character_name || sel
-        await api.patchChapter(sq, { deductions: [...others, { character_id: sel, character_name: name, prose: val }] }, work)
-      }
-      onSaved?.()
-      return true
-    } catch (e) {
-      toast(e?.body?.detail || '演绎保存失败,请重试', { tone: 'danger' })
-      return false
-    }
-  }
+  const displayText = preview || cur.prose || ''
+  const targetName = selected === 'truth' ? '场景真相' : (cur.character_name || selected)
 
-  // 切换(选中项/切章):进入时 workRef 仍持旧 selected/seq/text;若 dirty 先把旧的 flush 掉,再载新的。
-  // alive 取消令牌:persist 在途时目标再变(A→B→C),旧 effect 续体不得 setText/写 workRef,
-  // 否则旧目标内容回灌且后续编辑错写到中间目标。
-  // flush 失败 → 不覆盖 workRef 旧值,恢复 dirty,并把选中态回滚到旧目标(标题与编辑器不分叉,可重试)。
   useEffect(() => {
-    let alive = true
-    const flushThenLoad = async () => {
-      const w = workRef.current
-      let flushed = null   // 本次成功 flush 的 {sel, sq, val}
-      if (w.dirty) {
-        const { selected: sel, seq: sq, text: val } = w
-        w.dirty = false
-        const ok = await persistFor(sel, sq, val)
-        if (!alive) {
-          // 目标又变了:最新 effect 已按 dirty=false 加载新目标,此处绝不回写 workRef(否则错置)。
-          if (!ok) console.warn('[deduce] flush 失败且目标已再切换,该次未保存内容无法自动恢复', sel, sq)
-          return
-        }
-        if (!ok) {
-          workRef.current = { selected: sel, seq: sq, text: val, dirty: true }
-          // 回滚选中项到旧目标(切章失败无法回滚章导航,编辑器停在未保存内容,失焦/再切换可重试)
-          if (sq === seq && sel !== selected) setSelected(sel)
-          return
-        }
-        flushed = { sel, sq, val }
-      }
-      // 载入新目标;若新目标恰是刚成功 flush 的同一目标(回滚重试成功路径),用刚保存的值,防 stale meta 回灌
-      const v = (flushed && flushed.sel === selected && flushed.sq === seq) ? flushed.val : (cur.prose || '')
-      setText(v)
-      workRef.current = { selected, seq, text: v, dirty: false }
-    }
-    flushThenLoad()
-    return () => { alive = false }
-  }, [selected, seq]) // eslint-disable-line
+    setPreview('')
+    setGrounding(null)
+  }, [selected, seq])
 
-  // 失焦 flush:从 workRef 读实时值(不读 state 闭包),与切换 flush 同一落库口径。
-  // 失败且仍停在同一目标 → 恢复 dirty 可重试(已切走则由 flushThenLoad 分支兜)。
-  const blur = () => {
-    const w = workRef.current
-    if (!w.dirty) return
-    const { selected: sel, seq: sq, text: val } = w
-    w.dirty = false
-    persistFor(sel, sq, val).then((ok) => {
-      const c = workRef.current
-      if (!ok && c.selected === sel && c.seq === sq) c.dirty = true
-    })
+  const askChiefWrite = (content, hintExtra = '') => {
+    const body = content != null ? content : displayText
+    seedChiefNarrativeWrite(
+      'deduce',
+      `第 ${seq} 章·${targetName}`,
+      `${hintExtra || '请将以下演绎内容写入并提交审批。'}\n字段: ${selected === 'truth' ? 'scene_truth' : 'deductions.' + selected}\n\n${body || '（空）'}`,
+    )
+    toast('已送主编审批写入(不直接落库)', { tone: 'ok' })
   }
-  useUnsavedGuard(() => workRef.current.dirty)
 
-  // 卸载(切阶段)前 flush 兜底:blur 不一定先于卸载触发(键盘/程序化切换)。
-  // 卸载后无法 await/重试,fire-and-forget;失败除 persistFor 的 danger toast 外再 console.warn 留痕。
-  useEffect(() => () => {
-    const w = workRef.current
-    if (w.dirty) {
-      w.dirty = false
-      persistFor(w.selected, w.seq, w.text)
-        .then((ok) => { if (!ok) console.warn('[deduce] 卸载 flush 保存失败', w.selected, w.seq) })
-    }
-  }, []) // eslint-disable-line
-
-  // 块二:接主编 stageProposal —— phase='deduce' 且 seq/target(truth 或角色)全匹配才显示,
-  // 防切章/切目标错落。落进编辑器置 dirty,走上面失焦/切换/卸载的健壮保存。
   const { pending, clear } = useStageProposal('deduce', seq, selected)
   const fillPending = () => {
     if (!pending) return
-    setText(pending.content)
-    workRef.current = { selected, seq, text: pending.content, dirty: true }
-    clear(); toast('已填入,失焦自动存')
+    askChiefWrite(pending.content, '请用以下主编提案覆盖当前演绎:')
+    clear()
   }
   const appendPending = () => {
     if (!pending) return
-    const w = workRef.current
-    const base = (w.selected === selected && w.seq === seq) ? w.text : text
-    const next = (base ? base + '\n\n' : '') + pending.content
-    setText(next)
-    workRef.current = { selected, seq, text: next, dirty: true }
-    clear(); toast('已追加,失焦自动存')
+    const next = (displayText ? displayText + '\n\n' : '') + pending.content
+    askChiefWrite(next, '请将以下内容并入当前演绎:')
+    clear()
   }
 
-  // Task 4:条目级「聊这条/改这条」——当前演绎目标(truth 或角色)话术经 chiefIntent 预填进右栏,
-  // 落地复用既有 fillPending(=替换当前目标 prose,零新落地逻辑,详见 Step 1 核实)。
-  const targetName = selected === 'truth' ? '场景真相' : cur.character_name
-  // 内容为空(或纯空白)时禁用入口:空引号话术没有讨论/改稿对象,只会让主编猜。
-  const noProse = !text.trim()
+  const noProse = !displayText.trim()
   const notifyChief = () => { try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ } }
   const chatCur = () => {
     if (noProse) return
-    setChiefIntent({ phase: 'deduce', seq, text: `就本章「${targetName}」的演绎和你聊聊(先不改):「${truncateQuote(text)}」\n` })
+    setChiefIntent({ phase: 'deduce', seq, text: `就本章「${targetName}」的演绎和你聊聊(先不改):「${truncateQuote(displayText)}」\n` })
     notifyChief()
   }
   const editCur = () => {
     if (noProse) return
-    setChiefIntent({ phase: 'deduce', seq, text: `把本章「${targetName}」这条演绎改一下,直接给出改后的完整演绎:「${truncateQuote(text)}」` })
+    setChiefIntent({ phase: 'deduce', seq, text: `把本章「${targetName}」这条演绎改一下,直接给出改后的完整演绎:「${truncateQuote(displayText)}」` })
     notifyChief()
   }
 
-  // 四栏版没有旧 DeduceTree 的角色树，故在实际演绎工作台保留同一条显式写入通道。
-  // 先读章再合并，避免另一个窗口/面板刚加入的角色被本地过期 meta 覆盖。
   const addAndSelectRole = async () => {
-    if (!roleToAdd || addingRole) return
-    setAddingRole(true)
-    try {
-      const latest = await api.chapter(seq, work)
-      const involved = latest?.involved_characters || meta?.involved_characters || []
-      if (!involved.includes(roleToAdd)) {
-        await api.patchChapter(seq, { involved_characters: [...involved, roleToAdd] }, work)
-        onSaved?.()
-      }
-      setSelected(roleToAdd)
-      setRoleToAdd('')
-    } catch (e) {
-      toast(e?.body?.detail || '加入涉及角色失败,请重试', { tone: 'danger' })
-    } finally {
-      setAddingRole(false)
-    }
+    if (!roleToAdd) return
+    const name = (chars.find((c) => c.id === roleToAdd) || {}).name || roleToAdd
+    seedChiefNarrativeWrite(
+      'deduce',
+      `第 ${seq} 章涉及角色`,
+      `请将角色「${name}」(${roleToAdd})加入第 ${seq} 章 involved_characters 并提交审批。`,
+    )
+    setSelected(roleToAdd)
+    setRoleToAdd('')
+    toast('已送主编审批加入角色', { tone: 'ok' })
   }
 
-  // 写作流可能因上游工具/模型长时间不返回而一直占住编辑器。中止只撤销浏览器请求，
-  // 绝不把当前预览标为 dirty 或写入章节；作者可保留可见预览自行判断后再编辑。
   const stopGeneration = (message = '已停止生成；未完成内容不会自动保存为投影。') => {
     const run = generationRef.current
     if (!run) return
@@ -198,39 +102,37 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     try { run.abort?.() } catch (_) { /* */ }
     setBusy(false)
     if (selected !== 'truth') setGrounding({ ok: false, reason: message })
-    toast(message, { tone: 'warn', duration: 7000 })
+    toast(message, { tone: 'warn' })
   }
 
   const gen = () => {
+    if (busy) return
     const target = selected
-    setBusy(true); setGrounding(null)
+    const run = { stopped: false, abort: null, timer: null }
+    generationRef.current = run
+    setBusy(true)
+    setGrounding(null)
+    setPreview('')
+    let acc = ''
+    const finish = () => {
+      clearTimeout(run.timer)
+      if (generationRef.current === run) generationRef.current = null
+    }
     const instr = target === 'truth'
-      ? `写第${seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,含角色们察觉不到的隐藏机制。据本章大纲/节拍/设定(含私密)。只输出真相正文。`
-      : `以「${cur.character_name}」截至第${seq}章的限知,写该角色这一场的限知投影,分五个小标题:看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 markdown 三级标题(### 标题)独立起行。据场景真相与该角色的限知帧,只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。`
-    // 服务端事实门是唯一裁决。首稿越界时，带回具体失败原因自动返修一次；
-    // 第二次仍不通过就明确拦截，绝不把“看似可用”的未对齐稿设为待保存。
+      ? `请为第 ${seq} 章写「场景真相」(全知客观)。用 markdown。`
+      : `请为第 ${seq} 章写角色「${targetName}」的限知投影。严格遵循角色档案已有的称谓和代词;不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。`
     const runPass = (instruction, attempt = 0) => {
-      let acc = ''
-      const run = { abort: null, timer: null, stopped: false }
-      generationRef.current = run
-      const finish = () => {
-        clearTimeout(run.timer)
-        if (generationRef.current === run) generationRef.current = null
-      }
-      // 后端写作流事件:proposal_start → proposal_chunk（逐段文本，用于流式预览）→ proposal（完整稿）。
-      // 兼容纯 delta 流。全部累进到 acc，完成后落库。
       const request = api.chatWrite(instruction, {
-        // phase='deduce':后端据此注入场景真相(投影从同一真相派生的物理保证,断头修复#5)
         chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
         context: snapshot ? {
           context_session_id: snapshot.session_id,
           context_revision: snapshot.revision,
           context_hash: snapshot.context_hash,
         } : null,
-        onProposalStart: () => { if (!run.stopped) { acc = ''; setText('') } },
-        onProposalChunk: (c) => { if (!run.stopped) { acc += (c?.text ?? c ?? ''); setText(acc) } },
-        onDelta: (d) => { if (!run.stopped) { acc += d; setText(acc) } },
-        onProposal: (p) => { if (!run.stopped) { acc = p.prose ?? p.text ?? acc; setText(acc) } },
+        onProposalStart: () => { if (!run.stopped) { acc = ''; setPreview('') } },
+        onProposalChunk: (c) => { if (!run.stopped) { acc += (c?.text ?? c ?? ''); setPreview(acc) } },
+        onDelta: (d) => { if (!run.stopped) { acc += d; setPreview(acc) } },
+        onProposal: (p) => { if (!run.stopped) { acc = p.prose ?? p.text ?? acc; setPreview(acc) } },
         onDone: async () => {
           if (run.stopped) return
           finish()
@@ -240,65 +142,54 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
             toast('演绎未返回可用内容，请重试。', { tone: 'danger' })
             return
           }
-          if (attempt === 0 && target === 'truth') setBusy(false)
-        if (v) {
-          setText(v)
-          // 场景真相可直接由作者使用；角色投射先拿服务端权威真相做事实对齐。
-          // 通过后仍保持待作者确认状态；失败稿不置 dirty，因而失焦/切换也不会偷写入。
+          setPreview(v)
           if (target === 'truth') {
-            persistFor(target, seq, v)
-            workRef.current = { selected: target, seq, text: v, dirty: false }
-          } else {
-            try {
-              const review = await api.validateDeduction(seq, v, target, work)
-              if (review?.ok) {
+            setBusy(false)
+            askChiefWrite(v, '请将生成的场景真相写入并提交审批:')
+            return
+          }
+          try {
+            const review = await api.validateDeduction(seq, v, target, work)
+            if (review?.ok) {
+              setBusy(false)
+              setGrounding({ ok: true })
+              askChiefWrite(v, '事实对齐通过。请将以下角色投影写入并提交审批:')
+            } else {
+              const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
+              if (attempt === 0) {
+                toast(`首稿未通过事实对齐，正按校验反馈返修：${reason}`, { tone: 'warn', duration: 7000 })
+                const repair = `上一稿未通过场景真相事实对齐，原因：${reason}。请重写完整的角色限知投影，只保留能够由场景真相直接支持的主张；不要补充人物、物件、动作、时间、物理现象或前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。\n\n【待修稿】\n${v.slice(0, 6000)}`
+                runPass(repair, 1)
+                return
+              }
+              try {
+                const fallback = await api.groundedDeductionFallback(seq, target, work)
+                const safe = (fallback?.candidate || '').trim()
+                if (!safe) throw new Error('服务端未返回可追溯投影')
+                setPreview(safe)
+                const safeReview = await api.validateDeduction(seq, safe, target, work)
+                if (!safeReview?.ok) throw new Error(safeReview?.issues?.[0]?.reason || '可追溯投影复核失败')
                 setBusy(false)
                 setGrounding({ ok: true })
-                workRef.current = { selected: target, seq, text: v, dirty: true }
-                toast('事实对齐通过；请核对场景真相后失焦确认保存。', { tone: 'warn', duration: 6000 })
-              } else {
-                const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
-                if (attempt === 0) {
-                  toast(`首稿未通过事实对齐，正按校验反馈返修：${reason}`, { tone: 'warn', duration: 7000 })
-                  const repair = `上一稿未通过场景真相事实对齐，原因：${reason}。请重写完整的角色限知投影，只保留能够由场景真相直接支持的主张；不要补充人物、物件、动作、时间、物理现象或前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。\n\n【待修稿】\n${v.slice(0, 6000)}`
-                  runPass(repair, 1)
-                  return
-                }
-                // 自由生成和一次返修都没有通过时，不能继续让模型换词碰运气。
-                // 改取服务端从场景真相逐字编排的五栏稿，并再走同一事实门。
-                try {
-                  const fallback = await api.groundedDeductionFallback(seq, target, work)
-                  const safe = (fallback?.candidate || '').trim()
-                  if (!safe) throw new Error('服务端未返回可追溯投影')
-                  setText(safe)
-                  const safeReview = await api.validateDeduction(seq, safe, target, work)
-                  if (!safeReview?.ok) throw new Error(safeReview?.issues?.[0]?.reason || '可追溯投影复核失败')
-                  setBusy(false)
-                  setGrounding({ ok: true })
-                  workRef.current = { selected: target, seq, text: safe, dirty: true }
-                  toast('自由稿未通过事实门，已切换为可追溯摘录；请核对后失焦确认保存。', { tone: 'warn', duration: 7000 })
-                } catch (fallbackError) {
-                  setBusy(false)
-                  const fallbackReason = fallbackError?.body?.detail || fallbackError?.message || reason
-                  setGrounding({ ok: false, reason: fallbackReason })
-                  workRef.current = { selected: target, seq, text: v, dirty: false }
-                  toast(`投射未保存：${fallbackReason}`, { tone: 'danger', duration: 7000 })
-                }
+                askChiefWrite(safe, '自由稿未过门,已用可追溯摘录。请写入并提交审批:')
+              } catch (fallbackError) {
+                setBusy(false)
+                const fallbackReason = fallbackError?.body?.detail || fallbackError?.message || reason
+                setGrounding({ ok: false, reason: fallbackReason })
+                toast(`投射未送审：${fallbackReason}`, { tone: 'danger', duration: 7000 })
               }
-            } catch (e) {
-              setBusy(false)
-              setGrounding({ ok: false, reason: '事实对齐服务不可用' })
-              workRef.current = { selected: target, seq, text: v, dirty: false }
-              toast('投射未保存：事实对齐服务不可用，请稍后重试。', { tone: 'danger', duration: 7000 })
             }
+          } catch (e) {
+            setBusy(false)
+            setGrounding({ ok: false, reason: '事实对齐服务不可用' })
+            toast('投射未送审：事实对齐服务不可用，请稍后重试。', { tone: 'danger', duration: 7000 })
           }
-        }
         },
         onError: (e) => {
           if (run.stopped) return
           finish()
           setBusy(false); toast('演绎失败:' + e, { tone: 'danger' })
-        },  // 不动 text,保留已有内容
+        },
       })
       run.abort = () => request?.abort?.()
       run.timer = setTimeout(() => {
@@ -315,9 +206,6 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     runPass(instr)
   }
 
-  // 全局「演绎」入口在尚未从手稿选定章节时也可被打开。该状态没有合法的
-  // chapter seq，绝不能呈现可编辑/可生成的工作台，否则失焦保存会请求
-  // /chapters/undefined，既无写入目标也会把后端校验对象传入提示组件。
   const hasChapter = Number.isInteger(Number(seq)) && Number(seq) >= 1
   if (!hasChapter) return (
     <div data-testid="deduce-stage-missing-chapter" className="p-6 text-f13 text-faint">
@@ -330,8 +218,8 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
       data-testid="deduce-stage"
       className="w-full max-w-[min(1120px,calc(100%-48px))] mx-auto px-6 py-6 h-full flex flex-col min-h-0"
     >
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-f14 font-semibold text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <h3 className="type-section text-ink">{selected === 'truth' ? '场景真相 · 全知' : `${cur.character_name} · 限知投影`}</h3>
         {chars.length > 0 && (
           <div className="flex items-center gap-1 ml-auto">
             <select aria-label="投射角色" value={roleToAdd} onChange={(e) => setRoleToAdd(e.target.value)}
@@ -339,8 +227,8 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
               <option value="">加入角色…</option>
               {chars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <Btn variant="ghost" size="sm" onClick={addAndSelectRole} disabled={!roleToAdd || addingRole}>
-              {addingRole ? '加入中…' : '加入并切换角色'}
+            <Btn variant="ghost" size="sm" onClick={addAndSelectRole} disabled={!roleToAdd}>
+              加入并切换角色
             </Btn>
           </div>
         )}
@@ -358,25 +246,35 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
         <Btn variant="primary" size="sm" onClick={gen} disabled={busy}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
+        <Btn variant="primary" size="sm" data-testid="deduce-ask-chief" onClick={() => askChiefWrite()}>
+          让主编写入
+        </Btn>
       </div>
       {pending && (
         <ProposalBar
           text={`主编生成了「${selected === 'truth' ? '场景真相' : cur.character_name}」的内容(${pending.content.replace(/\s/g, '').length} 字)。`}
-          actions={[{ label: '填入', variant: 'primary', onClick: fillPending }, { label: '追加', onClick: appendPending }]}
+          actions={[{ label: '送审填入', variant: 'primary', onClick: fillPending }, { label: '送审追加', onClick: appendPending }]}
           onDismiss={clear}
         />
       )}
-      <RichEditor value={text} editorKey={`${seq}|${selected}`}
-        ariaLabel={selected === 'truth' ? '场景真相' : '限知投影'}
-        onChange={(md) => { setText(md); workRef.current.text = md; workRef.current.dirty = true }} onBlur={blur}
-        placeholder={selected === 'truth' ? '这一场客观真正发生了什么(全知,含隐藏机制)…' : '看到/听到 · 知道 · 以为(误读) · 做了/说了 · 没察觉的'}
-        className="flex-1 min-h-0 w-full" />
+      <SelectionQuoteActions
+        scopeLabel={selected === 'truth' ? `第 ${seq} 章场景真相` : `第 ${seq} 章「${targetName}」限知`}
+        className="flex-1 min-h-0 overflow-y-auto type-stage whitespace-pre-wrap"
+        data-testid="deduce-readonly"
+        disabled={noProse}
+      >
+        <div aria-label={selected === 'truth' ? '场景真相' : '限知投影'}>
+          {displayText.trim()
+            ? displayText
+            : <span className="text-faint">（空 · 由主编审批写入；可先「生成」预览再送审）</span>}
+        </div>
+      </SelectionQuoteActions>
       {selected !== 'truth' && grounding && (
         <div role="status" className={`text-f12 mt-2 ${grounding.ok ? 'text-ok' : 'text-danger'}`}>
-          {grounding.ok ? '事实对齐通过：仍需作者失焦确认后保存。' : `事实对齐未通过：${grounding.reason}`}
+          {grounding.ok ? '事实对齐通过：已/可送主编审批写入。' : `事实对齐未通过：${grounding.reason}`}
         </div>
       )}
-      <div className="text-f12 text-faint mt-2">失焦自动存;所有角色投影都从「场景真相」派生,保持一致。</div>
+      <div className="text-f12 text-faint mt-2">只读检视;写入一律主编审批。所有角色投影都从「场景真相」派生。</div>
     </div>
   )
 }

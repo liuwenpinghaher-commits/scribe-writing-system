@@ -8,23 +8,40 @@
 @theme {
   --font-ui: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'PingFang SC', sans-serif;
   --font-prose: 'Source Serif 4', 'Noto Serif SC', Georgia, 'Songti SC', serif;
-  /* 字号 scale(fNN 命名,不撞 Tailwind 默认 text-xs/sm/base,避免语义打架)
-     取现用整数字号集为档位,整数值视觉零变化;半像素向上就近折一档 */
-  --text-f10: 10px;   /* 覆盖 9,10 */
-  --text-f11: 11px;   /* 覆盖 10.5,11 */
-  --text-f12: 12px;   /* 覆盖 11.5,12 */
-  --text-f13: 13px;   /* 覆盖 12.5,13 —— 应用最常用正文档 */
-  --text-f14: 14px;   /* 覆盖 13.5,14 */
+  /* ── 字号阶梯（2026 统一）─────────────────────────────────────────
+     语义角色优先；fNN 仅作兼容别名。禁止再发明 11.5/16.5/17.5 等半档。
+       meta          12  辅助/计数/徽章
+       helper        13  栏2 目录行、密列表
+       body          14  默认 UI 正文、表单
+       stage         15  大纲/节拍/草稿/设定字段（写作中间态）
+       object-title  15  栏头对象名、目录标题
+       section-title 17  阶段标题、详情 h2
+       page-title    20  作品库/仪表盘页标题
+       prose         17  正文手稿衬线阅读
+  */
+  --text-f10: 10px;
+  --text-f11: 11px;
+  --text-f12: 12px;
+  --text-f13: 13px;
+  --text-f14: 14px;
   --text-f15: 15px;
-  --text-f18: 18px;
-  --text-f22: 22px;
-  --text-f26: 26px;
+  --text-f16: 15px;   /* 并入 object/stage，不再用 16 */
+  --text-f18: 17px;   /* 并入 section-title */
+  --text-f20: 17px;
+  --text-f22: 17px;   /* 详情标题不再比页标题更大 */
+  --text-f26: 20px;   /* 并入 page-title */
   --text-meta: 12px;
   --text-helper: 13px;
   --text-body: 14px;
-  --text-object-title: 16px;
-  --text-section-title: 20px;
-  --text-page-title: 24px;
+  --text-stage: 15px;
+  --text-object-title: 15px;
+  --text-section-title: 17px;
+  --text-page-title: 20px;
+  --text-prose: 17px;
+  --leading-meta: 1.4;
+  --leading-ui: 1.55;
+  --leading-stage: 1.75;
+  --leading-prose: 1.85;
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0, 0, 0.2, 1);
   /* Upstream 式多层柔影:画布上浮白卡,少硬描边 */
@@ -48,7 +65,10 @@
   --color-fore: #c2683a;
   --color-irony: #4f76a3;
   --color-secret: #9c5f86;
-  --radius-pane: 14px;
+  /* 面板/卡片圆角：略收紧，避免「胶囊感」过大 */
+  --radius-pane: 8px;
+  --radius-control: 6px;
+  --radius-chip: 9999px;
 }
 
 :root {
@@ -71,9 +91,15 @@
   --text-meta: 12px;
   --text-helper: 13px;
   --text-body: 14px;
-  --text-object-title: 16px;
-  --text-section-title: 20px;
-  --text-page-title: 24px;
+  --text-stage: 15px;
+  --text-object-title: 15px;
+  --text-section-title: 17px;
+  --text-page-title: 20px;
+  --text-prose: 17px;
+  --leading-meta: 1.4;
+  --leading-ui: 1.55;
+  --leading-stage: 1.75;
+  --leading-prose: 1.85;
 }
 
 .dark {
@@ -109,9 +135,18 @@ body {
   min-width: 0;
   background: var(--color-canvas);
   color: var(--color-ink);
-  font: 14px/1.6 var(--font-ui);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--leading-ui);
   -webkit-font-smoothing: antialiased;
 }
+/* 语义排版工具（优先于散落 text-fNN） */
+.type-meta { font-size: var(--text-meta); line-height: var(--leading-meta); }
+.type-helper { font-size: var(--text-helper); line-height: var(--leading-ui); }
+.type-body { font-size: var(--text-body); line-height: var(--leading-ui); }
+.type-stage { font-size: var(--text-stage); line-height: var(--leading-stage); color: var(--color-ink); }
+.type-section { font-size: var(--text-section-title); line-height: 1.35; font-weight: 600; letter-spacing: -0.01em; }
+.type-page { font-size: var(--text-page-title); line-height: 1.3; font-weight: 600; letter-spacing: -0.02em; }
 /* 可调栏内子树默认裁切,避免拖拽时子项撑破邻栏 */
 [data-panel],
 [data-panel-group] {
@@ -121,7 +156,7 @@ body {
 .prose-serif { font-family: var(--font-prose); }
 
 /* 正文阅读区:衬线、宽行高、控制行宽 */
-.manuscript { font-family: var(--font-prose); font-size: 16.5px; line-height: 1.95; }
+.manuscript { font-family: var(--font-prose); font-size: var(--text-prose); line-height: var(--leading-prose); }
 .manuscript p { margin: 0 0 1.1em; }
 
 /* 衬线阅读模式(可选):CJK宋体字族,默认关闭 */
@@ -143,7 +178,8 @@ body {
 .prose-chat ul { list-style: disc; }
 .prose-chat ol { list-style: decimal; }
 .prose-chat li { margin: 0.2em 0; }
-.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-size: 15px; font-weight: 600; margin: 0.8em 0 0.3em; }
+.prose-chat { font-size: var(--text-body); line-height: var(--leading-ui); }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-size: var(--text-stage); font-weight: 600; margin: 0.8em 0 0.3em; }
 .prose-chat strong { font-weight: 600; }
 .prose-chat code { background: var(--color-soft); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
 .prose-chat blockquote { border-left: 2px solid var(--color-line); padding-left: 0.8em; color: var(--color-faint); margin: 0.5em 0; }
@@ -161,7 +197,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
   border: 1px solid transparent;
   background: var(--color-surface);
   box-shadow: var(--shadow-panel);
-  border-radius: 12px;
+  border-radius: var(--radius-pane);
   transition: border-color 160ms var(--ease-standard), background 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
 }
 .chief-composer-panel:focus-within {
@@ -188,8 +224,8 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 .tiptap-shell { display: flex; flex-direction: column; }
 .tiptap-prose {
   font-family: var(--font-prose);
-  font-size: 17.5px;
-  line-height: 1.9;                 /* 中文需更高行距 */
+  font-size: var(--text-prose);     /* 与 .manuscript 同源 17px */
+  line-height: var(--leading-prose);
   color: var(--color-ink);
   outline: none;
   caret-color: var(--color-brand);  /* 光标黛绿 */
@@ -221,20 +257,21 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 /* ============ 前置阶段富文本(RichEditor:大纲/节拍/演绎/草稿) ============ */
 /* 外壳仿 Textarea 原语:圆角边框 + 聚焦黛绿;full 版内部滚动。mini(节拍单条)无框透明 */
 .rich-shell {
-  border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas);
+  border: 1px solid var(--color-line); border-radius: var(--radius-pane); background: var(--color-canvas);
   transition: border-color 150ms; display: flex; flex-direction: column; min-height: 0;
 }
 .rich-shell:focus-within { border-color: var(--color-brand); }
 .rich-shell-full { padding: 12px 16px 8px; }
 .rich-shell-full .rich-content { flex: 1; min-height: 0; overflow-y: auto; }
 .rich-shell-full .rich-content > div { min-height: 100%; }
-.rich-shell:not(.rich-shell-full) { border: none; border-radius: 6px; background: transparent; }
+.rich-shell:not(.rich-shell-full) { border: none; border-radius: var(--radius-control); background: transparent; }
+/* 草稿/素材等：与大纲阶段正文同级（stage 15），不与正文 17 抢阅读位 */
 .tiptap-rich {
-  font-size: 14px; line-height: 1.85; color: var(--color-ink);
+  font-size: var(--text-stage); line-height: var(--leading-stage); color: var(--color-ink);
   outline: none; caret-color: var(--color-brand); width: 100%; min-height: 100%;
   word-break: normal; overflow-wrap: break-word; line-break: strict;
 }
-.tiptap-rich-mini { min-height: 1.6em; font-size: 13px; line-height: 1.6; }
+.tiptap-rich-mini { min-height: 1.6em; font-size: var(--text-helper); line-height: var(--leading-ui); }
 .tiptap-rich p { margin: 0 0 .35em; }
 .tiptap-rich-mini p { margin: 0; }
 .tiptap-rich strong { font-weight: 650; }

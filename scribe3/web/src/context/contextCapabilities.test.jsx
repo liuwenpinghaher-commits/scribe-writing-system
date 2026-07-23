@@ -16,7 +16,7 @@ function Probe() {
 }
 
 describe('ContextSnapshotProvider capabilities', () => {
-  it('后端开启的开关下发到前端,未列出的保持安全默认', async () => {
+  it('后端开启的开关下发到前端,未列出的保持 DEFAULT_CAPABILITIES', async () => {
     apiMock.fetchCapabilities.mockResolvedValueOnce({
       flags: { context_inspector_v1: true },   // 只列一个开的
       versions: { retrieval_policy: '1' },
@@ -25,18 +25,22 @@ describe('ContextSnapshotProvider capabilities', () => {
     await waitFor(() => {
       const flags = JSON.parse(screen.getByTestId('caps').textContent)
       expect(flags.context_inspector_v1).toBe(true)
-      expect(flags.memory_fabric_v1).toBe(false)      // 未列出 → 默认全关
-      expect(flags.snapshot_v1).toBe(false)
-      expect(flags.assembler_v1).toBe(true)           // 兼容键表达统一内核事实
+      // 未列出 → 保留 DEFAULT_CAPABILITIES(当前 always-on 内核键为 true)
+      expect(flags.memory_fabric_v1).toBe(DEFAULT_CAPABILITIES.flags.memory_fabric_v1)
+      expect(flags.snapshot_v1).toBe(DEFAULT_CAPABILITIES.flags.snapshot_v1)
+      expect(flags.assembler_v1).toBe(DEFAULT_CAPABILITIES.flags.assembler_v1)
     })
   })
 
-  it('拉取失败时保持安全默认(fail-soft,前端不越权开启灰度能力)', async () => {
+  it('拉取失败时保持 always-on 产品默认(与后端 settings 一致)', async () => {
     apiMock.fetchCapabilities.mockRejectedValueOnce(new Error('网络错误'))
     render(<ContextSnapshotProvider work="demo"><Probe /></ContextSnapshotProvider>)
     await waitFor(() => {
       const flags = JSON.parse(screen.getByTestId('caps').textContent)
       expect(flags).toEqual(DEFAULT_CAPABILITIES.flags)
+      expect(flags.memory_fabric_v1).toBe(true)
+      expect(flags.context_inspector_v1).toBe(true)
+      expect(flags.snapshot_v1).toBe(true)
     })
   })
 })

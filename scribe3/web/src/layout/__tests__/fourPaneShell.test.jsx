@@ -201,6 +201,73 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.getByTestId('detail-content').textContent).toBe('node:material:1')
   })
 
+  it('从伏笔详情切到素材库时,栏3 收敛到素材根(不再残留伏笔详情)', () => {
+    localStorage.setItem('s3.demo.leftTab', 'promise')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: {
+            id: 'promise:overdue',
+            type: 'promise_view',
+            capability: 'promise',
+            label: '超期未收',
+            ref: { view: 'overdue', seq: 3 },
+          },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:promise:overdue')
+
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }))
+
+    expect(screen.getByTestId('material-list')).toBeTruthy()
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:material_root')
+  })
+
+  it('s3-open-capability 打开搜索时栏3 不残留伏笔详情', async () => {
+    localStorage.setItem('s3.demo.leftTab', 'promise')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: {
+            id: 'promise:overdue',
+            type: 'promise_view',
+            capability: 'promise',
+            label: '超期未收',
+          },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:promise:overdue')
+
+    fireEvent(window, new CustomEvent('s3-open-capability', { detail: { capability: 'search', focus: true } }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('col-directory').textContent).toMatch(/搜索|全局/)
+    })
+    // 搜索入口无着陆节点 → 清空栏3
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:empty')
+  })
+
+  it('切入口时保留章选中(写作粘性),不强制清空栏3', () => {
+    localStorage.setItem('s3.demo.leftTab', 'manuscript')
+    render(
+      <Harness
+        initialSel={{
+          mode: 'node',
+          node: { id: 'ch:1', type: 'chapter', ref: 1, label: '第 1 章 入城' },
+        }}
+      />,
+    )
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:1')
+
+    fireEvent.click(screen.getByRole('button', { name: '素材库' }))
+    expect(screen.getByTestId('material-list')).toBeTruthy()
+    expect(screen.getByTestId('detail-content').textContent).toBe('node:ch:1')
+  })
+
   it('三栏详情触发树刷新后会重挂载素材目录,重新读取活跃列表', async () => {
     localStorage.setItem('s3.demo.leftTab', 'materials')
     materialListMount.count = 0

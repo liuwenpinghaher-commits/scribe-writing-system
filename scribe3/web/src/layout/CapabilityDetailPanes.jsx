@@ -23,7 +23,7 @@ function CapabilityDetail({ node, title, body }) {
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="text-f20 font-semibold text-ink">{title}</h2>
+          <h2 className="type-section text-ink">{title}</h2>
         </div>
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-2 text-f14 font-semibold text-ink">{node?.label || title}</div>
@@ -60,7 +60,7 @@ export function CapabilityGroupDetailPane({ node }) {
           <div className="mb-2 text-f12 text-faint">
             {cfg?.title || '能力'} / <span className="text-ink">{title}</span>
           </div>
-          <h2 className="text-f22 font-semibold text-ink">{title}</h2>
+          <h2 className="type-section text-ink">{title}</h2>
           <div className="mt-1 text-f13 text-faint">
             {formatScope(group?.scope || node?.payload?.scope || '当前分类', seq)}{liveCount != null ? ` · ${liveCount}项` : ''}
           </div>
@@ -144,7 +144,7 @@ export function PromiseDetailPane({ node, work }) {
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="text-f20 font-semibold text-ink">伏笔详情</h2>
+          <h2 className="type-section text-ink">伏笔详情</h2>
         </div>
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '伏笔台账'}</div>
@@ -235,10 +235,22 @@ export function MotifDetailPane({ node, work }) {
   const rows = useMemo(() => {
     if (!state || state === null) return []
     const evById = new Map(state.instances.map((i) => [i.motif_id, i.evidence]))
-    const ref = node?.ref
-    if (ref === 'chapter') return state.motifs.filter((m) => evById.has(m.id)).map((m) => ({ ...m, evidence: evById.get(m.id) }))
-    if (ref === 'thin') return state.motifs.filter((m) => !m.theme && !m.unfolding)
-    return state.motifs.map((m) => ({ ...m, evidence: evById.get(m.id) }))
+    const withEv = (list) => list.map((m) => ({ ...m, evidence: evById.get(m.id) }))
+    // ref 可能是字符串或 { view, group, seq }
+    const ref = typeof node?.ref === 'object' && node?.ref != null ? (node.ref.view || node.ref.group) : node?.ref
+    if (ref === 'chapter') return withEv(state.motifs.filter((m) => evById.has(m.id)))
+    if (ref === 'thin') return withEv(state.motifs.filter((m) => !m.theme && !m.unfolding))
+    // volume / book / repeat：后端未给分组字段时不静默回退全书列表，避免「每个入口同一份」
+    if (ref === 'volume' || ref === 'book' || ref === 'repeat') {
+      const filtered = state.motifs.filter((m) => {
+        if (ref === 'volume') return m.scope === 'volume' || m.level === 'volume' || m.volume != null
+        if (ref === 'book') return m.scope === 'book' || m.level === 'book' || m.book_wide
+        if (ref === 'repeat') return m.repeat || m.overused || m.risk === 'repeat' || Number(m.hit_count || 0) > 3
+        return false
+      })
+      return withEv(filtered)
+    }
+    return withEv(state.motifs)
   }, [node?.ref, state])
 
   return (
@@ -246,7 +258,7 @@ export function MotifDetailPane({ node, work }) {
       <div className="mx-auto max-w-[52rem] space-y-4">
         <div>
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
-          <h2 className="text-f20 font-semibold text-ink">母题详情</h2>
+          <h2 className="type-section text-ink">母题详情</h2>
         </div>
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '母题台账'}</div>

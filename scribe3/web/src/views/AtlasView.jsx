@@ -157,7 +157,7 @@ function NodeDetail({ node, focus, edges, onExpand, onOpenNode, onClose }) {
         (e.src === node.id && e.dst === focus) || (e.src === focus && e.dst === node.id))
     : null
   return (
-    <div className="absolute top-3 right-3 z-20 w-64 rounded-xl border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]">
+    <div className="absolute top-3 right-3 z-20 w-64 rounded-md border border-line/70 bg-surface/95 backdrop-blur p-3.5 flex flex-col gap-2.5 shadow-[var(--shadow-card)]">
       <div className="flex items-start gap-2">
         <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">
           {node.secret ? <span className="inline-flex items-center gap-1"><Lock size={13} />私密命题</span> : node.label}
@@ -344,14 +344,14 @@ export function AtlasView({ onNavigateToObject }) {
         <select
           value={focus}
           onChange={(e) => { setHop(1); setFocus(e.target.value) }}
-          className="h-7 rounded-xl border-0 bg-soft/80 px-2.5 text-f13 outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
+          className="h-7 rounded-md border-0 bg-soft/80 px-2.5 text-f13 outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
         >
           {chars.map((c) => (
             <option key={c.id} value={c.id}>{c.label}</option>
           ))}
         </select>
         {/* hop 展开:1→2→3 跳邻域 — 胶囊切换 */}
-        <div className="inline-flex items-center gap-0.5 rounded-xl bg-soft/80 p-0.5 text-f12 shrink-0">
+        <div className="inline-flex items-center gap-0.5 rounded-md bg-soft/80 p-0.5 text-f12 shrink-0">
           <span className="px-1.5 text-meta text-faint">跳数</span>
           {[1, 2, 3].map((h) => (
             <button
@@ -373,7 +373,7 @@ export function AtlasView({ onNavigateToObject }) {
                 const v = e.target.value
                 setSliceChapter(v === '' ? null : Number(v))
               }}
-              className="h-7 rounded-xl border-0 bg-soft/80 px-2.5 text-f13 tnum outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
+              className="h-7 rounded-md border-0 bg-soft/80 px-2.5 text-f13 tnum outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer"
             >
               <option value="">全书</option>
               {Array.from({ length: maxChapter }, (_, i) => i + 1).map((ch) => (

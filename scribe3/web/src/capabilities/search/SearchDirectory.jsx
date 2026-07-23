@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api'
+import { DirectoryHeader } from '../../layout/DirectoryHeader'
+import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from '../../layout/DirectoryRow'
 
 const SOURCE_ORDER = ['正文', '设定', '素材', '伏笔', '母题']
 
@@ -93,44 +95,41 @@ export function SearchDirectory({ onSelectItem }) {
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-surface">
-      <div data-testid="directory-sticky-header" className="shrink-0 border-b border-line px-3 py-3">
-        <div className="mb-2 text-f16 font-semibold text-ink">搜索</div>
-        <form onSubmit={run} className="flex gap-1.5">
-          <input
-            ref={inputRef}
-            aria-label="全局搜索"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="搜正文 / 设定 / 素材"
-            className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1.5 text-f12 text-ink"
-          />
-          <button type="submit" disabled={state.loading} className="rounded-md bg-brand px-2.5 py-1.5 text-f12 text-brandfg disabled:opacity-50">
-            搜索
-          </button>
-        </form>
-        <button
-          type="button"
-          onClick={() => onSelectItem?.({ id: 'recall:semantic', type: 'recall_result', label: '语义召回', source: '搜索' })}
-          className="mt-2 text-f12 text-faint hover:text-ink"
-        >
-          语义召回
-        </button>
-      </div>
-      <div data-testid="search-results" className="flex-1 min-h-0 overflow-auto px-3 py-2">
+    <div className={DIR_SHELL}>
+      <form
+        onSubmit={run}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target?.tagName === 'INPUT') run(e)
+        }}
+      >
+        <DirectoryHeader
+          title="搜索"
+          query={q}
+          onQueryChange={setQ}
+          searchLabel="全局搜索"
+          searchPlaceholder="全局搜索"
+          searchInputRef={inputRef}
+          primaryAction={{ label: state.loading ? '…' : '搜索', onClick: () => run() }}
+        />
+      </form>
+      <div data-testid="search-results" className="flex-1 min-h-0 overflow-auto px-2 py-2">
         {state.err && <div role="alert" className="rounded-md border border-danger/30 bg-danger/5 px-2 py-1.5 text-f12 text-danger">{state.err}</div>}
         {state.loading && <div className="py-6 text-center text-f12 text-faint">搜索中…</div>}
         {!state.loading && !state.err && state.results.length === 0 && <div className="py-6 text-center text-f12 text-faint">输入关键词后搜索。</div>}
         {groups.map(([source, items]) => (
-          <div key={source} className="mb-3">
-            <div className="mb-1 text-meta font-semibold text-faint">{source}</div>
-            <div className="space-y-1">
+          <div key={source} className="mb-2">
+            <DirectorySectionLabel>{source}</DirectorySectionLabel>
+            <div className="space-y-0.5">
               {items.map((r) => (
-                <button key={r.id} type="button" onClick={() => onSelectItem?.(toNode(r))}
-                  className="w-full rounded-md px-2 py-2 text-left hover:bg-soft">
-                  <div className="truncate text-f13 text-ink">{r.label}</div>
-                  {r.excerpt && <div className="mt-0.5 line-clamp-2 text-meta text-faint">{r.excerpt}</div>}
-                </button>
+                <DirectoryRow
+                  key={r.id}
+                  title={r.label}
+                  // 分组标题已是 source，行 meta 用章号/类型，避免与 DirectorySectionLabel 文案重复
+                  meta={r.chapter != null ? `第 ${r.chapter} 章` : (r.type || undefined)}
+                  sub={r.excerpt || undefined}
+                  onClick={() => onSelectItem?.(toNode(r))}
+                  aria-label={r.label}
+                />
               ))}
             </div>
           </div>

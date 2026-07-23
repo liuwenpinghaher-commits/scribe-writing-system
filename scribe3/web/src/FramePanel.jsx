@@ -188,238 +188,67 @@ function toneText(tone) {
   return 'text-ink'
 }
 
-function factRows(section, fact) {
-  const title = factTitle(fact)
-  const value = factValue(fact)
-  if (section.key === 'write') {
-    return [
-      ['为什么可写', '这是当前 POV 已经知道、看见或能直接感到的信息。'],
-      ['写法', value === '私密/未知' ? `只写 ${title} 的外在痕迹。` : `可以把“${value}”进入动作、判断或正文细节。`],
-      ['边界', '仍然不要替角色解释他尚未掌握的机制或幕后因果。'],
-    ]
-  }
-  if (section.key === 'forbid') {
-    return [
-      ['为什么禁写', '当前 POV 不知道这条信息,直接写出会造成限知泄露。'],
-      ['可写替代', `把“${title}”改写成痕迹、误读、停顿、遮掩动作或后续回收点。`],
-      ['戏剧价值', '读者能感觉背后有规则在运转,角色仍只能把它当成怪事。'],
-    ]
-  }
-  if (section.key === 'irony') {
-    return [
-      ['张力', '读者知道或能猜到,但当前 POV 不能确认。'],
-      ['写法', `保留“${title}”的线索,让角色做出有限、甚至错误的判断。`],
-      ['边界', '不要让角色替读者总结真相,把信息差留在动作和环境里。'],
-    ]
-  }
-  if (section.key === 'blind') {
-    return [
-      ['章内作用', '这是当前 POV 的合理误判,用于保护限知并制造后续翻转。'],
-      ['写法', '让错误解释看起来成立,同时留一个小缺口。'],
-      ['后续', '等新事实出现时再推翻这个判断。'],
-    ]
-  }
-  return [
-    ['来源用途', '这条记录用于反查知识帧或戏剧反讽的来源。'],
-    ['命中值', value],
-    ['下一步', '需要进入设定、素材或正文详情时,先聚焦给主编接手。'],
-  ]
-}
 
-function relatedRows(section, fact) {
-  if (fact.targetNode) {
-    const rows = [[section.label, factTitle(fact)], ['打开详情', fact.targetNode.label || fact.targetNode.ref || fact.targetNode.id]]
-    if (fact.chapter != null) rows.push(['正文证据', `第 ${fact.chapter} 章`])
-    rows.push(['详情类型', fact.targetNode.type])
-    return rows
-  }
-  const entity = String(fact.entity || '').replace(/^role:/, '') || '本章事实'
-  const rows = [[section.label, factTitle(fact)], ['设定库', entity]]
-  if (fact.chapter != null) rows.push(['正文证据', `第 ${fact.chapter} 章`])
-  if (section.key === 'irony') rows.push(['禁写', '当前 POV 不能确认'])
+// 详情正文:优先值 + 一行操作提示,不堆「分类含义/写作约束/当前范围」空话。
+function compactDetailBody(section, fact) {
+  if (!fact) return []
+  const value = factValue(fact)
+  const rows = []
+  if (value && value !== '私密/未知') rows.push(['当前值', value])
+  else if (value === '私密/未知') rows.push(['状态', '当前 POV 未知 / 私密'])
+  if (section?.detailHint) rows.push(['提示', section.detailHint])
   return rows
 }
 
-function groupRows(section, focalizerName) {
-  if (section.key === 'codex') {
-    return [
-      ['分类含义', '本章正文、简报或推演已经引用到的设定库对象。'],
-      ['写作约束', '点击条目进入原设定详情,不在关联页复制第二套编辑表单。'],
-      ['当前范围', `本章设定有 ${section.items.length} 条,用于核对角色、命题和关系是否闭环。`],
-    ]
-  }
-  if (section.key === 'materials') {
-    return [
-      ['分类含义', '本章引用过或可追溯到的素材库材料。'],
-      ['写作约束', '素材是参考与来源,进入详情后再决定是否吸收为设定或正文证据。'],
-      ['当前范围', `本章素材有 ${section.items.length} 条,点击可回到素材库完整详情。`],
-    ]
-  }
-  if (section.key === 'promise') {
-    return [
-      ['分类含义', '本章相关的伏笔、误导与回收状态。'],
-      ['写作约束', '伏笔只给结构提示,正文仍要靠场景动作落地。'],
-      ['当前范围', `本章伏笔有 ${section.items.length} 条。`],
-    ]
-  }
-  if (section.key === 'motif') {
-    return [
-      ['分类含义', '本章出现的母题实例与主题回声。'],
-      ['写作约束', '母题用于统一意象和价值判断,避免只堆符号。'],
-      ['当前范围', `本章母题有 ${section.items.length} 条。`],
-    ]
-  }
-  if (section.key === 'review') {
-    return [
-      ['分类含义', '本章校验、搜索或一致性检查命中的待处理项。'],
-      ['写作约束', '先定位真实问题,再决定修改正文、设定还是素材。'],
-      ['当前范围', `本章校验有 ${section.items.length} 条。`],
-    ]
-  }
-  if (section.key === 'write') {
-    return [
-      ['分类含义', '这类事实可以进入当前 POV 的感知、行动和判断。'],
-      ['写作约束', '写作时仍要保留角色表达方式,不要替作者解释世界观。'],
-      ['当前范围', `${focalizerName} 的可写事实中有 ${section.items.length} 条,先用于判断本章能不能写、怎么写。`],
-    ]
-  }
-  if (section.key === 'forbid') {
-    return [
-      ['分类含义', '这类事实不应进入当前 POV 的内心、判断或直接叙述。'],
-      ['写作约束', '适合转成痕迹、动作、错觉或后文回收点。'],
-      ['当前范围', `${focalizerName} 的禁写事实中有 ${section.items.length} 条,重点防止本章提前说破。`],
-    ]
-  }
-  if (section.key === 'irony') {
-    return [
-      ['分类含义', '这类信息读者可以察觉,但当前 POV 不能确认。'],
-      ['写作约束', '重点是制造信息差,不要让角色替读者总结真相。'],
-      ['当前范围', `${focalizerName} 的反讽线索中有 ${section.items.length} 条,用于制造悬念和误读。`],
-    ]
-  }
-  if (section.key === 'blind') {
-    return [
-      ['分类含义', '这类内容是当前 POV 的合理误判。'],
-      ['写作约束', '盲区要可理解,后续被事实推翻时才有说服力。'],
-      ['当前范围', `${focalizerName} 的盲区暂未由接口返回,这里保留真实入口。`],
-    ]
-  }
-  return [
-    ['分类含义', '这类对象把知识帧和戏剧反讽合并成可追溯账本。'],
-    ['写作约束', '来源账本用于查证,不等同于正文可以直接写出的内容。'],
-    ['当前范围', `${focalizerName} 的来源账本中有 ${section.items.length} 条记录。`],
-  ]
-}
-
-function FactButton({ fact, icon: Icon, onPick, active }) {
+function FactButton({ fact, onPick, active }) {
+  const showBadge = fact.badge && (fact.tone === 'danger' || fact.tone === 'warn' || fact.badge === '反讽')
   return (
-    <button type="button" onClick={onPick}
-      className={`group w-full rounded-lg border border-transparent border-l-4 ${toneBorder(fact.tone)} bg-surface px-3 py-2 text-left transition-colors cursor-pointer ${active ? 'border-line bg-brand/10 text-brand shadow-sm' : 'hover:border-line hover:bg-soft/70 text-ink'}`}>
-      <div className="flex min-w-0 items-start gap-2">
-        {Icon && <Icon size={14} className="mt-0.5 shrink-0 text-faint" />}
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <div className="truncate text-f12 font-semibold leading-snug">{factTitle(fact)}</div>
-            <span className="shrink-0 rounded-full bg-soft px-2 py-0.5 text-meta text-faint">{fact.badge}</span>
-          </div>
-          <div className="mt-0.5 truncate text-meta text-faint leading-snug">{factValue(fact)}</div>
+    <button type="button" onClick={onPick} data-testid="frame-fact-row"
+      className={`w-full flex items-start gap-2 py-1.5 px-1 text-left cursor-pointer transition-colors rounded-md ${active ? 'bg-brand/10 text-brand' : 'text-ink hover:bg-soft/60'}`}>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-f13 font-medium leading-snug">{factTitle(fact)}</span>
+          {showBadge && <span className={`shrink-0 text-meta ${toneText(fact.tone)}`}>{fact.badge}</span>}
         </div>
+        <div className="mt-0.5 truncate text-meta text-faint leading-snug">{factValue(fact)}</div>
       </div>
+      {fact.targetNode && <span className="shrink-0 text-meta text-faint mt-0.5" aria-hidden>→</span>}
     </button>
   )
 }
 
-function DetailArticle({ model, compact = false, onFull }) {
+function DetailStrip({ model, onOpenTarget }) {
   if (!model) return null
   return (
-    <article aria-label={model.kind === 'fact' ? '事实详情' : '分类总览'}
-      className="grid min-h-0 overflow-hidden border-t border-line/60">
-      <div className="px-1 py-2">
-        <div className="text-meta font-semibold uppercase tracking-wider text-faint">{model.kind === 'fact' ? '事实详情' : '分类总览'}</div>
-        <div className="text-meta text-faint">{model.kicker}</div>
-        <h3 className="mt-1 text-f18 font-semibold leading-tight text-ink">{model.title}</h3>
-        <div className="mt-1 text-f12 leading-relaxed text-faint">{model.sub}</div>
-        {model.value && <div className="mt-2 text-f13 font-medium text-ink">{model.value}</div>}
-      </div>
-      <div className="min-h-0 overflow-y-auto px-1 py-2">
-        <div className="grid gap-3">
-          {model.body.map(([label, value], index) => (
-            <section key={label}>
-              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
-              <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'border-l-2 border-brand/40 pl-2.5' : ''}`}>{value}</div>
-            </section>
+    <aside aria-label="关联详情" data-testid="frame-detail" className="mt-3 border-t border-line/40 pt-3">
+      <div className="text-meta text-faint">{model.kicker}</div>
+      <h3 className="mt-0.5 type-section text-ink leading-snug">{model.title}</h3>
+      {model.value && <div className="mt-1 text-f13 text-ink">{model.value}</div>}
+      {model.sub && <div className="mt-1 text-f12 text-faint leading-relaxed">{model.sub}</div>}
+      {model.body?.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {model.body.map(([label, value]) => (
+            <div key={label} className="text-f12">
+              <span className="text-faint">{label} · </span>
+              <span className="text-ink">{value}</span>
+            </div>
           ))}
-          {!compact && model.kind === 'fact' && (
-            <section>
-              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">关联跳转</div>
-              <div className="grid gap-1">
-                {model.related.map(([label, value]) => (
-                  <div key={`${label}:${value}`} className="py-1.5 border-b border-line/40 last:border-0">
-                    <div className="text-f12 font-medium text-ink">{label}</div>
-                    <div className="text-meta text-faint">{value}</div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-line/50 px-1 py-2">
-        {model.kind === 'fact' && <button type="button" onClick={onFull} className="h-8 rounded-lg bg-brand px-3 text-f12 font-medium text-brandfg cursor-pointer">打开完整详情</button>}
-        <button type="button" className="h-8 rounded-lg px-3 text-f12 text-ink hover:bg-soft cursor-pointer">固定到本章</button>
-        <button type="button" className="h-8 rounded-lg px-3 text-f12 text-faint hover:bg-soft cursor-pointer">问主编</button>
-      </div>
-    </article>
+      )}
+      {model.onOpen && (
+        <button type="button" onClick={model.onOpen}
+          className="mt-3 h-8 rounded-lg bg-brand px-3 text-f12 font-medium text-brandfg cursor-pointer">
+          打开原详情
+        </button>
+      )}
+    </aside>
   )
 }
 
-function FullDetail({ model, path, onBack }) {
-  if (!model) return null
-  return (
-    <section aria-label="完整限知详情" className="min-h-0 overflow-y-auto px-3 py-3">
-      <div className="sticky top-0 z-10 mb-3 flex items-center justify-between gap-3 border-b border-line bg-canvas/95 backdrop-blur px-1 py-2">
-        <button type="button" onClick={onBack} className="h-8 rounded-lg px-3 text-f12 text-ink hover:bg-soft cursor-pointer">返回上下文树</button>
-        <span className="min-w-0 truncate text-f12 text-faint">{path}</span>
-      </div>
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_14rem] gap-4">
-        <div className="min-w-0">
-          <div className="text-meta font-semibold uppercase tracking-wider text-faint">{model.kicker}</div>
-          <h3 className="mt-1 text-f22 font-semibold leading-tight text-ink">{model.title}</h3>
-          <div className="mt-2 text-f13 leading-relaxed text-faint">{model.sub}</div>
-          <div className="mt-5 grid gap-4">
-            {model.body.map(([label, value], index) => (
-              <section key={label}>
-                <div className="mb-1 text-meta font-semibold tracking-wide text-faint">{label}</div>
-                <div className={`text-f13 leading-relaxed text-ink ${index === 1 ? 'border-l-2 border-brand/40 pl-2.5' : ''}`}>{value}</div>
-              </section>
-            ))}
-            <section>
-              <div className="mb-1 text-meta font-semibold tracking-wide text-faint">返回机制</div>
-              <div className="grid grid-cols-[4.5rem_1fr] gap-2 text-f12">
-                <span className="text-faint">返回</span><span>点击顶部返回条,回到上下文树并保留选中的分组和对象。</span>
-                <span className="text-faint">跳转</span><span>后续可复用设定库、素材库、伏笔或正文的详情页,不复制一套详情 UI。</span>
-                <span className="text-faint">定位</span><span>返回后路径仍停在当前限知事实。</span>
-              </div>
-            </section>
-          </div>
-        </div>
-        <aside className="border-t border-line pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-          <div className="mb-2 text-meta font-semibold tracking-wide text-faint">来源路径</div>
-          <div className="grid gap-1 text-f12">
-            {model.related.map(([label, value]) => (
-              <div key={`${label}:${value}`} className="py-1.5 border-b border-line/40 last:border-0">
-                <div className="font-medium text-ink">{label}</div>
-                <div className="text-faint">{value}</div>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
-    </section>
-  )
-}
+const ASSOC_KEYS = new Set(['codex', 'materials', 'promise', 'motif', 'review'])
+const FRAME_KEYS = new Set(['write', 'forbid', 'irony', 'source'])
 
-// 关联:章级设定/素材/伏笔/母题/校验 + 限知写作决策面板。
+// 关联:章级设定/素材/伏笔/母题/校验 + 限知写作决策。默认单列 master–detail,无三列 min-width 横滚。
 export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = [], onSelectNode }) {
   const { focus, setFocus } = useSelection()
   const [frame, setFrame] = useState([])
@@ -430,27 +259,21 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
   const [motifs, setMotifs] = useState([])
   const [promiseLedger, setPromiseLedger] = useState(null)
   const [reviewIssues, setReviewIssues] = useState([])
-  const [active, setActive] = useState('write')
+  const [active, setActive] = useState('codex')
   const [picked, setPicked] = useState(null)
-  const [orientation, setOrientation] = useState('wide')
-  const [fullOpen, setFullOpen] = useState(false)
   const focusRef = useRef(focus)
   const options = useMemo(() => normalizeFocalizers(focalizerOptions, focalizer), [focalizerOptions, focalizer])
   const defaultFocalizer = focalizer || options[0]?.value || ''
   const [activeFocalizer, setActiveFocalizer] = useState(defaultFocalizer)
 
   useEffect(() => { focusRef.current = focus }, [focus])
-
-  useEffect(() => {
-    setActiveFocalizer(defaultFocalizer)
-  }, [defaultFocalizer])
+  useEffect(() => { setActiveFocalizer(defaultFocalizer) }, [defaultFocalizer])
 
   const effectiveFocalizer = activeFocalizer || defaultFocalizer
 
   useEffect(() => {
     let alive = true
     setPicked(null)
-    setFullOpen(false)
     const currentFocus = focusRef.current
     if (currentFocus?.type === 'frame_fact' && currentFocus.origin === 'panel') setFocus(null)
     if (effectiveFocalizer) {
@@ -479,7 +302,7 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
   }, [chapter, work])
 
   const writable = frame.filter((f) => f.value != null).map((f) => ({ ...f, tone: 'ok', badge: '可写' }))
-  const forbidden = frame.filter((f) => f.value == null).map((f) => ({ ...f, tone: 'danger', badge: '风险' }))
+  const forbidden = frame.filter((f) => f.value == null).map((f) => ({ ...f, tone: 'danger', badge: '禁写' }))
   const ironyRows = irony.map((f) => ({ ...f, tone: 'brand', badge: '反讽' }))
   const codexRows = [...factAssociationRows(chapterFacts), ...relationAssociationRows(relations)]
   const materialRows = materialAssociationRows(materialRefs)
@@ -488,109 +311,54 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
   const issueRows = issueAssociationRows(reviewIssues)
   const sourceRows = [
     ...frame.map((f) => ({ ...f, sourceKind: '知识帧', tone: f.value == null ? 'danger' : 'ok', badge: '来源' })),
-    ...irony.map((f) => ({ ...f, sourceKind: '戏剧反讽', tone: 'brand', badge: '来源' })),
+    ...irony.map((f) => ({ ...f, sourceKind: '戏剧反讽', tone: 'brand', badge: '反讽' })),
   ]
+
   const sections = [
-    {
-      key: 'codex', label: '本章设定', title: '本章设定',
-      description: '本章已经牵连到的角色、命题和关系,点击进入设定库原详情。',
-      detailHint: '用于核对本章设定闭环；点击条目会跳到既有三栏设定详情。',
-      empty: '本章暂无设定条目', icon: BookOpen, items: codexRows, countTone: codexRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
-    },
-    {
-      key: 'materials', label: '本章素材', title: '本章素材',
-      description: '本章引用或召回过的素材库材料,点击进入素材详情。',
-      detailHint: '用于追溯本章来源和参考,不替代素材库自身能力。',
-      empty: '本章暂无素材条目', icon: FileSearch, items: materialRows, countTone: materialRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
-    },
-    {
-      key: 'promise', label: '本章伏笔', title: '本章伏笔',
-      description: '本章关联的伏笔、误导和回收账本。',
-      detailHint: '点击后进入伏笔详情,用于检查种下、推进和回收是否闭环。',
-      empty: '本章暂无伏笔条目', icon: Eye, items: promiseRows, countTone: promiseRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
-    },
-    {
-      key: 'motif', label: '本章母题', title: '本章母题',
-      description: '本章出现的母题实例和主题回声。',
-      detailHint: '点击后进入母题详情,用于检查意象和主题是否持续。',
-      empty: '本章暂无母题条目', icon: Drama, items: motifRows, countTone: motifRows.length ? 'text-ok' : 'text-faint', tone: 'ok',
-    },
-    {
-      key: 'review', label: '本章校验', title: '本章校验',
-      description: '本章校验或一致性检查命中的待处理项。',
-      detailHint: '点击后进入校验详情,用于定位正文、设定或素材的冲突。',
-      empty: '本章暂无校验条目', icon: Lock, items: issueRows, countTone: issueRows.length ? 'text-warn' : 'text-faint', tone: 'warn',
-    },
-    {
-      key: 'write', label: '可写事实', title: '可写事实',
-      description: '当前视角已经知道、可以安全进入正文的信息。',
-      detailHint: '可从当前 POV 安全写入正文；点击后主编会围绕这条事实展开讨论。',
-      empty: '该角色此章暂无可写事实', icon: BookOpen, items: writable, countTone: 'text-ok', tone: 'ok',
-    },
-    {
-      key: 'forbid', label: '禁止泄露', title: '禁止泄露',
-      description: '当前 POV 不知道，直接写出会造成限知泄露。',
-      detailHint: '这条信息不能从当前 POV 直接写出。可以改成感官误读、他人暗示或延后揭露。',
-      empty: '暂无禁写风险', icon: Lock, items: forbidden, countTone: forbidden.length ? 'text-danger' : 'text-faint', tone: 'danger',
-    },
-    {
-      key: 'irony', label: '戏剧反讽', title: '戏剧反讽',
-      description: '读者知道、当前 POV 不知道，适合制造悬念和误判。',
-      detailHint: '可让角色说出与事实相反的判断，或把读者知道的信息压进动作和环境。',
-      empty: '暂无戏剧反讽', icon: Drama, items: ironyRows, countTone: ironyRows.length ? 'text-brand' : 'text-faint', tone: 'brand',
-    },
-    {
-      key: 'blind', label: '误判盲区', title: '误判盲区',
-      description: '当前 POV 的合理误判或自我保护性解释。',
-      detailHint: '盲区要能成立,后续被事实推翻时才有力量。',
-      empty: '暂无误判盲区', icon: Eye, items: [], countTone: 'text-faint', tone: 'warn',
-    },
-    {
-      key: 'source', label: '来源账本', title: '来源账本',
-      description: '把知识帧和反讽来源合并成一张账，方便追溯信息从哪里来。',
-      detailHint: '来源账本用于回查事实归属；需要进入设定或素材详情时，可先聚焦给主编接手。',
-      empty: '暂无来源账本', icon: FileSearch, items: sourceRows, countTone: 'text-ink', tone: 'source',
-    },
+    { key: 'codex', label: '本章设定', domain: 'assoc', detailHint: '点击进入设定库原详情。', empty: '本章暂无设定', items: codexRows, tone: 'brand' },
+    { key: 'materials', label: '本章素材', domain: 'assoc', detailHint: '点击进入素材详情。', empty: '本章暂无素材', items: materialRows, tone: 'brand' },
+    { key: 'promise', label: '本章伏笔', domain: 'assoc', detailHint: '点击查看伏笔状态。', empty: '本章暂无伏笔', items: promiseRows, tone: 'brand' },
+    { key: 'motif', label: '本章母题', domain: 'assoc', detailHint: '点击进入母题详情。', empty: '本章暂无母题', items: motifRows, tone: 'ok' },
+    { key: 'review', label: '本章校验', domain: 'assoc', detailHint: '点击定位校验项。', empty: '本章暂无校验', items: issueRows, tone: 'warn' },
+    { key: 'write', label: '可写事实', domain: 'frame', detailHint: '可从当前 POV 安全写入正文。', empty: '暂无可写事实', items: writable, tone: 'ok' },
+    { key: 'forbid', label: '禁止泄露', domain: 'frame', detailHint: '当前 POV 不知道,直接写出有限知风险。', empty: '暂无禁写项', items: forbidden, tone: 'danger' },
+    { key: 'irony', label: '戏剧反讽', domain: 'frame', detailHint: '读者可知而 POV 不能确认。', empty: '暂无反讽', items: ironyRows, tone: 'brand' },
+    { key: 'source', label: '来源账本', domain: 'frame', detailHint: '知识帧与反讽来源合并账。', empty: '暂无来源', items: sourceRows, tone: 'muted' },
   ]
+
+  const assocSections = sections.filter((s) => s.domain === 'assoc')
+  const frameSections = sections.filter((s) => s.domain === 'frame')
   const activeSection = sections.find((s) => s.key === active) || sections[0]
   const pickedSection = picked ? (sections.find((s) => s.key === picked.sectionKey) || activeSection) : activeSection
   const focalizerName = focalizerLabel(effectiveFocalizer, options)
+
   const detailModel = picked ? {
     kind: 'fact',
     title: factTitle(picked.fact),
-    kicker: `${picked.fact.targetNode ? '章级关联' : '限知帧'} · ${pickedSection.label}`,
-    sub: picked.fact.targetNode ? pickedSection.detailHint : (picked.fact.value == null ? '当前 POV 不知道；只能写痕迹、误读或延后揭露。' : `当前值:${factValue(picked.fact)}`),
+    kicker: `${picked.fact.targetNode ? '章级关联' : '限知'} · ${pickedSection.label}`,
+    sub: pickedSection.detailHint,
     value: factValue(picked.fact),
-    body: factRows(pickedSection, picked.fact),
-    related: relatedRows(pickedSection, picked.fact),
-  } : {
-    kind: 'group',
-    title: `${pickedSection.title}总览`,
-    kicker: `关联分类 · ${focalizerName}`,
-    sub: `${pickedSection.description} · ${pickedSection.items.length}项`,
-    body: groupRows(pickedSection, focalizerName),
-    related: pickedSection.items.length ? pickedSection.items.slice(0, 4).map((f) => [pickedSection.label, factTitle(f)]) : [['本章', `第 ${chapter} 章`]],
-  }
-  const detailPath = `第 ${chapter} 章 / ${focalizerName} / ${pickedSection.label}${picked ? ' / ' + factTitle(picked.fact) : ''}`
-  const summaryStats = [
-    ['设定', codexRows.length, codexRows.length ? 'brand' : 'muted'],
-    ['素材', materialRows.length, materialRows.length ? 'brand' : 'muted'],
-    ['可写', writable.length, 'ok'],
-    ['禁写', forbidden.length, forbidden.length ? 'danger' : 'muted'],
-    ['反讽', ironyRows.length, ironyRows.length ? 'brand' : 'muted'],
-    ['风险', forbidden.length, forbidden.length ? 'danger' : 'muted'],
+    body: compactDetailBody(pickedSection, picked.fact),
+    onOpen: picked.fact.targetNode ? () => onSelectNode?.(picked.fact.targetNode) : null,
+  } : null
+
+  const summaryChips = [
+    ['设定', codexRows.length],
+    ['素材', materialRows.length],
+    ['伏笔', promiseRows.length],
+    ['可写', writable.length],
+    ['禁写', forbidden.length],
+    ['反讽', ironyRows.length],
   ]
 
   const pickSection = (key) => {
     setActive(key)
     setPicked(null)
-    setFullOpen(false)
   }
+
   const pickFact = (sectionKey, fact) => {
-    const section = sections.find((s) => s.key === sectionKey) || activeSection
     setActive(sectionKey)
     setPicked({ sectionKey, fact })
-    setFullOpen(false)
     if (fact.targetNode) {
       onSelectNode?.(fact.targetNode)
       setFocus({ type: 'chapter_association', id: fact.id, label: factTitle(fact), payload: { target: fact.targetNode }, origin: 'panel' })
@@ -599,158 +367,94 @@ export function FramePanel({ work, meta, focalizer, chapter, focalizerOptions = 
     setFocus(factFocus(fact, sectionKey === 'irony' || fact.sourceKind === '戏剧反讽'))
   }
 
-  const renderGroupButtons = () => sections.map((section) => {
-    const Icon = section.icon
-    const on = active === section.key
-    return (
-      <button key={section.key} type="button" aria-label={`${section.label} ${section.items.length}`} onClick={() => pickSection(section.key)}
-        className={`relative w-full rounded-lg border border-transparent border-l-4 ${toneBorder(section.tone)} bg-surface px-3 py-2 text-left transition-colors cursor-pointer ${on ? 'border-line bg-brand/10 shadow-sm after:absolute after:right-[-13px] after:top-1/2 after:w-3 after:border-t after:border-brand/40' : 'hover:border-line hover:bg-soft/70'}`}>
-        <div className="text-meta text-faint">{section.description}</div>
-        <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2 text-f13 font-semibold text-ink"><Icon size={14} className={on ? 'text-brand' : 'text-faint'} />{section.label}</span>
-          <span className={`text-f12 tnum ${section.countTone}`}>{section.items.length}</span>
-        </div>
-      </button>
-    )
-  })
-
-  const renderItemButtons = (compact = false) => (
-    activeSection.items.length === 0 ? (
-      <Empty>{activeSection.empty}</Empty>
-    ) : (
-      <div className="grid gap-1.5">
-        {activeSection.items.map((f) => (
-          <FactButton
-            key={`${activeSection.key}:${f.sourceKind || ''}:${f.id}`}
-            fact={f}
-            icon={activeSection.icon}
-            active={picked?.sectionKey === activeSection.key && picked?.fact?.id === f.id}
-            onPick={() => pickFact(activeSection.key, f)}
-          />
-        ))}
-        {compact && !picked && <DetailArticle model={detailModel} compact onFull={() => setFullOpen(true)} />}
+  const renderDomain = (title, domainSections) => (
+    <section className="min-w-0" data-testid={title === '本章关联' ? 'frame-domain-assoc' : 'frame-domain-frame'}>
+      <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">{title}</div>
+      <div className="space-y-1">
+        {domainSections.map((section) => {
+          const expanded = active === section.key
+          const n = section.items.length
+          return (
+            <div key={section.key}>
+              <button
+                type="button"
+                aria-label={`${section.label} ${n}`}
+                aria-expanded={expanded}
+                onClick={() => pickSection(section.key)}
+                className={`w-full flex items-center justify-between gap-2 py-1.5 px-1 text-left cursor-pointer rounded-md ${expanded ? 'text-brand' : 'text-ink hover:bg-soft/50'}`}
+              >
+                <span className="text-f13 font-medium">{section.label}</span>
+                <span className={`text-meta tnum ${n ? toneText(section.tone) : 'text-faint'}`}>{n}</span>
+              </button>
+              {expanded && (
+                <div className="ml-2 border-l border-line/40 pl-2 mb-2" data-testid={`frame-section-${section.key}`}>
+                  {n === 0 ? (
+                    <div className="py-1 text-meta text-faint">{section.empty}</div>
+                  ) : (
+                    section.items.map((f) => (
+                      <FactButton
+                        key={`${section.key}:${f.sourceKind || ''}:${f.id}`}
+                        fact={f}
+                        active={picked?.sectionKey === section.key && picked?.fact?.id === f.id}
+                        onPick={() => pickFact(section.key, f)}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
-    )
-  )
-
-  const renderWideBoard = () => (
-    <div className="min-w-[720px] grid grid-cols-[minmax(12rem,0.8fr)_minmax(14rem,0.95fr)_minmax(17rem,1.15fr)] items-start gap-4">
-      <section className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
-          <span>分组</span><span>{sections.length}类</span>
-        </div>
-        <div className="grid gap-1.5">{renderGroupButtons()}</div>
-      </section>
-      <section className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
-          <span>当前分类</span><span>{activeSection.items.length}项</span>
-        </div>
-        <div className="grid gap-1.5">{renderItemButtons(false)}</div>
-      </section>
-      <section aria-label="关联详情" className="min-w-0">
-        <div className="mb-2 flex h-6 items-center justify-between px-0.5 text-meta tracking-wide text-faint">
-          <span>就地详情</span><span>随路径更新</span>
-        </div>
-        <DetailArticle model={detailModel} onFull={() => setFullOpen(true)} />
-      </section>
-    </div>
-  )
-
-  const renderDownBoard = () => (
-    <div className="max-w-[62rem] grid gap-2">
-      {sections.map((section) => {
-        const Icon = section.icon
-        const expanded = active === section.key
-        return (
-          <section key={section.key} className="grid gap-1.5">
-            <button type="button" aria-label={`${section.label} ${section.items.length}`} onClick={() => pickSection(section.key)}
-              className={`w-full rounded-lg border border-transparent border-l-4 ${toneBorder(section.tone)} bg-surface px-3 py-2 text-left transition-colors cursor-pointer ${expanded ? 'border-line bg-brand/10 shadow-sm' : 'hover:border-line hover:bg-soft/70'}`}>
-              <div className="flex min-w-0 items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2 text-f13 font-semibold text-ink"><Icon size={14} className={expanded ? 'text-brand' : 'text-faint'} />{section.label}</span>
-                <span className={`text-f12 tnum ${section.countTone}`}>{section.items.length}</span>
-              </div>
-              <div className="mt-0.5 text-meta text-faint">{section.description}</div>
-            </button>
-            {expanded && (
-              <div className="ml-6 grid gap-1.5">
-                {renderItemButtons(true)}
-                {picked && <DetailArticle model={detailModel} compact onFull={() => setFullOpen(true)} />}
-              </div>
-            )}
-          </section>
-        )
-      })}
-    </div>
+    </section>
   )
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-canvas">
-      <div className="shrink-0 border-b border-line/70 bg-surface/70 px-4 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Eye size={17} className="text-brand" />
-            <div>
-              <div className="text-f20 font-semibold leading-tight text-ink">第 {chapter} 章关联树</div>
-              <div className="text-f12 text-faint">把设定、素材、伏笔、母题、校验和限知边界放在同一条章级路径上。</div>
-            </div>
-          </div>
+    <div className="h-full min-h-0 flex flex-col bg-canvas" data-testid="frame-panel-root">
+      <div className="shrink-0 border-b border-line/40 px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="type-section text-ink">第 {chapter} 章 · 关联</div>
           {options.length > 1 ? (
-            <label className="flex h-9 items-center gap-2 rounded-lg bg-soft/50 hover:bg-soft px-2 text-f12 text-faint transition-colors">
+            <label className="flex items-center gap-1.5 text-f12 text-faint">
               <span>视角</span>
               <select
                 aria-label="限知视角"
                 value={effectiveFocalizer}
-                onChange={(e) => { setActiveFocalizer(e.target.value); setActive('write'); setPicked(null); setFullOpen(false) }}
-                className="h-7 border-0 bg-transparent px-1 text-f12 text-ink outline-none"
+                onChange={(e) => { setActiveFocalizer(e.target.value); setActive('write'); setPicked(null) }}
+                className="h-7 rounded-md border-0 bg-soft/80 px-2 text-f12 text-ink outline-none"
               >
                 {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </label>
           ) : (
-            <div className="rounded-md bg-soft px-2 py-1 text-f12 text-faint">视角 · {focalizerName}</div>
+            <div className="text-f12 text-faint">视角 · {focalizerName || '未设'}</div>
           )}
         </div>
-      </div>
-      <div className="grid shrink-0 grid-cols-3 border-b border-line/70 bg-line/40 md:grid-cols-6">
-        {summaryStats.map(([label, value, tone]) => (
-          <div key={label} className="min-w-0 bg-surface/80 px-4 py-2">
-            <div className="text-meta text-faint">{label}</div>
-            <div className={`text-f20 font-semibold leading-tight tnum ${toneText(tone)}`}>{value}</div>
-          </div>
-        ))}
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-meta text-faint" data-testid="frame-summary-chips">
+          {summaryChips.map(([label, value]) => (
+            <span key={label} className="tnum">{label} {value}</span>
+          ))}
+        </div>
       </div>
 
-      {!effectiveFocalizer ? (
-        <Empty>作者全知视角——暂无限知约束</Empty>
-      ) : fullOpen ? (
-        <FullDetail model={detailModel} path={detailPath} onBack={() => setFullOpen(false)} />
-      ) : (
-        <section aria-label="关联画布" className="tree-shell flex-1 min-h-0 grid grid-rows-[auto_minmax(0,1fr)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/70 bg-surface px-4 py-2">
-            <div className="min-w-0 truncate text-f12 text-faint">
-              <span>第 {chapter} 章</span><span className="mx-2">/</span><span>{focalizerName}</span><span className="mx-2">/</span><span className="font-medium text-ink">{pickedSection.label}</span>{picked && <><span className="mx-2">/</span><span className="font-medium text-ink">{factTitle(picked.fact)}</span></>}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-lg bg-soft p-0.5">
-                {[
-                  ['wide', '向右延展'],
-                  ['down', '向下压缩'],
-                ].map(([key, label]) => (
-                  <button key={key} type="button" onClick={() => setOrientation(key)}
-                    className={`h-7 rounded-md px-2.5 text-f12 ${orientation === key ? 'bg-surface text-brand shadow-sm' : 'text-faint hover:text-ink'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="min-h-0 overflow-auto px-4 py-4">
-            <nav aria-label="关联上下文树">
-              {orientation === 'wide' ? renderWideBoard() : renderDownBoard()}
-            </nav>
-          </div>
-        </section>
-      )}
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-3" data-testid="frame-assoc-board">
+        {/* 默认单列纵排,禁止 min-w 三列宽板 */}
+        <nav aria-label="关联上下文树" className="max-w-[40rem] space-y-5">
+          {renderDomain('本章关联', assocSections)}
+          {effectiveFocalizer ? (
+            renderDomain('限知边界', frameSections)
+          ) : (
+            <section data-testid="frame-domain-frame">
+              <div className="text-meta font-semibold uppercase tracking-wider text-faint mb-2">限知边界</div>
+              <Empty>作者全知视角——暂无限知约束</Empty>
+            </section>
+          )}
+          {picked && !picked.fact?.targetNode && <DetailStrip model={detailModel} />}
+          {picked && picked.fact?.targetNode && (
+            <DetailStrip model={detailModel} />
+          )}
+        </nav>
+      </div>
     </div>
   )
 }

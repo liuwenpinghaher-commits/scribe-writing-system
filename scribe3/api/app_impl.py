@@ -667,8 +667,8 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
 
 
 def _flag_enabled(name: str) -> bool:
-    """Task 16-B 统一开关判定门面(委托 context_cache.flag_enabled,单一真值来源)。
-    每次读 env,默认关 → 系统行为与开关引入前【字节等价】。"""
+    """统一开关判定门面(委托 context_cache.flag_enabled,单一真值来源)。
+    上下文产品三件套默认开(见 settings);显式 env/DB 覆盖可关。"""
     from scribe3 import context_cache
     return context_cache.flag_enabled(name)
 
@@ -779,9 +779,9 @@ def _capture_turn_memory(store, *, work: str, thread_id: str, turn_id: str,
     幂等:event_id = turn:<turn_id>(同轮重放不重复记)。分类/正典红线/linked_ids 领域反查
     在 MemoryCapture 内;known_from=chapter 在此传入(限知门对捕获记忆生效,防知情倒灌)。
 
-    Task 16-C 对称门控:SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ 最前零成本短路,不捕获、
-    不 embed、不写 memory_event/memory_item —— 与检索侧(_get_write_retriever 返 None)
-    同开同关,"记忆织物"关时写作路径【字节等价】,根治"捕获恒开只写不读半空转"。"""
+    产品默认 MEMORY_FABRIC 开:写路径同步捕获经验记忆。
+    仅显式关(env/DB=0)时短路——测试/运维隔离,不是产品 fallback。
+    捕获异常只告警不阻断写作主链路(与 chat_message 同纪律);HTTP /memory/capture-turn 则 fail-loud。"""
     if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
         return
     if not (text or "").strip() or not turn_id:
@@ -942,12 +942,12 @@ def ai_runtime_status():
 
 @app.get("/capabilities")
 def capabilities():
-    """Task 16-B 灰度能力下发:只读各 feature flag 的 env 状态(不下发任何秘密)。
+    """能力下发:只读各运行时 flag(不下发任何秘密)。
 
-    前端能力以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
-    四个灰度 flag 默认均 False；兼容键 assembler_v1 恒 True，表示统一内核已启用。
-    capabilities 只上报运行时事实，不改变生产路由。
-    回滚顺序:inspector → memory retrieval → editorial thread → context snapshot;数据表保留不删。"""
+    前端以后端 capabilities 为准——不允许只靠 localStorage 开启未就绪的服务端能力。
+    产品默认:snapshot / memory_fabric / context_inspector = 开;editorial_thread 仍默认关;
+    assembler_v1 恒 True(统一写作内核);emergency_rest_write 默认关。
+    capabilities 只上报运行时事实。"""
     from scribe3 import context_cache, embed
     return {
         "flags": {
@@ -1957,11 +1957,12 @@ class MemoryPrefetchReq(BaseModel):
 
 
 def _require_memory_fabric():
-    """与写作主路对称:MEMORY_FABRIC 关时 /memory/* 不得当经验记忆已开。"""
+    """仅当显式关闭 MEMORY_FABRIC 时拒绝 /memory/*(测试隔离/运维关闸)。
+    产品默认开 → 不 403。"""
     if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
         raise HTTPException(
             status_code=403,
-            detail="MEMORY_FABRIC disabled; set SCRIBE3_MEMORY_FABRIC_V1=1 for experience memory",
+            detail="MEMORY_FABRIC disabled; set SCRIBE3_MEMORY_FABRIC_V1=1 (or remove override) for experience memory",
         )
 
 
@@ -1970,8 +1971,9 @@ def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
     """检索本 work 记忆,返回组装好的记忆块文本(供直连 Hermes 会话注入 prompt)。
 
     讨论模式组装(无章 → 限知门 fail-open,作者全知视角):canonical 命题 + 经验记忆,
-    work 隔离 / 秘密屏蔽在检索·组装链内生效。组装异常降级空块(绝不 5xx 拖垮上游会话)。
-    与写作主路同 flag:MEMORY_FABRIC 关 → 403,禁止旁路当经验记忆已开。"""
+    work 隔离 / 秘密屏蔽在检索·组装链内生效。
+    组装失败 fail-loud(500),不得用空串冒充「没有记忆」。
+    产品默认 fabric 开;仅显式关 → 403。"""
     _require_memory_fabric()
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
@@ -1984,11 +1986,14 @@ def memory_prefetch(req: MemoryPrefetchReq, work: str = "main"):
         envelope = ContextAssembler(store, MemoryRetriever(store)).assemble(
             snap, req.query or "", "discussion")
         context = render_envelope_text(envelope)
-    except Exception:
-        logging.getLogger("scribe3").warning(
-            "/memory/prefetch 组装失败(降级空块)", exc_info=True)
-        context = ""
-    return {"context": context, "work": w}
+    except Exception as e:
+        logging.getLogger("scribe3").error(
+            "/memory/prefetch 组装失败(fail-loud)", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"memory prefetch assemble failed: {e}",
+        ) from e
+    return {"context": context or "", "work": w, "empty": not bool((context or "").strip())}
 
 
 class MemoryCaptureTurnReq(BaseModel):
@@ -2004,8 +2009,8 @@ def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
     """幂等捕获一轮对话为经验记忆(同步 drain)。event_id 幂等键:同 event_id 二次→idempotent。
 
     捕获作者意图文本(user 优先,空则退 assistant);分类/正典红线/linked_ids 领域反查在
-    MemoryCapture 内。best-effort:失败只告警,返回 capture_failed 而非 5xx。
-    MEMORY_FABRIC 关 → 403,不写 memory_item(与写作 capture 对称)。"""
+    MemoryCapture 内。捕获失败 fail-loud(500),不得用 capture_failed 假绿。
+    产品默认 fabric 开;仅显式关 → 403。"""
     _require_memory_fabric()
     w = _normalize_work(work)
     _assert_work_binding(_thread_work(req.thread_id), w,
@@ -2019,10 +2024,13 @@ def memory_capture_turn(req: MemoryCaptureTurnReq, work: str = "main"):
     try:
         result = MemoryCapture(store).capture_event(turn_event(
             text=text, event_id=ev_id, work=w, thread_id=req.thread_id))
-    except Exception:
-        logging.getLogger("scribe3").warning(
-            "/memory/capture-turn 捕获失败(忽略,不阻断上游会话)", exc_info=True)
-        return {"status": "capture_failed", "work": w}
+    except Exception as e:
+        logging.getLogger("scribe3").error(
+            "/memory/capture-turn 捕获失败(fail-loud)", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"memory capture failed: {e}",
+        ) from e
     return {"status": result.get("status"),
             "idempotent": bool(result.get("idempotent")),
             "event_id": ev_id, "work": w}
@@ -5496,14 +5504,51 @@ def _purpose_workflow_block(st, chapter: int, with_tools: bool = False,
     return _purpose_and_lessons_write_block(st, chapter, with_tools, work)
 
 
+def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> str:
+    """生产写路径:章前简报**操作必达段**(伏笔/开环/心跳/弧光/因果/stale)。
+
+    单源 assemble_chapter_brief;刻意剔除 purpose/lessons(已由
+    _purpose_and_lessons_write_block 内联)与 injection 回显(codex 块另注),
+    避免双份圣经/双份目的合同。空操作段 → 空串。fail-soft:组装故障不阻断写作。"""
+    try:
+        from scribe3.brief import assemble_chapter_brief, render_brief
+        brief = assemble_chapter_brief(st, int(chapter), focalizer=focalizer or "")
+        sec = dict(brief.get("sections") or {})
+        sec.pop("purpose", None)
+        sec.pop("lessons", None)
+        sec.pop("injection", None)
+        pd = sec.get("promises") or {}
+        has_ops = bool(
+            sec.get("arcs")
+            or pd.get("reminders") or pd.get("directives") or pd.get("decisions")
+            or (sec.get("loops") or {}).get("weighted")
+            or sec.get("heartbeat")
+            or (sec.get("causal") or {}).get("directives")
+            or (sec.get("stale") or {}).get("text")
+            or (sec.get("emotion_module") or {}).get("text")
+        )
+        if not has_ops:
+            return ""
+        text = (render_brief(sec) or "").strip()
+        if not text or text == "## 本章创作简报(章前组装,遵守但不复述)":
+            return ""
+        return "\n\n" + text
+    except Exception as e:
+        logging.getLogger("scribe3").warning(
+            "写路径 brief 必达段注入失败(fail-soft): %s", e)
+        return ""
+
+
 def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None) -> str:
-    """写作总闸素材注入(全生成相位共用):聚焦 query → material_recall(三通道)→ LLM 重排理由 →
-    render 参考段 + 写溯源(反哺强度)。门控:无草料/空库/无命中 → 空串(零开销,不调 LLM)。
-    参考语义:素材是借鉴非事实,注入段自带反照搬边界。限知不约束素材(元层面创作参考,非故事内知识)。
-    全 try/except fail-soft:素材召回任何异常都不阻断写作主链。"""
+    """写作总闸素材注入:聚焦 query → material_recall → 重排 → 参考段 + 溯源。
+
+    llm 参数:
+      - 显式传入可调用对象 → LLM 重排理由(测试/显式调用);
+      - 默认 None → **确定性**路径(强度加权 top-k,不调网关),供生产写组装零网络阻塞。
+    门控:无草料/空库/无命中 → 空串。参考语义:借鉴非事实。全 try/except fail-soft。"""
     try:
         from scribe3.brief import chapter_draft_text, detect_mentions
-        from scribe3.material_recall import (extract_focus_query, gate,
+        from scribe3.material_recall import (apply_strength, extract_focus_query, gate,
                                              render_material_block, rerank_materials)
         draft = chapter_draft_text(st.get_chapter(chapter) or {})
         if not (draft or "").strip():
@@ -5519,10 +5564,11 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         if not cands:
             return ""   # 门控:空库/无命中 → 不调 LLM 重排
         if llm is None:
-            from scribe3.llm import hermes_complete
-            def llm(p):
-                return hermes_complete(p, max_tokens=500)
-        ranked = rerank_materials(cands, query, llm, k=3)
+            ranked = apply_strength(list(cands))[:3]
+            for c in ranked:
+                c.setdefault("reason", "检索命中")
+        else:
+            ranked = rerank_materials(cands, query, llm, k=3)
         block = render_material_block(ranked)
         if block:
             for c in ranked:   # 溯源反哺(recall_count++/last_recalled_at)
@@ -5577,15 +5623,11 @@ def _write_snapshot(st, *, chapter, focalizer, phase, work):
 
 
 def _get_write_retriever(st):
-    """Task 8 MemoryRetriever 注入点(对称门控,Task 16-C)。
+    """生产写路径 MemoryRetriever 注入点。
 
-    SCRIBE3_MEMORY_FABRIC_V1【关】(默认)→ None:assembler 走 store 直查降级(canonical
-      仍有真数据),与 16-C 前【字节等价】——写作 prompt 不读经验记忆、零检索成本。
-    【开】→ MemoryRetriever(st):四通道检索 / RRF / 限知门 / 正典压制接进写作 envelope
-      (剧透门 known_from、秘密屏蔽 C1、work 隔离全在检索/组装链内生效)。
-    Creative Context Engine 始终消费本注入点的结果；是否实例化 retriever
-    只由 MEMORY_FABRIC 控制。捕获侧 _capture_turn_memory 仍由同一 flag
-    对称门控。"""
+    产品默认 MEMORY_FABRIC 开 → 恒挂 MemoryRetriever(四通道 / RRF / 限知门 / 正典压制)。
+    仅显式关(测试隔离)→ None,assembler 降级 store 直查 canonical(非产品 fallback 叙事)。
+    捕获侧 _capture_turn_memory 与本注入点同 flag 对称。"""
     if not _flag_enabled("SCRIBE3_MEMORY_FABRIC_V1"):
         return None
     from scribe3.memory_retrieval import MemoryRetriever
@@ -5812,6 +5854,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             f"chapter:{chapter}:purpose", "purpose",
             _purpose_workflow_block(st, chapter, with_tools, work),
         )
+        # 章前简报操作必达段(伏笔/开环/心跳/弧光/因果)——与 discussion 旧链
+        # _editor_write_system 同源 assemble_chapter_brief,v1 此前漏挂。
+        rendered += _domain_input(
+            f"chapter:{chapter}:brief-must", "brief_must",
+            _brief_must_sections_write_block(st, chapter, focalizer=focalizer or ""),
+        )
+        # 跨书作者偏好(USER.md)——讨论栈走 _editor_system;写栈此前只身份块,漏挂。
+        rendered += _domain_input(
+            f"work:{work or 'main'}:author-prefs", "author_prefs",
+            _author_prefs_block_safe(),
+        )
+        # 焦点者声音锚 + 登场对白速记(helper 早有,生产写链未调用)。
+        rendered += _domain_input(
+            f"chapter:{chapter}:voice-anchor", "voice_anchor",
+            _voice_anchor_block(st, focalizer or ""),
+        )
         normalized_phase = (phase or "").strip().lower()
         if normalized_phase in ("draft", "final"):
             for ordinal, (source_id, source_kind, text) in enumerate(
@@ -5821,6 +5879,12 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                     source_id, source_kind,
                     ("\n\n" if ordinal == 0 else "") + text,
                 )
+            # draft/final:门控素材参考(借鉴非事实);llm=None → 确定性强度排序,不阻塞网关。
+            rendered += _domain_input(
+                f"chapter:{chapter}:material-recall", "material_recall",
+                _material_recall_block(st, chapter, phase=normalized_phase,
+                                       focalizer=focalizer or "", llm=None),
+            )
         rendered += _final_reminder()
         if normalized_phase == "deduce":
             truth = ((st.get_chapter(chapter) or {}).get("scene_truth") or "").strip()

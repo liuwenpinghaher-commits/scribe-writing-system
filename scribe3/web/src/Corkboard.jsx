@@ -28,7 +28,7 @@ function EmptyLaneDropZone({ volumeId }) {
   })
   return (
     <div ref={setNodeRef}
-      className={`col-span-full text-f12 py-4 flex items-center justify-center border border-dashed rounded-xl transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
+      className={`col-span-full text-f12 py-4 flex items-center justify-center border border-dashed rounded-md transition-colors ${isOver ? 'border-brand/60 bg-brand/5 text-brand' : 'border-line/40 text-faint/50'}`}>
       拖到此处移入本卷
     </div>
   )

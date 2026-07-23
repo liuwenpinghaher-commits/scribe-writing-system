@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { Loader2, GitBranch, Trash2, Plus, AudioLines, Check, Boxes, Lock, History, EyeOff, Heart } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Loader2, GitBranch, Trash2, Plus, AudioLines, Boxes, Lock, History, EyeOff, Heart } from 'lucide-react'
 import { api } from './api'
-import { DetailView, stripSecretMask, seedChiefCodexWrite } from './views/CodexView'
+import { DetailView, seedChiefCodexWrite } from './views/CodexView'
 import { ConfirmDialog } from './ui/Dialog.jsx'
 import { AsyncState } from './ui/AsyncState.jsx'
 import { showToast } from './ui/Toast'
@@ -56,19 +56,6 @@ function pickRow(nodeType, rows, ref) {
   if (nodeType === 'character') return rows.find((r) => localOf(r) === ref || r.id === `role:${ref}`)
   if (nodeType === 'promise' || nodeType === 'motif') return rows.find((r) => r.id === ref)
   return rows.find((r) => r.name === ref)
-}
-
-async function persist(detailType, updated) {
-  // 防线2(API 边界):掩码占位符绝不回写——把值等于 SECRET_MASK 掩码的字段剔除,
-  // 避免整行回传销毁真实私密(角色 backstory / 势力 private_operation,F-1/F-2)。
-  const payload = stripSecretMask(updated)
-  if (detailType === 'chars') await api.editChar(localOf(payload), payload)
-  else if (detailType === 'rules') await api.post('/world-rules', payload)
-  else if (detailType === 'factions') await api.post('/factions', payload)
-  else if (detailType === 'items') await api.post('/items', payload)
-  else if (detailType === 'terms') await api.post('/terms', payload)
-  else if (detailType === 'promises') await api.editPromise(payload.id, payload)
-  else if (detailType === 'motifs') await api.editMotif(payload.id, payload)
 }
 
 async function remove(detailType, row) {
@@ -177,10 +164,10 @@ function CharArcAnchors({ characterId, characterName }) {
       }>弧光锚 · 角色内核</SectionTitle>
       <div className="space-y-0.5">
         {ANCHOR_TEXT.map(([k, label]) => (
-          <ReadOnlyText key={k} label={label} value={anchors?.[k]} emptyHint="—" />
+          <ReadOnlyText key={k} label={label} value={anchors?.[k]} emptyHint="—" entityLabel={name || characterId} fieldKey={k} />
         ))}
-        <ReadOnlyText label="弧型(Arc type)" value={arcTypeLabel} emptyHint="—" />
-        <ReadOnlyText label="私密日程(Private agenda)" value={anchors?.private_agenda} emptyHint="—" />
+        <ReadOnlyText label="弧型(Arc type)" value={arcTypeLabel} emptyHint="—" entityLabel={name || characterId} fieldKey="arc_type" />
+        <ReadOnlyText label="私密日程(Private agenda)" value={anchors?.private_agenda} emptyHint="—" entityLabel={name || characterId} fieldKey="private_agenda" />
       </div>
 
       <div className="mt-5">
@@ -327,8 +314,8 @@ export function PropositionDetail({ node, onDeleted }) {
 
   return (
     <div className="h-full overflow-y-auto bg-canvas" data-testid="proposition-detail">
-      <div className="panel-elevated max-w-2xl mx-auto my-4 px-6 py-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-soft/60 px-3 py-2" data-testid="proposition-readonly-banner">
+      <div className="max-w-2xl mx-auto px-5 py-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 py-1" data-testid="proposition-readonly-banner">
           <span className="text-meta text-faint">只读检视 · 超越/遗忘走主编审批写</span>
           <button type="button" data-testid="proposition-ask-chief"
             onClick={() => seedChiefCodexWrite('facts', seedBase,
@@ -340,12 +327,15 @@ export function PropositionDetail({ node, onDeleted }) {
 
         <SectionTitle icon={Boxes}>命题详情</SectionTitle>
         <div className="space-y-0.5 mt-1">
-          <ReadOnlyText label="主体" value={entLocal} />
-          <ReadOnlyText label="属性" value={row.attribute} />
+          <ReadOnlyText label="主体" value={entLocal} entityLabel={`${entLocal}·${row.attribute || ''}`} fieldKey="entity" />
+          <ReadOnlyText label="属性" value={row.attribute} entityLabel={`${entLocal}·${row.attribute || ''}`} fieldKey="attribute" />
           <ReadOnlyText
             label="值"
             value={row.is_secret ? null : row.value}
             emptyHint={row.is_secret ? '私密 · 值对读者屏蔽(限知)' : '—'}
+            entityLabel={`${entLocal}·${row.attribute || ''}`}
+            fieldKey="value"
+            emptyAsk={!row.is_secret}
           />
           {row.is_secret && (
             <div className="py-1 text-f13 text-faint inline-flex items-center gap-1.5"><Lock size={13} />限知私密命题</div>
@@ -522,53 +512,27 @@ function FactionRelations({ name }) {
   )
 }
 
-export function CodexDetail({ node, onChanged, onDeleted }) {
+export function CodexDetail({ node, onDeleted }) {
   const [row, setRow] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [delOpen, setDelOpen] = useState(false)
   const [delLoading, setDelLoading] = useState(false)
   const [deleteImpact, setDeleteImpact] = useState(null)
-  // 保存状态机(saving/saved/error):失焦保存此前只有失败 toast,成功/进行中无反馈
-  const [saveState, setSaveState] = useState('idle')
-  const [saveErr, setSaveErr] = useState('')
-  const [voiceRefresh, setVoiceRefresh] = useState(0)
-  const lastPayloadRef = useRef(null)
   const detailType = TYPE_MAP[node?.type]
 
-  // silent=true:后台对账刷新,不翻 loading、不进 error 态,且找不到时不清空 row。
-  // 保存成功走这条(Issue 1):否则 setLoading(true) 会触发 `if (loading) return <spinner>`
-  // 早返回,把整个表单(含 saving/saved 状态条)闪成居中 spinner,每改一字段抖一下。
-  const reload = (silent = false) => {
-    if (!node || !detailType) { if (!silent) setLoading(false); return }
-    if (!silent) { setLoading(true); setLoadErr('') }
+  // 已有档案只读 + 主编种子;字段 REST 写路径已拆除(Policy 1A)。
+  const reload = () => {
+    if (!node || !detailType) { setLoading(false); return }
+    setLoading(true); setLoadErr('')
     loadRows(node.type)
       .then((rows) => {
-        const found = pickRow(node.type, rows, node.ref) || null
-        // 静默刷新只在命中时对账;命中不到不摧毁乐观值(如非角色改名后按旧 ref 查不到)
-        if (silent) { if (found) setRow(found); return }
-        setRow(found); setLoading(false)
+        setRow(pickRow(node.type, rows, node.ref) || null)
+        setLoading(false)
       })
-      // 请求失败 ≠ 条目不存在:进 error 态给真实错误 + 重试,不谎称「可能已删除」(静默刷新则吞掉,不污染已保存视图)
-      .catch((e) => { if (!silent) { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) } })
+      .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
-  useEffect(() => { setDeleteImpact(null); setSaveState('idle'); setSaveErr(''); reload() }, [node?.id])
-
-  const doPersist = async (updated) => {
-    lastPayloadRef.current = updated
-    setSaveState('saving'); setSaveErr('')
-    try {
-      await persist(detailType, updated)
-      // 乐观合并:updated 已是整行(DetailView 用 {...row,[k]:v} 上抛,仅剔除掩码字段),
-      // 立即合并到 prev(掩码字段用 prev 值保底)→ 新值即时可见、不经 loading 守卫闪 spinner。
-      setRow((prev) => ({ ...prev, ...updated }))
-      setSaveState('saved')
-      reload(true)   // 静默后台与服务端对账(规范化/触发器),不翻 loading
-      onChanged?.()
-    } catch (e) {
-      setSaveState('error'); setSaveErr(e?.body?.detail || e?.message || '保存失败')
-    }
-  }
+  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
@@ -608,36 +572,21 @@ export function CodexDetail({ node, onChanged, onDeleted }) {
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
-      <div className="panel-elevated max-w-2xl mx-auto my-4 px-6 py-5">
-        {/* 保存状态行:saving/saved 用 status,error 用 alert + 真实错误 + 重试(重发最后一次 payload) */}
-        {saveState !== 'idle' && (
-          <div role={saveState === 'error' ? 'alert' : 'status'}
-            className={`mb-3 flex items-center gap-2 text-meta ${saveState === 'error' ? 'text-danger' : 'text-faint'}`}>
-            {saveState === 'saving' && <><Loader2 size={13} className="animate-spin" />保存中…</>}
-            {saveState === 'saved' && <><Check size={13} className="text-ok" />已保存</>}
-            {saveState === 'error' && (
-              <>
-                <span>保存失败:{saveErr}</span>
-                <Btn size="xs" variant="soft" onClick={() => doPersist(lastPayloadRef.current)}>重试保存</Btn>
-              </>
-            )}
-          </div>
-        )}
+      <div className="max-w-2xl mx-auto px-5 py-4">
         <DetailView
           type={detailType}
           row={row}
           isNew={false}
           onBack={null}
-          onUpdate={doPersist}
+          onUpdate={undefined}
           onDelete={openDelete}
-          onCharStateAdded={() => setVoiceRefresh((n) => n + 1)}
         />
         {/* 伏笔专属(断头修复#21):收 + 草蛇灰线线索 */}
         {detailType === 'promises' && row?.id && <PromiseLifecycle row={row} />}
         {detailType === 'items' && row?.name && <ItemStateChange name={row.name} />}
         {detailType === 'factions' && row?.name && <FactionRelations name={row.name} />}
         {detailType === 'chars' && row?.id && <CharArcAnchors characterId={row.id} characterName={row.name} />}
-        {detailType === 'chars' && row?.id && <CharVoice characterId={row.id} characterName={row.name} refreshKey={voiceRefresh} />}
+        {detailType === 'chars' && row?.id && <CharVoice characterId={row.id} characterName={row.name} />}
       </div>
       <ConfirmDialog
         open={delOpen}

@@ -54,15 +54,15 @@ export function ChapterMetaPane({ seq, work, onClose }) {
     <div className="w-full max-w-[42rem] mx-auto px-5 py-5" data-testid="chapter-meta-pane">
       <div className="flex items-start justify-between gap-3 mb-5">
         <div>
-          <h3 className="text-f20 font-semibold text-ink">章节信息</h3>
+          <h3 className="type-section text-ink">章节信息</h3>
           <p className="mt-1 text-f13 text-faint">只读检视;命名/标签/分卷由主编审批写入。</p>
         </div>
         <Btn variant="ghost" size="sm" onClick={onClose}>返回写作</Btn>
       </div>
       <div className="space-y-4">
-        <ReadOnlyText label="章节标题" value={title} emptyHint="（空 · 由主编审批写入）" />
-        <ReadOnlyText label="章节标签" value={labelText} />
-        <ReadOnlyText label="所属卷" value={volTitle} />
+        <ReadOnlyText label="章节标题" value={title} emptyHint="（空 · 由主编审批写入）" entityLabel={`第 ${seq} 章`} fieldKey="title" />
+        <ReadOnlyText label="章节标签" value={labelText} emptyHint="（空 · 由主编审批写入）" entityLabel={`第 ${seq} 章`} fieldKey="label" />
+        <ReadOnlyText label="所属卷" value={volTitle} emptyHint="（空 · 由主编审批写入）" entityLabel={`第 ${seq} 章`} fieldKey="volume" />
       </div>
       <div className="mt-6 flex justify-end gap-2">
         <Btn variant="ghost" onClick={onClose}>关闭</Btn>

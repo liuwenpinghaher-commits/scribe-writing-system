@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Compass, ChevronDown, MessageSquare } from 'lucide-react'
 import { api } from './api'
 import { Btn } from './ui.jsx'
+import { ReadOnlyText } from './ui/EditableText.jsx'
 
 const FIELDS = [['reader_feeling', '读者感受'], ['emotional_arc', '情感弧'], ['red_lines', '红线']]
 
@@ -46,12 +47,15 @@ export function NorthStarBar() {
       {open && (
         <div className="px-4 py-3 grid sm:grid-cols-3 gap-2.5 bg-canvas/50" data-testid="northstar-readonly">
           {FIELDS.map(([k, label]) => (
-            <div key={k}>
-              <div className="text-meta text-faint mb-1">{label}</div>
-              <div className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-f12 text-ink whitespace-pre-wrap min-h-[2.5rem]"
-                data-testid={`northstar-field-${k}`}>
-                {intent[k] || <span className="text-faint">（空 · 由主编审批写入）</span>}
-              </div>
+            <div key={k} data-testid={`northstar-field-${k}`}>
+              <ReadOnlyText
+                label={label}
+                value={intent[k] || ''}
+                emptyHint="（空 · 由主编审批写入）"
+                entityLabel="北极星"
+                fieldKey={k}
+                emptyAskLabel="聊聊怎么写"
+              />
             </div>
           ))}
           <div className="sm:col-span-3 flex flex-wrap items-center justify-between gap-2">

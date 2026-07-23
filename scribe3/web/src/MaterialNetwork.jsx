@@ -107,7 +107,7 @@ function GraphContent({ materials, edges, theme, onPick }) {
 // 选中素材的小卡(点击节点后弹出;主操作 = 打开素材,回调 onSelect)
 function PickedCard({ m, onOpen, onClose }) {
   return (
-    <div className="absolute top-3 right-3 z-20 w-60 rounded-xl border border-line bg-surface/95 backdrop-blur shadow-lg p-3.5 flex flex-col gap-2.5">
+    <div className="absolute top-3 right-3 z-20 w-60 rounded-md border border-line bg-surface/95 backdrop-blur shadow-lg p-3.5 flex flex-col gap-2.5">
       <div className="flex items-start gap-2">
         <span className="text-f14 font-medium text-ink leading-snug flex-1 break-words">{m.title || '(无题)'}</span>
         <button onClick={onClose} className="text-faint hover:text-ink shrink-0 mt-0.5 cursor-pointer"><X size={14} /></button>

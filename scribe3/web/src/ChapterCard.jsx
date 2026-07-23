@@ -32,7 +32,7 @@ export function ChapterCard({ chapter, colorMode, onOpen, onPatchLabel, dragHand
 
   return (
     <div ref={setNodeRef} style={style}
-      className="relative rounded-xl bg-surface/90 overflow-hidden flex flex-col shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-line)_55%,transparent)] hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-brand)_40%,transparent)] transition-shadow">
+      className="relative rounded-md bg-surface/90 overflow-hidden flex flex-col shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-line)_55%,transparent)] hover:shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-brand)_40%,transparent)] transition-shadow">
       {/* 顶部色条(label/POV) — 薄一点 */}
       <div className="h-0.5 w-full shrink-0" style={{ background: cardColorVar(chapter, colorMode) }} />
       <div className="p-2.5 flex flex-col gap-1.5 flex-1 min-h-0">

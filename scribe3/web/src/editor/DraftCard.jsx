@@ -7,7 +7,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
   if (!proposal && !(candidates && candidates.length)) return null
   if (candidates && candidates.length >= 1) {
     return (
-      <div className="my-3 rounded-xl border border-brand/25 bg-brand/[.03] overflow-hidden">
+      <div className="my-3 rounded-md border border-brand/25 bg-brand/[.03] overflow-hidden">
         <div className="flex items-center gap-2 px-3 h-9 border-b border-brand/15">
           <Sparkles size={14} className="text-brand" />
           <span className="text-f12 font-medium text-brand">主编提议 · {candidates.length} 个候选</span>
@@ -25,7 +25,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
     )
   }
   return (
-    <div className="my-3 rounded-xl border border-brand/25 bg-brand/[.03] overflow-hidden">
+    <div className="my-3 rounded-md border border-brand/25 bg-brand/[.03] overflow-hidden">
       <div className="flex items-center gap-2 px-3 h-9 border-b border-brand/15">
         <Sparkles size={14} className="text-brand" />
         <span className="text-f12 font-medium text-brand">主编提议 · {LABEL[proposal.scope] || '改写'}</span>
@@ -35,7 +35,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
           <button type="button" data-testid="draft-accept" onClick={onAccept} disabled={streaming} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-opacity"><Check size={13} />接受</button>
         </div>
       </div>
-      <div className="manuscript px-4 py-3 text-f15 leading-[1.85] whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto">{proposal.prose || '​'}</div>
+      <div className="manuscript type-stage whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto px-4 py-3">{proposal.prose || '​'}</div>
     </div>
   )
 }

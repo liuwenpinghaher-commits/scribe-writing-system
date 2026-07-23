@@ -14,16 +14,16 @@ function Stat({ icon: Icon, label, value, sub, tone = 'ink', onClick }) {
       {sub && <div className="text-meta text-faint mt-0.5">{sub}</div>}
     </>
   )
-  // Upstream 抬升小卡:白底 + shadow-panel,可点 hover 轻上浮
+  // 第三栏精简:无抬升卡框,只留数字与可点态
   if (onClick) {
     return (
       <button onClick={onClick}
-        className="panel-elevated w-full text-left p-4 cursor-pointer transition-all hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]">
+        className="w-full text-left py-2 pr-2 cursor-pointer rounded-lg hover:bg-soft/50 transition-colors">
         {inner}
       </button>
     )
   }
-  return <div className="panel-elevated p-4">{inner}</div>
+  return <div className="py-2 pr-2">{inner}</div>
 }
 
 export function OverviewView({ onJumpChapter, onOpenView }) {
@@ -54,7 +54,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
       <div className="max-w-5xl mx-auto px-6 py-6 md:px-8 md:py-8">
         <div className="flex items-center gap-2 mb-5">
           <BookText size={18} className="text-brand" />
-          <h1 className="text-f22 font-semibold tracking-tight prose-serif text-ink">概览</h1>
+          <h1 className="type-page prose-serif text-ink">概览</h1>
         </div>
 
         {/* 规模 */}
@@ -67,10 +67,10 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
           <Stat icon={Bookmark} label="伏笔超期" value={fs.overdue ?? 0} sub="埋下 >3 章未回收" tone={fs.overdue ? 'danger' : 'ok'} />
         </div>
 
-        <div className="panel-elevated p-5 md:p-6 space-y-6">
+        <div className="space-y-6">
           {/* 设定统计 */}
           {comp && (
-            <div className="pb-5 border-b border-line/50">
+            <div className="pb-5 border-b border-line/40">
               <div className="flex items-center gap-2 mb-3">
                 <div className="text-meta font-semibold uppercase tracking-wider text-faint">设定库</div>
                 {comp.completeness_score != null && (
@@ -87,7 +87,7 @@ export function OverviewView({ onJumpChapter, onOpenView }) {
                 ].map(([label, count, Icon]) => (
                   <div key={label} className="py-1">
                     <div className="flex items-center gap-1.5 text-meta text-faint mb-1"><Icon size={12} />{label}</div>
-                    <div className="text-f18 font-semibold text-ink tnum">{count ?? 0}</div>
+                    <div className="type-section text-ink tnum">{count ?? 0}</div>
                   </div>
                 ))}
               </div>

@@ -204,7 +204,8 @@ def test_pending_resolve_api_requires_fabric(store, monkeypatch):
 
 
 def test_pending_resolve_api_approve(store, monkeypatch):
-    monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
+    # 产品默认 fabric 开:无需 setenv=1 即可走 shipped HTTP
+    monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
     A.set_store(store)
     store.add_entity(Entity("role:辛", "character", "辛"))
     cid = store.add_pending_authority_claim(
@@ -212,6 +213,12 @@ def test_pending_resolve_api_approve(store, monkeypatch):
         entity="role:辛", attribute="身份", value="卧底",
         source_type="test", source_id="src-pa-3")
     client = TestClient(A.app)
+    listed = client.get("/memory/pending-claims?work=main&status=pending")
+    assert listed.status_code == 200, listed.text
+    assert any(
+        (c.get("id") == cid or str(c.get("id", "")).endswith(cid))
+        for c in listed.json().get("claims") or []
+    )
     r = client.post(f"/memory/pending-claims/{cid}/resolve?work=main",
                     json={"decision": "approve", "valid_from": 1})
     assert r.status_code == 200, r.text

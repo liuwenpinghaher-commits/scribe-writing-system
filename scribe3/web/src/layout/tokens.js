@@ -14,17 +14,28 @@ export const T = {
     ink: 'var(--color-ink)', faint: 'var(--color-faint)', line: 'var(--color-line)',
     surface: 'var(--color-surface)', canvas: 'var(--color-canvas)', soft: 'var(--color-soft)',
   },
-  radius: { sm: '6px', md: '8px', lg: '10px', xl: '12px' },
+  // 与 index.css --radius-* 对齐：控件 6 / 面板 8 / 略大 10
+  radius: { sm: '4px', md: '6px', lg: '8px', xl: '10px', pane: 'var(--radius-pane)' },
   space: { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 6: '24px' },
-  font: { f10: '10px', f11: '11px', f12: '12px', f13: '13px', f15: '15px', f18: '18px' },
+  font: {
+    meta: 'var(--text-meta)',
+    helper: 'var(--text-helper)',
+    body: 'var(--text-body)',
+    stage: 'var(--text-stage)',
+    section: 'var(--text-section-title)',
+    page: 'var(--text-page-title)',
+    prose: 'var(--text-prose)',
+    // 兼容旧 fNN 调用
+    f10: '10px', f11: '11px', f12: '12px', f13: '13px', f15: '15px', f18: '17px',
+  },
   h: { input: '36px', bar: '46px', rail: '56px' },
 }
 
 // 字段类统一 className(与 ui.jsx Input/Textarea variant 对齐)
 // ghost=Notion 默认;bordered=新建/设置等常显表单
 export const CX = {
-  input: 'w-full rounded-lg border border-transparent bg-transparent hover:bg-soft/50 px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60',
-  inputBordered: 'w-full rounded-lg border border-line bg-canvas px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60',
-  textarea: 'w-full rounded-lg border border-transparent bg-transparent hover:bg-soft/50 px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60 resize-y',
-  textareaBordered: 'w-full rounded-lg border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y',
+  input: 'w-full rounded-md border border-transparent bg-transparent hover:bg-soft/50 px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60',
+  inputBordered: 'w-full rounded-md border border-line bg-canvas px-3 h-9 text-f13 text-ink outline-none transition-colors focus:border-brand placeholder:text-faint/60',
+  textarea: 'w-full rounded-md border border-transparent bg-transparent hover:bg-soft/50 px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand focus:bg-canvas placeholder:text-faint/60 resize-y',
+  textareaBordered: 'w-full rounded-md border border-line bg-canvas px-3 py-2 text-f13 text-ink leading-relaxed outline-none transition-colors focus:border-brand placeholder:text-faint/60 resize-y',
 }

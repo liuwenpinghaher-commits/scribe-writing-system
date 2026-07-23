@@ -263,7 +263,7 @@ def test_v1_omniscient_end_to_end_never_leaks_bridge_mirror(store, monkeypatch, 
         monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "1")
         _patch_embed(monkeypatch)
     else:
-        monkeypatch.delenv("SCRIBE3_MEMORY_FABRIC_V1", raising=False)
+        monkeypatch.setenv("SCRIBE3_MEMORY_FABRIC_V1", "0")
 
     store.add_faction(FACTION,
                       origin="源自前朝遗族的复国密谋", origin_secret=True,

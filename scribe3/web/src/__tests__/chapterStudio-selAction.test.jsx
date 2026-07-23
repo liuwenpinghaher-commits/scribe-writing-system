@@ -77,7 +77,7 @@ function renderStudio({ seq = 3 } = {}) {
   )
 }
 
-describe('ChapterStudio 大纲/草稿选区聊这段/改这段(Task 2)', () => {
+describe.skip('ChapterStudio 大纲/草稿选区聊这段/改这段(Task 2) — obsolete after outline seed-only', () => {
   beforeEach(() => {
     localStorage.clear()
     selActionState.text = SEL_TEXT
@@ -252,7 +252,7 @@ describe('ChapterStudio 大纲/草稿选区聊这段/改这段(Task 2)', () => {
 // 节拍是结构化条目,不是选区;两钮是行内动作(与既有增删/上下移同排的实按钮),不经
 // RichEditor onSelAction。落地锚点是 _id(条目可能被上下移,_id 稳定;唯一性天然成立,
 // 不像大纲/草稿要子串唯一命中兜底)。
-describe('ChapterStudio 节拍条目级聊这条/改这条(Task 3)', () => {
+describe.skip('ChapterStudio 节拍条目级聊这条/改这条(Task 3) — obsolete after beats seed-only', () => {
   const beatsFixture = () => [
     { text: '焦三第一次见到铜炉', done: false },
     { text: '铜炉认主的异象', done: false },
@@ -401,5 +401,52 @@ describe('ChapterStudio 节拍条目级聊这条/改这条(Task 3)', () => {
     await screen.findByText(/主编生成了/)
     expect(screen.queryByRole('button', { name: '替换该条' })).toBeNull()
     expect(screen.getByRole('button', { name: '追加为新条目' })).toBeTruthy()
+  })
+})
+
+
+describe('ChapterStudio outline/beats seed policy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+
+  it('seedChiefNarrativeWrite for outline focuses chief without patch', async () => {
+    const { seedChiefNarrativeWrite } = await import('../lib/chiefSeed.js')
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
+    seedChiefNarrativeWrite('outline', '第 3 章大纲', '请更新 synopsis')
+    expect(seeds[0]).toMatch(/第 3 章大纲/)
+    expect(tabs).toContain('chief')
+  })
+})
+
+describe('ChapterStudio outline seed CTA (real UI)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+    apiMock.chapter.mockResolvedValue({
+      seq: 3, title: '三', synopsis: '炉前对峙。', beats: [{ text: 'A', done: false }],
+      word_count: 0, drafts: [], focalizer: null, prose: '', deductions: [], involved_characters: [],
+    })
+    apiMock.chapters.mockResolvedValue([{ seq: 3 }])
+    apiMock.entities.mockResolvedValue([])
+    apiMock.latestDraft?.mockResolvedValue?.({ prose: '' })
+    apiMock.patchChapter.mockResolvedValue({})
+  })
+
+  it('outline-ask-chief seeds and focuses right tab without patchChapter', async () => {
+    const seeds = []
+    const tabs = []
+    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+    window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
+    renderStudio({ seq: 3, initialPhase: 'outline' })
+    const btn = await screen.findByTestId('outline-ask-chief')
+    fireEvent.click(btn)
+    expect(seeds.length).toBeGreaterThan(0)
+    expect(tabs).toContain('chief')
+    expect(apiMock.patchChapter).not.toHaveBeenCalled()
   })
 })

@@ -73,7 +73,7 @@ describe('CodexView DetailView(factions) 元数据驱动渲染', () => {
     expect(screen.getByText('关键人物')).toBeTruthy()
 
     // 已存在设定只读:object/array 以纯文本展示(非输入框)
-    expect(screen.getByText(/core_size/, { exact: false })).toBeTruthy()
+    expect(screen.getByText(/核心圈人数|core_size/)).toBeTruthy()
     expect(screen.getByText(/禅让/, { exact: false })).toBeTruthy()
 
     // deprecated 字段(private_operation)本行无值 → 不显示(hasValue 判空)

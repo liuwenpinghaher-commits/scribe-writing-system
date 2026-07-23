@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Btn, Input } from '../ui.jsx'
 
 // 统一遮罩 token(全站弹层/命令面板共用):固定深色 scrim + z-[100]。
@@ -31,7 +31,7 @@ export function Dialog({ open, onClose, children, labelledBy }) {
     <div className={`${OVERLAY_CLASS} grid place-items-center`} onClick={onClose}>
       <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={labelledBy}
            onClick={(e) => e.stopPropagation()}
-           className="min-w-[320px] max-w-[440px] w-[90vw] rounded-xl bg-surface border border-line shadow-[var(--shadow-card)] outline-none">
+           className="min-w-[320px] max-w-[440px] w-[90vw] rounded-lg bg-surface border border-line shadow-[var(--shadow-card)] outline-none">
         {children}
       </div>
     </div>
@@ -40,12 +40,13 @@ export function Dialog({ open, onClose, children, labelledBy }) {
 
 export function InputDialog({ open, title, placeholder = '', defaultValue = '', confirmText = '确认', onConfirm, onClose }) {
   const [v, setV] = useState(defaultValue)
+  const titleId = useId()
   useEffect(() => { if (open) setV(defaultValue) }, [open, defaultValue])
   const submit = () => { onConfirm?.(v); onClose?.() }
   return (
-    <Dialog open={open} onClose={onClose} labelledBy="dlg-title">
+    <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <div className="p-4">
-        <div id="dlg-title" className="text-f14 font-medium text-ink mb-3">{title}</div>
+        <div id={titleId} className="text-f14 font-medium text-ink mb-3">{title}</div>
         <Input variant="bordered" autoFocus value={v} placeholder={placeholder}
           onChange={(e) => setV(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit() }} />
@@ -59,10 +60,11 @@ export function InputDialog({ open, title, placeholder = '', defaultValue = '', 
 }
 
 export function ConfirmDialog({ open, title, body, danger, confirmText = '确认', onConfirm, onClose }) {
+  const titleId = useId()
   return (
-    <Dialog open={open} onClose={onClose} labelledBy="cfm-title">
+    <Dialog open={open} onClose={onClose} labelledBy={titleId}>
       <div className="p-4">
-        <div id="cfm-title" className="text-f14 font-medium text-ink mb-1.5">{title}</div>
+        <div id={titleId} className="text-f14 font-medium text-ink mb-1.5">{title}</div>
         {body && <div className="text-f13 text-faint leading-relaxed mb-4">{body}</div>}
         <div className="mt-2 flex justify-end gap-2">
           <Btn variant="ghost" onClick={onClose}>取消</Btn>
