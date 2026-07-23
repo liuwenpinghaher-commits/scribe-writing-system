@@ -49,4 +49,9 @@ describe('DECISION_SELECTORS contract', () => {
     assert.match(src, /pressed === 'true'/)
     assert.match(src, /禁止再点已激活/)
   })
+
+  it('exports ensureInBook for library re-entry after four-col lost', async () => {
+    const mod = await import('./author_decisions.mjs')
+    assert.equal(typeof mod.ensureInBook, 'function')
+  })
 })

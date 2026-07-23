@@ -145,15 +145,49 @@ export async function acceptDraftProposal(page, { timeoutMs = 300000, pollMs = 2
 }
 
 /**
+ * 若已退回作品库（four-col 不在），按书名重新进台。
+ * r16：长会话后 diag.four=false，仅 expand 右坞无效。
+ */
+export async function ensureInBook(page, bookTitle, { base } = {}) {
+  if (!bookTitle) return false
+  const hasFour = await page.locator('[data-testid="four-col"]').count().catch(() => 0)
+  if (hasFour) return true
+  const BASE = base || process.env.E2E_BASE || 'http://127.0.0.1:3311'
+  await page.goto(BASE, { waitUntil: 'networkidle' }).catch(() => {})
+  await sleep(800)
+  // 库页点书卡
+  const slice = String(bookTitle).slice(0, 12)
+  const card = page.getByRole('button', { name: new RegExp(slice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first()
+  if (await card.count()) {
+    await card.click().catch(() => {})
+  } else {
+    await page.locator('button').filter({ hasText: slice.slice(0, 8) }).first().click({ timeout: 8000 }).catch(() => {})
+  }
+  await page.waitForSelector('[data-testid="four-col"]', { timeout: 20000 })
+  await sleep(800)
+  return (await page.locator('[data-testid="four-col"]').count().catch(() => 0)) > 0
+}
+
+/**
  * 主编栏被折叠/被其它 tab 盖住时，恢复可见再找输入框。
  * r6 失败根因：resolveComposer 找不到 textarea（栏折叠或未切到主编）。
  *
  * 铁律：禁止再点已激活的「主编」轨。Rail 对 active tab 再点会传空串 → onCollapse，
  * 会把右坞整栏收起（r14: ensure 一进来就把 right=0 打成 right=1）。
+ *
+ * @param {{ bookTitle?: string }} [opts] 退库时用于 re-open
  */
-export async function ensureChiefVisible(page) {
-  // 关掉可能挡输入的 dialog
-  await page.keyboard.press('Escape').catch(() => {})
+export async function ensureChiefVisible(page, opts = {}) {
+  const bookTitle = opts.bookTitle || process.env.E2E_BOOK_TITLE || ''
+
+  // 退回作品库 → 先重新进书
+  if (!(await page.locator('[data-testid="four-col"]').count().catch(() => 0))) {
+    await ensureInBook(page, bookTitle)
+  }
+
+  // 仅在有 dialog/modal 时 Escape，避免误触其它快捷
+  const hasDialog = await page.locator('[role="dialog"], [data-state="open"]').count().catch(() => 0)
+  if (hasDialog) await page.keyboard.press('Escape').catch(() => {})
 
   const usableComposer = async () => page.evaluate(() => {
     const okPh = (ph) => /问主编|提思路/.test(ph || '')
@@ -167,6 +201,10 @@ export async function ensureChiefVisible(page) {
 
   // 最多两轮强制展开（长会话后 onResize 误折叠 / 把手点不中）
   for (let round = 0; round < 2 && !(await usableComposer()); round++) {
+    // 每轮再确认未退库
+    if (!(await page.locator('[data-testid="four-col"]').count().catch(() => 0))) {
+      await ensureInBook(page, bookTitle)
+    }
     await page.evaluate(() => {
       try {
         for (const k of Object.keys(localStorage)) {
@@ -210,7 +248,8 @@ export async function ensureChiefVisible(page) {
   }
 }
 
-async function resolveComposer(page, preferWrite, { retries = 8 } = {}) {
+async function resolveComposer(page, preferWrite, { retries = 8, bookTitle } = {}) {
+  const book = bookTitle || process.env.E2E_BOOK_TITLE || ''
   const order = preferWrite
     ? [DECISION_SELECTORS.writeComposer, DECISION_SELECTORS.chiefComposer, 'textarea[placeholder^="提思路"]', 'textarea[placeholder^="就当前内容问主编"]', '[data-testid="chief-write-chat"] textarea', '[data-testid="chief-chat-shell"] textarea']
     : [DECISION_SELECTORS.chiefComposer, DECISION_SELECTORS.writeComposer, 'textarea[placeholder^="就当前内容问主编"]', 'textarea[placeholder^="提思路"]', '[data-testid="chief-chat-shell"] textarea', '[data-testid="chief-write-chat"] textarea']
@@ -244,7 +283,7 @@ async function resolveComposer(page, preferWrite, { retries = 8 } = {}) {
       }
     }
     if (attempt < retries) {
-      await ensureChiefVisible(page)
+      await ensureChiefVisible(page, { bookTitle: book })
       await sleep(700 + attempt * 200)
     }
   }
@@ -264,11 +303,12 @@ async function resolveComposer(page, preferWrite, { retries = 8 } = {}) {
 
 /**
  * 向主编发送消息并等待流结束；其间自动点批准。
- * @param {{ preferWrite?: boolean, maxMs?: number }} opts preferWrite=true 优先写作槽（提案卡）
+ * @param {{ preferWrite?: boolean, maxMs?: number, bookTitle?: string }} opts preferWrite=true 优先写作槽（提案卡）
  */
-export async function chiefSay(page, msg, { maxMs = 300000, preferWrite = false } = {}) {
-  await ensureChiefVisible(page)
-  const ta = await resolveComposer(page, preferWrite)
+export async function chiefSay(page, msg, { maxMs = 300000, preferWrite = false, bookTitle } = {}) {
+  const book = bookTitle || process.env.E2E_BOOK_TITLE || ''
+  await ensureChiefVisible(page, { bookTitle: book })
+  const ta = await resolveComposer(page, preferWrite, { bookTitle: book })
   await ta.click()
   await ta.fill(msg)
   await ta.press('Enter')

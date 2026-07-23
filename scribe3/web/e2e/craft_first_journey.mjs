@@ -17,6 +17,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const SCRATCH = process.env.GOAL_SCRATCH || process.env.SCRATCH || ''
 const API = process.env.E2E_API || 'http://127.0.0.1:3321'
 const BOOK = process.env.E2E_BOOK_TITLE || `工艺优先·${Date.now().toString(36)}`
+// ensureChiefVisible / chiefSay 退库恢复依赖此环境变量
+process.env.E2E_BOOK_TITLE = BOOK
 const logLines = []
 const L = (m) => { const s = `[${new Date().toISOString()}] ${m}`; console.log(s); logLines.push(s) }
 
@@ -140,24 +142,27 @@ const out = await withPage(async (p) => {
   process.env.E2E_WORK = work
 
   // Phase A: 辅信(对话+审批)——工具名写死,避免模型只聊天不落库
+  // preferWrite=false：未选章时写作槽不在，走主编对话；bookTitle 防退库后无法续跑
+  const say = (msg, maxMs = 300000) => chiefSay(p, msg, { preferWrite: false, maxMs, bookTitle: BOOK })
   L('phase-A intent')
-  await chiefSay(p, '请用 s3_set_intent 写入北极星(需我审批):reader_feeling=压抑中见一线热;emotional_arc=隐瞒到对质;red_lines=不美化私刑。未获批准不得声称已落库。', { preferWrite: true, maxMs: 240000 })
+  await say('请用 s3_set_intent 写入北极星(需我审批):reader_feeling=压抑中见一线热;emotional_arc=隐瞒到对质;red_lines=不美化私刑。未获批准不得声称已落库。', 240000)
   await approveAllPending(p)
 
   L('phase-A characters')
-  await chiefSay(p, '请用 s3_add_character 登记「沈砚」(appearance=右手有茧,deep_need=查清灰契)与「老道」(appearance=灰袍,deep_need=守炉),再用 s3_add_character_relation 建竞争关系。需我审批。', { preferWrite: true, maxMs: 300000 })
+  // 双角色+关系：Hermes 多轮工具，给足时间（r15/r16 卡在 300s 边界）
+  await say('请用 s3_add_character 登记「沈砚」(appearance=右手有茧,deep_need=查清灰契)与「老道」(appearance=灰袍,deep_need=守炉),再用 s3_add_character_relation 建竞争关系。需我审批。未获批准不得声称已落库。', 480000)
   await approveAllPending(p)
 
   L('phase-A world rule')
-  await chiefSay(p, '请用 s3_add_world_rule 登记规则:灰契立契后必有代价,不可无故解除。需我审批。', { preferWrite: true, maxMs: 240000 })
+  await say('请用 s3_add_world_rule 登记规则:灰契立契后必有代价,不可无故解除。需我审批。', 240000)
   await approveAllPending(p)
 
   L('phase-A motif')
-  await chiefSay(p, '请用 s3_add_motif 登记母题 name=灰契 theme=契约代价 echoes=灰印/契血。需我审批。未获批准不得声称已落库。', { preferWrite: true, maxMs: 240000 })
+  await say('请用 s3_add_motif 登记母题 name=灰契 theme=契约代价 echoes=灰印/契血。需我审批。未获批准不得声称已落库。', 240000)
   await approveAllPending(p)
 
   L('phase-A promise')
-  await chiefSay(p, '请用 s3_plant_promise 埋伏笔:text=灰契会反噬立契人 setup_chapter=1。需我审批。', { preferWrite: true, maxMs: 240000 })
+  await say('请用 s3_plant_promise 埋伏笔:text=灰契会反噬立契人 setup_chapter=1。需我审批。', 240000)
   await approveAllPending(p)
 
   let ga = await fetchCraftGates({ work })
@@ -179,7 +184,7 @@ const out = await withPage(async (p) => {
 
   // 建章:chief seed 只填输入框不自动发送——必须 chiefSay 真正 Enter
   L('create chapter via MCP s3_add_chapter')
-  await chiefSay(p, '请用 s3_add_chapter 新建第1章,title=夜访棺材铺。需我审批。未获批准不得声称已落库。', { preferWrite: true, maxMs: 300000 })
+  await say('请用 s3_add_chapter 新建第1章,title=夜访棺材铺。需我审批。未获批准不得声称已落库。', 300000)
   await approveAllPending(p)
   // 轮询落库(最多 ~40s)
   let chapterN = 0
@@ -231,7 +236,7 @@ const out = await withPage(async (p) => {
     await clickTab(p, phase)
     await sleep(800)
     // 主路径:MCP 章 plan(与禁表单直填一致)。不做第二轮 stage-fill 闲聊——易把 UI 弄丢输入框
-    await chiefSay(p, `第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, { maxMs: 300000, preferWrite: false })
+    await say(`第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, 300000)
     await approveAllPending(p)
     await sleep(1000)
   }
@@ -247,7 +252,7 @@ const out = await withPage(async (p) => {
     `请按大纲、节拍、演绎给第1章写一版草稿提案卡（净文至少${MIN_PROSE}字，限知沈砚视角）。` +
     '必须：①老道半句具体对白；②埋「灰契反噬立契人」钩子；③竞争张力；④灰印/契血意象；⑤压抑中有热。' +
     '用提案卡输出，不要只聊天。',
-    { maxMs: 420000, preferWrite: true },
+    { maxMs: 420000, preferWrite: true, bookTitle: BOOK },
   )
   let accept = null
   try {
