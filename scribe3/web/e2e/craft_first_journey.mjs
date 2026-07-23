@@ -241,13 +241,14 @@ const out = await withPage(async (p) => {
     await sleep(1000)
   }
 
-  // Phase C: 先草稿提案(WriteChat phase=draft 有提案卡),再接受;必要时再点「采用为正文」
+  // Phase C: 优先 WriteChat 提案卡「接受」；无卡则 MCP s3_save_chapter（manuscript 直写，作者路径）
   L('prose via draft tab')
+  await selectChapter(p, 1)
   await clickTab(p, '草稿')
   await sleep(800)
   // 质量硬要求：章级篇幅 + 对白 + 伏笔可追踪 + 限知；闸绿不算过
   const MIN_PROSE = Number(process.env.E2E_MIN_PROSE || 1500)
-  // 避免「正文」命中 prose-generation 误路由;明确要提案卡 + 可接受
+  // 先试提案卡（WriteLayout DraftCard）
   await chiefSay(p,
     `请按大纲、节拍、演绎给第1章写一版草稿提案卡（净文至少${MIN_PROSE}字，限知沈砚视角）。` +
     '必须：①老道半句具体对白；②埋「灰契反噬立契人」钩子；③竞争张力；④灰印/契血意象；⑤压抑中有热。' +
@@ -256,7 +257,7 @@ const out = await withPage(async (p) => {
   )
   let accept = null
   try {
-    accept = await acceptDraftProposal(p, { timeoutMs: 180000 })
+    accept = await acceptDraftProposal(p, { timeoutMs: 120000 })
     L(`accept ${JSON.stringify(accept)}`)
   } catch (e) {
     L(`accept fail ${e.message}`)
@@ -274,9 +275,33 @@ const out = await withPage(async (p) => {
     L(`adopt skip ${e.message}`)
   }
 
-  const ch = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
-  // prose 可能在 chapter.prose 或 draft 采用后写入
+  let ch = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
   let prose = String(ch.prose || '')
+  if (prose.replace(/\s/g, '').length < MIN_PROSE) {
+    // 提案卡未落库：显式 s3_save_chapter（不经 elicitation，属 manuscript 作者草稿路径）
+    L('prose fallback via s3_save_chapter')
+    await selectChapter(p, 1)
+    await clickTab(p, '草稿')
+    await sleep(600)
+    await chiefSay(p,
+      `提案卡未采用。请立刻用工具 s3_save_chapter 写入第1章正文（seq=1），` +
+      `prose 净文至少${MIN_PROSE}汉字。限知沈砚视角。必须含：①老道半句对白「灰契不在纸上，在你身上」；` +
+      `②腕内侧灰印发烫；③灰契反噬立契人的暗示钩子；④竞争张力；⑤压抑中见热。` +
+      `title=夜访棺材铺 focalizer=沈砚。写完即调用工具，不要只聊天。`,
+      { maxMs: 480000, preferWrite: true, bookTitle: BOOK },
+    )
+    await approveAllPending(p)
+    for (let i = 0; i < 15; i++) {
+      await sleep(2000)
+      try {
+        ch = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
+        prose = String(ch.prose || '')
+      } catch { /* */ }
+      const n = prose.replace(/\s/g, '').length
+      L(`prose poll i=${i} n=${n}`)
+      if (n >= MIN_PROSE) break
+    }
+  }
   if (prose.replace(/\s/g, '').length < 80) {
     try {
       const dr = await apiJson(`/latest-draft?seq=1&work=${encodeURIComponent(work)}`)
