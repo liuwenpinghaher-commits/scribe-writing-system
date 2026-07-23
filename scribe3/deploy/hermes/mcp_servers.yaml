@@ -95,6 +95,8 @@ scribe3_write:
       - s3_reorder_chapters
       - s3_delete_volume
       - s3_add_material
+      - s3_patch_material
+      - s3_delete_material
       - s3_add_motif
     prompts: false
     resources: false

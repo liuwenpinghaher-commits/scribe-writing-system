@@ -89,7 +89,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_patch_chapter_plan", "s3_set_char_anchors",
                 # P0:结构运维 + 素材(默认 emergency REST 关时的作者主路径)
                 "s3_reorder_chapters", "s3_delete_volume",
-                "s3_add_material", "s3_add_motif"}
+                "s3_add_material", "s3_patch_material", "s3_delete_material",
+                "s3_add_motif"}
 
 
 def requires_approval(name: str) -> bool:
@@ -1206,17 +1207,20 @@ async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
         if rerr:
             return {"error": rerr}
     ok = await _ask(ctx, f"登记第{chapter}章目的合同:{purpose_text}({len(ds)}条delta)")
-    if not ok:
-        return {"status": "declined", "tool": "s3_register_purpose"}
-    # P1门审查 P1-2:update_chapter_meta 对不存在章返回 False 必须透传——
-    # commit_if_approved 会吞返回值,LLM 传错章号也回 "written" 假绿(实际零写入)。
-    if not st.update_chapter_meta(chapter, {"purpose_text": (purpose_text or "")[:200],
-                                            "deltas": ds}):
-        return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
-    out = {"status": "written", "tool": "s3_register_purpose"}
-    if rehearse_degraded:
-        out["rehearse_degraded"] = True   # P2-2:预演基础设施故障放行须可见,不静默
-    return out
+    # 统一走 commit_if_approved:False → status=error(不假绿 written);
+    # 预演降级标志经 dict 合并保留可见。
+    def _write():
+        if not st.update_chapter_meta(chapter, {
+            "purpose_text": (purpose_text or "")[:200],
+            "deltas": ds,
+        }):
+            return {"error": f"chapter {chapter} 不存在,未登记——先建章再登合同"}
+        out = {"chapter": chapter, "deltas": len(ds)}
+        if rehearse_degraded:
+            out["rehearse_degraded"] = True
+        return out
+
+    return commit_if_approved("s3_register_purpose", ok, _write)
 
 
 @mcp.tool(annotations=_RW)
@@ -1582,6 +1586,68 @@ async def s3_add_material(ctx: Context, title: str, body: str = "",
         return {"material_id": mid, "title": t, "kind": kind or "note", "source": src}
 
     return commit_if_approved("s3_add_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_material(ctx: Context, material_id: str,
+                            title: str | None = None,
+                            body: str | None = None,
+                            kind: str | None = None,
+                            tags: list[str] | None = None,
+                            ref_tags: list[str] | None = None,
+                            source: str | None = None,
+                            work: str | None = None) -> dict:
+    """更新素材记忆(写,待批)。仅提交需要改的字段;空串 source 表示清空出处。"""
+    mid = (material_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_patch_material", "error": "material_id required"}
+    fields: dict = {}
+    if title is not None:
+        fields["title"] = title
+    if body is not None:
+        fields["body"] = body
+    if kind is not None:
+        fields["kind"] = kind
+    if tags is not None:
+        fields["tags"] = list(tags)
+    if ref_tags is not None:
+        fields["ref_tags"] = list(ref_tags)
+    if source is not None:
+        fields["source"] = (source or "").strip() or None
+    if not fields:
+        return {"status": "error", "tool": "s3_patch_material", "error": "no fields to patch"}
+    ok = await _ask(ctx, f"更新素材 {mid} 字段:{','.join(fields.keys())}")
+
+    def _write():
+        if not _store_for(work).update_material(mid, fields):
+            return False
+        return {"material_id": mid, "patched": list(fields.keys())}
+
+    return commit_if_approved("s3_patch_material", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_delete_material(ctx: Context, material_id: str,
+                             archive: bool = True,
+                             work: str | None = None) -> dict:
+    """删除或归档素材(写,待批)。默认 archive=True 软归档;archive=False 硬删并清理引用。"""
+    mid = (material_id or "").strip()
+    if not mid:
+        return {"status": "error", "tool": "s3_delete_material", "error": "material_id required"}
+    mode = "归档" if archive else "删除"
+    ok = await _ask(ctx, f"{mode}素材 {mid}")
+
+    def _write():
+        st = _store_for(work)
+        if archive:
+            if not st.update_material(mid, {"archived": True}):
+                return False
+            return {"material_id": mid, "action": "archive"}
+        if not st.delete_material(mid, cleanup_refs=True):
+            return False
+        return {"material_id": mid, "action": "delete"}
+
+    return commit_if_approved("s3_delete_material", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

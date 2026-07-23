@@ -35,6 +35,20 @@ make e2e-frontend     # 前端 L2 冒烟（脚本拉临时后端）
 
 `make e2e-real` 需本机 Hermes 凭证，不作为默认门禁。
 
+## 业务流总控 + 分层 e2e
+
+完整业务流 × 爆炸半径 × 执行单见  
+[`docs/superpowers/plans/2026-07-23-business-flow-blast-radius-e2e-master.md`](./superpowers/plans/2026-07-23-business-flow-blast-radius-e2e-master.md)。
+
+```bash
+make test-author-paths   # MCP + emergency + P0 作者路径
+make test-craft          # 工艺卫生 + 内容质量单测
+make e2e-det             # 确定性六类失效
+make e2e-craft-gates     # 反面书必须红
+# make e2e-real          # 仅 Hermes 连通冒烟，≠ 质量验收
+# craft_first_journey.mjs  # L3 工艺优先真旅程（需 Hermes + 前后端）
+```
+
 ## 真人/融合 e2e（工艺优先）
 
 长旅程与「正文是否遵守辅助信息」**不得**再用字数 / `form_fill=0` / 入口扫尾当 PASS。  

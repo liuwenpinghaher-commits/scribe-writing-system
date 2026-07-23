@@ -259,10 +259,11 @@ function GoalDialog({ open, intent, onClose, onSaved }) {
   const save = async () => {
     setSaving(true)
     try {
-      const body = { ...(intent || {}) }
+      // 仅工程配额字段;勿 spread 全 intent(会夹带叙事北极星走 REST)
+      const body = {}
       if (totalGoal !== '' && totalGoal !== null) body.total_word_goal = Number(totalGoal)
       if (dailyGoal !== '' && dailyGoal !== null) body.daily_word_goal = Number(dailyGoal)
-      await api.putIntent(body)
+      await api.putIntentGoals(body)
       onSaved()
       onClose()
     } finally {

@@ -131,8 +131,19 @@ _REST_WORLD_WRITE_PREFIXES = (
 _REST_WORLD_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
+# 工程配额写:字数目标/逾期阈值,非叙事北极星;允许在 emergency 关时表单 PUT。
+# 须挂在 /intent 前缀下以外路径,否则 _is_rest_world_write_path("/intent") 子路径会一并 403。
+_INTENT_ENGINEERING_PATH = "/intent-goals"
+_INTENT_ENGINEERING_KEYS = frozenset({
+    "total_word_goal", "daily_word_goal", "overdue_threshold",
+})
+
+
 def _is_rest_world_write_path(path: str) -> bool:
     """path 命中世界写前缀:精确相等,或以 prefix + '/' 开头。"""
+    # 工程配额例外(非正典叙事)
+    if path == _INTENT_ENGINEERING_PATH or path.startswith(_INTENT_ENGINEERING_PATH + "/"):
+        return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):
             return True
@@ -168,9 +179,13 @@ _complete_fn = None
 # (save-chapter 排一个 + checkpoint(final) 又排一个)对同章并发 purge→抽取→写,
 # 造成 knows/reader_knows/char_state/motif_instance/promise_touch 双份或互删。
 # 排队前查此集合:同 (work,seq) 已在途/在排则跳过第二次;标记在 _bg_ingest 完成时清除。
-# ⚠ 单 worker 依赖:此为模块级进程内 set,仅在单 worker 部署下有效(自动 _bg_ingest 与
-#   手动 /ingest 同进程共享此集合去重)。上多 worker(多进程/多机)前必须改为跨进程去重
-#   (如 SurrealDB 上的在途锁行 / Redis SETNX),否则同章 ingest 会跨进程交错。
+# 路径合同:
+#   · 自动:save-chapter / checkpoint(final) / 若干终选路径 → _enqueue_ingest → _bg_ingest
+#   · 手动:POST /ingest(作者「反哺设定库」) → 同步 ingest_chapter,共用同一在途集合
+#   · 手动撞自动 → 409「该章正在反哺中」;自动撞在途 → _enqueue 返回 False 跳过
+# ⚠ 单 worker 依赖:此为模块级进程内 set,仅在单 worker 部署下有效。
+#   多 worker(多进程/多机)前必须改为跨进程去重(Surreal 在途锁行 / Redis SETNX),
+#   否则同章 ingest 会跨进程交错。生产默认单 uvicorn worker。
 _pending_ingest: set[tuple[str, int]] = set()
 _pending_ingest_lock = threading.Lock()
 # P0门审查 P1-3:loop 同章互斥(并发两次 POST /loop/chapter 同章 → 双生成/双落库/双 ingest)
@@ -3825,8 +3840,29 @@ def put_intent(i: IntentIn, work: str = "main"):
     # exclude_unset:只落客户端真正提交的字段(同 edit_prom/patch_chapter 模式)。
     # 否则 IntentIn 的默认空串会把未传的 reader_feeling/emotional_arc/red_lines
     # 一并 MERGE 落库,局部保存(设置中心 BookSection 失焦单字段 PUT)等价静默清空。
+    # 叙事字段(reader_feeling/emotional_arc/red_lines)属世界写闸:emergency 关时整路径 403。
+    # 工程配额(字数/逾期)请走 PUT /intent-goals(不经世界闸)。
     _store_for(work).set_intent(i.model_dump(exclude_unset=True))
     return {"ok": True}
+
+
+class IntentGoalsIn(BaseModel):
+    """工程配额-only:整稿/每日字数目标、逾期阈值。禁止叙事北极星字段。"""
+    total_word_goal: int | None = None
+    daily_word_goal: int | None = None
+    overdue_threshold: int | None = None
+
+
+@app.put("/intent-goals")
+def put_intent_goals(i: IntentGoalsIn, work: str = "main"):
+    """工程配额写(不经 emergency 世界闸)。叙事北极星仍须 MCP s3_set_intent。"""
+    data = i.model_dump(exclude_unset=True)
+    # 防御:只保留工程键,杜绝将来模型扩字段误写叙事
+    data = {k: v for k, v in data.items() if k in _INTENT_ENGINEERING_KEYS}
+    if not data:
+        raise HTTPException(status_code=422, detail="no engineering goal fields to update")
+    _store_for(work).set_intent(data)
+    return {"ok": True, "updated": list(data.keys())}
 
 
 @app.get("/progress")

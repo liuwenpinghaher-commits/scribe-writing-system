@@ -20,7 +20,8 @@ def emergency_off(monkeypatch):
 def test_new_mcp_tools_in_write_gated():
     for name in (
         "s3_reorder_chapters", "s3_delete_volume",
-        "s3_add_material", "s3_add_motif",
+        "s3_add_material", "s3_patch_material", "s3_delete_material",
+        "s3_add_motif",
     ):
         assert name in M.WRITE_GATED
         assert M.requires_approval(name) is True
@@ -88,6 +89,58 @@ def test_add_material_mcp_accept(store, emergency_off):
 def test_s3_add_material_signature_includes_source():
     sig = inspect.signature(M.s3_add_material)
     assert "source" in sig.parameters
+
+
+def test_patch_material_mcp_accept(store, emergency_off):
+    M.set_store(store)
+    mid = store.add_material("原题", body="旧", kind="note", source="a")
+
+    def _write():
+        if not store.update_material(mid, {"title": "新题", "body": "新文", "source": "b"}):
+            return False
+        return {"material_id": mid, "patched": ["title", "body", "source"]}
+
+    out = M.commit_if_approved("s3_patch_material", True, _write)
+    assert out["status"] == "written"
+    row = store.get_material(mid)
+    assert row["title"] == "新题"
+    assert row.get("source") == "b"
+    A.set_store(store)
+    client = TestClient(A.app)
+    r = client.patch(f"/materials/{mid}?work=main", json={"title": "REST"})
+    assert r.status_code == 403
+
+
+def test_delete_material_mcp_archive(store, emergency_off):
+    M.set_store(store)
+    mid = store.add_material("待档", body="x", kind="note")
+
+    def _write():
+        if not store.update_material(mid, {"archived": True}):
+            return False
+        return {"material_id": mid, "action": "archive"}
+
+    out = M.commit_if_approved("s3_delete_material", True, _write)
+    assert out["status"] == "written"
+    assert store.get_material(mid).get("archived") is True
+
+
+def test_register_purpose_goes_through_commit(store, emergency_off):
+    """s3_register_purpose 须 commit_if_approved: 拒绝不写、假章 error。"""
+    M.set_store(store)
+    store.create_chapter(title="一")
+    # declined path via commit helper
+    out = M.commit_if_approved(
+        "s3_register_purpose", False,
+        lambda: store.update_chapter_meta(1, {"purpose_text": "x", "deltas": []}) or False,
+    )
+    assert out["status"] == "declined"
+    # missing chapter → False → error (no written fake-green)
+    out2 = M.commit_if_approved(
+        "s3_register_purpose", True,
+        lambda: store.update_chapter_meta(999, {"purpose_text": "x", "deltas": []}) or False,
+    )
+    assert out2["status"] == "error"
 
 
 def test_add_character_mcp_accept_under_emergency_off(store, emergency_off):

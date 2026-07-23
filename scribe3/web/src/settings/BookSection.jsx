@@ -46,7 +46,8 @@ export function BookSection({ work }) {
 
   const commitNum = async (k, v) => {
     try {
-      await api.putIntent({ [k]: v })
+      // 工程配额走 /intent-goals(不经世界闸);禁止 putIntent 整包叙事字段
+      await api.putIntentGoals({ [k]: v })
       baseline.current = { ...baseline.current, [k]: v }
       setErr(null)
     } catch (e) {

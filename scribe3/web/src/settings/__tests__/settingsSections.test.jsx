@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 const apiMock = vi.hoisted(() => ({
   intent: vi.fn(() => Promise.resolve({ total_word_goal: 100000, red_lines: '不写穿越' })),
   putIntent: vi.fn(() => Promise.resolve({})),
+  putIntentGoals: vi.fn(() => Promise.resolve({})),
   settingsAudit: vi.fn(() => Promise.resolve({ rows: [
     { ts: '2026-07-12T10:00:00', key: 'craft.near_dup_sim', old: '0.7', new: '0.8' },
   ] })),
@@ -17,26 +18,29 @@ beforeEach(() => {
   vi.clearAllMocks()
   apiMock.intent.mockResolvedValue({ total_word_goal: 100000, red_lines: '不写穿越' })
   apiMock.putIntent.mockResolvedValue({})
+  apiMock.putIntentGoals.mockResolvedValue({})
   apiMock.settingsAudit.mockResolvedValue({ rows: [
     { ts: '2026-07-12T10:00:00', key: 'craft.near_dup_sim', old: '0.7', new: '0.8' },
   ] })
 })
 
 describe('BookSection', () => {
-  it('数字配额失焦可 putIntent;叙事字段只读走主编种子', async () => {
+  it('数字配额失焦走 putIntentGoals;叙事字段只读走主编种子', async () => {
     const seeds = []
     window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
     render(<BookSection work="demo" />)
     await waitFor(() => expect(screen.getByLabelText('整稿目标字数').value).toBe('100000'))
     fireEvent.change(screen.getByLabelText('整稿目标字数'), { target: { value: '120000' } })
     fireEvent.blur(screen.getByLabelText('整稿目标字数'))
-    await waitFor(() => expect(apiMock.putIntent).toHaveBeenCalledWith(
+    await waitFor(() => expect(apiMock.putIntentGoals).toHaveBeenCalledWith(
       expect.objectContaining({ total_word_goal: 120000 })))
+    expect(apiMock.putIntent).not.toHaveBeenCalled()
 
-    apiMock.putIntent.mockClear()
+    apiMock.putIntentGoals.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /让主编写入红线/ }))
     expect(seeds.some((s) => /红线|red_lines/.test(s))).toBe(true)
     expect(apiMock.putIntent).not.toHaveBeenCalled()
+    expect(apiMock.putIntentGoals).not.toHaveBeenCalled()
   })
 
   it('数字字段清空失焦:不发 PUT,恢复旧值并提示不支持清空', async () => {
@@ -44,6 +48,7 @@ describe('BookSection', () => {
     await waitFor(() => expect(screen.getByLabelText('整稿目标字数').value).toBe('100000'))
     fireEvent.change(screen.getByLabelText('整稿目标字数'), { target: { value: '' } })
     fireEvent.blur(screen.getByLabelText('整稿目标字数'))
+    expect(apiMock.putIntentGoals).not.toHaveBeenCalled()
     expect(apiMock.putIntent).not.toHaveBeenCalled()
     expect(screen.getByLabelText('整稿目标字数').value).toBe('100000')
     expect(screen.getByRole('alert').textContent).toMatch(/不支持清空/)

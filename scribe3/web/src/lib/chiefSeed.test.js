@@ -7,6 +7,8 @@ import {
   seedChiefReorderChapters,
   seedChiefDeleteVolume,
   seedChiefAddMaterial,
+  seedChiefPatchMaterial,
+  seedChiefDeleteMaterial,
 } from './chiefSeed.js'
 import { shouldUseHermesRun } from './hermesRunIntent.js'
 
@@ -74,5 +76,16 @@ describe('chiefSeed helpers', () => {
     expect(t).toMatch(/source/)
     expect(t).toMatch(/乱世/)
     expect(t).toMatch(/s3_add_material/)
+  })
+
+  it('seedChiefPatchMaterial / DeleteMaterial route to Hermes Run', () => {
+    const patch = seedChiefPatchMaterial('m1', {
+      title: '改', body: '文', kind: 'note', source: '出处',
+    })
+    const del = seedChiefDeleteMaterial('m1', { title: '改', archive: true })
+    expect(patch).toMatch(/s3_patch_material/)
+    expect(del).toMatch(/s3_delete_material/)
+    expect(shouldUseHermesRun(patch)).toBe(true)
+    expect(shouldUseHermesRun(del)).toBe(true)
   })
 })

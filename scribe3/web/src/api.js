@@ -106,7 +106,10 @@ export const api = {
   qualityEvaluation: (seq) => j(`/quality/evaluation?seq=${enc(seq)}`),
   qualityAuthorJudgment: (b) => post('/quality/author-judgment', b),
   intent: () => j('/intent'),
+  /** 全量 intent(含叙事北极星)——emergency 关时 403;作者叙事请走主编 s3_set_intent */
   putIntent: (b) => put('/intent', b),
+  /** 工程配额-only(字数目标/逾期);不经世界写闸 */
+  putIntentGoals: (b) => put('/intent-goals', b),
   progress: (window = 'all') => j('/progress?window=' + encodeURIComponent(window)),
 
   // CX-Task 7:设定字段注册表元数据(只读)——前端据此渲染表单,不再硬编码字段清单。

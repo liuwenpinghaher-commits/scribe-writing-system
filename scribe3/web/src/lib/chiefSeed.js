@@ -110,3 +110,32 @@ export function seedChiefAddMaterial({
     '未获批准不得声称已落库。',
   ].filter(Boolean).join('\n'))
 }
+
+/** 更新素材 → s3_patch_material（禁 REST 直写） */
+export function seedChiefPatchMaterial(materialId, {
+  title = '', body = '', kind = 'note', tags = [], ref_tags = [], source = '',
+} = {}) {
+  const mid = String(materialId || '').trim()
+  const src = String(source || '').trim()
+  return focusChiefWithSeed([
+    `请更新素材 id=${mid}「${title || '未命名'}」并写入落库(需我审批)。`,
+    `使用工具 s3_patch_material(material_id=${JSON.stringify(mid)}, title, body, kind=${JSON.stringify(kind)}`
+      + (src ? `, source=${JSON.stringify(src)}` : ', source=""')
+      + (tags?.length ? `, tags=${JSON.stringify(tags)}` : '')
+      + (ref_tags?.length ? `, ref_tags=${JSON.stringify(ref_tags)}` : '')
+      + ')。',
+    `正文草稿:${(body || '').slice(0, 800)}`,
+    '未获批准不得声称已落库。',
+  ].filter(Boolean).join('\n'))
+}
+
+/** 归档/删除素材 → s3_delete_material */
+export function seedChiefDeleteMaterial(materialId, { title = '', archive = true } = {}) {
+  const mid = String(materialId || '').trim()
+  const mode = archive ? '归档' : '删除'
+  return focusChiefWithSeed([
+    `请${mode}素材 id=${mid}「${title || mid}」并写入落库(需我审批)。`,
+    `使用工具 s3_delete_material(material_id=${JSON.stringify(mid)}, archive=${archive ? 'true' : 'false'})。`,
+    '未获批准不得声称已落库。',
+  ].join('\n'))
+}

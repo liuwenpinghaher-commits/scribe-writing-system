@@ -178,12 +178,18 @@ if (!r.proseLen || r.proseLen < 80) {
 }
 
 // 工艺优先:字数/接受成功不够;须 GATE-A + ch1 B/C(与 verify_craft_compliance 同源)
+// 默认强制 craft gates;仅 E2E_SKIP_CRAFT_GATES=1 时跳过(连通冒烟,不得当质量验收)
 const WORK = process.env.E2E_WORK || ''
-if (WORK) {
+const SKIP_GATES = process.env.E2E_SKIP_CRAFT_GATES === '1'
+if (!WORK && !SKIP_GATES) {
+  console.error('FUSED JOURNEY FAIL: E2E_WORK 必设(卫生轨 GATE-A/B/C)。连通冒烟可设 E2E_SKIP_CRAFT_GATES=1')
+  process.exit(3)
+}
+if (WORK && !SKIP_GATES) {
   const { assertCraftGatesOrExit } = await import('./craft_gates.mjs')
   await assertCraftGatesOrExit({ work: WORK, seqs: [1], label: 'FUSED' })
-} else {
-  console.warn('FUSED: E2E_WORK 未设,跳过 craft-gates 机判(请在完整旅程设置 work slug)')
+} else if (SKIP_GATES) {
+  console.warn('FUSED: E2E_SKIP_CRAFT_GATES=1 — craft-gates 已跳过,不得记质量 PASS')
 }
 
 console.log('FUSED JOURNEY OK', JSON.stringify({
@@ -192,5 +198,5 @@ console.log('FUSED JOURNEY OK', JSON.stringify({
   accept: r.accept,
   form_fill_count: 0,
   human_click_approve_count: 0,
-  craft_gates: WORK ? 'checked' : 'skipped_no_work',
+  craft_gates: SKIP_GATES ? 'skipped_explicit' : (WORK ? 'checked' : 'skipped_no_work'),
 }))

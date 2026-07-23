@@ -53,7 +53,9 @@
 | **MCP `s3_*` 写工具（作者主路径）** | 主编改世界状态 / 结构 / 意图 | `WRITE_GATED` + elicitation + `commit_if_approved` |
 | **前端创作 UI** | 设定/大纲/卷章 meta / 节拍等 | **只读检视 +「让主编…」种子**（`s3-chief-seed`）；禁止表单失焦直写世界语义 |
 | **REST 世界写** | 测试夹具 / 紧急运维 | **`SCRIBE3_EMERGENCY_REST_WRITE` 默认关** → 403；测试 conftest 默认开 |
+| **工程配额** | 字数目标 / 逾期阈值 | `PUT /intent-goals`（**不经**世界闸）；叙事北极星仍 `s3_set_intent` / 闸内 `PUT /intent` |
 | 正文 | `/chat/write` 提案卡接受 | 与世界写分离 |
+| 知识反哺 | 自动 `_enqueue_ingest` + 手动 `POST /ingest` | 进程内 `(work,seq)` 在途去重；多 worker 前须跨进程锁 |
 
 `commit_if_approved` 约定：
 

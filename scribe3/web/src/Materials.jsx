@@ -14,7 +14,11 @@ import { MaterialNetwork } from './MaterialNetwork'
 import { DirectoryHeader } from './layout/DirectoryHeader'
 import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './layout/DirectoryRow'
 import { handleSelAction } from './lib/selAction'
-import { seedChiefAddMaterial } from './lib/chiefSeed.js'
+import {
+  seedChiefAddMaterial,
+  seedChiefDeleteMaterial,
+  seedChiefPatchMaterial,
+} from './lib/chiefSeed.js'
 import { seedCiteMaterial, seedDiscussMaterial } from './lib/sessionClip.js'
 
 // 素材库:非正典写作材料。MATERIAL_KINDS 抽到 materialKinds.js(破 MaterialImport 循环 import),此处 re-export 兼容既有 from './Materials' 引用。
@@ -110,7 +114,6 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState('')
   const [reloadTick, setReloadTick] = useState(0)
-  const [saving, setSaving] = useState(false)
   const [delOpen, setDelOpen] = useState(false)
   const [delLoading, setDelLoading] = useState(false)
   const [deleteImpact, setDeleteImpact] = useState(null)
@@ -154,19 +157,18 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   )
   if (!row || !draft) return <div className="p-6 text-f13 text-faint">未找到该素材(可能已删除)。</div>
 
-  const save = async () => {
+  const save = () => {
     if (!draft.title.trim()) { toast('标题不能为空', { tone: 'danger' }); return }
-    setSaving(true)
-    try {
-      await api.editMaterial(row.id, {
-        title: draft.title.trim(), body: draft.body, kind: draft.kind,
-        tags: parseTags(draft.tagsText), source: draft.source.trim() || '',
-      })
-      dirtyRef.current = false
-      toast('素材已保存')
-      onChanged?.()
-    } catch (e) { toast(e?.body?.detail || e?.message || '保存失败', { tone: 'danger' }) }
-    finally { setSaving(false) }
+    // 禁 REST 直写：emergency 关时 PATCH /materials 403；走主编审批 s3_patch_material
+    seedChiefPatchMaterial(row.id, {
+      title: draft.title.trim(),
+      body: draft.body,
+      kind: draft.kind,
+      tags: parseTags(draft.tagsText),
+      source: draft.source.trim() || '',
+    })
+    dirtyRef.current = false
+    toast('已交给主编更新素材,请在右栏批准', { tone: 'ok' })
   }
 
   const openDelete = async () => {
@@ -185,13 +187,16 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
 
   const lifecycleAction = deleteImpact?.recommended_action === 'archive' ? 'archive' : 'delete'
   const lifecycleLabel = lifecycleAction === 'archive' ? '归档' : '删除'
-  const doDelete = async () => {
-    try {
-      if (lifecycleAction === 'archive') await api.archiveObject('material', row.id)
-      else await api.deleteObject('material', row.id, deleteImpact?.confirm_impact_token || '')
-      dirtyRef.current = false
-      onDeleted?.()
-    } catch (e) { toast(e?.body?.detail || e?.message || `${lifecycleLabel}失败`, { tone: 'danger' }) }
+  const doDelete = () => {
+    // 禁 REST 直写 objects/*（闸关 403）；走主编 s3_delete_material
+    seedChiefDeleteMaterial(row.id, {
+      title: draft.title || row.title,
+      archive: lifecycleAction === 'archive',
+    })
+    dirtyRef.current = false
+    toast(`已交给主编${lifecycleLabel}素材,请在右栏批准`, { tone: 'ok' })
+    setDelOpen(false)
+    onDeleted?.()
   }
 
   const impactRefs = Array.isArray(deleteImpact?.references) ? deleteImpact.references.filter((r) => Number(r?.count || 0) > 0) : []
@@ -254,8 +259,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
               title="把素材正文发布到某章草稿的提示条(填入/追加),不直写编辑器">
               <SendToBack size={13} />插入到草稿
             </Btn>
-            <Btn variant="primary" size="sm" onClick={save} disabled={saving}>
-              {saving && <Loader2 size={13} className="animate-spin" />}保存
+            <Btn variant="primary" size="sm" onClick={save} data-testid="material-save-seed">
+              让主编更新
             </Btn>
             <Btn variant="ghost" size="sm" onClick={openDelete} disabled={delLoading} className="hover:text-danger" title="删除素材">
               {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除

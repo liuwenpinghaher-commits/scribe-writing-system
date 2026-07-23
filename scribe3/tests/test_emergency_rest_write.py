@@ -121,3 +121,32 @@ def test_author_session_clip_rejects_empty_and_coerces_kind(store, monkeypatch):
     })
     assert r.status_code == 200, r.text
     assert r.json()["kind"] == "snippet"
+
+
+def test_intent_narrative_put_forbidden_when_emergency_off(store, monkeypatch):
+    """叙事北极星仍走世界闸;工程配额走 /intent-goals。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    c = _client(store)
+
+    blocked = c.put("/intent?work=main", json={
+        "reader_feeling": "应被闸", "emotional_arc": "x", "red_lines": "y",
+    })
+    assert blocked.status_code == 403, blocked.text
+
+    ok = c.put("/intent-goals?work=main", json={"total_word_goal": 88000, "daily_word_goal": 1500})
+    assert ok.status_code == 200, ok.text
+    assert ok.json().get("ok") is True
+    intent = c.get("/intent?work=main").json()
+    assert intent.get("total_word_goal") == 88000
+    assert intent.get("daily_word_goal") == 1500
+    # 叙事字段不得被闸外写入
+    assert (intent.get("reader_feeling") or "") != "应被闸"
+
+
+def test_intent_goals_empty_body_422(store, monkeypatch):
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    c = _client(store)
+    r = c.put("/intent-goals?work=main", json={})
+    assert r.status_code == 422, r.text
