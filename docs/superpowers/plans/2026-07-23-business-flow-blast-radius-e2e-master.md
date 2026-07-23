@@ -183,13 +183,23 @@ artifacts/e2e-YYYYMMDD-<work>/
 - Hermes instructions 补 motif/chapter/plan  
 
 **阻塞旅程总 PASS 的 RC**：
-| RC | 说明 | 下一步 |
-|----|------|--------|
-| RC-HERMES-STRUCTURE | Hermes Run 对 `s3_add_chapter` / `s3_add_motif` 不落库（store 与 MCP commit 单测绿） | 查 scribe3_write 工具面/审批/work 注入；重启 Hermes 重载 MCP |
-| RC-REACT-KEY | 空书阶段 React duplicate key 刷屏 | 单独修列表 key |
-| RC-SEED-NOSEND | （已修）seed 只填不发 | 回归按钮建章 |
+| RC | 说明 | 状态 |
+|----|------|------|
+| RC-HERMES-STRUCTURE | Hermes 写 profile 白名单缺 `s3_add_chapter`/`s3_add_motif` 等 | **已修**：`provision_hermes --commit` + `hermes gateway restart`；r5 GATE-A 绿+建章成功 |
+| RC-GATE-B-CHAR | `role:沈砚` vs 裸名 `沈砚` / `character` vs `character_id` | **已修**：`verify_craft_compliance` 别名互认 |
+| RC-SEED-NOSEND | seed 只填不发 | **已修**：ChiefDock 世界写 seed 自动 send |
+| RC-COMPOSER-GONE | r6：找不到主编输入框 | **已修**：`ensureChiefVisible` + resolve 重试 |
+| RC-PROSE-ACCEPT | 正文提案卡未出现/未接受 | 进行中：草稿 tab + acceptDraft |
 
-证据目录：`artifacts/e2e-20260723-craft{,2,3,4}/`
+**运维铁律**：改 `deploy/hermes/mcp_servers.yaml` 后必须：
+
+```bash
+scribe3/.venv/bin/python -m scribe3.scripts.provision_hermes --commit
+hermes --profile scribe3_write gateway restart
+hermes --profile scribe3 gateway restart
+```
+
+证据目录：`artifacts/e2e-20260723-craft{,2,3,4,5,6}/`
 
 ---
 

@@ -393,13 +393,22 @@ class HermesEventAdapter:
                 out["run_id"] = event.get("run_id")
             return out
         if source_type == "approval.request":
+            # Hermes MCP elicitation 事件常无 approval_id,只有 pattern_key/command/choices。
+            # 用 run_id+timestamp 合成稳定 id,前端 key 与审批台账不致空。
+            msg = event.get("message") or event.get("command") or event.get("description") or ""
+            aid = event.get("approval_id") or event.get("id")
+            if not aid:
+                ts = event.get("timestamp") or ""
+                aid = f"mcp:{event.get('run_id') or ''}:{ts}:{event.get('pattern_key') or 'elicitation'}"
             return {
                 "kind": "approval.requested",
                 "run_id": event.get("run_id"),
-                "approval_id": event.get("approval_id"),
+                "approval_id": aid,
                 "call_id": self._call_id(event),
                 "name": self._tool_name(event),
-                "message": event.get("message") or event.get("command") or event.get("description") or "",
+                "message": msg,
+                "pattern_key": event.get("pattern_key"),
+                "choices": event.get("choices"),
                 "source_type": source_type,
             }
         if source_type in {"approval.resolved", "approval.responded"}:

@@ -374,7 +374,8 @@ def _deduction_map(ch: dict) -> dict[str, dict]:
     for d in deds:
         if not isinstance(d, dict):
             continue
-        cid = str(d.get("character_id") or "")
+        # MCP/前端可能写 character_id 或 character(裸名/role:)
+        cid = str(d.get("character_id") or d.get("character") or d.get("role") or "")
         if cid and _strip(d.get("prose")):
             out[cid] = d
     return out
@@ -434,13 +435,25 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
     if not isinstance(involved, list):
         involved = []
     involved = [str(x) for x in involved if x]
-    char_ids = {c.id for c in (st.characters() if hasattr(st, "characters") else [])}
+
+    def _char_keys(x: str) -> set[str]:
+        """role:沈砚 / 沈砚 互认——MCP 常写裸名,库内 oid 带 role:。"""
+        s = str(x or "").strip()
+        if not s:
+            return set()
+        bare = s.split(":", 1)[-1]
+        return {s, bare, f"role:{bare}"}
+
+    char_ids: set[str] = set()
+    for c in (st.characters() if hasattr(st, "characters") else []):
+        char_ids |= _char_keys(getattr(c, "id", "") or "")
+        char_ids |= _char_keys(getattr(c, "name", "") or "")
     if not involved:
         checks.append(CheckResult(
             "B4", "fail", "involved_characters 为空",
             root_cause_hint="RC-SKIP-STAGE"))
     else:
-        unknown = [i for i in involved if i not in char_ids]
+        unknown = [i for i in involved if not (_char_keys(i) & char_ids)]
         if unknown:
             checks.append(CheckResult(
                 "B4", "fail", f"涉及角色不在书中: {unknown}",
@@ -451,7 +464,11 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
                 {"ids": involved}))
 
     dmap = _deduction_map(ch)
-    missing_ded = [i for i in involved if i not in dmap]
+    # 投影 map 键也可能是 role: 或裸名
+    dmap_keys: set[str] = set()
+    for k in dmap:
+        dmap_keys |= _char_keys(k)
+    missing_ded = [i for i in involved if not (_char_keys(i) & dmap_keys)]
     # MVP: 全部 involved 必须有投影(无 cameo 字段时从严;有 focalizer 时至少焦点必有)
     foc = _strip(ch.get("focalizer"))
     if foc and foc not in dmap and foc in involved:

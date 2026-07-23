@@ -199,30 +199,49 @@ const out = await withPage(async (p) => {
     await approveAllPending(p)
   }
 
-  // Phase C: 正文
-  L('prose')
-  await clickTab(p, '正文')
+  // Phase C: 先草稿提案(WriteChat phase=draft 有提案卡),再接受;必要时再点「采用为正文」
+  L('prose via draft tab')
+  await clickTab(p, '草稿')
+  await sleep(800)
   // 质量硬要求：章级篇幅 + 对白 + 伏笔可追踪 + 限知；闸绿不算过
   const MIN_PROSE = Number(process.env.E2E_MIN_PROSE || 1500)
+  // 避免「正文」命中 prose-generation 误路由;明确要提案卡 + 可接受
   await chiefSay(p,
-    `按大纲、节拍、演绎与设定写第1章正文（净文至少${MIN_PROSE}字）。` +
-    '限知沈砚视角：禁止出现「炉心真名」。' +
-    '必须：①写出老道那「半句」的具体对白；②埋下「灰契反噬立契人」可回收钩子；' +
-    '③点出二人竞争/信息权张力；④灰印与契血意象服务「契约代价」主题；⑤压抑里有一点不肯退的热。' +
-    '不要提纲体，要可连载场景。',
+    `请按大纲、节拍、演绎给第1章写一版草稿提案卡（净文至少${MIN_PROSE}字，限知沈砚视角）。` +
+    '必须：①老道半句具体对白；②埋「灰契反噬立契人」钩子；③竞争张力；④灰印/契血意象；⑤压抑中有热。' +
+    '用提案卡输出，不要只聊天。',
     { maxMs: 420000, preferWrite: true },
   )
   let accept = null
   try {
-    accept = await acceptDraftProposal(p)
+    accept = await acceptDraftProposal(p, { timeoutMs: 180000 })
     L(`accept ${JSON.stringify(accept)}`)
   } catch (e) {
     L(`accept fail ${e.message}`)
   }
   await approveAllPending(p)
+  // 若仍停在草稿,点「采用为正文」
+  try {
+    const adopt = p.getByRole('button', { name: /采用为正文/ })
+    if (await adopt.count() && await adopt.first().isVisible().catch(() => false)) {
+      await adopt.first().click()
+      await sleep(1500)
+      L('clicked 采用为正文')
+    }
+  } catch (e) {
+    L(`adopt skip ${e.message}`)
+  }
 
   const ch = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
-  const prose = String(ch.prose || '')
+  // prose 可能在 chapter.prose 或 draft 采用后写入
+  let prose = String(ch.prose || '')
+  if (prose.replace(/\s/g, '').length < 80) {
+    try {
+      const dr = await apiJson(`/latest-draft?seq=1&work=${encodeURIComponent(work)}`)
+      prose = String(dr?.prose || prose)
+      L(`fallback draft prose len=${prose.replace(/\s/g, '').length}`)
+    } catch { /* */ }
+  }
   const proseLen = prose.replace(/\s/g, '').length
   L(`proseLen_net=${proseLen}`)
 

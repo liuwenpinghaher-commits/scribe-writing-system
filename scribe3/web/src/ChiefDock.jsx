@@ -173,10 +173,12 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
         </SelectionQuoteActions>
         {!me && approvals?.length > 0 && (
           <div className="mt-2 space-y-2">
-            {approvals.map((ap) => {
+            {approvals.map((ap, apIdx) => {
               const done = ap.status === 'approved' || ap.status === 'denied'
+              // Hermes MCP elicitation 常不带 approval_id;用 message+idx 防 React 同 key 刷屏
+              const apKey = `${ap.run_id || ''}:${ap.approval_id || ap.message || ''}:${apIdx}`
               return (
-                <div key={`${ap.run_id || ''}:${ap.approval_id || ''}`} className="border-l-2 border-brand/50 pl-2.5 py-1">
+                <div key={apKey} className="border-l-2 border-brand/50 pl-2.5 py-1">
                   <div className="text-f12 font-medium text-ink">Hermes 请求审批</div>
                   <div className="mt-0.5 text-f12 text-faint whitespace-pre-wrap">{ap.message || '需要你确认后继续'}</div>
                   <div className="mt-2 flex items-center gap-2">
