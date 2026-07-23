@@ -21,7 +21,7 @@ class ConnectionMixin:
     _AUTOTITLE_DEFAULTS = ("主编讨论", "新会话")
 
     _MATERIAL_COLS = ("meta::id(id) AS id, title, body, kind, tags, source, "
-                      "ref_tags, tokens, about_entities, pinned, archived, "
+                      "ref_tags, summary, origin, tokens, about_entities, pinned, archived, "
                       "recall_count, last_recalled_at, created_at, updated_at")
 
     _CONTEXT_SNAPSHOT_FIELDS = (

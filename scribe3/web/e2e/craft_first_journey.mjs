@@ -7,7 +7,7 @@
 //   cd scribe3/web && E2E_BOOK_TITLE='工艺优先·smoke' node e2e/craft_first_journey.mjs
 //
 import { writeFileSync, mkdirSync } from 'node:fs'
-import { withPage, openBook } from './lib.mjs'
+import { withPage } from './lib.mjs'
 import {
   chiefSay, acceptDraftProposal, acceptStageFill, approveAllPending,
 } from './author_decisions.mjs'
@@ -48,14 +48,19 @@ async function selectChapter(p, seq) {
 }
 
 async function createChapter(p) {
+  // 手稿目录空态 / 目录 hover 等入口;点击仅 seed,调用方必须 approveAllPending
   for (const b of [
     p.getByRole('button', { name: /新建未分卷章节/ }),
+    p.getByRole('button', { name: /新建第一章/ }),
+    p.getByRole('button', { name: /^新建章$/ }),
     p.locator('button[aria-label="新建未分卷章节"]'),
+    p.locator('button', { hasText: '新建第一章' }),
+    p.locator('button', { hasText: '新建章' }),
     p.locator('button', { hasText: '+章' }),
   ]) {
     if (await b.count() && await b.first().isVisible().catch(() => false)) {
       await b.first().click()
-      await sleep(1800)
+      await sleep(1200)
       return true
     }
   }
@@ -63,21 +68,19 @@ async function createChapter(p) {
 }
 
 const out = await withPage(async (p) => {
-  // 建书
+  // 建书:作品库 input[placeholder=书名…] + Enter(与 frontend_smoke / fused 同源)
+  // 禁止点模糊「新建」按钮再 openBook——首页无独立「创建作品」主按钮,会 30s 点空失败。
   await p.goto(process.env.E2E_BASE || 'http://127.0.0.1:3311', { waitUntil: 'networkidle' })
   await sleep(800)
-  const create = p.getByRole('button', { name: /新建|新书|创建作品/ }).first()
-  if (await create.count()) {
-    await create.click()
-    await sleep(500)
-    const inp = p.locator('input').first()
-    if (await inp.isVisible().catch(() => false)) {
-      await inp.fill(BOOK)
-      await inp.press('Enter')
-      await sleep(2000)
-    }
-  }
-  await openBook(p, BOOK)
+  const nameInput = p.locator('input[placeholder="书名…"]')
+  await nameInput.waitFor({ timeout: 15000 })
+  await nameInput.fill(BOOK)
+  await nameInput.press('Enter')
+  await sleep(3000)
+  await p.waitForSelector(
+    '[data-testid="chief-chat-shell"], [data-testid="detail"], [data-testid="chief"], [data-testid="four-col"]',
+    { timeout: 20000 },
+  )
   L(`opened ${BOOK}`)
 
   // 解析 work slug
@@ -92,24 +95,32 @@ const out = await withPage(async (p) => {
   if (!work) throw new Error('无法解析 work slug')
   process.env.E2E_WORK = work
 
-  // Phase A: 辅信(对话+审批)
+  // Phase A: 辅信(对话+审批)——工具名写死,避免模型只聊天不落库
   L('phase-A intent')
-  await chiefSay(p, '请把本书北极星写入:读者感受「压抑中见一线热」,情感弧「隐瞒到对质」,红线「不美化私刑」。走审批落库。', { preferWrite: true, maxMs: 240000 })
+  await chiefSay(p, '请用 s3_set_intent 写入北极星(需我审批):reader_feeling=压抑中见一线热;emotional_arc=隐瞒到对质;red_lines=不美化私刑。未获批准不得声称已落库。', { preferWrite: true, maxMs: 240000 })
   await approveAllPending(p)
 
   L('phase-A characters')
-  await chiefSay(p, '登记主角「沈砚」(外貌右手茧,欲望查清灰契)与「老道」(灰袍,守炉),并建立二人竞争者关系。审批写入设定库。', { preferWrite: true, maxMs: 240000 })
+  await chiefSay(p, '请用 s3_add_character 登记「沈砚」(appearance=右手有茧,deep_need=查清灰契)与「老道」(appearance=灰袍,deep_need=守炉),再用 s3_add_character_relation 建竞争关系。需我审批。', { preferWrite: true, maxMs: 300000 })
   await approveAllPending(p)
 
-  L('phase-A motif+promise')
-  await chiefSay(p, '登记母题「灰契」(回声词:灰印/契血),并埋伏笔「灰契会反噬立契人」setup 第1章。审批写入。', { preferWrite: true, maxMs: 240000 })
+  L('phase-A world rule')
+  await chiefSay(p, '请用 s3_add_world_rule 登记规则:灰契立契后必有代价,不可无故解除。需我审批。', { preferWrite: true, maxMs: 240000 })
+  await approveAllPending(p)
+
+  L('phase-A motif')
+  await chiefSay(p, '请用 s3_add_motif 登记母题 name=灰契 theme=契约代价 echoes=灰印/契血。需我审批。未获批准不得声称已落库。', { preferWrite: true, maxMs: 240000 })
+  await approveAllPending(p)
+
+  L('phase-A promise')
+  await chiefSay(p, '请用 s3_plant_promise 埋伏笔:text=灰契会反噬立契人 setup_chapter=1。需我审批。', { preferWrite: true, maxMs: 240000 })
   await approveAllPending(p)
 
   let ga = await fetchCraftGates({ work })
   L(`GATE-A after dialog ok=${ga.body?.gate_a?.ok} blocking=${JSON.stringify(ga.body?.gate_a?.blocking)}`)
-  // 若对话未落库,允许 API 补种仅用于机判通路验证(记 form 风险)
+  // 默认禁止 API 灌库;仅显式 E2E_ALLOW_API_SEED=1 可补(不得当质量 PASS 证据)
   if (!ga.body?.gate_a?.ok && process.env.E2E_ALLOW_API_SEED === '1') {
-    L('API seed aux (E2E_ALLOW_API_SEED=1)')
+    L('API seed aux (E2E_ALLOW_API_SEED=1) — 非主路径')
     await fetch(`${API}/intent?work=${encodeURIComponent(work)}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -119,27 +130,71 @@ const out = await withPage(async (p) => {
   }
   ga = await fetchCraftGates({ work })
   if (!ga.body?.gate_a?.ok) {
-    L('GATE-A still red — continue chapter stages; final assert will fail loudly')
+    L('GATE-A still red — continue; final assert will fail loudly')
   }
 
-  // 建章
-  await createChapter(p)
+  // 建章:chief seed 只填输入框不自动发送——必须 chiefSay 真正 Enter
+  L('create chapter via MCP s3_add_chapter')
+  await chiefSay(p, '请用 s3_add_chapter 新建第1章,title=夜访棺材铺。需我审批。未获批准不得声称已落库。', { preferWrite: true, maxMs: 300000 })
+  await approveAllPending(p)
+  // 轮询落库(最多 ~40s)
+  let chapterN = 0
+  for (let i = 0; i < 20; i++) {
+    await approveAllPending(p)
+    try {
+      const chs = await apiJson(`/chapters?work=${encodeURIComponent(work)}`)
+      chapterN = Array.isArray(chs) ? chs.length : (chs?.chapters || []).length
+    } catch { /* */ }
+    L(`chapters poll i=${i} n=${chapterN}`)
+    if (chapterN > 0) break
+    await sleep(2000)
+  }
+  if (chapterN < 1) {
+    // 按钮种子路径兜底:点「新建章」后手动发送 composer 当前内容
+    const clicked = await createChapter(p)
+    L(`createChapter button fallback clicked=${clicked}`)
+    if (clicked) {
+      try {
+        const ta = p.locator('textarea[placeholder="就当前内容问主编…"]').first()
+        if (await ta.isVisible().catch(() => false)) {
+          await ta.press('Enter')
+          await sleep(2000)
+          await approveAllPending(p)
+          await sleep(3000)
+        }
+      } catch (e) {
+        L(`seed Enter fail ${e.message}`)
+      }
+    }
+    try {
+      const chs = await apiJson(`/chapters?work=${encodeURIComponent(work)}`)
+      chapterN = Array.isArray(chs) ? chs.length : (chs?.chapters || []).length
+    } catch { /* */ }
+    L(`chapters after fallback n=${chapterN}`)
+  }
+  if (chapterN < 1) throw new Error('s3_add_chapter 未落库:无法进入章阶段')
   await selectChapter(p, 1)
+  await sleep(1500)
 
-  // Phase B: 大纲→节拍→演绎
-  for (const [phase, prompt] of [
-    ['大纲', '请写第1章大纲 3-5 句:沈砚夜访棺材铺逼问灰契,老道只给半句。直接给可填入正文。'],
-    ['节拍', '把第1章拆成至少3条节拍:推门/对质/缄口。可填入。'],
-    ['演绎', '写第1章场景真相(含灰契真名机制)与沈砚、老道的限知投影。可填入。'],
+  // Phase B: 大纲→节拍→演绎 —— 优先 s3_patch_chapter_plan 落库,stage-fill 作辅
+  for (const [phase, planHint, fillPrompt] of [
+    ['大纲', 'synopsis 至少80字:沈砚夜访棺材铺逼问灰契,老道只给半句,灰印意象起', '请写第1章大纲 3-5 句可填入。'],
+    ['节拍', 'beats 至少3条:推门/对质/缄口', '把第1章拆成至少3条节拍可填入。'],
+    ['演绎', 'scene_truth≥80字含灰契机制;involved_characters 含沈砚老道;每人 deductions prose 非空', '写场景真相与限知投影可填入。'],
   ]) {
     L(`stage ${phase}`)
     await clickTab(p, phase)
-    await chiefSay(p, prompt, { maxMs: 300000, preferWrite: false })
+    await sleep(600)
+    // 主路径:MCP 章 plan(与禁表单直填一致)
+    await chiefSay(p, `第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, { maxMs: 300000, preferWrite: true })
+    await approveAllPending(p)
+    // 辅路径:若有 stage 提案条则点填入
     try {
-      await acceptStageFill(p)
-      L(`stage ${phase} filled`)
+      await chiefSay(p, fillPrompt, { maxMs: 120000, preferWrite: false })
+      await acceptStageFill(p, { timeoutMs: 45000 })
+      L(`stage ${phase} filled via UI bar`)
     } catch (e) {
-      L(`stage ${phase} fill miss: ${e.message}`)
+      L(`stage ${phase} UI fill skip: ${e.message}`)
     }
     await approveAllPending(p)
   }

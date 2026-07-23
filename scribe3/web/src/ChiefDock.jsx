@@ -475,7 +475,19 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
   // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨——挂载时消费 sessionStorage pending
   // (点按钮时监听者可能未挂载),事件给已挂载者;预填=追加不整替(不吞作者半句)。
-  const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
+  // 世界写种子(s3_* / 需我审批):自动发送——否则「让主编写入」只填框不提交,作者/e2e 点了等于没点。
+  const sendRef = useRef((/** @type {string|undefined} */ _t) => {})
+  const seedIn = (v) => {
+    const text = String(v ?? '')
+    if (!text.trim()) return
+    setInput((prev) => (prev ? prev + '\n' : '') + text)
+    taRef.current?.focus()
+    const auto = /s3_[a-z_]+|需我审批|写入落库|提交写入提案/.test(text)
+    if (auto) {
+      // 下一帧再发:等 input 提交路径与 focus 就绪;send 读显式 text 不依赖 state
+      setTimeout(() => sendRef.current(text), 80)
+    }
+  }
   useEffect(() => {
     try {
       const pending = sessionStorage.getItem('s3.chief.seed')
@@ -602,6 +614,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const send = (text) => {
     const q = (text ?? input).trim()
     if (!q || busy) return
+    // 见上方 seedIn auto-send
     // 主编主动化 T8:「#想法 」→ 想法收件箱
     if (q.startsWith('#想法')) {
       const idea = q.replace(/^#想法\s*/, '')
@@ -741,6 +754,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     })
   }
+  sendRef.current = send
 
   return (
     <div data-testid="chief-chat-shell" className="h-full w-full min-w-0 bg-surface flex flex-col min-h-0 overflow-hidden">

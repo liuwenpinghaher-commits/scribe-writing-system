@@ -184,9 +184,12 @@ class RecallMixin:
         return out
 
     def material_recall(self, query: str, chapter: int | None = None, k: int = 5,
-                        mentioned_entities=None) -> list[dict]:
+                        mentioned_entities=None, degraded_out: list | None = None) -> list[dict]:
         """素材三通道召回(语义 HNSW + 全文 BM25 + 图 relates/about)→ RRF 融合 → 强度加权。
-        archived 排除。返回按强度排序的 top-k 素材行(含 material_id/score)。"""
+        archived 排除。返回按强度排序的 top-k 素材行(含 material_id/score)。
+
+        degraded_out: 可选 list,通道失败时 append {source, reason}(不改返回值形状,兼容旧调用)。
+        """
         import jieba
         from scribe3.embed import embed
         from scribe3.material_recall import apply_strength
@@ -199,9 +202,11 @@ class RecallMixin:
                 f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
                 f"WHERE embedding <|{k3},{ef}|> $qv AND archived != true ORDER BY dist",
                 {"qv": embed([query])[0]})]
-        except Exception:
-            logging.getLogger("scribe3").error("material_recall 语义路失败(该路清零)", exc_info=True)   # U-011: RRF静默丢一路
+        except Exception as e:
+            logging.getLogger("scribe3").error("material_recall 语义路失败(该路清零)", exc_info=True)   # U-011
             vec_ids = []
+            if degraded_out is not None:
+                degraded_out.append({"source": "semantic", "reason": str(e)[:200]})
         # 全文路(jieba 切 query → BM25 search::score)
         q_toks = " ".join(w for w in jieba.cut(query) if w.strip())
         fts_ids = []
@@ -211,21 +216,31 @@ class RecallMixin:
                     "SELECT meta::id(id) AS id, search::score(1) AS s FROM material "
                     "WHERE tokens @1@ $q AND archived != true ORDER BY s DESC LIMIT $lim",
                     {"q": q_toks, "lim": k * 2})]
-            except Exception:
+            except Exception as e:
                 logging.getLogger("scribe3").error("material_recall 全文路失败(该路清零)", exc_info=True)   # U-011
                 fts_ids = []
+                if degraded_out is not None:
+                    degraded_out.append({"source": "fts", "reason": str(e)[:200]})
         # 图路:语义种子沿 relates 扩展 + about_entities 匹配本章提及实体
         graph_ids: list[str] = []
+        graph_fail = False
         for sid in vec_ids[:2]:
-            graph_ids.extend(e["id"] for e in self.material_relates(sid))
+            try:
+                graph_ids.extend(e["id"] for e in self.material_relates(sid))
+            except Exception as e:
+                graph_fail = True
+                if degraded_out is not None:
+                    degraded_out.append({"source": "graph", "reason": str(e)[:200]})
+                break
         if mentioned_entities:
             try:
                 graph_ids.extend(r["id"] for r in self._query(
                     "SELECT meta::id(id) AS id FROM material "
                     "WHERE about_entities CONTAINSANY $ents AND archived != true",
                     {"ents": list(mentioned_entities)}))
-            except Exception:
-                pass
+            except Exception as e:
+                if not graph_fail and degraded_out is not None:
+                    degraded_out.append({"source": "graph_about", "reason": str(e)[:200]})
         # RRF 融合三路 → 位次转分 → 强度加权
         fused = _reciprocal_rank_fusion(vec_ids, fts_ids, graph_ids, k=60)
         top_ids = [i for i, _ in fused[:k * 2]]
@@ -240,6 +255,7 @@ class RecallMixin:
             row["score"] = 1.0 / (i + 1)
             cands.append(row)
         return apply_strength(cands)[:k]
+
 
     def save_memory_trace(self, trace: dict) -> str:
         """落一条记忆溯源 trace,返回 trace_id。

@@ -31,8 +31,8 @@ const matLeafNode = (m) => ({ id: `material:${m.id}`, type: 'material', ref: m.i
 const parseTags = (s) => String(s || '').split(/[,，]/).map((t) => t.trim()).filter(Boolean)
 const joinTags = (arr) => (Array.isArray(arr) ? arr : []).join(', ')
 
-// ——— 表单主体(新建/详情共用):标题 + kind + tags + source + RichEditor 正文 ———
-function MaterialForm({ draft, onDraft, editorKey }) {
+// ——— 表单主体(新建/详情共用):标题 + kind + tags + ref_tags + summary + source + pinned + body ———
+function MaterialForm({ draft, onDraft, editorKey, showPinned = false }) {
   const set = (k, v) => onDraft({ ...draft, [k]: v })
   return (
     <div className="flex flex-col gap-2.5 flex-1 min-h-0">
@@ -48,9 +48,20 @@ function MaterialForm({ draft, onDraft, editorKey }) {
         </label>
         <Input variant="bordered" value={draft.tagsText} onChange={(e) => set('tagsText', e.target.value)}
           placeholder="标签(逗号分隔)" aria-label="素材标签" className="flex-1 min-w-32" />
+        <Input variant="bordered" value={draft.refTagsText} onChange={(e) => set('refTagsText', e.target.value)}
+          placeholder="参考维度(风格/剧情/手法…)" aria-label="参考维度" className="flex-1 min-w-32" />
         <Input variant="bordered" value={draft.source} onChange={(e) => set('source', e.target.value)}
           placeholder="来源(出处/链接,可空)" aria-label="素材来源" className="flex-1 min-w-32" />
+        {showPinned && (
+          <label className="inline-flex items-center gap-1.5 text-f12 text-faint cursor-pointer">
+            <input type="checkbox" checked={!!draft.pinned} onChange={(e) => set('pinned', e.target.checked)}
+              data-testid="material-pinned-toggle" aria-label="核心记忆(置顶)" />
+            核心记忆
+          </label>
+        )}
       </div>
+      <Input variant="bordered" value={draft.summary} onChange={(e) => set('summary', e.target.value)}
+        placeholder="手法摘要(写作注入优先;借鉴非照搬)" aria-label="手法摘要" data-testid="material-summary" />
       <RichEditor
         value={draft.body}
         editorKey={editorKey}
@@ -69,7 +80,10 @@ function MaterialForm({ draft, onDraft, editorKey }) {
 // ——— 新建(material_new 节点):草稿内存;「让主编写入」→ s3_add_material 待批(禁 REST 直写) ———
 export function MaterialNew({ kind, onCancel, onCreated }) {
   const toast = useToast()
-  const [draft, setDraft] = useState({ title: '', body: '', kind: KIND_LABEL[kind] ? kind : 'note', tagsText: '', source: '' })
+  const [draft, setDraft] = useState({
+    title: '', body: '', kind: KIND_LABEL[kind] ? kind : 'note',
+    tagsText: '', refTagsText: '', source: '', summary: '', pinned: false,
+  })
   const create = () => {
     if (!draft.title.trim()) { toast('请填写素材标题', { tone: 'danger' }); return }
     seedChiefAddMaterial({
@@ -77,7 +91,10 @@ export function MaterialNew({ kind, onCancel, onCreated }) {
       body: draft.body,
       kind: draft.kind,
       tags: parseTags(draft.tagsText),
+      ref_tags: parseTags(draft.refTagsText),
       source: draft.source.trim() || '',
+      summary: draft.summary.trim() || '',
+      pinned: !!draft.pinned,
     })
     toast('已交给主编写入素材,请在右栏批准', { tone: 'ok' })
     onCreated?.(null, draft.title.trim())
@@ -92,7 +109,7 @@ export function MaterialNew({ kind, onCancel, onCreated }) {
         <p className="text-meta text-faint mb-2" data-testid="material-new-dialogue-hint">
           素材写入须经主编 s3_add_material 待批,不直连 REST。
         </p>
-        <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" />
+        <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" showPinned />
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2 shrink-0">
           <Btn variant="primary" onClick={create} data-testid="material-new-submit-chief">
             让主编写入(待批)
@@ -108,7 +125,7 @@ export function MaterialNew({ kind, onCancel, onCreated }) {
 export function MaterialDetail({ node, onChanged, onDeleted }) {
   const toast = useToast()
   const { setStageProposal } = useChiefSlot()
-  const { setFocus } = useSelection()
+  const { focus, setFocus } = useSelection()
   const [row, setRow] = useState(null)
   const [draft, setDraft] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -122,6 +139,14 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   const dirtyRef = useRef(false)
   useUnsavedGuard(() => dirtyRef.current)
 
+  const currentChapterSeq = (() => {
+    if (focus?.type === 'chapter') {
+      const n = Number(focus.id ?? focus.ref ?? focus.payload?.seq)
+      if (Number.isInteger(n) && n >= 1) return n
+    }
+    return null
+  })()
+
   useEffect(() => {
     let alive = true
     api.materialRefs(node.ref).then((r) => { if (alive) setRefs(r || []) }).catch(() => {})
@@ -131,23 +156,23 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   useEffect(() => {
     let alive = true
     setLoading(true); setLoadErr('')
-    api.materials()
-      .then((payload) => {
+    // 单条读取,禁止全表扫描
+    api.material(node.ref)
+      .then((m) => {
         if (!alive) return
-        // 兼容数组与 { items, next_cursor, total } 分页形态
-        const list = normalizeMaterialRows(payload)
-        const m = list.find((r) => r.id === node.ref || r.material_id === node.ref) || null
-        setRow(m)
-        setDraft(m ? { title: m.title || '', body: m.body || '', kind: m.kind || 'note', tagsText: joinTags(m.tags), source: m.source || '' } : null)
+        setRow(m || null)
+        setDraft(m ? {
+          title: m.title || '', body: m.body || '', kind: m.kind || 'note',
+          tagsText: joinTags(m.tags), refTagsText: joinTags(m.ref_tags),
+          source: m.source || '', summary: m.summary || '', pinned: !!m.pinned,
+        } : null)
         dirtyRef.current = false
-        // 块三:选中素材 → 通用选中总线显式聚焦,主编按 focusTalk 的 material 分支给聚焦话术
-        if (m) setFocus({ type: 'material', id: m.id, label: m.title || '—', payload: { kind: m.kind, source: m.source }, origin: 'panel' })
+        if (m) setFocus({ type: 'material', id: m.id, label: m.title || '—', payload: { kind: m.kind, source: m.source, origin: m.origin }, origin: 'panel' })
       })
-      // 请求失败 ≠ 素材不存在:进 error 态给真实错误 + 重试,不谎称「可能已删除」
       .catch((e) => { if (alive) { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败') } })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [node?.id, reloadTick]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [node?.id, node?.ref, reloadTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
   if (loadErr) return (
@@ -165,7 +190,10 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
       body: draft.body,
       kind: draft.kind,
       tags: parseTags(draft.tagsText),
+      ref_tags: parseTags(draft.refTagsText),
       source: draft.source.trim() || '',
+      summary: draft.summary.trim() || '',
+      pinned: !!draft.pinned,
     })
     dirtyRef.current = false
     toast('已交给主编更新素材,请在右栏批准', { tone: 'ok' })
@@ -206,13 +234,34 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
 
   // 素材→写作桥:正文经块二 stageProposal 通道发布(phase='draft'),
   // 由目标章「草稿」tab 的提示条「填入/追加」闭环落地——不直写编辑器。
-  const publishToDraft = (seqText) => {
+  // 同时写 material_reference(via=manual_insert) 记账本。
+  const publishToDraft = async (seqText) => {
     const seq = Number(String(seqText || '').trim())
     if (!Number.isInteger(seq) || seq < 1) { toast('请输入有效章号(正整数)', { tone: 'danger' }); return }
-    const content = (draft.body || '').trim()
+    const content = (draft.body || draft.summary || '').trim()
     if (!content) { toast('素材正文为空,无可插入内容', { tone: 'danger' }); return }
     setStageProposal({ phase: 'draft', seq, target: null, content, materialId: row.id, ts: Date.now() })
-    toast(`已发布到第 ${seq} 章草稿:打开该章「草稿」tab,用提示条填入/追加`)
+    try {
+      await api.addMaterialReference(row.id, {
+        chapter: seq,
+        dimension: (parseTags(draft.refTagsText)[0] || 'manual_insert'),
+        reason: '作者采纳素材插稿',
+      })
+      const r = await api.materialRefs(row.id)
+      setRefs(r || [])
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '已发布草稿,但溯源记账失败', { tone: 'warn' })
+      return
+    }
+    toast(`已发布到第 ${seq} 章草稿并记入引用账本`)
+  }
+
+  const insertCurrentChapter = () => {
+    if (!currentChapterSeq) {
+      setInsertOpen(true)
+      return
+    }
+    publishToDraft(String(currentChapterSeq))
   }
 
   return (
@@ -220,7 +269,11 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
       <div className="max-w-2xl mx-auto px-6 py-5 h-full flex flex-col min-h-0">
         <div className="flex items-center gap-2 mb-3 shrink-0 flex-wrap">
           {/* 类型元数据:text-meta(Task 1 语义 token),与列表/引用脚注同一节奏 */}
-          <span className="text-meta text-faint/50">素材 · {KIND_LABEL[draft.kind] || draft.kind}</span>
+          <span className="text-meta text-faint/50">
+            素材 · {KIND_LABEL[draft.kind] || draft.kind}
+            {row.origin ? ` · ${row.origin}` : ''}
+            {row.archived ? ' · 已归档' : ''}
+          </span>
           <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
             <Btn
               variant="soft"
@@ -255,10 +308,21 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
             >
               <Quote size={13} />引用到会话
             </Btn>
-            <Btn variant="soft" size="sm" onClick={() => setInsertOpen(true)} disabled={!(draft.body || '').trim()}
-              title="把素材正文发布到某章草稿的提示条(填入/追加),不直写编辑器">
-              <SendToBack size={13} />插入到草稿
+            <Btn variant="soft" size="sm" onClick={insertCurrentChapter}
+              disabled={!(draft.body || draft.summary || '').trim()}
+              data-testid="material-insert-current"
+              title={currentChapterSeq
+                ? `插入当前第 ${currentChapterSeq} 章草稿并记引用`
+                : '把素材发布到某章草稿(填入/追加),并记 material_reference'}>
+              <SendToBack size={13} />{currentChapterSeq ? `插入第${currentChapterSeq}章` : '插入到草稿'}
             </Btn>
+            {!currentChapterSeq && (
+              <Btn variant="ghost" size="sm" onClick={() => setInsertOpen(true)}
+                disabled={!(draft.body || draft.summary || '').trim()}
+                data-testid="material-insert-other">
+                指定章号
+              </Btn>
+            )}
             <Btn variant="primary" size="sm" onClick={save} data-testid="material-save-seed">
               让主编更新
             </Btn>
@@ -267,7 +331,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
             </Btn>
           </div>
         </div>
-        <MaterialForm draft={draft} onDraft={(d) => { setDraft(d); dirtyRef.current = true }} editorKey={`material:${row.id}`} />
+        <MaterialForm draft={draft} onDraft={(d) => { setDraft(d); dirtyRef.current = true }}
+          editorKey={`material:${row.id}`} showPinned />
         <div className="text-f12 text-faint mt-2 leading-snug shrink-0">素材是参考记忆:借鉴非照搬,不进知识图谱/不被反哺;正典设定请放「设定库」。</div>
         {refs.length > 0 && (
           <div className="mt-3 pt-3 border-t border-line shrink-0">
@@ -312,20 +377,7 @@ export function MaterialNetworkPane({ onSelect }) {
   return <MaterialNetwork onSelect={(m) => onSelect?.(matLeafNode(m))} />
 }
 
-const materialTags = (m) => [
-  ...(Array.isArray(m?.ref_tags) ? m.ref_tags : []),
-  ...(Array.isArray(m?.tags) ? m.tags : []),
-].filter(Boolean)
-
 const materialRefCount = (m) => Number(m?.recall_count || m?.ref_count || 0)
-
-const viewMatcher = (key, recentIds) => {
-  if (key === 'pinned') return (m) => !!m?.pinned
-  if (key === 'referenced') return (m) => materialRefCount(m) > 0
-  if (key === 'untagged') return (m) => materialTags(m).length === 0
-  if (key === 'recent') return (m) => recentIds.has(m?.id)
-  return () => true
-}
 
 const normalizeMaterialRows = (payload) => {
   if (Array.isArray(payload)) return payload
@@ -346,7 +398,7 @@ const normalizeMaterialPage = (payload) => {
   }
 }
 
-// ——— 栏2素材工作台:搜索第一行 + 动作第二行 + 智能视图/分类/素材列表 ———
+// ——— 栏2素材工作台:服务端 view 过滤 + 分页 + 健康度 ———
 export function MaterialList({ node, onSelect }) {
   const isCat = node?.type === 'material_category'
   const kind = isCat ? node.ref : null
@@ -355,24 +407,44 @@ export function MaterialList({ node, onSelect }) {
   const [q, setQ] = useState('')
   const [activeView, setActiveView] = useState('all')
   const [activeKind, setActiveKind] = useState(kind || 'all')
-  const [reloadTick, setReloadTick] = useState(0) // 导入后刷新列表
+  const [activeOrigin, setActiveOrigin] = useState('all') // all|manual|import|session_clip|chief
+  const [reloadTick, setReloadTick] = useState(0)
   const [pageInfo, setPageInfo] = useState({ nextCursor: null, total: null })
   const [loadingMore, setLoadingMore] = useState(false)
+  const [health, setHealth] = useState(null)
+  const [recallDegraded, setRecallDegraded] = useState([])
 
   useEffect(() => {
     setActiveKind(kind || 'all')
     setActiveView('all')
+    setActiveOrigin('all')
   }, [kind])
 
-  // 空 q:按 kind 列全部;非空 q:三通道召回搜索(语义+关键词+图,debounce 350ms)取代客户端 substring
+  useEffect(() => {
+    let alive = true
+    api.materialsHealth()
+      .then((h) => { if (alive) setHealth(h) })
+      .catch(() => { if (alive) setHealth(null) })
+    return () => { alive = false }
+  }, [reloadTick])
+
+  // 服务端 view/kind/origin 分页;搜索走三通道召回(with_meta 透出 degraded)
   useEffect(() => {
     let alive = true
     const needle = q.trim()
     setErr(null)
     setLoadingMore(false)
     setPageInfo({ nextCursor: null, total: null })
+    setRecallDegraded([])
+    const selectedKind = isCat ? kind : (activeKind === 'all' ? null : activeKind)
+    const originFilter = activeOrigin === 'all' ? undefined : activeOrigin
     if (!needle) {
-      api.materials({ kind: kind || undefined, limit: MATERIAL_PAGE_SIZE })
+      api.materials({
+        kind: selectedKind || undefined,
+        view: activeView || 'all',
+        origin: originFilter,
+        limit: MATERIAL_PAGE_SIZE,
+      })
         .then((r) => {
           if (!alive) return
           const page = normalizeMaterialPage(r)
@@ -384,31 +456,29 @@ export function MaterialList({ node, onSelect }) {
       return () => { alive = false }
     }
     const t = setTimeout(() => {
-      api.materialRecall(needle)
+      api.materialRecall(needle, undefined, true)
         .then((r) => {
           if (!alive) return
-          const items = normalizeMaterialRows(r).map((x) => ({ ...x, id: x.material_id || x.id }))
+          let items = normalizeMaterialRows(r).map((x) => ({ ...x, id: x.material_id || x.id }))
+          // 搜索结果客户端再叠 origin/kind(服务端 recall 未带 origin 参)
+          if (selectedKind) items = items.filter((m) => m.kind === selectedKind)
+          if (originFilter) items = items.filter((m) => (m.origin || 'manual') === originFilter)
           setRows(items)
           setPageInfo({ nextCursor: null, total: items.length })
+          setRecallDegraded(Array.isArray(r?.degraded_sources) ? r.degraded_sources : [])
           setErr(null)
         })
         .catch((e) => { if (alive) { setRows(null); setErr(e?.body?.detail || e?.message || '素材加载失败') } })
     }, 350)
     return () => { alive = false; clearTimeout(t) }
-  }, [node?.id, kind, q, reloadTick])
+  }, [node?.id, kind, q, reloadTick, activeView, activeKind, activeOrigin, isCat])
 
   const sourceRows = rows || []
   const selectedKind = isCat ? kind : (activeKind === 'all' ? null : activeKind)
-  const recentIds = new Set(sourceRows.slice(0, 12).map((m) => m?.id))
-  const matchesView = viewMatcher(activeView, recentIds)
+  const originFilter = activeOrigin === 'all' ? undefined : activeOrigin
+  // 服务端已按 view/origin 过滤;搜索路径上客户端再滤
   const filtered = sourceRows
-    .filter((m) => !selectedKind || m.kind === selectedKind)
-    .filter(matchesView)
 
-  const countForView = (key) => {
-    const match = viewMatcher(key, recentIds)
-    return sourceRows.filter((m) => (!selectedKind || m.kind === selectedKind) && match(m)).length
-  }
   const countForKind = (k) => sourceRows.filter((m) => m.kind === k).length
   const title = isCat ? `素材 · ${KIND_LABEL[kind] || kind}` : '素材库'
   const newKind = selectedKind || kind || 'note'
@@ -428,7 +498,9 @@ export function MaterialList({ node, onSelect }) {
     setLoadingMore(true)
     try {
       const page = normalizeMaterialPage(await api.materials({
-        kind: kind || undefined,
+        kind: selectedKind || undefined,
+        view: activeView || 'all',
+        origin: originFilter,
         limit: MATERIAL_PAGE_SIZE,
         cursor: pageInfo.nextCursor,
       }))
@@ -444,7 +516,6 @@ export function MaterialList({ node, onSelect }) {
 
   if (err) return (
     <div className="p-3">
-      {/* 统一 AsyncState:标题固定、message 透传真实错误(不吞后端 detail) */}
       <AsyncState state="error" title="素材加载失败" message={err} onRetry={retryLoad} />
     </div>
   )
@@ -455,7 +526,15 @@ export function MaterialList({ node, onSelect }) {
     { key: 'pinned', label: '核心记忆' },
     { key: 'referenced', label: '已引用' },
     { key: 'untagged', label: '无标签' },
-    { key: 'recent', label: '最近导入' },
+    { key: 'recent', label: '最近' },
+    { key: 'archived', label: '已归档' },
+  ]
+  const originFilters = [
+    { key: 'all', label: '全部来源' },
+    { key: 'manual', label: '手建' },
+    { key: 'import', label: '来自导入' },
+    { key: 'session_clip', label: '剪藏' },
+    { key: 'chief', label: '主编写入' },
   ]
 
   return (
@@ -463,7 +542,7 @@ export function MaterialList({ node, onSelect }) {
       <div data-testid="material-workbench-header">
         <DirectoryHeader
           title={title}
-          count={filtered.length}
+          count={pageInfo.total != null ? pageInfo.total : filtered.length}
           query={q}
           onQueryChange={setQ}
           searchLabel="搜索素材"
@@ -479,10 +558,28 @@ export function MaterialList({ node, onSelect }) {
             <button key={v.key} type="button" onClick={() => setActiveView(v.key)}
               className={`h-6 px-2 rounded-md text-meta whitespace-nowrap transition-colors cursor-pointer ${activeView === v.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:bg-soft'}`}>
               {v.label}
-              <span className="ml-1 tabular-nums opacity-70">{countForView(v.key)}</span>
             </button>
           ))}
         </div>
+        <div data-testid="material-origin-filters" className="flex flex-wrap gap-1 px-3 pb-2 border-b border-line/40 bg-surface">
+          {originFilters.map((o) => (
+            <button key={o.key} type="button" onClick={() => setActiveOrigin(o.key)}
+              aria-pressed={activeOrigin === o.key}
+              className={`h-6 px-2 rounded-md text-meta whitespace-nowrap transition-colors cursor-pointer ${activeOrigin === o.key ? 'bg-brand/10 text-brand font-medium' : 'text-faint hover:bg-soft'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {health && (
+          <div data-testid="material-health" className="px-3 py-1.5 text-meta text-faint border-b border-line/30 bg-surface/80">
+            健康度: 共 {health.total ?? 0} · 未召回 {health.never_recalled ?? 0} · 无摘要 {health.no_summary ?? 0} · 无标签 {health.untagged ?? 0}
+          </div>
+        )}
+        {recallDegraded.length > 0 && (
+          <div role="status" data-testid="material-recall-degraded" className="px-3 py-1.5 text-meta text-danger border-b border-line/30">
+            召回降级: {recallDegraded.map((s) => `${s.source}: ${s.reason}`).join('；')}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
@@ -492,7 +589,7 @@ export function MaterialList({ node, onSelect }) {
             {!isCat && (
               <DirectoryRow
                 title="全部分类"
-                meta={String(sourceRows.length)}
+                meta={String(pageInfo.total ?? sourceRows.length)}
                 active={activeKind === 'all'}
                 onClick={() => setActiveKind('all')}
                 aria-label="全部分类"
@@ -523,7 +620,7 @@ export function MaterialList({ node, onSelect }) {
                 key={m.id}
                 title={m.title || '—'}
                 leading={m.pinned ? <span className="text-brand shrink-0" aria-hidden>·</span> : null}
-                meta={`${KIND_LABEL[m.kind] || m.kind}${materialRefCount(m) > 0 ? ` · ${materialRefCount(m)}次` : ''}`}
+                meta={`${KIND_LABEL[m.kind] || m.kind}${m.origin ? ` · ${m.origin}` : ''}${materialRefCount(m) > 0 ? ` · ${materialRefCount(m)}次` : ''}`}
                 onClick={() => onSelect?.(matLeafNode(m))}
                 aria-label={m.title || '—'}
               />

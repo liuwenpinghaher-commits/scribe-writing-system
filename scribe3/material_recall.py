@@ -35,8 +35,30 @@ def apply_strength(cands: list[dict]) -> list[dict]:
 
 
 def gate(cands: list[dict], budget_chars: int = 800) -> list[dict]:
-    """门控:空候选直接返回空——不触发下游 LLM 重排/注入(空库/无关时零开销)。"""
-    return cands if cands else []
+    """门控:空候选直接返回空;否则按强度分排序并按字符预算裁剪,避免无意义 rerank。
+
+    budget_chars 按每条摘要/正文估计占用(上限 ~160 字/条 + 固定开销),
+    至少保留 1 条高分候选(有料时)。
+    """
+    if not cands:
+        return []
+    ranked = apply_strength([dict(c) for c in cands])
+    if budget_chars is None or budget_chars <= 0:
+        return ranked
+    # 预留反照搬头约 80 字
+    head_reserve = 80
+    remain = max(40, int(budget_chars) - head_reserve)
+    out: list[dict] = []
+    used = 0
+    for c in ranked:
+        excerpt = (c.get("summary") or c.get("body") or "")[:120]
+        est = min(160, 24 + len(c.get("title") or "") + len(excerpt)
+                  + (len(c.get("reason") or "") if c.get("reason") else 0))
+        if out and used + est > remain:
+            break
+        out.append(c)
+        used += est
+    return out or ranked[:1]
 
 
 def rerank_materials(cands: list[dict], query: str, llm, k: int = 5) -> list[dict]:
@@ -45,7 +67,8 @@ def rerank_materials(cands: list[dict], query: str, llm, k: int = 5) -> list[dic
         return []
     try:
         listing = "\n".join(
-            f'{c["material_id"]}: {c.get("title", "")} — {(c.get("body") or "")[:80]}'
+            f'{c["material_id"]}: {c.get("title", "")} — '
+            f'{(c.get("summary") or c.get("body") or "")[:80]}'
             for c in cands)
         prompt = (f"当前写作场景:{query}\n候选参考素材:\n{listing}\n"
                   f"选出最值得当前场景借鉴的(最多 {k} 条),每条给一句'为什么值得借鉴'的理由。"
@@ -64,11 +87,12 @@ def rerank_materials(cands: list[dict], query: str, llm, k: int = 5) -> list[dic
 
 # 参考维度 → 差异化借鉴指令(风格借语感、剧情借结构不搬情节、手法借技法)
 _DIM_HINT = {"风格": "借鉴其语感与节奏", "剧情": "借鉴其结构不搬情节",
-             "桥段": "借鉴其结构不搬情节", "手法": "借鉴其技法", "情绪": "借鉴其情绪调度"}
+             "桥段": "借鉴其结构不搬情节", "手法": "借鉴其技法", "情绪": "借鉴其情绪调度",
+             "世界观": "借鉴其设定骨架不搬专名"}
 
 
 def render_material_block(cands: list[dict], budget_chars: int = 800) -> str:
-    """渲染"参考记忆"段:反照搬头 + 每条(维度化借鉴指令 + 摘要 + reason),字数预算裁剪。"""
+    """渲染"参考记忆"段:反照搬头 + 每条(维度化借鉴指令 + **优先 summary** + reason),字数预算裁剪。"""
     if not cands:
         return ""
     head = ("【参考记忆·借鉴非照搬】以下是与本环节相关的素材记忆,借鉴其手法/风格/思路,"
@@ -77,7 +101,9 @@ def render_material_block(cands: list[dict], budget_chars: int = 800) -> str:
     for c in cands:
         dims = c.get("ref_tags") or []
         hint = next((_DIM_HINT[d] for d in dims if d in _DIM_HINT), "借鉴其思路")
-        excerpt = (c.get("summary") or c.get("body") or "")[:120]
+        # 优先 summary(手法摘要);无则 body 截断
+        excerpt = (c.get("summary") or "").strip() or (c.get("body") or "")[:120]
+        excerpt = excerpt[:120]
         line = f"- 【{'/'.join(dims) or '参考'}·{hint}】{c.get('title', '')}:{excerpt}"
         if c.get("reason"):
             line += f"(为何参考:{c['reason']})"
@@ -87,3 +113,29 @@ def render_material_block(cands: list[dict], budget_chars: int = 800) -> str:
         lines.append(line)
         used += len(line)
     return "".join(lines)
+
+
+def emotion_target_from_materials(materials: list[dict], target_emotion: str) -> list[dict]:
+    """从 emotion_module 素材中按目标情绪筛选(body/summary JSON 或纯文本子串)。
+
+    返回匹配的素材行(保留 material 字段),供 brief/context 调用。
+    """
+    if not (target_emotion or "").strip():
+        return []
+    te = target_emotion.strip()
+    hits = []
+    for m in materials or []:
+        if (m or {}).get("kind") != "emotion_module":
+            continue
+        raw = m.get("summary") or m.get("body") or m.get("content") or ""
+        emotion = ""
+        try:
+            card = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else None
+            if isinstance(card, dict):
+                emotion = str(card.get("emotion") or "")
+        except (TypeError, ValueError):
+            card = None
+        blob = f"{emotion} {m.get('title') or ''} {raw}"
+        if te in blob or (emotion and (te in emotion or emotion in te)):
+            hits.append(m)
+    return hits

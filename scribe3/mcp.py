@@ -1569,10 +1569,12 @@ async def s3_add_material(ctx: Context, title: str, body: str = "",
                           tags: list[str] | None = None,
                           ref_tags: list[str] | None = None,
                           source: str | None = None,
+                          summary: str | None = None,
+                          pinned: bool = False,
                           work: str | None = None) -> dict:
     """新建素材记忆(写,待批)。kind∈snippet/note/research/inspiration/…;借鉴非正典事实。
 
-    source: 可选出处/来源(与旧 REST MaterialNew 字段同源,不得静默丢弃)。"""
+    source: 可选出处;summary: 手法摘要(召回优先);pinned: 核心记忆。origin 固定 chief。"""
     t = (title or "").strip()
     if not t:
         return {"status": "error", "tool": "s3_add_material", "error": "title required"}
@@ -1582,8 +1584,10 @@ async def s3_add_material(ctx: Context, title: str, body: str = "",
     def _write():
         mid = _store_for(work).add_material(
             t, body=body or None, kind=kind or "note",
-            tags=list(tags or []), source=src, ref_tags=list(ref_tags or []))
-        return {"material_id": mid, "title": t, "kind": kind or "note", "source": src}
+            tags=list(tags or []), source=src, ref_tags=list(ref_tags or []),
+            summary=summary, pinned=bool(pinned), origin="chief")
+        return {"material_id": mid, "title": t, "kind": kind or "note", "source": src,
+                "origin": "chief"}
 
     return commit_if_approved("s3_add_material", ok, _write)
 
@@ -1596,8 +1600,11 @@ async def s3_patch_material(ctx: Context, material_id: str,
                             tags: list[str] | None = None,
                             ref_tags: list[str] | None = None,
                             source: str | None = None,
+                            summary: str | None = None,
+                            pinned: bool | None = None,
+                            archived: bool | None = None,
                             work: str | None = None) -> dict:
-    """更新素材记忆(写,待批)。仅提交需要改的字段;空串 source 表示清空出处。"""
+    """更新素材记忆(写,待批)。仅提交需要改的字段;空串 source 表示清空出处。origin 不可改。"""
     mid = (material_id or "").strip()
     if not mid:
         return {"status": "error", "tool": "s3_patch_material", "error": "material_id required"}
@@ -1614,6 +1621,12 @@ async def s3_patch_material(ctx: Context, material_id: str,
         fields["ref_tags"] = list(ref_tags)
     if source is not None:
         fields["source"] = (source or "").strip() or None
+    if summary is not None:
+        fields["summary"] = (summary or "").strip() or None
+    if pinned is not None:
+        fields["pinned"] = bool(pinned)
+    if archived is not None:
+        fields["archived"] = bool(archived)
     if not fields:
         return {"status": "error", "tool": "s3_patch_material", "error": "no fields to patch"}
     ok = await _ask(ctx, f"更新素材 {mid} 字段:{','.join(fields.keys())}")
@@ -1624,6 +1637,7 @@ async def s3_patch_material(ctx: Context, material_id: str,
         return {"material_id": mid, "patched": list(fields.keys())}
 
     return commit_if_approved("s3_patch_material", ok, _write)
+
 
 
 @mcp.tool(annotations=_RW)

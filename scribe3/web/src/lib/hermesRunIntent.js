@@ -20,8 +20,9 @@ export function hermesRunInstructions({ chapter, phase, focalizer } = {}) {
     '这是 scribe3 会改世界状态的主编任务。',
     '必须先用只读 s3_ 工具核实当前书内事实;需要写入时使用 scribe3_write 工具,等待作者审批。',
     '书级北极星用 s3_get_intent 核实后 s3_set_intent 写入;角色字段更正用 s3_patch_character。',
-    '结构运维:建卷 s3_add_volume、建章 s3_add_chapter、重排 s3_reorder_chapters、删卷 s3_delete_volume。',
-    '素材记忆:s3_add_material(title, body, kind);借鉴非正典。',
+    '结构运维:建卷 s3_add_volume、建章 s3_add_chapter、重排 s3_reorder_chapters、删卷 s3_delete_volume、章脚手架 s3_patch_chapter_plan。',
+    '母题:s3_add_motif(name, theme, echoes);素材:s3_add_material / s3_patch_material / s3_delete_material。',
+    '作者点名工具时必须调用该工具并等待审批,禁止只口头答应不调用。',
     '不要把剧情事实写入 Hermes memory 或 skill;剧情事实只能进 scribe3 SurrealDB。',
   ]
   if (chapter != null) parts.push(`当前章:${chapter}`)

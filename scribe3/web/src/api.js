@@ -306,8 +306,11 @@ export const api = {
     if (opts.cursor != null) qs.push('cursor=' + enc(opts.cursor))
     if (opts.view) qs.push('view=' + enc(opts.view))
     if (opts.q) qs.push('q=' + enc(opts.q))
+    if (opts.origin) qs.push('origin=' + enc(opts.origin))
     return j('/materials' + (qs.length ? '?' + qs.join('&') : ''))
   },
+  material: (mid) => j('/materials/' + enc(mid)),
+  materialsHealth: () => j('/materials/health'),
   addMaterial: (b) => post('/materials', b),
   /** 作者选区/会话私人剪藏(闸外 POST /author/session-clips；不经主编审批) */
   addSessionClip: (b) => post('/author/session-clips', b),
@@ -317,7 +320,10 @@ export const api = {
   deleteObject: (type, id, token = '') => del('/objects/' + enc(type) + '/' + enc(id) + (token ? `?confirm_impact_token=${enc(token)}` : '')),
   archiveObject: (type, id) => post('/objects/' + enc(type) + '/' + enc(id) + '/archive'),
   // 素材记忆:三通道召回搜索 + 双向溯源 + 多格式导入
-  materialRecall: (q, chapter) => j('/materials/recall?q=' + enc(q) + (chapter != null ? '&chapter=' + chapter : '')),
+  materialRecall: (q, chapter, withMeta = false) => j(
+    '/materials/recall?q=' + enc(q)
+    + (chapter != null ? '&chapter=' + chapter : '')
+    + (withMeta ? '&with_meta=true' : '')),
   materialRefs: (mid) => j('/materials/' + enc(mid) + '/refs'),
   materialRefsByChapter: (ch) => j('/materials/refs-by-chapter?chapter=' + ch),
   addMaterialReference: (mid, body) => post('/materials/' + enc(mid) + '/refs', body),

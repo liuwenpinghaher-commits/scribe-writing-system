@@ -340,6 +340,9 @@ _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instanc
 # id 前缀 EM-/RH-/TR- 自行区分类型,互引用 id 字符串(如 escalation 步骤引用其他卡 id)。
 MATERIAL_KINDS = ("research", "reference", "snippet", "inspiration", "note", "emotion_module")
 
+# 素材创建来源(只在 create 写入;import/session_clip 作者直写,manual/chief 经手建或主编)
+MATERIAL_ORIGINS = ("manual", "import", "session_clip", "chief")
+
 # 经验性记忆类型(Task 8 migration 078):正典事实不属此列——canonical 永远来自领域表。
 MEMORY_KINDS = ("working", "episodic", "procedural", "reference", "uncertainty")
 MEMORY_RELATIONS = ("supports", "contradicts", "derived_from", "same_topic", "caused_by", "corrects")
@@ -361,9 +364,10 @@ _FIELDS_BY_TABLE: dict[str, frozenset] = {
                           "tier", "payoff_min", "payoff_max", "resolution"}),
     "motif": frozenset({"name", "theme", "echoes", "unfolding"}),
     "material": frozenset({"title", "body", "kind", "tags", "source", "ref_tags",
-                           "tokens", "embedding", "about_entities", "pinned",
-                           "archived", "recall_count", "last_recalled_at"}),
+                           "summary", "origin", "tokens", "embedding", "about_entities",
+                           "pinned", "archived", "recall_count", "last_recalled_at"}),
 }
+
 
 
 def _memory_known_at(known_from, known_to, chapter: int) -> bool:

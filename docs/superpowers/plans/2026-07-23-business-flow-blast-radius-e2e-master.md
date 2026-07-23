@@ -168,9 +168,34 @@ artifacts/e2e-YYYYMMDD-<work>/
 
 ---
 
+## 8. L3 真机执行记录（2026-07-23）
+
+| 轮次 | work | 结果 | 发现 |
+|------|------|------|------|
+| r1 | book_2bff6f45 | GATE-A A3+A5 红；0 章 | 建书选择器已修；建章按钮只 seed 不发送 |
+| r2 | book_7c49d708 | A5 红；0 章 | 工具名拆分后 A3 绿；stage 无章失败 |
+| r3 | book_46a6ccfb | A5 红；s3_add_chapter 未落库 | chiefSay 建章仍 0 章（store 直写可绿） |
+| r4 | book_d75a78f7 | 同 r3 | Hermes 可写 character/rule/promise/intent；**系统性不落库 motif+chapter** |
+
+**已修产品缺口**：
+- `craft_first` 建书路径对齐 `书名…` + Enter  
+- 世界写 seed **自动发送**（`ChiefDock` seedIn）  
+- Hermes instructions 补 motif/chapter/plan  
+
+**阻塞旅程总 PASS 的 RC**：
+| RC | 说明 | 下一步 |
+|----|------|--------|
+| RC-HERMES-STRUCTURE | Hermes Run 对 `s3_add_chapter` / `s3_add_motif` 不落库（store 与 MCP commit 单测绿） | 查 scribe3_write 工具面/审批/work 注入；重启 Hermes 重载 MCP |
+| RC-REACT-KEY | 空书阶段 React duplicate key 刷屏 | 单独修列表 key |
+| RC-SEED-NOSEND | （已修）seed 只填不发 | 回归按钮建章 |
+
+证据目录：`artifacts/e2e-20260723-craft{,2,3,4}/`
+
+---
+
 ## 专家团结果（计划层）
 
 - **模式**：Feature team · Plan + Fix + Verify  
-- **角色**：Architect（流图）· Implementer（R1–R3）· Tester（分层门闩）  
-- **未决**：R4 Intent 配额闸策略、R5 ingest 多 worker、L3/L4 真 Hermes 旅程需凭证与时间  
+- **角色**：Architect（流图）· Implementer（R1–R4）· Tester（分层门闩 + L3）  
+- **未决**：RC-HERMES-STRUCTURE（L3 主阻塞）；R5 多 worker 锁；L4 人工读感  
 )

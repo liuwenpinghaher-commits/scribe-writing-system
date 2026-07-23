@@ -144,6 +144,12 @@ def _is_rest_world_write_path(path: str) -> bool:
     # 工程配额例外(非正典叙事)
     if path == _INTENT_ENGINEERING_PATH or path.startswith(_INTENT_ENGINEERING_PATH + "/"):
         return False
+    # 作者确认的素材导入流水线(非正典批量落库;与 session-clip 同级闸外)
+    if path == "/materials/import" or path.startswith("/materials/import/"):
+        return False
+    # 作者采纳插稿后记 material_reference(使用账本,非世界语义改写)
+    if path.startswith("/materials/") and path.endswith("/refs"):
+        return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):
             return True
@@ -3449,6 +3455,10 @@ class MaterialIn(BaseModel):
     kind: str = "note"
     tags: list[str] = []
     source: str | None = None
+    ref_tags: list[str] = []
+    summary: str | None = None
+    pinned: bool = False
+    origin: str | None = None  # 正式 REST 创建默认 manual;chief 经 MCP
 
 
 class MaterialPatch(BaseModel):
@@ -3457,38 +3467,38 @@ class MaterialPatch(BaseModel):
     kind: str | None = None
     tags: list[str] | None = None
     source: str | None = None
+    ref_tags: list[str] | None = None
+    summary: str | None = None
+    pinned: bool | None = None
+    archived: bool | None = None
 
 
 @app.get("/materials")
 def list_materials_ep(kind: str | None = None, limit: int | None = Query(default=None, ge=1, le=500),
                       cursor: int = Query(default=0, ge=0), q: str = "", view: str = "all",
-                      work: str = "main"):
+                      origin: str | None = None, work: str = "main"):
+    """素材列表:服务端 view/q/origin 过滤 + 偏移分页。limit 缺省返回数组(兼容旧客户端)。"""
     _check_material_kind(kind)
-    rows = _store_for(work).list_materials(kind, archived=True if view == "archived" else False)
-    needle = (q or "").strip().lower()
-    if needle:
-        rows = [m for m in rows if needle in "\n".join([
-            str(m.get("title") or ""), str(m.get("body") or ""),
-            " ".join(m.get("tags") or []), " ".join(m.get("ref_tags") or []),
-        ]).lower()]
-    if view == "pinned":
-        rows = [m for m in rows if m.get("pinned")]
-    elif view == "referenced":
-        rows = [m for m in rows if (m.get("recall_count") or 0) > 0]
-    elif view == "untagged":
-        rows = [m for m in rows if not (m.get("tags") or m.get("ref_tags"))]
+    page = _store_for(work).list_materials_page(
+        kind=kind, view=view or "all", q=q or "", limit=limit, cursor=cursor, origin=origin)
     if limit is None:
-        return rows
-    start = int(cursor or 0)
-    items = rows[start:start + limit]
-    next_cursor = start + limit if start + limit < len(rows) else None
-    return {"items": items, "next_cursor": next_cursor, "total": len(rows)}
+        return page["items"]
+    return page
+
+
+@app.get("/materials/health")
+def materials_health_ep(work: str = "main"):
+    """素材库健康度:从未召回 / 无 summary / 无标签计数。"""
+    return _store_for(work).material_health_counts()
 
 
 @app.post("/materials")
 def add_material_ep(m: MaterialIn, work: str = "main"):
     _check_material_kind(m.kind)
-    mid = _store_for(work).add_material(m.title, m.body, m.kind, m.tags, m.source)
+    mid = _store_for(work).add_material(
+        m.title, m.body, m.kind, m.tags, m.source,
+        ref_tags=m.ref_tags, summary=m.summary, pinned=bool(m.pinned),
+        origin=(m.origin or "manual"))
     return {"ok": True, "id": mid}
 
 
@@ -3501,6 +3511,8 @@ class SessionClipIn(BaseModel):
     scope_label: str | None = None
     chapter_seq: int | None = None
     origin_label: str | None = None
+    summary: str | None = None
+    ref_tags: list[str] | None = None
 
 
 @app.post("/author/session-clips")
@@ -3508,7 +3520,7 @@ def author_session_clip_ep(m: SessionClipIn, work: str = "main"):
     """作者私人剪藏 → 非正典素材。
 
     不经 REST 世界写闸(路径不在前缀清单)、不经主编 MCP 审批。
-    仅允许 kind∈{snippet,note}；禁止伪装 inbox decision 语义。
+    仅允许 kind∈{snippet,note}；origin=session_clip。
     """
     body = (m.body or "").strip()
     if not body:
@@ -3524,12 +3536,16 @@ def author_session_clip_ep(m: SessionClipIn, work: str = "main"):
         title = one if len(one) <= 48 else one[:47] + "…"
     source = (m.source or "").strip()
     if not source:
-        origin = (m.origin_label or "选区摘录").strip() or "选区摘录"
+        origin_label = (m.origin_label or "选区摘录").strip() or "选区摘录"
         ch = f" · 第{m.chapter_seq}章" if m.chapter_seq is not None else ""
         scope = f" · {m.scope_label.strip()}" if (m.scope_label or "").strip() else ""
-        source = f"会话摘录 · {origin}{ch}{scope}"
-    mid = _store_for(work).add_material(title, body, kind, [], source)
-    return {"ok": True, "id": mid, "title": title, "kind": kind, "source": source}
+        source = f"会话摘录 · {origin_label}{ch}{scope}"
+    mid = _store_for(work).add_material(
+        title, body, kind, [], source,
+        ref_tags=list(m.ref_tags or []), summary=m.summary,
+        origin="session_clip")
+    return {"ok": True, "id": mid, "title": title, "kind": kind, "source": source,
+            "origin": "session_clip"}
 
 
 @app.patch("/materials/{mid}")
@@ -3549,6 +3565,7 @@ def del_material_ep(mid: str, confirm_impact_token: str | None = None, work: str
 
 
 # ===== 素材导入(多格式 → AI 切分打标摘要 → 预览确认 → 落库)=====
+# 内存热缓存 + Surreal 持久化(一书一 DB);进程重启后仍可从 store 恢复。
 _import_jobs: dict = {}   # job_id → {stage, done, total, items, error, work}
 
 
@@ -3556,15 +3573,51 @@ class ImportCommitReq(BaseModel):
     items: list[dict]
 
 
-def _run_import(job_id: str, markdown: str, source: str | None) -> None:
+def _import_job_get(job_id: str, work: str | None = None) -> dict | None:
+    job = _import_jobs.get(job_id)
+    if job is not None:
+        return job
+    # 持久层回源
+    try:
+        st = _store_for(work or "main")
+        row = st.get_import_job(job_id)
+        if not row:
+            return None
+        job = {
+            "stage": row.get("stage") or "",
+            "done": bool(row.get("done")),
+            "total": int(row.get("total") or 0),
+            "items": list(row.get("items") or []),
+            "error": row.get("error") or "",
+            "work": row.get("work") or work or "main",
+            "source": row.get("source"),
+        }
+        _import_jobs[job_id] = job
+        return job
+    except Exception:
+        return None
+
+
+def _import_job_save(job_id: str, job: dict) -> None:
+    _import_jobs[job_id] = job
+    try:
+        st = _store_for(job.get("work") or "main")
+        st.save_import_job(job_id, job)
+    except Exception:
+        logging.getLogger("scribe3").warning(
+            "import job persist failed job=%s", job_id, exc_info=True)
+
+
+def _run_import(job_id: str, markdown: str, source: str | None, work: str = "main") -> None:
     """后台流水线:AI 切分打标摘要 → 结果存 job 待预览(不直接落库)。fail-soft。"""
     from scribe3.llm import hermes_complete
     from scribe3.material_import import split_and_tag
-    job = _import_jobs.get(job_id)
-    if job is None:
-        return
+    job = _import_job_get(job_id, work) or {
+        "stage": "", "done": False, "total": 0, "items": [], "error": "", "work": work}
     try:
         job["stage"] = "AI 切分打标中"
+        job["work"] = work
+        _import_job_save(job_id, job)
         job["items"] = split_and_tag(
             markdown, lambda p: hermes_complete(p, max_tokens=4000), source)
         job["total"] = len(job["items"])
@@ -3573,13 +3626,14 @@ def _run_import(job_id: str, markdown: str, source: str | None) -> None:
         job["stage"], job["error"] = "error", str(e)[:200]
     finally:
         job["done"] = True
+        _import_job_save(job_id, job)
 
 
 @app.post("/materials/import")
 async def material_import_ep(background: BackgroundTasks, text: str = Form(None),
                             url: str = Form(None), source: str = Form(None),
                             file: UploadFile = File(None), work: str = "main"):
-    """导入入口:file(markitdown 解析)/url(httpx 抓)/text → 后台 AI 切分打标 → 返回 job_id。"""
+    """导入入口:file(markitdown)/url(可读正文+markitdown)/text → 后台 AI 切分 → job_id。"""
     import uuid
     markdown = ""
     if file is not None:
@@ -3597,29 +3651,37 @@ async def material_import_ep(background: BackgroundTasks, text: str = Form(None)
             os.unlink(tmp.name)
         source = source or file.filename
     elif url:
-        import httpx
-        markdown = httpx.get(url, timeout=30, follow_redirects=True).text
+        from scribe3.material_import import parse_url_to_markdown
+        try:
+            markdown = parse_url_to_markdown(url)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"URL 解析失败: {e}") from e
         source = source or url
     elif text:
         markdown = text
     if not (markdown or "").strip():
         raise HTTPException(status_code=422, detail="无内容可导入(text/url/file 至少一个非空)")
     job_id = uuid.uuid4().hex[:12]
-    _import_jobs[job_id] = {"stage": "解析完成", "done": False, "total": 0,
-                            "items": [], "error": "", "work": work}
-    background.add_task(_run_import, job_id, markdown, source)
+    job = {"stage": "解析完成", "done": False, "total": 0,
+           "items": [], "error": "", "work": work, "source": source}
+    _import_job_save(job_id, job)
+    try:
+        _store_for(work).purge_expired_import_jobs()
+    except Exception:
+        pass
+    background.add_task(_run_import, job_id, markdown, source, work)
     return {"job_id": job_id}
 
 
 @app.get("/materials/import/{job_id}/progress")
-async def material_import_progress_ep(job_id: str):
+async def material_import_progress_ep(job_id: str, work: str = "main"):
     """SSE 进度推送:解析→切分打标→待预览/完成/错误(0.5s 轮询,上限 5 分钟防挂)。"""
     import asyncio
     import json as _j
 
     async def gen():
         for _ in range(600):
-            job = _import_jobs.get(job_id)
+            job = _import_job_get(job_id, work)
             if job is None:
                 yield "data: " + _j.dumps({"stage": "not_found", "done": True}) + "\n\n"
                 return
@@ -3632,9 +3694,9 @@ async def material_import_progress_ep(job_id: str):
 
 
 @app.get("/materials/import/{job_id}/preview")
-def material_import_preview_ep(job_id: str):
+def material_import_preview_ep(job_id: str, work: str = "main"):
     """预览 AI 切分结果(作者编辑/删条/合并前)。"""
-    job = _import_jobs.get(job_id)
+    job = _import_job_get(job_id, work)
     if job is None:
         raise HTTPException(status_code=404, detail=f"导入任务 '{job_id}' 不存在或已清理")
     return {"stage": job["stage"], "done": job["done"], "error": job["error"],
@@ -3643,7 +3705,8 @@ def material_import_preview_ep(job_id: str):
 
 @app.post("/materials/import/{job_id}/commit")
 def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "main"):
-    """作者确认(可编辑后)→ 批量落库 + 建联想边。单条 fail-soft。返回落库数。"""
+    """作者确认(可编辑后)→ 批量落库 + 建联想边 + 近重警告。origin=import。"""
+    from scribe3.material_import import near_dup_warning_payload
     st = _store_for(work)
     ids = []
     failed = []
@@ -3654,8 +3717,25 @@ def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "ma
             failed.append({"index": idx, "title": "", "reason": "标题为空"})
             continue
         try:
-            mid = st.add_material(title, it.get("body"), it.get("kind") or "note",
-                                  it.get("tags"), it.get("source"), ref_tags=it.get("ref_tags"))
+            # 近重警告(不阻断)
+            try:
+                dups = st.find_near_duplicate_materials(
+                    title, it.get("body"), threshold=0.88, limit=3)
+                w = near_dup_warning_payload(dups, idx, title)
+                if w:
+                    warnings.append(w)
+            except Exception as e:
+                warnings.append({
+                    "index": idx, "title": title, "stage": "near_dup_scan",
+                    "reason": str(e)[:200],
+                })
+            mid = st.add_material(
+                title, it.get("body"), it.get("kind") or "note",
+                it.get("tags"), it.get("source"),
+                ref_tags=it.get("ref_tags"),
+                summary=it.get("summary"),
+                pinned=bool(it.get("pinned")),
+                origin="import")
             ids.append(mid)
             try:
                 st.build_material_edges(mid)
@@ -3669,20 +3749,32 @@ def material_import_commit_ep(job_id: str, req: ImportCommitReq, work: str = "ma
         except Exception as e:
             failed.append({"index": idx, "title": title, "reason": str(e)})
     _import_jobs.pop(job_id, None)
+    try:
+        st.delete_import_job(job_id)
+    except Exception:
+        pass
     return {"created": len(ids), "ids": ids, "failed": failed, "warnings": warnings}
 
 
 @app.get("/materials/recall")
-def material_recall_ep(q: str, chapter: int | None = None, k: int = 5, work: str = "main"):
-    """素材三通道召回(前端搜索:关键词+语义+图);纯检索排序,不烧 LLM 重排。"""
-    return _store_for(work).material_recall(q, chapter, k)
+def material_recall_ep(q: str, chapter: int | None = None, k: int = 5,
+                       with_meta: bool = False, work: str = "main"):
+    """素材三通道召回。with_meta=true 时返回 {items, degraded_sources}。"""
+    degraded: list = []
+    items = _store_for(work).material_recall(q, chapter, k, degraded_out=degraded)
+    if with_meta:
+        return {"items": items, "degraded_sources": degraded}
+    # 兼容:默认仍返回数组;通道失败时附加不破坏 JSON 数组的方式——旧客户端只要 list。
+    # 新客户端请 with_meta=1。
+    return items
 
 
 @app.get("/materials/graph")
 def material_graph_ep(focus: str | None = None, limit: int = Query(default=200, ge=1, le=2000),
                       hop: int = Query(default=1, ge=1, le=3), work: str = "main"):
-    """素材记忆网络:节点(素材)+ relates 联想边,供前端 sigma 可视化。"""
+    """素材记忆网络:节点+边;focus+hop 做 ego-neighborhood。"""
     return _store_for(work).material_graph(focus=focus, limit=limit, hop=hop)
+
 
 
 @app.get("/materials/refs-by-chapter")
@@ -3717,6 +3809,18 @@ def add_material_reference_ep(mid: str, req: MaterialReferenceIn, work: str = "m
 def material_refs_ep(mid: str, work: str = "main"):
     """正向溯源:这条素材用在了哪些章。"""
     return _store_for(work).material_refs_by_material(mid)
+
+
+@app.get("/materials/{mid}")
+def get_material_ep(mid: str, work: str = "main"):
+    """单条素材(须注册在 /materials/recall|graph|health|import 之后,防路径吞没)。"""
+    # 保留字拒绝,防止静态路径未注册时误 404 信息
+    if mid in ("recall", "graph", "health", "import", "refs-by-chapter"):
+        raise HTTPException(status_code=404, detail=f"unknown materials route '{mid}'")
+    row = _store_for(work).get_material(mid)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"material '{mid}' 不存在")
+    return row
 
 
 @app.get("/voice-flags")
@@ -5642,16 +5746,17 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         query = extract_focus_query({"beats": [draft[:200]], "mentioned": list(mentioned)})
         if not query:
             return ""
-        cands = gate(st.material_recall(query, chapter, k=5, mentioned_entities=mentioned))
+        raw = st.material_recall(query, chapter, k=5, mentioned_entities=mentioned)
+        cands = gate(raw, budget_chars=800)
         if not cands:
-            return ""   # 门控:空库/无命中 → 不调 LLM 重排
+            return ""   # 门控:空库/无命中/预算裁空 → 不调 LLM 重排
         if llm is None:
             ranked = apply_strength(list(cands))[:3]
             for c in ranked:
                 c.setdefault("reason", "检索命中")
         else:
             ranked = rerank_materials(cands, query, llm, k=3)
-        block = render_material_block(ranked)
+        block = render_material_block(ranked, budget_chars=800)
         if block:
             for c in ranked:   # 溯源反哺(recall_count++/last_recalled_at)
                 try:

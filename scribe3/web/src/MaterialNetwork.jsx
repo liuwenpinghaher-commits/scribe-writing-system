@@ -133,6 +133,8 @@ export function MaterialNetwork({ onSelect }) {
   const [picked, setPicked] = useState(null)
   const [retryTick, setRetryTick] = useState(0)
   const [degradedSources, setDegradedSources] = useState([])
+  const [truncated, setTruncated] = useState(false)
+  const [focusId, setFocusId] = useState(null)
   // 图/列表双呈现:WebGL 图不可用或边关系 degraded 时,平铺列表是同一份节点数据的替代路径(不另调 API)
   const [view, setView] = useState('graph')
 
@@ -143,15 +145,17 @@ export function MaterialNetwork({ onSelect }) {
     return () => obs.disconnect()
   }, [])
 
-  // 载入素材(节点),retry 触发重拉
+  // 载入素材(节点),retry 触发重拉;focus 时做 ego-neighborhood
   useEffect(() => {
     let alive = true
-    setLoading(true); setErr(null); setDegradedSources([])
-    api.materialGraph()
+    setLoading(true); setErr(null); setDegradedSources([]); setTruncated(false)
+    const opts = focusId ? { focus: focusId, hop: 1, limit: 200 } : { limit: 200 }
+    api.materialGraph(opts)
       .then((g) => {
         if (!alive) return
         setRows(Array.isArray(g?.nodes) ? g.nodes : [])
         setEdges(Array.isArray(g?.edges) ? g.edges : [])
+        setTruncated(!!g?.truncated)
         setDegradedSources(g?.edges_degraded
           ? (Array.isArray(g?.degraded_sources) && g.degraded_sources.length
             ? g.degraded_sources
@@ -161,10 +165,11 @@ export function MaterialNetwork({ onSelect }) {
       })
       .catch((e) => { if (alive) { setErr(e?.message || '加载失败'); setLoading(false) } })
     return () => { alive = false }
-  }, [retryTick])
+  }, [retryTick, focusId])
 
   const pick = useCallback((m) => {
     setPicked(m)
+    if (m?.id) setFocusId(m.id) // 以节点为 focus 收紧邻域
     if (m) onSelect?.(m) // 点击节点 → 回调
   }, [onSelect])
 
@@ -245,17 +250,35 @@ export function MaterialNetwork({ onSelect }) {
               <GraphContent materials={materials} edges={edges} theme={theme} onPick={pick} />
             </SigmaContainer>
 
-            {edgeDegraded && (
-              <div role="status" className="absolute top-3 left-3 z-20 max-w-[320px] rounded-lg border border-line bg-surface/95 px-3 py-2 text-f12 shadow-sm">
-                <div className="font-medium text-ink">边关系降级</div>
-                <div className="mt-0.5 text-faint leading-snug">
-                  {degradedSources.map((s) => `${s.source || 'edges'}: ${s.reason || '加载失败'}`).join('；')}
-                </div>
-                {/* degraded 时的替代路径快捷入口:节点仍在,列表照常浏览/选中 */}
-                <button onClick={() => setView('list')}
-                  className="mt-1.5 inline-flex items-center gap-1 h-7 px-2 rounded-md border border-line text-meta text-ink hover:border-brand cursor-pointer transition-colors">
-                  <List size={12} />改用列表浏览
-                </button>
+            {(edgeDegraded || truncated || focusId) && (
+              <div role="status" data-testid="material-network-status"
+                className="absolute top-3 left-3 z-20 max-w-[320px] rounded-lg border border-line bg-surface/95 px-3 py-2 text-f12 shadow-sm">
+                {edgeDegraded && (
+                  <>
+                    <div className="font-medium text-ink">边关系降级</div>
+                    <div className="mt-0.5 text-faint leading-snug">
+                      {degradedSources.map((s) => `${s.source || 'edges'}: ${s.reason || '加载失败'}`).join('；')}
+                    </div>
+                  </>
+                )}
+                {truncated && (
+                  <div className="font-medium text-ink mt-0.5" data-testid="material-network-truncated">
+                    图已截断(未显示全部节点)
+                  </div>
+                )}
+                {focusId && (
+                  <div className="text-faint mt-0.5">
+                    聚焦邻域: {focusId}
+                    <button type="button" onClick={() => setFocusId(null)}
+                      className="ml-2 underline cursor-pointer text-brand">查看全图</button>
+                  </div>
+                )}
+                {edgeDegraded && (
+                  <button onClick={() => setView('list')}
+                    className="mt-1.5 inline-flex items-center gap-1 h-7 px-2 rounded-md border border-line text-meta text-ink hover:border-brand cursor-pointer transition-colors">
+                    <List size={12} />改用列表浏览
+                  </button>
+                )}
               </div>
             )}
 

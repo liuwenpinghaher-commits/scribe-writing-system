@@ -93,17 +93,24 @@ export function seedChiefDeleteVolume(volumeId, title = '') {
   ].join('\n'))
 }
 
-/** 新建素材 → s3_add_material（保留 source 出处字段） */
+/** 新建素材 → s3_add_material（summary/ref_tags/pinned/source 与导入字段对齐） */
 export function seedChiefAddMaterial({
   title = '', body = '', kind = 'note', tags = [], ref_tags = [], source = '',
+  summary = '', pinned = false,
 } = {}) {
   const src = String(source || '').trim()
+  const sum = String(summary || '').trim()
   return focusChiefWithSeed([
     `请新建素材「${title || '未命名'}」并写入落库(需我审批)。`,
     `使用工具 s3_add_material(title, body, kind=${JSON.stringify(kind)}`
       + (src ? `, source=${JSON.stringify(src)}` : '')
+      + (sum ? `, summary=${JSON.stringify(sum)}` : '')
+      + (pinned ? ', pinned=true' : '')
+      + (tags?.length ? `, tags=${JSON.stringify(tags)}` : '')
+      + (ref_tags?.length ? `, ref_tags=${JSON.stringify(ref_tags)}` : '')
       + ');借鉴非正典事实。',
     `正文草稿:${(body || '').slice(0, 500)}`,
+    sum ? `summary:${sum}` : '',
     tags?.length ? `tags:${tags.join(',')}` : '',
     ref_tags?.length ? `ref_tags:${ref_tags.join(',')}` : '',
     src ? `source:${src}` : '',
@@ -114,20 +121,26 @@ export function seedChiefAddMaterial({
 /** 更新素材 → s3_patch_material（禁 REST 直写） */
 export function seedChiefPatchMaterial(materialId, {
   title = '', body = '', kind = 'note', tags = [], ref_tags = [], source = '',
+  summary = '', pinned = undefined, archived = undefined,
 } = {}) {
   const mid = String(materialId || '').trim()
   const src = String(source || '').trim()
+  const sum = String(summary || '').trim()
   return focusChiefWithSeed([
     `请更新素材 id=${mid}「${title || '未命名'}」并写入落库(需我审批)。`,
     `使用工具 s3_patch_material(material_id=${JSON.stringify(mid)}, title, body, kind=${JSON.stringify(kind)}`
       + (src ? `, source=${JSON.stringify(src)}` : ', source=""')
+      + (sum ? `, summary=${JSON.stringify(sum)}` : ', summary=""')
       + (tags?.length ? `, tags=${JSON.stringify(tags)}` : '')
       + (ref_tags?.length ? `, ref_tags=${JSON.stringify(ref_tags)}` : '')
+      + (pinned === true ? ', pinned=true' : pinned === false ? ', pinned=false' : '')
+      + (archived === true ? ', archived=true' : archived === false ? ', archived=false' : '')
       + ')。',
     `正文草稿:${(body || '').slice(0, 800)}`,
     '未获批准不得声称已落库。',
   ].filter(Boolean).join('\n'))
 }
+
 
 /** 归档/删除素材 → s3_delete_material */
 export function seedChiefDeleteMaterial(materialId, { title = '', archive = true } = {}) {
