@@ -191,6 +191,12 @@ class ChaptersMixin:
         try:
             from scribe3.embed import embed
             vec = embed([text_for_embed])[0]
+            # HNSW DIMENSION 512:错误维度会让后续 UPDATE 整段炸(Surreal InternalError)
+            if not isinstance(vec, (list, tuple)) or len(vec) != 512:
+                logging.getLogger("scribe3.store").warning(
+                    "save_chapter embedding 维度异常 len=%s,跳过向量",
+                    len(vec) if hasattr(vec, "__len__") else type(vec))
+                vec = None
         except Exception as _ee:
             logging.getLogger("scribe3.store").warning(
                 "save_chapter embedding 失败(正文照存,该章暂无语义召回向量): %s", _ee)
