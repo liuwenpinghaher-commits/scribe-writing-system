@@ -68,19 +68,68 @@ async function createChapter(p) {
 }
 
 const out = await withPage(async (p) => {
-  // 建书:作品库 input[placeholder=书名…] + Enter(与 frontend_smoke / fused 同源)
-  // 禁止点模糊「新建」按钮再 openBook——首页无独立「创建作品」主按钮,会 30s 点空失败。
+  // 建书:填书名 → 点「建」→ 等 POST /works → 等四栏(create 成功会 onSelect 进书)
   await p.goto(process.env.E2E_BASE || 'http://127.0.0.1:3311', { waitUntil: 'networkidle' })
-  await sleep(800)
-  const nameInput = p.locator('input[placeholder="书名…"]')
+  await sleep(1000)
+  const nameInput = p.locator('input[placeholder="书名…"], input[aria-label="书名"]')
   await nameInput.waitFor({ timeout: 15000 })
   await nameInput.fill(BOOK)
-  await nameInput.press('Enter')
-  await sleep(3000)
-  await p.waitForSelector(
-    '[data-testid="chief-chat-shell"], [data-testid="detail"], [data-testid="chief"], [data-testid="four-col"]',
-    { timeout: 20000 },
-  )
+  const createBtn = p.getByRole('button', { name: '建', exact: true }).first()
+  const waitCreate = p.waitForResponse(
+    (r) => /\/works(\?|$)/.test(r.url()) && r.request().method() === 'POST' && r.status() < 500,
+    { timeout: 30000 },
+  ).catch(() => null)
+  if (await createBtn.isVisible().catch(() => false)) await createBtn.click()
+  else await nameInput.press('Enter')
+  const created = await waitCreate
+  L(`createWork response ${created ? created.status() : 'timeout'}`)
+  // 进四栏;若 create 后仍停在库页则点书卡
+  try {
+    await p.waitForSelector('[data-testid="four-col"]', { timeout: 15000 })
+  } catch {
+    L('four-col not yet, try open book card')
+    const card = p.getByRole('button', { name: new RegExp(BOOK.slice(0, 10).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first()
+    if (await card.count()) await card.click()
+    else {
+      await p.locator('button').filter({ hasText: BOOK.slice(0, 8) }).first().click({ timeout: 8000 }).catch(() => {})
+    }
+    await p.waitForSelector('[data-testid="four-col"]', { timeout: 20000 })
+  }
+  L('four-col present')
+  const { ensureChiefVisible, chiefSay: _probe } = await import('./author_decisions.mjs')
+  // 新书进台后右坞可能折叠/晚挂载；多轮 ensure + 诊断
+  let ready = false
+  for (let i = 0; i < 8; i++) {
+    await ensureChiefVisible(p)
+    const diag = await p.evaluate(() => ({
+      right: document.querySelector('[data-testid="right-panel"]')?.getAttribute('data-collapsed'),
+      shell: !!document.querySelector('[data-testid="chief-chat-shell"]'),
+      write: !!document.querySelector('[data-testid="chief-write-chat"]'),
+      restore: document.querySelectorAll('[data-testid="right-restore-button"]').length,
+      tas: [...document.querySelectorAll('textarea')].map((t) => ({
+        ph: t.placeholder?.slice(0, 24), w: t.offsetWidth, h: t.offsetHeight,
+      })),
+    }))
+    L(`open-probe i=${i} ${JSON.stringify(diag)}`)
+    if ((diag.tas || []).some((t) => t.w > 20 && t.h > 10)) {
+      ready = true
+      break
+    }
+    // 强制点所有 restore（含不可见的 absolute 把手）
+    await p.locator('[data-testid="right-restore-button"]').evaluateAll((nodes) => {
+      nodes.forEach((n) => n.click())
+    }).catch(() => {})
+    await sleep(900)
+  }
+  if (!ready) {
+    // 最后手段：点右栏区域内任何还原/展开
+    await p.locator('[data-testid="right-panel"]').click({ force: true }).catch(() => {})
+    await ensureChiefVisible(p)
+    await sleep(1000)
+  }
+  const ta = p.locator('textarea').filter({ hasNot: p.locator('[disabled]') }).first()
+  await ta.waitFor({ state: 'attached', timeout: 15000 })
+  // 不强制 visible——被折叠时 offset 可能短暂为 0，chiefSay 内会再 ensure
   L(`opened ${BOOK}`)
 
   // 解析 work slug
@@ -177,26 +226,19 @@ const out = await withPage(async (p) => {
   await sleep(1500)
 
   // Phase B: 大纲→节拍→演绎 —— 优先 s3_patch_chapter_plan 落库,stage-fill 作辅
-  for (const [phase, planHint, fillPrompt] of [
-    ['大纲', 'synopsis 至少80字:沈砚夜访棺材铺逼问灰契,老道只给半句,灰印意象起', '请写第1章大纲 3-5 句可填入。'],
-    ['节拍', 'beats 至少3条:推门/对质/缄口', '把第1章拆成至少3条节拍可填入。'],
-    ['演绎', 'scene_truth≥80字含灰契机制;involved_characters 含沈砚老道;每人 deductions prose 非空', '写场景真相与限知投影可填入。'],
+  for (const [phase, planHint] of [
+    ['大纲', 'synopsis 至少80字:沈砚夜访棺材铺逼问灰契,老道只给半句,灰印意象起'],
+    ['节拍', 'beats 至少3条:推门/对质/缄口'],
+    ['演绎', 'scene_truth≥80字含灰契机制;involved_characters 含沈砚、老道;每人 deductions prose 非空'],
   ]) {
     L(`stage ${phase}`)
+    await selectChapter(p, 1)
     await clickTab(p, phase)
-    await sleep(600)
-    // 主路径:MCP 章 plan(与禁表单直填一致)
-    await chiefSay(p, `第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, { maxMs: 300000, preferWrite: true })
+    await sleep(800)
+    // 主路径:MCP 章 plan(与禁表单直填一致)。不做第二轮 stage-fill 闲聊——易把 UI 弄丢输入框
+    await chiefSay(p, `第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, { maxMs: 300000, preferWrite: false })
     await approveAllPending(p)
-    // 辅路径:若有 stage 提案条则点填入
-    try {
-      await chiefSay(p, fillPrompt, { maxMs: 120000, preferWrite: false })
-      await acceptStageFill(p, { timeoutMs: 45000 })
-      L(`stage ${phase} filled via UI bar`)
-    } catch (e) {
-      L(`stage ${phase} UI fill skip: ${e.message}`)
-    }
-    await approveAllPending(p)
+    await sleep(1000)
   }
 
   // Phase C: 先草稿提案(WriteChat phase=draft 有提案卡),再接受;必要时再点「采用为正文」

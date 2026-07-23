@@ -16,6 +16,7 @@ describe('DECISION_SELECTORS contract', () => {
     assert.equal(DECISION_SELECTORS.runApproveStale, '[data-testid="run-approve-stale"]')
     assert.ok(DECISION_SELECTORS.writeComposer.includes('提思路'))
     assert.ok(DECISION_SELECTORS.chiefComposer.includes('问主编'))
+    assert.ok(DECISION_SELECTORS.chiefComposer.includes('^='), 'prefix match for @-suffix placeholders')
     assert.equal(DECISION_SELECTORS.stageFill, '[data-testid="stage-fill"]')
   })
 

@@ -11,9 +11,10 @@ export const DECISION_SELECTORS = {
   draftAccept: '[data-testid="draft-accept"]',
   draftReject: '[data-testid="draft-reject"]',
   draftUseCandidate: '[data-testid="draft-use-candidate"]',
-  chiefComposer: 'textarea[placeholder="就当前内容问主编…"]',
+  // placeholder 可能带 @ 提示后缀，用前缀匹配
+  chiefComposer: 'textarea[placeholder^="就当前内容问主编"]',
   /** 章内写作槽 WriteChat（产出提案卡） */
-  writeComposer: 'textarea[placeholder="提思路 / 提要求…"]',
+  writeComposer: 'textarea[placeholder^="提思路"]',
   stageFill: '[data-testid="stage-fill"]',
   stageAppend: '[data-testid="stage-append"]',
 }
@@ -148,48 +149,86 @@ export async function acceptDraftProposal(page, { timeoutMs = 300000, pollMs = 2
  * r6 失败根因：resolveComposer 找不到 textarea（栏折叠或未切到主编）。
  */
 export async function ensureChiefVisible(page) {
-  // 1) 折叠还原钮
-  const restore = page.locator('[data-testid="right-restore-button"]')
-  if (await restore.count() && await restore.first().isVisible().catch(() => false)) {
-    await restore.first().click().catch(() => {})
-    await sleep(500)
+  // 关掉可能挡输入的 dialog
+  await page.keyboard.press('Escape').catch(() => {})
+  // 1) 折叠还原（可能多个 host）
+  const restores = page.locator('[data-testid="right-restore-button"]')
+  const n = await restores.count().catch(() => 0)
+  for (let i = 0; i < n; i++) {
+    const btn = restores.nth(i)
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click({ force: true }).catch(() => {})
+      await sleep(400)
+    }
   }
-  // 2) 右坞切到主编 tab
+  // 2) 清 localStorage 折叠位并派发展开意图
   await page.evaluate(() => {
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (k.endsWith('.rightCollapsed')) localStorage.setItem(k, '0')
+      }
+    } catch { /* */ }
     try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
   }).catch(() => {})
-  const chiefTab = page.getByRole('button', { name: '主编', exact: true }).first()
-  if (await chiefTab.count() && await chiefTab.isVisible().catch(() => false)) {
-    await chiefTab.click().catch(() => {})
-    await sleep(400)
+  // 3) 右坞「主编」轨
+  const chiefTab = page.getByRole('button', { name: '主编', exact: true })
+  const tc = await chiefTab.count().catch(() => 0)
+  for (let i = 0; i < tc; i++) {
+    const btn = chiefTab.nth(i)
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click({ force: true }).catch(() => {})
+      await sleep(350)
+    }
   }
-  // 3) 右栏仍 collapsed 再点一次还原
-  const collapsed = page.locator('[data-testid="right-panel"][data-collapsed="1"]')
-  if (await collapsed.count()) {
-    const r2 = page.locator('[data-testid="right-restore-button"]').first()
-    if (await r2.isVisible().catch(() => false)) await r2.click().catch(() => {})
-    await sleep(400)
-  }
+  // 4) 等 shell 挂上
+  await page.locator('[data-testid="chief-chat-shell"], [data-testid="chief-write-chat"], [data-testid="right-dock"]')
+    .first().waitFor({ state: 'attached', timeout: 8000 }).catch(() => {})
+  await sleep(300)
 }
 
-async function resolveComposer(page, preferWrite, { retries = 3 } = {}) {
+async function resolveComposer(page, preferWrite, { retries = 5 } = {}) {
   const order = preferWrite
-    ? [DECISION_SELECTORS.writeComposer, DECISION_SELECTORS.chiefComposer, 'textarea[data-testid="chief-chat-composer"] textarea', '[data-testid="chief-chat-composer"] textarea', 'textarea[placeholder="就当前内容问主编…"]', 'textarea[placeholder="提思路 / 提要求…"]']
-    : [DECISION_SELECTORS.chiefComposer, DECISION_SELECTORS.writeComposer, 'textarea[placeholder="就当前内容问主编…"]', '[data-testid="chief-chat-composer"] textarea', 'textarea[placeholder="提思路 / 提要求…"]']
+    ? [DECISION_SELECTORS.writeComposer, DECISION_SELECTORS.chiefComposer, 'textarea[placeholder^="提思路"]', 'textarea[placeholder^="就当前内容问主编"]', '[data-testid="chief-write-chat"] textarea', '[data-testid="chief-chat-shell"] textarea']
+    : [DECISION_SELECTORS.chiefComposer, DECISION_SELECTORS.writeComposer, 'textarea[placeholder^="就当前内容问主编"]', 'textarea[placeholder^="提思路"]', '[data-testid="chief-chat-shell"] textarea', '[data-testid="chief-write-chat"] textarea']
   for (let attempt = 0; attempt <= retries; attempt++) {
     for (const sel of order) {
       const loc = page.locator(sel).first()
-      if (await loc.count() && await loc.isVisible().catch(() => false)) return loc
+      if (!(await loc.count())) continue
+      // 先 attached 即可；被遮挡时 force 聚焦
+      try {
+        await loc.waitFor({ state: 'attached', timeout: 1500 })
+        const box = await loc.boundingBox().catch(() => null)
+        if (box && box.width > 8 && box.height > 8) {
+          await loc.click({ force: true }).catch(() => {})
+          return loc
+        }
+        // 尺寸为 0 也可能仍可填（隐藏布局）
+        if (await loc.isEditable().catch(() => false)) {
+          await loc.focus().catch(() => {})
+          return loc
+        }
+      } catch { /* next sel */ }
     }
-    // 可见 textarea 回退
-    const any = page.locator('textarea:visible').last()
-    if (await any.count() && await any.isVisible().catch(() => false)) return any
+    const any = page.locator('textarea').filter({ hasNot: page.locator('[disabled]') })
+    const ac = await any.count().catch(() => 0)
+    for (let i = ac - 1; i >= 0; i--) {
+      const loc = any.nth(i)
+      const box = await loc.boundingBox().catch(() => null)
+      if (box && box.width > 20 && box.height > 12) {
+        await loc.click({ force: true }).catch(() => {})
+        return loc
+      }
+    }
     if (attempt < retries) {
       await ensureChiefVisible(page)
-      await sleep(600)
+      await sleep(700 + attempt * 200)
     }
   }
-  throw new Error('resolveComposer: no chief/write textarea visible')
+  // 诊断：页面上有哪些 textarea
+  const diag = await page.evaluate(() => [...document.querySelectorAll('textarea')].map((t) => ({
+    ph: t.placeholder, w: t.offsetWidth, h: t.offsetHeight, vis: !!(t.offsetParent),
+  }))).catch(() => [])
+  throw new Error(`resolveComposer: no chief/write textarea visible diag=${JSON.stringify(diag).slice(0, 400)}`)
 }
 
 /**

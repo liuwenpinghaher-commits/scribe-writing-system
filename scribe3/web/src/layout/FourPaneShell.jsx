@@ -266,6 +266,15 @@ export function FourPaneShell({
   const handleNavigateToObject = (target) => {
     const next = targetNodeToSelection(target)
     if (!next) return
+    // 图谱等横切视图:写 atlas focus 后切 view(BinderLayout 识别 type=view)
+    if (next.viewKey) {
+      if (next.atlasFocus) {
+        try { sessionStorage.setItem('s3.atlas.focus', String(next.atlasFocus)) } catch { /* */ }
+      }
+      navigate(viewPatch(next.viewKey))
+      onSelectNode?.({ type: 'view', id: `view:${next.viewKey}` })
+      return
+    }
     // 跨入口对象定位 = 仍只发一个完整 intent(entry+focus 原子收敛)
     if (next.node) navigate({ ...nodePatch(next.node, next.entry || projectedEntryKey), reason: 'explicit' })
     else if (next.entry) navigate(entryPatch(next.entry))
@@ -344,7 +353,8 @@ export function FourPaneShell({
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
-        const collapsed = size.asPercentage < layoutBounds.directory.min * 0.5
+        // 仅近 0% 视为折叠；勿用 min*0.5——布局重算瞬间会短暂 <min，误折叠并卸掉内容
+        const collapsed = size.asPercentage < 1
         setDirectoryCollapsed(collapsed)
         writeCollapsed(work, 'directory', collapsed)
       }}
@@ -417,7 +427,9 @@ export function FourPaneShell({
       collapsible
       collapsedSize="0%"
       onResize={(size) => {
-        const collapsed = size.asPercentage < layoutBounds.right.min * 0.5
+        // 仅近 0% 视为折叠（同目录栏）。min*0.5 会在进书/切 mode 布局重算时误折叠主编，
+        // 卸掉 RightDock → e2e/作者找不到输入框（data-collapsed=1 且 restore 点了又被 onResize 压回）。
+        const collapsed = size.asPercentage < 1
         setRightCollapsed(collapsed)
         writeCollapsed(work, 'right', collapsed)
       }}
