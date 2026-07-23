@@ -57,6 +57,13 @@ def _emergency_rest_write_on_for_tests(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _context_snapshot_off_for_tests(monkeypatch):
+    """生产默认开 context 快照绑定;存量 chat 单测未带三件套会 400。
+    需要测强制绑定的用例(test_context_api)自行 monkeypatch 为 1。"""
+    monkeypatch.setenv("SCRIBE3_CONTEXT_SNAPSHOT_V1", "0")
+
+
+@pytest.fixture(autouse=True)
 def _clear_context_caches():
     """Task 16-C:检索接线后 MemoryRetriever.retrieve() 走 module 级单例 RETRIEVAL_CACHE。
     每测试前清检索/全局卡缓存 + 重置指标直方图,防跨测试(不同临时 store 复用同 work/query)

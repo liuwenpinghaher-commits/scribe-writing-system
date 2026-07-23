@@ -305,6 +305,8 @@ def test_event_adapter_maps_runs_events_to_internal_events():
         "call_id": "call_2",
         "name": "s3_add_fact",
         "message": "批准写入?",
+        "pattern_key": None,
+        "choices": None,
         "source_type": "approval.request",
     }
     assert adapter.adapt({
@@ -363,10 +365,13 @@ def test_event_adapter_maps_real_runs_event_field_payloads():
     }) == {
         "kind": "approval.requested",
         "run_id": "run_real",
-        "approval_id": None,
+        # MCP elicitation 常无 Hermes approval_id:合成稳定 id 供前端 approve 绑定
+        "approval_id": "mcp:run_real::mcp_elicitation",
         "call_id": None,
         "name": "",
         "message": "批准写入?新增事实 fact:x:role:y·状态=已确认",
+        "pattern_key": "mcp_elicitation",
+        "choices": ["once", "session", "always", "deny"],
         "source_type": "approval.request",
     }
     assert adapter.adapt({

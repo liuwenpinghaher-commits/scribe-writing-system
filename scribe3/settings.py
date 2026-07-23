@@ -102,6 +102,8 @@ REGISTRY: tuple[Setting, ...] = (
             "默认开:主编区 ContextInspector 可见", danger=True),
     Setting("SCRIBE3_EMERGENCY_REST_WRITE", "flags", "bool", False, "hot",
             "紧急 REST 世界写", "默认关；仅自动化测试/紧急运维显式开启", danger=True),
+    Setting("SCRIBE3_CRAFT_GATE", "flags", "bool", True, "hot",
+            "工艺门闩", "默认开:save_chapter 等写路径需脚手架齐套;测试 conftest 钉 0", danger=True),
     # ── gateway(Hermes 网关;地址类 restart)──
     Setting("HERMES_API", "gateway", "str", "http://127.0.0.1:8642/v1", "restart", "速答网关(default)"),
     Setting("HERMES_RESPONSES_API", "gateway", "str", "http://127.0.0.1:8643/v1", "restart", "agentic 读网关"),
