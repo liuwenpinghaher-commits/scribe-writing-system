@@ -522,6 +522,44 @@ def gate_b(st, seq: int, *, thresholds: CraftGateThresholds | None = None,
         checks.append(CheckResult(
             "B6", "skip", "无投影可检", hard=False))
 
+    # B6s: 相对 scene_truth_revision 过期的投影（hard=False, 可堆积升 fail）
+    from scribe3.deduce_helpers import (
+        has_five_layer_headings,
+        stale_roles,
+        truth_revision,
+    )
+    rev = truth_revision(ch)
+    stale_ids = stale_roles(involved, ch.get("deductions"), rev)
+    if stale_ids:
+        checks.append(CheckResult(
+            "B6s", "warn",
+            f"投影相对真相过期: {stale_ids} (rev={rev})",
+            {"ids": stale_ids, "truth_revision": rev},
+            "RC-INJECT-IGNORED", hard=False))
+    elif dmap and truth:
+        checks.append(CheckResult(
+            "B6s", "pass", f"投影未过期 (rev={rev})",
+            {"truth_revision": rev}))
+    else:
+        checks.append(CheckResult(
+            "B6s", "skip", "无可检过期投影", hard=False))
+
+    # B8: 五层标题可检测（缺标题 warn，不硬卡旧散文）
+    weak = []
+    for cid, d in dmap.items():
+        prose = _strip(d.get("prose"))
+        if prose and not has_five_layer_headings(prose):
+            weak.append(cid)
+    if weak:
+        checks.append(CheckResult(
+            "B8", "warn",
+            f"投影缺五层标题: {weak}",
+            {"ids": weak}, "RC-SCHEMA-WEAK", hard=False))
+    elif dmap:
+        checks.append(CheckResult("B8", "pass", "投影五层标题齐全或无投影需检"))
+    else:
+        checks.append(CheckResult("B8", "skip", "无投影可检五层", hard=False))
+
     # B7 阶段序:无库内时间戳 → skip(不假绿不假红)
     if stage_journal:
         order = stage_journal.get("order") or []
@@ -575,8 +613,8 @@ def audit_chapter_det(
     # C1 find_leaks
     if run_leaks and foc:
         try:
-            from scribe3.verify import find_leaks
-            leaks = find_leaks(body, st, foc, seq)
+            from scribe3.verify import find_leaks_for_chapter
+            leaks = find_leaks_for_chapter(body, st, foc, seq)
             if leaks:
                 checks.append(CheckResult(
                     "C1", "fail",

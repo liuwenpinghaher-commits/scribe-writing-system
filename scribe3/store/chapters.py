@@ -297,7 +297,7 @@ class ChaptersMixin:
         rows = self._query(
             "SELECT seq,title,label,(IF volume THEN meta::id(volume) ELSE NONE END) AS volume,"
             "focalizer,prose,synopsis,beats,draft,"
-            "scene_truth,involved_characters,deductions,purpose_text,deltas,"
+            "scene_truth,scene_truth_revision,involved_characters,deductions,purpose_text,deltas,"
             "archived,<string> archived_at AS archived_at,archive_reason,"
             "ingest_status,ingest_error "   # 审计 P1-6:反哺结果对前端可见
             "FROM type::record('chapter',$seq)", {"seq": seq})
@@ -316,6 +316,10 @@ class ChaptersMixin:
             except (ValueError, TypeError):
                 r[_k] = []
         r["scene_truth"] = r.get("scene_truth") or ""
+        try:
+            r["scene_truth_revision"] = max(0, int(r.get("scene_truth_revision") or 0))
+        except (TypeError, ValueError):
+            r["scene_truth_revision"] = 0
         r["archived"] = bool(r.get("archived"))
         r["archive_reason"] = r.get("archive_reason") or ""
         return r
@@ -851,12 +855,52 @@ class ChaptersMixin:
     def update_chapter_meta(self, seq: int, fields: dict) -> bool:
         """只改梗概/卷/标签/标题(白名单),不碰 prose/embedding/qc_*。
         返回 True 若章存在,False 若章不存在(404 判定由调用方处理)。
+
+        演绎字段卫生:
+        - scene_truth 实质变化 → scene_truth_revision += 1（先于 deductions 结算 next_rev）
+        - involved_characters / deductions 的 character_id → role: 规范化
+        - 投影 stamp：仅**新角色**或 **prose 实质变化** 才写 based_on_truth_rev；
+          旧 prose 缺 based_on 保持缺省（rev>0 仍 stale，禁止全文重存洗 stale）
         """
         # 先确认章存在
         exists = self._query(
             "SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
         if not exists:
             return False
+        import json
+        from scribe3.deduce_helpers import (
+            normalize_involved,
+            prepare_deductions_for_write,
+            should_bump_truth_revision,
+        )
+        # 读当前真相/rev/投影，供 bump 与「不洗 stale」对照
+        cur_rows = self._query(
+            "SELECT scene_truth, scene_truth_revision, deductions "
+            "FROM type::record('chapter', $seq)",
+            {"seq": seq})
+        cur = cur_rows[0] if cur_rows else {}
+        old_truth = (cur.get("scene_truth") or "") if cur else ""
+        try:
+            cur_rev = max(0, int(cur.get("scene_truth_revision") or 0))
+        except (TypeError, ValueError):
+            cur_rev = 0
+        existing_deds: list = []
+        raw_deds = cur.get("deductions") if cur else None
+        if isinstance(raw_deds, str):
+            try:
+                existing_deds = json.loads(raw_deds) if raw_deds else []
+            except (ValueError, TypeError):
+                existing_deds = []
+        elif isinstance(raw_deds, list):
+            existing_deds = raw_deds
+
+        # —— 真相 revision 先于任意字段循环结算（与 fields key 顺序无关）——
+        next_rev = cur_rev
+        if "scene_truth" in fields:
+            new_truth = fields.get("scene_truth")
+            if should_bump_truth_revision(old_truth, new_truth if new_truth is not None else ""):
+                next_rev = cur_rev + 1
+
         allowed = {"synopsis", "volume", "label", "title", "beats",
                    "scene_truth", "involved_characters", "deductions",
                    "purpose_text", "deltas"}   # 北极星任务6:目的合同两字段
@@ -868,9 +912,24 @@ class ChaptersMixin:
                 continue
             if k == "volume":
                 volume_id = v   # None = 清空, str = 新卷裸 id
-            elif k in ("beats", "involved_characters", "deductions", "deltas"):
+            elif k == "scene_truth":
+                plain[k] = v
+                if next_rev != cur_rev:
+                    plain["scene_truth_revision"] = next_rev
+            elif k == "involved_characters":
+                plain[k] = json.dumps(
+                    normalize_involved(v if v is not None else []),
+                    ensure_ascii=False)
+            elif k == "deductions":
+                # 用已结算的 next_rev；仅新/改 prose 才 stamp
+                prepared = prepare_deductions_for_write(
+                    v if v is not None else [],
+                    existing_deds,
+                    next_rev,
+                )
+                plain[k] = json.dumps(prepared, ensure_ascii=False)
+            elif k in ("beats", "deltas"):
                 # list 字段存为 JSON 串(绕 SCHEMAFULL 嵌套校验,同 scene_meta);读时还原。
-                import json
                 plain[k] = json.dumps(v if v is not None else [], ensure_ascii=False)
             else:
                 plain[k] = v

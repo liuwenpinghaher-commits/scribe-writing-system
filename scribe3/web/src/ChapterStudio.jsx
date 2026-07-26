@@ -20,6 +20,7 @@ import { ChapterMetaPane } from './ChapterMetaPane'
 import { ErrorBoundary } from './ErrorBoundary'
 import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { openChiefForEmptyField } from './lib/selAction.js'
+import { softGateIssues, softGateSummary } from './lib/deduceGate.js'
 
 // 章五阶段(Task 7):大纲(synopsis)→ 节拍(beats)→ 演绎(deduce)→ 草稿(draft)→ 正文(prose/WriteLayout)。
 // 大纲/节拍 patchChapter;演绎就地渲 DeduceStage(不再改道左栏能力);草稿 saveDraft/latestDraft;
@@ -82,14 +83,43 @@ function MetaBar({ meta, wordCount }) {
   if (!meta) return null
   const chars = meta.chars || []
   const focName = meta.focalizer ? ((chars.find((c) => c.id === meta.focalizer) || {}).name || meta.focalizer) : '未设'
+  const issues = softGateIssues(meta)
   const involved = meta.involved_characters || []
-  const done = (meta.deductions || []).filter((d) => (d.prose || '').trim()).length
+  const done = Math.max(0, (involved.length || 0) - issues.missing.length)
   const wc = wordCount != null ? wordCount : (meta.synopsis ? null : null)
   return (
     <div data-testid="chapter-stage-meta" className="flex items-center gap-2 flex-wrap pb-2 text-meta text-faint">
       <span className="text-brand">视角 · {focName}</span>
       <span>· 涉及角色 {done}/{involved.length} 已演绎</span>
+      {issues.stale.length > 0 && <span className="text-warn" data-testid="meta-stale-count">· {issues.stale.length} 过期</span>}
       {wc != null && <span className="tnum">· 字数 {wc}</span>}
+    </div>
+  )
+}
+
+/** 草稿阶段演绎软门条：不阻断写作，提示 missing/stale 并提供去补。 */
+function DeduceSoftGateBanner({ meta, onGoDeduce }) {
+  const issues = softGateIssues(meta)
+  if (!issues.needsAttention) return null
+  const summary = softGateSummary(issues)
+  return (
+    <div
+      role="status"
+      data-testid="deduce-soft-gate"
+      className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-f12 text-ink flex items-start gap-2 flex-wrap"
+    >
+      <span className="font-medium text-warn shrink-0">演绎未齐</span>
+      <span className="flex-1 min-w-[12rem] text-faint">{summary}（不影响继续写草稿）。</span>
+      {typeof onGoDeduce === 'function' && (
+        <button
+          type="button"
+          data-testid="deduce-soft-gate-go"
+          onClick={onGoDeduce}
+          className="h-7 px-2 rounded-lg border border-warn/50 bg-canvas text-f12 text-warn hover:bg-warn/10 cursor-pointer"
+        >
+          去补演绎
+        </button>
+      )}
     </div>
   )
 }
@@ -252,7 +282,7 @@ function BeatsTab({ seq, value, meta }) {
 }
 
 // ——— 草稿:编辑器,初值 latestDraft,存草稿 saveDraft;采用=进正文(回调切到正文 tab) ———
-function DraftTab({ seq, work, meta, onAdopt }) {
+function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
   const toast = useToast()
   const { setChiefIntent } = useChiefSlot()
   const [text, setText] = useState('')
@@ -385,6 +415,7 @@ function DraftTab({ seq, work, meta, onAdopt }) {
         )}
       />
       <MetaBar meta={meta} wordCount={wc} />
+      <DeduceSoftGateBanner meta={meta} onGoDeduce={onGoDeduce} />
       {pending && (
         <ProposalBar
           text={`主编生成了本章草稿(${pending.content.replace(/\s/g, '').length} 字),可直接落进草稿框。`}
@@ -461,17 +492,15 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   const [auxView, setAuxView] = useState(null)
   const [chapterMetaOpen, setChapterMetaOpen] = useState(false)
 
-  // 草稿软门:切到草稿时若有涉及角色未演绎→黄色 toast 提示(不阻断,仍切进)。
+  // 草稿软门:切到草稿时若 missing/stale/空真相 → toast + 草稿页常驻 banner(不阻断)。
   // Task 7:演绎已是章内真阶段,删除派发 s3-open-capability 的 deduce 特例,直接就地切换。
   const setPhaseP = useCallback((p) => {
     const nextPhase = normalizePhase(p)
     if (p === 'draft' && meta) {
-      const deds = meta.deductions || []
-      const done = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
-      const pending = (meta.involved_characters || []).filter((id) => !done.has(id))
-      if (pending.length) {
-        // 断头修复#8:软门带可点"去补"入口——就地切到演绎阶段(自引用在点击时才求值,安全)
-        toast(`还有 ${pending.length} 个涉及角色未演绎(不影响继续)`, {
+      const issues = softGateIssues(meta)
+      if (issues.needsAttention) {
+        const summary = softGateSummary(issues)
+        toast(`${summary}(不影响继续)`, {
           tone: 'warn',
           action: { label: '去补', onClick: () => setPhaseP('deduce') },
         })
@@ -526,8 +555,8 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
     const key = `${seq}|${phase}`
     if (metaKey.current !== key) { metaKey.current = key; setLoading(true) }
     api.chapter(seq)
-      .then((ch) => { if (alive) setMeta((m) => ({ ...(m || {}), title: ch?.title || '', synopsis: ch?.synopsis || '', beats: ch?.beats || [], focalizer: ch?.focalizer || '', scene_truth: ch?.scene_truth || '', deductions: ch?.deductions || [], involved_characters: ch?.involved_characters || [], proseWords: (ch?.prose || '').replace(/\s/g, '').length })) })
-      .catch(() => { if (alive) setMeta((m) => ({ ...(m || {}), title: '', synopsis: '', beats: [], focalizer: '', scene_truth: '', deductions: [], involved_characters: [], proseWords: 0 })) })
+      .then((ch) => { if (alive) setMeta((m) => ({ ...(m || {}), title: ch?.title || '', synopsis: ch?.synopsis || '', beats: ch?.beats || [], focalizer: ch?.focalizer || '', scene_truth: ch?.scene_truth || '', scene_truth_revision: ch?.scene_truth_revision ?? 0, deductions: ch?.deductions || [], involved_characters: ch?.involved_characters || [], proseWords: (ch?.prose || '').replace(/\s/g, '').length })) })
+      .catch(() => { if (alive) setMeta((m) => ({ ...(m || {}), title: '', synopsis: '', beats: [], focalizer: '', scene_truth: '', scene_truth_revision: 0, deductions: [], involved_characters: [], proseWords: 0 })) })
       .finally(() => { if (alive) setLoading(false) })
     api.entities().then((es) => { if (alive) setMeta((m) => ({ ...(m || {}), chars: es.filter((e) => e.kind === 'character') })) }).catch(() => {})
     return () => { alive = false }
@@ -677,7 +706,7 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
             // 演绎就地渲染(Task 7):与左栏演绎能力 deduce_view 两入口互斥不冲突,共用 DeduceProvider 选中态。
             <DeduceStage seq={seq} meta={meta} work={work} onSaved={() => setRefresh((r) => r + 1)} />
           ) : phase === 'draft' ? (
-            <DraftTab seq={seq} work={work} meta={meta} onAdopt={(text) => {
+            <DraftTab seq={seq} work={work} meta={meta} onGoDeduce={() => setPhaseP('deduce')} onAdopt={(text) => {
               // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
               // 保留本章 title/focalizer;落库成功后再切正文 tab,让 WriteLayout 拉到刚搬入的正文。
               api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')

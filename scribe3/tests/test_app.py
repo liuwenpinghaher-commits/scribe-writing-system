@@ -194,6 +194,11 @@ def test_motif_crud(store):
     m = c.get("/motifs").json()[0]
     c.patch(f"/motifs/{m['id']}", json={"name": "雪", "theme": "纯白", "echoes": "", "unfolding": ""})
     assert c.get("/motifs").json()[0]["theme"] == "纯白"
+    # 前缀 id 可读
+    assert c.get(f"/motifs/motif:{m['id']}").json()["name"] == "雪"
+    # 不存在 → 404
+    assert c.patch("/motifs/no-such", json={"name": "x", "theme": "", "echoes": "", "unfolding": ""}).status_code == 404
+    assert c.delete("/motifs/no-such").status_code == 404
     c.delete(f"/motifs/{m['id']}")
     assert c.get("/motifs").json() == []
 
@@ -394,6 +399,17 @@ def test_editor_no_full_motif_dump(store):
     sysmsg = A._editor_system(store)
     assert "炉火" not in sysmsg   # 母题靠主编按需调 s3_list_motifs,不在系统提示里全量展开
     assert isinstance(sysmsg, str) and len(sysmsg) > 0
+
+
+def test_codex_block_generation_injects_motif_echoes(store):
+    """写作路径 for_generation=True 须注入母题 theme/echoes 供编织;对话路径不灌回声。"""
+    import scribe3.app as A
+    store.add_motif("铜炉", theme="代价", echoes="炉火", unfolding="X")
+    talk = A._codex_block(store, for_generation=False)
+    assert "铜炉" in talk
+    assert "炉火" not in talk
+    gen = A._codex_block(store, for_generation=True)
+    assert "铜炉" in gen and "代价" in gen and "炉火" in gen
 
 
 
@@ -4159,8 +4175,13 @@ def test_deduction_grounding_endpoint_reads_server_truth_not_client_evidence(sto
     })
 
     assert r.status_code == 200
-    assert r.json()["ok"] is False
+    body = r.json()
+    assert body["ok"] is False
     assert seen == {"source": "沈砚站在潮闸前，闸板震颤。", "candidate": "黑水从闸底涌出。", "mode": "deduction"}
+    assert "structure" in body
+    assert body["structure"]["ok"] is False
+    assert "看到/听到" in body["structure"]["missing_headings"]
+    assert "scene_truth_revision" in body
 
 
 def test_deduction_block_injects_truth_and_projections(store):
@@ -4174,6 +4195,44 @@ def test_deduction_block_injects_truth_and_projections(store):
     assert "柳怀玉" in blk and "看到:纸人动" in blk
     store.save_chapter(4, "", title="第4章")
     assert _deduction_block(store, 4) == ""   # 空章返回空串
+
+
+def test_deduction_block_excludes_stale_projection_body(store):
+    """过期投影只标提示，不注入全文。"""
+    import json
+    from scribe3.app import _deduction_block
+
+    store.save_chapter(31, "", title="第31章")
+    store.update_chapter_meta(31, {
+        "scene_truth": "第一版真相",
+        "deductions": [
+            {"character_id": "role:柳", "character_name": "柳怀玉",
+             "prose": "SECRET_STALE_BODY_SHOULD_NOT_INJECT"},
+        ],
+    })
+    # 剥 stamp + bump 真相 → stale
+    store._execute_write(
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
+        {"seq": 31, "d": json.dumps([{
+            "character_id": "role:柳", "character_name": "柳怀玉",
+            "prose": "SECRET_STALE_BODY_SHOULD_NOT_INJECT",
+        }], ensure_ascii=False)},
+    )
+    store.update_chapter_meta(31, {"scene_truth": "第二版真相已改"})
+    store.update_chapter_meta(31, {
+        "deductions": [
+            {"character_id": "role:柳", "character_name": "柳怀玉",
+             "prose": "SECRET_STALE_BODY_SHOULD_NOT_INJECT"},
+            {"character_id": "role:苏", "character_name": "苏纸鸢",
+             "prose": "FRESH_BODY_OK"},
+        ],
+    })
+    # 苏是新写应 stamp 到新 rev；柳同 prose 仍 stale
+    blk = _deduction_block(store, 31)
+    assert "第二版真相已改" in blk
+    assert "SECRET_STALE_BODY_SHOULD_NOT_INJECT" not in blk
+    assert "过期" in blk
+    assert "FRESH_BODY_OK" in blk
 
 
 def test_motif_instances_endpoint(store):

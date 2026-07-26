@@ -3,9 +3,19 @@ import { Sparkles, Loader2, Copy, ArrowRight } from 'lucide-react'
 import { api } from './api'
 import { Btn, Empty } from './ui'
 
+/**
+ * @deprecated 遗留临时「选角色→未落库草稿」面板。生产入口已退役：
+ * 请用章阶段「演绎」+ DeduceTree / DeduceStage（生成预览后主编审批写入）。
+ * 本文件保留仅供历史对照；不得再挂到 studio docks / 左栏能力。
+ */
 // 演绎:渲染某角色这一场的限知草稿(他知道什么、看到什么)——作为素材,不直接入正文。
 // 「给主编」把草稿带进对话,主编据它以作者视角成文。
+let _deducePanelDeprecatedWarned = false
 export function DeducePanel({ chars, chapter, onToChief }) {
+  if (!_deducePanelDeprecatedWarned && typeof console !== 'undefined' && console.warn) {
+    _deducePanelDeprecatedWarned = true
+    console.warn('[scribe3] DeducePanel is deprecated; use DeduceStage + DeduceTree')
+  }
   const [who, setWho] = useState(chars[0]?.id || '')
   const [draft, setDraft] = useState(null)
   const [busy, setBusy] = useState(false)

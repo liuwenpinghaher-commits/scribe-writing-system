@@ -153,7 +153,8 @@ def test_patch_chapter_plan_synopsis_beats(store):
             "synopsis": "开篇立人物与潮信",
             "beats": beats,
             "scene_truth": "城门盘查在即",
-            "deductions": [{"claim": "潮信与失踪有关"}],
+            "involved_characters": ["沈砚"],
+            "deductions": [{"character_id": "沈砚", "prose": "### 看到/听到\n城门"}],
         })
         return ok if ok else False
 
@@ -163,6 +164,9 @@ def test_patch_chapter_plan_synopsis_beats(store):
     assert "潮信" in (ch.get("synopsis") or "")
     assert isinstance(ch.get("beats"), list) and len(ch["beats"]) == 2
     assert "盘查" in (ch.get("scene_truth") or "")
+    assert ch["involved_characters"] == ["role:沈砚"]
+    assert ch["deductions"][0]["character_id"] == "role:沈砚"
+    assert ch["deductions"][0].get("based_on_truth_rev") == ch.get("scene_truth_revision")
 
 
 def test_patch_chapter_plan_decline(store):

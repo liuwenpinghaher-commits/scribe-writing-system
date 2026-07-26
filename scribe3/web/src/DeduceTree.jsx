@@ -6,6 +6,7 @@ import { useDeduceSel } from './deduceContext'
 import { useSelection } from './selectionContext'
 import { Empty, SectionTitle } from './ui'
 import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
+import { isStaleDeduction, normalizeRoleId, truthRevision } from './lib/deduceGate.js'
 
 // 演绎树:根「场景真相」+ 涉及角色(已演打勾/未演)。选中驱动中区 DeduceStage。
 export function DeduceTree({ seq }) {
@@ -40,13 +41,21 @@ export function DeduceTree({ seq }) {
     setSyncError('')
   }, [ch, chars, seq]) // eslint-disable-line
   if (seq == null) return <div className="p-3"><Empty>选一章开始演绎</Empty></div>
-  const involved = ch?.involved_characters || []
+  const involved = (ch?.involved_characters || []).map(normalizeRoleId).filter(Boolean)
   const deds = ch?.deductions || []
-  const doneSet = new Set(deds.filter((d) => (d.prose || '').trim()).map((d) => d.character_id))
-  const involvedChars = chars.filter((c) => involved.includes(c.id))
-  const addable = chars.filter((c) => !involved.includes(c.id))
-  const nameOf = (id) => chars.find((c) => c.id === id)?.name || id
-  const nameOfId = (id) => chars.find((c) => c.id === id)?.name || id
+  const rev = truthRevision(ch)
+  const doneSet = new Set(
+    deds.filter((d) => (d.prose || '').trim()).map((d) => normalizeRoleId(d.character_id)),
+  )
+  const staleSet = new Set(
+    deds
+      .filter((d) => (d.prose || '').trim() && isStaleDeduction(d, rev))
+      .map((d) => normalizeRoleId(d.character_id)),
+  )
+  const involvedChars = chars.filter((c) => involved.includes(normalizeRoleId(c.id)))
+  const addable = chars.filter((c) => !involved.includes(normalizeRoleId(c.id)))
+  const nameOf = (id) => chars.find((c) => normalizeRoleId(c.id) === normalizeRoleId(id))?.name || id
+  const nameOfId = (id) => chars.find((c) => normalizeRoleId(c.id) === normalizeRoleId(id))?.name || id
   const setInvolved = async (ids) => {
     const names = ids.map((id) => nameOfId(id)).join('、')
     seedChiefNarrativeWrite('deduce', `第 ${seq} 章涉及角色`, `请将 involved_characters 更新为: ${names || '（空）'} (${ids.join(',')})`)
@@ -76,20 +85,28 @@ export function DeduceTree({ seq }) {
             disabled={syncingInferred}
             className="mt-1.5 h-7 rounded-lg border border-brand/40 bg-canvas px-2 text-f12 text-brand hover:bg-brand/10 disabled:opacity-50 cursor-pointer"
           >
-            '让主编同步'
+            让主编同步
           </button>
           {syncError && <div role="alert" className="mt-1 text-danger">{syncError}</div>}
         </div>
       )}
-      {involvedChars.map((c) => (
+      {involvedChars.map((c) => {
+        const cid = normalizeRoleId(c.id)
+        const status = staleSet.has(cid)
+          ? <span data-testid="deduce-stale-badge" className="ml-auto text-warn text-f12">过期</span>
+          : doneSet.has(cid)
+            ? <Check size={12} className="ml-auto text-ok" />
+            : <span className="ml-auto text-meta text-faint/50">未演</span>
+        return (
         <div key={c.id} className="group flex items-center">
           <button onClick={() => pick(c.id, c.name)}
-            className={cn('flex-1 flex items-center gap-2 px-2 h-8 rounded-lg text-f13 cursor-pointer', selected === c.id ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
-            <User size={13} />{c.name}{doneSet.has(c.id) ? <Check size={12} className="ml-auto text-ok" /> : <span className="ml-auto text-meta text-faint/50">未演</span>}
+            className={cn('flex-1 flex items-center gap-2 px-2 h-8 rounded-lg text-f13 cursor-pointer', selected === c.id || selected === cid ? 'bg-brand/10 text-brand font-medium' : 'text-ink hover:bg-soft')}>
+            <User size={13} />{c.name}{status}
           </button>
-          <button onClick={() => setInvolved(involved.filter((x) => x !== c.id))} title="移除" className="opacity-0 group-hover:opacity-100 w-5 h-5 grid place-items-center text-faint hover:text-danger cursor-pointer"><X size={11} /></button>
+          <button onClick={() => setInvolved(involved.filter((x) => normalizeRoleId(x) !== cid))} title="移除" className="opacity-0 group-hover:opacity-100 w-5 h-5 grid place-items-center text-faint hover:text-danger cursor-pointer"><X size={11} /></button>
         </div>
-      ))}
+        )
+      })}
       {addable.length > 0 && (
         <details className="mt-1">
           <summary className="px-2 h-7 flex items-center gap-1 text-f12 text-brand cursor-pointer list-none"><Plus size={12} />添加涉及角色</summary>
