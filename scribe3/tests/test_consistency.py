@@ -178,6 +178,9 @@ class TestWriteGate:
         # 北极星任务11:选择环(写:候选留版本;finalize 落正文+final版+lesson)
         ("POST", "/select/chapter"),
         ("POST", "/select/finalize"),
+        # L1 轻选择:2 短包 + pick 写 draft 版(日常多路径;不替代 L2)
+        ("POST", "/select/light"),
+        ("POST", "/select/light/pick"),
         # 统一上下文 Task 4:会话创建(落 revision=0 初始快照)+ CAS 导航推进。
         # 授权语义:只写 context_session/context_snapshot 两表(导航留痕),
         # 不碰正典数据;navigate 失配 409 绝不覆盖,同 navigation_id 幂等重放。

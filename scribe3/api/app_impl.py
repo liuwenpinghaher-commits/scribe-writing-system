@@ -9156,6 +9156,218 @@ def select_latest(chapter: int, work: str = "main"):
     return body
 
 
+# ─── 选择环 L1 轻路径:2 条策略短变体 → 人点选 → 草稿种子(非三整章) ───
+
+class SelectLightReq(BaseModel):
+    chapter: int
+    msg: str = ""
+
+
+class SelectLightPickReq(BaseModel):
+    chapter: int
+    version_id: str | None = None
+    strategy: str | None = None
+
+
+def _select_l1_result_path(work: str, chapter: int):
+    """L1 结果旁路文件:与 L2 select_ch 分离,避免覆盖重环元数据。"""
+    jp = _loop_journal_path(work, chapter)
+    return jp.with_name(jp.name.replace("loop_ch", "select_l1_ch", 1))
+
+
+@app.post("/select/light")
+def select_light(req: SelectLightReq, work: str = "main"):
+    """L1 轻选择:同一合同出 2 条策略短变体(开场/切入包,约 ≤800 字)。
+    成本约 2 发 LLM,非 L2 三整章。点选走 /select/light/pick 写入草稿种子。"""
+    from scribe3.selection import L1_MAX_CHARS, L1_STRATEGIES, run_light_selection
+    from scribe3.pipeline_journal import PipelineJournal
+    st = _store_for(work)
+    ch = st.get_chapter(req.chapter)
+    if not ch:
+        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
+    _guard_pilot_busy(work, req.chapter)
+    from scribe3.llm import daily_remaining
+    _l1_est = 2
+    _remaining = daily_remaining()
+    if _remaining is not None and _remaining < _l1_est:
+        raise HTTPException(status_code=429, detail=(
+            f"LLM 日帽剩余不足:L1 轻选择约需 {_l1_est} 发,当前剩 {_remaining} 发"))
+    _skey = (work, req.chapter)
+    with _loop_inflight_lock:
+        if _skey in _loop_inflight:
+            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
+        _loop_inflight.add(_skey)
+    try:
+        jp = _select_l1_result_path(work, req.chapter)
+        journal = PipelineJournal(jp)
+    except Exception:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+        raise
+
+    def _generate(strategy: dict) -> str:
+        outcome_binding = _WriteOutcomeBinding(st)
+        strategy_instructions = (
+            "【L1 轻选择·策略短包(非整章)】" + strategy["directive"] +
+            f"\n只写开场/切入片段,控制在 {L1_MAX_CHARS} 字以内;"
+            "不要写完整章,不要收尾总结。用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。"
+        )
+        instructions = _assemble_write_instructions(
+            st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
+            seed_words=[], short_mode=True, with_tools=False, work=work,
+            envelope_trace=outcome_binding.manifest_trace,
+            extra_instructions=strategy_instructions)
+        msg = ((req.msg + "\n") if req.msg else "") + (
+            f"为第 {req.chapter} 章写一则策略短开场(≤{L1_MAX_CHARS}字),严格执行上面策略,"
+            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏。")
+        text, proposals = _collect_write(
+            msg, instructions, with_tools=False,
+            on_terminal=outcome_binding.persist,
+        )
+        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
+        if chapter_props:
+            return chapter_props[-1]["prose"]
+        body = _strip_preamble(text)
+        if len(body.strip()) >= 40:
+            return body
+        raise RuntimeError(f"L1 策略 {strategy['key']} 未产出合格短包")
+
+    def _persist(text: str, strategy_key: str) -> str:
+        return st.add_chapter_version(
+            req.chapter, text, kind="checkpoint", stage="light_variant",
+            label=f"选择环L1·{strategy_key}",
+            stats=_prose_stats(text))
+
+    def _save_result(res: dict) -> None:
+        import json as _j2
+        try:
+            with open(str(jp) + ".result.json", "w", encoding="utf-8") as f:
+                _j2.dump(res, f, ensure_ascii=False)
+        except Exception as e:
+            logging.getLogger("scribe3").warning("L1 结果落盘失败(忽略): %s", e)
+
+    try:
+        result = run_light_selection(
+            chapter=req.chapter, generate=_generate, persist_variant=_persist,
+            journal=journal, save_result=_save_result, max_chars=L1_MAX_CHARS)
+    finally:
+        with _loop_inflight_lock:
+            _loop_inflight.discard(_skey)
+    result["journal_path"] = str(jp)
+    result["strategies"] = [s["key"] for s in L1_STRATEGIES]
+    result["tier_note"] = (
+        "L1 轻选择(2 短包·约 2 发 LLM)。日常多路径请用此入口;"
+        "关键章整章 3 候选请用「出 3 候选」L2(约 10 发·数分钟)。"
+    )
+    return result
+
+
+@app.post("/select/light/pick")
+def select_light_pick(req: SelectLightPickReq, work: str = "main"):
+    """L1 点选:将选中短变体写入写作种子——与 /save-draft 同路径:
+    chapter.draft + chapter_version(stage='draft'),供 GET /latest-draft 恢复。
+    另记一条 lesson。不替代 L2 finalize(不直接覆盖定稿 prose)。"""
+    import json as _j
+    from scribe3.selection import apply_light_pick
+    if not req.version_id and not req.strategy:
+        raise HTTPException(status_code=422, detail="须提供 version_id 或 strategy")
+    st = _store_for(work)
+    if not st.get_chapter(req.chapter):
+        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
+    # 优先从落盘 L1 结果取 variants(含 text);回退从 version 全文
+    variants = []
+    rp = _select_l1_result_path(work, req.chapter)
+    path = str(rp) + ".result.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = _j.load(f)
+        variants = list(body.get("variants") or [])
+    except Exception:
+        variants = []
+    if not variants and req.version_id:
+        ver = st.get_chapter_version(req.version_id)
+        if not ver or ver.get("seq") != req.chapter:
+            raise HTTPException(status_code=404, detail="L1 变体版本不存在")
+        label = str(ver.get("label") or "")
+        if not label.startswith("选择环L1·"):
+            raise HTTPException(status_code=422, detail="非 L1 轻变体版本,不可经 light/pick")
+        sk = label.split("·", 1)[-1] if "·" in label else (req.strategy or "unknown")
+        variants = [{
+            "strategy": sk,
+            "version_id": req.version_id,
+            "text": ver.get("prose") or "",
+            "directive": "",
+        }]
+    try:
+        picked = apply_light_pick(
+            variants=variants, version_id=req.version_id, strategy=req.strategy)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    # 与 /save-draft 对齐——产品 DraftTab 读 GET /latest-draft(stage='draft')
+    prose = picked["text"]
+    st.save_chapter_draft(req.chapter, prose)
+    stats = _prose_stats(prose)
+    draft_vid = st.add_chapter_version(
+        req.chapter, prose,
+        label=f"L1轻选·{picked['strategy']}",
+        kind="checkpoint",
+        stage="draft",
+        summary=f"L1 采纳策略 {picked['strategy']}",
+        stats=stats,
+    )
+    try:
+        st.add_lesson(
+            req.chapter, "decision",
+            f"第{req.chapter}章 L1 轻选择采纳策略 {picked['strategy']}:"
+            f"{(prose or '')[:120]}",
+            condition="L1轻选择短变体",
+        )
+    except Exception as e:
+        logging.getLogger("scribe3").warning("L1 pick lesson 失败(草稿已落): %s", e)
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = _j.load(f)
+        if isinstance(body, dict):
+            body["picked"] = picked
+            body["verdict"] = "picked"
+            body["draft_version_id"] = draft_vid
+            with open(path, "w", encoding="utf-8") as f:
+                _j.dump(body, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return {
+        "status": "picked",
+        "tier": "L1",
+        "chapter": req.chapter,
+        "picked": picked,
+        "draft_seeded": True,
+        "id": draft_vid,
+        "stage": "draft",
+        "stats": stats,
+        "note": "已写入草稿种子(stage=draft);请在正文/主编槽基于此策略扩写。关键章整章 3 候选仍用 L2。",
+    }
+
+
+@app.get("/select/light/latest")
+def select_light_latest(chapter: int, work: str = "main"):
+    """读本章最近一次 L1 轻选择结果。"""
+    import json as _j
+    path = str(_select_l1_result_path(work, chapter)) + ".result.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = _j.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="本章尚无 L1 轻选择结果")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取 L1 结果失败:{e}")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=500, detail="L1 结果文件损坏")
+    body.setdefault("chapter", chapter)
+    body.setdefault("tier", "L1")
+    body["result_path"] = path
+    return body
+
+
 # ═══════════ Chapter Pilot(主编主动化 T6/T7/T10):章生命周期驱动器 ═══════════
 # 作者=创意总监,主编=执行主编。状态机在 scribe3/pilot.py(纯核可测);此处只做
 # executor 绑定(全部复用既有链,禁止新写生成逻辑)+ HTTP 面 + 连写循环。

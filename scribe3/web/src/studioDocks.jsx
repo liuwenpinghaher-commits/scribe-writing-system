@@ -539,7 +539,7 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
     const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
     // (2026-07-12 裁决:「章节辅助」capability 已迁出右栏——入口在章工作台头部,点击全宽层展现
     //  (ChapterStudio.jsx);栏4 还给主编对话。旧 s3.rightTab='context' 偏好由下方失效回退兜底。)
-    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 3候选终选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
+    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 轻选/重选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
     if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
     if (seq != null) c.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
