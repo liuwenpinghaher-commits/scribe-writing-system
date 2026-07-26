@@ -150,6 +150,14 @@ def _is_rest_world_write_path(path: str) -> bool:
     # 作者采纳插稿后记 material_reference(使用账本,非世界语义改写)
     if path.startswith("/materials/") and path.endswith("/refs"):
         return False
+    # 章节软生命周期(归档/恢复)是作者手稿台一等操作,与 /save-chapter 同级闸外。
+    # 永久删除仍走 /chapters/{seq} DELETE + impact token,保持在世界写闸内。
+    # 形态: /chapters/{seq}/archive | /chapters/{seq}/restore
+    if path.startswith("/chapters/"):
+        rest = path[len("/chapters/"):]
+        parts = [p for p in rest.split("/") if p]
+        if len(parts) == 2 and parts[0].isdigit() and parts[1] in ("archive", "restore"):
+            return False
     for p in _REST_WORLD_WRITE_PREFIXES:
         if path == p or path.startswith(p + "/"):
             return True
@@ -8997,6 +9005,19 @@ class SelectFinalizeReq(BaseModel):
     reason_text: str
 
 
+def _is_selection_candidate_version(ver: dict) -> bool:
+    """终选只接受选择环候选留版:stage=candidate 或 label 前缀「选择环候选·」。
+    击杀稿 label 含 ·filtered,不得定稿。"""
+    label = str(ver.get("label") or "")
+    if "·filtered" in label or label.endswith("filtered"):
+        return False
+    stage = ver.get("stage") or ""
+    if stage == "candidate":
+        return True
+    # 兼容早期 stage=draft 但 label 已钉「选择环候选·」的留版
+    return label.startswith("选择环候选·") or label.startswith("选择环候选")
+
+
 @app.post("/select/finalize")
 def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: str = "main"):
     """选择环终选(人):选中候选落正文 + 留 final 版 + **终选理由入 lesson 流**
@@ -9014,6 +9035,12 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     ver = st.get_chapter_version(req.version_id)
     if not ver or ver.get("seq") != req.chapter:
         raise HTTPException(status_code=404, detail="候选版本不存在或不属于该章")
+    if not _is_selection_candidate_version(ver):
+        raise HTTPException(
+            status_code=422,
+            detail="只能终选选择环候选版本(stage=candidate 且非过滤击杀稿);"
+                   "不可把普通存档/击杀稿定稿",
+        )
     prose = ver.get("prose") or ""
     title = (st.get_chapter(req.chapter) or {}).get("title") or ""
     foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
@@ -9038,6 +9065,28 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     return {"status": "finalized", "chapter": req.chapter, "version_id": req.version_id,
             "lesson_saved": lesson_saved, "lesson_error": lesson_error,
             "note": "正文已落库;已排后台反哺(ingest)更新知识账本"}
+
+
+@app.get("/select/latest")
+def select_latest(chapter: int, work: str = "main"):
+    """读本章最近一次选择环备料结果(.result.json),刷新页面后可恢复对比态。
+    无结果 → 404。不含 prose 全文(仍走 version_id 拉)。"""
+    import json as _j
+    jp = _loop_journal_path(work, chapter)
+    rp = jp.with_name(jp.name.replace("loop_ch", "select_ch", 1))
+    path = str(rp) + ".result.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = _j.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="本章尚无选择环备料结果")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取选择环结果失败:{e}")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=500, detail="选择环结果文件损坏")
+    body.setdefault("chapter", chapter)
+    body["result_path"] = path
+    return body
 
 
 # ═══════════ Chapter Pilot(主编主动化 T6/T7/T10):章生命周期驱动器 ═══════════

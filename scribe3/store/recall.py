@@ -200,7 +200,8 @@ class RecallMixin:
         try:
             vec_ids = [r["id"] for r in self._query(
                 f"SELECT meta::id(id) AS id, vector::distance::knn() AS dist FROM material "
-                f"WHERE embedding <|{k3},{ef}|> $qv AND archived != true ORDER BY dist",
+                f"WHERE embedding <|{k3},{ef}|> $qv "
+                f"AND (archived = NONE OR archived != true) ORDER BY dist",
                 {"qv": embed([query])[0]})]
         except Exception as e:
             logging.getLogger("scribe3").error("material_recall 语义路失败(该路清零)", exc_info=True)   # U-011
@@ -214,7 +215,8 @@ class RecallMixin:
             try:
                 fts_ids = [r["id"] for r in self._query(
                     "SELECT meta::id(id) AS id, search::score(1) AS s FROM material "
-                    "WHERE tokens @1@ $q AND archived != true ORDER BY s DESC LIMIT $lim",
+                    "WHERE tokens @1@ $q AND (archived = NONE OR archived != true) "
+                    "ORDER BY s DESC LIMIT $lim",
                     {"q": q_toks, "lim": k * 2})]
             except Exception as e:
                 logging.getLogger("scribe3").error("material_recall 全文路失败(该路清零)", exc_info=True)   # U-011
@@ -236,7 +238,8 @@ class RecallMixin:
             try:
                 graph_ids.extend(r["id"] for r in self._query(
                     "SELECT meta::id(id) AS id FROM material "
-                    "WHERE about_entities CONTAINSANY $ents AND archived != true",
+                    "WHERE about_entities CONTAINSANY $ents "
+                    "AND (archived = NONE OR archived != true)",
                     {"ents": list(mentioned_entities)}))
             except Exception as e:
                 if not graph_fail and degraded_out is not None:

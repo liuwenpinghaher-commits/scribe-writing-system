@@ -679,7 +679,8 @@ class ChaptersMixin:
         if volume_id is not None:
             rows = self._query(
                 "SELECT seq, sort_order FROM chapter:.. "
-                "WHERE archived != true AND volume = type::record('volume', $vid)",
+                "WHERE (archived = NONE OR archived != true) "
+                "AND volume = type::record('volume', $vid)",
                 {"vid": volume_id})
             rows.sort(key=lambda r: (r.get("sort_order") if r.get("sort_order") is not None else r["seq"]))
             order = [r["seq"] for r in rows if r["seq"] != seq] + [seq]
@@ -687,20 +688,26 @@ class ChaptersMixin:
         return {"seq": seq, "title": title, "volume": volume_id}
 
     def archive_chapter(self, seq: int, reason: str = "") -> bool:
-        """软删除章节:隐藏但保留正文、版本和所有引用。"""
-        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        """软删除章节:隐藏但保留正文、版本和所有引用。已归档则幂等 True。"""
+        rows = self._query(
+            "SELECT seq, archived FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
+        if rows[0].get("archived") is True:
+            return True
         self._execute_write(
             "UPDATE type::record('chapter', $seq) SET archived=true, archived_at=time::now(), archive_reason=$reason",
             {"seq": seq, "reason": (reason or "").strip() or None})
         return True
 
     def restore_chapter(self, seq: int) -> bool:
-        """恢复已归档章节。"""
-        rows = self._query("SELECT seq FROM type::record('chapter', $seq)", {"seq": seq})
+        """恢复已归档章节。未归档则幂等 True。"""
+        rows = self._query(
+            "SELECT seq, archived FROM type::record('chapter', $seq)", {"seq": seq})
         if not rows:
             return False
+        if rows[0].get("archived") is not True:
+            return True
         self._execute_write(
             "UPDATE type::record('chapter', $seq) SET archived=false, archived_at=NONE, archive_reason=NONE",
             {"seq": seq})

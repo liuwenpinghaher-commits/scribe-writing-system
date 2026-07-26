@@ -476,6 +476,10 @@ function RightVersionPanel({ seq, onRestored }) {
       let title, focalizer
       try { const ch = await api.chapter(seq); title = ch?.title; focalizer = ch?.focalizer } catch { /* 取不到就不带,后端保持原值 */ }
       await api.saveChapter(seq, prose, title, focalizer)
+      // 审计点:恢复后立刻打一条 checkpoint,避免「只覆盖正文、版本史无痕迹」
+      try {
+        await api.checkpoint(seq, prose, '从存档恢复', 'checkpoint', {})
+      } catch { /* 留版失败不阻断恢复成功态;save-chapter 本身也可能已留 final */ }
       setRefreshKey((k) => k + 1)
       // F3:落库成功后通知中区 WriteLayout 重拉本章 → 编辑器同步为恢复版,
       // 防止编辑器仍持旧正文、用户续编辑保存时把恢复结果覆盖掉。

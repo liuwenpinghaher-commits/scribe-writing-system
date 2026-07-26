@@ -241,10 +241,19 @@ def archived_works(url: str | None = None) -> list[dict]:
 
 
 def archive_work(slug: str, url: str | None = None) -> None:
-    """废弃一本书(软删):注册表标记 archived=true,独立 DB 一字不动。主书 main 不可废弃。"""
+    """废弃一本书(软删):注册表标记 archived=true,独立 DB 一字不动。主书 main 不可废弃。
+
+    - 不存在 → ValueError(勿静默假成功)
+    - 已废弃 → 幂等成功(不改 archived_at)
+    """
     _guard_mutable_slug(slug)
     db = _reg_conn(url)
     try:
+        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
+        if not rows:
+            raise ValueError(f"作品不存在: {slug}")
+        if rows[0].get("archived") is True:
+            return  # 幂等
         db.query("UPDATE type::record('work',$s) SET archived=true, archived_at=time::now()",
                  {"s": slug})
     finally:
@@ -252,10 +261,18 @@ def archive_work(slug: str, url: str | None = None) -> None:
 
 
 def restore_work(slug: str, url: str | None = None) -> None:
-    """从废弃箱恢复:若已有同名活跃作品,先抛错提示改名(废弃箱里的书本就不占名)。"""
+    """从废弃箱恢复:若已有同名活跃作品,先抛错提示改名(废弃箱里的书本就不占名)。
+
+    - 不存在 → ValueError
+    - 未废弃(活跃) → 幂等成功
+    """
     db = _reg_conn(url)
     try:
         rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
+        if not rows:
+            raise ValueError(f"作品不存在: {slug}")
+        if rows[0].get("archived") is not True:
+            return  # 已在活跃区,幂等
         title = (rows[0].get("title") if rows else None) or ""
         stripped = title.strip()
         if stripped:
