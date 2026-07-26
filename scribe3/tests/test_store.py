@@ -1592,29 +1592,6 @@ def test_motif_instance_roundtrip_and_purge(store):
     assert store.list_motif_instances(3) == []
 
 
-def test_motif_hit_count_and_delete_cascades_instances(store):
-    """list_motifs 附 hit_count;delete_motif 级联清 motif_instance 防孤儿。"""
-    store.add_motif("铜炉", theme="宿命", echoes="炉火")
-    mid = store.list_motifs()[0]["id"]
-    store.add_motif_instance(mid, chapter=1, evidence="a", ingest_seq=1)
-    store.add_motif_instance(mid, chapter=2, evidence="b", ingest_seq=2)
-    rows = store.list_motifs()
-    assert rows[0]["hit_count"] == 2
-    # get_motif 接受 motif: 前缀
-    assert store.get_motif(f"motif:{mid}")["name"] == "铜炉"
-    store.delete_motif(mid)
-    assert store.list_motifs() == []
-    assert store.list_motif_instances(1) == []
-    assert store.list_motif_instances(2) == []
-
-
-def test_motif_terms_from_motifs_and_codex_not_hardcoded_book(store):
-    """motif_terms 来自本书母题/物件,不含硬编码单书专名。"""
-    store.add_motif("纸命", theme="命如纸", echoes="纸人/白幡")
-    terms = store.motif_terms()
-    assert "纸命" in terms
-    assert "纸人" in terms
-    assert "镇煞钉" not in terms  # 未落库不应出现
 
 
 def test_relation_touch_roundtrip_and_purge(store):

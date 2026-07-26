@@ -235,6 +235,8 @@ class CodexExtMixin:
 
     def get_motif(self, motif_id: str) -> dict | None:
         mid = (motif_id or "").strip()
+        if mid.startswith("motif:"):
+            mid = mid.split(":", 1)[1].strip()
         if not mid:
             return None
         rows = self._query(
