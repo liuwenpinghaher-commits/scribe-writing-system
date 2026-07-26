@@ -43,10 +43,10 @@ describe('selectionFromSnapshot', () => {
     expect(sel.node.ref).toBe('P1')
   })
 
-  it('projects a motif as motif_view (→ MotifDetailPane) with a local ref', () => {
+  it('projects a concrete motif to codex leaf (→ CodexDetail), not capability group', () => {
     const sel = selectionFromSnapshot({ detail_route: 'motif:M1', focus: { type: 'motif', id: 'motif:M1', label: '母题一' } }, null)
     expect(sel.mode).toBe('node')
-    expect(sel.node.type).toBe('motif_view')
+    expect(sel.node.type).toBe('motif')
     expect(sel.node.ref).toBe('M1')
   })
 

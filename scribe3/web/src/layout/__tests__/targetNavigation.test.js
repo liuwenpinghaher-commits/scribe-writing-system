@@ -61,9 +61,15 @@ describe('targetNodeToSelection', () => {
       node: { id: 'promise:p1', type: 'promise_view', ref: 'open', label: '铜炉要回收', meta: { seq: 4 } },
     })
 
+    // 具体母题叶 → 设定详情(CodexDetail),不是能力分组台账
     expect(targetNodeToSelection({ type: 'motif', id: 'motif:m1', label: '借命回环', chapter: 6 })).toMatchObject({
+      entry: 'codex',
+      node: { id: 'motif:m1', type: 'motif', ref: 'm1', label: '借命回环', meta: { seq: 6 } },
+    })
+    // 能力分组键 → MotifDetailPane
+    expect(targetNodeToSelection({ type: 'motif_view', id: 'motif:book', ref: 'book', label: '全书母题' })).toMatchObject({
       entry: 'motif',
-      node: { id: 'motif:m1', type: 'motif_view', ref: 'book', label: '借命回环', meta: { seq: 6 } },
+      node: { type: 'motif_view', ref: 'book' },
     })
   })
 

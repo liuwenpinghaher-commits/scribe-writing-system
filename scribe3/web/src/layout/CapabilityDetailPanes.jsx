@@ -264,43 +264,106 @@ export function DeduceDetailPane({ node, work }) {
   return <DeduceStage key={node?.id} seq={seq} meta={meta} work={work} />
 }
 
+const MOTIF_VIEW_KEYS = new Set(['chapter', 'thin', 'volume', 'book', 'repeat'])
+const normMotifId = (id) => String(id ?? '').replace(/^motif:/, '')
+const HEAT_LABEL = { hot: '过热', cold: '该回声', neutral: '平稳' }
+
 export function MotifDetailPane({ node, work }) {
   const [state, setState] = useState(undefined)
+  const [timeline, setTimeline] = useState(undefined)
   const seq = node?.ref?.seq ?? node?.meta?.seq
+  const scheduleSeq = seq != null ? Number(seq) + 1 : 1
   useEffect(() => {
     let alive = true
     setState(undefined)
     Promise.all([
       api.motifs(work).catch(() => null),
       seq != null ? api.motifInstances(seq, work).catch(() => null) : Promise.resolve([]),
-    ]).then(([motifs, instances]) => {
+      api.motifSchedule(scheduleSeq, work).catch(() => null),
+    ]).then(([motifs, instances, schedule]) => {
       if (!alive) return
       if (motifs === null || instances === null) setState(null)
-      else setState({ motifs: Array.isArray(motifs) ? motifs : [], instances: Array.isArray(instances) ? instances : [] })
+      else {
+        setState({
+          motifs: Array.isArray(motifs) ? motifs : [],
+          instances: Array.isArray(instances) ? instances : [],
+          schedule: schedule && typeof schedule === 'object' ? schedule : null,
+        })
+      }
     })
     return () => { alive = false }
-  }, [node?.id, seq, work])
+  }, [node?.id, seq, work, scheduleSeq])
+
+  const singleRef = (() => {
+    const ref = typeof node?.ref === 'object' && node?.ref != null
+      ? (node.ref.view || node.ref.group)
+      : node?.ref
+    if (ref != null && ref !== '' && !MOTIF_VIEW_KEYS.has(ref)) return normMotifId(ref)
+    return null
+  })()
+  useEffect(() => {
+    if (!singleRef) { setTimeline(undefined); return }
+    let alive = true
+    setTimeline(undefined)
+    api.motifTimeline(singleRef, work)
+      .then((t) => { if (alive) setTimeline(Array.isArray(t) ? t : null) })
+      .catch(() => { if (alive) setTimeline(null) })
+    return () => { alive = false }
+  }, [singleRef, work])
 
   const rows = useMemo(() => {
     if (!state || state === null) return []
-    const evById = new Map(state.instances.map((i) => [i.motif_id, i.evidence]))
-    const withEv = (list) => list.map((m) => ({ ...m, evidence: evById.get(m.id) }))
-    // ref 可能是字符串或 { view, group, seq }
-    const ref = typeof node?.ref === 'object' && node?.ref != null ? (node.ref.view || node.ref.group) : node?.ref
-    if (ref === 'chapter') return withEv(state.motifs.filter((m) => evById.has(m.id)))
-    if (ref === 'thin') return withEv(state.motifs.filter((m) => !m.theme && !m.unfolding))
-    // volume / book / repeat：后端未给分组字段时不静默回退全书列表，避免「每个入口同一份」
-    if (ref === 'volume' || ref === 'book' || ref === 'repeat') {
-      const filtered = state.motifs.filter((m) => {
-        if (ref === 'volume') return m.scope === 'volume' || m.level === 'volume' || m.volume != null
-        if (ref === 'book') return m.scope === 'book' || m.level === 'book' || m.book_wide
-        if (ref === 'repeat') return m.repeat || m.overused || m.risk === 'repeat' || Number(m.hit_count || 0) > 3
-        return false
-      })
-      return withEv(filtered)
+    const heatById = new Map()
+    for (const r of (state.schedule?.rows || [])) {
+      heatById.set(normMotifId(r.id), r)
     }
-    return withEv(state.motifs)
+    const motifs = state.motifs.map((m) => {
+      const h = heatById.get(normMotifId(m.id))
+      return h ? { ...m, heat: h.heat, streak: h.streak, gap: h.gap, last_touch: h.last_touch } : m
+    })
+    const evById = new Map()
+    for (const i of state.instances) {
+      evById.set(normMotifId(i.motif_id), i.evidence)
+    }
+    const withEv = (list) => list.map((m) => ({
+      ...m,
+      evidence: evById.get(normMotifId(m.id)),
+    }))
+    const ref = typeof node?.ref === 'object' && node?.ref != null
+      ? (node.ref.view || node.ref.group)
+      : node?.ref
+    if (ref === 'chapter') {
+      return withEv(motifs.filter((m) => evById.has(normMotifId(m.id))))
+    }
+    if (ref === 'thin') {
+      return withEv(motifs.filter((m) => !m.theme && !m.unfolding))
+    }
+    if (ref === 'book') return withEv(motifs)
+    if (ref === 'volume') {
+      const scoped = motifs.filter((m) => (
+        m.tier === 'volume' || (m.scope != null && String(m.scope).trim() !== '')
+        || m.level === 'volume' || m.volume != null
+      ))
+      if (scoped.length) return withEv(scoped)
+      const touched = motifs.filter((m) => Number(m.hit_count || 0) > 0 || evById.has(normMotifId(m.id)))
+      return withEv(touched.length ? touched : motifs)
+    }
+    if (ref === 'repeat') {
+      return withEv(motifs.filter((m) => (
+        m.heat === 'hot' || m.repeat || m.overused || m.risk === 'repeat'
+        || Number(m.hit_count || 0) > 3
+      )))
+    }
+    if (ref != null && ref !== '' && !MOTIF_VIEW_KEYS.has(ref)) {
+      const want = normMotifId(ref)
+      return withEv(motifs.filter((m) => (
+        normMotifId(m.id) === want || m.name === ref || m.name === want
+      )))
+    }
+    return withEv(motifs)
   }, [node?.ref, state])
+
+  const events = Array.isArray(timeline) ? timeline : []
 
   return (
     <div className="h-full overflow-auto bg-canvas px-6 py-6">
@@ -309,6 +372,19 @@ export function MotifDetailPane({ node, work }) {
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
           <h2 className="type-section text-ink">母题详情</h2>
         </div>
+        {singleRef && events.length > 0 && (
+          <section className="rounded-lg border border-line bg-surface p-4" data-testid="motif-timeline">
+            <div className="mb-3 text-f14 font-semibold text-ink">触及时间线</div>
+            <div className="space-y-1.5">
+              {events.map((e, i) => (
+                <div key={`${e.chapter}-${i}`} className="flex items-start gap-2 text-f13 text-ink" data-testid="motif-timeline-event">
+                  <span className="text-meta text-faint shrink-0">第{e.chapter ?? '?'}章</span>
+                  <span className="flex-1 min-w-0 text-faint">{e.evidence || ''}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '母题台账'}</div>
           {state === undefined ? <div className="text-f13 text-faint">加载母题…</div>
@@ -318,10 +394,30 @@ export function MotifDetailPane({ node, work }) {
               <div className="space-y-2">
                 {rows.map((m) => (
                   <div key={m.id || m.name} className="rounded-md border border-line bg-canvas px-3 py-2">
-                    <div className="text-f13 font-medium text-ink">{m.name || m.id}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-f13 font-medium text-ink">{m.name || m.id}</div>
+                      {m.heat && (
+                        <span className="text-meta text-faint" data-testid="motif-heat">{HEAT_LABEL[m.heat] || m.heat}</span>
+                      )}
+                      {m.phase && m.phase !== 'seed' && (
+                        <span className="text-meta text-faint">phase:{m.phase}</span>
+                      )}
+                    </div>
                     {m.theme && <div className="mt-1 text-f12 text-fore">{m.theme}</div>}
+                    {(m.echoes || (Array.isArray(m.echo_terms) && m.echo_terms.length > 0)) && (
+                      <div className="mt-1 text-f12 text-faint">
+                        回声:{m.echoes || (m.echo_terms || []).join('/')}
+                      </div>
+                    )}
                     {m.evidence && <div className="mt-1 text-f12 text-brand">证据:<span>{m.evidence}</span></div>}
                     {m.unfolding && <div className="mt-1 text-f12 text-faint">{m.unfolding}</div>}
+                    {(Number(m.hit_count || 0) > 0 || m.streak != null) && (
+                      <div className="mt-1 text-meta text-faint">
+                        全书触及 {m.hit_count || 0} 次
+                        {m.streak != null ? ` · 连续 ${m.streak}` : ''}
+                        {m.last_touch != null ? ` · 上次第${m.last_touch}章` : ''}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

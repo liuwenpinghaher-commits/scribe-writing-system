@@ -8,6 +8,8 @@ const apiMock = vi.hoisted(() => ({
   promisesLedger: vi.fn(),
   motifs: vi.fn(),
   motifInstances: vi.fn(),
+  motifSchedule: vi.fn(),
+  motifTimeline: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -46,6 +48,11 @@ describe('DetailPane 能力详情路由', () => {
     })
     apiMock.motifs.mockResolvedValue([{ id: 'm1', name: '铜炉', theme: '借命代价', unfolding: '每次燃起都消耗寿命' }])
     apiMock.motifInstances.mockResolvedValue([{ motif_id: 'm1', evidence: '炉火像一枚倒扣的命' }])
+    apiMock.motifSchedule.mockResolvedValue({
+      must_echo: [], avoid_overuse: [],
+      rows: [{ id: 'm1', name: '铜炉', heat: 'neutral', streak: 0, hit_count: 1 }],
+    })
+    apiMock.motifTimeline.mockResolvedValue([])
   })
 
   it.each([
@@ -129,5 +136,63 @@ describe('DetailPane 能力详情路由', () => {
     expect(apiMock.motifInstances).toHaveBeenCalledWith(4, 'demo')
     expect(screen.getByText('炉火像一枚倒扣的命')).toBeTruthy()
     expect(screen.queryByText(/后续再接完整编辑 API/)).toBeNull()
+  })
+
+  it('motif_view book 展示全书母题(不因缺 scope 字段而假空)', async () => {
+    apiMock.motifs.mockResolvedValue([
+      { id: 'm1', name: '铜炉', theme: '借命代价', hit_count: 1 },
+      { id: 'm2', name: '纸命', theme: '命如纸', hit_count: 0 },
+    ])
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:book', type: 'motif_view', label: '全书母题', ref: 'book' } }} work="demo" onSelectNode={() => {}} />)
+    expect(await screen.findByText('铜炉')).toBeTruthy()
+    expect(screen.getByText('纸命')).toBeTruthy()
+  })
+
+  it('motif_view 单条 id 只展示该母题', async () => {
+    apiMock.motifs.mockResolvedValue([
+      { id: 'm1', name: '铜炉', theme: '借命代价' },
+      { id: 'm2', name: '纸命', theme: '命如纸' },
+    ])
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:m1', type: 'motif_view', label: '铜炉', ref: 'm1' } }} work="demo" onSelectNode={() => {}} />)
+    expect(await screen.findByText('铜炉')).toBeTruthy()
+    expect(screen.queryByText('纸命')).toBeNull()
+  })
+
+  it('motif_view repeat 用 heat=hot 过滤过度重复(优先于裸 hit_count)', async () => {
+    apiMock.motifs.mockResolvedValue([
+      { id: 'm1', name: '铜炉', hit_count: 2 },
+      { id: 'm2', name: '纸命', hit_count: 1 },
+    ])
+    apiMock.motifSchedule.mockResolvedValue({
+      rows: [
+        { id: 'm1', name: '铜炉', heat: 'hot', streak: 3, hit_count: 3 },
+        { id: 'm2', name: '纸命', heat: 'cold', streak: 0, hit_count: 1 },
+      ],
+    })
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:repeat', type: 'motif_view', label: '过度重复', ref: 'repeat' } }} work="demo" onSelectNode={() => {}} />)
+    expect(await screen.findByText('铜炉')).toBeTruthy()
+    expect(screen.queryByText('纸命')).toBeNull()
+    expect(await screen.findByTestId('motif-heat')).toBeTruthy()
+  })
+
+  it('motif_view volume 优先 tier/scope 真绑定', async () => {
+    apiMock.motifs.mockResolvedValue([
+      { id: 'm1', name: '铜炉', tier: 'volume', scope: '卷1' },
+      { id: 'm2', name: '纸命', tier: 'book' },
+    ])
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:volume', type: 'motif_view', label: '本卷主母题', ref: 'volume' } }} work="demo" onSelectNode={() => {}} />)
+    expect(await screen.findByText('铜炉')).toBeTruthy()
+    expect(screen.queryByText('纸命')).toBeNull()
+  })
+
+  it('motif_view 单条展示时间线历史', async () => {
+    apiMock.motifTimeline.mockResolvedValue([
+      { chapter: 2, evidence: '炉火初燃' },
+      { chapter: 5, evidence: '炉火再起' },
+    ])
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:m1', type: 'motif_view', label: '铜炉', ref: 'm1' } }} work="demo" onSelectNode={() => {}} />)
+    expect(await screen.findByTestId('motif-timeline')).toBeTruthy()
+    expect(screen.getByText(/炉火初燃/)).toBeTruthy()
+    expect(apiMock.motifTimeline).toHaveBeenCalled()
   })
 })
