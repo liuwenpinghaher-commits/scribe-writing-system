@@ -28,9 +28,19 @@ class CausalViolation:
     reason: str
 
 
-def find_leaks(prose: str, world: World, focalizer: str, chapter: int) -> list[Leak]:
+def find_leaks(
+    prose: str,
+    world: World,
+    focalizer: str,
+    chapter: int,
+    *,
+    focal_deduction: str | None = None,
+) -> list[Leak]:
     """扫 focalizer 视角散文里冒出的【帧外私密】破绽词。focalizer 自己知道的不算。
     F-05: 用 re.finditer 定位每处 marker 在 prose 中的字符 offset,存入 Leak.range。
+
+    D13: 若提供焦点者限知投影 ``focal_deduction``，额外用其「没察觉的」层短语
+    作限知边界——正文若写出这些盲区内容，记为演绎边界泄露（与知识帧泄露互补）。
     """
     frame = project_frame(world, focalizer, chapter)
     leaks: list[Leak] = []
@@ -45,7 +55,59 @@ def find_leaks(prose: str, world: World, focalizer: str, chapter: int) -> list[L
             if match:
                 leaks.append(Leak(f.id, m, f.entity_id, range=(match.start(), match.end())))
                 break
+    # 演绎边界：焦点投影「没察觉的」
+    if focal_deduction and (prose or "").strip():
+        from scribe3.deduce_helpers import normalize_role_id, unaware_leak_markers
+
+        foc = normalize_role_id(focalizer) or (focalizer or "")
+        for m in unaware_leak_markers(focal_deduction):
+            match = next(re.finditer(re.escape(m), prose), None)
+            if match:
+                leaks.append(Leak(
+                    f"deduction:unaware:{foc}",
+                    m,
+                    foc or focalizer,
+                    range=(match.start(), match.end()),
+                ))
     return leaks
+
+
+def focal_deduction_prose_for_leaks(ch: dict | None, focalizer: str | None) -> str | None:
+    """取可用于 find_leaks 的焦点投影全文；过期投影不采用（避免旧盲区误报/漏报）。"""
+    if not focalizer:
+        return None
+    from scribe3.deduce_helpers import (
+        deduction_for_role,
+        is_stale_deduction,
+        truth_revision,
+    )
+
+    d = deduction_for_role(ch, focalizer)
+    if not d:
+        return None
+    prose = (d.get("prose") or "").strip()
+    if not prose:
+        return None
+    if is_stale_deduction(d, truth_revision(ch)):
+        return None
+    return prose
+
+
+def find_leaks_for_chapter(
+    prose: str,
+    store,
+    focalizer: str,
+    chapter: int,
+) -> list[Leak]:
+    """章级封装：自动附带未过期的焦点限知投影边界。"""
+    ch = store.get_chapter(chapter) if hasattr(store, "get_chapter") else None
+    return find_leaks(
+        prose,
+        store,
+        focalizer,
+        chapter,
+        focal_deduction=focal_deduction_prose_for_leaks(ch, focalizer),
+    )
 
 
 def causal_complete(world: World, chapter: int) -> list[CausalViolation]:

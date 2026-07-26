@@ -287,8 +287,8 @@ class ConnectionMixin:
         degraded: list[str] = []
         try:
             if focalizer:
-                from scribe3.verify import find_leaks
-                constraints["leaks"] = len(find_leaks(prose, self, focalizer, seq))
+                from scribe3.verify import find_leaks_for_chapter
+                constraints["leaks"] = len(find_leaks_for_chapter(prose, self, focalizer, seq))
             else:
                 constraints["leaks"] = None   # 全知章泄密不可判:N/A ≠ 0
         except Exception:

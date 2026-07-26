@@ -70,6 +70,7 @@ class TestWriteGate:
         ("POST", "/promises-new"), ("PATCH", "/promises/{pid}"), ("DELETE", "/promises/{pid}"),
         ("POST", "/promises/{pid}/advance"), ("POST", "/promises/{pid}/mark-herring"),
         ("POST", "/promises/{pid}/clues"), ("DELETE", "/promises/{pid}/clues/{idx}"),
+        ("POST", "/promises/{pid}/abandon"),
         ("POST", "/motifs-new"), ("PATCH", "/motifs/{mid}"), ("DELETE", "/motifs/{mid}"),
         ("POST", "/intent"), ("PUT", "/intent"),
         # 工程配额(字数/逾期)与叙事北极星分离,不经世界闸

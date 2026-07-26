@@ -150,3 +150,31 @@ def test_intent_goals_empty_body_422(store, monkeypatch):
     c = _client(store)
     r = c.put("/intent-goals?work=main", json={})
     assert r.status_code == 422, r.text
+
+
+def test_patch_chapter_deduce_fields_forbidden_when_emergency_off(store, monkeypatch):
+    """emergency 关：REST PATCH 演绎字段 403；store/MCP 直写仍可达。"""
+    monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
+    S.invalidate_cache()
+    store.save_chapter(9, "", title="九")
+    c = _client(store)
+    r = c.patch("/chapters/9?work=main", json={
+        "scene_truth": "应被闸的真相",
+        "involved_characters": ["role:哑姑"],
+        "deductions": [{"character_id": "role:哑姑", "prose": "应被闸"}],
+    })
+    assert r.status_code == 403, r.text
+    ch = store.get_chapter(9)
+    assert (ch.get("scene_truth") or "") != "应被闸的真相"
+
+    # 审批写路径（update_chapter_meta / MCP 同栈）仍可写
+    assert store.update_chapter_meta(9, {
+        "scene_truth": "审批后真相",
+        "involved_characters": ["哑姑"],
+        "deductions": [{"character_id": "哑姑", "prose": "### 看到/听到\n井鸣"}],
+    })
+    ch2 = store.get_chapter(9)
+    assert ch2["scene_truth"] == "审批后真相"
+    assert ch2["involved_characters"] == ["role:哑姑"]
+    assert ch2["scene_truth_revision"] >= 1
+    assert ch2["deductions"][0]["based_on_truth_rev"] == ch2["scene_truth_revision"]

@@ -3556,20 +3556,29 @@ class MotifIn(BaseModel):
 
 @app.post("/motifs-new")
 def add_motif_ep(m: MotifIn, work: str = "main"):
-    _store_for(work).add_motif(m.name, m.theme, m.echoes, m.unfolding)
+    name = (m.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name required")
+    _store_for(work).add_motif(name, m.theme, m.echoes, m.unfolding)
     return {"ok": True}
 
 
 @app.patch("/motifs/{mid}")
 def edit_motif(mid: str, m: MotifIn, work: str = "main"):
-    _store_for(work).update_motif(mid, {"name": m.name, "theme": m.theme, "echoes": m.echoes,
-                                        "unfolding": m.unfolding})
+    st = _store_for(work)
+    fields = {"name": m.name, "theme": m.theme, "echoes": m.echoes, "unfolding": m.unfolding}
+    if not st.patch_motif(mid, fields):
+        raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
     return {"ok": True}
 
 
 @app.delete("/motifs/{mid}")
 def del_motif(mid: str, work: str = "main"):
-    _store_for(work).delete_motif(mid)
+    st = _store_for(work)
+    row = st.get_motif(mid)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
+    st.delete_motif(row["id"])
     return {"ok": True}
 
 
@@ -4318,7 +4327,28 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
         parts.append("〔世界规则〕" + "；".join(f"{r.get('name')}（代价:{(r.get('cost') or '—')[:14]}）" for r in rules[:10]))
     motifs = _safe(st.list_motifs) if hasattr(st, 'list_motifs') else []
     if motifs:
-        parts.append("〔母题〕" + "；".join(m.get('name') for m in motifs[:10]))
+        if for_generation:
+            # 写作路径:name+theme+echoes 供主动编织(与 _motif_block 同口径,上限 5)
+            entries = []
+            for m in motifs[:5]:
+                name = (m.get("name") or "").strip()
+                if not name:
+                    continue
+                theme = (m.get("theme") or "").strip()
+                echoes = (m.get("echoes") or "").strip()
+                entry = name
+                if theme:
+                    entry += f":{theme}"
+                if echoes:
+                    entry += f"（回声:{echoes}）"
+                entries.append(entry)
+            if entries:
+                parts.append("〔母题·可主动编织〕" + "；".join(entries))
+        else:
+            # 主编对话:只列名,详情走 s3_list_motifs(test_editor_no_full_motif_dump)
+            names = [m.get("name") for m in motifs[:10] if m.get("name")]
+            if names:
+                parts.append("〔母题〕" + "；".join(names))
     return "\n".join(parts)
 
 
@@ -5691,11 +5721,16 @@ def _outline_block(st, chapter: int, focalizer: str = "") -> str:
 
 
 def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
-    """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。"""
+    """把场景真相、每条限知投影与固定协议分开，供 Manifest 逐源追溯。
+
+    stale 投影默认**不注入全文**（只标过期提示），避免草稿采信旧限知。
+    """
+    from scribe3.deduce_helpers import inject_deduction_items
+
     ch = st.get_chapter(seq) or {}
     truth = (ch.get("scene_truth") or "").strip()
-    deductions = ch.get("deductions") or []
-    if not truth and not deductions:
+    items = inject_deduction_items(ch)
+    if not truth and not items:
         return []
     segments = [(
         "protocol:scribe3-deduction-context:v1:header",
@@ -5708,12 +5743,22 @@ def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
             "scene_truth",
             f"\n〔场景真相·全知〕{truth}",
         ))
-    for ordinal, deduction in enumerate(deductions):
-        name = deduction.get("character_name") or deduction.get("character_id") or "?"
-        prose = (deduction.get("prose") or "").strip()
+    for ordinal, item in enumerate(items):
+        identity = item.get("character_id") or "unknown"
+        name = item.get("name") or identity
+        if item.get("status") == "stale":
+            based = item.get("based_on_truth_rev")
+            cur = item.get("truth_revision")
+            segments.append((
+                f"chapter:{seq}:deduction:{ordinal:04d}:{identity}:stale",
+                "deduction_stale",
+                f"\n〔{name}·限知投影·过期〕基于真相 rev {based}，当前 rev {cur}；"
+                f"请重演后再采信。正文勿将该角色旧限知当有效边界。",
+            ))
+            continue
+        prose = (item.get("prose") or "").strip()
         if not prose:
             continue
-        identity = deduction.get("id") or deduction.get("character_id") or "unknown"
         segments.append((
             f"chapter:{seq}:deduction:{ordinal:04d}:{identity}",
             "deduction",
@@ -5722,8 +5767,8 @@ def _deduction_context_segments(st, seq: int) -> list[tuple[str, str, str]]:
     segments.append((
         "protocol:scribe3-deduction-context:v1:footer",
         "deduction_protocol",
-        "\n要求:以场景真相为事实骨架;焦点者投影当 POV、他人投影约束其言行并埋反讽;"
-        "不写角色不知道的私密。",
+        "\n要求:以场景真相为事实骨架;焦点者**未过期**投影当 POV、他人投影约束其言行并埋反讽;"
+        "过期投影仅提示勿采信;不写角色不知道的私密。",
     ))
     return segments
 
@@ -7009,7 +7054,7 @@ class DeductionGroundingReq(BaseModel):
     character_id: str = ""
 
 
-_DEDUCTION_HEADINGS = ("看到/听到", "知道", "以为(误读)", "做了/说了", "没察觉的")
+from scribe3.deduce_helpers import DEDUCTION_HEADINGS as _DEDUCTION_HEADINGS
 _DEDUCTION_BLANK = "未能从场景真相确认。"
 
 
@@ -7065,6 +7110,8 @@ def grounded_deduction_fallback(seq: int, character_id: str, work: str = "main")
 @app.post("/chapters/{seq}/deductions/grounding")
 def review_deduction_grounding(seq: int, req: DeductionGroundingReq, work: str = "main"):
     """审查角色投影；证据始终从服务端本章场景真相读取，客户端不能替换来源。"""
+    from scribe3.deduce_helpers import has_five_layer_headings, missing_layer_headings
+
     st = _store_for(work)
     ch = st.get_chapter(seq)
     if not ch:
@@ -7075,7 +7122,20 @@ def review_deduction_grounding(seq: int, req: DeductionGroundingReq, work: str =
     result = _grounding_review(
         truth, req.candidate, mode="deduction", st=st, work=work, chapter=seq,
     )
-    return {"seq": seq, "character_id": req.character_id, **result}
+    structure_ok = has_five_layer_headings(req.candidate)
+    missing_h = missing_layer_headings(req.candidate)
+    # 五层可检测：结构缺失不单独 fail-closed（兼容旧散文），但机读字段必出
+    return {
+        "seq": seq,
+        "character_id": req.character_id,
+        **result,
+        "structure": {
+            "ok": structure_ok,
+            "missing_headings": missing_h,
+            "five_layers": structure_ok,
+        },
+        "scene_truth_revision": int(ch.get("scene_truth_revision") or 0),
+    }
 
 
 @app.patch("/chapters/{seq}")
@@ -7562,7 +7622,7 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
     leaks, leak_error = None, None
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks
+            from scribe3.verify import find_leaks_for_chapter as find_leaks
             leaks = len(find_leaks(req.prose, st, req.focalizer, req.seq))
         except Exception as e:
             _lg.getLogger("scribe3").error("find_leaks 失败 work=%s seq=%s", work, req.seq, exc_info=True)
@@ -7675,7 +7735,7 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
         foc = ch.get("focalizer")
         if foc:
             try:
-                from scribe3.verify import find_leaks
+                from scribe3.verify import find_leaks_for_chapter as find_leaks
                 before_leaks = len(find_leaks(ch["prose"], st, foc, seq))
                 after_leaks = len(find_leaks(res["prose"], st, foc, seq))
                 if after_leaks > before_leaks:
@@ -7738,7 +7798,7 @@ def check_prose(req: CheckReq, seq: int, work: str = "main"):
     leaks_error = None
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks
+            from scribe3.verify import find_leaks_for_chapter as find_leaks
             leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
                       "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
@@ -7915,7 +7975,7 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     leaks_degraded = False
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks
+            from scribe3.verify import find_leaks_for_chapter as find_leaks
             leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
                       "range": list(lk.range) if lk.range else None}
                      for lk in find_leaks(req.prose, st, req.focalizer, seq)]
@@ -8341,7 +8401,7 @@ def draft_check(req: DraftCheckReq, seq: int = 0, work: str = "main"):
     leaks_degraded = False
     if req.focalizer:
         try:
-            from scribe3.verify import find_leaks
+            from scribe3.verify import find_leaks_for_chapter as find_leaks
             st = _store_for(work)
             leaks = [{"fact_id": lk.fact_id, "marker": lk.marker, "subject": lk.subject,
                       "range": list(lk.range) if lk.range else None}
@@ -9212,21 +9272,29 @@ def _pilot_executor(work: str) -> dict:
         return {"beats": beats, "grounding": review}
 
     def deduce(st, seq):
+        from scribe3.deduce_helpers import (
+            infer_involved_candidates,
+            is_stale_deduction,
+            missing_roles,
+            normalize_involved,
+            normalize_role_id,
+            pilot_deduce_observation,
+            stamp_deduction,
+            truth_revision,
+        )
         ch = st.get_chapter(seq) or {}
         have_truth = bool((ch.get("scene_truth") or "").strip())
-        have_deds = bool(ch.get("deductions"))
-        if have_truth and have_deds:
-            return {"skipped": "演绎已有内容,按既有推进(不覆盖)"}
-        involved = ch.get("involved_characters") or []
-        if not involved:   # 后端版智能预填(同 DeduceTree 前端逻辑):名字出现在大纲/节拍
+        involved = normalize_involved(ch.get("involved_characters") or [])
+        inferred_involved: list[str] = []
+        involved_written = False
+        if not involved:
+            # D10: 与前端一致——只内存推断，不静默 patch involved_characters
             text = (ch.get("synopsis") or "") + " " + " ".join(
                 (b.get("text") if isinstance(b, dict) else str(b)) or "" for b in ch.get("beats") or [])
-            involved = [c.id for c in st.characters() if c.name and c.name in text][:4]
-            if involved:
-                st.update_chapter_meta(seq, {"involved_characters": involved})
-        # R1-2 修复:字段级跳步。旧代码合取守卫(truth AND deductions)在"半有"态判 False →
-        # 整体重生成覆盖作者手写;而 scene_truth/deductions 无版本化=覆盖即不可恢复,且作者
-        # 手写常是核心创意。故:真相已有则复用不覆盖;投影逐 character_id merge 只补缺失角色。
+            inferred_involved = infer_involved_candidates(text, st.characters(), limit=4)
+            involved = list(inferred_involved)
+        # R1-2:真相已有则复用;投影按 normalize 后 character_id merge 只补缺失(有 prose 的不覆盖)。
+        # 禁止「有真相 + 有任意 deductions」整步 skip——否则 1/3 投影时永远补不齐。
         if have_truth:
             truth = (ch.get("scene_truth") or "").strip()
         else:
@@ -9234,31 +9302,81 @@ def _pilot_executor(work: str) -> dict:
                                    f"写第{seq}章这一场的「场景真相」:全知冷叙,客观上真正发生了什么,"
                                    f"含角色们察觉不到的隐藏机制。只输出真相正文。")
             st.update_chapter_meta(seq, {"scene_truth": truth})
-        existing = {str(d.get("character_id")): d for d in (ch.get("deductions") or [])
-                    if isinstance(d, dict) and d.get("character_id")}
+            ch = st.get_chapter(seq) or ch
+        # 刷新 ch 以拿最新 deductions / rev
+        ch = st.get_chapter(seq) or ch
+        rev = truth_revision(ch)
+        existing = {}
+        for d in (ch.get("deductions") or []):
+            if not isinstance(d, dict):
+                continue
+            key = normalize_role_id(d.get("character_id") or d.get("character") or d.get("role"))
+            if key and (d.get("prose") or "").strip():
+                existing[key] = d
         deds = list(ch.get("deductions") or [])
         made = 0
         for cid in involved:
-            if str(cid) in existing:
+            key = normalize_role_id(cid)
+            if key in existing:
                 continue   # 该角色投影已有(可能作者手编)——不覆盖
-            name = str(cid).split(":")[-1]
+            name = key.split(":", 1)[-1] if key else str(cid).split(":")[-1]
             prose = _pilot_llm_gen(
                 st, work, seq, "deduce",
                 f"以「{name}」截至第{seq}章的限知,写该角色这一场的限知投影,分五个小标题:"
                 f"看到/听到、知道、以为(误读)、做了/说了、没察觉的;每个小标题用 ### 起行。"
                 f"只含该角色所知所感。严格遵循角色档案已有的称谓和代词;档案未给出时只用角色姓名,不能臆造性别。"
-                f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。", focalizer=str(cid))
+                f"不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史;信息不足时明确留白。", focalizer=key or str(cid))
             review = _grounding_review(
                 truth, prose, mode="deduction", st=st, work=work, chapter=seq,
             )
             if not review["ok"]:
-                return {"pilot_park": f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
-                        "grounding": review, "character_id": str(cid), "candidate": prose}
-            deds.append({"character_id": str(cid), "character_name": name, "prose": prose})
+                obs = pilot_deduce_observation(
+                    park=f"事实对齐失败:{name}的限知投影含无来源主张，请修订后再推进",
+                    made=made, missing=missing_roles(involved, deds),
+                    stale=[], truth_revision=rev, scene_truth_chars=len(truth),
+                    deductions_count=len(deds),
+                    inferred_involved=inferred_involved,
+                    involved_written=involved_written,
+                )
+                return {**obs, "grounding": review, "character_id": key or str(cid),
+                        "candidate": prose}
+            deds.append(stamp_deduction(
+                {"character_id": key or str(cid), "character_name": name, "prose": prose},
+                rev,
+            ))
             made += 1
-        if made or not have_deds:
+            existing[key] = deds[-1]
+        if made:
             st.update_chapter_meta(seq, {"deductions": deds})
-        return {"scene_truth_chars": len(truth), "deductions": len(deds)}
+            ch = st.get_chapter(seq) or ch
+        # 全部已有 prose 且真相已有 → 结构化 skip(仍报告 stale)
+        miss = missing_roles(involved, ch.get("deductions"))
+        stale = [
+            normalize_role_id(d.get("character_id"))
+            for d in (ch.get("deductions") or [])
+            if isinstance(d, dict) and is_stale_deduction(d, truth_revision(ch))
+        ]
+        stale = [s for s in stale if s]
+        final_ch = st.get_chapter(seq) or ch
+        n_deds = len(final_ch.get("deductions") or [])
+        if not made and have_truth and not miss:
+            return pilot_deduce_observation(
+                skipped="演绎已有内容,按既有推进(不覆盖)",
+                made=0, missing=miss, stale=stale,
+                truth_revision=truth_revision(final_ch),
+                scene_truth_chars=len(truth),
+                deductions_count=n_deds,
+                inferred_involved=inferred_involved,
+                involved_written=involved_written,
+            )
+        return pilot_deduce_observation(
+            made=made, missing=miss, stale=stale,
+            truth_revision=truth_revision(final_ch),
+            scene_truth_chars=len(truth),
+            deductions_count=n_deds,
+            inferred_involved=inferred_involved,
+            involved_written=involved_written,
+        )
 
     def draft_loop(st, seq):
         ch = st.get_chapter(seq) or {}

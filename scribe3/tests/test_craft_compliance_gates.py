@@ -58,10 +58,19 @@ def craft_chapter_scaffold(store, seq: int):
         "客观上:灰契以炉心真名绑定立契人;老道知情;沈砚尚不知真名。"
         "本场沈砚推门夜访,对质灰契,老道只回半句。"
     )
+
+    def _layers(*chunks: str) -> str:
+        heads = ("看到/听到", "知道", "以为(误读)", "做了/说了", "没察觉的")
+        # 每层至少一段可钉在 truth 上的 verbatim，满足 B6/B8
+        body = []
+        for h, c in zip(heads, chunks):
+            body.append(f"### {h}\n{c}")
+        return "\n\n".join(body)
+
     store.update_chapter_meta(seq, {
         "synopsis": (
             "沈砚夜访棺材铺,逼问灰契来历与代价;"
-            "老道只给半句,冲突未决。"
+            "老道只给半句,冲突未决。再补字数避免 B1 soft。"
         ),
         "beats": [
             {"text": "沈砚推门"},
@@ -75,13 +84,24 @@ def craft_chapter_scaffold(store, seq: int):
             {
                 "character_id": "role:沈砚",
                 "character_name": "沈砚",
-                # 前缀钉在 scene_truth 上,满足 B6 verbatim-first
-                "prose": truth[:48] + "——他只知要问,不知真名。",
+                "prose": _layers(
+                    "本场沈砚推门夜访,对质灰契,老道只回半句。",
+                    "客观上:灰契以炉心真名绑定立契人",  # 误：他不知真名——测试用短钉 truth
+                    "未能从场景真相确认。",
+                    "本场沈砚推门夜访,对质灰契,老道只回半句。",
+                    "沈砚尚不知真名。",
+                ),
             },
             {
                 "character_id": "role:老道",
                 "character_name": "老道",
-                "prose": "灰契以炉心真名绑定立契人;老道知情;" + "只回半句,不点破。",
+                "prose": _layers(
+                    "老道只回半句。",
+                    "老道知情",
+                    "未能从场景真相确认。",
+                    "老道只回半句。",
+                    "未能从场景真相确认。",
+                ),
             },
         ],
     })
@@ -194,6 +214,26 @@ def test_gate_b_stage_journal_order(store):
     assert any(c.id == "B7" and c.verdict == "fail" for c in bad.checks)
     good = gate_b(store, seq, stage_journal={"order": ["outline", "beats", "deduce"]})
     assert good.ok is True
+
+
+def test_gate_b_warns_stale_and_weak_layers(store):
+    """B6s 过期 warn；B8 缺五层 warn。"""
+    import json
+    seq = craft_world_min(store)
+    craft_chapter_scaffold(store, seq)
+    # 剥 stamp 模拟旧投影 + 改真相
+    store._execute_write(
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
+        {"seq": seq, "d": json.dumps([
+            {"character_id": "role:沈砚", "prose": "只有一段散文，没有五层标题。"},
+            {"character_id": "role:老道", "prose": "同样缺标题的老道投影。"},
+        ], ensure_ascii=False)},
+    )
+    store.update_chapter_meta(seq, {"scene_truth": "客观上:灰契真名绑定；真相已改写一版。"})
+    r = gate_b(store, seq)
+    ids = {c.id: c for c in r.checks}
+    assert ids["B6s"].verdict == "warn"
+    assert ids["B8"].verdict == "warn"
 
 
 def test_gate_c_fails_on_pov_leak(store):

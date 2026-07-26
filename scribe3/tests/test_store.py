@@ -1455,6 +1455,126 @@ def test_chapter_deduction_fields_roundtrip(store):
     assert ch["scene_truth"] == "客观真相:借命正在发生。"
     assert ch["involved_characters"] == ["role:柳怀玉", "role:苏纸鸢"]
     assert ch["deductions"][0]["character_name"] == "柳怀玉"
+    assert ch.get("scene_truth_revision", 0) >= 1
+    assert ch["deductions"][0].get("based_on_truth_rev") == ch["scene_truth_revision"]
+
+
+def test_scene_truth_revision_bumps_and_marks_projection_stale(store):
+    """真相实质改写 → revision +1；旧投影 based_on 落后 → is_stale。"""
+    from scribe3.deduce_helpers import is_stale_deduction, soft_gate_issues
+
+    store.save_chapter(2, "", title="第2章")
+    store.update_chapter_meta(2, {
+        "scene_truth": "第一版真相。",
+        "involved_characters": ["role:哑姑", "哑姑"],  # 裸名与 role: 应归一
+        "deductions": [{"character_id": "哑姑", "prose": "她听见井鸣。"}],
+    })
+    ch1 = store.get_chapter(2)
+    assert ch1["involved_characters"] == ["role:哑姑"]
+    rev1 = ch1["scene_truth_revision"]
+    assert rev1 >= 1
+    assert ch1["deductions"][0]["character_id"] == "role:哑姑"
+    assert ch1["deductions"][0]["based_on_truth_rev"] == rev1
+    assert is_stale_deduction(ch1["deductions"][0], rev1) is False
+
+    store.update_chapter_meta(2, {"scene_truth": "第二版真相,借命已成。"})
+    ch2 = store.get_chapter(2)
+    assert ch2["scene_truth_revision"] == rev1 + 1
+    assert is_stale_deduction(ch2["deductions"][0], ch2["scene_truth_revision"]) is True
+    issues = soft_gate_issues(ch2)
+    assert "role:哑姑" in issues["stale"]
+    assert issues["needs_attention"] is True
+
+    # 同文不 bump
+    store.update_chapter_meta(2, {"scene_truth": "第二版真相,借命已成。"})
+    assert store.get_chapter(2)["scene_truth_revision"] == rev1 + 1
+
+
+def test_deductions_normalize_bare_vs_role_prefix(store):
+    """同一角色裸名与 role: 写入不产生双条。"""
+    store.save_chapter(3, "", title="第3章")
+    store.update_chapter_meta(3, {
+        "scene_truth": "真相。",
+        "involved_characters": ["沈砚", "role:沈砚", "role:季棠"],
+        "deductions": [
+            {"character_id": "沈砚", "prose": "旧"},
+            {"character_id": "role:沈砚", "prose": "新"},
+            {"character_id": "role:季棠", "prose": "季棠投影"},
+        ],
+    })
+    ch = store.get_chapter(3)
+    assert ch["involved_characters"] == ["role:沈砚", "role:季棠"]
+    by = {d["character_id"]: d for d in ch["deductions"]}
+    assert set(by) == {"role:沈砚", "role:季棠"}
+    assert by["role:沈砚"]["prose"] == "新"
+
+
+def test_resave_deductions_does_not_clear_stale_on_unstamped_old_prose(store):
+    """真相 bump 后全文重存：旧无 stamp prose 仍 stale；新角色 stamp 到当前 rev。"""
+    from collections import OrderedDict
+    from scribe3.deduce_helpers import is_stale_deduction, soft_gate_issues
+
+    store.save_chapter(4, "", title="第4章")
+    # 先写入真相 rev=1 + 一条「模拟旧数据」：直接写 JSON 无 based_on
+    store.update_chapter_meta(4, {
+        "scene_truth": "第一版真相",
+        "involved_characters": ["role:哑姑"],
+        "deductions": [{"character_id": "role:哑姑", "prose": "旧哑姑投影"}],
+    })
+    rev1 = store.get_chapter(4)["scene_truth_revision"]
+    # 手工剥掉 based_on，模拟历史无 stamp 行
+    import json
+    store._execute_write(
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
+        {"seq": 4, "d": json.dumps(
+            [{"character_id": "role:哑姑", "prose": "旧哑姑投影"}], ensure_ascii=False)},
+    )
+    # 真相 bump
+    store.update_chapter_meta(4, {"scene_truth": "第二版真相已变"})
+    rev2 = store.get_chapter(4)["scene_truth_revision"]
+    assert rev2 == rev1 + 1
+    assert is_stale_deduction(store.get_chapter(4)["deductions"][0], rev2) is True
+
+    # pilot/MCP 式全文重存：旧 prose 无 stamp + 新角色
+    store.update_chapter_meta(4, {
+        "deductions": [
+            {"character_id": "role:哑姑", "prose": "旧哑姑投影"},
+            {"character_id": "role:老范", "prose": "新老范投影"},
+        ],
+        "involved_characters": ["role:哑姑", "role:老范"],
+    })
+    ch = store.get_chapter(4)
+    by = {d["character_id"]: d for d in ch["deductions"]}
+    assert "based_on_truth_rev" not in by["role:哑姑"]
+    assert is_stale_deduction(by["role:哑姑"], ch["scene_truth_revision"]) is True
+    assert by["role:老范"]["based_on_truth_rev"] == ch["scene_truth_revision"]
+    assert is_stale_deduction(by["role:老范"], ch["scene_truth_revision"]) is False
+    issues = soft_gate_issues(ch)
+    assert "role:哑姑" in issues["stale"]
+    assert "role:老范" not in issues["stale"]
+
+
+def test_scene_truth_and_deductions_order_independent_stamp(store):
+    """fields 先 deductions 后 scene_truth 时，新投影仍 stamp 到 bump 后的 rev。"""
+    from collections import OrderedDict
+    from scribe3.deduce_helpers import is_stale_deduction
+
+    store.save_chapter(5, "", title="第5章")
+    store.update_chapter_meta(5, {"scene_truth": "旧真相"})
+    rev0 = store.get_chapter(5)["scene_truth_revision"]
+
+    fields = OrderedDict([
+        ("deductions", [{"character_id": "role:沈砚", "prose": "同批新投影"}]),
+        ("scene_truth", "同批新真相"),
+        ("involved_characters", ["role:沈砚"]),
+    ])
+    store.update_chapter_meta(5, fields)
+    ch = store.get_chapter(5)
+    assert ch["scene_truth"] == "同批新真相"
+    assert ch["scene_truth_revision"] == rev0 + 1
+    d = ch["deductions"][0]
+    assert d["based_on_truth_rev"] == ch["scene_truth_revision"]
+    assert is_stale_deduction(d, ch["scene_truth_revision"]) is False
 
 
 def test_motif_instance_roundtrip_and_purge(store):
@@ -1470,6 +1590,8 @@ def test_motif_instance_roundtrip_and_purge(store):
     assert store.list_motif_instances(4) == []
     store.purge_ingest(3)
     assert store.list_motif_instances(3) == []
+
+
 
 
 def test_relation_touch_roundtrip_and_purge(store):

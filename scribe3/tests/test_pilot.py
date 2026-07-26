@@ -376,6 +376,104 @@ def test_deduce_merges_manual_deductions_by_character(store, monkeypatch):
     assert (ch.get("scene_truth") or "").strip(), "缺失的真相被生成"
 
 
+def test_deduce_fills_missing_when_truth_and_partial_deductions_exist(store, monkeypatch):
+    """有真相 + 已有 1/2 投影时不得整步 skip，须补齐缺失角色。"""
+    _wire_llm(monkeypatch)
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.add_entity(Entity("role:老范", "character", "老范"))
+    store.save_chapter(14, "", title="十四")
+    store.update_chapter_meta(14, {
+        "scene_truth": "井边对峙,布包未开。",
+        "involved_characters": ["role:哑姑", "role:老范"],
+        "deductions": [{"character_id": "哑姑", "character_name": "哑姑", "prose": "手写仅哑姑。"}],
+    })
+    r = A._pilot_executor("main")["deduce"](store, 14)
+    assert "skipped" not in r or r.get("made", 0) > 0
+    ch = store.get_chapter(14)
+    by_id = {d["character_id"]: d for d in ch["deductions"]}
+    assert by_id["role:哑姑"]["prose"] == "手写仅哑姑。"
+    assert "role:老范" in by_id and (by_id["role:老范"].get("prose") or "").strip()
+    assert by_id["role:老范"].get("based_on_truth_rev") == ch["scene_truth_revision"]
+
+
+def test_deduce_treats_bare_and_role_prefix_as_same_character(store, monkeypatch):
+    """involved 用 role:、投影用裸名时不得当缺失再写一条。"""
+    _wire_llm(monkeypatch)
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.save_chapter(15, "", title="十五")
+    store.update_chapter_meta(15, {
+        "scene_truth": "真相已立。",
+        "involved_characters": ["role:哑姑"],
+        "deductions": [{"character_id": "哑姑", "prose": "裸名投影。"}],
+    })
+    r = A._pilot_executor("main")["deduce"](store, 15)
+    ch = store.get_chapter(15)
+    assert len(ch["deductions"]) == 1
+    assert ch["deductions"][0]["prose"] == "裸名投影。"
+    assert r.get("skipped") or r.get("made", 0) == 0
+
+
+def test_deduce_does_not_persist_inferred_involved(store, monkeypatch):
+    """D10: 大纲点名角色时 pilot 可内存推断，但不得静默写入 involved_characters。"""
+    _wire_llm(monkeypatch)
+    from scribe3.ontology import Entity
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.save_chapter(17, "", title="十七")
+    store.update_chapter_meta(17, {
+        "synopsis": "哑姑在井边第一次开口。",
+        "beats": [{"text": "哑姑递布包"}],
+        # 无 involved_characters
+    })
+    r = A._pilot_executor("main")["deduce"](store, 17)
+    ch = store.get_chapter(17)
+    assert ch.get("involved_characters") in ([], None) or ch.get("involved_characters") == []
+    assert r.get("involved_written") is False
+    assert "role:哑姑" in (r.get("inferred_involved") or [])
+    # 仍应生成真相/投影（内存 involved）
+    assert (ch.get("scene_truth") or "").strip()
+    assert any(
+        d.get("character_id") == "role:哑姑" for d in (ch.get("deductions") or [])
+    )
+
+
+def test_deduce_resave_preserves_stale_on_unstamped_existing(store, monkeypatch):
+    """pilot 补缺重存全表时，不得把无 based_on 的旧投影 stamp 成当前 rev。"""
+    import json
+    from scribe3.deduce_helpers import is_stale_deduction
+    from scribe3.ontology import Entity
+
+    _wire_llm(monkeypatch)
+    store.add_entity(Entity("role:哑姑", "character", "哑姑"))
+    store.add_entity(Entity("role:老范", "character", "老范"))
+    store.save_chapter(16, "", title="十六")
+    store.update_chapter_meta(16, {
+        "scene_truth": "v1",
+        "involved_characters": ["role:哑姑", "role:老范"],
+        "deductions": [{"character_id": "role:哑姑", "prose": "哑姑旧文"}],
+    })
+    # 剥 based_on + 真相 bump → 哑姑应 stale
+    store._execute_write(
+        "UPDATE type::record('chapter', $seq) SET deductions=$d",
+        {"seq": 16, "d": json.dumps(
+            [{"character_id": "role:哑姑", "prose": "哑姑旧文"}], ensure_ascii=False)},
+    )
+    store.update_chapter_meta(16, {"scene_truth": "v2 已变"})
+    rev = store.get_chapter(16)["scene_truth_revision"]
+    assert is_stale_deduction(store.get_chapter(16)["deductions"][0], rev) is True
+
+    r = A._pilot_executor("main")["deduce"](store, 16)
+    assert r.get("made", 0) >= 1 or "role:老范" in {
+        d["character_id"] for d in store.get_chapter(16)["deductions"]}
+    ch = store.get_chapter(16)
+    by = {d["character_id"]: d for d in ch["deductions"]}
+    assert by["role:哑姑"]["prose"] == "哑姑旧文"
+    assert "based_on_truth_rev" not in by["role:哑姑"]
+    assert is_stale_deduction(by["role:哑姑"], ch["scene_truth_revision"]) is True
+    assert by["role:老范"].get("based_on_truth_rev") == ch["scene_truth_revision"]
+
+
 def test_pilot_beats_grounding_failure_parks_before_persist(store, monkeypatch):
     """真实生成若凭空新增世界规则，Pilot 必须停在原状态且不污染 beats。"""
     store.save_chapter(13, "", title="十三")
