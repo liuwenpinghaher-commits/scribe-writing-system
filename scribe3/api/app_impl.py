@@ -9156,204 +9156,6 @@ def select_latest(chapter: int, work: str = "main"):
     return body
 
 
-# ─── 选择环 L1 轻路径:2 条策略短变体 → 人点选 → 草稿种子(非三整章) ───
-
-class SelectLightReq(BaseModel):
-    chapter: int
-    msg: str = ""
-
-
-class SelectLightPickReq(BaseModel):
-    chapter: int
-    version_id: str | None = None
-    strategy: str | None = None
-
-
-def _select_l1_result_path(work: str, chapter: int):
-    """L1 结果旁路文件:与 L2 select_ch 分离,避免覆盖重环元数据。"""
-    jp = _loop_journal_path(work, chapter)
-    return jp.with_name(jp.name.replace("loop_ch", "select_l1_ch", 1))
-
-
-@app.post("/select/light")
-def select_light(req: SelectLightReq, work: str = "main"):
-    """L1 轻选择:同一合同出 2 条策略短变体(开场/切入包,约 ≤800 字)。
-    成本约 2 发 LLM,非 L2 三整章。点选走 /select/light/pick 写入草稿种子。"""
-    from scribe3.selection import L1_MAX_CHARS, L1_STRATEGIES, run_light_selection
-    from scribe3.pipeline_journal import PipelineJournal
-    st = _store_for(work)
-    ch = st.get_chapter(req.chapter)
-    if not ch:
-        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
-    _guard_pilot_busy(work, req.chapter)
-    from scribe3.llm import daily_remaining
-    _l1_est = 2
-    _remaining = daily_remaining()
-    if _remaining is not None and _remaining < _l1_est:
-        raise HTTPException(status_code=429, detail=(
-            f"LLM 日帽剩余不足:L1 轻选择约需 {_l1_est} 发,当前剩 {_remaining} 发"))
-    _skey = (work, req.chapter)
-    with _loop_inflight_lock:
-        if _skey in _loop_inflight:
-            raise HTTPException(status_code=409, detail=f"chapter {req.chapter} 已有生成在途")
-        _loop_inflight.add(_skey)
-    try:
-        jp = _select_l1_result_path(work, req.chapter)
-        journal = PipelineJournal(jp)
-    except Exception:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
-        raise
-
-    def _generate(strategy: dict) -> str:
-        outcome_binding = _WriteOutcomeBinding(st)
-        strategy_instructions = (
-            "【L1 轻选择·策略短包(非整章)】" + strategy["directive"] +
-            f"\n只写开场/切入片段,控制在 {L1_MAX_CHARS} 字以内;"
-            "不要写完整章,不要收尾总结。用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。"
-        )
-        instructions = _assemble_write_instructions(
-            st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
-            seed_words=[], short_mode=True, with_tools=False, work=work,
-            envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=strategy_instructions)
-        msg = ((req.msg + "\n") if req.msg else "") + (
-            f"为第 {req.chapter} 章写一则策略短开场(≤{L1_MAX_CHARS}字),严格执行上面策略,"
-            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏。")
-        text, proposals = _collect_write(
-            msg, instructions, with_tools=False,
-            on_terminal=outcome_binding.persist,
-        )
-        chapter_props = [p for p in proposals if p.get("scope") == "chapter"]
-        if chapter_props:
-            return chapter_props[-1]["prose"]
-        body = _strip_preamble(text)
-        if len(body.strip()) >= 40:
-            return body
-        raise RuntimeError(f"L1 策略 {strategy['key']} 未产出合格短包")
-
-    def _persist(text: str, strategy_key: str) -> str:
-        return st.add_chapter_version(
-            req.chapter, text, kind="checkpoint", stage="light_variant",
-            label=f"选择环L1·{strategy_key}",
-            stats=_prose_stats(text))
-
-    def _save_result(res: dict) -> None:
-        import json as _j2
-        try:
-            with open(str(jp) + ".result.json", "w", encoding="utf-8") as f:
-                _j2.dump(res, f, ensure_ascii=False)
-        except Exception as e:
-            logging.getLogger("scribe3").warning("L1 结果落盘失败(忽略): %s", e)
-
-    try:
-        result = run_light_selection(
-            chapter=req.chapter, generate=_generate, persist_variant=_persist,
-            journal=journal, save_result=_save_result, max_chars=L1_MAX_CHARS)
-    finally:
-        with _loop_inflight_lock:
-            _loop_inflight.discard(_skey)
-    result["journal_path"] = str(jp)
-    result["strategies"] = [s["key"] for s in L1_STRATEGIES]
-    result["tier_note"] = (
-        "L1 轻选择(2 短包·约 2 发 LLM)。日常多路径请用此入口;"
-        "关键章整章 3 候选请用「出 3 候选」L2(约 10 发·数分钟)。"
-    )
-    return result
-
-
-@app.post("/select/light/pick")
-def select_light_pick(req: SelectLightPickReq, work: str = "main"):
-    """L1 点选:将选中短变体写入 chapter.draft 作写作种子,并记一条 lesson。
-    不替代 L2 finalize(不直接覆盖定稿 prose,除非作者后续存正文)。"""
-    import json as _j
-    from scribe3.selection import apply_light_pick
-    if not req.version_id and not req.strategy:
-        raise HTTPException(status_code=422, detail="须提供 version_id 或 strategy")
-    st = _store_for(work)
-    if not st.get_chapter(req.chapter):
-        raise HTTPException(status_code=404, detail=f"chapter {req.chapter} 不存在")
-    # 优先从落盘 L1 结果取 variants(含 text);回退从 version 全文
-    variants = []
-    rp = _select_l1_result_path(work, req.chapter)
-    path = str(rp) + ".result.json"
-    try:
-        with open(path, encoding="utf-8") as f:
-            body = _j.load(f)
-        variants = list(body.get("variants") or [])
-    except Exception:
-        variants = []
-    if not variants and req.version_id:
-        ver = st.get_chapter_version(req.version_id)
-        if not ver or ver.get("seq") != req.chapter:
-            raise HTTPException(status_code=404, detail="L1 变体版本不存在")
-        label = str(ver.get("label") or "")
-        if not label.startswith("选择环L1·"):
-            raise HTTPException(status_code=422, detail="非 L1 轻变体版本,不可经 light/pick")
-        sk = label.split("·", 1)[-1] if "·" in label else (req.strategy or "unknown")
-        variants = [{
-            "strategy": sk,
-            "version_id": req.version_id,
-            "text": ver.get("prose") or "",
-            "directive": "",
-        }]
-    try:
-        picked = apply_light_pick(
-            variants=variants, version_id=req.version_id, strategy=req.strategy)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    # 持久化:草稿种子 + lesson 痕迹(可观测、可续写)
-    st.save_chapter_draft(req.chapter, picked["text"])
-    try:
-        st.add_lesson(
-            req.chapter, "decision",
-            f"第{req.chapter}章 L1 轻选择采纳策略 {picked['strategy']}:"
-            f"{(picked['text'] or '')[:120]}",
-            condition="L1轻选择短变体",
-        )
-    except Exception as e:
-        logging.getLogger("scribe3").warning("L1 pick lesson 失败(草稿已落): %s", e)
-    # 回写 pick 到结果文件
-    try:
-        with open(path, encoding="utf-8") as f:
-            body = _j.load(f)
-        if isinstance(body, dict):
-            body["picked"] = picked
-            body["verdict"] = "picked"
-            with open(path, "w", encoding="utf-8") as f:
-                _j.dump(body, f, ensure_ascii=False)
-    except Exception:
-        pass
-    return {
-        "status": "picked",
-        "tier": "L1",
-        "chapter": req.chapter,
-        "picked": picked,
-        "draft_seeded": True,
-        "note": "已写入草稿种子;请在正文/主编槽基于此策略扩写。关键章整章 3 候选仍用 L2。",
-    }
-
-
-@app.get("/select/light/latest")
-def select_light_latest(chapter: int, work: str = "main"):
-    """读本章最近一次 L1 轻选择结果。"""
-    import json as _j
-    path = str(_select_l1_result_path(work, chapter)) + ".result.json"
-    try:
-        with open(path, encoding="utf-8") as f:
-            body = _j.load(f)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="本章尚无 L1 轻选择结果")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"读取 L1 结果失败:{e}")
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=500, detail="L1 结果文件损坏")
-    body.setdefault("chapter", chapter)
-    body.setdefault("tier", "L1")
-    body["result_path"] = path
-    return body
-
-
 # ═══════════ Chapter Pilot(主编主动化 T6/T7/T10):章生命周期驱动器 ═══════════
 # 作者=创意总监,主编=执行主编。状态机在 scribe3/pilot.py(纯核可测);此处只做
 # executor 绑定(全部复用既有链,禁止新写生成逻辑)+ HTTP 面 + 连写循环。
@@ -9926,11 +9728,16 @@ def add_idea(req: IdeaIn, work: str = "main"):
         status = "pending_approval"   # 宪法:动圣经/改旧章永远等人
     elif kind == "unclear":
         status = "unclear"
-    # 想法本体先落库(任何后续失败不丢想法)
+    # 想法本体先落库;unclear 必须落 question(旧库缺字段时收件箱靠懒回填兜底)
+    from scribe3.inbox import idea_unclear_question, DEFAULT_UNCLEAR_QUESTION
+    q = (route.get("question") or "").strip() or DEFAULT_UNCLEAR_QUESTION
+    if kind == "unclear":
+        q = idea_unclear_question({"question": q, "note": route.get("note"), "text": text})
     st._execute_write(
-        "CREATE idea SET text=$t, route_kind=$k, target_seq=$sq, note=$n, status=$st_, created_at=time::now()",
-        {"t": text, "k": kind, "sq": tseq, "n": route["note"], "st_": status})
-    q = (route.get("question") or "").strip() or "能再说具体点吗?"
+        "CREATE idea SET text=$t, route_kind=$k, target_seq=$sq, note=$n, status=$st_, "
+        "question=$q, created_at=time::now()",
+        {"t": text, "k": kind, "sq": tseq, "n": route["note"], "st_": status,
+         "q": q if kind == "unclear" else None})
     return {"kind": kind, "target_seq": tseq, "status": status,
             "note": route["note"], "question": q if kind == "unclear" else None}
 
@@ -10117,19 +9924,29 @@ def pilot_reset(req: PilotApproveReq, work: str = "main"):
 
 @app.get("/inbox")
 def decision_inbox(work: str = "main", seq: int | None = None):
-    """主编主动化 T4:决策收件箱——所有「等作者」的事项一处集中(替代散落各面板)。
-    三源聚合:①needs_human 章(loop 三稿全拦,journal 扫描)②升格候选 lesson(≥阈,
-    宪法:永不自动升格)③当前章 pulse decision 级。只读聚合,零新状态。"""
+    """主编主动化 T4:决策收件箱——所有「等作者」的事项一处集中。
+
+    源:needs_human journal · lesson · pilot · idea(pending+unclear) · pulse · digest。
+    旧 unclear 无 question → idea_unclear_question 推导并懒回填。
+    """
     import glob as _glob
     import json as _json
+    from scribe3.inbox import (
+        dedupe_degraded, idea_inbox_item, needs_question_backfill,
+        sort_items, idea_unclear_question,
+    )
     st = _store_for(work)
     items: list[dict] = []
-    degraded: list[str] = []   # R2-18:失败源如实标记(对齐 pulse degraded,防部分失败被当完整清单假绿)
-    # ① needs_human 章
+    degraded: list[str] = []
+    focus_seq = int(seq) if seq is not None else None
+
+    def _deg(src: str) -> None:
+        if src not in degraded:
+            degraded.append(src)
+
+    # ① needs_human
     base = (os.environ.get("SCRIBE3_LOOP_JOURNAL_DIR")
             or os.path.expanduser("~/.scribe3-loop-journals"))
-    # 审查 P1-7:同章取时间戳最新的 journal(文件名含 time_ns 可排序)——旧 needs_human
-    # 之后重跑过审的章不再滞留收件箱。
     latest: dict[int, tuple[int, str]] = {}
     for fp in _glob.glob(os.path.join(base, work, "loop_ch*.json")):
         try:
@@ -10139,16 +9956,16 @@ def decision_inbox(work: str = "main", seq: int | None = None):
             if s_ not in latest or ns_ > latest[s_][0]:
                 latest[s_] = (ns_, fp)
         except Exception:
-            degraded.append("needs_human"); continue   # U-011: 解析失败不静默丢章
+            _deg("needs_human")
+            continue
     seen_nh: set[int] = set()
-    # P2-9:pilot parked 的章由⑤源承载(带更准 reason),journal 源跳过防同章双挂
     _pilot_parked_seqs: set[int] = set()
     try:
         for rr in st._query("SELECT seq, pilot_parked FROM chapter:.. WHERE pilot_parked != NONE"):
             if (rr.get("pilot_parked") or "").strip():
                 _pilot_parked_seqs.add(rr.get("seq"))
     except Exception:
-        degraded.append("needs_human")   # U-011: 查询失败标 degraded,不静默
+        _deg("needs_human")
     for s_, (_ns, fp) in latest.items():
         if s_ in _pilot_parked_seqs:
             continue
@@ -10158,23 +9975,29 @@ def decision_inbox(work: str = "main", seq: int | None = None):
             if any("_needs_human" in x for x in stages):
                 seen_nh.add(s_)
         except Exception:
-            degraded.append("needs_human"); continue   # U-011: journal损坏不静默吞待裁决章
+            _deg("needs_human")
+            continue
     for s in sorted(seen_nh):
-        items.append({"kind": "needs_human", "seq": s,
-                      "message": f"第 {s} 章 loop 三稿全被拦(needs_human):三稿在版本库,请裁决——真不行还是检测器过严?",
-                      "action": {"kind": "chat",
-                                 "payload": f"第 {s} 章三稿全被拦(needs_human),帮我并排评估版本库三稿:哪稿其实成立?检测器是不是过严?给裁决建议"}})
-    # ② 升格候选
+        items.append({
+            "id": f"needs_human:{s}", "kind": "needs_human", "seq": s,
+            "message": f"第 {s} 章 loop 三稿全被拦(needs_human):三稿在版本库,请裁决——真不行还是检测器过严?",
+            "action": {"kind": "chat",
+                       "payload": f"第 {s} 章三稿全被拦(needs_human),帮我并排评估版本库三稿:哪稿其实成立?检测器是不是过严?给裁决建议"},
+        })
+    # ② lesson
     try:
         for r in st.list_lessons():
             if (r.get("importance") or 0) >= 4 and not r.get("invalid_at"):
-                items.append({"kind": "promotable_lesson", "id": r.get("id"),
-                              "message": f"教训已达升格阈(重要性 {r.get('importance')}):「{(r.get('text') or '')[:60]}」——认可则在主编对话让其走待批升格",
-                              "action": {"kind": "chat", "payload": f"这条教训「{(r.get('text') or '')[:40]}」我认可,想升格为长期工艺规则——请到章内写作对话(主编在那挂 s3_craft_rule_add)走待批升格"}})
+                lid = r.get("id") or ""
+                items.append({
+                    "id": f"lesson:{lid}", "kind": "promotable_lesson", "lesson_id": lid,
+                    "message": f"教训已达升格阈(重要性 {r.get('importance')}):「{(r.get('text') or '')[:60]}」——认可则在主编对话让其走待批升格",
+                    "action": {"kind": "chat", "payload": f"这条教训「{(r.get('text') or '')[:40]}」我认可,想升格为长期工艺规则——请到章内写作对话(主编在那挂 s3_craft_rule_add)走待批升格"},
+                })
     except Exception as e:
         logging.getLogger("scribe3").warning("inbox lessons 失败(忽略): %s", e)
-        degraded.append("lessons")
-    # ⑤ pilot 停靠项(T11):propose 级(大纲提案/交付卡)+ parked(needs_human/失败)
+        _deg("lessons")
+    # ⑤ pilot
     try:
         rows = st._query(
             "SELECT seq, pilot_state, pilot_parked, pilot_card, synopsis FROM chapter:.. "
@@ -10182,76 +10005,102 @@ def decision_inbox(work: str = "main", seq: int | None = None):
         for r in rows:
             ps, seq_p = r.get("pilot_state"), r.get("seq")
             if r.get("pilot_parked"):
-                items.append({"kind": "pilot_parked", "seq": seq_p,
-                              "message": f"第 {seq_p} 章 pilot 停靠:{r['pilot_parked']}",
-                              "action": {"kind": "chat",
-                                         "payload": f"第 {seq_p} 章 pilot 停在「{r['pilot_parked'][:60]}」,帮我分析怎么解"}})
+                park_txt = str(r["pilot_parked"])
+                items.append({
+                    "id": f"pilot_parked:{seq_p}", "kind": "pilot_parked", "seq": seq_p,
+                    "message": f"第 {seq_p} 章 pilot 停靠:{park_txt}",
+                    "action": {"kind": "chat",
+                               "payload": f"第 {seq_p} 章 pilot 停在「{park_txt[:60]}」,帮我分析怎么解"},
+                    "resolve": {"kind": "pilot_reset", "payload": seq_p},
+                })
             elif ps == "outline_proposed":
-                items.append({"kind": "pilot_outline", "seq": seq_p,
-                              "message": f"第 {seq_p} 章大纲提案待放行:{(r.get('synopsis') or '')[:80]}",
-                              # R1-3:approve 带 expect_state(知情背书,防 stale 收件箱误触下一动作)
-                              "action": {"kind": "pilot_approve", "payload": seq_p,
-                                         "expect_state": "outline_proposed"}})
+                items.append({
+                    "id": f"pilot_outline:{seq_p}", "kind": "pilot_outline", "seq": seq_p,
+                    "message": f"第 {seq_p} 章大纲提案待放行:{(r.get('synopsis') or '')[:80]}",
+                    "action": {"kind": "pilot_approve", "payload": seq_p,
+                               "expect_state": "outline_proposed"},
+                })
             elif ps == "delivered":
                 card = {}
                 try:
                     card = _json.loads(r.get("pilot_card") or "{}")
                 except Exception:
                     pass
+                if not isinstance(card, dict):
+                    card = {}
                 lc = (card.get("low_confidence") or "").strip()
-                items.append({"kind": "pilot_delivered", "seq": seq_p,
-                              "message": f"第 {seq_p} 章已交付({card.get('words', '?')} 字)"
-                                         + (f";主编拿不准:{lc[:100]}" if lc and lc != "无" else ";主编自评无拿不准处"),
-                              # R2-4:附结构化交付卡(promises/qc/完整 low_conf)——此前 promises/qc 写而无读(死数据)
-                              "card": card or None,
-                              # R1-3:delivered→finalize 是宪法级终选背书,expect_state 防 stale 误触
-                              "action": {"kind": "pilot_approve", "payload": seq_p,
-                                         "expect_state": "delivered"}})
+                items.append({
+                    "id": f"pilot_delivered:{seq_p}", "kind": "pilot_delivered", "seq": seq_p,
+                    "message": f"第 {seq_p} 章已交付({card.get('words', '?')} 字)"
+                               + (f";主编拿不准:{lc[:100]}" if lc and lc != "无" else ";主编自评无拿不准处"),
+                    "card": card or None,
+                    "action": {"kind": "pilot_approve", "payload": seq_p,
+                               "expect_state": "delivered"},
+                })
     except Exception as e:
         logging.getLogger("scribe3").warning("inbox pilot 失败(忽略): %s", e)
-        degraded.append("pilot")
-    # ④ 想法待批(T8:setting=动圣经/revise=改旧章——宪法与品味决策,永远等人)
+        _deg("pilot")
+    # ④ ideas: pending_approval + unclear(含旧库无 question 的懒回填)
     try:
-        for r in st._query("SELECT meta::id(id) AS id, text, route_kind, note "
-                           "FROM idea WHERE status = 'pending_approval'"):
-            lbl = "动设定" if r.get("route_kind") == "setting" else "修旧章"
-            items.append({"kind": f"idea_{r.get('route_kind')}", "id": r.get("id"),
-                          "message": f"想法待批({lbl}):「{(r.get('text') or '')[:60]}」"
-                                     f"——主编理解:{r.get('note') or '(无)'}",
-                          "action": {"kind": "chat",
-                                     "payload": f"我这个想法:「{(r.get('text') or '')[:80]}」——"
-                                                f"帮我评估影响面和落法,先别动手"},
-                          "resolve": {"kind": "idea_resolve", "payload": r.get("id")}})
+        for r in st._query(
+                "SELECT meta::id(id) AS id, text, route_kind, note, status, question "
+                "FROM idea WHERE status IN ['pending_approval', 'unclear']"):
+            item = idea_inbox_item(r)
+            items.append(item)
+            # 懒回填:旧 unclear 缺 question → 写入推导问句,下次不再空
+            if needs_question_backfill(r) and r.get("id"):
+                try:
+                    q = idea_unclear_question(r)
+                    st._execute_write(
+                        "UPDATE type::record('idea',$id) SET question=$q",
+                        {"id": r["id"], "q": q})
+                except Exception:
+                    logging.getLogger("scribe3").debug(
+                        "idea question 懒回填失败 id=%s", r.get("id"), exc_info=True)
     except Exception as e:
         logging.getLogger("scribe3").warning("inbox ideas 失败(忽略): %s", e)
-        degraded.append("ideas")
-    # ③ 当前章 pulse decision
-    if seq is not None:
+        _deg("ideas")
+    # ③ pulse
+    if focus_seq is not None:
         try:
             from scribe3.pulse import chapter_pulse
-            for d in chapter_pulse(st, int(seq))["dimensions"]:
+            for d in chapter_pulse(st, focus_seq)["dimensions"]:
                 for it in d["items"]:
                     if it["severity"] == "decision":
-                        items.append({"kind": "pulse_decision", "dimension": d["dimension"],
-                                      "seq": int(seq), "message": it["message"],
-                                      "action": it.get("action")})
+                        dim = d["dimension"]
+                        items.append({
+                            "id": f"pulse:{focus_seq}:{dim}:{(it.get('message') or '')[:24]}",
+                            "kind": "pulse_decision", "dimension": dim,
+                            "seq": focus_seq, "message": it["message"],
+                            "action": it.get("action"),
+                        })
         except Exception as e:
             logging.getLogger("scribe3").warning("inbox pulse 失败(忽略): %s", e)
-            degraded.append("pulse")
-    # ⑥ 每日创作摘报(P2 cron 产出)——只显最新一天;error 非空如实拼进 message(不静默)
+            _deg("pulse")
+    # ⑥ digest
     try:
         dg = st.latest_chief_digest()
         if dg:
             msg = f"[{dg['day']}] {dg['body']}"
             if dg.get("error"):
                 msg += f"(部分来源失败:{dg['error']})"
-            items.append({"kind": "daily_digest", "message": msg,
-                          "action": {"kind": "chat",
-                                     "payload": f"这是今日摘报:{dg['body']}——帮我把最该处理的一件事挑出来,给具体下一步"}})
+            items.append({
+                "id": f"digest:{dg.get('day') or 'latest'}",
+                "kind": "daily_digest", "message": msg,
+                "action": {"kind": "chat",
+                           "payload": f"这是今日摘报:{dg['body']}——帮我把最该处理的一件事挑出来,给具体下一步"},
+            })
     except Exception as e:
         logging.getLogger("scribe3").warning("inbox digest 失败(忽略): %s", e)
-        degraded.append("digest")
-    return {"items": items, "count": len(items), "degraded_sources": degraded}
+        _deg("digest")
+
+    sort_items(items, focus_seq)
+    return {
+        "items": items,
+        "count": len(items),
+        "degraded_sources": dedupe_degraded(degraded),
+        "focus_seq": focus_seq,
+    }
 
 
 @app.get("/lessons/promotable")

@@ -1,7 +1,10 @@
-"""存档业务:作品废弃箱 / 章节软归档 / emergency 闸放行 / 过滤器。"""
-from __future__ import annotations
+"""存档业务:作品废弃箱 / 章节软归档 / emergency 闸放行 / 过滤器。
 
-import os
+作品注册表函数(create_work/archive_work/…)的 url 默认读 SCRIBE3_SURREAL_URL
+(生产 8001)。CI 与本地单测必须显式传 store fixture 的 url,写法对齐
+test_work_lifecycle.py——绝不可连默认生产端口。
+"""
+from __future__ import annotations
 
 import pytest
 
@@ -35,30 +38,30 @@ def test_chapter_archive_allowed_when_emergency_off(store, monkeypatch):
     assert r2.status_code == 200, r2.text
 
 
-def test_archive_work_missing_raises():
+def test_archive_work_missing_raises(store):
     with pytest.raises(ValueError, match="不存在"):
-        archive_work("__no_such_work_for_archive__")
+        archive_work("__no_such_work_for_archive__", url=store.url)
 
 
-def test_restore_work_missing_raises():
+def test_restore_work_missing_raises(store):
     with pytest.raises(ValueError, match="不存在"):
-        restore_work("__no_such_work_for_restore__")
+        restore_work("__no_such_work_for_restore__", url=store.url)
 
 
-def test_archive_work_idempotent_and_roundtrip():
-    slug = create_work("存档审查临时书")["slug"]
+def test_archive_work_idempotent_and_roundtrip(store):
+    slug = create_work("存档审查临时书", url=store.url)["slug"]
     try:
-        archive_work(slug)
-        archive_work(slug)  # 幂等
-        assert any(w["slug"] == slug for w in archived_works())
-        assert all(w["slug"] != slug for w in list_works())
-        restore_work(slug)
-        restore_work(slug)  # 幂等
-        assert any(w["slug"] == slug for w in list_works())
+        archive_work(slug, url=store.url)
+        archive_work(slug, url=store.url)  # 幂等
+        assert any(w["slug"] == slug for w in archived_works(url=store.url))
+        assert all(w["slug"] != slug for w in list_works(url=store.url))
+        restore_work(slug, url=store.url)
+        restore_work(slug, url=store.url)  # 幂等
+        assert any(w["slug"] == slug for w in list_works(url=store.url))
     finally:
         try:
-            archive_work(slug)
-            delete_work(slug)
+            archive_work(slug, url=store.url)
+            delete_work(slug, url=store.url)
         except Exception:
             pass
 
@@ -73,8 +76,6 @@ def test_archive_chapter_idempotent(store):
 
 def test_restore_version_skips_craft_gate_and_leaves_checkpoint(store, monkeypatch):
     """版本恢复专用通道:跳过工艺门、留审计版、可排 ingest。"""
-    from scribe3.verify_craft_compliance import evaluate_save_craft_gate
-
     store.save_chapter(9, "旧稿正文AAA", title="九")
     vid = store.add_chapter_version(9, "历史版本BBB", label="v1", kind="checkpoint")
     store.save_chapter(9, "当前稿CCC", title="九")  # 当前已偏离
@@ -108,12 +109,12 @@ def test_restore_version_path_not_world_write_gated():
     assert A._is_rest_world_write_path("/chapters/3/restore-version") is False
 
 
-def test_archived_works_retention_metadata():
+def test_archived_works_retention_metadata(store):
     """废弃箱附保留期提示字段(不自动 purge)。"""
-    slug = create_work("保留期提示临时书")["slug"]
+    slug = create_work("保留期提示临时书", url=store.url)["slug"]
     try:
-        archive_work(slug)
-        rows = [w for w in archived_works() if w["slug"] == slug]
+        archive_work(slug, url=store.url)
+        rows = [w for w in archived_works(url=store.url) if w["slug"] == slug]
         assert rows
         w = rows[0]
         assert "retention_days" in w
@@ -122,6 +123,6 @@ def test_archived_works_retention_metadata():
         assert isinstance(w["retention_days"], int)
     finally:
         try:
-            delete_work(slug)
+            delete_work(slug, url=store.url)
         except Exception:
             pass
