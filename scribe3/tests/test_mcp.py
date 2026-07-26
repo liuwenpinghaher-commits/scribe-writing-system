@@ -26,6 +26,7 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_supersede_fact", "s3_forget_knowledge",
                           "s3_evolve_relation", "s3_resolve_voice_flag",
                           "s3_fold_voice_flags", "s3_add_clue",
+                          "s3_mark_herring", "s3_touch_promise", "s3_abandon_promise",
                           "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
                           "s3_author_pref_add",      # 跨书作者偏好(USER.md)待批写入
                           # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
@@ -41,7 +42,7 @@ EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状�
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
-                 "s3_list_promises", "s3_discipline_check", "s3_list_motifs",
+                 "s3_list_promises", "s3_promise_timeline", "s3_discipline_check", "s3_list_motifs",
                  "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",
                  "s3_list_entity_relations",
                  "s3_get_intent"}   # G-001:北极星只读
@@ -715,3 +716,86 @@ def test_s3_plant_promise_chapter_tier_missing_resolution_exempt(store):
     res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "章内悬念MCP", 1))
     assert res["status"] == "written"
     assert any(x["text"] == "章内悬念MCP" for x in store.list_promises())
+
+
+# ===== 伏笔生命周期 MCP 作者主路径(plant id / advance / herring / abandon / touch / patch tier)=====
+
+def test_s3_plant_promise_returns_id_in_written_payload(store):
+    """plant 经 commit 后 payload 含稳定 id。"""
+    M.set_store(store)
+    res = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "带回id的伏笔", 1))
+    assert res["status"] == "written"
+    assert res.get("id"), res
+    assert store.get_promise(res["id"]) is not None
+
+
+def test_s3_advance_promise_mcp_closes(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "待收MCP", 1))
+    pid = planted["id"]
+    res = asyncio.run(M.s3_advance_promise(_AcceptCtx(), pid, 3))
+    assert res["status"] == "written"
+    assert store.get_promise(pid)["status"] == "closed"
+
+
+def test_s3_mark_herring_mcp(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "假线MCP", 1))
+    pid = planted["id"]
+    res = asyncio.run(M.s3_mark_herring(_AcceptCtx(), pid))
+    assert res["status"] == "written"
+    assert store.get_promise(pid)["kind"] == "red_herring"
+
+
+def test_s3_abandon_promise_mcp(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "弃置MCP", 1))
+    pid = planted["id"]
+    res = asyncio.run(M.s3_abandon_promise(_AcceptCtx(), pid))
+    assert res["status"] == "written"
+    assert store.get_promise(pid)["status"] == "abandoned"
+    assert pid not in {p["id"] for p in store.open_promises()}
+
+
+def test_s3_touch_promise_mcp(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "触及MCP", 1))
+    pid = planted["id"]
+    res = asyncio.run(M.s3_touch_promise(_AcceptCtx(), pid, 2, evidence="灰印发烫"))
+    assert res["status"] == "written"
+    touches = store.list_promise_touches(pid)
+    assert any(t.get("chapter") == 2 for t in touches)
+
+
+def test_s3_patch_promise_tier_via_update_promise(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "展期MCP", 1))
+    pid = planted["id"]
+    res = asyncio.run(M.s3_patch_promise(
+        _AcceptCtx(), pid, tier="arc", resolution="第十六章揭晓源头"))
+    assert res["status"] == "written"
+    row = store.get_promise(pid)
+    assert row["tier"] == "arc"
+    assert row["payoff_min"] == 6 and row["payoff_max"] == 16  # 1+5..1+15
+
+
+def test_s3_promise_timeline_readonly(store):
+    M.set_store(store)
+    planted = asyncio.run(M.s3_plant_promise(_AcceptCtx(), "时间线MCP", 1))
+    pid = planted["id"]
+    assert M.requires_approval("s3_promise_timeline") is False
+    tl = M.s3_promise_timeline(pid)
+    assert "events" in tl and any(e["kind"] == "plant" for e in tl["events"])
+
+
+def test_hermes_whitelist_includes_promise_lifecycle_tools():
+    """作者路径写工具必须在 deploy/hermes/mcp_servers.yaml 白名单。"""
+    from pathlib import Path
+    yaml_path = Path(__file__).resolve().parents[1] / "deploy" / "hermes" / "mcp_servers.yaml"
+    text = yaml_path.read_text(encoding="utf-8")
+    for tool in (
+        "s3_plant_promise", "s3_advance_promise", "s3_add_clue",
+        "s3_mark_herring", "s3_touch_promise", "s3_abandon_promise",
+        "s3_patch_promise", "s3_promise_timeline", "s3_list_promises",
+    ):
+        assert tool in text, f"Hermes whitelist missing {tool}"

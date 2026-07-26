@@ -78,6 +78,10 @@ scribe3_write:
       - s3_set_intent
       - s3_advance_promise
       - s3_add_clue
+      - s3_mark_herring
+      - s3_touch_promise
+      - s3_abandon_promise
+      - s3_promise_timeline
       - s3_resolve_voice_flag
       - s3_fold_voice_flags
       - s3_ingest_chapter

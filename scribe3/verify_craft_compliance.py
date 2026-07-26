@@ -272,10 +272,15 @@ def gate_a(st, *, thresholds: CraftGateThresholds | None = None) -> GateReport:
             {"names": [m.get("name") for m in named[:10]]}))
 
     opens = []
-    if hasattr(st, "open_promises"):
-        opens = st.open_promises() or []
+    # 有效 open:status=open 且非 red_herring;abandoned/closed 不计入 A6
+    if hasattr(st, "effective_open_promises"):
+        opens = st.effective_open_promises() or []
+    elif hasattr(st, "open_promises"):
+        opens = [p for p in (st.open_promises() or [])
+                 if p.get("kind") != "red_herring"]
     elif hasattr(st, "list_promises"):
-        opens = [p for p in (st.list_promises() or []) if p.get("status") == "open"]
+        opens = [p for p in (st.list_promises() or [])
+                 if p.get("status") == "open" and p.get("kind") != "red_herring"]
     valid_p = [p for p in opens
                if _strip(p.get("text")) and p.get("setup_chapter") is not None]
     if len(valid_p) < t.min_open_promises:

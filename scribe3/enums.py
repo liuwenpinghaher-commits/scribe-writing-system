@@ -32,6 +32,7 @@ class PromiseKind(str, Enum):
 class PromiseStatus(str, Enum):
     open = "open"
     closed = "closed"
+    abandoned = "abandoned"  # 弃置结案(≠ red_herring kind;≠ closed 兑现)
 
 
 class VoiceKind(str, Enum):

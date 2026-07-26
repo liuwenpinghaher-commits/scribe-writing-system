@@ -162,6 +162,8 @@ export const api = {
   delPromise: (pid) => del('/promises/' + enc(pid)),
   advancePromise: (pid, payoff_chapter) => post('/promises/' + enc(pid) + '/advance', { payoff_chapter }),
   markHerring: (pid) => post('/promises/' + enc(pid) + '/mark-herring'),
+  abandonPromise: (pid) => post('/promises/' + enc(pid) + '/abandon'),
+  promiseTimeline: (pid) => j('/promises/' + enc(pid) + '/timeline'),
   addPromiseClue: (pid, note, chapter) => post('/promises/' + enc(pid) + '/clues', { note, chapter }),
   removePromiseClue: (pid, idx) => del('/promises/' + enc(pid) + '/clues/' + idx),
   // 断头修复 P1-9:物品状态变更端点(记 state_history)此前前端零调用方

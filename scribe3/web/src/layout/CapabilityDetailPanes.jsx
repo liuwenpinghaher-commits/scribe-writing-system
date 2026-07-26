@@ -113,8 +113,13 @@ export function CapabilityGroupDetailPane({ node }) {
   )
 }
 
+const PROMISE_TL_KIND = {
+  plant: '埋设', clue: '线索', touch: '触及', closed: '兑现', abandoned: '弃置',
+}
+
 export function PromiseDetailPane({ node, work }) {
   const [ledger, setLedger] = useState(undefined)
+  const [timeline, setTimeline] = useState(undefined)
   useEffect(() => {
     let alive = true
     setLedger(undefined)
@@ -124,20 +129,44 @@ export function PromiseDetailPane({ node, work }) {
     return () => { alive = false }
   }, [node?.id, work])
 
+  // 选中单条 promise 节点时拉时间线
+  const singleId = (node?.type === 'promise' || node?.payload?.type === 'promise')
+    ? (node?.ref || node?.id || node?.payload?.id)
+    : (typeof node?.ref === 'string' && !['open', 'done', 'overdue', 'payoff', 'setup'].includes(node.ref)
+      ? node.ref : null)
+  useEffect(() => {
+    if (!singleId || typeof singleId !== 'string') {
+      setTimeline(undefined)
+      return
+    }
+    // strip promise: prefix if present
+    const pid = singleId.includes(':') ? singleId.split(':').pop() : singleId
+    let alive = true
+    setTimeline(undefined)
+    api.promiseTimeline(pid)
+      .then((t) => { if (alive) setTimeline(t && typeof t === 'object' ? t : null) })
+      .catch(() => { if (alive) setTimeline(null) })
+    return () => { alive = false }
+  }, [singleId, work])
+
   const seq = node?.ref?.seq ?? node?.meta?.seq
   const rows = useMemo(() => {
     if (!ledger || ledger === null) return []
     const open = Array.isArray(ledger.open) ? ledger.open : []
     const closed = Array.isArray(ledger.closed) ? ledger.closed : []
     const herring = Array.isArray(ledger.red_herring) ? ledger.red_herring : []
+    const abandoned = Array.isArray(ledger.abandoned) ? ledger.abandoned : []
     const ref = node?.ref
     if (ref === 'payoff' && seq != null) return [...open, ...closed].filter((p) => p.payoff_chapter === seq)
     if (ref === 'setup' && seq != null) return [...open, ...closed].filter((p) => p.setup_chapter === seq)
     if (ref === 'overdue') return open.filter((p) => p.overdue || p.window?.state === 'overdue')
     if (ref === 'open') return open
     if (ref === 'done') return closed
-    return [...open, ...closed, ...herring]
+    if (ref === 'abandoned') return abandoned
+    return [...open, ...closed, ...herring, ...abandoned]
   }, [ledger, node?.ref, seq])
+
+  const events = Array.isArray(timeline?.events) ? timeline.events : []
 
   return (
     <div className="h-full overflow-auto bg-canvas px-6 py-6">
@@ -146,6 +175,26 @@ export function PromiseDetailPane({ node, work }) {
           <div className="mb-1 text-f12 text-faint">能力工作台</div>
           <h2 className="type-section text-ink">伏笔详情</h2>
         </div>
+        {timeline && events.length > 0 && (
+          <section className="rounded-lg border border-line bg-surface p-4" data-testid="promise-detail-timeline">
+            <div className="mb-3 text-f14 font-semibold text-ink">
+              时间线 · {(timeline.promise?.text || '').slice(0, 40)}
+            </div>
+            <div className="space-y-1.5">
+              {events.map((e, i) => (
+                <div key={`${e.kind}-${e.chapter}-${i}`}
+                  className="flex items-start gap-2 text-f13 text-ink"
+                  data-testid="promise-timeline-event"
+                  data-kind={e.kind}
+                >
+                  <span className="text-meta text-faint shrink-0">第{e.chapter ?? '?'}章</span>
+                  <span className="text-meta text-brand shrink-0">{PROMISE_TL_KIND[e.kind] || e.kind}</span>
+                  <span className="flex-1 min-w-0 text-faint">{e.evidence || ''}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="rounded-lg border border-line bg-surface p-4">
           <div className="mb-3 text-f14 font-semibold text-ink">{node?.label || '伏笔台账'}</div>
           {ledger === undefined ? <div className="text-f13 text-faint">加载伏笔台账…</div>

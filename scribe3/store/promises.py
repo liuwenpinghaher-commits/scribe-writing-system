@@ -3,6 +3,13 @@ from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403
 
+
+def _bare_record_id(rid) -> str:
+    """Surreal RecordID / 'promise:xxx' → 裸 id 字符串。"""
+    s = str(rid)
+    return s.split(":")[-1] if ":" in s else s
+
+
 class PromisesMixin:
 
     def add_promise_touch(self, promise_id: str, chapter: int,
@@ -15,7 +22,7 @@ class PromisesMixin:
 
     def list_promise_touches(self, promise_id: str) -> list[dict]:
         return self._query(
-            "SELECT promise_id, chapter, evidence FROM promise_touch "
+            "SELECT promise_id, chapter, evidence, ingest_seq FROM promise_touch "
             "WHERE promise_id=$p ORDER BY chapter ASC", {"p": promise_id})
 
     def update_promise(self, pid: str, fields: dict) -> bool:
@@ -63,23 +70,48 @@ class PromisesMixin:
         return True
 
     def plant_promise(self, text: str, setup_chapter: int, kind: str = "promise",
-                      tier: str = "chapter", resolution: str = "") -> None:
-        """种下伏笔。resolution(方案B任务21,收尾清理批 B21 落库):悬念存档答案,
-        book/arc 长期悬念的强制校验在 REST 层(app.py /promises-new),store 层
-        只负责落库,不做 tier 相关的必填校验——保持本函数对既有调用方(不传
-        resolution 即空串)向后兼容,语义不变。"""
+                      tier: str = "chapter", resolution: str = "") -> dict:
+        """种下伏笔。返回 {id, text, setup_chapter, tier, kind, payoff_min, payoff_max, status}。
+
+        resolution(方案B任务21):悬念存档答案;book/arc 长期悬念强制校验在 REST/MCP 层,
+        store 层只负责落库,不做 tier 相关必填校验(向后兼容)。"""
         if tier not in _TIER_WINDOW:
             raise ValueError(f"非法伏笔层级 tier='{tier}'(合法: {sorted(_TIER_WINDOW)})")
         lo, hi = _TIER_WINDOW[tier]
         pmin = setup_chapter + lo
         pmax = None if hi is None else setup_chapter + hi
-        self._execute_write(
+        # 用 _query 拿 CREATE 返回的 record id(与 add_volume 同范式)
+        created = self._query(
             "CREATE promise SET text=$t, setup_chapter=$s, payoff_chapter=NONE, status='open', "
             "kind=$k, tier=$tier, payoff_min=$pmin, payoff_max=$pmax, "
             "resolution=$resolution",
             {"t": text, "s": setup_chapter, "k": kind,
              "tier": tier, "pmin": pmin, "pmax": pmax,
              "resolution": resolution or None})
+        row = created[0] if created else {}
+        rid = row.get("id")
+        if rid is None:
+            # 极少数驱动不回 id:按 text+setup 回查最近一条
+            rows = self._query(
+                "SELECT meta::id(id) AS id FROM promise "
+                "WHERE text=$t AND setup_chapter=$s ORDER BY setup_chapter",
+                {"t": text, "s": setup_chapter}) or []
+            if not rows:
+                raise RuntimeError("plant_promise: CREATE 未返回 id 且回查失败")
+            pid = rows[-1]["id"]
+        else:
+            pid = _bare_record_id(rid)
+        return {
+            "id": pid,
+            "text": text,
+            "setup_chapter": setup_chapter,
+            "tier": tier,
+            "kind": kind,
+            "status": "open",
+            "payoff_min": pmin,
+            "payoff_max": pmax,
+            "resolution": resolution or None,
+        }
 
     def _normalize_promise_row(self, r: dict) -> dict:
         """list/get 共用:clues/tier/窗口兼容补全。"""
@@ -89,6 +121,8 @@ class PromisesMixin:
         # book 层 payoff_max 合法为 None,不补;setup_chapter 为 None 时不补。
         if r.get("tier") is None:
             r["tier"] = "chapter"
+        if r.get("status") is None:
+            r["status"] = "open"
         if r["tier"] == "chapter" and r.get("setup_chapter") is not None:
             lo, hi = _TIER_WINDOW["chapter"]
             if r.get("payoff_min") is None:
@@ -119,7 +153,12 @@ class PromisesMixin:
         return [self._normalize_promise_row(r) for r in (rows or [])]
 
     def open_promises(self) -> list[dict]:
-        return [p for p in self.list_promises() if p["status"] == "open"]
+        """有效 open:status=open(不含 closed/abandoned)。"""
+        return [p for p in self.list_promises() if p.get("status") == "open"]
+
+    def effective_open_promises(self) -> list[dict]:
+        """GATE-A / 开环账:open 且非障眼法(red_herring 仍 open 但不计有效欠账)。"""
+        return [p for p in self.open_promises() if p.get("kind") != "red_herring"]
 
     def promises_with_lifecycle(self, max_chapter: int | None = None) -> list[dict]:
         """list_promises + 派生 refresh_count/last_refresh_at(自 promise_touch)+ window 计算态。"""
@@ -145,9 +184,11 @@ class PromisesMixin:
     def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
         """回收伏笔:标 closed + payoff_chapter。payoff≥setup 校验(Python 侧先行,拒绝脏数据)。"""
         rows = self._query(
-            "SELECT setup_chapter FROM type::record('promise',$pid)", {"pid": promise_id})
+            "SELECT setup_chapter, status FROM type::record('promise',$pid)", {"pid": promise_id})
         if not rows:
             raise ValueError(f"promise '{promise_id}' 不存在")
+        if rows[0].get("status") == "abandoned":
+            raise ValueError(f"promise '{promise_id}' 已弃置,不能再兑现;请先恢复为 open")
         setup = rows[0].get("setup_chapter")
         if setup is not None and payoff_chapter < setup:
             raise ValueError(
@@ -156,8 +197,21 @@ class PromisesMixin:
         self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
                             "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
 
+    def abandon_promise(self, promise_id: str) -> bool:
+        """弃置伏笔:status=abandoned(账本结案,≠ red_herring,≠ closed 兑现)。
+        返回 True 若存在,False 若不存在。"""
+        rows = self._query("SELECT id, status FROM type::record('promise',$pid) LIMIT 1",
+                           {"pid": promise_id})
+        if not rows:
+            return False
+        self._execute_write(
+            "UPDATE type::record('promise',$pid) SET status='abandoned'",
+            {"pid": promise_id})
+        return True
+
     def mark_promise_herring(self, promise_id: str) -> bool:
-        """将伏笔标记为 red_herring(障眼法)。返回 True 若存在,False 若不存在。"""
+        """将伏笔标记为 red_herring(障眼法)。返回 True 若存在,False 若不存在。
+        不改 status:障眼法仍可 open 供参考,但不参与 overdue/A6 有效 open。"""
         rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": promise_id})
         if not rows:
             return False
@@ -167,7 +221,9 @@ class PromisesMixin:
 
     def add_promise_clue(self, promise_id: str, note: str, chapter: int) -> None:
         """追加一条草蛇灰线线索到 promise.clues[]{chapter, note}。
-        幂等追加——不校验章号范围(由端点层可选校验);按 chapter 排序在 ledger 侧做。
+
+        统一推进账:线索同时写入 promise_touch(evidence=note),使 refresh_count /
+        brief tension promise_progress 与台账同源(clue ≡ soft touch)。
         """
         rows = self._query(
             "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
@@ -179,9 +235,12 @@ class PromisesMixin:
         self._execute_write(
             "UPDATE type::record('promise',$pid) SET clues=$clues",
             {"pid": promise_id, "clues": updated})
+        # 同源 refresh 信号
+        self.add_promise_touch(promise_id, chapter, evidence=note or "")
 
     def remove_promise_clue(self, promise_id: str, idx: int) -> None:
-        """按下标删除 promise.clues 中的一条线索(0-based)。"""
+        """按下标删除 promise.clues 中的一条线索(0-based)。
+        不回溯删 touch(历史触及保留;避免误伤同章其它 touch)。"""
         rows = self._query(
             "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
         if not rows:
@@ -194,23 +253,81 @@ class PromisesMixin:
             "UPDATE type::record('promise',$pid) SET clues=$clues",
             {"pid": promise_id, "clues": updated})
 
+    def promise_timeline(self, promise_id: str) -> dict | None:
+        """单条伏笔时间线投影:setup + touches/clues + close/abandon,按章排序。
+
+        返回 None 若不存在;否则:
+          {promise: {...}, events: [{kind, chapter, evidence?, source?}...]}
+        kind ∈ plant | touch | clue | closed | abandoned
+        """
+        p = self.get_promise(promise_id)
+        if not p:
+            return None
+        events: list[dict] = []
+        setup = p.get("setup_chapter")
+        if setup is not None:
+            events.append({
+                "kind": "plant",
+                "chapter": setup,
+                "evidence": p.get("text") or "",
+                "source": "promise",
+            })
+        # clues
+        for c in sorted(p.get("clues") or [], key=lambda x: x.get("chapter") or 0):
+            events.append({
+                "kind": "clue",
+                "chapter": c.get("chapter"),
+                "evidence": c.get("note") or "",
+                "source": "clue",
+            })
+        # touches(含 clue 同步写入的 soft touch;UI 可并存展示)
+        for t in self.list_promise_touches(promise_id) or []:
+            events.append({
+                "kind": "touch",
+                "chapter": t.get("chapter"),
+                "evidence": t.get("evidence") or "",
+                "source": "ingest" if t.get("ingest_seq") is not None else "manual",
+                "ingest_seq": t.get("ingest_seq"),
+            })
+        status = p.get("status")
+        if status == "closed" and p.get("payoff_chapter") is not None:
+            events.append({
+                "kind": "closed",
+                "chapter": p.get("payoff_chapter"),
+                "evidence": "兑现回收",
+                "source": "advance",
+            })
+        elif status == "abandoned":
+            # 弃置无专用章字段:挂在 max(setup, last event) 或 setup
+            chs = [e.get("chapter") for e in events if e.get("chapter") is not None]
+            ach = max(chs) if chs else (setup or 0)
+            events.append({
+                "kind": "abandoned",
+                "chapter": ach,
+                "evidence": "弃置结案",
+                "source": "abandon",
+            })
+        # 稳定排序:章升序,同章 plant < clue < touch < closed/abandoned
+        order = {"plant": 0, "clue": 1, "touch": 2, "closed": 3, "abandoned": 4}
+        events.sort(key=lambda e: (e.get("chapter") or 0, order.get(e.get("kind") or "", 9)))
+        return {"promise": p, "events": events}
+
     def promise_ledger(self, slack: int) -> dict:
-        """伏笔台账(单源)。三栏分类 + 每条 setup/payoff/overdue/跨度 + open/close bracket 审计。
+        """伏笔台账(单源)。四栏 + 每条 setup/payoff/overdue/跨度 + open/close bracket 审计。
 
         纯聚合,不改库。overdue 复用 _overdue_flag(与 /promises、/quality 同一份判定),
         阈值 slack 由调用方传入(intent.overdue_threshold ?? OVERDUE_SLACK,单源在端点解析)。
 
         返回:
-          {threshold, max_chapter, open[], closed[], red_herring[],
+          {threshold, max_chapter, open[], closed[], red_herring[], abandoned[],
            audit:{balanced, overdue_count, payoff_without_setup[], closed_without_setup[], never_paid}}
-        每条 promise 携带 text/setup_chapter/payoff_chapter/status/kind/overdue;
-        open/red_herring 额外带 chapters_open(=max-setup),closed 额外带 span(=payoff-setup)。
         """
         mc = self.max_chapter()
         proms = self.list_promises()
         open_col: list[dict] = []
         closed_col: list[dict] = []
         herring_col: list[dict] = []
+        abandoned_col: list[dict] = []
         payoff_without_setup: list[dict] = []
         closed_without_setup: list[dict] = []
 
@@ -226,6 +343,10 @@ class PromisesMixin:
                 "status": p.get("status"),
                 "setup_chapter": setup,
                 "payoff_chapter": payoff,
+                "tier": p.get("tier"),
+                "payoff_min": p.get("payoff_min"),
+                "payoff_max": p.get("payoff_max"),
+                # abandoned/closed 永不 overdue
                 "overdue": _overdue_flag(p, mc, slack),
                 "clues": clues_sorted,
             }
@@ -240,14 +361,18 @@ class PromisesMixin:
                         {"id": p.get("id"), "text": p.get("text", ""),
                          "setup_chapter": setup, "payoff_chapter": payoff})
 
-            # 三栏分类:red_herring 单列(优先;即便 status=open 也不混入 open 栏)
-            if p.get("kind") == "red_herring":
+            # 分类优先序:abandoned → red_herring → closed → open
+            if p.get("status") == "abandoned":
+                row["chapters_open"] = (mc - setup) if setup is not None else None
+                abandoned_col.append(row)
+            elif p.get("kind") == "red_herring":
                 row["chapters_open"] = (mc - setup) if setup is not None else None
                 herring_col.append(row)
             elif p.get("status") == "closed":
                 row["span"] = (payoff - setup) if (payoff is not None and setup is not None) else None
                 closed_col.append(row)
             else:
+                # open(及未知 status 回退)
                 row["chapters_open"] = (mc - setup) if setup is not None else None
                 open_col.append(row)
 
@@ -256,7 +381,7 @@ class PromisesMixin:
         closed_col.sort(key=lambda r: (r.get("payoff_chapter") or 0))
 
         overdue_count = sum(1 for r in open_col if r["overdue"])
-        never_paid = len(open_col)  # 契诃夫枪"埋了未响":open 非 red_herring 计数
+        never_paid = len(open_col)  # 契诃夫枪"埋了未响":open 非 red_herring/abandoned
         balanced = (overdue_count == 0
                     and not payoff_without_setup
                     and not closed_without_setup)
@@ -266,6 +391,7 @@ class PromisesMixin:
             "open": open_col,
             "closed": closed_col,
             "red_herring": herring_col,
+            "abandoned": abandoned_col,
             "audit": {
                 "balanced": balanced,
                 "overdue_count": overdue_count,

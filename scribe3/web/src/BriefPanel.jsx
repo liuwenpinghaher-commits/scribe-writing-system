@@ -17,25 +17,35 @@ function Block({ icon, title, count, tone, children }) {
   )
 }
 
-// 超期伏笔决策:只读展示 + 主编种子(禁止 advance/editPromise/markHerring 作者直写)。
+// 超期伏笔决策:只读展示 + 主编种子(禁止 REST 作者直写)。
+// 三键与 MCP 工具一一对应:advance / patch tier / abandon(≠ mark_herring 障眼法)。
 function DecisionRow({ p, seq }) {
+  const pid = p.id || p.promise_id || ''
   const seed = (hint) => seedChiefCodexWrite('promises', p, hint)
   return (
     <div className="mb-2 pb-2 border-b border-line/50 last:border-0" data-testid="brief-promise-decision">
       <div className="text-f13 text-ink leading-snug">{p.text}</div>
       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
         <button type="button"
-          onClick={() => seed(`请在第 ${seq} 章兑现/回收此伏笔,提交写入提案。`)}
+          data-testid="brief-promise-advance"
+          onClick={() => seed(
+            `请用 s3_advance_promise 在第 ${seq} 章兑现/回收此伏笔(pid=${pid}, payoff_chapter=${seq})。需我审批。`)}
           className="h-6 px-2 rounded-md text-meta bg-ok/10 text-ok hover:bg-ok/20 cursor-pointer transition-colors">
           让主编兑现
         </button>
         <button type="button"
-          onClick={() => seed(`请展期此伏笔(调整 tier/窗口),提交写入提案。当前 tier=${p.tier || 'chapter'}。`)}
+          data-testid="brief-promise-extend"
+          onClick={() => seed(
+            `请用 s3_patch_promise 展期此伏笔(pid=${pid}):调整 tier 或 payoff 窗口。` +
+            `当前 tier=${p.tier || 'chapter'}。升 book/arc 须带 resolution。需我审批。`)}
           className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-ink cursor-pointer transition-colors">
           让主编展期
         </button>
         <button type="button"
-          onClick={() => seed('请将此伏笔标为障眼法(弃置),提交写入提案。')}
+          data-testid="brief-promise-abandon"
+          onClick={() => seed(
+            `请用 s3_abandon_promise 弃置此伏笔(pid=${pid}, status=abandoned)。` +
+            `这是账本结案,不是障眼法;障眼法请用 s3_mark_herring。需我审批。`)}
           className="h-6 px-2 rounded-md text-meta bg-soft text-faint hover:text-danger cursor-pointer transition-colors">
           让主编弃置
         </button>
@@ -77,6 +87,7 @@ export function BriefPanel({ seq }) {
   const heartbeat = s.heartbeat || []
   const inj = s.injection || {}
   const chosen = inj.chosen || []
+  // abandoned/closed 不催收;red_herring 由后端 overdue 已排除
   const overdue = proms.filter((p) => p.overdue && p.status === 'open')
 
   const empty = arcs.length === 0 && directives.length === 0 && reminders.length === 0

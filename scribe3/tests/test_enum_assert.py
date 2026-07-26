@@ -69,7 +69,7 @@ class TestPromiseKindAssert:
 
 
 class TestPromiseStatusAssert:
-    """promise.status ASSERT IN ['open','closed']"""
+    """promise.status ASSERT IN ['open','closed','abandoned']（097 迁移）"""
 
     def test_dirty_promise_status_rejected(self, store):
         with pytest.raises(Exception):
@@ -77,6 +77,13 @@ class TestPromiseStatusAssert:
                 "CREATE promise:bad2 SET text='x', setup_chapter=1, "
                 "status='pending', kind='promise'"
             )
+
+    def test_abandoned_status_accepted(self, store):
+        """abandoned 是合法 status,ASSERT 不得拒。"""
+        store._db.query(
+            "CREATE promise:ok_abd SET text='x', setup_chapter=1, "
+            "status='abandoned', kind='promise'"
+        )
 
 
 
@@ -100,7 +107,7 @@ class TestEnumParity:
 
     def test_promise_status_members(self):
         vals = {e.value for e in PromiseStatus}
-        assert vals == {"open", "closed"}
+        assert vals == {"open", "closed", "abandoned"}
 
     def test_voice_kind_members(self):
         vals = {e.value for e in VoiceKind}

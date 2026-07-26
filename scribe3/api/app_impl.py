@@ -2628,7 +2628,7 @@ def promises(work: str = "main"):
 
 @app.get("/promises/ledger")
 def promises_ledger(work: str = "main"):
-    """作者工具 F-03 伏笔台账(单源):三栏(open/closed/red_herring)+ 每条
+    """作者工具 F-03 伏笔台账(单源):四栏(open/closed/red_herring/abandoned)+ 每条
     setup/payoff/overdue/跨度 + open/close bracket 完整性审计。
     overdue 阈值同 /promises、/quality(_overdue_flag 单源)。"""
     st = _store_for(work)
@@ -2913,13 +2913,14 @@ def add_prom(p: PromIn, work: str = "main"):
             status_code=422,
             detail="悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)")
     # B21 收尾清理批:plant_promise 已支持 resolution 落库,此处把已校验的字段透传;
-    # 未传/空串时 or "" 保持向后兼容(store 层默认值不变)。
+    # 未传/空串时 or "" 保持向后兼容(store 层默认值不变)。返回稳定 id。
     try:
-        _store_for(work).plant_promise(p.text, p.setup_chapter, kind=p.promise_kind, tier=tier,
-                                        resolution=p.resolution or "")
+        planted = _store_for(work).plant_promise(
+            p.text, p.setup_chapter, kind=p.promise_kind, tier=tier,
+            resolution=p.resolution or "")
     except ValueError as e:  # 非法 tier → store 层 raise
         raise HTTPException(status_code=422, detail=str(e))
-    return {"ok": True}
+    return {"ok": True, "id": planted.get("id"), "promise": planted}
 
 
 @app.patch("/promises/{pid}")
@@ -2991,6 +2992,24 @@ def mark_herring(pid: str, work: str = "main"):
     return {"ok": True}
 
 
+@app.post("/promises/{pid}/abandon")
+def abandon_prom(pid: str, work: str = "main"):
+    """弃置伏笔:status→abandoned(账本结案,≠障眼法,≠兑现)。不存在→404。"""
+    found = _store_for(work).abandon_promise(pid)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
+    return {"ok": True, "status": "abandoned"}
+
+
+@app.get("/promises/{pid}/timeline")
+def promise_timeline(pid: str, work: str = "main"):
+    """单条伏笔时间线投影:plant/clue/touch/closed/abandoned 按章排序。"""
+    tl = _store_for(work).promise_timeline(pid)
+    if tl is None:
+        raise HTTPException(status_code=404, detail=f"promise '{pid}' 不存在")
+    return tl
+
+
 class ClueIn(BaseModel):
     note: str
     chapter: int
@@ -3000,11 +3019,11 @@ class ClueIn(BaseModel):
 def add_promise_clue(pid: str, body: ClueIn, work: str = "main"):
     """追加草蛇灰线中途线索到某条伏笔。body:{note, chapter}。
     R2.4: chapter 必须 >= setup_chapter;若 payoff 已设则也须 <= payoff_chapter。
+    同时写 promise_touch(与 brief refresh 同源)。
     """
     st = _store_for(work)
     # R2.4: 先取 promise 的 setup/payoff 章号做范围校验
-    proms = st.list_promises()
-    prom = next((p for p in proms if p["id"] == pid), None)
+    prom = st.get_promise(pid)
     if prom is None:
         raise HTTPException(status_code=422, detail=f"promise '{pid}' 不存在")
     setup = prom.get("setup_chapter", 1)

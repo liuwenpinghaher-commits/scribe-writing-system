@@ -2144,13 +2144,16 @@ def test_final_reminder_in_post_chat_write(store, monkeypatch):
 # ===== 作者工具 F-03: 伏笔台账 GET /promises/ledger =====
 
 def test_promise_ledger_three_columns(store):
-    """ledger 三栏分类:open(已埋未收) / closed(已回收) / red_herring。"""
+    """ledger 四栏:open / closed / red_herring / abandoned。"""
     # open 早埋(将超期):setup=1,max_chapter 后续推到 10 → 1+slack<10 超期
     store.plant_promise("铜炉会反噬埋它的人", setup_chapter=1, kind="promise")
     # closed 带 payoff:advance 后 status=closed
     store.plant_promise("赵芙南知祭炉秘法", setup_chapter=2, kind="promise")
     # red_herring 早埋未收(不应超期)
     store.plant_promise("管家形迹可疑(障眼)", setup_chapter=3, kind="red_herring")
+    # abandoned 结案
+    abd = store.plant_promise("不再追的线", setup_chapter=1, kind="promise")
+    store.abandon_promise(abd["id"])
     # 推 max_chapter 到 10
     store.add_event(Event("ev:ledger_mc", "action", story_time=10))
     # 回收第二条于第 7 章
@@ -2161,7 +2164,8 @@ def test_promise_ledger_three_columns(store):
     r = c.get("/promises/ledger")
     assert r.status_code == 200, r.text
     led = r.json()
-    assert {"open", "closed", "red_herring", "audit", "threshold", "max_chapter"} <= set(led)
+    assert {"open", "closed", "red_herring", "abandoned", "audit", "threshold", "max_chapter"} <= set(led)
+    assert any("不再追" in p["text"] for p in led.get("abandoned") or [])
 
     open_texts = {p["text"] for p in led["open"]}
     closed_texts = {p["text"] for p in led["closed"]}

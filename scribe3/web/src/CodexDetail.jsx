@@ -403,11 +403,29 @@ export function PropositionDetail({ node, onDeleted, onNavigateToObject }) {
  * 自己负责按 node 懒加载该条全字段 + 落库回写。
  */
 
-// 伏笔生命周期特化块(断头修复#21):埋→收状态一览 + 回收 + 线索增删——
-// 入口 title 承诺"埋/收/线索/编辑",此前详情面只有埋/编辑,收与线索要绕道仪表盘。
-// 伏笔生命周期:只读 + 主编(去 Card 外壳,与档案同一政策)
+// 伏笔生命周期:只读时间线 + 主编种子(禁止表单直写)。
+// 时间线来自 GET /promises/{id}/timeline:plant/clue/touch/closed/abandoned。
+const TIMELINE_KIND_LABEL = {
+  plant: '埋设', clue: '线索', touch: '触及', closed: '兑现', abandoned: '弃置',
+}
+
 function PromiseLifecycle({ row }) {
+  const [timeline, setTimeline] = useState(null)
   const clues = Array.isArray(row.clues) ? row.clues : []
+  const pid = row.id
+
+  useEffect(() => {
+    if (!pid) { setTimeline(null); return }
+    let alive = true
+    api.promiseTimeline(pid)
+      .then((t) => { if (alive) setTimeline(t && typeof t === 'object' ? t : null) })
+      .catch(() => { if (alive) setTimeline(null) })
+    return () => { alive = false }
+  }, [pid, row.status, row.payoff_chapter, clues.length])
+
+  const events = Array.isArray(timeline?.events) ? timeline.events : []
+  const seed = (hint) => seedChiefCodexWrite('promises', row, hint)
+
   return (
     <div className="mt-6 pt-4 border-t border-line space-y-2" data-testid="promise-lifecycle">
       <div className="flex items-center gap-2 flex-wrap">
@@ -416,25 +434,39 @@ function PromiseLifecycle({ row }) {
           埋第{row.setup_chapter ?? '—'}章
           {row.payoff_chapter != null ? ` → 收第${row.payoff_chapter}章` : ' → 待收'}
           {row.status ? ` (${row.status})` : ''}
+          {row.tier ? ` · ${row.tier}` : ''}
         </span>
         <button
           type="button"
           data-testid="promise-ask-chief"
-          onClick={() => seedChiefCodexWrite('promises', row,
-            '请处理伏笔生命周期:标记回收(closed)与/或增删草蛇灰线线索;用对应写工具提交审批。')}
+          onClick={() => seed(
+            `请处理伏笔 pid=${pid || ''} 生命周期:` +
+            `s3_advance_promise 兑现 / s3_add_clue 或 s3_touch_promise 推进 / ` +
+            `s3_patch_promise 展期 / s3_abandon_promise 弃置 / s3_mark_herring 障眼法。需我审批。`)}
           className="ml-auto text-meta text-brand hover:text-brand/80 cursor-pointer"
         >
           让主编维护
         </button>
       </div>
-      <div className="space-y-1">
-        <div className="text-meta text-faint">草蛇灰线线索({clues.length})</div>
-        {clues.length === 0 ? <Empty>尚无线索</Empty> : clues.map((c, i) => (
-          <div key={i} className="flex items-center gap-2 text-f13 text-ink py-0.5 px-1 rounded hover:bg-soft/40">
-            <span className="text-meta text-faint shrink-0">第{c.chapter ?? '?'}章</span>
-            <span className="flex-1 min-w-0 truncate">{c.note || String(c)}</span>
+      <div className="space-y-1" data-testid="promise-timeline">
+        <div className="text-meta text-faint">时间线({events.length || clues.length})</div>
+        {events.length > 0 ? events.map((e, i) => (
+          <div key={`${e.kind}-${e.chapter}-${i}`}
+            className="flex items-start gap-2 text-f13 text-ink py-0.5 px-1 rounded hover:bg-soft/40"
+            data-testid="promise-timeline-event"
+            data-kind={e.kind}
+          >
+            <span className="text-meta text-faint shrink-0 w-14">第{e.chapter ?? '?'}章</span>
+            <span className="text-meta text-brand shrink-0 w-10">{TIMELINE_KIND_LABEL[e.kind] || e.kind}</span>
+            <span className="flex-1 min-w-0 truncate text-faint">{e.evidence || ''}</span>
           </div>
-        ))}
+        )) : clues.length === 0 ? <Empty>尚无事件(埋设后 ingest/线索/触及会出现在此)</Empty>
+          : clues.map((c, i) => (
+            <div key={i} className="flex items-center gap-2 text-f13 text-ink py-0.5 px-1 rounded hover:bg-soft/40">
+              <span className="text-meta text-faint shrink-0">第{c.chapter ?? '?'}章</span>
+              <span className="flex-1 min-w-0 truncate">{c.note || String(c)}</span>
+            </div>
+          ))}
       </div>
     </div>
   )

@@ -107,7 +107,8 @@ def promise_directives(rows: list[dict]) -> dict:
             # 再刷新只会腻——升级为决策项,禁止继续"蓄势"。
             decisions.append(
                 f"伏笔「{text}」已刷新 {rc} 次仍未兑现:读者大概率已猜到,再刷新只会腻——"
-                f"本章直接兑现,或显式改道(展期改 tier / 降级弃置),不要再安排刷新")
+                f"本章 s3_advance_promise 兑现,或 s3_patch_promise 展期 / s3_abandon_promise 弃置,"
+                f"不要再安排刷新")
         elif state == "over_half":
             if gap > _SALIENCE_GAP_MAX:
                 directives.append(
@@ -117,8 +118,10 @@ def promise_directives(rows: list[dict]) -> dict:
                 directives.append(f"伏笔「{text}」已过窗口一半:本章应实质推进或兑现")
         elif state == "overdue":
             decisions.append(
-                f"伏笔「{text}」已超兑现窗口:请作者三选一——立即兑现 / 显式展期(改窗口) / "
-                f"降级弃置(abandoned)。系统默认本章简报持续携带此项直到决策。")
+                f"伏笔「{text}」已超兑现窗口:请作者三选一——"
+                f"① s3_advance_promise 立即兑现;② s3_patch_promise 展期(改 tier/窗口);"
+                f"③ s3_abandon_promise 弃置结案(status=abandoned,≠障眼法)。"
+                f"障眼法另用 s3_mark_herring。系统默认本章简报持续携带直至决策。")
     return {"reminders": reminders, "directives": directives, "decisions": decisions}
 
 

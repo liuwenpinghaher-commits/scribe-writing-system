@@ -19,7 +19,7 @@ from scribe3.codex_schema import secret_capable_keys, secret_flag_key
 from scribe3.codex_secret_bridge import sync_faction_secrets
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
-from scribe3.verify import causal_complete, find_leaks
+from scribe3.verify import causal_complete, find_leaks_for_chapter
 
 mcp = FastMCP("scribe3")
 _store = None
@@ -83,6 +83,7 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_supersede_fact", "s3_forget_knowledge",
                 "s3_evolve_relation", "s3_resolve_voice_flag",
                 "s3_fold_voice_flags", "s3_add_clue",
+                "s3_mark_herring", "s3_touch_promise", "s3_abandon_promise",
                 "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
                 "s3_author_pref_add",      # 跨书作者偏好(USER.md)待批写入
                 # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
@@ -177,7 +178,7 @@ def s3_find_leaks(prose: str, focalizer: str, chapter: int,
                   work: str | None = None) -> list[dict]:
     """兜底 POV 判官:扫散文里冒出的帧外私密破绽词。"""
     return [{"fact_id": x.fact_id, "marker": x.marker}
-            for x in find_leaks(prose, _store_for(work), focalizer, chapter)]
+            for x in find_leaks_for_chapter(prose, _store_for(work), focalizer, chapter)]
 
 
 @mcp.tool(annotations=_RO)
@@ -500,7 +501,7 @@ def s3_dramatic_irony_reveal(focalizer: str, chapter: int,
 
 @mcp.tool(annotations=_RO)
 def s3_list_promises(work: str | None = None) -> list[dict]:
-    """列伏笔(open/closed + 埋/收章)。"""
+    """列伏笔(open/closed/abandoned + 埋/收章;含 kind=red_herring)。"""
     return _store_for(work).list_promises()
 
 
@@ -1175,7 +1176,8 @@ async def s3_plant_promise(ctx: Context, text: str, setup_chapter: int,
     resolution(方案B任务21,收尾清理批 B21 与 REST /promises-new 同约束):
     tier∈{book,arc} 的长期悬念必须带 resolution(文档记录的真实答案),不能含糊
     留白;tier=chapter 短期悬念(本章内起落即兑现)豁免,向后兼容不传此字段的
-    既有调用方。非法 tier 由 store 层 raise ValueError。"""
+    既有调用方。非法 tier 由 store 层 raise ValueError。
+    成功时 result 含稳定 id,供 s3_advance_promise / s3_add_clue / s3_touch_promise 使用。"""
     if tier in ("book", "arc") and not resolution.strip():
         return {"error": "悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)"}
     ok = await _ask(ctx, f"埋伏笔(第{setup_chapter}章·{tier}):{text}")
@@ -1230,7 +1232,8 @@ async def s3_register_purpose(ctx: Context, chapter: int, purpose_text: str,
 @mcp.tool(annotations=_RW)
 async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int,
                              work: str | None = None) -> dict:
-    """回收伏笔(写,待批)。"""
+    """兑现/回收伏笔(写,待批):status→closed + payoff_chapter。
+    弃置请用 s3_abandon_promise;障眼法请用 s3_mark_herring。"""
     ok = await _ask(ctx, f"回收伏笔 {pid}(第{payoff_chapter}章)")
     return commit_if_approved("s3_advance_promise", ok,
                               lambda: _store_for(work).advance_promise(pid, payoff_chapter))
@@ -1240,13 +1243,61 @@ async def s3_advance_promise(ctx: Context, pid: str, payoff_chapter: int,
 async def s3_add_clue(ctx: Context, pid: str, note: str, chapter: int,
                       work: str | None = None) -> dict:
     """追加草蛇灰线中途线索到某条伏笔(写,待批)。
-    pid: 伏笔 id(从 s3_list_promises 获取)。
+    pid: 伏笔 id(从 s3_list_promises / plant 返回 id 获取)。
     note: 线索描述(该章埋的草蛇灰线,伏笔的中间节点)。
     chapter: 线索所在章号。
-    与 s3_advance_promise(回收伏笔)不同:此工具记录"过程中"的暗示,不改变伏笔 status。"""
+    与 s3_advance_promise(回收)不同:不改变 status。
+    统一推进:落 clues[] 同时写 promise_touch(与 brief refresh 同源)。"""
     ok = await _ask(ctx, f"追加线索到伏笔 {pid}(第{chapter}章): {note[:30]}")
     return commit_if_approved("s3_add_clue", ok,
                               lambda: _store_for(work).add_promise_clue(pid, note, chapter))
+
+
+@mcp.tool(annotations=_RW)
+async def s3_mark_herring(ctx: Context, pid: str,
+                          work: str | None = None) -> dict:
+    """标为障眼法 red_herring(写,待批)。kind 变更,status 仍可为 open;
+    不计入 GATE-A 有效 open / overdue 催收。真正弃置账本请用 s3_abandon_promise。"""
+    ok = await _ask(ctx, f"标障眼法 {pid}")
+
+    def _write():
+        if not _store_for(work).mark_promise_herring(pid):
+            return False
+        return {"promise_id": pid, "kind": "red_herring"}
+
+    return commit_if_approved("s3_mark_herring", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_touch_promise(ctx: Context, pid: str, chapter: int,
+                           evidence: str = "", work: str | None = None) -> dict:
+    """手工登记章触及 promise_touch(写,待批):推进/呼应证据,不改变 status。
+    与 ingest 自动抽取同表;evidence 为正文引文或简述。"""
+    ok = await _ask(ctx, f"登记伏笔触及 {pid}@第{chapter}章")
+
+    def _write():
+        st = _store_for(work)
+        if not st.get_promise(pid):
+            return False
+        st.add_promise_touch(pid, chapter, evidence=evidence or "")
+        return {"promise_id": pid, "chapter": chapter, "evidence": evidence or ""}
+
+    return commit_if_approved("s3_touch_promise", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_abandon_promise(ctx: Context, pid: str,
+                             work: str | None = None) -> dict:
+    """弃置伏笔(写,待批):status→abandoned。账本结案,不再催收/不进 A6 open。
+    与 s3_mark_herring(障眼法 kind)不同;与 s3_advance_promise(兑现 closed)不同。"""
+    ok = await _ask(ctx, f"弃置伏笔 {pid}")
+
+    def _write():
+        if not _store_for(work).abandon_promise(pid):
+            return False
+        return {"promise_id": pid, "status": "abandoned"}
+
+    return commit_if_approved("s3_abandon_promise", ok, _write)
 
 
 @mcp.tool(annotations=_RO)
@@ -1820,25 +1871,67 @@ async def s3_patch_motif(ctx: Context, motif_id: str,
 async def s3_patch_promise(ctx: Context, promise_id: str,
                            text: str | None = None,
                            resolution: str | None = None,
+                           tier: str | None = None,
+                           setup_chapter: int | None = None,
+                           kind: str | None = None,
+                           payoff_min: int | None = None,
+                           payoff_max: int | None = None,
                            work: str | None = None) -> dict:
-    """更正伏笔文案/答案(写,待批)。回收请用 s3_advance_promise。"""
+    """更正伏笔(写,待批)。经 store.update_promise:改 tier/setup 时自动重算兑现窗口
+    (除非显式传 payoff_min/payoff_max)。
+    回收请用 s3_advance_promise;弃置 s3_abandon_promise;障眼法 s3_mark_herring。
+    tier∈{book,arc} 升格时须有 resolution(请求或库中已有)。"""
     pid = (promise_id or "").strip()
     if not pid:
         return {"status": "error", "tool": "s3_patch_promise", "error": "promise_id required"}
-    fields = {k: v for k, v in (("text", text), ("resolution", resolution)) if v is not None}
+    fields: dict = {}
+    if text is not None:
+        fields["text"] = text
+    if resolution is not None:
+        fields["resolution"] = resolution
+    if tier is not None:
+        fields["tier"] = tier
+    if setup_chapter is not None:
+        fields["setup_chapter"] = setup_chapter
+    if kind is not None:
+        fields["kind"] = kind
+    if payoff_min is not None:
+        fields["payoff_min"] = payoff_min
+    if payoff_max is not None:
+        fields["payoff_max"] = payoff_max
     if not fields:
         return {"status": "noop", "tool": "s3_patch_promise", "reason": "no fields"}
-    ok = await _ask(ctx, f"更正伏笔 {pid}")
+    st = _store_for(work)
+    # book/arc 升格须 resolution
+    if fields.get("tier") in ("book", "arc"):
+        res_in = (fields.get("resolution") or "").strip()
+        if not res_in:
+            row = st.get_promise(pid)
+            if row is not None and not (row.get("resolution") or "").strip():
+                return {"error": "悬念必须有文档记录的真实答案+预计回收章(tier=chapter 短期悬念豁免)"}
+    ok = await _ask(ctx, f"更正伏笔 {pid}: {','.join(fields.keys())}")
 
     def _write():
-        st = _store_for(work)
-        rows = st._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": pid})
-        if not rows:
-            return False
-        st._update_by("promise", pid, fields)
+        try:
+            if not st.update_promise(pid, fields):
+                return False
+        except ValueError as e:
+            return {"error": str(e)}
         return {"promise_id": pid, "patched": list(fields.keys())}
 
     return commit_if_approved("s3_patch_promise", ok, _write)
+
+
+@mcp.tool(annotations=_RO)
+def s3_promise_timeline(promise_id: str, work: str | None = None) -> dict:
+    """读单条伏笔时间线(setup/clue/touch/closed/abandoned 按章排序)。只读放行。"""
+    pid = (promise_id or "").strip()
+    if not pid:
+        return {"error": "promise_id required"}
+    tl = _store_for(work).promise_timeline(pid)
+    if tl is None:
+        return {"error": f"promise '{pid}' 不存在"}
+    return tl
 
 
 @mcp.tool(annotations=_RW)
