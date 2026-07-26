@@ -17,7 +17,13 @@ const apiMock = vi.hoisted(() => ({
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
-vi.mock('../WriteLayout', () => ({ WriteLayout: () => <div data-testid="write-layout" /> }))
+vi.mock('../WriteLayout', async () => {
+  const React = await import('react')
+  return {
+    WriteLayout: () => <div data-testid="write-layout" />,
+    RestoreContext: React.createContext(0),
+  }
+})
 vi.mock('../DeduceStage', () => ({ DeduceStage: ({ seq }) => <div data-testid="deduce-stage">演绎:{seq}</div> }))
 vi.mock('../editor/RichEditor.jsx', () => ({
   RichEditor: () => <textarea aria-label="mock-editor" />,

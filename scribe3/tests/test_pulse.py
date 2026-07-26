@@ -221,7 +221,9 @@ def test_inbox_aggregates_three_sources(store, journal_dir):
 
 def test_inbox_empty_book(store, journal_dir):
     r = _client(store).get("/inbox").json()
-    assert r == {"items": [], "count": 0, "degraded_sources": []}   # R2-18:空书无源失败=degraded 空列表
+    assert r["items"] == [] and r["count"] == 0
+    assert r.get("degraded_sources") == []   # R2-18:空书无源失败=degraded 空列表
+    assert r.get("focus_seq") is None
 
 
 def test_inbox_needs_human_latest_journal_wins(store, journal_dir):

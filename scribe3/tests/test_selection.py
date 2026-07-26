@@ -9,8 +9,9 @@ idea 层多样性>解码采样)、本体做过滤(blocking 杀)、rubric 只排�
 import pytest
 
 from scribe3.pipeline_journal import PipelineJournal
-from scribe3.selection import (STRATEGIES, is_key_chapter, pseudo_diversity,
-                               round_robin_rank, run_selection)
+from scribe3.selection import (L1_STRATEGIES, STRATEGIES, apply_light_pick,
+                               is_key_chapter, pseudo_diversity,
+                               round_robin_rank, run_light_selection, run_selection)
 
 
 # ===== 关键章判定 =====
@@ -222,6 +223,49 @@ def test_select_finalize_enqueues_ingest(store, monkeypatch):
     assert 7 in enqueued, "终选后须排 ingest 反哺"
 
 
+def test_select_finalize_rejects_filtered_candidate(store):
+    """击杀稿(label 含 ·filtered)不得定稿——防 API 绕过前端。"""
+    store.save_chapter(11, "旧", title="十一")
+    vid = store.add_chapter_version(
+        11, "被杀候选", kind="checkpoint", stage="candidate",
+        label="选择环候选·cold_open·filtered")
+    r = _client(store).post("/select/finalize?work=main", json={
+        "chapter": 11, "version_id": vid, "reason_axis": "其他", "reason_text": "不该能定"})
+    assert r.status_code == 422, r.text
+    assert "击杀" in r.text or "过滤" in r.text or "候选" in r.text
+
+
+def test_select_finalize_rejects_non_selection_version(store):
+    """普通存档/非选择环版本不得经 finalize 定稿。"""
+    store.save_chapter(12, "旧", title="十二")
+    vid = store.add_chapter_version(
+        12, "随手存档", kind="checkpoint", stage="final", label="手动存档")
+    r = _client(store).post("/select/finalize?work=main", json={
+        "chapter": 12, "version_id": vid, "reason_axis": "其他", "reason_text": "误操作"})
+    assert r.status_code == 422, r.text
+
+
+def test_run_selection_all_filtered_verdict(tmp_path):
+    """全部候选 blocking → verdict=all_filtered(非假 awaiting_human)。"""
+    gen_map = {
+        "cold_open": "泄密稿甲密密密",
+        "in_medias_res": "泄密稿乙密密密",
+        "slow_burn": "泄密稿丙密密密",
+    }
+    leak_post = {"leaks": [{"marker": "密", "fact_id": "fact:x"}],
+                 "issues": [], "degraded_stages": [],
+                 "leaks_degraded": False, "punct_suggestions": []}
+    posts = {p: leak_post for p in gen_map.values()}
+    profiles = {p: _prof(0.3 + i * 0.2, 0.2 + i * 0.15, shape=i)
+                for i, p in enumerate(gen_map.values())}
+    calls, deps = _wire_sel(tmp_path, gen_map, posts, profiles)
+    res = run_selection(chapter=9, **deps)
+    assert res["verdict"] == "all_filtered"
+    assert all(c["filtered"] for c in res["candidates"])
+    # 击杀留版 key 带 ·filtered 后缀(由 persist 收到的 strategy_key 体现)
+    assert all(c.get("version_id") for c in res["candidates"])
+
+
 def test_run_selection_pseudo_diverse_regenerates_with_unused_strategy(tmp_path):
     near = "几乎一样的候选A"
     near2 = "几乎一样的候选B"
@@ -294,17 +338,45 @@ def test_select_finalize_persists_and_lessons(store, monkeypatch):
     c = _client(store)
     store.save_chapter(4, "旧正文。", title="四")
     vid = store.add_chapter_version(4, "终选中意的候选正文。", label="选择环候选·slow_burn",
-                                    kind="checkpoint", stage="draft")
+                                    kind="checkpoint", stage="candidate")
     r = c.post("/select/finalize", json={"chapter": 4, "version_id": vid,
                                          "reason_axis": "节奏", "reason_text": "慢炖版收得住"})
     assert r.status_code == 200
     assert store.get_chapter(4)["prose"] == "终选中意的候选正文。"
+    body = r.json()
+    assert body.get("lesson_saved") is True
     ls = store.list_lessons(chapter=4)
     assert ls and "胜在节奏" in ls[0]["text"] and "慢炖版收得住" in ls[0]["text"], \
         "终选理由必须入 lesson 流(沉淀环最贵输入)"
     r2 = c.post("/select/finalize", json={"chapter": 4, "version_id": vid,
                                           "reason_axis": "其他", "reason_text": "  "})
     assert r2.status_code == 422, "空理由拒绝(强制一句)"
+
+
+def test_select_latest_reads_result_json(store, tmp_path, monkeypatch):
+    """GET /select/latest 读落盘 .result.json,供前端刷新恢复。"""
+    import scribe3.app as A
+    from pathlib import Path
+    # 钉 journal 路径到 tmp
+    def _jp(work, ch):
+        p = tmp_path / f"{work}_loop_ch{ch}.json"
+        p.write_text("{}", encoding="utf-8")
+        return p
+    monkeypatch.setattr(A, "_loop_journal_path", _jp)
+    result = {
+        "chapter": 5,
+        "verdict": "awaiting_human",
+        "candidates": [{"strategy": "cold_open", "version_id": "v1", "filtered": False,
+                        "prose_head": "头"}],
+    }
+    rp = _jp("main", 5)
+    rp = rp.with_name(rp.name.replace("loop_ch", "select_ch", 1))
+    (Path(str(rp) + ".result.json")).write_text(
+        __import__("json").dumps(result, ensure_ascii=False), encoding="utf-8")
+    r = _client(store).get("/select/latest?chapter=5&work=main")
+    assert r.status_code == 200, r.text
+    assert r.json()["verdict"] == "awaiting_human"
+    assert r.json()["candidates"][0]["strategy"] == "cold_open"
 
 
 def test_run_selection_journal_stages(tmp_path):
@@ -317,3 +389,116 @@ def test_run_selection_journal_stages(tmp_path):
     assert j.should_skip("sel_ch4_gen_cold_open")
     assert j.should_skip("sel_ch4_rank")
     assert res["journal_recorded"] is True
+
+
+# ===== L1 轻选择:2 策略短变体 + pick 持久化 =====
+
+def test_l1_strategies_are_two_distinct():
+    assert len(L1_STRATEGIES) == 2
+    keys = {s["key"] for s in L1_STRATEGIES}
+    assert len(keys) == 2
+    assert keys <= {s["key"] for s in STRATEGIES}
+
+
+def test_run_light_selection_two_variants(tmp_path):
+    """L1 编排:注入 generate → 恰 2 条策略标签短变体 + awaiting_pick。"""
+    texts = {
+        "cold_open": "雨落在青石上。" * 20,
+        "slow_burn": "他把茶杯转了一圈才开口。" * 18,
+    }
+    calls = []
+
+    def gen(strategy):
+        calls.append(strategy["key"])
+        return texts[strategy["key"]]
+
+    def persist(text, key):
+        return f"lv-{key}"
+
+    j = PipelineJournal(tmp_path / "l1.json")
+    res = run_light_selection(
+        chapter=3, generate=gen, persist_variant=persist, journal=j)
+    assert res["tier"] == "L1"
+    assert res["verdict"] == "awaiting_pick"
+    assert len(res["variants"]) == 2
+    strategies = {v["strategy"] for v in res["variants"]}
+    assert strategies == set(texts)
+    assert all(v["version_id"] for v in res["variants"])
+    assert all(v["char_count"] >= 40 for v in res["variants"])
+    assert set(calls) == set(texts)
+
+
+def test_apply_light_pick_and_endpoint_persists_draft(store, monkeypatch, tmp_path):
+    """L1 produce(stub)→ pick → 产品读路径 /latest-draft 可见选中短包。
+
+    验收标准 2:点选必须落到与 /save-draft 同构的 stage='draft' 版本,
+    前端 DraftTab 经 GET /latest-draft → latest_draft_version 恢复;只写
+    chapter.draft 字段不够(前端零消费该字段作草稿 tab 主源)。
+    """
+    import scribe3.app as A
+    import scribe3.selection as S
+    from .test_app import _client
+    store.save_chapter(9, "原正文。", title="九")
+    variants = [
+        {"strategy": "cold_open", "version_id": "v-a", "text": "冷开场短包甲" * 15,
+         "directive": "d1"},
+        {"strategy": "slow_burn", "version_id": "v-b", "text": "慢炖短包乙" * 15,
+         "directive": "d2"},
+    ]
+    picked = apply_light_pick(variants=variants, strategy="slow_burn")
+    assert picked["strategy"] == "slow_burn"
+    assert "慢炖短包乙" in picked["text"]
+
+    def fake_loop_path(work, chapter):
+        p = tmp_path / f"{work}_loop_ch{chapter}.json"
+        p.write_text("{}", encoding="utf-8")
+        return p
+    monkeypatch.setattr(A, "_loop_journal_path", fake_loop_path)
+
+    def fake_run_light(**kwargs):
+        out = {
+            "tier": "L1", "chapter": kwargs["chapter"],
+            "variants": variants, "verdict": "awaiting_pick",
+            "gen_errors": [], "note": "stub", "max_chars": 800,
+        }
+        if kwargs.get("save_result"):
+            kwargs["save_result"](out)
+        return out
+    monkeypatch.setattr(S, "run_light_selection", fake_run_light)
+    c = _client(store)
+    r = c.post("/select/light?work=main", json={"chapter": 9})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["tier"] == "L1"
+    assert len(body["variants"]) == 2
+    r2 = c.post("/select/light/pick?work=main", json={
+        "chapter": 9, "strategy": "slow_burn"})
+    assert r2.status_code == 200, r2.text
+    pick_body = r2.json()
+    assert pick_body["draft_seeded"] is True
+    assert pick_body.get("stage") == "draft"
+    assert pick_body.get("id"), "须返回 draft 版本 id(与 /save-draft 同字段)"
+    # 产品读路径:GET /latest-draft 必须含选中正文(DraftTab 主源)
+    r_ld = c.get("/latest-draft", params={"seq": 9, "work": "main"})
+    assert r_ld.status_code == 200, r_ld.text
+    ld = r_ld.json()
+    assert "慢炖短包乙" in (ld.get("prose") or ""), (
+        f"产品 /latest-draft 应含 L1 选中短包, got keys={list(ld.keys())} "
+        f"prose_head={(ld.get('prose') or '')[:80]!r}"
+    )
+    # store 直读同构:latest_draft_version(WHERE stage='draft')
+    lv = store.latest_draft_version(9)
+    assert lv is not None, "latest_draft_version 须有 stage=draft 行"
+    assert "慢炖短包乙" in (lv.get("prose") or "")
+    # 兼容字段仍写(非产品主源,但保留)
+    ch = store.get_chapter(9)
+    assert "慢炖短包乙" in (ch.get("draft") or "")
+    # L1 latest 可读回 picked
+    r3 = c.get("/select/light/latest?chapter=9&work=main")
+    assert r3.status_code == 200
+    assert r3.json().get("verdict") == "picked"
+
+
+def test_select_light_latest_404_without_run(store):
+    r = _client(store).get("/select/light/latest?chapter=1&work=main")
+    assert r.status_code == 404

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, Archive, MoreHorizontal,
   ScrollText, Eye, Compass, MessagesSquare, Settings2,
 } from 'lucide-react'
 import { api } from './api'
-import { WriteLayout } from './WriteLayout'
+import { WriteLayout, RestoreContext } from './WriteLayout'
 import { DeduceStage } from './DeduceStage'
 import { ObjectFrame } from './layout/ObjectFrame'
 import { useToast } from './ui/Toast.jsx'
@@ -285,6 +285,9 @@ function BeatsTab({ seq, value, meta }) {
 function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
   const toast = useToast()
   const { setChiefIntent } = useChiefSlot()
+  // L1 轻选 pick / 右坞恢复会 bump RestoreContext → 重拉 /latest-draft,否则点选后
+  // 已开着的草稿 tab 仍显示旧空稿(onFinalized 只触达 prose 中区时的旧缺口)。
+  const restoreTick = useContext(RestoreContext)
   const [text, setText] = useState('')
   const [summary, setSummary] = useState('')
   const [loading, setLoading] = useState(true)
@@ -346,19 +349,23 @@ function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
   draftRef.current.summary = summary
   useUnsavedGuard(() => draftRef.current.dirty)
 
+  // 拉取:seq 变或 restoreTick(L1 pick / 版本恢复)变 → 重读 /latest-draft。
   useEffect(() => {
     let alive = true
-    const myseq = seq  // 闭包捕获本 effect 的章号,cleanup 用它 = 真旧章号
-    const mywork = work  // 同源钉书:切书卸载 flush 走全局 WORK 会写错书(见 WriteLayout Critical 注释)
     setLoading(true)
     api.latestDraft(seq)
       .then((d) => { if (alive) { setText(d?.prose || ''); setSummary(d?.summary || ''); draftRef.current.dirty = false } })
       .catch(() => {})
       .finally(() => { if (alive) setLoading(false) })
-    // cleanup(seq 变化/卸载):若旧章 dirty,先 flush 旧章。text/summary 从 draftRef 读——
-    // 此刻 state 尚未被新 effect 的 setText 重置(重置是异步),故仍是旧章正文。
+    return () => { alive = false }
+  }, [seq, restoreTick])
+
+  // 仅换章/卸载 flush 脏稿。不绑 restoreTick——否则 cleanup 会把旧 buffer
+  // 经 saveDraft 写回,盖掉 L1 pick / 版本恢复刚落的 stage=draft 种子。
+  useEffect(() => {
+    const myseq = seq
+    const mywork = work
     return () => {
-      alive = false
       const { text: oldText, summary: oldSummary, dirty } = draftRef.current
       if (dirty && myseq != null) {
         draftRef.current.dirty = false
@@ -507,7 +514,22 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
       }
     }
     setPhase(nextPhase); localStorage.setItem('s3.chapter.phase', nextPhase)
+    setAuxView(null)
+    setChapterMetaOpen(false)
   }, [meta, toast])
+
+  // L1 轻选 pick 等右坞动作派发 s3-chapter-phase → 切到草稿,作者立刻看到种子。
+  useEffect(() => {
+    const onPhase = (e) => {
+      const ph = e?.detail?.phase
+      const targetSeq = e?.detail?.seq
+      if (!ph) return
+      if (targetSeq != null && Number(targetSeq) !== Number(seq)) return
+      setPhaseP(ph)
+    }
+    window.addEventListener('s3-chapter-phase', onPhase)
+    return () => window.removeEventListener('s3-chapter-phase', onPhase)
+  }, [seq, setPhaseP])
 
   // 章导航上界(Task 7 自 WriteLayout 上移):下一章到真实末章为止,不再翻出空章 404。
   // I1:初值 null=上界未知——未加载不禁用、不谎报「已是最后一章」(否则每次切章首帧闪禁);

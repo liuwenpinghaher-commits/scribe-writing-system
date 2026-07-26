@@ -25,7 +25,13 @@ const apiMock = vi.hoisted(() => ({
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
-vi.mock('../WriteLayout', () => ({ WriteLayout: () => <div data-testid="write-layout" /> }))
+vi.mock('../WriteLayout', async () => {
+  const React = await import('react')
+  return {
+    WriteLayout: () => <div data-testid="write-layout" />,
+    RestoreContext: React.createContext(0),
+  }
+})
 vi.mock('../DeduceStage', () => ({ DeduceStage: ({ seq }) => <div data-testid="deduce-stage">演绎:{seq}</div> }))
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
 vi.mock('../FramePanel', () => ({ FramePanel: ({ chapter }) => <div data-testid="frame-panel">关联:{chapter}</div> }))

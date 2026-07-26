@@ -38,6 +38,7 @@ export function Library({ works, reload, onSelect }) {
     try { const r = await api.archivedWorks(); setTrash(r?.works || []) }
     catch (_) { /* 废弃箱是次要信息,加载失败不阻断主列表 */ }
   }
+  // 后端附 days_in_trash / purge_recommended(保留期提示,不自动删)
   useEffect(() => { loadTrash() }, [])
 
   const doReload = async () => {
@@ -219,7 +220,13 @@ export function Library({ works, reload, onSelect }) {
                   <BookText size={15} className="text-faint shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="text-f14 text-ink truncate">{w.title}</div>
-                    <div className="text-f12 text-faint">{fmtArchivedAt(w.archived_at)}</div>
+                    <div className="text-f12 text-faint">
+                      {fmtArchivedAt(w.archived_at)}
+                      {typeof w.days_in_trash === 'number' ? ` · 已闲置 ${w.days_in_trash} 天` : ''}
+                      {w.purge_recommended
+                        ? ` · 建议永久删除(超过 ${w.retention_days ?? 30} 天)`
+                        : ''}
+                    </div>
                     {restoreErr[w.slug] && (
                       <div role="alert" className="mt-1 text-f12 text-danger">{restoreErr[w.slug]}</div>
                     )}

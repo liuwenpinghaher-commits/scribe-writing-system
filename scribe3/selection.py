@@ -46,6 +46,10 @@ STRATEGIES = [
 
 PSEUDO_DIST_MIN = 0.12   # 自由维度归一距离下限(自定口径,样本积累后按分位数重标定,D-019)
 
+# L1 轻选择:只用两条差异最大的策略轴(切入 vs 节奏),短包扫描级,非三整章。
+L1_STRATEGIES = [STRATEGIES[0], STRATEGIES[2]]  # cold_open + slow_burn
+L1_MAX_CHARS = 800  # 短变体字数软上限(编排层截断 head;生成端应用同口径)
+
 
 def is_key_chapter(meta: dict) -> bool:
     """关键章判定(蓝图:转折/开局/卷尾/反转——合同字段现成可判):
@@ -178,7 +182,10 @@ def run_selection(*, chapter: int, generate, post_check, persist_candidate,
                               if c["filtered"] else "")
         c["advisory_count"] = tri["advisory_count"]
         try:
-            c["version_id"] = persist_candidate(c["prose"], c["strategy"])
+            # 击杀候选仍留版(可展开审计),但 strategy 后缀 ·filtered 写入 label,
+            # 供 /select/finalize 拒绝「把被杀稿定稿」(防 API 绕过前端)。
+            persist_key = c["strategy"] + ("·filtered" if c["filtered"] else "")
+            c["version_id"] = persist_candidate(c["prose"], persist_key)
         except Exception as e:
             _log.warning("selection 候选留版失败(继续): %s", e)
             c["version_id"] = None
@@ -211,17 +218,152 @@ def run_selection(*, chapter: int, generate, post_check, persist_candidate,
     # 记住(标签隐藏了、位置没盲),叠加降级排序会恒定锚向首策略。
     import random as _rnd
     _rnd.shuffle(out_cands)
+    # 全灭(均被确定性过滤):诚实 verdict,前端禁止假终选、提示 force 重跑或改驱动语
+    all_filtered = bool(cands) and all(c.get("filtered") for c in cands)
+    verdict = "all_filtered" if all_filtered else "awaiting_human"
+    note = (
+        "全部候选被确定性过滤击杀(谁被杀/为什么见 filter_reason);"
+        "可 force 重跑或改驱动语后重出,勿把击杀稿定稿"
+        if all_filtered else
+        "机器只备料:过滤明细与排序仅供参考,终选与理由在作者(理由入 lesson 流)"
+    )
     result = {"chapter": chapter,
               "candidates": out_cands,
               "consensus": consensus,
               "pseudo_diversity_round": pseudo_round,
               "gen_errors": gen_errors,   # B1:部分候选生成失败(前端可提示「N 个策略未出稿」)
-              "verdict": "awaiting_human",
+              "verdict": verdict,
               "journal_recorded": True,
-              "note": "机器只备料:过滤明细与排序仅供参考,终选与理由在作者(理由入 lesson 流)"}
+              "note": note}
     if save_result is not None:
         try:
             save_result(result)   # P2-3:结果落 journal 旁文件,断连不丢元数据
         except Exception as e:
             _log.warning("selection 结果落盘回调失败(忽略): %s", e)
     return result
+
+
+def _clip_short(text: str, max_chars: int = L1_MAX_CHARS) -> str:
+    t = (text or "").strip()
+    if len(t) <= max_chars:
+        return t
+    # 优先在句号/换行处切断,避免半句
+    cut = t[:max_chars]
+    for sep in ("。", "！", "？", "\n", "…"):
+        i = cut.rfind(sep)
+        if i >= max_chars // 2:
+            return cut[: i + 1]
+    return cut + "…"
+
+
+def run_light_selection(*, chapter: int, generate, persist_variant,
+                        journal=None, save_result=None,
+                        max_chars: int = L1_MAX_CHARS) -> dict:
+    """L1 轻选择编排:同一合同出 **2** 条策略短变体(开场/切入包,非三整章)。
+
+    generate(strategy: dict) -> str     按策略出短稿(注入端应要求 ≤max_chars)
+    persist_variant(text, strategy_key) -> id   留 light_variant 版,回 id
+    无 LLM 裁判、无确定性 heavy filter(成本刀刃在 L2);人扫读后 pick。
+
+    返回 {
+      tier: 'L1',
+      chapter,
+      variants: [{strategy, version_id, text, text_head, directive}],
+      verdict: 'awaiting_pick' | 'all_failed',
+      gen_errors, note
+    }
+    """
+    used = list(L1_STRATEGIES)
+    variants: list[dict] = []
+    gen_errors: list[str] = []
+    for s in used:
+        stage = f"sel_l1_ch{chapter}_gen_{s['key']}"
+        if journal is not None:
+            journal.start_stage(stage)
+        try:
+            raw = generate(s)
+            text = _clip_short(str(raw or ""), max_chars)
+            if len(text.strip()) < 40:
+                raise RuntimeError(f"策略 {s['key']} 短变体过短")
+            vid = None
+            try:
+                vid = persist_variant(text, s["key"])
+            except Exception as e:
+                _log.warning("L1 变体留版失败(继续): %s", e)
+            variants.append({
+                "strategy": s["key"],
+                "directive": s.get("directive") or "",
+                "version_id": vid,
+                "text": text,
+                "text_head": text[:200],
+                "char_count": len(text),
+            })
+        except Exception as e:
+            _log.warning("L1 变体 %s 生成失败: %s", s["key"], e)
+            gen_errors.append(f"{s['key']}:{str(e)[:80]}")
+        if journal is not None:
+            journal.complete_stage(stage)
+
+    if not variants:
+        result = {
+            "tier": "L1",
+            "chapter": chapter,
+            "variants": [],
+            "verdict": "all_failed",
+            "gen_errors": gen_errors,
+            "note": "L1 两条短变体均失败(检查 LLM/日帽);可改驱动语后重试或走 L2",
+            "max_chars": max_chars,
+        }
+    elif len(variants) == 1:
+        result = {
+            "tier": "L1",
+            "chapter": chapter,
+            "variants": variants,
+            "verdict": "awaiting_pick",
+            "gen_errors": gen_errors,
+            "note": "仅一条短变体成功;仍可挑选或重跑/升级 L2 三候选",
+            "max_chars": max_chars,
+        }
+    else:
+        result = {
+            "tier": "L1",
+            "chapter": chapter,
+            "variants": variants,
+            "verdict": "awaiting_pick",
+            "gen_errors": gen_errors,
+            "note": "轻选择:扫读两条策略短包后点选;选中会写入草稿种子,再扩写成正文(非三整章成本)",
+            "max_chars": max_chars,
+        }
+    if save_result is not None:
+        try:
+            save_result(result)
+        except Exception as e:
+            _log.warning("L1 结果落盘回调失败(忽略): %s", e)
+    return result
+
+
+def apply_light_pick(*, variants: list[dict], version_id: str | None = None,
+                     strategy: str | None = None) -> dict:
+    """从 L1 variants 中解析人的选择;返回 {strategy, text, version_id} 或 raise ValueError。
+
+    纯函数:不碰 store。调用方负责把 text 写入 draft/种子。
+    """
+    if not variants:
+        raise ValueError("无 L1 变体可选")
+    hit = None
+    if version_id:
+        hit = next((v for v in variants if v.get("version_id") == version_id), None)
+    if hit is None and strategy:
+        hit = next((v for v in variants if v.get("strategy") == strategy), None)
+    if hit is None:
+        raise ValueError("未匹配到 version_id/strategy 对应的 L1 变体")
+    text = (hit.get("text") or "").strip()
+    if not text:
+        raise ValueError("选中变体正文为空")
+    return {
+        "strategy": hit.get("strategy"),
+        "version_id": hit.get("version_id"),
+        "text": text,
+        "directive": hit.get("directive") or "",
+        "char_count": len(text),
+    }
