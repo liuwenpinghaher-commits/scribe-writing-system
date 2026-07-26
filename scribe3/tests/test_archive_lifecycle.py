@@ -69,3 +69,59 @@ def test_archive_chapter_idempotent(store):
     assert store.archive_chapter(8, "二") is True
     assert store.restore_chapter(8) is True
     assert store.restore_chapter(8) is True
+
+
+def test_restore_version_skips_craft_gate_and_leaves_checkpoint(store, monkeypatch):
+    """版本恢复专用通道:跳过工艺门、留审计版、可排 ingest。"""
+    from scribe3.verify_craft_compliance import evaluate_save_craft_gate
+
+    store.save_chapter(9, "旧稿正文AAA", title="九")
+    vid = store.add_chapter_version(9, "历史版本BBB", label="v1", kind="checkpoint")
+    store.save_chapter(9, "当前稿CCC", title="九")  # 当前已偏离
+
+    # 若走普通 save-chapter 且 craft gate 全挡,恢复会 409;专用通道必须成功
+    def _block_all(*a, **kw):
+        return {"allowed": False, "code": "craft_gate", "detail": "should not block restore"}
+    monkeypatch.setattr(
+        "scribe3.verify_craft_compliance.evaluate_save_craft_gate", _block_all, raising=False)
+
+    enq = []
+    monkeypatch.setattr(A, "_enqueue_ingest", lambda bg, work, seq: enq.append(seq) or True)
+
+    c = _client(store)
+    r = c.post("/chapters/9/restore-version?work=main", json={
+        "version_id": vid, "label": "从存档恢复", "reingest": True,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "restored"
+    assert body.get("reingest_enqueued") is True
+    assert enq == [9]
+    ch = store.get_chapter(9)
+    assert "历史版本BBB" in (ch.get("prose") or "")
+    # 版本史应出现恢复审计点
+    labels = [v.get("label") for v in store.list_chapter_versions(9)]
+    assert any("恢复" in (lb or "") for lb in labels)
+
+
+def test_restore_version_path_not_world_write_gated():
+    assert A._is_rest_world_write_path("/chapters/3/restore-version") is False
+
+
+def test_archived_works_retention_metadata():
+    """废弃箱附保留期提示字段(不自动 purge)。"""
+    slug = create_work("保留期提示临时书")["slug"]
+    try:
+        archive_work(slug)
+        rows = [w for w in archived_works() if w["slug"] == slug]
+        assert rows
+        w = rows[0]
+        assert "retention_days" in w
+        assert "days_in_trash" in w
+        assert "purge_recommended" in w
+        assert isinstance(w["retention_days"], int)
+    finally:
+        try:
+            delete_work(slug)
+        except Exception:
+            pass

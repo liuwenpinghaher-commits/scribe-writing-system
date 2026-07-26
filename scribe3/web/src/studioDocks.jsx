@@ -309,23 +309,28 @@ function DeliveryCard({ card }) {
 }
 
 // R1-4:Pilot 驾驶舱——章生命周期状态机的 UI 起点(此前 5 个 api 包装零消费,状态机只能 curl 进入)。
-// 状态徽章 + 手动推进/解卡/退出 + 连写到第 N 章/暂停 + 停靠文案 + stalled 提醒,轮询 run-status。
+// 2026-07 审查增强:pipeline 进度条 · 作者意图 steer · 检查点就地放行 · 状态拉取失败如实告警。
 const PILOT_STATE_LABEL = {
   idle: '未启动', outline_proposed: '大纲待放行', beats_ready: '节拍就绪', deduced: '演绎就绪',
   drafting: '草稿生成中', checked: '体检通过', delivered: '已交付 · 待终选', finalized: '已定稿',
 }
 function PilotDock({ seq }) {
-  const [st, setSt] = useState(null)
+  const [st, setSt] = useState(undefined)   // undefined=加载 / null=失败 / object=ok
   const [run, setRun] = useState(null)
   const [until, setUntil] = useState('')
+  const [steer, setSteer] = useState('')
   const [busy, setBusy] = useState(false)
+  const [confirmFinalize, setConfirmFinalize] = useState(false)
   const toast = useToast()
   useEffect(() => {
     if (seq == null) return undefined
     let dead = false
+    setSt(undefined)
     const tick = () => {
       if (dead) return
-      api.pilotStatus(seq).then((s) => { if (!dead) setSt(s) }).catch(() => {})
+      api.pilotStatus(seq)
+        .then((s) => { if (!dead) setSt(s && typeof s === 'object' ? s : null) })
+        .catch(() => { if (!dead) setSt(null) })
       api.pilotRunStatus().then((r) => { if (!dead) setRun(r) }).catch(() => {})
     }
     tick()
@@ -334,48 +339,140 @@ function PilotDock({ seq }) {
   }, [seq])
   if (seq == null) return <Empty>选一章后可用 Pilot 驱动写作</Empty>
   const refresh = () => {
-    api.pilotStatus(seq).then(setSt).catch(() => {})
+    api.pilotStatus(seq).then(setSt).catch(() => setSt(null))
     api.pilotRunStatus().then(setRun).catch(() => {})
   }
   const act = (fn, okMsg) => {
     setBusy(true)
-    return fn().then(() => { toast(okMsg); refresh() })
-      .catch((e) => toast(e?.body?.detail || '操作失败', { tone: 'danger' }))
+    return fn().then(() => {
+      toast(okMsg, { tone: 'ok' })
+      refresh()
+      try { window.dispatchEvent(new CustomEvent('s3-live', { detail: { table: 'chapter' } })) } catch { /* */ }
+    })
+      .catch((e) => toast(e?.body?.detail || e?.message || '操作失败', { tone: 'danger' }))
       .finally(() => setBusy(false))
   }
+  if (st === undefined) {
+    return (
+      <div className="space-y-3">
+        <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+        <div className="text-meta text-faint">加载驾驶状态…</div>
+      </div>
+    )
+  }
+  if (st === null) {
+    return (
+      <div className="space-y-3">
+        <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+        <div role="alert" className="text-meta text-danger bg-danger/8 rounded px-2 py-1.5">
+          Pilot 状态加载失败(不是「未启动」)。
+          <button type="button" className="ml-2 underline cursor-pointer" onClick={refresh}>重试</button>
+        </div>
+      </div>
+    )
+  }
   const state = st?.state || 'idle'
+  const stateLabel = st?.state_label || PILOT_STATE_LABEL[state] || state
   const running = !!run?.running
   const untilN = Number(until)
+  const pipeline = Array.isArray(st?.pipeline) ? st.pipeline : []
+  const canStep = st?.can_step !== false && !running && state !== 'finalized' && !st?.parked
+    && state !== 'outline_proposed' && state !== 'delivered'
+  const canApprove = !!st?.can_approve && !running && !st?.parked
+  const nextLabel = st?.next_action_label || st?.next_action
+  const doApprove = () => {
+    if (state === 'delivered') {
+      setConfirmFinalize(true)
+      return
+    }
+    act(() => api.pilotApprove(seq, state), state === 'outline_proposed' ? '大纲已确认,继续推进' : '已放行')
+  }
   return (
     <div className="space-y-3">
       <SectionTitle icon={Bot}>Pilot · 主编驾驶</SectionTitle>
+      <div className="text-meta text-faint leading-snug">
+        作者=创意总监 · 主编按阶段执行。大纲与终选须你放行;连写不自动定稿。
+      </div>
+      {/* 生命周期进度 */}
+      {pipeline.length > 0 && (
+        <div className="flex flex-wrap gap-1" data-testid="pilot-pipeline">
+          {pipeline.map((p) => (
+            <span
+              key={p.id}
+              data-status={p.status}
+              className={
+                p.status === 'current' ? 'px-1.5 py-0.5 rounded text-meta bg-brand/15 text-brand font-medium'
+                  : p.status === 'done' ? 'px-1.5 py-0.5 rounded text-meta bg-soft text-faint'
+                    : 'px-1.5 py-0.5 rounded text-meta text-faint/60'
+              }
+            >
+              {p.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-meta font-medium">{PILOT_STATE_LABEL[state] || state}</span>
+        <span className="px-2 py-0.5 rounded-full bg-brand/10 text-brand text-meta font-medium">{stateLabel}</span>
         {st?.stalled && <span className="px-2 py-0.5 rounded-full bg-danger/10 text-danger text-meta">卡住 · 超 30 分未推进</span>}
-        {st?.next_action && !st?.parked && !running && <span className="text-meta text-faint">下一步:{st.next_action}</span>}
+        {nextLabel && !st?.parked && !running && (
+          <span className="text-meta text-faint">下一步:{nextLabel}</span>
+        )}
       </div>
       {st?.parked && <div className="text-meta text-danger bg-danger/8 rounded px-2 py-1.5 leading-snug">停靠:{st.parked}</div>}
+      {/* 作者意图:写入 pilot_steer,提案/草稿最高优先 */}
+      <div className="space-y-1">
+        <label className="text-meta text-faint" htmlFor={`pilot-steer-${seq}`}>本章意图 / 禁忌(可选)</label>
+        <textarea
+          id={`pilot-steer-${seq}`}
+          value={steer}
+          onChange={(e) => setSteer(e.target.value)}
+          placeholder="例:别煽情;章末落铃响;压住老范的戏份"
+          rows={2}
+          className="w-full px-2 py-1.5 rounded-lg border border-line bg-canvas text-meta text-ink resize-y min-h-[2.5rem]"
+        />
+      </div>
       <div className="flex gap-2 flex-wrap">
-        <button disabled={busy || running || state === 'finalized'}
-          onClick={() => act(() => api.pilotStep(seq), '已推进一步')}
-          className="h-7 px-2.5 rounded-lg text-meta bg-brand text-brandfg disabled:opacity-40 cursor-pointer">推进一步 →</button>
+        <button
+          type="button"
+          disabled={busy || running || !canStep}
+          onClick={() => act(() => api.pilotStep(seq, 'manual', steer.trim()), '已推进一步')}
+          className="h-7 px-2.5 rounded-lg text-meta bg-brand text-brandfg disabled:opacity-40 cursor-pointer"
+        >
+          推进一步 →
+        </button>
+        {canApprove && (
+          <button
+            type="button"
+            disabled={busy || running}
+            onClick={doApprove}
+            data-testid="pilot-approve-btn"
+            className="h-7 px-2.5 rounded-lg text-meta bg-brand/90 text-brandfg disabled:opacity-40 cursor-pointer"
+          >
+            {state === 'outline_proposed' ? '确认大纲并继续 →' : '终选定稿 →'}
+          </button>
+        )}
         {(st?.parked || st?.stalled) && (
-          <button disabled={busy} onClick={() => act(() => api.pilotResetStep(seq), '已解卡,可重跑当前步')}
+          <button type="button" disabled={busy} onClick={() => act(() => api.pilotResetStep(seq), '已解卡,可重跑当前步')}
             className="h-7 px-2.5 rounded-lg text-meta bg-soft border border-line text-ink cursor-pointer">解卡</button>
         )}
         {state !== 'idle' && state !== 'finalized' && (
-          <button disabled={busy}
+          <button type="button" disabled={busy}
             onClick={() => { if (window.confirm('退出 Pilot 编排?不动正文/草料,想再用从头 step 即可。')) act(() => api.pilotDismiss(seq), '已退出 Pilot') }}
             className="h-7 px-2.5 rounded-lg text-meta text-faint hover:text-danger cursor-pointer">退出</button>
         )}
       </div>
+      {state === 'outline_proposed' && !st?.parked && (
+        <div className="text-meta text-faint leading-snug">
+          大纲是品味检查点:可先在中区改大纲,再点「确认大纲并继续」(不可用「推进一步」硬闯)。
+        </div>
+      )}
       <div className="border-t border-line pt-2.5">
         {running ? (
           <div className="space-y-1.5">
             <div className="text-meta text-brand inline-flex items-center gap-1.5">
               <Loader2 size={12} className="animate-spin" />连写中 · 第 {run.cur_seq ?? '?'} 章(目标第 {run.until ?? '?'} 章)
             </div>
-            <button disabled={busy} onClick={() => act(() => api.pilotPause(), '已暂停(步边界生效)')}
+            <button type="button" disabled={busy} onClick={() => act(() => api.pilotPause(), '已暂停(步边界生效)')}
               className="h-7 px-2.5 rounded-lg text-meta bg-soft border border-line text-ink cursor-pointer">暂停连写</button>
           </div>
         ) : (
@@ -383,14 +480,25 @@ function PilotDock({ seq }) {
             <span className="text-meta text-faint">连写到第</span>
             <input value={until} onChange={(e) => setUntil(e.target.value.replace(/\D/g, ''))} placeholder={String((seq ?? 0) + 3)}
               className="w-14 h-7 px-2 rounded-lg border border-line bg-canvas text-meta text-center" />
-            <span className="text-meta text-faint">章(终选留你,不自动定稿)</span>
-            <button disabled={busy || !until || untilN < seq}
+            <span className="text-meta text-faint">章(终选留你;大纲在连写中自动越过)</span>
+            <button type="button" disabled={busy || !until || untilN < seq}
               onClick={() => act(() => api.pilotRun(seq, untilN), '连写已启动')}
               className="h-7 px-2.5 rounded-lg text-meta bg-brand text-brandfg disabled:opacity-40 cursor-pointer">开始连写</button>
           </div>
         )}
         {run?.stopped && !running && <div className="text-meta text-faint mt-1.5 leading-snug">上次连写:{run.stopped}</div>}
       </div>
+      <ConfirmDialog
+        open={confirmFinalize}
+        title="终选定稿这一章?"
+        body="将执行 finalize(宪法级终选背书)。确认这就是你要定的稿?"
+        confirmText="终选定稿"
+        onConfirm={() => {
+          setConfirmFinalize(false)
+          act(() => api.pilotApprove(seq, 'delivered'), '已终选定稿')
+        }}
+        onClose={() => setConfirmFinalize(false)}
+      />
     </div>
   )
 }
@@ -463,8 +571,7 @@ return (
 }
 
 // 右栏存档面板:VersionPanel 的「恢复到此版本」在此接线。
-// RightDock 不持有当前 prose / WriteLayout 的 persist 闭包,故 onRestore 直接把该版本正文
-// 经 api.saveChapter 落库到 chapter 正文(保留原 title/focalizer),再 bump refreshKey 刷新存档列表。
+// 走专用 /chapters/{seq}/restore-version:跳过工艺门、留「从存档恢复」checkpoint、默认知重抽。
 // 恢复=覆盖当前正文的危险操作 → ConfirmDialog 二次确认;成功/失败均 toast。
 function RightVersionPanel({ seq, onRestored }) {
   const toast = useToast()
@@ -472,19 +579,16 @@ function RightVersionPanel({ seq, onRestored }) {
   const [pending, setPending] = useState(null)   // 待确认恢复的版本正文(null=无)
   const doRestore = async (prose) => {
     try {
-      // 保留原章标题/focalizer,只覆盖正文;取不到则以 undefined 交后端保持不变。
-      let title, focalizer
-      try { const ch = await api.chapter(seq); title = ch?.title; focalizer = ch?.focalizer } catch { /* 取不到就不带,后端保持原值 */ }
-      await api.saveChapter(seq, prose, title, focalizer)
-      // 审计点:恢复后立刻打一条 checkpoint,避免「只覆盖正文、版本史无痕迹」
-      try {
-        await api.checkpoint(seq, prose, '从存档恢复', 'checkpoint', {})
-      } catch { /* 留版失败不阻断恢复成功态;save-chapter 本身也可能已留 final */ }
+      await api.restoreChapterVersion(seq, {
+        prose,
+        label: '从存档恢复',
+        reingest: true,
+      })
       setRefreshKey((k) => k + 1)
       // F3:落库成功后通知中区 WriteLayout 重拉本章 → 编辑器同步为恢复版,
       // 防止编辑器仍持旧正文、用户续编辑保存时把恢复结果覆盖掉。
       onRestored?.()
-      toast('已恢复到该版本(正文已回写)')
+      toast('已恢复到该版本(正文已回写,知识将按恢复稿重抽)')
     } catch (e) {
       toast('恢复失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' })
     }

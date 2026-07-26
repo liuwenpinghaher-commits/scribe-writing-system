@@ -136,6 +136,7 @@ class TestWriteGate:
         ("PATCH", "/chapters/{seq}"),
         ("POST", "/chapters/{seq}/archive"),
         ("POST", "/chapters/{seq}/restore"),
+        ("POST", "/chapters/{seq}/restore-version"),
         ("DELETE", "/chapters/{seq}"),
         ("POST", "/volumes"),
         ("PATCH", "/volumes/{vid}"),

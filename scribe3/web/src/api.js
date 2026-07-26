@@ -178,6 +178,7 @@ export const api = {
   // 工艺引擎(P0 露出):章前简报 / 角色弧光锚 / 弧光里程碑 / 张力检查(镜像既有方法,work 走 ww 惯例)
   selectChapter: (seq, force = false) => post('/select/chapter', { chapter: seq, force }),   // 北极星任务11:关键章 3 候选(force=非关键章确认后越过)
   selectFinalize: (seq, payload) => post('/select/finalize', { chapter: seq, ...payload }),   // 终选+理由入 lesson
+  selectLatest: (seq) => j(`/select/latest?chapter=${seq}`),   // 刷新后恢复上次备料(无则 404)
   northStarChapter: (seq) => j(`/north-star/chapter/${seq}`),   // 北极星任务10:章级 scorecard
   northStarBook: () => j('/north-star/book'),                   // 北极星任务10:书级四维
   chapterBrief: (seq, focalizer = '') => j(`/chapter-brief?seq=${seq}` + (focalizer ? `&focalizer=${enc(focalizer)}` : '')),
@@ -394,6 +395,9 @@ export const api = {
   qc: (seq, work) => j(`/qc?seq=${seq}`, work),
   // work 可选:卸载兜底 flush / 切章 persist 传入捕获的 work,钉死目标书,防切书写错书。
   saveChapter: (seq, prose, title, focalizer, work) => post('/save-chapter', { seq, prose, title, focalizer }, work),
+  // 版本存档恢复:跳过工艺门、留 checkpoint、默认知重抽(与 save-chapter 分离)
+  restoreChapterVersion: (seq, body, work) => post(
+    `/chapters/${seq}/restore-version`, body || {}, work),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
   // 命名存档点 + 护栏校验(改造③④)
   checkpoint: (seq, prose, label = '', kind = 'checkpoint', qc = {}) =>

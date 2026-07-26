@@ -228,14 +228,61 @@ def list_works(url: str | None = None) -> list[dict]:
         db.close()
 
 
+def _archive_retention_days() -> int:
+    """废弃箱建议保留天数(仅元数据提示,不自动 purge)。环境变量可覆盖,默认 30。"""
+    import os
+    try:
+        return max(0, int(os.environ.get("SCRIBE3_ARCHIVE_RETENTION_DAYS", "30")))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _days_since_archived(archived_at) -> int | None:
+    """计算废弃天数;解析失败返回 None。"""
+    if not archived_at:
+        return None
+    from datetime import datetime, timezone
+    raw = str(archived_at).strip()
+    if not raw:
+        return None
+    try:
+        # Surreal 常给 ISO;容错尾缀 Z
+        iso = raw.replace("Z", "+00:00") if raw.endswith("Z") else raw
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return max(0, int((now - dt).total_seconds() // 86400))
+    except Exception:
+        return None
+
+
 def archived_works(url: str | None = None) -> list[dict]:
-    """废弃箱列表:已废弃的作品,按废弃时间倒序。"""
+    """废弃箱列表:已废弃的作品,按废弃时间倒序。
+
+    附带保留期元数据(不自动删除):
+    - days_in_trash: 已废弃天数
+    - retention_days: 建议保留天数(SCRIBE3_ARCHIVE_RETENTION_DAYS,默认 30)
+    - purge_recommended: 超过建议保留期 → True(仅 UI 提示)
+    """
     db = _reg_conn(url)
     try:
         rows = db.query("SELECT * FROM work WHERE archived = true")
         rows = sorted(rows, key=lambda r: r.get("archived_at") or "", reverse=True)
-        return [{"slug": r.get("slug"), "title": r.get("title"),
-                  "archived_at": r.get("archived_at")} for r in rows]
+        retain = _archive_retention_days()
+        out = []
+        for r in rows:
+            at = r.get("archived_at")
+            days = _days_since_archived(at)
+            out.append({
+                "slug": r.get("slug"),
+                "title": r.get("title"),
+                "archived_at": at,
+                "days_in_trash": days,
+                "retention_days": retain,
+                "purge_recommended": bool(days is not None and retain > 0 and days >= retain),
+            })
+        return out
     finally:
         db.close()
 
