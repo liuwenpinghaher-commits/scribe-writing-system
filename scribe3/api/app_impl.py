@@ -2666,6 +2666,20 @@ def motif_instances(chapter: int = Query(ge=1), work: str = "main"):
     return _store_for(work).list_motif_instances(chapter)
 
 
+@app.get("/motif-schedule")
+def motif_schedule_ep(seq: int = Query(ge=1), work: str = "main"):
+    """相对即将写的章号 seq 的 heat 调度:must_echo / avoid_overuse / rows。"""
+    return _store_for(work).motif_schedule(seq)
+
+
+@app.get("/motifs/{mid}/timeline")
+def motif_timeline_ep(mid: str, work: str = "main"):
+    """单母题跨章触及史(chapter 升序)。母题不存在 → 404。"""
+    st = _store_for(work)
+    if not st.get_motif(mid):
+        raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
+    return st.list_motif_timeline(mid)
+
 @app.get("/chapter-pulse")
 def chapter_pulse_ep(seq: int = Query(ge=1), work: str = "main"):
     """主编主动化 T1:六维脉搏(promise/arc/relation/tension/causal/quality)。
@@ -3552,6 +3566,10 @@ class MotifIn(BaseModel):
     theme: str = ""
     echoes: str = ""
     unfolding: str = ""
+    echo_terms: list[str] | None = None
+    phase: str | None = None
+    tier: str | None = None
+    scope: str | None = None
 
 
 @app.post("/motifs-new")
@@ -3559,14 +3577,19 @@ def add_motif_ep(m: MotifIn, work: str = "main"):
     name = (m.name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="name required")
-    _store_for(work).add_motif(name, m.theme, m.echoes, m.unfolding)
+    _store_for(work).add_motif(
+        name, m.theme, m.echoes, m.unfolding,
+        echo_terms=m.echo_terms, phase=m.phase or "seed",
+        tier=m.tier or "book", scope=m.scope)
     return {"ok": True}
 
 
 @app.patch("/motifs/{mid}")
 def edit_motif(mid: str, m: MotifIn, work: str = "main"):
     st = _store_for(work)
-    fields = {"name": m.name, "theme": m.theme, "echoes": m.echoes, "unfolding": m.unfolding}
+    fields = m.model_dump(exclude_unset=True)
+    if "name" in fields and not str(fields.get("name") or "").strip():
+        raise HTTPException(status_code=422, detail="name required")
     if not st.patch_motif(mid, fields):
         raise HTTPException(status_code=404, detail=f"motif '{mid}' 不存在")
     return {"ok": True}
@@ -4328,24 +4351,19 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
     motifs = _safe(st.list_motifs) if hasattr(st, 'list_motifs') else []
     if motifs:
         if for_generation:
-            # 写作路径:name+theme+echoes 供主动编织(与 _motif_block 同口径,上限 5)
-            entries = []
-            for m in motifs[:5]:
-                name = (m.get("name") or "").strip()
-                if not name:
-                    continue
-                theme = (m.get("theme") or "").strip()
-                echoes = (m.get("echoes") or "").strip()
-                entry = name
-                if theme:
-                    entry += f":{theme}"
-                if echoes:
-                    entry += f"（回声:{echoes}）"
-                entries.append(entry)
-            if entries:
-                parts.append("〔母题·可主动编织〕" + "；".join(entries))
+            # 写作真源:motif_craft heat 调度(must_echo/avoid_overuse),与 brief 同源
+            from scribe3.motif_craft import motif_schedule_directives, generation_motif_block
+            next_ch = int(chapter) if chapter is not None else 1
+            tmap = st.motif_touch_map() if hasattr(st, "motif_touch_map") else {}
+            d = motif_schedule_directives(motifs, tmap, next_ch)
+            block = generation_motif_block(d)
+            if block:
+                parts.append(block)
+            else:
+                names = [m.get("name") for m in motifs[:5] if m.get("name")]
+                if names:
+                    parts.append("〔母题·可主动编织〕" + "；".join(names))
         else:
-            # 主编对话:只列名,详情走 s3_list_motifs(test_editor_no_full_motif_dump)
             names = [m.get("name") for m in motifs[:10] if m.get("name")]
             if names:
                 parts.append("〔母题〕" + "；".join(names))
@@ -5413,12 +5431,20 @@ def _voice_anchor_block(st, focalizer: str = "") -> str:
     return "".join(parts)
 
 
-def _motif_block(st) -> str:
-    """构建母题注入块:列出贯穿母题(name/theme/echoes),供生成时主动编织。
-    空母题表 → 返回空串。上限 5 条,保持 prompt 紧凑。"""
+def _motif_block(st, chapter: int | None = None) -> str:
+    """构建母题注入块(兼容 bt_render / 旧测)。
+
+    写作主路径真源: `_codex_block(..., for_generation=True)` 的 heat 调度块
+    (与 assemble_chapter_brief 同源 motif_craft)。本函数:有 chapter 时走 schedule。
+    """
     motifs = st.list_motifs() or []
     if not motifs:
         return ""
+    if chapter is not None and hasattr(st, "motif_touch_map"):
+        from scribe3.motif_craft import motif_schedule_directives, generation_motif_block
+        d = motif_schedule_directives(motifs, st.motif_touch_map(), int(chapter))
+        block = generation_motif_block(d)
+        return ("\n\n" + block) if block else ""
     lines = ["## 贯穿母题(可主动编织)"]
     for m in motifs[:5]:
         name = m.get("name") or ""

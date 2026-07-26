@@ -1847,13 +1847,18 @@ async def s3_patch_motif(ctx: Context, motif_id: str,
                          theme: str | None = None,
                          echoes: str | None = None,
                          unfolding: str | None = None,
+                         phase: str | None = None,
+                         tier: str | None = None,
+                         scope: str | None = None,
                          work: str | None = None) -> dict:
-    """更正母题(写,待批)。motif_id 为裸 id 或名称。"""
+    """更正母题(写,待批)。motif_id 为裸 id 或名称。
+    phase: seed|echo|turn|payoff|rest; tier: book|volume|arc|chapter。"""
     mid = (motif_id or "").strip()
     if not mid:
         return {"status": "error", "tool": "s3_patch_motif", "error": "motif_id required"}
     fields = {k: v for k, v in (
         ("name", name), ("theme", theme), ("echoes", echoes), ("unfolding", unfolding),
+        ("phase", phase), ("tier", tier), ("scope", scope),
     ) if v is not None}
     if not fields:
         return {"status": "noop", "tool": "s3_patch_motif", "reason": "no fields"}

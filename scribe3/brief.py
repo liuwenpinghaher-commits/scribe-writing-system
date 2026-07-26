@@ -542,6 +542,50 @@ def find_tension_monotony(chapters_meta: list[dict]) -> list[dict]:
     return issues
 
 
+def motif_directives(
+    motifs: list[dict],
+    touched: list[dict] | None = None,
+    *,
+    next_chapter: int | None = None,
+    touch_map: dict | None = None,
+) -> dict:
+    """章前母题段:heat 调度 must_echo/avoid_overuse + 可编织清单 + 上章触及。
+
+    真源:scribe3.motif_craft.motif_schedule_directives(非固定 top-5 全表 dump)。
+    next_chapter/touch_map 缺省时退化为无 heat 的编织列表(兼容旧单测)。
+    """
+    from scribe3.motif_craft import motif_schedule_directives, parse_echo_terms
+    if next_chapter is not None:
+        return motif_schedule_directives(
+            motifs or [], touch_map or {}, int(next_chapter), touched=touched)
+    # 无调度上下文:仅列清单(旧路径)
+    lines: list[str] = []
+    for m in (motifs or [])[:5]:
+        name = (m.get("name") or "").replace("\n", " ").strip()
+        if not name:
+            continue
+        theme = (m.get("theme") or "").replace("\n", " ").strip()
+        terms = parse_echo_terms(m.get("echoes"), m.get("echo_terms"))
+        echoes = "/".join(terms) if terms else (m.get("echoes") or "").replace("\n", " ").strip()
+        entry = name
+        if theme:
+            entry += f"：{theme}"
+        if echoes:
+            entry += f"（回声:{echoes}）"
+        lines.append(entry)
+    touched_lines: list[str] = []
+    for it in touched or []:
+        n = (it.get("name") or it.get("motif_id") or "").replace("\n", " ").strip()
+        if not n:
+            continue
+        e = (it.get("evidence") or "").replace("\n", " ").strip()
+        touched_lines.append(f"{n}" + (f"「{e}」" if e else ""))
+    return {
+        "lines": lines, "touched": touched_lines, "count": len(lines),
+        "must_echo": [], "avoid_overuse": [],
+    }
+
+
 def render_brief(sections: dict) -> str:
     parts = ["## 本章创作简报(章前组装,遵守但不复述)"]
     pu = sections.get("purpose") or {}
@@ -555,6 +599,16 @@ def render_brief(sections: dict) -> str:
         parts.append("【伏笔·待作者决策(阻塞级)】\n" + "\n".join(f"- {x}" for x in pd["decisions"]))
     if pd.get("reminders"):
         parts.append("【伏笔·在窗提醒】" + "；".join(pd["reminders"]))
+    mo = sections.get("motifs") or {}
+    if mo.get("must_echo"):
+        parts.append("【母题·该回声 must_echo】\n" + "\n".join(f"- {x}" for x in mo["must_echo"]))
+    if mo.get("avoid_overuse"):
+        parts.append("【母题·过热避免连刷 avoid_overuse】\n"
+                     + "\n".join(f"- {x}" for x in mo["avoid_overuse"]))
+    if mo.get("lines"):
+        parts.append("【贯穿母题·可主动编织】\n" + "\n".join(f"- {x}" for x in mo["lines"]))
+    if mo.get("touched"):
+        parts.append("【上章触及母题】" + "；".join(mo["touched"]))
     ca = sections.get("causal") or {}
     if ca.get("directives"):   # 北极星任务2:no_event_data/零违规 → directives 空 → 段不渲染
         note = (f"(另有 {ca['overflow']} 条欠账只落面板,未进简报)"
@@ -641,9 +695,23 @@ def assemble_chapter_brief(st, seq: int, focalizer: str = "", target_emotion: st
             stale_rows.append({"name": f"{pa}↔{pb}", "kind": "relation", "last_touch": ch})
     except Exception as e:
         _log.debug("assemble_chapter_brief stale_rows(relation) 失败: %s", e)
+    # 母题真源:list_motifs + motif_touch_map → heat 调度(must_echo/avoid_overuse)
+    # + 上章触及;与写作注入 _codex_block(for_generation) 同源 motif_craft 调度。
+    motif_sec = {"lines": [], "touched": [], "count": 0, "must_echo": [], "avoid_overuse": []}
+    try:
+        motif_rows = st.list_motifs() if hasattr(st, "list_motifs") else []
+        prev_inst = []
+        if max_ch and hasattr(st, "list_motif_instances"):
+            prev_inst = st.list_motif_instances(max_ch) or []
+        tmap = st.motif_touch_map() if hasattr(st, "motif_touch_map") else {}
+        motif_sec = motif_directives(
+            motif_rows or [], prev_inst, next_chapter=next_ch, touch_map=tmap)
+    except Exception as e:
+        _log.debug("assemble_chapter_brief motifs 失败: %s", e)
     sections = {
         "arcs": arcs,
         "promises": promise_directives(rows),
+        "motifs": motif_sec,
         "loops": open_loop_ledger(rows),
         "heartbeat": heartbeat_list(chars_hb, next_ch),
         "stale": stale_entity_directives(stale_rows, next_ch),

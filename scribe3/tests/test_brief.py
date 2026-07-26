@@ -3,12 +3,41 @@
 纯函数(arc_directive/promise_directives/open_loop_ledger/heartbeat_list/render_brief)
 入参全是 plain dict/list,不连库;assemble_chapter_brief 用真库 store 夹具做一条集成测试。
 """
-from scribe3.brief import (arc_directive, promise_directives,
+from scribe3.brief import (arc_directive, promise_directives, motif_directives,
                            open_loop_ledger, heartbeat_list, render_brief,
                            assemble_chapter_brief, validate_beat_budgets,
                            find_tension_monotony, parse_chapter_meta,
                            heat_of, stale_entity_directives,
                            emotion_module_recall, inherited_open_block)
+
+
+def test_motif_directives_and_render():
+    d = motif_directives(
+        [{"name": "铜炉", "theme": "文明余烬", "echoes": "炉火/锈迹"}],
+        [{"name": "铜炉", "evidence": "炉火忽明忽暗"}],
+    )
+    assert d["count"] == 1
+    assert "铜炉" in d["lines"][0] and "文明余烬" in d["lines"][0]
+    assert "炉火" in d["lines"][0]
+    assert any("炉火忽明忽暗" in x for x in d["touched"])
+    text = render_brief({"motifs": d})
+    assert "贯穿母题" in text and "铜炉" in text
+    assert "上章触及" in text
+
+
+def test_motif_directives_with_heat_schedule():
+    motifs = [
+        {"id": "h", "name": "铜炉", "theme": "代价", "echoes": "炉火", "phase": "echo"},
+        {"id": "c", "name": "纸命", "theme": "命如纸", "echo_terms": ["纸人"], "phase": "seed"},
+    ]
+    d = motif_directives(
+        motifs, touched=[{"name": "铜炉", "evidence": "炉"}],
+        next_chapter=10, touch_map={"h": [7, 8, 9], "c": [1]},
+    )
+    assert any("铜炉" in x for x in d["avoid_overuse"])
+    assert any("纸命" in x for x in d["must_echo"])
+    text = render_brief({"motifs": d})
+    assert "must_echo" in text and "avoid_overuse" in text
 
 
 def test_arc_directive():

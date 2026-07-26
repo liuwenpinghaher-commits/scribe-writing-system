@@ -12,8 +12,17 @@ jobs:
       # latest 镜像无默认 CMD 会 unhealthy,导致 job 在 pytest 前失败——只装 CLI 即可。
       - name: Install SurrealDB CLI
         run: |
-          curl -sSf https://install.surrealdb.com | sh
+          set -e
+          for i in 1 2 3 4 5; do
+            if curl -sSf https://install.surrealdb.com | sh; then
+              break
+            fi
+            echo "SurrealDB install attempt $i failed; retrying..."
+            sleep $((i * 5))
+            if [ "$i" -eq 5 ]; then exit 1; fi
+          done
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+          surreal version
       - run: |
           pip install -r scribe3/requirements.txt
           pip install -r scribe3/requirements-dev.txt
@@ -37,8 +46,17 @@ jobs:
       - run: npm run build
       - name: Install SurrealDB CLI
         run: |
-          curl -sSf https://install.surrealdb.com | sh
+          set -e
+          for i in 1 2 3 4 5; do
+            if curl -sSf https://install.surrealdb.com | sh; then
+              break
+            fi
+            echo "SurrealDB install attempt $i failed; retrying..."
+            sleep $((i * 5))
+            if [ "$i" -eq 5 ]; then exit 1; fi
+          done
           echo "$HOME/.surrealdb" >> "$GITHUB_PATH"
+          surreal version
       # e2e_ci.sh 用 scribe3/.venv/bin/python 起临时后端——CI 建同路径 venv
       - name: Backend venv for e2e
         run: |

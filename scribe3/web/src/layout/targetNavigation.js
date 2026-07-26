@@ -124,14 +124,37 @@ export function targetNodeToSelection(raw) {
   }
 
   if (type === 'motif' || type === 'motif_view' || id.startsWith('motif:')) {
+    // 能力分组(本章触及/全书/证据不足…)或显式 motif_view → MotifDetailPane
+    // type=motif 具体叶(设定库/搜索/左栏) → CodexDetail 可编辑
+    const VIEW = new Set(['chapter', 'thin', 'volume', 'book', 'repeat'])
+    let ref = target.ref
+    if (ref == null && id.startsWith('motif:')) {
+      ref = id.slice('motif:'.length)
+    }
+    const refIsGroup = VIEW.has(String(ref ?? ''))
+    if (type === 'motif_view' || refIsGroup) {
+      // motif_view 可带分组键或具体 id;无 ref 时默认全书
+      const viewRef = refIsGroup ? ref : (ref != null && ref !== '' ? ref : 'book')
+      return {
+        entry: 'motif',
+        node: {
+          id: id || `motif:${viewRef}`,
+          type: 'motif_view',
+          ref: viewRef,
+          label: target.label || target.title || '母题详情',
+          payload: target,
+          meta: { seq: target.chapter ?? target.seq },
+        },
+      }
+    }
+    const local = String(ref ?? '').replace(/^motif:/, '')
     return {
-      entry: 'motif',
+      entry: 'codex',
       node: {
-        id: id || `motif:${target.ref || target.label || 'book'}`,
-        type: 'motif_view',
-        ref: target.ref || 'book',
-        label: target.label || target.title || '母题详情',
-        payload: target,
+        id: `motif:${local}`,
+        type: 'motif',
+        ref: local,
+        label: target.label || target.title || local,
         meta: { seq: target.chapter ?? target.seq },
       },
     }

@@ -667,19 +667,14 @@ def audit_chapter_det(
             "C2", "warn", f"causal_complete 失败: {e}",
             hard=False, root_cause_hint="RC-DETECTOR-BUG"))
 
-    # C6 母题 echo 关键词(弱确定)
+    # C6 母题 echo 关键词(弱确定);结构化 echo_terms + 遗留 echoes
+    from scribe3.motif_craft import parse_echo_terms
     motifs = st.list_motifs() if hasattr(st, "list_motifs") else []
     echo_hits = []
     echo_miss = []
     for m in motifs or []:
-        echoes = _strip(m.get("echoes"))
         name = _strip(m.get("name"))
-        tokens = []
-        if echoes:
-            for part in echoes.replace("、", "/").replace(",", "/").split("/"):
-                part = part.strip()
-                if part:
-                    tokens.append(part)
+        tokens = list(parse_echo_terms(m.get("echoes"), m.get("echo_terms")))
         if name:
             tokens.append(name)
         hit = any(tok and tok in body for tok in tokens)

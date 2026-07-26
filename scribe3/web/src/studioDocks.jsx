@@ -635,9 +635,11 @@ function MotifsPanel({ motifs, seq, work, onSelect }) {
     return () => { ignore = true }
   }, [seq, work])
   const list = Array.isArray(inst) ? inst : []
-  const evById = new Map(list.map((i) => [i.motif_id, i.evidence]))
-  const touched = motifs.filter((m) => evById.has(m.id))
-  const rest = motifs.filter((m) => !evById.has(m.id))
+  // 归一 motif_id / m.id(防 motif: 前缀或类型不一致导致「本章触及」永远为空)
+  const normId = (id) => String(id ?? '').replace(/^motif:/, '')
+  const evById = new Map(list.map((i) => [normId(i.motif_id), i.evidence]))
+  const touched = motifs.filter((m) => evById.has(normId(m.id)))
+  const rest = motifs.filter((m) => !evById.has(normId(m.id)))
   return (
     <div>
       <SectionTitle icon={LayoutList}>母题 · 设定库</SectionTitle>
@@ -646,7 +648,7 @@ function MotifsPanel({ motifs, seq, work, onSelect }) {
         {inst === undefined ? <Skeleton className="w-2/3" />
           : inst === null ? <Empty>本章母题加载失败,切走再切回可重试</Empty>
           : touched.length === 0 ? <Empty>本章暂无触及——写/反哺本章后自动检测</Empty>
-          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(m.id)} highlight onSelect={onSelect} />)}
+          : touched.map((m) => <MotifRow key={m.id} m={m} evidence={evById.get(normId(m.id))} highlight onSelect={onSelect} />)}
         {rest.length > 0 && (
           <details className="mt-3">
             <summary className="text-meta uppercase tracking-wider text-faint cursor-pointer list-none">全书母题 · {rest.length}</summary>

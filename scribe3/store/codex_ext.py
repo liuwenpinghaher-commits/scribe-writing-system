@@ -35,8 +35,10 @@ class CodexExtMixin:
                  "kind": r.get("kind"), "note": r.get("note") or ""} for r in rows]
 
     def motif_terms(self) -> set[str]:
-        """刻意母题/专名白名单(≥2字):母题名各部分 + 少量物名/地名/书名。
-        跨章复读判定时放行——乱世铜炉式母题本应复现,只揪'动作/句式偷懒重打'。"""
+        """刻意母题/专名白名单(≥2字):本书母题名 + 结构化 echo_terms(+遗留 echoes) + 物件/术语/世界规则。
+        跨章复读判定时放行——母题本应复现,只揪'动作/句式偷懒重打'。
+        不硬编码单书专名(多书隔离)。"""
+        from scribe3.motif_craft import parse_echo_terms
         terms: set[str] = set()
         for m in self.list_motifs():
             name = (m.get("name") or "")
@@ -46,8 +48,20 @@ class CodexExtMixin:
                 p = part.strip()
                 if len(p) >= 2:
                     terms.add(p)
-        terms.update({"镇煞钉", "灵龙镇煞钉", "奈何谷", "大元炼真经",
-                      "清潭派", "云阳真人", "三百六十", "老槐树"})
+            for p in parse_echo_terms(m.get("echoes"), m.get("echo_terms")):
+                terms.add(p)
+        for it in (self.list_items() or []):
+            n = (it.get("name") or "").strip()
+            if len(n) >= 2:
+                terms.add(n)
+        for t in (self.list_terms() or []):
+            n = (t.get("name") or "").strip()
+            if len(n) >= 2:
+                terms.add(n)
+        for w in (self.list_world_rules() or []):
+            n = (w.get("name") or "").strip()
+            if len(n) >= 2:
+                terms.add(n)
         return terms
 
     def _all_relations(self) -> list[dict]:
@@ -234,31 +248,45 @@ class CodexExtMixin:
         self._execute_write("DELETE term WHERE name=$n", {"n": name})
 
     def get_motif(self, motif_id: str) -> dict | None:
-        mid = (motif_id or "").strip()
-        if mid.startswith("motif:"):
-            mid = mid.split(":", 1)[1].strip()
+        mid = self._norm_motif_id(motif_id)
         if not mid:
             return None
+        sel = ("SELECT meta::id(id) AS id, name, theme, echoes, unfolding, "
+               "echo_terms, phase, tier, scope FROM ")
         rows = self._query(
-            "SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM "
-            "type::record('motif',$m) LIMIT 1", {"m": mid}) or []
-        if rows:
-            return rows[0]
-        # 兼容 name 查找
-        rows = self._query(
-            "SELECT meta::id(id) AS id, name, theme, echoes, unfolding FROM motif "
-            "WHERE name=$n LIMIT 1", {"n": mid}) or []
-        return rows[0] if rows else None
+            sel + "type::record('motif',$m) LIMIT 1", {"m": mid}) or []
+        if not rows:
+            rows = self._query(
+                sel + "motif WHERE name=$n LIMIT 1", {"n": mid}) or []
+        if not rows:
+            return None
+        row = self._motif_row_normalize(rows[0]) if hasattr(self, "_motif_row_normalize") else rows[0]
+        return row
 
     def patch_motif(self, motif_id: str, fields: dict) -> bool:
+        from scribe3.motif_craft import (
+            parse_echo_terms, format_echoes, normalize_phase, normalize_tier)
         row = self.get_motif(motif_id)
         if not row:
             return False
-        mid = row["id"]
-        allowed = {k: v for k, v in (fields or {}).items()
-                   if k in ("name", "theme", "echoes", "unfolding")}
+        mid = self._norm_motif_id(row["id"])
+        allowed_keys = ("name", "theme", "echoes", "unfolding",
+                        "echo_terms", "phase", "tier", "scope")
+        allowed = {k: v for k, v in (fields or {}).items() if k in allowed_keys}
         if not allowed:
             return True
+        # 结构化回声 ↔ 遗留字符串双向同步
+        if "echo_terms" in allowed or "echoes" in allowed:
+            terms = parse_echo_terms(
+                allowed.get("echoes", row.get("echoes")),
+                allowed.get("echo_terms", row.get("echo_terms")))
+            allowed["echo_terms"] = terms
+            if "echoes" not in allowed or not (allowed.get("echoes") or "").strip():
+                allowed["echoes"] = format_echoes(terms)
+        if "phase" in allowed:
+            allowed["phase"] = normalize_phase(allowed.get("phase"))
+        if "tier" in allowed:
+            allowed["tier"] = normalize_tier(allowed.get("tier"))
         self._update_by("motif", mid, allowed)
         return True
 

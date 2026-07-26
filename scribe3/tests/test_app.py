@@ -203,6 +203,16 @@ def test_motif_crud(store):
     assert c.get("/motifs").json() == []
 
 
+def test_codex_block_generation_injects_motif_echoes(store):
+    import scribe3.app as A
+    store.add_motif("铜炉", theme="代价", echoes="炉火", unfolding="X")
+    talk = A._codex_block(store, for_generation=False)
+    assert "铜炉" in talk
+    assert "炉火" not in talk
+    gen = A._codex_block(store, for_generation=True)
+    assert "铜炉" in gen and "代价" in gen and "炉火" in gen
+
+
 def test_intent_crud(store):
     c = _client(store)
     assert c.get("/intent").json()["reader_feeling"] == ""

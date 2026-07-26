@@ -27,8 +27,8 @@ import { nodeCompatibleWithEntry } from './entrySelection'
 
 // 后端 FocusType → targetNodeToSelection 能识别的 hint type。review_issue 走 'issue'
 // 触发 issueNode(补 payload/target_node,并让 DetailPane 路由到 ReviewIssueDetail);
-// promise/motif 经 targetNodeToSelection 产出 promise_view/motif_view,直达
-// PromiseDetailPane/MotifDetailPane(而非落到 CODEX_LEAF 的 CodexDetail)——顺带闭合 M-1。
+// promise 经 targetNodeToSelection 产出 promise_view(台账+时间线);
+// motif 具体 id 产出 type=motif 设定叶(CodexDetail 可编辑),能力分组键才进 MotifDetailPane。
 const DELEGATE_TYPE = {
   character: 'character',
   material: 'material',
