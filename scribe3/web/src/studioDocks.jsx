@@ -206,6 +206,8 @@ function InboxPanel({ seq, onCount }) {
   const pullRef = useRef(null)
   useEffect(() => {
     let dead = false, timer = null
+    // 切章时清空：避免短暂展示上一章 inbox 造成「事项串章」
+    setData(null)
     // Task 8:失败同时向上报 null——Rail badge 与面板同源同真相,不留"面板报错、badge 还挂着旧数"的错位
     const pull = () => api.inbox(seq).then((d) => { if (!dead) { setData(d); onCount?.(d.count) } }).catch(() => { if (!dead) { setData({ items: [], count: 0, failed: true }); onCount?.(null) } })
     pullRef.current = pull
@@ -227,14 +229,33 @@ function InboxPanel({ seq, onCount }) {
   if (!data.items.length) return <Empty>没有等你的事项——主编在岗,一切有账。</Empty>
   const KIND_LABEL = { needs_human: '需人裁决', promotable_lesson: '升格候选', pulse_decision: '章内决策',
     pilot_outline: '大纲待放行', pilot_delivered: '交付待终选', pilot_parked: 'Pilot 停靠',
-    idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章', daily_digest: '每日摘报' }
+    idea_setting: '想法 · 动设定', idea_revise: '想法 · 改旧章', idea_unclear: '想法 · 待澄清',
+    daily_digest: '每日摘报' }
   const approve = (seqP, expectState) =>
     api.pilotApprove(seqP, expectState)
-      .then((r) => { showToast(`第 ${seqP} 章已放行 → ${r.state}`, { tone: 'ok' }); pullRef.current?.() })
+      .then((r) => {
+        showToast(`第 ${seqP} 章已放行 → ${r.state}`, { tone: 'ok' })
+        try { window.dispatchEvent(new CustomEvent('s3-live', { detail: { table: 'chapter' } })) } catch { /* */ }
+        pullRef.current?.()
+      })
       .catch((e) => showToast(e?.body?.detail || '放行失败', { tone: 'danger' }))
   const doResolve = (id) =>
-    api.resolveIdea(id).then(() => { showToast('已处理,移出收件箱', { tone: 'ok' }); pullRef.current?.() })
+    api.resolveIdea(id).then(() => {
+      showToast('已处理,移出收件箱', { tone: 'ok' })
+      try { window.dispatchEvent(new CustomEvent('s3-live', { detail: { table: 'idea' } })) } catch { /* */ }
+      pullRef.current?.()
+    })
       .catch((e) => showToast(e?.body?.detail || '处理失败', { tone: 'danger' }))
+  const doPilotReset = (seqP) =>
+    api.pilotResetStep(seqP).then(() => {
+      showToast(`第 ${seqP} 章已解卡`, { tone: 'ok' })
+      try { window.dispatchEvent(new CustomEvent('s3-live', { detail: { table: 'chapter' } })) } catch { /* */ }
+      pullRef.current?.()
+    })
+      .catch((e) => showToast(e?.body?.detail || '解卡失败', { tone: 'danger' }))
+  const openDeliveredChapter = (seqP) => {
+    try { window.dispatchEvent(new CustomEvent('s3-open-chapter', { detail: { seq: seqP, tab: 'prose' } })) } catch { /* */ }
+  }
   const degraded = data.degraded_sources || []
   return (
     <div className="space-y-2">
@@ -245,18 +266,22 @@ function InboxPanel({ seq, onCount }) {
           部分来源加载失败({degraded.join(' / ')}):清单可能不全,没查≠没病。
         </div>
       )}
-      {data.items.map((it, i) => (
-        <div key={i} className="rounded-lg border border-line bg-canvas px-2.5 py-2">
+      {data.items.map((it) => (
+        <div key={it.id || `${it.kind}:${it.seq || ''}:${(it.message || '').slice(0, 24)}`}
+          className="rounded-lg border border-line bg-canvas px-2.5 py-2"
+          data-testid={`inbox-item-${it.kind}`}>
           <div className="text-meta text-faint mb-0.5">{KIND_LABEL[it.kind] || it.kind}{it.seq ? ` · 第${it.seq}章` : ''}</div>
           <div className="text-f12 text-ink leading-snug">{it.message}</div>
           {/* R2-4:交付卡结构化渲染(埋/收清单+QC+完整拿不准)——此前后端产出前端永不显示 */}
-          {it.kind === 'pilot_delivered' && it.card && <DeliveryCard card={it.card} />}
+          {it.kind === 'pilot_delivered' && it.card && (
+            <DeliveryCard card={it.card} seq={it.seq} onOpenProse={openDeliveredChapter} />
+          )}
           {/* B-8:大纲提案就地可编辑的可发现性——放行会吃到你的最新大纲(expand_beats 重读库) */}
           {it.kind === 'pilot_outline' && (
             <div className="text-meta text-faint mt-0.5 leading-snug">想改?到左栏「项目树/大纲」或中区大纲 tab 编辑后再放行。</div>
           )}
           {it.action?.kind === 'pilot_approve' && (
-            <button onClick={() => {
+            <button type="button" onClick={() => {
               // R1-3:delivered→finalize=宪法级终选背书,二次确认;outline 轻放行直发
               if (it.action.expect_state === 'delivered') setConfirmFinalize({ seq: it.action.payload, expect: it.action.expect_state })
               else approve(it.action.payload, it.action.expect_state)
@@ -265,7 +290,7 @@ function InboxPanel({ seq, onCount }) {
             </button>
           )}
           {it.action?.kind === 'chat' && (
-            <button onClick={() => {
+            <button type="button" onClick={() => {
               // 审查 P0-2:监听者可能未挂载(切 tab 后才渲)——pending 落 sessionStorage,
               // 挂载时消费;事件保留给已挂载者即时响应。
               try { sessionStorage.setItem('s3.chief.seed', it.action.payload) } catch { /* */ }
@@ -275,8 +300,13 @@ function InboxPanel({ seq, onCount }) {
           )}
           {/* R1-5:想法待批 resolve 出口——处理完毕移出收件箱,防 pending_approval 永久积压 */}
           {it.resolve?.kind === 'idea_resolve' && (
-            <button onClick={() => doResolve(it.resolve.payload)}
+            <button type="button" onClick={() => doResolve(it.resolve.payload)}
               className="mt-1 ml-3 text-meta text-faint hover:text-ink hover:underline cursor-pointer">已处理 · 移出 →</button>
+          )}
+          {/* pilot parked 收件箱就地解卡（与 PilotDock 同源 API） */}
+          {it.resolve?.kind === 'pilot_reset' && (
+            <button type="button" onClick={() => doPilotReset(it.resolve.payload)}
+              className="mt-1 ml-3 text-meta text-faint hover:text-ink hover:underline cursor-pointer">解卡 · 重跑当前步 →</button>
           )}
         </div>
       ))}
@@ -293,14 +323,18 @@ function InboxPanel({ seq, onCount }) {
 }
 
 // R2-4:交付卡——主编交付时算的埋/收清单 + QC 命中数 + 自审拿不准,终选决策的关键依据。
-function DeliveryCard({ card }) {
+function DeliveryCard({ card, seq, onOpenProse }) {
   const proms = Array.isArray(card.promises) ? card.promises : []
   const lc = (card.low_confidence || '').trim()
   return (
     <div className="mt-1.5 rounded-md bg-soft/50 border border-line/60 px-2 py-1.5 space-y-1 text-meta">
-      <div className="flex gap-3 text-faint">
+      <div className="flex gap-3 text-faint items-center flex-wrap">
         <span className="tnum">{card.words ?? '?'} 字</span>
         <span className={card.qc ? 'text-danger' : 'text-ok'}>QC {card.qc || 0} 处</span>
+        {seq != null && typeof onOpenProse === 'function' && (
+          <button type="button" onClick={() => onOpenProse(seq)}
+            className="text-brand hover:underline cursor-pointer ml-auto">打开正文 →</button>
+        )}
       </div>
       {proms.length > 0 && <div className="text-fore leading-snug">本章伏笔:{proms.join('、')}</div>}
       {lc && lc !== '无' && <div className="text-fore leading-snug"><span className="text-faint">主编拿不准:</span>{lc}</div>}
