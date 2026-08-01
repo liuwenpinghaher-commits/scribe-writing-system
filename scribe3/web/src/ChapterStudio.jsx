@@ -71,7 +71,7 @@ function adoptFailureMessage(error) {
 // Upstream 内容岛:浅灰画布上白卡抬升;外层 scroll 仍由章工作台 canvas 承担
 // 第三栏内容流:无套娃 elevated 卡,画布上直接排信息,多给字少给框。
 const STAGE_WRAP = 'w-full max-w-[56rem] mx-auto px-5 py-4 flex flex-col min-h-0 gap-3'
-const STAGE_ACTIONS = 'flex items-center gap-2 shrink-0 flex-wrap justify-end'
+const STAGE_ACTIONS = 'flex w-full items-center gap-2 flex-wrap justify-end'
 /** 大纲/节拍/草稿只读与编辑共用 stage 字号，避免阶段间忽大忽小 */
 const STAGE_BODY = 'type-stage'
 // hover 才显的行内操作(移动/删除):键盘 Tab 聚焦 + 触屏无 hover 时也可达。
@@ -146,12 +146,12 @@ function DeduceSoftGateBanner({ meta, onGoDeduce }) {
 
 function StageTitle({ title, subtitle, actions }) {
   return (
-    <div className="flex items-start justify-between gap-4 min-w-0">
+    <div className="flex flex-col items-stretch gap-2 min-w-0" data-testid="chapter-stage-title">
       <div className="min-w-0">
         <h3 data-testid="chapter-stage-heading" className="type-section text-ink">{title}</h3>
         <div className="mt-1 text-helper text-faint leading-snug">{subtitle}</div>
       </div>
-      {actions && <div className={STAGE_ACTIONS}>{actions}</div>}
+      {actions && <div className={STAGE_ACTIONS} data-testid="chapter-stage-actions">{actions}</div>}
     </div>
   )
 }

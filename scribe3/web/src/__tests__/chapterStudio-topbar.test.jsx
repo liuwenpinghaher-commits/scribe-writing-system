@@ -84,6 +84,19 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     expect(screen.getByTestId('chapter-stage-heading').textContent).toBe('草稿')
   })
 
+  it('草稿窄栏中标题与操作分层，操作区可在本栏换行', async () => {
+    render(<Harness initialPhase="draft" />)
+
+    const title = await screen.findByTestId('chapter-stage-title')
+    const actions = screen.getByTestId('chapter-stage-actions')
+
+    // 详情栏与主编栏会并排。草稿的五个动作不能挤压标题/说明到逐字竖排，
+    // 因此标题和动作必须是垂直的两个布局区，动作行自身占满可用宽度并换行。
+    expect(title.className).toContain('flex-col')
+    expect(actions.className).toContain('w-full')
+    expect(actions.className).toContain('flex-wrap')
+  })
+
   it('正文阶段在布局导致工作台重挂时不被初始大纲指令覆盖', async () => {
     const first = render(<Harness initialPhase="outline" />)
 
