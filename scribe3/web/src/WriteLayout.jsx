@@ -139,7 +139,7 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const dirtyRef = useRef({ seq: chapter, prose: '', chTitle: '', focalizer: '', dirty: false })
   const [btns, setBtns] = useState(() => loadButtons(work))
   // 断头修复#12:右栏 tab 由 RightDock(usePref)独立持有——原 rightActive 死状态删除,
-  // "让主编改这处"等改经窗口事件切右栏到主编 tab(RightDock 端监听 s3-right-tab)。
+  // "让主编改这处"等操作经窗口事件交给 FourPaneShell 统一切换并展开主编栏。
   const focusChiefTab = () => {
     try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
   }

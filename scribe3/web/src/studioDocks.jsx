@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitCompare, Compass, FolderTree, Eye, Sparkles, Bookmark, LayoutList, ShieldCheck, MessageSquare, Archive, TriangleAlert, Check, ScrollText, Gauge, Loader2, Search, Bot, BookOpen, Library } from 'lucide-react'
 import { Rail } from './shell'
 import { cn } from './lib/utils'
@@ -537,7 +537,7 @@ function PilotDock({ seq }) {
   )
 }
 
-export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollapse }) {
+export function useRightDockController({ sel, chapterSel, seq, lastSeq, onRestored }) {
   const [tab, setTab] = usePref('s3.rightTab', 'chief')
   // Task 8:undefined=尚未拉到(未知),null=拉取失败(未知),number=真实待办数。
   // 此前 useState(0)+静默 catch 把失败谎报成"0 待办"——收件箱是 needs_human 的唯一出口,
@@ -546,59 +546,63 @@ export function RightDock({ sel, chapterSel, seq, lastSeq, onRestored, onCollaps
   // 审查 P1-9:badge 常驻拉取(此前依赖面板挂载,badge 恒 0 是死指标);
   // live 按表过滤+600ms 防抖(P1-8 同款,防 ingest 期风暴)。
   useEffect(() => {
-    let timer = null, dead = false
+    let timer = null
+    let dead = false
     const pull = () => api.inbox(seq)
-      .then((d) => { if (!dead) setInboxCount(typeof d?.count === 'number' ? d.count : 0) })
+      .then((data) => { if (!dead) setInboxCount(typeof data?.count === 'number' ? data.count : 0) })
       .catch(() => { if (!dead) setInboxCount(null) })
     pull()
-    const TABLES = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard', 'idea'])   // R2-5:+idea/lesson
-    const onLive = (e) => {
-      if (!TABLES.has(e?.detail?.table)) return
-      clearTimeout(timer); timer = setTimeout(pull, 600)
+    const tables = new Set(['chapter', 'promise', 'lesson', 'chapter_scorecard', 'idea'])
+    const onLive = (event) => {
+      if (!tables.has(event?.detail?.table)) return
+      clearTimeout(timer)
+      timer = setTimeout(pull, 600)
     }
     window.addEventListener('s3-live', onLive)
-    return () => { dead = true; clearTimeout(timer); window.removeEventListener('s3-live', onLive) }
+    return () => {
+      dead = true
+      clearTimeout(timer)
+      window.removeEventListener('s3-live', onLive)
+    }
   }, [seq])
-  // 断头修复#12:中区"让主编改这处/体检送主编"需要把右栏切到主编 tab——
-  // 此前 WriteLayout 的 setRightActive 信号无人消费;现经窗口事件接通。
-  useEffect(() => {
-    const on = (e) => { if (e?.detail) setTab(String(e.detail)) }
-    window.addEventListener('s3-right-tab', on)
-    return () => window.removeEventListener('s3-right-tab', on)
-  }, [setTab])
   const caps = useMemo(() => {
     // Task 8 · scope 作用域分组(裁决):chief/selection 作用于「当前对象」(随选中变),
     // context/versions/pilot 作用于「章节」(选中章才有意义),inbox 是「全局」常驻。
     // key 全部保留不动——s3.rightTab 偏好与 s3-right-tab 事件继续按旧 key 工作。
-    const c = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
+    const next = [{ key: 'chief', icon: MessageSquare, label: '主编', bare: true, scope: 'object', render: () => <ChiefDock sel={sel} chapterSel={chapterSel} lastSeq={lastSeq} /> }]
     // (2026-07-12 裁决:「章节辅助」capability 已迁出右栏——入口在章工作台头部,点击全宽层展现
     //  (ChapterStudio.jsx);栏4 还给主编对话。旧 s3.rightTab='context' 偏好由下方失效回退兜底。)
-    if (seq != null) c.push({ key: 'selection', icon: GitCompare, label: '选择环 · 轻选/重选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
-    if (seq != null) c.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
+    if (seq != null) next.push({ key: 'selection', icon: GitCompare, label: '选择环 · 轻选/重选', scope: 'object', render: () => <div className="p-3"><SelectionPanel seq={seq} onFinalized={onRestored} /></div> })   // P2审查P1-2:终选落库=恢复语义,bump restoreTick 防编辑器stale buffer盖稿
+    if (seq != null) next.push({ key: 'versions', icon: Archive, label: '存档', scope: 'chapter', render: () => <div className="p-3"><RightVersionPanel seq={seq} onRestored={onRestored} /></div> })
     // R1-4:Pilot 驾驶舱——章生命周期状态机 UI 起点(推进/连写/暂停/解卡/退出)
-    if (seq != null) c.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
+    if (seq != null) next.push({ key: 'pilot', icon: Bot, label: 'Pilot · 主编驾驶', scope: 'chapter', render: () => <div className="p-3"><PilotDock seq={seq} /></div> })
     // 主编主动化 T4:决策收件箱——badge=等作者事项数(needs_human/升格候选/pulse decision);
     // Task 8 三态:数字仅真实拿到且>0 时显示;undefined=首拉悬挂期 badge 留空不显
     //(有意取舍:防每次挂载先闪「?」再变数字);null=拉取失败,才转 badgeUnknown 显「?」。
-    c.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', scope: 'global',
+    next.push({ key: 'inbox', icon: TriangleAlert, label: '收件箱 · 等你决策', scope: 'global',
       badge: typeof inboxCount === 'number' && inboxCount > 0 ? inboxCount : undefined,
       badgeUnknown: inboxCount === null ? '收件箱状态未知' : undefined,
       render: () => <div className="p-3"><InboxPanel seq={seq} onCount={setInboxCount} /></div> })
-    return c
-  }, [sel, chapterSel, seq, onRestored, inboxCount])
-  const active = caps.find((c) => c.key === tab) || caps[0]
-  useEffect(() => { if (!caps.find((c) => c.key === tab)) setTab('chief') }, [caps, tab, setTab])
-return (
-    <div className="h-full flex min-h-0 min-w-0 bg-surface overflow-hidden">
-      {/* 崩溃隔离:右栏面板(主编对话/存档)包一层边界,右栏崩溃不影响中区书稿与左栏。
-          key=tab+章 → 切 tab / 切章时重建复位。
-          min-w 保证内容区不会被压成「一列汉字竖排」的死条。 */}
-      <div className={cn('flex-1 min-w-0 min-h-0 overflow-hidden', active.bare ? '' : 'overflow-y-auto bg-canvas/30')}>
+    return next
+  }, [sel, chapterSel, seq, lastSeq, onRestored, inboxCount])
+  const active = caps.find((cap) => cap.key === tab) || caps[0]
+  const activate = useCallback((key) => {
+    setTab(caps.some((cap) => cap.key === key) ? key : 'chief')
+  }, [caps, setTab])
+
+  useEffect(() => {
+    if (!caps.some((cap) => cap.key === tab)) setTab('chief')
+  }, [caps, tab, setTab])
+
+  return { caps, active, activeKey: active.key, activate }
+}
+
+export function RightDock({ active, seq }) {
+  if (!active) return null
+  return (
+    <div data-testid="right-dock-content" className="h-full min-h-0 min-w-0 bg-surface overflow-hidden">
+      <div className={cn('h-full min-w-0 min-h-0 overflow-hidden', active.bare ? '' : 'overflow-y-auto bg-canvas/30')}>
         <ErrorBoundary key={`${active.key}:${seq ?? ''}`}>{active.render()}</ErrorBoundary>
-      </div>
-      {/* 同左栏:点当前项=折叠信号 → 收起右栏 · 固定宽轨,不参与挤压 */}
-      <div className="shrink-0 shadow-[-1px_0_0_0_color-mix(in_srgb,var(--color-line)_60%,transparent)]">
-        <Rail side="right" caps={caps} active={active.key} onActive={(k) => (k ? setTab(k) : onCollapse?.())} />
       </div>
     </div>
   )

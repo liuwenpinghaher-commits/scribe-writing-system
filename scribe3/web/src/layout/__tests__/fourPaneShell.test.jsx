@@ -63,18 +63,21 @@ vi.mock('../../DeduceStage', () => ({
 }))
 
 vi.mock('../../studioDocks', async () => {
+  const React = await vi.importActual('react')
   const actual = await vi.importActual('../../studioDocks')
   return {
     ...actual,
-    // 模拟右轨「再点当前 tab = 收起」：不另挂浮层收起钮
-    RightDock: ({ sel, lastSeq, onCollapse }) => (
-      <div>
-        <aside data-testid="chief">{`${sel?.mode || 'none'}:${lastSeq ?? ''}`}</aside>
-        <button type="button" aria-label="主编" aria-pressed="true" onClick={() => onCollapse?.()}>
-          主编
-        </button>
-      </div>
-    ),
+    useRightDockController: ({ seq }) => {
+      const [activeKey, setActiveKey] = React.useState('chief')
+      const caps = [
+        { key: 'chief', label: '主编', scope: 'object', render: () => <aside data-testid="chief">主编内容</aside> },
+        ...(seq != null ? [{ key: 'versions', label: '存档', scope: 'chapter', render: () => <aside data-testid="versions">存档内容</aside> }] : []),
+        { key: 'inbox', label: '收件箱 · 等你决策', scope: 'global', badge: 3, render: () => <aside data-testid="inbox">收件箱内容</aside> },
+      ]
+      const active = caps.find((cap) => cap.key === activeKey) || caps[0]
+      return { caps, active, activeKey: active.key, activate: (key) => setActiveKey(caps.some((cap) => cap.key === key) ? key : 'chief') }
+    },
+    RightDock: ({ active }) => <div data-testid="right-dock-content">{active.render()}</div>,
   }
 })
 
@@ -346,6 +349,44 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(screen.queryByTestId('chief')).toBeNull()
     expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('1')
     expect(Number(screen.getByTestId('detail-panel').getAttribute('data-max-size'))).toBe(100)
+  })
+
+  it('协作入口并入唯一左轨，右栏不再渲染第二轨', () => {
+    render(<Harness />)
+    expect(screen.getAllByTestId('unified-entry-rail')).toHaveLength(1)
+    expect(within(screen.getByTestId('collaboration-rail')).getByRole('button', { name: '主编' })).toBeTruthy()
+    expect(screen.queryByTestId('right-capability-rail')).toBeNull()
+    expect(within(screen.getByTestId('right-panel')).queryByTestId('unified-entry-rail')).toBeNull()
+    expect(screen.getByTestId('right-dock-content').querySelector('.w-\\[56px\\]')).toBeNull()
+  })
+
+  it('展开时再点当前协作入口折叠，折叠时再点同一入口重新展开', () => {
+    render(<Harness />)
+    const chief = screen.getByRole('button', { name: '主编' })
+    fireEvent.click(chief)
+    expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('1')
+    expect(screen.getByRole('button', { name: '主编' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '主编' }))
+    expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('0')
+    expect(screen.getByTestId('chief')).toBeTruthy()
+  })
+
+  it('s3-right-tab 在右栏折叠时切换入口并展开', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: '主编' }))
+    fireEvent(window, new CustomEvent('s3-right-tab', { detail: 'inbox' }))
+    await waitFor(() => expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('0'))
+    expect(screen.getByTestId('inbox')).toBeTruthy()
+  })
+
+  it('s3-expand-right 保留当前入口并重新展开', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: /收件箱/ }))
+    fireEvent.click(screen.getByRole('button', { name: /收件箱/ }))
+    expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('1')
+    fireEvent(window, new CustomEvent('s3-expand-right'))
+    await waitFor(() => expect(screen.getByTestId('right-panel').getAttribute('data-collapsed')).toBe('0'))
+    expect(screen.getByTestId('inbox')).toBeTruthy()
   })
 
   it('四栏根与右坞使用 overflow/min-w 裁切,防拖窄后整页散架', () => {

@@ -55,9 +55,16 @@ vi.mock('../studioDocks', async () => {
   const actual = await vi.importActual('../studioDocks')
   return {
     ...actual,
-    RightDock: ({ sel, lastSeq }) => (
-      <aside data-testid="chief">{`${sel?.mode || 'none'}:${lastSeq ?? ''}`}</aside>
-    ),
+    useRightDockController: ({ sel, lastSeq }) => {
+      const active = {
+        key: 'chief',
+        label: '主编',
+        scope: 'object',
+        render: () => <aside data-testid="chief">{`${sel?.mode || 'none'}:${lastSeq ?? ''}`}</aside>,
+      }
+      return { caps: [active], active, activeKey: active.key, activate: () => {} }
+    },
+    RightDock: ({ active }) => active.render(),
   }
 })
 

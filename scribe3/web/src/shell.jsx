@@ -54,51 +54,55 @@ const RIGHT_GROUPS = [
   { key: 'global', label: '全局' },
 ]
 
-export function Rail({ side, caps, active, onActive }) {
-  const btn = (cap) => (
-    <RailBtn key={cap.key} cap={cap} label={shortLabel(cap)} badge={cap.badge}
-      on={active === cap.key} onClick={() => onActive(active === cap.key ? '' : cap.key)} />
-  )
-  // 右轨(Task 8):按 scope 三组渲染(当前对象/章节/全局),组挂 role="group"+aria-label
-  // 供辅助技术识别;与左轨同一兜底纪律:未标 scope 的能力照旧补渲在末尾,绝不因分组丢入口。
-  // (与左轨的分组循环刻意保持两份:左轨是 T3 定稿,共用抽象就得改它——零触碰优先于去重。)
-  if (side === 'right') {
-    const unscoped = caps.filter((c) => !RIGHT_GROUPS.some((g) => g.key === c.scope))
-    return (
-      <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2.5 gap-2.5 border-l border-line/60">
-        {RIGHT_GROUPS.map((group) => {
-          const items = caps.filter((c) => c.scope === group.key)
-          if (items.length === 0) return null
-          return (
-            <div key={group.key} role="group" aria-label={group.label}
-              className="flex flex-col gap-0.5 border-b border-line/50 pb-2.5 last:border-0 last:pb-0">
-              {items.map(btn)}
-            </div>
-          )
-        })}
-        {unscoped.length > 0 && (
-          <div className="flex flex-col gap-0.5">{unscoped.map(btn)}</div>
-        )}
-      </div>
-    )
-  }
-  // 左轨:按组渲染。空组不出框(旧三栏 LeftDock 的非拆分入口也全部落进三组,不会空);
-  // 兜底:万一有未归组的能力(未来新增/漏标),照旧扁平补渲在末尾,绝不因分组而丢入口。
-  const ungrouped = caps.filter((c) => !GROUPS.some((g) => g.key === c.group))
+function GroupedRailSections({ groups, caps, renderButton }) {
+  const known = new Set(groups.map((group) => group.key))
+  const ungrouped = caps.filter((cap) => !known.has(cap.group || cap.scope))
   return (
-    <div className="w-[56px] shrink-0 bg-surface flex flex-col px-1 py-2.5 gap-2.5 border-r border-line/60">
-      {GROUPS.map((group) => {
-        const items = caps.filter((c) => c.group === group.key)
+    <>
+      {groups.map((group) => {
+        const items = caps.filter((cap) => (cap.group || cap.scope) === group.key)
         if (items.length === 0) return null
         return (
           <div key={group.key} role="group" aria-label={group.label}
             className="flex flex-col gap-0.5 border-b border-line/50 pb-2.5 last:border-0 last:pb-0">
-            {items.map(btn)}
+            {items.map(renderButton)}
           </div>
         )
       })}
-      {ungrouped.length > 0 && (
-        <div className="flex flex-col gap-1">{ungrouped.map(btn)}</div>
+      {ungrouped.length > 0 && <div className="flex flex-col gap-0.5">{ungrouped.map(renderButton)}</div>}
+    </>
+  )
+}
+
+export function Rail({
+  side,
+  caps,
+  active,
+  onActive,
+  secondaryCaps = [],
+  secondaryActive,
+  onSecondaryClick,
+}) {
+  const primaryButton = (cap) => (
+    <RailBtn key={cap.key} cap={cap} label={shortLabel(cap)} badge={cap.badge}
+      on={active === cap.key} onClick={() => onActive(active === cap.key ? '' : cap.key)} />
+  )
+  const secondaryButton = (cap) => (
+    <RailBtn key={cap.key} cap={cap} label={shortLabel(cap)} badge={cap.badge}
+      on={secondaryActive === cap.key} onClick={() => onSecondaryClick?.(cap.key)} />
+  )
+
+  return (
+    <div data-testid="unified-entry-rail"
+      className="w-[56px] h-full min-h-0 shrink-0 bg-surface flex flex-col border-r border-line/60">
+      <div data-testid="primary-rail-scroll" className="flex-1 min-h-0 overflow-y-auto px-1 py-2.5 flex flex-col gap-2.5">
+        <GroupedRailSections groups={GROUPS} caps={caps} renderButton={primaryButton} />
+      </div>
+      {secondaryCaps.length > 0 && (
+        <div data-testid="collaboration-rail"
+          className="shrink-0 max-h-[48%] overflow-y-auto border-t border-line/60 px-1 py-2 flex flex-col gap-2.5">
+          <GroupedRailSections groups={RIGHT_GROUPS} caps={secondaryCaps} renderButton={secondaryButton} />
+        </div>
       )}
     </div>
   )

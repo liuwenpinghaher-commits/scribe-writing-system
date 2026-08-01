@@ -425,7 +425,10 @@ function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
         actions={(
           <>
             <span className="text-meta text-faint tnum">{wc} 字</span>
-            <Btn variant="ghost" size="sm" onClick={() => setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })} title="把话术带到右栏主编,生成后可一键填入">
+            <Btn variant="ghost" size="sm" onClick={() => {
+              setChiefIntent({ phase: 'draft', seq, text: `据大纲和节拍给第 ${seq} 章写一版草稿` })
+              try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ }
+            }} title="把话术带到右栏主编,生成后可一键填入">
               <Sparkles size={13} />让主编生成
             </Btn>
             <Btn variant="ghost" size="sm" disabled={checking || !text.trim()}

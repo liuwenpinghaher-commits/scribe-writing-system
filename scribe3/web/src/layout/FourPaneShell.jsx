@@ -1,4 +1,4 @@
-import { RightDock, useLeftDockCapabilities } from '../studioDocks'
+import { RightDock, useLeftDockCapabilities, useRightDockController } from '../studioDocks'
 import { DetailPane } from '../DetailPane'
 import { Rail } from '../shell'
 import { ErrorBoundary } from '../ErrorBoundary'
@@ -89,6 +89,7 @@ export function FourPaneShell({
   const layoutResizeReadyRef = useRef(false)
   // expand 动画中 size 会短暂 <0.5%；此窗口内禁止 onResize 再写折叠。
   const ignoreRightCollapseUntilRef = useRef(0)
+  const expandRightPanelRef = useRef(() => {})
   const { chapterPhase } = useChiefSlot()
   const { caps, active, setTab } = useLeftDockCapabilities({
     tree,
@@ -117,6 +118,13 @@ export function FourPaneShell({
   // 的选中态与 revision 同帧翻页;未导航(Provider 缺席/本地模式)时降级直通原 sel。
   // 事件回调仍只改本地 sel/onSelectNode——投影是只读的下行,不改变上行写路径。
   const effectiveSel = navigated ? selectionFromSnapshot(snapshot, sel) : sel
+  const rightDockController = useRightDockController({
+    sel: effectiveSel,
+    chapterSel,
+    seq: curSeq,
+    lastSeq: leftSeq,
+    onRestored,
+  })
   // isView 读投影后的 effectiveSel(而非本地 sel):栏2 显隐 / 栏3 minSize / 目录折叠
   // effect 全由它驱动,内容也读 effectiveSel——两者同源才不会在跨 view 边界对齐时
   // 布局与内容自相矛盾。降级(navigated=false)时 effectiveSel===sel,行为不变。
@@ -243,14 +251,29 @@ export function FourPaneShell({
     writeCollapsed(work, 'right', false)
     callPanel(rightRef.current, 'expand')
   }
-  // e2e / 外部：s3-expand-right 强制展开主编（避免仅靠 DOM 点把手失败）
-  const expandRightPanelRef = useRef(() => {})
+  // e2e / 外部：s3-expand-right 仅展开右栏并保留当前能力（避免仅靠 DOM 点把手失败）
   expandRightPanelRef.current = expandRightPanel
   useEffect(() => {
     const onExpand = () => expandRightPanelRef.current?.()
     window.addEventListener('s3-expand-right', onExpand)
     return () => window.removeEventListener('s3-expand-right', onExpand)
   }, [])
+  useEffect(() => {
+    const onRightTab = (event) => {
+      rightDockController.activate(String(event?.detail || 'chief'))
+      expandRightPanelRef.current?.()
+    }
+    window.addEventListener('s3-right-tab', onRightTab)
+    return () => window.removeEventListener('s3-right-tab', onRightTab)
+  }, [rightDockController.activate])
+  const handleRightCapabilityClick = (key) => {
+    if (!rightCollapsed && key === rightDockController.activeKey) {
+      collapseRightPanel()
+      return
+    }
+    rightDockController.activate(key)
+    expandRightPanel()
+  }
   // rail 点击与 s3-open-capability 共用：一次 plan → 一次 navigate + 可选 onSelectNode
   const applyEntryKey = (nextKey) => {
     if (!nextKey) return
@@ -495,9 +518,7 @@ export function FourPaneShell({
         {renderRestoreButtons('right')}
         {!rightCollapsed && (
           <div className="relative h-full min-h-0 min-w-0 max-w-full overflow-hidden" data-testid="right-dock" data-context-revision={ctxRevision}>
-            {/* 收起唯一入口：右轨再点当前 tab（主编等）→ onCollapse；不叠右上角浮钮 */}
-            <RightDock sel={effectiveSel} chapterSel={chapterSel} seq={curSeq} lastSeq={leftSeq}
-              onRestored={onRestored} onCollapse={collapseRightPanel} />
+            <RightDock active={rightDockController.active} seq={curSeq} />
           </div>
         )}
       </div>
@@ -523,7 +544,15 @@ export function FourPaneShell({
     >
       <div className="flex-1 min-h-0 min-w-0 flex overflow-hidden">
         <div className="w-14 shrink-0 bg-surface overflow-hidden shadow-[1px_0_0_0_color-mix(in_srgb,var(--color-line)_70%,transparent)]" data-testid="left-entry-rail">
-          <Rail side="left" caps={caps} active={activeCap?.key} onActive={handleActive} />
+          <Rail
+            side="left"
+            caps={caps}
+            active={activeCap?.key}
+            onActive={handleActive}
+            secondaryCaps={rightDockController.caps}
+            secondaryActive={rightDockController.activeKey}
+            onSecondaryClick={handleRightCapabilityClick}
+          />
         </div>
         {/* key=mode:切换协作/阅读时重挂 Group,应用该 mode 的 defaultLayout */}
         <Group

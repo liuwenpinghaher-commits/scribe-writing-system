@@ -455,4 +455,28 @@ describe('ChapterStudio outline seed CTA (real UI)', () => {
     expect(tabs).toContain('chief')
     expect(apiMock.patchChapter).not.toHaveBeenCalled()
   })
+
+  it('draft 让主编生成会预填话术并通过统一事件聚焦主编', async () => {
+    const tabs = []
+    const onRightTab = (event) => tabs.push(event.detail)
+    window.addEventListener('s3-right-tab', onRightTab)
+
+    try {
+      renderStudio({ seq: 3 })
+      fireEvent.click(await screen.findByRole('tab', { name: '草稿' }))
+      const draft = await screen.findByTestId('chapter-workbench-shell')
+      expect(draft.getAttribute('data-phase')).toBe('draft')
+
+      fireEvent.click(within(draft).getByRole('button', { name: '让主编生成' }))
+
+      expect(tabs).toContain('chief')
+      expect(JSON.parse(screen.getByTestId('chief-intent-sentinel').textContent)).toEqual({
+        phase: 'draft',
+        seq: 3,
+        text: '据大纲和节拍给第 3 章写一版草稿',
+      })
+    } finally {
+      window.removeEventListener('s3-right-tab', onRightTab)
+    }
+  })
 })

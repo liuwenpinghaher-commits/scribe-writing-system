@@ -78,7 +78,16 @@ vi.mock('../../studioDocks', async () => {
   const actual = await vi.importActual('../../studioDocks')
   return {
     ...actual,
-    RightDock: ({ sel }) => <aside data-testid="chief">{sel?.node?.id || 'none'}</aside>,
+    useRightDockController: ({ sel }) => {
+      const active = {
+        key: 'chief',
+        label: '主编',
+        scope: 'object',
+        render: () => <aside data-testid="chief">{sel?.node?.id || 'none'}</aside>,
+      }
+      return { caps: [active], active, activeKey: active.key, activate: () => {} }
+    },
+    RightDock: ({ active }) => active.render(),
   }
 })
 
