@@ -35,6 +35,7 @@ vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: () => <div data-testid="no
 vi.mock('../DeduceStage', () => ({ DeduceStage: ({ seq, meta }) => <div>演绎工作台:{seq}:{meta?.scene_truth || ''}</div> }))
 vi.mock('../quality/ReferenceWorks', () => ({ ReferenceWorks: ({ work }) => <div data-testid="reference-works">参考作品:{work}</div> }))
 vi.mock('../quality/QualityReview', () => ({ QualityReview: ({ work, seq }) => <div data-testid="quality-review">质量审阅:{work}:{seq}</div> }))
+vi.mock('../quality/QualityContractEditor', () => ({ QualityContractEditor: ({ work }) => <div data-testid="quality-contract">质量合同:{work}</div> }))
 
 describe('DetailPane 能力详情路由', () => {
   beforeEach(() => {
@@ -118,6 +119,22 @@ describe('DetailPane 能力详情路由', () => {
     render(<DetailPane sel={{ mode: 'node', node: { id: 'quality:7', type: 'quality_review', label: '质量审阅', ref: { seq: 7 } } }} work="demo" onSelectNode={() => {}} />)
     expect(screen.getByTestId('quality-review')).toBeTruthy()
     expect(screen.getByText('质量审阅:demo:7')).toBeTruthy()
+  })
+
+  it('quality_review 没有节点章号时沿用最近选择的章节', () => {
+    render(<DetailPane
+      sel={{ mode: 'node', node: { id: 'quality_review', type: 'quality_review', label: '质量审阅', ref: null } }}
+      work="demo"
+      qualitySeq={7}
+      onSelectNode={() => {}}
+    />)
+    expect(screen.getByText('质量审阅:demo:7')).toBeTruthy()
+  })
+
+  it('quality_contract 节点渲染全字段质量合同编辑器', () => {
+    render(<DetailPane sel={{ mode: 'node', node: { id: 'quality_contract', type: 'quality_contract', label: '质量合同' } }} work="demo" onSelectNode={() => {}} />)
+    expect(screen.getByTestId('quality-contract')).toBeTruthy()
+    expect(screen.getByText('质量合同:demo')).toBeTruthy()
   })
 
   it('promise_view 渲染真实伏笔台账,不是占位说明', async () => {

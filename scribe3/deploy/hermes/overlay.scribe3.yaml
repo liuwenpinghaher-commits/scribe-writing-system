@@ -1,15 +1,20 @@
 # 读 profile(:8643 主编 agentic 只读联查)——scribe3 拥有的键(overlay)。
 # mcp_servers 由 provision 从共享 mcp_servers.yaml 注入(此处不写,避免白名单两份漂移)。
-# 只激活 scribe3_read(只读工具面);写工具虽被定义但不激活,agentic 联查够不着写。
+# Hermes 会把 MCP server 动态注册为 mcp-<server> 工具面；只激活只读面，
+# 即使写 server 被配置也不会暴露给 agentic 联查。
 platform_toolsets:
   api_server:
     - scribe3_read
+agent:
+  # Qwen 不在 Hermes auto 的工具执行引导名单内；检索型主编不能只口述“我会核实”。
+  tool_use_enforcement: true
 platforms:
   api_server:
     port: 8643
     host: 127.0.0.1
 
-# P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(deepseek-v4-pro,coding plan)故障时
+# P4(hermes 能力审查 2026-07-17):模型兜底链——主模型(阿里云 TokenPlan /
+# qwen3.8-max-preview)故障时
 # agent loop(conversation_loop 消费 get_fallback_chain)自动切换,三网关同配。
 # 两个兜底模型均经真机探针实证可用(同一 ark coding key;kimi 中文长文优先)。
 # 这是基础设施韧性(同 DB 重连 S-1,U-011 豁免类),切换在 hermes 侧有日志,非静默降级。

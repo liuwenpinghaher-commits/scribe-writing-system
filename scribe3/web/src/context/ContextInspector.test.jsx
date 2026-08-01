@@ -84,6 +84,23 @@ describe('ContextInspector · 第1层常显', () => {
   })
 })
 
+describe('ContextInspector · 跨作品 trace 隔离', () => {
+  it('按快照所属作品读取 trace，不依赖可能尚未同步的全局 work', async () => {
+    ctx.value = {
+      snapshot: { ...SNAPSHOT, work: 'book-context-isolated' },
+      restoring: false,
+      error: null,
+      capabilities: CAPS_ON,
+    }
+
+    render(<ContextInspector />)
+
+    await waitFor(() => expect(apiMock.getMemoryTrace).toHaveBeenCalledWith(
+      'sess-1', 7, 'book-context-isolated',
+    ))
+  })
+})
+
 describe('ContextInspector · 第2层展开', () => {
   it('展开后显示六块 token + 来源数', async () => {
     render(<ContextInspector />)
@@ -100,6 +117,23 @@ describe('ContextInspector · 第2层展开', () => {
 })
 
 describe('ContextInspector · 第3层证据', () => {
+  it('服务端尚未确认的乐观导航不请求该 revision 的 trace，避免瞬时 404', async () => {
+    // 生产端先乐观推进 revision，再异步持久化；此间请求 trace 会以尚不存在的
+    // revision 打到后端。这里钉住“未确认即不读”的消费边界。
+    ctx.value = {
+      snapshot: { ...SNAPSHOT, revision: 8 },
+      snapshotConfirmed: false,
+      restoring: false,
+      error: null,
+      capabilities: CAPS_ON,
+    }
+
+    render(<ContextInspector />)
+
+    await Promise.resolve()
+    expect(apiMock.getMemoryTrace).not.toHaveBeenCalled()
+  })
+
   it('展开显示 selected/rejected 的 source id、时态、信心、理由', async () => {
     render(<ContextInspector />)
     await screen.findByTestId('context-inspector-focus')
@@ -128,16 +162,20 @@ describe('ContextInspector · 第3层证据', () => {
     expect(screen.queryByText(/绝密身份明文/)).toBeNull()
   })
 
-  it('无溯源(404)时显"暂无检索溯源"引导,不显"没有相关事实"', async () => {
-    // 真机 UX 反馈后空态改为自我介绍+引导文案;硬约束不变:绝不能说"没有相关事实"
-    // (没检索≠没有相关事实)。
-    apiMock.getMemoryTrace.mockRejectedValue(Object.assign(new Error('HTTP 404'), { status: 404 }))
+  it('有效快照尚未检索时显示无证据引导，且不把正常空态当网络错误', async () => {
+    // 新会话自动查 trace 时，后端返回显式 unavailable 而非 404；这既避免浏览器
+    // console 误报，也保留“没检索不等于没有相关事实”的诚实语义。
+    apiMock.getMemoryTrace.mockResolvedValue({
+      available: false, session_id: 'sess-1', snapshot_revision: 7,
+      reason: 'not_retrieved_yet',
+    })
     render(<ContextInspector />)
     await screen.findByTestId('context-inspector-focus')
     fireEvent.click(screen.getByTestId('context-inspector-toggle'))
     await waitFor(() => expect(screen.getByTestId('context-inspector-no-evidence')).toBeTruthy())
     expect(screen.getByTestId('context-inspector-no-evidence').textContent).toContain('暂无检索溯源')
     expect(screen.queryByText(/没有相关事实/)).toBeNull()
+    expect(screen.getByTestId('context-inspector-status').getAttribute('data-status')).toBe('current')
   })
 })
 

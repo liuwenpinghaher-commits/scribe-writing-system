@@ -24,12 +24,34 @@ const CODEX_PATCH_TOOL = {
   facts: 's3_supersede_fact',
 }
 
+const REGISTRY_CODEX_KIND = {
+  chars: 'character',
+  factions: 'faction',
+  items: 'item',
+  terms: 'term',
+  rules: 'world_rule',
+}
+
+function registryFields(row = {}) {
+  return Object.fromEntries(Object.entries(row).filter(([key, value]) => (
+    value != null && !['id', 'kind', 'archived'].includes(key)
+  )))
+}
+
 /** 设定库档案补全/更正（Codex 主路径）——种子必须点名真实写工具 */
 export function seedChiefCodexWrite(type, row = {}, hint = '') {
   const name = row.name || row.text || row.id || type
   const tool = CODEX_PATCH_TOOL[type] || 's3_patch_character'
   const idHint = row.id || row.name || name
-  const lines = type === 'chars'
+  const registryKind = REGISTRY_CODEX_KIND[type]
+  const fields = registryFields(row)
+  const lines = registryKind
+    ? [
+      `请根据本书上下文补全/更正设定「${name}」(类型:${registryKind})并提交写入提案供我批准。`,
+      `先用只读工具核实现状，再调用 s3_patch_codex(kind=${JSON.stringify(registryKind)}, name=${JSON.stringify(String(name))}, fields=${JSON.stringify(fields)})。`,
+      '该工具支持该类型的全部注册字段；未获批准不得声称已落库。',
+    ]
+    : type === 'chars'
     ? [
       `请更新/更正角色「${name}」的档案并写入落库(需我审批):`,
       '可补全或修正:外貌/性格/前史/目标/恐惧/首次出场等。',

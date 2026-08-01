@@ -90,6 +90,102 @@ def test_v1_instructions_include_codex_bible_block(store, monkeypatch):
     assert "金字塔" in out, "faction.structure.type 应结构化注入"
 
 
+def test_v1_named_character_request_includes_full_public_profile(store):
+    """正文请求点名角色时，完整公开档案必须进入实际编译输入。
+
+    这是“字段已填”能改善正文的最低合同：不能只把姓名/前史塞给模型，
+    否则外观、能力、弱点和内在冲突永远无法影响创作。请求本身不重复字段值，
+    以防测试误把用户提示词当作上下文消费证据。
+    """
+    store.add_entity(Entity("role:林雾", "character", "林雾", traits={
+        "aliases": ["阿雾"],
+        "appearance": "左手总攥着潮湿的船票",
+        "personality_detail": "谨慎观察，却会为受困者冒险",
+        "personality_tags": ["克制"],
+        "surface_goal": "查清姐姐去向",
+        "deep_need": "学会向同伴求助",
+        "fear": "惧怕深水",
+        "internal_conflict": "独自追查姐姐与救援同伴的拉扯",
+        "abilities": ["辨认潮声", "修补旧船灯"],
+        "weaknesses": ["不肯求助"],
+        "importance": "protagonist",
+        "first_appearance": 1,
+    }))
+
+    out = _assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=[],
+        short_mode=False, with_tools=False, work="main",
+        request_text="请按当前林雾角色档案写码头救人场景。",
+    )
+
+    for value in (
+        "左手总攥着潮湿的船票", "谨慎观察，却会为受困者冒险", "克制",
+        "查清姐姐去向", "学会向同伴求助", "惧怕深水",
+        "独自追查姐姐与救援同伴的拉扯", "辨认潮声", "修补旧船灯",
+        "不肯求助", "protagonist",
+    ):
+        assert value in out
+
+
+def test_v1_includes_approved_reference_craft_but_not_reference_text(store):
+    """写作只消费作者批准的可迁移技法，绝不消费参考原文或专名。"""
+    from scribe3.quality.references import ReferenceService
+
+    class _LLM:
+        def complete(self, messages, **kwargs):
+            class _Result:
+                content = '''{
+                  "local_mechanisms": ["局部张力"],
+                  "cross_chapter_aggregation": "跨章递进",
+                  "full_book_fingerprint": "克制悬念",
+                  "evidence": [{"quote": "雾港钟响", "location": "第一章"}],
+                  "counter_evidence": [{"quote": "雾散", "location": "第二章"}],
+                  "transferable_mechanisms": ["用环境变化迫使人物主动选择"],
+                  "non_copyable_elements": ["沈浪", "雾港", "参考原句"],
+                  "applicable_scope": "悬疑开场"
+                }'''
+            return _Result()
+
+    service = ReferenceService(store)
+    ref = service.import_reference(
+        work="main", title="潮汐旧书",
+        text="雾港钟响。沈浪把湿透的票根塞进掌心。",
+    )
+    pending = service.generate_fingerprint(reference_work_id=ref.reference_work_id, llm=_LLM())
+    approved = service.approve_fingerprint(fingerprint_id=pending.fingerprint_id)
+    envelope_trace = {}
+
+    out = _assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=[],
+        short_mode=False, with_tools=False, work="main", envelope_trace=envelope_trace,
+        request_text="请写原创的码头救援冷开场。",
+    )
+
+    assert "用环境变化迫使人物主动选择" in out
+    assert "不得复用参考作品的角色名、专名、情节、措辞或句式" in out
+    for forbidden in ("潮汐旧书", "雾港钟响", "沈浪", "雾港", "参考原句"):
+        assert forbidden not in out
+    from scribe3.context_store import ContextStore
+    manifest = ContextStore(store).get_manifest(envelope_trace["manifest_id"])
+    assert manifest is not None
+    sources = manifest.sources
+    assert any(
+        source.source_kind == "reference_craft"
+        and source.source_id == f"reference_fingerprint:{approved.fingerprint_id}"
+        for source in sources
+    )
+    uses = store._query(
+        "SELECT work, chapter, request_id, manifest_id, reference_fingerprint_ids, mechanism_ids "
+        "FROM reference_craft_use WHERE manifest_id=$manifest_id",
+        {"manifest_id": envelope_trace["manifest_id"]},
+    )
+    assert len(uses) == 1
+    assert uses[0]["work"] == "main" and uses[0]["chapter"] == 1
+    assert uses[0]["manifest_id"] == envelope_trace["manifest_id"]
+    assert uses[0]["reference_fingerprint_ids"] == [approved.fingerprint_id]
+    assert uses[0]["mechanism_ids"], "使用账本必须记录实际采用的机制 ID"
+
+
 def test_v1_codex_block_placeholder_when_no_codex_data(store, monkeypatch):
     """无设定数据时:仍出现"设定圣经"标签 + 占位文案,不是静默消失
     (与旧链 _editor_system 的 `or '(尚无设定)'` 兜底同语义)。"""

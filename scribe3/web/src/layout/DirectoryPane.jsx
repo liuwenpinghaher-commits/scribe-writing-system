@@ -34,6 +34,12 @@ function ReferencesDirectory({ onSelectItem }) {
           onClick={() => onSelectItem?.({ id: 'quality_review', type: 'quality_review', ref: null, label: '质量审阅' })}
           aria-label="质量审阅"
         />
+        <DirectoryRow
+          title="质量合同"
+          meta="目标与权重"
+          onClick={() => onSelectItem?.({ id: 'quality_contract', type: 'quality_contract', ref: null, label: '质量合同' })}
+          aria-label="质量合同"
+        />
       </div>
     </div>
   )

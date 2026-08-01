@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 
 import pytest
@@ -80,6 +80,9 @@ def _reference_work() -> ReferenceWorkRecord:
         import_revision=1,
         status="imported",
     )
+
+
+_REFERENCE_SOURCE_TEXT = "参考作品原文"
 
 
 def _fingerprint() -> ReferenceFingerprintRecord:
@@ -237,7 +240,7 @@ def _bound_judgment(
 def _seed_job(store) -> tuple[QualityJobRecord, QualitySnapshotRecord, str]:
     _approved_contract(store)
     quality = QualityStore(store)
-    quality.save_reference_work(_reference_work())
+    quality.save_reference_work(_reference_work(), source_text=_REFERENCE_SOURCE_TEXT)
     fingerprint = quality.save_reference_fingerprint(_fingerprint())
     prose = "井沿😀的水声停了。老范没有回头。"
     snapshot = _snapshot(store, prose)
@@ -253,6 +256,53 @@ def _seed_job(store) -> tuple[QualityJobRecord, QualitySnapshotRecord, str]:
         idempotency_key="quality-job:chapter-1:v1",
     )
     return job, snapshot, prose
+
+
+def test_quality_job_execution_state_is_durable_and_preserves_immutable_input(store):
+    job, _snapshot_record, _prose = _seed_job(store)
+    quality = QualityStore(store)
+
+    assert quality.get_job_status(job.job_id).status == "queued"
+    running = quality.start_job(job.job_id)
+    assert (running.status, running.attempts, running.error_code) == ("running", 1, None)
+
+    failed = quality.fail_job(job.job_id, "provider_timeout", "供应商调用超过硬截止")
+    assert (failed.status, failed.attempts, failed.error_code) == (
+        "retryable_failed", 1, "provider_timeout",
+    )
+    assert "硬截止" in failed.error_message
+    reread = quality._get_job(job.job_id)
+    assert reread is not None
+    assert reread.contract_id == "contract:book-quality"
+    assert reread.reference_fingerprint_ids == job.reference_fingerprint_ids
+
+
+def test_finish_job_rejects_incomplete_system_reference_axes(store):
+    job, _snapshot_record, _prose = _seed_job(store)
+    quality = QualityStore(store)
+    quality.start_job(job.job_id)
+
+    with pytest.raises(ValueError, match="判断轴不完整"):
+        quality.finish_job(job.job_id)
+
+    assert quality.get_job_status(job.job_id).status == "running"
+
+
+def test_stale_running_job_becomes_retryable_without_changing_frozen_input(store):
+    job, _snapshot_record, _prose = _seed_job(store)
+    quality = QualityStore(store)
+    quality.start_job(job.job_id)
+    stale_at = datetime.now(timezone.utc) - timedelta(seconds=60)
+    store._execute_write(
+        "UPDATE type::record('quality_job',$job_id) SET execution_started_at=$stale_at",
+        {"job_id": job.job_id, "stale_at": stale_at},
+    )
+
+    recovered = quality.recover_stale_job(job.job_id, max_running_seconds=1)
+
+    assert recovered.status == "retryable_failed"
+    assert recovered.error_code == "worker_lost"
+    assert quality.get_job(job.job_id).actual_input_hash == job.actual_input_hash
 
 
 def test_contract_revisions_are_append_only_and_approval_is_one_way_cas(store):
@@ -279,13 +329,13 @@ def test_contract_revisions_are_append_only_and_approval_is_one_way_cas(store):
     assert len(store._query("SELECT id FROM quality_contract_revision")) == 2
 
 
-def test_reference_work_and_fingerprint_round_trip_without_raw_text_copy(store):
+def test_reference_work_and_fingerprint_round_trip_keeps_raw_text_out_of_public_record(store):
     quality = QualityStore(store)
     work = _reference_work()
     fingerprint = _fingerprint()
 
-    assert quality.save_reference_work(work) == work
-    assert quality.save_reference_work(work) == work
+    assert quality.save_reference_work(work, source_text=_REFERENCE_SOURCE_TEXT) == work
+    assert quality.save_reference_work(work, source_text=_REFERENCE_SOURCE_TEXT) == work
     saved_fingerprint = quality.save_reference_fingerprint(fingerprint)
     assert saved_fingerprint == fingerprint
     assert ReferenceWorkRecord.model_validate(work.model_dump(mode="json")) == work
@@ -297,9 +347,13 @@ def test_reference_work_and_fingerprint_round_trip_without_raw_text_copy(store):
     assert row["source_hash"] == work.source_hash
     assert row["import_revision"] == 1
     assert row["status"] == "imported"
-    assert "prose" not in row and "source_text" not in row
+    assert row["source_text"] == _REFERENCE_SOURCE_TEXT
+    # 原文只留在隔离的参考作品表，公开记录模型不包含它，不能流入生成上下文。
+    assert "source_text" not in work.model_dump(mode="json")
     with pytest.raises(ValueError, match="reference work.*冲突|参考作品.*冲突"):
-        quality.save_reference_work(work.model_copy(update={"status": "archived"}))
+        quality.save_reference_work(
+            work.model_copy(update={"status": "archived"}), source_text=_REFERENCE_SOURCE_TEXT,
+        )
 
 
 def test_fingerprint_can_bind_older_import_after_new_reference_revision_exists(store):
@@ -309,8 +363,8 @@ def test_fingerprint_can_bind_older_import_after_new_reference_revision_exists(s
         "source_hash": _sha("参考作品原文第二版"),
         "import_revision": 2,
     })
-    quality.save_reference_work(old)
-    quality.save_reference_work(new)
+    quality.save_reference_work(old, source_text=_REFERENCE_SOURCE_TEXT)
+    quality.save_reference_work(new, source_text="参考作品原文第二版")
 
     fingerprint = quality.save_reference_fingerprint(_fingerprint())
 
@@ -420,6 +474,32 @@ def test_system_reference_and_author_judgments_are_isolated_and_evidence_round_t
     )
     assert len(store._query("SELECT id FROM quality_judgment")) == 2
     assert len(store._query("SELECT id FROM quality_author_judgment")) == 1
+
+
+def test_author_verdicts_are_append_only_and_evaluation_reads_latest_revision(store):
+    job, snapshot, prose = _seed_job(store)
+    quality = QualityStore(store)
+    unit = snapshot.members[0].chapter_version_id
+    version_id = unit.split(":", 1)[1]
+    first_judgment = _judgment(
+        evaluator_kind="author", version_id=version_id, prose=prose, score=5,
+    )
+    first = quality.save_author_verdict(
+        job.job_id, unit=unit, judgment=first_judgment,
+        decision="accept", reason="本章的因果链已经足以支撑作者采纳。",
+    )
+    second_judgment = first_judgment.model_copy(update={"score": 2})
+    second = quality.save_author_verdict(
+        job.job_id, unit=unit, judgment=second_judgment,
+        decision="revise", reason="重新审读后，人物选择仍缺少不可替代的代价。",
+    )
+
+    assert (first.revision, second.revision) == (1, 2)
+    verdicts = quality.get_author_verdicts(job.job_id, unit)
+    assert [(item.revision, item.decision) for item in verdicts] == [(2, "revise"), (1, "accept")]
+    evaluation = quality.get_evaluation(job.job_id)
+    assert evaluation.author_judgments == (second_judgment,)
+    assert len(store._query("SELECT id FROM quality_author_verdict")) == 2
 
 
 def test_evidence_must_match_snapshot_member_hash_range_and_authoritative_prose(store):
@@ -619,7 +699,7 @@ def test_snapshot_create_and_permanent_delete_cannot_both_commit(store):
 def test_concurrent_same_job_idempotency_key_creates_one_truth_and_conflicts_fail(store):
     _approved_contract(store)
     quality = QualityStore(store)
-    quality.save_reference_work(_reference_work())
+    quality.save_reference_work(_reference_work(), source_text=_REFERENCE_SOURCE_TEXT)
     fingerprint = quality.save_reference_fingerprint(_fingerprint())
     snapshot = _snapshot(store)
 

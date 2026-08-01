@@ -178,9 +178,21 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
 }
 
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
-export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal }) {
+export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal, onProposalInterrupted }) {
   // Task 13 I-1:章内 run 绑发起时上下文的来源(四栏共享的统一快照;缺席时降级不绑)。
-  const { snapshot } = useContextSnapshot()
+  const { snapshot, restoring, capabilities } = useContextSnapshot()
+  // capabilities 与 createContextSession 并行拉取。能力清单尚未返回时仍可能由后端
+  // 要求 snapshot_v1；只要服务器上下文还在创建，就先按需绑定处理，不能出现“前端
+  // 默认 false 放行、后端 true 拒绝”的竞态。旧部署/测试没有创建会话时 restoring=false，
+  // 仍保留原有无绑定路径。
+  const snapshotBindingRequired = capabilities?.flags?.snapshot_v1 === true || restoring
+  const snapshotBindingReady = Boolean(
+    snapshot?.session_id
+      && Number.isFinite(snapshot?.revision)
+      && typeof snapshot?.context_hash === 'string'
+      && snapshot.context_hash.trim(),
+  )
+  const contextPreparing = snapshotBindingRequired && !snapshotBindingReady
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -192,7 +204,16 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
   const materialAt = useMaterialAt({ input, setInput, taRef })
   const ctrlRef = useRef(null)   // 断头修复#83:在途写作流的 AbortController(停止/卸载中止)
   const activeRunIdsRef = useRef(new Set())
-  const stop = () => { ctrlRef.current?.abort?.(); ctrlRef.current?.close?.(); ctrlRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) }
+  const stop = () => {
+    ctrlRef.current?.abort?.()
+    ctrlRef.current?.close?.()
+    ctrlRef.current = null
+    activeRunIdsRef.current.clear()
+    // proposal_chunk 已由父级累积到中区草稿卡；Abort 不会再收到 proposal 收尾，
+    // 必须显式解除其 streaming 锁，作者才能采用自己已经看见的部分稿。
+    onProposalInterrupted?.()
+    setBusy(false)
+  }
   useEffect(() => () => { ctrlRef.current?.abort?.() }, [])
   // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨(sessionStorage pending+事件),预填=追加
   const seedIn = (v) => { setInput((prev) => (prev ? prev + '\n' : '') + String(v)); taRef.current?.focus() }
@@ -208,7 +229,10 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
 
   // 对话历史持久化:按 work+章存 localStorage,切章/刷新可恢复
   useChatPersist(`${api.getWork()}:ch:${chapter}`, msgs, setMsgs)
-  useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef })
+  useHermesRunRecovery({
+    msgs, setMsgs, setBusy, activeRunIdsRef,
+    pendingApprovalScope: chapter != null && phase ? { chapter, phase } : null,
+  })
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: scrollBehavior() }) }, [msgs])
   useEffect(() => {
@@ -266,7 +290,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
 
   const send = (text) => {
     const q = (text ?? input).trim()
-    if ((!q && attachments.length === 0) || busy) return
+    if ((!q && attachments.length === 0) || busy || contextPreparing) return
     // 主编主动化 T8:「#想法 」前缀 → 想法收件箱(主编路由落位,不走写作流)
     if (q.startsWith('#想法')) {
       const idea = q.replace(/^#想法\s*/, '')
@@ -388,6 +412,11 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
 
       {/* 输入区 */}
       <div className="shrink-0 border-t border-line/60 bg-surface px-3 py-2.5">
+        {contextPreparing && (
+          <div role="status" aria-live="polite" className="mb-1.5 text-f12 text-faint">
+            {restoring ? '上下文准备中，暂不能发送写作请求。' : '上下文尚未就绪，暂不能发送写作请求。'}
+          </div>
+        )}
         <div
           data-testid="chief-chat-composer"
           data-chief-composer="true"
@@ -448,7 +477,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
             ) : (
               <Btn variant="primary"
                 onClick={() => send()}
-                disabled={!input.trim() && attachments.length === 0}
+                disabled={contextPreparing || (!input.trim() && attachments.length === 0)}
                 className="h-8 min-w-[88px] shadow-none"
                 aria-label="发送"
               >

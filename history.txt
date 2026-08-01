@@ -33,3 +33,4 @@ INFO FOR NS;
 SELECT * FROM editorial_thread;
 SELECT count() FROM chat_message GROUP ALL;
 INFO FOR NS;
+SELECT count() FROM character GROUP ALL;

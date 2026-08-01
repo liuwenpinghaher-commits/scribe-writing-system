@@ -15,7 +15,7 @@ const apiMock = vi.hoisted(() => ({
   setWork: vi.fn(),
 }))
 vi.mock('../api', () => ({ api: apiMock }))
-vi.mock('../BinderLayout', () => ({ BinderLayout: () => <div data-testid="binder" /> }))
+vi.mock('../BinderLayout', () => ({ BinderLayout: ({ work }) => <div data-testid="binder" data-work={work} /> }))
 vi.mock('../Library', () => ({
   // 点一下就"打开 demo 书"(App.open → setCur),把 App 推进作品内态
   Library: ({ onSelect }) => (
@@ -34,6 +34,7 @@ async function enterWork() {
 
 describe('App 全局快捷键 ⌘K / ⇧⌘K', () => {
   beforeEach(() => {
+    localStorage.clear()
     vi.clearAllMocks()
     apiMock.works.mockResolvedValue([{ slug: 'demo', title: 'Demo 书' }])
   })
@@ -49,6 +50,15 @@ describe('App 全局快捷键 ⌘K / ⇧⌘K', () => {
     // 无 cur:命令面板只出「作品」组,不出「视图」组
     expect(screen.getByText('作品')).toBeTruthy()
     expect(screen.queryByText('视图')).toBeNull()
+  })
+
+  it('刷新后从本地记录恢复仍存在的当前作品，而非退回作品库丢失章节上下文', async () => {
+    localStorage.setItem('s3-active-work', 'demo')
+    render(<App />)
+
+    const binder = await screen.findByTestId('binder')
+    expect(binder.getAttribute('data-work')).toBe('demo')
+    expect(apiMock.setWork).toHaveBeenCalledWith('demo')
   })
 
   it('作品内 ⌘K 派发 s3-open-capability{search,focus:true},不开命令面板', async () => {

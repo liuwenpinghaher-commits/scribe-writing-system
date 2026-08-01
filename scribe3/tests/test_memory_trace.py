@@ -212,12 +212,33 @@ def test_trace_api_returns_masked_trace(store):
     assert "真实身份" not in json.dumps(body, ensure_ascii=False)
 
 
-def test_trace_api_404_when_absent(store):
+def test_trace_api_returns_explicit_unavailable_state_for_valid_snapshot_without_trace(store):
+    """新会话的初始快照尚未检索并非 HTTP 错误。
+
+    ContextInspector 会在会话创建后自动查询这条资源。用 404 表示正常的
+    “尚无检索证据”会污染真实浏览器控制台，并把可预期的空状态伪装成网络失败。
+    会话/快照仍必须先按 work 校验，不能为了消除 404 放松隔离边界。
+    """
+    A.set_store(store, work="test")
+    c = TestClient(A.app)
+    snapshot = store.create_context_session("test", "author", "browser")
+    r = c.get(f"/context/sessions/{snapshot['session_id']}/trace/0?work=test")
+    assert r.status_code == 200
+    assert r.json() == {
+        "available": False,
+        "session_id": snapshot["session_id"],
+        "snapshot_revision": 0,
+        "reason": "not_retrieved_yet",
+    }
+
+
+def test_trace_api_keeps_unknown_context_session_as_404(store):
+    """不存在的会话不是正常空 trace，仍须保持 ContextService 的 404 语义。"""
     A.set_store(store, work="test")
     c = TestClient(A.app)
     r = c.get("/context/sessions/none/trace/1?work=test")
     assert r.status_code == 404
-    assert r.json()["detail"]["code"] == "memory_trace_not_found"
+    assert r.json()["detail"]["code"] == "context_session_not_found"
 
 
 # ===========================================================================
@@ -264,6 +285,67 @@ def test_write_path_lands_memory_trace_for_inspector(store, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["selected"] and body["snapshot_revision"] == 3
+
+
+def test_write_request_text_recalls_episodic_memory_without_seeds_or_synopsis(store, monkeypatch):
+    """作者本轮意图是空章写作唯一的检索锚点，旧经验必须真正进入模型输入。
+
+    这防止把“跨会话记忆已捕获”误报成“写作时会读取”：删掉 request_text
+    到 retrieval query 的传递后，BM25/vector 对空 query 不会召回这条完整记忆，
+    本断言会失败；它不靠 mock retriever 或手工塞 envelope。
+    """
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    A.set_store(store, work="test")
+    store.save_chapter(1, "", title="第一章", focalizer=None)
+    memory_text = "作者偏好：潮票Alpha场景须先写退潮借力，再让人物承担风险。"
+    memory_id = store.add_memory_item(
+        work="test", kind="episodic", text=memory_text, known_from=1,
+        scope_type="work", scope_id="test", source_type="chat", source_id="turn:alpha",
+    )
+
+    instructions = A._assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=[],
+        short_mode=False, work="test", request_text="请写潮票Alpha的码头救援开场。",
+        memory_trace_ctx=_write_ctx("sess-request", 1),
+    )
+
+    assert memory_text in instructions, "空章也必须把命中的跨会话经验送入真实写作输入"
+    trace = store.get_memory_trace_for_snapshot("sess-request", 1)
+    assert trace is not None
+    assert trace["query"] == "请写潮票Alpha的码头救援开场。"
+    assert any(item["source_id"] == f"mem:{memory_id}" for item in trace["selected"])
+
+
+def test_retrieved_author_preference_is_rendered_as_must_execute_constraint(store, monkeypatch):
+    """命中作者偏好后，提示词必须要求把它落实为可观察的叙事动作因果。
+
+    仅验证“偏好文本出现在 prompt”不足以证明模型会执行；这个合同锁住编排层的
+    执行语义，同时保留原始偏好文本供模型自然改写，而非机械复读。
+    """
+    _patch_embed(monkeypatch)
+    _enable_wiring_flags(monkeypatch)
+    A.set_store(store, work="test")
+    store.save_chapter(1, "", title="第一章", focalizer=None)
+    preference = "作者偏好：潮票Alpha场景须先写退潮借力，再让人物承担风险。"
+    store.add_memory_item(
+        work="test", kind="procedural", text=preference, known_from=1,
+        scope_type="work", scope_id="test", source_type="chat_turn", source_id="turn:pref",
+    )
+
+    instructions = A._assemble_write_instructions(
+        store, chapter=1, focalizer="", phase="draft", seed_words=[],
+        short_mode=False, work="test", request_text="请写潮票Alpha的码头救援开场。",
+        memory_trace_ctx=_write_ctx("sess-pref", 1),
+    )
+
+    assert preference in instructions
+    assert "本次正文必须执行" in instructions
+    assert "可观察的动作或因果" in instructions
+    trace = store.get_memory_trace_for_snapshot("sess-pref", 1)
+    assert trace is not None
+    assert any(item["source_kind"] == "procedural" and "潮票Alpha" in (item.get("text") or "")
+               for item in trace["selected"])
 
 
 def test_write_path_trace_never_at_rest_secret(store, monkeypatch):

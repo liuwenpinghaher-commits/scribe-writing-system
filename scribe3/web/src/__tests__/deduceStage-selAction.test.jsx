@@ -19,6 +19,9 @@ const apiMock = vi.hoisted(() => ({
   patchChapter: vi.fn(() => Promise.resolve({})),
   chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
   chatWrite: vi.fn(),
+  runWrite: vi.fn(),
+  aiRunApproval: vi.fn(() => Promise.resolve({ status: 'resumed' })),
+  aiRunPendingApproval: vi.fn(() => Promise.resolve({ runs: [] })),
   validateDeduction: vi.fn(() => Promise.resolve({ ok: false, issues: [{ reason: '无来源' }] })),
   groundedDeductionFallback: vi.fn(() => Promise.resolve({ candidate: '### 看到/听到\n未能从场景真相确认。' })),
 }))
@@ -165,22 +168,32 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     expect(screen.getByRole('button', { name: '让主编改这条演绎' }).disabled).toBe(true)
   })
 
-  it('⑦生成演绎时携带当前上下文快照，避免开启快照门后被后端静默拒绝', async () => {
+  it('⑦生成演绎时经只读预览 Run 携带当前上下文快照，不能绕过阶段工具面', async () => {
     renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '已有真相' } })
     await waitFor(() => expect(screen.getByTestId('deduce-readonly').textContent).toContain('已有真相'))
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
-    expect(apiMock.chatWrite).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+    expect(apiMock.runWrite).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
       chapter: 3,
-      phase: 'deduce',
+      phase: 'deduce_preview',
       context: { context_session_id: 'ctx-deduce', context_revision: 7, context_hash: 'a'.repeat(64) },
     }))
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
   })
 
-  it('⑧四栏工作台加入角色走主编种子,不 patchChapter involved', async () => {
-    const seeds = []
-    window.addEventListener('s3-chief-seed', (e) => seeds.push(e.detail))
+  it('⑦b场景真相预览明确要求先读取当前章节，避免受限 Run 在未取正典时假完成', async () => {
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '已有真相' } })
+    await screen.findByTestId('deduce-readonly')
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+
+    const [instruction] = apiMock.runWrite.mock.calls[0]
+    expect(instruction).toContain('必须先调用一次 s3_get_chapter')
+    expect(instruction).toContain('不得调用写工具')
+  })
+
+  it('⑧四栏工作台加入角色只切换演绎目标，不以主编种子或 REST 旁路改 involved', async () => {
     renderDeduce({
       meta: {
         chars: [
@@ -195,9 +208,9 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     const select = await screen.findByLabelText('投射角色')
     fireEvent.change(select, { target: { value: 'role:沈砚' } })
     fireEvent.click(screen.getByRole('button', { name: /加入并切换角色/ }))
-    await waitFor(() => expect(seeds.length).toBeGreaterThan(0))
-    expect(seeds[0]).toMatch(/沈砚/)
+    await waitFor(() => expect(screen.getByTestId('chief-intent-sentinel').textContent).toContain('沈砚'))
     expect(apiMock.patchChapter).not.toHaveBeenCalled()
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
   })
 
   it('⑨角色投射提示不预设男性代词，并要求遵循角色档案称谓', async () => {
@@ -207,18 +220,17 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
-    const [instruction] = apiMock.chatWrite.mock.calls[0]
+    const [instruction] = apiMock.runWrite.mock.calls[0]
     expect(instruction).toContain('严格遵循角色档案已有的称谓和代词')
     expect(instruction).toContain('不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史')
     expect(instruction).not.toContain('写他这一场')
     expect(instruction).not.toContain('只含他所知所感')
   })
 
-  it('⑩角色投射生成后先做服务端事实对齐，失败时不得自动写入 deductions', async () => {
+  it('⑩角色投影预览先经服务端事实对齐，失败时不能提交审批或 REST 写 deductions', async () => {
     deduceSelState.selected = 'role:季棠'
-    apiMock.chatWrite.mockImplementation((_instruction, handlers) => {
-      handlers.onProposalStart?.()
-      handlers.onProposal?.({ prose: '黑水从闸底涌出。' })
+    apiMock.runWrite.mockImplementation((_instruction, handlers) => {
+      handlers.onDelta?.('黑水从闸底涌出。')
       handlers.onDone?.()
     })
     renderDeduce({ meta: {
@@ -231,68 +243,80 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenCalledWith(
       3, '黑水从闸底涌出。', 'role:季棠', 'demo',
     ))
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.getByTestId('deduce-submit-preview').disabled).toBe(true)
     expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
   })
 
-  it('⑪首稿越过事实边界时带着校验反馈自动返修一次，返修合格后才进入待确认保存态', async () => {
+  it('⑪受限 Run 失败时不把流式半成品标记为章节已保存', async () => {
     deduceSelState.selected = 'role:季棠'
-    apiMock.validateDeduction
-      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '黑水无场景真相来源' }] })
-      .mockResolvedValueOnce({ ok: true })
-    apiMock.chatWrite
-      .mockImplementationOnce((_instruction, handlers) => {
-        handlers.onProposalStart?.()
-        handlers.onProposal?.({ prose: '黑水从闸底涌出。' })
-        handlers.onDone?.()
-      })
-      .mockImplementationOnce((_instruction, handlers) => {
-        handlers.onProposalStart?.()
-        handlers.onProposal?.({ prose: '### 看到/听到\n季棠看见闸门震颤。' })
-        handlers.onDone?.()
-      })
+    apiMock.runWrite.mockImplementation((_instruction, handlers) => {
+      handlers.onDelta?.('黑水从闸底涌出。')
+      handlers.onError?.('阶段工具策略校验失败')
+    })
+    const onSaved = vi.fn()
     renderDeduce({ meta: {
       chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
-    } })
+    }, onSaved })
     await screen.findByTestId('deduce-readonly')
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
-    await waitFor(() => expect(apiMock.chatWrite).toHaveBeenCalledTimes(2))
-    const [repairInstruction] = apiMock.chatWrite.mock.calls[1]
-    expect(repairInstruction).toContain('黑水无场景真相来源')
-    expect(repairInstruction).toContain('只保留能够由场景真相直接支持的主张')
-    await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenLastCalledWith(
-      3, '### 看到/听到\n季棠看见闸门震颤。', 'role:季棠', 'demo',
-    ))
+    await waitFor(() => expect(screen.getByRole('button', { name: '生成' })).toBeTruthy())
+    expect(onSaved).not.toHaveBeenCalled()
     expect(apiMock.patchChapter).not.toHaveBeenCalledWith(3, expect.objectContaining({ deductions: expect.anything() }), 'demo')
-    expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
   })
 
-  it('⑪b 两次自由稿都未过事实门时切换服务端可追溯摘录，并只在摘录复核通过后待保存', async () => {
+  it('⑪b通过事实对齐的角色预览提交时，第二个 Run 才携带完整 deductions 集合走受限 MCP 写入', async () => {
     deduceSelState.selected = 'role:季棠'
-    const safe = '### 看到/听到\n季棠用潮骨灯照出黑盐纹。\n\n### 知道\n季棠看出潮闸在主动索名。'
-    apiMock.validateDeduction
-      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '首稿无来源' }] })
-      .mockResolvedValueOnce({ ok: false, issues: [{ reason: '返修稿无来源' }] })
-      .mockResolvedValueOnce({ ok: true })
-    apiMock.groundedDeductionFallback.mockResolvedValueOnce({ candidate: safe, mode: 'verbatim_fallback' })
-    apiMock.chatWrite
-      .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '首稿越界。' }); handlers.onDone?.() })
-      .mockImplementationOnce((_instruction, handlers) => { handlers.onProposal?.({ prose: '返修仍越界。' }); handlers.onDone?.() })
+    apiMock.validateDeduction.mockResolvedValueOnce({ ok: true })
+    apiMock.runWrite
+      .mockImplementationOnce((_instruction, handlers) => { handlers.onDelta?.('### 看到/听到\n季棠看见闸门震颤。'); handlers.onDone?.() })
+      .mockImplementationOnce(() => ({ abort: vi.fn() }))
     renderDeduce({ meta: { chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '已有场景真相' } })
     await screen.findByTestId('deduce-readonly')
 
     fireEvent.click(screen.getByRole('button', { name: '生成' }))
 
-    await waitFor(() => expect(apiMock.groundedDeductionFallback).toHaveBeenCalledWith(3, 'role:季棠', 'demo'))
-    await waitFor(() => expect(apiMock.validateDeduction).toHaveBeenLastCalledWith(3, safe, 'role:季棠', 'demo'))
-    expect(screen.getByRole('status').textContent).toContain('事实对齐通过')
+    await waitFor(() => expect(screen.getByTestId('deduce-submit-preview').disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('deduce-submit-preview'))
+    const [instruction, options] = apiMock.runWrite.mock.calls[1]
+    expect(instruction).toContain('s3_patch_chapter_plan')
+    expect(instruction).toContain('"deductions"')
+    expect(instruction).toContain('"involved_characters"')
+    expect(options.phase).toBe('deduce')
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
+  })
+
+  it('⑪c作者可先修订场景真相预览，提交 Run 必须携带修订后的内容而非模型原文', async () => {
+    apiMock.runWrite
+      .mockImplementationOnce((_instruction, handlers) => {
+        handlers.onDelta?.('模型原始场景真相')
+        handlers.onDone?.()
+      })
+      .mockImplementationOnce(() => ({ abort: vi.fn() }))
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '' } })
+
+    fireEvent.click(await screen.findByRole('button', { name: '生成' }))
+    await waitFor(() => expect(screen.getByTestId('deduce-submit-preview').disabled).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑预览' }))
+    fireEvent.change(screen.getByTestId('deduce-preview-editor'), {
+      target: { value: '作者修订后的场景真相' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '完成预览编辑' }))
+    fireEvent.click(screen.getByTestId('deduce-submit-preview'))
+
+    const [instruction, options] = apiMock.runWrite.mock.calls[1]
+    expect(instruction).toContain('作者修订后的场景真相')
+    expect(instruction).not.toContain('模型原始场景真相')
+    expect(options.phase).toBe('deduce')
   })
 
   it('⑫生成流超过作者等待上限时中止请求并恢复生成入口，且不把半成品标为待保存投影', async () => {
     const abort = vi.fn()
-    apiMock.chatWrite.mockReturnValue({ abort })
+    apiMock.runWrite.mockReturnValue({ abort })
     deduceSelState.selected = 'role:季棠'
     renderDeduce({ meta: {
       chars: [{ id: 'role:季棠', name: '季棠' }], deductions: [], scene_truth: '潮闸震颤。',
@@ -302,16 +326,59 @@ describe('DeduceStage 条目级聊这条/改这条(Task 4)', () => {
     vi.useFakeTimers()
     try {
       fireEvent.click(screen.getByRole('button', { name: '生成' }))
-      expect(screen.getByRole('button', { name: '演绎中…' })).toBeTruthy()
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(360_000) })
 
       expect(abort).toHaveBeenCalledTimes(1)
       expect(screen.getByRole('button', { name: '生成' })).toBeTruthy()
-      expect(apiMock.validateDeduction).not.toHaveBeenCalled()
-      expect(screen.getByRole('status').textContent).toContain('未完成内容不会自动保存为投影')
+      expect(apiMock.patchChapter).not.toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('⑬受限 Run 请求写入时，作者可在演绎工作台批准而不是被迫绕回未受限主编对话', async () => {
+    apiMock.runWrite
+      .mockImplementationOnce((_instruction, handlers) => { handlers.onDelta?.('新的场景真相'); handlers.onDone?.(); return { abort: vi.fn() } })
+      .mockImplementationOnce((_instruction, handlers) => {
+        queueMicrotask(() => {
+          handlers.onRun?.({ run_id: 'deduce_run_1' })
+          handlers.onApproval?.({ run_id: 'deduce_run_1', approval_id: 'approval_1', message: '允许写入第3章演绎？' })
+        })
+        return { abort: vi.fn() }
+      })
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '已有真相' } })
+    await screen.findByRole('button', { name: '生成' })
+
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+    await waitFor(() => expect(screen.getByTestId('deduce-submit-preview').disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('deduce-submit-preview'))
+
+    expect(await screen.findByText('允许写入第3章演绎？')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '批准演绎写入' }))
+    await waitFor(() => expect(apiMock.aiRunApproval).toHaveBeenCalledWith('deduce_run_1', {
+      approval_id: 'approval_1', decision: 'approve',
+    }))
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
+  })
+
+  it('⑭刷新重挂后从持久 Run trace 恢复本章待审批卡，并仍可批准', async () => {
+    apiMock.aiRunPendingApproval.mockResolvedValueOnce({
+      runs: [{
+        run_id: 'deduce_run_after_refresh',
+        approval_id: 'approval_after_refresh',
+        message: '刷新后仍须由作者确认写入第3章演绎。',
+      }],
+    })
+    const onSaved = vi.fn()
+    renderDeduce({ meta: { chars: [], deductions: [], scene_truth: '等待批准的真相' }, onSaved })
+
+    expect(await screen.findByText('刷新后仍须由作者确认写入第3章演绎。')).toBeTruthy()
+    expect(apiMock.aiRunPendingApproval).toHaveBeenCalledWith({ chapter: 3, phase: 'deduce' }, 'demo')
+
+    fireEvent.click(screen.getByRole('button', { name: '批准演绎写入' }))
+    await waitFor(() => expect(apiMock.aiRunApproval).toHaveBeenCalledWith('deduce_run_after_refresh', {
+      approval_id: 'approval_after_refresh', decision: 'approve',
+    }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
   })
 })

@@ -10,11 +10,26 @@ class CharactersMixin:
         if e.kind == "character":
             self._execute_write(
                 "CREATE type::record('character', $local) SET name=$name, aliases=$al, "
-                "backstory=$bs, personality_tags=$pt, backstory_secret=$bss",
+                "backstory=$bs, backstory_secret=$bss, personality_tags=$pt, "
+                "importance=$importance, appearance=$appearance, "
+                "personality_detail=$personality_detail, abilities=$abilities, "
+                "weaknesses=$weaknesses, first_appearance=$first_appearance, "
+                "surface_goal=$surface_goal, deep_need=$deep_need, "
+                "internal_conflict=$internal_conflict, fear=$fear",
                 {"local": local, "name": e.name, "al": e.traits.get("aliases", []),
                  "bs": e.traits.get("backstory"),
                  "pt": e.traits.get("personality_tags", []),
-                 "bss": e.traits.get("backstory_secret", False)})
+                 "bss": e.traits.get("backstory_secret", False),
+                 "importance": e.traits.get("importance"),
+                 "appearance": e.traits.get("appearance"),
+                 "personality_detail": e.traits.get("personality_detail"),
+                 "abilities": e.traits.get("abilities", []),
+                 "weaknesses": e.traits.get("weaknesses", []),
+                 "first_appearance": e.traits.get("first_appearance"),
+                 "surface_goal": e.traits.get("surface_goal"),
+                 "deep_need": e.traits.get("deep_need"),
+                 "internal_conflict": e.traits.get("internal_conflict"),
+                 "fear": e.traits.get("fear")})
         elif e.kind == "place":
             self._execute_write("CREATE type::record('place', $local) SET name=$name",
                                 {"local": local, "name": e.name})

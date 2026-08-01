@@ -165,6 +165,9 @@ HERMES_RESPONSES_PROFILE = os.environ.get("HERMES_RESPONSES_PROFILE", "scribe3")
 # 工具面必须靠 gateway profile/platform_toolsets 隔离。
 HERMES_RUNS = os.environ.get("HERMES_RUNS_API", "http://127.0.0.1:8644/v1")
 HERMES_RUNS_PROFILE = os.environ.get("HERMES_RUNS_PROFILE", "scribe3_write")
+# 演绎不能进入完整写工具网关；profile 由 run_stage_policy 固定为 scribe3_deduce。
+HERMES_DEDUCE_RUNS = os.environ.get("HERMES_DEDUCE_RUNS_API", "http://127.0.0.1:8645/v1")
+HERMES_DEDUCE_PREVIEW_RUNS = os.environ.get("HERMES_DEDUCE_PREVIEW_RUNS_API", "http://127.0.0.1:8646/v1")
 
 
 def _stream_with_retry(make_stream, max_retries: int | None = None):

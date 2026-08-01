@@ -5,9 +5,16 @@ patch 目标不存在 → status=error(False 返回)。
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 
 import scribe3.mcp as M
+from scribe3.ontology import Entity
+
+
+class _AcceptCtx:
+    async def elicit(self, message, schema):
+        return type("_R", (), {"action": "accept"})()
 
 
 # ===== Task 3: volume =====
@@ -186,6 +193,78 @@ def test_patch_chapter_plan_missing_returns_error(store):
         "s3_patch_chapter_plan", True,
         lambda: store.update_chapter_meta(88888, {"synopsis": "无"}) or False)
     assert out["status"] == "error"
+
+
+def test_s3_patch_chapter_plan_normalizes_beats_and_rejects_malformed_involved(store):
+    """真人 Run 常见的 beat 别名要归一;混入投影文本的角色字段必须在写前失败。"""
+    M.set_store(store)
+    store.save_chapter(1, "", title="一")
+    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
+
+    written = asyncio.run(M.s3_patch_chapter_plan(
+        _AcceptCtx(), 1,
+        beats=[{"beat": "沈砚推门"}, {"text": "老道回避"}],
+        involved_characters=["沈砚"],
+    ))
+    assert written["status"] == "written"
+    assert store.get_chapter(1)["beats"] == [
+        {"text": "沈砚推门"}, {"text": "老道回避"},
+    ]
+    assert store.get_chapter(1)["involved_characters"] == ["role:沈砚"]
+
+    before = store.get_chapter(1)
+    invalid = asyncio.run(M.s3_patch_chapter_plan(
+        _AcceptCtx(), 1,
+        involved_characters=["role:'role:沈砚', 'deductions': '错误混入'"],
+    ))
+    assert invalid["status"] == "error"
+    assert "involved_characters" in invalid["error"]
+    assert store.get_chapter(1)["involved_characters"] == before["involved_characters"]
+
+
+def test_s3_patch_chapter_plan_rejects_empty_or_incomplete_deductions_for_involved_roles(store):
+    """演绎工具收到 deductions 时，不能接受把已涉及角色留成无投影的假成功。"""
+    M.set_store(store)
+    store.save_chapter(1, "", title="一")
+    store.add_entity(Entity("role:沈砚", "character", "沈砚"))
+    store.add_entity(Entity("role:老道", "character", "老道"))
+
+    empty = asyncio.run(M.s3_patch_chapter_plan(
+        _AcceptCtx(), 1,
+        involved_characters=["沈砚", "老道"],
+        deductions=[],
+    ))
+    assert empty["status"] == "error"
+    assert "deductions" in empty["error"]
+
+    incomplete = asyncio.run(M.s3_patch_chapter_plan(
+        _AcceptCtx(), 1,
+        involved_characters=["沈砚", "老道"],
+        deductions=[{"character_id": "沈砚", "prose": "### 看到/听到\\n老道沉默"}],
+    ))
+    assert incomplete["status"] == "error"
+    assert "缺少" in incomplete["error"]
+
+
+def test_s3_ingest_chapter_keeps_every_direct_provider_call_bounded(store, monkeypatch):
+    """MCP 桥接上限是 300 秒；主抽取与空事件后的专用补抽都必须有更短的预算。"""
+    M.set_store(store)
+    store.save_chapter(1, "沈砚推门，老道沉默。", title="一")
+    calls = []
+
+    def complete(prompt, **kwargs):
+        calls.append(kwargs)
+        return '{"learned":[],"did":[],"voice_shift":[],"arc":[],"events":[]}'
+
+    monkeypatch.setattr("scribe3.llm.hermes_complete", complete)
+    result = M.s3_ingest_chapter(1)
+
+    assert result["applied"] == 0
+    # 空 events 会触发有界的专用事件补抽；本断言保护的是所有直连调用的
+    # 时限契约，而不是把「只调用一次」这个已废弃的实现细节固化下来。
+    assert calls
+    assert all(call == {"timeout": 90.0, "max_tokens": 1600, "retries_override": 0}
+               for call in calls)
 
 
 # ===== Task 6: char anchors =====

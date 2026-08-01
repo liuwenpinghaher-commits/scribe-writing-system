@@ -16,8 +16,9 @@ const SOURCES = [
   { key: 'url', label: '网址', icon: Link2 },
 ]
 const ACCEPT = '.txt,.md,.markdown,.pdf,.docx'
-// 后端进度 stage 落到这些词即视为终态(与 done>=total 双保险)
-const TERMINAL = /^(done|complete|completed|finished|success|完成|已完成)$/i
+// 后端任务解析完成后会停在“待预览确认”，此时 `done` 是布尔完成标记而非
+// 条目计数；它和常规完成态一样必须切到可编辑预览，不能继续等待 SSE 关闭。
+const TERMINAL = /^(done|complete|completed|finished|success|完成|已完成|待预览确认)$/i
 
 export function MaterialImport({ onImported, onCancel }) {
   const toast = useToast()

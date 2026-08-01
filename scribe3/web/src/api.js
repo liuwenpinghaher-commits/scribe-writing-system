@@ -101,12 +101,24 @@ export const api = {
   // 质量缓存由正文保存/回写时维护；规则升级或历史缓存过期时作者可显式刷新。
   refreshQuality: () => post('/quality/refresh', {}),
   // 质量决策纵向链:参考作品导入/指纹、章节评价与作者评分。
+  referenceWorks: () => j('/references'),
   referenceImport: (b) => post('/references/import', b),
   referenceFingerprints: (id) => j(`/references/${enc(id)}/fingerprints`),
   referenceGenerateFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints`, b),
-  referenceApproveFingerprint: (id, b) => post(`/references/${enc(id)}/fingerprints/approve`, b),
-  qualityEvaluation: (seq) => j(`/quality/evaluation?seq=${enc(seq)}`),
+  referenceApproveFingerprint: (referenceWorkId, fingerprintId, b) => post(
+    `/references/${enc(referenceWorkId)}/fingerprints/${enc(fingerprintId)}/approve`, b,
+  ),
+  qualityEvaluation: (seq, work) => j(`/quality/evaluation?seq=${enc(seq)}`, work),
+  qualityCreateSnapshot: (b) => post('/quality/snapshot', b, b?.work),
+  qualityRetryJob: (jobId, work) => post(`/quality/jobs/${enc(jobId)}/retry`, { work }, work),
   qualityAuthorJudgment: (b) => post('/quality/author-judgment', b),
+  qualityContract: (contractId, revision, work, allowMissing = false) => j(
+    `/quality/contracts/${enc(contractId)}?revision=${enc(revision)}${allowMissing ? '&allow_missing=true' : ''}`, work,
+  ),
+  qualityCreateContract: (b) => post('/quality/contracts', b, b?.work),
+  qualityApproveContract: (contractId, revision, work) => post(
+    `/quality/contracts/${enc(contractId)}/${enc(revision)}/approve`, { work }, work,
+  ),
   intent: () => j('/intent'),
   /** 全量 intent(含叙事北极星)——emergency 关时 403;作者叙事请走主编 s3_set_intent */
   putIntent: (b) => put('/intent', b),
@@ -203,6 +215,14 @@ export const api = {
   aiRunCreate: (body) => post('/ai/runs', body),
   aiRunStatus: (runId) => j('/ai/runs/' + enc(runId)),
   aiRunTrace: (runId) => j('/ai/runs/' + enc(runId) + '/trace'),
+  aiRunPendingApproval: (scope = {}, work) => {
+    const chapter = scope?.chapter
+    const phase = scope?.phase
+    const query = chapter != null || phase
+      ? `?chapter=${enc(chapter ?? '')}&phase=${enc(phase ?? '')}`
+      : ''
+    return j('/ai/runs/pending-approvals' + query, work)
+  },
   aiRunApproval: (runId, body) => post('/ai/runs/' + enc(runId) + '/approval', body),
   aiRunStop: (runId) => post('/ai/runs/' + enc(runId) + '/stop'),
   aiRunEvents: (runId, {
@@ -215,7 +235,11 @@ export const api = {
         if (d.delta) onDelta?.(d.delta)
         else if (d.tool) onTool?.(d.tool, d.tool_args)
         else if (d.tool_output) onToolOutput?.(d.tool_output, d.tool_call_id)
-        else if (d.approval) onApproval?.(d.approval)
+        else if (d.approval) {
+          onApproval?.(d.approval)
+          // 同一 Run 可串行产生多张审批卡。浏览器 SSE 只是服务端 collector 的订阅者，
+          // 提前关闭会让后续待批卡永远无法呈现；持久化与唯一消费仍由后端负责。
+        }
         else if (d.approval_resolved) onApprovalResolved?.(d.approval_resolved)
         else if (d.run) onRun?.(d.run)
         else if (d.done) { es.close(); onDone?.() }
@@ -226,14 +250,34 @@ export const api = {
     return es
   },
   runWrite: (input, {
-    instructions = '', context = null, onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
+    instructions = '', context = null, chapter = null, phase = '', onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
   } = {}) => {
     let es = null
     let runId = null
     let stopped = false
+    let finished = false
+    let statusTimer = null
+    const clearStatusTimer = () => {
+      if (statusTimer != null) clearInterval(statusTimer)
+      statusTimer = null
+    }
+    const finish = () => {
+      if (finished || stopped) return
+      finished = true
+      clearStatusTimer()
+      try { es?.close?.() } catch (_) { /* */ }
+      es = null
+      onDone?.()
+    }
+    const isTerminalStatus = (status) => [
+      'completed', 'completed_unverified', 'failed', 'stopped', 'cancelled', 'canceled',
+    ].includes(String(status || '').toLowerCase())
     // Task 13:发起时上下文绑定(会话/版本)随创建带上,后端据此快照 origin focus/hash
     // 供审批重校验;未传 context(存量/非线程)→ body 保持 {input, instructions} 不变。
     const body = { input, instructions }
+    // 章节阶段不能复用作品级长 run 会话：上下文应由服务端组装器提供，
+    // 而不是把旧工具轨迹持续塞回模型。
+    if (chapter != null && phase) body.run_scope = `chapter:${chapter}:${phase}`
     if (context) {
       if (context.context_session_id != null) body.context_session_id = context.context_session_id
       if (context.context_revision != null) body.context_revision = context.context_revision
@@ -245,14 +289,23 @@ export const api = {
       onRun?.({ ...run, run_id: runId })
       es = api.aiRunEvents(runId, {
         onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun,
-        onDone: () => { es = null; onDone?.() },
+        onDone: finish,
         onError,
       })
+      // 浏览器 EventSource 可能在 Hermes 已完成时漏掉最终 done 事件；以同一 Run 的
+      // 持久状态做低频兜底。requires_approval 不是终态，必须继续等作者决定。
+      statusTimer = setInterval(() => {
+        if (stopped || finished || !runId) return
+        api.aiRunStatus(runId)
+          .then((current) => { if (isTerminalStatus(current?.status)) finish() })
+          .catch(() => { /* 瞬时查询失败不打断仍可恢复的事件流 */ })
+      }, 1_000)
     }).catch((e) => {
       if (!stopped) onError?.(e?.body?.detail || e?.message || 'Hermes Run 创建失败')
     })
     const stop = () => {
       stopped = true
+      clearStatusTimer()
       try { es?.close?.() } catch (_) { /* */ }
       if (runId) api.aiRunStop(runId).catch(() => {})
     }
@@ -274,7 +327,9 @@ export const api = {
   contextSnapshot: (id, revision) => j('/context/sessions/' + enc(id) + '/snapshots/' + revision),
   // Task 14:某快照版本的记忆溯源 trace(上下文检查器数据源)。该版本暂无溯源 → 404
   // memory_trace_not_found(检索生产接线待 Task 16),检查器据此显"未检索到证据"。
-  getMemoryTrace: (id, revision) => j('/context/sessions/' + enc(id) + '/trace/' + revision),
+  // Inspector 在切书首帧可能早于 App 的全局 WORK effect 挂载；显式 work 让 trace
+  // 与快照所属数据库绑定，避免把上一本书的 session 带到新书请求中产生 404。
+  getMemoryTrace: (id, revision, work) => j('/context/sessions/' + enc(id) + '/trace/' + revision, work),
   // 运行时降级状态(Hermes 离线/只读判定源);全局端点,不带 work。
   aiRuntimeStatus: () => jraw('/ai/runtime-status'),
   // 能力下发:前端以后端 capabilities 为准(不靠 localStorage 开服务端能力)。

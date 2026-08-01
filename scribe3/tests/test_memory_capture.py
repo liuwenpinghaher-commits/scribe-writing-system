@@ -112,6 +112,21 @@ def test_uncertainty_capped_confidence(store, capture):
     assert all(m["confidence"] <= 0.5 for m in mems), "uncertainty 信心必须 <=0.5"
 
 
+def test_author_writing_preference_is_captured_as_procedural_constraint(store, capture):
+    """作者明确的未来写法不是一条普通往事，必须进入可执行的工艺通道。
+
+    这保证跨会话写作时，它会被编译为本次生成必须落实的约束，而非混在“近期事件”里
+    供模型自行决定是否采用。
+    """
+    capture.capture_event(turn_event(
+        text="作为作者，请记住这条后续写作偏好：潮票Alpha场景先写退潮借力，再让人物承担风险。",
+        work="w",
+    ))
+    procedural = store.list_memories(work="w", kind="procedural")
+    assert len(procedural) == 1
+    assert "潮票Alpha" in procedural[0]["text"]
+
+
 # ---------- outbox 状态机:失败留痕 + runtime-status 可见 ----------
 
 def test_worker_failure_leaves_outbox_trace_and_does_not_raise(store, capture, monkeypatch):

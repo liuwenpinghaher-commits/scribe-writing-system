@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { useEffect } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { ChiefDock } from '../ChiefDock'
 import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
@@ -158,5 +158,42 @@ describe('ChiefDock 线程连续性(Task 6)', () => {
       thread_id: 't1', context_session_id: 's1', context_revision: 4, context_hash: H64,
     })
     expect(opts.context.focus).toMatchObject({ id: 'chapter:3' })
+  })
+
+  it('历史空回填先完成后才收到 Run 审批时，保留本轮 Run 卡且不崩溃', async () => {
+    let resolveHistory
+    let runOptions
+    apiMock.threadMessages.mockImplementation(() => new Promise((resolve) => { resolveHistory = resolve }))
+    apiMock.runWrite.mockImplementation((_message, options) => {
+      runOptions = options
+      return { abort: vi.fn(), close: vi.fn() }
+    })
+    currentSnapshot = {
+      work: 'demo_work', thread_id: 't1', session_id: 's1', revision: 4, context_hash: H64,
+      focus: { type: 'chapter', id: 'chapter:3', label: '第3章' }, chapter: 3, phase: 'outline',
+    }
+    render(<ChapterHarness phase="outline" />)
+
+    const input = await screen.findByPlaceholderText(/就当前内容问主编/)
+    fireEvent.change(input, { target: { value: '请只调用 s3_add_chapter 新建第1章，需审批' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(runOptions).toBeTruthy()
+
+    // 真实竞态：首次线程历史的空结果先落地，随后网关才推送 Run/approval SSE。
+    await act(async () => { resolveHistory([]) })
+    await act(async () => {
+      runOptions.onRun?.({ run_id: 'run_after_history', status: 'requires_approval' })
+      runOptions.onApproval?.({
+        run_id: 'run_after_history', approval_id: 'ap_after_history', message: '允许新建第1章？',
+      })
+      // 审计链回放与实时 SSE 可在临界窗口交叠；同一 approval 只能渲染一张作者裁决卡。
+      runOptions.onApproval?.({
+        run_id: 'run_after_history', approval_id: 'ap_after_history', message: '允许新建第1章？',
+      })
+    })
+
+    expect(await screen.findByText('允许新建第1章？')).toBeTruthy()
+    expect(screen.getAllByText('允许新建第1章？')).toHaveLength(1)
+    expect(screen.getByTestId('chief-chat-shell')).toBeTruthy()
   })
 })

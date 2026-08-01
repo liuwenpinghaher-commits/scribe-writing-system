@@ -156,6 +156,7 @@ export function Library({ works, reload, onSelect }) {
               {/* 1280/1440/1600 稳定网格:sm2 / lg3 / xl4 列,配 max-w-6xl 铺满而不缩在窄列 */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
                 {list.map((w) => {
+                  const statsPending = w.stats_pending === true
                   const words = w.word_count ?? 0
                   const goal = w.total_word_goal ?? 100000  // /works 携带真目标;无则回退默认值
                   const pct = Math.min(100, Math.round((words / goal) * 100))
@@ -163,23 +164,29 @@ export function Library({ works, reload, onSelect }) {
                     /* 作品卡:主「打开」按钮与独立「删除」按钮是兄弟节点——
                        删除嵌在打开按钮内(旧 span onClick)是 a11y 违规且键盘不可达 */
                     <div key={w.slug} className="group relative panel-elevated min-h-[124px] transition-all hover:-translate-y-0.5 hover:[box-shadow:var(--shadow-card)]">
-                      <button onClick={() => onSelect(w)} aria-label={`打开${w.title}`}
+                      <button onClick={() => onSelect(w)} aria-label={`打开${w.title}`} data-work-slug={w.slug}
                         className="w-full h-full text-left p-4 rounded-[var(--radius-pane)] cursor-pointer flex flex-col gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
                         <div className="flex items-start gap-2 pr-6">
                           <BookText size={16} className="text-brand shrink-0 mt-0.5" />
                           <span className="prose-serif text-object-title font-semibold text-ink leading-snug min-w-0 break-words">{w.title}</span>
                         </div>
-                        {/* U-011: 后端 stats 查询失败标 stats_error → 显红字,不再假 0(作者会误读"稿子丢了") */}
+                        {/* 统计未加载/失败都不能借 0 章 0 字假称书稿为空。 */}
                         <div className="text-f12 tnum">
                           {w.stats_error
                             ? <span className="text-danger">统计查询失败(见后端日志)</span>
-                            : <span className="text-faint">{w.chapter_count ?? 0} 章 · {words.toLocaleString()} 字</span>}
+                            : statsPending
+                              ? <span className="text-faint">统计将在打开后加载</span>
+                              : <span className="text-faint">{w.chapter_count ?? 0} 章 · {words.toLocaleString()} 字</span>}
                         </div>
                         <div className="mt-auto">
-                          <div className="h-1.5 rounded-full bg-soft overflow-hidden">
-                            <div className="h-full bg-brand rounded-full transition-all" style={{ width: pct + '%' }} />
-                          </div>
-                          <div className="text-meta text-faint mt-1 tnum">约 {pct}% · 目标 {(goal / 10000).toLocaleString()} 万字</div>
+                          {statsPending ? (
+                            <div className="text-meta text-faint mt-1">打开作品后显示真实进度</div>
+                          ) : <>
+                            <div className="h-1.5 rounded-full bg-soft overflow-hidden">
+                              <div className="h-full bg-brand rounded-full transition-all" style={{ width: pct + '%' }} />
+                            </div>
+                            <div className="text-meta text-faint mt-1 tnum">约 {pct}% · 目标 {(goal / 10000).toLocaleString()} 万字</div>
+                          </>}
                         </div>
                       </button>
                       {w.slug !== 'main' && (

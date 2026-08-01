@@ -153,9 +153,9 @@ def test_api_put_stale_hash_409(client):
     assert r.status_code == 409
 
 
-# ---- model_summary(只读三网关主模型摘要)----
+# ---- model_summary(只读全部写作阶段网关主模型摘要)----
 
-def test_model_summary_three_gateways(home):
+def test_model_summary_includes_all_stage_gateways(home):
     # root 配置(写作 :8642)在 HERMES_HOME 根;profile 配置已由 home fixture 建
     (home / "config.yaml").write_text(
         "model:\n  provider: custom\n  base_url: https://x/v3\n  api_key: sk-root\n  default: doubao-seed-2.0-pro\n",
@@ -169,6 +169,8 @@ def test_model_summary_three_gateways(home):
     assert by["default"]["default_model"] == "doubao-seed-2.0-pro"
     assert by["default"]["provider"] == "custom"
     assert by["scribe3_write"]["default_model"] is None   # 文件缺 model 节/不存在 → None,fail-soft
+    assert by["scribe3_deduce"]["default_model"] is None
+    assert by["scribe3_deduce_preview"]["default_model"] is None
     assert "sk-root" not in str(rows)                      # 密钥绝不出现
 
 

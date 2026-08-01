@@ -27,7 +27,7 @@ const ENTRY_TYPES = {
   motif: new Set(['motif_view', 'capability_group', 'motif']),
   search: new Set(['recall_result']),
   review: new Set(['review_issue']),
-  references: new Set(['references', 'quality_review']),
+  references: new Set(['references', 'quality_review', 'quality_contract']),
 }
 
 /** 当前节点是否可与 entry 共存（不强制清空栏3） */

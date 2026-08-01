@@ -495,8 +495,8 @@ def test_stream_parses_deltas_and_final_usage():
             "messages": [{"role": "user", "content": "问候"}],
             "stream": True,
             "stream_options": {"include_usage": True},
-        },
-    }
+            },
+        }
     assert events == [
         {"type": "delta", "delta": "你", "model": "deepseek-chat", "identity": identity},
         {"type": "delta", "delta": "好", "model": "deepseek-chat", "identity": identity},
@@ -594,6 +594,24 @@ def test_stream_forwards_max_tokens_to_official_request():
         ))
 
     assert observed["max_tokens"] == 777
+
+
+def test_stream_omits_tokenplan_thinking_by_default_for_visible_prose_deltas():
+    observed = {}
+
+    def handler(request):
+        observed.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            text='data: {"model":"qwen3.8-max-preview","choices":[{"delta":{"content":"正文"}}]}\n\ndata: [DONE]\n\n',
+        )
+
+    with _client(handler) as transport:
+        list(deepseek.DeepSeekClient(client=transport).stream(
+            [{"role": "user", "content": "写一段正文"}],
+        ))
+
+    assert "thinking" not in observed
 
 
 def test_stream_200_empty_sse_fails_loud_without_retry():

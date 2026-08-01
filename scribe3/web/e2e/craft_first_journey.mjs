@@ -7,11 +7,16 @@
 //   cd scribe3/web && E2E_BOOK_TITLE='工艺优先·smoke' node e2e/craft_first_journey.mjs
 //
 import { writeFileSync, mkdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { withPage } from './lib.mjs'
 import {
   chiefSay, acceptDraftProposal, acceptStageFill, approveAllPending,
 } from './author_decisions.mjs'
 import { assertCraftGatesOrExit, fetchCraftGates } from './craft_gates.mjs'
+import { resolveWorkSlugByExactTitle } from '../src/e2e/workResolution.js'
+import { missingDeductionProjections } from '../src/e2e/chapterPlanState.js'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const SCRATCH = process.env.GOAL_SCRATCH || process.env.SCRATCH || ''
@@ -21,11 +26,31 @@ const BOOK = process.env.E2E_BOOK_TITLE || `工艺优先·${Date.now().toString(
 process.env.E2E_BOOK_TITLE = BOOK
 const logLines = []
 const L = (m) => { const s = `[${new Date().toISOString()}] ${m}`; console.log(s); logLines.push(s) }
+const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
+const py = join(root, 'scribe3/.venv/bin/python')
 
 async function apiJson(path) {
   const r = await fetch(`${API}${path}`)
   if (!r.ok) throw new Error(`${path} ${r.status}`)
   return r.json()
+}
+
+// 与最终门禁共用同一 Python 质量轨；先把失败具体化，再由主编经 MCP 修订，
+// 禁止 REST 直接篡改正文或把 craft gate 当作质量替身。
+function qualityReview(work, seq) {
+  const q = spawnSync(py, ['-c', `
+from scribe3.store import SurrealStore
+from scribe3.verify_content_quality import review_chapter_quality
+import json, sys
+st = SurrealStore(ns="scribe3", db=sys.argv[1])
+r = review_chapter_quality(st, int(sys.argv[2]))
+print(json.dumps(r.to_dict(), ensure_ascii=False))
+st.close()
+sys.exit(0 if r.ok else 3)
+`, work, String(seq)], { encoding: 'utf-8', cwd: root })
+  let report = null
+  try { report = JSON.parse(String(q.stdout || '').trim()) } catch { /* final gate reports stderr */ }
+  return { ok: q.status === 0 && !!report?.ok, status: q.status, report, stderr: String(q.stderr || '') }
 }
 
 async function clickTab(p, name) {
@@ -67,6 +92,17 @@ async function createChapter(p) {
     }
   }
   return false
+}
+
+// Gate A 回读失败时的最小、可审计 MCP 补写指令。禁止用 REST 灌正典。
+const gateARepairPrompts = {
+  A1: '请仅用 s3_set_intent 补齐 reader_feeling=压抑中见一线热、emotional_arc=隐瞒到对质、red_lines=不美化私刑。需我审批。',
+  A2: '请仅用 s3_add_character 确保登记两名完整角色：沈砚(appearance=右手有茧,deep_need=查清灰契)与老道(appearance=灰袍,deep_need=守炉)。需我审批。',
+  A3: '请仅用 s3_add_world_rule 登记：灰契立契后必有代价，不可无故解除。需我审批。',
+  A4: '请仅用 s3_add_character_relation 建立沈砚与老道的竞争关系。需我审批。',
+  A5: '请仅用 s3_add_motif 登记 name=灰契、theme=契约代价、echoes=灰印/契血。需我审批。',
+  A6: '请仅用 s3_plant_promise 埋伏笔 text=灰契会反噬立契人、setup_chapter=1。需我审批。',
+  A7: '请仅用 s3_plant_promise 埋伏笔 text=灰契会反噬立契人、setup_chapter=1，使其可进入 chapter brief。需我审批。',
 }
 
 const out = await withPage(async (p) => {
@@ -134,8 +170,7 @@ const out = await withPage(async (p) => {
   if (!work) {
     const works = await apiJson('/works')
     const list = Array.isArray(works) ? works : (works.works || [])
-    const hit = list.find((w) => (w.title || '').includes(BOOK.slice(0, 8)) || w.title === BOOK)
-    work = hit?.slug || list[list.length - 1]?.slug || ''
+    work = resolveWorkSlugByExactTitle(list, BOOK)
   }
   L(`work=${work}`)
   if (!work) throw new Error('无法解析 work slug')
@@ -167,6 +202,18 @@ const out = await withPage(async (p) => {
 
   let ga = await fetchCraftGates({ work })
   L(`GATE-A after dialog ok=${ga.body?.gate_a?.ok} blocking=${JSON.stringify(ga.body?.gate_a?.blocking)}`)
+  for (let round = 0; !ga.body?.gate_a?.ok && round < 2; round++) {
+    const blocking = [...new Set(ga.body?.gate_a?.blocking || [])]
+    for (const gateId of blocking) {
+      const prompt = gateARepairPrompts[gateId]
+      if (!prompt) continue
+      L(`Gate-A repair round=${round + 1} gate=${gateId}`)
+      await say(prompt, 300000)
+      await approveAllPending(p)
+    }
+    ga = await fetchCraftGates({ work })
+    L(`GATE-A after repair ok=${ga.body?.gate_a?.ok} blocking=${JSON.stringify(ga.body?.gate_a?.blocking)}`)
+  }
   // 默认禁止 API 灌库;仅显式 E2E_ALLOW_API_SEED=1 可补(不得当质量 PASS 证据)
   if (!ga.body?.gate_a?.ok && process.env.E2E_ALLOW_API_SEED === '1') {
     L('API seed aux (E2E_ALLOW_API_SEED=1) — 非主路径')
@@ -239,6 +286,28 @@ const out = await withPage(async (p) => {
     await say(`第1章当前在「${phase}」阶段。请用 s3_patch_chapter_plan 写入(${planHint})。需我审批。未获批准不得声称已落库。`, 300000)
     await approveAllPending(p)
     await sleep(1000)
+    // 真实写后回读：工具回复/审批成功并不代表限知投影完整。
+    // 演绎不合格时，把具体缺口交还主编经 MCP 修正；绝不以 API 直接补库。
+    if (phase === '演绎') {
+      let plan = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
+      let missing = missingDeductionProjections(plan)
+      if (missing.length) {
+        L(`deduce postcondition missing=${JSON.stringify(missing)}; request MCP correction`)
+        await say(
+          `刚才演绎落库不合格：${missing.join('、')}缺少限知投影。请重新且仅用 s3_patch_chapter_plan ` +
+          '修正第1章：scene_truth 说明老道知道灰契真相但出于顾虑只给碎片线索；' +
+          'involved_characters 必须为 ["role:沈砚","role:老道"]；' +
+          'deductions 必须有两项，分别是 {character_id:"role:沈砚",prose:"### 看到/听到\\n..."} ' +
+          '和 {character_id:"role:老道",prose:"### 看到/听到\\n..."}，两项都非空且只写各自可知内容。需我审批。',
+          300000,
+        )
+        await approveAllPending(p)
+        await sleep(1000)
+        plan = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
+        missing = missingDeductionProjections(plan)
+      }
+      if (missing.length) throw new Error(`演绎写后回读仍缺限知投影: ${missing.join(',')}`)
+    }
   }
 
   // Phase C: 优先 WriteChat 提案卡「接受」；无卡则 MCP s3_save_chapter（manuscript 直写，作者路径）
@@ -309,10 +378,40 @@ const out = await withPage(async (p) => {
       L(`fallback draft prose len=${prose.replace(/\s/g, '').length}`)
     } catch { /* */ }
   }
+  // 质量失败必须进一次可审计的主编修订闭环。这里不是“让模型补关键词”：
+  // 主编须先回读现稿、保持既有事实和限知，再用完整正文的 s3_save_chapter 提交修订。
+  let quality = qualityReview(work, 1)
+  L(`QUALITY initial ok=${quality.ok} failed=${JSON.stringify((quality.report?.checks || []).filter((c) => !c.ok).map((c) => c.id))}`)
+  for (let repair = 0; !quality.ok && repair < 1; repair++) {
+    const failed = (quality.report?.checks || []).filter((c) => !c.ok)
+      .map((c) => `${c.id}:${c.detail}`).join('；') || '质量审阅未返回可解析细节'
+    L(`QUALITY repair round=${repair + 1} failed=${failed}`)
+    await selectChapter(p, 1)
+    await clickTab(p, '草稿')
+    await sleep(600)
+    await chiefSay(p,
+      '章节质量审阅未通过：' + failed + '。请先且只用 s3_get_chapter 读取第1章完整现稿，' +
+      '保留既有情节、角色限知、对白和伏笔，不得改写成提纲。然后只用 s3_save_chapter 保存完整修订正文：' +
+      `净文仍不少于${MIN_PROSE}字；必须让“灰印”和“契血”作为可感的具体意象进入场景，` +
+      '并让灰契反噬/契约代价通过人物动作或选择呈现，不能只在旁白解释。需我审批；未获批准不得声称已落库。',
+      { maxMs: 480000, preferWrite: true, bookTitle: BOOK },
+    )
+    await approveAllPending(p)
+    for (let i = 0; i < 20; i++) {
+      await sleep(2000)
+      try {
+        ch = await apiJson(`/chapter?seq=1&work=${encodeURIComponent(work)}`)
+        prose = String(ch.prose || prose)
+      } catch { /* 保留最近一次可读正文，最终质量轨会如实失败 */ }
+      quality = qualityReview(work, 1)
+      L(`QUALITY repair poll i=${i} prose=${prose.replace(/\s/g, '').length} ok=${quality.ok}`)
+      if (quality.ok) break
+    }
+  }
   const proseLen = prose.replace(/\s/g, '').length
   L(`proseLen_net=${proseLen}`)
 
-  return { work, book: BOOK, proseLen, prose, accept, gate_a: ga.body?.gate_a }
+  return { work, book: BOOK, proseLen, prose, accept, quality, gate_a: ga.body?.gate_a }
 })
 
 if (SCRATCH) {
@@ -347,28 +446,13 @@ if (!out.proseLen || out.proseLen < MIN_PROSE) {
   process.exit(2)
 }
 
-// 3) 内容质量轨（Python 同源）
-import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
-const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
-const py = join(root, 'scribe3/.venv/bin/python')
-const q = spawnSync(py, ['-c', `
-from scribe3.store import SurrealStore
-from scribe3.verify_content_quality import review_chapter_quality
-import json, sys
-st = SurrealStore(ns="scribe3", db=sys.argv[1])
-r = review_chapter_quality(st, int(sys.argv[2]))
-print(json.dumps(r.to_dict(), ensure_ascii=False))
-st.close()
-sys.exit(0 if r.ok else 3)
-`, work, '1'], { encoding: 'utf-8', cwd: root })
-console.log('QUALITY_REPORT', q.stdout || q.stderr)
-if (q.status !== 0) {
+// 3) 内容质量轨（Python 同源）；失败已在页面内走过一次 MCP 修订，仍红才如实失败。
+console.log('QUALITY_REPORT', JSON.stringify(out.quality?.report || { status: out.quality?.status, stderr: out.quality?.stderr }))
+if (!out.quality?.ok) {
   console.error('CRAFT_FIRST QUALITY FAIL: content review not ok (闸绿不能代替质量)', {
-    status: q.status, note: 'see verify_content_quality',
+    status: out.quality?.status, note: 'see verify_content_quality',
   })
-  process.exit(q.status || 3)
+  process.exit(out.quality?.status || 3)
 }
 
 console.log('CRAFT_FIRST OK', JSON.stringify({

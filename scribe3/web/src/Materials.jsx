@@ -234,26 +234,15 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
 
   // 素材→写作桥:正文经块二 stageProposal 通道发布(phase='draft'),
   // 由目标章「草稿」tab 的提示条「填入/追加」闭环落地——不直写编辑器。
-  // 同时写 material_reference(via=manual_insert) 记账本。
+  // 此刻只是待采纳提案，不能先写 material_reference；实际采用由 DraftTab 统一记账，
+  // 否则会把作者弃用的提案伪报为已消费，并与 DraftTab 的采用记账重复计数。
   const publishToDraft = async (seqText) => {
     const seq = Number(String(seqText || '').trim())
     if (!Number.isInteger(seq) || seq < 1) { toast('请输入有效章号(正整数)', { tone: 'danger' }); return }
     const content = (draft.body || draft.summary || '').trim()
     if (!content) { toast('素材正文为空,无可插入内容', { tone: 'danger' }); return }
     setStageProposal({ phase: 'draft', seq, target: null, content, materialId: row.id, ts: Date.now() })
-    try {
-      await api.addMaterialReference(row.id, {
-        chapter: seq,
-        dimension: (parseTags(draft.refTagsText)[0] || 'manual_insert'),
-        reason: '作者采纳素材插稿',
-      })
-      const r = await api.materialRefs(row.id)
-      setRefs(r || [])
-    } catch (e) {
-      toast(e?.body?.detail || e?.message || '已发布草稿,但溯源记账失败', { tone: 'warn' })
-      return
-    }
-    toast(`已发布到第 ${seq} 章草稿并记入引用账本`)
+    toast(`已发布到第 ${seq} 章草稿，待作者填入后再记引用账本`)
   }
 
   const insertCurrentChapter = () => {

@@ -16,6 +16,24 @@ def test_material_recall_block_injects_and_provenance(store, monkeypatch):
     assert len(refs) >= 1 and refs[0]["material_id"] == mid
 
 
+def test_material_recall_uses_current_author_request_when_chapter_brief_is_empty(store, monkeypatch):
+    """临时写作要求也必须能唤起素材，不能只依赖已落库的章节草料。"""
+    mid = store.add_material(
+        "码头救援的潮汐节奏", "潮水先缓后急，暗溜把人拖向桥墩缝里。",
+        "snippet", ref_tags=["场景技法"],
+    )
+    monkeypatch.setattr(store, "get_chapter", lambda seq: {"synopsis": "", "beats": []})
+
+    block = appmod._material_recall_block(
+        store, chapter=1, phase="draft",
+        request_text="请写码头救援，利用潮汐暗溜制造节奏。",
+    )
+
+    assert "码头救援的潮汐节奏" in block
+    refs = store.material_refs_by_chapter(1)
+    assert any(ref["material_id"] == mid for ref in refs)
+
+
 def test_material_block_empty_gated(store, monkeypatch):
     """空库 → 门控返回空,不注入、不调 LLM(零开销)。"""
     monkeypatch.setattr(store, "get_chapter", lambda seq: {"synopsis": "无关内容", "beats": []})

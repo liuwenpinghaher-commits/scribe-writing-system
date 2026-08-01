@@ -64,7 +64,7 @@ describe('Codex DetailView 只读（禁表单直填）', () => {
     })
     const seed = sessionStorage.getItem('s3.chief.seed') || ''
     expect(seed).toMatch(/沈砚/)
-    expect(seed).toMatch(/s3_patch_character/)
+    expect(seed).toMatch(/s3_patch_codex/)
   })
 
   it('新建角色仍可直填（immediate）', async () => {
@@ -84,7 +84,7 @@ describe('Codex DetailView 只读（禁表单直填）', () => {
   it('seedChiefCodexWrite 导出可单测', () => {
     const t = seedChiefCodexWrite('chars', { name: '季棠' })
     expect(t).toMatch(/季棠/)
-    expect(t).toMatch(/s3_patch_character/)
+    expect(t).toMatch(/s3_patch_codex/)
   })
 
   it('已有角色后挂区：无直填入口，有主编种子 CTA', async () => {

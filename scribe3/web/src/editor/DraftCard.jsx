@@ -16,7 +16,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
         <div className="flex gap-2 p-2 overflow-x-auto">
           {candidates.map((c, i) => (
             <div key={i} className="min-w-[240px] max-w-[280px] rounded-lg bg-canvas/80 ring-1 ring-line/60 flex flex-col">
-              <div className="manuscript px-3 py-2 text-f14 leading-[1.8] whitespace-pre-wrap text-ink max-h-[36vh] overflow-y-auto flex-1">{c}</div>
+              <div data-testid="draft-candidate-text" className="manuscript px-3 py-2 text-f14 leading-[1.8] whitespace-pre-wrap text-ink max-h-[36vh] overflow-y-auto flex-1">{c}</div>
               <button type="button" data-testid="draft-use-candidate" onClick={() => onAcceptCandidate?.(c)} className="h-8 border-t border-line/60 text-f12 text-brand hover:bg-soft cursor-pointer inline-flex items-center justify-center gap-1"><Check size={13} />用此版</button>
             </div>
           ))}
@@ -25,7 +25,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
     )
   }
   return (
-    <div className="my-3 rounded-md border border-brand/25 bg-brand/[.03] overflow-hidden">
+    <div data-testid="draft-card" className="my-3 rounded-md border border-brand/25 bg-brand/[.03] overflow-hidden">
       <div className="flex items-center gap-2 px-3 h-9 border-b border-brand/15">
         <Sparkles size={14} className="text-brand" />
         <span className="text-f12 font-medium text-brand">主编提议 · {LABEL[proposal.scope] || '改写'}</span>
@@ -35,7 +35,7 @@ export function DraftCard({ proposal, candidates, streaming, onAccept, onReject,
           <button type="button" data-testid="draft-accept" onClick={onAccept} disabled={streaming} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-f12 bg-brand text-brandfg hover:opacity-90 disabled:opacity-40 disabled:cursor-default cursor-pointer transition-opacity"><Check size={13} />接受</button>
         </div>
       </div>
-      <div className="manuscript type-stage whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto px-4 py-3">{proposal.prose || '​'}</div>
+      <div data-testid="draft-proposal-text" className="manuscript type-stage whitespace-pre-wrap text-ink max-h-[42vh] overflow-y-auto px-4 py-3">{proposal.prose || '​'}</div>
     </div>
   )
 }

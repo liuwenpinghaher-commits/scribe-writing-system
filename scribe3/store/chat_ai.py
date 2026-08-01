@@ -249,7 +249,14 @@ class ChatAiMixin:
             "raw_events": raw_events if raw_events is not None else (existing.get("raw_events") or []),
             "usage": usage if usage is not None else existing.get("usage"),
             "error": error if error is not None else existing.get("error"),
-            "response": response if response is not None else existing.get("response"),
+            # Run 的创建、终态事件和作者审批会各自补一部分安全响应元数据。
+            # 不能让晚到的 approval({status:'resumed'}) 整包覆盖终态的 model/usage/output，
+            # 否则真实调用的供应商审计身份会在审批后丢失。
+            "response": (
+                {**existing.get("response", {}), **response}
+                if isinstance(existing.get("response"), dict) and isinstance(response, dict)
+                else (response if response is not None else existing.get("response"))
+            ),
         }
         # Task 16-A:落库前统一 redactor——认证头(Authorization/Bearer/Basic/Proxy/api_key/
         # cookie…)与秘密事实真值在 at-rest 前抹掉。error(C-2:直取上游 4xx/5xx HTTP 文本,
@@ -275,7 +282,7 @@ class ChatAiMixin:
             # Task 13:发起时上下文绑定 + 完成快照(审批重校验/刷新恢复的事实源)
             "parent_thread_id, context_session_id, origin_context_revision, "
             "origin_context_hash, envelope_hash, focus, completion_context_revision, "
-            "write_effects, "
+            "write_effects, stage_policy, policy_violations, tool_contract, "
             "<string> created_at AS created_at, <string> updated_at AS updated_at "
             "FROM type::record('ai_run_trace', $run)",
             {"run": run_id},
@@ -292,7 +299,8 @@ class ChatAiMixin:
         allowed = {
             "parent_thread_id", "context_session_id", "origin_context_revision",
             "origin_context_hash", "envelope_hash", "focus",
-            "completion_context_revision", "write_effects",
+            "completion_context_revision", "write_effects", "stage_policy", "policy_violations",
+            "tool_contract",
         }
         patch = {k: v for k, v in fields.items()
                  if k in allowed and (v is not None or k == "write_effects")}
@@ -309,7 +317,7 @@ class ChatAiMixin:
         n = max(1, min(int(limit), 1000))
         rows = self._query(
             f"SELECT work, run_id, status, session_key, input_text, tool_calls, "
-            f"tool_outputs, approvals, usage, error, <string> updated_at AS updated_at "
+            f"tool_outputs, approvals, usage, error, stage_policy, tool_contract, <string> updated_at AS updated_at "
             f"FROM ai_run_trace ORDER BY updated_at DESC LIMIT {n}",
         )
         return rows

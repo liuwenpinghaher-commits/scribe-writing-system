@@ -634,9 +634,12 @@ def audit_chapter_det(
     else:
         checks.append(CheckResult("C1", "skip", "run_leaks=False", hard=False))
 
-    # C2 causal — no_event_data 时 skip 不阻断
+    # C2 causal — ``causal_complete`` 的空列表仅表示“没有违规”，不能自行区分
+    # “无事件”与“已有事件且完整”。先从同一 work-scoped store 读取事件存在性，
+    # 防止已完成自动 ingest 的章节被误报为 skip。
     try:
         from scribe3.verify import causal_complete
+        events = st.events_at(seq) if hasattr(st, "events_at") else []
         res = causal_complete(st, seq)
         # 兼容不同返回形状
         if isinstance(res, dict):
@@ -653,8 +656,12 @@ def audit_chapter_det(
                     checks.append(CheckResult("C2", "pass", "因果完整"))
         elif isinstance(res, list):
             if not res:
-                checks.append(CheckResult(
-                    "C2", "skip", "因果结果空列表(可能无事件)", hard=False))
+                if events:
+                    checks.append(CheckResult(
+                        "C2", "pass", "因果完整", {"events": len(events)}))
+                else:
+                    checks.append(CheckResult(
+                        "C2", "skip", "无事件数据,因果不适用", hard=False))
             else:
                 checks.append(CheckResult(
                     "C2", "fail", f"因果违规 {len(res)}",

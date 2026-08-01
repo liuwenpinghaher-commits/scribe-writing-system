@@ -38,12 +38,15 @@ describe('chiefSeed helpers', () => {
     window.removeEventListener('s3-right-tab', onTab)
   })
 
-  it('seedChiefCodexWrite includes type intent and focuses chief', () => {
+  it('完整设定更正使用注册表驱动的待批工具并聚焦主编', () => {
     const tabs = []
     window.addEventListener('s3-right-tab', (e) => tabs.push(e.detail))
-    const t = seedChiefCodexWrite('chars', { name: '季棠' }, '补外貌')
+    const t = seedChiefCodexWrite('chars', { name: '季棠', aliases: ['小棠'], abilities: ['读唇'] }, '补外貌')
     expect(t).toMatch(/季棠/)
     expect(t).toMatch(/补外貌/)
+    expect(t).toMatch(/s3_patch_codex/)
+    expect(t).toMatch(/aliases/)
+    expect(t).toMatch(/abilities/)
     expect(sessionStorage.getItem('s3.chief.seed')).toBe(t)
     expect(tabs).toContain('chief')
   })

@@ -65,6 +65,16 @@ class EventsMixin:
         usage = trace.get("usage")
         error = trace.get("error")
 
+        def _approval_result_status(tool: str, decision, *, output_available: bool) -> str | None:
+            """把作者决定映射为审计状态，但绝不把缺失的 MCP 返回值伪装成已写入。"""
+            if not tool.startswith("s3_"):
+                return None
+            if decision in {"deny", "denied", "reject", "rejected", False}:
+                return "declined"
+            if decision in {"approve", "approved", "once", "session", "always", True}:
+                return "written" if output_available else "approved_unverified"
+            return None
+
         def _find_call(call_id: str | None = None) -> dict | None:
             if call_id:
                 for call in reversed(tool_calls):
@@ -94,6 +104,7 @@ class EventsMixin:
         if kind in {"tool.started", "tool.start"}:
             parsed_args = _json_obj(event.get("arguments"))
             tool_calls.append({
+                "sequence": len(tool_calls) + 1,
                 "call_id": event.get("call_id"),
                 "name": event.get("name") or event.get("tool_name") or "",
                 "arguments": event.get("arguments", ""),
@@ -121,6 +132,7 @@ class EventsMixin:
             decision = event.get("decision") or (approval or {}).get("decision")
             if approval and not approval_id:
                 approval_id = approval.get("approval_id")
+            output_available = bool(event.get("output_available", "output" in event))
             result_status = (parsed_output or {}).get("status") or event.get("status")
             parsed_args = (call or {}).get("parsed_arguments") or _json_obj((call or {}).get("arguments"))
             write_effect = (
@@ -128,11 +140,9 @@ class EventsMixin:
                 or (call or {}).get("write_effect")
                 or (approval or {}).get("write_effect")
             )
-            if not result_status and tool.startswith("s3_"):
-                if decision in {"approve", "approved", "once", "session", "always", True}:
-                    result_status = "written"
-                elif decision in {"deny", "denied", "reject", "rejected", False}:
-                    result_status = "declined"
+            if not result_status:
+                result_status = _approval_result_status(
+                    tool, decision, output_available=output_available)
             if call is not None:
                 if approval_id:
                     call["approval_id"] = approval_id
@@ -144,6 +154,11 @@ class EventsMixin:
                 "call_id": call_id,
                 "tool": tool,
                 "output": event.get("output", ""),
+                # Hermes Runs 0.18.2 的 tool.completed 可能只给完成回执，
+                # 并未发送 output/result。把这种协议省略显式留痕，禁止空串假装
+                # 是“工具确实返回了空结果”。旧调用者若显式给了 output，仍按可得处理。
+                "output_available": output_available,
+                "completion": event.get("completion") or {},
                 "parsed_output": parsed_output,
                 "approval_id": approval_id,
                 "decision": decision,
@@ -176,7 +191,22 @@ class EventsMixin:
             })
         elif kind == "approval.resolved":
             approval_id = event.get("approval_id")
-            requested = _find_approval(approval_id=approval_id, approval_status="requested")
+            requested = (
+                _find_approval(approval_id=approval_id, approval_status="requested")
+                or _find_approval(approval_id=approval_id, approval_status="pending")
+                or _find_approval(approval_id=approval_id, approval_status="expired")
+            )
+            inferred_timeout = bool(
+                requested
+                and str(requested.get("status") or "").lower() == "expired"
+                and requested.get("decision") == "timeout"
+            )
+            # ``run.completed`` 可能早于网络中的作者审批回写抵达。expired/timeout
+            # 只是当时为避免空白假绿做的临时归档；一旦有真实审批事件，应恢复为
+            # 正常的 requested → resolved 审计序列，不能保留一条伪超时历史。
+            if inferred_timeout:
+                requested["status"] = "requested"
+                requested.pop("decision", None)
             call_id = event.get("call_id") or event.get("tool_call_id") or (requested or {}).get("call_id")
             call = _find_call(call_id)
             if call and not call_id:
@@ -185,18 +215,79 @@ class EventsMixin:
             if call and approval_id:
                 call["approval_id"] = approval_id
             write_effect = (requested or {}).get("write_effect") or (call or {}).get("write_effect")
+            # Hermes 的 tool.completed 可能比浏览器批准 POST 的回写更早到达。若有
+            # MCP 返回值，审批可以补回 written/declined；若协议只给空完成回执，
+            # 只能诚实记录“已批准、尚未从工具结果证实”，随后由正典回读闭环。
+            decision = event.get("decision") or event.get("choice")
+            matching_output = next((
+                output for output in reversed(tool_outputs)
+                if (not call_id or output.get("call_id") == call_id)
+                and (not approval_id or output.get("approval_id") in {None, approval_id})
+            ), None)
+            result_status = _approval_result_status(
+                tool, decision,
+                output_available=bool((matching_output or {}).get("output_available")),
+            )
+            if call and result_status and (not call.get("result_status") or inferred_timeout):
+                call["result_status"] = result_status
+            if matching_output is not None:
+                matching_output["approval_id"] = approval_id or matching_output.get("approval_id")
+                if decision and (not matching_output.get("decision") or inferred_timeout):
+                    matching_output["decision"] = decision
+                if result_status and (not matching_output.get("result_status") or inferred_timeout):
+                    matching_output["result_status"] = result_status
+                if write_effect and not matching_output.get("write_effect"):
+                    matching_output["write_effect"] = write_effect
             approvals.append({
                 "run_id": event.get("run_id") or run_id,
                 "approval_id": approval_id,
                 "call_id": call_id,
                 "tool": tool,
-                "decision": event.get("decision"),
+                "decision": decision,
                 "write_effect": write_effect,
                 "status": "resolved",
                 "source": event.get("source") or "runtime",
                 "source_type": source_type,
             })
         elif kind == "run.completed":
+            # Hermes 在 elicitation 超时后可能只发空 tool.completed 再结束 Run，
+            # 而不补 approval.resolved。此时正典写绝不能随着 Run 生命周期的
+            # completed 被误读成成功：没有作者决议就是未写入。把未决写审批封存为
+            # timeout/declined，并回填同一工具审计记录；Run 本身仍如实保留 completed。
+            resolved_approval_ids = {
+                str(row.get("approval_id"))
+                for row in approvals
+                if row.get("approval_id") and (
+                    row.get("decision") is not None
+                    or str(row.get("status") or "").lower()
+                    in {"resolved", "approved", "denied", "declined"}
+                )
+            }
+            for approval in approvals:
+                if str(approval.get("status") or "").lower() not in {"requested", "pending"}:
+                    continue
+                if str(approval.get("approval_id") or "") in resolved_approval_ids:
+                    continue
+                tool = str(approval.get("tool") or "")
+                if not tool.startswith("s3_"):
+                    continue
+                approval["decision"] = "timeout"
+                approval["status"] = "expired"
+                approval_id = approval.get("approval_id")
+                call_id = approval.get("call_id")
+                call = _find_call(call_id)
+                if call and not call.get("result_status"):
+                    call["result_status"] = "declined"
+                for output in reversed(tool_outputs):
+                    if call_id and output.get("call_id") != call_id:
+                        continue
+                    if approval_id and output.get("approval_id") not in {None, approval_id}:
+                        continue
+                    output["approval_id"] = approval_id or output.get("approval_id")
+                    output["decision"] = "timeout"
+                    if not output.get("result_status"):
+                        output["result_status"] = "declined"
+                    break
             status = "completed"
             usage = event.get("usage")
         elif kind == "run.failed":

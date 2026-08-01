@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -333,6 +334,38 @@ class HermesRuntime:
 class HermesEventAdapter:
     """Normalize Hermes Responses SSE events for app-level streams."""
 
+    def __init__(self):
+        # Hermes Runs 的 MCP 事件在实际网关中可缺 call_id；为同一 SSE 流内的
+        # started/completed 成对事件分配稳定审计 ID，不能因协议缺字段而丢失工具完成证据。
+        self._anonymous_call_count = 0
+        self._unresolved_call_ids: dict[str, deque[str]] = defaultdict(deque)
+
+    def _started_call_id(self, event: dict[str, Any], name: str,
+                         item: dict[str, Any] | None = None) -> str | None:
+        call_id = self._call_id(event, item)
+        if not call_id:
+            self._anonymous_call_count += 1
+            call_id = f"synthetic:{self._anonymous_call_count}"
+        if name:
+            self._unresolved_call_ids[name].append(str(call_id))
+        return str(call_id)
+
+    def _completed_call_id(self, event: dict[str, Any], name: str,
+                           item: dict[str, Any] | None = None) -> str | None:
+        call_id = self._call_id(event, item)
+        queued = self._unresolved_call_ids.get(name)
+        if call_id:
+            normalized = str(call_id)
+            if queued:
+                try:
+                    queued.remove(normalized)
+                except ValueError:
+                    pass
+            return normalized
+        if queued:
+            return queued.popleft()
+        return None
+
     @staticmethod
     def _tool_name(event: dict[str, Any], item: dict[str, Any] | None = None) -> str:
         item = item or {}
@@ -362,6 +395,22 @@ class HermesEventAdapter:
             return item.get("result")
         return ""
 
+    @staticmethod
+    def _tool_output_available(event: dict[str, Any], item: dict[str, Any] | None = None) -> bool:
+        """上游是否实际发送过工具结果字段，而不是把协议省略误读为空结果。"""
+        item = item or {}
+        return any(key in event or key in item for key in ("output", "result"))
+
+    @staticmethod
+    def _tool_completion_receipt(event: dict[str, Any]) -> dict[str, Any]:
+        """保留 Hermes Runs 可证明的完成回执；不转存可能含敏感信息的错误文本。"""
+        receipt: dict[str, Any] = {}
+        if isinstance(event.get("duration"), (int, float)):
+            receipt["duration"] = event["duration"]
+        if "error" in event:
+            receipt["error"] = bool(event.get("error"))
+        return receipt
+
     def adapt(self, event: dict[str, Any]) -> dict[str, Any]:
         source_type = event.get("type") or event.get("event") or ""
         if source_type in {"response.output_text.delta", "message.delta"}:
@@ -371,22 +420,26 @@ class HermesEventAdapter:
                 "source_type": source_type,
             }
         if source_type in {"tool.start", "tool.started"}:
+            name = self._tool_name(event)
             out = {
                 "kind": "tool.started",
-                "name": self._tool_name(event),
+                "name": name,
                 "arguments": event.get("arguments", ""),
-                "call_id": self._call_id(event),
+                "call_id": self._started_call_id(event, name),
                 "source_type": source_type,
             }
             if event.get("run_id") is not None:
                 out["run_id"] = event.get("run_id")
             return out
         if source_type in {"tool.complete", "tool.completed"}:
+            name = self._tool_name(event)
             out = {
                 "kind": "tool.output",
-                "name": self._tool_name(event),
-                "call_id": self._call_id(event),
+                "name": name,
+                "call_id": self._completed_call_id(event, name),
                 "output": self._tool_output(event),
+                "output_available": self._tool_output_available(event),
+                "completion": self._tool_completion_receipt(event),
                 "source_type": source_type,
             }
             if event.get("run_id") is not None:
@@ -424,20 +477,23 @@ class HermesEventAdapter:
         if source_type == "response.output_item.added":
             item = event.get("item", {}) or {}
             if item.get("type") == "function_call":
+                name = self._tool_name(event, item)
                 return {
                     "kind": "tool.started",
-                    "name": self._tool_name(event, item),
+                    "name": name,
                     "arguments": item.get("arguments", ""),
-                    "call_id": self._call_id(event, item),
+                    "call_id": self._started_call_id(event, name, item),
                     "source_type": source_type,
                 }
         if source_type == "response.output_item.done":
             item = event.get("item", {}) or {}
             if item.get("type") == "function_call_output":
+                name = self._tool_name(event, item)
                 return {
                     "kind": "tool.output",
-                    "call_id": self._call_id(event, item),
+                    "call_id": self._completed_call_id(event, name, item),
                     "output": self._tool_output(event, item),
+                    "output_available": self._tool_output_available(event, item),
                     "source_type": source_type,
                 }
             if item.get("type") == "function_call":
@@ -457,12 +513,21 @@ class HermesEventAdapter:
                 "source_type": source_type,
             }
         if source_type == "run.completed":
-            return {
+            out = {
                 "kind": "run.completed",
                 "run_id": event.get("run_id"),
                 "usage": event.get("usage"),
                 "source_type": source_type,
             }
+            # Hermes Run 终态若给出下游模型标识，必须连同 usage 一起进入审计链。
+            # 不能只在创建响应里短暂存在：审批恢复或 collector 重放会以终态事件覆写 response。
+            if isinstance(event.get("model"), str) and event["model"]:
+                out["model"] = event["model"]
+            # Hermes Runs 终态原生携带最终回答时，这是工具链之后的判断说明，
+            # 必须传给持久层供质量复核，不能只留 usage。旧协议未给该字段时保持兼容形状。
+            if "output" in event:
+                out["output"] = event.get("output")
+            return out
         if source_type == "response.failed":
             response = event.get("response", {}) or {}
             return {

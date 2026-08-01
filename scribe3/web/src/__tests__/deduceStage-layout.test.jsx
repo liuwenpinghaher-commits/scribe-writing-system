@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { DeduceStage } from '../DeduceStage'
+import { DeduceStage, GENERATE_TIMEOUT_MS } from '../DeduceStage'
 
 vi.mock('../api', () => ({
   api: {
     patchChapter: vi.fn(() => Promise.resolve({})),
     chapter: vi.fn(() => Promise.resolve({ deductions: [] })),
     chatWrite: vi.fn(),
+    aiRunPendingApproval: vi.fn(() => Promise.resolve({ runs: [] })),
   },
 }))
 
@@ -29,6 +30,10 @@ vi.mock('../ui/Toast.jsx', () => ({
 }))
 
 describe('DeduceStage 布局', () => {
+  it('为真实 TokenPlan 长推理保留六分钟窗口，不在模型完成前自动取消', () => {
+    expect(GENERATE_TIMEOUT_MS).toBe(360000)
+  })
+
   it('在三栏详情中使用宽工作台容器,不沿用普通阶段窄文稿宽度', () => {
     render(<DeduceStage seq={1} meta={{ chars: [], deductions: [] }} work="demo" />)
 

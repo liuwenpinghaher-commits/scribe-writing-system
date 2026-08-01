@@ -1,0 +1,16 @@
+# 第三方模型不能用 Prompt 代替权限控制：演绎 Run 独占本 profile，工具面只容许
+# 对当前章的最小必要读取和 s3_patch_chapter_plan。端口 :8645 与完整写 Run :8644 隔离。
+platform_toolsets:
+  api_server:
+    - scribe3_deduce_read
+    - scribe3_deduce_write
+# 与预览 profile 一致：先等待 TokenPlan/Qwen 完整发现最小 MCP schema，
+# 否则模型会把 s3_patch_chapter_plan 写成文本而不会产生作者审批。
+mcp_discovery_timeout: 10.0
+agent:
+  # 演绎 Run 必须实际读取限知证据并在批准后调用唯一写工具。
+  tool_use_enforcement: true
+platforms:
+  api_server:
+    port: 8645
+    host: 127.0.0.1

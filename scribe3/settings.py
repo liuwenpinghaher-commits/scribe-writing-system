@@ -110,6 +110,8 @@ REGISTRY: tuple[Setting, ...] = (
     Setting("HERMES_RESPONSES_PROFILE", "gateway", "str", "scribe3", "restart", "读网关 profile"),
     Setting("HERMES_RUNS_API", "gateway", "str", "http://127.0.0.1:8644/v1", "restart", "写入 Runs 网关"),
     Setting("HERMES_RUNS_PROFILE", "gateway", "str", "scribe3_write", "restart", "写网关 profile"),
+    Setting("HERMES_DEDUCE_RUNS_API", "gateway", "str", "http://127.0.0.1:8645/v1", "restart", "章节演绎受限 Runs 网关"),
+    Setting("HERMES_DEDUCE_PREVIEW_RUNS_API", "gateway", "str", "http://127.0.0.1:8646/v1", "restart", "章节演绎只读预览 Runs 网关"),
     Setting("HERMES_HOME", "gateway", "str", "", "restart", "Hermes 根目录", "空 = ~/.hermes"),
     Setting("DEEPSEEK_API_KEY", "gateway", "secret", "", "hot", "Qwen API 密钥（兼容键）",
             "旧键名为兼容现有本机设置；无工具补全/纪律审校直连 Qwen 官方服务；本地受限权限设置存储；审计掩码；当前不宣称静态加密"),

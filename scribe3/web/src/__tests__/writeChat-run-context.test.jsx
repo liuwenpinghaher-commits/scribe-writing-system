@@ -20,11 +20,8 @@ const apiMock = vi.hoisted(() => ({
   chatWrite: vi.fn((_msg, opts) => { opts.onDone?.(); return { abort: vi.fn() } }),
 }))
 
-vi.mock('../api', () => ({ api: apiMock }))
-
-// 注入统一快照(模拟四栏 ContextSnapshotProvider 已建会话):session_id + revision + focus。
-vi.mock('../context/ContextSnapshotContext', () => ({
-  useContextSnapshot: () => ({
+const contextMock = vi.hoisted(() => ({
+  value: {
     snapshot: {
       session_id: 'sess-ctx-1',
       revision: 8,
@@ -32,7 +29,16 @@ vi.mock('../context/ContextSnapshotContext', () => ({
       thread_id: 'ethread:book-a',
       focus: { type: 'chapter', id: 'chapter:9', label: '第 9 章' },
     },
-  }),
+    restoring: false,
+    capabilities: { flags: { snapshot_v1: true } },
+  },
+}))
+
+vi.mock('../api', () => ({ api: apiMock }))
+
+// 注入统一快照(模拟四栏 ContextSnapshotProvider 已建会话):session_id + revision + focus。
+vi.mock('../context/ContextSnapshotContext', () => ({
+  useContextSnapshot: () => contextMock.value,
 }))
 
 describe('WriteChat 章内 run 绑发起时上下文(I-1a)', () => {
@@ -42,6 +48,17 @@ describe('WriteChat 章内 run 绑发起时上下文(I-1a)', () => {
     sessionStorage.clear()
     HTMLElement.prototype.scrollIntoView = vi.fn()
     apiMock.getWork.mockReturnValue('book-a')
+    contextMock.value = {
+      snapshot: {
+        session_id: 'sess-ctx-1',
+        revision: 8,
+        context_hash: 'a'.repeat(64),
+        thread_id: 'ethread:book-a',
+        focus: { type: 'chapter', id: 'chapter:9', label: '第 9 章' },
+      },
+      restoring: false,
+      capabilities: { flags: { snapshot_v1: true } },
+    }
   })
 
   it('登记世界状态走 Hermes Run 时把发起时 session/revision 绑进 create', async () => {
@@ -72,6 +89,61 @@ describe('WriteChat 章内 run 绑发起时上下文(I-1a)', () => {
       context_revision: 8,
       context_hash: 'a'.repeat(64),
     })
+  })
+
+  it('正文流被作者停止时通知父级解锁已经可见的草稿卡', async () => {
+    const onProposalInterrupted = vi.fn()
+    const abort = vi.fn()
+    apiMock.chatWrite.mockImplementationOnce((_msg, opts) => {
+      opts.onProposalStart?.({ scope: 'chapter' })
+      opts.onProposalChunk?.({ text: '退潮后的黑水贴着石阶往下滑。' })
+      return { abort }
+    })
+    render(<WriteChat chapter={9} focalizer="崔判" phase="final" onProposalInterrupted={onProposalInterrupted} />)
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '直接写本章完整正文。' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+
+    await waitFor(() => expect(api.chatWrite).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }))
+
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(onProposalInterrupted).toHaveBeenCalledTimes(1)
+  })
+
+  it('快照门开启但服务端会话尚未绑定时，禁止发送并明确提示上下文准备中', () => {
+    contextMock.value = {
+      snapshot: { session_id: null, revision: 0, context_hash: null },
+      restoring: true,
+      capabilities: { flags: { snapshot_v1: true } },
+    }
+    render(<WriteChat chapter={9} focalizer="崔判" phase="final" />)
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, {
+      target: { value: '直接写本章完整正文，以具体动作、感官和对话推进人物关系。' },
+    })
+    // 键盘发送不能绕过工具栏禁用，否则快照竞态仍会打到后端 400。
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.getByRole('button', { name: '发送' }).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toContain('上下文准备中')
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
+    expect(apiMock.runWrite).not.toHaveBeenCalled()
+  })
+
+  it('能力清单尚未返回而服务端上下文正在创建时，也不能抢先发送', () => {
+    contextMock.value = {
+      snapshot: { session_id: null, revision: 0, context_hash: null },
+      restoring: true,
+      capabilities: { flags: { snapshot_v1: false } },
+    }
+    render(<WriteChat chapter={9} focalizer="崔判" phase="final" />)
+    const input = screen.getByPlaceholderText(/提思路/)
+    fireEvent.change(input, { target: { value: '直接写本章完整正文，以具体动作、感官和对话推进人物关系。' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.getByRole('button', { name: '发送' }).disabled).toBe(true)
+    expect(apiMock.chatWrite).not.toHaveBeenCalled()
   })
 
   it('过期焦点审批(run_context_changed)在章内槽也展示已过期并作废', async () => {

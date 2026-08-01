@@ -166,7 +166,7 @@ describe('SettingsView', () => {
     expect(usageText.parentElement?.parentElement?.querySelector('[style="width: 83%;"]')).toBeTruthy()
   })
 
-  it('用量面板显示官方 Qwen 模型与 token-plan 直连证据', async () => {
+  it('用量面板显示阿里云 TokenPlan 的模型与直连证据', async () => {
     apiMock.aiUsage = vi.fn(() => Promise.resolve({
       work: 'main',
       cap: { cap: 0, used_today: 3, remaining: null, scope: 'shared', unlimited: true },
@@ -178,7 +178,7 @@ describe('SettingsView', () => {
     }))
     render(<SettingsView work="demo" />)
 
-    expect(await screen.findByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeTruthy()
   })
 
   it.each([
@@ -264,7 +264,7 @@ describe('SettingsView', () => {
       .mockResolvedValueOnce(usagePayload({ model: 'qwen3.8-max-preview' }))
       .mockResolvedValueOnce(usagePayload({ model: 'qwen-plus' }))
     render(<SettingsView work="demo" />)
-    expect(await screen.findByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeTruthy()
 
     const input = screen.getByRole('textbox', { name: '补全模型名' })
     fireEvent.change(input, { target: { value: 'qwen-plus' } })
@@ -273,7 +273,7 @@ describe('SettingsView', () => {
     await waitFor(() => expect(apiMock.putSetting).toHaveBeenCalledWith('llm.model', 'qwen-plus'))
     await waitFor(() => expect(apiMock.settings).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen-plus · 直连')).toBeTruthy()
   })
 
   it('保存日帽后 usage 卡立即更新', async () => {
@@ -326,11 +326,11 @@ describe('SettingsView', () => {
     await waitFor(() => expect(apiMock.aiUsage).toHaveBeenCalledTimes(2))
 
     await act(async () => { resolveNew(usagePayload({ model: 'qwen-plus' })) })
-    expect(await screen.findByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
+    expect(await screen.findByText('阿里云 TokenPlan · Qwen 兼容 · qwen-plus · 直连')).toBeTruthy()
     await act(async () => { resolveOld(usagePayload({ model: 'qwen3.8-max-preview' })) })
     await waitFor(() => {
-      expect(screen.getByText('官方 Qwen · qwen-plus · 直连')).toBeTruthy()
-      expect(screen.queryByText('官方 Qwen · qwen3.8-max-preview · 直连')).toBeNull()
+      expect(screen.getByText('阿里云 TokenPlan · Qwen 兼容 · qwen-plus · 直连')).toBeTruthy()
+      expect(screen.queryByText('阿里云 TokenPlan · Qwen 兼容 · qwen3.8-max-preview · 直连')).toBeNull()
     })
   })
 

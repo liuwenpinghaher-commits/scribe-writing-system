@@ -36,19 +36,25 @@ def _live_credentials() -> tuple[str, str]:
 async def live_stream(url: str, ns: str, db: str, tables: list[str]):
     """异步生成器:产出 SSE 行。任一表 CREATE/UPDATE/DELETE → 推 {"table": 名}。"""
     q: asyncio.Queue = asyncio.Queue()
-    conns: list = []
     tasks: list = []
     user, password = _live_credentials()
 
     async def watch(table: str):
         c = AsyncSurreal(url)
-        await c.signin({"username": user, "password": password})
-        await c.use(ns, db)
-        conns.append(c)
-        quuid = await c.live(table)
-        gen = await c.subscribe_live(quuid)
-        async for _note in gen:
-            await q.put(table)
+        try:
+            await c.signin({"username": user, "password": password})
+            await c.use(ns, db)
+            quuid = await c.live(table)
+            gen = await c.subscribe_live(quuid)
+            async for _note in gen:
+                await q.put(table)
+        finally:
+            # 取消可能发生在 signin/use 期间；此时客户端尚未完成订阅，
+            # 也不能依赖外层的已订阅连接列表兜底关闭。
+            try:
+                await c.close()
+            except Exception:
+                pass
 
     for t in tables:
         tasks.append(asyncio.create_task(watch(t)))
@@ -64,8 +70,7 @@ async def live_stream(url: str, ns: str, db: str, tables: list[str]):
     finally:
         for t in tasks:
             t.cancel()
-        for c in conns:
-            try:
-                await c.close()
-            except Exception:
-                pass
+        # 等待 watch 自己的 finally 实际关闭 AsyncSurreal，不能只 cancel 后返回，
+        # 否则页面快速 reload 会累积 recv/keepalive 线程和套接字。
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)

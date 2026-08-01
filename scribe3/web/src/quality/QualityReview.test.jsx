@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QualityReview } from './QualityReview'
 
 const apiMock = vi.hoisted(() => ({
   qualityEvaluation: vi.fn(),
   qualityAuthorJudgment: vi.fn(),
+  qualityCreateSnapshot: vi.fn(),
+  qualityRetryJob: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
@@ -21,7 +23,7 @@ function evaluation({ withAuthor = false, conflicted = false } = {}) {
     dimensions: DIMENSIONS.map((label, i) => ({
       dimension: label,
       state: 'evaluable',
-      system: { score: 3, effect: '稳', mechanism: '机制' + i, evidence: [{ quote: '原文证据', start_utf16: 0, end_utf16: 4 }], confidence: 0.8 },
+      system: { score: 3, effect: '稳', mechanism: '机制' + i, evidence: [{ chapter_version_id: 'chapter_version:abc', quote: '原文证据', start_utf16: 0, end_utf16: 4, content_hash: 'a'.repeat(64) }], confidence: 0.8 },
       reference: { score: 4, mode: 'close' },
       author: withAuthor ? { score: 4 } : null,
       decision_index: withAuthor ? 3.6 : null,
@@ -36,6 +38,7 @@ describe('QualityReview 十维三轴审阅', () => {
     vi.clearAllMocks()
     apiMock.qualityEvaluation.mockResolvedValue(evaluation())
     apiMock.qualityAuthorJudgment.mockResolvedValue({ ok: true })
+    apiMock.qualityCreateSnapshot.mockResolvedValue(evaluation())
   })
 
   it('渲染全部十个维度标签', async () => {
@@ -72,14 +75,21 @@ describe('QualityReview 十维三轴审阅', () => {
     expect(screen.queryByText(/total/i)).toBeNull()
   })
 
-  it('作者评分提交后重新读取服务器三轴', async () => {
+  it('作者必须带理由与明确裁决提交，且重新读取服务器三轴', async () => {
     apiMock.qualityEvaluation.mockResolvedValue(evaluation({ withAuthor: true }))
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText('连贯性与因果')
-    const inputs = screen.getAllByRole('spinbutton')
-    fireEvent.change(inputs[0], { target: { value: '5' } })
-    fireEvent.blur(inputs[0])
-    expect(apiMock.qualityAuthorJudgment).toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('spinbutton', { name: '连贯性与因果 作者评分' }), { target: { value: '5' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'revise' } })
+    fireEvent.change(screen.getAllByRole('textbox', { name: /裁决理由/ })[0], {
+      target: { value: '因果尚缺关键代价，需继续修订。' },
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: '提交裁决' })[0])
+    expect(apiMock.qualityAuthorJudgment).toHaveBeenCalledWith(expect.objectContaining({
+      work: 'demo', seq: 7, dimension: '连贯性与因果', score: 5,
+      decision: 'revise', reason: '因果尚缺关键代价，需继续修订。',
+      evidence: [expect.objectContaining({ quote: '原文证据' })],
+    }))
     await waitFor(() => expect(apiMock.qualityEvaluation.mock.calls.length).toBeGreaterThan(1))
   })
 
@@ -109,10 +119,84 @@ describe('QualityReview 十维三轴审阅', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
   })
 
+  it('运行中不渲染作者裁决表单', async () => {
+    apiMock.qualityEvaluation.mockResolvedValue({
+      chapter: 7, job_id: 'job-7', status: 'running', dimensions: [],
+    })
+    render(<QualityReview work="demo" seq={7} />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByText(/正在执行质量判断/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '提交裁决' })).toBeNull()
+  })
+
   it('用户字段带稳定 data-field-path', async () => {
     render(<QualityReview work="demo" seq={7} />)
     await screen.findByText('连贯性与因果')
     const fields = document.querySelectorAll('[data-field-path]')
     expect(fields.length).toBeGreaterThan(0)
+  })
+
+  it('无有效章节时不读取评价且不能发起快照', async () => {
+    render(<QualityReview work="demo" />)
+    expect((await screen.findAllByText(/先选择章节/)).length).toBeGreaterThan(0)
+    expect(apiMock.qualityEvaluation).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '创建章节评价' }).disabled).toBe(true)
+  })
+
+  it('从明确章节、合同和已批准指纹创建质量快照', async () => {
+    apiMock.qualityEvaluation.mockResolvedValue({ chapter: 7, dimensions: [], status: 'empty' })
+    render(<QualityReview work="demo" seq={7} />)
+    await screen.findByText(/暂无质量评价/)
+    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
+      target: { value: 'contract-demo' },
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: '已批准参考指纹 ID' }), {
+      target: { value: 'fp-a, fp-b' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
+    await waitFor(() => expect(apiMock.qualityCreateSnapshot).toHaveBeenCalledWith({
+      work: 'demo', seq: 7, contract_id: 'contract-demo', contract_revision: 1,
+      reference_fingerprint_ids: ['fp-a', 'fp-b'],
+    }))
+    await screen.findByText('连贯性与因果')
+  })
+
+  it('创建新评价后忽略先前读取返回的旧冻结评价', async () => {
+    let resolveInitialLoad
+    apiMock.qualityEvaluation.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveInitialLoad = resolve
+    }))
+    apiMock.qualityCreateSnapshot.mockResolvedValue({
+      chapter: 7, job_id: 'job-new', status: 'queued', dimensions: [],
+    })
+    render(<QualityReview work="demo" seq={7} />)
+    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
+      target: { value: 'contract-demo' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
+    await waitFor(() => expect(apiMock.qualityCreateSnapshot).toHaveBeenCalled())
+    resolveInitialLoad({
+      ...evaluation(),
+      job_id: 'job-old',
+      dimensions: evaluation().dimensions.map((dimension) => ({
+        ...dimension,
+        system: { ...dimension.system, evidence: [{ ...dimension.system.evidence[0], quote: '旧冻结证据' }] },
+      })),
+    })
+    expect(await screen.findByTestId('quality-job-running')).toBeTruthy()
+    expect(screen.queryByText('旧冻结证据')).toBeNull()
+  })
+
+  it('创建评价失败时展示后端已脱敏的具体原因，便于作者修正输入后重试', async () => {
+    apiMock.qualityCreateSnapshot.mockRejectedValue(Object.assign(
+      new Error('HTTP 409'), { status: 409, body: { detail: '质量合同未获作者批准' } },
+    ))
+    render(<QualityReview work="demo" seq={7} />)
+    await screen.findByText('连贯性与因果')
+    fireEvent.change(screen.getByRole('textbox', { name: '质量合同 ID' }), {
+      target: { value: 'contract-demo' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建章节评价' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('质量合同未获作者批准')
   })
 })

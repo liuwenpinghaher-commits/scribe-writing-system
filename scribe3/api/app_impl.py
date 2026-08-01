@@ -34,6 +34,7 @@ import threading
 import time
 from functools import wraps
 from collections import OrderedDict, deque
+from queue import Empty, Full, Queue
 
 import httpx
 from fastapi import (
@@ -188,6 +189,7 @@ async def _emergency_rest_write_middleware(request, call_next):
 
 _STORE_CACHE_MAX = 8
 _stores: OrderedDict[str, SurrealStore] = OrderedDict()
+_stores_lock = threading.RLock()
 _complete_fn = None
 
 # P0-1: 同章 ingest 去重——(work,seq) 在途集合。防"存为正文"双触发
@@ -261,7 +263,8 @@ def _s1_record(work: str, s1_triggered: bool) -> None:
 
 def set_store(store, work: str = "main") -> None:
     """测试注入某书的 store。"""
-    _stores[work] = store
+    with _stores_lock:
+        _stores[work] = store
 
 
 def set_complete_fn(fn) -> None:
@@ -270,16 +273,42 @@ def set_complete_fn(fn) -> None:
 
 
 def _store_for(work: str) -> SurrealStore:
-    if work not in _stores:
-        st = SurrealStore(ns="scribe3", db=work)
-        st.apply_schema()
-        _stores[work] = st
-        while len(_stores) > _STORE_CACHE_MAX:
-            _, old = _stores.popitem(last=False)
-            old.close()
-    else:
-        _stores.move_to_end(work)
-    return _stores[work]
+    # Surreal 同步客户端每次建连都会启动 recv_events/keepalive 线程。
+    # 首次并发访问同一 work 时，必须把“检查→建连→迁移→入缓存”作为一个原子区，
+    # 否则被后写缓存覆盖的客户端没有所有者关闭，最终耗尽线程和套接字。
+    with _stores_lock:
+        if work not in _stores:
+            st = SurrealStore(ns="scribe3", db=work)
+            st.apply_schema()
+            _stores[work] = st
+            while len(_stores) > _STORE_CACHE_MAX:
+                _, old = _stores.popitem(last=False)
+                old.close()
+        else:
+            _stores.move_to_end(work)
+        return _stores[work]
+
+
+def _close_cached_stores() -> None:
+    """关闭进程级 work→SurrealStore 缓存，供正常服务退出释放 WebSocket/keepalive。"""
+    with _stores_lock:
+        cached = list(_stores.values())
+        _stores.clear()
+    for store in cached:
+        try:
+            store.close()
+        except Exception:
+            logging.getLogger("scribe3").warning("服务退出时关闭 SurrealStore 失败", exc_info=True)
+
+
+@app.on_event("shutdown")
+def _shutdown_close_cached_stores() -> None:
+    _close_cached_stores()
+
+
+# 参考/质量路由是独立模块，但必须复用主应用的一书一库解析器，而不是持有
+# 一个隐式默认 store。赋值放在定义之后，以便路由实际执行时总能得到同一缓存。
+app.state.store_for = _store_for
 
 
 _OBJECT_PREFIX = {"role": "role", "fact": "fact"}
@@ -508,14 +537,22 @@ def _hermes_profile_config_summary(profile: str, home=None) -> dict:
     if isinstance(platform_toolsets, dict):
         api_server = _listish(platform_toolsets.get("api_server"))
     summary["api_server_toolsets"] = api_server
+    # Hermes 既兼容 ``mcp-<name>`` 运行时别名，也接受直接引用
+    # ``mcp_servers.<name>`` 裸键。诊断必须同时识别两种形态，否则写网关
+    # 实际已调用 MCP，这里却会误报“0 工具 + 原生工具面”。
+    def _mcp_server_name(toolset: str) -> str | None:
+        if toolset in summary["mcp_toolsets"]:
+            return toolset
+        return toolset.removeprefix("mcp-") if toolset.startswith("mcp-") else None
+
     summary["api_server_mcp_tool_count"] = sum(
-        summary["mcp_toolsets"][name]["tool_count"]
+        summary["mcp_toolsets"][server_name]["tool_count"]
         for name in api_server
-        if name in summary["mcp_toolsets"]
+        if (server_name := _mcp_server_name(name)) in summary["mcp_toolsets"]
     )
     summary["api_server_native_toolsets"] = [
         name for name in api_server
-        if name not in summary["mcp_toolsets"] and not name.startswith("mcp-")
+        if _mcp_server_name(name) not in summary["mcp_toolsets"]
     ]
     summary["ok"] = True
     return summary
@@ -622,7 +659,7 @@ def _summarize_hermes_runtime(profiles: list[dict], *, profile_configs: dict | N
         issues.append(_issue("error", "read_mcp_tools_missing", "只读网关没有启用 scribe3_read MCP 工具面"))
     if write_cfg.get("api_server_mcp_tool_count") == 0:
         issues.append(_issue("error", "write_mcp_tools_missing", "写网关没有启用 scribe3 MCP 工具面"))
-    if "scribe3_write" in (read_cfg.get("api_server_toolsets") or []):
+    if "mcp-scribe3_write" in (read_cfg.get("api_server_toolsets") or []):
         issues.append(_issue("error", "read_gateway_has_write_tools", "只读网关误启用了写工具面"))
     # U-003 修复(v2,真机实测推翻"CHIEF label 隔离"的上一版方案):Hermes 的
     # server_label 不做过滤——网关把某 profile 挂载的所有 MCP server 工具一律
@@ -743,6 +780,8 @@ def _hermes_runtime_status() -> dict:
     from scribe3.hermes_runtime import HermesRuntime
     from scribe3.llm import (
         HERMES,
+        HERMES_DEDUCE_PREVIEW_RUNS,
+        HERMES_DEDUCE_RUNS,
         HERMES_RESPONSES,
         HERMES_RESPONSES_PROFILE,
         HERMES_RUNS,
@@ -753,11 +792,15 @@ def _hermes_runtime_status() -> dict:
         HermesRuntime(api_base=HERMES, profile="default").probe(),
         HermesRuntime(api_base=HERMES_RESPONSES, profile=HERMES_RESPONSES_PROFILE).probe(),
         HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE).probe(),
+        HermesRuntime(api_base=HERMES_DEDUCE_RUNS, profile="scribe3_deduce").probe(),
+        HermesRuntime(api_base=HERMES_DEDUCE_PREVIEW_RUNS, profile="scribe3_deduce_preview").probe(),
     ]
     profile_configs = {
         "default": _hermes_profile_config_summary("default"),   # U-006:速答网关工具面自检需要
         HERMES_RESPONSES_PROFILE: _hermes_profile_config_summary(HERMES_RESPONSES_PROFILE),
         HERMES_RUNS_PROFILE: _hermes_profile_config_summary(HERMES_RUNS_PROFILE),
+        "scribe3_deduce": _hermes_profile_config_summary("scribe3_deduce"),
+        "scribe3_deduce_preview": _hermes_profile_config_summary("scribe3_deduce_preview"),
     }
     cron = _hermes_cron_status(HERMES_RESPONSES_PROFILE)
     summary = _summarize_hermes_runtime(profiles, profile_configs=profile_configs, cron=cron)
@@ -784,25 +827,54 @@ def _hermes_runtime_status() -> dict:
     }
 
 
-def _hermes_runs_runtime():
+def _hermes_runs_runtime(policy=None):
+    """按受控阶段策略选择 Runs gateway；调用方不能指定 profile 或 URL。"""
     from scribe3.hermes_runtime import HermesRuntime
-    from scribe3.llm import HERMES_RUNS, HERMES_RUNS_PROFILE
+    from scribe3.llm import (HERMES_DEDUCE_PREVIEW_RUNS, HERMES_DEDUCE_RUNS,
+                             HERMES_RUNS, HERMES_RUNS_PROFILE)
+    if policy is not None:
+        api_base_by_env = {
+            "HERMES_DEDUCE_RUNS_API": HERMES_DEDUCE_RUNS,
+            "HERMES_DEDUCE_PREVIEW_RUNS_API": HERMES_DEDUCE_PREVIEW_RUNS,
+        }
+        try:
+            api_base = api_base_by_env[policy.api_env]
+        except KeyError as exc:
+            raise RuntimeError(f"unconfigured run stage policy: {policy.phase}") from exc
+        return HermesRuntime(api_base=api_base, profile=policy.profile)
     return HermesRuntime(api_base=HERMES_RUNS, profile=HERMES_RUNS_PROFILE)
 
 
-def _run_session_key(work: str) -> str:
-    # Runs(写 profile 长任务)与主编讨论线程隔离:稳定 key = work|runs(不随章/线程漂)。
-    # 不复用 _hermes_session_key(后者 Task 11 起专指 work+thread 讨论线程),但共用
-    # scribe3_session_key 单一格式源(Minor #6 防漂移)。
+def _run_session_key(work: str, scope: str = "runs") -> str:
+    # Run 需与讨论线程隔离；同一章节阶段可续接，不同阶段绝不共享工具轨迹，
+    # 以免演绎任务继承正文/设定任务的长上下文后工具游走。
     from scribe3.hermes_runtime import scribe3_session_key
-    return scribe3_session_key(_normalize_work(work), scope="runs")
+    return scribe3_session_key(_normalize_work(work), scope=scope or "runs")
+
+
+_ai_run_trace_write_lock = threading.RLock()
+# 同一待审批 Run 可能同时出现在原页面与刷新恢复的页面。Hermes 的 elicitation
+# 只能消费一次，故这里按 (work, run) 做条带串行化：首个作者决定落审计后，后到的
+# 同决定重放直接幂等返回，不得把正常竞态误报成 approval_failed。
+_AI_RUN_APPROVAL_LOCK_STRIPES = tuple(threading.RLock() for _ in range(64))
+
+
+def _serialize_ai_run_approval(fn):
+    @wraps(fn)
+    def wrapped(run_id: str, *args, **kwargs):
+        work = kwargs.get("work", "main")
+        lock = _AI_RUN_APPROVAL_LOCK_STRIPES[hash((str(work), str(run_id))) % len(_AI_RUN_APPROVAL_LOCK_STRIPES)]
+        with lock:
+            return fn(run_id, *args, **kwargs)
+    return wrapped
 
 
 def _record_ai_run_trace(work: str, run_id: str | None, **fields) -> None:
     if not run_id:
         return
     try:
-        _store_for(work).upsert_ai_run_trace(run_id, **fields)
+        with _ai_run_trace_write_lock:
+            _store_for(work).upsert_ai_run_trace(run_id, **fields)
     except Exception:
         logging.getLogger("scribe3").warning("ai_run_trace 落库失败(忽略)", exc_info=True)
 
@@ -836,9 +908,37 @@ def _record_ai_run_event(work: str, run_id: str, app_ev: dict, *, source: str | 
         payload = dict(app_ev or {})
         if source:
             payload["source"] = source
-        _store_for(work).append_ai_run_trace_event(run_id, payload)
+        with _ai_run_trace_write_lock:
+            _store_for(work).append_ai_run_trace_event(run_id, payload)
     except Exception:
         logging.getLogger("scribe3").warning("ai_run_trace event 落库失败(忽略)", exc_info=True)
+
+
+def _runtime_for_traced_run(work: str, run_id: str):
+    """Run 的后续请求沿创建时的 profile 与 session，绝不退回作品级全写面。"""
+    from scribe3.run_stage_policy import (
+        policy_from_trace_snapshot,
+        tool_contract_from_trace_snapshot,
+    )
+
+    trace = _store_for(work).get_ai_run_trace(run_id)
+    if not trace:
+        # run_id 不是跨作品能力令牌。若请求 work 下没有创建时 trace，不能退回
+        # 默认 write profile/session 去碰 Hermes 中同名 Run；状态、事件、审批、停止
+        # 四条后续路径都必须在此统一 fail-closed。
+        raise HTTPException(status_code=404, detail="ai_run_trace not found")
+    try:
+        policy = policy_from_trace_snapshot(trace.get("stage_policy"))
+        tool_contract = tool_contract_from_trace_snapshot(trace.get("tool_contract"))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return (
+        _hermes_runs_runtime(policy) if policy is not None else _hermes_runs_runtime(),
+        trace.get("session_key") or _run_session_key(work),
+        policy,
+        tool_contract,
+        trace,
+    )
 
 
 SCRIBE3_READ_MCP_LABEL = os.environ.get("SCRIBE3_READ_MCP_LABEL", "scribe3_read")
@@ -1046,7 +1146,7 @@ def settings_reset(key: str):
 
 @app.get("/gateway/status")
 def gateway_status():
-    """三 Hermes 网关探活(GET {base}/models,1.5s 超时)。只读,不落库。
+    """已登记 Hermes 网关探活(GET {base}/models,1.5s 超时)。只读,不落库。
 
     online=端口有 HTTP 响应(<500),不代表鉴权/服务正常。
     """
@@ -1056,6 +1156,8 @@ def gateway_status():
         ("default", get_setting("HERMES_API"), "(default)"),
         ("responses", get_setting("HERMES_RESPONSES_API"), get_setting("HERMES_RESPONSES_PROFILE")),
         ("runs", get_setting("HERMES_RUNS_API"), get_setting("HERMES_RUNS_PROFILE")),
+        ("deduce", get_setting("HERMES_DEDUCE_RUNS_API"), "scribe3_deduce"),
+        ("deduce_preview", get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API"), "scribe3_deduce_preview"),
     ]
     out = []
     for name, base, profile in targets:
@@ -1098,24 +1200,43 @@ class GatewayRestartReq(BaseModel):
 
 @app.post("/gateway/restart")
 def gateway_restart(req: GatewayRestartReq):
-    """重启指定 profile 的 Hermes 网关。铁律:nohup 后台拉起 + 轮询探活,
-    绝不前台阻塞;轮询超时如实报失败,不假成功。online 语义同 /gateway/status。"""
+    """重启指定 profile 的 Hermes 网关并确认重启动作本身成功。
+
+    Hermes 在 macOS 下通常由 launchd 托管。对此再执行 ``gateway run --replace`` 会被
+    拒绝，但旧进程仍在线，若只轮询端口便会产生“已重启”的假成功。因此必须调用官方
+    ``gateway restart`` 子命令，并将其退出状态与后续探活分别返回。
+    """
     import subprocess
     import time
     import httpx
     from scribe3.settings import get_setting
     apis = {"scribe3": get_setting("HERMES_RESPONSES_API"),
-            "scribe3_write": get_setting("HERMES_RUNS_API")}
+            "scribe3_write": get_setting("HERMES_RUNS_API"),
+            "scribe3_deduce": get_setting("HERMES_DEDUCE_RUNS_API"),
+            "scribe3_deduce_preview": get_setting("HERMES_DEDUCE_PREVIEW_RUNS_API")}
     if req.profile not in apis:
-        raise HTTPException(422, f"未知 profile: {req.profile}(仅支持 scribe3/scribe3_write)")
+        raise HTTPException(422, "未知 profile: " + req.profile +
+                            "(仅支持 scribe3/scribe3_write/scribe3_deduce/scribe3_deduce_preview)")
     hermes = os.path.expanduser(get_setting("gateway.hermes_bin"))
     log = f"/tmp/scribe3-hermes-{req.profile}.log"
     if not (os.path.isfile(hermes) and os.access(hermes, os.X_OK)):
         # 预检:注定失败的场景毫秒级如实报错,不空等 30s 轮询、不拉起进程。
         return {"profile": req.profile, "online": False, "log": log,
                 "message": f"hermes CLI 不存在或不可执行: {hermes}"}
-    cmd = f"nohup {hermes} -p {req.profile} gateway run --replace >> {log} 2>&1 &"
-    subprocess.Popen(cmd, shell=True)
+    try:
+        restart_result = subprocess.run(
+            [hermes, "-p", req.profile, "gateway", "restart"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"profile": req.profile, "online": False, "restarted": False, "log": log,
+                "message": f"重启命令未成功执行:{exc}"}
+    if getattr(restart_result, "returncode", 0) != 0:
+        return {"profile": req.profile, "online": False, "restarted": False, "log": log,
+                "message": "Hermes 重启命令失败,未将旧进程在线误报为已重启"}
     base = apis[req.profile].rstrip("/")
     online = False
     for _ in range(30):   # 轮询至多 ~30s
@@ -1126,8 +1247,8 @@ def gateway_restart(req: GatewayRestartReq):
                 break
         except Exception:
             continue
-    return {"profile": req.profile, "online": online, "log": log,
-            "message": "已重启" if online else "重启后 30s 内未探活成功,请查看日志"}
+    return {"profile": req.profile, "online": online, "restarted": True, "log": log,
+            "message": "已重启" if online else "重启命令成功，但 30s 内未探活成功,请查看日志"}
 
 
 @app.get("/gateway/dashboard/status")
@@ -1184,7 +1305,7 @@ def dashboard_start():
 
 @app.get("/gateway/model-summary")
 def gateway_model_summary():
-    """三网关(default/scribe3/scribe3_write)主模型只读摘要。只读,不登记台账。
+    """全部写作阶段网关的主模型只读摘要。只读,不登记台账。
     绝不解析/返回 api_key 或 base_url。"""
     from scribe3 import gateway_files as gf
     return {"gateways": gf.model_summary()}
@@ -1349,6 +1470,8 @@ class AIRunCreateReq(BaseModel):
     session_id: str | None = None
     conversation_history: list[dict] | None = None
     previous_response_id: str | None = None
+    # 章级阶段运行的会话隔离键。旧客户端缺省时保持作品级 runs 兼容行为。
+    run_scope: str | None = Field(default=None, pattern=r"^[A-Za-z0-9:_-]{1,120}$")
     # Task 13:发起时的上下文绑定(可选)——供审批前重校验"旧 run 拿着过期焦点写入当前章"。
     # 缺省(存量/旧前端)→ 不记 origin binding,审批不被重校验拦截(现有行为零回归)。
     context_session_id: str | None = None
@@ -1394,13 +1517,53 @@ def _hermes_approval_choice(req: AIRunApprovalReq) -> str:
     return choice
 
 
+def _already_resolved_approval(trace: dict, approval_id: str | None, choice: str) -> bool:
+    """只将已持久化的同一作者决定识别为审批重放，绝不吞掉未知写入。"""
+    if not approval_id:
+        return False
+    approved = {"approve", "approved", "once", "session", "always", True}
+    denied = {"deny", "denied", "decline", "declined", "reject", "rejected", False}
+    expected = denied if choice == "deny" else approved
+    for item in reversed(list(trace.get("approvals") or [])):
+        if item.get("approval_id") != approval_id:
+            continue
+        decision = item.get("choice", item.get("decision"))
+        if decision in expected and str(item.get("status") or "").lower() in {
+            "resolved", "approved", "denied", "declined",
+        }:
+            return True
+    return False
+
+
 @app.post("/ai/runs")
 def ai_run_create(req: AIRunCreateReq, work: str = "main"):
     """创建 Hermes Run。用于需要人类审批/可恢复事件流的 agentic 长任务。"""
+    from scribe3.run_stage_policy import (
+        explicit_book_tool_contract,
+        native_tool_call_guidance,
+        native_stage_tool_guidance,
+        resolve_run_stage_policy,
+        tool_contract_snapshot,
+    )
+
+    try:
+        policy = resolve_run_stage_policy(req.run_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # 章节阶段已有静态 required_tools；书级 Run 仅在作者明确点名 s3_* 调用时
+    # 生成合同，避免把一般性工具提及误判成必须写入。
+    tool_contract = None if policy is not None else explicit_book_tool_contract(
+        req.input, req.instructions,
+    )
     ins = (req.instructions or "").strip()
     ins = (ins + _s3_work_scope_block(work)) if ins else _s3_work_scope_block(work).lstrip()
-    session_key = _run_session_key(work)
-    result = _hermes_runs_runtime().create_run(
+    if policy is not None and policy.required_tools:
+        ins = f"{ins}\n{native_stage_tool_guidance(policy)}"
+    elif tool_contract is not None:
+        ins = f"{ins}\n{native_tool_call_guidance(tool_contract)}"
+    session_key = _run_session_key(work, req.run_scope or "runs")
+    runtime = _hermes_runs_runtime(policy) if policy is not None else _hermes_runs_runtime()
+    result = runtime.create_run(
         req.input,
         instructions=ins,
         session_id=req.session_id,
@@ -1418,9 +1581,29 @@ def ai_run_create(req: AIRunCreateReq, work: str = "main"):
         instructions=ins,
         response=result,
     )
+    if policy is not None:
+        _store_for(work).update_ai_run_context(
+            run_id,
+            stage_policy={
+                "phase": policy.phase,
+                "profile": policy.profile,
+                "allowed_tools": sorted(policy.allowed_tools),
+                "max_tool_calls": policy.max_tool_calls,
+                "required_tools": sorted(policy.required_tools),
+            },
+        )
+    if tool_contract is not None:
+        _store_for(work).update_ai_run_context(
+            run_id,
+            tool_contract=tool_contract_snapshot(tool_contract),
+        )
     # Task 13:把 run 链回作品级主编线程,并快照"发起时的上下文"(session/revision/hash/focus)。
     # best-effort:绑定失败只告警,绝不阻断 run 创建(与 trace 留痕同纪律)。
     _bind_run_origin_context(work, run_id, req)
+    # Run 创建是服务端持有生命周期的起点，而不是浏览器 SSE 的前置条件。若作者在
+    # POST 成功后、建立 events 流前刷新或断线，collector 仍须消费并落库完整审计尾部。
+    if run_id:
+        _ensure_ai_run_event_collector(work, run_id)
     return result
 
 
@@ -1462,10 +1645,107 @@ def _bind_run_origin_context(work: str, run_id: str | None, req: AIRunCreateReq)
         logging.getLogger("scribe3").warning("run origin context 绑定失败(忽略)", exc_info=True)
 
 
+def _pending_approval_from_trace(trace: dict) -> dict | None:
+    """从持久审计链找出尚未决的审批；只返回作者恢复审批卡所需的最小字段。"""
+    status = str(trace.get("status") or "").lower()
+    error = str(trace.get("error") or "")
+    # 审批卡不仅要在本地 trace 中未决，还必须仍可由 Hermes 接受。Run 已有终态，
+    # 或网关已明确返回 approval_not_active 时，旧的 approval.requested 只是审计历史；
+    # 刷新后重新展示会诱导作者点击一个必定失败的“批准”按钮。其他 transport 失败
+    # 仍保留请求，允许作者在 Hermes 仍等待时重试。
+    if (
+        status in _AI_RUN_TERMINAL_STATUSES
+        or status == "remote_completed_pending_audit"
+        or (status == "approval_failed" and "approval_not_active" in error)
+    ):
+        return None
+    approvals = [row for row in (trace.get("approvals") or []) if isinstance(row, dict)]
+    resolved_ids = {
+        str(row.get("approval_id"))
+        for row in approvals
+        if row.get("approval_id") and (
+            row.get("decision") is not None
+            or str(row.get("status") or "").lower() in {"resolved", "approved", "denied", "declined"}
+        )
+    }
+    for row in reversed(approvals):
+        approval_id = row.get("approval_id")
+        if not approval_id or str(approval_id) in resolved_ids:
+            continue
+        if str(row.get("status") or "requested").lower() not in {"requested", "pending"}:
+            continue
+        return {
+            "run_id": trace.get("run_id"),
+            "approval_id": approval_id,
+            "message": row.get("message") or "需要你确认后才会写入章节演绎。",
+        }
+    return None
+
+
+@app.get("/ai/runs/pending-approvals")
+def ai_run_pending_approvals(chapter: int | None = None, phase: str | None = None,
+                             work: str = "main", limit: int = 100):
+    """恢复当前作品范围内待审批 Run。
+
+    章节阶段传完整 ``chapter + phase``；作品级主编 Run 不传二者。两者只传其一
+    必须拒绝，避免刷新时把其它 scope 的审批卡错误贴到当前作者界面。
+    """
+    normalized_phase = (phase or "").strip().lower()
+    has_chapter_scope = chapter is not None or bool(normalized_phase)
+    if has_chapter_scope:
+        if chapter is None or chapter < 1 or not normalized_phase:
+            raise HTTPException(status_code=422, detail="chapter 与 phase 必须同时有效")
+        expected_session_key = _run_session_key(work, f"chapter:{chapter}:{normalized_phase}")
+    else:
+        expected_session_key = _run_session_key(work)
+    runs = []
+    for trace in _store_for(work).list_ai_run_traces(limit=limit):
+        if trace.get("session_key") != expected_session_key:
+            continue
+        if has_chapter_scope and (trace.get("stage_policy") or {}).get("phase") != normalized_phase:
+            continue
+        pending = _pending_approval_from_trace(trace)
+        if pending:
+            runs.append(pending)
+    return {"runs": runs}
+
+
 @app.get("/ai/runs/{run_id}")
 def ai_run_status(run_id: str, work: str = "main"):
-    result = _hermes_runs_runtime().run_status(run_id, session_key=_run_session_key(work))
-    _record_ai_run_trace(work, run_id, status=result.get("status") or result.get("state"), response=result)
+    runtime, session_key, _policy, _tool_contract, trace = _runtime_for_traced_run(work, run_id)
+    local_status = str(trace.get("status") or "").lower()
+    try:
+        result = runtime.run_status(run_id, session_key=session_key)
+    except httpx.HTTPStatusError as exc:
+        # Hermes 会在 Run 完成后回收远端记录；此时状态轮询也可能得到 404。
+        # 本地 trace 已是终态时，持久化审计才是作者可见的权威，不能把回收竞态放大为 500。
+        response_status = exc.response.status_code if exc.response is not None else None
+        if response_status == 404 and local_status in _AI_RUN_TERMINAL_STATUSES:
+            stored_response = trace.get("response")
+            result = dict(stored_response) if isinstance(stored_response, dict) else {}
+            result.setdefault("run_id", run_id)
+            result["status"] = local_status
+        else:
+            raise
+    remote_status = str(result.get("status") or result.get("state") or "").lower()
+    # collector 已持久化终态后，任何远端状态轮询都不能改写本地审计裁决：不仅
+    # waiting/resumed 会重开已完成 Run，remote completed 也不能掩盖 required_tool_missing
+    # 或 completed_unverified。状态端点不是新的审计证据，作者必须看到 collector 的结论。
+    if local_status in _AI_RUN_TERMINAL_STATUSES:
+        response = dict(result)
+        response["status"] = local_status
+        _record_ai_run_trace(work, run_id, status=local_status, response=result)
+        return response
+    # 状态端点不是审计事件端点。若 Hermes 已清理事件历史，直接把远端
+    # completed 写成 local completed 会让没有 tool.completed/run.completed 证据的
+    # Run 假绿；保留为可继续订阅/回收的中间状态，交由 collector 最终定性。
+    if remote_status == "completed" and local_status not in {
+        "completed", "completed_unverified",
+    }:
+        status = "remote_completed_pending_audit"
+    else:
+        status = remote_status or trace.get("status") or "started"
+    _record_ai_run_trace(work, run_id, status=status, response=result)
     return result
 
 
@@ -1486,19 +1766,219 @@ def ai_run_trace(run_id: str, work: str = "main"):
     return trace
 
 
-@app.get("/ai/runs/{run_id}/events")
-def ai_run_events(run_id: str, work: str = "main"):
+def _iter_persisted_ai_run_events(work: str, run_id: str, runtime, session_key: str,
+                                  policy, tool_contract):
+    """消费 Hermes Run 事件并先持久化，再交给 SSE 或审批收尾使用。
+
+    浏览器刷新会取消 EventSource；审批后的 MCP 完成事件不能只依赖那个易断的
+    浏览器连接，否则 Hermes 清理 completed Run 后审计链将永久缺尾。
+    """
     from scribe3.hermes_runtime import HermesEventAdapter
+    from scribe3.run_stage_policy import validate_tool_trace
 
     adapter = HermesEventAdapter()
-    _record_ai_run_trace(work, run_id, status="streaming")
+    for ev in runtime.run_events(run_id, session_key=session_key):
+        app_ev = adapter.adapt(ev)
+        kind = app_ev.get("kind")
+        _record_ai_run_event(work, run_id, app_ev)
+        # Hermes Runs 的 run.completed 原生带最终回答；append_ai_run_trace_event
+        # 只负责生命周期/工具链，需在此显式写入 response，才能让质量复核和
+        # 刷新后的作者界面读取与本次工具证据同源的解释文本。
+        if kind == "run.completed":
+            # 终态事件是 Run 的权威 usage/model 载体。此前只在有 output 时覆盖 response，
+            # 且覆盖时漏掉 model；作者审批后的回收会把创建响应中的模型身份抹掉，导致
+            # 已真实执行的 TokenPlan/Qwen Run 无法被审计。终态无输出也必须留这份身份。
+            terminal_response = {
+                "run_id": app_ev.get("run_id") or run_id,
+                "status": "completed",
+                "usage": app_ev.get("usage"),
+            }
+            if app_ev.get("output") is not None:
+                terminal_response["output"] = app_ev.get("output")
+            if isinstance(app_ev.get("model"), str) and app_ev["model"]:
+                terminal_response["model"] = app_ev["model"]
+            _record_ai_run_trace(work, run_id, response=terminal_response)
+        policy_violations = None
+        trace_policy = policy or tool_contract
+        if kind == "run.completed" and trace_policy is not None:
+            trace = _store_for(work).get_ai_run_trace(run_id) or {}
+            policy_violations = validate_tool_trace(
+                trace_policy,
+                list(trace.get("tool_calls") or []),
+                list(trace.get("tool_outputs") or []),
+            )
+            if policy_violations:
+                _store_for(work).update_ai_run_context(
+                    run_id, policy_violations=policy_violations)
+                _record_ai_run_trace(
+                    work, run_id, status="failed",
+                    error="stage tool policy violation",
+                )
+        yield app_ev, policy_violations
+        if policy_violations:
+            return
+
+
+_ai_run_collector_lock = threading.RLock()
+_ai_run_collectors: set[tuple[str, str]] = set()
+_ai_run_event_subscribers: dict[tuple[str, str], list[Queue]] = {}
+_AI_RUN_TERMINAL_STATUSES = {
+    "completed", "completed_unverified", "failed", "stopped", "cancelled", "canceled",
+}
+
+
+def _ai_run_collector_key(work: str, run_id: str) -> tuple[str, str]:
+    return (_normalize_work(work), str(run_id))
+
+
+def _remote_terminal_after_pruned_events(runtime, run_id: str, session_key: str,
+                                         exc: Exception) -> dict | None:
+    """Hermes 回收 events 前先以状态端点确认真实终态。
+
+    不能把 events=404 一概当作写入失败：真实网关会在 Run 已 completed 后清理
+    事件端点。也不能把它升格为完整成功，因为 tool.completed 审计尾部已丢失；调用方
+    要以 ``completed_unverified`` 明示必须回读正典完成复核。
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    response = exc.response
+    if response is None or response.status_code != 404:
+        return None
+    try:
+        remote = runtime.run_status(run_id, session_key=session_key)
+    except Exception:
+        return None
+    if not isinstance(remote, dict) or str(remote.get("status") or "").lower() != "completed":
+        return None
+    # 只持久化稳定、无请求内容的状态字段，避免把网关响应意外变成新的 secret 通道。
+    return {
+        key: remote[key]
+        for key in ("run_id", "status", "last_event", "created_at", "updated_at", "model", "usage")
+        if key in remote
+    }
+
+
+def _mark_run_completed_unverified(work: str, run_id: str, response: dict) -> str:
+    """记录可证明远端终态、但无法证明工具审计尾部的状态。"""
+    error = "Hermes 已报告 Run 完成，但 events 审计尾部不可获得；必须回读正典复核写入结果"
+    _record_ai_run_trace(
+        work, run_id, status="completed_unverified", error=error, response=response,
+    )
+    return error
+
+
+def _publish_ai_run_event(key: tuple[str, str], app_ev: dict,
+                          policy_violations: list[dict] | None = None) -> None:
+    """把已落库事件分发给当前浏览器订阅者；慢客户端不得反压审计收集器。"""
+    payload = {"event": app_ev, "policy_violations": policy_violations or []}
+    with _ai_run_collector_lock:
+        subscribers = list(_ai_run_event_subscribers.get(key) or [])
+    for subscriber in subscribers:
+        try:
+            subscriber.put_nowait(payload)
+        except Full:
+            # 浏览器只负责展示；完整事件已在 trace，不能为了它阻断唯一的 Hermes 消费者。
+            continue
+
+
+def _ensure_ai_run_event_collector(work: str, run_id: str) -> None:
+    """为每个 Run 启动唯一的服务端 Hermes 事件消费者。
+
+    浏览器 SSE 只是该消费者的订阅者。这样作者在等待审批时刷新、关页或网络抖动，
+    都不会中断 MCP 的 tool.completed/run.completed 审计收尾。
+    """
+    trace = _store_for(work).get_ai_run_trace(run_id) or {}
+    if trace.get("status") in _AI_RUN_TERMINAL_STATUSES:
+        return
+    key = _ai_run_collector_key(work, run_id)
+    with _ai_run_collector_lock:
+        if key in _ai_run_collectors:
+            return
+        _ai_run_collectors.add(key)
+
+    def collect() -> None:
+        try:
+            runtime, session_key, policy, tool_contract, _trace = _runtime_for_traced_run(work, run_id)
+            _record_ai_run_trace(work, run_id, status="streaming")
+            terminal_event_seen = False
+            for app_ev, policy_violations in _iter_persisted_ai_run_events(
+                work, run_id, runtime, session_key, policy, tool_contract,
+            ):
+                _publish_ai_run_event(key, app_ev, policy_violations)
+                if app_ev.get("kind") in {"run.completed", "run.failed"}:
+                    terminal_event_seen = True
+                if policy_violations:
+                    return
+            if not terminal_event_seen:
+                try:
+                    remote = runtime.run_status(run_id, session_key=session_key)
+                except Exception:
+                    remote = None
+                if isinstance(remote, dict) and str(remote.get("status") or "").lower() == "completed":
+                    safe_remote = {
+                        name: remote[name]
+                        for name in ("run_id", "status", "last_event", "created_at", "updated_at", "model", "usage")
+                        if name in remote
+                    }
+                    error = _mark_run_completed_unverified(work, run_id, safe_remote)
+                    _publish_ai_run_event(key, {
+                        "kind": "run.reconciliation_required", "run_id": run_id,
+                        "error": error, "remote_status": "completed",
+                    })
+        except Exception as exc:
+            reconciled = _remote_terminal_after_pruned_events(
+                runtime, run_id, session_key, exc,
+            )
+            if reconciled is not None:
+                error = _mark_run_completed_unverified(work, run_id, reconciled)
+                _publish_ai_run_event(key, {
+                    "kind": "run.reconciliation_required", "run_id": run_id,
+                    "error": error, "remote_status": "completed",
+                })
+            else:
+                _record_ai_run_trace(work, run_id, status="failed", error=str(exc)[:160])
+                _publish_ai_run_event(key, {"kind": "run.failed", "run_id": run_id,
+                                            "error": str(exc)[:160]})
+        finally:
+            _publish_ai_run_event(key, {"kind": "run.done", "run_id": run_id})
+            with _ai_run_collector_lock:
+                _ai_run_collectors.discard(key)
+
+    threading.Thread(target=collect, name=f"scribe3-run-{str(run_id)[:12]}", daemon=True).start()
+
+
+@app.get("/ai/runs/{run_id}/events")
+def ai_run_events(run_id: str, work: str = "main"):
+    _runtime_for_traced_run(work, run_id)  # 校验 trace/profile 绑定后才允许订阅。
+    key = _ai_run_collector_key(work, run_id)
+    subscriber: Queue = Queue(maxsize=256)
+    # collector 可能在浏览器建立 SSE 前已经把 approval.requested 写入审计链；
+    # 订阅者必须先从这份权威 trace 回放待审批卡，否则作者刚发起 Run 就会因时序
+    # 看不到批准入口，只能依赖刷新恢复。
+    pending = _pending_approval_from_trace(_store_for(work).get_ai_run_trace(run_id) or {})
+    with _ai_run_collector_lock:
+        _ai_run_event_subscribers.setdefault(key, []).append(subscriber)
+    if pending:
+        subscriber.put_nowait({
+            "event": {"kind": "approval.requested", **pending},
+            "policy_violations": [],
+        })
+    _ensure_ai_run_event_collector(work, run_id)
 
     def gen():
         try:
-            for ev in _hermes_runs_runtime().run_events(run_id, session_key=_run_session_key(work)):
-                app_ev = adapter.adapt(ev)
+            while True:
+                try:
+                    payload = subscriber.get(timeout=25)
+                except Empty:
+                    trace = _store_for(work).get_ai_run_trace(run_id) or {}
+                    if trace.get("status") in _AI_RUN_TERMINAL_STATUSES:
+                        yield 'data: {"done": true}\n\n'
+                        return
+                    continue
+                app_ev = payload.get("event") or {}
+                policy_violations = payload.get("policy_violations") or []
                 kind = app_ev.get("kind")
-                _record_ai_run_event(work, run_id, app_ev)
                 if kind == "text.delta":
                     yield f"data: {json.dumps({'delta': app_ev.get('delta', '')}, ensure_ascii=False)}\n\n"
                 elif kind == "tool.started":
@@ -1507,40 +1987,84 @@ def ai_run_events(run_id: str, work: str = "main"):
                     yield f"data: {json.dumps({'tool_output': app_ev.get('output', ''), 'tool_call_id': app_ev.get('call_id')}, ensure_ascii=False)}\n\n"
                 elif kind == "approval.requested":
                     yield f"data: {json.dumps({'approval': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'message')}}, ensure_ascii=False)}\n\n"
+                    # 同一 Run 可以串行出现多张审批卡。collector 是 Hermes 流的唯一消费者，
+                    # 浏览器只是订阅者，必须持续接收 approval.resolved/下一张卡/最终终态。
                 elif kind == "approval.resolved":
                     yield f"data: {json.dumps({'approval_resolved': {k: app_ev.get(k) for k in ('run_id', 'approval_id', 'decision')}}, ensure_ascii=False)}\n\n"
                 elif kind == "run.completed":
+                    if policy_violations:
+                        yield f"data: {json.dumps({'error': '阶段工具策略校验失败', 'policy_violations': policy_violations}, ensure_ascii=False)}\n\n"
+                        return
                     yield f"data: {json.dumps({'run': {'run_id': app_ev.get('run_id'), 'status': 'completed', 'usage': app_ev.get('usage')}}, ensure_ascii=False)}\n\n"
                 elif kind == "run.failed":
                     yield f"data: {json.dumps({'error': app_ev.get('error') or 'run failed'}, ensure_ascii=False)}\n\n"
+                elif kind == "run.reconciliation_required":
+                    yield f"data: {json.dumps({'error': app_ev.get('error') or 'Run 需要审计复核'}, ensure_ascii=False)}\n\n"
+                elif kind == "run.done":
+                    yield 'data: {"done": true}\n\n'
+                    return
                 else:
                     yield f"data: {json.dumps({'raw': app_ev}, ensure_ascii=False)}\n\n"
         except Exception as e:
             _record_ai_run_trace(work, run_id, status="failed", error=str(e)[:160])
             yield f"data: {json.dumps({'error': str(e)[:160]}, ensure_ascii=False)}\n\n"
-        yield 'data: {"done": true}\n\n'
+        finally:
+            with _ai_run_collector_lock:
+                subscribers = _ai_run_event_subscribers.get(key) or []
+                if subscriber in subscribers:
+                    subscribers.remove(subscriber)
+                if not subscribers:
+                    _ai_run_event_subscribers.pop(key, None)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.post("/ai/runs/{run_id}/approval")
+@_serialize_ai_run_approval
 def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
     payload = req.model_dump(exclude_none=True)
     choice = _hermes_approval_choice(req)
     # Task 13:写入前重校验发起时上下文快照(限知写入安全闸)。校验通过后原 approve 流程一字不改;
     # RunContextChanged(409)在此前抛出,绝不进 Hermes approve——旧 run 的过期写入被物理拦下。
     store = _store_for(work)
-    trace = store.get_ai_run_trace(run_id) or {}
+    runtime, session_key, policy, _tool_contract, trace = _runtime_for_traced_run(work, run_id)
+    # 同一决定的刷新重放在首个请求完整落库后不再触碰 Hermes。这个检查必须在
+    # 上述同 Run 串行锁内，才能覆盖两个浏览器同时点击时首个请求尚未写 trace 的窗口。
+    if _already_resolved_approval(trace, payload.get("approval_id"), choice):
+        return {
+            "run_id": run_id,
+            "status": trace.get("status") or "approval_submitted",
+            "already_resolved": True,
+        }
     completion_rev = _recheck_run_origin_context(store, run_id, trace, req, choice)
+    # Hermes 0.18.2 的 Runs approval 由 URL 中的 run_id 绑定活跃审批，只要求
+    # choice；live MCP elicitation 事件可以没有 approval_id。仅在上游真实给出
+    # approval_id 时透传，禁止发送 null 冒充必填字段。
     hermes_payload = {"choice": choice}
+    if payload.get("approval_id"):
+        hermes_payload["approval_id"] = payload["approval_id"]
+    # 刷新恢复的审批卡可能没有活着的浏览器 SSE；先确保服务端唯一 collector
+    # 已经在 Hermes 事件流上等待，随后才允许 author approval 触发写工具继续执行。
+    _ensure_ai_run_event_collector(work, run_id)
     try:
-        result = _hermes_runs_runtime().approve_run(
+        result = runtime.approve_run(
             run_id,
             hermes_payload,
-            session_key=_run_session_key(work),
+            session_key=session_key,
         )
     except httpx.HTTPStatusError as exc:
         detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        # 刷新恢复、浏览器重试会重放同一个 author decision。Hermes 已消费它时返回
+        # approval_not_pending；只有本地审计链已证明同 approval_id、同决定已决时，
+        # 该请求才是幂等成功，不能误记 approval_failed 或向 UI 伪报 502。
+        if "approval_not_pending" in detail and _already_resolved_approval(
+            trace, payload.get("approval_id"), choice,
+        ):
+            return {
+                "run_id": run_id,
+                "status": trace.get("status") or "approval_submitted",
+                "already_resolved": True,
+            }
         _record_ai_run_trace(work, run_id, status="approval_failed", error=detail)
         raise HTTPException(status_code=502, detail=f"Hermes approval failed: {detail}") from exc
     _record_ai_run_event(work, run_id, {
@@ -1550,7 +2074,10 @@ def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
         "decision": payload.get("decision"),
         "choice": choice,
     }, source="user")
-    _record_ai_run_trace(work, run_id, status=result.get("status") or "approval_submitted", response=result)
+    # 审批 HTTP 仅确认“作者的决定已交给 Hermes”，并不代表 Run 的生命周期状态。
+    # SSE 可能已经先写入 completed/failed；此处若把 Hermes 的 resumed/running
+    # 覆盖回 trace，会让真实完成的 Run 永远停在 approval_submitted。
+    _record_ai_run_trace(work, run_id, response=result)
     # Task 13:记完成时上下文 revision + write_effects 台账(仅 approve 类且有 origin 绑定时)。
     # Minor:同一审批重放时按 (approval_id, revision, kind) 去重,不叠重复台账
     # (读改写非 CAS,能挡幂等重放;真并发双批准极罕见,同 approval_id 亦会命中去重)。
@@ -1583,13 +2110,31 @@ def ai_run_stop(run_id: str, work: str = "main"):
     # 前端可能在 run.completed 已到达、组件随后卸载的极窄窗口再发 stop。
     # Hermes 此时已回收该 run 并返回 404；本地审计链已有终态时，停止应幂等成功，
     # 不能把正常清理路径放大为 Scribe 500。
-    trace = _store_for(work).get_ai_run_trace(run_id) or {}
+    runtime, session_key, _policy, _tool_contract, trace = _runtime_for_traced_run(work, run_id)
     try:
-        result = _hermes_runs_runtime().stop_run(run_id, session_key=_run_session_key(work))
+        result = runtime.stop_run(run_id, session_key=session_key)
     except httpx.HTTPStatusError as exc:
         status = trace.get("status")
         response_status = exc.response.status_code if exc.response is not None else None
-        if response_status == 404 and status in {"completed", "stopped", "failed", "cancelled", "canceled"}:
+        # Hermes 对已回收的完成 Run 既可能回 404，也可能回
+        # 400 {error:{code:"run_not_found"}}。后者不是作者的停止失败；只有本地
+        # 审计链已是终态时才可幂等吞掉，避免把真实的活跃 Run 错误伪装成成功。
+        remote_pruned = response_status == 404
+        if response_status == 400 and exc.response is not None:
+            try:
+                payload = exc.response.json()
+            except (TypeError, ValueError):
+                payload = None
+            remote_pruned = isinstance(payload, dict) and (
+                (payload.get("error") or {}).get("code") == "run_not_found"
+            )
+        # remote_completed_pending_audit 不能加入全局 terminal 集合：collector 仍需补齐
+        # 本地工具审计。但远端已明确完成且已被 Hermes 回收，对作者的 stop 操作必须
+        # 与终态等价幂等，不能把正常的 stop/完成竞态报成 502。
+        if remote_pruned and (
+            status in _AI_RUN_TERMINAL_STATUSES
+            or status == "remote_completed_pending_audit"
+        ):
             return {"run_id": run_id, "status": status, "already_finished": True}
         detail = exc.response.text[:500] if exc.response is not None else str(exc)
         _record_ai_run_trace(work, run_id, status="stop_failed", error=detail)
@@ -1724,14 +2269,29 @@ def context_trace_get(session_id: str, revision: int, work: str = "main"):
     限知红线:私密事实的 value 在服务端【权威屏蔽】后才返回(前端不可信,Task 7 教训)——
     store.get_memory_trace_for_snapshot 落库时已屏蔽,此处再过一遍 mask_memory_trace 兜底。
 
-    诚实边界:真实 trace 数据待 Task 16 检索接进生产 prompt 后填充;在此之前该版本
-    多无溯源 → 404 memory_trace_not_found(前端据此显"未检索到证据",不显"没有相关事实")。"""
+    诚实边界:新会话/新快照在首次检索前本来就没有 trace。这是可预期的资源状态，
+    不是网络错误：返回 ``available=false``，让自动加载的 ContextInspector 不制造
+    浏览器 404 噪声，也不把“尚未检索”伪装成“没有相关事实”。
+
+    但 session/revision 必须先由 ContextService 按 work 验证；不存在或跨书的快照
+    仍按既有安全语义返回 404/409，绝不因空 trace 放松隔离。"""
     from scribe3.store import mask_memory_trace
-    trace = _store_for(work).get_memory_trace_for_snapshot(session_id, int(revision))
+    store = _store_for(work)
+    trace = store.get_memory_trace_for_snapshot(session_id, int(revision))
     if not trace:
-        raise HTTPException(status_code=404, detail={
-            "code": "memory_trace_not_found",
-            "message": "该快照版本暂无记忆溯源(检索生产接线待 Task 16)"})
+        # 只有“没有 trace”时才需要确认它确实是一个现存快照的正常空态。
+        # 已持久化 trace 的回放/历史迁移数据可独立于 context_session 存在；先强制
+        # ContextService 会错误地让这些可审计证据变成 404，破坏既有 API 合同。
+        try:
+            ContextService(store).get(session_id, work, revision=int(revision))
+        except (ContextServiceError, StaleContextError) as e:
+            raise _context_http_error(e) from e
+        return {
+            "available": False,
+            "session_id": session_id,
+            "snapshot_revision": int(revision),
+            "reason": "not_retrieved_yet",
+        }
     # Task 16-A:memory_trace 落库 work 与请求 ?work= 比对(空 work=旧数据→不判,走 mask)。
     _assert_work_binding(trace.get("work") or None, work,
                          kind="memory_trace", ident=session_id)
@@ -2130,10 +2690,18 @@ def memory_resolve_pending_claim(claim_id: str, req: PendingClaimResolveReq,
 
 @app.get("/works")
 def works():
+    # 作品注册表可有数百本书；为每个书卡建 Surreal 连接、跑迁移再查三次统计，会让
+    # 新作者甚至无法进入刚建的空书。书库只复用已加载的连接；其余明确标待加载，绝不
+    # 以 0 字/0 章冒充真实统计。打开该书后，其连接会进入缓存，下一次列表即可显示真值。
+    with _stores_lock:
+        loaded_stores = {slug: _stores.get(slug) for slug in _stores}
     out = []
     for w in list_works():
+        store = loaded_stores.get(w["slug"])
+        if store is None:
+            out.append({**w, "stats_pending": True})
+            continue
         try:
-            store = _store_for(w["slug"])
             st = store.stats()
             intent = store.get_intent()
             # 携带 total_word_goal 供书卡进度条使用;None 时前端回退 100000
@@ -4291,7 +4859,7 @@ def _faction_prompt_block(st, row: dict, *, chapter: int, known_ids: set,
 
 
 def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | None = None,
-                 for_generation: bool = False) -> str:
+                 for_generation: bool = False, request_text: str = "") -> str:
     """注入当前书的「设定圣经」(codex:角色前史/势力/物件/术语/世界规则/母题)。
     关键:经 codex 表(非命题)建的书,_editor_system 的 facts_at 注入为空 → 主编看不到设定;
     此块直接从当前 store 的 codex 表读,确保主编(讨论/写作)看到的是**这本书**的设定,
@@ -4320,16 +4888,67 @@ def _codex_block(st, reveal: bool = True, focalizer: str = "", chapter: int | No
         # 母题)任一取数异常→返 []→主编看到"本书无此设定",与真没有无区别,把真 bug 悄悄躲过。
         # 现在直接抛→崩到 SSE error 帧、前端亮红,作者当场看见"设定读取失败"。名字保留兼容调用点。
         return fn() or []
+    def _as_text(value, *, item_limit: int = 8, char_limit: int = 160) -> str:
+        """把角色公开字段压成稳定、可读、预算受控的一行。"""
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple, set)):
+            items = [str(item).strip() for item in value if str(item).strip()]
+            text = "、".join(items[:item_limit])
+        else:
+            text = str(value).strip()
+        return text[:char_limit] + ("…" if len(text) > char_limit else "")
+
+    def _is_active_character(character) -> bool:
+        """焦点者或作者本轮明确点名的人，才注入完整公开档案。
+
+        未点名角色仍保留旧的轻量姓名/前史摘要，避免在多人长篇里把全部履历
+        粗暴塞进上下文；但一旦作者点名，字段不得只停留在 UI 和数据库。
+        """
+        name = str(getattr(character, "name", "") or "").strip()
+        cid = str(getattr(character, "id", "") or "").strip()
+        traits = (getattr(character, "traits", None) or {})
+        aliases = traits.get("aliases") or []
+        needles = [name, cid, *[str(alias).strip() for alias in aliases]]
+        if focalizer and any(focalizer == needle for needle in needles if needle):
+            return True
+        return bool(request_text and any(needle and needle in request_text for needle in needles))
+
     parts = []
     chars = _safe(st.characters)
     if chars:
         cl = []
+        # 多角色请求也要受预算保护；按存储稳定顺序取前四位。
+        detailed_ids = {
+            str(getattr(c, "id", ""))
+            for c in [c for c in chars if _is_active_character(c)][:4]
+        }
         for c in chars[:14]:
             traits = (c.traits or {}) if hasattr(c, 'traits') else {}
             bs = traits.get('backstory') or ''
             if bs and not reveal and traits.get('backstory_secret'):
                 bs = ''   # 限知模式:私密前史对帧外隐去(F-3)
-            cl.append(f"- {c.name}:{bs[:48]}" if bs else f"- {c.name}")
+            if str(getattr(c, "id", "")) not in detailed_ids:
+                cl.append(f"- {c.name}:{bs[:48]}" if bs else f"- {c.name}")
+                continue
+            fields = [
+                ("别名", _as_text(traits.get("aliases"))),
+                ("外观习惯", _as_text(traits.get("appearance"))),
+                ("性格细节", _as_text(traits.get("personality_detail"))),
+                ("性格标签", _as_text(traits.get("personality_tags"))),
+                ("表层目标", _as_text(traits.get("surface_goal"))),
+                ("深层需要", _as_text(traits.get("deep_need"))),
+                ("恐惧", _as_text(traits.get("fear"))),
+                ("内在冲突", _as_text(traits.get("internal_conflict"))),
+                ("能力", _as_text(traits.get("abilities"))),
+                ("弱点", _as_text(traits.get("weaknesses"))),
+                ("叙事重要性", _as_text(traits.get("importance"))),
+                ("首次登场", _as_text(traits.get("first_appearance"))),
+            ]
+            profile = "；".join(f"{label}:{value}" for label, value in fields if value)
+            if bs:
+                profile = f"前史:{bs[:96]}" + (f"；{profile}" if profile else "")
+            cl.append(f"- {c.name}" + (f"（{profile}）" if profile else ""))
         parts.append("〔角色〕\n" + "\n".join(cl))
     facs = _safe(st.list_factions) if hasattr(st, 'list_factions') else []
     if facs:
@@ -5553,15 +6172,16 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
     (每新开一个注入点都泄露过一次)对 GET 同样成立;现与 POST/loop 物理同源。
     不落库(台账 D-005,无生产调用方的兼容端点)。"""
     st = _store_for(work)
-    # 讨论/规划/草稿都保留 work 作用域 MCP；final 是纯正文生产边界，不能让模型把
-    # 尚未执行的工具调用混进提案。多书时仍由提示层强制每次联查显式带 work。
+    # 明确动稿时，统一上下文已经给足正典、结构与限知材料；即使 UI 仍处在 draft，
+    # 也不能再挂 MCP 让模型把未执行的工具调用混进提案或陷入工具循环。讨论/核查
+    # （_is_write_intent=False）才保留 work 作用域工具，多书约束仍由提示层强制。
     _write_intent = _is_write_intent(msg)
-    _wt = _work_has_tools(work) and _write_phase_allows_tools(phase)
+    _wt = _work_has_tools(work) and _write_phase_allows_tools(phase) and not _write_intent
     outcome_binding = _WriteOutcomeBinding(st)
     instructions = _assemble_write_instructions(
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
-        envelope_trace=outcome_binding.manifest_trace)
+        envelope_trace=outcome_binding.manifest_trace, request_text=msg)
     return StreamingResponse(
         _stream_write(msg, instructions, expect_proposal=_write_intent,
                       with_tools=_wt, on_terminal=outcome_binding.persist),
@@ -5938,7 +6558,8 @@ def _brief_must_sections_write_block(st, chapter: int, focalizer: str = "") -> s
         return ""
 
 
-def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None) -> str:
+def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", llm=None,
+                           request_text: str = "") -> str:
     """写作总闸素材注入:聚焦 query → material_recall → 重排 → 参考段 + 溯源。
 
     llm 参数:
@@ -5949,7 +6570,10 @@ def _material_recall_block(st, chapter: int, phase: str, focalizer: str = "", ll
         from scribe3.brief import chapter_draft_text, detect_mentions
         from scribe3.material_recall import (apply_strength, extract_focus_query, gate,
                                              render_material_block, rerank_materials)
-        draft = chapter_draft_text(st.get_chapter(chapter) or {})
+        # 已落库章草料是长期锚点；作者本轮请求则是当前意图信号。
+        # 后者只参与检索 query，不作为任何故事事实或设定写入正文上下文。
+        chapter_text = chapter_draft_text(st.get_chapter(chapter) or {})
+        draft = "\n".join(part for part in (chapter_text, (request_text or "").strip()) if part)
         if not (draft or "").strip():
             return ""
         entities = [{"id": e.id, "name": e.name,
@@ -6034,19 +6658,21 @@ def _get_write_retriever(st):
     return MemoryRetriever(st)
 
 
-def _build_write_retrieval_query(st, *, chapter, seed_words) -> str:
+def _build_write_retrieval_query(st, *, chapter, seed_words, request_text: str = "") -> str:
     """I1(Task 16-C):为写作检索拼一个有意义的 query,靶向本章相关经验记忆。
 
-    源优先级(选 seed_words 为主的理由:它是作者给本章的种子词/意象,签名已带、最贴"此刻在写什么",
-    是最自然的检索靶向;章纲作退路补全):
+    源优先级(种子词最短、最凝练；作者本轮请求覆盖空章真实写作；章纲只作最后退路):
       ① seed_words —— 本章种子词(_soak_block 同源),空白项剔除后拼接;
-      ② 无种子词 → 章纲 synopsis(get_chapter)截断 200 字,给一个"本章要写什么"的兜底靶向。
-    作者 msg 未透传到本组装函数(_assemble_write_instructions 链只带 seed_words),不为它改签名/注入点
-    (文档1 教训:每新开一个注入点泄露过一次限知);seed_words+章纲已足够靶向,故不硬塞 msg。
+      ② 无种子词 → 作者本轮 request_text 截断 200 字；它只参与检索，绝不作为正典或
+         事实块注入；
+      ③ 无请求 → 章纲 synopsis(get_chapter)截断 200 字,给一个"本章要写什么"的兜底靶向。
     仅在检索器接上(MEMORY_FABRIC 开)时被调用;返回空串则退化为"只出 canonical"的保守行为(不崩)。"""
     parts = [w.strip() for w in (seed_words or []) if isinstance(w, str) and w.strip()]
     if parts:
         return " ".join(parts)[:200]
+    request_query = (request_text or "").strip()
+    if request_query:
+        return request_query[:200]
     try:
         ch = st.get_chapter(chapter) or {}
         syn = (ch.get("synopsis") or "").strip()
@@ -6129,7 +6755,8 @@ def _save_write_memory_trace(st, *, snap, envelope, result, query, work, ctx) ->
 def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words,
                                     short_mode, with_tools=False, work=None,
                                     envelope_trace=None, memory_trace_ctx=None,
-                                    extra_instructions: str = ""):
+                                    extra_instructions: str = "",
+                                    request_text: str = ""):
     """统一写作编译路径：Envelope 与最终 system instructions 一次绑定。"""
     from scribe3.context_assembler import envelope_trace_manifest, render_envelope_text
     from scribe3.context_engine import CreativeContextEngine
@@ -6142,6 +6769,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         work = getattr(st, "db_name", None) or "main"
 
     supplemental_sources: list[ContextSource] = []
+    reference_craft_briefs = ()
 
     def _domain_input(source_id: str, source_kind: str, text: str) -> str:
         """登记 renderer 实际追加的动态领域字节；正文只进输入，Manifest 只存摘要。"""
@@ -6199,7 +6827,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     codex_input = (
         "\n\n【本书设定圣经(以下即这本书的全部设定,务必只据此写,绝不串入别的书/别的世界)】\n"
         + (_codex_block(st, reveal=not focalizer, focalizer=focalizer,
-                        chapter=chapter, for_generation=True) or "(尚无设定)")
+                        chapter=chapter, for_generation=True,
+                        request_text=request_text) or "(尚无设定)")
         + "\n"
     )
     prefix += _domain_input(
@@ -6213,11 +6842,13 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     #   store.memory_bm25/vector 对空串硬返 [](graph 种子亦空)→ episodic/working 三条经验
     #   通道全归零,只剩 structured/canonical(与 query 无关,retriever=None 降级即可得),
     #   捕获→memory_item→检索的经验回路在生产仍是"只写不读"。故 fabric 开(retriever 非 None)时
-    #   用本章种子词/章纲作 query 靶向经验记忆;fabric 关(retriever=None)时 query 仍空——
+    #   用本章种子词/作者本轮请求/章纲作 query 靶向经验记忆;作者请求只当检索锚点，不
+    #   作为正典或额外事实块。fabric 关(retriever=None)时 query 仍空——
     #   envelope 与接线前逐字不变(默认关字节等价,连 focus 块"作者此刻问"都不出现)。
     #   剧透门不受影响:known_from 门在 store SQL/Python 侧恒生效,有意义 query 也挡不掉未来揭示。
     retriever = _get_write_retriever(st)
-    retrieval_query = (_build_write_retrieval_query(st, chapter=chapter, seed_words=seed_words)
+    retrieval_query = (_build_write_retrieval_query(
+        st, chapter=chapter, seed_words=seed_words, request_text=request_text)
                        if retriever is not None else "")
     # Task 16 最后一厘米:检索发生(retriever 非 None = MEMORY_FABRIC 开)时收集本次完整
     # RetrievalResult,组装后落 memory_trace 给 ContextInspector 真数据。retriever=None
@@ -6225,6 +6856,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     _retrieval_out = {} if retriever is not None else None
 
     def _render_final_input(envelope):
+        nonlocal reference_craft_briefs
         # Manifest 必须 hash 真正交给 Hermes/Qwen 官方服务的全部字节。
         # 因此 envelope 后的工艺块、强制协议和演绎终检也在 renderer 内
         # 完成，编译返回后不再追加任何 instructions。
@@ -6276,6 +6908,15 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         )
         normalized_phase = (phase or "").strip().lower()
         if normalized_phase in ("draft", "final"):
+            # 参考作品原文永不进入生成输入：这里只消费作者批准后的安全技法投影。
+            # 每个指纹独立登记 supplemental source，供 Manifest 与使用账本追溯。
+            from scribe3.reference_craft import approved_craft_briefs
+            reference_craft_briefs = approved_craft_briefs(st, str(work or "main"))
+            for brief in reference_craft_briefs:
+                rendered += _domain_input(
+                    f"reference_fingerprint:{brief.fingerprint_id}", "reference_craft",
+                    brief.text,
+                )
             for ordinal, (source_id, source_kind, text) in enumerate(
                 _deduction_context_segments(st, chapter)
             ):
@@ -6287,7 +6928,8 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
             rendered += _domain_input(
                 f"chapter:{chapter}:material-recall", "material_recall",
                 _material_recall_block(st, chapter, phase=normalized_phase,
-                                       focalizer=focalizer or "", llm=None),
+                                       focalizer=focalizer or "", llm=None,
+                                       request_text=request_text),
             )
         rendered += _final_reminder()
         if normalized_phase == "deduce":
@@ -6357,6 +6999,14 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
         context_trace.update(binding)
         envelope_trace["context"] = context_trace
         envelope_trace.update(binding)
+    if reference_craft_briefs:
+        from scribe3.quality.store import QualityStore
+        QualityStore(st).record_reference_craft_use(
+            work=str(work or "main"), chapter=int(chapter),
+            request_id=compiled.request.request_id,
+            manifest_id=compiled.manifest.manifest_hash,
+            briefs=reference_craft_briefs,
+        )
     # Task 16 最后一厘米:检索真发生(retriever 非 None)且前端带了会话绑定
     # (memory_trace_ctx 有 session_id + revision)时,落 memory_trace 给 ContextInspector。
     # 键用前端真实会话(前端 Inspector 查同一 session/revision,天然对齐);无绑定的调用方
@@ -6383,7 +7033,8 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
                                  work: str | None = None,
                                  envelope_trace: dict | None = None,
                                  memory_trace_ctx: dict | None = None,
-                                 extra_instructions: str = "") -> str:
+                                 extra_instructions: str = "",
+                                 request_text: str = "") -> str:
     """chat_write 完整组装链单源；生产无条件走 Creative Context Engine。
 
     统一内核是唯一生产写作路由。编译失败直接上抛，不得回退旧散点链
@@ -6393,7 +7044,7 @@ def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str
         seed_words=seed_words, short_mode=short_mode,
         with_tools=with_tools, work=work, envelope_trace=envelope_trace,
         memory_trace_ctx=memory_trace_ctx,
-        extra_instructions=extra_instructions,
+        extra_instructions=extra_instructions, request_text=request_text,
     )
 
 
@@ -6520,10 +7171,10 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     _resolve_thread_or_raise(work, req.thread_id)
     if req.thread_id:
         background.add_task(_maybe_summarize_thread, work, req.thread_id)   # P0b 增量摘要
-    # 与 GET /chat/write 同一纪律：非 final 阶段均挂 work 作用域工具；final 正文
-    # 已收到完整上下文，必须纯散文输出，不能夹带尚未执行的工具调用。
+    # 与 GET /chat/write 同一纪律：明确动稿已有完整上下文，draft/final 都应保持
+    # 纯散文输出，不能夹带尚未执行的工具调用或进入无界的代理式联查。
     _write_intent = _is_write_intent(req.msg)
-    _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
+    _wt = _work_has_tools(work) and _write_phase_allows_tools(req.phase) and not _write_intent
     # 统一内核把 envelope 安全块清单回填这里，随 assistant 落 trace.context；
     # 编译失败会在开流前直接上抛，不存在 flag 关闭或旧链回退形成的空 trace。
     outcome_binding = _WriteOutcomeBinding(st)
@@ -6535,7 +7186,8 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     instructions = _assemble_write_instructions(
         st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
         seed_words=req.seed_words, short_mode=req.short_mode, with_tools=_wt, work=work,
-        envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx)
+        envelope_trace=_envelope_trace, memory_trace_ctx=_memory_trace_ctx,
+        request_text=req.msg)
 
     if req.images:
         content = [{"type": "input_text", "text": req.msg}]
@@ -6821,15 +7473,15 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
 
     def _generate(attempt: int, constraints: str) -> str:
         with_tools = _work_has_tools(work) and _write_phase_allows_tools(req.phase)
+        msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
+                          f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
         outcome_binding = _WriteOutcomeBinding(st)
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=req.focalizer, phase=req.phase,
             seed_words=[], short_mode=req.short_mode,
             with_tools=with_tools, work=work,
             envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=constraints)
-        msg = req.msg or (f"按本章简报、大纲与全部纪律写第 {req.chapter} 章完整正文,"
-                          f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+            extra_instructions=constraints, request_text=msg)
         text, proposals = _collect_write(
             msg, instructions, with_tools=with_tools,
             on_terminal=outcome_binding.persist,
@@ -8983,14 +9635,15 @@ def select_chapter(req: SelectChapterReq, work: str = "main"):
         strategy_instructions = (
             "【选择环候选策略(本候选必须执行)】" + strategy["directive"]
         )
+        msg = ((req.msg + "\n") if req.msg else "") + (
+            f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
+            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
             seed_words=[], short_mode=False, with_tools=False, work=work,
             envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=strategy_instructions)   # 候选生成不挂工具(纯写作)
-        msg = ((req.msg + "\n") if req.msg else "") + (
-            f"写第 {req.chapter} 章完整正文,严格执行上面的候选策略,"
-            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。")
+            extra_instructions=strategy_instructions,
+            request_text=msg)   # 候选生成不挂工具(纯写作)
         text, proposals = _collect_write(
             msg, instructions, with_tools=False,
             on_terminal=outcome_binding.persist,
@@ -9212,14 +9865,14 @@ def select_light(req: SelectLightReq, work: str = "main"):
             f"\n只写开场/切入片段,控制在 {L1_MAX_CHARS} 字以内;"
             "不要写完整章,不要收尾总结。用 ⟦PROPOSAL scope=chapter⟧ 围栏交稿。"
         )
+        msg = ((req.msg + "\n") if req.msg else "") + (
+            f"为第 {req.chapter} 章写一则策略短开场(≤{L1_MAX_CHARS}字),严格执行上面策略,"
+            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏。")
         instructions = _assemble_write_instructions(
             st, chapter=req.chapter, focalizer=ch.get("focalizer") or "", phase="final",
             seed_words=[], short_mode=True, with_tools=False, work=work,
             envelope_trace=outcome_binding.manifest_trace,
-            extra_instructions=strategy_instructions)
-        msg = ((req.msg + "\n") if req.msg else "") + (
-            f"为第 {req.chapter} 章写一则策略短开场(≤{L1_MAX_CHARS}字),严格执行上面策略,"
-            f"用 ⟦PROPOSAL scope=chapter⟧ 围栏。")
+            extra_instructions=strategy_instructions, request_text=msg)
         text, proposals = _collect_write(
             msg, instructions, with_tools=False,
             on_terminal=outcome_binding.persist,
@@ -9379,7 +10032,7 @@ def _pilot_llm_gen(st, work: str, seq: int, phase: str, ask: str, focalizer: str
     ins = _assemble_write_instructions(
         st, chapter=seq, focalizer=focalizer, phase=phase,
         with_tools=False, seed_words=[], short_mode=False, work=work,
-        envelope_trace=outcome_binding.manifest_trace)
+        envelope_trace=outcome_binding.manifest_trace, request_text=ask)
     return _collect_write(
         ask, ins, with_tools=False, on_terminal=outcome_binding.persist,
         text_mode=True, max_tokens=max_tokens,
@@ -10446,11 +11099,17 @@ async def live(work: str = "main"):
         raise HTTPException(status_code=429, detail=f"too many live connections for {work}")
     _live_count[work] = _live_count.get(work, 0) + 1
     url = os.environ.get("SCRIBE3_SURREAL_URL", "ws://127.0.0.1:8001/rpc")
-    try:
-        return StreamingResponse(live_stream(url, "scribe3", work, _LIVE_TABLES),
-                                 media_type="text/event-stream")
-    finally:
-        _live_count[work] = max(0, _live_count.get(work, 0) - 1)
+
+    async def counted_live_stream():
+        try:
+            async for event in live_stream(url, "scribe3", work, _LIVE_TABLES):
+                yield event
+        finally:
+            # 返回 StreamingResponse 不代表浏览器已断开；必须等其 body iterator
+            # 真正关闭后才释放这一 work 的 LIVE 配额。
+            _live_count[work] = max(0, _live_count.get(work, 0) - 1)
+
+    return StreamingResponse(counted_live_stream(), media_type="text/event-stream")
 
 
 def main() -> None:

@@ -30,6 +30,24 @@ def test_did_witnesses_know(store):
     assert any("尸丹" in f.value for f in project_frame(store, "role:阿萤", 2).facts), "在场者也知道"
 
 
+def test_ingest_synthetic_and_narrative_events_are_causally_auditable(store):
+    """did 合成事件与同章正文首事件共存时，不能因缺动机/场景根把 C2 误判为断链。"""
+    _ensure_chars(store, "焦三")
+    apply_delta(store, {
+        "learned": [],
+        "did": [
+            {"who": "焦三", "action": "取出尸丹", "seen_by": []},
+            {"who": "焦三", "action": "藏起尸丹", "seen_by": []},
+        ],
+        "events": [{
+            "type": "夜逃", "participants": {"SUBJ": "焦三"},
+            "goal": "避开追兵", "caused_by": [],
+        }],
+    }, seq=2)
+
+    assert causal_complete(store, 2) == []
+
+
 def test_non_witness_does_not_know(store):
     _ensure_chars(store, "焦三", "老道")
     apply_delta(store, {"learned": [], "did": [{"who": "焦三", "action": "取出尸丹", "seen_by": []}]}, seq=2)
@@ -43,6 +61,28 @@ def test_ingest_chapter_end_to_end(store):
     r = ingest_chapter(store, 1, fake)
     assert r["applied"] == 1
     assert any("聚魂" in f.value for f in project_frame(store, "role:焦三", 1).facts)
+
+
+def test_ingest_runs_dedicated_event_extraction_when_primary_delta_omits_events(store):
+    """富含行动的正文不能因混合抽取漏 events 而留下空因果图。"""
+    _ensure_chars(store, "焦三", "老道")
+    store.save_chapter(1, "焦三拔刀拦住老道，逼他交出尸丹。", focalizer="role:焦三")
+    prompts = []
+
+    def fake(prompt):
+        prompts.append(prompt)
+        if "专用事件抽取" in prompt:
+            return ('{"events":[{"type":"对峙","participants":{"SUBJ":"焦三","OBJ":"老道"},'
+                    '"goal":"夺回尸丹","caused_by":[]}]}')
+        return '{"learned":[],"did":[],"voice_shift":[],"arc":[],"events":[]}'
+
+    ingest_chapter(store, 1, fake)
+
+    events = store.events_at(1)
+    assert len(prompts) == 2, "主抽取漏事件时必须调用一次专用事件抽取"
+    assert len(events) == 1
+    assert events[0].type == "对峙"
+    assert causal_complete(store, 1) == []
 
 
 # ── 批D P1-5: ingest 抽取关键事件 → event 表(因果 QC / 时间线泳道有真数据)──

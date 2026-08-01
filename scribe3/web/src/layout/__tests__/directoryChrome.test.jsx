@@ -29,6 +29,7 @@ vi.mock('../../api', () => ({
       { id: 1, title: 'A', kind: 'note', tags: [], pinned: false, recall_count: 0 },
     ])),
     materialRecall: vi.fn(() => Promise.resolve([])),
+    chapters: vi.fn(() => Promise.resolve([{ seq: 9, title: '实时章' }])),
   },
 }))
 
@@ -162,6 +163,17 @@ describe('Directory surfaces row density', () => {
     expect(ch.textContent).toMatch(/第 1 章 入城/)
   })
 
+  it('ManuscriptDirectory 会补入打开作品后由主编新增的实时章节', async () => {
+    render(
+      <ManuscriptDirectory
+        entry={{ capability: 'manuscript', source: { id: 'manuscript_root', children: [] }, label: '手稿' }}
+        sel={{ node: { type: 'manuscript_root' } }}
+        onSelectItem={vi.fn()}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: /第 9 章 实时章/ })).toBeTruthy()
+  })
+
   it('CodexDirectory: sticky header and category title without mandatory dual-line essay as only scan', () => {
     const root = {
       id: 'codex_root',
@@ -217,4 +229,3 @@ describe('Materials list-first chrome', () => {
     expect(screen.getByTestId('material-item-list')).toBeTruthy()
   })
 })
-

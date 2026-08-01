@@ -137,7 +137,7 @@ def _parse_model_section(text: str) -> tuple[str | None, str | None]:
 
 
 def model_summary() -> list[dict]:
-    """三网关主模型只读摘要。独立只读路径,不经写白名单(root config.yaml 仍不可写)。
+    """所有写作阶段网关的主模型只读摘要。独立只读路径,不经写白名单(root config.yaml 仍不可写)。
 
     fail-soft:文件不存在/无 model 节/读失败 → provider/default_model 为 None,不抛。
     绝不解析/返回 api_key 或 base_url。
@@ -146,6 +146,8 @@ def model_summary() -> list[dict]:
         ("default", _home() / "config.yaml"),
         ("scribe3", _home() / "profiles" / "scribe3" / "config.yaml"),
         ("scribe3_write", _home() / "profiles" / "scribe3_write" / "config.yaml"),
+        ("scribe3_deduce", _home() / "profiles" / "scribe3_deduce" / "config.yaml"),
+        ("scribe3_deduce_preview", _home() / "profiles" / "scribe3_deduce_preview" / "config.yaml"),
     ]
     out = []
     for gateway, path in targets:

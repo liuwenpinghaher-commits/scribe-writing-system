@@ -5,7 +5,7 @@ P0 契约(方案 §12 + 专家团):
 """
 from __future__ import annotations
 
-from scribe3.ontology import Entity, Fact, KnowledgeEdge
+from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
 from fastapi.testclient import TestClient
 
 import scribe3.app as A
@@ -264,6 +264,20 @@ def test_gate_c_passes_on_clean_prose(store):
     c1 = next(c for c in r.checks if c.id == "C1")
     assert c1.verdict == "pass", r.to_dict()
     assert r.ok is True, r.to_dict()
+
+
+def test_gate_c2_passes_when_persisted_events_have_no_causal_violations(store):
+    """C2 必须用事件存在性区分真空违规与根本未抽取事件。"""
+    seq = craft_world_min(store)
+    store.add_event(Event(
+        "ev:c2-clean", "抵达", story_time=seq,
+        motivated_by_goal="确认灰契来历",
+    ))
+
+    report = audit_chapter_det(store, seq, prose="沈砚在门前停住，决定先问清灰契来历。")
+
+    c2 = next(check for check in report.checks if check.id == "C2")
+    assert c2.verdict == "pass", report.to_dict()
 
 
 def test_anti_book_b4e72480_must_fail_new_formula(store):

@@ -228,9 +228,10 @@ def test_runtime_tree_has_no_spectron_adapter_or_reserved_dependency():
         root / "tests" / "test_spectron_adapter.py",
     )
     assert not any(path.exists() for path in forbidden_paths)
+    excluded_dirs = {"tests", "docs", ".venv", "venv", "__pycache__"}
     runtime_files = [
         path for path in root.rglob("*.py")
-        if "tests" not in path.parts and "docs" not in path.parts
+        if not any(part in excluded_dirs for part in path.relative_to(root).parts)
     ] + [root / "requirements-dev.txt"]
     offenders = [
         str(path.relative_to(root)) for path in runtime_files

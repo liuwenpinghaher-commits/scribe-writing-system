@@ -83,4 +83,19 @@ describe('ChapterStudio 章对象外框与五阶段页签', () => {
     await waitFor(() => expect(screen.getByTestId('chapter-workbench-shell').getAttribute('data-phase')).toBe('draft'))
     expect(screen.getByTestId('chapter-stage-heading').textContent).toBe('草稿')
   })
+
+  it('正文阶段在布局导致工作台重挂时不被初始大纲指令覆盖', async () => {
+    const first = render(<Harness initialPhase="outline" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '正文' }))
+    expect(await screen.findByTestId('write-layout')).toBeTruthy()
+
+    // 正文会令四栏切到阅读布局，真实页面会因此重挂 DetailPane/ChapterStudio。
+    // 重挂后仍必须停在正文；否则作者每次点正文都会被旧 selection.phase 拉回大纲。
+    first.unmount()
+    render(<Harness initialPhase="outline" />)
+
+    expect(await screen.findByTestId('write-layout')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: '正文' }).getAttribute('aria-selected')).toBe('true')
+  })
 })

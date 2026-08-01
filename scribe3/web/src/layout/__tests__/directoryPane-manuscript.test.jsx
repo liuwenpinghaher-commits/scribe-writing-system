@@ -8,6 +8,8 @@ vi.mock('../../api', () => ({
     restoreChapter: vi.fn(),
     chapterImpact: vi.fn(),
     deleteChapter: vi.fn(),
+    // ManuscriptDirectory 挂载时回读正典章节；本夹具的树已完整给出卷章。
+    chapters: vi.fn(),
   },
 }))
 vi.mock('../../ui/Toast', () => ({
@@ -62,6 +64,7 @@ describe('DirectoryPane 手稿目录', () => {
       confirm_impact_token: 'impact-token-9',
     })
     api.deleteChapter.mockResolvedValue({ status: 'deleted', seq: 9 })
+    api.chapters.mockResolvedValue([])
   })
 
   it('手稿二栏不再显示卷章上方的当前卡片和书级工具', () => {

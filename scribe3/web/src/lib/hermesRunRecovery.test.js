@@ -3,6 +3,7 @@ import {
   runContextFromError,
   applyRunTraceToMessages,
   collectPendingRunIds,
+  recoverPendingApprovalMessages,
   patchRunMessage,
   upsertApprovalInMessages,
   patchApprovalInMessages,
@@ -83,6 +84,21 @@ describe('collectPendingRunIds', () => {
     expect(ids.has('run_pending')).toBe(true)
     expect(ids.has('run_done')).toBe(false)
     expect(ids.has('run_active')).toBe(false)
+  })
+})
+
+describe('recoverPendingApprovalMessages', () => {
+  it('空白刷新后的作品级待审批 Run 会重建为作者可点击的审批卡，且重复拉取幂等', () => {
+    const pending = [{
+      run_id: 'run_book_pending', approval_id: 'approval_book_pending',
+      message: '允许新建第1章？',
+    }]
+    const recovered = recoverPendingApprovalMessages([], pending)
+    expect(recovered).toEqual([{
+      role: 'assistant', content: '', run_id: 'run_book_pending',
+      approvals: [{ ...pending[0], status: 'pending' }],
+    }])
+    expect(recoverPendingApprovalMessages(recovered, pending)).toBe(recovered)
   })
 })
 

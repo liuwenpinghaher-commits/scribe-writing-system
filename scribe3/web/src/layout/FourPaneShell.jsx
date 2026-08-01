@@ -447,7 +447,7 @@ export function FourPaneShell({
       >
         {renderRestoreButtons('detail')}
         <div className="h-full min-h-0 min-w-0 overflow-hidden flex flex-col" data-testid="detail" data-context-revision={ctxRevision}>
-          <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey}
+          <DetailPane sel={effectiveSel} work={work} entryKey={projectedEntryKey} qualitySeq={leftSeq}
             onSelectNode={handleSelectItem}
             onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
             onNavigateToObject={handleNavigateToObject}

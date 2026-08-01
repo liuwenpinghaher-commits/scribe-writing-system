@@ -1,4 +1,5 @@
 import json
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -254,6 +255,7 @@ def test_event_adapter_maps_responses_events_to_internal_events():
         "kind": "tool.output",
         "call_id": "call_1",
         "output": "{\"ok\":true}",
+        "output_available": True,
         "source_type": "response.output_item.done",
     }
     assert adapter.adapt({
@@ -328,10 +330,12 @@ def test_event_adapter_maps_runs_events_to_internal_events():
     assert adapter.adapt({
         "type": "run.completed",
         "run_id": "run_1",
+        "model": "qwen3.8-max-preview",
         "usage": {"total_tokens": 30},
     }) == {
         "kind": "run.completed",
         "run_id": "run_1",
+        "model": "qwen3.8-max-preview",
         "usage": {"total_tokens": 30},
         "source_type": "run.completed",
     }
@@ -352,7 +356,7 @@ def test_event_adapter_maps_real_runs_event_field_payloads():
         "run_id": "run_real",
         "name": "s3_add_fact",
         "arguments": "",
-        "call_id": None,
+        "call_id": "synthetic:1",
         "source_type": "tool.started",
     }
     assert adapter.adapt({
@@ -383,8 +387,10 @@ def test_event_adapter_maps_real_runs_event_field_payloads():
         "kind": "tool.output",
         "run_id": "run_real",
         "name": "s3_add_fact",
-        "call_id": None,
+        "call_id": "synthetic:1",
         "output": {"status": "written", "tool": "s3_add_fact"},
+        "output_available": True,
+        "completion": {},
         "source_type": "tool.completed",
     }
     assert adapter.adapt({
@@ -401,6 +407,57 @@ def test_event_adapter_maps_real_runs_event_field_payloads():
         "decision": "once",
         "source_type": "approval.responded",
     }
+
+
+def test_event_adapter_correlates_idless_real_tool_completion_with_its_start():
+    """真实 Hermes Runs 事件可能没有 call_id；不能因此把已完成的只读工具误判成未输出。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
+
+    adapter = HermesEventAdapter()
+    started = adapter.adapt({
+        "event": "tool.started", "run_id": "run_real", "tool": "mcp_scribe3_deduce_preview_s3_get_chapter",
+    })
+    completed = adapter.adapt({
+        "event": "tool.completed", "run_id": "run_real", "tool": "mcp_scribe3_deduce_preview_s3_get_chapter",
+        "result": {"seq": 1, "title": "预览审阅章"},
+    })
+
+    assert started["call_id"], "无 call_id 的真实 started 事件必须获得流内审计 ID"
+    assert completed["call_id"] == started["call_id"]
+    assert completed["output"] == {"seq": 1, "title": "预览审阅章"}
+
+
+def test_event_adapter_marks_upstream_omitted_tool_result_as_unavailable():
+    """Hermes 0.18.2 Runs 真实事件仅给完成回执时，不能伪装成空工具输出。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
+
+    adapter = HermesEventAdapter()
+    adapter.adapt({
+        "event": "tool.started", "run_id": "run_real", "tool": "mcp_scribe3_read__s3_get_intent",
+    })
+
+    completed = adapter.adapt({
+        "event": "tool.completed", "run_id": "run_real",
+        "tool": "mcp_scribe3_read__s3_get_intent", "duration": 0.012, "error": False,
+    })
+
+    assert completed["output"] == ""
+    assert completed["output_available"] is False
+    assert completed["completion"] == {"duration": 0.012, "error": False}
+
+
+def test_event_adapter_preserves_runs_completed_final_output():
+    """Runs 终态自带的最终回答是质量判断的可复核证据，不能在适配层丢弃。"""
+    from scribe3.hermes_runtime import HermesEventAdapter
+
+    completed = HermesEventAdapter().adapt({
+        "event": "run.completed", "run_id": "run_final",
+        "output": "已核实：创作意图为空。", "usage": {"total_tokens": 42},
+    })
+
+    assert completed["kind"] == "run.completed"
+    assert completed["output"] == "已核实：创作意图为空。"
+    assert completed["usage"] == {"total_tokens": 42}
 
 
 def test_runs_api_methods_send_session_key_and_parse_events(monkeypatch):
@@ -571,6 +628,86 @@ def test_ai_runtime_status_endpoint_returns_runtime_snapshot(monkeypatch):
     assert body["profiles"][1]["capabilities"]["responses_api"] is True
 
 
+def test_runtime_status_exposes_both_deduce_profiles_and_safe_config_summaries(monkeypatch):
+    """Gate B 的两条独立工具面必须同样进入真实运行态审计，不能只存在于路由表。"""
+    import scribe3.app as appmod
+    import scribe3.hermes_runtime as hermes_runtime
+    import scribe3.llm as llm
+
+    class Runtime:
+        def __init__(self, *, api_base, profile):
+            self.api_base = api_base
+            self.profile = profile
+
+        def probe(self):
+            return {"profile": self.profile, "api_base": self.api_base, "ok": True,
+                    "capabilities": {"run_submission": True}}
+
+    class Store:
+        def count_failed_memory_events(self):
+            return 0
+
+    monkeypatch.setattr(hermes_runtime, "HermesRuntime", Runtime)
+    monkeypatch.setattr(llm, "HERMES", "http://default.test/v1")
+    monkeypatch.setattr(llm, "HERMES_RESPONSES", "http://read.test/v1")
+    monkeypatch.setattr(llm, "HERMES_RUNS", "http://write.test/v1")
+    monkeypatch.setattr(llm, "HERMES_DEDUCE_RUNS", "http://deduce.test/v1")
+    monkeypatch.setattr(llm, "HERMES_DEDUCE_PREVIEW_RUNS", "http://preview.test/v1")
+    monkeypatch.setattr(appmod, "_hermes_profile_config_summary", lambda profile: {"profile": profile})
+    monkeypatch.setattr(appmod, "_hermes_cron_status", lambda _profile: {})
+    monkeypatch.setattr(appmod, "_summarize_hermes_runtime", lambda profiles, **_kw: {"issues": [], "profiles": profiles})
+    monkeypatch.setattr(appmod, "_context_memory_metrics", lambda: {})
+    monkeypatch.setattr(appmod, "_store_for", lambda _work: Store())
+
+    status = appmod._hermes_runtime_status()
+
+    assert [item["profile"] for item in status["profiles"]] == [
+        "default", "scribe3", "scribe3_write", "scribe3_deduce", "scribe3_deduce_preview",
+    ]
+    assert status["profile_configs"]["scribe3_deduce"] == {"profile": "scribe3_deduce"}
+    assert status["profile_configs"]["scribe3_deduce_preview"] == {"profile": "scribe3_deduce_preview"}
+
+
+def test_gateway_control_surfaces_include_both_deduce_profiles(monkeypatch):
+    """Gate B profile 必须可被只读探活与受控重启；未知 profile 仍应 fail-closed。"""
+    import subprocess
+    import scribe3.app as appmod
+    import scribe3.settings as settings
+
+    values = {
+        "HERMES_API": "http://default.test/v1",
+        "HERMES_RESPONSES_API": "http://read.test/v1",
+        "HERMES_RESPONSES_PROFILE": "scribe3",
+        "HERMES_RUNS_API": "http://write.test/v1",
+        "HERMES_RUNS_PROFILE": "scribe3_write",
+        "HERMES_DEDUCE_RUNS_API": "http://deduce.test/v1",
+        "HERMES_DEDUCE_PREVIEW_RUNS_API": "http://preview.test/v1",
+        "gateway.hermes_bin": "/usr/local/bin/hermes",
+    }
+    monkeypatch.setattr(settings, "get_setting", values.__getitem__)
+    monkeypatch.setattr(appmod.os.path, "isfile", lambda _path: True)
+    monkeypatch.setattr(appmod.os, "access", lambda _path, _mode: True)
+    monkeypatch.setattr(subprocess, "run", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    class Response:
+        status_code = 200
+
+    monkeypatch.setattr("httpx.get", lambda *_args, **_kwargs: Response())
+    client = TestClient(appmod.app)
+
+    listed = client.get("/gateway/status")
+    assert listed.status_code == 200
+    assert [item["profile"] for item in listed.json()["gateways"]] == [
+        "(default)", "scribe3", "scribe3_write", "scribe3_deduce", "scribe3_deduce_preview",
+    ]
+
+    restarted = client.post("/gateway/restart", json={"profile": "scribe3_deduce_preview"})
+    assert restarted.status_code == 200
+    assert restarted.json()["profile"] == "scribe3_deduce_preview"
+    assert restarted.json()["online"] is True
+
+
 def test_profile_config_summary_counts_mcp_tools_without_secrets(tmp_path):
     import scribe3.app as appmod
 
@@ -592,7 +729,7 @@ mcp_servers:
     tools:
       include: [s3_save_chapter]
 platform_toolsets:
-  api_server: [scribe3_read]
+  api_server: [mcp-scribe3_read]
 """,
         encoding="utf-8",
     )
@@ -600,10 +737,40 @@ platform_toolsets:
     summary = appmod._hermes_profile_config_summary("scribe3", home=tmp_path)
 
     assert summary["profile"] == "scribe3"
-    assert summary["api_server_toolsets"] == ["scribe3_read"]
+    assert summary["api_server_toolsets"] == ["mcp-scribe3_read"]
     assert summary["mcp_toolsets"]["scribe3_read"]["tool_count"] == 2
     assert summary["api_server_mcp_tool_count"] == 2
     assert "should-not-leak" not in json.dumps(summary, ensure_ascii=False)
+
+
+def test_profile_config_summary_counts_bare_mcp_server_toolset_keys(tmp_path):
+    """Hermes 0.18.2 接受 mcp_servers 裸键，不得误报成原生工具面。"""
+    import scribe3.app as appmod
+
+    profile_dir = tmp_path / "profiles" / "scribe3_write"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "config.yaml").write_text(
+        """
+mcp_servers:
+  scribe3_read:
+    tools:
+      include: [s3_get_intent]
+  scribe3_write:
+    tools:
+      include: [s3_add_fact, s3_add_event]
+platform_toolsets:
+  api_server: [scribe3_read, scribe3_write]
+""",
+        encoding="utf-8",
+    )
+
+    summary = appmod._hermes_profile_config_summary(
+        "scribe3_write", home=tmp_path,
+    )
+
+    assert summary["api_server_toolsets"] == ["scribe3_read", "scribe3_write"]
+    assert summary["api_server_mcp_tool_count"] == 3
+    assert summary["api_server_native_toolsets"] == []
 
 
 def test_runtime_status_summary_reports_gateway_policy_and_degradation():
@@ -723,6 +890,8 @@ def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(store, monkeypatch
     calls = []
 
     class FakeRuntime:
+        approved = threading.Event()
+
         def create_run(self, input_text, **kwargs):
             calls.append(("create", input_text, kwargs))
             return {"run_id": "run_1", "status": "queued"}
@@ -733,14 +902,22 @@ def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(store, monkeypatch
 
         def run_events(self, run_id, **kwargs):
             calls.append(("events", run_id, kwargs))
-            return iter([
-                {"type": "approval.request", "run_id": run_id, "approval_id": "ap_1", "message": "允许写入设定?"},
-                {"type": "approval.resolved", "run_id": run_id, "approval_id": "ap_1", "decision": "approve"},
-                {"type": "run.completed", "run_id": run_id},
-            ])
+            def stream():
+                yield {
+                    "type": "approval.request", "run_id": run_id,
+                    "approval_id": "ap_1", "message": "允许写入设定?",
+                }
+                assert self.approved.wait(1), "批准前 collector 不应自行结束事件流"
+                yield {
+                    "type": "approval.resolved", "run_id": run_id,
+                    "approval_id": "ap_1", "decision": "approve",
+                }
+                yield {"type": "run.completed", "run_id": run_id}
+            return stream()
 
         def approve_run(self, run_id, approval, **kwargs):
             calls.append(("approve", run_id, approval, kwargs))
+            self.approved.set()
             return {"run_id": run_id, "status": "resumed"}
 
         def stop_run(self, run_id, **kwargs):
@@ -765,8 +942,10 @@ def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(store, monkeypatch
 
     events = client.get("/ai/runs/run_1/events?work=book_x")
     assert events.status_code == 200
-    assert '"approval"' in events.text and '"approval_resolved"' in events.text
-    assert '"done": true' in events.text
+    # 审批卡交给浏览器后，该 SSE 必须释放 Hermes 事件流；审批端点会作为
+    # 唯一收集者续读工具完成和终态，防止刷新后的旧生成器抢占事件。
+    assert '"approval"' in events.text
+    assert '"approval_resolved"' not in events.text
 
     approval = client.post("/ai/runs/run_1/approval?work=book_x", json={
         "approval_id": "ap_1",
@@ -782,15 +961,63 @@ def test_ai_runs_endpoints_proxy_runtime_and_stream_approvals(store, monkeypatch
     assert create_call[0] == "create"
     assert "work=book_x" in create_call[2]["instructions"]
     assert create_call[2]["session_key"] == "scribe3|work:book_x|runs"
-    assert calls[1] == ("status", "run_1", {"session_key": "scribe3|work:book_x|runs"})
-    assert calls[2] == ("events", "run_1", {"session_key": "scribe3|work:book_x|runs"})
-    assert calls[3] == (
+    # Run 创建后服务端 collector 会立即开始消费事件；浏览器随后查询状态的先后由线程
+    # 调度决定，不能再用固定索引断言旧的“先 status、后 events”时序。
+    assert ("status", "run_1", {"session_key": "scribe3|work:book_x|runs"}) in calls
+    assert calls.count(("events", "run_1", {"session_key": "scribe3|work:book_x|runs"})) == 1
+    assert (
         "approve",
         "run_1",
-        {"choice": "once"},
+        {"approval_id": "ap_1", "choice": "once"},
         {"session_key": "scribe3|work:book_x|runs"},
-    )
-    assert calls[4] == ("stop", "run_1", {"session_key": "scribe3|work:book_x|runs"})
+    ) in calls
+    # 首次 events 请求已启动服务端唯一 collector；批准不再重新打开 Hermes
+    # event stream，避免刷新后的浏览器流与审批收尾竞争消费者。
+    assert ("stop", "run_1", {"session_key": "scribe3|work:book_x|runs"}) in calls
+
+
+def test_duplicate_approved_run_request_is_idempotent_when_hermes_has_no_pending_approval(store, monkeypatch):
+    """刷新/重放的同一作者决定不能被 Hermes 的无待审项响应放大成 502。"""
+    import httpx
+    import scribe3.app as appmod
+
+    run_id = "run_approval_replay"
+    appmod.set_store(store, work="test")
+    store.upsert_ai_run_trace(run_id, status="completed", session_key="scribe3|work:test|runs")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_replay", "name": "s3_add_character",
+        "arguments": '{"oid":"role:重放安全"}',
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_replay", "approval_id": "ap_replay",
+        "message": "批准写入?新增角色 role:重放安全=重放安全",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.resolved", "call_id": "call_replay", "approval_id": "ap_replay",
+        "choice": "once", "source": "user",
+    })
+
+    class ReplayRuntime:
+        def approve_run(self, *_args, **_kwargs):
+            request = httpx.Request("POST", "http://hermes.test/v1/runs/approval")
+            response = httpx.Response(400, request=request, json={
+                "error": {"code": "approval_not_pending", "message": "already resolved"},
+            })
+            raise httpx.HTTPStatusError("approval no longer pending", request=request, response=response)
+
+    monkeypatch.setattr(appmod, "_hermes_runs_runtime", lambda *_args, **_kwargs: ReplayRuntime())
+    client = TestClient(appmod.app)
+
+    response = client.post(f"/ai/runs/{run_id}/approval?work=test", json={
+        "approval_id": "ap_replay", "decision": "approve",
+    })
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": run_id,
+        "status": "completed",
+        "already_resolved": True,
+    }
 
 
 def test_ai_runs_endpoints_persist_run_trace(store, monkeypatch):
@@ -807,8 +1034,8 @@ def test_ai_runs_endpoints_persist_run_trace(store, monkeypatch):
                 {"type": "tool.start", "name": "s3_add_fact", "arguments": "{\"oid\":\"fact:x\"}", "call_id": "call_9"},
                 {"type": "tool.complete", "call_id": "call_9", "output": "{\"ok\":true}"},
                 {"type": "approval.request", "run_id": run_id, "approval_id": "ap_9", "message": "允许写入命题?"},
-                {"type": "approval.resolved", "run_id": run_id, "approval_id": "ap_9", "decision": "approve"},
-                {"type": "run.completed", "run_id": run_id, "usage": {"total_tokens": 77}},
+                {"type": "run.completed", "run_id": run_id,
+                 "model": "qwen3.8-max-preview", "usage": {"total_tokens": 77}},
             ])
 
         def approve_run(self, run_id, approval, **kwargs):
@@ -847,8 +1074,12 @@ def test_ai_runs_endpoints_persist_run_trace(store, monkeypatch):
     assert trace["tool_outputs"][0]["call_id"] == "call_9"
     assert trace["approvals"][0]["approval_id"] == "ap_9"
     assert trace["approvals"][1]["decision"] == "approve"
-    assert trace["approvals"][2]["source"] == "user"
+    assert any(
+        row.get("source") == "user" and row.get("decision") == "approve"
+        for row in trace["approvals"]
+    )
     assert trace["usage"]["total_tokens"] == 77
+    assert trace["response"]["model"] == "qwen3.8-max-preview"
 
     trace_resp = client.get("/ai/runs/run_trace_1/trace?work=test")
     assert trace_resp.status_code == 200

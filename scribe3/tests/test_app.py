@@ -3,6 +3,8 @@
 前端读 NS=scribe3。写作统一走主编对话(/chat/write),不经直接渲染。
 """
 import json
+import threading
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1964,6 +1966,77 @@ def test_enqueue_ingest_dedups_same_chapter():
     assert len(bg.tasks) == 1                            # 只排了一个后台任务
     assert A._enqueue_ingest(bg, "main", 6) is True      # 不同章:仍排
     assert len(bg.tasks) == 2
+
+
+def test_store_for_serializes_same_work_initialization(monkeypatch):
+    """并发首次访问同一本书时，只能保留一个已初始化的 Surreal 连接。
+
+    若移除初始化锁，多个请求会同时越过 ``work not in _stores``，各自创建
+    WebSocket 客户端；后写入缓存的实例覆盖前者，前者的 recv/keepalive 线程
+    无人关闭，最终耗尽后端线程和套接字配额。
+    """
+    from collections import OrderedDict
+
+    monkeypatch.setattr(A, "_stores", OrderedDict())
+    created = []
+    results = []
+    start = threading.Barrier(8)
+    result_lock = threading.Lock()
+
+    class FakeStore:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            created.append(self)
+
+        def apply_schema(self):
+            # 模拟真实建连/迁移的耗时窗口，放大未锁保护时的首次访问竞态。
+            time.sleep(0.05)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(A, "SurrealStore", FakeStore)
+
+    def open_same_work():
+        start.wait(timeout=2)
+        store = A._store_for("race-work")
+        with result_lock:
+            results.append(store)
+
+    workers = [threading.Thread(target=open_same_work) for _ in range(8)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=3)
+
+    assert not any(worker.is_alive() for worker in workers)
+    assert len(created) == 1, "同 work 并发初始化不得遗留被覆盖的连接"
+    assert len(results) == 8
+    assert all(store is created[0] for store in results)
+
+
+def test_shutdown_closes_and_evicts_every_cached_store(monkeypatch):
+    """服务退出必须关闭缓存连接，不能留下 WebSocket keepalive 线程阻止进程退出。"""
+    from collections import OrderedDict
+
+    closed = []
+
+    class FakeStore:
+        def __init__(self, name):
+            self.name = name
+
+        def close(self):
+            closed.append(self.name)
+
+    monkeypatch.setattr(A, "_stores", OrderedDict({
+        "book-a": FakeStore("book-a"),
+        "book-b": FakeStore("book-b"),
+    }))
+
+    A._close_cached_stores()
+
+    assert closed == ["book-a", "book-b"]
+    assert not A._stores
 
 
 def test_save_then_checkpoint_ingests_once(store, monkeypatch):

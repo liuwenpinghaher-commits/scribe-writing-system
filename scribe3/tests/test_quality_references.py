@@ -1,6 +1,7 @@
 """Task 4: 参考作品导入与分层指纹服务 RED 测试。"""
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,9 +23,11 @@ class FakeDeepSeek:
         self._responses = list(responses or [])
         self._call_index = 0
         self.calls: list[list[dict]] = []
+        self.call_kwargs: list[dict] = []
 
     def complete(self, messages, **kwargs):
         self.calls.append(messages)
+        self.call_kwargs.append(kwargs)
         if self._call_index >= len(self._responses):
             raise RuntimeError("no more responses")
         text = self._responses[self._call_index]
@@ -33,8 +36,9 @@ class FakeDeepSeek:
         class _Result:
             content = text
             response_id = f"resp-{self._call_index}"
-            model = "deepseek-chat"
+            model = "qwen3.8-max-preview"
             usage = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+            identity = SimpleNamespace(provider="qwen")
         return _Result()
 
 
@@ -126,9 +130,27 @@ class TestReferenceImport:
 
 
 class TestFingerprintGeneration:
-    def test_generate_fingerprint_success(self, service, store):
+    def test_generate_fingerprint_bounds_the_tokenplan_json_call(self, service, store):
+        """避免指纹生成继承通用 600 秒、重试和无限输出的长尾路径。"""
         ref = service.import_reference(
-            work=store.db_name, title="指纹参考", text="参考正文。" * 50,
+            work=store.db_name, title="受限调用", text="参考正文。" * 50,
+        )
+        llm = FakeDeepSeek([_fingerprint_json()])
+
+        service.generate_fingerprint(reference_work_id=ref.reference_work_id, llm=llm)
+
+        assert llm.call_kwargs == [{
+            "max_tokens": 1200,
+            "timeout_seconds": 120,
+            "retry_count": 1,
+            "response_format": {"type": "json_object"},
+            "hard_deadline": True,
+        }]
+
+    def test_generate_fingerprint_success(self, service, store):
+        source_text = "参考正文。" * 50
+        ref = service.import_reference(
+            work=store.db_name, title="指纹参考", text=source_text,
         )
         llm = FakeDeepSeek([_fingerprint_json()])
         fingerprint = service.generate_fingerprint(
@@ -146,6 +168,30 @@ class TestFingerprintGeneration:
         assert "transferable_mechanisms" in fp
         assert "non_copyable_elements" in fp
         assert "applicable_scope" in fp
+        assert source_text in llm.calls[0][1]["content"], (
+            "指纹模型必须获得实际导入的参考正文，而不是只有 source_hash 的空壳"
+        )
+
+    def test_generate_fingerprint_persists_observed_tokenplan_metadata(self, service, store):
+        ref = service.import_reference(
+            work=store.db_name, title="调用证据", text="参考正文。" * 50,
+        )
+
+        fingerprint = service.generate_fingerprint(
+            reference_work_id=ref.reference_work_id,
+            llm=FakeDeepSeek([_fingerprint_json()]),
+        )
+
+        assert fingerprint.provider == "qwen"
+        assert fingerprint.model == "qwen3.8-max-preview"
+        assert fingerprint.provider_request_id == "resp-1"
+        assert fingerprint.usage == {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30,
+        }
+        stored = service._quality._get_fingerprint(fingerprint.fingerprint_id)
+        assert stored == fingerprint
 
     def test_empty_json_response_fails(self, service, store):
         ref = service.import_reference(

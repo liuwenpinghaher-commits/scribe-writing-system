@@ -46,6 +46,26 @@ const AUX_ENTRIES = [
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
 const normalizePhase = (phase) => PHASE_KEYS.has(phase) ? phase : 'final'
+// 正文阶段会令 FourPaneShell 切到阅读布局，DetailPane 因布局重排可能重挂载。
+// 章节阶段因此必须按作品+章持久化；不能让目录节点携带的默认 outline 覆盖作者刚点开的正文。
+const phaseStorageKey = (work, seq) => `s3.chapter.phase:${work}:${seq}`
+const readStoredPhase = (work, seq) =>
+  localStorage.getItem(phaseStorageKey(work, seq)) || localStorage.getItem('s3.chapter.phase')
+
+function adoptFailureMessage(error) {
+  const detail = error?.body?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object') {
+    const primary = [detail.message, detail.reason, detail.code]
+      .find((value) => typeof value === 'string' && value.trim())
+    const blockers = [detail.blocking, detail.root_causes]
+      .flat()
+      .map((value) => typeof value === 'string' ? value : value?.message)
+      .filter((value) => typeof value === 'string' && value.trim())
+    return [primary, ...blockers].filter(Boolean).join('；') || '正文未保存，请检查工艺前置条件后重试'
+  }
+  return error?.message || '正文未保存，请检查工艺前置条件后重试'
+}
 
 // 中区各阶段统一章工作台骨架:同一 max-w / padding / header / meta 节奏,阶段只换内容。
 // Upstream 内容岛:浅灰画布上白卡抬升;外层 scroll 仍由章工作台 canvas 承担
@@ -383,8 +403,14 @@ function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
   }
   const adopt = async () => {
     setSaving(true)
-    try { await api.saveDraft(seq, text, summary); draftRef.current.dirty = false; onAdopt?.(text); toast('已采用为正文,切到正文 tab 继续打磨') }
-    catch (e) { toast('采用失败:' + (e.message || ''), { tone: 'danger' }) }
+    try {
+      await api.saveDraft(seq, text, summary)
+      draftRef.current.dirty = false
+      await onAdopt?.(text)
+      toast('已采用为正文,切到正文 tab 继续打磨')
+    } catch (e) {
+      toast('采用失败:' + adoptFailureMessage(e), { tone: 'danger' })
+    }
     finally { setSaving(false) }
   }
 
@@ -484,7 +510,10 @@ function DraftTab({ seq, work, meta, onAdopt, onGoDeduce }) {
 export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, onSelectNode, onArchived }) {
   const toast = useToast()
   // 初值优先吃 selection 的 phase 提示(全书大纲点章行→直落大纲阶段,不闪上次阶段)
-  const [phase, setPhase] = useState(() => normalizePhase(initialPhase || localStorage.getItem('s3.chapter.phase') || 'final'))
+  const [phase, setPhase] = useState(() => normalizePhase(readStoredPhase(work, seq) || initialPhase || 'final'))
+  // 只在真正换章或新的显式阶段指令到达时消费 initialPhase。布局重挂载时 ref
+  // 初始化为当前值，不会把刚保存的正文阶段重置为目录默认的大纲。
+  const phaseDirectiveRef = useRef({ seq, initialPhase })
   const [meta, setMeta] = useState(null)   // {title, synopsis, beats}
   const [loading, setLoading] = useState(true)
   const [refresh, setRefresh] = useState(0)
@@ -513,7 +542,10 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
         })
       }
     }
-    setPhase(nextPhase); localStorage.setItem('s3.chapter.phase', nextPhase)
+    setPhase(nextPhase)
+    localStorage.setItem(phaseStorageKey(work, seq), nextPhase)
+    // 保留旧键给未迁移的相邻界面/测试读取；当前 ChapterStudio 以作品+章键为准。
+    localStorage.setItem('s3.chapter.phase', nextPhase)
     setAuxView(null)
     setChapterMetaOpen(false)
   }, [meta, toast])
@@ -552,9 +584,14 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   // 单一真相源(块四a-2):从全书大纲点章行进来(selection 带 phase 提示)→ 落该章对应阶段
   // (通常 'outline',与书级大纲读写同一 synopsis 字段)。项目树/章导航不带提示 → 保持上次阶段。
   useEffect(() => {
-    if (initialPhase) setPhaseP(normalizePhase(initialPhase))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPhase, seq])
+    const previous = phaseDirectiveRef.current
+    const changedChapter = Number(previous.seq) !== Number(seq)
+    const changedDirective = previous.initialPhase !== initialPhase
+    if (changedChapter || changedDirective) {
+      phaseDirectiveRef.current = { seq, initialPhase }
+      setPhaseP(normalizePhase(initialPhase || readStoredPhase(work, seq) || 'final'))
+    }
+  }, [work, seq, initialPhase, setPhaseP])
 
   // 把当前阶段发布给右栏 ChiefDock:正文=写作槽;大纲/节拍/草稿=讨论(右栏 chat 不再消失)。
   const { setChapterPhase } = useChiefSlot()
@@ -728,12 +765,11 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
             // 演绎就地渲染(Task 7):与左栏演绎能力 deduce_view 两入口互斥不冲突,共用 DeduceProvider 选中态。
             <DeduceStage seq={seq} meta={meta} work={work} onSaved={() => setRefresh((r) => r + 1)} />
           ) : phase === 'draft' ? (
-            <DraftTab seq={seq} work={work} meta={meta} onGoDeduce={() => setPhaseP('deduce')} onAdopt={(text) => {
+            <DraftTab seq={seq} work={work} meta={meta} onGoDeduce={() => setPhaseP('deduce')} onAdopt={async (text) => {
               // 采用为正文=把草稿真搬进 chapter.prose(彻查 B-4:旧实现丢弃 text 只切 tab → 正文空/旧)。
               // 保留本章 title/focalizer;落库成功后再切正文 tab,让 WriteLayout 拉到刚搬入的正文。
-              api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')
-                .then(() => setPhaseP('final'))
-                .catch((e) => toast('采用为正文失败:' + (e?.body?.detail || e?.message || ''), { tone: 'danger' }))
+              await api.saveChapter(seq, text, meta?.title || '', meta?.focalizer || '')
+              setPhaseP('final')
             }} />
           ) : null}
         </div>

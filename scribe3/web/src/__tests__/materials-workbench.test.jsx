@@ -252,14 +252,11 @@ describe('MaterialList 素材库工作台', () => {
     expect(onDeleted).toHaveBeenCalled()
   })
 
-  it('插入当前章发布草稿并记 material_reference', async () => {
+  it('插入当前章只发布待采纳草稿，不能在作者填入前伪记 material_reference', async () => {
     render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环' }} />)
     expect(await screen.findByTestId('material-insert-current')).toBeTruthy()
     fireEvent.click(screen.getByTestId('material-insert-current'))
-    await waitFor(() => expect(apiMock.addMaterialReference).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ chapter: 7 }),
-    ))
+    expect(apiMock.addMaterialReference).not.toHaveBeenCalled()
   })
 
   it('详情展示 summary/pinned 字段', async () => {

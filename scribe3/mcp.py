@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 import os
 from collections import OrderedDict
-from typing import Callable
+from typing import Any, Callable
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
-from scribe3.codex_schema import secret_capable_keys, secret_flag_key
+from scribe3.codex_schema import all_storage_keys, secret_capable_keys, secret_flag_key
 from scribe3.codex_secret_bridge import sync_faction_secrets
 from scribe3.knowledge import dramatic_irony, project_frame
 from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
@@ -74,6 +74,7 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
                 "s3_set_intent",         # G-001:书级北极星 intent 结构化写入
                 "s3_patch_character",    # G-004:角色字段更正(对话审批落库)
+                "s3_patch_codex",        # 注册表驱动的完整设定档案更正
                 "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                 "s3_craft_rule_remove", "s3_add_character_relation",
                 "s3_add_world_rule", "s3_patch_world_rule", "s3_add_faction",
@@ -518,6 +519,18 @@ def s3_get_chapter(seq: int, work: str | None = None) -> dict:
 
 
 @mcp.tool(annotations=_RO)
+def s3_list_chapters(work: str | None = None) -> list[dict]:
+    """列当前作品章节的序号、标题和结构元数据；建章前用于核实现状。"""
+    return _jsonable(_store_for(work).list_chapters())
+
+
+@mcp.tool(annotations=_RO)
+def s3_list_volumes(work: str | None = None) -> list[dict]:
+    """列当前作品分卷的 ID、标题和排序；建章前用于选择可选卷归属。"""
+    return _jsonable(_store_for(work).list_volumes())
+
+
+@mcp.tool(annotations=_RO)
 def s3_skill_read(slug: str, work: str | None = None) -> str:
     """读一篇通用写作技法全文(P1 渐进披露:instructions 只带索引行,触及才取全文)。
     slug 见 instructions 的「写作技法库」索引;未知 slug 抛错并列出可用清单(fail-loud)。"""
@@ -645,12 +658,56 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
 
 
 # ===== 写工具(elicitation 待批 → store 单点)=====
+_CHARACTER_IMPORTANCE_ALIASES = {
+    "主角": "protagonist", "主要角色": "major", "重要配角": "major",
+    "配角": "minor", "背景角色": "background", "龙套": "background",
+}
+
+
+def _normalize_character_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """把作者在中文 UI 中自然填写的重要度映射到现有 DB 枚举。"""
+    normalized = dict(fields)
+    importance = normalized.get("importance")
+    if isinstance(importance, str):
+        normalized["importance"] = _CHARACTER_IMPORTANCE_ALIASES.get(importance.strip(), importance)
+    return normalized
+
+
 @mcp.tool(annotations=_RW)
-async def s3_add_character(ctx: Context, oid: str, name: str, work: str | None = None) -> dict:
-    """新增角色(写,待批)。"""
+async def s3_add_character(ctx: Context, oid: str, name: str,
+                           aliases: list[str] | None = None,
+                           appearance: str | None = None,
+                           personality_detail: str | None = None,
+                           personality_tags: list[str] | None = None,
+                           backstory: str | None = None,
+                           backstory_secret: bool = False,
+                           surface_goal: str | None = None,
+                           deep_need: str | None = None,
+                           fear: str | None = None,
+                           internal_conflict: str | None = None,
+                           abilities: list[str] | None = None,
+                           weaknesses: list[str] | None = None,
+                           importance: str | None = None,
+                           first_appearance: int | None = None,
+                           work: str | None = None) -> dict:
+    """新增角色完整档案(写,待批)。
+
+    所有角色注册字段均可在新建时一次提交；`backstory_secret=true` 会标记前史为
+    限知信息。后续任意字段补全请用 `s3_patch_codex`，避免 UI 草稿只停留在前端。
+    """
     ok = await _ask(ctx, f"新增角色 {oid}={name}")
+    traits = _normalize_character_fields({
+        "aliases": aliases or [], "appearance": appearance,
+        "personality_detail": personality_detail, "personality_tags": personality_tags or [],
+        "backstory": backstory, "backstory_secret": backstory_secret,
+        "surface_goal": surface_goal, "deep_need": deep_need, "fear": fear,
+        "internal_conflict": internal_conflict, "abilities": abilities or [],
+        "weaknesses": weaknesses or [], "importance": importance,
+        "first_appearance": first_appearance,
+    })
     return commit_if_approved("s3_add_character", ok,
-                              lambda: _store_for(work).add_entity(Entity(oid, "character", name)))
+                              lambda: _store_for(work).add_entity(
+                                  Entity(oid, "character", name, traits=traits)))
 
 
 @mcp.tool(annotations=_RO)
@@ -723,6 +780,7 @@ async def s3_patch_character(ctx: Context, character_id: str,
     ):
         if v is not None:
             fields[k] = v
+    fields = _normalize_character_fields(fields)
     if not fields:
         return {"status": "noop", "tool": "s3_patch_character", "reason": "no fields"}
     summary = f"{oid} " + " / ".join(f"{k}={str(v)[:40]}" for k, v in fields.items())
@@ -1335,10 +1393,22 @@ async def s3_fold_voice_flags(ctx: Context, character_id: str, work: str | None 
 def s3_ingest_chapter(seq: int, work: str | None = None) -> dict:
     """章节回写(客观回写,不待批):读定稿抽"谁新知道什么/做了什么"→更新知识账本。
     非创作虚构(add_fact/add_event 那些经 elicitation);ingest 反映已定稿正文,
-    后端 save-chapter 也会自动后台跑同一逻辑。"""
+    后端 save-chapter 也会自动后台跑同一逻辑。
+
+    此工具运行在 Hermes MCP 桥内(单 tool call 上限 300 秒)，所以直连补全必须显式
+    小于该上限且禁用内部重试；抽取层最多两次尝试，失败会诚实返回 parse_failed。"""
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
-    return ingest_chapter(_store_for(work), seq, hermes_complete)
+
+    def bounded_complete(prompt: str) -> str:
+        return hermes_complete(
+            prompt,
+            timeout=90.0,
+            max_tokens=1600,
+            retries_override=0,
+        )
+
+    return ingest_chapter(_store_for(work), seq, bounded_complete, max_attempts=2)
 
 
 def _check_proposition(proposition: str, work: str | None = None) -> dict | None:
@@ -1516,36 +1586,135 @@ async def s3_patch_chapter_meta(
     return commit_if_approved("s3_patch_chapter_meta", ok, _write)
 
 
+def _normalize_plan_beats(beats: list[Any]) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """把 LLM 常用的 beat/action 别名收敛到章节唯一消费字段 text。"""
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(beats):
+        if isinstance(raw, str):
+            text = raw.strip()
+            item: dict[str, Any] = {}
+        elif isinstance(raw, dict):
+            text = str(raw.get("text") or raw.get("beat") or raw.get("action") or "").strip()
+            item = dict(raw)
+        else:
+            return None, f"beats[{index}] 必须是字符串或对象"
+        if not text:
+            return None, f"beats[{index}] 缺 text（可使用 beat/action 作为别名）"
+        item.pop("beat", None)
+        item.pop("action", None)
+        item["text"] = text
+        normalized.append(item)
+    return normalized, None
+
+
+def _canonical_plan_characters(store, values: list[Any], field: str) -> tuple[list[str] | None, str | None]:
+    """角色字段只保存书内稳定 role id，拒绝把投影 JSON 串进角色列表。"""
+    known: dict[str, str] = {}
+    for character in store.characters() or []:
+        cid = str(getattr(character, "id", "") or "").strip()
+        name = str(getattr(character, "name", "") or "").strip()
+        if not cid:
+            continue
+        for key in (cid, name, cid.split(":", 1)[-1], f"role:{name}"):
+            if key:
+                known[key] = cid
+    normalized: list[str] = []
+    unknown: list[str] = []
+    for raw in values:
+        if not isinstance(raw, str) or not raw.strip():
+            unknown.append(str(raw))
+            continue
+        value = raw.strip()
+        canonical = known.get(value)
+        if canonical is None and value.startswith("role:"):
+            canonical = known.get(value[5:])
+        if canonical is None:
+            unknown.append(value)
+            continue
+        if canonical not in normalized:
+            normalized.append(canonical)
+    if unknown:
+        return None, f"{field} 含不存在或格式错误的角色: {unknown}"
+    return normalized, None
+
+
+def _normalize_plan_deductions(store, deductions: list[Any]) -> tuple[list[dict[str, Any]] | None, str | None]:
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(deductions):
+        if not isinstance(raw, dict):
+            return None, f"deductions[{index}] 必须是对象"
+        character = raw.get("character_id") or raw.get("character") or raw.get("role")
+        prose = str(raw.get("prose") or "").strip()
+        ids, err = _canonical_plan_characters(store, [character], f"deductions[{index}].character_id")
+        if err:
+            return None, err
+        if not prose:
+            return None, f"deductions[{index}] 缺 prose"
+        item = dict(raw)
+        item.pop("character", None)
+        item.pop("role", None)
+        item["character_id"] = ids[0]
+        item["prose"] = prose
+        normalized.append(item)
+    return normalized, None
+
+
 @mcp.tool(annotations=_RW)
 async def s3_patch_chapter_plan(
     ctx: Context, seq: int,
     synopsis: str | None = None,
-    beats: list | None = None,
+    beats: list[dict[str, Any] | str] | None = None,
     scene_truth: str | None = None,
-    deductions: list | None = None,
-    involved_characters: list | None = None,
+    deductions: list[dict[str, Any]] | None = None,
+    involved_characters: list[str] | None = None,
     work: str | None = None,
 ) -> dict:
     """改章阶段内容:大纲/节拍/场景真相/演绎/出场角色(写,待批)。不改 prose/身份 meta。
 
-    章不存在 → status=error。"""
+    beats 每项必须有 text（beat/action 可作别名）；involved_characters 必须是书内角色
+    id 或名字；deductions 每项必须是 {character_id, prose}。非法结构在审批前返回 error，
+    绝不写入一个后续上下文无法消费的 plan。章不存在 → status=error。"""
+    store = _store_for(work)
     fields: dict = {}
     if synopsis is not None:
         fields["synopsis"] = synopsis
     if beats is not None:
-        fields["beats"] = beats
+        normalized_beats, err = _normalize_plan_beats(beats)
+        if err:
+            return {"status": "error", "tool": "s3_patch_chapter_plan", "error": err}
+        fields["beats"] = normalized_beats
     if scene_truth is not None:
         fields["scene_truth"] = scene_truth
     if deductions is not None:
-        fields["deductions"] = deductions
+        normalized_deductions, err = _normalize_plan_deductions(store, deductions)
+        if err:
+            return {"status": "error", "tool": "s3_patch_chapter_plan", "error": err}
+        fields["deductions"] = normalized_deductions
     if involved_characters is not None:
-        fields["involved_characters"] = involved_characters
+        normalized_involved, err = _canonical_plan_characters(store, involved_characters, "involved_characters")
+        if err:
+            return {"status": "error", "tool": "s3_patch_chapter_plan", "error": err}
+        fields["involved_characters"] = normalized_involved
+    # 演绎若显式提交 deductions，必须覆盖本次（或已存）的全部出场角色。
+    # 否则 `deductions=[]` 会经审批被写成成功，但 Gate-B/后续限知上下文均不可消费。
+    if deductions is not None:
+        current = store.get_chapter(seq) or {}
+        effective_involved = fields.get("involved_characters", current.get("involved_characters") or [])
+        effective_deductions = fields.get("deductions") or []
+        projected = {str(item.get("character_id") or "") for item in effective_deductions}
+        missing = [cid for cid in effective_involved if cid not in projected]
+        if missing:
+            return {
+                "status": "error",
+                "tool": "s3_patch_chapter_plan",
+                "error": f"deductions 缺少涉及角色的限知投影: {missing}",
+            }
     if not fields:
         return {"status": "noop", "tool": "s3_patch_chapter_plan", "reason": "no fields"}
     ok = await _ask(ctx, f"改第{seq}章 plan {list(fields.keys())}")
 
     def _write():
-        if not _store_for(work).update_chapter_meta(seq, fields):
+        if not store.update_chapter_meta(seq, fields):
             return False
         return {"seq": seq, "fields": list(fields.keys())}
 
@@ -1839,6 +2008,68 @@ async def s3_patch_world_rule(ctx: Context, name: str,
         return {"name": n, "patched": list(fields.keys())}
 
     return commit_if_approved("s3_patch_world_rule", ok, _write)
+
+
+@mcp.tool(annotations=_RW)
+async def s3_patch_codex(ctx: Context, kind: str, name: str, fields: dict[str, Any],
+                         work: str | None = None) -> dict:
+    """按 Codex 注册表更正完整设定档案(写,待批)。
+
+    `kind` 仅可为 character/faction/item/term/world_rule；`fields` 是要更正的字段对象。
+    字段必须来自对应的 `GET /codex-schema/{kind}` 注册表，未传字段保持原值。名称 `name`
+    用来定位原对象，不能借此工具改名。适合一次提交人物完整档案或势力的嵌套字段；常用
+    简单字段仍可使用具名 s3_patch_* 工具。
+    """
+    supported = {"character", "faction", "item", "term", "world_rule"}
+    k = (kind or "").strip()
+    n = (name or "").strip()
+    if k not in supported:
+        return {"status": "error", "tool": "s3_patch_codex", "error": f"unsupported kind:{k}"}
+    if not n:
+        return {"status": "error", "tool": "s3_patch_codex", "error": "name required"}
+    if not isinstance(fields, dict) or not fields:
+        return {"status": "noop", "tool": "s3_patch_codex", "reason": "no fields"}
+    allowed = set(all_storage_keys(k))
+    unknown = set(fields) - allowed
+    if unknown:
+        return {"status": "error", "tool": "s3_patch_codex",
+                "error": f"unknown {k} fields:{sorted(unknown)}"}
+    changes = dict(fields)
+    if "name" in changes:
+        if changes["name"] != n:
+            return {"status": "error", "tool": "s3_patch_codex",
+                    "error": "rename is not supported by s3_patch_codex; use the existing name"}
+        changes.pop("name")
+    if not changes:
+        return {"status": "noop", "tool": "s3_patch_codex", "reason": "no mutable fields"}
+    ok = await _ask(ctx, f"更正{k}「{n}」:{','.join(sorted(changes))}")
+
+    def _write():
+        st = _store_for(work)
+        if k == "character":
+            oid = f"role:{n}"
+            if not st.exists(oid):
+                return False
+            st.update_record(oid, _normalize_character_fields(changes))
+        elif k == "faction":
+            if not st.get_faction(n):
+                return False
+            st.add_faction(n, **changes)
+            row = st.get_faction(n)
+            if row is not None:
+                sync_faction_secrets(st, n, row)
+        elif k == "item":
+            if not st.patch_item(n, changes):
+                return False
+        elif k == "term":
+            if not st.patch_term(n, changes):
+                return False
+        else:
+            if not st.patch_world_rule(n, changes):
+                return False
+        return {"kind": k, "name": n, "patched": sorted(changes)}
+
+    return commit_if_approved("s3_patch_codex", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

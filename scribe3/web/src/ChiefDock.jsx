@@ -8,6 +8,7 @@ import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
 import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
+import { mergeThreadHistory, mutateLatestAssistantMessage, normalizeThreadMessages } from './lib/chiefThreadMessages'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
 import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
@@ -22,21 +23,6 @@ import { PendingClaimsPanel } from './context/PendingClaimsPanel'
 import { ThreadSwitcher } from './ThreadSwitcher'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
-
-// Task 6:后端线程消息(role/text/focus/context_revision)→ 对话气泡形状(content)。
-// 焦点标签(focus)与 context_revision 随消息带上,气泡据此打 data-context-revision。
-function normalizeThreadMessages(rows) {
-  return (rows || []).map((m) => ({
-    role: m.role,
-    content: m.text ?? m.content ?? '',
-    tools: m.tools || [],
-    toolOutputs: m.toolOutputs || [],
-    approvals: m.approvals || [],
-    focus: m.focus || null,
-    context_revision: m.context_revision ?? null,
-    ts: m.ts ?? null,   // P0b:「载入更早」分页游标
-  }))
-}
 
 // P0b:早期摘要卡(折叠可展开)——近窗之外的更早讨论压缩在此;summary_error 红字如实示警。
 function ThreadSummaryCard({ meta }) {
@@ -473,6 +459,9 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const taRef = useRef(null)
   const materialAt = useMaterialAt({ input, setInput, taRef })
   const esRef = useRef(null)
+  // chat/write 已到达但尚未正式收尾的草稿。作者停止生成时，不能让这段可见文本
+  // 随 AbortController 一起消失；由当前阶段的 proposal 通道交给中区明确决定是否采用。
+  const partialProposalRef = useRef(null)
   const activeRunIdsRef = useRef(new Set())
   const proposalTsRef = useRef(0) // 递增计数器:区分「同一 prose 再次生成」以便重新提示
   // 主编主动化 T4/T5(审查 P0-2/P2-12):seed 双轨——挂载时消费 sessionStorage pending
@@ -539,7 +528,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         if (dead) return
         loadedThreadRef.current = threadId   // 仅成功后置位:失败不置 → 下次可重试
         setThreadLoadError(false)
-        setMsgs(normalizeThreadMessages(rows))
+        setMsgs((current) => mergeThreadHistory(normalizeThreadMessages(rows), current))
         setEarlier({ cursor: rows[0]?.ts || null, hasMore: rows.length === RECENT_N })
         // 摘要卡数据(summary/summary_error);旧测试精简 api 无 threads → 跳过(行为回旧版)
         if (typeof api.threads === 'function') {
@@ -563,7 +552,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: scrollBehavior() }) }, [msgs])
   // 中止在途流:chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort),两者都收。
-  const stop = () => { const h = esRef.current; h?.close?.(); h?.abort?.(); esRef.current = null; activeRunIdsRef.current.clear(); setBusy(false) }
+  const stop = () => {
+    const recoverPartial = partialProposalRef.current
+    partialProposalRef.current = null
+    recoverPartial?.()
+    const h = esRef.current
+    h?.close?.()
+    h?.abort?.()
+    esRef.current = null
+    activeRunIdsRef.current.clear()
+    setBusy(false)
+  }
   // chatStream 返回 EventSource(.close),chatWrite 返回 AbortController(.abort);卸载时都收掉
   useEffect(() => () => { const h = esRef.current; h?.close?.(); h?.abort?.(); activeRunIdsRef.current.clear() }, [])
   // 切上下文(persistKey 变=切章/切阶段/切节点/切视图/切线程)→ 中止在途流,防旧流 delta 污染新历史(串台)。
@@ -657,10 +656,15 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       { role: 'user', content: q, focus: bind?.focus || null, context_revision: bind?.context_revision ?? null },
       { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
-    const mut = (fn) => setMsgs((m) => { const c = [...m]; c[c.length - 1] = fn(c[c.length - 1]); return c })
-    const runPhase = seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || '')
+    const mut = (fn) => setMsgs((messages) => mutateLatestAssistantMessage(messages, fn))
+    // 世界正典写入虽可从某一章的讨论槽发起，却不是该章的受限演绎 Run。
+    // 只有 deduce/deduce_preview 有已注册的章节 profile；把 outline/beats/draft 的
+    // 映射值(plan/draft)带入 run_scope 会被后端 fail-closed 为未知阶段，导致角色、
+    // 设定等作者明确授权的作品级写入根本无法送达审批。作品级写入必须走全写 profile。
+    const worldWriteRun = shouldUseHermesRun(q)
+    const runPhase = worldWriteRun ? '' : (seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || ''))
     const runFocalizer = phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : ''
-    if (shouldUseHermesRun(q)) {
+    if (worldWriteRun) {
       esRef.current = api.runWrite(finalMsg, {
         chapter: seq ?? ctxSeq,
         phase: runPhase,
@@ -678,7 +682,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         onApproval: (approval) => {
           const runId = approval?.run_id
           if (runId) activeRunIdsRef.current.add(runId)
-          mut((l) => ({ ...l, run_id: l.run_id || runId, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] }))
+          mut((l) => {
+            const nextApproval = { ...approval, status: 'pending' }
+            const duplicate = (l.approvals || []).some((item) =>
+              item?.run_id === nextApproval.run_id
+              && item?.approval_id === nextApproval.approval_id)
+            return {
+              ...l,
+              run_id: l.run_id || runId,
+              approvals: duplicate ? (l.approvals || []) : [...(l.approvals || []), nextApproval],
+            }
+          })
         },
         onApprovalResolved: (approval) => {
           const status = approval?.decision === 'approve' ? 'approved' : 'denied'
@@ -716,6 +730,14 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         if (!clean) return
         setStageProposal({ phase, seq, target, content: clean, ts: ++proposalTsRef.current })
       }
+      let partialRecovered = false
+      const recoverPartialProposal = () => {
+        if (partialRecovered) return
+        partialRecovered = true
+        const fallback = fallbackProposalText({ gotProposal, propOpen, propAcc, turnText })
+        if (fallback != null) publish(fallback)
+      }
+      partialProposalRef.current = recoverPartialProposal
       esRef.current = api.chatWrite(finalMsg, {
         chapter: seq,
         phase: WRITE_PHASE[phase],
@@ -744,10 +766,15 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         // 围栏开过 → 发部分正文 propAcc(截断稿),否则发纯 delta;收到过 proposal 绝不重发。
         onDone: () => {
           setBusy(false)
-          const fb = fallbackProposalText({ gotProposal, propOpen, propAcc, turnText })
-          if (fb != null) publish(fb)
+          recoverPartialProposal()
+          if (partialProposalRef.current === recoverPartialProposal) partialProposalRef.current = null
         },
-        onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
+        onError: (err) => {
+          recoverPartialProposal()
+          if (partialProposalRef.current === recoverPartialProposal) partialProposalRef.current = null
+          mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` }))
+          setBusy(false)
+        },
       })
       return
     }

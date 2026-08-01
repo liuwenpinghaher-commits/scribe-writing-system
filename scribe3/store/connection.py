@@ -1,6 +1,8 @@
 """SurrealStore mixin: connection."""
 from __future__ import annotations
 
+import time
+
 from scribe3.store.core_preamble import *  # noqa: F403
 
 class ConnectionMixin:
@@ -117,7 +119,31 @@ class ConnectionMixin:
         except Exception as e:
             logging.getLogger("scribe3.store").warning("store.close 失败: %s", e)
 
+    _SCHEMA_INITIALIZATION_ATTEMPTS = 5
+
+    @staticmethod
+    def _is_retryable_schema_conflict(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "transaction conflict" in message and "retry" in message
+
     def apply_schema(self, migrations_dir: str | None = None) -> None:
+        """幂等初始化 schema，并处理 API/MCP 首次打开同一作品时的短暂写冲突。"""
+        for attempt in range(self._SCHEMA_INITIALIZATION_ATTEMPTS):
+            try:
+                self._apply_schema_once(migrations_dir)
+                return
+            except Exception as exc:
+                if (not self._is_retryable_schema_conflict(exc)
+                        or attempt + 1 >= self._SCHEMA_INITIALIZATION_ATTEMPTS):
+                    raise
+                delay = 0.05 * (attempt + 1)
+                logging.getLogger("scribe3").warning(
+                    "作品 %s schema 初始化遇到可重试事务冲突，第 %s/%s 次重试",
+                    self.db_name, attempt + 1, self._SCHEMA_INITIALIZATION_ATTEMPTS,
+                )
+                time.sleep(delay)
+
+    def _apply_schema_once(self, migrations_dir: str | None = None) -> None:
         d = Path(migrations_dir) if migrations_dir else (Path(__file__).resolve().parent.parent / "migrations")
         self._raw_query("DEFINE TABLE IF NOT EXISTS _migration SCHEMALESS; "
                         "DEFINE FIELD IF NOT EXISTS applied_at ON _migration TYPE datetime;")
@@ -142,7 +168,10 @@ class ConnectionMixin:
                     "迁移 %s 失败,不标记已应用(下次可重试): %s", f.stem, str(e)[:120])
                 failures.append((f.stem, str(e)[:120]))
                 continue  # 真失败:跳过 CREATE _migration 记录
-            self._raw_query("CREATE type::record('_migration', $name) SET applied_at = time::now()",
+            # API 与 Hermes MCP 是独立进程，首次打开同一 work 时可能同时读到
+            # 尚未应用。迁移正文已要求幂等，记录写入也必须幂等，不能由第二个
+            # initializer 的唯一键冲突把整个 MCP 读取路径打断。
+            self._raw_query("UPSERT type::record('_migration', $name) SET applied_at = time::now()",
                             {"name": f.stem})
         if failures:
             raise RuntimeError(
@@ -447,4 +476,3 @@ class ConnectionMixin:
             "WHERE session_id=$sid AND navigation_id=$nav LIMIT 1",
             {"sid": session_id, "nav": navigation_id})
         return rows[0] if rows else None
-

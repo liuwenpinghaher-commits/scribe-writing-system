@@ -70,6 +70,22 @@ describe('素材导入可信反馈', () => {
     expect(screen.getByText(/坏素材/)).toBeTruthy()
     expect(screen.getByText(/非法分类 kind=bad/)).toBeTruthy()
   })
+
+  it('后端以待预览确认结束且 done 为布尔值时立即进入可编辑预览', async () => {
+    render(<MaterialImport />)
+
+    fireEvent.click(screen.getByRole('button', { name: '粘贴文本' }))
+    fireEvent.change(screen.getByLabelText('粘贴要导入的文本'), { target: { value: '一段素材' } })
+    fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))
+
+    await waitFor(() => expect(apiMock.materialImport).toHaveBeenCalled())
+    act(() => {
+      lastEventSource.onmessage({ data: JSON.stringify({ stage: '待预览确认', done: true, total: 7 }) })
+    })
+
+    expect(await screen.findByText(/解析出 2 条素材/)).toBeTruthy()
+    expect(lastEventSource.close).toHaveBeenCalled()
+  })
 })
 
 describe('素材网络降级反馈', () => {

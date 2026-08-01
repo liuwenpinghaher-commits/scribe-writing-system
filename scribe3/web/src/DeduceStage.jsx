@@ -2,32 +2,36 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles, Loader2, MessagesSquare } from 'lucide-react'
 import { api } from './api'
 import { useDeduceSel } from './deduceContext'
-import { useStageProposal, useChiefSlot, ProposalBar } from './ChiefSlotContext'
+import { useChiefSlot } from './ChiefSlotContext'
 import { useToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
-import { seedChiefNarrativeWrite } from './lib/chiefSeed.js'
 import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 
 // Task 4:话术引用截断——chiefIntent 只是预填输入框,长演绎全文引用会塞爆(spec §4 要点4)。
 const QUOTE_MAX = 400
-const GENERATE_TIMEOUT_MS = 120000
-const GENERATE_TIMEOUT_TEXT = '生成等待超过 2 分钟，已停止等待；未完成内容不会自动保存为投影。'
+// TokenPlan 的工具搜索、MCP 联查与长推理在高负载时会超过两分钟；不得在模型
+// 仍正常执行时由 UI 取消作者的 Run。作者仍可通过显式停止随时中止。
+export const GENERATE_TIMEOUT_MS = 360000
+const GENERATE_TIMEOUT_TEXT = '生成等待超过 6 分钟，已停止等待；未完成内容不会自动保存为投影。'
 const truncateQuote = (s) => {
   const t = (s || '').trim()
   return t.length > QUOTE_MAX ? t.slice(0, QUOTE_MAX) + '…' : t
 }
 
-// 演绎中区:只读展示 + 主编种子(禁止作者 REST / 表单失焦直写 scene_truth·deductions)。
-// 生成结果经种子送主编审批,不本地 dirty 落库。
+// 演绎中区:只读展示 + 阶段专用 Run。它不能借普通 chatWrite 或主编种子绕过
+// scribe3_deduce 的物理工具面；唯一写入口是该 Run 中经审批的 s3_patch_chapter_plan。
 export function DeduceStage({ seq, meta, onSaved, work }) {
   const toast = useToast()
   const { selected, setSelected } = useDeduceSel()
   const { setChiefIntent } = useChiefSlot()
   const { snapshot } = useContextSnapshot()
-  const [preview, setPreview] = useState('') // 生成预览(只读,不直写)
+  const [preview, setPreview] = useState('') // 生成预览(本地草案,不直写正典)
+  const [previewDraft, setPreviewDraft] = useState('')
+  const [editingPreview, setEditingPreview] = useState(false)
+  const [previewReady, setPreviewReady] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [grounding, setGrounding] = useState(null)
+  const [approval, setApproval] = useState(null)
   const [roleToAdd, setRoleToAdd] = useState('')
   const generationRef = useRef(null)
   const chars = meta?.chars || []
@@ -41,31 +45,31 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
 
   useEffect(() => {
     setPreview('')
-    setGrounding(null)
+    setPreviewDraft('')
+    setEditingPreview(false)
+    setPreviewReady(false)
   }, [selected, seq])
 
-  const askChiefWrite = (content, hintExtra = '') => {
-    const body = content != null ? content : displayText
-    seedChiefNarrativeWrite(
-      'deduce',
-      `第 ${seq} 章·${targetName}`,
-      `${hintExtra || '请将以下演绎内容写入并提交审批。'}\n字段: ${selected === 'truth' ? 'scene_truth' : 'deductions.' + selected}\n\n${body || '（空）'}`,
-    )
-    toast('已送主编审批写入(不直接落库)', { tone: 'ok' })
-  }
+  useEffect(() => {
+    setApproval(null)
+  }, [seq])
 
-  const { pending, clear } = useStageProposal('deduce', seq, selected)
-  const fillPending = () => {
-    if (!pending) return
-    askChiefWrite(pending.content, '请用以下主编提案覆盖当前演绎:')
-    clear()
-  }
-  const appendPending = () => {
-    if (!pending) return
-    const next = (displayText ? displayText + '\n\n' : '') + pending.content
-    askChiefWrite(next, '请将以下内容并入当前演绎:')
-    clear()
-  }
+  // 审批是持久 Run trace 的事实，不是本地 React state。刷新/重挂后从本章 deduce
+  // scope 恢复，且只暴露最小审批卡字段；避免跨章、跨阶段或已决审批错误回显。
+  useEffect(() => {
+    let active = true
+    const chapter = Number(seq)
+    if (!Number.isInteger(chapter) || chapter < 1) return () => { active = false }
+    api.aiRunPendingApproval({ chapter, phase: 'deduce' }, work)
+      .then(({ runs } = {}) => {
+        const pending = Array.isArray(runs) ? runs[0] : null
+        if (!active || !pending?.run_id || !pending?.approval_id) return
+        setApproval((current) => current || { ...pending, status: 'pending' })
+      })
+      // 恢复查询失败不应伪造“无待审批”；当前 Run 的 SSE 仍可正常交付审批卡。
+      .catch(() => {})
+    return () => { active = false }
+  }, [seq, work])
 
   const noProse = !displayText.trim()
   const notifyChief = () => { try { window.dispatchEvent(new CustomEvent('s3-right-tab', { detail: 'chief' })) } catch { /* */ } }
@@ -83,14 +87,14 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
   const addAndSelectRole = async () => {
     if (!roleToAdd) return
     const name = (chars.find((c) => c.id === roleToAdd) || {}).name || roleToAdd
-    seedChiefNarrativeWrite(
-      'deduce',
-      `第 ${seq} 章涉及角色`,
-      `请将角色「${name}」(${roleToAdd})加入第 ${seq} 章 involved_characters 并提交审批。`,
-    )
+    setChiefIntent({
+      phase: 'deduce', seq,
+      text: `请在演绎工作台选择角色「${name}」(${roleToAdd})后生成；章节演绎写入必须走受限 Run 的审批。`,
+    })
+    notifyChief()
     setSelected(roleToAdd)
     setRoleToAdd('')
-    toast('已送主编审批加入角色', { tone: 'ok' })
+    toast('已切换角色；请用「生成」经受限 Run 提交演绎审批。', { tone: 'ok' })
   }
 
   const stopGeneration = (message = '已停止生成；未完成内容不会自动保存为投影。') => {
@@ -101,8 +105,79 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     generationRef.current = null
     try { run.abort?.() } catch (_) { /* */ }
     setBusy(false)
-    if (selected !== 'truth') setGrounding({ ok: false, reason: message })
     toast(message, { tone: 'warn' })
+  }
+
+  // 作者编辑仍只改本地预览；真正的世界写入只能在随后 deduce Run 的 MCP 审批后发生。
+  // 角色投影修改后重新过事实对齐，不能让编辑态成为绕过限知校验的旁路。
+  const beginPreviewEdit = () => {
+    if (busy || !preview.trim()) return
+    setPreviewDraft(preview)
+    setEditingPreview(true)
+    setPreviewReady(false)
+  }
+
+  const finishPreviewEdit = async () => {
+    const candidate = previewDraft.trim()
+    if (!candidate) {
+      toast('预览不能为空；可继续编辑或取消。', { tone: 'danger' })
+      return
+    }
+    if (selected === 'truth') {
+      setPreview(candidate)
+      setEditingPreview(false)
+      setPreviewReady(true)
+      toast('已保留作者修订；确认后可提交审批写入。', { tone: 'ok' })
+      return
+    }
+    setBusy(true)
+    try {
+      const review = await api.validateDeduction(seq, candidate, selected, work)
+      if (!review?.ok) {
+        setPreviewReady(false)
+        toast(`修订后的投影未通过事实对齐：${review?.issues?.[0]?.reason || '存在无来源主张'}`, { tone: 'danger' })
+        return
+      }
+      setPreview(candidate)
+      setEditingPreview(false)
+      setPreviewReady(true)
+      toast('作者修订已通过事实对齐；确认后可提交审批写入。', { tone: 'ok' })
+    } catch (_) {
+      setPreviewReady(false)
+      toast('修订后的投影未送审：事实对齐服务不可用。', { tone: 'danger' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resolveApproval = async (decision) => {
+    const current = approval
+    if (!current?.run_id || current.status !== 'pending') return
+    setApproval({ ...current, status: 'submitting' })
+    try {
+      const result = await api.aiRunApproval(current.run_id, {
+        approval_id: current.approval_id,
+        decision,
+      })
+      if (result?.trace_status && result.trace_status !== 'completed') {
+        const reason = result?.policy_violations?.[0]?.code || '终态审计未完成'
+        setBusy(false)
+        setApproval({ ...current, status: 'error', error: reason })
+        return
+      }
+      const activeRun = generationRef.current
+      if (activeRun?.runId === current.run_id) {
+        clearTimeout(activeRun.timer)
+        generationRef.current = null
+      }
+      setBusy(false)
+      setPreviewReady(false)
+      setApproval({ ...current, status: decision === 'approve' ? 'approved' : 'denied' })
+      if (decision === 'approve') onSaved?.()
+    } catch (e) {
+      setBusy(false)
+      setApproval({ ...current, status: 'error', error: e?.body?.detail || e?.message || '审批提交失败' })
+    }
   }
 
   const gen = () => {
@@ -111,78 +186,53 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
     const run = { stopped: false, abort: null, timer: null }
     generationRef.current = run
     setBusy(true)
-    setGrounding(null)
+    setApproval(null)
     setPreview('')
+    setPreviewDraft('')
+    setEditingPreview(false)
+    setPreviewReady(false)
     let acc = ''
     const finish = () => {
       clearTimeout(run.timer)
       if (generationRef.current === run) generationRef.current = null
     }
     const instr = target === 'truth'
-      ? `请为第 ${seq} 章写「场景真相」(全知客观)。用 markdown。`
-      : `请为第 ${seq} 章写角色「${targetName}」的限知投影。严格遵循角色档案已有的称谓和代词;不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。`
-    const runPass = (instruction, attempt = 0) => {
-      const request = api.chatWrite(instruction, {
-        chapter: seq, phase: 'deduce', focalizer: target === 'truth' ? '' : target,
+      ? `请为第 ${seq} 章生成全知客观的「场景真相」预览。必须先调用一次 s3_get_chapter 读取当前章节与世界约束；只输出可供作者审阅的 markdown，不得调用写工具或改动任何正典。`
+      : `请为第 ${seq} 章角色「${targetName}」生成限知投影预览。严格遵循角色档案已有的称谓和代词；不得新增场景真相中不存在的人物、物件、动作、时间、物理现象或人物前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题；只输出可供作者审阅的内容，不得调用写工具或改动任何正典。`
+    const request = api.runWrite(instr, {
+        chapter: seq, phase: 'deduce_preview', focalizer: target === 'truth' ? '' : target,
         context: snapshot ? {
           context_session_id: snapshot.session_id,
           context_revision: snapshot.revision,
           context_hash: snapshot.context_hash,
         } : null,
-        onProposalStart: () => { if (!run.stopped) { acc = ''; setPreview('') } },
-        onProposalChunk: (c) => { if (!run.stopped) { acc += (c?.text ?? c ?? ''); setPreview(acc) } },
         onDelta: (d) => { if (!run.stopped) { acc += d; setPreview(acc) } },
-        onProposal: (p) => { if (!run.stopped) { acc = p.prose ?? p.text ?? acc; setPreview(acc) } },
         onDone: async () => {
           if (run.stopped) return
           finish()
           const v = acc.trim()
           if (!v) {
             setBusy(false)
-            toast('演绎未返回可用内容，请重试。', { tone: 'danger' })
+            toast('演绎预览未返回可用内容，请重试。', { tone: 'danger' })
             return
           }
           setPreview(v)
+          setBusy(false)
           if (target === 'truth') {
-            setBusy(false)
-            askChiefWrite(v, '请将生成的场景真相写入并提交审批:')
+            setPreviewReady(true)
+            toast('场景真相预览已生成；确认后可提交审批写入。', { tone: 'ok' })
             return
           }
           try {
             const review = await api.validateDeduction(seq, v, target, work)
             if (review?.ok) {
-              setBusy(false)
-              setGrounding({ ok: true })
-              askChiefWrite(v, '事实对齐通过。请将以下角色投影写入并提交审批:')
+              setPreviewReady(true)
+              toast('投影预览已通过事实对齐；确认后可提交审批写入。', { tone: 'ok' })
             } else {
-              const reason = review?.issues?.[0]?.reason || '存在无法由场景真相支持的主张'
-              if (attempt === 0) {
-                toast(`首稿未通过事实对齐，正按校验反馈返修：${reason}`, { tone: 'warn', duration: 7000 })
-                const repair = `上一稿未通过场景真相事实对齐，原因：${reason}。请重写完整的角色限知投影，只保留能够由场景真相直接支持的主张；不要补充人物、物件、动作、时间、物理现象或前史。信息不足时写“未知”或留白。保留五个 markdown 三级标题。\n\n【待修稿】\n${v.slice(0, 6000)}`
-                runPass(repair, 1)
-                return
-              }
-              try {
-                const fallback = await api.groundedDeductionFallback(seq, target, work)
-                const safe = (fallback?.candidate || '').trim()
-                if (!safe) throw new Error('服务端未返回可追溯投影')
-                setPreview(safe)
-                const safeReview = await api.validateDeduction(seq, safe, target, work)
-                if (!safeReview?.ok) throw new Error(safeReview?.issues?.[0]?.reason || '可追溯投影复核失败')
-                setBusy(false)
-                setGrounding({ ok: true })
-                askChiefWrite(safe, '自由稿未过门,已用可追溯摘录。请写入并提交审批:')
-              } catch (fallbackError) {
-                setBusy(false)
-                const fallbackReason = fallbackError?.body?.detail || fallbackError?.message || reason
-                setGrounding({ ok: false, reason: fallbackReason })
-                toast(`投射未送审：${fallbackReason}`, { tone: 'danger', duration: 7000 })
-              }
+              toast(`投影预览未通过事实对齐：${review?.issues?.[0]?.reason || '存在无来源主张'}`, { tone: 'danger' })
             }
-          } catch (e) {
-            setBusy(false)
-            setGrounding({ ok: false, reason: '事实对齐服务不可用' })
-            toast('投射未送审：事实对齐服务不可用，请稍后重试。', { tone: 'danger', duration: 7000 })
+          } catch (_) {
+            toast('投影预览未送审：事实对齐服务不可用。', { tone: 'danger' })
           }
         },
         onError: (e) => {
@@ -191,19 +241,76 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           setBusy(false); toast('演绎失败:' + e, { tone: 'danger' })
         },
       })
-      run.abort = () => request?.abort?.()
-      run.timer = setTimeout(() => {
+    run.abort = () => request?.abort?.()
+    run.timer = setTimeout(() => {
         if (run.stopped || generationRef.current !== run) return
         run.stopped = true
         clearTimeout(run.timer)
         generationRef.current = null
         try { run.abort?.() } catch (_) { /* */ }
         setBusy(false)
-        if (target !== 'truth') setGrounding({ ok: false, reason: GENERATE_TIMEOUT_TEXT })
         toast(GENERATE_TIMEOUT_TEXT, { tone: 'warn', duration: 7000 })
       }, GENERATE_TIMEOUT_MS)
-    }
-    runPass(instr)
+  }
+
+  const submitPreview = () => {
+    const candidate = preview.trim()
+    if (!previewReady || !candidate || busy) return
+    const target = selected
+    const existing = Array.isArray(meta?.deductions) ? meta.deductions : []
+    const existingInvolved = Array.isArray(meta?.involved_characters) ? meta.involved_characters : []
+    const payload = target === 'truth'
+      ? { scene_truth: candidate }
+      : {
+          involved_characters: [...new Set([...existingInvolved, target])],
+          deductions: [
+            ...existing.filter((d) => d?.character_id !== target),
+            { character_id: target, prose: candidate },
+          ],
+        }
+    const run = { stopped: false, abort: null, timer: null, runId: null }
+    generationRef.current = run
+    setBusy(true)
+    setApproval(null)
+    const instruction = `将以下已经由作者审阅的第 ${seq} 章演绎提案原样写入。只能调用一次 s3_patch_chapter_plan，且工具参数中的字段值必须与该 JSON 完全一致；不得调用任何其他写工具或扩展内容。调用会请求作者审批。\n\n${JSON.stringify(payload)}`
+    const request = api.runWrite(instruction, {
+      chapter: seq, phase: 'deduce',
+      context: snapshot ? {
+        context_session_id: snapshot.session_id,
+        context_revision: snapshot.revision,
+        context_hash: snapshot.context_hash,
+      } : null,
+      onRun: (started) => { run.runId = started?.run_id || started?.id || run.runId },
+      onApproval: (next) => {
+        if (run.stopped) return
+        run.runId = next?.run_id || run.runId
+        setApproval({ ...next, run_id: run.runId, status: 'pending' })
+      },
+      onApprovalResolved: (resolved) => {
+        if (!resolved?.run_id) return
+        setApproval((current) => current?.run_id === resolved.run_id
+          ? { ...current, ...resolved, status: resolved.decision === 'approve' ? 'approved' : 'denied' }
+          : current)
+      },
+      onDone: () => {
+        if (run.stopped) return
+        clearTimeout(run.timer)
+        if (generationRef.current === run) generationRef.current = null
+        setBusy(false)
+        setPreviewReady(false)
+        onSaved?.()
+        toast('演绎已按批准内容写入；请以章节回读内容为准。', { tone: 'ok' })
+      },
+      onError: (e) => {
+        if (run.stopped) return
+        clearTimeout(run.timer)
+        if (generationRef.current === run) generationRef.current = null
+        setBusy(false)
+        toast('演绎提交失败:' + e, { tone: 'danger' })
+      },
+    })
+    run.abort = () => request?.abort?.()
+    run.timer = setTimeout(() => stopGeneration('演绎审批等待超过 6 分钟，未批准内容不会写入。'), GENERATE_TIMEOUT_MS)
   }
 
   const hasChapter = Number.isInteger(Number(seq)) && Number(seq) >= 1
@@ -243,38 +350,61 @@ export function DeduceStage({ seq, meta, onSaved, work }) {
           <Sparkles size={13} />改这条
         </Btn>
         {busy && <Btn variant="ghost" size="sm" onClick={() => stopGeneration()}>停止</Btn>}
-        <Btn variant="primary" size="sm" onClick={gen} disabled={busy}>
+        <Btn variant="primary" size="sm" onClick={gen} disabled={busy || editingPreview}>
           {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}{busy ? '演绎中…' : '生成'}
         </Btn>
-        <Btn variant="primary" size="sm" data-testid="deduce-ask-chief" onClick={() => askChiefWrite()}>
-          让主编写入
+        <Btn variant="ghost" size="sm" onClick={beginPreviewEdit} disabled={busy || !preview.trim() || editingPreview}>
+          编辑预览
+        </Btn>
+        <Btn variant="primary" size="sm" data-testid="deduce-submit-preview" onClick={submitPreview} disabled={!previewReady || busy || editingPreview}>
+          提交演绎审批
         </Btn>
       </div>
-      {pending && (
-        <ProposalBar
-          text={`主编生成了「${selected === 'truth' ? '场景真相' : cur.character_name}」的内容(${pending.content.replace(/\s/g, '').length} 字)。`}
-          actions={[{ label: '送审填入', variant: 'primary', onClick: fillPending }, { label: '送审追加', onClick: appendPending }]}
-          onDismiss={clear}
-        />
-      )}
-      <SelectionQuoteActions
-        scopeLabel={selected === 'truth' ? `第 ${seq} 章场景真相` : `第 ${seq} 章「${targetName}」限知`}
-        className="flex-1 min-h-0 overflow-y-auto type-stage whitespace-pre-wrap"
-        data-testid="deduce-readonly"
-        disabled={noProse}
-      >
-        <div aria-label={selected === 'truth' ? '场景真相' : '限知投影'}>
-          {displayText.trim()
-            ? displayText
-            : <span className="text-faint">（空 · 由主编审批写入；可先「生成」预览再送审）</span>}
-        </div>
-      </SelectionQuoteActions>
-      {selected !== 'truth' && grounding && (
-        <div role="status" className={`text-f12 mt-2 ${grounding.ok ? 'text-ok' : 'text-danger'}`}>
-          {grounding.ok ? '事实对齐通过：已/可送主编审批写入。' : `事实对齐未通过：${grounding.reason}`}
+      {approval && (
+        <div data-testid="deduce-run-approval" className="mb-3 border-l-2 border-brand/50 bg-surface px-3 py-2">
+          <div className="text-f12 font-medium text-ink">演绎 Run 请求审批</div>
+          <div className="mt-1 text-f12 text-faint whitespace-pre-wrap">{approval.message || '需要你确认后才会写入章节演绎。'}</div>
+          <div className="mt-2 flex items-center gap-2">
+            {approval.status === 'pending' && <>
+              <Btn variant="primary" size="sm" aria-label="批准演绎写入" onClick={() => resolveApproval('approve')}>批准</Btn>
+              <Btn variant="ghost" size="sm" aria-label="拒绝演绎写入" onClick={() => resolveApproval('deny')}>拒绝</Btn>
+            </>}
+            {approval.status === 'submitting' && <span className="text-f12 text-faint">提交中…</span>}
+            {approval.status === 'approved' && <span className="text-f12 text-ok">已批准，等待 Run 完成。</span>}
+            {approval.status === 'denied' && <span className="text-f12 text-danger">已拒绝，未写入。</span>}
+            {approval.status === 'error' && <span className="text-f12 text-danger">审批失败：{String(approval.error || '未知错误')}</span>}
+          </div>
         </div>
       )}
-      <div className="text-f12 text-faint mt-2">只读检视;写入一律主编审批。所有角色投影都从「场景真相」派生。</div>
+      {editingPreview ? (
+        <div className="flex-1 min-h-0 flex flex-col gap-2">
+          <textarea
+            aria-label="编辑预览"
+            data-testid="deduce-preview-editor"
+            value={previewDraft}
+            onChange={(event) => setPreviewDraft(event.target.value)}
+            className="flex-1 min-h-0 w-full resize-none rounded-md border border-line bg-canvas p-3 text-f13 leading-6 text-ink outline-none focus:border-brand"
+          />
+          <div className="flex justify-end gap-2">
+            <Btn variant="ghost" size="sm" onClick={() => { setPreviewDraft(''); setEditingPreview(false); setPreviewReady(true) }} disabled={busy}>取消编辑</Btn>
+            <Btn variant="primary" size="sm" onClick={finishPreviewEdit} disabled={busy}>完成预览编辑</Btn>
+          </div>
+        </div>
+      ) : (
+        <SelectionQuoteActions
+          scopeLabel={selected === 'truth' ? `第 ${seq} 章场景真相` : `第 ${seq} 章「${targetName}」限知`}
+          className="flex-1 min-h-0 overflow-y-auto type-stage whitespace-pre-wrap"
+          data-testid="deduce-readonly"
+          disabled={noProse}
+        >
+          <div aria-label={selected === 'truth' ? '场景真相' : '限知投影'}>
+            {displayText.trim()
+              ? displayText
+              : <span className="text-faint">（空 · 点击「生成」后由受限 Run 请求审批写入）</span>}
+          </div>
+        </SelectionQuoteActions>
+      )}
+      <div className="text-f12 text-faint mt-2">预览只在本地供作者审阅和修订；写入一律经本阶段受限 Run 的 MCP 审批。所有角色投影都从「场景真相」派生。</div>
     </div>
   )
 }

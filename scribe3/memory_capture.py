@@ -100,6 +100,9 @@ _CANONICAL_MARKERS = ("真实身份", "其实是", "真身是", "真身为", "�
                       "本名是", "实为", "竟是")
 _UNCERTAINTY_MARKERS = ("我猜", "可能", "也许", "大概", "或许", "说不定", "恐怕", "似乎", "怀疑")
 _PROCEDURAL_MARKERS = ("以后", "别再", "少用", "务必", "记得", "从今往后", "每次都", "今后")
+# 作者明确标为“写作偏好”的表达，语义是未来生成时须遵循的工艺约束，不能降成普通
+# episodic 往事。只匹配显式偏好标签，避免把“请记住某个剧情事实”误分类为写法。
+_AUTHOR_WRITING_PREFERENCE_MARKERS = ("作者偏好", "写作偏好")
 _WORKING_MARKERS = ("正在", "现在", "目前", "在修", "手头", "眼下")
 _EPISODIC_MARKERS = ("决定", "已经", "已决定", "定了", "删掉", "改成", "确定", "这次")
 
@@ -193,6 +196,8 @@ def _route_of(text: str, explicit: str | None, *,
     # 正典嫌疑:登记实体 + 高风险稳定断言谓词 → 待审(P0 限知红线,守知情倒灌)。
     if entity_hits and risk_hit:
         return "canonical_claim"
+    if any(m in t for m in _AUTHOR_WRITING_PREFERENCE_MARKERS):
+        return "procedural"
     if any(m in t for m in _PROCEDURAL_MARKERS):
         return "procedural"
     if any(m in t for m in _WORKING_MARKERS):

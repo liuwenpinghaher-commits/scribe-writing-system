@@ -1,13 +1,12 @@
-/* 双轨字体:UI 无衬线(Inter+思源黑)· 正文衬线(Source Serif 4+思源宋)—— 长文阅读更省力 */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&display=swap');
+/* 双轨字体完全使用系统字体：网络受限时写作台不能因外部字体而产生请求失败。 */
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* 设计 token(借鉴 scribe2:暖灰底 + 黛绿主色 + 衬线正文)→ Tailwind v4 生成 bg-/text-/border- 工具类 */
 @theme {
-  --font-ui: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'PingFang SC', sans-serif;
-  --font-prose: 'Source Serif 4', 'Noto Serif SC', Georgia, 'Songti SC', serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-prose: 'Songti SC', 'STSong', 'Source Han Serif SC', 'Noto Serif CJK SC', Georgia, 'Times New Roman', serif;
   /* ── 字号阶梯（2026 统一）─────────────────────────────────────────
      语义角色优先；fNN 仅作兼容别名。禁止再发明 11.5/16.5/17.5 等半档。
        meta          12  辅助/计数/徽章

@@ -1,7 +1,153 @@
 // 作者决策点击：批准写入 / 接受提案 — 必须真实 Playwright click，禁止 API 静默代替。
 // 供融合验收与 full_journey 复用。
+import { attachRunIdentityCapture } from './run_identity_capture.mjs'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// FourPane 根壳是作品页的稳定标记；右坞/主编槽作为折叠态兼容信号，避免只以输入框
+// 是否可见误判已退回作品库并重复导航。
+const BOOK_SHELL_SELECTOR = '[data-testid="four-col"], [data-testid="right-dock"], [data-testid="chief-chat-shell"], [data-testid="chief-write-chat"]'
+
+/** 作品库卡片的稳定可访问名；用完整标题避免同前缀验收书误开。 */
+export function workEntryAccessibleName(bookTitle) {
+  return `打开${String(bookTitle || '')}`
+}
+
+async function isBookShellVisible(page) {
+  return page.locator(BOOK_SHELL_SELECTOR).first().isVisible().catch(() => false)
+}
+
+/**
+ * 硬导航后的 App 会按 localStorage 自动恢复最近作品；也可能真的停在作品库。
+ * 因此只能等待两种合法落点之一，不能单押库页卡片。
+ */
+async function waitForBookShellOrLibraryCard(page, card, { timeoutMs = 20000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await isBookShellVisible(page)) return 'book-shell'
+    if (await card.isVisible().catch(() => false)) return 'library-card'
+    await sleep(200)
+  }
+  throw new Error('作品恢复超时：既未进入作品壳，也未看到目标作品卡')
+}
+
+/**
+ * 主编 Run 的终态不保证带可见文本：纯 MCP 写入会以审批/工具事件完成。
+ * Run 必须由后端终态确认；普通对话则须经历 busy→idle，避免发送尚未起流时假绿。
+ */
+export function shouldFinishChiefWait({ busy, sawBusy = false, requestSeen = false, isHermesRun = false, runTerminal = false, text = '', previousText = '' } = {}) {
+  // 上一轮的聊天气泡会一直留在 DOM；不先观察到本轮网络请求，就不能把稳定旧文本
+  // 当作本轮完成。纯工具 Run 可能没有 delta，故只能依赖后端终态。
+  if (!requestSeen) return false
+  // Run 终态来自正典后端；其它面板遗留的 spinner 不应覆盖它，否则纯 MCP 写入会
+  // 因无关页面加载一直等到超时。调用方仍会随后以只读回查确认实际写入。
+  if (isHermesRun && runTerminal) return true
+  if (busy) return false
+  return isHermesRun ? !!runTerminal : !!sawBusy
+}
+
+// Hermes 已在远端完成、仅等待本地审计回写的状态不再会产生工具或文本事件。
+// 验收应将其视为交互终态，随后由调用方用正典只读回查判断写入是否真的发生。
+export function isTerminalHermesRunStatus(status) {
+  return [
+    'completed',
+    'completed_unverified',
+    'remote_completed_pending_audit',
+    'failed',
+    'stopped',
+    'cancelled',
+    'canceled',
+  ].includes(String(status || '').toLowerCase())
+}
+
+/**
+ * Hermes 创建 Run 时把 work 放在 JSON 载荷中，而不是 URL 查询参数。状态回读必须
+ * 带回这一隔离键，否则后端会按 fail-closed 规则拒绝跨作品不明确的查询。
+ */
+export function resolveRunWork(requestUrl, postData) {
+  try {
+    const fromQuery = new URL(requestUrl).searchParams.get('work')
+    if (fromQuery?.trim()) return fromQuery.trim()
+  } catch { /* 继续尝试请求载荷 */ }
+  try {
+    const payload = typeof postData === 'string' ? JSON.parse(postData) : postData
+    return typeof payload?.work === 'string' ? payload.work.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Run 状态查询属于验收辅助链路；网关或浏览器连接异常时不能无限占住
+ * chiefSay 的总时限。失败按“本轮尚未确认终态”处理，由外层继续轮询/到时退出。
+ */
+export async function fetchRunStatusWithTimeout(fetchImpl, url, timeoutMs = 15000) {
+  const controller = new AbortController()
+  let timer
+  // AbortController 只能保证中止尚未完成的 fetch；Node 的 fetch 在已收到
+  // header 后，第三方若永不结束 body，response.json() 仍可能不响应 abort。
+  // 因此 timeout 还必须是独立的返回竞争，不能让验收总时限依赖 transport 行为。
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      resolve(null)
+    }, Math.max(1, timeoutMs))
+  })
+  const status = (async () => {
+    try {
+      const response = await fetchImpl(url, { signal: controller.signal })
+      return response?.ok ? await response.json() : null
+    } catch {
+      return null
+    }
+  })()
+  try {
+    return await Promise.race([status, deadline])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * Playwright 操作本身也可能卡在浏览器/传输层。主编 Run 的总时限必须覆盖
+ * 选槽、输入、发送和轮询全部阶段，不能只给其中的 fetch 加 timeout。
+ */
+export async function runWithDeadline(operation, { timeoutMs, label = '操作' } = {}) {
+  let timer
+  const completed = Promise.resolve()
+    .then(operation)
+    .then((value) => ({ timedOut: false, value }), (error) => ({ timedOut: false, error }))
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      resolve({
+        timedOut: true,
+        error: new Error(`${label}超时（${timeoutMs}ms）`),
+      })
+    }, Math.max(1, timeoutMs || 1))
+  })
+  try {
+    const outcome = await Promise.race([completed, deadline])
+    if (outcome.error && !outcome.timedOut) throw outcome.error
+    return outcome
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 章节阶段切换会替换 textarea 节点；旧 locator 的 fill/press 在 Playwright 未设
+ * 默认超时时可能永久等待。正文发送必须和主编 Run 一样有独立的总时限。
+ */
+export async function submitComposerWithDeadline(composer, message, { timeoutMs = 30000 } = {}) {
+  const outcome = await runWithDeadline(
+    async () => {
+      await composer.fill(message)
+      await composer.press('Enter')
+    },
+    { timeoutMs, label: '正文发送' },
+  )
+  if (outcome.timedOut) throw outcome.error
+  return outcome.value
+}
 
 /** 导出纯函数：决策控件选择器（单元测试可断言，不依赖浏览器） */
 export const DECISION_SELECTORS = {
@@ -118,6 +264,14 @@ export async function acceptDraftProposal(page, { timeoutMs = 300000, pollMs = 2
       await sleep(pollMs)
       continue
     }
+    // 草稿阶段的 WriteChat 通过 StageProposal 交给中区渲染“填入/追加”，
+    // 不是 DraftCard；两者都是作者明确采用生成稿的动作。
+    const stageFill = page.locator(DECISION_SELECTORS.stageFill).first()
+    if (await stageFill.isVisible().catch(() => false) && !(await stageFill.isDisabled().catch(() => true))) {
+      await stageFill.click()
+      await sleep(1500)
+      return { kind: 'stage', clicks: 1 }
+    }
     const cand = page.locator(DECISION_SELECTORS.draftUseCandidate).first()
     if (await cand.isVisible().catch(() => false)) {
       await cand.click()
@@ -145,27 +299,36 @@ export async function acceptDraftProposal(page, { timeoutMs = 300000, pollMs = 2
 }
 
 /**
- * 若已退回作品库（four-col 不在），按书名重新进台。
- * r16：长会话后 diag.four=false，仅 expand 右坞无效。
+ * 草稿阶段的“填入”只把提案置入草稿编辑器，尚未写入 chapter.prose。
+ * 这里强制第二次可见、可点击的作者决定，调用方再用 save-chapter 响应证明落库。
+ */
+export async function adoptDraftAsFinal(page, { timeoutMs = 120000 } = {}) {
+  const adopt = page.getByRole('button', { name: '采用为正文', exact: true }).first()
+  await adopt.waitFor({ state: 'visible', timeout: timeoutMs })
+  if (await adopt.isDisabled().catch(() => true)) {
+    throw new Error('草稿已填入但“采用为正文”不可用')
+  }
+  await adopt.click()
+  return { kind: 'adopt', clicks: 1 }
+}
+
+/**
+ * 若已退回作品库（Binder/主编壳不在），按书名重新进台。
  */
 export async function ensureInBook(page, bookTitle, { base } = {}) {
   if (!bookTitle) return false
-  const hasFour = await page.locator('[data-testid="four-col"]').count().catch(() => 0)
-  if (hasFour) return true
+  if (await isBookShellVisible(page)) return true
   const BASE = base || process.env.E2E_BASE || 'http://127.0.0.1:3311'
-  await page.goto(BASE, { waitUntil: 'networkidle' }).catch(() => {})
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' }).catch(() => {})
   await sleep(800)
-  // 库页点书卡
-  const slice = String(bookTitle).slice(0, 12)
-  const card = page.getByRole('button', { name: new RegExp(slice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first()
-  if (await card.count()) {
-    await card.click().catch(() => {})
-  } else {
-    await page.locator('button').filter({ hasText: slice.slice(0, 8) }).first().click({ timeout: 8000 }).catch(() => {})
-  }
-  await page.waitForSelector('[data-testid="four-col"]', { timeout: 20000 })
+  // 库页精确点目标书卡。批量验收会生成同前缀作品，模糊/截断匹配会误开别的书。
+  const card = page.getByRole('button', { name: workEntryAccessibleName(bookTitle), exact: true })
+  const recovered = await waitForBookShellOrLibraryCard(page, card)
+  if (recovered === 'book-shell') return true
+  await card.click({ timeout: 10000 })
+  await page.waitForSelector(BOOK_SHELL_SELECTOR, { timeout: 20000 })
   await sleep(800)
-  return (await page.locator('[data-testid="four-col"]').count().catch(() => 0)) > 0
+  return isBookShellVisible(page)
 }
 
 /**
@@ -181,7 +344,7 @@ export async function ensureChiefVisible(page, opts = {}) {
   const bookTitle = opts.bookTitle || process.env.E2E_BOOK_TITLE || ''
 
   // 退回作品库 → 先重新进书
-  if (!(await page.locator('[data-testid="four-col"]').count().catch(() => 0))) {
+  if (!(await page.locator(BOOK_SHELL_SELECTOR).count().catch(() => 0))) {
     await ensureInBook(page, bookTitle)
   }
 
@@ -202,7 +365,7 @@ export async function ensureChiefVisible(page, opts = {}) {
   // 最多两轮强制展开（长会话后 onResize 误折叠 / 把手点不中）
   for (let round = 0; round < 2 && !(await usableComposer()); round++) {
     // 每轮再确认未退库
-    if (!(await page.locator('[data-testid="four-col"]').count().catch(() => 0))) {
+    if (!(await page.locator(BOOK_SHELL_SELECTOR).count().catch(() => 0))) {
       await ensureInBook(page, bookTitle)
     }
     await page.evaluate(() => {
@@ -248,7 +411,7 @@ export async function ensureChiefVisible(page, opts = {}) {
   }
 }
 
-async function resolveComposer(page, preferWrite, { retries = 8, bookTitle } = {}) {
+export async function resolveComposer(page, preferWrite, { retries = 8, bookTitle } = {}) {
   const book = bookTitle || process.env.E2E_BOOK_TITLE || ''
   const order = preferWrite
     ? [DECISION_SELECTORS.writeComposer, DECISION_SELECTORS.chiefComposer, 'textarea[placeholder^="提思路"]', 'textarea[placeholder^="就当前内容问主编"]', '[data-testid="chief-write-chat"] textarea', '[data-testid="chief-chat-shell"] textarea']
@@ -290,7 +453,7 @@ async function resolveComposer(page, preferWrite, { retries = 8, bookTitle } = {
   // 诊断：折叠态 + textarea，便于分清「栏收了」还是「壳挂了没输入」
   const diag = await page.evaluate(() => ({
     right: document.querySelector('[data-testid="right-panel"]')?.getAttribute('data-collapsed'),
-    four: !!document.querySelector('[data-testid="four-col"]'),
+    inBook: !!document.querySelector('[data-testid="four-col"], [data-testid="right-dock"], [data-testid="chief-chat-shell"], [data-testid="chief-write-chat"]'),
     dock: !!document.querySelector('[data-testid="right-dock"]'),
     shell: !!document.querySelector('[data-testid="chief-chat-shell"]'),
     restore: document.querySelectorAll('[data-testid="right-restore-button"]').length,
@@ -305,41 +468,120 @@ async function resolveComposer(page, preferWrite, { retries = 8, bookTitle } = {
  * 向主编发送消息并等待流结束；其间自动点批准。
  * @param {{ preferWrite?: boolean, maxMs?: number, bookTitle?: string }} opts preferWrite=true 优先写作槽（提案卡）
  */
-export async function chiefSay(page, msg, { maxMs = 300000, preferWrite = false, bookTitle } = {}) {
+export async function chiefSay(page, msg, opts = {}) {
+  const maxMs = opts.maxMs ?? 300000
+  const outcome = await runWithDeadline(
+    () => chiefSayWithinDeadline(page, msg, { ...opts, maxMs }),
+    { timeoutMs: maxMs + 30000, label: '主编交互' },
+  )
+  if (outcome.timedOut) throw outcome.error
+  return outcome.value
+}
+
+async function chiefSayWithinDeadline(page, msg, { maxMs = 300000, preferWrite = false, bookTitle, onProgress } = {}) {
   const book = bookTitle || process.env.E2E_BOOK_TITLE || ''
-  await ensureChiefVisible(page, { bookTitle: book })
-  const ta = await resolveComposer(page, preferWrite, { bookTitle: book })
-  await ta.click()
-  await ta.fill(msg)
-  await ta.press('Enter')
+  const phaseTimeoutMs = Math.min(30_000, maxMs)
+  onProgress?.('开始恢复主编栏')
+  const visible = await runWithDeadline(
+    () => ensureChiefVisible(page, { bookTitle: book }),
+    { timeoutMs: phaseTimeoutMs, label: '恢复主编栏' },
+  )
+  if (visible.timedOut) throw visible.error
+  onProgress?.('主编栏已恢复')
+  onProgress?.('开始解析主编输入框')
+  const composer = await runWithDeadline(
+    () => resolveComposer(page, preferWrite, { bookTitle: book }),
+    { timeoutMs: phaseTimeoutMs, label: '解析主编输入框' },
+  )
+  if (composer.timedOut) throw composer.error
+  const ta = composer.value
+  onProgress?.('主编输入框已解析')
+  let requestSeen = false
+  let isHermesRun = false
+  let runId = ''
+  let runWork = ''
+  let runTerminal = false
+  let runStatus = ''
+  const detachRunIdentityCapture = attachRunIdentityCapture(page, ({ id, work }) => {
+    // 创建响应是 run_id 的权威来源；请求监听只作为响应体不可读时的兼容回退。
+    runId ||= id
+    runWork ||= work
+  })
+  const observeWriteRequest = (request) => {
+    if (request.method() !== 'POST') return
+    let path = ''
+    let url
+    try { url = new URL(request.url()); path = url.pathname } catch { return }
+    if (path === '/api/chat/write' || path === '/chat/write' || path === '/api/ai/runs' || path === '/ai/runs') {
+      requestSeen = true
+      if (path === '/api/ai/runs' || path === '/ai/runs') {
+        isHermesRun = true
+        runWork = resolveRunWork(url.href, request.postData())
+        request.response()
+          .then((response) => response?.ok() ? response.json() : null)
+          .then((payload) => { runId = payload?.run_id || payload?.id || '' })
+          .catch(() => {})
+      }
+    }
+  }
+  page.on('request', observeWriteRequest)
+  onProgress?.('开始提交主编输入')
+  await submitComposerWithDeadline(ta, msg, { timeoutMs: Math.min(30_000, maxMs) })
+  onProgress?.('主编输入已提交')
   await sleep(1500)
   let last = ''
   // 累计全程点击的批准次数（此前只记末轮，导致 hermesApproved 假 0）
   let approved = 0
   let staleApproved = 0
+  let sawBusy = false
   const t0 = Date.now()
-  while (Date.now() - t0 < maxMs) {
-    const mid = await approveAllPending(page, { maxRounds: 3, settleMs: 500 })
-    approved += mid.approved
-    staleApproved += mid.staleApproved
-    await sleep(2500)
-    const { text, busy } = await page.evaluate(() => {
-      const bubbles = [...document.querySelectorAll('.prose-chat')]
-      const lastB = bubbles[bubbles.length - 1]
-      const bodyBusy = /书写中|主编在思考/.test(document.body.innerText || '')
-      return {
-        text: lastB ? lastB.innerText : '',
-        busy: !!lastB?.querySelector('.animate-spin') || bodyBusy,
+  try {
+    while (Date.now() - t0 < maxMs) {
+      const mid = await approveAllPending(page, { maxRounds: 3, settleMs: 500 })
+      approved += mid.approved
+      staleApproved += mid.staleApproved
+      await sleep(2500)
+      if (runId && !runTerminal) {
+        try {
+          const apiBase = process.env.E2E_API || 'http://127.0.0.1:3321'
+          const qs = runWork ? `?work=${encodeURIComponent(runWork)}` : ''
+          const remainingMs = Math.max(1, maxMs - (Date.now() - t0))
+          const status = await fetchRunStatusWithTimeout(
+            fetch,
+            `${apiBase}/ai/runs/${encodeURIComponent(runId)}${qs}`,
+            Math.min(15000, remainingMs),
+          )
+          runStatus = typeof status?.status === 'string' ? status.status : runStatus
+          runTerminal = isTerminalHermesRunStatus(status?.status)
+        } catch { /* 轮询瞬时失败时继续等事件流 */ }
       }
-    })
-    const real = text && !text.includes('主编在思考') && text.trim().length > 8
-    // 提案卡已出现也算流可结束
-    const hasDraft = await page.locator(DECISION_SELECTORS.draftAccept).count().catch(() => 0)
-    if ((!busy && real && text === last) || (hasDraft > 0 && !busy)) break
-    last = text
+      const { text, busy } = await page.evaluate(() => {
+        const bubbles = [...document.querySelectorAll('.prose-chat')]
+        const lastB = bubbles[bubbles.length - 1]
+        const visibleSpinner = [...document.querySelectorAll('.animate-spin')]
+          .some((node) => node instanceof HTMLElement && node.offsetParent !== null)
+        return {
+          text: lastB ? lastB.innerText : '',
+          busy: !!lastB?.querySelector('.animate-spin') || visibleSpinner,
+        }
+      })
+      // 提案卡已出现也算流可结束
+      const hasDraft = await page.locator(DECISION_SELECTORS.draftAccept).count().catch(() => 0)
+      sawBusy ||= busy
+      if (shouldFinishChiefWait({ busy, sawBusy, requestSeen, isHermesRun, runTerminal, text, previousText: last })
+        || (requestSeen && !runId && hasDraft > 0 && !busy)) break
+      last = text
+    }
+  } finally {
+    page.off('request', observeWriteRequest)
+    detachRunIdentityCapture()
   }
   const tail = await approveAllPending(page, { maxRounds: 4, settleMs: 600 })
   approved += tail.approved
   staleApproved += tail.staleApproved
-  return { reply: last, decisions: { approved, staleApproved } }
+  return {
+    reply: last,
+    decisions: { approved, staleApproved },
+    run: { id: runId, work: runWork, terminal: runTerminal, status: runStatus },
+  }
 }

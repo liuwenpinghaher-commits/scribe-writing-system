@@ -109,9 +109,10 @@ function EvidenceRow({ item, kind }) {
 }
 
 export function ContextInspector() {
-  const { snapshot, restoring, error, capabilities } = useContextSnapshot()
+  const { snapshot, restoring, error, snapshotConfirmed = true, capabilities } = useContextSnapshot()
   const sessionId = snapshot?.session_id || null
   const revision = snapshot?.revision ?? null
+  const snapshotWork = typeof snapshot?.work === 'string' && snapshot.work ? snapshot.work : undefined
   const focus = snapshot?.focus || null
   // 诚实门控:context_inspector_v1 关(默认)时不渲染——不得暗示记忆检查器已就绪。
   // 后端 /capabilities 是唯一权威;Provider 缺席/拉取失败 → flags 安全默认全关。
@@ -137,11 +138,13 @@ export function ContextInspector() {
     if (!inspectorOn) {
       setTrace(null); setTraceError(false); return undefined
     }
-    if (!sessionId || revision == null || typeof api?.getMemoryTrace !== 'function') {
+    // Provider 先乐观推进可见 revision，再异步持久化；确认前读取 trace 必然会命中
+    // 不存在的服务端 revision。等确认替换为服务端快照后再读取，不能把竞态伪装成“无证据”。
+    if (!snapshotConfirmed || !sessionId || revision == null || typeof api?.getMemoryTrace !== 'function') {
       setTrace(null); setTraceError(false); return undefined
     }
     let alive = true
-    api.getMemoryTrace(sessionId, revision)
+    api.getMemoryTrace(sessionId, revision, snapshotWork)
       .then((t) => { if (alive) { setTrace(t); setTraceError(false) } })
       .catch((e) => {
         if (!alive) return
@@ -149,7 +152,7 @@ export function ContextInspector() {
         setTraceError(!!(e && e.status && e.status !== 404))
       })
     return () => { alive = false }
-  }, [inspectorOn, sessionId, revision])
+  }, [inspectorOn, snapshotConfirmed, sessionId, revision, snapshotWork])
 
   if (!inspectorOn) {
     return null

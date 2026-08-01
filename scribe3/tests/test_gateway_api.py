@@ -37,7 +37,7 @@ def test_gateway_status_401_counts_as_online(client, monkeypatch):
     r = client.get("/gateway/status")
     assert r.status_code == 200
     gateways = r.json()["gateways"]
-    assert len(gateways) == 3
+    assert len(gateways) == 5
     assert all(g["online"] is True for g in gateways)
 
 
@@ -45,12 +45,13 @@ def test_gateway_restart_polls(client, monkeypatch):
     ran = {}
     monkeypatch.setattr("os.path.isfile", lambda p: True)
     monkeypatch.setattr("os.access", lambda p, m: True)
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.setdefault("cmd", a[0]))
     monkeypatch.setattr("httpx.get", lambda url, timeout: type("R", (), {"status_code": 200})())
     monkeypatch.setattr("time.sleep", lambda s: None)
     r = client.post("/gateway/restart", json={"profile": "scribe3"})
-    assert r.status_code == 200 and r.json()["online"] is True
-    assert "nohup" in ran["cmd"] and "-p scribe3" in ran["cmd"]
+    assert r.status_code == 200 and r.json()["online"] is True and r.json()["restarted"] is True
+    assert ran["cmd"][-2:] == ["gateway", "restart"]
+    assert ran["cmd"][1:3] == ["-p", "scribe3"]
 
 
 def test_gateway_restart_rejects_unknown_profile(client):
@@ -62,7 +63,7 @@ def test_gateway_restart_missing_hermes_bin_fails_fast(client, tmp_path, monkeyp
     from scribe3 import settings
     settings.put_setting("gateway.hermes_bin", str(tmp_path / "nope"))
     ran = {}
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: ran.setdefault("cmd", a[0]))
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: ran.setdefault("cmd", a[0]))
     monkeypatch.setattr("time.sleep", lambda s: None)
     r = client.post("/gateway/restart", json={"profile": "scribe3"})
     assert r.status_code == 200
@@ -76,7 +77,7 @@ def test_gateway_restart_poll_timeout_reports_failure(client, monkeypatch):
     import httpx
     monkeypatch.setattr("os.path.isfile", lambda p: True)
     monkeypatch.setattr("os.access", lambda p, m: True)
-    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: None)
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: None)
     def raise_get(url, timeout):
         raise httpx.ConnectError("down")
     monkeypatch.setattr("httpx.get", raise_get)
@@ -138,7 +139,7 @@ def test_dashboard_start_already_online_short_circuits(client, monkeypatch):
     assert "cmd" not in ran  # 已在线,绝不拉起进程
 
 
-def test_gateway_model_summary_api_returns_three(client, tmp_path, monkeypatch):
+def test_gateway_model_summary_api_returns_all_stage_gateways(client, tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     (tmp_path / "config.yaml").write_text(
         "model:\n  provider: custom\n  api_key: sk-root\n  default: doubao-seed-2.0-pro\n",
@@ -146,7 +147,7 @@ def test_gateway_model_summary_api_returns_three(client, tmp_path, monkeypatch):
     r = client.get("/gateway/model-summary")
     assert r.status_code == 200
     gateways = r.json()["gateways"]
-    assert len(gateways) == 3
+    assert len(gateways) == 5
     assert "sk-root" not in str(gateways)
     by = {g["gateway"]: g for g in gateways}
     assert by["default"]["default_model"] == "doubao-seed-2.0-pro"

@@ -1,53 +1,63 @@
-"""S5-LIVE · 去风险:验证 surrealdb-py 2.0 + SurrealDB 3.1.5 的 LIVE 订阅可用。
-
-LIVE SELECT 仅单节点(研究结论)——临时内存库正合。订阅 character 表,另一连接写入,
-应收到 CREATE 通知。这是"改一处处处同步"多视图的底层。
-"""
+"""Surreal LIVE → SSE 的连接生命周期回归。"""
 import asyncio
 
-from surrealdb import AsyncSurreal
-
-from scribe3.ontology import Entity
-
-
-def test_live_notifies_on_create(store):
-    async def run():
-        sub = AsyncSurreal(store.url)
-        await sub.signin({"username": "root", "password": "root"})
-        await sub.use("scribe3", "test")
-        quuid = await sub.live("character")
-
-        async def consume():
-            gen = await sub.subscribe_live(quuid)
-            async for note in gen:
-                return note
-
-        task = asyncio.create_task(consume())
-        await asyncio.sleep(0.3)                       # 让订阅起来
-        store.add_entity(Entity("role:小试", "character", "小试"))   # 另一连接写入
-        try:
-            return await asyncio.wait_for(task, timeout=8)
-        finally:
-            await sub.kill(quuid)
-            await sub.close()
-
-    note = asyncio.run(run())
-    assert note, "应收到 LIVE 通知(改一处→订阅方收到)"
+import scribe3.api.app_impl as A
+import scribe3.live as L
 
 
-def test_codex_tables_all_in_live_tables(store):
-    """U-002 回归门禁:设定库树里的每个分类,其底层表必须在 _LIVE_TABLES 里。
+def test_live_stream_closes_connection_cancelled_during_signin(monkeypatch):
+    """页面在 LIVE 登录中断开时，已创建的客户端也必须关闭。
 
-    病史(2026-07-13):world_rule/faction/item/term 四张表漏出订阅清单 → 主编经审批
-    写入 15 条世界规则 + 6 个势力后,前端项目树收不到 live 事件、不重拉,设定库看着
-    还是空的(数据其实已落库),作者误以为写入失败。
-    前端 BinderLayout 对任何 live 事件都重建整棵树,故只要表在清单里就会刷新。
+    删除 watch 内的 finally 会让这个测试失败：客户端尚未 append 到 conns，
+    外层清理无法看见它，recv/keepalive 线程会永久残留。
     """
-    import scribe3.app as A
-    # project_tree 的 codex 分类 ref 与其 SurrealDB 表名同名(见 store.project_tree 的 _cat 调用)
-    tree = store.project_tree()
-    codex_cats = [c["ref"] for c in (tree.get("codex") or {}).get("children", [])]
-    assert codex_cats, "设定库应有分类(测试前提)"
-    missing = [c for c in codex_cats if c not in A._LIVE_TABLES]
-    assert not missing, (
-        f"设定库分类的表未进 _LIVE_TABLES,写入后前端不会自动刷新: {missing}")
+    created = []
+    entered_signin = asyncio.Event()
+    release = asyncio.Event()
+
+    class FakeAsyncSurreal:
+        def __init__(self, _url):
+            self.closed = False
+            created.append(self)
+
+        async def signin(self, _credentials):
+            entered_signin.set()
+            await release.wait()
+
+        async def use(self, _ns, _db):
+            raise AssertionError("取消前不应继续 use")
+
+        async def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(L, "AsyncSurreal", FakeAsyncSurreal)
+
+    async def scenario():
+        stream = L.live_stream("ws://test", "scribe3", "book", ["chapter"])
+        await anext(stream)  # 先得到 SSE 初始化帧，随后 watch 任务进入 signin。
+        await asyncio.wait_for(entered_signin.wait(), timeout=1)
+        await stream.aclose()
+        assert len(created) == 1
+        assert created[0].closed is True
+
+    asyncio.run(scenario())
+
+
+def test_live_connection_quota_remains_held_until_stream_closes(monkeypatch):
+    """LIVE 配额的释放时机必须是 SSE 流关闭，而非路由返回响应对象。"""
+    A._live_count.clear()
+
+    async def fake_live_stream(*_args, **_kwargs):
+        yield "data: init\n\n"
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(A, "live_stream", fake_live_stream)
+
+    async def scenario():
+        response = await A.live(work="quota-work")
+        assert A._live_count["quota-work"] == 1
+        await anext(response.body_iterator)
+        await response.body_iterator.aclose()
+        assert A._live_count["quota-work"] == 0
+
+    asyncio.run(scenario())

@@ -149,7 +149,7 @@ def test_ai_run_trace_links_write_tool_approval_and_effect(store):
     assert tool_output["write_effect"]["objects"] == [{"type": "fact", "id": "fact:ai_run_trace_fact"}]
 
 
-def test_ai_run_trace_infers_written_effect_from_real_hermes_empty_tool_output(store):
+def test_ai_run_trace_marks_real_hermes_empty_tool_output_as_approved_unverified(store):
     store.upsert_ai_run_trace("run_real_shape", status="created")
     store.append_ai_run_trace_event(
         "run_real_shape",
@@ -186,6 +186,8 @@ def test_ai_run_trace_infers_written_effect_from_real_hermes_empty_tool_output(s
             "run_id": "run_real_shape",
             "name": "s3_add_fact",
             "output": "",
+            "output_available": False,
+            "completion": {"duration": 0.02, "error": False},
             "source_type": "tool.completed",
         },
     )
@@ -193,8 +195,10 @@ def test_ai_run_trace_infers_written_effect_from_real_hermes_empty_tool_output(s
     trace = store.get_ai_run_trace("run_real_shape")
     tool_output = trace["tool_outputs"][0]
     assert tool_output["tool"] == "s3_add_fact"
+    assert tool_output["output_available"] is False
+    assert tool_output["completion"] == {"duration": 0.02, "error": False}
     assert tool_output["decision"] == "once"
-    assert tool_output["result_status"] == "written"
+    assert tool_output["result_status"] == "approved_unverified"
     assert {"type": "fact", "id": "fact:real_empty_output"} in tool_output["write_effect"]["objects"]
 
 
@@ -223,7 +227,9 @@ def test_chat_write_post_disables_mcp_tools_for_prose_generation(store, monkeypa
 
     monkeypatch.setattr(A, "_responses_events", fake_events)
     r = _client(store).post("/chat/write", json={
-        "msg": "直接写本章完整正文", "chapter": 2, "phase": "final",
+        # 作者在实际「草稿」工作台提出明确动稿请求时，也已经拥有统一上下文。
+        # 不得仅因还未点到 final 就重新挂 MCP 进入无界工具循环。
+        "msg": "直接写本章完整正文", "chapter": 2, "phase": "draft",
     })
 
     assert r.status_code == 200

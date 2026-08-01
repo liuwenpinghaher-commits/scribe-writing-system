@@ -41,6 +41,33 @@ export function collectPendingRunIds(messages, activeRunIds = new Set()) {
   return ids
 }
 
+/**
+ * 将服务端审计链中的待审批 Run 重建为可渲染的消息卡。
+ * 刷新后的 React/localStorage 可能没有旧气泡，不能再反向依赖它找 run_id。
+ */
+export function recoverPendingApprovalMessages(messages, pendingRuns) {
+  let next = messages || []
+  for (const pending of pendingRuns || []) {
+    const runId = pending?.run_id
+    const approvalId = pending?.approval_id
+    if (!runId || !approvalId) continue
+    const approval = { ...pending, run_id: runId, status: pending.status || 'pending' }
+    const key = approvalKey(approval)
+    const hit = next.findIndex((msg) =>
+      msg.run_id === runId || (msg.approvals || []).some((item) => approvalKey(item) === key))
+    if (hit < 0) {
+      next = [...next, { role: 'assistant', content: '', run_id: runId, approvals: [approval] }]
+      continue
+    }
+    const current = next[hit]
+    if ((current.approvals || []).some((item) => approvalKey(item) === key)) continue
+    next = next.map((msg, index) => index === hit
+      ? { ...msg, run_id: msg.run_id || runId, approvals: [...(msg.approvals || []), approval] }
+      : msg)
+  }
+  return next
+}
+
 export function patchRunMessage(messages, runId, updater) {
   if (!runId) return messages
   let changed = false
@@ -104,9 +131,26 @@ export function upsertApprovalInMessages(messages, runId, approval) {
   })
 }
 
-export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef }) {
+export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef, pendingApprovalScope = null }) {
   const streamsRef = useRef(new Map())
   const closedRef = useRef(new Set())
+  const recoveredScopesRef = useRef(new Set())
+  const recoveryWork = api.getWork()
+  const recoveryScopeKey = `${recoveryWork}|${pendingApprovalScope?.chapter ?? ''}|${pendingApprovalScope?.phase ?? ''}`
+
+  // 审计链是刷新恢复的权威：初始 msgs 为空时先发现 pending run，再由下方 effect
+  // 拉 trace/SSE 续接。失败会释放 key，避免短暂网络错误永久吞掉作者审批入口。
+  useEffect(() => {
+    if (typeof api.aiRunPendingApproval !== 'function' || recoveredScopesRef.current.has(recoveryScopeKey)) return undefined
+    recoveredScopesRef.current.add(recoveryScopeKey)
+    let cancelled = false
+    api.aiRunPendingApproval(pendingApprovalScope || {})
+      .then((payload) => {
+        if (!cancelled) setMsgs((items) => recoverPendingApprovalMessages(items, payload?.runs || []))
+      })
+      .catch(() => { recoveredScopesRef.current.delete(recoveryScopeKey) })
+    return () => { cancelled = true }
+  }, [recoveryScopeKey, pendingApprovalScope, setMsgs])
 
   useEffect(() => {
     const active = activeRunIdsRef?.current || new Set()

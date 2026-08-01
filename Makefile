@@ -1,4 +1,4 @@
-.PHONY: e2e-det e2e-frontend e2e-real e2e-craft-gates test-mcp test-web-readonly test-baseline test-author-paths test-craft
+.PHONY: e2e-det e2e-frontend e2e-real e2e-quality-real e2e-craft-gates test-mcp test-web-readonly test-baseline test-author-paths test-craft
 
 test-mcp:           ## MCP 写门控/假绿回归(PR 最低)
 	scribe3/.venv/bin/python -m pytest scribe3/tests/test_mcp.py -q
@@ -27,6 +27,9 @@ e2e-frontend:       ## 前端 L2 冒烟:独立临时后端(不碰生产,进 CI)
 
 e2e-real:           ## 真调档:仅 Hermes 连通冒烟 full_journey(≠质量验收)
 	scripts/e2e_real.sh
+
+e2e-quality-real:   ## 本机真调:参考→合同→正文→十维三轴→作者裁决(非 CI mock)
+	cd scribe3/web && node e2e/quality_reference_author_journey.mjs
 
 e2e-craft-gates:    ## 反面书必须红(卫生轨对照);需本机 work 或默认 book_b4e72480
 	scribe3/.venv/bin/python -m scribe3.tools.craft_gate_cli --work book_b4e72480 --expect-fail

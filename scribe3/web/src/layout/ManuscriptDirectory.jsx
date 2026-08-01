@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { ConfirmDialog } from '../ui/Dialog'
 import { showToast } from '../ui/Toast'
@@ -224,7 +224,31 @@ function ArchiveBox({ onSelectItem, onArchivedChanged }) {
 
 export function ManuscriptDirectory({ entry, sel, seq, onSelectItem, onCreateChapter, onAddVolume, onArchivedChanged }) {
   const root = entry?.source || entry
-  const rows = collectRows(root)
+  const [liveChapters, setLiveChapters] = useState([])
+  useEffect(() => {
+    let alive = true
+    api.chapters()
+      .then((chapters) => { if (alive) setLiveChapters(Array.isArray(chapters) ? chapters : []) })
+      .catch(() => { if (alive) setLiveChapters([]) })
+    return () => { alive = false }
+  }, [root?.id])
+  // 项目树是进入作品时的结构快照；主编经 MCP 新增章节不会同步改这棵对象树。
+  // 以正典章节清单补齐未出现在快照中的章，确保作者无需刷新/重开作品就能继续写作。
+  const rows = useMemo(() => {
+    const base = collectRows(root)
+    const known = new Set(base.filter((row) => row.kind === 'chapter').map((row) => String(row.node.ref)))
+    for (const chapter of liveChapters) {
+      const chapterSeq = Number(chapter?.seq)
+      if (!Number.isFinite(chapterSeq) || known.has(String(chapterSeq))) continue
+      const title = String(chapter?.title || '').trim()
+      base.push({
+        kind: 'chapter', depth: 0, volume: null,
+        node: { id: `ch:${chapterSeq}`, type: 'chapter', ref: chapterSeq,
+          label: title ? `第 ${chapterSeq} 章 ${title}` : `第 ${chapterSeq} 章`, phase: 'outline' },
+      })
+    }
+    return base.sort((a, b) => Number(a.node.ref || 0) - Number(b.node.ref || 0))
+  }, [root, liveChapters])
   const currentSeq = currentSeqOf(sel, seq)
   const currentVolume = currentVolumeOf(sel, rows)
   const chapterTotal = rows.filter((r) => r.kind === 'chapter').length

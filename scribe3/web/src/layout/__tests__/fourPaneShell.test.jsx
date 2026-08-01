@@ -25,6 +25,9 @@ const apiMock = vi.hoisted(() => ({
   ignoreUnverified: vi.fn(() => Promise.resolve({ ok: true })),
   ignoreAllUnverified: vi.fn(() => Promise.resolve({ ignored: 0 })),
   createChapter: vi.fn(() => Promise.resolve({ status: 'created', seq: 8, title: '第8章', volume: null })),
+  // ManuscriptDirectory 挂载时回读当前作品的正典章节；空清单代表
+  // 项目树快照已覆盖本夹具中的卷章，避免把外部 HTTP 留在组件测试中。
+  chapters: vi.fn(() => Promise.resolve([])),
 }))
 
 vi.mock('../../DetailPane', () => ({
@@ -166,6 +169,7 @@ describe('FourPaneShell 四栏钻取', () => {
     apiMock.chapter.mockResolvedValue({ title: '第七章', scene_truth: '', deductions: [], involved_characters: [] })
     apiMock.entities.mockResolvedValue([])
     apiMock.createChapter.mockResolvedValue({ status: 'created', seq: 8, title: '第8章', volume: null })
+    apiMock.chapters.mockResolvedValue([])
   })
 
   it('入口只切换栏2目录,目录条目才切换栏3详情,且栏2常驻', () => {

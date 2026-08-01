@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { useEffect } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChiefDock } from '../ChiefDock'
 import { ChiefSlotProvider, useChiefSlot } from '../ChiefSlotContext'
 
@@ -45,10 +45,16 @@ function PhaseSetter({ phase }) {
   return null
 }
 
+function ProposalProbe() {
+  const { stageProposal } = useChiefSlot()
+  return <output data-testid="stage-proposal-probe">{stageProposal?.content || ''}</output>
+}
+
 function Harness({ phase = 'outline' }) {
   return (
     <ChiefSlotProvider>
       <PhaseSetter phase={phase} />
+      <ProposalProbe />
       <ChiefDock
         chapterSel
         lastSeq={7}
@@ -143,6 +149,27 @@ describe('ChiefDock UI', () => {
     expect(await screen.findByText('已批准')).toBeTruthy()
   })
 
+  it('同一审批在界面状态尚未刷新时只能提交一次', async () => {
+    let resolveApproval
+    apiMock.runWrite.mockImplementation((_msg, opts) => {
+      opts.onRun?.({ run_id: 'run_dedupe' })
+      opts.onApproval?.({ run_id: 'run_dedupe', approval_id: 'ap_dedupe', message: '允许写入一次?' })
+      return { abort: vi.fn(), close: vi.fn() }
+    })
+    apiMock.aiRunApproval.mockImplementation(() => new Promise((resolve) => { resolveApproval = resolve }))
+    render(<Harness phase="outline" />)
+
+    fireEvent.change(screen.getByPlaceholderText(/就当前内容问主编/), { target: { value: '请新增角色且只写入一次' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    const approve = await screen.findByRole('button', { name: '批准' })
+    fireEvent.click(approve)
+    fireEvent.click(approve)
+
+    expect(apiMock.aiRunApproval).toHaveBeenCalledTimes(1)
+    resolveApproval({ status: 'resumed' })
+    expect(await screen.findByText('已批准')).toBeTruthy()
+  })
+
   it('刷新后恢复非正文阶段未决 Hermes approval 并重连事件流', async () => {
     let recoveredHandlers = null
     apiMock.runWrite.mockImplementation((_msg, opts) => {
@@ -187,7 +214,7 @@ describe('ChiefDock UI', () => {
     expect(await screen.findByText('已批准')).toBeTruthy()
   })
 
-  it('非正文阶段明确登记世界状态时走 Hermes Runs', async () => {
+  it('章节内明确登记世界状态时走作品级 Hermes Run，不能误绑未知章节阶段', async () => {
     render(<Harness phase="outline" />)
 
     const input = await screen.findByPlaceholderText(/就当前内容问主编/)
@@ -199,7 +226,7 @@ describe('ChiefDock UI', () => {
     expect(apiMock.runWrite.mock.calls[0][0]).toContain('请新增角色')
     expect(apiMock.runWrite.mock.calls[0][1]).toMatchObject({
       chapter: 7,
-      phase: 'plan',
+      phase: '',
     })
   })
 
@@ -218,6 +245,28 @@ describe('ChiefDock UI', () => {
 
     expect(await screen.findByText(/正文/)).toBeTruthy()
     expect(screen.getByText('get_chapter')).toBeTruthy()
+  })
+
+  it('草稿流已收到正文后停止，仍把可恢复片段发布回草稿阶段', async () => {
+    let handlers
+    const abort = vi.fn()
+    apiMock.chatWrite.mockImplementation((_msg, opts) => {
+      handlers = opts
+      return { abort }
+    })
+    render(<Harness phase="draft" />)
+
+    const input = await screen.findByPlaceholderText(/就当前内容问主编/)
+    fireEvent.change(input, { target: { value: '据大纲写草稿' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(apiMock.chatWrite).toHaveBeenCalled())
+
+    await act(async () => { handlers.onDelta?.('一段尚未完成的草稿') })
+    await waitFor(() => expect(screen.getByRole('button', { name: '停止生成' })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '停止生成' }))
+
+    expect(abort).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('stage-proposal-probe').textContent).toBe('一段尚未完成的草稿')
   })
 
   it('头部分渠道显示官方直连与 trace token且明确可能重叠', async () => {

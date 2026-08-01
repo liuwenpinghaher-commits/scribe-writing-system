@@ -2003,6 +2003,186 @@ def test_apply_schema_normal_migrations_unaffected(store):
     assert "056_injection_mode" in ids, "真迁移应已全部标记"
 
 
+def test_apply_schema_concurrent_initializers_share_one_migration_record(store, tmp_path):
+    """API 与独立 MCP 同时首次打开同一作品时，迁移记录不能发生唯一键竞态。"""
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from uuid import uuid4
+
+    from scribe3.store import SurrealStore
+
+    (tmp_path / "001_schema_race.surql").write_text(
+        "DEFINE TABLE IF NOT EXISTS _schema_race_probe SCHEMALESS;", encoding="utf-8")
+    work = f"schema_race_{uuid4().hex}"
+    stores = [SurrealStore(url=store.url, ns="scribe3", db=work) for _ in range(2)]
+    barrier = Barrier(2)
+    originals = [target._raw_query for target in stores]
+
+    def synchronized_raw_query(original):
+        waited_for_initial_schema = False
+
+        def wrapped(surql, vars=None):
+            nonlocal waited_for_initial_schema
+            if (not waited_for_initial_schema
+                    and surql.startswith("DEFINE TABLE IF NOT EXISTS _migration")):
+                waited_for_initial_schema = True
+                barrier.wait(timeout=5)
+            return original(surql, vars)
+        return wrapped
+
+    for target, original in zip(stores, originals):
+        target._raw_query = synchronized_raw_query(original)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(target.apply_schema, str(tmp_path)) for target in stores]
+            for future in futures:
+                future.result(timeout=15)
+        rows = stores[0]._query(
+            "SELECT meta::id(id) AS id FROM _migration WHERE meta::id(id)='001_schema_race'"
+        )
+        assert rows == [{"id": "001_schema_race"}]
+    finally:
+        for target in stores:
+            target.close()
+
+
+def test_late_approval_resolution_backfills_completed_write_trace(store):
+    """工具完成先于批准 HTTP 回写时，审计仍必须证明该 MCP 写入已获批准。"""
+    run_id = "run_late_approval_trace"
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_late", "name": "s3_add_character",
+        "arguments": '{"oid":"role:许棹"}',
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_late", "approval_id": "ap_late",
+        "message": "批准写入?新增角色 role:许棹=许棹",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.output", "call_id": "call_late", "tool_name": "s3_add_character",
+        "output": "",
+    })
+
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.resolved", "call_id": "call_late", "approval_id": "ap_late",
+        "choice": "once",
+    })
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["tool_calls"][0]["result_status"] == "written"
+    assert trace["tool_outputs"][0]["decision"] == "once"
+    assert trace["tool_outputs"][0]["result_status"] == "written"
+
+
+def test_approved_write_without_tool_output_stays_unverified(store):
+    """审批成功不是落库成功：网关未给 MCP 返回值时审计不得假报 written。"""
+    run_id = "run_approved_without_tool_output"
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_no_output",
+        "name": "s3_add_character_relation",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_no_output", "approval_id": "ap_no_output",
+        "message": "批准写入?添加角色关系 role:甲→role:乙 [ally](章1)",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.output", "call_id": "call_no_output",
+        "tool_name": "s3_add_character_relation", "output": "", "output_available": False,
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.resolved", "call_id": "call_no_output", "approval_id": "ap_no_output",
+        "choice": "once",
+    })
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["tool_calls"][0]["result_status"] == "approved_unverified"
+    assert trace["tool_outputs"][0]["result_status"] == "approved_unverified"
+
+
+def test_completed_run_fails_closed_for_unresolved_write_approval(store):
+    """Run 结束时未决的正典写审批必须明确归档为未写入，不能留下假成功空洞。"""
+    run_id = "run_expired_approval_trace"
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_expired", "name": "s3_add_character",
+        "arguments": '{"oid":"role:未决"}',
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_expired", "approval_id": "ap_expired",
+        "message": "批准写入?新增角色 role:未决=未决",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.output", "call_id": "call_expired", "tool_name": "s3_add_character",
+        "output": "",
+    })
+    store.append_ai_run_trace_event(run_id, {"kind": "run.completed"})
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["status"] == "completed"
+    assert trace["tool_calls"][0]["result_status"] == "declined"
+    assert trace["tool_outputs"][0]["decision"] == "timeout"
+    assert trace["tool_outputs"][0]["result_status"] == "declined"
+    assert trace["approvals"][-1]["status"] == "expired"
+
+
+def test_late_approval_after_completed_run_reconciles_timeout_trace(store):
+    """网关终态先抵达时，稍后真实批准必须覆盖临时超时判定。"""
+    run_id = "run_completed_before_approval"
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_late_terminal", "name": "s3_add_character",
+        "arguments": '{"oid":"role:迟到批准"}',
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_late_terminal",
+        "approval_id": "ap_late_terminal", "message": "批准写入?新增角色 role:迟到批准=迟到批准",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.output", "call_id": "call_late_terminal", "tool_name": "s3_add_character",
+        "output": "",
+    })
+    store.append_ai_run_trace_event(run_id, {"kind": "run.completed"})
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.resolved", "call_id": "call_late_terminal",
+        "approval_id": "ap_late_terminal", "choice": "once",
+    })
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["tool_calls"][0]["result_status"] == "written"
+    assert trace["tool_outputs"][0]["decision"] == "once"
+    assert trace["tool_outputs"][0]["result_status"] == "written"
+    assert trace["approvals"][-1]["status"] == "resolved"
+
+
+def test_completed_run_does_not_expire_an_already_resolved_approval(store):
+    """审批已决后才来的 run.completed 不能倒灌成 timeout。"""
+    run_id = "run_approved_before_completed"
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.started", "call_id": "call_approved", "name": "s3_add_character",
+        "arguments": '{"oid":"role:已批准"}',
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.requested", "call_id": "call_approved",
+        "approval_id": "ap_approved", "message": "批准写入?新增角色 role:已批准=已批准",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "approval.resolved", "call_id": "call_approved",
+        "approval_id": "ap_approved", "choice": "once",
+    })
+    store.append_ai_run_trace_event(run_id, {
+        "kind": "tool.output", "call_id": "call_approved", "tool_name": "s3_add_character",
+        "output": "",
+    })
+    store.append_ai_run_trace_event(run_id, {"kind": "run.completed"})
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["tool_outputs"][0]["decision"] == "once"
+    assert trace["tool_outputs"][0]["result_status"] == "written"
+    assert not any(row.get("status") == "expired" for row in trace["approvals"])
+
+
 def test_set_intent_merge_preserves_unpassed_fields(store):
     """P2-12: 只 set reader_feeling 不传 emotional_arc → emotional_arc 保留(MERGE 非整替)。"""
     store.set_intent({"reader_feeling": "压抑见微光", "emotional_arc": "由怯到决",

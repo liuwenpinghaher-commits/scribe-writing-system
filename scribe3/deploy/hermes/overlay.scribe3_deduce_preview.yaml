@@ -1,0 +1,14 @@
+# 演绎预览是写入前的事实对齐输入：只读网关独占端口，物理上不加载任何写工具。
+platform_toolsets:
+  api_server:
+    - scribe3_deduce_read
+# TokenPlan/Qwen 首次读取 MCP schema 会超过 Hermes 的默认发现窗口；超时后模型
+# 只能把“调用工具”的意图写成普通文本，阶段审计会正确拒绝但预览无法生成。
+mcp_discovery_timeout: 10.0
+agent:
+  # 预览虽物理只读，也必须实查正典，禁止凭空给出“已核实”的演绎。
+  tool_use_enforcement: true
+platforms:
+  api_server:
+    port: 8646
+    host: 127.0.0.1

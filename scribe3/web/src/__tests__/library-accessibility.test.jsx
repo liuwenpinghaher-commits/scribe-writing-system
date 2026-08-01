@@ -28,6 +28,22 @@ describe('Library 作品卡可访问性与状态', () => {
     expect(open.contains(remove)).toBe(false)
   })
 
+  it('exposes the immutable work slug on an open-work control so duplicate titles remain distinguishable', () => {
+    render(<Library works={[
+      { slug: 'book-a', title: '同名验收书' },
+      { slug: 'book-b', title: '同名验收书' },
+    ]} reload={() => Promise.resolve()} onSelect={() => {}} />)
+
+    const openButtons = screen.getAllByRole('button', { name: /打开同名验收书/ })
+    expect(openButtons.map((button) => button.getAttribute('data-work-slug'))).toEqual(['book-a', 'book-b'])
+  })
+
+  it('cold-library cards disclose that statistics load after opening instead of claiming zero words', () => {
+    render(<Library works={[{ slug: 'book-a', title: '待载入书', stats_pending: true }]} reload={() => Promise.resolve()} onSelect={() => {}} />)
+    expect(screen.getByText('统计将在打开后加载')).toBeTruthy()
+    expect(screen.queryByText(/0 章 · 0 字/)).toBeNull()
+  })
+
   it('作品库加载失败显示真实错误并可重试', async () => {
     const reload = vi.fn()
       .mockRejectedValueOnce(new Error('works down'))

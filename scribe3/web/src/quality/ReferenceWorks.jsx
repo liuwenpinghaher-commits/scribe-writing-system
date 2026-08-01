@@ -7,13 +7,26 @@ import { AsyncState } from '../ui/AsyncState.jsx'
 const STATUS_LABEL = { imported: '已导入', pending_review: '待审', approved: '已批准' }
 const STATUS_TONE = { imported: 'faint', pending_review: 'brand', approved: 'ok' }
 
-function FingerprintCard({ fp, work, onApproved }) {
+function FingerprintCard({ fp, work, onApproved, canApprove }) {
   const [approving, setApproving] = useState(false)
+  const [corrections, setCorrections] = useState(() => JSON.stringify(fp.fingerprint || {}, null, 2))
+  const [error, setError] = useState('')
   const approve = async () => {
-    setApproving(true)
+    let parsed
     try {
-      await api.referenceApproveFingerprint(fp.reference_work_id, { work, fingerprint_id: fp.fingerprint_id })
+      parsed = JSON.parse(corrections)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('校订内容必须是 JSON 对象')
+    } catch (err) {
+      setError(err?.message || '指纹校订不是有效 JSON')
+      return
+    }
+    setApproving(true)
+    setError('')
+    try {
+      await api.referenceApproveFingerprint(fp.reference_work_id, fp.fingerprint_id, { work, corrections: parsed })
       onApproved?.()
+    } catch (err) {
+      setError(err?.message || '指纹批准失败')
     } finally {
       setApproving(false)
     }
@@ -31,8 +44,20 @@ function FingerprintCard({ fp, work, onApproved }) {
       {Array.isArray(data.transferable_mechanisms) && data.transferable_mechanisms.length > 0 && (
         <div className="text-meta text-faint" data-field-path="fingerprint.transferable">可迁移:{data.transferable_mechanisms.join('、')}</div>
       )}
-      {fp.status !== 'approved' && (
-        <div className="pt-1">
+      {canApprove && (
+        <div className="pt-1 space-y-2">
+          <label className="grid gap-1 text-meta text-faint">
+            <span>指纹校订</span>
+            <Textarea
+              variant="bordered"
+              aria-label="指纹校订"
+              data-field-path="fingerprint.corrections"
+              value={corrections}
+              onChange={(event) => setCorrections(event.target.value)}
+              rows={6}
+            />
+          </label>
+          {error && <div role="alert" className="text-meta text-danger">{error}</div>}
           <Btn variant="soft" size="xs" onClick={approve} disabled={approving} aria-label="批准指纹">
             {approving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}批准
           </Btn>
@@ -45,6 +70,7 @@ function FingerprintCard({ fp, work, onApproved }) {
 function ReferenceCard({ reference: r, work, onChanged }) {
   const [fingerprints, setFingerprints] = useState(null)
   const [err, setErr] = useState('')
+  const [generating, setGenerating] = useState(false)
   const load = useCallback(() => {
     setErr('')
     api.referenceFingerprints(r.reference_work_id)
@@ -53,8 +79,28 @@ function ReferenceCard({ reference: r, work, onChanged }) {
   }, [r.reference_work_id])
   useEffect(() => { load() }, [load])
 
+  const latestApprovedRevision = fingerprints
+    ? Math.max(-1, ...fingerprints
+      .filter((fp) => fp.status === 'approved')
+      .map((fp) => Number(fp.revision) || 0))
+    : -1
+
+  const generate = async () => {
+    setGenerating(true)
+    setErr('')
+    try {
+      await api.referenceGenerateFingerprint(r.reference_work_id, { work })
+      load()
+      onChanged?.()
+    } catch (e) {
+      setErr(e?.message || '指纹生成失败')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
-    <Card className="p-3.5 space-y-2.5">
+    <Card className="p-3.5 space-y-2.5" data-testid={`reference-card-${r.reference_work_id}`}>
       <div className="flex items-center gap-2">
         <Archive size={14} className="text-faint shrink-0" />
         <span className="text-f14 font-semibold text-ink" data-field-path="reference.title">{r.title}</span>
@@ -64,11 +110,25 @@ function ReferenceCard({ reference: r, work, onChanged }) {
       {fingerprints && fingerprints.length > 0 && (
         <div className="space-y-2">
           {fingerprints.map((fp) => (
-            <FingerprintCard key={fp.fingerprint_id + ':' + fp.revision} fp={fp} work={work} onApproved={() => { load(); onChanged?.() }} />
+            <FingerprintCard
+              key={fp.fingerprint_id + ':' + fp.revision}
+              fp={fp}
+              work={work}
+              canApprove={fp.status !== 'approved' && (Number(fp.revision) || 0) > latestApprovedRevision}
+              onApproved={() => { load(); onChanged?.() }}
+            />
           ))}
         </div>
       )}
-      {fingerprints && fingerprints.length === 0 && <Empty>尚无指纹,可在评价时生成。</Empty>}
+      {fingerprints && fingerprints.length === 0 && (
+        <div className="flex items-center gap-2">
+          <Empty>尚无指纹。先分析这部作品的可迁移技法，再由作者批准。</Empty>
+          <Btn variant="soft" size="xs" onClick={generate} disabled={generating} aria-label="生成指纹">
+            {generating ? <Loader2 size={12} className="animate-spin" /> : <Fingerprint size={12} />}
+            {generating ? '分析中…' : '生成指纹'}
+          </Btn>
+        </div>
+      )}
     </Card>
   )
 }
@@ -80,6 +140,23 @@ export function ReferenceWorks({ work, initialReferences = null }) {
   const [importing, setImporting] = useState(false)
   const [importErr, setImportErr] = useState('')
   const titleRef = useRef(null)
+
+  useEffect(() => {
+    let active = true
+    if (initialReferences !== null) {
+      setRefs(initialReferences)
+      return () => { active = false }
+    }
+    setRefs(null)
+    api.referenceWorks()
+      .then((records) => { if (active) setRefs(records) })
+      .catch((e) => {
+        if (!active) return
+        setImportErr(e?.message || '参考作品加载失败')
+        setRefs([])
+      })
+    return () => { active = false }
+  }, [work, initialReferences])
 
   const doImport = async () => {
     if (!title.trim() || !text.trim()) return

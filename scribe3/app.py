@@ -15,5 +15,10 @@ import sys
 
 from scribe3.api import app_impl as _impl
 
-# 关键模块身份 → 测试与生产共用同一 globals
-sys.modules[__name__] = _impl
+if __name__ == "__main__":
+    # `python -m scribe3.app` 是公开的后端启动约定。模块别名本身不会触发
+    # app_impl 的 `if __name__ == "__main__"`，因此必须显式委托入口。
+    _impl.main()
+else:
+    # 关键模块身份 → 测试与生产共用同一 globals
+    sys.modules[__name__] = _impl

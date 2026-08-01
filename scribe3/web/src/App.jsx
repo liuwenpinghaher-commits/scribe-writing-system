@@ -6,6 +6,19 @@ import { BinderLayout } from './BinderLayout'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 
+const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
+
+function readActiveWorkSlug() {
+  try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
+}
+
+function writeActiveWorkSlug(slug) {
+  try {
+    if (slug) localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, slug)
+    else localStorage.removeItem(ACTIVE_WORK_STORAGE_KEY)
+  } catch { /* localStorage 不可用时维持本次会话，不伪造恢复成功 */ }
+}
+
 // 顶层编排:AppRail(字标/书切换/横切视图tab/主题)+ (作品库 | 混合 Binder 项目树)。
 // F-06:5 平行 Rail 视图 → 左侧统一项目树(BinderLayout)+ 横切走顶栏 tab。
 export default function App() {
@@ -52,11 +65,22 @@ export default function App() {
 
   useEffect(() => { if (cur) api.setWork(cur.slug) }, [cur])
 
-  const reload = async () => setWorks(await api.works())
+  const reload = async () => {
+    const nextWorks = await api.works()
+    setWorks(nextWorks)
+    setCur((current) => {
+      if (current) return nextWorks.find((work) => work.slug === current.slug) || null
+      const savedSlug = readActiveWorkSlug()
+      const restored = nextWorks.find((work) => work.slug === savedSlug) || null
+      if (!restored && savedSlug) writeActiveWorkSlug('')
+      return restored
+    })
+    return nextWorks
+  }
   useEffect(() => { reload() }, [])
 
-  const open = (w) => { api.setWork(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
-  const openLibrary = () => setCur(null)
+  const open = (w) => { api.setWork(w.slug); writeActiveWorkSlug(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
+  const openLibrary = () => { writeActiveWorkSlug(''); setCur(null) }
 
   // 顶栏横切 tab:切到对应横切视图(中间栏换成图谱/时间线/仪表盘…)
   const onView = (viewKey) => setSel({ mode: 'view', viewKey })

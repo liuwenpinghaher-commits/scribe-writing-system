@@ -39,7 +39,7 @@ function UsageCard({ usage }) {
     <div className="mb-4 rounded-md border border-line bg-surface/60 p-3">
       {officialQwen && (
         <div className="mb-2 flex items-center justify-between gap-3 text-f13 text-ink">
-          <span>官方 Qwen · {providerModel} · 直连</span>
+          <span>阿里云 TokenPlan · Qwen 兼容 · {providerModel} · 直连</span>
           <span className={provider.key_present === true ? 'text-meta text-muted' : 'text-meta text-red-500'}>
             {provider.key_present === true ? '密钥记录存在（未验证）' : '未保存密钥'}
           </span>

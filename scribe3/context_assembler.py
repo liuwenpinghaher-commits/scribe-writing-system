@@ -74,6 +74,24 @@ _HEADERS: dict[str, str] = {
     "provenance": "## 溯源清单(来源 id·修订·时态·选中理由)",
 }
 
+
+def _author_preference_constraint(text: str) -> str:
+    """把已检索的显式作者写作偏好编译成生成期可执行约束。
+
+    记忆检索证明“系统看见了”，但普通资料式的一行不足以保证模型把偏好落实到正文。
+    仅提升带明确偏好标签的条目；剧情事实、一般教训仍保持原有 procedural 渲染，避免
+    把所有旧记忆误当硬约束。这里不要求复读原句，而要求在本次正文中呈现可审查的动作
+    或因果结果，作者仍可在后续质量裁决中否决。
+    """
+    cleaned = (text or "").strip()
+    if "作者偏好" not in cleaned and "写作偏好" not in cleaned:
+        return f"- {cleaned}"
+    return (
+        "- 【作者已确认的本书写作偏好｜本次正文必须执行】" + cleaned + "\n"
+        "  这是生成约束，不向读者解释来源，也不要机械复读原句；"
+        "须将其落实为可观察的动作或因果，并在本次正文中实际发生。"
+    )
+
 # 参考块的固定免责前缀:素材是"借鉴非事实",任何相位都必须带此边界(计划 Step 3)。
 _REFERENCE_DISCLAIMER = "(以下为可借鉴的参考素材,借鉴非照搬,更不得当作故事内事实)"
 
@@ -701,7 +719,7 @@ class ContextAssembler:
         U-011(2026-07-15,作者要 fail-loud):降级分支内部包 list_craft_rules 的
         裸 except:pass 已删——查询失败必须抛,不能悄悄假装"没有工艺规则"。"""
         if cands:
-            return [_Item(f"- {c.text}", ContextSource(
+            return [_Item(_author_preference_constraint(c.text), ContextSource(
                 source_id=c.source_id, source_kind="procedural", work=snapshot.work))
                 for c in cands]
         out: list[_Item] = []

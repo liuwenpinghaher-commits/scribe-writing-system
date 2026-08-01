@@ -16,6 +16,7 @@ import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
 import { ReferenceWorks } from './quality/ReferenceWorks'
 import { QualityReview } from './quality/QualityReview'
+import { QualityContractEditor } from './quality/QualityContractEditor'
 import { emptyDetailCopy } from './layout/entrySelection'
 
 // 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
@@ -62,7 +63,7 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq }) {
   // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
@@ -105,7 +106,10 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
   // 无真实 recheck 实现时不传 handler，IssueDetail 不渲染假「重新检查」按钮
   if (node.type === 'review_issue') return <ReviewIssueDetail key={node.id} node={node} onLocate={onNavigateToObject || onSelectNode} />
   if (node.type === 'references') return <ReferenceWorks key={node.id} work={work} />
-  if (node.type === 'quality_review') return <QualityReview key={node.id} work={work} seq={node.ref?.seq ?? node.meta?.seq} onLocateEvidence={onNavigateToObject} />
+  // 质量工作台是作品级入口，目录节点本身不带 seq；沿用本书最近一次明确选择的
+  // 章节，让作者从手稿切到质量审阅时不必重复输入章节号。
+  if (node.type === 'quality_review') return <QualityReview key={node.id} work={work} seq={node.ref?.seq ?? node.meta?.seq ?? qualitySeq} onLocateEvidence={onNavigateToObject} />
+  if (node.type === 'quality_contract') return <QualityContractEditor key={node.id} work={work} />
 
   // —— 章 / 场景 → 章工作台(四阶段 tab:大纲/节拍/草稿/正文;正文复用 WriteLayout)——
   // 场景:正文是单一编辑器 blob,无场景级 DOM 锚点,暂无法滚到具体场景;

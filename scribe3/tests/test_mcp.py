@@ -17,6 +17,7 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批)
                           "s3_set_intent",         # G-001:书级北极星
                           "s3_patch_character",    # G-004:角色更正
+                          "s3_patch_codex",        # 注册表驱动的完整设定更正
                           "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
                           "s3_craft_rule_remove", "s3_add_character_relation",
                           "s3_add_world_rule", "s3_patch_world_rule", "s3_add_faction",
@@ -42,6 +43,7 @@ EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状�
 EXPECTED_WRITE_UNGATED_WORLD = {"s3_ingest_chapter"}  # 世界知识态客观回写(读定稿抽),不待批
 EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_dramatic_irony", "s3_semantic_recall", "s3_get_chapter", "s3_qc_chapter",
+                 "s3_list_chapters", "s3_list_volumes",
                  "s3_list_promises", "s3_promise_timeline", "s3_discipline_check", "s3_list_motifs",
                  "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",
                  "s3_list_entity_relations",
@@ -114,6 +116,20 @@ def test_read_tool_find_leaks(store):
     M.set_store(store)
     leaks = M.s3_find_leaks("皂衣道士冷笑:够你给老娘治眼了。", "role:老道", 1)
     assert any(l["fact_id"] == "fact:治眼" for l in leaks)
+
+
+def test_structure_read_tools_return_jsonable_chapters_and_volumes(store):
+    store.add_volume("卷一", sort_order=1)
+    store.create_chapter(title="第一章")
+    M.set_store(store)
+
+    chapters = M.s3_list_chapters()
+    volumes = M.s3_list_volumes()
+
+    assert chapters[0]["seq"] == 1
+    assert chapters[0]["title"] == "第一章"
+    assert volumes[0]["title"] == "卷一"
+    json.dumps({"chapters": chapters, "volumes": volumes}, ensure_ascii=False)
 
 
 def test_emotion_palette_list_and_query():

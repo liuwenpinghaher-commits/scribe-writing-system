@@ -41,6 +41,8 @@ scribe3_read:
       - s3_dramatic_irony
       - s3_list_promises
       - s3_list_motifs
+      - s3_list_chapters
+      - s3_list_volumes
       - s3_get_chapter
       - s3_qc_chapter
       - s3_recent_phrases
@@ -62,6 +64,7 @@ scribe3_write:
       - s3_author_pref_add
       - s3_add_character
       - s3_patch_character
+      - s3_patch_codex
       - s3_add_fact
       - s3_add_event
       - s3_add_character_relation
@@ -109,5 +112,26 @@ scribe3_write:
       - s3_patch_world_rule
       - s3_patch_promise
       - s3_delete_codex
+    prompts: false
+    resources: false
+scribe3_deduce_read:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_get_chapter
+      - s3_project_frame
+      - s3_character_state
+      - s3_list_entity_relations
+      - s3_list_world_rules
+      - s3_list_promises
+    prompts: false
+    resources: false
+scribe3_deduce_write:
+  command: "{{RUN_MCP}}"
+  enabled: true
+  tools:
+    include:
+      - s3_patch_chapter_plan
     prompts: false
     resources: false

@@ -915,7 +915,8 @@ export function WriteLayout({ work, seq, sceneIdx }) {
       onProposal={(p) => {
         if (p.scope === 'selection') { setCandidates((cs) => [...cs, p.prose]); setProposal(null); setProposalStreaming(false) }
         else { setProposal(p); setProposalStreaming(false) }
-      }} />
+      }}
+      onProposalInterrupted={() => setProposalStreaming(false)} />
   )
   // 槽就绪(主编 tab)→ portal 进右栏槽;否则(非主编 tab / 槽未就绪的极短窗口)→ portal 进
   // 隐藏保活容器(display:none),不可见不遮挡、状态全保留。portal 在 container 间移动只搬

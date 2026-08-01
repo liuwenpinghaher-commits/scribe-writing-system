@@ -59,6 +59,29 @@ def parse_relation_touches(reply: str) -> list[dict]:
         return []
 
 
+def _has_persistable_event(delta: dict | None) -> bool:
+    """只把含非空 type 的条目视为事件抽取成功，避免空壳 JSON 假绿。"""
+    return any(
+        isinstance(item, dict) and str(item.get("type") or "").strip()
+        for item in ((delta or {}).get("events") or [])
+    )
+
+
+def _build_dedicated_event_extract_prompt(prose: str) -> str:
+    """混合知识抽取漏事件时的第二道真实抽取，不构造正文外事实。"""
+    return (
+        "你是专用事件抽取器。只从下列小说正文提取已明确发生、推动剧情的关键事件；"
+        "正文含有行动、冲突或选择时必须抽出 1-6 个事件，不能因为未抽知识而留空。"
+        "不得补写正文没有的情节或动机。事件按发生顺序输出。"
+        "每条给 type(≤12字)、participants({SUBJ/OBJ/WITNESS，只填具体人物姓名)、"
+        "goal(正文可支持的行动目标)、caused_by(本章更早事件的从0起序号数组；首条[])。"
+        "后续独立场景根才可 caused_by=[]，并须给 causal_root_reason。"
+        "只输出一行 JSON，格式："
+        '{"events":[{"type":"","participants":{},"goal":"","caused_by":[],"causal_root_reason":""}]}。'
+        "\n\n【正文】\n" + prose
+    )
+
+
 def _resolve_char(store, name: str, seq: int, role: str) -> str | None:
     """解析角色:已存在返回 oid;不存在则登记待确认,返回 None(不建实体、不发边)。
     替换原 _ensure_char(不验即建,致幻觉角色污染 characters())。"""
@@ -269,7 +292,12 @@ def apply_delta(store, delta: dict, seq: int,
         try:
             store.add_event(
                 Event(f"ev:d{seq}-{j}", "行动",
-                      participants=participants, story_time=seq, effects=[fid]),
+                      participants=participants, story_time=seq, effects=[fid],
+                      # did 是正文中真实发生、但由知识抽取器合成的行动；若不写动机与
+                      # 独立场景根，会被 C2 当作断裂的叙事事件。行动文本就是其可审计动机，
+                      # 同章多条 did 各自来自正文的独立事实提取，不能伪造它们之间的因果边。
+                      motivated_by_goal=action,
+                      causal_root_reason="正文抽取的独立行动事实"),
                 ingest_seq=seq)
         except Exception as _ev_e:
             # 事件落库失败时回退直写 knows,保证 did 知识不丢(non-fatal,与 events 轨同范式)
@@ -414,6 +442,10 @@ def apply_delta(store, delta: dict, seq: int,
     #   · 逐条 non-fatal 兜底,单条写库失败不阻断其余事件与整个 ingest。
     ev_specs = delta.get("events") or []
     ev_ids = [f"ev:i{seq}-{k}" for k in range(len(ev_specs))]
+    # did 合成事件先于这里落库。正文事件的第 0 条虽是“叙事抽取列表首条”，
+    # 却未必是章节事件图的首条；这时必须显式记录它作为并列主场景的根，不能让
+    # causal_complete 把两个抽取通道的合流误报为断链。
+    has_prior_chapter_events = bool(store.events_at(seq))
     # P1-5 M1:记已成功落库的事件序号——caused_by 建 causal 边前须校验被引序号确已落库,
     # 否则引用"因空 type 被跳过的幽灵事件"会 RELATE 出指向未落库事件的悬挂 causal 边。
     persisted_idx: set[int] = set()
@@ -445,8 +477,10 @@ def apply_delta(store, delta: dict, seq: int,
         root_reason = (it.get("causal_root_reason") or "").strip() or None
         # 第一事件天然是本章根；后续事件只有在没有因果入边时才保留独立场景理由，
         # 防止模型同时给出边和“另起根”造成不可解释的双重语义。
-        if causal_in or k == 0:
+        if causal_in:
             root_reason = None
+        elif k == 0 and has_prior_chapter_events:
+            root_reason = root_reason or "正文叙事主场景与已记录行动并列起始"
         try:
             store.add_event(
                 Event(ev_ids[k], etype, participants=participants, story_time=seq,
@@ -493,6 +527,17 @@ def ingest_chapter(store, seq: int, complete_fn, max_attempts: int = 3) -> dict:
             break
     if delta is None:
         return {"applied": -1, "parse_failed": True, "delta": None, "annotated": []}
+    # 混合抽取需同时承担知识、关系、弧光、伏笔等多种输出，真实模型会偶发给出
+    # 合法 JSON 但漏掉 events。事件图不能因此空白：再走一次只读正文的专用抽取；
+    # 仍为空则如实保留空图，由 C2 报 skip，绝不自行编造事件。
+    if not _has_persistable_event(delta):
+        for _ in range(max(1, max_attempts)):
+            event_delta = parse_knowledge_delta(
+                complete_fn(_build_dedicated_event_extract_prompt(ch["prose"]))
+            )
+            if event_delta is not None and _has_persistable_event(event_delta):
+                delta["events"] = event_delta["events"]
+                break
     # B22: apply_delta 前 grep 回原文核对实体事实(learned.fact/did.action),
     # 核不到就标注"原文未明确"——防 LLM 编造原文没有的实体值悄悄坐实进知识账本。
     verify = grep_back_verify(delta, ch["prose"])

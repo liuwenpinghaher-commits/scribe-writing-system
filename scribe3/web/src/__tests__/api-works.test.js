@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { api } from '../api.js'
 
 afterEach(() => {
+  vi.useRealTimers()
   api.setWork('main')
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -95,12 +96,13 @@ describe('api works 写操作 — res.ok 检查', () => {
     expect(es).toBe(instance)
     expect(instance.url).toBe('/api/ai/runs/run_1/events?work=book_a')
     instance.onmessage({ data: JSON.stringify({ approval: { run_id: 'run_1', approval_id: 'ap_1', message: '允许?' } }) })
+    expect(close).not.toHaveBeenCalled()
     instance.onmessage({ data: JSON.stringify({ approval_resolved: { run_id: 'run_1', approval_id: 'ap_1', decision: 'approve' } }) })
     instance.onmessage({ data: JSON.stringify({ done: true }) })
 
     expect(onApproval).toHaveBeenCalledWith({ run_id: 'run_1', approval_id: 'ap_1', message: '允许?' })
     expect(onApprovalResolved).toHaveBeenCalledWith({ run_id: 'run_1', approval_id: 'ap_1', decision: 'approve' })
-    expect(close).toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
     expect(onDone).toHaveBeenCalled()
   })
 
@@ -169,6 +171,53 @@ describe('api works 写操作 — res.ok 检查', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: undefined,
+    })
+  })
+
+  it('runWrite 在 SSE 漏掉终态时以后端 completed 状态收尾', async () => {
+    vi.useFakeTimers()
+    let instance = null
+    const close = vi.fn()
+    vi.stubGlobal('EventSource', class {
+      constructor(url) {
+        this.url = url
+        this.close = close
+        instance = this
+      }
+    })
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      if (url === '/api/ai/runs?work=book_a') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ run_id: 'run_42' }) })
+      }
+      if (url === '/api/ai/runs/run_42?work=book_a') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ run_id: 'run_42', status: 'completed' }) })
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+    api.setWork('book_a')
+    const onDone = vi.fn()
+
+    api.runWrite('整理设定', { onDone })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(instance.url).toBe('/api/ai/runs/run_42/events?work=book_a')
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/ai/runs/run_42?work=book_a')
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('runWrite 为章节阶段发送隔离 scope', async () => {
+    mockFetch(true, 200, { run_id: 'run_scope' })
+    api.setWork('book_a')
+    api.runWrite('写演绎', { instructions: '只写计划', chapter: 1, phase: 'deduce' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/ai/runs?work=book_a', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: '写演绎', instructions: '只写计划', run_scope: 'chapter:1:deduce',
+      }),
     })
   })
 
