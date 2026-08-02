@@ -8,13 +8,13 @@
 浏览器 → :80 nginx(frontend)
             ├─ /        SPA
             └─ /api/*   → backend:3321 → SurrealDB(surrealkv)
-                              ↓ host.docker.internal
+                              ↓ 172.18.0.1 (docker bridge)
                          Hermes :8642 / :8643 / :8644（宿主机 systemd）
 ```
 
 - 代码与 compose：`/opt/scribe3/app`
 - 数据：`/opt/scribe3/data/{surreal,settings,backups}`
-- 自动更新：GitHub Actions `deploy-lighthouse` 在 `push main` 后 SSH 到服务器执行 `deploy.sh`（**不经开发者本机**）
+- 自动更新：GitHub Actions `deploy-lighthouse` 在 `push main` 后 **checkout + scp 代码到服务器**，再 SSH 执行 `deploy.sh`（**不经开发者本机**；也不依赖服务器访问 GitHub）
 
 ## 本机 SSH 注意
 
@@ -85,9 +85,15 @@ bash /opt/scribe3/app/deploy/prod/scripts/import_data.sh /tmp/scribe3-cloud-migr
 
 ```bash
 bash /opt/scribe3/app/deploy/prod/scripts/install_hermes.sh
-# 确认 8642/8643/8644
-docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env restart backend
+# Linux 上容器访问宿主机网关：绑 Docker 网桥（非 127.0.0.1）
+# systemd drop-in 示例：Environment=API_SERVER_HOST=172.18.0.1
+# deploy/prod/.env 中 HERMES_* 指向 http://172.18.0.1:8642|8643|8644/v1
+sudo systemctl restart hermes-gateway hermes-gateway-scribe3 hermes-gateway-scribe3-write
+docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up -d backend
+curl -fsS http://127.0.0.1/api/gateway/status
 ```
+
+当前实例已验证：`default/responses/runs` 三网关 `online:true`；deduce 系列未装可忽略。
 
 ### 6. GitHub Actions 自动部署
 
@@ -101,9 +107,10 @@ docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env res
 | `DEPLOY_PORT` | 可选，默认 22 |
 | `DEPLOY_REPO_DIR` | 可选，默认 `/opt/scribe3/app` |
 
-服务器需能 `git fetch` 私有仓：给 `ubuntu` 配 read-only deploy key，或 `gh auth` / credential。
+服务器**不必**能访问 GitHub：CD 由 GitHub-hosted runner scp 代码。  
+`DEPLOY_SSH_KEY` 是 runner→服务器登录私钥（已写入仓库 Secrets）。
 
-之后每次 `git push origin main`，Actions 在云端 SSH 执行 `deploy.sh`。
+之后每次 `git push origin main`，Actions 同步代码并重建 compose。可用 Actions 页 `workflow_dispatch` 手动触发。
 
 ## 日常
 
