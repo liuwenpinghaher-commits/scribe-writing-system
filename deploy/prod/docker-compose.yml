@@ -87,6 +87,8 @@ services:
         condition: service_healthy
     ports:
       - "${SCRIBE3_HTTP_PORT:-80}:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
