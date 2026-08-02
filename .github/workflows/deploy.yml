@@ -20,36 +20,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for CI (best-effort)
-        if: github.event_name == 'push'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const sha = context.sha;
-            const deadline = Date.now() + 10 * 60 * 1000;
-            while (Date.now() < deadline) {
-              let runs = [];
-              try {
-                const { data } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
-                runs = data.check_runs || [];
-              } catch (e) {
-                core.warning('checks.listForRef unavailable: ' + e.message);
-                return;
-              }
-              const ci = runs.filter(r => r.name && !String(r.name).toLowerCase().includes('deploy'));
-              if (!ci.length) { await new Promise(r => setTimeout(r, 12000)); continue; }
-              if (ci.some(r => r.status !== 'completed')) { await new Promise(r => setTimeout(r, 12000)); continue; }
-              const failed = ci.filter(r => r.conclusion && !['success','neutral','skipped'].includes(r.conclusion));
-              if (failed.length) {
-                core.setFailed('CI failed: ' + failed.map(f => f.name+'='+f.conclusion).join(', '));
-                return;
-              }
-              return;
-            }
-            core.warning('CI wait timeout; deploying anyway');
 
       - uses: actions/checkout@v4
 
