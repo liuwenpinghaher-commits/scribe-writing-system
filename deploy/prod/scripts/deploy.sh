@@ -22,8 +22,10 @@ set -a
 source "$ENV_FILE"
 set +a
 
-echo "==> git fetch/reset $REMOTE/$BRANCH (best-effort)"
-if git remote get-url "$REMOTE" >/dev/null 2>&1; then
+if [ "${SKIP_GIT:-0}" = "1" ]; then
+  echo "==> SKIP_GIT=1，使用当前工作树（通常由 CI scp 同步）"
+elif git remote get-url "$REMOTE" >/dev/null 2>&1; then
+  echo "==> git fetch/reset $REMOTE/$BRANCH (best-effort)"
   if git fetch --prune "$REMOTE"; then
     git checkout "$BRANCH" 2>/dev/null || git checkout -B "$BRANCH"
     git reset --hard "$REMOTE/$BRANCH" || echo "warn: reset failed, continue with working tree" >&2
