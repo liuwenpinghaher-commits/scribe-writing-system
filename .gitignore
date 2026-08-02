@@ -79,3 +79,6 @@ deploy/prod/.env
 # keep env templates
 !**/.env.example
 !deploy/prod/.env.example
+
+.deploy-artifact/
+scribe3-deploy.tgz

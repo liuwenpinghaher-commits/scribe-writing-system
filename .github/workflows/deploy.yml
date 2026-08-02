@@ -26,7 +26,7 @@ jobs:
       - name: Pack deploy tree
         run: |
           set -euo pipefail
-          mkdir -p /tmp/scribe3-pack
+          mkdir -p .deploy-artifact
           # 只打包运行所需，避免 scp 整仓超时
           rsync -a \
             --exclude '.git' \
@@ -42,11 +42,11 @@ jobs:
             --exclude '.codegraph' \
             --exclude '*.zip' \
             --exclude 'Humanizer-zh-main.zip' \
-            ./ /tmp/scribe3-pack/app/
+            ./ .deploy-artifact/app/
           # 绝不上传服务器密钥
-          rm -f /tmp/scribe3-pack/app/deploy/prod/.env
-          tar -C /tmp/scribe3-pack -czf /tmp/scribe3-deploy.tgz app
-          ls -lh /tmp/scribe3-deploy.tgz
+          rm -f .deploy-artifact/app/deploy/prod/.env
+          tar -C .deploy-artifact -czf scribe3-deploy.tgz app
+          ls -lh scribe3-deploy.tgz
 
       - name: Upload tarball
         uses: appleboy/scp-action@v0.1.7
@@ -55,8 +55,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
-          source: "/tmp/scribe3-deploy.tgz"
-          target: /tmp
+          source: "scribe3-deploy.tgz"
+          target: /tmp/
           overwrite: true
 
       - name: Extract and rebuild
