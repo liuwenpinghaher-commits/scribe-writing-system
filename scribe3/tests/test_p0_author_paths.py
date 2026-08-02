@@ -1,4 +1,4 @@
-"""P0 author paths under emergency REST off: MCP structure/material + craft fail-loud + pending."""
+"""P0 author paths under emergency REST off: MCP world writes + author-owned materials."""
 from __future__ import annotations
 
 import inspect
@@ -20,7 +20,6 @@ def emergency_off(monkeypatch):
 def test_new_mcp_tools_in_write_gated():
     for name in (
         "s3_reorder_chapters", "s3_delete_volume",
-        "s3_add_material", "s3_patch_material", "s3_delete_material",
         "s3_add_motif",
     ):
         assert name in M.WRITE_GATED
@@ -66,63 +65,36 @@ def test_delete_volume_mcp_accept(store, emergency_off):
     assert any(c.get("title") == "留章" for c in store.list_chapters())
 
 
-def test_add_material_mcp_accept(store, emergency_off):
-    M.set_store(store)
-
-    def _write():
-        mid = store.add_material(
-            "密室白描", body="寒气", kind="snippet", source="《乱世》札记")
-        return {"material_id": mid, "source": "《乱世》札记"}
-
-    out = M.commit_if_approved("s3_add_material", True, _write)
-    assert out["status"] == "written"
-    mats = store.list_materials()
-    hit = next(m for m in mats if m.get("title") == "密室白描")
-    assert hit.get("source") == "《乱世》札记", "source must round-trip via add_material"
-    # REST create still gated
+def test_author_material_crud_remains_available_under_emergency_off(store, emergency_off):
+    """素材是作者非正典记忆；世界写紧急开关关闭时仍可直接新建、编辑、删除。"""
     A.set_store(store)
     client = TestClient(A.app)
-    r = client.post("/materials?work=main", json={"title": "x", "body": "y", "kind": "note"})
-    assert r.status_code == 403
+    created = client.post("/materials?work=main", json={
+        "title": "密室白描", "body": "寒气", "kind": "snippet",
+        "source": "《乱世》札记", "pinned": True,
+        "origin": "chief",  # 客户端不得伪造主编来源
+    })
+    assert created.status_code == 200, created.text
+    mid = created.json()["id"]
 
-
-def test_s3_add_material_signature_includes_source():
-    sig = inspect.signature(M.s3_add_material)
-    assert "source" in sig.parameters
-
-
-def test_patch_material_mcp_accept(store, emergency_off):
-    M.set_store(store)
-    mid = store.add_material("原题", body="旧", kind="note", source="a")
-
-    def _write():
-        if not store.update_material(mid, {"title": "新题", "body": "新文", "source": "b"}):
-            return False
-        return {"material_id": mid, "patched": ["title", "body", "source"]}
-
-    out = M.commit_if_approved("s3_patch_material", True, _write)
-    assert out["status"] == "written"
+    edited = client.patch(f"/materials/{mid}?work=main", json={
+        "title": "密室冷硬白描", "pinned": False,
+    })
+    assert edited.status_code == 200, edited.text
     row = store.get_material(mid)
-    assert row["title"] == "新题"
-    assert row.get("source") == "b"
-    A.set_store(store)
-    client = TestClient(A.app)
-    r = client.patch(f"/materials/{mid}?work=main", json={"title": "REST"})
-    assert r.status_code == 403
+    assert row["title"] == "密室冷硬白描"
+    assert row["pinned"] is False
+    assert row["origin"] == "manual"
+
+    deleted = client.delete(f"/materials/{mid}?work=main")
+    assert deleted.status_code == 200, deleted.text
+    assert store.get_material(mid) is None
 
 
-def test_delete_material_mcp_archive(store, emergency_off):
-    M.set_store(store)
-    mid = store.add_material("待档", body="x", kind="note")
-
-    def _write():
-        if not store.update_material(mid, {"archived": True}):
-            return False
-        return {"material_id": mid, "action": "archive"}
-
-    out = M.commit_if_approved("s3_delete_material", True, _write)
-    assert out["status"] == "written"
-    assert store.get_material(mid).get("archived") is True
+def test_material_write_tools_are_not_available_to_chief():
+    for name in ("s3_add_material", "s3_patch_material", "s3_delete_material"):
+        assert name not in M.WRITE_GATED
+        assert not hasattr(M, name)
 
 
 def test_register_purpose_goes_through_commit(store, emergency_off):

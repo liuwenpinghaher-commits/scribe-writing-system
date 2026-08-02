@@ -1,23 +1,36 @@
-import { ChapterStudio } from './ChapterStudio'
-import { CodexDetail, PropositionDetail } from './CodexDetail'
+import { lazy, Suspense } from 'react'
 import { CodexNew } from './CodexNew'
 import { MaterialDetail, MaterialImportPane, MaterialNetworkPane, MaterialNew } from './Materials'
-import { AtlasView } from './views/AtlasView'
-import { InsightView } from './views/InsightView'
-import { OverviewView } from './views/OverviewView'
-import { TimelineView } from './views/TimelineView'
 import { ErrorBoundary } from './ErrorBoundary'
 import { SettingsView } from './settings/SettingsView'
 import { ContainerOutline } from './ContainerOutline'
 import { NorthStarPanel } from './NorthStarPanel'
-import { CapabilityGroupDetailPane, DeduceDetailPane, MotifDetailPane, PromiseDetailPane, RecallResultDetail, ReviewIssueDetail } from './layout/CapabilityDetailPanes'
 import { VolumeDetailPane } from './layout/VolumeDetailPane'
 import { ObjectFrame } from './layout/ObjectFrame'
 import { presentationForNode } from './layout/objectRegistry'
 import { ReferenceWorks } from './quality/ReferenceWorks'
 import { QualityReview } from './quality/QualityReview'
-import { QualityContractEditor } from './quality/QualityContractEditor'
 import { emptyDetailCopy } from './layout/entrySelection'
+
+const lazyNamed = (load, name) => lazy(() => load().then((mod) => ({ default: mod[name] })))
+const ChapterStudio = lazyNamed(() => import('./ChapterStudio'), 'ChapterStudio')
+const CodexDetail = lazyNamed(() => import('./CodexDetail'), 'CodexDetail')
+const PropositionDetail = lazyNamed(() => import('./CodexDetail'), 'PropositionDetail')
+const CapabilityGroupDetailPane = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'CapabilityGroupDetailPane')
+const DeduceDetailPane = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'DeduceDetailPane')
+const MotifDetailPane = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'MotifDetailPane')
+const PromiseDetailPane = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'PromiseDetailPane')
+const RecallResultDetail = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'RecallResultDetail')
+const ReviewIssueDetail = lazyNamed(() => import('./layout/CapabilityDetailPanes'), 'ReviewIssueDetail')
+const QualityContractEditor = lazyNamed(() => import('./quality/QualityContractEditor'), 'QualityContractEditor')
+const AtlasView = lazyNamed(() => import('./views/AtlasView'), 'AtlasView')
+const InsightView = lazyNamed(() => import('./views/InsightView'), 'InsightView')
+const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewView')
+const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
+
+function DetailLoading() {
+  return <div className="h-full grid place-items-center text-f13 text-faint/60">加载视图…</div>
+}
 
 // 对象外框包裹:仅当 presentationForNode(node) 有呈现数据(chapter/character/material 三类)才套 ObjectFrame。
 // 本 Task 只包 character/material(见下方两条分支调用),章节留给 Task 7;其余类型 presentationForNode 返回 null,
@@ -58,7 +71,9 @@ export function DetailPane(props) {
     : (sel?.node?.id ?? 'empty')
   return (
     <ErrorBoundary key={boundaryKey}>
-      {renderDetail(props)}
+      <Suspense fallback={<DetailLoading />}>
+        {renderDetail(props)}
+      </Suspense>
     </ErrorBoundary>
   )
 }

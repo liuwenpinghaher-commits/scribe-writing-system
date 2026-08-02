@@ -253,7 +253,7 @@ class EventsMixin:
             # Hermes 在 elicitation 超时后可能只发空 tool.completed 再结束 Run，
             # 而不补 approval.resolved。此时正典写绝不能随着 Run 生命周期的
             # completed 被误读成成功：没有作者决议就是未写入。把未决写审批封存为
-            # timeout/declined，并回填同一工具审计记录；Run 本身仍如实保留 completed。
+            # timeout/expired，并回填同一工具审计记录；Run 本身仍如实保留 completed。
             resolved_approval_ids = {
                 str(row.get("approval_id"))
                 for row in approvals
@@ -277,7 +277,7 @@ class EventsMixin:
                 call_id = approval.get("call_id")
                 call = _find_call(call_id)
                 if call and not call.get("result_status"):
-                    call["result_status"] = "declined"
+                    call["result_status"] = "expired"
                 for output in reversed(tool_outputs):
                     if call_id and output.get("call_id") != call_id:
                         continue
@@ -286,7 +286,7 @@ class EventsMixin:
                     output["approval_id"] = approval_id or output.get("approval_id")
                     output["decision"] = "timeout"
                     if not output.get("result_status"):
-                        output["result_status"] = "declined"
+                        output["result_status"] = "expired"
                     break
             status = "completed"
             usage = event.get("usage")

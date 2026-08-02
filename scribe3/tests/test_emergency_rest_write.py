@@ -78,16 +78,19 @@ def test_capabilities_reports_emergency_rest_write(store, monkeypatch):
     assert flags["emergency_rest_write"] is True
 
 
-def test_author_session_clip_allowed_when_rest_world_write_off(store, monkeypatch):
-    """作者私人剪藏不经世界写闸；POST /materials 仍 403。"""
+def test_author_materials_and_session_clip_allowed_when_rest_world_write_off(store, monkeypatch):
+    """素材库由作者直管；正式素材与私人剪藏都不经世界写闸。"""
     monkeypatch.setenv("SCRIBE3_EMERGENCY_REST_WRITE", "0")
     S.invalidate_cache()
     c = _client(store)
 
-    blocked = c.post("/materials?work=main", json={
-        "title": "应被闸", "body": "x", "kind": "snippet",
+    created = c.post("/materials?work=main", json={
+        "title": "作者直管素材", "body": "x", "kind": "snippet",
+        "origin": "chief",
     })
-    assert blocked.status_code == 403, blocked.text
+    assert created.status_code == 200, created.text
+    formal = c.get(f"/materials/{created.json()['id']}?work=main").json()
+    assert formal["origin"] == "manual", "REST 创建不得伪造主编来源"
 
     r = c.post("/author/session-clips?work=main", json={
         "body": "城墙上霜白如骨",

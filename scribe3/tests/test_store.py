@@ -2120,10 +2120,25 @@ def test_completed_run_fails_closed_for_unresolved_write_approval(store):
 
     trace = store.get_ai_run_trace(run_id)
     assert trace["status"] == "completed"
-    assert trace["tool_calls"][0]["result_status"] == "declined"
+    assert trace["tool_calls"][0]["result_status"] == "expired"
     assert trace["tool_outputs"][0]["decision"] == "timeout"
-    assert trace["tool_outputs"][0]["result_status"] == "declined"
+    assert trace["tool_outputs"][0]["result_status"] == "expired"
     assert trace["approvals"][-1]["status"] == "expired"
+
+
+def test_expired_approval_status_is_not_overwritten_by_late_streaming(store):
+    """collector 竞态晚到的活跃态不得让过期审批重新冒充可点击。"""
+    run_id = "run_expired_status_sticky"
+    store.upsert_ai_run_trace(run_id, status="approval_expired", error="approval_not_active")
+    store.upsert_ai_run_trace(run_id, status="streaming")
+
+    trace = store.get_ai_run_trace(run_id)
+    assert trace["status"] == "approval_expired"
+    assert trace["error"] == "approval_not_active"
+
+    store.upsert_ai_run_trace(run_id, status="completed")
+    store.upsert_ai_run_trace(run_id, status="streaming")
+    assert store.get_ai_run_trace(run_id)["status"] == "completed"
 
 
 def test_late_approval_after_completed_run_reconciles_timeout_trace(store):

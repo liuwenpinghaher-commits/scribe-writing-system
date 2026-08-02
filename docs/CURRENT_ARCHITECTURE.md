@@ -2,7 +2,7 @@
 
 > **本文是当前实现的唯一入口说明。**  
 > 若与 `交付说明.md`、早期 `scribe/` 叙事、部分设计文档冲突，**以本文 + `scribe3/` 代码为准**。  
-> 更新：2026-07-22（对话驱动写 + 限知闭环 + emergency REST）
+> 更新：2026-08-02（对话驱动正典写 + 作者直管非正典素材 + 审批过期语义）
 
 ## 1. 产品是什么
 
@@ -50,9 +50,10 @@
 
 | 通道 | 用途 | 门控 |
 |------|------|------|
-| **MCP `s3_*` 写工具（作者主路径）** | 主编改世界状态 / 结构 / 意图 | `WRITE_GATED` + elicitation + `commit_if_approved` |
+| **MCP `s3_*` 写工具（正典主路径）** | 主编改世界状态 / 结构 / 意图 | `WRITE_GATED` + elicitation + `commit_if_approved` |
 | **前端创作 UI** | 设定/大纲/卷章 meta / 节拍等 | **只读检视 +「让主编…」种子**（`s3-chief-seed`）；禁止表单失焦直写世界语义 |
 | **REST 世界写** | 测试夹具 / 紧急运维 | **`SCRIBE3_EMERGENCY_REST_WRITE` 默认关** → 403；测试 conftest 默认开 |
+| **素材库** | 作者的非正典参考记忆 | 作者通过 `/materials` 直接新建/编辑/置顶/归档/删除；删除保留影响确认令牌；主编仅可 `s3_material_recall` 等只读搜索、召回和引用 |
 | **工程配额** | 字数目标 / 逾期阈值 | `PUT /intent-goals`（**不经**世界闸）；叙事北极星仍 `s3_set_intent` / 闸内 `PUT /intent` |
 | 正文 | `/chat/write` 提案卡接受 | 与世界写分离 |
 | 知识反哺 | 自动 `_enqueue_ingest` + 手动 `POST /ingest` | 进程内 `(work,seq)` 在途去重；多 worker 前须跨进程锁 |
@@ -60,10 +61,13 @@
 `commit_if_approved` 约定：
 
 - 拒绝 → `status=declined`，不写  
+- 超时 / elicitation 会话已失效 → `status=expired`，不写，不得伪装成作者拒绝
 - 批准且写入成功 → `status=written`  
 - 写入抛错 / 返回 `False` / 返回 `{error: ...}` → `status=error`（**不得假绿 written**）
 
 结构写 MCP（示例，均待批）：`s3_add_volume` / `s3_patch_volume` / `s3_add_chapter` / `s3_patch_chapter_meta` / `s3_patch_chapter_plan` / `s3_set_char_anchors` / `s3_set_intent` 等。
+
+素材不是世界事实，不因“主编会召回它”就转为正典。当作者决定把素材中的内容转为设定/事实时，应新发起对应正典 MCP 写入并审批，而不是让主编改写素材本身。
 
 决策全文：`scribe3/AGENTIC_BOUNDARY_DECISION.md`、`设计文档/2026-07-22-对话驱动写入-禁表单直填-决策与改造方案.md`。
 

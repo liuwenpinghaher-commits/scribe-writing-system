@@ -24,8 +24,8 @@
  * spec: docs/系统文档/作者工具/02-时间线视图.md
  */
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import { Timeline } from 'vis-timeline/standalone'
-import { DataSet } from 'vis-data/standalone'
+import { Timeline } from 'vis-timeline/esnext'
+import { DataSet } from 'vis-data/esnext'
 import 'vis-timeline/styles/vis-timeline-graph2d.css'
 import { Clock, RefreshCw, X, CornerDownRight, AlertTriangle, List } from 'lucide-react'
 import { api } from '../api'

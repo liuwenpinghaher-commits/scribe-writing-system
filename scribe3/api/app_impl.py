@@ -32,6 +32,7 @@ import os
 import re
 import threading
 import time
+from contextlib import asynccontextmanager
 from functools import wraps
 from collections import OrderedDict, deque
 from queue import Empty, Full, Queue
@@ -74,7 +75,18 @@ from scribe3.verify import causal_complete
 from scribe3 import settings as _settings
 _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env,必须在 CORS/token 读取前
 
-app = FastAPI(title="scribe3")
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    """统一承载启动安全守卫与退出连接回收，替代已弃用的 on_event。"""
+    _startup_gateway_guard()
+    try:
+        yield
+    finally:
+        _close_cached_stores()
+
+
+app = FastAPI(title="scribe3", lifespan=_app_lifespan)
 _CORS = os.environ.get("SCRIBE3_CORS_ORIGINS", "http://127.0.0.1:3311,http://localhost:3311")
 
 # P3-e1 Fix 1 / 批C D-3+H-1:overdue 阈值单源——常量定义在 store.py(OVERDUE_SLACK),
@@ -126,7 +138,6 @@ _REST_WORLD_WRITE_PREFIXES = (
     "/chapters",
     "/arc-beats",
     "/events",
-    "/materials",
     "/objects",
 )
 _REST_WORLD_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -145,12 +156,7 @@ def _is_rest_world_write_path(path: str) -> bool:
     # 工程配额例外(非正典叙事)
     if path == _INTENT_ENGINEERING_PATH or path.startswith(_INTENT_ENGINEERING_PATH + "/"):
         return False
-    # 作者确认的素材导入流水线(非正典批量落库;与 session-clip 同级闸外)
-    if path == "/materials/import" or path.startswith("/materials/import/"):
-        return False
-    # 作者采纳插稿后记 material_reference(使用账本,非世界语义改写)
-    if path.startswith("/materials/") and path.endswith("/refs"):
-        return False
+    # 素材库是作者直管的非正典参考记忆，整个 /materials 路由不在世界写闸内。
     # 章节软生命周期 + 版本恢复是作者手稿台一等操作,与 /save-chapter 同级闸外。
     # 永久删除仍走 /chapters/{seq} DELETE + impact token,保持在世界写闸内。
     # 形态: /chapters/{seq}/archive|restore|restore-version
@@ -299,11 +305,6 @@ def _close_cached_stores() -> None:
             store.close()
         except Exception:
             logging.getLogger("scribe3").warning("服务退出时关闭 SurrealStore 失败", exc_info=True)
-
-
-@app.on_event("shutdown")
-def _shutdown_close_cached_stores() -> None:
-    _close_cached_stores()
 
 
 # 参考/质量路由是独立模块，但必须复用主应用的一书一库解析器，而不是持有
@@ -1028,7 +1029,6 @@ def _gateway_security_violations(home=None) -> list[str]:
     return violations
 
 
-@app.on_event("startup")
 def _startup_gateway_guard():
     """部署到任何地方的最后一道防线:即便有人跳过 provision 或配置漂了,后端一启动就发现。
     只在真 uvicorn 启动时触发(不在 import/测试时)。默认响亮 CRITICAL 日志;
@@ -1656,6 +1656,7 @@ def _pending_approval_from_trace(trace: dict) -> dict | None:
     if (
         status in _AI_RUN_TERMINAL_STATUSES
         or status == "remote_completed_pending_audit"
+        or status == "approval_expired"
         or (status == "approval_failed" and "approval_not_active" in error)
     ):
         return None
@@ -2065,6 +2066,16 @@ def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):
                 "status": trace.get("status") or "approval_submitted",
                 "already_resolved": True,
             }
+        if "approval_not_active" in detail or "approval_not_pending" in detail:
+            message = "审批已过期，请重新发起写入请求"
+            _record_ai_run_trace(
+                work, run_id, status="approval_expired",
+                error=f"approval_expired: {detail}",
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "approval_expired", "message": message},
+            ) from exc
         _record_ai_run_trace(work, run_id, status="approval_failed", error=detail)
         raise HTTPException(status_code=502, detail=f"Hermes approval failed: {detail}") from exc
     _record_ai_run_event(work, run_id, {
@@ -4200,7 +4211,7 @@ class MaterialIn(BaseModel):
     ref_tags: list[str] = []
     summary: str | None = None
     pinned: bool = False
-    origin: str | None = None  # 正式 REST 创建默认 manual;chief 经 MCP
+    origin: str | None = None  # 兼容旧请求；作者 REST 创建由服务端强制为 manual
 
 
 class MaterialPatch(BaseModel):
@@ -4240,7 +4251,7 @@ def add_material_ep(m: MaterialIn, work: str = "main"):
     mid = _store_for(work).add_material(
         m.title, m.body, m.kind, m.tags, m.source,
         ref_tags=m.ref_tags, summary=m.summary, pinned=bool(m.pinned),
-        origin=(m.origin or "manual"))
+        origin="manual")
     return {"ok": True, "id": mid}
 
 

@@ -11,7 +11,13 @@ import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent
 import { mergeThreadHistory, mutateLatestAssistantMessage, normalizeThreadMessages } from './lib/chiefThreadMessages'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
-import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import {
+  approvalExpiryFromError,
+  approvalStatusFromDecision,
+  patchApprovalInMessages,
+  runContextFromError,
+  useHermesRunRecovery,
+} from './lib/hermesRunRecovery'
 import { SelectionQuoteActions } from './ui/SelectionQuoteActions.jsx'
 import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
 import { useMaterialAt } from './lib/useMaterialAt.js'
@@ -23,6 +29,7 @@ import { PendingClaimsPanel } from './context/PendingClaimsPanel'
 import { ThreadSwitcher } from './ThreadSwitcher'
 import { showToast } from './ui/Toast.jsx'
 import { Btn } from './ui.jsx'
+import { notifyWorldWriteApproved } from './lib/codexLifecycle.js'
 
 // P0b:早期摘要卡(折叠可展开)——近窗之外的更早讨论压缩在此;summary_error 红字如实示警。
 function ThreadSummaryCard({ meta }) {
@@ -172,6 +179,8 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                       <span className="text-f12 text-ok">已批准</span>
                     ) : ap.status === 'denied' ? (
                       <span className="text-f12 text-danger">已拒绝</span>
+                    ) : ap.status === 'expired' ? (
+                      <span className="text-f12 text-warn">审批已过期，请重新发起</span>
                     ) : ap.status === 'submitting' ? (
                       <span className="text-f12 text-faint">提交中…</span>
                     ) : ap.status === 'error' ? (
@@ -595,7 +604,6 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       // 批准落库后通知设定详情轮询:删除/归档对象消失再退回分类
       if (decision === 'approve') {
         try {
-          const { notifyWorldWriteApproved } = await import('./lib/codexLifecycle.js')
           notifyWorldWriteApproved({
             decision,
             message: approval?.message || '',
@@ -605,8 +613,11 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       }
     } catch (e) {
       // Task 13:409 run_context_changed/stale → 展示"发起时/当前焦点 + 已过期"卡片,不当作提交失败。
+      const expiry = approvalExpiryFromError(e)
       const rc = runContextFromError(e)
-      if (rc) {
+      if (expiry) {
+        patchApproval(approval, { status: 'expired', error: expiry, runContext: null })
+      } else if (rc) {
         patchApproval(approval, { status: 'pending', runContext: rc })
       } else {
         patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
@@ -695,7 +706,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           })
         },
         onApprovalResolved: (approval) => {
-          const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+          const status = approvalStatusFromDecision(approval?.decision)
           patchApproval(approval, { ...approval, status })
         },
         onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
@@ -748,7 +759,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
         onApproval: (approval) => mut((l) => ({ ...l, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] })),
         onApprovalResolved: (approval) => {
-          const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+          const status = approvalStatusFromDecision(approval?.decision)
           patchApproval(approval, { ...approval, status })
         },
         onProposalStart: () => { propOpen = true; propAcc = ''; mut((l) => { propBase = l.content; return l }) },
@@ -787,7 +798,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
       onApproval: (approval) => mut((l) => ({ ...l, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] })),
       onApprovalResolved: (approval) => {
-        const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+        const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
       },
       onDone: () => setBusy(false),

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MaterialDetail, MaterialList } from '../Materials'
+import { MaterialDetail, MaterialList, MaterialNew } from '../Materials'
 import { ChapterMaterialRefs } from '../ChapterStudio'
 
 const apiMock = vi.hoisted(() => ({
@@ -15,16 +15,12 @@ const apiMock = vi.hoisted(() => ({
   archiveObject: vi.fn(),
   materialRefsByChapter: vi.fn(),
   addMaterialReference: vi.fn(),
+  addMaterial: vi.fn(),
+  editMaterial: vi.fn(),
+  delMaterial: vi.fn(),
 }))
 
 vi.mock('../api', () => ({ api: apiMock }))
-
-const seedMocks = vi.hoisted(() => ({
-  seedChiefAddMaterial: vi.fn(),
-  seedChiefPatchMaterial: vi.fn(),
-  seedChiefDeleteMaterial: vi.fn(),
-}))
-vi.mock('../lib/chiefSeed.js', () => seedMocks)
 
 vi.mock('../MaterialImport', () => ({ MaterialImport: () => <div data-testid="material-import" /> }))
 vi.mock('../MaterialNetwork', () => ({ MaterialNetwork: () => <div data-testid="material-network" /> }))
@@ -121,6 +117,9 @@ describe('MaterialList 素材库工作台', () => {
     })
     apiMock.addMaterialReference.mockResolvedValue({ ok: true })
     apiMock.materialRefsByChapter.mockResolvedValue([])
+    apiMock.addMaterial.mockResolvedValue({ ok: true, id: 9 })
+    apiMock.editMaterial.mockResolvedValue({ ok: true })
+    apiMock.delMaterial.mockResolvedValue({ ok: true })
   })
 
   it('用统一目录壳:sticky header + 搜索 + 动作(新建/导入/网络)', async () => {
@@ -158,7 +157,7 @@ describe('MaterialList 素材库工作台', () => {
     expect(origins.getByRole('button', { name: /手建/ })).toBeTruthy()
     expect(origins.getByRole('button', { name: /来自导入/ })).toBeTruthy()
     expect(origins.getByRole('button', { name: /剪藏/ })).toBeTruthy()
-    expect(origins.getByRole('button', { name: /主编写入/ })).toBeTruthy()
+    expect(origins.getByRole('button', { name: /历史主编记录/ })).toBeTruthy()
 
     fireEvent.click(origins.getByRole('button', { name: /来自导入/ }))
 
@@ -233,7 +232,41 @@ describe('MaterialList 素材库工作台', () => {
     await waitFor(() => expect(apiMock.material).toHaveBeenCalledTimes(2))
   })
 
-  it('删除素材走主编种子,建议归档时 seed archive=true', async () => {
+  it('作者直接新建素材并保留分类、来源和置顶字段', async () => {
+    const onCreated = vi.fn()
+    render(<MaterialNew kind="reference" onCreated={onCreated} />)
+
+    fireEvent.change(screen.getByLabelText('素材标题'), { target: { value: '《印迹》世界观设定全案' } })
+    fireEvent.change(screen.getByLabelText('素材来源'), { target: { value: '作者资料' } })
+    fireEvent.click(screen.getByLabelText('核心记忆(置顶)'))
+    fireEvent.click(screen.getByRole('button', { name: '保存素材' }))
+
+    await waitFor(() => expect(apiMock.addMaterial).toHaveBeenCalledWith(expect.objectContaining({
+      title: '《印迹》世界观设定全案',
+      kind: 'reference',
+      source: '作者资料',
+      pinned: true,
+      origin: 'manual',
+    })))
+    expect(onCreated).toHaveBeenCalledWith(9, '《印迹》世界观设定全案')
+  })
+
+  it('作者直接保存素材编辑，不生成主编审批请求', async () => {
+    const onChanged = vi.fn()
+    render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环' }} onChanged={onChanged} />)
+
+    expect(await screen.findByDisplayValue('城墙外环与雾港边界')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('素材标题'), { target: { value: '城墙边界修订' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(apiMock.editMaterial).toHaveBeenCalledWith(1, expect.objectContaining({
+      title: '城墙边界修订',
+      pinned: true,
+    })))
+    expect(onChanged).toHaveBeenCalledWith(expect.objectContaining({ title: '城墙边界修订' }))
+  })
+
+  it('建议归档时由作者直接 PATCH archived=true', async () => {
     const onDeleted = vi.fn()
     render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环与雾港边界' }} onDeleted={onDeleted} />)
 
@@ -244,12 +277,24 @@ describe('MaterialList 素材库工作台', () => {
     const dialog = screen.getByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: '归档' }))
 
-    await waitFor(() => expect(seedMocks.seedChiefDeleteMaterial).toHaveBeenCalledWith(
-      1,
-      expect.objectContaining({ archive: true }),
-    ))
-    expect(apiMock.archiveObject).not.toHaveBeenCalled()
+    await waitFor(() => expect(apiMock.editMaterial).toHaveBeenCalledWith(1, { archived: true }))
     expect(onDeleted).toHaveBeenCalled()
+  })
+
+  it('无引用素材由作者直接硬删并携带影响令牌', async () => {
+    apiMock.objectImpact.mockResolvedValue({
+      object: { type: 'material', id: 1, label: '城墙外环与雾港边界' },
+      references: [],
+      recommended_action: 'hard_delete_allowed',
+      confirm_impact_token: 'material-1-token',
+    })
+    render(<MaterialDetail node={{ id: 'material:1', type: 'material', ref: 1, label: '城墙外环' }} />)
+
+    expect(await screen.findByText(/素材 · 研究/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '删除' }))
+
+    await waitFor(() => expect(apiMock.delMaterial).toHaveBeenCalledWith(1, 'material-1-token'))
   })
 
   it('插入当前章只发布待采纳草稿，不能在作者填入前伪记 material_reference', async () => {

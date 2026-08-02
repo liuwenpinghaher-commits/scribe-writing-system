@@ -62,10 +62,10 @@ describe('DetailPane 能力详情路由', () => {
     [{ id: 'motif:chapter', type: 'motif_view', label: '本章触及' }, '母题详情'],
     [{ id: 'recall:semantic', type: 'recall_result', label: '语义召回' }, '召回详情'],
     [{ id: 'review:summary', type: 'review_issue', label: '本章总览' }, '校验详情'],
-  ])('渲染 %s 对应的能力详情', (node, text) => {
+  ])('渲染 %s 对应的能力详情', async (node, text) => {
     render(<DetailPane sel={{ mode: 'node', node }} work="demo" onSelectNode={() => {}} />)
 
-    expect(screen.getByText(text)).toBeTruthy()
+    expect(await screen.findByText(text)).toBeTruthy()
   })
 
   it('deduce_view 会拉取章 meta 再渲染演绎工作台', async () => {
@@ -78,7 +78,7 @@ describe('DetailPane 能力详情路由', () => {
     expect(apiMock.chapter).toHaveBeenCalledWith(23, 'demo')
   })
 
-  it('capability_group 渲染分类总览而不是空详情', () => {
+  it('capability_group 渲染分类总览而不是空详情', async () => {
     render(<DetailPane
       sel={{ mode: 'node', node: {
         id: 'deduce:limited',
@@ -92,7 +92,7 @@ describe('DetailPane 能力详情路由', () => {
       onSelectNode={() => {}}
     />)
 
-    expect(screen.getByRole('heading', { name: '限知分类' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '限知分类' })).toBeTruthy()
     expect(screen.getByText('分类含义')).toBeTruthy()
     expect(screen.getByText('写作约束')).toBeTruthy()
     // Task 10:配置里无 handler 的假动作按钮已移除,动作只认 live payload
@@ -103,10 +103,10 @@ describe('DetailPane 能力详情路由', () => {
   it.each([
     [{ id: 'material:import', type: 'material_import', label: '导入素材' }, 'material-import-pane'],
     [{ id: 'material:network', type: 'material_network', label: '记忆网络' }, 'material-network-pane'],
-  ])('素材库动作节点 %s 在详情栏渲染', (node, testId) => {
+  ])('素材库动作节点 %s 在详情栏渲染', async (node, testId) => {
     render(<DetailPane sel={{ mode: 'node', node }} work="demo" onSelectNode={() => {}} />)
 
-    expect(screen.getByTestId(testId)).toBeTruthy()
+    expect(await screen.findByTestId(testId)).toBeTruthy()
   })
 
   it('references 节点渲染参考作品工作台', () => {
@@ -131,9 +131,9 @@ describe('DetailPane 能力详情路由', () => {
     expect(screen.getByText('质量审阅:demo:7')).toBeTruthy()
   })
 
-  it('quality_contract 节点渲染全字段质量合同编辑器', () => {
+  it('quality_contract 节点渲染全字段质量合同编辑器', async () => {
     render(<DetailPane sel={{ mode: 'node', node: { id: 'quality_contract', type: 'quality_contract', label: '质量合同' } }} work="demo" onSelectNode={() => {}} />)
-    expect(screen.getByTestId('quality-contract')).toBeTruthy()
+    expect(await screen.findByTestId('quality-contract')).toBeTruthy()
     expect(screen.getByText('质量合同:demo')).toBeTruthy()
   })
 

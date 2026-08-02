@@ -6,9 +6,6 @@ import {
   seedChiefNarrativeWrite,
   seedChiefReorderChapters,
   seedChiefDeleteVolume,
-  seedChiefAddMaterial,
-  seedChiefPatchMaterial,
-  seedChiefDeleteMaterial,
 } from './chiefSeed.js'
 import { shouldUseHermesRun } from './hermesRunIntent.js'
 
@@ -59,36 +56,15 @@ describe('chiefSeed helpers', () => {
     expect(sessionStorage.getItem('s3.chief.seed')).toMatch(/第 1 章大纲/)
   })
 
-  it('production structure/codex/material seeds route to Hermes Run', () => {
+  it('production structure/codex seeds route to Hermes Run', () => {
     const samples = [
       seedChiefCodexCreate('character', { name: '甲' }),
       seedChiefReorderChapters('vol1', [3, 1, 2]),
       seedChiefDeleteVolume('vol1', '卷一'),
-      seedChiefAddMaterial({ title: '密室', body: '寒', kind: 'snippet', source: '札记' }),
       seedChiefNarrativeWrite('volume', '新建分卷「潮」', '请用 s3_add_volume 创建卷'),
     ]
     for (const s of samples) {
       expect(shouldUseHermesRun(s)).toBe(true)
     }
-  })
-
-  it('seedChiefAddMaterial keeps source for MCP s3_add_material', () => {
-    const t = seedChiefAddMaterial({
-      title: '密室白描', body: '寒气', kind: 'snippet', source: '《乱世》札记',
-    })
-    expect(t).toMatch(/source/)
-    expect(t).toMatch(/乱世/)
-    expect(t).toMatch(/s3_add_material/)
-  })
-
-  it('seedChiefPatchMaterial / DeleteMaterial route to Hermes Run', () => {
-    const patch = seedChiefPatchMaterial('m1', {
-      title: '改', body: '文', kind: 'note', source: '出处',
-    })
-    const del = seedChiefDeleteMaterial('m1', { title: '改', archive: true })
-    expect(patch).toMatch(/s3_patch_material/)
-    expect(del).toMatch(/s3_delete_material/)
-    expect(shouldUseHermesRun(patch)).toBe(true)
-    expect(shouldUseHermesRun(del)).toBe(true)
   })
 })

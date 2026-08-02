@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { WriteChat } from '../WriteChat'
 import { api } from '../api'
@@ -116,6 +116,28 @@ describe('WriteChat phase', () => {
       decision: 'approve',
     }))
     expect(await screen.findByText('已批准')).toBeTruthy()
+  })
+
+  it('正文阶段审批超时显示已过期，不再显示批准按钮', async () => {
+    let handlers
+    apiMock.runWrite.mockImplementation((_msg, opts) => {
+      handlers = opts
+      opts.onRun?.({ run_id: 'run_expired' })
+      opts.onApproval?.({ run_id: 'run_expired', approval_id: 'ap_expired', message: '允许写入伏笔?' })
+      return { abort: vi.fn() }
+    })
+    render(<WriteChat chapter={4} focalizer="崔判" phase="final" />)
+
+    fireEvent.change(screen.getByPlaceholderText(/提思路/), { target: { value: '请登记伏笔' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('允许写入伏笔?')).toBeTruthy()
+
+    await act(async () => {
+      handlers.onApprovalResolved?.({ run_id: 'run_expired', approval_id: 'ap_expired', decision: 'timeout' })
+    })
+    expect(await screen.findByText('审批已过期，请重新发起')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '批准' })).toBeNull()
+    expect(screen.queryByText('已拒绝')).toBeNull()
   })
 
   it('刷新后恢复正文阶段未决 Hermes approval 并可继续审批', async () => {

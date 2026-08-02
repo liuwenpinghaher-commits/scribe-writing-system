@@ -50,7 +50,7 @@ vi.mock('@react-sigma/core', () => ({
   }),
 }))
 
-vi.mock('vis-data/standalone', () => {
+vi.mock('vis-data/esnext', () => {
   class DataSet {
     constructor(items = []) {
       this.items = new Map()
@@ -75,7 +75,7 @@ vi.mock('vis-data/standalone', () => {
   return { DataSet }
 })
 
-vi.mock('vis-timeline/standalone', () => ({
+vi.mock('vis-timeline/esnext', () => ({
   Timeline: function Timeline(_container, items) {
     const handlers = {}
     const instance = {

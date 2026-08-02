@@ -2039,6 +2039,24 @@ def test_shutdown_closes_and_evicts_every_cached_store(monkeypatch):
     assert not A._stores
 
 
+def test_app_lifespan_runs_gateway_guard_and_always_closes_stores(monkeypatch):
+    """FastAPI lifespan 必须保留原 startup/shutdown 语义，异常退出也要释放连接。"""
+    import asyncio
+
+    calls = []
+    monkeypatch.setattr(A, "_startup_gateway_guard", lambda: calls.append("startup"))
+    monkeypatch.setattr(A, "_close_cached_stores", lambda: calls.append("shutdown"))
+
+    async def exercise():
+        with pytest.raises(RuntimeError, match="boom"):
+            async with A._app_lifespan(A.app):
+                assert calls == ["startup"]
+                raise RuntimeError("boom")
+
+    asyncio.run(exercise())
+    assert calls == ["startup", "shutdown"]
+
+
 def test_save_then_checkpoint_ingests_once(store, monkeypatch):
     """存为正文全链路:save-chapter + checkpoint(final) 同章 → 只 ingest 一次
     (checkpoint 侧因 save-chapter 已在途被去重跳过)。"""
@@ -5123,44 +5141,44 @@ def _assert_work_scoped_tool_prompt(cap, work: str):
 
 
 def test_p0_2_get_write_non_current_work_uses_work_scoped_tools(store, monkeypatch):
-    """GET /chat/write:work != SCRIBE3_WORK 时仍挂工具,但所有 s3_ 调用必须传 work=目标书。"""
+    """GET /chat/write 讨论态跨书时仍挂工具,且所有 s3_ 调用必须传目标 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "book_current")
     A.set_store(store, work="book_other")          # 把测试内存 store 绑到别的书(不连真库)
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
-    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "book_other"})
+    _client(store).get("/chat/write", params={"msg": "查可借鉴素材", "chapter": 1, "work": "book_other"})
     _assert_work_scoped_tool_prompt(cap, "book_other")
 
 
 def test_p0_2_get_write_current_work_mounts_tools(store, monkeypatch):
-    """GET /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具,并显式传 work。"""
+    """GET /chat/write 讨论态当前书正常挂 s3_ 工具,并显式传 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "main")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
-    _client(store).get("/chat/write", params={"msg": "写本章", "chapter": 1, "work": "main"})
+    _client(store).get("/chat/write", params={"msg": "查可借鉴素材", "chapter": 1, "work": "main"})
     _assert_work_scoped_tool_prompt(cap, "main")
 
 
 def test_p0_2_post_write_non_current_work_uses_work_scoped_tools(store, monkeypatch):
-    """POST /chat/write:work != SCRIBE3_WORK 时仍挂工具,但所有 s3_ 调用必须传 work=目标书。"""
+    """POST /chat/write 讨论态跨书时仍挂工具,且所有 s3_ 调用必须传目标 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "book_current")
     A.set_store(store, work="book_other")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
-    _client(store).post("/chat/write?work=book_other", json={"msg": "写本章", "chapter": 1})
+    _client(store).post("/chat/write?work=book_other", json={"msg": "查可借鉴素材", "chapter": 1})
     _assert_work_scoped_tool_prompt(cap, "book_other")
 
 
 def test_p0_2_post_write_current_work_mounts_tools(store, monkeypatch):
-    """POST /chat/write:work == SCRIBE3_WORK 时正常挂 s3_ 工具,并显式传 work。"""
+    """POST /chat/write 讨论态当前书正常挂 s3_ 工具,并显式传 work。"""
     import scribe3.app as A
     monkeypatch.setenv("SCRIBE3_WORK", "main")
     cap = {}
     monkeypatch.setattr(A, "_responses_events", _cap_responses(cap))
-    _client(store).post("/chat/write?work=main", json={"msg": "写本章", "chapter": 1})
+    _client(store).post("/chat/write?work=main", json={"msg": "查可借鉴素材", "chapter": 1})
     _assert_work_scoped_tool_prompt(cap, "main")
 
 

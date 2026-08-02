@@ -454,11 +454,50 @@ def test_pending_approvals_exclude_run_with_terminal_approval_failure(client, ct
             "status": "requested",
         }],
     )
+    ctx_env.store.upsert_ai_run_trace(
+        "run_approval_expired", status="approval_expired",
+        session_key="scribe3|work:book-a|runs",
+        error="approval_expired: approval_not_active",
+        approvals=[{
+            "run_id": "run_approval_expired",
+            "approval_id": "approval_expired_v2",
+            "message": "已过期的批准请求",
+            "status": "requested",
+        }],
+    )
 
     response = client.get("/ai/runs/pending-approvals?work=book-a")
 
     assert response.status_code == 200
     assert response.json()["runs"] == []
+
+
+def test_run_approval_maps_inactive_session_to_expired_409(client, run, monkeypatch):
+    """Hermes 已结束审批会话时，API 应报告审批过期，而不是通用 502 提交失败。"""
+    import scribe3.app as appmod
+
+    class ExpiredApprovalRuntime(_FakeRuntime):
+        def approve_run(self, run_id, approval, **kwargs):
+            request = httpx.Request("POST", f"http://hermes.test/runs/{run_id}/approval")
+            response = httpx.Response(
+                400, request=request,
+                json={"error": {"code": "approval_not_active", "message": "no active approval"}},
+            )
+            raise httpx.HTTPStatusError("approval_not_active", request=request, response=response)
+
+    monkeypatch.setattr(appmod, "_hermes_runs_runtime", lambda policy=None: ExpiredApprovalRuntime())
+    response = client.post(f"/ai/runs/{run.id}/approval?work={WORK}", json={
+        "approval_id": run.approval_id,
+        "decision": "approve",
+    })
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "approval_expired",
+        "message": "审批已过期，请重新发起写入请求",
+    }
+    trace = appmod._store_for(WORK).get_ai_run_trace(run.id)
+    assert trace["status"] == "approval_expired"
 
 
 def test_run_approval_fail_closed_when_origin_unverifiable(client):

@@ -71,9 +71,9 @@ describe('ObjectFrame 生产详情接入', () => {
   it.each([
     [{ mode: 'node', node: { id: 'character:a', type: 'character', ref: 'a', label: '柳三更' } }, '柳三更', '设定库 / 角色'],
     [{ mode: 'node', node: { id: 'material:a', type: 'material', ref: 'a', label: '铃铛资料' } }, '铃铛资料', '素材库'],
-  ])('frames production detail %j', (sel, title, breadcrumb) => {
+  ])('frames production detail %j', async (sel, title, breadcrumb) => {
     render(<DetailPane sel={sel} work="book-a" />)
-    expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
     expect(screen.getByText(breadcrumb)).toBeInTheDocument()
   })
 

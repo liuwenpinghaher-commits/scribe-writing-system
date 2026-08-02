@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import {
+import * as recovery from './hermesRunRecovery'
+
+const {
   runContextFromError,
   applyRunTraceToMessages,
   collectPendingRunIds,
@@ -7,7 +9,32 @@ import {
   patchRunMessage,
   upsertApprovalInMessages,
   patchApprovalInMessages,
-} from './hermesRunRecovery'
+  approvalStatusFromDecision,
+  approvalExpiryFromError,
+} = recovery
+
+describe('approval expiry mapping', () => {
+  it('timeout/expired 不能映射成 denied', () => {
+    expect(approvalStatusFromDecision).toEqual(expect.any(Function))
+    expect(approvalStatusFromDecision('approve')).toBe('approved')
+    expect(approvalStatusFromDecision('deny')).toBe('denied')
+    expect(approvalStatusFromDecision('timeout')).toBe('expired')
+    expect(approvalStatusFromDecision('expired')).toBe('expired')
+  })
+
+  it('结构化 approval_expired 与旧网关 approval_not_active 都识别为过期', () => {
+    expect(approvalExpiryFromError).toEqual(expect.any(Function))
+    expect(approvalExpiryFromError({
+      status: 409,
+      body: { detail: { code: 'approval_expired', message: '审批已过期' } },
+    })).toBe('审批已过期')
+    expect(approvalExpiryFromError({
+      status: 502,
+      body: { detail: 'Hermes approval failed: approval_not_active' },
+    })).toMatch(/过期/)
+    expect(approvalExpiryFromError({ message: '网络断了' })).toBeNull()
+  })
+})
 
 // Task 13:审批 409 → 过期上下文卡片数据(纯映射,前端据此展示"发起时/当前焦点 + 已过期")。
 describe('runContextFromError', () => {
@@ -74,15 +101,17 @@ describe('applyRunTraceToMessages', () => {
 })
 
 describe('collectPendingRunIds', () => {
-  it('未决审批的 run_id 入集;已批准/拒绝或在途 run 排除', () => {
+  it('未决审批的 run_id 入集;已批准/拒绝/过期或在途 run 排除', () => {
     const msgs = [
       { approvals: [{ run_id: 'run_pending', approval_id: 'a1', status: 'pending' }] },
       { approvals: [{ run_id: 'run_done', approval_id: 'a2', status: 'approved' }] },
+      { approvals: [{ run_id: 'run_expired', approval_id: 'a4', status: 'expired' }] },
       { run_id: 'run_active', approvals: [{ approval_id: 'a3', status: 'pending' }] },
     ]
     const ids = collectPendingRunIds(msgs, new Set(['run_active']))
     expect(ids.has('run_pending')).toBe(true)
     expect(ids.has('run_done')).toBe(false)
+    expect(ids.has('run_expired')).toBe(false)
     expect(ids.has('run_active')).toBe(false)
   })
 })

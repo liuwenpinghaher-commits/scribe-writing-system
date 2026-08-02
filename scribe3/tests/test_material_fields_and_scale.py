@@ -137,10 +137,16 @@ def test_session_clip_origin_and_emergency_off(store, monkeypatch):
     A.set_complete_fn(lambda p, **k: "x")
     c = TestClient(A.app)
 
-    # formal PATCH 被拦
+    # 正式素材由作者直管：紧急世界写开关关闭时仍允许新增、编辑。
     mid = store.add_material("正式", "b", "note")
-    assert c.patch(f"/materials/{mid}", json={"title": "改"}).status_code == 403
-    assert c.post("/materials", json={"title": "直写", "body": "x"}).status_code == 403
+    patched = c.patch(f"/materials/{mid}", json={"title": "作者修改"})
+    assert patched.status_code == 200, patched.text
+    assert store.get_material(mid)["title"] == "作者修改"
+    created = c.post("/materials", json={
+        "title": "作者直写", "body": "x", "origin": "chief",
+    })
+    assert created.status_code == 200, created.text
+    assert store.get_material(created.json()["id"])["origin"] == "manual"
 
     # session-clip 放行
     clip = c.post("/author/session-clips", json={"body": "划词剪藏正文", "kind": "snippet"})

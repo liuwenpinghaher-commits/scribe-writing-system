@@ -7,7 +7,13 @@ import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
-import { patchApprovalInMessages, runContextFromError, useHermesRunRecovery } from './lib/hermesRunRecovery'
+import {
+  approvalExpiryFromError,
+  approvalStatusFromDecision,
+  patchApprovalInMessages,
+  runContextFromError,
+  useHermesRunRecovery,
+} from './lib/hermesRunRecovery'
 import { useContextSnapshot } from './context/ContextSnapshotContext'
 import { MaterialAtPicker } from './ui/MaterialAtPicker.jsx'
 import { useMaterialAt } from './lib/useMaterialAt.js'
@@ -136,6 +142,8 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
                       <span className="text-f12 text-ok">已批准</span>
                     ) : ap.status === 'denied' ? (
                       <span className="text-f12 text-danger">已拒绝</span>
+                    ) : ap.status === 'expired' ? (
+                      <span className="text-f12 text-warn">审批已过期，请重新发起</span>
                     ) : ap.status === 'submitting' ? (
                       <span className="text-f12 text-faint">提交中…</span>
                     ) : ap.status === 'error' ? (
@@ -265,8 +273,11 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       patchApproval(approval, { status: decision === 'approve' ? 'approved' : 'denied', decision, runContext: null })
     } catch (e) {
       // Task 13:409 run_context_changed/stale → 展示过期焦点卡片,不当作提交失败。
+      const expiry = approvalExpiryFromError(e)
       const rc = runContextFromError(e)
-      if (rc) {
+      if (expiry) {
+        patchApproval(approval, { status: 'expired', error: expiry, runContext: null })
+      } else if (rc) {
         patchApproval(approval, { status: 'pending', runContext: rc })
       } else {
         patchApproval(approval, { status: 'error', error: e?.body?.detail || e?.message || '提交失败' })
@@ -334,7 +345,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
         mut((l) => ({ ...l, run_id: l.run_id || runId, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] }))
       },
       onApprovalResolved: (approval) => {
-        const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+        const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
       },
       onProposalStart: (s) => onProposalStart?.(s),

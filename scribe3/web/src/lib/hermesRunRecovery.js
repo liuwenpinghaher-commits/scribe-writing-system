@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { api } from '../api'
 
-const CLOSED_APPROVAL = new Set(['approved', 'denied'])
+const CLOSED_APPROVAL = new Set(['approved', 'denied', 'expired'])
 
 function runIdOf(value) {
   return value?.run_id || value?.id || ''
@@ -12,7 +12,32 @@ function approvalKey(approval) {
 }
 
 function errorText(error) {
-  return error?.body?.detail || error?.message || String(error || '连接中断')
+  const detail = error?.body?.detail
+  if (detail && typeof detail === 'object') return detail.message || detail.code || '请求失败'
+  return detail || error?.message || String(error || '连接中断')
+}
+
+export function approvalStatusFromDecision(decision) {
+  const value = String(decision ?? '').trim().toLowerCase()
+  if (['approve', 'approved', 'accept', 'accepted', 'once', 'session', 'always'].includes(value)) return 'approved'
+  if (['deny', 'denied', 'decline', 'declined', 'reject', 'rejected'].includes(value)) return 'denied'
+  if (['timeout', 'expired', 'expire'].includes(value)) return 'expired'
+  return 'pending'
+}
+
+export function approvalExpiryFromError(error) {
+  const detail = error?.body?.detail
+  if (detail && typeof detail === 'object' && detail.code === 'approval_expired') {
+    return detail.message || '审批已过期，请重新发起写入请求'
+  }
+  const text = [
+    typeof detail === 'string' ? detail : '',
+    error?.message || '',
+  ].join(' ').toLowerCase()
+  if (text.includes('approval_not_active') || text.includes('approval_not_pending')) {
+    return '审批已过期，请重新发起写入请求'
+  }
+  return null
 }
 
 export function patchApprovalInMessages(messages, approval, patch) {
@@ -196,7 +221,7 @@ export function useHermesRunRecovery({ msgs, setMsgs, setBusy, activeRunIdsRef, 
             }))),
             onApproval: (approval) => setMsgs((items) => upsertApprovalInMessages(items, runId, approval)),
             onApprovalResolved: (approval) => {
-              const status = approval?.decision === 'approve' ? 'approved' : 'denied'
+              const status = approvalStatusFromDecision(approval?.decision)
               setMsgs((items) => patchApprovalInMessages(items, { ...approval, run_id: approval?.run_id || runId }, { ...approval, status }))
             },
             onRun: (run) => setMsgs((items) => patchRunMessage(items, runId, (msg) => ({

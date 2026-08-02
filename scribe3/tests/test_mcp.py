@@ -34,9 +34,8 @@ EXPECTED_WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_r
                           "s3_add_volume", "s3_patch_volume",
                           "s3_add_chapter", "s3_patch_chapter_meta",
                           "s3_patch_chapter_plan", "s3_set_char_anchors",
-                          # P0:结构运维 + 素材/母题(emergency REST 关时作者主路径)
+                          # P0:结构运维 + 母题(emergency REST 关时作者主路径)
                           "s3_reorder_chapters", "s3_delete_volume",
-                          "s3_add_material", "s3_patch_material", "s3_delete_material",
                           "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
                           "s3_delete_codex"}
 EXPECTED_WRITE_UNGATED = {"s3_save_chapter"}   # manuscript 草稿,非世界状态,不待批
@@ -48,6 +47,32 @@ EXPECTED_READ = {"s3_project_frame", "s3_find_leaks", "s3_causal_complete",
                  "s3_emotion_palette", "s3_craft_rule_list", "s3_list_voice_flags",
                  "s3_list_entity_relations",
                  "s3_get_intent"}   # G-001:北极星只读
+
+
+def test_mcp_tool_schema_registers_without_pydantic_default_warning():
+    """FastMCP 工具默认值必须可生成 JSON Schema；警告视为注册契约失败。"""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import warnings; "
+                "from pydantic.json_schema import PydanticJsonSchemaWarning; "
+                "warnings.simplefilter('error', PydanticJsonSchemaWarning); "
+                "import scribe3.mcp"
+            ),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_write_gated_set_no_drift():
@@ -73,6 +98,15 @@ def test_commit_if_approved_decline_blocks():
     out = M.commit_if_approved("s3_add_fact", False, lambda: calls.append("did"))
     assert calls == [], "拒绝→不写(fail-closed)"
     assert out["status"] == "declined"
+
+
+def test_commit_if_approved_unavailable_is_expired_not_declined():
+    """elicitation 超时/异常没有作者决定，不能伪装成作者拒绝。"""
+    calls = []
+    out = M.commit_if_approved("s3_add_fact", None, lambda: calls.append("did"))
+    assert calls == [], "审批不可用时必须 fail-closed"
+    assert out["status"] == "expired"
+    assert out["tool"] == "s3_add_fact"
 
 
 def test_commit_if_approved_exception_is_error_not_written():
@@ -215,6 +249,13 @@ def test_tools_discoverable_and_annotated():
         ro = getattr(ann, "readOnlyHint", None) if ann else None
         if ro is not None:
             assert ro is not True, f"{name} 不应注 readOnlyHint=True"
+
+
+def test_material_tools_are_read_only_for_chief():
+    """素材由作者直管；主编保留召回，但不得发现素材 CRUD 工具。"""
+    tools = {t.name for t in asyncio.run(M.mcp.list_tools())}
+    assert "s3_material_recall" in tools
+    assert {"s3_add_material", "s3_patch_material", "s3_delete_material"}.isdisjoint(tools)
 
 
 def test_mcp_recall_tools_expose_is_secret(store):

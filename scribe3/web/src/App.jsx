@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { api } from './api'
 import { AppRail } from './AppRail'
-import { Library } from './Library'
-import { BinderLayout } from './BinderLayout'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
+const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
+const BinderLayout = lazy(() => import('./BinderLayout').then((mod) => ({ default: mod.BinderLayout })))
 
 function readActiveWorkSlug() {
   try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
@@ -103,7 +103,11 @@ export default function App() {
       <div className="h-full flex flex-col bg-canvas">
         <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={openLibrary}
           theme={theme} onTheme={setTheme} />
-        <div className="flex-1 min-h-0">{body}</div>
+        <div className="flex-1 min-h-0">
+          <Suspense fallback={<div className="h-full grid place-items-center text-f13 text-faint/60">加载工作区…</div>}>
+            {body}
+          </Suspense>
+        </div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} works={works} cur={cur}
           onView={onView} onSelectWork={open} onLibrary={() => setCur(null)} />
       </div>

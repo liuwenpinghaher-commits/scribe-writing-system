@@ -236,10 +236,22 @@ class ChatAiMixin:
                             error=None,
                             response: dict | None = None) -> None:
         existing = self.get_ai_run_trace(run_id) or {}
+        existing_status = str(existing.get("status") or "")
+        # collector 线程可能晚一步补写 streaming/waiting_for_approval。
+        # 活跃态不得把既有 Run 终态或“审批会话已失效”覆盖掉；
+        # 真实的后续 completed/failed 终态仍可正常接管 approval_expired。
+        active_statuses = {"created", "streaming", "waiting_for_approval", "requires_approval"}
+        sticky_statuses = {
+            "completed", "completed_unverified", "failed", "stopped",
+            "cancelled", "canceled", "approval_expired",
+        }
+        effective_status = status
+        if existing_status in sticky_statuses and status in active_statuses:
+            effective_status = existing_status
         payload = {
             "work": self.db_name,
             "run_id": run_id,
-            "status": status or existing.get("status") or "created",
+            "status": effective_status or existing.get("status") or "created",
             "session_key": session_key if session_key is not None else existing.get("session_key"),
             "input_text": input_text if input_text is not None else existing.get("input_text"),
             "instructions": instructions if instructions is not None else existing.get("instructions"),

@@ -13,7 +13,8 @@ from typing import Any, Callable
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic.fields import FieldInfo
 
 from scribe3.codex_schema import all_storage_keys, secret_capable_keys, secret_flag_key
 from scribe3.codex_secret_bridge import sync_faction_secrets
@@ -91,9 +92,8 @@ WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_kno
                 "s3_add_volume", "s3_patch_volume",
                 "s3_add_chapter", "s3_patch_chapter_meta",
                 "s3_patch_chapter_plan", "s3_set_char_anchors",
-                # P0:结构运维 + 素材(默认 emergency REST 关时的作者主路径)
+                # P0:结构运维 + 母题(默认 emergency REST 关时的作者主路径)
                 "s3_reorder_chapters", "s3_delete_volume",
-                "s3_add_material", "s3_patch_material", "s3_delete_material",
                 "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
                 # 设定库生命周期(archive/delete,与 objects/* 同口径)
                 "s3_delete_codex"}
@@ -103,9 +103,10 @@ def requires_approval(name: str) -> bool:
     return name in WRITE_GATED
 
 
-def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], object]) -> dict:
+def commit_if_approved(name: str, accepted: bool | None,
+                       do_write: Callable[[], object]) -> dict:
     """写门控单一落库点:WRITE_GATED 的工具须 accepted=True 才执行 do_write
-    (do_write 内部走 store 单点落库)。拒绝=fail-closed 不写。
+    (do_write 内部走 store 单点落库)。拒绝/过期均 fail-closed 不写，且状态分开。
 
     防假绿:
     - do_write 抛异常 → status=error(不谎称 written)
@@ -114,7 +115,9 @@ def commit_if_approved(name: str, accepted: bool, do_write: Callable[[], object]
     - do_write 返回其它 dict → 与 written 合并(保留业务字段)
     - do_write 返回 None/其它真值 → status=written
     """
-    if name in WRITE_GATED and not accepted:
+    if name in WRITE_GATED and accepted is None:
+        return {"status": "expired", "tool": name}
+    if name in WRITE_GATED and accepted is not True:
         return {"status": "declined", "tool": name}
     try:
         result = do_write()
@@ -151,13 +154,13 @@ class _Approve(BaseModel):
     confirm: bool = True
 
 
-async def _ask(ctx: Context, summary: str) -> bool:
-    """Hermes elicitation:写前向用户征求批准。异常/超时 → fail-closed(不写)。"""
+async def _ask(ctx: Context, summary: str) -> bool | None:
+    """Hermes elicitation:写前征求批准。超时/异常与作者显式拒绝分开审计。"""
     try:
         res = await ctx.elicit(message=f"批准写入?{summary}", schema=_Approve)
         return getattr(res, "action", None) == "accept"
     except Exception:
-        return False
+        return None
 
 
 _RO = ToolAnnotations(readOnlyHint=True)
@@ -969,41 +972,58 @@ _MCP_UNSET = object()  # 未传哨兵(与 store._UNSET 同一思路,模块内自
                        # 进非 optional 的 array 字段直接 500(见 test_codex_faction.py 回归测试)。
 
 
+def _mcp_unset_factory():
+    return _MCP_UNSET
+
+
+def _mcp_unset_field():
+    """不向 FastMCP JSON Schema 暴露内部哨兵，同时保留省略参数语义。"""
+    return Field(default_factory=_mcp_unset_factory)
+
+
+def _is_mcp_unset(value: object) -> bool:
+    # FastMCP/Pydantic 调用会执行 default_factory；测试或内部直接调函数时，Python
+    # 会把签名上的 FieldInfo 原样传入。两条路径都应视为“调用方未提供字段”。
+    return value is _MCP_UNSET or (
+        isinstance(value, FieldInfo) and value.default_factory is _mcp_unset_factory
+    )
+
+
 @mcp.tool(annotations=_RW)
 async def s3_add_faction(ctx: Context, name: str,
-                          status: str = _MCP_UNSET,
-                          ideology: str | None = _MCP_UNSET,
-                          leader: str | None = _MCP_UNSET,
-                          known_members: list | None = _MCP_UNSET,
-                          public_face: str | None = _MCP_UNSET,
-                          private_operation: str | None = _MCP_UNSET,
-                          private_operation_secret: bool = _MCP_UNSET,
-                          first_mention_chapter: int | None = _MCP_UNSET,
-                          origin: str | None = _MCP_UNSET,
-                          origin_secret: bool = _MCP_UNSET,
-                          artifact_operation: str | None = _MCP_UNSET,
-                          artifact_operation_secret: bool = _MCP_UNSET,
-                          external_manipulation: str | None = _MCP_UNSET,
-                          external_manipulation_secret: bool = _MCP_UNSET,
-                          acceleration_methods: str | None = _MCP_UNSET,
-                          acceleration_methods_secret: bool = _MCP_UNSET,
-                          internal_factions: list | None = _MCP_UNSET,
-                          structure: dict | None = _MCP_UNSET,
-                          key_figures: list | None = _MCP_UNSET,
-                          artifacts: list | None = _MCP_UNSET,
-                          scale: str | None = _MCP_UNSET,
-                          recruitment: str | None = _MCP_UNSET,
-                          symbols: str | None = _MCP_UNSET,
-                          motto: str | None = _MCP_UNSET,
-                          goals: list | None = _MCP_UNSET,
-                          world_rule_affinity: list | None = _MCP_UNSET,
-                          aliases: list | None = _MCP_UNSET,
-                          timeline: list | None = _MCP_UNSET,
-                          headquarters: str | None = _MCP_UNSET,
-                          communication: str | None = _MCP_UNSET,
-                          rituals: str | None = _MCP_UNSET,
-                          secret_agenda: str | None = _MCP_UNSET,
-                          secret_agenda_secret: bool = _MCP_UNSET,
+                          status: str = _mcp_unset_field(),
+                          ideology: str | None = _mcp_unset_field(),
+                          leader: str | None = _mcp_unset_field(),
+                          known_members: list | None = _mcp_unset_field(),
+                          public_face: str | None = _mcp_unset_field(),
+                          private_operation: str | None = _mcp_unset_field(),
+                          private_operation_secret: bool = _mcp_unset_field(),
+                          first_mention_chapter: int | None = _mcp_unset_field(),
+                          origin: str | None = _mcp_unset_field(),
+                          origin_secret: bool = _mcp_unset_field(),
+                          artifact_operation: str | None = _mcp_unset_field(),
+                          artifact_operation_secret: bool = _mcp_unset_field(),
+                          external_manipulation: str | None = _mcp_unset_field(),
+                          external_manipulation_secret: bool = _mcp_unset_field(),
+                          acceleration_methods: str | None = _mcp_unset_field(),
+                          acceleration_methods_secret: bool = _mcp_unset_field(),
+                          internal_factions: list | None = _mcp_unset_field(),
+                          structure: dict | None = _mcp_unset_field(),
+                          key_figures: list | None = _mcp_unset_field(),
+                          artifacts: list | None = _mcp_unset_field(),
+                          scale: str | None = _mcp_unset_field(),
+                          recruitment: str | None = _mcp_unset_field(),
+                          symbols: str | None = _mcp_unset_field(),
+                          motto: str | None = _mcp_unset_field(),
+                          goals: list | None = _mcp_unset_field(),
+                          world_rule_affinity: list | None = _mcp_unset_field(),
+                          aliases: list | None = _mcp_unset_field(),
+                          timeline: list | None = _mcp_unset_field(),
+                          headquarters: str | None = _mcp_unset_field(),
+                          communication: str | None = _mcp_unset_field(),
+                          rituals: str | None = _mcp_unset_field(),
+                          secret_agenda: str | None = _mcp_unset_field(),
+                          secret_agenda_secret: bool = _mcp_unset_field(),
                           work: str | None = None) -> dict:
     """添加/更新势力/组织(写,待批;CX-Task 3 起支持 codex_schema 注册的全部字段,
     关键字实参)。
@@ -1043,7 +1063,7 @@ async def s3_add_faction(ctx: Context, name: str,
         "secret_agenda": secret_agenda,
         "secret_agenda_secret": secret_agenda_secret,
     }
-    kwargs = {k: v for k, v in provided.items() if v is not _MCP_UNSET}
+    kwargs = {k: v for k, v in provided.items() if not _is_mcp_unset(v)}
 
     def _write():
         st = _store_for(work)
@@ -1785,107 +1805,6 @@ async def s3_delete_volume(ctx: Context, volume_id: str,
         return {"volume_id": vid, "deleted": True}
 
     return commit_if_approved("s3_delete_volume", ok, _write)
-
-
-@mcp.tool(annotations=_RW)
-async def s3_add_material(ctx: Context, title: str, body: str = "",
-                          kind: str = "note",
-                          tags: list[str] | None = None,
-                          ref_tags: list[str] | None = None,
-                          source: str | None = None,
-                          summary: str | None = None,
-                          pinned: bool = False,
-                          work: str | None = None) -> dict:
-    """新建素材记忆(写,待批)。kind∈snippet/note/research/inspiration/…;借鉴非正典事实。
-
-    source: 可选出处;summary: 手法摘要(召回优先);pinned: 核心记忆。origin 固定 chief。"""
-    t = (title or "").strip()
-    if not t:
-        return {"status": "error", "tool": "s3_add_material", "error": "title required"}
-    src = (source or "").strip() or None
-    ok = await _ask(ctx, f"新建素材《{t}》kind={kind}" + (f" source={src}" if src else ""))
-
-    def _write():
-        mid = _store_for(work).add_material(
-            t, body=body or None, kind=kind or "note",
-            tags=list(tags or []), source=src, ref_tags=list(ref_tags or []),
-            summary=summary, pinned=bool(pinned), origin="chief")
-        return {"material_id": mid, "title": t, "kind": kind or "note", "source": src,
-                "origin": "chief"}
-
-    return commit_if_approved("s3_add_material", ok, _write)
-
-
-@mcp.tool(annotations=_RW)
-async def s3_patch_material(ctx: Context, material_id: str,
-                            title: str | None = None,
-                            body: str | None = None,
-                            kind: str | None = None,
-                            tags: list[str] | None = None,
-                            ref_tags: list[str] | None = None,
-                            source: str | None = None,
-                            summary: str | None = None,
-                            pinned: bool | None = None,
-                            archived: bool | None = None,
-                            work: str | None = None) -> dict:
-    """更新素材记忆(写,待批)。仅提交需要改的字段;空串 source 表示清空出处。origin 不可改。"""
-    mid = (material_id or "").strip()
-    if not mid:
-        return {"status": "error", "tool": "s3_patch_material", "error": "material_id required"}
-    fields: dict = {}
-    if title is not None:
-        fields["title"] = title
-    if body is not None:
-        fields["body"] = body
-    if kind is not None:
-        fields["kind"] = kind
-    if tags is not None:
-        fields["tags"] = list(tags)
-    if ref_tags is not None:
-        fields["ref_tags"] = list(ref_tags)
-    if source is not None:
-        fields["source"] = (source or "").strip() or None
-    if summary is not None:
-        fields["summary"] = (summary or "").strip() or None
-    if pinned is not None:
-        fields["pinned"] = bool(pinned)
-    if archived is not None:
-        fields["archived"] = bool(archived)
-    if not fields:
-        return {"status": "error", "tool": "s3_patch_material", "error": "no fields to patch"}
-    ok = await _ask(ctx, f"更新素材 {mid} 字段:{','.join(fields.keys())}")
-
-    def _write():
-        if not _store_for(work).update_material(mid, fields):
-            return False
-        return {"material_id": mid, "patched": list(fields.keys())}
-
-    return commit_if_approved("s3_patch_material", ok, _write)
-
-
-
-@mcp.tool(annotations=_RW)
-async def s3_delete_material(ctx: Context, material_id: str,
-                             archive: bool = True,
-                             work: str | None = None) -> dict:
-    """删除或归档素材(写,待批)。默认 archive=True 软归档;archive=False 硬删并清理引用。"""
-    mid = (material_id or "").strip()
-    if not mid:
-        return {"status": "error", "tool": "s3_delete_material", "error": "material_id required"}
-    mode = "归档" if archive else "删除"
-    ok = await _ask(ctx, f"{mode}素材 {mid}")
-
-    def _write():
-        st = _store_for(work)
-        if archive:
-            if not st.update_material(mid, {"archived": True}):
-                return False
-            return {"material_id": mid, "action": "archive"}
-        if not st.delete_material(mid, cleanup_refs=True):
-            return False
-        return {"material_id": mid, "action": "delete"}
-
-    return commit_if_approved("s3_delete_material", ok, _write)
 
 
 @mcp.tool(annotations=_RW)

@@ -1056,16 +1056,18 @@ def test_ingest_chapter_end_to_end_extracts_relation_touch(store):
     落库可读回(与既有 test_ingest_chapter_end_to_end 同范式,验真实调用链路而非只测局部函数)。"""
     _ensure_chars(store, "柳怀玉", "阿禾")
     store.save_chapter(6, "柳怀玉与阿禾在义庄前正面对峙。", focalizer="role:柳怀玉")
-    seen_prompt = {}
+    seen_prompts = []
 
     def fake(p):
-        seen_prompt["p"] = p
-        return ('{"learned":[],"did":[],'
-                '"relation_touches":[{"a":"柳怀玉","b":"阿禾","kind":"冲突"}]}')
+        seen_prompts.append(p)
+        if "relation_touches" in p:
+            return ('{"learned":[],"did":[],'
+                    '"relation_touches":[{"a":"柳怀玉","b":"阿禾","kind":"冲突"}]}')
+        return '{"events":[]}'
 
     r = ingest_chapter(store, 6, fake)
     assert r["applied"] == 0   # learned/did 均空,应用条数不含 relation_touch(与 motif/event 一致)
-    assert "relation_touches" in seen_prompt["p"]
+    assert any("relation_touches" in prompt for prompt in seen_prompts)
     got = store.list_relation_touches("role:柳怀玉", "role:阿禾")
     assert len(got) == 1 and got[0]["kind"] == "冲突" and got[0]["chapter"] == 6
 

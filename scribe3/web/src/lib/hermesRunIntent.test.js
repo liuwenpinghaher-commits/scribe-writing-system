@@ -10,8 +10,6 @@ describe('shouldUseHermesRun', () => {
     expect(shouldUseHermesRun(
       '使用工具 s3_delete_volume(volume_id="v1")')).toBe(true)
     expect(shouldUseHermesRun(
-      '使用工具 s3_add_material(title, body);提交写入提案供我批准。')).toBe(true)
-    expect(shouldUseHermesRun(
       '请新建设定「甲」(类型:character)并写入落库(需我审批)。使用工具 s3_add_character')).toBe(true)
     expect(shouldUseHermesRun(
       '请更新/更正「第3章大纲」(outline)并提交写入提案供我批准。')).toBe(true)
@@ -30,5 +28,6 @@ describe('shouldUseHermesRun', () => {
 
   it('plain discussion without mutation stays false', () => {
     expect(shouldUseHermesRun('这一章节奏如何？')).toBe(false)
+    expect(shouldUseHermesRun('新增一条素材')).toBe(false)
   })
 })

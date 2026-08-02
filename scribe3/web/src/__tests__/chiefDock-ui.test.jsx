@@ -149,6 +149,28 @@ describe('ChiefDock UI', () => {
     expect(await screen.findByText('已批准')).toBeTruthy()
   })
 
+  it('主编审批超时显示已过期，不误报已拒绝', async () => {
+    let handlers
+    apiMock.runWrite.mockImplementation((_msg, opts) => {
+      handlers = opts
+      opts.onRun?.({ run_id: 'run_expired' })
+      opts.onApproval?.({ run_id: 'run_expired', approval_id: 'ap_expired', message: '允许写入设定?' })
+      return { abort: vi.fn() }
+    })
+    render(<Harness phase="outline" />)
+
+    fireEvent.change(await screen.findByPlaceholderText(/就当前内容问主编/), { target: { value: '请登记这个设定' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
+    expect(await screen.findByText('允许写入设定?')).toBeTruthy()
+
+    await act(async () => {
+      handlers.onApprovalResolved?.({ run_id: 'run_expired', approval_id: 'ap_expired', decision: 'timeout' })
+    })
+    expect(await screen.findByText('审批已过期，请重新发起')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '批准' })).toBeNull()
+    expect(screen.queryByText('已拒绝')).toBeNull()
+  })
+
   it('同一审批在界面状态尚未刷新时只能提交一次', async () => {
     let resolveApproval
     apiMock.runWrite.mockImplementation((_msg, opts) => {

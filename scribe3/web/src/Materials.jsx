@@ -14,11 +14,6 @@ import { MaterialNetwork } from './MaterialNetwork'
 import { DirectoryHeader } from './layout/DirectoryHeader'
 import { DirectoryRow, DirectorySectionLabel, DIR_SHELL } from './layout/DirectoryRow'
 import { handleSelAction } from './lib/selAction'
-import {
-  seedChiefAddMaterial,
-  seedChiefDeleteMaterial,
-  seedChiefPatchMaterial,
-} from './lib/chiefSeed.js'
 import { seedCiteMaterial, seedDiscussMaterial } from './lib/sessionClip.js'
 
 // 素材库:非正典写作材料。MATERIAL_KINDS 抽到 materialKinds.js(破 MaterialImport 循环 import),此处 re-export 兼容既有 from './Materials' 引用。
@@ -77,27 +72,33 @@ function MaterialForm({ draft, onDraft, editorKey, showPinned = false }) {
   )
 }
 
-// ——— 新建(material_new 节点):草稿内存;「让主编写入」→ s3_add_material 待批(禁 REST 直写) ———
+// ——— 新建(material_new 节点):作者直管非正典素材 ———
 export function MaterialNew({ kind, onCancel, onCreated }) {
   const toast = useToast()
+  const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState({
     title: '', body: '', kind: KIND_LABEL[kind] ? kind : 'note',
     tagsText: '', refTagsText: '', source: '', summary: '', pinned: false,
   })
-  const create = () => {
+  const create = async () => {
     if (!draft.title.trim()) { toast('请填写素材标题', { tone: 'danger' }); return }
-    seedChiefAddMaterial({
-      title: draft.title.trim(),
-      body: draft.body,
-      kind: draft.kind,
-      tags: parseTags(draft.tagsText),
-      ref_tags: parseTags(draft.refTagsText),
-      source: draft.source.trim() || '',
-      summary: draft.summary.trim() || '',
-      pinned: !!draft.pinned,
-    })
-    toast('已交给主编写入素材,请在右栏批准', { tone: 'ok' })
-    onCreated?.(null, draft.title.trim())
+    if (saving) return
+    const payload = {
+      title: draft.title.trim(), body: draft.body, kind: draft.kind,
+      tags: parseTags(draft.tagsText), ref_tags: parseTags(draft.refTagsText),
+      source: draft.source.trim() || '', summary: draft.summary.trim() || '',
+      pinned: !!draft.pinned, origin: 'manual',
+    }
+    setSaving(true)
+    try {
+      const result = await api.addMaterial(payload)
+      toast('素材已保存', { tone: 'ok' })
+      onCreated?.(result?.id ?? null, payload.title)
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '素材保存失败', { tone: 'danger' })
+    } finally {
+      setSaving(false)
+    }
   }
   return (
     <div className="h-full overflow-y-auto" data-testid="material-new">
@@ -107,12 +108,12 @@ export function MaterialNew({ kind, onCancel, onCreated }) {
           <span className="text-meta text-faint/50">新建素材{KIND_LABEL[kind] ? ` · ${KIND_LABEL[kind]}` : ''}</span>
         </div>
         <p className="text-meta text-faint mb-2" data-testid="material-new-dialogue-hint">
-          素材写入须经主编 s3_add_material 待批,不直连 REST。
+          素材是非正典参考记忆，由作者直接管理。
         </p>
         <MaterialForm draft={draft} onDraft={setDraft} editorKey="material:new" showPinned />
         <div className="mt-4 pt-3 border-t border-line flex items-center gap-2 shrink-0">
-          <Btn variant="primary" onClick={create} data-testid="material-new-submit-chief">
-            让主编写入(待批)
+          <Btn variant="primary" onClick={create} disabled={saving} data-testid="material-new-submit">
+            {saving ? '保存中…' : '保存素材'}
           </Btn>
           {onCancel && <Btn variant="ghost" onClick={onCancel}>取消</Btn>}
         </div>
@@ -134,6 +135,7 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   const [delOpen, setDelOpen] = useState(false)
   const [delLoading, setDelLoading] = useState(false)
   const [deleteImpact, setDeleteImpact] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [insertOpen, setInsertOpen] = useState(false)
   const [refs, setRefs] = useState([])   // 正向溯源:这条记忆用在了哪些章
   const dirtyRef = useRef(false)
@@ -182,10 +184,10 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
   )
   if (!row || !draft) return <div className="p-6 text-f13 text-faint">未找到该素材(可能已删除)。</div>
 
-  const save = () => {
+  const save = async () => {
     if (!draft.title.trim()) { toast('标题不能为空', { tone: 'danger' }); return }
-    // 禁 REST 直写：emergency 关时 PATCH /materials 403；走主编审批 s3_patch_material
-    seedChiefPatchMaterial(row.id, {
+    if (saving) return
+    const fields = {
       title: draft.title.trim(),
       body: draft.body,
       kind: draft.kind,
@@ -194,9 +196,20 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
       source: draft.source.trim() || '',
       summary: draft.summary.trim() || '',
       pinned: !!draft.pinned,
-    })
-    dirtyRef.current = false
-    toast('已交给主编更新素材,请在右栏批准', { tone: 'ok' })
+    }
+    setSaving(true)
+    try {
+      await api.editMaterial(row.id, fields)
+      const updated = { ...row, ...fields }
+      setRow(updated)
+      dirtyRef.current = false
+      toast('素材已保存', { tone: 'ok' })
+      onChanged?.(updated)
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || '素材保存失败', { tone: 'danger' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const openDelete = async () => {
@@ -215,16 +228,24 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
 
   const lifecycleAction = deleteImpact?.recommended_action === 'archive' ? 'archive' : 'delete'
   const lifecycleLabel = lifecycleAction === 'archive' ? '归档' : '删除'
-  const doDelete = () => {
-    // 禁 REST 直写 objects/*（闸关 403）；走主编 s3_delete_material
-    seedChiefDeleteMaterial(row.id, {
-      title: draft.title || row.title,
-      archive: lifecycleAction === 'archive',
-    })
-    dirtyRef.current = false
-    toast(`已交给主编${lifecycleLabel}素材,请在右栏批准`, { tone: 'ok' })
-    setDelOpen(false)
-    onDeleted?.()
+  const doDelete = async () => {
+    if (delLoading) return
+    setDelLoading(true)
+    try {
+      if (lifecycleAction === 'archive') {
+        await api.editMaterial(row.id, { archived: true })
+      } else {
+        await api.delMaterial(row.id, deleteImpact?.confirm_impact_token || '')
+      }
+      dirtyRef.current = false
+      toast(`素材已${lifecycleLabel}`, { tone: 'ok' })
+      setDelOpen(false)
+      onDeleted?.()
+    } catch (e) {
+      toast(e?.body?.detail || e?.message || `${lifecycleLabel}素材失败`, { tone: 'danger' })
+    } finally {
+      setDelLoading(false)
+    }
   }
 
   const impactRefs = Array.isArray(deleteImpact?.references) ? deleteImpact.references.filter((r) => Number(r?.count || 0) > 0) : []
@@ -312,8 +333,8 @@ export function MaterialDetail({ node, onChanged, onDeleted }) {
                 指定章号
               </Btn>
             )}
-            <Btn variant="primary" size="sm" onClick={save} data-testid="material-save-seed">
-              让主编更新
+            <Btn variant="primary" size="sm" onClick={save} disabled={saving} data-testid="material-save">
+              {saving ? '保存中…' : '保存'}
             </Btn>
             <Btn variant="ghost" size="sm" onClick={openDelete} disabled={delLoading} className="hover:text-danger" title="删除素材">
               {delLoading ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}删除
@@ -528,7 +549,7 @@ export function MaterialList({ node, onSelect }) {
     { key: 'manual', label: '手建' },
     { key: 'import', label: '来自导入' },
     { key: 'session_clip', label: '剪藏' },
-    { key: 'chief', label: '主编写入' },
+    { key: 'chief', label: '历史主编记录' },
   ]
 
   return (

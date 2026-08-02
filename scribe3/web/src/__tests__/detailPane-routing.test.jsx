@@ -28,11 +28,11 @@ describe('DetailPane 路由', () => {
     expect(screen.getByText(/选择目录条目/)).toBeTruthy()
   })
 
-  it('条目节点仍进入详情,横切 view 仍进入全画布视图', () => {
+  it('条目节点仍进入详情,横切 view 仍进入全画布视图', async () => {
     const { rerender } = render(<DetailPane sel={{ mode: 'node', node: { id: 'motif:1', type: 'motif', ref: 1, label: '回声' } }} />)
-    expect(screen.getByTestId('codex-detail').textContent).toBe('motif:1')
+    expect((await screen.findByTestId('codex-detail')).textContent).toBe('motif:1')
 
     rerender(<DetailPane sel={{ mode: 'view', viewKey: 'atlas' }} />)
-    expect(screen.getByTestId('view-atlas')).toBeTruthy()
+    expect(await screen.findByTestId('view-atlas')).toBeTruthy()
   })
 })

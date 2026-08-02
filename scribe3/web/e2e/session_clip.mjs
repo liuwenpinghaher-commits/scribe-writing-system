@@ -1,4 +1,4 @@
-// 会话摘录 e2e：闸关时 POST /author/session-clips 可落库；POST /materials 仍 403。
+// 会话摘录 e2e：闸关时作者直管 POST /materials 和 /author/session-clips 均可落库。
 // 默认打 Vite 同源代理 /api → :3321；也可用 E2E_API=http://127.0.0.1:3321 直连。
 const API = (process.env.E2E_API || 'http://127.0.0.1:3311/api').replace(/\/$/, '')
 const WORK = process.env.E2E_WORK || 'main'
@@ -20,15 +20,10 @@ const fail = (msg) => { console.error('SESSION CLIP E2E FAIL:', msg); process.ex
 const health = await j('GET', '/health')
 if (health.status !== 200) fail(`health ${health.status}`)
 
-const blocked = await j('POST', `/materials?work=${encodeURIComponent(WORK)}`, {
-  title: '应被闸', body: 'x', kind: 'snippet',
+const manual = await j('POST', `/materials?work=${encodeURIComponent(WORK)}`, {
+  title: `E2E作者素材_${Date.now()}`, body: 'x', kind: 'snippet', origin: 'manual',
 })
-if (blocked.status !== 403) {
-  // emergency 可能开着：仍要求 clip 端点 200；materials 403 只在闸关时强断言
-  console.warn('WARN: POST /materials not 403 (emergency rest write may be on):', blocked.status)
-} else if (!String(blocked.data?.detail || '').includes('REST world write disabled')) {
-  fail(`unexpected 403 detail: ${JSON.stringify(blocked.data)}`)
-}
+if (manual.status !== 200 || !manual.data?.id) fail(`manual material ${manual.status} ${JSON.stringify(manual.data)}`)
 
 const bodyText = `E2E摘录_${Date.now()}_霜白城墙`
 const clip = await j('POST', `/author/session-clips?work=${encodeURIComponent(WORK)}`, {
@@ -55,6 +50,6 @@ if (empty.status !== 422) fail(`empty body expected 422 got ${empty.status}`)
 console.log('SESSION CLIP E2E OK', {
   id: clip.data.id,
   title: clip.data.title,
-  materialsBlocked: blocked.status === 403,
+  manualMaterialId: manual.data.id,
   listed: true,
 })
