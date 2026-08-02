@@ -1,0 +1,92 @@
+# scribe3 生产栈（腾讯云轻量 / 任意 Linux）
+# 用法（在仓库根）:
+#   docker compose -f deploy/prod/docker-compose.yml --env-file deploy/prod/.env up -d --build
+#
+# Hermes 三网关跑在宿主机（systemd），backend 经 host-gateway 访问 8642/8643/8644。
+# 对外只暴露 80（nginx 同源 / 与 /api）。
+
+services:
+  surreal:
+    image: surrealdb/surrealdb:v2.1.4
+    user: root
+    restart: unless-stopped
+    # v2.1.4 无 --slow-log-threshold / --query-timeout / --transaction-timeout
+    command: >
+      start
+      --user ${SURREAL_USER:-root}
+      --pass ${SURREAL_PASS:-root}
+      --bind 0.0.0.0:8000
+      --log info
+      surrealkv:/data/data.db
+    volumes:
+      - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/surreal:/data
+    # 仅本机/容器网可连；不映射公网，防裸奔 DB
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://127.0.0.1:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: scribe3/Dockerfile.backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SCRIBE3_SURREAL_URL: ws://surreal:8000/rpc
+      SCRIBE3_SURREAL_USER: ${SURREAL_USER:-root}
+      SCRIBE3_SURREAL_PASS: ${SURREAL_PASS:-root}
+      # Docker Desktop / Linux host 网关：访问宿主机 Hermes
+      HERMES_API: ${HERMES_API:-http://172.18.0.1:8642/v1}
+      HERMES_RESPONSES_API: ${HERMES_RESPONSES_API:-http://172.18.0.1:8643/v1}
+      HERMES_RUNS_API: ${HERMES_RUNS_API:-http://172.18.0.1:8644/v1}
+      HERMES_RESPONSES_PROFILE: ${HERMES_RESPONSES_PROFILE:-scribe3}
+      HERMES_RUNS_PROFILE: ${HERMES_RUNS_PROFILE:-scribe3_write}
+      SCRIBE3_CORS_ORIGINS: ${SCRIBE3_CORS_ORIGINS:-http://82.157.130.140,http://127.0.0.1}
+      SCRIBE3_SETTINGS_DB: /var/lib/scribe3/scribe3_settings.sqlite3
+      SCRIBE3_LLM_LEDGER: /var/lib/scribe3/scribe3_llm_ledger.sqlite3
+      # 生产不强制因网关未 provision 就拒启；装完 Hermes 后再开 STRICT
+      SCRIBE3_STRICT_GATEWAY_GUARD: ${SCRIBE3_STRICT_GATEWAY_GUARD:-0}
+    volumes:
+      - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/settings:/var/lib/scribe3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      surreal:
+        condition: service_healthy
+    expose:
+      - "3321"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3321/ready', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ../../scribe3/web
+      dockerfile: Dockerfile
+      args:
+        # 同源 /api，由 nginx 反代到 backend（见 api.js 注释：避免跨端口 POST 被拦）
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${SCRIBE3_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+

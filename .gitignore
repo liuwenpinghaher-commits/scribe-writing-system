@@ -72,3 +72,6 @@ history.txt
 # split backups (local only)
 **/*.monolith.bak
 
+
+# production secrets on server / local
+deploy/prod/.env

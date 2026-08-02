@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# 在服务器安装 Hermes Agent，并启用 default/scribe3/scribe3_write 三网关 systemd。
+# 前置: 已解压 hermes_config.tgz 到 ~/.hermes（含 .env 与 profiles），或稍后手工配置密钥。
+set -euo pipefail
+
+DEPLOY_USER="${DEPLOY_USER:-ubuntu}"
+HERMES_HOME="${HERMES_HOME:-/home/$DEPLOY_USER/.hermes}"
+HERMES_AGENT_DIR="${HERMES_AGENT_DIR:-$HERMES_HOME/hermes-agent}"
+REPO_DIR="${SCRIBE3_REPO_DIR:-/opt/scribe3/app}"
+UNIT_DIR="/etc/systemd/system"
+
+echo "==> 确保 python3.11+ / venv / git / node(可选)"
+sudo apt-get update -y
+sudo apt-get install -y --no-install-recommends python3 python3-venv python3-pip git curl
+
+echo "==> 克隆 hermes-agent（若无）"
+sudo -u "$DEPLOY_USER" mkdir -p "$HERMES_HOME"
+if [ ! -d "$HERMES_AGENT_DIR/.git" ]; then
+  # 与本地一致的 git 安装方式；仓库公开可直拉
+  sudo -u "$DEPLOY_USER" git clone --depth 1 https://github.com/NousResearch/hermes-agent.git "$HERMES_AGENT_DIR" \
+    || sudo -u "$DEPLOY_USER" git clone --depth 1 https://github.com/hermes-ai/hermes-agent.git "$HERMES_AGENT_DIR" \
+    || {
+      echo "无法克隆 hermes-agent，请设置 HERMES_AGENT_GIT_URL 后重试" >&2
+      if [ -n "${HERMES_AGENT_GIT_URL:-}" ]; then
+        sudo -u "$DEPLOY_USER" git clone --depth 1 "$HERMES_AGENT_GIT_URL" "$HERMES_AGENT_DIR"
+      else
+        exit 1
+      fi
+    }
+fi
+
+echo "==> venv + 安装"
+sudo -u "$DEPLOY_USER" bash -lc "
+  set -e
+  cd '$HERMES_AGENT_DIR'
+  python3 -m venv venv
+  ./venv/bin/pip install -U pip wheel
+  if [ -f requirements.txt ]; then ./venv/bin/pip install -r requirements.txt; fi
+  if [ -f pyproject.toml ]; then ./venv/bin/pip install -e .; fi
+"
+
+echo "==> 写 systemd units"
+PY="$HERMES_AGENT_DIR/venv/bin/python"
+install_unit() {
+  local name="$1" profile_arg="$2" workdir="$3" env_home="$4"
+  local unit="hermes-gateway${name}.service"
+  sudo tee "$UNIT_DIR/$unit" >/dev/null <<EOF
+[Unit]
+Description=Hermes gateway${name}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$DEPLOY_USER
+Group=$DEPLOY_USER
+WorkingDirectory=$workdir
+Environment=HOME=/home/$DEPLOY_USER
+Environment=HERMES_HOME=$env_home
+Environment=VIRTUAL_ENV=$HERMES_AGENT_DIR/venv
+Environment=PATH=$HERMES_AGENT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$PY -m hermes_cli.main $profile_arg gateway run --replace
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/scribe3/logs/hermes${name}.log
+StandardError=append:/opt/scribe3/logs/hermes${name}.err.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+install_unit "" "" "$HERMES_AGENT_DIR" "$HERMES_HOME"
+install_unit "-scribe3" "--profile scribe3" "$HERMES_HOME/profiles/scribe3" "$HERMES_HOME/profiles/scribe3"
+install_unit "-scribe3-write" "--profile scribe3_write" "$HERMES_HOME/profiles/scribe3_write" "$HERMES_HOME/profiles/scribe3_write"
+
+sudo mkdir -p /opt/scribe3/logs
+sudo chown -R "$DEPLOY_USER:$DEPLOY_USER" /opt/scribe3/logs "$HERMES_HOME"
+
+echo "==> provision scribe3 网关 overlay（若 repo 在）"
+if [ -d "$REPO_DIR/scribe3" ]; then
+  sudo -u "$DEPLOY_USER" bash -lc "
+    set -e
+    cd '$REPO_DIR'
+    python3 -m venv /opt/scribe3/venv-provision 2>/dev/null || true
+    /opt/scribe3/venv-provision/bin/pip -q install -r scribe3/requirements.txt || true
+    HERMES_HOME='$HERMES_HOME' /opt/scribe3/venv-provision/bin/python -m scribe3.scripts.provision_hermes --commit || \
+      python3 -m scribe3.scripts.provision_hermes --commit || true
+  " || echo "provision 跳过/失败：可稍后手动跑"
+fi
+
+echo "==> enable + start gateways"
+sudo systemctl daemon-reload
+sudo systemctl enable --now hermes-gateway.service hermes-gateway-scribe3.service hermes-gateway-scribe3-write.service
+sleep 3
+systemctl --no-pager --full status hermes-gateway.service hermes-gateway-scribe3.service hermes-gateway-scribe3-write.service || true
+
+echo "Hermes 安装完成。探测:"
+curl -fsS -m 3 http://127.0.0.1:8642/v1/models || echo "8642 未就绪"
+curl -fsS -m 3 http://127.0.0.1:8643/v1/models || echo "8643 未就绪"
+curl -fsS -m 3 http://127.0.0.1:8644/v1/models || echo "8644 未就绪"
+
