@@ -75,3 +75,7 @@ history.txt
 
 # production secrets on server / local
 deploy/prod/.env
+
+# keep env templates
+!**/.env.example
+!deploy/prod/.env.example
