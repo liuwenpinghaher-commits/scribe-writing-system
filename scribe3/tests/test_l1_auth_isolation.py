@@ -79,6 +79,10 @@ class TestOwnershipPure:
         assert is_global_route("/works")
         assert is_global_route("/settings/foo")
         assert is_global_route("/auth/me")
+        assert is_global_route("/ai/runtime-status")
+        # /ai/runs* and /ai/usage are work-scoped — must NOT be global
+        assert not is_global_route("/ai/runs/pending-approvals")
+        assert not is_global_route("/ai/usage")
         assert not is_global_route("/entities")
         assert not is_global_route("/works/book_x")
         assert resolve_effective_work("/works", None) is None
@@ -87,6 +91,11 @@ class TestOwnershipPure:
         # omit ?work= on work-scoped route → same default as app_impl._normalize_work
         assert resolve_effective_work("/entities", None) == "main"
         assert resolve_effective_work("/entities", "") == default_work_slug()
+        # explicit work on /ai/* must resolve (ownership runs)
+        assert resolve_effective_work(
+            "/ai/runs/pending-approvals", "main"
+        ) == "main"
+        assert resolve_effective_work("/ai/usage", "book_a") == "book_a"
 
 
 class TestUsersBootstrap:
@@ -250,6 +259,16 @@ class TestHttpAuthAndIsolation:
         # Global routes still ok for bob (no default-main ownership)
         r_works = client_b.get("/works")
         assert r_works.status_code == 200
+
+        # Regression: /ai/runs* must not skip ownership via former /ai/ prefix allowlist
+        r_ai = client_b.get("/ai/runs/pending-approvals", params={"work": "main"})
+        assert r_ai.status_code == 403, r_ai.text
+        assert "denied" in r_ai.json()["detail"].lower()
+        r_usage = client_b.get("/ai/usage", params={"work": "main"})
+        assert r_usage.status_code == 403
+        # omit work on work-scoped /ai → default main → still 403 for bob
+        r_ai_omit = client_b.get("/ai/runs/pending-approvals")
+        assert r_ai_omit.status_code == 403
 
     def test_health_public(self, client_auth):
         client, _ = client_auth

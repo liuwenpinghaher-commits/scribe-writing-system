@@ -72,7 +72,8 @@
 | **重命名 / 废弃 / 恢复 / 永久删除** `/works/{slug}...` | 必须拥有该 slug，否则 **403** |
 | **任意 `?work=<slug>` 业务 API** | 必须拥有该 slug，否则 **403**；不存在可 **404** |
 | **省略 `?work=` 的业务 API** | 与 handler 一致回落 `SCRIBE3_WORK`/`main`，**仍做归属校验**（禁止靠省略绕过） |
-| **全局路由**（`/works` 列表/创建、`/settings*`、`/auth*`、`/health`、`/capabilities`、`/gateway*`、`/ai/*`） | 不做单书归属；列表结果仍按 owner 过滤 |
+| **全局路由**（`/works` 列表/创建、`/settings*`、`/auth*`、`/health`、`/capabilities`、`/gateway*`、`/ai/runtime-status`） | 不做单书归属；列表结果仍按 owner 过滤 |
+| **工作域 AI 路由**（`/ai/runs*`、`/ai/usage` 等带 `work` 的） | **按 effective work 做归属**（与 `/entities` 相同；禁止靠前缀白名单绕过） |
 | **历史无 owner 的作品** | `effective_owner = owner_user_id or SCRIBE3_LEGACY_OWNER`（默认 `admin`） |
 
 ### 3.3 失败语义

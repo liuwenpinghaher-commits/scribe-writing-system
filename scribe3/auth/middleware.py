@@ -33,13 +33,16 @@ _GLOBAL_EXACT = frozenset({
     "/works",
     "/works/archived",
     "/capabilities",
+    # Process-level probe only — not work-scoped store access
+    "/ai/runtime-status",
 })
 
+# Prefix allowlist for true globals only. Do NOT put "/ai/" here: most /ai/runs*
+# and /ai/usage take ?work= and call _store_for(work); they must hit ownership.
 _GLOBAL_PREFIXES = (
     "/auth/",
     "/settings",
     "/gateway",
-    "/ai/",
     "/health",
 )
 
