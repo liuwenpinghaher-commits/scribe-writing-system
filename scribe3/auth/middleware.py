@@ -22,6 +22,27 @@ _PUBLIC_EXACT = frozenset({
     "/auth/me",
 })
 
+# Global (not work-scoped) surfaces when authenticated: no default-main ownership check.
+# Work-scoped handlers default work="main" / SCRIBE3_WORK — those MUST hit ownership.
+_GLOBAL_EXACT = frozenset({
+    "/health",
+    "/ready",
+    "/auth/login",
+    "/auth/logout",
+    "/auth/me",
+    "/works",
+    "/works/archived",
+    "/capabilities",
+})
+
+_GLOBAL_PREFIXES = (
+    "/auth/",
+    "/settings",
+    "/gateway",
+    "/ai/",
+    "/health",
+)
+
 _WORKS_SLUG_RE = re.compile(
     r"^/works/(?P<slug>[A-Za-z0-9_]+)(?:/(?:restore|purge))?$"
 )
@@ -61,13 +82,58 @@ def resolve_username(request: Request) -> str | None:
     return None
 
 
-def _slug_from_path(path: str) -> str | None:
+def is_global_route(path: str) -> bool:
+    """Routes that are not bound to a single work DB (list/settings/auth/health)."""
+    if not path:
+        return True
+    if path in _GLOBAL_EXACT or path in _PUBLIC_EXACT:
+        return True
+    for prefix in _GLOBAL_PREFIXES:
+        if path == prefix.rstrip("/") or path.startswith(prefix):
+            return True
+    return False
+
+
+def _slug_from_works_path(path: str) -> str | None:
     if path in ("/works", "/works/archived") or path.startswith("/works/archived"):
         return None
-    m = _WORKS_SLUG_RE.match(path)
+    m = _WORKS_SLUG_RE.match(path or "")
     if m:
         return m.group("slug")
     return None
+
+
+def default_work_slug() -> str:
+    """Same fallback as app_impl._normalize_work when work is omitted."""
+    return (os.environ.get("SCRIBE3_WORK") or "main").strip() or "main"
+
+
+def resolve_effective_work(
+    path: str,
+    query_work: str | None,
+    *,
+    default: str | None = None,
+) -> str | None:
+    """Resolve the work slug a handler would use.
+
+    Order: ?work= → /works/{slug} path → SCRIBE3_WORK/main default for work-scoped
+    routes. Global routes return None (no ownership check).
+    """
+    if is_global_route(path):
+        # /works/{slug} is not global; is_global_route is false for those paths
+        return None
+    q = (query_work or "").strip()
+    if q:
+        return q
+    path_slug = _slug_from_works_path(path)
+    if path_slug:
+        return path_slug
+    return default if default is not None else default_work_slug()
+
+
+def resolve_username_public(request: Request) -> str | None:
+    """Alias for routes module."""
+    return resolve_username(request)
 
 
 async def l1_auth_middleware(request: Request, call_next: Callable):
@@ -97,13 +163,14 @@ async def l1_auth_middleware(request: Request, call_next: Callable):
         tokens = set_auth_context(username)
         request.state.scribe3_user = username
 
-        # Ownership choke: work query + /works/{slug}
+        # Ownership choke: same effective work as handlers (query | path | default main)
         if auth_enabled() and username:
-            work_q = request.query_params.get("work")
-            slug = work_q or _slug_from_path(path)
-            if slug:
+            effective = resolve_effective_work(
+                path, request.query_params.get("work")
+            )
+            if effective:
                 try:
-                    assert_user_may_access_work(username, slug)
+                    assert_user_may_access_work(username, effective)
                 except KeyError:
                     return JSONResponse(
                         status_code=404,

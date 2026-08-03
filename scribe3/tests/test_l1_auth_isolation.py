@@ -8,6 +8,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from scribe3.auth.middleware import (
+    default_work_slug,
+    is_global_route,
+    resolve_effective_work,
+)
 from scribe3.auth.ownership import (
     effective_owner,
     filter_works_for_user,
@@ -68,6 +73,20 @@ class TestOwnershipPure:
         assert [r["slug"] for r in only_alice] == ["a"]
         only_admin = filter_works_for_user(rows, "admin")
         assert [r["slug"] for r in only_admin] == ["legacy"]
+
+    def test_resolve_effective_work_defaults_like_handlers(self, monkeypatch):
+        monkeypatch.setenv("SCRIBE3_WORK", "main")
+        assert is_global_route("/works")
+        assert is_global_route("/settings/foo")
+        assert is_global_route("/auth/me")
+        assert not is_global_route("/entities")
+        assert not is_global_route("/works/book_x")
+        assert resolve_effective_work("/works", None) is None
+        assert resolve_effective_work("/entities", "book_a") == "book_a"
+        assert resolve_effective_work("/works/book_x", None) == "book_x"
+        # omit ?work= on work-scoped route → same default as app_impl._normalize_work
+        assert resolve_effective_work("/entities", None) == "main"
+        assert resolve_effective_work("/entities", "") == default_work_slug()
 
 
 class TestUsersBootstrap:
@@ -199,6 +218,38 @@ class TestHttpAuthAndIsolation:
         # Alice still lists her book (ownership allow on collection already proven)
         listed_a2 = client.get("/works").json()
         assert any(w["slug"] == slug_a for w in listed_a2)
+
+    def test_omit_work_defaults_to_main_and_is_gated(self, client_auth):
+        """Handlers default work='main'; omitting ?work= must not bypass ownership."""
+        client, registry = client_auth
+        # main owned by alice (legacy single-tenant book)
+        registry["main"] = {
+            "title": "Main Book",
+            "owner_user_id": "alice",
+            "archived": False,
+        }
+
+        client_b = TestClient(client.app)
+        assert client_b.post(
+            "/auth/login", json={"username": "bob", "password": "bob-pass"}
+        ).status_code == 200
+
+        # Bob: explicit work=main → 403
+        r_explicit = client_b.get("/entities", params={"work": "main"})
+        assert r_explicit.status_code == 403
+
+        # Bob: OMIT work (handler would use main) → must 403 at middleware, not reach store
+        r_omit = client_b.get("/entities")
+        assert r_omit.status_code == 403
+        assert "denied" in r_omit.json()["detail"].lower()
+
+        # Other default-work endpoints similarly gated without ?work=
+        r_facts = client_b.get("/facts", params={"chapter": 1})
+        assert r_facts.status_code == 403
+
+        # Global routes still ok for bob (no default-main ownership)
+        r_works = client_b.get("/works")
+        assert r_works.status_code == 200
 
     def test_health_public(self, client_auth):
         client, _ = client_auth
