@@ -1,5 +1,15 @@
 # AGENTS.md · 本仓库协作说明
 
+## 新会话必读
+
+本仓库**无跨会话记忆**。每次新开会话：
+
+1. 读本文件（长期规则）
+2. 读 [`docs/SESSION.md`](docs/SESSION.md)（滚动当前状态 / 下一步）
+3. 再动手
+
+结束工作前更新 `docs/SESSION.md` 并 push。
+
 ## 主线
 
 - 产品代码在 **`scribe3/`**（SurrealDB + FastAPI + MCP + React 写作台）。
