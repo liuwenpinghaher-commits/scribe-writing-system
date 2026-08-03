@@ -100,11 +100,21 @@ app.include_router(quality_router)
 app.include_router(quality_eval_router)
 
 # P01: 可选 bearer token 认证(本地不设 env=放行;暴露=设 SCRIBE3_API_TOKEN 强制)
+# L1 会话门禁(SCRIBE3_AUTH_ENABLED)由 scribe3.auth.middleware 接管;此处跳过以免
+# Cookie 会话仍被共享 token 闸误杀。机器 Bearer 在 L1 中间件中作为次要身份。
 _API_TOKEN = os.environ.get("SCRIBE3_API_TOKEN")
+
+
+def _l1_session_auth_enabled() -> bool:
+    return (os.environ.get("SCRIBE3_AUTH_ENABLED") or "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 
 @app.middleware("http")
 async def _auth_middleware(request, call_next):
+    if _l1_session_auth_enabled():
+        return await call_next(request)
     if _API_TOKEN and not request.url.path.startswith("/health"):
         auth = request.headers.get("authorization", "")
         import hmac

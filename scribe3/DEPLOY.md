@@ -61,7 +61,15 @@ docker compose up
 | `HERMES_RUNS_PROFILE` | `scribe3_write` | Runs/API key profile |
 | `API_SERVER_KEY` | (从 ~/.hermes/.env 读) | Hermes API key |
 | `SCRIBE3_CORS_ORIGINS` | `http://127.0.0.1:3311` | CORS 白名单(逗号分隔) |
-| `SCRIBE3_API_TOKEN` | (不设=本地放行) | 可选 bearer token 认证 |
+| `SCRIBE3_API_TOKEN` | (不设) | **机器/CLI** 次要 Bearer；浏览器主路径见下 L1 会话 |
+| `SCRIBE3_AUTH_ENABLED` | (不设=关) | `1` = L1 会话门禁 + 作品归属隔离（公网必开） |
+| `SCRIBE3_SESSION_SECRET` | (空) | Cookie 签名密钥；开 AUTH 时必填 |
+| `SCRIBE3_BOOTSTRAP_USERS` | (空) | 首次灌库 `user:pass,user2:pass2`（仅用户表空时） |
+| `SCRIBE3_LEGACY_OWNER` | `admin` | 无 `owner_user_id` 的历史书归属用户 |
+| `SCRIBE3_AUTH_DB` | 与 settings 同目录 | 用户表 SQLite 路径 |
+| `SCRIBE3_SESSION_SECURE` | (HTTPS 建议 1) | Cookie `Secure` 标志 |
+
+公网域名假设：`https://www.qing.blue`。规格：`docs/L1-AUTH-ISOLATION.md`。
 | `SCRIBE3_MAX_CONCURRENT` | `3` | LLM 并发上限 |
 | `SCRIBE3_DAILY_CALL_CAP` | `500` | LLM 日调用上限 |
 | `SCRIBE3_WORK` | `main` | MCP 当前书 DB 名 |

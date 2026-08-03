@@ -212,8 +212,35 @@ def _guard_mutable_slug(slug: str) -> None:
         raise ValueError("非法 slug")
 
 
+def _work_public_row(r: dict) -> dict:
+    """Registry row → API/list shape (includes L1 owner_user_id when present)."""
+    return {
+        "slug": r.get("slug"),
+        "title": r.get("title"),
+        "owner_user_id": r.get("owner_user_id"),
+    }
+
+
+def _apply_owner_filter(rows: list[dict]) -> list[dict]:
+    """L1: when request context has a user, only return that owner's works."""
+    try:
+        from scribe3.auth.context import current_owner_filter
+        from scribe3.auth.ownership import filter_works_for_user
+
+        filt = current_owner_filter.get()
+    except Exception:
+        return rows
+    if filt is None:
+        return rows
+    return filter_works_for_user(rows, filt)
+
+
 def list_works(url: str | None = None) -> list[dict]:
-    """列所有未废弃的书。注册表全空则自动登记 main=乱世铜炉(现有数据所在 DB)。"""
+    """列所有未废弃的书。注册表全空则自动登记 main=乱世铜炉(现有数据所在 DB)。
+
+    L1: 若请求上下文设置了 current_owner_filter,仅返回该用户拥有的书
+    (无 owner_user_id 的历史书归 SCRIBE3_LEGACY_OWNER,见 ownership.effective_owner)。
+    """
     db = _reg_conn(url)
     try:
         rows = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
@@ -221,9 +248,9 @@ def list_works(url: str | None = None) -> list[dict]:
             total = db.query("SELECT * FROM work")
             if not total:
                 db.query("CREATE work:main CONTENT { slug:'main', title:'乱世铜炉·设定参照', ord:0 }")
-                return [{"slug": "main", "title": "乱世铜炉·设定参照"}]
+                return _apply_owner_filter([{"slug": "main", "title": "乱世铜炉·设定参照", "owner_user_id": None}])
         rows = sorted(rows, key=lambda r: r.get("ord") or 0)
-        return [{"slug": r.get("slug"), "title": r.get("title")} for r in rows]
+        return _apply_owner_filter([_work_public_row(r) for r in rows])
     finally:
         db.close()
 
@@ -277,12 +304,13 @@ def archived_works(url: str | None = None) -> list[dict]:
             out.append({
                 "slug": r.get("slug"),
                 "title": r.get("title"),
+                "owner_user_id": r.get("owner_user_id"),
                 "archived_at": at,
                 "days_in_trash": days,
                 "retention_days": retain,
                 "purge_recommended": bool(days is not None and retain > 0 and days >= retain),
             })
-        return out
+        return _apply_owner_filter(out)
     finally:
         db.close()
 
@@ -371,19 +399,39 @@ def rename_work(slug: str, title: str, url: str | None = None) -> None:
         db.close()
 
 
-def create_work(title: str, slug: str | None = None, url: str | None = None) -> dict:
+def create_work(title: str, slug: str | None = None, url: str | None = None,
+                owner_user_id: str | None = None) -> dict:
     """建一本书:注册表登记 + 给它的独立 DB 建 schema。slug=该书 DB 名(ascii)。
-    活跃作品(未废弃)中重名(strip 后比对)直接拒绝——废弃箱里的书不占名。空名亦拒收。"""
+    活跃作品(未废弃)中重名(strip 后比对)直接拒绝——废弃箱里的书不占名。空名亦拒收。
+
+    L1: owner_user_id 默认取请求上下文 current_user_id(会话用户)。
+    """
     import uuid
     stripped = _guard_title(title)
     slug = slug or ("book_" + uuid.uuid4().hex[:8])
+    owner = owner_user_id
+    if owner is None:
+        try:
+            from scribe3.auth.context import current_user_id
+            owner = current_user_id.get()
+        except Exception:
+            owner = None
     db = _reg_conn(url)
     try:
         active = db.query(f"SELECT * FROM work WHERE {_ACTIVE_FILTER}")
         if any((r.get("title") or "").strip() == stripped for r in active):
             raise ValueError(f"已有同名作品:{title}")
-        db.query("CREATE type::record('work',$s) SET slug=$s, title=$t, created=time::now()",
-                 {"s": slug, "t": title})
+        if owner:
+            db.query(
+                "CREATE type::record('work',$s) SET slug=$s, title=$t, "
+                "owner_user_id=$o, created=time::now()",
+                {"s": slug, "t": title, "o": owner},
+            )
+        else:
+            db.query(
+                "CREATE type::record('work',$s) SET slug=$s, title=$t, created=time::now()",
+                {"s": slug, "t": title},
+            )
     finally:
         db.close()
     # 延迟导入:core_preamble 被 store 包加载时 SurrealStore 尚未挂到本模块命名空间
@@ -391,7 +439,7 @@ def create_work(title: str, slug: str | None = None, url: str | None = None) -> 
     st = SurrealStore(url=url, ns="scribe3", db=slug)
     st.apply_schema()
     st.close()
-    return {"slug": slug, "title": title}
+    return {"slug": slug, "title": title, "owner_user_id": owner}
 
 
 _TABLES = frozenset(list(ONT2TBL.values()) + ["promise", "motif", "motif_instance",

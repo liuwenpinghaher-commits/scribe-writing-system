@@ -4,15 +4,11 @@ import { AppRail } from './AppRail'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 import { Login } from './Login'
+import { clearApiToken } from './authFetch'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
-const TOKEN_KEY = 's3-api-token'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
 const BinderLayout = lazy(() => import('./BinderLayout').then((mod) => ({ default: mod.BinderLayout })))
-
-function clearApiToken() {
-  try { localStorage.removeItem(TOKEN_KEY) } catch { /* */ }
-}
 
 function readActiveWorkSlug() {
   try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
@@ -25,7 +21,7 @@ function writeActiveWorkSlug(slug) {
   } catch { /* */ }
 }
 
-// 鉴权门:后端 SCRIBE3_API_TOKEN 非空时，无/错 token → 401 → 登录页；空 token 本地放行。
+// L1 鉴权门: Cookie 会话（/auth/me）；401 → 登录页（用户名密码，非 API token 粘贴）。
 export default function App() {
   const [auth, setAuth] = useState('checking') // checking | ok | need_login
   const [works, setWorks] = useState([])
@@ -62,6 +58,7 @@ export default function App() {
     let cancelled = false
     ;(async () => {
       try {
+        // L1: credentials via authFetch; 401 → username/password login page
         const nextWorks = await api.works()
         if (cancelled) return
         setWorks(nextWorks)

@@ -26,6 +26,9 @@ from scribe3.api import app_impl as _impl
 from scribe3.api.health import router as health_router
 from scribe3.api.intent_northstar import router as intent_northstar_router
 from scribe3.api.token_bridge import install_token_query_bridge
+from scribe3.auth.middleware import install_l1_auth
+from scribe3.auth.routes import router as auth_router
+from scribe3.auth.users import ensure_bootstrap_users
 
 # Exact paths only (no prefix match) — /intent-goals is distinct from /intent.
 _EXTRACTED_PATHS = frozenset({
@@ -54,8 +57,18 @@ _impl.app.router.routes[:] = [
 ]
 _impl.app.include_router(health_router)
 _impl.app.include_router(intent_northstar_router)
+_impl.app.include_router(auth_router)
 
-# Outermost: ?token= → Authorization Bearer so app_impl auth middleware accepts SSE.
+# Bootstrap admin/users when SCRIBE3_BOOTSTRAP_USERS set and auth DB empty.
+try:
+    ensure_bootstrap_users()
+except Exception:
+    pass
+
+# L1 session + ownership (inner relative to token bridge).
+install_l1_auth(_impl.app)
+
+# Outermost: ?token= → Authorization Bearer (machine/SSE legacy bridge).
 install_token_query_bridge(_impl.app)
 
 if __name__ == "__main__":
