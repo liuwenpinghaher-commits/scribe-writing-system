@@ -21,8 +21,8 @@
 |----|----|
 | **更新于** | 2026-08-03 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | `b1c8efab` — docs: add SESSION.md cross-session handoff template |
-| **进行中目标** | 打通跨会话交接：SESSION 模板 + AGENTS/docs 索引引用 |
+| **HEAD（写入时）** | `6dfcd1a3` — docs(README): list SESSION.md in 现行必读 for cross-session handoff |
+| **进行中目标** | （无；跨会话交接模板与索引已打通） |
 | **活跃分支** | `main`（另有 `codex/*`、`feat/*`、`fix/*`、`refactor/*` 等专题分支） |
 | **未合并 / WIP** | 无 |
 
@@ -31,13 +31,13 @@
 - 部署链路：GHA 打包 tarball + scp 到服务器（避免整树 scp / 服务端 git pull 不稳）。
 - 公网仅 80：路径反代 `/zhuanfang` → 访谈栈 `:3210`。
 - 主线产品仍在 **`scribe3/`**（SurrealDB + FastAPI + MCP + React）。
-- **本会话**：补全 `docs/SESSION.md` 跨会话交接模板，并准备在 AGENTS.md / docs/README.md 挂索引。
+- **本会话完成**：`docs/SESSION.md` 跨会话交接模板定稿；`AGENTS.md` 与 `docs/README.md` 已挂索引。
 
 ### 下一步（优先序）
 
-1. 在 `AGENTS.md` 顶部增加「新会话必读 SESSION.md」指引。
-2. 在 `docs/README.md`「现行必读」表加入 SESSION.md。
-3. 确认下一会话开场语可用后，本目标可关闭。
+1. （待填：下一会话目标）
+2. （待填）
+3. （待填）
 
 ### 已知坑 / 禁止事项（滚动）
 
