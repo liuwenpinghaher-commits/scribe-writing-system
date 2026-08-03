@@ -1,13 +1,18 @@
 import { lazy, Suspense, useEffect, useState, useCallback } from 'react'
-import { api, clearApiToken } from './api'
+import { api } from './api'
 import { AppRail } from './AppRail'
 import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 import { Login } from './Login'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
+const TOKEN_KEY = 's3-api-token'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
 const BinderLayout = lazy(() => import('./BinderLayout').then((mod) => ({ default: mod.BinderLayout })))
+
+function clearApiToken() {
+  try { localStorage.removeItem(TOKEN_KEY) } catch { /* */ }
+}
 
 function readActiveWorkSlug() {
   try { return localStorage.getItem(ACTIVE_WORK_STORAGE_KEY) || '' } catch { return '' }
@@ -17,10 +22,9 @@ function writeActiveWorkSlug(slug) {
   try {
     if (slug) localStorage.setItem(ACTIVE_WORK_STORAGE_KEY, slug)
     else localStorage.removeItem(ACTIVE_WORK_STORAGE_KEY)
-  } catch { /* localStorage 不可用时维持本次会话，不伪造恢复成功 */ }
+  } catch { /* */ }
 }
 
-// 顶层编排:AppRail + (作品库 | Binder)。
 // 鉴权门:后端 SCRIBE3_API_TOKEN 非空时，无/错 token → 401 → 登录页；空 token 本地放行。
 export default function App() {
   const [auth, setAuth] = useState('checking') // checking | ok | need_login

@@ -1,6 +1,34 @@
 import { useState } from 'react'
 import { Btn, Input } from './ui'
-import { getApiToken, setApiToken, clearApiToken, probeAuth } from './api'
+
+const TOKEN_KEY = 's3-api-token'
+const BASE = import.meta.env.VITE_API_BASE ?? '/api'
+
+function getApiToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || '' } catch { return '' }
+}
+function setApiToken(t) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t)
+    else localStorage.removeItem(TOKEN_KEY)
+  } catch { /* */ }
+}
+function clearApiToken() {
+  setApiToken('')
+}
+
+async function probeAuth() {
+  const t = getApiToken()
+  const headers = t ? { Authorization: 'Bearer ' + t } : {}
+  const res = await fetch(BASE + '/works', { headers })
+  if (res.status === 401) return false
+  if (!res.ok) {
+    let body = null
+    try { body = await res.json() } catch { /* */ }
+    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, body })
+  }
+  return true
+}
 
 /**
  * 登录页：收集 SCRIBE3_API_TOKEN 并写入 localStorage。
