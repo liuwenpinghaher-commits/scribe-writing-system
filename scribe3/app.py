@@ -12,6 +12,9 @@
 Phase 1 路由抽出（入口接线 + 剥内联，避免动 554k app_impl）:
 - health → ``scribe3/api/health.py``
 - intent / intent-goals / north-star/chapter → ``scribe3/api/intent_northstar.py``
+
+Auth bridge（不动 app_impl middleware）:
+- EventSource 无法设 header → 前端 ``?token=`` → 入口桥接注入 Authorization
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from scribe3.api import app_impl as _impl
 # Phase 1: 已抽 router 在入口统一接线；剥掉 app_impl 内联同名路径，避免双注册。
 from scribe3.api.health import router as health_router
 from scribe3.api.intent_northstar import router as intent_northstar_router
+from scribe3.api.token_bridge import install_token_query_bridge
 
 # Exact paths only (no prefix match) — /intent-goals is distinct from /intent.
 _EXTRACTED_PATHS = frozenset({
@@ -51,10 +55,13 @@ _impl.app.router.routes[:] = [
 _impl.app.include_router(health_router)
 _impl.app.include_router(intent_northstar_router)
 
+# Outermost: ?token= → Authorization Bearer so app_impl auth middleware accepts SSE.
+install_token_query_bridge(_impl.app)
+
 if __name__ == "__main__":
     # `python -m scribe3.app` 是公开的后端启动约定。模块别名本身不会触发
     # app_impl 的 `if __name__ == "__main__"`，因此必须显式委托入口。
     _impl.main()
 else:
-    # 关键模块身份 → 测试与生产共用同一 globals
+    # 替换模块身份 → 测试与生产共用同一 globals
     sys.modules[__name__] = _impl
