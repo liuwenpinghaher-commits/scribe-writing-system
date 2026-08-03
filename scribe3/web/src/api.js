@@ -3,6 +3,8 @@
 // 同源缘由:直连跨端口 :3321 时,浏览器扩展/安全策略常在请求发出前拦截 POST(F12 里连
 // 请求都看不到),而 GET 简单请求能过——表现为「GET 正常但选择环等 POST 请求未送达」。
 // 走同源 /api 后浏览器眼里全是本源请求,跨端口/跨源/preflight/扩展拦截整类消失。
+import { withTokenQuery } from './authFetch'
+
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 let WORK = 'main'
 const enc = encodeURIComponent
@@ -188,7 +190,7 @@ export const api = {
   editMotif: (mid, b) => patch('/motifs/' + enc(mid), b),
   delMotif: (mid) => del('/motifs/' + enc(mid)),
   // 工艺引擎(P0 露出):章前简报 / 角色弧光锚 / 弧光里程碑 / 张力检查(镜像既有方法,work 走 ww 惯例)
-  selectChapter: (seq, force = false) => post('/select/chapter', { chapter: seq, force }),   // 北极星任务11:关键章 3 候选(force=非关键章确认后越过)
+  selectChapter: (seq, force = false) => post('/select/chapter', { chapter: seq, force }),   // 北极星任务11:开章 3 候选(force=非开章确认后越过)
   selectFinalize: (seq, payload) => post('/select/finalize', { chapter: seq, ...payload }),   // 终选+理由入 lesson
   selectLatest: (seq) => j(`/select/latest?chapter=${seq}`),   // 刷新后恢复上次备料(无则 404)
   // L1 轻选择:2 策略短包 → pick 写入草稿种子(日常多路径;非整章 3 烧)
@@ -228,7 +230,7 @@ export const api = {
   aiRunEvents: (runId, {
     onDelta, onTool, onToolOutput, onApproval, onApprovalResolved, onRun, onDone, onError,
   } = {}) => {
-    const es = new EventSource(BASE + ww('/ai/runs/' + enc(runId) + '/events'))
+    const es = new EventSource(withTokenQuery(BASE + ww('/ai/runs/' + enc(runId) + '/events')))
     es.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data)
@@ -412,7 +414,7 @@ export const api = {
   materialImport: (formData) => fetch(BASE + ww('/materials/import'), { method: 'POST', body: formData }).then(handle),
   materialImportPreview: (jobId) => j('/materials/import/' + enc(jobId) + '/preview'),
   materialImportCommit: (jobId, items) => post('/materials/import/' + enc(jobId) + '/commit', { items }),
-  materialImportProgressUrl: (jobId) => BASE + ww('/materials/import/' + enc(jobId) + '/progress'),
+  materialImportProgressUrl: (jobId) => withTokenQuery(BASE + ww('/materials/import/' + enc(jobId) + '/progress')),
   search: (q) => j('/search?q=' + enc(q)),
   issues: (chapter) => j('/issues' + (chapter != null ? `?chapter=${enc(chapter)}` : '')),
   listUnverified: (status = 'pending') => j(`/ingest-unverified?status=${enc(status)}`),
@@ -479,7 +481,7 @@ export const api = {
     const MAX_ATTEMPT = 6           // 约 1+2+4+8+16+30 ≈ 1 分钟后放弃
     const open = () => {
       if (stopped) return
-      es = new EventSource(BASE + ww('/live'))
+      es = new EventSource(withTokenQuery(BASE + ww('/live')))
       es.onmessage = (e) => { attempt = 0; try { onChange(JSON.parse(e.data)) } catch (_) { /* */ } }
       es.onerror = () => {
         try { es.close() } catch (_) { /* */ }
@@ -557,7 +559,7 @@ export const api = {
     const path = (agentic ? '/chat/agentic-stream' : '/chat/stream') + '?msg=' + enc(msg)
       + (seq != null ? `&seq=${seq}` : '')
       + (thread ? `&thread=${enc(thread)}` : '')
-    const es = new EventSource(BASE + ww(path))
+    const es = new EventSource(withTokenQuery(BASE + ww(path)))
     es.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data)
