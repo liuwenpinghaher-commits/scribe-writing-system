@@ -86,12 +86,11 @@ services:
       backend:
         condition: service_healthy
     # 外层若已有 nginx-ssl 占用 80/443，勿再绑 0.0.0.0:80（会 Created 起不来）。
-    # 默认只进 compose 网络，供 nginx-ssl 以容器名 prod-frontend-1:80 反代。
-    # 需要本机探活时设 SCRIBE3_HTTP_BIND=127.0.0.1 与 SCRIBE3_HTTP_PORT=8088。
+    # 只绑回环端口做本机探活；公网由 nginx-ssl 反代容器名 prod-frontend-1:80。
     expose:
       - "80"
     ports:
-      - "${SCRIBE3_HTTP_BIND:127.0.0.1}:${SCRIBE3_HTTP_PORT:-8088}:80"
+      - "127.0.0.1:${SCRIBE3_HTTP_PORT:-8088}:80"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
