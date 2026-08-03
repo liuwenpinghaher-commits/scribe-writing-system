@@ -1,3 +1,4 @@
+import './authFetch.js' // must be first: wraps fetch for Bearer + 401 → login
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
