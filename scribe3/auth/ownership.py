@@ -40,14 +40,30 @@ def filter_works_for_user(
 
 
 def get_work_row(slug: str, url: str | None = None) -> dict[str, Any] | None:
-    """Fetch a single work registry row (active or archived)."""
+    """Fetch a single work registry row (active or archived).
+
+    Prefer ``WHERE slug = $s`` over ``type::record('work', $s)``: on SurrealDB
+    2.1.x the latter can InternalError on some deployments
+    (``cannot convert 'work' into a record<book_…>``), which turned every
+    work-scoped API into HTTP 500 after L1 auth was enabled.
+    """
     if not slug or not all(c.isalnum() or c == "_" for c in slug):
         return None
     from scribe3.store.core_preamble import _reg_conn
 
     db = _reg_conn(url)
     try:
-        rows = db.query("SELECT * FROM type::record('work',$s)", {"s": slug})
+        # Match list_works style (table scan by slug field) — reliable on _reg.
+        rows = db.query("SELECT * FROM work WHERE slug = $s", {"s": slug})
+        if not rows:
+            # Fallback: record id == slug (create_work uses work:<slug>)
+            try:
+                rows = db.query(
+                    "SELECT * FROM work WHERE id = type::thing('work', $s)",
+                    {"s": slug},
+                )
+            except Exception:
+                rows = None
         if not rows:
             return None
         r = rows[0]
@@ -57,6 +73,10 @@ def get_work_row(slug: str, url: str | None = None) -> dict[str, Any] | None:
             "owner_user_id": r.get("owner_user_id"),
             "archived": r.get("archived"),
         }
+    except Exception:
+        # Never bubble Surreal driver errors as uncaught 500 through middleware;
+        # treat as missing so callers get 404 rather than blank UI.
+        return None
     finally:
         db.close()
 

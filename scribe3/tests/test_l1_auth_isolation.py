@@ -58,6 +58,39 @@ class TestPasswordAndSession:
         assert parse_session_token(tok2, now=1_000_000 + 10**9, secret=SECRET) is None
 
 
+class TestGetWorkRowQuery:
+    def test_get_work_row_uses_slug_where_not_type_record(self, monkeypatch):
+        """Regression: type::record('work',$s) 500'd on prod Surreal 2.1.4."""
+        import scribe3.auth.ownership as own
+
+        queries: list[str] = []
+
+        class _FakeDb:
+            def query(self, q, params=None):
+                queries.append(q)
+                if "slug = $s" in q:
+                    return [{
+                        "slug": params["s"],
+                        "title": "T",
+                        "owner_user_id": "alice",
+                        "archived": None,
+                    }]
+                return []
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(
+            "scribe3.store.core_preamble._reg_conn", lambda url=None: _FakeDb()
+        )
+        row = own.get_work_row("book_abc123")
+        assert row is not None
+        assert row["slug"] == "book_abc123"
+        assert row["owner_user_id"] == "alice"
+        assert any("slug = $s" in q for q in queries)
+        assert not any("type::record('work'" in q for q in queries)
+
+
 class TestOwnershipPure:
     def test_effective_owner_and_filter(self):
         rows = [
