@@ -6,6 +6,7 @@
 
 | 文档 | 用途 |
 |------|------|
+| [SESSION.md](./SESSION.md) | **跨会话滚动状态**（新会话与 AGENTS.md 一起读；结束前更新） |
 | [CURRENT_ARCHITECTURE.md](./CURRENT_ARCHITECTURE.md) | **当前架构唯一入口**（栈、路径、写通道、文档优先级） |
 | [ARCHITECTURE_SPLIT_ROADMAP.md](./ARCHITECTURE_SPLIT_ROADMAP.md) | `app.py` / `store.py` 分阶段拆分 |
 | [PR_TEST_BASELINE.md](./PR_TEST_BASELINE.md) | PR / 本地最低验证命令 |
