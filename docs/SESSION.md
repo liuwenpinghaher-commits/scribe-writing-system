@@ -21,23 +21,25 @@
 |----|----|
 | **更新于** | 2026-08-03 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | `e99eb570` — refactor(api): wire health router via app.py entry |
+| **HEAD（写入时）** | `0597e8e` — refactor(api): wire intent_northstar router; strip inline intent paths |
 | **进行中目标** | Phase 1 App 路由拆出（ARCHITECTURE_SPLIT_ROADMAP） |
 | **活跃分支** | `main` |
 | **未合并 / WIP** | 无 |
 
 ### 最近在做什么
 
-- **Phase 1 · health**：`scribe3/api/health.py` 已有（GET /health DB-ping + GET /ready 503）。
-- **本会话完成**：在薄入口 `scribe3/app.py` 接线 `health_router`，并剥掉 app_impl 内联 `/health`/`/ready` 路由（app_impl 仍 554k，整文件删 handler 延后；行为不变：`app.state.store_for`、auth 仍跳过 `/health`）。
+- **Phase 1 · health**：`scribe3/api/health.py` + 入口 `app.py` 接线并剥内联 `/health`/`/ready`（完成）。
+- **Phase 1 · intent / north-star chapter**：`scribe3/api/intent_northstar.py` 已有（GET/PUT `/intent`、PUT `/intent-goals`、GET `/north-star/chapter/{seq}`）；入口接线并剥内联路径（完成）。`north_star_book` 仍留 app_impl（依赖多，延后）。
 - quality / quality_eval routers 早已在 app_impl 内 `include_router`。
 - 跨会话交接模板与索引此前已打通。
+- **本会话**：只同步 SESSION（上一会话抽出 intent 后未刷新本文件）。
 
 ### 下一步（优先序）
 
-1. **intent / north-star 抽出** → `scribe3/api/intent_northstar.py`（GET/PUT `/intent`、`/intent-goals`、GET `/north-star/chapter/{seq}`、`/north-star/book`），同 health 模式：新建 router + 入口/app_impl 接线 + 删内联。
-2. 有条件时在 app_impl 物理删除已抽出的 health 内联函数与分区地图注释更新（非阻塞）。
-3. promises / clues → 再往后。
+1. **promises / clues 抽出** → `scribe3/api/promises.py`（GET `/promises`、`/promises/ledger`、`/promises/{pid}`、POST `/promises-new`、PATCH/DELETE `/promises/{pid}`、advance/mark-herring/abandon、clues、timeline 等），同 health/intent 模式：新建 router + 入口剥路径 + include_router；app_impl 内联函数物理删除延后。
+2. 可选：抽出 `/north-star/book` 进 `intent_northstar`（或独立 slice）。
+3. 有条件时在 app_impl 物理删除已抽出的 health/intent 内联函数与分区地图注释更新（非阻塞；554k 巨石，优先本地 clone 小 diff）。
+4. codex → chapters → chat/hermes 再往后。
 
 ### 已知坑 / 禁止事项（滚动）
 
@@ -51,7 +53,8 @@
 ### 最近决策（一句话）
 
 - 跨会话状态不靠对话记忆，靠 Git 里的滚动 `docs/SESSION.md` + 长期 `AGENTS.md`。
-- health 抽出：入口 `app.py` 剥路由 + include_router，避免动 554k 巨石；行为与路径不变。
+- Phase 1 抽出模式：入口 `app.py` 剥路由 + include_router，避免动 554k 巨石；行为与路径不变；内联函数物理删除延后。
+- intent 抽出时 `north_star_book` 因依赖多暂留 app_impl。
 
 ---
 
