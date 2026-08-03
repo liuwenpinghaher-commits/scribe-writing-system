@@ -9,8 +9,9 @@
 
 存储层物理拆分见 ``scribe3/store/`` 包。
 
-Phase 1 路由抽出: health 已落 ``scribe3/api/health.py``；在入口接线并
-剥掉 app_impl 内残留的内联 /health /ready（大文件整删延后到后续搬迁 PR）。
+Phase 1 路由抽出（入口接线 + 剥内联，避免动 554k app_impl）:
+- health → ``scribe3/api/health.py``
+- intent / intent-goals / north-star/chapter → ``scribe3/api/intent_northstar.py``
 """
 from __future__ import annotations
 
@@ -18,17 +19,37 @@ import sys
 
 from scribe3.api import app_impl as _impl
 
-# Phase 1: health 路由已抽到 scribe3.api.health；入口统一接线。
-# app_impl 内若仍有内联 @app.get("/health")/("/ready")，先剥掉再 include，
-# 避免双注册；auth middleware 仍按 path 前缀跳过 /health（不变）。
+# Phase 1: 已抽 router 在入口统一接线；剥掉 app_impl 内联同名路径，避免双注册。
 from scribe3.api.health import router as health_router
+from scribe3.api.intent_northstar import router as intent_northstar_router
 
-_HEALTH_PATHS = frozenset({"/health", "/ready"})
+# Exact paths only (no prefix match) — /intent-goals is distinct from /intent.
+_EXTRACTED_PATHS = frozenset({
+    "/health",
+    "/ready",
+    "/intent",
+    "/intent-goals",
+})
+# Path-prefix patterns for path-param routes extracted to routers.
+_EXTRACTED_PREFIXES = (
+    "/north-star/chapter/",
+)
+
+
+def _is_extracted_route(path: str | None) -> bool:
+    if not path:
+        return False
+    if path in _EXTRACTED_PATHS:
+        return True
+    return any(path.startswith(p) for p in _EXTRACTED_PREFIXES)
+
+
 _impl.app.router.routes[:] = [
     r for r in _impl.app.router.routes
-    if getattr(r, "path", None) not in _HEALTH_PATHS
+    if not _is_extracted_route(getattr(r, "path", None))
 ]
 _impl.app.include_router(health_router)
+_impl.app.include_router(intent_northstar_router)
 
 if __name__ == "__main__":
     # `python -m scribe3.app` 是公开的后端启动约定。模块别名本身不会触发
