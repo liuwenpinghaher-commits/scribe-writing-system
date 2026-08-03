@@ -21,22 +21,23 @@
 |----|----|
 | **更新于** | 2026-08-03 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | `210da445` — feat(deploy): proxy /zhuanfang to interview stack on :3210 |
-| **进行中目标** | （待填：本会话要完成什么） |
+| **HEAD（写入时）** | `b1c8efab` — docs: add SESSION.md cross-session handoff template |
+| **进行中目标** | 打通跨会话交接：SESSION 模板 + AGENTS/docs 索引引用 |
 | **活跃分支** | `main`（另有 `codex/*`、`feat/*`、`fix/*`、`refactor/*` 等专题分支） |
-| **未合并 / WIP** | （待填：本地未推、或 PR 编号） |
+| **未合并 / WIP** | 无 |
 
 ### 最近在做什么
 
 - 部署链路：GHA 打包 tarball + scp 到服务器（避免整树 scp / 服务端 git pull 不稳）。
 - 公网仅 80：路径反代 `/zhuanfang` → 访谈栈 `:3210`。
 - 主线产品仍在 **`scribe3/`**（SurrealDB + FastAPI + MCP + React）。
+- **本会话**：补全 `docs/SESSION.md` 跨会话交接模板，并准备在 AGENTS.md / docs/README.md 挂索引。
 
 ### 下一步（优先序）
 
-1. （待填）
-2. （待填）
-3. （待填）
+1. 在 `AGENTS.md` 顶部增加「新会话必读 SESSION.md」指引。
+2. 在 `docs/README.md`「现行必读」表加入 SESSION.md。
+3. 确认下一会话开场语可用后，本目标可关闭。
 
 ### 已知坑 / 禁止事项（滚动）
 
@@ -44,10 +45,11 @@
 - 根目录 `交付说明.md` 是早期 SQLite/`scribe/` **归档**，不是现行手册。
 - 设计蓝图在 `设计文档/` 可能过期；冲突以 [`CURRENT_ARCHITECTURE.md`](./CURRENT_ARCHITECTURE.md) + 代码为准。
 - 服务端从国内拉 GitHub 不可靠 → 部署走 CI scp，不要假设服务器能 `git pull`。
+- SESSION 表里的 HEAD 容易过时：每次实质提交后立刻改并 push，否则下一会话会读到陈旧 SHA。
 
 ### 最近决策（一句话）
 
-- （待填；大决策另写 `docs/adr/`）
+- 跨会话状态不靠对话记忆，靠 Git 里的滚动 `docs/SESSION.md` + 长期 `AGENTS.md`。
 
 ---
 
