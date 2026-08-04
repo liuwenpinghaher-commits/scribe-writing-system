@@ -17,7 +17,7 @@ from scribe3 import settings
 
 
 OFFICIAL_PROVIDER = "qwen"
-DEFAULT_MODEL = "qwen3.8-max-preview"
+DEFAULT_MODEL = "deepseek-v4-flash-0731"
 OFFICIAL_API_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 _CHAT_COMPLETIONS_URL = f"{OFFICIAL_API_BASE}/chat/completions"
 _RETRYABLE_REQUEST_ERRORS = (
