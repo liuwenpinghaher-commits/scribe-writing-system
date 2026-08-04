@@ -85,8 +85,9 @@ pytest scribe3/tests/test_app.py -q   # 或 make test-author-paths
 
 | 文件 | 基线行数（约） | 完成后（约） |
 |------|----------------|--------------|
-| `api/app_impl.py` | ~11145 | ~3.6k 共享核 + service rebind（路由在 `api/routers/*`） |
-| `api/services/*` | （无） | write_stream / write_assemble / ingest_bg / pilot_runtime / lifecycle |
+| `api/app_impl.py` | ~11145 | ~1.6k 共享核 + service rebind（路由在 `api/routers/*`） |
+| `api/models.py` | （无） | HTTP Pydantic 请求模型 |
+| `api/services/*` | （无） | write_* / ingest / pilot / lifecycle / hermes / ai_run / prompt / thread / misc |
 | `critique.py` | ~3189 | `critique/` 包（族模块 + re-export） |
 | `mcp.py` | ~2193 | `mcp/`（tools_read/recall/write + server/gating） |
 | `store/misc.py` | ~1145 | ~0.4k 残留 + motifs/progress/arc/unverified 分包 |

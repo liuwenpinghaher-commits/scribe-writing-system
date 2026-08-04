@@ -17,6 +17,14 @@ from collections import OrderedDict, deque
 from functools import wraps
 from typing import Any, Optional
 
+from fastapi import (
+    APIRouter, BackgroundTasks, File, Form, HTTPException, Query, Request,
+    UploadFile, Body, Header, Depends,
+)
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
+
+
 
 # Note: function bodies resolve free names via rebound globals on app_impl.
 def _refresh_scorecard_after_ingest(st, seq: int) -> None:
