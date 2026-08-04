@@ -50,7 +50,7 @@ class MiscMixin:
     def set_unverified_status(self, uid: str, status: str) -> None:
         """裁决待确认条目(pending→ignored/accepted;accept 的建实体流程在 accept_unverified)。"""
         self._execute_write(
-            "UPDATE type::record('ingest_unverified',$uid) SET status=$st",
+            "UPDATE type::thing('ingest_unverified',$uid) SET status=$st",
             {"uid": uid, "st": status})
 
     def list_unverified(self, status: str = "pending") -> list[dict]:
@@ -73,7 +73,7 @@ class MiscMixin:
             replay 失败时 fail-soft:角色建立 + status=accepted 保留,replayed=False。
         """
         rows = self._query(
-            "SELECT name, seq FROM type::record('ingest_unverified', $u)", {"u": uid})
+            "SELECT name, seq FROM type::thing('ingest_unverified', $u)", {"u": uid})
         if not rows:
             return {"created": False, "oid": "", "replayed": False}
         name = rows[0]["name"]
@@ -84,7 +84,7 @@ class MiscMixin:
             from scribe3.ontology import Entity
             self.add_entity(Entity(oid, "character", name))
         self._execute_write(
-            "UPDATE type::record('ingest_unverified', $u) SET status='accepted'", {"u": uid})
+            "UPDATE type::thing('ingest_unverified', $u) SET status='accepted'", {"u": uid})
 
         # 重放该章 ingest:现在角色已存在,_resolve_char 不再跳过,被阻塞的知识边得以回填
         replayed = False
@@ -103,7 +103,7 @@ class MiscMixin:
     def ignore_unverified(self, uid: str) -> None:
         """将待确认行标记为 ignored。"""
         self._execute_write(
-            "UPDATE type::record('ingest_unverified', $u) SET status='ignored'", {"u": uid})
+            "UPDATE type::thing('ingest_unverified', $u) SET status='ignored'", {"u": uid})
 
     def all_entities(self) -> list[Entity]:
         """角色 + 地点(前端结构面/实体清单用)。"""
@@ -209,7 +209,7 @@ class MiscMixin:
             old = (existing[0].get("evidence") or "").strip()
             if len(ev) > len(old):
                 self._execute_write(
-                    "UPDATE type::record('motif_instance',$i) SET evidence=$e",
+                    "UPDATE type::thing('motif_instance',$i) SET evidence=$e",
                     {"i": existing[0]["id"], "e": ev})
             return False  # 未新增行
         self._execute_write(
@@ -282,13 +282,13 @@ class MiscMixin:
 
     def get_distill_marker(self, chapter: int) -> dict | None:
         rows = self._query(
-            "SELECT chapter, msg_count, last_turn FROM type::record('distill_marker',$c)",
+            "SELECT chapter, msg_count, last_turn FROM type::thing('distill_marker',$c)",
             {"c": chapter})
         return rows[0] if rows else None
 
     def set_distill_marker(self, chapter: int, msg_count: int, last_turn: str) -> None:
         self._execute_write(
-            "UPSERT type::record('distill_marker',$c) SET chapter=$c, msg_count=$n, "
+            "UPSERT type::thing('distill_marker',$c) SET chapter=$c, msg_count=$n, "
             "last_turn=$t, ts=time::now()",
             {"c": chapter, "n": msg_count, "t": last_turn or ""})
 
@@ -318,7 +318,7 @@ class MiscMixin:
             t, l = _split(oid)
         except (KeyError, ValueError):
             return False
-        rows = self._query("SELECT id FROM type::record($tbl,$local) LIMIT 1",
+        rows = self._query("SELECT id FROM type::thing($tbl,$local) LIMIT 1",
                            {"tbl": t, "local": l})
         return bool(rows)
 
@@ -550,7 +550,7 @@ class MiscMixin:
             "WHERE character_id=$c ORDER BY target_chapter ASC", {"c": character_id})
 
     def delete_arc_beat(self, beat_id: str) -> None:
-        self._execute_write("DELETE type::record('arc_plan', $b)", {"b": beat_id})
+        self._execute_write("DELETE type::thing('arc_plan', $b)", {"b": beat_id})
 
     def latest_lie_belief(self, character_id: str, upto_chapter: int) -> int | None:
         """到某章为止最新的 lie 信奉度(char_state 里 chapter<=upto 且 lie_belief 非空的最新一条)。"""
@@ -880,10 +880,10 @@ class MiscMixin:
         payload = snap.model_dump(mode="json")
         self._context_tx(
             "BEGIN TRANSACTION; "
-            "CREATE type::record('context_session', $sid) SET work=$work, "
+            "CREATE type::thing('context_session', $sid) SET work=$work, "
             "actor_id=$actor, device_id=$device, thread_id=$thread, status='active', "
             "revision=0, current_snapshot_id=$snap_id, updated_at=time::now(); "
-            "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+            "CREATE type::thing('context_snapshot', $snap_id) SET session_id=$sid, "
             "work=$work, revision=0, previous_revision=NONE, navigation_id='init', "
             "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
             "detail_route=$route, chapter=NONE, phase=NONE, focalizer=NONE, "
@@ -918,7 +918,7 @@ class MiscMixin:
             return existing
         # 2. 读会话拿 work/thread_id(不在这里判 revision——判定必须进事务)
         sess = self._query(
-            "SELECT work, thread_id FROM type::record('context_session', $sid)",
+            "SELECT work, thread_id FROM type::thing('context_session', $sid)",
             {"sid": session_id})
         if not sess:
             raise ValueError(f"advance_context: context_session '{session_id}' 不存在")
@@ -939,18 +939,18 @@ class MiscMixin:
             self._context_tx(
                 "BEGIN TRANSACTION; "
                 "LET $cur = (SELECT revision, status "
-                "FROM type::record('context_session', $sid)); "
+                "FROM type::thing('context_session', $sid)); "
                 "IF array::len($cur) == 0 { THROW 'context_session_missing' }; "
                 # I-2:ended 守卫——已结束的会话拒绝推进(end 方法由后续任务建)
                 "IF $cur[0].status != 'active' { THROW 'context_session_ended' }; "
                 "IF $cur[0].revision != $expected "
                 "{ THROW 'stale_revision:' + <string>$cur[0].revision }; "
-                "CREATE type::record('context_snapshot', $snap_id) SET session_id=$sid, "
+                "CREATE type::thing('context_snapshot', $snap_id) SET session_id=$sid, "
                 "work=$work, revision=$rev, previous_revision=$prev, navigation_id=$nav, "
                 "thread_id=$thread, entry=$entry, directory_path=$path, focus=$focus, "
                 "detail_route=$route, chapter=$chapter, phase=$phase, "
                 "focalizer=$focalizer, reason=$reason, context_hash=$hash; "
-                "UPDATE type::record('context_session', $sid) SET revision=$rev, "
+                "UPDATE type::thing('context_session', $sid) SET revision=$rev, "
                 "current_snapshot_id=$snap_id, updated_at=time::now(); "
                 "COMMIT TRANSACTION;",
                 {"sid": session_id, "expected": it.expected_revision,
@@ -982,7 +982,7 @@ class MiscMixin:
                     actual = int(m.group(1))
                 else:
                     cur = self._query(
-                        "SELECT revision FROM type::record('context_session', $sid)",
+                        "SELECT revision FROM type::thing('context_session', $sid)",
                         {"sid": session_id})
                     actual = cur[0]["revision"] if cur else -1
                 # latest 带上服务端最新快照,前端可直接对齐免再读
@@ -1009,7 +1009,7 @@ class MiscMixin:
                 {"sid": session_id, "rev": int(revision)})
             return rows[0] if rows else None
         sess = self._query(
-            "SELECT current_snapshot_id FROM type::record('context_session', $sid)",
+            "SELECT current_snapshot_id FROM type::thing('context_session', $sid)",
             {"sid": session_id})
         if not sess:
             return None
@@ -1017,7 +1017,7 @@ class MiscMixin:
         if snap_id:
             rows = self._query(
                 f"SELECT {self._CONTEXT_SNAPSHOT_FIELDS} "
-                "FROM type::record('context_snapshot', $snap)",
+                "FROM type::thing('context_snapshot', $snap)",
                 {"snap": snap_id})
             if rows:
                 return rows[0]
@@ -1123,7 +1123,7 @@ class MiscMixin:
         if ":" in cid:
             cid = cid.split(":")[-1]
         rows = self._query(
-            f"SELECT {self._PENDING_CLAIM_FIELDS} FROM type::record('pending_authority_claim', $id)",
+            f"SELECT {self._PENDING_CLAIM_FIELDS} FROM type::thing('pending_authority_claim', $id)",
             {"id": cid})
         if not rows:
             raise ValueError(f"pending claim not found: {claim_id}")
@@ -1132,7 +1132,7 @@ class MiscMixin:
             return {"status": row.get("status"), "claim_id": cid, "noop": True}
         if decision == "reject":
             self._execute_write(
-                "UPDATE type::record('pending_authority_claim', $id) SET status='rejected'",
+                "UPDATE type::thing('pending_authority_claim', $id) SET status='rejected'",
                 {"id": cid})
             return {"status": "rejected", "claim_id": cid, "fact_id": None}
         # approve → 落命题。产品 capture 常只带 text、entity 空:
@@ -1151,7 +1151,7 @@ class MiscMixin:
         self.add_fact(Fact(fact_id, entity, attribute, value,
                            valid_from=int(valid_from), secret=bool(secret)))
         self._execute_write(
-            "UPDATE type::record('pending_authority_claim', $id) SET status='approved'",
+            "UPDATE type::thing('pending_authority_claim', $id) SET status='approved'",
             {"id": cid})
         return {"status": "approved", "claim_id": cid, "fact_id": fact_id}
 

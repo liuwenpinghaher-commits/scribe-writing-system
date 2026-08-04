@@ -24,13 +24,13 @@ for name, imp, bs, pt in chars:
     oid = f"role:{name}"
     if not st.entity(oid):
         st.add_entity(Entity(oid, 'character', name, traits={'backstory': bs, 'personality_tags': pt}))
-    st._db.query("UPDATE type::record('character', $n) SET importance=$i", {'n': name, 'i': imp})
+    st._db.query("UPDATE type::thing('character', $n) SET importance=$i", {'n': name, 'i': imp})
 print(f"角色: {len(chars)}", flush=True)
 
 # 地点
 places = ['三水村','梧桐村','奈何谷','碧玉潭','严台山']
 for name in places:
-    try: st._db.query("CREATE type::record('place', $n) SET name=$n", {'n': name})
+    try: st._db.query("CREATE type::thing('place', $n) SET name=$n", {'n': name})
     except: pass
 print(f"地点: {len(places)}", flush=True)
 

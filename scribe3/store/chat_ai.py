@@ -72,7 +72,7 @@ class ChatAiMixin:
             "CREATE editorial_thread SET thread_id=$tid, work=$w, actor_id=$a, "
             "parent_thread_id=NONE, title=$title, status='active', "
             "hermes_conversation_id=NONE, previous_response_id=NONE, summary='', "
-            "updated_at=time::now() RETURN NONE",
+            "created_at=time::now(), updated_at=time::now() RETURN NONE",
             {"tid": tid, "w": work, "a": actor_id, "title": "主编讨论"})
         return self._get_editorial_thread(tid)
 
@@ -279,7 +279,7 @@ class ChatAiMixin:
                    "response", "error"):
             payload[_f] = _redact_run_trace_secrets(payload[_f], _sv)
         self._execute_write(
-            "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
+            "UPSERT type::thing('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
             "status=$status, session_key=$session_key, input_text=$input_text, "
             "instructions=$instructions, tool_calls=$tool_calls, tool_outputs=$tool_outputs, "
             "approvals=$approvals, raw_events=$raw_events, usage=$usage, error=$error, "
@@ -296,7 +296,7 @@ class ChatAiMixin:
             "origin_context_hash, envelope_hash, focus, completion_context_revision, "
             "write_effects, stage_policy, policy_violations, tool_contract, "
             "<string> created_at AS created_at, <string> updated_at AS updated_at "
-            "FROM type::record('ai_run_trace', $run)",
+            "FROM type::thing('ai_run_trace', $run)",
             {"run": run_id},
         )
         return rows[0] if rows else None
@@ -320,7 +320,7 @@ class ChatAiMixin:
             return
         sets = ", ".join(f"{k}=${k}" for k in patch)
         self._execute_write(
-            "UPSERT type::record('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
+            "UPSERT type::thing('ai_run_trace', $run) SET work=$work, run_id=$run_id, "
             f"{sets}, updated_at=time::now() RETURN NONE",
             {"run": run_id, "work": self.db_name, "run_id": run_id, **patch},
         )
@@ -399,14 +399,14 @@ class ChatAiMixin:
                 continue
             if n.get("dist") is not None and (1 - n["dist"]) >= MERGE_SIM:
                 row = self._query(
-                    "SELECT invalid_at FROM type::record('lesson',$i)", {"i": n["id"]})
+                    "SELECT invalid_at FROM type::thing('lesson',$i)", {"i": n["id"]})
                 if row and row[0].get("invalid_at"):
                     continue   # 已失效条目不合并(允许同课重立)
                 # P1门审查 P1-1:同章重跑不 bump——ExpeL"跨章重复=偏好积累"语义,
                 # 同章编辑期反复蒸馏不算重复偏好。
                 if n.get("chapter") != chapter:
                     self._execute_write(
-                        "UPDATE type::record('lesson',$i) SET importance += 1",
+                        "UPDATE type::thing('lesson',$i) SET importance += 1",
                         {"i": n["id"]})
                 return False
         self._execute_write(
@@ -440,11 +440,11 @@ class ChatAiMixin:
 
     def bump_lesson_importance(self, lesson_id: str, delta: int = 1) -> None:
         self._execute_write(
-            "UPDATE type::record('lesson',$i) SET importance += $d",
+            "UPDATE type::thing('lesson',$i) SET importance += $d",
             {"i": lesson_id, "d": delta})
 
     def invalidate_lesson(self, lesson_id: str) -> None:
         """失效标记不物理删(Zep 先例):craft_rule 审批溯源链保留。"""
         self._execute_write(
-            "UPDATE type::record('lesson',$i) SET invalid_at = time::now()",
+            "UPDATE type::thing('lesson',$i) SET invalid_at = time::now()",
             {"i": lesson_id})

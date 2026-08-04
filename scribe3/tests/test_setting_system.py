@@ -96,7 +96,7 @@ class TestRelationsWithUntil:
         # 关系在第5章结束
         store._execute_write(
             "UPDATE character_relation SET until_chapter=$uc "
-            "WHERE in=type::record('character',$a) AND out=type::record('character',$b)",
+            "WHERE in=type::thing('character',$a) AND out=type::thing('character',$b)",
             {"uc": 5, "a": "A", "b": "B"})
         # 第3章:关系有效
         rels_3 = store.relations_at(3)

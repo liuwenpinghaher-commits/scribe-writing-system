@@ -44,7 +44,7 @@ for c in chars:
     if not pt:
         local = (c.id or '').split(':')[-1] if ':' in (c.id or '') else (c.id or '')
         if local:
-            st._db.query("UPDATE type::record('character', $l) SET personality_tags=$pt",
+            st._db.query("UPDATE type::thing('character', $l) SET personality_tags=$pt",
                         {"l": local, "pt": ["待补全"]})
             n += 1
 print(f"补标签: {n}个角色", flush=True)

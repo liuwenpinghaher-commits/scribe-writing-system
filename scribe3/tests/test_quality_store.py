@@ -294,7 +294,7 @@ def test_stale_running_job_becomes_retryable_without_changing_frozen_input(store
     quality.start_job(job.job_id)
     stale_at = datetime.now(timezone.utc) - timedelta(seconds=60)
     store._execute_write(
-        "UPDATE type::record('quality_job',$job_id) SET execution_started_at=$stale_at",
+        "UPDATE type::thing('quality_job',$job_id) SET execution_started_at=$stale_at",
         {"job_id": job.job_id, "stale_at": stale_at},
     )
 
@@ -397,7 +397,7 @@ def test_snapshot_references_frozen_chapter_versions_and_never_copies_prose(stor
     # 既有 reset/delete 流程仍可管理 chapter_version；质量快照通过 hash
     # 将它冻结。若权威版本被外部篡改，任何后续质量读必须 fail-loud。
     store._raw_query(
-        "UPDATE type::record('chapter_version', $version_id) SET prose='tampered'",
+        "UPDATE type::thing('chapter_version', $version_id) SET prose='tampered'",
         {"version_id": version_a},
     )
     with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
@@ -549,7 +549,7 @@ def test_snapshot_drift_blocks_job_and_evidence_free_judgment_writes(store):
     bare = unit.split(":", 1)[1]
 
     store._raw_query(
-        "UPDATE type::record('chapter_version', $version_id) SET prose='漂移正文'",
+        "UPDATE type::thing('chapter_version', $version_id) SET prose='漂移正文'",
         {"version_id": bare},
     )
     with pytest.raises(ValueError, match="content_hash|漂移|冻结"):
@@ -567,7 +567,7 @@ def test_snapshot_drift_blocks_job_and_evidence_free_judgment_writes(store):
 
     # 先恢复、建 job，再次制造漂移；无证据的 insufficient 也必须被快照门拒绝。
     store._raw_query(
-        "UPDATE type::record('chapter_version', $version_id) SET prose=$prose",
+        "UPDATE type::thing('chapter_version', $version_id) SET prose=$prose",
         {"version_id": bare, "prose": prose},
     )
     job = quality.create_job(
@@ -582,7 +582,7 @@ def test_snapshot_drift_blocks_job_and_evidence_free_judgment_writes(store):
         idempotency_key="quality-job:drift-restored",
     )
     store._raw_query(
-        "UPDATE type::record('chapter_version', $version_id) SET prose='再次漂移'",
+        "UPDATE type::thing('chapter_version', $version_id) SET prose='再次漂移'",
         {"version_id": bare},
     )
     insufficient = QualityJudgment(
@@ -611,7 +611,7 @@ def test_job_transaction_rechecks_snapshot_hash_after_preflight(store, monkeypat
     # 只有同一 SurrealDB 写事务内的 hash guard 能阻止 CREATE。
     monkeypatch.setattr(quality, "get_snapshot", lambda _snapshot_id: snapshot)
     store._raw_query(
-        "UPDATE type::record('chapter_version', $version_id) SET prose='并发漂移'",
+        "UPDATE type::thing('chapter_version', $version_id) SET prose='并发漂移'",
         {"version_id": bare},
     )
 
@@ -639,7 +639,7 @@ def test_permanent_chapter_delete_is_blocked_while_quality_snapshot_references_v
         work=store.db_name, chapter_version_ids=(version_id,),
     )
     version_row = store._query(
-        "SELECT quality_snapshot_ref_count FROM type::record('chapter_version',$version_id)",
+        "SELECT quality_snapshot_ref_count FROM type::thing('chapter_version',$version_id)",
         {"version_id": version_id},
     )[0]
     assert version_row["quality_snapshot_ref_count"] == 1

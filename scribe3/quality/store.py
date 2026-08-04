@@ -192,7 +192,7 @@ class QualityStore:
         try:
             with self._store.transaction():
                 self._store._execute_write(
-                    "CREATE ONLY type::record('quality_contract_revision',$record_id) SET "
+                    "CREATE ONLY type::thing('quality_contract_revision',$record_id) SET "
                     "contract_key=$key, contract_id=$contract_id, work=$work, revision=$revision, "
                     "payload=$payload, approved=false, approval_version=0",
                     {"record_id": record_id, "key": key, "contract_id": contract.contract_id,
@@ -200,7 +200,7 @@ class QualityStore:
                 )
                 for ordinal, target in enumerate(contract.reference_targets):
                     self._store._execute_write(
-                        "CREATE ONLY type::record('reference_target',$record_id) SET "
+                        "CREATE ONLY type::thing('reference_target',$record_id) SET "
                         "target_key=$target_key, contract_revision=$contract_revision, "
                         "ordinal=$ordinal, payload=$payload",
                         {"record_id": _digest(f"{key}:{ordinal}"),
@@ -274,7 +274,7 @@ class QualityStore:
         record_id = _digest(key)
         try:
             self._store._execute_write(
-                "CREATE ONLY type::record('reference_work',$record_id) SET "
+                "CREATE ONLY type::thing('reference_work',$record_id) SET "
                 "reference_key=$key, reference_work_id=$reference_work_id, work=$work, "
                 "title=$title, source_hash=$source_hash, import_revision=$import_revision, "
                 "status=$status, source_text=$source_text",
@@ -291,12 +291,12 @@ class QualityStore:
                 raise ValueError("参考作品修订与既有当前真相冲突") from conflict
             # 兼容旧版只保存 source_hash 的记录：同 hash 重导入可补齐原文。
             rows = self._store._query(
-                "SELECT source_text FROM type::record('reference_work',$record_id) LIMIT 1",
+                "SELECT source_text FROM type::thing('reference_work',$record_id) LIMIT 1",
                 {"record_id": record_id},
             )
             if rows and not (rows[0].get("source_text") or "").strip():
                 self._store._execute_write(
-                    "UPDATE type::record('reference_work',$record_id) SET source_text=$source_text",
+                    "UPDATE type::thing('reference_work',$record_id) SET source_text=$source_text",
                     {"record_id": record_id, "source_text": source_text},
                 )
             return existing
@@ -328,7 +328,7 @@ class QualityStore:
         record_id = fingerprint.fingerprint_id
         try:
             self._store._execute_write(
-                "CREATE ONLY type::record('reference_fingerprint',$record_id) SET "
+                "CREATE ONLY type::thing('reference_fingerprint',$record_id) SET "
                 "fingerprint_id=$fingerprint_id, reference_work=$reference_work, "
                 "reference_work_id=$reference_work_id, revision=$revision, "
                 "source_hash=$source_hash, status=$status, fingerprint=$fingerprint, "
@@ -405,7 +405,7 @@ class QualityStore:
         use_id = _digest({"request_id": request_id, "manifest_id": manifest_id})
         try:
             self._store._execute_write(
-                "CREATE ONLY type::record('reference_craft_use',$record_id) SET "
+                "CREATE ONLY type::thing('reference_craft_use',$record_id) SET "
                 "use_id=$use_id, work=$work, chapter=$chapter, request_id=$request_id, "
                 "manifest_id=$manifest_id, reference_fingerprint_ids=$fingerprint_ids, "
                 "mechanism_ids=$mechanism_ids",
@@ -417,7 +417,7 @@ class QualityStore:
             rows = self._store._query(
                 "SELECT use_id, work, chapter, request_id, manifest_id, "
                 "reference_fingerprint_ids, mechanism_ids "
-                "FROM type::record('reference_craft_use',$record_id) LIMIT 1",
+                "FROM type::thing('reference_craft_use',$record_id) LIMIT 1",
                 {"record_id": use_id},
             )
             expected = {
@@ -455,7 +455,7 @@ class QualityStore:
         try:
             with self._store.transaction():
                 self._store._execute_write(
-                    "CREATE ONLY type::record('quality_snapshot',$record_id) SET "
+                    "CREATE ONLY type::thing('quality_snapshot',$record_id) SET "
                     "snapshot_id=$snapshot_id, work=$work, snapshot_hash=$snapshot_hash, "
                     "member_count=$member_count",
                     {"record_id": snapshot.snapshot_id, "snapshot_id": snapshot.snapshot_id,
@@ -466,7 +466,7 @@ class QualityStore:
                     member_id = _digest(f"{snapshot.snapshot_id}:{member.ordinal}")
                     bare_vid = _bare(member.chapter_version_id, "chapter_version")
                     self._store._execute_write(
-                        "CREATE ONLY type::record('quality_snapshot_member',$record_id) SET "
+                        "CREATE ONLY type::thing('quality_snapshot_member',$record_id) SET "
                         "member_key=$member_key, snapshot=$snapshot, ordinal=$ordinal, "
                         "chapter_version=$chapter_version, content_hash=$content_hash",
                         {"record_id": member_id,
@@ -477,7 +477,7 @@ class QualityStore:
                          "content_hash": member.content_hash},
                     )
                     self._store._execute_write(
-                        "UPDATE type::record('chapter_version',$vid) SET "
+                        "UPDATE type::thing('chapter_version',$vid) SET "
                         "quality_snapshot_ref_count += 1",
                         {"vid": bare_vid},
                     )
@@ -573,7 +573,7 @@ class QualityStore:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
                 self._store._execute_write(
-                    "CREATE ONLY type::record('quality_job',$record_id) SET job_id=$job_id, "
+                    "CREATE ONLY type::thing('quality_job',$record_id) SET job_id=$job_id, "
                     "idempotency_key=$idempotency_key, work=$work, snapshot=$snapshot, "
                     "snapshot_id=$snapshot_id, contract_revision=$contract_revision_record, "
                     "contract_id=$contract_id, contract_revision_number=$contract_revision, "
@@ -657,7 +657,7 @@ class QualityStore:
             if current.status not in ("queued", "retryable_failed"):
                 raise ValueError(f"质量作业当前状态不可启动: {current.status}")
             self._store._execute_write(
-                "UPDATE type::record('quality_job',$job_id) SET execution_status='running', "
+                "UPDATE type::thing('quality_job',$job_id) SET execution_status='running', "
                 "execution_attempts=$attempts, execution_error_code=NONE, execution_error_message=NONE, "
                 "execution_started_at=time::now(), execution_finished_at=NONE",
                 {"job_id": _bare(job_id, "quality_job"), "attempts": current.attempts + 1},
@@ -683,7 +683,7 @@ class QualityStore:
                 f"质量作业判断轴不完整: expected={expected_axes}, actual={actual_axes}",
             )
         self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status='completed', "
+            "UPDATE type::thing('quality_job',$job_id) SET execution_status='completed', "
             "execution_error_code=NONE, execution_error_message=NONE, execution_finished_at=time::now()",
             {"job_id": _bare(job_id, "quality_job")},
         )
@@ -694,7 +694,7 @@ class QualityStore:
         if current.status != "running":
             raise ValueError(f"质量作业当前状态不可失败: {current.status}")
         self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status=$status, "
+            "UPDATE type::thing('quality_job',$job_id) SET execution_status=$status, "
             "execution_error_code=$error_code, execution_error_message=$error_message, execution_finished_at=time::now()",
             {"job_id": _bare(job_id, "quality_job"),
              "status": "retryable_failed" if retryable else "failed",
@@ -725,7 +725,7 @@ class QualityStore:
         if elapsed <= max_running_seconds:
             return current
         self._store._execute_write(
-            "UPDATE type::record('quality_job',$job_id) SET execution_status='retryable_failed', "
+            "UPDATE type::thing('quality_job',$job_id) SET execution_status='retryable_failed', "
             "execution_error_code='worker_lost', "
             "execution_error_message='后台执行超过时限，已释放为可重试状态', "
             "execution_finished_at=time::now() "
@@ -798,7 +798,7 @@ class QualityStore:
                     identity = f"{job.job_id}:{unit}:{judgment.dimension}:{judgment.evaluator_kind}"
                     judgment_id = _digest(identity)
                     self._store._execute_write(
-                        f"CREATE ONLY type::record('{table}',$record_id) SET "
+                        f"CREATE ONLY type::thing('{table}',$record_id) SET "
                         "judgment_id=$judgment_id, job=$job, job_id=$job_id, unit=$unit, "
                         "unit_id=$unit_id, dimension=$dimension, evaluator_kind=$evaluator_kind, "
                         "payload=$payload, context_outcome=$context_outcome, "
@@ -861,7 +861,7 @@ class QualityStore:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
                 self._store._execute_write(
-                    "CREATE ONLY type::record('quality_author_judgment',$record_id) SET "
+                    "CREATE ONLY type::thing('quality_author_judgment',$record_id) SET "
                     "judgment_id=$judgment_id, job=$job, job_id=$job_id, unit=$unit, "
                     "unit_id=$unit_id, dimension=$dimension, evaluator_kind='author', payload=$payload",
                     {"record_id": _digest(identity), "judgment_id": _digest(identity),
@@ -920,7 +920,7 @@ class QualityStore:
             with self._store.transaction():
                 self._queue_snapshot_guard(snapshot)
                 self._store._execute_write(
-                    "CREATE ONLY type::record('quality_author_verdict',$record_id) SET "
+                    "CREATE ONLY type::thing('quality_author_verdict',$record_id) SET "
                     "verdict_id=$verdict_id, job=$job, job_id=$job_id, unit=$unit, unit_id=$unit_id, "
                     "dimension=$dimension, revision=$revision, decision=$decision, reason=$reason, "
                     "payload=$payload",

@@ -19,7 +19,7 @@ def test_jieba_bm25_chinese_ranking(store):
             ("密室里的机关暗器", "d3")]
     for text, did in docs:
         toks = " ".join(w for w in jieba.cut(text) if w.strip())
-        store._execute_write("CREATE type::record('probe',$id) SET tokens=$t",
+        store._execute_write("CREATE type::thing('probe',$id) SET tokens=$t",
                              {"id": did, "t": toks})
     # 查询"密室"(jieba 切),BM25 打分排序
     q = " ".join(jieba.cut("密室"))

@@ -8,7 +8,7 @@ class FactsKnowledgeMixin:
     def add_fact(self, f: Fact, ingest_seq: int | None = None) -> Fact:
         _, local = _split(f.id)
         self._execute_write(
-            "UPSERT type::record('proposition', $local) SET entity_id=$entity, "
+            "UPSERT type::thing('proposition', $local) SET entity_id=$entity, "
             "attribute=$attr, value=$value, valid_from=$vf, valid_to=$vt, secret=$secret, "
             "leak_markers=$lm"
             + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
@@ -89,7 +89,7 @@ class FactsKnowledgeMixin:
         _, local = _split(oid)
         rows = self._query(
             "SELECT entity_id, attribute, value, valid_from, valid_to, secret, leak_markers "
-            "FROM type::record('proposition',$local)", {"local": local})
+            "FROM type::thing('proposition',$local)", {"local": local})
         if not rows:
             return None
         r = rows[0]
@@ -152,7 +152,7 @@ class FactsKnowledgeMixin:
             if prop_local is None:
                 continue
             exists = self._query(
-                "SELECT id FROM type::record('proposition',$p) LIMIT 1", {"p": prop_local})
+                "SELECT id FROM type::thing('proposition',$p) LIMIT 1", {"p": prop_local})
             if not exists:
                 orphans.append({
                     "type": "knows",
@@ -173,7 +173,7 @@ class FactsKnowledgeMixin:
             else:
                 prop_local = prop_str
             exists = self._query(
-                "SELECT id FROM type::record('proposition',$p) LIMIT 1", {"p": prop_local})
+                "SELECT id FROM type::thing('proposition',$p) LIMIT 1", {"p": prop_local})
             if not exists:
                 orphans.append({
                     "type": "reader_knows",
@@ -229,7 +229,7 @@ class FactsKnowledgeMixin:
 
         实现注记:`faction.name` 上有 `uniq_faction_name` UNIQUE 索引(migration 038),
         而现有行(含生产库既有势力)的 record id 是历史 DELETE+CREATE 留下的随机 id,
-        并非 name 派生——若直接 `UPSERT type::record('faction', $name) MERGE ...`,
+        并非 name 派生——若直接 `UPSERT type::thing('faction', $name) MERGE ...`,
         对已存在但 id≠name 的老行会因 UPSERT 走"目标 id 不存在→CREATE"分支,试图新建
         一条 name 相同但 id 不同的记录,直接撞 UNIQUE 索引报错(已用测试验证复现)。
         故先按 name 查真实 record id,存在则 MERGE 到该 id 上;不存在才 CREATE 新行——
@@ -395,7 +395,7 @@ class FactsKnowledgeMixin:
         pres = self._query(
             "SELECT (embedding != NONE AND array::len(embedding) > 0) AS has_emb, "
             "(tokens != NONE AND tokens != '') AS has_tok "
-            "FROM type::record('memory_item', $id)", {"id": memory_id})
+            "FROM type::thing('memory_item', $id)", {"id": memory_id})
         has_emb = bool(pres[0].get("has_emb")) if pres else False
         has_tok = bool(pres[0].get("has_tok")) if pres else False
         origin_event_id = self._forget_origin_event_id(mem)
@@ -436,13 +436,13 @@ class FactsKnowledgeMixin:
             self._execute_write(
                 "DELETE memory_relation WHERE in=$r OR out=$r RETURN NONE", {"r": rec})
             self._execute_write(
-                "DELETE type::record('memory_item', $id) RETURN NONE", {"id": memory_id})
+                "DELETE type::thing('memory_item', $id) RETURN NONE", {"id": memory_id})
             if origin_event_id:   # 断复活链:删来源事件,consolidate/re-drain 再无残留原文可取
                 self._execute_write(
                     "DELETE memory_event WHERE event_id=$e RETURN NONE", {"e": origin_event_id})
             if ws_thread and work is not None:   # 作废派生工作摘要(下次 consolidate 从存活事件重建)
                 self._execute_write(
-                    "DELETE type::record('working_summary', $rid) RETURN NONE",
+                    "DELETE type::thing('working_summary', $rid) RETURN NONE",
                     {"rid": f"{work}|{ws_thread}"})
         return {"memory_id": memory_id, "deleted": True,
                 "relations_deleted": impact.get("relation_count", 0),

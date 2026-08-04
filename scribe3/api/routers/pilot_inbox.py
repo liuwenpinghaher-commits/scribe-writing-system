@@ -52,7 +52,7 @@ def pilot_step(req: PilotStepReq, work: str = "main"):
         # P2-8:与 /ideas 一致改追加(覆盖会清掉 Inbox 攒的想法),帽 2000
         _prev_s = _pilot_steer(st, req.seq)
         _merged = ((_prev_s + "\n") if _prev_s else "") + req.steer.strip()
-        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
+        st._execute_write("UPDATE type::thing('chapter',$seq) SET pilot_steer=$s",
                           {"seq": req.seq, "s": _merged[-2000:]})
     cur = read_state(st, req.seq)["state"]
     nxt = NEXT.get(cur)
@@ -122,7 +122,7 @@ def add_idea(req: IdeaIn, work: str = "main"):
         # 追加进该章 pilot_steer(想法可累积,帽 2000 字防膨胀;pilot 提案/草稿最高优先注入)
         prev = _pilot_steer(st, tseq)
         merged = ((prev + "\n") if prev else "") + text
-        st._execute_write("UPDATE type::record('chapter',$seq) SET pilot_steer=$s",
+        st._execute_write("UPDATE type::thing('chapter',$seq) SET pilot_steer=$s",
                           {"seq": tseq, "s": merged[-2000:]})
         status = "done"
     elif kind in ("setting", "revise"):
@@ -145,7 +145,7 @@ def add_idea(req: IdeaIn, work: str = "main"):
 def resolve_idea(req: IdeaResolveReq, work: str = "main"):
     """审查 P1-4:想法处理完毕出收件箱(status→done)——决策收件箱不积压噪声。"""
     _store_for(work)._execute_write(
-        "UPDATE type::record('idea',$id) SET status='done'", {"id": req.id})
+        "UPDATE type::thing('idea',$id) SET status='done'", {"id": req.id})
     return {"ok": True}
 
 def pilot_dismiss(req: PilotDismissReq, work: str = "main"):
@@ -155,7 +155,7 @@ def pilot_dismiss(req: PilotDismissReq, work: str = "main"):
         raise HTTPException(status_code=409, detail="连写进行中——请先 /pilot/pause 再退出 pilot")
     # R2-13:一并清 pilot_steer——否则陈旧作者意图重启 pilot 时以「最高优先」静默复活(不可见的行为漂移)
     _store_for(work)._execute_write(
-        "UPDATE type::record('chapter',$seq) SET pilot_state=NONE, pilot_state_at=NONE, "
+        "UPDATE type::thing('chapter',$seq) SET pilot_state=NONE, pilot_state_at=NONE, "
         "pilot_parked=NONE, pilot_card=NONE, pilot_steer=NONE", {"seq": req.seq})
     return {"seq": req.seq, "pilot_state": None}
 
@@ -347,7 +347,7 @@ def decision_inbox(work: str = "main", seq: int | None = None):
                 try:
                     q = idea_unclear_question(r)
                     st._execute_write(
-                        "UPDATE type::record('idea',$id) SET question=$q",
+                        "UPDATE type::thing('idea',$id) SET question=$q",
                         {"id": r["id"], "q": q})
                 except Exception:
                     logging.getLogger("scribe3").debug(

@@ -123,7 +123,7 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
             text = _summarize(row.get(key))
             if existing_local:
                 store._execute_write(
-                    "UPDATE type::record('proposition', $local) SET value=$val, secret=true",
+                    "UPDATE type::thing('proposition', $local) SET value=$val, secret=true",
                     {"local": existing_local, "val": text})
                 counts["updated"] += 1
             else:
@@ -134,7 +134,7 @@ def sync_faction_secrets(store, name: str, row: dict) -> dict:
                 counts["created"] += 1
         elif existing_local:
             store._execute_write(
-                "DELETE type::record('proposition', $local)", {"local": existing_local})
+                "DELETE type::thing('proposition', $local)", {"local": existing_local})
             counts["deleted"] += 1
     return counts
 

@@ -42,10 +42,9 @@ def filter_works_for_user(
 def get_work_row(slug: str, url: str | None = None) -> dict[str, Any] | None:
     """Fetch a single work registry row (active or archived).
 
-    Prefer ``WHERE slug = $s`` over ``type::record('work', $s)``: on SurrealDB
-    2.1.x the latter can InternalError on some deployments
-    (``cannot convert 'work' into a record<book_…>``), which turned every
-    work-scoped API into HTTP 500 after L1 auth was enabled.
+    Prefer ``WHERE slug = $s`` over record-id constructors: on SurrealDB
+    2.1.x ``type::record('work', $s)`` InternalError on some deployments,
+    which turned every work-scoped API into HTTP 500 after L1 auth was enabled.
     """
     if not slug or not all(c.isalnum() or c == "_" for c in slug):
         return None

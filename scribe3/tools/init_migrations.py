@@ -18,7 +18,7 @@ for f in sorted(glob.glob('scribe3/migrations/*.surql')):
     name = os.path.basename(f).replace('.surql', '')
     key = f"_migration:{name}"
     if key not in existing_ids:
-        sql = "CREATE type::record('_migration', $name) SET applied_at = time::now()"
+        sql = "CREATE type::thing('_migration', $name) SET applied_at = time::now()"
         st._db.query(sql, {"name": name})
         n += 1
 

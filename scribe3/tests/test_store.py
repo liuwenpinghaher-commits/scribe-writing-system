@@ -297,7 +297,7 @@ def test_max_chapter_reads_story_chapter(store):
 
     # 直接写入 story_chapter=17 的事件(模拟外部/ingest 写入路径)
     store._execute_write(
-        "CREATE type::record('event', 'only_story_ch') SET event_type='ingest写入', "
+        "CREATE type::thing('event', 'only_story_ch') SET event_type='ingest写入', "
         "story_chapter=17, motivated_by_goal=NONE, location=NONE, preconditions=[]",
         {})
 
@@ -586,7 +586,7 @@ def test_fold_voice_flags_degraded_on_bad_json(store):
 def test_daily_progress_table_exists(store):
     """迁移后 daily_progress 表存在且 SCHEMAFULL 字段正常写入。"""
     store._execute_write(
-        "UPSERT type::record('daily_progress', '2026-01-01') SET "
+        "UPSERT type::thing('daily_progress', '2026-01-01') SET "
         "date='2026-01-01', words_written=100, words_total=100, "
         "chapters_touched=[1], save_count=1, updated_at=time::now()", {})
     rows = store._query("SELECT date, words_written FROM daily_progress WHERE date='2026-01-01'")
@@ -630,8 +630,8 @@ def test_forget_knowledge_does_not_overwrite_closed_edge(store):
     # 原始已闭合 until_chapter=5,再次 forget 设 10 不应生效
     store.forget_knowledge("role:甲", "fact:秘1", 10)
     rows = store._query(
-        "SELECT until_chapter FROM knows WHERE in=type::record('character','甲') "
-        "AND out=type::record('proposition','秘1')")
+        "SELECT until_chapter FROM knows WHERE in=type::thing('character','甲') "
+        "AND out=type::thing('proposition','秘1')")
     assert rows, "knows 边应存在"
     assert rows[0]["until_chapter"] == 5, \
         f"已闭合边(until_chapter=5)不应被 forget 覆写为 10,实际: {rows[0]['until_chapter']}"
@@ -644,8 +644,8 @@ def test_forget_knowledge_updates_open_edge(store):
     store.add_knowledge(KnowledgeEdge("role:乙", "fact:秘2", since_chapter=1))  # until_chapter=None
     store.forget_knowledge("role:乙", "fact:秘2", 7)
     rows = store._query(
-        "SELECT until_chapter FROM knows WHERE in=type::record('character','乙') "
-        "AND out=type::record('proposition','秘2')")
+        "SELECT until_chapter FROM knows WHERE in=type::thing('character','乙') "
+        "AND out=type::thing('proposition','秘2')")
     assert rows and rows[0]["until_chapter"] == 7, \
         f"开区间边 forget 后 until_chapter 应为 7,实际: {rows}"
 
@@ -949,7 +949,7 @@ class TestVolumeCRUD:
         store.update_chapter_meta(10, {"volume": vid})
         # 确认章已关联到卷
         ch_before = store._query(
-            "SELECT meta::id(volume) AS vol FROM type::record('chapter', 10)")
+            "SELECT meta::id(volume) AS vol FROM type::thing('chapter', 10)")
         assert ch_before and ch_before[0]["vol"] is not None
         # 删卷
         store.delete_volume(vid)
@@ -1099,7 +1099,7 @@ class TestUpdateChapterMeta:
         store.update_chapter_meta(7, {"synopsis": "七章梗概"})
         ch = store.get_chapter(7)
         assert ch["prose"] == "七章正文内容", "patch synopsis 不应改动 prose"
-        rows = store._query("SELECT synopsis FROM type::record('chapter', 7)")
+        rows = store._query("SELECT synopsis FROM type::thing('chapter', 7)")
         assert rows[0]["synopsis"] == "七章梗概"
 
     def test_patch_nonexistent_chapter_returns_false(self, store):
@@ -1111,13 +1111,13 @@ class TestUpdateChapterMeta:
         store.save_chapter(8, "八章", title="八")
         store.update_chapter_meta(8, {"volume": vid})
         rows = store._query(
-            "SELECT meta::id(volume) AS vol FROM type::record('chapter', 8)")
+            "SELECT meta::id(volume) AS vol FROM type::thing('chapter', 8)")
         assert rows[0]["vol"] == vid
 
     def test_patch_label_valid(self, store):
         store.save_chapter(6, "六章", title="六")
         store.update_chapter_meta(6, {"label": "done"})
-        rows = store._query("SELECT label FROM type::record('chapter', 6)")
+        rows = store._query("SELECT label FROM type::thing('chapter', 6)")
         assert rows[0]["label"] == "done"
 
     def test_patch_ignores_non_whitelist_fields(self, store):
@@ -1233,14 +1233,14 @@ class TestSceneCountCache:
         """save_chapter 落库时算好 scene_count 存列。"""
         store.save_chapter(1, "第一场。\n* * *\n第二场。\n* * *\n第三场。", title="一")
         rows = store._query(
-            "SELECT scene_count FROM type::record('chapter', 1)")
+            "SELECT scene_count FROM type::thing('chapter', 1)")
         assert rows and rows[0]["scene_count"] == 3
 
     def test_save_chapter_writes_scene_meta(self, store):
         """scene_meta 缓存每场景 title+char_count(JSON串),供 project_tree 免拉正文建树。"""
         import json
         store.save_chapter(2, "甲段。\n* * *\n乙段乙段。", title="二")
-        rows = store._query("SELECT scene_meta FROM type::record('chapter', 2)")
+        rows = store._query("SELECT scene_meta FROM type::thing('chapter', 2)")
         meta = json.loads(rows[0]["scene_meta"])
         assert isinstance(meta, list) and len(meta) == 2
         assert meta[0]["title"] and meta[0]["char_count"] == 3   # "甲段。" 按字符数=3
@@ -1276,14 +1276,14 @@ class TestSceneCountCache:
         """存量章(直接写 prose 绕过 save_chapter 缓存)backfill 后有 scene_count。"""
         # 模拟存量:直接 UPSERT prose,不走 save_chapter(无 scene_count)
         store._execute_write(
-            "UPSERT type::record('chapter', 7) SET seq=7, title='存量', "
+            "UPSERT type::thing('chapter', 7) SET seq=7, title='存量', "
             "prose='第一场。\n* * *\n第二场。', qc_word_count=10", {})
         # 回填前 scene_count 为空
-        pre = store._query("SELECT scene_count FROM type::record('chapter', 7)")
+        pre = store._query("SELECT scene_count FROM type::thing('chapter', 7)")
         assert not pre[0].get("scene_count")
         n = backfill_scalability_caches(store)
         assert n >= 1
-        post = store._query("SELECT scene_count FROM type::record('chapter', 7)")
+        post = store._query("SELECT scene_count FROM type::thing('chapter', 7)")
         assert post[0]["scene_count"] == 2
 
 
@@ -1292,7 +1292,7 @@ class TestQualityCache:
 
     def test_save_chapter_writes_qc_issues(self, store):
         store.save_chapter(1, "一段正常的志怪内容。", title="一")
-        rows = store._query("SELECT qc_issues, qc_causal FROM type::record('chapter', 1)")
+        rows = store._query("SELECT qc_issues, qc_causal FROM type::thing('chapter', 1)")
         assert rows[0]["qc_issues"] is not None
         assert rows[0]["qc_causal"] is not None
 
@@ -1300,7 +1300,7 @@ class TestQualityCache:
         """有缺目标事件的章,qc_causal 缓存应记录违规数。"""
         store.add_event(Event("ev:逃", "逃", story_time=4))   # 缺 motivated_by_goal
         store.save_chapter(4, "第四章正文。", title="四")
-        rows = store._query("SELECT qc_causal FROM type::record('chapter', 4)")
+        rows = store._query("SELECT qc_causal FROM type::thing('chapter', 4)")
         assert rows[0]["qc_causal"] >= 1
 
     def test_outline_exposes_qc_caches(self, store):
@@ -1313,12 +1313,12 @@ class TestQualityCache:
         """批D P1-5 假绿止血:章无落库事件时 qc_causal=-1(无事件数据哨兵),
         区分'因果完整=0'与'根本没有事件可校验'。有事件的章仍写真实违规数(≥0)。"""
         store.save_chapter(7, "第七章正文,无任何落库事件。", title="七")
-        rows = store._query("SELECT qc_causal FROM type::record('chapter', 7)")
+        rows = store._query("SELECT qc_causal FROM type::thing('chapter', 7)")
         assert rows[0]["qc_causal"] == -1, "空事件章应为 -1 哨兵而非 0"
         # 对照:有事件(缺目标违规)的章记录真实违规数,不被哨兵覆盖
         store.add_event(Event("ev:逃", "逃", story_time=7))   # 缺 motivated_by_goal
         store.save_chapter(7, "第七章正文,现有一个缺目标事件。", title="七")
-        rows2 = store._query("SELECT qc_causal FROM type::record('chapter', 7)")
+        rows2 = store._query("SELECT qc_causal FROM type::thing('chapter', 7)")
         assert rows2[0]["qc_causal"] >= 1, "有事件时写真实违规数"
 
 
@@ -1525,7 +1525,7 @@ def test_resave_deductions_does_not_clear_stale_on_unstamped_old_prose(store):
     # 手工剥掉 based_on，模拟历史无 stamp 行
     import json
     store._execute_write(
-        "UPDATE type::record('chapter', $seq) SET deductions=$d",
+        "UPDATE type::thing('chapter', $seq) SET deductions=$d",
         {"seq": 4, "d": json.dumps(
             [{"character_id": "role:哑姑", "prose": "旧哑姑投影"}], ensure_ascii=False)},
     )

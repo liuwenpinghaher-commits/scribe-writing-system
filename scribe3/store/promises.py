@@ -30,7 +30,7 @@ class PromisesMixin:
 
         setup_chapter 或 tier 变更且调用方未显式给 payoff_min/payoff_max 时,
         按(新)tier 重算兑现窗口,防脏窗口落库(edit_prom 端点自动跟随)。"""
-        rows = self._query("SELECT id, tier, setup_chapter FROM type::record('promise',$pid) "
+        rows = self._query("SELECT id, tier, setup_chapter FROM type::thing('promise',$pid) "
                            "LIMIT 1", {"pid": pid})
         if not rows:
             return False
@@ -58,12 +58,12 @@ class PromisesMixin:
         self._update_by("promise", pid, fields)
         if clear_pmax:
             self._execute_write(
-                "UPDATE type::record('promise',$pid) SET payoff_max=NONE", {"pid": pid})
+                "UPDATE type::thing('promise',$pid) SET payoff_max=NONE", {"pid": pid})
         return True
 
     def delete_promise(self, promise_id: str) -> bool:
         """删除伏笔;返回 True 若存在并删除,False 若不存在。"""
-        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": promise_id})
+        rows = self._query("SELECT id FROM type::thing('promise',$pid) LIMIT 1", {"pid": promise_id})
         if not rows:
             return False
         self._delete_by("promise", promise_id)
@@ -139,7 +139,7 @@ class PromisesMixin:
         rows = self._query(
             "SELECT meta::id(id) AS id, text, setup_chapter, payoff_chapter, "
             "status, kind, clues, tier, payoff_min, payoff_max, resolution "
-            "FROM type::record('promise',$pid) LIMIT 1",
+            "FROM type::thing('promise',$pid) LIMIT 1",
             {"pid": pid}) or []
         if not rows:
             return None
@@ -184,7 +184,7 @@ class PromisesMixin:
     def advance_promise(self, promise_id: str, payoff_chapter: int) -> None:
         """回收伏笔:标 closed + payoff_chapter。payoff≥setup 校验(Python 侧先行,拒绝脏数据)。"""
         rows = self._query(
-            "SELECT setup_chapter, status FROM type::record('promise',$pid)", {"pid": promise_id})
+            "SELECT setup_chapter, status FROM type::thing('promise',$pid)", {"pid": promise_id})
         if not rows:
             raise ValueError(f"promise '{promise_id}' 不存在")
         if rows[0].get("status") == "abandoned":
@@ -194,29 +194,29 @@ class PromisesMixin:
             raise ValueError(
                 f"payoff_chapter({payoff_chapter}) < setup_chapter({setup}):回收不能早于埋设,拒绝写入。"
             )
-        self._execute_write("UPDATE type::record('promise',$pid) SET status='closed', "
+        self._execute_write("UPDATE type::thing('promise',$pid) SET status='closed', "
                             "payoff_chapter=$p", {"pid": promise_id, "p": payoff_chapter})
 
     def abandon_promise(self, promise_id: str) -> bool:
         """弃置伏笔:status=abandoned(账本结案,≠ red_herring,≠ closed 兑现)。
         返回 True 若存在,False 若不存在。"""
-        rows = self._query("SELECT id, status FROM type::record('promise',$pid) LIMIT 1",
+        rows = self._query("SELECT id, status FROM type::thing('promise',$pid) LIMIT 1",
                            {"pid": promise_id})
         if not rows:
             return False
         self._execute_write(
-            "UPDATE type::record('promise',$pid) SET status='abandoned'",
+            "UPDATE type::thing('promise',$pid) SET status='abandoned'",
             {"pid": promise_id})
         return True
 
     def mark_promise_herring(self, promise_id: str) -> bool:
         """将伏笔标记为 red_herring(障眼法)。返回 True 若存在,False 若不存在。
         不改 status:障眼法仍可 open 供参考,但不参与 overdue/A6 有效 open。"""
-        rows = self._query("SELECT id FROM type::record('promise',$pid) LIMIT 1", {"pid": promise_id})
+        rows = self._query("SELECT id FROM type::thing('promise',$pid) LIMIT 1", {"pid": promise_id})
         if not rows:
             return False
         self._execute_write(
-            "UPDATE type::record('promise',$pid) SET kind='red_herring'", {"pid": promise_id})
+            "UPDATE type::thing('promise',$pid) SET kind='red_herring'", {"pid": promise_id})
         return True
 
     def add_promise_clue(self, promise_id: str, note: str, chapter: int) -> None:
@@ -226,14 +226,14 @@ class PromisesMixin:
         brief tension promise_progress 与台账同源(clue ≡ soft touch)。
         """
         rows = self._query(
-            "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
+            "SELECT clues FROM type::thing('promise',$pid)", {"pid": promise_id})
         if not rows:
             raise ValueError(f"promise '{promise_id}' 不存在")
         existing = rows[0].get("clues") or []
         new_clue = {"chapter": chapter, "note": note}
         updated = existing + [new_clue]
         self._execute_write(
-            "UPDATE type::record('promise',$pid) SET clues=$clues",
+            "UPDATE type::thing('promise',$pid) SET clues=$clues",
             {"pid": promise_id, "clues": updated})
         # 同源 refresh 信号
         self.add_promise_touch(promise_id, chapter, evidence=note or "")
@@ -242,7 +242,7 @@ class PromisesMixin:
         """按下标删除 promise.clues 中的一条线索(0-based)。
         不回溯删 touch(历史触及保留;避免误伤同章其它 touch)。"""
         rows = self._query(
-            "SELECT clues FROM type::record('promise',$pid)", {"pid": promise_id})
+            "SELECT clues FROM type::thing('promise',$pid)", {"pid": promise_id})
         if not rows:
             raise ValueError(f"promise '{promise_id}' 不存在")
         existing = rows[0].get("clues") or []
@@ -250,7 +250,7 @@ class PromisesMixin:
             raise IndexError(f"clue 下标 {idx} 超出范围(共 {len(existing)} 条)")
         updated = [c for i, c in enumerate(existing) if i != idx]
         self._execute_write(
-            "UPDATE type::record('promise',$pid) SET clues=$clues",
+            "UPDATE type::thing('promise',$pid) SET clues=$clues",
             {"pid": promise_id, "clues": updated})
 
     def promise_timeline(self, promise_id: str) -> dict | None:

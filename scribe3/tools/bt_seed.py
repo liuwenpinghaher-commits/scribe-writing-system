@@ -52,7 +52,7 @@ CHARS = [
 for name, imp, backstory, tags, impv in CHARS:
     st.add_entity(Entity(f"role:{name}", "character", name,
                          traits={"backstory": backstory, "personality_tags": tags}))
-    st._db.query("UPDATE type::record('character',$n) SET importance=$i", {"n": name, "i": impv})
+    st._db.query("UPDATE type::thing('character',$n) SET importance=$i", {"n": name, "i": impv})
 print(f"角色: {len(CHARS)}")
 
 # ═══════════ 2. 势力(10)═══════════

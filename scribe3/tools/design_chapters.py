@@ -308,8 +308,8 @@ print(f"\n═══ 推演台数据 ═══", flush=True)
 print(f"事件: {total_events} | 知识边: {total_knows} | 伏笔: {total_promises} | 弧光: {total_arcs}", flush=True)
 
 # 验证限知帧:第2章胡不为应该知道墓室,老乌头应该知道使命
-frame_hbw = st._query("SELECT * FROM knows WHERE in=type::record('character','胡不为') AND since_chapter<=2")
-frame_lwt = st._query("SELECT * FROM knows WHERE in=type::record('character','老乌头') AND since_chapter<=2")
+frame_hbw = st._query("SELECT * FROM knows WHERE in=type::thing('character','胡不为') AND since_chapter<=2")
+frame_lwt = st._query("SELECT * FROM knows WHERE in=type::thing('character','老乌头') AND since_chapter<=2")
 print(f"限知帧验证: 胡不为第2章知{len(frame_hbw)}条, 老乌头第2章知{len(frame_lwt)}条", flush=True)
 
 # 验证伏笔状态:全部应为open

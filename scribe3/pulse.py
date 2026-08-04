@@ -117,7 +117,7 @@ def _causal_dim(st, seq: int) -> dict:
 def _quality_dim(st, seq: int) -> dict:
     # 审查 P1-6:get_chapter 显式字段列表不含 qc_issues(QC 分支曾恒死)——直查窄字段
     rows = st._query(
-        "SELECT ingest_status, ingest_error, qc_issues FROM type::record('chapter',$seq)",
+        "SELECT ingest_status, ingest_error, qc_issues FROM type::thing('chapter',$seq)",
         {"seq": seq})
     ch = rows[0] if rows else {}
     items: list[dict] = []

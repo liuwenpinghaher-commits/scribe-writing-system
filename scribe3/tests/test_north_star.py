@@ -75,7 +75,7 @@ def test_north_star_chapter_endpoint(store):
 def test_scorecard_lazy_backfill_when_cache_missing(store):
     """旧库章(有正文无缓存行)→ 端点现算回填,不 404。"""
     store.save_chapter(4, "第四章正文。", title="四")
-    store._execute_write("DELETE type::record('chapter_scorecard', 4)", {})
+    store._execute_write("DELETE type::thing('chapter_scorecard', 4)", {})
     sc = store.get_chapter_scorecard(4)
     assert sc is not None and sc["constraints"] is not None
 

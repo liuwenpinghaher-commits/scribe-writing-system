@@ -102,5 +102,5 @@ def test_inbox_legacy_unclear_message_and_lazy_backfill(store):
 
     # 懒回填
     after = store._query(
-        "SELECT question FROM type::record('idea',$id)", {"id": rid})
+        "SELECT question FROM type::thing('idea',$id)", {"id": rid})
     assert after and (after[0].get("question") or "").strip(), "GET /inbox 须懒回填 question"

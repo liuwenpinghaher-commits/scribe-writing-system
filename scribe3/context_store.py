@@ -64,7 +64,7 @@ class ContextStore:
         }
         try:
             self._store._execute_write(
-                "CREATE ONLY type::record('context_policy_snapshot', $snapshot_id) "
+                "CREATE ONLY type::thing('context_policy_snapshot', $snapshot_id) "
                 "SET policy_snapshot_id=$snapshot_id, policy_key=$policy_key, "
                 "policy_version=$policy_version, schema_hash=$schema_hash, payload=$payload",
                 {"snapshot_id": snapshot_id, **expected},
@@ -82,7 +82,7 @@ class ContextStore:
     def _policy_snapshot(self, snapshot_id: str) -> dict | None:
         rows = self._store._query(
             "SELECT policy_snapshot_id, policy_key, policy_version, schema_hash, payload "
-            "FROM type::record('context_policy_snapshot', $snapshot_id)",
+            "FROM type::thing('context_policy_snapshot', $snapshot_id)",
             {"snapshot_id": snapshot_id},
         )
         return rows[0] if rows else None
@@ -96,7 +96,7 @@ class ContextStore:
         try:
             with self._store.transaction():
                 self._store._execute_write(
-                    "CREATE ONLY type::record('context_manifest', $manifest_id) SET "
+                    "CREATE ONLY type::thing('context_manifest', $manifest_id) SET "
                     "manifest_id=$manifest_id, manifest_version=$manifest_version, "
                     "request_id=$request_id, task_kind=$task_kind, policy_key=$policy_key, "
                     "policy_version=$policy_version, policy_schema_hash=$policy_schema_hash, "
@@ -108,7 +108,7 @@ class ContextStore:
                 for ordinal, source in enumerate(manifest.sources):
                     source_ref = self._source_ref(manifest_id, ordinal)
                     self._store._execute_write(
-                        "CREATE ONLY type::record('context_manifest_source', $record_id) SET "
+                        "CREATE ONLY type::thing('context_manifest_source', $record_id) SET "
                         "manifest_id=$manifest_id, source_ref=$source_ref, block=$block, "
                         "source_id=$source_id, source_kind=$source_kind, work=$work, "
                         "revision=$revision, included=$included, masked=$masked, "
@@ -186,7 +186,7 @@ class ContextStore:
         try:
             with self._store.transaction():
                 self._store._execute_write(
-                    "CREATE ONLY type::record('context_outcome_trace', $outcome_id) SET "
+                    "CREATE ONLY type::thing('context_outcome_trace', $outcome_id) SET "
                     "outcome_id=$outcome_id, request_id=$request_id, manifest_id=$manifest_id, "
                     "actual_input_hash=$actual_input_hash, status=$status, provider=$provider, "
                     "model=$model, provider_request_id=$provider_request_id, "

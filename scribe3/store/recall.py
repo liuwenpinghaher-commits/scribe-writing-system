@@ -17,7 +17,7 @@ class RecallMixin:
         vector = embed([text])[0]
         for attempt in range(3):
             try:
-                self._execute_write("UPDATE type::record('proposition',$local) SET embedding=$v",
+                self._execute_write("UPDATE type::thing('proposition',$local) SET embedding=$v",
                                     {"local": local, "v": vector})
                 return
             except Exception as e:
@@ -91,7 +91,7 @@ class RecallMixin:
         ch = int(chapter)
         knower_rows = self._query(
             "SELECT in.name AS name, since_chapter, until_chapter FROM knows "
-            "WHERE out = type::record('proposition', $p)",
+            "WHERE out = type::thing('proposition', $p)",
             {"p": prop_local})
         knowers: list[str] = []
         for kr in knower_rows or []:
@@ -179,7 +179,7 @@ class RecallMixin:
             if len(out) >= k:
                 break
         for r in out:
-            self._execute_write("UPDATE type::record('lesson',$i) SET uses += 1",
+            self._execute_write("UPDATE type::thing('lesson',$i) SET uses += 1",
                                 {"i": r["id"]})
         return out
 
@@ -518,7 +518,7 @@ class RecallMixin:
             f"SELECT {self._MEMORY_COLS}, supersedes, "
             "<string> created_at AS created_at, <string> updated_at AS updated_at, "
             "<string> invalid_at AS invalid_at "
-            "FROM type::record('memory_item', $id)", {"id": memory_id})
+            "FROM type::thing('memory_item', $id)", {"id": memory_id})
         if not rows:
             return None
         row = rows[0]
@@ -547,7 +547,7 @@ class RecallMixin:
         # M-3 记账:重复作废会覆写 invalid_at 为最新墙钟(system_time"最后一次失效"语义,可接受)——
         #   作废是幂等终态(status 不变),invalid_at 略微前移无害,不额外加 CAS 守卫。
         self._execute_write(
-            "UPDATE type::record('memory_item', $id) SET status='invalid', "
+            "UPDATE type::thing('memory_item', $id) SET status='invalid', "
             "invalid_at=time::now(), updated_at=time::now() RETURN NONE", {"id": memory_id})
         # M1(Task 16-C):作废发表级失效,与 supersede 对称——否则已作废记忆在 RETRIEVAL_CACHE
         #   最长 30s 仍被命中(检索层 status='active' 门只在 miss 重算时生效,缓存命中会漏 status 变更,

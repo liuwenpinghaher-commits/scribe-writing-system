@@ -198,7 +198,7 @@ def test_advance_rejects_ended_session(store):
     s = store.create_context_session("book-a", "author", "browser-a")
     sid = s["session_id"]
     store._raw_query(
-        "UPDATE type::record('context_session', $sid) SET status='ended'",
+        "UPDATE type::thing('context_session', $sid) SET status='ended'",
         {"sid": sid})
     with pytest.raises(ValueError, match="已结束"):
         store.advance_context(sid, nav(0, "nav-1", "role:a").model_dump())
@@ -245,7 +245,7 @@ def test_get_snapshot_falls_back_when_current_id_dangling(store):
     sid = s["session_id"]
     a1 = store.advance_context(sid, nav(0, "nav-1", "role:a").model_dump())
     store._raw_query(
-        "UPDATE type::record('context_session', $sid) SET "
+        "UPDATE type::thing('context_session', $sid) SET "
         "current_snapshot_id='no-such-snapshot'",
         {"sid": sid})
     got = store.get_context_snapshot(sid)

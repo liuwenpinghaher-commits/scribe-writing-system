@@ -55,7 +55,7 @@ def get_fact(local: str, work: str = "main", reveal_secret: bool = False):
     # 软归档旗标:前端删批后轮询据此视为「已撤下」
     try:
         rows = st._query(
-            "SELECT archived FROM type::record('proposition',$local) LIMIT 1",
+            "SELECT archived FROM type::thing('proposition',$local) LIMIT 1",
             {"local": local}) or []
         item["archived"] = bool(rows and rows[0].get("archived"))
     except Exception:
@@ -79,7 +79,7 @@ def get_char(local: str, work: str = "main", reveal_secret: bool = False):
         "SELECT meta::id(id) AS local, name, backstory, backstory_secret, aliases, personality_tags, "
         "importance, appearance, personality_detail, abilities, weaknesses, "
         "first_appearance, surface_goal, deep_need, internal_conflict, fear, archived FROM "
-        "type::record('character',$local) LIMIT 1",
+        "type::thing('character',$local) LIMIT 1",
         {"local": local}) or []
     if not rows:
         raise HTTPException(status_code=404, detail=f"character '{local}' 不存在")

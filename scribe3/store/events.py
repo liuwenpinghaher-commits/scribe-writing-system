@@ -17,7 +17,7 @@ class EventsMixin:
         loc_local = _split(ev.location)[1] if ev.location else None
         with self.transaction():
             self._execute_write(
-                "CREATE type::record('event', $local) SET event_type=$t, "
+                "CREATE type::thing('event', $local) SET event_type=$t, "
                 "story_chapter=$vf, narrative_position=$np, "
                 "motivated_by_goal=$g, causal_root_reason=$crr, location=$loc, preconditions=$pre"
                 + (", ingest_seq=$iseq" if ingest_seq is not None else ""),
@@ -314,21 +314,21 @@ class EventsMixin:
         """
         _, local = _split(event_oid)
         self._execute_write(
-            "UPDATE type::record('event',$local) SET narrative_position=$np",
+            "UPDATE type::thing('event',$local) SET narrative_position=$np",
             {"local": local, "np": narrative_position})
 
     def set_event_causal_root(self, event_oid: str, reason: str) -> None:
         """将既有事件标为同章独立场景根；已有因果入边的事件不可同时声明为根。"""
         _, local = _split(event_oid)
         event_rows = self._query(
-            "SELECT story_chapter FROM type::record('event',$local)", {"local": local})
+            "SELECT story_chapter FROM type::thing('event',$local)", {"local": local})
         linked = self._query(
-            "SELECT count() AS n FROM causal WHERE in = type::record('event',$local)",
+            "SELECT count() AS n FROM causal WHERE in = type::thing('event',$local)",
             {"local": local})
         if linked and (linked[0].get("n") or 0) > 0:
             raise ValueError("已有因果入边的事件不能登记为独立场景根")
         self._execute_write(
-            "UPDATE type::record('event',$local) SET causal_root_reason=$reason",
+            "UPDATE type::thing('event',$local) SET causal_root_reason=$reason",
             {"local": local, "reason": reason})
         self._invalidate_chapter_quality_cache(
             event_rows[0].get("story_chapter") if event_rows else None)
@@ -341,7 +341,7 @@ class EventsMixin:
             raise ValueError("事件不能以自身作为因果前驱")
         rows = self._query(
             "SELECT meta::id(id) AS local, story_chapter FROM event "
-            "WHERE id IN [type::record('event',$target), type::record('event',$source)]",
+            "WHERE id IN [type::thing('event',$target), type::thing('event',$source)]",
             {"target": local, "source": source_local})
         chapters = {r.get("local"): r.get("story_chapter") for r in rows}
         if set(chapters) != {local, source_local}:
@@ -349,8 +349,8 @@ class EventsMixin:
         if chapters[local] != chapters[source_local]:
             raise ValueError("因果边只能连接同一章的事件")
         exists = self._query(
-            "SELECT id FROM causal WHERE in=type::record('event',$target) "
-            "AND out=type::record('event',$source) LIMIT 1",
+            "SELECT id FROM causal WHERE in=type::thing('event',$target) "
+            "AND out=type::thing('event',$source) LIMIT 1",
             {"target": local, "source": source_local})
         if not exists:
             self._execute_write(
@@ -358,7 +358,7 @@ class EventsMixin:
                 {"target": RecordID("event", local), "source": RecordID("event", source_local),
                  "ctype": ctype})
         self._execute_write(
-            "UPDATE type::record('event',$target) SET causal_root_reason=NONE",
+            "UPDATE type::thing('event',$target) SET causal_root_reason=NONE",
             {"target": local})
         self._invalidate_chapter_quality_cache(chapters[local])
 
