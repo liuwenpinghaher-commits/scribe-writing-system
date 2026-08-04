@@ -134,6 +134,9 @@ export function WriteLayout({ work, seq, sceneIdx }) {
   const [focusMode, setFocusMode] = useState(false)
   const [chTitle, setChTitle] = useState('')
   const [saved, setSaved] = useState(true)
+  // 门A:危险草稿旁路——默认关;勾选后存稿带 danger_draft=true(UI 红字标危险)
+  const [dangerDraft, setDangerDraft] = useState(false)
+  const [ingestFail, setIngestFail] = useState(null)  // {error,status} | null
   // dirty 切章防丢:用 ref 追踪当前章号 + 实时正文 + chTitle + focalizer + dirty 状态,
   // 全部从 ref 读,完全脱离 state 闭包,确保切章时拿到最新值。
   const dirtyRef = useRef({ seq: chapter, prose: '', chTitle: '', focalizer: '', dirty: false })
@@ -469,13 +472,31 @@ export function WriteLayout({ work, seq, sceneIdx }) {
 
     let r
     try {
-      r = await api.saveChapter(chapter, text, chTitle, focalizer)
+      r = await api.saveChapter(chapter, text, chTitle, focalizer, work, {
+        dangerDraft: !!dangerDraft,
+      })
     } catch (e) {
-      // 保存失败:danger 提示,保持 saved=false + dirty=true 以便重试;不吞错
-      toast(e?.body?.detail || ('保存失败:' + (e?.message || '')), { tone: 'danger' })
+      // 定稿门闩 409:展示 blocking 与危险旁路提示
+      const d = e?.body?.detail
+      const msg = (d && typeof d === 'object')
+        ? (d.message || d.code || JSON.stringify(d))
+        : (d || e?.message || '保存失败')
+      toast(String(msg), { tone: 'danger' })
+      if (d && typeof d === 'object' && d.danger_draft_hint) {
+        toast('可勾选「危险草稿旁路」强制存(不保证过检)', { tone: 'warn' })
+      }
       throw e
     }
     setQc(r.qc); setLeaks(r.leaks || 0); setSaved(true)
+    if (r.finalize_gate?.danger_draft) {
+      toast('已以危险草稿旁路落库(定稿门闩未拦)', { tone: 'warn' })
+    }
+    // 存后拉 ingest 状态角标(KR3 可观测)
+    try {
+      const ist = await api.ingestStatus(chapter, work)
+      if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_error })
+      else setIngestFail(null)
+    } catch { /* 角标失败不挡存稿 */ }
     // 主编主动化 T5·时机B:落稿后有命中 → 主编摘要一条(每章一次,防烦协议)
     try {
       const cnt = (x) => Array.isArray(x) ? x.length : (x || 0)
@@ -789,6 +810,47 @@ export function WriteLayout({ work, seq, sceneIdx }) {
           )
         })()}
 
+        {/* 危险草稿旁路:默认关;勾选后存稿跳过定稿门闩(宪法显式危险) */}
+        <label
+          className={`inline-flex items-center gap-1 h-7 px-2 rounded-md border text-meta cursor-pointer select-none shrink-0 ${
+            dangerDraft
+              ? 'border-danger/50 bg-danger/10 text-danger'
+              : 'border-line bg-soft text-faint hover:text-ink'
+          }`}
+          title="勾选后存稿将跳过定稿门闩(blocking 质控不拦)。仅用于草稿/紧急旁路。"
+          data-testid="danger-draft-toggle"
+        >
+          <input
+            type="checkbox"
+            className="accent-danger"
+            checked={dangerDraft}
+            onChange={(e) => setDangerDraft(e.target.checked)}
+          />
+          <AlertTriangle size={12} />
+          危险草稿
+        </label>
+        {ingestFail && (
+          <button
+            type="button"
+            data-testid="ingest-fail-badge"
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-danger/40 bg-danger/10 text-meta text-danger cursor-pointer shrink-0"
+            title={ingestFail.error || ingestFail.status}
+            onClick={async () => {
+              try {
+                await api.ingestRetry(chapter, work)
+                toast('已重试本章反哺(ingest)')
+                const ist = await api.ingestStatus(chapter, work)
+                if (ist?.failed) setIngestFail({ status: ist.ingest_status, error: ist.ingest_error })
+                else setIngestFail(null)
+              } catch (e) {
+                toast(e?.body?.detail || e?.message || '重试失败', { tone: 'danger' })
+              }
+            }}
+          >
+            <DatabaseZap size={12} />
+            反哺失败·点重试
+          </button>
+        )}
         {/* 保存▾ 分段按钮:主=保存,▾ 展开 存档点/专注模式 */}
         <div ref={saveMenuRef} className="relative shrink-0">
           <div className="inline-flex items-center rounded-md overflow-hidden bg-soft/80">

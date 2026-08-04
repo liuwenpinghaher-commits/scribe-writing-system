@@ -11,14 +11,30 @@ from scribe3.mcp.gating import *  # noqa: F403
 @mcp.tool(annotations=_RO)
 
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None,
-                    work: str | None = None) -> dict:
+                    work: str | None = None, danger_draft: bool = False) -> dict:
     """落/覆盖某章正文(作者草稿,不经 elicitation;manuscript 非世界状态)。
 
     C-1(正文覆写三路对称):覆写正文后与 app /save-chapter 对称落 final 版本——补版本历史断链
     (此前经此工具改稿的存档点缺失)。ingest 不在此内联:MCP 进程无 app 的 BackgroundTasks /
     _pending_ingest 去重队列,且有专用 s3_ingest_chapter 工具供 agent 显式客观回写;把慢 LLM 抽取
-    硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。"""
+    硬塞进存稿工具会阻塞且跨进程无从与 app 去重集协同,故只落版,知识回写走 s3_ingest_chapter。
+
+    门A/KR1:与 /save-chapter 共用 check_finalize_for_save;blocking 默认拒落 final。
+    danger_draft=true 为显式危险旁路(须 agent/作者知情)。"""
     st = _store_for(work)
+    from scribe3.finalize_gate import check_finalize_for_save
+    fg = check_finalize_for_save(
+        st, seq, prose, focalizer=focalizer, danger_draft=bool(danger_draft))
+    if not fg.get("allowed"):
+        return {
+            "status": "blocked",
+            "seq": seq,
+            "code": fg.get("code") or "finalize_gate",
+            "verdict": fg.get("verdict"),
+            "message": fg.get("detail") or "定稿门闩未通过,正文未落库",
+            "blocking": fg.get("blocking") or [],
+            "danger_draft_hint": "传 danger_draft=true 可旁路(危险)",
+        }
     st.save_chapter(seq, prose, title=title, focalizer=focalizer)
     # 落 final 版(fail-soft:留版失败不阻断存稿)
     try:
@@ -29,7 +45,13 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
         import logging
         logging.getLogger("scribe3.mcp").warning(
             "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
-    return {"status": "saved", "seq": seq}
+    return {
+        "status": "saved", "seq": seq,
+        "finalize_gate": {
+            "code": fg.get("code"), "verdict": fg.get("verdict"),
+            "danger_draft": bool(danger_draft),
+        },
+    }
 
 
 async def s3_add_character(ctx: Context, oid: str, name: str,

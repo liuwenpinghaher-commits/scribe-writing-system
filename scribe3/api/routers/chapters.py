@@ -618,23 +618,17 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     prose = ver.get("prose") or ""
     title = (st.get_chapter(req.chapter) or {}).get("title") or ""
     foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
-    # 门A:选择环终选亦过定稿门闩(候选已过滤,仍拦 residual blocking;danger 无旁路——
-    # 终选是人审路径,advisory 放行)。门关(测试)时跳过。
+    # 门A:终选共用 check_finalize_for_save 单源(危险旁路不提供——终选即人审)
     try:
-        from scribe3.finalize_gate import (
-            collect_deterministic_post_for_prose, evaluate_finalize_gate,
-            finalize_gate_env_enabled,
-        )
-        if finalize_gate_env_enabled():
-            _post = collect_deterministic_post_for_prose(
-                prose, st=st, seq=req.chapter, focalizer=foc or None)
-            _fg = evaluate_finalize_gate(_post, danger_draft=False)
-            if not _fg.get("allowed"):
-                raise HTTPException(status_code=409, detail={
-                    "code": _fg.get("code") or "finalize_gate",
-                    "message": _fg.get("detail") or "终选定稿被定稿门闩拦截",
-                    "blocking": _fg.get("blocking") or [],
-                })
+        from scribe3.finalize_gate import check_finalize_for_save
+        _fg = check_finalize_for_save(
+            st, req.chapter, prose, focalizer=foc or None, danger_draft=False)
+        if not _fg.get("allowed"):
+            raise HTTPException(status_code=409, detail={
+                "code": _fg.get("code") or "finalize_gate",
+                "message": _fg.get("detail") or "终选定稿被定稿门闩拦截",
+                "blocking": _fg.get("blocking") or [],
+            })
     except HTTPException:
         raise
     except Exception as e:

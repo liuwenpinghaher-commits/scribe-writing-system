@@ -887,10 +887,12 @@ function TensionCheck({ seq }) {
 
 function QCPanel({ seq }) {
   const [qc, setQc] = useState(undefined)   // undefined=加载中,null=失败,{}=无正文,object=数据
+  const [ingest, setIngest] = useState(null)  // KR3:反哺状态角标
   useEffect(() => {
-    if (seq == null) { setQc({}); return }
+    if (seq == null) { setQc({}); setIngest(null); return }
     setQc(undefined)
     api.qc(seq).then(setQc).catch(() => setQc(null))
+    api.ingestStatus?.(seq).then(setIngest).catch(() => setIngest(null))
   }, [seq])
   const items = [
     ['复读(章内)', qc?.repetition],
@@ -906,6 +908,19 @@ function QCPanel({ seq }) {
   return (
     <div>
       <SectionTitle icon={ShieldCheck}>确定性 QC · 本章正文</SectionTitle>
+      {ingest?.failed && (
+        <div
+          data-testid="qc-ingest-fail-banner"
+          className="mb-2 rounded-md border border-danger/40 bg-danger/8 px-2 py-1.5 text-meta text-danger"
+          role="status"
+        >
+          反哺(ingest)失败:{ingest.ingest_error || ingest.ingest_status}
+          ——知识账本可能落后;可点写作台「反哺失败·点重试」或手点反哺。
+        </div>
+      )}
+      {ingest?.pending && (
+        <div className="mb-2 text-meta text-faint">反哺进行中…</div>
+      )}
       {qc === undefined ? <><Skeleton className="w-full" /><Skeleton className="w-full mt-2" /><Skeleton className="w-3/4 mt-2" /></>
         : qc === null ? <Empty>QC 加载失败,切走再切回可重试</Empty>
         : noProse ? <Empty>保存正文后自动体检</Empty>

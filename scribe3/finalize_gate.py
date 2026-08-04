@@ -141,6 +141,55 @@ def build_deterministic_post(
     return post
 
 
+def check_finalize_for_save(
+    st,
+    seq: int,
+    prose: str,
+    *,
+    focalizer: str | None = None,
+    danger_draft: bool = False,
+    skip: bool = False,
+) -> dict[str, Any]:
+    """生产定稿路径共用的 pre-persist 门闩(KR1 单源)。
+
+    由 /save-chapter、select_finalize、s3_save_chapter、dedup/polish 等 final 覆写
+    路径调用。返回 evaluate_finalize_gate 同构 dict;调用方据 allowed 决定是否落库。
+    """
+    if skip or not finalize_gate_env_enabled():
+        return evaluate_finalize_gate(None, danger_draft=False, skip=True)
+    post = collect_deterministic_post_for_prose(
+        prose, st=st, seq=seq, focalizer=focalizer or None)
+    return evaluate_finalize_gate(post, danger_draft=bool(danger_draft), skip=False)
+
+
+def build_ingest_status_row(
+    ch_seq: int,
+    ch: dict | None,
+    *,
+    pending: bool = False,
+) -> dict[str, Any]:
+    """单章 ingest 状态行(KR3 诚实语义 · 纯函数)。
+
+    - ok 仅当 status==ok 且非 pending
+    - failed 当 status∈{failed,parse_failed} 且非 pending
+    - pending 优先于落库 status 展示
+    """
+    ch = ch or {}
+    stt = ch.get("ingest_status")
+    err = ch.get("ingest_error") or ""
+    is_pending = bool(pending)
+    ok = (stt == "ok") and not is_pending
+    failed = (not is_pending) and stt in ("failed", "parse_failed")
+    return {
+        "seq": int(ch_seq),
+        "ingest_status": "pending" if is_pending else (stt or "unknown"),
+        "ingest_error": "" if is_pending else err,
+        "ok": ok,
+        "failed": failed,
+        "pending": is_pending,
+    }
+
+
 def collect_deterministic_post_for_prose(
     prose: str,
     *,

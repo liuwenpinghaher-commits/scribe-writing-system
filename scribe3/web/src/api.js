@@ -455,11 +455,20 @@ export const api = {
   latestDraft: (seq) => j(`/latest-draft?seq=${seq}`),
   qc: (seq, work) => j(`/qc?seq=${seq}`, work),
   // work 可选:卸载兜底 flush / 切章 persist 传入捕获的 work,钉死目标书,防切书写错书。
-  saveChapter: (seq, prose, title, focalizer, work) => post('/save-chapter', { seq, prose, title, focalizer }, work),
+  // opts.dangerDraft: 显式危险草稿旁路(跳过定稿门闩,UI 须标危险)
+  saveChapter: (seq, prose, title, focalizer, work, opts = {}) => post('/save-chapter', {
+    seq, prose, title, focalizer,
+    ...(opts.dangerDraft ? { danger_draft: true } : {}),
+    ...(opts.skipCraftGate ? { skip_craft_gate: true } : {}),
+  }, work),
   // 版本存档恢复:跳过工艺门、留 checkpoint、默认知重抽(与 save-chapter 分离)
   restoreChapterVersion: (seq, body, work) => post(
     `/chapters/${seq}/restore-version`, body || {}, work),
   ingest: (seq) => post(`/ingest?seq=${seq}`),
+  // KR3:ingest 状态/失败 backlog / 重试
+  ingestStatus: (seq, work) => j(
+    seq != null ? `/ingest/status?seq=${seq}` : '/ingest/status', work),
+  ingestRetry: (seq, work) => post(`/ingest/${seq}/retry`, {}, work),
   // 命名存档点 + 护栏校验(改造③④)
   checkpoint: (seq, prose, label = '', kind = 'checkpoint', qc = {}) =>
     post(`/checkpoint?seq=${seq}`, { prose, label, kind, qc }),

@@ -350,7 +350,9 @@ def ingest_status(seq: int | None = None, work: str = "main"):
 
     - 无 seq:返回本书所有有 ingest_status 或 pending 在途的章摘要 + 失败 backlog
     - 有 seq:单章详情(含 pending 在途)
+    行语义单源:finalize_gate.build_ingest_status_row
     """
+    from scribe3.finalize_gate import build_ingest_status_row
     st = _store_for(work)
     pending: set = set()
     try:
@@ -359,24 +361,9 @@ def ingest_status(seq: int | None = None, work: str = "main"):
     except Exception:
         pending = set()
 
-    def _row(ch_seq: int, ch: dict) -> dict:
-        stt = ch.get("ingest_status")
-        err = ch.get("ingest_error") or ""
-        is_pending = ch_seq in pending
-        # 诚实:失败态绝不当 success
-        ok = stt == "ok" and not is_pending
-        return {
-            "seq": ch_seq,
-            "ingest_status": "pending" if is_pending else (stt or "unknown"),
-            "ingest_error": err if not is_pending else "",
-            "ok": ok,
-            "failed": (not is_pending) and stt in ("failed", "parse_failed"),
-            "pending": is_pending,
-        }
-
     if seq is not None:
         ch = st.get_chapter(int(seq)) or {}
-        return _row(int(seq), ch)
+        return build_ingest_status_row(int(seq), ch, pending=(int(seq) in pending))
 
     rows = []
     try:
@@ -385,7 +372,7 @@ def ingest_status(seq: int | None = None, work: str = "main"):
             if s is None:
                 continue
             full = st.get_chapter(int(s)) or c
-            r = _row(int(s), full)
+            r = build_ingest_status_row(int(s), full, pending=(int(s) in pending))
             # 列表只保留有信号的章(状态/在途/失败),避免空书噪声
             if r["ingest_status"] not in (None, "unknown") or r["pending"]:
                 rows.append(r)

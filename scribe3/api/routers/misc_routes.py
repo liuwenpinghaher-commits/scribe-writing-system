@@ -336,27 +336,25 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "code": "craft_gate_error",
             "message": f"工艺门闩评估失败,已阻断存稿: {e}",
         }) from e
-    # 门A/KR1:定稿门闩——blocking 禁落 final(danger_draft 显式旁路);在 save 之前
+    # 门A/KR1:定稿门闩单源 check_finalize_for_save(与 MCP/dedup/polish/终选共用)
     fg_decision = None
     try:
-        from scribe3.finalize_gate import (
-            collect_deterministic_post_for_prose, evaluate_finalize_gate,
-            finalize_gate_env_enabled,
+        from scribe3.finalize_gate import check_finalize_for_save
+        fg_decision = check_finalize_for_save(
+            st, req.seq, req.prose,
+            focalizer=req.focalizer or None,
+            danger_draft=bool(req.danger_draft),
+            skip=bool(req.skip_finalize_gate),
         )
-        if finalize_gate_env_enabled() and not req.skip_finalize_gate:
-            post = collect_deterministic_post_for_prose(
-                req.prose, st=st, seq=req.seq, focalizer=req.focalizer or None)
-            fg_decision = evaluate_finalize_gate(
-                post, danger_draft=bool(req.danger_draft), skip=False)
-            if not fg_decision.get("allowed"):
-                raise HTTPException(status_code=409, detail={
-                    "code": fg_decision.get("code") or "finalize_gate",
-                    "message": fg_decision.get("detail") or "定稿门闩未通过",
-                    "verdict": fg_decision.get("verdict"),
-                    "blocking": fg_decision.get("blocking") or [],
-                    "advisory_items": fg_decision.get("advisory_items") or [],
-                    "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
-                })
+        if not fg_decision.get("allowed"):
+            raise HTTPException(status_code=409, detail={
+                "code": fg_decision.get("code") or "finalize_gate",
+                "message": fg_decision.get("detail") or "定稿门闩未通过",
+                "verdict": fg_decision.get("verdict"),
+                "blocking": fg_decision.get("blocking") or [],
+                "advisory_items": fg_decision.get("advisory_items") or [],
+                "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
+            })
     except HTTPException:
         raise
     except Exception as e:
@@ -472,6 +470,17 @@ def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     res = rewrite_cross_repetitions(ch["prose"], priors, _dedup_complete,
                                     n=12, allow=allow, max_targets=6)
     if res["rewritten"] > 0:
+        # KR1: final 覆写前过定稿门闩(与 save-chapter 单源)
+        from scribe3.finalize_gate import check_finalize_for_save
+        _fg = check_finalize_for_save(
+            st, seq, res["prose"], focalizer=ch.get("focalizer") or None)
+        if not _fg.get("allowed"):
+            raise HTTPException(status_code=409, detail={
+                "code": _fg.get("code") or "finalize_gate",
+                "message": _fg.get("detail") or "去重改写结果未过定稿门闩,未落库",
+                "blocking": _fg.get("blocking") or [],
+                "rewritten_unsaved": res["rewritten"],
+            })
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
         # 落 final 版(与 /save-chapter 对称;fail-soft:留版失败不阻断改写落库)
         try:
@@ -550,6 +559,16 @@ def polish_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
                 quote_repairs = 0
                 changed = False
     if changed:
+        from scribe3.finalize_gate import check_finalize_for_save
+        _fg = check_finalize_for_save(
+            st, seq, res["prose"], focalizer=ch.get("focalizer") or None)
+        if not _fg.get("allowed"):
+            raise HTTPException(status_code=409, detail={
+                "code": _fg.get("code") or "finalize_gate",
+                "message": _fg.get("detail") or "精修结果未过定稿门闩,未落库",
+                "blocking": _fg.get("blocking") or [],
+                "rewritten_unsaved": res["rewritten"],
+            })
         st.save_chapter(seq, res["prose"], title=ch.get("title", ""), focalizer=ch.get("focalizer"))
         try:
             st.add_chapter_version(seq, res["prose"], label="", kind="final",
