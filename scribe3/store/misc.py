@@ -1,4 +1,21 @@
-"""SurrealStore mixin: misc."""
+"""SurrealStore mixin: residual cross-cutting helpers (owned leftovers).
+
+Ownership / where new code should go instead
+--------------------------------------------
+- **Ingest unverified names** (`add_unverified_ref`, `set_unverified_status`,
+  `list_unverified`, `accept_unverified`, …) → keep here or graduate to
+  ``store/ingest_unverified.py`` when the table grows a full aggregate API.
+- **Knowledge grants** (`grant_public`, bulk knows edges) → prefer
+  ``store/facts_knowledge.py`` for new APIs; existing helpers remain for
+  call-site stability.
+- **Graph / admin odds-and-ends** still mixed in this mixin: do **not** add new
+  domain tables here. New persistence belongs in the matching aggregate module
+  under ``scribe3/store/`` (characters, events, chapters, materials, promises,
+  intent, recall, …).
+
+This file is intentionally a *documented residual*, not the default dump for
+new domain code (ARCHITECTURE_SPLIT_ROADMAP Phase C).
+"""
 from __future__ import annotations
 
 from scribe3.store.core_preamble import *  # noqa: F403

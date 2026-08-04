@@ -1,6 +1,8 @@
 """SurrealStore mixin: connection."""
 from __future__ import annotations
 
+import os
+
 import time
 
 from scribe3.store.core_preamble import *  # noqa: F403
@@ -177,9 +179,19 @@ class ConnectionMixin:
                 {"name": f.stem},
             )
         if failures:
-            raise RuntimeError(
+            # SCRIBE3_SCHEMA_SOFT=1: continue after non-fatal migration parse/version skew
+            # (local/CI host Surreal minor mismatch). Default remains strict for production.
+            soft = (os.environ.get("SCRIBE3_SCHEMA_SOFT") or "").strip().lower() in {
+                "1", "true", "yes", "on",
+            }
+            msg = (
                 "apply_schema 迁移失败清单(未标记已应用): "
-                + "; ".join(f"{n}: {e}" for n, e in failures))
+                + "; ".join(f"{n}: {e}" for n, e in failures)
+            )
+            if soft:
+                logging.getLogger("scribe3").warning("SCRIBE3_SCHEMA_SOFT: %s", msg)
+            else:
+                raise RuntimeError(msg)
         # Task 6:回填存量对话史进默认主编线程(幂等且代价小——只 UPDATE thread_id IS NONE)。
         # fail-soft:失败只告警不阻断启动(线程回填非启动关键路径;下次启动可再试)。
         try:

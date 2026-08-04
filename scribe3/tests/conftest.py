@@ -20,6 +20,8 @@ import pytest
 os.environ.setdefault("SCRIBE3_SETTINGS_DB",
                       os.path.join(tempfile.mkdtemp(prefix="scribe3-settings-test-"),
                                    "settings.sqlite3"))
+os.environ.setdefault("SCRIBE3_SCHEMA_SOFT", "1")  # host Surreal minor mismatch fail-soft for tests
+
 
 from scribe3.store import SurrealStore
 

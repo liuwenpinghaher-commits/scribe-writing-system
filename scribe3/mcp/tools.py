@@ -1,173 +1,9 @@
-"""scribe3 领域 MCP server(FastMCP,名 "scribe3")。
-
-读工具放行(readOnlyHint);写工具经 Hermes elicitation 待批,批准后才走 store 单点落库。
-工具名带 s3_ 前缀(隔离标准:与 scribe2 同挂也不撞名)。
-可测核心 = commit_if_approved 门控;elicitation 是生产侧(ctx.elicit,fail-closed)。
-"""
+"""MCP s3_* tools (FastMCP decorators preserved)."""
 from __future__ import annotations
 
-import logging
-import os
-from collections import OrderedDict
-from typing import Any, Callable
+from scribe3.mcp._common import *  # noqa: F403
+from scribe3.mcp.gating import *  # noqa: F403
 
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ToolAnnotations
-from pydantic import BaseModel, Field
-from pydantic.fields import FieldInfo
-
-from scribe3.codex_schema import all_storage_keys, secret_capable_keys, secret_flag_key
-from scribe3.codex_secret_bridge import sync_faction_secrets
-from scribe3.knowledge import dramatic_irony, project_frame
-from scribe3.ontology import Entity, Event, Fact, KnowledgeEdge
-from scribe3.verify import causal_complete, find_leaks_for_chapter
-
-mcp = FastMCP("scribe3")
-_store = None
-_stores: OrderedDict[str, object] = OrderedDict()
-_STORE_CACHE_MAX = 8
-
-
-def _default_work() -> str:
-    return os.environ.get("SCRIBE3_WORK", "main")
-
-
-def _store_work(s) -> str | None:
-    return getattr(s, "db_name", None) or getattr(s, "db", None)
-
-
-def set_store(s, work: str | None = None) -> None:
-    global _store
-    w = work or _store_work(s) or _default_work()
-    _stores[w] = s
-    _stores.move_to_end(w)
-    if _store is None or work is None or w == _default_work():
-        _store = s
-
-
-def _store_for(work: str | None = None):
-    """返回目标书 store。work=None 保持旧行为:使用当前 MCP 默认 store。"""
-    global _store
-    if not work:
-        if _store is None:
-            setup_store()
-        return _store
-    if work in _stores:
-        _stores.move_to_end(work)
-        return _stores[work]
-    from scribe3.store import SurrealStore
-    st = SurrealStore(ns="scribe3", db=work)
-    st.apply_schema()
-    _stores[work] = st
-    _stores.move_to_end(work)
-    while len(_stores) > _STORE_CACHE_MAX:
-        _, old = _stores.popitem(last=False)
-        if old is not _store:
-            try:
-                old.close()
-            except Exception:
-                pass
-    return st
-
-
-# ===== 写门控 =====
-WRITE_GATED = {"s3_add_character", "s3_add_fact", "s3_add_event", "s3_record_knowledge",
-                "s3_register_purpose",   # 北极星任务6:目的合同登记(草单待批,蓝图 §3-④)
-                "s3_set_intent",         # G-001:书级北极星 intent 结构化写入
-                "s3_patch_character",    # G-004:角色字段更正(对话审批落库)
-                "s3_patch_codex",        # 注册表驱动的完整设定档案更正
-                "s3_plant_promise", "s3_advance_promise", "s3_craft_rule_add",
-                "s3_craft_rule_remove", "s3_add_character_relation",
-                "s3_add_world_rule", "s3_patch_world_rule", "s3_add_faction",
-                "s3_patch_faction", "s3_add_char_state",
-                "s3_set_voice_profile", "s3_add_item", "s3_patch_item",
-                "s3_add_term", "s3_patch_term",
-                "s3_supersede_fact", "s3_forget_knowledge",
-                "s3_evolve_relation", "s3_resolve_voice_flag",
-                "s3_fold_voice_flags", "s3_add_clue",
-                "s3_mark_herring", "s3_touch_promise", "s3_abandon_promise",
-                "s3_add_entity_relation",  # CX-Task 5:通用实体关系表写工具
-                "s3_author_pref_add",      # 跨书作者偏好(USER.md)待批写入
-                # Task 3–6:结构写(卷/章 meta/章 plan/弧光锚)
-                "s3_add_volume", "s3_patch_volume",
-                "s3_add_chapter", "s3_patch_chapter_meta",
-                "s3_patch_chapter_plan", "s3_set_char_anchors",
-                # P0:结构运维 + 母题(默认 emergency REST 关时的作者主路径)
-                "s3_reorder_chapters", "s3_delete_volume",
-                "s3_add_motif", "s3_patch_motif", "s3_patch_promise",
-                # 设定库生命周期(archive/delete,与 objects/* 同口径)
-                "s3_delete_codex"}
-
-
-def requires_approval(name: str) -> bool:
-    return name in WRITE_GATED
-
-
-def commit_if_approved(name: str, accepted: bool | None,
-                       do_write: Callable[[], object]) -> dict:
-    """写门控单一落库点:WRITE_GATED 的工具须 accepted=True 才执行 do_write
-    (do_write 内部走 store 单点落库)。拒绝/过期均 fail-closed 不写，且状态分开。
-
-    防假绿:
-    - do_write 抛异常 → status=error(不谎称 written)
-    - do_write 返回 False → status=error(典型:目标行不存在/零更新)
-    - do_write 返回带 error 的 dict → 透传为 error
-    - do_write 返回其它 dict → 与 written 合并(保留业务字段)
-    - do_write 返回 None/其它真值 → status=written
-    """
-    if name in WRITE_GATED and accepted is None:
-        return {"status": "expired", "tool": name}
-    if name in WRITE_GATED and accepted is not True:
-        return {"status": "declined", "tool": name}
-    try:
-        result = do_write()
-    except Exception as e:
-        logging.exception("commit_if_approved write failed tool=%s", name)
-        return {"status": "error", "tool": name, "error": str(e)}
-    if result is False:
-        return {
-            "status": "error",
-            "tool": name,
-            "error": "write returned false (no-op or missing target)",
-        }
-    if isinstance(result, dict):
-        if result.get("error") and result.get("status") not in ("written", "ok"):
-            out = {"status": "error", "tool": name}
-            out.update(result)
-            out["status"] = "error"
-            return out
-        out = {"status": "written", "tool": name}
-        out.update(result)
-        # 业务 dict 若未显式给 status,保持 written;若显式 declined/error 则尊重
-        if result.get("status") in ("declined", "error"):
-            out["status"] = result["status"]
-        else:
-            out["status"] = "written"
-        return out
-    out: dict = {"status": "written", "tool": name}
-    if result is not None:
-        out["result"] = result
-    return out
-
-
-class _Approve(BaseModel):
-    confirm: bool = True
-
-
-async def _ask(ctx: Context, summary: str) -> bool | None:
-    """Hermes elicitation:写前征求批准。超时/异常与作者显式拒绝分开审计。"""
-    try:
-        res = await ctx.elicit(message=f"批准写入?{summary}", schema=_Approve)
-        return getattr(res, "action", None) == "accept"
-    except Exception:
-        return None
-
-
-_RO = ToolAnnotations(readOnlyHint=True)
-_RW = ToolAnnotations(readOnlyHint=False)
-
-
-# ===== 读工具(放行)=====
 @mcp.tool(annotations=_RO)
 def s3_project_frame(focalizer: str, chapter: int, work: str | None = None) -> list[dict]:
     """投影 focalizer 截至某章的知识帧(限知渲染的输入;帧外私密不在内)。"""
@@ -190,40 +26,6 @@ def s3_causal_complete(chapter: int, work: str | None = None) -> list[dict]:
     """连贯性查询:每事件须因果入边+目标。返回违规列表(空=干净)。"""
     return [{"event": v.event_id, "reason": v.reason}
             for v in causal_complete(_store_for(work), chapter)]
-
-
-_SECRET_MASK = "🔒 私密"
-
-
-def _jsonable(obj):
-    """把 store 原始行(SELECT *)转成 FastMCP 能序列化的纯 JSON 值。
-
-    2026-07-15 真机探针撞出的既有 bug:`SELECT *` 的每一行都带 `id`,类型是
-    `surrealdb.data.types.record_id.RecordID`——FastMCP 用 pydantic 严格序列化,
-    直接抛 `Unable to serialize unknown type: RecordID`,**整个工具调用失败**。
-    受害的是 s3_list_factions / s3_list_world_rules / s3_list_items / s3_list_terms
-    (以及 CX-Task 5 新加的 s3_list_entity_relations)——也就是说主编从来就没法
-    通过 MCP 列出势力/世界规则/物件/术语。REST 侧不炸只是因为 FastAPI 的
-    jsonable_encoder 会兜底(它把 RecordID 拆成 dict),掩盖了这个洞。
-
-    修在 MCP 边界而不是 store/REST:store 的返回值被 REST、prompt 组装、检测器
-    等一堆地方消费,改那里会波及全系统;这里只管把要过 MCP 协议的行洗干净。
-    保留 id(转成字符串,对模型仍可用),不做删字段。"""
-    if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_jsonable(v) for v in obj]
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
-        return obj
-    return str(obj)   # RecordID / datetime / Duration 等 SurrealDB 原生类型
-
-
-def _mask_value(value: str, is_secret: bool, reveal_secret: bool) -> str | None:
-    """统一掩码函数:is_secret=True 且 reveal_secret=False → 返回掩码占位符。
-    与 store.graph() 使用同一占位符 '🔒 私密'。"""
-    if is_secret and not reveal_secret:
-        return _SECRET_MASK
-    return value
 
 
 def _semantic_recall_impl(query: str, k: int, reveal_secret: bool,
@@ -636,7 +438,6 @@ def s3_discipline_check(seq: int, brief: str = "", work: str | None = None) -> d
     return discipline_truncate(ch["prose"], brief, hermes_complete)
 
 
-# ===== manuscript 写(草稿,直接写,不待批——非世界状态)=====
 @mcp.tool(annotations=_RW)
 def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None = None,
                     work: str | None = None) -> dict:
@@ -658,22 +459,6 @@ def s3_save_chapter(seq: int, prose: str, title: str = "", focalizer: str | None
         logging.getLogger("scribe3.mcp").warning(
             "s3_save_chapter 自动留 final 版失败(存稿已落库) seq=%s: %s", seq, e)
     return {"status": "saved", "seq": seq}
-
-
-# ===== 写工具(elicitation 待批 → store 单点)=====
-_CHARACTER_IMPORTANCE_ALIASES = {
-    "主角": "protagonist", "主要角色": "major", "重要配角": "major",
-    "配角": "minor", "背景角色": "background", "龙套": "background",
-}
-
-
-def _normalize_character_fields(fields: dict[str, Any]) -> dict[str, Any]:
-    """把作者在中文 UI 中自然填写的重要度映射到现有 DB 枚举。"""
-    normalized = dict(fields)
-    importance = normalized.get("importance")
-    if isinstance(importance, str):
-        normalized["importance"] = _CHARACTER_IMPORTANCE_ALIASES.get(importance.strip(), importance)
-    return normalized
 
 
 @mcp.tool(annotations=_RW)
@@ -813,61 +598,6 @@ async def s3_add_fact(ctx: Context, oid: str, entity: str, attribute: str, value
     return commit_if_approved("s3_add_fact", ok, _write)
 
 
-def aggregate_event_participants(participants: list[dict] | None) -> dict:
-    """MCP s3_add_event 参与者聚合:同 role 多人升 list,禁止后写覆盖。
-    纯函数,供工具与单测共用——禁止测试侧重写此循环。"""
-    parts: dict = {}
-    if not participants:
-        return parts
-    for p in participants:
-        if not isinstance(p, dict):
-            continue
-        role = p.get("role", "") or ""
-        entity = p.get("entity", "") or ""
-        if not role or not entity:
-            continue
-        if role not in parts:
-            parts[role] = entity
-        else:
-            cur = parts[role]
-            if isinstance(cur, list):
-                if entity not in cur:
-                    cur.append(entity)
-            elif cur != entity:
-                parts[role] = [cur, entity]
-    return parts
-
-
-def aggregate_event_effects(effects: list | None) -> list[str]:
-    """MCP s3_add_event effects 归一化为 fact oid 列表。"""
-    effs: list[str] = []
-    if not effects:
-        return effs
-    for e in effects:
-        if isinstance(e, str):
-            effs.append(e)
-        elif isinstance(e, dict):
-            fid = e.get("id") or e.get("fact_id")
-            if fid:
-                effs.append(fid)
-    return effs
-
-
-def aggregate_event_causal_in(causal_in: list[dict] | None) -> list:
-    """MCP s3_add_event causal_in 归一化为 (event_id, ctype) 列表。"""
-    causal: list = []
-    if not causal_in:
-        return causal
-    for c in causal_in:
-        if not isinstance(c, dict):
-            continue
-        ev_id = c.get("event", "")
-        ctype = c.get("ctype", "causes")
-        if ev_id:
-            causal.append((ev_id, ctype))
-    return causal
-
-
 @mcp.tool(annotations=_RW)
 async def s3_add_event(ctx: Context, oid: str, etype: str, valid_from: int,
                        motivated_by_goal: str | None = None,
@@ -962,31 +692,6 @@ async def s3_add_world_rule(ctx: Context, name: str, category: str,
                               lambda: _store_for(work).add_world_rule(
                                   name, category, source, capabilities, cost,
                                   limitations, exceptions, scope, established_chapter, note))
-
-
-_MCP_UNSET = object()  # 未传哨兵(与 store._UNSET 同一思路,模块内自洽即可,两侧不必共享
-                       # 同一对象):区分"调用方未传该关键字实参" vs "显式传值(含 None)"。
-                       # 若不做这区分,每次调用都会把没提到的字段清空——已实测复现:旧实现
-                       # 对全部字段一律用具体默认值(None/"active"/False)而非哨兵,第二次
-                       # 只想改 leader 却把 ideology 等静默清空,known_members 甚至因写 NONE
-                       # 进非 optional 的 array 字段直接 500(见 test_codex_faction.py 回归测试)。
-
-
-def _mcp_unset_factory():
-    return _MCP_UNSET
-
-
-def _mcp_unset_field():
-    """不向 FastMCP JSON Schema 暴露内部哨兵，同时保留省略参数语义。"""
-    return Field(default_factory=_mcp_unset_factory)
-
-
-def _is_mcp_unset(value: object) -> bool:
-    # FastMCP/Pydantic 调用会执行 default_factory；测试或内部直接调函数时，Python
-    # 会把签名上的 FieldInfo 原样传入。两条路径都应视为“调用方未提供字段”。
-    return value is _MCP_UNSET or (
-        isinstance(value, FieldInfo) and value.default_factory is _mcp_unset_factory
-    )
 
 
 @mcp.tool(annotations=_RW)
@@ -1084,9 +789,6 @@ async def s3_add_faction(ctx: Context, name: str,
     return commit_if_approved("s3_add_faction", ok, _write)
 
 
-# ===== CX-Task 5:通用实体关系表(双向认知 + 主编独知 truth + 时态)=====
-# 与 s3_add_character_relation/s3_relations_at(锁死 character↔character)是两套独立
-# 工具,互不影响。entity_relation 的 a/b 不锁实体类型,不做存在性校验。
 def _list_entity_relations_impl(entity: str | None, chapter: int | None,
                                 reveal_secret: bool, work: str | None) -> list[dict]:
     st = _store_for(work)
@@ -1431,17 +1133,6 @@ def s3_ingest_chapter(seq: int, work: str | None = None) -> dict:
     return ingest_chapter(_store_for(work), seq, bounded_complete, max_attempts=2)
 
 
-def _check_proposition(proposition: str, work: str | None = None) -> dict | None:
-    """校验 proposition 为已存在的 fact: oid。
-    合法返回 None;不合法返回 error dict(调用方应立即 return 该 dict)。
-    """
-    if not proposition.startswith("fact:"):
-        return {"error": f"proposition 必须是已存在的 fact: oid,收到: {proposition!r}"}
-    if _store_for(work).fact(proposition) is None:
-        return {"error": f"proposition {proposition!r} 在 store 中不存在,请先用 s3_add_fact 创建"}
-    return None
-
-
 @mcp.tool(annotations=_RW)
 async def s3_record_knowledge(ctx: Context, knower: str, proposition: str,
                               since_chapter: int, acquired_via: str = "saw",
@@ -1515,8 +1206,6 @@ async def s3_craft_rule_remove(ctx: Context, rule_id: str, work: str | None = No
     return commit_if_approved("s3_craft_rule_remove", ok,
                               lambda: _store_for(work).delete_craft_rule(rule_id))
 
-
-# ===== 结构写:卷 / 章 meta / 章 plan / 弧光锚(Task 3–6)=====
 
 @mcp.tool(annotations=_RW)
 async def s3_add_volume(ctx: Context, title: str, sort_order: int = 0,
@@ -1604,79 +1293,6 @@ async def s3_patch_chapter_meta(
         return {"seq": seq, "fields": list(fields)}
 
     return commit_if_approved("s3_patch_chapter_meta", ok, _write)
-
-
-def _normalize_plan_beats(beats: list[Any]) -> tuple[list[dict[str, Any]] | None, str | None]:
-    """把 LLM 常用的 beat/action 别名收敛到章节唯一消费字段 text。"""
-    normalized: list[dict[str, Any]] = []
-    for index, raw in enumerate(beats):
-        if isinstance(raw, str):
-            text = raw.strip()
-            item: dict[str, Any] = {}
-        elif isinstance(raw, dict):
-            text = str(raw.get("text") or raw.get("beat") or raw.get("action") or "").strip()
-            item = dict(raw)
-        else:
-            return None, f"beats[{index}] 必须是字符串或对象"
-        if not text:
-            return None, f"beats[{index}] 缺 text（可使用 beat/action 作为别名）"
-        item.pop("beat", None)
-        item.pop("action", None)
-        item["text"] = text
-        normalized.append(item)
-    return normalized, None
-
-
-def _canonical_plan_characters(store, values: list[Any], field: str) -> tuple[list[str] | None, str | None]:
-    """角色字段只保存书内稳定 role id，拒绝把投影 JSON 串进角色列表。"""
-    known: dict[str, str] = {}
-    for character in store.characters() or []:
-        cid = str(getattr(character, "id", "") or "").strip()
-        name = str(getattr(character, "name", "") or "").strip()
-        if not cid:
-            continue
-        for key in (cid, name, cid.split(":", 1)[-1], f"role:{name}"):
-            if key:
-                known[key] = cid
-    normalized: list[str] = []
-    unknown: list[str] = []
-    for raw in values:
-        if not isinstance(raw, str) or not raw.strip():
-            unknown.append(str(raw))
-            continue
-        value = raw.strip()
-        canonical = known.get(value)
-        if canonical is None and value.startswith("role:"):
-            canonical = known.get(value[5:])
-        if canonical is None:
-            unknown.append(value)
-            continue
-        if canonical not in normalized:
-            normalized.append(canonical)
-    if unknown:
-        return None, f"{field} 含不存在或格式错误的角色: {unknown}"
-    return normalized, None
-
-
-def _normalize_plan_deductions(store, deductions: list[Any]) -> tuple[list[dict[str, Any]] | None, str | None]:
-    normalized: list[dict[str, Any]] = []
-    for index, raw in enumerate(deductions):
-        if not isinstance(raw, dict):
-            return None, f"deductions[{index}] 必须是对象"
-        character = raw.get("character_id") or raw.get("character") or raw.get("role")
-        prose = str(raw.get("prose") or "").strip()
-        ids, err = _canonical_plan_characters(store, [character], f"deductions[{index}].character_id")
-        if err:
-            return None, err
-        if not prose:
-            return None, f"deductions[{index}] 缺 prose"
-        item = dict(raw)
-        item.pop("character", None)
-        item.pop("role", None)
-        item["character_id"] = ids[0]
-        item["prose"] = prose
-        normalized.append(item)
-    return normalized, None
 
 
 @mcp.tool(annotations=_RW)
@@ -2168,26 +1784,4 @@ async def s3_delete_codex(ctx: Context, object_type: str, object_id: str,
     return commit_if_approved("s3_delete_codex", ok, _write)
 
 
-# ===== stdio 入口(供 Hermes 以 `python -m scribe3.mcp` 挂载)=====
-def setup_store(ns: str = "scribe3", db: str | None = None):
-    """连 NS=scribe3 + 幂等建 schema,挂上默认书。
-
-    work-scoped 工具可显式传 work,同一 MCP 进程会按书缓存 SurrealStore;未传 work 时保持
-    旧行为,使用 SCRIBE3_WORK/main 绑定的默认书。"""
-    from scribe3.store import SurrealStore
-    db = db or os.environ.get("SCRIBE3_WORK", "main")
-    store = SurrealStore(ns=ns, db=db)
-    store.apply_schema()
-    set_store(store, work=db)
-    return store
-
-
-def main() -> None:
-    from scribe3 import settings as _settings
-    _settings.apply_restart_overrides()   # restart 类 DB 覆盖灌 env(界面改的 DB 地址等对 MCP 进程同样生效)
-    setup_store()
-    mcp.run()
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ['s3_project_frame', 's3_find_leaks', 's3_causal_complete', '_semantic_recall_impl', 's3_semantic_recall', 's3_semantic_recall_reveal', '_hybrid_recall_impl', 's3_hybrid_recall', 's3_hybrid_recall_reveal', 's3_chapter_recall', '_graph_recall_impl', 's3_graph_recall', 's3_graph_recall_reveal', 's3_material_recall', 's3_setting_completeness', 's3_list_world_rules', '_list_factions_impl', 's3_list_factions', 's3_list_factions_reveal', 's3_character_state', 's3_character_timeline', 's3_relations_at', 's3_get_voice_profile', 's3_check_ooc', 's3_list_items', 's3_list_terms', 's3_resolve_entities', 's3_validate_setting', '_dramatic_irony_impl', 's3_dramatic_irony', 's3_dramatic_irony_reveal', 's3_list_promises', 's3_list_motifs', 's3_get_chapter', 's3_list_chapters', 's3_list_volumes', 's3_skill_read', 's3_qc_chapter', 's3_recent_phrases', 's3_cross_repetition', 's3_dedup_cross', 's3_emotion_palette', 's3_craft_rule_list', 's3_discipline_check', 's3_save_chapter', 's3_add_character', 's3_get_intent', 's3_set_intent', 's3_patch_character', 's3_add_fact', 's3_add_event', 's3_add_character_relation', 's3_evolve_relation', 's3_add_world_rule', 's3_add_faction', '_list_entity_relations_impl', 's3_list_entity_relations', 's3_list_entity_relations_reveal', 's3_add_entity_relation', 's3_add_char_state', 's3_set_voice_profile', 's3_add_item', 's3_add_term', 's3_plant_promise', 's3_register_purpose', 's3_advance_promise', 's3_add_clue', 's3_mark_herring', 's3_touch_promise', 's3_abandon_promise', 's3_list_voice_flags', 's3_resolve_voice_flag', 's3_fold_voice_flags', 's3_ingest_chapter', 's3_record_knowledge', 's3_supersede_fact', 's3_forget_knowledge', 's3_craft_rule_add', 's3_author_pref_add', 's3_craft_rule_remove', 's3_add_volume', 's3_patch_volume', 's3_add_chapter', 's3_patch_chapter_meta', 's3_patch_chapter_plan', 's3_set_char_anchors', 's3_reorder_chapters', 's3_delete_volume', 's3_add_motif', 's3_patch_faction', 's3_patch_item', 's3_patch_term', 's3_patch_world_rule', 's3_patch_codex', 's3_patch_motif', 's3_patch_promise', 's3_promise_timeline', 's3_delete_codex']
