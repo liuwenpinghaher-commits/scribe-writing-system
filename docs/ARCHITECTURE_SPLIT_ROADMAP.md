@@ -1,6 +1,6 @@
 # scribe3 架构拆分规范（权威 spec）
 
-> **状态：实施完成（Phases A/B/C）**  
+> **状态：实施完成（Phases A/B/C + services 下沉）**  
 > **目标：降低审查与并行冲突；不改变产品语义与公开 URL。**  
 > 关联：`docs/CURRENT_ARCHITECTURE.md` · PR 基线：`docs/PR_TEST_BASELINE.md`
 
@@ -47,24 +47,28 @@
 
 | 域 | 模块 | 代表路径 / 符号 |
 |----|------|-----------------|
-| write | `api/routers/write.py` + `api/services/write_*.py` | `/chat/write*` 与 `_stream_write` 等长私有函数 |
+| write | `api/routers/write.py` + `api/services/write_stream.py` / `write_assemble.py` | `/chat/write*` 与 `_stream_write` / 组装指令 |
 | chapters | `api/routers/chapters.py` | `/chapter*` `/loop*` `/outline*` `/select*` |
-| pilot/inbox | `api/routers/pilot_inbox.py` | `/pilot*` `/ideas*` `/inbox` `/north-star*` `/live` |
+| pilot/inbox | `api/routers/pilot_inbox.py` + `api/services/pilot_runtime.py` | `/pilot*` 与 `_pilot_executor` |
+| ingest bg | `api/services/ingest_bg.py` | `_bg_ingest` / `_enqueue_ingest` |
+| lifecycle | `api/services/lifecycle.py` | 对象删除/归档 lifecycle |
 | codex/materials | `api/routers/codex.py` `materials.py` | 世界设定 / 素材 |
 | quality/ingest | `api/routers/quality.py` `ingest_import.py` | QC / import |
 
+服务函数经 `app_impl._rebind_services()` 绑回 `app_impl` 全局，保证 `import scribe3.app as A` + monkeypatch 与 router `FunctionType` 重绑仍有效。
+
 ### Phase C — 工具与规则引擎分包 + store misc
 
-| 组件 | 目标 |
+| 组件 | 落地 |
 |------|------|
-| `critique/` | 按检测族拆模块，`critique/__init__.py` re-export |
-| `mcp/` | tools 分只读/写门控/召回，注册入口薄 |
-| `store/misc.py` | 迁出可归属聚合；文件头注明残留 ownership |
+| `critique/` | `repetition` / `structure_style` / `discipline_gate` / `rules_rest`；`rules.py` + `__init__.py` re-export |
+| `mcp/` | `tools_read` / `tools_recall` / `tools_write`；`tools.py` 副作用注册 + re-export |
+| `store/misc.py` | 已迁出 `motifs` / `unverified_ingest` / `progress_stats` / `character_arc`；misc 仅残留 ownership 文档块 |
 
 ### 接线
 
 - `scribe3/app.py`：剥已抽路径 + `include_router` 一次；禁止双注册。
-- `scribe3/api/app_impl.py`：共享辅助、可 monkeypatch 符号、未迁完的残留路由（应趋近于 0）。
+- `scribe3/api/app_impl.py`：共享核（中间件、store 缓存、AI run/Hermes 辅助、Pydantic 模型）+ `_rebind_services()`；**路由不在此文件**。
 
 ## 5. 验证门槛
 
@@ -77,23 +81,24 @@ pytest scribe3/tests/test_app.py -q   # 或 make test-author-paths
 
 另：OpenAPI/路由清单 before/after 比对；体积报告 before/after。
 
-## 6. 基线 vs 目标（实施前快照）
+## 6. 基线 vs 目标（实施前 → 完成后）
 
-| 文件 | 基线行数（约） | 目标 |
-|------|----------------|------|
-| `api/app_impl.py` | ~11145 | 共享核 + 必要时薄残留，路由主体在 `api/routers/*` |
-| `critique.py` | ~3189 | `critique/` 包 |
-| `mcp.py` | ~2193 | `mcp/` 注册 + tools 模块 |
-| `store/misc.py` | ~1145 | 收缩并文档化 |
+| 文件 | 基线行数（约） | 完成后（约） |
+|------|----------------|--------------|
+| `api/app_impl.py` | ~11145 | ~3.6k 共享核 + service rebind（路由在 `api/routers/*`） |
+| `api/services/*` | （无） | write_stream / write_assemble / ingest_bg / pilot_runtime / lifecycle |
+| `critique.py` | ~3189 | `critique/` 包（族模块 + re-export） |
+| `mcp.py` | ~2193 | `mcp/`（tools_read/recall/write + server/gating） |
+| `store/misc.py` | ~1145 | ~0.4k 残留 + motifs/progress/arc/unverified 分包 |
 
 ## 7. Task checklist（本轮）
 
 - [x] 刷新权威 split spec
 - [x] Phase A 低耦合 routers
-- [x] Phase B write/chapters/pilot 等 + services
-- [x] Phase C critique/mcp 包 + misc 归属
+- [x] Phase B write/chapters/pilot + **api/services 下沉**
+- [x] Phase C critique 按检测族 / mcp 只读·召回·写 / store misc 迁出
 - [x] app.py 单次挂载、无双注册
-- [x] 全量验证与证据落盘
+- [x] 全量验证与证据落盘（demo 冒烟 + 相关单测）
 
 ## 8. 历史
 
