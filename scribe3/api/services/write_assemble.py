@@ -411,6 +411,31 @@ def _write_revision_block() -> str:
         "- 高潮章作者要多候选时,按已有多候选围栏规则出 2-3 个独立版本。")
 
 
+def inject_floor_env_enabled() -> bool:
+    """SCRIBE3_INJECT_FLOOR 默认开启;测试可关以对照组装差。"""
+    v = os.environ.get("SCRIBE3_INJECT_FLOOR", "1").strip().lower()
+    return v not in ("0", "false", "no", "off", "")
+
+
+def _anti_slop_floor_block() -> str:
+    """内核3 最小生产集 · 反平庸/反 AI 腔硬约束(生成时注入,非仅事后检)。
+
+    恒注入于写路径(受 SCRIBE3_INJECT_FLOOR 门控);不宣称保证文学上限。
+    """
+    if not inject_floor_env_enabled():
+        return ""
+    return (
+        "\n\n## 生产下限·反平庸(强制)\n"
+        "- **禁 AI 腔**:禁「不禁/竟然/心中一动/目光深邃/意味深长/仿佛在诉说」等空转修饰;"
+        "禁排比三连堆砌与段末升华金句。\n"
+        "- **身体先于标签**:情绪走微动作/物象/沉默,不直说「他感到…」。\n"
+        "- **世界密度**:至少留一处与主线弱相关的市井/器物侧笔,忌情节直奔。\n"
+        "- **信息冰山**:设定只露必要的 1/8;读者能推的不写明。\n"
+        "- **伏笔诚实**:开着的承诺线须推进或回收,禁止无声蒸发。\n"
+        "- 以上为下限纪律,好小说的文学上限仍由作者终裁。"
+    )
+
+
 def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
     # 旧路径字节一致:_editor_system(身份+设定数据) + _write_protocol_block(静态硬协议/文风)
     # U-003:这是唯一的"生成"入口——限知章续写(_stream_write/_collect_write 最终都靠
@@ -435,8 +460,8 @@ def _editor_write_system(st, focalizer: str = "", chapter: int = None) -> str:
         except Exception as _bf_e:
             import logging
             logging.getLogger("scribe3").warning("章前简报组装失败(non-fatal): %s", _bf_e)
-    # Task7:M8 修订纪律(恒注入,与是否有简报无关)
-    revision = _write_revision_block()
+    # Task7:M8 修订纪律(恒注入,与是否有简报无关) + 内核3 反平庸下限
+    revision = _write_revision_block() + _anti_slop_floor_block()
     return base + revision + (("\n\n" + brief_txt) if brief_txt else "")
 
 
@@ -802,7 +827,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # 伏笔 + 章前简报,会与下方 envelope 的 canonical/global 重复(facts 2×/promises 3×)。
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     prefix = (_editor_identity_block() + _write_protocol_block()
-              + _write_revision_block())
+              + _write_revision_block() + _anti_slop_floor_block())
     prefix += _domain_input(
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),

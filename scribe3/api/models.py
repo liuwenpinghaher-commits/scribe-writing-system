@@ -399,6 +399,10 @@ class SaveChapterReq(BaseModel):
     focalizer: str | None = None
     # 工艺门闩逃生:工具/测试/明确跳过;默认受 SCRIBE3_CRAFT_GATE 约束
     skip_craft_gate: bool = False
+    # 定稿门闩(门A/KR1):blocking 默认禁落 final;显式危险草稿旁路(默认关)
+    danger_draft: bool = False
+    # 测试/工具逃生;生产勿开。默认受 SCRIBE3_FINALIZE_GATE 约束
+    skip_finalize_gate: bool = False
 
 
 class CheckpointReq(BaseModel):

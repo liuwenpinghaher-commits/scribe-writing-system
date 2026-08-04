@@ -336,6 +336,38 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "code": "craft_gate_error",
             "message": f"工艺门闩评估失败,已阻断存稿: {e}",
         }) from e
+    # 门A/KR1:定稿门闩——blocking 禁落 final(danger_draft 显式旁路);在 save 之前
+    fg_decision = None
+    try:
+        from scribe3.finalize_gate import (
+            collect_deterministic_post_for_prose, evaluate_finalize_gate,
+            finalize_gate_env_enabled,
+        )
+        if finalize_gate_env_enabled() and not req.skip_finalize_gate:
+            post = collect_deterministic_post_for_prose(
+                req.prose, st=st, seq=req.seq, focalizer=req.focalizer or None)
+            fg_decision = evaluate_finalize_gate(
+                post, danger_draft=bool(req.danger_draft), skip=False)
+            if not fg_decision.get("allowed"):
+                raise HTTPException(status_code=409, detail={
+                    "code": fg_decision.get("code") or "finalize_gate",
+                    "message": fg_decision.get("detail") or "定稿门闩未通过",
+                    "verdict": fg_decision.get("verdict"),
+                    "blocking": fg_decision.get("blocking") or [],
+                    "advisory_items": fg_decision.get("advisory_items") or [],
+                    "danger_draft_hint": "显式传 danger_draft=true 可旁路(危险,仅草稿)",
+                })
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").error(
+            "finalize gate 评估失败(阻断存稿) work=%s seq=%s: %s", work, req.seq, e,
+            exc_info=True)
+        raise HTTPException(status_code=503, detail={
+            "code": "finalize_gate_error",
+            "message": f"定稿门闩评估失败,已阻断存稿: {e}",
+        }) from e
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
     # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
@@ -386,14 +418,24 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
         except Exception as e:
             _lg.getLogger("scribe3").error("find_leaks 失败 work=%s seq=%s", work, req.seq, exc_info=True)
             leak_error = str(e)[:160]
-    _enqueue_ingest(background, work, req.seq)
-    return {"status": "saved", "seq": req.seq,
+    enqueued = _enqueue_ingest(background, work, req.seq)
+    out = {"status": "saved", "seq": req.seq,
             "qc": {"repetition": len(qf["repetition"]), "structural": len(qf["structural"]),
                    "purple": len(qf["purple"]), "cross_repetition": len(cross_rep),
                    "duplicate_lines": dup_lines_count, "emotion_telling": emotion_telling_count},
             "cross_repetition_phrases": [h["phrase"] for h in cross_rep[:12]],
             "leaks": leaks, "leak_error": leak_error,
-            "qc_errors": qc_errs or None, "ingesting": True}
+            "qc_errors": qc_errs or None, "ingesting": bool(enqueued),
+            "ingest_enqueued": bool(enqueued)}
+    if fg_decision is not None:
+        out["finalize_gate"] = {
+            "code": fg_decision.get("code"),
+            "verdict": fg_decision.get("verdict"),
+            "danger_draft": bool(req.danger_draft),
+            "advisory_count": len(fg_decision.get("advisory_items") or []),
+            "blocking_count": len(fg_decision.get("blocking") or []),
+        }
+    return out
 
 def dedup_chapter(seq: int, background: BackgroundTasks, work: str = "main"):
     """确定性事后跨章改写(QC 的'治'层):定位本章含跨章逐字复读的句子→定向 LLM 改写→存回。

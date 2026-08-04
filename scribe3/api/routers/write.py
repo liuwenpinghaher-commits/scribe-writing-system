@@ -622,6 +622,45 @@ def post_check(req: PostCheckReq, seq: int, work: str = "main"):
     except Exception as e:
         logging.getLogger("scribe3").warning("post_check timeline 检测失败(忽略): %s", e)
 
+    # 强制闭环 ConStory+3(report-only/advisory):农历月倒退 / 压力跳变 / 记忆否认 proxy
+    try:
+        from scribe3.critique import (
+            find_calendar_month_regression,
+            find_memory_denial_hits,
+            find_pressure_adjacent_jumps,
+        )
+        for tc in find_calendar_month_regression(req.prose):
+            issues.append({"type": "timeline", "message": tc["note"], "text": tc["phrase"],
+                           "range": tc.get("range"), "meta": {"kind": tc["kind"],
+                                                             "constory": 1}})
+        # 记忆否认:用本章 inherited 开着的 promise 文本作粗标记(有则检)
+        _mk = []
+        for p in (inherited_open_promises or [])[:12]:
+            t = (p.get("text") or "")[:16]
+            if len(t) >= 2:
+                _mk.append(t)
+        for hit in find_memory_denial_hits(req.prose, _mk):
+            issues.append({"type": "memory", "message": hit["note"], "text": hit["phrase"],
+                           "range": hit.get("range"), "meta": {"kind": hit["kind"],
+                                                              "constory": 7}})
+        try:
+            from scribe3.brief import chapter_draft_text, parse_chapter_meta
+            metas = []
+            for c in st.chapters_lite() or []:
+                m = parse_chapter_meta(chapter_draft_text(c))
+                if m and m.get("pressure") is not None:
+                    metas.append({"seq": c["seq"], "pressure": m["pressure"]})
+            for j in find_pressure_adjacent_jumps(metas):
+                issues.append({"type": "tension", "message": j["note"], "text": "",
+                               "range": None, "meta": {"kind": j["kind"],
+                                                      "constory": 18, **{k: j[k] for k in
+                                                      ("seq_from", "seq_to", "delta") if k in j}}})
+        except Exception as e2:
+            logging.getLogger("scribe3").warning(
+                "post_check pressure_jumps 失败(忽略): %s", e2)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("post_check constory+3 失败(忽略): %s", e)
+
     # 方案B任务20:finding-merge 纪律——同位置"机械替换"(punct_suggestions)让位
     # "按功能改写"(issues),并给 degeneration issue 绑定 fix_action=regenerate
     # (回炉重打,不是改写)。fail-soft:异常时保留合并前的原始值,记 degraded_stages。

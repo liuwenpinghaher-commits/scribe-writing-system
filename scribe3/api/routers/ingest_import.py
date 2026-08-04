@@ -1,6 +1,8 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import logging
+
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -343,6 +345,87 @@ def audit_blind_pack(work: str = "main", sample_n: int = 2, seed: int = 0,
 
 
 
+def ingest_status(seq: int | None = None, work: str = "main"):
+    """章 ingest 状态查询(KR3):成功/失败/解析失败可区分;失败不可伪装成功。
+
+    - 无 seq:返回本书所有有 ingest_status 或 pending 在途的章摘要 + 失败 backlog
+    - 有 seq:单章详情(含 pending 在途)
+    """
+    st = _store_for(work)
+    pending: set = set()
+    try:
+        with _pending_ingest_lock:
+            pending = {s for (w, s) in _pending_ingest if w == work}
+    except Exception:
+        pending = set()
+
+    def _row(ch_seq: int, ch: dict) -> dict:
+        stt = ch.get("ingest_status")
+        err = ch.get("ingest_error") or ""
+        is_pending = ch_seq in pending
+        # 诚实:失败态绝不当 success
+        ok = stt == "ok" and not is_pending
+        return {
+            "seq": ch_seq,
+            "ingest_status": "pending" if is_pending else (stt or "unknown"),
+            "ingest_error": err if not is_pending else "",
+            "ok": ok,
+            "failed": (not is_pending) and stt in ("failed", "parse_failed"),
+            "pending": is_pending,
+        }
+
+    if seq is not None:
+        ch = st.get_chapter(int(seq)) or {}
+        return _row(int(seq), ch)
+
+    rows = []
+    try:
+        for c in (st.chapters_lite() if hasattr(st, "chapters_lite") else st.list_chapters()) or []:
+            s = c.get("seq")
+            if s is None:
+                continue
+            full = st.get_chapter(int(s)) or c
+            r = _row(int(s), full)
+            # 列表只保留有信号的章(状态/在途/失败),避免空书噪声
+            if r["ingest_status"] not in (None, "unknown") or r["pending"]:
+                rows.append(r)
+            elif full.get("prose"):
+                # 有正文但从未 ingest 标记 → unknown,纳入 backlog 观察
+                if r["ingest_status"] == "unknown":
+                    rows.append(r)
+    except Exception as e:
+        logging.getLogger("scribe3").warning("ingest_status 列表失败: %s", e)
+    failed = [r for r in rows if r.get("failed")]
+    return {
+        "work": work,
+        "chapters": rows,
+        "failed_backlog": failed,
+        "failed_count": len(failed),
+        "pending_count": sum(1 for r in rows if r.get("pending")),
+    }
+
+
+def ingest_retry(seq: int, background: BackgroundTasks, work: str = "main"):
+    """失败/未知 ingest 的显式重试(KR3):复用手动 /ingest 同步路径。
+
+    在途 → 409;成功路径与 /ingest 相同(不把失败标成成功)。
+    """
+    st = _store_for(work)
+    ch = st.get_chapter(seq) or {}
+    if not (ch.get("prose") or "").strip():
+        raise HTTPException(status_code=404, detail="chapter empty or missing")
+    # 同步重试(与手点反哺同路径),保证响应含真实结果
+    return ingest(seq, work=work)
+
+
+def volume_review(volume_id: str | None = None, seq_from: int | None = None,
+                  seq_to: int | None = None, work: str = "main"):
+    """卷级伏笔超期 + 母题无回声信号(KR4,只读,无总分)。"""
+    from scribe3.volume_signals import store_volume_review
+    return store_volume_review(
+        _store_for(work), volume_id=volume_id, seq_from=seq_from, seq_to=seq_to)
+
+
 def _bind_and_register() -> None:
     """Rebind handlers onto app_impl globals so monkeypatch keeps working."""
     from scribe3.api import app_impl as core
@@ -410,5 +493,29 @@ def _bind_and_register() -> None:
     setattr(core, 'audit_blind_pack', _re)
     g['audit_blind_pack'] = _re
     router.add_api_route('/audit/blind-pack', _re, methods=['GET'], name='audit_blind_pack')
+
+    _fn = g['ingest_status']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'ingest_status', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'ingest_status', _re)
+    g['ingest_status'] = _re
+    router.add_api_route('/ingest/status', _re, methods=['GET'], name='ingest_status')
+
+    _fn = g['ingest_retry']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'ingest_retry', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'ingest_retry', _re)
+    g['ingest_retry'] = _re
+    router.add_api_route('/ingest/{seq}/retry', _re, methods=['POST'], name='ingest_retry')
+
+    _fn = g['volume_review']
+    _re = types.FunctionType(_fn.__code__, core.__dict__, 'volume_review', _fn.__defaults__, _fn.__closure__)
+    if _fn.__annotations__:
+        _re.__annotations__ = dict(_fn.__annotations__)
+    setattr(core, 'volume_review', _re)
+    g['volume_review'] = _re
+    router.add_api_route('/volume/review', _re, methods=['GET'], name='volume_review')
 
 _bind_and_register()

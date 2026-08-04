@@ -1,6 +1,8 @@
 """Domain router (extracted from app_impl). URLs unchanged."""
 from __future__ import annotations
 
+import logging
+
 import types
 from typing import Any, Optional, List, Dict, Literal
 
@@ -616,6 +618,32 @@ def select_finalize(req: SelectFinalizeReq, background: BackgroundTasks, work: s
     prose = ver.get("prose") or ""
     title = (st.get_chapter(req.chapter) or {}).get("title") or ""
     foc = (st.get_chapter(req.chapter) or {}).get("focalizer")
+    # 门A:选择环终选亦过定稿门闩(候选已过滤,仍拦 residual blocking;danger 无旁路——
+    # 终选是人审路径,advisory 放行)。门关(测试)时跳过。
+    try:
+        from scribe3.finalize_gate import (
+            collect_deterministic_post_for_prose, evaluate_finalize_gate,
+            finalize_gate_env_enabled,
+        )
+        if finalize_gate_env_enabled():
+            _post = collect_deterministic_post_for_prose(
+                prose, st=st, seq=req.chapter, focalizer=foc or None)
+            _fg = evaluate_finalize_gate(_post, danger_draft=False)
+            if not _fg.get("allowed"):
+                raise HTTPException(status_code=409, detail={
+                    "code": _fg.get("code") or "finalize_gate",
+                    "message": _fg.get("detail") or "终选定稿被定稿门闩拦截",
+                    "blocking": _fg.get("blocking") or [],
+                })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.getLogger("scribe3").error(
+            "select_finalize 定稿门闩失败(阻断) ch=%s: %s", req.chapter, e, exc_info=True)
+        raise HTTPException(status_code=503, detail={
+            "code": "finalize_gate_error",
+            "message": f"定稿门闩评估失败: {e}",
+        }) from e
     st.save_chapter(req.chapter, prose, title=title, focalizer=foc)
     _enqueue_ingest(background, work, req.chapter)   # C3(D-13):终选定稿反哺知识账本(去重后台),不再停在旧稿
     try:

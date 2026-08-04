@@ -52,6 +52,13 @@ def _craft_gate_off_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _finalize_gate_off_by_default(monkeypatch):
+    """定稿门闩默认生产开启;存量存稿用例无质控夹具,默认关。
+    需要测 finalize 409/旁路的用例自行 monkeypatch.setenv('SCRIBE3_FINALIZE_GATE','1')。"""
+    monkeypatch.setenv("SCRIBE3_FINALIZE_GATE", "0")
+
+
+@pytest.fixture(autouse=True)
 def _emergency_rest_write_on_for_tests(monkeypatch):
     """生产默认关 REST 世界写;单测/存量 test_app 写路径需显式开。
     需要测 403 关闸的用例自行 monkeypatch.setenv('SCRIBE3_EMERGENCY_REST_WRITE','0')。"""
