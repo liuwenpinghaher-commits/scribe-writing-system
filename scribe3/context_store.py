@@ -219,7 +219,7 @@ class ContextStore:
             "model, provider_request_id, transport_provider, transport_request_id, "
             "reasoning_provider, reasoning_model, reasoning_request_id, "
             "usage, output_hash, error, "
-            "<string> created_at AS created_at FROM context_outcome_trace "
+            "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at FROM context_outcome_trace "
             "WHERE request_id=$request_id AND manifest_id=$manifest_id "
             "AND actual_input_hash=$actual_input_hash LIMIT 1",
             {"request_id": request_id, "manifest_id": manifest_id,

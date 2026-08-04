@@ -516,8 +516,8 @@ class RecallMixin:
         supersedes 以裸 id 回传(None = 非更正产物)。查无返回 None。"""
         rows = self._query(
             f"SELECT {self._MEMORY_COLS}, supersedes, "
-            "<string> created_at AS created_at, <string> updated_at AS updated_at, "
-            "<string> invalid_at AS invalid_at "
+            "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at, (IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS updated_at, "
+            "(IF invalid_at IS NONE THEN NONE ELSE <string>invalid_at END) AS invalid_at "
             "FROM type::thing('memory_item', $id)", {"id": memory_id})
         if not rows:
             return None

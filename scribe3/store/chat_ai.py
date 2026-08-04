@@ -295,7 +295,7 @@ class ChatAiMixin:
             "parent_thread_id, context_session_id, origin_context_revision, "
             "origin_context_hash, envelope_hash, focus, completion_context_revision, "
             "write_effects, stage_policy, policy_violations, tool_contract, "
-            "<string> created_at AS created_at, <string> updated_at AS updated_at "
+            "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at, (IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS updated_at "
             "FROM type::thing('ai_run_trace', $run)",
             {"run": run_id},
         )
@@ -329,7 +329,7 @@ class ChatAiMixin:
         n = max(1, min(int(limit), 1000))
         rows = self._query(
             f"SELECT work, run_id, status, session_key, input_text, tool_calls, "
-            f"tool_outputs, approvals, usage, error, stage_policy, tool_contract, <string> updated_at AS updated_at "
+            f"tool_outputs, approvals, usage, error, stage_policy, tool_contract, (IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS updated_at "
             f"FROM ai_run_trace ORDER BY updated_at DESC LIMIT {n}",
         )
         return rows
@@ -359,11 +359,11 @@ class ChatAiMixin:
             slot["total_tokens"] += int(u.get("total_tokens") or 0)
 
         for r in self._query(
-                "SELECT <string> ts AS ts, trace.usage AS usage FROM chat_message "
+                "SELECT (IF ts IS NONE THEN NONE ELSE <string>ts END) AS ts, trace.usage AS usage FROM chat_message "
                 "WHERE trace.usage != NONE ORDER BY ts DESC LIMIT 5000"):
             _add((r.get("ts") or "")[:10], "responses", r.get("usage"))
         for r in self._query(
-                "SELECT <string> updated_at AS ts, usage FROM ai_run_trace "
+                "SELECT (IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS ts, usage FROM ai_run_trace "
                 "WHERE usage != NONE ORDER BY ts DESC LIMIT 2000"):
             _add((r.get("ts") or "")[:10], "runs", r.get("usage"))
 
@@ -426,7 +426,7 @@ class ChatAiMixin:
         w = ("WHERE " + " AND ".join(where) + " ") if where else ""
         rows = self._query(
             f"SELECT meta::id(id) AS id, chapter, kind, text, condition, importance, uses, "
-            f"evidence_turns, invalid_at, <string> created_at AS created_at "
+            f"evidence_turns, invalid_at, (IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at "
             f"FROM lesson {w}ORDER BY created_at ASC",
             {"c": chapter})
         import json as _json

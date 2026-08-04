@@ -11,12 +11,18 @@ class ConnectionMixin:
 
     """SurrealDB 后端的 World。默认连 NS=scribe3 / DB=main(与 scribe2 的 NS=scribe 隔离)。"""
 
+    # Surreal 2.1: bare ``<string> f`` InternalError when f is NONE.
+    @staticmethod
+    def _sstr(field: str, alias: str | None = None) -> str:
+        a = alias or field
+        return f"(IF {field} IS NONE THEN NONE ELSE <string>{field} END) AS {a}"
+
     _CHAT_MESSAGE_FIELDS = (
         "meta::id(id) AS id, work, chapter, stage, role, text, turn, trace, "
         "thread_id, context_session_id, context_revision, context_hash, focus, "
-        "response_id, <string> ts AS ts")
+        "response_id, "
+        "(IF ts IS NONE THEN NONE ELSE <string>ts END) AS ts")
 
-    # Surreal 2.1: ``<string> f`` throws when f is NONE — guard optional datetimes.
     _EDITORIAL_THREAD_FIELDS = (
         "thread_id, work, actor_id, parent_thread_id, title, status, "
         "hermes_conversation_id, previous_response_id, summary, "
@@ -33,31 +39,36 @@ class ConnectionMixin:
     _CONTEXT_SNAPSHOT_FIELDS = (
         "session_id, work, revision, previous_revision, navigation_id, thread_id, "
         "entry, directory_path, focus, detail_route, chapter, phase, focalizer, "
-        "reason, context_hash, <string> captured_at AS captured_at")
+        "reason, context_hash, "
+        "(IF captured_at IS NONE THEN NONE ELSE <string>captured_at END) AS captured_at")
 
     _MEMORY_TRACE_COLS = (
         "trace_id, work, thread_id, context_session_id, snapshot_revision, "
         "snapshot_hash, envelope_hash, query, channels, selected, rejected, "
         "block_tokens, latency_ms, response_id, run_id, "
-        "<string> created_at AS created_at")
+        "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at")
 
     _MEMORY_COLS = ("meta::id(id) AS id, work, scope_type, scope_id, kind, text, summary, "
                     "condition, source_type, source_id, source_revision, status, "
                     "confidence, importance, pinned, valid_from, valid_to, known_from, "
                     "known_to, recall_count, provenance, linked_ids, "
-                    "<string> observed_at AS observed_at")
+                    "(IF observed_at IS NONE THEN NONE ELSE <string>observed_at END) AS observed_at")
 
     _PENDING_CLAIM_FIELDS = (
         "meta::id(id) AS id, work, thread_id, text, entity, attribute, value, "
-        "source_type, source_id, status, <string> created_at AS created_at")
+        "source_type, source_id, status, "
+        "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at")
 
     _MEMORY_EVENT_FIELDS = (
         "meta::id(id) AS id, event_id, work, thread_id, event_type, payload, status, "
-        "attempts, error, <string> created_at AS created_at, <string> processed_at AS processed_at")
+        "attempts, error, "
+        "(IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at, "
+        "(IF processed_at IS NONE THEN NONE ELSE <string>processed_at END) AS processed_at")
 
     _WORKING_SUMMARY_FIELDS = (
         "work, thread_id, through_turn, goals, open_tasks, decisions, assumptions, "
-        "summary, <string> updated_at AS updated_at")
+        "summary, "
+        "(IF updated_at IS NONE THEN NONE ELSE <string>updated_at END) AS updated_at")
 
     def __init__(self, url: str | None = None, ns: str = "scribe3", db: str = "main",
                  user: str | None = None, password: str | None = None):

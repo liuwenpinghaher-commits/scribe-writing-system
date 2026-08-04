@@ -276,7 +276,7 @@ class MiscMixin:
 
     def latest_chief_digest(self) -> dict | None:
         rows = self._query(
-            "SELECT work, day, body, error, <string> created_at AS created_at "
+            "SELECT work, day, body, error, (IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at "
             "FROM chief_digest ORDER BY day DESC LIMIT 1")
         return rows[0] if rows else None
 
@@ -1049,7 +1049,7 @@ class MiscMixin:
         w = ("WHERE " + " AND ".join(where) + " ") if where else ""
         # 3.x:ORDER BY 必须引用选择列,故显式把 created_at 纳入投影(_MEMORY_COLS 不含)。
         return self._query(
-            f"SELECT {self._MEMORY_COLS}, <string> created_at AS created_at "
+            f"SELECT {self._MEMORY_COLS}, (IF created_at IS NONE THEN NONE ELSE <string>created_at END) AS created_at "
             f"FROM memory_item {w}ORDER BY created_at DESC", vars)
 
     def resolve_temporal_view(self, work: str, chapter: int | None,

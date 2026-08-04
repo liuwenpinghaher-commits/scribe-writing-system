@@ -1,15 +1,29 @@
-"""移植自 scribe2/embed.py:本地 CPU 中文优化 embedding(无网络/无 key)。
-BAAI/bge-small-zh-v1.5,512 维。用于设定/命题的语义 RAG 召回。
+"""本地 CPU 中文 embedding(BAAI/bge-small-zh-v1.5,512 维)用于语义 RAG。
 
-Task 16-B 缓存(做实):按 sha256(normalized_text) + model_version 缓存向量。捕获恒开、
-每轮 add_memory_item / memory_vector / _material_index_fields 都会 embed,重复文本(同一句
-设定/命题/查询)命中缓存即省一次真实前向,是当前生产价值最高的一处缓存。
-规范化仅折叠空白(内容不同 → sha256 不同 → 各自单独算,内容保真);换模型时 model_version
-进键 → 旧向量键自然失效,绝不把旧模型向量返给新模型。
+生产容器常无公网：须挂载预下载模型缓存(见 deploy/prod docker-compose 的
+`/opt/scribe3/data/models` 与 `HF_ENDPOINT=https://hf-mirror.com`)。
+首次加载会读缓存；无缓存且无网时 fail 由调用方 soft-fail。
 """
+from __future__ import annotations
+
 import hashlib
+import os
 import threading
 from collections import OrderedDict
+
+# 在 import huggingface/fastembed 之前配置国内镜像与缓存路径。
+if not os.environ.get("HF_ENDPOINT"):
+    # 腾讯云等机房直连 huggingface.co 常超时；默认走镜像，可 env 覆盖。
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+# 统一缓存目录（compose 挂载到 /models）
+_default_hf = os.environ.get("SCRIBE3_HF_HOME") or os.environ.get("HF_HOME") or ""
+if _default_hf:
+    os.environ.setdefault("HF_HOME", _default_hf)
+_default_fe = os.environ.get("SCRIBE3_FASTEMBED_CACHE") or os.environ.get("FASTEMBED_CACHE_PATH") or ""
+if _default_fe:
+    os.environ.setdefault("FASTEMBED_CACHE_PATH", _default_fe)
 
 _model = None
 _MODEL_NAME = "BAAI/bge-small-zh-v1.5"

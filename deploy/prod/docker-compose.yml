@@ -52,8 +52,16 @@ services:
       SCRIBE3_LLM_LEDGER: /var/lib/scribe3/scribe3_llm_ledger.sqlite3
       # 生产不强制因网关未 provision 就拒启；装完 Hermes 后再开 STRICT
       SCRIBE3_STRICT_GATEWAY_GUARD: ${SCRIBE3_STRICT_GATEWAY_GUARD:-0}
+      # embedding：容器无公网时读挂载缓存；镜像默认走 hf-mirror（见 embed.py）
+      HF_HOME: /models/hf
+      FASTEMBED_CACHE_PATH: /models/fastembed
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     volumes:
       - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/settings:/var/lib/scribe3
+      - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/models/hf:/models/hf
+      - ${SCRIBE3_DATA_DIR:-/opt/scribe3/data}/models/fastembed:/models/fastembed
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

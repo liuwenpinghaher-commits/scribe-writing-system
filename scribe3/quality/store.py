@@ -498,7 +498,7 @@ class QualityStore:
         if not rows:
             return None
         member_rows = self._store._query(
-            "SELECT <string> chapter_version AS chapter_version_id, content_hash, ordinal "
+            "SELECT (IF chapter_version IS NONE THEN NONE ELSE <string>chapter_version END) AS chapter_version_id, content_hash, ordinal "
             "FROM quality_snapshot_member WHERE snapshot=$snapshot ORDER BY ordinal",
             {"snapshot": RecordID("quality_snapshot", snapshot_id)},
         )

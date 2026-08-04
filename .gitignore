@@ -83,3 +83,4 @@ deploy/prod/.env
 .deploy-artifact/
 scribe3-deploy.tgz
 .venv/
+scribe3/.venv
