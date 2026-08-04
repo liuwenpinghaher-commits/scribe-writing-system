@@ -27,6 +27,23 @@ from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
 
 # Note: function bodies resolve free names via rebound globals on app_impl.
+def mark_chapter_ingest_status(st, seq: int, status: str, err: str = "") -> None:
+    """单源:落 chapter.ingest_status / ingest_error(KR3 诚实回写)。
+
+    同步 /ingest、后台 _bg_ingest、loop finalize 共用。失败只告警不抛——
+    状态落库不得拖垮已完成的知识抽取/正文落库,但成功路径必须尽量写入,
+    否则 /ingest/status 与 UI 角标会假红。
+    """
+    import logging
+    try:
+        st._execute_write(
+            "UPDATE type::thing('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
+            {"seq": int(seq), "st": status, "er": (err or "")[:200]})
+    except Exception as me:
+        logging.getLogger("scribe3").warning(
+            "ingest 状态落库失败(忽略) seq=%s status=%s: %s", seq, status, me)
+
+
 def _refresh_scorecard_after_ingest(st, seq: int) -> None:
     """ingest 后刷新章 scorecard 与质量缓存(P0门审查 P2-3,单源供 /ingest、_bg_ingest、loop 共用):
     存稿时快照没有本章事件,qc_causal 停在 -1 哨兵;反哺落库后重算出真值。
@@ -50,16 +67,8 @@ def _bg_ingest(work: str, seq: int) -> None:
     import logging
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
-    # 审计 P1-6:ingest 结果状态落 chapter(ingest_status/ingest_error)——此前失败只写
-    # 服务端日志,前端零感知,知识账本悄悄落后,后续章简报/限知帧全吃陈旧数据。
-    def _mark(st0, status, err=""):
-        try:
-            st0._execute_write(
-                "UPDATE type::thing('chapter',$seq) SET ingest_status=$st, ingest_error=$er",
-                {"seq": seq, "st": status, "er": (err or "")[:200]})
-        except Exception as me:
-            logging.getLogger("scribe3").warning("ingest 状态落库失败(忽略): %s", me)
-
+    # 审计 P1-6:ingest 结果状态落 chapter——单源 mark_chapter_ingest_status
+    # (同步 /ingest 同路径,防 retry 成功后 status 仍 failed、UI 角标永不消)。
     st = None
     try:
         st = SurrealStore(ns="scribe3", db=work)
@@ -67,10 +76,11 @@ def _bg_ingest(work: str, seq: int) -> None:
         if r.get("parse_failed"):
             logging.getLogger("scribe3").warning(
                 "后台 ingest %s 第%s章: LLM 回复解析失败,既有知识已保留(未 purge)", work, seq)
-            _mark(st, "parse_failed", "LLM 回复解析失败,知识账本未更新")
+            mark_chapter_ingest_status(st, seq, "parse_failed",
+                                       "LLM 回复解析失败,知识账本未更新")
         else:
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
-            _mark(st, "ok")
+            mark_chapter_ingest_status(st, seq, "ok")
         # 北极星任务8:后台 ingest 完成后同样触发复盘蒸馏(fail-soft)。
         try:
             from scribe3.lesson import distill_chapter
@@ -80,7 +90,7 @@ def _bg_ingest(work: str, seq: int) -> None:
     except Exception as e:
         logging.getLogger("scribe3").error("后台 ingest %s 第%s章失败", work, seq, exc_info=True)   # U-011
         if st is not None:
-            _mark(st, "failed", str(e))
+            mark_chapter_ingest_status(st, seq, "failed", str(e))
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard((work, seq))

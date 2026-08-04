@@ -186,9 +186,17 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
                 lesson_err = str(de)[:120]
             # ingest 后刷新 scorecard(P2-3 单源;在 settle 之后——fulfillment 读结算态)。
             _refresh_scorecard_after_ingest(st, req.chapter)
+            # KR3:与 /ingest /_bg_ingest 共用 mark 单源
+            if r.get("parse_failed"):
+                mark_chapter_ingest_status(
+                    st, req.chapter, "parse_failed",
+                    "LLM 回复解析失败,知识账本未更新")
+            else:
+                mark_chapter_ingest_status(st, req.chapter, "ok")
             return {"ok": True, "parse_failed": bool(r.get("parse_failed")), "lesson_error": lesson_err}
         except Exception as e:
             logging.getLogger("scribe3").warning("loop ingest 失败(正文已落库,如实上报): %s", e)
+            mark_chapter_ingest_status(st, req.chapter, "failed", str(e))
             return {"ok": False, "error": str(e)[:160]}
         finally:
             with _pending_ingest_lock:

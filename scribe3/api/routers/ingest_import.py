@@ -77,7 +77,10 @@ def ingest(seq: int, work: str = "main"):
     共用同一 (work,seq) 在途集合。同章已有 ingest 在途(后台自动或另一次手点)时拒 409,
     防手点反哺撞自动 ingest 交错造成 knows/reader_knows/char_state/motif_instance/
     promise_touch 双份或互删。自身执行期间也占位在途,故并发 _enqueue_ingest 同章会被跳过;
-    完成/异常均在 finally 清标记(避免该章永久锁死)。"""
+    完成/异常均在 finally 清标记(避免该章永久锁死)。
+
+    KR3:结果经 mark_chapter_ingest_status 落 chapter.ingest_status/error——与后台
+    _bg_ingest 同单源;否则 retry 成功后 GET /ingest/status 仍可能假 failed。"""
     from scribe3.ingest import ingest_chapter
     from scribe3.llm import hermes_complete
     key = (work, seq)
@@ -85,10 +88,14 @@ def ingest(seq: int, work: str = "main"):
         if key in _pending_ingest:
             raise HTTPException(status_code=409, detail="该章正在反哺中,请稍候再试")
         _pending_ingest.add(key)
+    st = None
     try:
         st = _store_for(work)
         r = ingest_chapter(st, seq, hermes_complete)
-        if not r.get("parse_failed"):
+        if r.get("parse_failed"):
+            mark_chapter_ingest_status(
+                st, seq, "parse_failed", "LLM 回复解析失败,知识账本未更新")
+        else:
             # 北极星任务6:手动链路结构类结算(认知类留面板人工;loop 链有完整结算)。
             # settle 在 scorecard 刷新之前——刷新要读结算后的 deltas 状态。
             try:
@@ -100,6 +107,7 @@ def ingest(seq: int, work: str = "main"):
             except Exception as e:
                 logging.getLogger("scribe3").warning("/ingest 目的合同结算失败(忽略): %s", e)
             _refresh_scorecard_after_ingest(st, seq)   # P2-3:主链路 ingest 后哨兵转真值
+            mark_chapter_ingest_status(st, seq, "ok")
         # 北极星任务8:章后复盘蒸馏(事件驱动挂 ingest 路径,蓝图定死不走 cron)——
         # 与知识抽取成败无关(对话的方法教训独立于 parse_failed);fail-soft 绝不拖垮 ingest。
         try:
@@ -114,6 +122,14 @@ def ingest(seq: int, work: str = "main"):
             if isinstance(r, dict):
                 r["lesson_error"] = str(e)[:120]
         return r
+    except HTTPException:
+        raise
+    except Exception as e:
+        # 失败必须落 failed,不可只 raise 让 status 停在旧值(retry UI 假红根因)
+        if st is not None:
+            mark_chapter_ingest_status(st, seq, "failed", str(e))
+        logging.getLogger("scribe3").error("/ingest 失败 seq=%s", seq, exc_info=True)
+        raise
     finally:
         with _pending_ingest_lock:
             _pending_ingest.discard(key)

@@ -34,13 +34,15 @@ class FakeStore:
         self.chapters: dict[int, dict] = {}
         self.saved: list[tuple] = []
         self.versions: list = []
+        self.writes: list = []  # 捕获 mark_chapter_ingest_status 真实落库
 
     def save_chapter(self, seq, prose, title="", focalizer=None):
+        prev = self.chapters.get(int(seq)) or {}
         self.chapters[int(seq)] = {
             "seq": int(seq), "prose": prose, "title": title,
             "focalizer": focalizer,
-            "ingest_status": self.chapters.get(int(seq), {}).get("ingest_status"),
-            "ingest_error": self.chapters.get(int(seq), {}).get("ingest_error"),
+            "ingest_status": prev.get("ingest_status"),
+            "ingest_error": prev.get("ingest_error"),
         }
         self.saved.append((int(seq), prose))
 
@@ -65,8 +67,14 @@ class FakeStore:
     def chapters_lite(self):
         return self.list_chapters()
 
-    def _execute_write(self, *a, **k):
-        pass
+    def _execute_write(self, sql, params=None):
+        """实现 mark_chapter_ingest_status 所用 Surreal UPDATE 语义(无剧院手写 status)。"""
+        params = params or {}
+        self.writes.append((sql, dict(params)))
+        if "ingest_status" in (sql or "") and "seq" in params:
+            ch = self.chapters.setdefault(int(params["seq"]), {"seq": int(params["seq"])})
+            ch["ingest_status"] = params.get("st")
+            ch["ingest_error"] = params.get("er", "")
 
 
 # ===== 纯策略 =====
@@ -265,10 +273,14 @@ def test_real_ingest_status_handler_failed_not_ok(monkeypatch):
 
 
 def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
-    """强制失败路径 + 重试成功:真实 ingest_retry → ingest 单源。"""
+    """强制失败 + 重试成功:状态必须由生产 mark_chapter_ingest_status 落库。
+
+    禁剧院:fake_ingest_chapter 不得手写 status;测试不得在失败后手标 failed。
+    断言 chapter 字段与 GET /ingest/status 同源。
+    """
     st = FakeStore()
     st.chapters[5] = {"seq": 5, "prose": "需反哺的正文。", "title": "五",
-                      "ingest_status": "failed", "ingest_error": "prev"}
+                      "ingest_status": None, "ingest_error": ""}
     A = _install_fake_store(monkeypatch, st)
     monkeypatch.setattr(A, "_pending_ingest", set(), raising=False)
     import threading
@@ -280,29 +292,47 @@ def test_real_ingest_retry_forced_failure_then_success(monkeypatch):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("forced_fail")
-        # 成功:标记 ok(模拟 _bg_ingest/_mark)
-        ch = store.get_chapter(seq)
-        ch["ingest_status"] = "ok"
-        ch["ingest_error"] = ""
-        store.chapters[seq] = ch
+        # 只返回业务结果——禁止在此写 ingest_status(那是 mark 单源职责)
         return {"ok": True, "parse_failed": False}
 
     import scribe3.ingest as I
     monkeypatch.setattr(I, "ingest_chapter", fake_ingest_chapter)
-    # 首次同步 ingest 失败应抛或留下失败态——本路径 raise
-    with pytest.raises(Exception):
+
+    # 首次同步 /ingest 失败 → raise 且 chapter 已 mark failed
+    with pytest.raises(RuntimeError, match="forced_fail"):
         A.ingest(5, work="test")
-    # 手动标记 failed(若 raise 未写 status)
-    st.chapters[5]["ingest_status"] = "failed"
-    st.chapters[5]["ingest_error"] = "forced_fail"
+    ch_after_fail = st.get_chapter(5)
+    assert ch_after_fail.get("ingest_status") == "failed", (
+        "生产 /ingest 异常必须经 mark_chapter_ingest_status 落 failed,不得靠测试手写")
+    assert "forced_fail" in (ch_after_fail.get("ingest_error") or "")
+    # 真有 _execute_write 调用
+    assert any("ingest_status" in (sql or "") for sql, _ in st.writes)
     before = A.ingest_status(seq=5, work="test")
     assert before["failed"] is True and before["ok"] is False
-    # 重试成功
+
+    # 重试(ingest_retry → 同一 ingest)成功 → mark ok,角标可消
     r = A.ingest_retry(5, BackgroundTasks(), work="test")
     assert r.get("ok") is True or r.get("parse_failed") is False
+    ch_after_ok = st.get_chapter(5)
+    assert ch_after_ok.get("ingest_status") == "ok", (
+        "retry 成功必须 mark ok,否则 UI 角标永不消")
+    assert (ch_after_ok.get("ingest_error") or "") == ""
     after = A.ingest_status(seq=5, work="test")
     assert after["ok"] is True and after["failed"] is False
-    assert calls["n"] >= 2
+    assert calls["n"] == 2
+
+
+def test_mark_chapter_ingest_status_shared_helper(monkeypatch):
+    """单源 mark:直接调用生产函数,经 store._execute_write 落字段。"""
+    import scribe3.app as A
+    st = FakeStore()
+    st.chapters[3] = {"seq": 3, "prose": "x"}
+    A.mark_chapter_ingest_status(st, 3, "failed", "boom")
+    assert st.get_chapter(3)["ingest_status"] == "failed"
+    assert "boom" in st.get_chapter(3)["ingest_error"]
+    A.mark_chapter_ingest_status(st, 3, "ok")
+    assert st.get_chapter(3)["ingest_status"] == "ok"
+    assert st.get_chapter(3)["ingest_error"] == ""
 
 
 def test_two_chapter_frame_advance_witness_knows():
