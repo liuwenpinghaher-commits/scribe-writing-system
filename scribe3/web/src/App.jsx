@@ -106,6 +106,24 @@ export default function App() {
   }, [handleJumpChapter])
   const onView = useCallback((viewKey) => setSel({ mode: 'view', viewKey }), [])
 
+  // 编排 ui_directive 的 selection：主编/WriteChat 无 setSel 直连时经 s3-selection 落地栏3
+  useEffect(() => {
+    const onSelEvt = (e) => {
+      const d = e?.detail
+      if (!d || typeof d !== 'object') return
+      if (d.mode === 'view' && d.viewKey) {
+        setSel({ mode: 'view', viewKey: d.viewKey })
+        return
+      }
+      if (d.mode === 'node' || d.node) {
+        const node = d.node || null
+        if (node) setSel({ mode: 'node', node })
+      }
+    }
+    window.addEventListener('s3-selection', onSelEvt)
+    return () => window.removeEventListener('s3-selection', onSelEvt)
+  }, [])
+
   const reload = async () => {
     const nextWorks = await api.works()
     setWorks(nextWorks)

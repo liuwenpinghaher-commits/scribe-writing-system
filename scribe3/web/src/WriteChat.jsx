@@ -4,7 +4,10 @@ import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check, AtSign } from 'lucide-react'
 import { api } from './api'
 import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
+import { applyUiEvents, uiDirectiveToEvents } from './lib/uiDirective'
+import { WriteProposalCard } from './WriteProposalCard.jsx'
 import { shouldUseHermesRun, hermesRunInstructions } from './lib/hermesRunIntent'
+import { useSelection } from './selectionContext'
 import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
@@ -81,7 +84,7 @@ function toolOutputPreview(output) {
   return text.length > 220 ? text.slice(0, 220) + '…' : text
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming, onApprovalDecision }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming, onApprovalDecision, writeProposal, onProposalDone, setFocus }) {
   const me = role === 'user'
   // 无气泡:主编靠左 / 你靠右,色条+底色+分割线区分,省掉头像与圆角底
   return (
@@ -167,6 +170,18 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
               ))}
             </div>
           )}
+          {!me && writeProposal?.ops?.length > 0 && (
+            <div className="mt-2">
+              <WriteProposalCard
+                proposal={writeProposal}
+                onDone={onProposalDone}
+                setFocus={setFocus}
+                onSel={(detail) => {
+                  try { window.dispatchEvent(new CustomEvent('s3-selection', { detail })) } catch { /* */ }
+                }}
+              />
+            </div>
+          )}
           {!me && toolOutputs?.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {toolOutputs.map((out, i) => (
@@ -188,6 +203,15 @@ function Bubble({ role, content, tools, toolOutputs, approvals, note, streaming,
 
 // 右轨主编对话:发消息走 POST /chat/write;改写提议 onProposal 提给中区。支持图片/文本附件。
 export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUsed, onProposalStart, onProposalChunk, onProposal, onProposalInterrupted }) {
+  const { setFocus } = useSelection()
+  const orchOnSel = (detail) => {
+    try { window.dispatchEvent(new CustomEvent('s3-selection', { detail })) } catch { /* */ }
+  }
+  const applyOrchUiAfterApprove = (pkg) => {
+    const ui = pkg?.ui_directive
+    if (!ui) return
+    applyUiEvents(uiDirectiveToEvents(ui), { onSel: orchOnSel, setFocus })
+  }
   // Task 13 I-1:章内 run 绑发起时上下文的来源(四栏共享的统一快照;缺席时降级不绑)。
   const { snapshot, restoring, capabilities } = useContextSnapshot()
   // capabilities 与 createContextSession 并行拉取。能力清单尚未返回时仍可能由后端
@@ -348,6 +372,7 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       onApprovalResolved: (approval) => {
         const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
+        if (status === 'approved') applyOrchUiAfterApprove(orchPkg)
       },
       onProposalStart: (s) => onProposalStart?.(s),
       onProposalChunk: (c) => onProposalChunk?.(c),
@@ -356,26 +381,43 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
         activeRunIdsRef.current.clear()
         setBusy(false)
         evaluateOrchTurn({ toolsCalled: toolsThisTurn, approvedWrites: [] }).then((ev) => {
+          const status = ev?.evaluation?.status
           const remedy = ev?.evaluation?.remedy
-          if (ev?.evaluation?.status === 'incomplete' && remedy?.message) {
+          if (status === 'incomplete' && remedy?.message) {
             mut((l) => ({
               ...l,
               content: (l.content || '') + `\n\n_编排提示：${remedy.message}_`
                 + (remedy.suggested_prompt ? `\n可发送：${remedy.suggested_prompt}` : ''),
             }))
           }
+          const writeTools = orchPkg?.write_tools || []
+          const calledWrites = toolsThisTurn.filter((t) => writeTools.includes(t))
+          if (calledWrites.length && orchPkg && (status === 'awaiting_approval' || status === 'incomplete')) {
+            api.orchBuildProposal({
+              package: orchPkg,
+              ops: calledWrites.map((t) => ({ tool: t, args: {}, label: t })),
+              summary: `本回合写入提案（${calledWrites.join(', ')}）`,
+            }).then((res) => {
+              if (res?.proposal) mut((l) => ({ ...l, writeProposal: res.proposal, orchPackage: orchPkg }))
+            }).catch(() => {})
+          }
         }).catch(() => {})
       },
       onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     }
     const toolsThisTurn = []
+    let orchPkg = null
     const origOnTool = streamHandlers.onTool
     streamHandlers.onTool = (name) => {
       toolsThisTurn.push(name)
       origOnTool?.(name)
     }
     // 统一编排 resolve（正则仅作 resolve 失败回退）
-    orchestrateBeforeSend(finalMsg, { chapter, phase, applyFocus: true }).then((orch) => {
+    orchestrateBeforeSend(finalMsg, {
+      chapter, phase, applyFocus: true, onSel: orchOnSel, setFocus,
+    }).then((orch) => {
+      orchPkg = orch.package || null
+      if (orchPkg) mut((l) => ({ ...l, orchPackage: orchPkg, orchDomain: orchPkg.domain }))
       const worldWrite = orch.useWorldWriteRun || shouldUseHermesRun(finalMsg)
       if (worldWrite) {
         ctrlRef.current = api.runWrite(finalMsg, {
@@ -435,7 +477,23 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} />
+          <Bubble
+            key={i}
+            {...m}
+            streaming={busy && i === msgs.length - 1 && m.role === 'assistant'}
+            onApprovalDecision={handleApprovalDecision}
+            setFocus={setFocus}
+            onProposalDone={(res) => {
+              if (res?.ui_events?.length) applyUiEvents(res.ui_events, { onSel: orchOnSel, setFocus })
+              if (res?.proposal) {
+                setMsgs((prev) => {
+                  const c = [...prev]
+                  if (c[i]) c[i] = { ...c[i], writeProposal: res.proposal }
+                  return c
+                })
+              }
+            }}
+          />
         ))}
         <div ref={endRef} />
       </div>

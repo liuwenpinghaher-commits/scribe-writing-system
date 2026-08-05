@@ -9,6 +9,8 @@ import { fallbackProposalText } from './lib/stageProposal'
 import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
+import { applyUiEvents, uiDirectiveToEvents } from './lib/uiDirective'
+import { WriteProposalCard } from './WriteProposalCard.jsx'
 import { mergeThreadHistory, mutateLatestAssistantMessage, normalizeThreadMessages } from './lib/chiefThreadMessages'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
@@ -103,7 +105,7 @@ function RunStaleCard({ ap, onApprovalDecision }) {
   )
 }
 
-function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq }) {
+function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApprovalDecision, focus, context_revision, writeEffects, chapterSeq, writeProposal, onProposalDone }) {
   const me = role === 'user'
   // Task 6:带焦点标签的消息打上 data-context-revision(每轮焦点=快照 revision 的印记)。
   const ctxRev = focus && context_revision != null ? String(context_revision) : undefined
@@ -214,6 +216,17 @@ function Bubble({ role, content, tools, toolOutputs, approvals, streaming, onApp
                 <div key={i}>{e.kind || '写入'}{e.context_revision != null ? ` · rev ${e.context_revision}` : ''}{e.stale_confirmed ? ' · 过期放行' : ''}</div>
               ))}
             </div>
+          </div>
+        )}
+        {!me && writeProposal?.ops?.length > 0 && (
+          <div className="mt-2">
+            <WriteProposalCard
+              proposal={writeProposal}
+              onDone={onProposalDone}
+              onSel={(detail) => {
+                try { window.dispatchEvent(new CustomEvent('s3-selection', { detail })) } catch { /* */ }
+              }}
+            />
           </div>
         )}
         {!me && toolOutputs?.length > 0 && (
@@ -451,8 +464,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
   const deduceName = deduceSel === 'truth' ? '场景真相' : String(deduceSel || '').replace(/^role:/, '')
   // 块三:通用选中总线 focus 优先——任何视图的显式选中(图谱节点/时间线事件/伏笔行/母题行/帧行…)
   // 立即改写主编标题与话术;focus 为空/sel 镜像/演绎目标 → 回退既有视图级/节点级/阶段话术。
-  const { focus } = useSelection()
+  const { focus, setFocus } = useSelection()
   const { snapshot } = useContextSnapshot()
+  // 编排 selection → App setSel（s3-selection）+ 选中总线 setFocus
+  const orchOnSel = (detail) => {
+    try { window.dispatchEvent(new CustomEvent('s3-selection', { detail })) } catch { /* */ }
+  }
+  const applyOrchUiAfterApprove = (pkg) => {
+    const ui = pkg?.ui_directive
+    if (!ui) return
+    applyUiEvents(uiDirectiveToEvents(ui), { onSel: orchOnSel, setFocus })
+  }
   // Task 6:线程模式——有快照(thread_id)且 api.threadMessages 可用才启用「一 work 一连续线程」;
   // 否则完全走既有 chatKey 逻辑(旧测试无 snapshot/无 threadMessages → 行为一字不变)。
   const threadId = snapshot?.thread_id || null
@@ -672,6 +694,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
     // 统一编排：/orchestration/resolve 决定通道与跟焦；正则仅作 resolve 失败回退。
     // 世界正典写入走全写 profile（phase 空），避免章级 run_scope fail-closed。
     const toolsThisTurn = []
+    let orchPkg = null
     const finishOrchEval = (extraNote) => {
       evaluateOrchTurn({ toolsCalled: toolsThisTurn, approvedWrites: [] }).then((ev) => {
         const status = ev?.evaluation?.status
@@ -685,13 +708,31 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
             orchIncomplete: true,
           }))
         }
+        // 有写工具调用时挂多 op 提案卡（编排层可见，与 Hermes 审批并存）
+        const writeTools = orchPkg?.write_tools || []
+        const calledWrites = toolsThisTurn.filter((t) => writeTools.includes(t))
+        if (calledWrites.length && orchPkg && (status === 'awaiting_approval' || status === 'incomplete')) {
+          api.orchBuildProposal({
+            package: orchPkg,
+            ops: calledWrites.map((t) => ({ tool: t, args: {}, label: t })),
+            summary: `本回合写入提案（${calledWrites.join(', ')}）`,
+          }).then((res) => {
+            if (res?.proposal) {
+              mut((l) => ({ ...l, writeProposal: res.proposal, orchPackage: orchPkg }))
+            }
+          }).catch(() => {})
+        }
       }).catch(() => {})
     }
     orchestrateBeforeSend(q, {
       chapter: seq ?? ctxSeq,
       phase: phase || '',
       applyFocus: true,
+      onSel: orchOnSel,
+      setFocus,
     }).then((orch) => {
+    orchPkg = orch.package || null
+    if (orchPkg) mut((l) => ({ ...l, orchPackage: orchPkg, orchDomain: orchPkg.domain }))
     const worldWriteRun = orch.useWorldWriteRun || shouldUseHermesRun(q)
     const runPhase = worldWriteRun ? '' : (seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || ''))
     const runFocalizer = phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : ''
@@ -731,6 +772,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         onApprovalResolved: (approval) => {
           const status = approvalStatusFromDecision(approval?.decision)
           patchApproval(approval, { ...approval, status })
+          if (status === 'approved') applyOrchUiAfterApprove(orchPkg)
         },
         onDone: () => {
           activeRunIdsRef.current.clear()
@@ -796,6 +838,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         onApprovalResolved: (approval) => {
           const status = approvalStatusFromDecision(approval?.decision)
           patchApproval(approval, { ...approval, status })
+          if (status === 'approved') applyOrchUiAfterApprove(orchPkg)
         },
         onProposalStart: () => { propOpen = true; propAcc = ''; mut((l) => { propBase = l.content; return l }) },
         onProposalChunk: (c) => { propAcc += (c?.text ?? c ?? ''); mut((l) => ({ ...l, content: propBase + propAcc })) },
@@ -840,6 +883,7 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       onApprovalResolved: (approval) => {
         const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
+        if (status === 'approved') applyOrchUiAfterApprove(orchPkg)
       },
       onDone: () => { setBusy(false); finishOrchEval() },
       onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false); finishOrchEval() },
@@ -916,7 +960,23 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
             </div>
           </div>
         ) : msgs.map((m, i) => (
-          <Bubble key={i} {...m} streaming={busy && i === msgs.length - 1 && m.role === 'assistant'} onApprovalDecision={handleApprovalDecision} chapterSeq={seq ?? ctxSeq} />
+          <Bubble
+            key={i}
+            {...m}
+            streaming={busy && i === msgs.length - 1 && m.role === 'assistant'}
+            onApprovalDecision={handleApprovalDecision}
+            chapterSeq={seq ?? ctxSeq}
+            onProposalDone={(res) => {
+              if (res?.ui_events?.length) applyUiEvents(res.ui_events, { onSel: orchOnSel, setFocus })
+              if (res?.proposal) {
+                setMsgs((prev) => {
+                  const c = [...prev]
+                  if (c[i]) c[i] = { ...c[i], writeProposal: res.proposal }
+                  return c
+                })
+              }
+            }}
+          />
         ))}
         <div ref={endRef} />
       </div>

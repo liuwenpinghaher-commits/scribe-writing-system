@@ -8,7 +8,9 @@ import { api } from './api'
 import { applyUiEvents } from './lib/uiDirective'
 import { Btn } from './ui.jsx'
 
-export function WriteProposalCard({ proposal, onDone, execute = false }) {
+export function WriteProposalCard({ proposal, onDone, execute = false, onSel = null, setFocus = null }) {
+  const optsOnSel = onSel
+  const optsSetFocus = setFocus
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   if (!proposal?.ops?.length && !result) return null
@@ -24,7 +26,9 @@ export function WriteProposalCard({ proposal, onDone, execute = false }) {
         execute: !!execute && decision === 'approve',
       })
       setResult(res.proposal)
-      if (res.ui_events?.length) applyUiEvents(res.ui_events)
+      if (res.ui_events?.length) {
+        applyUiEvents(res.ui_events, { onSel: optsOnSel, setFocus: optsSetFocus })
+      }
       onDone?.(res)
     } catch (e) {
       setResult({

@@ -64,7 +64,20 @@ def test_resolve_character_write_intent():
     ui = pkg["ui_directive"]
     assert ui.get("entry") == "codex"
     assert (ui.get("node") or {}).get("type") == "character"
+    assert (pkg.get("focus") or {}).get("label") == "沈砚"
+    assert (ui.get("node") or {}).get("label") == "沈砚"
     assert "total_score" not in pkg
+
+
+def test_resolve_discuss_role_not_forced_write():
+    """「这个角色设定我喜欢」→ 跟焦角色域，但非 world_write / 非 incomplete 空谈。"""
+    pkg = resolve_work_package("这个角色设定我喜欢", work="w1", chapter=1)
+    assert pkg["domain"] == "codex.character"
+    assert pkg["use_world_write_run"] is False
+    assert pkg["required_outcome"] == "read_only_advice"
+    ev = evaluate_turn(pkg, tools_called=[], approved_writes=[])
+    assert ev["status"] == "ok"
+    assert ev.get("fake_written") is False
 
 
 def test_resolve_outline_intent():
@@ -103,6 +116,23 @@ def test_resolve_prose_not_world_write():
     assert pkg["domain"].startswith("prose.")
     assert pkg["use_world_write_run"] is False
     assert pkg["required_outcome"] == "prose_proposal"
+
+
+def test_ui_directive_emits_panel_and_promise_capability():
+    from scribe3.orchestration.resolve import apply_ui_directive_events
+
+    pkg = resolve_work_package("埋一个承诺：终局揭秘", work="w", chapter=2)
+    assert pkg["domain"] == "promise.plant"
+    evs = apply_ui_directive_events(pkg["ui_directive"])
+    types = [e["type"] for e in evs]
+    assert "selection" in types
+    assert "s3-ui-directive" in types
+    assert any(
+        e["type"] == "s3-open-capability" and e["detail"].get("capability") == "promise"
+        for e in evs
+    )
+    panel_ev = next(e for e in evs if e["type"] == "s3-ui-directive")
+    assert panel_ev["detail"].get("panel") == "promise"
 
 
 # —— 空谈策略 ——

@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { shouldUseHermesRun, isWorldWriteForceSeed } from './hermesRunIntent.js'
-import { uiDirectiveToEvents } from './uiDirective.js'
+import { applyUiEvents, uiDirectiveToEvents, focusFromSelectionDetail } from './uiDirective.js'
 
 afterEach(() => { vi.restoreAllMocks() })
 
@@ -37,12 +37,46 @@ describe('uiDirectiveToEvents three domains', () => {
     })
     expect(evs.some((e) => e.type === 's3-chapter-phase' && e.detail.phase === 'outline' && e.detail.seq === 4)).toBe(true)
   })
-  it('promise node', () => {
+  it('promise node + panel', () => {
     const evs = uiDirectiveToEvents({
       entry: 'manuscript',
       node: { type: 'promise', id: 'p1', label: '铜炉' },
       right_tab: 'chief',
+      panel: 'promise',
     })
     expect(evs.some((e) => e.type === 'selection' && e.detail.node.type === 'promise')).toBe(true)
+    expect(evs.some((e) => e.type === 's3-ui-directive' && e.detail.panel === 'promise')).toBe(true)
+    expect(evs.some((e) => e.type === 's3-open-capability' && e.detail.capability === 'promise')).toBe(true)
+  })
+})
+
+describe('applyUiEvents selection never silent-drop', () => {
+  it('without onSel dispatches s3-selection and setFocus', () => {
+    const setFocus = vi.fn()
+    const selSpy = vi.fn()
+    window.addEventListener('s3-selection', selSpy)
+    applyUiEvents([
+      {
+        type: 'selection',
+        detail: { mode: 'node', node: { id: 'role:沈砚', type: 'character', label: '沈砚' } },
+      },
+    ], { setFocus })
+    window.removeEventListener('s3-selection', selSpy)
+    expect(selSpy).toHaveBeenCalled()
+    expect(setFocus).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'character', id: 'role:沈砚', label: '沈砚', origin: 'orchestration',
+    }))
+  })
+  it('with onSel calls onSel', () => {
+    const onSel = vi.fn()
+    applyUiEvents([
+      { type: 'selection', detail: { mode: 'node', node: { type: 'promise', id: 'p1' } } },
+    ], { onSel })
+    expect(onSel).toHaveBeenCalledWith(expect.objectContaining({ mode: 'node' }))
+  })
+  it('focusFromSelectionDetail maps node', () => {
+    expect(focusFromSelectionDetail({
+      mode: 'node', node: { type: 'chapter', id: 'ch:3', ref: 3, label: '第3章' },
+    })).toMatchObject({ type: 'chapter', id: 'ch:3', origin: 'orchestration' })
   })
 })

@@ -59,7 +59,7 @@ export async function orchestrateBeforeSend(message, opts = {}) {
   }
 
   if (applyFocus && uiEvents.length) {
-    applyUiEvents(uiEvents, { onSel })
+    applyUiEvents(uiEvents, { onSel, setFocus: opts.setFocus || null })
   }
 
   const instructions = useWorldWriteRun

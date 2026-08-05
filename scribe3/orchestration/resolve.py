@@ -77,6 +77,32 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
     return deepcopy(best or default or CATALOG[-1])
 
 
+# 角色名后常见接续（停用边界），避免「沈砚的恐惧写入…」整段当 id
+_CHAR_NAME_STOP = (
+    r"的|之|与|和|被|把|将|给|向|在|从|为|写入|设定|档案|恐惧|欲望|外貌|弧光|"
+    r"表层|锚点|性格|背景|，|,|。|、|；|;|：|:|！|!|？|\?"
+)
+
+
+def _extract_character_name(message: str) -> str | None:
+    """从「角色沈砚的恐惧…」抽出专名「沈砚」，而非吞到句尾。"""
+    text = message or ""
+    m = re.search(r"(?:角色|人物)[·:：\s]*([一-龥A-Za-z0-9]{1,16})", text)
+    if not m:
+        return None
+    raw = m.group(1)
+    cut = re.match(rf"^(.+?)(?:{_CHAR_NAME_STOP}|$)", raw)
+    name = (cut.group(1) if cut else raw).strip()
+    if not name:
+        return None
+    # 中文名常见 2–4 字；过长则截断
+    if re.fullmatch(r"[一-龥]+", name):
+        name = name[:4]
+    else:
+        name = name[:12]
+    return name or None
+
+
 def _extract_focus(message: str, domain: str, ctx: dict[str, Any] | None) -> dict[str, Any] | None:
     """从消息/上下文提取 focus（角色名、章号等）。"""
     ctx = ctx or {}
@@ -88,10 +114,8 @@ def _extract_focus(message: str, domain: str, ctx: dict[str, Any] | None) -> dic
             return {"type": "chapter", "id": f"chapter:{int(seq)}", "ref": int(seq),
                     "label": f"第{int(seq)}章"}
     if domain.startswith("codex.character") or domain == "relation.character" or domain == "voice.manage":
-        # 「角色沈砚」/「人物·甲」
-        m2 = re.search(r"(?:角色|人物)[·:：\s]*([^\s，,。、]{1,12})", message or "")
-        if m2:
-            name = m2.group(1).strip()
+        name = _extract_character_name(message or "")
+        if name:
             return {"type": "character", "id": f"role:{name}", "label": name}
         if ctx.get("focus_character"):
             fc = ctx["focus_character"]
@@ -212,19 +236,20 @@ def resolve_work_package(
     required = entry.get("required_outcome") or "read_only_advice"
     channel = entry.get("channel") or "discuss"
 
-    # 世界写通道：无写词且非 force 时，若 required 是 write 但消息纯讨论 → 仍保持 write_proposal
-    # （空口策略在 evaluate_turn 处理）；通道标记 world_write 供前端走 Run
-    use_world_write = channel == "world_write" and (
-        bool(write_tools)
-        and (
-            _MUTATION_RE.search(text)
-            or any(f in text for f in (entry.get("match_force") or ()))
-            or required == "write_proposal"
-        )
+    # 世界写 Run：须显式突变词或 force 种子；禁止因 catalog 默写 outcome 而恒 true
+    # （「这个角色设定我喜欢」应跟焦讨论，不可走 incomplete 空谈失败）
+    mutation = bool(_MUTATION_RE.search(text or ""))
+    force_hit = any(f in (text or "") for f in (entry.get("match_force") or ()))
+    use_world_write = (
+        channel == "world_write"
+        and bool(write_tools)
+        and (mutation or force_hit)
     )
-    # prose 通道
     if channel == "prose_write":
         use_world_write = False
+    # 纯讨论同域：保留 domain/ui 跟焦，本回合不强制写提案
+    if required == "write_proposal" and not use_world_write and channel == "world_write":
+        required = "read_only_advice"
 
     pkg_id = None
     if prior and prior.get("domain") == entry["domain"] and action != "switch":
@@ -401,10 +426,43 @@ def apply_ui_directive_events(directive: dict[str, Any] | None) -> list[dict[str
                 },
             })
 
-    if directive.get("panel") == "northstar":
+    # panel：前端 LeftDock / 四栏入口可程序化打开（不全靠 selection）
+    panel = directive.get("panel")
+    if panel:
         events.append({
-            "type": "s3-open-capability",
-            "detail": {"capability": "manuscript", "focus": True},
+            "type": "s3-ui-directive",
+            "detail": {
+                "entry": entry,
+                "phase": phase,
+                "node": node,
+                "panel": panel,
+                "right_tab": right,
+            },
         })
+        panel_to_cap = {
+            "northstar": "northstar",
+            "promise": "promise",
+            "motif": "motif",
+            "codex_character": "codex",
+            "codex_faction": "codex",
+            "codex_item": "codex",
+            "codex_term": "codex",
+            "codex_world_rule": "codex",
+            "codex": "codex",
+            "relation": "codex",
+            "proposition": "codex",
+            "outline": "manuscript",
+            "beats": "manuscript",
+            "deduce": "deduce",
+            "qc": "review",
+            "craft": "manuscript",
+            "voice": "codex",
+        }
+        cap = panel_to_cap.get(str(panel))
+        if cap:
+            events.append({
+                "type": "s3-open-capability",
+                "detail": {"capability": cap, "focus": True, "panel": panel},
+            })
 
     return events

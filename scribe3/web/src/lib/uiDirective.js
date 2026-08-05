@@ -4,8 +4,26 @@
  */
 
 /**
+ * selection detail → 选中总线 focus（无 onSel 时的回退）。
+ * @param {{ mode?: string, node?: object }} detail
+ * @returns {object|null}
+ */
+export function focusFromSelectionDetail(detail) {
+  if (!detail || typeof detail !== 'object') return null
+  const node = detail.node || (detail.mode === 'node' ? detail : null)
+  if (!node || typeof node !== 'object') return null
+  return {
+    type: node.type,
+    id: node.id || node.ref || node.type,
+    label: node.label || String(node.ref ?? node.id ?? ''),
+    payload: { ref: node.ref },
+    origin: 'orchestration',
+  }
+}
+
+/**
  * @param {Array<{type:string, detail?:object}>} events
- * @param {{ onSel?: Function }} [opts]
+ * @param {{ onSel?: Function, setFocus?: Function }} [opts]
  */
 export function applyUiEvents(events, opts = {}) {
   if (!Array.isArray(events)) return
@@ -13,8 +31,26 @@ export function applyUiEvents(events, opts = {}) {
     if (!ev || !ev.type) continue
     const detail = ev.detail
     try {
-      if (ev.type === 'selection' && opts.onSel) {
-        opts.onSel(detail)
+      if (ev.type === 'selection') {
+        // 1) 显式 onSel（App setSel / 旅程 continue）
+        if (typeof opts.onSel === 'function') {
+          opts.onSel(detail)
+        } else {
+          // 2) 无 onSel 时：全局事件 + setFocus，禁止静默丢弃
+          try {
+            window.dispatchEvent(new CustomEvent('s3-selection', { detail }))
+          } catch { /* */ }
+        }
+        if (typeof opts.setFocus === 'function') {
+          const f = focusFromSelectionDetail(detail)
+          if (f) opts.setFocus(f)
+        } else if (typeof opts.onSel !== 'function') {
+          // 再广播一次 focus 形状，供未持有 onSel 的 dock 订阅
+          try {
+            const f = focusFromSelectionDetail(detail)
+            if (f) window.dispatchEvent(new CustomEvent('s3-focus', { detail: f }))
+          } catch { /* */ }
+        }
         continue
       }
       if (ev.type === 's3-right-tab') {
@@ -30,7 +66,23 @@ export function applyUiEvents(events, opts = {}) {
         continue
       }
       if (ev.type === 's3-ui-directive') {
+        // panel / 全量 directive：LeftDock 等可按 panel 开伏笔/母题台
         window.dispatchEvent(new CustomEvent('s3-ui-directive', { detail }))
+        const panel = detail?.panel
+        if (panel && !detail?.capability) {
+          // 与后端 panel_to_cap 对齐的轻量回退（后端已发 open-capability 时幂等）
+          const map = {
+            promise: 'promise', motif: 'motif', northstar: 'northstar',
+            codex_character: 'codex', outline: 'manuscript', beats: 'manuscript',
+            deduce: 'deduce', qc: 'review',
+          }
+          const cap = map[panel]
+          if (cap) {
+            window.dispatchEvent(new CustomEvent('s3-open-capability', {
+              detail: { capability: cap, focus: true, panel },
+            }))
+          }
+        }
       }
     } catch { /* */ }
   }
@@ -96,6 +148,28 @@ export function uiDirectiveToEvents(directive) {
         },
       },
     })
+  }
+  if (directive.panel) {
+    events.push({
+      type: 's3-ui-directive',
+      detail: {
+        entry: directive.entry,
+        phase: directive.phase,
+        node: directive.node,
+        panel: directive.panel,
+        right_tab: directive.right_tab || 'chief',
+      },
+    })
+    const panelCap = {
+      promise: 'promise', motif: 'motif', northstar: 'northstar',
+      codex_character: 'codex', outline: 'manuscript',
+    }[directive.panel]
+    if (panelCap) {
+      events.push({
+        type: 's3-open-capability',
+        detail: { capability: panelCap, focus: true, panel: directive.panel },
+      })
+    }
   }
   return events
 }
