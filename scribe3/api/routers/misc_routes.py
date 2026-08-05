@@ -60,8 +60,27 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
         # U-011:上下文组装(设定圣经/脉搏/历史)挪进流内——组装崩时 error 帧携带【异常原文】
         # 到前端内联显示(作者能看见真实原因),而不是开流前 500 → 前端只见笼统"连接中断"。
         try:
-            sysmsg = _editor_system(st) + _pulse_digest(st, seq) + _DISCUSSION_DIRECTIVE
+            # 限知/时间一致性:有章号则传入 chapter,设定注入走 facts_at(seq) 时间门
+            # (此前 _editor_system(st) 无章 → 全库 99999,早章讨论可灌未来命题)。
+            import time as _time
+            _t0 = _time.perf_counter()
+            sysmsg = (
+                _editor_system(st, chapter=seq)
+                + _pulse_digest(st, seq)
+                + _DISCUSSION_DIRECTIVE
+            )
             history = _thread_history_for_prompt(st, thread_id)   # 先于 _ChatTurnLog 落本轮 user
+            try:
+                from scribe3.context_cache import record_discuss_assembly
+                record_discuss_assembly(
+                    (_time.perf_counter() - _t0) * 1000.0,
+                    len(sysmsg or ""),
+                    chapter=seq,
+                    work=work,
+                    thread_id=thread_id,
+                )
+            except Exception:
+                pass
         except Exception as e:
             logging.getLogger("scribe3").error("chat_stream 上下文组装失败", exc_info=True)
             yield f"data: {json.dumps({'error': f'上下文组装失败:{type(e).__name__}: {str(e)[:200]}'}, ensure_ascii=False)}\n\n"
@@ -100,7 +119,22 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
     def _build_instructions() -> str:
         # U-011:组装挪进流内(经 gen 的 try)——设定/脉搏取数崩时 error 帧带异常原文到前端,
         # 而不是开流前 500 只显"连接中断"。
-        ins = _editor_system(st) + _pulse_digest(st, seq)
+        # 与 chat_stream 同口径:chapter=seq 走时间门设定注入。
+        import time as _time
+        _t0 = _time.perf_counter()
+        ins = _editor_system(st, chapter=seq) + _pulse_digest(st, seq)
+        try:
+            from scribe3.context_cache import record_discuss_assembly
+            record_discuss_assembly(
+                (_time.perf_counter() - _t0) * 1000.0,
+                len(ins or ""),
+                chapter=seq,
+                work=work,
+                thread_id=turn.thread_id,
+                path="agentic",
+            )
+        except Exception:
+            pass
         if with_tools:
             ins += _s3_work_scope_block(work) + (
                 "\n\n你能调用 s3_ 工具实时查询/操作这部书的 SurrealDB(知识帧 s3_project_frame、反讽 s3_dramatic_irony、"

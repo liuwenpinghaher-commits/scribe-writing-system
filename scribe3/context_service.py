@@ -30,9 +30,12 @@ HEADER_HASH = "x-scribe-context-hash"
 
 
 def context_snapshot_flag_enabled() -> bool:
-    """SCRIBE3_CONTEXT_SNAPSHOT_V1 是否开启。默认关:存量调用方行为零变化。
+    """SCRIBE3_CONTEXT_SNAPSHOT_V1 是否开启。
+
+    产品默认**开**(见 settings.REGISTRY);显式 env/DB=0 可关(测试/运维隔离)。
     统一走 context_cache.flag_enabled(设置中心 DB 覆盖→env→默认,热生效),
-    消除与 capabilities 上报的双路径分裂。延迟 import 防环。"""
+    消除与 capabilities 上报的双路径分裂。延迟 import 防环。
+    """
     from scribe3.context_cache import flag_enabled
     return flag_enabled(FLAG_ENV)
 
@@ -153,7 +156,8 @@ class ContextService:
         """chat 请求的绑定强制(开关门控)。req 鸭子类型:只读
         context_session_id / context_revision / context_hash 三个属性。
 
-        - 开关关(默认):完全不碰这些字段,返回 None——存量调用方零变化;
+        - 开关关(须显式 env/DB=0):完全不碰这些字段,返回 None;
+        - 产品默认开:chat 写路径强制 context 绑定三件套;
         - 开关开:三件套按字段取 body,缺失时回退请求头(I-1 双通道,
           headers 为 Starlette Headers 或 dict,键大小写不敏感/全小写);
           两通道都缺任一件 → ContextBindingRequired(400);

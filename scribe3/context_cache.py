@@ -295,10 +295,48 @@ def record_stale_rejection() -> None:
         _STALE_REJECTIONS += 1
 
 
+# 讨论路径组装(chat_stream / agentic):延迟 + 提示长度;可选业务属性 ring(无 secret)
+_DISCUSS_LATENCY = _Histogram()
+_DISCUSS_CHARS = _Histogram()
+_DISCUSS_ATTRS_LOCK = threading.Lock()
+_DISCUSS_ATTRS: deque = deque(maxlen=64)  # 最近 64 次 {work, chapter, path, ms, chars}
+
+
+def record_discuss_assembly(
+    ms: float,
+    chars: int,
+    *,
+    chapter: int | None = None,
+    work: str | None = None,
+    thread_id: str | None = None,
+    path: str = "chat_stream",
+) -> None:
+    """讨论上下文组装采样(可观测立即阶段)。
+
+    只记计数/分位与脱敏业务属性(work slug、章号、path、thread 哈希前缀),
+    绝不写入 prompt / 用户原文 / 秘密。
+    """
+    _DISCUSS_LATENCY.record(ms)
+    _DISCUSS_CHARS.record(float(max(0, int(chars))))
+    tid = (thread_id or "").strip()
+    attr = {
+        "work": (work or "")[:64],
+        "chapter": chapter,
+        "path": (path or "chat_stream")[:32],
+        "thread_prefix": (tid[:12] if tid else ""),
+        "ms": round(float(ms), 2),
+        "chars": int(chars),
+    }
+    with _DISCUSS_ATTRS_LOCK:
+        _DISCUSS_ATTRS.append(attr)
+
+
 def metrics_snapshot() -> dict:
     """检索/组装侧指标只读快照。绝不含 prompt / 秘密——只有计数与分位数。"""
     with _stale_lock:
         stale = _STALE_REJECTIONS
+    with _DISCUSS_ATTRS_LOCK:
+        recent = list(_DISCUSS_ATTRS)[-8:]
     return {
         "retrieval_p50": _RETRIEVAL_LATENCY.percentile(50),
         "retrieval_p95": _RETRIEVAL_LATENCY.percentile(95),
@@ -306,6 +344,11 @@ def metrics_snapshot() -> dict:
         "context_tokens_p95": _CONTEXT_TOKENS.percentile(95),
         "context_tokens_samples": _CONTEXT_TOKENS.count(),
         "stale_rejections": stale,
+        "discuss_assembly_p50": _DISCUSS_LATENCY.percentile(50),
+        "discuss_assembly_p95": _DISCUSS_LATENCY.percentile(95),
+        "discuss_assembly_samples": _DISCUSS_LATENCY.count(),
+        "discuss_chars_p95": _DISCUSS_CHARS.percentile(95),
+        "discuss_recent": recent,
     }
 
 
@@ -313,5 +356,9 @@ def reset_metrics_for_test() -> None:
     global _STALE_REJECTIONS
     _RETRIEVAL_LATENCY.clear()
     _CONTEXT_TOKENS.clear()
+    _DISCUSS_LATENCY.clear()
+    _DISCUSS_CHARS.clear()
     with _stale_lock:
         _STALE_REJECTIONS = 0
+    with _DISCUSS_ATTRS_LOCK:
+        _DISCUSS_ATTRS.clear()

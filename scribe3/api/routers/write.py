@@ -81,7 +81,7 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
     except Exception:
         pass
     st = _store_for(work)
-    # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,默认关=零变化)。
+    # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,产品默认开;显式关则不强制)。
     # 必须在 user 落库与 StreamingResponse 之前完成——流一旦开始,4xx 会退化成流中错误。
     # 双通道(I-1):body 三件套缺失时逐字段回退请求头 X-Scribe-Context-*
     # (api.js contextHeaders 产出),两通道都缺才 400。

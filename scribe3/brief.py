@@ -418,7 +418,11 @@ def assemble_injection(st, seq, budget_chars: int = _M6_BUDGET_CHARS) -> dict:
       · 其余(None / always / detected 但挂世界级命题即 entity 匹配不到真实实体)
         → **always 语义**:无条件注入,不因未提及被丢。
     注意:限知(focalizer 非空)分支不走此——先限知过滤是正确性,P0 不叠相关性过滤。"""
-    facts = st.facts_at(99999)
+    # 章时间门:讨论/写作传入 seq 时只取截至本章仍有效的命题,禁止 99999 全库
+    # 把未来 valid_from 事实灌进早章讨论(限知/时间一致性,2026-08 收口)。
+    # seq 缺省时仍用 99999 保作者全知总览(无章上下文的横切讨论)。
+    story_ch = int(seq) if seq is not None else 99999
+    facts = st.facts_at(story_ch)
     any_mode = any(getattr(f, "injection_mode", None) for f in facts)
     if not any_mode:
         # 真·向后兼容:本书未配 injection_mode → 门控关闭,调用方回退旧 facts[:28]

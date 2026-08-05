@@ -308,7 +308,7 @@ class ChatWriteReq(BaseModel):
     short_mode: bool = False     # 方案B任务16:短篇模式——跳过 build_craft_block 的
                                   # ENGINES["restraint"](留白/克制)注入
     # Task 4:上下文绑定字段一律 optional——契约不硬断存量调用方(1270 项测试/旧前端/
-    # loop/pilot)。强制校验挂 SCRIBE3_CONTEXT_SNAPSHOT_V1:开关开 + 字段缺失/过期 → 4xx;
+    # loop/pilot)。强制校验挂 SCRIBE3_CONTEXT_SNAPSHOT_V1(产品默认开):开 + 字段缺失/过期 → 4xx;
     # 开关关(默认)→ 完全忽略,行为不变。见 context_service.ContextService.enforce。
     context_session_id: str | None = None
     context_revision: int | None = Field(default=None, ge=0)

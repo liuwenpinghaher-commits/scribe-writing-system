@@ -899,7 +899,7 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     #   捕获→memory_item→检索的经验回路在生产仍是"只写不读"。故 fabric 开(retriever 非 None)时
     #   用本章种子词/作者本轮请求/章纲作 query 靶向经验记忆;作者请求只当检索锚点，不
     #   作为正典或额外事实块。fabric 关(retriever=None)时 query 仍空——
-    #   envelope 与接线前逐字不变(默认关字节等价,连 focus 块"作者此刻问"都不出现)。
+    #   envelope 与接线前逐字不变(fabric 关时字节等价,连 focus 块"作者此刻问"都不出现)。
     #   剧透门不受影响:known_from 门在 store SQL/Python 侧恒生效,有意义 query 也挡不掉未来揭示。
     retriever = _get_write_retriever(st)
     retrieval_query = (_build_write_retrieval_query(
