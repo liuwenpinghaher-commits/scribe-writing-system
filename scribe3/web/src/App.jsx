@@ -97,6 +97,15 @@ export default function App() {
 
   useEffect(() => { if (cur) api.setWork(cur.slug) }, [cur])
 
+  // Hooks 必须在所有条件 return 之前（React #310：登录前后 hooks 数量不能变）
+  const handleJumpChapter = useCallback((ch) => {
+    setSel({ mode: 'node', node: { id: `ch:${ch}`, type: 'chapter', ref: ch, label: `${ch}` } })
+  }, [])
+  const handleWorkflowContinue = useCallback((snap) => {
+    applyWorkflowContinue(snap, { onSel: setSel, onJumpChapter: handleJumpChapter })
+  }, [handleJumpChapter])
+  const onView = useCallback((viewKey) => setSel({ mode: 'view', viewKey }), [])
+
   const reload = async () => {
     const nextWorks = await api.works()
     setWorks(nextWorks)
@@ -143,11 +152,6 @@ export default function App() {
 
   const open = (w) => { api.setWork(w.slug); writeActiveWorkSlug(w.slug); setCur(w); setSel({ mode: 'node', node: null }) }
   const openLibrary = () => { writeActiveWorkSlug(''); setCur(null) }
-  const onView = (viewKey) => setSel({ mode: 'view', viewKey })
-  const handleJumpChapter = (ch) => setSel({ mode: 'node', node: { id: `ch:${ch}`, type: 'chapter', ref: ch, label: `${ch}` } })
-  const handleWorkflowContinue = useCallback((snap) => {
-    applyWorkflowContinue(snap, { onSel: setSel, onJumpChapter: handleJumpChapter })
-  }, [])
   const activeView = sel.mode === 'view' ? sel.viewKey : null
 
   let body
