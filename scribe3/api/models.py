@@ -9,6 +9,11 @@ from typing import Any, Optional, List, Dict, Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
+# 写作附件上限（原在 app_impl；模型拆出后校验器仍引用，须在本模块定义）
+_MAX_IMAGES = 6
+_MAX_IMG_BYTES = 5 * 1024 * 1024
+
+
 class SettingPutReq(BaseModel):
     value: object = None
 
