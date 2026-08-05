@@ -20,6 +20,8 @@ from fastapi import (
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 
+from scribe3.api.sse import sse_response
+
 router = APIRouter(tags=['write'])
 
 
@@ -57,10 +59,9 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
         st, chapter=chapter, focalizer=focalizer, phase=phase,
         seed_words=[], short_mode=short_mode, with_tools=_wt, work=work,
         envelope_trace=outcome_binding.manifest_trace, request_text=msg)
-    return StreamingResponse(
+    return sse_response(
         _stream_write(msg, instructions, expect_proposal=_write_intent,
                       with_tools=_wt, on_terminal=outcome_binding.persist),
-        media_type="text/event-stream",
     )
 
 def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
@@ -158,12 +159,11 @@ def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundT
         _capture_turn_memory(st, work=work, thread_id=(req.thread_id or f"write:{work}"),
                              turn_id=turn_id, text=user_text, chapter=req.chapter)
 
-    return StreamingResponse(
+    return sse_response(
         _stream_write(message, instructions, expect_proposal=_write_intent,
                       with_tools=_wt,
                       on_terminal=outcome_binding.persist,
                       on_complete=_persist_assistant),
-        media_type="text/event-stream",
     )
 
 def qc(seq: int, work: str = "main"):

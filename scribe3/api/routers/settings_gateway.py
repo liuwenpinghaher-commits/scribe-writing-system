@@ -507,7 +507,8 @@ def ai_run_events(run_id: str, work: str = "main"):
                 if not subscribers:
                     _ai_run_event_subscribers.pop(key, None)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    from scribe3.api.sse import sse_response
+    return sse_response(gen())
 
 @_serialize_ai_run_approval
 def ai_run_approval(run_id: str, req: AIRunApprovalReq, work: str = "main"):

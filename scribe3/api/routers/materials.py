@@ -131,7 +131,8 @@ async def material_import_progress_ep(job_id: str, work: str = "main"):
             if job["done"]:
                 return
             await asyncio.sleep(0.5)
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    from scribe3.api.sse import sse_response
+    return sse_response(gen())
 
 def material_import_preview_ep(job_id: str, work: str = "main"):
     """预览 AI 切分结果(作者编辑/删条/合并前)。"""

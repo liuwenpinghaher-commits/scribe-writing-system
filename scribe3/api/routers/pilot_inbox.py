@@ -517,7 +517,8 @@ async def live(work: str = "main"):
             # 真正关闭后才释放这一 work 的 LIVE 配额。
             _live_count[work] = max(0, _live_count.get(work, 0) - 1)
 
-    return StreamingResponse(counted_live_stream(), media_type="text/event-stream")
+    from scribe3.api.sse import sse_response
+    return sse_response(counted_live_stream())
 
 
 

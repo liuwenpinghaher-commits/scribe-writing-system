@@ -77,7 +77,8 @@ def chat_stream(msg: str, background: BackgroundTasks, work: str = "main",
                 yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         yield 'data: {"done": true}\n\n'
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    from scribe3.api.sse import sse_response
+    return sse_response(gen())
 
 def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main",
                         seq: int | None = None, thread: str | None = None):
@@ -173,7 +174,8 @@ def chat_agentic_stream(msg: str, background: BackgroundTasks, work: str = "main
                 logging.getLogger("scribe3").warning("thread response_id 回写失败(忽略)", exc_info=True)
         yield 'data: {"done": true}\n\n'
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    from scribe3.api.sse import sse_response
+    return sse_response(gen())
 
 def chat_messages(chapter: int | None = None, limit: int = 500, work: str = "main"):
     """会话留痕回看(北极星任务1):按章拉 chat_message,ts 升序。
