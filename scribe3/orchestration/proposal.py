@@ -7,6 +7,79 @@ from copy import deepcopy
 from typing import Any, Callable
 
 
+def post_approve_ui_target(
+    target: dict[str, Any] | None,
+    *,
+    package: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """批准后硬跟焦目标：create+label → leaf；已是 leaf 原样；禁止停在 codex_new。
+
+    HTTP apply 与 build_write_proposal 共用此函数，避免 ui_after / ui_target_after 分叉。
+    """
+    t = deepcopy(target) if isinstance(target, dict) else None
+    if not t:
+        return None
+    kind = t.get("kind")
+    if kind == "leaf":
+        return t
+    # 讨论草稿 create 在批准写库后应成为可寻址 leaf
+    if kind == "create" and (t.get("label") or t.get("seed", {}).get("name")):
+        lab = str(t.get("label") or t.get("seed", {}).get("name") or "").strip()
+        ot = t.get("object_type") or "character"
+        if not lab or lab in ("（待命名）", "character", "null"):
+            return t
+        return {
+            "kind": "leaf",
+            "entry": t.get("entry") or (
+                "codex" if ot not in ("promise", "motif") else ot
+            ),
+            "object_type": ot,
+            "id": f"role:{lab}" if ot == "character" else lab,
+            "label": lab,
+            "right_tab": t.get("right_tab") or "chief",
+            "panel": t.get("panel"),
+        }
+    # 旧 ui_directive 投影（无 kind）
+    if kind is None and t.get("node"):
+        node = t.get("node") or {}
+        ntype = node.get("type")
+        if ntype in ("character", "faction", "item", "term", "world_rule", "promise", "motif"):
+            lab = str(node.get("label") or node.get("ref") or "").strip()
+            if lab and lab not in ("character", "faction", "null", ntype):
+                return {
+                    "kind": "leaf",
+                    "entry": t.get("entry") or "codex",
+                    "object_type": ntype,
+                    "id": node.get("id") or (f"role:{lab}" if ntype == "character" else lab),
+                    "label": lab,
+                    "right_tab": "chief",
+                }
+    return t
+
+
+def resolve_approve_ui_target(proposal: dict[str, Any] | None) -> dict[str, Any] | None:
+    """与 orch_apply_proposal_ep 相同字段优先级：两字段归一为批准后 leaf。
+
+    优先取显式 leaf；否则对 create 做 post_approve 提升。
+    """
+    prop = proposal or {}
+    candidates = [
+        prop.get("ui_target_after"),
+        prop.get("ui_after"),
+    ]
+    for c in candidates:
+        if isinstance(c, dict) and c.get("kind") == "leaf":
+            return deepcopy(c)
+    for c in candidates:
+        if isinstance(c, dict):
+            promoted = post_approve_ui_target(c)
+            if promoted and promoted.get("kind") == "leaf":
+                return promoted
+            if promoted:
+                return promoted
+    return None
+
+
 def build_write_proposal(
     package: dict[str, Any],
     ops: list[dict[str, Any]],
@@ -14,7 +87,10 @@ def build_write_proposal(
     summary: str = "",
     ui_after: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """构造提案；ops 项: {tool, args, label?}。"""
+    """构造提案；ops 项: {tool, args, label?}。
+
+    ui_after / ui_target_after 均为**批准后**硬跟焦目标（同一值），不得残留 create。
+    """
     clean_ops = []
     allow = set((package or {}).get("write_tools") or [])
     for op in ops or []:
@@ -35,9 +111,10 @@ def build_write_proposal(
             "out_of_allowlist": flagged,
             "status": "pending",
         })
-    after = ui_after
-    if after is None:
-        after = (package or {}).get("ui_target") or (package or {}).get("ui_directive")
+    raw_after = ui_after
+    if raw_after is None:
+        raw_after = (package or {}).get("ui_target")
+    after = post_approve_ui_target(raw_after, package=package)
     return {
         "id": f"prop_{uuid.uuid4().hex[:12]}",
         "work_package_id": (package or {}).get("id"),
@@ -45,7 +122,7 @@ def build_write_proposal(
         "summary": summary or f"写入提案 · {(package or {}).get('label') or ''}",
         "ops": clean_ops,
         "ui_after": after,
-        "ui_target_after": (package or {}).get("ui_target"),
+        "ui_target_after": after,  # 与 ui_after 同义；批准路径两字段一致
         "created_at": int(time.time()),
         "status": "pending",
     }
@@ -115,7 +192,7 @@ def proposal_from_discussion(
         else:
             _add(tool, {}, tool)
 
-    # 批准后 hard leaf：若有草稿专名
+    # 批准后 hard leaf：草稿专名 → leaf（build_write_proposal 会再归一 ui_after/ui_target_after）
     ui_after = None
     if drafts:
         d0 = drafts[0]
@@ -139,6 +216,8 @@ def proposal_from_discussion(
     )
     prop["source"] = "from_discussion"
     prop["draft_ids"] = [d.get("draft_id") for d in drafts if d.get("draft_id")]
+    # 契约：两字段必须一致（build_write_proposal 已归一）
+    prop["ui_target_after"] = prop.get("ui_after")
     return prop
 
 

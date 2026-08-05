@@ -19,6 +19,8 @@ from scribe3.orchestration.proposal import (
     apply_proposal_ops,
     build_write_proposal,
     proposal_from_discussion,
+    resolve_approve_ui_target,
+    post_approve_ui_target,
 )
 from scribe3.orchestration.ui_target import (
     apply_ui_target_events,
@@ -42,5 +44,7 @@ __all__ = [
     "draft_store",
     "build_write_proposal",
     "proposal_from_discussion",
+    "resolve_approve_ui_target",
+    "post_approve_ui_target",
     "apply_proposal_ops",
 ]

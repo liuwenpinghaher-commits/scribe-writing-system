@@ -467,8 +467,14 @@ def test_o2_draft_upsert_list_from_named_discuss():
 # —— O3 from-discussion loop ——
 
 def test_o3_from_discussion_reject_and_approve_leaf():
+    """驱动与 orch_apply_proposal_ep 相同的字段解析：批准后必须 hard leaf 角色，非 codex_new。"""
     from scribe3.orchestration import drafts as draft_store
-    from scribe3.orchestration.proposal import proposal_from_discussion, apply_proposal_ops
+    from scribe3.orchestration.proposal import (
+        proposal_from_discussion,
+        apply_proposal_ops,
+        resolve_approve_ui_target,
+        build_write_proposal,
+    )
     from scribe3.orchestration.ui_target import selection_is_ghost_leaf
 
     pkg = resolve_work_package("请写入角色顾声的设定并审批", work="o3", chapter=1)
@@ -477,6 +483,19 @@ def test_o3_from_discussion_reject_and_approve_leaf():
     prop = proposal_from_discussion(pkg, drafts)
     assert prop.get("ops")
     assert any("character" in (op.get("tool") or "") for op in prop["ops"])
+    # 两字段一致且均为 leaf（批准后目标）
+    assert prop.get("ui_after") == prop.get("ui_target_after")
+    assert (prop.get("ui_target_after") or {}).get("kind") == "leaf"
+    assert (prop.get("ui_target_after") or {}).get("object_type") == "character"
+    assert (prop.get("ui_target_after") or {}).get("label") == "顾声"
+    # 即使误传 create 为 package.ui_target，build 也要提升为 leaf
+    broken = build_write_proposal(
+        {**pkg, "ui_target": {"kind": "create", "object_type": "character", "label": "顾声", "entry": "codex"}},
+        prop["ops"],
+        summary="x",
+    )
+    assert (broken.get("ui_target_after") or {}).get("kind") == "leaf"
+    assert (broken.get("ui_after") or {}).get("kind") == "leaf"
     # reject
     calls = []
     def add_char(**kw):
@@ -485,17 +504,37 @@ def test_o3_from_discussion_reject_and_approve_leaf():
     out = apply_proposal_ops(prop, decision="reject", executors={"s3_add_character": add_char})
     assert out["status"] == "declined"
     assert calls == []
-    # approve
+    # approve ops
     out2 = apply_proposal_ops(prop, decision="approve", executors={"s3_add_character": add_char})
     assert out2["status"] == "applied"
     assert calls
-    # hard leaf after
-    ui_after = prop.get("ui_after") or prop.get("ui_target_after")
-    assert ui_after
-    evs = apply_ui_directive_events(None, focus_policy="hard", ui_target=ui_after if ui_after.get("kind") else None)
-    if ui_after.get("kind"):
-        assert not selection_is_ghost_leaf(evs)
-        assert any(e.get("type") == "selection" for e in evs)
+    # 与 HTTP orch_apply_proposal_ep 相同：resolve_approve_ui_target（先 ui_target_after）
+    ui_target = resolve_approve_ui_target(prop)
+    assert ui_target is not None
+    assert ui_target.get("kind") == "leaf"
+    assert ui_target.get("object_type") == "character"
+    assert ui_target.get("label") == "顾声"
+    # 模拟旧 bug：ui_target_after=create 而 ui_after=leaf → 仍应得到 leaf
+    mixed = {
+        "ui_target_after": {"kind": "create", "object_type": "character", "label": "顾声", "entry": "codex"},
+        "ui_after": {"kind": "leaf", "object_type": "character", "id": "role:顾声", "label": "顾声", "entry": "codex"},
+    }
+    fixed = resolve_approve_ui_target(mixed)
+    assert fixed.get("kind") == "leaf"
+    assert fixed.get("label") == "顾声"
+    only_create = {
+        "ui_target_after": {"kind": "create", "object_type": "character", "label": "顾声", "entry": "codex"},
+        "ui_after": {"kind": "create", "object_type": "character", "label": "顾声", "entry": "codex"},
+    }
+    promoted = resolve_approve_ui_target(only_create)
+    assert promoted.get("kind") == "leaf"
+    assert promoted.get("id") == "role:顾声"
+    evs = apply_ui_directive_events(None, focus_policy="hard", ui_target=ui_target)
+    assert not selection_is_ghost_leaf(evs)
+    sel = next(e for e in evs if e.get("type") == "selection")
+    assert sel["detail"]["node"]["type"] == "character"
+    assert sel["detail"]["node"]["label"] == "顾声"
+    assert sel["detail"]["node"]["type"] != "codex_new"
 
 
 def test_o3_evaluate_incomplete_has_from_discussion_action():

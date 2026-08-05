@@ -325,19 +325,12 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
     ui_events = []
     ui_target = None
     if result.get("status") in ("applied", "partial"):
-        ui_target = (
-            (req.proposal or {}).get("ui_target_after")
-            or (req.proposal or {}).get("ui_after")
-        )
-        # 批准后 hard 跟焦合法目标
+        from scribe3.orchestration.proposal import resolve_approve_ui_target
+        # 与 proposal 层同一规则：优先 leaf，create+label 提升为 leaf（禁止 hard 到 codex_new）
+        ui_target = resolve_approve_ui_target(req.proposal) or resolve_approve_ui_target(result)
         if isinstance(ui_target, dict) and ui_target.get("kind"):
             ui_events = apply_ui_directive_events(
                 None, focus_policy="hard", ui_target=ui_target,
-            )
-        else:
-            ui_events = apply_ui_directive_events(
-                ui_target if isinstance(ui_target, dict) else None,
-                focus_policy="hard",
             )
         # 草稿标记
         try:
