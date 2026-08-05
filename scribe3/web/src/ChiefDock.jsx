@@ -8,6 +8,7 @@ import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
 import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
+import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
 import { mergeThreadHistory, mutateLatestAssistantMessage, normalizeThreadMessages } from './lib/chiefThreadMessages'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
@@ -668,11 +669,30 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       { role: 'assistant', content: '', tools: [] }])
     setBusy(true)
     const mut = (fn) => setMsgs((messages) => mutateLatestAssistantMessage(messages, fn))
-    // 世界正典写入虽可从某一章的讨论槽发起，却不是该章的受限演绎 Run。
-    // 只有 deduce/deduce_preview 有已注册的章节 profile；把 outline/beats/draft 的
-    // 映射值(plan/draft)带入 run_scope 会被后端 fail-closed 为未知阶段，导致角色、
-    // 设定等作者明确授权的作品级写入根本无法送达审批。作品级写入必须走全写 profile。
-    const worldWriteRun = shouldUseHermesRun(q)
+    // 统一编排：/orchestration/resolve 决定通道与跟焦；正则仅作 resolve 失败回退。
+    // 世界正典写入走全写 profile（phase 空），避免章级 run_scope fail-closed。
+    const toolsThisTurn = []
+    const finishOrchEval = (extraNote) => {
+      evaluateOrchTurn({ toolsCalled: toolsThisTurn, approvedWrites: [] }).then((ev) => {
+        const status = ev?.evaluation?.status
+        const remedy = ev?.evaluation?.remedy
+        if (status === 'incomplete' && remedy?.suggested_prompt) {
+          mut((l) => ({
+            ...l,
+            content: (l.content || '') + (extraNote || '')
+              + `\n\n_编排提示：${remedy.message || '本步需要写入提案。'}_\n`
+              + `可发送：${remedy.suggested_prompt}`,
+            orchIncomplete: true,
+          }))
+        }
+      }).catch(() => {})
+    }
+    orchestrateBeforeSend(q, {
+      chapter: seq ?? ctxSeq,
+      phase: phase || '',
+      applyFocus: true,
+    }).then((orch) => {
+    const worldWriteRun = orch.useWorldWriteRun || shouldUseHermesRun(q)
     const runPhase = worldWriteRun ? '' : (seq != null && Object.prototype.hasOwnProperty.call(WRITE_PHASE, phase) ? WRITE_PHASE[phase] : (phase || ''))
     const runFocalizer = phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : ''
     if (worldWriteRun) {
@@ -681,14 +701,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         phase: runPhase,
         focalizer: runFocalizer,
         context: bind,   // Task 13:线程模式带发起时上下文(会话/版本)→ 后端快照 origin focus 供审批重校验
-        instructions: hermesRunInstructions({ chapter: seq ?? ctxSeq, phase: runPhase, focalizer: runFocalizer }),
+        instructions: orch.instructions || hermesRunInstructions({ chapter: seq ?? ctxSeq, phase: runPhase, focalizer: runFocalizer }),
         onRun: (run) => {
           const runId = run?.run_id || run?.id
           if (runId) activeRunIdsRef.current.add(runId)
-          mut((l) => ({ ...l, run_id: l.run_id || runId, runStatus: run?.status || l.runStatus }))
+          mut((l) => ({ ...l, run_id: l.run_id || runId, runStatus: run?.status || l.runStatus, orchDomain: orch.package?.domain }))
         },
         onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
-        onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+        onTool: (name) => {
+          toolsThisTurn.push(name)
+          mut((l) => ({ ...l, tools: [...(l.tools || []), name] }))
+        },
         onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
         onApproval: (approval) => {
           const runId = approval?.run_id
@@ -709,8 +732,17 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           const status = approvalStatusFromDecision(approval?.decision)
           patchApproval(approval, { ...approval, status })
         },
-        onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
-        onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
+        onDone: () => {
+          activeRunIdsRef.current.clear()
+          setBusy(false)
+          finishOrchEval()
+        },
+        onError: (err) => {
+          activeRunIdsRef.current.clear()
+          mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` }))
+          setBusy(false)
+          finishOrchEval()
+        },
       })
       return
     }
@@ -755,7 +787,10 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
         focalizer: phase === 'deduce' && deduceSel !== 'truth' ? deduceSel : '',
         context: bind,   // Task 6:线程绑定/焦点标签随请求体带上(非线程模式为 null,后端忽略)
         onDelta: (d) => { turnText += d; mut((l) => ({ ...l, content: l.content + d })) },
-        onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+        onTool: (name) => {
+          toolsThisTurn.push(name)
+          mut((l) => ({ ...l, tools: [...(l.tools || []), name] }))
+        },
         onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
         onApproval: (approval) => mut((l) => ({ ...l, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] })),
         onApprovalResolved: (approval) => {
@@ -779,12 +814,14 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
           setBusy(false)
           recoverPartialProposal()
           if (partialProposalRef.current === recoverPartialProposal) partialProposalRef.current = null
+          finishOrchEval()
         },
         onError: (err) => {
           recoverPartialProposal()
           if (partialProposalRef.current === recoverPartialProposal) partialProposalRef.current = null
           mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` }))
           setBusy(false)
+          finishOrchEval()
         },
       })
       return
@@ -794,15 +831,22 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
       agentic: false, seq: seq ?? ctxSeq,   // 审查 P0-1:非章上下文用最近章记忆,时机C 不死线
       thread: threadMode ? threadId : undefined,   // P0a:消息落当前选中会话(非线程模式不传=旧行为)
       onDelta: (d) => mut((l) => ({ ...l, content: l.content + d })),
-      onTool: (name) => mut((l) => ({ ...l, tools: [...(l.tools || []), name] })),
+      onTool: (name) => {
+        toolsThisTurn.push(name)
+        mut((l) => ({ ...l, tools: [...(l.tools || []), name] }))
+      },
       onToolOutput: (output, call_id) => mut((l) => ({ ...l, toolOutputs: [...(l.toolOutputs || []), { output, call_id }] })),
       onApproval: (approval) => mut((l) => ({ ...l, approvals: [...(l.approvals || []), { ...approval, status: 'pending' }] })),
       onApprovalResolved: (approval) => {
         const status = approvalStatusFromDecision(approval?.decision)
         patchApproval(approval, { ...approval, status })
       },
-      onDone: () => setBusy(false),
-      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
+      onDone: () => { setBusy(false); finishOrchEval() },
+      onError: (err) => { mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false); finishOrchEval() },
+    })
+    }).catch((err) => {
+      mut((l) => ({ ...l, content: (l.content || '') + `\n\n_编排失败:${err?.message || err}_` }))
+      setBusy(false)
     })
   }
   sendRef.current = send

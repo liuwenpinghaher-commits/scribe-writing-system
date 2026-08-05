@@ -3,10 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check, AtSign } from 'lucide-react'
 import { api } from './api'
+import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
+import { shouldUseHermesRun, hermesRunInstructions } from './lib/hermesRunIntent'
 import { useChatPersist } from './useChatPersist'
 import { displayToolName } from './lib/toolName'
 import { scrollBehavior } from './lib/utils'
-import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
 import {
   approvalExpiryFromError,
   approvalStatusFromDecision,
@@ -351,25 +352,60 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
       onProposalStart: (s) => onProposalStart?.(s),
       onProposalChunk: (c) => onProposalChunk?.(c),
       onProposal: (p) => { onProposal?.(p); mut((l) => ({ ...l, note: '已在手稿处生成改写,请接受/弃用' })) },
-      onDone: () => { activeRunIdsRef.current.clear(); setBusy(false) },
+      onDone: () => {
+        activeRunIdsRef.current.clear()
+        setBusy(false)
+        evaluateOrchTurn({ toolsCalled: toolsThisTurn, approvedWrites: [] }).then((ev) => {
+          const remedy = ev?.evaluation?.remedy
+          if (ev?.evaluation?.status === 'incomplete' && remedy?.message) {
+            mut((l) => ({
+              ...l,
+              content: (l.content || '') + `\n\n_编排提示：${remedy.message}_`
+                + (remedy.suggested_prompt ? `\n可发送：${remedy.suggested_prompt}` : ''),
+            }))
+          }
+        }).catch(() => {})
+      },
       onError: (err) => { activeRunIdsRef.current.clear(); mut((l) => ({ ...l, content: l.content + `\n\n_出错:${err}_` })); setBusy(false) },
     }
-    if (shouldUseHermesRun(finalMsg)) {
-      ctrlRef.current = api.runWrite(finalMsg, {
-        chapter, focalizer, phase,
-        context: runContextBind(snapshot),   // Task 13 I-1:绑发起时上下文 → 章内 run 也受审批重校验
-        instructions: hermesRunInstructions({ chapter, focalizer, phase }),
+    const toolsThisTurn = []
+    const origOnTool = streamHandlers.onTool
+    streamHandlers.onTool = (name) => {
+      toolsThisTurn.push(name)
+      origOnTool?.(name)
+    }
+    // 统一编排 resolve（正则仅作 resolve 失败回退）
+    orchestrateBeforeSend(finalMsg, { chapter, phase, applyFocus: true }).then((orch) => {
+      const worldWrite = orch.useWorldWriteRun || shouldUseHermesRun(finalMsg)
+      if (worldWrite) {
+        ctrlRef.current = api.runWrite(finalMsg, {
+          chapter, focalizer, phase: '',
+          context: runContextBind(snapshot),
+          instructions: orch.instructions || hermesRunInstructions({ chapter, focalizer, phase: '' }),
+          ...streamHandlers,
+        })
+        return
+      }
+      ctrlRef.current = api.chatWrite(finalMsg, {
+        chapter, focalizer, images, phase,
+        context: chatWriteContextBind(snapshot),
         ...streamHandlers,
       })
-      return
-    }
-    // 断头修复#83:chatWrite 返回 AbortController——存 ref 供停止按钮中止在途流
-    ctrlRef.current = api.chatWrite(finalMsg, {
-      chapter, focalizer, images, phase,
-      // 与审批型 Run 同样绑定发起时快照；ContextSnapshot 门开启时，普通动稿
-      // 不能因缺少 session/revision 被后端 400 拒绝。
-      context: chatWriteContextBind(snapshot),
-      ...streamHandlers,
+    }).catch(() => {
+      if (shouldUseHermesRun(finalMsg)) {
+        ctrlRef.current = api.runWrite(finalMsg, {
+          chapter, focalizer, phase: '',
+          context: runContextBind(snapshot),
+          instructions: hermesRunInstructions({ chapter, focalizer, phase: '' }),
+          ...streamHandlers,
+        })
+      } else {
+        ctrlRef.current = api.chatWrite(finalMsg, {
+          chapter, focalizer, images, phase,
+          context: chatWriteContextBind(snapshot),
+          ...streamHandlers,
+        })
+      }
     })
   }
 

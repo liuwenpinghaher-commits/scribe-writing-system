@@ -86,6 +86,13 @@ export const api = {
     '/workflow/snapshot' + (seq != null ? `?seq=${enc(seq)}` : ''),
     work,
   ),
+  // ── 统一编排 WorkPackage ──
+  orchCatalog: (work) => j('/orchestration/catalog', work),
+  orchResolve: (body, work) => post('/orchestration/resolve', body || {}, work),
+  orchActive: (work) => j('/orchestration/active', work),
+  orchEvaluateTurn: (body, work) => post('/orchestration/evaluate-turn', body || {}, work),
+  orchBuildProposal: (body, work) => post('/orchestration/proposal', body || {}, work),
+  orchApplyProposal: (body, work) => post('/orchestration/proposal/apply', body || {}, work),
   // ── 经验压力层(revision letter / scene-grid / continue rite)──
   // 路径必须与后端 experience router 一致;服务端为 letter/grid/ack 真源。
   revisionLetter: (work) => j('/revision/letter', work),

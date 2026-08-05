@@ -72,7 +72,7 @@ export function WorkflowCapsule({ work, onOpenJourney, onContinue }) {
   )
 }
 
-/** 执行 ui_directive + 预填主编（P0） */
+/** 执行 ui_directive + 预填主编；并 resolve 工作包（旅程继续 → 编排）。 */
 export function applyWorkflowContinue(snap, { onSel, onJumpChapter } = {}) {
   if (!snap) return
   const prompt = snap.suggested_prompt || ''
@@ -106,4 +106,19 @@ export function applyWorkflowContinue(snap, { onSel, onJumpChapter } = {}) {
       } catch { /* */ }
     }
   }
+  // 旅程下一步 → 激活编排工作包（async，不阻塞 UI）
+  import('./lib/orchestrateSend.js').then(({ orchestrateBeforeSend }) => {
+    const domainHint = phase === 'outline' ? 'chapter.outline'
+      : phase === 'beats' ? 'chapter.beats'
+        : phase === 'deduce' ? 'chapter.deduce'
+          : null
+    return orchestrateBeforeSend(prompt || '继续', {
+      chapter: seq != null ? Number(seq) : null,
+      phase: phase || '',
+      action: 'create',
+      journey_next_domain: domainHint,
+      applyFocus: true,
+      onSel,
+    })
+  }).catch(() => {})
 }

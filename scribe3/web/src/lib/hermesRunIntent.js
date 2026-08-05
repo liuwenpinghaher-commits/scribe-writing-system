@@ -7,12 +7,21 @@ const PROSE_GENERATION_WORDS = /(正文|草稿|段落|续写|改写|润色|扩�
 // 生产 chief-seed / MCP 工具名 / 强制世界写话术 — 一律走 Hermes Run(可待批),禁止掉进无工具 stream
 const WORLD_WRITE_FORCE = /(s3_[a-z_]+|北极星意图|写入落库|登记\/更新本书北极星|更正角色|更新角色|提交写入提案|供我批准|需我审批|写入提案)/
 
+/**
+ * @deprecated 发送主路径请用 orchestrateBeforeSend（/orchestration/resolve）。
+ * 本函数仅作后端不可达时的弱回退 + 单测兼容，不再是唯一分流真理。
+ */
 export function shouldUseHermesRun(text) {
   const value = String(text || '').trim()
   if (!value || value.startsWith('#想法')) return false
   if (WORLD_WRITE_FORCE.test(value)) return true
   if (PROSE_GENERATION_WORDS.test(value)) return false
   return MUTATION_WORDS.test(value) && WORLD_OBJECT_WORDS.test(value)
+}
+
+/** 强制种子话术仍须命中写通道（回归护栏） */
+export function isWorldWriteForceSeed(text) {
+  return WORLD_WRITE_FORCE.test(String(text || '').trim())
 }
 
 export function hermesRunInstructions({ chapter, phase, focalizer } = {}) {

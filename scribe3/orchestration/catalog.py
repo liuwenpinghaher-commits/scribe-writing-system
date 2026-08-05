@@ -1,0 +1,409 @@
+"""CapabilityCatalog · 全域能力注册表（单一真相，非散落 if）。
+
+每条 domain 含：match 信号、读写工具白名单、ui_directive 模板、required_outcome。
+扩展能力 = 追加 CATALOG 项，禁止在发送路径再写独立 if 树。
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+# 写工具名必须与 mcp._common.WRITE_GATED / tools_* 一致（测试会校验子集）。
+CATALOG: list[dict[str, Any]] = [
+    # —— 意图 ——
+    {
+        "domain": "intent.northstar",
+        "label": "北极星/作品意图",
+        "match_keywords": (
+            "北极星", "读者感受", "读者感", "情感弧", "红线", "作品意图", "本书意图",
+            "set_intent", "s3_set_intent",
+        ),
+        "match_force": ("登记/更新本书北极星", "写入落库", "北极星意图"),
+        "read_tools": ("s3_get_intent",),
+        "write_tools": ("s3_set_intent",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "northstar"},
+        "channel": "world_write",
+    },
+    # —— 设定 Codex ——
+    {
+        "domain": "codex.character",
+        "label": "角色设定",
+        "match_keywords": (
+            "角色", "人物", "主角", "配角", "角色设定", "人物设定", "外貌", "欲望", "恐惧",
+            "表层目标", "弧光", "锚点", "character", "s3_add_character", "s3_patch_character",
+            "s3_set_char_anchors", "更正角色", "更新角色",
+        ),
+        "match_force": ("s3_add_character", "s3_patch_character", "s3_set_char_anchors", "更正角色", "更新角色"),
+        "read_tools": ("s3_list_chapters", "s3_character_timeline", "s3_get_voice_profile"),
+        "write_tools": (
+            "s3_add_character", "s3_patch_character", "s3_set_char_anchors",
+            "s3_set_voice_profile", "s3_add_char_state",
+        ),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex_character"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "codex.faction",
+        "label": "势力",
+        "match_keywords": ("势力", "组织", "门派", "faction", "s3_add_faction", "s3_patch_faction"),
+        "match_force": ("s3_add_faction", "s3_patch_faction"),
+        "read_tools": ("s3_list_factions",),
+        "write_tools": ("s3_add_faction", "s3_patch_faction"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "faction"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex_faction"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "codex.item",
+        "label": "物件",
+        "match_keywords": ("物件", "物品", "道具", "item", "s3_add_item", "s3_patch_item"),
+        "match_force": ("s3_add_item", "s3_patch_item"),
+        "read_tools": ("s3_list_items",),
+        "write_tools": ("s3_add_item", "s3_patch_item"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "item"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex_item"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "codex.term",
+        "label": "术语",
+        "match_keywords": ("术语", "名词", "term", "s3_add_term", "s3_patch_term"),
+        "match_force": ("s3_add_term", "s3_patch_term"),
+        "read_tools": ("s3_list_terms",),
+        "write_tools": ("s3_add_term", "s3_patch_term"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "term"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex_term"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "codex.world_rule",
+        "label": "世界规则",
+        "match_keywords": ("世界规则", "法则", "设定规则", "world_rule", "s3_add_world_rule", "s3_patch_world_rule"),
+        "match_force": ("s3_add_world_rule", "s3_patch_world_rule"),
+        "read_tools": ("s3_list_world_rules",),
+        "write_tools": ("s3_add_world_rule", "s3_patch_world_rule"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "world_rule"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex_world_rule"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "codex.lifecycle",
+        "label": "设定生命周期",
+        "match_keywords": ("删除设定", "归档设定", "s3_delete_codex", "删角色"),
+        "match_force": ("s3_delete_codex",),
+        "read_tools": (),
+        "write_tools": ("s3_delete_codex",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "codex"},
+        "channel": "world_write",
+    },
+    # —— 关系 / 事实 / 知识 ——
+    {
+        "domain": "relation.character",
+        "label": "角色关系",
+        "match_keywords": (
+            "人物关系", "角色关系", "盟友", "仇敌", "师徒", "关系推进",
+            "s3_add_character_relation", "s3_evolve_relation",
+        ),
+        "match_force": ("s3_add_character_relation", "s3_evolve_relation"),
+        "read_tools": ("s3_relations_at",),
+        "write_tools": ("s3_add_character_relation", "s3_evolve_relation"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "relation"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "relation.entity",
+        "label": "实体关系",
+        "match_keywords": ("实体关系", "s3_add_entity_relation", "s3_list_entity_relations"),
+        "match_force": ("s3_add_entity_relation",),
+        "read_tools": ("s3_list_entity_relations",),
+        "write_tools": ("s3_add_entity_relation",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "entity_relation"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "fact.proposition",
+        "label": "命题/事实",
+        "match_keywords": ("命题", "事实", "登记事实", "s3_add_fact", "s3_supersede_fact"),
+        "match_force": ("s3_add_fact", "s3_supersede_fact"),
+        "read_tools": ("s3_project_frame",),
+        "write_tools": ("s3_add_fact", "s3_supersede_fact"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "proposition"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "proposition"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "knowledge.record",
+        "label": "知识边",
+        "match_keywords": ("知识", "知情", "s3_record_knowledge", "s3_forget_knowledge"),
+        "match_force": ("s3_record_knowledge", "s3_forget_knowledge"),
+        "read_tools": ("s3_project_frame", "s3_dramatic_irony"),
+        "write_tools": ("s3_record_knowledge", "s3_forget_knowledge"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "knowledge"},
+        "channel": "world_write",
+    },
+    # —— 伏笔 / 母题 / 线索 ——
+    {
+        "domain": "promise.plant",
+        "label": "埋设伏笔",
+        "match_keywords": ("埋伏笔", "埋承诺", "plant", "s3_plant_promise", "新伏笔", "埋一条"),
+        "match_force": ("s3_plant_promise",),
+        "read_tools": ("s3_list_promises",),
+        "write_tools": ("s3_plant_promise",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "promise"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "promise"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "promise.lifecycle",
+        "label": "伏笔生命周期",
+        "match_keywords": (
+            "伏笔", "承诺", "兑现", "回收", "展期", "弃置", "障眼法", "超期伏笔",
+            "s3_advance_promise", "s3_touch_promise", "s3_abandon_promise",
+            "s3_mark_herring", "s3_patch_promise",
+        ),
+        "match_force": (
+            "s3_advance_promise", "s3_touch_promise", "s3_abandon_promise",
+            "s3_mark_herring", "s3_patch_promise",
+        ),
+        "read_tools": ("s3_list_promises", "s3_promise_timeline"),
+        "write_tools": (
+            "s3_advance_promise", "s3_touch_promise", "s3_abandon_promise",
+            "s3_mark_herring", "s3_patch_promise",
+        ),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "promise"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "promise"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "motif.manage",
+        "label": "母题",
+        "match_keywords": ("母题", "motif", "s3_add_motif", "s3_patch_motif", "回响"),
+        "match_force": ("s3_add_motif", "s3_patch_motif"),
+        "read_tools": ("s3_list_motifs",),
+        "write_tools": ("s3_add_motif", "s3_patch_motif"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "motif"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "motif"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "clue.manage",
+        "label": "线索",
+        "match_keywords": ("线索", "clue", "s3_add_clue"),
+        "match_force": ("s3_add_clue",),
+        "read_tools": (),
+        "write_tools": ("s3_add_clue",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "clue"},
+        "channel": "world_write",
+    },
+    # —— 结构 ——
+    {
+        "domain": "structure.volume",
+        "label": "分卷结构",
+        "match_keywords": ("分卷", "建卷", "删卷", "卷纲", "s3_add_volume", "s3_patch_volume",
+                           "s3_delete_volume", "s3_reorder_chapters", "重排"),
+        "match_force": ("s3_add_volume", "s3_patch_volume", "s3_delete_volume", "s3_reorder_chapters"),
+        "read_tools": ("s3_list_volumes", "s3_list_chapters"),
+        "write_tools": (
+            "s3_add_volume", "s3_patch_volume", "s3_delete_volume", "s3_reorder_chapters",
+        ),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "volume"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "volume"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "structure.chapter",
+        "label": "章节结构",
+        "match_keywords": ("建章", "新章节", "s3_add_chapter", "s3_patch_chapter_meta", "章标题"),
+        "match_force": ("s3_add_chapter", "s3_patch_chapter_meta"),
+        "read_tools": ("s3_list_chapters", "s3_get_chapter"),
+        "write_tools": ("s3_add_chapter", "s3_patch_chapter_meta"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": {"type": "chapter"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "chapter_meta"},
+        "channel": "world_write",
+    },
+    # —— 章阶段（大纲/节拍/演绎）——
+    {
+        "domain": "chapter.outline",
+        "label": "章大纲",
+        "match_keywords": (
+            "大纲", "章纲", "synopsis", "起草大纲", "写大纲", "本章大纲",
+            "s3_patch_chapter_plan", "压力级", "chapter_role",
+        ),
+        "match_force": (),
+        "read_tools": ("s3_get_chapter", "s3_get_intent", "s3_list_promises"),
+        "write_tools": ("s3_patch_chapter_meta", "s3_patch_chapter_plan"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "outline", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "outline"},
+        "channel": "world_write",
+        "phase_hint": "outline",
+    },
+    {
+        "domain": "chapter.beats",
+        "label": "章节拍",
+        "match_keywords": ("节拍", "情节点", "beats", "字数预算", "展开节拍"),
+        "match_force": (),
+        "read_tools": ("s3_get_chapter",),
+        "write_tools": ("s3_patch_chapter_plan",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "beats", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "beats"},
+        "channel": "world_write",
+        "phase_hint": "beats",
+    },
+    {
+        "domain": "chapter.deduce",
+        "label": "章演绎",
+        "match_keywords": ("演绎", "场景真相", "限知投影", "deduce", "scene_truth"),
+        "match_force": (),
+        "read_tools": ("s3_get_chapter", "s3_project_frame", "s3_find_leaks"),
+        "write_tools": ("s3_patch_chapter_plan", "s3_patch_chapter_meta"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "deduce", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "deduce"},
+        "channel": "world_write",
+        "phase_hint": "deduce",
+    },
+    # —— 正文（与世界写分离）——
+    {
+        "domain": "prose.generate",
+        "label": "正文生成",
+        "match_keywords": (
+            "正文", "草稿", "续写", "写本章", "写整章", "完整正文", "润色", "扩写", "缩写",
+            "改写段落", "文风", "镜头",
+        ),
+        "match_force": (),
+        "read_tools": (),
+        "write_tools": (),  # 正文走 PROPOSAL，不走 MCP 世界写
+        "required_outcome": "prose_proposal",
+        "ui": {"entry": "manuscript", "phase": "final", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "reading", "panel": "prose"},
+        "channel": "prose_write",
+        "phase_hint": "final",
+    },
+    {
+        "domain": "prose.revise",
+        "label": "正文修订",
+        "match_keywords": ("改这段", "润色选区", "重写选区", "局部改写"),
+        "match_force": (),
+        "read_tools": (),
+        "write_tools": (),
+        "required_outcome": "prose_proposal",
+        "ui": {"entry": "manuscript", "phase": "draft", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "draft"},
+        "channel": "prose_write",
+        "phase_hint": "draft",
+    },
+    # —— 工艺 / QC ——
+    {
+        "domain": "craft.rules",
+        "label": "工艺规则",
+        "match_keywords": ("工艺规则", "craft", "s3_craft_rule_add", "s3_craft_rule_remove", "克制"),
+        "match_force": ("s3_craft_rule_add", "s3_craft_rule_remove"),
+        "read_tools": ("s3_craft_rule_list",),
+        "write_tools": ("s3_craft_rule_add", "s3_craft_rule_remove"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "craft"},
+        "channel": "world_write",
+    },
+    {
+        "domain": "qc.review",
+        "label": "质量体检",
+        "match_keywords": ("体检", "qc", "质量检查", "s3_qc_chapter", "跨章复读", "泄露"),
+        "match_force": (),
+        "read_tools": ("s3_qc_chapter", "s3_cross_repetition", "s3_find_leaks", "s3_discipline_check"),
+        "write_tools": (),
+        "required_outcome": "read_only_advice",
+        "ui": {"entry": "manuscript", "phase": "final", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "reading", "panel": "qc"},
+        "channel": "discuss",
+    },
+    # —— 声线 ——
+    {
+        "domain": "voice.manage",
+        "label": "声线",
+        "match_keywords": ("声线", "声音档案", "OOC", "s3_set_voice_profile", "s3_resolve_voice_flag"),
+        "match_force": ("s3_set_voice_profile", "s3_resolve_voice_flag", "s3_fold_voice_flags"),
+        "read_tools": ("s3_get_voice_profile", "s3_list_voice_flags", "s3_check_ooc"),
+        "write_tools": ("s3_set_voice_profile", "s3_resolve_voice_flag", "s3_fold_voice_flags"),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "codex", "phase": None, "node": {"type": "character"}, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "voice"},
+        "channel": "world_write",
+    },
+    # —— 目的合同 ——
+    {
+        "domain": "purpose.register",
+        "label": "目的合同",
+        "match_keywords": ("目的合同", "s3_register_purpose", "本章目的"),
+        "match_force": ("s3_register_purpose",),
+        "read_tools": (),
+        "write_tools": ("s3_register_purpose",),
+        "required_outcome": "write_proposal",
+        "ui": {"entry": "manuscript", "phase": "outline", "node": {"type": "chapter"},
+               "right_tab": "chief", "layout_mode": "collaboration", "panel": "purpose"},
+        "channel": "world_write",
+    },
+    # —— 默认讨论 ——
+    {
+        "domain": "discuss.general",
+        "label": "一般讨论",
+        "match_keywords": (),
+        "match_force": (),
+        "read_tools": ("s3_get_intent", "s3_list_chapters", "s3_list_promises"),
+        "write_tools": (),
+        "required_outcome": "read_only_advice",
+        "ui": {"entry": "manuscript", "phase": None, "node": None, "right_tab": "chief",
+               "layout_mode": "collaboration", "panel": "chief"},
+        "channel": "discuss",
+        "is_default": True,
+    },
+]
+
+
+def list_domains() -> list[str]:
+    return [c["domain"] for c in CATALOG]
+
+
+def get_domain(domain: str) -> dict[str, Any] | None:
+    for c in CATALOG:
+        if c["domain"] == domain:
+            return deepcopy(c)
+    return None
+
+
+def primary_domain_ids() -> frozenset[str]:
+    """方案要求的主域（含 prose / craft / qc）。"""
+    return frozenset(c["domain"] for c in CATALOG)
+
+
+def all_write_tools_in_catalog() -> set[str]:
+    out: set[str] = set()
+    for c in CATALOG:
+        out.update(c.get("write_tools") or ())
+    return out
