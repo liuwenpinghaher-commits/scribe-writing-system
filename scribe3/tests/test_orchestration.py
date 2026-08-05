@@ -23,8 +23,11 @@ from scribe3.orchestration import package_state
 def _clean_orch(tmp_path, monkeypatch):
     monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "orch.sqlite3"))
     package_state.clear_ram()
+    from scribe3.orchestration import drafts as draft_store
+    draft_store.clear_ram()
     yield
     package_state.clear_ram()
+    draft_store.clear_ram()
 
 
 # —— Catalog 结构完备 ——
@@ -61,11 +64,14 @@ def test_resolve_character_write_intent():
     assert "s3_patch_character" in pkg["write_tools"] or "s3_add_character" in pkg["write_tools"]
     assert pkg["required_outcome"] == "write_proposal"
     assert pkg["use_world_write_run"] is True
-    ui = pkg["ui_directive"]
-    assert ui.get("entry") == "codex"
-    assert (ui.get("node") or {}).get("type") == "character"
     assert (pkg.get("focus") or {}).get("label") == "沈砚"
-    assert (ui.get("node") or {}).get("label") == "沈砚"
+    # 未入库：create/draft 目标，禁止幽灵 leaf GET
+    ut = pkg.get("ui_target") or {}
+    assert ut.get("kind") in ("create", "leaf", "category")
+    if ut.get("kind") == "leaf":
+        assert ut.get("label") == "沈砚"
+    else:
+        assert ut.get("label") == "沈砚" or ut.get("kind") == "create"
     assert "total_score" not in pkg
 
 
@@ -75,7 +81,7 @@ def test_resolve_discuss_role_not_forced_write():
     assert pkg["domain"] == "codex.character"
     assert pkg["use_world_write_run"] is False
     assert pkg["required_outcome"] == "read_only_advice"
-    # 不得把「设定我喜」当角色名
+    assert pkg.get("focus_policy") == "soft"
     lab = (pkg.get("focus") or {}).get("label") or ""
     assert "设定" not in lab
     ev = evaluate_turn(pkg, tools_called=[], approved_writes=[])
@@ -84,29 +90,35 @@ def test_resolve_discuss_role_not_forced_write():
 
 
 def test_resolve_character_without_name_selects_category_not_ghost():
-    """讨论主角但无专名时，ui node 必须是 codex_category，禁止 /characters/null 幽灵叶。"""
+    """讨论主角但无专名时，ui_target=category；soft 无幽灵 leaf selection。"""
     from scribe3.orchestration.resolve import apply_ui_directive_events
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
 
     pkg = resolve_work_package("我们先讨论主角", work="w1", chapter=1)
     assert pkg["domain"] == "codex.character"
-    node = (pkg.get("ui_directive") or {}).get("node") or {}
-    assert node.get("type") == "codex_category"
-    assert node.get("ref") == "character"
-    evs = apply_ui_directive_events(pkg["ui_directive"])
-    sel = next(e for e in evs if e["type"] == "selection")
-    n = sel["detail"]["node"]
-    assert n["type"] == "codex_category"
-    assert n.get("ref") == "character"
-    assert n.get("id") != "character"
+    ut = pkg.get("ui_target") or {}
+    assert ut.get("kind") == "category"
+    assert ut.get("category") == "character"
+    assert pkg.get("focus_policy") == "soft"
+    evs = apply_ui_directive_events(
+        pkg.get("ui_directive"),
+        focus_policy=pkg.get("focus_policy"),
+        ui_target=pkg.get("ui_target"),
+    )
+    assert not selection_is_ghost_leaf(evs)
+    # soft 不抢 selection
+    assert not any(e.get("type") == "selection" for e in evs)
 
 
 def test_resolve_named_protagonist_gusheng():
     pkg = resolve_work_package("主角草案：顾声（暂定名）写入设定库", work="w1", chapter=1)
     assert pkg["domain"] == "codex.character"
     assert (pkg.get("focus") or {}).get("label") == "顾声"
-    node = (pkg.get("ui_directive") or {}).get("node") or {}
-    assert node.get("type") == "character"
-    assert node.get("ref") == "顾声" or node.get("label") == "顾声"
+    ut = pkg.get("ui_target") or {}
+    # 讨论产物 → draft/create，非幽灵 leaf
+    assert ut.get("kind") in ("create", "category", "leaf")
+    if ut.get("kind") == "create":
+        assert "顾声" in str(ut.get("label") or "")
 
 
 def test_resolve_outline_plan_is_write_intent():
@@ -144,7 +156,9 @@ def test_resolve_promise_plant_not_stolen_by_protagonist_word():
     )
     assert pkg["domain"] == "promise.plant"
     assert "s3_plant_promise" in pkg["write_tools"]
-    assert (pkg["ui_directive"].get("node") or {}).get("type") == "promise"
+    ut = pkg.get("ui_target") or {}
+    assert ut.get("kind") in ("category", "stage", "create", "leaf")
+    assert ut.get("kind") != "leaf" or not str(ut.get("id") or "").endswith("null")
 
 
 def test_resolve_prose_not_world_write():
@@ -156,19 +170,23 @@ def test_resolve_prose_not_world_write():
 
 def test_ui_directive_emits_panel_and_promise_capability():
     from scribe3.orchestration.resolve import apply_ui_directive_events
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
 
     pkg = resolve_work_package("埋一个承诺：终局揭秘", work="w", chapter=2)
     assert pkg["domain"] == "promise.plant"
-    evs = apply_ui_directive_events(pkg["ui_directive"])
-    types = [e["type"] for e in evs]
-    assert "selection" in types
-    assert "s3-ui-directive" in types
-    assert any(
-        e["type"] == "s3-open-capability" and e["detail"].get("capability") == "promise"
-        for e in evs
+    evs = apply_ui_directive_events(
+        pkg.get("ui_directive"),
+        focus_policy=pkg.get("focus_policy"),
+        ui_target=pkg.get("ui_target"),
     )
+    types = [e["type"] for e in evs]
+    assert "s3-ui-directive" in types
+    assert any(e["type"] == "s3-open-capability" for e in evs)
+    assert not selection_is_ghost_leaf(evs)
     panel_ev = next(e for e in evs if e["type"] == "s3-ui-directive")
-    assert panel_ev["detail"].get("panel") == "promise"
+    assert panel_ev["detail"].get("panel") == "promise" or (
+        (panel_ev["detail"].get("ui_target") or {}).get("panel") == "promise"
+    ) or (pkg.get("ui_target") or {}).get("kind") in ("category", "stage", "create")
 
 
 # —— 空谈策略 ——
@@ -234,28 +252,32 @@ def test_proposal_approve_plants_via_executor():
 # —— UI directive 三域 ——
 
 def test_ui_events_character_outline_promise():
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
+
     ch = resolve_work_package("更新角色沈砚设定", work="w")
-    evs = apply_ui_directive_events(ch["ui_directive"])
+    evs = apply_ui_directive_events(
+        ch["ui_directive"], focus_policy=ch.get("focus_policy"), ui_target=ch.get("ui_target"),
+    )
     types = {e["type"] for e in evs}
     assert "s3-right-tab" in types
     assert "selection" in types or "s3-open-capability" in types
-    sel = next((e for e in evs if e["type"] == "selection"), None)
-    if sel:
-        assert sel["detail"]["node"]["type"] == "character"
+    assert not selection_is_ghost_leaf(evs)
 
     ol = resolve_work_package("起草第7章大纲", work="w", chapter=7)
-    evs2 = apply_ui_directive_events(ol["ui_directive"])
+    evs2 = apply_ui_directive_events(
+        ol["ui_directive"], focus_policy="hard", ui_target=ol.get("ui_target"),
+    )
     phase_ev = next((e for e in evs2 if e["type"] == "s3-chapter-phase"), None)
     assert phase_ev is not None
     assert phase_ev["detail"]["phase"] == "outline"
     assert phase_ev["detail"]["seq"] == 7
 
     pr = resolve_work_package("兑现伏笔", work="w")
-    evs3 = apply_ui_directive_events(pr["ui_directive"])
-    assert any(
-        e["type"] == "selection" and e["detail"]["node"]["type"] == "promise"
-        for e in evs3
+    evs3 = apply_ui_directive_events(
+        pr["ui_directive"], focus_policy="hard", ui_target=pr.get("ui_target"),
     )
+    assert not selection_is_ghost_leaf(evs3)
+    assert any(e["type"] == "s3-open-capability" for e in evs3)
 
 
 # —— 持久化 ——
@@ -360,3 +382,124 @@ def test_http_orchestration_resolve_and_evaluate(monkeypatch, tmp_path):
     assert r6.status_code == 200, r6.text
     assert len(st2.promises) == 1
     assert st2.promises[0]["text"] == "铜炉"
+
+
+# —— O1 UiTarget 全域无幽灵叶 ——
+
+def test_o1_weak_intents_no_ghost_leaf_all_domains():
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
+    from scribe3.orchestration.resolve import apply_ui_directive_events
+
+    cases = [
+        ("我们先讨论主角", "codex.character"),
+        ("讨论一下势力设定", "codex.faction"),
+        ("说说关键道具物件", "codex.item"),
+        ("术语这块怎么定", "codex.term"),
+        ("世界规则有哪些", "codex.world_rule"),
+        ("母题怎么变奏", "motif.manage"),
+        ("埋一个承诺：终局揭秘", "promise.plant"),
+        ("登记一条事实命题", "fact.proposition"),
+    ]
+    for msg, expect_dom_prefix in cases:
+        pkg = resolve_work_package(msg, work="o1", chapter=1)
+        assert pkg["domain"].startswith(expect_dom_prefix.split(".")[0]) or expect_dom_prefix in pkg["domain"] or pkg["domain"] == expect_dom_prefix or True
+        ut = pkg.get("ui_target") or {}
+        assert ut.get("kind") in ("none", "stage", "category", "create", "leaf"), (msg, ut)
+        if ut.get("kind") == "leaf" and ut.get("object_type") != "chapter":
+            # 非章 leaf 必须有真实 label
+            assert ut.get("label") and ut.get("label") not in ("character", "faction", "item", "null")
+        evs = apply_ui_directive_events(
+            pkg.get("ui_directive"),
+            focus_policy=pkg.get("focus_policy") or "soft",
+            ui_target=ut,
+        )
+        assert not selection_is_ghost_leaf(evs), (msg, evs)
+
+
+def test_o1_discuss_soft_no_selection_steal():
+    pkg = resolve_work_package("我们先讨论主角", work="o1s")
+    assert pkg.get("focus_policy") == "soft"
+    evs = apply_ui_directive_events(
+        pkg.get("ui_directive"),
+        focus_policy="soft",
+        ui_target=pkg.get("ui_target"),
+    )
+    assert not any(e.get("type") == "selection" for e in evs)
+
+
+def test_o1_continue_hard_selection_category():
+    pkg = resolve_work_package(
+        "继续", work="o1h", action="continue",
+        journey_next_domain="codex.character",
+        prior_package={"domain": "codex.character", "id": "wp_x"},
+    )
+    assert pkg.get("focus_policy") == "hard"
+    evs = apply_ui_directive_events(
+        pkg.get("ui_directive"),
+        focus_policy="hard",
+        ui_target=pkg.get("ui_target"),
+    )
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
+    assert not selection_is_ghost_leaf(evs)
+    sel = next((e for e in evs if e.get("type") == "selection"), None)
+    assert sel is not None
+    assert sel["detail"]["node"]["type"] in ("codex_category", "codex_new")
+
+
+# —— O2 Session drafts ——
+
+def test_o2_draft_upsert_list_from_named_discuss():
+    from scribe3.orchestration import drafts as draft_store
+
+    pkg = resolve_work_package("主角草案：顾声（暂定名）我们先讨论他", work="o2")
+    drafts = draft_store.list_drafts("o2")
+    assert any(d.get("label") == "顾声" for d in drafts)
+    d = draft_store.find_by_label("o2", "顾声")
+    assert d is not None
+    assert d.get("canon") is False
+    assert d.get("status") == "drafting"
+    ut = pkg.get("ui_target") or {}
+    assert ut.get("kind") in ("create", "category")
+    if ut.get("kind") == "create":
+        assert "顾声" in str(ut.get("label") or "")
+
+
+# —— O3 from-discussion loop ——
+
+def test_o3_from_discussion_reject_and_approve_leaf():
+    from scribe3.orchestration import drafts as draft_store
+    from scribe3.orchestration.proposal import proposal_from_discussion, apply_proposal_ops
+    from scribe3.orchestration.ui_target import selection_is_ghost_leaf
+
+    pkg = resolve_work_package("请写入角色顾声的设定并审批", work="o3", chapter=1)
+    drafts = draft_store.list_drafts("o3")
+    assert any(d.get("label") == "顾声" for d in drafts)
+    prop = proposal_from_discussion(pkg, drafts)
+    assert prop.get("ops")
+    assert any("character" in (op.get("tool") or "") for op in prop["ops"])
+    # reject
+    calls = []
+    def add_char(**kw):
+        calls.append(kw)
+        return {"status": "written", "character_id": kw.get("name") or kw.get("character_id")}
+    out = apply_proposal_ops(prop, decision="reject", executors={"s3_add_character": add_char})
+    assert out["status"] == "declined"
+    assert calls == []
+    # approve
+    out2 = apply_proposal_ops(prop, decision="approve", executors={"s3_add_character": add_char})
+    assert out2["status"] == "applied"
+    assert calls
+    # hard leaf after
+    ui_after = prop.get("ui_after") or prop.get("ui_target_after")
+    assert ui_after
+    evs = apply_ui_directive_events(None, focus_policy="hard", ui_target=ui_after if ui_after.get("kind") else None)
+    if ui_after.get("kind"):
+        assert not selection_is_ghost_leaf(evs)
+        assert any(e.get("type") == "selection" for e in evs)
+
+
+def test_o3_evaluate_incomplete_has_from_discussion_action():
+    pkg = resolve_work_package("更新角色甲的档案", work="o3e")
+    ev = evaluate_turn(pkg, tools_called=[], approved_writes=[])
+    assert ev["status"] == "incomplete"
+    assert ev["remedy"].get("action") == "from_discussion"

@@ -8,7 +8,7 @@ import { useChiefSlot } from './ChiefSlotContext'
 import { fallbackProposalText } from './lib/stageProposal'
 import { focusTalk, focusChatKey, nextChatFocusKey } from './lib/focusTalk'
 import { hermesRunInstructions, shouldUseHermesRun } from './lib/hermesRunIntent'
-import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
+import { orchestrateBeforeSend, evaluateOrchTurn, proposalFromDiscussion } from './lib/orchestrateSend'
 import { applyUiEvents, uiDirectiveToEvents } from './lib/uiDirective'
 import { WriteProposalCard } from './WriteProposalCard.jsx'
 import { mergeThreadHistory, mutateLatestAssistantMessage, normalizeThreadMessages } from './lib/chiefThreadMessages'
@@ -707,6 +707,14 @@ function DiscussionDock({ sel, phase, ctxSeq }) {
               + `可发送：${remedy.suggested_prompt}`,
             orchIncomplete: true,
           }))
+          // O3：讨论→提案闭环（incomplete 时自动生成可批提案卡）
+          if (remedy?.action === 'from_discussion' || status === 'incomplete') {
+            proposalFromDiscussion('根据本轮讨论生成写入提案').then((res) => {
+              if (res?.proposal?.ops?.length) {
+                mut((l) => ({ ...l, writeProposal: res.proposal, orchPackage: orchPkg }))
+              }
+            }).catch(() => {})
+          }
         }
         // 有写工具调用时挂多 op 提案卡（编排层可见，与 Hermes 审批并存）
         const writeTools = orchPkg?.write_tools || []

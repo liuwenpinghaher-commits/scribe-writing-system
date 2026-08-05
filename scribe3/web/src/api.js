@@ -93,6 +93,9 @@ export const api = {
   orchEvaluateTurn: (body, work) => post('/orchestration/evaluate-turn', body || {}, work),
   orchBuildProposal: (body, work) => post('/orchestration/proposal', body || {}, work),
   orchApplyProposal: (body, work) => post('/orchestration/proposal/apply', body || {}, work),
+  orchDrafts: (work) => j('/orchestration/drafts', work),
+  orchDraftUpsert: (body, work) => post('/orchestration/drafts', body || {}, work),
+  orchFromDiscussion: (body, work) => post('/orchestration/proposal/from-discussion', body || {}, work),
   // ── 经验压力层(revision letter / scene-grid / continue rite)──
   // 路径必须与后端 experience router 一致;服务端为 letter/grid/ack 真源。
   revisionLetter: (work) => j('/revision/letter', work),

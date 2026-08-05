@@ -35,6 +35,8 @@ export async function orchestrateBeforeSend(message, opts = {}) {
   let uiEvents = []
   let useWorldWriteRun = false
   let channel = 'discuss'
+  let focusPolicy = 'soft'
+  let uiTarget = null
 
   try {
     const body = {
@@ -52,14 +54,23 @@ export async function orchestrateBeforeSend(message, opts = {}) {
     uiEvents = Array.isArray(res.ui_events) ? res.ui_events : []
     useWorldWriteRun = !!res.use_world_write_run
     channel = res.channel || pkg?.channel || 'discuss'
+    focusPolicy = res.focus_policy || pkg?.focus_policy || 'soft'
+    uiTarget = res.ui_target || pkg?.ui_target || null
   } catch {
     // 离线/后端旧版：弱回退正则（非唯一真理路径的兼容）
     useWorldWriteRun = shouldUseHermesRun(message)
     channel = useWorldWriteRun ? 'world_write' : 'discuss'
   }
 
+  // soft/none：后端已不发 selection；仍应用 open-capability / 提示
+  // hard：应用 selection 跟焦（旅程/写入/批准）
   if (applyFocus && uiEvents.length) {
-    applyUiEvents(uiEvents, { onSel, setFocus: opts.setFocus || null })
+    const hard = focusPolicy === 'hard' || action === 'continue' || !!journey_next_domain
+    applyUiEvents(uiEvents, {
+      onSel: hard ? onSel : null,
+      setFocus: hard ? (opts.setFocus || null) : null,
+      soft: !hard,
+    })
   }
 
   const instructions = useWorldWriteRun
@@ -74,6 +85,8 @@ export async function orchestrateBeforeSend(message, opts = {}) {
     useWorldWriteRun,
     package: pkg,
     uiEvents,
+    uiTarget,
+    focusPolicy,
     channel,
     instructions,
     evaluationHint: pkg?.required_outcome === 'write_proposal'
@@ -92,6 +105,15 @@ export async function evaluateOrchTurn({ toolsCalled = [], approvedWrites = [] }
       tools_called: toolsCalled,
       approved_writes: approvedWrites,
     })
+  } catch {
+    return null
+  }
+}
+
+/** incomplete 时根据讨论生成 WriteProposal（不落库）。 */
+export async function proposalFromDiscussion(summary = '') {
+  try {
+    return await api.orchFromDiscussion({ summary })
   } catch {
     return null
   }

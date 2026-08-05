@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, MessagesSquare, Loader2, User, Wrench, Sparkles, Paperclip, X, FileText, Mic, Check, AtSign } from 'lucide-react'
 import { api } from './api'
-import { orchestrateBeforeSend, evaluateOrchTurn } from './lib/orchestrateSend'
+import { orchestrateBeforeSend, evaluateOrchTurn, proposalFromDiscussion } from './lib/orchestrateSend'
 import { applyUiEvents, uiDirectiveToEvents } from './lib/uiDirective'
 import { WriteProposalCard } from './WriteProposalCard.jsx'
 import { shouldUseHermesRun, hermesRunInstructions } from './lib/hermesRunIntent'
@@ -389,6 +389,11 @@ export function WriteChat({ chapter, focalizer, seedQuote, phase = '', onSeedUse
               content: (l.content || '') + `\n\n_编排提示：${remedy.message}_`
                 + (remedy.suggested_prompt ? `\n可发送：${remedy.suggested_prompt}` : ''),
             }))
+            proposalFromDiscussion('根据本轮讨论生成写入提案').then((res) => {
+              if (res?.proposal?.ops?.length) {
+                mut((l) => ({ ...l, writeProposal: res.proposal, orchPackage: orchPkg }))
+              }
+            }).catch(() => {})
           }
           const writeTools = orchPkg?.write_tools || []
           const calledWrites = toolsThisTurn.filter((t) => writeTools.includes(t))

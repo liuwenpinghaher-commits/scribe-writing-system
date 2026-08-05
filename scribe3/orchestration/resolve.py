@@ -299,14 +299,12 @@ def resolve_work_package(
     if focus and focus.get("type") == "chapter" and focus.get("ref") is not None:
         ch = int(focus["ref"])
 
-    ui = build_ui_directive(entry, focus, chapter=ch)
     write_tools = list(entry.get("write_tools") or ())
     read_tools = list(entry.get("read_tools") or ())
     required = entry.get("required_outcome") or "read_only_advice"
     channel = entry.get("channel") or "discuss"
 
-    # 世界写 Run：须显式突变词或 force 种子；禁止因 catalog 默写 outcome 而恒 true
-    # （「这个角色设定我喜欢」应跟焦讨论，不可走 incomplete 空谈失败）
+    # 世界写 Run：须显式突变词或 force 种子
     mutation = bool(_MUTATION_RE.search(text or ""))
     force_hit = any(f in (text or "") for f in (entry.get("match_force") or ()))
     use_world_write = (
@@ -316,9 +314,56 @@ def resolve_work_package(
     )
     if channel == "prose_write":
         use_world_write = False
-    # 纯讨论同域：保留 domain/ui 跟焦，本回合不强制写提案
+    intent = "write" if use_world_write else "discuss"
     if required == "write_proposal" and not use_world_write and channel == "world_write":
         required = "read_only_advice"
+    if channel == "prose_write":
+        intent = "write"
+        required = entry.get("required_outcome") or "prose_proposal"
+
+    # 会话草稿：具名讨论产物（非正典）
+    from scribe3.orchestration import drafts as draft_store
+    from scribe3.orchestration.ui_target import (
+        build_ui_target,
+        object_type_for_entry,
+        ui_target_to_directive,
+    )
+
+    ot_hint = object_type_for_entry(entry)
+    touched_drafts: list[dict[str, Any]] = []
+    if text and ot_hint in (
+        "character", "faction", "item", "term", "world_rule", "promise", "motif", "proposition",
+    ):
+        try:
+            touched_drafts = draft_store.upsert_from_message(
+                work or "main", text, object_type_hint=ot_hint,
+            )
+        except Exception:
+            touched_drafts = []
+    draft = touched_drafts[0] if touched_drafts else None
+    if draft is None and focus and focus.get("label"):
+        draft = draft_store.find_by_label(
+            work or "main", str(focus.get("label")), object_type=ot_hint,
+        )
+
+    # focus_policy：discuss 默认 soft；continue/journey/write hard
+    if action in ("continue",) or journey_next_domain:
+        focus_policy = "hard"
+    elif intent == "write" or use_world_write:
+        focus_policy = "hard"
+    else:
+        focus_policy = "soft"
+
+    ui_target = build_ui_target(
+        entry, focus=focus, chapter=ch, draft=draft, store_ids=None,
+    )
+    ui = ui_target_to_directive(ui_target)
+    # 保留旧 build 的 phase 增强
+    if not ui.get("phase"):
+        legacy = build_ui_directive(entry, focus, chapter=ch)
+        if legacy.get("phase"):
+            ui["phase"] = legacy["phase"]
+            ui_target["phase"] = legacy["phase"]
 
     pkg_id = None
     if prior and prior.get("domain") == entry["domain"] and action != "switch":
@@ -326,19 +371,27 @@ def resolve_work_package(
     if not pkg_id:
         pkg_id = f"wp_{uuid.uuid4().hex[:12]}"
 
+    entity_ids = [d["draft_id"] for d in touched_drafts if d.get("draft_id")]
+    if draft and draft.get("draft_id") and draft["draft_id"] not in entity_ids:
+        entity_ids.append(draft["draft_id"])
+
     pkg = {
         "id": pkg_id,
         "work": work or "main",
         "domain": entry["domain"],
         "label": entry.get("label") or entry["domain"],
         "status": "discussing",
+        "intent": intent,
         "focus": focus,
         "goal": entry.get("label") or entry["domain"],
         "tool_allowlist": read_tools + write_tools,
         "write_tools": write_tools,
         "read_tools": read_tools,
         "required_outcome": required,
+        "ui_target": ui_target,
         "ui_directive": ui,
+        "focus_policy": focus_policy,
+        "entities": entity_ids,
         "channel": channel,
         "use_world_write_run": bool(use_world_write and write_tools),
         "phase_hint": entry.get("phase_hint") or ui.get("phase"),
@@ -393,12 +446,13 @@ def evaluate_turn(
         out["status"] = "incomplete"
         out["remedy"] = {
             "code": "empty_talk_no_write",
-            "message": "本步需要写入提案，但未调用写工具；请点「生成写入提案」或明确要求 s3_* 写入并审批",
+            "message": "本步需要写入提案，但未调用写工具；请点「根据讨论生成写入提案」或明确要求 s3_* 写入并审批",
             "suggested_prompt": (
                 f"请根据以上讨论，使用工具 "
                 f"{', '.join(list(write_tools)[:4]) or '对应 s3_ 写工具'} "
                 f"提交写入提案供我批准（不要只口头答应）。"
             ),
+            "action": "from_discussion",
         }
         return out
 
@@ -410,167 +464,96 @@ def evaluate_turn(
     return out
 
 
-def apply_ui_directive_events(directive: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """将 ui_directive 展开为前端可消费的事件描述（纯函数，供测试与前端共享契约）。
+def apply_ui_directive_events(
+    directive: dict[str, Any] | None,
+    *,
+    focus_policy: str | None = None,
+    ui_target: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """将 ui_target（优先）或旧 ui_directive 展开为事件。
 
-    前端 handler 按 type 派发 CustomEvent / setSel。
+    soft 默认不抢 selection；hard 才发合法 selection。
     """
-    if not directive or not isinstance(directive, dict):
-        return []
-    events: list[dict[str, Any]] = []
-    right = directive.get("right_tab") or "chief"
-    events.append({"type": "s3-right-tab", "detail": right})
+    from scribe3.orchestration.ui_target import apply_ui_target_events, build_ui_target
+    from scribe3.orchestration.catalog import get_domain as _gd
 
-    node = directive.get("node")
-    phase = directive.get("phase")
-    entry = directive.get("entry")
-
-    if entry:
-        events.append({
-            "type": "s3-open-capability",
-            "detail": {"capability": entry if entry != "manuscript" else "manuscript", "focus": True},
-        })
-
-    if node and isinstance(node, dict):
-        ntype = node.get("type")
-        if ntype == "chapter" and node.get("ref") is not None:
-            seq = int(node["ref"])
-            events.append({
-                "type": "selection",
-                "detail": {
-                    "mode": "node",
-                    "node": {
-                        "id": node.get("id") or f"ch:{seq}",
-                        "type": "chapter",
-                        "ref": seq,
-                        "label": node.get("label") or f"{seq}",
-                    },
-                },
-            })
-            if phase:
-                events.append({
-                    "type": "s3-chapter-phase",
-                    "detail": {"phase": phase, "seq": seq},
-                })
-        elif ntype == "character":
-            # 仅真实角色叶可 selection；否则改选分类，避免栏3 GET /characters/null
-            if _is_real_character_focus({
-                "type": "character",
-                "id": node.get("id"),
-                "label": node.get("label"),
-                "ref": node.get("ref"),
-            }):
-                local = (node.get("label") or node.get("ref")
-                         or str(node.get("id") or "").split(":")[-1]).strip()
-                events.append({
-                    "type": "selection",
-                    "detail": {
-                        "mode": "node",
-                        "node": {
-                            "id": node.get("id") or f"role:{local}",
-                            "type": "character",
-                            "ref": local,
-                            "label": local,
-                        },
-                    },
-                })
+    policy = focus_policy
+    target = ui_target
+    if isinstance(directive, dict):
+        if policy is None:
+            policy = directive.get("focus_policy")
+        if target is None and directive.get("ui_target"):
+            target = directive["ui_target"]
+        if target is None and directive.get("ui_target_kind"):
+            # 已是投影后的 directive，从 kind 重建最小 target
+            kind = directive.get("ui_target_kind")
+            target = {
+                "kind": kind,
+                "entry": directive.get("entry"),
+                "phase": directive.get("phase"),
+                "panel": directive.get("panel"),
+                "right_tab": directive.get("right_tab") or "chief",
+            }
+            node = directive.get("node") or {}
+            if kind == "category":
+                target["category"] = node.get("ref") or "character"
+            elif kind == "leaf":
+                target["object_type"] = node.get("type")
+                target["id"] = node.get("id")
+                target["label"] = node.get("label")
+                target["ref"] = node.get("ref")
+            elif kind == "create":
+                target["object_type"] = node.get("ref") or "character"
+                target["label"] = node.get("label")
+                target["draft_id"] = node.get("draft_id")
+    if target is None and isinstance(directive, dict):
+        # 旧路径：从 node 猜 target，强制可寻址
+        node = directive.get("node")
+        if node and isinstance(node, dict):
+            ntype = node.get("type")
+            if ntype == "codex_category":
+                target = {
+                    "kind": "category",
+                    "entry": "codex",
+                    "category": node.get("ref") or "character",
+                    "right_tab": directive.get("right_tab") or "chief",
+                    "panel": directive.get("panel"),
+                }
+            elif ntype == "chapter" and node.get("ref") is not None:
+                target = {
+                    "kind": "leaf",
+                    "entry": "manuscript",
+                    "object_type": "chapter",
+                    "id": node.get("id"),
+                    "ref": node.get("ref"),
+                    "label": node.get("label"),
+                    "phase": directive.get("phase"),
+                    "right_tab": "chief",
+                }
             else:
-                events.append({
-                    "type": "selection",
-                    "detail": {
-                        "mode": "node",
-                        "node": {
-                            "id": "cat:character",
-                            "type": "codex_category",
-                            "ref": "character",
-                            "label": "角色",
-                        },
-                    },
-                })
-            events.append({
-                "type": "s3-open-capability",
-                "detail": {"capability": "codex", "focus": True},
-            })
-        elif ntype == "codex_category":
-            events.append({
-                "type": "selection",
-                "detail": {
-                    "mode": "node",
-                    "node": {
-                        "id": node.get("id") or f"cat:{node.get('ref') or 'character'}",
-                        "type": "codex_category",
-                        "ref": node.get("ref") or "character",
-                        "label": node.get("label") or "角色",
-                    },
-                },
-            })
-            events.append({
-                "type": "s3-open-capability",
-                "detail": {"capability": "codex", "focus": True},
-            })
-        elif ntype == "promise":
-            events.append({
-                "type": "selection",
-                "detail": {
-                    "mode": "node",
-                    "node": {
-                        "id": node.get("id") or "promise:focus",
-                        "type": "promise",
-                        "ref": node.get("id"),
-                        "label": node.get("label") or "伏笔",
-                    },
-                },
-            })
-        elif ntype in ("faction", "item", "term", "world_rule", "motif", "proposition", "volume"):
-            events.append({
-                "type": "selection",
-                "detail": {
-                    "mode": "node",
-                    "node": {
-                        "id": node.get("id") or ntype,
-                        "type": ntype,
-                        "label": node.get("label") or ntype,
-                    },
-                },
-            })
-
-    # panel：前端 LeftDock / 四栏入口可程序化打开（不全靠 selection）
-    panel = directive.get("panel")
-    if panel:
-        events.append({
-            "type": "s3-ui-directive",
-            "detail": {
-                "entry": entry,
-                "phase": phase,
-                "node": node,
-                "panel": panel,
-                "right_tab": right,
-            },
-        })
-        panel_to_cap = {
-            "northstar": "northstar",
-            "promise": "promise",
-            "motif": "motif",
-            "codex_character": "codex",
-            "codex_faction": "codex",
-            "codex_item": "codex",
-            "codex_term": "codex",
-            "codex_world_rule": "codex",
-            "codex": "codex",
-            "relation": "codex",
-            "proposition": "codex",
-            "outline": "manuscript",
-            "beats": "manuscript",
-            "deduce": "deduce",
-            "qc": "review",
-            "craft": "manuscript",
-            "voice": "codex",
-        }
-        cap = panel_to_cap.get(str(panel))
-        if cap:
-            events.append({
-                "type": "s3-open-capability",
-                "detail": {"capability": cap, "focus": True, "panel": panel},
-            })
-
-    return events
+                # 半截 leaf → category/stage via entry catalog if possible
+                dom = None
+                if ntype in ("character", "faction", "item", "term", "world_rule"):
+                    dom = f"codex.{ntype}"
+                elif ntype == "promise":
+                    dom = "promise.plant"
+                elif ntype == "motif":
+                    dom = "motif.manage"
+                entry = _gd(dom) if dom else None
+                if entry:
+                    target = build_ui_target(entry, focus=None, chapter=None, draft=None)
+                else:
+                    target = {"kind": "stage", "entry": directive.get("entry") or "manuscript",
+                              "right_tab": directive.get("right_tab") or "chief",
+                              "panel": directive.get("panel")}
+        else:
+            target = {
+                "kind": "stage",
+                "entry": directive.get("entry") or "manuscript",
+                "phase": directive.get("phase"),
+                "panel": directive.get("panel"),
+                "right_tab": directive.get("right_tab") or "chief",
+            }
+    if policy is None:
+        policy = "soft"
+    return apply_ui_target_events(target, focus_policy=policy)

@@ -1,4 +1,4 @@
-"""讨论驱动能力编排 · WorkPackage / Catalog / Proposal / UI directive。"""
+"""讨论驱动能力编排 · WorkPackage / Catalog / Proposal / UiTarget / Drafts。"""
 from __future__ import annotations
 
 from scribe3.orchestration.catalog import (
@@ -14,7 +14,17 @@ from scribe3.orchestration.resolve import (
     resolve_work_package,
 )
 from scribe3.orchestration import state as package_state
-from scribe3.orchestration.proposal import apply_proposal_ops, build_write_proposal
+from scribe3.orchestration import drafts as draft_store
+from scribe3.orchestration.proposal import (
+    apply_proposal_ops,
+    build_write_proposal,
+    proposal_from_discussion,
+)
+from scribe3.orchestration.ui_target import (
+    apply_ui_target_events,
+    build_ui_target,
+    selection_is_ghost_leaf,
+)
 
 __all__ = [
     "CATALOG",
@@ -25,7 +35,12 @@ __all__ = [
     "match_domain",
     "evaluate_turn",
     "apply_ui_directive_events",
+    "apply_ui_target_events",
+    "build_ui_target",
+    "selection_is_ghost_leaf",
     "package_state",
+    "draft_store",
     "build_write_proposal",
+    "proposal_from_discussion",
     "apply_proposal_ops",
 ]

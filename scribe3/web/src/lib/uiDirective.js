@@ -27,11 +27,14 @@ export function focusFromSelectionDetail(detail) {
  */
 export function applyUiEvents(events, opts = {}) {
   if (!Array.isArray(events)) return
+  const soft = !!opts.soft
   for (const ev of events) {
     if (!ev || !ev.type) continue
     const detail = ev.detail
     try {
       if (ev.type === 'selection') {
+        // soft：不抢栏3 selection（最优默认）
+        if (soft) continue
         // 1) 显式 onSel（App setSel / 旅程 continue）
         if (typeof opts.onSel === 'function') {
           opts.onSel(detail)
@@ -43,12 +46,16 @@ export function applyUiEvents(events, opts = {}) {
         }
         if (typeof opts.setFocus === 'function') {
           const f = focusFromSelectionDetail(detail)
-          if (f) opts.setFocus(f)
+          // 拒绝空 label 幽灵 focus 污染前缀
+          if (f && f.label && f.label !== 'character' && f.label !== 'null') {
+            opts.setFocus(f)
+          }
         } else if (typeof opts.onSel !== 'function') {
-          // 再广播一次 focus 形状，供未持有 onSel 的 dock 订阅
           try {
             const f = focusFromSelectionDetail(detail)
-            if (f) window.dispatchEvent(new CustomEvent('s3-focus', { detail: f }))
+            if (f && f.label && f.label !== 'character') {
+              window.dispatchEvent(new CustomEvent('s3-focus', { detail: f }))
+            }
           } catch { /* */ }
         }
         continue

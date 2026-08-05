@@ -56,6 +56,21 @@ class OrchProposalApplyReq(BaseModel):
     execute: bool = False
 
 
+class OrchDraftUpsertReq(BaseModel):
+    object_type: str = "character"
+    label: str
+    fields: dict[str, Any] = Field(default_factory=dict)
+    aliases: list[str] = Field(default_factory=list)
+    draft_id: str | None = None
+    message: str | None = None  # 若提供则规则抽取后 upsert
+
+
+class OrchFromDiscussionReq(BaseModel):
+    package: dict[str, Any] | None = None
+    summary: str = ""
+    draft_ids: list[str] = Field(default_factory=list)
+
+
 def workflow_snapshot_ep(work: str = "main", seq: int | None = None):
     """书/章进度单源：状态页与进度胶囊同源。"""
     from scribe3.director import build_workflow_snapshot
@@ -89,7 +104,7 @@ def orch_catalog_ep(work: str = "main"):
 
 
 def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
-    """统一编排入口：解析 WorkPackage + ui_directive 事件列表。"""
+    """统一编排入口：解析 WorkPackage + ui_target 事件列表。"""
     from scribe3.orchestration import package_state
     from scribe3.orchestration.resolve import apply_ui_directive_events, resolve_work_package
 
@@ -106,10 +121,16 @@ def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
     )
     if req.activate:
         package_state.set_active(work, pkg)
-    events = apply_ui_directive_events(pkg.get("ui_directive"))
+    events = apply_ui_directive_events(
+        pkg.get("ui_directive"),
+        focus_policy=pkg.get("focus_policy") or "soft",
+        ui_target=pkg.get("ui_target"),
+    )
     out = {
         "work": work,
         "package": pkg,
+        "ui_target": pkg.get("ui_target"),
+        "focus_policy": pkg.get("focus_policy") or "soft",
         "ui_events": events,
         "use_world_write_run": bool(pkg.get("use_world_write_run")),
         "channel": pkg.get("channel"),
@@ -117,6 +138,78 @@ def orch_resolve_ep(req: OrchResolveReq, work: str = "main"):
     if "total_score" in out or "composite_score" in str(out):
         raise HTTPException(500, "orchestration payload 不得含文学分")
     return out
+
+
+def orch_drafts_list_ep(work: str = "main"):
+    from scribe3.orchestration import drafts as draft_store
+    rows = draft_store.list_drafts(work)
+    return {"work": work, "drafts": rows, "count": len(rows)}
+
+
+def orch_drafts_upsert_ep(req: OrchDraftUpsertReq, work: str = "main"):
+    from scribe3.orchestration import drafts as draft_store
+    if req.message:
+        rows = draft_store.upsert_from_message(
+            work, req.message, object_type_hint=req.object_type,
+        )
+        if req.label:
+            row = draft_store.upsert_draft(
+                work,
+                object_type=req.object_type,
+                label=req.label,
+                fields=req.fields,
+                aliases=req.aliases,
+                draft_id=req.draft_id,
+            )
+            return {"work": work, "draft": row, "touched": rows}
+        return {"work": work, "drafts": rows, "touched": rows}
+    row = draft_store.upsert_draft(
+        work,
+        object_type=req.object_type,
+        label=req.label,
+        fields=req.fields,
+        aliases=req.aliases,
+        draft_id=req.draft_id,
+    )
+    return {"work": work, "draft": row}
+
+
+def orch_from_discussion_ep(req: OrchFromDiscussionReq, work: str = "main"):
+    """讨论 → WriteProposal（不落库）。"""
+    from scribe3.orchestration import drafts as draft_store
+    from scribe3.orchestration import package_state
+    from scribe3.orchestration.proposal import proposal_from_discussion
+
+    pkg = req.package or package_state.get_active(work)
+    if not pkg:
+        raise HTTPException(404, "no active work package")
+    drafts = []
+    if req.draft_ids:
+        for did in req.draft_ids:
+            d = draft_store.get_draft(work, did)
+            if d:
+                drafts.append(d)
+    if not drafts:
+        # 包内 entities 或全域列表
+        for did in pkg.get("entities") or []:
+            d = draft_store.get_draft(work, did)
+            if d:
+                drafts.append(d)
+    if not drafts:
+        drafts = draft_store.list_drafts(work)
+        # 按 domain 过滤
+        ot = None
+        dom = str(pkg.get("domain") or "")
+        if "character" in dom:
+            ot = "character"
+        elif "faction" in dom:
+            ot = "faction"
+        elif "promise" in dom:
+            ot = "promise"
+        if ot:
+            drafts = [d for d in drafts if d.get("object_type") == ot]
+    prop = proposal_from_discussion(pkg, drafts, summary=req.summary)
+    return {"work": work, "proposal": prop, "drafts_used": [d.get("draft_id") for d in drafts]}
 
 
 def orch_active_ep(work: str = "main"):
@@ -217,27 +310,49 @@ def orch_apply_proposal_ep(req: OrchProposalApplyReq, work: str = "main"):
 
     if req.decision != "approve":
         result = apply_proposal_ops(req.proposal, decision="reject", executors={})
-        return {"work": work, "proposal": result, "ui_events": []}
+        return {"work": work, "proposal": result, "ui_events": [], "ui_target": None, "focus_policy": "soft"}
 
     if not req.execute:
         # 仅标记：真实写由 Hermes 审批完成；此处不调用 executor
-        result = apply_proposal_ops(req.proposal, decision="reject", executors={})
-        # 重新标记为 awaiting_external_approval 语义
         result = dict(req.proposal)
         result["status"] = "awaiting_hermes_approval"
         result["note"] = "生产请经 Hermes 审批卡；execute=false 不落库"
-        return {"work": work, "proposal": result, "ui_events": []}
+        return {"work": work, "proposal": result, "ui_events": [], "ui_target": None, "focus_policy": "soft"}
 
     result = apply_proposal_ops(
         req.proposal, decision="approve", executors=executors, selected=req.selected,
     )
     ui_events = []
+    ui_target = None
     if result.get("status") in ("applied", "partial"):
-        ui_events = apply_ui_directive_events(
-            (req.proposal or {}).get("ui_after")
-            or (result.get("ui_after")),
+        ui_target = (
+            (req.proposal or {}).get("ui_target_after")
+            or (req.proposal or {}).get("ui_after")
         )
-    return {"work": work, "proposal": result, "ui_events": ui_events}
+        # 批准后 hard 跟焦合法目标
+        if isinstance(ui_target, dict) and ui_target.get("kind"):
+            ui_events = apply_ui_directive_events(
+                None, focus_policy="hard", ui_target=ui_target,
+            )
+        else:
+            ui_events = apply_ui_directive_events(
+                ui_target if isinstance(ui_target, dict) else None,
+                focus_policy="hard",
+            )
+        # 草稿标记
+        try:
+            from scribe3.orchestration import drafts as draft_store
+            for did in (req.proposal or {}).get("draft_ids") or []:
+                draft_store.mark_status(work, did, "approved")
+        except Exception:
+            pass
+    return {
+        "work": work,
+        "proposal": result,
+        "ui_events": ui_events,
+        "ui_target": ui_target,
+        "focus_policy": "hard" if ui_events else "soft",
+    }
 
 
 def _bind_and_register():
@@ -246,6 +361,7 @@ def _bind_and_register():
 
     for _model_name in (
         "OrchResolveReq", "OrchTurnReq", "OrchProposalReq", "OrchProposalApplyReq",
+        "OrchDraftUpsertReq", "OrchFromDiscussionReq",
         "BaseModel", "Field",
     ):
         if _model_name in g:
@@ -268,6 +384,9 @@ def _bind_and_register():
     _bind("orch_evaluate_turn_ep", "/orchestration/evaluate-turn", ["POST"])
     _bind("orch_build_proposal_ep", "/orchestration/proposal", ["POST"])
     _bind("orch_apply_proposal_ep", "/orchestration/proposal/apply", ["POST"])
+    _bind("orch_drafts_list_ep", "/orchestration/drafts", ["GET"])
+    _bind("orch_drafts_upsert_ep", "/orchestration/drafts", ["POST"])
+    _bind("orch_from_discussion_ep", "/orchestration/proposal/from-discussion", ["POST"])
 
 
 _bind_and_register()

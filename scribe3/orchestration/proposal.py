@@ -12,6 +12,7 @@ def build_write_proposal(
     ops: list[dict[str, Any]],
     *,
     summary: str = "",
+    ui_after: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构造提案；ops 项: {tool, args, label?}。"""
     clean_ops = []
@@ -34,16 +35,111 @@ def build_write_proposal(
             "out_of_allowlist": flagged,
             "status": "pending",
         })
+    after = ui_after
+    if after is None:
+        after = (package or {}).get("ui_target") or (package or {}).get("ui_directive")
     return {
         "id": f"prop_{uuid.uuid4().hex[:12]}",
         "work_package_id": (package or {}).get("id"),
         "domain": (package or {}).get("domain"),
         "summary": summary or f"写入提案 · {(package or {}).get('label') or ''}",
         "ops": clean_ops,
-        "ui_after": (package or {}).get("ui_directive"),
+        "ui_after": after,
+        "ui_target_after": (package or {}).get("ui_target"),
         "created_at": int(time.time()),
         "status": "pending",
     }
+
+
+def proposal_from_discussion(
+    package: dict[str, Any],
+    drafts: list[dict[str, Any]] | None = None,
+    *,
+    summary: str = "",
+) -> dict[str, Any]:
+    """从 WorkPackage + SessionEntity 草稿生成多 op 写入提案（人批前不落库）。"""
+    pkg = package or {}
+    write_tools = list(pkg.get("write_tools") or [])
+    ops: list[dict[str, Any]] = []
+    domain = str(pkg.get("domain") or "")
+    drafts = list(drafts or [])
+
+    def _add(tool: str, args: dict, label: str):
+        if write_tools and tool not in write_tools:
+            return
+        ops.append({"tool": tool, "args": args, "label": label})
+
+    for d in drafts:
+        ot = d.get("object_type") or "character"
+        lab = d.get("label") or "未命名"
+        fields = dict(d.get("fields") or {})
+        fields.setdefault("name", lab)
+        if ot == "character":
+            _add(
+                "s3_add_character",
+                {"character_id": lab, "name": lab, **{k: v for k, v in fields.items() if k != "name"}},
+                f"新建角色·{lab}",
+            )
+        elif ot == "faction":
+            _add("s3_add_faction", {"name": lab, **fields}, f"新建势力·{lab}")
+        elif ot == "item":
+            _add("s3_add_item", {"name": lab, **fields}, f"新建物件·{lab}")
+        elif ot == "term":
+            _add("s3_add_term", {"name": lab, **fields}, f"新建术语·{lab}")
+        elif ot == "world_rule":
+            _add("s3_add_world_rule", {"name": lab, **fields}, f"新建世界规则·{lab}")
+        elif ot == "promise":
+            _add(
+                "s3_plant_promise",
+                {
+                    "text": fields.get("text") or lab,
+                    "setup_chapter": int(fields.get("setup_chapter") or pkg.get("chapter") or 1),
+                },
+                f"埋伏笔·{lab}",
+            )
+        elif ot == "motif":
+            _add("s3_add_motif", {"name": lab, **fields}, f"新建母题·{lab}")
+
+    # 无草稿时：域默认单 op 占位（仍须人批填全）
+    if not ops and write_tools:
+        tool = write_tools[0]
+        ch = pkg.get("chapter") or 1
+        if "plant_promise" in tool:
+            _add(tool, {"text": "（请根据讨论填写伏笔正文）", "setup_chapter": ch}, "埋设伏笔")
+        elif "chapter" in tool or "plan" in tool:
+            _add(tool, {"seq": ch, "synopsis": "（请根据讨论填写大纲）"}, f"第{ch}章大纲")
+        elif "character" in tool:
+            focus = pkg.get("focus") or {}
+            name = (focus.get("label") if isinstance(focus, dict) else None) or "（待命名）"
+            _add(tool, {"character_id": name, "name": name}, f"写入角色·{name}")
+        else:
+            _add(tool, {}, tool)
+
+    # 批准后 hard leaf：若有草稿专名
+    ui_after = None
+    if drafts:
+        d0 = drafts[0]
+        lab = d0.get("label")
+        ot = d0.get("object_type") or "character"
+        ui_after = {
+            "kind": "leaf",
+            "entry": "codex" if ot not in ("promise", "motif") else ot,
+            "object_type": ot,
+            "id": f"role:{lab}" if ot == "character" else lab,
+            "label": lab,
+            "right_tab": "chief",
+        }
+    elif pkg.get("ui_target"):
+        ui_after = deepcopy(pkg["ui_target"])
+
+    prop = build_write_proposal(
+        pkg, ops,
+        summary=summary or f"根据讨论生成 · {pkg.get('label') or domain}",
+        ui_after=ui_after,
+    )
+    prop["source"] = "from_discussion"
+    prop["draft_ids"] = [d.get("draft_id") for d in drafts if d.get("draft_id")]
+    return prop
 
 
 def apply_proposal_ops(
