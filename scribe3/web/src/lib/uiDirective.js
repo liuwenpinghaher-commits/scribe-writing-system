@@ -122,15 +122,43 @@ export function uiDirectiveToEvents(directive) {
       events.push({ type: 's3-chapter-phase', detail: { phase, seq } })
     }
   } else if (node && node.type === 'character') {
+    const local = String(node.label || node.ref || '').trim()
+      || (String(node.id || '').includes(':') ? String(node.id).split(':').slice(1).join(':') : '')
+    const pseudo = !local || ['character', '角色', '设定', 'null', 'None'].includes(local)
+    if (pseudo) {
+      // 无专名：打开设定库「角色」分类，禁止幽灵 leaf
+      events.push({
+        type: 'selection',
+        detail: {
+          mode: 'node',
+          node: { id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色' },
+        },
+      })
+    } else {
+      events.push({
+        type: 'selection',
+        detail: {
+          mode: 'node',
+          node: {
+            id: node.id || `role:${local}`,
+            type: 'character',
+            ref: local,
+            label: local,
+          },
+        },
+      })
+    }
+    events.push({ type: 's3-open-capability', detail: { capability: 'codex', focus: true } })
+  } else if (node && node.type === 'codex_category') {
     events.push({
       type: 'selection',
       detail: {
         mode: 'node',
         node: {
-          id: node.id || 'character',
-          type: 'character',
-          ref: node.id,
-          label: node.label || '',
+          id: node.id || `cat:${node.ref || 'character'}`,
+          type: 'codex_category',
+          ref: node.ref || 'character',
+          label: node.label || '角色',
         },
       },
     })

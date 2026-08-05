@@ -579,14 +579,35 @@ export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
   const detailType = TYPE_MAP[node?.type]
 
   // 已有档案只读 + 主编种子;字段 REST 写路径已拆除(Policy 1A)。
+  const leafRef = (() => {
+    const r = node?.ref
+    if (r != null && String(r).trim() && String(r) !== 'null' && String(r) !== 'undefined') {
+      return String(r).trim()
+    }
+    const id = String(node?.id || '')
+    if (id.includes(':')) return id.split(':').slice(1).join(':').trim()
+    const lab = String(node?.label || '').trim()
+    if (lab && !['character', '角色', '设定'].includes(lab)) return lab
+    return ''
+  })()
+  const ghostLeaf = detailType === 'chars' && (
+    !leafRef || ['character', 'null', 'None', '角色'].includes(leafRef)
+  )
+
   const reload = () => {
     if (!node || !detailType) { setLoading(false); return }
+    if (ghostLeaf) {
+      setRow(null)
+      setLoadErr('')
+      setLoading(false)
+      return
+    }
     setLoading(true); setLoadErr('')
-    loadOne(node.type, node.ref)
+    loadOne(node.type, leafRef || node.ref)
       .then((r) => {
         // 角色 GET 可能缺 kind/id 前缀,补齐
         if (r && node.type === 'character') {
-          const local = r.id?.includes?.(':') ? r.id.split(':').slice(1).join(':') : (r.id || node.ref)
+          const local = r.id?.includes?.(':') ? r.id.split(':').slice(1).join(':') : (r.id || leafRef || node.ref)
           setRow({ ...r, id: r.id?.startsWith?.('role:') ? r.id : `role:${local}`, kind: r.kind || 'character' })
         } else {
           setRow(r || null)
@@ -595,13 +616,48 @@ export function CodexDetail({ node, onDeleted, onNavigateToObject }) {
       })
       .catch((e) => { setRow(null); setLoadErr(e?.body?.detail || e?.message || '加载失败'); setLoading(false) })
   }
-  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setDeleteImpact(null); reload() }, [node?.id, leafRef]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!detailType) return <div className="p-6 text-f13 text-faint">未知设定类型:{node?.type}</div>
+  if (ghostLeaf) {
+    return (
+      <div className="h-full grid place-items-center text-center px-6 text-f13" data-testid="codex-ghost-leaf">
+        <div className="max-w-sm space-y-2">
+          <div className="text-ink/80 font-medium">还没有落到具体角色条目</div>
+          <div className="text-faint leading-relaxed">
+            左侧打开「设定库 → 角色」新建或点选已有角色；讨论里的口头草案不会自动成库。
+            需要落库时请在主编里明确「写入角色某某并审批」。
+          </div>
+          <button
+            type="button"
+            className="mt-2 text-brand text-f12 hover:underline cursor-pointer"
+            onClick={() => {
+              try {
+                window.dispatchEvent(new CustomEvent('s3-selection', {
+                  detail: {
+                    mode: 'node',
+                    node: { id: 'cat:character', type: 'codex_category', ref: 'character', label: '角色' },
+                  },
+                }))
+                window.dispatchEvent(new CustomEvent('s3-open-capability', {
+                  detail: { capability: 'codex', focus: true },
+                }))
+              } catch { /* */ }
+            }}
+          >
+            打开角色分类 →
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (loading) return <div className="flex items-center justify-center py-12 text-faint"><Loader2 size={20} className="animate-spin mr-2" />加载中…</div>
   if (loadErr) return (
     <div className="p-4">
       <AsyncState state="error" title="设定加载失败" message={loadErr} onRetry={reload} />
+      <p className="mt-3 text-meta text-faint leading-relaxed">
+        若角色尚未写入设定库，请在主编发送「请用 s3_add_character 写入角色顾声并审批」一类指令，批准后才会出现在左侧角色列表。
+      </p>
     </div>
   )
   if (!row) return <div className="p-6 text-f13 text-faint">未找到该条目(可能已删除)。</div>

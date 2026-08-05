@@ -83,6 +83,32 @@ def test_resolve_discuss_role_not_forced_write():
     assert ev.get("fake_written") is False
 
 
+def test_resolve_character_without_name_selects_category_not_ghost():
+    """讨论主角但无专名时，ui node 必须是 codex_category，禁止 /characters/null 幽灵叶。"""
+    from scribe3.orchestration.resolve import apply_ui_directive_events
+
+    pkg = resolve_work_package("我们先讨论主角", work="w1", chapter=1)
+    assert pkg["domain"] == "codex.character"
+    node = (pkg.get("ui_directive") or {}).get("node") or {}
+    assert node.get("type") == "codex_category"
+    assert node.get("ref") == "character"
+    evs = apply_ui_directive_events(pkg["ui_directive"])
+    sel = next(e for e in evs if e["type"] == "selection")
+    n = sel["detail"]["node"]
+    assert n["type"] == "codex_category"
+    assert n.get("ref") == "character"
+    assert n.get("id") != "character"
+
+
+def test_resolve_named_protagonist_gusheng():
+    pkg = resolve_work_package("主角草案：顾声（暂定名）写入设定库", work="w1", chapter=1)
+    assert pkg["domain"] == "codex.character"
+    assert (pkg.get("focus") or {}).get("label") == "顾声"
+    node = (pkg.get("ui_directive") or {}).get("node") or {}
+    assert node.get("type") == "character"
+    assert node.get("ref") == "顾声" or node.get("label") == "顾声"
+
+
 def test_resolve_outline_plan_is_write_intent():
     pkg = resolve_work_package("帮我规划第3章大纲和节拍", work="w1", chapter=3)
     assert pkg["domain"] == "chapter.outline"

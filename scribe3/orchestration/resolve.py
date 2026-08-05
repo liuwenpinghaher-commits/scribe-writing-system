@@ -85,28 +85,64 @@ _CHAR_NAME_STOP = (
 )
 
 
+_PSEUDO_CHAR_NAMES = frozenset({
+    "设定", "本身", "档案", "关系", "列表", "卡", "人设", "扮演", "体系",
+    "主角", "配角", "角色", "人物", "character", "null", "None",
+})
+
+
+def _is_real_character_name(name: str | None) -> bool:
+    n = (name or "").strip()
+    if not n or n in _PSEUDO_CHAR_NAMES:
+        return False
+    if n.startswith("设定") or n.lower() in ("character", "null", "none"):
+        return False
+    return True
+
+
+def _is_real_character_focus(focus: dict[str, Any] | None) -> bool:
+    """有可加载的角色专名/id 才算真叶子；否则应落到「角色」分类，禁止幽灵选中。"""
+    if not focus or focus.get("type") != "character":
+        return False
+    label = (focus.get("label") or "").strip()
+    fid = str(focus.get("id") or focus.get("ref") or "").strip()
+    if not _is_real_character_name(label) and not _is_real_character_name(
+        fid.split(":", 1)[-1] if ":" in fid else fid
+    ):
+        return False
+    if fid in ("character", "role:character", "role:", "null", "None", ""):
+        return False
+    return True
+
+
 def _extract_character_name(message: str) -> str | None:
-    """从「角色沈砚的恐惧…」抽出专名「沈砚」，而非吞到句尾。"""
+    """从「角色沈砚的恐惧…」「主角草案：顾声」抽出专名，而非吞到句尾/伪名。"""
     text = message or ""
-    m = re.search(r"(?:角色|人物)[·:：\s]*([一-龥A-Za-z0-9]{1,16})", text)
-    if not m:
-        return None
-    raw = m.group(1)
-    cut = re.match(rf"^(.+?)(?:{_CHAR_NAME_STOP}|$)", raw)
-    name = (cut.group(1) if cut else raw).strip()
-    if not name:
-        return None
-    # 中文名常见 2–4 字；过长则截断
-    if re.fullmatch(r"[一-龥]+", name):
-        name = name[:4]
-    else:
-        name = name[:12]
-    # 「角色设定我喜欢」不是专名
-    if not name or name in {
-        "设定", "本身", "档案", "关系", "列表", "卡", "人设", "扮演", "体系",
-    } or name.startswith("设定"):
-        return None
-    return name
+    patterns = (
+        r"主角草案[：:\s]*([一-龥]{2,4})",
+        r"([一-龥]{2,4})（暂定名）",
+        r"(?:名叫|名为|叫做|定名)[：:\s]*([一-龥]{2,4})",
+        r"(?:角色|人物)[·:：\s]*([一-龥A-Za-z0-9]{1,16})",
+        # 「主角顾声」；避免「主角草案」把「草案」当名
+        r"主角(?!草案)[·:：\s]*([一-龥]{2,4})",
+        r"配角[·:：\s]*([一-龥]{2,4})",
+    )
+    for pat in patterns:
+        m = re.search(pat, text)
+        if not m:
+            continue
+        raw = m.group(1)
+        cut = re.match(rf"^(.+?)(?:{_CHAR_NAME_STOP}|$)", raw)
+        name = (cut.group(1) if cut else raw).strip()
+        if not name:
+            continue
+        if re.fullmatch(r"[一-龥]+", name):
+            name = name[:4]
+        else:
+            name = name[:12]
+        if _is_real_character_name(name):
+            return name
+    return None
 
 
 def _extract_focus(message: str, domain: str, ctx: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -156,17 +192,37 @@ def build_ui_directive(
                     "label": focus.get("label") or f"第{focus['ref']}章",
                 }
             elif focus.get("type") == "character":
-                node = {
-                    "type": "character",
-                    "id": focus.get("id") or "character",
-                    "label": focus.get("label") or "",
-                }
+                if _is_real_character_focus(focus):
+                    local = (focus.get("label") or "").strip() or str(focus.get("id") or "").split(":")[-1]
+                    node = {
+                        "type": "character",
+                        "id": focus.get("id") or f"role:{local}",
+                        "ref": local,
+                        "label": local,
+                    }
+                else:
+                    # 无专名：落到设定库「角色」分类，禁止幽灵 leaf → /characters/null
+                    node = {
+                        "type": "codex_category",
+                        "id": "cat:character",
+                        "ref": "character",
+                        "label": "角色",
+                    }
             elif focus.get("type") == "promise":
                 node = {
                     "type": "promise",
                     "id": focus.get("id") or "promise",
                     "label": focus.get("label") or "伏笔",
                 }
+        elif node.get("type") == "character" and not _is_real_character_focus(
+            {"type": "character", "id": node.get("id"), "label": node.get("label"), "ref": node.get("ref")}
+        ):
+            node = {
+                "type": "codex_category",
+                "id": "cat:character",
+                "ref": "character",
+                "label": "角色",
+            }
         elif chapter is not None and node.get("type") == "chapter":
             node = {
                 "type": "chapter",
@@ -230,7 +286,14 @@ def resolve_work_package(
 
     focus = focus_hint or _extract_focus(text, entry["domain"], {"chapter": chapter})
     if focus is None and prior and prior.get("focus") and entry["domain"] == prior.get("domain"):
-        focus = deepcopy(prior["focus"])
+        pf = prior.get("focus")
+        # 角色域：仅当消息仍点名该专名才继承，避免串到旧包/烟雾 focus → 幽灵叶
+        if str(entry.get("domain") or "").startswith("codex.character") and isinstance(pf, dict):
+            name = str(pf.get("label") or "").strip()
+            if name and name in text:
+                focus = deepcopy(pf)
+        else:
+            focus = deepcopy(pf)
 
     ch = chapter
     if focus and focus.get("type") == "chapter" and focus.get("ref") is not None:
@@ -390,15 +453,54 @@ def apply_ui_directive_events(directive: dict[str, Any] | None) -> list[dict[str
                     "detail": {"phase": phase, "seq": seq},
                 })
         elif ntype == "character":
+            # 仅真实角色叶可 selection；否则改选分类，避免栏3 GET /characters/null
+            if _is_real_character_focus({
+                "type": "character",
+                "id": node.get("id"),
+                "label": node.get("label"),
+                "ref": node.get("ref"),
+            }):
+                local = (node.get("label") or node.get("ref")
+                         or str(node.get("id") or "").split(":")[-1]).strip()
+                events.append({
+                    "type": "selection",
+                    "detail": {
+                        "mode": "node",
+                        "node": {
+                            "id": node.get("id") or f"role:{local}",
+                            "type": "character",
+                            "ref": local,
+                            "label": local,
+                        },
+                    },
+                })
+            else:
+                events.append({
+                    "type": "selection",
+                    "detail": {
+                        "mode": "node",
+                        "node": {
+                            "id": "cat:character",
+                            "type": "codex_category",
+                            "ref": "character",
+                            "label": "角色",
+                        },
+                    },
+                })
+            events.append({
+                "type": "s3-open-capability",
+                "detail": {"capability": "codex", "focus": True},
+            })
+        elif ntype == "codex_category":
             events.append({
                 "type": "selection",
                 "detail": {
                     "mode": "node",
                     "node": {
-                        "id": node.get("id") or "character",
-                        "type": "character",
-                        "ref": node.get("id"),
-                        "label": node.get("label") or "",
+                        "id": node.get("id") or f"cat:{node.get('ref') or 'character'}",
+                        "type": "codex_category",
+                        "ref": node.get("ref") or "character",
+                        "label": node.get("label") or "角色",
                     },
                 },
             })
