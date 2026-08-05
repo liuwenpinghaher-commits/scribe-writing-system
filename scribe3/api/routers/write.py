@@ -66,6 +66,19 @@ def chat_write(msg: str, chapter: int = 1, focalizer: str = "", phase: str = "",
 def chat_write_post(req: ChatWriteReq, request: Request, background: BackgroundTasks,
                     work: str = "main"):
     """POST 版写作对话(支持图片附件):前端用 fetch 流式读取。"""
+    # 经验压力 E4:硬续写模式未确认重读则禁止生成(草稿存不受此限)
+    try:
+        from scribe3.api.services.write_assemble import check_generate_reread_gate
+        _rg = check_generate_reread_gate(work, int(req.chapter or 1))
+        if not _rg.get("allowed"):
+            raise HTTPException(status_code=409, detail={
+                "code": _rg.get("code") or "reread_required",
+                "message": _rg.get("detail") or "请先确认续写重读",
+            })
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     st = _store_for(work)
     # Task 4:context 绑定强校验(SCRIBE3_CONTEXT_SNAPSHOT_V1 门控,默认关=零变化)。
     # 必须在 user 落库与 StreamingResponse 之前完成——流一旦开始,4xx 会退化成流中错误。

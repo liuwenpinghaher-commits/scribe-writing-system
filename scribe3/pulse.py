@@ -136,8 +136,31 @@ def _quality_dim(st, seq: int) -> dict:
     return _dim("quality", items)
 
 
+def _scene_dim(st, seq: int) -> dict:
+    """经验压力 E2:场景动能 advisory 可见面(不进 blocking)。"""
+    try:
+        from scribe3.experience import exp_state
+        from scribe3.experience.scene_grid import diagnose_scene_grid
+        work = str(getattr(st, "db_name", None) or getattr(st, "db", None) or "main")
+        g = exp_state.get_scene_grid(work, seq)
+        issues = diagnose_scene_grid(g, seq=seq) if g else diagnose_scene_grid(None, seq=seq)
+        hard = [i for i in issues if i.get("code") not in ("empty_grid",)]
+        if not hard and issues:
+            return _dim("scene", [_item("本场动能六格为空(默认不拦定稿)", "info")])
+        if hard:
+            return _dim("scene", [
+                _item(i.get("message") or i.get("code"), "nudge",
+                      _chat_action("本场 Scene–Sequel 断链,补反应/决定?"))
+                for i in hard[:4]
+            ])
+        return _dim("scene", [_item("场景动能未见断链")])
+    except Exception:
+        return _dim("scene", [_item("场景动能未检", "info")], degraded=True)
+
+
 _DIMS = (("promise", _promise_dim), ("arc", _arc_dim), ("relation", _relation_dim),
-         ("tension", _tension_dim), ("causal", _causal_dim), ("quality", _quality_dim))
+         ("tension", _tension_dim), ("causal", _causal_dim), ("quality", _quality_dim),
+         ("scene", _scene_dim))
 
 
 def chapter_pulse(st, seq: int) -> dict:

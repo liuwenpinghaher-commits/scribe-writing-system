@@ -828,6 +828,22 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
     # v1 让 envelope 独占 facts/promises/角色/北极星的数据注入,身份层只留身份+硬协议+文风。
     prefix = (_editor_identity_block() + _write_protocol_block()
               + _write_revision_block() + _anti_slop_floor_block())
+    # 经验压力 E4:续写快照并入真实组装链(单源,非平行 builder)
+    try:
+        from scribe3.experience.continue_rite import (
+            build_continue_snapshot, continue_block_text,
+        )
+        from scribe3.experience import exp_state as _exp_st
+        if _exp_st.has_reread_ack(work or "main", chapter) or not _exp_st.get_require_reread(work or "main"):
+            _snap = build_continue_snapshot(st, chapter, work=work or "main")
+            _cblk = continue_block_text(_snap)
+            if _cblk:
+                prefix += _domain_input(
+                    f"chapter:{chapter}:continue-snapshot", "continue_snapshot",
+                    _cblk,
+                )
+    except Exception:
+        pass
     prefix += _domain_input(
         f"chapter:{chapter}:secret-guard", "secret_guard",
         _secret_guard_block(st, chapter),
@@ -1064,6 +1080,17 @@ def _assemble_write_instructions_v1(st, *, chapter, focalizer, phase, seed_words
                 logging.getLogger("scribe3").warning(
                     "memory_trace 落库失败(忽略,不阻断写作)", exc_info=True)
     return compiled.rendered_input
+
+
+def check_generate_reread_gate(work: str, chapter: int) -> dict:
+    """供 /chat/write 等生成入口:硬续写模式未 ack 则拒。"""
+    from scribe3.experience import exp_state
+    from scribe3.experience.continue_rite import reread_allowed
+    return reread_allowed(
+        require_reread=exp_state.get_require_reread(work),
+        acked=exp_state.has_reread_ack(work, chapter),
+        is_generate=True,
+    )
 
 
 def _assemble_write_instructions(st, *, chapter: int, focalizer: str, phase: str,

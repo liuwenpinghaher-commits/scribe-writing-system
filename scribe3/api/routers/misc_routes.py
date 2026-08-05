@@ -366,6 +366,26 @@ def save_chapter(req: SaveChapterReq, background: BackgroundTasks, work: str = "
             "code": "finalize_gate_error",
             "message": f"定稿门闩评估失败,已阻断存稿: {e}",
         }) from e
+    # 经验压力 E2:严格戏格 opt-in(默认不拦空 grid)
+    try:
+        from scribe3.experience import exp_state
+        from scribe3.experience.scene_grid import evaluate_strict_scene_gate
+        if exp_state.get_strict_scene(work) and not req.danger_draft:
+            _sg = exp_state.get_scene_grid(work, req.seq)
+            _ss = evaluate_strict_scene_gate(
+                _sg, strict=True, prose=req.prose)
+            if not _ss.get("allowed"):
+                raise HTTPException(status_code=409, detail={
+                    "code": _ss.get("code") or "strict_scene",
+                    "message": _ss.get("detail") or "严格戏格未通过",
+                    "issues": _ss.get("issues") or [],
+                })
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger("scribe3").warning(
+            "strict scene 评估失败(忽略,不拦) work=%s: %s", work, e)
     st.save_chapter(req.seq, req.prose, title=req.title, focalizer=req.focalizer)
     # 四阶段(Phase0-BE2):存正文自动留 final 版(快照存稿瞬间)。fail-soft:留版失败不阻断存稿。
     # 审计 P2-1:内容与最新 final 版相同则不重复落版(自动存稿风暴刷屏版本史)。
