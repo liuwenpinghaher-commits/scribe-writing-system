@@ -36,6 +36,9 @@ vi.mock('../DeduceStage', () => ({ DeduceStage: ({ seq }) => <div data-testid="d
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
 vi.mock('../FramePanel', () => ({ FramePanel: ({ chapter }) => <div data-testid="frame-panel">关联:{chapter}</div> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
+vi.mock('../ExperiencePressurePanel', () => ({
+  ExperiencePressurePanel: ({ seq }) => <div data-testid="experience-pressure-panel">压力:{seq}</div>,
+}))
 
 // RichEditor 打桩:受控 textarea(value/onChange/onBlur)+ 传 onSelAction 时渲两钮,
 // 点击即用 selActionState.text(测试可改写)触发回调——真实 TipTap 选区行为由 Task 1 单测覆盖。

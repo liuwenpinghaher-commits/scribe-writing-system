@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ListChecks, AlignLeft, FileEdit, BookText,
   Plus, Trash2, Check, Save, Loader2, Sparkles, ShieldCheck, Archive, MoreHorizontal,
-  ScrollText, Eye, Compass, MessagesSquare, Settings2,
+  ScrollText, Eye, Compass, MessagesSquare, Settings2, Gauge,
 } from 'lucide-react'
 import { api } from './api'
 import { WriteLayout, RestoreContext } from './WriteLayout'
@@ -35,13 +35,14 @@ const PHASES = [
   { key: 'draft', label: '草稿', icon: FileEdit },
   { key: 'final', label: '正文', icon: BookText },
 ]
-// 章节辅助三入口(2026-07-12 裁决):从栏4 RightDock capability 迁到章工作台头部——
+// 章节辅助入口(2026-07-12 裁决 + 经验压力层):从栏4 RightDock capability 迁到章工作台头部——
 // 点击在栏3 内容区替换阶段内容展现(与点大纲/正文页签同级的内容切换,四栏结构不动)。
-// 图标沿用旧左栏 includeStageTabs 惯例:简报=ScrollText / 关联=Eye / 北极星=Compass。
+// 图标:简报=ScrollText / 关联=Eye / 北极星=Compass / 压力=Gauge。
 const AUX_ENTRIES = [
   { key: 'brief', label: '简报', icon: ScrollText },
   { key: 'frame', label: '关联', icon: Eye },
   { key: 'northstar', label: '北极星', icon: Compass },
+  { key: 'pressure', label: '压力', icon: Gauge },
 ]
 const PHASE_KEYS = new Set(PHASES.map((p) => p.key))
 const META_PHASES = new Set(['outline', 'beats', 'deduce', 'draft'])
@@ -522,9 +523,9 @@ export function ChapterStudio({ work, seq, sceneIdx, initialPhase, onSeqChange, 
   const [refresh, setRefresh] = useState(0)
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)   // 「更多」菜单(归档入口)
-  // 章节辅助视图(栏3 内容区切换):null=显示阶段内容,'brief'|'frame'|'northstar'=
+  // 章节辅助视图(栏3 内容区切换):null=显示阶段内容,'brief'|'frame'|'northstar'|'pressure'=
   // 内容区替换为 ChapterAuxPanel 并高亮对应头部入口。受控直连 ChapterAuxPanel 的 tab
-  // (面板内三 tab 互切回写此值,头部高亮永远等于正在看的 tab)。
+  // (面板内 tab 互切回写此值,头部高亮永远等于正在看的 tab)。
   // 返回语义(双通道,均不丢 phase):
   //   · 点任一阶段页签 → auxView 置 null,回到该阶段内容(phase state 全程保留);
   //   · 再点当前高亮的辅助入口 → toggle 关闭,回到离开时的阶段。

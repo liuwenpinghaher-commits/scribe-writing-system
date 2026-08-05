@@ -247,21 +247,36 @@ def seed_suggest_ep(req: SeedSuggestReq, work: str = "main"):
 
 
 def seed_promote_ep(req: SeedPromoteReq, work: str = "main"):
-    """返回须审批的 promise payload;不自动 plant。"""
+    """显式升格:走 store.plant_promise 真写入 open 伏笔(与 /promises-new 同内核)。
+
+    不在 suggest 时 plant;仅本端点人工触发。不引入第二套 promise 本体。
+    """
     from scribe3.experience import exp_state
     from scribe3.experience.choice_seed import promote_seed_payload
     seeds = exp_state.get_seeds(work)
     seed = next((s for s in seeds if s.get("id") == req.seed_id), None)
     if not seed:
         raise HTTPException(404, "seed not found;先 POST /seeds/suggest")
+    if seed.get("promoted"):
+        raise HTTPException(409, "seed 已 promote")
     payload = promote_seed_payload(seed)
+    st = _store_for(work)
+    if not hasattr(st, "plant_promise"):
+        raise HTTPException(503, "store 无 plant_promise")
+    setup = int(payload.get("setup_chapter") or 1)
+    try:
+        planted = st.plant_promise(
+            payload["text"], setup, kind="promise", tier="chapter")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"plant_promise 失败: {e}") from e
     exp_state.mark_seed_promoted(work, req.seed_id)
     return {
         "ok": True,
-        "planted": False,
-        "requires_approval": True,
-        "promise_draft": payload,
-        "note": "请经伏笔/MCP 待批通道写入;本端点不落正典",
+        "planted": True,
+        "requires_approval": False,
+        "promise": planted,
+        "promise_id": planted.get("id"),
+        "note": "已写入 open promise;与 store.plant_promise /promises 列表同源",
     }
 
 

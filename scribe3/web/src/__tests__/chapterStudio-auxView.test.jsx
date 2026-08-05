@@ -32,6 +32,9 @@ vi.mock('../editor/RichEditor.jsx', () => ({
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
 vi.mock('../FramePanel', () => ({ FramePanel: ({ chapter }) => <div data-testid="frame-panel">关联:{chapter}</div> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
+vi.mock('../ExperiencePressurePanel', () => ({
+  ExperiencePressurePanel: ({ seq }) => <div data-testid="experience-pressure-panel">压力:{seq}</div>,
+}))
 
 function renderStudio({ seq = 3, ...props } = {}) {
   return render(

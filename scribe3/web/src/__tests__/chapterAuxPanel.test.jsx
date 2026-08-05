@@ -10,6 +10,9 @@ const apiMock = vi.hoisted(() => ({
 vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../BriefPanel', () => ({ BriefPanel: ({ seq }) => <div data-testid="brief-panel">简报:{seq}</div> }))
 vi.mock('../NorthStarPanel', () => ({ NorthStarPanel: ({ seq }) => <div data-testid="northstar-panel">北极星:{seq}</div> }))
+vi.mock('../ExperiencePressurePanel', () => ({
+  ExperiencePressurePanel: ({ seq }) => <div data-testid="experience-pressure-panel">压力:{seq}</div>,
+}))
 // mock FramePanel 复刻真身分派逻辑的关键面:空 focalizer → 全知空态文案(FramePanel.jsx:724),
 // 便于断言「C1:限知章不得落全知空态」;同时回显收到的 props 供断言。
 vi.mock('../FramePanel', () => ({

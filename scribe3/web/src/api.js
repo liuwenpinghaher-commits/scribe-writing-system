@@ -81,6 +81,20 @@ export const api = {
   // 消费端经 causalStatus 归一化三态,勿对结果直接 .length(见 WriteLayout / causalStatus.js)。
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
+  // ── 经验压力层(revision letter / scene-grid / continue rite)──
+  // 路径必须与后端 experience router 一致;服务端为 letter/grid/ack 真源。
+  revisionLetter: (work) => j('/revision/letter', work),
+  updateLetterItem: (itemId, body, work) => post(
+    `/revision/letter/items/${enc(itemId)}`, body, work,
+  ),
+  getSceneGrid: (seq, work) => j(`/revision/scene-grid/${enc(seq)}`, work),
+  putSceneGrid: (seq, body, work) => fetch(BASE + ww(`/revision/scene-grid/${enc(seq)}`, work), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }).then(handle),
+  continueSnapshot: (seq, work) => j(`/continue/snapshot?seq=${enc(seq)}`, work),
+  setRequireReread: (enabled, work) => post('/continue/require-reread', { enabled: !!enabled }, work),
+  ackReread: (seq, work) => post('/continue/ack-reread', { seq: Number(seq) }, work),
   promisesLedger: (work) => j('/promises/ledger', work),
   motifs: (work) => j('/motifs', work),
   motifInstances: (ch, work) => j(`/motif-instances?chapter=${ch}`, work),

@@ -29,14 +29,17 @@ from scribe3.experience.feedback_cut import parse_feedback_markdown, suggest_cut
 
 
 @pytest.fixture(autouse=True)
-def _clean_exp_state():
-    exp_state.clear_all()
+def _clean_exp_state(tmp_path, monkeypatch):
+    # 每测独立 settings DB,持久化不互相污染
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "exp_settings.sqlite3"))
+    exp_state.clear_all(disk=True)
+    exp_state.clear_ram()
     yield
-    exp_state.clear_all()
-
+    exp_state.clear_all(disk=True)
+    exp_state.clear_ram()
 
 class MiniStore:
-    """最小 store 面,驱动 letter/snapshot 真实聚合。"""
+    """最小 store 面,驱动 letter/snapshot 真实聚合 + plant_promise。"""
 
     def __init__(self):
         self.intent = {
@@ -58,11 +61,12 @@ class MiniStore:
              "focalizer": "role:沈砚", "title": "四"},
         ]
         self.promises = [
-            {"text": "灰契背面真名", "setup_chapter": 1, "status": "open",
-             "window": {"state": "overdue"}},
-            {"text": "白姑的旧债", "setup_chapter": 2, "status": "open",
-             "window": {"state": "open"}},
+            {"id": "p-old1", "text": "灰契背面真名", "setup_chapter": 1, "status": "open",
+             "window": {"state": "overdue"}, "kind": "promise", "tier": "chapter"},
+            {"id": "p-old2", "text": "白姑的旧债", "setup_chapter": 2, "status": "open",
+             "window": {"state": "open"}, "kind": "promise", "tier": "chapter"},
         ]
+        self._pid = 0
 
     def get_intent(self):
         return dict(self.intent)
@@ -83,7 +87,24 @@ class MiniStore:
         return list(self.promises)
 
     def open_promises(self):
-        return list(self.promises)
+        return [p for p in self.promises if (p.get("status") or "open") == "open"]
+
+    def plant_promise(self, text, setup_chapter, kind="promise", tier="chapter",
+                      resolution=""):
+        """与 store.plant_promise 同契约(测试/Fake 路径)。"""
+        self._pid += 1
+        row = {
+            "id": f"p-new-{self._pid}",
+            "text": text,
+            "setup_chapter": int(setup_chapter),
+            "tier": tier,
+            "kind": kind,
+            "status": "open",
+            "window": {"state": "open"},
+            "resolution": resolution or None,
+        }
+        self.promises.append(row)
+        return dict(row)
 
     def list_characters(self):
         return [{"id": "role:沈砚", "name": "沈砚"}]
@@ -214,11 +235,73 @@ def test_seed_suggest_and_promote_not_auto_plant():
     assert any(s["kind"] == "repeated_marker" for s in seeds)
     seed = seeds[0]
     payload = promote_seed_payload(seed)
-    assert payload["requires_approval"] is True
     assert payload["text"]
-    # promote 不写 store——此处无 plant 副作用
     assert "seed_id" in payload
+    # suggest  alone 不写 store
+    st = MiniStore()
+    n0 = len(st.open_promises())
+    assert len(suggest_seeds(prose, seq=2)) >= 1
+    assert len(st.open_promises()) == n0
 
+
+def test_persist_survives_ram_clear(tmp_path, monkeypatch):
+    """写 letter/grid/ack 后 clear_ram,再读仍在(settings 持久化)。"""
+    monkeypatch.setenv("SCRIBE3_SETTINGS_DB", str(tmp_path / "persist.sqlite3"))
+    exp_state.clear_all(disk=True)
+    exp_state.clear_ram()
+    import scribe3.app as A
+    from fastapi.testclient import TestClient
+    st = MiniStore()
+    A.set_store(st, work="test")
+    monkeypatch.setattr(A, "_store_for", lambda w="main": st, raising=False)
+    c = TestClient(A.app)
+    # write
+    r = c.post("/revision/mode?work=test", json={"mode": "scene"})
+    assert r.status_code == 200
+    letter = c.get("/revision/letter?work=test").json()
+    iid = letter["items"][0]["id"]
+    assert c.post(f"/revision/letter/items/{iid}?work=test",
+                  json={"status": "waived", "author_note": "keep"}).status_code == 200
+    assert c.put("/revision/scene-grid/2?work=test", json={
+        "goal": "g", "conflict": "c", "disaster": "d",
+        "reaction": "r", "dilemma": "di", "decision": "de", "source": "author",
+    }).status_code == 200
+    assert c.post("/continue/require-reread?work=test",
+                  json={"enabled": True}).status_code == 200
+    assert c.post("/continue/ack-reread?work=test", json={"seq": 2}).status_code == 200
+    # simulate process restart
+    exp_state.clear_ram()
+    # re-GET
+    assert c.get("/revision/mode?work=test").json()["mode"] == "scene"
+    letter2 = c.get("/revision/letter?work=test").json()
+    item = next(i for i in letter2["items"] if i["id"] == iid)
+    assert item["status"] == "waived"
+    grid = c.get("/revision/scene-grid/2?work=test").json()["grid"]
+    assert grid["goal"] == "g" and grid["decision"] == "de"
+    snap = c.get("/continue/snapshot?seq=2&work=test").json()
+    assert snap["require_reread"] is True
+    assert snap["acked"] is True
+    assert snap["generate_gate"]["allowed"] is True
+    assert "total_score" not in letter2
+
+
+def test_http_promote_plants_real_promise(monkeypatch):
+    c, st, A = _http_client(monkeypatch)
+    # suggest alone
+    r = c.post("/seeds/suggest?work=test",
+               json={"seq": 1, "prose": "铜炉一响。铜炉又响。铜炉第三次。"})
+    assert r.status_code == 200
+    n_before = len(st.open_promises())
+    # suggest 不应增加 promise
+    r2 = c.post("/seeds/suggest?work=test",
+                json={"seq": 1, "prose": "铜炉一响。铜炉又响。铜炉第三次。"})
+    assert len(st.open_promises()) == n_before
+    sid = r.json()["seeds"][0]["id"]
+    r3 = c.post("/seeds/promote?work=test", json={"seed_id": sid})
+    assert r3.status_code == 200, r3.text
+    assert r3.json()["planted"] is True
+    assert len(st.open_promises()) == n_before + 1
+    assert any("铜炉" in (p.get("text") or "") for p in st.open_promises())
 
 # ===== E4 continue =====
 
@@ -347,10 +430,15 @@ def test_http_scene_grid_strict_and_seeds(monkeypatch):
     assert r.status_code == 200, r.text
     assert r.json()["count"] >= 1
     sid = r.json()["seeds"][0]["id"]
+    before_n = len(st.open_promises())
     r = c.post("/seeds/promote?work=test", json={"seed_id": sid})
     assert r.status_code == 200, r.text
-    assert r.json()["planted"] is False
-    assert r.json()["requires_approval"] is True
+    body = r.json()
+    assert body["planted"] is True, body
+    assert body.get("promise_id") or (body.get("promise") or {}).get("id")
+    assert len(st.open_promises()) == before_n + 1
+    texts = [p["text"] for p in st.open_promises()]
+    assert any("灰契" in (t or "") for t in texts)
 
 
 def test_http_feedback_choice_cut_continue(monkeypatch):
