@@ -74,8 +74,9 @@ jobs:
             -e "ssh -F $HOME/.ssh/config" \
             scribe3-deploy.tgz scribe3-deploy.tgz.sha256 \
             deploy-target:/tmp/
+          # sha256 文件内是相对路径 scribe3-deploy.tgz,必须在 /tmp 下校验
           ssh -F "$HOME/.ssh/config" deploy-target \
-            'test -f /tmp/scribe3-deploy.tgz && sha256sum -c /tmp/scribe3-deploy.tgz.sha256'
+            'cd /tmp && test -f scribe3-deploy.tgz && sha256sum -c scribe3-deploy.tgz.sha256'
 
       - name: Extract and rebuild
         run: |
