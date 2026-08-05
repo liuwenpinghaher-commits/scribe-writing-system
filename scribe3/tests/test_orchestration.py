@@ -86,6 +86,18 @@ def test_resolve_promise_lifecycle_intent():
     assert pkg["required_outcome"] == "write_proposal"
 
 
+def test_resolve_promise_plant_not_stolen_by_protagonist_word():
+    """口语「埋一个承诺…主角…」不得被「主角」抢到 codex.character。"""
+    pkg = resolve_work_package(
+        "埋一个承诺：主角会在终局前揭开母亲失踪真相",
+        work="w1",
+        chapter=2,
+    )
+    assert pkg["domain"] == "promise.plant"
+    assert "s3_plant_promise" in pkg["write_tools"]
+    assert (pkg["ui_directive"].get("node") or {}).get("type") == "promise"
+
+
 def test_resolve_prose_not_world_write():
     pkg = resolve_work_package("请写本章完整正文", work="w1", chapter=2, phase="final")
     assert pkg["domain"].startswith("prose.")

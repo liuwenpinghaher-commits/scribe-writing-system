@@ -20,6 +20,7 @@ _MUTATION_RE = re.compile(
 
 
 def _score_entry(text: str, entry: dict[str, Any]) -> int:
+    """累加命中分：更长短语优先，避免「主角」单字抢走「埋一个承诺」。"""
     t = text or ""
     score = 0
     for kw in entry.get("match_force") or ():
@@ -27,7 +28,17 @@ def _score_entry(text: str, entry: dict[str, Any]) -> int:
             score += 100
     for kw in entry.get("match_keywords") or ():
         if kw and kw in t:
-            score += 10
+            # 基础 10 + 长度加成（封顶 24），多关键词累加
+            score += 10 + min(len(kw), 14)
+    domain = entry.get("domain") or ""
+    # 埋设动词 + 承诺/伏笔 → 明确偏向 plant（口语「埋一个承诺」）
+    if domain == "promise.plant" and re.search(r"埋|种下|plant", t) and re.search(
+        r"承诺|伏笔|promise", t
+    ):
+        score += 40
+    # 兑现/回收/展期 → lifecycle
+    if domain == "promise.lifecycle" and re.search(r"兑现|回收|展期|弃置|超期", t):
+        score += 30
     return score
 
 
@@ -42,7 +53,14 @@ def match_domain(message: str, *, prior_domain: str | None = None) -> dict[str, 
             default = entry
             continue
         sc = _score_entry(text, entry)
-        if sc > best_score:
+        # 同分时保留更具体域（后写的 promise 等可压过先出现的 codex.character）
+        if sc > best_score or (
+            sc == best_score
+            and best is not None
+            and sc > 0
+            and (entry.get("domain") or "").count(".") >= (best.get("domain") or "").count(".")
+            and len(entry.get("domain") or "") > len(best.get("domain") or "")
+        ):
             best_score = sc
             best = entry
     # 正文词压过弱世界匹配（除非 force 已命中）

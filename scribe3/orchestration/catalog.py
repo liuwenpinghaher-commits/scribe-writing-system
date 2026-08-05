@@ -162,8 +162,11 @@ CATALOG: list[dict[str, Any]] = [
     {
         "domain": "promise.plant",
         "label": "埋设伏笔",
-        "match_keywords": ("埋伏笔", "埋承诺", "plant", "s3_plant_promise", "新伏笔", "埋一条"),
-        "match_force": ("s3_plant_promise",),
+        "match_keywords": (
+            "埋伏笔", "埋承诺", "埋一个承诺", "埋一个伏笔", "埋下承诺", "埋下伏笔",
+            "埋一条", "埋设", "种下伏笔", "新伏笔", "新承诺", "plant", "s3_plant_promise",
+        ),
+        "match_force": ("s3_plant_promise", "埋一个承诺", "埋伏笔"),
         "read_tools": ("s3_list_promises",),
         "write_tools": ("s3_plant_promise",),
         "required_outcome": "write_proposal",
