@@ -81,6 +81,11 @@ export const api = {
   // 消费端经 causalStatus 归一化三态,勿对结果直接 .length(见 WriteLayout / causalStatus.js)。
   causal: (ch) => j(`/causal?chapter=${ch}`),
   promises: () => j('/promises'),
+  // ── 写作导演(WorkflowSnapshot)──
+  workflowSnapshot: (seq, work) => j(
+    '/workflow/snapshot' + (seq != null ? `?seq=${enc(seq)}` : ''),
+    work,
+  ),
   // ── 经验压力层(revision letter / scene-grid / continue rite)──
   // 路径必须与后端 experience router 一致;服务端为 letter/grid/ack 真源。
   revisionLetter: (work) => j('/revision/letter', work),

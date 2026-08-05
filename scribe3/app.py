@@ -27,6 +27,7 @@ from scribe3.api.routers.chat_threads import router as chat_threads_router
 from scribe3.api.routers.codex import router as codex_router
 from scribe3.api.routers.context_sessions import router as context_sessions_router
 from scribe3.api.routers.experience import router as experience_router
+from scribe3.api.routers.director import router as director_router
 from scribe3.api.routers.ingest_import import router as ingest_import_router
 from scribe3.api.routers.materials import router as materials_router
 from scribe3.api.routers.memory import router as memory_router
@@ -73,6 +74,7 @@ _DOMAIN_ROUTERS = (
     ingest_import_router,
     pilot_inbox_router,
     experience_router,
+    director_router,
     misc_routes_router,
     auth_router,
 )

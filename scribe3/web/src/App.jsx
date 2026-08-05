@@ -5,6 +5,7 @@ import { CommandPalette } from './CommandPalette'
 import { ToastHost } from './ui/Toast'
 import { Login } from './Login'
 import { clearApiToken } from './authFetch'
+import { WorkflowCapsule, applyWorkflowContinue } from './WorkflowCapsule'
 
 const ACTIVE_WORK_STORAGE_KEY = 's3-active-work'
 const Library = lazy(() => import('./Library').then((mod) => ({ default: mod.Library })))
@@ -144,20 +145,45 @@ export default function App() {
   const openLibrary = () => { writeActiveWorkSlug(''); setCur(null) }
   const onView = (viewKey) => setSel({ mode: 'view', viewKey })
   const handleJumpChapter = (ch) => setSel({ mode: 'node', node: { id: `ch:${ch}`, type: 'chapter', ref: ch, label: `${ch}` } })
+  const handleWorkflowContinue = useCallback((snap) => {
+    applyWorkflowContinue(snap, { onSel: setSel, onJumpChapter: handleJumpChapter })
+  }, [])
   const activeView = sel.mode === 'view' ? sel.viewKey : null
 
   let body
   if (!cur) {
     body = <Library works={works} reload={reload} onSelect={open} />
   } else {
-    body = <BinderLayout key={cur.slug} work={cur.slug} sel={sel} onSel={setSel} onJumpChapter={handleJumpChapter} />
+    body = (
+      <BinderLayout
+        key={cur.slug}
+        work={cur.slug}
+        sel={sel}
+        onSel={setSel}
+        onJumpChapter={handleJumpChapter}
+        onWorkflowContinue={handleWorkflowContinue}
+      />
+    )
   }
 
   return (
     <>
       <div className="h-full flex flex-col bg-canvas">
-        <AppRail current={cur} view={activeView} onView={onView} onOpenLibrary={openLibrary}
-          theme={theme} onTheme={setTheme} />
+        <AppRail
+          current={cur}
+          view={activeView}
+          onView={onView}
+          onOpenLibrary={openLibrary}
+          theme={theme}
+          onTheme={setTheme}
+          capsule={cur ? (
+            <WorkflowCapsule
+              work={cur.slug}
+              onOpenJourney={() => onView('journey')}
+              onContinue={handleWorkflowContinue}
+            />
+          ) : null}
+        />
         <div className="flex-1 min-h-0">
           <Suspense fallback={<div className="h-full grid place-items-center text-f13 text-faint/60">加载工作区…</div>}>
             {body}

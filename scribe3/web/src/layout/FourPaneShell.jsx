@@ -76,7 +76,7 @@ function entryForActive(tree, active) {
 // 唯一布局壳（旧三栏已删除）。
 export function FourPaneShell({
   tree, selId, expanded, toggle, onSelectNode, treeCbs, sel, work, reload, onJumpChapter,
-  chapterSel, curSeq, leftSeq, onRestored,
+  chapterSel, curSeq, leftSeq, onRestored, onWorkflowContinue,
 }) {
   const [directoryRefresh, setDirectoryRefresh] = useState(0)
   const directoryRef = usePanelRef()
@@ -474,7 +474,8 @@ export function FourPaneShell({
             onSelectNode={handleSelectItem}
             onTreeChanged={handleTreeChanged} onJumpChapter={onJumpChapter}
             onNavigateToObject={handleNavigateToObject}
-            onChapterArchived={handleChapterArchived} />
+            onChapterArchived={handleChapterArchived}
+            onWorkflowContinue={onWorkflowContinue} />
         </div>
       </div>
     </Panel>

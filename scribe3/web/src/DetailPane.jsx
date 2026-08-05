@@ -27,6 +27,7 @@ const AtlasView = lazyNamed(() => import('./views/AtlasView'), 'AtlasView')
 const InsightView = lazyNamed(() => import('./views/InsightView'), 'InsightView')
 const OverviewView = lazyNamed(() => import('./views/OverviewView'), 'OverviewView')
 const TimelineView = lazyNamed(() => import('./views/TimelineView'), 'TimelineView')
+const JourneyView = lazyNamed(() => import('./views/JourneyView'), 'JourneyView')
 
 function DetailLoading() {
   return <div className="h-full grid place-items-center text-f13 text-faint/60">加载视图…</div>
@@ -78,7 +79,7 @@ export function DetailPane(props) {
   )
 }
 
-function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq }) {
+function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, onNavigateToObject, onChapterArchived, entryKey, qualitySeq, onWorkflowContinue }) {
   // onNavigateToObject: 设定详情「在图谱中打开」等跨栏定位(须透传 CodexDetail)
   // —— 横切视图 ——
   if (sel?.mode === 'view') {
@@ -88,6 +89,16 @@ function renderDetail({ sel, work, onSelectNode, onTreeChanged, onJumpChapter, o
     if (k === 'insight') return <InsightView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'timeline') return <TimelineView key={work} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} />
     if (k === 'overview') return <OverviewView key={work} onJumpChapter={onJumpChapter} onOpenView={openView} />
+    if (k === 'journey') {
+      return (
+        <JourneyView
+          key={work}
+          work={work}
+          onJumpChapter={onJumpChapter}
+          onContinue={onWorkflowContinue}
+        />
+      )
+    }
     if (k === 'settings') return <SettingsView key="settings" work={work} />
     if (k === 'progress') return <InsightView key={`${work}-progress`} onJumpChapter={onJumpChapter} onNavigateToObject={onNavigateToObject} focus="progress" />  // 仪表盘聚焦码字进度面板
     return <div className="p-8 text-faint">未实现的视图:{k}</div>

@@ -39,7 +39,7 @@ function isChapterSel(sel) {
  * 旧三栏（LeftDock + DetailPane + RightDock + s3.layout.v2 flag）已移除。
  * sel 单一真相源:{mode:'node', node} | {mode:'view', viewKey},由父层(App)持有。
  */
-export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
+export function BinderLayout({ work, sel, onSel, onJumpChapter, onWorkflowContinue }) {
   const [tree, setTree] = useState(null)
   const [expanded, setExpanded] = useState(() => new Set(['manuscript_root', 'codex_root', 'material_root']))
   // F3:右坞「恢复到此版本」→ bump → 经 RestoreContext 通知中区 WriteLayout 重拉本章正文,
@@ -192,6 +192,7 @@ export function BinderLayout({ work, sel, onSel, onJumpChapter }) {
           chapterSel={chapterSel}
           curSeq={curSeq}
           onRestored={() => setRestoreTick((t) => t + 1)}
+          onWorkflowContinue={onWorkflowContinue}
         />
       </ContextSnapshotProvider>
     </div>

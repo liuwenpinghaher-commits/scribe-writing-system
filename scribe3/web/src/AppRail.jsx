@@ -1,9 +1,10 @@
-import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings } from 'lucide-react'
+import { Sun, Moon, BookOpen, ChevronDown, Network, Activity, Clock, Search, Settings, Compass } from 'lucide-react'
 import { PC_LAYOUT } from './layout/tokens'
 
 // F-06:write/codex 不再是顶栏 tab(已变成左侧项目树两支)。
-// 顶栏只留「横切视图」入口:概览/图谱/时间线/仪表盘 → 点击切中间栏 view mode。
+// 顶栏横切视图 + 写作旅程(导演状态页)。
 export const VIEWS = [
+  { key: 'journey', label: '旅程', icon: Compass },
   { key: 'atlas', label: '图谱', icon: Network },
   { key: 'timeline', label: '时间线', icon: Clock },
   { key: 'insight', label: '仪表盘', icon: Activity },
@@ -24,7 +25,7 @@ function triggerSearch(onSearch) {
 // 高度取自布局 token(单一真源),不硬编码,与四栏 rail/directory 等尺寸同源。
 // view:当前选中的横切 viewKey(null/无 = 在项目树/写作态,不高亮任何 tab)。
 // status:系统状态区可注入的实时指示(连接/后台任务…),缺省中性,不谎报「在线」。
-export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null }) {
+export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, showViews = true, onSearch, status = null, capsule = null }) {
   return (
     <header data-testid="app-rail" style={{ height: PC_LAYOUT.topbar }}
       className="shrink-0 flex items-center border-b border-line/70 bg-surface px-4 gap-3">
@@ -61,6 +62,9 @@ export function AppRail({ current, view, onView, onOpenLibrary, theme, onTheme, 
           <Search size={15} />
         </button>
       )}
+
+      {/* 写作导演进度胶囊(P0)：放在搜索与右簇之间 */}
+      {current && capsule}
 
       {/* 主题:保留为右簇锚点(ml-auto)。设置中心入口(Task 12)紧贴主题按钮前,同属右簇。 */}
       <div className="ml-auto flex items-center gap-1" data-testid="topbar-theme">
