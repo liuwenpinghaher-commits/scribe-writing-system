@@ -15,7 +15,8 @@ _PROSE_RE = re.compile(
 )
 _MUTATION_RE = re.compile(
     r"(新增|添加|登记|记录|补录|写入|落库|建立|创建|更新|修改|改成|删除|删卷|"
-    r"归档|恢复|关闭|推进|兑现|回收|标记|更正|重排|排序|起草|埋|种)"
+    r"归档|恢复|关闭|推进|兑现|回收|标记|更正|重排|排序|起草|规划|拟|写大纲|补大纲|填大纲|"
+    r"埋|种)"
 )
 
 
@@ -100,7 +101,12 @@ def _extract_character_name(message: str) -> str | None:
         name = name[:4]
     else:
         name = name[:12]
-    return name or None
+    # 「角色设定我喜欢」不是专名
+    if not name or name in {
+        "设定", "本身", "档案", "关系", "列表", "卡", "人设", "扮演", "体系",
+    } or name.startswith("设定"):
+        return None
+    return name
 
 
 def _extract_focus(message: str, domain: str, ctx: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -75,9 +75,19 @@ def test_resolve_discuss_role_not_forced_write():
     assert pkg["domain"] == "codex.character"
     assert pkg["use_world_write_run"] is False
     assert pkg["required_outcome"] == "read_only_advice"
+    # 不得把「设定我喜」当角色名
+    lab = (pkg.get("focus") or {}).get("label") or ""
+    assert "设定" not in lab
     ev = evaluate_turn(pkg, tools_called=[], approved_writes=[])
     assert ev["status"] == "ok"
     assert ev.get("fake_written") is False
+
+
+def test_resolve_outline_plan_is_write_intent():
+    pkg = resolve_work_package("帮我规划第3章大纲和节拍", work="w1", chapter=3)
+    assert pkg["domain"] == "chapter.outline"
+    assert pkg["use_world_write_run"] is True
+    assert pkg["required_outcome"] == "write_proposal"
 
 
 def test_resolve_outline_intent():
