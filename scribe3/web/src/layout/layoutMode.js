@@ -29,10 +29,12 @@ export function resolveLayoutMode(ctx = {}) {
 
 /**
  * 默认栏宽（%）：协作/阅读共用同一套，避免切 phase 时比例跳变。
- * 差异只在栏序（panelOrder）；directory 次要，主编(right) 与详情对等。
- * 用户拖拽后仍按 mode 分键持久化（可各自记住偏好）。
+ * 差异只在栏序（panelOrder）；directory 次要。
+ * 内容(detail):聊天(right) 在去掉目录后按 4:6 分（即聊天:内容 = 6:4），
+ * 聊天栏默认更宽；用户拖拽后仍按 mode 分键持久化。
+ * 14 + 34 + 52 = 100；剩余 86 中 detail≈40%、right≈60%。
  */
-export const LAYOUT_DEFAULT_SHARES = Object.freeze({ directory: 14, detail: 43, right: 43 })
+export const LAYOUT_DEFAULT_SHARES = Object.freeze({ directory: 14, detail: 34, right: 52 })
 
 export const LAYOUT_DEFAULTS_BY_MODE = Object.freeze({
   collaboration: LAYOUT_DEFAULT_SHARES,
@@ -40,7 +42,7 @@ export const LAYOUT_DEFAULTS_BY_MODE = Object.freeze({
 })
 
 /**
- * 两模式共用拖拽边界：主编/详情默认对等。
+ * 两模式共用拖拽边界。
  * max 用 100（而非 60）：折叠一侧后另一侧才能吃满空位；双栏同开时
  * 对侧 min（28）+ 目录 min（10）仍把单栏有效上限卡在 ~62%，不会拖死邻居。
  * 旧 max=60 在折叠后留下大块空白（截屏：时间线右侧空页）。
@@ -66,8 +68,8 @@ export function panelOrderForMode(mode) {
   return ['directory', 'detail', 'right']
 }
 
-/** layout persistence 前缀 v3：按 mode 分键，避免旧 detail-primary 污染协作默认 */
-export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v3'
+/** layout persistence 前缀 v4：聊天默认更宽（内容:聊天 4:6）；作废 v3 对等 43:43 */
+export const FOUR_PANE_LAYOUT_ID_V3 = 's3.fourPane.layout.v4'
 
 export function layoutStorageId(work, mode) {
   return `${FOUR_PANE_LAYOUT_ID_V3}:${mode}:${work || 'main'}`

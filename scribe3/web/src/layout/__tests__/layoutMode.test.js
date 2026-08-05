@@ -32,21 +32,25 @@ describe('resolveLayoutMode phase-auto', () => {
 })
 
 describe('layout defaults by mode', () => {
-  it('collaboration and reading share equal chief/detail defaults', () => {
+  it('collaboration and reading share chat-wider defaults (content:chat ≈ 4:6)', () => {
     const collab = LAYOUT_DEFAULTS_BY_MODE.collaboration
     const reading = LAYOUT_DEFAULTS_BY_MODE.reading
     expect(collab).toEqual(reading)
-    expect(collab.right).toBe(collab.detail)
+    // 聊天(right) 默认宽于内容(detail)：聊天:内容 = 6:4
+    expect(collab.right).toBeGreaterThan(collab.detail)
+    expect(collab.right / collab.detail).toBeCloseTo(6 / 4, 1)
     expect(collab.directory).toBeLessThan(collab.detail)
     expect(collab.directory + collab.detail + collab.right).toBe(100)
   })
 
-  it('sanitizeLayout with shared defaults keeps equal chief/detail shares', () => {
+  it('sanitizeLayout with shared defaults keeps chat-wider shares', () => {
     const collab = sanitizeLayout(null, {
       defaults: LAYOUT_DEFAULTS_BY_MODE.collaboration,
       bounds: LAYOUT_BOUNDS_BY_MODE.collaboration,
     })
-    expect(collab.right).toBe(collab.detail)
+    expect(collab.right).toBeGreaterThan(collab.detail)
+    expect(collab.right).toBe(52)
+    expect(collab.detail).toBe(34)
 
     const reading = sanitizeLayout(null, {
       defaults: LAYOUT_DEFAULTS_BY_MODE.reading,
@@ -62,8 +66,8 @@ describe('panel order + storage id', () => {
     expect(panelOrderForMode('reading')).toEqual(['directory', 'detail', 'right'])
   })
 
-  it('layoutStorageId isolates work and mode (v3)', () => {
-    expect(layoutStorageId('demo', 'collaboration')).toContain('v3')
+  it('layoutStorageId isolates work and mode (v4)', () => {
+    expect(layoutStorageId('demo', 'collaboration')).toContain('v4')
     expect(layoutStorageId('demo', 'collaboration')).toContain('collaboration')
     expect(layoutStorageId('demo', 'collaboration')).not.toBe(layoutStorageId('demo', 'reading'))
   })

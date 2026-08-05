@@ -329,8 +329,11 @@ describe('FourPaneShell 四栏钻取', () => {
     expect(panel.getAttribute('data-min-size')).toBe('10')
     expect(panel.getAttribute('data-max-size')).toBe('22')
     expect(screen.getByTestId('four-col').getAttribute('data-layout-mode')).toBe('collaboration')
+    // 默认聊天(right) 宽于内容(detail)：52 vs 34
     expect(Number(screen.getByTestId('right-panel').getAttribute('data-default-size')))
-      .toBe(Number(screen.getByTestId('detail-panel').getAttribute('data-default-size')))
+      .toBeGreaterThan(Number(screen.getByTestId('detail-panel').getAttribute('data-default-size')))
+    expect(Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))).toBe(52)
+    expect(Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))).toBe(34)
     // 详情/主编 max=100：折叠一侧后另一侧可铺满，避免锁在 60% 留下大空白
     expect(screen.getByTestId('detail-panel').getAttribute('data-max-size')).toBe('100')
     expect(screen.getByTestId('right-panel').getAttribute('data-max-size')).toBe('100')
@@ -492,7 +495,7 @@ describe('FourPaneShell 四栏钻取', () => {
     const mode = screen.getByTestId('four-col').getAttribute('data-layout-mode')
     expect(mode).toBe('collaboration')
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: `s3.fourPane.layout.v3:${mode}:book-sync`,
+      id: `s3.fourPane.layout.v4:${mode}:book-sync`,
     }))
     expect(screen.getByTestId('detail-panel').getAttribute('data-layout-mode')).toBe(mode)
     expect(screen.getByTestId('right-panel').getAttribute('data-layout-mode')).toBe(mode)
@@ -670,11 +673,11 @@ describe('FourPaneShell 四栏钻取', () => {
     }
   })
 
-  // Task 4 / v3:栏宽按 work + layoutMode 隔离
-  it('scopes panel layout by work and mode (v3)', () => {
+  // Task 4 / v4:栏宽按 work + layoutMode 隔离
+  it('scopes panel layout by work and mode (v4)', () => {
     render(<Harness work="book-a" />)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v3:collaboration:book-a',
+      id: 's3.fourPane.layout.v4:collaboration:book-a',
     }))
   })
 
@@ -713,10 +716,12 @@ describe('FourPaneShell 四栏钻取', () => {
     })
     const detailW = Number(screen.getByTestId('detail-panel').getAttribute('data-default-size'))
     const rightW = Number(screen.getByTestId('right-panel').getAttribute('data-default-size'))
-    expect(detailW).toBe(rightW)
-    expect(detailW).toBe(43)
+    // 内容:聊天 4:6（聊天更宽）
+    expect(rightW).toBeGreaterThan(detailW)
+    expect(detailW).toBe(34)
+    expect(rightW).toBe(52)
     expect(mockUseDefaultLayout).toHaveBeenCalledWith(expect.objectContaining({
-      id: 's3.fourPane.layout.v3:reading:demo',
+      id: 's3.fourPane.layout.v4:reading:demo',
     }))
   })
 })

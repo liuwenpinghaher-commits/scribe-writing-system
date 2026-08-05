@@ -4,8 +4,8 @@
  * 拖拽时栏宽跳变、中文逐字折行、整页错乱。
  */
 
-// 兼容导出:与 layoutMode 共用默认（目录次要，主编=详情）。阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
-export const FOUR_PANE_DEFAULT = { directory: 14, detail: 43, right: 43 }
+// 兼容导出:与 layoutMode 共用默认（目录次要；内容:聊天 4:6）。阶段自动模式请用 layoutMode.LAYOUT_DEFAULTS_BY_MODE。
+export const FOUR_PANE_DEFAULT = { directory: 14, detail: 34, right: 52 }
 
 // max=100：折叠一侧后剩余栏可铺满；双栏同开时对侧 min 仍限制有效上限（见 layoutMode）
 export const FOUR_PANE_BOUNDS = {

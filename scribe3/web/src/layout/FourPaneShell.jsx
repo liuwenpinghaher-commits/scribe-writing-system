@@ -140,7 +140,7 @@ export function FourPaneShell({
   const layoutDefaults = LAYOUT_DEFAULTS_BY_MODE[layoutMode]
   const layoutBounds = LAYOUT_BOUNDS_BY_MODE[layoutMode]
   const panelOrder = panelOrderForMode(layoutMode)
-  // 栏宽按 work + mode 隔离(v3);协作/阅读各记一份,旧 v2 detail-primary 不污染协作默认
+  // 栏宽按 work + mode 隔离(v4);协作/阅读各记一份；聊天默认宽于内容
   const { defaultLayout: rawLayout, onLayoutChanged: persistLayout } = useDefaultLayout({
     id: layoutStorageId(work, layoutMode),
   })
