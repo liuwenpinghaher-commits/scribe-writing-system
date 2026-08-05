@@ -332,6 +332,17 @@ def _bind_and_register() -> None:
     from scribe3.api import app_impl as core
     g = globals()
 
+    # Body 模型必须进 app_impl globals,否则 FunctionType rebind 后 FastAPI 把
+    # ModeReq 等注解解析失败,POST body 被当成 query.req → 全线 422。
+    for _model_name in (
+        "ModeReq", "LetterItemUpdate", "SceneGridReq", "StrictSceneReq",
+        "ChoiceAuditReq", "SeedSuggestReq", "SeedPromoteReq",
+        "RequireRereadReq", "AckRereadReq", "FeedbackImportReq", "CutSuggestReq",
+        "BaseModel", "Field",
+    ):
+        if _model_name in g:
+            setattr(core, _model_name, g[_model_name])
+
     def _bind(name: str, path: str, methods: list[str]):
         _fn = g[name]
         _re = types.FunctionType(
@@ -346,8 +357,9 @@ def _bind_and_register() -> None:
     _bind("set_revision_mode", "/revision/mode", ["POST"])
     _bind("get_revision_letter", "/revision/letter", ["GET"])
     _bind("patch_revision_letter_item", "/revision/letter/items/{item_id}", ["POST"])
-    _bind("get_scene_grid_ep", "/chapters/{seq}/scene-grid", ["GET"])
-    _bind("put_scene_grid_ep", "/chapters/{seq}/scene-grid", ["PUT"])
+    # 挂 /revision/* 而非 /chapters/* —— 后者在 emergency REST 世界写闸内(403)
+    _bind("get_scene_grid_ep", "/revision/scene-grid/{seq}", ["GET"])
+    _bind("put_scene_grid_ep", "/revision/scene-grid/{seq}", ["PUT"])
     _bind("set_strict_scene_ep", "/revision/strict-scene", ["POST"])
     _bind("choice_audit_ep", "/revision/choice-audit", ["POST"])
     _bind("seed_suggest_ep", "/seeds/suggest", ["POST"])

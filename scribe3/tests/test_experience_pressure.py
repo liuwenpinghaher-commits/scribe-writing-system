@@ -286,74 +286,100 @@ def test_cut_suggestions_no_auto_delete():
     assert all(c.get("auto_delete") is False for c in cands)
 
 
-# ===== API handlers (real bind) =====
+# ===== 真实 HTTP 路由 (TestClient · 产品入口) =====
 
-def test_api_revision_letter_and_waive(monkeypatch):
+def _http_client(monkeypatch, work="test"):
+    """TestClient + FakeStore;覆盖 _store_for 供 rebind handler。"""
     import scribe3.app as A
+    from fastapi.testclient import TestClient
     st = MiniStore()
-    A.set_store(st, work="test")
-    # monkeypatch _store_for on rebound handlers
-    monkeypatch.setattr(A, "_store_for", lambda work="main": st, raising=False)
-    exp_state.clear_work("test")
-    letter = A.get_revision_letter(work="test")
+    A.set_store(st, work=work)
+    monkeypatch.setattr(A, "_store_for", lambda w="main": st, raising=False)
+    exp_state.clear_work(work)
+    return TestClient(A.app), st, A
+
+
+def test_http_revision_mode_and_letter_waive(monkeypatch):
+    c, st, A = _http_client(monkeypatch)
+    r = c.post("/revision/mode?work=test", json={"mode": "structure"})
+    assert r.status_code == 200, r.text
+    assert r.json()["mode"] == "structure"
+    r = c.get("/revision/letter?work=test")
+    assert r.status_code == 200, r.text
+    letter = r.json()
     assert letter["item_count"] >= 4
     assert "total_score" not in letter
     kinds = {i["kind"] for i in letter["items"]}
-    assert "opening_promise" in kinds
-    assert "unpaid_promise" in kinds
+    assert "opening_promise" in kinds and "unpaid_promise" in kinds
     iid = letter["items"][0]["id"]
-    from scribe3.api.routers.experience import LetterItemUpdate
-    r = A.patch_revision_letter_item(
-        iid, LetterItemUpdate(status="waived", author_note="ok"), work="test")
-    assert r["ok"]
-    item = next(i for i in r["letter"]["items"] if i["id"] == iid)
+    r2 = c.post(f"/revision/letter/items/{iid}?work=test",
+                json={"status": "waived", "author_note": "ok"})
+    assert r2.status_code == 200, r2.text
+    item = next(i for i in r2.json()["letter"]["items"] if i["id"] == iid)
     assert item["status"] == "waived"
+    assert item["history"]
 
 
-def test_api_strict_scene_and_seed_promote(monkeypatch):
-    import scribe3.app as A
-    st = MiniStore()
-    monkeypatch.setattr(A, "_store_for", lambda work="main": st, raising=False)
-    A.set_store(st, work="test")
-    from scribe3.api.routers.experience import (
-        StrictSceneReq, SeedSuggestReq, SeedPromoteReq, SceneGridReq,
-    )
-    A.set_strict_scene_ep(StrictSceneReq(enabled=True), work="test")
-    assert exp_state.get_strict_scene("test") is True
-    # empty grid + substantial prose → gate refuse
+def test_http_scene_grid_strict_and_seeds(monkeypatch):
+    c, st, A = _http_client(monkeypatch)
+    # 空 grid GET
+    r = c.get("/revision/scene-grid/1?work=test")
+    assert r.status_code == 200, r.text
+    # PUT 六格(不在 /chapters 世界写闸内)
+    r = c.put("/revision/scene-grid/1?work=test", json={
+        "goal": "g", "conflict": "c", "disaster": "d",
+        "reaction": "r", "dilemma": "m", "decision": "e", "source": "author",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["grid"]["goal"] == "g"
+    # 严格戏格
+    r = c.post("/revision/strict-scene?work=test", json={"enabled": True})
+    assert r.status_code == 200 and r.json()["strict_scene_grid"] is True
     from scribe3.experience.scene_grid import evaluate_strict_scene_gate
     long_prose = "实质正文必须足够长才会触发严格戏格空六格拦截。" * 6
-    d = evaluate_strict_scene_gate(
-        exp_state.get_scene_grid("test", 1),
-        strict=True,
-        prose=long_prose,
-    )
-    assert d["allowed"] is False
-    # fill grid
-    A.put_scene_grid_ep(1, SceneGridReq(
-        goal="g", conflict="c", disaster="d",
-        reaction="r", dilemma="m", decision="e", source="author",
-    ), work="test")
-    d2 = evaluate_strict_scene_gate(
-        exp_state.get_scene_grid("test", 1), strict=True,
-        prose=long_prose)
-    assert d2["allowed"] is True
-    # seeds
-    r = A.seed_suggest_ep(SeedSuggestReq(seq=1, prose="灰契在袖。他摸灰契。旁人不知灰契。"), work="test")
-    assert r["count"] >= 1
-    sid = r["seeds"][0]["id"]
-    pr = A.seed_promote_ep(SeedPromoteReq(seed_id=sid), work="test")
-    assert pr["planted"] is False
-    assert pr["requires_approval"] is True
+    assert evaluate_strict_scene_gate(None, strict=True, prose=long_prose)["allowed"] is False
+    assert evaluate_strict_scene_gate(
+        exp_state.get_scene_grid("test", 1), strict=True, prose=long_prose,
+    )["allowed"] is True
+    # seeds HTTP
+    r = c.post("/seeds/suggest?work=test",
+               json={"seq": 1, "prose": "灰契在袖。他摸灰契。旁人不知灰契。"})
+    assert r.status_code == 200, r.text
+    assert r.json()["count"] >= 1
+    sid = r.json()["seeds"][0]["id"]
+    r = c.post("/seeds/promote?work=test", json={"seed_id": sid})
+    assert r.status_code == 200, r.text
+    assert r.json()["planted"] is False
+    assert r.json()["requires_approval"] is True
 
 
-def test_api_feedback_import(monkeypatch):
-    import scribe3.app as A
-    st = MiniStore()
-    monkeypatch.setattr(A, "_store_for", lambda work="main": st, raising=False)
-    from scribe3.api.routers.experience import FeedbackImportReq
-    text = "## 第1章\n- a\n## 第2章\n- b\n第3章: c\n"
-    r = A.feedback_import_ep(FeedbackImportReq(text=text), work="test")
-    assert r["imported"] >= 3
-    letter = A.get_revision_letter(work="test")
+def test_http_feedback_choice_cut_continue(monkeypatch):
+    c, st, A = _http_client(monkeypatch)
+    r = c.post("/feedback/import?work=test", json={
+        "text": "## 第1章\n- a\n## 第2章\n- b\n第3章: c\n",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["imported"] >= 3
+    letter = c.get("/revision/letter?work=test").json()
     assert any(i["kind"] == "external_read" for i in letter["items"])
+    r = c.post("/revision/choice-audit?work=test", json={
+        "quote": "放下刀", "character_id": "role:沈砚",
+        "anchors": {"name": "沈砚", "fear": "失明", "surface_goal": "护契"},
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["likeness_score"] is None
+    r = c.post("/revision/cut-suggestions?work=test", json={
+        "prose": "他走了。他走了。他走了。这正是因为命运如此安排。",
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["auto_delete"] is False
+    r = c.post("/continue/require-reread?work=test", json={"enabled": True})
+    assert r.status_code == 200
+    r = c.get("/continue/snapshot?seq=3&work=test")
+    assert r.status_code == 200, r.text
+    assert r.json()["generate_gate"]["allowed"] is False
+    r = c.post("/continue/ack-reread?work=test", json={"seq": 3})
+    assert r.status_code == 200
+    r = c.get("/continue/snapshot?seq=3&work=test")
+    assert r.json()["generate_gate"]["allowed"] is True
+    assert r.json()["snapshot"]["source"] == "store_fields"
