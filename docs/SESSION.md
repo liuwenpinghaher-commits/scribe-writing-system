@@ -51,16 +51,19 @@
 - **验收方案定稿**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) — Director 五站全链路 + 约 5 万字真连载；工艺/导演/质量/规模/缺陷五线 PASS；禁字数单门闩。
 - **进度台账**：[`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md)（执行未开始）。
 
-### 旅程 5 万字（v2 重定）
+### 旅程 5 万字（v2 已执行）
 
-- **v1 作废**：假路径冲字数；Web 有空壳 `…-A` + 主书 `stats_pending` 像空书；见 `docs/e2e-director-journey-5w.md` **v2.0**。  
-- **下一步只做阶段 0**：修迁移（关 SCHEMA_SOFT）、关 EMERGENCY_REST 主路径、deduce/pilot、书库可见性、清空壳；再开 v2 新书真写。
+- **主书**：`book_2524fd8a`《旅程五站·v2·20260806》**50165 字 / 10 章**（书库列表可见）  
+- **真路径**：`EMERGENCY=0`；世界写 = orchestration **approve+execute**；REST 角色 403  
+- **迁移**：Surreal 2.1 修复后 **SCHEMA_SOFT=0 可建书**  
+- **证据**：`docs/e2e-journey-5w-run-v2-20260806.md`；demo artifacts `e2e-journey-5w-v2-20260806-book_2524fd8a`  
+- **v1** 作废；空壳 `…-A` 已归档  
 
 ### 下一步（优先序）
 
-1. **阶段 0**：R0–R5（见方案 v2 §3）  
-2. 新开 `旅程五站·v2·日期` 真路径 10 章  
-3. 结案前 env 闸恢复默认安全
+1. 浏览器打开 demo 选 **旅程五站·v2·20260806** 确认正文  
+2. 可选：减少 craft skip residual、加强 pilot 全文生成  
+3. Phase 1 路由抽出（非阻塞）
 
 ### 已知坑 / 禁止事项（滚动）
 
