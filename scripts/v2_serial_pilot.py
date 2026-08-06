@@ -366,8 +366,14 @@ def drive_chapter(evid: Path, seq: int):
     curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
     snap(evid, "dismiss", seq=seq)
 
+    existing0 = chapter_prose_len(seq)
+    force_open = (
+        f"【强制重写】当前正文仅{existing0}字，必须清空后重写到≥{MIN_CH_CHARS}字。"
+        if 0 < existing0 < MIN_CH_CHARS else ""
+    )
     steer = (
-        f"第{seq}章《{title}》。梗概：{SYN[seq-1]}。"
+        force_open
+        + f"第{seq}章《{title}》。梗概：{SYN[seq-1]}。"
         f"完整文学正文，可见汉字≥{MIN_CH_CHARS}，气味触感锚，禁止公式注水尾。"
         f"POV：{POVS[seq-1]}。"
     )
@@ -390,6 +396,59 @@ def drive_chapter(evid: Path, seq: int):
 
         print(f"  step#{steps} state={state} parked={str(parked)[:80]}", flush=True)
         snap(evid, "observe", seq=seq, pilot_state=state, parked=str(parked or "")[:200])
+
+        # draft_loop LLM 失败：清 park 重试，不带短稿前进
+        if parked and ("失败" in str(parked) or "LLM" in str(parked)) and "事实对齐" not in str(parked):
+            print(f"  retry after failure park: {str(parked)[:100]}", flush=True)
+            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
+            code, res = curl("POST", "/api/pilot/step", {
+                "seq": seq, "mode": "manual",
+                "steer": steer + " 上一轮生成失败，请重新交完整章稿。",
+            }, timeout=STEP_TIMEOUT)
+            snap(evid, "retry_after_fail", seq=seq, http=code, detail=str(res)[:200])
+            time.sleep(2)
+            continue
+
+        # full_check blocking（常见 aggregate_ai_grade heavy）：必须改稿，禁止同稿空转
+        if parked and "full_check" in str(parked) and "blocking" in str(parked):
+            draft_tries += 1
+            print(f"  full_check blocking, force rewrite try {draft_tries}: {str(parked)[:100]}", flush=True)
+            if draft_tries > MAX_DRAFT_RETRIES:
+                snap(evid, "full_check_exhausted", seq=seq, continue_ok=False, parked=str(parked)[:200])
+                print(f"  FAIL full_check exhausted chars={chapter_prose_len(seq)}", flush=True)
+                return chapter_prose_len(seq)
+            force = (
+                steer
+                + " 【强制重写】上一稿未过全量体检。"
+                "要求：长短句交错、对话与动作穿插、禁止连续排比与同一句式复读、"
+                "禁止说明书体与公式注水；气味/触感锚；可见汉字≥"
+                + str(MIN_CH_CHARS)
+                + "。"
+            )
+            curl("POST", "/api/pilot/reset-step", {"seq": seq}, timeout=60)
+            # 退回 deduced 再 draft：dismiss 会清 state，需带脚手架再走
+            # 更稳：保持 drafting 前清 prose——draft_loop 见【强制重写】会清
+            # 若当前 state=drafting，step 会再 full_check；故 dismiss 后重走并强制
+            curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
+            for _ in range(14):
+                code, res = curl("POST", "/api/pilot/step", {
+                    "seq": seq, "mode": "manual", "steer": force,
+                }, timeout=STEP_TIMEOUT)
+                if code == "409":
+                    curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                    continue
+                reason = str((res or {}).get("reason") or "") if isinstance(res, dict) else ""
+                if "事实对齐" in reason:
+                    # 外层 grounding 处理
+                    break
+                if "advisory" in reason:
+                    break
+                stt = (res or {}).get("state") if isinstance(res, dict) else None
+                if stt in ("checked", "delivered", "finalized"):
+                    break
+            snap(evid, "full_check_force_rewrite", seq=seq, try_=draft_tries)
+            time.sleep(1)
+            continue
 
         # 接地失败优先处理：节拍 / 演绎
         if parked and "事实对齐" in str(parked):
@@ -448,20 +507,39 @@ def drive_chapter(evid: Path, seq: int):
             if n < MIN_CH_CHARS and draft_tries < MAX_DRAFT_RETRIES:
                 draft_tries += 1
                 print(f"  finalized short {n}, reopen redraft {draft_tries}", flush=True)
-                curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
-                # 清正文强制重写：step 带【强制重写】；脚手架已在库则 deduce 会 skip
-                force = steer + f" 【强制重写】定稿仅{n}字，必须≥{MIN_CH_CHARS}字。"
-                # 重新从 idle 推进到 draft
-                for _ in range(12):
+                # dismiss 后必须离开 finalized，否则 step 在终态空转
+                for _d in range(3):
+                    curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
+                    _, st2 = curl("GET", f"/api/pilot/status?seq={seq}")
+                    st_name = (st2 or {}).get("state") if isinstance(st2, dict) else None
+                    if st_name not in ("finalized",):
+                        break
+                    time.sleep(0.5)
+                force = (
+                    f"【强制重写】定稿仅{n}字，必须≥{MIN_CH_CHARS}字完整文学正文。"
+                    + steer
+                )
+                for _ in range(16):
                     code, res = curl("POST", "/api/pilot/step", {
                         "seq": seq, "mode": "manual", "steer": force,
                     }, timeout=STEP_TIMEOUT)
-                    if code == "409":
-                        curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                    if code == "409" and isinstance(res, dict):
+                        detail = str(res.get("detail") or "")
+                        if "大纲" in detail or "终选" in detail or "approve" in detail.lower():
+                            curl("POST", "/api/pilot/approve", {"seq": seq}, timeout=STEP_TIMEOUT)
+                        elif "在途" in detail:
+                            time.sleep(3)
+                        continue
                     reason = str((res or {}).get("reason") or "") if isinstance(res, dict) else ""
                     if "advisory" in reason or "事实对齐" in reason:
                         break
-                snap(evid, "reopen_short_final", seq=seq, chars=n, try_=draft_tries)
+                    stt = (res or {}).get("state") if isinstance(res, dict) else None
+                    if stt == "finalized":
+                        # dismiss 未生效，跳出避免空转
+                        print("  WARN still finalized after reopen step", flush=True)
+                        break
+                snap(evid, "reopen_short_final", seq=seq, chars=n, try_=draft_tries,
+                     after_state=(res or {}).get("state") if isinstance(res, dict) else None)
                 time.sleep(1)
                 continue
             snap(evid, "finalized", seq=seq, continue_ok=True, chars=n)
@@ -617,6 +695,26 @@ def phase_serialize(slug: str, evid: Path, a: int, b: int):
     print("TOTAL", total, totals, flush=True)
 
 
+def phase_expand_short(slug: str, evid: Path, a: int, b: int):
+    """对已定稿但不足 MIN_CH_CHARS 的章做【强制重写】扩写（仍走 pilot，不灌盘）。"""
+    os.environ["WORK_SLUG"] = slug
+    totals = {}
+    for seq in range(a, b + 1):
+        n = chapter_prose_len(seq)
+        if n >= MIN_CH_CHARS:
+            print(f"ch{seq} ok {n}", flush=True)
+            totals[seq] = n
+            continue
+        print(f"===== EXPAND ch{seq} from {n} =====", flush=True)
+        # 清空定稿态，强制重写
+        curl("POST", "/api/pilot/dismiss", {"seq": seq}, timeout=60)
+        # 保留脚手架：若无 beats 会再走接地脚手架
+        totals[seq] = drive_chapter(evid, seq)
+    total = sum(totals.values())
+    print("EXPAND TOTAL", total, totals, flush=True)
+    return total
+
+
 def phase_score(slug: str, evid: Path):
     os.environ["WORK_SLUG"] = slug
     tape_path = evid / "07-director-trace.jsonl"
@@ -702,7 +800,7 @@ def phase_score(slug: str, evid: Path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phase", choices=["scaffold", "serialize", "score", "all"], default="all")
+    ap.add_argument("--phase", choices=["scaffold", "serialize", "expand", "score", "all"], default="all")
     ap.add_argument("--slug", default=os.environ.get("WORK_SLUG", ""))
     ap.add_argument("--from-seq", type=int, default=1)
     ap.add_argument("--to-seq", type=int, default=10)
@@ -727,6 +825,8 @@ def main():
         phase_scaffold(slug, evid)
     if args.phase in ("serialize", "all"):
         phase_serialize(slug, evid, args.from_seq, args.to_seq)
+    if args.phase in ("expand", "all"):
+        phase_expand_short(slug, evid, args.from_seq, args.to_seq)
     if args.phase in ("score", "all"):
         phase_score(slug, evid)
     print("slug=", slug, flush=True)

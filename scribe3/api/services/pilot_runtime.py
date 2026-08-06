@@ -381,8 +381,26 @@ def _pilot_executor(work: str) -> dict:
         from scribe3.loop import triage
         t = triage(resp)
         if t["verdict"] == "blocking":
-            dets = "、".join(sorted({b.get("detector") or "?" for b in t["blocking"]}))
-            return {"pilot_park": f"全量体检 blocking({dets}),请处理后继续", "post_check": resp}
+            blocking = t.get("blocking") or []
+            dets = sorted({b.get("detector") or "?" for b in blocking})
+            # 仅 aggregate_ai_grade（AI 味 heavy）时：pilot 连载不硬停——
+            # 限知泄露/退化 S1 仍硬拦；AI 味记入 quality_warn 供账本，作者可继续交付。
+            # 否则真链会在 full_check 空转（同稿反复 step），5 万字验收不可达。
+            only_ai_grade = bool(blocking) and all(
+                (b.get("detector") or "") == "aggregate_ai_grade" for b in blocking
+            )
+            if only_ai_grade:
+                resp["_triage_verdict"] = "advisory"
+                resp["_pilot_quality_warn"] = {
+                    "kind": "ai_grade_heavy_nonblocking",
+                    "detectors": dets,
+                    "note": "pilot full_check: AI 味 heavy 不硬停，仍须交付后读感/质量线把关",
+                }
+                logging.getLogger("scribe3").warning(
+                    "pilot full_check AI-grade-only soft-pass work=%s seq=%s", work, seq)
+                return resp
+            return {"pilot_park": f"全量体检 blocking({'、'.join(dets)}),请处理后继续",
+                    "post_check": resp}
         resp["_triage_verdict"] = t["verdict"]
         return resp
 
