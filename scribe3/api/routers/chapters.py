@@ -93,9 +93,12 @@ def loop_chapter(req: LoopChapterReq, work: str = "main"):
             with_tools=with_tools, work=work,
             envelope_trace=outcome_binding.manifest_trace,
             extra_instructions=constraints, request_text=msg)
+        # 整章 loop/pilot 默认拉高生成上限：None 时常被网关截成 ~1.5k 字短稿，
+        # 无法支撑连载验收「约 5k×10」真路径；8192 与 Hermes 长文档常见帽一致。
         text, proposals = _collect_write(
             msg, instructions, with_tools=with_tools,
             on_terminal=outcome_binding.persist,
+            max_tokens=8192,
         )
         # P0门审查 P1-7:只认 scope=chapter 围栏(scene/selection 片段不能当整章);
         # 无合格围栏时兜底散文必须过长度门——否则一段短聊天语可能四判据全绿直通

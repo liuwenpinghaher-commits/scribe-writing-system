@@ -339,13 +339,35 @@ def _pilot_executor(work: str) -> dict:
 
     def draft_loop(st, seq):
         ch = st.get_chapter(seq) or {}
-        if (ch.get("prose") or "").strip():
+        steer = _pilot_steer(st, seq)
+        prose_now = (ch.get("prose") or "").strip()
+        # 作者显式「【强制重写】」时清正文再生成——真路径扩写/不够长重产，避免只能离线灌库
+        if prose_now and steer and "【强制重写】" in steer:
+            try:
+                st._execute_write(
+                    "UPDATE type::thing('chapter',$seq) SET prose=NONE, draft=NONE, qc_word_count=0",
+                    {"seq": seq},
+                )
+                prose_now = ""
+            except Exception as e:
+                logging.getLogger("scribe3").warning("force redraft clear prose failed: %s", e)
+        if prose_now:
             # 正文已在(pass 落库/作者手动采纳 advisory 稿)→ 跳过生成直接体检
             return {"skipped": "正文已在,跳过生成(advisory 稿手动采纳后走此路)"}
-        steer = _pilot_steer(st, seq)
-        req = LoopChapterReq(chapter=seq, focalizer=ch.get("focalizer") or "",
-                             msg=(f"按简报与演绎写第{seq}章正文。"
-                                  + (f"作者意图:{steer}" if steer else "")))
+        # 连载验收默认章长 ~5k 可见汉字；max_tokens 由 loop_chapter 拉高，避免默认截断成 ~1.5k 短稿
+        length_steer = (
+            "本章交完整文学正文：可见汉字目标约 4800–5500 字（去空白后），"
+            "连续场景与对话，气味/触感锚，禁止公式注水尾（条N存档/换位完成/观察条/勒紧半指）。"
+            "用 ⟦PROPOSAL scope=chapter⟧ 围栏交整章。"
+        )
+        req = LoopChapterReq(
+            chapter=seq,
+            focalizer=ch.get("focalizer") or "",
+            msg=(
+                f"按简报与演绎写第{seq}章完整正文。{length_steer}"
+                + (f"\n作者意图:{steer}" if steer else "")
+            ),
+        )
         return loop_chapter(req, work=work)   # 端点函数直调:互斥/journal/回炉/落库全复用
 
     def full_check(st, seq):

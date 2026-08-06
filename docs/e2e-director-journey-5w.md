@@ -2,318 +2,200 @@
 
 | 项 | 值 |
 |----|-----|
-| **版本** | **2.0**（作废 1.0 执行结论） |
+| **版本** | **3.0**（作废 1.0 / 2.x 执行 PASS；方案骨架保留并收紧） |
 | **日期** | 2026-08-06 |
-| **状态** | **已重定 · 待按本版全量执行** |
+| **状态** | **已重定 · 全量最优真路径执行中** |
 | **产品** | scribe3 |
 | **环境** | **仅 demo 已部署栈**（`www.qing.blue`）；禁止 Grok 机起 Surreal/全量 monorepo |
 | **进度台账** | [`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md) |
 
 ---
 
-## 0. 版本声明：为何重定
+## 0. 为何再重定（v3）
 
-### 0.1 v1.0 执行作废
+### 0.1 作废的「完成」
 
-2026-08-06 的 v1 执行（`docs/e2e-journey-5w-run-20260806.md`、slug `book_d3052625`）**不满足**本产品与融合规程的「真路径」标准，**不得**再引用为 PASS。
+| 轮次 | 做法 | 否决原因 |
+|------|------|----------|
+| v1 | `EMERGENCY_REST` 灌设定 + 模板扩写 `save-chapter` + skip 门 | 假路径；Web 空/误导 |
+| v2 | 离线 `prose_pure/*.txt` 批量 `save-chapter`（no skip）+ 事后装饰 pilot；`07-director-trace` 同微秒 8 态伪造 | **正文不是 pilot 链产物**；导演线造假；七线 TOTAL 不诚实 |
+| v2 证据 | 宣称 45285 字 PASS | skeptic 三轮 refuted：pilot 装饰、trace 剧场、PNG 非 SPA |
 
-| v1 做法 | 为何不合格 |
-|---------|------------|
-| `SCRIBE3_EMERGENCY_REST_WRITE=1` 灌 intent/角色/卷章 | 绕过「对话→批准」世界写闸，测到假路径 |
-| 模板扩写 + `POST /save-chapter` + `skip_craft_gate` | 非主编对话生成；工艺门闩未真过 |
-| 跳过 `pilot/step` 全链 LLM | 未验证真实连写/演绎/定稿门 |
-| 结案宣称 PASS | 作者在 **Web 打开书库** 时易见「空/未加载」体验，未做 **SPA 可见性** 验收 |
-
-### 0.2 用户可见问题（审计事实）
-
-在 demo API（admin 登录）上：
+**v2 库内数据（审计 2026-08-06，book_2524fd8a）仍在，但不得作为验收 PASS：**
 
 | 观察 | 含义 |
 |------|------|
-| 存在 **`book_2863021c`《旅程五站·20260806-A》chapter_count=0** | 若 Web 点进 **A 本**，就是「空书」 |
-| **`book_d3052625` 在书库列表常为 `stats_pending: true`** | **未打开该书前** 列表不显示章数/字数，像「没内容」 |
-| 打开 context session 后同书可变为 `chapter_count=10, word_count=50270` | 数据在库，**列表统计延迟加载** 误导作者 |
-| v1 正文为模板扩写 | 即使字数够，**读感/「真写」标准仍不成立** |
+| API `word_count=45285`，ch1–10 `prose` 有文学正文 | **库有字**，不等于真路径完成 |
+| 角色 4 个但 **backstory/性格等字段全空** | Web 设定面板「像没写设定」 |
+| `workflow/snapshot` **旅程卡在「世界底座」** | 产品 bug：`_char_count` 只认 `list_characters`，生产 Store 只有 `characters()` → 永远 0 |
+| 旅程 structure/serialize 显示 todo | 与「10 章已成」矛盾 → 作者体感「空书/未完成」 |
+| 当前章车道停在 ch11 附录 pilot 烟测 | 干扰主书阅读焦点 |
+| pilot 单次 draft 常 ~1.3–1.6k 字 | 未修 token/驱动前无法靠真链稳达 5k×10 |
 
-**Web 验收硬条（v2 新增）：** 在浏览器登录 → 书库看到正确章数/字数 → 点进书 → 目录 10 章 → 打开第 1/5/10 章可见正文与设定；**截图入证据**。仅 API 绿 **不算** 完成。
+### 0.2 用户可见问题（必须当 P0）
 
-### 0.3 v2 一句话
+作者在 **Web** 打开时：
 
-先 **修根因（最优）**，再 **关假路径闸**，用 **对话 + Hermes/MCP 审批 + Playwright 点批准 + pilot 真链 + craft 真门闩** 在 demo 上写一本 **Web 可见** 的约 5 万字书；中途每个 P0/P1 **修到同路径绿** 再续，禁止最快绕过。
+1. 若默认进错书 / 旅程永远停世界 → **像空书或没进度**  
+2. 角色只有名字 → **设定像没有**  
+3. 即便点开 ch1 有离线灌的散文 → **也不是验收要求的 pilot 真写路径**  
+
+**v3 不以「API 字数够」为完成；以 Web 旅程+设定+正文+真路径证据一致为完成。**
+
+### 0.3 v3 一句话
+
+先 **最优修产品根因**（旅程角色计数、章稿生成上限、设定丰满度），再在 **新 slug** 上用 **对话/编排批准 + pilot/step(+approve) + restore 采纳 pilot 稿** 串行写出约 5 万字；**禁止** 离线 `prose_pure` 灌库作证据；**禁止** 同时间戳伪 multi-state；结案闸 `EMERGENCY=0` / `SOFT=0`。
 
 ---
 
-## 1. 完成定义与 PASS（更严）
-
-### 1.1 完成定义
-
-作者（或代理）在 **www.qing.blue** 上能：
-
-1. 书库 **一眼** 看到隔离书的章数/字数（非永久 `stats_pending` 误导）  
-2. 进入书后靠 **旅程 + 聊天 + UI 批准** 完成五站  
-3. 10 章正文合计约 5 万字，**可读、可审计、非模板注水**  
-4. 设定/卷/伏笔在 **Web 面板** 可见  
-5. 执行期打开的 `EMERGENCY_REST` / 不合理 soft 闸 **结案前必须恢复安全默认**（有审计）
-
-### 1.2 PASS 公式
+## 1. 完成定义与七线（更严）
 
 ```text
 旅程总 PASS
-  ⇔ Web可见线  ∧  导演线  ∧  真路径线  ∧  工艺卫生线  ∧  质量线  ∧  规模线  ∧  缺陷线
+  ⇔ Web可见  ∧  导演  ∧  真路径  ∧  工艺  ∧  质量  ∧  规模  ∧  缺陷
 ```
 
-| 线 | 条件（全部必满足） |
-|----|-------------------|
-| **Web 可见线** | SPA 书库 + 进书 + 章正文 + 设定面板截图齐全；书库统计与打开后一致或可解释且不误导为空 |
-| **导演线** | 旅程/胶囊/继续可用；`continue` 在 **≥5 种真实 pilot_state** 下成功（以 demo 状态机为准，非仅单测） |
-| **真路径线** | 世界写 **默认** `EMERGENCY_REST=0`；设定/意图经 **对话→提案→UI/Playwright 批准** 或 **Hermes 审批卡**；禁止 REST 静默灌正典作为主证据 |
-| **工艺卫生线** | GATE-A 书级绿；每成稿章 GATE-B ∧ C-Det **不** 默认 `skip_craft_gate`；skip 仅允许单次书面 P0 逃生且 24h 内关掉 |
-| **质量线** | 系统 QC + **人工/代理读感**；禁止说明书体/单段循环注水 |
-| **规模线** | 正文合计 **[45000, 55000]**（仅 final/已接受正文）；Web 与 API 回读一致 |
-| **缺陷线** | **无未关闭 P0/P1**；P2 有台账与是否阻塞 Web 可见的说明 |
-
-### 1.3 明确禁止（v2 强化）
-
-| 禁止 | 替代（最优） |
-|------|----------------|
-| 为冲字数打开 `EMERGENCY_REST` 并作为主路径 | 修 MCP/Hermes/Playwright 批准链；紧急闸仅限 **分钟级** 抢救且须回滚 |
-| `skip_craft_gate` / `skip_finalize_gate` 作为默认 | 修门闩条件或补齐脚手架直至门绿 |
-| 跳过 `pilot/step` 只 save-chapter | 修 pilot 时延/限知接地后跑真链；定稿走 `/pilot/approve` |
-| 模板扩写凑 5k×10 | 主编对话/ pilot 生成 + 修订；人工读感否决注水 |
-| 只 API 绿、不打开 SPA | Web 截图为硬门 |
-| 留下空壳书名混淆作者（如 `…-A` 空书） | 归档/改名/删除空壳，书库只留一本验收书 |
-| Grok 机起第二套 Surreal/npm ci 全量 | 一律 demo |
-
----
-
-## 2. 拍板（v2）
-
-| # | 议题 | 决定 |
-|---|------|------|
-| D1 | 字数 | 仅 **Web 与 API 一致** 的已接受正文 |
-| D2 | 结构 | **10 章 × 约 5k**，合计 4.5–5.5 万；**质量优先于字数**（可 −10% 但不得注水） |
-| D3 | 题材 | 原创新书（限知/志怪）；**新 slug**，不沿用 v1 作主证据 |
-| D4 | 执行 | **半自动最优**：Playwright（或 demo 本机浏览器自动化）点批准 + Hermes 写网关；Grok 只编排/修代码/记证据 |
-| D5 | 书名 | `《旅程五站·v2·YYYYMMDD》`（避免与 v1 重名） |
-| D6 | 卷 | 3 卷 · 章 1–4 / 5–8 / 9–10 |
-| D7 | 假路径闸 | 结案时 **`EMERGENCY_REST=0`**；`SCHEMA_SOFT` 仅当迁移未修完时临时开，**迁移修完后关** |
-| D8 | v1 数据 | 归档或改名 v1 书；**不得**作为 Web 验收主书 |
-
----
-
-## 3. 阶段 0 · 根因修复（先修后写）
-
-> **未完成本阶段，禁止开始写 5 万字。** 每一项「最优方案」优先修产品，再写验收书。
-
-### R0. 验收可读性（Web 空书体感）
-
-| ID | 问题 | 最优方案 | 验收 |
-|----|------|----------|------|
-| R0.1 | 书库 `stats_pending` 未打开像空书 | 打开书后刷新统计；产品侧评估列表异步拉 stats 或文案「加载统计中」而非空白 0；**禁止**用 0 冒充 | SPA 截图：书库显示 10 章/约 5 万 |
-| R0.2 | 重名空书 `…-A` 误导 | 软删/归档空壳；书库只保留验收主书 | 列表无「空五站」干扰 |
-| R0.3 | 作者不知进哪本 | 验收起手检查单写死 slug + 标题 | journal 记录 |
-
-### R1. 建书/迁移（Surreal 2.1）
-
-| ID | 问题 | 最优方案 | 验收 |
-|----|------|----------|------|
-| R1.1 | 迁移 017/070/075/078 等 parse 失败 | **按 Surreal 2.1 语法修 `.surql`**（type::thing / 语句边界），再 `apply_schema`；**不以 SCHEMA_SOFT 为终点** | 新书 `POST /works` 在 **SCHEMA_SOFT=0** 下成功 |
-| R1.2 | soft 掩盖失败 | 迁移绿后 demo **关闭 SCHEMA_SOFT** | env 审计 |
-
-### R2. 世界写真路径
-
-| ID | 问题 | 最优方案 | 验收 |
-|----|------|----------|------|
-| R2.1 | REST 世界写默认关（正确） | **保持关**；意图/角色/规则/伏笔走 **聊天 agentic / Hermes runs + 审批 UI** | `EMERGENCY_REST=0` 下能完成站 1–2 |
-| R2.2 | 无 Playwright 时曾开紧急闸 | 在 **demo 机** 装/用 Playwright（或已有 e2e 脚本）点「批准」 | 融合规程 M7；录像或逐步截图 |
-| R2.3 | MCP 工具批准链不通 | 修 Hermes 写 profile / `approve_run` / 前端审批卡 | 一次角色写入：对话→卡→批准→Web 设定可见 |
-
-### R3. Pilot 真链
-
-| ID | 问题 | 最优方案 | 验收 |
-|----|------|----------|------|
-| R3.1 | `pilot/step` 时延长 | 查 Hermes 超时/模型/并发；修客户端超时与可观测；**不**用跳过 step 代替 | 单章 idle→…→delivered 可在合理 SLA 内完成（记基线分钟数） |
-| R3.2 | deduce「限知投影无来源」 | 修接地规则或生成链路，使合法 deductions 能过；补测 | 章能离开 `beats_ready` parked |
-| R3.3 | 定稿 | 仅 `/pilot/approve` 终选；与 finalize 门一致 | final 版本可查 |
-
-### R4. 工艺门闩
-
-| ID | 问题 | 最优方案 | 验收 |
-|----|------|----------|------|
-| R4.1 | skip_craft_gate | 默认关；章脚手架齐后再 save | craft_gate_cli 或等价对验收书绿 |
-| R4.2 | GATE-A/B | 书级/章级清单按 craft-first v3 | 报告入证据 |
-
-### R5. 环境收口
-
-| ID | 动作 |
-|----|------|
-| R5.1 | 记录修复前后 `.env` 关键项（脱敏） |
-| R5.2 | 结案前：`EMERGENCY_REST=0`，迁移修好后 `SCHEMA_SOFT=0` |
-| R5.3 | Hermes 8642/8643/8644 从 backend 容器可鉴权访问 |
-
-**阶段 0 出口清单（全勾才进入阶段 1）：**
-
-- [ ] R1.1 无 soft 可建书  
-- [ ] R2.1–R2.3 关紧急闸下完成一次「对话批准写角色」  
-- [ ] R3.2 至少一章 deduce 不假停  
-- [ ] R0.2 空壳书清理  
-- [ ] demo health/ready 绿  
-
----
-
-## 4. 真路径：作者操作合同
-
-```text
-【唯一允许的世界写】
-  打开旅程 → 继续 → 主编聊天说明意图
-  → 系统提案 / Hermes 工具调用
-  → Playwright（或等价）点击「批准/接受」
-  → Web 面板回读（设定/伏笔/卷章）
-
-【唯一允许的正文主路径】
-  pilot/step（真链）推进大纲/节拍/演绎/草稿
-  → 作者放行：pilot/approve（大纲检查点、终选）
-  → 修订可走对话写或驾驶舱，仍须可审计
-  → craft/finalize 门绿后接受正文
-
-【禁止】
-  EMERGENCY REST 灌正典、skip 门闩默认开、模板脚本凑字、只 curl 不打开 SPA
-```
-
----
-
-## 5. 五站执行（在阶段 0 完成后）
-
-结构同 v1 五站，**全部叠加 Web 可见硬门**：
-
-| 站 | 内容 | 额外硬门 |
-|----|------|----------|
-| 0 基线 | health、env 审计、证据目录、清理空壳 | 截图书库 |
-| 1 intent | 对话写北极星 + 批准 | Web 北极星面板可见 |
-| 2 world | 对话写角色/规则/关系/伏笔 + 批准 | Web 设定/图谱可见 |
-| 3 structure | 卷+10 章 synopsis（对话或 pilot 大纲） | Web 卡片墙/目录可见 |
-| 4 serialize | 10 章真 pilot 链 + 约 5 万字 | 每章 Web 打开正文截图抽样；X1–X3 |
-| 5 ledger | 伏笔/QC/读感 | Web 账本/质量面板 |
-
-### 5.1 章循环 SOP（不可删）
-
-```text
-S1  Web 打开旅程，记录 snapshot / pilot_state
-S2  点「继续」→ 聊天预填（截图或 trace）
-S3  pilot/step 至 outline_proposed → UI/approve 放行大纲
-S4  继续 step：beats → deduce（须过接地）→ draft
-S5  读感修订（对话）→ 再 step/approve
-S6  craft_gate / finalize 绿 → 终选 approve
-S7  Web 打开本章确认正文与字数
-S8  journal + director-trace
-S9  看板仪式（伏笔/时间线至少 1）
-```
-
-### 5.2 横切
-
-| ID | 要求 |
-|----|------|
-| X1 | 中段对话改规则/人设 → 批准 → Web 可见 → 后文引用 |
-| X2 | ≥2 章不同 POV；限知在 Web 演绎/帧可见 |
-| X3 | 会话 fork 后 Web 续写不丢书 |
-| X4 | 至少一次废稿/版本恢复（产品有则做） |
-| X6 | 2 分钟找不到下一步 = P0 停笔修 |
-
----
-
-## 6. 缺陷制度（最优修复）
-
-```text
-撞墙 → STOP → 定级 P0/P1/P2
-  → 最优方案（修产品真路径，禁止永久绕过）
-  → 实现 + 定向测 + 同路径回归
-  → 再续写
-```
-
-| 级 | 定义 | 是否允许继续写 |
-|----|------|----------------|
-| P0 | 建书/登录/Web 看不见稿/批准无效/数据丢 | **否** |
-| P1 | 真路径断、导演撒谎、门闩假绿 | **否** |
-| P2 | 体验差但真路径可达 | 可写，须台账 |
-| P3 | 文案 | 可写 |
-
-**禁止**将「开 EMERGENCY_REST / skip_craft_gate」登记为 closed 修复；最多记为 **临时逃生**，关闭前总判定不得 PASS。
-
----
-
-## 7. 证据与 Web 验收包
-
-```text
-artifacts/e2e-journey-5w-v2-YYYYMMDD-<slug>/
-  00-runtime-baseline.md      # env 脱敏、闸状态、HEAD
-  00-rootcause-fixes.md       # R0–R5 修复与 PR/commit
-  01-intent.md + screenshots/web-intent.png
-  02-world.md + screenshots/web-characters.png
-  03-structure.md + screenshots/web-corkboard.png
-  04-serialize/chNN.md + screenshots/web-ch01.png …（至少 1/5/10）
-  05-ledger.md
-  06-defect-ledger.md
-  07-director-trace.jsonl
-  08-wordcount-rollup.md      # API 与 Web 一致
-  09-final-closure.md
-  10-env-lockdown.md          # 结案闸已恢复
-```
-
-**Web 截图最低集：** 书库统计、进书目录、第 1/5/10 章正文、设定角色、旅程页、一次批准瞬间。
-
----
-
-## 8. 工期（诚实）
-
-| 阶段 | 估计 |
-|------|------|
-| 阶段 0 根因修复 | 2–5 日（视迁移/Hermes/deduce） |
-| 站 1–3 | 1–2 日 |
-| 站 4 真写 5 万 | 4–8 日（真 LLM + 审批） |
-| 站 5 + 收口闸 | 0.5–1 日 |
-| **合计** | **约 8–16 个工作日**（不做最快绕过） |
-
----
-
-## 9. 与旧文档关系
-
-| 文档 | 关系 |
-|------|------|
-| 本文件 v1.0 叙事 | **被 v2 取代**；v1 执行作废 |
-| `e2e-journey-5w-run-20260806.md` | **反面教材**（假路径 + Web 误导） |
-| 融合规程 / craft-first v3 / 真人验收 v2 | **强制遵守** |
-| Director goal | 导航骨架仍有效 |
-
----
-
-## 10. 结案判定表（v2）
-
-| 项 | PASS 条件 |
+| 线 | PASS 条件 |
 |----|-----------|
-| Web 可见线 | 截图包齐全，无「空书」误导 |
-| 真路径线 | 结案 env：`EMERGENCY_REST=0`；主证据无紧急 REST 灌正典 |
-| 导演线 | live ≥5 pilot_state 的 continue 成功样本 |
-| 工艺线 | 无默认 skip；gate 报告绿 |
-| 质量线 | 读感通过 |
-| 规模线 | 4.5–5.5 万且 Web=API |
-| 缺陷线 | 无开放 P0/P1；临时逃生已关闭 |
-| **总判定** | 上表全 PASS |
+| **Web 可见** | 登录 SPA → 书库见主书章数/字数 → 目录 10 章 → 打开 1/5/10 章可见 **pilot 源** 正文；设定面板角色 **非空字段**；旅程在结构/连载合理推进（不永卡世界） |
+| **导演** | `07-director-trace.jsonl` **append-only、时间序、间隔合理**；≥5 种 **真实** `pilot_state`；每行来自 live step/approve/restore，禁止批造 |
+| **真路径** | `EMERGENCY_REST=0`；世界写经 orch **approve** 或 Hermes 审批；**禁止** 主证据为 REST 静默灌正典 |
+| **工艺** | 成稿 `skip_craft=false` 且 `skip_finalize=false`；GATE 绿或单次书面 P0 逃生并关闭 |
+| **质量** | 文学正文；pad 标记（条N存档/换位完成/观察条/勒紧半指等）=0；读感可过 |
+| **规模** | 已接受正文合计 **[45000, 55000]**；Web 与 API 一致 |
+| **缺陷** | 无开放 P0/P1；临时逃生已关 |
+
+### 1.1 正文唯一合法源（v3 硬条）
+
+```text
+accepted_prose(seq)
+  := 经 live pilot/step（含 draft_loop）生成的版本
+     → /chapters/{seq}/restore-version 采纳
+     → 后续 full_check / deliver / /pilot/approve 定稿
+     的 chapter.prose
+
+禁止:
+  - 读 prose_pure/*.txt / gen_literary_prose 结果 POST /save-chapter 作为主证据
+  - 短 pilot 稿不够长时用磁盘长文「补齐」
+  - 伪造 07-trace 多状态
+```
+
+若单次 draft 仍短：最优路径是 **产品侧** 提高 loop `max_tokens` + 驱动语字数目标，再 **同章 re-steer + 再 draft_loop**（可多次），**不是** 离线扩写灌入。
+
+### 1.2 明确禁止
+
+| 禁止 | 最优替代 |
+|------|----------|
+| 离线长文 bulk `save-chapter` 冒充连载 | pilot 链 + restore + approve |
+| 伪造 director multi-state | live append-only tape |
+| `EMERGENCY_REST` 灌设定 | orch proposal/apply approve |
+| `skip_*_gate` 默认 | 修门闩 / 脚手架 |
+| 七线假绿 | score_closure 只读 tape + API 实读 |
+| 把 v2 book_2524fd8a 当 PASS | 归档为反面教材；主证据用 **新 slug** |
 
 ---
 
-## 11. 开工检查单（v2）
+## 2. 拍板（v3）
 
-1. 读本文件 v2 + 进度台账  
-2. 审计 demo：空壳书、env 闸、Hermes  
-3. **只做阶段 0**，完成 R0–R5 出口清单  
-4. 新建 `《旅程五站·v2·日期》`  
-5. 第一张 **Web 书库截图** 进证据后再写第 1 章  
+| # | 决定 |
+|---|------|
+| D1 | 新验收书：`《旅程五站·v3·YYYYMMDD》` **新 slug**；v2 书改名/归档标注「离线灌稿·不作 PASS」 |
+| D2 | 10 章 × 约 4.5–5.5k，合计 4.5–5.5 万；质量优先，禁止注水凑数 |
+| D3 | 题材：限知志怪（纸灯/债契线可延续设定骨架，但 **正文必须重产**） |
+| D4 | 串行驱动：`v2_serial_pilot.py`（名沿用实现文件）为 **唯一** 证据序列路径 |
+| D5 | 世界：intent + ≥4 角色（含性格/目标/恐惧等可见字段）+ 卷 + 章 synopsis + 伏笔，均经 **approve** |
+| D6 | 结案：`SCHEMA_SOFT=0` `EMERGENCY_REST=0` |
+| D7 | Web 证据：API prose head **必须** + 尽量 SPA 真截图；禁止把合成 PNG 当 SPA |
 
 ---
 
-## 12. 修订记录
+## 3. 阶段 0 · 根因最优修复（先修后写）
 
-| 版本 | 日期 | 说明 |
-|------|------|------|
-| 1.0 | 2026-08-06 | 初版；执行用假路径冲字数（**作废**） |
-| **2.0** | **2026-08-06** | **重定：先根因最优修复；真路径+Web 可见；禁止紧急闸/skip 作为主方案** |
+| ID | 问题 | 最优方案 | 状态 |
+|----|------|----------|------|
+| R0.1 | 旅程永卡「世界」 | `director._char_count` 兼容 `characters()` | **已修（代码）** |
+| R0.2 | pilot 稿 ~1.5k | `loop_chapter` `max_tokens=8192` + draft_loop 字数驱动 | **已修（代码）** |
+| R0.3 | 角色设定空壳 | 批准路径写满 codex 字段，非仅 name | 执行期 |
+| R0.4 | 空壳/干扰书 | 归档空书；v2 书标题加「不作PASS」 | 执行期 |
+| R0.5 | 假证据脚本 | 隔离 `v2_upload_pure` / `build_pure_final` 等为 **NON-EVIDENCE** | 执行期 |
+| R1 | 建书 Surreal 2.1 | 已有迁移修复；SOFT=0 建书 | 回归 |
+| R2 | 世界写闸 | 保持 EMERGENCY=0；orch approve | 执行期 |
+| R3 | pilot 停靠/restore | dismiss→step→approve 大纲→…→draft park→restore 最长稿→继续 | 驱动实现 |
+| R5 | 部署 | push main → GHA → demo 冒烟 | 执行期 |
+
+**阶段 0 出口：** 修复已部署；`workflow/snapshot` 在有角色后 **current ≥ structure/serialize**；新建书 SOFT=0 成功。
+
+---
+
+## 4. 真路径合同
+
+```text
+【世界】主编意图 → orch proposal ops → decision=approve execute
+         → GET /intent /entities /volumes /promises 回读非空字段
+
+【正文】每章:
+  dismiss(清僵尸态) → steer(字数+质量) → step/approve 直至 drafting
+  draft_loop 产 version → 若 parked advisory:
+      GET /chapter-versions → 取最长 prose 的 version_id
+      POST /chapters/{seq}/restore-version
+  step → full_check → deliver → /pilot/approve 终选
+  若 cn_len(prose) < 4500: 不灌盘；再 steer 扩写 / 清 prose 重 draft（产品帽已提高后）
+  每步 append 07-director-trace.jsonl（真实 ts）
+
+【禁止】prose_pure → save-chapter；同 ts 伪状态；skip 默认
+```
+
+---
+
+## 5. 五站执行摘要
+
+| 站 | 硬门 |
+|----|------|
+| 0 基线 | env 审计；部署 R0；证据目录；归档 v2 |
+| 1 intent | 批准写北极星；Web/API 可见 |
+| 2 world | ≥4 丰满角色 + 规则/伏笔；旅程离开「世界」 |
+| 3 structure | 3 卷 + 10 章 synopsis |
+| 4 serialize | 10× pilot 真链正文 ≥45k |
+| 5 ledger | 字数 rollup + 诚实七线 + 缺陷关闭 |
+
+章循环 SOP 同 v2 §5.1（S1–S9），**不得**用 save-chapter 替换 S3–S6。
+
+---
+
+## 6. 证据包
+
+```text
+artifacts/e2e-journey-5w-v3-YYYYMMDD-<slug>/
+  00-runtime-baseline.md
+  00-rootcause-fixes.md
+  01-intent.md … 06-defect-ledger.md
+  07-director-trace.jsonl   # live only
+  08-wordcount-rollup.md    # 从 API 实读
+  09-final-closure.md       # score_closure(tape) 诚实绿/红
+  10-env-lockdown.md
+  screenshots/              # prose heads 必须；SPA 尽量
+```
+
+**score_closure 规则：** 导演 PASS 仅当 tape 内 **≥5 不同 pilot_state 且时间跨度 >10s**；规模/质量从 API 正文实算；任何一票否决则 TOTAL 不得 PASS。
+
+---
+
+## 7. 工期（诚实）
+
+| 段 | 估计 |
+|----|------|
+| 根因部署 + 新书脚手架 | 0.5–1 日 |
+| 10 章真 pilot（含 LLM 时延与停靠处理） | 数小时–数日（视网关） |
+| 结案与 Web 验收 | 0.5 日 |
+
+**不做「最快灌库」；卡点就修产品再同路径回归。**
+
+---
+
+## 8. 修订记录
+
+| 版本 | 说明 |
+|------|------|
+| 1.0 | 假路径冲字（作废） |
+| 2.0 | 真路径方案对；执行仍 offline 灌稿 + 假 trace（执行作废） |
+| **3.0** | **根因修复 + 正文唯一源=pilot；新书；诚实 scorer；全量最优执行** |

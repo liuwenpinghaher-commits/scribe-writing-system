@@ -59,6 +59,23 @@ class MiniStore:
                 p["pilot_parked"] = params["p"]
 
 
+def test_char_count_prefers_store_characters_when_list_missing():
+    """生产 Store 只有 characters()；旧 _char_count 只查 list_characters → 旅程永卡世界。"""
+    from scribe3.director import _char_count
+
+    class ProdLike:
+        def characters(self):
+            return [{"id": "role:a"}, {"id": "role:b"}]
+
+    class ListOnly:
+        def list_characters(self):
+            return [{"id": "role:x"}]
+
+    assert _char_count(ProdLike()) == 2
+    assert _char_count(ListOnly()) == 1
+    assert _char_count(MiniStore()) == 1
+
+
 def test_snapshot_no_total_score_and_has_core_keys():
     st = MiniStore()
     write_state(st, 1, "outline_proposed")

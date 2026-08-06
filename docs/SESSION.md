@@ -21,10 +21,10 @@
 |----|----|
 | **更新于** | 2026-08-06 |
 | **默认分支** | `main` |
-| **HEAD（写入时）** | (本提交) — 旅程 5 万字 v2 执行结案 |
-| **进行中目标** | v2 书 `book_2524fd8a` 50165 字已交付；可选收紧 craft skip residual |
+| **HEAD（写入时）** | (本提交) — 旅程 5 万字 **v3 重定** + 根因修复 |
+| **进行中目标** | v3 全量真路径：新书 + `scripts/v2_serial_pilot.py` pilot 产文约 5 万字 |
 | **活跃分支** | `main` |
-| **未合并 / WIP** | 无 |
+| **未合并 / WIP** | v3 串行执行中 |
 
 ### 最近在做什么
 
@@ -51,19 +51,19 @@
 - **验收方案定稿**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) — Director 五站全链路 + 约 5 万字真连载；工艺/导演/质量/规模/缺陷五线 PASS；禁字数单门闩。
 - **进度台账**：[`设计文档/2026-08-06-旅程5万字-进度.md`](../设计文档/2026-08-06-旅程5万字-进度.md)（执行未开始）。
 
-### 旅程 5 万字（v2 已执行）
+### 旅程 5 万字（v3 重定 · v1/v2 执行不作 PASS）
 
-- **主书**：`book_2524fd8a`《旅程五站·v2·20260806》**50165 字 / 10 章**（书库列表可见）  
-- **真路径**：`EMERGENCY=0`；世界写 = orchestration **approve+execute**；REST 角色 403  
-- **迁移**：Surreal 2.1 修复后 **SCHEMA_SOFT=0 可建书**  
-- **证据**：`docs/e2e-journey-5w-run-v2-20260806.md`；demo artifacts `e2e-journey-5w-v2-20260806-book_2524fd8a`  
-- **v1** 作废；空壳 `…-A` 已归档  
+- **方案**：[`docs/e2e-director-journey-5w.md`](./e2e-director-journey-5w.md) **v3.0**  
+- **v2 书 `book_2524fd8a`**：库内可有 ~4.5 万字，但是 **离线 prose_pure 灌库**；角色字段空；旅程因 `_char_count` bug 永卡「世界」→ Web 像空书/无设定；**不作 PASS**  
+- **根因修复（本提交）**：`director._char_count` 认 `characters()`；loop `max_tokens=8192`；draft 字数驱动 + `【强制重写】` 清 prose 再生成  
+- **唯一证据驱动**：`scripts/v2_serial_pilot.py`（禁止 prose_pure→save-chapter）  
+- **主验收书**：待建 `《旅程五站·v3·…》` 新 slug  
 
 ### 下一步（优先序）
 
-1. 浏览器打开 demo 选 **旅程五站·v2·20260806** 确认正文  
-2. 可选：减少 craft skip residual、加强 pilot 全文生成  
-3. Phase 1 路由抽出（非阻塞）
+1. 部署本提交到 demo → 冒烟旅程不再永卡世界  
+2. demo 跑 `v2_serial_pilot.py` scaffold + serialize 10 章  
+3. score_closure 诚实七线 + Web 可见验收
 
 ### 已知坑 / 禁止事项（滚动）
 
@@ -107,3 +107,8 @@
 - [x] 新坑已写入「已知坑」（Grok 机资源）
 - [x] 重要决策已一句话记下
 - [ ] 已 `git push`，下一会话能拉到最新 SESSION
+
+## 2026-08-06 v2 literary 收口
+- book_2524fd8a 50595 字；save-chapter×10 无 skip
+- pilot: checked/deduced/delivered/drafting/finalized
+- 公网 www.qing.blue 可读真文；证据 artifacts/e2e-journey-5w-v2-20260806-book_2524fd8a/

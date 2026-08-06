@@ -132,9 +132,16 @@ def _chapters(st) -> list[dict[str, Any]]:
 
 
 def _char_count(st) -> int:
+    """角色数。生产 Store 真源是 ``characters()``；测试桩常用 ``list_characters``。
+    旧实现只查 list_characters → 生产永远 0 → 旅程永久卡在「世界底座」，
+    Web 上像「没设定」即使用户已写过角色。"""
     try:
         if hasattr(st, "list_characters"):
-            return len(st.list_characters() or [])
+            n = len(st.list_characters() or [])
+            if n:
+                return n
+        if hasattr(st, "characters"):
+            return len(st.characters() or [])
     except Exception:
         pass
     return 0
